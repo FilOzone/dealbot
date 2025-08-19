@@ -1,0 +1,66 @@
+import { Deal } from "../entities/deal.entity";
+import { StorageProvider } from "../entities/storage-provider.entity";
+import { Retrieval } from "../entities/retrieval.entity";
+import { DealStatus, DealType } from "../enums/deal-status.enum";
+
+export interface IDealRepository {
+  create(deal: Deal): Promise<Deal>;
+  update(id: string, deal: Partial<Deal>): Promise<Deal>;
+  findById(id: string): Promise<Deal | null>;
+  findByDealId(dealId: string): Promise<Deal | null>;
+  findByCid(cid: string): Promise<Deal | null>;
+  findByStatus(status: DealStatus): Promise<Deal[]>;
+  findByStorageProvider(providerId: string): Promise<Deal[]>;
+  findPendingDeals(): Promise<Deal[]>;
+  findRecentCompletedDeals(limit: number): Promise<Deal[]>;
+  getMetrics(startDate: Date, endDate: Date): Promise<DealMetrics>;
+}
+
+export interface IStorageProviderRepository {
+  create(provider: StorageProvider): Promise<StorageProvider>;
+  update(id: string, provider: Partial<StorageProvider>): Promise<StorageProvider>;
+  findById(id: string): Promise<StorageProvider | null>;
+  findByAddress(address: string): Promise<StorageProvider | null>;
+  findActive(): Promise<StorageProvider[]>;
+  findProvidersForDeals(intervalMinutes: number): Promise<StorageProvider[]>;
+  updateMetrics(providerId: string, metrics: ProviderMetrics): Promise<void>;
+}
+
+export interface IRetrievalRepository {
+  create(retrieval: Retrieval): Promise<Retrieval>;
+  update(id: string, retrieval: Partial<Retrieval>): Promise<Retrieval>;
+  findById(id: string): Promise<Retrieval | null>;
+  findByCid(cid: string): Promise<Retrieval[]>;
+  findPendingRetrievals(): Promise<Retrieval[]>;
+  getMetrics(startDate: Date, endDate: Date): Promise<RetrievalMetrics>;
+}
+
+export interface DealMetrics {
+  totalDeals: number;
+  successfulDeals: number;
+  failedDeals: number;
+  averageIngestLatency: number;
+  averageChainLatency: number;
+  dealsByProvider: Map<string, number>;
+  dealsByType: Map<DealType, number>;
+}
+
+export interface ProviderMetrics {
+  totalDeals: number;
+  successfulDeals: number;
+  failedDeals: number;
+  averageIngestLatency: number;
+  averageRetrievalLatency: number;
+}
+
+export interface RetrievalMetrics {
+  totalRetrievals: number;
+  successfulRetrievals: number;
+  failedRetrievals: number;
+  averageLatency: number;
+  averageThroughput: number;
+  cdnVsDirectComparison: {
+    cdn: { avgLatency: number; successRate: number };
+    direct: { avgLatency: number; successRate: number };
+  };
+}
