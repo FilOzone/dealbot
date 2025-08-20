@@ -48,3 +48,7 @@ export const getProvider = (address: Hex): IProvider => {
   }
   return provider;
 };
+
+export const getProviderCount = (): number => {
+  return Object.keys(providers).length;
+};

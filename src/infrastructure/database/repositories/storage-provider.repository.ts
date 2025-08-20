@@ -19,18 +19,13 @@ export class StorageProviderRepository implements IStorageProviderRepository {
     return this.toDomain(saved);
   }
 
-  async update(id: string, provider: Partial<StorageProvider>): Promise<StorageProvider> {
-    await this.repository.update(id, provider as any);
-    const updated = await this.repository.findOne({ where: { id } });
+  async update(address: string, provider: Partial<StorageProvider>): Promise<StorageProvider> {
+    await this.repository.update(address, provider as any);
+    const updated = await this.repository.findOne({ where: { address } });
     if (!updated) {
-      throw new Error(`StorageProvider with id ${id} not found`);
+      throw new Error(`StorageProvider with address ${address} not found`);
     }
     return this.toDomain(updated);
-  }
-
-  async findById(id: string): Promise<StorageProvider | null> {
-    const entity = await this.repository.findOne({ where: { id } });
-    return entity ? this.toDomain(entity) : null;
   }
 
   async findByAddress(address: string): Promise<StorageProvider | null> {
@@ -53,20 +48,6 @@ export class StorageProviderRepository implements IStorageProviderRepository {
     });
 
     return entities.map((e) => this.toDomain(e));
-  }
-
-  async updateMetrics(providerId: string, metrics: ProviderMetrics): Promise<void> {
-    const provider = await this.repository.findOne({ where: { id: providerId } });
-    if (!provider) return;
-
-    provider.totalDeals = metrics.totalDeals;
-    provider.successfulDeals = metrics.successfulDeals;
-    provider.failedDeals = metrics.failedDeals;
-    provider.averageIngestLatency = metrics.averageIngestLatency;
-    provider.averageRetrievalLatency = metrics.averageRetrievalLatency;
-    provider.successRate = (metrics.successfulDeals / metrics.totalDeals) * 100;
-
-    await this.repository.save(provider);
   }
 
   private toEntity(provider: StorageProvider): Partial<StorageProviderEntity> {

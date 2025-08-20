@@ -1,16 +1,19 @@
-import { Injectable, Logger, Inject } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
+import { Inject } from "@nestjs/common";
 import { Deal } from "../domain/entities/deal.entity";
-import { DealStatus, DataSourceType } from "../domain/enums/deal-status.enum";
-import type { IDealRepository } from "../domain/interfaces/repositories.interface";
-import type { CreateDealInput, DataFile } from "../domain/interfaces/external-services.interface";
+import { StorageProvider } from "../domain/entities/storage-provider.entity";
 import { DataSourceService } from "../dataSource/dataSource.service";
+import { DealStatus, DataSourceType } from "../domain/enums/deal-status.enum";
+import type { CreateDealInput, DataFile } from "../domain/interfaces/external-services.interface";
+import type { IDealRepository, IStorageProviderRepository } from "../domain/interfaces/repositories.interface";
+import type { IMetricsService } from "../domain/interfaces/metrics.interface";
+import type { IAppConfig } from "../config/app.config";
 import { ZERO_ADDRESS } from "../common/constants";
-import { IAppConfig } from "../config/app.config";
-import { providers } from "../common/providers";
-import { IProvider } from "../domain/interfaces/provider.interface";
-import { UploadResult, Synapse, RPC_URLS } from "@filoz/synapse-sdk";
-import { Hex } from "../common/types";
+import { getProvider, providers } from "../common/providers";
+import type { IProvider } from "../domain/interfaces/provider.interface";
+import { type UploadResult, Synapse, RPC_URLS } from "@filoz/synapse-sdk";
+import type { Hex } from "../common/types";
 
 @Injectable()
 export class DealService {
@@ -20,9 +23,12 @@ export class DealService {
   constructor(
     @Inject("IDealRepository")
     private readonly dealRepository: IDealRepository,
-    @Inject("IStorageProviderRepository")
     private readonly dataSourceService: DataSourceService,
     private readonly configService: ConfigService<IAppConfig>,
+    @Inject("IMetricsService")
+    private readonly metricsService: IMetricsService,
+    @Inject("IStorageProviderRepository")
+    private readonly storageProviderRepository: IStorageProviderRepository,
   ) {}
 
   async createDealsForAllProviders(): Promise<Deal[]> {
@@ -43,7 +49,7 @@ export class DealService {
   }
 
   async createDeal(dto: CreateDealInput): Promise<Deal> {
-    this.logger.log(`Creating deal with provider`);
+    this.logger.log(`Creating deal with provider ${dto.storageProviderAddress}`);
 
     // Fetch data from source
     const dataFile = await this.fetchDataFile(dto.dataSource, dto.maxFileSize || 250);
@@ -59,11 +65,13 @@ export class DealService {
       status: DealStatus.PENDING,
       walletAddress: this.configService.get("blockchain").walletAddress,
     });
+    const savedDeal = await this.dealRepository.create(deal);
+    const savedDealId = savedDeal.id;
+    let provider: StorageProvider | null = null;
 
     try {
-      // Save initial deal
-      const savedDeal = await this.dealRepository.create(deal);
-      const savedDealId = savedDeal.id;
+      // Track storage provider data before deal creation
+      provider = await this.trackStorageProvider(dto.storageProviderAddress || ZERO_ADDRESS, dto.enableCDN);
 
       // Upload file using Synapse SDK
       const synapse = await this.getStorageService();
@@ -77,10 +85,10 @@ export class DealService {
       });
       const uploadResult: UploadResult = await storage.upload(dataFile.data, {
         onUploadComplete: () => {
-          this.handleUploadComplete(savedDeal);
+          this.handleUploadComplete(savedDeal, provider!);
         },
         onRootAdded: (result) => {
-          this.handleRootAdded(savedDeal, result?.hash);
+          this.handleRootAdded(savedDeal, provider!, result?.hash);
         },
       });
 
@@ -100,11 +108,30 @@ export class DealService {
         dealLatency: savedDeal.dealLatency,
       });
 
-      this.logger.log(`Deal ${uploadResult.size} uploaded with CID: ${uploadResult.commp.toString()}`);
+      provider.averageDealLatency = provider.averageDealLatency
+        ? (provider.averageDealLatency + (deal.dealLatency || 0)) / 2
+        : deal.dealLatency || 0;
+      await this.updateProviderStats(provider, true, dto.enableCDN);
+
+      this.logger.log(`Deal uploaded with CID: ${uploadResult.commp.toString()}`);
       return savedDeal;
     } catch (error) {
       this.logger.error(`Failed to create deal: ${error.message}`, error);
+
+      if (provider) await this.updateProviderStats(provider, false, dto.enableCDN);
+
+      await this.dealRepository.update(deal.id, {
+        status: DealStatus.FAILED,
+        errorMessage: error.message,
+      });
+
       throw error;
+    } finally {
+      try {
+        await this.metricsService.recordDealMetrics(savedDeal);
+      } catch (error) {
+        this.logger.warn(`Failed to record deal metrics: ${error.message}`);
+      }
     }
   }
 
@@ -173,33 +200,119 @@ export class DealService {
     });
   }
 
-  private async handleUploadComplete(deal: Deal): Promise<void> {
-    await this.dealRepository.update(deal.id, {
-      uploadEndTime: new Date(),
-      status: DealStatus.UPLOADED,
-    });
-
-    // Calculate and update ingest latency
+  private async handleUploadComplete(deal: Deal, provider: StorageProvider): Promise<void> {
     deal.uploadEndTime = new Date();
     deal.calculateIngestLatency();
+    deal.status = DealStatus.UPLOADED;
     await this.dealRepository.update(deal.id, {
       ingestLatency: deal.ingestLatency,
+      uploadEndTime: deal.uploadEndTime,
+      status: deal.status,
     });
+
+    provider.averageIngestLatency = provider.averageIngestLatency
+      ? (provider.averageIngestLatency + (deal.ingestLatency || 0)) / 2
+      : deal.ingestLatency || 0;
+    await this.storageProviderRepository.update(provider.address, {
+      averageIngestLatency: provider.averageIngestLatency,
+    });
+
+    this.logger.log(`Deal upload completed for ${deal.id}`);
   }
 
-  private async handleRootAdded(deal: Deal, txHash?: string): Promise<void> {
-    await this.dealRepository.update(deal.id, {
-      transactionHash: txHash as Hex,
-      pieceAddedTime: new Date(),
-      status: DealStatus.PIECE_ADDED,
-    });
-
-    // Calculate and update chain latency
+  private async handleRootAdded(deal: Deal, provider: StorageProvider, result: any): Promise<void> {
     deal.pieceAddedTime = new Date();
     deal.calculateChainLatency();
+    deal.status = DealStatus.PIECE_ADDED;
     await this.dealRepository.update(deal.id, {
+      transactionHash: result.transactionHash,
+      pieceAddedTime: deal.pieceAddedTime,
       chainLatency: deal.chainLatency,
+      status: deal.status,
     });
+
+    provider.averageChainLatency = provider.averageChainLatency
+      ? (provider.averageChainLatency + (deal.chainLatency || 0)) / 2
+      : deal.chainLatency || 0;
+    await this.storageProviderRepository.update(provider.address, {
+      averageChainLatency: provider.averageChainLatency,
+    });
+
+    this.logger.log(`Deal root added for ${deal.id}`);
+  }
+
+  /**
+   * Track storage provider data - create if doesn't exist, update if exists
+   */
+  private async trackStorageProvider(providerAddress: Hex, withCDN: boolean): Promise<StorageProvider> {
+    try {
+      let provider = await this.storageProviderRepository.findByAddress(providerAddress);
+
+      if (!provider) {
+        const providerInfo = getProvider(providerAddress);
+        provider = new StorageProvider({
+          address: providerAddress,
+          serviceUrl: providerInfo.serviceUrl,
+          totalDeals: 0,
+          totalDealsWithCDN: 0,
+          totalDealsWithoutCDN: 0,
+          successfulDeals: 0,
+          successfulDealsWithCDN: 0,
+          successfulDealsWithoutCDN: 0,
+          failedDeals: 0,
+          failedDealsWithCDN: 0,
+          failedDealsWithoutCDN: 0,
+          dealSuccessRate: 0,
+          retrievalSuccessRate: 0,
+        });
+
+        provider = await this.storageProviderRepository.create(provider);
+        this.logger.debug(`Created new storage provider: ${providerAddress}`);
+      }
+
+      const updatedStats = {
+        totalDeals: provider.totalDeals + 1,
+        totalDealsWithCDN: withCDN ? provider.totalDealsWithCDN + 1 : provider.totalDealsWithCDN,
+        totalDealsWithoutCDN: withCDN ? provider.totalDealsWithoutCDN : provider.totalDealsWithoutCDN + 1,
+        lastDealTime: new Date(),
+      };
+
+      provider = await this.storageProviderRepository.update(provider.address, updatedStats);
+      return provider;
+    } catch (error) {
+      this.logger.warn(`Failed to track storage provider ${providerAddress}: ${error.message}`);
+      throw error;
+    }
+  }
+  /**
+   * Update storage provider stats after deal completion
+   */
+  private async updateProviderStats(provider: StorageProvider, isSuccessful: boolean, withCDN: boolean): Promise<void> {
+    try {
+      const successfulDeals = provider.successfulDeals + (isSuccessful ? 1 : 0);
+      const successfulDealsWithCDN = provider.successfulDealsWithCDN + (isSuccessful && withCDN ? 1 : 0);
+      const successfulDealsWithoutCDN = provider.successfulDealsWithoutCDN + (isSuccessful && !withCDN ? 1 : 0);
+      const failedDeals = provider.failedDeals + (isSuccessful ? 0 : 1);
+      const failedDealsWithCDN = provider.failedDealsWithCDN + (isSuccessful && withCDN ? 0 : 1);
+      const failedDealsWithoutCDN = provider.failedDealsWithoutCDN + (isSuccessful && !withCDN ? 0 : 1);
+      const totalDeals = successfulDeals + failedDeals;
+      const successRate = totalDeals > 0 ? (successfulDeals / totalDeals) * 100 : 0;
+
+      const updatedStats = {
+        successfulDeals,
+        successfulDealsWithCDN,
+        successfulDealsWithoutCDN,
+        failedDeals,
+        failedDealsWithCDN,
+        failedDealsWithoutCDN,
+        dealSuccessRate: successRate,
+      };
+
+      await this.storageProviderRepository.update(provider.address, updatedStats);
+      this.logger.debug(`Updated provider success stats: ${provider.address}, Success: ${isSuccessful}`);
+    } catch (error) {
+      this.logger.warn(`Failed to update provider stats ${provider.address}: ${error.message}`);
+    }
   }
 
   private async fetchDataFile(source: DataSourceType, maxSize: number): Promise<DataFile> {

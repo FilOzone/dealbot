@@ -1,11 +1,10 @@
 import { Module } from "@nestjs/common";
-import { RetrievalController } from "./retrieval.controller";
 import { RetrievalService } from "./retrieval.service";
 import { InfrastructureModule } from "../infrastructure/infrastructure.module";
+import { MetricsModule } from "../metrics/metrics.module";
 
 @Module({
-  imports: [InfrastructureModule],
-  controllers: [RetrievalController],
+  imports: [InfrastructureModule, MetricsModule],
   providers: [RetrievalService],
   exports: [RetrievalService],
 })

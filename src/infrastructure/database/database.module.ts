@@ -4,6 +4,7 @@ import { ConfigModule, ConfigService } from "@nestjs/config";
 import { DealEntity } from "./entities/deal.entity";
 import { StorageProviderEntity } from "./entities/storage-provider.entity";
 import { RetrievalEntity } from "./entities/retrieval.entity";
+import { DailyMetricsEntity } from "./entities/daily-metrics.entity";
 import { DealRepository } from "./repositories/deal.repository";
 import { StorageProviderRepository } from "./repositories/storage-provider.repository";
 import { RetrievalRepository } from "./repositories/retrieval.repository";
@@ -24,14 +25,14 @@ import { IAppConfig } from "../../config/app.config";
           username: dbConfig?.username || "dealbot",
           password: dbConfig?.password || "dealbot_password",
           database: dbConfig?.database || "filecoin_dealbot",
-          entities: [DealEntity, StorageProviderEntity, RetrievalEntity],
+          entities: [DealEntity, StorageProviderEntity, RetrievalEntity, DailyMetricsEntity],
           synchronize: appConfig?.env !== "production",
           // logging: appConfig?.env === "development",
           logging: false,
         };
       },
     }),
-    TypeOrmModule.forFeature([DealEntity, StorageProviderEntity, RetrievalEntity]),
+    TypeOrmModule.forFeature([DealEntity, StorageProviderEntity, RetrievalEntity, DailyMetricsEntity]),
   ],
   providers: [
     DealRepository,

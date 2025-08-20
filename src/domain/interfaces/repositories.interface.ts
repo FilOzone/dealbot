@@ -19,11 +19,9 @@ export interface IDealRepository {
 export interface IStorageProviderRepository {
   create(provider: StorageProvider): Promise<StorageProvider>;
   update(id: string, provider: Partial<StorageProvider>): Promise<StorageProvider>;
-  findById(id: string): Promise<StorageProvider | null>;
   findByAddress(address: string): Promise<StorageProvider | null>;
   findActive(): Promise<StorageProvider[]>;
   findProvidersForDeals(intervalMinutes: number): Promise<StorageProvider[]>;
-  updateMetrics(providerId: string, metrics: ProviderMetrics): Promise<void>;
 }
 
 export interface IRetrievalRepository {

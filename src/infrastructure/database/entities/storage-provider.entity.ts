@@ -1,19 +1,12 @@
-import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn, Index } from "typeorm";
+import { Entity, Column, PrimaryColumn, CreateDateColumn, UpdateDateColumn } from "typeorm";
 
 @Entity("storage_providers")
-@Index(["address"], { unique: true })
 export class StorageProviderEntity {
-  @PrimaryGeneratedColumn("uuid")
-  id!: string;
-
-  @Column({ unique: true })
+  @PrimaryColumn()
   address!: string;
 
   @Column()
   serviceUrl!: string;
-
-  @Column()
-  peerId!: string;
 
   @Column({ default: true })
   isActive!: boolean;
@@ -26,19 +19,58 @@ export class StorageProviderEntity {
   totalDeals!: number;
 
   @Column({ default: 0 })
+  totalDealsWithCDN!: number;
+
+  @Column({ default: 0 })
+  totalDealsWithoutCDN!: number;
+
+  @Column({ default: 0 })
   successfulDeals!: number;
 
   @Column({ default: 0 })
+  successfulDealsWithCDN!: number;
+
+  @Column({ default: 0 })
+  successfulDealsWithoutCDN!: number;
+
+  @Column({ default: 0 })
   failedDeals!: number;
+
+  @Column({ default: 0 })
+  failedDealsWithCDN!: number;
+
+  @Column({ default: 0 })
+  failedDealsWithoutCDN!: number;
+
+  @Column({ default: 0 })
+  totalRetrievals!: number;
+
+  @Column({ default: 0 })
+  successfulRetrievals!: number;
+
+  @Column({ default: 0 })
+  failedRetrievals!: number;
 
   @Column({ nullable: true, type: "float" })
   averageIngestLatency!: number;
 
   @Column({ nullable: true, type: "float" })
+  averageChainLatency!: number;
+
+  @Column({ nullable: true, type: "float" })
+  averageDealLatency!: number;
+
+  @Column({ nullable: true, type: "float" })
   averageRetrievalLatency!: number;
 
+  @Column({ nullable: true, type: "float" })
+  averageThroughput!: number;
+
   @Column({ default: 0, type: "float" })
-  successRate!: number;
+  dealSuccessRate!: number;
+
+  @Column({ default: 0, type: "float" })
+  retrievalSuccessRate!: number;
 
   @CreateDateColumn()
   createdAt!: Date;

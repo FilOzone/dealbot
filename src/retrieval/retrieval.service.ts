@@ -1,11 +1,16 @@
 import { Injectable, Inject, Logger } from "@nestjs/common";
 import { Retrieval } from "../domain/entities/retrieval.entity";
 import { RetrievalStatus } from "../domain/enums/deal-status.enum";
-import type { IDealRepository, IRetrievalRepository } from "../domain/interfaces/repositories.interface";
-import { RetrievalResult } from "../domain/interfaces/external-services.interface";
+import type {
+  IDealRepository,
+  IRetrievalRepository,
+  IStorageProviderRepository,
+} from "../domain/interfaces/repositories.interface";
+import type { IMetricsService } from "../domain/interfaces/metrics.interface";
+import type { RetrievalResult } from "../domain/interfaces/external-services.interface";
 import { CDN_HOSTNAME } from "../common/constants";
 import { getProvider } from "../common/providers";
-import { type Hex } from "../common/types";
+import type { Hex } from "../common/types";
 import { Deal } from "../domain/entities/deal.entity";
 
 @Injectable()
@@ -17,36 +22,11 @@ export class RetrievalService {
     private readonly dealRepository: IDealRepository,
     @Inject("IRetrievalRepository")
     private readonly retrievalRepository: IRetrievalRepository,
+    @Inject("IMetricsService")
+    private readonly metricsService: IMetricsService,
+    @Inject("IStorageProviderRepository")
+    private readonly storageProviderRepository: IStorageProviderRepository,
   ) {}
-
-  async getMetrics(startDate: Date, endDate: Date) {
-    return this.retrievalRepository.getMetrics(startDate, endDate);
-  }
-
-  async comparePerformance(startDate: Date, endDate: Date) {
-    const metrics = await this.getMetrics(startDate, endDate);
-
-    const comparison = {
-      cdnImprovement: {
-        latency:
-          ((metrics.cdnVsDirectComparison.direct.avgLatency - metrics.cdnVsDirectComparison.cdn.avgLatency) /
-            metrics.cdnVsDirectComparison.direct.avgLatency) *
-          100,
-        successRate: metrics.cdnVsDirectComparison.cdn.successRate - metrics.cdnVsDirectComparison.direct.successRate,
-      },
-      recommendation: "",
-    };
-
-    if (comparison.cdnImprovement.latency > 20) {
-      comparison.recommendation = "CDN provides significant performance improvement";
-    } else if (comparison.cdnImprovement.latency < 0) {
-      comparison.recommendation = "Direct retrieval performs better than CDN";
-    } else {
-      comparison.recommendation = "CDN provides marginal improvement";
-    }
-
-    return comparison;
-  }
 
   async performRandomBatchRetrievals(count: number): Promise<Retrieval[]> {
     const deals = await this.selectRandomDealsForRetrieval(count);
@@ -110,10 +90,13 @@ export class RetrievalService {
       storageProvider: deal.storageProvider,
       withCDN: deal.withCDN,
       status: RetrievalStatus.PENDING,
-      startTime: new Date(),
     });
 
     const savedRetrieval = await this.retrievalRepository.create(retrieval);
+    const provider = await this.storageProviderRepository.findByAddress(deal.storageProvider);
+    if (!provider) {
+      throw new Error(`StorageProvider with address ${deal.storageProvider} not found`);
+    }
 
     try {
       const url = this.constructRetrievalUrl(deal.withCDN, deal.walletAddress, deal.cid, deal.storageProvider);
@@ -123,18 +106,17 @@ export class RetrievalService {
         status: RetrievalStatus.IN_PROGRESS,
       });
 
-      let result: RetrievalResult;
-      result = await this.retrieve(url);
+      const result: RetrievalResult = await this.retrieve(url);
 
-      savedRetrieval.endTime = new Date();
-      savedRetrieval.calculateLatency();
+      savedRetrieval.startTime = result.startTime;
+      savedRetrieval.endTime = result.endTime;
+      savedRetrieval.latency = result.latency;
       savedRetrieval.responseCode = result.responseCode;
 
       if (result.success) {
         savedRetrieval.status = RetrievalStatus.SUCCESS;
         savedRetrieval.bytesRetrieved = result.data?.length || 0;
         savedRetrieval.throughput = result.throughput;
-        savedRetrieval.calculateThroughput();
       } else {
         savedRetrieval.status = RetrievalStatus.FAILED;
         savedRetrieval.errorMessage = result.error;
@@ -151,13 +133,17 @@ export class RetrievalService {
       });
 
       this.logger.log(
-        `Retrieval ${savedRetrieval.id} completed: ${savedRetrieval.status}, ` + `Latency: ${savedRetrieval.latency}ms`,
+        `Retrieval ${savedRetrieval.cid} completed: ${savedRetrieval.status}, ` +
+          `Latency: ${savedRetrieval.latency}ms`,
       );
 
       return savedRetrieval;
     } catch (error) {
       this.logger.error(`Retrieval failed for deal ${deal.dealId}`, error);
 
+      savedRetrieval.status = RetrievalStatus.FAILED;
+      savedRetrieval.endTime = new Date();
+      savedRetrieval.errorMessage = error.message;
       await this.retrievalRepository.update(savedRetrieval.id, {
         status: RetrievalStatus.FAILED,
         endTime: new Date(),
@@ -165,6 +151,29 @@ export class RetrievalService {
       });
 
       throw error;
+    } finally {
+      try {
+        provider.totalRetrievals += 1;
+        if (savedRetrieval.status === RetrievalStatus.SUCCESS) {
+          provider.successfulRetrievals += 1;
+          provider.averageThroughput = (provider.averageThroughput + (savedRetrieval.throughput || 0)) / 2;
+        } else {
+          provider.failedRetrievals += 1;
+        }
+        provider.averageRetrievalLatency = provider.averageRetrievalLatency
+          ? (provider.averageRetrievalLatency + (savedRetrieval.latency || 0)) / 2
+          : savedRetrieval.latency || 0;
+        await this.storageProviderRepository.update(provider.address, {
+          averageRetrievalLatency: provider.averageRetrievalLatency,
+          averageThroughput: provider.averageThroughput,
+          totalRetrievals: provider.totalRetrievals,
+          successfulRetrievals: provider.successfulRetrievals,
+          failedRetrievals: provider.failedRetrievals,
+        });
+        await this.metricsService.recordRetrievalMetrics(savedRetrieval);
+      } catch (error) {
+        this.logger.warn(`Failed to record retrieval metrics: ${error.message}`);
+      }
     }
   }
 
@@ -188,6 +197,8 @@ export class RetrievalService {
         return {
           success: false,
           latency,
+          startTime: new Date(startTime),
+          endTime: new Date(endTime),
           error: `HTTP ${response.status}: ${response.statusText}`,
         };
       }
@@ -210,6 +221,9 @@ export class RetrievalService {
         success: true,
         data,
         latency,
+        startTime: new Date(startTime),
+        endTime: new Date(endTime),
+        bytesRetrieved: data.length,
         throughput,
         responseCode: response.status,
       };
@@ -229,6 +243,8 @@ export class RetrievalService {
       return {
         success: false,
         latency,
+        startTime: new Date(startTime),
+        endTime: new Date(endTime),
         error: errorMessage,
       };
     }

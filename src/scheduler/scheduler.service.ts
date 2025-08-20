@@ -5,6 +5,7 @@ import { CronJob } from "cron";
 import { DealService } from "../deal/deal.service";
 import { RetrievalService } from "../retrieval/retrieval.service";
 import { IAppConfig } from "../config/app.config";
+import { getProviderCount } from "src/common/providers";
 
 @Injectable()
 export class SchedulerService implements OnModuleInit {
@@ -100,7 +101,7 @@ export class SchedulerService implements OnModuleInit {
     this.logger.log("Starting scheduled retrieval tests");
 
     try {
-      const result = await this.retrievalService.performRandomBatchRetrievals(1);
+      const result = await this.retrievalService.performRandomBatchRetrievals(getProviderCount());
       this.logger.log(`Scheduled retrieval tests completed for ${result.length} retrievals`);
     } catch (error) {
       this.logger.error("Failed to perform scheduled retrievals", error);

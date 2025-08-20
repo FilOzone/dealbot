@@ -71,6 +71,56 @@ pnpm run start:prod
 pnpm run start:debug
 ```
 
+## Web UI
+
+A single-page React app (Vite + Tailwind + DaisyUI + Recharts) lives in `web/` to visualize `GET api/stats/overall`.
+
+### Dev
+
+1. Backend (Nest):
+
+   ```bash
+   # in project root
+   cp .env.example .env
+   # allow Vite dev origin(s)
+   echo "DEALBOT_ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173" >> .env
+   pnpm install
+   pnpm start:dev
+   ```
+
+2. Frontend (Vite):
+
+   ```bash
+   # in project root
+   cp web/.env.example web/.env
+   # if backend host/port differs, update VITE_API_BASE_URL in web/.env
+   pnpm -C web install
+   pnpm -C web dev
+   ```
+
+Open http://localhost:5173. The app calls the backend at `VITE_API_BASE_URL` (default http://127.0.0.1:3000).
+
+### Production
+
+1. Build the frontend:
+
+   ```bash
+   pnpm -C web build
+   ```
+
+2. Start the server (serves `web/dist` at `/` and API at `/stats/*`):
+
+   ```bash
+   pnpm start:prod
+   ```
+
+### Scripts
+
+From repo root:
+
+- `pnpm dev:web` – run Vite dev server in `web/`
+- `pnpm build:web` – build SPA to `web/dist`
+
 ## Configuration
 
 ### Environment Variables
