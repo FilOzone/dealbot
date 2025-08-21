@@ -1,14 +1,14 @@
 import { Module } from "@nestjs/common";
 import { TypeOrmModule } from "@nestjs/typeorm";
 import { ConfigModule, ConfigService } from "@nestjs/config";
-import { DealEntity } from "./entities/deal.entity";
-import { StorageProviderEntity } from "./entities/storage-provider.entity";
-import { RetrievalEntity } from "./entities/retrieval.entity";
-import { DailyMetricsEntity } from "./entities/daily-metrics.entity";
-import { DealRepository } from "./repositories/deal.repository";
-import { StorageProviderRepository } from "./repositories/storage-provider.repository";
-import { RetrievalRepository } from "./repositories/retrieval.repository";
-import { IAppConfig } from "../../config/app.config";
+import { DealEntity } from "./entities/deal.entity.js";
+import { StorageProviderEntity } from "./entities/storage-provider.entity.js";
+import { RetrievalEntity } from "./entities/retrieval.entity.js";
+import { DailyMetricsEntity } from "./entities/daily-metrics.entity.js";
+import { DealRepository } from "./repositories/deal.repository.js";
+import { StorageProviderRepository } from "./repositories/storage-provider.repository.js";
+import { RetrievalRepository } from "./repositories/retrieval.repository.js";
+import { IAppConfig } from "../../config/app.config.js";
 
 @Module({
   imports: [

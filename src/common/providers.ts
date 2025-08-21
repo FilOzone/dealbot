@@ -1,5 +1,5 @@
-import { IProvider, IProviders } from "../domain/interfaces/provider.interface";
-import { Hex } from "./types";
+import { IProvider, IProviders } from "../domain/interfaces/provider.interface.js";
+import { Hex } from "./types.js";
 
 export const providers: IProviders = {
   "0x9f5087a1821eb3ed8a137be368e5e451166efaae": {

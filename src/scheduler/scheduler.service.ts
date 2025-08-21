@@ -2,10 +2,10 @@ import { Injectable, Logger, OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { SchedulerRegistry } from "@nestjs/schedule";
 import { CronJob } from "cron";
-import { DealService } from "../deal/deal.service";
-import { RetrievalService } from "../retrieval/retrieval.service";
-import { IAppConfig } from "../config/app.config";
-import { getProviderCount } from "src/common/providers";
+import { DealService } from "../deal/deal.service.js";
+import { RetrievalService } from "../retrieval/retrieval.service.js";
+import { IAppConfig } from "../config/app.config.js";
+import { getProviderCount } from "../common/providers.js";
 
 @Injectable()
 export class SchedulerService implements OnModuleInit {

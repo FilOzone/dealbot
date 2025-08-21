@@ -1,8 +1,8 @@
 import { Injectable } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
-import { DailyMetricsEntity, OperationType } from "../entities/daily-metrics.entity";
-import { IMetricsRepository, DailyMetricsData } from "../../../domain/interfaces/metrics.interface";
+import { DailyMetricsEntity, OperationType } from "../entities/daily-metrics.entity.js";
+import { IMetricsRepository, DailyMetricsData } from "../../../domain/interfaces/metrics.interface.js";
 
 @Injectable()
 export class MetricsRepository implements IMetricsRepository {

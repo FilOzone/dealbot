@@ -1,19 +1,19 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { Inject } from "@nestjs/common";
-import { Deal } from "../domain/entities/deal.entity";
-import { StorageProvider } from "../domain/entities/storage-provider.entity";
-import { DataSourceService } from "../dataSource/dataSource.service";
-import { DealStatus, DataSourceType } from "../domain/enums/deal-status.enum";
-import type { CreateDealInput, DataFile } from "../domain/interfaces/external-services.interface";
-import type { IDealRepository, IStorageProviderRepository } from "../domain/interfaces/repositories.interface";
-import type { IMetricsService } from "../domain/interfaces/metrics.interface";
-import type { IAppConfig } from "../config/app.config";
-import { ZERO_ADDRESS } from "../common/constants";
-import { getProvider, providers } from "../common/providers";
-import type { IProvider } from "../domain/interfaces/provider.interface";
+import { Deal } from "../domain/entities/deal.entity.js";
+import { StorageProvider } from "../domain/entities/storage-provider.entity.js";
+import { DataSourceService } from "../dataSource/dataSource.service.js";
+import { DealStatus, DataSourceType } from "../domain/enums/deal-status.enum.js";
+import type { CreateDealInput, DataFile } from "../domain/interfaces/external-services.interface.js";
+import type { IDealRepository, IStorageProviderRepository } from "../domain/interfaces/repositories.interface.js";
+import type { IMetricsService } from "../domain/interfaces/metrics.interface.js";
+import type { IAppConfig } from "../config/app.config.js";
+import { ZERO_ADDRESS } from "../common/constants.js";
+import { getProvider, providers } from "../common/providers.js";
+import type { IProvider } from "../domain/interfaces/provider.interface.js";
 import { type UploadResult, Synapse, RPC_URLS } from "@filoz/synapse-sdk";
-import type { Hex } from "../common/types";
+import type { Hex } from "../common/types.js";
 
 @Injectable()
 export class DealService {

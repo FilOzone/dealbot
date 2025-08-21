@@ -1,5 +1,5 @@
-import { Hex } from "../../common/types";
-import { RetrievalStatus } from "../enums/deal-status.enum";
+import { Hex } from "../../common/types.js";
+import { RetrievalStatus } from "../enums/deal-status.enum.js";
 
 export class Retrieval {
   id!: string;

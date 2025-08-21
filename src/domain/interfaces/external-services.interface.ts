@@ -1,5 +1,5 @@
-import { Hex } from "../../common/types";
-import { DataSourceType } from "../enums/deal-status.enum";
+import { Hex } from "../../common/types.js";
+import { DataSourceType } from "../enums/deal-status.enum.js";
 
 export interface UploadResult {
   commP: any;

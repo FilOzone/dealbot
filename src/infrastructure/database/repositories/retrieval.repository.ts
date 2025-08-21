@@ -1,11 +1,11 @@
 import { Injectable } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository, Between } from "typeorm";
-import { RetrievalEntity } from "../entities/retrieval.entity";
-import { Retrieval } from "../../../domain/entities/retrieval.entity";
-import { IRetrievalRepository, RetrievalMetrics } from "../../../domain/interfaces/repositories.interface";
-import { RetrievalStatus } from "../../../domain/enums/deal-status.enum";
-import { type Hex } from "../../../common/types";
+import { RetrievalEntity } from "../entities/retrieval.entity.js";
+import { Retrieval } from "../../../domain/entities/retrieval.entity.js";
+import { IRetrievalRepository, RetrievalMetrics } from "../../../domain/interfaces/repositories.interface.js";
+import { RetrievalStatus } from "../../../domain/enums/deal-status.enum.js";
+import { type Hex } from "../../../common/types.js";
 
 @Injectable()
 export class RetrievalRepository implements IRetrievalRepository {

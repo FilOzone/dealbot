@@ -1,11 +1,11 @@
 import { ConfigService } from "@nestjs/config";
 import { Injectable, Logger } from "@nestjs/common";
-import { DataFile } from "../domain/interfaces/external-services.interface";
+import { DataFile } from "../domain/interfaces/external-services.interface.js";
 import * as fs from "fs";
 import * as path from "path";
-import { IAppConfig } from "../config/app.config";
-import { DEFAULT_LOCAL_DATASETS_PATH, KAGGLE_BASE_URL } from "../common/constants";
-import { IKaggleDataset } from "./types";
+import { IAppConfig } from "../config/app.config.js";
+import { DEFAULT_LOCAL_DATASETS_PATH, KAGGLE_BASE_URL } from "../common/constants.js";
+import { IKaggleDataset } from "./types.js";
 
 @Injectable()
 export class DataSourceService {

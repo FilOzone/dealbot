@@ -1,4 +1,4 @@
-import * as Joi from "joi";
+import Joi from "joi";
 
 export const configValidationSchema = Joi.object({
   // Application
