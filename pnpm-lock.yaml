@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       '@filoz/synapse-sdk':
-        specifier: ^0.23.2
-        version: 0.23.2
+        specifier: 0.24.0-dev1
+        version: 0.24.0-dev1
       '@nestjs/common':
         specifier: ^11.1.5
         version: 11.1.6(class-transformer@0.5.1)(class-validator@0.14.2)(reflect-metadata@0.2.2)(rxjs@7.8.2)
@@ -386,8 +386,8 @@ packages:
     resolution: {integrity: sha512-Z5kJ+wU3oA7MMIqVR9tyZRtjYPr4OC004Q4Rw7pgOKUOKkJfZ3O24nz3WYfGRpMDNmcOi3TwQOmgm7B7Tpii0w==}
     engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
 
-  '@filoz/synapse-sdk@0.23.2':
-    resolution: {integrity: sha512-2biSviYE5zwiS4oNSJ8jmMZlJQaEDM6nrYVbYMY4UVySgGFCW8Ag/vbPW+WZtWSR4uv9tz4eEEEJlv+t31TOjg==}
+  '@filoz/synapse-sdk@0.24.0-dev1':
+    resolution: {integrity: sha512-+OXsbR3o71NTJznICCeAkDiMJXd5xdfZCHQZOkLilnjsVubJiZ+ZzT98UDfm1kGbSFwbfG0Scq0n4AUCpfnLBQ==}
 
   '@hapi/hoek@9.3.0':
     resolution: {integrity: sha512-/c6rf4UJlmHlC9b5BaNvzAcFv7HZ2QHaV0D4/HNlBdvFnvQq8RI4kYdhyPCl7Xj+oWvTWQ8ujhqS53LIgAe6KQ==}
@@ -3777,7 +3777,7 @@ snapshots:
       '@eslint/core': 0.15.2
       levn: 0.4.1
 
-  '@filoz/synapse-sdk@0.23.2':
+  '@filoz/synapse-sdk@0.24.0-dev1':
     dependencies:
       '@web3-storage/data-segment': 5.3.0
       ethers: 6.15.0

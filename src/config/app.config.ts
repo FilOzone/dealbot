@@ -23,6 +23,9 @@ export const configValidationSchema = Joi.object({
   // Scheduling
   DEAL_INTERVAL_SECONDS: Joi.number().default(30),
   RETRIEVAL_INTERVAL_SECONDS: Joi.number().default(60),
+
+  // Kaggle
+  KAGGLE_DATASET_TOTAL_PAGES: Joi.number().default(500),
 });
 
 export interface IAppConfig {
@@ -48,6 +51,9 @@ export interface IAppConfig {
   scheduling: {
     dealIntervalSeconds: number;
     retrievalIntervalSeconds: number;
+  };
+  dataset: {
+    totalPages: number;
   };
 }
 
@@ -75,6 +81,9 @@ export function loadConfig(): IAppConfig {
     scheduling: {
       dealIntervalSeconds: parseInt(process.env.DEAL_INTERVAL_SECONDS || "30", 10),
       retrievalIntervalSeconds: parseInt(process.env.RETRIEVAL_INTERVAL_SECONDS || "60", 10),
+    },
+    dataset: {
+      totalPages: parseInt(process.env.KAGGLE_DATASET_TOTAL_PAGES || "500", 10),
     },
   };
 }

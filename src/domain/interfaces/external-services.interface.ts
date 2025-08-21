@@ -15,8 +15,6 @@ export interface DataFile {
   name: string;
   data: Buffer;
   size: number;
-  contentType: string;
-  source: string;
 }
 
 export interface RetrievalResult {
@@ -35,5 +33,6 @@ export interface CreateDealInput {
   dataSource: DataSourceType;
   enableCDN: boolean;
   storageProviderAddress: Hex;
+  minFileSize: number;
   maxFileSize: number;
 }

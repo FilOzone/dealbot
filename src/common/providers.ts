@@ -5,7 +5,10 @@ export const providers: IProviders = {
   "0x9f5087a1821eb3ed8a137be368e5e451166efaae": {
     address: "0x9f5087a1821eb3ed8a137be368e5e451166efaae",
     serviceUrl: "https://yablu.net",
-    peerId: 123456789,
+  },
+  "0x682467D59F5679cB0BF13115d4C94550b8218CF2": {
+    address: "0x682467D59F5679cB0BF13115d4C94550b8218CF2",
+    serviceUrl: "https://calibnet.pspsps.io",
   },
   // "0x4A628ebAecc32B8779A934ebcEffF1646F517756": {
   //   address: "0x4A628ebAecc32B8779A934ebcEffF1646F517756",

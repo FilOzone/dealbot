@@ -4,83 +4,107 @@ import { DataFile } from "../domain/interfaces/external-services.interface";
 import * as fs from "fs";
 import * as path from "path";
 import { IAppConfig } from "../config/app.config";
-import { DEFAULT_LOCAL_DATASETS_PATH } from "../common/constants";
+import { DEFAULT_LOCAL_DATASETS_PATH, KAGGLE_BASE_URL } from "../common/constants";
+import { IKaggleDataset } from "./types";
 
 @Injectable()
 export class DataSourceService {
+  private readonly kaggleDatasetsTotalPages: number;
   private readonly logger: Logger;
 
   constructor(private readonly configService: ConfigService<IAppConfig>) {
+    this.kaggleDatasetsTotalPages = this.configService.get("dataset", { infer: true })?.totalPages || 500;
     this.logger = new Logger(DataSourceService.name);
   }
 
-  async fetchLocalDataset(count: number, maxSize: number): Promise<DataFile[]> {
-    this.logger.log(`Fetching ${count} local datasets with max size ${maxSize}`);
-    const files: DataFile[] = [];
+  async fetchLocalDataset(minSize: number, maxSize: number): Promise<DataFile> {
+    this.logger.log(`Fetching local dataset with min size ${minSize} and max size ${maxSize}`);
 
     try {
       const datasetsPath =
         this.configService.get("dealbot", { infer: true })?.localDatasetsPath || DEFAULT_LOCAL_DATASETS_PATH;
       const fileNames = await fs.promises.readdir(datasetsPath);
 
-      for (let i = 0; i < count; i++) {
-        const randomIndex = Math.floor(Math.random() * fileNames.length);
-        const file = fileNames[randomIndex];
-        const filePath = path.join(datasetsPath, file);
-        const fileStat = await fs.promises.stat(filePath);
-        if (fileStat.isFile()) {
-          const fileData = await fs.promises.readFile(filePath);
-          files.push({
-            name: file,
-            data: fileData,
-            size: fileData.length,
-            contentType: "application/octet-stream",
-            source: "LOCAL",
-          });
-        }
+      const randomIndex = Math.floor(Math.random() * fileNames.length);
+      const fileName = fileNames[randomIndex];
+      const filePath = path.join(datasetsPath, fileName);
+      const fileStat = await fs.promises.stat(filePath);
+      if (fileStat.isFile()) {
+        const fileData = await fs.promises.readFile(filePath);
+        return { name: fileName, data: fileData, size: fileStat.size };
       }
+
+      throw new Error("File isn't a Regular File");
     } catch (error) {
       this.logger.error("Failed to fetch local dataset", error);
       throw error;
     }
-
-    return files;
   }
 
-  async fetchFlickrImages(count: number, maxSize: number): Promise<DataFile[]> {
-    this.logger.log(`Fetching ${count} Flickr images with max size ${maxSize}`);
-    const files: DataFile[] = [];
+  async fetchKaggleDataset(minSize: number, maxSize: number): Promise<DataFile> {
+    this.logger.log(`Fetching kaggle dataset with min size ${minSize} and max size ${maxSize}`);
 
     try {
-      // For development, generate sample image data
-      for (let i = 0; i < count; i++) {
-        const imageData = await this.generateSampleImage(i, maxSize);
-        files.push({
-          name: `flickr_image_${Date.now()}_${i}.jpg`,
-          data: imageData,
-          size: imageData.length,
-          contentType: "image/jpeg",
-          source: "FLICKR",
-        });
+      const randomPage = Math.floor(Math.random() * this.kaggleDatasetsTotalPages);
+      const datasetList = await this.fetchKaggleDatasetList(randomPage, minSize, maxSize);
+      const randomIndex = Math.floor(Math.random() * datasetList.length);
+      const dataset = datasetList[randomIndex];
+      const downloadUrl = this.constructKaggleDatesetDownloadUrl(dataset);
+      const response = await fetch(downloadUrl);
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
       }
+      const data = await response.arrayBuffer();
+      return { name: dataset.titleNullable, data: Buffer.from(data), size: data.byteLength };
     } catch (error) {
-      this.logger.error("Failed to fetch Flickr images", error);
+      this.logger.error("Failed to fetch kaggle dataset", error);
       throw error;
     }
-
-    return files;
   }
 
-  private async generateSampleImage(seed: number, maxSize: number): Promise<Buffer> {
-    // Generate a simple placeholder image
-    const size = Math.min(Math.floor(Math.random() * maxSize * 0.8) + maxSize * 0.2, maxSize);
+  private async fetchKaggleDatasetList(page: number, minSize: number, maxSize: number): Promise<IKaggleDataset[]> {
+    try {
+      const response = await fetch(this.constructKaggleDatasetListUrl(page, minSize, maxSize));
 
-    // Create a simple binary data that represents an image
-    const buffer = Buffer.alloc(size);
-    for (let i = 0; i < size; i++) {
-      buffer[i] = (seed + i) % 256;
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      return data;
+    } catch (error) {
+      this.logger.error("Failed to fetch kaggle dataset list", error);
+      throw error;
+    }
+  }
+
+  private constructKaggleDatasetListUrl(page: number, minSize: number, maxSize: number): string {
+    return `${KAGGLE_BASE_URL.replace(/\/$/, "")}/datasets/list?page=${page}&min_Size=${minSize}&max_Size=${maxSize}`;
+  }
+
+  private constructKaggleDatesetDownloadUrl(dataset: IKaggleDataset): string {
+    const downloadBaseUrl = `${KAGGLE_BASE_URL.replace(/\/$/, "")}/datasets/download`;
+
+    if (dataset.ref) return `${downloadBaseUrl}/${dataset.ref}`;
+
+    if (dataset.hasUrl) {
+      const parts = dataset.url.split("/");
+
+      if (parts.length >= 2) {
+        const ref = parts.splice(parts.length - 2, 2).join("/");
+        return `${downloadBaseUrl}/${ref}`;
+      }
     }
 
-    return buffer;
+    if (dataset.urlNullable) {
+      const parts = dataset.urlNullable.split("/");
+
+      if (parts.length >= 2) {
+        const ref = parts.splice(parts.length - 2, 2).join("/");
+        return `${downloadBaseUrl}/${ref}`;
+      }
+    }
+
+    throw new Error(`Failed to construct kaggle dataset download url for dataset ${dataset.ref}`);
   }
 }
