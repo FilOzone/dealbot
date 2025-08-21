@@ -21,8 +21,6 @@ export class OverallStatsService {
    */
   async getOverallStats(): Promise<OverallStatsDto> {
     try {
-      this.logger.debug("Fetching overall statistics");
-
       const providers = await this.storageProviderRepository.find({
         where: { isActive: true },
       });
