@@ -5,9 +5,9 @@ import { CronJob } from "cron";
 import { DealService } from "../deal/deal.service.js";
 import { RetrievalService } from "../retrieval/retrieval.service.js";
 import { IAppConfig } from "../config/app.config.js";
-import { getProviderCount, providers } from "../common/providers.js";
+import { getProviderCount } from "../common/providers.js";
 import { JsonRpcProvider } from "ethers";
-import { CONTRACT_ADDRESSES, PaymentsService, RPC_URLS, WarmStorageService } from "@filoz/synapse-sdk";
+import { CONTRACT_ADDRESSES, PaymentsService, RPC_URLS, WarmStorageService, TIME_CONSTANTS } from "@filoz/synapse-sdk";
 import { Wallet } from "ethers";
 import type {
   WalletServices,
@@ -89,7 +89,7 @@ export class SchedulerService implements OnModuleInit {
     warmStorageService: WarmStorageService,
   ): Promise<StorageRequirements> {
     const STORAGE_SIZE_GB = 100;
-    const APPROVAL_DURATION_MONTHS = 6;
+    const APPROVAL_DURATION_MONTHS = 6n;
     const datasetCreationFees = this.calculateDatasetCreationFees();
 
     const [accountInfo, storageCheck, serviceApprovals] = await Promise.all([
@@ -103,13 +103,15 @@ export class SchedulerService implements OnModuleInit {
       storageCheck,
       serviceApprovals,
       datasetCreationFees,
-      totalRequiredFunds: storageCheck.costs.perMonth + datasetCreationFees,
-      approvalDuration: BigInt(86400 * APPROVAL_DURATION_MONTHS), // 6 months in epochs
+      totalRequiredFunds: storageCheck.costs.perMonth * APPROVAL_DURATION_MONTHS + datasetCreationFees,
+      approvalDuration: BigInt(TIME_CONSTANTS.EPOCHS_PER_MONTH * APPROVAL_DURATION_MONTHS), // 6 months in epochs
     };
   }
 
   private calculateDatasetCreationFees(): bigint {
-    return 2n * 1n * 10n ** 17n * BigInt(getProviderCount());
+    const minDataSetPerSP = 2n; // withCDN & withoutCDN
+    const datasetCreationFees = 1n * 10n ** 17n; // 0.1 USDFC
+    return minDataSetPerSP * datasetCreationFees * BigInt(getProviderCount());
   }
 
   private logWalletStatus(requirements: StorageRequirements): void {

@@ -12,7 +12,7 @@ import type { IAppConfig } from "../config/app.config.js";
 import { ZERO_ADDRESS } from "../common/constants.js";
 import { getProvider, providers } from "../common/providers.js";
 import type { IProvider } from "../domain/interfaces/provider.interface.js";
-import { type UploadResult, Synapse, RPC_URLS } from "@filoz/synapse-sdk";
+import { type UploadResult, Synapse, RPC_URLS, SIZE_CONSTANTS } from "@filoz/synapse-sdk";
 import type { Hex } from "../common/types.js";
 
 @Injectable()
@@ -196,8 +196,8 @@ export class DealService {
       dataSource: DataSourceType.LOCAL,
       enableCDN,
       storageProviderAddress: provider.address,
-      minFileSize: 256 * 1024, // 256 KB
-      maxFileSize: 250 * 1024 * 1024, // 250 MB
+      minFileSize: SIZE_CONSTANTS.MIN_UPLOAD_SIZE,
+      maxFileSize: SIZE_CONSTANTS.MAX_UPLOAD_SIZE,
     });
   }
 
