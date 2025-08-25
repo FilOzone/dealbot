@@ -1,5 +1,5 @@
-import { Hex } from "src/common/types";
-import { DealStatus } from "../enums/deal-status.enum";
+import { Hex } from "../../common/types.js";
+import { DealStatus } from "../enums/deal-status.enum.js";
 
 export class Deal {
   id!: string;

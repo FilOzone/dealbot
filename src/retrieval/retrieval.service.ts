@@ -1,17 +1,17 @@
 import { Injectable, Inject, Logger } from "@nestjs/common";
-import { Retrieval } from "../domain/entities/retrieval.entity";
-import { RetrievalStatus } from "../domain/enums/deal-status.enum";
+import { Retrieval } from "../domain/entities/retrieval.entity.js";
+import { RetrievalStatus } from "../domain/enums/deal-status.enum.js";
 import type {
   IDealRepository,
   IRetrievalRepository,
   IStorageProviderRepository,
-} from "../domain/interfaces/repositories.interface";
-import type { IMetricsService } from "../domain/interfaces/metrics.interface";
-import type { RetrievalResult } from "../domain/interfaces/external-services.interface";
-import { CDN_HOSTNAME } from "../common/constants";
-import { getProvider } from "../common/providers";
-import type { Hex } from "../common/types";
-import { Deal } from "../domain/entities/deal.entity";
+} from "../domain/interfaces/repositories.interface.js";
+import type { IMetricsService } from "../domain/interfaces/metrics.interface.js";
+import type { RetrievalResult } from "../domain/interfaces/external-services.interface.js";
+import { CDN_HOSTNAME } from "../common/constants.js";
+import { getProvider } from "../common/providers.js";
+import type { Hex } from "../common/types.js";
+import { Deal } from "../domain/entities/deal.entity.js";
 
 @Injectable()
 export class RetrievalService {

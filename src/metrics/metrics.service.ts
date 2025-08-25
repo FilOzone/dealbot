@@ -1,14 +1,14 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository, Between } from "typeorm";
-import { Deal } from "../domain/entities/deal.entity";
-import { Retrieval } from "../domain/entities/retrieval.entity";
-import { DealEntity } from "../infrastructure/database/entities/deal.entity";
-import { RetrievalEntity } from "../infrastructure/database/entities/retrieval.entity";
-import { MetricsRepository } from "../infrastructure/database/repositories/metrics.repository";
-import { IMetricsService, DailyMetricsData } from "../domain/interfaces/metrics.interface";
-import { DealStatus } from "../domain/enums/deal-status.enum";
-import { RetrievalStatus } from "../domain/enums/deal-status.enum";
+import { Deal } from "../domain/entities/deal.entity.js";
+import { Retrieval } from "../domain/entities/retrieval.entity.js";
+import { DealEntity } from "../infrastructure/database/entities/deal.entity.js";
+import { RetrievalEntity } from "../infrastructure/database/entities/retrieval.entity.js";
+import { MetricsRepository } from "../infrastructure/database/repositories/metrics.repository.js";
+import { IMetricsService, DailyMetricsData } from "../domain/interfaces/metrics.interface.js";
+import { DealStatus } from "../domain/enums/deal-status.enum.js";
+import { RetrievalStatus } from "../domain/enums/deal-status.enum.js";
 
 @Injectable()
 export class MetricsService implements IMetricsService {

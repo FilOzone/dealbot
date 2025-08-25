@@ -1,4 +1,4 @@
-import { Hex } from "../../common/types";
+import { Hex } from "../../common/types.js";
 
 export class StorageProvider {
   address!: Hex;

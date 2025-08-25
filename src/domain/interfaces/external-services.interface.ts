@@ -1,5 +1,5 @@
-import { Hex } from "../../common/types";
-import { DataSourceType } from "../enums/deal-status.enum";
+import { Hex } from "../../common/types.js";
+import { DataSourceType } from "../enums/deal-status.enum.js";
 
 export interface UploadResult {
   commP: any;
@@ -15,8 +15,6 @@ export interface DataFile {
   name: string;
   data: Buffer;
   size: number;
-  contentType: string;
-  source: string;
 }
 
 export interface RetrievalResult {
@@ -35,5 +33,6 @@ export interface CreateDealInput {
   dataSource: DataSourceType;
   enableCDN: boolean;
   storageProviderAddress: Hex;
+  minFileSize: number;
   maxFileSize: number;
 }

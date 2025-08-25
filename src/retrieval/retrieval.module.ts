@@ -1,7 +1,7 @@
 import { Module } from "@nestjs/common";
-import { RetrievalService } from "./retrieval.service";
-import { InfrastructureModule } from "../infrastructure/infrastructure.module";
-import { MetricsModule } from "../metrics/metrics.module";
+import { RetrievalService } from "./retrieval.service.js";
+import { InfrastructureModule } from "../infrastructure/infrastructure.module.js";
+import { MetricsModule } from "../metrics/metrics.module.js";
 
 @Module({
   imports: [InfrastructureModule, MetricsModule],

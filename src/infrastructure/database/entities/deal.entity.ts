@@ -1,5 +1,5 @@
 import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn, Index } from "typeorm";
-import { DealStatus } from "../../../domain/enums/deal-status.enum";
+import { DealStatus } from "../../../domain/enums/deal-status.enum.js";
 
 @Entity("deals")
 @Index(["storageProvider", "status"])

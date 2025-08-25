@@ -1,10 +1,10 @@
 import { Injectable } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository, LessThanOrEqual } from "typeorm";
-import { StorageProviderEntity } from "../entities/storage-provider.entity";
-import { StorageProvider } from "../../../domain/entities/storage-provider.entity";
-import { IStorageProviderRepository, ProviderMetrics } from "../../../domain/interfaces/repositories.interface";
-import { type Hex } from "../../../common/types";
+import { StorageProviderEntity } from "../entities/storage-provider.entity.js";
+import { StorageProvider } from "../../../domain/entities/storage-provider.entity.js";
+import { IStorageProviderRepository } from "../../../domain/interfaces/repositories.interface.js";
+import { type Hex } from "../../../common/types.js";
 
 @Injectable()
 export class StorageProviderRepository implements IStorageProviderRepository {

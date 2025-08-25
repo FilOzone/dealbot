@@ -1,9 +1,9 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
-import { StorageProviderEntity } from "../infrastructure/database/entities/storage-provider.entity";
-import { DailyMetricsEntity } from "../infrastructure/database/entities/daily-metrics.entity";
-import { OverallStatsDto, ProviderPerformanceDto } from "./stats.dto";
+import { StorageProviderEntity } from "../infrastructure/database/entities/storage-provider.entity.js";
+import { DailyMetricsEntity } from "../infrastructure/database/entities/daily-metrics.entity.js";
+import { OverallStatsDto, ProviderPerformanceDto } from "./stats.dto.js";
 
 @Injectable()
 export class OverallStatsService {
@@ -21,8 +21,6 @@ export class OverallStatsService {
    */
   async getOverallStats(): Promise<OverallStatsDto> {
     try {
-      this.logger.debug("Fetching overall statistics");
-
       const providers = await this.storageProviderRepository.find({
         where: { isActive: true },
       });

@@ -1,7 +1,7 @@
-import { Deal } from "../entities/deal.entity";
-import { StorageProvider } from "../entities/storage-provider.entity";
-import { Retrieval } from "../entities/retrieval.entity";
-import { DealStatus, DealType } from "../enums/deal-status.enum";
+import { Deal } from "../entities/deal.entity.js";
+import { StorageProvider } from "../entities/storage-provider.entity.js";
+import { Retrieval } from "../entities/retrieval.entity.js";
+import { DealStatus, DealType } from "../enums/deal-status.enum.js";
 
 export interface IDealRepository {
   create(deal: Deal): Promise<Deal>;

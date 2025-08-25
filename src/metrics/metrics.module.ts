@@ -1,12 +1,12 @@
 import { Module } from "@nestjs/common";
 import { TypeOrmModule } from "@nestjs/typeorm";
-import { DailyMetricsEntity } from "../infrastructure/database/entities/daily-metrics.entity";
-import { DealEntity } from "../infrastructure/database/entities/deal.entity";
-import { RetrievalEntity } from "../infrastructure/database/entities/retrieval.entity";
-import { StorageProviderEntity } from "../infrastructure/database/entities/storage-provider.entity";
-import { MetricsRepository } from "../infrastructure/database/repositories/metrics.repository";
-import { StorageProviderRepository } from "../infrastructure/database/repositories/storage-provider.repository";
-import { MetricsService } from "./metrics.service";
+import { DailyMetricsEntity } from "../infrastructure/database/entities/daily-metrics.entity.js";
+import { DealEntity } from "../infrastructure/database/entities/deal.entity.js";
+import { RetrievalEntity } from "../infrastructure/database/entities/retrieval.entity.js";
+import { StorageProviderEntity } from "../infrastructure/database/entities/storage-provider.entity.js";
+import { MetricsRepository } from "../infrastructure/database/repositories/metrics.repository.js";
+import { StorageProviderRepository } from "../infrastructure/database/repositories/storage-provider.repository.js";
+import { MetricsService } from "./metrics.service.js";
 
 @Module({
   imports: [TypeOrmModule.forFeature([DailyMetricsEntity, DealEntity, RetrievalEntity, StorageProviderEntity])],

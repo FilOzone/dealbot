@@ -1,19 +1,19 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { Inject } from "@nestjs/common";
-import { Deal } from "../domain/entities/deal.entity";
-import { StorageProvider } from "../domain/entities/storage-provider.entity";
-import { DataSourceService } from "../dataSource/dataSource.service";
-import { DealStatus, DataSourceType } from "../domain/enums/deal-status.enum";
-import type { CreateDealInput, DataFile } from "../domain/interfaces/external-services.interface";
-import type { IDealRepository, IStorageProviderRepository } from "../domain/interfaces/repositories.interface";
-import type { IMetricsService } from "../domain/interfaces/metrics.interface";
-import type { IAppConfig } from "../config/app.config";
-import { ZERO_ADDRESS } from "../common/constants";
-import { getProvider, providers } from "../common/providers";
-import type { IProvider } from "../domain/interfaces/provider.interface";
-import { type UploadResult, Synapse, RPC_URLS } from "@filoz/synapse-sdk";
-import type { Hex } from "../common/types";
+import { Deal } from "../domain/entities/deal.entity.js";
+import { StorageProvider } from "../domain/entities/storage-provider.entity.js";
+import { DataSourceService } from "../dataSource/dataSource.service.js";
+import { DealStatus, DataSourceType } from "../domain/enums/deal-status.enum.js";
+import type { CreateDealInput, DataFile } from "../domain/interfaces/external-services.interface.js";
+import type { IDealRepository, IStorageProviderRepository } from "../domain/interfaces/repositories.interface.js";
+import type { IMetricsService } from "../domain/interfaces/metrics.interface.js";
+import type { IAppConfig } from "../config/app.config.js";
+import { ZERO_ADDRESS } from "../common/constants.js";
+import { getProvider, providers } from "../common/providers.js";
+import type { IProvider } from "../domain/interfaces/provider.interface.js";
+import { type UploadResult, Synapse, RPC_URLS, SIZE_CONSTANTS } from "@filoz/synapse-sdk";
+import type { Hex } from "../common/types.js";
 
 @Injectable()
 export class DealService {
@@ -48,11 +48,11 @@ export class DealService {
     return successfulDeals;
   }
 
-  async createDeal(dto: CreateDealInput): Promise<Deal> {
-    this.logger.log(`Creating deal with provider ${dto.storageProviderAddress}`);
+  async createDeal(dealInput: CreateDealInput): Promise<Deal> {
+    this.logger.log(`Creating deal with provider ${dealInput.storageProviderAddress}`);
 
     // Fetch data from source
-    const dataFile = await this.fetchDataFile(dto.dataSource, dto.maxFileSize || 250);
+    const dataFile = await this.fetchDataFile(dealInput.minFileSize || 10, dealInput.maxFileSize || 250);
 
     this.logger.log(`Fetched data file: ${dataFile.name}`);
 
@@ -60,8 +60,8 @@ export class DealService {
     const deal = new Deal({
       fileName: dataFile.name,
       fileSize: dataFile.size,
-      storageProvider: dto.storageProviderAddress || ZERO_ADDRESS,
-      withCDN: dto.enableCDN,
+      storageProvider: dealInput.storageProviderAddress || ZERO_ADDRESS,
+      withCDN: dealInput.enableCDN,
       status: DealStatus.PENDING,
       walletAddress: this.configService.get("blockchain").walletAddress,
     });
@@ -71,13 +71,13 @@ export class DealService {
 
     try {
       // Track storage provider data before deal creation
-      provider = await this.trackStorageProvider(dto.storageProviderAddress || ZERO_ADDRESS, dto.enableCDN);
+      provider = await this.trackStorageProvider(dealInput.storageProviderAddress || ZERO_ADDRESS, dealInput.enableCDN);
 
       // Upload file using Synapse SDK
       const synapse = await this.getStorageService();
       const storage = await synapse.createStorage({
-        providerAddress: dto.storageProviderAddress,
-        withCDN: dto.enableCDN,
+        providerAddress: dealInput.storageProviderAddress,
+        withCDN: dealInput.enableCDN,
       });
       savedDeal.uploadStartTime = new Date();
       await this.dealRepository.update(savedDealId, {
@@ -87,14 +87,14 @@ export class DealService {
         onUploadComplete: () => {
           this.handleUploadComplete(savedDeal, provider!);
         },
-        onRootAdded: (result) => {
+        onPieceAdded: (result) => {
           this.handleRootAdded(savedDeal, provider!, result?.hash);
         },
       });
 
-      savedDeal.cid = uploadResult.commp.toString();
+      savedDeal.cid = uploadResult.pieceCid.toString();
       savedDeal.pieceSize = uploadResult.size;
-      savedDeal.dealId = `${storage.proofSetId}_${uploadResult.rootId}`;
+      savedDeal.dealId = `${storage.dataSetId}_${uploadResult.pieceId}`;
       savedDeal.status = DealStatus.DEAL_CREATED;
       savedDeal.dealConfirmedTime = new Date();
       savedDeal.calculateDealLatency();
@@ -111,14 +111,14 @@ export class DealService {
       provider.averageDealLatency = provider.averageDealLatency
         ? (provider.averageDealLatency + (deal.dealLatency || 0)) / 2
         : deal.dealLatency || 0;
-      await this.updateProviderStats(provider, true, dto.enableCDN);
+      await this.updateProviderStats(provider, true, dealInput.enableCDN);
 
-      this.logger.log(`Deal uploaded with CID: ${uploadResult.commp.toString()}`);
+      this.logger.log(`Deal uploaded with CID: ${uploadResult.pieceCid.toString()}`);
       return savedDeal;
     } catch (error) {
       this.logger.error(`Failed to create deal: ${error.message}`, error);
 
-      if (provider) await this.updateProviderStats(provider, false, dto.enableCDN);
+      if (provider) await this.updateProviderStats(provider, false, dealInput.enableCDN);
 
       await this.dealRepository.update(deal.id, {
         status: DealStatus.FAILED,
@@ -196,7 +196,8 @@ export class DealService {
       dataSource: DataSourceType.LOCAL,
       enableCDN,
       storageProviderAddress: provider.address,
-      maxFileSize: 250 * 1024 * 1024,
+      minFileSize: SIZE_CONSTANTS.MIN_UPLOAD_SIZE,
+      maxFileSize: SIZE_CONSTANTS.MAX_UPLOAD_SIZE,
     });
   }
 
@@ -315,13 +316,16 @@ export class DealService {
     }
   }
 
-  private async fetchDataFile(source: DataSourceType, maxSize: number): Promise<DataFile> {
-    switch (source) {
-      case DataSourceType.LOCAL:
-        const localData = await this.dataSourceService.fetchLocalDataset(1, maxSize);
-        return localData[0];
-      default:
-        throw new Error(`Unsupported data source: ${source}`);
+  private async fetchDataFile(minSize: number, maxSize: number): Promise<DataFile> {
+    try {
+      return await this.dataSourceService.fetchKaggleDataset(minSize, maxSize);
+    } catch (err) {
+      // Fallback to local datasets
+      try {
+        return await this.dataSourceService.fetchLocalDataset(minSize, maxSize);
+      } catch (err) {
+        throw err;
+      }
     }
   }
 }
