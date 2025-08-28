@@ -1,9 +1,9 @@
 import { Module } from "@nestjs/common";
 import { TypeOrmModule } from "@nestjs/typeorm";
-import { StatsController } from "./stats.controller";
-import { OverallStatsService } from "./stats.service";
-import { StorageProviderEntity } from "../infrastructure/database/entities/storage-provider.entity";
-import { DailyMetricsEntity } from "../infrastructure/database/entities/daily-metrics.entity";
+import { StatsController } from "./stats.controller.js";
+import { OverallStatsService } from "./stats.service.js";
+import { StorageProviderEntity } from "../infrastructure/database/entities/storage-provider.entity.js";
+import { DailyMetricsEntity } from "../infrastructure/database/entities/daily-metrics.entity.js";
 
 @Module({
   imports: [TypeOrmModule.forFeature([StorageProviderEntity, DailyMetricsEntity])],

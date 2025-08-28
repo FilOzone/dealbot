@@ -1,6 +1,6 @@
 import { Controller, Get, Logger } from "@nestjs/common";
-import { OverallStatsService } from "./stats.service";
-import { OverallStatsResponseDto } from "./stats.dto";
+import { OverallStatsService } from "./stats.service.js";
+import { OverallStatsResponseDto } from "./stats.dto.js";
 
 @Controller("/api/stats")
 export class StatsController {

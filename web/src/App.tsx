@@ -62,9 +62,8 @@ export default function App() {
       </header>
 
       <main className="relative z-10 p-8 space-y-12 max-w-7xl mx-auto">
-        <div className="text-center py-12 relative">
+        <div className="text-center py-8 relative">
           <div className="absolute inset-0 bg-gradient-to-r from-transparent via-yellow-400/5 to-transparent"></div>
-          <h2 className="text-6xl font-black cyber-text-glow text-yellow-400 mb-4 relative z-10">PROVIDER ANALYTICS</h2>
           <p className="text-yellow-300/80 text-xl font-medium relative z-10">
             Automated deal creation & storage performance monitoring
           </p>

@@ -1,11 +1,11 @@
 import { Injectable } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository, Between } from "typeorm";
-import { DealEntity } from "../entities/deal.entity";
-import { Deal } from "../../../domain/entities/deal.entity";
-import { IDealRepository, DealMetrics } from "../../../domain/interfaces/repositories.interface";
-import { DealStatus, DealType } from "../../../domain/enums/deal-status.enum";
-import { type Hex } from "../../../common/types";
+import { DealEntity } from "../entities/deal.entity.js";
+import { Deal } from "../../../domain/entities/deal.entity.js";
+import { IDealRepository, DealMetrics } from "../../../domain/interfaces/repositories.interface.js";
+import { DealStatus, DealType } from "../../../domain/enums/deal-status.enum.js";
+import { type Hex } from "../../../common/types.js";
 
 @Injectable()
 export class DealRepository implements IDealRepository {

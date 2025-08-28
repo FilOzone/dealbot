@@ -1,5 +1,5 @@
-import { Deal } from "../entities/deal.entity";
-import { Retrieval } from "../entities/retrieval.entity";
+import { Deal } from "../entities/deal.entity.js";
+import { Retrieval } from "../entities/retrieval.entity.js";
 
 export interface IMetricsService {
   recordDealMetrics(deal: Deal): Promise<void>;
