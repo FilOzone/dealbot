@@ -16,12 +16,17 @@ export function SummaryCards({ stats }: { stats: OverallStatsDto }) {
   const metrics = [
     { label: "TOTAL DEALS", value: formatNum(stats.totalDeals) },
     { label: "TOTAL RETRIEVALS", value: formatNum(stats.totalRetrievals) },
-    { label: "CDN DEAL SUCCESS", value: formatPct(stats.cdnDealsSuccessRate) },
-    { label: "DIRECT DEAL SUCCESS", value: formatPct(stats.directDealsSuccessRate) },
-    { label: "CDN RETRIEVAL SUCCESS", value: formatPct(stats.cdnRetrievalsSuccessRate) },
-    { label: "DIRECT RETRIEVAL SUCCESS", value: formatPct(stats.directRetrievalsSuccessRate) },
-    { label: "AVG Injest LATENCY", value: `${formatNum(stats.ingestLatency)} ms` },
-    { label: "AVG RETRV THROUGHPUT", value: formatNum(stats.retrievalThroughput) },
+    { label: "TOTAL DEALS ( CDN )", value: formatNum(stats.totalDealsWithCDN) },
+    { label: "TOTAL DEALS ( WITHOUT CDN )", value: formatNum(stats.totalDealsWithoutCDN) },
+    { label: "TOTAL RETRIEVALS ( CDN )", value: formatNum(stats.totalRetrievalsWithCDN) },
+    { label: "TOTAL RETRIEVALS ( WITHOUT CDN )", value: formatNum(stats.totalRetrievalsWithoutCDN) },
+    { label: "DEAL SUCCESS RATE ( CDN )", value: formatPct(stats.cdnDealsSuccessRate) },
+    { label: "DEAL SUCCESS RATE ( WITHOUT CDN )", value: formatPct(stats.directDealsSuccessRate) },
+    { label: "RETRIEVAL SUCCESS RATE ( WITHOUT CDN )", value: formatPct(stats.directRetrievalsSuccessRate) },
+    { label: "AVG INGEST LATENCY", value: `${formatNum(stats.ingestLatency)} ms` },
+    { label: "AVG INGEST THROUGHPUT", value: formatNum(stats.ingestThroughput) },
+    { label: "AVG CHAIN LATENCY", value: `${formatNum(stats.chainLatency)} ms` },
+    { label: "AVG RETRIEVAL THROUGHPUT", value: formatNum(stats.retrievalThroughput) },
   ];
 
   return (

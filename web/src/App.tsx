@@ -1,8 +1,9 @@
-import { useState } from "react";
 import { useOverallStats } from "./hooks/useOverallStats";
+import { useDailyStats } from "./hooks/useDailyStats";
 import { ProviderBarChart } from "./components/ProviderBarChart";
 import { SummaryCards } from "./components/SummaryCards";
-import { MetricSelector } from "./components/MetricSelector";
+import { DailyMetricsCharts } from "./components/DailyMetricsCharts";
+import { ProviderDailyComparison } from "./components/ProviderDailyComparison";
 import { ErrorState } from "./components/ErrorState";
 import { Skeleton } from "./components/Skeleton";
 
@@ -13,15 +14,16 @@ export type MetricKey =
   | "chainLatency"
   | "dealLatency"
   | "retrievalLatency"
+  | "ingestThroughput"
   | "retrievalThroughput"
   | "totalDeals"
   | "totalRetrievals";
 
 export default function App() {
   const { data, loading, error, refetch } = useOverallStats();
-  const [metric, setMetric] = useState<MetricKey>("dealSuccessRate");
+  const { data: dailyData, loading: dailyLoading, error: dailyError } = useDailyStats();
 
-  if (loading) return <Skeleton />;
+  if (loading || dailyLoading) return <Skeleton />;
   if (error)
     return (
       <div className="p-6">
@@ -31,6 +33,11 @@ export default function App() {
   if (!data) return null;
 
   const providers = data.overallStats.providerPerformance;
+
+  // formatters for Y-axis and tooltip
+  const fmtNum = (v: number) => v.toLocaleString();
+  const fmtMs = (v: number) => `${Math.round(v)} ms`;
+  const fmtPct = (v: number) => `${v.toFixed(2)}%`;
 
   return (
     <div className="min-h-screen cyber-bg" data-theme="cyberpunk">
@@ -76,24 +83,125 @@ export default function App() {
 
         <section className="glass-card-cyber relative overflow-hidden">
           <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-yellow-400/0 via-yellow-400/60 to-yellow-400/0"></div>
-          <div className="p-8">
-            <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6 mb-8">
-              <div className="relative">
-                <h3 className="text-3xl font-bold cyber-text-glow text-yellow-400 mb-2">
-                  STORAGE PROVIDER PERFORMANCE
-                </h3>
-                <p className="text-yellow-300/70 text-lg">
-                  Deal success rates, latency metrics & retrieval performance
-                </p>
-                <div className="absolute -left-4 top-0 w-1 h-full bg-gradient-to-b from-yellow-400/60 to-transparent"></div>
-              </div>
-              <MetricSelector value={metric} onChange={setMetric} />
+          <div className="p-8 space-y-12">
+            <div className="relative">
+              <h3 className="text-3xl font-bold cyber-text-glow text-yellow-400 mb-2">STORAGE PROVIDER PERFORMANCE</h3>
+              <p className="text-yellow-300/70 text-lg">Counts, latency, success rates, and throughput comparisons</p>
+              <div className="absolute -left-4 top-0 w-1 h-full bg-gradient-to-b from-yellow-400/60 to-transparent"></div>
             </div>
-            <div className="chart-container-cyber">
-              <ProviderBarChart data={providers} metric={metric} />
+
+            {/* Counts */}
+            <div>
+              <h4 className="text-xl font-extrabold text-yellow-400 mb-4">TOTAL COUNTS</h4>
+              <div className="chart-container-cyber">
+                <ProviderBarChart
+                  data={providers}
+                  series={[
+                    { key: "totalDeals", color: "#3b82f6", label: "Total Deals" },
+                    { key: "totalRetrievals", color: "#10b981", label: "Total Retrievals" },
+                  ]}
+                  yTickFormatter={fmtNum}
+                />
+              </div>
+            </div>
+
+            {/* Latencies */}
+            <div>
+              <h4 className="text-xl font-extrabold text-yellow-400 mb-4">LATENCY (ms)</h4>
+              <div className="chart-container-cyber">
+                <ProviderBarChart
+                  data={providers}
+                  series={[
+                    { key: "ingestLatency", color: "#f59e0b", label: "Ingest" },
+                    { key: "chainLatency", color: "#f97316", label: "Chain" },
+                    { key: "dealLatency", color: "#ef4444", label: "Deal" },
+                    { key: "retrievalLatency", color: "#8b5cf6", label: "Retrieval" },
+                  ]}
+                  yTickFormatter={fmtMs}
+                />
+              </div>
+            </div>
+
+            {/* Success Rates */}
+            <div>
+              <h4 className="text-xl font-extrabold text-yellow-400 mb-4">SUCCESS RATES</h4>
+              <div className="chart-container-cyber">
+                <ProviderBarChart
+                  data={providers}
+                  series={[
+                    { key: "dealSuccessRate", color: "#22c55e", label: "Deal Success %" },
+                    { key: "retrievalSuccessRate", color: "#06b6d4", label: "Retrieval Success %" },
+                  ]}
+                  yTickFormatter={fmtPct}
+                />
+              </div>
+            </div>
+
+            {/* Throughput */}
+            <div>
+              <h4 className="text-xl font-extrabold text-yellow-400 mb-4">THROUGHPUT</h4>
+              <div className="chart-container-cyber">
+                <ProviderBarChart
+                  data={providers}
+                  series={[
+                    { key: "ingestThroughput", color: "#a855f7", label: "Ingest Throughput" },
+                    { key: "retrievalThroughput", color: "#14b8a6", label: "Retrieval Throughput" },
+                  ]}
+                  yTickFormatter={fmtNum}
+                />
+              </div>
             </div>
           </div>
         </section>
+
+        {/* Daily Metrics Section */}
+        {dailyData && dailyData.dailyMetrics.length > 0 && (
+          <section className="glass-card-cyber relative overflow-hidden">
+            <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-yellow-400/0 via-yellow-400/60 to-yellow-400/0"></div>
+            <div className="p-8 space-y-12">
+              <div className="relative">
+                <h3 className="text-3xl font-bold cyber-text-glow text-yellow-400 mb-2">DAILY METRICS TRENDS</h3>
+                <p className="text-yellow-300/70 text-lg">CDN vs Direct performance over time ({dailyData.summary.totalDays} days)</p>
+                <div className="absolute -left-4 top-0 w-1 h-full bg-gradient-to-b from-yellow-400/60 to-transparent"></div>
+              </div>
+              
+              <DailyMetricsCharts dailyMetrics={dailyData.dailyMetrics} />
+            </div>
+          </section>
+        )}
+
+        {/* Provider Daily Comparison Section */}
+        {dailyData && dailyData.dailyMetrics.length > 0 && (
+          <section className="glass-card-cyber relative overflow-hidden">
+            <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-yellow-400/0 via-yellow-400/60 to-yellow-400/0"></div>
+            <div className="p-8 space-y-12">
+              <div className="relative">
+                <h3 className="text-3xl font-bold cyber-text-glow text-yellow-400 mb-2">PROVIDER PERFORMANCE TRENDS</h3>
+                <p className="text-yellow-300/70 text-lg">Daily performance trends by provider over {dailyData.summary.totalDays} days</p>
+                <div className="absolute -left-4 top-0 w-1 h-full bg-gradient-to-b from-yellow-400/60 to-transparent"></div>
+              </div>
+              
+              <ProviderDailyComparison dailyMetrics={dailyData.dailyMetrics} />
+            </div>
+          </section>
+        )}
+
+        {/* Daily Error State */}
+        {dailyError && (
+          <section className="glass-card-cyber relative overflow-hidden">
+            <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-red-400/0 via-red-400/60 to-red-400/0"></div>
+            <div className="p-8">
+              <div className="relative">
+                <h3 className="text-3xl font-bold cyber-text-glow text-red-400 mb-2">DAILY METRICS UNAVAILABLE</h3>
+                <p className="text-red-300/70 text-lg">Unable to load daily metrics data</p>
+                <div className="absolute -left-4 top-0 w-1 h-full bg-gradient-to-b from-red-400/60 to-transparent"></div>
+              </div>
+              <div className="mt-6">
+                <ErrorState message={dailyError} onRetry={() => window.location.reload()} />
+              </div>
+            </div>
+          </section>
+        )}
       </main>
 
       <footer className="relative z-10 mt-20 py-8 border-t border-yellow-400/20">
