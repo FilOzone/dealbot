@@ -20,10 +20,11 @@ export class StorageProvider {
   successfulRetrievals!: number;
   failedRetrievals!: number;
   averageIngestLatency!: number;
+  averageIngestThroughput!: number;
   averageChainLatency!: number;
   averageDealLatency!: number;
   averageRetrievalLatency!: number;
-  averageThroughput!: number;
+  averageRetrievalThroughput!: number;
   dealSuccessRate!: number;
   retrievalSuccessRate!: number;
 
@@ -41,15 +42,19 @@ export class StorageProvider {
     this.failedDeals = partial.failedDeals || 0;
     this.failedDealsWithCDN = partial.failedDealsWithCDN || 0;
     this.failedDealsWithoutCDN = partial.failedDealsWithoutCDN || 0;
+    this.totalRetrievals = partial.totalRetrievals || 0;
+    this.successfulRetrievals = partial.successfulRetrievals || 0;
+    this.failedRetrievals = partial.failedRetrievals || 0;
+    this.averageIngestLatency = partial.averageIngestLatency || 0;
+    this.averageIngestThroughput = partial.averageIngestThroughput || 0;
+    this.averageChainLatency = partial.averageChainLatency || 0;
+    this.averageDealLatency = partial.averageDealLatency || 0;
+    this.averageRetrievalLatency = partial.averageRetrievalLatency || 0;
+    this.averageRetrievalThroughput = partial.averageRetrievalThroughput || 0;
     this.dealSuccessRate = partial.dealSuccessRate || 0;
     this.retrievalSuccessRate = partial.retrievalSuccessRate || 0;
     this.createdAt = partial.createdAt || new Date();
     this.updatedAt = partial.updatedAt || new Date();
-    this.averageIngestLatency = partial.averageIngestLatency || 0;
-    this.averageChainLatency = partial.averageChainLatency || 0;
-    this.averageDealLatency = partial.averageDealLatency || 0;
-    this.averageRetrievalLatency = partial.averageRetrievalLatency || 0;
-    this.averageThroughput = partial.averageThroughput || 0;
   }
 
   calculateDealSuccessRate(): void {

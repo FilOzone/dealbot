@@ -11,10 +11,6 @@ export enum DealType {
   WITHOUT_CDN = "WITHOUT_CDN",
 }
 
-export enum DataSourceType {
-  LOCAL = "LOCAL",
-}
-
 export enum RetrievalStatus {
   PENDING = "PENDING",
   IN_PROGRESS = "IN_PROGRESS",

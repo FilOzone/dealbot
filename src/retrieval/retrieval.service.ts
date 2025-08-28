@@ -9,15 +9,16 @@ import type {
 import type { IMetricsService } from "../domain/interfaces/metrics.interface.js";
 import type { RetrievalResult } from "../domain/interfaces/external-services.interface.js";
 import { CDN_HOSTNAME } from "../common/constants.js";
-import { getProvider } from "../common/providers.js";
 import type { Hex } from "../common/types.js";
 import { Deal } from "../domain/entities/deal.entity.js";
+import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
 
 @Injectable()
 export class RetrievalService {
   private readonly logger = new Logger(RetrievalService.name);
 
   constructor(
+    private walletSdkService: WalletSdkService,
     @Inject("IDealRepository")
     private readonly dealRepository: IDealRepository,
     @Inject("IRetrievalRepository")
@@ -64,7 +65,7 @@ export class RetrievalService {
 
         if (result.status === "fulfilled") {
           results.push({
-            success: true,
+            success: result.value?.status === RetrievalStatus.SUCCESS,
             retrieval: result.value,
             dealId: deal.dealId,
           });
@@ -84,7 +85,7 @@ export class RetrievalService {
     return results;
   }
 
-  private async performRetrieval(deal: Deal): Promise<Retrieval> {
+  private async performRetrieval(deal: Deal): Promise<Retrieval | undefined> {
     const retrieval = new Retrieval({
       cid: deal.cid,
       storageProvider: deal.storageProvider,
@@ -92,7 +93,6 @@ export class RetrievalService {
       status: RetrievalStatus.PENDING,
     });
 
-    const savedRetrieval = await this.retrievalRepository.create(retrieval);
     const provider = await this.storageProviderRepository.findByAddress(deal.storageProvider);
     if (!provider) {
       throw new Error(`StorageProvider with address ${deal.storageProvider} not found`);
@@ -101,76 +101,78 @@ export class RetrievalService {
     try {
       const url = this.constructRetrievalUrl(deal.withCDN, deal.walletAddress, deal.cid, deal.storageProvider);
       this.logger.log(`Retrieving from URL: ${url} for deal id: ${deal.dealId}`);
-      savedRetrieval.status = RetrievalStatus.IN_PROGRESS;
-      await this.retrievalRepository.update(savedRetrieval.id, {
-        status: RetrievalStatus.IN_PROGRESS,
-      });
+      retrieval.status = RetrievalStatus.IN_PROGRESS;
 
       const result: RetrievalResult = await this.retrieve(url);
 
-      savedRetrieval.startTime = result.startTime;
-      savedRetrieval.endTime = result.endTime;
-      savedRetrieval.latency = result.latency;
-      savedRetrieval.responseCode = result.responseCode;
+      retrieval.startTime = result.startTime;
+      retrieval.endTime = result.endTime;
+      retrieval.latency = result.latency;
+      retrieval.responseCode = result.responseCode;
 
       if (result.success) {
-        savedRetrieval.status = RetrievalStatus.SUCCESS;
-        savedRetrieval.bytesRetrieved = result.data?.length || 0;
-        savedRetrieval.throughput = result.throughput;
+        retrieval.status = RetrievalStatus.SUCCESS;
+        retrieval.bytesRetrieved = result.data?.length || 0;
+        retrieval.throughput = result.throughput;
       } else {
-        savedRetrieval.status = RetrievalStatus.FAILED;
-        savedRetrieval.errorMessage = result.error;
+        retrieval.status = RetrievalStatus.FAILED;
+        retrieval.errorMessage = result.error;
       }
 
-      await this.retrievalRepository.update(savedRetrieval.id, {
-        status: savedRetrieval.status,
-        endTime: savedRetrieval.endTime,
-        latency: savedRetrieval.latency,
-        bytesRetrieved: savedRetrieval.bytesRetrieved,
-        throughput: savedRetrieval.throughput,
-        errorMessage: savedRetrieval.errorMessage,
-        responseCode: savedRetrieval.responseCode,
-      });
-
       this.logger.log(
-        `Retrieval ${savedRetrieval.cid} completed: ${savedRetrieval.status}, ` +
-          `Latency: ${savedRetrieval.latency}ms`,
+        `Retrieval ${retrieval.cid} completed: ${retrieval.status}, ` + `Latency: ${retrieval.latency}ms`,
       );
-
-      return savedRetrieval;
     } catch (error) {
       this.logger.error(`Retrieval failed for deal ${deal.dealId}`, error);
 
-      savedRetrieval.status = RetrievalStatus.FAILED;
-      savedRetrieval.endTime = new Date();
-      savedRetrieval.errorMessage = error.message;
-      await this.retrievalRepository.update(savedRetrieval.id, {
-        status: RetrievalStatus.FAILED,
-        endTime: new Date(),
-        errorMessage: error.message,
-      });
+      retrieval.status = RetrievalStatus.FAILED;
+      retrieval.endTime = new Date();
+      retrieval.errorMessage = error.message;
 
       throw error;
     } finally {
       try {
+        if (deal.withCDN) {
+          const [_, savedRetrieval] = await Promise.all([
+            this.metricsService.recordRetrievalMetrics(retrieval),
+            this.retrievalRepository.create(retrieval),
+          ]);
+
+          return savedRetrieval;
+        }
+
         provider.totalRetrievals += 1;
-        if (savedRetrieval.status === RetrievalStatus.SUCCESS) {
+        if (retrieval.status === RetrievalStatus.SUCCESS) {
           provider.successfulRetrievals += 1;
-          provider.averageThroughput = (provider.averageThroughput + (savedRetrieval.throughput || 0)) / 2;
+          provider.averageRetrievalThroughput = this.calculateAvg(
+            provider.averageRetrievalThroughput,
+            retrieval.throughput || 0,
+            provider.successfulRetrievals,
+          );
+          provider.averageRetrievalLatency = this.calculateAvg(
+            provider.averageRetrievalLatency,
+            retrieval.latency || 0,
+            provider.successfulRetrievals,
+          );
         } else {
           provider.failedRetrievals += 1;
         }
-        provider.averageRetrievalLatency = provider.averageRetrievalLatency
-          ? (provider.averageRetrievalLatency + (savedRetrieval.latency || 0)) / 2
-          : savedRetrieval.latency || 0;
-        await this.storageProviderRepository.update(provider.address, {
-          averageRetrievalLatency: provider.averageRetrievalLatency,
-          averageThroughput: provider.averageThroughput,
-          totalRetrievals: provider.totalRetrievals,
-          successfulRetrievals: provider.successfulRetrievals,
-          failedRetrievals: provider.failedRetrievals,
-        });
-        await this.metricsService.recordRetrievalMetrics(savedRetrieval);
+        provider.calculateRetrievalSuccessRate();
+
+        const [, , savedRetrieval] = await Promise.all([
+          this.storageProviderRepository.update(provider.address, {
+            retrievalSuccessRate: provider.retrievalSuccessRate,
+            averageRetrievalLatency: provider.averageRetrievalLatency,
+            averageRetrievalThroughput: provider.averageRetrievalThroughput,
+            totalRetrievals: provider.totalRetrievals,
+            successfulRetrievals: provider.successfulRetrievals,
+            failedRetrievals: provider.failedRetrievals,
+          }),
+          this.metricsService.recordRetrievalMetrics(retrieval),
+          this.retrievalRepository.create(retrieval),
+        ]);
+
+        return savedRetrieval;
       } catch (error) {
         this.logger.warn(`Failed to record retrieval metrics: ${error.message}`);
       }
@@ -199,7 +201,7 @@ export class RetrievalService {
           latency,
           startTime: new Date(startTime),
           endTime: new Date(endTime),
-          error: `HTTP ${response.status}: ${response.statusText}`,
+          responseCode: response.status,
         };
       }
 
@@ -228,25 +230,8 @@ export class RetrievalService {
         responseCode: response.status,
       };
     } catch (error) {
-      const endTime = Date.now();
-      const latency = endTime - startTime;
-
-      let errorMessage = "Unknown error";
-      if (error instanceof Error) {
-        errorMessage = error.message;
-      } else if (typeof error === "string") {
-        errorMessage = error;
-      }
-
-      this.logger.error(`Retrieval failed for URL ${url}: ${errorMessage}`);
-
-      return {
-        success: false,
-        latency,
-        startTime: new Date(startTime),
-        endTime: new Date(endTime),
-        error: errorMessage,
-      };
+      this.logger.warn(`Retrieval failed for URL ${url}: ${error instanceof Error ? error.message : String(error)}`);
+      throw error instanceof Error ? error : new Error(String(error));
     }
   }
 
@@ -309,8 +294,12 @@ export class RetrievalService {
     if (withCDN) {
       return `https://${walletAddress.toLowerCase()}.${CDN_HOSTNAME}/${cid}`;
     } else {
-      const providerDetails = getProvider(storageProvider);
-      return `${providerDetails.serviceUrl.replace(/\/$/, "")}/piece/${cid}`;
+      const providerDetails = this.walletSdkService.getApprovedProviderInfo(storageProvider);
+
+      if (!providerDetails) {
+        throw new Error(`Provider ${storageProvider} not approved`);
+      }
+      return `${providerDetails.serviceURL.replace(/\/$/, "")}/piece/${cid}`;
     }
   }
 
@@ -319,5 +308,9 @@ export class RetrievalService {
       const j = Math.floor(Math.random() * (i + 1));
       [array[i], array[j]] = [array[j], array[i]];
     }
+  }
+
+  private calculateAvg(prevAvg: number, newValue: number, count: number): number {
+    return prevAvg ? (prevAvg * (count - 1) + newValue) / count : newValue;
   }
 }

@@ -4,9 +4,10 @@ import { ScheduleModule } from "@nestjs/schedule";
 import { SchedulerService } from "./scheduler.service.js";
 import { DealModule } from "../deal/deal.module.js";
 import { RetrievalModule } from "../retrieval/retrieval.module.js";
+import { WalletSdkModule } from "../wallet-sdk/wallet-sdk.module.js";
 
 @Module({
-  imports: [ConfigModule, DealModule, RetrievalModule, ScheduleModule.forRoot()],
+  imports: [ConfigModule, DealModule, RetrievalModule, WalletSdkModule, ScheduleModule.forRoot()],
   providers: [SchedulerService],
   exports: [SchedulerService],
 })

@@ -43,6 +43,9 @@ export class DailyMetricsEntity {
   avgIngestLatency!: number | null;
 
   @Column({ type: "float", nullable: true })
+  avgIngestThroughput!: number | null;
+
+  @Column({ type: "float", nullable: true })
   avgChainLatency!: number | null;
 
   @Column({ type: "float", nullable: true })
@@ -53,13 +56,7 @@ export class DailyMetricsEntity {
   avgRetrievalLatency!: number | null;
 
   @Column({ type: "float", nullable: true })
-  avgThroughput!: number | null; // bytes per second
-
-  @Column({ type: "float", nullable: true })
-  minThroughput!: number | null;
-
-  @Column({ type: "float", nullable: true })
-  maxThroughput!: number | null;
+  avgRetrievalThroughput!: number | null;
 
   // Response code tracking for retrievals
   @Column({ type: "json", nullable: true })

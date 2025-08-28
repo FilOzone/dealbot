@@ -61,10 +61,13 @@ export class StorageProviderEntity {
   averageDealLatency!: number;
 
   @Column({ nullable: true, type: "float" })
+  averageIngestThroughput!: number;
+
+  @Column({ nullable: true, type: "float" })
   averageRetrievalLatency!: number;
 
   @Column({ nullable: true, type: "float" })
-  averageThroughput!: number;
+  averageRetrievalThroughput!: number;
 
   @Column({ default: 0, type: "float" })
   dealSuccessRate!: number;

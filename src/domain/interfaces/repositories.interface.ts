@@ -19,6 +19,7 @@ export interface IDealRepository {
 export interface IStorageProviderRepository {
   create(provider: StorageProvider): Promise<StorageProvider>;
   update(id: string, provider: Partial<StorageProvider>): Promise<StorageProvider>;
+  upsert(provider: StorageProvider): Promise<StorageProvider>;
   findByAddress(address: string): Promise<StorageProvider | null>;
   findActive(): Promise<StorageProvider[]>;
   findProvidersForDeals(intervalMinutes: number): Promise<StorageProvider[]>;

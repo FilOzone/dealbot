@@ -21,11 +21,10 @@ export interface DailyMetricsData {
   successfulCalls: number;
   failedCalls: number;
   avgIngestLatency?: number;
+  avgIngestThroughput?: number;
   avgChainLatency?: number;
   avgDealLatency?: number;
   avgRetrievalLatency?: number;
-  avgThroughput?: number;
-  minThroughput?: number;
-  maxThroughput?: number;
+  avgRetrievalThroughput?: number;
   responseCodeCounts?: Record<string, number>;
 }

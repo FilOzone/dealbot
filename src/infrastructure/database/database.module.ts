@@ -27,7 +27,6 @@ import { IAppConfig } from "../../config/app.config.js";
           database: dbConfig?.database || "filecoin_dealbot",
           entities: [DealEntity, StorageProviderEntity, RetrievalEntity, DailyMetricsEntity],
           synchronize: appConfig?.env !== "production",
-          // logging: appConfig?.env === "development",
           logging: false,
         };
       },
