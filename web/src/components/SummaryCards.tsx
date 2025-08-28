@@ -1,16 +1,8 @@
 import type { OverallStatsDto } from "../types/stats";
+import { Card, CardContent } from "./ui/card";
 
 const formatPct = (v: number) => `${v.toFixed(2)}%`;
 const formatNum = (v: number) => v.toLocaleString();
-
-function Stat({ label, value, delay = 0 }: { label: string; value: string; delay?: number }) {
-  return (
-    <div className="stat-cyber" style={{ "--delay": `${delay}s` } as React.CSSProperties}>
-      <div className="stat-title-cyber">{label}</div>
-      <div className="stat-value-cyber">{value}</div>
-    </div>
-  );
-}
 
 export function SummaryCards({ stats }: { stats: OverallStatsDto }) {
   const metrics = [
@@ -30,18 +22,14 @@ export function SummaryCards({ stats }: { stats: OverallStatsDto }) {
   ];
 
   return (
-    <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-      {metrics.map((metric, index) => (
-        <div
-          key={metric.label}
-          className="metric-card-cyber relative overflow-hidden"
-          style={{ "--delay": `${index * 0.1}s` } as React.CSSProperties}
-        >
-          <div className="absolute top-0 left-0 w-full h-0.5 bg-gradient-to-r from-yellow-400/0 via-yellow-400/80 to-yellow-400/0"></div>
-          <div className="absolute bottom-0 right-0 w-0.5 h-full bg-gradient-to-t from-yellow-400/0 via-yellow-400/60 to-yellow-400/0"></div>
-          <Stat label={metric.label} value={metric.value} delay={index * 0.1} />
-          <div className="absolute top-2 right-2 w-2 h-2 bg-yellow-400/60 rounded-full animate-pulse"></div>
-        </div>
+    <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      {metrics.map((m) => (
+        <Card key={m.label}>
+          <CardContent className="p-4">
+            <div className="text-xs uppercase tracking-wide text-muted-foreground">{m.label}</div>
+            <div className="mt-2 text-2xl font-semibold">{m.value}</div>
+          </CardContent>
+        </Card>
       ))}
     </section>
   );

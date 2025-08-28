@@ -1,16 +1,6 @@
-import {
-  BarChart,
-  Bar,
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  Tooltip,
-  ResponsiveContainer,
-  Legend,
-  CartesianGrid,
-} from "recharts";
+import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Legend, CartesianGrid } from "recharts";
 import type { DailyMetricDto } from "../types/stats";
+import { ChartContainer, ChartTooltip, ChartTooltipContent } from "./ui/chart";
 
 type ChartData = {
   date: string;
@@ -63,28 +53,26 @@ interface DailyChartProps {
 function DailyChart({ data, title, cdnKey, noCdnKey, yTickFormatter }: DailyChartProps) {
   const chartData = transformData(data, cdnKey, noCdnKey);
 
+  const chartConfig = {
+    withCDN: { label: "With CDN", color: "var(--chart-1)" },
+    withoutCDN: { label: "Without CDN", color: "var(--chart-5)" },
+  };
+
   return (
     <div>
-      <h4 className="text-xl font-extrabold text-yellow-400 mb-4">{title}</h4>
-      <div className="chart-container-cyber">
-        <div className="w-full h-[420px]">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={chartData}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="date" />
-              <YAxis tickFormatter={yTickFormatter} />
-              <Tooltip
-                formatter={(value: any, name) => [
-                  yTickFormatter ? yTickFormatter(Number(value)) : value,
-                  name as string,
-                ]}
-              />
-              <Legend />
-              <Bar dataKey="withCDN" fill="#22c55e" name="With CDN" />
-              <Bar dataKey="withoutCDN" fill="#ef4444" name="Without CDN" />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
+      <p className="text-sm text-muted-foreground mb-3">{title}</p>
+      <div className="w-full h-[420px]">
+        <ChartContainer config={chartConfig} className="min-h-[200px] max-h-[420px]  w-full">
+          <BarChart data={chartData} margin={{ left: 30, top: 20 }}>
+            <CartesianGrid strokeDasharray="3 3" />
+            <XAxis dataKey="date" />
+            <YAxis tickFormatter={yTickFormatter} fontSize={12} />
+            <ChartTooltip content={<ChartTooltipContent />} />
+            <Legend />
+            <Bar dataKey="withCDN" fill="var(--chart-1)" name="With CDN" radius={6} maxBarSize={100} />
+            <Bar dataKey="withoutCDN" fill="var(--chart-5)" name="Without CDN" radius={6} maxBarSize={100} />
+          </BarChart>
+        </ChartContainer>
       </div>
     </div>
   );
@@ -99,48 +87,54 @@ function ThroughputLineChart({
 }) {
   const chartData = transformThroughputData(data);
 
+  const chartConfig = {
+    ingestWithCDN: { label: "Ingest (CDN)", color: "var(--chart-1)" },
+    ingestWithoutCDN: { label: "Ingest (Direct)", color: "var(--chart-3)" },
+    retrievalWithCDN: { label: "Retrieval (CDN)", color: "var(--chart-2)" },
+    retrievalWithoutCDN: { label: "Retrieval (Direct)", color: "var(--chart-5)" },
+  };
+
   return (
     <div>
-      <h4 className="text-xl font-extrabold text-yellow-400 mb-4">THROUGHPUT TRENDS (DAILY)</h4>
-      <div className="chart-container-cyber">
-        <div className="w-full h-[420px]">
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={chartData}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="date" />
-              <YAxis tickFormatter={yTickFormatter} />
-              <Tooltip
-                formatter={(value: any, name) => [
-                  yTickFormatter ? yTickFormatter(Number(value)) : value,
-                  name as string,
-                ]}
-              />
-              <Legend />
-              <Line type="monotone" dataKey="ingestWithCDN" stroke="#22c55e" strokeWidth={3} name="Ingest (CDN)" />
-              <Line
-                type="monotone"
-                dataKey="ingestWithoutCDN"
-                stroke="#ef4444"
-                strokeWidth={3}
-                name="Ingest (Direct)"
-              />
-              <Line
-                type="monotone"
-                dataKey="retrievalWithCDN"
-                stroke="#3b82f6"
-                strokeWidth={3}
-                name="Retrieval (CDN)"
-              />
-              <Line
-                type="monotone"
-                dataKey="retrievalWithoutCDN"
-                stroke="#f59e0b"
-                strokeWidth={3}
-                name="Retrieval (Direct)"
-              />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
+      <p className="text-sm text-muted-foreground mb-3">Throughput trends (daily)</p>
+      <div className="w-full h-[420px]">
+        <ChartContainer config={chartConfig} className="min-h-[200px] max-h-[420px]  w-full">
+          <LineChart data={chartData} margin={{ left: 30, top: 20 }}>
+            <CartesianGrid strokeDasharray="3 3" />
+            <XAxis dataKey="date" />
+            <YAxis tickFormatter={yTickFormatter} fontSize={12} />
+            <ChartTooltip content={<ChartTooltipContent />} />
+            <Legend />
+            <Line
+              type="monotone"
+              dataKey="ingestWithCDN"
+              stroke="var(--color-ingestWithCDN)"
+              name="Ingest (CDN)"
+              strokeWidth={2}
+            />
+            <Line
+              type="monotone"
+              dataKey="ingestWithoutCDN"
+              stroke="var(--color-ingestWithoutCDN)"
+              name="Ingest (Direct)"
+              strokeWidth={2}
+            />
+            <Line
+              type="monotone"
+              dataKey="retrievalWithCDN"
+              stroke="var(--color-retrievalWithCDN)"
+              name="Retrieval (CDN)"
+              strokeWidth={2}
+            />
+            <Line
+              type="monotone"
+              dataKey="retrievalWithoutCDN"
+              stroke="var(--color-retrievalWithoutCDN)"
+              name="Retrieval (Direct)"
+              strokeWidth={2}
+            />
+          </LineChart>
+        </ChartContainer>
       </div>
     </div>
   );

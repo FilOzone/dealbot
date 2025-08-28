@@ -1,5 +1,6 @@
-import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend, CartesianGrid } from "recharts";
+import { LineChart, Line, XAxis, YAxis, Legend, CartesianGrid } from "recharts";
 import type { ProviderDailyMetricDto, DailyMetricDto } from "../types/stats";
+import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "./ui/chart";
 
 function short(addr: string) {
   return addr.length > 12 ? `${addr.slice(0, 6)}…${addr.slice(-4)}` : addr;
@@ -76,37 +77,35 @@ function ProviderTrendChart({
   const providerList = Array.from(providers);
   const colors = getProviderColors(providerList);
 
+  const chartConfig = providerList.reduce((acc, provider) => {
+    acc[provider] = { label: provider, color: colors[providerList.indexOf(provider)] };
+    return acc;
+  }, {} as ChartConfig);
+
   return (
     <div>
-      <h4 className="text-xl font-extrabold text-yellow-400 mb-4">{title}</h4>
-      <div className="chart-container-cyber">
-        <div className="w-full h-[420px]">
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={chartData}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="date" />
-              <YAxis tickFormatter={yTickFormatter} />
-              <Tooltip
-                formatter={(value: any, name) => [
-                  yTickFormatter ? yTickFormatter(Number(value)) : value,
-                  name as string,
-                ]}
+      <p className="text-sm text-muted-foreground mb-3">{title}</p>
+      <div className="w-full h-[420px]">
+        <ChartContainer config={chartConfig} className="min-h-[200px] max-h-[420px]  w-full">
+          <LineChart data={chartData} margin={{ left: 30, top: 10 }}>
+            <CartesianGrid strokeDasharray="3 3" />
+            <XAxis dataKey="date" />
+            <YAxis tickFormatter={yTickFormatter} fontSize={12} />
+            <ChartTooltip content={<ChartTooltipContent indicator="line" />} />
+            <Legend />
+            {providerList.map((provider, index) => (
+              <Line
+                key={provider}
+                type="monotone"
+                dataKey={provider}
+                stroke={colors[index]}
+                strokeWidth={2}
+                name={provider}
+                connectNulls={false}
               />
-              <Legend />
-              {providerList.map((provider, index) => (
-                <Line
-                  key={provider}
-                  type="monotone"
-                  dataKey={provider}
-                  stroke={colors[index]}
-                  strokeWidth={2}
-                  name={provider}
-                  connectNulls={false}
-                />
-              ))}
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
+            ))}
+          </LineChart>
+        </ChartContainer>
       </div>
     </div>
   );
