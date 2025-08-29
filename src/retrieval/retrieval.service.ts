@@ -85,7 +85,7 @@ export class RetrievalService {
     return results;
   }
 
-  private async performRetrieval(deal: Deal): Promise<Retrieval | undefined> {
+  private async performRetrieval(deal: Deal): Promise<Retrieval> {
     const retrieval = new Retrieval({
       cid: deal.cid,
       storageProvider: deal.storageProvider,
@@ -175,6 +175,8 @@ export class RetrievalService {
         return savedRetrieval;
       } catch (error) {
         this.logger.warn(`Failed to record retrieval metrics: ${error.message}`);
+
+        return retrieval;
       }
     }
   }
