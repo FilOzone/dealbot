@@ -41,8 +41,6 @@ export function ProviderBarChart({
     return acc;
   }, {} as ChartConfig);
 
-  console.log(chartConfig, chartData);
-
   return (
     <div className="w-full ">
       <ChartContainer config={chartConfig} className="min-h-[200px] max-h-[420px]  w-full">
