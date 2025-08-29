@@ -1,10 +1,13 @@
-import { useState } from "react";
 import { useOverallStats } from "./hooks/useOverallStats";
+import { useDailyStats } from "./hooks/useDailyStats";
 import { ProviderBarChart } from "./components/ProviderBarChart";
 import { SummaryCards } from "./components/SummaryCards";
-import { MetricSelector } from "./components/MetricSelector";
+import { DailyMetricsCharts } from "./components/DailyMetricsCharts";
+import { ProviderDailyComparison } from "./components/ProviderDailyComparison";
 import { ErrorState } from "./components/ErrorState";
 import { Skeleton } from "./components/Skeleton";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./components/ui/card";
+import { ModeToggle } from "./components/mode-toggle";
 
 export type MetricKey =
   | "dealSuccessRate"
@@ -13,15 +16,16 @@ export type MetricKey =
   | "chainLatency"
   | "dealLatency"
   | "retrievalLatency"
+  | "ingestThroughput"
   | "retrievalThroughput"
   | "totalDeals"
   | "totalRetrievals";
 
 export default function App() {
   const { data, loading, error, refetch } = useOverallStats();
-  const [metric, setMetric] = useState<MetricKey>("dealSuccessRate");
+  const { data: dailyData, loading: dailyLoading, error: dailyError } = useDailyStats();
 
-  if (loading) return <Skeleton />;
+  if (loading || dailyLoading) return <Skeleton />;
   if (error)
     return (
       <div className="p-6">
@@ -32,109 +36,164 @@ export default function App() {
 
   const providers = data.overallStats.providerPerformance;
 
-  return (
-    <div className="min-h-screen cyber-bg" data-theme="cyberpunk">
-      {/* Animated background particles */}
-      <div className="fixed inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute top-1/4 left-1/4 w-2 h-2 bg-yellow-400 rounded-full animate-pulse opacity-60"></div>
-        <div className="absolute top-3/4 right-1/4 w-1 h-1 bg-yellow-300 rounded-full animate-ping opacity-40"></div>
-        <div className="absolute top-1/2 left-3/4 w-1.5 h-1.5 bg-yellow-500 rounded-full animate-pulse opacity-50"></div>
-        <div className="absolute top-1/3 right-1/3 w-1 h-1 bg-yellow-400 rounded-full animate-ping opacity-30"></div>
-      </div>
+  // formatters for Y-axis and tooltip
+  const fmtNum = (v: number) => v.toLocaleString();
+  const fmtMs = (v: number) => `${Math.round(v)} ms`;
+  const fmtPct = (v: number) => `${v.toFixed(2)}%`;
 
-      <header className="cyber-header sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-6 py-4">
+  return (
+    <div className="min-h-screen bg-background text-foreground">
+      <header className="sticky top-0 z-50 border-b bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+        <div className="container mx-auto px-6 py-4">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <div className="relative">
-                <div className="w-12 h-12 bg-gradient-to-br from-yellow-400 to-yellow-600 rounded-xl flex items-center justify-center animate-glow">
-                  <span className="text-black font-black text-lg">DB</span>
-                </div>
-                <div className="absolute -top-1 -right-1 w-4 h-4 bg-yellow-400 rounded-full animate-ping"></div>
+            <div className="flex items-center gap-3">
+              <div className="h-9 w-9 rounded-md bg-primary/20 flex items-center justify-center text-primary font-bold">
+                DB
               </div>
               <div>
-                <h1 className="text-3xl font-black cyber-text-glow text-yellow-400">MINI DEAL BOT</h1>
-                <p className="text-yellow-300/60 text-sm font-medium">FILECOIN STORAGE PROVIDER METRICS</p>
+                <h1 className="text-lg font-semibold tracking-tight">Deal Bot</h1>
+                <p className="text-xs text-muted-foreground">Filecoin storage provider metrics</p>
               </div>
             </div>
+            <ModeToggle />
           </div>
         </div>
       </header>
 
-      <main className="relative z-10 p-8 space-y-12 max-w-7xl mx-auto">
-        <div className="text-center py-8 relative">
-          <div className="absolute inset-0 bg-gradient-to-r from-transparent via-yellow-400/5 to-transparent"></div>
-          <p className="text-yellow-300/80 text-xl font-medium relative z-10">
-            Automated deal creation & storage performance monitoring
-          </p>
-          <div className="mt-6 flex justify-center">
-            <div className="w-32 h-1 bg-gradient-to-r from-transparent via-yellow-400 to-transparent"></div>
-          </div>
+      <main className="relative z-10 container mx-auto px-6 py-8 space-y-8">
+        <div className="text-center py-6">
+          <p className="text-sm text-muted-foreground">Automated deal creation & storage performance monitoring</p>
         </div>
 
         <SummaryCards stats={data.overallStats} />
 
-        <section className="glass-card-cyber relative overflow-hidden">
-          <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-yellow-400/0 via-yellow-400/60 to-yellow-400/0"></div>
-          <div className="p-8">
-            <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6 mb-8">
-              <div className="relative">
-                <h3 className="text-3xl font-bold cyber-text-glow text-yellow-400 mb-2">
-                  STORAGE PROVIDER PERFORMANCE
-                </h3>
-                <p className="text-yellow-300/70 text-lg">
-                  Deal success rates, latency metrics & retrieval performance
-                </p>
-                <div className="absolute -left-4 top-0 w-1 h-full bg-gradient-to-b from-yellow-400/60 to-transparent"></div>
-              </div>
-              <MetricSelector value={metric} onChange={setMetric} />
+        <Card>
+          <CardHeader>
+            <CardTitle>Storage provider performance</CardTitle>
+            <CardDescription>Counts, latency, success rates, and throughput comparisons</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-10">
+            {/* Counts */}
+            <div>
+              <h4 className="text-sm font-medium mb-2">Total counts</h4>
+              <ProviderBarChart
+                data={providers}
+                series={[
+                  { key: "totalDeals", color: "var(--chart-1)", label: "Total Deals" },
+                  { key: "totalRetrievals", color: "var(--chart-2)", label: "Total Retrievals" },
+                ]}
+                yTickFormatter={fmtNum}
+              />
             </div>
-            <div className="chart-container-cyber">
-              <ProviderBarChart data={providers} metric={metric} />
+
+            {/* Latencies */}
+            <div>
+              <h4 className="text-sm font-medium mb-2">Latency (ms)</h4>
+              <ProviderBarChart
+                data={providers}
+                series={[
+                  { key: "ingestLatency", color: "var(--chart-1)", label: "Ingest" },
+                  { key: "chainLatency", color: "var(--chart-2)", label: "Chain" },
+                  { key: "dealLatency", color: "var(--chart-3)", label: "Deal" },
+                  { key: "retrievalLatency", color: "var(--chart-4)", label: "Retrieval" },
+                ]}
+                yTickFormatter={fmtMs}
+              />
             </div>
-          </div>
-        </section>
+
+            {/* Success Rates */}
+            <div>
+              <h4 className="text-sm font-medium mb-2">Success rates</h4>
+              <ProviderBarChart
+                data={providers}
+                series={[
+                  { key: "dealSuccessRate", color: "var(--chart-1)", label: "Deal Success %" },
+                  { key: "retrievalSuccessRate", color: "var(--chart-2)", label: "Retrieval Success %" },
+                ]}
+                yTickFormatter={fmtPct}
+              />
+            </div>
+
+            {/* Throughput */}
+            <div>
+              <h4 className="text-sm font-medium mb-2">Throughput</h4>
+              <ProviderBarChart
+                data={providers}
+                series={[
+                  { key: "ingestThroughput", color: "var(--chart-1)", label: "Ingest Throughput" },
+                  { key: "retrievalThroughput", color: "var(--chart-2)", label: "Retrieval Throughput" },
+                ]}
+                yTickFormatter={fmtNum}
+              />
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Daily Metrics Section */}
+        {dailyData && dailyData.dailyMetrics.length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Daily metrics trends</CardTitle>
+              <CardDescription>
+                CDN vs Direct performance over time ({dailyData.summary.totalDays} days)
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <DailyMetricsCharts dailyMetrics={dailyData.dailyMetrics} />
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Provider Daily Comparison Section */}
+        {dailyData && dailyData.dailyMetrics.length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Provider performance trends</CardTitle>
+              <CardDescription>
+                Daily performance trends by provider over {dailyData.summary.totalDays} days
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ProviderDailyComparison dailyMetrics={dailyData.dailyMetrics} />
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Daily Error State */}
+        {dailyError && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Daily metrics unavailable</CardTitle>
+              <CardDescription>Unable to load daily metrics data</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ErrorState message={dailyError} onRetry={() => window.location.reload()} />
+            </CardContent>
+          </Card>
+        )}
       </main>
 
-      <footer className="relative z-10 mt-20 py-8 border-t border-yellow-400/20">
-        <div className="max-w-7xl mx-auto px-6">
+      <footer className="relative z-10 mt-20 py-8 border-t">
+        <div className="container mx-auto px-6">
           <div className="flex flex-col lg:flex-row items-center justify-between gap-6">
-            <div className="glass-morphism rounded-2xl p-6">
-              <p className="text-yellow-400 font-bold text-lg cyber-text-glow mb-2">MINI DEAL BOT ANALYTICS</p>
-              <p className="text-yellow-300/60">Automated storage deals on Filecoin Calibration Network</p>
-              <p className="text-yellow-300/40 text-sm mt-1">
+            <div>
+              <p className="text-sm font-semibold">Mini Deal Bot Analytics</p>
+              <p className="text-sm text-muted-foreground">Automated storage deals on Filecoin Calibration Network</p>
+              <p className="text-xs text-muted-foreground mt-1">
                 Creates deals every 30 minutes • CDN A/B testing • Performance tracking
               </p>
             </div>
 
-            <div className="glass-morphism rounded-2xl p-6">
-              <div className="flex items-center gap-3">
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  className="h-6 w-6 text-yellow-400"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth="2"
-                    d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"
-                  />
-                </svg>
-                <div>
-                  <p className="text-yellow-400 font-semibold">Open Source</p>
-                  <a
-                    href="https://github.com/FilOzone/dealbot"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-yellow-300/80 hover:text-yellow-400 transition-colors text-sm cyber-text-glow"
-                  >
-                    github.com/FilOzone/dealbot
-                  </a>
-                </div>
-              </div>
+            <div>
+              <p className="text-sm font-medium">Open Source</p>
+              <a
+                href="https://github.com/FilOzone/dealbot"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+              >
+                github.com/FilOzone/dealbot
+              </a>
             </div>
           </div>
         </div>

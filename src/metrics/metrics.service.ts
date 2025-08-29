@@ -139,6 +139,11 @@ export class MetricsService implements IMetricsService {
         deal.ingestLatency ? [deal.ingestLatency] : [],
         existing?.totalCalls || 0,
       ),
+      avgIngestThroughput: this.calculateRunningAverage(
+        existing?.avgIngestThroughput,
+        deal.ingestThroughput ? [deal.ingestThroughput] : [],
+        existing?.totalCalls || 0,
+      ),
       avgChainLatency: this.calculateRunningAverage(
         existing?.avgChainLatency,
         deal.chainLatency ? [deal.chainLatency] : [],
@@ -176,9 +181,11 @@ export class MetricsService implements IMetricsService {
         latencies,
         existing?.totalCalls || 0,
       ),
-      avgThroughput: this.calculateRunningAverage(existing?.avgThroughput, throughputs, existing?.totalCalls || 0),
-      minThroughput: this.calculateMin(existing?.minThroughput, throughputs),
-      maxThroughput: this.calculateMax(existing?.maxThroughput, throughputs),
+      avgRetrievalThroughput: this.calculateRunningAverage(
+        existing?.avgRetrievalThroughput,
+        throughputs,
+        existing?.totalCalls || 0,
+      ),
       responseCodeCounts,
     };
   }

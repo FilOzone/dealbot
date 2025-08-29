@@ -4,19 +4,8 @@ import { SchedulerRegistry } from "@nestjs/schedule";
 import { CronJob } from "cron";
 import { DealService } from "../deal/deal.service.js";
 import { RetrievalService } from "../retrieval/retrieval.service.js";
+import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
 import { IAppConfig } from "../config/app.config.js";
-import { getProviderCount } from "../common/providers.js";
-import { JsonRpcProvider } from "ethers";
-import { CONTRACT_ADDRESSES, PaymentsService, RPC_URLS, WarmStorageService, TIME_CONSTANTS } from "@filoz/synapse-sdk";
-import { Wallet } from "ethers";
-import type {
-  WalletServices,
-  StorageRequirements,
-  WalletStatusLog,
-  FundDepositLog,
-  TransactionLog,
-  ServiceApprovalLog,
-} from "./scheduler.types.js";
 
 @Injectable()
 export class SchedulerService implements OnModuleInit {
@@ -29,6 +18,7 @@ export class SchedulerService implements OnModuleInit {
     private retrievalService: RetrievalService,
     private readonly configService: ConfigService<IAppConfig>,
     private schedulerRegistry: SchedulerRegistry,
+    private walletSdkService: WalletSdkService,
   ) {}
 
   async onModuleInit() {
@@ -39,7 +29,7 @@ export class SchedulerService implements OnModuleInit {
     this.logger.log("Initializing wallet allowances and scheduler...");
 
     try {
-      await this.ensureWalletAllowances();
+      await this.walletSdkService.ensureWalletAllowances();
       this.setupDynamicCronJobs();
       this.logger.log("Wallet and scheduler initialization completed successfully");
     } catch (error) {
@@ -49,150 +39,6 @@ export class SchedulerService implements OnModuleInit {
       });
       throw error;
     }
-  }
-
-  private async ensureWalletAllowances(): Promise<void> {
-    const { paymentsService, warmStorageService } = await this.setupWalletServices();
-    const requirements = await this.calculateStorageRequirements(paymentsService, warmStorageService);
-
-    this.logWalletStatus(requirements);
-
-    if (this.requiresTopUp(requirements)) {
-      await this.handleInsufficientFunds(paymentsService, requirements);
-    }
-
-    if (this.requiresApproval(requirements)) {
-      await this.approveStorageService(paymentsService, requirements);
-    }
-  }
-
-  private async setupWalletServices(): Promise<WalletServices> {
-    const walletConfig = this.configService.get("blockchain", { infer: true });
-    if (!walletConfig?.walletPrivateKey) {
-      throw new Error("Wallet private key not configured");
-    }
-
-    const provider = new JsonRpcProvider(RPC_URLS.calibration.http);
-    const signer = new Wallet(walletConfig.walletPrivateKey, provider);
-    const paymentsService = new PaymentsService(provider, signer, "calibration", false);
-    const warmStorageService = new WarmStorageService(
-      provider,
-      CONTRACT_ADDRESSES.WARM_STORAGE.calibration,
-      CONTRACT_ADDRESSES.PDP_VERIFIER.calibration,
-    );
-
-    return { paymentsService, warmStorageService };
-  }
-
-  private async calculateStorageRequirements(
-    paymentsService: PaymentsService,
-    warmStorageService: WarmStorageService,
-  ): Promise<StorageRequirements> {
-    const STORAGE_SIZE_GB = 100;
-    const APPROVAL_DURATION_MONTHS = 6n;
-    const datasetCreationFees = this.calculateDatasetCreationFees();
-
-    const [accountInfo, storageCheck, serviceApprovals] = await Promise.all([
-      paymentsService.accountInfo(),
-      warmStorageService.checkAllowanceForStorage(STORAGE_SIZE_GB * 1024 * 1024 * 1024, true, paymentsService),
-      paymentsService.serviceApproval(CONTRACT_ADDRESSES.WARM_STORAGE.calibration),
-    ]);
-
-    return {
-      accountInfo,
-      storageCheck,
-      serviceApprovals,
-      datasetCreationFees,
-      totalRequiredFunds: storageCheck.costs.perMonth * APPROVAL_DURATION_MONTHS + datasetCreationFees,
-      approvalDuration: BigInt(TIME_CONSTANTS.EPOCHS_PER_MONTH * APPROVAL_DURATION_MONTHS), // 6 months in epochs
-    };
-  }
-
-  private calculateDatasetCreationFees(): bigint {
-    const minDataSetPerSP = 2n; // withCDN & withoutCDN
-    const datasetCreationFees = 1n * 10n ** 17n; // 0.1 USDFC
-    return minDataSetPerSP * datasetCreationFees * BigInt(getProviderCount());
-  }
-
-  private logWalletStatus(requirements: StorageRequirements): void {
-    const logData: WalletStatusLog = {
-      availableFunds: requirements.accountInfo.funds.toString(),
-      requiredMonthlyFunds: requirements.storageCheck.costs.perMonth.toString(),
-      datasetCreationFees: requirements.datasetCreationFees.toString(),
-      totalRequired: requirements.totalRequiredFunds.toString(),
-      providerCount: getProviderCount(),
-    };
-
-    this.logger.log("Wallet status check completed", logData);
-  }
-
-  private requiresTopUp(requirements: StorageRequirements): boolean {
-    return requirements.accountInfo.funds < requirements.totalRequiredFunds;
-  }
-
-  private requiresApproval(requirements: StorageRequirements): boolean {
-    return (
-      requirements.serviceApprovals.rateAllowance < requirements.storageCheck.rateAllowanceNeeded ||
-      requirements.serviceApprovals.lockupAllowance <
-        requirements.storageCheck.lockupAllowanceNeeded + requirements.datasetCreationFees
-    );
-  }
-
-  private async handleInsufficientFunds(
-    paymentsService: PaymentsService,
-    requirements: StorageRequirements,
-  ): Promise<void> {
-    const depositAmount = requirements.totalRequiredFunds - requirements.accountInfo.funds;
-
-    const depositLog: FundDepositLog = {
-      currentFunds: requirements.accountInfo.funds.toString(),
-      requiredFunds: requirements.totalRequiredFunds.toString(),
-      depositAmount: depositAmount.toString(),
-    };
-
-    this.logger.log("Depositing additional funds", depositLog);
-
-    const depositTx = await paymentsService.deposit(depositAmount);
-    await depositTx.wait();
-
-    const successLog: TransactionLog = {
-      transactionHash: depositTx.hash,
-      depositAmount: depositAmount.toString(),
-    };
-
-    this.logger.log("Funds deposited successfully", successLog);
-  }
-
-  private async approveStorageService(
-    paymentsService: PaymentsService,
-    requirements: StorageRequirements,
-  ): Promise<void> {
-    const contractAddress = CONTRACT_ADDRESSES.WARM_STORAGE.calibration;
-
-    const approvalLog: ServiceApprovalLog = {
-      serviceAddress: contractAddress,
-      rateAllowance: requirements.storageCheck.rateAllowanceNeeded.toString(),
-      lockupAllowance: (requirements.storageCheck.lockupAllowanceNeeded + requirements.datasetCreationFees).toString(),
-      durationMonths: 6,
-    };
-
-    this.logger.log("Approving storage service allowances", approvalLog);
-
-    const approveTx = await paymentsService.approveService(
-      contractAddress,
-      requirements.storageCheck.rateAllowanceNeeded,
-      requirements.storageCheck.lockupAllowanceNeeded + requirements.datasetCreationFees,
-      requirements.approvalDuration,
-    );
-
-    await approveTx.wait();
-
-    const successLog: TransactionLog = {
-      transactionHash: approveTx.hash,
-      serviceAddress: contractAddress,
-    };
-
-    this.logger.log("Storage service approved successfully", successLog);
   }
 
   private setupDynamicCronJobs() {
@@ -253,6 +99,7 @@ export class SchedulerService implements OnModuleInit {
     this.logger.log("Starting scheduled deal creation for all providers");
 
     try {
+      await this.walletSdkService.loadApprovedProviders();
       const deals = await this.dealService.createDealsForAllProviders();
       this.logger.log(`Scheduled deal creation completed for ${deals.length} deals`);
     } catch (error) {
@@ -272,7 +119,7 @@ export class SchedulerService implements OnModuleInit {
     this.logger.log("Starting scheduled retrieval tests");
 
     try {
-      const result = await this.retrievalService.performRandomBatchRetrievals(getProviderCount());
+      const result = await this.retrievalService.performRandomBatchRetrievals(this.walletSdkService.getProviderCount());
       this.logger.log(`Scheduled retrieval tests completed for ${result.length} retrievals`);
     } catch (error) {
       this.logger.error("Failed to perform scheduled retrievals", error);

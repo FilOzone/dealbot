@@ -22,6 +22,7 @@ export class Deal {
   ingestLatency?: number; // milliseconds
   chainLatency?: number; // milliseconds
   dealLatency?: number; // milliseconds
+  ingestThroughput?: number; // bytes/second
 
   // Error tracking
   errorMessage?: string;
@@ -53,6 +54,14 @@ export class Deal {
   calculateDealLatency(): void {
     if (this.uploadStartTime && this.dealConfirmedTime) {
       this.dealLatency = this.dealConfirmedTime.getTime() - this.uploadStartTime.getTime();
+    }
+  }
+
+  calculateIngestThroughput(): void {
+    if (this.uploadStartTime && this.uploadEndTime) {
+      this.ingestThroughput = Math.round(
+        this.fileSize / ((this.uploadEndTime.getTime() - this.uploadStartTime.getTime()) / 1000),
+      );
     }
   }
 }

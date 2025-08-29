@@ -2,9 +2,10 @@ import { Module } from "@nestjs/common";
 import { RetrievalService } from "./retrieval.service.js";
 import { InfrastructureModule } from "../infrastructure/infrastructure.module.js";
 import { MetricsModule } from "../metrics/metrics.module.js";
+import { WalletSdkModule } from "../wallet-sdk/wallet-sdk.module.js";
 
 @Module({
-  imports: [InfrastructureModule, MetricsModule],
+  imports: [InfrastructureModule, MetricsModule, WalletSdkModule],
   providers: [RetrievalService],
   exports: [RetrievalService],
 })

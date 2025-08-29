@@ -28,6 +28,12 @@ export class StorageProviderRepository implements IStorageProviderRepository {
     return this.toDomain(updated);
   }
 
+  async upsert(provider: StorageProvider): Promise<StorageProvider> {
+    const entity = this.toEntity(provider);
+    const saved = await this.repository.upsert(entity, ["address"]);
+    return this.toDomain(saved.identifiers[0] as StorageProviderEntity);
+  }
+
   async findByAddress(address: string): Promise<StorageProvider | null> {
     const entity = await this.repository.findOne({ where: { address } });
     return entity ? this.toDomain(entity) : null;

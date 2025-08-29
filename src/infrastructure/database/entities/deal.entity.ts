@@ -60,6 +60,9 @@ export class DealEntity {
   ingestLatency!: number;
 
   @Column({ nullable: true, type: "int" })
+  ingestThroughput!: number;
+
+  @Column({ nullable: true, type: "int" })
   chainLatency!: number;
 
   @Column({ nullable: true, type: "int" })

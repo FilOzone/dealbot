@@ -1,5 +1,5 @@
+import { ApprovedProviderInfo } from "@filoz/synapse-sdk";
 import { Hex } from "../../common/types.js";
-import { DataSourceType } from "../enums/deal-status.enum.js";
 
 export interface UploadResult {
   commP: any;
@@ -30,9 +30,7 @@ export interface RetrievalResult {
 }
 
 export interface CreateDealInput {
-  dataSource: DataSourceType;
   enableCDN: boolean;
-  storageProviderAddress: Hex;
-  minFileSize: number;
-  maxFileSize: number;
+  provider: ApprovedProviderInfo;
+  dataFile: DataFile;
 }

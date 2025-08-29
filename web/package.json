@@ -10,11 +10,16 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@radix-ui/react-slot": "^1.2.3",
     "@tailwindcss/vite": "^4.1.12",
-    "daisyui": "^5.0.50",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "lucide-react": "^0.460.0",
+    "next-themes": "^0.3.0",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
-    "recharts": "^3.1.2",
+    "recharts": "^2.15.4",
+    "tailwind-merge": "^2.6.0",
     "tailwindcss": "^4.1.12"
   },
   "devDependencies": {
@@ -29,5 +34,8 @@
     "typescript": "~5.8.3",
     "typescript-eslint": "^8.39.1",
     "vite": "^7.1.2"
+  },
+  "overrides": {
+    "react-is": "^19.1.1-rc-69d4b800-20241021"
   }
 }

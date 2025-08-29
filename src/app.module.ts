@@ -20,7 +20,7 @@ import { join } from "path";
     }),
     ServeStaticModule.forRoot({
       rootPath: join(process.cwd(), "web", "dist"),
-      exclude: ["/api*"],
+      exclude: ["/api/{*test}"],
     }),
     InfrastructureModule,
     SchedulerModule,
