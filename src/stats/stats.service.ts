@@ -14,8 +14,8 @@ import { OperationType } from "../infrastructure/database/entities/daily-metrics
 import { Between } from "typeorm";
 
 @Injectable()
-export class OverallStatsService {
-  private readonly logger = new Logger(OverallStatsService.name);
+export class StatsService {
+  private readonly logger = new Logger(StatsService.name);
 
   constructor(
     @InjectRepository(StorageProviderEntity)

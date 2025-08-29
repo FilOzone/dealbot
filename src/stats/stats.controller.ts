@@ -1,21 +1,17 @@
-import { Controller, Get, Logger, Query, BadRequestException } from "@nestjs/common";
-import { OverallStatsService } from "./stats.service.js";
+import { Controller, Get, Query, BadRequestException } from "@nestjs/common";
+import { StatsService } from "./stats.service.js";
 import { OverallStatsResponseDto, DailyMetricsResponseDto } from "./stats.dto.js";
 
 @Controller("api/stats")
 export class StatsController {
-  private readonly logger = new Logger(StatsController.name);
-
-  constructor(private readonly overallStatsService: OverallStatsService) {}
+  constructor(private readonly statsService: StatsService) {}
 
   /**
    * Get overall statistics for all storage providers
    */
   @Get("overall")
   async getOverallStats(): Promise<OverallStatsResponseDto> {
-    this.logger.log("Fetching overall statistics");
-
-    const overallStats = await this.overallStatsService.getOverallStats();
+    const overallStats = await this.statsService.getOverallStats();
 
     return {
       overallStats,
@@ -32,8 +28,6 @@ export class StatsController {
     @Query("startDate") startDateStr?: string,
     @Query("endDate") endDateStr?: string,
   ): Promise<DailyMetricsResponseDto> {
-    this.logger.log(`Fetching daily metrics from ${startDateStr} to ${endDateStr}`);
-
     // Default to last 30 days if no dates provided
     const endDate = endDateStr ? new Date(endDateStr) : new Date();
     const startDate = startDateStr ? new Date(startDateStr) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
@@ -53,7 +47,7 @@ export class StatsController {
       throw new BadRequestException("Date range cannot exceed 90 days.");
     }
 
-    const dailyMetrics = await this.overallStatsService.getDailyMetrics(startDate, endDate);
+    const dailyMetrics = await this.statsService.getDailyMetrics(startDate, endDate);
 
     return dailyMetrics;
   }
