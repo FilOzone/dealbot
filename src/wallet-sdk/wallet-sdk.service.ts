@@ -9,7 +9,7 @@ import {
   TIME_CONSTANTS,
   ApprovedProviderInfo,
 } from "@filoz/synapse-sdk";
-import { IAppConfig } from "../config/app.config.js";
+import type { IBlockchainConfig, IConfig } from "../config/app.config.js";
 import type {
   WalletServices,
   StorageRequirements,
@@ -26,7 +26,7 @@ export class WalletSdkService implements OnModuleInit {
   private warmStorageService: WarmStorageService;
   approvedProviders: ApprovedProviderInfo[] = [];
 
-  constructor(private readonly configService: ConfigService<IAppConfig>) {
+  constructor(private readonly configService: ConfigService<IConfig, true>) {
     this.initializeServices();
   }
 
@@ -38,18 +38,15 @@ export class WalletSdkService implements OnModuleInit {
    * Initialize wallet services with provider and signer
    */
   private initializeServices(): void {
-    const walletConfig = this.configService.get("blockchain", { infer: true });
-    if (!walletConfig?.walletPrivateKey) {
-      throw new Error("Wallet private key not configured");
-    }
+    const blockchainConfig = this.configService.get<IBlockchainConfig>("blockchain");
 
-    const provider = new JsonRpcProvider(RPC_URLS.calibration.http);
-    const signer = new Wallet(walletConfig.walletPrivateKey, provider);
-    this.paymentsService = new PaymentsService(provider, signer, "calibration", false);
+    const provider = new JsonRpcProvider(RPC_URLS[blockchainConfig.network].http);
+    const signer = new Wallet(blockchainConfig.walletPrivateKey, provider);
+    this.paymentsService = new PaymentsService(provider, signer, blockchainConfig.network, false);
     this.warmStorageService = new WarmStorageService(
       provider,
-      CONTRACT_ADDRESSES.WARM_STORAGE.calibration,
-      CONTRACT_ADDRESSES.PDP_VERIFIER.calibration,
+      CONTRACT_ADDRESSES.WARM_STORAGE[blockchainConfig.network],
+      CONTRACT_ADDRESSES.PDP_VERIFIER[blockchainConfig.network],
     );
   }
 
@@ -115,6 +112,8 @@ export class WalletSdkService implements OnModuleInit {
     const APPROVAL_DURATION_MONTHS = 6n;
     const datasetCreationFees = this.calculateDatasetCreationFees();
 
+    const blockchainConfig = this.configService.get<IBlockchainConfig>("blockchain");
+
     const [accountInfo, storageCheck, serviceApprovals] = await Promise.all([
       this.paymentsService.accountInfo(),
       this.warmStorageService.checkAllowanceForStorage(
@@ -122,7 +121,7 @@ export class WalletSdkService implements OnModuleInit {
         true,
         this.paymentsService,
       ),
-      this.paymentsService.serviceApproval(CONTRACT_ADDRESSES.WARM_STORAGE.calibration),
+      this.paymentsService.serviceApproval(CONTRACT_ADDRESSES.WARM_STORAGE[blockchainConfig.network]),
     ]);
 
     return {
@@ -206,13 +205,14 @@ export class WalletSdkService implements OnModuleInit {
    * Approve storage service with required allowances
    */
   async approveStorageService(requirements: StorageRequirements): Promise<void> {
-    const contractAddress = CONTRACT_ADDRESSES.WARM_STORAGE.calibration;
+    const blockchainConfig = this.configService.get<IBlockchainConfig>("blockchain");
+    const contractAddress = CONTRACT_ADDRESSES.WARM_STORAGE[blockchainConfig.network];
 
     const approvalLog: ServiceApprovalLog = {
       serviceAddress: contractAddress,
       rateAllowance: requirements.storageCheck.rateAllowanceNeeded.toString(),
       lockupAllowance: (requirements.storageCheck.lockupAllowanceNeeded + requirements.datasetCreationFees).toString(),
-      durationMonths: 6,
+      durationMonths: Number(requirements.approvalDuration / TIME_CONSTANTS.EPOCHS_PER_MONTH),
     };
 
     this.logger.log("Approving storage service allowances", approvalLog);

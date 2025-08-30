@@ -8,25 +8,25 @@ import { DailyMetricsEntity } from "./entities/daily-metrics.entity.js";
 import { DealRepository } from "./repositories/deal.repository.js";
 import { StorageProviderRepository } from "./repositories/storage-provider.repository.js";
 import { RetrievalRepository } from "./repositories/retrieval.repository.js";
-import { IAppConfig } from "../../config/app.config.js";
+import { IAppConfig, IConfig, IDatabaseConfig } from "../../config/app.config.js";
 
 @Module({
   imports: [
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (configService: ConfigService<IAppConfig>) => {
-        const dbConfig = configService.get("database", { infer: true });
-        const appConfig = configService.get("app", { infer: true });
+      useFactory: (configService: ConfigService<IConfig, true>) => {
+        const dbConfig = configService.get<IDatabaseConfig>("database");
+        const appConfig = configService.get<IAppConfig>("app");
         return {
           type: "postgres",
-          host: dbConfig?.host || "localhost",
-          port: dbConfig?.port || 5432,
-          username: dbConfig?.username || "dealbot",
-          password: dbConfig?.password || "dealbot_password",
-          database: dbConfig?.database || "filecoin_dealbot",
+          host: dbConfig.host,
+          port: dbConfig.port,
+          username: dbConfig.username,
+          password: dbConfig.password,
+          database: dbConfig.database,
           entities: [DealEntity, StorageProviderEntity, RetrievalEntity, DailyMetricsEntity],
-          synchronize: appConfig?.env !== "production",
+          synchronize: appConfig.env !== "production",
           logging: false,
         };
       },

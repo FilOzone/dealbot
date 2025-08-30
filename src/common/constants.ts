@@ -1,4 +1,10 @@
-export const CDN_HOSTNAME = "calibration.filcdn.io";
+import { Network } from "./types.js";
+
+export const CDN_HOSTNAMES: Record<Network, string> = {
+  calibration: "calibration.filcdn.io",
+  // TODO: Verify mainnet CDN hostname
+  mainnet: "mainnet.filcdn.io",
+};
 
 export const DEFAULT_LOCAL_DATASETS_PATH = "./datasets";
 

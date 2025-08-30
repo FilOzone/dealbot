@@ -8,7 +8,7 @@ import { DealStatus } from "../domain/enums/deal-status.enum.js";
 import type { CreateDealInput, DataFile } from "../domain/interfaces/external-services.interface.js";
 import type { IDealRepository, IStorageProviderRepository } from "../domain/interfaces/repositories.interface.js";
 import type { IMetricsService } from "../domain/interfaces/metrics.interface.js";
-import type { IAppConfig } from "../config/app.config.js";
+import type { IBlockchainConfig, IConfig } from "../config/app.config.js";
 import {
   type UploadResult,
   Synapse,
@@ -29,7 +29,7 @@ export class DealService {
     @Inject("IDealRepository")
     private readonly dealRepository: IDealRepository,
     private readonly dataSourceService: DataSourceService,
-    private readonly configService: ConfigService<IAppConfig>,
+    private readonly configService: ConfigService<IConfig, true>,
     private readonly walletSdkService: WalletSdkService,
     @Inject("IMetricsService")
     private readonly metricsService: IMetricsService,
@@ -68,7 +68,7 @@ export class DealService {
       storageProvider: providerAddress as Hex,
       withCDN: dealInput.enableCDN,
       status: DealStatus.PENDING,
-      walletAddress: this.configService.get("blockchain").walletAddress,
+      walletAddress: this.configService.get<IBlockchainConfig>("blockchain").walletAddress as Hex,
     });
     let provider: StorageProvider | null = null;
 
@@ -127,9 +127,10 @@ export class DealService {
 
   private async getStorageService(): Promise<Synapse> {
     if (!this.synapse) {
+      const blockchainConfig = this.configService.get<IBlockchainConfig>("blockchain");
       this.synapse = await Synapse.create({
-        privateKey: this.configService.get("blockchain").walletPrivateKey,
-        rpcURL: RPC_URLS.calibration.http,
+        privateKey: blockchainConfig.walletPrivateKey,
+        rpcURL: RPC_URLS[blockchainConfig.network].http,
       });
     }
     return this.synapse;
