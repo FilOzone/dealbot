@@ -1,13 +1,12 @@
 import Joi from "joi";
+import { Network } from "../common/types.js";
+import { DEFAULT_LOCAL_DATASETS_PATH } from "../common/constants.js";
 
 export const configValidationSchema = Joi.object({
   // Application
   NODE_ENV: Joi.string().valid("development", "production", "test").default("development"),
   DEALBOT_PORT: Joi.number().default(3000),
   DEALBOT_HOST: Joi.string().default("127.0.0.1"),
-
-  // Dealbot
-  DEALBOT_LOCAL_DATASETS_PATH: Joi.string().default("./datasets"),
 
   // Database
   DATABASE_HOST: Joi.string().required(),
@@ -17,6 +16,7 @@ export const configValidationSchema = Joi.object({
   DATABASE_NAME: Joi.string().required(),
 
   // Blockchain
+  NETWORK: Joi.string().valid("mainnet", "calibration").default("calibration"),
   WALLET_ADDRESS: Joi.string().required(),
   WALLET_PRIVATE_KEY: Joi.string().required(),
 
@@ -25,47 +25,54 @@ export const configValidationSchema = Joi.object({
   RETRIEVAL_INTERVAL_SECONDS: Joi.number().default(60),
 
   // Kaggle
+  DEALBOT_LOCAL_DATASETS_PATH: Joi.string().default(DEFAULT_LOCAL_DATASETS_PATH),
   KAGGLE_DATASET_TOTAL_PAGES: Joi.number().default(500),
 });
 
 export interface IAppConfig {
-  app: {
-    env: string;
-    port: number;
-    host: string;
-  };
-  dealbot: {
-    localDatasetsPath: string;
-  };
-  database: {
-    host: string;
-    port: number;
-    username: string;
-    password: string;
-    database: string;
-  };
-  blockchain: {
-    walletAddress: string;
-    walletPrivateKey: string;
-  };
-  scheduling: {
-    dealIntervalSeconds: number;
-    retrievalIntervalSeconds: number;
-  };
-  dataset: {
-    totalPages: number;
-  };
+  env: string;
+  port: number;
+  host: string;
 }
 
-export function loadConfig(): IAppConfig {
+export interface IDatabaseConfig {
+  host: string;
+  port: number;
+  username: string;
+  password: string;
+  database: string;
+}
+
+export interface IBlockchainConfig {
+  network: Network;
+  walletAddress: string;
+  walletPrivateKey: string;
+}
+
+export interface ISchedulingConfig {
+  dealIntervalSeconds: number;
+  retrievalIntervalSeconds: number;
+}
+
+export interface IDatasetConfig {
+  totalPages: number;
+  localDatasetsPath: string;
+}
+
+export interface IConfig {
+  app: IAppConfig;
+  database: IDatabaseConfig;
+  blockchain: IBlockchainConfig;
+  scheduling: ISchedulingConfig;
+  dataset: IDatasetConfig;
+}
+
+export function loadConfig(): IConfig {
   return {
     app: {
       env: process.env.NODE_ENV || "development",
       port: parseInt(process.env.DEALBOT_PORT || "3000", 10),
       host: process.env.DEALBOT_HOST || "127.0.0.1",
-    },
-    dealbot: {
-      localDatasetsPath: process.env.DEALBOT_LOCAL_DATASETS_PATH || "./datasets",
     },
     database: {
       host: process.env.DATABASE_HOST || "localhost",
@@ -75,6 +82,7 @@ export function loadConfig(): IAppConfig {
       database: process.env.DATABASE_NAME || "filecoin_dealbot",
     },
     blockchain: {
+      network: (process.env.NETWORK || "calibration") as Network,
       walletAddress: process.env.WALLET_ADDRESS || "0x0000000000000000000000000000000000000000",
       walletPrivateKey: process.env.WALLET_PRIVATE_KEY || "",
     },
@@ -83,6 +91,7 @@ export function loadConfig(): IAppConfig {
       retrievalIntervalSeconds: parseInt(process.env.RETRIEVAL_INTERVAL_SECONDS || "60", 10),
     },
     dataset: {
+      localDatasetsPath: process.env.DEALBOT_LOCAL_DATASETS_PATH || DEFAULT_LOCAL_DATASETS_PATH,
       totalPages: parseInt(process.env.KAGGLE_DATASET_TOTAL_PAGES || "500", 10),
     },
   };

@@ -1,4 +1,9 @@
-export const CDN_HOSTNAME = "calibration.filcdn.io";
+import { Network } from "./types.js";
+
+export const CDN_HOSTNAMES: Record<Network, string> = {
+  calibration: "calibration.filcdn.io",
+  mainnet: "",
+};
 
 export const DEFAULT_LOCAL_DATASETS_PATH = "./datasets";
 

@@ -1,4 +1,5 @@
 import { Injectable, Inject, Logger } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
 import { Retrieval } from "../domain/entities/retrieval.entity.js";
 import { RetrievalStatus } from "../domain/enums/deal-status.enum.js";
 import type {
@@ -8,16 +9,18 @@ import type {
 } from "../domain/interfaces/repositories.interface.js";
 import type { IMetricsService } from "../domain/interfaces/metrics.interface.js";
 import type { RetrievalResult } from "../domain/interfaces/external-services.interface.js";
-import { CDN_HOSTNAME } from "../common/constants.js";
+import { CDN_HOSTNAMES } from "../common/constants.js";
 import type { Hex } from "../common/types.js";
 import { Deal } from "../domain/entities/deal.entity.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
+import type { IBlockchainConfig, IConfig } from "../config/app.config.js";
 
 @Injectable()
 export class RetrievalService {
   private readonly logger = new Logger(RetrievalService.name);
 
   constructor(
+    private readonly configService: ConfigService<IConfig, true>,
     private walletSdkService: WalletSdkService,
     @Inject("IDealRepository")
     private readonly dealRepository: IDealRepository,
@@ -293,8 +296,9 @@ export class RetrievalService {
   }
 
   private constructRetrievalUrl(withCDN: boolean, walletAddress: string, cid: string, storageProvider: Hex) {
+    const blockchainConfig = this.configService.get<IBlockchainConfig>("blockchain");
     if (withCDN) {
-      return `https://${walletAddress.toLowerCase()}.${CDN_HOSTNAME}/${cid}`;
+      return `https://${walletAddress.toLowerCase()}.${CDN_HOSTNAMES[blockchainConfig.network]}/${cid}`;
     } else {
       const providerDetails = this.walletSdkService.getApprovedProviderInfo(storageProvider);
 

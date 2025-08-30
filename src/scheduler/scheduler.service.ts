@@ -5,7 +5,7 @@ import { CronJob } from "cron";
 import { DealService } from "../deal/deal.service.js";
 import { RetrievalService } from "../retrieval/retrieval.service.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
-import { IAppConfig } from "../config/app.config.js";
+import type { IConfig, ISchedulingConfig } from "../config/app.config.js";
 
 @Injectable()
 export class SchedulerService implements OnModuleInit {
@@ -16,7 +16,7 @@ export class SchedulerService implements OnModuleInit {
   constructor(
     private dealService: DealService,
     private retrievalService: RetrievalService,
-    private readonly configService: ConfigService<IAppConfig>,
+    private readonly configService: ConfigService<IConfig, true>,
     private schedulerRegistry: SchedulerRegistry,
     private walletSdkService: WalletSdkService,
   ) {}
@@ -42,13 +42,7 @@ export class SchedulerService implements OnModuleInit {
   }
 
   private setupDynamicCronJobs() {
-    const config = this.configService.get("scheduling", { infer: true });
-
-    if (!config) {
-      this.logger.error("Scheduling configuration not found, using default intervals");
-      return;
-    }
-
+    const config = this.configService.get<ISchedulingConfig>("scheduling");
     this.logger.log(`Scheduling configuration found: ${JSON.stringify(config)}`);
 
     const dealIntervalSeconds = config.dealIntervalSeconds;

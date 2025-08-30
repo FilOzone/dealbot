@@ -3,8 +3,8 @@ import { Injectable, Logger } from "@nestjs/common";
 import { DataFile } from "../domain/interfaces/external-services.interface.js";
 import * as fs from "fs";
 import * as path from "path";
-import { IAppConfig } from "../config/app.config.js";
-import { DEFAULT_LOCAL_DATASETS_PATH, KAGGLE_BASE_URL } from "../common/constants.js";
+import { IConfig, IDatasetConfig } from "../config/app.config.js";
+import { KAGGLE_BASE_URL } from "../common/constants.js";
 import { IKaggleDataset } from "./types.js";
 
 @Injectable()
@@ -12,8 +12,8 @@ export class DataSourceService {
   private readonly kaggleDatasetsTotalPages: number;
   private readonly logger: Logger;
 
-  constructor(private readonly configService: ConfigService<IAppConfig>) {
-    this.kaggleDatasetsTotalPages = this.configService.get("dataset", { infer: true })?.totalPages || 500;
+  constructor(private readonly configService: ConfigService<IConfig, true>) {
+    this.kaggleDatasetsTotalPages = this.configService.get<IDatasetConfig>("dataset").totalPages;
     this.logger = new Logger(DataSourceService.name);
   }
 
@@ -21,8 +21,7 @@ export class DataSourceService {
     this.logger.log(`Fetching local dataset with min size ${minSize} and max size ${maxSize}`);
 
     try {
-      const datasetsPath =
-        this.configService.get("dealbot", { infer: true })?.localDatasetsPath || DEFAULT_LOCAL_DATASETS_PATH;
+      const datasetsPath = this.configService.get<IDatasetConfig>("dataset").localDatasetsPath;
       const fileNames = await fs.promises.readdir(datasetsPath);
 
       const randomIndex = Math.floor(Math.random() * fileNames.length);
