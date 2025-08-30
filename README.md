@@ -6,7 +6,7 @@
 
 ## Description
 
-Mini Deal Bot is an intelligent automation system that creates storage deals on the Filecoin Calibration Network every 30 minutes. It features automated deal creation across multiple storage providers, CDN A/B testing, comprehensive metrics tracking, and uses local datasets for testing storage and retrieval performance.
+FWSS Deal Bot is an intelligent automation system that creates storage deals on the Filecoin Network every 30 minutes. It features automated deal creation across multiple storage providers, CDN A/B testing, comprehensive metrics tracking, and uses local datasets for testing storage and retrieval performance.
 
 ## Features
 
@@ -15,7 +15,7 @@ Mini Deal Bot is an intelligent automation system that creates storage deals on 
 - **📈 Comprehensive Metrics**: Tracks ingest latency, storage deal performance, and retrieval metrics
 - **🗄️ Local Dataset Support**: Uses pre-loaded datasets (Flickr, Spotify, IMDB) under 250MiB
 - **⚡ Synapse SDK Integration**: Leverages Filecoin's Synapse SDK for seamless storage operations
-- **🔗 Blockchain Integration**: Uses Filecoin Pay contracts on Calibration Network
+- **🔗 Blockchain Integration**: Uses Filecoin Pay contracts on Filecoin Network
 - **🏗️ Clean Architecture**: Built with NestJS following clean code principles
 
 ## Prerequisites
@@ -93,12 +93,11 @@ A single-page React app (Vite + Tailwind + DaisyUI + Recharts) lives in `web/` t
    ```bash
    # in project root
    cp web/.env.example web/.env
-   # if backend host/port differs, update VITE_API_BASE_URL in web/.env
    pnpm -C web install
    pnpm -C web dev
    ```
 
-Open http://localhost:5173. The app calls the backend at `VITE_API_BASE_URL` (default http://127.0.0.1:3000).
+Open http://localhost:5173. The app calls the backend at `VITE_API_BASE_URL` (default http://localhost:8080).
 
 ### Production
 
@@ -125,14 +124,14 @@ From repo root:
 
 ### Environment Variables
 
-| Variable                      | Description              | Default         |
-| ----------------------------- | ------------------------ | --------------- |
-| `NODE_ENV`                    | Environment mode         | `development`   |
-| `DEALBOT_PORT`                | Application port         | `8080`          |
-| `DEALBOT_HOST`                | Application host         | `127.0.0.1`     |
-| `DEAL_INTERVAL_SECONDS`       | Deal creation interval   | `1800` (30 min) |
-| `RETRIEVAL_INTERVAL_SECONDS`  | Retrieval test interval  | `3600` (1 hour) |
-| `DEALBOT_LOCAL_DATASETS_PATH` | Local datasets directory | `./datasets`    |
+| Variable                      | Description              | Default       |
+| ----------------------------- | ------------------------ | ------------- |
+| `NODE_ENV`                    | Environment mode         | `development` |
+| `DEALBOT_PORT`                | Application port         | `3000`        |
+| `DEALBOT_HOST`                | Application host         | `127.0.0.1`   |
+| `DEAL_INTERVAL_SECONDS`       | Deal creation interval   | `30` seconds  |
+| `RETRIEVAL_INTERVAL_SECONDS`  | Retrieval test interval  | `60` seconds  |
+| `DEALBOT_LOCAL_DATASETS_PATH` | Local datasets directory | `./datasets`  |
 
 ### Storage Providers
 
@@ -148,6 +147,57 @@ The bot tracks several key performance indicators:
 - **Storage Success Rate**: Percentage of successful deals
 - **CDN Performance**: A/B test results comparing CDN vs non-CDN deals
 
+## Wallet Operations & Contract Interactions
+
+The bot automatically manages wallet operations, fund deposits, and service approvals for seamless storage operations on the Filecoin network.
+
+### Payment & Storage Contracts
+
+The application interacts with two main smart contracts:
+
+- **Payments Contract**: Handles fund deposits, withdrawals, and service approvals
+- **Warm Storage Contract**: Manages storage deals and provider approvals
+
+### Automated Wallet Management
+
+#### Fund Deposits
+
+- **Automatic Top-ups**: Bot calculates required funds and deposits when balance is insufficient
+- **Storage Costs**: Covers monthly storage fees (100GB capacity) for 6-month periods
+- **Dataset Creation**: Funds creation fees (0.1 USDFC per dataset) across all approved providers
+- **Minimum Datasets**: 2 datasets per provider (with/without CDN for A/B testing)
+
+#### Service Approvals
+
+The bot automatically approves storage services with calculated allowances:
+
+- **Rate Allowance**: Monthly payment authorization for storage operations
+- **Lockup Allowance**: Funds reserved for storage commitments plus dataset creation fees
+- **Duration**: 6-month approval periods (automatically renewed)
+
+#### Provider Management
+
+- **On-chain Discovery**: Loads approved storage providers from blockchain
+- **Dynamic Updates**: Refreshes provider list to include newly approved services
+- **Provider Rotation**: Distributes deals across all available approved providers
+
+### Storage Requirements Calculation
+
+The system calculates comprehensive storage requirements including:
+
+- Monthly storage costs for 100GB capacity
+- Dataset creation fees across all providers
+- Required allowances for rate and lockup operations
+- Total funding needs for 6-month operational periods
+
+### Transaction Monitoring
+
+All wallet operations are logged with detailed transaction information:
+
+- Fund deposit transactions with amounts and confirmation
+- Service approval transactions with allowance details
+- Provider interaction logs with success/failure tracking
+
 ## Architecture
 
 ```
@@ -157,6 +207,12 @@ src/
 ├── dataSource/       # Dataset management and fetching
 ├── deal/            # Core deal creation and management
 ├── domain/          # Business entities, enums, and interfaces
+├── infrastructure/   # External service integrations
+├── metrics/         # Performance and monitoring metrics
+├── retrieval/       # Storage retrieval operations
+├── scheduler/       # Automated task scheduling
+├── stats/           # Statistics and analytics
+├── wallet-sdk/      # Wallet operations and contract interactions
 └── main.ts          # Application entry point
 ```
 
@@ -164,6 +220,11 @@ src/
 
 - **DealService**: Core business logic for deal creation and management
 - **DataSourceService**: Handles local dataset fetching and management
+- **WalletSdkService**: Manages wallet operations, deposits, and contract approvals
+- **MetricsService**: Tracks performance indicators and system health
+- **RetrievalService**: Handles storage retrieval testing and validation
+- **SchedulerService**: Manages automated deal creation and retrieval tasks
+- **StatsService**: Provides analytics and reporting endpoints
 - **Deal Entity**: Represents storage deals with comprehensive tracking
 - **Synapse SDK Integration**: Manages Filecoin storage operations
 
