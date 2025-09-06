@@ -14,7 +14,7 @@ export class StorageProviderEntity {
   @Column()
   payee!: string;
 
-  @Column()
+  @Column({ nullable: true })
   serviceUrl!: string;
 
   @Column({ default: true })

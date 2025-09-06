@@ -5,7 +5,7 @@ export class StorageProvider {
   name!: string;
   description!: string;
   payee!: string;
-  serviceUrl!: string;
+  serviceUrl?: string;
 
   lastDealTime?: Date;
 
