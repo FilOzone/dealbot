@@ -1,5 +1,4 @@
-import { ApprovedProviderInfo } from "@filoz/synapse-sdk";
-import { Hex } from "../../common/types.js";
+import { ProviderInfo } from "@filoz/synapse-sdk";
 
 export interface UploadResult {
   commP: any;
@@ -31,6 +30,6 @@ export interface RetrievalResult {
 
 export interface CreateDealInput {
   enableCDN: boolean;
-  provider: ApprovedProviderInfo;
+  provider: ProviderInfo;
   dataFile: DataFile;
 }

@@ -22,7 +22,7 @@
     "build:web": "pnpm -C web build"
   },
   "dependencies": {
-    "@filoz/synapse-sdk": "0.24.0-dev1",
+    "@filoz/synapse-sdk": "0.24.1",
     "@nestjs/common": "^11.1.5",
     "@nestjs/config": "^4.0.2",
     "@nestjs/core": "^11.1.5",

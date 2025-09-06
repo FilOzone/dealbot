@@ -94,6 +94,14 @@ export class SchedulerService implements OnModuleInit {
 
     try {
       await this.walletSdkService.loadApprovedProviders();
+
+      const providerCount = this.walletSdkService.getProviderCount();
+
+      if (providerCount === 0) {
+        this.logger.warn("No approved providers found, skipping deal creation");
+        return;
+      }
+
       const deals = await this.dealService.createDealsForAllProviders();
       this.logger.log(`Scheduled deal creation completed for ${deals.length} deals`);
     } catch (error) {
@@ -113,7 +121,13 @@ export class SchedulerService implements OnModuleInit {
     this.logger.log("Starting scheduled retrieval tests");
 
     try {
-      const result = await this.retrievalService.performRandomBatchRetrievals(this.walletSdkService.getProviderCount());
+      const providerCount = this.walletSdkService.getProviderCount();
+
+      if (providerCount === 0) {
+        this.logger.warn("No approved providers found, skipping retrieval tests");
+        return;
+      }
+      const result = await this.retrievalService.performRandomBatchRetrievals(providerCount);
       this.logger.log(`Scheduled retrieval tests completed for ${result.length} retrievals`);
     } catch (error) {
       this.logger.error("Failed to perform scheduled retrievals", error);

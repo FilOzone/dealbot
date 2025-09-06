@@ -305,7 +305,12 @@ export class RetrievalService {
       if (!providerDetails) {
         throw new Error(`Provider ${storageProvider} not approved`);
       }
-      return `${providerDetails.serviceURL.replace(/\/$/, "")}/piece/${cid}`;
+
+      if (!providerDetails.products.PDP) {
+        throw new Error(`Provider ${storageProvider} does not support PDP`);
+      }
+
+      return `${providerDetails.products.PDP.data.serviceURL.replace(/\/$/, "")}/piece/${cid}`;
     }
   }
 

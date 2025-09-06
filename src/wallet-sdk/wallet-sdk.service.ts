@@ -1,14 +1,16 @@
 import { Injectable, Logger, OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import { JsonRpcProvider, Wallet } from "ethers";
+import { JsonRpcProvider } from "ethers";
 import {
   CONTRACT_ADDRESSES,
   PaymentsService,
   RPC_URLS,
   WarmStorageService,
   TIME_CONSTANTS,
-  ApprovedProviderInfo,
+  ProviderInfo,
+  Synapse,
 } from "@filoz/synapse-sdk";
+import { SPRegistryService } from "@filoz/synapse-sdk/sp-registry";
 import type { IBlockchainConfig, IConfig } from "../config/app.config.js";
 import type {
   WalletServices,
@@ -24,30 +26,32 @@ export class WalletSdkService implements OnModuleInit {
   private readonly logger = new Logger(WalletSdkService.name);
   private paymentsService: PaymentsService;
   private warmStorageService: WarmStorageService;
-  approvedProviders: ApprovedProviderInfo[] = [];
+  private spRegistry: SPRegistryService;
+  approvedProviders: ProviderInfo[] = [];
 
-  constructor(private readonly configService: ConfigService<IConfig, true>) {
-    this.initializeServices();
-  }
+  constructor(private readonly configService: ConfigService<IConfig, true>) {}
 
   async onModuleInit() {
+    await this.initializeServices();
     await this.loadApprovedProviders();
   }
 
   /**
    * Initialize wallet services with provider and signer
    */
-  private initializeServices(): void {
+  private async initializeServices(): Promise<void> {
     const blockchainConfig = this.configService.get<IBlockchainConfig>("blockchain");
 
+    const synapse = await Synapse.create({
+      privateKey: blockchainConfig.walletPrivateKey,
+      rpcURL: RPC_URLS[blockchainConfig.network].http,
+    });
+
+    const warmStorageAddress = synapse.getWarmStorageAddress();
     const provider = new JsonRpcProvider(RPC_URLS[blockchainConfig.network].http);
-    const signer = new Wallet(blockchainConfig.walletPrivateKey, provider);
-    this.paymentsService = new PaymentsService(provider, signer, blockchainConfig.network, false);
-    this.warmStorageService = new WarmStorageService(
-      provider,
-      CONTRACT_ADDRESSES.WARM_STORAGE[blockchainConfig.network],
-      CONTRACT_ADDRESSES.PDP_VERIFIER[blockchainConfig.network],
-    );
+    this.warmStorageService = await WarmStorageService.create(provider, warmStorageAddress);
+    this.spRegistry = new SPRegistryService(provider, this.warmStorageService.getServiceProviderRegistryAddress());
+    this.paymentsService = synapse.payments;
   }
 
   /**
@@ -56,8 +60,13 @@ export class WalletSdkService implements OnModuleInit {
   async loadApprovedProviders(): Promise<void> {
     try {
       this.logger.log("Loading approved service providers from on-chain...");
-      const providerInfos = await this.warmStorageService.getAllApprovedProviders();
-      this.approvedProviders = providerInfos;
+      const approvedProviderIds = await this.warmStorageService.getApprovedProviderIds();
+
+      for (const id of approvedProviderIds) {
+        const providerInfo = await this.spRegistry.getProvider(id);
+        this.approvedProviders.push(providerInfo!);
+      }
+
       this.logger.log(`Loaded ${this.approvedProviders.length} approved providers from on-chain`);
     } catch (error) {
       this.logger.error("Failed to load approved providers from on-chain", error);
@@ -100,7 +109,7 @@ export class WalletSdkService implements OnModuleInit {
   /**
    * Get approved provider info by address
    */
-  getApprovedProviderInfo(address: string): ApprovedProviderInfo | undefined {
+  getApprovedProviderInfo(address: string): ProviderInfo | undefined {
     return this.approvedProviders.find((provider) => provider.serviceProvider === address);
   }
 
@@ -108,11 +117,11 @@ export class WalletSdkService implements OnModuleInit {
    * Calculate storage requirements including costs and allowances
    */
   async calculateStorageRequirements(): Promise<StorageRequirements> {
+    const blockchainConfig = this.configService.get<IBlockchainConfig>("blockchain");
+
     const STORAGE_SIZE_GB = 100;
     const APPROVAL_DURATION_MONTHS = 6n;
-    const datasetCreationFees = this.calculateDatasetCreationFees();
-
-    const blockchainConfig = this.configService.get<IBlockchainConfig>("blockchain");
+    const datasetCreationFees = blockchainConfig.checkDatasetCreationFees ? this.calculateDatasetCreationFees() : 0n;
 
     const [accountInfo, storageCheck, serviceApprovals] = await Promise.all([
       this.paymentsService.accountInfo(),

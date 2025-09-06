@@ -2,6 +2,9 @@ import { Hex } from "../../common/types.js";
 
 export class StorageProvider {
   address!: Hex;
+  name!: string;
+  description!: string;
+  payee!: string;
   serviceUrl!: string;
 
   lastDealTime?: Date;

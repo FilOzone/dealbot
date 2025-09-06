@@ -6,6 +6,15 @@ export class StorageProviderEntity {
   address!: string;
 
   @Column()
+  name!: string;
+
+  @Column()
+  description!: string;
+
+  @Column()
+  payee!: string;
+
+  @Column()
   serviceUrl!: string;
 
   @Column({ default: true })
