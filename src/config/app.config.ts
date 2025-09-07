@@ -19,6 +19,7 @@ export const configValidationSchema = Joi.object({
   NETWORK: Joi.string().valid("mainnet", "calibration").default("calibration"),
   WALLET_ADDRESS: Joi.string().required(),
   WALLET_PRIVATE_KEY: Joi.string().required(),
+  CHECK_DATASET_CREATION_FEES: Joi.boolean().default(true),
 
   // Scheduling
   DEAL_INTERVAL_SECONDS: Joi.number().default(30),
@@ -47,6 +48,7 @@ export interface IBlockchainConfig {
   network: Network;
   walletAddress: string;
   walletPrivateKey: string;
+  checkDatasetCreationFees: boolean;
 }
 
 export interface ISchedulingConfig {
@@ -85,6 +87,7 @@ export function loadConfig(): IConfig {
       network: (process.env.NETWORK || "calibration") as Network,
       walletAddress: process.env.WALLET_ADDRESS || "0x0000000000000000000000000000000000000000",
       walletPrivateKey: process.env.WALLET_PRIVATE_KEY || "",
+      checkDatasetCreationFees: process.env.CHECK_DATASET_CREATION_FEES === "true",
     },
     scheduling: {
       dealIntervalSeconds: parseInt(process.env.DEAL_INTERVAL_SECONDS || "30", 10),

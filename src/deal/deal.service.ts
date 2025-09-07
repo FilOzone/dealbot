@@ -9,14 +9,7 @@ import type { CreateDealInput, DataFile } from "../domain/interfaces/external-se
 import type { IDealRepository, IStorageProviderRepository } from "../domain/interfaces/repositories.interface.js";
 import type { IMetricsService } from "../domain/interfaces/metrics.interface.js";
 import type { IBlockchainConfig, IConfig } from "../config/app.config.js";
-import {
-  type UploadResult,
-  Synapse,
-  RPC_URLS,
-  SIZE_CONSTANTS,
-  PieceCID,
-  ApprovedProviderInfo,
-} from "@filoz/synapse-sdk";
+import { type UploadResult, Synapse, RPC_URLS, SIZE_CONSTANTS, PieceCID, ProviderInfo } from "@filoz/synapse-sdk";
 import type { Hex } from "../common/types.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
 
@@ -137,7 +130,7 @@ export class DealService {
   }
 
   private async processProvidersInParallel(
-    providers: ApprovedProviderInfo[],
+    providers: ProviderInfo[],
     dataFile: DataFile,
     maxConcurrency: number = 10,
   ): Promise<Array<{ success: boolean; deal?: Deal; error?: string; provider: string }>> {
@@ -176,7 +169,7 @@ export class DealService {
     return results;
   }
 
-  private async createDealForProvider(provider: ApprovedProviderInfo, dataFile: DataFile): Promise<Deal> {
+  private async createDealForProvider(provider: ProviderInfo, dataFile: DataFile): Promise<Deal> {
     // Alternate between CDN enabled and disabled for A/B testing
     const enableCDN = Math.random() > 0.5;
 
@@ -226,7 +219,7 @@ export class DealService {
   /**
    * Track storage provider data - create if doesn't exist, update if exists
    */
-  private async trackStorageProvider(providerInfo: ApprovedProviderInfo, withCDN: boolean): Promise<StorageProvider> {
+  private async trackStorageProvider(providerInfo: ProviderInfo, withCDN: boolean): Promise<StorageProvider> {
     const providerAddress = providerInfo.serviceProvider;
     try {
       let provider = await this.storageProviderRepository.findByAddress(providerAddress);
@@ -234,7 +227,10 @@ export class DealService {
       if (!provider) {
         provider = new StorageProvider({
           address: providerAddress as Hex,
-          serviceUrl: providerInfo.serviceURL,
+          name: providerInfo.name,
+          description: providerInfo.description,
+          payee: providerInfo.payee,
+          serviceUrl: providerInfo.products.PDP?.data.serviceURL,
         });
 
         provider = await this.storageProviderRepository.create(provider);
