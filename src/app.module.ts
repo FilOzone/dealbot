@@ -8,6 +8,7 @@ import { SchedulerModule } from "./scheduler/scheduler.module.js";
 import { MetricsModule } from "./metrics/metrics.module.js";
 import { DataSourceModule } from "./dataSource/dataSource.module.js";
 import { StatsModule } from "./stats/stats.module.js";
+import { AppController } from "./app.controller.js";
 import { ServeStaticModule } from "@nestjs/serve-static";
 import { join } from "path";
 
@@ -30,5 +31,6 @@ import { join } from "path";
     MetricsModule,
     StatsModule,
   ],
+  controllers: [AppController],
 })
 export class AppModule {}
