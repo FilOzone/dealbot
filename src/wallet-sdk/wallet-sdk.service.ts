@@ -61,11 +61,8 @@ export class WalletSdkService implements OnModuleInit {
     try {
       this.logger.log("Loading approved service providers from on-chain...");
       const approvedProviderIds = await this.warmStorageService.getApprovedProviderIds();
-
-      for (const id of approvedProviderIds) {
-        const providerInfo = await this.spRegistry.getProvider(id);
-        this.approvedProviders.push(providerInfo!);
-      }
+      const providerInfos = await Promise.all(approvedProviderIds.map((id) => this.spRegistry.getProvider(id)));
+      this.approvedProviders = providerInfos.filter((info) => info !== null);
 
       this.logger.log(`Loaded ${this.approvedProviders.length} approved providers from on-chain`);
     } catch (error) {
