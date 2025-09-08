@@ -1,6 +1,6 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { Repository } from "typeorm";
+import { Repository, Not, In, Between } from "typeorm";
 import { StorageProviderEntity } from "../infrastructure/database/entities/storage-provider.entity.js";
 import { DailyMetricsEntity } from "../infrastructure/database/entities/daily-metrics.entity.js";
 import {
@@ -9,9 +9,12 @@ import {
   DailyMetricsResponseDto,
   DailyMetricDto,
   ProviderDailyMetricDto,
+  FailedDealsResponseDto,
+  FailedDealDto,
 } from "./stats.dto.js";
+import { DealStatus } from "../domain/enums/deal-status.enum.js";
+import { DealEntity } from "../infrastructure/database/entities/deal.entity.js";
 import { OperationType } from "../infrastructure/database/entities/daily-metrics.entity.js";
-import { Between } from "typeorm";
 
 @Injectable()
 export class StatsService {
@@ -22,6 +25,8 @@ export class StatsService {
     private readonly storageProviderRepository: Repository<StorageProviderEntity>,
     @InjectRepository(DailyMetricsEntity)
     private readonly dailyMetricsRepository: Repository<DailyMetricsEntity>,
+    @InjectRepository(DealEntity)
+    private readonly dealRepository: Repository<DealEntity>,
   ) {}
 
   /**
@@ -747,6 +752,136 @@ export class StatsService {
       totalProviders: allProviders.size,
       totalDeals,
       totalRetrievals,
+    };
+  }
+
+  /**
+   * Get failed deals for a specified date range with error details
+   */
+  async getFailedDeals(startDate: Date, endDate: Date, limit: number = 100): Promise<FailedDealsResponseDto> {
+    try {
+      // Get failed deals (deals that are not successful with error messages)
+      const failedDeals = await this.dealRepository.find({
+        where: {
+          createdAt: Between(startDate, endDate),
+          status: In([DealStatus.FAILED]),
+          errorMessage: Not(""),
+        },
+        order: {
+          createdAt: "DESC",
+        },
+        take: limit,
+      });
+
+      // Map to DTOs
+      const failedDealDtos: FailedDealDto[] = failedDeals.map((deal) => ({
+        id: deal.id,
+        fileName: deal.fileName,
+        fileSize: Number(deal.fileSize),
+        dataSetId: deal.dataSetId,
+        cid: deal.cid || "",
+        dealId: deal.dealId || "",
+        storageProvider: deal.storageProvider,
+        withCDN: deal.withCDN,
+        status: deal.status,
+        errorMessage: deal.errorMessage || "",
+        errorCode: deal.errorCode || "",
+        retryCount: deal.retryCount,
+        createdAt: deal.createdAt,
+        updatedAt: deal.updatedAt,
+        uploadStartTime: deal.uploadStartTime,
+        uploadEndTime: deal.uploadEndTime,
+        pieceAddedTime: deal.pieceAddedTime,
+        dealConfirmedTime: deal.dealConfirmedTime,
+      }));
+
+      // Calculate summary statistics
+      const summary = this.calculateFailedDealsSummary(failedDealDtos);
+
+      return {
+        failedDeals: failedDealDtos,
+        summary,
+        dateRange: {
+          startDate: startDate.toISOString().split("T")[0],
+          endDate: endDate.toISOString().split("T")[0],
+        },
+      };
+    } catch (error) {
+      this.logger.error(`Failed to fetch failed deals: ${error.message}`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Calculate summary statistics for failed deals
+   */
+  private calculateFailedDealsSummary(failedDeals: FailedDealDto[]) {
+    const totalFailedDeals = failedDeals.length;
+    const uniqueProviders = new Set(failedDeals.map((deal) => deal.storageProvider)).size;
+
+    // Count errors by type
+    const errorCounts = new Map<string, { errorMessage: string; count: number }>();
+    failedDeals.forEach((deal) => {
+      const key = `${deal.errorCode}:${deal.errorMessage}`;
+      if (errorCounts.has(key)) {
+        errorCounts.get(key)!.count++;
+      } else {
+        errorCounts.set(key, {
+          errorMessage: deal.errorMessage,
+          count: 1,
+        });
+      }
+    });
+
+    // Get most common errors
+    const mostCommonErrors = Array.from(errorCounts.entries())
+      .map(([key, value]) => ({
+        errorCode: key.split(":")[0],
+        errorMessage: value.errorMessage,
+        count: value.count,
+      }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 10);
+
+    // Count failures by provider
+    const providerFailures = new Map<string, { count: number; errors: string[] }>();
+    failedDeals.forEach((deal) => {
+      if (providerFailures.has(deal.storageProvider)) {
+        const existing = providerFailures.get(deal.storageProvider)!;
+        existing.count++;
+        existing.errors.push(deal.errorMessage);
+      } else {
+        providerFailures.set(deal.storageProvider, {
+          count: 1,
+          errors: [deal.errorMessage],
+        });
+      }
+    });
+
+    // Get failures by provider with most common error for each
+    const failuresByProvider = Array.from(providerFailures.entries())
+      .map(([provider, data]) => {
+        // Find most common error for this provider
+        const errorCounts = new Map<string, number>();
+        data.errors.forEach((error) => {
+          errorCounts.set(error, (errorCounts.get(error) || 0) + 1);
+        });
+        const mostCommonError =
+          Array.from(errorCounts.entries()).sort((a, b) => b[1] - a[1])[0]?.[0] || "Unknown error";
+
+        return {
+          provider,
+          failedDeals: data.count,
+          mostCommonError,
+        };
+      })
+      .sort((a, b) => b.failedDeals - a.failedDeals);
+
+    return {
+      totalFailedDeals,
+      uniqueProviders,
+      mostCommonErrors,
+      failuresByProvider,
     };
   }
 

@@ -5,6 +5,7 @@ export class Deal {
   id!: string;
   fileName!: string;
   fileSize!: number;
+  dataSetId!: number;
   cid!: string;
   dealId!: string;
   pieceSize?: number;

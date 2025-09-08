@@ -4,9 +4,10 @@ import { StatsController } from "./stats.controller.js";
 import { StatsService } from "./stats.service.js";
 import { StorageProviderEntity } from "../infrastructure/database/entities/storage-provider.entity.js";
 import { DailyMetricsEntity } from "../infrastructure/database/entities/daily-metrics.entity.js";
+import { DealEntity } from "../infrastructure/database/entities/deal.entity.js";
 
 @Module({
-  imports: [TypeOrmModule.forFeature([StorageProviderEntity, DailyMetricsEntity])],
+  imports: [TypeOrmModule.forFeature([StorageProviderEntity, DailyMetricsEntity, DealEntity])],
   controllers: [StatsController],
   providers: [StatsService],
   exports: [StatsService],

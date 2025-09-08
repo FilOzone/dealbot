@@ -75,6 +75,7 @@ export class DealService {
         providerAddress,
         withCDN: dealInput.enableCDN,
       });
+      deal.dataSetId = storage.dataSetId;
       deal.uploadStartTime = new Date();
       const uploadResult: UploadResult = await storage.upload(dataFile.data, {
         onUploadComplete: (pieceCid) => {
