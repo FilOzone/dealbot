@@ -86,7 +86,7 @@ function ProviderTrendChart({
     <div>
       <p className="text-sm text-muted-foreground mb-3">{title}</p>
       <div className="w-full h-[420px]">
-        <ChartContainer config={chartConfig} className="min-h-[200px] max-h-[420px]  w-full">
+        <ChartContainer config={chartConfig} className="min-h-[200px] max-h-[420px] h-full w-full">
           <LineChart data={chartData} margin={{ left: 30, top: 10 }}>
             <CartesianGrid strokeDasharray="3 3" />
             <XAxis dataKey="date" />
