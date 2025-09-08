@@ -1,6 +1,6 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { Repository, Not, In, Between } from "typeorm";
+import { Repository, Not, In, Between, IsNull } from "typeorm";
 import { StorageProviderEntity } from "../infrastructure/database/entities/storage-provider.entity.js";
 import { DailyMetricsEntity } from "../infrastructure/database/entities/daily-metrics.entity.js";
 import {
@@ -765,7 +765,7 @@ export class StatsService {
         where: {
           createdAt: Between(startDate, endDate),
           status: In([DealStatus.FAILED]),
-          errorMessage: Not(""),
+          errorMessage: Not(In([IsNull(), ""])),
         },
         order: {
           createdAt: "DESC",
@@ -841,7 +841,7 @@ export class StatsService {
         count: value.count,
       }))
       .sort((a, b) => b.count - a.count)
-      .slice(0, 10);
+      .slice(0, 5);
 
     // Count failures by provider
     const providerFailures = new Map<string, { count: number; errors: string[] }>();

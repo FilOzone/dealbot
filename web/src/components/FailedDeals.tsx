@@ -151,6 +151,18 @@ export function FailedDeals({ data }: FailedDealsProps) {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-2">
                       <h4 className="font-medium truncate">{deal.storageProvider}</h4>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 w-6 p-0"
+                        onClick={() => copyToClipboard(deal.storageProvider, `provider-${deal.id}`)}
+                      >
+                        {copiedId === `provider-${deal.id}` ? (
+                          <Check className="h-3 w-3 text-green-600" />
+                        ) : (
+                          <Copy className="h-3 w-3 cursor-pointer" />
+                        )}
+                      </Button>
                       <Badge variant={getStatusColor(deal.status)}>{deal.status}</Badge>
                       <Badge variant="outline">{deal.withCDN ? "With CDN" : "Without CDN"}</Badge>
                       {deal.retryCount > 0 && (
@@ -166,24 +178,6 @@ export function FailedDeals({ data }: FailedDealsProps) {
                       </div>
                       <div>
                         <span className="font-medium">Created:</span> {formatDate(deal.createdAt)}
-                      </div>
-                      <div className="col-span-2 flex items-center gap-2">
-                        <span className="font-medium">Provider:</span>
-                        <code className="ml-1 text-xs bg-muted px-1 rounded truncate max-w-[150px]">
-                          {deal.storageProvider}
-                        </code>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-4 w-4 p-0 ml-1"
-                          onClick={() => copyToClipboard(deal.storageProvider, `provider-${deal.id}`)}
-                        >
-                          {copiedId === `provider-${deal.id}` ? (
-                            <Check className="h-3 w-3 text-green-600" />
-                          ) : (
-                            <Copy className="h-3 w-3" />
-                          )}
-                        </Button>
                       </div>
                     </div>
 
