@@ -1,6 +1,6 @@
 import { useOverallStats } from "./hooks/useOverallStats";
 import { useDailyStats } from "./hooks/useDailyStats";
-import { ProviderBarChart } from "./components/ProviderBarChart";
+import { ProviderCards } from "./components/ProviderCards";
 import { SummaryCards } from "./components/SummaryCards";
 import { DailyMetricsCharts } from "./components/DailyMetricsCharts";
 import { ProviderDailyComparison } from "./components/ProviderDailyComparison";
@@ -36,10 +36,6 @@ export default function App() {
 
   const providers = data.overallStats.providerPerformance;
 
-  // formatters for Y-axis and tooltip
-  const fmtNum = (v: number) => v.toLocaleString();
-  const fmtMs = (v: number) => `${Math.round(v)} ms`;
-  const fmtPct = (v: number) => `${v.toFixed(2)}%`;
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -70,62 +66,10 @@ export default function App() {
         <Card>
           <CardHeader>
             <CardTitle>Storage provider performance</CardTitle>
-            <CardDescription>Counts, latency, success rates, and throughput comparisons</CardDescription>
+            <CardDescription>Detailed provider information, performance metrics, and statistics</CardDescription>
           </CardHeader>
-          <CardContent className="space-y-10">
-            {/* Counts */}
-            <div>
-              <h4 className="text-sm font-medium mb-2">Total counts</h4>
-              <ProviderBarChart
-                data={providers}
-                series={[
-                  { key: "totalDeals", color: "var(--chart-1)", label: "Total Deals" },
-                  { key: "totalRetrievals", color: "var(--chart-2)", label: "Total Retrievals" },
-                ]}
-                yTickFormatter={fmtNum}
-              />
-            </div>
-
-            {/* Latencies */}
-            <div>
-              <h4 className="text-sm font-medium mb-2">Latency (ms)</h4>
-              <ProviderBarChart
-                data={providers}
-                series={[
-                  { key: "ingestLatency", color: "var(--chart-1)", label: "Ingest" },
-                  { key: "chainLatency", color: "var(--chart-2)", label: "Chain" },
-                  { key: "dealLatency", color: "var(--chart-3)", label: "Deal" },
-                  { key: "retrievalLatency", color: "var(--chart-4)", label: "Retrieval" },
-                ]}
-                yTickFormatter={fmtMs}
-              />
-            </div>
-
-            {/* Success Rates */}
-            <div>
-              <h4 className="text-sm font-medium mb-2">Success rates</h4>
-              <ProviderBarChart
-                data={providers}
-                series={[
-                  { key: "dealSuccessRate", color: "var(--chart-1)", label: "Deal Success %" },
-                  { key: "retrievalSuccessRate", color: "var(--chart-2)", label: "Retrieval Success %" },
-                ]}
-                yTickFormatter={fmtPct}
-              />
-            </div>
-
-            {/* Throughput */}
-            <div>
-              <h4 className="text-sm font-medium mb-2">Throughput</h4>
-              <ProviderBarChart
-                data={providers}
-                series={[
-                  { key: "ingestThroughput", color: "var(--chart-1)", label: "Ingest Throughput" },
-                  { key: "retrievalThroughput", color: "var(--chart-2)", label: "Retrieval Throughput" },
-                ]}
-                yTickFormatter={fmtNum}
-              />
-            </div>
+          <CardContent>
+            <ProviderCards providers={providers} />
           </CardContent>
         </Card>
 

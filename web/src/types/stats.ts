@@ -1,5 +1,11 @@
 export interface ProviderPerformanceDto {
   provider: string;
+  name: string;
+  description: string;
+  serviceUrl: string;
+  payee: string;
+  isActive: boolean;
+  lastDealTime: Date;
   totalDeals: number;
   totalRetrievals: number;
   ingestLatency: number;
