@@ -42,8 +42,8 @@ export function ProviderBarChart({
   }, {} as ChartConfig);
 
   return (
-    <div className="w-full ">
-      <ChartContainer config={chartConfig} className="min-h-[200px] max-h-[420px]  w-full">
+    <div className="w-full h-[420px]">
+      <ChartContainer config={chartConfig} className="min-h-[200px] max-h-[420px] h-full w-full">
         <BarChart data={chartData} margin={{ left: 30, top: 20 }}>
           <CartesianGrid vertical={false} />
           <XAxis dataKey="name" />

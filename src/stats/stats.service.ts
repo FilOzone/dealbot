@@ -141,6 +141,12 @@ export class StatsService {
   private mapProviderPerformance(providers: StorageProviderEntity[]): ProviderPerformanceDto[] {
     return providers.map((provider) => ({
       provider: provider.address,
+      name: provider.name,
+      description: provider.description,
+      serviceUrl: provider.serviceUrl,
+      payee: provider.payee,
+      isActive: provider.isActive,
+      lastDealTime: provider.lastDealTime,
       totalDeals: provider.totalDeals,
       totalRetrievals: provider.totalRetrievals,
       ingestLatency: Math.round(provider.averageIngestLatency || 0),

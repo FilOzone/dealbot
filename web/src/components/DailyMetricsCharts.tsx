@@ -62,7 +62,7 @@ function DailyChart({ data, title, cdnKey, noCdnKey, yTickFormatter }: DailyChar
     <div>
       <p className="text-sm text-muted-foreground mb-3">{title}</p>
       <div className="w-full h-[420px]">
-        <ChartContainer config={chartConfig} className="min-h-[200px] max-h-[420px]  w-full">
+        <ChartContainer config={chartConfig} className="min-h-[200px] h-full w-full">
           <BarChart data={chartData} margin={{ left: 30, top: 20 }}>
             <CartesianGrid strokeDasharray="3 3" />
             <XAxis dataKey="date" />
@@ -98,7 +98,7 @@ function ThroughputLineChart({
     <div>
       <p className="text-sm text-muted-foreground mb-3">Throughput trends (daily)</p>
       <div className="w-full h-[420px]">
-        <ChartContainer config={chartConfig} className="min-h-[200px] max-h-[420px]  w-full">
+        <ChartContainer config={chartConfig} className="min-h-[200px] h-full w-full">
           <LineChart data={chartData} margin={{ left: 30, top: 20 }}>
             <CartesianGrid strokeDasharray="3 3" />
             <XAxis dataKey="date" />
