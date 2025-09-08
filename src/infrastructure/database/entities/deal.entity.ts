@@ -19,6 +19,9 @@ export class DealEntity {
   cid!: string;
 
   @Column({ nullable: true })
+  dataSetId!: number;
+
+  @Column({ nullable: true })
   dealId!: string;
 
   @Column({ nullable: true, type: "bigint" })

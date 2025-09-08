@@ -103,3 +103,46 @@ export interface ProviderDailyMetricDto {
   avgChainLatencyWithoutCDN: number;
   avgRetrievalThroughputWithoutCDN: number;
 }
+
+export interface FailedDealDto {
+  id: string;
+  fileName: string;
+  fileSize: number;
+  dataSetId: number;
+  cid: string;
+  dealId: string;
+  storageProvider: string;
+  withCDN: boolean;
+  status: string;
+  errorMessage: string;
+  errorCode: string;
+  retryCount: number;
+  createdAt: Date;
+  updatedAt: Date;
+  uploadStartTime?: Date;
+  uploadEndTime?: Date;
+  pieceAddedTime?: Date;
+  dealConfirmedTime?: Date;
+}
+
+export interface FailedDealsResponseDto {
+  failedDeals: FailedDealDto[];
+  summary: {
+    totalFailedDeals: number;
+    uniqueProviders: number;
+    mostCommonErrors: Array<{
+      errorCode: string;
+      errorMessage: string;
+      count: number;
+    }>;
+    failuresByProvider: Array<{
+      provider: string;
+      failedDeals: number;
+      mostCommonError: string;
+    }>;
+  };
+  dateRange: {
+    startDate: string;
+    endDate: string;
+  };
+}

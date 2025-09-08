@@ -1,6 +1,6 @@
 import { Controller, Get, Query, BadRequestException } from "@nestjs/common";
 import { StatsService } from "./stats.service.js";
-import { OverallStatsResponseDto, DailyMetricsResponseDto } from "./stats.dto.js";
+import { OverallStatsResponseDto, DailyMetricsResponseDto, FailedDealsResponseDto } from "./stats.dto.js";
 
 @Controller("api/stats")
 export class StatsController {
@@ -50,5 +50,45 @@ export class StatsController {
     const dailyMetrics = await this.statsService.getDailyMetrics(startDate, endDate);
 
     return dailyMetrics;
+  }
+
+  /**
+   * Get failed deals for a specified date range with error details
+   * Returns recent failed deals to help storage providers identify and resolve issues
+   */
+  @Get("failed-deals")
+  async getFailedDeals(
+    @Query("startDate") startDateStr?: string,
+    @Query("endDate") endDateStr?: string,
+    @Query("limit") limitStr?: string,
+  ): Promise<FailedDealsResponseDto> {
+    // Default to last 7 days if no dates provided
+    const endDate = endDateStr ? new Date(endDateStr) : new Date();
+    const startDate = startDateStr ? new Date(startDateStr) : new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    const limit = limitStr ? parseInt(limitStr, 10) : 100;
+
+    // Validate dates
+    if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+      throw new BadRequestException("Invalid date format. Use YYYY-MM-DD format.");
+    }
+
+    if (startDate > endDate) {
+      throw new BadRequestException("Start date must be before or equal to end date.");
+    }
+
+    // Validate limit
+    if (isNaN(limit) || limit < 1 || limit > 1000) {
+      throw new BadRequestException("Limit must be a number between 1 and 1000.");
+    }
+
+    // Limit to maximum 30 days to prevent performance issues
+    const daysDiff = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
+    if (daysDiff > 30) {
+      throw new BadRequestException("Date range cannot exceed 30 days.");
+    }
+
+    const failedDeals = await this.statsService.getFailedDeals(startDate, endDate, limit);
+
+    return failedDeals;
   }
 }

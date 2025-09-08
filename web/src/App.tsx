@@ -8,6 +8,8 @@ import { ErrorState } from "./components/ErrorState";
 import { Skeleton } from "./components/Skeleton";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./components/ui/card";
 import { ModeToggle } from "./components/mode-toggle";
+import { FailedDeals } from "./components/FailedDeals";
+import { useFailedDeals } from "./hooks/useFailedDeals";
 
 export type MetricKey =
   | "dealSuccessRate"
@@ -24,6 +26,7 @@ export type MetricKey =
 export default function App() {
   const { data, loading, error, refetch } = useOverallStats();
   const { data: dailyData, loading: dailyLoading, error: dailyError } = useDailyStats();
+  const { data: failedDealsData, error: failedDealsError } = useFailedDeals();
 
   if (loading || dailyLoading) return <Skeleton />;
   if (error)
@@ -35,7 +38,6 @@ export default function App() {
   if (!data) return null;
 
   const providers = data.overallStats.providerPerformance;
-
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -99,6 +101,34 @@ export default function App() {
             </CardHeader>
             <CardContent>
               <ProviderDailyComparison dailyMetrics={dailyData.dailyMetrics} />
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Failed Deals Section */}
+        {failedDealsData && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Recent Failed Deals</CardTitle>
+              <CardDescription>
+                Failed deals from the last 7 days with error details for troubleshooting
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <FailedDeals data={failedDealsData} />
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Failed Deals Error State */}
+        {failedDealsError && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Failed deals unavailable</CardTitle>
+              <CardDescription>Unable to load failed deals data</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ErrorState message={failedDealsError} onRetry={() => window.location.reload()} />
             </CardContent>
           </Card>
         )}
