@@ -1,5 +1,6 @@
 import { useOverallStats } from "./hooks/useOverallStats";
 import { useDailyStats } from "./hooks/useDailyStats";
+import { useDealbotConfig } from "./hooks/useDealbotConfig";
 import { ProviderCards } from "./components/ProviderCards";
 import { SummaryCards } from "./components/SummaryCards";
 import { DailyMetricsCharts } from "./components/DailyMetricsCharts";
@@ -10,6 +11,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./com
 import { ModeToggle } from "./components/mode-toggle";
 import { FailedDeals } from "./components/FailedDeals";
 import { useFailedDeals } from "./hooks/useFailedDeals";
+import { InfrastructureInfo } from "./components/InfrastructureInfo";
 
 export type MetricKey =
   | "dealSuccessRate"
@@ -27,6 +29,7 @@ export default function App() {
   const { data, loading, error, refetch } = useOverallStats();
   const { data: dailyData, loading: dailyLoading, error: dailyError } = useDailyStats();
   const { data: failedDealsData, error: failedDealsError } = useFailedDeals();
+  const { data: configData, loading: configLoading } = useDealbotConfig();
 
   if (loading || dailyLoading) return <Skeleton />;
   if (error)
@@ -62,6 +65,19 @@ export default function App() {
         <div className="text-center py-6">
           <p className="text-sm text-muted-foreground">Automated deal creation & storage performance monitoring</p>
         </div>
+
+        {/* Infrastructure Configuration */}
+        {configData && !configLoading && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Infrastructure configuration</CardTitle>
+              <CardDescription>Dealbot operational parameters and scheduling frequencies</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <InfrastructureInfo config={configData} />
+            </CardContent>
+          </Card>
+        )}
 
         <SummaryCards stats={data.overallStats} />
 
@@ -152,9 +168,9 @@ export default function App() {
           <div className="flex flex-col lg:flex-row items-center justify-between gap-6">
             <div>
               <p className="text-sm font-semibold">Mini Deal Bot Analytics</p>
-              <p className="text-sm text-muted-foreground">Automated storage deals on Filecoin Calibration Network</p>
+              <p className="text-sm text-muted-foreground">Automated storage deals on Filecoin network</p>
               <p className="text-xs text-muted-foreground mt-1">
-                Creates deals every 30 minutes • CDN A/B testing • Performance tracking
+                CDN A/B testing • Performance tracking • Real-time monitoring
               </p>
             </div>
 

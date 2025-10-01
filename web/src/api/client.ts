@@ -1,4 +1,5 @@
 import type { OverallStatsResponseDto, DailyMetricsResponseDto } from "../types/stats";
+import type { DealbotConfigDto } from "../types/config";
 
 const JSON_HEADERS = { "Content-Type": "application/json" } as const;
 
@@ -18,4 +19,13 @@ export async function fetchDailyStats() {
   const res = await fetch(`${import.meta.env.VITE_API_BASE_URL ?? ""}/api/stats/daily`, { headers: JSON_HEADERS });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return (await res.json()) as DailyMetricsResponseDto;
+}
+
+/**
+ * Fetch dealbot configuration from backend.
+ */
+export async function fetchDealbotConfig() {
+  const res = await fetch(`${import.meta.env.VITE_API_BASE_URL ?? ""}/api/config`, { headers: JSON_HEADERS });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return (await res.json()) as DealbotConfigDto;
 }
