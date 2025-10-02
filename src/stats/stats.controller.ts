@@ -55,17 +55,25 @@ export class StatsController {
   /**
    * Get failed deals for a specified date range with error details
    * Returns recent failed deals to help storage providers identify and resolve issues
+   * Supports pagination, search, and filtering
    */
   @Get("failed-deals")
   async getFailedDeals(
     @Query("startDate") startDateStr?: string,
     @Query("endDate") endDateStr?: string,
+    @Query("page") pageStr?: string,
     @Query("limit") limitStr?: string,
+    @Query("search") search?: string,
+    @Query("provider") provider?: string,
+    @Query("withCDN") withCDNStr?: string,
+    @Query("errorCode") errorCode?: string,
   ): Promise<FailedDealsResponseDto> {
     // Default to last 7 days if no dates provided
     const endDate = endDateStr ? new Date(endDateStr) : new Date();
     const startDate = startDateStr ? new Date(startDateStr) : new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-    const limit = limitStr ? parseInt(limitStr, 10) : 100;
+    const page = pageStr ? parseInt(pageStr, 10) : 1;
+    const limit = limitStr ? parseInt(limitStr, 10) : 20;
+    const withCDN = withCDNStr === "true" ? true : withCDNStr === "false" ? false : undefined;
 
     // Validate dates
     if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
@@ -76,9 +84,12 @@ export class StatsController {
       throw new BadRequestException("Start date must be before or equal to end date.");
     }
 
-    // Validate limit
-    if (isNaN(limit) || limit < 1 || limit > 1000) {
-      throw new BadRequestException("Limit must be a number between 1 and 1000.");
+    // Validate pagination
+    if (isNaN(page) || page < 1) {
+      throw new BadRequestException("Page must be a positive number.");
+    }
+    if (isNaN(limit) || limit < 1 || limit > 100) {
+      throw new BadRequestException("Limit must be a number between 1 and 100.");
     }
 
     // Limit to maximum 30 days to prevent performance issues
@@ -87,7 +98,16 @@ export class StatsController {
       throw new BadRequestException("Date range cannot exceed 30 days.");
     }
 
-    const failedDeals = await this.statsService.getFailedDeals(startDate, endDate, limit);
+    const failedDeals = await this.statsService.getFailedDeals(
+      startDate,
+      endDate,
+      page,
+      limit,
+      search,
+      provider,
+      withCDN,
+      errorCode,
+    );
 
     return failedDeals;
   }

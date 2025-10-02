@@ -1,7 +1,17 @@
 import { useState, useEffect } from "react";
 import type { FailedDealsResponseDto } from "../types/stats";
 
-export function useFailedDeals(startDate?: string, endDate?: string, limit?: number) {
+export interface UseFailedDealsParams {
+  startDate?: string;
+  endDate?: string;
+  page?: number;
+  limit?: number;
+  search?: string;
+  provider?: string;
+  withCDN?: boolean;
+}
+
+export function useFailedDeals(params: UseFailedDealsParams = {}) {
   const [data, setData] = useState<FailedDealsResponseDto | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -11,13 +21,17 @@ export function useFailedDeals(startDate?: string, endDate?: string, limit?: num
       setLoading(true);
       setError(null);
 
-      const params = new URLSearchParams();
-      if (startDate) params.append("startDate", startDate);
-      if (endDate) params.append("endDate", endDate);
-      if (limit) params.append("limit", limit.toString());
+      const queryParams = new URLSearchParams();
+      if (params.startDate) queryParams.append("startDate", params.startDate);
+      if (params.endDate) queryParams.append("endDate", params.endDate);
+      if (params.page) queryParams.append("page", params.page.toString());
+      if (params.limit) queryParams.append("limit", params.limit.toString());
+      if (params.search) queryParams.append("search", params.search);
+      if (params.provider) queryParams.append("provider", params.provider);
+      if (params.withCDN !== undefined) queryParams.append("withCDN", params.withCDN.toString());
 
       const response = await fetch(
-        `${import.meta.env.VITE_API_BASE_URL ?? ""}/api/stats/failed-deals${params.toString() ? "?" + params.toString() : ""}`,
+        `${import.meta.env.VITE_API_BASE_URL ?? ""}/api/stats/failed-deals${queryParams.toString() ? "?" + queryParams.toString() : ""}`,
       );
 
       if (!response.ok) {
@@ -50,7 +64,7 @@ export function useFailedDeals(startDate?: string, endDate?: string, limit?: num
 
   useEffect(() => {
     fetchFailedDeals();
-  }, [startDate, endDate, limit]);
+  }, [params.startDate, params.endDate, params.page, params.limit, params.search, params.provider, params.withCDN]);
 
   return { data, loading, error, refetch: fetchFailedDeals };
 }

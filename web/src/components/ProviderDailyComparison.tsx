@@ -3,8 +3,9 @@ import type { ProviderDailyMetricDto, DailyMetricDto } from "../types/stats";
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "./ui/chart";
 import { formatThroughput } from "@/utils/formatter";
 
-function short(addr: string) {
-  return addr.length > 12 ? `${addr.slice(0, 6)}…${addr.slice(-4)}` : addr;
+function truncateName(name: string, maxLength: number = 20) {
+  if (name.length <= maxLength) return name;
+  return `${name.slice(0, maxLength - 1)}…`;
 }
 
 function formatDate(dateStr: string) {
@@ -19,25 +20,30 @@ type ProviderTrendData = {
 function transformProviderTrends(
   dailyMetrics: DailyMetricDto[],
   metricKey: keyof ProviderDailyMetricDto,
-): ProviderTrendData[] {
-  // Get all unique providers
-  const providers = new Set<string>();
+): { data: ProviderTrendData[]; providerNameMap: Map<string, string> } {
+  const providerNameMap = new Map<string, string>();
   dailyMetrics.forEach((day) => {
-    day.providers.forEach((p) => providers.add(p.provider));
+    day.providers.forEach((p) => {
+      if (!providerNameMap.has(p.provider)) {
+        providerNameMap.set(p.provider, p.providerName);
+      }
+    });
   });
 
   // Transform data to have date and each provider as columns
-  return dailyMetrics.map((day) => {
+  const data = dailyMetrics.map((day) => {
     const row: ProviderTrendData = { date: formatDate(day.date) };
 
-    providers.forEach((provider) => {
-      const providerData = day.providers.find((p) => p.provider === provider);
-      const shortProvider = short(provider);
-      row[shortProvider] = providerData ? (providerData[metricKey] as number) || 0 : 0;
+    providerNameMap.forEach((name, address) => {
+      const providerData = day.providers.find((p) => p.provider === address);
+      const truncatedName = truncateName(name);
+      row[truncatedName] = providerData ? (providerData[metricKey] as number) || 0 : 0;
     });
 
     return row;
   });
+
+  return { data, providerNameMap };
 }
 
 // Generate colors for providers
@@ -70,18 +76,13 @@ function ProviderTrendChart({
   yTickFormatter?: (v: number) => string;
   type: "percentage" | "throughput";
 }) {
-  const chartData = transformProviderTrends(dailyMetrics, metricKey);
+  const { data: chartData, providerNameMap } = transformProviderTrends(dailyMetrics, metricKey);
 
-  // Get unique providers for lines
-  const providers = new Set<string>();
-  dailyMetrics.forEach((day) => {
-    day.providers.forEach((p) => providers.add(short(p.provider)));
-  });
-  const providerList = Array.from(providers);
-  const colors = getProviderColors(providerList);
+  const providerNames = Array.from(providerNameMap.values()).map((name) => truncateName(name));
+  const colors = getProviderColors(providerNames);
 
-  const chartConfig = providerList.reduce((acc, provider) => {
-    acc[provider] = { label: provider, color: colors[providerList.indexOf(provider)] };
+  const chartConfig = providerNames.reduce((acc, name) => {
+    acc[name] = { label: name, color: colors[providerNames.indexOf(name)] };
     return acc;
   }, {} as ChartConfig);
 
@@ -102,15 +103,15 @@ function ProviderTrendChart({
                 />
               }
             />
-            <Legend />
-            {providerList.map((provider, index) => (
+            <Legend wrapperStyle={{ fontSize: "12px" }} />
+            {providerNames.map((name, index) => (
               <Line
-                key={provider}
+                key={name}
                 type="monotone"
-                dataKey={provider}
+                dataKey={name}
                 stroke={colors[index]}
                 strokeWidth={2}
-                name={provider}
+                name={name}
                 connectNulls={false}
               />
             ))}

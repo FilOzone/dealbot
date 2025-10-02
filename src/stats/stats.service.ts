@@ -182,7 +182,7 @@ export class StatsService {
         },
       });
 
-      const dailyMetrics = this.aggregateDailyMetricsWithProviders(metrics);
+      const dailyMetrics = await this.aggregateDailyMetricsWithProviders(metrics);
       const summary = this.calculateNestedSummary(dailyMetrics);
 
       return {
@@ -202,12 +202,16 @@ export class StatsService {
   /**
    * Aggregate daily metrics with nested provider data for recharts visualization
    */
-  private aggregateDailyMetricsWithProviders(metrics: DailyMetricsEntity[]): DailyMetricDto[] {
+  private async aggregateDailyMetricsWithProviders(metrics: DailyMetricsEntity[]): Promise<DailyMetricDto[]> {
+    // Get all providers for name mapping
+    const providers = await this.storageProviderRepository.find();
+    const providerMap = new Map(providers.map((p) => [p.address, p.name]));
+
     // First get aggregated daily metrics
     const aggregatedMetrics = this.aggregateDailyMetrics(metrics);
 
     // Then get provider metrics grouped by date
-    const providerMetricsByDate = this.groupProviderMetricsByDate(metrics);
+    const providerMetricsByDate = await this.groupProviderMetricsByDate(metrics, providerMap);
 
     // Combine them
     return aggregatedMetrics.map((daily) => ({
@@ -219,8 +223,11 @@ export class StatsService {
   /**
    * Group provider metrics by date
    */
-  private groupProviderMetricsByDate(metrics: DailyMetricsEntity[]): Map<string, ProviderDailyMetricDto[]> {
-    const providerMetrics = this.aggregateProviderDailyMetrics(metrics);
+  private async groupProviderMetricsByDate(
+    metrics: DailyMetricsEntity[],
+    providerMap: Map<string, string>,
+  ): Promise<Map<string, ProviderDailyMetricDto[]>> {
+    const providerMetrics = await this.aggregateProviderDailyMetrics(metrics, providerMap);
     const groupedByDate = new Map<string, ProviderDailyMetricDto[]>();
 
     providerMetrics.forEach((metric) => {
@@ -502,7 +509,10 @@ export class StatsService {
   /**
    * Aggregate per-provider daily metrics by date and provider
    */
-  private aggregateProviderDailyMetrics(metrics: DailyMetricsEntity[]): ProviderDailyMetricDto[] {
+  private async aggregateProviderDailyMetrics(
+    metrics: DailyMetricsEntity[],
+    providerMap: Map<string, string>,
+  ): Promise<ProviderDailyMetricDto[]> {
     const providerDailyMap = new Map<string, ProviderDailyMetricDto>();
 
     // Initialize all date-provider combinations with zero values
@@ -519,6 +529,7 @@ export class StatsService {
       providerDailyMap.set(key, {
         date,
         provider,
+        providerName: providerMap.get(provider) || provider,
         dealsWithCDN: 0,
         dealsWithoutCDN: 0,
         retrievalsWithoutCDN: 0,
@@ -758,23 +769,51 @@ export class StatsService {
   /**
    * Get failed deals for a specified date range with error details
    */
-  async getFailedDeals(startDate: Date, endDate: Date, limit: number = 100): Promise<FailedDealsResponseDto> {
+  async getFailedDeals(
+    startDate: Date,
+    endDate: Date,
+    page: number = 1,
+    limit: number = 20,
+    search?: string,
+    provider?: string,
+    withCDN?: boolean,
+    errorCode?: string,
+  ): Promise<FailedDealsResponseDto> {
     try {
-      // Get failed deals (deals that are not successful with error messages)
-      const failedDeals = await this.dealRepository.find({
-        where: {
-          createdAt: Between(startDate, endDate),
-          status: In([DealStatus.FAILED]),
-          errorMessage: Not(In([IsNull(), ""])),
-        },
+      // Build where clause with filters
+      const whereClause: any = {
+        createdAt: Between(startDate, endDate),
+        status: In([DealStatus.FAILED]),
+        errorMessage: Not(In([IsNull(), ""])),
+      };
+
+      // Add optional filters
+      if (provider) {
+        whereClause.storageProvider = provider;
+      }
+      if (withCDN !== undefined) {
+        whereClause.withCDN = withCDN;
+      }
+      if (errorCode) {
+        whereClause.errorCode = errorCode;
+      }
+
+      // Get total count for pagination
+      const [failedDeals, total] = await this.dealRepository.findAndCount({
+        where: whereClause,
         order: {
           createdAt: "DESC",
         },
+        skip: (page - 1) * limit,
         take: limit,
       });
 
-      // Map to DTOs
-      const failedDealDtos: FailedDealDto[] = failedDeals.map((deal) => ({
+      // Get all providers for name mapping
+      const providers = await this.storageProviderRepository.find();
+      const providerMap = new Map(providers.map((p) => [p.address, p.name]));
+
+      // Map to DTOs with provider names
+      let failedDealDtos: FailedDealDto[] = failedDeals.map((deal) => ({
         id: deal.id,
         fileName: deal.fileName,
         fileSize: Number(deal.fileSize),
@@ -782,6 +821,7 @@ export class StatsService {
         cid: deal.cid || "",
         dealId: deal.dealId || "",
         storageProvider: deal.storageProvider,
+        providerName: providerMap.get(deal.storageProvider) || deal.storageProvider,
         withCDN: deal.withCDN,
         status: deal.status,
         errorMessage: deal.errorMessage || "",
@@ -795,11 +835,29 @@ export class StatsService {
         dealConfirmedTime: deal.dealConfirmedTime,
       }));
 
+      // Apply search filter if provided (search in fileName, cid, errorMessage)
+      if (search) {
+        const searchLower = search.toLowerCase();
+        failedDealDtos = failedDealDtos.filter(
+          (deal) =>
+            deal.fileName.toLowerCase().includes(searchLower) ||
+            deal.cid.toLowerCase().includes(searchLower) ||
+            deal.errorMessage.toLowerCase().includes(searchLower) ||
+            deal.providerName.toLowerCase().includes(searchLower),
+        );
+      }
+
       // Calculate summary statistics
-      const summary = this.calculateFailedDealsSummary(failedDealDtos);
+      const summary = this.calculateFailedDealsSummary(failedDealDtos, providerMap);
 
       return {
         failedDeals: failedDealDtos,
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages: Math.ceil(total / limit),
+        },
         summary,
         dateRange: {
           startDate: startDate.toISOString().split("T")[0],
@@ -815,7 +873,7 @@ export class StatsService {
   /**
    * Calculate summary statistics for failed deals
    */
-  private calculateFailedDealsSummary(failedDeals: FailedDealDto[]) {
+  private calculateFailedDealsSummary(failedDeals: FailedDealDto[], providerMap: Map<string, string>) {
     const totalFailedDeals = failedDeals.length;
     const uniqueProviders = new Set(failedDeals.map((deal) => deal.storageProvider)).size;
 
@@ -871,6 +929,7 @@ export class StatsService {
 
         return {
           provider,
+          providerName: providerMap.get(provider) || provider,
           failedDeals: data.count,
           mostCommonError,
         };

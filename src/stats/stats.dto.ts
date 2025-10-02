@@ -86,6 +86,7 @@ export interface DailyMetricsResponseDto {
 export interface ProviderDailyMetricDto {
   date: string; // ISO date string (YYYY-MM-DD)
   provider: string;
+  providerName: string;
   dealsWithCDN: number;
   dealsWithoutCDN: number;
   retrievalsWithoutCDN: number;
@@ -112,6 +113,7 @@ export interface FailedDealDto {
   dataSetId: number;
   dealId: string;
   storageProvider: string;
+  providerName: string;
   withCDN: boolean;
   status: string;
   errorMessage: string;
@@ -128,6 +130,12 @@ export interface FailedDealDto {
 
 export interface FailedDealsResponseDto {
   failedDeals: FailedDealDto[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
   summary: {
     totalFailedDeals: number;
     uniqueProviders: number;
@@ -138,6 +146,7 @@ export interface FailedDealsResponseDto {
     }>;
     failuresByProvider: Array<{
       provider: string;
+      providerName: string;
       failedDeals: number;
       mostCommonError: string;
     }>;
