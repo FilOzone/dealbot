@@ -1,28 +1,15 @@
 import { Clock, Database, Network } from "lucide-react";
 import type { DealbotConfigDto } from "../types/config";
+import { formatMilliseconds } from "@/utils/formatter";
 
 interface InfrastructureInfoProps {
   config: DealbotConfigDto;
 }
 
-function formatInterval(seconds: number): string {
-  if (seconds < 60) {
-    return `${seconds} second${seconds !== 1 ? "s" : ""}`;
-  }
-  const minutes = Math.floor(seconds / 60);
-  const remainingSeconds = seconds % 60;
-  
-  if (remainingSeconds === 0) {
-    return `${minutes} minute${minutes !== 1 ? "s" : ""}`;
-  }
-  
-  return `${minutes}m ${remainingSeconds}s`;
-}
-
 export function InfrastructureInfo({ config }: InfrastructureInfoProps) {
   const networkDisplayName = config.network === "calibration" ? "Calibration Testnet" : "Mainnet";
-  const dealInterval = formatInterval(config.scheduling.dealIntervalSeconds);
-  const retrievalInterval = formatInterval(config.scheduling.retrievalIntervalSeconds);
+  const dealInterval = formatMilliseconds(config.scheduling.dealIntervalSeconds * 1000);
+  const retrievalInterval = formatMilliseconds(config.scheduling.retrievalIntervalSeconds * 1000);
 
   return (
     <div className="grid gap-4 md:grid-cols-3">
