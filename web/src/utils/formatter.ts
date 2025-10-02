@@ -13,7 +13,7 @@ export function formatMilliseconds(ms: number, decimals: number = 2): string {
     { label: "ms", divisor: 1, threshold: 1000 },
     { label: "sec", divisor: 1000, threshold: 60 * 1000 },
     { label: "min", divisor: 60 * 1000, threshold: 60 * 60 * 1000 },
-    { label: "h", divisor: 60 * 60 * 1000, threshold: 24 * 60 * 60 * 1000 },
+    { label: "hr", divisor: 60 * 60 * 1000, threshold: 24 * 60 * 60 * 1000 },
     { label: "day", divisor: 24 * 60 * 60 * 1000, threshold: Infinity },
   ];
 
