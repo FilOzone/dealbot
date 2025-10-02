@@ -1,6 +1,7 @@
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Legend, CartesianGrid } from "recharts";
 import type { DailyMetricDto } from "../types/stats";
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "./ui/chart";
+import { formatMilliseconds, formatThroughput } from "@/utils/formatter";
 
 type ChartData = {
   date: string;
@@ -48,14 +49,15 @@ interface DailyChartProps {
   cdnKey: keyof DailyMetricDto;
   noCdnKey: keyof DailyMetricDto;
   yTickFormatter?: (v: number) => string;
+  type: "percentage" | "milliSeconds";
 }
 
-function DailyChart({ data, title, cdnKey, noCdnKey, yTickFormatter }: DailyChartProps) {
+function DailyChart({ data, title, cdnKey, noCdnKey, yTickFormatter, type }: DailyChartProps) {
   const chartData = transformData(data, cdnKey, noCdnKey);
 
   const chartConfig = {
     withCDN: { label: "With CDN", color: "var(--chart-1)" },
-    withoutCDN: { label: "Without CDN", color: "var(--chart-5)" },
+    withoutCDN: { label: "Without CDN", color: "var(--chart-2)" },
   };
 
   return (
@@ -67,10 +69,16 @@ function DailyChart({ data, title, cdnKey, noCdnKey, yTickFormatter }: DailyChar
             <CartesianGrid strokeDasharray="3 3" />
             <XAxis dataKey="date" />
             <YAxis tickFormatter={yTickFormatter} fontSize={12} />
-            <ChartTooltip content={<ChartTooltipContent />} />
+            <ChartTooltip
+              content={
+                <ChartTooltipContent
+                  valueFormatter={(v) => (type === "percentage" ? `${v}%` : formatMilliseconds(v as number))}
+                />
+              }
+            />
             <Legend />
             <Bar dataKey="withCDN" fill="var(--chart-1)" name="With CDN" radius={6} maxBarSize={100} />
-            <Bar dataKey="withoutCDN" fill="var(--chart-5)" name="Without CDN" radius={6} maxBarSize={100} />
+            <Bar dataKey="withoutCDN" fill="var(--chart-2)" name="Without CDN" radius={6} maxBarSize={100} />
           </BarChart>
         </ChartContainer>
       </div>
@@ -103,7 +111,7 @@ function ThroughputLineChart({
             <CartesianGrid strokeDasharray="3 3" />
             <XAxis dataKey="date" />
             <YAxis tickFormatter={yTickFormatter} fontSize={12} />
-            <ChartTooltip content={<ChartTooltipContent />} />
+            <ChartTooltip content={<ChartTooltipContent valueFormatter={(v) => formatThroughput(v as number)} />} />
             <Legend />
             <Line
               type="monotone"
@@ -141,13 +149,11 @@ function ThroughputLineChart({
 }
 
 export function DailyMetricsCharts({ dailyMetrics }: { dailyMetrics: DailyMetricDto[] }) {
-  const fmtNum = (v: number) => v.toLocaleString();
   const fmtPct = (v: number) => `${v.toFixed(2)}%`;
-  const fmtMs = (v: number) => `${Math.round(v)} ms`;
 
   return (
     <div className="space-y-12">
-      <ThroughputLineChart data={dailyMetrics} yTickFormatter={fmtNum} />
+      <ThroughputLineChart data={dailyMetrics} yTickFormatter={formatThroughput} />
 
       <DailyChart
         data={dailyMetrics}
@@ -155,6 +161,7 @@ export function DailyMetricsCharts({ dailyMetrics }: { dailyMetrics: DailyMetric
         cdnKey="retrievalsSuccessRateWithCDN"
         noCdnKey="retrievalsSuccessRateWithoutCDN"
         yTickFormatter={fmtPct}
+        type="percentage"
       />
 
       <DailyChart
@@ -162,7 +169,8 @@ export function DailyMetricsCharts({ dailyMetrics }: { dailyMetrics: DailyMetric
         title="RETRIEVAL LATENCY (DAILY)"
         cdnKey="avgRetrievalLatencyWithCDN"
         noCdnKey="avgRetrievalLatencyWithoutCDN"
-        yTickFormatter={fmtMs}
+        yTickFormatter={formatMilliseconds}
+        type="milliSeconds"
       />
     </div>
   );

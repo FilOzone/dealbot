@@ -4,10 +4,13 @@ import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Copy, Check } from "lucide-react";
 import type { ProviderPerformanceDto } from "../types/stats";
+import { formatMilliseconds, formatThroughput } from "@/utils/formatter";
 
 interface ProviderCardsProps {
   providers: ProviderPerformanceDto[];
 }
+
+const SUCCESS_RATE_THRESHOLD = 90;
 
 export function ProviderCards({ providers }: ProviderCardsProps) {
   const [copiedProvider, setCopiedProvider] = useState<string | null>(null);
@@ -33,9 +36,7 @@ export function ProviderCards({ providers }: ProviderCardsProps) {
   };
 
   const formatNumber = (num: number) => num.toLocaleString();
-  const formatLatency = (ms: number) => `${Math.round(ms)} ms`;
   const formatPercentage = (pct: number) => `${pct.toFixed(2)}%`;
-  const formatThroughput = (throughput: number) => `${formatNumber(throughput)}/s`;
 
   return (
     <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
@@ -133,13 +134,21 @@ export function ProviderCards({ providers }: ProviderCardsProps) {
                 <div className="grid grid-cols-2 gap-2 text-sm">
                   <div>
                     <span className="text-muted-foreground">Deal:</span>
-                    <span className="ml-1 font-medium text-green-600">
+                    <span
+                      className={`ml-1 font-medium ${
+                        provider.dealSuccessRate < SUCCESS_RATE_THRESHOLD ? "text-red-600" : "text-green-600"
+                      }`}
+                    >
                       {formatPercentage(provider.dealSuccessRate)}
                     </span>
                   </div>
                   <div>
                     <span className="text-muted-foreground">Retrieval:</span>
-                    <span className="ml-1 font-medium text-green-600">
+                    <span
+                      className={`ml-1 font-medium ${
+                        provider.retrievalSuccessRate < SUCCESS_RATE_THRESHOLD ? "text-red-600" : "text-green-600"
+                      }`}
+                    >
                       {formatPercentage(provider.retrievalSuccessRate)}
                     </span>
                   </div>
@@ -152,19 +161,19 @@ export function ProviderCards({ providers }: ProviderCardsProps) {
                 <div className="grid grid-cols-2 gap-2 text-sm">
                   <div>
                     <span className="text-muted-foreground">Ingest:</span>
-                    <span className="ml-1 font-medium">{formatLatency(provider.ingestLatency)}</span>
+                    <span className="ml-1 font-medium">{formatMilliseconds(provider.ingestLatency)}</span>
                   </div>
                   <div>
                     <span className="text-muted-foreground">Chain:</span>
-                    <span className="ml-1 font-medium">{formatLatency(provider.chainLatency)}</span>
+                    <span className="ml-1 font-medium">{formatMilliseconds(provider.chainLatency)}</span>
                   </div>
                   <div>
                     <span className="text-muted-foreground">Deal:</span>
-                    <span className="ml-1 font-medium">{formatLatency(provider.dealLatency)}</span>
+                    <span className="ml-1 font-medium">{formatMilliseconds(provider.dealLatency)}</span>
                   </div>
                   <div>
                     <span className="text-muted-foreground">Retrieval:</span>
-                    <span className="ml-1 font-medium">{formatLatency(provider.retrievalLatency)}</span>
+                    <span className="ml-1 font-medium">{formatMilliseconds(provider.retrievalLatency)}</span>
                   </div>
                 </div>
               </div>

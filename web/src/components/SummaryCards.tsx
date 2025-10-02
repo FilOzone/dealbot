@@ -1,3 +1,4 @@
+import { formatMilliseconds, formatThroughput } from "@/utils/formatter";
 import type { OverallStatsDto } from "../types/stats";
 import { Card, CardContent } from "./ui/card";
 
@@ -15,10 +16,10 @@ export function SummaryCards({ stats }: { stats: OverallStatsDto }) {
     { label: "DEAL SUCCESS RATE ( CDN )", value: formatPct(stats.cdnDealsSuccessRate) },
     { label: "DEAL SUCCESS RATE ( WITHOUT CDN )", value: formatPct(stats.directDealsSuccessRate) },
     { label: "RETRIEVAL SUCCESS RATE ( WITHOUT CDN )", value: formatPct(stats.directRetrievalsSuccessRate) },
-    { label: "AVG INGEST LATENCY", value: `${formatNum(stats.ingestLatency)} ms` },
-    { label: "AVG INGEST THROUGHPUT", value: formatNum(stats.ingestThroughput) },
-    { label: "AVG CHAIN LATENCY", value: `${formatNum(stats.chainLatency)} ms` },
-    { label: "AVG RETRIEVAL THROUGHPUT", value: formatNum(stats.retrievalThroughput) },
+    { label: "AVG INGEST LATENCY", value: formatMilliseconds(stats.ingestLatency) },
+    { label: "AVG INGEST THROUGHPUT", value: formatThroughput(stats.ingestThroughput) },
+    { label: "AVG CHAIN LATENCY", value: formatMilliseconds(stats.chainLatency) },
+    { label: "AVG RETRIEVAL THROUGHPUT", value: formatThroughput(stats.retrievalThroughput) },
   ];
 
   return (

@@ -1,6 +1,7 @@
 import { LineChart, Line, XAxis, YAxis, Legend, CartesianGrid } from "recharts";
 import type { ProviderDailyMetricDto, DailyMetricDto } from "../types/stats";
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "./ui/chart";
+import { formatThroughput } from "@/utils/formatter";
 
 function short(addr: string) {
   return addr.length > 12 ? `${addr.slice(0, 6)}…${addr.slice(-4)}` : addr;
@@ -61,11 +62,13 @@ function ProviderTrendChart({
   title,
   metricKey,
   yTickFormatter,
+  type,
 }: {
   dailyMetrics: DailyMetricDto[];
   title: string;
   metricKey: keyof ProviderDailyMetricDto;
   yTickFormatter?: (v: number) => string;
+  type: "percentage" | "throughput";
 }) {
   const chartData = transformProviderTrends(dailyMetrics, metricKey);
 
@@ -91,7 +94,14 @@ function ProviderTrendChart({
             <CartesianGrid strokeDasharray="3 3" />
             <XAxis dataKey="date" />
             <YAxis tickFormatter={yTickFormatter} fontSize={12} />
-            <ChartTooltip content={<ChartTooltipContent indicator="line" />} />
+            <ChartTooltip
+              content={
+                <ChartTooltipContent
+                  indicator="line"
+                  valueFormatter={(v) => (type === "percentage" ? `${v}%` : formatThroughput(v as number))}
+                />
+              }
+            />
             <Legend />
             {providerList.map((provider, index) => (
               <Line
@@ -112,8 +122,7 @@ function ProviderTrendChart({
 }
 
 export function ProviderDailyComparison({ dailyMetrics }: { dailyMetrics: DailyMetricDto[] }) {
-  const fmtNum = (v: number) => v.toLocaleString();
-  const fmtPct = (v: number) => `${v.toFixed(2)}%`;
+  const fmtPct = (v: number) => `${v}%`;
 
   return (
     <div className="space-y-12">
@@ -122,13 +131,15 @@ export function ProviderDailyComparison({ dailyMetrics }: { dailyMetrics: DailyM
         title="PROVIDER SUCCESS RATE TRENDS"
         metricKey="dealsSuccessRateWithCDN"
         yTickFormatter={fmtPct}
+        type="percentage"
       />
 
       <ProviderTrendChart
         dailyMetrics={dailyMetrics}
         title="PROVIDER RETRIEVAL THROUGHPUT TRENDS"
         metricKey="avgRetrievalThroughputWithoutCDN"
-        yTickFormatter={fmtNum}
+        yTickFormatter={formatThroughput}
+        type="throughput"
       />
     </div>
   );
