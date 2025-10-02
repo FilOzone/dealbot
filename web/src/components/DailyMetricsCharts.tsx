@@ -49,7 +49,7 @@ interface DailyChartProps {
   cdnKey: keyof DailyMetricDto;
   noCdnKey: keyof DailyMetricDto;
   yTickFormatter?: (v: number) => string;
-  type: "percentage" | "milliSeconds";
+  type: "percentage" | "milliseconds";
 }
 
 function DailyChart({ data, title, cdnKey, noCdnKey, yTickFormatter, type }: DailyChartProps) {
@@ -170,7 +170,7 @@ export function DailyMetricsCharts({ dailyMetrics }: { dailyMetrics: DailyMetric
         cdnKey="avgRetrievalLatencyWithCDN"
         noCdnKey="avgRetrievalLatencyWithoutCDN"
         yTickFormatter={formatMilliseconds}
-        type="milliSeconds"
+        type="milliseconds"
       />
     </div>
   );
