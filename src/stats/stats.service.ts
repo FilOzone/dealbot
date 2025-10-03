@@ -1,6 +1,6 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { Repository, Not, In, Between, IsNull } from "typeorm";
+import { Repository, Not, In, Between, IsNull, Like } from "typeorm";
 import { StorageProviderEntity } from "../infrastructure/database/entities/storage-provider.entity.js";
 import { DailyMetricsEntity } from "../infrastructure/database/entities/daily-metrics.entity.js";
 import {
@@ -780,25 +780,34 @@ export class StatsService {
     errorCode?: string,
   ): Promise<FailedDealsResponseDto> {
     try {
-      // Build where clause with filters
-      const whereClause: any = {
+      const baseWhereClause: any = {
         createdAt: Between(startDate, endDate),
         status: In([DealStatus.FAILED]),
         errorMessage: Not(In([IsNull(), ""])),
       };
 
-      // Add optional filters
       if (provider) {
-        whereClause.storageProvider = provider;
+        baseWhereClause.storageProvider = provider;
       }
       if (withCDN !== undefined) {
-        whereClause.withCDN = withCDN;
+        baseWhereClause.withCDN = withCDN;
       }
       if (errorCode) {
-        whereClause.errorCode = errorCode;
+        baseWhereClause.errorCode = errorCode;
       }
 
-      // Get total count for pagination
+      let whereClause: any;
+      if (search) {
+        const searchPattern = `%${search}%`;
+        whereClause = [
+          { ...baseWhereClause, fileName: Like(searchPattern) },
+          { ...baseWhereClause, cid: Like(searchPattern) },
+          { ...baseWhereClause, errorMessage: Like(searchPattern) },
+        ];
+      } else {
+        whereClause = baseWhereClause;
+      }
+
       const [failedDeals, total] = await this.dealRepository.findAndCount({
         where: whereClause,
         order: {
@@ -808,12 +817,10 @@ export class StatsService {
         take: limit,
       });
 
-      // Get all providers for name mapping
       const providers = await this.storageProviderRepository.find();
       const providerMap = new Map(providers.map((p) => [p.address, p.name]));
 
-      // Map to DTOs with provider names
-      let failedDealDtos: FailedDealDto[] = failedDeals.map((deal) => ({
+      const failedDealDtos: FailedDealDto[] = failedDeals.map((deal) => ({
         id: deal.id,
         fileName: deal.fileName,
         fileSize: Number(deal.fileSize),
@@ -835,19 +842,6 @@ export class StatsService {
         dealConfirmedTime: deal.dealConfirmedTime,
       }));
 
-      // Apply search filter if provided (search in fileName, cid, errorMessage)
-      if (search) {
-        const searchLower = search.toLowerCase();
-        failedDealDtos = failedDealDtos.filter(
-          (deal) =>
-            deal.fileName.toLowerCase().includes(searchLower) ||
-            deal.cid.toLowerCase().includes(searchLower) ||
-            deal.errorMessage.toLowerCase().includes(searchLower) ||
-            deal.providerName.toLowerCase().includes(searchLower),
-        );
-      }
-
-      // Calculate summary statistics
       const summary = this.calculateFailedDealsSummary(failedDealDtos, providerMap);
 
       return {

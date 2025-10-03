@@ -6,6 +6,7 @@ import { Input } from "./ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { Copy, Check, AlertTriangle, FileX, Search, ChevronLeft, ChevronRight, Filter, X } from "lucide-react";
 import type { FailedDealsResponseDto } from "../types/stats";
+import { generatePageNumbers } from "../utils/pagination";
 
 interface FailedDealsProps {
   data: FailedDealsResponseDto;
@@ -88,9 +89,10 @@ export function FailedDeals({
     (currentFilters.provider && currentFilters.provider !== "all") ||
     currentFilters.withCDN !== undefined;
 
-  // Get unique providers
   const uniqueProviders = Array.from(
-    new Set(data.summary.failuresByProvider.map((p) => ({ address: p.provider, name: p.providerName }))),
+    new Map(
+      data.summary.failuresByProvider.map((p) => [p.provider, { address: p.provider, name: p.providerName }]),
+    ).values(),
   );
 
   return (
@@ -351,29 +353,17 @@ export function FailedDeals({
                   Previous
                 </Button>
                 <div className="flex items-center gap-1">
-                  {Array.from({ length: Math.min(5, data.pagination.totalPages) }, (_, i) => {
-                    let pageNum: number;
-                    if (data.pagination.totalPages <= 5) {
-                      pageNum = i + 1;
-                    } else if (data.pagination.page <= 3) {
-                      pageNum = i + 1;
-                    } else if (data.pagination.page >= data.pagination.totalPages - 2) {
-                      pageNum = data.pagination.totalPages - 4 + i;
-                    } else {
-                      pageNum = data.pagination.page - 2 + i;
-                    }
-                    return (
-                      <Button
-                        key={pageNum}
-                        variant={data.pagination.page === pageNum ? "default" : "outline"}
-                        size="sm"
-                        onClick={() => onPageChange(pageNum)}
-                        className="w-9"
-                      >
-                        {pageNum}
-                      </Button>
-                    );
-                  })}
+                  {generatePageNumbers(data.pagination.page, data.pagination.totalPages).map((pageNum) => (
+                    <Button
+                      key={pageNum}
+                      variant={data.pagination.page === pageNum ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => onPageChange(pageNum)}
+                      className="w-9"
+                    >
+                      {pageNum}
+                    </Button>
+                  ))}
                 </div>
                 <Button
                   variant="outline"
