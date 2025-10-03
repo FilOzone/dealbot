@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useOverallStats } from "./hooks/useOverallStats";
 import { useDailyStats } from "./hooks/useDailyStats";
 import { useDealbotConfig } from "./hooks/useDealbotConfig";
@@ -28,8 +29,21 @@ export type MetricKey =
 export default function App() {
   const { data, loading, error, refetch } = useOverallStats();
   const { data: dailyData, loading: dailyLoading, error: dailyError } = useDailyStats();
-  const { data: failedDealsData, error: failedDealsError } = useFailedDeals();
   const { data: configData, loading: configLoading } = useDealbotConfig();
+
+  // Failed deals filters state
+  const [failedDealsPage, setFailedDealsPage] = useState(1);
+  const [failedDealsSearch, setFailedDealsSearch] = useState("");
+  const [failedDealsProvider, setFailedDealsProvider] = useState("all");
+  const [failedDealsCDN, setFailedDealsCDN] = useState<boolean | undefined>(undefined);
+
+  const { data: failedDealsData, error: failedDealsError } = useFailedDeals({
+    page: failedDealsPage,
+    limit: 20,
+    search: failedDealsSearch,
+    provider: failedDealsProvider === "all" ? undefined : failedDealsProvider,
+    withCDN: failedDealsCDN,
+  });
 
   if (loading || dailyLoading) return <Skeleton />;
   if (error)
@@ -125,13 +139,33 @@ export default function App() {
         {failedDealsData && (
           <Card>
             <CardHeader>
-              <CardTitle>Recent Failed Deals</CardTitle>
+              <CardTitle>Failed Deals Analysis</CardTitle>
               <CardDescription>
-                Failed deals from the last 7 days with error details for troubleshooting
+                Search, filter, and analyze failed deals with detailed error information
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <FailedDeals data={failedDealsData} />
+              <FailedDeals
+                data={failedDealsData}
+                onPageChange={(page) => setFailedDealsPage(page)}
+                onSearchChange={(search) => {
+                  setFailedDealsSearch(search);
+                  setFailedDealsPage(1);
+                }}
+                onProviderFilter={(provider) => {
+                  setFailedDealsProvider(provider);
+                  setFailedDealsPage(1);
+                }}
+                onCDNFilter={(withCDN) => {
+                  setFailedDealsCDN(withCDN);
+                  setFailedDealsPage(1);
+                }}
+                currentFilters={{
+                  search: failedDealsSearch,
+                  provider: failedDealsProvider,
+                  withCDN: failedDealsCDN,
+                }}
+              />
             </CardContent>
           </Card>
         )}
