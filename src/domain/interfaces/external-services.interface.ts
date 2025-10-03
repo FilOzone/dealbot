@@ -20,6 +20,7 @@ export interface RetrievalResult {
   success: boolean;
   data?: Buffer;
   latency: number;
+  ttfb?: number;
   bytesRetrieved?: number;
   startTime: Date;
   endTime: Date;

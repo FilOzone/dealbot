@@ -172,6 +172,15 @@ export function DailyMetricsCharts({ dailyMetrics }: { dailyMetrics: DailyMetric
         yTickFormatter={formatMilliseconds}
         type="milliseconds"
       />
+
+      <DailyChart
+        data={dailyMetrics}
+        title="RETRIEVAL TIME TO FIRST BYTE (DAILY)"
+        cdnKey="avgRetrievalTtfbWithCDN"
+        noCdnKey="avgRetrievalTtfbWithoutCDN"
+        yTickFormatter={formatMilliseconds}
+        type="milliseconds"
+      />
     </div>
   );
 }

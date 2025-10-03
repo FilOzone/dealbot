@@ -21,6 +21,7 @@ export type MetricKey =
   | "chainLatency"
   | "dealLatency"
   | "retrievalLatency"
+  | "retrievalTtfb"
   | "ingestThroughput"
   | "retrievalThroughput"
   | "totalDeals"
