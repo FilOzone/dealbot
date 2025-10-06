@@ -8,12 +8,12 @@ import type {
   IStorageProviderRepository,
 } from "../domain/interfaces/repositories.interface.js";
 import type { IMetricsService } from "../domain/interfaces/metrics.interface.js";
-import type { RetrievalResult } from "../domain/interfaces/external-services.interface.js";
 import { CDN_HOSTNAMES } from "../common/constants.js";
 import type { Hex } from "../common/types.js";
 import { Deal } from "../domain/entities/deal.entity.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
 import type { IBlockchainConfig, IConfig } from "../config/app.config.js";
+import { HttpClientService } from "../http-client/http-client.service.js";
 
 @Injectable()
 export class RetrievalService {
@@ -21,6 +21,7 @@ export class RetrievalService {
 
   constructor(
     private readonly configService: ConfigService<IConfig, true>,
+    private readonly httpClientService: HttpClientService,
     private walletSdkService: WalletSdkService,
     @Inject("IDealRepository")
     private readonly dealRepository: IDealRepository,
@@ -106,21 +107,18 @@ export class RetrievalService {
       this.logger.log(`Retrieving from URL: ${url} for deal id: ${deal.dealId}`);
       retrieval.status = RetrievalStatus.IN_PROGRESS;
 
-      const result: RetrievalResult = await this.retrieve(url);
+      const result = await this.httpClientService.requestWithRandomProxyAndMetrics(url);
 
-      retrieval.startTime = result.startTime;
-      retrieval.endTime = result.endTime;
-      retrieval.latency = result.latency;
-      retrieval.responseCode = result.responseCode;
+      const throughput = result.metrics.responseSize / result.metrics.totalTime;
 
-      if (result.success) {
-        retrieval.status = RetrievalStatus.SUCCESS;
-        retrieval.bytesRetrieved = result.data?.length || 0;
-        retrieval.throughput = result.throughput;
-      } else {
-        retrieval.status = RetrievalStatus.FAILED;
-        retrieval.errorMessage = result.error;
-      }
+      retrieval.startTime = result.metrics.timestamp;
+      retrieval.endTime = result.metrics.timestamp;
+      retrieval.latency = result.metrics.ttfb;
+      retrieval.responseCode = result.metrics.statusCode;
+
+      retrieval.status = RetrievalStatus.SUCCESS;
+      retrieval.bytesRetrieved = result.data?.length || 0;
+      retrieval.throughput = throughput;
 
       this.logger.log(
         `Retrieval ${retrieval.cid} completed: ${retrieval.status}, ` + `Latency: ${retrieval.latency}ms`,
@@ -181,62 +179,6 @@ export class RetrievalService {
 
         return retrieval;
       }
-    }
-  }
-
-  private async retrieve(url: string): Promise<RetrievalResult> {
-    const startTime = Date.now();
-
-    try {
-      this.logger.debug(`Starting retrieval from URL: ${url}`);
-
-      const response = await fetch(url, {
-        method: "GET",
-        headers: {
-          "User-Agent": "Filecoin-Deal-Bot/1.0",
-        },
-      });
-
-      if (!response.ok) {
-        const endTime = Date.now();
-        const latency = endTime - startTime;
-
-        return {
-          success: false,
-          latency,
-          startTime: new Date(startTime),
-          endTime: new Date(endTime),
-          responseCode: response.status,
-        };
-      }
-
-      // Read response as buffer
-      const arrayBuffer = await response.arrayBuffer();
-      const data = Buffer.from(arrayBuffer);
-      const endTime = Date.now();
-
-      // Calculate metrics
-      const latency = endTime - startTime;
-      const bytesRetrieved = data.length;
-      const throughput = latency > 0 ? bytesRetrieved / (latency / 1000) : 0; // bytes per second
-
-      this.logger.debug(
-        `Retrieval successful: ${bytesRetrieved} bytes in ${latency}ms (${throughput.toFixed(2)} bytes/sec)`,
-      );
-
-      return {
-        success: true,
-        data,
-        latency,
-        startTime: new Date(startTime),
-        endTime: new Date(endTime),
-        bytesRetrieved: data.length,
-        throughput,
-        responseCode: response.status,
-      };
-    } catch (error) {
-      this.logger.warn(`Retrieval failed for URL ${url}: ${error instanceof Error ? error.message : String(error)}`);
-      throw error instanceof Error ? error : new Error(String(error));
     }
   }
 

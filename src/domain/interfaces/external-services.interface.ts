@@ -16,18 +16,6 @@ export interface DataFile {
   size: number;
 }
 
-export interface RetrievalResult {
-  success: boolean;
-  data?: Buffer;
-  latency: number;
-  bytesRetrieved?: number;
-  startTime: Date;
-  endTime: Date;
-  throughput?: number;
-  error?: string;
-  responseCode?: number;
-}
-
 export interface CreateDealInput {
   enableCDN: boolean;
   provider: ProviderInfo;
