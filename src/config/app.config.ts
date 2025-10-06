@@ -28,6 +28,13 @@ export const configValidationSchema = Joi.object({
   // Kaggle
   DEALBOT_LOCAL_DATASETS_PATH: Joi.string().default(DEFAULT_LOCAL_DATASETS_PATH),
   KAGGLE_DATASET_TOTAL_PAGES: Joi.number().default(500),
+
+  // Proxy
+  PROXY_HOSTS: Joi.array().items(Joi.string()).default([]),
+  PROXY_HOST_PORTS: Joi.array().items(Joi.number()).default([]),
+  PROXY_LOCATIONS: Joi.array().items(Joi.string()).default([]),
+  PROXY_USERNAME: Joi.string().default(""),
+  PROXY_PASSWORD: Joi.string().default(""),
 });
 
 export interface IAppConfig {
@@ -61,12 +68,21 @@ export interface IDatasetConfig {
   localDatasetsPath: string;
 }
 
+export interface IProxyConfig {
+  hosts: string[];
+  ports: number[];
+  locations: string[];
+  username: string;
+  password: string;
+}
+
 export interface IConfig {
   app: IAppConfig;
   database: IDatabaseConfig;
   blockchain: IBlockchainConfig;
   scheduling: ISchedulingConfig;
   dataset: IDatasetConfig;
+  proxy: IProxyConfig;
 }
 
 export function loadConfig(): IConfig {
@@ -96,6 +112,13 @@ export function loadConfig(): IConfig {
     dataset: {
       localDatasetsPath: process.env.DEALBOT_LOCAL_DATASETS_PATH || DEFAULT_LOCAL_DATASETS_PATH,
       totalPages: parseInt(process.env.KAGGLE_DATASET_TOTAL_PAGES || "500", 10),
+    },
+    proxy: {
+      hosts: process.env.PROXY_HOSTS?.split(",") || [],
+      ports: process.env.PROXY_HOST_PORTS?.split(",").map((port) => parseInt(port, 10)) || [],
+      locations: process.env.PROXY_LOCATIONS?.split(",") || [],
+      username: process.env.PROXY_USERNAME || "",
+      password: process.env.PROXY_PASSWORD || "",
     },
   };
 }
