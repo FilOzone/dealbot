@@ -19,25 +19,35 @@ type ProviderTrendData = {
 
 function transformProviderTrends(
   dailyMetrics: DailyMetricDto[],
-  metricKey: keyof ProviderDailyMetricDto,
+  metricKey: keyof ProviderDailyMetricDto | "overallDealsSuccessRate",
 ): { data: ProviderTrendData[]; providerNameMap: Map<string, string> } {
   const providerNameMap = new Map<string, string>();
-  dailyMetrics.forEach((day) => {
+
+  const data = dailyMetrics.map((day) => {
+    const row: ProviderTrendData = { date: formatDate(day.date) };
+
     day.providers.forEach((p) => {
       if (!providerNameMap.has(p.provider)) {
         providerNameMap.set(p.provider, p.providerName);
       }
-    });
-  });
 
-  // Transform data to have date and each provider as columns
-  const data = dailyMetrics.map((day) => {
-    const row: ProviderTrendData = { date: formatDate(day.date) };
+      const truncatedName = truncateName(p.providerName);
 
-    providerNameMap.forEach((name, address) => {
-      const providerData = day.providers.find((p) => p.provider === address);
-      const truncatedName = truncateName(name);
-      row[truncatedName] = providerData ? (providerData[metricKey] as number) || 0 : 0;
+      if (metricKey === "overallDealsSuccessRate") {
+        const cdnDeals = p.dealsWithCDN || 0;
+        const directDeals = p.dealsWithoutCDN || 0;
+        const totalDeals = cdnDeals + directDeals;
+
+        if (totalDeals > 0) {
+          const cdnSuccesses = (cdnDeals * (p.dealsSuccessRateWithCDN || 0)) / 100;
+          const directSuccesses = (directDeals * (p.dealsSuccessRateWithoutCDN || 0)) / 100;
+          row[truncatedName] = ((cdnSuccesses + directSuccesses) / totalDeals) * 100;
+        } else {
+          row[truncatedName] = 0;
+        }
+      } else {
+        row[truncatedName] = (p[metricKey] as number) || 0;
+      }
     });
 
     return row;
@@ -72,7 +82,7 @@ function ProviderTrendChart({
 }: {
   dailyMetrics: DailyMetricDto[];
   title: string;
-  metricKey: keyof ProviderDailyMetricDto;
+  metricKey: keyof ProviderDailyMetricDto | "overallDealsSuccessRate";
   yTickFormatter?: (v: number) => string;
   type: "percentage" | "throughput";
 }) {
@@ -129,8 +139,8 @@ export function ProviderDailyComparison({ dailyMetrics }: { dailyMetrics: DailyM
     <div className="space-y-12">
       <ProviderTrendChart
         dailyMetrics={dailyMetrics}
-        title="PROVIDER SUCCESS RATE TRENDS"
-        metricKey="dealsSuccessRateWithCDN"
+        title="PROVIDER OVERALL SUCCESS RATE TRENDS"
+        metricKey="overallDealsSuccessRate"
         yTickFormatter={fmtPct}
         type="percentage"
       />

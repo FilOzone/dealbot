@@ -8,12 +8,13 @@ import type {
   IStorageProviderRepository,
 } from "../domain/interfaces/repositories.interface.js";
 import type { IMetricsService } from "../domain/interfaces/metrics.interface.js";
-import type { RetrievalResult } from "../domain/interfaces/external-services.interface.js";
 import { CDN_HOSTNAMES } from "../common/constants.js";
 import type { Hex } from "../common/types.js";
 import { Deal } from "../domain/entities/deal.entity.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
 import type { IBlockchainConfig, IConfig } from "../config/app.config.js";
+import { HttpClientService } from "../http-client/http-client.service.js";
+import { RequestWithMetrics } from "../http-client/types.js";
 
 @Injectable()
 export class RetrievalService {
@@ -21,6 +22,7 @@ export class RetrievalService {
 
   constructor(
     private readonly configService: ConfigService<IConfig, true>,
+    private readonly httpClientService: HttpClientService,
     private walletSdkService: WalletSdkService,
     @Inject("IDealRepository")
     private readonly dealRepository: IDealRepository,
@@ -106,22 +108,28 @@ export class RetrievalService {
       this.logger.log(`Retrieving from URL: ${url} for deal id: ${deal.dealId}`);
       retrieval.status = RetrievalStatus.IN_PROGRESS;
 
-      const result: RetrievalResult = await this.retrieve(url);
-
-      retrieval.startTime = result.startTime;
-      retrieval.endTime = result.endTime;
-      retrieval.latency = result.latency;
-      retrieval.responseCode = result.responseCode;
-
-      if (result.success) {
-        retrieval.status = RetrievalStatus.SUCCESS;
-        retrieval.bytesRetrieved = result.data?.length || 0;
-        retrieval.throughput = result.throughput;
-        retrieval.ttfb = result.ttfb;
-      } else {
-        retrieval.status = RetrievalStatus.FAILED;
-        retrieval.errorMessage = result.error;
+      let result: RequestWithMetrics<any>;
+      try {
+        result = await this.httpClientService.requestWithRandomProxyAndMetrics(url);
+      } catch (error) {
+        if (error.message === "No proxy available") {
+          result = await this.httpClientService.requestWithoutProxyAndMetrics(url);
+        } else {
+          throw error;
+        }
       }
+
+      const throughput = result.metrics.responseSize / result.metrics.totalTime;
+
+      retrieval.startTime = result.metrics.timestamp;
+      retrieval.endTime = result.metrics.timestamp;
+      retrieval.latency = result.metrics.totalTime;
+      retrieval.ttfb = result.metrics.ttfb;
+      retrieval.responseCode = result.metrics.statusCode;
+
+      retrieval.status = RetrievalStatus.SUCCESS;
+      retrieval.bytesRetrieved = result.data?.length || 0;
+      retrieval.throughput = throughput;
 
       this.logger.log(
         `Retrieval ${retrieval.cid} completed: ${retrieval.status}, ` + `Latency: ${retrieval.latency}ms`,
@@ -188,97 +196,6 @@ export class RetrievalService {
 
         return retrieval;
       }
-    }
-  }
-
-  private async retrieve(url: string): Promise<RetrievalResult> {
-    const startTime = Date.now();
-
-    try {
-      this.logger.debug(`Starting retrieval from URL: ${url}`);
-
-      const response = await fetch(url, {
-        method: "GET",
-        headers: {
-          "User-Agent": "Filecoin-Deal-Bot/1.0",
-        },
-      });
-
-      if (!response.ok) {
-        const endTime = Date.now();
-        const latency = endTime - startTime;
-
-        return {
-          success: false,
-          latency,
-          ttfb: latency,
-          startTime: new Date(startTime),
-          endTime: new Date(endTime),
-          responseCode: response.status,
-        };
-      }
-
-      // Validate response body is readable
-      const reader = response.body?.getReader();
-      if (!reader) {
-        throw new Error("Response body is not readable");
-      }
-
-      // Read first chunk to measure actual TTFB (time to first data byte)
-      const firstChunk = await reader.read();
-      const ttfb = Date.now() - startTime;
-
-      // Collect all response data chunks
-      const chunks: Uint8Array[] = [];
-      if (firstChunk.value) {
-        chunks.push(firstChunk.value);
-      }
-
-      // Continue reading remaining chunks if response is not complete
-      if (!firstChunk.done) {
-        let result = await reader.read();
-        while (!result.done) {
-          chunks.push(result.value);
-          result = await reader.read();
-        }
-      }
-
-      // Efficiently combine all chunks into a single buffer
-      const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
-      const combinedArray = new Uint8Array(totalLength);
-      let offset = 0;
-      for (const chunk of chunks) {
-        combinedArray.set(chunk, offset);
-        offset += chunk.length;
-      }
-
-      const data = Buffer.from(combinedArray);
-      const endTime = Date.now();
-
-      // Calculate performance metrics
-      const latency = endTime - startTime;
-      const bytesRetrieved = data.length;
-      const throughput = latency > 0 ? (bytesRetrieved / latency) * 1000 : 0; // bytes per second
-
-      this.logger.debug(
-        `Retrieval successful: ${bytesRetrieved} bytes in ${latency}ms, TTFB: ${ttfb}ms, throughput: ${throughput.toFixed(2)} B/s`,
-      );
-
-      return {
-        success: true,
-        data,
-        latency,
-        ttfb,
-        startTime: new Date(startTime),
-        endTime: new Date(endTime),
-        bytesRetrieved,
-        throughput,
-        responseCode: response.status,
-      };
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      this.logger.warn(`Retrieval failed for URL ${url}: ${errorMessage}`);
-      throw error instanceof Error ? error : new Error(errorMessage);
     }
   }
 

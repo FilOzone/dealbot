@@ -28,6 +28,10 @@ export const configValidationSchema = Joi.object({
   // Kaggle
   DEALBOT_LOCAL_DATASETS_PATH: Joi.string().default(DEFAULT_LOCAL_DATASETS_PATH),
   KAGGLE_DATASET_TOTAL_PAGES: Joi.number().default(500),
+
+  // Proxy
+  PROXY_LIST: Joi.string().default(""),
+  PROXY_LOCATIONS: Joi.string().default(""),
 });
 
 export interface IAppConfig {
@@ -61,12 +65,18 @@ export interface IDatasetConfig {
   localDatasetsPath: string;
 }
 
+export interface IProxyConfig {
+  list: string[];
+  locations: string[];
+}
+
 export interface IConfig {
   app: IAppConfig;
   database: IDatabaseConfig;
   blockchain: IBlockchainConfig;
   scheduling: ISchedulingConfig;
   dataset: IDatasetConfig;
+  proxy: IProxyConfig;
 }
 
 export function loadConfig(): IConfig {
@@ -96,6 +106,10 @@ export function loadConfig(): IConfig {
     dataset: {
       localDatasetsPath: process.env.DEALBOT_LOCAL_DATASETS_PATH || DEFAULT_LOCAL_DATASETS_PATH,
       totalPages: parseInt(process.env.KAGGLE_DATASET_TOTAL_PAGES || "500", 10),
+    },
+    proxy: {
+      list: process.env.PROXY_LIST?.split(",") || [],
+      locations: process.env.PROXY_LOCATIONS?.split(",") || [],
     },
   };
 }
