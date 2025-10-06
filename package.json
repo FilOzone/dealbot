@@ -24,6 +24,7 @@
   },
   "dependencies": {
     "@filoz/synapse-sdk": "0.25.1",
+    "@nestjs/axios": "^4.0.1",
     "@nestjs/common": "^11.1.5",
     "@nestjs/config": "^4.0.2",
     "@nestjs/core": "^11.1.5",
@@ -38,6 +39,7 @@
     "cron": "^4.3.0",
     "ethers": "^6.15.0",
     "helmet": "^8.1.0",
+    "https-proxy-agent": "^7.0.6",
     "joi": "^17.13.3",
     "pg": "^8.16.3",
     "reflect-metadata": "^0.2.2",
