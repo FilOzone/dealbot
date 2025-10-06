@@ -19,8 +19,7 @@ export function SummaryCards({ stats }: { stats: OverallStatsDto }) {
     { label: "AVG INGEST LATENCY", value: formatMilliseconds(stats.ingestLatency) },
     { label: "AVG INGEST THROUGHPUT", value: formatThroughput(stats.ingestThroughput) },
     { label: "AVG CHAIN LATENCY", value: formatMilliseconds(stats.chainLatency) },
-    { label: "AVG RETRIEVAL LATENCY", value: formatMilliseconds(stats.retrievalLatency) },
-    { label: "AVG RETRIEVAL TTFB", value: formatMilliseconds(stats.retrievalTtfb) },
+    { label: "AVG RETRIEVAL TTFB", value: formatMilliseconds(stats.retrievalTTFB) },
     { label: "AVG RETRIEVAL THROUGHPUT", value: formatThroughput(stats.retrievalThroughput) },
   ];
 

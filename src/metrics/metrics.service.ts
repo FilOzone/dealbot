@@ -160,12 +160,16 @@ export class MetricsService implements IMetricsService {
   private calculateRetrievalMetrics(retrieval: Retrieval, existing?: DailyMetricsData) {
     const latencies: number[] = [];
     const throughputs: number[] = [];
+    const ttfbs: number[] = [];
 
     if (retrieval.latency) {
       latencies.push(retrieval.latency);
     }
     if (retrieval.throughput) {
       throughputs.push(retrieval.throughput);
+    }
+    if (retrieval.ttfb) {
+      ttfbs.push(retrieval.ttfb);
     }
 
     // Update response code counts
@@ -186,6 +190,7 @@ export class MetricsService implements IMetricsService {
         throughputs,
         existing?.totalCalls || 0,
       ),
+      avgRetrievalTTFB: this.calculateRunningAverage(existing?.avgRetrievalTTFB, ttfbs, existing?.totalCalls || 0),
       responseCodeCounts,
     };
   }

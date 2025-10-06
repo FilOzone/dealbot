@@ -17,7 +17,7 @@ export interface ProviderPerformanceDto {
   retrievalSuccessRate: number;
   retrievalFailureRate: number;
   retrievalLatency: number;
-  retrievalTtfb: number;
+  retrievalTTFB: number;
   retrievalThroughput: number;
 }
 
@@ -37,7 +37,7 @@ export interface OverallStatsDto {
   chainLatency: number;
   dealLatency: number;
   retrievalLatency: number;
-  retrievalTtfb: number;
+  retrievalTTFB: number;
   retrievalThroughput: number;
   providerPerformance: ProviderPerformanceDto[];
 }
@@ -60,8 +60,8 @@ export interface DailyMetricDto {
   avgDealLatencyWithoutCDN: number;
   avgRetrievalLatencyWithCDN: number;
   avgRetrievalLatencyWithoutCDN: number;
-  avgRetrievalTtfbWithCDN: number;
-  avgRetrievalTtfbWithoutCDN: number;
+  avgRetrievalTTFBWithCDN: number;
+  avgRetrievalTTFBWithoutCDN: number;
   avgIngestLatencyWithCDN: number;
   avgIngestLatencyWithoutCDN: number;
   avgIngestThroughputWithCDN: number;
@@ -100,7 +100,7 @@ export interface ProviderDailyMetricDto {
   avgDealLatencyWithCDN: number;
   avgDealLatencyWithoutCDN: number;
   avgRetrievalLatencyWithoutCDN: number;
-  avgRetrievalTtfbWithoutCDN: number;
+  avgRetrievalTTFBWithoutCDN: number;
   avgIngestLatencyWithCDN: number;
   avgIngestLatencyWithoutCDN: number;
   avgIngestThroughputWithCDN: number;

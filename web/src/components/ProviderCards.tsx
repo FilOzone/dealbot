@@ -177,7 +177,7 @@ export function ProviderCards({ providers }: ProviderCardsProps) {
                   </div>
                   <div>
                     <span className="text-muted-foreground">TTFB:</span>
-                    <span className="ml-1 font-medium">{formatMilliseconds(provider.retrievalTtfb)}</span>
+                    <span className="ml-1 font-medium">{formatMilliseconds(provider.retrievalTTFB)}</span>
                   </div>
                 </div>
               </div>

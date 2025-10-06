@@ -56,6 +56,9 @@ export class DailyMetricsEntity {
   avgRetrievalLatency!: number | null;
 
   @Column({ type: "float", nullable: true })
+  avgRetrievalTTFB!: number | null;
+
+  @Column({ type: "float", nullable: true })
   avgRetrievalThroughput!: number | null;
 
   // Response code tracking for retrievals

@@ -176,8 +176,8 @@ export function DailyMetricsCharts({ dailyMetrics }: { dailyMetrics: DailyMetric
       <DailyChart
         data={dailyMetrics}
         title="RETRIEVAL TIME TO FIRST BYTE (DAILY)"
-        cdnKey="avgRetrievalTtfbWithCDN"
-        noCdnKey="avgRetrievalTtfbWithoutCDN"
+        cdnKey="avgRetrievalTTFBWithCDN"
+        noCdnKey="avgRetrievalTTFBWithoutCDN"
         yTickFormatter={formatMilliseconds}
         type="milliseconds"
       />
