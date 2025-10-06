@@ -25,6 +25,7 @@ export interface DailyMetricsData {
   avgChainLatency?: number;
   avgDealLatency?: number;
   avgRetrievalLatency?: number;
+  avgRetrievalTTFB?: number;
   avgRetrievalThroughput?: number;
   responseCodeCounts?: Record<string, number>;
 }

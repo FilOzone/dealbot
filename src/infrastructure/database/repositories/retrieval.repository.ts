@@ -65,6 +65,10 @@ export class RetrievalRepository implements IRetrievalRepository {
       retrievals.filter((r) => r.latency !== null).reduce((sum, r) => sum + r.latency, 0) /
       (retrievals.filter((r) => r.latency !== null).length || 1);
 
+    const avgTtfb =
+      retrievals.filter((r) => r.ttfb !== null).reduce((sum, r) => sum + r.ttfb, 0) /
+      (retrievals.filter((r) => r.ttfb !== null).length || 1);
+
     const avgThroughput =
       retrievals.filter((r) => r.throughput !== null).reduce((sum, r) => sum + r.throughput, 0) /
       (retrievals.filter((r) => r.throughput !== null).length || 1);
@@ -81,6 +85,7 @@ export class RetrievalRepository implements IRetrievalRepository {
       successfulRetrievals,
       failedRetrievals,
       averageLatency: avgLatency,
+      averageTtfb: avgTtfb,
       averageThroughput: avgThroughput,
       cdnVsDirectComparison: {
         cdn: cdnMetrics,
@@ -91,16 +96,21 @@ export class RetrievalRepository implements IRetrievalRepository {
 
   private calculateTypeMetrics(retrievals: RetrievalEntity[]) {
     if (retrievals.length === 0) {
-      return { avgLatency: 0, successRate: 0 };
+      return { avgLatency: 0, avgTtfb: 0, successRate: 0 };
     }
 
     const successCount = retrievals.filter((r) => r.status === RetrievalStatus.SUCCESS).length;
     const avgLatency =
       retrievals.filter((r) => r.latency !== null).reduce((sum, r) => sum + r.latency, 0) /
       (retrievals.filter((r) => r.latency !== null).length || 1);
+    
+    const avgTtfb =
+      retrievals.filter((r) => r.ttfb !== null).reduce((sum, r) => sum + r.ttfb, 0) /
+      (retrievals.filter((r) => r.ttfb !== null).length || 1);
 
     return {
       avgLatency,
+      avgTtfb,
       successRate: (successCount / retrievals.length) * 100,
     };
   }

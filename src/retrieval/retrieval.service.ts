@@ -113,7 +113,8 @@ export class RetrievalService {
 
       retrieval.startTime = result.metrics.timestamp;
       retrieval.endTime = result.metrics.timestamp;
-      retrieval.latency = result.metrics.ttfb;
+      retrieval.latency = result.metrics.totalTime;
+      retrieval.ttfb = result.metrics.ttfb;
       retrieval.responseCode = result.metrics.statusCode;
 
       retrieval.status = RetrievalStatus.SUCCESS;
@@ -155,6 +156,11 @@ export class RetrievalService {
             retrieval.latency || 0,
             provider.successfulRetrievals,
           );
+          provider.averageRetrievalTTFB = this.calculateAvg(
+            provider.averageRetrievalTTFB,
+            retrieval.ttfb || 0,
+            provider.successfulRetrievals,
+          );
         } else {
           provider.failedRetrievals += 1;
         }
@@ -165,6 +171,7 @@ export class RetrievalService {
             retrievalSuccessRate: provider.retrievalSuccessRate,
             averageRetrievalLatency: provider.averageRetrievalLatency,
             averageRetrievalThroughput: provider.averageRetrievalThroughput,
+            averageRetrievalTTFB: provider.averageRetrievalTTFB,
             totalRetrievals: provider.totalRetrievals,
             successfulRetrievals: provider.successfulRetrievals,
             failedRetrievals: provider.failedRetrievals,

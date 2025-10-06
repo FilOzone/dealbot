@@ -39,6 +39,7 @@ export class MetricsRepository implements IMetricsRepository {
         avgChainLatency: metrics.avgChainLatency,
         avgDealLatency: metrics.avgDealLatency,
         avgRetrievalLatency: metrics.avgRetrievalLatency,
+        avgRetrievalTTFB: metrics.avgRetrievalTTFB,
         avgRetrievalThroughput: metrics.avgRetrievalThroughput,
         responseCodeCounts: metrics.responseCodeCounts,
       },

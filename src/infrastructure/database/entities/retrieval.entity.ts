@@ -34,6 +34,9 @@ export class RetrievalEntity {
   @Column({ nullable: true, type: "int" })
   latency!: number;
 
+  @Column({ nullable: true, type: "int" })
+  ttfb!: number;
+
   @Column({ nullable: true, type: "float" })
   throughput!: number;
 
