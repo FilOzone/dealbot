@@ -117,6 +117,7 @@ export class RetrievalService {
         retrieval.status = RetrievalStatus.SUCCESS;
         retrieval.bytesRetrieved = result.data?.length || 0;
         retrieval.throughput = result.throughput;
+        retrieval.ttfb = result.ttfb;
       } else {
         retrieval.status = RetrievalStatus.FAILED;
         retrieval.errorMessage = result.error;
@@ -157,6 +158,11 @@ export class RetrievalService {
             retrieval.latency || 0,
             provider.successfulRetrievals,
           );
+          provider.averageRetrievalTTFB = this.calculateAvg(
+            provider.averageRetrievalTTFB,
+            retrieval.ttfb || 0,
+            provider.successfulRetrievals,
+          );
         } else {
           provider.failedRetrievals += 1;
         }
@@ -167,6 +173,7 @@ export class RetrievalService {
             retrievalSuccessRate: provider.retrievalSuccessRate,
             averageRetrievalLatency: provider.averageRetrievalLatency,
             averageRetrievalThroughput: provider.averageRetrievalThroughput,
+            averageRetrievalTTFB: provider.averageRetrievalTTFB,
             totalRetrievals: provider.totalRetrievals,
             successfulRetrievals: provider.successfulRetrievals,
             failedRetrievals: provider.failedRetrievals,
@@ -204,39 +211,74 @@ export class RetrievalService {
         return {
           success: false,
           latency,
+          ttfb: latency,
           startTime: new Date(startTime),
           endTime: new Date(endTime),
           responseCode: response.status,
         };
       }
 
-      // Read response as buffer
-      const arrayBuffer = await response.arrayBuffer();
-      const data = Buffer.from(arrayBuffer);
+      // Validate response body is readable
+      const reader = response.body?.getReader();
+      if (!reader) {
+        throw new Error("Response body is not readable");
+      }
+
+      // Read first chunk to measure actual TTFB (time to first data byte)
+      const firstChunk = await reader.read();
+      const ttfb = Date.now() - startTime;
+
+      // Collect all response data chunks
+      const chunks: Uint8Array[] = [];
+      if (firstChunk.value) {
+        chunks.push(firstChunk.value);
+      }
+
+      // Continue reading remaining chunks if response is not complete
+      if (!firstChunk.done) {
+        let result = await reader.read();
+        while (!result.done) {
+          chunks.push(result.value);
+          result = await reader.read();
+        }
+      }
+
+      // Efficiently combine all chunks into a single buffer
+      const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+      const combinedArray = new Uint8Array(totalLength);
+      let offset = 0;
+      for (const chunk of chunks) {
+        combinedArray.set(chunk, offset);
+        offset += chunk.length;
+      }
+
+      const data = Buffer.from(combinedArray);
       const endTime = Date.now();
 
-      // Calculate metrics
+      // Calculate performance metrics
       const latency = endTime - startTime;
       const bytesRetrieved = data.length;
-      const throughput = latency > 0 ? bytesRetrieved / (latency / 1000) : 0; // bytes per second
+      const throughput = latency > 0 ? (bytesRetrieved / latency) * 1000 : 0; // bytes per second
 
       this.logger.debug(
-        `Retrieval successful: ${bytesRetrieved} bytes in ${latency}ms (${throughput.toFixed(2)} bytes/sec)`,
+        `Retrieval successful: ${bytesRetrieved} bytes in ${latency}ms, TTFB: ${ttfb}ms, throughput: ${throughput.toFixed(2)} B/s`,
       );
 
       return {
         success: true,
         data,
         latency,
+        ttfb,
         startTime: new Date(startTime),
         endTime: new Date(endTime),
-        bytesRetrieved: data.length,
+        bytesRetrieved,
         throughput,
         responseCode: response.status,
       };
     } catch (error) {
-      this.logger.warn(`Retrieval failed for URL ${url}: ${error instanceof Error ? error.message : String(error)}`);
-      throw error instanceof Error ? error : new Error(String(error));
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.warn(`Retrieval failed for URL ${url}: ${errorMessage}`);
+      throw error instanceof Error ? error : new Error(errorMessage);
     }
   }
 

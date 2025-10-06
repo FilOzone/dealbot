@@ -21,6 +21,7 @@ export type MetricKey =
   | "chainLatency"
   | "dealLatency"
   | "retrievalLatency"
+  | "retrievalTtfb"
   | "ingestThroughput"
   | "retrievalThroughput"
   | "totalDeals"
@@ -39,7 +40,7 @@ export default function App() {
 
   const { data: failedDealsData, error: failedDealsError } = useFailedDeals({
     page: failedDealsPage,
-    limit: 20,
+    limit: 10,
     search: failedDealsSearch,
     provider: failedDealsProvider === "all" ? undefined : failedDealsProvider,
     withCDN: failedDealsCDN,

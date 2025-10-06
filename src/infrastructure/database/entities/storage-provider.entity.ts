@@ -76,6 +76,9 @@ export class StorageProviderEntity {
   averageRetrievalLatency!: number;
 
   @Column({ nullable: true, type: "float" })
+  averageRetrievalTTFB!: number;
+
+  @Column({ nullable: true, type: "float" })
   averageRetrievalThroughput!: number;
 
   @Column({ default: 0, type: "float" })

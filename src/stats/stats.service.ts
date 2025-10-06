@@ -74,6 +74,7 @@ export class StatsService {
         totalIngestThroughput: acc.totalIngestThroughput + (provider.averageIngestThroughput || 0),
         totalRetrievalLatency: acc.totalRetrievalLatency + (provider.averageRetrievalLatency || 0),
         totalRetrievalThroughput: acc.totalRetrievalThroughput + (provider.averageRetrievalThroughput || 0),
+        totalRetrievalTTFB: acc.totalRetrievalTTFB + (provider.averageRetrievalTTFB || 0),
         providersWithData: acc.providersWithData + (provider.totalDeals > 0 ? 1 : 0),
         providersWithRetrievals: acc.providersWithRetrievals + (provider.totalRetrievals > 0 ? 1 : 0),
       }),
@@ -91,6 +92,7 @@ export class StatsService {
         totalIngestThroughput: 0,
         totalRetrievalLatency: 0,
         totalRetrievalThroughput: 0,
+        totalRetrievalTTFB: 0,
         providersWithData: 0,
         providersWithRetrievals: 0,
       },
@@ -137,6 +139,8 @@ export class StatsService {
         totals.providersWithRetrievals > 0
           ? Math.round(totals.totalRetrievalThroughput / totals.providersWithRetrievals)
           : 0,
+      retrievalTTFB:
+        totals.providersWithData > 0 ? Math.round(totals.totalRetrievalTTFB / totals.providersWithData) : 0,
     };
   }
 
@@ -164,6 +168,7 @@ export class StatsService {
       retrievalFailureRate: Math.round((100 - provider.retrievalSuccessRate) * 100) / 100,
       retrievalLatency: Math.round(provider.averageRetrievalLatency || 0),
       retrievalThroughput: Math.round(provider.averageRetrievalThroughput || 0),
+      retrievalTTFB: Math.round(provider.averageRetrievalTTFB || 0),
     }));
   }
 
@@ -278,6 +283,8 @@ export class StatsService {
         avgChainLatencyWithoutCDN: 0,
         avgRetrievalThroughputWithCDN: 0,
         avgRetrievalThroughputWithoutCDN: 0,
+        avgRetrievalTTFBWithCDN: 0,
+        avgRetrievalTTFBWithoutCDN: 0,
         providers: [], // Initialize empty providers array
       });
     });
@@ -307,12 +314,14 @@ export class StatsService {
           successful: number;
           retrievalLatencies: number[];
           retrievalThroughputs: number[];
+          retrievalTTFBs: number[];
         };
         retrievalsWithoutCDN: {
           total: number;
           successful: number;
           retrievalLatencies: number[];
           retrievalThroughputs: number[];
+          retrievalTTFBs: number[];
         };
       }
     >();
@@ -343,12 +352,14 @@ export class StatsService {
             successful: 0,
             retrievalLatencies: [],
             retrievalThroughputs: [],
+            retrievalTTFBs: [],
           },
           retrievalsWithoutCDN: {
             total: 0,
             successful: 0,
             retrievalLatencies: [],
             retrievalThroughputs: [],
+            retrievalTTFBs: [],
           },
         });
       }
@@ -378,6 +389,7 @@ export class StatsService {
           if (metric.avgRetrievalLatency) dayAgg.retrievalsWithCDN.retrievalLatencies.push(metric.avgRetrievalLatency);
           if (metric.avgRetrievalThroughput)
             dayAgg.retrievalsWithCDN.retrievalThroughputs.push(metric.avgRetrievalThroughput);
+          if (metric.avgRetrievalTTFB) dayAgg.retrievalsWithCDN.retrievalTTFBs.push(metric.avgRetrievalTTFB);
         } else {
           dayAgg.retrievalsWithoutCDN.total += metric.totalCalls;
           dayAgg.retrievalsWithoutCDN.successful += metric.successfulCalls;
@@ -385,6 +397,7 @@ export class StatsService {
             dayAgg.retrievalsWithoutCDN.retrievalLatencies.push(metric.avgRetrievalLatency);
           if (metric.avgRetrievalThroughput)
             dayAgg.retrievalsWithoutCDN.retrievalThroughputs.push(metric.avgRetrievalThroughput);
+          if (metric.avgRetrievalTTFB) dayAgg.retrievalsWithoutCDN.retrievalTTFBs.push(metric.avgRetrievalTTFB);
         }
       }
     });
@@ -501,6 +514,22 @@ export class StatsService {
                 agg.retrievalsWithoutCDN.retrievalThroughputs.length,
             )
           : 0;
+
+      // Calculate retrieval ttfb
+      daily.avgRetrievalTTFBWithCDN =
+        agg.retrievalsWithCDN.retrievalTTFBs.length > 0
+          ? Math.round(
+              agg.retrievalsWithCDN.retrievalTTFBs.reduce((a, b) => a + b, 0) /
+                agg.retrievalsWithCDN.retrievalTTFBs.length,
+            )
+          : 0;
+      daily.avgRetrievalTTFBWithoutCDN =
+        agg.retrievalsWithoutCDN.retrievalTTFBs.length > 0
+          ? Math.round(
+              agg.retrievalsWithoutCDN.retrievalTTFBs.reduce((a, b) => a + b, 0) /
+                agg.retrievalsWithoutCDN.retrievalTTFBs.length,
+            )
+          : 0;
     });
 
     return Array.from(dailyMap.values()).sort((a, b) => a.date.localeCompare(b.date));
@@ -546,6 +575,7 @@ export class StatsService {
         avgChainLatencyWithCDN: 0,
         avgChainLatencyWithoutCDN: 0,
         avgRetrievalThroughputWithoutCDN: 0,
+        avgRetrievalTTFBWithoutCDN: 0,
       });
     });
 
@@ -574,6 +604,7 @@ export class StatsService {
           successful: number;
           retrievalLatencies: number[];
           retrievalThroughputs: number[];
+          retrievalTTFB: number[];
         };
       }
     >();
@@ -605,6 +636,7 @@ export class StatsService {
             successful: 0,
             retrievalLatencies: [],
             retrievalThroughputs: [],
+            retrievalTTFB: [],
           },
         });
       }
@@ -636,6 +668,7 @@ export class StatsService {
           providerAgg.retrievalsWithoutCDN.retrievalLatencies.push(metric.avgRetrievalLatency);
         if (metric.avgRetrievalThroughput)
           providerAgg.retrievalsWithoutCDN.retrievalThroughputs.push(metric.avgRetrievalThroughput);
+        if (metric.avgRetrievalTTFB) providerAgg.retrievalsWithoutCDN.retrievalTTFB.push(metric.avgRetrievalTTFB);
       }
     });
 
@@ -730,6 +763,15 @@ export class StatsService {
           ? Math.round(
               agg.retrievalsWithoutCDN.retrievalThroughputs.reduce((a, b) => a + b, 0) /
                 agg.retrievalsWithoutCDN.retrievalThroughputs.length,
+            )
+          : 0;
+
+      // Calculate retrieval TTFB metrics
+      providerDaily.avgRetrievalTTFBWithoutCDN =
+        agg.retrievalsWithoutCDN.retrievalTTFB.length > 0
+          ? Math.round(
+              agg.retrievalsWithoutCDN.retrievalTTFB.reduce((a, b) => a + b, 0) /
+                agg.retrievalsWithoutCDN.retrievalTTFB.length,
             )
           : 0;
     });
@@ -959,6 +1001,7 @@ export class StatsService {
       dealLatency: 0,
       retrievalLatency: 0,
       retrievalThroughput: 0,
+      retrievalTTFB: 0,
       providerPerformance: [],
     };
   }

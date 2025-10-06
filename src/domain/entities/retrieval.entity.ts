@@ -11,8 +11,9 @@ export class Retrieval {
   // Performance metrics
   startTime!: Date;
   endTime?: Date;
-  latency?: number; // milliseconds
-  throughput?: number; // bytes/second
+  latency?: number;
+  ttfb?: number;
+  throughput?: number;
   bytesRetrieved?: number;
 
   // Request details
@@ -39,7 +40,7 @@ export class Retrieval {
 
   calculateThroughput(): void {
     if (this.bytesRetrieved && this.latency && this.latency > 0) {
-      this.throughput = (this.bytesRetrieved / this.latency) * 1000; // bytes per second
+      this.throughput = (this.bytesRetrieved / this.latency) * 1000;
     }
   }
 }

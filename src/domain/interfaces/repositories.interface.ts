@@ -57,9 +57,10 @@ export interface RetrievalMetrics {
   successfulRetrievals: number;
   failedRetrievals: number;
   averageLatency: number;
+  averageTtfb: number;
   averageThroughput: number;
   cdnVsDirectComparison: {
-    cdn: { avgLatency: number; successRate: number };
-    direct: { avgLatency: number; successRate: number };
+    cdn: { avgLatency: number; avgTtfb: number; successRate: number };
+    direct: { avgLatency: number; avgTtfb: number; successRate: number };
   };
 }

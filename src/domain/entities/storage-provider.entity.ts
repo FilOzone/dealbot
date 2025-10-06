@@ -27,6 +27,7 @@ export class StorageProvider {
   averageChainLatency!: number;
   averageDealLatency!: number;
   averageRetrievalLatency!: number;
+  averageRetrievalTTFB!: number;
   averageRetrievalThroughput!: number;
   dealSuccessRate!: number;
   retrievalSuccessRate!: number;
@@ -53,6 +54,7 @@ export class StorageProvider {
     this.averageChainLatency = partial.averageChainLatency || 0;
     this.averageDealLatency = partial.averageDealLatency || 0;
     this.averageRetrievalLatency = partial.averageRetrievalLatency || 0;
+    this.averageRetrievalTTFB = partial.averageRetrievalTTFB || 0;
     this.averageRetrievalThroughput = partial.averageRetrievalThroughput || 0;
     this.dealSuccessRate = partial.dealSuccessRate || 0;
     this.retrievalSuccessRate = partial.retrievalSuccessRate || 0;
