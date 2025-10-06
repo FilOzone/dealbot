@@ -6,6 +6,7 @@ import { ProviderCards } from "./components/ProviderCards";
 import { SummaryCards } from "./components/SummaryCards";
 import { DailyMetricsCharts } from "./components/DailyMetricsCharts";
 import { ProviderDailyComparison } from "./components/ProviderDailyComparison";
+import { ProviderFilter } from "./components/ProviderFilter";
 import { ErrorState } from "./components/ErrorState";
 import { Skeleton } from "./components/Skeleton";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./components/ui/card";
@@ -13,6 +14,7 @@ import { ModeToggle } from "./components/mode-toggle";
 import { FailedDeals } from "./components/FailedDeals";
 import { useFailedDeals } from "./hooks/useFailedDeals";
 import { InfrastructureInfo } from "./components/InfrastructureInfo";
+import { calculateProviderHealth, filterProvidersByHealth, type HealthStatus } from "./utils/providerHealth";
 
 export type MetricKey =
   | "dealSuccessRate"
@@ -31,6 +33,12 @@ export default function App() {
   const { data, loading, error, refetch } = useOverallStats();
   const { data: dailyData, loading: dailyLoading, error: dailyError } = useDailyStats();
   const { data: configData, loading: configLoading } = useDealbotConfig();
+
+  // Provider filters state
+  const [providerSearch, setProviderSearch] = useState("");
+  const [providerHealthFilter, setProviderHealthFilter] = useState<HealthStatus[]>([]);
+  const [providerSortBy, setProviderSortBy] = useState<"name" | "health" | "deals" | "retrievals">("health");
+  const [providerSortOrder, setProviderSortOrder] = useState<"asc" | "desc">("asc");
 
   // Failed deals filters state
   const [failedDealsPage, setFailedDealsPage] = useState(1);
@@ -55,7 +63,50 @@ export default function App() {
     );
   if (!data) return null;
 
-  const providers = data.overallStats.providerPerformance;
+  const allProviders = data.overallStats.providerPerformance;
+
+  // Filter and sort providers
+  let filteredProviders = allProviders;
+
+  // Apply search filter
+  if (providerSearch) {
+    const searchLower = providerSearch.toLowerCase();
+    filteredProviders = filteredProviders.filter(
+      (p) =>
+        p.name.toLowerCase().includes(searchLower) ||
+        p.provider.toLowerCase().includes(searchLower) ||
+        p.description?.toLowerCase().includes(searchLower),
+    );
+  }
+
+  // Apply health status filter
+  if (providerHealthFilter.length > 0) {
+    filteredProviders = filterProvidersByHealth(filteredProviders, providerHealthFilter);
+  }
+
+  // Sort providers
+  filteredProviders = [...filteredProviders].sort((a, b) => {
+    let compareValue = 0;
+
+    switch (providerSortBy) {
+      case "name":
+        compareValue = a.name.localeCompare(b.name);
+        break;
+      case "health":
+        const healthA = calculateProviderHealth(a).score;
+        const healthB = calculateProviderHealth(b).score;
+        compareValue = healthA - healthB;
+        break;
+      case "deals":
+        compareValue = a.totalDeals - b.totalDeals;
+        break;
+      case "retrievals":
+        compareValue = a.totalRetrievals - b.totalRetrievals;
+        break;
+    }
+
+    return providerSortOrder === "asc" ? compareValue : -compareValue;
+  });
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -99,10 +150,29 @@ export default function App() {
         <Card>
           <CardHeader>
             <CardTitle>Storage provider performance</CardTitle>
-            <CardDescription>Detailed provider information, performance metrics, and statistics</CardDescription>
+            <CardDescription>
+              {filteredProviders.length} of {allProviders.length} providers shown • Sorted by{" "}
+              {providerSortBy === "health"
+                ? "health score"
+                : providerSortBy === "name"
+                  ? "name"
+                  : providerSortBy === "deals"
+                    ? "total deals"
+                    : "total retrievals"}
+            </CardDescription>
           </CardHeader>
-          <CardContent>
-            <ProviderCards providers={providers} />
+          <CardContent className="space-y-6">
+            <ProviderFilter
+              searchValue={providerSearch}
+              onSearchChange={setProviderSearch}
+              healthFilter={providerHealthFilter}
+              onHealthFilterChange={setProviderHealthFilter}
+              sortBy={providerSortBy}
+              onSortChange={setProviderSortBy}
+              sortOrder={providerSortOrder}
+              onSortOrderChange={setProviderSortOrder}
+            />
+            <ProviderCards providers={filteredProviders} />
           </CardContent>
         </Card>
 

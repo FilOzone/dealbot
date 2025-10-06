@@ -7,6 +7,7 @@ import { StorageProviderEntity } from "../infrastructure/database/entities/stora
 import { MetricsRepository } from "../infrastructure/database/repositories/metrics.repository.js";
 import { StorageProviderRepository } from "../infrastructure/database/repositories/storage-provider.repository.js";
 import { MetricsService } from "./metrics.service.js";
+import { MetricsSchedulerService } from "./metrics-scheduler.service.js";
 
 @Module({
   imports: [TypeOrmModule.forFeature([DailyMetricsEntity, DealEntity, RetrievalEntity, StorageProviderEntity])],
@@ -14,6 +15,7 @@ import { MetricsService } from "./metrics.service.js";
     MetricsRepository,
     StorageProviderRepository,
     MetricsService,
+    MetricsSchedulerService,
     {
       provide: "IMetricsService",
       useClass: MetricsService,
@@ -29,6 +31,7 @@ import { MetricsService } from "./metrics.service.js";
   ],
   exports: [
     MetricsService,
+    MetricsSchedulerService,
     MetricsRepository,
     StorageProviderRepository,
     "IMetricsService",

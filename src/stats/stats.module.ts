@@ -5,9 +5,10 @@ import { StatsService } from "./stats.service.js";
 import { StorageProviderEntity } from "../infrastructure/database/entities/storage-provider.entity.js";
 import { DailyMetricsEntity } from "../infrastructure/database/entities/daily-metrics.entity.js";
 import { DealEntity } from "../infrastructure/database/entities/deal.entity.js";
+import { MetricsModule } from "../metrics/metrics.module.js";
 
 @Module({
-  imports: [TypeOrmModule.forFeature([StorageProviderEntity, DailyMetricsEntity, DealEntity])],
+  imports: [TypeOrmModule.forFeature([StorageProviderEntity, DailyMetricsEntity, DealEntity]), MetricsModule],
   controllers: [StatsController],
   providers: [StatsService],
   exports: [StatsService],

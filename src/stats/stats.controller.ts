@@ -1,10 +1,14 @@
-import { Controller, Get, Query, BadRequestException } from "@nestjs/common";
+import { Controller, Get, Post, Query, BadRequestException } from "@nestjs/common";
 import { StatsService } from "./stats.service.js";
+import { MetricsService } from "../metrics/metrics.service.js";
 import { OverallStatsResponseDto, DailyMetricsResponseDto, FailedDealsResponseDto } from "./stats.dto.js";
 
 @Controller("api/stats")
 export class StatsController {
-  constructor(private readonly statsService: StatsService) {}
+  constructor(
+    private readonly statsService: StatsService,
+    private readonly metricsService: MetricsService,
+  ) {}
 
   /**
    * Get overall statistics for all storage providers
@@ -110,5 +114,19 @@ export class StatsController {
     );
 
     return failedDeals;
+  }
+
+  /**
+   * Manually trigger 7-day metrics update for all providers
+   * Useful for immediate updates or testing
+   */
+  @Post("metrics/update-7day")
+  async update7DayMetrics(): Promise<{ message: string; timestamp: string }> {
+    await this.metricsService.updateAll7DayMetrics();
+
+    return {
+      message: "7-day metrics update completed successfully",
+      timestamp: new Date().toISOString(),
+    };
   }
 }

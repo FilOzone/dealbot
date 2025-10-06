@@ -1,14 +1,16 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { Repository, Between } from "typeorm";
+import { Repository, Between, MoreThanOrEqual } from "typeorm";
 import { Deal } from "../domain/entities/deal.entity.js";
 import { Retrieval } from "../domain/entities/retrieval.entity.js";
 import { DealEntity } from "../infrastructure/database/entities/deal.entity.js";
 import { RetrievalEntity } from "../infrastructure/database/entities/retrieval.entity.js";
 import { MetricsRepository } from "../infrastructure/database/repositories/metrics.repository.js";
+import { StorageProviderEntity } from "../infrastructure/database/entities/storage-provider.entity.js";
 import { IMetricsService, DailyMetricsData } from "../domain/interfaces/metrics.interface.js";
 import { DealStatus } from "../domain/enums/deal-status.enum.js";
 import { RetrievalStatus } from "../domain/enums/deal-status.enum.js";
+import { RollingMetrics } from "./type.js";
 
 @Injectable()
 export class MetricsService implements IMetricsService {
@@ -20,6 +22,8 @@ export class MetricsService implements IMetricsService {
     private readonly dealRepository: Repository<DealEntity>,
     @InjectRepository(RetrievalEntity)
     private readonly retrievalRepository: Repository<RetrievalEntity>,
+    @InjectRepository(StorageProviderEntity)
+    private readonly storageProviderRepository: Repository<StorageProviderEntity>,
   ) {}
 
   /**
@@ -128,6 +132,105 @@ export class MetricsService implements IMetricsService {
       );
     } catch (error) {
       this.logger.error(`Failed to aggregate daily metrics: ${error.message}`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Calculate rolling window success rates for a specific provider
+   * @param providerAddress - The provider address
+   * @param windowDays - Number of days to look back (default: 7)
+   */
+  async calculateProviderRollingMetrics(providerAddress: string, windowDays: number = 7): Promise<RollingMetrics> {
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - windowDays);
+
+    try {
+      // Query deals in the time window
+      const deals = await this.dealRepository.find({
+        where: {
+          storageProvider: providerAddress,
+          createdAt: MoreThanOrEqual(cutoffDate),
+        },
+      });
+
+      // Query retrievals in the time window
+      const retrievals = await this.retrievalRepository.find({
+        where: {
+          storageProvider: providerAddress,
+          createdAt: MoreThanOrEqual(cutoffDate),
+        },
+      });
+
+      // Calculate deal success rate
+      const totalDeals = deals.length;
+      const successfulDeals = deals.filter(
+        (d) => d.status === DealStatus.DEAL_CREATED || d.status === DealStatus.PIECE_ADDED,
+      ).length;
+      const dealSuccessRate = totalDeals > 0 ? (successfulDeals / totalDeals) * 100 : 0;
+
+      // Calculate retrieval success rate
+      const totalRetrievals = retrievals.length;
+      const successfulRetrievals = retrievals.filter((r) => r.status === RetrievalStatus.SUCCESS).length;
+      const retrievalSuccessRate = totalRetrievals > 0 ? (successfulRetrievals / totalRetrievals) * 100 : 0;
+
+      return {
+        totalDeals,
+        successfulDeals,
+        successRate: Math.round(dealSuccessRate * 100) / 100,
+        totalRetrievals,
+        successfulRetrievals,
+        retrievalSuccessRate: Math.round(retrievalSuccessRate * 100) / 100,
+      };
+    } catch (error) {
+      this.logger.error(
+        `Failed to calculate rolling metrics for provider ${providerAddress}: ${error.message}`,
+        error.stack,
+      );
+      throw error;
+    }
+  }
+
+  /**
+   * Update 7-day rolling metrics for all active providers
+   * This should be called by a scheduled task
+   */
+  async updateAll7DayMetrics(): Promise<void> {
+    this.logger.log("Starting 7-day rolling metrics update for all providers");
+
+    try {
+      const providers = await this.storageProviderRepository.find({
+        where: { isActive: true },
+      });
+
+      let updatedCount = 0;
+      let errorCount = 0;
+
+      for (const provider of providers) {
+        try {
+          const metrics = await this.calculateProviderRollingMetrics(provider.address, 7);
+
+          await this.storageProviderRepository.update(provider.address, {
+            dealSuccessRate7d: metrics.successRate,
+            retrievalSuccessRate7d: metrics.retrievalSuccessRate,
+            last7dMetricsUpdate: new Date(),
+          });
+
+          updatedCount++;
+          this.logger.debug(`Updated 7d metrics for provider ${provider.name} (${provider.address})`);
+        } catch (error) {
+          errorCount++;
+          this.logger.error(
+            `Failed to update 7d metrics for provider ${provider.name} (${provider.address}): ${error.message}`,
+          );
+        }
+      }
+
+      this.logger.log(
+        `7-day rolling metrics update completed. Updated: ${updatedCount}, Errors: ${errorCount}, Total: ${providers.length}`,
+      );
+    } catch (error) {
+      this.logger.error(`Failed to update 7-day rolling metrics: ${error.message}`, error.stack);
       throw error;
     }
   }
@@ -260,18 +363,6 @@ export class MetricsService implements IMetricsService {
     const totalCount = existingCount + newValues.length;
 
     return totalCount > 0 ? totalSum / totalCount : undefined;
-  }
-
-  private calculateMin(existingMin: number | undefined, newValues: number[]): number | undefined {
-    if (newValues.length === 0) return existingMin;
-    const newMin = Math.min(...newValues);
-    return existingMin !== undefined ? Math.min(existingMin, newMin) : newMin;
-  }
-
-  private calculateMax(existingMax: number | undefined, newValues: number[]): number | undefined {
-    if (newValues.length === 0) return existingMax;
-    const newMax = Math.max(...newValues);
-    return existingMax !== undefined ? Math.max(existingMax, newMax) : newMax;
   }
 
   private toDealDomain(entity: DealEntity): Deal {

@@ -169,6 +169,9 @@ export class StatsService {
       retrievalLatency: Math.round(provider.averageRetrievalLatency || 0),
       retrievalThroughput: Math.round(provider.averageRetrievalThroughput || 0),
       retrievalTTFB: Math.round(provider.averageRetrievalTTFB || 0),
+      dealSuccessRate7d: Math.round(provider.dealSuccessRate7d * 100) / 100,
+      retrievalSuccessRate7d: Math.round(provider.retrievalSuccessRate7d * 100) / 100,
+      last7dMetricsUpdate: provider.last7dMetricsUpdate,
     }));
   }
 
