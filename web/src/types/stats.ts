@@ -19,6 +19,10 @@ export interface ProviderPerformanceDto {
   retrievalLatency: number;
   retrievalTTFB: number;
   retrievalThroughput: number;
+  // 7-day rolling window metrics
+  dealSuccessRate7d: number;
+  retrievalSuccessRate7d: number;
+  last7dMetricsUpdate: Date | null;
 }
 
 export interface OverallStatsDto {

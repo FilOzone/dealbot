@@ -87,6 +87,15 @@ export class StorageProviderEntity {
   @Column({ default: 0, type: "float" })
   retrievalSuccessRate!: number;
 
+  @Column({ default: 0, type: "float" })
+  dealSuccessRate7d!: number;
+
+  @Column({ default: 0, type: "float" })
+  retrievalSuccessRate7d!: number;
+
+  @Column({ type: "timestamp", nullable: true })
+  last7dMetricsUpdate!: Date;
+
   @CreateDateColumn()
   createdAt!: Date;
 
