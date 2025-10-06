@@ -185,30 +185,3 @@ export function filterProvidersByHealth(
 ): ProviderPerformanceDto[] {
   return providers.filter((p) => statuses.includes(calculateProviderHealth(p).status));
 }
-
-/**
- * Get summary statistics for provider health
- */
-export function getHealthSummary(providers: ProviderPerformanceDto[]) {
-  const summary = {
-    excellent: 0,
-    good: 0,
-    warning: 0,
-    critical: 0,
-    inactive: 0,
-    total: providers.length,
-    averageScore: 0,
-  };
-
-  let totalScore = 0;
-
-  providers.forEach((provider) => {
-    const health = calculateProviderHealth(provider);
-    summary[health.status]++;
-    totalScore += health.score;
-  });
-
-  summary.averageScore = providers.length > 0 ? Math.round(totalScore / providers.length) : 0;
-
-  return summary;
-}
