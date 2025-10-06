@@ -29,6 +29,8 @@ export type MetricKey =
   | "totalDeals"
   | "totalRetrievals";
 
+export type SortKey = "name" | "health" | "deals" | "retrievals";
+
 export default function App() {
   const { data, loading, error, refetch } = useOverallStats();
   const { data: dailyData, loading: dailyLoading, error: dailyError } = useDailyStats();
@@ -37,7 +39,7 @@ export default function App() {
   // Provider filters state
   const [providerSearch, setProviderSearch] = useState("");
   const [providerHealthFilter, setProviderHealthFilter] = useState<HealthStatus[]>([]);
-  const [providerSortBy, setProviderSortBy] = useState<"name" | "health" | "deals" | "retrievals">("health");
+  const [providerSortBy, setProviderSortBy] = useState<SortKey>("health");
   const [providerSortOrder, setProviderSortOrder] = useState<"asc" | "desc">("desc");
 
   // Failed deals filters state

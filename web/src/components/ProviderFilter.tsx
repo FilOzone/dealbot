@@ -3,14 +3,15 @@ import { Search, ArrowUpDown } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { Badge } from "./ui/badge";
 import type { HealthStatus } from "@/utils/providerHealth";
+import type { SortKey } from "@/App";
 
 interface ProviderFilterProps {
   searchValue: string;
   onSearchChange: (value: string) => void;
   healthFilter: HealthStatus[];
   onHealthFilterChange: (statuses: HealthStatus[]) => void;
-  sortBy: "name" | "health" | "deals" | "retrievals";
-  onSortChange: (sort: "name" | "health" | "deals" | "retrievals") => void;
+  sortBy: SortKey;
+  onSortChange: (sort: SortKey) => void;
   sortOrder: "asc" | "desc";
   onSortOrderChange: (order: "asc" | "desc") => void;
 }
@@ -58,7 +59,7 @@ export function ProviderFilter({
         </div>
 
         {/* Sort By */}
-        <Select value={sortBy} onValueChange={(v) => onSortChange(v as any)}>
+        <Select value={sortBy} onValueChange={(v) => onSortChange(v as SortKey)}>
           <SelectTrigger className="w-[180px]">
             <SelectValue placeholder="Sort by" />
           </SelectTrigger>
