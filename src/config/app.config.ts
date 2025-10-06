@@ -30,9 +30,9 @@ export const configValidationSchema = Joi.object({
   KAGGLE_DATASET_TOTAL_PAGES: Joi.number().default(500),
 
   // Proxy
-  PROXY_HOSTS: Joi.array().items(Joi.string()).default([]),
-  PROXY_HOST_PORTS: Joi.array().items(Joi.number()).default([]),
-  PROXY_LOCATIONS: Joi.array().items(Joi.string()).default([]),
+  PROXY_HOSTS: Joi.string().default(""),
+  PROXY_HOST_PORTS: Joi.string().default(""),
+  PROXY_LOCATIONS: Joi.string().default(""),
   PROXY_USERNAME: Joi.string().default(""),
   PROXY_PASSWORD: Joi.string().default(""),
 });
