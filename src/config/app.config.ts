@@ -30,11 +30,8 @@ export const configValidationSchema = Joi.object({
   KAGGLE_DATASET_TOTAL_PAGES: Joi.number().default(500),
 
   // Proxy
-  PROXY_HOSTS: Joi.string().default(""),
-  PROXY_HOST_PORTS: Joi.string().default(""),
+  PROXY_LIST: Joi.string().default(""),
   PROXY_LOCATIONS: Joi.string().default(""),
-  PROXY_USERNAME: Joi.string().default(""),
-  PROXY_PASSWORD: Joi.string().default(""),
 });
 
 export interface IAppConfig {
@@ -69,11 +66,8 @@ export interface IDatasetConfig {
 }
 
 export interface IProxyConfig {
-  hosts: string[];
-  ports: number[];
+  list: string[];
   locations: string[];
-  username: string;
-  password: string;
 }
 
 export interface IConfig {
@@ -114,11 +108,8 @@ export function loadConfig(): IConfig {
       totalPages: parseInt(process.env.KAGGLE_DATASET_TOTAL_PAGES || "500", 10),
     },
     proxy: {
-      hosts: process.env.PROXY_HOSTS?.split(",") || [],
-      ports: process.env.PROXY_HOST_PORTS?.split(",").map((port) => parseInt(port, 10)) || [],
+      list: process.env.PROXY_LIST?.split(",") || [],
       locations: process.env.PROXY_LOCATIONS?.split(",") || [],
-      username: process.env.PROXY_USERNAME || "",
-      password: process.env.PROXY_PASSWORD || "",
     },
   };
 }

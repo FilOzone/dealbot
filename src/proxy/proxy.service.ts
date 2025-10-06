@@ -16,16 +16,9 @@ export class ProxyService {
   private initializeProxies(): void {
     const proxyList = this.configService.get<IProxyConfig>("proxy");
 
-    if (proxyList.hosts.length !== proxyList.ports.length) {
-      throw new Error("Proxy hosts and ports must have the same length");
-    }
-
-    const username = proxyList.username;
-    const password = proxyList.password;
-
-    this.proxies = proxyList.hosts.map((host, index) => ({
-      url: `http://${username}:${password}@${host}:${proxyList.ports[index]}`,
-      location: proxyList.locations[index],
+    this.proxies = proxyList.list.map((proxy, index) => ({
+      url: proxy,
+      location: proxyList.locations[index] ? proxyList.locations[index] : undefined,
       failureCount: 0,
     }));
   }

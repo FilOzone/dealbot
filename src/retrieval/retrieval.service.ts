@@ -14,6 +14,7 @@ import { Deal } from "../domain/entities/deal.entity.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
 import type { IBlockchainConfig, IConfig } from "../config/app.config.js";
 import { HttpClientService } from "../http-client/http-client.service.js";
+import { RequestWithMetrics } from "../http-client/types.js";
 
 @Injectable()
 export class RetrievalService {
@@ -107,7 +108,16 @@ export class RetrievalService {
       this.logger.log(`Retrieving from URL: ${url} for deal id: ${deal.dealId}`);
       retrieval.status = RetrievalStatus.IN_PROGRESS;
 
-      const result = await this.httpClientService.requestWithRandomProxyAndMetrics(url);
+      let result: RequestWithMetrics<any>;
+      try {
+        result = await this.httpClientService.requestWithRandomProxyAndMetrics(url);
+      } catch (error) {
+        if (error.message === "No proxy available") {
+          result = await this.httpClientService.requestWithoutProxyAndMetrics(url);
+        } else {
+          throw error;
+        }
+      }
 
       const throughput = result.metrics.responseSize / result.metrics.totalTime;
 
