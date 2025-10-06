@@ -38,7 +38,7 @@ export default function App() {
   const [providerSearch, setProviderSearch] = useState("");
   const [providerHealthFilter, setProviderHealthFilter] = useState<HealthStatus[]>([]);
   const [providerSortBy, setProviderSortBy] = useState<"name" | "health" | "deals" | "retrievals">("health");
-  const [providerSortOrder, setProviderSortOrder] = useState<"asc" | "desc">("asc");
+  const [providerSortOrder, setProviderSortOrder] = useState<"asc" | "desc">("desc");
 
   // Failed deals filters state
   const [failedDealsPage, setFailedDealsPage] = useState(1);
