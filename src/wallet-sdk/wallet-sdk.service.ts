@@ -1,6 +1,6 @@
 import { Injectable, Logger, OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import { JsonRpcProvider } from "ethers";
+import { JsonRpcProvider, MaxUint256 } from "ethers";
 import {
   CONTRACT_ADDRESSES,
   PaymentsService,
@@ -216,8 +216,8 @@ export class WalletSdkService implements OnModuleInit {
 
     const approvalLog: ServiceApprovalLog = {
       serviceAddress: contractAddress,
-      rateAllowance: requirements.storageCheck.rateAllowanceNeeded.toString(),
-      lockupAllowance: (requirements.storageCheck.lockupAllowanceNeeded + requirements.datasetCreationFees).toString(),
+      rateAllowance: "Maximum of uint256",
+      lockupAllowance: "Maximum of uint256",
       durationMonths: Number(requirements.approvalDuration / TIME_CONSTANTS.EPOCHS_PER_MONTH),
     };
 
@@ -225,8 +225,8 @@ export class WalletSdkService implements OnModuleInit {
 
     const approveTx = await this.paymentsService.approveService(
       contractAddress,
-      requirements.storageCheck.rateAllowanceNeeded,
-      requirements.storageCheck.lockupAllowanceNeeded + requirements.datasetCreationFees,
+      MaxUint256,
+      MaxUint256,
       requirements.approvalDuration,
     );
 
