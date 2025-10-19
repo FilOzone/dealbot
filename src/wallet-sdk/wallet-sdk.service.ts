@@ -27,13 +27,16 @@ export class WalletSdkService implements OnModuleInit {
   private paymentsService: PaymentsService;
   private warmStorageService: WarmStorageService;
   private spRegistry: SPRegistryService;
-  approvedProviders: ProviderInfo[] = [];
+  // All registered providers in FWSS (for testing all SPs)
+  registeredProviders: ProviderInfo[] = [];
+  // IDs of approved providers (for Synapse filtering)
+  private approvedProviderIds: Set<number> = new Set();
 
   constructor(private readonly configService: ConfigService<IConfig, true>) {}
 
   async onModuleInit() {
     await this.initializeServices();
-    await this.loadApprovedProviders();
+    await this.loadAllRegisteredProviders();
   }
 
   /**
@@ -55,42 +58,87 @@ export class WalletSdkService implements OnModuleInit {
   }
 
   /**
-   * Load approved service providers from on-chain
+   * Load ALL registered service providers from on-chain (not just approved)
+   * This allows dealbot to test all FWSS SPs, even those not yet approved
    */
-  async loadApprovedProviders(): Promise<void> {
+  async loadAllRegisteredProviders(): Promise<void> {
     try {
-      this.logger.log("Loading approved service providers from on-chain...");
-      const approvedProviderIds = await this.warmStorageService.getApprovedProviderIds();
-      const providerInfos = await Promise.all(approvedProviderIds.map((id) => this.spRegistry.getProvider(id)));
-      this.approvedProviders = providerInfos.filter((info) => info !== null);
+      this.logger.log("Loading all registered service providers from on-chain...");
+      
+      // Get approved provider IDs for tracking
+      const approvedIds = await this.warmStorageService.getApprovedProviderIds();
+      this.approvedProviderIds = new Set(approvedIds.map(id => Number(id)));
+      
+      // Get total provider count from registry
+      const providerCount = await this.spRegistry.getProviderCount();
+      this.logger.log(`Found ${providerCount} total providers in registry`);
+      
+      // Load all providers (IDs start from 1)
+      const providerPromises: Promise<ProviderInfo | null>[] = [];
+      for (let i = 1; i <= Number(providerCount); i++) {
+        providerPromises.push(this.spRegistry.getProvider(i));
+      }
+      
+      const providerInfos = await Promise.all(providerPromises);
+      this.registeredProviders = providerInfos.filter((info): info is ProviderInfo => info !== null);
 
-      this.logger.log(`Loaded ${this.approvedProviders.length} approved providers from on-chain`);
+      const approvedCount = this.registeredProviders.filter(p => 
+        this.approvedProviderIds.has(p.id)
+      ).length;
+
+      this.logger.log(
+        `Loaded ${this.registeredProviders.length} registered providers ` +
+        `(${approvedCount} approved, ${this.registeredProviders.length - approvedCount} not approved)`
+      );
     } catch (error) {
-      this.logger.error("Failed to load approved providers from on-chain", error);
+      this.logger.error("Failed to load registered providers from on-chain", error);
       // Fallback to empty array, let the application handle this gracefully
-      this.approvedProviders = [];
+      this.registeredProviders = [];
+      this.approvedProviderIds = new Set();
     }
   }
 
   /**
-   * Get approved service providers
+   * Load approved service providers from on-chain
+   * @deprecated Use loadAllRegisteredProviders() instead. Kept for backward compatibility.
    */
-  getApprovedProviders(): any[] {
-    return [...this.approvedProviders];
+  async loadApprovedProviders(): Promise<void> {
+    await this.loadAllRegisteredProviders();
+  }
+
+  /**
+   * Get ALL registered service providers (for testing all FWSS SPs)
+   */
+  getAllRegisteredProviders(): ProviderInfo[] {
+    return [...this.registeredProviders];
+  }
+
+  /**
+   * Get approved service providers only (for Synapse filtering)
+   */
+  getApprovedProviders(): ProviderInfo[] {
+    return this.registeredProviders.filter(p => this.approvedProviderIds.has(p.id));
   }
 
   /**
    * Get approved provider addresses only
    */
   getApprovedProviderAddresses(): string[] {
-    return this.approvedProviders.map((provider) => provider.serviceProvider);
+    return this.getApprovedProviders().map((provider) => provider.serviceProvider);
   }
 
   /**
-   * Get count of approved providers
+   * Get count of all registered providers (for deal creation across all FWSS SPs)
    */
   getProviderCount(): number {
-    return this.approvedProviders.length;
+    return this.registeredProviders.length;
+  }
+
+  /**
+   * Get count of approved providers only
+   */
+  getApprovedProviderCount(): number {
+    return this.getApprovedProviders().length;
   }
 
   /**
@@ -104,10 +152,18 @@ export class WalletSdkService implements OnModuleInit {
   }
 
   /**
+   * Get provider info by address (searches all registered providers)
+   */
+  getProviderInfo(address: string): ProviderInfo | undefined {
+    return this.registeredProviders.find((provider) => provider.serviceProvider === address);
+  }
+
+  /**
    * Get approved provider info by address
+   * @deprecated Use getProviderInfo() instead
    */
   getApprovedProviderInfo(address: string): ProviderInfo | undefined {
-    return this.approvedProviders.find((provider) => provider.serviceProvider === address);
+    return this.getProviderInfo(address);
   }
 
   /**
