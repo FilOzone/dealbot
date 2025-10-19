@@ -26,5 +26,5 @@ Use `getApprovedProviderCount()` if you need the old behavior.
 ## Related Changes
 
 - **Service Contracts:** Removed `approvedProviders` checks from `dataSetCreated()` and `storageProviderChanged()`
-- **Issue #291:** Any SPs can join FWSS; ApprovedProviders are FilOz's curated list for Synapse
+- **Issue [#291](https://github.com/FilOzone/filecoin-services/issues/291):** Any SPs can join FWSS; ApprovedProviders are FilOz's curated list for Synapse
 
