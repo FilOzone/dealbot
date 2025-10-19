@@ -259,10 +259,10 @@ export class RetrievalService {
     if (withCDN) {
       return `https://${walletAddress.toLowerCase()}.${CDN_HOSTNAMES[blockchainConfig.network]}/${cid}`;
     } else {
-      const providerDetails = this.walletSdkService.getApprovedProviderInfo(storageProvider);
+      const providerDetails = this.walletSdkService.getProviderInfo(storageProvider);
 
       if (!providerDetails) {
-        throw new Error(`Provider ${storageProvider} not approved`);
+        throw new Error(`Provider ${storageProvider} not found in registered providers`);
       }
 
       if (!providerDetails.products.PDP) {
