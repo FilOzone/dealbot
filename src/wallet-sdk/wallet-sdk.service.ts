@@ -60,7 +60,7 @@ export class WalletSdkService implements OnModuleInit {
   /**
    * Load ALL registered service providers from on-chain (not just approved)
    * This allows dealbot to test all FWSS SPs, even those not yet approved
-   * Only loads active providers that support the PDP product
+   * Only loads active providers that support the PDP product and excludes dev-tagged providers
    */
   async loadAllRegisteredProviders(): Promise<void> {
     try {
@@ -83,10 +83,11 @@ export class WalletSdkService implements OnModuleInit {
       const allProviderInfos = await Promise.all(providerPromises);
       const validProviders = allProviderInfos.filter((info): info is ProviderInfo => info !== null);
       
-      // Filter for active providers that support PDP product
+      // Filter for active providers that support PDP product and are not tagged as dev
       this.registeredProviders = validProviders.filter(provider => {
         const isActive = provider.active;
         const supportsPDP = !!provider.products?.PDP;
+        const isDevTagged = !!provider.products?.PDP?.capabilities?.dev;
         
         if (!isActive) {
           this.logger.debug(`Skipping inactive provider: ${provider.name} (ID: ${provider.id})`);
@@ -94,8 +95,11 @@ export class WalletSdkService implements OnModuleInit {
         if (!supportsPDP) {
           this.logger.debug(`Skipping provider without PDP support: ${provider.name} (ID: ${provider.id})`);
         }
+        if (isDevTagged) {
+          this.logger.debug(`Skipping dev-tagged provider: ${provider.name} (ID: ${provider.id})`);
+        }
         
-        return isActive && supportsPDP;
+        return isActive && supportsPDP && !isDevTagged;
       });
 
       const approvedCount = this.registeredProviders.filter(p => 
