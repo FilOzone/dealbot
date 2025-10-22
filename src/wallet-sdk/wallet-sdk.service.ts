@@ -60,6 +60,7 @@ export class WalletSdkService implements OnModuleInit {
   /**
    * Load ALL registered service providers from on-chain (not just approved)
    * This allows dealbot to test all FWSS SPs, even those not yet approved
+   * Only loads active providers that support the PDP product
    */
   async loadAllRegisteredProviders(): Promise<void> {
     try {
@@ -79,16 +80,34 @@ export class WalletSdkService implements OnModuleInit {
         providerPromises.push(this.spRegistry.getProvider(i));
       }
       
-      const providerInfos = await Promise.all(providerPromises);
-      this.registeredProviders = providerInfos.filter((info): info is ProviderInfo => info !== null);
+      const allProviderInfos = await Promise.all(providerPromises);
+      const validProviders = allProviderInfos.filter((info): info is ProviderInfo => info !== null);
+      
+      // Filter for active providers that support PDP product
+      this.registeredProviders = validProviders.filter(provider => {
+        const isActive = provider.active;
+        const supportsPDP = !!provider.products?.PDP;
+        
+        if (!isActive) {
+          this.logger.debug(`Skipping inactive provider: ${provider.name} (ID: ${provider.id})`);
+        }
+        if (!supportsPDP) {
+          this.logger.debug(`Skipping provider without PDP support: ${provider.name} (ID: ${provider.id})`);
+        }
+        
+        return isActive && supportsPDP;
+      });
 
       const approvedCount = this.registeredProviders.filter(p => 
         this.approvedProviderIds.has(p.id)
       ).length;
+      
+      const skippedCount = validProviders.length - this.registeredProviders.length;
 
       this.logger.log(
-        `Loaded ${this.registeredProviders.length} registered providers ` +
-        `(${approvedCount} approved, ${this.registeredProviders.length - approvedCount} not approved)`
+        `Loaded ${this.registeredProviders.length} active providers with PDP support ` +
+        `(${approvedCount} approved, ${this.registeredProviders.length - approvedCount} not approved, ` +
+        `${skippedCount} skipped)`
       );
     } catch (error) {
       this.logger.error("Failed to load registered providers from on-chain", error);
