@@ -1,0 +1,386 @@
+import { Injectable, Logger, NotFoundException } from "@nestjs/common";
+import { InjectRepository } from "@nestjs/typeorm";
+import { Repository } from "typeorm";
+import { SpPerformanceWeekly } from "../database/entities/sp-performance-weekly.entity.js";
+import { SpPerformanceAllTime } from "../database/entities/sp-performance-all-time.entity.js";
+import { MetricsDaily } from "../database/entities/metrics-daily.entity.js";
+
+/**
+ * Service for querying pre-computed metrics from materialized views
+ * 
+ * This service provides fast read access to aggregated performance metrics
+ * without performing expensive calculations on-the-fly.
+ * 
+ * All data is read from materialized views that are refreshed periodically
+ * by the MetricsRefreshService.
+ */
+@Injectable()
+export class MetricsQueryService {
+  private readonly logger = new Logger(MetricsQueryService.name);
+
+  constructor(
+    @InjectRepository(SpPerformanceWeekly)
+    private readonly weeklyPerformanceRepo: Repository<SpPerformanceWeekly>,
+    @InjectRepository(SpPerformanceAllTime)
+    private readonly allTimePerformanceRepo: Repository<SpPerformanceAllTime>,
+    @InjectRepository(MetricsDaily)
+    private readonly dailyMetricsRepo: Repository<MetricsDaily>,
+  ) {}
+
+  /**
+   * Get weekly performance for a specific storage provider
+   */
+  async getWeeklyPerformance(spAddress: string): Promise<SpPerformanceWeekly> {
+    const performance = await this.weeklyPerformanceRepo.findOne({
+      where: { spAddress },
+    });
+
+    if (!performance) {
+      throw new NotFoundException(`Weekly performance not found for storage provider ${spAddress}`);
+    }
+
+    return performance;
+  }
+
+  /**
+   * Get all-time performance for a specific storage provider
+   */
+  async getAllTimePerformance(spAddress: string): Promise<SpPerformanceAllTime> {
+    const performance = await this.allTimePerformanceRepo.findOne({
+      where: { spAddress },
+    });
+
+    if (!performance) {
+      throw new NotFoundException(`All-time performance not found for storage provider ${spAddress}`);
+    }
+
+    return performance;
+  }
+
+  /**
+   * Get combined performance metrics (weekly + all-time) for a storage provider
+   */
+  async getCombinedPerformance(spAddress: string): Promise<{
+    weekly: SpPerformanceWeekly;
+    allTime: SpPerformanceAllTime;
+  }> {
+    const [weekly, allTime] = await Promise.all([
+      this.getWeeklyPerformance(spAddress),
+      this.getAllTimePerformance(spAddress),
+    ]);
+
+    return { weekly, allTime };
+  }
+
+  /**
+   * List all storage providers with their weekly performance
+   * Sorted by health score (descending)
+   */
+  async listProvidersWeekly(options?: {
+    minHealthScore?: number;
+    activeOnly?: boolean;
+    limit?: number;
+    offset?: number;
+  }): Promise<{ providers: SpPerformanceWeekly[]; total: number }> {
+    const query = this.weeklyPerformanceRepo.createQueryBuilder("sp");
+
+    // Filter by minimum health score
+    if (options?.minHealthScore !== undefined) {
+      query.andWhere(
+        `(
+          CASE 
+            WHEN (sp.total_deals_7d > 0 OR sp.total_retrievals_7d > 0)
+            THEN (COALESCE(sp.deal_success_rate_7d, 0) * 0.6 + COALESCE(sp.retrieval_success_rate_7d, 0) * 0.4)
+            ELSE 0
+          END
+        ) >= :minHealthScore`,
+        { minHealthScore: options.minHealthScore },
+      );
+    }
+
+    // Filter active providers only
+    if (options?.activeOnly) {
+      query.andWhere("(sp.total_deals_7d > 0 OR sp.total_retrievals_7d > 0)");
+    }
+
+    // Get total count
+    const total = await query.getCount();
+
+    // Apply sorting (by health score descending)
+    query.orderBy(
+      `(
+        CASE 
+          WHEN (sp.total_deals_7d > 0 OR sp.total_retrievals_7d > 0)
+          THEN (COALESCE(sp.deal_success_rate_7d, 0) * 0.6 + COALESCE(sp.retrieval_success_rate_7d, 0) * 0.4)
+          ELSE 0
+        END
+      )`,
+      "DESC",
+    );
+
+    // Apply pagination
+    if (options?.limit) {
+      query.limit(options.limit);
+    }
+    if (options?.offset) {
+      query.offset(options.offset);
+    }
+
+    const providers = await query.getMany();
+
+    return { providers, total };
+  }
+
+  /**
+   * List all storage providers with their all-time performance
+   * Sorted by reliability score (descending)
+   */
+  async listProvidersAllTime(options?: {
+    minReliabilityScore?: number;
+    experienceLevel?: "new" | "intermediate" | "experienced" | "veteran";
+    limit?: number;
+    offset?: number;
+  }): Promise<{ providers: SpPerformanceAllTime[]; total: number }> {
+    const query = this.allTimePerformanceRepo.createQueryBuilder("sp");
+
+    // Filter by minimum reliability score
+    if (options?.minReliabilityScore !== undefined) {
+      query.andWhere(
+        `(
+          CASE 
+            WHEN (sp.total_deals > 0 OR sp.total_retrievals > 0)
+            THEN (COALESCE(sp.deal_success_rate, 0) * 0.6 + COALESCE(sp.retrieval_success_rate, 0) * 0.4)
+            ELSE 0
+          END
+        ) >= :minReliabilityScore`,
+        { minReliabilityScore: options.minReliabilityScore },
+      );
+    }
+
+    // Filter by experience level
+    if (options?.experienceLevel) {
+      const ranges = {
+        new: [0, 10],
+        intermediate: [10, 100],
+        experienced: [100, 1000],
+        veteran: [1000, Number.MAX_SAFE_INTEGER],
+      };
+
+      const [min, max] = ranges[options.experienceLevel];
+      query.andWhere("(sp.total_deals + sp.total_retrievals) >= :min", { min });
+      query.andWhere("(sp.total_deals + sp.total_retrievals) < :max", { max });
+    }
+
+    // Get total count
+    const total = await query.getCount();
+
+    // Apply sorting (by reliability score descending)
+    query.orderBy(
+      `(
+        CASE 
+          WHEN (sp.total_deals > 0 OR sp.total_retrievals > 0)
+          THEN (COALESCE(sp.deal_success_rate, 0) * 0.6 + COALESCE(sp.retrieval_success_rate, 0) * 0.4)
+          ELSE 0
+        END
+      )`,
+      "DESC",
+    );
+
+    // Apply pagination
+    if (options?.limit) {
+      query.limit(options.limit);
+    }
+    if (options?.offset) {
+      query.offset(options.offset);
+    }
+
+    const providers = await query.getMany();
+
+    return { providers, total };
+  }
+
+  /**
+   * Compare multiple storage providers side-by-side
+   */
+  async compareProviders(spAddresses: string[]): Promise<{
+    weekly: SpPerformanceWeekly[];
+    allTime: SpPerformanceAllTime[];
+  }> {
+    if (spAddresses.length === 0) {
+      return { weekly: [], allTime: [] };
+    }
+
+    if (spAddresses.length > 10) {
+      throw new Error("Cannot compare more than 10 providers at once");
+    }
+
+    const [weekly, allTime] = await Promise.all([
+      this.weeklyPerformanceRepo
+        .createQueryBuilder("sp")
+        .where("sp.sp_address IN (:...addresses)", { addresses: spAddresses })
+        .getMany(),
+      this.allTimePerformanceRepo
+        .createQueryBuilder("sp")
+        .where("sp.sp_address IN (:...addresses)", { addresses: spAddresses })
+        .getMany(),
+    ]);
+
+    return { weekly, allTime };
+  }
+
+  /**
+   * Get daily metrics time series for a storage provider
+   */
+  async getDailyMetricsTimeSeries(
+    spAddress: string,
+    options?: {
+      startDate?: Date;
+      endDate?: Date;
+      limit?: number;
+    },
+  ): Promise<MetricsDaily[]> {
+    const query = this.dailyMetricsRepo
+      .createQueryBuilder("md")
+      .where("md.sp_address = :spAddress", { spAddress })
+      .orderBy("md.date", "DESC");
+
+    if (options?.startDate) {
+      query.andWhere("md.date >= :startDate", { startDate: options.startDate });
+    }
+
+    if (options?.endDate) {
+      query.andWhere("md.date <= :endDate", { endDate: options.endDate });
+    }
+
+    if (options?.limit) {
+      query.limit(options.limit);
+    }
+
+    return await query.getMany();
+  }
+
+  /**
+   * Get aggregated daily metrics across all providers
+   */
+  async getAggregatedDailyMetrics(options?: {
+    startDate?: Date;
+    endDate?: Date;
+  }): Promise<
+    Array<{
+      date: Date;
+      totalDeals: number;
+      successfulDeals: number;
+      totalRetrievals: number;
+      successfulRetrievals: number;
+      avgDealLatencyMs: number;
+      avgRetrievalLatencyMs: number;
+    }>
+  > {
+    const query = this.dailyMetricsRepo
+      .createQueryBuilder("md")
+      .select("md.date", "date")
+      .addSelect("SUM(md.total_deals)", "totalDeals")
+      .addSelect("SUM(md.successful_deals)", "successfulDeals")
+      .addSelect("SUM(md.total_retrievals)", "totalRetrievals")
+      .addSelect("SUM(md.successful_retrievals)", "successfulRetrievals")
+      .addSelect("ROUND(AVG(md.avg_deal_latency_ms), 2)", "avgDealLatencyMs")
+      .addSelect("ROUND(AVG(md.avg_retrieval_latency_ms), 2)", "avgRetrievalLatencyMs")
+      .groupBy("md.date")
+      .orderBy("md.date", "DESC");
+
+    if (options?.startDate) {
+      query.andWhere("md.date >= :startDate", { startDate: options.startDate });
+    }
+
+    if (options?.endDate) {
+      query.andWhere("md.date <= :endDate", { endDate: options.endDate });
+    }
+
+    return await query.getRawMany();
+  }
+
+  /**
+   * Get top performing providers by specific metric
+   */
+  async getTopProviders(
+    metric: "deal_success_rate" | "retrieval_success_rate" | "deal_latency" | "retrieval_latency",
+    options?: {
+      period?: "weekly" | "all_time";
+      limit?: number;
+    },
+  ): Promise<SpPerformanceWeekly[] | SpPerformanceAllTime[]> {
+    const period = options?.period || "weekly";
+    const limit = options?.limit || 10;
+
+    if (period === "weekly") {
+      const query = this.weeklyPerformanceRepo.createQueryBuilder("sp");
+
+      switch (metric) {
+        case "deal_success_rate":
+          query.orderBy("sp.deal_success_rate_7d", "DESC");
+          break;
+        case "retrieval_success_rate":
+          query.orderBy("sp.retrieval_success_rate_7d", "DESC");
+          break;
+        case "deal_latency":
+          query.orderBy("sp.avg_deal_latency_ms_7d", "ASC");
+          break;
+        case "retrieval_latency":
+          query.orderBy("sp.avg_retrieval_latency_ms_7d", "ASC");
+          break;
+      }
+
+      return await query.limit(limit).getMany();
+    } else {
+      const query = this.allTimePerformanceRepo.createQueryBuilder("sp");
+
+      switch (metric) {
+        case "deal_success_rate":
+          query.orderBy("sp.deal_success_rate", "DESC");
+          break;
+        case "retrieval_success_rate":
+          query.orderBy("sp.retrieval_success_rate", "DESC");
+          break;
+        case "deal_latency":
+          query.orderBy("sp.avg_deal_latency_ms", "ASC");
+          break;
+        case "retrieval_latency":
+          query.orderBy("sp.avg_retrieval_latency_ms", "ASC");
+          break;
+      }
+
+      return await query.limit(limit).getMany();
+    }
+  }
+
+  /**
+   * Get overall network statistics
+   */
+  async getNetworkStats(): Promise<{
+    totalProviders: number;
+    activeProviders: number;
+    totalDeals: number;
+    totalRetrievals: number;
+    avgDealSuccessRate: number;
+    avgRetrievalSuccessRate: number;
+    totalDataStored: string;
+    totalDataRetrieved: string;
+  }> {
+    const [stats] = await this.allTimePerformanceRepo
+      .createQueryBuilder("sp")
+      .select("COUNT(DISTINCT sp.sp_address)", "totalProviders")
+      .addSelect(
+        "COUNT(DISTINCT sp.sp_address) FILTER (WHERE sp.total_deals > 0 OR sp.total_retrievals > 0)",
+        "activeProviders",
+      )
+      .addSelect("SUM(sp.total_deals)", "totalDeals")
+      .addSelect("SUM(sp.total_retrievals)", "totalRetrievals")
+      .addSelect("ROUND(AVG(sp.deal_success_rate), 2)", "avgDealSuccessRate")
+      .addSelect("ROUND(AVG(sp.retrieval_success_rate), 2)", "avgRetrievalSuccessRate")
+      .addSelect("SUM(sp.total_data_stored_bytes)", "totalDataStored")
+      .addSelect("SUM(sp.total_data_retrieved_bytes)", "totalDataRetrieved")
+      .getRawOne();
+
+    return stats;
+  }
+}

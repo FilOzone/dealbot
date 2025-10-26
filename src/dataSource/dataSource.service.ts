@@ -1,6 +1,6 @@
 import { ConfigService } from "@nestjs/config";
 import { Injectable, Logger } from "@nestjs/common";
-import { DataFile } from "../domain/interfaces/external-services.interface.js";
+import type { DataFile } from "../common/types.js";
 import * as fs from "fs";
 import * as path from "path";
 import { IConfig, IDatasetConfig } from "../config/app.config.js";

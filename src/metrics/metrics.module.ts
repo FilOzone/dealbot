@@ -1,42 +1,47 @@
 import { Module } from "@nestjs/common";
 import { TypeOrmModule } from "@nestjs/typeorm";
-import { DailyMetricsEntity } from "../infrastructure/database/entities/daily-metrics.entity.js";
-import { DealEntity } from "../infrastructure/database/entities/deal.entity.js";
-import { RetrievalEntity } from "../infrastructure/database/entities/retrieval.entity.js";
-import { StorageProviderEntity } from "../infrastructure/database/entities/storage-provider.entity.js";
-import { MetricsRepository } from "../infrastructure/database/repositories/metrics.repository.js";
-import { StorageProviderRepository } from "../infrastructure/database/repositories/storage-provider.repository.js";
-import { MetricsService } from "./metrics.service.js";
-import { MetricsSchedulerService } from "./metrics-scheduler.service.js";
+import { DatabaseModule } from "../database/database.module.js";
 
+// Entities
+import { SpPerformanceWeekly } from "../database/entities/sp-performance-weekly.entity.js";
+import { SpPerformanceAllTime } from "../database/entities/sp-performance-all-time.entity.js";
+import { MetricsDaily } from "../database/entities/metrics-daily.entity.js";
+import { Deal } from "../database/entities/deal.entity.js";
+
+// Services
+import { MetricsRefreshService } from "./metrics-refresh.service.js";
+import { MetricsQueryService } from "./metrics-query.service.js";
+import { DailyMetricsService } from "./services/daily-metrics.service.js";
+import { FailedDealsService } from "./services/failed-deals.service.js";
+import { NetworkStatsService } from "./services/network-stats.service.js";
+
+// Controllers
+import { MetricsPublicController } from "./metrics-public.controller.js";
+import { DailyMetricsController } from "./controllers/daily-metrics.controller.js";
+import { FailedDealsController } from "./controllers/failed-deals.controller.js";
+import { NetworkStatsController } from "./controllers/network-stats.controller.js";
+
+/**
+ * Metrics Module
+ *
+ * Provides comprehensive metrics and analytics functionality:
+ * - Provider performance tracking (materialized views)
+ * - Daily time-series metrics
+ * - Failed deals analysis
+ * - Network-wide statistics
+ *
+ * Architecture:
+ * - Materialized views for high-performance queries
+ * - Modular services for focused functionality
+ * - RESTful controllers with Swagger documentation
+ */
 @Module({
-  imports: [TypeOrmModule.forFeature([DailyMetricsEntity, DealEntity, RetrievalEntity, StorageProviderEntity])],
-  providers: [
-    MetricsRepository,
-    StorageProviderRepository,
-    MetricsService,
-    MetricsSchedulerService,
-    {
-      provide: "IMetricsService",
-      useClass: MetricsService,
-    },
-    {
-      provide: "IMetricsRepository",
-      useClass: MetricsRepository,
-    },
-    {
-      provide: "IStorageProviderRepository",
-      useClass: StorageProviderRepository,
-    },
+  imports: [
+    DatabaseModule,
+    TypeOrmModule.forFeature([SpPerformanceWeekly, SpPerformanceAllTime, MetricsDaily, Deal]),
   ],
-  exports: [
-    MetricsService,
-    MetricsSchedulerService,
-    MetricsRepository,
-    StorageProviderRepository,
-    "IMetricsService",
-    "IMetricsRepository",
-    "IStorageProviderRepository",
-  ],
+  controllers: [MetricsPublicController, DailyMetricsController, FailedDealsController, NetworkStatsController],
+  providers: [MetricsRefreshService, MetricsQueryService, DailyMetricsService, FailedDealsService, NetworkStatsService],
+  exports: [MetricsRefreshService, MetricsQueryService, DailyMetricsService, FailedDealsService, NetworkStatsService],
 })
 export class MetricsModule {}

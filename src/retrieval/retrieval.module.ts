@@ -1,12 +1,24 @@
 import { Module } from "@nestjs/common";
 import { RetrievalService } from "./retrieval.service.js";
-import { InfrastructureModule } from "../infrastructure/infrastructure.module.js";
 import { MetricsModule } from "../metrics/metrics.module.js";
 import { WalletSdkModule } from "../wallet-sdk/wallet-sdk.module.js";
 import { HttpClientModule } from "../http-client/http-client.module.js";
+import { RetrievalAddonsModule } from "../retrieval-addons/retrieval-addons.module.js";
+import { DatabaseModule } from "../database/database.module.js";
+import { TypeOrmModule } from "@nestjs/typeorm";
+import { Deal } from "../database/entities/deal.entity.js";
+import { Retrieval } from "../database/entities/retrieval.entity.js";
+import { StorageProvider } from "../database/entities/storage-provider.entity.js";
 
 @Module({
-  imports: [InfrastructureModule, HttpClientModule, MetricsModule, WalletSdkModule],
+  imports: [
+    DatabaseModule,
+    TypeOrmModule.forFeature([Deal, Retrieval, StorageProvider]),
+    HttpClientModule,
+    MetricsModule,
+    WalletSdkModule,
+    RetrievalAddonsModule,
+  ],
   providers: [RetrievalService],
   exports: [RetrievalService],
 })
