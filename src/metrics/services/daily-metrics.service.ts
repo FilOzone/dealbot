@@ -195,11 +195,11 @@ export class DailyMetricsService {
       // Calculate total data stored/retrieved
       const totalDataStoredBytes = dayMetrics
         .filter((m) => m.serviceType === null)
-        .reduce((sum, m) => sum + (m.totalDataStoredBytes || 0), 0)
+        .reduce((sum, m) => sum + BigInt(m.totalDataStoredBytes || 0), BigInt(0))
         .toString();
 
       const totalDataRetrievedBytes = dayMetrics
-        .reduce((sum, m) => sum + (m.totalDataRetrievedBytes || 0), 0)
+        .reduce((sum, m) => sum + BigInt(m.totalDataRetrievedBytes || 0), BigInt(0))
         .toString();
 
       aggregated.push({
