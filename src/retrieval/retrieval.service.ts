@@ -1,5 +1,5 @@
 import { Injectable, Logger } from "@nestjs/common";
-import { DealStatus, RetrievalStatus, ServiceType } from "../database/entities/types.js";
+import { DealStatus, RetrievalStatus, ServiceType } from "../database/types.js";
 import { Deal } from "../database/entities/deal.entity.js";
 import { Retrieval } from "../database/entities/retrieval.entity.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
@@ -7,7 +7,7 @@ import { RetrievalAddonsService } from "../retrieval-addons/retrieval-addons.ser
 import type { RetrievalConfiguration, RetrievalExecutionResult } from "../retrieval-addons/types.js";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
-import { Hex } from "src/common/types.js";
+import { Hex } from "../common/types.js";
 
 @Injectable()
 export class RetrievalService {
@@ -43,10 +43,7 @@ export class RetrievalService {
   // Parallel Processing
   // ============================================================================
 
-  private async processRetrievalsInParallel(
-    deals: Deal[],
-    maxConcurrency: number = 5,
-  ): Promise<Retrieval[][]> {
+  private async processRetrievalsInParallel(deals: Deal[], maxConcurrency: number = 5): Promise<Retrieval[][]> {
     const results: Retrieval[][] = [];
 
     for (let i = 0; i < deals.length; i += maxConcurrency) {
@@ -106,7 +103,7 @@ export class RetrievalService {
       dealId: deal.id,
       status: executionResult.success ? RetrievalStatus.SUCCESS : RetrievalStatus.FAILED,
       retrievalEndpoint: executionResult.url || "N/A",
-      serviceType: this.mapMethodToServiceType(executionResult.method),
+      serviceType: executionResult.method,
     });
 
     if (executionResult.success) {
@@ -132,16 +129,6 @@ export class RetrievalService {
     retrieval.responseCode = executionResult.metrics.statusCode;
     retrieval.bytesRetrieved = executionResult.data.length;
     retrieval.throughputBps = Math.round(executionResult.metrics.throughput);
-  }
-
-  private mapMethodToServiceType(method: string): ServiceType {
-    const methodMap: Record<string, ServiceType> = {
-      cdn: ServiceType.CDN,
-      ipni: ServiceType.IPFS_PIN,
-      direct: ServiceType.DIRECT_SP,
-    };
-
-    return methodMap[method] || ServiceType.DIRECT_SP;
   }
 
   private async saveRetrieval(retrieval: Retrieval): Promise<Retrieval> {

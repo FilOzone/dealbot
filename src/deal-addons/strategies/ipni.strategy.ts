@@ -11,6 +11,7 @@ import { AddonPriority } from "../types.js";
 import type { Deal } from "../../database/entities/deal.entity.js";
 import { MAX_BLOCK_SIZE } from "../../common/constants.js";
 import { PDPServer } from "@filoz/synapse-sdk";
+import { ServiceType } from "../../database/types.js";
 
 /**
  * IPNI (InterPlanetary Network Indexer) add-on strategy
@@ -21,7 +22,7 @@ import { PDPServer } from "@filoz/synapse-sdk";
 export class IpniAddonStrategy implements IDealAddon {
   private readonly logger = new Logger(IpniAddonStrategy.name);
 
-  readonly name = "ipni";
+  readonly name = ServiceType.IPFS_PIN;
   readonly priority = AddonPriority.HIGH; // Run first to transform data
   readonly POLLING_INTERVAL_MS = 2500;
   readonly POLLING_TIMEOUT_MS = 10 * 60 * 1000;
@@ -54,15 +55,12 @@ export class IpniAddonStrategy implements IDealAddon {
         size: carResult.carSize,
         originalData: context.currentData.data,
         metadata: {
-          ipniEnabled: true,
+          enabled: true,
           rootCID: carResult.rootCID.toString(),
           blockCIDs: carResult.blockCIDs.map((cid) => cid.toString()),
           blockCount: carResult.blockCount,
-          totalBlockSize: carResult.totalBlockSize,
           carSize: carResult.carSize,
           originalSize: context.currentData.size,
-          compressionRatio: (carResult.carSize / context.currentData.size).toFixed(2),
-          convertedAt: new Date().toISOString(),
         },
       };
     } catch (error) {
@@ -99,7 +97,7 @@ export class IpniAddonStrategy implements IDealAddon {
    */
   async postProcess(deal: Deal): Promise<void> {
     this.logger.log(
-      `Verifying IPNI indexing for deal with pieceCid: ${deal.pieceCid} and rootCID: ${deal.metadata.ipni.rootCID}`,
+      `Verifying IPNI indexing for deal with pieceCid: ${deal.pieceCid} and rootCID: ${deal.metadata.ipni?.rootCID}`,
     );
     const pdpServer = new PDPServer(null, deal.storageProvider.serviceUrl);
 
@@ -107,7 +105,7 @@ export class IpniAddonStrategy implements IDealAddon {
     await this.monitorAndVerifyIPNI(
       pdpServer,
       deal.pieceCid,
-      deal.metadata.ipni.blockCIDs,
+      deal.metadata.ipni?.blockCIDs!,
       expectedMultiaddr,
       this.POLLING_TIMEOUT_MS,
       this.IPNI_LOOKUP_TIMEOUT_MS,
@@ -196,7 +194,7 @@ export class IpniAddonStrategy implements IDealAddon {
   async monitorAndVerifyIPNI(
     pdpServer: PDPServer,
     pieceCid: string,
-    blockCIDs: CID[],
+    blockCIDs: string[],
     expectedMultiaddr: string,
     statusTimeoutMs: number,
     ipniTimeoutMs: number,
@@ -220,7 +218,7 @@ export class IpniAddonStrategy implements IDealAddon {
     };
   }
 
-  async verifyIPNIAdvertisement(blockCIDs: CID[], expectedMultiaddr: string, maxDurationMs: number) {
+  async verifyIPNIAdvertisement(blockCIDs: string[], expectedMultiaddr: string, maxDurationMs: number) {
     this.logger.log(`Verifying ${blockCIDs.length} CID(s) on IPNI`, "IPNI");
     this.logger.log(`Expected multiaddr: ${expectedMultiaddr}`, "IPNI");
 
@@ -337,7 +335,7 @@ export class IpniAddonStrategy implements IDealAddon {
     return providerAddrs;
   }
 
-  async queryIPNI(cid: CID, timeoutMs = 5000): Promise<string[]> {
+  async queryIPNI(cid: string, timeoutMs = 5000): Promise<string[]> {
     const response = await this.httpsGet("filecoinpin.contact", `/cid/${cid.toString()}`, timeoutMs);
     return this.extractProviderAddrs(response);
   }
@@ -348,8 +346,8 @@ export class IpniAddonStrategy implements IDealAddon {
   async validate(result: PreprocessingResult): Promise<boolean> {
     const metadata = result.metadata;
 
-    if (!metadata.ipniEnabled) {
-      throw new Error("IPNI validation failed: ipniEnabled flag not set");
+    if (!metadata.enabled) {
+      throw new Error("IPNI validation failed: enabled flag not set");
     }
 
     if (!metadata.rootCID) {

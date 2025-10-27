@@ -4,7 +4,7 @@ import { InjectRepository } from "@nestjs/typeorm";
 import { Deal } from "../database/entities/deal.entity.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
 import { DataSourceService } from "../dataSource/dataSource.service.js";
-import { DealStatus } from "../database/entities/types.js";
+import { DealStatus } from "../database/types.js";
 import type { DataFile } from "../common/types.js";
 import type { IBlockchainConfig, IConfig } from "../config/app.config.js";
 import { type UploadResult, Synapse, RPC_URLS, SIZE_CONSTANTS, PieceCID, ProviderInfo } from "@filoz/synapse-sdk";
@@ -47,7 +47,6 @@ export class DealService {
     const results = await this.processProvidersInParallel(this.walletSdkService.approvedProviders, preprocessed);
 
     const successfulDeals = results.filter((result) => result.success).map((result) => result.deal!);
-    const failedCount = results.filter((result) => !result.success).length;
 
     this.logger.log(`Deal creation completed: ${successfulDeals.length}/${totalProviders} successful`);
 

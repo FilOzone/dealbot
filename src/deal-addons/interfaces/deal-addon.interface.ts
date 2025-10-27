@@ -1,3 +1,4 @@
+import { ServiceType } from "../../database/types.js";
 import type { Deal } from "../../database/entities/deal.entity.js";
 import type { DealConfiguration, PreprocessingResult, AddonExecutionContext } from "../types.js";
 
@@ -11,7 +12,7 @@ export interface IDealAddon {
    * Unique identifier for the add-on
    * @example 'cdn', 'ipni', 'direct'
    */
-  readonly name: string;
+  readonly name: ServiceType;
 
   /**
    * Execution priority (lower number = higher priority)

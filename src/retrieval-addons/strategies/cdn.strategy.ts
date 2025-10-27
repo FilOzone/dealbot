@@ -2,7 +2,8 @@ import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import type { IRetrievalAddon } from "../interfaces/retrieval-addon.interface.js";
 import type { RetrievalConfiguration, RetrievalUrlResult, ValidationResult, ExpectedMetrics } from "../types.js";
-import { RetrievalPriority, RetrievalMethod } from "../types.js";
+import { RetrievalPriority } from "../types.js";
+import { ServiceType } from "../../database/types.js";
 import type { IBlockchainConfig, IConfig } from "../../config/app.config.js";
 import { CDN_HOSTNAMES } from "../../common/constants.js";
 
@@ -15,7 +16,7 @@ import { CDN_HOSTNAMES } from "../../common/constants.js";
 export class CdnRetrievalStrategy implements IRetrievalAddon {
   private readonly logger = new Logger(CdnRetrievalStrategy.name);
 
-  readonly name = RetrievalMethod.CDN;
+  readonly name = ServiceType.CDN;
   readonly priority = RetrievalPriority.HIGH; // Preferred method due to speed
 
   constructor(private readonly configService: ConfigService<IConfig, true>) {}
@@ -25,7 +26,7 @@ export class CdnRetrievalStrategy implements IRetrievalAddon {
    */
   canHandle(config: RetrievalConfiguration): boolean {
     // Check if CDN was enabled in deal metadata
-    const cdnEnabled = config.deal.metadata?.cdn?.cdnEnabled === true;
+    const cdnEnabled = config.deal.metadata?.cdn?.enabled === true;
 
     if (!cdnEnabled) {
       this.logger.debug(`CDN not available for deal ${config.deal.id}: CDN not enabled during creation`);
@@ -69,8 +70,8 @@ export class CdnRetrievalStrategy implements IRetrievalAddon {
         walletAddress,
         pieceCid,
         network: blockchainConfig.network,
-        retrievalType: "cdn",
-        cdnProvider: config.deal.metadata?.cdn?.cdnProvider || "unknown",
+        retrievalType: ServiceType.CDN,
+        cdnProvider: config.deal.metadata?.cdn?.provider || "unknown",
       },
     };
   }
@@ -80,45 +81,9 @@ export class CdnRetrievalStrategy implements IRetrievalAddon {
    * CDN should return the original data (or CAR if IPNI was used)
    */
   async validateData(retrievedData: Buffer, config: RetrievalConfiguration): Promise<ValidationResult> {
-    const expectedSize = config.deal.fileSize;
     const actualSize = retrievedData.length;
+    const expectedSize = Number(config.deal.fileSize);
 
-    // Check if IPNI was used (which adds CAR overhead)
-    const hasIpni = config.deal.metadata?.ipni?.ipniEnabled === true;
-
-    if (hasIpni) {
-      // With IPNI, CDN serves the CAR file
-      const expectedCarSize = config.deal.metadata?.ipni?.carSize;
-
-      if (expectedCarSize) {
-        const isValid = actualSize === expectedCarSize;
-
-        return {
-          isValid,
-          method: "car-size-check",
-          details: isValid
-            ? `CAR size matches expected ${expectedCarSize} bytes`
-            : `CAR size mismatch: expected ${expectedCarSize}, got ${actualSize}`,
-          comparison: {
-            expected: expectedCarSize,
-            actual: actualSize,
-          },
-        };
-      }
-
-      // If we don't have expected CAR size, just check it's reasonable
-      const isReasonable = actualSize > expectedSize * 0.9 && actualSize < expectedSize * 1.5;
-
-      return {
-        isValid: isReasonable,
-        method: "car-size-estimate",
-        details: isReasonable
-          ? `CAR size (${actualSize}) is reasonable for original size (${expectedSize})`
-          : `CAR size (${actualSize}) seems incorrect for original size (${expectedSize})`,
-      };
-    }
-
-    // Without IPNI, size should match exactly
     const isValid = actualSize === expectedSize;
 
     if (!isValid) {

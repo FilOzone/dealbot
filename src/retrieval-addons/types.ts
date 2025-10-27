@@ -1,5 +1,6 @@
 import type { Deal } from "../database/entities/deal.entity.js";
 import type { Hex } from "../common/types.js";
+import { ServiceType } from "..//database/types.js";
 
 /**
  * Configuration for performing a retrieval with add-on support
@@ -23,7 +24,7 @@ export interface RetrievalUrlResult {
   url: string;
 
   /** Method/strategy used for this URL */
-  method: string;
+  method: ServiceType;
 
   /** Additional metadata about the URL */
   metadata: Record<string, any>;
@@ -57,7 +58,7 @@ export interface RetrievalExecutionResult {
   url: string;
 
   /** Strategy/method name */
-  method: string;
+  method: ServiceType;
 
   /** Retrieved data */
   data: Buffer;
@@ -117,15 +118,6 @@ export enum RetrievalPriority {
 
   /** Lowest priority - fallback methods (e.g., Direct) */
   LOW = 10,
-}
-
-/**
- * Retrieval method types
- */
-export enum RetrievalMethod {
-  CDN = "cdn",
-  IPNI = "ipni",
-  DIRECT = "direct",
 }
 
 /**

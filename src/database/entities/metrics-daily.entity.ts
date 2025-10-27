@@ -9,7 +9,7 @@ import {
   JoinColumn,
 } from "typeorm";
 import { StorageProvider } from "./storage-provider.entity.js";
-import { ServiceType } from "./types.js";
+import { ServiceType } from "../types.js";
 
 @Entity("metrics_daily")
 @Index(["dailyBucket"])

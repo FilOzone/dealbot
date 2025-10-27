@@ -1,8 +1,9 @@
 import { Injectable, Logger } from "@nestjs/common";
 import type { IRetrievalAddon } from "../interfaces/retrieval-addon.interface.js";
 import type { RetrievalConfiguration, RetrievalUrlResult, ValidationResult, ExpectedMetrics } from "../types.js";
-import { RetrievalPriority, RetrievalMethod } from "../types.js";
+import { RetrievalPriority } from "../types.js";
 import { WalletSdkService } from "../../wallet-sdk/wallet-sdk.service.js";
+import { ServiceType } from "../../database/types.js";
 
 /**
  * Direct retrieval strategy
@@ -13,7 +14,7 @@ import { WalletSdkService } from "../../wallet-sdk/wallet-sdk.service.js";
 export class DirectRetrievalStrategy implements IRetrievalAddon {
   private readonly logger = new Logger(DirectRetrievalStrategy.name);
 
-  readonly name = RetrievalMethod.DIRECT;
+  readonly name = ServiceType.DIRECT_SP;
   readonly priority = RetrievalPriority.LOW; // Fallback method
 
   constructor(private readonly walletSdkService: WalletSdkService) {}
@@ -62,7 +63,7 @@ export class DirectRetrievalStrategy implements IRetrievalAddon {
         providerAddress: config.storageProvider,
         serviceUrl,
         pieceCid,
-        retrievalType: "direct",
+        retrievalType: ServiceType.DIRECT_SP,
       },
     };
   }
@@ -71,19 +72,8 @@ export class DirectRetrievalStrategy implements IRetrievalAddon {
    * Validate retrieved data by checking size and basic integrity
    */
   async validateData(retrievedData: Buffer, config: RetrievalConfiguration): Promise<ValidationResult> {
-    const expectedSize = config.deal.fileSize;
+    const expectedSize = Number(config.deal.fileSize);
     const actualSize = retrievedData.length;
-    const hasIpni = config.deal.metadata?.ipni?.ipniEnabled === true;
-
-    if (hasIpni) {
-      // With IPNI, we can't directly compare sizes due to CAR format
-      this.logger.debug("Skipping size validation for IPNI-enabled deal");
-      return {
-        isValid: true,
-        method: "size-check-skipped",
-        details: "IPNI-enabled deal, size validation skipped",
-      };
-    }
 
     const isValid = actualSize === expectedSize;
 
@@ -92,6 +82,8 @@ export class DirectRetrievalStrategy implements IRetrievalAddon {
         `Direct retrieval size mismatch for deal ${config.deal.id}: ` + `expected ${expectedSize}, got ${actualSize}`,
       );
     }
+
+    this.logger.log("Direct retrieval size validation result: " + isValid + " for deal " + config.deal.id);
 
     return {
       isValid,

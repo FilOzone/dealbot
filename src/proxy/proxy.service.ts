@@ -1,6 +1,6 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import { IConfig, IProxyConfig } from "src/config/app.config.js";
+import { IConfig, IProxyConfig } from "../config/app.config.js";
 import { ProxyConfig } from "./types.js";
 
 @Injectable()

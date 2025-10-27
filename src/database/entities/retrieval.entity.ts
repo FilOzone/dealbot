@@ -7,7 +7,7 @@ import {
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from "typeorm";
-import { RetrievalStatus, ServiceType } from "./types.js";
+import { RetrievalStatus, ServiceType } from "../types.js";
 import type { Deal } from "./deal.entity.js";
 
 @Entity("retrievals")

@@ -56,6 +56,7 @@ export class HttpClientService {
         proxy: false,
         timeout: 30000,
         maxRedirects: 5,
+        responseType: "arraybuffer",
         onDownloadProgress: (progressEvent) => {
           if (!firstByteReceived) {
             ttfbTime = performance.now() - startTime;
@@ -77,22 +78,25 @@ export class HttpClientService {
         ttfbTime = totalTime * 0.8;
       }
 
+      // Convert to Buffer once and calculate size
+      const dataBuffer = this.convertToBuffer(response.data);
+
       const metrics: RequestMetrics = {
         ttfb: Math.round(ttfbTime),
         totalTime: Math.round(totalTime),
         downloadTime: Math.round(totalTime - ttfbTime),
         proxyUrl: this.maskProxyUrl(currentProxyUrl),
         statusCode,
-        responseSize,
+        responseSize: dataBuffer.length,
         timestamp: new Date(),
       };
 
       this.logger.log(
-        `Request successful - TTFB: ${metrics.ttfb}ms, Total: ${metrics.totalTime}ms, Size: ${this.formatBytes(responseSize)}`,
+        `Request successful - TTFB: ${metrics.ttfb}ms, Total: ${metrics.totalTime}ms, Size: ${this.formatBytes(dataBuffer.length)}`,
       );
 
       return {
-        data: response.data,
+        data: dataBuffer as T,
         metrics,
       };
     } catch (error) {
@@ -130,6 +134,7 @@ export class HttpClientService {
         },
         timeout: 30000,
         maxRedirects: 5,
+        responseType: "arraybuffer",
         onDownloadProgress: (progressEvent) => {
           if (!firstByteReceived) {
             ttfbTime = performance.now() - startTime;
@@ -151,28 +156,52 @@ export class HttpClientService {
         ttfbTime = totalTime * 0.8;
       }
 
+      // Convert to Buffer once and calculate size
+      const dataBuffer = this.convertToBuffer(response.data);
+
       const metrics: RequestMetrics = {
         ttfb: Math.round(ttfbTime),
         totalTime: Math.round(totalTime),
         downloadTime: Math.round(totalTime - ttfbTime),
         proxyUrl: "direct",
         statusCode,
-        responseSize,
+        responseSize: dataBuffer.length,
         timestamp: new Date(),
       };
 
       this.logger.log(
-        `Request successful (direct) - TTFB: ${metrics.ttfb}ms, Total: ${metrics.totalTime}ms, Size: ${this.formatBytes(responseSize)}`,
+        `Request successful (direct) - TTFB: ${metrics.ttfb}ms, Total: ${metrics.totalTime}ms, Size: ${this.formatBytes(dataBuffer.length)}`,
       );
 
       return {
-        data: response.data,
+        data: dataBuffer as T,
         metrics,
       };
     } catch (error) {
       this.logger.warn(`Direct request failed: ${error.message}`);
       throw error;
     }
+  }
+
+  /**
+   * Convert response data to Buffer
+   * Handles different data types returned by axios
+   */
+  private convertToBuffer(data: any): Buffer {
+    if (Buffer.isBuffer(data)) {
+      return data;
+    }
+
+    if (data instanceof ArrayBuffer) {
+      return Buffer.from(data);
+    }
+
+    if (typeof data === 'string') {
+      return Buffer.from(data);
+    }
+
+    // Fallback for objects/arrays
+    return Buffer.from(JSON.stringify(data));
   }
 
   /**

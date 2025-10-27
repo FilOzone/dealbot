@@ -8,7 +8,7 @@ import {
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from "typeorm";
-import { DealStatus } from "./types.js";
+import { type DealMetadata, DealStatus } from "../types.js";
 import { StorageProvider } from "./storage-provider.entity.js";
 import type { Retrieval } from "./retrieval.entity.js";
 
@@ -52,7 +52,7 @@ export class Deal {
   transactionHash: string;
 
   @Column({ type: "jsonb", default: {} })
-  metadata: Record<string, any>;
+  metadata: DealMetadata;
 
   // Metrics
   @Column({ name: "upload_start_time", type: "timestamp", nullable: true })

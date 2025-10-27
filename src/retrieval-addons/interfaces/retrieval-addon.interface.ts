@@ -1,9 +1,5 @@
-import type {
-  RetrievalConfiguration,
-  RetrievalUrlResult,
-  ValidationResult,
-  ExpectedMetrics,
-} from "../types.js";
+import { ServiceType } from "../../database/types.js";
+import type { RetrievalConfiguration, RetrievalUrlResult, ValidationResult, ExpectedMetrics } from "../types.js";
 
 /**
  * Interface for retrieval add-on strategies
@@ -15,7 +11,7 @@ export interface IRetrievalAddon {
    * Unique identifier for the retrieval method
    * @example 'cdn', 'ipni', 'direct'
    */
-  readonly name: string;
+  readonly name: ServiceType;
 
   /**
    * Execution priority (lower number = higher priority)
@@ -27,7 +23,7 @@ export interface IRetrievalAddon {
   /**
    * Check if this retrieval method can handle the given deal
    * Based on deal metadata and add-ons that were used during storage
-   * 
+   *
    * @param config - Retrieval configuration with deal metadata
    * @returns true if this method can retrieve the deal
    */
@@ -35,7 +31,7 @@ export interface IRetrievalAddon {
 
   /**
    * Construct the retrieval URL for this method
-   * 
+   *
    * @param config - Retrieval configuration
    * @returns URL result with constructed URL and metadata
    * @throws Error if URL construction fails
@@ -45,7 +41,7 @@ export interface IRetrievalAddon {
   /**
    * Optional: Validate retrieved data against expected data
    * Use this to verify data integrity after retrieval
-   * 
+   *
    * @param retrievedData - Data retrieved from the URL
    * @param config - Original retrieval configuration
    * @returns Validation result with status and details
@@ -55,7 +51,7 @@ export interface IRetrievalAddon {
   /**
    * Optional: Get expected performance metrics for this retrieval method
    * Useful for monitoring and alerting on performance degradation
-   * 
+   *
    * @returns Expected metrics ranges
    */
   getExpectedMetrics?(): ExpectedMetrics;
@@ -63,7 +59,7 @@ export interface IRetrievalAddon {
   /**
    * Optional: Prepare or transform data before validation
    * Use this if retrieved data needs preprocessing (e.g., CAR extraction)
-   * 
+   *
    * @param retrievedData - Raw retrieved data
    * @returns Processed data ready for validation
    */

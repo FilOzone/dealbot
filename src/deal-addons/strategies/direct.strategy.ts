@@ -1,11 +1,8 @@
 import { Injectable, Logger } from "@nestjs/common";
 import type { IDealAddon } from "../interfaces/deal-addon.interface.js";
-import type {
-  DealConfiguration,
-  PreprocessingResult,
-  AddonExecutionContext,
-} from "../types.js";
+import type { DealConfiguration, PreprocessingResult, AddonExecutionContext } from "../types.js";
 import { AddonPriority } from "../types.js";
+import { ServiceType } from "../../database/types.js";
 
 /**
  * Direct storage add-on strategy
@@ -16,7 +13,7 @@ import { AddonPriority } from "../types.js";
 export class DirectAddonStrategy implements IDealAddon {
   private readonly logger = new Logger(DirectAddonStrategy.name);
 
-  readonly name = "direct";
+  readonly name = ServiceType.DIRECT_SP;
   readonly priority = AddonPriority.LOW; // Run last as it doesn't transform data
 
   /**
@@ -39,8 +36,7 @@ export class DirectAddonStrategy implements IDealAddon {
       data: context.currentData.data,
       size: context.currentData.size,
       metadata: {
-        storageType: "direct",
-        timestamp: new Date().toISOString(),
+        type: "direct",
       },
     };
   }

@@ -2,7 +2,7 @@ import { Injectable, Logger, BadRequestException } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository, Between, Not, IsNull, Like, In } from "typeorm";
 import { Deal } from "../../database/entities/deal.entity.js";
-import { DealStatus } from "../../database/entities/types.js";
+import { DealStatus } from "../../database/types.js";
 import {
   FailedDealsResponseDto,
   FailedDealDto,
@@ -162,12 +162,7 @@ export class FailedDealsService {
    *
    * @private
    */
-  private async calculateSummary(
-    startDate: Date,
-    endDate: Date,
-    provider?: string,
-    errorCode?: string,
-  ) {
+  private async calculateSummary(startDate: Date, endDate: Date, provider?: string, errorCode?: string) {
     const baseWhere: any = {
       createdAt: Between(startDate, endDate),
       status: DealStatus.FAILED,

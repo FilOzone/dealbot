@@ -1,8 +1,9 @@
 import { Injectable, Logger } from "@nestjs/common";
 import type { IRetrievalAddon } from "../interfaces/retrieval-addon.interface.js";
 import type { RetrievalConfiguration, RetrievalUrlResult, ValidationResult, ExpectedMetrics } from "../types.js";
-import { RetrievalPriority, RetrievalMethod } from "../types.js";
+import { RetrievalPriority } from "../types.js";
 import { WalletSdkService } from "../../wallet-sdk/wallet-sdk.service.js";
+import { ServiceType } from "../../database/types.js";
 
 /**
  * IPNI (InterPlanetary Network Indexer) retrieval strategy
@@ -13,7 +14,7 @@ import { WalletSdkService } from "../../wallet-sdk/wallet-sdk.service.js";
 export class IpniRetrievalStrategy implements IRetrievalAddon {
   private readonly logger = new Logger(IpniRetrievalStrategy.name);
 
-  readonly name = RetrievalMethod.IPNI;
+  readonly name = ServiceType.IPFS_PIN;
   readonly priority = RetrievalPriority.MEDIUM; // Alternative method
 
   constructor(private readonly walletSdkService: WalletSdkService) {}
@@ -23,7 +24,7 @@ export class IpniRetrievalStrategy implements IRetrievalAddon {
    */
   canHandle(config: RetrievalConfiguration): boolean {
     // Check if IPNI was enabled in deal metadata
-    const ipniEnabled = config.deal.metadata?.ipni?.ipniEnabled === true;
+    const ipniEnabled = config.deal.metadata?.ipni?.enabled === true;
 
     if (!ipniEnabled) {
       this.logger.debug(`IPNI not available for deal ${config.deal.id}: IPNI not enabled during creation`);
@@ -73,7 +74,7 @@ export class IpniRetrievalStrategy implements IRetrievalAddon {
         rootCID,
         blockCount: config.deal.metadata?.ipni?.blockCount,
         carSize: config.deal.metadata?.ipni?.carSize,
-        retrievalType: "ipni",
+        retrievalType: ServiceType.IPFS_PIN,
       },
     };
   }
@@ -83,11 +84,8 @@ export class IpniRetrievalStrategy implements IRetrievalAddon {
    * IPNI returns the original data (extracted from CAR blocks)
    */
   async validateData(retrievedData: Buffer, config: RetrievalConfiguration): Promise<ValidationResult> {
-    const expectedSize = config.deal.fileSize;
     const actualSize = retrievedData.length;
-
-    // IPNI should return the original data size (not CAR)
-    // The IPFS gateway extracts the data from CAR blocks
+    const expectedSize = Number(config.deal.fileSize || config.deal.metadata?.ipni?.originalSize);
     const isValid = actualSize === expectedSize;
 
     if (!isValid) {

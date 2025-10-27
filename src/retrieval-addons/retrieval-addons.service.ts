@@ -5,6 +5,7 @@ import type {
   RetrievalUrlResult,
   RetrievalExecutionResult,
   RetrievalTestResult,
+  ValidationResult,
 } from "./types.js";
 import { DirectRetrievalStrategy } from "./strategies/direct.strategy.js";
 import { CdnRetrievalStrategy } from "./strategies/cdn.strategy.js";
@@ -239,28 +240,25 @@ export class RetrievalAddonsService {
     }
 
     try {
-      // Perform HTTP request with metrics
-      let result: RequestWithMetrics<any>;
+      let result: RequestWithMetrics<Buffer>;
       try {
-        result = await this.httpClientService.requestWithRandomProxyAndMetrics(urlResult.url);
+        result = await this.httpClientService.requestWithRandomProxyAndMetrics<Buffer>(urlResult.url);
       } catch (error) {
         if (error.message === "No proxy available") {
-          result = await this.httpClientService.requestWithoutProxyAndMetrics(urlResult.url);
+          result = await this.httpClientService.requestWithoutProxyAndMetrics<Buffer>(urlResult.url);
         } else {
           throw error;
         }
       }
 
-      const retrievedData = Buffer.from(result.data);
-
       // Preprocess data if strategy supports it
-      let processedData = retrievedData;
+      let processedData = result.data;
       if (strategy.preprocessRetrievedData) {
-        processedData = await strategy.preprocessRetrievedData(retrievedData);
+        processedData = await strategy.preprocessRetrievedData(result.data);
       }
 
       // Validate data if strategy supports it
-      let validation;
+      let validation = {} as ValidationResult;
       if (strategy.validateData) {
         try {
           validation = await strategy.validateData(processedData, config);

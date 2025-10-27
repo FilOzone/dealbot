@@ -1,5 +1,5 @@
 import { ApiProperty } from "@nestjs/swagger";
-import { DealStatus } from "../../database/entities/types.js";
+import { DealStatus } from "../../database/types.js";
 
 /**
  * Failed deal details with error information

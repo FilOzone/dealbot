@@ -6,9 +6,9 @@ import { DataSource } from "typeorm";
 /**
  * Service responsible for refreshing materialized views and aggregating metrics
  * Uses cron jobs to periodically update pre-computed performance summaries
- * 
+ *
  * Refresh Schedule:
- * - Weekly performance: Every 5 minutes (high frequency for recent data)
+ * - Weekly performance: Every 30 minutes (high frequency for recent data)
  * - All-time performance: Every hour (lower frequency for historical data)
  * - Daily metrics: Daily at 00:05 (aggregate previous day's data)
  * - Cleanup: Weekly on Sunday at 02:00 (archive/delete old data)
@@ -24,11 +24,11 @@ export class MetricsRefreshService {
 
   /**
    * Refresh weekly performance materialized view
-   * Runs every 5 minutes to keep recent metrics up-to-date
-   * 
+   * Runs every 30 minutes to keep recent metrics up-to-date
+   *
    * Uses CONCURRENTLY to avoid blocking reads during refresh
    */
-  @Cron(CronExpression.EVERY_5_MINUTES, {
+  @Cron(CronExpression.EVERY_30_MINUTES, {
     name: "refresh-weekly-performance",
   })
   async refreshWeeklyPerformance(): Promise<void> {
@@ -49,7 +49,7 @@ export class MetricsRefreshService {
   /**
    * Refresh all-time performance materialized view
    * Runs every hour as historical data changes less frequently
-   * 
+   *
    * Uses CONCURRENTLY to avoid blocking reads during refresh
    */
   @Cron(CronExpression.EVERY_HOUR, {
@@ -73,7 +73,7 @@ export class MetricsRefreshService {
   /**
    * Aggregate daily metrics
    * Runs daily at 00:05 to aggregate the previous day's metrics
-   * 
+   *
    * Inserts aggregated data into metrics_daily table for time-series analysis
    */
   @Cron("5 0 * * *", {
@@ -195,9 +195,7 @@ export class MetricsRefreshService {
       );
 
       const duration = Date.now() - startTime;
-      this.logger.log(
-        `Successfully aggregated daily metrics for ${dealMetrics.length} providers in ${duration}ms`,
-      );
+      this.logger.log(`Successfully aggregated daily metrics for ${dealMetrics.length} providers in ${duration}ms`);
     } catch (error) {
       this.logger.error(`Failed to aggregate daily metrics: ${error.message}`, error.stack);
       throw error;
@@ -207,7 +205,7 @@ export class MetricsRefreshService {
   /**
    * Cleanup old metrics data
    * Runs weekly on Sunday at 02:00
-   * 
+   *
    * Archives or deletes metrics older than retention period (default: 90 days)
    */
   @Cron("0 2 * * 0", {

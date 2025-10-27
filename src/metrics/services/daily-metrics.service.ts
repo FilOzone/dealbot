@@ -2,7 +2,7 @@ import { Injectable, Logger, BadRequestException } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository, Between } from "typeorm";
 import { MetricsDaily } from "../../database/entities/metrics-daily.entity.js";
-import { ServiceType } from "../../database/entities/types.js";
+import { ServiceType } from "../../database/types.js";
 import {
   DailyMetricsResponseDto,
   DailyAggregatedMetricsDto,
@@ -117,10 +117,7 @@ export class DailyMetricsService {
         summary,
       };
     } catch (error) {
-      this.logger.error(
-        `Failed to fetch provider daily metrics for ${spAddress}: ${error.message}`,
-        error.stack,
-      );
+      this.logger.error(`Failed to fetch provider daily metrics for ${spAddress}: ${error.message}`, error.stack);
       throw error;
     }
   }
@@ -177,41 +174,29 @@ export class DailyMetricsService {
       const directRetrievals = directMetrics.reduce((sum, m) => sum + (m.retrievalsAttempted || 0), 0);
 
       // Collect latencies for averaging
-      const dealLatencies = dayMetrics
-        .filter((m) => m.avgDealLatencyMs)
-        .map((m) => m.avgDealLatencyMs);
+      const dealLatencies = dayMetrics.filter((m) => m.avgDealLatencyMs).map((m) => m.avgDealLatencyMs);
 
-      const retrievalLatencies = dayMetrics
-        .filter((m) => m.avgRetrievalLatencyMs)
-        .map((m) => m.avgRetrievalLatencyMs);
+      const retrievalLatencies = dayMetrics.filter((m) => m.avgRetrievalLatencyMs).map((m) => m.avgRetrievalLatencyMs);
 
-      const cdnLatencies = cdnMetrics
-        .filter((m) => m.avgRetrievalLatencyMs)
-        .map((m) => m.avgRetrievalLatencyMs);
+      const cdnLatencies = cdnMetrics.filter((m) => m.avgRetrievalLatencyMs).map((m) => m.avgRetrievalLatencyMs);
 
-      const directLatencies = directMetrics
-        .filter((m) => m.avgRetrievalLatencyMs)
-        .map((m) => m.avgRetrievalLatencyMs);
+      const directLatencies = directMetrics.filter((m) => m.avgRetrievalLatencyMs).map((m) => m.avgRetrievalLatencyMs);
 
       // Get unique providers
       const uniqueProviders = new Set(dayMetrics.map((m) => m.spAddress)).size;
 
       // Helper function to calculate average
-      const avg = (arr: number[]) =>
-        arr.length > 0 ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length) : 0;
+      const avg = (arr: number[]) => (arr.length > 0 ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length) : 0);
 
       aggregated.push({
         date,
         totalDeals,
         successfulDeals,
-        dealSuccessRate:
-          totalDeals > 0 ? Math.round((successfulDeals / totalDeals) * 100 * 100) / 100 : 0,
+        dealSuccessRate: totalDeals > 0 ? Math.round((successfulDeals / totalDeals) * 100 * 100) / 100 : 0,
         totalRetrievals,
         successfulRetrievals,
         retrievalSuccessRate:
-          totalRetrievals > 0
-            ? Math.round((successfulRetrievals / totalRetrievals) * 100 * 100) / 100
-            : 0,
+          totalRetrievals > 0 ? Math.round((successfulRetrievals / totalRetrievals) * 100 * 100) / 100 : 0,
         avgDealLatencyMs: avg(dealLatencies),
         avgRetrievalLatencyMs: avg(retrievalLatencies),
         avgRetrievalTtfbMs: 0, // TTFB not available in metrics_daily
@@ -255,30 +240,22 @@ export class DailyMetricsService {
       const totalRetrievals = dayMetrics.reduce((sum, m) => sum + (m.retrievalsAttempted || 0), 0);
       const successfulRetrievals = dayMetrics.reduce((sum, m) => sum + (m.retrievalsSuccessful || 0), 0);
 
-      const dealLatencies = dayMetrics
-        .filter((m) => m.avgDealLatencyMs)
-        .map((m) => m.avgDealLatencyMs);
+      const dealLatencies = dayMetrics.filter((m) => m.avgDealLatencyMs).map((m) => m.avgDealLatencyMs);
 
-      const retrievalLatencies = dayMetrics
-        .filter((m) => m.avgRetrievalLatencyMs)
-        .map((m) => m.avgRetrievalLatencyMs);
+      const retrievalLatencies = dayMetrics.filter((m) => m.avgRetrievalLatencyMs).map((m) => m.avgRetrievalLatencyMs);
 
-      const avg = (arr: number[]) =>
-        arr.length > 0 ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length) : 0;
+      const avg = (arr: number[]) => (arr.length > 0 ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length) : 0);
 
       result.push({
         date,
         spAddress: dayMetrics[0].spAddress,
         totalDeals,
         successfulDeals,
-        dealSuccessRate:
-          totalDeals > 0 ? Math.round((successfulDeals / totalDeals) * 100 * 100) / 100 : 0,
+        dealSuccessRate: totalDeals > 0 ? Math.round((successfulDeals / totalDeals) * 100 * 100) / 100 : 0,
         totalRetrievals,
         successfulRetrievals,
         retrievalSuccessRate:
-          totalRetrievals > 0
-            ? Math.round((successfulRetrievals / totalRetrievals) * 100 * 100) / 100
-            : 0,
+          totalRetrievals > 0 ? Math.round((successfulRetrievals / totalRetrievals) * 100 * 100) / 100 : 0,
         avgDealLatencyMs: avg(dealLatencies),
         avgRetrievalLatencyMs: avg(retrievalLatencies),
       });
