@@ -7,7 +7,7 @@ import {
   type UploadResult,
 } from "@filoz/synapse-sdk";
 import { Injectable, Logger } from "@nestjs/common";
-import type { ConfigService } from "@nestjs/config";
+import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
 import type { Repository } from "typeorm";
 import type { DataFile, Hex } from "../common/types.js";
@@ -15,10 +15,10 @@ import type { IBlockchainConfig, IConfig } from "../config/app.config.js";
 import { Deal } from "../database/entities/deal.entity.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
 import { DealStatus } from "../database/types.js";
-import type { DataSourceService } from "../dataSource/dataSource.service.js";
-import type { DealAddonsService } from "../deal-addons/deal-addons.service.js";
+import { DataSourceService } from "../dataSource/dataSource.service.js";
+import { DealAddonsService } from "../deal-addons/deal-addons.service.js";
 import type { DealPreprocessingResult } from "../deal-addons/types.js";
-import type { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
+import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
 
 @Injectable()
 export class DealService {

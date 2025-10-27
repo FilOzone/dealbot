@@ -6,7 +6,7 @@ import {
   NetworkStatsResponseDto,
   NetworkTrendsDto,
 } from "../dto/network-stats.dto.js";
-import type { NetworkStatsService } from "../services/network-stats.service.js";
+import { NetworkStatsService } from "../services/network-stats.service.js";
 
 /**
  * Controller for network-wide statistics

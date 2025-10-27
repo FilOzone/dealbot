@@ -1,5 +1,4 @@
 import { Module } from "@nestjs/common";
-import { ConfigModule } from "@nestjs/config";
 import { TypeOrmModule } from "@nestjs/typeorm";
 import { DatabaseModule } from "../database/database.module.js";
 import { Deal } from "../database/entities/deal.entity.js";
@@ -13,7 +12,6 @@ import { DealService } from "./deal.service.js";
 
 @Module({
   imports: [
-    ConfigModule,
     DatabaseModule,
     TypeOrmModule.forFeature([Deal, Retrieval, StorageProvider]),
     DataSourceModule,

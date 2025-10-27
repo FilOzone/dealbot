@@ -197,6 +197,17 @@
           "cssModules": false
         }
       }
+    },
+    {
+      "includes": ["src/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "useImportType": "off",
+            "useNodejsImportProtocol": "off"
+          }
+        }
+      }
     }
   ]
 }

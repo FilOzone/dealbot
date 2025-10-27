@@ -1,7 +1,7 @@
 import { BadRequestException, Controller, Get, Param, Query } from "@nestjs/common";
 import { ApiOperation, ApiParam, ApiQuery, ApiResponse, ApiTags } from "@nestjs/swagger";
 import { DailyMetricsResponseDto, ProviderDailyMetricsResponseDto } from "../dto/daily-metrics.dto.js";
-import type { DailyMetricsService } from "../services/daily-metrics.service.js";
+import { DailyMetricsService } from "../services/daily-metrics.service.js";
 
 /**
  * Controller for daily metrics endpoints

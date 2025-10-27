@@ -1,11 +1,11 @@
 import { Injectable, Logger, type OnModuleInit } from "@nestjs/common";
-import type { ConfigService } from "@nestjs/config";
-import type { SchedulerRegistry } from "@nestjs/schedule";
+import { ConfigService } from "@nestjs/config";
+import { SchedulerRegistry } from "@nestjs/schedule";
 import { CronJob } from "cron";
 import type { IConfig, ISchedulingConfig } from "../config/app.config.js";
-import type { DealService } from "../deal/deal.service.js";
-import type { RetrievalService } from "../retrieval/retrieval.service.js";
-import type { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
+import { DealService } from "../deal/deal.service.js";
+import { RetrievalService } from "../retrieval/retrieval.service.js";
+import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
 
 @Injectable()
 export class SchedulerService implements OnModuleInit {

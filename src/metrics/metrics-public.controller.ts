@@ -7,7 +7,7 @@ import {
   ProviderListResponseDto,
   ProviderWeeklyPerformanceDto,
 } from "./dto/provider-performance.dto.js";
-import type { MetricsQueryService } from "./metrics-query.service.js";
+import { MetricsQueryService } from "./metrics-query.service.js";
 
 /**
  * Public API controller for storage provider metrics
