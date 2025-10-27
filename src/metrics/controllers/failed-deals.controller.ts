@@ -1,7 +1,7 @@
-import { Controller, Get, Query, BadRequestException } from "@nestjs/common";
-import { ApiTags, ApiOperation, ApiResponse, ApiQuery } from "@nestjs/swagger";
-import { FailedDealsService } from "../services/failed-deals.service.js";
+import { BadRequestException, Controller, Get, Query } from "@nestjs/common";
+import { ApiOperation, ApiQuery, ApiResponse, ApiTags } from "@nestjs/swagger";
 import { FailedDealsResponseDto } from "../dto/failed-deals.dto.js";
+import type { FailedDealsService } from "../services/failed-deals.service.js";
 
 /**
  * Controller for failed deals endpoints
@@ -21,8 +21,7 @@ export class FailedDealsController {
   @Get()
   @ApiOperation({
     summary: "Get failed deals",
-    description:
-      "Returns paginated list of failed deals with comprehensive filtering and search capabilities",
+    description: "Returns paginated list of failed deals with comprehensive filtering and search capabilities",
   })
   @ApiQuery({
     name: "startDate",
@@ -86,22 +85,12 @@ export class FailedDealsController {
   ): Promise<FailedDealsResponseDto> {
     // Default to last 7 days if no dates provided
     const endDate = endDateStr ? this.parseDate(endDateStr) : new Date();
-    const startDate = startDateStr
-      ? this.parseDate(startDateStr)
-      : new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    const startDate = startDateStr ? this.parseDate(startDateStr) : new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
 
-    const page = pageStr ? parseInt(pageStr, 10) : 1;
-    const limit = limitStr ? parseInt(limitStr, 10) : 20;
+    const page = pageStr ? Number.parseInt(pageStr, 10) : 1;
+    const limit = limitStr ? Number.parseInt(limitStr, 10) : 20;
 
-    return this.failedDealsService.getFailedDeals(
-      startDate,
-      endDate,
-      page,
-      limit,
-      search,
-      provider,
-      errorCode,
-    );
+    return this.failedDealsService.getFailedDeals(startDate, endDate, page, limit, search, provider, errorCode);
   }
 
   /**
@@ -133,14 +122,9 @@ export class FailedDealsController {
     status: 400,
     description: "Invalid date format",
   })
-  async getErrorSummary(
-    @Query("startDate") startDateStr?: string,
-    @Query("endDate") endDateStr?: string,
-  ) {
+  async getErrorSummary(@Query("startDate") startDateStr?: string, @Query("endDate") endDateStr?: string) {
     const endDate = endDateStr ? this.parseDate(endDateStr) : new Date();
-    const startDate = startDateStr
-      ? this.parseDate(startDateStr)
-      : new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    const startDate = startDateStr ? this.parseDate(startDateStr) : new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
 
     return this.failedDealsService.getErrorSummary(startDate, endDate);
   }
@@ -152,7 +136,7 @@ export class FailedDealsController {
    */
   private parseDate(dateStr: string): Date {
     const date = new Date(dateStr);
-    if (isNaN(date.getTime())) {
+    if (Number.isNaN(date.getTime())) {
       throw new BadRequestException(`Invalid date format: ${dateStr}. Use YYYY-MM-DD format.`);
     }
     return date;

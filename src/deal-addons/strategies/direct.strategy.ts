@@ -1,8 +1,8 @@
 import { Injectable, Logger } from "@nestjs/common";
-import type { IDealAddon } from "../interfaces/deal-addon.interface.js";
-import type { DealConfiguration, PreprocessingResult, AddonExecutionContext } from "../types.js";
-import { AddonPriority } from "../types.js";
 import { ServiceType } from "../../database/types.js";
+import type { IDealAddon } from "../interfaces/deal-addon.interface.js";
+import type { AddonExecutionContext, DealConfiguration, PreprocessingResult } from "../types.js";
+import { AddonPriority } from "../types.js";
 
 /**
  * Direct storage add-on strategy
@@ -20,7 +20,7 @@ export class DirectAddonStrategy implements IDealAddon {
    * Direct storage is always applicable as the base case
    * It's the fallback when no other add-ons are enabled
    */
-  isApplicable(config: DealConfiguration): boolean {
+  isApplicable(_config: DealConfiguration): boolean {
     // Direct storage is always available
     return true;
   }

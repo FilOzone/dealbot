@@ -1,5 +1,5 @@
-import { Module } from "@nestjs/common";
 import { HttpModule } from "@nestjs/axios";
+import { Module } from "@nestjs/common";
 import { ProxyModule } from "../proxy/proxy.module.js";
 import { HttpClientService } from "./http-client.service.js";
 

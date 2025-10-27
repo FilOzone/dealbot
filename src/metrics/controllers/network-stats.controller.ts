@@ -1,12 +1,12 @@
 import { Controller, Get } from "@nestjs/common";
-import { ApiTags, ApiOperation, ApiResponse } from "@nestjs/swagger";
-import { NetworkStatsService } from "../services/network-stats.service.js";
+import { ApiOperation, ApiResponse, ApiTags } from "@nestjs/swagger";
 import {
-  NetworkStatsResponseDto,
-  NetworkOverallStatsDto,
   NetworkHealthDto,
+  NetworkOverallStatsDto,
+  NetworkStatsResponseDto,
   NetworkTrendsDto,
 } from "../dto/network-stats.dto.js";
+import type { NetworkStatsService } from "../services/network-stats.service.js";
 
 /**
  * Controller for network-wide statistics

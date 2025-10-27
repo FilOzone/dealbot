@@ -1,4 +1,3 @@
-import type { ProviderInfo } from "@filoz/synapse-sdk";
 import type { CID } from "multiformats";
 import type { DataFile } from "../common/types.js";
 

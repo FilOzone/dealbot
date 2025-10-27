@@ -1,17 +1,17 @@
+import { request } from "node:https";
+import { Readable } from "node:stream";
+import { PDPServer } from "@filoz/synapse-sdk";
+import { CarWriter } from "@ipld/car";
 import { Injectable, Logger } from "@nestjs/common";
-import { sha256 } from "multiformats/hashes/sha2";
 import { CID } from "multiformats/cid";
 import * as raw from "multiformats/codecs/raw";
-import { CarWriter } from "@ipld/car";
-import { Readable } from "node:stream";
-import { request } from "node:https";
-import type { IDealAddon } from "../interfaces/deal-addon.interface.js";
-import type { DealConfiguration, PreprocessingResult, AddonExecutionContext, CarDataFile } from "../types.js";
-import { AddonPriority } from "../types.js";
-import type { Deal } from "../../database/entities/deal.entity.js";
+import { sha256 } from "multiformats/hashes/sha2";
 import { MAX_BLOCK_SIZE } from "../../common/constants.js";
-import { PDPServer } from "@filoz/synapse-sdk";
+import type { Deal } from "../../database/entities/deal.entity.js";
 import { ServiceType } from "../../database/types.js";
+import type { IDealAddon } from "../interfaces/deal-addon.interface.js";
+import type { AddonExecutionContext, CarDataFile, DealConfiguration, PreprocessingResult } from "../types.js";
+import { AddonPriority } from "../types.js";
 
 /**
  * IPNI (InterPlanetary Network Indexer) add-on strategy
@@ -105,7 +105,7 @@ export class IpniAddonStrategy implements IDealAddon {
     await this.monitorAndVerifyIPNI(
       pdpServer,
       deal.pieceCid,
-      deal.metadata.ipni?.blockCIDs!,
+      deal.metadata.ipni?.blockCIDs ?? [],
       expectedMultiaddr,
       this.POLLING_TIMEOUT_MS,
       this.IPNI_LOOKUP_TIMEOUT_MS,
@@ -224,7 +224,7 @@ export class IpniAddonStrategy implements IDealAddon {
 
     const startTime = Date.now();
     let successCount = 0;
-    let failedCIDs: { cid: string; reason: string; addrs?: string[] }[] = [];
+    const failedCIDs: { cid: string; reason: string; addrs?: string[] }[] = [];
 
     for (let i = 0; i < blockCIDs.length; i++) {
       const cid = blockCIDs[i];

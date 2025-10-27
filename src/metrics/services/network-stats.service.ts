@@ -1,12 +1,12 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { Repository, MoreThan } from "typeorm";
+import { type Repository } from "typeorm";
 import { SpPerformanceAllTime } from "../../database/entities/sp-performance-all-time.entity.js";
 import { SpPerformanceWeekly } from "../../database/entities/sp-performance-weekly.entity.js";
-import {
-  NetworkStatsResponseDto,
-  NetworkOverallStatsDto,
+import type {
   NetworkHealthDto,
+  NetworkOverallStatsDto,
+  NetworkStatsResponseDto,
   NetworkTrendsDto,
 } from "../dto/network-stats.dto.js";
 
@@ -75,8 +75,7 @@ export class NetworkStatsService {
 
       const activeProviders = providers.filter(
         (p) =>
-          (p.lastDealAt && p.lastDealAt >= sevenDaysAgo) ||
-          (p.lastRetrievalAt && p.lastRetrievalAt >= sevenDaysAgo),
+          (p.lastDealAt && p.lastDealAt >= sevenDaysAgo) || (p.lastRetrievalAt && p.lastRetrievalAt >= sevenDaysAgo),
       ).length;
 
       // Aggregate metrics
@@ -96,9 +95,7 @@ export class NetworkStatsService {
             : acc.retrievalLatencies,
           ttfbs: p.avgRetrievalTtfbMs ? [...acc.ttfbs, p.avgRetrievalTtfbMs] : acc.ttfbs,
           cdnLatencies: p.avgCdnLatencyMs ? [...acc.cdnLatencies, p.avgCdnLatencyMs] : acc.cdnLatencies,
-          directLatencies: p.avgDirectLatencyMs
-            ? [...acc.directLatencies, p.avgDirectLatencyMs]
-            : acc.directLatencies,
+          directLatencies: p.avgDirectLatencyMs ? [...acc.directLatencies, p.avgDirectLatencyMs] : acc.directLatencies,
         }),
         {
           totalDeals: 0,
@@ -118,11 +115,9 @@ export class NetworkStatsService {
       );
 
       // Calculate averages
-      const avg = (arr: number[]) =>
-        arr.length > 0 ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length) : 0;
+      const avg = (arr: number[]) => (arr.length > 0 ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length) : 0);
 
-      const dealSuccessRate =
-        totals.totalDeals > 0 ? (totals.successfulDeals / totals.totalDeals) * 100 : 0;
+      const dealSuccessRate = totals.totalDeals > 0 ? (totals.successfulDeals / totals.totalDeals) * 100 : 0;
 
       const retrievalSuccessRate =
         totals.totalRetrievals > 0 ? (totals.successfulRetrievals / totals.totalRetrievals) * 100 : 0;
@@ -190,8 +185,7 @@ export class NetworkStatsService {
       }
 
       // Calculate deal reliability (average success rate)
-      const dealReliability =
-        providers.reduce((sum, p) => sum + (p.dealSuccessRate || 0), 0) / providers.length;
+      const dealReliability = providers.reduce((sum, p) => sum + (p.dealSuccessRate || 0), 0) / providers.length;
 
       // Calculate retrieval reliability (average success rate)
       const retrievalReliability =
@@ -203,9 +197,7 @@ export class NetworkStatsService {
         .filter((p) => p.avgDealLatencyMs && p.avgRetrievalLatencyMs)
         .map((p) => (p.avgDealLatencyMs! + p.avgRetrievalLatencyMs!) / 2);
 
-      const avgLatency = avgLatencies.length > 0
-        ? avgLatencies.reduce((a, b) => a + b, 0) / avgLatencies.length
-        : 0;
+      const avgLatency = avgLatencies.length > 0 ? avgLatencies.reduce((a, b) => a + b, 0) / avgLatencies.length : 0;
 
       // Score: 100 at 0ms, decreasing to 0 at 5000ms
       const performanceScore = avgLatency > 0 ? Math.max(0, 100 - (avgLatency / 5000) * 100) : 100;
@@ -216,10 +208,7 @@ export class NetworkStatsService {
 
       // Overall health score (weighted average)
       const healthScore =
-        dealReliability * 0.35 +
-        retrievalReliability * 0.35 +
-        performanceScore * 0.2 +
-        diversityScore * 0.1;
+        dealReliability * 0.35 + retrievalReliability * 0.35 + performanceScore * 0.2 + diversityScore * 0.1;
 
       return {
         healthScore: Math.round(healthScore * 100) / 100,
@@ -242,10 +231,7 @@ export class NetworkStatsService {
    */
   async getTrends(): Promise<NetworkTrendsDto> {
     try {
-      const [weeklyProviders, allTimeProviders] = await Promise.all([
-        this.weeklyRepo.find(),
-        this.allTimeRepo.find(),
-      ]);
+      const [weeklyProviders, allTimeProviders] = await Promise.all([this.weeklyRepo.find(), this.allTimeRepo.find()]);
 
       if (weeklyProviders.length === 0 || allTimeProviders.length === 0) {
         return this.getEmptyTrends();
@@ -277,9 +263,7 @@ export class NetworkStatsService {
 
       // Calculate trends (percentage change)
       const dealVolumeTrend =
-        prevWeekDeals > 0
-          ? Math.round(((weeklyTotals.deals - prevWeekDeals) / prevWeekDeals) * 100 * 100) / 100
-          : 0;
+        prevWeekDeals > 0 ? Math.round(((weeklyTotals.deals - prevWeekDeals) / prevWeekDeals) * 100 * 100) / 100 : 0;
 
       const retrievalVolumeTrend =
         prevWeekRetrievals > 0
@@ -287,7 +271,7 @@ export class NetworkStatsService {
           : 0;
 
       // Calculate success rate trend
-      const weeklySuccessRate =
+      const _weeklySuccessRate =
         weeklyTotals.deals > 0
           ? (weeklyTotals.successfulDeals / weeklyTotals.deals +
               weeklyTotals.successfulRetrievals / weeklyTotals.retrievals) /
@@ -303,8 +287,7 @@ export class NetworkStatsService {
 
       const activeProvidersNow = allTimeProviders.filter(
         (p) =>
-          (p.lastDealAt && p.lastDealAt >= sevenDaysAgo) ||
-          (p.lastRetrievalAt && p.lastRetrievalAt >= sevenDaysAgo),
+          (p.lastDealAt && p.lastDealAt >= sevenDaysAgo) || (p.lastRetrievalAt && p.lastRetrievalAt >= sevenDaysAgo),
       ).length;
 
       // Assume previous week had 90% of current active providers (simplified)

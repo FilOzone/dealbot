@@ -1,4 +1,4 @@
-import { ViewEntity, ViewColumn, Index } from "typeorm";
+import { Index, ViewColumn, ViewEntity } from "typeorm";
 
 @ViewEntity({
   name: "sp_performance_weekly",

@@ -1,10 +1,10 @@
+import type { HttpService } from "@nestjs/axios";
 import { Injectable, Logger } from "@nestjs/common";
-import { HttpService } from "@nestjs/axios";
 import type { AxiosRequestConfig } from "axios";
 import { HttpsProxyAgent } from "https-proxy-agent";
-import { SocksProxyAgent } from "socks-proxy-agent";
 import { firstValueFrom } from "rxjs";
-import { ProxyService } from "../proxy/proxy.service.js";
+import { SocksProxyAgent } from "socks-proxy-agent";
+import type { ProxyService } from "../proxy/proxy.service.js";
 import type { RequestMetrics, RequestWithMetrics } from "./types.js";
 
 @Injectable()
@@ -27,7 +27,7 @@ export class HttpClientService {
   ): Promise<RequestWithMetrics<T>> {
     const { method = "GET", data, headers = {}, proxyUrl } = options;
 
-    let currentProxyUrl = proxyUrl ?? this.proxyService.getRandomProxy();
+    const currentProxyUrl = proxyUrl ?? this.proxyService.getRandomProxy();
 
     if (!currentProxyUrl) {
       throw new Error("No proxy available");
@@ -39,7 +39,7 @@ export class HttpClientService {
       const startTime = performance.now();
       let ttfbTime = 0;
       let firstByteReceived = false;
-      let responseSize = 0;
+      let _responseSize = 0;
       let statusCode = 0;
 
       const proxyAgent = this.createProxyAgent(currentProxyUrl);
@@ -63,7 +63,7 @@ export class HttpClientService {
             firstByteReceived = true;
             this.logger.debug(`TTFB: ${ttfbTime.toFixed(2)}ms`);
           }
-          responseSize = progressEvent.loaded;
+          _responseSize = progressEvent.loaded;
         },
       };
 
@@ -121,7 +121,7 @@ export class HttpClientService {
       const startTime = performance.now();
       let ttfbTime = 0;
       let firstByteReceived = false;
-      let responseSize = 0;
+      let _responseSize = 0;
       let statusCode = 0;
 
       const config: AxiosRequestConfig = {
@@ -141,7 +141,7 @@ export class HttpClientService {
             firstByteReceived = true;
             this.logger.debug(`TTFB: ${ttfbTime.toFixed(2)}ms`);
           }
-          responseSize = progressEvent.loaded;
+          _responseSize = progressEvent.loaded;
         },
       };
 
@@ -196,7 +196,7 @@ export class HttpClientService {
       return Buffer.from(data);
     }
 
-    if (typeof data === 'string') {
+    if (typeof data === "string") {
       return Buffer.from(data);
     }
 
@@ -212,7 +212,7 @@ export class HttpClientService {
     const k = 1024;
     const sizes = ["Bytes", "KB", "MB", "GB"];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + " " + sizes[i];
+    return `${Math.round((bytes / k ** i) * 100) / 100} ${sizes[i]}`;
   }
 
   /**

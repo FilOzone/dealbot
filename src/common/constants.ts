@@ -1,4 +1,4 @@
-import { Network } from "./types.js";
+import type { Network } from "./types.js";
 
 export const CDN_HOSTNAMES: Record<Network, string> = {
   calibration: "calibration.filcdn.io",

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { FailedDealsResponseDto } from "../types/stats";
 
 export interface UseFailedDealsParams {
@@ -16,7 +16,7 @@ export function useFailedDeals(params: UseFailedDealsParams = {}) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchFailedDeals = async () => {
+  const fetchFailedDeals = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -31,7 +31,7 @@ export function useFailedDeals(params: UseFailedDealsParams = {}) {
       if (params.withCDN !== undefined) queryParams.append("withCDN", params.withCDN.toString());
 
       const response = await fetch(
-        `${import.meta.env.VITE_API_BASE_URL ?? ""}/api/stats/failed-deals${queryParams.toString() ? "?" + queryParams.toString() : ""}`,
+        `${import.meta.env.VITE_API_BASE_URL ?? ""}/api/stats/failed-deals${queryParams.toString() ? `?${queryParams.toString()}` : ""}`,
       );
 
       if (!response.ok) {
@@ -43,6 +43,7 @@ export function useFailedDeals(params: UseFailedDealsParams = {}) {
       // Convert date strings to Date objects
       const processedResult = {
         ...result,
+        // biome-ignore lint/suspicious/noExplicitAny: Deal can be of any type
         failedDeals: result.failedDeals.map((deal: any) => ({
           ...deal,
           createdAt: new Date(deal.createdAt),
@@ -60,11 +61,11 @@ export function useFailedDeals(params: UseFailedDealsParams = {}) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [params]);
 
   useEffect(() => {
     fetchFailedDeals();
-  }, [params.startDate, params.endDate, params.page, params.limit, params.search, params.provider, params.withCDN]);
+  }, [fetchFailedDeals]);
 
   return { data, loading, error, refetch: fetchFailedDeals };
 }

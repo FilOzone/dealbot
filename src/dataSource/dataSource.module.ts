@@ -1,5 +1,5 @@
-import { ConfigModule } from "@nestjs/config";
 import { Module } from "@nestjs/common";
+import { ConfigModule } from "@nestjs/config";
 import { DataSourceService } from "./dataSource.service.js";
 
 @Module({

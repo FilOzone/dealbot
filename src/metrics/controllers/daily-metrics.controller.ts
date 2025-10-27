@@ -1,10 +1,7 @@
-import { Controller, Get, Query, Param, BadRequestException } from "@nestjs/common";
-import { ApiTags, ApiOperation, ApiResponse, ApiQuery, ApiParam } from "@nestjs/swagger";
-import { DailyMetricsService } from "../services/daily-metrics.service.js";
-import {
-  DailyMetricsResponseDto,
-  ProviderDailyMetricsResponseDto,
-} from "../dto/daily-metrics.dto.js";
+import { BadRequestException, Controller, Get, Param, Query } from "@nestjs/common";
+import { ApiOperation, ApiParam, ApiQuery, ApiResponse, ApiTags } from "@nestjs/swagger";
+import { DailyMetricsResponseDto, ProviderDailyMetricsResponseDto } from "../dto/daily-metrics.dto.js";
+import type { DailyMetricsService } from "../services/daily-metrics.service.js";
 
 /**
  * Controller for daily metrics endpoints
@@ -53,9 +50,7 @@ export class DailyMetricsController {
   ): Promise<DailyMetricsResponseDto> {
     // Default to last 30 days if no dates provided
     const endDate = endDateStr ? this.parseDate(endDateStr) : new Date();
-    const startDate = startDateStr
-      ? this.parseDate(startDateStr)
-      : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const startDate = startDateStr ? this.parseDate(startDateStr) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
 
     return this.dailyMetricsService.getDailyMetrics(startDate, endDate);
   }
@@ -85,9 +80,9 @@ export class DailyMetricsController {
     description: "Invalid days parameter",
   })
   async getRecentDailyMetrics(@Query("days") daysStr?: string): Promise<DailyMetricsResponseDto> {
-    const days = daysStr ? parseInt(daysStr, 10) : 30;
+    const days = daysStr ? Number.parseInt(daysStr, 10) : 30;
 
-    if (isNaN(days) || days < 1 || days > 90) {
+    if (Number.isNaN(days) || days < 1 || days > 90) {
       throw new BadRequestException("Days must be a number between 1 and 90");
     }
 
@@ -136,9 +131,7 @@ export class DailyMetricsController {
   ): Promise<ProviderDailyMetricsResponseDto> {
     // Default to last 30 days if no dates provided
     const endDate = endDateStr ? this.parseDate(endDateStr) : new Date();
-    const startDate = startDateStr
-      ? this.parseDate(startDateStr)
-      : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const startDate = startDateStr ? this.parseDate(startDateStr) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
 
     return this.dailyMetricsService.getProviderDailyMetrics(spAddress, startDate, endDate);
   }
@@ -150,7 +143,7 @@ export class DailyMetricsController {
    */
   private parseDate(dateStr: string): Date {
     const date = new Date(dateStr);
-    if (isNaN(date.getTime())) {
+    if (Number.isNaN(date.getTime())) {
       throw new BadRequestException(`Invalid date format: ${dateStr}. Use YYYY-MM-DD format.`);
     }
     return date;

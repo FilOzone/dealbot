@@ -1,5 +1,5 @@
-import type { OverallStatsResponseDto, DailyMetricsResponseDto } from "../types/stats";
 import type { DealbotConfigDto } from "../types/config";
+import type { DailyMetricsResponseDto, OverallStatsResponseDto } from "../types/stats";
 
 const JSON_HEADERS = { "Content-Type": "application/json" } as const;
 

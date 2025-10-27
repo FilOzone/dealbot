@@ -1,23 +1,21 @@
-import { Injectable, Logger, NotFoundException } from "@nestjs/common";
+import { Injectable, NotFoundException } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { Repository } from "typeorm";
-import { SpPerformanceWeekly } from "../database/entities/sp-performance-weekly.entity.js";
-import { SpPerformanceAllTime } from "../database/entities/sp-performance-all-time.entity.js";
+import type { Repository } from "typeorm";
 import { MetricsDaily } from "../database/entities/metrics-daily.entity.js";
+import { SpPerformanceAllTime } from "../database/entities/sp-performance-all-time.entity.js";
+import { SpPerformanceWeekly } from "../database/entities/sp-performance-weekly.entity.js";
 
 /**
  * Service for querying pre-computed metrics from materialized views
- * 
+ *
  * This service provides fast read access to aggregated performance metrics
  * without performing expensive calculations on-the-fly.
- * 
+ *
  * All data is read from materialized views that are refreshed periodically
  * by the MetricsRefreshService.
  */
 @Injectable()
 export class MetricsQueryService {
-  private readonly logger = new Logger(MetricsQueryService.name);
-
   constructor(
     @InjectRepository(SpPerformanceWeekly)
     private readonly weeklyPerformanceRepo: Repository<SpPerformanceWeekly>,
@@ -262,10 +260,7 @@ export class MetricsQueryService {
   /**
    * Get aggregated daily metrics across all providers
    */
-  async getAggregatedDailyMetrics(options?: {
-    startDate?: Date;
-    endDate?: Date;
-  }): Promise<
+  async getAggregatedDailyMetrics(options?: { startDate?: Date; endDate?: Date }): Promise<
     Array<{
       date: Date;
       totalDeals: number;

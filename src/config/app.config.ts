@@ -1,6 +1,6 @@
 import Joi from "joi";
-import { Network } from "../common/types.js";
 import { DEFAULT_LOCAL_DATASETS_PATH } from "../common/constants.js";
+import type { Network } from "../common/types.js";
 
 export const configValidationSchema = Joi.object({
   // Application
@@ -83,12 +83,12 @@ export function loadConfig(): IConfig {
   return {
     app: {
       env: process.env.NODE_ENV || "development",
-      port: parseInt(process.env.DEALBOT_PORT || "3000", 10),
+      port: Number.parseInt(process.env.DEALBOT_PORT || "3000", 10),
       host: process.env.DEALBOT_HOST || "127.0.0.1",
     },
     database: {
       host: process.env.DATABASE_HOST || "localhost",
-      port: parseInt(process.env.DATABASE_PORT || "5432", 10),
+      port: Number.parseInt(process.env.DATABASE_PORT || "5432", 10),
       username: process.env.DATABASE_USER || "dealbot",
       password: process.env.DATABASE_PASSWORD || "dealbot_password",
       database: process.env.DATABASE_NAME || "filecoin_dealbot",
@@ -100,12 +100,12 @@ export function loadConfig(): IConfig {
       checkDatasetCreationFees: process.env.CHECK_DATASET_CREATION_FEES === "true",
     },
     scheduling: {
-      dealIntervalSeconds: parseInt(process.env.DEAL_INTERVAL_SECONDS || "30", 10),
-      retrievalIntervalSeconds: parseInt(process.env.RETRIEVAL_INTERVAL_SECONDS || "60", 10),
+      dealIntervalSeconds: Number.parseInt(process.env.DEAL_INTERVAL_SECONDS || "30", 10),
+      retrievalIntervalSeconds: Number.parseInt(process.env.RETRIEVAL_INTERVAL_SECONDS || "60", 10),
     },
     dataset: {
       localDatasetsPath: process.env.DEALBOT_LOCAL_DATASETS_PATH || DEFAULT_LOCAL_DATASETS_PATH,
-      totalPages: parseInt(process.env.KAGGLE_DATASET_TOTAL_PAGES || "500", 10),
+      totalPages: Number.parseInt(process.env.KAGGLE_DATASET_TOTAL_PAGES || "500", 10),
     },
     proxy: {
       list: process.env.PROXY_LIST?.split(",") || [],

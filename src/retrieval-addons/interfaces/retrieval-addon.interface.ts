@@ -1,5 +1,5 @@
-import { ServiceType } from "../../database/types.js";
-import type { RetrievalConfiguration, RetrievalUrlResult, ValidationResult, ExpectedMetrics } from "../types.js";
+import type { ServiceType } from "../../database/types.js";
+import type { ExpectedMetrics, RetrievalConfiguration, RetrievalUrlResult, ValidationResult } from "../types.js";
 
 /**
  * Interface for retrieval add-on strategies

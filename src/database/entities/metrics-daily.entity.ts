@@ -1,15 +1,15 @@
 import {
-  Entity,
-  Index,
-  Unique,
-  PrimaryGeneratedColumn,
   Column,
   CreateDateColumn,
-  ManyToOne,
+  Entity,
+  Index,
   JoinColumn,
+  ManyToOne,
+  PrimaryGeneratedColumn,
+  Unique,
 } from "typeorm";
-import { StorageProvider } from "./storage-provider.entity.js";
 import { ServiceType } from "../types.js";
+import { StorageProvider } from "./storage-provider.entity.js";
 
 @Entity("metrics_daily")
 @Index(["dailyBucket"])

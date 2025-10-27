@@ -1,24 +1,24 @@
-import { Injectable, Logger, OnModuleInit } from "@nestjs/common";
-import { ConfigService } from "@nestjs/config";
-import { JsonRpcProvider, MaxUint256 } from "ethers";
 import {
   CONTRACT_ADDRESSES,
-  PaymentsService,
+  type PaymentsService,
+  type ProviderInfo,
   RPC_URLS,
-  WarmStorageService,
-  TIME_CONSTANTS,
-  ProviderInfo,
   Synapse,
+  TIME_CONSTANTS,
+  WarmStorageService,
 } from "@filoz/synapse-sdk";
 import { SPRegistryService } from "@filoz/synapse-sdk/sp-registry";
+import { Injectable, Logger, type OnModuleInit } from "@nestjs/common";
+import type { ConfigService } from "@nestjs/config";
+import { JsonRpcProvider, MaxUint256 } from "ethers";
 import type { IBlockchainConfig, IConfig } from "../config/app.config.js";
 import type {
-  WalletServices,
-  StorageRequirements,
-  WalletStatusLog,
   FundDepositLog,
-  TransactionLog,
   ServiceApprovalLog,
+  StorageRequirements,
+  TransactionLog,
+  WalletServices,
+  WalletStatusLog,
 } from "./wallet-sdk.types.js";
 
 @Injectable()

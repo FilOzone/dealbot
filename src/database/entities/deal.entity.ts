@@ -9,8 +9,8 @@ import {
   UpdateDateColumn,
 } from "typeorm";
 import { type DealMetadata, DealStatus } from "../types.js";
-import { StorageProvider } from "./storage-provider.entity.js";
 import type { Retrieval } from "./retrieval.entity.js";
+import { StorageProvider } from "./storage-provider.entity.js";
 
 @Entity("deals")
 export class Deal {
@@ -96,7 +96,11 @@ export class Deal {
   updatedAt: Date;
 
   // Relations
-  @ManyToOne(() => StorageProvider, (sp) => sp.deals, { onDelete: "CASCADE" })
+  @ManyToOne(
+    () => StorageProvider,
+    (sp) => sp.deals,
+    { onDelete: "CASCADE" },
+  )
   @JoinColumn({ name: "sp_address" })
   storageProvider: StorageProvider;
 

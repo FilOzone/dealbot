@@ -1,15 +1,15 @@
 import { Module } from "@nestjs/common";
-import { TypeOrmModule } from "@nestjs/typeorm";
 import { ConfigModule, ConfigService } from "@nestjs/config";
-import { fileURLToPath } from "url";
+import { TypeOrmModule } from "@nestjs/typeorm";
 import { dirname, join } from "path";
+import { fileURLToPath } from "url";
+import type { IAppConfig, IConfig, IDatabaseConfig } from "../config/app.config.js";
 import { Deal } from "./entities/deal.entity.js";
-import { StorageProvider } from "./entities/storage-provider.entity.js";
-import { Retrieval } from "./entities/retrieval.entity.js";
 import { MetricsDaily } from "./entities/metrics-daily.entity.js";
+import { Retrieval } from "./entities/retrieval.entity.js";
 import { SpPerformanceAllTime } from "./entities/sp-performance-all-time.entity.js";
 import { SpPerformanceWeekly } from "./entities/sp-performance-weekly.entity.js";
-import { IAppConfig, IConfig, IDatabaseConfig } from "../config/app.config.js";
+import { StorageProvider } from "./entities/storage-provider.entity.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);

@@ -34,7 +34,7 @@ export function calculateProviderHealth(provider: ProviderPerformanceDto): Healt
   // Check if provider is inactive
   const daysSinceLastDeal = provider.lastDealTime
     ? Math.floor((Date.now() - new Date(provider.lastDealTime).getTime()) / (1000 * 60 * 60 * 24))
-    : Infinity;
+    : Number.POSITIVE_INFINITY;
 
   if (!provider.isActive || daysSinceLastDeal > THRESHOLDS.INACTIVE_DAYS) {
     return {

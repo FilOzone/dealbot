@@ -1,13 +1,13 @@
-import { Injectable, Logger, BadRequestException } from "@nestjs/common";
+import { BadRequestException, Injectable, Logger } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { Repository, Between } from "typeorm";
+import { Between, type Repository } from "typeorm";
 import { MetricsDaily } from "../../database/entities/metrics-daily.entity.js";
 import { ServiceType } from "../../database/types.js";
-import {
-  DailyMetricsResponseDto,
+import type {
   DailyAggregatedMetricsDto,
-  ProviderDailyMetricsResponseDto,
+  DailyMetricsResponseDto,
   ProviderDailyMetricsDto,
+  ProviderDailyMetricsResponseDto,
 } from "../dto/daily-metrics.dto.js";
 
 /**
@@ -161,7 +161,7 @@ export class DailyMetricsService {
       // Separate by service type
       const cdnMetrics = dayMetrics.filter((m) => m.serviceType === ServiceType.CDN);
       const directMetrics = dayMetrics.filter((m) => m.serviceType === ServiceType.DIRECT_SP);
-      const ipfsMetrics = dayMetrics.filter((m) => m.serviceType === ServiceType.IPFS_PIN);
+      const _ipfsMetrics = dayMetrics.filter((m) => m.serviceType === ServiceType.IPFS_PIN);
 
       // Aggregate totals
       const totalDeals = dayMetrics.reduce((sum, m) => sum + (m.dealsInitiated || 0), 0);
@@ -315,7 +315,7 @@ export class DailyMetricsService {
    * @private
    */
   private validateDateRange(startDate: Date, endDate: Date, maxDays: number): void {
-    if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+    if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
       throw new BadRequestException("Invalid date format. Use ISO 8601 format (YYYY-MM-DD).");
     }
 

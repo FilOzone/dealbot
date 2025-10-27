@@ -1,18 +1,24 @@
+import {
+  type PieceCID,
+  type ProviderInfo,
+  RPC_URLS,
+  SIZE_CONSTANTS,
+  Synapse,
+  type UploadResult,
+} from "@filoz/synapse-sdk";
 import { Injectable, Logger } from "@nestjs/common";
-import { ConfigService } from "@nestjs/config";
+import type { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
+import type { Repository } from "typeorm";
+import type { DataFile, Hex } from "../common/types.js";
+import type { IBlockchainConfig, IConfig } from "../config/app.config.js";
 import { Deal } from "../database/entities/deal.entity.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
-import { DataSourceService } from "../dataSource/dataSource.service.js";
 import { DealStatus } from "../database/types.js";
-import type { DataFile } from "../common/types.js";
-import type { IBlockchainConfig, IConfig } from "../config/app.config.js";
-import { type UploadResult, Synapse, RPC_URLS, SIZE_CONSTANTS, PieceCID, ProviderInfo } from "@filoz/synapse-sdk";
-import type { Hex } from "../common/types.js";
-import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
-import { Repository } from "typeorm";
-import { DealAddonsService } from "../deal-addons/deal-addons.service.js";
+import type { DataSourceService } from "../dataSource/dataSource.service.js";
+import type { DealAddonsService } from "../deal-addons/deal-addons.service.js";
 import type { DealPreprocessingResult } from "../deal-addons/types.js";
+import type { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
 
 @Injectable()
 export class DealService {
@@ -233,7 +239,7 @@ export class DealService {
   private async fetchDataFile(minSize: number, maxSize: number): Promise<DataFile> {
     try {
       return await this.dataSourceService.fetchKaggleDataset(minSize, maxSize);
-    } catch (err) {
+    } catch (_err) {
       return await this.dataSourceService.fetchLocalDataset(minSize, maxSize);
     }
   }

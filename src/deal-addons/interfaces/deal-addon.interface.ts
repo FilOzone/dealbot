@@ -1,6 +1,6 @@
-import { ServiceType } from "../../database/types.js";
 import type { Deal } from "../../database/entities/deal.entity.js";
-import type { DealConfiguration, PreprocessingResult, AddonExecutionContext } from "../types.js";
+import type { ServiceType } from "../../database/types.js";
+import type { AddonExecutionContext, DealConfiguration, PreprocessingResult } from "../types.js";
 
 /**
  * Interface for deal add-on strategies

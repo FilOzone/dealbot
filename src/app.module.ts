@@ -1,15 +1,15 @@
 import { Module } from "@nestjs/common";
 import { ConfigModule } from "@nestjs/config";
-import { loadConfig, configValidationSchema } from "./config/app.config.js";
-import { DatabaseModule } from "./database/database.module.js";
-import { DealModule } from "./deal/deal.module.js";
-import { RetrievalModule } from "./retrieval/retrieval.module.js";
-import { SchedulerModule } from "./scheduler/scheduler.module.js";
-import { MetricsModule } from "./metrics/metrics.module.js";
-import { DataSourceModule } from "./dataSource/dataSource.module.js";
-import { AppController } from "./app.controller.js";
 import { ServeStaticModule } from "@nestjs/serve-static";
 import { join } from "path";
+import { AppController } from "./app.controller.js";
+import { configValidationSchema, loadConfig } from "./config/app.config.js";
+import { DatabaseModule } from "./database/database.module.js";
+import { DataSourceModule } from "./dataSource/dataSource.module.js";
+import { DealModule } from "./deal/deal.module.js";
+import { MetricsModule } from "./metrics/metrics.module.js";
+import { RetrievalModule } from "./retrieval/retrieval.module.js";
+import { SchedulerModule } from "./scheduler/scheduler.module.js";
 
 @Module({
   imports: [

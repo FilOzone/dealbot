@@ -24,12 +24,12 @@ export function SummaryCards({ stats }: { stats: OverallStatsDto }) {
   ];
 
   return (
-    <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+    <section className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4'>
       {metrics.map((m) => (
         <Card key={m.label}>
-          <CardContent className="p-4">
-            <div className="text-xs uppercase tracking-wide text-muted-foreground">{m.label}</div>
-            <div className="mt-2 text-2xl font-semibold">{m.value}</div>
+          <CardContent className='p-4'>
+            <div className='text-xs uppercase tracking-wide text-muted-foreground'>{m.label}</div>
+            <div className='mt-2 text-2xl font-semibold'>{m.value}</div>
           </CardContent>
         </Card>
       ))}

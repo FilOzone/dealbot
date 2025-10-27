@@ -1,15 +1,15 @@
 import { Injectable, Logger } from "@nestjs/common";
+import type { Deal } from "../database/entities/deal.entity.js";
 import type { IDealAddon } from "./interfaces/deal-addon.interface.js";
+import type { CdnAddonStrategy } from "./strategies/cdn.strategy.js";
+import type { DirectAddonStrategy } from "./strategies/direct.strategy.js";
+import type { IpniAddonStrategy } from "./strategies/ipni.strategy.js";
 import type {
+  AddonExecutionContext,
   DealConfiguration,
   DealPreprocessingResult,
-  AddonExecutionContext,
   PreprocessingResult,
 } from "./types.js";
-import { DirectAddonStrategy } from "./strategies/direct.strategy.js";
-import { CdnAddonStrategy } from "./strategies/cdn.strategy.js";
-import { IpniAddonStrategy } from "./strategies/ipni.strategy.js";
-import type { Deal } from "../database/entities/deal.entity.js";
 
 /**
  * Orchestrator service for managing deal add-ons
@@ -125,7 +125,7 @@ export class DealAddonsService {
 
     const postProcessPromises = appliedAddons
       .map((addonName) => this.addons.get(addonName))
-      .filter((addon) => addon && addon.postProcess)
+      .filter((addon) => addon?.postProcess)
       .map((addon) => addon!.postProcess!(deal));
 
     try {

@@ -1,9 +1,9 @@
 import { Injectable, Logger } from "@nestjs/common";
-import type { IRetrievalAddon } from "../interfaces/retrieval-addon.interface.js";
-import type { RetrievalConfiguration, RetrievalUrlResult, ValidationResult, ExpectedMetrics } from "../types.js";
-import { RetrievalPriority } from "../types.js";
-import { WalletSdkService } from "../../wallet-sdk/wallet-sdk.service.js";
 import { ServiceType } from "../../database/types.js";
+import type { WalletSdkService } from "../../wallet-sdk/wallet-sdk.service.js";
+import type { IRetrievalAddon } from "../interfaces/retrieval-addon.interface.js";
+import type { ExpectedMetrics, RetrievalConfiguration, RetrievalUrlResult, ValidationResult } from "../types.js";
+import { RetrievalPriority } from "../types.js";
 
 /**
  * Direct retrieval strategy

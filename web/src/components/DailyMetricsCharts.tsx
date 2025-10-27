@@ -1,7 +1,7 @@
-import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Legend, CartesianGrid } from "recharts";
+import { Bar, BarChart, CartesianGrid, Legend, Line, LineChart, XAxis, YAxis } from "recharts";
+import { formatMilliseconds, formatThroughput } from "@/utils/formatter";
 import type { DailyMetricDto } from "../types/stats";
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "./ui/chart";
-import { formatMilliseconds, formatThroughput } from "@/utils/formatter";
 
 type ChartData = {
   date: string;
@@ -62,12 +62,12 @@ function DailyChart({ data, title, cdnKey, noCdnKey, yTickFormatter, type }: Dai
 
   return (
     <div>
-      <p className="text-sm text-muted-foreground mb-3">{title}</p>
-      <div className="w-full h-[420px]">
-        <ChartContainer config={chartConfig} className="min-h-[200px] h-full w-full">
+      <p className='text-sm text-muted-foreground mb-3'>{title}</p>
+      <div className='w-full h-[420px]'>
+        <ChartContainer config={chartConfig} className='min-h-[200px] h-full w-full'>
           <BarChart data={chartData} margin={{ left: 30, top: 20 }}>
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="date" />
+            <CartesianGrid strokeDasharray='3 3' />
+            <XAxis dataKey='date' />
             <YAxis tickFormatter={yTickFormatter} fontSize={12} />
             <ChartTooltip
               content={
@@ -77,8 +77,8 @@ function DailyChart({ data, title, cdnKey, noCdnKey, yTickFormatter, type }: Dai
               }
             />
             <Legend />
-            <Bar dataKey="withCDN" fill="var(--chart-1)" name="With CDN" radius={6} maxBarSize={100} />
-            <Bar dataKey="withoutCDN" fill="var(--chart-2)" name="Without CDN" radius={6} maxBarSize={100} />
+            <Bar dataKey='withCDN' fill='var(--chart-1)' name='With CDN' radius={6} maxBarSize={100} />
+            <Bar dataKey='withoutCDN' fill='var(--chart-2)' name='Without CDN' radius={6} maxBarSize={100} />
           </BarChart>
         </ChartContainer>
       </div>
@@ -104,41 +104,41 @@ function ThroughputLineChart({
 
   return (
     <div>
-      <p className="text-sm text-muted-foreground mb-3">Throughput trends (daily)</p>
-      <div className="w-full h-[420px]">
-        <ChartContainer config={chartConfig} className="min-h-[200px] h-full w-full">
+      <p className='text-sm text-muted-foreground mb-3'>Throughput trends (daily)</p>
+      <div className='w-full h-[420px]'>
+        <ChartContainer config={chartConfig} className='min-h-[200px] h-full w-full'>
           <LineChart data={chartData} margin={{ left: 30, top: 20 }}>
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="date" />
+            <CartesianGrid strokeDasharray='3 3' />
+            <XAxis dataKey='date' />
             <YAxis tickFormatter={yTickFormatter} fontSize={12} />
             <ChartTooltip content={<ChartTooltipContent valueFormatter={(v) => formatThroughput(v as number)} />} />
             <Legend />
             <Line
-              type="monotone"
-              dataKey="ingestWithCDN"
-              stroke="var(--color-ingestWithCDN)"
-              name="Ingest (CDN)"
+              type='monotone'
+              dataKey='ingestWithCDN'
+              stroke='var(--color-ingestWithCDN)'
+              name='Ingest (CDN)'
               strokeWidth={2}
             />
             <Line
-              type="monotone"
-              dataKey="ingestWithoutCDN"
-              stroke="var(--color-ingestWithoutCDN)"
-              name="Ingest (Direct)"
+              type='monotone'
+              dataKey='ingestWithoutCDN'
+              stroke='var(--color-ingestWithoutCDN)'
+              name='Ingest (Direct)'
               strokeWidth={2}
             />
             <Line
-              type="monotone"
-              dataKey="retrievalWithCDN"
-              stroke="var(--color-retrievalWithCDN)"
-              name="Retrieval (CDN)"
+              type='monotone'
+              dataKey='retrievalWithCDN'
+              stroke='var(--color-retrievalWithCDN)'
+              name='Retrieval (CDN)'
               strokeWidth={2}
             />
             <Line
-              type="monotone"
-              dataKey="retrievalWithoutCDN"
-              stroke="var(--color-retrievalWithoutCDN)"
-              name="Retrieval (Direct)"
+              type='monotone'
+              dataKey='retrievalWithoutCDN'
+              stroke='var(--color-retrievalWithoutCDN)'
+              name='Retrieval (Direct)'
               strokeWidth={2}
             />
           </LineChart>
@@ -152,34 +152,34 @@ export function DailyMetricsCharts({ dailyMetrics }: { dailyMetrics: DailyMetric
   const fmtPct = (v: number) => `${v.toFixed(2)}%`;
 
   return (
-    <div className="space-y-12">
+    <div className='space-y-12'>
       <ThroughputLineChart data={dailyMetrics} yTickFormatter={formatThroughput} />
 
       <DailyChart
         data={dailyMetrics}
-        title="RETRIEVAL SUCCESS RATES (DAILY)"
-        cdnKey="retrievalsSuccessRateWithCDN"
-        noCdnKey="retrievalsSuccessRateWithoutCDN"
+        title='RETRIEVAL SUCCESS RATES (DAILY)'
+        cdnKey='retrievalsSuccessRateWithCDN'
+        noCdnKey='retrievalsSuccessRateWithoutCDN'
         yTickFormatter={fmtPct}
-        type="percentage"
+        type='percentage'
       />
 
       <DailyChart
         data={dailyMetrics}
-        title="RETRIEVAL LATENCY (DAILY)"
-        cdnKey="avgRetrievalLatencyWithCDN"
-        noCdnKey="avgRetrievalLatencyWithoutCDN"
+        title='RETRIEVAL LATENCY (DAILY)'
+        cdnKey='avgRetrievalLatencyWithCDN'
+        noCdnKey='avgRetrievalLatencyWithoutCDN'
         yTickFormatter={formatMilliseconds}
-        type="milliseconds"
+        type='milliseconds'
       />
 
       <DailyChart
         data={dailyMetrics}
-        title="RETRIEVAL TIME TO FIRST BYTE (DAILY)"
-        cdnKey="avgRetrievalTTFBWithCDN"
-        noCdnKey="avgRetrievalTTFBWithoutCDN"
+        title='RETRIEVAL TIME TO FIRST BYTE (DAILY)'
+        cdnKey='avgRetrievalTTFBWithCDN'
+        noCdnKey='avgRetrievalTTFBWithoutCDN'
         yTickFormatter={formatMilliseconds}
-        type="milliseconds"
+        type='milliseconds'
       />
     </div>
   );

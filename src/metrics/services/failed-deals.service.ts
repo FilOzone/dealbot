@@ -1,14 +1,14 @@
-import { Injectable, Logger, BadRequestException } from "@nestjs/common";
+import { BadRequestException, Injectable, Logger } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { Repository, Between, Not, IsNull, Like, In } from "typeorm";
+import { Between, IsNull, Like, Not, type Repository } from "typeorm";
 import { Deal } from "../../database/entities/deal.entity.js";
 import { DealStatus } from "../../database/types.js";
-import {
-  FailedDealsResponseDto,
-  FailedDealDto,
+import type {
   ErrorSummaryDto,
-  ProviderFailureStatsDto,
+  FailedDealDto,
+  FailedDealsResponseDto,
   PaginationDto,
+  ProviderFailureStatsDto,
 } from "../dto/failed-deals.dto.js";
 
 /**
@@ -277,7 +277,7 @@ export class FailedDealsService {
    * @private
    */
   private validateDateRange(startDate: Date, endDate: Date, maxDays: number): void {
-    if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+    if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
       throw new BadRequestException("Invalid date format. Use ISO 8601 format (YYYY-MM-DD).");
     }
 
@@ -297,11 +297,11 @@ export class FailedDealsService {
    * @private
    */
   private validatePagination(page: number, limit: number): void {
-    if (isNaN(page) || page < 1) {
+    if (Number.isNaN(page) || page < 1) {
       throw new BadRequestException("Page must be a positive number.");
     }
 
-    if (isNaN(limit) || limit < 1 || limit > 100) {
+    if (Number.isNaN(limit) || limit < 1 || limit > 100) {
       throw new BadRequestException("Limit must be a number between 1 and 100.");
     }
   }

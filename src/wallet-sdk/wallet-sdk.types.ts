@@ -1,4 +1,4 @@
-import { PaymentsService, WarmStorageService } from "@filoz/synapse-sdk";
+import type { PaymentsService, WarmStorageService } from "@filoz/synapse-sdk";
 
 export interface WalletServices {
   paymentsService: PaymentsService;

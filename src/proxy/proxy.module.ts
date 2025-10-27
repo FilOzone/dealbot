@@ -1,6 +1,6 @@
 import { Module } from "@nestjs/common";
-import { ProxyService } from "./proxy.service.js";
 import { ConfigModule } from "@nestjs/config";
+import { ProxyService } from "./proxy.service.js";
 
 @Module({
   imports: [ConfigModule],

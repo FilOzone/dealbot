@@ -36,6 +36,9 @@ export class StorageProvider {
   updatedAt!: Date;
 
   // Relations
-  @OneToMany(() => Deal, (deal) => deal.storageProvider)
+  @OneToMany(
+    () => Deal,
+    (deal) => deal.storageProvider,
+  )
   deals: Deal[];
 }

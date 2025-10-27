@@ -1,19 +1,19 @@
 import { useState } from "react";
-import { useOverallStats } from "./hooks/useOverallStats";
-import { useDailyStats } from "./hooks/useDailyStats";
-import { useDealbotConfig } from "./hooks/useDealbotConfig";
-import { ProviderCards } from "./components/ProviderCards";
-import { SummaryCards } from "./components/SummaryCards";
 import { DailyMetricsCharts } from "./components/DailyMetricsCharts";
+import { ErrorState } from "./components/ErrorState";
+import { FailedDeals } from "./components/FailedDeals";
+import { InfrastructureInfo } from "./components/InfrastructureInfo";
+import { ModeToggle } from "./components/mode-toggle";
+import { ProviderCards } from "./components/ProviderCards";
 import { ProviderDailyComparison } from "./components/ProviderDailyComparison";
 import { ProviderFilter } from "./components/ProviderFilter";
-import { ErrorState } from "./components/ErrorState";
 import { Skeleton } from "./components/Skeleton";
+import { SummaryCards } from "./components/SummaryCards";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./components/ui/card";
-import { ModeToggle } from "./components/mode-toggle";
-import { FailedDeals } from "./components/FailedDeals";
+import { useDailyStats } from "./hooks/useDailyStats";
+import { useDealbotConfig } from "./hooks/useDealbotConfig";
 import { useFailedDeals } from "./hooks/useFailedDeals";
-import { InfrastructureInfo } from "./components/InfrastructureInfo";
+import { useOverallStats } from "./hooks/useOverallStats";
 import { calculateProviderHealth, filterProvidersByHealth, type HealthStatus } from "./utils/providerHealth";
 
 export type MetricKey =
@@ -23,7 +23,7 @@ export type MetricKey =
   | "chainLatency"
   | "dealLatency"
   | "retrievalLatency"
-  | "retrievalTtfb"
+  | "retrievalTTFB"
   | "ingestThroughput"
   | "retrievalThroughput"
   | "totalDeals"
@@ -59,7 +59,7 @@ export default function App() {
   if (loading || dailyLoading) return <Skeleton />;
   if (error)
     return (
-      <div className="p-6">
+      <div className='p-6'>
         <ErrorState message={error} onRetry={refetch} />
       </div>
     );
@@ -94,11 +94,12 @@ export default function App() {
       case "name":
         compareValue = a.name.localeCompare(b.name);
         break;
-      case "health":
+      case "health": {
         const healthA = calculateProviderHealth(a).score;
         const healthB = calculateProviderHealth(b).score;
         compareValue = healthA - healthB;
         break;
+      }
       case "deals":
         compareValue = a.totalDeals - b.totalDeals;
         break;
@@ -111,17 +112,17 @@ export default function App() {
   });
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
-      <header className="sticky top-0 z-50 border-b bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-        <div className="container mx-auto px-6 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="h-9 w-9 rounded-md bg-primary/20 flex items-center justify-center text-primary font-bold">
+    <div className='min-h-screen bg-background text-foreground'>
+      <header className='sticky top-0 z-50 border-b bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/60'>
+        <div className='container mx-auto px-6 py-4'>
+          <div className='flex items-center justify-between'>
+            <div className='flex items-center gap-3'>
+              <div className='h-9 w-9 rounded-md bg-primary/20 flex items-center justify-center text-primary font-bold'>
                 DB
               </div>
               <div>
-                <h1 className="text-lg font-semibold tracking-tight">Deal Bot</h1>
-                <p className="text-xs text-muted-foreground">Filecoin storage provider metrics</p>
+                <h1 className='text-lg font-semibold tracking-tight'>Deal Bot</h1>
+                <p className='text-xs text-muted-foreground'>Filecoin storage provider metrics</p>
               </div>
             </div>
             <ModeToggle />
@@ -129,9 +130,9 @@ export default function App() {
         </div>
       </header>
 
-      <main className="relative z-10 container mx-auto px-6 py-8 space-y-8">
-        <div className="text-center py-6">
-          <p className="text-sm text-muted-foreground">Automated deal creation & storage performance monitoring</p>
+      <main className='relative z-10 container mx-auto px-6 py-8 space-y-8'>
+        <div className='text-center py-6'>
+          <p className='text-sm text-muted-foreground'>Automated deal creation & storage performance monitoring</p>
         </div>
 
         {/* Infrastructure Configuration */}
@@ -163,7 +164,7 @@ export default function App() {
                     : "total retrievals"}
             </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-6">
+          <CardContent className='space-y-6'>
             <ProviderFilter
               searchValue={providerSearch}
               onSearchChange={setProviderSearch}
@@ -270,24 +271,24 @@ export default function App() {
         )}
       </main>
 
-      <footer className="relative z-10 mt-20 py-8 border-t">
-        <div className="container mx-auto px-6">
-          <div className="flex flex-col lg:flex-row items-center justify-between gap-6">
+      <footer className='relative z-10 mt-20 py-8 border-t'>
+        <div className='container mx-auto px-6'>
+          <div className='flex flex-col lg:flex-row items-center justify-between gap-6'>
             <div>
-              <p className="text-sm font-semibold">Mini Deal Bot Analytics</p>
-              <p className="text-sm text-muted-foreground">Automated storage deals on Filecoin network</p>
-              <p className="text-xs text-muted-foreground mt-1">
+              <p className='text-sm font-semibold'>Mini Deal Bot Analytics</p>
+              <p className='text-sm text-muted-foreground'>Automated storage deals on Filecoin network</p>
+              <p className='text-xs text-muted-foreground mt-1'>
                 CDN A/B testing • Performance tracking • Real-time monitoring
               </p>
             </div>
 
             <div>
-              <p className="text-sm font-medium">Open Source</p>
+              <p className='text-sm font-medium'>Open Source</p>
               <a
-                href="https://github.com/FilOzone/dealbot"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+                href='https://github.com/FilOzone/dealbot'
+                target='_blank'
+                rel='noopener noreferrer'
+                className='text-sm text-muted-foreground hover:text-foreground transition-colors'
               >
                 github.com/FilOzone/dealbot
               </a>

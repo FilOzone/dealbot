@@ -1,6 +1,6 @@
-import type { Deal } from "../database/entities/deal.entity.js";
 import type { Hex } from "../common/types.js";
-import { ServiceType } from "..//database/types.js";
+import type { Deal } from "../database/entities/deal.entity.js";
+import type { ServiceType } from "..//database/types.js";
 
 /**
  * Configuration for performing a retrieval with add-on support

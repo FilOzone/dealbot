@@ -1,20 +1,20 @@
-import { Controller, Get, Param, Query, Logger, ParseIntPipe, DefaultValuePipe } from "@nestjs/common";
-import { ApiTags, ApiOperation, ApiResponse, ApiQuery, ApiParam } from "@nestjs/swagger";
-import { MetricsQueryService } from "./metrics-query.service.js";
+import { Controller, DefaultValuePipe, Get, Logger, Param, ParseIntPipe, Query } from "@nestjs/common";
+import { ApiOperation, ApiParam, ApiQuery, ApiResponse, ApiTags } from "@nestjs/swagger";
 import {
-  ProviderWeeklyPerformanceDto,
-  ProviderAllTimePerformanceDto,
+  NetworkStatsDto,
+  type ProviderAllTimePerformanceDto,
   ProviderCombinedPerformanceDto,
   ProviderListResponseDto,
-  NetworkStatsDto,
+  ProviderWeeklyPerformanceDto,
 } from "./dto/provider-performance.dto.js";
+import type { MetricsQueryService } from "./metrics-query.service.js";
 
 /**
  * Public API controller for storage provider metrics
- * 
+ *
  * Provides read-only access to pre-computed performance metrics
  * for storage provider discovery, comparison, and monitoring.
- * 
+ *
  * All endpoints are public and do not require authentication.
  * Data is served from materialized views for optimal performance.
  */
@@ -232,7 +232,12 @@ export class MetricsPublicController {
     name: "metric",
     enum: ["deal_success_rate", "retrieval_success_rate", "deal_latency", "retrieval_latency"],
   })
-  @ApiQuery({ name: "period", required: false, enum: ["weekly", "all_time"], description: "Time period (default: weekly)" })
+  @ApiQuery({
+    name: "period",
+    required: false,
+    enum: ["weekly", "all_time"],
+    description: "Time period (default: weekly)",
+  })
   @ApiQuery({ name: "limit", required: false, type: Number, description: "Number of results (default: 10)" })
   @ApiResponse({ status: 200, description: "Top providers", type: [ProviderWeeklyPerformanceDto] })
   async getTopProviders(

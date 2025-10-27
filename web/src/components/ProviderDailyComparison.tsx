@@ -1,7 +1,7 @@
-import { LineChart, Line, XAxis, YAxis, Legend, CartesianGrid } from "recharts";
-import type { ProviderDailyMetricDto, DailyMetricDto } from "../types/stats";
-import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "./ui/chart";
+import { CartesianGrid, Legend, Line, LineChart, XAxis, YAxis } from "recharts";
 import { formatThroughput } from "@/utils/formatter";
+import type { DailyMetricDto, ProviderDailyMetricDto } from "../types/stats";
+import { type ChartConfig, ChartContainer, ChartTooltip, ChartTooltipContent } from "./ui/chart";
 
 function truncateName(name: string, maxLength: number = 20) {
   if (name.length <= maxLength) return name;
@@ -98,17 +98,17 @@ function ProviderTrendChart({
 
   return (
     <div>
-      <p className="text-sm text-muted-foreground mb-3">{title}</p>
-      <div className="w-full h-[420px]">
-        <ChartContainer config={chartConfig} className="min-h-[200px] max-h-[420px] h-full w-full">
+      <p className='text-sm text-muted-foreground mb-3'>{title}</p>
+      <div className='w-full h-[420px]'>
+        <ChartContainer config={chartConfig} className='min-h-[200px] max-h-[420px] h-full w-full'>
           <LineChart data={chartData} margin={{ left: 30, top: 10 }}>
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="date" />
+            <CartesianGrid strokeDasharray='3 3' />
+            <XAxis dataKey='date' />
             <YAxis tickFormatter={yTickFormatter} fontSize={12} />
             <ChartTooltip
               content={
                 <ChartTooltipContent
-                  indicator="line"
+                  indicator='line'
                   valueFormatter={(v) => (type === "percentage" ? `${v}%` : formatThroughput(v as number))}
                 />
               }
@@ -117,7 +117,7 @@ function ProviderTrendChart({
             {providerNames.map((name, index) => (
               <Line
                 key={name}
-                type="monotone"
+                type='monotone'
                 dataKey={name}
                 stroke={colors[index]}
                 strokeWidth={2}
@@ -136,21 +136,21 @@ export function ProviderDailyComparison({ dailyMetrics }: { dailyMetrics: DailyM
   const fmtPct = (v: number) => `${v}%`;
 
   return (
-    <div className="space-y-12">
+    <div className='space-y-12'>
       <ProviderTrendChart
         dailyMetrics={dailyMetrics}
-        title="PROVIDER OVERALL SUCCESS RATE TRENDS"
-        metricKey="overallDealsSuccessRate"
+        title='PROVIDER OVERALL SUCCESS RATE TRENDS'
+        metricKey='overallDealsSuccessRate'
         yTickFormatter={fmtPct}
-        type="percentage"
+        type='percentage'
       />
 
       <ProviderTrendChart
         dailyMetrics={dailyMetrics}
-        title="PROVIDER RETRIEVAL THROUGHPUT TRENDS"
-        metricKey="avgRetrievalThroughputWithoutCDN"
+        title='PROVIDER RETRIEVAL THROUGHPUT TRENDS'
+        metricKey='avgRetrievalThroughputWithoutCDN'
         yTickFormatter={formatThroughput}
-        type="throughput"
+        type='throughput'
       />
     </div>
   );

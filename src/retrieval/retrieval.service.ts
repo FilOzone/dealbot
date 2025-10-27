@@ -1,13 +1,13 @@
 import { Injectable, Logger } from "@nestjs/common";
-import { DealStatus, RetrievalStatus, ServiceType } from "../database/types.js";
+import { InjectRepository } from "@nestjs/typeorm";
+import type { Repository } from "typeorm";
+import type { Hex } from "../common/types.js";
 import { Deal } from "../database/entities/deal.entity.js";
 import { Retrieval } from "../database/entities/retrieval.entity.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
-import { RetrievalAddonsService } from "../retrieval-addons/retrieval-addons.service.js";
+import { DealStatus, RetrievalStatus } from "../database/types.js";
+import type { RetrievalAddonsService } from "../retrieval-addons/retrieval-addons.service.js";
 import type { RetrievalConfiguration, RetrievalExecutionResult } from "../retrieval-addons/types.js";
-import { InjectRepository } from "@nestjs/typeorm";
-import { Repository } from "typeorm";
-import { Hex } from "../common/types.js";
 
 @Injectable()
 export class RetrievalService {
