@@ -164,29 +164,43 @@ export class DailyMetricsService {
       const _ipfsMetrics = dayMetrics.filter((m) => m.serviceType === ServiceType.IPFS_PIN);
 
       // Aggregate totals
-      const totalDeals = dayMetrics.reduce((sum, m) => sum + (m.dealsInitiated || 0), 0);
-      const successfulDeals = dayMetrics.reduce((sum, m) => sum + (m.dealsCompleted || 0), 0);
-      const totalRetrievals = dayMetrics.reduce((sum, m) => sum + (m.retrievalsAttempted || 0), 0);
-      const successfulRetrievals = dayMetrics.reduce((sum, m) => sum + (m.retrievalsSuccessful || 0), 0);
+      const totalDeals = dayMetrics.reduce((sum, m) => sum + (m.totalDeals || 0), 0);
+      const successfulDeals = dayMetrics.reduce((sum, m) => sum + (m.successfulDeals || 0), 0);
+      const totalRetrievals = dayMetrics.reduce((sum, m) => sum + (m.totalRetrievals || 0), 0);
+      const successfulRetrievals = dayMetrics.reduce((sum, m) => sum + (m.successfulRetrievals || 0), 0);
 
       // CDN/Direct retrieval counts
-      const cdnRetrievals = cdnMetrics.reduce((sum, m) => sum + (m.retrievalsAttempted || 0), 0);
-      const directRetrievals = directMetrics.reduce((sum, m) => sum + (m.retrievalsAttempted || 0), 0);
+      const cdnRetrievals = cdnMetrics.reduce((sum, m) => sum + (m.totalRetrievals || 0), 0);
+      const directRetrievals = directMetrics.reduce((sum, m) => sum + (m.totalRetrievals || 0), 0);
 
       // Collect latencies for averaging
-      const dealLatencies = dayMetrics.filter((m) => m.avgDealLatencyMs).map((m) => m.avgDealLatencyMs);
+      const dealLatencies = dayMetrics
+        .filter((m) => m.serviceType === null && m.avgDealLatencyMs)
+        .map((m) => m.avgDealLatencyMs);
 
       const retrievalLatencies = dayMetrics.filter((m) => m.avgRetrievalLatencyMs).map((m) => m.avgRetrievalLatencyMs);
+
+      const retrievalTtfbs = dayMetrics.filter((m) => m.avgRetrievalTtfbMs).map((m) => m.avgRetrievalTtfbMs);
 
       const cdnLatencies = cdnMetrics.filter((m) => m.avgRetrievalLatencyMs).map((m) => m.avgRetrievalLatencyMs);
 
       const directLatencies = directMetrics.filter((m) => m.avgRetrievalLatencyMs).map((m) => m.avgRetrievalLatencyMs);
 
-      // Get unique providers
-      const uniqueProviders = new Set(dayMetrics.map((m) => m.spAddress)).size;
+      // Get unique providers (from deal metrics only to avoid double counting)
+      const uniqueProviders = new Set(dayMetrics.filter((m) => m.serviceType === null).map((m) => m.spAddress)).size;
 
       // Helper function to calculate average
       const avg = (arr: number[]) => (arr.length > 0 ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length) : 0);
+
+      // Calculate total data stored/retrieved
+      const totalDataStoredBytes = dayMetrics
+        .filter((m) => m.serviceType === null)
+        .reduce((sum, m) => sum + (m.totalDataStoredBytes || 0), 0)
+        .toString();
+
+      const totalDataRetrievedBytes = dayMetrics
+        .reduce((sum, m) => sum + (m.totalDataRetrievedBytes || 0), 0)
+        .toString();
 
       aggregated.push({
         date,
@@ -199,13 +213,13 @@ export class DailyMetricsService {
           totalRetrievals > 0 ? Math.round((successfulRetrievals / totalRetrievals) * 100 * 100) / 100 : 0,
         avgDealLatencyMs: avg(dealLatencies),
         avgRetrievalLatencyMs: avg(retrievalLatencies),
-        avgRetrievalTtfbMs: 0, // TTFB not available in metrics_daily
+        avgRetrievalTtfbMs: avg(retrievalTtfbs),
         cdnRetrievals,
         directRetrievals,
         avgCdnLatencyMs: cdnLatencies.length > 0 ? avg(cdnLatencies) : undefined,
         avgDirectLatencyMs: directLatencies.length > 0 ? avg(directLatencies) : undefined,
-        totalDataStoredBytes: "0", // Not available in metrics_daily
-        totalDataRetrievedBytes: "0", // Not available in metrics_daily
+        totalDataStoredBytes,
+        totalDataRetrievedBytes,
         uniqueProviders,
       });
     });
@@ -235,14 +249,20 @@ export class DailyMetricsService {
     const result: ProviderDailyMetricsDto[] = [];
 
     dateMap.forEach((dayMetrics, date) => {
-      const totalDeals = dayMetrics.reduce((sum, m) => sum + (m.dealsInitiated || 0), 0);
-      const successfulDeals = dayMetrics.reduce((sum, m) => sum + (m.dealsCompleted || 0), 0);
-      const totalRetrievals = dayMetrics.reduce((sum, m) => sum + (m.retrievalsAttempted || 0), 0);
-      const successfulRetrievals = dayMetrics.reduce((sum, m) => sum + (m.retrievalsSuccessful || 0), 0);
+      // Aggregate across service types for this provider-date
+      const dealMetrics = dayMetrics.filter((m) => m.serviceType === null);
+      const retrievalMetrics = dayMetrics.filter((m) => m.serviceType !== null);
 
-      const dealLatencies = dayMetrics.filter((m) => m.avgDealLatencyMs).map((m) => m.avgDealLatencyMs);
+      const totalDeals = dealMetrics.reduce((sum, m) => sum + (m.totalDeals || 0), 0);
+      const successfulDeals = dealMetrics.reduce((sum, m) => sum + (m.successfulDeals || 0), 0);
+      const totalRetrievals = retrievalMetrics.reduce((sum, m) => sum + (m.totalRetrievals || 0), 0);
+      const successfulRetrievals = retrievalMetrics.reduce((sum, m) => sum + (m.successfulRetrievals || 0), 0);
 
-      const retrievalLatencies = dayMetrics.filter((m) => m.avgRetrievalLatencyMs).map((m) => m.avgRetrievalLatencyMs);
+      const dealLatencies = dealMetrics.filter((m) => m.avgDealLatencyMs).map((m) => m.avgDealLatencyMs);
+
+      const retrievalLatencies = retrievalMetrics
+        .filter((m) => m.avgRetrievalLatencyMs)
+        .map((m) => m.avgRetrievalLatencyMs);
 
       const avg = (arr: number[]) => (arr.length > 0 ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length) : 0);
 
@@ -275,7 +295,8 @@ export class DailyMetricsService {
     const successfulDeals = dailyMetrics.reduce((sum, day) => sum + day.successfulDeals, 0);
     const successfulRetrievals = dailyMetrics.reduce((sum, day) => sum + day.successfulRetrievals, 0);
 
-    const uniqueProviders = new Set(rawMetrics.map((m) => m.spAddress)).size;
+    // Count unique providers from deal metrics only (service_type=null) to avoid double counting
+    const uniqueProviders = new Set(rawMetrics.filter((m) => m.serviceType === null).map((m) => m.spAddress)).size;
 
     return {
       totalDays: dailyMetrics.length,

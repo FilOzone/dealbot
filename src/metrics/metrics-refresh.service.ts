@@ -91,12 +91,13 @@ export class MetricsRefreshService {
     this.logger.log(`Starting daily metrics aggregation for ${yesterday.toISOString().split("T")[0]}`);
 
     try {
-      // Aggregate deal metrics by storage provider
+      // Aggregate deal metrics by storage provider (no service_type for deals)
       const dealMetrics = await this.dataSource.query(
         `
         INSERT INTO metrics_daily (
-          date,
+          daily_bucket,
           sp_address,
+          service_type,
           total_deals,
           successful_deals,
           failed_deals,
@@ -106,31 +107,43 @@ export class MetricsRefreshService {
           avg_chain_latency_ms,
           avg_ingest_throughput_bps,
           total_data_stored_bytes,
+          total_retrievals,
+          successful_retrievals,
+          failed_retrievals,
+          total_data_retrieved_bytes,
           created_at,
           updated_at
         )
         SELECT 
-          $1::date as date,
+          $1::timestamptz as daily_bucket,
           sp_address,
+          NULL as service_type,
           COUNT(*) as total_deals,
           COUNT(*) FILTER (WHERE status = 'deal_created') as successful_deals,
           COUNT(*) FILTER (WHERE status = 'failed') as failed_deals,
-          ROUND(
-            (COUNT(*) FILTER (WHERE status = 'deal_created')::numeric / 
-            NULLIF(COUNT(*)::numeric, 0)) * 100, 
-            2
+          COALESCE(
+            ROUND(
+              (COUNT(*) FILTER (WHERE status = 'deal_created')::numeric / 
+              NULLIF(COUNT(*)::numeric, 0)) * 100, 
+              2
+            ),
+            0
           ) as deal_success_rate,
-          ROUND(AVG(deal_latency_ms), 2) as avg_deal_latency_ms,
-          ROUND(AVG(ingest_latency_ms), 2) as avg_ingest_latency_ms,
-          ROUND(AVG(chain_latency_ms), 2) as avg_chain_latency_ms,
-          ROUND(AVG(ingest_throughput_bps), 2) as avg_ingest_throughput_bps,
-          SUM(file_size) FILTER (WHERE status = 'deal_created') as total_data_stored_bytes,
+          COALESCE(ROUND(AVG(deal_latency_ms), 2), 0) as avg_deal_latency_ms,
+          COALESCE(ROUND(AVG(ingest_latency_ms), 2), 0) as avg_ingest_latency_ms,
+          COALESCE(ROUND(AVG(chain_latency_ms), 2), 0) as avg_chain_latency_ms,
+          COALESCE(ROUND(AVG(ingest_throughput_bps), 2), 0) as avg_ingest_throughput_bps,
+          COALESCE(SUM(file_size) FILTER (WHERE status = 'deal_created'), 0) as total_data_stored_bytes,
+          0 as total_retrievals,
+          0 as successful_retrievals,
+          0 as failed_retrievals,
+          0 as total_data_retrieved_bytes,
           NOW() as created_at,
           NOW() as updated_at
         FROM deals
         WHERE created_at >= $1::timestamp AND created_at < $2::timestamp
         GROUP BY sp_address
-        ON CONFLICT (date, sp_address) 
+        ON CONFLICT (daily_bucket, sp_address, service_type) 
         DO UPDATE SET
           total_deals = EXCLUDED.total_deals,
           successful_deals = EXCLUDED.successful_deals,
@@ -147,49 +160,69 @@ export class MetricsRefreshService {
         [yesterday, today],
       );
 
-      // Aggregate retrieval metrics by storage provider
+      // Aggregate retrieval metrics by storage provider AND service_type
       await this.dataSource.query(
         `
-        UPDATE metrics_daily md
-        SET
-          total_retrievals = r.total_retrievals,
-          successful_retrievals = r.successful_retrievals,
-          failed_retrievals = r.failed_retrievals,
-          retrieval_success_rate = r.retrieval_success_rate,
-          avg_retrieval_latency_ms = r.avg_retrieval_latency_ms,
-          avg_retrieval_ttfb_ms = r.avg_retrieval_ttfb_ms,
-          avg_retrieval_throughput_bps = r.avg_retrieval_throughput_bps,
-          total_data_retrieved_bytes = r.total_data_retrieved_bytes,
-          cdn_retrievals = r.cdn_retrievals,
-          direct_retrievals = r.direct_retrievals,
-          avg_cdn_latency_ms = r.avg_cdn_latency_ms,
-          avg_direct_latency_ms = r.avg_direct_latency_ms,
-          updated_at = NOW()
-        FROM (
-          SELECT 
-            d.sp_address,
-            COUNT(ret.id) as total_retrievals,
-            COUNT(ret.id) FILTER (WHERE ret.status = 'success') as successful_retrievals,
-            COUNT(ret.id) FILTER (WHERE ret.status = 'failed') as failed_retrievals,
+        INSERT INTO metrics_daily (
+          daily_bucket,
+          sp_address,
+          service_type,
+          total_deals,
+          successful_deals,
+          failed_deals,
+          total_data_stored_bytes,
+          total_retrievals,
+          successful_retrievals,
+          failed_retrievals,
+          retrieval_success_rate,
+          avg_retrieval_latency_ms,
+          avg_retrieval_ttfb_ms,
+          avg_retrieval_throughput_bps,
+          total_data_retrieved_bytes,
+          created_at,
+          updated_at
+        )
+        SELECT 
+          $1::timestamptz as daily_bucket,
+          d.sp_address,
+          ret.service_type::text::metrics_daily_service_type_enum as service_type,
+          0 as total_deals,
+          0 as successful_deals,
+          0 as failed_deals,
+          0 as total_data_stored_bytes,
+          COUNT(ret.id) as total_retrievals,
+          COUNT(ret.id) FILTER (WHERE ret.status = 'success') as successful_retrievals,
+          COUNT(ret.id) FILTER (WHERE ret.status = 'failed') as failed_retrievals,
+          COALESCE(
             ROUND(
               (COUNT(ret.id) FILTER (WHERE ret.status = 'success')::numeric / 
               NULLIF(COUNT(ret.id)::numeric, 0)) * 100, 
               2
-            ) as retrieval_success_rate,
-            ROUND(AVG(ret.latency_ms), 2) as avg_retrieval_latency_ms,
-            ROUND(AVG(ret.ttfb_ms), 2) as avg_retrieval_ttfb_ms,
-            ROUND(AVG(ret.throughput_bps), 2) as avg_retrieval_throughput_bps,
-            SUM(ret.bytes_retrieved) FILTER (WHERE ret.status = 'success') as total_data_retrieved_bytes,
-            COUNT(ret.id) FILTER (WHERE ret.service_type = 'cdn') as cdn_retrievals,
-            COUNT(ret.id) FILTER (WHERE ret.service_type = 'direct_sp') as direct_retrievals,
-            ROUND(AVG(ret.latency_ms) FILTER (WHERE ret.service_type = 'cdn'), 2) as avg_cdn_latency_ms,
-            ROUND(AVG(ret.latency_ms) FILTER (WHERE ret.service_type = 'direct_sp'), 2) as avg_direct_latency_ms
-          FROM deals d
-          INNER JOIN retrievals ret ON ret.deal_id = d.id
-          WHERE ret.created_at >= $1::timestamp AND ret.created_at < $2::timestamp
-          GROUP BY d.sp_address
-        ) r
-        WHERE md.date = $1::date AND md.sp_address = r.sp_address
+            ),
+            0
+          ) as retrieval_success_rate,
+          COALESCE(ROUND(AVG(ret.latency_ms), 2), 0) as avg_retrieval_latency_ms,
+          COALESCE(ROUND(AVG(ret.ttfb_ms), 2), 0) as avg_retrieval_ttfb_ms,
+          COALESCE(ROUND(AVG(ret.throughput_bps), 2), 0) as avg_retrieval_throughput_bps,
+          COALESCE(SUM(ret.bytes_retrieved) FILTER (WHERE ret.status = 'success'), 0) as total_data_retrieved_bytes,
+          NOW() as created_at,
+          NOW() as updated_at
+        FROM deals d
+        INNER JOIN retrievals ret ON ret.deal_id = d.id
+        WHERE ret.created_at >= $1::timestamp AND ret.created_at < $2::timestamp
+        GROUP BY d.sp_address, ret.service_type
+        ON CONFLICT (daily_bucket, sp_address, service_type)
+        DO UPDATE SET
+          total_retrievals = EXCLUDED.total_retrievals,
+          successful_retrievals = EXCLUDED.successful_retrievals,
+          failed_retrievals = EXCLUDED.failed_retrievals,
+          retrieval_success_rate = EXCLUDED.retrieval_success_rate,
+          avg_retrieval_latency_ms = EXCLUDED.avg_retrieval_latency_ms,
+          avg_retrieval_ttfb_ms = EXCLUDED.avg_retrieval_ttfb_ms,
+          avg_retrieval_throughput_bps = EXCLUDED.avg_retrieval_throughput_bps,
+          total_data_retrieved_bytes = EXCLUDED.total_data_retrieved_bytes,
+          updated_at = NOW()
+        RETURNING sp_address, service_type
         `,
         [yesterday, today],
       );
@@ -224,8 +257,8 @@ export class MetricsRefreshService {
       const result = await this.dataSource.query(
         `
         DELETE FROM metrics_daily
-        WHERE date < $1::date
-        RETURNING date
+        WHERE daily_bucket < $1::date
+        RETURNING daily_bucket
         `,
         [cutoffDate],
       );
