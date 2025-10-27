@@ -170,7 +170,7 @@ export class RetrievalAddonsService {
     );
 
     // Execute all retrievals in parallel
-    const retrievalPromises = urlResults.map((urlResult) => this.executeRetrieval(urlResult, config));
+    const retrievalPromises = urlResults.map((urlResult) => this.executeRetrievalWithRetries(urlResult, config));
 
     const results = await Promise.allSettled(retrievalPromises);
 
@@ -223,6 +223,92 @@ export class RetrievalAddonsService {
       },
       testedAt: new Date(),
     };
+  }
+
+  /**
+   * Execute retrieval with retries based on strategy configuration
+   * Strategies can define retry behavior (e.g., CDN cache warming)
+   *
+   * @param urlResult - URL result from strategy
+   * @param config - Retrieval configuration
+   * @returns Best execution result from all attempts
+   * @private
+   */
+  private async executeRetrievalWithRetries(
+    urlResult: RetrievalUrlResult,
+    config: RetrievalConfiguration,
+  ): Promise<RetrievalExecutionResult> {
+    const strategy = this.addons.get(urlResult.method);
+
+    if (!strategy) {
+      throw new Error(`Strategy ${urlResult.method} not found`);
+    }
+
+    // Get retry configuration from strategy (default: single attempt)
+    const retryConfig = strategy.getRetryConfig?.() || { attempts: 1, delayMs: 0 };
+    const { attempts, delayMs } = retryConfig;
+
+    if (attempts > 1) {
+      this.logger.debug(`${strategy.name}: performing ${attempts} attempts with ${delayMs}ms delay`);
+    }
+
+    const results: RetrievalExecutionResult[] = [];
+
+    for (let attempt = 1; attempt <= attempts; attempt++) {
+      try {
+        const result = await this.executeRetrieval(urlResult, config);
+        results.push(result);
+
+        if (attempts > 1 && result.success) {
+          const attemptType = attempt === 1 ? "initial" : "retry";
+          this.logger.log(
+            `${strategy.name} attempt ${attempt}/${attempts} (${attemptType}): ` +
+              `${result.metrics.latency}ms latency, ${result.metrics.ttfb}ms TTFB`,
+          );
+        }
+
+        // Add delay between attempts if configured
+        if (attempt < attempts && delayMs > 0) {
+          await this.delay(delayMs);
+        }
+      } catch (error) {
+        this.logger.warn(`${strategy.name} attempt ${attempt}/${attempts} failed: ${error.message}`);
+
+        // If all attempts fail, throw the error
+        if (attempt === attempts) {
+          throw error;
+        }
+      }
+    }
+
+    // Return the best result (lowest latency from successful attempts)
+    const successfulResults = results.filter((r) => r.success);
+
+    if (successfulResults.length === 0) {
+      return results[results.length - 1]; // Return last attempt if all failed
+    }
+
+    const bestResult = successfulResults.reduce((best, current) =>
+      current.metrics.latency < best.metrics.latency ? current : best,
+    );
+
+    if (attempts > 1) {
+      this.logger.log(
+        `${strategy.name} best result: ${bestResult.metrics.latency}ms latency ` +
+          `(from ${successfulResults.length}/${attempts} successful attempts)`,
+      );
+    }
+
+    return bestResult;
+  }
+
+  /**
+   * Delay helper for CDN cache warming
+   * @param ms - Milliseconds to delay
+   * @private
+   */
+  private delay(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
   /**

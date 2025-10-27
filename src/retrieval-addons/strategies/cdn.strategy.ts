@@ -19,6 +19,10 @@ export class CdnRetrievalStrategy implements IRetrievalAddon {
   readonly name = ServiceType.CDN;
   readonly priority = RetrievalPriority.HIGH; // Preferred method due to speed
 
+  // CDN cache warming configuration
+  private readonly CDN_RETRIEVAL_ATTEMPTS = 3;
+  private readonly CDN_RETRY_DELAY_MS = 10 * 1_000;
+
   constructor(private readonly configService: ConfigService<IConfig, true>) {}
 
   /**
@@ -122,6 +126,17 @@ export class CdnRetrievalStrategy implements IRetrievalAddon {
         min: 1024 * 1024 * 10, // 10 MB/s minimum
         max: 1024 * 1024 * 1000, // 1 GB/s maximum (edge network)
       },
+    };
+  }
+
+  /**
+   * CDN retry configuration for cache warming
+   * Multiple attempts capture both cache-miss and cache-hit performance
+   */
+  getRetryConfig(): { attempts: number; delayMs: number } {
+    return {
+      attempts: this.CDN_RETRIEVAL_ATTEMPTS,
+      delayMs: this.CDN_RETRY_DELAY_MS,
     };
   }
 }

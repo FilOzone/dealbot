@@ -83,8 +83,6 @@ export class DirectRetrievalStrategy implements IRetrievalAddon {
       );
     }
 
-    this.logger.log("Direct retrieval size validation result: " + isValid + " for deal " + config.deal.id);
-
     return {
       isValid,
       method: "size-check",

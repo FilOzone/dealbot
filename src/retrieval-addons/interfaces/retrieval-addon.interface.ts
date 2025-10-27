@@ -64,4 +64,15 @@ export interface IRetrievalAddon {
    * @returns Processed data ready for validation
    */
   preprocessRetrievedData?(retrievedData: Buffer): Promise<Buffer>;
+
+  /**
+   * Optional: Get retry configuration for this retrieval method
+   * Useful for strategies that need multiple attempts (e.g., CDN cache warming)
+   *
+   * @returns Retry configuration with attempt count and delay
+   */
+  getRetryConfig?(): {
+    attempts: number;
+    delayMs: number;
+  };
 }
