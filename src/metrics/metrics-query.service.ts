@@ -361,7 +361,7 @@ export class MetricsQueryService {
     totalDataStored: string;
     totalDataRetrieved: string;
   }> {
-    const [stats] = await this.allTimePerformanceRepo
+    const stats = await this.allTimePerformanceRepo
       .createQueryBuilder("sp")
       .select("COUNT(DISTINCT sp.sp_address)", "totalProviders")
       .addSelect(

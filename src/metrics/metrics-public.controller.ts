@@ -178,49 +178,6 @@ export class MetricsPublicController {
   }
 
   /**
-   * Compare multiple storage providers side-by-side
-   * Useful for evaluating and selecting providers
-   */
-  @Get("compare")
-  @ApiOperation({
-    summary: "Compare providers",
-    description: "Compare multiple storage providers side-by-side (max 10 providers)",
-  })
-  @ApiQuery({
-    name: "addresses",
-    required: true,
-    type: String,
-    description: "Comma-separated list of provider addresses",
-  })
-  @ApiResponse({ status: 200, description: "Provider comparison", type: [ProviderCombinedPerformanceDto] })
-  async compareProviders(@Query("addresses") addresses: string): Promise<ProviderCombinedPerformanceDto[]> {
-    const spAddresses = addresses.split(",").map((addr) => addr.trim());
-
-    this.logger.debug(`Comparing ${spAddresses.length} providers`);
-
-    const { weekly, allTime } = await this.metricsQueryService.compareProviders(spAddresses);
-
-    // Create a map for quick lookup
-    const weeklyMap = new Map(weekly.map((w) => [w.spAddress, w]));
-    const allTimeMap = new Map(allTime.map((a) => [a.spAddress, a]));
-
-    // Combine results
-    return spAddresses
-      .map((spAddress) => {
-        const w = weeklyMap.get(spAddress);
-        const a = allTimeMap.get(spAddress);
-
-        if (!w || !a) return null;
-
-        return {
-          weekly: this.mapWeeklyToDto(w),
-          allTime: this.mapAllTimeToDto(a),
-        };
-      })
-      .filter((item) => item !== null);
-  }
-
-  /**
    * Get top performing providers by specific metric
    */
   @Get("top/:metric")
