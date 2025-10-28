@@ -52,7 +52,7 @@ export class IpniRetrievalStrategy implements IRetrievalAddon {
       throw new Error(`Deal ${config.deal.id} does not have IPNI root CID`);
     }
 
-    const providerInfo = this.walletSdkService.getApprovedProviderInfo(config.storageProvider);
+    const providerInfo = this.walletSdkService.getProviderInfo(config.storageProvider);
 
     if (!providerInfo) {
       throw new Error(`Provider ${config.storageProvider} not found in approved providers`);

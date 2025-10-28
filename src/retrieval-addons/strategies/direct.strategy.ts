@@ -25,7 +25,7 @@ export class DirectRetrievalStrategy implements IRetrievalAddon {
    */
   canHandle(config: RetrievalConfiguration): boolean {
     // Direct retrieval always works as long as we have a provider
-    const providerInfo = this.walletSdkService.getApprovedProviderInfo(config.storageProvider);
+    const providerInfo = this.walletSdkService.getProviderInfo(config.storageProvider);
     return providerInfo !== undefined && providerInfo.products.PDP !== undefined;
   }
 
@@ -33,7 +33,7 @@ export class DirectRetrievalStrategy implements IRetrievalAddon {
    * Construct direct retrieval URL from provider's PDP endpoint
    */
   constructUrl(config: RetrievalConfiguration): RetrievalUrlResult {
-    const providerInfo = this.walletSdkService.getApprovedProviderInfo(config.storageProvider);
+    const providerInfo = this.walletSdkService.getProviderInfo(config.storageProvider);
 
     if (!providerInfo) {
       throw new Error(`Provider ${config.storageProvider} not found in approved providers`);

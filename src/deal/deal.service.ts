@@ -1,11 +1,4 @@
-import {
-  type PieceCID,
-  type ProviderInfo,
-  RPC_URLS,
-  SIZE_CONSTANTS,
-  Synapse,
-  type UploadResult,
-} from "@filoz/synapse-sdk";
+import { type PieceCID, RPC_URLS, SIZE_CONSTANTS, Synapse, type UploadResult } from "@filoz/synapse-sdk";
 import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
@@ -19,6 +12,7 @@ import { DataSourceService } from "../dataSource/dataSource.service.js";
 import { DealAddonsService } from "../deal-addons/deal-addons.service.js";
 import type { DealPreprocessingResult } from "../deal-addons/types.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
+import { ProviderInfoEx } from "../wallet-sdk/wallet-sdk.types.js";
 
 @Injectable()
 export class DealService {
@@ -37,7 +31,10 @@ export class DealService {
   ) {}
 
   async createDealsForAllProviders(): Promise<Deal[]> {
-    const totalProviders = this.walletSdkService.getProviderCount();
+    const blockchainConfig = this.configService.get<IBlockchainConfig>("blockchain");
+    const totalProviders = blockchainConfig.useOnlyApprovedProviders
+      ? this.walletSdkService.getApprovedProvidersCount()
+      : this.walletSdkService.getAllProvidersCount();
     const enableCDN = Math.random() > 0.5;
     const enableIpni = Math.random() > 0.5;
 
@@ -50,7 +47,11 @@ export class DealService {
       dataFile,
     });
 
-    const results = await this.processProvidersInParallel(this.walletSdkService.approvedProviders, preprocessed);
+    const providers = blockchainConfig.useOnlyApprovedProviders
+      ? this.walletSdkService.getApprovedProviders()
+      : this.walletSdkService.getAllProviders();
+
+    const results = await this.processProvidersInParallel(providers, preprocessed);
 
     const successfulDeals = results.filter((result) => result.success).map((result) => result.deal!);
 
@@ -59,7 +60,7 @@ export class DealService {
     return successfulDeals;
   }
 
-  async createDeal(providerInfo: ProviderInfo, dealInput: DealPreprocessingResult): Promise<Deal> {
+  async createDeal(providerInfo: ProviderInfoEx, dealInput: DealPreprocessingResult): Promise<Deal> {
     const providerAddress = providerInfo.serviceProvider;
     const deal = this.dealRepository.create({
       fileName: dealInput.processedData.name,
@@ -137,6 +138,7 @@ export class DealService {
       this.synapse = await Synapse.create({
         privateKey: blockchainConfig.walletPrivateKey,
         rpcURL: RPC_URLS[blockchainConfig.network].http,
+        warmStorageAddress: this.walletSdkService.getFWSSAddress(),
       });
     }
     return this.synapse;
@@ -147,7 +149,7 @@ export class DealService {
   // ============================================================================
 
   private async processProvidersInParallel(
-    providers: ProviderInfo[],
+    providers: ProviderInfoEx[],
     dealInput: DealPreprocessingResult,
     maxConcurrency: number = 20,
   ): Promise<Array<{ success: boolean; deal?: Deal; error?: string; provider: string }>> {
@@ -205,7 +207,7 @@ export class DealService {
   // Storage Provider Management
   // ============================================================================
 
-  private async trackStorageProvider(providerInfo: ProviderInfo): Promise<StorageProvider> {
+  private async trackStorageProvider(providerInfo: ProviderInfoEx): Promise<StorageProvider> {
     const providerAddress = providerInfo.serviceProvider;
     try {
       let provider = await this.storageProviderRepository.findOne({ where: { address: providerAddress } });
@@ -218,8 +220,9 @@ export class DealService {
           payee: providerInfo.payee,
           serviceUrl: providerInfo.products.PDP?.data.serviceURL,
           isActive: providerInfo.active,
+          isApproved: providerInfo.isApproved,
           region: providerInfo.products.PDP?.data.location,
-          metadata: providerInfo.products.PDP?.capabilities,
+          metadata: providerInfo.products.PDP,
         });
 
         provider = await this.storageProviderRepository.save(provider);

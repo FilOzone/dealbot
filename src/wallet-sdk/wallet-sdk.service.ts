@@ -14,6 +14,7 @@ import { JsonRpcProvider, MaxUint256 } from "ethers";
 import type { IBlockchainConfig, IConfig } from "../config/app.config.js";
 import type {
   FundDepositLog,
+  ProviderInfoEx,
   ServiceApprovalLog,
   StorageRequirements,
   TransactionLog,
@@ -27,13 +28,14 @@ export class WalletSdkService implements OnModuleInit {
   private paymentsService: PaymentsService;
   private warmStorageService: WarmStorageService;
   private spRegistry: SPRegistryService;
-  approvedProviders: ProviderInfo[] = [];
+  allProviders: ProviderInfoEx[] = [];
+  approvedProviderIds: Set<number> = new Set();
 
   constructor(private readonly configService: ConfigService<IConfig, true>) {}
 
   async onModuleInit() {
     await this.initializeServices();
-    await this.loadApprovedProviders();
+    await this.loadProviders();
   }
 
   /**
@@ -42,12 +44,13 @@ export class WalletSdkService implements OnModuleInit {
   private async initializeServices(): Promise<void> {
     const blockchainConfig = this.configService.get<IBlockchainConfig>("blockchain");
 
+    const warmStorageAddress = this.getFWSSAddress();
     const synapse = await Synapse.create({
       privateKey: blockchainConfig.walletPrivateKey,
       rpcURL: RPC_URLS[blockchainConfig.network].http,
+      warmStorageAddress,
     });
 
-    const warmStorageAddress = synapse.getWarmStorageAddress();
     const provider = new JsonRpcProvider(RPC_URLS[blockchainConfig.network].http);
     this.warmStorageService = await WarmStorageService.create(provider, warmStorageAddress);
     this.spRegistry = new SPRegistryService(provider, this.warmStorageService.getServiceProviderRegistryAddress());
@@ -57,40 +60,89 @@ export class WalletSdkService implements OnModuleInit {
   /**
    * Load approved service providers from on-chain
    */
-  async loadApprovedProviders(): Promise<void> {
+  async loadProviders(): Promise<void> {
     try {
-      this.logger.log("Loading approved service providers from on-chain...");
-      const approvedProviderIds = await this.warmStorageService.getApprovedProviderIds();
-      const providerInfos = await Promise.all(approvedProviderIds.map((id) => this.spRegistry.getProvider(id)));
-      this.approvedProviders = providerInfos.filter((info) => info !== null);
+      this.logger.log("Loading all service providers from sp-registry...");
 
-      this.logger.log(`Loaded ${this.approvedProviders.length} approved providers from on-chain`);
+      const approvedIds = await this.warmStorageService.getApprovedProviderIds();
+      this.approvedProviderIds = new Set(approvedIds);
+
+      const providerCount = await this.spRegistry.getProviderCount();
+
+      const providerPromises: Promise<ProviderInfo | null>[] = [];
+      for (let i = 1; i <= Number(providerCount); i++) {
+        providerPromises.push(this.spRegistry.getProvider(i));
+      }
+
+      const providerInfos = await Promise.all(providerPromises);
+      const validProviders = providerInfos.filter((info) => !!info);
+
+      this.allProviders = validProviders
+        .filter((info) => {
+          const isActive = info.active;
+          const supportsPDP = !!info.products?.PDP;
+          const isDevTagged = info.products?.PDP?.capabilities?.service_status === "dev";
+
+          return isActive && supportsPDP && !isDevTagged;
+        })
+        .map((info) => {
+          const isApproved = this.approvedProviderIds.has(info.id);
+          return {
+            ...info,
+            isApproved,
+          };
+        });
+
+      this.logger.log(
+        `Loaded ${this.allProviders.length} providers from on-chain (${this.approvedProviderIds.size} approved)`,
+      );
     } catch (error) {
       this.logger.error("Failed to load approved providers from on-chain", error);
       // Fallback to empty array, let the application handle this gracefully
-      this.approvedProviders = [];
+      this.allProviders = [];
     }
   }
 
   /**
    * Get approved service providers
    */
-  getApprovedProviders(): any[] {
-    return [...this.approvedProviders];
+  getProviders(): any[] {
+    return [...this.allProviders];
   }
 
   /**
    * Get approved provider addresses only
    */
-  getApprovedProviderAddresses(): string[] {
-    return this.approvedProviders.map((provider) => provider.serviceProvider);
+  getProviderAddresses(): string[] {
+    return this.allProviders.map((provider) => provider.serviceProvider);
   }
 
   /**
    * Get count of approved providers
    */
-  getProviderCount(): number {
-    return this.approvedProviders.length;
+  getApprovedProvidersCount(): number {
+    return this.approvedProviderIds.size;
+  }
+
+  /**
+   * Get count of all providers
+   */
+  getAllProvidersCount(): number {
+    return this.allProviders.length;
+  }
+
+  /**
+   * Get approved providers
+   */
+  getApprovedProviders(): ProviderInfoEx[] {
+    return this.allProviders.filter((provider) => provider.isApproved);
+  }
+
+  /**
+   * Get all providers
+   */
+  getAllProviders(): ProviderInfoEx[] {
+    return this.allProviders;
   }
 
   /**
@@ -106,8 +158,8 @@ export class WalletSdkService implements OnModuleInit {
   /**
    * Get approved provider info by address
    */
-  getApprovedProviderInfo(address: string): ProviderInfo | undefined {
-    return this.approvedProviders.find((provider) => provider.serviceProvider === address);
+  getProviderInfo(address: string): ProviderInfoEx | undefined {
+    return this.allProviders.find((provider) => provider.serviceProvider === address);
   }
 
   /**
@@ -116,9 +168,15 @@ export class WalletSdkService implements OnModuleInit {
   async calculateStorageRequirements(): Promise<StorageRequirements> {
     const blockchainConfig = this.configService.get<IBlockchainConfig>("blockchain");
 
+    const providerCount = blockchainConfig.useOnlyApprovedProviders
+      ? this.getApprovedProvidersCount()
+      : this.getAllProvidersCount();
+
     const STORAGE_SIZE_GB = 100;
     const APPROVAL_DURATION_MONTHS = 6n;
-    const datasetCreationFees = blockchainConfig.checkDatasetCreationFees ? this.calculateDatasetCreationFees() : 0n;
+    const datasetCreationFees = blockchainConfig.checkDatasetCreationFees
+      ? this.calculateDatasetCreationFees(providerCount)
+      : 0n;
 
     const [accountInfo, storageCheck, serviceApprovals] = await Promise.all([
       this.paymentsService.accountInfo(),
@@ -127,11 +185,12 @@ export class WalletSdkService implements OnModuleInit {
         true,
         this.paymentsService,
       ),
-      this.paymentsService.serviceApproval(CONTRACT_ADDRESSES.WARM_STORAGE[blockchainConfig.network]),
+      this.paymentsService.serviceApproval(this.getFWSSAddress()),
     ]);
 
     return {
       accountInfo,
+      providerCount,
       storageCheck,
       serviceApprovals,
       datasetCreationFees,
@@ -143,10 +202,10 @@ export class WalletSdkService implements OnModuleInit {
   /**
    * Calculate fees required for dataset creation across all providers
    */
-  private calculateDatasetCreationFees(): bigint {
+  private calculateDatasetCreationFees(providerCount: number): bigint {
     const minDataSetPerSP = 2n; // withCDN & withoutCDN
     const datasetCreationFees = 1n * 10n ** 17n; // 0.1 USDFC
-    return minDataSetPerSP * datasetCreationFees * BigInt(this.getProviderCount());
+    return minDataSetPerSP * datasetCreationFees * BigInt(providerCount);
   }
 
   /**
@@ -158,7 +217,7 @@ export class WalletSdkService implements OnModuleInit {
       requiredMonthlyFunds: requirements.storageCheck.costs.perMonth.toString(),
       datasetCreationFees: requirements.datasetCreationFees.toString(),
       totalRequired: requirements.totalRequiredFunds.toString(),
-      providerCount: this.getProviderCount(),
+      providerCount: requirements.providerCount,
     };
 
     this.logger.log("Wallet status check completed", logData);
@@ -211,8 +270,7 @@ export class WalletSdkService implements OnModuleInit {
    * Approve storage service with required allowances
    */
   async approveStorageService(requirements: StorageRequirements): Promise<void> {
-    const blockchainConfig = this.configService.get<IBlockchainConfig>("blockchain");
-    const contractAddress = CONTRACT_ADDRESSES.WARM_STORAGE[blockchainConfig.network];
+    const contractAddress = this.getFWSSAddress();
 
     const approvalLog: ServiceApprovalLog = {
       serviceAddress: contractAddress,
@@ -238,6 +296,13 @@ export class WalletSdkService implements OnModuleInit {
     };
 
     this.logger.log("Storage service approved successfully", successLog);
+  }
+
+  getFWSSAddress(): string {
+    const blockchainConfig = this.configService.get<IBlockchainConfig>("blockchain");
+    return blockchainConfig.overrideContractAddresses && blockchainConfig.warmStorageServiceAddress
+      ? blockchainConfig.warmStorageServiceAddress
+      : CONTRACT_ADDRESSES.WARM_STORAGE[blockchainConfig.network];
   }
 
   /**

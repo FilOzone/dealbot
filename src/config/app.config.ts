@@ -20,6 +20,9 @@ export const configValidationSchema = Joi.object({
   WALLET_ADDRESS: Joi.string().required(),
   WALLET_PRIVATE_KEY: Joi.string().required(),
   CHECK_DATASET_CREATION_FEES: Joi.boolean().default(true),
+  OVERRIDE_CONTRACT_ADDRESSES: Joi.boolean().default(false),
+  WARM_STORAGE_SERVICE_ADDRESS: Joi.string().optional(),
+  USE_ONLY_APPROVED_PROVIDERS: Joi.boolean().default(true),
 
   // Scheduling
   DEAL_INTERVAL_SECONDS: Joi.number().default(30),
@@ -53,6 +56,9 @@ export interface IBlockchainConfig {
   walletAddress: string;
   walletPrivateKey: string;
   checkDatasetCreationFees: boolean;
+  overrideContractAddresses: boolean;
+  warmStorageServiceAddress: string;
+  useOnlyApprovedProviders: boolean;
 }
 
 export interface ISchedulingConfig {
@@ -98,6 +104,9 @@ export function loadConfig(): IConfig {
       walletAddress: process.env.WALLET_ADDRESS || "0x0000000000000000000000000000000000000000",
       walletPrivateKey: process.env.WALLET_PRIVATE_KEY || "",
       checkDatasetCreationFees: process.env.CHECK_DATASET_CREATION_FEES === "true",
+      overrideContractAddresses: process.env.OVERRIDE_CONTRACT_ADDRESSES === "true",
+      warmStorageServiceAddress: process.env.WARM_STORAGE_SERVICE_ADDRESS || "",
+      useOnlyApprovedProviders: process.env.USE_ONLY_APPROVED_PROVIDERS === "true",
     },
     scheduling: {
       dealIntervalSeconds: Number.parseInt(process.env.DEAL_INTERVAL_SECONDS || "30", 10),

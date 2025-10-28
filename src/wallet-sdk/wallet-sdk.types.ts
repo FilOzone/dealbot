@@ -1,8 +1,12 @@
-import type { PaymentsService, WarmStorageService } from "@filoz/synapse-sdk";
+import type { PaymentsService, WarmStorageService, ProviderInfo } from "@filoz/synapse-sdk";
 
 export interface WalletServices {
   paymentsService: PaymentsService;
   warmStorageService: WarmStorageService;
+}
+
+export interface ProviderInfoEx extends ProviderInfo {
+  isApproved: boolean;
 }
 
 export interface AccountInfo {
@@ -28,6 +32,7 @@ export interface ServiceApprovals {
 
 export interface StorageRequirements {
   accountInfo: AccountInfo;
+  providerCount: number;
   storageCheck: StorageCheck;
   serviceApprovals: ServiceApprovals;
   datasetCreationFees: bigint;

@@ -22,6 +22,9 @@ export class StorageProvider {
   @Column({ name: "is_active", default: true })
   isActive!: boolean;
 
+  @Column({ name: "is_approved", default: false })
+  isApproved!: boolean;
+
   @Column()
   region!: string;
 
