@@ -58,21 +58,6 @@ export class ProviderWeeklyPerformanceDto {
   @ApiProperty({ description: "Total data retrieved in bytes" })
   totalDataRetrievedBytes: string;
 
-  @ApiProperty({ description: "CDN retrievals count" })
-  cdnRetrievals: number;
-
-  @ApiProperty({ description: "Direct retrievals count" })
-  directRetrievals: number;
-
-  @ApiProperty({ description: "Average CDN latency in milliseconds" })
-  avgCdnLatencyMs: number;
-
-  @ApiProperty({ description: "Average direct latency in milliseconds" })
-  avgDirectLatencyMs: number;
-
-  @ApiPropertyOptional({ description: "CDN performance improvement percentage" })
-  cdnImprovementPercent?: number;
-
   @ApiProperty({ description: "Health score (0-100)" })
   healthScore: number;
 
@@ -144,21 +129,6 @@ export class ProviderAllTimePerformanceDto {
   @ApiProperty({ description: "Total data retrieved in bytes" })
   totalDataRetrievedBytes: string;
 
-  @ApiProperty({ description: "CDN retrievals count" })
-  cdnRetrievals: number;
-
-  @ApiProperty({ description: "Direct retrievals count" })
-  directRetrievals: number;
-
-  @ApiProperty({ description: "Average CDN latency in milliseconds" })
-  avgCdnLatencyMs: number;
-
-  @ApiProperty({ description: "Average direct latency in milliseconds" })
-  avgDirectLatencyMs: number;
-
-  @ApiPropertyOptional({ description: "CDN performance improvement percentage" })
-  cdnImprovementPercent?: number;
-
   @ApiPropertyOptional({ description: "Reliability score (0-100)" })
   reliabilityScore?: number;
 
@@ -191,10 +161,11 @@ export class ProviderCombinedPerformanceDto {
 
 /**
  * DTO for provider list response
+ * Returns combined weekly and all-time metrics for each provider
  */
 export class ProviderListResponseDto {
-  @ApiProperty({ type: [ProviderWeeklyPerformanceDto] })
-  providers: ProviderWeeklyPerformanceDto[];
+  @ApiProperty({ type: [ProviderCombinedPerformanceDto], description: "List of providers with combined metrics" })
+  providers: ProviderCombinedPerformanceDto[];
 
   @ApiProperty({ description: "Total number of providers" })
   total: number;

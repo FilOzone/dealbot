@@ -32,13 +32,13 @@ export class MetricsPublicController {
   @Get()
   @ApiOperation({
     summary: "List storage providers",
-    description: "Get a paginated list of storage providers with their weekly performance metrics",
+    description: "Get a paginated list of storage providers with combined weekly and all-time performance metrics",
   })
   @ApiQuery({ name: "minHealthScore", required: false, type: Number, description: "Minimum health score (0-100)" })
   @ApiQuery({ name: "activeOnly", required: false, type: Boolean, description: "Show only active providers" })
   @ApiQuery({ name: "limit", required: false, type: Number, description: "Number of results per page (default: 20)" })
   @ApiQuery({ name: "offset", required: false, type: Number, description: "Pagination offset (default: 0)" })
-  @ApiResponse({ status: 200, description: "List of providers", type: ProviderListResponseDto })
+  @ApiResponse({ status: 200, description: "List of providers with combined metrics", type: ProviderListResponseDto })
   async listProviders(
     @Query("minHealthScore") minHealthScore?: number,
     @Query("activeOnly") activeOnly?: boolean,
@@ -56,36 +56,17 @@ export class MetricsPublicController {
       offset,
     });
 
-    // Map entities to DTOs with computed fields
-    const providerDtos: ProviderWeeklyPerformanceDto[] = providers.map((p) => ({
-      spAddress: p.spAddress,
-      totalDeals: p.totalDeals7d,
-      successfulDeals: p.successfulDeals7d,
-      failedDeals: p.failedDeals7d,
-      dealSuccessRate: p.dealSuccessRate7d,
-      avgIngestLatencyMs: p.avgIngestLatencyMs7d,
-      avgChainLatencyMs: p.avgChainLatencyMs7d,
-      avgDealLatencyMs: p.avgDealLatencyMs7d,
-      avgIngestThroughputBps: p.avgIngestThroughputBps7d,
-      totalDataStoredBytes: p.totalDataStoredBytes7d,
-      totalRetrievals: p.totalRetrievals7d,
-      successfulRetrievals: p.successfulRetrievals7d,
-      failedRetrievals: p.failedRetrievals7d,
-      retrievalSuccessRate: p.retrievalSuccessRate7d,
-      avgRetrievalLatencyMs: p.avgRetrievalLatencyMs7d,
-      avgRetrievalTtfbMs: p.avgRetrievalTtfbMs7d,
-      avgRetrievalThroughputBps: p.avgThroughputBps7d,
-      totalDataRetrievedBytes: p.totalDataRetrievedBytes7d,
-      cdnRetrievals: p.cdnRetrievals7d,
-      directRetrievals: p.directRetrievals7d,
-      avgCdnLatencyMs: p.avgCdnLatencyMs7d,
-      avgDirectLatencyMs: p.avgDirectLatencyMs7d,
-      cdnImprovementPercent: p.getCdnImprovementPercent() ?? undefined,
-      healthScore: p.getHealthScore(),
-      lastDealAt: p.lastDealAt7d,
-      lastRetrievalAt: p.lastRetrievalAt7d,
-      refreshedAt: p.refreshedAt,
-    }));
+    // Fetch combined performance (weekly + all-time) for each provider
+    const providerDtos: ProviderCombinedPerformanceDto[] = await Promise.all(
+      providers.map(async (p) => {
+        const { weekly, allTime } = await this.metricsQueryService.getCombinedPerformance(p.spAddress);
+
+        return {
+          weekly: this.mapWeeklyToDto(weekly),
+          allTime: this.mapAllTimeToDto(allTime),
+        };
+      }),
+    );
 
     return {
       providers: providerDtos,
@@ -114,66 +95,8 @@ export class MetricsPublicController {
     const { weekly, allTime } = await this.metricsQueryService.getCombinedPerformance(spAddress);
 
     return {
-      weekly: {
-        spAddress: weekly.spAddress,
-        totalDeals: weekly.totalDeals7d,
-        successfulDeals: weekly.successfulDeals7d,
-        failedDeals: weekly.failedDeals7d,
-        dealSuccessRate: weekly.dealSuccessRate7d,
-        avgIngestLatencyMs: weekly.avgIngestLatencyMs7d,
-        avgChainLatencyMs: weekly.avgChainLatencyMs7d,
-        avgDealLatencyMs: weekly.avgDealLatencyMs7d,
-        avgIngestThroughputBps: weekly.avgIngestThroughputBps7d,
-        totalDataStoredBytes: weekly.totalDataStoredBytes7d,
-        totalRetrievals: weekly.totalRetrievals7d,
-        successfulRetrievals: weekly.successfulRetrievals7d,
-        failedRetrievals: weekly.failedRetrievals7d,
-        retrievalSuccessRate: weekly.retrievalSuccessRate7d,
-        avgRetrievalLatencyMs: weekly.avgRetrievalLatencyMs7d,
-        avgRetrievalTtfbMs: weekly.avgRetrievalTtfbMs7d,
-        avgRetrievalThroughputBps: weekly.avgThroughputBps7d,
-        totalDataRetrievedBytes: weekly.totalDataRetrievedBytes7d,
-        cdnRetrievals: weekly.cdnRetrievals7d,
-        directRetrievals: weekly.directRetrievals7d,
-        avgCdnLatencyMs: weekly.avgCdnLatencyMs7d,
-        avgDirectLatencyMs: weekly.avgDirectLatencyMs7d,
-        cdnImprovementPercent: weekly.getCdnImprovementPercent() ?? undefined,
-        healthScore: weekly.getHealthScore(),
-        lastDealAt: weekly.lastDealAt7d,
-        lastRetrievalAt: weekly.lastRetrievalAt7d,
-        refreshedAt: weekly.refreshedAt,
-      },
-      allTime: {
-        spAddress: allTime.spAddress,
-        totalDeals: allTime.totalDeals,
-        successfulDeals: allTime.successfulDeals,
-        failedDeals: allTime.failedDeals,
-        dealSuccessRate: allTime.dealSuccessRate,
-        avgIngestLatencyMs: allTime.avgIngestLatencyMs,
-        avgChainLatencyMs: allTime.avgChainLatencyMs,
-        avgDealLatencyMs: allTime.avgDealLatencyMs,
-        avgIngestThroughputBps: allTime.avgIngestThroughputBps,
-        totalDataStoredBytes: allTime.totalDataStoredBytes,
-        totalRetrievals: allTime.totalRetrievals,
-        successfulRetrievals: allTime.successfulRetrievals,
-        failedRetrievals: allTime.failedRetrievals,
-        retrievalSuccessRate: allTime.retrievalSuccessRate,
-        avgRetrievalLatencyMs: allTime.avgRetrievalLatencyMs,
-        avgRetrievalTtfbMs: allTime.avgRetrievalTtfbMs,
-        avgRetrievalThroughputBps: allTime.avgThroughputBps,
-        totalDataRetrievedBytes: allTime.totalDataRetrievedBytes,
-        cdnRetrievals: allTime.cdnRetrievals,
-        directRetrievals: allTime.directRetrievals,
-        avgCdnLatencyMs: allTime.avgCdnLatencyMs,
-        avgDirectLatencyMs: allTime.avgDirectLatencyMs,
-        cdnImprovementPercent: allTime.getCdnImprovementPercent() ?? undefined,
-        reliabilityScore: allTime.getReliabilityScore(),
-        experienceLevel: allTime.getExperienceLevel(),
-        avgDealSize: allTime.getAvgDealSize() ?? undefined,
-        lastDealAt: allTime.lastDealAt,
-        lastRetrievalAt: allTime.lastRetrievalAt,
-        refreshedAt: allTime.refreshedAt,
-      },
+      weekly: this.mapWeeklyToDto(weekly),
+      allTime: this.mapAllTimeToDto(allTime),
     };
   }
 
@@ -255,11 +178,6 @@ export class MetricsPublicController {
       avgRetrievalTtfbMs: weekly.avgRetrievalTtfbMs7d,
       avgRetrievalThroughputBps: weekly.avgThroughputBps7d,
       totalDataRetrievedBytes: weekly.totalDataRetrievedBytes7d,
-      cdnRetrievals: weekly.cdnRetrievals7d,
-      directRetrievals: weekly.directRetrievals7d,
-      avgCdnLatencyMs: weekly.avgCdnLatencyMs7d,
-      avgDirectLatencyMs: weekly.avgDirectLatencyMs7d,
-      cdnImprovementPercent: weekly.getCdnImprovementPercent?.() ?? undefined,
       healthScore: weekly.getHealthScore?.() || 0,
       lastDealAt: weekly.lastDealAt7d,
       lastRetrievalAt: weekly.lastRetrievalAt7d,
@@ -291,11 +209,6 @@ export class MetricsPublicController {
       avgRetrievalTtfbMs: allTime.avgRetrievalTtfbMs,
       avgRetrievalThroughputBps: allTime.avgThroughputBps,
       totalDataRetrievedBytes: allTime.totalDataRetrievedBytes,
-      cdnRetrievals: allTime.cdnRetrievals,
-      directRetrievals: allTime.directRetrievals,
-      avgCdnLatencyMs: allTime.avgCdnLatencyMs,
-      avgDirectLatencyMs: allTime.avgDirectLatencyMs,
-      cdnImprovementPercent: allTime.getCdnImprovementPercent?.() ?? undefined,
       reliabilityScore: allTime.getReliabilityScore?.() || 0,
       experienceLevel: allTime.getExperienceLevel?.() || "new",
       avgDealSize: allTime.getAvgDealSize?.() ?? undefined,
