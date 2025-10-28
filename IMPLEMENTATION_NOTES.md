@@ -9,6 +9,10 @@ Updated dealbot to test **ALL registered FWSS providers**, not just approved one
 ### 1. WalletSdkService
 - Now fetches all SPs from the registry into `registeredProviders`.
 - Tracks approved SPs separately via `approvedProviderIds` (a Set).
+- Filters providers to only include:
+  - Active providers (`provider.active === true`)
+  - Providers that support PDP product (`provider.products.PDP` exists)
+  - Excludes dev-tagged providers (`capabilities.serviceStatus !== 'dev'`)
 
 ### 2. SchedulerService, DealService, RetrievalService
 - Deal creation now tests ALL registered SPs
