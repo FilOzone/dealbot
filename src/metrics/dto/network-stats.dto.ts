@@ -71,6 +71,18 @@ export class NetworkOverallStatsDto {
   avgDealLatencyMs: number;
 
   @ApiProperty({
+    description: "Network-wide average deal ingest latency in milliseconds",
+    example: 800,
+  })
+  avgDealIngestLatencyMs: number;
+
+  @ApiProperty({
+    description: "Network-wide average deal chain latency in milliseconds",
+    example: 450,
+  })
+  avgDealChainLatencyMs: number;
+
+  @ApiProperty({
     description: "Network-wide average retrieval latency in milliseconds",
     example: 450,
   })
@@ -81,45 +93,6 @@ export class NetworkOverallStatsDto {
     example: 120,
   })
   avgRetrievalTtfbMs: number;
-
-  @ApiProperty({
-    description: "Total CDN retrievals",
-    example: 75000,
-  })
-  totalCdnRetrievals: number;
-
-  @ApiProperty({
-    description: "Total direct retrievals",
-    example: 50000,
-  })
-  totalDirectRetrievals: number;
-
-  @ApiProperty({
-    description: "CDN usage percentage",
-    example: 60.0,
-  })
-  cdnUsagePercentage: number;
-
-  @ApiProperty({
-    description: "Average CDN latency in milliseconds",
-    example: 380,
-    nullable: true,
-  })
-  avgCdnLatencyMs?: number;
-
-  @ApiProperty({
-    description: "Average direct latency in milliseconds",
-    example: 550,
-    nullable: true,
-  })
-  avgDirectLatencyMs?: number;
-
-  @ApiProperty({
-    description: "CDN performance improvement percentage over direct",
-    example: 30.9,
-    nullable: true,
-  })
-  cdnImprovementPercent?: number;
 
   @ApiProperty({
     description: "Timestamp of last data refresh",
@@ -164,35 +137,6 @@ export class NetworkHealthDto {
 }
 
 /**
- * Network activity trends
- */
-export class NetworkTrendsDto {
-  @ApiProperty({
-    description: "Deal volume trend (last 7 days vs previous 7 days)",
-    example: 15.5,
-  })
-  dealVolumeTrend: number;
-
-  @ApiProperty({
-    description: "Retrieval volume trend (last 7 days vs previous 7 days)",
-    example: 22.3,
-  })
-  retrievalVolumeTrend: number;
-
-  @ApiProperty({
-    description: "Success rate trend (last 7 days vs previous 7 days)",
-    example: 2.1,
-  })
-  successRateTrend: number;
-
-  @ApiProperty({
-    description: "Active providers trend (last 7 days vs previous 7 days)",
-    example: 8.3,
-  })
-  activeProvidersTrend: number;
-}
-
-/**
  * Complete network statistics response
  */
 export class NetworkStatsResponseDto {
@@ -207,10 +151,4 @@ export class NetworkStatsResponseDto {
     type: NetworkHealthDto,
   })
   health: NetworkHealthDto;
-
-  @ApiProperty({
-    description: "Network activity trends",
-    type: NetworkTrendsDto,
-  })
-  trends: NetworkTrendsDto;
 }

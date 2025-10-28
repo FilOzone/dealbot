@@ -55,18 +55,6 @@ import { Index, ViewColumn, ViewEntity } from "typeorm";
         -- Retrieval throughput (all time)
         ROUND(AVG(r.throughput_bps) FILTER (WHERE r.throughput_bps IS NOT NULL))::bigint as avg_throughput_bps,
         
-        -- CDN vs Direct metrics (all time)
-        COUNT(DISTINCT r.id) FILTER (WHERE r.service_type = 'cdn') as cdn_retrievals,
-        COUNT(DISTINCT r.id) FILTER (WHERE r.service_type = 'direct_sp') as direct_retrievals,
-        
-        ROUND(AVG(r.latency_ms) FILTER (
-          WHERE r.service_type = 'cdn' AND r.latency_ms IS NOT NULL
-        ))::int as avg_cdn_latency_ms,
-        
-        ROUND(AVG(r.latency_ms) FILTER (
-          WHERE r.service_type = 'direct_sp' AND r.latency_ms IS NOT NULL
-        ))::int as avg_direct_latency_ms,
-        
         -- Data volumes (all time)
         SUM(d.file_size) FILTER (WHERE d.status = 'deal_created') as total_data_stored_bytes,
         SUM(r.bytes_retrieved) FILTER (WHERE r.status = 'success') as total_data_retrieved_bytes,
@@ -138,20 +126,6 @@ export class SpPerformanceAllTime {
   @ViewColumn({ name: "avg_throughput_bps" })
   avgThroughputBps: number;
 
-  // Service type breakdown
-  @ViewColumn({ name: "cdn_retrievals" })
-  cdnRetrievals: number;
-
-  @ViewColumn({ name: "direct_retrievals" })
-  directRetrievals: number;
-
-  // CDN vs Direct comparison
-  @ViewColumn({ name: "avg_cdn_latency_ms" })
-  avgCdnLatencyMs: number;
-
-  @ViewColumn({ name: "avg_direct_latency_ms" })
-  avgDirectLatencyMs: number;
-
   // Data volumes (bytes)
   @ViewColumn({ name: "total_data_stored_bytes" })
   totalDataStoredBytes: string; // bigint as string
@@ -169,19 +143,6 @@ export class SpPerformanceAllTime {
   // Metadata
   @ViewColumn({ name: "refreshed_at" })
   refreshedAt: Date;
-
-  /**
-   * Calculate CDN performance improvement percentage
-   * Returns positive number if CDN is faster, negative if slower
-   */
-  getCdnImprovementPercent(): number | null {
-    if (!this.avgCdnLatencyMs || !this.avgDirectLatencyMs) {
-      return null;
-    }
-
-    const improvement = ((this.avgDirectLatencyMs - this.avgCdnLatencyMs) / this.avgDirectLatencyMs) * 100;
-    return Math.round(improvement * 100) / 100;
-  }
 
   /**
    * Check if provider has any activity

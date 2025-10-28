@@ -179,32 +179,3 @@ export class ProviderListResponseDto {
   @ApiProperty({ description: "Pagination limit" })
   limit: number;
 }
-
-/**
- * DTO for network statistics
- */
-export class NetworkStatsDto {
-  @ApiProperty({ description: "Total number of storage providers" })
-  totalProviders: number;
-
-  @ApiProperty({ description: "Number of active providers" })
-  activeProviders: number;
-
-  @ApiProperty({ description: "Total deals across all providers" })
-  totalDeals: number;
-
-  @ApiProperty({ description: "Total retrievals across all providers" })
-  totalRetrievals: number;
-
-  @ApiProperty({ description: "Average deal success rate percentage" })
-  avgDealSuccessRate: number;
-
-  @ApiProperty({ description: "Average retrieval success rate percentage" })
-  avgRetrievalSuccessRate: number;
-
-  @ApiProperty({ description: "Total data stored in bytes" })
-  totalDataStored: string;
-
-  @ApiProperty({ description: "Total data retrieved in bytes" })
-  totalDataRetrieved: string;
-}

@@ -1,11 +1,6 @@
 import { Controller, Get } from "@nestjs/common";
 import { ApiOperation, ApiResponse, ApiTags } from "@nestjs/swagger";
-import {
-  NetworkHealthDto,
-  NetworkOverallStatsDto,
-  NetworkStatsResponseDto,
-  NetworkTrendsDto,
-} from "../dto/network-stats.dto.js";
+import { NetworkHealthDto, NetworkOverallStatsDto, NetworkStatsResponseDto } from "../dto/network-stats.dto.js";
 import { NetworkStatsService } from "../services/network-stats.service.js";
 
 /**
@@ -71,23 +66,5 @@ export class NetworkStatsController {
   })
   async getHealthIndicators(): Promise<NetworkHealthDto> {
     return this.networkStatsService.getHealthIndicators();
-  }
-
-  /**
-   * Get network activity trends
-   * Returns trend data comparing recent activity to previous periods
-   */
-  @Get("trends")
-  @ApiOperation({
-    summary: "Get network activity trends",
-    description: "Returns activity trends comparing last 7 days to previous periods",
-  })
-  @ApiResponse({
-    status: 200,
-    description: "Trends retrieved successfully",
-    type: NetworkTrendsDto,
-  })
-  async getTrends(): Promise<NetworkTrendsDto> {
-    return this.networkStatsService.getTrends();
   }
 }

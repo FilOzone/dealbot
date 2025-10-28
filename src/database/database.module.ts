@@ -8,7 +8,7 @@ import { Deal } from "./entities/deal.entity.js";
 import { MetricsDaily } from "./entities/metrics-daily.entity.js";
 import { Retrieval } from "./entities/retrieval.entity.js";
 import { SpPerformanceAllTime } from "./entities/sp-performance-all-time.entity.js";
-import { SpPerformanceWeekly } from "./entities/sp-performance-weekly.entity.js";
+import { SpPerformanceLastWeek } from "./entities/sp-performance-last-week.entity.js";
 import { StorageProvider } from "./entities/storage-provider.entity.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -29,7 +29,7 @@ const __dirname = dirname(__filename);
           username: dbConfig.username,
           password: dbConfig.password,
           database: dbConfig.database,
-          entities: [Deal, StorageProvider, Retrieval, MetricsDaily, SpPerformanceAllTime, SpPerformanceWeekly],
+          entities: [Deal, StorageProvider, Retrieval, MetricsDaily, SpPerformanceAllTime, SpPerformanceLastWeek],
           migrations: [join(__dirname, "migrations", "*.{js,ts}")],
           migrationsRun: true,
           synchronize: appConfig.env !== "production",

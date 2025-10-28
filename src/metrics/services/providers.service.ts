@@ -1,9 +1,9 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import type { Repository } from "typeorm";
-import { MetricsDaily } from "../database/entities/metrics-daily.entity.js";
-import { SpPerformanceAllTime } from "../database/entities/sp-performance-all-time.entity.js";
-import { SpPerformanceWeekly } from "../database/entities/sp-performance-weekly.entity.js";
+import { MetricsDaily } from "../../database/entities/metrics-daily.entity.js";
+import { SpPerformanceAllTime } from "../../database/entities/sp-performance-all-time.entity.js";
+import { SpPerformanceLastWeek } from "../../database/entities/sp-performance-last-week.entity.js";
 
 /**
  * Service for querying pre-computed metrics from materialized views
@@ -15,10 +15,10 @@ import { SpPerformanceWeekly } from "../database/entities/sp-performance-weekly.
  * by the MetricsRefreshService.
  */
 @Injectable()
-export class MetricsQueryService {
+export class ProvidersService {
   constructor(
-    @InjectRepository(SpPerformanceWeekly)
-    private readonly weeklyPerformanceRepo: Repository<SpPerformanceWeekly>,
+    @InjectRepository(SpPerformanceLastWeek)
+    private readonly lastWeekPerformanceRepo: Repository<SpPerformanceLastWeek>,
     @InjectRepository(SpPerformanceAllTime)
     private readonly allTimePerformanceRepo: Repository<SpPerformanceAllTime>,
     @InjectRepository(MetricsDaily)
@@ -28,8 +28,8 @@ export class MetricsQueryService {
   /**
    * Get weekly performance for a specific storage provider
    */
-  async getWeeklyPerformance(spAddress: string): Promise<SpPerformanceWeekly> {
-    const performance = await this.weeklyPerformanceRepo.findOne({
+  async getWeeklyPerformance(spAddress: string): Promise<SpPerformanceLastWeek> {
+    const performance = await this.lastWeekPerformanceRepo.findOne({
       where: { spAddress },
     });
 
@@ -59,7 +59,7 @@ export class MetricsQueryService {
    * Get combined performance metrics (weekly + all-time) for a storage provider
    */
   async getCombinedPerformance(spAddress: string): Promise<{
-    weekly: SpPerformanceWeekly;
+    weekly: SpPerformanceLastWeek;
     allTime: SpPerformanceAllTime;
   }> {
     const [weekly, allTime] = await Promise.all([
@@ -79,8 +79,8 @@ export class MetricsQueryService {
     activeOnly?: boolean;
     limit?: number;
     offset?: number;
-  }): Promise<{ providers: SpPerformanceWeekly[]; total: number }> {
-    const query = this.weeklyPerformanceRepo.createQueryBuilder("sp");
+  }): Promise<{ providers: SpPerformanceLastWeek[]; total: number }> {
+    const query = this.lastWeekPerformanceRepo.createQueryBuilder("sp");
 
     // Filter by minimum health score
     if (options?.minHealthScore !== undefined) {
@@ -201,7 +201,7 @@ export class MetricsQueryService {
    * Compare multiple storage providers side-by-side
    */
   async compareProviders(spAddresses: string[]): Promise<{
-    weekly: SpPerformanceWeekly[];
+    weekly: SpPerformanceLastWeek[];
     allTime: SpPerformanceAllTime[];
   }> {
     if (spAddresses.length === 0) {
@@ -213,7 +213,7 @@ export class MetricsQueryService {
     }
 
     const [weekly, allTime] = await Promise.all([
-      this.weeklyPerformanceRepo
+      this.lastWeekPerformanceRepo
         .createQueryBuilder("sp")
         .where("sp.sp_address IN (:...addresses)", { addresses: spAddresses })
         .getMany(),
@@ -300,28 +300,28 @@ export class MetricsQueryService {
   async getTopProviders(
     metric: "deal_success_rate" | "retrieval_success_rate" | "deal_latency" | "retrieval_latency",
     options?: {
-      period?: "weekly" | "all_time";
+      period?: "last_week" | "all_time";
       limit?: number;
     },
-  ): Promise<SpPerformanceWeekly[] | SpPerformanceAllTime[]> {
-    const period = options?.period || "weekly";
+  ): Promise<SpPerformanceLastWeek[] | SpPerformanceAllTime[]> {
+    const period = options?.period || "last_week";
     const limit = options?.limit || 10;
 
-    if (period === "weekly") {
-      const query = this.weeklyPerformanceRepo.createQueryBuilder("sp");
+    if (period === "last_week") {
+      const query = this.lastWeekPerformanceRepo.createQueryBuilder("sp");
 
       switch (metric) {
         case "deal_success_rate":
-          query.orderBy("sp.deal_success_rate_7d", "DESC");
+          query.orderBy("sp.deal_success_rate", "DESC");
           break;
         case "retrieval_success_rate":
-          query.orderBy("sp.retrieval_success_rate_7d", "DESC");
+          query.orderBy("sp.retrieval_success_rate", "DESC");
           break;
         case "deal_latency":
-          query.orderBy("sp.avg_deal_latency_ms_7d", "ASC");
+          query.orderBy("sp.avg_deal_latency_ms", "ASC");
           break;
         case "retrieval_latency":
-          query.orderBy("sp.avg_retrieval_latency_ms_7d", "ASC");
+          query.orderBy("sp.avg_retrieval_latency_ms", "ASC");
           break;
       }
 
@@ -346,36 +346,5 @@ export class MetricsQueryService {
 
       return await query.limit(limit).getMany();
     }
-  }
-
-  /**
-   * Get overall network statistics
-   */
-  async getNetworkStats(): Promise<{
-    totalProviders: number;
-    activeProviders: number;
-    totalDeals: number;
-    totalRetrievals: number;
-    avgDealSuccessRate: number;
-    avgRetrievalSuccessRate: number;
-    totalDataStored: string;
-    totalDataRetrieved: string;
-  }> {
-    const stats = await this.allTimePerformanceRepo
-      .createQueryBuilder("sp")
-      .select("COUNT(DISTINCT sp.sp_address)", "totalProviders")
-      .addSelect(
-        "COUNT(DISTINCT sp.sp_address) FILTER (WHERE sp.total_deals > 0 OR sp.total_retrievals > 0)",
-        "activeProviders",
-      )
-      .addSelect("SUM(sp.total_deals)", "totalDeals")
-      .addSelect("SUM(sp.total_retrievals)", "totalRetrievals")
-      .addSelect("ROUND(AVG(sp.deal_success_rate), 2)", "avgDealSuccessRate")
-      .addSelect("ROUND(AVG(sp.retrieval_success_rate), 2)", "avgRetrievalSuccessRate")
-      .addSelect("SUM(sp.total_data_stored_bytes)", "totalDataStored")
-      .addSelect("SUM(sp.total_data_retrieved_bytes)", "totalDataRetrieved")
-      .getRawOne();
-
-    return stats;
   }
 }

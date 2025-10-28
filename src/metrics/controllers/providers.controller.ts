@@ -1,13 +1,14 @@
 import { Controller, DefaultValuePipe, Get, Logger, Param, ParseIntPipe, Query } from "@nestjs/common";
 import { ApiOperation, ApiParam, ApiQuery, ApiResponse, ApiTags } from "@nestjs/swagger";
 import {
-  NetworkStatsDto,
   type ProviderAllTimePerformanceDto,
   ProviderCombinedPerformanceDto,
   ProviderListResponseDto,
   ProviderWeeklyPerformanceDto,
-} from "./dto/provider-performance.dto.js";
-import { MetricsQueryService } from "./metrics-query.service.js";
+} from "../dto/provider-performance.dto.js";
+import { ProvidersService } from "../services/providers.service.js";
+import { SpPerformanceLastWeek } from "src/database/entities/sp-performance-last-week.entity.js";
+import { SpPerformanceAllTime } from "src/database/entities/sp-performance-all-time.entity.js";
 
 /**
  * Public API controller for storage provider metrics
@@ -20,10 +21,10 @@ import { MetricsQueryService } from "./metrics-query.service.js";
  */
 @ApiTags("Provider Metrics")
 @Controller("api/v1/providers")
-export class MetricsPublicController {
-  private readonly logger = new Logger(MetricsPublicController.name);
+export class ProvidersController {
+  private readonly logger = new Logger(ProvidersController.name);
 
-  constructor(private readonly metricsQueryService: MetricsQueryService) {}
+  constructor(private readonly metricsQueryService: ProvidersService) {}
 
   /**
    * List all storage providers with their weekly performance metrics
@@ -115,20 +116,20 @@ export class MetricsPublicController {
   @ApiQuery({
     name: "period",
     required: false,
-    enum: ["weekly", "all_time"],
-    description: "Time period (default: weekly)",
+    enum: ["last_week", "all_time"],
+    description: "Time period (default: last_week)",
   })
   @ApiQuery({ name: "limit", required: false, type: Number, description: "Number of results (default: 10)" })
   @ApiResponse({ status: 200, description: "Top providers", type: [ProviderWeeklyPerformanceDto] })
   async getTopProviders(
     @Param("metric") metric: "deal_success_rate" | "retrieval_success_rate" | "deal_latency" | "retrieval_latency",
-    @Query("period") period?: "weekly" | "all_time",
+    @Query("period") period?: "last_week" | "all_time",
     @Query("limit", new DefaultValuePipe(10), ParseIntPipe) limit?: number,
   ): Promise<ProviderWeeklyPerformanceDto[] | ProviderAllTimePerformanceDto[]> {
     this.logger.debug(`Getting top providers by ${metric} for period ${period || "weekly"}`);
 
     const providers = await this.metricsQueryService.getTopProviders(metric, {
-      period: period || "weekly",
+      period: period || "last_week",
       limit,
     });
 
@@ -140,47 +141,32 @@ export class MetricsPublicController {
   }
 
   /**
-   * Get overall network statistics
-   */
-  @Get("network/stats")
-  @ApiOperation({
-    summary: "Get network statistics",
-    description: "Get aggregated statistics across all storage providers",
-  })
-  @ApiResponse({ status: 200, description: "Network statistics", type: NetworkStatsDto })
-  async getNetworkStats(): Promise<NetworkStatsDto> {
-    this.logger.debug("Getting network statistics");
-
-    return await this.metricsQueryService.getNetworkStats();
-  }
-
-  /**
    * Helper method to map weekly entity to DTO
    * @private
    */
-  private mapWeeklyToDto(weekly: any): ProviderWeeklyPerformanceDto {
+  private mapWeeklyToDto(weekly: SpPerformanceLastWeek): ProviderWeeklyPerformanceDto {
     return {
       spAddress: weekly.spAddress,
-      totalDeals: weekly.totalDeals7d,
-      successfulDeals: weekly.successfulDeals7d,
-      failedDeals: weekly.failedDeals7d,
-      dealSuccessRate: weekly.dealSuccessRate7d,
-      avgIngestLatencyMs: weekly.avgIngestLatencyMs7d,
-      avgChainLatencyMs: weekly.avgChainLatencyMs7d,
-      avgDealLatencyMs: weekly.avgDealLatencyMs7d,
-      avgIngestThroughputBps: weekly.avgIngestThroughputBps7d,
-      totalDataStoredBytes: weekly.totalDataStoredBytes7d,
-      totalRetrievals: weekly.totalRetrievals7d,
-      successfulRetrievals: weekly.successfulRetrievals7d,
-      failedRetrievals: weekly.failedRetrievals7d,
-      retrievalSuccessRate: weekly.retrievalSuccessRate7d,
-      avgRetrievalLatencyMs: weekly.avgRetrievalLatencyMs7d,
-      avgRetrievalTtfbMs: weekly.avgRetrievalTtfbMs7d,
-      avgRetrievalThroughputBps: weekly.avgThroughputBps7d,
-      totalDataRetrievedBytes: weekly.totalDataRetrievedBytes7d,
+      totalDeals: weekly.totalDeals,
+      successfulDeals: weekly.successfulDeals,
+      failedDeals: weekly.failedDeals,
+      dealSuccessRate: weekly.dealSuccessRate,
+      avgIngestLatencyMs: weekly.avgIngestLatencyMs,
+      avgChainLatencyMs: weekly.avgChainLatencyMs,
+      avgDealLatencyMs: weekly.avgDealLatencyMs,
+      avgIngestThroughputBps: weekly.avgIngestThroughputBps,
+      totalDataStoredBytes: weekly.totalDataStoredBytes,
+      totalRetrievals: weekly.totalRetrievals,
+      successfulRetrievals: weekly.successfulRetrievals,
+      failedRetrievals: weekly.failedRetrievals,
+      retrievalSuccessRate: weekly.retrievalSuccessRate,
+      avgRetrievalLatencyMs: weekly.avgRetrievalLatencyMs,
+      avgRetrievalTtfbMs: weekly.avgRetrievalTtfbMs,
+      avgRetrievalThroughputBps: weekly.avgThroughputBps,
+      totalDataRetrievedBytes: weekly.totalDataRetrievedBytes,
       healthScore: weekly.getHealthScore?.() || 0,
-      lastDealAt: weekly.lastDealAt7d,
-      lastRetrievalAt: weekly.lastRetrievalAt7d,
+      lastDealAt: weekly.lastDealAt,
+      lastRetrievalAt: weekly.lastRetrievalAt,
       refreshedAt: weekly.refreshedAt,
     };
   }
@@ -189,7 +175,7 @@ export class MetricsPublicController {
    * Helper method to map all-time entity to DTO
    * @private
    */
-  private mapAllTimeToDto(allTime: any): ProviderAllTimePerformanceDto {
+  private mapAllTimeToDto(allTime: SpPerformanceAllTime): ProviderAllTimePerformanceDto {
     return {
       spAddress: allTime.spAddress,
       totalDeals: allTime.totalDeals,

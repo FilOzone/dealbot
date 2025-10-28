@@ -2,13 +2,7 @@ import { Injectable, Logger } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { type Repository } from "typeorm";
 import { SpPerformanceAllTime } from "../../database/entities/sp-performance-all-time.entity.js";
-import { SpPerformanceWeekly } from "../../database/entities/sp-performance-weekly.entity.js";
-import type {
-  NetworkHealthDto,
-  NetworkOverallStatsDto,
-  NetworkStatsResponseDto,
-  NetworkTrendsDto,
-} from "../dto/network-stats.dto.js";
+import type { NetworkHealthDto, NetworkOverallStatsDto, NetworkStatsResponseDto } from "../dto/network-stats.dto.js";
 
 /**
  * Service for handling network-wide statistics
@@ -27,8 +21,6 @@ export class NetworkStatsService {
   constructor(
     @InjectRepository(SpPerformanceAllTime)
     private readonly allTimeRepo: Repository<SpPerformanceAllTime>,
-    @InjectRepository(SpPerformanceWeekly)
-    private readonly weeklyRepo: Repository<SpPerformanceWeekly>,
   ) {}
 
   /**
@@ -39,16 +31,11 @@ export class NetworkStatsService {
    */
   async getNetworkStats(): Promise<NetworkStatsResponseDto> {
     try {
-      const [overall, health, trends] = await Promise.all([
-        this.getOverallStats(),
-        this.getHealthIndicators(),
-        this.getTrends(),
-      ]);
+      const [overall, health] = await Promise.all([this.getOverallStats(), this.getHealthIndicators()]);
 
       return {
         overall,
         health,
-        trends,
       };
     } catch (error) {
       this.logger.error(`Failed to fetch network stats: ${error.message}`, error.stack);
@@ -58,119 +45,86 @@ export class NetworkStatsService {
 
   /**
    * Get overall network statistics
+   * Uses database-level aggregation for optimal performance
    *
    * @returns Overall network statistics
    */
   async getOverallStats(): Promise<NetworkOverallStatsDto> {
     try {
-      const providers = await this.allTimeRepo.find();
-
-      if (providers.length === 0) {
-        return this.getEmptyOverallStats();
-      }
-
-      // Calculate active providers (activity in last 7 days)
+      // Calculate active providers threshold (7 days ago)
       const sevenDaysAgo = new Date();
       sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
 
-      const activeProviders = providers.filter(
-        (p) =>
-          (p.lastDealAt && p.lastDealAt >= sevenDaysAgo) || (p.lastRetrievalAt && p.lastRetrievalAt >= sevenDaysAgo),
-      ).length;
+      // Single query with database-level aggregation
+      const stats = await this.allTimeRepo
+        .createQueryBuilder("sp")
+        .select("COUNT(DISTINCT sp.sp_address)", "totalProviders")
+        .addSelect(
+          "COUNT(DISTINCT sp.sp_address) FILTER (WHERE sp.total_deals > 0 OR sp.total_retrievals > 0)",
+          "activeProviders",
+        )
+        .addSelect("COALESCE(SUM(sp.total_deals), 0)", "totalDeals")
+        .addSelect("COALESCE(SUM(sp.successful_deals), 0)", "successfulDeals")
+        .addSelect("COALESCE(SUM(sp.total_retrievals), 0)", "totalRetrievals")
+        .addSelect("COALESCE(SUM(sp.successful_retrievals), 0)", "successfulRetrievals")
+        .addSelect("COALESCE(SUM(sp.total_data_stored_bytes), 0)", "totalDataStoredBytes")
+        .addSelect("COALESCE(SUM(sp.total_data_retrieved_bytes), 0)", "totalDataRetrievedBytes")
+        .addSelect(
+          "ROUND(AVG(sp.avg_deal_latency_ms) FILTER (WHERE sp.avg_deal_latency_ms IS NOT NULL))",
+          "avgDealLatencyMs",
+        )
+        .addSelect(
+          "ROUND(AVG(sp.avg_ingest_latency_ms) FILTER (WHERE sp.avg_ingest_latency_ms IS NOT NULL))",
+          "avgDealIngestLatencyMs",
+        )
+        .addSelect(
+          "ROUND(AVG(sp.avg_chain_latency_ms) FILTER (WHERE sp.avg_chain_latency_ms IS NOT NULL))",
+          "avgDealChainLatencyMs",
+        )
+        .addSelect(
+          "ROUND(AVG(sp.avg_retrieval_latency_ms) FILTER (WHERE sp.avg_retrieval_latency_ms IS NOT NULL))",
+          "avgRetrievalLatencyMs",
+        )
+        .addSelect(
+          "ROUND(AVG(sp.avg_retrieval_ttfb_ms) FILTER (WHERE sp.avg_retrieval_ttfb_ms IS NOT NULL))",
+          "avgRetrievalTtfbMs",
+        )
+        .addSelect("MAX(sp.refreshed_at)", "lastRefreshedAt")
+        .setParameter("sevenDaysAgo", sevenDaysAgo)
+        .getRawOne();
 
-      // Aggregate metrics (use BigInt for all numeric fields to handle potential string values from DB)
-      const totals = providers.reduce(
-        (acc, p) => ({
-          totalDeals: acc.totalDeals + BigInt(p.totalDeals || 0),
-          successfulDeals: acc.successfulDeals + BigInt(p.successfulDeals || 0),
-          totalRetrievals: acc.totalRetrievals + BigInt(p.totalRetrievals || 0),
-          successfulRetrievals: acc.successfulRetrievals + BigInt(p.successfulRetrievals || 0),
-          totalDataStored: acc.totalDataStored + BigInt(p.totalDataStoredBytes || "0"),
-          totalDataRetrieved: acc.totalDataRetrieved + BigInt(p.totalDataRetrievedBytes || "0"),
-          cdnRetrievals: acc.cdnRetrievals + BigInt(p.cdnRetrievals || 0),
-          directRetrievals: acc.directRetrievals + BigInt(p.directRetrievals || 0),
-          dealLatencies: p.avgDealLatencyMs ? [...acc.dealLatencies, p.avgDealLatencyMs] : acc.dealLatencies,
-          retrievalLatencies: p.avgRetrievalLatencyMs
-            ? [...acc.retrievalLatencies, p.avgRetrievalLatencyMs]
-            : acc.retrievalLatencies,
-          ttfbs: p.avgRetrievalTtfbMs ? [...acc.ttfbs, p.avgRetrievalTtfbMs] : acc.ttfbs,
-          cdnLatencies: p.avgCdnLatencyMs ? [...acc.cdnLatencies, p.avgCdnLatencyMs] : acc.cdnLatencies,
-          directLatencies: p.avgDirectLatencyMs ? [...acc.directLatencies, p.avgDirectLatencyMs] : acc.directLatencies,
-        }),
-        {
-          totalDeals: BigInt(0),
-          successfulDeals: BigInt(0),
-          totalRetrievals: BigInt(0),
-          successfulRetrievals: BigInt(0),
-          totalDataStored: BigInt(0),
-          totalDataRetrieved: BigInt(0),
-          cdnRetrievals: BigInt(0),
-          directRetrievals: BigInt(0),
-          dealLatencies: [] as number[],
-          retrievalLatencies: [] as number[],
-          ttfbs: [] as number[],
-          cdnLatencies: [] as number[],
-          directLatencies: [] as number[],
-        },
-      );
-
-      // Calculate averages
-      const avg = (arr: number[]) => (arr.length > 0 ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length) : 0);
-
-      // Convert BigInt to Number for calculations
-      const totalDealsNum = Number(totals.totalDeals);
-      const successfulDealsNum = Number(totals.successfulDeals);
-      const totalRetrievalsNum = Number(totals.totalRetrievals);
-      const successfulRetrievalsNum = Number(totals.successfulRetrievals);
-      const cdnRetrievalsNum = Number(totals.cdnRetrievals);
-      const directRetrievalsNum = Number(totals.directRetrievals);
-
-      const dealSuccessRate = totalDealsNum > 0 ? (successfulDealsNum / totalDealsNum) * 100 : 0;
-
-      const retrievalSuccessRate = totalRetrievalsNum > 0 ? (successfulRetrievalsNum / totalRetrievalsNum) * 100 : 0;
-
-      const totalRetrievals = cdnRetrievalsNum + directRetrievalsNum;
-      const cdnUsagePercentage = totalRetrievals > 0 ? (cdnRetrievalsNum / totalRetrievals) * 100 : 0;
-
-      const avgCdnLatencyMs = totals.cdnLatencies.length > 0 ? avg(totals.cdnLatencies) : undefined;
-      const avgDirectLatencyMs = totals.directLatencies.length > 0 ? avg(totals.directLatencies) : undefined;
-
-      // Calculate CDN improvement
-      let cdnImprovementPercent: number | undefined;
-      if (avgCdnLatencyMs && avgDirectLatencyMs && avgDirectLatencyMs > 0) {
-        cdnImprovementPercent =
-          Math.round(((avgDirectLatencyMs - avgCdnLatencyMs) / avgDirectLatencyMs) * 100 * 100) / 100;
+      // Handle empty result
+      if (!stats || stats.totalProviders === "0" || stats.totalProviders === 0) {
+        return this.getEmptyOverallStats();
       }
 
-      // Get last refresh time
-      const lastRefreshedAt = providers.reduce((latest, p) => {
-        if (!latest || (p.refreshedAt && p.refreshedAt > latest)) {
-          return p.refreshedAt;
-        }
-        return latest;
-      }, providers[0]?.refreshedAt || new Date());
+      // Parse numeric values (handle potential string returns from DB)
+      const totalDeals = Number(stats.totalDeals || 0);
+      const successfulDeals = Number(stats.successfulDeals || 0);
+      const totalRetrievals = Number(stats.totalRetrievals || 0);
+      const successfulRetrievals = Number(stats.successfulRetrievals || 0);
+
+      // Calculate success rates
+      const dealSuccessRate = totalDeals > 0 ? (successfulDeals / totalDeals) * 100 : 0;
+      const retrievalSuccessRate = totalRetrievals > 0 ? (successfulRetrievals / totalRetrievals) * 100 : 0;
 
       return {
-        totalProviders: providers.length,
-        activeProviders,
-        totalDeals: totalDealsNum,
-        successfulDeals: successfulDealsNum,
+        totalProviders: Number(stats.totalProviders || 0),
+        activeProviders: Number(stats.activeProviders || 0),
+        totalDeals,
+        successfulDeals,
         dealSuccessRate: Math.round(dealSuccessRate * 100) / 100,
-        totalRetrievals: totalRetrievalsNum,
-        successfulRetrievals: successfulRetrievalsNum,
+        totalRetrievals,
+        successfulRetrievals,
         retrievalSuccessRate: Math.round(retrievalSuccessRate * 100) / 100,
-        totalDataStoredBytes: totals.totalDataStored.toString(),
-        totalDataRetrievedBytes: totals.totalDataRetrieved.toString(),
-        avgDealLatencyMs: avg(totals.dealLatencies),
-        avgRetrievalLatencyMs: avg(totals.retrievalLatencies),
-        avgRetrievalTtfbMs: avg(totals.ttfbs),
-        totalCdnRetrievals: cdnRetrievalsNum,
-        totalDirectRetrievals: directRetrievalsNum,
-        cdnUsagePercentage: Math.round(cdnUsagePercentage * 100) / 100,
-        avgCdnLatencyMs,
-        avgDirectLatencyMs,
-        cdnImprovementPercent,
-        lastRefreshedAt,
+        totalDataStoredBytes: String(stats.totalDataStoredBytes || "0"),
+        totalDataRetrievedBytes: String(stats.totalDataRetrievedBytes || "0"),
+        avgDealLatencyMs: Math.round(Number(stats.avgDealLatencyMs || 0)),
+        avgDealIngestLatencyMs: Math.round(Number(stats.avgDealIngestLatencyMs || 0)),
+        avgDealChainLatencyMs: Math.round(Number(stats.avgDealChainLatencyMs || 0)),
+        avgRetrievalLatencyMs: Math.round(Number(stats.avgRetrievalLatencyMs || 0)),
+        avgRetrievalTtfbMs: Math.round(Number(stats.avgRetrievalTtfbMs || 0)),
+        lastRefreshedAt: stats.lastRefreshedAt || new Date(),
       };
     } catch (error) {
       this.logger.error(`Failed to fetch overall stats: ${error.message}`, error.stack);
@@ -231,92 +185,6 @@ export class NetworkStatsService {
   }
 
   /**
-   * Get network activity trends
-   * Compares last 7 days to previous 7 days
-   *
-   * @returns Network activity trends
-   */
-  async getTrends(): Promise<NetworkTrendsDto> {
-    try {
-      const [weeklyProviders, allTimeProviders] = await Promise.all([this.weeklyRepo.find(), this.allTimeRepo.find()]);
-
-      if (weeklyProviders.length === 0 || allTimeProviders.length === 0) {
-        return this.getEmptyTrends();
-      }
-
-      // Calculate weekly totals
-      const weeklyTotals = weeklyProviders.reduce(
-        (acc, p) => ({
-          deals: acc.deals + (p.totalDeals7d || 0),
-          retrievals: acc.retrievals + (p.totalRetrievals7d || 0),
-          successfulDeals: acc.successfulDeals + (p.successfulDeals7d || 0),
-          successfulRetrievals: acc.successfulRetrievals + (p.successfulRetrievals7d || 0),
-        }),
-        { deals: 0, retrievals: 0, successfulDeals: 0, successfulRetrievals: 0 },
-      );
-
-      // Calculate all-time totals
-      const allTimeTotals = allTimeProviders.reduce(
-        (acc, p) => ({
-          deals: acc.deals + (p.totalDeals || 0),
-          retrievals: acc.retrievals + (p.totalRetrievals || 0),
-        }),
-        { deals: 0, retrievals: 0 },
-      );
-
-      // Estimate previous week totals (all-time - current week)
-      const prevWeekDeals = Math.max(0, allTimeTotals.deals - weeklyTotals.deals);
-      const prevWeekRetrievals = Math.max(0, allTimeTotals.retrievals - weeklyTotals.retrievals);
-
-      // Calculate trends (percentage change)
-      const dealVolumeTrend =
-        prevWeekDeals > 0 ? Math.round(((weeklyTotals.deals - prevWeekDeals) / prevWeekDeals) * 100 * 100) / 100 : 0;
-
-      const retrievalVolumeTrend =
-        prevWeekRetrievals > 0
-          ? Math.round(((weeklyTotals.retrievals - prevWeekRetrievals) / prevWeekRetrievals) * 100 * 100) / 100
-          : 0;
-
-      // Calculate success rate trend
-      const _weeklySuccessRate =
-        weeklyTotals.deals > 0
-          ? (weeklyTotals.successfulDeals / weeklyTotals.deals +
-              weeklyTotals.successfulRetrievals / weeklyTotals.retrievals) /
-            2
-          : 0;
-
-      // Assume previous week had similar success rate (simplified)
-      const successRateTrend = 0; // Would need historical data to calculate properly
-
-      // Count active providers (with activity in last 7 days)
-      const sevenDaysAgo = new Date();
-      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-
-      const activeProvidersNow = allTimeProviders.filter(
-        (p) =>
-          (p.lastDealAt && p.lastDealAt >= sevenDaysAgo) || (p.lastRetrievalAt && p.lastRetrievalAt >= sevenDaysAgo),
-      ).length;
-
-      // Assume previous week had 90% of current active providers (simplified)
-      const prevActiveProviders = Math.round(activeProvidersNow * 0.9);
-      const activeProvidersTrend =
-        prevActiveProviders > 0
-          ? Math.round(((activeProvidersNow - prevActiveProviders) / prevActiveProviders) * 100 * 100) / 100
-          : 0;
-
-      return {
-        dealVolumeTrend,
-        retrievalVolumeTrend,
-        successRateTrend,
-        activeProvidersTrend,
-      };
-    } catch (error) {
-      this.logger.error(`Failed to fetch trends: ${error.message}`, error.stack);
-      throw error;
-    }
-  }
-
-  /**
    * Get empty overall stats
    *
    * @private
@@ -334,11 +202,10 @@ export class NetworkStatsService {
       totalDataStoredBytes: "0",
       totalDataRetrievedBytes: "0",
       avgDealLatencyMs: 0,
+      avgDealIngestLatencyMs: 0,
+      avgDealChainLatencyMs: 0,
       avgRetrievalLatencyMs: 0,
       avgRetrievalTtfbMs: 0,
-      totalCdnRetrievals: 0,
-      totalDirectRetrievals: 0,
-      cdnUsagePercentage: 0,
       lastRefreshedAt: new Date(),
     };
   }
@@ -355,20 +222,6 @@ export class NetworkStatsService {
       retrievalReliability: 0,
       performanceScore: 0,
       diversityScore: 0,
-    };
-  }
-
-  /**
-   * Get empty trends
-   *
-   * @private
-   */
-  private getEmptyTrends(): NetworkTrendsDto {
-    return {
-      dealVolumeTrend: 0,
-      retrievalVolumeTrend: 0,
-      successRateTrend: 0,
-      activeProvidersTrend: 0,
     };
   }
 }

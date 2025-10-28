@@ -14,8 +14,8 @@ import type { DataSource } from "typeorm";
  * - Cleanup: Weekly on Sunday at 02:00 (archive/delete old data)
  */
 @Injectable()
-export class MetricsRefreshService {
-  private readonly logger = new Logger(MetricsRefreshService.name);
+export class MetricsSchedulerService {
+  private readonly logger = new Logger(MetricsSchedulerService.name);
 
   constructor(
     @InjectDataSource()
