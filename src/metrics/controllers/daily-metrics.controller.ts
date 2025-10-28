@@ -1,6 +1,10 @@
 import { BadRequestException, Controller, Get, Param, Query } from "@nestjs/common";
 import { ApiOperation, ApiParam, ApiQuery, ApiResponse, ApiTags } from "@nestjs/swagger";
-import { DailyMetricsResponseDto, ProviderDailyMetricsResponseDto } from "../dto/daily-metrics.dto.js";
+import {
+  DailyMetricsResponseDto,
+  ProviderDailyMetricsResponseDto,
+  ServiceComparisonResponseDto,
+} from "../dto/daily-metrics.dto.js";
 import { DailyMetricsService } from "../services/daily-metrics.service.js";
 
 /**
@@ -134,6 +138,50 @@ export class DailyMetricsController {
     const startDate = startDateStr ? this.parseDate(startDateStr) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
 
     return this.dailyMetricsService.getProviderDailyMetrics(spAddress, startDate, endDate);
+  }
+
+  /**
+   * Get service type comparison metrics
+   * Breaks down retrieval metrics by service type (CDN, DIRECT_SP, IPFS_PIN) for comparison
+   *
+   * @route GET /api/v1/metrics/daily/service-comparison
+   */
+  @Get("service-comparison")
+  @ApiOperation({
+    summary: "Get service type comparison metrics",
+    description:
+      "Returns daily retrieval metrics broken down by service type (CDN, DIRECT_SP, IPFS_PIN) for comparison and visualization. Useful for comparing performance across different retrieval methods.",
+  })
+  @ApiQuery({
+    name: "startDate",
+    required: false,
+    description: "Start date in YYYY-MM-DD format (default: 30 days ago)",
+    example: "2024-01-01",
+  })
+  @ApiQuery({
+    name: "endDate",
+    required: false,
+    description: "End date in YYYY-MM-DD format (default: today)",
+    example: "2024-01-31",
+  })
+  @ApiResponse({
+    status: 200,
+    description: "Service comparison metrics retrieved successfully",
+    type: ServiceComparisonResponseDto,
+  })
+  @ApiResponse({
+    status: 400,
+    description: "Invalid date format or date range exceeds maximum (90 days)",
+  })
+  async getServiceComparison(
+    @Query("startDate") startDateStr?: string,
+    @Query("endDate") endDateStr?: string,
+  ): Promise<ServiceComparisonResponseDto> {
+    // Default to last 30 days if no dates provided
+    const endDate = endDateStr ? this.parseDate(endDateStr) : new Date();
+    const startDate = startDateStr ? this.parseDate(startDateStr) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+
+    return this.dailyMetricsService.getServiceComparison(startDate, endDate);
   }
 
   /**

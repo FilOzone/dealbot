@@ -44,13 +44,13 @@ export class MetricsDaily {
   dealSuccessRate: number;
 
   @Column({ name: "avg_ingest_latency_ms", type: "float", nullable: true })
-  avgIngestLatencyMs!: number | null;
+  avgIngestLatencyMs!: number;
 
   @Column({ name: "avg_ingest_throughput_bps", type: "float", nullable: true })
-  avgIngestThroughputBps!: number | null;
+  avgIngestThroughputBps!: number;
 
   @Column({ name: "avg_chain_latency_ms", type: "float", nullable: true })
-  avgChainLatencyMs!: number | null;
+  avgChainLatencyMs!: number;
 
   @Column({ name: "avg_deal_latency_ms", type: "integer", nullable: true })
   avgDealLatencyMs: number;

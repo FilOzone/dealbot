@@ -66,32 +66,6 @@ export class DailyAggregatedMetricsDto {
   avgRetrievalTtfbMs: number;
 
   @ApiProperty({
-    description: "Number of CDN retrievals",
-    example: 200,
-  })
-  cdnRetrievals: number;
-
-  @ApiProperty({
-    description: "Number of direct retrievals",
-    example: 120,
-  })
-  directRetrievals: number;
-
-  @ApiProperty({
-    description: "Average CDN latency in milliseconds",
-    example: 380,
-    nullable: true,
-  })
-  avgCdnLatencyMs?: number;
-
-  @ApiProperty({
-    description: "Average direct latency in milliseconds",
-    example: 550,
-    nullable: true,
-  })
-  avgDirectLatencyMs?: number;
-
-  @ApiProperty({
     description: "Total data stored in bytes",
     example: "1073741824",
   })
@@ -108,6 +82,111 @@ export class DailyAggregatedMetricsDto {
     example: 12,
   })
   uniqueProviders: number;
+}
+
+/**
+ * Service metrics for a specific service type
+ */
+export interface ServiceMetrics {
+  totalRetrievals: number;
+  successfulRetrievals: number;
+  successRate: number;
+  avgLatencyMs: number;
+  avgTtfbMs: number;
+  totalDataRetrievedBytes: string;
+}
+
+/**
+ * Service type comparison metrics for a specific date
+ * Breaks down retrieval metrics by service type (CDN, DIRECT_SP, IPFS_PIN)
+ */
+export class ServiceComparisonMetricsDto {
+  @ApiProperty({
+    description: "Date in ISO format (YYYY-MM-DD)",
+    example: "2024-01-15",
+  })
+  date: string;
+
+  @ApiProperty({
+    description: "CDN retrieval metrics",
+    example: {
+      totalRetrievals: 100,
+      successfulRetrievals: 98,
+      successRate: 98.0,
+      avgLatencyMs: 350,
+      avgTtfbMs: 120,
+      totalDataRetrievedBytes: "1073741824",
+    },
+  })
+  cdn: ServiceMetrics;
+
+  @ApiProperty({
+    description: "Direct SP retrieval metrics",
+    example: {
+      totalRetrievals: 150,
+      successfulRetrievals: 145,
+      successRate: 96.67,
+      avgLatencyMs: 520,
+      avgTtfbMs: 180,
+      totalDataRetrievedBytes: "2147483648",
+    },
+  })
+  directSp: ServiceMetrics;
+
+  @ApiProperty({
+    description: "IPFS Pin retrieval metrics",
+    example: {
+      totalRetrievals: 50,
+      successfulRetrievals: 48,
+      successRate: 96.0,
+      avgLatencyMs: 450,
+      avgTtfbMs: 150,
+      totalDataRetrievedBytes: "536870912",
+    },
+  })
+  ipfsPin: ServiceMetrics;
+}
+
+/**
+ * Response DTO for service comparison endpoint
+ */
+export class ServiceComparisonResponseDto {
+  @ApiProperty({
+    description: "Daily service comparison metrics",
+    type: [ServiceComparisonMetricsDto],
+  })
+  dailyMetrics: ServiceComparisonMetricsDto[];
+
+  @ApiProperty({
+    description: "Date range for the query",
+    example: { startDate: "2024-01-01", endDate: "2024-01-31" },
+  })
+  dateRange: {
+    startDate: string;
+    endDate: string;
+  };
+
+  @ApiProperty({
+    description: "Summary statistics across all days",
+    example: {
+      totalDays: 30,
+      cdnTotalRetrievals: 3000,
+      directSpTotalRetrievals: 4500,
+      ipfsPinTotalRetrievals: 1500,
+      cdnAvgSuccessRate: 98.2,
+      directSpAvgSuccessRate: 96.5,
+      ipfsPinAvgSuccessRate: 95.8,
+    },
+  })
+  summary: {
+    totalDays: number;
+    cdnTotalRetrievals: number;
+    directSpTotalRetrievals: number;
+    ipfsPinTotalRetrievals: number;
+    cdnAvgSuccessRate: number;
+    directSpAvgSuccessRate: number;
+    ipfsPinAvgSuccessRate: number;
+  };
 }
 
 /**
@@ -169,10 +248,23 @@ export class ProviderDailyMetricsDto {
   avgDealLatencyMs: number;
 
   @ApiProperty({
+    description: "Average ingest latency in milliseconds",
+    example: 1200,
+    nullable: true,
+  })
+  avgIngestLatencyMs?: number;
+
+  @ApiProperty({
     description: "Average retrieval latency in milliseconds",
     example: 420,
   })
   avgRetrievalLatencyMs: number;
+
+  @ApiProperty({
+    description: "Average retrieval throughput in bytes per second",
+    example: 1000000,
+  })
+  avgRetrievalThroughputBps: number;
 }
 
 /**

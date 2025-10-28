@@ -78,17 +78,17 @@ export class NetworkStatsService {
           (p.lastDealAt && p.lastDealAt >= sevenDaysAgo) || (p.lastRetrievalAt && p.lastRetrievalAt >= sevenDaysAgo),
       ).length;
 
-      // Aggregate metrics
+      // Aggregate metrics (use BigInt for all numeric fields to handle potential string values from DB)
       const totals = providers.reduce(
         (acc, p) => ({
-          totalDeals: acc.totalDeals + (p.totalDeals || 0),
-          successfulDeals: acc.successfulDeals + (p.successfulDeals || 0),
-          totalRetrievals: acc.totalRetrievals + (p.totalRetrievals || 0),
-          successfulRetrievals: acc.successfulRetrievals + (p.successfulRetrievals || 0),
+          totalDeals: acc.totalDeals + BigInt(p.totalDeals || 0),
+          successfulDeals: acc.successfulDeals + BigInt(p.successfulDeals || 0),
+          totalRetrievals: acc.totalRetrievals + BigInt(p.totalRetrievals || 0),
+          successfulRetrievals: acc.successfulRetrievals + BigInt(p.successfulRetrievals || 0),
           totalDataStored: acc.totalDataStored + BigInt(p.totalDataStoredBytes || "0"),
           totalDataRetrieved: acc.totalDataRetrieved + BigInt(p.totalDataRetrievedBytes || "0"),
-          cdnRetrievals: acc.cdnRetrievals + (p.cdnRetrievals || 0),
-          directRetrievals: acc.directRetrievals + (p.directRetrievals || 0),
+          cdnRetrievals: acc.cdnRetrievals + BigInt(p.cdnRetrievals || 0),
+          directRetrievals: acc.directRetrievals + BigInt(p.directRetrievals || 0),
           dealLatencies: p.avgDealLatencyMs ? [...acc.dealLatencies, p.avgDealLatencyMs] : acc.dealLatencies,
           retrievalLatencies: p.avgRetrievalLatencyMs
             ? [...acc.retrievalLatencies, p.avgRetrievalLatencyMs]
@@ -98,14 +98,14 @@ export class NetworkStatsService {
           directLatencies: p.avgDirectLatencyMs ? [...acc.directLatencies, p.avgDirectLatencyMs] : acc.directLatencies,
         }),
         {
-          totalDeals: 0,
-          successfulDeals: 0,
-          totalRetrievals: 0,
-          successfulRetrievals: 0,
+          totalDeals: BigInt(0),
+          successfulDeals: BigInt(0),
+          totalRetrievals: BigInt(0),
+          successfulRetrievals: BigInt(0),
           totalDataStored: BigInt(0),
           totalDataRetrieved: BigInt(0),
-          cdnRetrievals: 0,
-          directRetrievals: 0,
+          cdnRetrievals: BigInt(0),
+          directRetrievals: BigInt(0),
           dealLatencies: [] as number[],
           retrievalLatencies: [] as number[],
           ttfbs: [] as number[],
@@ -117,13 +117,20 @@ export class NetworkStatsService {
       // Calculate averages
       const avg = (arr: number[]) => (arr.length > 0 ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length) : 0);
 
-      const dealSuccessRate = totals.totalDeals > 0 ? (totals.successfulDeals / totals.totalDeals) * 100 : 0;
+      // Convert BigInt to Number for calculations
+      const totalDealsNum = Number(totals.totalDeals);
+      const successfulDealsNum = Number(totals.successfulDeals);
+      const totalRetrievalsNum = Number(totals.totalRetrievals);
+      const successfulRetrievalsNum = Number(totals.successfulRetrievals);
+      const cdnRetrievalsNum = Number(totals.cdnRetrievals);
+      const directRetrievalsNum = Number(totals.directRetrievals);
 
-      const retrievalSuccessRate =
-        totals.totalRetrievals > 0 ? (totals.successfulRetrievals / totals.totalRetrievals) * 100 : 0;
+      const dealSuccessRate = totalDealsNum > 0 ? (successfulDealsNum / totalDealsNum) * 100 : 0;
 
-      const totalRetrievals = totals.cdnRetrievals + totals.directRetrievals;
-      const cdnUsagePercentage = totalRetrievals > 0 ? (totals.cdnRetrievals / totalRetrievals) * 100 : 0;
+      const retrievalSuccessRate = totalRetrievalsNum > 0 ? (successfulRetrievalsNum / totalRetrievalsNum) * 100 : 0;
+
+      const totalRetrievals = cdnRetrievalsNum + directRetrievalsNum;
+      const cdnUsagePercentage = totalRetrievals > 0 ? (cdnRetrievalsNum / totalRetrievals) * 100 : 0;
 
       const avgCdnLatencyMs = totals.cdnLatencies.length > 0 ? avg(totals.cdnLatencies) : undefined;
       const avgDirectLatencyMs = totals.directLatencies.length > 0 ? avg(totals.directLatencies) : undefined;
@@ -146,19 +153,19 @@ export class NetworkStatsService {
       return {
         totalProviders: providers.length,
         activeProviders,
-        totalDeals: totals.totalDeals,
-        successfulDeals: totals.successfulDeals,
+        totalDeals: totalDealsNum,
+        successfulDeals: successfulDealsNum,
         dealSuccessRate: Math.round(dealSuccessRate * 100) / 100,
-        totalRetrievals: totals.totalRetrievals,
-        successfulRetrievals: totals.successfulRetrievals,
+        totalRetrievals: totalRetrievalsNum,
+        successfulRetrievals: successfulRetrievalsNum,
         retrievalSuccessRate: Math.round(retrievalSuccessRate * 100) / 100,
         totalDataStoredBytes: totals.totalDataStored.toString(),
         totalDataRetrievedBytes: totals.totalDataRetrieved.toString(),
         avgDealLatencyMs: avg(totals.dealLatencies),
         avgRetrievalLatencyMs: avg(totals.retrievalLatencies),
         avgRetrievalTtfbMs: avg(totals.ttfbs),
-        totalCdnRetrievals: totals.cdnRetrievals,
-        totalDirectRetrievals: totals.directRetrievals,
+        totalCdnRetrievals: cdnRetrievalsNum,
+        totalDirectRetrievals: directRetrievalsNum,
         cdnUsagePercentage: Math.round(cdnUsagePercentage * 100) / 100,
         avgCdnLatencyMs,
         avgDirectLatencyMs,

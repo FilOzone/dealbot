@@ -9,7 +9,7 @@ import type { DataSource } from "typeorm";
  *
  * Refresh Schedule:
  * - Weekly performance: Every 30 minutes (high frequency for recent data)
- * - All-time performance: Every hour (lower frequency for historical data)
+ * - All-time performance: Every 30 minutes (lower frequency for historical data)
  * - Daily metrics: Daily at 00:05 (aggregate previous day's data)
  * - Cleanup: Weekly on Sunday at 02:00 (archive/delete old data)
  */
@@ -48,11 +48,11 @@ export class MetricsRefreshService {
 
   /**
    * Refresh all-time performance materialized view
-   * Runs every hour as historical data changes less frequently
+   * Runs every 30 minutes as historical data changes less frequently
    *
    * Uses CONCURRENTLY to avoid blocking reads during refresh
    */
-  @Cron(CronExpression.EVERY_HOUR, {
+  @Cron(CronExpression.EVERY_30_MINUTES, {
     name: "refresh-all-time-performance",
   })
   async refreshAllTimePerformance(): Promise<void> {
