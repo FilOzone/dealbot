@@ -4,6 +4,7 @@ import { DatabaseModule } from "../database/database.module.js";
 import { Deal } from "../database/entities/deal.entity.js";
 import { MetricsDaily } from "../database/entities/metrics-daily.entity.js";
 import { SpPerformanceAllTime } from "../database/entities/sp-performance-all-time.entity.js";
+import { StorageProvider } from "../database/entities/storage-provider.entity.js";
 
 import { SpPerformanceLastWeek } from "../database/entities/sp-performance-last-week.entity.js";
 import { DailyMetricsController } from "./controllers/daily-metrics.controller.js";
@@ -35,7 +36,7 @@ import { NetworkStatsService } from "./services/network-stats.service.js";
 @Module({
   imports: [
     DatabaseModule,
-    TypeOrmModule.forFeature([SpPerformanceLastWeek, SpPerformanceAllTime, MetricsDaily, Deal]),
+    TypeOrmModule.forFeature([SpPerformanceLastWeek, SpPerformanceAllTime, MetricsDaily, Deal, StorageProvider]),
   ],
   controllers: [ProvidersController, DailyMetricsController, FailedDealsController, NetworkStatsController],
   providers: [MetricsSchedulerService, ProvidersService, DailyMetricsService, FailedDealsService, NetworkStatsService],

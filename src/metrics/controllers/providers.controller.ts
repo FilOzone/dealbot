@@ -4,6 +4,7 @@ import {
   type ProviderAllTimePerformanceDto,
   ProviderCombinedPerformanceDto,
   ProviderListResponseDto,
+  ProviderMetricsListResponseDto,
   ProviderWeeklyPerformanceDto,
 } from "../dto/provider-performance.dto.js";
 import { ProvidersService } from "../services/providers.service.js";
@@ -24,34 +25,57 @@ import { SpPerformanceAllTime } from "src/database/entities/sp-performance-all-t
 export class ProvidersController {
   private readonly logger = new Logger(ProvidersController.name);
 
-  constructor(private readonly metricsQueryService: ProvidersService) {}
+  constructor(private readonly providersService: ProvidersService) {}
 
   /**
-   * List all storage providers with their weekly performance metrics
-   * Useful for discovering and comparing active providers
+   * List all sps with their details
    */
   @Get()
   @ApiOperation({
     summary: "List storage providers",
     description: "Get a paginated list of storage providers with combined weekly and all-time performance metrics",
   })
-  @ApiQuery({ name: "minHealthScore", required: false, type: Number, description: "Minimum health score (0-100)" })
-  @ApiQuery({ name: "activeOnly", required: false, type: Boolean, description: "Show only active providers" })
   @ApiQuery({ name: "limit", required: false, type: Number, description: "Number of results per page (default: 20)" })
   @ApiQuery({ name: "offset", required: false, type: Number, description: "Pagination offset (default: 0)" })
   @ApiResponse({ status: 200, description: "List of providers with combined metrics", type: ProviderListResponseDto })
   async listProviders(
-    @Query("minHealthScore") minHealthScore?: number,
-    @Query("activeOnly") activeOnly?: boolean,
     @Query("limit", new DefaultValuePipe(20), ParseIntPipe) limit?: number,
     @Query("offset", new DefaultValuePipe(0), ParseIntPipe) offset?: number,
   ): Promise<ProviderListResponseDto> {
-    this.logger.debug(
-      `Listing providers: minHealthScore=${minHealthScore}, activeOnly=${activeOnly}, limit=${limit}, offset=${offset}`,
-    );
+    this.logger.debug(`Listing providers: limit=${limit}, offset=${offset}`);
 
-    const { providers, total } = await this.metricsQueryService.listProvidersWeekly({
-      minHealthScore,
+    const { providers, total } = await this.providersService.getProvidersList({ limit, offset });
+
+    return {
+      providers,
+      total,
+      count: providers.length,
+      offset: offset || 0,
+      limit: limit || 20,
+    };
+  }
+
+  /**
+   * List all storage providers with their weekly performance metrics
+   * Useful for discovering and comparing active providers
+   */
+  @Get("metrics")
+  @ApiOperation({
+    summary: "List storage providers",
+    description: "Get a paginated list of storage providers with combined weekly and all-time performance metrics",
+  })
+  @ApiQuery({ name: "activeOnly", required: false, type: Boolean, description: "Show only active providers" })
+  @ApiQuery({ name: "limit", required: false, type: Number, description: "Number of results per page (default: 20)" })
+  @ApiQuery({ name: "offset", required: false, type: Number, description: "Pagination offset (default: 0)" })
+  @ApiResponse({ status: 200, description: "List of providers with combined metrics", type: ProviderListResponseDto })
+  async listProvidersWithMetrics(
+    @Query("activeOnly") activeOnly?: boolean,
+    @Query("limit", new DefaultValuePipe(20), ParseIntPipe) limit?: number,
+    @Query("offset", new DefaultValuePipe(0), ParseIntPipe) offset?: number,
+  ): Promise<ProviderMetricsListResponseDto> {
+    this.logger.debug(`Listing providers: activeOnly=${activeOnly}, limit=${limit}, offset=${offset}`);
+
+    const { providers, total } = await this.providersService.getProvidersList({
       activeOnly: activeOnly === true,
       limit,
       offset,
@@ -60,9 +84,10 @@ export class ProvidersController {
     // Fetch combined performance (weekly + all-time) for each provider
     const providerDtos: ProviderCombinedPerformanceDto[] = await Promise.all(
       providers.map(async (p) => {
-        const { weekly, allTime } = await this.metricsQueryService.getCombinedPerformance(p.spAddress);
+        const { weekly, allTime } = await this.providersService.getCombinedPerformance(p.address);
 
         return {
+          provider: p,
           weekly: this.mapWeeklyToDto(weekly),
           allTime: this.mapAllTimeToDto(allTime),
         };
@@ -82,7 +107,7 @@ export class ProvidersController {
    * Get detailed performance metrics for a specific storage provider
    * Returns both weekly and all-time metrics
    */
-  @Get(":spAddress")
+  @Get("metrics/:spAddress")
   @ApiOperation({
     summary: "Get provider performance",
     description: "Get detailed weekly and all-time performance metrics for a specific storage provider",
@@ -93,9 +118,13 @@ export class ProvidersController {
   async getProviderPerformance(@Param("spAddress") spAddress: string): Promise<ProviderCombinedPerformanceDto> {
     this.logger.debug(`Getting performance for provider: ${spAddress}`);
 
-    const { weekly, allTime } = await this.metricsQueryService.getCombinedPerformance(spAddress);
+    const [provider, { weekly, allTime }] = await Promise.all([
+      this.providersService.getProvider(spAddress),
+      this.providersService.getCombinedPerformance(spAddress),
+    ]);
 
     return {
+      provider,
       weekly: this.mapWeeklyToDto(weekly),
       allTime: this.mapAllTimeToDto(allTime),
     };
@@ -128,7 +157,7 @@ export class ProvidersController {
   ): Promise<ProviderWeeklyPerformanceDto[] | ProviderAllTimePerformanceDto[]> {
     this.logger.debug(`Getting top providers by ${metric} for period ${period || "weekly"}`);
 
-    const providers = await this.metricsQueryService.getTopProviders(metric, {
+    const providers = await this.providersService.getTopProviders(metric, {
       period: period || "last_week",
       limit,
     });

@@ -4,6 +4,7 @@ import type { Repository } from "typeorm";
 import { MetricsDaily } from "../../database/entities/metrics-daily.entity.js";
 import { SpPerformanceAllTime } from "../../database/entities/sp-performance-all-time.entity.js";
 import { SpPerformanceLastWeek } from "../../database/entities/sp-performance-last-week.entity.js";
+import { StorageProvider } from "../../database/entities/storage-provider.entity.js";
 
 /**
  * Service for querying pre-computed metrics from materialized views
@@ -23,7 +24,51 @@ export class ProvidersService {
     private readonly allTimePerformanceRepo: Repository<SpPerformanceAllTime>,
     @InjectRepository(MetricsDaily)
     private readonly dailyMetricsRepo: Repository<MetricsDaily>,
+    @InjectRepository(StorageProvider)
+    private readonly spRepository: Repository<StorageProvider>,
   ) {}
+
+  /**
+   * Get Providers list
+   */
+  async getProvidersList(options?: {
+    activeOnly?: boolean;
+    limit?: number;
+    offset?: number;
+  }): Promise<{ providers: StorageProvider[]; total: number }> {
+    const query = this.spRepository.createQueryBuilder("sp");
+
+    if (options?.activeOnly) {
+      query.andWhere("sp.is_active = true");
+    }
+
+    const total = await query.getCount();
+
+    // Apply pagination
+    if (options?.limit) {
+      query.limit(options.limit);
+    }
+    if (options?.offset) {
+      query.offset(options.offset);
+    }
+
+    const providers = await query.getMany();
+
+    return { providers, total };
+  }
+
+  /**
+   * Get Provider
+   */
+  async getProvider(address: string): Promise<StorageProvider> {
+    const provider = await this.spRepository.findOne({ where: { address } });
+
+    if (!provider) {
+      throw new NotFoundException(`Provider not found for address ${address}`);
+    }
+
+    return provider;
+  }
 
   /**
    * Get weekly performance for a specific storage provider

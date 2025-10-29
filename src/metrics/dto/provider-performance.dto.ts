@@ -1,6 +1,44 @@
 import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
 
 /**
+ * DTO for storage provider info
+ */
+export class Provider {
+  @ApiProperty({ description: "Storage provider address" })
+  address: string;
+
+  @ApiProperty({ description: "Storage provider name" })
+  name: string;
+
+  @ApiProperty({ description: "Storage provider description" })
+  description: string;
+
+  @ApiProperty({ description: "Payee address to receive funds" })
+  payee: string;
+
+  @ApiProperty({ description: "Service Url" })
+  serviceUrl: string;
+
+  @ApiProperty({ description: "Is storage provider active" })
+  isActive: boolean;
+
+  @ApiProperty({ description: "Is storage provider approved by fwss" })
+  isApproved: boolean;
+
+  @ApiProperty({ description: "Region" })
+  region: string;
+
+  @ApiProperty({ description: "Metadata" })
+  metadata: Record<string, any>;
+
+  @ApiProperty({ description: "Created At" })
+  createdAt: Date;
+
+  @ApiProperty({ description: "Updated at" })
+  updatedAt: Date;
+}
+
+/**
  * DTO for storage provider weekly performance metrics
  */
 export class ProviderWeeklyPerformanceDto {
@@ -152,6 +190,9 @@ export class ProviderAllTimePerformanceDto {
  * DTO for combined provider performance
  */
 export class ProviderCombinedPerformanceDto {
+  @ApiProperty({ description: "Storage provider address" })
+  provider: Provider;
+
   @ApiProperty({ type: ProviderWeeklyPerformanceDto })
   weekly: ProviderWeeklyPerformanceDto;
 
@@ -161,9 +202,29 @@ export class ProviderCombinedPerformanceDto {
 
 /**
  * DTO for provider list response
- * Returns combined weekly and all-time metrics for each provider
  */
 export class ProviderListResponseDto {
+  @ApiProperty({ type: [Provider], description: "List of provider" })
+  providers: Provider[];
+
+  @ApiProperty({ description: "Total number of providers" })
+  total: number;
+
+  @ApiProperty({ description: "Number of providers returned" })
+  count: number;
+
+  @ApiProperty({ description: "Pagination offset" })
+  offset: number;
+
+  @ApiProperty({ description: "Pagination limit" })
+  limit: number;
+}
+
+/**
+ * DTO for provider metrics list response
+ * Returns combined weekly and all-time metrics for each provider
+ */
+export class ProviderMetricsListResponseDto {
   @ApiProperty({ type: [ProviderCombinedPerformanceDto], description: "List of providers with combined metrics" })
   providers: ProviderCombinedPerformanceDto[];
 

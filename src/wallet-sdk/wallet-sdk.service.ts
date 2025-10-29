@@ -100,6 +100,7 @@ export class WalletSdkService implements OnModuleInit {
       this.logger.error("Failed to load approved providers from on-chain", error);
       // Fallback to empty array, let the application handle this gracefully
       this.allProviders = [];
+      this.approvedProviderIds = new Set();
     }
   }
 
