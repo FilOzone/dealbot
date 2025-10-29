@@ -1,5 +1,7 @@
 import { Controller, DefaultValuePipe, Get, Logger, Param, ParseIntPipe, Query } from "@nestjs/common";
 import { ApiOperation, ApiParam, ApiQuery, ApiResponse, ApiTags } from "@nestjs/swagger";
+import { SpPerformanceAllTime } from "src/database/entities/sp-performance-all-time.entity.js";
+import { SpPerformanceLastWeek } from "src/database/entities/sp-performance-last-week.entity.js";
 import {
   type ProviderAllTimePerformanceDto,
   ProviderCombinedPerformanceDto,
@@ -8,8 +10,6 @@ import {
   ProviderWeeklyPerformanceDto,
 } from "../dto/provider-performance.dto.js";
 import { ProvidersService } from "../services/providers.service.js";
-import { SpPerformanceLastWeek } from "src/database/entities/sp-performance-last-week.entity.js";
-import { SpPerformanceAllTime } from "src/database/entities/sp-performance-all-time.entity.js";
 
 /**
  * Public API controller for storage provider metrics

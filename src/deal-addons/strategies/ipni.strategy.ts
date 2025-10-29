@@ -97,15 +97,18 @@ export class IpniAddonStrategy implements IDealAddon {
    */
   async postProcess(deal: Deal): Promise<void> {
     this.logger.log(
-      `Verifying IPNI indexing for deal with pieceCid: ${deal.pieceCid} and rootCID: ${deal.metadata.ipni?.rootCID}`,
+      `Verifying IPNI indexing for deal with pieceCid: ${deal.pieceCid} and rootCID: ${
+        deal.metadata[this.name]?.rootCID
+      }`,
     );
+
     const pdpServer = new PDPServer(null, deal.storageProvider.serviceUrl);
 
     const expectedMultiaddr = this.serviceURLToMultiaddr(deal.storageProvider.serviceUrl);
     await this.monitorAndVerifyIPNI(
       pdpServer,
       deal.pieceCid,
-      deal.metadata.ipni?.blockCIDs ?? [],
+      deal.metadata[this.name]?.blockCIDs ?? [],
       expectedMultiaddr,
       this.POLLING_TIMEOUT_MS,
       this.IPNI_LOOKUP_TIMEOUT_MS,
@@ -209,7 +212,9 @@ export class IpniAddonStrategy implements IDealAddon {
     const ipniResult = await this.verifyIPNIAdvertisement(blockCIDs, expectedMultiaddr, ipniTimeoutMs);
 
     this.logger.log(
-      `✓ IPNI verification complete: ${ipniResult.verified}/${ipniResult.total} CIDs verified in ${(ipniResult.durationMs / 1000).toFixed(1)}s`,
+      `✓ IPNI verification complete: ${ipniResult.verified}/${ipniResult.total} CIDs verified in ${(
+        ipniResult.durationMs / 1000
+      ).toFixed(1)}s`,
     );
 
     return {
@@ -232,7 +237,9 @@ export class IpniAddonStrategy implements IDealAddon {
 
       if (elapsed > maxDurationMs) {
         throw new Error(
-          `IPNI verification timeout after ${(elapsed / 1000).toFixed(1)}s (verified ${successCount}/${blockCIDs.length})`,
+          `IPNI verification timeout after ${(elapsed / 1000).toFixed(1)}s (verified ${successCount}/${
+            blockCIDs.length
+          })`,
         );
       }
 

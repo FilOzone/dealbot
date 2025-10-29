@@ -10,7 +10,7 @@ import type { AddonExecutionContext, DealConfiguration, PreprocessingResult } fr
 export interface IDealAddon {
   /**
    * Unique identifier for the add-on
-   * @example 'cdn', 'ipni', 'direct'
+   * @example ServiceType.DIRECT_SP, ServiceType.CDN
    */
   readonly name: ServiceType;
 
