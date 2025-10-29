@@ -54,6 +54,13 @@ export class DailyAggregatedMetricsDto {
   avgDealLatencyMs: number;
 
   @ApiProperty({
+    description: "Average ingest latency in milliseconds",
+    example: 1250,
+    nullable: true,
+  })
+  avgIngestLatencyMs: number;
+
+  @ApiProperty({
     description: "Average retrieval latency in milliseconds",
     example: 450,
   })
@@ -64,6 +71,19 @@ export class DailyAggregatedMetricsDto {
     example: 120,
   })
   avgRetrievalTtfbMs: number;
+
+  @ApiProperty({
+    description: "Average retrieval throughput in bytes per second",
+    example: 1000000,
+  })
+  avgRetrievalThroughputBps: number;
+
+  @ApiProperty({
+    description: "Average ingest throughput in bytes per second",
+    example: 1000000,
+    nullable: true,
+  })
+  avgIngestThroughputBps: number;
 
   @ApiProperty({
     description: "Total data stored in bytes",
@@ -93,6 +113,7 @@ export interface ServiceMetrics {
   successRate: number;
   avgLatencyMs: number;
   avgTtfbMs: number;
+  avgThroughputBps: number;
   totalDataRetrievedBytes: string;
 }
 
@@ -259,6 +280,20 @@ export class ProviderDailyMetricsDto {
     example: 420,
   })
   avgRetrievalLatencyMs: number;
+
+  @ApiProperty({
+    description: "Average retrieval TTFB in milliseconds",
+    example: 120,
+    nullable: true,
+  })
+  avgRetrievalTtfbMs?: number;
+
+  @ApiProperty({
+    description: "Average ingest throughput in bytes per second",
+    example: 1000000,
+    nullable: true,
+  })
+  avgIngestThroughputBps?: number;
 
   @ApiProperty({
     description: "Average retrieval throughput in bytes per second",

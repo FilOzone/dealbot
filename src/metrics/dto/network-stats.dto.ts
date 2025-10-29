@@ -71,16 +71,16 @@ export class NetworkOverallStatsDto {
   avgDealLatencyMs: number;
 
   @ApiProperty({
-    description: "Network-wide average deal ingest latency in milliseconds",
+    description: "Network-wide average ingest latency in milliseconds",
     example: 800,
   })
-  avgDealIngestLatencyMs: number;
+  avgIngestLatencyMs: number;
 
   @ApiProperty({
     description: "Network-wide average deal chain latency in milliseconds",
     example: 450,
   })
-  avgDealChainLatencyMs: number;
+  avgChainLatencyMs: number;
 
   @ApiProperty({
     description: "Network-wide average retrieval latency in milliseconds",
@@ -93,6 +93,18 @@ export class NetworkOverallStatsDto {
     example: 120,
   })
   avgRetrievalTtfbMs: number;
+
+  @ApiProperty({
+    description: "Network-wide average retrieval throughput in bytes per second",
+    example: 12,
+  })
+  avgRetrievalThroughputBps: number;
+
+  @ApiProperty({
+    description: "Network-wide average ingest throughput in bytes per second",
+    example: 12,
+  })
+  avgIngestThroughputBps: number;
 
   @ApiProperty({
     description: "Timestamp of last data refresh",

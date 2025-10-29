@@ -89,6 +89,14 @@ export class NetworkStatsService {
           "ROUND(AVG(sp.avg_retrieval_ttfb_ms) FILTER (WHERE sp.avg_retrieval_ttfb_ms IS NOT NULL))",
           "avgRetrievalTtfbMs",
         )
+        .addSelect(
+          "ROUND(AVG(sp.avg_ingest_throughput_bps) FILTER (WHERE sp.avg_ingest_throughput_bps IS NOT NULL))",
+          "avgIngestThroughputBps",
+        )
+        .addSelect(
+          "ROUND(AVG(sp.avg_throughput_bps) FILTER (WHERE sp.avg_throughput_bps IS NOT NULL))",
+          "avgRetrievalThroughputBps",
+        )
         .addSelect("MAX(sp.refreshed_at)", "lastRefreshedAt")
         .setParameter("sevenDaysAgo", sevenDaysAgo)
         .getRawOne();
@@ -120,10 +128,12 @@ export class NetworkStatsService {
         totalDataStoredBytes: String(stats.totalDataStoredBytes || "0"),
         totalDataRetrievedBytes: String(stats.totalDataRetrievedBytes || "0"),
         avgDealLatencyMs: Math.round(Number(stats.avgDealLatencyMs || 0)),
-        avgDealIngestLatencyMs: Math.round(Number(stats.avgDealIngestLatencyMs || 0)),
-        avgDealChainLatencyMs: Math.round(Number(stats.avgDealChainLatencyMs || 0)),
+        avgIngestLatencyMs: Math.round(Number(stats.avgIngestLatencyMs || 0)),
+        avgChainLatencyMs: Math.round(Number(stats.avgChainLatencyMs || 0)),
         avgRetrievalLatencyMs: Math.round(Number(stats.avgRetrievalLatencyMs || 0)),
         avgRetrievalTtfbMs: Math.round(Number(stats.avgRetrievalTtfbMs || 0)),
+        avgIngestThroughputBps: Math.round(Number(stats.avgIngestThroughputBps || 0)),
+        avgRetrievalThroughputBps: Math.round(Number(stats.avgRetrievalThroughputBps || 0)),
         lastRefreshedAt: stats.lastRefreshedAt || new Date(),
       };
     } catch (error) {
@@ -202,10 +212,12 @@ export class NetworkStatsService {
       totalDataStoredBytes: "0",
       totalDataRetrievedBytes: "0",
       avgDealLatencyMs: 0,
-      avgDealIngestLatencyMs: 0,
-      avgDealChainLatencyMs: 0,
+      avgIngestLatencyMs: 0,
+      avgChainLatencyMs: 0,
       avgRetrievalLatencyMs: 0,
       avgRetrievalTtfbMs: 0,
+      avgIngestThroughputBps: 0,
+      avgRetrievalThroughputBps: 0,
       lastRefreshedAt: new Date(),
     };
   }

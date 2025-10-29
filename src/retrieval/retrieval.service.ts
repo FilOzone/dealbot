@@ -127,7 +127,7 @@ export class RetrievalService {
     retrieval.latencyMs = Math.round(executionResult.metrics.latency);
     retrieval.ttfbMs = Math.round(executionResult.metrics.ttfb);
     retrieval.responseCode = executionResult.metrics.statusCode;
-    retrieval.bytesRetrieved = executionResult.data.length;
+    retrieval.bytesRetrieved = executionResult.metrics.responseSize;
     retrieval.throughputBps = Math.round(executionResult.metrics.throughput);
   }
 

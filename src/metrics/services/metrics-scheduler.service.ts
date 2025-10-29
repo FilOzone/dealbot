@@ -76,7 +76,7 @@ export class MetricsSchedulerService {
    *
    * Inserts aggregated data into metrics_daily table for time-series analysis
    */
-  @Cron("5 0 * * *", {
+  @Cron(CronExpression.EVERY_30_MINUTES, {
     name: "aggregate-daily-metrics",
   })
   async aggregateDailyMetrics(): Promise<void> {

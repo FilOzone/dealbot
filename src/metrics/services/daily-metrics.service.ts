@@ -193,69 +193,133 @@ export class DailyMetricsService {
    * @private
    */
   private aggregateByDate(metrics: MetricsDaily[]): DailyAggregatedMetricsDto[] {
-    const dateMap = new Map<string, MetricsDaily[]>();
-
-    // Group metrics by date
-    metrics.forEach((metric) => {
-      const dateKey = metric.dailyBucket.toISOString().split("T")[0];
-      if (!dateMap.has(dateKey)) {
-        dateMap.set(dateKey, []);
+    const dateMap = new Map<
+      string,
+      {
+        totalDeals: number;
+        successfulDeals: number;
+        totalRetrievals: number;
+        successfulRetrievals: number;
+        dealLatencySum: number;
+        dealLatencyCount: number;
+        ingestLatencySum: number;
+        ingestLatencyCount: number;
+        retrievalLatencySum: number;
+        retrievalLatencyCount: number;
+        retrievalTtfbSum: number;
+        retrievalTtfbCount: number;
+        ingestThroughputSum: number;
+        ingestThroughputCount: number;
+        retrievalThroughputSum: number;
+        retrievalThroughputCount: number;
+        totalDataStoredBytes: bigint;
+        totalDataRetrievedBytes: bigint;
+        uniqueProviders: Set<string>;
       }
-      dateMap.get(dateKey)!.push(metric);
-    });
+    >();
 
-    // Aggregate for each date
+    for (const metric of metrics) {
+      const dateKey = metric.dailyBucket.toISOString().split("T")[0];
+
+      let agg = dateMap.get(dateKey);
+      if (!agg) {
+        agg = {
+          totalDeals: 0,
+          successfulDeals: 0,
+          totalRetrievals: 0,
+          successfulRetrievals: 0,
+          dealLatencySum: 0,
+          dealLatencyCount: 0,
+          ingestLatencySum: 0,
+          ingestLatencyCount: 0,
+          retrievalLatencySum: 0,
+          retrievalLatencyCount: 0,
+          retrievalTtfbSum: 0,
+          retrievalTtfbCount: 0,
+          ingestThroughputSum: 0,
+          ingestThroughputCount: 0,
+          retrievalThroughputSum: 0,
+          retrievalThroughputCount: 0,
+          totalDataStoredBytes: BigInt(0),
+          totalDataRetrievedBytes: BigInt(0),
+          uniqueProviders: new Set<string>(),
+        };
+        dateMap.set(dateKey, agg);
+      }
+
+      const isNullService = metric.serviceType === null;
+
+      // Aggregate deals (only for null service type)
+      if (isNullService) {
+        agg.totalDeals += metric.totalDeals || 0;
+        agg.successfulDeals += metric.successfulDeals || 0;
+        agg.totalDataStoredBytes += BigInt(metric.totalDataStoredBytes || 0);
+        agg.uniqueProviders.add(metric.spAddress);
+
+        if (metric.avgDealLatencyMs) {
+          agg.dealLatencySum += metric.avgDealLatencyMs;
+          agg.dealLatencyCount++;
+        }
+      }
+
+      // Aggregate retrievals (for all service types)
+      agg.totalRetrievals += metric.totalRetrievals || 0;
+      agg.successfulRetrievals += metric.successfulRetrievals || 0;
+      agg.totalDataRetrievedBytes += BigInt(metric.totalDataRetrievedBytes || 0);
+
+      if (metric.avgRetrievalLatencyMs) {
+        agg.retrievalLatencySum += metric.avgRetrievalLatencyMs;
+        agg.retrievalLatencyCount++;
+      }
+
+      if (metric.avgRetrievalTtfbMs) {
+        agg.retrievalTtfbSum += metric.avgRetrievalTtfbMs;
+        agg.retrievalTtfbCount++;
+      }
+
+      if (metric.avgIngestLatencyMs) {
+        agg.ingestLatencySum += metric.avgIngestLatencyMs;
+        agg.ingestLatencyCount++;
+      }
+
+      if (metric.avgIngestThroughputBps) {
+        agg.ingestThroughputSum += metric.avgIngestThroughputBps;
+        agg.ingestThroughputCount++;
+      }
+
+      if (metric.avgRetrievalThroughputBps) {
+        agg.retrievalThroughputSum += metric.avgRetrievalThroughputBps;
+        agg.retrievalThroughputCount++;
+      }
+    }
+
+    // Build result array
     const aggregated: DailyAggregatedMetricsDto[] = [];
 
-    dateMap.forEach((dayMetrics, date) => {
-      // Aggregate totals
-      const totalDeals = dayMetrics.reduce((sum, m) => sum + (m.totalDeals || 0), 0);
-      const successfulDeals = dayMetrics.reduce((sum, m) => sum + (m.successfulDeals || 0), 0);
-      const totalRetrievals = dayMetrics.reduce((sum, m) => sum + (m.totalRetrievals || 0), 0);
-      const successfulRetrievals = dayMetrics.reduce((sum, m) => sum + (m.successfulRetrievals || 0), 0);
-
-      // Collect latencies for averaging
-      const dealLatencies = dayMetrics
-        .filter((m) => m.serviceType === null && m.avgDealLatencyMs)
-        .map((m) => m.avgDealLatencyMs);
-
-      const retrievalLatencies = dayMetrics.filter((m) => m.avgRetrievalLatencyMs).map((m) => m.avgRetrievalLatencyMs);
-
-      const retrievalTtfbs = dayMetrics.filter((m) => m.avgRetrievalTtfbMs).map((m) => m.avgRetrievalTtfbMs);
-
-      // Get unique providers (from deal metrics only to avoid double counting)
-      const uniqueProviders = new Set(dayMetrics.filter((m) => m.serviceType === null).map((m) => m.spAddress)).size;
-
-      // Helper function to calculate average
-      const avg = (arr: number[]) => (arr.length > 0 ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length) : 0);
-
-      // Calculate total data stored/retrieved
-      const totalDataStoredBytes = dayMetrics
-        .filter((m) => m.serviceType === null)
-        .reduce((sum, m) => sum + BigInt(m.totalDataStoredBytes || 0), BigInt(0))
-        .toString();
-
-      const totalDataRetrievedBytes = dayMetrics
-        .reduce((sum, m) => sum + BigInt(m.totalDataRetrievedBytes || 0), BigInt(0))
-        .toString();
-
+    for (const [date, agg] of dateMap) {
       aggregated.push({
         date,
-        totalDeals,
-        successfulDeals,
-        dealSuccessRate: totalDeals > 0 ? Math.round((successfulDeals / totalDeals) * 100 * 100) / 100 : 0,
-        totalRetrievals,
-        successfulRetrievals,
+        totalDeals: agg.totalDeals,
+        successfulDeals: agg.successfulDeals,
+        dealSuccessRate: agg.totalDeals > 0 ? Math.round((agg.successfulDeals / agg.totalDeals) * 10000) / 100 : 0,
+        totalRetrievals: agg.totalRetrievals,
+        successfulRetrievals: agg.successfulRetrievals,
         retrievalSuccessRate:
-          totalRetrievals > 0 ? Math.round((successfulRetrievals / totalRetrievals) * 100 * 100) / 100 : 0,
-        avgDealLatencyMs: avg(dealLatencies),
-        avgRetrievalLatencyMs: avg(retrievalLatencies),
-        avgRetrievalTtfbMs: avg(retrievalTtfbs),
-        totalDataStoredBytes,
-        totalDataRetrievedBytes,
-        uniqueProviders,
+          agg.totalRetrievals > 0 ? Math.round((agg.successfulRetrievals / agg.totalRetrievals) * 10000) / 100 : 0,
+        avgDealLatencyMs: agg.dealLatencyCount > 0 ? Math.round(agg.dealLatencySum / agg.dealLatencyCount) : 0,
+        avgRetrievalLatencyMs:
+          agg.retrievalLatencyCount > 0 ? Math.round(agg.retrievalLatencySum / agg.retrievalLatencyCount) : 0,
+        avgRetrievalTtfbMs: agg.retrievalTtfbCount > 0 ? Math.round(agg.retrievalTtfbSum / agg.retrievalTtfbCount) : 0,
+        totalDataStoredBytes: agg.totalDataStoredBytes.toString(),
+        totalDataRetrievedBytes: agg.totalDataRetrievedBytes.toString(),
+        uniqueProviders: agg.uniqueProviders.size,
+        avgIngestLatencyMs: agg.ingestLatencyCount > 0 ? Math.round(agg.ingestLatencySum / agg.ingestLatencyCount) : 0,
+        avgIngestThroughputBps:
+          agg.ingestThroughputCount > 0 ? Math.round(agg.ingestThroughputSum / agg.ingestThroughputCount) : 0,
+        avgRetrievalThroughputBps:
+          agg.retrievalThroughputCount > 0 ? Math.round(agg.retrievalThroughputSum / agg.retrievalThroughputCount) : 0,
       });
-    });
+    }
 
     return aggregated.sort((a, b) => a.date.localeCompare(b.date));
   }
@@ -267,58 +331,123 @@ export class DailyMetricsService {
    * @private
    */
   private mapToProviderDailyMetrics(metrics: MetricsDaily[]): ProviderDailyMetricsDto[] {
-    const dateMap = new Map<string, MetricsDaily[]>();
-
-    // Group by date
-    metrics.forEach((metric) => {
-      const dateKey = metric.dailyBucket.toISOString().split("T")[0];
-      if (!dateMap.has(dateKey)) {
-        dateMap.set(dateKey, []);
+    const dateMap = new Map<
+      string,
+      {
+        spAddress: string;
+        totalDeals: number;
+        successfulDeals: number;
+        totalRetrievals: number;
+        successfulRetrievals: number;
+        dealLatencySum: number;
+        dealLatencyCount: number;
+        ingestLatencySum: number;
+        ingestLatencyCount: number;
+        retrievalLatencySum: number;
+        retrievalLatencyCount: number;
+        retrievalTtfbSum: number;
+        retrievalTtfbCount: number;
+        retrievalThroughputSum: number;
+        retrievalThroughputCount: number;
+        ingestThroughputSum: number;
+        ingestThroughputCount: number;
       }
-      dateMap.get(dateKey)!.push(metric);
-    });
+    >();
 
-    // Aggregate for each date
+    for (const metric of metrics) {
+      const dateKey = metric.dailyBucket.toISOString().split("T")[0];
+
+      let agg = dateMap.get(dateKey);
+      if (!agg) {
+        agg = {
+          spAddress: metric.spAddress,
+          totalDeals: 0,
+          successfulDeals: 0,
+          totalRetrievals: 0,
+          successfulRetrievals: 0,
+          dealLatencySum: 0,
+          dealLatencyCount: 0,
+          ingestLatencySum: 0,
+          ingestLatencyCount: 0,
+          retrievalLatencySum: 0,
+          retrievalLatencyCount: 0,
+          retrievalTtfbSum: 0,
+          retrievalTtfbCount: 0,
+          retrievalThroughputSum: 0,
+          retrievalThroughputCount: 0,
+          ingestThroughputSum: 0,
+          ingestThroughputCount: 0,
+        };
+        dateMap.set(dateKey, agg);
+      }
+
+      const isNullService = metric.serviceType === null;
+
+      if (isNullService) {
+        // Deal metrics
+        agg.totalDeals += metric.totalDeals || 0;
+        agg.successfulDeals += metric.successfulDeals || 0;
+
+        if (metric.avgDealLatencyMs) {
+          agg.dealLatencySum += metric.avgDealLatencyMs;
+          agg.dealLatencyCount++;
+        }
+
+        if (metric.avgIngestLatencyMs) {
+          agg.ingestLatencySum += metric.avgIngestLatencyMs;
+          agg.ingestLatencyCount++;
+        }
+
+        if (metric.avgIngestThroughputBps) {
+          agg.ingestThroughputSum += metric.avgIngestThroughputBps;
+          agg.ingestThroughputCount++;
+        }
+      } else {
+        // Retrieval metrics
+        agg.totalRetrievals += metric.totalRetrievals || 0;
+        agg.successfulRetrievals += metric.successfulRetrievals || 0;
+
+        if (metric.avgRetrievalLatencyMs) {
+          agg.retrievalLatencySum += metric.avgRetrievalLatencyMs;
+          agg.retrievalLatencyCount++;
+        }
+
+        if (metric.avgRetrievalThroughputBps) {
+          agg.retrievalThroughputSum += metric.avgRetrievalThroughputBps;
+          agg.retrievalThroughputCount++;
+        }
+
+        if (metric.avgRetrievalTtfbMs) {
+          agg.retrievalTtfbSum += metric.avgRetrievalTtfbMs;
+          agg.retrievalTtfbCount++;
+        }
+      }
+    }
+
     const result: ProviderDailyMetricsDto[] = [];
 
-    dateMap.forEach((dayMetrics, date) => {
-      // Aggregate across service types for this provider-date
-      const dealMetrics = dayMetrics.filter((m) => m.serviceType === null);
-      const retrievalMetrics = dayMetrics.filter((m) => m.serviceType !== null);
-
-      const totalDeals = dealMetrics.reduce((sum, m) => sum + (m.totalDeals || 0), 0);
-      const successfulDeals = dealMetrics.reduce((sum, m) => sum + (m.successfulDeals || 0), 0);
-      const totalRetrievals = retrievalMetrics.reduce((sum, m) => sum + (m.totalRetrievals || 0), 0);
-      const successfulRetrievals = retrievalMetrics.reduce((sum, m) => sum + (m.successfulRetrievals || 0), 0);
-
-      const dealLatencies = dealMetrics.filter((m) => m.avgDealLatencyMs).map((m) => m.avgDealLatencyMs);
-      const injestLatencies = dealMetrics.filter((m) => m.avgIngestLatencyMs).map((m) => m.avgIngestLatencyMs);
-
-      const retrievalLatencies = retrievalMetrics
-        .filter((m) => m.avgRetrievalLatencyMs)
-        .map((m) => m.avgRetrievalLatencyMs);
-      const retrievalThroughputBps = retrievalMetrics
-        .filter((m) => m.avgRetrievalThroughputBps)
-        .map((m) => m.avgRetrievalThroughputBps);
-
-      const avg = (arr: number[]) => (arr.length > 0 ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length) : 0);
-
+    for (const [date, agg] of dateMap) {
       result.push({
         date,
-        spAddress: dayMetrics[0].spAddress,
-        totalDeals,
-        successfulDeals,
-        dealSuccessRate: totalDeals > 0 ? Math.round((successfulDeals / totalDeals) * 100 * 100) / 100 : 0,
-        totalRetrievals,
-        successfulRetrievals,
+        spAddress: agg.spAddress,
+        totalDeals: agg.totalDeals,
+        successfulDeals: agg.successfulDeals,
+        dealSuccessRate: agg.totalDeals > 0 ? Math.round((agg.successfulDeals / agg.totalDeals) * 10000) / 100 : 0,
+        totalRetrievals: agg.totalRetrievals,
+        successfulRetrievals: agg.successfulRetrievals,
         retrievalSuccessRate:
-          totalRetrievals > 0 ? Math.round((successfulRetrievals / totalRetrievals) * 100 * 100) / 100 : 0,
-        avgDealLatencyMs: avg(dealLatencies),
-        avgIngestLatencyMs: avg(injestLatencies),
-        avgRetrievalLatencyMs: avg(retrievalLatencies),
-        avgRetrievalThroughputBps: avg(retrievalThroughputBps),
+          agg.totalRetrievals > 0 ? Math.round((agg.successfulRetrievals / agg.totalRetrievals) * 10000) / 100 : 0,
+        avgDealLatencyMs: agg.dealLatencyCount > 0 ? Math.round(agg.dealLatencySum / agg.dealLatencyCount) : 0,
+        avgIngestLatencyMs: agg.ingestLatencyCount > 0 ? Math.round(agg.ingestLatencySum / agg.ingestLatencyCount) : 0,
+        avgRetrievalLatencyMs:
+          agg.retrievalLatencyCount > 0 ? Math.round(agg.retrievalLatencySum / agg.retrievalLatencyCount) : 0,
+        avgRetrievalThroughputBps:
+          agg.retrievalThroughputCount > 0 ? Math.round(agg.retrievalThroughputSum / agg.retrievalThroughputCount) : 0,
+        avgRetrievalTtfbMs: agg.retrievalTtfbCount > 0 ? Math.round(agg.retrievalTtfbSum / agg.retrievalTtfbCount) : 0,
+        avgIngestThroughputBps:
+          agg.ingestThroughputCount > 0 ? Math.round(agg.ingestThroughputSum / agg.ingestThroughputCount) : 0,
       });
-    });
+    }
 
     return result.sort((a, b) => a.date.localeCompare(b.date));
   }
@@ -329,22 +458,33 @@ export class DailyMetricsService {
    * @private
    */
   private calculateSummary(dailyMetrics: DailyAggregatedMetricsDto[], rawMetrics: MetricsDaily[]) {
-    const totalDeals = dailyMetrics.reduce((sum, day) => sum + day.totalDeals, 0);
-    const totalRetrievals = dailyMetrics.reduce((sum, day) => sum + day.totalRetrievals, 0);
-    const successfulDeals = dailyMetrics.reduce((sum, day) => sum + day.successfulDeals, 0);
-    const successfulRetrievals = dailyMetrics.reduce((sum, day) => sum + day.successfulRetrievals, 0);
+    let totalDeals = 0;
+    let totalRetrievals = 0;
+    let successfulDeals = 0;
+    let successfulRetrievals = 0;
 
-    // Count unique providers from deal metrics only (service_type=null) to avoid double counting
-    const uniqueProviders = new Set(rawMetrics.filter((m) => m.serviceType === null).map((m) => m.spAddress)).size;
+    for (const day of dailyMetrics) {
+      totalDeals += day.totalDeals;
+      totalRetrievals += day.totalRetrievals;
+      successfulDeals += day.successfulDeals;
+      successfulRetrievals += day.successfulRetrievals;
+    }
+
+    const uniqueProviders = new Set<string>();
+    for (const m of rawMetrics) {
+      if (m.serviceType === null) {
+        uniqueProviders.add(m.spAddress);
+      }
+    }
 
     return {
       totalDays: dailyMetrics.length,
-      totalProviders: uniqueProviders,
+      totalProviders: uniqueProviders.size,
       totalDeals,
       totalRetrievals,
-      avgDealSuccessRate: totalDeals > 0 ? Math.round((successfulDeals / totalDeals) * 100 * 100) / 100 : 0,
+      avgDealSuccessRate: totalDeals > 0 ? Math.round((successfulDeals / totalDeals) * 10000) / 100 : 0,
       avgRetrievalSuccessRate:
-        totalRetrievals > 0 ? Math.round((successfulRetrievals / totalRetrievals) * 100 * 100) / 100 : 0,
+        totalRetrievals > 0 ? Math.round((successfulRetrievals / totalRetrievals) * 10000) / 100 : 0,
     };
   }
 
@@ -354,18 +494,25 @@ export class DailyMetricsService {
    * @private
    */
   private calculateProviderSummary(dailyMetrics: ProviderDailyMetricsDto[]) {
-    const totalDeals = dailyMetrics.reduce((sum, day) => sum + day.totalDeals, 0);
-    const totalRetrievals = dailyMetrics.reduce((sum, day) => sum + day.totalRetrievals, 0);
-    const successfulDeals = dailyMetrics.reduce((sum, day) => sum + day.successfulDeals, 0);
-    const successfulRetrievals = dailyMetrics.reduce((sum, day) => sum + day.successfulRetrievals, 0);
+    let totalDeals = 0;
+    let totalRetrievals = 0;
+    let successfulDeals = 0;
+    let successfulRetrievals = 0;
+
+    for (const day of dailyMetrics) {
+      totalDeals += day.totalDeals;
+      totalRetrievals += day.totalRetrievals;
+      successfulDeals += day.successfulDeals;
+      successfulRetrievals += day.successfulRetrievals;
+    }
 
     return {
       totalDays: dailyMetrics.length,
       totalDeals,
       totalRetrievals,
-      avgDealSuccessRate: totalDeals > 0 ? Math.round((successfulDeals / totalDeals) * 100 * 100) / 100 : 0,
+      avgDealSuccessRate: totalDeals > 0 ? Math.round((successfulDeals / totalDeals) * 10000) / 100 : 0,
       avgRetrievalSuccessRate:
-        totalRetrievals > 0 ? Math.round((successfulRetrievals / totalRetrievals) * 100 * 100) / 100 : 0,
+        totalRetrievals > 0 ? Math.round((successfulRetrievals / totalRetrievals) * 10000) / 100 : 0,
     };
   }
 
@@ -376,54 +523,92 @@ export class DailyMetricsService {
    * @private
    */
   private aggregateByServiceType(metrics: MetricsDaily[]): ServiceComparisonMetricsDto[] {
-    const dateMap = new Map<string, MetricsDaily[]>();
+    const dateServiceMap = new Map<string, Map<ServiceType, MetricsDaily[]>>();
 
-    // Group metrics by date
-    metrics.forEach((metric) => {
+    for (const metric of metrics) {
       const dateKey = metric.dailyBucket.toISOString().split("T")[0];
-      if (!dateMap.has(dateKey)) {
-        dateMap.set(dateKey, []);
-      }
-      dateMap.get(dateKey)!.push(metric);
-    });
 
-    // Aggregate for each date
+      let serviceMap = dateServiceMap.get(dateKey);
+      if (!serviceMap) {
+        serviceMap = new Map<ServiceType, MetricsDaily[]>();
+        dateServiceMap.set(dateKey, serviceMap);
+      }
+
+      let serviceMetrics = serviceMap.get(metric.serviceType);
+      if (!serviceMetrics) {
+        serviceMetrics = [];
+        serviceMap.set(metric.serviceType, serviceMetrics);
+      }
+
+      serviceMetrics.push(metric);
+    }
+
+    const aggregateService = (serviceMetrics: MetricsDaily[] | undefined): ServiceMetrics => {
+      if (!serviceMetrics || serviceMetrics.length === 0) {
+        return {
+          totalRetrievals: 0,
+          successfulRetrievals: 0,
+          successRate: 0,
+          avgLatencyMs: 0,
+          avgTtfbMs: 0,
+          avgThroughputBps: 0,
+          totalDataRetrievedBytes: "0",
+        };
+      }
+
+      let totalRetrievals = 0;
+      let successfulRetrievals = 0;
+      let latencySum = 0;
+      let latencyCount = 0;
+      let ttfbSum = 0;
+      let ttfbCount = 0;
+      let throughputSum = 0;
+      let throughputCount = 0;
+      let totalDataBytes = BigInt(0);
+
+      for (const m of serviceMetrics) {
+        totalRetrievals += m.totalRetrievals || 0;
+        successfulRetrievals += m.successfulRetrievals || 0;
+
+        if (m.avgRetrievalLatencyMs) {
+          latencySum += m.avgRetrievalLatencyMs;
+          latencyCount++;
+        }
+
+        if (m.avgRetrievalTtfbMs) {
+          ttfbSum += m.avgRetrievalTtfbMs;
+          ttfbCount++;
+        }
+
+        if (m.avgRetrievalThroughputBps) {
+          throughputSum += m.avgRetrievalThroughputBps;
+          throughputCount++;
+        }
+
+        totalDataBytes += BigInt(m.totalDataRetrievedBytes || 0);
+      }
+
+      return {
+        totalRetrievals,
+        successfulRetrievals,
+        successRate: totalRetrievals > 0 ? Math.round((successfulRetrievals / totalRetrievals) * 10000) / 100 : 0,
+        avgLatencyMs: latencyCount > 0 ? Math.round(latencySum / latencyCount) : 0,
+        avgTtfbMs: ttfbCount > 0 ? Math.round(ttfbSum / ttfbCount) : 0,
+        avgThroughputBps: throughputCount > 0 ? Math.round(throughputSum / throughputCount) : 0,
+        totalDataRetrievedBytes: totalDataBytes.toString(),
+      };
+    };
+
     const aggregated: ServiceComparisonMetricsDto[] = [];
 
-    dateMap.forEach((dayMetrics, date) => {
-      // Separate by service type
-      const cdnMetrics = dayMetrics.filter((m) => m.serviceType === ServiceType.CDN);
-      const directMetrics = dayMetrics.filter((m) => m.serviceType === ServiceType.DIRECT_SP);
-      const ipfsMetrics = dayMetrics.filter((m) => m.serviceType === ServiceType.IPFS_PIN);
-
-      // Helper to aggregate service metrics
-      const aggregateService = (serviceMetrics: MetricsDaily[]): ServiceMetrics => {
-        const totalRetrievals = serviceMetrics.reduce((sum, m) => sum + (m.totalRetrievals || 0), 0);
-        const successfulRetrievals = serviceMetrics.reduce((sum, m) => sum + (m.successfulRetrievals || 0), 0);
-        const latencies = serviceMetrics.filter((m) => m.avgRetrievalLatencyMs).map((m) => m.avgRetrievalLatencyMs);
-        const ttfbs = serviceMetrics.filter((m) => m.avgRetrievalTtfbMs).map((m) => m.avgRetrievalTtfbMs);
-
-        const avg = (arr: number[]) => (arr.length > 0 ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length) : 0);
-
-        return {
-          totalRetrievals,
-          successfulRetrievals,
-          successRate: totalRetrievals > 0 ? Math.round((successfulRetrievals / totalRetrievals) * 100 * 100) / 100 : 0,
-          avgLatencyMs: avg(latencies),
-          avgTtfbMs: avg(ttfbs),
-          totalDataRetrievedBytes: serviceMetrics
-            .reduce((sum, m) => sum + BigInt(m.totalDataRetrievedBytes || 0), BigInt(0))
-            .toString(),
-        };
-      };
-
+    for (const [date, serviceMap] of dateServiceMap) {
       aggregated.push({
         date,
-        cdn: aggregateService(cdnMetrics),
-        directSp: aggregateService(directMetrics),
-        ipfsPin: aggregateService(ipfsMetrics),
+        cdn: aggregateService(serviceMap.get(ServiceType.CDN)),
+        directSp: aggregateService(serviceMap.get(ServiceType.DIRECT_SP)),
+        ipfsPin: aggregateService(serviceMap.get(ServiceType.IPFS_PIN)),
       });
-    });
+    }
 
     return aggregated.sort((a, b) => a.date.localeCompare(b.date));
   }
@@ -434,29 +619,49 @@ export class DailyMetricsService {
    * @private
    */
   private calculateServiceSummary(dailyMetrics: ServiceComparisonMetricsDto[]) {
-    const cdnTotalRetrievals = dailyMetrics.reduce((sum, day) => sum + day.cdn.totalRetrievals, 0);
-    const directSpTotalRetrievals = dailyMetrics.reduce((sum, day) => sum + day.directSp.totalRetrievals, 0);
-    const ipfsPinTotalRetrievals = dailyMetrics.reduce((sum, day) => sum + day.ipfsPin.totalRetrievals, 0);
+    let cdnTotalRetrievals = 0;
+    let directSpTotalRetrievals = 0;
+    let ipfsPinTotalRetrievals = 0;
 
-    const cdnSuccessRates = dailyMetrics.filter((d) => d.cdn.totalRetrievals > 0).map((d) => d.cdn.successRate);
-    const directSpSuccessRates = dailyMetrics
-      .filter((d) => d.directSp.totalRetrievals > 0)
-      .map((d) => d.directSp.successRate);
-    const ipfsPinSuccessRates = dailyMetrics
-      .filter((d) => d.ipfsPin.totalRetrievals > 0)
-      .map((d) => d.ipfsPin.successRate);
+    let cdnSuccessRateSum = 0;
+    let cdnSuccessRateCount = 0;
+    let directSpSuccessRateSum = 0;
+    let directSpSuccessRateCount = 0;
+    let ipfsPinSuccessRateSum = 0;
+    let ipfsPinSuccessRateCount = 0;
 
-    const avgRate = (arr: number[]) =>
-      arr.length > 0 ? Math.round((arr.reduce((a, b) => a + b, 0) / arr.length) * 100) / 100 : 0;
+    for (const day of dailyMetrics) {
+      cdnTotalRetrievals += day.cdn.totalRetrievals;
+      directSpTotalRetrievals += day.directSp.totalRetrievals;
+      ipfsPinTotalRetrievals += day.ipfsPin.totalRetrievals;
+
+      if (day.cdn.totalRetrievals > 0) {
+        cdnSuccessRateSum += day.cdn.successRate;
+        cdnSuccessRateCount++;
+      }
+
+      if (day.directSp.totalRetrievals > 0) {
+        directSpSuccessRateSum += day.directSp.successRate;
+        directSpSuccessRateCount++;
+      }
+
+      if (day.ipfsPin.totalRetrievals > 0) {
+        ipfsPinSuccessRateSum += day.ipfsPin.successRate;
+        ipfsPinSuccessRateCount++;
+      }
+    }
 
     return {
       totalDays: dailyMetrics.length,
       cdnTotalRetrievals,
       directSpTotalRetrievals,
       ipfsPinTotalRetrievals,
-      cdnAvgSuccessRate: avgRate(cdnSuccessRates),
-      directSpAvgSuccessRate: avgRate(directSpSuccessRates),
-      ipfsPinAvgSuccessRate: avgRate(ipfsPinSuccessRates),
+      cdnAvgSuccessRate:
+        cdnSuccessRateCount > 0 ? Math.round((cdnSuccessRateSum / cdnSuccessRateCount) * 100) / 100 : 0,
+      directSpAvgSuccessRate:
+        directSpSuccessRateCount > 0 ? Math.round((directSpSuccessRateSum / directSpSuccessRateCount) * 100) / 100 : 0,
+      ipfsPinAvgSuccessRate:
+        ipfsPinSuccessRateCount > 0 ? Math.round((ipfsPinSuccessRateSum / ipfsPinSuccessRateCount) * 100) / 100 : 0,
     };
   }
 
