@@ -87,7 +87,7 @@ export class WalletSdkService implements OnModuleInit {
       this.registeredProviders = validProviders.filter(provider => {
         const isActive = provider.active;
         const supportsPDP = !!provider.products?.PDP;
-        const isDevTagged = provider.products?.PDP?.capabilities?.serviceStatus === 'dev';
+        const isDevTagged = provider.products?.PDP?.capabilities?.service_status === 'dev';
         
         if (!isActive) {
           this.logger.debug(`Skipping inactive provider: ${provider.name} (ID: ${provider.id})`);
