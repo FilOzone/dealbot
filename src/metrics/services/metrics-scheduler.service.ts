@@ -23,13 +23,13 @@ export class MetricsSchedulerService {
   ) {}
 
   /**
-   * Refresh weekly performance materialized view
+   * Refresh last week performance materialized view
    * Runs every 30 minutes to keep recent metrics up-to-date
    *
    * Uses CONCURRENTLY to avoid blocking reads during refresh
    */
   @Cron(CronExpression.EVERY_30_MINUTES, {
-    name: "refresh-weekly-performance",
+    name: "refresh-last-week-performance",
   })
   async refreshWeeklyPerformance(): Promise<void> {
     const startTime = Date.now();

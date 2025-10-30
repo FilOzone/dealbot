@@ -1,4 +1,5 @@
 import { Index, ViewColumn, ViewEntity } from "typeorm";
+import { ServiceType } from "../types.js";
 
 @ViewEntity({
   name: "sp_performance_all_time",
@@ -32,36 +33,36 @@ import { Index, ViewColumn, ViewEntity } from "typeorm";
         
         -- Retrieval metrics (all time)
         COUNT(DISTINCT r.id) as total_retrievals,
-        COUNT(DISTINCT r.id) FILTER (WHERE r.status = 'success') as successful_retrievals,
-        COUNT(DISTINCT r.id) FILTER (WHERE r.status = 'failed') as failed_retrievals,
+        COUNT(DISTINCT r.id) FILTER (WHERE r.status = 'success' AND r.service_type = '${ServiceType.DIRECT_SP}') as successful_retrievals,
+        COUNT(DISTINCT r.id) FILTER (WHERE r.status = 'failed' AND r.service_type = '${ServiceType.DIRECT_SP}') as failed_retrievals,
         
         -- Retrieval success rate (all time)
         CASE 
           WHEN COUNT(DISTINCT r.id) > 0 
           THEN ROUND(
-            (COUNT(DISTINCT r.id) FILTER (WHERE r.status = 'success')::numeric / 
-            COUNT(DISTINCT r.id)::numeric) * 100, 
+            (COUNT(DISTINCT r.id) FILTER (WHERE r.status = 'success' AND r.service_type = '${ServiceType.DIRECT_SP}')::numeric / 
+            COUNT(DISTINCT r.id) FILTER (WHERE r.service_type = '${ServiceType.DIRECT_SP}')::numeric) * 100, 
             2
           )
           ELSE 0 
         END as retrieval_success_rate,
         
         -- Retrieval latency (all time)
-        ROUND(AVG(r.latency_ms) FILTER (WHERE r.latency_ms IS NOT NULL))::int as avg_retrieval_latency_ms,
+        ROUND(AVG(r.latency_ms) FILTER (WHERE r.latency_ms IS NOT NULL AND r.service_type = '${ServiceType.DIRECT_SP}'))::int as avg_retrieval_latency_ms,
         
         -- Retrieval TTFB (all time)
-        ROUND(AVG(r.ttfb_ms) FILTER (WHERE r.ttfb_ms IS NOT NULL))::int as avg_retrieval_ttfb_ms,
+        ROUND(AVG(r.ttfb_ms) FILTER (WHERE r.ttfb_ms IS NOT NULL AND r.service_type = '${ServiceType.DIRECT_SP}'))::int as avg_retrieval_ttfb_ms,
         
         -- Retrieval throughput (all time)
-        ROUND(AVG(r.throughput_bps) FILTER (WHERE r.throughput_bps IS NOT NULL))::bigint as avg_throughput_bps,
+        ROUND(AVG(r.throughput_bps) FILTER (WHERE r.throughput_bps IS NOT NULL AND r.service_type = '${ServiceType.DIRECT_SP}'))::bigint as avg_throughput_bps,
         
         -- Data volumes (all time)
         SUM(d.file_size) FILTER (WHERE d.status = 'deal_created') as total_data_stored_bytes,
-        SUM(r.bytes_retrieved) FILTER (WHERE r.status = 'success') as total_data_retrieved_bytes,
+        SUM(r.bytes_retrieved) FILTER (WHERE r.status = 'success' AND r.service_type = '${ServiceType.DIRECT_SP}') as total_data_retrieved_bytes,
         
         -- Last activity timestamps
         MAX(d.created_at) as last_deal_at,
-        MAX(r.created_at) as last_retrieval_at,
+        MAX(r.created_at) FILTER (WHERE r.service_type = '${ServiceType.DIRECT_SP}') as last_retrieval_at,
         
         NOW() as refreshed_at
 

@@ -73,13 +73,13 @@ export class ProvidersService {
   /**
    * Get weekly performance for a specific storage provider
    */
-  async getWeeklyPerformance(spAddress: string): Promise<SpPerformanceLastWeek> {
+  async getWeeklyPerformance(spAddress: string): Promise<SpPerformanceLastWeek | null> {
     const performance = await this.lastWeekPerformanceRepo.findOne({
       where: { spAddress },
     });
 
     if (!performance) {
-      throw new NotFoundException(`Weekly performance not found for storage provider ${spAddress}`);
+      return null;
     }
 
     return performance;
@@ -88,13 +88,13 @@ export class ProvidersService {
   /**
    * Get all-time performance for a specific storage provider
    */
-  async getAllTimePerformance(spAddress: string): Promise<SpPerformanceAllTime> {
+  async getAllTimePerformance(spAddress: string): Promise<SpPerformanceAllTime | null> {
     const performance = await this.allTimePerformanceRepo.findOne({
       where: { spAddress },
     });
 
     if (!performance) {
-      throw new NotFoundException(`All-time performance not found for storage provider ${spAddress}`);
+      return null;
     }
 
     return performance;
@@ -104,8 +104,8 @@ export class ProvidersService {
    * Get combined performance metrics (weekly + all-time) for a storage provider
    */
   async getCombinedPerformance(spAddress: string): Promise<{
-    weekly: SpPerformanceLastWeek;
-    allTime: SpPerformanceAllTime;
+    weekly: SpPerformanceLastWeek | null;
+    allTime: SpPerformanceAllTime | null;
   }> {
     const [weekly, allTime] = await Promise.all([
       this.getWeeklyPerformance(spAddress),

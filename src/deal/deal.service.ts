@@ -235,23 +235,19 @@ export class DealService {
   private async trackStorageProvider(providerInfo: ProviderInfoEx): Promise<StorageProvider> {
     const providerAddress = providerInfo.serviceProvider;
     try {
-      let provider = await this.storageProviderRepository.findOne({ where: { address: providerAddress } });
+      let provider = this.storageProviderRepository.create({
+        address: providerAddress as Hex,
+        name: providerInfo.name,
+        description: providerInfo.description,
+        payee: providerInfo.payee,
+        serviceUrl: providerInfo.products.PDP?.data.serviceURL,
+        isActive: providerInfo.active,
+        isApproved: providerInfo.isApproved,
+        region: providerInfo.products.PDP?.data.location,
+        metadata: this.serializeBigInt(providerInfo.products.PDP),
+      });
 
-      if (!provider) {
-        provider = this.storageProviderRepository.create({
-          address: providerAddress as Hex,
-          name: providerInfo.name,
-          description: providerInfo.description,
-          payee: providerInfo.payee,
-          serviceUrl: providerInfo.products.PDP?.data.serviceURL,
-          isActive: providerInfo.active,
-          isApproved: providerInfo.isApproved,
-          region: providerInfo.products.PDP?.data.location,
-          metadata: this.serializeBigInt(providerInfo.products.PDP),
-        });
-
-        provider = await this.storageProviderRepository.save(provider);
-      }
+      provider = await this.storageProviderRepository.save(provider);
 
       return provider;
     } catch (error) {

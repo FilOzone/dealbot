@@ -1,4 +1,5 @@
 import { Index, ViewColumn, ViewEntity } from "typeorm";
+import { ServiceType } from "../types.js";
 
 @ViewEntity({
   name: "sp_performance_last_week",
@@ -60,16 +61,19 @@ import { Index, ViewColumn, ViewEntity } from "typeorm";
         -- Retrieval metrics (last 7 days)
         COUNT(DISTINCT r.id) FILTER (
           WHERE r.created_at >= NOW() - INTERVAL '7 days'
+          AND r.service_type = '${ServiceType.DIRECT_SP}'
         ) as total_retrievals,
         
         COUNT(DISTINCT r.id) FILTER (
           WHERE r.status = 'success' 
           AND r.created_at >= NOW() - INTERVAL '7 days'
+          AND r.service_type = '${ServiceType.DIRECT_SP}'
         ) as successful_retrievals,
         
         COUNT(DISTINCT r.id) FILTER (
           WHERE r.status = 'failed' 
           AND r.created_at >= NOW() - INTERVAL '7 days'
+          AND r.service_type = '${ServiceType.DIRECT_SP}'
         ) as failed_retrievals,
         
         -- Retrieval success rate (last 7 days)
@@ -79,8 +83,9 @@ import { Index, ViewColumn, ViewEntity } from "typeorm";
             (COUNT(DISTINCT r.id) FILTER (
               WHERE r.status = 'success' 
               AND r.created_at >= NOW() - INTERVAL '7 days'
+              AND r.service_type = '${ServiceType.DIRECT_SP}'
             )::numeric / 
-            COUNT(DISTINCT r.id) FILTER (WHERE r.created_at >= NOW() - INTERVAL '7 days')::numeric) * 100, 
+            COUNT(DISTINCT r.id) FILTER (WHERE r.created_at >= NOW() - INTERVAL '7 days' AND r.service_type = '${ServiceType.DIRECT_SP}')::numeric) * 100, 
             2
           )
           ELSE 0 
@@ -90,18 +95,21 @@ import { Index, ViewColumn, ViewEntity } from "typeorm";
         ROUND(AVG(r.latency_ms) FILTER (
           WHERE r.latency_ms IS NOT NULL 
           AND r.created_at >= NOW() - INTERVAL '7 days'
+          AND r.service_type = '${ServiceType.DIRECT_SP}'
         ))::int as avg_retrieval_latency_ms,
         
         -- Retrieval TTFB (last 7 days)
         ROUND(AVG(r.ttfb_ms) FILTER (
           WHERE r.ttfb_ms IS NOT NULL 
           AND r.created_at >= NOW() - INTERVAL '7 days'
+          AND r.service_type = '${ServiceType.DIRECT_SP}'
         ))::int as avg_retrieval_ttfb_ms,
         
         -- Retrieval throughput (last 7 days)
         ROUND(AVG(r.throughput_bps) FILTER (
           WHERE r.throughput_bps IS NOT NULL 
           AND r.created_at >= NOW() - INTERVAL '7 days'
+          AND r.service_type = '${ServiceType.DIRECT_SP}'
         ))::bigint as avg_throughput_bps,
         
         -- Data volumes (last 7 days)
@@ -113,11 +121,12 @@ import { Index, ViewColumn, ViewEntity } from "typeorm";
         SUM(r.bytes_retrieved) FILTER (
           WHERE r.status = 'success' 
           AND r.created_at >= NOW() - INTERVAL '7 days'
+          AND r.service_type = '${ServiceType.DIRECT_SP}'
         ) as total_data_retrieved_bytes,
         
         -- Last activity timestamps
         MAX(d.created_at) FILTER (WHERE d.created_at >= NOW() - INTERVAL '7 days') as last_deal_at,
-        MAX(r.created_at) FILTER (WHERE r.created_at >= NOW() - INTERVAL '7 days') as last_retrieval_at,
+        MAX(r.created_at) FILTER (WHERE r.created_at >= NOW() - INTERVAL '7 days' AND r.service_type = '${ServiceType.DIRECT_SP}') as last_retrieval_at,
         
         NOW() as refreshed_at
 

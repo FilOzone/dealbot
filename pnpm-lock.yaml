@@ -83,6 +83,9 @@ importers:
       typeorm:
         specifier: ^0.3.25
         version: 0.3.25(ioredis@5.7.0)(pg@8.16.3)(reflect-metadata@0.2.2)(ts-node@10.9.2(@types/node@22.17.1)(typescript@5.9.2))
+      viem:
+        specifier: ^2.38.3
+        version: 2.38.3(typescript@5.9.2)(zod@3.25.76)
     devDependencies:
       '@biomejs/biome':
         specifier: 2.3.1
@@ -4314,7 +4317,7 @@ snapshots:
     dependencies:
       '@metamask/scure-bip39': 2.1.1
       '@metamask/utils': 11.8.1
-      '@noble/curves': 1.9.1
+      '@noble/curves': 1.9.7
       '@noble/hashes': 1.8.0
       '@scure/base': 1.2.6
     transitivePeerDependencies:
@@ -4604,7 +4607,7 @@ snapshots:
 
   '@scure/bip32@1.7.0':
     dependencies:
-      '@noble/curves': 1.9.1
+      '@noble/curves': 1.9.7
       '@noble/hashes': 1.8.0
       '@scure/base': 1.2.6
 
@@ -6532,7 +6535,7 @@ snapshots:
       '@noble/hashes': 1.8.0
       '@scure/bip32': 1.7.0
       '@scure/bip39': 1.6.0
-      abitype: 1.1.0(typescript@5.9.2)(zod@3.25.76)
+      abitype: 1.1.1(typescript@5.9.2)(zod@3.25.76)
       eventemitter3: 5.0.1
     optionalDependencies:
       typescript: 5.9.2
@@ -6547,7 +6550,7 @@ snapshots:
       '@noble/hashes': 1.8.0
       '@scure/bip32': 1.7.0
       '@scure/bip39': 1.6.0
-      abitype: 1.1.0(typescript@5.9.2)(zod@3.25.76)
+      abitype: 1.1.1(typescript@5.9.2)(zod@3.25.76)
       eventemitter3: 5.0.1
     optionalDependencies:
       typescript: 5.9.2

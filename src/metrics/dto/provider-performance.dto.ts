@@ -194,10 +194,10 @@ export class ProviderCombinedPerformanceDto {
   provider: Provider;
 
   @ApiProperty({ type: ProviderWeeklyPerformanceDto })
-  weekly: ProviderWeeklyPerformanceDto;
+  weekly: ProviderWeeklyPerformanceDto | null;
 
   @ApiProperty({ type: ProviderAllTimePerformanceDto })
-  allTime: ProviderAllTimePerformanceDto;
+  allTime: ProviderAllTimePerformanceDto | null;
 }
 
 /**

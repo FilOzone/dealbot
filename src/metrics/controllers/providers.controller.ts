@@ -88,8 +88,8 @@ export class ProvidersController {
 
         return {
           provider: p,
-          weekly: this.mapWeeklyToDto(weekly),
-          allTime: this.mapAllTimeToDto(allTime),
+          weekly: weekly ? this.mapWeeklyToDto(weekly) : null,
+          allTime: allTime ? this.mapAllTimeToDto(allTime) : null,
         };
       }),
     );
@@ -125,8 +125,8 @@ export class ProvidersController {
 
     return {
       provider,
-      weekly: this.mapWeeklyToDto(weekly),
-      allTime: this.mapAllTimeToDto(allTime),
+      weekly: weekly ? this.mapWeeklyToDto(weekly) : null,
+      allTime: allTime ? this.mapAllTimeToDto(allTime) : null,
     };
   }
 
