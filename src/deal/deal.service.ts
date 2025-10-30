@@ -31,10 +31,7 @@ export class DealService {
   ) {}
 
   async createDealsForAllProviders(): Promise<Deal[]> {
-    const blockchainConfig = this.configService.get<IBlockchainConfig>("blockchain");
-    const totalProviders = blockchainConfig.useOnlyApprovedProviders
-      ? this.walletSdkService.getApprovedProvidersCount()
-      : this.walletSdkService.getAllProvidersCount();
+    const totalProviders = this.walletSdkService.getTestingProvidersCount();
     const enableCDN = Math.random() > 0.5;
     const enableIpni = Math.random() > 0.5;
 
@@ -47,9 +44,7 @@ export class DealService {
       dataFile,
     });
 
-    const providers = blockchainConfig.useOnlyApprovedProviders
-      ? this.walletSdkService.getApprovedProviders()
-      : this.walletSdkService.getAllProviders();
+    const providers = this.walletSdkService.getTestingProviders();
 
     const results = await this.processProvidersInParallel(providers, preprocessed);
 
@@ -85,7 +80,7 @@ export class DealService {
 
       const uploadResult: UploadResult = await storage.upload(dealInput.processedData.data, {
         onUploadComplete: (pieceCid) => this.handleUploadComplete(deal, pieceCid),
-        onPieceAdded: (result) => this.handleRootAdded(deal, result?.hash),
+        onPieceAdded: (hash) => this.handleRootAdded(deal, hash),
       });
 
       this.updateDealWithUploadResult(deal, uploadResult);

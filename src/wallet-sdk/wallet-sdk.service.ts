@@ -25,13 +25,16 @@ import type {
 @Injectable()
 export class WalletSdkService implements OnModuleInit {
   private readonly logger = new Logger(WalletSdkService.name);
+  private readonly blockchainConfig: IBlockchainConfig;
   private paymentsService: PaymentsService;
   private warmStorageService: WarmStorageService;
   private spRegistry: SPRegistryService;
   allProviders: ProviderInfoEx[] = [];
   approvedProviderIds: Set<number> = new Set();
 
-  constructor(private readonly configService: ConfigService<IConfig, true>) {}
+  constructor(private readonly configService: ConfigService<IConfig, true>) {
+    this.blockchainConfig = this.configService.get<IBlockchainConfig>("blockchain");
+  }
 
   async onModuleInit() {
     await this.initializeServices();
@@ -42,16 +45,14 @@ export class WalletSdkService implements OnModuleInit {
    * Initialize wallet services with provider and signer
    */
   private async initializeServices(): Promise<void> {
-    const blockchainConfig = this.configService.get<IBlockchainConfig>("blockchain");
-
     const warmStorageAddress = this.getFWSSAddress();
     const synapse = await Synapse.create({
-      privateKey: blockchainConfig.walletPrivateKey,
-      rpcURL: RPC_URLS[blockchainConfig.network].http,
+      privateKey: this.blockchainConfig.walletPrivateKey,
+      rpcURL: RPC_URLS[this.blockchainConfig.network].http,
       warmStorageAddress,
     });
 
-    const provider = new JsonRpcProvider(RPC_URLS[blockchainConfig.network].http);
+    const provider = new JsonRpcProvider(RPC_URLS[this.blockchainConfig.network].http);
     this.warmStorageService = await WarmStorageService.create(provider, warmStorageAddress);
     this.spRegistry = new SPRegistryService(provider, this.warmStorageService.getServiceProviderRegistryAddress());
     this.paymentsService = synapse.payments;
@@ -105,13 +106,6 @@ export class WalletSdkService implements OnModuleInit {
   }
 
   /**
-   * Get approved service providers
-   */
-  getProviders(): any[] {
-    return [...this.allProviders];
-  }
-
-  /**
    * Get approved provider addresses only
    */
   getProviderAddresses(): string[] {
@@ -133,6 +127,13 @@ export class WalletSdkService implements OnModuleInit {
   }
 
   /**
+   * Get count of testing providers
+   */
+  getTestingProvidersCount(): number {
+    return this.blockchainConfig.useOnlyApprovedProviders ? this.approvedProviderIds.size : this.allProviders.length;
+  }
+
+  /**
    * Get approved providers
    */
   getApprovedProviders(): ProviderInfoEx[] {
@@ -143,7 +144,16 @@ export class WalletSdkService implements OnModuleInit {
    * Get all providers
    */
   getAllProviders(): ProviderInfoEx[] {
-    return this.allProviders;
+    return [...this.allProviders];
+  }
+
+  /**
+   * Get testing providers
+   */
+  getTestingProviders(): ProviderInfoEx[] {
+    return this.blockchainConfig.useOnlyApprovedProviders
+      ? this.allProviders.filter((p) => p.isApproved)
+      : [...this.allProviders];
   }
 
   /**
@@ -167,15 +177,13 @@ export class WalletSdkService implements OnModuleInit {
    * Calculate storage requirements including costs and allowances
    */
   async calculateStorageRequirements(): Promise<StorageRequirements> {
-    const blockchainConfig = this.configService.get<IBlockchainConfig>("blockchain");
-
-    const providerCount = blockchainConfig.useOnlyApprovedProviders
+    const providerCount = this.blockchainConfig.useOnlyApprovedProviders
       ? this.getApprovedProvidersCount()
       : this.getAllProvidersCount();
 
     const STORAGE_SIZE_GB = 100;
     const APPROVAL_DURATION_MONTHS = 6n;
-    const datasetCreationFees = blockchainConfig.checkDatasetCreationFees
+    const datasetCreationFees = this.blockchainConfig.checkDatasetCreationFees
       ? this.calculateDatasetCreationFees(providerCount)
       : 0n;
 
@@ -300,10 +308,9 @@ export class WalletSdkService implements OnModuleInit {
   }
 
   getFWSSAddress(): string {
-    const blockchainConfig = this.configService.get<IBlockchainConfig>("blockchain");
-    return blockchainConfig.overrideContractAddresses && blockchainConfig.warmStorageServiceAddress
-      ? blockchainConfig.warmStorageServiceAddress
-      : CONTRACT_ADDRESSES.WARM_STORAGE[blockchainConfig.network];
+    return this.blockchainConfig.overrideContractAddresses && this.blockchainConfig.warmStorageServiceAddress
+      ? this.blockchainConfig.warmStorageServiceAddress
+      : CONTRACT_ADDRESSES.WARM_STORAGE[this.blockchainConfig.network];
   }
 
   /**

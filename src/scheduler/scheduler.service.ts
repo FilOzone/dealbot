@@ -95,7 +95,7 @@ export class SchedulerService implements OnModuleInit {
     try {
       await this.walletSdkService.loadProviders();
 
-      const providerCount = this.walletSdkService.getAllProvidersCount();
+      const providerCount = this.walletSdkService.getTestingProvidersCount();
 
       if (providerCount === 0) {
         this.logger.warn("No approved providers found, skipping deal creation");
@@ -121,7 +121,7 @@ export class SchedulerService implements OnModuleInit {
     this.logger.log("Starting scheduled retrieval tests");
 
     try {
-      const providerCount = this.walletSdkService.getAllProvidersCount();
+      const providerCount = this.walletSdkService.getTestingProvidersCount();
 
       if (providerCount === 0) {
         this.logger.warn("No approved providers found, skipping retrieval tests");

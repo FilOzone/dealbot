@@ -33,7 +33,7 @@ export class Deal {
   pieceCid: string;
 
   @Column({ name: "data_set_id", nullable: true })
-  dataSetId: number;
+  dataSetId?: number;
 
   @Column({ name: "piece_id", nullable: true })
   pieceId?: number;
@@ -96,11 +96,7 @@ export class Deal {
   updatedAt: Date;
 
   // Relations
-  @ManyToOne(
-    () => StorageProvider,
-    (sp) => sp.deals,
-    { onDelete: "CASCADE" },
-  )
+  @ManyToOne(() => StorageProvider, (sp) => sp.deals, { onDelete: "CASCADE" })
   @JoinColumn({ name: "sp_address" })
   storageProvider: StorageProvider;
 
