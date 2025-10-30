@@ -43,5 +43,5 @@ export class StorageProvider {
     () => Deal,
     (deal) => deal.storageProvider,
   )
-  deals: Deal[];
+  deals: Deal[] | null;
 }

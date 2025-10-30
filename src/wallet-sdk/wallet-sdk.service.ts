@@ -10,9 +10,13 @@ import {
 import { SPRegistryService } from "@filoz/synapse-sdk/sp-registry";
 import { Injectable, Logger, type OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
+import { InjectRepository } from "@nestjs/typeorm";
 import { JsonRpcProvider, MaxUint256 } from "ethers";
+import { Repository } from "typeorm";
+import { Hex } from "viem";
 import { DEV_TAG } from "../common/constants.js";
 import type { IBlockchainConfig, IConfig } from "../config/app.config.js";
+import { StorageProvider } from "../database/entities/storage-provider.entity.js";
 import type {
   FundDepositLog,
   ProviderInfoEx,
@@ -30,10 +34,15 @@ export class WalletSdkService implements OnModuleInit {
   private paymentsService: PaymentsService;
   private warmStorageService: WarmStorageService;
   private spRegistry: SPRegistryService;
-  allProviders: ProviderInfoEx[] = [];
-  approvedProviderIds: Set<number> = new Set();
+  private providerCache: Map<string, ProviderInfoEx> = new Map();
+  private activeProviderAddresses: Set<string> = new Set();
+  private approvedProviderAddresses: Set<string> = new Set();
 
-  constructor(private readonly configService: ConfigService<IConfig, true>) {
+  constructor(
+    private readonly configService: ConfigService<IConfig, true>,
+    @InjectRepository(StorageProvider)
+    private readonly spRepository: Repository<StorageProvider>,
+  ) {
     this.blockchainConfig = this.configService.get<IBlockchainConfig>("blockchain");
   }
 
@@ -67,7 +76,6 @@ export class WalletSdkService implements OnModuleInit {
       this.logger.log("Loading all service providers from sp-registry...");
 
       const approvedIds = await this.warmStorageService.getApprovedProviderIds();
-      this.approvedProviderIds = new Set(approvedIds);
 
       const providerCount = await this.spRegistry.getProviderCount();
 
@@ -79,82 +87,103 @@ export class WalletSdkService implements OnModuleInit {
       const providerInfos = await Promise.all(providerPromises);
       const validProviders = providerInfos.filter((info) => !!info);
 
-      this.allProviders = validProviders
-        .filter((info) => {
-          const isActive = info.active;
-          const supportsPDP = !!info.products?.PDP;
-          const isDevTagged = info.products?.PDP?.capabilities?.service_status === DEV_TAG;
+      this.providerCache.clear();
+      const extendedProviders = validProviders.map((info) => {
+        const isActivePDP = info.active;
+        const supportsPDP = !!info.products?.PDP;
+        const isDevTagged = info.products?.PDP?.capabilities?.service_status === DEV_TAG;
 
-          return isActive && supportsPDP && !isDevTagged;
-        })
-        .map((info) => {
-          const isApproved = this.approvedProviderIds.has(info.id);
-          return {
-            ...info,
-            isApproved,
-          };
+        const isActive = isActivePDP && supportsPDP && !isDevTagged;
+        const isApproved = approvedIds.includes(info.id);
+
+        // select approved providers which are not dev tagged
+        if (isActive) this.activeProviderAddresses.add(info.serviceProvider);
+        if (isApproved && isActive) this.approvedProviderAddresses.add(info.serviceProvider);
+        this.providerCache.set(info.serviceProvider, {
+          ...info,
+          isApproved,
+          active: isActive,
         });
 
+        return {
+          ...info,
+          isApproved,
+          isActive,
+        };
+      });
+
+      this.syncProvidersToDatabase(extendedProviders).catch((err) =>
+        this.logger.error(`Failed to sync providers to DB: ${err.message}`),
+      );
+
       this.logger.log(
-        `Loaded ${this.allProviders.length} providers from on-chain (${this.approvedProviderIds.size} approved)`,
+        `Loaded ${this.providerCache.size} providers from on-chain (${this.approvedProviderAddresses.size} approved)`,
       );
     } catch (error) {
       this.logger.error("Failed to load approved providers from on-chain", error);
       // Fallback to empty array, let the application handle this gracefully
-      this.allProviders = [];
-      this.approvedProviderIds = new Set();
+      this.providerCache.clear();
+      this.activeProviderAddresses.clear();
+      this.approvedProviderAddresses.clear();
     }
-  }
-
-  /**
-   * Get approved provider addresses only
-   */
-  getProviderAddresses(): string[] {
-    return this.allProviders.map((provider) => provider.serviceProvider);
   }
 
   /**
    * Get count of approved providers
    */
   getApprovedProvidersCount(): number {
-    return this.approvedProviderIds.size;
+    return this.approvedProviderAddresses.size;
   }
 
   /**
    * Get count of all providers
    */
-  getAllProvidersCount(): number {
-    return this.allProviders.length;
+  getAllActiveProvidersCount(): number {
+    return this.activeProviderAddresses.size;
   }
 
   /**
    * Get count of testing providers
    */
   getTestingProvidersCount(): number {
-    return this.blockchainConfig.useOnlyApprovedProviders ? this.approvedProviderIds.size : this.allProviders.length;
+    return this.blockchainConfig.useOnlyApprovedProviders
+      ? this.getApprovedProvidersCount()
+      : this.getAllActiveProvidersCount();
   }
 
   /**
    * Get approved providers
    */
   getApprovedProviders(): ProviderInfoEx[] {
-    return this.allProviders.filter((provider) => provider.isApproved);
+    const approvedProviders: ProviderInfoEx[] = [];
+
+    for (const address of this.approvedProviderAddresses) {
+      const provider = this.providerCache.get(address);
+      if (provider) approvedProviders.push(provider);
+    }
+
+    return approvedProviders;
   }
 
   /**
-   * Get all providers
+   * Get all active providers
    */
-  getAllProviders(): ProviderInfoEx[] {
-    return [...this.allProviders];
+  getAllActiveProviders(): ProviderInfoEx[] {
+    const activeProviders: ProviderInfoEx[] = [];
+
+    for (const address of this.activeProviderAddresses) {
+      const provider = this.providerCache.get(address);
+      if (provider) activeProviders.push(provider);
+    }
+
+    return activeProviders;
   }
 
   /**
    * Get testing providers
    */
   getTestingProviders(): ProviderInfoEx[] {
-    return this.blockchainConfig.useOnlyApprovedProviders
-      ? this.allProviders.filter((p) => p.isApproved)
-      : [...this.allProviders];
+    return this.blockchainConfig.useOnlyApprovedProviders ? this.getApprovedProviders() : this.getAllActiveProviders();
   }
 
   /**
@@ -171,16 +200,14 @@ export class WalletSdkService implements OnModuleInit {
    * Get approved provider info by address
    */
   getProviderInfo(address: string): ProviderInfoEx | undefined {
-    return this.allProviders.find((provider) => provider.serviceProvider === address);
+    return this.providerCache.get(address);
   }
 
   /**
    * Calculate storage requirements including costs and allowances
    */
   async calculateStorageRequirements(): Promise<StorageRequirements> {
-    const providerCount = this.blockchainConfig.useOnlyApprovedProviders
-      ? this.getApprovedProvidersCount()
-      : this.getAllProvidersCount();
+    const providerCount = this.getTestingProvidersCount();
 
     const STORAGE_SIZE_GB = 100;
     const APPROVAL_DURATION_MONTHS = 6n;
@@ -328,6 +355,69 @@ export class WalletSdkService implements OnModuleInit {
 
     if (this.requiresApproval(requirements)) {
       await this.approveStorageService(requirements);
+    }
+  }
+
+  // ============================================================================
+  // Storage Provider Management
+  // ============================================================================
+
+  /**
+   * Recursively convert BigInt values to strings for JSON serialization
+   * @private
+   */
+  private serializeBigInt(obj: any): any {
+    if (obj === null || obj === undefined) {
+      return obj;
+    }
+
+    if (typeof obj === "bigint") {
+      return obj.toString();
+    }
+
+    if (Array.isArray(obj)) {
+      return obj.map((item) => this.serializeBigInt(item));
+    }
+
+    if (typeof obj === "object") {
+      const serialized: any = {};
+      for (const key in obj) {
+        if (Object.hasOwn(obj, key)) {
+          serialized[key] = this.serializeBigInt(obj[key]);
+        }
+      }
+      return serialized;
+    }
+
+    return obj;
+  }
+
+  /**
+   * Create or update provider in database
+   */
+  async syncProvidersToDatabase(providerInfos: ProviderInfoEx[]): Promise<void> {
+    try {
+      const entities = providerInfos.map((info) =>
+        this.spRepository.create({
+          address: info.serviceProvider as Hex,
+          name: info.name,
+          description: info.description,
+          payee: info.payee,
+          serviceUrl: info.products.PDP?.data.serviceURL || "Unknown",
+          isActive: info.active,
+          isApproved: info.isApproved,
+          region: info.products.PDP?.data.location || "Unknown",
+          metadata: this.serializeBigInt(info.products.PDP) || {},
+        }),
+      );
+
+      await this.spRepository.upsert(entities, {
+        conflictPaths: ["address"],
+        skipUpdateIfNoValuesChanged: true,
+      });
+    } catch (error) {
+      this.logger.warn(`Failed to track providers : ${error.message}`);
+      throw error;
     }
   }
 }

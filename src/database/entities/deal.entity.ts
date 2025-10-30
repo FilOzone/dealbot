@@ -102,7 +102,7 @@ export class Deal {
     { onDelete: "CASCADE" },
   )
   @JoinColumn({ name: "sp_address" })
-  storageProvider: StorageProvider;
+  storageProvider: StorageProvider | null;
 
   @OneToMany("Retrieval", "deal")
   retrievals: Retrieval[];

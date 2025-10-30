@@ -32,7 +32,7 @@ import { ServiceType } from "../types.js";
         ROUND(AVG(d.ingest_throughput_bps) FILTER (WHERE d.ingest_throughput_bps IS NOT NULL))::bigint as avg_ingest_throughput_bps,
         
         -- Retrieval metrics (all time)
-        COUNT(DISTINCT r.id) as total_retrievals,
+        COUNT(DISTINCT r.id) FILTER (WHERE r.service_type = '${ServiceType.DIRECT_SP}') as total_retrievals,
         COUNT(DISTINCT r.id) FILTER (WHERE r.status = 'success' AND r.service_type = '${ServiceType.DIRECT_SP}') as successful_retrievals,
         COUNT(DISTINCT r.id) FILTER (WHERE r.status = 'failed' AND r.service_type = '${ServiceType.DIRECT_SP}') as failed_retrievals,
         

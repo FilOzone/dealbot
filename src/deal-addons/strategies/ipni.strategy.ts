@@ -102,6 +102,7 @@ export class IpniAddonStrategy implements IDealAddon {
       }`,
     );
 
+    if (!deal.storageProvider) return;
     const pdpServer = new PDPServer(null, deal.storageProvider.serviceUrl);
 
     const expectedMultiaddr = this.serviceURLToMultiaddr(deal.storageProvider.serviceUrl);

@@ -67,8 +67,6 @@ export class DealService {
     });
 
     try {
-      const provider = await this.trackStorageProvider(providerInfo);
-
       const synapse = await this.getStorageService();
       const storage = await synapse.createStorage({
         providerAddress,
@@ -90,7 +88,10 @@ export class DealService {
       );
 
       // Load storageProvider relation before post-processing
-      deal.storageProvider = provider;
+      deal.storageProvider = await this.storageProviderRepository.findOne({
+        where: { address: deal.spAddress },
+      });
+
       await this.dealAddonsService.postProcessDeal(deal, dealInput.appliedAddons);
 
       return deal;
@@ -196,64 +197,6 @@ export class DealService {
     deal.chainLatencyMs = deal.pieceAddedTime.getTime() - deal.uploadEndTime.getTime();
     deal.status = DealStatus.PIECE_ADDED;
     deal.transactionHash = result.transactionHash;
-  }
-
-  // ============================================================================
-  // Storage Provider Management
-  // ============================================================================
-
-  /**
-   * Recursively convert BigInt values to strings for JSON serialization
-   * @private
-   */
-  private serializeBigInt(obj: any): any {
-    if (obj === null || obj === undefined) {
-      return obj;
-    }
-
-    if (typeof obj === "bigint") {
-      return obj.toString();
-    }
-
-    if (Array.isArray(obj)) {
-      return obj.map((item) => this.serializeBigInt(item));
-    }
-
-    if (typeof obj === "object") {
-      const serialized: any = {};
-      for (const key in obj) {
-        if (Object.hasOwn(obj, key)) {
-          serialized[key] = this.serializeBigInt(obj[key]);
-        }
-      }
-      return serialized;
-    }
-
-    return obj;
-  }
-
-  private async trackStorageProvider(providerInfo: ProviderInfoEx): Promise<StorageProvider> {
-    const providerAddress = providerInfo.serviceProvider;
-    try {
-      let provider = this.storageProviderRepository.create({
-        address: providerAddress as Hex,
-        name: providerInfo.name,
-        description: providerInfo.description,
-        payee: providerInfo.payee,
-        serviceUrl: providerInfo.products.PDP?.data.serviceURL,
-        isActive: providerInfo.active,
-        isApproved: providerInfo.isApproved,
-        region: providerInfo.products.PDP?.data.location,
-        metadata: this.serializeBigInt(providerInfo.products.PDP),
-      });
-
-      provider = await this.storageProviderRepository.save(provider);
-
-      return provider;
-    } catch (error) {
-      this.logger.warn(`Failed to track provider ${providerAddress.slice(0, 8)}...: ${error.message}`);
-      throw error;
-    }
   }
 
   // ============================================================================
