@@ -4,10 +4,10 @@ export class CreateSpPerformanceMaterializedViews1730000000000 implements Migrat
   public async up(queryRunner: QueryRunner): Promise<void> {
     // Create helper function to refresh weekly view
     await queryRunner.query(`
-      CREATE OR REPLACE FUNCTION refresh_sp_performance_weekly()
+      CREATE OR REPLACE FUNCTION refresh_sp_performance_last_week()
       RETURNS void AS $$
       BEGIN
-        REFRESH MATERIALIZED VIEW CONCURRENTLY sp_performance_weekly;
+        REFRESH MATERIALIZED VIEW CONCURRENTLY sp_performance_last_week;
       END;
       $$ LANGUAGE plpgsql;
     `);

@@ -33,15 +33,15 @@ export class MetricsSchedulerService {
   })
   async refreshWeeklyPerformance(): Promise<void> {
     const startTime = Date.now();
-    this.logger.log("Starting refresh of sp_performance_weekly materialized view");
+    this.logger.log("Starting refresh of sp_performance_last_week materialized view");
 
     try {
-      await this.dataSource.query("SELECT refresh_sp_performance_weekly()");
+      await this.dataSource.query("SELECT refresh_sp_performance_last_week()");
 
       const duration = Date.now() - startTime;
-      this.logger.log(`Successfully refreshed sp_performance_weekly in ${duration}ms`);
+      this.logger.log(`Successfully refreshed sp_performance_last_week in ${duration}ms`);
     } catch (error) {
-      this.logger.error(`Failed to refresh sp_performance_weekly: ${error.message}`, error.stack);
+      this.logger.error(`Failed to refresh sp_performance_last_week: ${error.message}`, error.stack);
       throw error;
     }
   }

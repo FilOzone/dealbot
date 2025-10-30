@@ -202,6 +202,36 @@ export class DealService {
   // Storage Provider Management
   // ============================================================================
 
+  /**
+   * Recursively convert BigInt values to strings for JSON serialization
+   * @private
+   */
+  private serializeBigInt(obj: any): any {
+    if (obj === null || obj === undefined) {
+      return obj;
+    }
+
+    if (typeof obj === "bigint") {
+      return obj.toString();
+    }
+
+    if (Array.isArray(obj)) {
+      return obj.map((item) => this.serializeBigInt(item));
+    }
+
+    if (typeof obj === "object") {
+      const serialized: any = {};
+      for (const key in obj) {
+        if (Object.hasOwn(obj, key)) {
+          serialized[key] = this.serializeBigInt(obj[key]);
+        }
+      }
+      return serialized;
+    }
+
+    return obj;
+  }
+
   private async trackStorageProvider(providerInfo: ProviderInfoEx): Promise<StorageProvider> {
     const providerAddress = providerInfo.serviceProvider;
     try {
@@ -217,7 +247,7 @@ export class DealService {
           isActive: providerInfo.active,
           isApproved: providerInfo.isApproved,
           region: providerInfo.products.PDP?.data.location,
-          metadata: providerInfo.products.PDP,
+          metadata: this.serializeBigInt(providerInfo.products.PDP),
         });
 
         provider = await this.storageProviderRepository.save(provider);
