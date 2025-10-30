@@ -12,7 +12,7 @@ import { CDN_HOSTNAMES } from "../common/constants.js";
 import type { Hex } from "../common/types.js";
 import { Deal } from "../domain/entities/deal.entity.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
-import type { IBlockchainConfig, IConfig } from "../config/app.config.js";
+import type { IBlockchainConfig, IConfig, IFilBeamConfig } from "../config/app.config.js";
 import { HttpClientService } from "../http-client/http-client.service.js";
 import { RequestWithMetrics } from "../http-client/types.js";
 
@@ -104,16 +104,25 @@ export class RetrievalService {
     }
 
     try {
-      const url = this.constructRetrievalUrl(deal.withCDN, deal.walletAddress, deal.cid, deal.storageProvider);
+      const { url, headers } = this.constructRetrieval(
+        deal.withCDN,
+        deal.walletAddress,
+        deal.cid,
+        deal.storageProvider,
+      );
       this.logger.log(`Retrieving from URL: ${url} for deal id: ${deal.dealId}`);
       retrieval.status = RetrievalStatus.IN_PROGRESS;
 
       let result: RequestWithMetrics<any>;
       try {
-        result = await this.httpClientService.requestWithRandomProxyAndMetrics(url);
+        result = await this.httpClientService.requestWithRandomProxyAndMetrics(url, {
+          headers,
+        });
       } catch (error) {
         if (error.message === "No proxy available") {
-          result = await this.httpClientService.requestWithoutProxyAndMetrics(url);
+          result = await this.httpClientService.requestWithoutProxyAndMetrics(url, {
+            headers,
+          });
         } else {
           throw error;
         }
@@ -254,10 +263,21 @@ export class RetrievalService {
     return selectedDeals;
   }
 
-  private constructRetrievalUrl(withCDN: boolean, walletAddress: string, cid: string, storageProvider: Hex) {
+  private constructRetrieval(
+    withCDN: boolean,
+    walletAddress: string,
+    cid: string,
+    storageProvider: Hex,
+  ): { url: string; headers: Record<string, string> } {
     const blockchainConfig = this.configService.get<IBlockchainConfig>("blockchain");
+    const filBeamConfig = this.configService.get<IFilBeamConfig>("filBeam");
     if (withCDN) {
-      return `https://${walletAddress.toLowerCase()}.${CDN_HOSTNAMES[blockchainConfig.network]}/${cid}`;
+      return {
+        url: `https://${walletAddress.toLowerCase()}.${CDN_HOSTNAMES[blockchainConfig.network]}/${cid}`,
+        headers: {
+          Authorization: `Bearer ${filBeamConfig.botToken}`,
+        },
+      };
     } else {
       const providerDetails = this.walletSdkService.getApprovedProviderInfo(storageProvider);
 
@@ -269,7 +289,10 @@ export class RetrievalService {
         throw new Error(`Provider ${storageProvider} does not support PDP`);
       }
 
-      return `${providerDetails.products.PDP.data.serviceURL.replace(/\/$/, "")}/piece/${cid}`;
+      return {
+        url: `${providerDetails.products.PDP.data.serviceURL.replace(/\/$/, "")}/piece/${cid}`,
+        headers: {},
+      };
     }
   }
 
