@@ -72,23 +72,26 @@ export class MetricsSchedulerService {
 
   /**
    * Aggregate daily metrics
-   * Runs daily at 00:05 to aggregate the previous day's metrics
+   * Runs every 30 minutes to keep today's metrics up-to-date
    *
-   * Inserts aggregated data into metrics_daily table for time-series analysis
+   * Aggregates data from start of today (00:00:00) until now
+   * Uses ON CONFLICT to update existing records, providing real-time metrics
    */
   @Cron(CronExpression.EVERY_30_MINUTES, {
     name: "aggregate-daily-metrics",
   })
   async aggregateDailyMetrics(): Promise<void> {
     const startTime = Date.now();
-    const yesterday = new Date();
-    yesterday.setDate(yesterday.getDate() - 1);
-    yesterday.setHours(0, 0, 0, 0);
 
-    const today = new Date(yesterday);
-    today.setDate(today.getDate() + 1);
+    // Real-time aggregation: from start of today until now
+    const targetDate = new Date();
+    targetDate.setHours(0, 0, 0, 0); // Start of today
 
-    this.logger.log(`Starting daily metrics aggregation for ${yesterday.toISOString().split("T")[0]}`);
+    const now = new Date(); // Current time (end of range)
+
+    this.logger.log(
+      `Starting daily metrics aggregation for ${targetDate.toISOString().split("T")[0]} (up to ${now.toTimeString().split(" ")[0]})`,
+    );
 
     try {
       // Aggregate deal metrics by storage provider (no service_type for deals)
@@ -157,7 +160,7 @@ export class MetricsSchedulerService {
           updated_at = NOW()
         RETURNING sp_address
         `,
-        [yesterday, today],
+        [targetDate, now],
       );
 
       // Aggregate retrieval metrics by storage provider AND service_type
@@ -224,7 +227,7 @@ export class MetricsSchedulerService {
           updated_at = NOW()
         RETURNING sp_address, service_type
         `,
-        [yesterday, today],
+        [targetDate, now],
       );
 
       const duration = Date.now() - startTime;
