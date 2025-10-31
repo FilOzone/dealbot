@@ -1,10 +1,10 @@
 import { Filter, Search, X } from "lucide-react";
 import { useState } from "react";
+import { ServiceType } from "@/types/services";
 import { Button } from "./ui/button";
 import { Card } from "./ui/card";
 import { Input } from "./ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
-import { ServiceType } from "@/types/services";
 
 interface FailedRetrievalsFiltersProps {
   searchValue: string;

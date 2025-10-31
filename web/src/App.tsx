@@ -31,11 +31,15 @@ export default function App() {
   // Failed deals filter state
   const [failedDealsSearch, setFailedDealsSearch] = useState("");
   const [failedDealsProvider, setFailedDealsProvider] = useState("");
+  const [failedDealsPage, setFailedDealsPage] = useState(1);
+  const [failedDealsLimit, setFailedDealsLimit] = useState(20);
 
   // Failed retrievals filter state
   const [failedRetrievalsSearch, setFailedRetrievalsSearch] = useState("");
   const [failedRetrievalsProvider, setFailedRetrievalsProvider] = useState("");
   const [failedRetrievalsServiceType, setFailedRetrievalsServiceType] = useState<ServiceType | "all">("all");
+  const [failedRetrievalsPage, setFailedRetrievalsPage] = useState(1);
+  const [failedRetrievalsLimit, setFailedRetrievalsLimit] = useState(20);
 
   // Fetch data using new hooks
   const { data: networkStats, loading: statsLoading, error: statsError, refetch: refetchStats } = useNetworkStats();
@@ -46,7 +50,8 @@ export default function App() {
     loading: failedDealsLoading,
     error: failedDealsError,
   } = useFailedDeals({
-    limit: 20,
+    page: failedDealsPage,
+    limit: failedDealsLimit,
     spAddress: failedDealsProvider && failedDealsProvider !== "all" ? failedDealsProvider : undefined,
   });
   const {
@@ -54,7 +59,8 @@ export default function App() {
     loading: failedRetrievalsLoading,
     error: failedRetrievalsError,
   } = useFailedRetrievals({
-    limit: 20,
+    page: failedRetrievalsPage,
+    limit: failedRetrievalsLimit,
     spAddress: failedRetrievalsProvider && failedRetrievalsProvider !== "all" ? failedRetrievalsProvider : undefined,
     serviceType:
       failedRetrievalsServiceType && failedRetrievalsServiceType !== "all" ? failedRetrievalsServiceType : undefined,
@@ -92,6 +98,18 @@ export default function App() {
   const handleApprovedOnlyChange = (value: boolean) => {
     setApprovedOnly(value);
     setProviderOptions({ page: 1, limit: itemsPerPage, activeOnly, approvedOnly: value });
+  };
+
+  // Failed deals pagination handlers
+  const handleFailedDealsLimitChange = (newLimit: number) => {
+    setFailedDealsLimit(newLimit);
+    setFailedDealsPage(1); // Reset to first page when limit changes
+  };
+
+  // Failed retrievals pagination handlers
+  const handleFailedRetrievalsLimitChange = (newLimit: number) => {
+    setFailedRetrievalsLimit(newLimit);
+    setFailedRetrievalsPage(1); // Reset to first page when limit changes
   };
 
   // Calculate total pages
@@ -225,6 +243,8 @@ export default function App() {
                     providerFilter={failedDealsProvider}
                     onSearchChange={setFailedDealsSearch}
                     onProviderFilterChange={setFailedDealsProvider}
+                    onPageChange={setFailedDealsPage}
+                    onLimitChange={handleFailedDealsLimitChange}
                     providers={allProviders.map((p) => ({ address: p.provider.address, name: p.provider.name }))}
                   />
                 ) : null}
@@ -246,6 +266,8 @@ export default function App() {
                     onSearchChange={setFailedRetrievalsSearch}
                     onProviderFilterChange={setFailedRetrievalsProvider}
                     onServiceTypeFilterChange={setFailedRetrievalsServiceType}
+                    onPageChange={setFailedRetrievalsPage}
+                    onLimitChange={handleFailedRetrievalsLimitChange}
                     providers={allProviders.map((p) => ({ address: p.provider.address, name: p.provider.name }))}
                   />
                 ) : null}

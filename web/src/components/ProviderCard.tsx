@@ -3,6 +3,7 @@ import { useState } from "react";
 import type { ProviderCombinedPerformance, ProviderDetailResponse } from "@/types/providers";
 import { formatMilliseconds, formatThroughput } from "@/utils/formatter";
 import { calculateProviderHealth } from "@/utils/providerHealth";
+import { formatRegion } from "@/utils/regionFormatter";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Card, CardContent, CardHeader } from "./ui/card";
@@ -57,7 +58,8 @@ export function ProviderCard({ provider }: ProviderCardProps) {
     ? (() => {
         const avgAllTimeRate =
           (Number(provider.allTime!.dealSuccessRate) + Number(provider.allTime!.retrievalSuccessRate)) / 2;
-        const avg7dRate = (Number(provider.weekly!.dealSuccessRate) + Number(provider.weekly!.retrievalSuccessRate)) / 2;
+        const avg7dRate =
+          (Number(provider.weekly!.dealSuccessRate) + Number(provider.weekly!.retrievalSuccessRate)) / 2;
         return avg7dRate > avgAllTimeRate + 2;
       })()
     : false;
@@ -66,7 +68,8 @@ export function ProviderCard({ provider }: ProviderCardProps) {
     ? (() => {
         const avgAllTimeRate =
           (Number(provider.allTime!.dealSuccessRate) + Number(provider.allTime!.retrievalSuccessRate)) / 2;
-        const avg7dRate = (Number(provider.weekly!.dealSuccessRate) + Number(provider.weekly!.retrievalSuccessRate)) / 2;
+        const avg7dRate =
+          (Number(provider.weekly!.dealSuccessRate) + Number(provider.weekly!.retrievalSuccessRate)) / 2;
         return avgAllTimeRate > avg7dRate + 5;
       })()
     : false;
@@ -119,7 +122,9 @@ export function ProviderCard({ provider }: ProviderCardProps) {
             </Badge>
             <Badge
               variant={provider.provider.isApproved ? "default" : "outline"}
-              className={provider.provider.isApproved ? "bg-green-600 hover:bg-green-700 justify-center" : "justify-center"}
+              className={
+                provider.provider.isApproved ? "bg-green-600 hover:bg-green-700 justify-center" : "justify-center"
+              }
             >
               {provider.provider.isApproved ? "Approved" : "Pending"}
             </Badge>
@@ -185,7 +190,7 @@ export function ProviderCard({ provider }: ProviderCardProps) {
         <div className='space-y-3'>
           <div className='flex items-center justify-between text-sm'>
             <span className='text-muted-foreground'>Region</span>
-            <span className='font-medium'>{provider.provider.region || "Unknown"}</span>
+            <span className='font-medium'>{formatRegion(provider.provider.region)}</span>
           </div>
           {hasMetrics && (
             <div className='flex items-center justify-between text-sm'>
@@ -242,9 +247,7 @@ export function ProviderCard({ provider }: ProviderCardProps) {
                     <span className='text-sm text-muted-foreground'>Deal Success (All Time)</span>
                     <span
                       className={`text-sm font-semibold ${
-                        provider.allTime!.dealSuccessRate < SUCCESS_RATE_THRESHOLD
-                          ? "text-red-600"
-                          : "text-green-600"
+                        provider.allTime!.dealSuccessRate < SUCCESS_RATE_THRESHOLD ? "text-red-600" : "text-green-600"
                       }`}
                     >
                       {formatPercentage(provider.allTime!.dealSuccessRate)}
@@ -346,7 +349,9 @@ export function ProviderCard({ provider }: ProviderCardProps) {
               <div className='grid grid-cols-2 gap-3'>
                 <div className='space-y-1'>
                   <p className='text-xs text-muted-foreground'>Ingest</p>
-                  <p className='text-sm font-medium'>{formatThroughput(provider.allTime!.avgIngestThroughputBps ?? 0)}</p>
+                  <p className='text-sm font-medium'>
+                    {formatThroughput(provider.allTime!.avgIngestThroughputBps ?? 0)}
+                  </p>
                 </div>
                 <div className='space-y-1'>
                   <p className='text-xs text-muted-foreground'>Retrieval</p>
