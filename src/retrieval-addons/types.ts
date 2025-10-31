@@ -28,6 +28,9 @@ export interface RetrievalUrlResult {
 
   /** Additional metadata about the URL */
   metadata: Record<string, any>;
+
+  /** Url headers */
+  headers?: Record<string, string>;
 }
 
 /**

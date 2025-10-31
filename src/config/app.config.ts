@@ -82,6 +82,10 @@ export interface IProxyConfig {
   locations: string[];
 }
 
+export interface IFilBeamConfig {
+  botToken: string;
+}
+
 export interface IConfig {
   app: IAppConfig;
   database: IDatabaseConfig;
@@ -89,6 +93,7 @@ export interface IConfig {
   scheduling: ISchedulingConfig;
   dataset: IDatasetConfig;
   proxy: IProxyConfig;
+  filBeam: IFilBeamConfig;
 }
 
 export function loadConfig(): IConfig {
@@ -128,6 +133,9 @@ export function loadConfig(): IConfig {
     proxy: {
       list: process.env.PROXY_LIST?.split(",") || [],
       locations: process.env.PROXY_LOCATIONS?.split(",") || [],
+    },
+    filBeam: {
+      botToken: process.env.FILBEAM_BOT_TOKEN || "",
     },
   };
 }

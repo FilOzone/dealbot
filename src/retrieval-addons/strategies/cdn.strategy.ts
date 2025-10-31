@@ -1,7 +1,7 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { CDN_HOSTNAMES } from "../../common/constants.js";
-import type { IBlockchainConfig, IConfig } from "../../config/app.config.js";
+import type { IBlockchainConfig, IConfig, IFilBeamConfig } from "../../config/app.config.js";
 import { ServiceType } from "../../database/types.js";
 import type { IRetrievalAddon } from "../interfaces/retrieval-addon.interface.js";
 import type { ExpectedMetrics, RetrievalConfiguration, RetrievalUrlResult, ValidationResult } from "../types.js";
@@ -52,6 +52,7 @@ export class CdnRetrievalStrategy implements IRetrievalAddon {
    */
   constructUrl(config: RetrievalConfiguration): RetrievalUrlResult {
     const blockchainConfig = this.configService.get<IBlockchainConfig>("blockchain");
+    const filBeamConfig = this.configService.get<IFilBeamConfig>("filBeam");
     const cdnHostname = CDN_HOSTNAMES[blockchainConfig.network];
 
     if (!cdnHostname) {
@@ -69,6 +70,9 @@ export class CdnRetrievalStrategy implements IRetrievalAddon {
     return {
       url,
       method: this.name,
+      headers: {
+        Authorization: `Bearer ${filBeamConfig.botToken}`,
+      },
       metadata: {
         cdnHostname,
         walletAddress,

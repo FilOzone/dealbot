@@ -331,10 +331,14 @@ export class RetrievalAddonsService {
     try {
       let result: RequestWithMetrics<Buffer>;
       try {
-        result = await this.httpClientService.requestWithRandomProxyAndMetrics<Buffer>(urlResult.url);
+        result = await this.httpClientService.requestWithRandomProxyAndMetrics<Buffer>(urlResult.url, {
+          headers: urlResult.headers,
+        });
       } catch (error) {
         if (error.message === "No proxy available") {
-          result = await this.httpClientService.requestWithoutProxyAndMetrics<Buffer>(urlResult.url);
+          result = await this.httpClientService.requestWithoutProxyAndMetrics<Buffer>(urlResult.url, {
+            headers: urlResult.headers,
+          });
         } else {
           throw error;
         }

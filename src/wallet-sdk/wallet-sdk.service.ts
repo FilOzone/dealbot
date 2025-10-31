@@ -69,7 +69,9 @@ export class WalletSdkService implements OnModuleInit {
   }
 
   /**
-   * Load approved service providers from on-chain
+   * Load ALL registered service providers from on-chain (not just approved)
+   * This allows dealbot to test all FWSS SPs, even those not yet approved
+   * Only loads active providers that support the PDP product and excludes dev-tagged providers
    */
   async loadProviders(): Promise<void> {
     try {
@@ -120,7 +122,7 @@ export class WalletSdkService implements OnModuleInit {
         `Loaded ${this.providerCache.size} providers from on-chain (${this.activeProviderAddresses.size} testing) (${this.approvedProviderAddresses.size} approved)`,
       );
     } catch (error) {
-      this.logger.error("Failed to load approved providers from on-chain", error);
+      this.logger.error("Failed to load registered providers from on-chain", error);
       // Fallback to empty array, let the application handle this gracefully
       this.providerCache.clear();
       this.activeProviderAddresses.clear();
@@ -198,6 +200,7 @@ export class WalletSdkService implements OnModuleInit {
 
   /**
    * Get approved provider info by address
+   * @deprecated Use getProviderInfo() instead
    */
   getProviderInfo(address: string): ProviderInfoEx | undefined {
     return this.providerCache.get(address);
