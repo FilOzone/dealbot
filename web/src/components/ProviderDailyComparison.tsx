@@ -1,100 +1,81 @@
 import { CartesianGrid, Legend, Line, LineChart, XAxis, YAxis } from "recharts";
-import { formatThroughput } from "@/utils/formatter";
-import type { DailyMetricDto, ProviderDailyMetricDto } from "../types/stats";
+import type { ProviderDailyMetrics } from "../types/metrics";
+import { formatDuration, formatPercentage } from "../utils/formatters";
 import { type ChartConfig, ChartContainer, ChartTooltip, ChartTooltipContent } from "./ui/chart";
 
-function truncateName(name: string, maxLength: number = 20) {
-  if (name.length <= maxLength) return name;
-  return `${name.slice(0, maxLength - 1)}…`;
-}
+/**
+ * Provider daily comparison charts
+ * Displays provider-specific metrics over time for comparison
+ */
 
-function formatDate(dateStr: string) {
+function formatDate(dateStr: string): string {
   return new Date(dateStr).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
-type ProviderTrendData = {
-  date: string;
-  [providerKey: string]: string | number;
-};
-
-function transformProviderTrends(
-  dailyMetrics: DailyMetricDto[],
-  metricKey: keyof ProviderDailyMetricDto | "overallDealsSuccessRate",
-): { data: ProviderTrendData[]; providerNameMap: Map<string, string> } {
-  const providerNameMap = new Map<string, string>();
-
-  const data = dailyMetrics.map((day) => {
-    const row: ProviderTrendData = { date: formatDate(day.date) };
-
-    day.providers.forEach((p) => {
-      if (!providerNameMap.has(p.provider)) {
-        providerNameMap.set(p.provider, p.providerName);
-      }
-
-      const truncatedName = truncateName(p.providerName);
-
-      if (metricKey === "overallDealsSuccessRate") {
-        const cdnDeals = p.dealsWithCDN || 0;
-        const directDeals = p.dealsWithoutCDN || 0;
-        const totalDeals = cdnDeals + directDeals;
-
-        if (totalDeals > 0) {
-          const cdnSuccesses = (cdnDeals * (p.dealsSuccessRateWithCDN || 0)) / 100;
-          const directSuccesses = (directDeals * (p.dealsSuccessRateWithoutCDN || 0)) / 100;
-          row[truncatedName] = ((cdnSuccesses + directSuccesses) / totalDeals) * 100;
-        } else {
-          row[truncatedName] = 0;
-        }
-      } else {
-        row[truncatedName] = (p[metricKey] as number) || 0;
-      }
-    });
-
-    return row;
-  });
-
-  return { data, providerNameMap };
+function truncateAddress(address: string, maxLength: number = 12): string {
+  if (address.length <= maxLength) return address;
+  return `${address.slice(0, maxLength - 3)}...`;
 }
 
-// Generate colors for providers
-function getProviderColors(providers: string[]): string[] {
-  const colors = [
-    "#3b82f6",
-    "#ef4444",
-    "#22c55e",
-    "#f59e0b",
-    "#8b5cf6",
-    "#06b6d4",
-    "#f97316",
-    "#84cc16",
-    "#ec4899",
-    "#6366f1",
-  ];
-  return providers.map((_, index) => colors[index % colors.length]);
+type ChartDataPoint = {
+  date: string;
+  [key: string]: string | number;
+};
+
+/**
+ * Transform provider daily metrics to chart format
+ */
+function transformToChartData(
+  metrics: ProviderDailyMetrics[],
+  metricKey: keyof Omit<ProviderDailyMetrics, "date" | "spAddress">,
+): ChartDataPoint[] {
+  return metrics.map((metric) => ({
+    date: formatDate(metric.date),
+    value: metric[metricKey] as number,
+  }));
+}
+
+// Chart colors
+const CHART_COLORS = [
+  "#3b82f6", // blue
+  "#ef4444", // red
+  "#22c55e", // green
+  "#f59e0b", // amber
+  "#8b5cf6", // violet
+  "#06b6d4", // cyan
+  "#f97316", // orange
+  "#84cc16", // lime
+  "#ec4899", // pink
+  "#6366f1", // indigo
+];
+
+/**
+ * Single provider trend chart
+ */
+interface ProviderTrendChartProps {
+  metrics: ProviderDailyMetrics[];
+  title: string;
+  metricKey: keyof Omit<ProviderDailyMetrics, "date" | "spAddress">;
+  yTickFormatter?: (v: number) => string;
+  valueFormatter: (v: number) => string;
+  color?: string;
 }
 
 function ProviderTrendChart({
-  dailyMetrics,
+  metrics,
   title,
   metricKey,
   yTickFormatter,
-  type,
-}: {
-  dailyMetrics: DailyMetricDto[];
-  title: string;
-  metricKey: keyof ProviderDailyMetricDto | "overallDealsSuccessRate";
-  yTickFormatter?: (v: number) => string;
-  type: "percentage" | "throughput";
-}) {
-  const { data: chartData, providerNameMap } = transformProviderTrends(dailyMetrics, metricKey);
+  valueFormatter,
+  color = CHART_COLORS[0],
+}: ProviderTrendChartProps) {
+  const chartData = transformToChartData(metrics, metricKey);
+  const providerAddress = metrics[0]?.spAddress || "Provider";
+  const displayName = truncateAddress(providerAddress);
 
-  const providerNames = Array.from(providerNameMap.values()).map((name) => truncateName(name));
-  const colors = getProviderColors(providerNames);
-
-  const chartConfig = providerNames.reduce((acc, name) => {
-    acc[name] = { label: name, color: colors[providerNames.indexOf(name)] };
-    return acc;
-  }, {} as ChartConfig);
+  const chartConfig: ChartConfig = {
+    value: { label: displayName, color },
+  };
 
   return (
     <div>
@@ -104,27 +85,10 @@ function ProviderTrendChart({
           <LineChart data={chartData} margin={{ left: 30, top: 10 }}>
             <CartesianGrid strokeDasharray='3 3' />
             <XAxis dataKey='date' />
-            <YAxis tickFormatter={yTickFormatter} fontSize={12} />
-            <ChartTooltip
-              content={
-                <ChartTooltipContent
-                  indicator='line'
-                  valueFormatter={(v) => (type === "percentage" ? `${v}%` : formatThroughput(v as number))}
-                />
-              }
-            />
+            <YAxis tickFormatter={yTickFormatter as any} fontSize={12} />
+            <ChartTooltip content={<ChartTooltipContent valueFormatter={valueFormatter as any} />} />
             <Legend wrapperStyle={{ fontSize: "12px" }} />
-            {providerNames.map((name, index) => (
-              <Line
-                key={name}
-                type='monotone'
-                dataKey={name}
-                stroke={colors[index]}
-                strokeWidth={2}
-                name={name}
-                connectNulls={false}
-              />
-            ))}
+            <Line type='monotone' dataKey='value' stroke={color} strokeWidth={2} name={displayName} />
           </LineChart>
         </ChartContainer>
       </div>
@@ -132,25 +96,61 @@ function ProviderTrendChart({
   );
 }
 
-export function ProviderDailyComparison({ dailyMetrics }: { dailyMetrics: DailyMetricDto[] }) {
-  const fmtPct = (v: number) => `${v}%`;
+/**
+ * Provider daily comparison component
+ * Shows metrics trends for a specific provider over time
+ *
+ * Note: This component displays single-provider trends.
+ * For multi-provider comparison, use the useProviderMetrics hook
+ * with multiple providers and combine the data.
+ */
+export function ProviderDailyComparison({ metrics }: { metrics: ProviderDailyMetrics[] }) {
+  if (!metrics || metrics.length === 0) {
+    return (
+      <div className='text-center text-muted-foreground py-8'>
+        <p>No daily metrics available for this provider.</p>
+      </div>
+    );
+  }
 
   return (
     <div className='space-y-12'>
+      {/* Success Rates */}
       <ProviderTrendChart
-        dailyMetrics={dailyMetrics}
-        title='PROVIDER OVERALL SUCCESS RATE TRENDS'
-        metricKey='overallDealsSuccessRate'
-        yTickFormatter={fmtPct}
-        type='percentage'
+        metrics={metrics}
+        title='DEAL SUCCESS RATE TREND'
+        metricKey='dealSuccessRate'
+        yTickFormatter={(v) => formatPercentage(v)}
+        valueFormatter={(v) => formatPercentage(v)}
+        color={CHART_COLORS[0]}
       />
 
       <ProviderTrendChart
-        dailyMetrics={dailyMetrics}
-        title='PROVIDER RETRIEVAL THROUGHPUT TRENDS'
-        metricKey='avgRetrievalThroughputWithoutCDN'
-        yTickFormatter={formatThroughput}
-        type='throughput'
+        metrics={metrics}
+        title='RETRIEVAL SUCCESS RATE TREND'
+        metricKey='retrievalSuccessRate'
+        yTickFormatter={(v) => formatPercentage(v)}
+        valueFormatter={(v) => formatPercentage(v)}
+        color={CHART_COLORS[1]}
+      />
+
+      {/* Latencies */}
+      <ProviderTrendChart
+        metrics={metrics}
+        title='DEAL LATENCY TREND'
+        metricKey='avgDealLatencyMs'
+        yTickFormatter={(v) => formatDuration(v)}
+        valueFormatter={(v) => formatDuration(v)}
+        color={CHART_COLORS[2]}
+      />
+
+      <ProviderTrendChart
+        metrics={metrics}
+        title='RETRIEVAL LATENCY TREND'
+        metricKey='avgRetrievalLatencyMs'
+        yTickFormatter={(v) => formatDuration(v)}
+        valueFormatter={(v) => formatDuration(v)}
+        color={CHART_COLORS[3]}
       />
     </div>
   );

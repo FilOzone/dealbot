@@ -25,6 +25,11 @@ export interface ProviderPerformanceDto {
   last7dMetricsUpdate: Date | null;
 }
 
+export type MetricKey = keyof Omit<
+  ProviderPerformanceDto,
+  "provider" | "name" | "description" | "serviceUrl" | "payee" | "isActive" | "lastDealTime" | "last7dMetricsUpdate"
+>;
+
 export interface OverallStatsDto {
   totalDeals: number;
   totalRetrievals: number;

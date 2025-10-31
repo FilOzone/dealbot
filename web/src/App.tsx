@@ -2,114 +2,118 @@ import { useState } from "react";
 import { DailyMetricsCharts } from "./components/DailyMetricsCharts";
 import { ErrorState } from "./components/ErrorState";
 import { FailedDeals } from "./components/FailedDeals";
+import { FailedRetrievals } from "./components/FailedRetrievals";
 import { InfrastructureInfo } from "./components/InfrastructureInfo";
 import { ModeToggle } from "./components/mode-toggle";
 import { ProviderCards } from "./components/ProviderCards";
-import { ProviderDailyComparison } from "./components/ProviderDailyComparison";
-import { ProviderFilter } from "./components/ProviderFilter";
 import { Skeleton } from "./components/Skeleton";
 import { SummaryCards } from "./components/SummaryCards";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./components/ui/card";
-import { useDailyStats } from "./hooks/useDailyStats";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "./components/ui/tabs";
+import { useDailyMetrics } from "./hooks/useDailyMetrics";
 import { useDealbotConfig } from "./hooks/useDealbotConfig";
 import { useFailedDeals } from "./hooks/useFailedDeals";
-import { useOverallStats } from "./hooks/useOverallStats";
-import { calculateProviderHealth, filterProvidersByHealth, type HealthStatus } from "./utils/providerHealth";
+import { useFailedRetrievals } from "./hooks/useFailedRetrievals";
+import { useNetworkStats } from "./hooks/useNetworkStats";
+import { useProviders } from "./hooks/useProviders";
+import { ServiceType } from "./types/services";
 
-export type MetricKey =
-  | "dealSuccessRate"
-  | "retrievalSuccessRate"
-  | "ingestLatency"
-  | "chainLatency"
-  | "dealLatency"
-  | "retrievalLatency"
-  | "retrievalTTFB"
-  | "ingestThroughput"
-  | "retrievalThroughput"
-  | "totalDeals"
-  | "totalRetrievals";
-
-export type SortKey = "name" | "health" | "deals" | "retrievals";
+/**
+ * Main application component
+ * Displays network statistics, provider performance, and daily metrics
+ */
 
 export default function App() {
-  const { data, loading, error, refetch } = useOverallStats();
-  const { data: dailyData, loading: dailyLoading, error: dailyError } = useDailyStats();
-  const { data: configData, loading: configLoading } = useDealbotConfig();
+  // Filter state
+  const [activeOnly, setActiveOnly] = useState(true); // Default to showing only active providers
+  const [approvedOnly, setApprovedOnly] = useState(false);
 
-  // Provider filters state
-  const [providerSearch, setProviderSearch] = useState("");
-  const [providerHealthFilter, setProviderHealthFilter] = useState<HealthStatus[]>([]);
-  const [providerSortBy, setProviderSortBy] = useState<SortKey>("health");
-  const [providerSortOrder, setProviderSortOrder] = useState<"asc" | "desc">("desc");
-
-  // Failed deals filters state
-  const [failedDealsPage, setFailedDealsPage] = useState(1);
+  // Failed deals filter state
   const [failedDealsSearch, setFailedDealsSearch] = useState("");
-  const [failedDealsProvider, setFailedDealsProvider] = useState("all");
-  const [failedDealsCDN, setFailedDealsCDN] = useState<boolean | undefined>(undefined);
+  const [failedDealsProvider, setFailedDealsProvider] = useState("");
 
-  const { data: failedDealsData, error: failedDealsError } = useFailedDeals({
-    page: failedDealsPage,
-    limit: 10,
-    search: failedDealsSearch,
-    provider: failedDealsProvider === "all" ? undefined : failedDealsProvider,
-    withCDN: failedDealsCDN,
+  // Failed retrievals filter state
+  const [failedRetrievalsSearch, setFailedRetrievalsSearch] = useState("");
+  const [failedRetrievalsProvider, setFailedRetrievalsProvider] = useState("");
+  const [failedRetrievalsServiceType, setFailedRetrievalsServiceType] = useState<ServiceType | "all">("all");
+
+  // Fetch data using new hooks
+  const { data: networkStats, loading: statsLoading, error: statsError, refetch: refetchStats } = useNetworkStats();
+  const { data: dailyMetricsData, error: dailyError } = useDailyMetrics(30);
+  const { data: configData, loading: configLoading } = useDealbotConfig();
+  const {
+    data: failedDealsData,
+    loading: failedDealsLoading,
+    error: failedDealsError,
+  } = useFailedDeals({
+    limit: 20,
+    spAddress: failedDealsProvider && failedDealsProvider !== "all" ? failedDealsProvider : undefined,
+  });
+  const {
+    data: failedRetrievalsData,
+    loading: failedRetrievalsLoading,
+    error: failedRetrievalsError,
+  } = useFailedRetrievals({
+    limit: 20,
+    spAddress: failedRetrievalsProvider && failedRetrievalsProvider !== "all" ? failedRetrievalsProvider : undefined,
+    serviceType:
+      failedRetrievalsServiceType && failedRetrievalsServiceType !== "all" ? failedRetrievalsServiceType : undefined,
   });
 
-  if (loading || dailyLoading) return <Skeleton />;
-  if (error)
+  // Providers with pagination and filters
+  const {
+    providers,
+    total: totalProviders,
+    page: currentPage,
+    limit: itemsPerPage,
+    loading: providersLoading,
+    error: providersError,
+    setOptions: setProviderOptions,
+  } = useProviders({
+    page: 1,
+    limit: 12, // Show 12 providers per page (4 rows of 3 cards)
+    activeOnly,
+    approvedOnly,
+  });
+
+  // Handle page change
+  const handlePageChange = (page: number) => {
+    setProviderOptions({ page, limit: itemsPerPage, activeOnly, approvedOnly });
+    // Scroll to top of providers section
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  // Handle filter changes
+  const handleActiveOnlyChange = (value: boolean) => {
+    setActiveOnly(value);
+    setProviderOptions({ page: 1, limit: itemsPerPage, activeOnly: value, approvedOnly });
+  };
+
+  const handleApprovedOnlyChange = (value: boolean) => {
+    setApprovedOnly(value);
+    setProviderOptions({ page: 1, limit: itemsPerPage, activeOnly, approvedOnly: value });
+  };
+
+  // Calculate total pages
+  const totalPages = Math.ceil(totalProviders / itemsPerPage);
+
+  // Loading state
+  if (statsLoading || providersLoading) return <Skeleton />;
+
+  // Error state
+  if (statsError) {
     return (
       <div className='p-6'>
-        <ErrorState message={error} onRetry={refetch} />
+        <ErrorState message={statsError} onRetry={refetchStats} />
       </div>
     );
-  if (!data) return null;
-
-  const allProviders = data.overallStats.providerPerformance;
-
-  // Filter and sort providers
-  let filteredProviders = allProviders;
-
-  // Apply search filter
-  if (providerSearch) {
-    const searchLower = providerSearch.toLowerCase();
-    filteredProviders = filteredProviders.filter(
-      (p) =>
-        p.name.toLowerCase().includes(searchLower) ||
-        p.provider.toLowerCase().includes(searchLower) ||
-        p.description?.toLowerCase().includes(searchLower),
-    );
   }
 
-  // Apply health status filter
-  if (providerHealthFilter.length > 0) {
-    filteredProviders = filterProvidersByHealth(filteredProviders, providerHealthFilter);
-  }
+  // Don't render if critical data is missing
+  if (!networkStats) return null;
 
-  // Sort providers
-  filteredProviders = [...filteredProviders].sort((a, b) => {
-    let compareValue = 0;
-
-    switch (providerSortBy) {
-      case "name":
-        compareValue = a.name.localeCompare(b.name);
-        break;
-      case "health": {
-        const healthA = calculateProviderHealth(a).score;
-        const healthB = calculateProviderHealth(b).score;
-        compareValue = healthA - healthB;
-        break;
-      }
-      case "deals":
-        compareValue = a.totalDeals - b.totalDeals;
-        break;
-      case "retrievals":
-        compareValue = a.totalRetrievals - b.totalRetrievals;
-        break;
-    }
-
-    return providerSortOrder === "asc" ? compareValue : -compareValue;
-  });
+  const allProviders = providers || [];
+  const dailyMetrics = dailyMetricsData?.dailyMetrics || [];
 
   return (
     <div className='min-h-screen bg-background text-foreground'>
@@ -135,7 +139,7 @@ export default function App() {
           <p className='text-sm text-muted-foreground'>Automated deal creation & storage performance monitoring</p>
         </div>
 
-        {/* Infrastructure Configuration */}
+        {/* Infrastructure Configuration - Temporarily disabled until InfrastructureInfo is migrated */}
         {configData && !configLoading && (
           <Card>
             <CardHeader>
@@ -148,116 +152,122 @@ export default function App() {
           </Card>
         )}
 
-        <SummaryCards stats={data.overallStats} />
+        <SummaryCards stats={networkStats?.overall} />
 
         <Card>
           <CardHeader>
             <CardTitle>Storage provider performance</CardTitle>
             <CardDescription>
-              {filteredProviders.length} of {allProviders.length} providers shown • Sorted by{" "}
-              {providerSortBy === "health"
-                ? "health score"
-                : providerSortBy === "name"
-                  ? "name"
-                  : providerSortBy === "deals"
-                    ? "total deals"
-                    : "total retrievals"}
+              Showing {allProviders.length} of {totalProviders} providers • Page {currentPage} of {totalPages}
             </CardDescription>
           </CardHeader>
           <CardContent className='space-y-6'>
-            <ProviderFilter
-              searchValue={providerSearch}
-              onSearchChange={setProviderSearch}
-              healthFilter={providerHealthFilter}
-              onHealthFilterChange={setProviderHealthFilter}
-              sortBy={providerSortBy}
-              onSortChange={setProviderSortBy}
-              sortOrder={providerSortOrder}
-              onSortOrderChange={setProviderSortOrder}
+            <ProviderCards
+              providers={allProviders}
+              currentPage={currentPage}
+              totalPages={totalPages}
+              totalItems={totalProviders}
+              itemsPerPage={itemsPerPage}
+              onPageChange={handlePageChange}
+              activeOnly={activeOnly}
+              approvedOnly={approvedOnly}
+              onActiveOnlyChange={handleActiveOnlyChange}
+              onApprovedOnlyChange={handleApprovedOnlyChange}
             />
-            <ProviderCards providers={filteredProviders} />
           </CardContent>
         </Card>
 
         {/* Daily Metrics Section */}
-        {dailyData && dailyData.dailyMetrics.length > 0 && (
+        {dailyMetrics && dailyMetrics.length > 0 && (
           <Card>
             <CardHeader>
               <CardTitle>Daily metrics trends</CardTitle>
-              <CardDescription>
-                CDN vs Direct performance over time ({dailyData.summary.totalDays} days)
-              </CardDescription>
+              <CardDescription>Network performance over time ({dailyMetrics.length} days)</CardDescription>
             </CardHeader>
             <CardContent>
-              <DailyMetricsCharts dailyMetrics={dailyData.dailyMetrics} />
+              <DailyMetricsCharts dailyMetrics={dailyMetrics} />
             </CardContent>
           </Card>
         )}
 
+        {/* Failed Deals & Retrievals Section with Tabs */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Failure Analysis</CardTitle>
+            <CardDescription>
+              Track and analyze failed deals and retrievals • Click to expand for details
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Tabs defaultValue='deals' className='w-full'>
+              <TabsList className='grid w-full grid-cols-2 mb-4'>
+                <TabsTrigger value='deals'>
+                  Failed Deals
+                  {failedDealsData && ` (${failedDealsData.summary.totalFailedDeals})`}
+                </TabsTrigger>
+                <TabsTrigger value='retrievals'>
+                  Failed Retrievals
+                  {failedRetrievalsData && ` (${failedRetrievalsData.summary.totalFailedRetrievals})`}
+                </TabsTrigger>
+              </TabsList>
+
+              <TabsContent value='deals'>
+                {failedDealsLoading ? (
+                  <div className='text-center py-12'>
+                    <p className='text-muted-foreground'>Loading failed deals...</p>
+                  </div>
+                ) : failedDealsError ? (
+                  <ErrorState message={failedDealsError} onRetry={() => window.location.reload()} />
+                ) : failedDealsData ? (
+                  <FailedDeals
+                    data={failedDealsData}
+                    searchValue={failedDealsSearch}
+                    providerFilter={failedDealsProvider}
+                    onSearchChange={setFailedDealsSearch}
+                    onProviderFilterChange={setFailedDealsProvider}
+                    providers={allProviders.map((p) => ({ address: p.provider.address, name: p.provider.name }))}
+                  />
+                ) : null}
+              </TabsContent>
+
+              <TabsContent value='retrievals'>
+                {failedRetrievalsLoading ? (
+                  <div className='text-center py-12'>
+                    <p className='text-muted-foreground'>Loading failed retrievals...</p>
+                  </div>
+                ) : failedRetrievalsError ? (
+                  <ErrorState message={failedRetrievalsError} onRetry={() => window.location.reload()} />
+                ) : failedRetrievalsData ? (
+                  <FailedRetrievals
+                    data={failedRetrievalsData}
+                    searchValue={failedRetrievalsSearch}
+                    providerFilter={failedRetrievalsProvider}
+                    serviceTypeFilter={failedRetrievalsServiceType}
+                    onSearchChange={setFailedRetrievalsSearch}
+                    onProviderFilterChange={setFailedRetrievalsProvider}
+                    onServiceTypeFilterChange={setFailedRetrievalsServiceType}
+                    providers={allProviders.map((p) => ({ address: p.provider.address, name: p.provider.name }))}
+                  />
+                ) : null}
+              </TabsContent>
+            </Tabs>
+          </CardContent>
+        </Card>
+
         {/* Provider Daily Comparison Section */}
-        {dailyData && dailyData.dailyMetrics.length > 0 && (
+        {/* {allProviders.length > 0 && (
           <Card>
             <CardHeader>
               <CardTitle>Provider performance trends</CardTitle>
-              <CardDescription>
-                Daily performance trends by provider over {dailyData.summary.totalDays} days
-              </CardDescription>
+              <CardDescription>Compare individual provider performance over time (last 30 days)</CardDescription>
             </CardHeader>
             <CardContent>
-              <ProviderDailyComparison dailyMetrics={dailyData.dailyMetrics} />
+              <ProviderComparison providers={allProviders} days={30} />
             </CardContent>
           </Card>
-        )}
+        )} */}
 
-        {/* Failed Deals Section */}
-        {failedDealsData && (
-          <Card>
-            <CardHeader>
-              <CardTitle>Failed Deals Analysis</CardTitle>
-              <CardDescription>
-                Search, filter, and analyze failed deals with detailed error information
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <FailedDeals
-                data={failedDealsData}
-                onPageChange={(page) => setFailedDealsPage(page)}
-                onSearchChange={(search) => {
-                  setFailedDealsSearch(search);
-                  setFailedDealsPage(1);
-                }}
-                onProviderFilter={(provider) => {
-                  setFailedDealsProvider(provider);
-                  setFailedDealsPage(1);
-                }}
-                onCDNFilter={(withCDN) => {
-                  setFailedDealsCDN(withCDN);
-                  setFailedDealsPage(1);
-                }}
-                currentFilters={{
-                  search: failedDealsSearch,
-                  provider: failedDealsProvider,
-                  withCDN: failedDealsCDN,
-                }}
-              />
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Failed Deals Error State */}
-        {failedDealsError && (
-          <Card>
-            <CardHeader>
-              <CardTitle>Failed deals unavailable</CardTitle>
-              <CardDescription>Unable to load failed deals data</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <ErrorState message={failedDealsError} onRetry={() => window.location.reload()} />
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Daily Error State */}
+        {/* Daily Metrics Error State */}
         {dailyError && (
           <Card>
             <CardHeader>
@@ -266,6 +276,19 @@ export default function App() {
             </CardHeader>
             <CardContent>
               <ErrorState message={dailyError} onRetry={() => window.location.reload()} />
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Provider Error State */}
+        {providersError && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Provider data unavailable</CardTitle>
+              <CardDescription>Unable to load provider performance data</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ErrorState message={providersError} onRetry={() => window.location.reload()} />
             </CardContent>
           </Card>
         )}

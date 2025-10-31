@@ -1,4 +1,4 @@
-import type { ProviderPerformanceDto } from "../types/stats";
+import type { ProviderDetailResponse } from "@/types/providers";
 
 export type HealthStatus = "excellent" | "good" | "warning" | "critical" | "inactive";
 
@@ -26,17 +26,12 @@ const THRESHOLDS = {
 /**
  * Calculate comprehensive provider health status based on multiple criteria
  */
-export function calculateProviderHealth(provider: ProviderPerformanceDto): HealthCriteria {
+export function calculateProviderHealth(provider: ProviderDetailResponse): HealthCriteria {
   const reasons: string[] = [];
   let status: HealthStatus = "good";
   let score = 100;
 
-  // Check if provider is inactive
-  const daysSinceLastDeal = provider.lastDealTime
-    ? Math.floor((Date.now() - new Date(provider.lastDealTime).getTime()) / (1000 * 60 * 60 * 24))
-    : Number.POSITIVE_INFINITY;
-
-  if (!provider.isActive || daysSinceLastDeal > THRESHOLDS.INACTIVE_DAYS) {
+  if (!provider.provider.isActive) {
     return {
       status: "inactive",
       label: "Inactive",
@@ -50,7 +45,7 @@ export function calculateProviderHealth(provider: ProviderPerformanceDto): Healt
   }
 
   // Primary criteria: 7-day success rates (most important for current performance)
-  const avg7dRate = (provider.dealSuccessRate7d + provider.retrievalSuccessRate7d) / 2;
+  const avg7dRate = (Number(provider.weekly.dealSuccessRate) + Number(provider.weekly.retrievalSuccessRate)) / 2;
 
   if (avg7dRate >= THRESHOLDS.EXCELLENT) {
     status = "excellent";
@@ -74,7 +69,7 @@ export function calculateProviderHealth(provider: ProviderPerformanceDto): Healt
   }
 
   // Check for degradation: 7-day vs all-time
-  const avgAllTimeRate = (provider.dealSuccessRate + provider.retrievalSuccessRate) / 2;
+  const avgAllTimeRate = (Number(provider.allTime.dealSuccessRate) + Number(provider.allTime.retrievalSuccessRate)) / 2;
   const degradation = avgAllTimeRate - avg7dRate;
 
   if (degradation > THRESHOLDS.DEGRADATION_THRESHOLD) {
@@ -90,24 +85,14 @@ export function calculateProviderHealth(provider: ProviderPerformanceDto): Healt
   }
 
   // Check individual metrics
-  if (provider.dealSuccessRate7d < THRESHOLDS.WARNING) {
+  if (Number(provider.weekly.dealSuccessRate) < THRESHOLDS.WARNING) {
     score -= 10;
-    reasons.push(`Low deal success rate (${provider.dealSuccessRate7d.toFixed(1)}%)`);
+    reasons.push(`Low deal success rate (${Number(provider.weekly.dealSuccessRate).toFixed(1)}%)`);
   }
 
-  if (provider.retrievalSuccessRate7d < THRESHOLDS.WARNING) {
+  if (Number(provider.weekly.retrievalSuccessRate) < THRESHOLDS.WARNING) {
     score -= 10;
-    reasons.push(`Low retrieval success rate (${provider.retrievalSuccessRate7d.toFixed(1)}%)`);
-  }
-
-  // Check for stale metrics
-  if (provider.last7dMetricsUpdate) {
-    const hoursSinceUpdate = Math.floor(
-      (Date.now() - new Date(provider.last7dMetricsUpdate).getTime()) / (1000 * 60 * 60),
-    );
-    if (hoursSinceUpdate > 48) {
-      reasons.push(`Metrics not updated recently (${Math.floor(hoursSinceUpdate / 24)} days ago)`);
-    }
+    reasons.push(`Low retrieval success rate (${Number(provider.weekly.retrievalSuccessRate).toFixed(1)}%)`);
   }
 
   // Clamp score between 0 and 100
@@ -164,9 +149,9 @@ export function calculateProviderHealth(provider: ProviderPerformanceDto): Healt
  * Sort providers by health status (worst first for attention)
  */
 export function sortProvidersByHealth(
-  providers: ProviderPerformanceDto[],
+  providers: ProviderDetailResponse[],
   order: "asc" | "desc" = "asc",
-): ProviderPerformanceDto[] {
+): ProviderDetailResponse[] {
   const healthScores = new Map(providers.map((p) => [p.provider, calculateProviderHealth(p).score]));
 
   return [...providers].sort((a, b) => {
@@ -180,8 +165,8 @@ export function sortProvidersByHealth(
  * Filter providers by health status
  */
 export function filterProvidersByHealth(
-  providers: ProviderPerformanceDto[],
+  providers: ProviderDetailResponse[],
   statuses: HealthStatus[],
-): ProviderPerformanceDto[] {
+): ProviderDetailResponse[] {
   return providers.filter((p) => statuses.includes(calculateProviderHealth(p).status));
 }

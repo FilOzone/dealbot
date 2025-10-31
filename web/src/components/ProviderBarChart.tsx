@@ -1,6 +1,5 @@
 import { Bar, BarChart, CartesianGrid, Legend, XAxis, YAxis } from "recharts";
-import type { MetricKey } from "../App";
-import type { ProviderPerformanceDto } from "../types/stats";
+import type { MetricKey, ProviderPerformanceDto } from "../types/stats";
 import { type ChartConfig, ChartContainer, ChartTooltip, ChartTooltipContent } from "./ui/chart";
 
 function short(addr: string) {

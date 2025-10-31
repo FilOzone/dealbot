@@ -1,146 +1,78 @@
-import { Bar, BarChart, CartesianGrid, Legend, Line, LineChart, XAxis, YAxis } from "recharts";
-import { formatMilliseconds, formatThroughput } from "@/utils/formatter";
-import type { DailyMetricDto } from "../types/stats";
+import { CartesianGrid, Legend, Line, LineChart, XAxis, YAxis } from "recharts";
+import { formatThroughput } from "@/utils/formatter";
+import type { DailyAggregatedMetrics } from "../types/metrics";
+import { formatDuration, formatPercentage } from "../utils/formatters";
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "./ui/chart";
 
-type ChartData = {
+/**
+ * Daily metrics charts component
+ * Displays time-series visualizations of network performance
+ */
+
+type ChartDataPoint = {
   date: string;
-  withCDN: number;
-  withoutCDN: number;
+  [key: string]: string | number;
 };
 
-type ThroughputChartData = {
-  date: string;
-  ingestWithCDN: number;
-  ingestWithoutCDN: number;
-  retrievalWithCDN: number;
-  retrievalWithoutCDN: number;
-};
-
-function formatDate(dateStr: string) {
+function formatDate(dateStr: string): string {
   return new Date(dateStr).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
-function transformData(
-  dailyMetrics: DailyMetricDto[],
-  cdnKey: keyof DailyMetricDto,
-  noCdnKey: keyof DailyMetricDto,
-): ChartData[] {
-  return dailyMetrics.map((metric) => ({
-    date: formatDate(metric.date),
-    withCDN: metric[cdnKey] as number,
-    withoutCDN: metric[noCdnKey] as number,
-  }));
+/**
+ * Transform daily metrics to chart data format
+ */
+function transformToChartData(
+  dailyMetrics: DailyAggregatedMetrics[],
+  dataKeys: Array<{ key: keyof DailyAggregatedMetrics; label: string }>,
+): ChartDataPoint[] {
+  return dailyMetrics.map((metric) => {
+    const point: ChartDataPoint = { date: formatDate(metric.date) };
+    dataKeys.forEach(({ key, label }) => {
+      point[label] = metric[key] as number;
+    });
+    return point;
+  });
 }
 
-function transformThroughputData(dailyMetrics: DailyMetricDto[]): ThroughputChartData[] {
-  return dailyMetrics.map((metric) => ({
-    date: formatDate(metric.date),
-    ingestWithCDN: metric.avgIngestThroughputWithCDN || 0,
-    ingestWithoutCDN: metric.avgIngestThroughputWithoutCDN || 0,
-    retrievalWithCDN: metric.avgRetrievalThroughputWithCDN || 0,
-    retrievalWithoutCDN: metric.avgRetrievalThroughputWithoutCDN || 0,
-  }));
-}
-
-interface DailyChartProps {
-  data: DailyMetricDto[];
+/**
+ * Generic line chart component for daily metrics
+ */
+interface DailyLineChartProps {
+  data: DailyAggregatedMetrics[];
   title: string;
-  cdnKey: keyof DailyMetricDto;
-  noCdnKey: keyof DailyMetricDto;
+  dataKeys: Array<{ key: keyof DailyAggregatedMetrics; label: string; color: string }>;
   yTickFormatter?: (v: number) => string;
-  type: "percentage" | "milliseconds";
+  valueFormatter: (v: number) => string;
 }
 
-function DailyChart({ data, title, cdnKey, noCdnKey, yTickFormatter, type }: DailyChartProps) {
-  const chartData = transformData(data, cdnKey, noCdnKey);
+function DailyLineChart({ data, title, dataKeys, yTickFormatter, valueFormatter }: DailyLineChartProps) {
+  const chartData = transformToChartData(
+    data,
+    dataKeys.map(({ key, label }) => ({ key, label })),
+  );
 
-  const chartConfig = {
-    withCDN: { label: "With CDN", color: "var(--chart-1)" },
-    withoutCDN: { label: "Without CDN", color: "var(--chart-2)" },
-  };
+  const chartConfig = dataKeys.reduce(
+    (config, { label, color }) => ({
+      ...config,
+      [label]: { label, color },
+    }),
+    {},
+  );
 
   return (
     <div>
       <p className='text-sm text-muted-foreground mb-3'>{title}</p>
       <div className='w-full h-[420px]'>
         <ChartContainer config={chartConfig} className='min-h-[200px] h-full w-full'>
-          <BarChart data={chartData} margin={{ left: 30, top: 20 }}>
-            <CartesianGrid strokeDasharray='3 3' />
-            <XAxis dataKey='date' />
-            <YAxis tickFormatter={yTickFormatter} fontSize={12} />
-            <ChartTooltip
-              content={
-                <ChartTooltipContent
-                  valueFormatter={(v) => (type === "percentage" ? `${v}%` : formatMilliseconds(v as number))}
-                />
-              }
-            />
-            <Legend />
-            <Bar dataKey='withCDN' fill='var(--chart-1)' name='With CDN' radius={6} maxBarSize={100} />
-            <Bar dataKey='withoutCDN' fill='var(--chart-2)' name='Without CDN' radius={6} maxBarSize={100} />
-          </BarChart>
-        </ChartContainer>
-      </div>
-    </div>
-  );
-}
-
-function ThroughputLineChart({
-  data,
-  yTickFormatter,
-}: {
-  data: DailyMetricDto[];
-  yTickFormatter?: (v: number) => string;
-}) {
-  const chartData = transformThroughputData(data);
-
-  const chartConfig = {
-    ingestWithCDN: { label: "Ingest (CDN)", color: "var(--chart-1)" },
-    ingestWithoutCDN: { label: "Ingest (Direct)", color: "var(--chart-3)" },
-    retrievalWithCDN: { label: "Retrieval (CDN)", color: "var(--chart-2)" },
-    retrievalWithoutCDN: { label: "Retrieval (Direct)", color: "var(--chart-5)" },
-  };
-
-  return (
-    <div>
-      <p className='text-sm text-muted-foreground mb-3'>Throughput trends (daily)</p>
-      <div className='w-full h-[420px]'>
-        <ChartContainer config={chartConfig} className='min-h-[200px] h-full w-full'>
           <LineChart data={chartData} margin={{ left: 30, top: 20 }}>
             <CartesianGrid strokeDasharray='3 3' />
             <XAxis dataKey='date' />
-            <YAxis tickFormatter={yTickFormatter} fontSize={12} />
-            <ChartTooltip content={<ChartTooltipContent valueFormatter={(v) => formatThroughput(v as number)} />} />
+            <YAxis tickFormatter={yTickFormatter as any} fontSize={12} />
+            <ChartTooltip content={<ChartTooltipContent valueFormatter={valueFormatter as any} />} />
             <Legend />
-            <Line
-              type='monotone'
-              dataKey='ingestWithCDN'
-              stroke='var(--color-ingestWithCDN)'
-              name='Ingest (CDN)'
-              strokeWidth={2}
-            />
-            <Line
-              type='monotone'
-              dataKey='ingestWithoutCDN'
-              stroke='var(--color-ingestWithoutCDN)'
-              name='Ingest (Direct)'
-              strokeWidth={2}
-            />
-            <Line
-              type='monotone'
-              dataKey='retrievalWithCDN'
-              stroke='var(--color-retrievalWithCDN)'
-              name='Retrieval (CDN)'
-              strokeWidth={2}
-            />
-            <Line
-              type='monotone'
-              dataKey='retrievalWithoutCDN'
-              stroke='var(--color-retrievalWithoutCDN)'
-              name='Retrieval (Direct)'
-              strokeWidth={2}
-            />
+            {dataKeys.map(({ label, color }) => (
+              <Line key={label} type='monotone' dataKey={label} stroke={color} name={label} strokeWidth={2} />
+            ))}
           </LineChart>
         </ChartContainer>
       </div>
@@ -148,38 +80,47 @@ function ThroughputLineChart({
   );
 }
 
-export function DailyMetricsCharts({ dailyMetrics }: { dailyMetrics: DailyMetricDto[] }) {
-  const fmtPct = (v: number) => `${v.toFixed(2)}%`;
-
+/**
+ * Main component displaying all daily metrics charts
+ */
+export function DailyMetricsCharts({ dailyMetrics }: { dailyMetrics: DailyAggregatedMetrics[] }) {
   return (
     <div className='space-y-12'>
-      <ThroughputLineChart data={dailyMetrics} yTickFormatter={formatThroughput} />
-
-      <DailyChart
+      {/* Success Rates */}
+      <DailyLineChart
         data={dailyMetrics}
-        title='RETRIEVAL SUCCESS RATES (DAILY)'
-        cdnKey='retrievalsSuccessRateWithCDN'
-        noCdnKey='retrievalsSuccessRateWithoutCDN'
-        yTickFormatter={fmtPct}
-        type='percentage'
+        title='SUCCESS RATES (DAILY)'
+        dataKeys={[
+          { key: "dealSuccessRate", label: "Deal Success Rate", color: "var(--chart-1)" },
+          { key: "retrievalSuccessRate", label: "Retrieval Success Rate", color: "var(--chart-2)" },
+        ]}
+        yTickFormatter={(v) => formatPercentage(v)}
+        valueFormatter={(v) => formatPercentage(v)}
       />
 
-      <DailyChart
+      {/* Latencies */}
+      <DailyLineChart
         data={dailyMetrics}
-        title='RETRIEVAL LATENCY (DAILY)'
-        cdnKey='avgRetrievalLatencyWithCDN'
-        noCdnKey='avgRetrievalLatencyWithoutCDN'
-        yTickFormatter={formatMilliseconds}
-        type='milliseconds'
+        title='LATENCIES (DAILY)'
+        dataKeys={[
+          { key: "avgIngestLatencyMs", label: "Deal Ingest Latency", color: "var(--chart-1)" },
+          { key: "avgRetrievalLatencyMs", label: "Retrieval Latency", color: "var(--chart-2)" },
+          { key: "avgRetrievalTtfbMs", label: "Retrieval TTFB", color: "var(--chart-3)" },
+        ]}
+        yTickFormatter={(v) => formatDuration(v)}
+        valueFormatter={(v) => formatDuration(v)}
       />
 
-      <DailyChart
+      {/* Unique Providers */}
+      <DailyLineChart
         data={dailyMetrics}
-        title='RETRIEVAL TIME TO FIRST BYTE (DAILY)'
-        cdnKey='avgRetrievalTTFBWithCDN'
-        noCdnKey='avgRetrievalTTFBWithoutCDN'
-        yTickFormatter={formatMilliseconds}
-        type='milliseconds'
+        title='Throughputs (DAILY)'
+        dataKeys={[
+          { key: "avgRetrievalThroughputBps", label: "Retrieval Throughput", color: "var(--chart-1)" },
+          { key: "avgIngestThroughputBps", label: "Ingest Throughput", color: "var(--chart-2)" },
+        ]}
+        yTickFormatter={(v) => formatThroughput(v)}
+        valueFormatter={(v) => formatThroughput(v)}
       />
     </div>
   );

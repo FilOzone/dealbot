@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
-import { fetchFailedDeals as apiFetchFailedDeals } from "../api/client";
-import type { FailedDealsQueryOptions, FailedDealsResponse } from "../types/failed-deals";
+import { fetchFailedRetrievals as apiFetchFailedRetrievals } from "../api/client";
+import type { FailedRetrievalsQueryOptions, FailedRetrievalsResponse } from "../types/failed-retrievals";
 
-export function useFailedDeals(options: FailedDealsQueryOptions = {}) {
-  const [data, setData] = useState<FailedDealsResponse | null>(null);
+export function useFailedRetrievals(options: FailedRetrievalsQueryOptions = {}) {
+  const [data, setData] = useState<FailedRetrievalsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   // Extract individual values to use as dependencies
-  const { page, limit, spAddress, startDate, endDate } = options;
+  const { page, limit, spAddress, serviceType, startDate, endDate } = options;
 
   useEffect(() => {
     let isCancelled = false;
@@ -18,21 +18,19 @@ export function useFailedDeals(options: FailedDealsQueryOptions = {}) {
         setLoading(true);
         setError(null);
 
-        const result = await apiFetchFailedDeals({ page, limit, spAddress, startDate, endDate });
+        const result = await apiFetchFailedRetrievals({ page, limit, spAddress, serviceType, startDate, endDate });
 
         if (isCancelled) return;
 
         // Convert date strings to Date objects
         const processedResult = {
           ...result,
-          failedDeals: result.failedDeals.map((deal) => ({
-            ...deal,
-            createdAt: new Date(deal.createdAt),
-            updatedAt: new Date(deal.updatedAt),
-            uploadStartTime: deal.uploadStartTime ? new Date(deal.uploadStartTime) : undefined,
-            uploadEndTime: deal.uploadEndTime ? new Date(deal.uploadEndTime) : undefined,
-            pieceAddedTime: deal.pieceAddedTime ? new Date(deal.pieceAddedTime) : undefined,
-            dealConfirmedTime: deal.dealConfirmedTime ? new Date(deal.dealConfirmedTime) : undefined,
+          failedRetrievals: result.failedRetrievals.map((retrieval) => ({
+            ...retrieval,
+            startedAt: new Date(retrieval.startedAt),
+            completedAt: retrieval.completedAt ? new Date(retrieval.completedAt) : undefined,
+            createdAt: new Date(retrieval.createdAt),
+            updatedAt: new Date(retrieval.updatedAt),
           })),
         };
 
@@ -54,7 +52,7 @@ export function useFailedDeals(options: FailedDealsQueryOptions = {}) {
     return () => {
       isCancelled = true;
     };
-  }, [page, limit, spAddress, startDate, endDate]);
+  }, [page, limit, spAddress, serviceType, startDate, endDate]);
 
   const refetch = useCallback(() => {
     setLoading(true);
