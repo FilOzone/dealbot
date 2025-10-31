@@ -2,7 +2,7 @@ import { BadRequestException, Injectable, Logger } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import type { Repository } from "typeorm";
 import { Retrieval } from "../../database/entities/retrieval.entity.js";
-import { RetrievalStatus } from "../../database/types.js";
+import { RetrievalStatus, ServiceType } from "../../database/types.js";
 import type {
   FailedRetrievalDto,
   FailedRetrievalsResponseDto,
@@ -52,7 +52,7 @@ export class FailedRetrievalsService {
     limit: number = 20,
     search?: string,
     provider?: string,
-    serviceType?: string,
+    serviceType?: ServiceType,
   ): Promise<FailedRetrievalsResponseDto> {
     try {
       this.validateDateRange(startDate, endDate, this.MAX_DATE_RANGE_DAYS);

@@ -2,6 +2,7 @@ import { BadRequestException, Controller, Get, Query } from "@nestjs/common";
 import { ApiOperation, ApiQuery, ApiResponse, ApiTags } from "@nestjs/swagger";
 import { FailedRetrievalsResponseDto } from "../dto/failed-retrievals.dto.js";
 import { FailedRetrievalsService } from "../services/failed-retrievals.service.js";
+import { ServiceType } from "../../database/types.js";
 
 /**
  * Controller for failed retrievals endpoints
@@ -81,7 +82,7 @@ export class FailedRetrievalsController {
     @Query("limit") limitStr?: string,
     @Query("search") search?: string,
     @Query("provider") provider?: string,
-    @Query("serviceType") serviceType?: string,
+    @Query("serviceType") serviceType?: ServiceType,
   ): Promise<FailedRetrievalsResponseDto> {
     // Default to last 7 days if no dates provided
     const endDate = endDateStr ? this.parseDate(endDateStr) : new Date();

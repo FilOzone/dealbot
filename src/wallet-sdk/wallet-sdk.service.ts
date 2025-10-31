@@ -108,7 +108,7 @@ export class WalletSdkService implements OnModuleInit {
         return {
           ...info,
           isApproved,
-          isActive,
+          active: isActive,
         };
       });
 
@@ -117,7 +117,7 @@ export class WalletSdkService implements OnModuleInit {
       );
 
       this.logger.log(
-        `Loaded ${this.providerCache.size} providers from on-chain (${this.approvedProviderAddresses.size} approved)`,
+        `Loaded ${this.providerCache.size} providers from on-chain (${this.activeProviderAddresses.size} testing) (${this.approvedProviderAddresses.size} approved)`,
       );
     } catch (error) {
       this.logger.error("Failed to load approved providers from on-chain", error);
