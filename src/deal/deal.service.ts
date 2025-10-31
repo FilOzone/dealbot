@@ -32,12 +32,12 @@ export class DealService {
 
   async createDealsForAllProviders(): Promise<Deal[]> {
     const totalProviders = this.walletSdkService.getProviderCount();
-    this.logger.log(`Creating deals for ${totalProviders} providers in parallel`);
+    this.logger.log(`Creating deals for ${totalProviders} registered FWSS providers (includes both approved and non-approved) in parallel`);
 
     const dataFile = await this.fetchDataFile(SIZE_CONSTANTS.MIN_UPLOAD_SIZE, SIZE_CONSTANTS.MAX_UPLOAD_SIZE);
 
-    // Process providers in parallel with controlled concurrency
-    const results = await this.processProvidersInParallel(this.walletSdkService.approvedProviders, dataFile);
+    // Process all registered providers in parallel with controlled concurrency
+    const results = await this.processProvidersInParallel(this.walletSdkService.registeredProviders, dataFile);
 
     const successfulDeals = results.filter((result) => result.success).map((result) => result.deal!);
     const failedCount = results.filter((result) => !result.success).length;
