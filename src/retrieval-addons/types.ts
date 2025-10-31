@@ -81,6 +81,9 @@ export interface RetrievalExecutionResult {
 
   /** Error message if failed */
   error?: string;
+
+  /** Number of retry attempts made (0 = first attempt succeeded, 1+ = retries were needed) */
+  retryCount?: number;
 }
 
 /**

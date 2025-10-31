@@ -129,6 +129,7 @@ export class RetrievalService {
     retrieval.responseCode = executionResult.metrics.statusCode;
     retrieval.bytesRetrieved = executionResult.metrics.responseSize;
     retrieval.throughputBps = Math.round(executionResult.metrics.throughput);
+    retrieval.retryCount = executionResult.retryCount || 0;
   }
 
   private async saveRetrieval(retrieval: Retrieval): Promise<Retrieval> {

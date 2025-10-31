@@ -179,7 +179,7 @@ export class RetrievalAddonsService {
       if (result.status === "fulfilled") {
         return result.value;
       } else {
-        // Create failed result
+        // Create failed result - retryCount unknown for catastrophic failures
         return {
           url: urlResults[index].url,
           method: urlResults[index].method,
@@ -194,6 +194,7 @@ export class RetrievalAddonsService {
           },
           success: false,
           error: result.reason?.message || "Unknown error",
+          retryCount: undefined, // Unknown for catastrophic failures
         };
       }
     });
@@ -252,12 +253,12 @@ export class RetrievalAddonsService {
       this.logger.debug(`${strategy.name}: performing ${attempts} attempts with ${delayMs}ms delay`);
     }
 
-    const results: RetrievalExecutionResult[] = [];
+    const results: Array<RetrievalExecutionResult & { attemptNumber: number }> = [];
 
     for (let attempt = 1; attempt <= attempts; attempt++) {
       try {
         const result = await this.executeRetrieval(urlResult, config);
-        results.push(result);
+        results.push({ ...result, attemptNumber: attempt });
 
         if (attempts > 1 && result.success) {
           const attemptType = attempt === 1 ? "initial" : "retry";
@@ -285,7 +286,8 @@ export class RetrievalAddonsService {
     const successfulResults = results.filter((r) => r.success);
 
     if (successfulResults.length === 0) {
-      return results[results.length - 1]; // Return last attempt if all failed
+      const lastResult = results[results.length - 1];
+      return { ...lastResult, retryCount: lastResult.attemptNumber - 1 }; // Return last attempt if all failed
     }
 
     const bestResult = successfulResults.reduce((best, current) =>
@@ -295,11 +297,12 @@ export class RetrievalAddonsService {
     if (attempts > 1) {
       this.logger.log(
         `${strategy.name} best result: ${bestResult.metrics.latency}ms latency ` +
-          `(from ${successfulResults.length}/${attempts} successful attempts)`,
+          `(from ${successfulResults.length}/${attempts} successful attempts, attempt #${bestResult.attemptNumber})`,
       );
     }
 
-    return bestResult;
+    // Add retry count (0 = first attempt, 1+ = retries needed)
+    return { ...bestResult, retryCount: bestResult.attemptNumber - 1 };
   }
 
   /**
