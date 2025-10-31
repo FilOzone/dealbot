@@ -25,22 +25,3 @@ export interface NetworkOverallStats {
   avgRetrievalThroughputBps: number;
   lastRefreshedAt: string; // ISO date string
 }
-
-/**
- * Network health indicators
- */
-export interface NetworkHealth {
-  healthScore: number; // 0-100
-  dealReliability: number; // Average deal success rate
-  retrievalReliability: number; // Average retrieval success rate
-  performanceScore: number; // Based on latencies
-  diversityScore: number; // Based on number of providers
-}
-
-/**
- * Complete network statistics response
- */
-export interface NetworkStatsResponse {
-  overall: NetworkOverallStats;
-  health: NetworkHealth;
-}

@@ -2,7 +2,7 @@ import { Injectable, Logger } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { type Repository } from "typeorm";
 import { SpPerformanceAllTime } from "../../database/entities/sp-performance-all-time.entity.js";
-import type { NetworkHealthDto, NetworkOverallStatsDto, NetworkStatsResponseDto } from "../dto/network-stats.dto.js";
+import type { NetworkOverallStatsDto } from "../dto/network-stats.dto.js";
 
 /**
  * Service for handling network-wide statistics
@@ -22,26 +22,6 @@ export class NetworkStatsService {
     @InjectRepository(SpPerformanceAllTime)
     private readonly allTimeRepo: Repository<SpPerformanceAllTime>,
   ) {}
-
-  /**
-   * Get complete network statistics
-   * Includes overall stats, health indicators, and trends
-   *
-   * @returns Complete network statistics
-   */
-  async getNetworkStats(): Promise<NetworkStatsResponseDto> {
-    try {
-      const [overall, health] = await Promise.all([this.getOverallStats(), this.getHealthIndicators()]);
-
-      return {
-        overall,
-        health,
-      };
-    } catch (error) {
-      this.logger.error(`Failed to fetch network stats: ${error.message}`, error.stack);
-      throw error;
-    }
-  }
 
   /**
    * Get overall network statistics
@@ -143,58 +123,6 @@ export class NetworkStatsService {
   }
 
   /**
-   * Get network health indicators
-   *
-   * @returns Network health indicators
-   */
-  async getHealthIndicators(): Promise<NetworkHealthDto> {
-    try {
-      const providers = await this.allTimeRepo.find();
-
-      if (providers.length === 0) {
-        return this.getEmptyHealthIndicators();
-      }
-
-      // Calculate deal reliability (average success rate)
-      const dealReliability = providers.reduce((sum, p) => sum + (p.dealSuccessRate || 0), 0) / providers.length;
-
-      // Calculate retrieval reliability (average success rate)
-      const retrievalReliability =
-        providers.reduce((sum, p) => sum + (p.retrievalSuccessRate || 0), 0) / providers.length;
-
-      // Calculate performance score based on latencies
-      // Lower latency = higher score (inverse relationship)
-      const avgLatencies = providers
-        .filter((p) => p.avgDealLatencyMs && p.avgRetrievalLatencyMs)
-        .map((p) => (p.avgDealLatencyMs! + p.avgRetrievalLatencyMs!) / 2);
-
-      const avgLatency = avgLatencies.length > 0 ? avgLatencies.reduce((a, b) => a + b, 0) / avgLatencies.length : 0;
-
-      // Score: 100 at 0ms, decreasing to 0 at 5000ms
-      const performanceScore = avgLatency > 0 ? Math.max(0, 100 - (avgLatency / 5000) * 100) : 100;
-
-      // Calculate diversity score (more providers = higher score)
-      // Score: 100 at 50+ providers, scaling down
-      const diversityScore = Math.min(100, (providers.length / 50) * 100);
-
-      // Overall health score (weighted average)
-      const healthScore =
-        dealReliability * 0.35 + retrievalReliability * 0.35 + performanceScore * 0.2 + diversityScore * 0.1;
-
-      return {
-        healthScore: Math.round(healthScore * 100) / 100,
-        dealReliability: Math.round(dealReliability * 100) / 100,
-        retrievalReliability: Math.round(retrievalReliability * 100) / 100,
-        performanceScore: Math.round(performanceScore * 100) / 100,
-        diversityScore: Math.round(diversityScore * 100) / 100,
-      };
-    } catch (error) {
-      this.logger.error(`Failed to fetch health indicators: ${error.message}`, error.stack);
-      throw error;
-    }
-  }
-
-  /**
    * Get empty overall stats
    *
    * @private
@@ -219,21 +147,6 @@ export class NetworkStatsService {
       avgIngestThroughputBps: 0,
       avgRetrievalThroughputBps: 0,
       lastRefreshedAt: new Date(),
-    };
-  }
-
-  /**
-   * Get empty health indicators
-   *
-   * @private
-   */
-  private getEmptyHealthIndicators(): NetworkHealthDto {
-    return {
-      healthScore: 0,
-      dealReliability: 0,
-      retrievalReliability: 0,
-      performanceScore: 0,
-      diversityScore: 0,
     };
   }
 }

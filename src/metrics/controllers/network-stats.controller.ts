@@ -1,6 +1,6 @@
 import { Controller, Get } from "@nestjs/common";
 import { ApiOperation, ApiResponse, ApiTags } from "@nestjs/swagger";
-import { NetworkHealthDto, NetworkOverallStatsDto, NetworkStatsResponseDto } from "../dto/network-stats.dto.js";
+import { NetworkOverallStatsDto } from "../dto/network-stats.dto.js";
 import { NetworkStatsService } from "../services/network-stats.service.js";
 
 /**
@@ -26,45 +26,9 @@ export class NetworkStatsController {
   @ApiResponse({
     status: 200,
     description: "Network statistics retrieved successfully",
-    type: NetworkStatsResponseDto,
-  })
-  async getNetworkStats(): Promise<NetworkStatsResponseDto> {
-    return this.networkStatsService.getNetworkStats();
-  }
-
-  /**
-   * Get overall network statistics only
-   * Returns aggregated metrics without health and trends
-   */
-  @Get("overall")
-  @ApiOperation({
-    summary: "Get overall network statistics",
-    description: "Returns aggregated network metrics across all providers",
-  })
-  @ApiResponse({
-    status: 200,
-    description: "Overall statistics retrieved successfully",
     type: NetworkOverallStatsDto,
   })
-  async getOverallStats(): Promise<NetworkOverallStatsDto> {
+  async getNetworkStats(): Promise<NetworkOverallStatsDto> {
     return this.networkStatsService.getOverallStats();
-  }
-
-  /**
-   * Get network health indicators only
-   * Returns health scores and reliability metrics
-   */
-  @Get("health")
-  @ApiOperation({
-    summary: "Get network health indicators",
-    description: "Returns health scores including deal reliability, retrieval reliability, and performance metrics",
-  })
-  @ApiResponse({
-    status: 200,
-    description: "Health indicators retrieved successfully",
-    type: NetworkHealthDto,
-  })
-  async getHealthIndicators(): Promise<NetworkHealthDto> {
-    return this.networkStatsService.getHealthIndicators();
   }
 }

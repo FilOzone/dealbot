@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { fetchNetworkStats } from "../api/client";
-import type { NetworkStatsResponse } from "../types/network";
+import type { NetworkOverallStats } from "../types/network";
 
 /**
  * Error message extractor
@@ -11,7 +11,7 @@ const toMessage = (error: unknown): string => (error instanceof Error ? error.me
  * Hook return interface
  */
 interface UseNetworkStatsReturn {
-  data: NetworkStatsResponse | null;
+  data: NetworkOverallStats | null;
   loading: boolean;
   error: string | null;
   refetch: () => Promise<void>;
@@ -43,7 +43,7 @@ interface UseNetworkStatsReturn {
  * ```
  */
 export function useNetworkStats(): UseNetworkStatsReturn {
-  const [data, setData] = useState<NetworkStatsResponse | null>(null);
+  const [data, setData] = useState<NetworkOverallStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 

@@ -3,7 +3,7 @@ import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
 import type { Repository } from "typeorm";
-import type { DataFile, Hex } from "../common/types.js";
+import type { DataFile } from "../common/types.js";
 import type { IBlockchainConfig, IConfig } from "../config/app.config.js";
 import { Deal } from "../database/entities/deal.entity.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";

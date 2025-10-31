@@ -2,7 +2,7 @@ import type { DealbotConfigDto } from "../types/config";
 import type { FailedDealsQueryOptions, FailedDealsResponse } from "../types/failed-deals";
 import type { FailedRetrievalsQueryOptions, FailedRetrievalsResponse } from "../types/failed-retrievals";
 import type { DailyMetricsQueryOptions, DailyMetricsResponse, ProviderDailyMetricsResponse } from "../types/metrics";
-import type { NetworkStatsResponse } from "../types/network";
+import type { NetworkOverallStats } from "../types/network";
 import type { ProviderCombinedPerformance, ProvidersListResponse, ProvidersQueryOptions } from "../types/providers";
 import type { ServiceComparisonQueryOptions, ServiceComparisonResponse } from "../types/services";
 import type { DailyMetricsResponseDto, OverallStatsResponseDto } from "../types/stats";
@@ -59,13 +59,13 @@ export async function fetchProvider(spAddress: string): Promise<ProviderCombined
 /**
  * Fetch network-wide statistics
  */
-export async function fetchNetworkStats(): Promise<NetworkStatsResponse> {
+export async function fetchNetworkStats(): Promise<NetworkOverallStats> {
   const url = `${getBaseUrl()}/api/v1/metrics/network/stats`;
 
   const res = await fetch(url, { headers: JSON_HEADERS });
   if (!res.ok) throw new Error(`Failed to fetch network stats: HTTP ${res.status}`);
 
-  return (await res.json()) as NetworkStatsResponse;
+  return (await res.json()) as NetworkOverallStats;
 }
 
 /**

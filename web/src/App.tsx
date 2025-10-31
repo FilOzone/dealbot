@@ -152,7 +152,7 @@ export default function App() {
           </Card>
         )}
 
-        <SummaryCards stats={networkStats?.overall} />
+        <SummaryCards stats={networkStats} />
 
         <Card>
           <CardHeader>
