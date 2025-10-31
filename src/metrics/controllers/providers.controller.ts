@@ -65,18 +65,23 @@ export class ProvidersController {
     description: "Get a paginated list of storage providers with combined weekly and all-time performance metrics",
   })
   @ApiQuery({ name: "activeOnly", required: false, type: Boolean, description: "Show only active providers" })
-  @ApiQuery({ name: "limit", required: false, type: Number, description: "Number of results per page (default: 20)" })
+  @ApiQuery({ name: "approvedOnly", required: false, type: Boolean, description: "Show only approved providers" })
+  @ApiQuery({ name: "limit", required: false, type: Number, description: "Number of results per page (default: 10)" })
   @ApiQuery({ name: "offset", required: false, type: Number, description: "Pagination offset (default: 0)" })
   @ApiResponse({ status: 200, description: "List of providers with combined metrics", type: ProviderListResponseDto })
   async listProvidersWithMetrics(
-    @Query("activeOnly") activeOnly?: boolean,
-    @Query("limit", new DefaultValuePipe(20), ParseIntPipe) limit?: number,
+    @Query("activeOnly") activeOnly?: string,
+    @Query("approvedOnly") approvedOnly?: string,
+    @Query("limit", new DefaultValuePipe(10), ParseIntPipe) limit?: number,
     @Query("offset", new DefaultValuePipe(0), ParseIntPipe) offset?: number,
   ): Promise<ProviderMetricsListResponseDto> {
-    this.logger.debug(`Listing providers: activeOnly=${activeOnly}, limit=${limit}, offset=${offset}`);
+    this.logger.log(
+      `Listing providers: activeOnly=${activeOnly}, approvedOnly=${approvedOnly}, limit=${limit}, offset=${offset}`,
+    );
 
     const { providers, total } = await this.providersService.getProvidersList({
-      activeOnly: activeOnly === true,
+      activeOnly: activeOnly === "true",
+      approvedOnly: approvedOnly === "true",
       limit,
       offset,
     });

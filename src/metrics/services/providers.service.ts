@@ -33,6 +33,7 @@ export class ProvidersService {
    */
   async getProvidersList(options?: {
     activeOnly?: boolean;
+    approvedOnly?: boolean;
     limit?: number;
     offset?: number;
   }): Promise<{ providers: StorageProvider[]; total: number }> {
@@ -40,6 +41,10 @@ export class ProvidersService {
 
     if (options?.activeOnly) {
       query.andWhere("sp.is_active = true");
+    }
+
+    if (options?.approvedOnly) {
+      query.andWhere("sp.is_approved = true");
     }
 
     const total = await query.getCount();
