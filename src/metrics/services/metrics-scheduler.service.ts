@@ -1,36 +1,89 @@
-import { Injectable, Logger } from "@nestjs/common";
-import { Cron, CronExpression } from "@nestjs/schedule";
+import { Injectable, Logger, type OnModuleInit } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import { Cron, SchedulerRegistry } from "@nestjs/schedule";
 import { InjectDataSource } from "@nestjs/typeorm";
 import type { DataSource } from "typeorm";
+import { scheduleJobWithOffset } from "../../common/utils.js";
+import type { IConfig, ISchedulingConfig } from "../../config/app.config.js";
 
 /**
  * Service responsible for refreshing materialized views and aggregating metrics
- * Uses cron jobs to periodically update pre-computed performance summaries
+ * Uses staggered cron jobs to prevent concurrent execution with deal/retrieval jobs
  *
- * Refresh Schedule:
- * - Weekly performance: Every 30 minutes (high frequency for recent data)
- * - All-time performance: Every 30 minutes (lower frequency for historical data)
- * - Daily metrics: Daily at 00:05 (aggregate previous day's data)
- * - Cleanup: Weekly on Sunday at 02:00 (archive/delete old data)
+ * Staggered Schedule (with default offsets):
+ * - Deal creation: offset 0s (00:00, 00:30, 01:00...)
+ * - Retrieval tests: offset 600s/10min (00:10, 00:40, 01:10...)
+ * - Daily metrics: offset 900s/15min (00:15, 00:45, 01:15...)
+ * - Weekly/All-time performance: offset 1200s/20min (00:20, 00:50, 01:20...)
+ * - Cleanup: Weekly on Sunday at 02:00
+ *
+ * This prevents database contention and resource conflicts by spacing jobs 5 minutes apart
  */
 @Injectable()
-export class MetricsSchedulerService {
+export class MetricsSchedulerService implements OnModuleInit {
   private readonly logger = new Logger(MetricsSchedulerService.name);
 
   constructor(
     @InjectDataSource()
     private readonly dataSource: DataSource,
+    private readonly configService: ConfigService<IConfig, true>,
+    private readonly schedulerRegistry: SchedulerRegistry,
   ) {}
+
+  async onModuleInit() {
+    this.setupStaggeredMetricsJobs();
+  }
+
+  /**
+   * Setup staggered metrics jobs to prevent concurrent execution
+   * Jobs are delayed based on METRICS_START_OFFSET_SECONDS config
+   */
+  private setupStaggeredMetricsJobs() {
+    const config = this.configService.get<ISchedulingConfig>("scheduling");
+    const baseOffsetSeconds = config.metricsStartOffsetSeconds;
+
+    // Daily metrics aggregation: base offset + 0 minutes (e.g., 15 min after deal creation)
+    scheduleJobWithOffset(
+      "aggregate-daily-metrics",
+      baseOffsetSeconds,
+      1800,
+      this.schedulerRegistry,
+      () => this.aggregateDailyMetrics(),
+      this.logger,
+    );
+
+    // Weekly performance: base offset + 5 minutes (e.g., 20 min after deal creation)
+    scheduleJobWithOffset(
+      "refresh-last-week-performance",
+      baseOffsetSeconds + 300,
+      1800,
+      this.schedulerRegistry,
+      () => this.refreshWeeklyPerformance(),
+      this.logger,
+    );
+
+    // All-time performance: base offset + 5 minutes (e.g., 20 min after deal creation)
+    scheduleJobWithOffset(
+      "refresh-all-time-performance",
+      baseOffsetSeconds + 300,
+      1800,
+      this.schedulerRegistry,
+      () => this.refreshAllTimePerformance(),
+      this.logger,
+    );
+
+    this.logger.log(
+      `Staggered metrics jobs setup with base offset ${baseOffsetSeconds}s: ` +
+        `Daily metrics (+0min), Weekly perf (+5min), All-time perf (+10min)`,
+    );
+  }
 
   /**
    * Refresh last week performance materialized view
-   * Runs every 30 minutes to keep recent metrics up-to-date
+   * Scheduled dynamically with staggered offset
    *
    * Uses CONCURRENTLY to avoid blocking reads during refresh
    */
-  @Cron(CronExpression.EVERY_30_MINUTES, {
-    name: "refresh-last-week-performance",
-  })
   async refreshWeeklyPerformance(): Promise<void> {
     const startTime = Date.now();
     this.logger.log("Starting refresh of sp_performance_last_week materialized view");
@@ -48,13 +101,10 @@ export class MetricsSchedulerService {
 
   /**
    * Refresh all-time performance materialized view
-   * Runs every 30 minutes as historical data changes less frequently
+   * Scheduled dynamically with staggered offset
    *
    * Uses CONCURRENTLY to avoid blocking reads during refresh
    */
-  @Cron(CronExpression.EVERY_30_MINUTES, {
-    name: "refresh-all-time-performance",
-  })
   async refreshAllTimePerformance(): Promise<void> {
     const startTime = Date.now();
     this.logger.log("Starting refresh of sp_performance_all_time materialized view");
@@ -72,14 +122,11 @@ export class MetricsSchedulerService {
 
   /**
    * Aggregate daily metrics
-   * Runs every 30 minutes to keep today's metrics up-to-date
+   * Scheduled dynamically with staggered offset
    *
    * Aggregates data from start of today (00:00:00) until now
    * Uses ON CONFLICT to update existing records, providing real-time metrics
    */
-  @Cron(CronExpression.EVERY_30_MINUTES, {
-    name: "aggregate-daily-metrics",
-  })
   async aggregateDailyMetrics(): Promise<void> {
     const startTime = Date.now();
 
@@ -90,7 +137,9 @@ export class MetricsSchedulerService {
     const now = new Date(); // Current time (end of range)
 
     this.logger.log(
-      `Starting daily metrics aggregation for ${targetDate.toISOString().split("T")[0]} (up to ${now.toTimeString().split(" ")[0]})`,
+      `Starting daily metrics aggregation for ${targetDate.toISOString().split("T")[0]} (up to ${
+        now.toTimeString().split(" ")[0]
+      })`,
     );
 
     try {

@@ -27,6 +27,9 @@ export const configValidationSchema = Joi.object({
   // Scheduling
   DEAL_INTERVAL_SECONDS: Joi.number().default(30),
   RETRIEVAL_INTERVAL_SECONDS: Joi.number().default(60),
+  DEAL_START_OFFSET_SECONDS: Joi.number().default(0),
+  RETRIEVAL_START_OFFSET_SECONDS: Joi.number().default(600),
+  METRICS_START_OFFSET_SECONDS: Joi.number().default(900),
 
   // Kaggle
   DEALBOT_LOCAL_DATASETS_PATH: Joi.string().default(DEFAULT_LOCAL_DATASETS_PATH),
@@ -64,6 +67,9 @@ export interface IBlockchainConfig {
 export interface ISchedulingConfig {
   dealIntervalSeconds: number;
   retrievalIntervalSeconds: number;
+  dealStartOffsetSeconds: number;
+  retrievalStartOffsetSeconds: number;
+  metricsStartOffsetSeconds: number;
 }
 
 export interface IDatasetConfig {
@@ -111,6 +117,9 @@ export function loadConfig(): IConfig {
     scheduling: {
       dealIntervalSeconds: Number.parseInt(process.env.DEAL_INTERVAL_SECONDS || "30", 10),
       retrievalIntervalSeconds: Number.parseInt(process.env.RETRIEVAL_INTERVAL_SECONDS || "60", 10),
+      dealStartOffsetSeconds: Number.parseInt(process.env.DEAL_START_OFFSET_SECONDS || "0", 10),
+      retrievalStartOffsetSeconds: Number.parseInt(process.env.RETRIEVAL_START_OFFSET_SECONDS || "600", 10),
+      metricsStartOffsetSeconds: Number.parseInt(process.env.METRICS_START_OFFSET_SECONDS || "900", 10),
     },
     dataset: {
       localDatasetsPath: process.env.DEALBOT_LOCAL_DATASETS_PATH || DEFAULT_LOCAL_DATASETS_PATH,
