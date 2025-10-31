@@ -1,57 +1,68 @@
-import { Injectable, Logger, OnModuleInit } from "@nestjs/common";
-import { ConfigService } from "@nestjs/config";
-import { JsonRpcProvider, MaxUint256 } from "ethers";
 import {
   CONTRACT_ADDRESSES,
-  PaymentsService,
+  type PaymentsService,
+  type ProviderInfo,
   RPC_URLS,
-  WarmStorageService,
-  TIME_CONSTANTS,
-  ProviderInfo,
   Synapse,
+  TIME_CONSTANTS,
+  WarmStorageService,
 } from "@filoz/synapse-sdk";
 import { SPRegistryService } from "@filoz/synapse-sdk/sp-registry";
+import { Injectable, Logger, type OnModuleInit } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import { InjectRepository } from "@nestjs/typeorm";
+import { JsonRpcProvider, MaxUint256 } from "ethers";
+import { Repository } from "typeorm";
+import { Hex } from "viem";
+import { DEV_TAG } from "../common/constants.js";
 import type { IBlockchainConfig, IConfig } from "../config/app.config.js";
+import { StorageProvider } from "../database/entities/storage-provider.entity.js";
 import type {
-  WalletServices,
-  StorageRequirements,
-  WalletStatusLog,
   FundDepositLog,
-  TransactionLog,
+  ProviderInfoEx,
   ServiceApprovalLog,
+  StorageRequirements,
+  TransactionLog,
+  WalletServices,
+  WalletStatusLog,
 } from "./wallet-sdk.types.js";
 
 @Injectable()
 export class WalletSdkService implements OnModuleInit {
   private readonly logger = new Logger(WalletSdkService.name);
+  private readonly blockchainConfig: IBlockchainConfig;
   private paymentsService: PaymentsService;
   private warmStorageService: WarmStorageService;
   private spRegistry: SPRegistryService;
-  // All registered providers in FWSS (for testing all SPs)
-  registeredProviders: ProviderInfo[] = [];
-  // IDs of approved providers (for Synapse filtering)
-  private approvedProviderIds: Set<number> = new Set();
+  private providerCache: Map<string, ProviderInfoEx> = new Map();
+  private activeProviderAddresses: Set<string> = new Set();
+  private approvedProviderAddresses: Set<string> = new Set();
 
-  constructor(private readonly configService: ConfigService<IConfig, true>) {}
+  constructor(
+    private readonly configService: ConfigService<IConfig, true>,
+    @InjectRepository(StorageProvider)
+    private readonly spRepository: Repository<StorageProvider>,
+  ) {
+    this.blockchainConfig = this.configService.get<IBlockchainConfig>("blockchain");
+  }
 
   async onModuleInit() {
     await this.initializeServices();
-    await this.loadAllRegisteredProviders();
+    await this.loadProviders();
   }
 
   /**
    * Initialize wallet services with provider and signer
    */
   private async initializeServices(): Promise<void> {
-    const blockchainConfig = this.configService.get<IBlockchainConfig>("blockchain");
-
+    const warmStorageAddress = this.getFWSSAddress();
     const synapse = await Synapse.create({
-      privateKey: blockchainConfig.walletPrivateKey,
-      rpcURL: RPC_URLS[blockchainConfig.network].http,
+      privateKey: this.blockchainConfig.walletPrivateKey,
+      rpcURL: RPC_URLS[this.blockchainConfig.network].http,
+      warmStorageAddress,
     });
 
-    const warmStorageAddress = synapse.getWarmStorageAddress();
-    const provider = new JsonRpcProvider(RPC_URLS[blockchainConfig.network].http);
+    const provider = new JsonRpcProvider(RPC_URLS[this.blockchainConfig.network].http);
     this.warmStorageService = await WarmStorageService.create(provider, warmStorageAddress);
     this.spRegistry = new SPRegistryService(provider, this.warmStorageService.getServiceProviderRegistryAddress());
     this.paymentsService = synapse.payments;
@@ -62,106 +73,119 @@ export class WalletSdkService implements OnModuleInit {
    * This allows dealbot to test all FWSS SPs, even those not yet approved
    * Only loads active providers that support the PDP product and excludes dev-tagged providers
    */
-  async loadAllRegisteredProviders(): Promise<void> {
+  async loadProviders(): Promise<void> {
     try {
-      this.logger.log("Loading all registered service providers from on-chain...");
-      
-      // Get approved provider IDs for tracking
+      this.logger.log("Loading all service providers from sp-registry...");
+
       const approvedIds = await this.warmStorageService.getApprovedProviderIds();
-      this.approvedProviderIds = new Set(approvedIds.map(id => Number(id)));
-      
-      // Get total provider count from registry
+
       const providerCount = await this.spRegistry.getProviderCount();
-      this.logger.log(`Found ${providerCount} total providers in registry`);
-      
-      // Load all providers (IDs start from 1)
+
       const providerPromises: Promise<ProviderInfo | null>[] = [];
       for (let i = 1; i <= Number(providerCount); i++) {
         providerPromises.push(this.spRegistry.getProvider(i));
       }
-      
-      const allProviderInfos = await Promise.all(providerPromises);
-      const validProviders = allProviderInfos.filter((info): info is ProviderInfo => info !== null);
-      
-      // Filter for active providers that support PDP product and are not tagged as dev
-      this.registeredProviders = validProviders.filter(provider => {
-        const isActive = provider.active;
-        const supportsPDP = !!provider.products?.PDP;
-        const isDevTagged = provider.products?.PDP?.capabilities?.service_status === 'dev';
-        
-        if (!isActive) {
-          this.logger.debug(`Skipping inactive provider: ${provider.name} (ID: ${provider.id})`);
-        }
-        if (!supportsPDP) {
-          this.logger.debug(`Skipping provider without PDP support: ${provider.name} (ID: ${provider.id})`);
-        }
-        if (isDevTagged) {
-          this.logger.debug(`Skipping dev-tagged provider: ${provider.name} (ID: ${provider.id})`);
-        }
-        
-        return isActive && supportsPDP && !isDevTagged;
+
+      const providerInfos = await Promise.all(providerPromises);
+      const validProviders = providerInfos.filter((info) => !!info);
+
+      this.providerCache.clear();
+      const extendedProviders = validProviders.map((info) => {
+        const isActivePDP = info.active;
+        const supportsPDP = !!info.products?.PDP;
+        const isDevTagged = info.products?.PDP?.capabilities?.service_status === DEV_TAG;
+
+        const isActive = isActivePDP && supportsPDP && !isDevTagged;
+        const isApproved = approvedIds.includes(info.id);
+
+        // select approved providers which are not dev tagged
+        if (isActive) this.activeProviderAddresses.add(info.serviceProvider);
+        if (isApproved && isActive) this.approvedProviderAddresses.add(info.serviceProvider);
+        this.providerCache.set(info.serviceProvider, {
+          ...info,
+          isApproved,
+          active: isActive,
+        });
+
+        return {
+          ...info,
+          isApproved,
+          active: isActive,
+        };
       });
 
-      const approvedCount = this.registeredProviders.filter(p => 
-        this.approvedProviderIds.has(p.id)
-      ).length;
-      
-      const skippedCount = validProviders.length - this.registeredProviders.length;
+      this.syncProvidersToDatabase(extendedProviders).catch((err) =>
+        this.logger.error(`Failed to sync providers to DB: ${err.message}`),
+      );
 
       this.logger.log(
-        `Loaded ${this.registeredProviders.length} active providers with PDP support ` +
-        `(${approvedCount} approved, ${this.registeredProviders.length - approvedCount} not approved, ` +
-        `${skippedCount} skipped)`
+        `Loaded ${this.providerCache.size} providers from on-chain (${this.activeProviderAddresses.size} testing) (${this.approvedProviderAddresses.size} approved)`,
       );
     } catch (error) {
       this.logger.error("Failed to load registered providers from on-chain", error);
       // Fallback to empty array, let the application handle this gracefully
-      this.registeredProviders = [];
-      this.approvedProviderIds = new Set();
+      this.providerCache.clear();
+      this.activeProviderAddresses.clear();
+      this.approvedProviderAddresses.clear();
     }
   }
 
   /**
-   * Load approved service providers from on-chain
-   * @deprecated Use loadAllRegisteredProviders() instead. Kept for backward compatibility.
+   * Get count of approved providers
    */
-  async loadApprovedProviders(): Promise<void> {
-    await this.loadAllRegisteredProviders();
+  getApprovedProvidersCount(): number {
+    return this.approvedProviderAddresses.size;
   }
 
   /**
-   * Get ALL registered service providers (for testing all FWSS SPs)
+   * Get count of all providers
    */
-  getAllRegisteredProviders(): ProviderInfo[] {
-    return [...this.registeredProviders];
+  getAllActiveProvidersCount(): number {
+    return this.activeProviderAddresses.size;
   }
 
   /**
-   * Get approved service providers only (for Synapse filtering)
+   * Get count of testing providers
    */
-  getApprovedProviders(): ProviderInfo[] {
-    return this.registeredProviders.filter(p => this.approvedProviderIds.has(p.id));
+  getTestingProvidersCount(): number {
+    return this.blockchainConfig.useOnlyApprovedProviders
+      ? this.getApprovedProvidersCount()
+      : this.getAllActiveProvidersCount();
   }
 
   /**
-   * Get approved provider addresses only
+   * Get approved providers
    */
-  getApprovedProviderAddresses(): string[] {
-    return this.getApprovedProviders().map((provider) => provider.serviceProvider);
+  getApprovedProviders(): ProviderInfoEx[] {
+    const approvedProviders: ProviderInfoEx[] = [];
+
+    for (const address of this.approvedProviderAddresses) {
+      const provider = this.providerCache.get(address);
+      if (provider) approvedProviders.push(provider);
+    }
+
+    return approvedProviders;
   }
 
   /**
-   * Get count of all registered providers (for deal creation across all FWSS SPs)
+   * Get all active providers
    */
-  getProviderCount(): number {
-    return this.registeredProviders.length;
+  getAllActiveProviders(): ProviderInfoEx[] {
+    const activeProviders: ProviderInfoEx[] = [];
+
+    for (const address of this.activeProviderAddresses) {
+      const provider = this.providerCache.get(address);
+      if (provider) activeProviders.push(provider);
+    }
+
+    return activeProviders;
   }
 
   /**
-   * Get count of approved providers only
+   * Get testing providers
    */
-  getApprovedProviderCount(): number {
-    return this.getApprovedProviders().length;
+  getTestingProviders(): ProviderInfoEx[] {
+    return this.blockchainConfig.useOnlyApprovedProviders ? this.getApprovedProviders() : this.getAllActiveProviders();
   }
 
   /**
@@ -175,29 +199,24 @@ export class WalletSdkService implements OnModuleInit {
   }
 
   /**
-   * Get provider info by address (searches all registered providers)
-   */
-  getProviderInfo(address: string): ProviderInfo | undefined {
-    return this.registeredProviders.find((provider) => provider.serviceProvider === address);
-  }
-
-  /**
    * Get approved provider info by address
    * @deprecated Use getProviderInfo() instead
    */
-  getApprovedProviderInfo(address: string): ProviderInfo | undefined {
-    return this.getProviderInfo(address);
+  getProviderInfo(address: string): ProviderInfoEx | undefined {
+    return this.providerCache.get(address);
   }
 
   /**
    * Calculate storage requirements including costs and allowances
    */
   async calculateStorageRequirements(): Promise<StorageRequirements> {
-    const blockchainConfig = this.configService.get<IBlockchainConfig>("blockchain");
+    const providerCount = this.getTestingProvidersCount();
 
     const STORAGE_SIZE_GB = 100;
     const APPROVAL_DURATION_MONTHS = 6n;
-    const datasetCreationFees = blockchainConfig.checkDatasetCreationFees ? this.calculateDatasetCreationFees() : 0n;
+    const datasetCreationFees = this.blockchainConfig.checkDatasetCreationFees
+      ? this.calculateDatasetCreationFees(providerCount)
+      : 0n;
 
     const [accountInfo, storageCheck, serviceApprovals] = await Promise.all([
       this.paymentsService.accountInfo(),
@@ -206,11 +225,12 @@ export class WalletSdkService implements OnModuleInit {
         true,
         this.paymentsService,
       ),
-      this.paymentsService.serviceApproval(CONTRACT_ADDRESSES.WARM_STORAGE[blockchainConfig.network]),
+      this.paymentsService.serviceApproval(this.getFWSSAddress()),
     ]);
 
     return {
       accountInfo,
+      providerCount,
       storageCheck,
       serviceApprovals,
       datasetCreationFees,
@@ -222,10 +242,10 @@ export class WalletSdkService implements OnModuleInit {
   /**
    * Calculate fees required for dataset creation across all providers
    */
-  private calculateDatasetCreationFees(): bigint {
+  private calculateDatasetCreationFees(providerCount: number): bigint {
     const minDataSetPerSP = 2n; // withCDN & withoutCDN
     const datasetCreationFees = 1n * 10n ** 17n; // 0.1 USDFC
-    return minDataSetPerSP * datasetCreationFees * BigInt(this.getProviderCount());
+    return minDataSetPerSP * datasetCreationFees * BigInt(providerCount);
   }
 
   /**
@@ -237,7 +257,7 @@ export class WalletSdkService implements OnModuleInit {
       requiredMonthlyFunds: requirements.storageCheck.costs.perMonth.toString(),
       datasetCreationFees: requirements.datasetCreationFees.toString(),
       totalRequired: requirements.totalRequiredFunds.toString(),
-      providerCount: this.getProviderCount(),
+      providerCount: requirements.providerCount,
     };
 
     this.logger.log("Wallet status check completed", logData);
@@ -290,8 +310,7 @@ export class WalletSdkService implements OnModuleInit {
    * Approve storage service with required allowances
    */
   async approveStorageService(requirements: StorageRequirements): Promise<void> {
-    const blockchainConfig = this.configService.get<IBlockchainConfig>("blockchain");
-    const contractAddress = CONTRACT_ADDRESSES.WARM_STORAGE[blockchainConfig.network];
+    const contractAddress = this.getFWSSAddress();
 
     const approvalLog: ServiceApprovalLog = {
       serviceAddress: contractAddress,
@@ -319,6 +338,12 @@ export class WalletSdkService implements OnModuleInit {
     this.logger.log("Storage service approved successfully", successLog);
   }
 
+  getFWSSAddress(): string {
+    return this.blockchainConfig.overrideContractAddresses && this.blockchainConfig.warmStorageServiceAddress
+      ? this.blockchainConfig.warmStorageServiceAddress
+      : CONTRACT_ADDRESSES.WARM_STORAGE[this.blockchainConfig.network];
+  }
+
   /**
    * Ensure wallet has sufficient allowances for operations
    */
@@ -333,6 +358,69 @@ export class WalletSdkService implements OnModuleInit {
 
     if (this.requiresApproval(requirements)) {
       await this.approveStorageService(requirements);
+    }
+  }
+
+  // ============================================================================
+  // Storage Provider Management
+  // ============================================================================
+
+  /**
+   * Recursively convert BigInt values to strings for JSON serialization
+   * @private
+   */
+  private serializeBigInt(obj: any): any {
+    if (obj === null || obj === undefined) {
+      return obj;
+    }
+
+    if (typeof obj === "bigint") {
+      return obj.toString();
+    }
+
+    if (Array.isArray(obj)) {
+      return obj.map((item) => this.serializeBigInt(item));
+    }
+
+    if (typeof obj === "object") {
+      const serialized: any = {};
+      for (const key in obj) {
+        if (Object.hasOwn(obj, key)) {
+          serialized[key] = this.serializeBigInt(obj[key]);
+        }
+      }
+      return serialized;
+    }
+
+    return obj;
+  }
+
+  /**
+   * Create or update provider in database
+   */
+  async syncProvidersToDatabase(providerInfos: ProviderInfoEx[]): Promise<void> {
+    try {
+      const entities = providerInfos.map((info) =>
+        this.spRepository.create({
+          address: info.serviceProvider as Hex,
+          name: info.name,
+          description: info.description,
+          payee: info.payee,
+          serviceUrl: info.products.PDP?.data.serviceURL || "Unknown",
+          isActive: info.active,
+          isApproved: info.isApproved,
+          region: info.products.PDP?.data.location || "Unknown",
+          metadata: this.serializeBigInt(info.products.PDP) || {},
+        }),
+      );
+
+      await this.spRepository.upsert(entities, {
+        conflictPaths: ["address"],
+        skipUpdateIfNoValuesChanged: true,
+      });
+    } catch (error) {
+      this.logger.warn(`Failed to track providers : ${error.message}`);
+      throw error;
     }
   }
 }

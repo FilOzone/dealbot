@@ -1,11 +1,10 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Injectable } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import { IConfig, IProxyConfig } from "src/config/app.config.js";
-import { ProxyConfig } from "./types.js";
+import type { IConfig, IProxyConfig } from "../config/app.config.js";
+import type { ProxyConfig } from "./types.js";
 
 @Injectable()
 export class ProxyService {
-  private readonly logger = new Logger(ProxyService.name);
   private proxies: ProxyConfig[] = [];
   private currentIndex = 0;
 

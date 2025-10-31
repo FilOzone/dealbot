@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import { fetchDealbotConfig } from "../api/client";
 import type { DealbotConfigDto } from "../types/config";
 

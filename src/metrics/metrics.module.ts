@@ -1,42 +1,74 @@
 import { Module } from "@nestjs/common";
 import { TypeOrmModule } from "@nestjs/typeorm";
-import { DailyMetricsEntity } from "../infrastructure/database/entities/daily-metrics.entity.js";
-import { DealEntity } from "../infrastructure/database/entities/deal.entity.js";
-import { RetrievalEntity } from "../infrastructure/database/entities/retrieval.entity.js";
-import { StorageProviderEntity } from "../infrastructure/database/entities/storage-provider.entity.js";
-import { MetricsRepository } from "../infrastructure/database/repositories/metrics.repository.js";
-import { StorageProviderRepository } from "../infrastructure/database/repositories/storage-provider.repository.js";
-import { MetricsService } from "./metrics.service.js";
-import { MetricsSchedulerService } from "./metrics-scheduler.service.js";
+import { DatabaseModule } from "../database/database.module.js";
+import { Deal } from "../database/entities/deal.entity.js";
+import { MetricsDaily } from "../database/entities/metrics-daily.entity.js";
+import { Retrieval } from "../database/entities/retrieval.entity.js";
+import { SpPerformanceAllTime } from "../database/entities/sp-performance-all-time.entity.js";
+import { SpPerformanceLastWeek } from "../database/entities/sp-performance-last-week.entity.js";
+import { StorageProvider } from "../database/entities/storage-provider.entity.js";
+import { DailyMetricsController } from "./controllers/daily-metrics.controller.js";
+import { FailedDealsController } from "./controllers/failed-deals.controller.js";
+import { FailedRetrievalsController } from "./controllers/failed-retrievals.controller.js";
+import { NetworkStatsController } from "./controllers/network-stats.controller.js";
 
+import { ProvidersController } from "./controllers/providers.controller.js";
+import { DailyMetricsService } from "./services/daily-metrics.service.js";
+import { FailedDealsService } from "./services/failed-deals.service.js";
+import { FailedRetrievalsService } from "./services/failed-retrievals.service.js";
+import { MetricsSchedulerService } from "./services/metrics-scheduler.service.js";
+import { NetworkStatsService } from "./services/network-stats.service.js";
+import { ProvidersService } from "./services/providers.service.js";
+
+/**
+ * Metrics Module
+ *
+ * Provides comprehensive metrics and analytics functionality:
+ * - Provider performance tracking (materialized views)
+ * - Daily time-series metrics
+ * - Failed deals analysis
+ * - Failed retrievals analysis
+ * - Network-wide statistics
+ *
+ * Architecture:
+ * - Materialized views for high-performance queries
+ * - Modular services for focused functionality
+ * - RESTful controllers with Swagger documentation
+ */
 @Module({
-  imports: [TypeOrmModule.forFeature([DailyMetricsEntity, DealEntity, RetrievalEntity, StorageProviderEntity])],
+  imports: [
+    DatabaseModule,
+    TypeOrmModule.forFeature([
+      SpPerformanceLastWeek,
+      SpPerformanceAllTime,
+      MetricsDaily,
+      Deal,
+      Retrieval,
+      StorageProvider,
+    ]),
+  ],
+  controllers: [
+    ProvidersController,
+    DailyMetricsController,
+    FailedDealsController,
+    FailedRetrievalsController,
+    NetworkStatsController,
+  ],
   providers: [
-    MetricsRepository,
-    StorageProviderRepository,
-    MetricsService,
     MetricsSchedulerService,
-    {
-      provide: "IMetricsService",
-      useClass: MetricsService,
-    },
-    {
-      provide: "IMetricsRepository",
-      useClass: MetricsRepository,
-    },
-    {
-      provide: "IStorageProviderRepository",
-      useClass: StorageProviderRepository,
-    },
+    ProvidersService,
+    DailyMetricsService,
+    FailedDealsService,
+    FailedRetrievalsService,
+    NetworkStatsService,
   ],
   exports: [
-    MetricsService,
     MetricsSchedulerService,
-    MetricsRepository,
-    StorageProviderRepository,
-    "IMetricsService",
-    "IMetricsRepository",
-    "IStorageProviderRepository",
+    ProvidersService,
+    DailyMetricsService,
+    FailedDealsService,
+    FailedRetrievalsService,
+    NetworkStatsService,
   ],
 })
 export class MetricsModule {}

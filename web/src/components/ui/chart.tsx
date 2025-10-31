@@ -1,8 +1,7 @@
 import * as React from "react";
 import * as RechartsPrimitive from "recharts";
-
-import { cn } from "@/lib/utils";
 import type { ValueType } from "recharts/types/component/DefaultTooltipContent";
+import { cn } from "@/lib/utils";
 
 // Format: { THEME_NAME: CSS_SELECTOR }
 const THEMES = { light: "", dark: ".dark" } as const;
@@ -52,7 +51,7 @@ const ChartContainer = React.forwardRef<
         {...props}
       >
         <ChartStyle id={chartId} config={config} />
-        <RechartsPrimitive.ResponsiveContainer width={"100%"} height="100%">
+        <RechartsPrimitive.ResponsiveContainer width={"100%"} height='100%'>
           {children}
         </RechartsPrimitive.ResponsiveContainer>
       </div>
@@ -164,7 +163,7 @@ const ChartTooltipContent = React.forwardRef<
         )}
       >
         {!nestLabel ? tooltipLabel : null}
-        <div className="grid gap-1.5">
+        <div className='grid gap-1.5'>
           {payload.map((item, index) => {
             const key = `${nameKey || item.name || item.dataKey || "value"}`;
             const itemConfig = getPayloadConfigFromPayload(config, item, key);
@@ -208,12 +207,12 @@ const ChartTooltipContent = React.forwardRef<
                         nestLabel ? "items-end" : "items-center",
                       )}
                     >
-                      <div className="grid gap-1.5">
+                      <div className='grid gap-1.5'>
                         {nestLabel ? tooltipLabel : null}
-                        <span className="text-muted-foreground">{itemConfig?.label || item.name}</span>
+                        <span className='text-muted-foreground'>{itemConfig?.label || item.name}</span>
                       </div>
                       {item.value && (
-                        <span className="font-mono font-medium tabular-nums text-foreground">
+                        <span className='font-mono font-medium tabular-nums text-foreground'>
                           {valueFormatter ? valueFormatter(item.value) : item.value.toLocaleString()}
                         </span>
                       )}
@@ -264,7 +263,7 @@ const ChartLegendContent = React.forwardRef<
               <itemConfig.icon />
             ) : (
               <div
-                className="h-2 w-2 shrink-0 rounded-[2px]"
+                className='h-2 w-2 shrink-0 rounded-[2px]'
                 style={{
                   backgroundColor: item.color,
                 }}

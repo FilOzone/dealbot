@@ -1,7 +1,7 @@
 export function formatFileSize(size: number) {
   const i = size === 0 ? 0 : Math.floor(Math.log(size) / Math.log(1024));
   const sizes = ["B", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB"];
-  return `${(size / Math.pow(1024, i)).toFixed(1)} ${sizes[i]}`;
+  return `${(size / 1024 ** i).toFixed(1)} ${sizes[i]}`;
 }
 
 export function formatThroughput(value: number) {
@@ -14,7 +14,7 @@ export function formatMilliseconds(ms: number, decimals: number = 2): string {
     { label: "sec", divisor: 1000, threshold: 60 * 1000 },
     { label: "min", divisor: 60 * 1000, threshold: 60 * 60 * 1000 },
     { label: "hr", divisor: 60 * 60 * 1000, threshold: 24 * 60 * 60 * 1000 },
-    { label: "day", divisor: 24 * 60 * 60 * 1000, threshold: Infinity },
+    { label: "day", divisor: 24 * 60 * 60 * 1000, threshold: Number.POSITIVE_INFINITY },
   ];
 
   for (let i = 0; i < units.length; i++) {
@@ -22,7 +22,7 @@ export function formatMilliseconds(ms: number, decimals: number = 2): string {
 
     if (ms < unit.threshold || i === units.length - 1) {
       const value = ms / unit.divisor;
-      const formatted = unit.label === "ms" ? Math.round(value) : parseFloat(value.toFixed(decimals));
+      const formatted = unit.label === "ms" ? Math.round(value) : Number.parseFloat(value.toFixed(decimals));
 
       const plural = formatted !== 1 && unit.label !== "ms" ? "s" : "";
       return `${formatted} ${unit.label}${plural}`;

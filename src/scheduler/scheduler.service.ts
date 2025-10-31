@@ -1,11 +1,11 @@
-import { Injectable, Logger, OnModuleInit } from "@nestjs/common";
+import { Injectable, Logger, type OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { SchedulerRegistry } from "@nestjs/schedule";
-import { CronJob } from "cron";
+import { scheduleJobWithOffset } from "../common/utils.js";
+import type { IConfig, ISchedulingConfig } from "../config/app.config.js";
 import { DealService } from "../deal/deal.service.js";
 import { RetrievalService } from "../retrieval/retrieval.service.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
-import type { IConfig, ISchedulingConfig } from "../config/app.config.js";
 
 @Injectable()
 export class SchedulerService implements OnModuleInit {
@@ -45,42 +45,28 @@ export class SchedulerService implements OnModuleInit {
     const config = this.configService.get<ISchedulingConfig>("scheduling");
     this.logger.log(`Scheduling configuration found: ${JSON.stringify(config)}`);
 
-    const dealIntervalSeconds = config.dealIntervalSeconds;
-    const dealCronExpression = this.secondsToCronExpression(dealIntervalSeconds);
+    scheduleJobWithOffset(
+      "dealCreation",
+      config.dealStartOffsetSeconds,
+      config.dealIntervalSeconds,
+      this.schedulerRegistry,
+      this.handleDealCreation.bind(this),
+      this.logger,
+    );
 
-    const dealJob = new CronJob(dealCronExpression, () => {
-      this.handleDealCreation();
-    });
-
-    this.schedulerRegistry.addCronJob("dealCreation", dealJob);
-    dealJob.start();
-
-    const retrievalIntervalSeconds = config.retrievalIntervalSeconds;
-    const retrievalCronExpression = this.secondsToCronExpression(retrievalIntervalSeconds);
-
-    const retrievalJob = new CronJob(retrievalCronExpression, () => {
-      this.handleRetrievalTests();
-    });
-
-    this.schedulerRegistry.addCronJob("retrievalTests", retrievalJob);
-    retrievalJob.start();
+    scheduleJobWithOffset(
+      "retrievalTests",
+      config.retrievalStartOffsetSeconds,
+      config.retrievalIntervalSeconds,
+      this.schedulerRegistry,
+      this.handleRetrievalTests.bind(this),
+      this.logger,
+    );
 
     this.logger.log(
-      `Dynamic cron jobs setup: Deal creation every ${dealIntervalSeconds}s, Retrieval tests every ${retrievalIntervalSeconds}s`,
+      `Staggered scheduler setup: Deal creation (offset: ${config.dealStartOffsetSeconds}s, interval: ${config.dealIntervalSeconds}s), ` +
+        `Retrieval tests (offset: ${config.retrievalStartOffsetSeconds}s, interval: ${config.retrievalIntervalSeconds}s)`,
     );
-  }
-
-  private secondsToCronExpression(seconds: number): string {
-    if (seconds < 60) {
-      return `*/${seconds} * * * * *`;
-    } else if (seconds === 60) {
-      return "0 * * * * *";
-    } else if (seconds % 60 === 0) {
-      const minutes = seconds / 60;
-      return `0 */${minutes} * * * *`;
-    } else {
-      return `*/${seconds} * * * * *`;
-    }
   }
 
   async handleDealCreation() {
@@ -93,9 +79,9 @@ export class SchedulerService implements OnModuleInit {
     this.logger.log("Starting scheduled deal creation for all registered providers");
 
     try {
-      await this.walletSdkService.loadAllRegisteredProviders();
+      await this.walletSdkService.loadProviders();
 
-      const providerCount = this.walletSdkService.getProviderCount();
+      const providerCount = this.walletSdkService.getTestingProvidersCount();
 
       if (providerCount === 0) {
         this.logger.warn("No registered providers found, skipping deal creation");
@@ -123,7 +109,7 @@ export class SchedulerService implements OnModuleInit {
     this.logger.log("Starting scheduled retrieval tests");
 
     try {
-      const providerCount = this.walletSdkService.getProviderCount();
+      const providerCount = this.walletSdkService.getTestingProvidersCount();
 
       if (providerCount === 0) {
         this.logger.warn("No registered providers found, skipping retrieval tests");
