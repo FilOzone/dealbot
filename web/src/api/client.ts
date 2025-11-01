@@ -139,8 +139,11 @@ export async function fetchProviderCurioVersion(serviceUrl: string): Promise<str
 }
 
 export async function fetchProviderCurioVersionsBatch(spAddresses: string[]): Promise<Record<string, string>> {
-  const addresses = spAddresses.join(",");
-  const res = await fetch(`${getBaseUrl()}/api/v1/providers/versions/batch?addresses=${encodeURIComponent(addresses)}`);
+  const res = await fetch(`${getBaseUrl()}/api/v1/providers/versions/batch`, {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ addresses: spAddresses }),
+  });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return (await res.json()) as Record<string, string>;
 }

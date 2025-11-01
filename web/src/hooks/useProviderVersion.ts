@@ -4,7 +4,6 @@ import { getFetchStrategy } from "@/utils/protocolDetection";
 
 export interface IUseProviderVersion {
   serviceUrl: string;
-  spAddress: string;
   batchedVersion?: string;
 }
 
@@ -17,14 +16,22 @@ const toMessage = (e: unknown) => (e instanceof Error ? e.message : "Unknown err
  * - HTTP providers: Use pre-fetched batchedVersion
  * - HTTPS providers: Direct fetch (CSP-allowed, no proxy needed)
  */
-export function useProviderVersion({ serviceUrl, spAddress, batchedVersion }: IUseProviderVersion) {
+export function useProviderVersion({ serviceUrl, batchedVersion }: IUseProviderVersion) {
   const [version, setVersion] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    if (!serviceUrl || !spAddress) {
+    if (!serviceUrl) {
       setVersion("");
+      return;
+    }
+
+    const strategy = getFetchStrategy(serviceUrl);
+
+    // Batch strategy: handled earlier to avoid loading flash
+    if (strategy === "batch") {
+      setVersion(batchedVersion || "");
       return;
     }
 
@@ -32,13 +39,7 @@ export function useProviderVersion({ serviceUrl, spAddress, batchedVersion }: IU
       setLoading(true);
       setError(null);
 
-      const strategy = getFetchStrategy(serviceUrl);
-
       switch (strategy) {
-        case "batch":
-          setVersion(batchedVersion || "");
-          break;
-
         case "direct": {
           const directVersion = await fetchDirectVersion(serviceUrl);
           setVersion(directVersion);
@@ -56,7 +57,7 @@ export function useProviderVersion({ serviceUrl, spAddress, batchedVersion }: IU
     } finally {
       setLoading(false);
     }
-  }, [serviceUrl, spAddress, batchedVersion]);
+  }, [serviceUrl, batchedVersion]);
 
   useEffect(() => {
     void load();

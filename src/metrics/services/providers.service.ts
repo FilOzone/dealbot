@@ -412,7 +412,8 @@ export class ProvidersService {
         const version = await this.getProviderCurioVersion(spAddress);
         return { spAddress, version };
       } catch (error) {
-        this.logger.warn(`Failed to fetch version for ${spAddress}: ${error.message}`);
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        this.logger.warn(`Failed to fetch version for ${spAddress}: ${errorMessage}`);
         return { spAddress, version: null };
       }
     });
@@ -462,8 +463,9 @@ export class ProvidersService {
 
       return version;
     } catch (error) {
-      this.logger.error(`Failed to fetch version for ${spAddress}: ${error.message}`);
-      throw new NotFoundException(`Unable to fetch version from provider ${spAddress}: ${error.message}`);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Failed to fetch version for ${spAddress}: ${errorMessage}`);
+      throw new NotFoundException(`Unable to fetch version from provider ${spAddress}: ${errorMessage}`);
     }
   }
 }

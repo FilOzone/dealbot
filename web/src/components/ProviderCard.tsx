@@ -21,7 +21,6 @@ export function ProviderCard({ provider, batchedVersion }: ProviderCardProps) {
   const [copiedProvider, setCopiedProvider] = useState<string | null>(null);
   const { version, loading, error } = useProviderVersion({
     serviceUrl: provider.provider.serviceUrl,
-    spAddress: provider.provider.address,
     batchedVersion,
   });
 

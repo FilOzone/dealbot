@@ -1,14 +1,17 @@
 import {
   BadRequestException,
+  Body,
   Controller,
   DefaultValuePipe,
   Get,
+  HttpCode,
   Logger,
   Param,
   ParseIntPipe,
+  Post,
   Query,
 } from "@nestjs/common";
-import { ApiOperation, ApiParam, ApiQuery, ApiResponse, ApiTags } from "@nestjs/swagger";
+import { ApiBody, ApiOperation, ApiParam, ApiQuery, ApiResponse, ApiTags } from "@nestjs/swagger";
 import { SpPerformanceAllTime } from "src/database/entities/sp-performance-all-time.entity.js";
 import { SpPerformanceLastWeek } from "src/database/entities/sp-performance-last-week.entity.js";
 import {
@@ -186,16 +189,25 @@ export class ProvidersController {
   /**
    * Get Curio versions for multiple storage providers in batch
    */
-  @Get("versions/batch")
+  @Post("versions/batch")
+  @HttpCode(200)
   @ApiOperation({
     summary: "Get Curio versions for multiple providers (batch)",
     description: "Fetch Curio versions for multiple storage providers in a single request",
   })
-  @ApiQuery({
-    name: "addresses",
-    required: true,
-    description: "Comma-separated list of storage provider addresses",
-    example: "f01234,f05678,f09012",
+  @ApiBody({
+    description: "Array of storage provider addresses",
+    schema: {
+      type: "object",
+      properties: {
+        addresses: {
+          type: "array",
+          items: { type: "string" },
+          example: ["f01234", "f05678", "f09012"],
+        },
+      },
+      required: ["addresses"],
+    },
   })
   @ApiResponse({
     status: 200,
@@ -209,16 +221,13 @@ export class ProvidersController {
       },
     },
   })
-  @ApiResponse({ status: 400, description: "Invalid or empty addresses parameter" })
-  async getProviderVersionsBatch(@Query("addresses") addresses: string): Promise<Record<string, string>> {
-    if (!addresses || addresses.trim() === "") {
-      throw new BadRequestException("Addresses parameter is required and cannot be empty");
+  @ApiResponse({ status: 400, description: "Invalid or empty addresses array" })
+  async getProviderVersionsBatch(@Body("addresses") addresses: string[]): Promise<Record<string, string>> {
+    if (!addresses || !Array.isArray(addresses) || addresses.length === 0) {
+      throw new BadRequestException("Addresses array is required and cannot be empty");
     }
 
-    const addressList = addresses
-      .split(",")
-      .map((addr) => addr.trim())
-      .filter(Boolean);
+    const addressList = addresses.map((addr) => addr.trim()).filter(Boolean);
 
     if (addressList.length === 0) {
       throw new BadRequestException("At least one valid provider address is required");
