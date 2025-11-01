@@ -1,5 +1,6 @@
 import { AlertCircle, Check, Copy, TrendingDown, TrendingUp } from "lucide-react";
 import { useState } from "react";
+import { useProviderVersion } from "@/hooks/useProviderVersion";
 import type { ProviderCombinedPerformance, ProviderDetailResponse } from "@/types/providers";
 import { formatMilliseconds, formatThroughput } from "@/utils/formatter";
 import { calculateProviderHealth } from "@/utils/providerHealth";
@@ -7,6 +8,7 @@ import { formatRegion } from "@/utils/regionFormatter";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Card, CardContent, CardHeader } from "./ui/card";
+import { Skeleton } from "./ui/skeleton";
 
 interface ProviderCardProps {
   provider: ProviderCombinedPerformance;
@@ -16,6 +18,7 @@ const SUCCESS_RATE_THRESHOLD = 90;
 
 export function ProviderCard({ provider }: ProviderCardProps) {
   const [copiedProvider, setCopiedProvider] = useState<string | null>(null);
+  const { version, loading, error } = useProviderVersion({ serviceUrl: provider.provider.serviceUrl });
 
   const hasMetrics = provider.weekly && provider.allTime;
 
@@ -27,16 +30,6 @@ export function ProviderCard({ provider }: ProviderCardProps) {
     } catch (err) {
       console.error("Failed to copy text: ", err);
     }
-  };
-
-  const formatDate = (date: Date) => {
-    return new Date(date).toLocaleDateString("en-US", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
   };
 
   const formatNumber = (num: number | string) => num.toLocaleString();
@@ -136,6 +129,16 @@ export function ProviderCard({ provider }: ProviderCardProps) {
           <p className='text-sm text-muted-foreground mt-3 line-clamp-2'>{provider.provider.description}</p>
         )}
 
+        {/* SP Curio Version */}
+        {error ? null : loading ? (
+          <Skeleton className='h-5 w-full' />
+        ) : version ? (
+          <div className='text-sm flex justify-between items-center gap-2 mb-0'>
+            <p className='text-sm text-muted-foreground'>Curio Version:</p>
+            <span className='font-medium'>{version}</span>
+          </div>
+        ) : null}
+
         {/* Health Status Banner */}
         {hasMetrics && (
           <div className='flex items-center justify-between mt-3 pt-3 border-t'>
@@ -192,12 +195,6 @@ export function ProviderCard({ provider }: ProviderCardProps) {
             <span className='text-muted-foreground'>Region</span>
             <span className='font-medium'>{formatRegion(provider.provider.region)}</span>
           </div>
-          {hasMetrics && (
-            <div className='flex items-center justify-between text-sm'>
-              <span className='text-muted-foreground'>Last Activity</span>
-              <span className='font-medium text-xs'>{formatDate(new Date(provider.allTime!.lastDealAt))}</span>
-            </div>
-          )}
           {provider.provider.serviceUrl && (
             <div className='flex items-center justify-between gap-2'>
               <span className='text-sm text-muted-foreground'>Service URL</span>
@@ -311,11 +308,6 @@ export function ProviderCard({ provider }: ProviderCardProps) {
                   </p>
                 </div>
               </div>
-              {provider.weekly!.refreshedAt && (
-                <p className='text-xs text-muted-foreground mt-2'>
-                  Last updated: {formatDate(new Date(provider.weekly!.refreshedAt))}
-                </p>
-              )}
             </div>
 
             <div className='border-t pt-4'>

@@ -130,6 +130,15 @@ export async function fetchServiceComparison(
 }
 
 // ============================================================================
+// Function to get SP Curio version
+// ============================================================================
+export async function fetchProviderCurioVersion(serviceUrl: string): Promise<string> {
+  const res = await fetch(`${serviceUrl}/version`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return (await res.text()) as string;
+}
+
+// ============================================================================
 // OLD API FUNCTIONS (Deprecated - Keep for backward compatibility)
 // ============================================================================
 
