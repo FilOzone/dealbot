@@ -172,4 +172,5 @@ Biome is configured to handle TypeScript, React/JSX, and Tailwind CSS with proje
 
 ## License
 
-TBD
+Dual-licensed: [MIT](./LICENSE.md), [Apache Software License v2](./LICENSE.md) by way of the
+[Permissive License Stack](https://protocol.ai/blog/announcing-the-permissive-license-stack/).
