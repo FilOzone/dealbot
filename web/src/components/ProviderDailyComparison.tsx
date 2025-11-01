@@ -85,8 +85,8 @@ function ProviderTrendChart({
           <LineChart data={chartData} margin={{ left: 30, top: 10 }}>
             <CartesianGrid strokeDasharray='3 3' />
             <XAxis dataKey='date' />
-            <YAxis tickFormatter={yTickFormatter as any} fontSize={12} />
-            <ChartTooltip content={<ChartTooltipContent valueFormatter={valueFormatter as any} />} />
+            <YAxis tickFormatter={yTickFormatter} fontSize={12} />
+            <ChartTooltip content={<ChartTooltipContent valueFormatter={(v) => valueFormatter(v as number)} />} />
             <Legend wrapperStyle={{ fontSize: "12px" }} />
             <Line type='monotone' dataKey='value' stroke={color} strokeWidth={2} name={displayName} />
           </LineChart>

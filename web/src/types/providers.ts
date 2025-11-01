@@ -4,6 +4,31 @@
  */
 
 /**
+ * Decoded provider info
+ */
+export interface ServiceProduct {
+  type: "PDP";
+  isActive: boolean;
+  capabilities: Record<string, string>; // Object map of capability key-value pairs
+  data: PDPOffering;
+}
+
+/**
+ * PDP offering details (decoded from capability k/v pairs)
+ */
+export interface PDPOffering {
+  serviceURL: string;
+  minPieceSizeInBytes: bigint;
+  maxPieceSizeInBytes: bigint;
+  ipniPiece: boolean;
+  ipniIpfs: boolean;
+  storagePricePerTibPerDay: bigint;
+  minProvingPeriodInEpochs: bigint;
+  location: string;
+  paymentTokenAddress: `0x${string}`;
+}
+
+/**
  * Provider Details
  */
 export interface Provider {
@@ -15,7 +40,7 @@ export interface Provider {
   isActive: boolean;
   isApproved: boolean;
   region: string;
-  metadata: Record<string, any>;
+  metadata?: ServiceProduct | {};
   createdAt: string;
   updatedAt: string;
 }

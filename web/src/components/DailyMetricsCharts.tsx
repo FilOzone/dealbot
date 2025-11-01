@@ -67,8 +67,8 @@ function DailyLineChart({ data, title, dataKeys, yTickFormatter, valueFormatter 
           <LineChart data={chartData} margin={{ left: 30, top: 20 }}>
             <CartesianGrid strokeDasharray='3 3' />
             <XAxis dataKey='date' />
-            <YAxis tickFormatter={yTickFormatter as any} fontSize={12} />
-            <ChartTooltip content={<ChartTooltipContent valueFormatter={valueFormatter as any} />} />
+            <YAxis tickFormatter={yTickFormatter} fontSize={12} />
+            <ChartTooltip content={<ChartTooltipContent valueFormatter={(v) => valueFormatter(v as number)} />} />
             <Legend />
             {dataKeys.map(({ label, color }) => (
               <Line key={label} type='monotone' dataKey={label} stroke={color} name={label} strokeWidth={2} />
