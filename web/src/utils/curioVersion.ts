@@ -15,11 +15,6 @@ export function parseCurioVersion(versionString: string): string {
   }
 
   const parts = trimmed.split("+");
-
-  if (parts.length === 0) {
-    return "";
-  }
-
   const version = parts[0];
 
   if (parts.length < 3) {
