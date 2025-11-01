@@ -248,6 +248,6 @@ src/
 ## Resources
 
 - [Filecoin Documentation](https://docs.filecoin.io/)
-- [Synapse SDK](https://github.com/filoz/synapse-sdk)
+- [Synapse SDK](https://github.com/FilOzone/synapse-sdk)
 - [NestJS Documentation](https://docs.nestjs.com/)
 - [Filecoin Calibration Network](https://docs.filecoin.io/networks/calibration/)
