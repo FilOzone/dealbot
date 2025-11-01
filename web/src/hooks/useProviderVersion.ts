@@ -1,13 +1,22 @@
 import { useCallback, useEffect, useState } from "react";
-import { fetchProviderCurioVersion } from "@/api/client";
-import { parseCurioVersion } from "@/utils/curioVersion";
+import { fetchDirectVersion } from "@/services/versionService";
+import { getFetchStrategy } from "@/utils/protocolDetection";
 
 export interface IUseProviderVersion {
   serviceUrl: string;
+  batchedVersion?: string;
 }
+
 const toMessage = (e: unknown) => (e instanceof Error ? e.message : "Unknown error");
 
-export function useProviderVersion({ serviceUrl }: IUseProviderVersion) {
+/**
+ * Smart version fetching hook for individual providers
+ *
+ * Strategy:
+ * - HTTP providers: Use pre-fetched batchedVersion
+ * - HTTPS providers: Direct fetch (CSP-allowed, no proxy needed)
+ */
+export function useProviderVersion({ serviceUrl, batchedVersion }: IUseProviderVersion) {
   const [version, setVersion] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -18,16 +27,37 @@ export function useProviderVersion({ serviceUrl }: IUseProviderVersion) {
       return;
     }
 
+    const strategy = getFetchStrategy(serviceUrl);
+
+    // Batch strategy: handled earlier to avoid loading flash
+    if (strategy === "batch") {
+      setVersion(batchedVersion || "");
+      return;
+    }
+
     try {
       setLoading(true);
       setError(null);
-      setVersion(parseCurioVersion(await fetchProviderCurioVersion(serviceUrl)));
+
+      switch (strategy) {
+        case "direct": {
+          const directVersion = await fetchDirectVersion(serviceUrl);
+          setVersion(directVersion);
+          break;
+        }
+
+        case "none":
+        default:
+          setVersion("");
+          break;
+      }
     } catch (e) {
       setError(toMessage(e));
+      setVersion("");
     } finally {
       setLoading(false);
     }
-  }, [serviceUrl]);
+  }, [serviceUrl, batchedVersion]);
 
   useEffect(() => {
     void load();

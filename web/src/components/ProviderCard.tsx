@@ -12,13 +12,17 @@ import { Skeleton } from "./ui/skeleton";
 
 interface ProviderCardProps {
   provider: ProviderCombinedPerformance;
+  batchedVersion?: string;
 }
 
 const SUCCESS_RATE_THRESHOLD = 90;
 
-export function ProviderCard({ provider }: ProviderCardProps) {
+export function ProviderCard({ provider, batchedVersion }: ProviderCardProps) {
   const [copiedProvider, setCopiedProvider] = useState<string | null>(null);
-  const { version, loading, error } = useProviderVersion({ serviceUrl: provider.provider.serviceUrl });
+  const { version, loading, error } = useProviderVersion({
+    serviceUrl: provider.provider.serviceUrl,
+    batchedVersion,
+  });
 
   const hasMetrics = provider.weekly && provider.allTime;
 

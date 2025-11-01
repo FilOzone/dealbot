@@ -1,3 +1,4 @@
+import { useProviderVersionsBatch } from "@/hooks/useProviderVersionsBatch";
 import type { ProviderCombinedPerformance } from "@/types/providers";
 import { ProviderCard } from "./ProviderCard";
 import { ProviderFilters } from "./ProviderFilters";
@@ -28,6 +29,9 @@ export function ProviderCards({
   onActiveOnlyChange,
   onApprovedOnlyChange,
 }: ProviderCardsProps) {
+  // Batch fetch versions for all HTTP providers at once
+  const { versions: batchedVersions } = useProviderVersionsBatch(providers);
+
   return (
     <div className='space-y-6'>
       {/* Filters */}
@@ -51,7 +55,11 @@ export function ProviderCards({
                   Number(b.provider.isActive) - Number(a.provider.isActive),
               )
               .map((provider) => (
-                <ProviderCard key={provider.provider.address} provider={provider} />
+                <ProviderCard
+                  key={provider.provider.address}
+                  provider={provider}
+                  batchedVersion={batchedVersions[provider.provider.address]}
+                />
               ))}
           </div>
         </div>
