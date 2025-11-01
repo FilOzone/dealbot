@@ -157,6 +157,9 @@ pnpm lint:check
 
 # Run both format and lint checks
 pnpm check
+
+# Run CI checks (same as CI pipeline)
+pnpm check:ci
 ```
 
 Biome is configured to handle TypeScript, React/JSX, and Tailwind CSS with project-specific rules for NestJS decorators and testing files.
