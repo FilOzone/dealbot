@@ -1,19 +1,29 @@
 import { useCallback, useEffect, useState } from "react";
-import { fetchProviderCurioVersion } from "@/api/client";
-import { parseCurioVersion } from "@/utils/curioVersion";
+import { fetchDirectVersion } from "@/services/versionService";
+import { getFetchStrategy } from "@/utils/protocolDetection";
 
 export interface IUseProviderVersion {
   serviceUrl: string;
+  spAddress: string;
+  batchedVersion?: string;
 }
+
 const toMessage = (e: unknown) => (e instanceof Error ? e.message : "Unknown error");
 
-export function useProviderVersion({ serviceUrl }: IUseProviderVersion) {
+/**
+ * Smart version fetching hook for individual providers
+ *
+ * Strategy:
+ * - HTTP providers: Use pre-fetched batchedVersion
+ * - HTTPS providers: Direct fetch (CSP-allowed, no proxy needed)
+ */
+export function useProviderVersion({ serviceUrl, spAddress, batchedVersion }: IUseProviderVersion) {
   const [version, setVersion] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    if (!serviceUrl) {
+    if (!serviceUrl || !spAddress) {
       setVersion("");
       return;
     }
@@ -21,13 +31,32 @@ export function useProviderVersion({ serviceUrl }: IUseProviderVersion) {
     try {
       setLoading(true);
       setError(null);
-      setVersion(parseCurioVersion(await fetchProviderCurioVersion(serviceUrl)));
+
+      const strategy = getFetchStrategy(serviceUrl);
+
+      switch (strategy) {
+        case "batch":
+          setVersion(batchedVersion || "");
+          break;
+
+        case "direct": {
+          const directVersion = await fetchDirectVersion(serviceUrl);
+          setVersion(directVersion);
+          break;
+        }
+
+        case "none":
+        default:
+          setVersion("");
+          break;
+      }
     } catch (e) {
       setError(toMessage(e));
+      setVersion("");
     } finally {
       setLoading(false);
     }
-  }, [serviceUrl]);
+  }, [serviceUrl, spAddress, batchedVersion]);
 
   useEffect(() => {
     void load();

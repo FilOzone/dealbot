@@ -130,12 +130,19 @@ export async function fetchServiceComparison(
 }
 
 // ============================================================================
-// Function to get SP Curio version
+// FUNCTIONS to get SP Curio version
 // ============================================================================
 export async function fetchProviderCurioVersion(serviceUrl: string): Promise<string> {
   const res = await fetch(`${serviceUrl}/version`);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return (await res.text()) as string;
+}
+
+export async function fetchProviderCurioVersionsBatch(spAddresses: string[]): Promise<Record<string, string>> {
+  const addresses = spAddresses.join(",");
+  const res = await fetch(`${getBaseUrl()}/api/v1/providers/versions/batch?addresses=${encodeURIComponent(addresses)}`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return (await res.json()) as Record<string, string>;
 }
 
 // ============================================================================
