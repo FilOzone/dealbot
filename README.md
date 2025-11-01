@@ -1,11 +1,11 @@
 # Deal Bot
 
-> Automated Filecoin storage deal creation and performance monitoring system
+> Automated Filecoin PDP deal creation and performance monitoring system
 
 [![Node](https://img.shields.io/badge/node-%3E%3D18-brightgreen.svg)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/typescript-5.x-blue.svg)](https://www.typescriptlang.org)
 
-An intelligent automation system for creating and monitoring storage deals on the Filecoin network. Features automated deal creation, CDN performance testing, comprehensive metrics tracking, and a modern web dashboard.
+An intelligent automation system for creating and monitoring PDP deals on the Filecoin network. Features automated deal creation, CDN performance testing, comprehensive metrics tracking, and a modern web dashboard.
 
 ## Features
 
