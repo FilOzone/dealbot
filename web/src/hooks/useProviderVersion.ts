@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { fetchProviderCurioVersion } from "@/api/client";
-import { parseCurioVersion } from "@/utils/version";
+import { parseCurioVersion } from "@/utils/curioVersion";
 
 export interface IUseProviderVersion {
   serviceUrl: string;
