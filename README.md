@@ -132,9 +132,34 @@ Contributions are welcome! Please follow these steps:
 
 1. Fork the repository
 2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+3. Make your changes
+4. Run formatting and linting checks
+5. Commit your changes (`git commit -m 'Add amazing feature'`)
+6. Push to the branch (`git push origin feature/amazing-feature`)
+7. Open a Pull Request
+
+### Code Quality
+
+This project uses [Biome](https://biomejs.dev/) for formatting and linting. Before submitting a PR:
+
+```bash
+# Format code
+pnpm format
+
+# Check formatting (CI mode)
+pnpm format:check
+
+# Lint code
+pnpm lint
+
+# Check linting (CI mode)
+pnpm lint:check
+
+# Run both format and lint checks
+pnpm check
+```
+
+Biome is configured to handle TypeScript, React/JSX, and Tailwind CSS with project-specific rules for NestJS decorators and testing files.
 
 ## Resources
 
