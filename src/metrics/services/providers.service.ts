@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
+import { Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import type { Repository } from "typeorm";
 import { MetricsDaily } from "../../database/entities/metrics-daily.entity.js";
@@ -17,6 +17,8 @@ import { StorageProvider } from "../../database/entities/storage-provider.entity
  */
 @Injectable()
 export class ProvidersService {
+  private readonly logger = new Logger(ProvidersService.name);
+
   constructor(
     @InjectRepository(SpPerformanceLastWeek)
     private readonly lastWeekPerformanceRepo: Repository<SpPerformanceLastWeek>,
@@ -395,6 +397,73 @@ export class ProvidersService {
       }
 
       return await query.limit(limit).getMany();
+    }
+  }
+
+  /**
+   * Get Curio versions for multiple storage providers in batch
+   */
+  async getProviderCurioVersionsBatch(spAddresses: string[]): Promise<Record<string, string>> {
+    this.logger.debug(`Batch fetching versions for ${spAddresses.length} providers`);
+
+    // Fetch all versions in parallel
+    const versionPromises = spAddresses.map(async (spAddress) => {
+      try {
+        const version = await this.getProviderCurioVersion(spAddress);
+        return { spAddress, version };
+      } catch (error) {
+        this.logger.warn(`Failed to fetch version for ${spAddress}: ${error.message}`);
+        return { spAddress, version: null };
+      }
+    });
+
+    const results = await Promise.all(versionPromises);
+
+    // Convert to object map, filtering out failed requests
+    const versionMap: Record<string, string> = {};
+    for (const result of results) {
+      if (result.version) {
+        versionMap[result.spAddress] = result.version;
+      }
+    }
+
+    return versionMap;
+  }
+
+  /**
+   * Get Curio version from a storage provider's service URL
+   */
+  async getProviderCurioVersion(spAddress: string): Promise<string> {
+    // Get provider to retrieve service URL
+    const provider = await this.getProvider(spAddress);
+
+    if (!provider.serviceUrl) {
+      throw new NotFoundException(`Service URL not available for provider ${spAddress}`);
+    }
+
+    try {
+      const versionUrl = `${provider.serviceUrl}/version`;
+      this.logger.debug(`Fetching version from: ${versionUrl}`);
+
+      const response = await fetch(versionUrl, {
+        method: "GET",
+        headers: {
+          "User-Agent": "Mozilla/5.0 (compatible; DealBot/1.0)",
+        },
+        signal: AbortSignal.timeout(10000), // 10 second timeout
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const version = await response.text();
+      this.logger.debug(`Retrieved version for ${spAddress}: ${version}`);
+
+      return version;
+    } catch (error) {
+      this.logger.error(`Failed to fetch version for ${spAddress}: ${error.message}`);
+      throw new NotFoundException(`Unable to fetch version from provider ${spAddress}: ${error.message}`);
     }
   }
 }

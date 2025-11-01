@@ -1,4 +1,13 @@
-import { Controller, DefaultValuePipe, Get, Logger, Param, ParseIntPipe, Query } from "@nestjs/common";
+import {
+  BadRequestException,
+  Controller,
+  DefaultValuePipe,
+  Get,
+  Logger,
+  Param,
+  ParseIntPipe,
+  Query,
+} from "@nestjs/common";
 import { ApiOperation, ApiParam, ApiQuery, ApiResponse, ApiTags } from "@nestjs/swagger";
 import { SpPerformanceAllTime } from "src/database/entities/sp-performance-all-time.entity.js";
 import { SpPerformanceLastWeek } from "src/database/entities/sp-performance-last-week.entity.js";
@@ -172,6 +181,68 @@ export class ProvidersController {
     }
 
     return (providers as any[]).map((p) => this.mapWeeklyToDto(p));
+  }
+
+  /**
+   * Get Curio versions for multiple storage providers in batch
+   */
+  @Get("versions/batch")
+  @ApiOperation({
+    summary: "Get Curio versions for multiple providers (batch)",
+    description: "Fetch Curio versions for multiple storage providers in a single request",
+  })
+  @ApiQuery({
+    name: "addresses",
+    required: true,
+    description: "Comma-separated list of storage provider addresses",
+    example: "f01234,f05678,f09012",
+  })
+  @ApiResponse({
+    status: 200,
+    description: "Map of provider addresses to their Curio versions",
+    schema: {
+      type: "object",
+      additionalProperties: { type: "string" },
+      example: {
+        f01234: "1.27.0 (76330a87)",
+        f05678: "1.26.5 (abc12345)",
+      },
+    },
+  })
+  @ApiResponse({ status: 400, description: "Invalid or empty addresses parameter" })
+  async getProviderVersionsBatch(@Query("addresses") addresses: string): Promise<Record<string, string>> {
+    if (!addresses || addresses.trim() === "") {
+      throw new BadRequestException("Addresses parameter is required and cannot be empty");
+    }
+
+    const addressList = addresses
+      .split(",")
+      .map((addr) => addr.trim())
+      .filter(Boolean);
+
+    if (addressList.length === 0) {
+      throw new BadRequestException("At least one valid provider address is required");
+    }
+
+    this.logger.debug(`Fetching Curio versions for ${addressList.length} providers (batch)`);
+
+    return this.providersService.getProviderCurioVersionsBatch(addressList);
+  }
+
+  /**
+   * Get Curio version from a storage provider's service URL
+   */
+  @Get(":spAddress/version")
+  @ApiOperation({
+    summary: "Get provider Curio version",
+    description: "Fetch the Curio version from a storage provider's service endpoint (proxied through backend)",
+  })
+  @ApiParam({ name: "spAddress", description: "Storage provider address" })
+  @ApiResponse({ status: 200, description: "Curio version string", type: String })
+  @ApiResponse({ status: 404, description: "Provider not found or version endpoint unavailable" })
+  async getProviderVersion(@Param("spAddress") spAddress: string): Promise<string> {
+    this.logger.debug(`Fetching Curio version for provider: ${spAddress}`);
+    return this.providersService.getProviderCurioVersion(spAddress);
   }
 
   /**
