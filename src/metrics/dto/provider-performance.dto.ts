@@ -39,9 +39,9 @@ export class Provider {
 }
 
 /**
- * DTO for storage provider weekly performance metrics
+ * DTO for storage provider performance metrics
  */
-export class ProviderWeeklyPerformanceDto {
+export class ProviderPerformanceDto {
   @ApiProperty({ description: "Storage provider address" })
   spAddress: string;
 
@@ -99,80 +99,6 @@ export class ProviderWeeklyPerformanceDto {
   @ApiProperty({ description: "Health score (0-100)" })
   healthScore: number;
 
-  @ApiProperty({ description: "Last deal timestamp" })
-  lastDealAt: Date;
-
-  @ApiProperty({ description: "Last retrieval timestamp" })
-  lastRetrievalAt: Date;
-
-  @ApiProperty({ description: "Data last refreshed at" })
-  refreshedAt: Date;
-}
-
-/**
- * DTO for storage provider all-time performance metrics
- */
-export class ProviderAllTimePerformanceDto {
-  @ApiProperty({ description: "Storage provider address" })
-  spAddress: string;
-
-  @ApiProperty({ description: "Total deals (all time)" })
-  totalDeals: number;
-
-  @ApiProperty({ description: "Successful deals (all time)" })
-  successfulDeals: number;
-
-  @ApiProperty({ description: "Failed deals (all time)" })
-  failedDeals: number;
-
-  @ApiProperty({ description: "Deal success rate percentage (0-100)" })
-  dealSuccessRate: number;
-
-  @ApiProperty({ description: "Average ingest latency in milliseconds" })
-  avgIngestLatencyMs: number;
-
-  @ApiProperty({ description: "Average chain latency in milliseconds" })
-  avgChainLatencyMs: number;
-
-  @ApiProperty({ description: "Average deal latency in milliseconds" })
-  avgDealLatencyMs: number;
-
-  @ApiProperty({ description: "Average ingest throughput in bytes per second" })
-  avgIngestThroughputBps: number;
-
-  @ApiProperty({ description: "Total data stored in bytes" })
-  totalDataStoredBytes: string;
-
-  @ApiProperty({ description: "Total retrievals (all time)" })
-  totalRetrievals: number;
-
-  @ApiProperty({ description: "Successful retrievals (all time)" })
-  successfulRetrievals: number;
-
-  @ApiProperty({ description: "Failed retrievals (all time)" })
-  failedRetrievals: number;
-
-  @ApiProperty({ description: "Retrieval success rate percentage (0-100)" })
-  retrievalSuccessRate: number;
-
-  @ApiProperty({ description: "Average retrieval latency in milliseconds" })
-  avgRetrievalLatencyMs: number;
-
-  @ApiProperty({ description: "Average retrieval TTFB in milliseconds" })
-  avgRetrievalTtfbMs: number;
-
-  @ApiProperty({ description: "Average retrieval throughput in bytes per second" })
-  avgRetrievalThroughputBps: number;
-
-  @ApiProperty({ description: "Total data retrieved in bytes" })
-  totalDataRetrievedBytes: string;
-
-  @ApiPropertyOptional({ description: "Reliability score (0-100)" })
-  reliabilityScore?: number;
-
-  @ApiPropertyOptional({ description: "Experience level", enum: ["new", "intermediate", "experienced", "veteran"] })
-  experienceLevel?: string;
-
   @ApiPropertyOptional({ description: "Average deal size in bytes" })
   avgDealSize?: number;
 
@@ -193,11 +119,11 @@ export class ProviderCombinedPerformanceDto {
   @ApiProperty({ description: "Storage provider address" })
   provider: Provider;
 
-  @ApiProperty({ type: ProviderWeeklyPerformanceDto })
-  weekly: ProviderWeeklyPerformanceDto | null;
+  @ApiProperty({ type: ProviderPerformanceDto })
+  weekly: ProviderPerformanceDto | null;
 
-  @ApiProperty({ type: ProviderAllTimePerformanceDto })
-  allTime: ProviderAllTimePerformanceDto | null;
+  @ApiProperty({ type: ProviderPerformanceDto })
+  allTime: ProviderPerformanceDto | null;
 }
 
 /**
@@ -239,4 +165,32 @@ export class ProviderMetricsListResponseDto {
 
   @ApiProperty({ description: "Pagination limit" })
   limit: number;
+}
+
+/**
+ * DTO for provider metrics over time window
+ */
+export class WindowDto {
+  @ApiProperty({ description: "Start Date" })
+  startDate: string;
+
+  @ApiProperty({ description: "End Date" })
+  endDate: string;
+
+  @ApiProperty({ description: "Number of days" })
+  days: number;
+
+  @ApiProperty({ description: "Time window preset if no custom date range" })
+  preset: string | null;
+}
+
+export class ProviderWindowPerformanceDto {
+  @ApiProperty({ type: Provider })
+  provider: Provider;
+
+  @ApiProperty({ type: WindowDto })
+  window: WindowDto;
+
+  @ApiProperty({ type: ProviderPerformanceDto })
+  metrics: ProviderPerformanceDto;
 }

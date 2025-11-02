@@ -156,7 +156,7 @@ export class SpPerformanceAllTime {
    * Get overall reliability score (0-100)
    * Based on lifetime success rates
    */
-  getReliabilityScore(): number {
+  getHealthScore(): number {
     if (!this.hasActivity()) {
       return 0;
     }
@@ -166,18 +166,6 @@ export class SpPerformanceAllTime {
 
     // Weighted average: 60% deal success, 40% retrieval success
     return Math.round(dealScore * 0.6 + retrievalScore * 0.4);
-  }
-
-  /**
-   * Get provider experience level based on total activity
-   */
-  getExperienceLevel(): "new" | "intermediate" | "experienced" | "veteran" {
-    const totalActivity = this.totalDeals + this.totalRetrievals;
-
-    if (totalActivity < 10) return "new";
-    if (totalActivity < 100) return "intermediate";
-    if (totalActivity < 1000) return "experienced";
-    return "veteran";
   }
 
   /**

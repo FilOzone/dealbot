@@ -12,14 +12,12 @@ import {
   Query,
 } from "@nestjs/common";
 import { ApiBody, ApiOperation, ApiParam, ApiQuery, ApiResponse, ApiTags } from "@nestjs/swagger";
-import { SpPerformanceAllTime } from "src/database/entities/sp-performance-all-time.entity.js";
-import { SpPerformanceLastWeek } from "src/database/entities/sp-performance-last-week.entity.js";
 import {
-  type ProviderAllTimePerformanceDto,
   ProviderCombinedPerformanceDto,
   ProviderListResponseDto,
   ProviderMetricsListResponseDto,
-  ProviderWeeklyPerformanceDto,
+  ProviderPerformanceDto,
+  ProviderWindowPerformanceDto,
 } from "../dto/provider-performance.dto.js";
 import { ProvidersService } from "../services/providers.service.js";
 
@@ -105,8 +103,8 @@ export class ProvidersController {
 
         return {
           provider: p,
-          weekly: weekly ? this.mapWeeklyToDto(weekly) : null,
-          allTime: allTime ? this.mapAllTimeToDto(allTime) : null,
+          weekly: weekly ? this.providersService.mapEntityToPerformanceDto(weekly) : null,
+          allTime: allTime ? this.providersService.mapEntityToPerformanceDto(allTime) : null,
         };
       }),
     );
@@ -142,9 +140,72 @@ export class ProvidersController {
 
     return {
       provider,
-      weekly: weekly ? this.mapWeeklyToDto(weekly) : null,
-      allTime: allTime ? this.mapAllTimeToDto(allTime) : null,
+      weekly: weekly ? this.providersService.mapEntityToPerformanceDto(weekly) : null,
+      allTime: allTime ? this.providersService.mapEntityToPerformanceDto(allTime) : null,
     };
+  }
+
+  /**
+   * Get Detailed SP performance over specific time window
+   */
+  @Get("metrics/:spAddress/window")
+  @ApiOperation({
+    summary: "Get provider performance for time window",
+    description: "Get metrics for a preset window (24h, 7d, 30d, 90d, all) or custom date range",
+  })
+  @ApiParam({ name: "spAddress", description: "Storage provider address" })
+  @ApiQuery({
+    name: "preset",
+    required: false,
+    description:
+      "Time window preset (e.g., '1h', '2.5d', '7d', '30d', '90d', 'all'). Mutually exclusive with startDate/endDate. Supports hours (h) and days (d) with optional decimals. Min: 1h, Max: 90d.",
+  })
+  @ApiQuery({
+    name: "startDate",
+    required: false,
+    description: "Start date (YYYY-MM-DD), requires endDate",
+  })
+  @ApiQuery({
+    name: "endDate",
+    required: false,
+    description: "End date (YYYY-MM-DD), requires startDate",
+  })
+  @ApiResponse({
+    status: 200,
+    description: "Provider performance metrics",
+    type: ProviderWindowPerformanceDto,
+  })
+  @ApiResponse({ status: 400, description: "Invalid time window or date range" })
+  @ApiResponse({ status: 404, description: "Provider not found" })
+  async getProviderWindowPerformance(
+    @Param("spAddress") spAddress: string,
+    @Query("preset") preset?: string,
+    @Query("startDate") startDate?: string,
+    @Query("endDate") endDate?: string,
+  ): Promise<ProviderWindowPerformanceDto> {
+    this.logger.debug(`Getting window performance for ${spAddress}: preset=${preset}, dates=${startDate}-${endDate}`);
+
+    // Validation: Cannot use both preset and custom date range
+    if (preset && (startDate || endDate)) {
+      throw new BadRequestException("Cannot use both preset and custom date range (startDate/endDate)");
+    }
+
+    // Validation: Both dates required for custom range
+    if ((startDate && !endDate) || (!startDate && endDate)) {
+      throw new BadRequestException("Both startDate and endDate are required for custom date range");
+    }
+
+    // Route to appropriate service method
+    if (preset) {
+      return this.providersService.getPresetWindowPerformance(spAddress, preset);
+    }
+
+    if (startDate && endDate) {
+      return this.providersService.getCustomWindowPerformance(spAddress, startDate, endDate);
+    }
+
+    // Default to 7d (current behavior)
+    return this.providersService.getPresetWindowPerformance(spAddress, "7d");
   }
 
   /**
@@ -166,12 +227,12 @@ export class ProvidersController {
     description: "Time period (default: last_week)",
   })
   @ApiQuery({ name: "limit", required: false, type: Number, description: "Number of results (default: 10)" })
-  @ApiResponse({ status: 200, description: "Top providers", type: [ProviderWeeklyPerformanceDto] })
+  @ApiResponse({ status: 200, description: "Top providers", type: [ProviderPerformanceDto] })
   async getTopProviders(
     @Param("metric") metric: "deal_success_rate" | "retrieval_success_rate" | "deal_latency" | "retrieval_latency",
     @Query("period") period?: "last_week" | "all_time",
     @Query("limit", new DefaultValuePipe(10), ParseIntPipe) limit?: number,
-  ): Promise<ProviderWeeklyPerformanceDto[] | ProviderAllTimePerformanceDto[]> {
+  ): Promise<ProviderPerformanceDto[]> {
     this.logger.debug(`Getting top providers by ${metric} for period ${period || "weekly"}`);
 
     const providers = await this.providersService.getTopProviders(metric, {
@@ -179,11 +240,7 @@ export class ProvidersController {
       limit,
     });
 
-    if (period === "all_time") {
-      return (providers as any[]).map((p) => this.mapAllTimeToDto(p));
-    }
-
-    return (providers as any[]).map((p) => this.mapWeeklyToDto(p));
+    return (providers as any[]).map((p) => this.providersService.mapEntityToPerformanceDto(p));
   }
 
   /**
@@ -252,69 +309,5 @@ export class ProvidersController {
   async getProviderVersion(@Param("spAddress") spAddress: string): Promise<string> {
     this.logger.debug(`Fetching Curio version for provider: ${spAddress}`);
     return this.providersService.getProviderCurioVersion(spAddress);
-  }
-
-  /**
-   * Helper method to map weekly entity to DTO
-   * @private
-   */
-  private mapWeeklyToDto(weekly: SpPerformanceLastWeek): ProviderWeeklyPerformanceDto {
-    return {
-      spAddress: weekly.spAddress,
-      totalDeals: weekly.totalDeals,
-      successfulDeals: weekly.successfulDeals,
-      failedDeals: weekly.failedDeals,
-      dealSuccessRate: weekly.dealSuccessRate,
-      avgIngestLatencyMs: weekly.avgIngestLatencyMs,
-      avgChainLatencyMs: weekly.avgChainLatencyMs,
-      avgDealLatencyMs: weekly.avgDealLatencyMs,
-      avgIngestThroughputBps: weekly.avgIngestThroughputBps,
-      totalDataStoredBytes: weekly.totalDataStoredBytes,
-      totalRetrievals: weekly.totalRetrievals,
-      successfulRetrievals: weekly.successfulRetrievals,
-      failedRetrievals: weekly.failedRetrievals,
-      retrievalSuccessRate: weekly.retrievalSuccessRate,
-      avgRetrievalLatencyMs: weekly.avgRetrievalLatencyMs,
-      avgRetrievalTtfbMs: weekly.avgRetrievalTtfbMs,
-      avgRetrievalThroughputBps: weekly.avgThroughputBps,
-      totalDataRetrievedBytes: weekly.totalDataRetrievedBytes,
-      healthScore: weekly.getHealthScore?.() || 0,
-      lastDealAt: weekly.lastDealAt,
-      lastRetrievalAt: weekly.lastRetrievalAt,
-      refreshedAt: weekly.refreshedAt,
-    };
-  }
-
-  /**
-   * Helper method to map all-time entity to DTO
-   * @private
-   */
-  private mapAllTimeToDto(allTime: SpPerformanceAllTime): ProviderAllTimePerformanceDto {
-    return {
-      spAddress: allTime.spAddress,
-      totalDeals: allTime.totalDeals,
-      successfulDeals: allTime.successfulDeals,
-      failedDeals: allTime.failedDeals,
-      dealSuccessRate: allTime.dealSuccessRate,
-      avgIngestLatencyMs: allTime.avgIngestLatencyMs,
-      avgChainLatencyMs: allTime.avgChainLatencyMs,
-      avgDealLatencyMs: allTime.avgDealLatencyMs,
-      avgIngestThroughputBps: allTime.avgIngestThroughputBps,
-      totalDataStoredBytes: allTime.totalDataStoredBytes,
-      totalRetrievals: allTime.totalRetrievals,
-      successfulRetrievals: allTime.successfulRetrievals,
-      failedRetrievals: allTime.failedRetrievals,
-      retrievalSuccessRate: allTime.retrievalSuccessRate,
-      avgRetrievalLatencyMs: allTime.avgRetrievalLatencyMs,
-      avgRetrievalTtfbMs: allTime.avgRetrievalTtfbMs,
-      avgRetrievalThroughputBps: allTime.avgThroughputBps,
-      totalDataRetrievedBytes: allTime.totalDataRetrievedBytes,
-      reliabilityScore: allTime.getReliabilityScore?.() || 0,
-      experienceLevel: allTime.getExperienceLevel?.() || "new",
-      avgDealSize: allTime.getAvgDealSize?.() ?? undefined,
-      lastDealAt: allTime.lastDealAt,
-      lastRetrievalAt: allTime.lastRetrievalAt,
-      refreshedAt: allTime.refreshedAt,
-    };
   }
 }
