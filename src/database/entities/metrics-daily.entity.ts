@@ -9,14 +9,15 @@ import {
   Unique,
   UpdateDateColumn,
 } from "typeorm";
-import { ServiceType } from "../types.js";
+import { MetricType, ServiceType } from "../types.js";
 import { StorageProvider } from "./storage-provider.entity.js";
 
 @Entity("metrics_daily")
 @Index(["dailyBucket"])
 @Index(["spAddress", "dailyBucket"])
+@Index(["metricType", "dailyBucket"])
 @Index(["serviceType", "dailyBucket"])
-@Unique(["dailyBucket", "spAddress", "serviceType"])
+@Unique(["dailyBucket", "spAddress", "metricType", "serviceType"])
 export class MetricsDaily {
   @PrimaryGeneratedColumn("increment")
   id: number;
@@ -26,6 +27,9 @@ export class MetricsDaily {
 
   @Column({ name: "sp_address", nullable: true })
   spAddress: string;
+
+  @Column({ name: "metric_type", type: "enum", enum: MetricType })
+  metricType: MetricType;
 
   @Column({ name: "service_type", type: "enum", enum: ServiceType, nullable: true })
   serviceType: ServiceType;

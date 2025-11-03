@@ -130,25 +130,23 @@ export class MetricsSchedulerService implements OnModuleInit {
   async aggregateDailyMetrics(): Promise<void> {
     const startTime = Date.now();
 
-    // Real-time aggregation: from start of today until now
-    const targetDate = new Date();
-    targetDate.setHours(0, 0, 0, 0); // Start of today
-
+    // Real-time aggregation: from start of today (UTC)
     const now = new Date(); // Current time (end of range)
 
     this.logger.log(
-      `Starting daily metrics aggregation for ${targetDate.toISOString().split("T")[0]} (up to ${
+      `Starting daily metrics aggregation for ${now.toISOString().split("T")[0]} (up to ${
         now.toTimeString().split(" ")[0]
       })`,
     );
 
     try {
-      // Aggregate deal metrics by storage provider (no service_type for deals)
+      // Aggregate deal metrics by storage provider (metric_type='deal', service_type=NULL)
       const dealMetrics = await this.dataSource.query(
         `
         INSERT INTO metrics_daily (
           daily_bucket,
           sp_address,
+          metric_type,
           service_type,
           total_deals,
           successful_deals,
@@ -167,8 +165,9 @@ export class MetricsSchedulerService implements OnModuleInit {
           updated_at
         )
         SELECT 
-          $1::timestamptz as daily_bucket,
+          date_trunc('day', $1::timestamptz) as daily_bucket,
           sp_address,
+          'deal'::metrics_daily_metric_type_enum as metric_type,
           NULL as service_type,
           COUNT(*) as total_deals,
           COUNT(*) FILTER (WHERE status = 'deal_created') as successful_deals,
@@ -193,9 +192,9 @@ export class MetricsSchedulerService implements OnModuleInit {
           NOW() as created_at,
           NOW() as updated_at
         FROM deals
-        WHERE created_at >= $1::timestamp AND created_at < $2::timestamp
+        WHERE DATE(created_at) = DATE($1::timestamp)
         GROUP BY sp_address
-        ON CONFLICT (daily_bucket, sp_address, service_type) 
+        ON CONFLICT (daily_bucket, sp_address, metric_type, service_type) 
         DO UPDATE SET
           total_deals = EXCLUDED.total_deals,
           successful_deals = EXCLUDED.successful_deals,
@@ -209,15 +208,16 @@ export class MetricsSchedulerService implements OnModuleInit {
           updated_at = NOW()
         RETURNING sp_address
         `,
-        [targetDate, now],
+        [now],
       );
 
-      // Aggregate retrieval metrics by storage provider AND service_type
+      // Aggregate retrieval metrics by storage provider AND service_type (metric_type='retrieval')
       await this.dataSource.query(
         `
         INSERT INTO metrics_daily (
           daily_bucket,
           sp_address,
+          metric_type,
           service_type,
           total_deals,
           successful_deals,
@@ -235,8 +235,9 @@ export class MetricsSchedulerService implements OnModuleInit {
           updated_at
         )
         SELECT 
-          $1::timestamptz as daily_bucket,
+          date_trunc('day', $1::timestamptz) as daily_bucket,
           d.sp_address,
+          'retrieval'::metrics_daily_metric_type_enum as metric_type,
           ret.service_type::text::metrics_daily_service_type_enum as service_type,
           0 as total_deals,
           0 as successful_deals,
@@ -261,9 +262,9 @@ export class MetricsSchedulerService implements OnModuleInit {
           NOW() as updated_at
         FROM deals d
         INNER JOIN retrievals ret ON ret.deal_id = d.id
-        WHERE ret.created_at >= $1::timestamp AND ret.created_at < $2::timestamp
+        WHERE DATE(ret.created_at) = DATE($1::timestamp)
         GROUP BY d.sp_address, ret.service_type
-        ON CONFLICT (daily_bucket, sp_address, service_type)
+        ON CONFLICT (daily_bucket, sp_address, metric_type, service_type)
         DO UPDATE SET
           total_retrievals = EXCLUDED.total_retrievals,
           successful_retrievals = EXCLUDED.successful_retrievals,
@@ -276,7 +277,7 @@ export class MetricsSchedulerService implements OnModuleInit {
           updated_at = NOW()
         RETURNING sp_address, service_type
         `,
-        [targetDate, now],
+        [now],
       );
 
       const duration = Date.now() - startTime;
