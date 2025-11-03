@@ -66,7 +66,7 @@ export async function fetchProvider(spAddress: string): Promise<ProviderCombined
  * Fetch network-wide statistics
  */
 export async function fetchNetworkStats(): Promise<NetworkOverallStats> {
-  const url = `${getBaseUrl()}/api/v1/metrics/network/stats`;
+  const url = `${getBaseUrl()}/api/v1/metrics/network/stats?approvedOnly=true&activeOnly=true`;
 
   const res = await fetch(url, { headers: JSON_HEADERS });
   if (!res.ok) throw new Error(`Failed to fetch network stats: HTTP ${res.status}`);

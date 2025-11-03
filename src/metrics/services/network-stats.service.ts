@@ -27,17 +27,21 @@ export class NetworkStatsService {
    * Get overall network statistics
    * Uses database-level aggregation for optimal performance
    *
+   * @param options - Filter options for providers
+   * @param options.approvedOnly - Only include approved providers
+   * @param options.activeOnly - Only include active providers
    * @returns Overall network statistics
    */
-  async getOverallStats(): Promise<NetworkOverallStatsDto> {
+  async getOverallStats(options?: { approvedOnly?: boolean; activeOnly?: boolean }): Promise<NetworkOverallStatsDto> {
     try {
       // Calculate active providers threshold (7 days ago)
       const sevenDaysAgo = new Date();
       sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
 
-      // Single query with database-level aggregation
-      const stats = await this.allTimeRepo
+      // Build query with optional filters
+      const query = this.allTimeRepo
         .createQueryBuilder("sp")
+        .innerJoin("storage_providers", "provider", "provider.address = sp.sp_address")
         .select("COUNT(DISTINCT sp.sp_address)", "totalProviders")
         .addSelect(
           "COUNT(DISTINCT sp.sp_address) FILTER (WHERE sp.total_deals > 0 OR sp.total_retrievals > 0)",
@@ -78,8 +82,18 @@ export class NetworkStatsService {
           "avgRetrievalThroughputBps",
         )
         .addSelect("MAX(sp.refreshed_at)", "lastRefreshedAt")
-        .setParameter("sevenDaysAgo", sevenDaysAgo)
-        .getRawOne();
+        .setParameter("sevenDaysAgo", sevenDaysAgo);
+
+      // Apply filters if provided
+      if (options?.approvedOnly) {
+        query.andWhere("provider.is_approved = true");
+      }
+
+      if (options?.activeOnly) {
+        query.andWhere("provider.is_active = true");
+      }
+
+      const stats = await query.getRawOne();
 
       // Handle empty result
       if (!stats || stats.totalProviders === "0" || stats.totalProviders === 0) {
