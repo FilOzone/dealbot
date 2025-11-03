@@ -50,8 +50,8 @@ export class NetworkStatsController {
     @Query("activeOnly") activeOnly?: boolean,
   ): Promise<NetworkOverallStatsDto> {
     return this.networkStatsService.getOverallStats({
-      approvedOnly: approvedOnly === true || approvedOnly === "true" as any,
-      activeOnly: activeOnly === true || activeOnly === "true" as any,
+      approvedOnly: approvedOnly === true || approvedOnly === ("true" as any),
+      activeOnly: activeOnly === true || activeOnly === ("true" as any),
     });
   }
 }
