@@ -95,10 +95,10 @@ export function ProviderDetailModal({ provider, open, onOpenChange }: ProviderDe
               <div className='grid grid-cols-2 gap-4'>
                 <Card>
                   <CardContent className='p-4'>
-                    <div className='text-xs uppercase tracking-wide text-muted-foreground'>Total Deals</div>
+                    <div className='text-xs uppercase tracking-wide text-muted-foreground'>Total Uploads</div>
                     <div className='mt-2 text-2xl font-semibold'>{formatNumber(data.metrics.totalDeals)}</div>
                     <div className='mt-1 text-xs text-muted-foreground'>
-                      {formatNumber(data.metrics.successfulDeals)} Successful Deals
+                      {formatNumber(data.metrics.successfulDeals)} Successful Uploads
                     </div>
                   </CardContent>
                 </Card>
@@ -120,7 +120,7 @@ export function ProviderDetailModal({ provider, open, onOpenChange }: ProviderDe
               <div className='space-y-4'>
                 <div>
                   <div className='flex items-center justify-between mb-2'>
-                    <span className='text-sm font-medium'>Deal Success Rate</span>
+                    <span className='text-sm font-medium'>Upload Success Rate</span>
                     <span
                       className={`text-sm font-semibold ${
                         data.metrics.dealSuccessRate < SUCCESS_RATE_THRESHOLD ? "text-red-600" : "text-green-600"
