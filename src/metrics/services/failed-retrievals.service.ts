@@ -41,7 +41,7 @@ export class FailedRetrievalsService {
    * @param page - Page number (1-indexed)
    * @param limit - Items per page
    * @param search - Optional search term (endpoint, error message)
-   * @param provider - Optional provider filter
+   * @param spAddress - Optional provider filter
    * @param serviceType - Optional service type filter
    * @returns Paginated failed retrievals with summary
    */
@@ -51,7 +51,7 @@ export class FailedRetrievalsService {
     page: number = 1,
     limit: number = 20,
     search?: string,
-    provider?: string,
+    spAddress?: string,
     serviceType?: ServiceType,
   ): Promise<FailedRetrievalsResponseDto> {
     try {
@@ -80,8 +80,8 @@ export class FailedRetrievalsService {
       }
 
       // Add provider filter (proper SQL join)
-      if (provider) {
-        queryBuilder.andWhere("deal.spAddress = :provider", { provider });
+      if (spAddress) {
+        queryBuilder.andWhere("deal.spAddress = :spAddress", { spAddress });
       }
 
       // Add search filter
@@ -102,7 +102,7 @@ export class FailedRetrievalsService {
       const failedRetrievalDtos = this.mapToFailedRetrievalDtos(failedRetrievals);
 
       // Calculate summary
-      const summary = await this.calculateSummary(startDate, endDate, provider, serviceType);
+      const summary = await this.calculateSummary(startDate, endDate, spAddress, serviceType);
 
       // Build pagination metadata
       const pagination = this.buildPaginationDto(page, limit, total);
@@ -175,7 +175,7 @@ export class FailedRetrievalsService {
    *
    * @private
    */
-  private async calculateSummary(startDate: Date, endDate: Date, provider?: string, serviceType?: string) {
+  private async calculateSummary(startDate: Date, endDate: Date, spAddress?: string, serviceType?: string) {
     // Build query with proper joins and filtering
     const queryBuilder = this.retrievalRepo
       .createQueryBuilder("retrieval")
@@ -198,8 +198,8 @@ export class FailedRetrievalsService {
     }
 
     // Add provider filter
-    if (provider) {
-      queryBuilder.andWhere("deal.spAddress = :provider", { provider });
+    if (spAddress) {
+      queryBuilder.andWhere("deal.spAddress = :spAddress", { spAddress });
     }
 
     const filteredRetrievals = await queryBuilder.getMany();

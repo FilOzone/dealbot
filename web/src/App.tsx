@@ -213,7 +213,7 @@ export default function App() {
           <CardHeader>
             <CardTitle>Failure Analysis</CardTitle>
             <CardDescription>
-              Track and analyze failed deals and retrievals • Click to expand for details
+              Track and analyze failed uploads and retrievals • Click to expand for details
             </CardDescription>
           </CardHeader>
           <CardContent>

@@ -44,7 +44,7 @@ export class FailedDealsService {
     page: number = 1,
     limit: number = 20,
     search?: string,
-    provider?: string,
+    spAddress?: string,
     errorCode?: string,
   ): Promise<FailedDealsResponseDto> {
     try {
@@ -58,8 +58,8 @@ export class FailedDealsService {
         errorMessage: Not(IsNull()),
       };
 
-      if (provider) {
-        baseWhere.spAddress = provider;
+      if (spAddress) {
+        baseWhere.spAddress = spAddress;
       }
 
       if (errorCode) {
@@ -100,7 +100,7 @@ export class FailedDealsService {
       const failedDealDtos = this.mapToFailedDealDtos(failedDeals);
 
       // Calculate summary
-      const summary = await this.calculateSummary(startDate, endDate, provider, errorCode);
+      const summary = await this.calculateSummary(startDate, endDate, spAddress, errorCode);
 
       // Build pagination metadata
       const pagination = this.buildPaginationDto(page, limit, total);
@@ -170,15 +170,15 @@ export class FailedDealsService {
    *
    * @private
    */
-  private async calculateSummary(startDate: Date, endDate: Date, provider?: string, errorCode?: string) {
+  private async calculateSummary(startDate: Date, endDate: Date, spAddress?: string, errorCode?: string) {
     const baseWhere: any = {
       createdAt: Between(startDate, endDate),
       status: DealStatus.FAILED,
       errorMessage: Not(IsNull()),
     };
 
-    if (provider) {
-      baseWhere.spAddress = provider;
+    if (spAddress) {
+      baseWhere.spAddress = spAddress;
     }
 
     if (errorCode) {
