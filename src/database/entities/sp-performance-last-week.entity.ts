@@ -212,7 +212,7 @@ export class SpPerformanceLastWeek {
   /**
    * Check if provider is active (had activity in last 7 days)
    */
-  isActive(): boolean {
+  hasActivity(): boolean {
     return this.totalDeals > 0 || this.totalRetrievals > 0;
   }
 
@@ -221,7 +221,7 @@ export class SpPerformanceLastWeek {
    * Based on success rates and activity
    */
   getHealthScore(): number {
-    if (!this.isActive()) {
+    if (!this.hasActivity()) {
       return 0;
     }
 
@@ -230,5 +230,16 @@ export class SpPerformanceLastWeek {
 
     // Weighted average: 60% deal success, 40% retrieval success
     return Math.round(dealScore * 0.6 + retrievalScore * 0.4);
+  }
+
+  /**
+   * Calculate average data size per deal (in bytes)
+   */
+  getAvgDealSize(): number | null {
+    if (this.successfulDeals === 0) {
+      return null;
+    }
+
+    return Math.round(Number(this.totalDataStoredBytes) / this.successfulDeals);
   }
 }

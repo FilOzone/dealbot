@@ -3,7 +3,13 @@ import type { FailedDealsQueryOptions, FailedDealsResponse } from "../types/fail
 import type { FailedRetrievalsQueryOptions, FailedRetrievalsResponse } from "../types/failed-retrievals";
 import type { DailyMetricsQueryOptions, DailyMetricsResponse, ProviderDailyMetricsResponse } from "../types/metrics";
 import type { NetworkOverallStats } from "../types/network";
-import type { ProviderCombinedPerformance, ProvidersListResponse, ProvidersQueryOptions } from "../types/providers";
+import type {
+  ProviderCombinedPerformance,
+  ProvidersListResponse,
+  ProvidersQueryOptions,
+  ProviderWindowPerformanceDto,
+  ProviderWindowQueryOptions,
+} from "../types/providers";
 import type { ServiceComparisonQueryOptions, ServiceComparisonResponse } from "../types/services";
 import type { DailyMetricsResponseDto, OverallStatsResponseDto } from "../types/stats";
 
@@ -127,6 +133,24 @@ export async function fetchServiceComparison(
   if (!res.ok) throw new Error(`Failed to fetch service comparison: HTTP ${res.status}`);
 
   return (await res.json()) as ServiceComparisonResponse;
+}
+
+/**
+ * Fetch provider-specific window metrics
+ * @param spAddress - Storage provider address
+ * @param options - Query options for window metrics
+ */
+export async function fetchProviderWindowMetrics(
+  spAddress: string,
+  options?: ProviderWindowQueryOptions,
+): Promise<ProviderWindowPerformanceDto> {
+  const queryString = options ? buildQueryString(options as Record<string, string | undefined>) : "";
+  const url = `${getBaseUrl()}/api/v1/providers/metrics/${encodeURIComponent(spAddress)}/window${queryString}`;
+
+  const res = await fetch(url, { headers: JSON_HEADERS });
+  if (!res.ok) throw new Error(`Failed to fetch provider window metrics: HTTP ${res.status}`);
+
+  return (await res.json()) as ProviderWindowPerformanceDto;
 }
 
 // ============================================================================

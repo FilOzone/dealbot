@@ -46,58 +46,32 @@ export interface Provider {
 }
 
 /**
- * Weekly performance metrics for a storage provider (last 7 days)
+ * Provider performance metrics (unified for weekly/all-time/window)
  */
-export interface ProviderWeeklyPerformance {
+export interface ProviderPerformanceDto {
   spAddress: string;
   totalDeals: number;
   successfulDeals: number;
   failedDeals: number;
   dealSuccessRate: number;
+  avgIngestLatencyMs: number;
+  avgChainLatencyMs: number;
+  avgDealLatencyMs: number;
+  avgIngestThroughputBps: number;
+  totalDataStoredBytes: string;
   totalRetrievals: number;
   successfulRetrievals: number;
   failedRetrievals: number;
   retrievalSuccessRate: number;
-  avgDealLatencyMs: number;
-  avgChainLatencyMs: number;
-  avgIngestLatencyMs: number;
-  avgIngestThroughputBps: number;
   avgRetrievalLatencyMs: number;
   avgRetrievalTtfbMs: number;
   avgRetrievalThroughputBps: number;
-  totalDataStoredBytes: string; // BigInt as string
-  totalDataRetrievedBytes: string; // BigInt as string
+  totalDataRetrievedBytes: string;
   healthScore: number;
-  lastDealAt: string;
-  lastRetrievalAt: string;
-  refreshedAt: string;
-}
-
-/**
- * All-time performance metrics for a storage provider
- */
-export interface ProviderAllTimePerformance {
-  spAddress: string;
-  totalDeals: number;
-  successfulDeals: number;
-  failedDeals: number;
-  dealSuccessRate: number;
-  totalRetrievals: number;
-  successfulRetrievals: number;
-  failedRetrievals: number;
-  retrievalSuccessRate: number;
-  avgDealLatencyMs: number;
-  avgChainLatencyMs: number;
-  avgIngestLatencyMs: number;
-  avgIngestThroughputBps: number;
-  avgRetrievalLatencyMs: number;
-  avgRetrievalTtfbMs: number;
-  avgRetrievalThroughputBps: number;
-  totalDataStoredBytes: string; // BigInt as string
-  totalDataRetrievedBytes: string; // BigInt as string
-  lastDealAt: string;
-  lastRetrievalAt: string;
-  refreshedAt: string;
+  avgDealSize?: number;
+  lastDealAt: Date;
+  lastRetrievalAt: Date;
+  refreshedAt: Date;
 }
 
 /**
@@ -105,8 +79,8 @@ export interface ProviderAllTimePerformance {
  */
 export interface ProviderCombinedPerformance {
   provider: Provider;
-  weekly: ProviderWeeklyPerformance | null;
-  allTime: ProviderAllTimePerformance | null;
+  weekly: ProviderPerformanceDto | null;
+  allTime: ProviderPerformanceDto | null;
 }
 
 /**
@@ -125,8 +99,8 @@ export interface ProvidersListResponse {
  */
 export interface ProviderDetailResponse {
   provider: Provider;
-  weekly: ProviderWeeklyPerformance;
-  allTime: ProviderAllTimePerformance;
+  weekly: ProviderPerformanceDto;
+  allTime: ProviderPerformanceDto;
 }
 
 /**
@@ -155,4 +129,29 @@ export interface ProviderHealth {
   dealScore: number;
   retrievalScore: number;
   isActive: boolean;
+}
+
+/**
+ * Time window metadata
+ */
+export interface WindowDto {
+  startDate: string;
+  endDate: string;
+  days: number;
+  preset: string | null;
+}
+
+/**
+ * Provider window performance response
+ */
+export interface ProviderWindowPerformanceDto {
+  provider: Provider;
+  window: WindowDto;
+  metrics: ProviderPerformanceDto;
+}
+
+export interface ProviderWindowQueryOptions {
+  startDate?: string;
+  endDate?: string;
+  preset?: string;
 }
