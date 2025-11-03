@@ -80,14 +80,21 @@ export class FailedDealsService {
       }
 
       // Execute query with pagination
-      const [failedDeals, total] = await this.dealRepo.findAndCount({
-        where: whereClause,
-        order: {
-          createdAt: "DESC",
-        },
-        skip: (page - 1) * limit,
-        take: limit,
-      });
+      const queryBuilder = this.dealRepo
+        .createQueryBuilder("deal")
+        .leftJoinAndSelect("deal.storageProvider", "storageProvider")
+        .select([
+          "deal", // all fields from deal entity
+          "storageProvider.address",
+          "storageProvider.name",
+          "storageProvider.providerId",
+        ])
+        .where(whereClause)
+        .orderBy("deal.createdAt", "DESC")
+        .skip((page - 1) * limit)
+        .take(limit);
+
+      const [failedDeals, total] = await queryBuilder.getManyAndCount();
 
       // Map to DTOs
       const failedDealDtos = this.mapToFailedDealDtos(failedDeals);
@@ -154,6 +161,7 @@ export class FailedDealsService {
       uploadEndTime: deal.uploadEndTime || undefined,
       pieceAddedTime: deal.pieceAddedTime || undefined,
       dealConfirmedTime: deal.dealConfirmedTime || undefined,
+      storageProvider: deal.storageProvider || undefined,
     }));
   }
 

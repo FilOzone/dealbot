@@ -96,7 +96,9 @@ export function ProviderCard({ provider, batchedVersion }: ProviderCardProps) {
         {/* Header with name and status badges */}
         <div className='flex items-start justify-between gap-3'>
           <div className='flex-1 min-w-0'>
-            <h3 className='text-lg font-semibold truncate'>{provider.provider.name || "Unnamed Provider"}</h3>
+            <h3 className='text-lg font-semibold truncate'>
+              {provider.provider.name || "Unnamed Provider"} ({provider.provider.providerId || "N/A"})
+            </h3>
             <div className='flex items-center gap-2 mt-2'>
               <code className='text-xs bg-muted px-2 py-1 rounded font-mono truncate max-w-[220px]'>
                 {provider.provider.address}
@@ -232,7 +234,7 @@ export function ProviderCard({ provider, batchedVersion }: ProviderCardProps) {
               <h4 className='text-sm font-semibold mb-3'>Activity Overview</h4>
               <div className='grid grid-cols-2 gap-4'>
                 <div className='space-y-1'>
-                  <p className='text-xs text-muted-foreground'>Total Deals</p>
+                  <p className='text-xs text-muted-foreground'>Total Uploads</p>
                   <p className='text-2xl font-bold'>{formatNumber(provider.allTime!.totalDeals)}</p>
                 </div>
                 <div className='space-y-1'>
@@ -247,7 +249,7 @@ export function ProviderCard({ provider, batchedVersion }: ProviderCardProps) {
               <div className='space-y-3'>
                 <div>
                   <div className='flex items-center justify-between mb-1'>
-                    <span className='text-sm text-muted-foreground'>Deal Success (All Time)</span>
+                    <span className='text-sm text-muted-foreground'>Upload Success (All Time)</span>
                     <span
                       className={`text-sm font-semibold ${
                         provider.allTime!.dealSuccessRate < SUCCESS_RATE_THRESHOLD ? "text-red-600" : "text-green-600"
@@ -294,7 +296,7 @@ export function ProviderCard({ provider, batchedVersion }: ProviderCardProps) {
               <h4 className='text-sm font-semibold mb-3'>7-Day Performance</h4>
               <div className='grid grid-cols-2 gap-3'>
                 <div className='space-y-1'>
-                  <p className='text-xs text-muted-foreground'>Deal Success</p>
+                  <p className='text-xs text-muted-foreground'>Upload Success</p>
                   <p
                     className={`text-lg font-semibold ${
                       provider.weekly!.dealSuccessRate < SUCCESS_RATE_THRESHOLD ? "text-red-600" : "text-green-600"

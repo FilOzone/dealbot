@@ -10,7 +10,7 @@ interface FailedDealsFiltersProps {
   providerFilter: string;
   onSearchChange: (value: string) => void;
   onProviderFilterChange: (value: string) => void;
-  providers: Array<{ address: string; name?: string }>;
+  providers: Array<{ address: string; providerId?: number; name?: string }>;
   totalDeals: number;
   filteredCount: number;
 }
@@ -51,7 +51,7 @@ export function FailedDealsFilters({
             </div>
             <div className='h-4 w-px bg-border' />
             <span className='text-sm text-muted-foreground'>
-              {filteredCount} of {totalDeals} failed deals
+              {filteredCount} of {totalDeals} failed uploads
             </span>
           </div>
           {hasActiveFilters && (
@@ -106,8 +106,8 @@ export function FailedDealsFilters({
                 {providers.map((provider) => (
                   <SelectItem key={provider.address} value={provider.address}>
                     <div className='flex items-center gap-2'>
-                      <span className='font-mono text-xs'>{provider.address.slice(0, 8)}...</span>
-                      {provider.name && <span className='text-muted-foreground'>({provider.name})</span>}
+                      <span className='font-mono text-xs'>{provider.name}</span>
+                      <span className='text-muted-foreground'>({provider.providerId})</span>
                     </div>
                   </SelectItem>
                 ))}

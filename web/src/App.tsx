@@ -220,7 +220,7 @@ export default function App() {
             <Tabs defaultValue='deals' className='w-full'>
               <TabsList className='grid w-full grid-cols-2 mb-4'>
                 <TabsTrigger value='deals'>
-                  Failed Deals
+                  Failed Uploads
                   {failedDealsData && ` (${failedDealsData.summary.totalFailedDeals})`}
                 </TabsTrigger>
                 <TabsTrigger value='retrievals'>
@@ -245,7 +245,11 @@ export default function App() {
                     onProviderFilterChange={setFailedDealsProvider}
                     onPageChange={setFailedDealsPage}
                     onLimitChange={handleFailedDealsLimitChange}
-                    providers={allProviders.map((p) => ({ address: p.provider.address, name: p.provider.name }))}
+                    providers={allProviders.map((p) => ({
+                      address: p.provider.address,
+                      providerId: p.provider.providerId,
+                      name: p.provider.name,
+                    }))}
                   />
                 ) : null}
               </TabsContent>
@@ -268,7 +272,11 @@ export default function App() {
                     onServiceTypeFilterChange={setFailedRetrievalsServiceType}
                     onPageChange={setFailedRetrievalsPage}
                     onLimitChange={handleFailedRetrievalsLimitChange}
-                    providers={allProviders.map((p) => ({ address: p.provider.address, name: p.provider.name }))}
+                    providers={allProviders.map((p) => ({
+                      address: p.provider.address,
+                      providerId: p.provider.providerId,
+                      name: p.provider.name,
+                    }))}
                   />
                 ) : null}
               </TabsContent>

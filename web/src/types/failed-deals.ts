@@ -1,3 +1,9 @@
+export interface StorageProvider {
+  address: string;
+  name: string;
+  providerId: string;
+}
+
 /**
  * Failed deal details with error information
  */
@@ -18,6 +24,7 @@ export interface FailedDeal {
   uploadEndTime?: Date;
   pieceAddedTime?: Date;
   dealConfirmedTime?: Date;
+  storageProvider?: StorageProvider;
 }
 
 /**

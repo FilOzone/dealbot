@@ -7,6 +7,9 @@ export class StorageProvider {
   @PrimaryColumn()
   address!: string;
 
+  @Column({ nullable: true })
+  providerId?: number;
+
   @Column()
   name!: string;
 

@@ -28,12 +28,12 @@ export function SummaryCards({ stats }: { stats: NetworkOverallStats | undefined
       description: `${formatNumber(stats.activeProviders)} active`,
     },
     {
-      label: "TOTAL DEALS",
+      label: "TOTAL UPLOADS",
       value: formatNumber(stats.totalDeals),
       description: `${formatPercentage(stats.dealSuccessRate)} success rate`,
     },
     {
-      label: "SUCCESSFUL DEALS",
+      label: "SUCCESSFUL UPLOADS",
       value: formatNumber(stats.successfulDeals),
       description: `${formatNumber(stats.totalDeals - stats.successfulDeals)} failed`,
     },

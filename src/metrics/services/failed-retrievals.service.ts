@@ -61,7 +61,15 @@ export class FailedRetrievalsService {
       // Build query with proper joins and filtering
       const queryBuilder = this.retrievalRepo
         .createQueryBuilder("retrieval")
-        .leftJoinAndSelect("retrieval.deal", "deal")
+        .leftJoin("retrieval.deal", "deal")
+        .leftJoinAndSelect("deal.storageProvider", "storageProvider")
+        .select([
+          "retrieval",
+          "deal.id",
+          "storageProvider.address",
+          "storageProvider.name",
+          "storageProvider.providerId",
+        ])
         .where("retrieval.createdAt BETWEEN :startDate AND :endDate", { startDate, endDate })
         .andWhere("retrieval.status IN (:...statuses)", { statuses: [RetrievalStatus.FAILED, RetrievalStatus.TIMEOUT] })
         .andWhere("retrieval.errorMessage IS NOT NULL");
@@ -158,6 +166,7 @@ export class FailedRetrievalsService {
       spAddress: retrieval.deal?.spAddress || undefined,
       fileName: retrieval.deal?.fileName || undefined,
       pieceCid: retrieval.deal?.pieceCid || undefined,
+      storageProvider: retrieval.deal?.storageProvider || undefined,
     }));
   }
 

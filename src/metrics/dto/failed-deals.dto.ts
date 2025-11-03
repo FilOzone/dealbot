@@ -1,5 +1,6 @@
 import { ApiProperty } from "@nestjs/swagger";
 import { DealStatus } from "../../database/types.js";
+import { StorageProviderDto } from "./failed-retrievals.dto.js";
 
 /**
  * Failed deal details with error information
@@ -108,6 +109,13 @@ export class FailedDealDto {
     nullable: true,
   })
   dealConfirmedTime?: Date;
+
+  @ApiProperty({
+    description: "Storage provider details from associated deal",
+    type: StorageProviderDto,
+    nullable: true,
+  })
+  storageProvider?: StorageProviderDto;
 }
 
 /**
