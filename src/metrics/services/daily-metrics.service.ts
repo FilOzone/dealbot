@@ -249,7 +249,7 @@ export class DailyMetricsService {
 
       const isMetricTypeDeal = metric.metricType === MetricType.DEAL;
 
-      // Aggregate deals (only for null service type)
+      // Aggregate deals
       if (isMetricTypeDeal) {
         agg.totalDeals += metric.totalDeals || 0;
         agg.successfulDeals += metric.successfulDeals || 0;
@@ -273,23 +273,25 @@ export class DailyMetricsService {
       }
 
       // Aggregate retrievals (for all service types)
-      agg.totalRetrievals += metric.totalRetrievals || 0;
-      agg.successfulRetrievals += metric.successfulRetrievals || 0;
-      agg.totalDataRetrievedBytes += BigInt(metric.totalDataRetrievedBytes || 0);
+      if (metric.metricType === MetricType.RETRIEVAL) {
+        agg.totalRetrievals += metric.totalRetrievals || 0;
+        agg.successfulRetrievals += metric.successfulRetrievals || 0;
+        agg.totalDataRetrievedBytes += BigInt(metric.totalDataRetrievedBytes || 0);
 
-      if (metric.avgRetrievalLatencyMs) {
-        agg.retrievalLatencySum += metric.avgRetrievalLatencyMs;
-        agg.retrievalLatencyCount++;
-      }
+        if (metric.avgRetrievalLatencyMs) {
+          agg.retrievalLatencySum += metric.avgRetrievalLatencyMs;
+          agg.retrievalLatencyCount++;
+        }
 
-      if (metric.avgRetrievalTtfbMs) {
-        agg.retrievalTtfbSum += metric.avgRetrievalTtfbMs;
-        agg.retrievalTtfbCount++;
-      }
+        if (metric.avgRetrievalTtfbMs) {
+          agg.retrievalTtfbSum += metric.avgRetrievalTtfbMs;
+          agg.retrievalTtfbCount++;
+        }
 
-      if (metric.avgRetrievalThroughputBps) {
-        agg.retrievalThroughputSum += metric.avgRetrievalThroughputBps;
-        agg.retrievalThroughputCount++;
+        if (metric.avgRetrievalThroughputBps) {
+          agg.retrievalThroughputSum += metric.avgRetrievalThroughputBps;
+          agg.retrievalThroughputCount++;
+        }
       }
     }
 
