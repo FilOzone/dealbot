@@ -54,7 +54,7 @@ export class FailedDealsController {
     example: "timeout",
   })
   @ApiQuery({
-    name: "provider",
+    name: "spAddress",
     required: false,
     description: "Filter by storage provider address",
     example: "0x1234567890abcdef",
@@ -80,7 +80,7 @@ export class FailedDealsController {
     @Query("page") pageStr?: string,
     @Query("limit") limitStr?: string,
     @Query("search") search?: string,
-    @Query("provider") provider?: string,
+    @Query("spAddress") spAddress?: string,
     @Query("errorCode") errorCode?: string,
   ): Promise<FailedDealsResponseDto> {
     // Default to last 7 days if no dates provided
@@ -90,7 +90,7 @@ export class FailedDealsController {
     const page = pageStr ? Number.parseInt(pageStr, 10) : 1;
     const limit = limitStr ? Number.parseInt(limitStr, 10) : 20;
 
-    return this.failedDealsService.getFailedDeals(startDate, endDate, page, limit, search, provider, errorCode);
+    return this.failedDealsService.getFailedDeals(startDate, endDate, page, limit, search, spAddress, errorCode);
   }
 
   /**

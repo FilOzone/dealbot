@@ -55,7 +55,7 @@ export class FailedRetrievalsController {
     example: "timeout",
   })
   @ApiQuery({
-    name: "provider",
+    name: "spAddress",
     required: false,
     description: "Filter by storage provider address",
     example: "0x1234567890abcdef",
@@ -81,7 +81,7 @@ export class FailedRetrievalsController {
     @Query("page") pageStr?: string,
     @Query("limit") limitStr?: string,
     @Query("search") search?: string,
-    @Query("provider") provider?: string,
+    @Query("spAddress") spAddress?: string,
     @Query("serviceType") serviceType?: ServiceType,
   ): Promise<FailedRetrievalsResponseDto> {
     // Default to last 7 days if no dates provided
@@ -97,7 +97,7 @@ export class FailedRetrievalsController {
       page,
       limit,
       search,
-      provider,
+      spAddress,
       serviceType,
     );
   }
