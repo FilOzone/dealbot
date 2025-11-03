@@ -403,6 +403,7 @@ export class WalletSdkService implements OnModuleInit {
       const entities = providerInfos.map((info) =>
         this.spRepository.create({
           address: info.serviceProvider as Hex,
+          providerId: info.id,
           name: info.name,
           description: info.description,
           payee: info.payee,

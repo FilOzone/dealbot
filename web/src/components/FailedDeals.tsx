@@ -13,7 +13,7 @@ interface FailedDealsProps {
   onProviderFilterChange: (value: string) => void;
   onPageChange: (page: number) => void;
   onLimitChange: (limit: number) => void;
-  providers: Array<{ address: string; name?: string }>;
+  providers: Array<{ address: string; providerId: number; name?: string }>;
 }
 
 export function FailedDeals({

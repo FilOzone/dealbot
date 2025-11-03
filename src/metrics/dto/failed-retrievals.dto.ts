@@ -4,6 +4,27 @@ import { RetrievalStatus, ServiceType } from "../../database/types.js";
 /**
  * Failed retrieval details with error information
  */
+
+export class StorageProviderDto {
+  @ApiProperty({
+    description: "Storage provider address",
+    example: "0x1234567890abcdef",
+  })
+  address: string;
+
+  @ApiProperty({
+    description: "Storage provider name",
+    example: "Example Storage Provider",
+  })
+  name: string;
+
+  @ApiProperty({
+    description: "Storage provider ID",
+    example: 1,
+  })
+  providerId?: number;
+}
+
 export class FailedRetrievalDto {
   @ApiProperty({
     description: "Unique retrieval identifier",
@@ -129,6 +150,13 @@ export class FailedRetrievalDto {
     nullable: true,
   })
   pieceCid?: string;
+
+  @ApiProperty({
+    description: "Storage provider details from associated deal",
+    type: StorageProviderDto,
+    nullable: true,
+  })
+  storageProvider?: StorageProviderDto;
 }
 
 /**

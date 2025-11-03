@@ -1,27 +1,13 @@
-import { AlertCircle, Copy, Download } from "lucide-react";
-import { useState } from "react";
+import { AlertCircle, Download } from "lucide-react";
 import type { FailedRetrieval } from "../types/failed-retrievals";
 import { AccordionContent, AccordionItem, AccordionTrigger } from "./ui/accordion";
 import { Badge } from "./ui/badge";
-import { Button } from "./ui/button";
 
 interface FailedRetrievalItemProps {
   retrieval: FailedRetrieval;
 }
 
 export function FailedRetrievalItem({ retrieval }: FailedRetrievalItemProps) {
-  const [copiedId, setCopiedId] = useState<string | null>(null);
-
-  const copyToClipboard = async (text: string, id: string) => {
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopiedId(id);
-      setTimeout(() => setCopiedId(null), 2000);
-    } catch (err) {
-      console.error("Failed to copy text: ", err);
-    }
-  };
-
   const formatDate = (date: Date) => {
     return new Date(date).toLocaleDateString("en-US", {
       year: "numeric",
@@ -30,13 +16,6 @@ export function FailedRetrievalItem({ retrieval }: FailedRetrievalItemProps) {
       hour: "2-digit",
       minute: "2-digit",
     });
-  };
-
-  const formatBytes = (bytes?: number) => {
-    if (!bytes) return "N/A";
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(2)} KB`;
-    return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
   };
 
   const getServiceTypeBadgeColor = (serviceType: string) => {
@@ -60,7 +39,10 @@ export function FailedRetrievalItem({ retrieval }: FailedRetrievalItemProps) {
           <div className='flex-1 min-w-0'>
             <div className='flex items-center gap-2 mb-1 flex-wrap'>
               <Download className='h-4 w-4 text-red-500 flex-shrink-0' />
-              <span className='font-medium truncate'>{retrieval.spAddress || "Unknown SP"}</span>
+              <span className='font-medium truncate'>
+                {retrieval.storageProvider?.name || "Unknown SP"} (
+                {retrieval.storageProvider?.providerId || "Unknown ID"})
+              </span>
               <Badge variant='destructive'>FAILED</Badge>
               <Badge className={getServiceTypeBadgeColor(retrieval.serviceType)}>{retrieval.serviceType}</Badge>
             </div>
@@ -105,81 +87,6 @@ export function FailedRetrievalItem({ retrieval }: FailedRetrievalItemProps) {
 
           {/* Retrieval Details Grid */}
           <div className='grid grid-cols-2 gap-4'>
-            {retrieval.spAddress && (
-              <div>
-                <p className='text-xs text-muted-foreground mb-1'>Storage Provider</p>
-                <div className='flex items-center gap-2'>
-                  <code className='text-xs bg-muted px-2 py-1 rounded font-mono truncate'>{retrieval.spAddress}</code>
-                  <Button
-                    variant='ghost'
-                    size='sm'
-                    className='h-6 w-6 p-0'
-                    onClick={() => copyToClipboard(retrieval.spAddress!, `sp-${retrieval.id}`)}
-                  >
-                    {copiedId === `sp-${retrieval.id}` ? (
-                      <span className='text-green-600 text-xs'>✓</span>
-                    ) : (
-                      <Copy className='h-3 w-3' />
-                    )}
-                  </Button>
-                </div>
-              </div>
-            )}
-
-            {retrieval.pieceCid && (
-              <div>
-                <p className='text-xs text-muted-foreground mb-1'>Piece CID</p>
-                <div className='flex items-center gap-2'>
-                  <code className='text-xs bg-muted px-2 py-1 rounded font-mono truncate max-w-[150px]'>
-                    {retrieval.pieceCid}
-                  </code>
-                  <Button
-                    variant='ghost'
-                    size='sm'
-                    className='h-6 w-6 p-0'
-                    onClick={() => copyToClipboard(retrieval.pieceCid!, `cid-${retrieval.id}`)}
-                  >
-                    {copiedId === `cid-${retrieval.id}` ? (
-                      <span className='text-green-600 text-xs'>✓</span>
-                    ) : (
-                      <Copy className='h-3 w-3' />
-                    )}
-                  </Button>
-                </div>
-              </div>
-            )}
-
-            <div>
-              <p className='text-xs text-muted-foreground mb-1'>Service Type</p>
-              <Badge className={getServiceTypeBadgeColor(retrieval.serviceType)}>{retrieval.serviceType}</Badge>
-            </div>
-
-            <div>
-              <p className='text-xs text-muted-foreground mb-1'>Status</p>
-              <p className='text-sm font-medium'>{retrieval.status}</p>
-            </div>
-
-            {retrieval.latencyMs !== undefined && (
-              <div>
-                <p className='text-xs text-muted-foreground mb-1'>Latency</p>
-                <p className='text-sm font-medium'>{retrieval.latencyMs}ms</p>
-              </div>
-            )}
-
-            {retrieval.ttfbMs !== undefined && (
-              <div>
-                <p className='text-xs text-muted-foreground mb-1'>TTFB</p>
-                <p className='text-sm font-medium'>{retrieval.ttfbMs}ms</p>
-              </div>
-            )}
-
-            {retrieval.bytesRetrieved !== undefined && (
-              <div>
-                <p className='text-xs text-muted-foreground mb-1'>Bytes Retrieved</p>
-                <p className='text-sm font-medium'>{formatBytes(retrieval.bytesRetrieved)}</p>
-              </div>
-            )}
-
             <div>
               <p className='text-xs text-muted-foreground mb-1'>Retry Count</p>
               <p className='text-sm font-medium'>{retrieval.retryCount}</p>

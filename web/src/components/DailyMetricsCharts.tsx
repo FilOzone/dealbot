@@ -91,7 +91,7 @@ export function DailyMetricsCharts({ dailyMetrics }: { dailyMetrics: DailyAggreg
         data={dailyMetrics}
         title='SUCCESS RATES (DAILY)'
         dataKeys={[
-          { key: "dealSuccessRate", label: "Deal Success Rate", color: "var(--chart-1)" },
+          { key: "dealSuccessRate", label: "Upload Success Rate", color: "var(--chart-1)" },
           { key: "retrievalSuccessRate", label: "Retrieval Success Rate", color: "var(--chart-2)" },
         ]}
         yTickFormatter={(v) => formatPercentage(v)}
@@ -103,7 +103,7 @@ export function DailyMetricsCharts({ dailyMetrics }: { dailyMetrics: DailyAggreg
         data={dailyMetrics}
         title='LATENCIES (DAILY)'
         dataKeys={[
-          { key: "avgIngestLatencyMs", label: "Deal Ingest Latency", color: "var(--chart-1)" },
+          { key: "avgIngestLatencyMs", label: "Upload Ingest Latency", color: "var(--chart-1)" },
           { key: "avgRetrievalLatencyMs", label: "Retrieval Latency", color: "var(--chart-2)" },
           { key: "avgRetrievalTtfbMs", label: "Retrieval TTFB", color: "var(--chart-3)" },
         ]}

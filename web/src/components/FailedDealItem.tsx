@@ -1,27 +1,13 @@
-import { AlertCircle, Copy, FileX } from "lucide-react";
-import { useState } from "react";
+import { AlertCircle, FileX } from "lucide-react";
 import type { FailedDeal } from "../types/failed-deals";
 import { AccordionContent, AccordionItem, AccordionTrigger } from "./ui/accordion";
 import { Badge } from "./ui/badge";
-import { Button } from "./ui/button";
 
 interface FailedDealItemProps {
   deal: FailedDeal;
 }
 
 export function FailedDealItem({ deal }: FailedDealItemProps) {
-  const [copiedId, setCopiedId] = useState<string | null>(null);
-
-  const copyToClipboard = async (text: string, id: string) => {
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopiedId(id);
-      setTimeout(() => setCopiedId(null), 2000);
-    } catch (err) {
-      console.error("Failed to copy text: ", err);
-    }
-  };
-
   const formatDate = (date: Date) => {
     return new Date(date).toLocaleDateString("en-US", {
       year: "numeric",
@@ -46,7 +32,9 @@ export function FailedDealItem({ deal }: FailedDealItemProps) {
           <div className='flex-1 min-w-0'>
             <div className='flex items-center gap-2 mb-1'>
               <FileX className='h-4 w-4 text-red-500 flex-shrink-0' />
-              <span className='font-medium truncate'>{deal.spAddress}</span>
+              <span className='font-medium truncate'>
+                {deal.storageProvider?.name} ({deal.storageProvider?.providerId})
+              </span>
               <Badge variant='destructive' className='ml-2'>
                 FAILED
               </Badge>
@@ -79,75 +67,6 @@ export function FailedDealItem({ deal }: FailedDealItemProps) {
                 <p className='text-sm text-foreground'>{deal.errorMessage}</p>
                 {deal.errorCode && <p className='text-xs text-muted-foreground mt-2'>Code: {deal.errorCode}</p>}
               </div>
-            </div>
-          </div>
-
-          {/* Deal Details Grid */}
-          <div className='grid grid-cols-2 gap-4'>
-            <div>
-              <p className='text-xs text-muted-foreground mb-1'>Storage Provider</p>
-              <div className='flex items-center gap-2'>
-                <code className='text-xs bg-muted px-2 py-1 rounded font-mono truncate'>{deal.spAddress}</code>
-                <Button
-                  variant='ghost'
-                  size='sm'
-                  className='h-6 w-6 p-0'
-                  onClick={() => copyToClipboard(deal.spAddress, `sp-${deal.id}`)}
-                >
-                  {copiedId === `sp-${deal.id}` ? (
-                    <span className='text-green-600 text-xs'>✓</span>
-                  ) : (
-                    <Copy className='h-3 w-3' />
-                  )}
-                </Button>
-              </div>
-            </div>
-
-            {deal.pieceCid && (
-              <div>
-                <p className='text-xs text-muted-foreground mb-1'>Piece CID</p>
-                <div className='flex items-center gap-2'>
-                  <code className='text-xs bg-muted px-2 py-1 rounded font-mono truncate max-w-[200px]'>
-                    {deal.pieceCid}
-                  </code>
-                  <Button
-                    variant='ghost'
-                    size='sm'
-                    className='h-6 w-6 p-0'
-                    onClick={() => copyToClipboard(deal.pieceCid!, `cid-${deal.id}`)}
-                  >
-                    {copiedId === `cid-${deal.id}` ? (
-                      <span className='text-green-600 text-xs'>✓</span>
-                    ) : (
-                      <Copy className='h-3 w-3' />
-                    )}
-                  </Button>
-                </div>
-              </div>
-            )}
-
-            <div>
-              <p className='text-xs text-muted-foreground mb-1'>File Name</p>
-              <p className='text-sm font-medium truncate' title={deal.fileName}>
-                {deal.fileName}
-              </p>
-            </div>
-
-            <div>
-              <p className='text-xs text-muted-foreground mb-1'>Status</p>
-              <p className='text-sm font-medium'>{deal.status}</p>
-            </div>
-
-            {deal.dataSetId && (
-              <div>
-                <p className='text-xs text-muted-foreground mb-1'>Dataset ID</p>
-                <p className='text-sm font-medium'>{deal.dataSetId}</p>
-              </div>
-            )}
-
-            <div>
-              <p className='text-xs text-muted-foreground mb-1'>Retry Count</p>
-              <p className='text-sm font-medium'>{deal.retryCount}</p>
             </div>
           </div>
         </div>

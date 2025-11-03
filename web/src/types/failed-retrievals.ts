@@ -1,3 +1,4 @@
+import type { StorageProvider } from "./failed-deals";
 import type { ServiceType } from "./services";
 
 /**
@@ -23,6 +24,7 @@ export interface FailedRetrieval {
   spAddress?: string;
   fileName?: string;
   pieceCid?: string;
+  storageProvider?: StorageProvider;
 }
 
 /**

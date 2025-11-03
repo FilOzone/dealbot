@@ -13,7 +13,7 @@ interface FailedRetrievalsFiltersProps {
   onSearchChange: (value: string) => void;
   onProviderFilterChange: (value: string) => void;
   onServiceTypeFilterChange: (value: ServiceType | "all") => void;
-  providers: Array<{ address: string; name?: string }>;
+  providers: Array<{ address: string; name?: string; providerId?: number }>;
   totalRetrievals: number;
   filteredCount: number;
 }
@@ -127,8 +127,8 @@ export function FailedRetrievalsFilters({
                 {providers.map((provider) => (
                   <SelectItem key={provider.address} value={provider.address}>
                     <div className='flex items-center gap-2'>
-                      <span className='font-mono text-xs'>{provider.address.slice(0, 8)}...</span>
-                      {provider.name && <span className='text-muted-foreground'>({provider.name})</span>}
+                      <span className='font-mono text-xs'>{provider.name || "Unknown"}</span>
+                      <span className='text-muted-foreground'>({provider.providerId || "N/A"})</span>
                     </div>
                   </SelectItem>
                 ))}
