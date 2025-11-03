@@ -19,7 +19,7 @@ export class StorageProviderDto {
   name: string;
 
   @ApiProperty({
-    description: "Storage provider provider ID",
+    description: "Storage provider ID",
     example: 1,
   })
   providerId?: number;

@@ -106,8 +106,8 @@ export function FailedDealsFilters({
                 {providers.map((provider) => (
                   <SelectItem key={provider.address} value={provider.address}>
                     <div className='flex items-center gap-2'>
-                      <span className='font-mono text-xs'>{provider.name}</span>
-                      <span className='text-muted-foreground'>({provider.providerId})</span>
+                      <span className='font-mono text-xs'>{provider.name || "Unknown"}</span>
+                      <span className='text-muted-foreground'>({provider.providerId || "N/A"})</span>
                     </div>
                   </SelectItem>
                 ))}

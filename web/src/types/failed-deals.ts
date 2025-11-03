@@ -1,7 +1,7 @@
 export interface StorageProvider {
   address: string;
   name: string;
-  providerId: string;
+  providerId: number;
 }
 
 /**
