@@ -671,7 +671,7 @@ export class ProvidersService {
         if (retrieval.ttfbMs) retrievalTtfbSum += retrieval.ttfbMs;
         if (retrieval.throughputBps) retrievalThroughputSum += retrieval.throughputBps;
         if (retrieval.bytesRetrieved) totalDataRetrievedBytes += BigInt(retrieval.bytesRetrieved);
-      } else if (retrieval.status === RetrievalStatus.FAILED) {
+      } else if (retrieval.status === RetrievalStatus.FAILED || retrieval.status === RetrievalStatus.TIMEOUT) {
         failedRetrievals++;
       }
 

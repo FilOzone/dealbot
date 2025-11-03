@@ -93,7 +93,8 @@ export function transformProvidersToTable(providers: ProviderCombinedPerformance
     .map((provider) => {
       const lastDeal = provider.weekly!.lastDealAt;
       const lastRetrieval = provider.weekly!.lastRetrievalAt;
-      const lastActivity = lastDeal || lastRetrieval;
+      const lastActivity =
+        lastDeal && lastRetrieval ? (lastDeal > lastRetrieval ? lastDeal : lastRetrieval) : lastDeal || lastRetrieval;
 
       return {
         spAddress: provider.weekly!.spAddress,
