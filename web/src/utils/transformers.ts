@@ -90,16 +90,22 @@ export interface ProviderTableRow {
 export function transformProvidersToTable(providers: ProviderCombinedPerformance[]): ProviderTableRow[] {
   return providers
     .filter((provider) => provider.weekly && provider.allTime)
-    .map((provider) => ({
-      spAddress: provider.weekly!.spAddress,
-      totalDeals: provider.weekly!.totalDeals,
-      dealSuccessRate: provider.weekly!.dealSuccessRate,
-      totalRetrievals: provider.weekly!.totalRetrievals,
-      retrievalSuccessRate: provider.weekly!.retrievalSuccessRate,
-      avgDealLatency: provider.weekly!.avgDealLatencyMs,
-      avgRetrievalLatency: provider.weekly!.avgRetrievalLatencyMs,
-      lastActivity: provider.weekly!.lastDealAt || provider.weekly!.lastRetrievalAt,
-    }));
+    .map((provider) => {
+      const lastDeal = provider.weekly!.lastDealAt;
+      const lastRetrieval = provider.weekly!.lastRetrievalAt;
+      const lastActivity = lastDeal || lastRetrieval;
+
+      return {
+        spAddress: provider.weekly!.spAddress,
+        totalDeals: provider.weekly!.totalDeals,
+        dealSuccessRate: provider.weekly!.dealSuccessRate,
+        totalRetrievals: provider.weekly!.totalRetrievals,
+        retrievalSuccessRate: provider.weekly!.retrievalSuccessRate,
+        avgDealLatency: provider.weekly!.avgDealLatencyMs,
+        avgRetrievalLatency: provider.weekly!.avgRetrievalLatencyMs,
+        lastActivity: lastActivity instanceof Date ? lastActivity.toISOString() : lastActivity,
+      };
+    });
 }
 
 /**

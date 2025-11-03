@@ -1,10 +1,11 @@
-import { AlertCircle, Check, Copy, TrendingDown, TrendingUp } from "lucide-react";
+import { AlertCircle, BarChart3, Check, Copy, TrendingDown, TrendingUp } from "lucide-react";
 import { useState } from "react";
 import { useProviderVersion } from "@/hooks/useProviderVersion";
 import type { ProviderCombinedPerformance, ProviderDetailResponse } from "@/types/providers";
 import { formatMilliseconds, formatThroughput } from "@/utils/formatter";
 import { calculateProviderHealth } from "@/utils/providerHealth";
 import { formatRegion } from "@/utils/regionFormatter";
+import { ProviderDetailModal } from "./ProviderDetailModal";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Card, CardContent, CardHeader } from "./ui/card";
@@ -19,6 +20,7 @@ const SUCCESS_RATE_THRESHOLD = 90;
 
 export function ProviderCard({ provider, batchedVersion }: ProviderCardProps) {
   const [copiedProvider, setCopiedProvider] = useState<string | null>(null);
+  const [showDetailModal, setShowDetailModal] = useState(false);
   const { version, loading, error } = useProviderVersion({
     serviceUrl: provider.provider.serviceUrl,
     batchedVersion,
@@ -372,7 +374,20 @@ export function ProviderCard({ provider, batchedVersion }: ProviderCardProps) {
             </p>
           </div>
         )}
+
+        {/* View Details Button */}
+        {hasMetrics && (
+          <div className='border-t pt-4'>
+            <Button variant='outline' className='w-full' onClick={() => setShowDetailModal(true)}>
+              <BarChart3 className='h-4 w-4 mr-2' />
+              View Detailed Metrics
+            </Button>
+          </div>
+        )}
       </CardContent>
+
+      {/* Detail Modal */}
+      <ProviderDetailModal provider={provider.provider} open={showDetailModal} onOpenChange={setShowDetailModal} />
     </Card>
   );
 }
