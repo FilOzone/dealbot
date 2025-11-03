@@ -7,7 +7,7 @@ import { Retrieval } from "../../database/entities/retrieval.entity.js";
 import { SpPerformanceAllTime } from "../../database/entities/sp-performance-all-time.entity.js";
 import { SpPerformanceLastWeek } from "../../database/entities/sp-performance-last-week.entity.js";
 import { StorageProvider } from "../../database/entities/storage-provider.entity.js";
-import { DealStatus, RetrievalStatus, ServiceType } from "../../database/types.js";
+import { DealStatus, MetricType, RetrievalStatus, ServiceType } from "../../database/types.js";
 import type { ProviderPerformanceDto, ProviderWindowPerformanceDto } from "../dto/provider-performance.dto.js";
 import { calculateTimeWindow, parseCustomDateRange, sanitizePreset } from "../utils/time-window-parser.js";
 
@@ -750,15 +750,19 @@ export class ProvidersService {
     endDate: Date,
     preset: string | null,
   ): Promise<ProviderWindowPerformanceDto> {
-    // Query metrics_daily for the time window (service_type IS NULL for deal metrics)
     const metrics = await this.dailyMetricsRepo
       .createQueryBuilder("md")
       .where("md.sp_address = :spAddress", { spAddress: provider.address })
       .andWhere("md.daily_bucket >= :startDate", { startDate })
       .andWhere("md.daily_bucket <= :endDate", { endDate })
-      .andWhere("(md.service_type = :serviceType OR md.service_type IS NULL)", {
-        serviceType: ServiceType.DIRECT_SP,
-      })
+      .andWhere(
+        "(md.metric_type = :dealType OR (md.metric_type = :retrievalType AND md.service_type = :serviceType))",
+        {
+          dealType: MetricType.DEAL,
+          retrievalType: MetricType.RETRIEVAL,
+          serviceType: ServiceType.DIRECT_SP,
+        },
+      )
       .orderBy("md.daily_bucket", "DESC")
       .getMany();
 
@@ -822,62 +826,67 @@ export class ProvidersService {
     // Aggregate across all daily metrics
     for (const metric of metrics) {
       // Deal metrics
-      totalDeals += metric.totalDeals || 0;
-      successfulDeals += metric.successfulDeals || 0;
-      failedDeals += metric.failedDeals || 0;
-      totalDataStoredBytes += BigInt(metric.totalDataStoredBytes || 0);
+      if (metric.metricType === MetricType.DEAL) {
+        totalDeals += metric.totalDeals || 0;
+        successfulDeals += metric.successfulDeals || 0;
+        failedDeals += metric.failedDeals || 0;
+        totalDataStoredBytes += BigInt(metric.totalDataStoredBytes || 0);
 
-      if (metric.avgDealLatencyMs) {
-        dealLatencySum += metric.avgDealLatencyMs * (metric.totalDeals || 0);
-        dealLatencyCount += metric.totalDeals || 0;
-      }
+        if (metric.avgDealLatencyMs) {
+          dealLatencySum += metric.avgDealLatencyMs * (metric.totalDeals || 0);
+          dealLatencyCount += metric.totalDeals || 0;
+        }
 
-      if (metric.avgIngestLatencyMs) {
-        ingestLatencySum += metric.avgIngestLatencyMs * (metric.totalDeals || 0);
-        ingestLatencyCount += metric.totalDeals || 0;
-      }
+        if (metric.avgIngestLatencyMs) {
+          ingestLatencySum += metric.avgIngestLatencyMs * (metric.totalDeals || 0);
+          ingestLatencyCount += metric.totalDeals || 0;
+        }
 
-      if (metric.avgChainLatencyMs) {
-        chainLatencySum += metric.avgChainLatencyMs * (metric.totalDeals || 0);
-        chainLatencyCount += metric.totalDeals || 0;
-      }
+        if (metric.avgChainLatencyMs) {
+          chainLatencySum += metric.avgChainLatencyMs * (metric.totalDeals || 0);
+          chainLatencyCount += metric.totalDeals || 0;
+        }
 
-      if (metric.avgIngestThroughputBps) {
-        ingestThroughputSum += metric.avgIngestThroughputBps * (metric.totalDeals || 0);
-        ingestThroughputCount += metric.totalDeals || 0;
-      }
+        if (metric.avgIngestThroughputBps) {
+          ingestThroughputSum += metric.avgIngestThroughputBps * (metric.totalDeals || 0);
+          ingestThroughputCount += metric.totalDeals || 0;
+        }
 
-      // Retrieval metrics
-      totalRetrievals += metric.totalRetrievals || 0;
-      successfulRetrievals += metric.successfulRetrievals || 0;
-      failedRetrievals += metric.failedRetrievals || 0;
-      totalDataRetrievedBytes += BigInt(metric.totalDataRetrievedBytes || 0);
-
-      if (metric.avgRetrievalLatencyMs) {
-        retrievalLatencySum += metric.avgRetrievalLatencyMs * (metric.totalRetrievals || 0);
-        retrievalLatencyCount += metric.totalRetrievals || 0;
-      }
-
-      if (metric.avgRetrievalTtfbMs) {
-        retrievalTtfbSum += metric.avgRetrievalTtfbMs * (metric.totalRetrievals || 0);
-        retrievalTtfbCount += metric.totalRetrievals || 0;
-      }
-
-      if (metric.avgRetrievalThroughputBps) {
-        retrievalThroughputSum += metric.avgRetrievalThroughputBps * (metric.totalRetrievals || 0);
-        retrievalThroughputCount += metric.totalRetrievals || 0;
-      }
-
-      // Track last activity dates
-      if (metric.totalDeals > 0) {
-        if (!lastDealAt || metric.dailyBucket > lastDealAt) {
-          lastDealAt = metric.dailyBucket;
+        // Track last deal date
+        if (metric.totalDeals > 0) {
+          if (!lastDealAt || metric.dailyBucket > lastDealAt) {
+            lastDealAt = metric.dailyBucket;
+          }
         }
       }
 
-      if (metric.totalRetrievals > 0) {
-        if (!lastRetrievalAt || metric.dailyBucket > lastRetrievalAt) {
-          lastRetrievalAt = metric.dailyBucket;
+      // Retrieval metrics
+      if (metric.metricType === MetricType.RETRIEVAL) {
+        totalRetrievals += metric.totalRetrievals || 0;
+        successfulRetrievals += metric.successfulRetrievals || 0;
+        failedRetrievals += metric.failedRetrievals || 0;
+        totalDataRetrievedBytes += BigInt(metric.totalDataRetrievedBytes || 0);
+
+        if (metric.avgRetrievalLatencyMs) {
+          retrievalLatencySum += metric.avgRetrievalLatencyMs * (metric.totalRetrievals || 0);
+          retrievalLatencyCount += metric.totalRetrievals || 0;
+        }
+
+        if (metric.avgRetrievalTtfbMs) {
+          retrievalTtfbSum += metric.avgRetrievalTtfbMs * (metric.totalRetrievals || 0);
+          retrievalTtfbCount += metric.totalRetrievals || 0;
+        }
+
+        if (metric.avgRetrievalThroughputBps) {
+          retrievalThroughputSum += metric.avgRetrievalThroughputBps * (metric.totalRetrievals || 0);
+          retrievalThroughputCount += metric.totalRetrievals || 0;
+        }
+
+        // Track last retrieval date
+        if (metric.totalRetrievals > 0) {
+          if (!lastRetrievalAt || metric.dailyBucket > lastRetrievalAt) {
+            lastRetrievalAt = metric.dailyBucket;
+          }
         }
       }
     }

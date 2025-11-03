@@ -12,6 +12,11 @@ export enum ServiceType {
   IPFS_PIN = "ipfs_pin",
 }
 
+export enum MetricType {
+  DEAL = "deal",
+  RETRIEVAL = "retrieval",
+}
+
 export enum RetrievalStatus {
   PENDING = "pending",
   IN_PROGRESS = "in_progress",

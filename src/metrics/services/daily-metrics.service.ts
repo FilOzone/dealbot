@@ -2,7 +2,7 @@ import { BadRequestException, Injectable, Logger } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Between, type Repository } from "typeorm";
 import { MetricsDaily } from "../../database/entities/metrics-daily.entity.js";
-import { ServiceType } from "../../database/types.js";
+import { MetricType, ServiceType } from "../../database/types.js";
 import type {
   DailyAggregatedMetricsDto,
   DailyMetricsResponseDto,
@@ -247,10 +247,10 @@ export class DailyMetricsService {
         dateMap.set(dateKey, agg);
       }
 
-      const isNullService = metric.serviceType === null;
+      const isMetricTypeDeal = metric.metricType === MetricType.DEAL;
 
       // Aggregate deals (only for null service type)
-      if (isNullService) {
+      if (isMetricTypeDeal) {
         agg.totalDeals += metric.totalDeals || 0;
         agg.successfulDeals += metric.successfulDeals || 0;
         agg.totalDataStoredBytes += BigInt(metric.totalDataStoredBytes || 0);
@@ -259,6 +259,16 @@ export class DailyMetricsService {
         if (metric.avgDealLatencyMs) {
           agg.dealLatencySum += metric.avgDealLatencyMs;
           agg.dealLatencyCount++;
+        }
+
+        if (metric.avgIngestLatencyMs) {
+          agg.ingestLatencySum += metric.avgIngestLatencyMs;
+          agg.ingestLatencyCount++;
+        }
+
+        if (metric.avgIngestThroughputBps) {
+          agg.ingestThroughputSum += metric.avgIngestThroughputBps;
+          agg.ingestThroughputCount++;
         }
       }
 
@@ -275,16 +285,6 @@ export class DailyMetricsService {
       if (metric.avgRetrievalTtfbMs) {
         agg.retrievalTtfbSum += metric.avgRetrievalTtfbMs;
         agg.retrievalTtfbCount++;
-      }
-
-      if (metric.avgIngestLatencyMs) {
-        agg.ingestLatencySum += metric.avgIngestLatencyMs;
-        agg.ingestLatencyCount++;
-      }
-
-      if (metric.avgIngestThroughputBps) {
-        agg.ingestThroughputSum += metric.avgIngestThroughputBps;
-        agg.ingestThroughputCount++;
       }
 
       if (metric.avgRetrievalThroughputBps) {
@@ -381,9 +381,9 @@ export class DailyMetricsService {
         dateMap.set(dateKey, agg);
       }
 
-      const isNullService = metric.serviceType === null;
+      const isMetricTypeDeal = metric.metricType === MetricType.DEAL;
 
-      if (isNullService) {
+      if (isMetricTypeDeal) {
         // Deal metrics
         agg.totalDeals += metric.totalDeals || 0;
         agg.successfulDeals += metric.successfulDeals || 0;
@@ -472,7 +472,7 @@ export class DailyMetricsService {
 
     const uniqueProviders = new Set<string>();
     for (const m of rawMetrics) {
-      if (m.serviceType === null) {
+      if (m.metricType === MetricType.DEAL) {
         uniqueProviders.add(m.spAddress);
       }
     }
