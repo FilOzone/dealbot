@@ -1,6 +1,6 @@
 import { FileX } from "lucide-react";
 import type { ServiceType } from "@/types/services";
-import type { FailedRetrievalsResponse } from "../types/failed-retrievals";
+import type { FailedRetrieval, FailedRetrievalsResponse } from "../types/failed-retrievals";
 import { FailedRetrievalItem } from "./FailedRetrievalItem";
 import { FailedRetrievalsFilters } from "./FailedRetrievalsFilters";
 import { Pagination } from "./Pagination";
@@ -43,7 +43,7 @@ export function FailedRetrievals({
     return true;
   });
 
-  if (!data || data.pagination.total === 0) {
+  if (!data) {
     return (
       <div className='text-center py-12'>
         <FileX className='h-12 w-12 mx-auto text-muted-foreground mb-3' />
@@ -67,6 +67,39 @@ export function FailedRetrievals({
         filteredCount={filteredRetrievals.length}
       />
 
+      {data.pagination.total === 0 ? (
+        <NoRetrievalsFound />
+      ) : (
+        <Retrievals
+          data={data}
+          filteredRetrievals={filteredRetrievals}
+          onPageChange={onPageChange}
+          onLimitChange={onLimitChange}
+        />
+      )}
+    </div>
+  );
+}
+
+const NoRetrievalsFound = () => {
+  return (
+    <div className='text-center py-12'>
+      <FileX className='h-12 w-12 mx-auto text-muted-foreground mb-3' />
+      <p className='text-muted-foreground'>No failed retrievals found</p>
+    </div>
+  );
+};
+
+interface RetrievalsProps {
+  data: FailedRetrievalsResponse;
+  filteredRetrievals: FailedRetrieval[];
+  onPageChange: (page: number) => void;
+  onLimitChange: (limit: number) => void;
+}
+
+const Retrievals = ({ data, filteredRetrievals, onPageChange, onLimitChange }: RetrievalsProps) => {
+  return (
+    <>
       {/* Summary Stats */}
       <div className='grid grid-cols-2 md:grid-cols-4 gap-4'>
         <div className='bg-muted/50 p-4 rounded-lg'>
@@ -111,6 +144,6 @@ export function FailedRetrievals({
           <Pagination pagination={data.pagination} onPageChange={onPageChange} onLimitChange={onLimitChange} />
         </>
       )}
-    </div>
+    </>
   );
-}
+};
