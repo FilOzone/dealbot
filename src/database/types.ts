@@ -71,7 +71,7 @@ export interface IpniMetadata {
  */
 export interface DirectMetadata {
   /** Storage type identifier */
-  type: "direct";
+  type?: "direct";
 }
 
 /**
@@ -86,5 +86,5 @@ export interface DealMetadata {
   [ServiceType.IPFS_PIN]?: IpniMetadata;
 
   /** Direct storage metadata (always present) */
-  [ServiceType.DIRECT_SP]: DirectMetadata;
+  [ServiceType.DIRECT_SP]?: DirectMetadata;
 }
