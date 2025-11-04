@@ -8,9 +8,10 @@ import * as raw from "multiformats/codecs/raw";
 import { sha256 } from "multiformats/hashes/sha2";
 import { MAX_BLOCK_SIZE } from "../../common/constants.js";
 import type { Deal } from "../../database/entities/deal.entity.js";
+import type { IpniMetadata } from "../../database/types.js";
 import { ServiceType } from "../../database/types.js";
 import type { IDealAddon } from "../interfaces/deal-addon.interface.js";
-import type { AddonExecutionContext, CarDataFile, DealConfiguration, PreprocessingResult } from "../types.js";
+import type { AddonExecutionContext, CarDataFile, DealConfiguration, IpniPreprocessingResult } from "../types.js";
 import { AddonPriority } from "../types.js";
 
 /**
@@ -19,7 +20,7 @@ import { AddonPriority } from "../types.js";
  * This is a data transformation add-on that runs with high priority
  */
 @Injectable()
-export class IpniAddonStrategy implements IDealAddon {
+export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
   private readonly logger = new Logger(IpniAddonStrategy.name);
 
   readonly name = ServiceType.IPFS_PIN;
@@ -39,7 +40,7 @@ export class IpniAddonStrategy implements IDealAddon {
    * Convert data to CAR format for IPNI indexing
    * This is the main preprocessing step that transforms the data
    */
-  async preprocessData(context: AddonExecutionContext): Promise<PreprocessingResult> {
+  async preprocessData(context: AddonExecutionContext): Promise<IpniPreprocessingResult> {
     this.logger.log(`Converting file to CAR format for IPNI: ${context.currentData.name}`);
 
     try {
@@ -50,18 +51,20 @@ export class IpniAddonStrategy implements IDealAddon {
           `${carResult.carSize} bytes (original: ${context.currentData.size} bytes)`,
       );
 
+      const metadata: IpniMetadata = {
+        enabled: true,
+        rootCID: carResult.rootCID.toString(),
+        blockCIDs: carResult.blockCIDs.map((cid) => cid.toString()),
+        blockCount: carResult.blockCount,
+        carSize: carResult.carSize,
+        originalSize: context.currentData.size,
+      };
+
       return {
+        metadata,
         data: carResult.carData,
         size: carResult.carSize,
         originalData: context.currentData.data,
-        metadata: {
-          enabled: true,
-          rootCID: carResult.rootCID.toString(),
-          blockCIDs: carResult.blockCIDs.map((cid) => cid.toString()),
-          blockCount: carResult.blockCount,
-          carSize: carResult.carSize,
-          originalSize: context.currentData.size,
-        },
       };
     } catch (error) {
       this.logger.error(`CAR conversion failed for ${context.currentData.name}`, error);
@@ -351,7 +354,7 @@ export class IpniAddonStrategy implements IDealAddon {
   /**
    * Validate CAR conversion result
    */
-  async validate(result: PreprocessingResult): Promise<boolean> {
+  async validate(result: IpniPreprocessingResult): Promise<boolean> {
     const metadata = result.metadata;
 
     if (!metadata.enabled) {

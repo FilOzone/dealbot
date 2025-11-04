@@ -80,11 +80,11 @@ export interface DirectMetadata {
  */
 export interface DealMetadata {
   /** CDN metadata (if CDN is enabled) */
-  cdn?: CdnMetadata;
+  [ServiceType.CDN]?: CdnMetadata;
 
   /** IPNI metadata (if IPNI is enabled) */
-  ipni?: IpniMetadata;
+  [ServiceType.IPFS_PIN]?: IpniMetadata;
 
   /** Direct storage metadata (always present) */
-  direct: DirectMetadata;
+  [ServiceType.DIRECT_SP]: DirectMetadata;
 }

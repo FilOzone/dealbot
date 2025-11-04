@@ -58,13 +58,6 @@ export class DirectRetrievalStrategy implements IRetrievalAddon {
     return {
       url,
       method: this.name,
-      metadata: {
-        providerName: providerInfo.name,
-        providerAddress: config.storageProvider,
-        serviceUrl,
-        pieceCid,
-        retrievalType: ServiceType.DIRECT_SP,
-      },
     };
   }
 

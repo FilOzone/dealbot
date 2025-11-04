@@ -26,9 +26,6 @@ export interface RetrievalUrlResult {
   /** Method/strategy used for this URL */
   method: ServiceType;
 
-  /** Additional metadata about the URL */
-  metadata: Record<string, any>;
-
   /** Url headers */
   headers?: Record<string, string>;
 }

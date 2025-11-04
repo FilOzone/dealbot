@@ -24,7 +24,7 @@ export class IpniRetrievalStrategy implements IRetrievalAddon {
    */
   canHandle(config: RetrievalConfiguration): boolean {
     // Check if IPNI was enabled in deal metadata
-    const ipniEnabled = config.deal.metadata?.ipni?.enabled === true;
+    const ipniEnabled = config.deal.metadata?.[this.name]?.enabled === true;
 
     if (!ipniEnabled) {
       this.logger.debug(`IPNI not available for deal ${config.deal.id}: IPNI not enabled during creation`);
@@ -32,7 +32,7 @@ export class IpniRetrievalStrategy implements IRetrievalAddon {
     }
 
     // Verify we have the root CID
-    const rootCID = config.deal.metadata?.ipni?.rootCID;
+    const rootCID = config.deal.metadata?.[this.name]?.rootCID;
     if (!rootCID) {
       this.logger.warn(`IPNI not available for deal ${config.deal.id}: missing root CID`);
       return false;
@@ -46,7 +46,7 @@ export class IpniRetrievalStrategy implements IRetrievalAddon {
    * Uses IPFS gateway to retrieve data
    */
   constructUrl(config: RetrievalConfiguration): RetrievalUrlResult {
-    const rootCID = config.deal.metadata?.ipni?.rootCID;
+    const rootCID = config.deal.metadata?.[this.name]?.rootCID;
 
     if (!rootCID) {
       throw new Error(`Deal ${config.deal.id} does not have IPNI root CID`);
@@ -70,12 +70,6 @@ export class IpniRetrievalStrategy implements IRetrievalAddon {
     return {
       url,
       method: this.name,
-      metadata: {
-        rootCID,
-        blockCount: config.deal.metadata?.ipni?.blockCount,
-        carSize: config.deal.metadata?.ipni?.carSize,
-        retrievalType: ServiceType.IPFS_PIN,
-      },
     };
   }
 
@@ -85,7 +79,7 @@ export class IpniRetrievalStrategy implements IRetrievalAddon {
    */
   async validateData(retrievedData: Buffer, config: RetrievalConfiguration): Promise<ValidationResult> {
     const actualSize = retrievedData.length;
-    const expectedSize = Number(config.deal.fileSize || config.deal.metadata?.ipni?.originalSize);
+    const expectedSize = Number(config.deal.fileSize || config.deal.metadata?.[this.name]?.originalSize);
     const isValid = actualSize === expectedSize;
 
     if (!isValid) {
@@ -94,8 +88,8 @@ export class IpniRetrievalStrategy implements IRetrievalAddon {
       );
     }
 
-    const blockCIDs = config.deal.metadata?.ipni?.blockCIDs;
-    const blockCount = config.deal.metadata?.ipni?.blockCount;
+    const blockCIDs = config.deal.metadata?.[this.name]?.blockCIDs;
+    const blockCount = config.deal.metadata?.[this.name]?.blockCount;
 
     let additionalDetails = "";
     if (blockCIDs && blockCount) {

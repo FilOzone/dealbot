@@ -1,7 +1,8 @@
 import { Injectable, Logger } from "@nestjs/common";
+import type { DirectMetadata } from "../../database/types.js";
 import { ServiceType } from "../../database/types.js";
 import type { IDealAddon } from "../interfaces/deal-addon.interface.js";
-import type { AddonExecutionContext, DealConfiguration, PreprocessingResult } from "../types.js";
+import type { AddonExecutionContext, DealConfiguration, DirectPreprocessingResult } from "../types.js";
 import { AddonPriority } from "../types.js";
 
 /**
@@ -10,7 +11,7 @@ import { AddonPriority } from "../types.js";
  * This is the baseline strategy that passes data through without modification
  */
 @Injectable()
-export class DirectAddonStrategy implements IDealAddon {
+export class DirectAddonStrategy implements IDealAddon<DirectMetadata> {
   private readonly logger = new Logger(DirectAddonStrategy.name);
 
   readonly name = ServiceType.DIRECT_SP;
@@ -29,15 +30,17 @@ export class DirectAddonStrategy implements IDealAddon {
    * Pass through data without modification
    * Direct storage doesn't require any preprocessing
    */
-  async preprocessData(context: AddonExecutionContext): Promise<PreprocessingResult> {
+  async preprocessData(context: AddonExecutionContext): Promise<DirectPreprocessingResult> {
     this.logger.debug(`Processing direct storage for file: ${context.currentData.name}`);
 
+    const metadata: DirectMetadata = {
+      type: "direct",
+    };
+
     return {
+      metadata,
       data: context.currentData.data,
       size: context.currentData.size,
-      metadata: {
-        type: "direct",
-      },
     };
   }
 
@@ -51,7 +54,7 @@ export class DirectAddonStrategy implements IDealAddon {
   /**
    * Validate that data was passed through correctly
    */
-  async validate(result: PreprocessingResult): Promise<boolean> {
+  async validate(result: DirectPreprocessingResult): Promise<boolean> {
     if (!result.data || result.size === 0) {
       throw new Error("Direct storage validation failed: data is empty");
     }
