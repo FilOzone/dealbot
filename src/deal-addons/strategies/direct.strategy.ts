@@ -34,7 +34,7 @@ export class DirectAddonStrategy implements IDealAddon<DirectMetadata> {
     this.logger.debug(`Processing direct storage for file: ${context.currentData.name}`);
 
     return {
-      metadata,
+      metadata: {},
       data: context.currentData.data,
       size: context.currentData.size,
     };
