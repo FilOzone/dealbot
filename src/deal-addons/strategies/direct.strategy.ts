@@ -33,10 +33,6 @@ export class DirectAddonStrategy implements IDealAddon<DirectMetadata> {
   async preprocessData(context: AddonExecutionContext): Promise<DirectPreprocessingResult> {
     this.logger.debug(`Processing direct storage for file: ${context.currentData.name}`);
 
-    const metadata: DirectMetadata = {
-      type: "direct",
-    };
-
     return {
       metadata,
       data: context.currentData.data,

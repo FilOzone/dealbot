@@ -1,6 +1,6 @@
 import { Injectable, Logger } from "@nestjs/common";
-import { DealMetadata } from "src/database/types.js";
 import type { Deal } from "../database/entities/deal.entity.js";
+import type { DealMetadata } from "../database/types.js";
 import type { IDealAddon } from "./interfaces/deal-addon.interface.js";
 import { CdnAddonStrategy } from "./strategies/cdn.strategy.js";
 import { DirectAddonStrategy } from "./strategies/direct.strategy.js";
@@ -184,7 +184,7 @@ export class DealAddonsService {
     // Initialize execution context
     const context: AddonExecutionContext = {
       currentData: config.dataFile,
-      accumulatedMetadata: {} as DealMetadata,
+      accumulatedMetadata: {},
       configuration: config,
     };
 
