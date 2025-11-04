@@ -1,7 +1,8 @@
 import { Injectable, Logger } from "@nestjs/common";
+import type { CdnMetadata } from "../../database/types.js";
 import { ServiceType } from "../../database/types.js";
 import type { IDealAddon } from "../interfaces/deal-addon.interface.js";
-import type { AddonExecutionContext, DealConfiguration, PreprocessingResult } from "../types.js";
+import type { AddonExecutionContext, CdnPreprocessingResult, DealConfiguration } from "../types.js";
 import { AddonPriority } from "../types.js";
 
 /**
@@ -10,7 +11,7 @@ import { AddonPriority } from "../types.js";
  * CDN doesn't require data preprocessing but adds retrieval capabilities
  */
 @Injectable()
-export class CdnAddonStrategy implements IDealAddon {
+export class CdnAddonStrategy implements IDealAddon<CdnMetadata> {
   private readonly logger = new Logger(CdnAddonStrategy.name);
 
   readonly name = ServiceType.CDN;
@@ -27,17 +28,19 @@ export class CdnAddonStrategy implements IDealAddon {
    * CDN doesn't require data preprocessing
    * Data is passed through unchanged, but metadata is added for tracking
    */
-  async preprocessData(context: AddonExecutionContext): Promise<PreprocessingResult> {
+  async preprocessData(context: AddonExecutionContext): Promise<CdnPreprocessingResult> {
     this.logger.debug(`Enabling CDN for file: ${context.currentData.name}`);
 
     // CDN doesn't modify the data, just adds metadata
+    const metadata: CdnMetadata = {
+      enabled: true,
+      provider: "fil-beam",
+    };
+
     return {
+      metadata,
       data: context.currentData.data,
       size: context.currentData.size,
-      metadata: {
-        enabled: true,
-        provider: "fil-beam",
-      },
     };
   }
 
@@ -53,7 +56,7 @@ export class CdnAddonStrategy implements IDealAddon {
   /**
    * Validate that CDN metadata is properly set
    */
-  async validate(result: PreprocessingResult): Promise<boolean> {
+  async validate(result: CdnPreprocessingResult): Promise<boolean> {
     if (!result.metadata.enabled) {
       throw new Error("CDN validation failed: cdnEnabled flag not set");
     }

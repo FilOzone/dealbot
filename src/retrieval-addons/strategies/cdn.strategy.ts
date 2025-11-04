@@ -30,7 +30,7 @@ export class CdnRetrievalStrategy implements IRetrievalAddon {
    */
   canHandle(config: RetrievalConfiguration): boolean {
     // Check if CDN was enabled in deal metadata
-    const cdnEnabled = config.deal.metadata?.cdn?.enabled === true;
+    const cdnEnabled = config.deal.metadata?.[this.name]?.enabled === true;
 
     if (!cdnEnabled) {
       this.logger.debug(`CDN not available for deal ${config.deal.id}: CDN not enabled during creation`);
@@ -72,14 +72,6 @@ export class CdnRetrievalStrategy implements IRetrievalAddon {
       method: this.name,
       headers: {
         Authorization: `Bearer ${filBeamConfig.botToken}`,
-      },
-      metadata: {
-        cdnHostname,
-        walletAddress,
-        pieceCid,
-        network: blockchainConfig.network,
-        retrievalType: ServiceType.CDN,
-        cdnProvider: config.deal.metadata?.cdn?.provider || "unknown",
       },
     };
   }

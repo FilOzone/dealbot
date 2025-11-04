@@ -1,15 +1,11 @@
 import { Injectable, Logger } from "@nestjs/common";
 import type { Deal } from "../database/entities/deal.entity.js";
+import type { DealMetadata } from "../database/types.js";
 import type { IDealAddon } from "./interfaces/deal-addon.interface.js";
 import { CdnAddonStrategy } from "./strategies/cdn.strategy.js";
 import { DirectAddonStrategy } from "./strategies/direct.strategy.js";
 import { IpniAddonStrategy } from "./strategies/ipni.strategy.js";
-import type {
-  AddonExecutionContext,
-  DealConfiguration,
-  DealPreprocessingResult,
-  PreprocessingResult,
-} from "./types.js";
+import type { AddonExecutionContext, DealConfiguration, DealPreprocessingResult } from "./types.js";
 
 /**
  * Orchestrator service for managing deal add-ons
@@ -182,7 +178,7 @@ export class DealAddonsService {
   ): Promise<{
     finalData: Buffer | Uint8Array;
     finalSize: number;
-    aggregatedMetadata: Record<string, any>;
+    aggregatedMetadata: DealMetadata;
     appliedAddons: string[];
   }> {
     // Initialize execution context
@@ -200,7 +196,7 @@ export class DealAddonsService {
         this.logger.debug(`Executing add-on: ${addon.name}`);
 
         // Execute preprocessing
-        const result: PreprocessingResult = await addon.preprocessData(context);
+        const result = await addon.preprocessData(context);
 
         // Validate result if validation is implemented
         if (addon.validate) {

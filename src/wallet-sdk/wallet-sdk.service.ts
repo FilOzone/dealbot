@@ -200,7 +200,6 @@ export class WalletSdkService implements OnModuleInit {
 
   /**
    * Get approved provider info by address
-   * @deprecated Use getProviderInfo() instead
    */
   getProviderInfo(address: string): ProviderInfoEx | undefined {
     return this.providerCache.get(address);

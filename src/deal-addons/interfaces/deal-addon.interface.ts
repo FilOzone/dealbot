@@ -1,5 +1,5 @@
 import type { Deal } from "../../database/entities/deal.entity.js";
-import type { ServiceType } from "../../database/types.js";
+import type { CdnMetadata, DirectMetadata, IpniMetadata, ServiceType } from "../../database/types.js";
 import type { AddonExecutionContext, DealConfiguration, PreprocessingResult } from "../types.js";
 
 /**
@@ -7,7 +7,7 @@ import type { AddonExecutionContext, DealConfiguration, PreprocessingResult } fr
  * Each add-on implements this interface to provide specific functionality
  * during the deal creation process
  */
-export interface IDealAddon {
+export interface IDealAddon<T extends CdnMetadata | IpniMetadata | DirectMetadata = any> {
   /**
    * Unique identifier for the add-on
    * @example ServiceType.DIRECT_SP, ServiceType.CDN
@@ -36,7 +36,7 @@ export interface IDealAddon {
    * @returns Preprocessing result with transformed data and metadata
    * @throws Error if preprocessing fails
    */
-  preprocessData(context: AddonExecutionContext): Promise<PreprocessingResult>;
+  preprocessData(context: AddonExecutionContext): Promise<PreprocessingResult<T>>;
 
   /**
    * Get Synapse SDK configuration for this add-on
@@ -63,5 +63,5 @@ export interface IDealAddon {
    * @returns true if validation passes
    * @throws Error with descriptive message if validation fails
    */
-  validate?(result: PreprocessingResult): Promise<boolean>;
+  validate?(result: PreprocessingResult<T>): Promise<boolean>;
 }

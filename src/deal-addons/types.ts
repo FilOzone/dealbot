@@ -1,5 +1,6 @@
 import type { CID } from "multiformats";
 import type { DataFile } from "../common/types.js";
+import type { CdnMetadata, DealMetadata, DirectMetadata, IpniMetadata } from "../database/types.js";
 
 /**
  * Configuration for creating a deal with optional add-ons
@@ -13,12 +14,12 @@ export interface DealConfiguration {
 /**
  * Result of data preprocessing by add-ons
  */
-export interface PreprocessingResult {
+export interface PreprocessingResult<T extends CdnMetadata | IpniMetadata | DirectMetadata = any> {
   /** Processed data ready for upload */
   data: Buffer | Uint8Array;
 
   /** Metadata generated during preprocessing (e.g., CIDs, block info) */
-  metadata: Record<string, any>;
+  metadata: T;
 
   /** Original data kept for validation purposes (optional) */
   originalData?: Buffer;
@@ -26,6 +27,13 @@ export interface PreprocessingResult {
   /** Size of processed data */
   size: number;
 }
+
+/**
+ * Preprocessing results for each strategy
+ */
+export type CdnPreprocessingResult = PreprocessingResult<CdnMetadata>;
+export type IpniPreprocessingResult = PreprocessingResult<IpniMetadata>;
+export type DirectPreprocessingResult = PreprocessingResult<DirectMetadata>;
 
 /**
  * Complete result of deal preprocessing including all add-on configurations
@@ -39,7 +47,7 @@ export interface DealPreprocessingResult {
   };
 
   /** Aggregated metadata from all add-ons */
-  metadata: Record<string, any>;
+  metadata: DealMetadata;
 
   /** Synapse SDK configuration merged from all add-ons */
   synapseConfig: {
@@ -85,7 +93,7 @@ export interface AddonExecutionContext {
   currentData: DataFile;
 
   /** Accumulated metadata from previous add-ons */
-  accumulatedMetadata: Record<string, any>;
+  accumulatedMetadata: DealMetadata;
 
   /** Original deal configuration */
   configuration: DealConfiguration;
