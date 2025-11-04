@@ -27,7 +27,7 @@
     "build:web": "pnpm -C web build"
   },
   "dependencies": {
-    "@filoz/synapse-sdk": "0.35.1",
+    "@filoz/synapse-sdk": "0.35.2",
     "@ipld/car": "^5.4.2",
     "@nestjs/axios": "^4.0.1",
     "@nestjs/common": "^11.1.5",

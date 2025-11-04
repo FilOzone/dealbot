@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       '@filoz/synapse-sdk':
-        specifier: 0.35.1
-        version: 0.35.1(iso-filecoin@7.4.5(typescript@5.9.2))(typescript@5.9.2)(webextension-polyfill@0.12.0)(zod@3.25.76)
+        specifier: 0.35.2
+        version: 0.35.2(iso-filecoin@7.4.5(typescript@5.9.2))(typescript@5.9.2)(webextension-polyfill@0.12.0)(zod@3.25.76)
       '@ipld/car':
         specifier: ^5.4.2
         version: 5.4.2
@@ -423,13 +423,13 @@ packages:
     resolution: {integrity: sha512-zQ0IqbdX8FZ9aw11vP+dZkKDkS+kgIvQPHnSAXzP9pLu+Rfu3D3XEeLbicvoXJTYnhZiPmsZUxgdzXwNKxRPbA==}
     engines: {node: '>=14'}
 
-  '@filoz/synapse-core@0.1.0':
-    resolution: {integrity: sha512-fRbHhyTeiOAfPSbPi1D4eHp705cBDTPwK+6WpzbNEQI5YSfclW3SqgzCMomfI0dIhwr6iZ0+ud5yr45lJU5g7Q==}
+  '@filoz/synapse-core@0.1.1':
+    resolution: {integrity: sha512-4p4ue/NBwhq0elXuCzaJulkjIhoY2PNydgwsh0hQCLZUCH1Aqr+T8zUKWLcWsdG0Si8EpOIjG7YWSLaUKm79Qw==}
     peerDependencies:
       viem: 2.x
 
-  '@filoz/synapse-sdk@0.35.1':
-    resolution: {integrity: sha512-B55KN8Wn7S9jPCZCr0rUlvIrGMGPWw2XHl+eVlSIKYlsPQPpfEYBPatzABInjQh2054G6/kvToSLkqTuY7NCyg==}
+  '@filoz/synapse-sdk@0.35.2':
+    resolution: {integrity: sha512-yCASlqj4UHMp727bx60i0FVO3jwcaW1oKnCK6NqQ2Gydiwq9Ta+fAP+9xe+TCLYGwz+e9o/cma5L3Qj3sx74Iw==}
 
   '@hapi/hoek@9.3.0':
     resolution: {integrity: sha512-/c6rf4UJlmHlC9b5BaNvzAcFv7HZ2QHaV0D4/HNlBdvFnvQq8RI4kYdhyPCl7Xj+oWvTWQ8ujhqS53LIgAe6KQ==}
@@ -4200,7 +4200,7 @@ snapshots:
       ethereum-cryptography: 2.2.1
       micro-ftch: 0.3.1
 
-  '@filoz/synapse-core@0.1.0(iso-filecoin@7.4.5(typescript@5.9.2))(typescript@5.9.2)(viem@2.38.3(typescript@5.9.2)(zod@3.25.76))(webextension-polyfill@0.12.0)(zod@3.25.76)':
+  '@filoz/synapse-core@0.1.1(iso-filecoin@7.4.5(typescript@5.9.2))(typescript@5.9.2)(viem@2.38.3(typescript@5.9.2)(zod@3.25.76))(webextension-polyfill@0.12.0)(zod@3.25.76)':
     dependencies:
       '@web3-storage/data-segment': 5.3.0
       dnum: 2.15.0
@@ -4217,9 +4217,9 @@ snapshots:
       - webextension-polyfill
       - zod
 
-  '@filoz/synapse-sdk@0.35.1(iso-filecoin@7.4.5(typescript@5.9.2))(typescript@5.9.2)(webextension-polyfill@0.12.0)(zod@3.25.76)':
+  '@filoz/synapse-sdk@0.35.2(iso-filecoin@7.4.5(typescript@5.9.2))(typescript@5.9.2)(webextension-polyfill@0.12.0)(zod@3.25.76)':
     dependencies:
-      '@filoz/synapse-core': 0.1.0(iso-filecoin@7.4.5(typescript@5.9.2))(typescript@5.9.2)(viem@2.38.3(typescript@5.9.2)(zod@3.25.76))(webextension-polyfill@0.12.0)(zod@3.25.76)
+      '@filoz/synapse-core': 0.1.1(iso-filecoin@7.4.5(typescript@5.9.2))(typescript@5.9.2)(viem@2.38.3(typescript@5.9.2)(zod@3.25.76))(webextension-polyfill@0.12.0)(zod@3.25.76)
       '@web3-storage/data-segment': 5.3.0
       ethers: 6.15.0
       multiformats: 13.4.1
