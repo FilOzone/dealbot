@@ -63,7 +63,7 @@ export class IpniRetrievalStrategy implements IRetrievalAddon {
     }
 
     const serviceUrl = providerInfo.products.PDP.data.serviceURL;
-    const url = `${serviceUrl.replace(/\/$/, "")}/piece/${rootCID}`;
+    const url = `${serviceUrl.replace(/\/$/, "")}/ipfs/${rootCID}`;
 
     this.logger.debug(`Constructed IPNI retrieval URL: ${url}`);
 
