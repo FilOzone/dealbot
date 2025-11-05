@@ -2,7 +2,7 @@ import { Injectable, Logger } from "@nestjs/common";
 import type { DirectMetadata } from "../../database/types.js";
 import { ServiceType } from "../../database/types.js";
 import type { IDealAddon } from "../interfaces/deal-addon.interface.js";
-import type { AddonExecutionContext, DealConfiguration, DirectPreprocessingResult } from "../types.js";
+import type { AddonExecutionContext, DealConfiguration, DirectPreprocessingResult, SynapseConfig } from "../types.js";
 import { AddonPriority } from "../types.js";
 
 /**
@@ -43,7 +43,7 @@ export class DirectAddonStrategy implements IDealAddon<DirectMetadata> {
   /**
    * Direct storage doesn't require special Synapse configuration
    */
-  getSynapseConfig(): Partial<{ withCDN: boolean; withIpni: boolean }> {
+  getSynapseConfig(): SynapseConfig {
     return {};
   }
 

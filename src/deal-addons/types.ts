@@ -50,13 +50,21 @@ export interface DealPreprocessingResult {
   metadata: DealMetadata;
 
   /** Synapse SDK configuration merged from all add-ons */
-  synapseConfig: {
-    withCDN?: boolean;
-    withIpni?: boolean;
-  };
+  synapseConfig: SynapseConfig;
 
   /** Names of add-ons that were applied */
   appliedAddons: string[];
+}
+
+/**
+ * Synapse Config options
+ */
+export interface SynapseConfig {
+  withCDN?: boolean;
+  withIpni?: boolean;
+
+  /** Metadata Configuration */
+  metadata?: Record<string, string>;
 }
 
 /**

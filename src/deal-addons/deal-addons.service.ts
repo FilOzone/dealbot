@@ -5,7 +5,7 @@ import type { IDealAddon } from "./interfaces/deal-addon.interface.js";
 import { CdnAddonStrategy } from "./strategies/cdn.strategy.js";
 import { DirectAddonStrategy } from "./strategies/direct.strategy.js";
 import { IpniAddonStrategy } from "./strategies/ipni.strategy.js";
-import type { AddonExecutionContext, DealConfiguration, DealPreprocessingResult } from "./types.js";
+import type { AddonExecutionContext, DealConfiguration, DealPreprocessingResult, SynapseConfig } from "./types.js";
 
 /**
  * Orchestrator service for managing deal add-ons
@@ -85,7 +85,7 @@ export class DealAddonsService {
       const pipelineResult = await this.executePreprocessingPipeline(sortedAddons, config);
 
       // Merge Synapse configurations from all add-ons
-      const synapseConfig = this.mergeSynapseConfigs(sortedAddons);
+      const synapseConfig = this.mergeSynapseConfigs(sortedAddons, pipelineResult.aggregatedMetadata);
 
       const duration = Date.now() - startTime;
       this.logger.log(
@@ -239,12 +239,20 @@ export class DealAddonsService {
    * @returns Merged Synapse configuration
    * @private
    */
-  private mergeSynapseConfigs(addons: IDealAddon[]): { withCDN?: boolean; withIpni?: boolean } {
-    const merged: { withCDN?: boolean; withIpni?: boolean } = {};
+  private mergeSynapseConfigs(addons: IDealAddon[], dealMetadata: DealMetadata): SynapseConfig {
+    const merged: SynapseConfig = {};
 
     for (const addon of addons) {
-      const config = addon.getSynapseConfig();
+      const config = addon.getSynapseConfig?.(dealMetadata);
+      if (!config) continue;
+
       Object.assign(merged, config);
+      if (config.metadata) {
+        merged.metadata = {
+          ...merged.metadata,
+          ...config.metadata,
+        };
+      }
     }
 
     this.logger.debug(`Merged Synapse config: ${JSON.stringify(merged)}`);

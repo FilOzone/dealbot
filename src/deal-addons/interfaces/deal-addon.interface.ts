@@ -1,6 +1,6 @@
 import type { Deal } from "../../database/entities/deal.entity.js";
-import type { CdnMetadata, DirectMetadata, IpniMetadata, ServiceType } from "../../database/types.js";
-import type { AddonExecutionContext, DealConfiguration, PreprocessingResult } from "../types.js";
+import type { CdnMetadata, DealMetadata, DirectMetadata, IpniMetadata, ServiceType } from "../../database/types.js";
+import type { AddonExecutionContext, DealConfiguration, PreprocessingResult, SynapseConfig } from "../types.js";
 
 /**
  * Interface for deal add-on strategies
@@ -44,7 +44,7 @@ export interface IDealAddon<T extends CdnMetadata | IpniMetadata | DirectMetadat
    *
    * @returns Partial Synapse configuration object
    */
-  getSynapseConfig(): Partial<{ withCDN: boolean; withIpni: boolean }>;
+  getSynapseConfig?(dealMetadata?: DealMetadata): SynapseConfig;
 
   /**
    * Optional post-processing after deal creation

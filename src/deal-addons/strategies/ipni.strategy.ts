@@ -1,6 +1,6 @@
 import { request } from "node:https";
 import { Readable } from "node:stream";
-import { PDPServer } from "@filoz/synapse-sdk";
+import { METADATA_KEYS, PDPServer } from "@filoz/synapse-sdk";
 import { CarWriter } from "@ipld/car";
 import { Injectable, Logger } from "@nestjs/common";
 import { CID } from "multiformats/cid";
@@ -8,10 +8,16 @@ import * as raw from "multiformats/codecs/raw";
 import { sha256 } from "multiformats/hashes/sha2";
 import { MAX_BLOCK_SIZE } from "../../common/constants.js";
 import type { Deal } from "../../database/entities/deal.entity.js";
-import type { IpniMetadata } from "../../database/types.js";
+import type { DealMetadata, IpniMetadata } from "../../database/types.js";
 import { ServiceType } from "../../database/types.js";
 import type { IDealAddon } from "../interfaces/deal-addon.interface.js";
-import type { AddonExecutionContext, CarDataFile, DealConfiguration, IpniPreprocessingResult } from "../types.js";
+import type {
+  AddonExecutionContext,
+  CarDataFile,
+  DealConfiguration,
+  IpniPreprocessingResult,
+  SynapseConfig,
+} from "../types.js";
 import { AddonPriority } from "../types.js";
 
 /**
@@ -75,9 +81,25 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
   /**
    * Configure Synapse SDK to enable IPNI
    */
-  getSynapseConfig(): Partial<{ withCDN: boolean; withIpni: boolean }> {
+  getSynapseConfig(dealMetadata?: DealMetadata): SynapseConfig {
+    if (!dealMetadata?.[this.name]) {
+      return {
+        metadata: {},
+      };
+    }
+
+    const rootCID = dealMetadata[this.name]?.rootCID;
+    if (!rootCID) {
+      return {
+        metadata: {},
+      };
+    }
+
     return {
-      withIpni: true,
+      metadata: {
+        [METADATA_KEYS.WITH_IPFS_INDEXING]: "",
+        [METADATA_KEYS.IPFS_ROOT_CID]: rootCID,
+      },
     };
   }
 
