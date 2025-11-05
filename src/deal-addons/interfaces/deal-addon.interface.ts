@@ -47,6 +47,15 @@ export interface IDealAddon<T extends CdnMetadata | IpniMetadata | DirectMetadat
   getSynapseConfig?(dealMetadata?: DealMetadata): SynapseConfig;
 
   /**
+   * Optional handler triggered when upload is complete
+   * Use this for tracking, monitoring, or triggering async operations
+   *
+   * @param deal - Deal entity with upload information
+   * @returns Promise that resolves when handler is complete
+   */
+  onUploadComplete?(deal: Deal): Promise<void>;
+
+  /**
    * Optional post-processing after deal creation
    * Use this for cleanup, validation, or additional operations
    *

@@ -25,6 +25,14 @@ export enum RetrievalStatus {
   TIMEOUT = "timeout",
 }
 
+export enum IpniStatus {
+  PENDING = "pending",
+  INDEXED = "indexed",
+  ADVERTISED = "advertised",
+  RETRIEVED = "retrieved",
+  FAILED = "failed",
+}
+
 /**
  * Metadata schema for deal storage and retrieval
  */

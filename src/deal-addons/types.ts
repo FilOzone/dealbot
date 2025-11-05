@@ -1,6 +1,6 @@
 import type { CID } from "multiformats";
 import type { DataFile } from "../common/types.js";
-import type { CdnMetadata, DealMetadata, DirectMetadata, IpniMetadata } from "../database/types.js";
+import type { CdnMetadata, DealMetadata, DirectMetadata, IpniMetadata, ServiceType } from "../database/types.js";
 
 /**
  * Configuration for creating a deal with optional add-ons
@@ -53,7 +53,7 @@ export interface DealPreprocessingResult {
   synapseConfig: SynapseConfig;
 
   /** Names of add-ons that were applied */
-  appliedAddons: string[];
+  appliedAddons: ServiceType[];
 }
 
 /**
