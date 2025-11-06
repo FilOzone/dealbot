@@ -725,7 +725,7 @@ export class ProvidersService {
 
     // Calculate rates and averages
     const dealSuccessRate = totalDeals > 0 ? (successfulDeals / totalDeals) * 100 : 0;
-    const ipniSuccessRate = totalIpniDeals > 0 ? (ipniIndexedDeals / totalIpniDeals) * 100 : 0;
+    const ipniSuccessRate = totalIpniDeals > 0 ? (ipniRetrievedDeals / totalIpniDeals) * 100 : 0;
     const retrievalSuccessRate = totalRetrievals > 0 ? (successfulRetrievals / totalRetrievals) * 100 : 0;
     const ipfsRetrievalSuccessRate =
       totalIpfsRetrievals > 0 ? (successfulIpfsRetrievals / totalIpfsRetrievals) * 100 : 0;
@@ -743,10 +743,11 @@ export class ProvidersService {
     const avgRetrievalThroughputBps =
       successfulRetrievals > 0 ? Math.round(retrievalThroughputSum / successfulRetrievals) : 0;
     const avgIpfsRetrievalLatencyMs =
-      totalIpfsRetrievals > 0 ? Math.round(retrievalIpfsLatencySum / totalIpfsRetrievals) : 0;
-    const avgIpfsRetrievalTtfbMs = totalIpfsRetrievals > 0 ? Math.round(retrievalIpfsTtfbSum / totalIpfsRetrievals) : 0;
+      successfulIpfsRetrievals > 0 ? Math.round(retrievalIpfsLatencySum / successfulIpfsRetrievals) : 0;
+    const avgIpfsRetrievalTtfbMs =
+      successfulIpfsRetrievals > 0 ? Math.round(retrievalIpfsTtfbSum / successfulIpfsRetrievals) : 0;
     const avgIpfsRetrievalThroughputBps =
-      totalIpfsRetrievals > 0 ? Math.round(retrievalIpfsThroughputSum / totalIpfsRetrievals) : 0;
+      successfulIpfsRetrievals > 0 ? Math.round(retrievalIpfsThroughputSum / successfulIpfsRetrievals) : 0;
 
     // Calculate health score
     const healthScore =
@@ -1028,7 +1029,7 @@ export class ProvidersService {
     // Calculate averages and rates
     const dealSuccessRate = totalDeals > 0 ? (successfulDeals / totalDeals) * 100 : 0;
     const retrievalSuccessRate = totalRetrievals > 0 ? (successfulRetrievals / totalRetrievals) * 100 : 0;
-    const ipniSuccessRate = totalIpniDeals > 0 ? (ipniIndexedDeals / totalIpniDeals) * 100 : 0;
+    const ipniSuccessRate = totalIpniDeals > 0 ? (ipniRetrievedDeals / totalIpniDeals) * 100 : 0;
     const ipfsRetrievalSuccessRate =
       totalIpfsRetrievals > 0 ? (successfulIpfsRetrievals / totalIpfsRetrievals) * 100 : 0;
 

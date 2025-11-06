@@ -116,7 +116,7 @@ export class DealAddonsService {
    * @param deal - Deal entity with upload information
    * @param appliedAddons - Names of add-ons that were applied during preprocessing
    */
-  async handleUploadComplete(deal: Deal, appliedAddons: string[]): Promise<void> {
+  async handleUploadComplete(deal: Deal, appliedAddons: ServiceType[]): Promise<void> {
     this.logger.debug(`Running onUploadComplete handlers for deal ${deal.id}`);
 
     const uploadCompletePromises = appliedAddons

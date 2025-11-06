@@ -7,7 +7,7 @@ import type { DataFile } from "../common/types.js";
 import type { IBlockchainConfig, IConfig } from "../config/app.config.js";
 import { Deal } from "../database/entities/deal.entity.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
-import { DealStatus } from "../database/types.js";
+import { DealStatus, ServiceType } from "../database/types.js";
 import { DataSourceService } from "../dataSource/dataSource.service.js";
 import { DealAddonsService } from "../deal-addons/deal-addons.service.js";
 import type { DealPreprocessingResult } from "../deal-addons/types.js";
@@ -183,7 +183,7 @@ export class DealService {
   // Upload Lifecycle Handlers
   // ============================================================================
 
-  private async handleUploadComplete(deal: Deal, pieceCid: PieceCID, appliedAddons: string[]): Promise<void> {
+  private async handleUploadComplete(deal: Deal, pieceCid: PieceCID, appliedAddons: ServiceType[]): Promise<void> {
     deal.pieceCid = pieceCid.toString();
     deal.uploadEndTime = new Date();
     deal.ingestLatencyMs = deal.uploadEndTime.getTime() - deal.uploadStartTime.getTime();
