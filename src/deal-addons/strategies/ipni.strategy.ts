@@ -109,10 +109,7 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
     try {
       const url = new URL(serviceURL);
       const hostname = url.hostname;
-      const protocol = url.protocol.replace(":", "");
-      if (protocol !== "https") {
-        throw new Error(`Only HTTPS protocol is supported for PDP serviceURL, got: ${protocol}`);
-      }
+
       return `/dns/${hostname}/tcp/443/https`;
     } catch (error) {
       throw new Error(`Failed to convert serviceURL to multiaddr: ${error.message}`);
