@@ -653,10 +653,19 @@ export class ProvidersService {
         if (deal.ingestThroughputBps) ingestThroughputSum += deal.ingestThroughputBps;
         if (deal.serviceTypes.includes(ServiceType.IPFS_PIN)) {
           totalIpniDeals++;
-          if (deal.ipniStatus === IpniStatus.INDEXED) ipniIndexedDeals++;
-          if (deal.ipniStatus === IpniStatus.ADVERTISED) ipniAdvertisedDeals++;
-          if (deal.ipniStatus === IpniStatus.RETRIEVED) ipniRetrievedDeals++;
-          if (deal.ipniStatus === IpniStatus.FAILED) ipniFailedDeals++;
+          // IPNI status is incremental: PENDING -> INDEXED -> ADVERTISED -> RETRIEVED
+          if (deal.ipniStatus === IpniStatus.RETRIEVED) {
+            ipniRetrievedDeals++;
+            ipniAdvertisedDeals++;
+            ipniIndexedDeals++;
+          } else if (deal.ipniStatus === IpniStatus.ADVERTISED) {
+            ipniAdvertisedDeals++;
+            ipniIndexedDeals++;
+          } else if (deal.ipniStatus === IpniStatus.INDEXED) {
+            ipniIndexedDeals++;
+          } else if (deal.ipniStatus === IpniStatus.FAILED) {
+            ipniFailedDeals++;
+          }
           if (deal.ipniTimeToIndexMs) timeToIndexSum += deal.ipniTimeToIndexMs;
           if (deal.ipniTimeToAdvertiseMs) timeToAdvertiseSum += deal.ipniTimeToAdvertiseMs;
           if (deal.ipniTimeToRetrieveMs) timeToRetrieveSum += deal.ipniTimeToRetrieveMs;

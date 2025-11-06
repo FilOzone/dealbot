@@ -77,10 +77,10 @@ import { ServiceType } from "../types.js";
         ROUND(AVG(r_ipfs.ttfb_ms) FILTER (WHERE r_ipfs.ttfb_ms IS NOT NULL AND r_ipfs.service_type = '${ServiceType.IPFS_PIN}'))::int as avg_ipfs_retrieval_ttfb_ms,
         ROUND(AVG(r_ipfs.throughput_bps) FILTER (WHERE r_ipfs.throughput_bps IS NOT NULL AND r_ipfs.service_type = '${ServiceType.IPFS_PIN}'))::bigint as avg_ipfs_retrieval_throughput_bps,
         
-        -- IPNI tracking metrics (all time)
+        -- IPNI tracking metrics (all time) - incremental states: PENDING -> INDEXED -> ADVERTISED -> RETRIEVED
         COUNT(DISTINCT d.id) FILTER (WHERE d.ipni_status IS NOT NULL) as total_ipni_deals,
-        COUNT(DISTINCT d.id) FILTER (WHERE d.ipni_status = 'indexed') as ipni_indexed_deals,
-        COUNT(DISTINCT d.id) FILTER (WHERE d.ipni_status = 'advertised') as ipni_advertised_deals,
+        COUNT(DISTINCT d.id) FILTER (WHERE d.ipni_status IN ('indexed', 'advertised', 'retrieved')) as ipni_indexed_deals,
+        COUNT(DISTINCT d.id) FILTER (WHERE d.ipni_status IN ('advertised', 'retrieved')) as ipni_advertised_deals,
         COUNT(DISTINCT d.id) FILTER (WHERE d.ipni_status = 'retrieved') as ipni_retrieved_deals,
         COUNT(DISTINCT d.id) FILTER (WHERE d.ipni_status = 'failed') as ipni_failed_deals,
         

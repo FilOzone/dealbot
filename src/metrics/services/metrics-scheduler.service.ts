@@ -199,10 +199,10 @@ export class MetricsSchedulerService implements OnModuleInit {
           0 as successful_retrievals,
           0 as failed_retrievals,
           0 as total_data_retrieved_bytes,
-          -- IPNI metrics
+          -- IPNI metrics (incremental states: PENDING -> INDEXED -> ADVERTISED -> RETRIEVED)
           COUNT(*) FILTER (WHERE ipni_status IS NOT NULL) as total_ipni_deals,
-          COUNT(*) FILTER (WHERE ipni_status = 'indexed') as ipni_indexed_deals,
-          COUNT(*) FILTER (WHERE ipni_status = 'advertised') as ipni_advertised_deals,
+          COUNT(*) FILTER (WHERE ipni_status IN ('indexed', 'advertised', 'retrieved')) as ipni_indexed_deals,
+          COUNT(*) FILTER (WHERE ipni_status IN ('advertised', 'retrieved')) as ipni_advertised_deals,
           COUNT(*) FILTER (WHERE ipni_status = 'retrieved') as ipni_retrieved_deals,
           COUNT(*) FILTER (WHERE ipni_status = 'failed') as ipni_failed_deals,
           COALESCE(
