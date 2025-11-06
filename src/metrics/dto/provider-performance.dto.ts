@@ -96,6 +96,54 @@ export class ProviderPerformanceDto {
   @ApiProperty({ description: "Total data retrieved in bytes" })
   totalDataRetrievedBytes: string;
 
+  @ApiProperty({ description: "Total IPFS retrievals" })
+  totalIpfsRetrievals: number;
+
+  @ApiProperty({ description: "Successful IPFS retrievals" })
+  successfulIpfsRetrievals: number;
+
+  @ApiProperty({ description: "Failed IPFS retrievals" })
+  failedIpfsRetrievals: number;
+
+  @ApiProperty({ description: "IPFS retrieval success rate percentage (0-100)" })
+  ipfsRetrievalSuccessRate: number;
+
+  @ApiProperty({ description: "Average IPFS retrieval latency in milliseconds" })
+  avgIpfsRetrievalLatencyMs: number;
+
+  @ApiProperty({ description: "Average IPFS retrieval TTFB in milliseconds" })
+  avgIpfsRetrievalTtfbMs: number;
+
+  @ApiProperty({ description: "Average IPFS retrieval throughput in bytes per second" })
+  avgIpfsRetrievalThroughputBps: number;
+
+  @ApiProperty({ description: "Total deals with IPNI tracking" })
+  totalIpniDeals: number;
+
+  @ApiProperty({ description: "IPNI deals that reached indexed status" })
+  ipniIndexedDeals: number;
+
+  @ApiProperty({ description: "IPNI deals that reached advertised status" })
+  ipniAdvertisedDeals: number;
+
+  @ApiProperty({ description: "IPNI deals that reached retrieved status" })
+  ipniRetrievedDeals: number;
+
+  @ApiProperty({ description: "IPNI deals that failed" })
+  ipniFailedDeals: number;
+
+  @ApiProperty({ description: "IPNI success rate percentage (0-100)" })
+  ipniSuccessRate: number;
+
+  @ApiProperty({ description: "Average time to IPNI index in milliseconds" })
+  avgIpniTimeToIndexMs: number;
+
+  @ApiProperty({ description: "Average time to IPNI advertise in milliseconds" })
+  avgIpniTimeToAdvertiseMs: number;
+
+  @ApiProperty({ description: "Average time to IPNI retrieve in milliseconds" })
+  avgIpniTimeToRetrieveMs: number;
+
   @ApiProperty({ description: "Health score (0-100)" })
   healthScore: number;
 

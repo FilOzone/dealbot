@@ -161,6 +161,16 @@ export class MetricsSchedulerService implements OnModuleInit {
           successful_retrievals,
           failed_retrievals,
           total_data_retrieved_bytes,
+          total_ipni_deals,
+          ipni_indexed_deals,
+          ipni_advertised_deals,
+          ipni_retrieved_deals,
+          ipni_failed_deals,
+          ipni_success_rate,
+          avg_ipni_time_to_index_ms,
+          avg_ipni_time_to_advertise_ms,
+          avg_ipni_time_to_retrieve_ms,
+          avg_ipni_verified_cids,
           created_at,
           updated_at
         )
@@ -189,6 +199,24 @@ export class MetricsSchedulerService implements OnModuleInit {
           0 as successful_retrievals,
           0 as failed_retrievals,
           0 as total_data_retrieved_bytes,
+          -- IPNI metrics
+          COUNT(*) FILTER (WHERE ipni_status IS NOT NULL) as total_ipni_deals,
+          COUNT(*) FILTER (WHERE ipni_status = 'indexed') as ipni_indexed_deals,
+          COUNT(*) FILTER (WHERE ipni_status = 'advertised') as ipni_advertised_deals,
+          COUNT(*) FILTER (WHERE ipni_status = 'retrieved') as ipni_retrieved_deals,
+          COUNT(*) FILTER (WHERE ipni_status = 'failed') as ipni_failed_deals,
+          COALESCE(
+            ROUND(
+              (COUNT(*) FILTER (WHERE ipni_status = 'retrieved')::numeric / 
+              NULLIF(COUNT(*) FILTER (WHERE ipni_status IS NOT NULL)::numeric, 0)) * 100, 
+              2
+            ),
+            0
+          ) as ipni_success_rate,
+          COALESCE(ROUND(AVG(ipni_time_to_index_ms) FILTER (WHERE ipni_time_to_index_ms IS NOT NULL), 0), 0) as avg_ipni_time_to_index_ms,
+          COALESCE(ROUND(AVG(ipni_time_to_advertise_ms) FILTER (WHERE ipni_time_to_advertise_ms IS NOT NULL), 0), 0) as avg_ipni_time_to_advertise_ms,
+          COALESCE(ROUND(AVG(ipni_time_to_retrieve_ms) FILTER (WHERE ipni_time_to_retrieve_ms IS NOT NULL), 0), 0) as avg_ipni_time_to_retrieve_ms,
+          COALESCE(ROUND(AVG(ipni_verified_cids_count) FILTER (WHERE ipni_verified_cids_count IS NOT NULL), 2), 0) as avg_ipni_verified_cids,
           NOW() as created_at,
           NOW() as updated_at
         FROM deals
@@ -205,6 +233,16 @@ export class MetricsSchedulerService implements OnModuleInit {
           avg_chain_latency_ms = EXCLUDED.avg_chain_latency_ms,
           avg_ingest_throughput_bps = EXCLUDED.avg_ingest_throughput_bps,
           total_data_stored_bytes = EXCLUDED.total_data_stored_bytes,
+          total_ipni_deals = EXCLUDED.total_ipni_deals,
+          ipni_indexed_deals = EXCLUDED.ipni_indexed_deals,
+          ipni_advertised_deals = EXCLUDED.ipni_advertised_deals,
+          ipni_retrieved_deals = EXCLUDED.ipni_retrieved_deals,
+          ipni_failed_deals = EXCLUDED.ipni_failed_deals,
+          ipni_success_rate = EXCLUDED.ipni_success_rate,
+          avg_ipni_time_to_index_ms = EXCLUDED.avg_ipni_time_to_index_ms,
+          avg_ipni_time_to_advertise_ms = EXCLUDED.avg_ipni_time_to_advertise_ms,
+          avg_ipni_time_to_retrieve_ms = EXCLUDED.avg_ipni_time_to_retrieve_ms,
+          avg_ipni_verified_cids = EXCLUDED.avg_ipni_verified_cids,
           updated_at = NOW()
         RETURNING sp_address
         `,

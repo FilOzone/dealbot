@@ -7,7 +7,7 @@ import { Retrieval } from "../../database/entities/retrieval.entity.js";
 import { SpPerformanceAllTime } from "../../database/entities/sp-performance-all-time.entity.js";
 import { SpPerformanceLastWeek } from "../../database/entities/sp-performance-last-week.entity.js";
 import { StorageProvider } from "../../database/entities/storage-provider.entity.js";
-import { DealStatus, MetricType, RetrievalStatus, ServiceType } from "../../database/types.js";
+import { DealStatus, IpniStatus, MetricType, RetrievalStatus, ServiceType } from "../../database/types.js";
 import type { ProviderPerformanceDto, ProviderWindowPerformanceDto } from "../dto/provider-performance.dto.js";
 import { calculateTimeWindow, parseCustomDateRange, sanitizePreset } from "../utils/time-window-parser.js";
 
@@ -625,6 +625,14 @@ export class ProvidersService {
     let totalDeals = 0;
     let successfulDeals = 0;
     let failedDeals = 0;
+    let totalIpniDeals = 0;
+    let ipniIndexedDeals = 0;
+    let ipniAdvertisedDeals = 0;
+    let ipniRetrievedDeals = 0;
+    let ipniFailedDeals = 0;
+    let timeToIndexSum = 0;
+    let timeToAdvertiseSum = 0;
+    let timeToRetrieveSum = 0;
     let dealLatencySum = 0;
     let ingestLatencySum = 0;
     let chainLatencySum = 0;
@@ -643,6 +651,16 @@ export class ProvidersService {
         if (deal.ingestLatencyMs) ingestLatencySum += deal.ingestLatencyMs;
         if (deal.chainLatencyMs) chainLatencySum += deal.chainLatencyMs;
         if (deal.ingestThroughputBps) ingestThroughputSum += deal.ingestThroughputBps;
+        if (deal.serviceTypes.includes(ServiceType.IPFS_PIN)) {
+          totalIpniDeals++;
+          if (deal.ipniStatus === IpniStatus.INDEXED) ipniIndexedDeals++;
+          if (deal.ipniStatus === IpniStatus.ADVERTISED) ipniAdvertisedDeals++;
+          if (deal.ipniStatus === IpniStatus.RETRIEVED) ipniRetrievedDeals++;
+          if (deal.ipniStatus === IpniStatus.FAILED) ipniFailedDeals++;
+          if (deal.ipniTimeToIndexMs) timeToIndexSum += deal.ipniTimeToIndexMs;
+          if (deal.ipniTimeToAdvertiseMs) timeToAdvertiseSum += deal.ipniTimeToAdvertiseMs;
+          if (deal.ipniTimeToRetrieveMs) timeToRetrieveSum += deal.ipniTimeToRetrieveMs;
+        }
       } else if (deal.status === DealStatus.FAILED) {
         failedDeals++;
       }
@@ -654,16 +672,23 @@ export class ProvidersService {
 
     // Aggregate retrieval metrics
     let totalRetrievals = 0;
+    let totalIpfsRetrievals = 0;
     let successfulRetrievals = 0;
+    let successfulIpfsRetrievals = 0;
     let failedRetrievals = 0;
+    let failedIpfsRetrievals = 0;
     let retrievalLatencySum = 0;
+    let retrievalIpfsLatencySum = 0;
     let retrievalTtfbSum = 0;
+    let retrievalIpfsTtfbSum = 0;
     let retrievalThroughputSum = 0;
+    let retrievalIpfsThroughputSum = 0;
     let totalDataRetrievedBytes = BigInt(0);
     let lastRetrievalAt: Date | null = null;
 
     for (const retrieval of retrievals) {
       totalRetrievals++;
+      if (retrieval.serviceType === ServiceType.IPFS_PIN) totalIpfsRetrievals++;
 
       if (retrieval.status === RetrievalStatus.SUCCESS) {
         successfulRetrievals++;
@@ -671,8 +696,17 @@ export class ProvidersService {
         if (retrieval.ttfbMs) retrievalTtfbSum += retrieval.ttfbMs;
         if (retrieval.throughputBps) retrievalThroughputSum += retrieval.throughputBps;
         if (retrieval.bytesRetrieved) totalDataRetrievedBytes += BigInt(retrieval.bytesRetrieved);
+
+        if (retrieval.serviceType === ServiceType.IPFS_PIN) {
+          successfulIpfsRetrievals++;
+          if (retrieval.latencyMs) retrievalIpfsLatencySum += retrieval.latencyMs;
+          if (retrieval.ttfbMs) retrievalIpfsTtfbSum += retrieval.ttfbMs;
+          if (retrieval.throughputBps) retrievalIpfsThroughputSum += retrieval.throughputBps;
+          if (retrieval.bytesRetrieved) totalDataRetrievedBytes += BigInt(retrieval.bytesRetrieved);
+        }
       } else if (retrieval.status === RetrievalStatus.FAILED || retrieval.status === RetrievalStatus.TIMEOUT) {
         failedRetrievals++;
+        if (retrieval.serviceType === ServiceType.IPFS_PIN) failedIpfsRetrievals++;
       }
 
       if (!lastRetrievalAt || retrieval.createdAt > lastRetrievalAt) {
@@ -682,17 +716,28 @@ export class ProvidersService {
 
     // Calculate rates and averages
     const dealSuccessRate = totalDeals > 0 ? (successfulDeals / totalDeals) * 100 : 0;
+    const ipniSuccessRate = totalIpniDeals > 0 ? (ipniIndexedDeals / totalIpniDeals) * 100 : 0;
     const retrievalSuccessRate = totalRetrievals > 0 ? (successfulRetrievals / totalRetrievals) * 100 : 0;
+    const ipfsRetrievalSuccessRate =
+      totalIpfsRetrievals > 0 ? (successfulIpfsRetrievals / totalIpfsRetrievals) * 100 : 0;
 
     const avgDealLatencyMs = successfulDeals > 0 ? Math.round(dealLatencySum / successfulDeals) : 0;
     const avgIngestLatencyMs = successfulDeals > 0 ? Math.round(ingestLatencySum / successfulDeals) : 0;
     const avgChainLatencyMs = successfulDeals > 0 ? Math.round(chainLatencySum / successfulDeals) : 0;
     const avgIngestThroughputBps = successfulDeals > 0 ? Math.round(ingestThroughputSum / successfulDeals) : 0;
+    const avgIpniTimeToIndexMs = totalIpniDeals > 0 ? Math.round(timeToIndexSum / totalIpniDeals) : 0;
+    const avgIpniTimeToAdvertiseMs = totalIpniDeals > 0 ? Math.round(timeToAdvertiseSum / totalIpniDeals) : 0;
+    const avgIpniTimeToRetrieveMs = totalIpniDeals > 0 ? Math.round(timeToRetrieveSum / totalIpniDeals) : 0;
 
     const avgRetrievalLatencyMs = successfulRetrievals > 0 ? Math.round(retrievalLatencySum / successfulRetrievals) : 0;
     const avgRetrievalTtfbMs = successfulRetrievals > 0 ? Math.round(retrievalTtfbSum / successfulRetrievals) : 0;
     const avgRetrievalThroughputBps =
       successfulRetrievals > 0 ? Math.round(retrievalThroughputSum / successfulRetrievals) : 0;
+    const avgIpfsRetrievalLatencyMs =
+      totalIpfsRetrievals > 0 ? Math.round(retrievalIpfsLatencySum / totalIpfsRetrievals) : 0;
+    const avgIpfsRetrievalTtfbMs = totalIpfsRetrievals > 0 ? Math.round(retrievalIpfsTtfbSum / totalIpfsRetrievals) : 0;
+    const avgIpfsRetrievalThroughputBps =
+      totalIpfsRetrievals > 0 ? Math.round(retrievalIpfsThroughputSum / totalIpfsRetrievals) : 0;
 
     // Calculate health score
     const healthScore =
@@ -731,6 +776,22 @@ export class ProvidersService {
         avgRetrievalTtfbMs,
         avgRetrievalThroughputBps,
         totalDataRetrievedBytes: totalDataRetrievedBytes.toString(),
+        totalIpniDeals,
+        ipniIndexedDeals,
+        ipniAdvertisedDeals,
+        ipniRetrievedDeals,
+        ipniFailedDeals,
+        ipniSuccessRate,
+        avgIpniTimeToIndexMs,
+        avgIpniTimeToAdvertiseMs,
+        avgIpniTimeToRetrieveMs,
+        totalIpfsRetrievals,
+        successfulIpfsRetrievals,
+        failedIpfsRetrievals,
+        ipfsRetrievalSuccessRate,
+        avgIpfsRetrievalLatencyMs,
+        avgIpfsRetrievalTtfbMs,
+        avgIpfsRetrievalThroughputBps,
         healthScore,
         avgDealSize: avgDealSize ?? undefined,
         lastDealAt: lastDealAt || new Date(0),
@@ -800,6 +861,14 @@ export class ProvidersService {
     let totalRetrievals = 0;
     let successfulRetrievals = 0;
     let failedRetrievals = 0;
+    let totalIpniDeals = 0;
+    let ipniIndexedDeals = 0;
+    let ipniAdvertisedDeals = 0;
+    let ipniRetrievedDeals = 0;
+    let ipniFailedDeals = 0;
+    let totalIpfsRetrievals = 0;
+    let successfulIpfsRetrievals = 0;
+    let failedIpfsRetrievals = 0;
 
     let dealLatencySum = 0;
     let dealLatencyCount = 0;
@@ -811,11 +880,23 @@ export class ProvidersService {
     let retrievalLatencyCount = 0;
     let retrievalTtfbSum = 0;
     let retrievalTtfbCount = 0;
+    let timeToIndexSum = 0;
+    let timeToIndexCount = 0;
+    let timeToAdvertiseSum = 0;
+    let timeToAdvertiseCount = 0;
+    let timeToRetrieveSum = 0;
+    let timeToRetrieveCount = 0;
+    let retrievalIpfsLatencySum = 0;
+    let retrievalIpfsLatencyCount = 0;
+    let retrievalIpfsTtfbSum = 0;
+    let retrievalIpfsTtfbCount = 0;
 
     let ingestThroughputSum = 0;
     let ingestThroughputCount = 0;
     let retrievalThroughputSum = 0;
     let retrievalThroughputCount = 0;
+    let retrievalIpfsThroughputSum = 0;
+    let retrievalIpfsThroughputCount = 0;
 
     let totalDataStoredBytes = BigInt(0);
     let totalDataRetrievedBytes = BigInt(0);
@@ -858,6 +939,29 @@ export class ProvidersService {
             lastDealAt = metric.dailyBucket;
           }
         }
+
+        if (metric.serviceType === ServiceType.IPFS_PIN) {
+          totalIpniDeals += metric.totalIpniDeals;
+          ipniIndexedDeals += metric.ipniIndexedDeals;
+          ipniAdvertisedDeals += metric.ipniAdvertisedDeals;
+          ipniRetrievedDeals += metric.ipniRetrievedDeals;
+          ipniFailedDeals += metric.ipniFailedDeals;
+
+          if (metric.avgIpniTimeToIndexMs) {
+            timeToIndexSum += metric.avgIpniTimeToIndexMs * (metric.totalIpniDeals || 0);
+            timeToIndexCount += metric.totalIpniDeals || 0;
+          }
+
+          if (metric.avgIpniTimeToAdvertiseMs) {
+            timeToAdvertiseSum += metric.avgIpniTimeToAdvertiseMs * (metric.totalIpniDeals || 0);
+            timeToAdvertiseCount += metric.totalIpniDeals || 0;
+          }
+
+          if (metric.avgIpniTimeToRetrieveMs) {
+            timeToRetrieveSum += metric.avgIpniTimeToRetrieveMs * (metric.totalIpniDeals || 0);
+            timeToRetrieveCount += metric.totalIpniDeals || 0;
+          }
+        }
       }
 
       // Retrieval metrics
@@ -888,24 +992,58 @@ export class ProvidersService {
             lastRetrievalAt = metric.dailyBucket;
           }
         }
+
+        if (metric.serviceType === ServiceType.IPFS_PIN) {
+          totalIpfsRetrievals += metric.totalRetrievals;
+          successfulIpfsRetrievals += metric.successfulRetrievals;
+          failedIpfsRetrievals += metric.failedRetrievals;
+
+          if (metric.avgRetrievalLatencyMs) {
+            retrievalIpfsLatencySum += metric.avgRetrievalLatencyMs * (metric.totalRetrievals || 0);
+            retrievalIpfsLatencyCount += metric.totalRetrievals || 0;
+          }
+
+          if (metric.avgRetrievalTtfbMs) {
+            retrievalIpfsTtfbSum += metric.avgRetrievalTtfbMs * (metric.totalRetrievals || 0);
+            retrievalIpfsTtfbCount += metric.totalRetrievals || 0;
+          }
+
+          if (metric.avgRetrievalThroughputBps) {
+            retrievalIpfsThroughputSum += metric.avgRetrievalThroughputBps * (metric.totalRetrievals || 0);
+            retrievalIpfsThroughputCount += metric.totalRetrievals || 0;
+          }
+        }
       }
     }
 
     // Calculate averages and rates
     const dealSuccessRate = totalDeals > 0 ? (successfulDeals / totalDeals) * 100 : 0;
     const retrievalSuccessRate = totalRetrievals > 0 ? (successfulRetrievals / totalRetrievals) * 100 : 0;
+    const ipniSuccessRate = totalIpniDeals > 0 ? (ipniIndexedDeals / totalIpniDeals) * 100 : 0;
+    const ipfsRetrievalSuccessRate =
+      totalIpfsRetrievals > 0 ? (successfulIpfsRetrievals / totalIpfsRetrievals) * 100 : 0;
 
     const avgDealLatencyMs = dealLatencyCount > 0 ? Math.round(dealLatencySum / dealLatencyCount) : 0;
     const avgIngestLatencyMs = ingestLatencyCount > 0 ? Math.round(ingestLatencySum / ingestLatencyCount) : 0;
     const avgChainLatencyMs = chainLatencyCount > 0 ? Math.round(chainLatencySum / chainLatencyCount) : 0;
+    const avgIpniTimeToIndexMs = timeToIndexCount > 0 ? Math.round(timeToIndexSum / timeToIndexCount) : 0;
+    const avgIpniTimeToAdvertiseMs =
+      timeToAdvertiseCount > 0 ? Math.round(timeToAdvertiseSum / timeToAdvertiseCount) : 0;
+    const avgIpniTimeToRetrieveMs = timeToRetrieveCount > 0 ? Math.round(timeToRetrieveSum / timeToRetrieveCount) : 0;
     const avgRetrievalLatencyMs =
       retrievalLatencyCount > 0 ? Math.round(retrievalLatencySum / retrievalLatencyCount) : 0;
     const avgRetrievalTtfbMs = retrievalTtfbCount > 0 ? Math.round(retrievalTtfbSum / retrievalTtfbCount) : 0;
+    const avgIpfsRetrievalLatencyMs =
+      retrievalIpfsLatencyCount > 0 ? Math.round(retrievalIpfsLatencySum / retrievalIpfsLatencyCount) : 0;
+    const avgIpfsRetrievalTtfbMs =
+      retrievalIpfsTtfbCount > 0 ? Math.round(retrievalIpfsTtfbSum / retrievalIpfsTtfbCount) : 0;
 
     const avgIngestThroughputBps =
       ingestThroughputCount > 0 ? Math.round(ingestThroughputSum / ingestThroughputCount) : 0;
     const avgRetrievalThroughputBps =
       retrievalThroughputCount > 0 ? Math.round(retrievalThroughputSum / retrievalThroughputCount) : 0;
+    const avgIpfsRetrievalThroughputBps =
+      retrievalIpfsThroughputCount > 0 ? Math.round(retrievalIpfsThroughputSum / retrievalIpfsThroughputCount) : 0;
 
     // Calculate health score (same formula as materialized views)
     const healthScore =
@@ -933,6 +1071,22 @@ export class ProvidersService {
       avgRetrievalTtfbMs,
       avgRetrievalThroughputBps,
       totalDataRetrievedBytes: totalDataRetrievedBytes.toString(),
+      totalIpfsRetrievals,
+      successfulIpfsRetrievals,
+      failedIpfsRetrievals,
+      ipfsRetrievalSuccessRate: Math.round(ipfsRetrievalSuccessRate * 10) / 10,
+      avgIpfsRetrievalLatencyMs,
+      avgIpfsRetrievalTtfbMs,
+      avgIpfsRetrievalThroughputBps,
+      totalIpniDeals,
+      ipniIndexedDeals,
+      ipniAdvertisedDeals,
+      ipniRetrievedDeals,
+      ipniFailedDeals,
+      ipniSuccessRate: Math.round(ipniSuccessRate * 10) / 10,
+      avgIpniTimeToIndexMs,
+      avgIpniTimeToAdvertiseMs,
+      avgIpniTimeToRetrieveMs,
       healthScore,
       avgDealSize: avgDealSize ?? undefined,
       lastDealAt: lastDealAt || new Date(0),
@@ -980,6 +1134,22 @@ export class ProvidersService {
         avgRetrievalTtfbMs: 0,
         avgRetrievalThroughputBps: 0,
         totalDataRetrievedBytes: "0",
+        totalIpniDeals: 0,
+        ipniIndexedDeals: 0,
+        ipniAdvertisedDeals: 0,
+        ipniRetrievedDeals: 0,
+        ipniFailedDeals: 0,
+        ipniSuccessRate: 0,
+        avgIpniTimeToIndexMs: 0,
+        avgIpniTimeToAdvertiseMs: 0,
+        avgIpniTimeToRetrieveMs: 0,
+        totalIpfsRetrievals: 0,
+        successfulIpfsRetrievals: 0,
+        failedIpfsRetrievals: 0,
+        ipfsRetrievalSuccessRate: 0,
+        avgIpfsRetrievalLatencyMs: 0,
+        avgIpfsRetrievalTtfbMs: 0,
+        avgIpfsRetrievalThroughputBps: 0,
         healthScore: 0,
         avgDealSize: undefined,
         lastDealAt: new Date(0),
@@ -1012,6 +1182,22 @@ export class ProvidersService {
       avgRetrievalTtfbMs: entity.avgRetrievalTtfbMs,
       avgRetrievalThroughputBps: entity.avgThroughputBps,
       totalDataRetrievedBytes: entity.totalDataRetrievedBytes,
+      totalIpniDeals: entity.totalIpniDeals,
+      ipniIndexedDeals: entity.ipniIndexedDeals,
+      ipniAdvertisedDeals: entity.ipniAdvertisedDeals,
+      ipniRetrievedDeals: entity.ipniRetrievedDeals,
+      ipniFailedDeals: entity.ipniFailedDeals,
+      ipniSuccessRate: entity.ipniSuccessRate,
+      avgIpniTimeToIndexMs: entity.avgIpniTimeToIndexMs,
+      avgIpniTimeToAdvertiseMs: entity.avgIpniTimeToAdvertiseMs,
+      avgIpniTimeToRetrieveMs: entity.avgIpniTimeToRetrieveMs,
+      totalIpfsRetrievals: entity.totalIpfsRetrievals,
+      successfulIpfsRetrievals: entity.successfulIpfsRetrievals,
+      failedIpfsRetrievals: entity.failedIpfsRetrievals,
+      ipfsRetrievalSuccessRate: entity.ipfsRetrievalSuccessRate,
+      avgIpfsRetrievalLatencyMs: entity.avgIpfsRetrievalLatencyMs,
+      avgIpfsRetrievalTtfbMs: entity.avgIpfsRetrievalTtfbMs,
+      avgIpfsRetrievalThroughputBps: entity.avgIpfsRetrievalThroughputBps,
       healthScore: entity.getHealthScore?.() || 0,
       avgDealSize: entity.getAvgDealSize?.() ?? undefined,
       lastDealAt: entity.lastDealAt,
