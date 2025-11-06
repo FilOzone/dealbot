@@ -1,4 +1,4 @@
-import { AlertCircle, BarChart3, Check, Copy, TrendingDown, TrendingUp } from "lucide-react";
+import { AlertCircle, BarChart3, Check, ChevronDown, ChevronUp, Copy, TrendingDown, TrendingUp } from "lucide-react";
 import { useState } from "react";
 import { useProviderVersion } from "@/hooks/useProviderVersion";
 import type { ProviderCombinedPerformance, ProviderDetailResponse } from "@/types/providers";
@@ -21,6 +21,7 @@ const SUCCESS_RATE_THRESHOLD = 90;
 export function ProviderCard({ provider, batchedVersion }: ProviderCardProps) {
   const [copiedProvider, setCopiedProvider] = useState<string | null>(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
+  const [showAdvancedMetrics, setShowAdvancedMetrics] = useState(false);
   const { version, loading, error } = useProviderVersion({
     serviceUrl: provider.provider.serviceUrl,
     batchedVersion,
@@ -290,6 +291,109 @@ export function ProviderCard({ provider, batchedVersion }: ProviderCardProps) {
                   </div>
                 </div>
               </div>
+
+              {/* IPNI & IPFS Metrics Toggle */}
+              {(provider.allTime!.totalIpniDeals > 0 || provider.allTime!.totalIpfsRetrievals > 0) && (
+                <div className='mt-4'>
+                  <button
+                    onClick={() => setShowAdvancedMetrics(!showAdvancedMetrics)}
+                    className='flex items-center justify-between w-full text-sm text-muted-foreground hover:text-foreground transition-colors py-2'
+                  >
+                    <span className='font-medium'>IPNI & IPFS Metrics</span>
+                    {showAdvancedMetrics ? <ChevronUp className='h-4 w-4' /> : <ChevronDown className='h-4 w-4' />}
+                  </button>
+
+                  {showAdvancedMetrics && (
+                    <div className='space-y-3 mt-2 pt-3 border-t'>
+                      {/* IPNI Metrics */}
+                      {provider.allTime!.totalIpniDeals > 0 && (
+                        <div className='space-y-2'>
+                          <div className='flex items-center justify-between'>
+                            <span className='text-xs text-muted-foreground font-medium'>IPNI Indexing</span>
+                            <span className='text-xs text-muted-foreground'>
+                              {formatNumber(provider.allTime!.totalIpniDeals)} deals
+                            </span>
+                          </div>
+                          <div className='grid grid-cols-2 gap-2 text-xs'>
+                            <div className='flex justify-between'>
+                              <span className='text-muted-foreground'>Success Rate</span>
+                              <span
+                                className={`font-semibold ${
+                                  provider.allTime!.ipniSuccessRate < SUCCESS_RATE_THRESHOLD
+                                    ? "text-red-600"
+                                    : "text-green-600"
+                                }`}
+                              >
+                                {formatPercentage(provider.allTime!.ipniSuccessRate)}
+                              </span>
+                            </div>
+                            <div className='flex justify-between'>
+                              <span className='text-muted-foreground'>Indexed</span>
+                              <span className='font-medium'>{formatNumber(provider.allTime!.ipniIndexedDeals)}</span>
+                            </div>
+                            <div className='flex justify-between'>
+                              <span className='text-muted-foreground'>Time to Index</span>
+                              <span className='font-medium'>
+                                {formatMilliseconds(provider.allTime!.avgIpniTimeToIndexMs)}
+                              </span>
+                            </div>
+                            <div className='flex justify-between'>
+                              <span className='text-muted-foreground'>Time to Advertise</span>
+                              <span className='font-medium'>
+                                {formatMilliseconds(provider.allTime!.avgIpniTimeToAdvertiseMs)}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* IPFS Metrics */}
+                      {provider.allTime!.totalIpfsRetrievals > 0 && (
+                        <div className='space-y-2 pt-2 border-t'>
+                          <div className='flex items-center justify-between'>
+                            <span className='text-xs text-muted-foreground font-medium'>IPFS Retrievals</span>
+                            <span className='text-xs text-muted-foreground'>
+                              {formatNumber(provider.allTime!.totalIpfsRetrievals)} retrievals
+                            </span>
+                          </div>
+                          <div className='grid grid-cols-2 gap-2 text-xs'>
+                            <div className='flex justify-between'>
+                              <span className='text-muted-foreground'>Success Rate</span>
+                              <span
+                                className={`font-semibold ${
+                                  provider.allTime!.ipfsRetrievalSuccessRate < SUCCESS_RATE_THRESHOLD
+                                    ? "text-red-600"
+                                    : "text-green-600"
+                                }`}
+                              >
+                                {formatPercentage(provider.allTime!.ipfsRetrievalSuccessRate)}
+                              </span>
+                            </div>
+                            <div className='flex justify-between'>
+                              <span className='text-muted-foreground'>Successful</span>
+                              <span className='font-medium'>
+                                {formatNumber(provider.allTime!.successfulIpfsRetrievals)}
+                              </span>
+                            </div>
+                            <div className='flex justify-between'>
+                              <span className='text-muted-foreground'>Latency</span>
+                              <span className='font-medium'>
+                                {formatMilliseconds(provider.allTime!.avgIpfsRetrievalLatencyMs)}
+                              </span>
+                            </div>
+                            <div className='flex justify-between'>
+                              <span className='text-muted-foreground'>TTFB</span>
+                              <span className='font-medium'>
+                                {formatMilliseconds(provider.allTime!.avgIpfsRetrievalTtfbMs)}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             <div className='border-t pt-4'>
@@ -359,6 +463,14 @@ export function ProviderCard({ provider, batchedVersion }: ProviderCardProps) {
                     {formatThroughput(provider.allTime!.avgRetrievalThroughputBps ?? 0)}
                   </p>
                 </div>
+                {provider.allTime!.totalIpfsRetrievals > 0 && provider.allTime!.avgIpfsRetrievalThroughputBps > 0 && (
+                  <div className='space-y-1'>
+                    <p className='text-xs text-muted-foreground'>IPFS Retrieval</p>
+                    <p className='text-sm font-medium'>
+                      {formatThroughput(provider.allTime!.avgIpfsRetrievalThroughputBps ?? 0)}
+                    </p>
+                  </div>
+                )}
               </div>
             </div>
           </>
