@@ -65,9 +65,9 @@ export function useProviders(initialOptions?: ProvidersQueryOptions): UseProvide
       setState({
         providers: response.providers,
         total: response.total,
-        page: response.page,
+        page: Math.floor(response.offset / response.limit) + 1,
         limit: response.limit,
-        hasMore: response.hasMore,
+        hasMore: response.count < response.total,
         loading: false,
         error: null,
       });
