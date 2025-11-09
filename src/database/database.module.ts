@@ -31,7 +31,7 @@ const __dirname = dirname(__filename);
           database: dbConfig.database,
           entities: [Deal, StorageProvider, Retrieval, MetricsDaily, SpPerformanceAllTime, SpPerformanceLastWeek],
           migrations: [join(__dirname, "migrations", "*.{js,ts}")],
-          migrationsRun: true,
+          migrationsRun: appConfig.env === "production",
           synchronize: appConfig.env !== "production",
           logging: false,
         };

@@ -21,6 +21,15 @@ import type {
   SynapseConfig,
 } from "../types.js";
 import { AddonPriority } from "../types.js";
+import type {
+  BlockCIDsVerificationResult,
+  IPNIVerificationResult,
+  MonitorAndVerifyResult,
+  PieceMonitoringResult,
+  PieceStatus,
+  RootCIDVerificationResult,
+  SingleCIDVerificationResult,
+} from "./ipni.types.js";
 
 /**
  * IPNI (InterPlanetary Network Indexer) add-on strategy
@@ -41,6 +50,8 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
   readonly POLLING_INTERVAL_MS = 2500;
   readonly POLLING_TIMEOUT_MS = 10 * 60 * 1000;
   readonly IPNI_LOOKUP_TIMEOUT_MS = 60 * 60 * 1000;
+  readonly IPNI_VERIFICATION_DELAY_MS = 30 * 1000; // Wait 30s after retrieve request before verifying
+  readonly IPNI_VERIFICATION_RETRY_INTERVAL_MS = 10 * 1000;
 
   /**
    * Check if IPNI is enabled in the deal configuration
@@ -105,17 +116,6 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
     };
   }
 
-  serviceURLToMultiaddr(serviceURL: string) {
-    try {
-      const url = new URL(serviceURL);
-      const hostname = url.hostname;
-
-      return `/dns/${hostname}/tcp/443/https`;
-    } catch (error) {
-      throw new Error(`Failed to convert serviceURL to multiaddr: ${error.message}`);
-    }
-  }
-
   /**
    * Handler triggered when upload is complete
    * Starts IPNI tracking and monitoring in the background
@@ -139,6 +139,37 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
   }
 
   /**
+   * Validate CAR conversion result
+   */
+  async validate(result: IpniPreprocessingResult): Promise<boolean> {
+    const metadata = result.metadata;
+
+    if (!metadata.enabled) {
+      throw new Error("IPNI validation failed: enabled flag not set");
+    }
+
+    if (!metadata.rootCID) {
+      throw new Error("IPNI validation failed: rootCID not generated");
+    }
+
+    if (!metadata.blockCIDs || metadata.blockCIDs.length === 0) {
+      throw new Error("IPNI validation failed: no block CIDs generated");
+    }
+
+    if (metadata.blockCount !== metadata.blockCIDs.length) {
+      throw new Error(
+        `IPNI validation failed: block count mismatch (expected ${metadata.blockCount}, got ${metadata.blockCIDs.length})`,
+      );
+    }
+
+    if (!result.data || result.size === 0) {
+      throw new Error("IPNI validation failed: CAR data is empty");
+    }
+
+    return true;
+  }
+
+  /**
    * Start IPNI monitoring and update deal entity with tracking metrics
    */
   private async startIpniMonitoring(deal: Deal): Promise<void> {
@@ -150,6 +181,7 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
         pdpServer,
         deal.pieceCid,
         deal.metadata[this.name]?.blockCIDs ?? [],
+        deal.metadata[this.name]?.rootCID ?? "",
         expectedMultiaddr,
         this.POLLING_TIMEOUT_MS,
         this.IPNI_LOOKUP_TIMEOUT_MS,
@@ -174,90 +206,58 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
     }
   }
 
-  /**
-   * Update deal entity with IPNI tracking metrics
-   */
-  private async updateDealWithIpniMetrics(
-    deal: Deal,
-    result: {
-      monitoringResult: {
-        success: boolean;
-        finalStatus: {
-          status: string;
-          indexed: boolean;
-          advertised: boolean;
-          retrieved: boolean;
-          retrievedAt?: string | null;
-        };
-        checks: number;
-        durationMs: number;
-      };
-      ipniResult: {
-        verified: number;
-        total: number;
-        durationMs: number;
-      };
-    },
-  ): Promise<void> {
-    const { monitoringResult, ipniResult } = result;
-    const { finalStatus } = monitoringResult;
-    const now = new Date();
-    const uploadEndTime = deal.uploadEndTime || now;
-
-    // Determine IPNI status based on progression
-    if (finalStatus.retrieved) {
-      deal.ipniStatus = IpniStatus.RETRIEVED;
-    } else if (finalStatus.advertised) {
-      deal.ipniStatus = IpniStatus.ADVERTISED;
-    } else if (finalStatus.indexed) {
-      deal.ipniStatus = IpniStatus.INDEXED;
-    } else {
-      deal.ipniStatus = IpniStatus.FAILED;
-    }
-
-    // Update timestamps and calculate time-to-stage metrics
-    if (finalStatus.indexed && !deal.ipniIndexedAt) {
-      deal.ipniIndexedAt = now;
-      deal.ipniTimeToIndexMs = Math.round(now.getTime() - uploadEndTime.getTime());
-    }
-
-    if (finalStatus.advertised && !deal.ipniAdvertisedAt) {
-      deal.ipniAdvertisedAt = now;
-      deal.ipniTimeToAdvertiseMs = Math.round(now.getTime() - uploadEndTime.getTime());
-    }
-
-    if (finalStatus.retrievedAt && !deal.ipniRetrievedAt) {
-      deal.ipniRetrievedAt = new Date(finalStatus.retrievedAt);
-      deal.ipniTimeToRetrieveMs = Math.round(new Date(finalStatus.retrievedAt).getTime() - uploadEndTime.getTime());
-    }
-
-    // Update verification metrics
-    deal.ipniVerifiedCidsCount = ipniResult.verified;
-
-    const timeToRetrieveSec = deal.ipniTimeToRetrieveMs ? (deal.ipniTimeToRetrieveMs / 1000).toFixed(1) : "N/A";
-    this.logger.log(
-      `IPNI ${deal.ipniStatus}: ${deal.pieceCid?.slice(0, 12)}... ` +
-        `(${timeToRetrieveSec}s, ${deal.ipniVerifiedCidsCount}/${ipniResult.total} CIDs)`,
-    );
-
-    // Save the updated deal entity
+  async monitorAndVerifyIPNI(
+    pdpServer: PDPServer,
+    pieceCid: string,
+    blockCIDs: string[],
+    rootCID: string,
+    expectedMultiaddr: string,
+    statusTimeoutMs: number,
+    ipniTimeoutMs: number,
+    pollIntervalMs: number,
+  ): Promise<MonitorAndVerifyResult> {
+    let monitoringResult: PieceMonitoringResult;
     try {
-      await this.dealRepository.save(deal);
+      monitoringResult = await this.monitorPieceStatus(pdpServer, pieceCid, statusTimeoutMs, pollIntervalMs);
     } catch (error) {
-      this.logger.error(`Failed to save IPNI metrics: ${error.message}`);
-      throw error;
+      this.logger.warn(`Piece status monitoring incomplete: ${error.message}`);
+      monitoringResult = {
+        success: false,
+        finalStatus: {
+          status: "timeout",
+          indexed: false,
+          advertised: false,
+          retrieved: false,
+          retrievedAt: null,
+        },
+        checks: 0,
+        durationMs: statusTimeoutMs,
+      };
     }
+
+    // Wait after sp_received_retrieve_request to allow IPNI indexer time to process
+    if (monitoringResult.finalStatus.retrieved) {
+      this.logger.log(`Waiting ${this.IPNI_VERIFICATION_DELAY_MS / 1000}s for IPNI indexer to process CIDs...`);
+      await new Promise((resolve) => setTimeout(resolve, this.IPNI_VERIFICATION_DELAY_MS));
+    }
+
+    // Always verify CIDs via filecoinpin.contact - this is the terminal state
+    const ipniResult = await this.verifyIPNIAdvertisement(rootCID, blockCIDs, expectedMultiaddr, ipniTimeoutMs);
+
+    return {
+      monitoringResult,
+      ipniResult,
+    };
   }
 
-  async monitorPieceStatus(pdpServer: PDPServer, pieceCid: string, maxDurationMs: number, pollIntervalMs: number) {
+  async monitorPieceStatus(
+    pdpServer: PDPServer,
+    pieceCid: string,
+    maxDurationMs: number,
+    pollIntervalMs: number,
+  ): Promise<PieceMonitoringResult> {
     const startTime = Date.now();
-    let lastStatus: {
-      status: string;
-      indexed: boolean;
-      advertised: boolean;
-      retrieved: boolean;
-      retrievedAt?: string | null;
-    } = {
+    let lastStatus: PieceStatus = {
       status: "",
       indexed: false,
       advertised: false,
@@ -306,72 +306,168 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
     throw new Error(`Timeout waiting for piece retrieval after ${durationSec}s`);
   }
 
-  async monitorAndVerifyIPNI(
-    pdpServer: PDPServer,
-    pieceCid: string,
+  /**
+   * Verify that CIDs are available in the IPNI indexer (filecoinpin.contact)
+   *
+   * This function checks that the IPNI indexer has successfully indexed the CIDs
+   * and is returning the correct provider multiaddr. This is the terminal verification
+   * state for IPNI tracking.
+   *
+   * Process:
+   * 1. First verify the rootCID is available (minimum requirement)
+   * 2. Then verify individual blockCIDs
+   * 3. Allow retries with delays to handle asynchronous indexing
+   *
+   * @param rootCID - The IPFS root CID to verify first
+   * @param blockCIDs - Array of block CIDs to verify
+   * @param expectedMultiaddr - The expected provider multiaddr (SP's address)
+   * @param maxDurationMs - Maximum time to spend on verification
+   * @returns Verification results with counts and failed CIDs
+   */
+  async verifyIPNIAdvertisement(
+    rootCID: string,
     blockCIDs: string[],
     expectedMultiaddr: string,
-    statusTimeoutMs: number,
-    ipniTimeoutMs: number,
-    pollIntervalMs: number,
-  ) {
-    const monitoringResult = await this.monitorPieceStatus(pdpServer, pieceCid, statusTimeoutMs, pollIntervalMs);
-    const ipniResult = await this.verifyIPNIAdvertisement(blockCIDs, expectedMultiaddr, ipniTimeoutMs);
-
-    return {
-      monitoringResult,
-      ipniResult,
-    };
-  }
-
-  async verifyIPNIAdvertisement(blockCIDs: string[], expectedMultiaddr: string, maxDurationMs: number) {
+    maxDurationMs: number,
+  ): Promise<IPNIVerificationResult> {
     const startTime = Date.now();
-    let successCount = 0;
-    const failedCIDs: { cid: string; reason: string; addrs?: string[] }[] = [];
+    const failedCIDs: IPNIVerificationResult["failedCIDs"] = [];
 
-    for (let i = 0; i < blockCIDs.length; i++) {
-      const cid = blockCIDs[i];
-      const elapsed = Date.now() - startTime;
+    // Step 1: Verify rootCID first (minimum requirement for verification)
+    const rootCIDResult = await this.verifyRootCID(rootCID, expectedMultiaddr, maxDurationMs, startTime);
 
-      if (elapsed > maxDurationMs) {
-        throw new Error(`IPNI verification timeout: ${successCount}/${blockCIDs.length} verified`);
-      }
+    if (rootCIDResult.failed) {
+      failedCIDs.push(rootCIDResult.failed);
+    }
 
-      try {
-        const addrs = await this.queryIPNI(cid, 5000);
-
-        if (addrs.length === 0) {
-          failedCIDs.push({ cid: cid.toString(), reason: "not found", addrs });
-          continue;
-        }
-
-        if (!addrs.includes(expectedMultiaddr)) {
-          failedCIDs.push({ cid: cid.toString(), reason: "wrong multiaddr", addrs });
-          continue;
-        }
-
-        successCount++;
-      } catch (error) {
-        failedCIDs.push({ cid: cid.toString(), reason: error.message });
-      }
+    // Step 2: Verify individual blockCIDs (bonus verification beyond minimum)
+    let blockCIDsVerified = 0;
+    if (rootCIDResult.verified) {
+      const blockCIDsResult = await this.verifyBlockCIDs(blockCIDs, expectedMultiaddr, maxDurationMs, startTime);
+      blockCIDsVerified = blockCIDsResult.verified;
+      failedCIDs.push(...blockCIDsResult.failed);
     }
 
     const durationMs = Date.now() - startTime;
+    const successCount = (rootCIDResult.verified ? 1 : 0) + blockCIDsVerified;
+    const totalCIDs = blockCIDs.length + 1; // +1 for rootCID
 
+    // Log results
     if (failedCIDs.length > 0) {
-      this.logger.warn(
-        `IPNI verification: ${successCount}/${blockCIDs.length} CIDs verified, ` + `${failedCIDs.length} failed`,
-      );
-      throw new Error(`IPNI verification failed: ${successCount}/${blockCIDs.length} CIDs verified`);
+      this.logger.warn(`IPNI verification: ${successCount}/${totalCIDs} CIDs verified, ${failedCIDs.length} failed`);
+    } else {
+      this.logger.log(`IPNI verified: ${successCount} CIDs (${(durationMs / 1000).toFixed(1)}s)`);
     }
-
-    this.logger.log(`IPNI verified: ${successCount} CIDs (${(durationMs / 1000).toFixed(1)}s)`);
 
     return {
       verified: successCount,
-      total: blockCIDs.length,
+      unverified: totalCIDs - successCount,
+      total: totalCIDs,
+      rootCIDVerified: rootCIDResult.verified,
       durationMs,
+      failedCIDs,
     };
+  }
+
+  /**
+   * Verify the rootCID with retries
+   */
+  private async verifyRootCID(
+    rootCID: string,
+    expectedMultiaddr: string,
+    maxDurationMs: number,
+    startTime: number,
+  ): Promise<RootCIDVerificationResult> {
+    this.logger.log(`Verifying rootCID in IPNI: ${rootCID.slice(0, 12)}...`);
+
+    const maxRetries = 5;
+    for (let retry = 0; retry < maxRetries; retry++) {
+      const elapsed = Date.now() - startTime;
+      if (elapsed > maxDurationMs) {
+        this.logger.warn(`IPNI verification timeout while checking rootCID after ${(elapsed / 1000).toFixed(1)}s`);
+        return { verified: false, failed: { cid: rootCID, reason: "timeout" } };
+      }
+
+      const result = await this.verifySingleCID(rootCID, expectedMultiaddr);
+
+      if (result.verified) {
+        this.logger.log(`RootCID verified in IPNI`);
+        return { verified: true };
+      }
+
+      // Retry logic
+      if (retry < maxRetries - 1) {
+        this.logger.debug(`RootCID ${result.reason || "verification failed"}, retry ${retry + 1}/${maxRetries}...`);
+        await new Promise((resolve) => setTimeout(resolve, this.IPNI_VERIFICATION_RETRY_INTERVAL_MS));
+      } else {
+        return { verified: false, failed: { cid: rootCID, reason: result.reason || "unknown", addrs: result.addrs } };
+      }
+    }
+
+    return { verified: false, failed: { cid: rootCID, reason: "max retries exceeded" } };
+  }
+
+  /**
+   * Verify multiple blockCIDs
+   */
+  private async verifyBlockCIDs(
+    blockCIDs: string[],
+    expectedMultiaddr: string,
+    maxDurationMs: number,
+    startTime: number,
+  ): Promise<BlockCIDsVerificationResult> {
+    this.logger.log(`Verifying ${blockCIDs.length} blockCIDs in IPNI...`);
+
+    let verified = 0;
+    const failed: BlockCIDsVerificationResult["failed"] = [];
+
+    for (const cid of blockCIDs) {
+      const elapsed = Date.now() - startTime;
+      if (elapsed > maxDurationMs) {
+        this.logger.warn(
+          `IPNI verification timeout: ${verified + 1}/${blockCIDs.length + 1} verified after ${(elapsed / 1000).toFixed(
+            1,
+          )}s`,
+        );
+        break;
+      }
+
+      const result = await this.verifySingleCID(cid, expectedMultiaddr);
+
+      if (result.verified) {
+        verified++;
+      } else {
+        failed.push({ cid, reason: result.reason || "unknown", addrs: result.addrs });
+      }
+    }
+
+    return { verified, failed };
+  }
+
+  /**
+   * Verify a single CID in IPNI
+   */
+  private async verifySingleCID(cid: string, expectedMultiaddr: string): Promise<SingleCIDVerificationResult> {
+    try {
+      const addrs = await this.queryIPNI(cid, 5000);
+
+      if (addrs.length === 0) {
+        return { verified: false, reason: "not found", addrs };
+      }
+
+      if (!addrs.includes(expectedMultiaddr)) {
+        return { verified: false, reason: "wrong multiaddr", addrs };
+      }
+
+      return { verified: true };
+    } catch (error) {
+      return { verified: false, reason: error.message };
+    }
+  }
+
+  async queryIPNI(cid: string, timeoutMs = 5000): Promise<string[]> {
+    const response = await this.httpsGet("filecoinpin.contact", `/cid/${cid.toString()}`, timeoutMs);
+    return this.extractProviderAddrs(response);
   }
 
   httpsGet(hostname: string, path: string, timeoutMs = 5000) {
@@ -431,40 +527,80 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
     return providerAddrs;
   }
 
-  async queryIPNI(cid: string, timeoutMs = 5000): Promise<string[]> {
-    const response = await this.httpsGet("filecoinpin.contact", `/cid/${cid.toString()}`, timeoutMs);
-    return this.extractProviderAddrs(response);
+  /**
+   * Update deal entity with IPNI tracking metrics
+   */
+  private async updateDealWithIpniMetrics(deal: Deal, result: MonitorAndVerifyResult): Promise<void> {
+    const { monitoringResult, ipniResult } = result;
+    const { finalStatus } = monitoringResult;
+    const now = new Date();
+    const uploadEndTime = deal.uploadEndTime || now;
+
+    // Determine IPNI status based on progression
+    // Terminal state is VERIFIED when rootCID (minimum) is verified via filecoinpin.contact
+    // The rootCID must be verified for the deal to be considered verified
+    if (ipniResult.rootCIDVerified) {
+      deal.ipniStatus = IpniStatus.VERIFIED;
+    } else if (finalStatus.retrieved) {
+      deal.ipniStatus = IpniStatus.SP_RECEIVED_RETRIEVE_REQUEST;
+    } else if (finalStatus.advertised) {
+      deal.ipniStatus = IpniStatus.SP_ADVERTISED;
+    } else if (finalStatus.indexed) {
+      deal.ipniStatus = IpniStatus.SP_INDEXED;
+    } else {
+      deal.ipniStatus = IpniStatus.FAILED;
+    }
+
+    // Update timestamps and calculate time-to-stage metrics
+    if (finalStatus.indexed && !deal.ipniIndexedAt) {
+      deal.ipniIndexedAt = now;
+      deal.ipniTimeToIndexMs = Math.round(now.getTime() - uploadEndTime.getTime());
+    }
+
+    if (finalStatus.advertised && !deal.ipniAdvertisedAt) {
+      deal.ipniAdvertisedAt = now;
+      deal.ipniTimeToAdvertiseMs = Math.round(now.getTime() - uploadEndTime.getTime());
+    }
+
+    if (finalStatus.retrievedAt && !deal.ipniRetrievedAt) {
+      deal.ipniRetrievedAt = new Date(finalStatus.retrievedAt);
+      deal.ipniTimeToRetrieveMs = Math.round(new Date(finalStatus.retrievedAt).getTime() - uploadEndTime.getTime());
+    }
+
+    // Update verification metrics and timestamp
+    // Only set verified timestamp if rootCID was successfully verified
+    if (ipniResult.rootCIDVerified && !deal.ipniVerifiedAt) {
+      deal.ipniVerifiedAt = now;
+      deal.ipniTimeToVerifyMs = Math.round(now.getTime() - uploadEndTime.getTime());
+    }
+
+    deal.ipniVerifiedCidsCount = ipniResult.verified;
+    deal.ipniUnverifiedCidsCount = ipniResult.unverified;
+
+    const timeToVerifySec = deal.ipniTimeToVerifyMs ? (deal.ipniTimeToVerifyMs / 1000).toFixed(1) : "N/A";
+    this.logger.log(
+      `IPNI ${deal.ipniStatus}: ${deal.pieceCid?.slice(0, 12)}... ` +
+        `(${timeToVerifySec}s, ${deal.ipniVerifiedCidsCount}/${ipniResult.total} CIDs verified, ${deal.ipniUnverifiedCidsCount} unverified)`,
+    );
+
+    // Save the updated deal entity
+    try {
+      await this.dealRepository.save(deal);
+    } catch (error) {
+      this.logger.error(`Failed to save IPNI metrics: ${error.message}`);
+      throw error;
+    }
   }
 
-  /**
-   * Validate CAR conversion result
-   */
-  async validate(result: IpniPreprocessingResult): Promise<boolean> {
-    const metadata = result.metadata;
+  serviceURLToMultiaddr(serviceURL: string) {
+    try {
+      const url = new URL(serviceURL);
+      const hostname = url.hostname;
 
-    if (!metadata.enabled) {
-      throw new Error("IPNI validation failed: enabled flag not set");
+      return `/dns/${hostname}/tcp/443/https`;
+    } catch (error) {
+      throw new Error(`Failed to convert serviceURL to multiaddr: ${error.message}`);
     }
-
-    if (!metadata.rootCID) {
-      throw new Error("IPNI validation failed: rootCID not generated");
-    }
-
-    if (!metadata.blockCIDs || metadata.blockCIDs.length === 0) {
-      throw new Error("IPNI validation failed: no block CIDs generated");
-    }
-
-    if (metadata.blockCount !== metadata.blockCIDs.length) {
-      throw new Error(
-        `IPNI validation failed: block count mismatch (expected ${metadata.blockCount}, got ${metadata.blockCIDs.length})`,
-      );
-    }
-
-    if (!result.data || result.size === 0) {
-      throw new Error("IPNI validation failed: CAR data is empty");
-    }
-
-    return true;
   }
 
   /**

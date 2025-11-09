@@ -7,52 +7,57 @@ export class AddIpniMetricsToDaily1730825000000 implements MigrationInterface {
     // Add IPNI tracking metrics to metrics_daily table
     await queryRunner.query(`
       ALTER TABLE metrics_daily 
-      ADD COLUMN total_ipni_deals INTEGER DEFAULT 0
+      ADD COLUMN IF NOT EXISTS total_ipni_deals INTEGER DEFAULT 0
     `);
 
     await queryRunner.query(`
       ALTER TABLE metrics_daily 
-      ADD COLUMN ipni_indexed_deals INTEGER DEFAULT 0
+      ADD COLUMN IF NOT EXISTS ipni_indexed_deals INTEGER DEFAULT 0
     `);
 
     await queryRunner.query(`
       ALTER TABLE metrics_daily 
-      ADD COLUMN ipni_advertised_deals INTEGER DEFAULT 0
+      ADD COLUMN IF NOT EXISTS ipni_advertised_deals INTEGER DEFAULT 0
     `);
 
     await queryRunner.query(`
       ALTER TABLE metrics_daily 
-      ADD COLUMN ipni_retrieved_deals INTEGER DEFAULT 0
+      ADD COLUMN IF NOT EXISTS ipni_retrieved_deals INTEGER DEFAULT 0
     `);
 
     await queryRunner.query(`
       ALTER TABLE metrics_daily 
-      ADD COLUMN ipni_failed_deals INTEGER DEFAULT 0
+      ADD COLUMN IF NOT EXISTS ipni_verified_deals INTEGER DEFAULT 0
     `);
 
     await queryRunner.query(`
       ALTER TABLE metrics_daily 
-      ADD COLUMN ipni_success_rate FLOAT DEFAULT NULL
+      ADD COLUMN IF NOT EXISTS ipni_failed_deals INTEGER DEFAULT 0
     `);
 
     await queryRunner.query(`
       ALTER TABLE metrics_daily 
-      ADD COLUMN avg_ipni_time_to_index_ms INTEGER DEFAULT NULL
+      ADD COLUMN IF NOT EXISTS ipni_success_rate FLOAT DEFAULT NULL
     `);
 
     await queryRunner.query(`
       ALTER TABLE metrics_daily 
-      ADD COLUMN avg_ipni_time_to_advertise_ms INTEGER DEFAULT NULL
+      ADD COLUMN IF NOT EXISTS avg_ipni_time_to_index_ms INTEGER DEFAULT NULL
     `);
 
     await queryRunner.query(`
       ALTER TABLE metrics_daily 
-      ADD COLUMN avg_ipni_time_to_retrieve_ms INTEGER DEFAULT NULL
+      ADD COLUMN IF NOT EXISTS avg_ipni_time_to_advertise_ms INTEGER DEFAULT NULL
     `);
 
     await queryRunner.query(`
       ALTER TABLE metrics_daily 
-      ADD COLUMN avg_ipni_verified_cids FLOAT DEFAULT NULL
+      ADD COLUMN IF NOT EXISTS avg_ipni_time_to_retrieve_ms INTEGER DEFAULT NULL
+    `);
+
+    await queryRunner.query(`
+      ALTER TABLE metrics_daily 
+      ADD COLUMN IF NOT EXISTS avg_ipni_time_to_verify_ms INTEGER DEFAULT NULL
     `);
 
     // Add index for IPNI queries
@@ -72,7 +77,7 @@ export class AddIpniMetricsToDaily1730825000000 implements MigrationInterface {
     // Drop columns
     await queryRunner.query(`
       ALTER TABLE metrics_daily 
-      DROP COLUMN avg_ipni_verified_cids
+      DROP COLUMN avg_ipni_time_to_verify_ms
     `);
 
     await queryRunner.query(`
@@ -98,6 +103,11 @@ export class AddIpniMetricsToDaily1730825000000 implements MigrationInterface {
     await queryRunner.query(`
       ALTER TABLE metrics_daily 
       DROP COLUMN ipni_failed_deals
+    `);
+
+    await queryRunner.query(`
+      ALTER TABLE metrics_daily
+      DROP COLUMN ipni_verified_deals
     `);
 
     await queryRunner.query(`

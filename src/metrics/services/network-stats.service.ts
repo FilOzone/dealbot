@@ -78,7 +78,7 @@ export class NetworkStatsService {
           "avgIngestThroughputBps",
         )
         .addSelect(
-          "ROUND(AVG(sp.avg_throughput_bps) FILTER (WHERE sp.avg_throughput_bps IS NOT NULL))",
+          "ROUND(AVG(sp.avg_retrieval_throughput_bps) FILTER (WHERE sp.avg_retrieval_throughput_bps IS NOT NULL))",
           "avgRetrievalThroughputBps",
         )
         .addSelect("MAX(sp.refreshed_at)", "lastRefreshedAt")

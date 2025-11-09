@@ -12,7 +12,7 @@ export class AddMetricTypeColumn1730642400000 implements MigrationInterface {
     // Step 2: Add the metric_type column (nullable initially for migration)
     await queryRunner.query(`
       ALTER TABLE metrics_daily 
-      ADD COLUMN metric_type metrics_daily_metric_type_enum
+      ADD COLUMN IF NOT EXISTS metric_type metrics_daily_metric_type_enum
     `);
 
     // Step 3: Populate metric_type based on service_type
@@ -41,7 +41,7 @@ export class AddMetricTypeColumn1730642400000 implements MigrationInterface {
     // Step 6: Create new unique constraint with metric_type
     await queryRunner.query(`
       ALTER TABLE metrics_daily 
-      ADD CONSTRAINT "UQ_metrics_daily_daily_bucket_sp_address_metric_type_service_type" 
+      ADD CONSTRAINT IF NOT EXISTS "UQ_metrics_daily_daily_bucket_sp_address_metric_type_service_type" 
       UNIQUE (daily_bucket, sp_address, metric_type, service_type)
     `);
 

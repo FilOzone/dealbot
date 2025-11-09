@@ -5,6 +5,7 @@ import { InjectDataSource } from "@nestjs/typeorm";
 import type { DataSource } from "typeorm";
 import { scheduleJobWithOffset } from "../../common/utils.js";
 import type { IConfig, ISchedulingConfig } from "../../config/app.config.js";
+import { IpniStatus } from "../../database/types.js";
 
 /**
  * Service responsible for refreshing materialized views and aggregating metrics
@@ -165,12 +166,13 @@ export class MetricsSchedulerService implements OnModuleInit {
           ipni_indexed_deals,
           ipni_advertised_deals,
           ipni_retrieved_deals,
+          ipni_verified_deals,
           ipni_failed_deals,
           ipni_success_rate,
           avg_ipni_time_to_index_ms,
           avg_ipni_time_to_advertise_ms,
           avg_ipni_time_to_retrieve_ms,
-          avg_ipni_verified_cids,
+          avg_ipni_time_to_verify_ms,
           created_at,
           updated_at
         )
@@ -201,13 +203,14 @@ export class MetricsSchedulerService implements OnModuleInit {
           0 as total_data_retrieved_bytes,
           -- IPNI metrics (incremental states: PENDING -> INDEXED -> ADVERTISED -> RETRIEVED)
           COUNT(*) FILTER (WHERE ipni_status IS NOT NULL) as total_ipni_deals,
-          COUNT(*) FILTER (WHERE ipni_status IN ('indexed', 'advertised', 'retrieved')) as ipni_indexed_deals,
-          COUNT(*) FILTER (WHERE ipni_status IN ('advertised', 'retrieved')) as ipni_advertised_deals,
-          COUNT(*) FILTER (WHERE ipni_status = 'retrieved') as ipni_retrieved_deals,
-          COUNT(*) FILTER (WHERE ipni_status = 'failed') as ipni_failed_deals,
+          COUNT(*) FILTER (WHERE ipni_status IN ('${IpniStatus.SP_INDEXED}', '${IpniStatus.SP_ADVERTISED}', '${IpniStatus.SP_RECEIVED_RETRIEVE_REQUEST}', '${IpniStatus.VERIFIED}')) as ipni_indexed_deals,
+          COUNT(*) FILTER (WHERE ipni_status IN ('${IpniStatus.SP_ADVERTISED}', '${IpniStatus.SP_RECEIVED_RETRIEVE_REQUEST}', '${IpniStatus.VERIFIED}')) as ipni_advertised_deals,
+          COUNT(*) FILTER (WHERE ipni_status IN ('${IpniStatus.SP_RECEIVED_RETRIEVE_REQUEST}', '${IpniStatus.VERIFIED}')) as ipni_retrieved_deals,
+          COUNT(*) FILTER (WHERE ipni_status = '${IpniStatus.VERIFIED}') as ipni_verified_deals,
+          COUNT(*) FILTER (WHERE ipni_status = '${IpniStatus.FAILED}') as ipni_failed_deals,
           COALESCE(
             ROUND(
-              (COUNT(*) FILTER (WHERE ipni_status = 'retrieved')::numeric / 
+              (COUNT(*) FILTER (WHERE ipni_status = '${IpniStatus.VERIFIED}')::numeric / 
               NULLIF(COUNT(*) FILTER (WHERE ipni_status IS NOT NULL)::numeric, 0)) * 100, 
               2
             ),
@@ -216,7 +219,7 @@ export class MetricsSchedulerService implements OnModuleInit {
           COALESCE(ROUND(AVG(ipni_time_to_index_ms) FILTER (WHERE ipni_time_to_index_ms IS NOT NULL), 0), 0) as avg_ipni_time_to_index_ms,
           COALESCE(ROUND(AVG(ipni_time_to_advertise_ms) FILTER (WHERE ipni_time_to_advertise_ms IS NOT NULL), 0), 0) as avg_ipni_time_to_advertise_ms,
           COALESCE(ROUND(AVG(ipni_time_to_retrieve_ms) FILTER (WHERE ipni_time_to_retrieve_ms IS NOT NULL), 0), 0) as avg_ipni_time_to_retrieve_ms,
-          COALESCE(ROUND(AVG(ipni_verified_cids_count) FILTER (WHERE ipni_verified_cids_count IS NOT NULL), 2), 0) as avg_ipni_verified_cids,
+          COALESCE(ROUND(AVG(ipni_time_to_verify_ms) FILTER (WHERE ipni_time_to_verify_ms IS NOT NULL), 0), 0) as avg_ipni_time_to_verify_ms,
           NOW() as created_at,
           NOW() as updated_at
         FROM deals
@@ -237,12 +240,13 @@ export class MetricsSchedulerService implements OnModuleInit {
           ipni_indexed_deals = EXCLUDED.ipni_indexed_deals,
           ipni_advertised_deals = EXCLUDED.ipni_advertised_deals,
           ipni_retrieved_deals = EXCLUDED.ipni_retrieved_deals,
+          ipni_verified_deals = EXCLUDED.ipni_verified_deals,
           ipni_failed_deals = EXCLUDED.ipni_failed_deals,
           ipni_success_rate = EXCLUDED.ipni_success_rate,
           avg_ipni_time_to_index_ms = EXCLUDED.avg_ipni_time_to_index_ms,
           avg_ipni_time_to_advertise_ms = EXCLUDED.avg_ipni_time_to_advertise_ms,
           avg_ipni_time_to_retrieve_ms = EXCLUDED.avg_ipni_time_to_retrieve_ms,
-          avg_ipni_verified_cids = EXCLUDED.avg_ipni_verified_cids,
+          avg_ipni_time_to_verify_ms = EXCLUDED.avg_ipni_time_to_verify_ms,
           updated_at = NOW()
         RETURNING sp_address
         `,

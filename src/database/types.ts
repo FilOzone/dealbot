@@ -27,9 +27,10 @@ export enum RetrievalStatus {
 
 export enum IpniStatus {
   PENDING = "pending",
-  INDEXED = "indexed",
-  ADVERTISED = "advertised",
-  RETRIEVED = "retrieved",
+  SP_INDEXED = "sp_indexed",
+  SP_ADVERTISED = "sp_advertised",
+  SP_RECEIVED_RETRIEVE_REQUEST = "sp_received_retrieve_request",
+  VERIFIED = "verified",
   FAILED = "failed",
 }
 

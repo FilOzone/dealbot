@@ -629,10 +629,12 @@ export class ProvidersService {
     let ipniIndexedDeals = 0;
     let ipniAdvertisedDeals = 0;
     let ipniRetrievedDeals = 0;
+    let ipniVerifiedDeals = 0;
     let ipniFailedDeals = 0;
     let timeToIndexSum = 0;
     let timeToAdvertiseSum = 0;
     let timeToRetrieveSum = 0;
+    let timeToVerifySum = 0;
     let dealLatencySum = 0;
     let ingestLatencySum = 0;
     let chainLatencySum = 0;
@@ -653,15 +655,20 @@ export class ProvidersService {
         if (deal.ingestThroughputBps) ingestThroughputSum += deal.ingestThroughputBps;
         if (deal.serviceTypes.includes(ServiceType.IPFS_PIN)) {
           totalIpniDeals++;
-          // IPNI status is incremental: PENDING -> INDEXED -> ADVERTISED -> RETRIEVED
-          if (deal.ipniStatus === IpniStatus.RETRIEVED) {
+          // IPNI status is incremental: PENDING -> SP_INDEXED -> SP_ADVERTISED -> SP_RECEIVED_RETRIEVE_REQUEST -> VERIFIED
+          if (deal.ipniStatus === IpniStatus.VERIFIED) {
+            ipniVerifiedDeals++;
             ipniRetrievedDeals++;
             ipniAdvertisedDeals++;
             ipniIndexedDeals++;
-          } else if (deal.ipniStatus === IpniStatus.ADVERTISED) {
+          } else if (deal.ipniStatus === IpniStatus.SP_RECEIVED_RETRIEVE_REQUEST) {
+            ipniRetrievedDeals++;
             ipniAdvertisedDeals++;
             ipniIndexedDeals++;
-          } else if (deal.ipniStatus === IpniStatus.INDEXED) {
+          } else if (deal.ipniStatus === IpniStatus.SP_ADVERTISED) {
+            ipniAdvertisedDeals++;
+            ipniIndexedDeals++;
+          } else if (deal.ipniStatus === IpniStatus.SP_INDEXED) {
             ipniIndexedDeals++;
           } else if (deal.ipniStatus === IpniStatus.FAILED) {
             ipniFailedDeals++;
@@ -669,6 +676,7 @@ export class ProvidersService {
           if (deal.ipniTimeToIndexMs) timeToIndexSum += deal.ipniTimeToIndexMs;
           if (deal.ipniTimeToAdvertiseMs) timeToAdvertiseSum += deal.ipniTimeToAdvertiseMs;
           if (deal.ipniTimeToRetrieveMs) timeToRetrieveSum += deal.ipniTimeToRetrieveMs;
+          if (deal.ipniTimeToVerifyMs) timeToVerifySum += deal.ipniTimeToVerifyMs;
         }
       } else if (deal.status === DealStatus.FAILED) {
         failedDeals++;
@@ -725,7 +733,7 @@ export class ProvidersService {
 
     // Calculate rates and averages
     const dealSuccessRate = totalDeals > 0 ? (successfulDeals / totalDeals) * 100 : 0;
-    const ipniSuccessRate = totalIpniDeals > 0 ? (ipniRetrievedDeals / totalIpniDeals) * 100 : 0;
+    const ipniSuccessRate = totalIpniDeals > 0 ? (ipniVerifiedDeals / totalIpniDeals) * 100 : 0;
     const retrievalSuccessRate = totalRetrievals > 0 ? (successfulRetrievals / totalRetrievals) * 100 : 0;
     const ipfsRetrievalSuccessRate =
       totalIpfsRetrievals > 0 ? (successfulIpfsRetrievals / totalIpfsRetrievals) * 100 : 0;
@@ -737,6 +745,7 @@ export class ProvidersService {
     const avgIpniTimeToIndexMs = totalIpniDeals > 0 ? Math.round(timeToIndexSum / totalIpniDeals) : 0;
     const avgIpniTimeToAdvertiseMs = totalIpniDeals > 0 ? Math.round(timeToAdvertiseSum / totalIpniDeals) : 0;
     const avgIpniTimeToRetrieveMs = totalIpniDeals > 0 ? Math.round(timeToRetrieveSum / totalIpniDeals) : 0;
+    const avgIpniTimeToVerifyMs = totalIpniDeals > 0 ? Math.round(timeToVerifySum / totalIpniDeals) : 0;
 
     const avgRetrievalLatencyMs = successfulRetrievals > 0 ? Math.round(retrievalLatencySum / successfulRetrievals) : 0;
     const avgRetrievalTtfbMs = successfulRetrievals > 0 ? Math.round(retrievalTtfbSum / successfulRetrievals) : 0;
@@ -790,11 +799,13 @@ export class ProvidersService {
         ipniIndexedDeals,
         ipniAdvertisedDeals,
         ipniRetrievedDeals,
+        ipniVerifiedDeals,
         ipniFailedDeals,
         ipniSuccessRate,
         avgIpniTimeToIndexMs,
         avgIpniTimeToAdvertiseMs,
         avgIpniTimeToRetrieveMs,
+        avgIpniTimeToVerifyMs,
         totalIpfsRetrievals,
         successfulIpfsRetrievals,
         failedIpfsRetrievals,
@@ -875,6 +886,7 @@ export class ProvidersService {
     let ipniIndexedDeals = 0;
     let ipniAdvertisedDeals = 0;
     let ipniRetrievedDeals = 0;
+    let ipniVerifiedDeals = 0;
     let ipniFailedDeals = 0;
     let totalIpfsRetrievals = 0;
     let successfulIpfsRetrievals = 0;
@@ -896,6 +908,8 @@ export class ProvidersService {
     let timeToAdvertiseCount = 0;
     let timeToRetrieveSum = 0;
     let timeToRetrieveCount = 0;
+    let timeToVerifySum = 0;
+    let timeToVerifyCount = 0;
     let retrievalIpfsLatencySum = 0;
     let retrievalIpfsLatencyCount = 0;
     let retrievalIpfsTtfbSum = 0;
@@ -955,6 +969,7 @@ export class ProvidersService {
           ipniIndexedDeals += metric.ipniIndexedDeals;
           ipniAdvertisedDeals += metric.ipniAdvertisedDeals;
           ipniRetrievedDeals += metric.ipniRetrievedDeals;
+          ipniVerifiedDeals += metric.ipniVerifiedDeals;
           ipniFailedDeals += metric.ipniFailedDeals;
 
           if (metric.avgIpniTimeToIndexMs) {
@@ -970,6 +985,11 @@ export class ProvidersService {
           if (metric.avgIpniTimeToRetrieveMs) {
             timeToRetrieveSum += metric.avgIpniTimeToRetrieveMs * (metric.totalIpniDeals || 0);
             timeToRetrieveCount += metric.totalIpniDeals || 0;
+          }
+
+          if (metric.avgIpniTimeToVerifyMs) {
+            timeToVerifySum += metric.avgIpniTimeToVerifyMs * (metric.totalIpniDeals || 0);
+            timeToVerifyCount += metric.totalIpniDeals || 0;
           }
         }
       }
@@ -1040,6 +1060,7 @@ export class ProvidersService {
     const avgIpniTimeToAdvertiseMs =
       timeToAdvertiseCount > 0 ? Math.round(timeToAdvertiseSum / timeToAdvertiseCount) : 0;
     const avgIpniTimeToRetrieveMs = timeToRetrieveCount > 0 ? Math.round(timeToRetrieveSum / timeToRetrieveCount) : 0;
+    const avgIpniTimeToVerifyMs = timeToVerifyCount > 0 ? Math.round(timeToVerifySum / timeToVerifyCount) : 0;
     const avgRetrievalLatencyMs =
       retrievalLatencyCount > 0 ? Math.round(retrievalLatencySum / retrievalLatencyCount) : 0;
     const avgRetrievalTtfbMs = retrievalTtfbCount > 0 ? Math.round(retrievalTtfbSum / retrievalTtfbCount) : 0;
@@ -1092,11 +1113,13 @@ export class ProvidersService {
       ipniIndexedDeals,
       ipniAdvertisedDeals,
       ipniRetrievedDeals,
+      ipniVerifiedDeals,
       ipniFailedDeals,
       ipniSuccessRate: Math.round(ipniSuccessRate * 10) / 10,
       avgIpniTimeToIndexMs,
       avgIpniTimeToAdvertiseMs,
       avgIpniTimeToRetrieveMs,
+      avgIpniTimeToVerifyMs,
       healthScore,
       avgDealSize: avgDealSize ?? undefined,
       lastDealAt: lastDealAt || new Date(0),
@@ -1148,11 +1171,13 @@ export class ProvidersService {
         ipniIndexedDeals: 0,
         ipniAdvertisedDeals: 0,
         ipniRetrievedDeals: 0,
+        ipniVerifiedDeals: 0,
         ipniFailedDeals: 0,
         ipniSuccessRate: 0,
         avgIpniTimeToIndexMs: 0,
         avgIpniTimeToAdvertiseMs: 0,
         avgIpniTimeToRetrieveMs: 0,
+        avgIpniTimeToVerifyMs: 0,
         totalIpfsRetrievals: 0,
         successfulIpfsRetrievals: 0,
         failedIpfsRetrievals: 0,
@@ -1190,17 +1215,19 @@ export class ProvidersService {
       retrievalSuccessRate: entity.retrievalSuccessRate,
       avgRetrievalLatencyMs: entity.avgRetrievalLatencyMs,
       avgRetrievalTtfbMs: entity.avgRetrievalTtfbMs,
-      avgRetrievalThroughputBps: entity.avgThroughputBps,
+      avgRetrievalThroughputBps: entity.avgRetrievalThroughputBps,
       totalDataRetrievedBytes: entity.totalDataRetrievedBytes,
       totalIpniDeals: entity.totalIpniDeals,
       ipniIndexedDeals: entity.ipniIndexedDeals,
       ipniAdvertisedDeals: entity.ipniAdvertisedDeals,
       ipniRetrievedDeals: entity.ipniRetrievedDeals,
+      ipniVerifiedDeals: entity.ipniVerifiedDeals,
       ipniFailedDeals: entity.ipniFailedDeals,
       ipniSuccessRate: entity.ipniSuccessRate,
       avgIpniTimeToIndexMs: entity.avgIpniTimeToIndexMs,
       avgIpniTimeToAdvertiseMs: entity.avgIpniTimeToAdvertiseMs,
       avgIpniTimeToRetrieveMs: entity.avgIpniTimeToRetrieveMs,
+      avgIpniTimeToVerifyMs: entity.avgIpniTimeToVerifyMs,
       totalIpfsRetrievals: entity.totalIpfsRetrievals,
       successfulIpfsRetrievals: entity.successfulIpfsRetrievals,
       failedIpfsRetrievals: entity.failedIpfsRetrievals,

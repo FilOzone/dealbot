@@ -129,6 +129,9 @@ export class ProviderPerformanceDto {
   @ApiProperty({ description: "IPNI deals that reached retrieved status" })
   ipniRetrievedDeals: number;
 
+  @ApiProperty({ description: "IPNI deals that are verified with filecoinpin.contact" })
+  ipniVerifiedDeals: number;
+
   @ApiProperty({ description: "IPNI deals that failed" })
   ipniFailedDeals: number;
 
@@ -143,6 +146,9 @@ export class ProviderPerformanceDto {
 
   @ApiProperty({ description: "Average time to IPNI retrieve in milliseconds" })
   avgIpniTimeToRetrieveMs: number;
+
+  @ApiProperty({ description: "Average time to IPNI verify in milliseconds" })
+  avgIpniTimeToVerifyMs: number;
 
   @ApiProperty({ description: "Health score (0-100)" })
   healthScore: number;

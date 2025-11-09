@@ -100,6 +100,9 @@ export class Deal {
   @Column({ name: "ipni_retrieved_at", type: "timestamp", nullable: true })
   ipniRetrievedAt: Date;
 
+  @Column({ name: "ipni_verified_at", type: "timestamp", nullable: true })
+  ipniVerifiedAt: Date;
+
   // Time from upload complete to each IPNI stage (in milliseconds)
   @Column({ name: "ipni_time_to_index_ms", nullable: true, type: "int" })
   ipniTimeToIndexMs: number;
@@ -110,8 +113,14 @@ export class Deal {
   @Column({ name: "ipni_time_to_retrieve_ms", nullable: true, type: "int" })
   ipniTimeToRetrieveMs: number;
 
+  @Column({ name: "ipni_time_to_verify_ms", nullable: true, type: "int" })
+  ipniTimeToVerifyMs: number;
+
   @Column({ name: "ipni_verified_cids_count", nullable: true, type: "int" })
   ipniVerifiedCidsCount: number;
+
+  @Column({ name: "ipni_unverified_cids_count", nullable: true, type: "int" })
+  ipniUnverifiedCidsCount: number;
 
   // Error tracking
   @Column({ name: "error_message", nullable: true, type: "text" })
@@ -130,11 +139,7 @@ export class Deal {
   updatedAt: Date;
 
   // Relations
-  @ManyToOne(
-    () => StorageProvider,
-    (sp) => sp.deals,
-    { onDelete: "CASCADE" },
-  )
+  @ManyToOne(() => StorageProvider, (sp) => sp.deals, { onDelete: "CASCADE" })
   @JoinColumn({ name: "sp_address" })
   storageProvider: StorageProvider | null;
 

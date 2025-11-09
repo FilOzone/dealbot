@@ -8,9 +8,10 @@ export class AddIpniTrackingFields1730820000000 implements MigrationInterface {
     await queryRunner.query(`
       CREATE TYPE deals_ipni_status_enum AS ENUM (
         'pending', 
-        'indexed', 
-        'advertised', 
-        'retrieved', 
+        'sp_indexed', 
+        'sp_advertised', 
+        'sp_received_retrieve_request',
+        'verified',
         'failed'
       )
     `);
@@ -18,51 +19,66 @@ export class AddIpniTrackingFields1730820000000 implements MigrationInterface {
     // Add service_types array field (stored as comma-separated TEXT for simple-array)
     await queryRunner.query(`
       ALTER TABLE deals 
-      ADD COLUMN service_types TEXT DEFAULT NULL
+      ADD COLUMN IF NOT EXISTS service_types TEXT DEFAULT NULL
     `);
 
     // Add IPNI status field
     await queryRunner.query(`
       ALTER TABLE deals 
-      ADD COLUMN ipni_status deals_ipni_status_enum DEFAULT NULL
+      ADD COLUMN IF NOT EXISTS ipni_status deals_ipni_status_enum DEFAULT NULL
     `);
 
     // Add IPNI tracking timestamp fields
     await queryRunner.query(`
       ALTER TABLE deals 
-      ADD COLUMN ipni_indexed_at TIMESTAMP DEFAULT NULL
+      ADD COLUMN IF NOT EXISTS ipni_indexed_at TIMESTAMP DEFAULT NULL
     `);
 
     await queryRunner.query(`
       ALTER TABLE deals 
-      ADD COLUMN ipni_advertised_at TIMESTAMP DEFAULT NULL
+      ADD COLUMN IF NOT EXISTS ipni_advertised_at TIMESTAMP DEFAULT NULL
     `);
 
     await queryRunner.query(`
       ALTER TABLE deals 
-      ADD COLUMN ipni_retrieved_at TIMESTAMP DEFAULT NULL
+      ADD COLUMN IF NOT EXISTS ipni_retrieved_at TIMESTAMP DEFAULT NULL
+    `);
+
+    await queryRunner.query(`
+      ALTER TABLE deals 
+      ADD COLUMN IF NOT EXISTS ipni_verified_at TIMESTAMP DEFAULT NULL
     `);
 
     // Add time-to-stage metrics (time from upload complete to each stage)
     await queryRunner.query(`
       ALTER TABLE deals 
-      ADD COLUMN ipni_time_to_index_ms INTEGER DEFAULT NULL
+      ADD COLUMN IF NOT EXISTS ipni_time_to_index_ms INTEGER DEFAULT NULL
     `);
 
     await queryRunner.query(`
       ALTER TABLE deals 
-      ADD COLUMN ipni_time_to_advertise_ms INTEGER DEFAULT NULL
+      ADD COLUMN IF NOT EXISTS ipni_time_to_advertise_ms INTEGER DEFAULT NULL
     `);
 
     await queryRunner.query(`
       ALTER TABLE deals 
-      ADD COLUMN ipni_time_to_retrieve_ms INTEGER DEFAULT NULL
+      ADD COLUMN IF NOT EXISTS ipni_time_to_retrieve_ms INTEGER DEFAULT NULL
+    `);
+
+    await queryRunner.query(`
+      ALTER TABLE deals 
+      ADD COLUMN IF NOT EXISTS ipni_time_to_verify_ms INTEGER DEFAULT NULL
     `);
 
     // Add IPNI verification metrics
     await queryRunner.query(`
       ALTER TABLE deals 
-      ADD COLUMN ipni_verified_cids_count INTEGER DEFAULT NULL
+      ADD COLUMN IF NOT EXISTS ipni_verified_cids_count INTEGER DEFAULT NULL
+    `);
+
+    await queryRunner.query(`
+      ALTER TABLE deals 
+      ADD COLUMN IF NOT EXISTS ipni_unverified_cids_count INTEGER DEFAULT NULL
     `);
 
     // Add indexes for IPNI tracking queries
@@ -101,7 +117,17 @@ export class AddIpniTrackingFields1730820000000 implements MigrationInterface {
     // Drop columns
     await queryRunner.query(`
       ALTER TABLE deals 
+      DROP COLUMN ipni_unverified_cids_count
+    `);
+
+    await queryRunner.query(`
+      ALTER TABLE deals 
       DROP COLUMN ipni_verified_cids_count
+    `);
+
+    await queryRunner.query(`
+      ALTER TABLE deals 
+      DROP COLUMN ipni_time_to_verify_ms
     `);
 
     await queryRunner.query(`
@@ -117,6 +143,11 @@ export class AddIpniTrackingFields1730820000000 implements MigrationInterface {
     await queryRunner.query(`
       ALTER TABLE deals 
       DROP COLUMN ipni_time_to_index_ms
+    `);
+
+    await queryRunner.query(`
+      ALTER TABLE deals 
+      DROP COLUMN ipni_verified_at
     `);
 
     await queryRunner.query(`
