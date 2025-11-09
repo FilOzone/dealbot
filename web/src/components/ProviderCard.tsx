@@ -1,4 +1,4 @@
-import { AlertCircle, BarChart3, Check, ChevronDown, ChevronUp, Copy, TrendingDown, TrendingUp } from "lucide-react";
+import { AlertCircle, BarChart3, Check, Copy, TrendingDown, TrendingUp } from "lucide-react";
 import { useState } from "react";
 import { useProviderVersion } from "@/hooks/useProviderVersion";
 import type { ProviderCombinedPerformance, ProviderDetailResponse } from "@/types/providers";
@@ -16,12 +16,68 @@ interface ProviderCardProps {
   batchedVersion?: string;
 }
 
+interface MetricRowProps {
+  label: string;
+  allTimeAttempts: number;
+  allTimeRate: number;
+  weeklyAttempts: number;
+  weeklyRate: number;
+  successThreshold?: number;
+}
+
 const SUCCESS_RATE_THRESHOLD = 90;
+
+/**
+ * MetricRow component displays success rate metrics in a table format
+ * Shows all-time and 7-day attempts and success rates side by side
+ */
+function MetricRow({
+  label,
+  allTimeAttempts,
+  allTimeRate,
+  weeklyAttempts,
+  weeklyRate,
+  successThreshold = SUCCESS_RATE_THRESHOLD,
+}: MetricRowProps) {
+  const formatRate = (rate: number) => `${Number(rate).toFixed(1)}%`;
+  const getRateColor = (rate: number) => (rate < successThreshold ? "text-red-600" : "text-green-600");
+
+  return (
+    <div className='grid grid-cols-[1.5fr_1fr_1fr_1fr_1fr] gap-2 py-2 text-sm border-b last:border-b-0'>
+      <div className='font-medium text-foreground'>{label}</div>
+      <div className='text-right text-muted-foreground'>{allTimeAttempts.toLocaleString()}</div>
+      <div className={`text-right font-semibold ${getRateColor(allTimeRate)}`}>{formatRate(allTimeRate)}</div>
+      <div className='text-right text-muted-foreground'>{weeklyAttempts.toLocaleString()}</div>
+      <div className={`text-right font-semibold ${getRateColor(weeklyRate)}`}>{formatRate(weeklyRate)}</div>
+    </div>
+  );
+}
+
+/**
+ * LatencyMetricRow component displays latency metrics with proper aggregation labels
+ */
+function LatencyMetricRow({
+  label,
+  value,
+  aggregation = "Avg",
+}: {
+  label: string;
+  value: number;
+  aggregation?: string;
+}) {
+  return (
+    <div className='flex justify-between text-sm'>
+      <span className='text-muted-foreground'>
+        {aggregation} {label}
+      </span>
+      <span className='font-medium'>{formatMilliseconds(value)}</span>
+    </div>
+  );
+}
 
 export function ProviderCard({ provider, batchedVersion }: ProviderCardProps) {
   const [copiedProvider, setCopiedProvider] = useState<string | null>(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
-  const [showAdvancedMetrics, setShowAdvancedMetrics] = useState(false);
   const { version, loading, error } = useProviderVersion({
     serviceUrl: provider.provider.serviceUrl,
     batchedVersion,
@@ -38,9 +94,6 @@ export function ProviderCard({ provider, batchedVersion }: ProviderCardProps) {
       console.error("Failed to copy text: ", err);
     }
   };
-
-  const formatNumber = (num: number | string) => num.toLocaleString();
-  const formatPercentage = (pct: number | string) => `${Number(pct).toFixed(1)}%`;
 
   // Calculate health and trends only if metrics exist
   const health = hasMetrics
@@ -231,241 +284,136 @@ export function ProviderCard({ provider, batchedVersion }: ProviderCardProps) {
         {/* Performance Metrics - Only show if metrics exist */}
         {hasMetrics && (
           <>
-            <div className='border-t pt-4'>
-              <h4 className='text-sm font-semibold mb-3'>Activity Overview</h4>
-              <div className='grid grid-cols-2 gap-4'>
-                <div className='space-y-1'>
-                  <p className='text-xs text-muted-foreground'>Total Uploads</p>
-                  <p className='text-2xl font-bold'>{formatNumber(provider.allTime!.totalDeals)}</p>
-                </div>
-                <div className='space-y-1'>
-                  <p className='text-xs text-muted-foreground'>Total Retrievals</p>
-                  <p className='text-2xl font-bold'>{formatNumber(provider.allTime!.totalRetrievals)}</p>
-                </div>
-              </div>
-            </div>
-
+            {/* Success Rates Table */}
             <div className='border-t pt-4'>
               <h4 className='text-sm font-semibold mb-3'>Success Rates</h4>
-              <div className='space-y-3'>
-                <div>
-                  <div className='flex items-center justify-between mb-1'>
-                    <span className='text-sm text-muted-foreground'>Upload Success (All Time)</span>
-                    <span
-                      className={`text-sm font-semibold ${
-                        provider.allTime!.dealSuccessRate < SUCCESS_RATE_THRESHOLD ? "text-red-600" : "text-green-600"
-                      }`}
-                    >
-                      {formatPercentage(provider.allTime!.dealSuccessRate)}
-                    </span>
-                  </div>
-                  <div className='w-full bg-muted rounded-full h-2'>
-                    <div
-                      className={`h-2 rounded-full transition-all ${
-                        provider.allTime!.dealSuccessRate < SUCCESS_RATE_THRESHOLD ? "bg-red-600" : "bg-green-600"
-                      }`}
-                      style={{ width: `${Math.min(provider.allTime!.dealSuccessRate, 100)}%` }}
-                    />
-                  </div>
+              <div className='bg-muted/30 rounded-lg p-3'>
+                {/* Table Header */}
+                <div className='grid grid-cols-[1.5fr_1fr_1fr_1fr_1fr] gap-2 pb-2 text-xs font-semibold text-muted-foreground border-b mb-1'>
+                  <div>Metric</div>
+                  <div className='text-right'>All Time</div>
+                  <div className='text-right'>Rate</div>
+                  <div className='text-right'>7 Days</div>
+                  <div className='text-right'>Rate</div>
                 </div>
-                <div>
-                  <div className='flex items-center justify-between mb-1'>
-                    <span className='text-sm text-muted-foreground'>Retrieval Success (All Time)</span>
-                    <span
-                      className={`text-sm font-semibold ${
-                        provider.allTime!.retrievalSuccessRate < SUCCESS_RATE_THRESHOLD
-                          ? "text-red-600"
-                          : "text-green-600"
-                      }`}
-                    >
-                      {formatPercentage(provider.allTime!.retrievalSuccessRate)}
-                    </span>
-                  </div>
-                  <div className='w-full bg-muted rounded-full h-2'>
-                    <div
-                      className={`h-2 rounded-full transition-all ${
-                        provider.allTime!.retrievalSuccessRate < SUCCESS_RATE_THRESHOLD ? "bg-red-600" : "bg-green-600"
-                      }`}
-                      style={{ width: `${Math.min(provider.allTime!.retrievalSuccessRate, 100)}%` }}
-                    />
-                  </div>
-                </div>
+
+                {/* Uploads */}
+                <MetricRow
+                  label='Uploads'
+                  allTimeAttempts={provider.allTime!.totalDeals}
+                  allTimeRate={provider.allTime!.dealSuccessRate}
+                  weeklyAttempts={provider.weekly!.totalDeals}
+                  weeklyRate={provider.weekly!.dealSuccessRate}
+                />
+
+                {/* SP /piece Retrieval */}
+                <MetricRow
+                  label='SP /piece Retrieval'
+                  allTimeAttempts={provider.allTime!.totalRetrievals}
+                  allTimeRate={provider.allTime!.retrievalSuccessRate}
+                  weeklyAttempts={provider.weekly!.totalRetrievals}
+                  weeklyRate={provider.weekly!.retrievalSuccessRate}
+                />
+
+                {/* IPNI Indexing */}
+                {provider.allTime!.totalIpniDeals > 0 && (
+                  <MetricRow
+                    label='IPNI Indexing'
+                    allTimeAttempts={provider.allTime!.totalIpniDeals}
+                    allTimeRate={provider.allTime!.ipniSuccessRate}
+                    weeklyAttempts={provider.weekly!.totalIpniDeals}
+                    weeklyRate={provider.weekly!.ipniSuccessRate}
+                  />
+                )}
+
+                {/* IPFS Mainnet Retrieval */}
+                {provider.allTime!.totalIpfsRetrievals > 0 && (
+                  <MetricRow
+                    label='IPFS Mainnet Retrieval'
+                    allTimeAttempts={provider.allTime!.totalIpfsRetrievals}
+                    allTimeRate={provider.allTime!.ipfsRetrievalSuccessRate}
+                    weeklyAttempts={provider.weekly!.totalIpfsRetrievals}
+                    weeklyRate={provider.weekly!.ipfsRetrievalSuccessRate}
+                  />
+                )}
               </div>
+            </div>
 
-              {/* IPNI & IPFS Metrics Toggle */}
-              {(provider.allTime!.totalIpniDeals > 0 || provider.allTime!.totalIpfsRetrievals > 0) && (
-                <div className='mt-4'>
-                  <button
-                    onClick={() => setShowAdvancedMetrics(!showAdvancedMetrics)}
-                    className='flex items-center justify-between w-full text-sm text-muted-foreground hover:text-foreground transition-colors py-2'
-                  >
-                    <span className='font-medium'>IPNI & IPFS Metrics</span>
-                    {showAdvancedMetrics ? <ChevronUp className='h-4 w-4' /> : <ChevronDown className='h-4 w-4' />}
-                  </button>
+            {/* Latency Metrics Section */}
+            <div className='border-t pt-4'>
+              <h4 className='text-sm font-semibold mb-3'>Latency Metrics (All Time)</h4>
+              <div className='space-y-2'>
+                {/* Upload Latencies */}
+                <div className='space-y-1.5'>
+                  <p className='text-xs font-medium text-muted-foreground uppercase tracking-wide'>Upload</p>
+                  <div className='pl-2 space-y-1'>
+                    <LatencyMetricRow label='Ingest Latency' value={provider.allTime!.avgIngestLatencyMs} />
+                    <LatencyMetricRow label='Chain Latency' value={provider.allTime!.avgChainLatencyMs} />
+                    <LatencyMetricRow label='Deal Latency' value={provider.allTime!.avgDealLatencyMs} />
+                  </div>
+                </div>
 
-                  {showAdvancedMetrics && (
-                    <div className='space-y-3 mt-2 pt-3 border-t'>
-                      {/* IPNI Metrics */}
-                      {provider.allTime!.totalIpniDeals > 0 && (
-                        <div className='space-y-2'>
-                          <div className='flex items-center justify-between'>
-                            <span className='text-xs text-muted-foreground font-medium'>IPNI Indexing</span>
-                            <span className='text-xs text-muted-foreground'>
-                              {formatNumber(provider.allTime!.totalIpniDeals)} deals
-                            </span>
-                          </div>
-                          <div className='grid grid-cols-2 gap-2 text-xs'>
-                            <div className='flex justify-between'>
-                              <span className='text-muted-foreground'>Success Rate</span>
-                              <span
-                                className={`font-semibold ${
-                                  provider.allTime!.ipniSuccessRate < SUCCESS_RATE_THRESHOLD
-                                    ? "text-red-600"
-                                    : "text-green-600"
-                                }`}
-                              >
-                                {formatPercentage(provider.allTime!.ipniSuccessRate)}
-                              </span>
-                            </div>
-                            <div className='flex justify-between'>
-                              <span className='text-muted-foreground'>Indexed</span>
-                              <span className='font-medium'>{formatNumber(provider.allTime!.ipniIndexedDeals)}</span>
-                            </div>
-                            <div className='flex justify-between'>
-                              <span className='text-muted-foreground'>Time to Index</span>
-                              <span className='font-medium'>
-                                {formatMilliseconds(provider.allTime!.avgIpniTimeToIndexMs)}
-                              </span>
-                            </div>
-                            <div className='flex justify-between'>
-                              <span className='text-muted-foreground'>Time to Advertise</span>
-                              <span className='font-medium'>
-                                {formatMilliseconds(provider.allTime!.avgIpniTimeToAdvertiseMs)}
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-                      )}
+                {/* SP Retrieval Latencies */}
+                <div className='space-y-1.5 pt-2'>
+                  <p className='text-xs font-medium text-muted-foreground uppercase tracking-wide'>
+                    SP /piece Retrieval
+                  </p>
+                  <div className='pl-2 space-y-1'>
+                    <LatencyMetricRow label='Latency' value={provider.allTime!.avgRetrievalLatencyMs} />
+                    <LatencyMetricRow label='TTFB' value={provider.allTime!.avgRetrievalTtfbMs} />
+                  </div>
+                </div>
 
-                      {/* IPFS Metrics */}
-                      {provider.allTime!.totalIpfsRetrievals > 0 && (
-                        <div className='space-y-2 pt-2 border-t'>
-                          <div className='flex items-center justify-between'>
-                            <span className='text-xs text-muted-foreground font-medium'>IPFS Retrievals</span>
-                            <span className='text-xs text-muted-foreground'>
-                              {formatNumber(provider.allTime!.totalIpfsRetrievals)} retrievals
-                            </span>
-                          </div>
-                          <div className='grid grid-cols-2 gap-2 text-xs'>
-                            <div className='flex justify-between'>
-                              <span className='text-muted-foreground'>Success Rate</span>
-                              <span
-                                className={`font-semibold ${
-                                  provider.allTime!.ipfsRetrievalSuccessRate < SUCCESS_RATE_THRESHOLD
-                                    ? "text-red-600"
-                                    : "text-green-600"
-                                }`}
-                              >
-                                {formatPercentage(provider.allTime!.ipfsRetrievalSuccessRate)}
-                              </span>
-                            </div>
-                            <div className='flex justify-between'>
-                              <span className='text-muted-foreground'>Successful</span>
-                              <span className='font-medium'>
-                                {formatNumber(provider.allTime!.successfulIpfsRetrievals)}
-                              </span>
-                            </div>
-                            <div className='flex justify-between'>
-                              <span className='text-muted-foreground'>Latency</span>
-                              <span className='font-medium'>
-                                {formatMilliseconds(provider.allTime!.avgIpfsRetrievalLatencyMs)}
-                              </span>
-                            </div>
-                            <div className='flex justify-between'>
-                              <span className='text-muted-foreground'>TTFB</span>
-                              <span className='font-medium'>
-                                {formatMilliseconds(provider.allTime!.avgIpfsRetrievalTtfbMs)}
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-                      )}
+                {/* IPNI Latencies */}
+                {provider.allTime!.totalIpniDeals > 0 && (
+                  <div className='space-y-1.5 pt-2'>
+                    <p className='text-xs font-medium text-muted-foreground uppercase tracking-wide'>IPNI Indexing</p>
+                    <div className='pl-2 space-y-1'>
+                      <LatencyMetricRow label='Time to Index' value={provider.allTime!.avgIpniTimeToIndexMs} />
+                      <LatencyMetricRow label='Time to Advertise' value={provider.allTime!.avgIpniTimeToAdvertiseMs} />
+                      <LatencyMetricRow
+                        label='Time to Retrieve Request'
+                        value={provider.allTime!.avgIpniTimeToRetrieveMs}
+                      />
+                      <LatencyMetricRow label='Time to Verify' value={provider.allTime!.avgIpniTimeToVerifyMs} />
                     </div>
-                  )}
-                </div>
-              )}
-            </div>
+                  </div>
+                )}
 
-            <div className='border-t pt-4'>
-              <h4 className='text-sm font-semibold mb-3'>7-Day Performance</h4>
-              <div className='grid grid-cols-2 gap-3'>
-                <div className='space-y-1'>
-                  <p className='text-xs text-muted-foreground'>Upload Success</p>
-                  <p
-                    className={`text-lg font-semibold ${
-                      provider.weekly!.dealSuccessRate < SUCCESS_RATE_THRESHOLD ? "text-red-600" : "text-green-600"
-                    }`}
-                  >
-                    {formatPercentage(provider.weekly!.dealSuccessRate)}
-                  </p>
-                </div>
-                <div className='space-y-1'>
-                  <p className='text-xs text-muted-foreground'>Retrieval Success</p>
-                  <p
-                    className={`text-lg font-semibold ${
-                      provider.weekly!.retrievalSuccessRate < SUCCESS_RATE_THRESHOLD ? "text-red-600" : "text-green-600"
-                    }`}
-                  >
-                    {formatPercentage(provider.weekly!.retrievalSuccessRate)}
-                  </p>
-                </div>
+                {/* IPFS Retrieval Latencies */}
+                {provider.allTime!.totalIpfsRetrievals > 0 && (
+                  <div className='space-y-1.5 pt-2'>
+                    <p className='text-xs font-medium text-muted-foreground uppercase tracking-wide'>
+                      IPFS Mainnet Retrieval
+                    </p>
+                    <div className='pl-2 space-y-1'>
+                      <LatencyMetricRow label='Latency' value={provider.allTime!.avgIpfsRetrievalLatencyMs} />
+                      <LatencyMetricRow label='TTFB' value={provider.allTime!.avgIpfsRetrievalTtfbMs} />
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 
+            {/* Throughput Section */}
             <div className='border-t pt-4'>
-              <h4 className='text-sm font-semibold mb-3'>Latency Metrics</h4>
-              <div className='grid grid-cols-2 gap-y-2 gap-x-4 text-sm'>
-                <div className='flex justify-between'>
-                  <span className='text-muted-foreground'>Ingest</span>
-                  <span className='font-medium'>{formatMilliseconds(provider.allTime!.avgIngestLatencyMs)}</span>
-                </div>
-                <div className='flex justify-between'>
-                  <span className='text-muted-foreground'>Chain</span>
-                  <span className='font-medium'>{formatMilliseconds(provider.allTime!.avgChainLatencyMs)}</span>
-                </div>
-                <div className='flex justify-between'>
-                  <span className='text-muted-foreground'>Deal</span>
-                  <span className='font-medium'>{formatMilliseconds(provider.allTime!.avgDealLatencyMs)}</span>
-                </div>
-                <div className='flex justify-between'>
-                  <span className='text-muted-foreground'>Retrieval</span>
-                  <span className='font-medium'>{formatMilliseconds(provider.allTime!.avgRetrievalLatencyMs)}</span>
-                </div>
-                <div className='flex justify-between'>
-                  <span className='text-muted-foreground'>TTFB</span>
-                  <span className='font-medium'>{formatMilliseconds(provider.allTime!.avgRetrievalTtfbMs)}</span>
-                </div>
-              </div>
-            </div>
-
-            <div className='border-t pt-4'>
-              <h4 className='text-sm font-semibold mb-3'>Throughput</h4>
+              <h4 className='text-sm font-semibold mb-3'>Avg Throughput (All Time)</h4>
               <div className='grid grid-cols-2 gap-3'>
                 <div className='space-y-1'>
-                  <p className='text-xs text-muted-foreground'>Ingest</p>
+                  <p className='text-xs text-muted-foreground'>Upload Ingest</p>
                   <p className='text-sm font-medium'>
                     {formatThroughput(provider.allTime!.avgIngestThroughputBps ?? 0)}
                   </p>
                 </div>
                 <div className='space-y-1'>
-                  <p className='text-xs text-muted-foreground'>Retrieval</p>
+                  <p className='text-xs text-muted-foreground'>SP /piece Retrieval</p>
                   <p className='text-sm font-medium'>
                     {formatThroughput(provider.allTime!.avgRetrievalThroughputBps ?? 0)}
                   </p>
                 </div>
                 {provider.allTime!.totalIpfsRetrievals > 0 && provider.allTime!.avgIpfsRetrievalThroughputBps > 0 && (
                   <div className='space-y-1'>
-                    <p className='text-xs text-muted-foreground'>IPFS Retrieval</p>
+                    <p className='text-xs text-muted-foreground'>IPFS Mainnet Retrieval</p>
                     <p className='text-sm font-medium'>
                       {formatThroughput(provider.allTime!.avgIpfsRetrievalThroughputBps ?? 0)}
                     </p>
