@@ -103,14 +103,14 @@ export function generateSpPerformanceQuery(dateFilter?: string): string {
       -- IPNI tracking metrics - incremental states: PENDING -> SP_INDEXED -> SP_ADVERTISED -> SP_RECEIVED_RETRIEVE_REQUEST -> VERIFIED
       COUNT(DISTINCT d.id) FILTER (WHERE d.ipni_status IS NOT NULL) as total_ipni_deals,
       COUNT(DISTINCT d.id) FILTER (WHERE d.ipni_status IN ('${IpniStatus.SP_INDEXED}', '${
-    IpniStatus.SP_ADVERTISED
-  }', '${IpniStatus.SP_RECEIVED_RETRIEVE_REQUEST}', '${IpniStatus.VERIFIED}')) as ipni_indexed_deals,
+        IpniStatus.SP_ADVERTISED
+      }', '${IpniStatus.SP_RECEIVED_RETRIEVE_REQUEST}', '${IpniStatus.VERIFIED}')) as ipni_indexed_deals,
       COUNT(DISTINCT d.id) FILTER (WHERE d.ipni_status IN ('${IpniStatus.SP_ADVERTISED}', '${
-    IpniStatus.SP_RECEIVED_RETRIEVE_REQUEST
-  }', '${IpniStatus.VERIFIED}')) as ipni_advertised_deals,
+        IpniStatus.SP_RECEIVED_RETRIEVE_REQUEST
+      }', '${IpniStatus.VERIFIED}')) as ipni_advertised_deals,
       COUNT(DISTINCT d.id) FILTER (WHERE d.ipni_status IN ('${IpniStatus.SP_RECEIVED_RETRIEVE_REQUEST}', '${
-    IpniStatus.VERIFIED
-  }')) as ipni_retrieved_deals,
+        IpniStatus.VERIFIED
+      }')) as ipni_retrieved_deals,
       COUNT(DISTINCT d.id) FILTER (WHERE d.ipni_status = '${IpniStatus.VERIFIED}') as ipni_verified_deals,
       COUNT(DISTINCT d.id) FILTER (WHERE d.ipni_status = '${IpniStatus.FAILED}') as ipni_failed_deals,
       
