@@ -70,6 +70,7 @@ export class IpniRetrievalStrategy implements IRetrievalAddon {
     return {
       url,
       method: this.name,
+      httpVersion: "2",
     };
   }
 

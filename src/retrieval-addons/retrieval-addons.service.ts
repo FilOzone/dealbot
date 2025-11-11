@@ -333,11 +333,13 @@ export class RetrievalAddonsService {
       try {
         result = await this.httpClientService.requestWithRandomProxyAndMetrics<Buffer>(urlResult.url, {
           headers: urlResult.headers,
+          httpVersion: urlResult.httpVersion,
         });
       } catch (error) {
         if (error.message === "No proxy available") {
           result = await this.httpClientService.requestWithoutProxyAndMetrics<Buffer>(urlResult.url, {
             headers: urlResult.headers,
+            httpVersion: urlResult.httpVersion,
           });
         } else {
           throw error;
