@@ -76,7 +76,7 @@ export default function App() {
     error: providersError,
     setOptions: setProviderOptions,
   } = useProviders({
-    page: 1,
+    offset: 0,
     limit: 12, // Show 12 providers per page (4 rows of 3 cards)
     activeOnly,
     approvedOnly,
@@ -84,7 +84,7 @@ export default function App() {
 
   // Handle page change
   const handlePageChange = (page: number) => {
-    setProviderOptions({ page, limit: itemsPerPage, activeOnly, approvedOnly });
+    setProviderOptions({ offset: (page - 1) * itemsPerPage, limit: itemsPerPage, activeOnly, approvedOnly });
     // Scroll to top of providers section
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
@@ -92,12 +92,12 @@ export default function App() {
   // Handle filter changes
   const handleActiveOnlyChange = (value: boolean) => {
     setActiveOnly(value);
-    setProviderOptions({ page: 1, limit: itemsPerPage, activeOnly: value, approvedOnly });
+    setProviderOptions({ offset: 0, limit: itemsPerPage, activeOnly: value, approvedOnly });
   };
 
   const handleApprovedOnlyChange = (value: boolean) => {
     setApprovedOnly(value);
-    setProviderOptions({ page: 1, limit: itemsPerPage, activeOnly, approvedOnly: value });
+    setProviderOptions({ offset: 0, limit: itemsPerPage, activeOnly, approvedOnly: value });
   };
 
   // Failed deals pagination handlers

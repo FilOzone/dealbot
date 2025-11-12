@@ -112,9 +112,9 @@ export interface ProviderCombinedPerformance {
 export interface ProvidersListResponse {
   providers: ProviderCombinedPerformance[];
   total: number;
-  page: number;
+  offset: number;
+  count: number;
   limit: number;
-  hasMore: boolean;
 }
 
 /**
@@ -130,7 +130,7 @@ export interface ProviderDetailResponse {
  * Query options for listing providers
  */
 export interface ProvidersQueryOptions {
-  page?: number;
+  offset?: number;
   limit?: number;
   activeOnly?: boolean;
   approvedOnly?: boolean;
