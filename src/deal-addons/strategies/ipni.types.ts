@@ -11,6 +11,8 @@ export interface PieceStatus {
   advertised: boolean;
   retrieved: boolean;
   retrievedAt?: string | null;
+  indexedAt?: string | null;
+  advertisedAt?: string | null;
 }
 
 /**
@@ -42,6 +44,7 @@ export interface IPNIVerificationResult {
   rootCIDVerified: boolean;
   durationMs: number;
   failedCIDs: FailedCID[];
+  verifiedAt: string;
 }
 
 /**

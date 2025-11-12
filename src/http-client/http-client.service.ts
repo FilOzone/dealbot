@@ -105,9 +105,6 @@ export class HttpClientService {
       // Create undici proxy agent
       const proxyAgent = new UndiciProxyAgent({
         uri: proxyUrl,
-        requestTls: {
-          rejectUnauthorized: false, // Adjust based on your security requirements
-        },
       });
 
       const requestOptions: any = {

@@ -229,6 +229,8 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
           advertised: false,
           retrieved: false,
           retrievedAt: null,
+          indexedAt: null,
+          advertisedAt: null,
         },
         checks: 0,
         durationMs: statusTimeoutMs,
@@ -263,6 +265,8 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       advertised: false,
       retrieved: false,
       retrievedAt: null,
+      indexedAt: null,
+      advertisedAt: null,
     };
     let checkCount = 0;
 
@@ -270,27 +274,40 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       checkCount++;
 
       try {
-        const status = await pdpServer.getPieceStatus(pieceCid);
+        const sdkStatus = await pdpServer.getPieceStatus(pieceCid);
 
-        // Log state transitions
-        if (status.indexed && !lastStatus.indexed) {
+        const currentStatus: PieceStatus = {
+          status: sdkStatus.status,
+          indexed: sdkStatus.indexed,
+          advertised: sdkStatus.advertised,
+          retrieved: sdkStatus.retrieved,
+          retrievedAt: sdkStatus.retrievedAt,
+          indexedAt: lastStatus.indexedAt,
+          advertisedAt: lastStatus.advertisedAt,
+        };
+
+        if (currentStatus.indexed && !lastStatus.indexed) {
+          currentStatus.indexedAt = new Date().toISOString();
           this.logger.log(`Piece indexed: ${pieceCid.slice(0, 12)}...`);
         }
-        if (status.advertised && !lastStatus.advertised) {
+
+        if (currentStatus.advertised && !lastStatus.advertised) {
+          currentStatus.advertisedAt = new Date().toISOString();
           this.logger.log(`Piece advertised: ${pieceCid.slice(0, 12)}...`);
         }
-        if (status.retrievedAt && !lastStatus.retrievedAt) {
+
+        if (currentStatus.retrievedAt && !lastStatus.retrievedAt) {
           const durationSec = ((Date.now() - startTime) / 1000).toFixed(1);
           this.logger.log(`Piece retrieved: ${pieceCid.slice(0, 12)}... (${durationSec}s)`);
           return {
             success: true,
-            finalStatus: status,
+            finalStatus: currentStatus,
             checks: checkCount,
             durationMs: Date.now() - startTime,
           };
         }
 
-        lastStatus = status;
+        lastStatus = currentStatus;
       } catch (error) {
         if (checkCount % 20 === 0) {
           this.logger.debug(`Status check error: ${error.message}`);
@@ -349,6 +366,7 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
     }
 
     const durationMs = Date.now() - startTime;
+    const verifiedAt = new Date().toISOString();
     const successCount = (rootCIDResult.verified ? 1 : 0) + blockCIDsVerified;
     const totalCIDs = blockCIDs.length + 1; // +1 for rootCID
 
@@ -366,6 +384,7 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       rootCIDVerified: rootCIDResult.verified,
       durationMs,
       failedCIDs,
+      verifiedAt,
     };
   }
 
@@ -553,13 +572,15 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
 
     // Update timestamps and calculate time-to-stage metrics
     if (finalStatus.indexed && !deal.ipniIndexedAt) {
-      deal.ipniIndexedAt = now;
-      deal.ipniTimeToIndexMs = Math.round(now.getTime() - uploadEndTime.getTime());
+      const indexedTimestamp = finalStatus.indexedAt ? new Date(finalStatus.indexedAt) : now;
+      deal.ipniIndexedAt = indexedTimestamp;
+      deal.ipniTimeToIndexMs = Math.round(indexedTimestamp.getTime() - uploadEndTime.getTime());
     }
 
     if (finalStatus.advertised && !deal.ipniAdvertisedAt) {
-      deal.ipniAdvertisedAt = now;
-      deal.ipniTimeToAdvertiseMs = Math.round(now.getTime() - uploadEndTime.getTime());
+      const advertisedTimestamp = finalStatus.advertisedAt ? new Date(finalStatus.advertisedAt) : now;
+      deal.ipniAdvertisedAt = advertisedTimestamp;
+      deal.ipniTimeToAdvertiseMs = Math.round(advertisedTimestamp.getTime() - uploadEndTime.getTime());
     }
 
     if (finalStatus.retrievedAt && !deal.ipniRetrievedAt) {
@@ -570,8 +591,9 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
     // Update verification metrics and timestamp
     // Only set verified timestamp if rootCID was successfully verified
     if (ipniResult.rootCIDVerified && !deal.ipniVerifiedAt) {
-      deal.ipniVerifiedAt = now;
-      deal.ipniTimeToVerifyMs = Math.round(now.getTime() - uploadEndTime.getTime());
+      const verifiedTimestamp = new Date(ipniResult.verifiedAt);
+      deal.ipniVerifiedAt = verifiedTimestamp;
+      deal.ipniTimeToVerifyMs = Math.round(verifiedTimestamp.getTime() - uploadEndTime.getTime());
     }
 
     deal.ipniVerifiedCidsCount = ipniResult.verified;
