@@ -7,7 +7,7 @@ import type { DataFile } from "../common/types.js";
 import type { IBlockchainConfig, IConfig } from "../config/app.config.js";
 import { Deal } from "../database/entities/deal.entity.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
-import { DealStatus } from "../database/types.js";
+import { DealStatus, ServiceType } from "../database/types.js";
 import { DataSourceService } from "../dataSource/dataSource.service.js";
 import { DealAddonsService } from "../deal-addons/deal-addons.service.js";
 import type { DealPreprocessingResult } from "../deal-addons/types.js";
@@ -64,9 +64,15 @@ export class DealService {
       status: DealStatus.PENDING,
       walletAddress: this.configService.get("blockchain").walletAddress,
       metadata: dealInput.metadata,
+      serviceTypes: dealInput.appliedAddons,
     });
 
     try {
+      // Load storageProvider relation
+      deal.storageProvider = await this.storageProviderRepository.findOne({
+        where: { address: deal.spAddress },
+      });
+
       const synapse = await this.getStorageService();
       const storage = await synapse.createStorage({
         providerAddress,
@@ -77,7 +83,7 @@ export class DealService {
       deal.uploadStartTime = new Date();
 
       const uploadResult: UploadResult = await storage.upload(dealInput.processedData.data, {
-        onUploadComplete: (pieceCid) => this.handleUploadComplete(deal, pieceCid),
+        onUploadComplete: (pieceCid) => this.handleUploadComplete(deal, pieceCid, dealInput.appliedAddons),
         onPieceAdded: (hash) => this.handleRootAdded(deal, hash),
       });
 
@@ -86,11 +92,6 @@ export class DealService {
       this.logger.log(
         `Deal created: ${uploadResult.pieceCid.toString().slice(0, 12)}... (${providerAddress.slice(0, 8)}...)`,
       );
-
-      // Load storageProvider relation before post-processing
-      deal.storageProvider = await this.storageProviderRepository.findOne({
-        where: { address: deal.spAddress },
-      });
 
       await this.dealAddonsService.postProcessDeal(deal, dealInput.appliedAddons);
 
@@ -182,7 +183,7 @@ export class DealService {
   // Upload Lifecycle Handlers
   // ============================================================================
 
-  private async handleUploadComplete(deal: Deal, pieceCid: PieceCID): Promise<void> {
+  private async handleUploadComplete(deal: Deal, pieceCid: PieceCID, appliedAddons: ServiceType[]): Promise<void> {
     deal.pieceCid = pieceCid.toString();
     deal.uploadEndTime = new Date();
     deal.ingestLatencyMs = deal.uploadEndTime.getTime() - deal.uploadStartTime.getTime();
@@ -190,6 +191,9 @@ export class DealService {
       deal.fileSize / ((deal.uploadEndTime.getTime() - deal.uploadStartTime.getTime()) / 1000),
     );
     deal.status = DealStatus.UPLOADED;
+
+    // Trigger addon onUploadComplete handlers
+    await this.dealAddonsService.handleUploadComplete(deal, appliedAddons);
   }
 
   private async handleRootAdded(deal: Deal, result: any): Promise<void> {

@@ -1,4 +1,5 @@
 import { Injectable, Logger } from "@nestjs/common";
+import { ServiceType } from "../database/types.js";
 import { HttpClientService } from "../http-client/http-client.service.js";
 import type { RequestWithMetrics } from "../http-client/types.js";
 import type { IRetrievalAddon } from "./interfaces/retrieval-addon.interface.js";
@@ -331,13 +332,23 @@ export class RetrievalAddonsService {
     try {
       let result: RequestWithMetrics<Buffer>;
       try {
-        result = await this.httpClientService.requestWithRandomProxyAndMetrics<Buffer>(urlResult.url, {
-          headers: urlResult.headers,
-        });
+        // TODO: use proxy for IPFS_PIN as well
+        if (urlResult.method === ServiceType.IPFS_PIN) {
+          result = await this.httpClientService.requestWithoutProxyAndMetrics<Buffer>(urlResult.url, {
+            headers: urlResult.headers,
+            httpVersion: urlResult.httpVersion,
+          });
+        } else {
+          result = await this.httpClientService.requestWithRandomProxyAndMetrics<Buffer>(urlResult.url, {
+            headers: urlResult.headers,
+            httpVersion: urlResult.httpVersion,
+          });
+        }
       } catch (error) {
         if (error.message === "No proxy available") {
           result = await this.httpClientService.requestWithoutProxyAndMetrics<Buffer>(urlResult.url, {
             headers: urlResult.headers,
+            httpVersion: urlResult.httpVersion,
           });
         } else {
           throw error;

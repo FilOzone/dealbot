@@ -4,8 +4,9 @@ import type { AxiosRequestConfig } from "axios";
 import { HttpsProxyAgent } from "https-proxy-agent";
 import { firstValueFrom } from "rxjs";
 import { SocksProxyAgent } from "socks-proxy-agent";
+import { ProxyAgent as UndiciProxyAgent, request as undiciRequest } from "undici";
 import { ProxyService } from "../proxy/proxy.service.js";
-import type { RequestMetrics, RequestWithMetrics } from "./types.js";
+import type { HttpVersion, RequestMetrics, RequestWithMetrics } from "./types.js";
 
 @Injectable()
 export class HttpClientService {
@@ -23,9 +24,10 @@ export class HttpClientService {
       data?: any;
       headers?: Record<string, string>;
       proxyUrl?: string;
+      httpVersion?: HttpVersion; // '1.1' | '2'
     } = {},
   ): Promise<RequestWithMetrics<T>> {
-    const { method = "GET", data, headers = {}, proxyUrl } = options;
+    const { method = "GET", data, headers = {}, proxyUrl, httpVersion = "1.1" } = options;
 
     const currentProxyUrl = proxyUrl ?? this.proxyService.getRandomProxy();
 
@@ -33,8 +35,229 @@ export class HttpClientService {
       throw new Error("No proxy available");
     }
 
+    // Route to appropriate implementation based on HTTP version
+    if (httpVersion === "2") {
+      return this.requestWithHttp2AndProxy<T>(url, {
+        method,
+        data,
+        headers,
+        proxyUrl: currentProxyUrl,
+      });
+    }
+
+    // Default HTTP/1.1 implementation (your existing code)
+    return this.requestWithHttp1AndProxy<T>(url, {
+      method,
+      data,
+      headers,
+      proxyUrl: currentProxyUrl,
+    });
+  }
+
+  async requestWithoutProxyAndMetrics<T = any>(
+    url: string,
+    options: {
+      method?: "GET" | "POST" | "PUT" | "DELETE";
+      data?: any;
+      headers?: Record<string, string>;
+      httpVersion?: HttpVersion;
+    } = {},
+  ): Promise<RequestWithMetrics<T>> {
+    const { method = "GET", data, headers = {}, httpVersion = "1.1" } = options;
+
+    // Route to appropriate implementation
+    if (httpVersion === "2") {
+      return this.requestWithHttp2Direct<T>(url, {
+        method,
+        data,
+        headers,
+      });
+    }
+
+    return this.requestWithHttp1Direct<T>(url, {
+      method,
+      data,
+      headers,
+    });
+  }
+
+  /**
+   * HTTP/2 request with proxy using undici
+   */
+  private async requestWithHttp2AndProxy<T = any>(
+    url: string,
+    options: {
+      method: string;
+      data?: any;
+      headers: Record<string, string>;
+      proxyUrl: string;
+    },
+  ): Promise<RequestWithMetrics<T>> {
+    const { method, data, headers, proxyUrl } = options;
+
     try {
-      this.logger.debug(`Requesting ${url} via proxy ${currentProxyUrl}`);
+      this.logger.debug(`Requesting ${url} via HTTP/2 proxy ${proxyUrl}`);
+
+      const startTime = performance.now();
+      let ttfbTime = 0;
+      let statusCode = 0;
+
+      // Create undici proxy agent
+      const proxyAgent = new UndiciProxyAgent({
+        uri: proxyUrl,
+      });
+
+      const requestOptions: any = {
+        method,
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+          ...headers,
+        },
+        dispatcher: proxyAgent,
+      };
+
+      if (data) {
+        requestOptions.body = typeof data === "string" ? data : JSON.stringify(data);
+        requestOptions.headers["Content-Type"] = "application/json";
+      }
+
+      const response = await undiciRequest(url, requestOptions);
+
+      // TTFB is approximately when we get the response headers
+      ttfbTime = performance.now() - startTime;
+      statusCode = response.statusCode;
+
+      this.logger.debug(`TTFB (HTTP/2): ${ttfbTime.toFixed(2)}ms`);
+
+      // Read response body
+      const chunks: Buffer[] = [];
+      for await (const chunk of response.body) {
+        chunks.push(Buffer.from(chunk));
+      }
+      const dataBuffer = Buffer.concat(chunks);
+
+      const endTime = performance.now();
+      const totalTime = endTime - startTime;
+
+      const metrics: RequestMetrics = {
+        ttfb: Math.round(ttfbTime),
+        totalTime: Math.round(totalTime),
+        downloadTime: Math.round(totalTime - ttfbTime),
+        proxyUrl: this.maskProxyUrl(proxyUrl),
+        statusCode,
+        responseSize: dataBuffer.length,
+        timestamp: new Date(),
+        httpVersion: "2",
+      };
+
+      this.logger.log(
+        `HTTP/2 Request successful - TTFB: ${metrics.ttfb}ms, Total: ${metrics.totalTime}ms, Size: ${this.formatBytes(
+          dataBuffer.length,
+        )}`,
+      );
+
+      return {
+        data: dataBuffer as T,
+        metrics,
+      };
+    } catch (error) {
+      this.logger.warn(`HTTP/2 Request failed: ${error.message}`);
+      throw error;
+    }
+  }
+
+  /**
+   * HTTP/2 request without proxy using undici
+   */
+  private async requestWithHttp2Direct<T = any>(
+    url: string,
+    options: {
+      method: string;
+      data?: any;
+      headers: Record<string, string>;
+    },
+  ): Promise<RequestWithMetrics<T>> {
+    const { method, data, headers } = options;
+
+    try {
+      this.logger.debug(`Requesting ${url} via HTTP/2 (direct connection)`);
+
+      const startTime = performance.now();
+      let ttfbTime = 0;
+      let statusCode = 0;
+
+      const requestOptions: any = {
+        method,
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+          ...headers,
+        },
+      };
+
+      if (data) {
+        requestOptions.body = typeof data === "string" ? data : JSON.stringify(data);
+        requestOptions.headers["Content-Type"] = "application/json";
+      }
+
+      const response = await undiciRequest(url, requestOptions);
+
+      ttfbTime = performance.now() - startTime;
+      statusCode = response.statusCode;
+
+      this.logger.debug(`TTFB (HTTP/2 direct): ${ttfbTime.toFixed(2)}ms`);
+
+      const chunks: Buffer[] = [];
+      for await (const chunk of response.body) {
+        chunks.push(Buffer.from(chunk));
+      }
+      const dataBuffer = Buffer.concat(chunks);
+
+      const endTime = performance.now();
+      const totalTime = endTime - startTime;
+
+      const metrics: RequestMetrics = {
+        ttfb: Math.round(ttfbTime),
+        totalTime: Math.round(totalTime),
+        downloadTime: Math.round(totalTime - ttfbTime),
+        proxyUrl: "direct",
+        statusCode,
+        responseSize: dataBuffer.length,
+        timestamp: new Date(),
+        httpVersion: "2",
+      };
+
+      this.logger.log(
+        `HTTP/2 Request successful (direct) - TTFB: ${metrics.ttfb}ms, Total: ${
+          metrics.totalTime
+        }ms, Size: ${this.formatBytes(dataBuffer.length)}`,
+      );
+
+      return {
+        data: dataBuffer as T,
+        metrics,
+      };
+    } catch (error) {
+      this.logger.warn(`HTTP/2 Direct request failed: ${error.message}`);
+      throw error;
+    }
+  }
+
+  /**
+   * HTTP/1.1 request with proxy (your existing implementation)
+   */
+  private async requestWithHttp1AndProxy<T = any>(
+    url: string,
+    options: {
+      method: string;
+      data?: any;
+      headers: Record<string, string>;
+      proxyUrl: string;
+    },
+  ): Promise<RequestWithMetrics<T>> {
+    const { method, data, headers, proxyUrl } = options;
+
+    try {
+      this.logger.debug(`Requesting ${url} via proxy ${proxyUrl}`);
 
       const startTime = performance.now();
       let ttfbTime = 0;
@@ -42,7 +265,7 @@ export class HttpClientService {
       let _responseSize = 0;
       let statusCode = 0;
 
-      const proxyAgent = this.createProxyAgent(currentProxyUrl);
+      const proxyAgent = this.createProxyAgent(proxyUrl);
       const config: AxiosRequestConfig = {
         method,
         url,
@@ -78,21 +301,23 @@ export class HttpClientService {
         ttfbTime = totalTime * 0.8;
       }
 
-      // Convert to Buffer once and calculate size
       const dataBuffer = this.convertToBuffer(response.data);
 
       const metrics: RequestMetrics = {
         ttfb: Math.round(ttfbTime),
         totalTime: Math.round(totalTime),
         downloadTime: Math.round(totalTime - ttfbTime),
-        proxyUrl: this.maskProxyUrl(currentProxyUrl),
+        proxyUrl: this.maskProxyUrl(proxyUrl),
         statusCode,
         responseSize: dataBuffer.length,
         timestamp: new Date(),
+        httpVersion: "1.1",
       };
 
       this.logger.log(
-        `Request successful - TTFB: ${metrics.ttfb}ms, Total: ${metrics.totalTime}ms, Size: ${this.formatBytes(dataBuffer.length)}`,
+        `Request successful - TTFB: ${metrics.ttfb}ms, Total: ${metrics.totalTime}ms, Size: ${this.formatBytes(
+          dataBuffer.length,
+        )}`,
       );
 
       return {
@@ -105,15 +330,18 @@ export class HttpClientService {
     }
   }
 
-  async requestWithoutProxyAndMetrics<T = any>(
+  /**
+   * HTTP/1.1 request without proxy (your existing implementation)
+   */
+  private async requestWithHttp1Direct<T = any>(
     url: string,
     options: {
-      method?: "GET" | "POST" | "PUT" | "DELETE";
+      method: string;
       data?: any;
-      headers?: Record<string, string>;
-    } = {},
+      headers: Record<string, string>;
+    },
   ): Promise<RequestWithMetrics<T>> {
-    const { method = "GET", data, headers = {} } = options;
+    const { method, data, headers } = options;
 
     try {
       this.logger.debug(`Requesting ${url} without proxy (direct connection)`);
@@ -156,7 +384,6 @@ export class HttpClientService {
         ttfbTime = totalTime * 0.8;
       }
 
-      // Convert to Buffer once and calculate size
       const dataBuffer = this.convertToBuffer(response.data);
 
       const metrics: RequestMetrics = {
@@ -167,10 +394,13 @@ export class HttpClientService {
         statusCode,
         responseSize: dataBuffer.length,
         timestamp: new Date(),
+        httpVersion: "1.1",
       };
 
       this.logger.log(
-        `Request successful (direct) - TTFB: ${metrics.ttfb}ms, Total: ${metrics.totalTime}ms, Size: ${this.formatBytes(dataBuffer.length)}`,
+        `Request successful (direct) - TTFB: ${metrics.ttfb}ms, Total: ${metrics.totalTime}ms, Size: ${this.formatBytes(
+          dataBuffer.length,
+        )}`,
       );
 
       return {

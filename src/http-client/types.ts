@@ -1,3 +1,5 @@
+export type HttpVersion = "1.1" | "2";
+
 export interface RequestMetrics {
   ttfb: number;
   totalTime: number;
@@ -6,6 +8,7 @@ export interface RequestMetrics {
   statusCode: number;
   responseSize: number;
   timestamp: Date;
+  httpVersion?: HttpVersion;
 }
 
 export interface RequestWithMetrics<T> {

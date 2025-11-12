@@ -28,6 +28,9 @@ export interface RetrievalUrlResult {
 
   /** Url headers */
   headers?: Record<string, string>;
+
+  /** HTTP version to use for the request (defaults to '1.1') */
+  httpVersion?: "1.1" | "2";
 }
 
 /**

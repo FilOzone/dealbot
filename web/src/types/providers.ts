@@ -68,6 +68,28 @@ export interface ProviderPerformanceDto {
   avgRetrievalTtfbMs: number;
   avgRetrievalThroughputBps: number;
   totalDataRetrievedBytes: string;
+
+  // ipni metrics
+  totalIpniDeals: number;
+  ipniIndexedDeals: number;
+  ipniAdvertisedDeals: number;
+  ipniRetrievedDeals: number;
+  ipniVerifiedDeals: number;
+  ipniFailedDeals: number;
+  ipniSuccessRate: number;
+  avgIpniTimeToIndexMs: number;
+  avgIpniTimeToAdvertiseMs: number;
+  avgIpniTimeToRetrieveMs: number;
+  avgIpniTimeToVerifyMs: number;
+
+  totalIpfsRetrievals: number;
+  successfulIpfsRetrievals: number;
+  failedIpfsRetrievals: number;
+  ipfsRetrievalSuccessRate: number;
+  avgIpfsRetrievalLatencyMs: number;
+  avgIpfsRetrievalTtfbMs: number;
+  avgIpfsRetrievalThroughputBps: number;
+
   healthScore: number;
   avgDealSize?: number;
   lastDealAt: Date;

@@ -1,11 +1,11 @@
 import { Injectable, Logger } from "@nestjs/common";
 import type { Deal } from "../database/entities/deal.entity.js";
-import type { DealMetadata } from "../database/types.js";
+import type { DealMetadata, ServiceType } from "../database/types.js";
 import type { IDealAddon } from "./interfaces/deal-addon.interface.js";
 import { CdnAddonStrategy } from "./strategies/cdn.strategy.js";
 import { DirectAddonStrategy } from "./strategies/direct.strategy.js";
 import { IpniAddonStrategy } from "./strategies/ipni.strategy.js";
-import type { AddonExecutionContext, DealConfiguration, DealPreprocessingResult } from "./types.js";
+import type { AddonExecutionContext, DealConfiguration, DealPreprocessingResult, SynapseConfig } from "./types.js";
 
 /**
  * Orchestrator service for managing deal add-ons
@@ -85,7 +85,7 @@ export class DealAddonsService {
       const pipelineResult = await this.executePreprocessingPipeline(sortedAddons, config);
 
       // Merge Synapse configurations from all add-ons
-      const synapseConfig = this.mergeSynapseConfigs(sortedAddons);
+      const synapseConfig = this.mergeSynapseConfigs(sortedAddons, pipelineResult.aggregatedMetadata);
 
       const duration = Date.now() - startTime;
       this.logger.log(
@@ -106,6 +106,30 @@ export class DealAddonsService {
     } catch (error) {
       this.logger.error(`Deal preprocessing failed: ${error.message}`, error.stack);
       throw new Error(`Deal preprocessing failed: ${error.message}`);
+    }
+  }
+
+  /**
+   * Execute onUploadComplete handlers for all applicable add-ons
+   * Called when upload is complete to trigger tracking and monitoring
+   *
+   * @param deal - Deal entity with upload information
+   * @param appliedAddons - Names of add-ons that were applied during preprocessing
+   */
+  async handleUploadComplete(deal: Deal, appliedAddons: ServiceType[]): Promise<void> {
+    this.logger.debug(`Running onUploadComplete handlers for deal ${deal.id}`);
+
+    const uploadCompletePromises = appliedAddons
+      .map((addonName) => this.addons.get(addonName))
+      .filter((addon) => addon?.onUploadComplete)
+      .map((addon) => addon!.onUploadComplete!(deal));
+
+    try {
+      await Promise.all(uploadCompletePromises);
+      this.logger.debug(`onUploadComplete handlers completed for deal ${deal.id}`);
+    } catch (error) {
+      this.logger.warn(`onUploadComplete handler failed for deal ${deal.id}: ${error.message}`);
+      // Don't throw - handler failures shouldn't break the deal
     }
   }
 
@@ -179,7 +203,7 @@ export class DealAddonsService {
     finalData: Buffer | Uint8Array;
     finalSize: number;
     aggregatedMetadata: DealMetadata;
-    appliedAddons: string[];
+    appliedAddons: ServiceType[];
   }> {
     // Initialize execution context
     const context: AddonExecutionContext = {
@@ -188,7 +212,7 @@ export class DealAddonsService {
       configuration: config,
     };
 
-    const appliedAddons: string[] = [];
+    const appliedAddons: ServiceType[] = [];
 
     // Execute each add-on in sequence
     for (const addon of addons) {
@@ -239,12 +263,20 @@ export class DealAddonsService {
    * @returns Merged Synapse configuration
    * @private
    */
-  private mergeSynapseConfigs(addons: IDealAddon[]): { withCDN?: boolean; withIpni?: boolean } {
-    const merged: { withCDN?: boolean; withIpni?: boolean } = {};
+  private mergeSynapseConfigs(addons: IDealAddon[], dealMetadata: DealMetadata): SynapseConfig {
+    const merged: SynapseConfig = {};
 
     for (const addon of addons) {
-      const config = addon.getSynapseConfig();
+      const config = addon.getSynapseConfig?.(dealMetadata);
+      if (!config) continue;
+
       Object.assign(merged, config);
+      if (config.metadata) {
+        merged.metadata = {
+          ...merged.metadata,
+          ...config.metadata,
+        };
+      }
     }
 
     this.logger.debug(`Merged Synapse config: ${JSON.stringify(merged)}`);
