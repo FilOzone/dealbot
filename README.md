@@ -80,7 +80,7 @@ pnpm start:prod
 
 Complete API documentation is available via Swagger UI:
 
-**Production:** [https://dealbot-ga.fwss.io/api](https://dealbot-ga.fwss.io/api)
+**Production:** [https://dealbot.fwss.io/api](https://dealbot.fwss.io/api)
 
 **Local:** `http://localhost:3000/api` (when running locally)
 

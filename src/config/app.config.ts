@@ -23,6 +23,8 @@ export const configValidationSchema = Joi.object({
   OVERRIDE_CONTRACT_ADDRESSES: Joi.boolean().default(false),
   WARM_STORAGE_SERVICE_ADDRESS: Joi.string().optional(),
   USE_ONLY_APPROVED_PROVIDERS: Joi.boolean().default(true),
+  ENABLE_CDN_TESTING: Joi.boolean().default(true),
+  ENABLE_IPNI_TESTING: Joi.boolean().default(true),
 
   // Scheduling
   DEAL_INTERVAL_SECONDS: Joi.number().default(30),
@@ -62,6 +64,8 @@ export interface IBlockchainConfig {
   overrideContractAddresses: boolean;
   warmStorageServiceAddress: string;
   useOnlyApprovedProviders: boolean;
+  enableCDNTesting: boolean;
+  enableIpniTesting: boolean;
 }
 
 export interface ISchedulingConfig {
@@ -118,6 +122,8 @@ export function loadConfig(): IConfig {
       overrideContractAddresses: process.env.OVERRIDE_CONTRACT_ADDRESSES === "true",
       warmStorageServiceAddress: process.env.WARM_STORAGE_SERVICE_ADDRESS || "",
       useOnlyApprovedProviders: process.env.USE_ONLY_APPROVED_PROVIDERS === "true",
+      enableCDNTesting: process.env.ENABLE_CDN_TESTING === "true",
+      enableIpniTesting: process.env.ENABLE_IPNI_TESTING === "true",
     },
     scheduling: {
       dealIntervalSeconds: Number.parseInt(process.env.DEAL_INTERVAL_SECONDS || "30", 10),
