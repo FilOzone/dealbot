@@ -17,6 +17,7 @@ import { ProviderInfoEx } from "../wallet-sdk/wallet-sdk.types.js";
 @Injectable()
 export class DealService {
   private readonly logger = new Logger(DealService.name);
+  private readonly blockchainConfig: IBlockchainConfig;
   private synapse: Synapse;
 
   constructor(
@@ -28,12 +29,14 @@ export class DealService {
     private readonly dealRepository: Repository<Deal>,
     @InjectRepository(StorageProvider)
     private readonly storageProviderRepository: Repository<StorageProvider>,
-  ) {}
+  ) {
+    this.blockchainConfig = this.configService.get("blockchain");
+  }
 
   async createDealsForAllProviders(): Promise<Deal[]> {
     const totalProviders = this.walletSdkService.getTestingProvidersCount();
-    const enableCDN = Math.random() > 0.5;
-    const enableIpni = Math.random() > 0.5;
+    const enableCDN = this.blockchainConfig.enableCDNTesting ? Math.random() > 0.5 : false;
+    const enableIpni = this.blockchainConfig.enableIpniTesting ? Math.random() > 0.5 : false;
 
     this.logger.log(`Starting deal creation for ${totalProviders} providers (CDN: ${enableCDN}, IPNI: ${enableIpni})`);
 
@@ -62,7 +65,7 @@ export class DealService {
       fileSize: dealInput.processedData.size,
       spAddress: providerAddress,
       status: DealStatus.PENDING,
-      walletAddress: this.configService.get("blockchain").walletAddress,
+      walletAddress: this.blockchainConfig.walletAddress,
       metadata: dealInput.metadata,
       serviceTypes: dealInput.appliedAddons,
     });
@@ -131,10 +134,9 @@ export class DealService {
 
   private async getStorageService(): Promise<Synapse> {
     if (!this.synapse) {
-      const blockchainConfig = this.configService.get<IBlockchainConfig>("blockchain");
       this.synapse = await Synapse.create({
-        privateKey: blockchainConfig.walletPrivateKey,
-        rpcURL: RPC_URLS[blockchainConfig.network].http,
+        privateKey: this.blockchainConfig.walletPrivateKey,
+        rpcURL: RPC_URLS[this.blockchainConfig.network].http,
         warmStorageAddress: this.walletSdkService.getFWSSAddress(),
       });
     }
