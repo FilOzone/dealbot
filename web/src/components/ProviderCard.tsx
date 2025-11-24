@@ -261,14 +261,18 @@ export function ProviderCard({ provider, batchedVersion }: ProviderCardProps) {
             <div className='flex items-center justify-between gap-2'>
               <span className='text-sm text-muted-foreground'>Service URL</span>
               <a
-                href={provider.provider.serviceUrl.startsWith('http') ? provider.provider.serviceUrl : `https://${provider.provider.serviceUrl}`}
+                href={
+                  provider.provider.serviceUrl.startsWith("http")
+                    ? provider.provider.serviceUrl
+                    : `https://${provider.provider.serviceUrl}`
+                }
                 target='_blank'
                 rel='noopener noreferrer'
                 className='text-xs text-blue-600 hover:text-blue-800 hover:underline truncate max-w-[160px]'
                 title={provider.provider.serviceUrl}
               >
                 {provider.provider.serviceUrl}
-                </a>
+              </a>
             </div>
           )}
         </div>
