@@ -12,6 +12,7 @@ export class SchedulerService implements OnModuleInit {
   private readonly logger = new Logger(SchedulerService.name);
   private isRunningDealCreation = false;
   private isRunningRetrievalTests = false;
+  private isRunningBalanceCheck = false;
 
   constructor(
     private dealService: DealService,
@@ -43,6 +44,7 @@ export class SchedulerService implements OnModuleInit {
 
   private setupDynamicCronJobs() {
     const config = this.configService.get<ISchedulingConfig>("scheduling");
+    const walletMonitorConfig = this.configService.get("walletMonitor");
     this.logger.log(`Scheduling configuration found: ${JSON.stringify(config)}`);
 
     scheduleJobWithOffset(
@@ -63,9 +65,21 @@ export class SchedulerService implements OnModuleInit {
       this.logger,
     );
 
+    // Wallet balance monitor with stagger after metrics job
+    const balanceCheckOffset = config.metricsStartOffsetSeconds + 600; // 10 min after metrics
+    scheduleJobWithOffset(
+      "walletBalanceMonitor",
+      balanceCheckOffset,
+      walletMonitorConfig.balanceCheckIntervalSeconds,
+      this.schedulerRegistry,
+      this.handleWalletBalanceCheck.bind(this),
+      this.logger,
+    );
+
     this.logger.log(
       `Staggered scheduler setup: Deal creation (offset: ${config.dealStartOffsetSeconds}s, interval: ${config.dealIntervalSeconds}s), ` +
-        `Retrieval tests (offset: ${config.retrievalStartOffsetSeconds}s, interval: ${config.retrievalIntervalSeconds}s)`,
+        `Retrieval tests (offset: ${config.retrievalStartOffsetSeconds}s, interval: ${config.retrievalIntervalSeconds}s), ` +
+        `Wallet balance monitor (offset: ${balanceCheckOffset}s, interval: ${walletMonitorConfig.balanceCheckIntervalSeconds}s)`,
     );
   }
 
@@ -121,6 +135,24 @@ export class SchedulerService implements OnModuleInit {
       this.logger.error("Failed to perform scheduled retrievals", error);
     } finally {
       this.isRunningRetrievalTests = false;
+    }
+  }
+
+  async handleWalletBalanceCheck() {
+    if (this.isRunningBalanceCheck) {
+      this.logger.debug("Previous wallet balance check still running, skipping...");
+      return;
+    }
+
+    this.isRunningBalanceCheck = true;
+    this.logger.debug("Starting scheduled wallet balance check");
+
+    try {
+      await this.walletSdkService.checkAndHandleBalance();
+    } catch (error) {
+      this.logger.error("Failed to check wallet balance", error);
+    } finally {
+      this.isRunningBalanceCheck = false;
     }
   }
 }
