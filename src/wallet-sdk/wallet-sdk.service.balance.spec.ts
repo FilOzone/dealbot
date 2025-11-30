@@ -1,0 +1,83 @@
+import { WalletSdkService } from "./wallet-sdk.service.js";
+
+// Minimal mock for ESM SDK to allow TS file import without loading real package
+jest.mock("@filoz/synapse-sdk", () => ({
+  CONTRACT_ADDRESSES: {
+    WARM_STORAGE: { calibration: "0xwarm" },
+    PAYMENTS: { calibration: "0xpayments" },
+  },
+}), { virtual: true });
+
+jest.mock("@filoz/synapse-sdk/sp-registry", () => ({
+  SPRegistryService: class {},
+}), { virtual: true });
+
+describe("WalletSdkService balance monitoring", () => {
+  const makeService = (opts: {
+    availableFunds: bigint;
+    filBalance?: bigint;
+    alertOnly?: boolean;
+    autoFundEnabled?: boolean;
+    autoFundAmount?: bigint;
+    threshold?: bigint;
+  }) => {
+    const cfg: any = {
+      get: (key: string) => {
+        if (key === "blockchain") {
+          return { network: "calibration" };
+        }
+        if (key === "walletMonitor") {
+          return {
+            balanceCheckIntervalSeconds: 60,
+            balanceThresholdUsdfc: String(opts.threshold ?? 1000n),
+            autoFundAmountUsdfc: String(opts.autoFundAmount ?? 500n),
+            autoFundEnabled: opts.autoFundEnabled ?? false,
+            alertOnlyMode: opts.alertOnly ?? true,
+            cooldownMinutes: 30,
+          };
+        }
+        return undefined;
+      },
+    };
+
+    const repo: any = {};
+    const alerts = {
+      sendLowBalanceAlert: jest.fn(async () => {}),
+      sendFundResultAlert: jest.fn(async () => {}),
+    } as any;
+
+    const svc = new WalletSdkService(cfg, repo, alerts) as any;
+    svc["paymentsService"] = {
+      balance: jest.fn(async () => opts.availableFunds),
+      walletBalance: jest.fn(async () => (opts.filBalance ?? 1n)),
+      allowance: jest.fn(async () => 0n),
+      deposit: jest.fn(async () => ({ hash: "0xhash", wait: async () => ({ transactionHash: "0xhash" }) })),
+    };
+    svc["paymentsAddress"] = "0xpayments";
+
+    return { svc, alerts };
+  };
+
+  it("alerts on low balance in alert-only mode and enforces cooldown", async () => {
+    const { svc, alerts } = makeService({ availableFunds: 10n, threshold: 100n, alertOnly: true });
+    await svc.checkAndHandleBalance();
+    expect(alerts.sendLowBalanceAlert).toHaveBeenCalledTimes(1);
+
+    // Second call within cooldown should skip
+    await svc.checkAndHandleBalance();
+    expect(alerts.sendLowBalanceAlert).toHaveBeenCalledTimes(1);
+  });
+
+  it("alerts when no FIL gas prevents auto-fund", async () => {
+    const { svc, alerts } = makeService({
+      availableFunds: 10n,
+      threshold: 100n,
+      alertOnly: false,
+      autoFundEnabled: true,
+      autoFundAmount: 50n,
+      filBalance: 0n,
+    });
+    await svc.checkAndHandleBalance();
+    expect(alerts.sendLowBalanceAlert).toHaveBeenCalledTimes(1);
+  });
+});

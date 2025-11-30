@@ -15,8 +15,9 @@ import { JsonRpcProvider, MaxUint256 } from "ethers";
 import { Repository } from "typeorm";
 import { Hex } from "viem";
 import { DEV_TAG } from "../common/constants.js";
-import type { IBlockchainConfig, IConfig } from "../config/app.config.js";
+import type { IBlockchainConfig, IConfig, IWalletMonitorConfig } from "../config/app.config.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
+import { AlertService } from "./alert.service.js";
 import type {
   FundDepositLog,
   ProviderInfoEx,
@@ -31,19 +32,27 @@ import type {
 export class WalletSdkService implements OnModuleInit {
   private readonly logger = new Logger(WalletSdkService.name);
   private readonly blockchainConfig: IBlockchainConfig;
+  private readonly walletMonitorConfig: IWalletMonitorConfig;
   private paymentsService: PaymentsService;
   private warmStorageService: WarmStorageService;
   private spRegistry: SPRegistryService;
+  private paymentsAddress: string | undefined;
   private providerCache: Map<string, ProviderInfoEx> = new Map();
   private activeProviderAddresses: Set<string> = new Set();
   private approvedProviderAddresses: Set<string> = new Set();
+
+  // Auto-fund/alert state
+  private balanceCheckLock = false;
+  private lastActionTimestampMs = 0;
 
   constructor(
     private readonly configService: ConfigService<IConfig, true>,
     @InjectRepository(StorageProvider)
     private readonly spRepository: Repository<StorageProvider>,
+    private readonly alertService: AlertService,
   ) {
     this.blockchainConfig = this.configService.get<IBlockchainConfig>("blockchain");
+    this.walletMonitorConfig = this.configService.get<IWalletMonitorConfig>("walletMonitor");
   }
 
   async onModuleInit() {
@@ -66,6 +75,7 @@ export class WalletSdkService implements OnModuleInit {
     this.warmStorageService = await WarmStorageService.create(provider, warmStorageAddress);
     this.spRegistry = new SPRegistryService(provider, this.warmStorageService.getServiceProviderRegistryAddress());
     this.paymentsService = synapse.payments;
+    this.paymentsAddress = synapse.getPaymentsAddress();
   }
 
   /**
@@ -357,6 +367,146 @@ export class WalletSdkService implements OnModuleInit {
 
     if (this.requiresApproval(requirements)) {
       await this.approveStorageService(requirements);
+    }
+  }
+
+  // ============================================================================
+  // Balance Monitoring & Auto-fund
+  // ============================================================================
+
+  private getPaymentsAddress(): string {
+    return this.paymentsAddress ?? "";
+  }
+
+  private isCooldownActive(): boolean {
+    const cooldownMs = (this.walletMonitorConfig?.cooldownMinutes ?? 30) * 60 * 1000;
+    return Date.now() - this.lastActionTimestampMs < cooldownMs;
+  }
+
+  private markActionTimestamp(): void {
+    this.lastActionTimestampMs = Date.now();
+  }
+
+  async checkAndHandleBalance(): Promise<void> {
+    if (this.balanceCheckLock) {
+      this.logger.debug("Wallet monitor is locked; skipping concurrent run");
+      return;
+    }
+    this.balanceCheckLock = true;
+    try {
+      const thresholdStr = this.walletMonitorConfig?.balanceThresholdUsdfc ?? "0";
+      const autoFundAmountStr = this.walletMonitorConfig?.autoFundAmountUsdfc ?? "0";
+      const autoFundEnabled = this.walletMonitorConfig?.autoFundEnabled ?? false;
+      const alertOnly = this.walletMonitorConfig?.alertOnlyMode ?? false;
+
+      const threshold = BigInt(thresholdStr);
+      const autoFundAmount = BigInt(autoFundAmountStr);
+
+      // If no threshold configured, skip quietly
+      if (threshold <= 0n) {
+        this.logger.debug("Wallet monitor threshold is 0; skipping check");
+        return;
+      }
+
+      // Current available funds in Payments account (USDFC)
+      const availableFunds = await this.paymentsService.balance();
+
+      if (availableFunds >= threshold) {
+        this.logger.debug("Wallet available funds meet threshold; nothing to do", {
+          availableFunds: availableFunds.toString(),
+          threshold: threshold.toString(),
+        });
+        return;
+      }
+
+      // Enforce mandatory cooldown
+      if (this.isCooldownActive()) {
+        this.logger.warn("Wallet monitor cooldown active; skipping action", {
+          lastActionAt: new Date(this.lastActionTimestampMs).toISOString(),
+          cooldownMinutes: this.walletMonitorConfig?.cooldownMinutes ?? 30,
+        });
+        return;
+      }
+
+      // Check native FIL balance for gas (walletBalance(undefined) -> FIL)
+      const filBalance = await this.paymentsService.walletBalance(undefined as any);
+      if (filBalance <= 0n) {
+        this.logger.warn("Insufficient FIL for gas; cannot auto-fund");
+        await this.alertService.sendLowBalanceAlert({
+          reason: "no_fil_gas",
+          availableFunds: availableFunds.toString(),
+          threshold: threshold.toString(),
+          filBalance: filBalance.toString(),
+        });
+        this.markActionTimestamp();
+        return;
+      }
+
+      // If alert-only mode or auto-fund disabled/amount zero => alert
+      if (alertOnly || !autoFundEnabled || autoFundAmount <= 0n) {
+        this.logger.warn("Low USDFC balance detected; alert-only path", {
+          availableFunds: availableFunds.toString(),
+          threshold: threshold.toString(),
+          filBalance: filBalance.toString(),
+        });
+        await this.alertService.sendLowBalanceAlert({
+          reason: "low_usdfc",
+          availableFunds: availableFunds.toString(),
+          threshold: threshold.toString(),
+          filBalance: filBalance.toString(),
+        });
+        this.markActionTimestamp();
+        return;
+      }
+
+      // Verify USDFC allowance for Payments contract (pre-check)
+      const paymentsSpender = this.getPaymentsAddress();
+      const currentAllowance = await this.paymentsService.allowance(paymentsSpender);
+
+      this.logger.log("Pre-check allowance before deposit", {
+        paymentsSpender,
+        currentAllowance: currentAllowance.toString(),
+        required: autoFundAmount.toString(),
+      });
+
+      try {
+        const depositTx = await this.paymentsService.deposit(autoFundAmount, undefined, {
+          onAllowanceCheck: (allowance: bigint) =>
+            this.logger.log("Allowance checked", { allowance: allowance.toString() }),
+          onApprovalTransaction: (tx: any) =>
+            this.logger.log("Approval tx submitted", { hash: tx.hash }),
+          onApprovalConfirmed: (receipt: any) =>
+            this.logger.log("Approval confirmed", { txHash: receipt?.hash }),
+          onDepositStarting: () =>
+            this.logger.log("Deposit starting", { amount: autoFundAmount.toString() }),
+        } as any);
+
+        this.logger.log("Auto-fund deposit submitted", { txHash: depositTx.hash });
+        const receipt = await depositTx.wait();
+        this.logger.log("Auto-fund deposit confirmed", { txHash: receipt?.hash ?? depositTx.hash });
+
+        const postFunds = await this.paymentsService.balance();
+        await this.alertService.sendFundResultAlert({
+          status: "success",
+          depositAmount: autoFundAmount.toString(),
+          txHash: depositTx.hash,
+          availableFundsBefore: availableFunds.toString(),
+          availableFundsAfter: postFunds.toString(),
+        });
+      } catch (error) {
+        this.logger.error("Auto-fund deposit failed", { error: String(error) });
+        await this.alertService.sendFundResultAlert({
+          status: "failed",
+          depositAmount: autoFundAmount.toString(),
+          availableFunds: availableFunds.toString(),
+          error: String((error as any)?.message ?? error),
+        });
+      } finally {
+        // Always mark cooldown after an action (success or failure)
+        this.markActionTimestamp();
+      }
+    } finally {
+      this.balanceCheckLock = false;
     }
   }
 
