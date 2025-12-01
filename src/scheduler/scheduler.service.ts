@@ -7,6 +7,8 @@ import { DealService } from "../deal/deal.service.js";
 import { RetrievalService } from "../retrieval/retrieval.service.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
 
+const WALLET_MONITOR_STAGGER_SECONDS = 600;
+
 @Injectable()
 export class SchedulerService implements OnModuleInit {
   private readonly logger = new Logger(SchedulerService.name);
@@ -66,7 +68,7 @@ export class SchedulerService implements OnModuleInit {
     );
 
     // Wallet balance monitor with stagger after metrics job
-    const balanceCheckOffset = config.metricsStartOffsetSeconds + 600; // 10 min after metrics
+    const balanceCheckOffset = config.metricsStartOffsetSeconds + WALLET_MONITOR_STAGGER_SECONDS;
     scheduleJobWithOffset(
       "walletBalanceMonitor",
       balanceCheckOffset,
