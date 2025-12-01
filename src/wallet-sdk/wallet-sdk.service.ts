@@ -435,8 +435,8 @@ export class WalletSdkService implements OnModuleInit {
         return;
       }
 
-      // Check native FIL balance for gas (walletBalance(undefined) -> FIL)
-      const filBalance = await this.paymentsService.walletBalance(undefined as any);
+      // Check native FIL balance for gas (walletBalance() -> FIL)
+      const filBalance = await this.paymentsService.walletBalance();
       if (filBalance <= 0n) {
         this.logger.warn("Insufficient FIL for gas; cannot auto-fund");
         await this.alertService.sendLowBalanceAlert({
