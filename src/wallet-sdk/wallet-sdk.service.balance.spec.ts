@@ -80,4 +80,35 @@ describe("WalletSdkService balance monitoring", () => {
     await svc.checkAndHandleBalance();
     expect(alerts.sendLowBalanceAlert).toHaveBeenCalledTimes(1);
   });
+
+  it("executes deposit and alerts success when auto-fund enabled and conditions met", async () => {
+    const fundAmount = 500n;
+    const { svc, alerts } = makeService({
+      availableFunds: 10n, // Below threshold
+      threshold: 1000n,
+      autoFundAmount: fundAmount,
+      autoFundEnabled: true,
+      alertOnly: false,
+      filBalance: 1000000000000000000n, // Sufficient gas (1 FIL)
+    });
+
+    await svc.checkAndHandleBalance();
+
+    // Verify deposit was called with correct amount
+    expect(svc["paymentsService"].deposit).toHaveBeenCalledTimes(1);
+    expect(svc["paymentsService"].deposit).toHaveBeenCalledWith(
+      fundAmount,
+      undefined,
+      expect.any(Object), // callbacks
+    );
+
+    // Verify success alert was sent
+    expect(alerts.sendFundResultAlert).toHaveBeenCalledTimes(1);
+    expect(alerts.sendFundResultAlert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "success",
+        depositAmount: fundAmount.toString(),
+      }),
+    );
+  });
 });
