@@ -480,12 +480,10 @@ export class WalletSdkService implements OnModuleInit {
         const depositCallbacks: IDepositCallbacks = {
           onAllowanceCheck: (allowance: bigint) =>
             this.logger.log("Allowance checked", { allowance: allowance.toString() }),
-          onApprovalTransaction: (tx: { hash: string }) =>
-            this.logger.log("Approval tx submitted", { hash: tx.hash }),
+          onApprovalTransaction: (tx: { hash: string }) => this.logger.log("Approval tx submitted", { hash: tx.hash }),
           onApprovalConfirmed: (receipt: { hash?: string }) =>
             this.logger.log("Approval confirmed", { txHash: receipt?.hash }),
-          onDepositStarting: () =>
-            this.logger.log("Deposit starting", { amount: autoFundAmount.toString() }),
+          onDepositStarting: () => this.logger.log("Deposit starting", { amount: autoFundAmount.toString() }),
         };
 
         const depositTx = await this.paymentsService.deposit(autoFundAmount, undefined, depositCallbacks);

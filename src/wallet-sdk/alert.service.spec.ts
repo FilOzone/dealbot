@@ -26,7 +26,7 @@ describe("AlertService", () => {
         return undefined;
       }),
     };
-    
+
     const svc = new AlertService(httpClient, configService);
     return { svc, httpClient };
   };

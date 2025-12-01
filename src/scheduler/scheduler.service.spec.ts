@@ -1,25 +1,41 @@
 import { SchedulerService } from "./scheduler.service.js";
 
 // Mock SDK and dependencies to avoid ESM resolution issues in tests
-jest.mock("@filoz/synapse-sdk", () => ({
-  RPC_URLS: { calibration: { http: "http://mock" } },
-  SIZE_CONSTANTS: {},
-  Synapse: class {},
-  METADATA_KEYS: {},
-  PDPServer: class {},
-}), { virtual: true });
+jest.mock(
+  "@filoz/synapse-sdk",
+  () => ({
+    RPC_URLS: { calibration: { http: "http://mock" } },
+    SIZE_CONSTANTS: {},
+    Synapse: class {},
+    METADATA_KEYS: {},
+    PDPServer: class {},
+  }),
+  { virtual: true },
+);
 
-jest.mock("@filoz/synapse-sdk/sp-registry", () => ({
-  SPRegistryService: class {},
-}), { virtual: true });
+jest.mock(
+  "@filoz/synapse-sdk/sp-registry",
+  () => ({
+    SPRegistryService: class {},
+  }),
+  { virtual: true },
+);
 
-jest.mock("@ipld/car", () => ({
-  CarWriter: class {},
-}), { virtual: true });
+jest.mock(
+  "@ipld/car",
+  () => ({
+    CarWriter: class {},
+  }),
+  { virtual: true },
+);
 
-jest.mock("multiformats/cid", () => ({
-  CID: { parse: jest.fn() },
-}), { virtual: true });
+jest.mock(
+  "multiformats/cid",
+  () => ({
+    CID: { parse: jest.fn() },
+  }),
+  { virtual: true },
+);
 
 jest.mock("multiformats/codecs/raw", () => ({}), { virtual: true });
 jest.mock("multiformats/hashes/sha2", () => ({ sha256: {} }), { virtual: true });

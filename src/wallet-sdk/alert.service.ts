@@ -1,7 +1,7 @@
-import { Injectable, Logger, Inject } from "@nestjs/common";
-import { HttpClientService } from "../http-client/http-client.service.js";
+import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import type { IConfig, IAlertsConfig } from "../config/app.config.js";
+import type { IAlertsConfig, IConfig } from "../config/app.config.js";
+import { HttpClientService } from "../http-client/http-client.service.js";
 
 type Json = Record<string, unknown>;
 
@@ -12,9 +12,9 @@ export class AlertService {
 
   constructor(
     private readonly httpClient: HttpClientService,
-    private readonly configService: ConfigService<IConfig, true>
+    private readonly configService: ConfigService<IConfig, true>,
   ) {
-    const alerts: IAlertsConfig = this.configService.get<IAlertsConfig>('alerts');
+    const alerts: IAlertsConfig = this.configService.get<IAlertsConfig>("alerts");
     this.webhookUrl = alerts?.webhookUrl;
   }
 
