@@ -2,7 +2,7 @@ import { Injectable, Logger, type OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { SchedulerRegistry } from "@nestjs/schedule";
 import { scheduleJobWithOffset } from "../common/utils.js";
-import type { IConfig, ISchedulingConfig } from "../config/app.config.js";
+import type { IConfig, ISchedulingConfig, IWalletMonitorConfig } from "../config/app.config.js";
 import { DealService } from "../deal/deal.service.js";
 import { RetrievalService } from "../retrieval/retrieval.service.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
@@ -44,7 +44,7 @@ export class SchedulerService implements OnModuleInit {
 
   private setupDynamicCronJobs() {
     const config = this.configService.get<ISchedulingConfig>("scheduling");
-    const walletMonitorConfig = this.configService.get("walletMonitor");
+    const walletMonitorConfig = this.configService.get<IWalletMonitorConfig>("walletMonitor");
     this.logger.log(`Scheduling configuration found: ${JSON.stringify(config)}`);
 
     scheduleJobWithOffset(
