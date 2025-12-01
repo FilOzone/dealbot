@@ -1,6 +1,7 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Injectable, Logger, Inject } from "@nestjs/common";
 import { HttpClientService } from "../http-client/http-client.service.js";
-import { loadConfig } from "../config/app.config.js";
+import { ConfigService } from "@nestjs/config";
+import type { IConfig, IAlertsConfig } from "../config/app.config.js";
 
 type Json = Record<string, unknown>;
 
@@ -9,9 +10,12 @@ export class AlertService {
   private readonly logger = new Logger(AlertService.name);
   private readonly webhookUrl: string;
 
-  constructor(private readonly httpClient: HttpClientService) {
-    const { alerts } = loadConfig();
-    this.webhookUrl = alerts.webhookUrl;
+  constructor(
+    private readonly httpClient: HttpClientService,
+    private readonly configService: ConfigService<IConfig, true>
+  ) {
+    const alerts: IAlertsConfig = this.configService.get<IAlertsConfig>('alerts');
+    this.webhookUrl = alerts?.webhookUrl;
   }
 
   async sendLowBalanceAlert(details: Json): Promise<void> {

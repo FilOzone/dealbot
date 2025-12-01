@@ -16,7 +16,18 @@ describe("AlertService", () => {
     const httpClient: any = {
       postJson: jest.fn((url: string, body: any) => postImpl(url, body)),
     };
-    const svc = new AlertService(httpClient);
+
+    // Mock ConfigService
+    const configService: any = {
+      get: jest.fn((key) => {
+        if (key === "alerts") {
+          return { webhookUrl: process.env.ALERT_WEBHOOK_URL || "" };
+        }
+        return undefined;
+      }),
+    };
+    
+    const svc = new AlertService(httpClient, configService);
     return { svc, httpClient };
   };
 
