@@ -28,6 +28,13 @@ import type {
   WalletStatusLog,
 } from "./wallet-sdk.types.js";
 
+export interface IDepositCallbacks {
+  onAllowanceCheck?: (allowance: bigint) => void;
+  onApprovalTransaction?: (tx: { hash: string }) => void;
+  onApprovalConfirmed?: (receipt: { hash?: string }) => void;
+  onDepositStarting?: () => void;
+}
+
 @Injectable()
 export class WalletSdkService implements OnModuleInit {
   private readonly logger = new Logger(WalletSdkService.name);
@@ -470,16 +477,18 @@ export class WalletSdkService implements OnModuleInit {
       });
 
       try {
-        const depositTx = await this.paymentsService.deposit(autoFundAmount, undefined, {
+        const depositCallbacks: IDepositCallbacks = {
           onAllowanceCheck: (allowance: bigint) =>
             this.logger.log("Allowance checked", { allowance: allowance.toString() }),
-          onApprovalTransaction: (tx: any) =>
+          onApprovalTransaction: (tx: { hash: string }) =>
             this.logger.log("Approval tx submitted", { hash: tx.hash }),
-          onApprovalConfirmed: (receipt: any) =>
+          onApprovalConfirmed: (receipt: { hash?: string }) =>
             this.logger.log("Approval confirmed", { txHash: receipt?.hash }),
           onDepositStarting: () =>
             this.logger.log("Deposit starting", { amount: autoFundAmount.toString() }),
-        } as any);
+        };
+
+        const depositTx = await this.paymentsService.deposit(autoFundAmount, undefined, depositCallbacks);
 
         this.logger.log("Auto-fund deposit submitted", { txHash: depositTx.hash });
         const receipt = await depositTx.wait();
