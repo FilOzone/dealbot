@@ -111,4 +111,27 @@ describe("WalletSdkService balance monitoring", () => {
       }),
     );
   });
+
+  it("alerts failure when deposit transaction throws error", async () => {
+    const { svc, alerts } = makeService({
+      availableFunds: 10n,
+      threshold: 100n,
+      autoFundEnabled: true,
+      alertOnly: false,
+      filBalance: 1000000000000000000n, // Sufficient gas
+    });
+
+    // Mock deposit failure
+    svc["paymentsService"].deposit.mockRejectedValueOnce(new Error("Insufficient funds"));
+
+    await svc.checkAndHandleBalance();
+
+    expect(alerts.sendFundResultAlert).toHaveBeenCalledTimes(1);
+    expect(alerts.sendFundResultAlert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "failed",
+        error: expect.stringContaining("Insufficient funds"),
+      }),
+    );
+  });
 });
