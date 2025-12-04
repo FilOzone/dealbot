@@ -216,6 +216,7 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
     ipniTimeoutMs: number,
     pollIntervalMs: number,
   ): Promise<MonitorAndVerifyResult> {
+    const startTime = Date.now();
     let monitoringResult: PieceMonitoringResult;
     try {
       monitoringResult = await this.monitorPieceStatus(pdpServer, pieceCid, statusTimeoutMs, pollIntervalMs);
@@ -243,8 +244,11 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       await new Promise((resolve) => setTimeout(resolve, this.IPNI_VERIFICATION_DELAY_MS));
     }
 
+    const elapsedMs = Date.now() - startTime;
+    const remainingTimeMs = Math.max(1, ipniTimeoutMs - elapsedMs);
+
     // Always verify CIDs via filecoinpin.contact - this is the terminal state
-    const ipniResult = await this.verifyIPNIAdvertisement(rootCID, blockCIDs, expectedMultiaddr, ipniTimeoutMs);
+    const ipniResult = await this.verifyIPNIAdvertisement(rootCID, blockCIDs, expectedMultiaddr, remainingTimeMs);
 
     return {
       monitoringResult,

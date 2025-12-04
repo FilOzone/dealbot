@@ -1,5 +1,5 @@
 import { type PieceCID, RPC_URLS, SIZE_CONSTANTS, Synapse, type UploadResult } from "@filoz/synapse-sdk";
-import { Injectable, Logger } from "@nestjs/common";
+import { Injectable, Logger, type OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
 import type { Repository } from "typeorm";
@@ -15,7 +15,7 @@ import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
 import { ProviderInfoEx } from "../wallet-sdk/wallet-sdk.types.js";
 
 @Injectable()
-export class DealService {
+export class DealService implements OnModuleInit {
   private readonly logger = new Logger(DealService.name);
   private readonly blockchainConfig: IBlockchainConfig;
   private synapse: Synapse;
@@ -31,6 +31,14 @@ export class DealService {
     private readonly storageProviderRepository: Repository<StorageProvider>,
   ) {
     this.blockchainConfig = this.configService.get("blockchain");
+  }
+
+  async onModuleInit() {
+    this.synapse = await Synapse.create({
+      privateKey: this.blockchainConfig.walletPrivateKey,
+      rpcURL: RPC_URLS[this.blockchainConfig.network].websocket,
+      warmStorageAddress: this.walletSdkService.getFWSSAddress(),
+    });
   }
 
   async createDealsForAllProviders(): Promise<Deal[]> {
@@ -76,8 +84,7 @@ export class DealService {
         where: { address: deal.spAddress },
       });
 
-      const synapse = await this.getStorageService();
-      const storage = await synapse.createStorage({
+      const storage = await this.synapse.createStorage({
         providerAddress,
         ...dealInput.synapseConfig,
       });
@@ -130,17 +137,6 @@ export class DealService {
     } catch (error) {
       this.logger.warn(`Failed to save deal ${deal.pieceCid}: ${error.message}`);
     }
-  }
-
-  private async getStorageService(): Promise<Synapse> {
-    if (!this.synapse) {
-      this.synapse = await Synapse.create({
-        privateKey: this.blockchainConfig.walletPrivateKey,
-        rpcURL: RPC_URLS[this.blockchainConfig.network].http,
-        warmStorageAddress: this.walletSdkService.getFWSSAddress(),
-      });
-    }
-    return this.synapse;
   }
 
   // ============================================================================
