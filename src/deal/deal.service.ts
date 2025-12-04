@@ -150,7 +150,7 @@ export class DealService {
   private async processProvidersInParallel(
     providers: ProviderInfoEx[],
     dealInput: DealPreprocessingResult,
-    maxConcurrency: number = 20,
+    maxConcurrency: number = 10,
   ): Promise<Array<{ success: boolean; deal?: Deal; error?: string; provider: string }>> {
     const results: Array<{ success: boolean; deal?: Deal; error?: string; provider: string }> = [];
 
