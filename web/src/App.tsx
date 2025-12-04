@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { DailyMetricsCharts } from "./components/DailyMetricsCharts";
 import { ErrorState } from "./components/ErrorState";
 import { FailedDeals } from "./components/FailedDeals";
@@ -16,6 +16,7 @@ import { useFailedDeals } from "./hooks/useFailedDeals";
 import { useFailedRetrievals } from "./hooks/useFailedRetrievals";
 import { useNetworkStats } from "./hooks/useNetworkStats";
 import { useProviders } from "./hooks/useProviders";
+import { useVersion } from "./hooks/useVersion";
 import { ServiceType } from "./types/services";
 
 /**
@@ -24,6 +25,22 @@ import { ServiceType } from "./types/services";
  */
 
 export default function App() {
+  // Get version information
+  const { version } = useVersion();
+
+  // Log version info to console on mount
+  useEffect(() => {
+    if (version) {
+      console.log("%c=".repeat(60), "color: #3b82f6");
+      console.log("%cDealbot Web", "color: #3b82f6; font-size: 16px; font-weight: bold");
+      console.log(`%cVersion: ${version.version}`, "color: #10b981");
+      console.log(`%cCommit: ${version.commit} (${version.commitShort})`, "color: #10b981");
+      console.log(`%cBranch: ${version.branch}`, "color: #10b981");
+      console.log(`%cBuild Time: ${version.buildTime}`, "color: #10b981");
+      console.log("%c=".repeat(60), "color: #3b82f6");
+    }
+  }, [version]);
+
   // Filter state
   const [activeOnly, setActiveOnly] = useState(true); // Default to showing only active providers
   const [approvedOnly, setApprovedOnly] = useState(false);
@@ -332,6 +349,12 @@ export default function App() {
               <p className='text-sm text-muted-foreground'>Automated storage deals on Filecoin network</p>
               <p className='text-xs text-muted-foreground mt-1'>
                 CDN A/B testing • Performance tracking • Real-time monitoring
+                {version && (
+                  <span className='opacity-60'>
+                    {" "}
+                    • v{version.version}-{version.commitShort}
+                  </span>
+                )}
               </p>
             </div>
 
