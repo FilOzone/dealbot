@@ -34,11 +34,16 @@ export class DealService implements OnModuleInit {
   }
 
   async onModuleInit() {
-    this.synapse = await Synapse.create({
-      privateKey: this.blockchainConfig.walletPrivateKey,
-      rpcURL: RPC_URLS[this.blockchainConfig.network].websocket,
-      warmStorageAddress: this.walletSdkService.getFWSSAddress(),
-    });
+    try {
+      this.synapse = await Synapse.create({
+        privateKey: this.blockchainConfig.walletPrivateKey,
+        rpcURL: RPC_URLS[this.blockchainConfig.network].http,
+        warmStorageAddress: this.walletSdkService.getFWSSAddress(),
+      });
+    } catch (error) {
+      this.logger.error(`Failed to initialize DealService: ${error.message}`, error.stack);
+      throw error;
+    }
   }
 
   async createDealsForAllProviders(): Promise<Deal[]> {
