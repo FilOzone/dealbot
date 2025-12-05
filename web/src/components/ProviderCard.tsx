@@ -260,19 +260,23 @@ export function ProviderCard({ provider, batchedVersion }: ProviderCardProps) {
           {provider.provider.serviceUrl && (
             <div className='flex items-center justify-between gap-2'>
               <span className='text-sm text-muted-foreground'>Service URL</span>
-              <a
-                href={
-                  provider.provider.serviceUrl.startsWith("http")
-                    ? provider.provider.serviceUrl
-                    : `https://${provider.provider.serviceUrl}`
-                }
-                target='_blank'
-                rel='noopener noreferrer'
-                className='text-xs text-blue-600 hover:text-blue-800 hover:underline truncate max-w-[160px]'
-                title={provider.provider.serviceUrl}
-              >
-                {provider.provider.serviceUrl}
-              </a>
+              <div className='flex items-center gap-1.5'>
+                <code className='text-xs bg-muted px-2 py-1 rounded font-mono truncate max-w-[160px]'>
+                  {provider.provider.serviceUrl}
+                </code>
+                <Button
+                  variant='ghost'
+                  size='sm'
+                  className='h-7 w-7 p-0'
+                  onClick={() => copyToClipboard(provider.provider.serviceUrl, provider.provider.serviceUrl)}
+                >
+                  {copiedProvider === provider.provider.serviceUrl ? (
+                    <Check className='h-3.5 w-3.5 text-green-600' />
+                  ) : (
+                    <Copy className='h-3.5 w-3.5' />
+                  )}
+                </Button>
+              </div>
             </div>
           )}
         </div>

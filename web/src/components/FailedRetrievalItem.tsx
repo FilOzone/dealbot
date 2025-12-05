@@ -1,13 +1,18 @@
-import { AlertCircle, Download } from "lucide-react";
+import { AlertCircle, Download, Copy, Check } from "lucide-react";
+import { useState } from "react";
 import type { FailedRetrieval } from "../types/failed-retrievals";
 import { AccordionContent, AccordionItem, AccordionTrigger } from "./ui/accordion";
 import { Badge } from "./ui/badge";
+import { Button } from "./ui/button";
+
 
 interface FailedRetrievalItemProps {
   retrieval: FailedRetrieval;
 }
 
 export function FailedRetrievalItem({ retrieval }: FailedRetrievalItemProps) {
+  const [copiedEndpoint, setCopiedEndpoint] = useState<string | null>(null);
+  
   const formatDate = (date: Date) => {
     return new Date(date).toLocaleDateString("en-US", {
       year: "numeric",
@@ -16,6 +21,16 @@ export function FailedRetrievalItem({ retrieval }: FailedRetrievalItemProps) {
       hour: "2-digit",
       minute: "2-digit",
     });
+  };
+
+  const copyToClipboard = async (text: string, id: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedEndpoint(id);
+      setTimeout(() => setCopiedEndpoint(null), 2000);
+    } catch (err) {
+      console.error("Failed to copy text: ", err);
+    }
   };
 
   const getServiceTypeBadgeColor = (serviceType: string) => {
@@ -94,9 +109,29 @@ export function FailedRetrievalItem({ retrieval }: FailedRetrievalItemProps) {
 
             <div>
               <p className='text-xs text-muted-foreground mb-1'>Endpoint</p>
-              <p className='text-xs font-mono truncate' title={retrieval.retrievalEndpoint}>
-                {retrieval.retrievalEndpoint}
-              </p>
+              <div className='flex items-center gap-2 group'>
+                <a 
+                  href={retrieval.retrievalEndpoint}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className='text-xs font-mono truncate hover:underline flex-1'
+                  title={retrieval.retrievalEndpoint}
+                >
+                  {retrieval.retrievalEndpoint}
+                </a>
+                <Button
+                  variant='ghost'
+                  size='sm'
+                  className='h-7 w-7 p-0 opacity-0 group-hover:opacity-100 transition-opacity'
+                  onClick={() => copyToClipboard(retrieval.retrievalEndpoint, retrieval.retrievalEndpoint)}
+                >
+                  {copiedEndpoint === retrieval.retrievalEndpoint ? (
+                    <Check className='h-3.5 w-3.5 text-green-600' />
+                  ) : (
+                    <Copy className='h-3.5 w-3.5' />
+                  )}
+                </Button>
+              </div>
             </div>
           </div>
         </div>
