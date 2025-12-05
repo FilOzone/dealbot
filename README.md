@@ -20,7 +20,7 @@ An intelligent automation system for creating and monitoring PDP deals on the Fi
 
 ### Prerequisites
 
-- Node.js 18+
+- Node.js 20+
 - PostgreSQL
 - pnpm
 - Filecoin wallet with tokens
