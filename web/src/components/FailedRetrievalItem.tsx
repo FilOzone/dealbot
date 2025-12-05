@@ -1,10 +1,9 @@
-import { AlertCircle, Download, Copy, Check } from "lucide-react";
+import { AlertCircle, Check, Copy, Download } from "lucide-react";
 import { useState } from "react";
 import type { FailedRetrieval } from "../types/failed-retrievals";
 import { AccordionContent, AccordionItem, AccordionTrigger } from "./ui/accordion";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
-
 
 interface FailedRetrievalItemProps {
   retrieval: FailedRetrieval;
@@ -12,7 +11,7 @@ interface FailedRetrievalItemProps {
 
 export function FailedRetrievalItem({ retrieval }: FailedRetrievalItemProps) {
   const [copiedEndpoint, setCopiedEndpoint] = useState<string | null>(null);
-  
+
   const formatDate = (date: Date) => {
     return new Date(date).toLocaleDateString("en-US", {
       year: "numeric",
@@ -110,10 +109,10 @@ export function FailedRetrievalItem({ retrieval }: FailedRetrievalItemProps) {
             <div>
               <p className='text-xs text-muted-foreground mb-1'>Endpoint</p>
               <div className='flex items-center gap-2 group'>
-                <a 
+                <a
                   href={retrieval.retrievalEndpoint}
-                  target="_blank"
-                  rel="noopener noreferrer"
+                  target='_blank'
+                  rel='noopener noreferrer'
                   className='text-xs font-mono truncate hover:underline flex-1'
                   title={retrieval.retrievalEndpoint}
                 >
