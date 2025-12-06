@@ -2,16 +2,19 @@ import { Injectable, Logger, type OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { SchedulerRegistry } from "@nestjs/schedule";
 import { scheduleJobWithOffset } from "../common/utils.js";
-import type { IConfig, ISchedulingConfig } from "../config/app.config.js";
+import type { IConfig, ISchedulingConfig, IWalletMonitorConfig } from "../config/app.config.js";
 import { DealService } from "../deal/deal.service.js";
 import { RetrievalService } from "../retrieval/retrieval.service.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
+
+const WALLET_MONITOR_STAGGER_SECONDS = 600;
 
 @Injectable()
 export class SchedulerService implements OnModuleInit {
   private readonly logger = new Logger(SchedulerService.name);
   private isRunningDealCreation = false;
   private isRunningRetrievalTests = false;
+  private isRunningBalanceCheck = false;
 
   constructor(
     private dealService: DealService,
@@ -43,6 +46,7 @@ export class SchedulerService implements OnModuleInit {
 
   private setupDynamicCronJobs() {
     const config = this.configService.get<ISchedulingConfig>("scheduling");
+    const walletMonitorConfig = this.configService.get<IWalletMonitorConfig>("walletMonitor");
     this.logger.log(`Scheduling configuration found: ${JSON.stringify(config)}`);
 
     scheduleJobWithOffset(
@@ -63,9 +67,21 @@ export class SchedulerService implements OnModuleInit {
       this.logger,
     );
 
+    // Wallet balance monitor with stagger after metrics job
+    const balanceCheckOffset = config.metricsStartOffsetSeconds + WALLET_MONITOR_STAGGER_SECONDS;
+    scheduleJobWithOffset(
+      "walletBalanceMonitor",
+      balanceCheckOffset,
+      walletMonitorConfig.balanceCheckIntervalSeconds,
+      this.schedulerRegistry,
+      this.handleWalletBalanceCheck.bind(this),
+      this.logger,
+    );
+
     this.logger.log(
       `Staggered scheduler setup: Deal creation (offset: ${config.dealStartOffsetSeconds}s, interval: ${config.dealIntervalSeconds}s), ` +
-        `Retrieval tests (offset: ${config.retrievalStartOffsetSeconds}s, interval: ${config.retrievalIntervalSeconds}s)`,
+        `Retrieval tests (offset: ${config.retrievalStartOffsetSeconds}s, interval: ${config.retrievalIntervalSeconds}s), ` +
+        `Wallet balance monitor (offset: ${balanceCheckOffset}s, interval: ${walletMonitorConfig.balanceCheckIntervalSeconds}s)`,
     );
   }
 
@@ -121,6 +137,24 @@ export class SchedulerService implements OnModuleInit {
       this.logger.error("Failed to perform scheduled retrievals", error);
     } finally {
       this.isRunningRetrievalTests = false;
+    }
+  }
+
+  async handleWalletBalanceCheck() {
+    if (this.isRunningBalanceCheck) {
+      this.logger.debug("Previous wallet balance check still running, skipping...");
+      return;
+    }
+
+    this.isRunningBalanceCheck = true;
+    this.logger.debug("Starting scheduled wallet balance check");
+
+    try {
+      await this.walletSdkService.checkAndHandleBalance();
+    } catch (error) {
+      this.logger.error("Failed to check wallet balance", error);
+    } finally {
+      this.isRunningBalanceCheck = false;
     }
   }
 }

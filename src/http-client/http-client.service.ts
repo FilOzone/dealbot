@@ -466,4 +466,16 @@ export class HttpClientService {
   private maskProxyUrl(url: string): string {
     return url.replace(/\/\/.*:.*@/, "//***:***@");
   }
+
+  /**
+   * POST JSON without proxy and return raw response buffer + metrics.
+   */
+  async postJson(url: string, body: Record<string, unknown>, headers: Record<string, string> = {}) {
+    return this.requestWithoutProxyAndMetrics(url, {
+      method: "POST",
+      data: body,
+      headers: { "Content-Type": "application/json", ...headers },
+      httpVersion: "1.1",
+    });
+  }
 }

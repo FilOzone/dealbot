@@ -26,6 +26,15 @@ export const configValidationSchema = Joi.object({
   ENABLE_CDN_TESTING: Joi.boolean().default(true),
   ENABLE_IPNI_TESTING: Joi.boolean().default(true),
 
+  // Wallet monitor & alerts
+  WALLET_BALANCE_CHECK_INTERVAL_SECONDS: Joi.number().default(300),
+  WALLET_BALANCE_THRESHOLD_USDFC: Joi.string().default("0"),
+  WALLET_AUTO_FUND_AMOUNT_USDFC: Joi.string().default("0"),
+  WALLET_AUTO_FUND_ENABLED: Joi.boolean().default(false),
+  WALLET_ALERT_ONLY_MODE: Joi.boolean().default(false),
+  WALLET_COOLDOWN_MINUTES: Joi.number().default(30),
+  ALERT_WEBHOOK_URL: Joi.string().allow("").default(""),
+
   // Scheduling
   DEAL_INTERVAL_SECONDS: Joi.number().default(30),
   RETRIEVAL_INTERVAL_SECONDS: Joi.number().default(60),
@@ -76,6 +85,19 @@ export interface ISchedulingConfig {
   metricsStartOffsetSeconds: number;
 }
 
+export interface IWalletMonitorConfig {
+  balanceCheckIntervalSeconds: number;
+  balanceThresholdUsdfc: string; // big integer string in smallest unit
+  autoFundAmountUsdfc: string; // big integer string in smallest unit
+  autoFundEnabled: boolean;
+  alertOnlyMode: boolean;
+  cooldownMinutes: number;
+}
+
+export interface IAlertsConfig {
+  webhookUrl: string;
+}
+
 export interface IDatasetConfig {
   totalPages: number;
   localDatasetsPath: string;
@@ -98,6 +120,8 @@ export interface IConfig {
   dataset: IDatasetConfig;
   proxy: IProxyConfig;
   filBeam: IFilBeamConfig;
+  walletMonitor: IWalletMonitorConfig;
+  alerts: IAlertsConfig;
 }
 
 export function loadConfig(): IConfig {
@@ -132,6 +156,14 @@ export function loadConfig(): IConfig {
       retrievalStartOffsetSeconds: Number.parseInt(process.env.RETRIEVAL_START_OFFSET_SECONDS || "600", 10),
       metricsStartOffsetSeconds: Number.parseInt(process.env.METRICS_START_OFFSET_SECONDS || "900", 10),
     },
+    walletMonitor: {
+      balanceCheckIntervalSeconds: Number.parseInt(process.env.WALLET_BALANCE_CHECK_INTERVAL_SECONDS || "300", 10),
+      balanceThresholdUsdfc: process.env.WALLET_BALANCE_THRESHOLD_USDFC || "0",
+      autoFundAmountUsdfc: process.env.WALLET_AUTO_FUND_AMOUNT_USDFC || "0",
+      autoFundEnabled: process.env.WALLET_AUTO_FUND_ENABLED === "true",
+      alertOnlyMode: process.env.WALLET_ALERT_ONLY_MODE === "true",
+      cooldownMinutes: Number.parseInt(process.env.WALLET_COOLDOWN_MINUTES || "30", 10),
+    },
     dataset: {
       localDatasetsPath: process.env.DEALBOT_LOCAL_DATASETS_PATH || DEFAULT_LOCAL_DATASETS_PATH,
       totalPages: Number.parseInt(process.env.KAGGLE_DATASET_TOTAL_PAGES || "500", 10),
@@ -142,6 +174,9 @@ export function loadConfig(): IConfig {
     },
     filBeam: {
       botToken: process.env.FILBEAM_BOT_TOKEN || "",
+    },
+    alerts: {
+      webhookUrl: process.env.ALERT_WEBHOOK_URL || "",
     },
   };
 }
