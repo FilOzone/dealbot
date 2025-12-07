@@ -126,10 +126,10 @@ export class AlertService {
         const statusCode = this.extractStatusCode(err);
 
         if (isLastAttempt) {
-          this.logger.error(
-            `Alert webhook failed after ${maxRetries} attempts (${context}); giving up`,
-            { error: String(err), statusCode },
-          );
+          this.logger.error(`Alert webhook failed after ${maxRetries} attempts (${context}); giving up`, {
+            error: String(err),
+            statusCode,
+          });
         } else {
           const delayMs = initialDelayMs * 2 ** attempt; // Exponential backoff: 1s, 2s, 4s
           this.logger.warn(

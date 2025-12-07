@@ -37,16 +37,16 @@ export class AppController {
 
   /**
    * Debug webhook endpoint for testing alert service locally
-   * 
+   *
    * This endpoint is useful for development and testing without requiring
    * external webhook services (e.g., webhook.site, Discord, Slack).
-   * 
+   *
    * Usage:
    * Set in .env: ALERT_WEBHOOK_URL=http://localhost:8080/api/debug/webhook
-   * 
+   *
    * The endpoint logs all received alerts and returns a success response,
    * allowing you to verify alert payloads without rate limits.
-   * 
+   *
    * Note: Only intended for development/testing environments.
    */
   @Post("debug/webhook")
