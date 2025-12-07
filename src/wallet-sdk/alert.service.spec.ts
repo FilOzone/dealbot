@@ -64,6 +64,6 @@ describe("AlertService", () => {
 
     await expect(svc.sendLowBalanceAlert({ balance: "1" })).resolves.toBeUndefined();
 
-    expect(httpClient.postJson).toHaveBeenCalledTimes(2);
+    expect(httpClient.postJson).toHaveBeenCalledTimes(3);
   });
 });
