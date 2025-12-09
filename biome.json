@@ -117,15 +117,7 @@
       "bracketSpacing": true
     },
     "globals": [
-      "NodeJS",
-      "jest",
-      "describe",
-      "it",
-      "expect",
-      "beforeEach",
-      "afterEach",
-      "beforeAll",
-      "afterAll"
+      "NodeJS"
     ]
   },
   "assist": {

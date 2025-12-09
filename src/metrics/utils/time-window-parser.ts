@@ -184,7 +184,7 @@ export function parseCustomDateRange(startDateStr: string, endDateStr: string): 
   const endDate = new Date(endDateStr);
 
   // Set end date to end of day (23:59:59.999)
-  endDate.setHours(23, 59, 59, 999);
+  endDate.setUTCHours(23, 59, 59, 999);
 
   // Validate
   validateDateRange(startDate, endDate);
