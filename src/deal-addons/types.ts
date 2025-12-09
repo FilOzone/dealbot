@@ -58,13 +58,14 @@ export interface DealPreprocessingResult {
 
 /**
  * Synapse Config options
+ * Separates dataSet metadata (for createStorage) and piece metadata (for upload)
  */
 export interface SynapseConfig {
-  withCDN?: boolean;
-  withIpni?: boolean;
+  /** Metadata for dataSet creation (createStorage) */
+  dataSetMetadata?: Record<string, string>;
 
-  /** Metadata Configuration */
-  metadata?: Record<string, string>;
+  /** Metadata for piece upload (storage.upload) */
+  pieceMetadata?: Record<string, string>;
 }
 
 /**

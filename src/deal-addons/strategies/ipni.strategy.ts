@@ -96,21 +96,19 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
    */
   getSynapseConfig(dealMetadata?: DealMetadata): SynapseConfig {
     if (!dealMetadata?.[this.name]) {
-      return {
-        metadata: {},
-      };
+      return {};
     }
 
     const rootCID = dealMetadata[this.name]?.rootCID;
     if (!rootCID) {
-      return {
-        metadata: {},
-      };
+      return {};
     }
 
     return {
-      metadata: {
+      dataSetMetadata: {
         [METADATA_KEYS.WITH_IPFS_INDEXING]: "",
+      },
+      pieceMetadata: {
         [METADATA_KEYS.IPFS_ROOT_CID]: rootCID,
       },
     };
