@@ -1,13 +1,17 @@
 # Build stage
 FROM node:20-alpine AS builder
 
-# Install git for version generation
-RUN apk add --no-cache git
+# Build arguments for version information
+ARG GIT_COMMIT=unknown
+ARG GIT_COMMIT_SHORT=unknown
+ARG GIT_BRANCH=unknown
+
+# Set environment variables from build args
+ENV GIT_COMMIT=${GIT_COMMIT}
+ENV GIT_COMMIT_SHORT=${GIT_COMMIT_SHORT}
+ENV GIT_BRANCH=${GIT_BRANCH}
 
 WORKDIR /app
-
-# Copy git metadata for version generation
-COPY .git ./.git
 
 # Copy package files
 COPY package*.json pnpm-lock.yaml ./
@@ -59,9 +63,6 @@ RUN pnpm install --prod --frozen-lockfile && pnpm store prune
 
 # Copy built application from builder stage
 COPY --from=builder --chown=nestjs:nodejs /app/dist ./dist
-
-# Copy version information
-COPY --from=builder --chown=nestjs:nodejs /app/src/version.json ./dist/version.json
 
 # Copy built web frontend
 COPY --from=builder --chown=nestjs:nodejs /app/web/dist ./web/dist

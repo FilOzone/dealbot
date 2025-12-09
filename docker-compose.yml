@@ -6,6 +6,10 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        GIT_COMMIT: ${GIT_COMMIT:-unknown}
+        GIT_COMMIT_SHORT: ${GIT_COMMIT_SHORT:-unknown}
+        GIT_BRANCH: ${GIT_BRANCH:-unknown}
     restart: unless-stopped
     env_file:
       - ./.env

@@ -50,6 +50,58 @@ pnpm start
 pnpm start:prod
 ```
 
+## Docker Deployment
+
+### Building with Docker
+
+To build and run the application with Docker, including version information:
+
+```bash
+# Build with version information
+docker build \
+  --build-arg GIT_COMMIT="$(git rev-parse HEAD)" \
+  --build-arg GIT_COMMIT_SHORT="$(git rev-parse --short=7 HEAD)" \
+  --build-arg GIT_BRANCH="$(git rev-parse --abbrev-ref HEAD)" \
+  -t dealbot:latest .
+
+# Run the container
+docker run -p 3130:3130 --env-file .env dealbot:latest
+```
+
+The application will display version information on startup:
+
+```
+============================================================
+Dealbot Starting...
+Version: 0.0.1
+Commit: e857fb0e6aa7681e5c680cc8ff0cd0534ecf6c6a (e857fb0)
+Branch: main
+Build Time: 2025-12-08T20:49:02.808Z
+============================================================
+```
+
+### Docker Compose
+
+For easier deployment with Docker Compose:
+
+```bash
+# Set version information in environment
+export GIT_COMMIT="$(git rev-parse HEAD)"
+export GIT_COMMIT_SHORT="$(git rev-parse --short=7 HEAD)"
+export GIT_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
+
+# Build and start services
+docker-compose up -d
+
+# View logs
+docker-compose logs -f
+
+# Stop services
+docker-compose down
+```
+
+**Note:** Make sure to configure your `.env` file with the required environment variables before running Docker Compose.
+
 ## Web Dashboard
 
 The project includes a React dashboard for visualizing metrics and monitoring performance.

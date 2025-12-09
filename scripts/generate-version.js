@@ -10,9 +10,12 @@ const rootDir = join(__dirname, "..");
 
 /**
  * Get git commit hash
- * Falls back to 'unknown' if git is not available or not a git repository
+ * Priority: ENV variable > git command > 'unknown'
  */
 function getGitCommit() {
+  if (process.env.GIT_COMMIT) {
+    return process.env.GIT_COMMIT;
+  }
   try {
     return execSync("git rev-parse HEAD", { encoding: "utf-8" }).trim();
   } catch (error) {
@@ -23,8 +26,12 @@ function getGitCommit() {
 
 /**
  * Get short git commit hash (first 7 characters)
+ * Priority: ENV variable > git command > 'unknown'
  */
 function getGitCommitShort() {
+  if (process.env.GIT_COMMIT_SHORT) {
+    return process.env.GIT_COMMIT_SHORT;
+  }
   try {
     return execSync("git rev-parse --short=7 HEAD", { encoding: "utf-8" }).trim();
   } catch (error) {
@@ -35,8 +42,12 @@ function getGitCommitShort() {
 
 /**
  * Get git branch name
+ * Priority: ENV variable > git command > 'unknown'
  */
 function getGitBranch() {
+  if (process.env.GIT_BRANCH) {
+    return process.env.GIT_BRANCH;
+  }
   try {
     return execSync("git rev-parse --abbrev-ref HEAD", { encoding: "utf-8" }).trim();
   } catch (error) {
