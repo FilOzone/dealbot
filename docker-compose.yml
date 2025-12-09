@@ -11,6 +11,8 @@ services:
         GIT_COMMIT_SHORT: ${GIT_COMMIT_SHORT:-unknown}
         GIT_BRANCH: ${GIT_BRANCH:-unknown}
     restart: unless-stopped
+    ports:
+      - 3130:3130
     env_file:
       - ./.env
     environment:

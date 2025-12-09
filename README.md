@@ -134,7 +134,7 @@ Complete API documentation is available via Swagger UI:
 
 **Production:** [https://dealbot.fwss.io/api](https://dealbot.fwss.io/api)
 
-**Local:** `http://localhost:3000/api` (when running locally)
+**Local:** `http://localhost:3130/api` (when running locally)
 
 ## Configuration
 
@@ -149,7 +149,7 @@ Key environment variables:
 | `DATABASE_USER`              | PostgreSQL user          | -       |
 | `DATABASE_PASSWORD`          | PostgreSQL password      | -       |
 | `DATABASE_NAME`              | PostgreSQL database name | -       |
-| `DEALBOT_PORT`               | Application port         | `3000`  |
+| `DEALBOT_PORT`               | Application port         | `3130`  |
 | `DEAL_INTERVAL_SECONDS`      | Deal creation interval   | `1800`  |
 | `RETRIEVAL_INTERVAL_SECONDS` | Retrieval test interval  | `3600`  |
 

@@ -104,7 +104,7 @@ export function loadConfig(): IConfig {
   return {
     app: {
       env: process.env.NODE_ENV || "development",
-      port: Number.parseInt(process.env.DEALBOT_PORT || "3000", 10),
+      port: Number.parseInt(process.env.DEALBOT_PORT || "3130", 10),
       host: process.env.DEALBOT_HOST || "127.0.0.1",
     },
     database: {

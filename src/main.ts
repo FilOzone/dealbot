@@ -71,7 +71,15 @@ async function bootstrap() {
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup("api", app, document);
 
-  await app.listen(process.env.DEALBOT_PORT || 3000, process.env.DEALBOT_HOST || "127.0.0.1");
+  const port = process.env.DEALBOT_PORT || 3130;
+  const host = process.env.DEALBOT_HOST || "127.0.0.1";
+
+  await app.listen(port, host);
+
+  console.log("=".repeat(60));
+  console.log(`🚀 Application is listening on: http://${host}:${port}`);
+  console.log(`📚 Swagger API documentation: http://${host}:${port}/api`);
+  console.log("=".repeat(60));
 }
 
 bootstrap();
