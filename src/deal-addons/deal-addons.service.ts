@@ -265,7 +265,7 @@ export class DealAddonsService {
    * @private
    */
   private mergeSynapseConfigs(addons: IDealAddon[], dealMetadata: DealMetadata): SynapseConfig {
-    const merged: SynapseConfig = {
+    const merged = {
       dataSetMetadata: {},
       pieceMetadata: {},
     };
@@ -291,11 +291,11 @@ export class DealAddonsService {
       }
     }
 
-    const dataSetKeys = Object.keys(merged.dataSetMetadata || {});
-    const pieceKeys = Object.keys(merged.pieceMetadata || {});
+    const dataSetKeys = Object.keys(merged.dataSetMetadata);
+    const pieceKeys = Object.keys(merged.pieceMetadata);
     this.logger.debug(`Merged Synapse config - dataSet: [${dataSetKeys.join(", ")}], piece: [${pieceKeys.join(", ")}]`);
 
-    return merged;
+    return merged satisfies SynapseConfig;
   }
 
   /**
