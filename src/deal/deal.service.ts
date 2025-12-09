@@ -91,7 +91,7 @@ export class DealService implements OnModuleInit {
 
       const storage = await this.synapse.createStorage({
         providerAddress,
-        ...dealInput.synapseConfig,
+        metadata: dealInput.synapseConfig.dataSetMetadata,
       });
 
       deal.dataSetId = storage.dataSetId;
@@ -100,6 +100,7 @@ export class DealService implements OnModuleInit {
       const uploadResult: UploadResult = await storage.upload(dealInput.processedData.data, {
         onUploadComplete: (pieceCid) => this.handleUploadComplete(deal, pieceCid, dealInput.appliedAddons),
         onPieceAdded: (hash) => this.handleRootAdded(deal, hash),
+        metadata: dealInput.synapseConfig.pieceMetadata,
       });
 
       this.updateDealWithUploadResult(deal, uploadResult);

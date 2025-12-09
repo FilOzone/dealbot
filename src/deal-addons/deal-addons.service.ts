@@ -260,26 +260,40 @@ export class DealAddonsService {
   /**
    * Merge Synapse SDK configurations from all add-ons
    * @param addons - Add-ons to merge configurations from
-   * @returns Merged Synapse configuration
+   * @param dealMetadata - Aggregated metadata from preprocessing
+   * @returns Merged Synapse configuration with separated metadata
    * @private
    */
   private mergeSynapseConfigs(addons: IDealAddon[], dealMetadata: DealMetadata): SynapseConfig {
-    const merged: SynapseConfig = {};
+    const merged: SynapseConfig = {
+      dataSetMetadata: {},
+      pieceMetadata: {},
+    };
 
     for (const addon of addons) {
       const config = addon.getSynapseConfig?.(dealMetadata);
       if (!config) continue;
 
-      Object.assign(merged, config);
-      if (config.metadata) {
-        merged.metadata = {
-          ...merged.metadata,
-          ...config.metadata,
+      // Merge dataSet metadata
+      if (config.dataSetMetadata) {
+        merged.dataSetMetadata = {
+          ...merged.dataSetMetadata,
+          ...config.dataSetMetadata,
+        };
+      }
+
+      // Merge piece metadata
+      if (config.pieceMetadata) {
+        merged.pieceMetadata = {
+          ...merged.pieceMetadata,
+          ...config.pieceMetadata,
         };
       }
     }
 
-    this.logger.debug(`Merged Synapse config: ${JSON.stringify(merged)}`);
+    const dataSetKeys = Object.keys(merged.dataSetMetadata || {});
+    const pieceKeys = Object.keys(merged.pieceMetadata || {});
+    this.logger.debug(`Merged Synapse config - dataSet: [${dataSetKeys.join(", ")}], piece: [${pieceKeys.join(", ")}]`);
 
     return merged;
   }

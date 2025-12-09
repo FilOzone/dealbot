@@ -50,7 +50,7 @@ export class CdnAddonStrategy implements IDealAddon<CdnMetadata> {
    */
   getSynapseConfig(): SynapseConfig {
     return {
-      metadata: {
+      dataSetMetadata: {
         [METADATA_KEYS.WITH_CDN]: "",
       },
     };
