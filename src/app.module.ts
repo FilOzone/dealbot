@@ -3,6 +3,7 @@ import { ConfigModule } from "@nestjs/config";
 import { ServeStaticModule } from "@nestjs/serve-static";
 import { join } from "path";
 import { AppController } from "./app.controller.js";
+import { VersionService } from "./common/version.service.js";
 import { configValidationSchema, loadConfig } from "./config/app.config.js";
 import { DatabaseModule } from "./database/database.module.js";
 import { DataSourceModule } from "./dataSource/dataSource.module.js";
@@ -30,5 +31,6 @@ import { SchedulerModule } from "./scheduler/scheduler.module.js";
     MetricsModule,
   ],
   controllers: [AppController],
+  providers: [VersionService],
 })
 export class AppModule {}

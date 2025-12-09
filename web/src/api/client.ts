@@ -12,6 +12,7 @@ import type {
 } from "../types/providers";
 import type { ServiceComparisonQueryOptions, ServiceComparisonResponse } from "../types/services";
 import type { DailyMetricsResponseDto, OverallStatsResponseDto } from "../types/stats";
+import type { VersionInfo } from "../types/version";
 
 const JSON_HEADERS = { "Content-Type": "application/json" } as const;
 
@@ -203,6 +204,15 @@ export async function fetchDealbotConfig(): Promise<DealbotConfigDto> {
   const res = await fetch(`${getBaseUrl()}/api/config`, { headers: JSON_HEADERS });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return (await res.json()) as DealbotConfigDto;
+}
+
+/**
+ * Fetch version information from backend.
+ */
+export async function fetchVersion(): Promise<VersionInfo> {
+  const res = await fetch(`${getBaseUrl()}/api/version`, { headers: JSON_HEADERS });
+  if (!res.ok) throw new Error(`Failed to fetch version: HTTP ${res.status}`);
+  return (await res.json()) as VersionInfo;
 }
 
 /**

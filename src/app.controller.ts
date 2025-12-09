@@ -1,44 +1,14 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { Controller, Get } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
+import { VersionService } from "./common/version.service.js";
 import type { IBlockchainConfig, IConfig, ISchedulingConfig } from "./config/app.config.js";
-
-interface IVersionInfo {
-  version: string;
-  commit: string;
-  commitShort: string;
-  branch: string;
-  buildTime: string;
-}
 
 @Controller("api")
 export class AppController {
-  private versionInfo: IVersionInfo | null = null;
-
-  constructor(private readonly configService: ConfigService<IConfig, true>) {
-    this.loadVersionInfo();
-  }
-
-  /**
-   * Load version information from version.json
-   */
-  private loadVersionInfo() {
-    try {
-      const versionPath = join(process.cwd(), "dist", "version.json");
-      const versionData = readFileSync(versionPath, "utf-8");
-      this.versionInfo = JSON.parse(versionData);
-    } catch (error) {
-      console.warn("Warning: Could not load version info:", error);
-      this.versionInfo = {
-        version: "unknown",
-        commit: "unknown",
-        commitShort: "unknown",
-        branch: "unknown",
-        buildTime: new Date().toISOString(),
-      };
-    }
-  }
+  constructor(
+    private readonly configService: ConfigService<IConfig, true>,
+    private readonly versionService: VersionService,
+  ) {}
 
   /**
    * Health check endpoint
@@ -55,7 +25,7 @@ export class AppController {
    */
   @Get("version")
   getVersion() {
-    return this.versionInfo;
+    return this.versionService.getVersionInfo();
   }
 
   /**

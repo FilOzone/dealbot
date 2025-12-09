@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { fetchVersion } from "../api/client";
 import type { VersionInfo } from "../types/version";
 import versionData from "../version.json";
 
@@ -9,27 +10,35 @@ import versionData from "../version.json";
 export function useVersion() {
   const [buildVersion] = useState<VersionInfo>(versionData as VersionInfo);
   const [apiVersion, setApiVersion] = useState<VersionInfo | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    let cancelled = false;
+
     const fetchApiVersion = async () => {
       try {
         setLoading(true);
-        const response = await fetch("/api/version");
-        if (!response.ok) {
-          throw new Error("Failed to fetch version info");
+        const data = await fetchVersion();
+        if (!cancelled) {
+          setApiVersion(data);
         }
-        const data = await response.json();
-        setApiVersion(data);
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Unknown error");
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : "Unknown error");
+        }
       } finally {
-        setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+        }
       }
     };
 
     fetchApiVersion();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // Use API version if available, otherwise fall back to build version
