@@ -1,18 +1,49 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { NestFactory } from "@nestjs/core";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
 import helmet from "helmet";
-import { VersionService } from "./common/version.service.js";
+import type { IVersionInfo } from "./common/version.service.js";
+
+/**
+ * Load and display version information before NestJS starts
+ */
+function loadAndPrintVersion(): IVersionInfo {
+  try {
+    const versionPath = join(process.cwd(), "dist", "version.json");
+    const versionData = readFileSync(versionPath, "utf-8");
+    const versionInfo = JSON.parse(versionData) as IVersionInfo;
+
+    console.log("=".repeat(60));
+    console.log("Dealbot Starting...");
+    console.log(`Version: ${versionInfo.version}`);
+    console.log(`Commit: ${versionInfo.commit} (${versionInfo.commitShort})`);
+    console.log(`Branch: ${versionInfo.branch}`);
+    console.log(`Build Time: ${versionInfo.buildTime}`);
+    console.log("=".repeat(60));
+
+    return versionInfo;
+  } catch (error) {
+    console.warn("Warning: Could not load version info:", error);
+    const fallbackVersion: IVersionInfo = {
+      version: "unknown",
+      commit: "unknown",
+      commitShort: "unknown",
+      branch: "unknown",
+      buildTime: new Date().toISOString(),
+    };
+    return fallbackVersion;
+  }
+}
 
 async function bootstrap() {
+  // Print version info before NestJS initialization
+  const versionInfo = loadAndPrintVersion();
+
   const { AppModule } = await import("./app.module.js");
   const app = await NestFactory.create(AppModule, {
     logger: ["log", "fatal", "error", "warn"],
   });
-
-  // Get version service and print version info
-  const versionService = app.get(VersionService);
-  versionService.printVersionInfo();
-  const versionInfo = versionService.getVersionInfo();
 
   app.use(
     helmet({
@@ -34,7 +65,7 @@ async function bootstrap() {
   const config = new DocumentBuilder()
     .setTitle("Dealbot")
     .setDescription("FWSS Dealbot API methods")
-    .setVersion(versionInfo?.version || "unknown")
+    .setVersion(versionInfo.version)
     .addTag("dealbot")
     .build();
   const document = SwaggerModule.createDocument(app, config);

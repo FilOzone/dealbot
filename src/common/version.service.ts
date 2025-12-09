@@ -44,19 +44,4 @@ export class VersionService {
   getVersionInfo(): IVersionInfo | null {
     return this.versionInfo;
   }
-
-  /**
-   * Print version information to console
-   */
-  printVersionInfo(): void {
-    if (!this.versionInfo) return;
-
-    console.log("=".repeat(60));
-    console.log("Dealbot Starting...");
-    console.log(`Version: ${this.versionInfo.version}`);
-    console.log(`Commit: ${this.versionInfo.commit} (${this.versionInfo.commitShort})`);
-    console.log(`Branch: ${this.versionInfo.branch}`);
-    console.log(`Build Time: ${this.versionInfo.buildTime}`);
-    console.log("=".repeat(60));
-  }
 }
