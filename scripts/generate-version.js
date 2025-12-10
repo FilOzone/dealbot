@@ -105,13 +105,6 @@ function main() {
   writeFileSync(backendVersionPath, JSON.stringify(versionInfo, null, 2), "utf-8");
   console.log(`✓ Backend version file created: ${backendVersionPath}`);
 
-  // Write version info for frontend
-  const frontendVersionPath = join(rootDir, "web", "src", "version.json");
-  const frontendDir = dirname(frontendVersionPath);
-  mkdirSync(frontendDir, { recursive: true });
-  writeFileSync(frontendVersionPath, JSON.stringify(versionInfo, null, 2), "utf-8");
-  console.log(`✓ Frontend version file created: ${frontendVersionPath}`);
-
   console.log("Version generation completed!");
 }
 

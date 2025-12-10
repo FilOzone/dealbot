@@ -1,7 +1,7 @@
 import { Controller, Get } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import { VersionService } from "./common/version.service.js";
 import type { IBlockchainConfig, IConfig, ISchedulingConfig } from "./config/app.config.js";
+import { VersionService } from "./version/index.js";
 
 @Controller("api")
 export class AppController {

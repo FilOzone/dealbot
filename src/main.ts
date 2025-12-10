@@ -1,39 +1,23 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { NestFactory } from "@nestjs/core";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
 import helmet from "helmet";
-import type { IVersionInfo } from "./common/version.service.js";
+import { loadVersionInfo } from "./version/index.js";
 
 /**
  * Load and display version information before NestJS starts
  */
-function loadAndPrintVersion(): IVersionInfo {
-  try {
-    const versionPath = join(process.cwd(), "dist", "version.json");
-    const versionData = readFileSync(versionPath, "utf-8");
-    const versionInfo = JSON.parse(versionData) as IVersionInfo;
+function loadAndPrintVersion() {
+  const versionInfo = loadVersionInfo();
 
-    console.log("=".repeat(60));
-    console.log("Dealbot Starting...");
-    console.log(`Version: ${versionInfo.version}`);
-    console.log(`Commit: ${versionInfo.commit} (${versionInfo.commitShort})`);
-    console.log(`Branch: ${versionInfo.branch}`);
-    console.log(`Build Time: ${versionInfo.buildTime}`);
-    console.log("=".repeat(60));
+  console.log("=".repeat(60));
+  console.log("Dealbot Starting...");
+  console.log(`Version: ${versionInfo.version}`);
+  console.log(`Commit: ${versionInfo.commit} (${versionInfo.commitShort})`);
+  console.log(`Branch: ${versionInfo.branch}`);
+  console.log(`Build Time: ${versionInfo.buildTime}`);
+  console.log("=".repeat(60));
 
-    return versionInfo;
-  } catch (error) {
-    console.warn("Warning: Could not load version info:", error);
-    const fallbackVersion: IVersionInfo = {
-      version: "unknown",
-      commit: "unknown",
-      commitShort: "unknown",
-      branch: "unknown",
-      buildTime: new Date().toISOString(),
-    };
-    return fallbackVersion;
-  }
+  return versionInfo;
 }
 
 async function bootstrap() {

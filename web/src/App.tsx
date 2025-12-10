@@ -26,7 +26,7 @@ import { ServiceType } from "./types/services";
 
 export default function App() {
   // Get version information
-  const { version } = useVersion();
+  const { version, error: versionError } = useVersion();
 
   // Log version info to console on mount
   useEffect(() => {
@@ -349,12 +349,17 @@ export default function App() {
               <p className='text-sm text-muted-foreground'>Automated storage deals on Filecoin network</p>
               <p className='text-xs text-muted-foreground mt-1'>
                 CDN A/B testing • Performance tracking • Real-time monitoring
-                {version && (
+                {version ? (
                   <span className='opacity-60'>
                     {" "}
                     • v{version.version}-{version.commitShort}
                   </span>
-                )}
+                ) : versionError ? (
+                  <span className='opacity-60 text-destructive'>
+                    {" "}
+                    • Version unavailable
+                  </span>
+                ) : null}
               </p>
             </div>
 

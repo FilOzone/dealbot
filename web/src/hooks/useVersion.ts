@@ -1,15 +1,13 @@
 import { useEffect, useState } from "react";
 import { fetchVersion } from "../api/client";
 import type { VersionInfo } from "../types/version";
-import versionData from "../version.json";
 
 /**
- * Hook to get version information
- * Returns version info from both build-time (version.json) and runtime (API)
+ * Hook to get version information from API
+ * Returns version info from the backend API endpoint
  */
 export function useVersion() {
-  const [buildVersion] = useState<VersionInfo>(versionData as VersionInfo);
-  const [apiVersion, setApiVersion] = useState<VersionInfo | null>(null);
+  const [version, setVersion] = useState<VersionInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -21,7 +19,7 @@ export function useVersion() {
         setLoading(true);
         const data = await fetchVersion();
         if (!cancelled) {
-          setApiVersion(data);
+          setVersion(data);
         }
       } catch (err) {
         if (!cancelled) {
@@ -41,8 +39,5 @@ export function useVersion() {
     };
   }, []);
 
-  // Use API version if available, otherwise fall back to build version
-  const version = apiVersion || buildVersion;
-
-  return { version, buildVersion, apiVersion, loading, error };
+  return { version, loading, error };
 }
