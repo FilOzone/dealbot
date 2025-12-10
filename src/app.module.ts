@@ -10,6 +10,7 @@ import { DealModule } from "./deal/deal.module.js";
 import { MetricsModule } from "./metrics/metrics.module.js";
 import { RetrievalModule } from "./retrieval/retrieval.module.js";
 import { SchedulerModule } from "./scheduler/scheduler.module.js";
+import { VersionModule } from "./version/index.js";
 
 @Module({
   imports: [
@@ -28,6 +29,7 @@ import { SchedulerModule } from "./scheduler/scheduler.module.js";
     RetrievalModule,
     DataSourceModule,
     MetricsModule,
+    VersionModule,
   ],
   controllers: [AppController],
 })

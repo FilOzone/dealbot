@@ -1,10 +1,14 @@
 import { Controller, Get } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import type { IBlockchainConfig, IConfig, ISchedulingConfig } from "./config/app.config.js";
+import { VersionService } from "./version/index.js";
 
 @Controller("api")
 export class AppController {
-  constructor(private readonly configService: ConfigService<IConfig, true>) {}
+  constructor(
+    private readonly configService: ConfigService<IConfig, true>,
+    private readonly versionService: VersionService,
+  ) {}
 
   /**
    * Health check endpoint
@@ -13,6 +17,15 @@ export class AppController {
   @Get("health")
   getHealth() {
     return { status: "ok" };
+  }
+
+  /**
+   * Get version information
+   * Returns version, commit hash, branch, and build time
+   */
+  @Get("version")
+  getVersion() {
+    return this.versionService.getVersionInfo();
   }
 
   /**

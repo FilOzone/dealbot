@@ -7,6 +7,7 @@
   "type": "module",
   "scripts": {
     "setup": "pnpm install && pnpm -C web install",
+    "prebuild": "node scripts/generate-version.js",
     "build": "nest build",
     "start": "nest start",
     "start:dev": "nest start --watch",
@@ -24,6 +25,7 @@
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "dev:web": "pnpm -C web dev",
+    "prebuild:web": "node scripts/generate-version.js",
     "build:web": "pnpm -C web build"
   },
   "dependencies": {

@@ -1,8 +1,29 @@
 import { NestFactory } from "@nestjs/core";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
 import helmet from "helmet";
+import { loadVersionInfo } from "./version/index.js";
+
+/**
+ * Load and display version information before NestJS starts
+ */
+function loadAndPrintVersion() {
+  const versionInfo = loadVersionInfo();
+
+  console.log("=".repeat(60));
+  console.log("Dealbot Starting...");
+  console.log(`Version: ${versionInfo.version}`);
+  console.log(`Commit: ${versionInfo.commit} (${versionInfo.commitShort})`);
+  console.log(`Branch: ${versionInfo.branch}`);
+  console.log(`Build Time: ${versionInfo.buildTime}`);
+  console.log("=".repeat(60));
+
+  return versionInfo;
+}
 
 async function bootstrap() {
+  // Print version info before NestJS initialization
+  const versionInfo = loadAndPrintVersion();
+
   const { AppModule } = await import("./app.module.js");
   const app = await NestFactory.create(AppModule, {
     logger: ["log", "fatal", "error", "warn"],
@@ -28,13 +49,21 @@ async function bootstrap() {
   const config = new DocumentBuilder()
     .setTitle("Dealbot")
     .setDescription("FWSS Dealbot API methods")
-    .setVersion("1.0")
+    .setVersion(versionInfo.version)
     .addTag("dealbot")
     .build();
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup("api", app, document);
 
-  await app.listen(process.env.DEALBOT_PORT || 3000, process.env.DEALBOT_HOST || "127.0.0.1");
+  const port = process.env.DEALBOT_PORT || 3130;
+  const host = process.env.DEALBOT_HOST || "127.0.0.1";
+
+  await app.listen(port, host);
+
+  console.log("=".repeat(60));
+  console.log(`🚀 Application is listening on: http://${host}:${port}`);
+  console.log(`📚 Swagger API documentation: http://${host}:${port}/api`);
+  console.log("=".repeat(60));
 }
 
 bootstrap();
