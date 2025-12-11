@@ -54,12 +54,7 @@ cd dealbot
 ### 2. Install Dependencies
 
 ```bash
-# Install backend dependencies
-cd backend
-pnpm install
-
-# Install frontend dependencies
-cd ../web
+# Install dependencies
 pnpm install
 ```
 
@@ -68,7 +63,7 @@ pnpm install
 #### Backend Configuration
 
 ```bash
-cd backend
+cd apps/backend
 cp .env.example .env
 # Edit .env with your database credentials, wallet info, etc.
 ```
@@ -94,54 +89,66 @@ Default: `VITE_API_BASE_URL=http://localhost:8080`
 
 ### 4. Run the Applications
 
-Open **two terminal windows**:
-
-#### Terminal 1: Backend (API Server)
+#### Option 1: Run both applications from Root
 
 ```bash
-cd backend
+pnpm start:dev
+```
+
+Backend runs at: `http://localhost:8080` ( or at DEALBOT_PORT environment variable)  
+Frontend runs at: `http://localhost:5173`
+
+#### Option 2: Run both applications separately in different terminals
+
+Open **two terminal windows**:
+
+##### Terminal 1: Backend (API Server)
+
+```bash
+cd apps/backend
 pnpm start:dev    # Development with hot-reload
 ```
 
 Backend runs at: `http://localhost:8080`  
 API Docs (Swagger): `http://localhost:8080/api`
 
-#### Terminal 2: Frontend (Web Dashboard)
+##### Terminal 2: Frontend (Web Dashboard)
 
 ```bash
-cd web
+cd apps/web
 pnpm dev          # Development server
 ```
 
 Frontend runs at: `http://localhost:5173`
-
-### 5. Access the Dashboard
-
-Open your browser to **http://localhost:5173** to view the analytics dashboard.
 
 ## Production Deployment
 
 ### Build Both Applications
 
 ```bash
-# Build backend
-cd backend
-pnpm build
-
-# Build frontend
-cd ../web
+# Build
 pnpm build
 ```
 
 ### Run Production Builds
 
+#### Option 1: Run both applications from Root
+
 ```bash
-# Terminal 1: Backend
-cd backend
+pnpm start:prod
+```
+
+#### Option 2: Run both applications separately
+
+Open **two terminal windows**:
+
+```bash
+# Terminal 1: Backend (API Server)
+cd apps/backend
 pnpm start:prod
 
 # Terminal 2: Frontend (preview)
-cd web
+cd apps/web
 pnpm preview
 ```
 
