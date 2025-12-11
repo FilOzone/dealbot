@@ -15,7 +15,10 @@ type ChartDataPoint = {
 };
 
 function formatDate(dateStr: string): string {
-  return new Date(dateStr).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  return new Date(dateStr).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+  });
 }
 
 /**
@@ -40,7 +43,11 @@ function transformToChartData(
 interface DailyLineChartProps {
   data: DailyAggregatedMetrics[];
   title: string;
-  dataKeys: Array<{ key: keyof DailyAggregatedMetrics; label: string; color: string }>;
+  dataKeys: Array<{
+    key: keyof DailyAggregatedMetrics;
+    label: string;
+    color: string;
+  }>;
   yTickFormatter?: (v: number) => string;
   valueFormatter: (v: number) => string;
 }
@@ -91,8 +98,16 @@ export function DailyMetricsCharts({ dailyMetrics }: { dailyMetrics: DailyAggreg
         data={dailyMetrics}
         title='SUCCESS RATES (DAILY)'
         dataKeys={[
-          { key: "dealSuccessRate", label: "Upload Success Rate", color: "var(--chart-1)" },
-          { key: "retrievalSuccessRate", label: "Retrieval Success Rate", color: "var(--chart-2)" },
+          {
+            key: "dealSuccessRate",
+            label: "Upload Success Rate",
+            color: "var(--chart-1)",
+          },
+          {
+            key: "retrievalSuccessRate",
+            label: "Retrieval Success Rate",
+            color: "var(--chart-2)",
+          },
         ]}
         yTickFormatter={(v) => formatPercentage(v)}
         valueFormatter={(v) => formatPercentage(v)}
@@ -103,9 +118,21 @@ export function DailyMetricsCharts({ dailyMetrics }: { dailyMetrics: DailyAggreg
         data={dailyMetrics}
         title='LATENCIES (DAILY)'
         dataKeys={[
-          { key: "avgIngestLatencyMs", label: "Upload Ingest Latency", color: "var(--chart-1)" },
-          { key: "avgRetrievalLatencyMs", label: "Retrieval Latency", color: "var(--chart-2)" },
-          { key: "avgRetrievalTtfbMs", label: "Retrieval TTFB", color: "var(--chart-3)" },
+          {
+            key: "avgIngestLatencyMs",
+            label: "Upload Ingest Latency",
+            color: "var(--chart-1)",
+          },
+          {
+            key: "avgRetrievalLatencyMs",
+            label: "Retrieval Latency",
+            color: "var(--chart-2)",
+          },
+          {
+            key: "avgRetrievalTtfbMs",
+            label: "Retrieval TTFB",
+            color: "var(--chart-3)",
+          },
         ]}
         yTickFormatter={(v) => formatDuration(v)}
         valueFormatter={(v) => formatDuration(v)}
@@ -116,8 +143,16 @@ export function DailyMetricsCharts({ dailyMetrics }: { dailyMetrics: DailyAggreg
         data={dailyMetrics}
         title='Throughputs (DAILY)'
         dataKeys={[
-          { key: "avgRetrievalThroughputBps", label: "Retrieval Throughput", color: "var(--chart-1)" },
-          { key: "avgIngestThroughputBps", label: "Ingest Throughput", color: "var(--chart-2)" },
+          {
+            key: "avgRetrievalThroughputBps",
+            label: "Retrieval Throughput",
+            color: "var(--chart-1)",
+          },
+          {
+            key: "avgIngestThroughputBps",
+            label: "Ingest Throughput",
+            color: "var(--chart-2)",
+          },
         ]}
         yTickFormatter={(v) => formatThroughput(v)}
         valueFormatter={(v) => formatThroughput(v)}

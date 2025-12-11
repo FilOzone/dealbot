@@ -34,12 +34,42 @@ export function ProviderFilter({
   sortOrder,
   onSortOrderChange,
 }: ProviderFilterProps) {
-  const healthStatuses: { value: ProviderHealthStatus; label: string; icon: string; color: string }[] = [
-    { value: "excellent", label: "Excellent", icon: "✅", color: "text-green-600 dark:text-green-400" },
-    { value: "good", label: "Good", icon: "👍", color: "text-blue-600 dark:text-blue-400" },
-    { value: "fair", label: "Fair", icon: "⚠️", color: "text-yellow-700 dark:text-yellow-400" },
-    { value: "poor", label: "Poor", icon: "🔴", color: "text-red-600 dark:text-red-400" },
-    { value: "inactive", label: "Inactive", icon: "⚪", color: "text-muted-foreground" },
+  const healthStatuses: {
+    value: ProviderHealthStatus;
+    label: string;
+    icon: string;
+    color: string;
+  }[] = [
+    {
+      value: "excellent",
+      label: "Excellent",
+      icon: "✅",
+      color: "text-green-600 dark:text-green-400",
+    },
+    {
+      value: "good",
+      label: "Good",
+      icon: "👍",
+      color: "text-blue-600 dark:text-blue-400",
+    },
+    {
+      value: "fair",
+      label: "Fair",
+      icon: "⚠️",
+      color: "text-yellow-700 dark:text-yellow-400",
+    },
+    {
+      value: "poor",
+      label: "Poor",
+      icon: "🔴",
+      color: "text-red-600 dark:text-red-400",
+    },
+    {
+      value: "inactive",
+      label: "Inactive",
+      icon: "⚪",
+      color: "text-muted-foreground",
+    },
   ];
 
   const toggleHealthFilter = (status: ProviderHealthStatus) => {
