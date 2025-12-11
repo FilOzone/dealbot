@@ -1,3 +1,8 @@
+node_modules
+dist
+dist-ssr
+*.local
+
 # Logs
 logs
 *.log
@@ -7,10 +12,9 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-node_modules
-dist
-dist-ssr
-*.local
+# dotenv environment variable files
+.env*
+!.env.example
 
 # Editor directories and files
 .vscode/*

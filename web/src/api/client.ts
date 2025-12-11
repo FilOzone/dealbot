@@ -181,7 +181,9 @@ export async function fetchProviderCurioVersionsBatch(spAddresses: string[]): Pr
  * Fetch overall stats from backend.
  */
 export async function fetchOverallStats(): Promise<OverallStatsResponseDto> {
-  const res = await fetch(`${getBaseUrl()}/api/stats/overall`, { headers: JSON_HEADERS });
+  const res = await fetch(`${getBaseUrl()}/api/stats/overall`, {
+    headers: JSON_HEADERS,
+  });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return (await res.json()) as OverallStatsResponseDto;
 }
@@ -191,7 +193,9 @@ export async function fetchOverallStats(): Promise<OverallStatsResponseDto> {
  * Fetch daily metrics from backend (last 30 days if available).
  */
 export async function fetchDailyStats(): Promise<DailyMetricsResponseDto> {
-  const res = await fetch(`${getBaseUrl()}/api/stats/daily`, { headers: JSON_HEADERS });
+  const res = await fetch(`${getBaseUrl()}/api/stats/daily`, {
+    headers: JSON_HEADERS,
+  });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return (await res.json()) as DailyMetricsResponseDto;
 }
@@ -200,7 +204,9 @@ export async function fetchDailyStats(): Promise<DailyMetricsResponseDto> {
  * Fetch dealbot configuration from backend.
  */
 export async function fetchDealbotConfig(): Promise<DealbotConfigDto> {
-  const res = await fetch(`${getBaseUrl()}/api/config`, { headers: JSON_HEADERS });
+  const res = await fetch(`${getBaseUrl()}/api/config`, {
+    headers: JSON_HEADERS,
+  });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return (await res.json()) as DealbotConfigDto;
 }

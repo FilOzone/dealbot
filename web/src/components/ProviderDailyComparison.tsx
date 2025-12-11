@@ -9,7 +9,10 @@ import { type ChartConfig, ChartContainer, ChartTooltip, ChartTooltipContent } f
  */
 
 function formatDate(dateStr: string): string {
-  return new Date(dateStr).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  return new Date(dateStr).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+  });
 }
 
 function truncateAddress(address: string, maxLength: number = 12): string {

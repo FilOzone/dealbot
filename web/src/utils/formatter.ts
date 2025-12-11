@@ -14,7 +14,11 @@ export function formatMilliseconds(ms: number, decimals: number = 2): string {
     { label: "sec", divisor: 1000, threshold: 60 * 1000 },
     { label: "min", divisor: 60 * 1000, threshold: 60 * 60 * 1000 },
     { label: "hr", divisor: 60 * 60 * 1000, threshold: 24 * 60 * 60 * 1000 },
-    { label: "day", divisor: 24 * 60 * 60 * 1000, threshold: Number.POSITIVE_INFINITY },
+    {
+      label: "day",
+      divisor: 24 * 60 * 60 * 1000,
+      threshold: Number.POSITIVE_INFINITY,
+    },
   ];
 
   for (let i = 0; i < units.length; i++) {

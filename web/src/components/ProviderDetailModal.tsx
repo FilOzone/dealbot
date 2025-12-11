@@ -134,7 +134,9 @@ export function ProviderDetailModal({ provider, open, onOpenChange }: ProviderDe
                       className={`h-3 rounded-full transition-all ${
                         data.metrics.dealSuccessRate < SUCCESS_RATE_THRESHOLD ? "bg-red-600" : "bg-green-600"
                       }`}
-                      style={{ width: `${Math.min(data.metrics.dealSuccessRate, 100)}%` }}
+                      style={{
+                        width: `${Math.min(data.metrics.dealSuccessRate, 100)}%`,
+                      }}
                     />
                   </div>
                 </div>
@@ -154,7 +156,9 @@ export function ProviderDetailModal({ provider, open, onOpenChange }: ProviderDe
                       className={`h-3 rounded-full transition-all ${
                         data.metrics.retrievalSuccessRate < SUCCESS_RATE_THRESHOLD ? "bg-red-600" : "bg-green-600"
                       }`}
-                      style={{ width: `${Math.min(data.metrics.retrievalSuccessRate, 100)}%` }}
+                      style={{
+                        width: `${Math.min(data.metrics.retrievalSuccessRate, 100)}%`,
+                      }}
                     />
                   </div>
                 </div>

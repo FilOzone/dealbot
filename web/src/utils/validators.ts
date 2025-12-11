@@ -47,7 +47,10 @@ export function validateDateRange(
   maxDays: number = DATE_RANGES.MAX_RANGE,
 ): ValidationResult {
   if (!isValidDateString(startDate)) {
-    return { valid: false, error: "Invalid start date format. Use YYYY-MM-DD." };
+    return {
+      valid: false,
+      error: "Invalid start date format. Use YYYY-MM-DD.",
+    };
   }
 
   if (!isValidDateString(endDate)) {
@@ -58,7 +61,10 @@ export function validateDateRange(
   const end = new Date(endDate);
 
   if (start > end) {
-    return { valid: false, error: "Start date must be before or equal to end date." };
+    return {
+      valid: false,
+      error: "Start date must be before or equal to end date.",
+    };
   }
 
   const daysDiff = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
