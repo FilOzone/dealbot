@@ -9,7 +9,7 @@
     "build": "pnpm -r run build",
     "start:dev": "pnpm -r run start:dev",
     "start:prod": "pnpm -r run start:prod",
-    "format": "pnpm -r run lint",
+    "format": "pnpm -r run format",
     "format:check": "pnpm -r run format:check",
     "lint": "pnpm -r run lint",
     "lint:check": "pnpm -r run lint:check",
