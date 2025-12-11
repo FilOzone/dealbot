@@ -1,11 +1,13 @@
 {
   "name": "web",
-  "private": true,
-  "version": "0.0.0",
+  "version": "0.0.1",
+  "license": "Apache-2.0 or MIT",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "start:dev": "vite",
+    "start:prod": "vite preview",
     "format": "biome format --write .",
     "format:check": "biome format .",
     "lint": "biome lint --write .",
@@ -35,11 +37,11 @@
     "tailwindcss": "^4.1.12"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.3.8",
+    "@biomejs/biome": "catalog:",
     "@types/react": "^19.1.10",
     "@types/react-dom": "^19.1.7",
     "@vitejs/plugin-react": "^5.0.0",
-    "typescript": "~5.8.3",
+    "typescript": "catalog:",
     "vite": "^7.1.2"
   },
   "overrides": {

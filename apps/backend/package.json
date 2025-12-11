@@ -1,9 +1,9 @@
 {
-  "name": "deal-bot",
+  "name": "backend",
   "version": "0.0.1",
   "description": "A simple deal bot for Synapse storage providers",
   "author": "",
-  "license": "UNLICENSED",
+  "license": "Apache-2.0 or MIT",
   "type": "module",
   "scripts": {
     "setup": "pnpm install && pnpm -C web install",
@@ -38,7 +38,7 @@
     "axios": "^1.11.0",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.2",
-    "cron": "^4.3.0",
+    "cron": "4.3.5",
     "ethers": "^6.15.0",
     "helmet": "^8.1.0",
     "https-proxy-agent": "^7.0.6",
@@ -53,7 +53,7 @@
     "viem": "^2.38.3"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.3.8",
+    "@biomejs/biome": "catalog:",
     "@nestjs/cli": "^11.0.0",
     "@nestjs/schematics": "^11.0.0",
     "@nestjs/testing": "^11.0.1",
@@ -68,6 +68,6 @@
     "ts-loader": "^9.5.2",
     "ts-node": "^10.9.2",
     "tsconfig-paths": "^4.2.0",
-    "typescript": "^5.7.3"
+    "typescript": "catalog:"
   }
 }
