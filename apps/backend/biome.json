@@ -1,11 +1,22 @@
 {
   "$schema": "https://biomejs.dev/schemas/2.3.8/schema.json",
   "root": false,
+  "extends": "//",
   "javascript": {
     "parser": {
       "unsafeParameterDecoratorsEnabled": true
     },
-    "globals": ["NodeJS", "jest", "describe", "it", "expect", "beforeEach", "afterEach", "beforeAll", "afterAll"]
+    "globals": [
+      "NodeJS",
+      "jest",
+      "describe",
+      "it",
+      "expect",
+      "beforeEach",
+      "afterEach",
+      "beforeAll",
+      "afterAll"
+    ]
   },
   "css": {
     "parser": {

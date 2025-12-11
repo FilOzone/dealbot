@@ -15,18 +15,13 @@
     "indentStyle": "space",
     "indentWidth": 2,
     "lineEnding": "lf",
-    "lineWidth": 120,
-    "attributePosition": "auto",
-    "bracketSameLine": false,
-    "bracketSpacing": true,
-    "useEditorconfig": true
+    "lineWidth": 120
   },
   "assist": {
     "enabled": true,
     "actions": {
       "source": {
-        "organizeImports": "on",
-        "useSortedAttributes": "on"
+        "organizeImports": "on"
       }
     }
   },

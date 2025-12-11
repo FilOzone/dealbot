@@ -1,6 +1,7 @@
 {
   "$schema": "https://biomejs.dev/schemas/2.3.8/schema.json",
   "root": false,
+  "extends": "//",
   "html": {
     "formatter": {
       "selfCloseVoidElements": "always"
@@ -24,9 +25,27 @@
     "enabled": true,
     "rules": {
       "recommended": true,
+      "complexity": {
+        "noBannedTypes": "off",
+        "noUselessSwitchCase": "off"
+      },
       "style": {
         "noNonNullAssertion": "off",
         "useImportType": "off"
+      },
+      "performance": {
+        "noAccumulatingSpread": "off"
+      },
+      "suspicious": {
+        "noArrayIndexKey": "off"
+      },
+      "a11y": {
+        "useButtonType": "off",
+        "useSemanticElements": "off",
+        "noRedundantRoles": "off"
+      },
+      "security": {
+        "noDangerouslySetInnerHtml": "off"
       }
     }
   }
