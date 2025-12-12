@@ -1,0 +1,52 @@
+{
+  "name": "web",
+  "version": "0.0.1",
+  "description": "UI for visualizing Dealbot statistics and performance metrics.",
+  "private": true,
+  "license": "Apache-2.0 or MIT",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "start:dev": "vite",
+    "start:prod": "vite preview",
+    "format": "biome format --write .",
+    "format:check": "biome format .",
+    "lint": "biome lint --write .",
+    "lint:check": "biome lint .",
+    "check": "biome check --write .",
+    "check:ci": "biome ci .",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@radix-ui/react-accordion": "^1.2.12",
+    "@radix-ui/react-dialog": "^1.1.15",
+    "@radix-ui/react-popover": "^1.1.15",
+    "@radix-ui/react-select": "^2.2.6",
+    "@radix-ui/react-slot": "^1.2.3",
+    "@radix-ui/react-tabs": "^1.1.13",
+    "@tailwindcss/vite": "^4.1.12",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "date-fns": "^4.1.0",
+    "lucide-react": "^0.460.0",
+    "next-themes": "^0.3.0",
+    "react": "^19.1.1",
+    "react-day-picker": "^9.11.1",
+    "react-dom": "^19.1.1",
+    "recharts": "^2.15.4",
+    "tailwind-merge": "^2.6.0",
+    "tailwindcss": "^4.1.12"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "catalog:",
+    "@types/react": "^19.1.10",
+    "@types/react-dom": "^19.1.7",
+    "@vitejs/plugin-react": "^5.0.0",
+    "typescript": "catalog:",
+    "vite": "^7.1.2"
+  },
+  "overrides": {
+    "react-is": "^19.1.1-rc-69d4b800-20241021"
+  }
+}

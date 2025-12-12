@@ -1,0 +1,26 @@
+{
+  "name": "dealbot",
+  "version": "0.0.1",
+  "description": "A simple deal bot for Synapse storage providers",
+  "private": true,
+  "author": "",
+  "license": "Apache-2.0 or MIT",
+  "scripts": {
+    "build": "pnpm -r run build",
+    "start:dev": "pnpm -r run start:dev",
+    "start:prod": "pnpm -r run start:prod",
+    "format": "pnpm -r run format",
+    "format:check": "pnpm -r run format:check",
+    "lint": "pnpm -r run lint",
+    "lint:check": "pnpm -r run lint:check",
+    "check": "pnpm -r run check",
+    "check:ci": "pnpm -r run check:ci"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "catalog:",
+    "typescript": "catalog:"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
