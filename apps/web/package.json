@@ -1,6 +1,8 @@
 {
   "name": "web",
   "version": "0.0.1",
+  "description": "UI for visualizing Dealbot statistics and performance metrics.",
+  "private": true,
   "license": "Apache-2.0 or MIT",
   "type": "module",
   "scripts": {

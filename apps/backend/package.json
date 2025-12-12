@@ -1,7 +1,8 @@
 {
-  "name": "backend",
+  "name": "dealbot-backend",
   "version": "0.0.1",
   "description": "A simple deal bot for Synapse storage providers",
+  "private": true,
   "author": "",
   "license": "Apache-2.0 or MIT",
   "type": "module",
