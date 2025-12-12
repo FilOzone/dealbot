@@ -18,14 +18,54 @@ An intelligent automation system for creating and monitoring PDP deals on the Fi
 
 ## Quick Start
 
-### Prerequisites
+### Option 1: Docker Compose (Recommended for Quick Start)
+
+The easiest way to get started is using Docker Compose, which sets up both PostgreSQL and the application:
+
+#### Prerequisites
+
+- Docker and Docker Compose
+- Filecoin wallet with tokens
+
+#### Setup
+
+```bash
+# Clone repository
+git clone https://github.com/FilOzone/dealbot.git
+cd dealbot
+
+# Configure environment
+cp .env.example .env
+# Edit .env with your wallet credentials
+# Database settings are optional - defaults work with docker-compose.dev.yml
+
+# Start services (PostgreSQL + Application)
+docker compose -f docker-compose.dev.yml up -d
+
+# View logs
+docker compose -f docker-compose.dev.yml logs -f app
+
+# Stop services
+docker compose -f docker-compose.dev.yml down
+
+# Stop and remove database volume (fresh start)
+docker compose -f docker-compose.dev.yml down -v
+```
+
+The application will be available at `http://localhost:8080` (or the port specified in `DEALBOT_PORT`).
+
+**Note:** The database is automatically created and migrations run on first startup. The database data persists in a Docker volume named `postgres_data`.
+
+### Option 2: Local Development
+
+#### Prerequisites
 
 - Node.js 20+
-- PostgreSQL
+- PostgreSQL (or use Docker for just the database)
 - pnpm
 - Filecoin wallet with tokens
 
-### Installation
+#### Installation
 
 ```bash
 # Clone repository
@@ -40,31 +80,56 @@ cp .env.example .env
 # Edit .env with your wallet and database credentials
 ```
 
-### Running
+#### Running
 
 ```bash
 # Development
-pnpm start
+pnpm start:dev
 
 # Production
 pnpm start:prod
+```
+
+#### Using Docker for Database Only
+
+If you want to run the app locally but use Docker for PostgreSQL:
+
+```bash
+# Start just the database
+docker compose -f docker-compose.dev.yml up -d postgres
+
+# Update .env to use localhost for database
+# DATABASE_HOST=localhost
+# DATABASE_PORT=5432
+
+# Run the app locally
+pnpm start:dev
 ```
 
 ## Web Dashboard
 
 The project includes a React dashboard for visualizing metrics and monitoring performance.
 
-### Development
+### Using Docker Compose
+
+When using `docker-compose.dev.yml`, the web dashboard is automatically built and served by the NestJS application. Simply access:
+
+- **Web UI:** `http://localhost:8080` (or your configured `DEALBOT_PORT`)
+- **API Docs:** `http://localhost:8080/api`
+
+### Local Development
+
+For frontend development with hot-reload:
 
 ```bash
 # Terminal 1: Backend
-pnpm start
+pnpm start:dev
 
-# Terminal 2: Frontend
+# Terminal 2: Frontend (with hot-reload)
 pnpm dev:web
 ```
 
-Visit `http://localhost:5173` to view the dashboard.
+Visit `http://localhost:5173` to view the dashboard with hot-reload.
 
 ### Production Build
 
@@ -82,7 +147,9 @@ Complete API documentation is available via Swagger UI:
 
 **Production:** [https://dealbot.fwss.io/api](https://dealbot.fwss.io/api)
 
-**Local:** `http://localhost:3000/api` (when running locally)
+**Local (Docker):** `http://localhost:8080/api` (when using docker-compose.dev.yml)
+
+**Local (pnpm):** `http://localhost:3000/api` (when running with pnpm)
 
 ## Configuration
 
