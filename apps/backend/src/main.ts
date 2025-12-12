@@ -1,12 +1,19 @@
+import { Logger } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
 import helmet from "helmet";
+
+const logger = new Logger("Main");
 
 async function bootstrap() {
   const { AppModule } = await import("./app.module.js");
   const app = await NestFactory.create(AppModule, {
     logger: ["log", "fatal", "error", "warn"],
   });
+
+  // Ensure Nest calls lifecycle shutdown hooks (OnApplicationShutdown / BeforeApplicationShutdown)
+  // so resources (DB pools, schedulers, etc.) can be released on SIGINT/SIGTERM.
+  app.enableShutdownHooks();
 
   app.use(
     helmet({
@@ -35,6 +42,9 @@ async function bootstrap() {
   SwaggerModule.setup("api", app, document);
 
   await app.listen(process.env.DEALBOT_PORT || 3000, process.env.DEALBOT_HOST || "127.0.0.1");
+  logger.log(
+    `Dealbot backend is running on ${process.env.DEALBOT_HOST || "127.0.0.1"}:${process.env.DEALBOT_PORT || 3000}`,
+  );
 }
 
 bootstrap();
