@@ -18,7 +18,7 @@ An intelligent automation system for creating and monitoring PDP deals on the Fi
 
 ## Project Structure
 
-This is a polyrepo containing two separate applications:
+This is a monorepo containing two separate applications:
 
 ```
 dealbot/
