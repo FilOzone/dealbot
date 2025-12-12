@@ -116,17 +116,7 @@
       "attributePosition": "auto",
       "bracketSpacing": true
     },
-    "globals": [
-      "NodeJS",
-      "jest",
-      "describe",
-      "it",
-      "expect",
-      "beforeEach",
-      "afterEach",
-      "beforeAll",
-      "afterAll"
-    ]
+    "globals": ["NodeJS"]
   },
   "assist": {
     "enabled": true,
