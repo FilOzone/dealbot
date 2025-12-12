@@ -116,9 +116,7 @@
       "attributePosition": "auto",
       "bracketSpacing": true
     },
-    "globals": [
-      "NodeJS"
-    ]
+    "globals": ["NodeJS"]
   },
   "assist": {
     "enabled": true,
