@@ -417,11 +417,21 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
         this.logger.debug(`RootCID ${result.reason || "verification failed"}, retry ${retry + 1}/${maxRetries}...`);
         await new Promise((resolve) => setTimeout(resolve, this.IPNI_VERIFICATION_RETRY_INTERVAL_MS));
       } else {
-        return { verified: false, failed: { cid: rootCID, reason: result.reason || "unknown", addrs: result.addrs } };
+        return {
+          verified: false,
+          failed: {
+            cid: rootCID,
+            reason: result.reason || "unknown",
+            addrs: result.addrs,
+          },
+        };
       }
     }
 
-    return { verified: false, failed: { cid: rootCID, reason: "max retries exceeded" } };
+    return {
+      verified: false,
+      failed: { cid: rootCID, reason: "max retries exceeded" },
+    };
   }
 
   /**
@@ -454,7 +464,11 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       if (result.verified) {
         verified++;
       } else {
-        failed.push({ cid, reason: result.reason || "unknown", addrs: result.addrs });
+        failed.push({
+          cid,
+          reason: result.reason || "unknown",
+          addrs: result.addrs,
+        });
       }
     }
 

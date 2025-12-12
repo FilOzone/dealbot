@@ -70,13 +70,20 @@ export class FailedRetrievalsService {
           "storageProvider.name",
           "storageProvider.providerId",
         ])
-        .where("retrieval.createdAt BETWEEN :startDate AND :endDate", { startDate, endDate })
-        .andWhere("retrieval.status IN (:...statuses)", { statuses: [RetrievalStatus.FAILED, RetrievalStatus.TIMEOUT] })
+        .where("retrieval.createdAt BETWEEN :startDate AND :endDate", {
+          startDate,
+          endDate,
+        })
+        .andWhere("retrieval.status IN (:...statuses)", {
+          statuses: [RetrievalStatus.FAILED, RetrievalStatus.TIMEOUT],
+        })
         .andWhere("retrieval.errorMessage IS NOT NULL");
 
       // Add service type filter
       if (serviceType) {
-        queryBuilder.andWhere("retrieval.serviceType = :serviceType", { serviceType });
+        queryBuilder.andWhere("retrieval.serviceType = :serviceType", {
+          serviceType,
+        });
       }
 
       // Add provider filter (proper SQL join)
@@ -188,13 +195,20 @@ export class FailedRetrievalsService {
         "retrieval.dealId",
         "deal.spAddress",
       ])
-      .where("retrieval.createdAt BETWEEN :startDate AND :endDate", { startDate, endDate })
-      .andWhere("retrieval.status IN (:...statuses)", { statuses: [RetrievalStatus.FAILED, RetrievalStatus.TIMEOUT] })
+      .where("retrieval.createdAt BETWEEN :startDate AND :endDate", {
+        startDate,
+        endDate,
+      })
+      .andWhere("retrieval.status IN (:...statuses)", {
+        statuses: [RetrievalStatus.FAILED, RetrievalStatus.TIMEOUT],
+      })
       .andWhere("retrieval.errorMessage IS NOT NULL");
 
     // Add service type filter
     if (serviceType) {
-      queryBuilder.andWhere("retrieval.serviceType = :serviceType", { serviceType });
+      queryBuilder.andWhere("retrieval.serviceType = :serviceType", {
+        serviceType,
+      });
     }
 
     // Add provider filter

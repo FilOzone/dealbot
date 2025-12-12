@@ -247,7 +247,10 @@ export class RetrievalAddonsService {
     }
 
     // Get retry configuration from strategy (default: single attempt)
-    const retryConfig = strategy.getRetryConfig?.() || { attempts: 1, delayMs: 0 };
+    const retryConfig = strategy.getRetryConfig?.() || {
+      attempts: 1,
+      delayMs: 0,
+    };
     const { attempts, delayMs } = retryConfig;
 
     if (attempts > 1) {

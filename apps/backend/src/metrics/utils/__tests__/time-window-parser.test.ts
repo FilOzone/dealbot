@@ -11,17 +11,33 @@ describe("TimeWindowParser", () => {
   describe("parseDuration", () => {
     it("should parse valid hour durations", () => {
       expect(parseDuration("1h")).toEqual({ value: 1, unit: "h", hours: 1 });
-      expect(parseDuration("1.5h")).toEqual({ value: 1.5, unit: "h", hours: 1.5 });
+      expect(parseDuration("1.5h")).toEqual({
+        value: 1.5,
+        unit: "h",
+        hours: 1.5,
+      });
       expect(parseDuration("12h")).toEqual({ value: 12, unit: "h", hours: 12 });
       expect(parseDuration("24h")).toEqual({ value: 24, unit: "h", hours: 24 });
     });
 
     it("should parse valid day durations", () => {
       expect(parseDuration("1d")).toEqual({ value: 1, unit: "d", hours: 24 });
-      expect(parseDuration("2.5d")).toEqual({ value: 2.5, unit: "d", hours: 60 });
+      expect(parseDuration("2.5d")).toEqual({
+        value: 2.5,
+        unit: "d",
+        hours: 60,
+      });
       expect(parseDuration("7d")).toEqual({ value: 7, unit: "d", hours: 168 });
-      expect(parseDuration("30d")).toEqual({ value: 30, unit: "d", hours: 720 });
-      expect(parseDuration("90d")).toEqual({ value: 90, unit: "d", hours: 2160 });
+      expect(parseDuration("30d")).toEqual({
+        value: 30,
+        unit: "d",
+        hours: 720,
+      });
+      expect(parseDuration("90d")).toEqual({
+        value: 90,
+        unit: "d",
+        hours: 2160,
+      });
     });
 
     it("should handle case-insensitive input", () => {
@@ -31,7 +47,11 @@ describe("TimeWindowParser", () => {
 
     it("should handle whitespace", () => {
       expect(parseDuration(" 1h ")).toEqual({ value: 1, unit: "h", hours: 1 });
-      expect(parseDuration("  2d  ")).toEqual({ value: 2, unit: "d", hours: 48 });
+      expect(parseDuration("  2d  ")).toEqual({
+        value: 2,
+        unit: "d",
+        hours: 48,
+      });
     });
 
     it("should reject invalid formats", () => {

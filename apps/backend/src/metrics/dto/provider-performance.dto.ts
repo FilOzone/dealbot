@@ -90,7 +90,9 @@ export class ProviderPerformanceDto {
   @ApiProperty({ description: "Average retrieval TTFB in milliseconds" })
   avgRetrievalTtfbMs: number;
 
-  @ApiProperty({ description: "Average retrieval throughput in bytes per second" })
+  @ApiProperty({
+    description: "Average retrieval throughput in bytes per second",
+  })
   avgRetrievalThroughputBps: number;
 
   @ApiProperty({ description: "Total data retrieved in bytes" })
@@ -105,16 +107,22 @@ export class ProviderPerformanceDto {
   @ApiProperty({ description: "Failed IPFS retrievals" })
   failedIpfsRetrievals: number;
 
-  @ApiProperty({ description: "IPFS retrieval success rate percentage (0-100)" })
+  @ApiProperty({
+    description: "IPFS retrieval success rate percentage (0-100)",
+  })
   ipfsRetrievalSuccessRate: number;
 
-  @ApiProperty({ description: "Average IPFS retrieval latency in milliseconds" })
+  @ApiProperty({
+    description: "Average IPFS retrieval latency in milliseconds",
+  })
   avgIpfsRetrievalLatencyMs: number;
 
   @ApiProperty({ description: "Average IPFS retrieval TTFB in milliseconds" })
   avgIpfsRetrievalTtfbMs: number;
 
-  @ApiProperty({ description: "Average IPFS retrieval throughput in bytes per second" })
+  @ApiProperty({
+    description: "Average IPFS retrieval throughput in bytes per second",
+  })
   avgIpfsRetrievalThroughputBps: number;
 
   @ApiProperty({ description: "Total deals with IPNI tracking" })
@@ -129,7 +137,9 @@ export class ProviderPerformanceDto {
   @ApiProperty({ description: "IPNI deals that reached retrieved status" })
   ipniRetrievedDeals: number;
 
-  @ApiProperty({ description: "IPNI deals that are verified with filecoinpin.contact" })
+  @ApiProperty({
+    description: "IPNI deals that are verified with filecoinpin.contact",
+  })
   ipniVerifiedDeals: number;
 
   @ApiProperty({ description: "IPNI deals that failed" })
@@ -141,7 +151,9 @@ export class ProviderPerformanceDto {
   @ApiProperty({ description: "Average time to IPNI index in milliseconds" })
   avgIpniTimeToIndexMs: number;
 
-  @ApiProperty({ description: "Average time to IPNI advertise in milliseconds" })
+  @ApiProperty({
+    description: "Average time to IPNI advertise in milliseconds",
+  })
   avgIpniTimeToAdvertiseMs: number;
 
   @ApiProperty({ description: "Average time to IPNI retrieve in milliseconds" })
@@ -205,7 +217,10 @@ export class ProviderListResponseDto {
  * Returns combined weekly and all-time metrics for each provider
  */
 export class ProviderMetricsListResponseDto {
-  @ApiProperty({ type: [ProviderCombinedPerformanceDto], description: "List of providers with combined metrics" })
+  @ApiProperty({
+    type: [ProviderCombinedPerformanceDto],
+    description: "List of providers with combined metrics",
+  })
   providers: ProviderCombinedPerformanceDto[];
 
   @ApiProperty({ description: "Total number of providers" })

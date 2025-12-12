@@ -154,7 +154,12 @@ export class DealService implements OnModuleInit {
     dealInput: DealPreprocessingResult,
     maxConcurrency: number = 10,
   ): Promise<Array<{ success: boolean; deal?: Deal; error?: string; provider: string }>> {
-    const results: Array<{ success: boolean; deal?: Deal; error?: string; provider: string }> = [];
+    const results: Array<{
+      success: boolean;
+      deal?: Deal;
+      error?: string;
+      provider: string;
+    }> = [];
 
     for (let i = 0; i < providers.length; i += maxConcurrency) {
       const batch = providers.slice(i, i + maxConcurrency);

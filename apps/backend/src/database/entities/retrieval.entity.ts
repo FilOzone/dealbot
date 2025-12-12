@@ -18,7 +18,12 @@ export class Retrieval {
   @Column({ name: "deal_id", type: "uuid" })
   dealId!: string;
 
-  @Column({ name: "service_type", type: "enum", enum: ServiceType, default: ServiceType.DIRECT_SP })
+  @Column({
+    name: "service_type",
+    type: "enum",
+    enum: ServiceType,
+    default: ServiceType.DIRECT_SP,
+  })
   serviceType!: ServiceType;
 
   @Column({ name: "retrieval_endpoint" })

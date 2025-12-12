@@ -54,7 +54,11 @@ export class DataSourceService {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
       const data = await response.arrayBuffer();
-      return { name: dataset.titleNullable, data: Buffer.from(data), size: data.byteLength };
+      return {
+        name: dataset.titleNullable,
+        data: Buffer.from(data),
+        size: data.byteLength,
+      };
     } catch (error) {
       this.logger.error("Failed to fetch kaggle dataset", error);
       throw error;

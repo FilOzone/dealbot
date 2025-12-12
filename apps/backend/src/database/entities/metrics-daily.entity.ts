@@ -31,7 +31,12 @@ export class MetricsDaily {
   @Column({ name: "metric_type", type: "enum", enum: MetricType })
   metricType: MetricType;
 
-  @Column({ name: "service_type", type: "enum", enum: ServiceType, nullable: true })
+  @Column({
+    name: "service_type",
+    type: "enum",
+    enum: ServiceType,
+    nullable: true,
+  })
   serviceType: ServiceType;
 
   // Deal metrics
@@ -113,16 +118,32 @@ export class MetricsDaily {
   @Column({ name: "ipni_success_rate", type: "float", nullable: true })
   ipniSuccessRate: number;
 
-  @Column({ name: "avg_ipni_time_to_index_ms", type: "integer", nullable: true })
+  @Column({
+    name: "avg_ipni_time_to_index_ms",
+    type: "integer",
+    nullable: true,
+  })
   avgIpniTimeToIndexMs: number;
 
-  @Column({ name: "avg_ipni_time_to_advertise_ms", type: "integer", nullable: true })
+  @Column({
+    name: "avg_ipni_time_to_advertise_ms",
+    type: "integer",
+    nullable: true,
+  })
   avgIpniTimeToAdvertiseMs: number;
 
-  @Column({ name: "avg_ipni_time_to_retrieve_ms", type: "integer", nullable: true })
+  @Column({
+    name: "avg_ipni_time_to_retrieve_ms",
+    type: "integer",
+    nullable: true,
+  })
   avgIpniTimeToRetrieveMs: number;
 
-  @Column({ name: "avg_ipni_time_to_verify_ms", type: "integer", nullable: true })
+  @Column({
+    name: "avg_ipni_time_to_verify_ms",
+    type: "integer",
+    nullable: true,
+  })
   avgIpniTimeToVerifyMs: number;
 
   @CreateDateColumn({ name: "created_at", type: "timestamptz" })

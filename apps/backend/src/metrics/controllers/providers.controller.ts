@@ -45,16 +45,33 @@ export class ProvidersController {
     summary: "List storage providers",
     description: "Get a paginated list of storage providers with combined weekly and all-time performance metrics",
   })
-  @ApiQuery({ name: "limit", required: false, type: Number, description: "Number of results per page (default: 20)" })
-  @ApiQuery({ name: "offset", required: false, type: Number, description: "Pagination offset (default: 0)" })
-  @ApiResponse({ status: 200, description: "List of providers with combined metrics", type: ProviderListResponseDto })
+  @ApiQuery({
+    name: "limit",
+    required: false,
+    type: Number,
+    description: "Number of results per page (default: 20)",
+  })
+  @ApiQuery({
+    name: "offset",
+    required: false,
+    type: Number,
+    description: "Pagination offset (default: 0)",
+  })
+  @ApiResponse({
+    status: 200,
+    description: "List of providers with combined metrics",
+    type: ProviderListResponseDto,
+  })
   async listProviders(
     @Query("limit", new DefaultValuePipe(20), ParseIntPipe) limit?: number,
     @Query("offset", new DefaultValuePipe(0), ParseIntPipe) offset?: number,
   ): Promise<ProviderListResponseDto> {
     this.logger.debug(`Listing providers: limit=${limit}, offset=${offset}`);
 
-    const { providers, total } = await this.providersService.getProvidersList({ limit, offset });
+    const { providers, total } = await this.providersService.getProvidersList({
+      limit,
+      offset,
+    });
 
     return {
       providers,
@@ -74,11 +91,35 @@ export class ProvidersController {
     summary: "List storage providers",
     description: "Get a paginated list of storage providers with combined weekly and all-time performance metrics",
   })
-  @ApiQuery({ name: "activeOnly", required: false, type: Boolean, description: "Show only active providers" })
-  @ApiQuery({ name: "approvedOnly", required: false, type: Boolean, description: "Show only approved providers" })
-  @ApiQuery({ name: "limit", required: false, type: Number, description: "Number of results per page (default: 10)" })
-  @ApiQuery({ name: "offset", required: false, type: Number, description: "Pagination offset (default: 0)" })
-  @ApiResponse({ status: 200, description: "List of providers with combined metrics", type: ProviderListResponseDto })
+  @ApiQuery({
+    name: "activeOnly",
+    required: false,
+    type: Boolean,
+    description: "Show only active providers",
+  })
+  @ApiQuery({
+    name: "approvedOnly",
+    required: false,
+    type: Boolean,
+    description: "Show only approved providers",
+  })
+  @ApiQuery({
+    name: "limit",
+    required: false,
+    type: Number,
+    description: "Number of results per page (default: 10)",
+  })
+  @ApiQuery({
+    name: "offset",
+    required: false,
+    type: Number,
+    description: "Pagination offset (default: 0)",
+  })
+  @ApiResponse({
+    status: 200,
+    description: "List of providers with combined metrics",
+    type: ProviderListResponseDto,
+  })
   async listProvidersWithMetrics(
     @Query("activeOnly") activeOnly?: string,
     @Query("approvedOnly") approvedOnly?: string,
@@ -128,7 +169,11 @@ export class ProvidersController {
     description: "Get detailed weekly and all-time performance metrics for a specific storage provider",
   })
   @ApiParam({ name: "spAddress", description: "Storage provider address" })
-  @ApiResponse({ status: 200, description: "Provider performance metrics", type: ProviderCombinedPerformanceDto })
+  @ApiResponse({
+    status: 200,
+    description: "Provider performance metrics",
+    type: ProviderCombinedPerformanceDto,
+  })
   @ApiResponse({ status: 404, description: "Provider not found" })
   async getProviderPerformance(@Param("spAddress") spAddress: string): Promise<ProviderCombinedPerformanceDto> {
     this.logger.debug(`Getting performance for provider: ${spAddress}`);
@@ -175,7 +220,10 @@ export class ProvidersController {
     description: "Provider performance metrics",
     type: ProviderWindowPerformanceDto,
   })
-  @ApiResponse({ status: 400, description: "Invalid time window or date range" })
+  @ApiResponse({
+    status: 400,
+    description: "Invalid time window or date range",
+  })
   @ApiResponse({ status: 404, description: "Provider not found" })
   async getProviderWindowPerformance(
     @Param("spAddress") spAddress: string,
@@ -226,8 +274,17 @@ export class ProvidersController {
     enum: ["last_week", "all_time"],
     description: "Time period (default: last_week)",
   })
-  @ApiQuery({ name: "limit", required: false, type: Number, description: "Number of results (default: 10)" })
-  @ApiResponse({ status: 200, description: "Top providers", type: [ProviderPerformanceDto] })
+  @ApiQuery({
+    name: "limit",
+    required: false,
+    type: Number,
+    description: "Number of results (default: 10)",
+  })
+  @ApiResponse({
+    status: 200,
+    description: "Top providers",
+    type: [ProviderPerformanceDto],
+  })
   async getTopProviders(
     @Param("metric") metric: "deal_success_rate" | "retrieval_success_rate" | "deal_latency" | "retrieval_latency",
     @Query("period") period?: "last_week" | "all_time",
@@ -304,8 +361,15 @@ export class ProvidersController {
     description: "Fetch the Curio version from a storage provider's service endpoint (proxied through backend)",
   })
   @ApiParam({ name: "spAddress", description: "Storage provider address" })
-  @ApiResponse({ status: 200, description: "Curio version string", type: String })
-  @ApiResponse({ status: 404, description: "Provider not found or version endpoint unavailable" })
+  @ApiResponse({
+    status: 200,
+    description: "Curio version string",
+    type: String,
+  })
+  @ApiResponse({
+    status: 404,
+    description: "Provider not found or version endpoint unavailable",
+  })
   async getProviderVersion(@Param("spAddress") spAddress: string): Promise<string> {
     this.logger.debug(`Fetching Curio version for provider: ${spAddress}`);
     return this.providersService.getProviderCurioVersion(spAddress);

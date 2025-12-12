@@ -612,7 +612,9 @@ export class ProvidersService {
       .createQueryBuilder("r")
       .innerJoin("r.deal", "d")
       .where("d.sp_address = :spAddress", { spAddress: provider.address })
-      .andWhere("r.service_type = :serviceType", { serviceType: ServiceType.DIRECT_SP })
+      .andWhere("r.service_type = :serviceType", {
+        serviceType: ServiceType.DIRECT_SP,
+      })
       .andWhere("r.created_at >= :startDate", { startDate })
       .andWhere("r.created_at <= :endDate", { endDate })
       .getMany();
