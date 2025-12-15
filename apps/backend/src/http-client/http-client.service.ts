@@ -1,21 +1,18 @@
-import type { HttpService } from "@nestjs/axios";
+import { HttpService } from "@nestjs/axios";
 import { Injectable, Logger } from "@nestjs/common";
 import type { AxiosRequestConfig } from "axios";
 import { HttpsProxyAgent } from "https-proxy-agent";
 import { firstValueFrom } from "rxjs";
 import { SocksProxyAgent } from "socks-proxy-agent";
 import { ProxyAgent as UndiciProxyAgent, request as undiciRequest } from "undici";
-import type { ProxyService } from "../proxy/proxy.service.js";
+import { ProxyService } from "../proxy/proxy.service.js";
 import type { HttpVersion, RequestMetrics, RequestWithMetrics } from "./types.js";
 
 @Injectable()
 export class HttpClientService {
   private logger = new Logger(HttpClientService.name);
 
-  constructor(
-    private readonly httpService: HttpService,
-    private readonly proxyService: ProxyService,
-  ) {}
+  constructor(private readonly httpService: HttpService, private readonly proxyService: ProxyService) {}
 
   async requestWithRandomProxyAndMetrics<T = any>(
     url: string,

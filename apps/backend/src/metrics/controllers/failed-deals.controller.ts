@@ -1,7 +1,7 @@
 import { BadRequestException, Controller, Get, Query } from "@nestjs/common";
 import { ApiOperation, ApiQuery, ApiResponse, ApiTags } from "@nestjs/swagger";
 import { FailedDealsResponseDto } from "../dto/failed-deals.dto.js";
-import type { FailedDealsService } from "../services/failed-deals.service.js";
+import { FailedDealsService } from "../services/failed-deals.service.js";
 
 /**
  * Controller for failed deals endpoints

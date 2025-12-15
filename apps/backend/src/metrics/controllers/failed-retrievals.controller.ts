@@ -2,7 +2,7 @@ import { BadRequestException, Controller, Get, Query } from "@nestjs/common";
 import { ApiOperation, ApiQuery, ApiResponse, ApiTags } from "@nestjs/swagger";
 import type { ServiceType } from "../../database/types.js";
 import { FailedRetrievalsResponseDto } from "../dto/failed-retrievals.dto.js";
-import type { FailedRetrievalsService } from "../services/failed-retrievals.service.js";
+import { FailedRetrievalsService } from "../services/failed-retrievals.service.js";
 
 /**
  * Controller for failed retrievals endpoints
