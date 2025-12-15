@@ -26,22 +26,22 @@ export function ProviderComparison({ providers, days = 30 }: ProviderComparisonP
 
   if (!selectedProvider || providers.length === 0) {
     return (
-      <div className='text-center py-8 text-muted-foreground'>
+      <div className="text-center py-8 text-muted-foreground">
         <p>No providers available for comparison.</p>
       </div>
     );
   }
 
   return (
-    <div className='space-y-6'>
+    <div className="space-y-6">
       {/* Provider Selector */}
-      <div className='flex items-center gap-4'>
-        <label htmlFor='provider-select' className='text-sm font-medium'>
+      <div className="flex items-center gap-4">
+        <label htmlFor="provider-select" className="text-sm font-medium">
           Select Provider:
         </label>
         <Select value={selectedProvider} onValueChange={setSelectedProvider}>
-          <SelectTrigger id='provider-select' className='w-[300px]'>
-            <SelectValue placeholder='Choose a provider' />
+          <SelectTrigger id="provider-select" className="w-[300px]">
+            <SelectValue placeholder="Choose a provider" />
           </SelectTrigger>
           <SelectContent>
             {providers.map((provider) => {
@@ -60,7 +60,7 @@ export function ProviderComparison({ providers, days = 30 }: ProviderComparisonP
 
       {/* Loading State */}
       {loading && (
-        <div className='space-y-4'>
+        <div className="space-y-4">
           <Skeleton />
         </div>
       )}
@@ -70,10 +70,10 @@ export function ProviderComparison({ providers, days = 30 }: ProviderComparisonP
 
       {/* Charts */}
       {data && !loading && !error && (
-        <div className='space-y-4'>
-          <div className='text-sm text-muted-foreground'>
+        <div className="space-y-4">
+          <div className="text-sm text-muted-foreground">
             Showing {data.dailyMetrics.length} days of data for{" "}
-            <span className='font-mono font-medium'>{data.spAddress}</span>
+            <span className="font-mono font-medium">{data.spAddress}</span>
           </div>
           <ProviderDailyComparison metrics={data.dailyMetrics} />
         </div>

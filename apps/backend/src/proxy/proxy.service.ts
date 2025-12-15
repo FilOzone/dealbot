@@ -1,5 +1,5 @@
 import { Injectable } from "@nestjs/common";
-import { ConfigService } from "@nestjs/config";
+import type { ConfigService } from "@nestjs/config";
 import type { IConfig, IProxyConfig } from "../config/app.config.js";
 import type { ProxyConfig } from "./types.js";
 

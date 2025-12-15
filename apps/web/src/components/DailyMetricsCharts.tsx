@@ -68,17 +68,17 @@ function DailyLineChart({ data, title, dataKeys, yTickFormatter, valueFormatter 
 
   return (
     <div>
-      <p className='text-sm text-muted-foreground mb-3'>{title}</p>
-      <div className='w-full h-[420px]'>
-        <ChartContainer config={chartConfig} className='min-h-[200px] h-full w-full'>
+      <p className="text-sm text-muted-foreground mb-3">{title}</p>
+      <div className="w-full h-[420px]">
+        <ChartContainer config={chartConfig} className="min-h-[200px] h-full w-full">
           <LineChart data={chartData} margin={{ left: 30, top: 20 }}>
-            <CartesianGrid strokeDasharray='3 3' />
-            <XAxis dataKey='date' />
+            <CartesianGrid strokeDasharray="3 3" />
+            <XAxis dataKey="date" />
             <YAxis tickFormatter={yTickFormatter} fontSize={12} />
             <ChartTooltip content={<ChartTooltipContent valueFormatter={(v) => valueFormatter(v as number)} />} />
             <Legend />
             {dataKeys.map(({ label, color }) => (
-              <Line key={label} type='monotone' dataKey={label} stroke={color} name={label} strokeWidth={2} />
+              <Line key={label} type="monotone" dataKey={label} stroke={color} name={label} strokeWidth={2} />
             ))}
           </LineChart>
         </ChartContainer>
@@ -92,11 +92,11 @@ function DailyLineChart({ data, title, dataKeys, yTickFormatter, valueFormatter 
  */
 export function DailyMetricsCharts({ dailyMetrics }: { dailyMetrics: DailyAggregatedMetrics[] }) {
   return (
-    <div className='space-y-12'>
+    <div className="space-y-12">
       {/* Success Rates */}
       <DailyLineChart
         data={dailyMetrics}
-        title='SUCCESS RATES (DAILY)'
+        title="SUCCESS RATES (DAILY)"
         dataKeys={[
           {
             key: "dealSuccessRate",
@@ -116,7 +116,7 @@ export function DailyMetricsCharts({ dailyMetrics }: { dailyMetrics: DailyAggreg
       {/* Latencies */}
       <DailyLineChart
         data={dailyMetrics}
-        title='LATENCIES (DAILY)'
+        title="LATENCIES (DAILY)"
         dataKeys={[
           {
             key: "avgIngestLatencyMs",
@@ -141,7 +141,7 @@ export function DailyMetricsCharts({ dailyMetrics }: { dailyMetrics: DailyAggreg
       {/* Unique Providers */}
       <DailyLineChart
         data={dailyMetrics}
-        title='Throughputs (DAILY)'
+        title="Throughputs (DAILY)"
         dataKeys={[
           {
             key: "avgRetrievalThroughputBps",

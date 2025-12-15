@@ -1,5 +1,5 @@
 import { Injectable, Logger } from "@nestjs/common";
-import { ConfigService } from "@nestjs/config";
+import type { ConfigService } from "@nestjs/config";
 import * as fs from "fs";
 import * as path from "path";
 import { KAGGLE_BASE_URL } from "../common/constants.js";

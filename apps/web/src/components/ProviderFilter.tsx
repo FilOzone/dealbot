@@ -81,43 +81,43 @@ export function ProviderFilter({
   };
 
   return (
-    <div className='space-y-4'>
+    <div className="space-y-4">
       {/* Search and Sort Controls */}
-      <div className='flex flex-wrap items-center gap-4'>
+      <div className="flex flex-wrap items-center gap-4">
         {/* Search Input */}
-        <div className='relative flex-1 min-w-[200px]'>
+        <div className="relative flex-1 min-w-[200px]">
           <Input
-            type='text'
-            placeholder='Search providers...'
-            className='pl-8'
+            type="text"
+            placeholder="Search providers..."
+            className="pl-8"
             value={searchValue}
             onChange={(e) => onSearchChange(e.target.value)}
           />
-          <Search className='absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground' />
+          <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
         </div>
 
         {/* Sort By */}
         <Select value={sortBy} onValueChange={(v) => onSortChange(v as ProviderSortKey)}>
-          <SelectTrigger className='w-[180px]'>
-            <SelectValue placeholder='Sort by' />
+          <SelectTrigger className="w-[180px]">
+            <SelectValue placeholder="Sort by" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value='health'>Health Score</SelectItem>
-            <SelectItem value='name'>Provider Address</SelectItem>
-            <SelectItem value='deals'>Total Deals</SelectItem>
-            <SelectItem value='retrievals'>Total Retrievals</SelectItem>
-            <SelectItem value='successRate'>Success Rate</SelectItem>
+            <SelectItem value="health">Health Score</SelectItem>
+            <SelectItem value="name">Provider Address</SelectItem>
+            <SelectItem value="deals">Total Deals</SelectItem>
+            <SelectItem value="retrievals">Total Retrievals</SelectItem>
+            <SelectItem value="successRate">Success Rate</SelectItem>
           </SelectContent>
         </Select>
 
         {/* Sort Order */}
         <button
-          type='button'
+          type="button"
           onClick={() => onSortOrderChange(sortOrder === "asc" ? "desc" : "asc")}
-          className='px-3 py-2 border border-input bg-background rounded-md hover:bg-accent hover:text-accent-foreground transition-colors flex items-center gap-2'
+          className="px-3 py-2 border border-input bg-background rounded-md hover:bg-accent hover:text-accent-foreground transition-colors flex items-center gap-2"
         >
-          <ArrowUpDown className='h-4 w-4' />
-          <span className='text-sm font-medium'>
+          <ArrowUpDown className="h-4 w-4" />
+          <span className="text-sm font-medium">
             {sortBy === "name"
               ? sortOrder === "asc"
                 ? "A → Z"
@@ -130,9 +130,9 @@ export function ProviderFilter({
       </div>
 
       {/* Health Status Filters */}
-      <div className='space-y-2'>
-        <p className='text-sm font-medium text-muted-foreground'>Filter by Health Status:</p>
-        <div className='flex flex-wrap gap-2'>
+      <div className="space-y-2">
+        <p className="text-sm font-medium text-muted-foreground">Filter by Health Status:</p>
+        <div className="flex flex-wrap gap-2">
           {healthStatuses.map((status) => (
             <Badge
               key={status.value}
@@ -142,17 +142,17 @@ export function ProviderFilter({
               }`}
               onClick={() => toggleHealthFilter(status.value)}
             >
-              <span className='mr-1.5'>{status.icon}</span>
-              <span className='text-xs'>{status.label}</span>
+              <span className="mr-1.5">{status.icon}</span>
+              <span className="text-xs">{status.label}</span>
             </Badge>
           ))}
           {healthFilter.length > 0 && (
             <Badge
-              variant='secondary'
-              className='cursor-pointer hover:bg-destructive hover:text-destructive-foreground transition-colors'
+              variant="secondary"
+              className="cursor-pointer hover:bg-destructive hover:text-destructive-foreground transition-colors"
               onClick={() => onHealthFilterChange([])}
             >
-              <span className='text-xs'>Clear Filters ({healthFilter.length})</span>
+              <span className="text-xs">Clear Filters ({healthFilter.length})</span>
             </Badge>
           )}
         </div>

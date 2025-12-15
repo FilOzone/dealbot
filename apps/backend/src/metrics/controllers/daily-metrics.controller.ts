@@ -5,7 +5,7 @@ import {
   ProviderDailyMetricsResponseDto,
   ServiceComparisonResponseDto,
 } from "../dto/daily-metrics.dto.js";
-import { DailyMetricsService } from "../services/daily-metrics.service.js";
+import type { DailyMetricsService } from "../services/daily-metrics.service.js";
 
 /**
  * Controller for daily metrics endpoints

@@ -82,16 +82,16 @@ function ProviderTrendChart({
 
   return (
     <div>
-      <p className='text-sm text-muted-foreground mb-3'>{title}</p>
-      <div className='w-full h-[420px]'>
-        <ChartContainer config={chartConfig} className='min-h-[200px] max-h-[420px] h-full w-full'>
+      <p className="text-sm text-muted-foreground mb-3">{title}</p>
+      <div className="w-full h-[420px]">
+        <ChartContainer config={chartConfig} className="min-h-[200px] max-h-[420px] h-full w-full">
           <LineChart data={chartData} margin={{ left: 30, top: 10 }}>
-            <CartesianGrid strokeDasharray='3 3' />
-            <XAxis dataKey='date' />
+            <CartesianGrid strokeDasharray="3 3" />
+            <XAxis dataKey="date" />
             <YAxis tickFormatter={yTickFormatter} fontSize={12} />
             <ChartTooltip content={<ChartTooltipContent valueFormatter={(v) => valueFormatter(v as number)} />} />
             <Legend wrapperStyle={{ fontSize: "12px" }} />
-            <Line type='monotone' dataKey='value' stroke={color} strokeWidth={2} name={displayName} />
+            <Line type="monotone" dataKey="value" stroke={color} strokeWidth={2} name={displayName} />
           </LineChart>
         </ChartContainer>
       </div>
@@ -110,19 +110,19 @@ function ProviderTrendChart({
 export function ProviderDailyComparison({ metrics }: { metrics: ProviderDailyMetrics[] }) {
   if (!metrics || metrics.length === 0) {
     return (
-      <div className='text-center text-muted-foreground py-8'>
+      <div className="text-center text-muted-foreground py-8">
         <p>No daily metrics available for this provider.</p>
       </div>
     );
   }
 
   return (
-    <div className='space-y-12'>
+    <div className="space-y-12">
       {/* Success Rates */}
       <ProviderTrendChart
         metrics={metrics}
-        title='DEAL SUCCESS RATE TREND'
-        metricKey='dealSuccessRate'
+        title="DEAL SUCCESS RATE TREND"
+        metricKey="dealSuccessRate"
         yTickFormatter={(v) => formatPercentage(v)}
         valueFormatter={(v) => formatPercentage(v)}
         color={CHART_COLORS[0]}
@@ -130,8 +130,8 @@ export function ProviderDailyComparison({ metrics }: { metrics: ProviderDailyMet
 
       <ProviderTrendChart
         metrics={metrics}
-        title='RETRIEVAL SUCCESS RATE TREND'
-        metricKey='retrievalSuccessRate'
+        title="RETRIEVAL SUCCESS RATE TREND"
+        metricKey="retrievalSuccessRate"
         yTickFormatter={(v) => formatPercentage(v)}
         valueFormatter={(v) => formatPercentage(v)}
         color={CHART_COLORS[1]}
@@ -140,8 +140,8 @@ export function ProviderDailyComparison({ metrics }: { metrics: ProviderDailyMet
       {/* Latencies */}
       <ProviderTrendChart
         metrics={metrics}
-        title='DEAL LATENCY TREND'
-        metricKey='avgDealLatencyMs'
+        title="DEAL LATENCY TREND"
+        metricKey="avgDealLatencyMs"
         yTickFormatter={(v) => formatDuration(v)}
         valueFormatter={(v) => formatDuration(v)}
         color={CHART_COLORS[2]}
@@ -149,8 +149,8 @@ export function ProviderDailyComparison({ metrics }: { metrics: ProviderDailyMet
 
       <ProviderTrendChart
         metrics={metrics}
-        title='RETRIEVAL LATENCY TREND'
-        metricKey='avgRetrievalLatencyMs'
+        title="RETRIEVAL LATENCY TREND"
+        metricKey="avgRetrievalLatencyMs"
         yTickFormatter={(v) => formatDuration(v)}
         valueFormatter={(v) => formatDuration(v)}
         color={CHART_COLORS[3]}
