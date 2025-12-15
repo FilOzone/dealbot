@@ -37,7 +37,7 @@ dealbot/
 
 ## Quick Start
 
-### Prerequisites
+### Option 1: Docker Compose (Recommended for Quick Start)
 
 - **Node.js** 20+
 - **pnpm** (package manager)
@@ -95,7 +95,7 @@ Default: `VITE_API_BASE_URL=http://localhost:8080`
 pnpm start:dev
 ```
 
-Backend runs at: `http://localhost:8080` ( or at DEALBOT_PORT environment variable)  
+Backend runs at: `http://localhost:8080` ( or at DEALBOT_PORT environment variable)
 Frontend runs at: `http://localhost:5173`
 
 #### Option 2: Run both applications separately in different terminals
@@ -109,7 +109,7 @@ cd apps/backend
 pnpm start:dev    # Development with hot-reload
 ```
 
-Backend runs at: `http://localhost:8080`  
+Backend runs at: `http://localhost:8080`
 API Docs (Swagger): `http://localhost:8080/api`
 
 ##### Terminal 2: Frontend (Web Dashboard)

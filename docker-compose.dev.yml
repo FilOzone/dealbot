@@ -1,0 +1,62 @@
+version: "3.8"
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:16-alpine
+    container_name: dealbot-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DATABASE_USER:-dealbot}
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:-dealbot_password}
+      POSTGRES_DB: ${DATABASE_NAME:-filecoin_dealbot}
+    ports:
+      - "${DATABASE_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DATABASE_USER:-dealbot} -d ${DATABASE_NAME:-filecoin_dealbot}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - dealbot-network
+
+  # NestJS Application
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - ./.env
+    environment:
+      - NODE_ENV=production
+      - DATABASE_HOST=postgres
+      - DEALBOT_HOST=0.0.0.0
+      - DEALBOT_PORT=3130
+    ports:
+      - "${DEALBOT_PORT:-3130}:3130"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget --no-verbose --tries=1 --spider http://localhost:3130/api/health || exit 1",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - dealbot-network
+
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  dealbot-network:
+    driver: bridge

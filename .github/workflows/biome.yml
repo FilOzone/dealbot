@@ -23,10 +23,10 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: pnpm
 
-      - name: Install dependencies
+      - name: Install backend dependencies
         run: pnpm install --frozen-lockfile
+        working-directory: backend
 
       - name: Run Biome
         run: pnpm check:ci

@@ -40,9 +40,17 @@ export class AddMetricTypeColumn1730642400000 implements MigrationInterface {
 
     // Step 6: Create new unique constraint with metric_type
     await queryRunner.query(`
-      ALTER TABLE metrics_daily 
-      ADD CONSTRAINT IF NOT EXISTS "UQ_metrics_daily_daily_bucket_sp_address_metric_type_service_type" 
-      UNIQUE (daily_bucket, sp_address, metric_type, service_type)
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint WHERE conname = 'UQ_metrics_daily_daily_bucket_sp_address_metric_type_service_type'
+        ) THEN
+          ALTER TABLE metrics_daily
+          ADD CONSTRAINT "UQ_metrics_daily_daily_bucket_sp_address_metric_type_service_type"
+          UNIQUE (daily_bucket, sp_address, metric_type, service_type);
+        END IF;
+      END;
+      $$;
     `);
 
     // Step 7: Add index on metric_type
