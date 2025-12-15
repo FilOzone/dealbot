@@ -15,15 +15,17 @@
     "lint:check": "pnpm -r run lint:check",
     "check": "pnpm -r run check",
     "check:ci": "pnpm -r run check:ci",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "test:cov": "vitest run --coverage",
-    "test:debug": "vitest --inspect-brk --inspect --logHeapUsage --threads=false",
-    "test:e2e": "vitest run --config ./test/vitest-e2e.config.ts"
+    "test": "pnpm -r test",
+    "test:watch": "pnpm -r test:watch",
+    "test:cov": "pnpm -r test:cov",
+    "test:e2e": "pnpm -r test:e2e"
   },
   "devDependencies": {
     "@biomejs/biome": "catalog:",
-    "typescript": "catalog:"
+    "@vitest/coverage-v8": "catalog:",
+    "typescript": "catalog:",
+    "unplugin-swc": "catalog:",
+    "vitest": "catalog:"
   },
   "engines": {
     "node": ">=22"
