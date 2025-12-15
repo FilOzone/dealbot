@@ -18,7 +18,13 @@ export function useFailedDeals(options: FailedDealsQueryOptions = {}) {
         setLoading(true);
         setError(null);
 
-        const result = await apiFetchFailedDeals({ page, limit, spAddress, startDate, endDate });
+        const result = await apiFetchFailedDeals({
+          page,
+          limit,
+          spAddress,
+          startDate,
+          endDate,
+        });
 
         if (isCancelled) return;
 

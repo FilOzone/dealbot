@@ -18,7 +18,14 @@ export function useFailedRetrievals(options: FailedRetrievalsQueryOptions = {}) 
         setLoading(true);
         setError(null);
 
-        const result = await apiFetchFailedRetrievals({ page, limit, spAddress, serviceType, startDate, endDate });
+        const result = await apiFetchFailedRetrievals({
+          page,
+          limit,
+          spAddress,
+          serviceType,
+          startDate,
+          endDate,
+        });
 
         if (isCancelled) return;
 

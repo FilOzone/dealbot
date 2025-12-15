@@ -35,7 +35,11 @@ export function useProviderWindow({
     setError(null);
 
     try {
-      const result = await fetchProviderWindowMetrics(spAddress, { startDate, endDate, preset });
+      const result = await fetchProviderWindowMetrics(spAddress, {
+        startDate,
+        endDate,
+        preset,
+      });
       setData(result);
     } catch (err) {
       setError(err instanceof Error ? err : new Error("Failed to fetch provider window data"));
