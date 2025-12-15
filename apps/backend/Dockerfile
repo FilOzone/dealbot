@@ -3,28 +3,28 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-# Copy package files
-COPY package*.json pnpm-lock.yaml ./
-COPY tsconfig*.json ./
-COPY nest-cli.json ./
-
-# Install pnpm and dependencies
+# Install pnpm
 RUN npm i -g pnpm@9
-RUN pnpm install
 
-# Copy source code
-COPY src/ ./src/
+# Copy workspace configuration files from root
+COPY pnpm-workspace.yaml ./
+COPY pnpm-lock.yaml ./
+COPY package.json ./
 
-# Build the application
-RUN pnpm run build
+# Copy backend app files
+COPY apps/backend/package.json ./apps/backend/
+COPY apps/backend/pnpm-lock.yaml ./apps/backend/
+COPY apps/backend/tsconfig*.json ./apps/backend/
+COPY apps/backend/nest-cli.json ./apps/backend/
 
-# Build web frontend
-WORKDIR /app/web
-COPY web/package*.json web/pnpm-lock.yaml ./
-RUN pnpm install
+# Install dependencies (this will install for the entire workspace)
+RUN pnpm install --frozen-lockfile
 
-COPY web/ ./
-RUN pnpm run build
+# Copy backend source code
+COPY apps/backend/src/ ./apps/backend/src/
+
+# Build the backend application
+RUN pnpm --filter dealbot-backend run build
 
 # Runtime stage
 FROM node:20-alpine AS runner
@@ -42,15 +42,20 @@ RUN adduser -S nestjs -u 1001 -G nodejs
 # Set working directory
 WORKDIR /app
 
-# Copy package files and install production dependencies only
-COPY package*.json pnpm-lock.yaml ./
-RUN pnpm install --prod --frozen-lockfile && pnpm store prune
+# Copy workspace configuration files
+COPY --chown=nestjs:nodejs pnpm-workspace.yaml ./
+COPY --chown=nestjs:nodejs pnpm-lock.yaml ./
+COPY --chown=nestjs:nodejs package.json ./
+
+# Copy backend package files
+COPY --chown=nestjs:nodejs apps/backend/package.json ./apps/backend/
+COPY --chown=nestjs:nodejs apps/backend/pnpm-lock.yaml ./apps/backend/
+
+# Install production dependencies only
+RUN pnpm install --prod --frozen-lockfile --filter dealbot-backend && pnpm store prune
 
 # Copy built application from builder stage
-COPY --from=builder --chown=nestjs:nodejs /app/dist ./dist
-
-# Copy built web frontend
-COPY --from=builder --chown=nestjs:nodejs /app/web/dist ./web/dist
+COPY --from=builder --chown=nestjs:nodejs /app/apps/backend/dist ./apps/backend/dist
 
 # Switch to non-root user
 USER nestjs
@@ -62,4 +67,5 @@ ENV NODE_ENV=production
 EXPOSE 3130
 
 # Start the application
-CMD ["node", "dist/main.js"]
+WORKDIR /app/apps/backend
+CMD ["pnpm", "run", "start:prod"]
