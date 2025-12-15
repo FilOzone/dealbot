@@ -44,9 +44,7 @@ async function bootstrap() {
   const port = process.env.DEALBOT_PORT || 3000;
   const host = process.env.DEALBOT_HOST || "127.0.0.1";
   await app.listen(port, host);
-  logger.log(
-    `Dealbot backend is running on ${host}:${port}`,
-  );
+  logger.log(`Dealbot backend is running on ${host}:${port}`);
 }
 
 bootstrap();
