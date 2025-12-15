@@ -1,0 +1,10 @@
+packages:
+  - apps/*
+
+catalog:
+  '@biomejs/biome': 2.3.8
+  '@swc/core': 1.15.3
+  '@vitest/coverage-v8': 4.0.15
+  typescript: 5.9.3
+  unplugin-swc: 1.5.9
+  vitest: 4.0.15
