@@ -9,11 +9,11 @@ import {
 } from "@filoz/synapse-sdk";
 import { SPRegistryService } from "@filoz/synapse-sdk/sp-registry";
 import { Injectable, Logger, type OnModuleInit } from "@nestjs/common";
-import { ConfigService } from "@nestjs/config";
+import type { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
 import { JsonRpcProvider, MaxUint256 } from "ethers";
-import { Repository } from "typeorm";
-import { Hex } from "viem";
+import type { Repository } from "typeorm";
+import type { Hex } from "viem";
 import { DEV_TAG } from "../common/constants.js";
 import type { IBlockchainConfig, IConfig } from "../config/app.config.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";

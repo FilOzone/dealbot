@@ -1,6 +1,6 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { type Repository } from "typeorm";
+import type { Repository } from "typeorm";
 import { SpPerformanceAllTime } from "../../database/entities/sp-performance-all-time.entity.js";
 import type { NetworkOverallStatsDto } from "../dto/network-stats.dto.js";
 

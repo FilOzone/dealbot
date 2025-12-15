@@ -1,5 +1,5 @@
 import { Controller, Get } from "@nestjs/common";
-import { ConfigService } from "@nestjs/config";
+import type { ConfigService } from "@nestjs/config";
 import type { IBlockchainConfig, IConfig, ISchedulingConfig } from "./config/app.config.js";
 
 @Controller("api")

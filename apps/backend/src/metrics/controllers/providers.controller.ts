@@ -15,11 +15,11 @@ import { ApiBody, ApiOperation, ApiParam, ApiQuery, ApiResponse, ApiTags } from 
 import {
   ProviderCombinedPerformanceDto,
   ProviderListResponseDto,
-  ProviderMetricsListResponseDto,
+  type ProviderMetricsListResponseDto,
   ProviderPerformanceDto,
   ProviderWindowPerformanceDto,
 } from "../dto/provider-performance.dto.js";
-import { ProvidersService } from "../services/providers.service.js";
+import type { ProvidersService } from "../services/providers.service.js";
 
 /**
  * Public API controller for storage provider metrics

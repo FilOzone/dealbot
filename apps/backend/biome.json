@@ -5,17 +5,7 @@
     "parser": {
       "unsafeParameterDecoratorsEnabled": true
     },
-    "globals": [
-      "NodeJS",
-      "jest",
-      "describe",
-      "it",
-      "expect",
-      "beforeEach",
-      "afterEach",
-      "beforeAll",
-      "afterAll"
-    ]
+    "globals": ["NodeJS", "jest", "describe", "it", "expect", "beforeEach", "afterEach", "beforeAll", "afterAll"]
   },
   "css": {
     "parser": {

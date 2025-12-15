@@ -1,11 +1,11 @@
-import { HttpService } from "@nestjs/axios";
+import type { HttpService } from "@nestjs/axios";
 import { Injectable, Logger } from "@nestjs/common";
 import type { AxiosRequestConfig } from "axios";
 import { HttpsProxyAgent } from "https-proxy-agent";
 import { firstValueFrom } from "rxjs";
 import { SocksProxyAgent } from "socks-proxy-agent";
 import { ProxyAgent as UndiciProxyAgent, request as undiciRequest } from "undici";
-import { ProxyService } from "../proxy/proxy.service.js";
+import type { ProxyService } from "../proxy/proxy.service.js";
 import type { HttpVersion, RequestMetrics, RequestWithMetrics } from "./types.js";
 
 @Injectable()

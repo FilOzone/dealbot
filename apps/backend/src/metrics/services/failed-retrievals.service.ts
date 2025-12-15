@@ -2,7 +2,7 @@ import { BadRequestException, Injectable, Logger } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import type { Repository } from "typeorm";
 import { Retrieval } from "../../database/entities/retrieval.entity.js";
-import { RetrievalStatus, ServiceType } from "../../database/types.js";
+import { RetrievalStatus, type ServiceType } from "../../database/types.js";
 import type {
   FailedRetrievalDto,
   FailedRetrievalsResponseDto,

@@ -37,15 +37,15 @@ export function FailedDeals({
 
   if (!data) {
     return (
-      <div className='text-center py-12'>
-        <FileX className='h-12 w-12 mx-auto text-muted-foreground mb-3' />
-        <p className='text-muted-foreground'>No failed deals found</p>
+      <div className="text-center py-12">
+        <FileX className="h-12 w-12 mx-auto text-muted-foreground mb-3" />
+        <p className="text-muted-foreground">No failed deals found</p>
       </div>
     );
   }
 
   return (
-    <div className='space-y-4'>
+    <div className="space-y-4">
       {/* Filters */}
       <FailedDealsFilters
         searchValue={searchValue}
@@ -68,9 +68,9 @@ export function FailedDeals({
 
 const NoDealsFound = () => {
   return (
-    <div className='text-center py-12'>
-      <FileX className='h-12 w-12 mx-auto text-muted-foreground mb-3' />
-      <p className='text-muted-foreground'>No failed uploads found</p>
+    <div className="text-center py-12">
+      <FileX className="h-12 w-12 mx-auto text-muted-foreground mb-3" />
+      <p className="text-muted-foreground">No failed uploads found</p>
     </div>
   );
 };
@@ -85,34 +85,34 @@ interface DealsProps {
 const Deals = ({ data, filteredDeals, onPageChange, onLimitChange }: DealsProps) => (
   <>
     {/* Summary Stats */}
-    <div className='grid grid-cols-2 md:grid-cols-4 gap-4'>
-      <div className='bg-muted/50 p-4 rounded-lg'>
-        <p className='text-xs text-muted-foreground'>Total Failed</p>
-        <p className='text-2xl font-bold'>{data.summary.totalFailedDeals}</p>
+    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="bg-muted/50 p-4 rounded-lg">
+        <p className="text-xs text-muted-foreground">Total Failed</p>
+        <p className="text-2xl font-bold">{data.summary.totalFailedDeals}</p>
       </div>
-      <div className='bg-muted/50 p-4 rounded-lg'>
-        <p className='text-xs text-muted-foreground'>Providers</p>
-        <p className='text-2xl font-bold'>{data.summary.uniqueProviders}</p>
+      <div className="bg-muted/50 p-4 rounded-lg">
+        <p className="text-xs text-muted-foreground">Providers</p>
+        <p className="text-2xl font-bold">{data.summary.uniqueProviders}</p>
       </div>
-      <div className='bg-muted/50 p-4 rounded-lg col-span-2'>
-        <p className='text-xs text-muted-foreground mb-2'>Top Error</p>
-        <p className='text-sm font-medium truncate'>{data.summary.mostCommonErrors[0]?.errorMessage || "N/A"}</p>
-        <p className='text-xs text-muted-foreground mt-1'>{data.summary.mostCommonErrors[0]?.count || 0} occurrences</p>
+      <div className="bg-muted/50 p-4 rounded-lg col-span-2">
+        <p className="text-xs text-muted-foreground mb-2">Top Error</p>
+        <p className="text-sm font-medium truncate">{data.summary.mostCommonErrors[0]?.errorMessage || "N/A"}</p>
+        <p className="text-xs text-muted-foreground mt-1">{data.summary.mostCommonErrors[0]?.count || 0} occurrences</p>
       </div>
     </div>
 
     {/* Expandable Failed Deals List */}
     {data.failedDeals.length === 0 ? (
-      <div className='text-center py-8'>
-        <p className='text-muted-foreground'>No failed deals on this page</p>
+      <div className="text-center py-8">
+        <p className="text-muted-foreground">No failed deals on this page</p>
       </div>
     ) : filteredDeals.length === 0 ? (
-      <div className='text-center py-8'>
-        <p className='text-muted-foreground'>No deals match your search criteria</p>
+      <div className="text-center py-8">
+        <p className="text-muted-foreground">No deals match your search criteria</p>
       </div>
     ) : (
       <>
-        <Accordion type='single' collapsible className='space-y-2'>
+        <Accordion type="single" collapsible className="space-y-2">
           {filteredDeals.map((deal) => (
             <FailedDealItem key={deal.id} deal={deal} />
           ))}

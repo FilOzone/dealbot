@@ -1,5 +1,5 @@
 import { Injectable, Logger } from "@nestjs/common";
-import { ConfigService } from "@nestjs/config";
+import type { ConfigService } from "@nestjs/config";
 import { CDN_HOSTNAMES } from "../../common/constants.js";
 import type { IBlockchainConfig, IConfig, IFilBeamConfig } from "../../config/app.config.js";
 import { ServiceType } from "../../database/types.js";

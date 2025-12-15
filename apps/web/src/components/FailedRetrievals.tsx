@@ -45,15 +45,15 @@ export function FailedRetrievals({
 
   if (!data) {
     return (
-      <div className='text-center py-12'>
-        <FileX className='h-12 w-12 mx-auto text-muted-foreground mb-3' />
-        <p className='text-muted-foreground'>No failed retrievals found</p>
+      <div className="text-center py-12">
+        <FileX className="h-12 w-12 mx-auto text-muted-foreground mb-3" />
+        <p className="text-muted-foreground">No failed retrievals found</p>
       </div>
     );
   }
 
   return (
-    <div className='space-y-4'>
+    <div className="space-y-4">
       {/* Filters */}
       <FailedRetrievalsFilters
         searchValue={searchValue}
@@ -83,9 +83,9 @@ export function FailedRetrievals({
 
 const NoRetrievalsFound = () => {
   return (
-    <div className='text-center py-12'>
-      <FileX className='h-12 w-12 mx-auto text-muted-foreground mb-3' />
-      <p className='text-muted-foreground'>No failed retrievals found</p>
+    <div className="text-center py-12">
+      <FileX className="h-12 w-12 mx-auto text-muted-foreground mb-3" />
+      <p className="text-muted-foreground">No failed retrievals found</p>
     </div>
   );
 };
@@ -101,23 +101,23 @@ const Retrievals = ({ data, filteredRetrievals, onPageChange, onLimitChange }: R
   return (
     <>
       {/* Summary Stats */}
-      <div className='grid grid-cols-2 md:grid-cols-4 gap-4'>
-        <div className='bg-muted/50 p-4 rounded-lg'>
-          <p className='text-xs text-muted-foreground'>Total Failed</p>
-          <p className='text-2xl font-bold'>{data.summary.totalFailedRetrievals}</p>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="bg-muted/50 p-4 rounded-lg">
+          <p className="text-xs text-muted-foreground">Total Failed</p>
+          <p className="text-2xl font-bold">{data.summary.totalFailedRetrievals}</p>
         </div>
-        <div className='bg-muted/50 p-4 rounded-lg'>
-          <p className='text-xs text-muted-foreground'>Providers</p>
-          <p className='text-2xl font-bold'>{data.summary.uniqueProviders}</p>
+        <div className="bg-muted/50 p-4 rounded-lg">
+          <p className="text-xs text-muted-foreground">Providers</p>
+          <p className="text-2xl font-bold">{data.summary.uniqueProviders}</p>
         </div>
-        <div className='bg-muted/50 p-4 rounded-lg'>
-          <p className='text-xs text-muted-foreground'>Service Types</p>
-          <p className='text-2xl font-bold'>{data.summary.uniqueServiceTypes}</p>
+        <div className="bg-muted/50 p-4 rounded-lg">
+          <p className="text-xs text-muted-foreground">Service Types</p>
+          <p className="text-2xl font-bold">{data.summary.uniqueServiceTypes}</p>
         </div>
-        <div className='bg-muted/50 p-4 rounded-lg'>
-          <p className='text-xs text-muted-foreground mb-2'>Top Error</p>
-          <p className='text-xs font-medium truncate'>{data.summary.mostCommonErrors[0]?.errorMessage || "N/A"}</p>
-          <p className='text-xs text-muted-foreground mt-1'>
+        <div className="bg-muted/50 p-4 rounded-lg">
+          <p className="text-xs text-muted-foreground mb-2">Top Error</p>
+          <p className="text-xs font-medium truncate">{data.summary.mostCommonErrors[0]?.errorMessage || "N/A"}</p>
+          <p className="text-xs text-muted-foreground mt-1">
             {data.summary.mostCommonErrors[0]?.count || 0} occurrences
           </p>
         </div>
@@ -125,16 +125,16 @@ const Retrievals = ({ data, filteredRetrievals, onPageChange, onLimitChange }: R
 
       {/* Expandable Failed Retrievals List */}
       {data.failedRetrievals.length === 0 ? (
-        <div className='text-center py-8'>
-          <p className='text-muted-foreground'>No failed retrievals on this page</p>
+        <div className="text-center py-8">
+          <p className="text-muted-foreground">No failed retrievals on this page</p>
         </div>
       ) : filteredRetrievals.length === 0 ? (
-        <div className='text-center py-8'>
-          <p className='text-muted-foreground'>No retrievals match your search criteria</p>
+        <div className="text-center py-8">
+          <p className="text-muted-foreground">No retrievals match your search criteria</p>
         </div>
       ) : (
         <>
-          <Accordion type='single' collapsible className='space-y-2'>
+          <Accordion type="single" collapsible className="space-y-2">
             {filteredRetrievals.map((retrieval) => (
               <FailedRetrievalItem key={retrieval.id} retrieval={retrieval} />
             ))}
