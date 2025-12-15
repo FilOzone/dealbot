@@ -1,6 +1,6 @@
 import { Injectable, Logger, type OnModuleInit } from "@nestjs/common";
-import type { ConfigService } from "@nestjs/config";
-import { Cron, type SchedulerRegistry } from "@nestjs/schedule";
+import { ConfigService } from "@nestjs/config";
+import { Cron, SchedulerRegistry } from "@nestjs/schedule";
 import { InjectDataSource } from "@nestjs/typeorm";
 import type { DataSource } from "typeorm";
 import { scheduleJobWithOffset } from "../../common/utils.js";

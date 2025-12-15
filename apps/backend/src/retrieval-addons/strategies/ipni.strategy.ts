@@ -1,6 +1,6 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { ServiceType } from "../../database/types.js";
-import type { WalletSdkService } from "../../wallet-sdk/wallet-sdk.service.js";
+import { WalletSdkService } from "../../wallet-sdk/wallet-sdk.service.js";
 import type { IRetrievalAddon } from "../interfaces/retrieval-addon.interface.js";
 import type { ExpectedMetrics, RetrievalConfiguration, RetrievalUrlResult, ValidationResult } from "../types.js";
 import { RetrievalPriority } from "../types.js";
