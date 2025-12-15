@@ -11,10 +11,10 @@ export function SummaryCards({ stats }: { stats: NetworkOverallStats | undefined
   // Safety check: if stats is undefined, show loading state
   if (!stats) {
     return (
-      <section className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4'>
+      <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <Card>
-          <CardContent className='p-4'>
-            <div className='text-xs uppercase tracking-wide text-muted-foreground'>Loading...</div>
+          <CardContent className="p-4">
+            <div className="text-xs uppercase tracking-wide text-muted-foreground">Loading...</div>
           </CardContent>
         </Card>
       </section>
@@ -80,13 +80,13 @@ export function SummaryCards({ stats }: { stats: NetworkOverallStats | undefined
   ];
 
   return (
-    <section className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4'>
+    <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
       {metrics.map((metric) => (
         <Card key={metric.label}>
-          <CardContent className='p-4'>
-            <div className='text-xs uppercase tracking-wide text-muted-foreground'>{metric.label}</div>
-            <div className='mt-2 text-2xl font-semibold'>{metric.value}</div>
-            {metric.description && <div className='mt-1 text-xs text-muted-foreground'>{metric.description}</div>}
+          <CardContent className="p-4">
+            <div className="text-xs uppercase tracking-wide text-muted-foreground">{metric.label}</div>
+            <div className="mt-2 text-2xl font-semibold">{metric.value}</div>
+            {metric.description && <div className="mt-1 text-xs text-muted-foreground">{metric.description}</div>}
           </CardContent>
         </Card>
       ))}

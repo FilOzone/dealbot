@@ -33,7 +33,7 @@ export function ProviderCards({
   const { versions: batchedVersions } = useProviderVersionsBatch(providers);
 
   return (
-    <div className='space-y-6'>
+    <div className="space-y-6">
       {/* Filters */}
       <ProviderFilters
         activeOnly={activeOnly}
@@ -47,7 +47,7 @@ export function ProviderCards({
       {/* Providers */}
       {providers.length > 0 && (
         <div>
-          <div className='grid gap-6 md:grid-cols-1 lg:grid-cols-2 xl:grid-cols-3'>
+          <div className="grid gap-6 md:grid-cols-1 lg:grid-cols-2 xl:grid-cols-3">
             {providers
               .sort(
                 (a, b) =>
@@ -67,8 +67,8 @@ export function ProviderCards({
 
       {/* Empty State */}
       {providers.length === 0 && (
-        <div className='text-center py-12'>
-          <p className='text-muted-foreground'>No providers found</p>
+        <div className="text-center py-12">
+          <p className="text-muted-foreground">No providers found</p>
         </div>
       )}
 

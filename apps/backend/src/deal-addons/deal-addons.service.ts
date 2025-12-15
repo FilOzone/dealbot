@@ -2,9 +2,9 @@ import { Injectable, Logger } from "@nestjs/common";
 import type { Deal } from "../database/entities/deal.entity.js";
 import type { DealMetadata, ServiceType } from "../database/types.js";
 import type { IDealAddon } from "./interfaces/deal-addon.interface.js";
-import { CdnAddonStrategy } from "./strategies/cdn.strategy.js";
-import { DirectAddonStrategy } from "./strategies/direct.strategy.js";
-import { IpniAddonStrategy } from "./strategies/ipni.strategy.js";
+import type { CdnAddonStrategy } from "./strategies/cdn.strategy.js";
+import type { DirectAddonStrategy } from "./strategies/direct.strategy.js";
+import type { IpniAddonStrategy } from "./strategies/ipni.strategy.js";
 import type { AddonExecutionContext, DealConfiguration, DealPreprocessingResult, SynapseConfig } from "./types.js";
 
 /**

@@ -1,7 +1,7 @@
 import { Controller, Get, Query } from "@nestjs/common";
 import { ApiOperation, ApiQuery, ApiResponse, ApiTags } from "@nestjs/swagger";
 import { NetworkOverallStatsDto } from "../dto/network-stats.dto.js";
-import { NetworkStatsService } from "../services/network-stats.service.js";
+import type { NetworkStatsService } from "../services/network-stats.service.js";
 
 /**
  * Controller for network-wide statistics

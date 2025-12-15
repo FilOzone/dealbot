@@ -64,19 +64,19 @@ export function Pagination({
   const pageNumbers = getPageNumbers();
 
   return (
-    <div className='flex flex-col sm:flex-row items-center justify-between gap-4 py-4'>
+    <div className="flex flex-col sm:flex-row items-center justify-between gap-4 py-4">
       {/* Left side - Items info and page size selector */}
-      <div className='flex items-center gap-4'>
-        <div className='text-sm text-muted-foreground'>
-          Showing <span className='font-medium text-foreground'>{startItem}</span> to{" "}
-          <span className='font-medium text-foreground'>{endItem}</span> of{" "}
-          <span className='font-medium text-foreground'>{total}</span> results
+      <div className="flex items-center gap-4">
+        <div className="text-sm text-muted-foreground">
+          Showing <span className="font-medium text-foreground">{startItem}</span> to{" "}
+          <span className="font-medium text-foreground">{endItem}</span> of{" "}
+          <span className="font-medium text-foreground">{total}</span> results
         </div>
 
-        <div className='flex items-center gap-2'>
-          <span className='text-sm text-muted-foreground'>Per page:</span>
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-muted-foreground">Per page:</span>
           <Select value={limit.toString()} onValueChange={(value) => onLimitChange(Number(value))}>
-            <SelectTrigger className='w-[70px] h-8'>
+            <SelectTrigger className="w-[70px] h-8">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -91,37 +91,37 @@ export function Pagination({
       </div>
 
       {/* Right side - Page navigation */}
-      <div className='flex items-center gap-2'>
+      <div className="flex items-center gap-2">
         {/* First page button */}
         <Button
-          variant='outline'
-          size='sm'
+          variant="outline"
+          size="sm"
           onClick={() => onPageChange(1)}
           disabled={!hasPrev}
-          className='h-8 w-8 p-0'
-          title='First page'
+          className="h-8 w-8 p-0"
+          title="First page"
         >
-          <ChevronsLeft className='h-4 w-4' />
+          <ChevronsLeft className="h-4 w-4" />
         </Button>
 
         {/* Previous page button */}
         <Button
-          variant='outline'
-          size='sm'
+          variant="outline"
+          size="sm"
           onClick={() => onPageChange(page - 1)}
           disabled={!hasPrev}
-          className='h-8 w-8 p-0'
-          title='Previous page'
+          className="h-8 w-8 p-0"
+          title="Previous page"
         >
-          <ChevronLeft className='h-4 w-4' />
+          <ChevronLeft className="h-4 w-4" />
         </Button>
 
         {/* Page numbers */}
-        <div className='hidden sm:flex items-center gap-1'>
+        <div className="hidden sm:flex items-center gap-1">
           {pageNumbers.map((pageNum, idx) => {
             if (pageNum === "...") {
               return (
-                <span key={`ellipsis-${idx}`} className='px-2 text-muted-foreground'>
+                <span key={`ellipsis-${idx}`} className="px-2 text-muted-foreground">
                   ...
                 </span>
               );
@@ -133,9 +133,9 @@ export function Pagination({
               <Button
                 key={pageNum}
                 variant={isCurrentPage ? "default" : "outline"}
-                size='sm'
+                size="sm"
                 onClick={() => onPageChange(pageNum as number)}
-                className='h-8 w-8 p-0'
+                className="h-8 w-8 p-0"
               >
                 {pageNum}
               </Button>
@@ -144,32 +144,32 @@ export function Pagination({
         </div>
 
         {/* Mobile: Current page indicator */}
-        <div className='sm:hidden text-sm text-muted-foreground px-2'>
+        <div className="sm:hidden text-sm text-muted-foreground px-2">
           Page {page} of {totalPages}
         </div>
 
         {/* Next page button */}
         <Button
-          variant='outline'
-          size='sm'
+          variant="outline"
+          size="sm"
           onClick={() => onPageChange(page + 1)}
           disabled={!hasNext}
-          className='h-8 w-8 p-0'
-          title='Next page'
+          className="h-8 w-8 p-0"
+          title="Next page"
         >
-          <ChevronRight className='h-4 w-4' />
+          <ChevronRight className="h-4 w-4" />
         </Button>
 
         {/* Last page button */}
         <Button
-          variant='outline'
-          size='sm'
+          variant="outline"
+          size="sm"
           onClick={() => onPageChange(totalPages)}
           disabled={!hasNext}
-          className='h-8 w-8 p-0'
-          title='Last page'
+          className="h-8 w-8 p-0"
+          title="Last page"
         >
-          <ChevronsRight className='h-4 w-4' />
+          <ChevronsRight className="h-4 w-4" />
         </Button>
       </div>
     </div>

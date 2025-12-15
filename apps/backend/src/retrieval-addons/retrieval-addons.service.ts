@@ -1,11 +1,11 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { ServiceType } from "../database/types.js";
-import { HttpClientService } from "../http-client/http-client.service.js";
+import type { HttpClientService } from "../http-client/http-client.service.js";
 import type { RequestWithMetrics } from "../http-client/types.js";
 import type { IRetrievalAddon } from "./interfaces/retrieval-addon.interface.js";
-import { CdnRetrievalStrategy } from "./strategies/cdn.strategy.js";
-import { DirectRetrievalStrategy } from "./strategies/direct.strategy.js";
-import { IpniRetrievalStrategy } from "./strategies/ipni.strategy.js";
+import type { CdnRetrievalStrategy } from "./strategies/cdn.strategy.js";
+import type { DirectRetrievalStrategy } from "./strategies/direct.strategy.js";
+import type { IpniRetrievalStrategy } from "./strategies/ipni.strategy.js";
 import type {
   RetrievalConfiguration,
   RetrievalExecutionResult,

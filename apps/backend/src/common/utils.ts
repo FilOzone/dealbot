@@ -1,5 +1,5 @@
 import type { Logger } from "@nestjs/common";
-import { SchedulerRegistry } from "@nestjs/schedule";
+import type { SchedulerRegistry } from "@nestjs/schedule";
 import { CronJob } from "cron";
 
 export function scheduleJobWithOffset(

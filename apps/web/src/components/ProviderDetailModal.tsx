@@ -38,10 +38,10 @@ export function ProviderDetailModal({ provider, open, onOpenChange }: ProviderDe
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
-        <DialogHeader className='overflow-hidden'>
-          <div className='flex gap-2 min-w-0 items-center'>
-            <DialogTitle className='text-2xl font-bold truncate'>{provider.name || "Provider Details"}</DialogTitle>
-            <div className='flex items-center gap-1'>
+        <DialogHeader className="overflow-hidden">
+          <div className="flex gap-2 min-w-0 items-center">
+            <DialogTitle className="text-2xl font-bold truncate">{provider.name || "Provider Details"}</DialogTitle>
+            <div className="flex items-center gap-1">
               <Badge variant={provider.isActive ? "default" : "secondary"}>
                 {provider.isActive ? "Active" : "Inactive"}
               </Badge>
@@ -53,17 +53,17 @@ export function ProviderDetailModal({ provider, open, onOpenChange }: ProviderDe
               </Badge>
             </div>
           </div>
-          <DialogDescription className='sr-only'>
+          <DialogDescription className="sr-only">
             View detailed performance metrics for {provider.name || provider.address} across different time windows
           </DialogDescription>
         </DialogHeader>
 
         {/* Time Window Selector */}
-        <div className='border-b pb-4'>
-          <div className='flex items-center justify-between gap-4'>
-            <div className='flex items-center gap-2'>
-              <Clock className='h-4 w-4 text-muted-foreground' />
-              <span className='text-sm font-medium'>Time Period</span>
+        <div className="border-b pb-4">
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-2">
+              <Clock className="h-4 w-4 text-muted-foreground" />
+              <span className="text-sm font-medium">Time Period</span>
             </div>
             <TimeWindowSelector value={timeWindow} onChange={setTimeWindow} />
           </div>
@@ -71,42 +71,42 @@ export function ProviderDetailModal({ provider, open, onOpenChange }: ProviderDe
 
         {/* Content */}
         {loading ? (
-          <div className='space-y-4'>
-            <Skeleton className='h-32 w-full' />
-            <Skeleton className='h-48 w-full' />
-            <Skeleton className='h-48 w-full' />
+          <div className="space-y-4">
+            <Skeleton className="h-32 w-full" />
+            <Skeleton className="h-48 w-full" />
+            <Skeleton className="h-48 w-full" />
           </div>
         ) : error ? (
-          <div className='text-center py-12'>
-            <div className='inline-flex items-center justify-center w-16 h-16 rounded-full bg-red-100 dark:bg-red-900/20 mb-4'>
-              <X className='h-8 w-8 text-red-600' />
+          <div className="text-center py-12">
+            <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-red-100 dark:bg-red-900/20 mb-4">
+              <X className="h-8 w-8 text-red-600" />
             </div>
-            <p className='text-sm font-medium mb-1'>Failed to Load Data</p>
-            <p className='text-xs text-muted-foreground'>{error.message}</p>
+            <p className="text-sm font-medium mb-1">Failed to Load Data</p>
+            <p className="text-xs text-muted-foreground">{error.message}</p>
           </div>
         ) : data ? (
-          <div className='space-y-6'>
+          <div className="space-y-6">
             {/* Activity Overview */}
             <div>
-              <h3 className='text-lg font-semibold mb-4 flex items-center gap-2'>
-                <Activity className='h-5 w-5' />
+              <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                <Activity className="h-5 w-5" />
                 Activity Overview
               </h3>
-              <div className='grid grid-cols-2 gap-4'>
+              <div className="grid grid-cols-2 gap-4">
                 <Card>
-                  <CardContent className='p-4'>
-                    <div className='text-xs uppercase tracking-wide text-muted-foreground'>Total Uploads</div>
-                    <div className='mt-2 text-2xl font-semibold'>{formatNumber(data.metrics.totalDeals)}</div>
-                    <div className='mt-1 text-xs text-muted-foreground'>
+                  <CardContent className="p-4">
+                    <div className="text-xs uppercase tracking-wide text-muted-foreground">Total Uploads</div>
+                    <div className="mt-2 text-2xl font-semibold">{formatNumber(data.metrics.totalDeals)}</div>
+                    <div className="mt-1 text-xs text-muted-foreground">
                       {formatNumber(data.metrics.successfulDeals)} Successful Uploads
                     </div>
                   </CardContent>
                 </Card>
                 <Card>
-                  <CardContent className='p-4'>
-                    <div className='text-xs uppercase tracking-wide text-muted-foreground'>Total Retrievals</div>
-                    <div className='mt-2 text-2xl font-semibold'>{formatNumber(data.metrics.totalRetrievals)}</div>
-                    <div className='mt-1 text-xs text-muted-foreground'>
+                  <CardContent className="p-4">
+                    <div className="text-xs uppercase tracking-wide text-muted-foreground">Total Retrievals</div>
+                    <div className="mt-2 text-2xl font-semibold">{formatNumber(data.metrics.totalRetrievals)}</div>
+                    <div className="mt-1 text-xs text-muted-foreground">
                       {formatNumber(data.metrics.successfulRetrievals)} Successful Retrievals
                     </div>
                   </CardContent>
@@ -116,11 +116,11 @@ export function ProviderDetailModal({ provider, open, onOpenChange }: ProviderDe
 
             {/* Success Rates */}
             <div>
-              <h3 className='text-lg font-semibold mb-4'>Success Rates</h3>
-              <div className='space-y-4'>
+              <h3 className="text-lg font-semibold mb-4">Success Rates</h3>
+              <div className="space-y-4">
                 <div>
-                  <div className='flex items-center justify-between mb-2'>
-                    <span className='text-sm font-medium'>Upload Success Rate</span>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-sm font-medium">Upload Success Rate</span>
                     <span
                       className={`text-sm font-semibold ${
                         data.metrics.dealSuccessRate < SUCCESS_RATE_THRESHOLD ? "text-red-600" : "text-green-600"
@@ -129,7 +129,7 @@ export function ProviderDetailModal({ provider, open, onOpenChange }: ProviderDe
                       {formatPercentage(data.metrics.dealSuccessRate)}
                     </span>
                   </div>
-                  <div className='w-full bg-muted rounded-full h-3'>
+                  <div className="w-full bg-muted rounded-full h-3">
                     <div
                       className={`h-3 rounded-full transition-all ${
                         data.metrics.dealSuccessRate < SUCCESS_RATE_THRESHOLD ? "bg-red-600" : "bg-green-600"
@@ -141,8 +141,8 @@ export function ProviderDetailModal({ provider, open, onOpenChange }: ProviderDe
                   </div>
                 </div>
                 <div>
-                  <div className='flex items-center justify-between mb-2'>
-                    <span className='text-sm font-medium'>Retrieval Success Rate</span>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-sm font-medium">Retrieval Success Rate</span>
                     <span
                       className={`text-sm font-semibold ${
                         data.metrics.retrievalSuccessRate < SUCCESS_RATE_THRESHOLD ? "text-red-600" : "text-green-600"
@@ -151,7 +151,7 @@ export function ProviderDetailModal({ provider, open, onOpenChange }: ProviderDe
                       {formatPercentage(data.metrics.retrievalSuccessRate)}
                     </span>
                   </div>
-                  <div className='w-full bg-muted rounded-full h-3'>
+                  <div className="w-full bg-muted rounded-full h-3">
                     <div
                       className={`h-3 rounded-full transition-all ${
                         data.metrics.retrievalSuccessRate < SUCCESS_RATE_THRESHOLD ? "bg-red-600" : "bg-green-600"
@@ -167,42 +167,42 @@ export function ProviderDetailModal({ provider, open, onOpenChange }: ProviderDe
 
             {/* Latency Metrics */}
             <div>
-              <h3 className='text-lg font-semibold mb-4'>Latency Metrics</h3>
-              <div className='grid grid-cols-2 md:grid-cols-3 gap-4'>
-                <div className='bg-card border rounded-lg p-4'>
-                  <p className='text-xs text-muted-foreground mb-1'>Ingest Latency</p>
-                  <p className='text-lg font-semibold'>{formatMilliseconds(data.metrics.avgIngestLatencyMs)}</p>
+              <h3 className="text-lg font-semibold mb-4">Latency Metrics</h3>
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                <div className="bg-card border rounded-lg p-4">
+                  <p className="text-xs text-muted-foreground mb-1">Ingest Latency</p>
+                  <p className="text-lg font-semibold">{formatMilliseconds(data.metrics.avgIngestLatencyMs)}</p>
                 </div>
-                <div className='bg-card border rounded-lg p-4'>
-                  <p className='text-xs text-muted-foreground mb-1'>Chain Latency</p>
-                  <p className='text-lg font-semibold'>{formatMilliseconds(data.metrics.avgChainLatencyMs)}</p>
+                <div className="bg-card border rounded-lg p-4">
+                  <p className="text-xs text-muted-foreground mb-1">Chain Latency</p>
+                  <p className="text-lg font-semibold">{formatMilliseconds(data.metrics.avgChainLatencyMs)}</p>
                 </div>
-                <div className='bg-card border rounded-lg p-4'>
-                  <p className='text-xs text-muted-foreground mb-1'>Deal Latency</p>
-                  <p className='text-lg font-semibold'>{formatMilliseconds(data.metrics.avgDealLatencyMs)}</p>
+                <div className="bg-card border rounded-lg p-4">
+                  <p className="text-xs text-muted-foreground mb-1">Deal Latency</p>
+                  <p className="text-lg font-semibold">{formatMilliseconds(data.metrics.avgDealLatencyMs)}</p>
                 </div>
-                <div className='bg-card border rounded-lg p-4'>
-                  <p className='text-xs text-muted-foreground mb-1'>Retrieval Latency</p>
-                  <p className='text-lg font-semibold'>{formatMilliseconds(data.metrics.avgRetrievalLatencyMs)}</p>
+                <div className="bg-card border rounded-lg p-4">
+                  <p className="text-xs text-muted-foreground mb-1">Retrieval Latency</p>
+                  <p className="text-lg font-semibold">{formatMilliseconds(data.metrics.avgRetrievalLatencyMs)}</p>
                 </div>
-                <div className='bg-card border rounded-lg p-4'>
-                  <p className='text-xs text-muted-foreground mb-1'>TTFB</p>
-                  <p className='text-lg font-semibold'>{formatMilliseconds(data.metrics.avgRetrievalTtfbMs)}</p>
+                <div className="bg-card border rounded-lg p-4">
+                  <p className="text-xs text-muted-foreground mb-1">TTFB</p>
+                  <p className="text-lg font-semibold">{formatMilliseconds(data.metrics.avgRetrievalTtfbMs)}</p>
                 </div>
               </div>
             </div>
 
             {/* Throughput */}
             <div>
-              <h3 className='text-lg font-semibold mb-4'>Throughput</h3>
-              <div className='grid grid-cols-2 gap-4'>
-                <div className='bg-card border rounded-lg p-4'>
-                  <p className='text-xs text-muted-foreground mb-1'>Ingest Throughput</p>
-                  <p className='text-lg font-semibold'>{formatThroughput(data.metrics.avgIngestThroughputBps)}</p>
+              <h3 className="text-lg font-semibold mb-4">Throughput</h3>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="bg-card border rounded-lg p-4">
+                  <p className="text-xs text-muted-foreground mb-1">Ingest Throughput</p>
+                  <p className="text-lg font-semibold">{formatThroughput(data.metrics.avgIngestThroughputBps)}</p>
                 </div>
-                <div className='bg-card border rounded-lg p-4'>
-                  <p className='text-xs text-muted-foreground mb-1'>Retrieval Throughput</p>
-                  <p className='text-lg font-semibold'>{formatThroughput(data.metrics.avgRetrievalThroughputBps)}</p>
+                <div className="bg-card border rounded-lg p-4">
+                  <p className="text-xs text-muted-foreground mb-1">Retrieval Throughput</p>
+                  <p className="text-lg font-semibold">{formatThroughput(data.metrics.avgRetrievalThroughputBps)}</p>
                 </div>
               </div>
             </div>
