@@ -37,107 +37,119 @@ dealbot/
 
 ## Quick Start
 
-### Prerequisites
+### Option 1: Docker Compose (Recommended for Quick Start)
 
-- **Node.js** 20+
-- **pnpm** (package manager)
-- **PostgreSQL** database
-- **Filecoin wallet** with tokens (for Calibration or Mainnet)
+The easiest way to get started is using Docker Compose, which sets up both PostgreSQL and the application:
 
-### 1. Clone the Repository
+#### Prerequisites
+
+- Docker and Docker Compose
+- Filecoin wallet with tokens
+
+#### Setup
+
+```bash
+# Clone repository
+git clone https://github.com/FilOzone/dealbot.git
+cd dealbot
+
+# Configure environment
+cp .env.example .env
+# Edit .env with your wallet credentials
+# Database settings are optional - defaults work with docker-compose.dev.yml
+
+# Start services (PostgreSQL + Application)
+docker compose -f docker-compose.dev.yml up -d
+
+# View logs
+docker compose -f docker-compose.dev.yml logs -f app
+
+# Stop services
+docker compose -f docker-compose.dev.yml down
+
+# Stop and remove database volume (fresh start)
+docker compose -f docker-compose.dev.yml down -v
+```
+
+The application will be available at `http://localhost:8080` (or the port specified in `DEALBOT_PORT`).
+
+**Note:** The database is automatically created and migrations run on first startup. The database data persists in a Docker volume named `postgres_data`.
+
+### Option 2: Local Development
+
+#### Prerequisites
+
+- Node.js 20+
+- PostgreSQL (or use Docker for just the database)
+- pnpm
+- Filecoin wallet with tokens
+
+#### Installation
 
 ```bash
 git clone https://github.com/FilOzone/dealbot.git
 cd dealbot
 ```
 
-### 2. Install Dependencies
+#### Running
 
 ```bash
-# Install backend dependencies
-cd backend
-pnpm install
+# Development
+pnpm start:dev
 
 # Install frontend dependencies
 cd ../web
 pnpm install
 ```
 
-### 3. Set Up Environment Variables
+#### Using Docker for Database Only
+
+If you want to run the app locally but use Docker for PostgreSQL:
+
+```bash
+# Start just the database
+docker compose -f docker-compose.dev.yml up -d postgres
+
+# Update .env to use localhost for database
+# DATABASE_HOST=localhost
+# DATABASE_PORT=5432
+
+# Run the app locally
+pnpm start:dev
+```
+
+## Web Dashboard
 
 #### Backend Configuration
 
-```bash
-cd backend
-cp .env.example .env
-# Edit .env with your database credentials, wallet info, etc.
-```
+### Using Docker Compose
 
-**Key variables to configure:**
+When using `docker-compose.dev.yml`, the web dashboard is automatically built and served by the NestJS application. Simply access:
 
-- `DATABASE_*` - PostgreSQL connection details
-- `WALLET_ADDRESS` & `WALLET_PRIVATE_KEY` - Your Filecoin wallet
-- `NETWORK` - `calibration` or `mainnet`
-- `DEALBOT_PORT` - Backend server port (default: `8080`)
+- **Web UI:** `http://localhost:8080` (or your configured `DEALBOT_PORT`)
+- **API Docs:** `http://localhost:8080/api`
 
-See [`backend/.env.example`](backend/.env.example) for all options.
+### Local Development
 
-#### Frontend Configuration
-
-```bash
-cd ../web
-cp .env.example .env
-# Update VITE_API_BASE_URL if you changed DEALBOT_PORT
-```
-
-Default: `VITE_API_BASE_URL=http://localhost:8080`
-
-### 4. Run the Applications
-
-Open **two terminal windows**:
-
-#### Terminal 1: Backend (API Server)
-
-```bash
-cd backend
-pnpm start:dev    # Development with hot-reload
-```
-
-Backend runs at: `http://localhost:8080`  
-API Docs (Swagger): `http://localhost:8080/api`
-
-#### Terminal 2: Frontend (Web Dashboard)
-
-```bash
-cd web
-pnpm dev          # Development server
-```
-
-Frontend runs at: `http://localhost:5173`
-
-### 5. Access the Dashboard
-
-Open your browser to **http://localhost:5173** to view the analytics dashboard.
-
-## Production Deployment
-
-### Build Both Applications
-
-```bash
-# Build backend
-cd backend
-pnpm build
-
-# Build frontend
-cd ../web
-pnpm build
-```
-
-### Run Production Builds
+For frontend development with hot-reload:
 
 ```bash
 # Terminal 1: Backend
-cd backend
+pnpm start:dev
+
+# Terminal 2: Frontend (with hot-reload)
+pnpm dev:web
+```
+
+Visit `http://localhost:5173` to view the dashboard with hot-reload.
+
+### Production Build
+
+```bash
+# Build frontend
+pnpm build:web
+
+# Start server (serves both API and UI)
 pnpm start:prod
 
 # Terminal 2: Frontend (preview)
@@ -149,8 +161,53 @@ pnpm preview
 
 Complete API documentation is available via Swagger UI:
 
-- **Production:** [https://dealbot.fwss.io/api](https://dealbot.fwss.io/api)
-- **Local:** `http://localhost:8080/api` (when running locally)
+**Production:** [https://dealbot.fwss.io/api](https://dealbot.fwss.io/api)
+
+**Local (Docker):** `http://localhost:8080/api` (when using docker-compose.dev.yml)
+
+**Local (pnpm):** `http://localhost:3000/api` (when running with pnpm)
+
+## Configuration
+
+Key environment variables:
+
+| Variable                     | Description              | Default |
+| ---------------------------- | ------------------------ | ------- |
+| `WALLET_ADDRESS`             | Filecoin wallet address  | -       |
+| `WALLET_PRIVATE_KEY`         | Wallet private key       | -       |
+| `DATABASE_HOST`              | PostgreSQL host          | -       |
+| `DATABASE_PORT`              | PostgreSQL port          | -       |
+| `DATABASE_USER`              | PostgreSQL user          | -       |
+| `DATABASE_PASSWORD`          | PostgreSQL password      | -       |
+| `DATABASE_NAME`              | PostgreSQL database name | -       |
+| `DEALBOT_PORT`               | Application port         | `3000`  |
+| `DEAL_INTERVAL_SECONDS`      | Deal creation interval   | `1800`  |
+| `RETRIEVAL_INTERVAL_SECONDS` | Retrieval test interval  | `3600`  |
+
+See `.env.example` for complete configuration options.
+
+## Architecture
+
+```
+src/
+├── deal/            # Deal creation and management
+├── retrieval/       # Storage retrieval testing
+├── metrics/         # Performance metrics and analytics
+├── scheduler/       # Automated task scheduling
+├── wallet-sdk/      # Wallet and contract operations
+└── web/             # React dashboard
+```
+
+## Monitoring
+
+The system tracks comprehensive metrics:
+
+- **Deal Performance** - Success rates, latencies
+- **Retrieval Performance** - TTFB, latency, success rates by service type (cdn)
+- **Provider Statistics** - Per-provider performance metrics
+- **Network Health** - Overall system health and trends
+
+Access metrics via the web dashboard or API endpoints.
 
 ## Contributing
 
