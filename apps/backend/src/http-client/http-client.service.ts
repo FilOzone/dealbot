@@ -12,7 +12,10 @@ import type { HttpVersion, RequestMetrics, RequestWithMetrics } from "./types.js
 export class HttpClientService {
   private logger = new Logger(HttpClientService.name);
 
-  constructor(private readonly httpService: HttpService, private readonly proxyService: ProxyService) {}
+  constructor(
+    private readonly httpService: HttpService,
+    private readonly proxyService: ProxyService,
+  ) {}
 
   async requestWithRandomProxyAndMetrics<T = any>(
     url: string,
