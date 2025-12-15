@@ -26,7 +26,6 @@ jobs:
 
       - name: Install backend dependencies
         run: pnpm install --frozen-lockfile
-        working-directory: backend
 
       - name: Run Biome
         run: pnpm check:ci
