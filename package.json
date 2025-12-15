@@ -14,7 +14,11 @@
     "lint": "pnpm -r run lint",
     "lint:check": "pnpm -r run lint:check",
     "check": "pnpm -r run check",
-    "check:ci": "pnpm -r run check:ci"
+    "check:ci": "pnpm -r run check:ci",
+    "test": "pnpm -r test",
+    "test:watch": "pnpm -r test:watch",
+    "test:cov": "pnpm -r test:cov",
+    "test:e2e": "pnpm -r test:e2e"
   },
   "devDependencies": {
     "@biomejs/biome": "catalog:",

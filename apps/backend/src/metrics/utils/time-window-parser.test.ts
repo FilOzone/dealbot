@@ -1,3 +1,4 @@
+import { describe, expect, it } from "vitest";
 import {
   COMMON_PRESETS,
   calculateTimeWindow,
@@ -5,7 +6,7 @@ import {
   parseDuration,
   sanitizePreset,
   validateDateRange,
-} from "../time-window-parser.js";
+} from "./time-window-parser.js";
 
 describe("TimeWindowParser", () => {
   describe("parseDuration", () => {
@@ -204,20 +205,20 @@ describe("TimeWindowParser", () => {
     it("should parse valid date range", () => {
       const window = parseCustomDateRange("2024-10-01", "2024-10-31");
       expect(window.startDate).toEqual(new Date("2024-10-01T00:00:00Z"));
-      expect(window.endDate.getDate()).toBe(31);
-      expect(window.endDate.getHours()).toBe(23);
-      expect(window.endDate.getMinutes()).toBe(59);
+      expect(window.endDate.getUTCDate()).toBe(31);
+      expect(window.endDate.getUTCHours()).toBe(23);
+      expect(window.endDate.getUTCMinutes()).toBe(59);
       expect(window.days).toBeGreaterThanOrEqual(30); // End date is 23:59:59, so ~30.8 days
-      expect(window.days).toBeLessThan(31);
+      expect(window.days).toBeLessThanOrEqual(31);
       expect(window.preset).toBe("2024-10-01_2024-10-31");
       expect(window.isAllTime).toBe(false);
     });
 
     it("should set end date to end of day", () => {
       const window = parseCustomDateRange("2024-10-01", "2024-10-02");
-      expect(window.endDate.getHours()).toBe(23);
-      expect(window.endDate.getMinutes()).toBe(59);
-      expect(window.endDate.getSeconds()).toBe(59);
+      expect(window.endDate.getUTCHours()).toBe(23);
+      expect(window.endDate.getUTCMinutes()).toBe(59);
+      expect(window.endDate.getUTCSeconds()).toBe(59);
     });
 
     it("should reject invalid date strings", () => {

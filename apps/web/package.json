@@ -16,7 +16,11 @@
     "lint:check": "biome lint .",
     "check": "biome check --write .",
     "check:ci": "biome ci .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:cov": "vitest run --coverage",
+    "test:debug": "vitest --inspect-brk --inspect --logHeapUsage --threads=false"
   },
   "dependencies": {
     "@radix-ui/react-accordion": "^1.2.12",
@@ -42,9 +46,12 @@
     "@biomejs/biome": "catalog:",
     "@types/react": "^19.1.10",
     "@types/react-dom": "^19.1.7",
-    "@vitejs/plugin-react": "^5.0.0",
+    "@vitejs/plugin-react": "^5.1.2",
+    "@vitest/coverage-v8": "catalog:",
+    "jsdom": "^27.3.0",
     "typescript": "catalog:",
-    "vite": "^7.1.2"
+    "vite": "^7.1.2",
+    "vitest": "catalog:"
   },
   "overrides": {
     "react-is": "^19.1.1-rc-69d4b800-20241021"
