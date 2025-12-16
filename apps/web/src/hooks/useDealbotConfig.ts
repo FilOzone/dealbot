@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { fetchDealbotConfig } from "../api/client";
 import type { DealbotConfigDto } from "../types/config";
 
@@ -7,34 +7,23 @@ export function useDealbotConfig() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
+  const load = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
 
-    async function load() {
-      try {
-        setLoading(true);
-        setError(null);
-        const result = await fetchDealbotConfig();
-        if (!cancelled) {
-          setData(result);
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : "Failed to load config");
-        }
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
-      }
+      const result = await fetchDealbotConfig();
+      setData(result);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load config");
+    } finally {
+      setLoading(false);
     }
-
-    load();
-
-    return () => {
-      cancelled = true;
-    };
   }, []);
 
-  return { data, loading, error };
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  return { data, loading, error, refetch: load };
 }
