@@ -1,0 +1,96 @@
+name: Hotfix Release
+
+on:
+  push:
+    branches:
+      - 'hotfix/**'
+
+permissions:
+  contents: write
+  pull-requests: write
+
+env:
+  REGISTRY: 941641221830.dkr.ecr.us-east-1.amazonaws.com
+  AWS_REGION: us-east-1
+
+jobs:
+  hotfix-release:
+    runs-on: ubuntu-latest
+    outputs:
+      releases_created: ${{ steps.release.outputs.releases_created }}
+      backend_release_created: ${{ steps.release.outputs['apps/backend--release_created'] }}
+      backend_tag_name: ${{ steps.release.outputs['apps/backend--tag_name'] }}
+      backend_version: ${{ steps.release.outputs['apps/backend--version'] }}
+      backend_sha: ${{ steps.release.outputs['apps/backend--sha'] }}
+      web_release_created: ${{ steps.release.outputs['apps/web--release_created'] }}
+      web_tag_name: ${{ steps.release.outputs['apps/web--tag_name'] }}
+      web_version: ${{ steps.release.outputs['apps/web--version'] }}
+      web_sha: ${{ steps.release.outputs['apps/web--sha'] }}
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: release
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+          target-branch: ${{ github.ref_name }}
+
+  # Build hotfix images immediately
+  build-hotfix:
+    needs: hotfix-release
+    if: needs.hotfix-release.outputs.releases_created == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      matrix:
+        include:
+          - app: backend
+            release_created: ${{ needs.hotfix-release.outputs.backend_release_created }}
+            dockerfile: apps/backend/Dockerfile
+            image: filoz-dealbot
+            sha: ${{ needs.hotfix-release.outputs.backend_sha }}
+            version: ${{ needs.hotfix-release.outputs.backend_version }}
+          - app: web
+            release_created: ${{ needs.hotfix-release.outputs.web_release_created }}
+            dockerfile: apps/web/Dockerfile
+            image: filoz-dealbot-web
+            sha: ${{ needs.hotfix-release.outputs.web_sha }}
+            version: ${{ needs.hotfix-release.outputs.web_version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ matrix.sha }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push hotfix image
+        if: matrix.release_created == 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ matrix.image }}:v${{ matrix.version }}
+            ${{ env.REGISTRY }}/${{ matrix.image }}:hotfix-${{ matrix.sha }}
+          cache-from: type=gha,scope=${{ matrix.app }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.app }}
+          platforms: linux/amd64
+
+      - name: Output image tags
+        if: matrix.release_created == 'true'
+        run: |
+          echo "🚨 HOTFIX DEPLOYED: ${{ matrix.app }} v${{ matrix.version }}"
+          echo "Image: ${{ env.REGISTRY }}/${{ matrix.image }}:v${{ matrix.version }}"

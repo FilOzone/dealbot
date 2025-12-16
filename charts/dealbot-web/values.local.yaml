@@ -1,0 +1,20 @@
+# Local Kind/minikube defaults - NOT for production use.
+image:
+  repository: dealbot-web-local
+  tag: dev
+  pullPolicy: IfNotPresent
+
+service:
+  type: NodePort
+  port: 80
+  targetPort: 80
+  nodePort: 30080
+
+env: {}
+  # The web container reverse-proxies /api* to the backend service in-cluster,
+  # so VITE_API_BASE_URL can usually stay empty for local Kind.
+  # If you want the browser to call the backend directly (bypassing the proxy):
+  #   VITE_API_BASE_URL=http://localhost:8080
+
+ingress:
+  enabled: false

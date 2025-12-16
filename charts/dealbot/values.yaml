@@ -1,0 +1,119 @@
+replicaCount: 1
+
+image:
+  repository: dealbot
+  pullPolicy: IfNotPresent
+  tag: ""
+
+# Infra (staging/prod) guidance:
+# - ingress.enabled: true
+# - ingress.className: <cluster ingress class>
+# - ingress.annotations: add timeouts/proxy-body-size/auth/etc. as needed
+# - ingress.hosts: set real host(s) and paths (e.g., / -> service)
+# - ingress.tls: host + secretName (managed by cert-manager/ACM/etc.)
+# - image.repository/tag: set to your registry and desired tag/sha
+# - existingSecret: name of secret created by External Secrets/SOPS with app secrets
+# - resources/autoscaling: set per environment
+# - service.type: ClusterIP in infra; port/targetPort should stay 3130
+# - postgresql.enabled: false in infra; point DATABASE_* to managed DB via env/secret
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext: {}
+securityContext: {}
+
+service:
+  type: ClusterIP
+  port: 3130
+  targetPort: 3130
+  nodePort: null
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: dealbot.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+resources:
+  limits:
+    memory: "512Mi"
+    cpu: "500m"
+  requests:
+    memory: "256Mi"
+    cpu: "250m"
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 80
+  # targetMemoryUtilizationPercentage: 80
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+livenessProbe:
+  enabled: true
+  path: /api/health
+  initialDelaySeconds: 15
+  periodSeconds: 20
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+readinessProbe:
+  enabled: true
+  path: /api/health
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  timeoutSeconds: 3
+  failureThreshold: 3
+
+env:
+  NODE_ENV: production
+  DEALBOT_HOST: 0.0.0.0
+  DEALBOT_PORT: "3130"
+  DATABASE_HOST: postgres
+  DATABASE_PORT: "5432"
+  DATABASE_USER: dealbot
+  DATABASE_NAME: filecoin_dealbot
+
+extraEnv: []
+
+# Use an existing secret (keys exposed to the container as env vars).
+# Useful when secrets are managed by SOPS/External Secrets in the infra repo.
+existingSecret: ""
+
+# Use an existing ConfigMap (keys exposed to the container as env vars).
+existingConfigMap: ""
+
+postgresql:
+  enabled: false
+  image: postgres:16-alpine
+  auth:
+    username: dealbot
+    password: dealbot_password
+    database: filecoin_dealbot
+  persistence:
+    enabled: false
+    accessModes:
+      - ReadWriteOnce
+    size: 1Gi
+    storageClass: ""
+  service:
+    port: 5432

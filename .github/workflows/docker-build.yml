@@ -1,0 +1,91 @@
+name: Build and Push Docker Images
+
+on:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: docker-build-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  REGISTRY: 941641221830.dkr.ecr.us-east-1.amazonaws.com
+  AWS_REGION: us-east-1
+
+jobs:
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      web: ${{ steps.filter.outputs.web }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check for changes
+        uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            backend:
+              - 'apps/backend/**'
+              - 'pnpm-lock.yaml'
+              - 'pnpm-workspace.yaml'
+            web:
+              - 'apps/web/**'
+              - 'pnpm-lock.yaml'
+              - 'pnpm-workspace.yaml'
+
+  build:
+    needs: detect-changes
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # Required for AWS OIDC
+    strategy:
+      matrix:
+        include:
+          - app: backend
+            changed: ${{ needs.detect-changes.outputs.backend }}
+            dockerfile: apps/backend/Dockerfile
+            image: filoz-dealbot
+          - app: web
+            changed: ${{ needs.detect-changes.outputs.web }}
+            dockerfile: apps/web/Dockerfile
+            image: filoz-dealbot-web
+    # Only run if this specific app changed
+    if: matrix.changed == 'true'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push ${{ matrix.app }}
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ matrix.image }}:sha-${{ github.sha }}
+            ${{ env.REGISTRY }}/${{ matrix.image }}:sha-${{ github.run_number }}-${{ github.sha }}
+          cache-from: type=gha,scope=${{ matrix.app }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.app }}
+          platforms: linux/amd64
+
+      - name: Output image tag
+        run: |
+          echo "${{ matrix.app }} image (sha): ${{ env.REGISTRY }}/${{ matrix.image }}:sha-${{ github.sha }}"
+          echo "${{ matrix.app }} image (ordered): ${{ env.REGISTRY }}/${{ matrix.image }}:sha-${{ github.run_number }}-${{ github.sha }}"

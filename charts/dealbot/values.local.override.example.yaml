@@ -1,0 +1,17 @@
+# Copy this file to values.local.override.yaml (gitignored) and customize as needed.
+# Secrets should live in Kubernetes (e.g., created via `make secret`), then
+# referenced here via existingSecret.
+
+existingSecret: dealbot-secrets
+
+# Optionally override or add *non-secret* env values for local runs.
+# env:
+#   DATABASE_HOST: "my-external-db.example.com"
+#   DATABASE_USER: "dealbot"
+#   NETWORK: "calibration"
+#
+# Proxy configuration is usually non-secret; if you embed credentials in the URL,
+# manage it via your external Secret instead of committing it here.
+# env:
+#   PROXY_LIST: "http://host:port,http://host:port"
+#   PROXY_LOCATIONS: "l1,l2"
