@@ -49,8 +49,13 @@ RUN printf '%s\n' \
     '    root * /srv' \
     '    encode gzip' \
     '' \
+    '    # /health returns JSON 200 only if built static assets are present (index.html exists).' \
+    '' \
     '    handle /health {' \
-    '        respond "healthy" 200' \
+    '        @static_ok file /index.html' \
+    '        header Content-Type application/json' \
+    '        respond @static_ok ''{"status":"ok"}'' 200' \
+    '        respond ''{"status":"error","reason":"static-unavailable"}'' 503' \
     '    }' \
     '' \
     '    handle /api* {' \

@@ -70,6 +70,7 @@ affinity: {}
 
 livenessProbe:
   enabled: true
+  # `/health` returns JSON 200 only if built static assets are present (index.html exists).
   path: /health
   initialDelaySeconds: 5
   periodSeconds: 10
@@ -78,6 +79,7 @@ livenessProbe:
 
 readinessProbe:
   enabled: true
+  # Keep this static-only so web readiness doesn't depend on backend availability.
   path: /health
   initialDelaySeconds: 3
   periodSeconds: 5
