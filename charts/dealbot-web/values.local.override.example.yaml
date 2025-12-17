@@ -1,6 +1,6 @@
 # Copy this file to values.local.override.yaml (gitignored) and customize as needed.
 # This file is intended for non-secret, local-only overrides.
 #
-# Example: force the browser to call the backend directly (instead of the in-cluster /api* proxy):
+# Example: override the in-cluster /api* proxy upstream (if your backend Service name differs):
 # env:
-#   VITE_API_BASE_URL: "http://localhost:8080"
+#   DEALBOT_API_UPSTREAM: "dealbot:3130"

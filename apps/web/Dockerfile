@@ -36,6 +36,10 @@ RUN pnpm --filter web run build
 # Runtime stage - serve with Caddy
 FROM caddy:2-alpine
 
+# Backend upstream for the in-container /api reverse proxy.
+# Override at runtime to match your backend Service DNS name.
+ENV DEALBOT_API_UPSTREAM=dealbot:3130
+
 # Copy built static files from builder stage
 COPY --from=builder /app/apps/web/dist /srv
 
@@ -49,13 +53,8 @@ RUN printf '%s\n' \
     '        respond "healthy" 200' \
     '    }' \
     '' \
-    '    handle /config.json {' \
-    '        header Cache-Control "no-store"' \
-    '        file_server' \
-    '    }' \
-    '' \
     '    handle /api* {' \
-    '        reverse_proxy dealbot:3130' \
+    '        reverse_proxy {$DEALBOT_API_UPSTREAM}' \
     '    }' \
     '' \
     '    handle {' \
@@ -64,12 +63,7 @@ RUN printf '%s\n' \
     '    }' \
     '}' > /etc/caddy/Caddyfile
 
-# Runtime-config: write /srv/config.json from environment variables on container start.
-COPY apps/web/docker-entrypoint.sh /usr/bin/docker-entrypoint.sh
-RUN chmod +x /usr/bin/docker-entrypoint.sh
-
 # Expose port
 EXPOSE 80
 
-ENTRYPOINT ["/usr/bin/docker-entrypoint.sh"]
 CMD ["caddy", "run", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]

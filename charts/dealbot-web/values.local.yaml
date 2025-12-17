@@ -11,10 +11,9 @@ service:
   nodePort: 30080
 
 env: {}
-  # The web container reverse-proxies /api* to the backend service in-cluster,
-  # so VITE_API_BASE_URL can usually stay empty for local Kind.
-  # If you want the browser to call the backend directly (bypassing the proxy):
-  #   VITE_API_BASE_URL=http://localhost:8080
+  # The web container reverse-proxies /api* to the backend service in-cluster.
+  # Override if your backend Service name differs.
+  # DEALBOT_API_UPSTREAM: dealbot:3130
 
 ingress:
   enabled: false

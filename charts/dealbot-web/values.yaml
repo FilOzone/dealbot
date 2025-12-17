@@ -14,7 +14,8 @@ image:
 # - image.repository/tag: set to your registry and desired tag/sha
 # - resources/autoscaling: set per environment
 # - service.type: ClusterIP in infra; port/targetPort should stay 80
-# - env.VITE_API_BASE_URL: browser-side API base URL (written to /config.json at container start)
+# - env.DEALBOT_API_UPSTREAM: upstream for the web container's /api reverse proxy (Caddy)
+# - VITE_API_BASE_URL is build-time only for this app (Vite); setting it here will not affect the built JS.
 
 imagePullSecrets: []
 nameOverride: ""
@@ -83,10 +84,10 @@ readinessProbe:
   timeoutSeconds: 2
   failureThreshold: 3
 
-# Environment variables for the web app
-# These are read by the container entrypoint to generate /config.json at runtime
+# Environment variables for the web container
+# Use this for runtime knobs like the Caddy /api reverse proxy upstream.
 env: {}
-  # VITE_API_BASE_URL: https://api.example.com
+  # DEALBOT_API_UPSTREAM: dealbot:3130
 
 # Use an existing secret (keys exposed to the container as env vars).
 existingSecret: ""
