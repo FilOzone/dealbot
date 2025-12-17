@@ -26,6 +26,7 @@ SECRET_ENV_FILE ?= .env
 .PHONY: backend-image-build backend-kind-load backend-deploy backend-undeploy backend-helm-lint backend-render backend-logs
 .PHONY: web-image-build web-kind-load web-deploy web-undeploy web-helm-lint web-render web-logs
 .PHONY: image-build kind-load deploy undeploy helm-lint render logs
+.PHONY: redeploy redeploy-backend redeploy-web restart restart-backend restart-web
 .PHONY: local-up up down
 
 kind-up:
@@ -114,6 +115,36 @@ render: backend-render web-render
 
 logs:
 	@echo "Use 'make backend-logs' or 'make web-logs'"
+
+restart-backend:
+	kubectl -n $(NAMESPACE) rollout restart deploy/dealbot
+	kubectl -n $(NAMESPACE) rollout status deploy/dealbot
+
+restart-web:
+	kubectl -n $(NAMESPACE) rollout restart deploy/dealbot-web
+	kubectl -n $(NAMESPACE) rollout status deploy/dealbot-web
+
+restart: restart-backend restart-web
+
+# Dev convenience: rebuild images, load into Kind, helm upgrade, and restart pods.
+# This avoids stale `:dev` images when imagePullPolicy is IfNotPresent.
+redeploy-backend:
+	$(MAKE) backend-image-build
+	$(MAKE) backend-kind-load
+	$(MAKE) backend-deploy
+	$(MAKE) restart-backend
+
+redeploy-web:
+	$(MAKE) web-image-build
+	$(MAKE) web-kind-load
+	$(MAKE) web-deploy
+	$(MAKE) restart-web
+
+redeploy:
+	$(MAKE) image-build
+	$(MAKE) kind-load
+	$(MAKE) deploy
+	$(MAKE) restart
 
 secret: namespace
 	@if [ ! -f "$(SECRET_ENV_FILE)" ]; then echo "SECRET_ENV_FILE $(SECRET_ENV_FILE) not found"; exit 1; fi

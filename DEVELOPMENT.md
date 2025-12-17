@@ -43,6 +43,11 @@ make deploy                                         # creates secret, then helm 
 ```
 Access the app at http://localhost:3000.
 
+If you rebuilt an image but Kubernetes is still serving old behavior, use:
+```bash
+make redeploy                                       # rebuild + kind-load + helm upgrade + rollout restart
+```
+
 Shortcut (after the cluster exists): one command builds, loads, creates secrets, and deploys:
 ```bash
 make local-up
