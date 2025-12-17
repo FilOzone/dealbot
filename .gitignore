@@ -18,3 +18,4 @@ charts/dealbot-web/values.local.override.yaml
 *.njsproj
 *.sln
 *.sw?
+.env
