@@ -105,6 +105,22 @@ existingConfigMap: ""
 postgresql:
   enabled: false
   image: postgres:16-alpine
+  probes:
+    enabled: true
+    startup:
+      periodSeconds: 5
+      timeoutSeconds: 3
+      failureThreshold: 30
+    readiness:
+      initialDelaySeconds: 5
+      periodSeconds: 5
+      timeoutSeconds: 3
+      failureThreshold: 6
+    liveness:
+      initialDelaySeconds: 30
+      periodSeconds: 10
+      timeoutSeconds: 3
+      failureThreshold: 6
   auth:
     username: dealbot
     password: dealbot_password
