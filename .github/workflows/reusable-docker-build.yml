@@ -1,0 +1,88 @@
+name: Reusable Docker Build
+
+on:
+  workflow_call:
+    inputs:
+      app:
+        type: string
+        required: true
+      dockerfile:
+        type: string
+        required: true
+      image:
+        type: string
+        required: true
+      tags:
+        type: string
+        required: true
+      ref:
+        type: string
+        required: false
+      context:
+        type: string
+        required: false
+        default: .
+      platforms:
+        type: string
+        required: false
+        default: linux/amd64
+      push:
+        type: boolean
+        required: false
+        default: true
+      summary:
+        type: string
+        required: false
+        default: ""
+    secrets:
+      AWS_ROLE_ARN:
+        required: true
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  REGISTRY: 941641221830.dkr.ecr.us-east-1.amazonaws.com
+  AWS_REGION: us-east-1
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        if: inputs.ref == ''
+        uses: actions/checkout@v4
+
+      - name: Checkout (ref)
+        if: inputs.ref != ''
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push ${{ inputs.app }}
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ inputs.context }}
+          file: ${{ inputs.dockerfile }}
+          push: ${{ inputs.push }}
+          tags: ${{ inputs.tags }}
+          cache-from: type=gha,scope=${{ inputs.app }}
+          cache-to: type=gha,mode=max,scope=${{ inputs.app }}
+          platforms: ${{ inputs.platforms }}
+
+      - name: Summary
+        if: inputs.summary != ''
+        run: ${{ inputs.summary }}
