@@ -26,3 +26,17 @@
 {{- default "default" .Values.serviceAccount.name -}}
 {{- end -}}
 {{- end -}}
+
+{{- define "dealbot.postgres.fullname" -}}
+{{- $base := include "dealbot.fullname" . -}}
+{{- $suffix := "-postgres" -}}
+{{- $maxBaseLength := sub 63 (len $suffix) -}}
+{{- printf "%s%s" ($base | trunc $maxBaseLength | trimSuffix "-") $suffix | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+
+{{- define "dealbot.postgres.name" -}}
+{{- $base := include "dealbot.name" . -}}
+{{- $suffix := "-postgres" -}}
+{{- $maxBaseLength := sub 63 (len $suffix) -}}
+{{- printf "%s%s" ($base | trunc $maxBaseLength | trimSuffix "-") $suffix | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
