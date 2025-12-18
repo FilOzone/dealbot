@@ -6,7 +6,7 @@ describe("Kubernetes Integration Tests", () => {
   const API_URL = "http://localhost:8080";
 
   // Helper to retry fetch
-  async function fetchWithRetry(url: string, retries = 30, interval = 2000) {
+  async function fetchWithRetry(url: string, retries = 60, interval = 2000) {
     for (let i = 0; i < retries; i++) {
       try {
         const response = await fetch(url);
