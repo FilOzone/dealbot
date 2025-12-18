@@ -1,6 +1,6 @@
 # Local Kubernetes Development (Kind + Helm)
 
-This repo ships Helm charts (`charts/dealbot` and `charts/dealbot-web`). Local clusters use these charts directly; `filoz-infra` consumes them by rendering the chart(s) and then applying environment-specific Kustomize overlays.
+This repo ships Helm charts (`charts/dealbot` and `charts/dealbot-web`). Local clusters use these charts directly; `filozone/infra` consumes them by rendering the chart(s) and then applying environment-specific Kustomize overlays.
 
 ## Prerequisites
 - Docker, Kind, kubectl, Helm, make installed.

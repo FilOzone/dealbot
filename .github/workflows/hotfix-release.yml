@@ -10,8 +10,7 @@ permissions:
   pull-requests: write
 
 env:
-  REGISTRY: 941641221830.dkr.ecr.us-east-1.amazonaws.com
-  AWS_REGION: us-east-1
+  REGISTRY: ghcr.io
 
 jobs:
   hotfix-release:
@@ -53,7 +52,7 @@ jobs:
             include="$(jq -c \
               --arg app "backend" \
               --arg dockerfile "apps/backend/Dockerfile" \
-              --arg image "filoz-dealbot" \
+              --arg image "filozone/dealbot-backend" \
               --arg sha "${{ needs.hotfix-release.outputs.backend_sha }}" \
               --arg version "${{ needs.hotfix-release.outputs.backend_version }}" \
               '. + [{app: $app, dockerfile: $dockerfile, image: $image, sha: $sha, version: $version}]' \
@@ -64,7 +63,7 @@ jobs:
             include="$(jq -c \
               --arg app "web" \
               --arg dockerfile "apps/web/Dockerfile" \
-              --arg image "filoz-dealbot-web" \
+              --arg image "filozone/dealbot-web" \
               --arg sha "${{ needs.hotfix-release.outputs.web_sha }}" \
               --arg version "${{ needs.hotfix-release.outputs.web_version }}" \
               '. + [{app: $app, dockerfile: $dockerfile, image: $image, sha: $sha, version: $version}]' \
@@ -88,7 +87,7 @@ jobs:
     if: needs.hotfix-build-matrix.outputs.has_items == 'true'
     permissions:
       contents: read
-      id-token: write
+      packages: write
     strategy:
       matrix: ${{ fromJSON(needs.hotfix-build-matrix.outputs.matrix) }}
     uses: ./.github/workflows/reusable-docker-build.yml
@@ -103,4 +102,3 @@ jobs:
       summary: |
         echo "🚨 HOTFIX DEPLOYED: ${{ matrix.app }} v${{ matrix.version }}"
         echo "Image: ${{ env.REGISTRY }}/${{ matrix.image }}:v${{ matrix.version }}"
-    secrets: inherit

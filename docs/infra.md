@@ -1,6 +1,6 @@
-# Integration with filoz-infra
+# Integration with filozone/infra
 
-This repo ships Helm charts. For local development, this repo installs those charts into a Kind cluster. In `filoz-infra`, production/staging deployments use Kustomize overlays and consume these charts by rendering them to YAML (via `kustomize` `helmCharts:` support or `helm template`) and then applying environment-specific patches/overlays.
+This repo ships Helm charts. For local development, this repo installs those charts into a Kind cluster. In `filozone/infra`, production/staging deployments use Kustomize overlays and consume these charts by rendering them to YAML (via `kustomize` `helmCharts:` support or `helm template`) and then applying environment-specific patches/overlays.
 
 ## Architecture
 
@@ -14,16 +14,16 @@ This repo ships Helm charts. For local development, this repo installs those cha
   - Web: localhost:3000
 - Managed via Makefile targets (`make up`, `make deploy`, etc.)
 
-**Production Deployments (filoz-infra repo)**:
+**Production Deployments (filozone/infra repo)**:
 - Kustomize-based manifests in `deployments/kubernetes/`
 - Two separate deployments (backend + web)
 - Flux CD for GitOps deployment
 - SOPS for secret encryption
 - Managed PostgreSQL database
 
-## Updating filoz-infra from these Helm charts
+## Updating filozone/infra from these Helm charts
 
-When updating the filoz-infra Kustomize manifests based on changes to these Helm charts:
+When updating the filozone/infra Kustomize manifests based on changes to these Helm charts:
 
 ### Step 1: Generate base manifests
 
@@ -52,10 +52,10 @@ helm template dealbot-web ./charts/dealbot-web \
 
 ### Step 2: Split into separate files
 
-The filoz-infra repo expects separate files per resource type. Split the generated manifests:
+The filozone/infra repo expects separate files per resource type. Split the generated manifests:
 
 ```bash
-# Example structure in filoz-infra:
+# Example structure in filozone/infra:
 # deployments/kubernetes/base/
 # ├── dealbot/              (backend)
 # │   ├── deployment.yaml
@@ -103,7 +103,7 @@ resources:
 
 When adapting Helm output for Kustomize, watch for:
 
-1. **ConfigMap (non-secrets)**: Helm creates a `*-env` ConfigMap from chart `values.yaml` `env:`. In filoz-infra, treat these as non-secret env vars and generate a ConfigMap via:
+1. **ConfigMap (non-secrets)**: Helm creates a `*-env` ConfigMap from chart `values.yaml` `env:`. In filozone/infra, treat these as non-secret env vars and generate a ConfigMap via:
    ```yaml
    # staging/kustomization.yaml
    configMapGenerator:
@@ -112,7 +112,7 @@ When adapting Helm output for Kustomize, watch for:
          - dealbot-config.env
    ```
 
-2. **Secret (secrets only)**: Helm references secrets via `existingSecret`. In filoz-infra, manage secrets via SOPS/External Secrets and create a Secret that matches the name referenced by the deployment:
+2. **Secret (secrets only)**: Helm references secrets via `existingSecret`. In filozone/infra, manage secrets via SOPS/External Secrets and create a Secret that matches the name referenced by the deployment:
    ```yaml
    secretGenerator:
      - name: dealbot-secrets
@@ -125,13 +125,13 @@ When adapting Helm output for Kustomize, watch for:
    # dealbot/prod/kustomization.yaml
    images:
      - name: dealbot
-       newName: 941641221830.dkr.ecr.us-east-1.amazonaws.com/filoz-dealbot
+       newName: ghcr.io/filozone/dealbot-backend
        newTag: latest # {"$imagepolicy": "dealbot:prod-dealbot"}
 
    # dealbot-web/prod/kustomization.yaml
    images:
      - name: dealbot-web
-       newName: 941641221830.dkr.ecr.us-east-1.amazonaws.com/filoz-dealbot-web
+       newName: ghcr.io/filozone/dealbot-web
        newTag: latest # {"$imagepolicy": "dealbot-web:prod-dealbot-web"}
    ```
 
@@ -146,13 +146,13 @@ kustomize build .
 kubectl apply --dry-run=server -k .
 ```
 
-## Initial Deployment to filoz-infra
+## Initial Deployment to filozone/infra
 
-When deploying dealbot to filoz-infra for the first time:
+When deploying dealbot to filozone/infra for the first time:
 
 1. **Create environment-specific config files**:
    ```bash
-   # In filoz-infra repo
+   # In filozone/infra repo
    touch deployments/kubernetes/us-east-1/f3-passive-testing/dealbot/staging/dealbot-config.env
    touch deployments/kubernetes/us-east-1/f3-passive-testing/dealbot/prod/dealbot-config.env
    ```

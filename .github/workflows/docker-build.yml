@@ -10,8 +10,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  REGISTRY: 941641221830.dkr.ecr.us-east-1.amazonaws.com
-  AWS_REGION: us-east-1
+  REGISTRY: ghcr.io
 
 jobs:
   detect-changes:
@@ -41,18 +40,18 @@ jobs:
     needs: detect-changes
     permissions:
       contents: read
-      id-token: write # Required for AWS OIDC
+      packages: write # Required for GHCR
     strategy:
       matrix:
         include:
           - app: backend
             changed: ${{ needs.detect-changes.outputs.backend }}
             dockerfile: apps/backend/Dockerfile
-            image: filoz-dealbot
+            image: filozone/dealbot-backend
           - app: web
             changed: ${{ needs.detect-changes.outputs.web }}
             dockerfile: apps/web/Dockerfile
-            image: filoz-dealbot-web
+            image: filozone/dealbot-web
     # Only run if this specific app changed
     if: matrix.changed == 'true'
     uses: ./.github/workflows/reusable-docker-build.yml
@@ -66,4 +65,3 @@ jobs:
       summary: |
         echo "${{ matrix.app }} image (sha): ${{ env.REGISTRY }}/${{ matrix.image }}:sha-${{ github.sha }}"
         echo "${{ matrix.app }} image (ordered): ${{ env.REGISTRY }}/${{ matrix.image }}:sha-${{ github.run_number }}-${{ github.sha }}"
-    secrets: inherit

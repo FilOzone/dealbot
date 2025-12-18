@@ -34,7 +34,7 @@ When you merge a PR to `main`:
 - Builds Docker images with:
   - `sha-<git-sha>` (stable pointer used for promotion/retagging)
   - `sha-<run-number>-<git-sha>` (monotonic tag suitable for Flux staging policies)
-- Example: `941641221830.dkr.ecr.us-east-1.amazonaws.com/filoz-dealbot:sha-1234-<sha>`
+- Example: `ghcr.io/filozone/dealbot-backend:sha-1234-<sha>`
 
 **Flux Deploys to Staging:**
 - Flux watches for ordered `sha-<run>-<sha>` tags in staging
@@ -59,10 +59,10 @@ When you merge a PR to `main`:
 
 1. **Docker images build** from the merge commit (tagged `sha-<sha>` and `sha-<run>-<sha>`)
 2. **release-please creates GitHub Releases/tags** (e.g., `backend-v0.2.0`, `web-v0.1.1`) and outputs the release `sha`
-3. **ECR images are retagged** by workflow to `v<version>` (e.g., `sha-<sha>` → `v0.2.0`)
+3. **Container images are retagged** by workflow to `v<version>` (e.g., `sha-<sha>` → `v0.2.0`)
 4. **Flux deploys to production** by watching semver tags (e.g., `v0.2.0`)
 
-**Important:** Both ECR images AND git repo are tagged with the same semver version for full traceability.
+**Important:** Both container images AND git repo are tagged with the same semver version for full traceability.
 
 ## Examples
 
@@ -115,12 +115,12 @@ git push
 ### Required GitHub Secrets
 
 ```
-AWS_ROLE_ARN: arn:aws:iam::941641221830:role/GitHubActionsRole
+GITHUB_TOKEN: Automatically provided by GitHub Actions
 ```
 
-No other secrets needed - Flux watches the ECR registry directly!
+No other secrets needed - Flux watches the GitHub Container Registry directly!
 
-### Flux ImagePolicy Setup in filoz-infra
+### Flux ImagePolicy Setup in filozone/infra
 
 **Staging ImagePolicy** (watches ordered `sha-<run>-<sha>` tags):
 ```yaml
@@ -190,7 +190,7 @@ metadata:
   name: dealbot-backend
   namespace: flux-system
 spec:
-  image: 941641221830.dkr.ecr.us-east-1.amazonaws.com/filoz-dealbot
+  image: ghcr.io/filozone/dealbot-backend
   interval: 5m
 ---
 apiVersion: image.toolkit.fluxcd.io/v1beta2
@@ -199,7 +199,7 @@ metadata:
   name: dealbot-web
   namespace: flux-system
 spec:
-  image: 941641221830.dkr.ecr.us-east-1.amazonaws.com/filoz-dealbot-web
+  image: ghcr.io/filozone/dealbot-web
   interval: 5m
 ```
 
@@ -228,13 +228,13 @@ spec:
 ### Release failed
 
 **Common issues:**
-- SHA image doesn't exist in ECR
+- SHA image doesn't exist in GitHub Container Registry
 - Version already tagged
-- AWS credentials expired
+- GitHub token permissions insufficient
 
 **Fix:**
 - Check workflow logs for specific error
-- Verify images in ECR console
+- Verify images in GitHub Container Registry (ghcr.io)
 - Re-run failed workflow after fixing
 
 ### Want to skip a release

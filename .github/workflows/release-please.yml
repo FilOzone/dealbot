@@ -46,36 +46,27 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      id-token: write
-    env:
-      AWS_REGION: us-east-1
+      packages: write
     steps:
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
         with:
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Retag backend image using ECR manifest
+      - name: Retag backend image
         run: |
           SOURCE_SHA="${{ needs.release-please.outputs.backend_sha }}"
           VERSION="${{ needs.release-please.outputs.backend_version }}"
-          REPO="filoz-dealbot"
+          REPO="ghcr.io/filozone/dealbot-backend"
 
           echo "Retagging ${REPO}:sha-${SOURCE_SHA} → ${REPO}:v${VERSION}"
 
-          # Get the image manifest
-          MANIFEST=$(aws ecr batch-get-image \
-            --repository-name "${REPO}" \
-            --image-ids imageTag=sha-${SOURCE_SHA} \
-            --query 'images[0].imageManifest' \
-            --output text)
-
-          # Put the manifest with new tag
-          aws ecr put-image \
-            --repository-name "${REPO}" \
-            --image-tag "v${VERSION}" \
-            --image-manifest "${MANIFEST}"
+          # Use docker buildx imagetools to create a new tag pointing to the same image
+          docker buildx imagetools create \
+            --tag "${REPO}:v${VERSION}" \
+            "${REPO}:sha-${SOURCE_SHA}"
 
           echo "✅ Backend released: v${VERSION}"
 
@@ -85,35 +76,26 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      id-token: write
-    env:
-      AWS_REGION: us-east-1
+      packages: write
     steps:
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
         with:
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Retag web image using ECR manifest
+      - name: Retag web image
         run: |
           SOURCE_SHA="${{ needs.release-please.outputs.web_sha }}"
           VERSION="${{ needs.release-please.outputs.web_version }}"
-          REPO="filoz-dealbot-web"
+          REPO="ghcr.io/filozone/dealbot-web"
 
           echo "Retagging ${REPO}:sha-${SOURCE_SHA} → ${REPO}:v${VERSION}"
 
-          # Get the image manifest
-          MANIFEST=$(aws ecr batch-get-image \
-            --repository-name "${REPO}" \
-            --image-ids imageTag=sha-${SOURCE_SHA} \
-            --query 'images[0].imageManifest' \
-            --output text)
-
-          # Put the manifest with new tag
-          aws ecr put-image \
-            --repository-name "${REPO}" \
-            --image-tag "v${VERSION}" \
-            --image-manifest "${MANIFEST}"
+          # Use docker buildx imagetools to create a new tag pointing to the same image
+          docker buildx imagetools create \
+            --tag "${REPO}:v${VERSION}" \
+            "${REPO}:sha-${SOURCE_SHA}"
 
           echo "✅ Web released: v${VERSION}"
