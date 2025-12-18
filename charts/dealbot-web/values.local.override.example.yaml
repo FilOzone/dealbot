@@ -1,6 +1,0 @@
-# Copy this file to values.local.override.yaml (gitignored) and customize as needed.
-# This file is intended for non-secret, local-only overrides.
-#
-# Example: override the in-cluster /api* proxy upstream (if your backend Service name differs):
-# env:
-#   DEALBOT_API_UPSTREAM: "dealbot:3130"

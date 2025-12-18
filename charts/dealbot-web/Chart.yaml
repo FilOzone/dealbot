@@ -1,6 +1,0 @@
-apiVersion: v2
-name: dealbot-web
-description: Web UI for Dealbot - visualizing storage provider statistics and performance metrics
-type: application
-version: 0.1.0
-appVersion: "0.0.1"

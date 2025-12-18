@@ -2,9 +2,7 @@ node_modules/
 dist/
 coverage/
 
-# Local Helm/Kubernetes artifacts
-charts/dealbot/values.local.override.yaml
-charts/dealbot-web/values.local.override.yaml
+# Local Kubernetes artifacts
 .kube
 
 # Editor directories and files

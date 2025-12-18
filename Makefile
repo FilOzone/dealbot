@@ -2,31 +2,23 @@ KIND_CLUSTER ?= dealbot-local
 KIND_CONFIG ?= kind-config.yaml
 NAMESPACE ?= dealbot
 
-# Backend configuration
-BACKEND_CHART_PATH ?= charts/dealbot
-BACKEND_VALUES_LOCAL ?= $(BACKEND_CHART_PATH)/values.local.yaml
-BACKEND_DEFAULT_VALUES_EXTRA := $(wildcard $(BACKEND_CHART_PATH)/values.local.override.yaml)
-BACKEND_VALUES_EXTRA ?= $(BACKEND_DEFAULT_VALUES_EXTRA)
+# Kustomize configuration
+KUSTOMIZE_OVERLAY ?= kustomize/overlays/local
+
+# Image configuration
 BACKEND_IMAGE_REPO ?= dealbot-local
 BACKEND_IMAGE_TAG ?= dev
-
-# Web configuration
-WEB_CHART_PATH ?= charts/dealbot-web
-WEB_VALUES_LOCAL ?= $(WEB_CHART_PATH)/values.local.yaml
-WEB_DEFAULT_VALUES_EXTRA := $(wildcard $(WEB_CHART_PATH)/values.local.override.yaml)
-WEB_VALUES_EXTRA ?= $(WEB_DEFAULT_VALUES_EXTRA)
 WEB_IMAGE_REPO ?= dealbot-web-local
 WEB_IMAGE_TAG ?= dev
 
-HELM_ARGS ?=
 SECRET_NAME ?= dealbot-secrets
 SECRET_ENV_FILE ?= .env
 
 .PHONY: kind-up kind-down namespace secret
-.PHONY: backend-image-build backend-kind-load backend-deploy backend-undeploy backend-helm-lint backend-render backend-logs
-.PHONY: web-image-build web-kind-load web-deploy web-undeploy web-helm-lint web-render web-logs
-.PHONY: image-build kind-load deploy undeploy helm-lint render logs
-.PHONY: redeploy redeploy-backend redeploy-web restart restart-backend restart-web
+.PHONY: backend-image-build backend-kind-load backend-logs
+.PHONY: web-image-build web-kind-load web-logs
+.PHONY: image-build kind-load deploy undeploy render logs
+.PHONY: redeploy restart restart-backend restart-web
 .PHONY: local-up up down
 
 kind-up:
@@ -45,31 +37,6 @@ backend-image-build:
 backend-kind-load:
 	kind load docker-image $(BACKEND_IMAGE_REPO):$(BACKEND_IMAGE_TAG) --name $(KIND_CLUSTER)
 
-backend-deploy:
-	@if [ -n "$(SECRET_ENV_FILE)" ]; then \
-		if [ ! -f "$(SECRET_ENV_FILE)" ]; then echo "SECRET_ENV_FILE $(SECRET_ENV_FILE) not found"; exit 1; fi; \
-	else \
-		if [ -z "$$WALLET_PRIVATE_KEY" ]; then echo "WALLET_PRIVATE_KEY env var is required (or set SECRET_ENV_FILE)"; exit 1; fi; \
-		if [ -z "$$WALLET_ADDRESS" ]; then echo "WALLET_ADDRESS env var is required (or set SECRET_ENV_FILE)"; exit 1; fi; \
-	fi
-	$(MAKE) secret SECRET_ENV_FILE=$(SECRET_ENV_FILE)
-	helm upgrade --install dealbot $(BACKEND_CHART_PATH) \
-		--namespace $(NAMESPACE) \
-		-f $(BACKEND_VALUES_LOCAL) $(if $(BACKEND_VALUES_EXTRA),-f $(BACKEND_VALUES_EXTRA)) \
-		--set image.repository=$(BACKEND_IMAGE_REPO) \
-		--set image.tag=$(BACKEND_IMAGE_TAG) \
-		--set existingSecret=$(SECRET_NAME) \
-		$(HELM_ARGS)
-
-backend-undeploy:
-	helm uninstall dealbot --namespace $(NAMESPACE)
-
-backend-helm-lint:
-	helm lint $(BACKEND_CHART_PATH) -f $(BACKEND_VALUES_LOCAL) $(if $(BACKEND_VALUES_EXTRA),-f $(BACKEND_VALUES_EXTRA)) $(HELM_ARGS)
-
-backend-render:
-	helm template dealbot $(BACKEND_CHART_PATH) -f $(BACKEND_VALUES_LOCAL) $(if $(BACKEND_VALUES_EXTRA),-f $(BACKEND_VALUES_EXTRA)) $(HELM_ARGS)
-
 backend-logs:
 	kubectl logs -n $(NAMESPACE) deploy/dealbot -f
 
@@ -80,38 +47,22 @@ web-image-build:
 web-kind-load:
 	kind load docker-image $(WEB_IMAGE_REPO):$(WEB_IMAGE_TAG) --name $(KIND_CLUSTER)
 
-web-deploy:
-	helm upgrade --install dealbot-web $(WEB_CHART_PATH) \
-		--namespace $(NAMESPACE) \
-		-f $(WEB_VALUES_LOCAL) $(if $(WEB_VALUES_EXTRA),-f $(WEB_VALUES_EXTRA)) \
-		--set image.repository=$(WEB_IMAGE_REPO) \
-		--set image.tag=$(WEB_IMAGE_TAG) \
-		$(HELM_ARGS)
-
-web-undeploy:
-	helm uninstall dealbot-web --namespace $(NAMESPACE)
-
-web-helm-lint:
-	helm lint $(WEB_CHART_PATH) -f $(WEB_VALUES_LOCAL) $(if $(WEB_VALUES_EXTRA),-f $(WEB_VALUES_EXTRA)) $(HELM_ARGS)
-
-web-render:
-	helm template dealbot-web $(WEB_CHART_PATH) -f $(WEB_VALUES_LOCAL) $(if $(WEB_VALUES_EXTRA),-f $(WEB_VALUES_EXTRA)) $(HELM_ARGS)
-
 web-logs:
 	kubectl logs -n $(NAMESPACE) deploy/dealbot-web -f
 
-# Combined targets (build/deploy both backend and web)
+# Combined targets
 image-build: backend-image-build web-image-build
 
 kind-load: backend-kind-load web-kind-load
 
-deploy: backend-deploy web-deploy
+deploy: secret
+	kubectl apply -k $(KUSTOMIZE_OVERLAY)
 
-undeploy: backend-undeploy web-undeploy
+undeploy:
+	-kubectl delete -k $(KUSTOMIZE_OVERLAY)
 
-helm-lint: backend-helm-lint web-helm-lint
-
-render: backend-render web-render
+render:
+	kubectl kustomize $(KUSTOMIZE_OVERLAY)
 
 logs:
 	@echo "Use 'make backend-logs' or 'make web-logs'"
@@ -126,20 +77,8 @@ restart-web:
 
 restart: restart-backend restart-web
 
-# Dev convenience: rebuild images, load into Kind, helm upgrade, and restart pods.
+# Dev convenience: rebuild images, load into Kind, apply manifests, and restart pods.
 # This avoids stale `:dev` images when imagePullPolicy is IfNotPresent.
-redeploy-backend:
-	$(MAKE) backend-image-build
-	$(MAKE) backend-kind-load
-	$(MAKE) backend-deploy
-	$(MAKE) restart-backend
-
-redeploy-web:
-	$(MAKE) web-image-build
-	$(MAKE) web-kind-load
-	$(MAKE) web-deploy
-	$(MAKE) restart-web
-
 redeploy:
 	$(MAKE) image-build
 	$(MAKE) kind-load
@@ -167,5 +106,7 @@ up:
 	$(MAKE) local-up
 
 down:
-	$(MAKE) undeploy || true
+	@if kind get clusters 2>/dev/null | grep -q "^$(KIND_CLUSTER)$$"; then \
+		$(MAKE) undeploy || true; \
+	fi
 	$(MAKE) kind-down

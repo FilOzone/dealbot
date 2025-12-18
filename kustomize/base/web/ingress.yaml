@@ -1,0 +1,24 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: dealbot-web
+  labels:
+    app.kubernetes.io/name: dealbot-web
+  annotations:
+    # Signals to infra repo what should be injected
+    filozone.io/inject-hostname: "true"
+    filozone.io/inject-tls: "true"
+    filozone.io/inject-ingress-class: "true"
+    filozone.io/inject-security-policy: "true"
+spec:
+  rules:
+    - host: dealbot.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: dealbot-web
+                port:
+                  name: http

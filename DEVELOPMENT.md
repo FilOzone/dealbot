@@ -1,23 +1,23 @@
-# Local Kubernetes Development (Kind + Helm)
+# Local Kubernetes Development (Kind + Kustomize)
 
-This repo ships Helm charts (`charts/dealbot` and `charts/dealbot-web`). Local clusters use these charts directly; `filozone/infra` consumes them by rendering the chart(s) and then applying environment-specific Kustomize overlays.
+This repo uses Kustomize for both local and production deployments. Local clusters use the `kustomize/overlays/local` overlay; `filozone/infra` uses the base manifests with production-specific overlays.
 
 ## Prerequisites
-- Docker, Kind, kubectl, Helm, make installed.
+- Docker, Kind, kubectl, make installed.
 
 ## One-time setup
 ```bash
 make kind-up
-cp charts/dealbot/values.local.override.example.yaml charts/dealbot/values.local.override.yaml
+cp .env.example .env
+# Edit .env to add your WALLET_PRIVATE_KEY and WALLET_ADDRESS
 ```
-This creates the Kind cluster (`dealbot-local`) and prepares a gitignored override file for your local tweaks.
+This creates the Kind cluster (`dealbot-local`).
 Local ports (via `kind-config.yaml` extraPortMappings): web UI at http://localhost:3000, backend API at http://localhost:8080.
-If you see `Unexpected token '<'` in the browser console, the frontend is hitting the web server instead of the API; either rely on the web container’s `/api*` reverse proxy, or set `VITE_API_BASE_URL=http://localhost:8080` for the web deployment.
+If you see `Unexpected token '<'` in the browser console, the frontend is hitting the web server instead of the API; either rely on the web container's `/api*` reverse proxy, or set `VITE_API_BASE_URL=http://localhost:8080` for the web deployment.
 
 ## Secrets (wallets are required, DB password is optional)
-Secrets are provided via a Kubernetes Secret referenced by `existingSecret`. For local dev, `make secret` will create/update that Secret from your local `.env` file.
+Secrets are provided via a Kubernetes Secret created from your local `.env` file.
 
-**Option 1: Using `.env` file (recommended for local secrets)**
 ```bash
 cp .env.example .env            # if you don't already have one
 echo "WALLET_PRIVATE_KEY=..." >> .env
@@ -26,26 +26,22 @@ echo "WALLET_ADDRESS=..." >> .env
 echo "DATABASE_PASSWORD=..." >> .env
 make secret                     # uses SECRET_ENV_FILE=.env by default
 ```
-The `make secret` target will only include secret keys (wallet + optional DATABASE_PASSWORD) so your `.env` won’t override non-secret Helm config.
+The `make secret` target will only include secret keys (wallet + optional DATABASE_PASSWORD) so your `.env` won't override non-secret configuration.
 For running services directly (outside Kubernetes), use `apps/backend/.env.example` and `apps/web/.env.example` instead.
-
-**Option 2: Use a pre-created Secret (SOPS / External Secrets / manual)**
-- Create a Secret in the `dealbot` namespace named `dealbot-secrets` (or set `SECRET_NAME=...` when running make targets).
-- `make deploy` will automatically set `existingSecret=$(SECRET_NAME)` for the backend chart.
 
 **Note**: The bundled PostgreSQL uses `dealbot_password` and the backend defaults to that value if `DATABASE_PASSWORD` is unset. Only set `DATABASE_PASSWORD` when you need something else (external DB or non-default password).
 
 ## Build and deploy locally
 ```bash
 make image-build                                    # builds backend + web images
-make kind-load                                      # load the image into Kind
-make deploy                                         # creates secret, then helm upgrade --install; auto-includes values.local.override.yaml if present
+make kind-load                                      # load the images into Kind
+make deploy                                         # creates secret, then kubectl apply -k
 ```
 Access the app at http://localhost:3000.
 
 If you rebuilt an image but Kubernetes is still serving old behavior, use:
 ```bash
-make redeploy                                       # rebuild + kind-load + helm upgrade + rollout restart
+make redeploy                                       # rebuild + kind-load + kubectl apply + rollout restart
 ```
 
 Shortcut (after the cluster exists): one command builds, loads, creates secrets, and deploys:
@@ -57,19 +53,26 @@ Sugar commands:
 - `make up`   -> kind-up + local-up (cluster + secrets + build/load + deploy)
 - `make down` -> undeploy app and delete the Kind cluster
 
-## Values and overrides
-- Backend defaults: `charts/dealbot/values.yaml`
-- Backend local defaults: `charts/dealbot/values.local.yaml`
-- Backend overrides (gitignored): `charts/dealbot/values.local.override.yaml` (template provided)
+## Customizing local configuration
+The local overlay is in `kustomize/overlays/local/`. To customize configuration:
 
-- Web defaults: `charts/dealbot-web/values.yaml`
-- Web local defaults: `charts/dealbot-web/values.local.yaml`
-- Web overrides (gitignored): `charts/dealbot-web/values.local.override.yaml` (template provided)
+1. **Environment variables**: Edit `kustomize/overlays/local/backend-configmap-local.yaml`
+2. **Service ports**: Edit `kustomize/overlays/local/backend-service-nodeport.yaml` or `web-service-nodeport.yaml`
+3. **Image tags**: Images are configured in `kustomize/overlays/local/kustomization.yaml`
 
-`make deploy` will automatically include `charts/dealbot/values.local.override.yaml` if the file exists. Override it via `BACKEND_VALUES_EXTRA=...` if you want to point at a different file or skip it.
-`make deploy` will automatically include `charts/dealbot-web/values.local.override.yaml` if the file exists. Override it via `WEB_VALUES_EXTRA=...` if you want to point at a different file or skip it.
+After making changes, run `make deploy` to apply them.
 
-If you need non-secret runtime config like `PROXY_LIST` / `PROXY_LOCATIONS`, set it via a values override file (ConfigMap), not via `.env` (Secret).
+## Values and configuration
+- Backend base: `kustomize/base/backend/`
+- Backend local overlay: `kustomize/overlays/local/backend-configmap-local.yaml`
+- Web base: `kustomize/base/web/`
+- Web local overlay: `kustomize/overlays/local/web-service-nodeport.yaml`
+
+The local overlay automatically:
+- Uses NodePort services for local access (backend :30081 → :8080, web :30080 → :3000)
+- Deploys PostgreSQL with persistent storage
+- Points backend to the local PostgreSQL instance
+- Uses local image tags (`dealbot-local:dev`, `dealbot-web-local:dev`)
 
 If you see `ErrImagePull` for `dealbot-local:dev`, rebuild and reload into Kind before deploying:
 ```bash
@@ -86,8 +89,10 @@ make up
 
 ## Managing the release
 ```bash
-make logs       # follow application logs
-make undeploy   # helm uninstall dealbot
+make logs       # follow application logs (shows help for backend/web logs)
+make backend-logs  # follow backend logs
+make web-logs      # follow web logs
+make undeploy   # kubectl delete -k
 make kind-down  # delete the Kind cluster
 ```
 
@@ -119,6 +124,14 @@ kubectl rollout restart deployment -n dealbot dealbot-postgres
 ```bash
 # Connect to postgres pod
 kubectl exec -it -n dealbot deployment/dealbot-postgres -- psql -U dealbot -d filecoin_dealbot
+```
+
+## Rendering manifests
+To see the final manifests that will be applied:
+```bash
+make render
+# or
+kubectl kustomize kustomize/overlays/local
 ```
 
 ## SOPS/External Secrets parity
