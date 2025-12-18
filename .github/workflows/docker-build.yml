@@ -66,8 +66,8 @@ jobs:
       dockerfile: ${{ matrix.dockerfile }}
       image: ${{ matrix.image }}
       tags: |
-        ${{ env.REGISTRY }}/${{ matrix.image }}:sha-${{ github.sha }}
-        ${{ env.REGISTRY }}/${{ matrix.image }}:sha-${{ github.run_number }}-${{ github.sha }}
+        ghcr.io/${{ matrix.image }}:sha-${{ github.sha }}
+        ghcr.io/${{ matrix.image }}:sha-${{ github.run_number }}-${{ github.sha }}
       summary: |
-        echo "${{ matrix.app }} image (sha): ${{ env.REGISTRY }}/${{ matrix.image }}:sha-${{ github.sha }}"
-        echo "${{ matrix.app }} image (ordered): ${{ env.REGISTRY }}/${{ matrix.image }}:sha-${{ github.run_number }}-${{ github.sha }}"
+        echo "${{ matrix.app }} image (sha): ghcr.io/${{ matrix.image }}:sha-${{ github.sha }}"
+        echo "${{ matrix.app }} image (ordered): ghcr.io/${{ matrix.image }}:sha-${{ github.run_number }}-${{ github.sha }}"
