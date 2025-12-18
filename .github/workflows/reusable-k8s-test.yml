@@ -66,13 +66,14 @@ jobs:
       - name: Debug Failure
         if: failure()
         run: |
-          kubectl -n dealbot get pods
+          kubectl -n dealbot get pods --show-labels
           kubectl -n dealbot describe pods
+          kubectl -n dealbot get events --sort-by=.lastTimestamp || true
           echo "--- Current Logs ---"
-          kubectl -n dealbot logs -l app=dealbot --tail=100
+          kubectl -n dealbot logs deploy/dealbot --all-containers --tail=200 || true
           echo "--- Previous Logs (if crashed) ---"
-          kubectl -n dealbot logs -l app=dealbot --previous --tail=100
+          kubectl -n dealbot logs deploy/dealbot --all-containers --previous --tail=200 || true
           echo "--- Web Logs ---"
-          kubectl -n dealbot logs -l app=dealbot-web --tail=50
+          kubectl -n dealbot logs deploy/dealbot-web --all-containers --tail=100 || true
       - name: Run Integration Tests
         run: pnpm --filter dealbot-backend test:e2e:k8s
