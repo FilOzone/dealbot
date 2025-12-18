@@ -41,12 +41,9 @@ jobs:
           FILBEAM_BOT_TOKEN=dummy
           EOF
 
-          # Modify configmap to prevent actual work
-          sed -i 's/_SECONDS: "[0-9]*"/_SECONDS: "1000000"/' kustomize/overlays/local/backend-configmap-local.yaml
-
           # Deploy using Makefile targets (handles namespace, secrets, and kustomize apply)
           # Note: 'make secret' will use the .env created above
-          make deploy
+          KUSTOMIZE_OVERLAY=kustomize/overlays/ci make deploy
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
