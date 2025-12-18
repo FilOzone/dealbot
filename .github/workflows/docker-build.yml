@@ -42,32 +42,38 @@ jobs:
     if: needs.detect-changes.outputs.backend == 'true' || needs.detect-changes.outputs.web == 'true'
     uses: ./.github/workflows/reusable-k8s-test.yml
 
-  build:
+  build-backend:
     needs: [detect-changes, integration-test]
+    if: needs.detect-changes.outputs.backend == 'true'
     permissions:
       contents: read
-      packages: write # Required for GHCR
-    strategy:
-      matrix:
-        include:
-          - app: backend
-            changed: ${{ needs.detect-changes.outputs.backend }}
-            dockerfile: apps/backend/Dockerfile
-            image: filozone/dealbot-backend
-          - app: web
-            changed: ${{ needs.detect-changes.outputs.web }}
-            dockerfile: apps/web/Dockerfile
-            image: filozone/dealbot-web
-    # Only run if this specific app changed
-    if: matrix.changed == 'true'
+      packages: write
     uses: ./.github/workflows/reusable-docker-build.yml
     with:
-      app: ${{ matrix.app }}
-      dockerfile: ${{ matrix.dockerfile }}
-      image: ${{ matrix.image }}
+      app: backend
+      dockerfile: apps/backend/Dockerfile
+      image: filozone/dealbot-backend
       tags: |
-        ghcr.io/${{ matrix.image }}:sha-${{ github.sha }}
-        ghcr.io/${{ matrix.image }}:sha-${{ github.run_number }}-${{ github.sha }}
+        ghcr.io/filozone/dealbot-backend:sha-${{ github.sha }}
+        ghcr.io/filozone/dealbot-backend:sha-${{ github.run_number }}-${{ github.sha }}
       summary: |
-        echo "${{ matrix.app }} image (sha): ghcr.io/${{ matrix.image }}:sha-${{ github.sha }}"
-        echo "${{ matrix.app }} image (ordered): ghcr.io/${{ matrix.image }}:sha-${{ github.run_number }}-${{ github.sha }}"
+        echo "backend image (sha): ghcr.io/filozone/dealbot-backend:sha-${{ github.sha }}"
+        echo "backend image (ordered): ghcr.io/filozone/dealbot-backend:sha-${{ github.run_number }}-${{ github.sha }}"
+
+  build-web:
+    needs: [detect-changes, integration-test]
+    if: needs.detect-changes.outputs.web == 'true'
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/reusable-docker-build.yml
+    with:
+      app: web
+      dockerfile: apps/web/Dockerfile
+      image: filozone/dealbot-web
+      tags: |
+        ghcr.io/filozone/dealbot-web:sha-${{ github.sha }}
+        ghcr.io/filozone/dealbot-web:sha-${{ github.run_number }}-${{ github.sha }}
+      summary: |
+        echo "web image (sha): ghcr.io/filozone/dealbot-web:sha-${{ github.sha }}"
+        echo "web image (ordered): ghcr.io/filozone/dealbot-web:sha-${{ github.run_number }}-${{ github.sha }}"
