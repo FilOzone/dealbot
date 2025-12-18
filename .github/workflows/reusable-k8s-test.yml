@@ -35,8 +35,8 @@ jobs:
         run: |
           # Create dummy .env for secrets required by 'make secret'
           cat <<EOF > .env
-          WALLET_PRIVATE_KEY=0000000000000000000000000000000000000000000000000000000000000000
-          WALLET_ADDRESS=0x0000000000000000000000000000000000000000
+          WALLET_PRIVATE_KEY=0x0000000000000000000000000000000000000000000000000000000000000001
+          WALLET_ADDRESS=0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf
           DATABASE_PASSWORD=dealbot_password
           FILBEAM_BOT_TOKEN=dummy
           EOF
@@ -45,6 +45,7 @@ jobs:
           sed -i 's/_SECONDS: "[0-9]*"/_SECONDS: "1000000"/' kustomize/overlays/local/backend-configmap-local.yaml
 
           # Deploy using Makefile targets (handles namespace, secrets, and kustomize apply)
+          # Note: 'make secret' will use the .env created above
           make deploy
 
       - name: Install dependencies
@@ -67,8 +68,11 @@ jobs:
         run: |
           kubectl -n dealbot get pods
           kubectl -n dealbot describe pods
-          kubectl -n dealbot logs -l app=dealbot --tail=50
+          echo "--- Current Logs ---"
+          kubectl -n dealbot logs -l app=dealbot --tail=100
+          echo "--- Previous Logs (if crashed) ---"
+          kubectl -n dealbot logs -l app=dealbot --previous --tail=100
+          echo "--- Web Logs ---"
           kubectl -n dealbot logs -l app=dealbot-web --tail=50
-
       - name: Run Integration Tests
         run: pnpm --filter dealbot-backend test:e2e:k8s
