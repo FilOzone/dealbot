@@ -50,16 +50,15 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Wait for Deployments
-        timeout-minutes: 5
-        run: |
-          echo "Waiting for Postgres..."
-          kubectl -n dealbot rollout status deploy/postgres --timeout=300s
+            - name: Wait for Deployments
+              timeout-minutes: 5
+              run: |
+                echo "Waiting for Postgres..."
+                kubectl -n dealbot rollout status deploy/dealbot-postgres --timeout=300s
 
-          echo "Waiting for Dealbot Backend..."
-          kubectl -n dealbot rollout status deploy/dealbot --timeout=300s
-
-          echo "Waiting for Dealbot Web..."
+                echo "Waiting for Dealbot Backend..."
+                kubectl -n dealbot rollout status deploy/dealbot --timeout=300s
+                echo "Waiting for Dealbot Web..."
           kubectl -n dealbot rollout status deploy/dealbot-web --timeout=300s
 
       - name: Debug Failure
