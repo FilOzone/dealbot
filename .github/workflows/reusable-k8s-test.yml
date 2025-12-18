@@ -19,6 +19,11 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 'lts/*'
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
       - name: Create k8s Kind Cluster
         uses: helm/kind-action@v1
@@ -26,10 +31,28 @@ jobs:
           config: kind-config.yaml
           cluster_name: dealbot-local
 
-      - name: Build and Load Docker Images
-        run: |
-          make image-build
-          make kind-load
+      - name: Build backend image (cached)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/backend/Dockerfile
+          tags: dealbot-local:dev
+          load: true
+          cache-from: type=gha,scope=dealbot-backend
+          cache-to: type=gha,mode=max,scope=dealbot-backend
+
+      - name: Build web image (cached)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/web/Dockerfile
+          tags: dealbot-web-local:dev
+          load: true
+          cache-from: type=gha,scope=dealbot-web
+          cache-to: type=gha,mode=max,scope=dealbot-web
+
+      - name: Load images into Kind
+        run: make kind-load
 
       - name: Configure Environment and Deploy
         run: |
@@ -46,7 +69,7 @@ jobs:
           KUSTOMIZE_OVERLAY=kustomize/overlays/ci make deploy
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --frozen-lockfile --prefer-offline
 
       - name: Wait for Deployments
         timeout-minutes: 5
