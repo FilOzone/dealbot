@@ -36,8 +36,13 @@ jobs:
               - 'pnpm-lock.yaml'
               - 'pnpm-workspace.yaml'
 
-  build:
+  integration-test:
     needs: detect-changes
+    if: needs.detect-changes.outputs.backend == 'true' || needs.detect-changes.outputs.web == 'true'
+    uses: ./.github/workflows/reusable-k8s-test.yml
+
+  build:
+    needs: [detect-changes, integration-test]
     permissions:
       contents: read
       packages: write # Required for GHCR

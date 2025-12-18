@@ -1,0 +1,54 @@
+name: Integration Test
+
+on:
+  workflow_call:
+
+jobs:
+  integration-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 'lts/*'
+
+      - name: Create k8s Kind Cluster
+        uses: helm/kind-action@v1
+        with:
+          config: kind-config.yaml
+          cluster_name: dealbot-local
+
+      - name: Build and Load Docker Images
+        run: |
+          make image-build
+          make kind-load
+
+      - name: Configure Environment and Deploy
+        run: |
+          # Create dummy .env for secrets required by 'make secret'
+          cat <<EOF > .env
+          WALLET_PRIVATE_KEY=0000000000000000000000000000000000000000000000000000000000000000
+          WALLET_ADDRESS=0x0000000000000000000000000000000000000000
+          DATABASE_PASSWORD=dealbot_password
+          FILBEAM_BOT_TOKEN=dummy
+          EOF
+
+          # Modify configmap to prevent actual work
+          sed -i 's/_SECONDS: "[0-9]*"/_SECONDS: "1000000"/' kustomize/overlays/local/backend-configmap-local.yaml
+
+          # Deploy using Makefile targets (handles namespace, secrets, and kustomize apply)
+          make deploy
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run Integration Tests
+        run: pnpm --filter dealbot-backend test:e2e:k8s
