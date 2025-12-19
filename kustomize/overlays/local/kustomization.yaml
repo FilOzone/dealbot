@@ -1,0 +1,24 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: dealbot
+
+resources:
+  - ../../base/backend
+  - ../../base/web
+  - ../../base/postgres
+
+# Patch services to use NodePort for local access and update configmap
+patches:
+  - path: backend-service-nodeport.yaml
+  - path: web-service-nodeport.yaml
+  - path: backend-configmap-local.yaml
+
+# Override images to use local tags
+images:
+  - name: dealbot
+    newName: dealbot-local
+    newTag: dev
+  - name: dealbot-web
+    newName: dealbot-web-local
+    newTag: dev

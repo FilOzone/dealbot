@@ -41,7 +41,10 @@ async function bootstrap() {
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup("api", app, document);
 
-  const port = process.env.DEALBOT_PORT || 3000;
+  const port = Number.parseInt(process.env.DEALBOT_PORT ?? "3000", 10);
+  if (Number.isNaN(port)) {
+    throw new Error(`Invalid DEALBOT_PORT: ${process.env.DEALBOT_PORT}`);
+  }
   const host = process.env.DEALBOT_HOST || "127.0.0.1";
   await app.listen(port, host);
   logger.log(`Dealbot backend is running on ${host}:${port}`);

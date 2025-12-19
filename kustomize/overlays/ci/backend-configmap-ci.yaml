@@ -1,0 +1,25 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dealbot-env
+data:
+  NODE_ENV: production
+  DEALBOT_HOST: 0.0.0.0
+  DEALBOT_PORT: "3130"
+  DATABASE_HOST: dealbot-postgres
+  DATABASE_PORT: "5432"
+  DATABASE_USER: dealbot
+  DATABASE_NAME: filecoin_dealbot
+  DATABASE_PASSWORD: dealbot_password
+  NETWORK: calibration
+
+  # CI: start the API without requiring chain contracts/wallet allowances
+  DEALBOT_DISABLE_CHAIN: "true"
+  DEALBOT_DISABLE_SCHEDULER: "true"
+
+  # Keep scheduling values present (unused when scheduler disabled)
+  DEAL_INTERVAL_SECONDS: "1000000"
+  RETRIEVAL_INTERVAL_SECONDS: "1000000"
+  DEAL_START_OFFSET_SECONDS: "0"
+  RETRIEVAL_START_OFFSET_SECONDS: "0"
+  METRICS_START_OFFSET_SECONDS: "0"

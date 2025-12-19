@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dealbot-env
+data:
+  NODE_ENV: production
+  DEALBOT_HOST: 0.0.0.0
+  DEALBOT_PORT: "3130"
+  DATABASE_HOST: dealbot-postgres
+  DATABASE_PORT: "5432"
+  DATABASE_USER: dealbot
+  DATABASE_NAME: filecoin_dealbot
+  DATABASE_PASSWORD: dealbot_password
+  NETWORK: calibration
+  DEAL_INTERVAL_SECONDS: "300"
+  RETRIEVAL_INTERVAL_SECONDS: "600"
+  DEAL_START_OFFSET_SECONDS: "0"
+  RETRIEVAL_START_OFFSET_SECONDS: "300"
+  METRICS_START_OFFSET_SECONDS: "600"
