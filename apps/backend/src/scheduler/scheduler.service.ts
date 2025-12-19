@@ -23,7 +23,9 @@ export class SchedulerService implements OnModuleInit {
 
   async onModuleInit() {
     if (process.env.DEALBOT_DISABLE_SCHEDULER === "true") {
-      this.logger.warn("Scheduler disabled via DEALBOT_DISABLE_SCHEDULER=true; skipping wallet initialization and cron jobs.");
+      this.logger.warn(
+        "Scheduler disabled via DEALBOT_DISABLE_SCHEDULER=true; skipping wallet initialization and cron jobs.",
+      );
       return;
     }
     await this.initializeWalletAndScheduler();
