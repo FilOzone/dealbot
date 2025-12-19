@@ -22,9 +22,6 @@ jobs:
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
 
-      - name: Setup Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
       - name: Create k8s Kind Cluster
         uses: helm/kind-action@v1
         with:
@@ -32,24 +29,24 @@ jobs:
           cluster_name: dealbot-local
 
       - name: Build backend image (cached)
-        uses: docker/build-push-action@v6
+        uses: ./.github/actions/docker-build
         with:
           context: .
           file: apps/backend/Dockerfile
           tags: dealbot-local:dev
-          load: true
-          cache-from: type=gha,scope=dealbot-backend
-          cache-to: type=gha,mode=max,scope=dealbot-backend
+          load: "true"
+          push: "false"
+          cache-scope: dealbot-backend
 
       - name: Build web image (cached)
-        uses: docker/build-push-action@v6
+        uses: ./.github/actions/docker-build
         with:
           context: .
           file: apps/web/Dockerfile
           tags: dealbot-web-local:dev
-          load: true
-          cache-from: type=gha,scope=dealbot-web
-          cache-to: type=gha,mode=max,scope=dealbot-web
+          load: "true"
+          push: "false"
+          cache-scope: dealbot-web
 
       - name: Load images into Kind
         run: make kind-load
