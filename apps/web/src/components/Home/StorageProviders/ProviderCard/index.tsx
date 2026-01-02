@@ -6,7 +6,7 @@ import type { ProviderCombinedPerformance, ProviderDetailResponse } from "@/type
 import { calculateProviderHealth } from "@/utils/providerHealth";
 import { ChevronDown } from "lucide-react";
 import { useState } from "react";
-import ProviderDetailModal from "../ProviderDetailModal";
+import ProviderDetailModal from "./ProviderDetailModal";
 import ProviderCardDetailedStats from "./ProviderCardDetailedStats";
 import ProviderCardEmptyState from "./ProviderCardEmptyState";
 import ProviderCardHeader from "./ProviderCardHeader";
