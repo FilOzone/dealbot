@@ -33,7 +33,7 @@ const buildQueryString = (params: Record<string, string | number | boolean | und
 };
 
 // ============================================================================
-// NEW API FUNCTIONS (Refactored Endpoints)
+// API FUNCTIONS
 // ============================================================================
 
 /**
