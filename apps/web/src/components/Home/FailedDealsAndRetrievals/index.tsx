@@ -1,13 +1,13 @@
+import { useState } from "react";
+import { ErrorState } from "@/components/shared";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ErrorState } from "@/components/shared";
-import { FailedDeals } from "./FailedDeals";
-import { FailedRetrievals } from "./FailedRetrievals";
 import { useFailedDeals } from "@/hooks/useFailedDeals";
 import { useFailedRetrievals } from "@/hooks/useFailedRetrievals";
 import { useProvidersList } from "@/hooks/useProvidersList";
 import type { ServiceType } from "@/types/services";
-import { useState } from "react";
+import { FailedDeals } from "./FailedDeals";
+import { FailedRetrievals } from "./FailedRetrievals";
 
 const FailedDealsAndRetrievals = () => {
   // Failed deals filter state

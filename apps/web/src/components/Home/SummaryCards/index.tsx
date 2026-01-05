@@ -1,10 +1,10 @@
 import { useMemo } from "react";
+import { ErrorState } from "@/components/shared";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useNetworkStats } from "@/hooks/useNetworkStats";
 import { formatThroughput } from "@/utils/formatter";
 import { formatDuration, formatNumber, formatPercentage } from "@/utils/formatters";
 import SummaryCardsSkeleton from "./SummaryCardsSkeleton";
-import { ErrorState } from "@/components/shared";
 
 interface MetricCardProps {
   label: string;

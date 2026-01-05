@@ -1,6 +1,6 @@
+import { useEffect, useState } from "react";
 import { fetchProvidersList } from "@/api/client";
 import type { ProvidersListResponseWithoutMetrics } from "@/types/providers";
-import { useEffect, useState } from "react";
 
 interface UseProvidersListReturn {
   providers: ProvidersListResponseWithoutMetrics;

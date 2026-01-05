@@ -1,9 +1,9 @@
 import { AlertCircle, Check, Copy, Download } from "lucide-react";
 import { useState } from "react";
-import type { FailedRetrieval } from "@/types/failed-retrievals";
 import { AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import type { FailedRetrieval } from "@/types/failed-retrievals";
 
 interface FailedRetrievalItemProps {
   retrieval: FailedRetrieval;

@@ -1,9 +1,9 @@
 import { FileX } from "lucide-react";
+import { Pagination } from "@/components/shared";
+import { Accordion } from "@/components/ui/accordion";
 import type { FailedDeal, FailedDealsResponse } from "@/types/failed-deals";
 import FailedDealItem from "./FailedDealItem";
 import FailedDealsFilters from "./FailedDealsFilters";
-import { Pagination } from "@/components/shared";
-import { Accordion } from "@/components/ui/accordion";
 
 interface FailedDealsProps {
   data: FailedDealsResponse;

@@ -1,13 +1,13 @@
 import { Activity, Clock, X } from "lucide-react";
 import { useState } from "react";
-import { useProviderWindow } from "@/hooks/useProviderWindow";
-import type { Provider } from "@/types/providers";
-import { formatMilliseconds, formatThroughput } from "@/utils/formatter";
-import TimeWindowSelector, { type TimeWindow } from "./TimeWindowSelector";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useProviderWindow } from "@/hooks/useProviderWindow";
+import type { Provider } from "@/types/providers";
+import { formatMilliseconds, formatThroughput } from "@/utils/formatter";
+import TimeWindowSelector, { type TimeWindow } from "./TimeWindowSelector";
 
 interface ProviderDetailModalProps {
   provider: Provider;

@@ -1,5 +1,5 @@
 import Config from "./Config";
-import SummaryCards from "./SummaryCards";
 import StorageProviders from "./StorageProviders";
+import SummaryCards from "./SummaryCards";
 
 export { Config, SummaryCards, StorageProviders };

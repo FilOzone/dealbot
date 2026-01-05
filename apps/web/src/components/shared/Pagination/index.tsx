@@ -1,7 +1,7 @@
 import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from "lucide-react";
-import type { Pagination as PaginationMeta } from "@/types/failed-deals";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import type { Pagination as PaginationMeta } from "@/types/failed-deals";
 
 interface PaginationProps {
   pagination: PaginationMeta;

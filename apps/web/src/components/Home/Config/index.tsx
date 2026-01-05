@@ -1,8 +1,8 @@
+import { ErrorState } from "@/components/shared";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useDealbotConfig } from "@/hooks/useDealbotConfig";
 import InfrastructureInfo from "./InfrastructureInfo";
 import InfrastructureInfoSkeleton from "./InfrastructureInfoSkeleton";
-import { ErrorState } from "@/components/shared";
 
 const Config = () => {
   const { data, loading, error, refetch } = useDealbotConfig();

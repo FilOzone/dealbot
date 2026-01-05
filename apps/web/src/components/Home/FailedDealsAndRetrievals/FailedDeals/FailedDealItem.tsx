@@ -1,7 +1,7 @@
 import { AlertCircle, FileX } from "lucide-react";
-import type { FailedDeal } from "@/types/failed-deals";
 import { AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Badge } from "@/components/ui/badge";
+import type { FailedDeal } from "@/types/failed-deals";
 
 interface FailedDealItemProps {
   deal: FailedDeal;

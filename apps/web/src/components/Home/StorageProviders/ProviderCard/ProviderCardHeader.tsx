@@ -1,8 +1,8 @@
+import { AlertCircle, Check, Copy, TrendingDown, TrendingUp } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { Provider } from "@/types/providers";
-import { AlertCircle, Check, Copy, TrendingDown, TrendingUp } from "lucide-react";
 
 interface ProviderCardHeaderProps {
   provider: Provider;

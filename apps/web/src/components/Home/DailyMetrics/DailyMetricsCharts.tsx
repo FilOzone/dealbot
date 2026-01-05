@@ -1,8 +1,8 @@
 import { CartesianGrid, Legend, Line, LineChart, XAxis, YAxis } from "recharts";
-import { formatThroughput } from "@/utils/formatter";
-import type { DailyAggregatedMetrics } from "@/types/metrics";
-import { formatDuration, formatPercentage } from "@/utils/formatters";
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
+import type { DailyAggregatedMetrics } from "@/types/metrics";
+import { formatThroughput } from "@/utils/formatter";
+import { formatDuration, formatPercentage } from "@/utils/formatters";
 
 /**
  * Daily metrics charts component

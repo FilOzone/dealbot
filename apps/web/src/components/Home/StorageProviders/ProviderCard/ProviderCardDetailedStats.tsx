@@ -1,8 +1,8 @@
+import { BarChart3, Check, Copy } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { Provider, ProviderPerformanceDto } from "@/types/providers";
-import { formatRegion } from "@/utils/regionFormatter";
 import { formatThroughput } from "@/utils/formatter";
-import { BarChart3, Check, Copy } from "lucide-react";
+import { formatRegion } from "@/utils/regionFormatter";
 import LatencyMetricRow from "./LatencyMetricRow";
 import MetricRow from "./MetricRow";
 

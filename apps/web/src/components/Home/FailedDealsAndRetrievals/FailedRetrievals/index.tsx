@@ -1,10 +1,10 @@
 import { FileX } from "lucide-react";
-import type { ServiceType } from "@/types/services";
-import type { FailedRetrieval, FailedRetrievalsResponse } from "@/types/failed-retrievals";
-import FailedRetrievalItem from "./FailedRetrievalItem";
-import FailedRetrievalsFilters from "./FailedRetrievalsFilters";
 import { Pagination } from "@/components/shared";
 import { Accordion } from "@/components/ui/accordion";
+import type { FailedRetrieval, FailedRetrievalsResponse } from "@/types/failed-retrievals";
+import type { ServiceType } from "@/types/services";
+import FailedRetrievalItem from "./FailedRetrievalItem";
+import FailedRetrievalsFilters from "./FailedRetrievalsFilters";
 
 interface FailedRetrievalsProps {
   data: FailedRetrievalsResponse;

@@ -1,13 +1,13 @@
+import { useState } from "react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { useProviderVersion } from "@/hooks/useProviderVersion";
 import type { ProviderCombinedPerformance, ProviderDetailResponse } from "@/types/providers";
 import { calculateProviderHealth } from "@/utils/providerHealth";
-import { useState } from "react";
-import ProviderDetailModal from "./ProviderDetailModal";
 import ProviderCardDetailedStats from "./ProviderCardDetailedStats";
 import ProviderCardEmptyState from "./ProviderCardEmptyState";
 import ProviderCardHeader from "./ProviderCardHeader";
 import ProviderCardQuickStats from "./ProviderCardQuickStats";
+import ProviderDetailModal from "./ProviderDetailModal";
 
 interface ProviderCardProps {
   provider: ProviderCombinedPerformance;
