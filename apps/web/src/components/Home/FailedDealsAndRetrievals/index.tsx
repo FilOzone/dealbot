@@ -93,7 +93,7 @@ const FailedDealsAndRetrievals = () => {
                 onProviderFilterChange={setFailedDealsProvider}
                 onPageChange={setFailedDealsPage}
                 onLimitChange={handleFailedDealsLimitChange}
-                providers={providers ? providers.providers : []}
+                providers={providers.providers}
               />
             ) : null}
           </TabsContent>
@@ -116,7 +116,7 @@ const FailedDealsAndRetrievals = () => {
                 onServiceTypeFilterChange={setFailedRetrievalsServiceType}
                 onPageChange={setFailedRetrievalsPage}
                 onLimitChange={handleFailedRetrievalsLimitChange}
-                providers={providers ? providers.providers : []}
+                providers={providers.providers}
               />
             ) : null}
           </TabsContent>
