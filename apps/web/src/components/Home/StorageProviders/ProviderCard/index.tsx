@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { useProviderVersion } from "@/hooks/useProviderVersion";
 import type { ProviderCombinedPerformance, ProviderDetailResponse } from "@/types/providers";
@@ -24,7 +24,7 @@ function ProviderCard({ provider, batchedVersion }: ProviderCardProps) {
 
   const hasMetrics = !!provider.weekly && !!provider.allTime;
 
-  const copyToClipboard = async (text: string, providerId: string) => {
+  const copyToClipboard = useCallback(async (text: string, providerId: string) => {
     try {
       await navigator.clipboard.writeText(text);
       setCopiedProvider(providerId);
@@ -32,40 +32,44 @@ function ProviderCard({ provider, batchedVersion }: ProviderCardProps) {
     } catch (err) {
       console.error("Failed to copy text: ", err);
     }
-  };
+  }, []);
 
-  const health = hasMetrics
-    ? calculateProviderHealth(provider as ProviderDetailResponse)
-    : {
-        status: "inactive" as const,
-        label: "No Metrics",
-        color: "text-muted-foreground",
-        bgColor: "bg-muted/30",
-        borderColor: "border-muted",
-        reasons: [],
-      };
+  const health = useMemo(
+    () =>
+      hasMetrics
+        ? calculateProviderHealth(provider as ProviderDetailResponse)
+        : {
+            status: "inactive" as const,
+            label: "No Metrics",
+            color: "text-muted-foreground",
+            bgColor: "bg-muted/30",
+            borderColor: "border-muted",
+            reasons: [],
+          },
+    [hasMetrics, provider],
+  );
 
-  const isImproving = hasMetrics
-    ? (() => {
-        const avgAllTimeRate =
-          (Number(provider.allTime!.dealSuccessRate) + Number(provider.allTime!.retrievalSuccessRate)) / 2;
-        const avg7dRate =
-          (Number(provider.weekly!.dealSuccessRate) + Number(provider.weekly!.retrievalSuccessRate)) / 2;
-        return avg7dRate > avgAllTimeRate + 2;
-      })()
-    : false;
+  const avgRates = useMemo(() => {
+    if (!hasMetrics) return { avgAllTimeRate: 0, avg7dRate: 0 };
 
-  const isDegrading = hasMetrics
-    ? (() => {
-        const avgAllTimeRate =
-          (Number(provider.allTime!.dealSuccessRate) + Number(provider.allTime!.retrievalSuccessRate)) / 2;
-        const avg7dRate =
-          (Number(provider.weekly!.dealSuccessRate) + Number(provider.weekly!.retrievalSuccessRate)) / 2;
-        return avgAllTimeRate > avg7dRate + 5;
-      })()
-    : false;
+    const avgAllTimeRate =
+      (Number(provider.allTime!.dealSuccessRate) + Number(provider.allTime!.retrievalSuccessRate)) / 2;
+    const avg7dRate = (Number(provider.weekly!.dealSuccessRate) + Number(provider.weekly!.retrievalSuccessRate)) / 2;
 
-  const getHealthColor = () => {
+    return { avgAllTimeRate, avg7dRate };
+  }, [hasMetrics, provider.allTime, provider.weekly]);
+
+  const isImproving = useMemo(
+    () => hasMetrics && avgRates.avg7dRate > avgRates.avgAllTimeRate + 2,
+    [hasMetrics, avgRates],
+  );
+
+  const isDegrading = useMemo(
+    () => hasMetrics && avgRates.avgAllTimeRate > avgRates.avg7dRate + 5,
+    [hasMetrics, avgRates],
+  );
+
+  const healthColor = useMemo(() => {
     if (!hasMetrics) return "border-l-muted";
     switch (health.status) {
       case "excellent":
@@ -79,10 +83,10 @@ function ProviderCard({ provider, batchedVersion }: ProviderCardProps) {
       default:
         return "border-l-muted";
     }
-  };
+  }, [hasMetrics, health.status]);
 
   return (
-    <Card className={`relative border-l-4 ${getHealthColor()} transition-all hover:shadow-lg`}>
+    <Card className={`relative border-l-4 ${healthColor} transition-all hover:shadow-lg`}>
       <CardHeader className="pb-4">
         <ProviderCardHeader
           provider={provider.provider}
