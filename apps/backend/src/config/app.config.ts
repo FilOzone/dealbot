@@ -42,10 +42,28 @@ export const configValidationSchema = Joi.object({
   PROXY_LOCATIONS: Joi.string().default(""),
 
   // Timeouts (in milliseconds)
-  CONNECT_TIMEOUT_MS: Joi.number().default(10000), // 10 seconds to establish connection/receive headers
-  HTTP_REQUEST_TIMEOUT_MS: Joi.number().default(600000), // 10 minutes total for HTTP requests (Body transfer)
-  HTTP2_REQUEST_TIMEOUT_MS: Joi.number().default(600000), // 10 minutes total for HTTP/2 requests (Body transfer)
-  RETRIEVAL_TIMEOUT_BUFFER_MS: Joi.number().default(60000), // Stop retrieval batch 60s before next run
+  CONNECT_TIMEOUT_MS: Joi.number().min(1000).default(10000), // 10 seconds to establish connection/receive headers
+  HTTP_REQUEST_TIMEOUT_MS: Joi.number().min(1000).default(600000), // 10 minutes total for HTTP requests (Body transfer)
+  HTTP2_REQUEST_TIMEOUT_MS: Joi.number().min(1000).default(600000), // 10 minutes total for HTTP/2 requests (Body transfer)
+  RETRIEVAL_TIMEOUT_BUFFER_MS: Joi.number()
+    .min(0)
+    .default(60000)
+    .custom((value, helpers) => {
+      const root = helpers.state.ancestors[0] as { RETRIEVAL_INTERVAL_SECONDS?: number };
+      const retrievalIntervalSeconds = root && typeof root.RETRIEVAL_INTERVAL_SECONDS === "number"
+        ? root.RETRIEVAL_INTERVAL_SECONDS
+        : undefined;
+      if (typeof retrievalIntervalSeconds !== "number" || retrievalIntervalSeconds <= 0) {
+        return value;
+      }
+      const maxBufferMs = retrievalIntervalSeconds * 1000;
+      if (value > maxBufferMs) {
+        return helpers.error("any.invalid", {
+          message: `"RETRIEVAL_TIMEOUT_BUFFER_MS" must be <= RETRIEVAL_INTERVAL_SECONDS * 1000 (${maxBufferMs} ms)`,
+        });
+      }
+      return value;
+    }), // Stop retrieval batch 60s before next run
 });
 
 export interface IAppConfig {
