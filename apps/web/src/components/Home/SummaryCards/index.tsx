@@ -97,7 +97,7 @@ function SummaryCards() {
     <Card>
       <CardHeader>
         <CardTitle>Network Statistics</CardTitle>
-        <CardDescription>Overall performance metrics across all fwss approved storage providers</CardDescription>
+        <CardDescription>Overall performance metrics across all FWSS approved storage providers</CardDescription>
       </CardHeader>
       <CardContent>
         {loading && <SummaryCardsSkeleton />}
