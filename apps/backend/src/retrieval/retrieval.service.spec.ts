@@ -123,6 +123,9 @@ describe("RetrievalService timeouts", () => {
 
     expect(performAllRetrievalsSpy).toHaveBeenCalledTimes(1);
     expect(results).toHaveLength(0);
+
+    // Note: the underlying retrieval promise remains pending; timeouts don't cancel work.
+    // Cancellation is handled by the scheduler abort signal in real runs.
   });
 
   it("records a failed retrieval when an execution result fails", async () => {
