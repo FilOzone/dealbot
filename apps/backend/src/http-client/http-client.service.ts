@@ -7,7 +7,6 @@ import { HttpsProxyAgent } from "https-proxy-agent";
 import { firstValueFrom } from "rxjs";
 import { SocksProxyAgent } from "socks-proxy-agent";
 import { ProxyAgent as UndiciProxyAgent, request as undiciRequest } from "undici";
-import { withTimeout } from "../common/utils.js";
 import type { IConfig } from "../config/app.config.js";
 import { ProxyService } from "../proxy/proxy.service.js";
 import type { HttpVersion, RequestMetrics, RequestWithMetrics } from "./types.js";
@@ -113,7 +112,7 @@ export class HttpClientService {
       signal?: AbortSignal;
     },
   ): Promise<RequestWithMetrics<T>> {
-    const { method, data, headers, proxyUrl, signal } = options;
+    const { method, data, headers, proxyUrl } = options;
 
     try {
       this.logger.debug(`Requesting ${url} via HTTP/2 proxy ${proxyUrl}`);
@@ -132,15 +131,15 @@ export class HttpClientService {
        * 1. AbortSignal.timeout() - Undici's native timeout for the entire request lifecycle (10 min default)
        *    - Covers connection establishment, header exchange, AND body streaming
        *    - Most reliable for protecting against slow transfers
-       * 2. withTimeout() wrapper - Application-level timeout for connection/headers only (10 sec default)
+       * 2. AbortSignal.timeout() for connection/headers (10 sec default)
        *    - Provides fast-fail for unreachable servers or connection issues
-       *    - Once headers are received, this promise resolves and no longer protects body streaming
        *
        * This defense-in-depth approach ensures:
        * - Fast detection of connection issues (10s)
        * - Protection against slow/stalled transfers (10min)
        * - No indefinite hangs
        */
+      const { signal, connectTimeoutSignal } = this.buildHttp2Signals(options.signal);
       const requestOptions: any = {
         method,
         headers: {
@@ -148,7 +147,7 @@ export class HttpClientService {
           ...headers,
         },
         dispatcher: proxyAgent,
-        signal: this.buildRequestSignal(signal),
+        signal,
       };
 
       if (data) {
@@ -156,11 +155,15 @@ export class HttpClientService {
         requestOptions.headers["Content-Type"] = "application/json";
       }
 
-      const response = await withTimeout(
-        undiciRequest(url, requestOptions),
-        this.connectTimeoutMs,
-        `HTTP/2 connection/headers timed out after ${this.connectTimeoutMs}ms`,
-      );
+      let response: Awaited<ReturnType<typeof undiciRequest<T>>>;
+      try {
+        response = await undiciRequest<T>(url, requestOptions);
+      } catch (error) {
+        if (connectTimeoutSignal.aborted) {
+          throw new Error(`HTTP/2 connection/headers timed out after ${this.connectTimeoutMs}ms`);
+        }
+        throw error;
+      }
 
       // TTFB is approximately when we get the response headers
       ttfbTime = performance.now() - startTime;
@@ -217,7 +220,7 @@ export class HttpClientService {
       signal?: AbortSignal;
     },
   ): Promise<RequestWithMetrics<T>> {
-    const { method, data, headers, signal } = options;
+    const { method, data, headers } = options;
 
     try {
       this.logger.debug(`Requesting ${url} via HTTP/2 (direct connection)`);
@@ -229,16 +232,17 @@ export class HttpClientService {
       /**
        * Dual-timeout strategy for HTTP/2 direct requests (same as proxied requests):
        * 1. AbortSignal.timeout() - Undici's native timeout (10 min default)
-       * 2. withTimeout() wrapper - Fast-fail for connection issues (10 sec default)
+       * 2. AbortSignal.timeout() for connection/headers (10 sec default)
        * See requestWithHttp2AndProxy() for detailed explanation.
        */
+      const { signal, connectTimeoutSignal } = this.buildHttp2Signals(options.signal);
       const requestOptions: any = {
         method,
         headers: {
           "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
           ...headers,
         },
-        signal: this.buildRequestSignal(signal),
+        signal,
       };
 
       if (data) {
@@ -246,11 +250,15 @@ export class HttpClientService {
         requestOptions.headers["Content-Type"] = "application/json";
       }
 
-      const response = await withTimeout(
-        undiciRequest(url, requestOptions),
-        this.connectTimeoutMs,
-        `HTTP/2 direct connection/headers timed out after ${this.connectTimeoutMs}ms`,
-      );
+      let response: Awaited<ReturnType<typeof undiciRequest<T>>>;
+      try {
+        response = await undiciRequest(url, requestOptions);
+      } catch (error) {
+        if (connectTimeoutSignal.aborted) {
+          throw new Error(`HTTP/2 direct connection/headers timed out after ${this.connectTimeoutMs}ms`);
+        }
+        throw error;
+      }
 
       ttfbTime = performance.now() - startTime;
       statusCode = response.statusCode;
@@ -522,8 +530,23 @@ export class HttpClientService {
     return url.replace(/\/\/.*:.*@/, "//***:***@");
   }
 
-  private buildRequestSignal(parentSignal?: AbortSignal): AbortSignal {
-    const timeoutSignal = AbortSignal.timeout(this.http2TimeoutMs);
-    return parentSignal ? anySignal([timeoutSignal, parentSignal]) : timeoutSignal;
+  private buildHttp2Signals(parentSignal?: AbortSignal): {
+    signal: AbortSignal;
+    connectTimeoutSignal: AbortSignal;
+  } {
+    const transferTimeoutSignal = AbortSignal.timeout(this.http2TimeoutMs);
+    const connectTimeoutSignal = AbortSignal.timeout(this.connectTimeoutMs);
+
+    if (parentSignal) {
+      return {
+        signal: anySignal([transferTimeoutSignal, connectTimeoutSignal, parentSignal]),
+        connectTimeoutSignal,
+      };
+    }
+
+    return {
+      signal: anySignal([transferTimeoutSignal, connectTimeoutSignal]),
+      connectTimeoutSignal,
+    };
   }
 }

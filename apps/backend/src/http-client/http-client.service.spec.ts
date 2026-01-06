@@ -79,7 +79,15 @@ describe("HttpClientService", () => {
       (AbortSignal as any).timeout = () => new AbortController().signal;
     }
 
-    undiciRequestMock.mockImplementationOnce(() => new Promise(() => {}));
+    undiciRequestMock.mockImplementationOnce((_url: string, options: { signal?: AbortSignal }) => {
+      return new Promise((_resolve, reject) => {
+        options.signal?.addEventListener(
+          "abort",
+          () => reject(new Error("aborted")),
+          { once: true },
+        );
+      });
+    });
 
     vi.useFakeTimers();
 
