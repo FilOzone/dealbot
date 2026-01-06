@@ -10,7 +10,15 @@ import { RetrievalAddonsService } from "../retrieval-addons/retrieval-addons.ser
 import { RetrievalService } from "./retrieval.service.js";
 
 describe("RetrievalService timeouts", () => {
-  let service: RetrievalService;
+  type RetrievalServicePrivate = RetrievalService & {
+    processRetrievalsInParallel: (
+      deals: Deal[],
+      options: { timeoutMs: number; maxConcurrency?: number; signal?: AbortSignal },
+    ) => Promise<Retrieval[][]>;
+    performAllRetrievals: (deal: Deal, signal?: AbortSignal) => Promise<Retrieval[]>;
+  };
+
+  let service: RetrievalServicePrivate;
   let performAllRetrievalsSpy: ReturnType<typeof vi.spyOn>;
 
   const mockRetrievalAddonsService = {
@@ -51,7 +59,7 @@ describe("RetrievalService timeouts", () => {
       ...overrides,
     }) as Deal;
 
-  const createService = async (timeouts = defaultTimeouts): Promise<RetrievalService> => {
+  const createService = async (timeouts = defaultTimeouts): Promise<RetrievalServicePrivate> => {
     const configService = {
       get: vi.fn((key: string) => (key === "timeouts" ? timeouts : undefined)),
     };
@@ -67,15 +75,15 @@ describe("RetrievalService timeouts", () => {
       ],
     }).compile();
 
-    return module.get<RetrievalService>(RetrievalService);
+    return module.get<RetrievalService>(RetrievalService) as RetrievalServicePrivate;
   };
 
   it("starts a batch when there is enough time remaining for a full HTTP timeout", async () => {
     service = await createService();
-    performAllRetrievalsSpy = vi.spyOn(service as any, "performAllRetrievals").mockResolvedValue([]);
+    performAllRetrievalsSpy = vi.spyOn(service, "performAllRetrievals").mockResolvedValue([]);
     vi.spyOn(Date, "now").mockReturnValue(0);
 
-    const results = await (service as any).processRetrievalsInParallel([buildDeal()], {
+    const results = await service.processRetrievalsInParallel([buildDeal()], {
       timeoutMs: 20000,
       maxConcurrency: 1,
     });
@@ -86,10 +94,10 @@ describe("RetrievalService timeouts", () => {
 
   it("skips starting a batch when remaining time is less than the HTTP timeout", async () => {
     service = await createService();
-    performAllRetrievalsSpy = vi.spyOn(service as any, "performAllRetrievals").mockResolvedValue([]);
+    performAllRetrievalsSpy = vi.spyOn(service, "performAllRetrievals").mockResolvedValue([]);
     vi.spyOn(Date, "now").mockReturnValue(0);
 
-    const results = await (service as any).processRetrievalsInParallel([buildDeal()], {
+    const results = await service.processRetrievalsInParallel([buildDeal()], {
       timeoutMs: 5000,
       maxConcurrency: 1,
     });
@@ -108,11 +116,9 @@ describe("RetrievalService timeouts", () => {
       http2RequestTimeoutMs: 50,
     });
 
-    performAllRetrievalsSpy = vi
-      .spyOn(service as any, "performAllRetrievals")
-      .mockImplementation(() => new Promise(() => {}));
+    performAllRetrievalsSpy = vi.spyOn(service, "performAllRetrievals").mockImplementation(() => new Promise(() => {}));
 
-    const promise = (service as any).processRetrievalsInParallel([buildDeal()], {
+    const promise = service.processRetrievalsInParallel([buildDeal()], {
       timeoutMs: 200,
       maxConcurrency: 1,
     });
@@ -133,8 +139,14 @@ describe("RetrievalService timeouts", () => {
 
     const timeoutError = "HTTP request timed out after 50ms";
     mockSpRepository.findOne.mockResolvedValue({ address: "0xsp" });
-    mockRetrievalRepository.create.mockImplementation((data: any) => data);
-    mockRetrievalRepository.save.mockImplementation(async (data: any) => data);
+    mockRetrievalRepository.create.mockImplementation(
+      (data: Parameters<typeof mockRetrievalRepository.create>[0]) =>
+        data as ReturnType<typeof mockRetrievalRepository.create>,
+    );
+    mockRetrievalRepository.save.mockImplementation(
+      async (data: Parameters<typeof mockRetrievalRepository.save>[0]) =>
+        data as ReturnType<typeof mockRetrievalRepository.save>,
+    );
     mockRetrievalAddonsService.testAllRetrievalMethods.mockResolvedValue({
       dealId: 1,
       results: [
@@ -165,7 +177,7 @@ describe("RetrievalService timeouts", () => {
       testedAt: new Date(),
     });
 
-    await (service as any).performAllRetrievals(buildDeal());
+    await service.performAllRetrievals(buildDeal());
 
     expect(mockRetrievalRepository.save).toHaveBeenCalledWith(
       expect.objectContaining({

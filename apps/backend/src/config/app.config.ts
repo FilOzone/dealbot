@@ -50,9 +50,8 @@ export const configValidationSchema = Joi.object({
     .default(60000)
     .custom((value, helpers) => {
       const root = helpers.state.ancestors[0] as { RETRIEVAL_INTERVAL_SECONDS?: number };
-      const retrievalIntervalSeconds = root && typeof root.RETRIEVAL_INTERVAL_SECONDS === "number"
-        ? root.RETRIEVAL_INTERVAL_SECONDS
-        : undefined;
+      const retrievalIntervalSeconds =
+        root && typeof root.RETRIEVAL_INTERVAL_SECONDS === "number" ? root.RETRIEVAL_INTERVAL_SECONDS : undefined;
       if (typeof retrievalIntervalSeconds !== "number" || retrievalIntervalSeconds <= 0) {
         return value;
       }

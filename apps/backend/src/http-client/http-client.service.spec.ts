@@ -81,11 +81,7 @@ describe("HttpClientService", () => {
 
     undiciRequestMock.mockImplementationOnce((_url: string, options: { signal?: AbortSignal }) => {
       return new Promise((_resolve, reject) => {
-        options.signal?.addEventListener(
-          "abort",
-          () => reject(new Error("aborted")),
-          { once: true },
-        );
+        options.signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
       });
     });
 
