@@ -40,6 +40,12 @@ export const configValidationSchema = Joi.object({
   // Proxy
   PROXY_LIST: Joi.string().default(""),
   PROXY_LOCATIONS: Joi.string().default(""),
+
+  // Timeouts (in milliseconds)
+  CONNECT_TIMEOUT_MS: Joi.number().default(10000), // 10 seconds to establish connection/receive headers
+  HTTP_REQUEST_TIMEOUT_MS: Joi.number().default(600000), // 10 minutes total for HTTP requests (Body transfer)
+  HTTP2_REQUEST_TIMEOUT_MS: Joi.number().default(600000), // 10 minutes total for HTTP/2 requests (Body transfer)
+  RETRIEVAL_TIMEOUT_BUFFER_MS: Joi.number().default(60000), // Stop retrieval batch 60s before next run
 });
 
 export interface IAppConfig {
@@ -86,6 +92,13 @@ export interface IProxyConfig {
   locations: string[];
 }
 
+export interface ITimeoutConfig {
+  connectTimeoutMs: number;
+  httpRequestTimeoutMs: number;
+  http2RequestTimeoutMs: number;
+  retrievalTimeoutBufferMs: number;
+}
+
 export interface IFilBeamConfig {
   botToken: string;
 }
@@ -98,6 +111,7 @@ export interface IConfig {
   dataset: IDatasetConfig;
   proxy: IProxyConfig;
   filBeam: IFilBeamConfig;
+  timeouts: ITimeoutConfig;
 }
 
 export function loadConfig(): IConfig {
@@ -142,6 +156,12 @@ export function loadConfig(): IConfig {
     },
     filBeam: {
       botToken: process.env.FILBEAM_BOT_TOKEN || "",
+    },
+    timeouts: {
+      connectTimeoutMs: Number.parseInt(process.env.CONNECT_TIMEOUT_MS || "10000", 10),
+      httpRequestTimeoutMs: Number.parseInt(process.env.HTTP_REQUEST_TIMEOUT_MS || "600000", 10),
+      http2RequestTimeoutMs: Number.parseInt(process.env.HTTP2_REQUEST_TIMEOUT_MS || "600000", 10),
+      retrievalTimeoutBufferMs: Number.parseInt(process.env.RETRIEVAL_TIMEOUT_BUFFER_MS || "60000", 10),
     },
   };
 }

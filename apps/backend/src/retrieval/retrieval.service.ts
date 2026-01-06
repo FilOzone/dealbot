@@ -1,7 +1,10 @@
 import { Injectable, Logger } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
 import type { Repository } from "typeorm";
 import type { Hex } from "../common/types.js";
+import { withTimeout } from "../common/utils.js";
+import type { IConfig } from "../config/app.config.js";
 import { Deal } from "../database/entities/deal.entity.js";
 import { Retrieval } from "../database/entities/retrieval.entity.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
@@ -12,6 +15,7 @@ import type { RetrievalConfiguration, RetrievalExecutionResult } from "../retrie
 @Injectable()
 export class RetrievalService {
   private readonly logger = new Logger(RetrievalService.name);
+  private readonly httpRequestTimeoutMs: number;
 
   constructor(
     private readonly retrievalAddonsService: RetrievalAddonsService,
@@ -21,15 +25,24 @@ export class RetrievalService {
     private readonly retrievalRepository: Repository<Retrieval>,
     @InjectRepository(StorageProvider)
     private readonly spRepository: Repository<StorageProvider>,
-  ) {}
+    private readonly configService: ConfigService<IConfig, true>,
+  ) {
+    const timeouts = this.configService.get("timeouts");
+    this.httpRequestTimeoutMs = Math.max(timeouts.httpRequestTimeoutMs, timeouts.http2RequestTimeoutMs);
+  }
 
-  async performRandomBatchRetrievals(count: number): Promise<Retrieval[]> {
+  async performRandomBatchRetrievals(count: number, timeoutMs: number): Promise<Retrieval[]> {
     const deals = await this.selectRandomDealsForRetrieval(count);
     const totalDeals = deals.length;
 
-    this.logger.log(`Starting retrieval tests for ${totalDeals} deals`);
+    if (totalDeals === 0) {
+      this.logger.warn("No deals available for retrieval testing");
+      return [];
+    }
 
-    const results = await this.processRetrievalsInParallel(deals);
+    this.logger.log(`Starting retrieval tests for ${totalDeals} deals (Timeout: ${Math.round(timeoutMs / 1000)}s)`);
+
+    const results = await this.processRetrievalsInParallel(deals, timeoutMs);
 
     const allRetrievals = results.flat();
     const successfulRetrievals = allRetrievals.filter((r) => r.status === RetrievalStatus.SUCCESS);
@@ -43,21 +56,56 @@ export class RetrievalService {
   // Parallel Processing
   // ============================================================================
 
-  private async processRetrievalsInParallel(deals: Deal[], maxConcurrency: number = 5): Promise<Retrieval[][]> {
+  private async processRetrievalsInParallel(
+    deals: Deal[],
+    timeoutMs: number,
+    maxConcurrency: number = 5,
+  ): Promise<Retrieval[][]> {
     const results: Retrieval[][] = [];
+    const deadline = Date.now() + timeoutMs;
 
     for (let i = 0; i < deals.length; i += maxConcurrency) {
+      // Check if we have exceeded the global deadline
+      if (Date.now() >= deadline) {
+        this.logger.warn(`Deadline reached. Skipping remaining ${deals.length - i} deals.`);
+        break;
+      }
+
       const batch = deals.slice(i, i + maxConcurrency);
-      const batchPromises = batch.map((deal) => this.performAllRetrievals(deal));
+      const remainingTimeMs = Math.max(0, deadline - Date.now());
+
+      // Don't start a new batch unless there's enough time for full HTTP timeout
+      if (remainingTimeMs < this.httpRequestTimeoutMs) {
+        this.logger.warn(
+          `Insufficient time remaining for next batch ` +
+            `(${Math.round(remainingTimeMs / 1000)}s left, requires ${Math.round(this.httpRequestTimeoutMs / 1000)}s).`,
+        );
+        break;
+      }
+
+      // Each individual deal gets the remaining global time, OR the HTTP timeout (whichever is less)
+      // By ensuring batch timeout >= HTTP timeout, individual HTTP requests will always
+      // timeout first and be captured by Promise.allSettled in the normal flow.
+      // The batch timeout then only serves as a safety net for the global deadline.
+      const batchTimeout = Math.min(remainingTimeMs, this.httpRequestTimeoutMs);
+
+      const batchPromises = batch.map((deal) =>
+        withTimeout(this.performAllRetrievals(deal), batchTimeout, `Retrieval for deal ${deal.id} timed out`),
+      );
+
       const batchResults = await Promise.allSettled(batchPromises);
 
-      batchResults.forEach((result) => {
+      // Process results
+      for (let index = 0; index < batchResults.length; index++) {
+        const result = batchResults[index];
+        const deal = batch[index];
         if (result.status === "fulfilled") {
           results.push(result.value);
         } else {
-          this.logger.error(`Batch retrieval failed: ${result.reason?.message}`);
+          const errorMessage = result.reason?.message || "Unknown error";
+          this.logger.error(`Batch retrieval failed for deal ${deal?.id || "unknown"}: ${errorMessage}`);
         }
-      });
+      }
     }
 
     return results;
@@ -93,7 +141,18 @@ export class RetrievalService {
 
       return retrievals;
     } catch (error) {
-      this.logger.error(`All retrievals failed for ${deal.pieceCid.slice(0, 12)}...: ${error.message}`);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.error(`All retrievals failed for ${deal.pieceCid.slice(0, 12)}...: ${errorMessage}`);
+
+      // Don't try to record timeouts here. If this catch block fires, it's either:
+      // 1. The batch timeout fired because we're out of time (global deadline) - don't record
+      // 2. A catastrophic error occurred (provider not found, etc.) - re-throw for logging
+      // 3. Individual HTTP timeouts are captured by Promise.allSettled in testAllRetrievalMethods
+      //    and converted to FAILED records through the normal flow
+      //
+      // This ensures we don't create duplicate/inaccurate TIMEOUT records when HTTP requests
+      // are still running in the background after batch timeout fires.
+
       throw error;
     }
   }

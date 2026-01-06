@@ -1,21 +1,33 @@
 import { HttpService } from "@nestjs/axios";
 import { Injectable, Logger } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
 import type { AxiosRequestConfig } from "axios";
 import { HttpsProxyAgent } from "https-proxy-agent";
 import { firstValueFrom } from "rxjs";
 import { SocksProxyAgent } from "socks-proxy-agent";
 import { ProxyAgent as UndiciProxyAgent, request as undiciRequest } from "undici";
+import { withTimeout } from "../common/utils.js";
+import type { IConfig } from "../config/app.config.js";
 import { ProxyService } from "../proxy/proxy.service.js";
 import type { HttpVersion, RequestMetrics, RequestWithMetrics } from "./types.js";
 
 @Injectable()
 export class HttpClientService {
   private logger = new Logger(HttpClientService.name);
+  private readonly http2TimeoutMs: number;
+  private readonly http1TimeoutMs: number;
+  private readonly connectTimeoutMs: number;
 
   constructor(
     private readonly httpService: HttpService,
     private readonly proxyService: ProxyService,
-  ) {}
+    private readonly configService: ConfigService<IConfig, true>,
+  ) {
+    const timeouts = this.configService.get("timeouts");
+    this.http2TimeoutMs = timeouts.http2RequestTimeoutMs;
+    this.http1TimeoutMs = timeouts.httpRequestTimeoutMs;
+    this.connectTimeoutMs = timeouts.connectTimeoutMs;
+  }
 
   async requestWithRandomProxyAndMetrics<T = any>(
     url: string,
@@ -107,6 +119,20 @@ export class HttpClientService {
         uri: proxyUrl,
       });
 
+      /**
+       * Dual-timeout strategy for HTTP/2 requests:
+       * 1. AbortSignal.timeout() - Undici's native timeout for the entire request lifecycle (10 min default)
+       *    - Covers connection establishment, header exchange, AND body streaming
+       *    - Most reliable for protecting against slow transfers
+       * 2. withTimeout() wrapper - Application-level timeout for connection/headers only (10 sec default)
+       *    - Provides fast-fail for unreachable servers or connection issues
+       *    - Once headers are received, this promise resolves and no longer protects body streaming
+       *
+       * This defense-in-depth approach ensures:
+       * - Fast detection of connection issues (10s)
+       * - Protection against slow/stalled transfers (10min)
+       * - No indefinite hangs
+       */
       const requestOptions: any = {
         method,
         headers: {
@@ -114,6 +140,7 @@ export class HttpClientService {
           ...headers,
         },
         dispatcher: proxyAgent,
+        signal: AbortSignal.timeout(this.http2TimeoutMs),
       };
 
       if (data) {
@@ -121,7 +148,11 @@ export class HttpClientService {
         requestOptions.headers["Content-Type"] = "application/json";
       }
 
-      const response = await undiciRequest(url, requestOptions);
+      const response = await withTimeout(
+        undiciRequest(url, requestOptions),
+        this.connectTimeoutMs,
+        `HTTP/2 connection/headers timed out after ${this.connectTimeoutMs}ms`,
+      );
 
       // TTFB is approximately when we get the response headers
       ttfbTime = performance.now() - startTime;
@@ -186,12 +217,19 @@ export class HttpClientService {
       let ttfbTime = 0;
       let statusCode = 0;
 
+      /**
+       * Dual-timeout strategy for HTTP/2 direct requests (same as proxied requests):
+       * 1. AbortSignal.timeout() - Undici's native timeout (10 min default)
+       * 2. withTimeout() wrapper - Fast-fail for connection issues (10 sec default)
+       * See requestWithHttp2AndProxy() for detailed explanation.
+       */
       const requestOptions: any = {
         method,
         headers: {
           "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
           ...headers,
         },
+        signal: AbortSignal.timeout(this.http2TimeoutMs),
       };
 
       if (data) {
@@ -199,7 +237,11 @@ export class HttpClientService {
         requestOptions.headers["Content-Type"] = "application/json";
       }
 
-      const response = await undiciRequest(url, requestOptions);
+      const response = await withTimeout(
+        undiciRequest(url, requestOptions),
+        this.connectTimeoutMs,
+        `HTTP/2 direct connection/headers timed out after ${this.connectTimeoutMs}ms`,
+      );
 
       ttfbTime = performance.now() - startTime;
       statusCode = response.statusCode;
@@ -277,7 +319,7 @@ export class HttpClientService {
         httpsAgent: proxyAgent,
         httpAgent: proxyAgent,
         proxy: false,
-        timeout: 30000,
+        timeout: this.http1TimeoutMs,
         maxRedirects: 5,
         responseType: "arraybuffer",
         onDownloadProgress: (progressEvent) => {
@@ -360,7 +402,7 @@ export class HttpClientService {
           "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
           ...headers,
         },
-        timeout: 30000,
+        timeout: this.http1TimeoutMs,
         maxRedirects: 5,
         responseType: "arraybuffer",
         onDownloadProgress: (progressEvent) => {
