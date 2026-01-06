@@ -75,7 +75,10 @@ describe("RetrievalService timeouts", () => {
     performAllRetrievalsSpy = vi.spyOn(service as any, "performAllRetrievals").mockResolvedValue([]);
     vi.spyOn(Date, "now").mockReturnValue(0);
 
-    const results = await (service as any).processRetrievalsInParallel([buildDeal()], 20000, 1);
+    const results = await (service as any).processRetrievalsInParallel([buildDeal()], {
+      timeoutMs: 20000,
+      maxConcurrency: 1,
+    });
 
     expect(performAllRetrievalsSpy).toHaveBeenCalledTimes(1);
     expect(results).toHaveLength(1);
@@ -86,7 +89,10 @@ describe("RetrievalService timeouts", () => {
     performAllRetrievalsSpy = vi.spyOn(service as any, "performAllRetrievals").mockResolvedValue([]);
     vi.spyOn(Date, "now").mockReturnValue(0);
 
-    const results = await (service as any).processRetrievalsInParallel([buildDeal()], 5000, 1);
+    const results = await (service as any).processRetrievalsInParallel([buildDeal()], {
+      timeoutMs: 5000,
+      maxConcurrency: 1,
+    });
 
     expect(performAllRetrievalsSpy).not.toHaveBeenCalled();
     expect(results).toHaveLength(0);
@@ -106,7 +112,10 @@ describe("RetrievalService timeouts", () => {
       .spyOn(service as any, "performAllRetrievals")
       .mockImplementation(() => new Promise(() => {}));
 
-    const promise = (service as any).processRetrievalsInParallel([buildDeal()], 200, 1);
+    const promise = (service as any).processRetrievalsInParallel([buildDeal()], {
+      timeoutMs: 200,
+      maxConcurrency: 1,
+    });
 
     await vi.advanceTimersByTimeAsync(100);
 

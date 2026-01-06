@@ -1,6 +1,7 @@
 import { HttpService } from "@nestjs/axios";
 import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
+import { anySignal } from "any-signal";
 import type { AxiosRequestConfig } from "axios";
 import { HttpsProxyAgent } from "https-proxy-agent";
 import { firstValueFrom } from "rxjs";
@@ -37,9 +38,10 @@ export class HttpClientService {
       headers?: Record<string, string>;
       proxyUrl?: string;
       httpVersion?: HttpVersion; // '1.1' | '2'
+      signal?: AbortSignal;
     } = {},
   ): Promise<RequestWithMetrics<T>> {
-    const { method = "GET", data, headers = {}, proxyUrl, httpVersion = "1.1" } = options;
+    const { method = "GET", data, headers = {}, proxyUrl, httpVersion = "1.1", signal } = options;
 
     const currentProxyUrl = proxyUrl ?? this.proxyService.getRandomProxy();
 
@@ -54,6 +56,7 @@ export class HttpClientService {
         data,
         headers,
         proxyUrl: currentProxyUrl,
+        signal,
       });
     }
 
@@ -63,6 +66,7 @@ export class HttpClientService {
       data,
       headers,
       proxyUrl: currentProxyUrl,
+      signal,
     });
   }
 
@@ -73,9 +77,10 @@ export class HttpClientService {
       data?: any;
       headers?: Record<string, string>;
       httpVersion?: HttpVersion;
+      signal?: AbortSignal;
     } = {},
   ): Promise<RequestWithMetrics<T>> {
-    const { method = "GET", data, headers = {}, httpVersion = "1.1" } = options;
+    const { method = "GET", data, headers = {}, httpVersion = "1.1", signal } = options;
 
     // Route to appropriate implementation
     if (httpVersion === "2") {
@@ -83,6 +88,7 @@ export class HttpClientService {
         method,
         data,
         headers,
+        signal,
       });
     }
 
@@ -90,6 +96,7 @@ export class HttpClientService {
       method,
       data,
       headers,
+      signal,
     });
   }
 
@@ -103,9 +110,10 @@ export class HttpClientService {
       data?: any;
       headers: Record<string, string>;
       proxyUrl: string;
+      signal?: AbortSignal;
     },
   ): Promise<RequestWithMetrics<T>> {
-    const { method, data, headers, proxyUrl } = options;
+    const { method, data, headers, proxyUrl, signal } = options;
 
     try {
       this.logger.debug(`Requesting ${url} via HTTP/2 proxy ${proxyUrl}`);
@@ -140,7 +148,7 @@ export class HttpClientService {
           ...headers,
         },
         dispatcher: proxyAgent,
-        signal: AbortSignal.timeout(this.http2TimeoutMs),
+        signal: this.buildRequestSignal(signal),
       };
 
       if (data) {
@@ -206,9 +214,10 @@ export class HttpClientService {
       method: string;
       data?: any;
       headers: Record<string, string>;
+      signal?: AbortSignal;
     },
   ): Promise<RequestWithMetrics<T>> {
-    const { method, data, headers } = options;
+    const { method, data, headers, signal } = options;
 
     try {
       this.logger.debug(`Requesting ${url} via HTTP/2 (direct connection)`);
@@ -229,7 +238,7 @@ export class HttpClientService {
           "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
           ...headers,
         },
-        signal: AbortSignal.timeout(this.http2TimeoutMs),
+        signal: this.buildRequestSignal(signal),
       };
 
       if (data) {
@@ -294,9 +303,10 @@ export class HttpClientService {
       data?: any;
       headers: Record<string, string>;
       proxyUrl: string;
+      signal?: AbortSignal;
     },
   ): Promise<RequestWithMetrics<T>> {
-    const { method, data, headers, proxyUrl } = options;
+    const { method, data, headers, proxyUrl, signal } = options;
 
     try {
       this.logger.debug(`Requesting ${url} via proxy ${proxyUrl}`);
@@ -320,6 +330,7 @@ export class HttpClientService {
         httpAgent: proxyAgent,
         proxy: false,
         timeout: this.http1TimeoutMs,
+        signal,
         maxRedirects: 5,
         responseType: "arraybuffer",
         onDownloadProgress: (progressEvent) => {
@@ -381,9 +392,10 @@ export class HttpClientService {
       method: string;
       data?: any;
       headers: Record<string, string>;
+      signal?: AbortSignal;
     },
   ): Promise<RequestWithMetrics<T>> {
-    const { method, data, headers } = options;
+    const { method, data, headers, signal } = options;
 
     try {
       this.logger.debug(`Requesting ${url} without proxy (direct connection)`);
@@ -403,6 +415,7 @@ export class HttpClientService {
           ...headers,
         },
         timeout: this.http1TimeoutMs,
+        signal,
         maxRedirects: 5,
         responseType: "arraybuffer",
         onDownloadProgress: (progressEvent) => {
@@ -507,5 +520,10 @@ export class HttpClientService {
    */
   private maskProxyUrl(url: string): string {
     return url.replace(/\/\/.*:.*@/, "//***:***@");
+  }
+
+  private buildRequestSignal(parentSignal?: AbortSignal): AbortSignal {
+    const timeoutSignal = AbortSignal.timeout(this.http2TimeoutMs);
+    return parentSignal ? anySignal([timeoutSignal, parentSignal]) : timeoutSignal;
   }
 }

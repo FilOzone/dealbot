@@ -31,7 +31,7 @@ export class RetrievalService {
     this.httpRequestTimeoutMs = Math.max(timeouts.httpRequestTimeoutMs, timeouts.http2RequestTimeoutMs);
   }
 
-  async performRandomBatchRetrievals(count: number, timeoutMs: number): Promise<Retrieval[]> {
+  async performRandomBatchRetrievals(count: number, timeoutMs: number, signal?: AbortSignal): Promise<Retrieval[]> {
     const deals = await this.selectRandomDealsForRetrieval(count);
     const totalDeals = deals.length;
 
@@ -42,7 +42,11 @@ export class RetrievalService {
 
     this.logger.log(`Starting retrieval tests for ${totalDeals} deals (Timeout: ${Math.round(timeoutMs / 1000)}s)`);
 
-    const results = await this.processRetrievalsInParallel(deals, timeoutMs);
+    const results = await this.processRetrievalsInParallel(deals, {
+      timeoutMs,
+      maxConcurrency: 5,
+      signal,
+    });
 
     const allRetrievals = results.flat();
     const successfulRetrievals = allRetrievals.filter((r) => r.status === RetrievalStatus.SUCCESS);
@@ -58,13 +62,25 @@ export class RetrievalService {
 
   private async processRetrievalsInParallel(
     deals: Deal[],
-    timeoutMs: number,
-    maxConcurrency: number = 5,
+    {
+      timeoutMs,
+      maxConcurrency = 5,
+      signal,
+    }: {
+      timeoutMs: number;
+      maxConcurrency?: number;
+      signal?: AbortSignal;
+    },
   ): Promise<Retrieval[][]> {
     const results: Retrieval[][] = [];
     const deadline = Date.now() + timeoutMs;
 
     for (let i = 0; i < deals.length; i += maxConcurrency) {
+      if (signal?.aborted) {
+        this.logger.warn("Retrieval job aborted. Skipping remaining deals.");
+        break;
+      }
+
       // Check if we have exceeded the global deadline
       if (Date.now() >= deadline) {
         this.logger.warn(`Deadline reached. Skipping remaining ${deals.length - i} deals.`);
@@ -90,7 +106,7 @@ export class RetrievalService {
       const batchTimeout = Math.min(remainingTimeMs, this.httpRequestTimeoutMs);
 
       const batchPromises = batch.map((deal) =>
-        withTimeout(this.performAllRetrievals(deal), batchTimeout, `Retrieval for deal ${deal.id} timed out`),
+        withTimeout(this.performAllRetrievals(deal, signal), batchTimeout, `Retrieval for deal ${deal.id} timed out`),
       );
 
       const batchResults = await Promise.allSettled(batchPromises);
@@ -115,7 +131,11 @@ export class RetrievalService {
   // Retrieval Execution
   // ============================================================================
 
-  private async performAllRetrievals(deal: Deal): Promise<Retrieval[]> {
+  private async performAllRetrievals(deal: Deal, signal?: AbortSignal): Promise<Retrieval[]> {
+    if (signal?.aborted) {
+      throw new Error("Retrieval job aborted");
+    }
+
     const provider = await this.findStorageProvider(deal.spAddress);
     if (!provider) {
       throw new Error(`Storage provider ${deal.spAddress.slice(0, 8)}... not found`);
@@ -128,7 +148,7 @@ export class RetrievalService {
     };
 
     try {
-      const testResult = await this.retrievalAddonsService.testAllRetrievalMethods(config);
+      const testResult = await this.retrievalAddonsService.testAllRetrievalMethods(config, signal);
 
       const retrievals = await Promise.all(
         testResult.results.map((executionResult) => this.createRetrievalFromResult(deal, executionResult)),
