@@ -1,7 +1,7 @@
 import { Config, StorageProviders, SummaryCards } from "@/components/Home";
+import DailyMetrics from "@/components/Home/DailyMetrics";
+import FailedDealsAndRetrievals from "@/components/Home/FailedDealsAndRetrievals";
 import { Footer, Header } from "@/components/shared";
-import DailyMetrics from "./components/Home/DailyMetrics";
-import FailedDealsAndRetrievals from "./components/Home/FailedDealsAndRetrievals";
 
 /**
  * Main application component
