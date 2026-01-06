@@ -62,5 +62,18 @@ export function createTimeoutPromise(timeoutMs: number, message?: string): Promi
  * @returns A promise that rejects if the timeout is reached before the original promise resolves
  */
 export async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, errorMessage?: string): Promise<T> {
-  return Promise.race([promise, createTimeoutPromise(timeoutMs, errorMessage)]);
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => {
+      reject(new Error(errorMessage || `Operation timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+  });
+
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    if (timeoutId !== undefined) {
+      clearTimeout(timeoutId);
+    }
+  }
 }

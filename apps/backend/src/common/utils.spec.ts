@@ -18,4 +18,18 @@ describe("withTimeout", () => {
     await assertion;
     vi.useRealTimers();
   });
+
+  it("clears the timeout when the promise resolves first", async () => {
+    vi.useFakeTimers();
+    const clearTimeoutSpy = vi.spyOn(globalThis, "clearTimeout");
+
+    const resultPromise = withTimeout(Promise.resolve("done"), 50);
+    await vi.runAllTimersAsync();
+
+    await expect(resultPromise).resolves.toBe("done");
+    expect(clearTimeoutSpy).toHaveBeenCalledTimes(1);
+
+    clearTimeoutSpy.mockRestore();
+    vi.useRealTimers();
+  });
 });
