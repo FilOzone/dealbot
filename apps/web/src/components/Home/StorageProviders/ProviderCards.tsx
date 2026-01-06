@@ -4,7 +4,7 @@ import ProviderCard from "./ProviderCard";
 import ProviderFilters from "./ProviderFilters";
 import ProviderPagination from "./ProviderPagination";
 
-interface ProviderCardsProps {
+export interface ProviderCardsProps {
   providers: ProviderCombinedPerformance[];
   currentPage: number;
   totalPages: number;

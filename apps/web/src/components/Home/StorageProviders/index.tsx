@@ -2,12 +2,11 @@ import { useState } from "react";
 import { ErrorState } from "@/components/shared";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useProviders } from "@/hooks/useProviders";
-import { ProviderCards } from "./ProviderCards";
+import { ProviderCards, type ProviderCardsProps } from "./ProviderCards";
 import { ProviderCardsSkeleton } from "./ProviderCardsSkeleton";
 
 const StorageProviders = () => {
-  // Filter state
-  const [activeOnly, setActiveOnly] = useState(true); // Default to showing only active providers
+  const [activeOnly, setActiveOnly] = useState(true);
   const [approvedOnly, setApprovedOnly] = useState(false);
 
   const {
@@ -20,12 +19,11 @@ const StorageProviders = () => {
     setOptions: setProviderOptions,
   } = useProviders({
     offset: 0,
-    limit: 12, // Show 12 providers per page (4 rows of 3 cards)
+    limit: 12,
     activeOnly,
     approvedOnly,
   });
 
-  // Handle page change
   const handlePageChange = (page: number) => {
     setProviderOptions({
       offset: (page - 1) * itemsPerPage,
@@ -35,7 +33,6 @@ const StorageProviders = () => {
     });
   };
 
-  // Handle filter changes
   const handleActiveOnlyChange = (value: boolean) => {
     setActiveOnly(value);
     setProviderOptions({
@@ -56,50 +53,93 @@ const StorageProviders = () => {
     });
   };
 
+  const handleRetry = () => {
+    setProviderOptions({
+      offset: 0,
+      limit: itemsPerPage,
+      activeOnly,
+      approvedOnly,
+    });
+  };
+
   const totalPages = Math.ceil(totalProviders / itemsPerPage);
+  const hasData = !providersLoading && !providersError;
 
   return (
     <Card>
       <CardHeader>
         <CardTitle>Storage provider performance</CardTitle>
-        {!providersLoading && !providersError && (
+        {hasData && (
           <CardDescription>
             Showing {providers.length} of {totalProviders} providers • Page {currentPage} of {totalPages}
           </CardDescription>
         )}
       </CardHeader>
       <CardContent className="space-y-6">
-        {providersLoading ? (
-          <ProviderCardsSkeleton count={6} />
-        ) : providersError ? (
-          <ErrorState
-            message={providersError}
-            onRetry={() => {
-              setProviderOptions({
-                offset: 0,
-                limit: itemsPerPage,
-                activeOnly,
-                approvedOnly,
-              });
-            }}
-          />
-        ) : (
-          <ProviderCards
-            providers={providers}
-            currentPage={currentPage}
-            totalPages={totalPages}
-            totalItems={totalProviders}
-            itemsPerPage={itemsPerPage}
-            onPageChange={handlePageChange}
-            activeOnly={activeOnly}
-            approvedOnly={approvedOnly}
-            onActiveOnlyChange={handleActiveOnlyChange}
-            onApprovedOnlyChange={handleApprovedOnlyChange}
-          />
-        )}
+        <StorageProvidersContent
+          loading={providersLoading}
+          error={providersError}
+          providers={providers}
+          currentPage={currentPage}
+          totalPages={totalPages}
+          totalProviders={totalProviders}
+          itemsPerPage={itemsPerPage}
+          activeOnly={activeOnly}
+          approvedOnly={approvedOnly}
+          onPageChange={handlePageChange}
+          onActiveOnlyChange={handleActiveOnlyChange}
+          onApprovedOnlyChange={handleApprovedOnlyChange}
+          onRetry={handleRetry}
+        />
       </CardContent>
     </Card>
   );
 };
 
 export default StorageProviders;
+
+interface StorageProvidersContentProps extends Omit<ProviderCardsProps, "totalItems"> {
+  loading: boolean;
+  error: string | null;
+  totalProviders: number;
+  onRetry: () => void;
+}
+
+function StorageProvidersContent({
+  loading,
+  error,
+  providers,
+  currentPage,
+  totalPages,
+  totalProviders,
+  itemsPerPage,
+  activeOnly,
+  approvedOnly,
+  onPageChange,
+  onActiveOnlyChange,
+  onApprovedOnlyChange,
+  onRetry,
+}: StorageProvidersContentProps) {
+  if (loading) {
+    return <ProviderCardsSkeleton count={12} />;
+  }
+
+  if (error) {
+    return <ErrorState message={error} onRetry={onRetry} />;
+  }
+
+  return (
+    <ProviderCards
+      providers={providers}
+      currentPage={currentPage}
+      totalPages={totalPages}
+      totalItems={totalProviders}
+      itemsPerPage={itemsPerPage}
+      onPageChange={onPageChange}
+      activeOnly={activeOnly}
+      approvedOnly={approvedOnly}
+      onActiveOnlyChange={onActiveOnlyChange}
+      onApprovedOnlyChange={onApprovedOnlyChange}
+    />
+  );
+}
