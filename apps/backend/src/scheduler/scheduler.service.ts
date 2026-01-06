@@ -140,6 +140,15 @@ export class SchedulerService implements OnModuleInit {
         const bufferMs = timeoutsConfig.retrievalTimeoutBufferMs;
         // Ensure we have at least 10 seconds if the buffer is too large relative to the interval
         const timeoutMs = Math.max(10000, intervalMs - bufferMs);
+        const httpTimeoutMs = Math.max(timeoutsConfig.httpRequestTimeoutMs, timeoutsConfig.http2RequestTimeoutMs);
+
+        if (timeoutMs < httpTimeoutMs) {
+          this.logger.warn(
+            `Retrieval interval (${intervalMs}ms) minus buffer (${bufferMs}ms) yields ${timeoutMs}ms, ` +
+              `which is less than the HTTP timeout (${httpTimeoutMs}ms). ` +
+              "Retrieval batches may be skipped unless the interval or timeouts are adjusted.",
+          );
+        }
 
         this.logger.log(
           `Starting batch retrieval with timeout of ${Math.round(timeoutMs / 1000)}s ` +

@@ -28,7 +28,31 @@ export const configValidationSchema = Joi.object({
 
   // Scheduling
   DEAL_INTERVAL_SECONDS: Joi.number().default(30),
-  RETRIEVAL_INTERVAL_SECONDS: Joi.number().default(60),
+  RETRIEVAL_INTERVAL_SECONDS: Joi.number()
+    .min(1)
+    .default(60)
+    .custom((value, helpers) => {
+      const root = helpers.state.ancestors[0] as {
+        RETRIEVAL_TIMEOUT_BUFFER_MS?: number;
+        HTTP_REQUEST_TIMEOUT_MS?: number;
+        HTTP2_REQUEST_TIMEOUT_MS?: number;
+      };
+      const bufferMs = typeof root.RETRIEVAL_TIMEOUT_BUFFER_MS === "number" ? root.RETRIEVAL_TIMEOUT_BUFFER_MS : 0;
+      const http1TimeoutMs = typeof root.HTTP_REQUEST_TIMEOUT_MS === "number" ? root.HTTP_REQUEST_TIMEOUT_MS : 0;
+      const http2TimeoutMs = typeof root.HTTP2_REQUEST_TIMEOUT_MS === "number" ? root.HTTP2_REQUEST_TIMEOUT_MS : 0;
+      const requiredMs = Math.max(http1TimeoutMs, http2TimeoutMs);
+      const availableMs = value * 1000 - bufferMs;
+
+      if (requiredMs > 0 && availableMs < requiredMs) {
+        return helpers.error("any.invalid", {
+          message:
+            `"RETRIEVAL_INTERVAL_SECONDS" minus "RETRIEVAL_TIMEOUT_BUFFER_MS" must be ` +
+            `>= max(HTTP_REQUEST_TIMEOUT_MS, HTTP2_REQUEST_TIMEOUT_MS) (${requiredMs} ms)`,
+        });
+      }
+
+      return value;
+    }),
   DEAL_START_OFFSET_SECONDS: Joi.number().default(0),
   RETRIEVAL_START_OFFSET_SECONDS: Joi.number().default(600),
   METRICS_START_OFFSET_SECONDS: Joi.number().default(900),
