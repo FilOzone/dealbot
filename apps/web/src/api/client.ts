@@ -1,9 +1,9 @@
+import type { DealbotConfigDto } from "@/types/config";
+import type { FailedDealsQueryOptions, FailedDealsResponse } from "@/types/failed-deals";
+import type { FailedRetrievalsQueryOptions, FailedRetrievalsResponse } from "@/types/failed-retrievals";
+import type { DailyMetricsQueryOptions, DailyMetricsResponse, ProviderDailyMetricsResponse } from "@/types/metrics";
+import type { NetworkOverallStats } from "@/types/network";
 import type { PaginationOptions } from "@/types/pagination";
-import type { DealbotConfigDto } from "../types/config";
-import type { FailedDealsQueryOptions, FailedDealsResponse } from "../types/failed-deals";
-import type { FailedRetrievalsQueryOptions, FailedRetrievalsResponse } from "../types/failed-retrievals";
-import type { DailyMetricsQueryOptions, DailyMetricsResponse, ProviderDailyMetricsResponse } from "../types/metrics";
-import type { NetworkOverallStats } from "../types/network";
 import type {
   ProviderCombinedPerformance,
   ProvidersListResponse,
@@ -11,8 +11,8 @@ import type {
   ProvidersQueryOptions,
   ProviderWindowPerformanceDto,
   ProviderWindowQueryOptions,
-} from "../types/providers";
-import type { ServiceComparisonQueryOptions, ServiceComparisonResponse } from "../types/services";
+} from "@/types/providers";
+import type { ServiceComparisonQueryOptions, ServiceComparisonResponse } from "@/types/services";
 
 const JSON_HEADERS = { "Content-Type": "application/json" } as const;
 

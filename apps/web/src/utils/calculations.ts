@@ -3,7 +3,7 @@
  * Provides consistent calculation logic across the application
  */
 
-import type { ProviderCombinedPerformance, ProviderHealth, ProviderHealthStatus } from "../types/providers";
+import type { ProviderCombinedPerformance, ProviderHealth, ProviderHealthStatus } from "@/types/providers";
 import { ACTIVITY_THRESHOLDS, HEALTH_THRESHOLDS, MIN_DATA_REQUIREMENTS } from "./constants";
 
 /**

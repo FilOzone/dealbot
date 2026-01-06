@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { fetchDealbotConfig } from "../api/client";
-import type { DealbotConfigDto } from "../types/config";
+import { fetchDealbotConfig } from "@/api/client";
+import type { DealbotConfigDto } from "@/types/config";
 
 export function useDealbotConfig() {
   const [data, setData] = useState<DealbotConfigDto | null>(null);

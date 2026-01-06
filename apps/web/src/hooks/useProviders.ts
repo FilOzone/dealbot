@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { fetchProviders } from "../api/client";
-import type { ProviderCombinedPerformance, ProvidersQueryOptions } from "../types/providers";
+import { fetchProviders } from "@/api/client";
+import type { ProviderCombinedPerformance, ProvidersQueryOptions } from "@/types/providers";
 
 /**
  * Error message extractor

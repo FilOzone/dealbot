@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { fetchServiceComparison } from "../api/client";
-import type { ServiceComparisonQueryOptions, ServiceComparisonResponse } from "../types/services";
+import { fetchServiceComparison } from "@/api/client";
+import type { ServiceComparisonQueryOptions, ServiceComparisonResponse } from "@/types/services";
 
 /**
  * Error message extractor

@@ -3,9 +3,9 @@
  * Transforms API data to component-friendly formats
  */
 
-import type { DailyAggregatedMetrics } from "../types/metrics";
-import type { ProviderCombinedPerformance } from "../types/providers";
-import type { ServiceComparisonMetrics } from "../types/services";
+import type { DailyAggregatedMetrics } from "@/types/metrics";
+import type { ProviderCombinedPerformance } from "@/types/providers";
+import type { ServiceComparisonMetrics } from "@/types/services";
 
 /**
  * Chart data point for time-series visualization
