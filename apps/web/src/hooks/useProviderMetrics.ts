@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { fetchProviderDailyMetrics } from "../api/client";
-import type { DailyMetricsQueryOptions, ProviderDailyMetricsResponse } from "../types/metrics";
+import { fetchProviderDailyMetrics } from "@/api/client";
+import type { DailyMetricsQueryOptions, ProviderDailyMetricsResponse } from "@/types/metrics";
 
 /**
  * Error message extractor

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { fetchNetworkStats } from "../api/client";
-import type { NetworkOverallStats } from "../types/network";
+import { fetchNetworkStats } from "@/api/client";
+import type { NetworkOverallStats } from "@/types/network";
 
 /**
  * Error message extractor

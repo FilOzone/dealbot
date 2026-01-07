@@ -1,17 +1,18 @@
-import type { DealbotConfigDto } from "../types/config";
-import type { FailedDealsQueryOptions, FailedDealsResponse } from "../types/failed-deals";
-import type { FailedRetrievalsQueryOptions, FailedRetrievalsResponse } from "../types/failed-retrievals";
-import type { DailyMetricsQueryOptions, DailyMetricsResponse, ProviderDailyMetricsResponse } from "../types/metrics";
-import type { NetworkOverallStats } from "../types/network";
+import type { DealbotConfigDto } from "@/types/config";
+import type { FailedDealsQueryOptions, FailedDealsResponse } from "@/types/failed-deals";
+import type { FailedRetrievalsQueryOptions, FailedRetrievalsResponse } from "@/types/failed-retrievals";
+import type { DailyMetricsQueryOptions, DailyMetricsResponse, ProviderDailyMetricsResponse } from "@/types/metrics";
+import type { NetworkOverallStats } from "@/types/network";
+import type { PaginationOptions } from "@/types/pagination";
 import type {
   ProviderCombinedPerformance,
   ProvidersListResponse,
+  ProvidersListResponseWithoutMetrics,
   ProvidersQueryOptions,
   ProviderWindowPerformanceDto,
   ProviderWindowQueryOptions,
-} from "../types/providers";
-import type { ServiceComparisonQueryOptions, ServiceComparisonResponse } from "../types/services";
-import type { DailyMetricsResponseDto, OverallStatsResponseDto } from "../types/stats";
+} from "@/types/providers";
+import type { ServiceComparisonQueryOptions, ServiceComparisonResponse } from "@/types/services";
 
 const JSON_HEADERS = { "Content-Type": "application/json" } as const;
 
@@ -32,7 +33,7 @@ const buildQueryString = (params: Record<string, string | number | boolean | und
 };
 
 // ============================================================================
-// NEW API FUNCTIONS (Refactored Endpoints)
+// API FUNCTIONS
 // ============================================================================
 
 /**
@@ -47,6 +48,20 @@ export async function fetchProviders(options?: ProvidersQueryOptions): Promise<P
   if (!res.ok) throw new Error(`Failed to fetch providers: HTTP ${res.status}`);
 
   return (await res.json()) as ProvidersListResponse;
+}
+
+/**
+ * Fetch simple providers list (without performance metrics)
+ * Used for dropdowns and filters
+ */
+export async function fetchProvidersList(options?: PaginationOptions): Promise<ProvidersListResponseWithoutMetrics> {
+  const queryString = options ? buildQueryString(options as Record<string, string | number | boolean | undefined>) : "";
+  const url = `${getBaseUrl()}/api/v1/providers${queryString}`;
+
+  const res = await fetch(url, { headers: JSON_HEADERS });
+  if (!res.ok) throw new Error(`Failed to fetch providers list: HTTP ${res.status}`);
+
+  return (await res.json()) as ProvidersListResponseWithoutMetrics;
 }
 
 /**
@@ -170,34 +185,6 @@ export async function fetchProviderCurioVersionsBatch(spAddresses: string[]): Pr
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return (await res.json()) as Record<string, string>;
-}
-
-// ============================================================================
-// OLD API FUNCTIONS (Deprecated - Keep for backward compatibility)
-// ============================================================================
-
-/**
- * @deprecated Use fetchNetworkStats() instead
- * Fetch overall stats from backend.
- */
-export async function fetchOverallStats(): Promise<OverallStatsResponseDto> {
-  const res = await fetch(`${getBaseUrl()}/api/stats/overall`, {
-    headers: JSON_HEADERS,
-  });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return (await res.json()) as OverallStatsResponseDto;
-}
-
-/**
- * @deprecated Use fetchDailyMetrics() or fetchRecentDailyMetrics() instead
- * Fetch daily metrics from backend (last 30 days if available).
- */
-export async function fetchDailyStats(): Promise<DailyMetricsResponseDto> {
-  const res = await fetch(`${getBaseUrl()}/api/stats/daily`, {
-    headers: JSON_HEADERS,
-  });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return (await res.json()) as DailyMetricsResponseDto;
 }
 
 /**

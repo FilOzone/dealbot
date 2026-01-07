@@ -107,6 +107,17 @@ export interface ProviderCombinedPerformance {
 }
 
 /**
+ * Provider list response with pagination without metrics
+ */
+export interface ProvidersListResponseWithoutMetrics {
+  providers: Provider[];
+  total: number;
+  offset: number;
+  count: number;
+  limit: number;
+}
+
+/**
  * Provider list response with pagination
  */
 export interface ProvidersListResponse {

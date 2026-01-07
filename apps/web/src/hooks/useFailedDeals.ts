@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { fetchFailedDeals as apiFetchFailedDeals } from "../api/client";
-import type { FailedDealsQueryOptions, FailedDealsResponse } from "../types/failed-deals";
+import { fetchFailedDeals as apiFetchFailedDeals } from "@/api/client";
+import type { FailedDealsQueryOptions, FailedDealsResponse } from "@/types/failed-deals";
 
 export function useFailedDeals(options: FailedDealsQueryOptions = {}) {
   const [data, setData] = useState<FailedDealsResponse | null>(null);
