@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { fetchProviderWindowMetrics } from "@/api/client";
-import type { ProviderWindowPerformanceDto } from "../types/providers";
+import type { ProviderWindowPerformanceDto } from "@/types/providers";
 
 interface UseProviderWindowOptions {
   spAddress: string;

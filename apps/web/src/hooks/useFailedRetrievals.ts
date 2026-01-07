@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { fetchFailedRetrievals as apiFetchFailedRetrievals } from "../api/client";
-import type { FailedRetrievalsQueryOptions, FailedRetrievalsResponse } from "../types/failed-retrievals";
+import { fetchFailedRetrievals as apiFetchFailedRetrievals } from "@/api/client";
+import type { FailedRetrievalsQueryOptions, FailedRetrievalsResponse } from "@/types/failed-retrievals";
 
 export function useFailedRetrievals(options: FailedRetrievalsQueryOptions = {}) {
   const [data, setData] = useState<FailedRetrievalsResponse | null>(null);
