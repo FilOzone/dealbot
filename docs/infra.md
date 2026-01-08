@@ -16,7 +16,7 @@ This repo uses Kustomize for both local and production deployments. The base man
 **Production Deployments (FilOzone/infra repo)**:
 - References this repo's base manifests as remote resources
 - Applies production-specific overlays (ClusterIP services, Ingress, image tags, etc.)
-- Flux CD for GitOps deployment
+- ArgoCD for GitOps deployment
 - SOPS for secret encryption
 - Managed PostgreSQL database
 
@@ -144,7 +144,7 @@ secretGenerator:
 | Backend Service | NodePort :30081 → :8080 | ClusterIP :3130 + Ingress |
 | Web Service | NodePort :30080 → :3000 | ClusterIP :80 + Ingress |
 | Images | Local tags (`dealbot-local:dev`) | GHCR tags (`ghcr.io/filozone/dealbot-backend:v0.2.0`) |
-| CD | Manual (make deploy) | Flux CD |
+| CD | Manual (make deploy) | ArgoCD |
 
 ## Example production overlay structure
 
@@ -277,53 +277,103 @@ secretGenerator:
       - dealbot-secrets.env
 ```
 
-## Flux ImagePolicy for automatic updates
+## ArgoCD Image Updater for automatic updates
 
-Flux watches the GitHub Container Registry for new image tags:
+ArgoCD Image Updater watches the GitHub Container Registry for new image tags using `ImageUpdater` CRDs (v1.0.0+).
+
+Reference: [ArgoCD Image Updater Documentation](https://argocd-image-updater.readthedocs.io/en/stable/)
+
+### Staging (watches ordered SHA tags):
 
 ```yaml
-# FilOzone/infra: flux/imagepolicies/dealbot-backend-staging.yaml
-apiVersion: image.toolkit.fluxcd.io/v1beta2
-kind: ImagePolicy
+# FilOzone/infra: argocd/applications/dealbot-backend-staging.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
 metadata:
   name: dealbot-backend-staging
-  namespace: flux-system
+  namespace: argocd
 spec:
-  imageRepositoryRef:
-    name: dealbot-backend
-  filterTags:
-    pattern: '^sha-(?P<run>[0-9]+)-[0-9a-f]{40}$'
-    extract: '$run'
-  policy:
-    numerical:
-      order: asc
+  project: default
+  source:
+    repoURL: https://github.com/filozone/dealbot
+    targetRevision: main
+    path: kustomize/base/backend
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: dealbot-staging
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
 ---
-# FilOzone/infra: flux/imagerepositories/dealbot-backend.yaml
-apiVersion: image.toolkit.fluxcd.io/v1beta2
-kind: ImageRepository
+# FilOzone/infra: argocd/imageupdaters/dealbot-backend-staging.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: ImageUpdater
 metadata:
-  name: dealbot-backend
-  namespace: flux-system
+  name: dealbot-backend-staging
+  namespace: argocd
 spec:
-  image: ghcr.io/filozone/dealbot-backend
-  interval: 5m
+  applicationRef:
+    name: dealbot-backend-staging
+  images:
+  - name: backend
+    image: ghcr.io/filozone/dealbot-backend
+    updateStrategy:
+      type: alphabetical
+    constraint:
+      tagFilter: '^sha-[0-9]+-[0-9a-f]{40}$'
 ```
 
-For production, watch semver tags:
+### Production (watches semver tags):
+
+**Note:** Production auto-sync is initially disabled. ImageUpdater will detect new versions and mark the Application as OutOfSync, but deployment requires manual approval via `argocd app sync` or the ArgoCD UI.
 
 ```yaml
-# FilOzone/infra: flux/imagepolicies/dealbot-backend-prod.yaml
-apiVersion: image.toolkit.fluxcd.io/v1beta2
-kind: ImagePolicy
+# FilOzone/infra: argocd/applications/dealbot-backend-prod.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
 metadata:
   name: dealbot-backend-prod
-  namespace: flux-system
+  namespace: argocd
 spec:
-  imageRepositoryRef:
-    name: dealbot-backend
-  policy:
-    semver:
-      range: '>=0.1.0'
+  project: default
+  source:
+    repoURL: https://github.com/filozone/dealbot
+    targetRevision: main
+    path: kustomize/base/backend
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: dealbot-prod
+  syncPolicy:
+    # NOTE: Automated sync disabled initially for production safety
+    # ImageUpdater will update image tags, but manual sync required
+    syncOptions:
+    - CreateNamespace=true
+---
+# FilOzone/infra: argocd/imageupdaters/dealbot-backend-prod.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: ImageUpdater
+metadata:
+  name: dealbot-backend-prod
+  namespace: argocd
+spec:
+  applicationRef:
+    name: dealbot-backend-prod
+  images:
+  - name: backend
+    image: ghcr.io/filozone/dealbot-backend
+    updateStrategy:
+      type: semver
+    constraint:
+      semver: '>=0.1.0'
+```
+
+To enable auto-sync later, add:
+```yaml
+syncPolicy:
+  automated:
+    prune: true
+    selfHeal: true
 ```
 
 ## Local Development Ports

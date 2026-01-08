@@ -15,8 +15,12 @@ Developer merges Release PR
   ↓
 Images retagged with semver
   ↓
-Flux deploys to production
+ArgoCD Image Updater detects new version
+  ↓
+Manual sync required to deploy to production
 ```
+
+**Note:** Production auto-sync is disabled initially for safety.
 
 ## Conventional Commits
 
@@ -125,9 +129,14 @@ chore: release to production
    - `sha-abc123def456...` → `v0.2.0` (backend)
    - `sha-def456789abc...` → `v0.1.1` (web)
 
-4. **Flux deploys to production**
-   - Watches for semver tags in ECR
-   - Auto-deploys within minutes
+4. **ArgoCD Image Updater detects new version**
+   - Image Updater watches for semver tags in GHCR
+   - Marks Application as OutOfSync
+
+5. **Manual deployment to production**
+   - Review changes in ArgoCD UI
+   - Sync manually via UI or CLI: `argocd app sync dealbot-backend-prod`
+   - Can enable auto-sync later once confidence is established
 
 ## Per-App Versioning
 

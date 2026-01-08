@@ -27,9 +27,13 @@ git push origin hotfix/v1.2.4
 # → release-please creates release for hotfix branch
 # → Images built and tagged with v1.2.4 immediately
 # → Git tags created
-# → Flux deploys to production within 5 minutes
+# → ArgoCD Image Updater detects new version
+# → Manual sync required to deploy to production
 
-# 5. ⚠️ IMMEDIATELY merge hotfix to main (REQUIRED!)
+# 5. Manually sync to production
+argocd app sync dealbot-backend-prod  # or via ArgoCD UI
+
+# 6. ⚠️ IMMEDIATELY merge hotfix to main (REQUIRED!)
 git checkout main
 git pull origin main
 git merge hotfix/v1.2.4
@@ -63,7 +67,7 @@ git push
 
 # 2. Images build and deploy to staging
 # → main-abc1234 built
-# → Flux deploys to staging
+# → ArgoCD deploys to staging
 
 # 3. Quick verification in staging
 # → Smoke test the fix (5-10 minutes)
@@ -73,7 +77,10 @@ git push
 
 # 5. Merge release PR immediately
 # → Images retagged with v1.2.4
-# → Flux deploys to production
+# → ArgoCD Image Updater detects new version
+
+# 6. Manually sync to production
+argocd app sync dealbot-backend-prod
 ```
 
 **What happens:**
@@ -202,13 +209,17 @@ git push origin hotfix/v1.2.4
 # → release-please creates release
 # → Backend image built and tagged: v1.2.4
 # → Git tag created: backend-v1.2.4
-# → Flux deploys to production (5 minutes)
+# → ArgoCD Image Updater detects new version
 
-# 5. Verify deployment
+# 5. Manually sync to production
+argocd app sync dealbot-backend-prod
+# Or via ArgoCD UI: Navigate to app and click "Sync"
+
+# 6. Verify deployment
 kubectl -n prod get pods -l app=dealbot
 kubectl -n prod logs -l app=dealbot --tail=100
 
-# 6. ⚠️ CRITICAL: Merge hotfix back to main immediately
+# 7. ⚠️ CRITICAL: Merge hotfix back to main immediately
 git checkout main
 git pull origin main
 git merge hotfix/v1.2.4
@@ -218,8 +229,8 @@ git push origin main
 git log --oneline main -5
 # Should see your hotfix commit in main now
 
-# Total time: ~10 minutes from push to production
-# IMPORTANT: Don't skip step 6 or next release will reintroduce the bug!
+# Total time: ~10-15 minutes from push to production (with manual sync)
+# IMPORTANT: Don't skip step 7 or next release will reintroduce the bug!
 ```
 
 ### Hotfix Workflow Details
@@ -229,7 +240,8 @@ The `.github/workflows/hotfix-release.yml` workflow:
 - Uses release-please with the hotfix branch as target
 - Builds images immediately upon release creation
 - Tags with both semver (`v1.2.4`) and hotfix marker (`hotfix-abc1234`)
-- No staging deployment - straight to production via Flux watching semver tags
+- ArgoCD Image Updater detects the new semver tag and marks Application as OutOfSync
+- **Manual sync required** to deploy to production (no auto-deployment initially)
 
 ---
 
@@ -336,22 +348,23 @@ If you absolutely must deploy an older image:
 # 1. Find the SHA you want
 git log  # Find the commit SHA
 
-# 2. Manually retag in ECR
-aws ecr batch-get-image \
-  --repository-name filoz-dealbot \
-  --image-ids imageTag=main-abc1234 \
-  --query 'images[].imageManifest' \
-  --output text | \
-aws ecr put-image \
-  --repository-name filoz-dealbot \
-  --image-tag v1.2.5 \
-  --image-manifest file:///dev/stdin
+# 2. Manually retag in GHCR
+# Pull the old image
+docker pull ghcr.io/filozone/dealbot-backend:main-abc1234
+
+# Retag it with the new version
+docker tag ghcr.io/filozone/dealbot-backend:main-abc1234 ghcr.io/filozone/dealbot-backend:v1.2.5
+
+# Push the new tag
+docker push ghcr.io/filozone/dealbot-backend:v1.2.5
 
 # 3. Tag the git repo
 git tag v1.2.5 abc1234
 git push origin v1.2.5
 
-# 4. Flux will deploy within 5 minutes
+# 4. ArgoCD Image Updater will detect the new version
+# 5. Manually sync the application
+argocd app sync dealbot-backend-prod
 ```
 
 **Warning:** This bypasses all safeguards. Only use in emergencies.
@@ -374,7 +387,7 @@ kubectl -n prod get deployment dealbot -o jsonpath='{.spec.template.spec.contain
 git revert HEAD
 git push origin main
 
-# Option B: Manual ECR retag (faster)
+# Option B: Manual GHCR retag (faster)
 # Retag the previous good version with a new semver tag
 # See "Manual Override" section above
 ```
@@ -435,9 +448,9 @@ BREAKING CHANGE: Response format changed"
 ### What happens if the release fails?
 
 The release workflow will fail but staging is unaffected. Check logs:
-1. Do the SHA images exist in ECR? (Check `sha-<sha>` tags)
+1. Do the SHA images exist in GHCR? (Check `sha-<sha>` tags)
 2. Is the version already tagged in git?
-3. Are AWS credentials valid?
-4. Does the ECR repository exist?
+3. Are GitHub credentials valid?
+4. Does the GHCR repository exist?
 
 Fix the issue and manually re-run the workflow via GitHub Actions UI.

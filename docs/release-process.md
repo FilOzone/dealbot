@@ -9,7 +9,7 @@ Code merged to main
   ↓
 Build Docker images (e.g., sha-<sha> and sha-<run>-<sha>)
   ↓
-Flux CD auto-deploys to STAGING (watches ordered tags)
+ArgoCD auto-deploys to STAGING (watches ordered tags via Image Updater)
   ↓
 release-please opens/updates Release PR
   ↓
@@ -17,8 +17,12 @@ Developer reviews and merges PR
   ↓
 Retag same images with semver (e.g., v1.2.3)
   ↓
-Flux CD auto-deploys to PRODUCTION (watches semver tags)
+ArgoCD Image Updater detects new version in PRODUCTION
+  ↓
+Manual approval required to sync (initially)
 ```
+
+**Note:** Production auto-sync is disabled initially for safety. After confidence is established, it can be enabled.
 
 ## How It Works
 
@@ -33,11 +37,11 @@ When you merge a PR to `main`:
 **Image Building:**
 - Builds Docker images with:
   - `sha-<git-sha>` (stable pointer used for promotion/retagging)
-  - `sha-<run-number>-<git-sha>` (monotonic tag suitable for Flux staging policies)
+  - `sha-<run-number>-<git-sha>` (monotonic tag suitable for ArgoCD staging policies)
 - Example: `ghcr.io/filozone/dealbot-backend:sha-1234-<sha>`
 
-**Flux Deploys to Staging:**
-- Flux watches for ordered `sha-<run>-<sha>` tags in staging
+**ArgoCD Deploys to Staging:**
+- ArgoCD Image Updater watches for ordered `sha-<run>-<sha>` tags in staging
 - Automatically deploys new images to staging environment
 
 **Auto-Create Release PR:**
@@ -60,7 +64,8 @@ When you merge a PR to `main`:
 1. **Docker images build** from the merge commit (tagged `sha-<sha>` and `sha-<run>-<sha>`)
 2. **release-please creates GitHub Releases/tags** (e.g., `backend-v0.2.0`, `web-v0.1.1`) and outputs the release `sha`
 3. **Container images are retagged** by workflow to `v<version>` (e.g., `sha-<sha>` → `v0.2.0`)
-4. **Flux deploys to production** by watching semver tags (e.g., `v0.2.0`)
+4. **ArgoCD Image Updater detects new version** (e.g., `v0.2.0`) and marks Application as OutOfSync
+5. **Manual sync required** to deploy to production (via ArgoCD UI or CLI)
 
 **Important:** Both container images AND git repo are tagged with the same semver version for full traceability.
 
@@ -76,7 +81,7 @@ git merge feat/new-api-endpoint
 **Result:**
 - ✅ Backend image built: `filoz-dealbot:sha-a1b2c3d`
 - ❌ Web image skipped (no changes)
-- 🚀 Flux deploys backend to staging
+- 🚀 ArgoCD deploys backend to staging
 - 📝 Release PR updated: `chore: release to production`
   - Will only promote backend image
   - Web stays at current version
@@ -91,7 +96,7 @@ git commit -am "chore: update dependencies"
 
 **Result:**
 - ✅ Both images built (pnpm-lock.yaml changed)
-- 🚀 Flux deploys both to staging
+- 🚀 ArgoCD deploys both to staging
 - 📝 Release PR updated: `chore: release to production`
   - Includes changes for both apps
 
@@ -118,89 +123,184 @@ git push
 GITHUB_TOKEN: Automatically provided by GitHub Actions
 ```
 
-No other secrets needed - Flux watches the GitHub Container Registry directly!
+No other secrets needed - ArgoCD Image Updater watches the GitHub Container Registry directly!
 
-### Flux ImagePolicy Setup in FilOzone/infra
+### ArgoCD Application and ImageUpdater Setup in FilOzone/infra
 
-**Staging ImagePolicy** (watches ordered `sha-<run>-<sha>` tags):
+**Note:** Uses ArgoCD Image Updater v1.0.0+ CRD-based configuration. See [ArgoCD Image Updater Documentation](https://argocd-image-updater.readthedocs.io/en/stable/).
+
+**Staging Setup** (watches ordered `sha-<run>-<sha>` tags):
 ```yaml
-apiVersion: image.toolkit.fluxcd.io/v1beta2
-kind: ImagePolicy
+# Application definition
+apiVersion: argoproj.io/v1alpha1
+kind: Application
 metadata:
   name: dealbot-backend-staging
-  namespace: flux-system
+  namespace: argocd
 spec:
-  imageRepositoryRef:
-    name: dealbot-backend
-  filterTags:
-    pattern: '^sha-(?P<run>[0-9]+)-[0-9a-f]{40}$'
-    extract: '$run'
-  policy:
-    numerical:
-      order: asc
+  project: default
+  source:
+    repoURL: https://github.com/filozone/dealbot
+    targetRevision: main
+    path: kustomize/base/backend
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: dealbot-staging
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
 ---
-apiVersion: image.toolkit.fluxcd.io/v1beta2
-kind: ImagePolicy
+# ImageUpdater CRD for backend
+apiVersion: argoproj.io/v1alpha1
+kind: ImageUpdater
+metadata:
+  name: dealbot-backend-staging
+  namespace: argocd
+spec:
+  applicationRef:
+    name: dealbot-backend-staging
+  images:
+  - name: backend
+    image: ghcr.io/filozone/dealbot-backend
+    updateStrategy:
+      type: alphabetical  # Formerly "name" in v0.x
+    constraint:
+      tagFilter: '^sha-[0-9]+-[0-9a-f]{40}$'
+---
+# Application definition for web
+apiVersion: argoproj.io/v1alpha1
+kind: Application
 metadata:
   name: dealbot-web-staging
-  namespace: flux-system
+  namespace: argocd
 spec:
-  imageRepositoryRef:
-    name: dealbot-web
-  filterTags:
-    pattern: '^sha-(?P<run>[0-9]+)-[0-9a-f]{40}$'
-    extract: '$run'
-  policy:
-    numerical:
-      order: asc
+  project: default
+  source:
+    repoURL: https://github.com/filozone/dealbot
+    targetRevision: main
+    path: kustomize/base/web
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: dealbot-staging
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+---
+# ImageUpdater CRD for web
+apiVersion: argoproj.io/v1alpha1
+kind: ImageUpdater
+metadata:
+  name: dealbot-web-staging
+  namespace: argocd
+spec:
+  applicationRef:
+    name: dealbot-web-staging
+  images:
+  - name: web
+    image: ghcr.io/filozone/dealbot-web
+    updateStrategy:
+      type: alphabetical  # Formerly "name" in v0.x
+    constraint:
+      tagFilter: '^sha-[0-9]+-[0-9a-f]{40}$'
 ```
 
-**Production ImagePolicy** (watches semver tags):
+**Production Setup** (watches semver tags, manual sync required):
+
+**Important:** Production auto-sync is disabled initially. ImageUpdater will detect new semver tags and mark the Application as OutOfSync, but deployment requires manual approval.
+
 ```yaml
-apiVersion: image.toolkit.fluxcd.io/v1beta2
-kind: ImagePolicy
+# Application definition
+apiVersion: argoproj.io/v1alpha1
+kind: Application
 metadata:
   name: dealbot-backend-prod
-  namespace: flux-system
+  namespace: argocd
 spec:
-  imageRepositoryRef:
-    name: dealbot-backend
-  policy:
-    semver:
-      range: '>=0.1.0'
+  project: default
+  source:
+    repoURL: https://github.com/filozone/dealbot
+    targetRevision: main
+    path: kustomize/base/backend
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: dealbot-prod
+  syncPolicy:
+    # Automated sync disabled for production safety
+    syncOptions:
+    - CreateNamespace=true
 ---
-apiVersion: image.toolkit.fluxcd.io/v1beta2
-kind: ImagePolicy
+# ImageUpdater CRD for backend
+apiVersion: argoproj.io/v1alpha1
+kind: ImageUpdater
+metadata:
+  name: dealbot-backend-prod
+  namespace: argocd
+spec:
+  applicationRef:
+    name: dealbot-backend-prod
+  images:
+  - name: backend
+    image: ghcr.io/filozone/dealbot-backend
+    updateStrategy:
+      type: semver
+    constraint:
+      semver: '>=0.1.0'
+---
+# Application definition for web
+apiVersion: argoproj.io/v1alpha1
+kind: Application
 metadata:
   name: dealbot-web-prod
-  namespace: flux-system
+  namespace: argocd
 spec:
-  imageRepositoryRef:
-    name: dealbot-web
-  policy:
-    semver:
-      range: '>=0.1.0'
+  project: default
+  source:
+    repoURL: https://github.com/filozone/dealbot
+    targetRevision: main
+    path: kustomize/base/web
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: dealbot-prod
+  syncPolicy:
+    # Automated sync disabled for production safety
+    syncOptions:
+    - CreateNamespace=true
+---
+# ImageUpdater CRD for web
+apiVersion: argoproj.io/v1alpha1
+kind: ImageUpdater
+metadata:
+  name: dealbot-web-prod
+  namespace: argocd
+spec:
+  applicationRef:
+    name: dealbot-web-prod
+  images:
+  - name: web
+    image: ghcr.io/filozone/dealbot-web
+    updateStrategy:
+      type: semver
+    constraint:
+      semver: '>=0.1.0'
 ```
 
-**ImageRepository** (tells Flux where to find images):
+**Manual Sync Commands:**
+```bash
+# Via CLI
+argocd app sync dealbot-backend-prod
+argocd app sync dealbot-web-prod
+
+# Or use the ArgoCD UI to review and sync
+```
+
+**To enable auto-sync later** (after confidence is established):
 ```yaml
-apiVersion: image.toolkit.fluxcd.io/v1beta2
-kind: ImageRepository
-metadata:
-  name: dealbot-backend
-  namespace: flux-system
-spec:
-  image: ghcr.io/filozone/dealbot-backend
-  interval: 5m
----
-apiVersion: image.toolkit.fluxcd.io/v1beta2
-kind: ImageRepository
-metadata:
-  name: dealbot-web
-  namespace: flux-system
-spec:
-  image: ghcr.io/filozone/dealbot-web
-  interval: 5m
+syncPolicy:
+  automated:
+    prune: true
+    selfHeal: true
 ```
 
 ## Benefits
