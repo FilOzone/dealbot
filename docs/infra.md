@@ -65,7 +65,7 @@ spec:
                   name: http
 ```
 
-The filozone/infra repo will patch these Ingress resources to inject production values:
+The FilOzone/infra repo will patch these Ingress resources to inject production values:
 
 ```yaml
 # filozone/infra overlay patch example
