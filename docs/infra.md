@@ -30,7 +30,7 @@ This repo follows the service ownership model where:
 - Placeholder hostnames (e.g., `dealbot.example.com`)
 - Annotations signaling what infra should inject
 
-**Infra Repo INJECTS (filozone/infra)**:
+**Infra Repo (i.e., FilOzone/infra) INJECTS**:
 - Real hostnames via patches
 - TLS configuration (cert-manager annotations, secretName)
 - IngressClass specification
