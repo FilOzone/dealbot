@@ -24,7 +24,7 @@ This repo uses Kustomize for both local and production deployments. The base man
 
 This repo follows the service ownership model where:
 
-**Service Repo OWNS (this repo)**:
+**Service Repo (i.e., this FilOzone/dealbot repo) OWNS**:
 - Base Ingress resources with portable definitions
 - Service routing within namespace boundary (service name/port)
 - Placeholder hostnames (e.g., `dealbot.example.com`)
