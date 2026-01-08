@@ -38,32 +38,11 @@ This repo follows the service ownership model where:
 
 ### Ingress Annotation Signals
 
-The base Ingress manifests use annotations to signal injection requirements.  For example if the base has:
+The base Ingress manifests use annotations to signal injection requirements. See the actual base Ingress manifests:
+- [kustomize/base/backend/ingress.yaml](../kustomize/base/backend/ingress.yaml)
+- [kustomize/base/web/ingress.yaml](../kustomize/base/web/ingress.yaml)
 
-```yaml
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: dealbot-web
-  annotations:
-    # Signals to infra repo
-    filozone.io/inject-hostname: "true"
-    filozone.io/inject-tls: "true"
-    filozone.io/inject-ingress-class: "true"
-    filozone.io/inject-security-policy: "true"
-spec:
-  rules:
-    - host: dealbot.example.com  # Placeholder
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: dealbot-web
-                port:
-                  name: http
-```
+These manifests include annotations like `filozone.io/inject-hostname`, `filozone.io/inject-tls`, etc., which signal to the infra repo what should be injected.
 
 The FilOzone/infra repo will patch these Ingress resources to inject production values:
 
@@ -91,8 +70,6 @@ This boundary allows:
 - **Local development**: Can reproduce everything except ingress (which differs from production)
 - **Service portability**: Base manifests work in any cluster
 - **Infra control**: Central management of hostnames, TLS, and security policies
-
-Note: you can see the actual base Ingress manifests at [kustomize/base/backend/ingress.yaml](../kustomize/base/backend/ingress.yaml) and [kustomize/base/web/ingress.yaml](../kustomize/base/web/ingress.yaml).
 
 ## Using these manifests in FilOzone/infra
 

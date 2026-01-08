@@ -187,35 +187,16 @@ git commit -m "feat: add user profiles
 
 ### release-please-config.json
 
-```json
-{
-  "packages": {
-    "apps/backend": {
-      "component": "backend",
-      "package-name": "dealbot-backend",
-      "release-type": "node"
-    },
-    "apps/web": {
-      "component": "web",
-      "package-name": "dealbot-web",
-      "release-type": "node"
-    }
-  },
-  "separate-pull-requests": false
-}
-```
+See [release-please-config.json](../release-please-config.json) for the complete configuration.
 
+Key settings:
 - `separate-pull-requests: false` → Single PR for all apps
 - `release-type: node` → Uses package.json for versioning
+- Configures independent versioning for backend and web apps
 
 ### .release-please-manifest.json
 
-```json
-{
-  "apps/backend": "0.0.1",
-  "apps/web": "0.0.1"
-}
-```
+See [.release-please-manifest.json](../.release-please-manifest.json) for current versions.
 
 Tracks last released versions. Updated automatically by release-please.
 
