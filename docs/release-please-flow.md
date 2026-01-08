@@ -120,14 +120,16 @@ chore: release to production
    - Verify images are in staging
 
 2. **Merge the PR**
-   - release-please creates git tags:
-     - `backend-v0.2.0`
-     - `web-v0.1.1`
+   - release-please creates git tags **only for apps with changes**:
+     - `backend-v0.2.0` (only if backend had changes)
+     - `web-v0.1.1` (only if web had changes)
    - release-please creates GitHub Releases
 
-3. **Workflow retags images**
-   - `sha-abc123def456...` → `v0.2.0` (backend)
-   - `sha-def456789abc...` → `v0.1.1` (web)
+   > **Note:** Apps are released independently. If only web has changes, only `web-v*` is tagged and released. The [release workflow](../.github/workflows/release-please.yml) uses conditional checks ([backend](../.github/workflows/release-please.yml#L45) | [web](../.github/workflows/release-please.yml#L75)) to ensure images are only retagged when `*_release_created` is true for that component.
+
+3. **Workflow retags images** (conditionally, only for released components)
+   - `sha-abc123def456...` → `v0.2.0` (backend, if backend was released)
+   - `sha-def456789abc...` → `v0.1.1` (web, if web was released)
 
 4. **ArgoCD Image Updater detects new version**
    - Image Updater watches for semver tags in GHCR
