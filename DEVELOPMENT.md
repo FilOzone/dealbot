@@ -20,6 +20,7 @@ Secrets are provided via a Kubernetes Secret created from your local `.env` file
 
 ```bash
 cp .env.example .env            # if you don't already have one
+# Required
 echo "WALLET_PRIVATE_KEY=..." >> .env
 echo "WALLET_ADDRESS=..." >> .env
 # Optional: add DATABASE_PASSWORD if using an external DB (or a non-default password)
