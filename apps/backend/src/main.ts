@@ -28,9 +28,43 @@ async function bootstrap() {
       },
     }),
   );
-  app.enableCors({
-    origin: process.env.DEALBOT_ALLOWED_ORIGINS?.split(","),
-  });
+  // Configure CORS with support for wildcards and pattern matching
+  // Uses express cors middleware native support for (string | RegExp)[]
+  const allowedOriginsConfig = process.env.DEALBOT_ALLOWED_ORIGINS || "";
+  const trimmedConfig = allowedOriginsConfig.trim();
+
+  if (trimmedConfig === "*") {
+    // Allow all origins (dev/testing only - NOT recommended for production)
+    app.enableCors({
+      origin: "*",
+      credentials: false, // Cannot use credentials with wildcard
+    });
+  } else if (trimmedConfig === "") {
+    // No origins configured - disable CORS (reject all cross-origin requests)
+    app.enableCors({
+      origin: false,
+    });
+  } else {
+    // Parse origins and pre-compile regex patterns at startup
+    // This avoids creating new RegExp objects on every request
+    const corsOrigins: (string | RegExp)[] = trimmedConfig
+      .split(",")
+      .map((origin) => origin.trim())
+      .filter((origin) => origin.length > 0)
+      .map((origin) => {
+        // Convert wildcard patterns (e.g., https://*.pages.dev) to pre-compiled RegExp
+        if (origin.includes("*")) {
+          const pattern = origin.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*");
+          return new RegExp(`^${pattern}$`);
+        }
+        return origin;
+      });
+
+    app.enableCors({
+      origin: corsOrigins,
+      credentials: true, // Allow credentials with specific origins
+    });
+  }
 
   const config = new DocumentBuilder()
     .setTitle("Dealbot")
