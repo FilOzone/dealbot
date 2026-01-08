@@ -94,9 +94,7 @@ This boundary allows:
 
 ## Using these manifests in FilOzone/infra
 
-The FilOzone/infra repo can reference the base manifests in this repo using one of two approaches:
-
-### Option 1: Direct GitHub reference (Recommended)
+The FilOzone/infra repo can reference the base manifests in this repo via direct github references.
 
 In your `FilOzone/infra` Kustomize overlay:
 
@@ -134,25 +132,6 @@ secretGenerator:
   - name: dealbot-secrets
     files:
       - dealbot-secrets.env  # SOPS-encrypted
-```
-
-### Option 2: Copy base manifests locally
-
-If you prefer to copy the manifests into FilOzone/infra:
-
-```bash
-# In FilOzone/infra repo
-mkdir -p deployments/kubernetes/dealbot/base
-cp -r /path/to/dealbot/kustomize/base/* deployments/kubernetes/dealbot/base/
-```
-
-Then reference them locally:
-
-```yaml
-# FilOzone/infra: deployments/kubernetes/dealbot/staging/kustomization.yaml
-resources:
-  - ../base/backend
-  - ../base/web
 ```
 
 ## Key differences between local and production
