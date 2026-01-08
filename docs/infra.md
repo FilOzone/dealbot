@@ -92,7 +92,8 @@ This boundary allows:
 - **Service portability**: Base manifests work in any cluster
 - **Infra control**: Central management of hostnames, TLS, and security policies
 
-Note: you can see the actual base Ingress manifests at <path to files>.
+Note: you can see the actual base Ingress manifests at [kustomize/base/backend/ingress.yaml](../kustomize/base/backend/ingress.yaml) and [kustomize/base/web/ingress.yaml](../kustomize/base/web/ingress.yaml).
+
 ## Using these manifests in FilOzone/infra
 
 The FilOzone/infra repo can reference the base manifests in this repo via direct github references.
