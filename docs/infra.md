@@ -38,7 +38,7 @@ This repo follows the service ownership model where:
 
 ### Ingress Annotation Signals
 
-The base Ingress manifests use annotations to signal injection requirements:
+The base Ingress manifests use annotations to signal injection requirements.  For example if the base has:
 
 ```yaml
 apiVersion: networking.k8s.io/v1
