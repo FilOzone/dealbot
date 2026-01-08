@@ -15,7 +15,7 @@ This creates the Kind cluster (`dealbot-local`).
 Local ports (via `kind-config.yaml` extraPortMappings): web UI at http://localhost:3000, backend API at http://localhost:8080.
 If you see `Unexpected token '<'` in the browser console, the frontend is hitting the web server instead of the API; either rely on the web container's `/api*` reverse proxy, or set `VITE_API_BASE_URL=http://localhost:8080` for the web deployment.
 
-## Secrets (wallets are required, DB password is optional)
+## Secrets
 Secrets are provided via a Kubernetes Secret created from your local `.env` file.
 
 ```bash
