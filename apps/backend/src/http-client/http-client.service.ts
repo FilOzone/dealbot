@@ -1,21 +1,33 @@
 import { HttpService } from "@nestjs/axios";
 import { Injectable, Logger } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import { anySignal } from "any-signal";
 import type { AxiosRequestConfig } from "axios";
 import { HttpsProxyAgent } from "https-proxy-agent";
 import { firstValueFrom } from "rxjs";
 import { SocksProxyAgent } from "socks-proxy-agent";
 import { ProxyAgent as UndiciProxyAgent, request as undiciRequest } from "undici";
+import type { IConfig } from "../config/app.config.js";
 import { ProxyService } from "../proxy/proxy.service.js";
 import type { HttpVersion, RequestMetrics, RequestWithMetrics } from "./types.js";
 
 @Injectable()
 export class HttpClientService {
   private logger = new Logger(HttpClientService.name);
+  private readonly http2TimeoutMs: number;
+  private readonly http1TimeoutMs: number;
+  private readonly connectTimeoutMs: number;
 
   constructor(
     private readonly httpService: HttpService,
     private readonly proxyService: ProxyService,
-  ) {}
+    private readonly configService: ConfigService<IConfig, true>,
+  ) {
+    const timeouts = this.configService.get("timeouts");
+    this.http2TimeoutMs = timeouts.http2RequestTimeoutMs;
+    this.http1TimeoutMs = timeouts.httpRequestTimeoutMs;
+    this.connectTimeoutMs = timeouts.connectTimeoutMs;
+  }
 
   async requestWithRandomProxyAndMetrics<T = any>(
     url: string,
@@ -25,9 +37,10 @@ export class HttpClientService {
       headers?: Record<string, string>;
       proxyUrl?: string;
       httpVersion?: HttpVersion; // '1.1' | '2'
+      signal?: AbortSignal;
     } = {},
   ): Promise<RequestWithMetrics<T>> {
-    const { method = "GET", data, headers = {}, proxyUrl, httpVersion = "1.1" } = options;
+    const { method = "GET", data, headers = {}, proxyUrl, httpVersion = "1.1", signal } = options;
 
     const currentProxyUrl = proxyUrl ?? this.proxyService.getRandomProxy();
 
@@ -42,6 +55,7 @@ export class HttpClientService {
         data,
         headers,
         proxyUrl: currentProxyUrl,
+        signal,
       });
     }
 
@@ -51,6 +65,7 @@ export class HttpClientService {
       data,
       headers,
       proxyUrl: currentProxyUrl,
+      signal,
     });
   }
 
@@ -61,9 +76,10 @@ export class HttpClientService {
       data?: any;
       headers?: Record<string, string>;
       httpVersion?: HttpVersion;
+      signal?: AbortSignal;
     } = {},
   ): Promise<RequestWithMetrics<T>> {
-    const { method = "GET", data, headers = {}, httpVersion = "1.1" } = options;
+    const { method = "GET", data, headers = {}, httpVersion = "1.1", signal } = options;
 
     // Route to appropriate implementation
     if (httpVersion === "2") {
@@ -71,6 +87,7 @@ export class HttpClientService {
         method,
         data,
         headers,
+        signal,
       });
     }
 
@@ -78,6 +95,7 @@ export class HttpClientService {
       method,
       data,
       headers,
+      signal,
     });
   }
 
@@ -91,6 +109,7 @@ export class HttpClientService {
       data?: any;
       headers: Record<string, string>;
       proxyUrl: string;
+      signal?: AbortSignal;
     },
   ): Promise<RequestWithMetrics<T>> {
     const { method, data, headers, proxyUrl } = options;
@@ -107,6 +126,20 @@ export class HttpClientService {
         uri: proxyUrl,
       });
 
+      /**
+       * Dual-timeout strategy for HTTP/2 requests:
+       * 1. AbortSignal.timeout() - Undici's native timeout for the entire request lifecycle (10 min default)
+       *    - Covers connection establishment, header exchange, AND body streaming
+       *    - Most reliable for protecting against slow transfers
+       * 2. AbortSignal.timeout() for connection/headers (10 sec default)
+       *    - Provides fast-fail for unreachable servers or connection issues
+       *
+       * This defense-in-depth approach ensures:
+       * - Fast detection of connection issues (10s)
+       * - Protection against slow/stalled transfers (10min)
+       * - No indefinite hangs
+       */
+      const { signal, connectTimeoutSignal } = this.buildHttp2Signals(options.signal);
       const requestOptions: any = {
         method,
         headers: {
@@ -114,6 +147,7 @@ export class HttpClientService {
           ...headers,
         },
         dispatcher: proxyAgent,
+        signal,
       };
 
       if (data) {
@@ -121,7 +155,15 @@ export class HttpClientService {
         requestOptions.headers["Content-Type"] = "application/json";
       }
 
-      const response = await undiciRequest(url, requestOptions);
+      let response: Awaited<ReturnType<typeof undiciRequest<T>>>;
+      try {
+        response = await undiciRequest<T>(url, requestOptions);
+      } catch (error) {
+        if (connectTimeoutSignal.aborted) {
+          throw new Error(`HTTP/2 connection/headers timed out after ${this.connectTimeoutMs}ms`);
+        }
+        throw error;
+      }
 
       // TTFB is approximately when we get the response headers
       ttfbTime = performance.now() - startTime;
@@ -175,6 +217,7 @@ export class HttpClientService {
       method: string;
       data?: any;
       headers: Record<string, string>;
+      signal?: AbortSignal;
     },
   ): Promise<RequestWithMetrics<T>> {
     const { method, data, headers } = options;
@@ -186,12 +229,20 @@ export class HttpClientService {
       let ttfbTime = 0;
       let statusCode = 0;
 
+      /**
+       * Dual-timeout strategy for HTTP/2 direct requests (same as proxied requests):
+       * 1. AbortSignal.timeout() - Undici's native timeout (10 min default)
+       * 2. AbortSignal.timeout() for connection/headers (10 sec default)
+       * See requestWithHttp2AndProxy() for detailed explanation.
+       */
+      const { signal, connectTimeoutSignal } = this.buildHttp2Signals(options.signal);
       const requestOptions: any = {
         method,
         headers: {
           "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
           ...headers,
         },
+        signal,
       };
 
       if (data) {
@@ -199,7 +250,15 @@ export class HttpClientService {
         requestOptions.headers["Content-Type"] = "application/json";
       }
 
-      const response = await undiciRequest(url, requestOptions);
+      let response: Awaited<ReturnType<typeof undiciRequest<T>>>;
+      try {
+        response = await undiciRequest(url, requestOptions);
+      } catch (error) {
+        if (connectTimeoutSignal.aborted) {
+          throw new Error(`HTTP/2 direct connection/headers timed out after ${this.connectTimeoutMs}ms`);
+        }
+        throw error;
+      }
 
       ttfbTime = performance.now() - startTime;
       statusCode = response.statusCode;
@@ -252,9 +311,10 @@ export class HttpClientService {
       data?: any;
       headers: Record<string, string>;
       proxyUrl: string;
+      signal?: AbortSignal;
     },
   ): Promise<RequestWithMetrics<T>> {
-    const { method, data, headers, proxyUrl } = options;
+    const { method, data, headers, proxyUrl, signal } = options;
 
     try {
       this.logger.debug(`Requesting ${url} via proxy ${proxyUrl}`);
@@ -277,7 +337,8 @@ export class HttpClientService {
         httpsAgent: proxyAgent,
         httpAgent: proxyAgent,
         proxy: false,
-        timeout: 30000,
+        timeout: this.http1TimeoutMs,
+        signal,
         maxRedirects: 5,
         responseType: "arraybuffer",
         onDownloadProgress: (progressEvent) => {
@@ -339,9 +400,10 @@ export class HttpClientService {
       method: string;
       data?: any;
       headers: Record<string, string>;
+      signal?: AbortSignal;
     },
   ): Promise<RequestWithMetrics<T>> {
-    const { method, data, headers } = options;
+    const { method, data, headers, signal } = options;
 
     try {
       this.logger.debug(`Requesting ${url} without proxy (direct connection)`);
@@ -360,7 +422,8 @@ export class HttpClientService {
           "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
           ...headers,
         },
-        timeout: 30000,
+        timeout: this.http1TimeoutMs,
+        signal,
         maxRedirects: 5,
         responseType: "arraybuffer",
         onDownloadProgress: (progressEvent) => {
@@ -465,5 +528,25 @@ export class HttpClientService {
    */
   private maskProxyUrl(url: string): string {
     return url.replace(/\/\/.*:.*@/, "//***:***@");
+  }
+
+  private buildHttp2Signals(parentSignal?: AbortSignal): {
+    signal: AbortSignal;
+    connectTimeoutSignal: AbortSignal;
+  } {
+    const transferTimeoutSignal = AbortSignal.timeout(this.http2TimeoutMs);
+    const connectTimeoutSignal = AbortSignal.timeout(this.connectTimeoutMs);
+
+    if (parentSignal) {
+      return {
+        signal: anySignal([transferTimeoutSignal, connectTimeoutSignal, parentSignal]),
+        connectTimeoutSignal,
+      };
+    }
+
+    return {
+      signal: anySignal([transferTimeoutSignal, connectTimeoutSignal]),
+      connectTimeoutSignal,
+    };
   }
 }

@@ -12,6 +12,8 @@ export class SchedulerService implements OnModuleInit {
   private readonly logger = new Logger(SchedulerService.name);
   private isRunningDealCreation = false;
   private isRunningRetrievalTests = false;
+  private retrievalAbortController?: AbortController;
+  private retrievalRunPromise?: Promise<void>;
 
   constructor(
     private dealService: DealService,
@@ -101,26 +103,74 @@ export class SchedulerService implements OnModuleInit {
 
   async handleRetrievalTests() {
     if (this.isRunningRetrievalTests) {
-      this.logger.warn("Previous retrieval test still running, skipping...");
-      return;
+      this.logger.warn("Previous retrieval test still running, aborting before starting a new run...");
+      this.retrievalAbortController?.abort();
+
+      if (this.retrievalRunPromise) {
+        try {
+          await this.retrievalRunPromise;
+        } catch (error) {
+          this.logger.warn("Previous retrieval run ended after abort", error);
+        }
+      }
     }
 
     this.isRunningRetrievalTests = true;
-    this.logger.log("Starting scheduled retrieval tests");
+    const abortController = new AbortController();
+    this.retrievalAbortController = abortController;
 
-    try {
-      const providerCount = this.walletSdkService.getTestingProvidersCount();
+    this.retrievalRunPromise = (async () => {
+      this.logger.log("Starting scheduled retrieval tests");
 
-      if (providerCount === 0) {
-        this.logger.warn("No registered providers found, skipping retrieval tests");
-        return;
+      try {
+        const providerCount = this.walletSdkService.getTestingProvidersCount();
+
+        if (providerCount === 0) {
+          this.logger.warn("No registered providers found, skipping retrieval tests");
+          return;
+        }
+
+        // Calculate the maximum time this job is allowed to run
+        // Interval (seconds) * 1000 - Buffer (milliseconds)
+        // e.g. 1 hour interval (3600s) - 60s buffer = 3540s timeout
+        const schedulerConfig = this.configService.get("scheduling");
+        const timeoutsConfig = this.configService.get("timeouts");
+
+        const intervalMs = schedulerConfig.retrievalIntervalSeconds * 1000;
+        const bufferMs = timeoutsConfig.retrievalTimeoutBufferMs;
+        // Ensure we have at least 10 seconds if the buffer is too large relative to the interval
+        const timeoutMs = Math.max(10000, intervalMs - bufferMs);
+        const httpTimeoutMs = Math.max(timeoutsConfig.httpRequestTimeoutMs, timeoutsConfig.http2RequestTimeoutMs);
+
+        if (timeoutMs < httpTimeoutMs) {
+          this.logger.warn(
+            `Retrieval interval (${intervalMs}ms) minus buffer (${bufferMs}ms) yields ${timeoutMs}ms, ` +
+              `which is less than the HTTP timeout (${httpTimeoutMs}ms). ` +
+              "Retrieval batches may be skipped unless the interval or timeouts are adjusted.",
+          );
+        }
+
+        this.logger.log(
+          `Starting batch retrieval with timeout of ${Math.round(timeoutMs / 1000)}s ` +
+            `(Interval: ${schedulerConfig.retrievalIntervalSeconds}s, Buffer: ${Math.round(bufferMs / 1000)}s)`,
+        );
+
+        const result = await this.retrievalService.performRandomBatchRetrievals(
+          providerCount,
+          timeoutMs,
+          abortController.signal,
+        );
+        this.logger.log(`Scheduled retrieval tests completed for ${result.length} retrievals`);
+      } catch (error) {
+        this.logger.error("Failed to perform scheduled retrievals", error);
+      } finally {
+        if (this.retrievalAbortController === abortController) {
+          this.retrievalAbortController = undefined;
+        }
+        this.isRunningRetrievalTests = false;
       }
-      const result = await this.retrievalService.performRandomBatchRetrievals(providerCount);
-      this.logger.log(`Scheduled retrieval tests completed for ${result.length} retrievals`);
-    } catch (error) {
-      this.logger.error("Failed to perform scheduled retrievals", error);
-    } finally {
-      this.isRunningRetrievalTests = false;
-    }
+    })();
+
+    await this.retrievalRunPromise;
   }
 }

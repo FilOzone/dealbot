@@ -142,12 +142,12 @@ export class RetrievalAddonsService {
    * @param config - Retrieval configuration
    * @returns Retrieval execution result
    */
-  async performRetrieval(config: RetrievalConfiguration): Promise<RetrievalExecutionResult> {
+  async performRetrieval(config: RetrievalConfiguration, signal?: AbortSignal): Promise<RetrievalExecutionResult> {
     const urlResult = this.constructPreferredUrl(config);
 
     this.logger.log(`Performing retrieval for deal ${config.deal.id} using ${urlResult.method}: ${urlResult.url}`);
 
-    return await this.executeRetrieval(urlResult, config);
+    return await this.executeRetrieval(urlResult, config, signal);
   }
 
   /**
@@ -157,7 +157,7 @@ export class RetrievalAddonsService {
    * @param config - Retrieval configuration
    * @returns Test result with all method results and summary
    */
-  async testAllRetrievalMethods(config: RetrievalConfiguration): Promise<RetrievalTestResult> {
+  async testAllRetrievalMethods(config: RetrievalConfiguration, signal?: AbortSignal): Promise<RetrievalTestResult> {
     const startTime = Date.now();
     const urlResults = this.constructAllUrls(config);
 
@@ -171,7 +171,9 @@ export class RetrievalAddonsService {
     );
 
     // Execute all retrievals in parallel
-    const retrievalPromises = urlResults.map((urlResult) => this.executeRetrievalWithRetries(urlResult, config));
+    const retrievalPromises = urlResults.map((urlResult) =>
+      this.executeRetrievalWithRetries(urlResult, config, signal),
+    );
 
     const results = await Promise.allSettled(retrievalPromises);
 
@@ -239,6 +241,7 @@ export class RetrievalAddonsService {
   private async executeRetrievalWithRetries(
     urlResult: RetrievalUrlResult,
     config: RetrievalConfiguration,
+    signal?: AbortSignal,
   ): Promise<RetrievalExecutionResult> {
     const strategy = this.addons.get(urlResult.method);
 
@@ -260,8 +263,9 @@ export class RetrievalAddonsService {
     const results: Array<RetrievalExecutionResult & { attemptNumber: number }> = [];
 
     for (let attempt = 1; attempt <= attempts; attempt++) {
+      this.ensureNotAborted(signal);
       try {
-        const result = await this.executeRetrieval(urlResult, config);
+        const result = await this.executeRetrieval(urlResult, config, signal);
         results.push({ ...result, attemptNumber: attempt });
 
         if (attempts > 1 && result.success) {
@@ -274,6 +278,7 @@ export class RetrievalAddonsService {
 
         // Add delay between attempts if configured
         if (attempt < attempts && delayMs > 0) {
+          this.ensureNotAborted(signal);
           await this.delay(delayMs);
         }
       } catch (error) {
@@ -325,6 +330,7 @@ export class RetrievalAddonsService {
   private async executeRetrieval(
     urlResult: RetrievalUrlResult,
     config: RetrievalConfiguration,
+    signal?: AbortSignal,
   ): Promise<RetrievalExecutionResult> {
     const strategy = this.addons.get(urlResult.method);
 
@@ -333,6 +339,7 @@ export class RetrievalAddonsService {
     }
 
     try {
+      this.ensureNotAborted(signal);
       let result: RequestWithMetrics<Buffer>;
       try {
         // TODO: use proxy for IPFS_PIN as well
@@ -340,11 +347,13 @@ export class RetrievalAddonsService {
           result = await this.httpClientService.requestWithoutProxyAndMetrics<Buffer>(urlResult.url, {
             headers: urlResult.headers,
             httpVersion: urlResult.httpVersion,
+            signal,
           });
         } else {
           result = await this.httpClientService.requestWithRandomProxyAndMetrics<Buffer>(urlResult.url, {
             headers: urlResult.headers,
             httpVersion: urlResult.httpVersion,
+            signal,
           });
         }
       } catch (error) {
@@ -352,6 +361,7 @@ export class RetrievalAddonsService {
           result = await this.httpClientService.requestWithoutProxyAndMetrics<Buffer>(urlResult.url, {
             headers: urlResult.headers,
             httpVersion: urlResult.httpVersion,
+            signal,
           });
         } else {
           throw error;
@@ -414,6 +424,12 @@ export class RetrievalAddonsService {
         success: false,
         error: error.message,
       };
+    }
+  }
+
+  private ensureNotAborted(signal?: AbortSignal): void {
+    if (signal?.aborted) {
+      throw new Error("Retrieval job aborted");
     }
   }
 
