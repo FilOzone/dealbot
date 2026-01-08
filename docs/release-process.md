@@ -120,7 +120,7 @@ GITHUB_TOKEN: Automatically provided by GitHub Actions
 
 No other secrets needed - Flux watches the GitHub Container Registry directly!
 
-### Flux ImagePolicy Setup in filozone/infra
+### Flux ImagePolicy Setup in FilOzone/infra
 
 **Staging ImagePolicy** (watches ordered `sha-<run>-<sha>` tags):
 ```yaml

@@ -1,6 +1,6 @@
-# Integration with filozone/infra
+# Integration with FilOzone/infra
 
-This repo uses Kustomize for both local and production deployments. The base manifests (`kustomize/base/`) can be directly referenced by `filozone/infra` with production-specific overlays.
+This repo uses Kustomize for both local and production deployments. The base manifests (`kustomize/base/`) can be directly referenced by `FilOzone/infra` with production-specific overlays.
 
 ## Architecture
 
@@ -13,7 +13,7 @@ This repo uses Kustomize for both local and production deployments. The base man
   - Web: localhost:3000
 - Managed via Makefile targets (`make up`, `make deploy`, etc.)
 
-**Production Deployments (filozone/infra repo)**:
+**Production Deployments (FilOzone/infra repo)**:
 - References this repo's base manifests as remote resources
 - Applies production-specific overlays (ClusterIP services, Ingress, image tags, etc.)
 - Flux CD for GitOps deployment
@@ -68,7 +68,7 @@ spec:
 The FilOzone/infra repo will patch these Ingress resources to inject production values:
 
 ```yaml
-# filozone/infra overlay patch example
+# FilOzone/infra overlay patch example
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -92,16 +92,16 @@ This boundary allows:
 - **Service portability**: Base manifests work in any cluster
 - **Infra control**: Central management of hostnames, TLS, and security policies
 
-## Using these manifests in filozone/infra
+## Using these manifests in FilOzone/infra
 
-The filozone/infra repo can reference the base manifests in this repo using one of two approaches:
+The FilOzone/infra repo can reference the base manifests in this repo using one of two approaches:
 
 ### Option 1: Direct GitHub reference (Recommended)
 
-In your `filozone/infra` Kustomize overlay:
+In your `FilOzone/infra` Kustomize overlay:
 
 ```yaml
-# filozone/infra: deployments/kubernetes/dealbot/staging/kustomization.yaml
+# FilOzone/infra: deployments/kubernetes/dealbot/staging/kustomization.yaml
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
@@ -138,10 +138,10 @@ secretGenerator:
 
 ### Option 2: Copy base manifests locally
 
-If you prefer to copy the manifests into filozone/infra:
+If you prefer to copy the manifests into FilOzone/infra:
 
 ```bash
-# In filozone/infra repo
+# In FilOzone/infra repo
 mkdir -p deployments/kubernetes/dealbot/base
 cp -r /path/to/dealbot/kustomize/base/* deployments/kubernetes/dealbot/base/
 ```
@@ -149,7 +149,7 @@ cp -r /path/to/dealbot/kustomize/base/* deployments/kubernetes/dealbot/base/
 Then reference them locally:
 
 ```yaml
-# filozone/infra: deployments/kubernetes/dealbot/staging/kustomization.yaml
+# FilOzone/infra: deployments/kubernetes/dealbot/staging/kustomization.yaml
 resources:
   - ../base/backend
   - ../base/web
@@ -157,7 +157,7 @@ resources:
 
 ## Key differences between local and production
 
-| Aspect | Local (this repo) | Production (filozone/infra) |
+| Aspect | Local (this repo) | Production (FilOzone/infra) |
 |--------|-------------------|------------------------------|
 | Tool | Kustomize overlay | Kustomize overlay |
 | Secrets | .env → k8s Secret | SOPS-encrypted files |
@@ -170,7 +170,7 @@ resources:
 ## Example production overlay structure
 
 ```
-filozone/infra/deployments/kubernetes/dealbot/
+FilOzone/infra/deployments/kubernetes/dealbot/
 ├── staging/
 │   ├── kustomization.yaml          # References base + applies staging patches
 │   ├── backend-configmap-staging.yaml
@@ -284,7 +284,7 @@ DATABASE_PASSWORD=...
 EOF
 
 # Encrypt with SOPS
-cd filozone/infra/deployments/kubernetes/dealbot/staging
+cd FilOzone/infra/deployments/kubernetes/dealbot/staging
 sops -e /tmp/dealbot-secrets.env > dealbot-secrets.env
 rm /tmp/dealbot-secrets.env
 ```
@@ -303,7 +303,7 @@ secretGenerator:
 Flux watches the GitHub Container Registry for new image tags:
 
 ```yaml
-# filozone/infra: flux/imagepolicies/dealbot-backend-staging.yaml
+# FilOzone/infra: flux/imagepolicies/dealbot-backend-staging.yaml
 apiVersion: image.toolkit.fluxcd.io/v1beta2
 kind: ImagePolicy
 metadata:
@@ -319,7 +319,7 @@ spec:
     numerical:
       order: asc
 ---
-# filozone/infra: flux/imagerepositories/dealbot-backend.yaml
+# FilOzone/infra: flux/imagerepositories/dealbot-backend.yaml
 apiVersion: image.toolkit.fluxcd.io/v1beta2
 kind: ImageRepository
 metadata:
@@ -333,7 +333,7 @@ spec:
 For production, watch semver tags:
 
 ```yaml
-# filozone/infra: flux/imagepolicies/dealbot-backend-prod.yaml
+# FilOzone/infra: flux/imagepolicies/dealbot-backend-prod.yaml
 apiVersion: image.toolkit.fluxcd.io/v1beta2
 kind: ImagePolicy
 metadata:

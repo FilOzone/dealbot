@@ -1,6 +1,6 @@
 # Local Kubernetes Development (Kind + Kustomize)
 
-This repo uses Kustomize for both local and production deployments. Local clusters use the `kustomize/overlays/local` overlay; `filozone/infra` uses the base manifests with production-specific overlays.
+This repo uses Kustomize for both local and production deployments. Local clusters use the `kustomize/overlays/local` overlay; `FilOzone/infra` uses the base manifests with production-specific overlays.
 
 ## Prerequisites
 - Docker, Kind, kubectl, make installed.
