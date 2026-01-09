@@ -83,8 +83,9 @@ git merge feat/new-api-endpoint
 - ❌ Web image skipped (no changes)
 - 🚀 ArgoCD deploys backend to staging
 - 📝 Release PR updated: `chore: release to production`
-  - Will only promote backend image
-  - Web stays at current version
+  - When the release PR is merged:
+     - Will only promote backend image
+     - Web stays at current version
 
 ### Example 2: Dependency update
 
