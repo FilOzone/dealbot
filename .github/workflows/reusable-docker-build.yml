@@ -1,3 +1,4 @@
+# Reusable workflow: builds/pushes a single app image; docker-build.yml handles change detection and calls this.
 name: Reusable Docker Build
 
 on:

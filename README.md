@@ -35,6 +35,13 @@ dealbot/
     └── README.md     # Frontend-specific documentation
 ```
 
+## Developer Docs
+
+- [DEVELOPMENT.md](DEVELOPMENT.md) - Local Kubernetes development (Kind + Kustomize)
+- [docs/infra.md](docs/infra.md) - Integration with FilOzone/infra
+- [docs/release-process.md](docs/release-process.md) - Release pipeline overview
+- [docs/release-please-flow.md](docs/release-please-flow.md) - release-please details
+
 ## Quick Start
 
 ### Option 1: Docker Compose (Recommended for Quick Start)

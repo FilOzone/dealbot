@@ -1,6 +1,8 @@
 # Local Kubernetes Development (Kind + Kustomize)
 
-This repo uses Kustomize for both local and production deployments. Local clusters use the `kustomize/overlays/local` overlay; `FilOzone/infra` uses the base manifests with production-specific overlays.
+This repo uses Kustomize for both local and production deployments. Local clusters use the [kustomize/overlays/local](kustomize/overlays/local/) overlay; [FilOzone/infra](https://github.com/FilOzone/infra) uses the base manifests with production-specific overlays.
+
+More developer docs live in [docs/](docs/) (release process, infra integration, release-please flow).
 
 ## Prerequisites
 - Docker, Kind, kubectl, make installed.
@@ -12,7 +14,7 @@ cp .env.example .env
 # Edit .env to add your WALLET_PRIVATE_KEY and WALLET_ADDRESS
 ```
 This creates the Kind cluster (`dealbot-local`).
-Local ports (via `kind-config.yaml` extraPortMappings): web UI at http://localhost:3000, backend API at http://localhost:8080.
+Local ports (via [kind-config.yaml](kind-config.yaml) extraPortMappings): web UI at http://localhost:3000, backend API at http://localhost:8080.
 If you see `Unexpected token '<'` in the browser console, the frontend is hitting the web server instead of the API; either rely on the web container's `/api*` reverse proxy, or set `VITE_API_BASE_URL=http://localhost:8080` for the web deployment.
 
 ## Secrets
@@ -28,7 +30,7 @@ echo "DATABASE_PASSWORD=..." >> .env
 make secret                     # uses SECRET_ENV_FILE=.env by default
 ```
 The `make secret` target will only include secret keys (wallet + optional DATABASE_PASSWORD) so your `.env` won't override non-secret configuration.
-For running services directly (outside Kubernetes), use `apps/backend/.env.example` and `apps/web/.env.example` instead.
+For running services directly (outside Kubernetes), use [apps/backend/.env.example](apps/backend/.env.example) and [apps/web/.env.example](apps/web/.env.example) instead.
 
 **Note**: The bundled PostgreSQL uses `dealbot_password` and the backend defaults to that value if `DATABASE_PASSWORD` is unset. Only set `DATABASE_PASSWORD` when you need something else (external DB or non-default password).
 
@@ -55,19 +57,19 @@ Sugar commands:
 - `make down` -> undeploy app and delete the Kind cluster
 
 ## Customizing local configuration
-The local overlay is in `kustomize/overlays/local/`. To customize configuration:
+The local overlay is in [kustomize/overlays/local/](kustomize/overlays/local/). To customize configuration:
 
-1. **Environment variables**: Edit `kustomize/overlays/local/backend-configmap-local.yaml`
-2. **Service ports**: Edit `kustomize/overlays/local/backend-service-nodeport.yaml` or `web-service-nodeport.yaml`
-3. **Image tags**: Images are configured in `kustomize/overlays/local/kustomization.yaml`
+1. **Environment variables**: Edit [kustomize/overlays/local/backend-configmap-local.yaml](kustomize/overlays/local/backend-configmap-local.yaml)
+2. **Service ports**: Edit [kustomize/overlays/local/backend-service-nodeport.yaml](kustomize/overlays/local/backend-service-nodeport.yaml) or [kustomize/overlays/local/web-service-nodeport.yaml](kustomize/overlays/local/web-service-nodeport.yaml)
+3. **Image tags**: Images are configured in [kustomize/overlays/local/kustomization.yaml](kustomize/overlays/local/kustomization.yaml)
 
 After making changes, run `make deploy` to apply them.
 
 ## Values and configuration
-- Backend base: `kustomize/base/backend/`
-- Backend local overlay: `kustomize/overlays/local/backend-configmap-local.yaml`
-- Web base: `kustomize/base/web/`
-- Web local overlay: `kustomize/overlays/local/web-service-nodeport.yaml`
+- Backend base: [kustomize/base/backend/](kustomize/base/backend/)
+- Backend local overlay: [kustomize/overlays/local/backend-configmap-local.yaml](kustomize/overlays/local/backend-configmap-local.yaml)
+- Web base: [kustomize/base/web/](kustomize/base/web/)
+- Web local overlay: [kustomize/overlays/local/web-service-nodeport.yaml](kustomize/overlays/local/web-service-nodeport.yaml)
 
 The local overlay automatically:
 - Uses NodePort services for local access (backend :30081 → :8080, web :30080 → :3000)
@@ -117,9 +119,8 @@ kubectl delete pvc -n dealbot dealbot-postgres
 
 # Restart the postgres deployment to recreate the PVC
 kubectl rollout restart deployment -n dealbot dealbot-postgres
-
-# Migrations will run automatically when the backend pod starts
 ```
+Database schema migrations (TypeORM) in [apps/backend/src/database/migrations](apps/backend/src/database/migrations/) run automatically when the backend pod starts.
 
 ### Accessing the database directly
 ```bash

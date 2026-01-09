@@ -1,3 +1,4 @@
+# Reusable workflow: build images, deploy to Kind, and run backend e2e tests.
 name: Integration Test
 
 on:
