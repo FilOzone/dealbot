@@ -47,6 +47,12 @@ export class WalletSdkService implements OnModuleInit {
   }
 
   async onModuleInit() {
+    if (process.env.DEALBOT_DISABLE_CHAIN === "true") {
+      this.logger.warn(
+        "Chain integration disabled via DEALBOT_DISABLE_CHAIN=true; skipping Synapse initialization and provider loading.",
+      );
+      return;
+    }
     await this.initializeServices();
     await this.loadProviders();
   }

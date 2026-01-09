@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: dealbot
+spec:
+  type: NodePort
+  ports:
+    - port: 3130
+      targetPort: 3130
+      nodePort: 30081
+      protocol: TCP
+      name: http

@@ -1,0 +1,21 @@
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: dealbot-local
+nodes:
+  - role: control-plane
+    kubeadmConfigPatches:
+      - |
+        kind: InitConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            node-labels: "ingress-ready=true"
+    extraPortMappings:
+      # Backend API (dealbot)
+      - containerPort: 30081
+        hostPort: 8080
+        protocol: TCP
+      # Web UI (dealbot-web)
+      - containerPort: 30080
+        hostPort: 3000
+        protocol: TCP
+  - role: worker

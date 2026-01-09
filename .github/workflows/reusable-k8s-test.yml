@@ -1,0 +1,97 @@
+# Reusable workflow: build images, deploy to Kind, and run backend e2e tests.
+name: Integration Test
+
+on:
+  workflow_call:
+
+jobs:
+  integration-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 'lts/*'
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Create k8s Kind Cluster
+        uses: helm/kind-action@v1
+        with:
+          config: kind-config.yaml
+          cluster_name: dealbot-local
+
+      - name: Build backend image (cached)
+        uses: ./.github/actions/docker-build
+        with:
+          context: .
+          file: apps/backend/Dockerfile
+          tags: dealbot-local:dev
+          load: "true"
+          push: "false"
+          cache-scope: dealbot-backend
+
+      - name: Build web image (cached)
+        uses: ./.github/actions/docker-build
+        with:
+          context: .
+          file: apps/web/Dockerfile
+          tags: dealbot-web-local:dev
+          load: "true"
+          push: "false"
+          cache-scope: dealbot-web
+
+      - name: Load images into Kind
+        run: make kind-load
+
+      - name: Configure Environment and Deploy
+        run: |
+          # Create dummy .env for secrets required by 'make secret'
+          cat <<EOF > .env
+          WALLET_PRIVATE_KEY=0x0000000000000000000000000000000000000000000000000000000000000001
+          WALLET_ADDRESS=0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf
+          DATABASE_PASSWORD=dealbot_password
+          FILBEAM_BOT_TOKEN=dummy
+          EOF
+
+          # Deploy using Makefile targets (handles namespace, secrets, and kustomize apply)
+          # Note: 'make secret' will use the .env created above
+          KUSTOMIZE_OVERLAY=kustomize/overlays/ci make deploy
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --prefer-offline
+
+      - name: Wait for Deployments
+        timeout-minutes: 5
+        run: |
+          echo "Waiting for Postgres..."
+          kubectl -n dealbot rollout status deploy/dealbot-postgres --timeout=300s
+
+          echo "Waiting for Dealbot Backend..."
+          kubectl -n dealbot rollout status deploy/dealbot --timeout=300s
+
+          echo "Waiting for Dealbot Web..."
+          kubectl -n dealbot rollout status deploy/dealbot-web --timeout=300s
+
+      - name: Debug Failure
+        if: failure()
+        run: |
+          kubectl -n dealbot get pods --show-labels
+          kubectl -n dealbot describe pods
+          kubectl -n dealbot get events --sort-by=.lastTimestamp || true
+          echo "--- Current Logs ---"
+          kubectl -n dealbot logs deploy/dealbot --all-containers --tail=200 || true
+          echo "--- Previous Logs (if crashed) ---"
+          kubectl -n dealbot logs deploy/dealbot --all-containers --previous --tail=200 || true
+          echo "--- Web Logs ---"
+          kubectl -n dealbot logs deploy/dealbot-web --all-containers --tail=100 || true
+      - name: Run Integration Tests
+        run: pnpm --filter dealbot-backend test:e2e:k8s
