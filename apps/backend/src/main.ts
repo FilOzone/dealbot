@@ -1,6 +1,7 @@
 import { Logger } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
+import cors from "cors";
 import helmet from "helmet";
 
 const logger = new Logger("Main");
@@ -28,43 +29,19 @@ async function bootstrap() {
       },
     }),
   );
-  // Configure CORS with support for wildcards and pattern matching
-  // Uses express cors middleware native support for (string | RegExp)[]
-  const allowedOriginsConfig = process.env.DEALBOT_ALLOWED_ORIGINS || "";
-  const trimmedConfig = allowedOriginsConfig.trim();
 
-  if (trimmedConfig === "*") {
-    // Allow all origins (dev/testing only - NOT recommended for production)
-    app.enableCors({
-      origin: "*",
-      credentials: false, // Cannot use credentials with wildcard
-    });
-  } else if (trimmedConfig === "") {
-    // No origins configured - disable CORS (reject all cross-origin requests)
-    app.enableCors({
-      origin: false,
-    });
-  } else {
-    // Parse origins and pre-compile regex patterns at startup
-    // This avoids creating new RegExp objects on every request
-    const corsOrigins: (string | RegExp)[] = trimmedConfig
-      .split(",")
-      .map((origin) => origin.trim())
-      .filter((origin) => origin.length > 0)
-      .map((origin) => {
-        // Convert wildcard patterns (e.g., https://*.pages.dev) to pre-compiled RegExp
-        if (origin.includes("*")) {
-          const pattern = origin.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*");
-          return new RegExp(`^${pattern}$`);
-        }
-        return origin;
-      });
+  // Configure CORS using express cors middleware directly
+  const allowedOrigins = (process.env.DEALBOT_ALLOWED_ORIGINS ?? "")
+    .split(",")
+    .map((o) => o.trim())
+    .filter(Boolean);
 
-    app.enableCors({
-      origin: corsOrigins,
-      credentials: true, // Allow credentials with specific origins
-    });
-  }
+  app.use(
+    cors({
+      credentials: true,
+      origin: allowedOrigins.length ? allowedOrigins : false, // Disable CORS if no origins configured
+    }),
+  );
 
   const config = new DocumentBuilder()
     .setTitle("Dealbot")
