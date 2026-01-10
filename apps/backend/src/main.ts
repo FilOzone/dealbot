@@ -1,6 +1,7 @@
 import { Logger } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
+import cors from "cors";
 import helmet from "helmet";
 
 const logger = new Logger("Main");
@@ -28,9 +29,19 @@ async function bootstrap() {
       },
     }),
   );
-  app.enableCors({
-    origin: process.env.DEALBOT_ALLOWED_ORIGINS?.split(","),
-  });
+
+  // Configure CORS using express cors middleware directly
+  const allowedOrigins = (process.env.DEALBOT_ALLOWED_ORIGINS ?? "")
+    .split(",")
+    .map((o) => o.trim())
+    .filter(Boolean);
+
+  app.use(
+    cors({
+      credentials: true,
+      origin: allowedOrigins.length > 0 ? allowedOrigins : false, // Disable CORS if no origins configured
+    }),
+  );
 
   const config = new DocumentBuilder()
     .setTitle("Dealbot")
