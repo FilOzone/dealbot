@@ -39,7 +39,7 @@ async function bootstrap() {
   app.use(
     cors({
       credentials: true,
-      origin: allowedOrigins.length ? allowedOrigins : false, // Disable CORS if no origins configured
+      origin: allowedOrigins.length > 0 ? allowedOrigins : false, // Disable CORS if no origins configured
     }),
   );
 
