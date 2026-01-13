@@ -4,7 +4,7 @@ This repo uses Kustomize for local and production deployments. The base manifest
 
 ## Where things live in this repo
 
-- Base manifests: `kustomize/base/backend/`, `kustomize/base/web/`, `kustomize/base/postgres/`
+- Base manifests: `kustomize/base/backend/`, `kustomize/base/web/`
 - Local overlay: `kustomize/overlays/local/`
 
 ## What infra can customize
@@ -44,4 +44,5 @@ For required keys and optional variables, see [apps/backend/.env.example](../app
 ## Local vs production notes
 
 - Local overlay uses NodePort services and bundled Postgres for fast iteration.
+- Bundled Postgres manifests live in `kustomize/overlays/local/postgres/`.
 - Infra typically switches services to ClusterIP, uses managed databases, and injects ingress/TLS settings.

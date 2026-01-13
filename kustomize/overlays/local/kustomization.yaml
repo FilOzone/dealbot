@@ -6,7 +6,7 @@ namespace: dealbot
 resources:
   - ../../base/backend
   - ../../base/web
-  - ../../base/postgres
+  - ./postgres
 
 # Patch services to use NodePort for local access and update configmap
 patches:
