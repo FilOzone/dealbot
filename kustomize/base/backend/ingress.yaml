@@ -1,0 +1,18 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: dealbot-api
+  labels:
+    app.kubernetes.io/name: dealbot
+spec:
+  rules:
+    - host: dealbot-api.example.com
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: dealbot
+                port:
+                  name: http

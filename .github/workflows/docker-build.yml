@@ -1,0 +1,78 @@
+name: Build and Push Docker Images
+
+on:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: docker-build-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      web: ${{ steps.filter.outputs.web }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check for changes
+        uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
+        id: filter
+        with:
+          filters: |
+            backend:
+              - 'apps/backend/**'
+              - 'pnpm-lock.yaml'
+              - 'pnpm-workspace.yaml'
+            web:
+              - 'apps/web/**'
+              - 'pnpm-lock.yaml'
+              - 'pnpm-workspace.yaml'
+
+  integration-test:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.backend == 'true' || needs.detect-changes.outputs.web == 'true'
+    uses: ./.github/workflows/reusable-k8s-test.yml
+
+  build-backend:
+    needs: [detect-changes, integration-test]
+    if: needs.detect-changes.outputs.backend == 'true'
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/reusable-docker-build.yml
+    with:
+      app: backend
+      dockerfile: apps/backend/Dockerfile
+      image: filozone/dealbot-backend
+      tags: |
+        ghcr.io/filozone/dealbot-backend:sha-${{ github.sha }}
+        ghcr.io/filozone/dealbot-backend:sha-${{ github.run_number }}-${{ github.sha }}
+      summary: |
+        echo "backend image (sha): ghcr.io/filozone/dealbot-backend:sha-${{ github.sha }}"
+        echo "backend image (ordered): ghcr.io/filozone/dealbot-backend:sha-${{ github.run_number }}-${{ github.sha }}"
+
+  build-web:
+    needs: [detect-changes, integration-test]
+    if: needs.detect-changes.outputs.web == 'true'
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/reusable-docker-build.yml
+    with:
+      app: web
+      dockerfile: apps/web/Dockerfile
+      image: filozone/dealbot-web
+      tags: |
+        ghcr.io/filozone/dealbot-web:sha-${{ github.sha }}
+        ghcr.io/filozone/dealbot-web:sha-${{ github.run_number }}-${{ github.sha }}
+      summary: |
+        echo "web image (sha): ghcr.io/filozone/dealbot-web:sha-${{ github.sha }}"
+        echo "web image (ordered): ghcr.io/filozone/dealbot-web:sha-${{ github.run_number }}-${{ github.sha }}"

@@ -17,9 +17,13 @@ import type { ServiceComparisonQueryOptions, ServiceComparisonResponse } from "@
 const JSON_HEADERS = { "Content-Type": "application/json" } as const;
 
 /**
- * Get the base API URL from environment or default to empty string
+ * Get the base API URL with fallback priority:
+ * 1. Build-time value from import.meta.env.VITE_API_BASE_URL (set via Docker ARG / Vite env)
+ * 2. Empty string (uses relative URLs)
  */
-const getBaseUrl = (): string => import.meta.env.VITE_API_BASE_URL ?? "";
+const getBaseUrl = (): string => {
+  return import.meta.env.VITE_API_BASE_URL ?? "";
+};
 
 /**
  * Build query string from params object

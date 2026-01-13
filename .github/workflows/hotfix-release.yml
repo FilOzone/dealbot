@@ -1,0 +1,104 @@
+name: Hotfix Release
+
+on:
+  push:
+    branches:
+      - 'hotfix/**'
+
+permissions:
+  contents: write
+  pull-requests: write
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  hotfix-release:
+    runs-on: ubuntu-latest
+    outputs:
+      releases_created: ${{ steps.release.outputs.releases_created }}
+      backend_release_created: ${{ steps.release.outputs['apps/backend--release_created'] }}
+      backend_tag_name: ${{ steps.release.outputs['apps/backend--tag_name'] }}
+      backend_version: ${{ steps.release.outputs['apps/backend--version'] }}
+      backend_sha: ${{ steps.release.outputs['apps/backend--sha'] }}
+      web_release_created: ${{ steps.release.outputs['apps/web--release_created'] }}
+      web_tag_name: ${{ steps.release.outputs['apps/web--tag_name'] }}
+      web_version: ${{ steps.release.outputs['apps/web--version'] }}
+      web_sha: ${{ steps.release.outputs['apps/web--sha'] }}
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: release
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+          target-branch: ${{ github.ref_name }}
+
+  hotfix-build-matrix:
+    needs: hotfix-release
+    runs-on: ubuntu-latest
+    outputs:
+      has_items: ${{ steps.set-matrix.outputs.has_items }}
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - name: Build matrix
+        id: set-matrix
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          include='[]'
+
+          if [[ "${{ needs.hotfix-release.outputs.backend_release_created }}" == "true" ]]; then
+            include="$(jq -c \
+              --arg app "backend" \
+              --arg dockerfile "apps/backend/Dockerfile" \
+              --arg image "filozone/dealbot-backend" \
+              --arg sha "${{ needs.hotfix-release.outputs.backend_sha }}" \
+              --arg version "${{ needs.hotfix-release.outputs.backend_version }}" \
+              '. + [{app: $app, dockerfile: $dockerfile, image: $image, sha: $sha, version: $version}]' \
+              <<<"$include")"
+          fi
+
+          if [[ "${{ needs.hotfix-release.outputs.web_release_created }}" == "true" ]]; then
+            include="$(jq -c \
+              --arg app "web" \
+              --arg dockerfile "apps/web/Dockerfile" \
+              --arg image "filozone/dealbot-web" \
+              --arg sha "${{ needs.hotfix-release.outputs.web_sha }}" \
+              --arg version "${{ needs.hotfix-release.outputs.web_version }}" \
+              '. + [{app: $app, dockerfile: $dockerfile, image: $image, sha: $sha, version: $version}]' \
+              <<<"$include")"
+          fi
+
+          matrix="$(jq -c --argjson include "$include" '{include: $include}' <<<"{}")"
+          echo "matrix=$matrix" >>"$GITHUB_OUTPUT"
+
+          if [[ "$include" == "[]" ]]; then
+            echo "has_items=false" >>"$GITHUB_OUTPUT"
+          else
+            echo "has_items=true" >>"$GITHUB_OUTPUT"
+          fi
+
+  # Build hotfix images immediately
+  build-hotfix:
+    needs:
+      - hotfix-release
+      - hotfix-build-matrix
+    if: needs.hotfix-build-matrix.outputs.has_items == 'true'
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix: ${{ fromJSON(needs.hotfix-build-matrix.outputs.matrix) }}
+    uses: ./.github/workflows/reusable-docker-build.yml
+    with:
+      app: ${{ matrix.app }}
+      dockerfile: ${{ matrix.dockerfile }}
+      image: ${{ matrix.image }}
+      ref: ${{ matrix.sha }}
+      tags: |
+        ${{ env.REGISTRY }}/${{ matrix.image }}:v${{ matrix.version }}
+        ${{ env.REGISTRY }}/${{ matrix.image }}:hotfix-${{ matrix.sha }}
+      summary: |
+        echo "🚨 HOTFIX DEPLOYED: ${{ matrix.app }} v${{ matrix.version }}"
+        echo "Image: ${{ env.REGISTRY }}/${{ matrix.image }}:v${{ matrix.version }}"

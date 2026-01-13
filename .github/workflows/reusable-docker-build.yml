@@ -1,0 +1,76 @@
+# Reusable workflow: builds/pushes a single app image; docker-build.yml handles change detection and calls this.
+name: Reusable Docker Build
+
+on:
+  workflow_call:
+    inputs:
+      app:
+        type: string
+        required: true
+      dockerfile:
+        type: string
+        required: true
+      image:
+        type: string
+        required: true
+      tags:
+        type: string
+        required: true
+      ref:
+        type: string
+        required: false
+      context:
+        type: string
+        required: false
+        default: .
+      platforms:
+        type: string
+        required: false
+        default: linux/amd64
+      push:
+        type: boolean
+        required: false
+        default: true
+      summary:
+        type: string
+        required: false
+        default: ""
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        if: inputs.ref == ''
+        uses: actions/checkout@v4
+
+      - name: Checkout (ref)
+        if: inputs.ref != ''
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Build and push ${{ inputs.app }}
+        uses: ./.github/actions/docker-build
+        with:
+          tags: ${{ inputs.tags }}
+          context: ${{ inputs.context }}
+          file: ${{ inputs.dockerfile }}
+          platforms: ${{ inputs.platforms }}
+          push: ${{ inputs.push }}
+          load: "false"
+          cache-scope: ${{ inputs.app }}
+          login: "true"
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Summary
+        if: inputs.summary != ''
+        run: ${{ inputs.summary }}
