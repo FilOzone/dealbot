@@ -37,11 +37,11 @@ function ProviderCardHeader({
     <>
       <div className="flex items-start justify-between gap-3">
         <div className="flex-1 min-w-0">
-          <h3 className="text-lg font-semibold truncate">
+          <h3 className="text-base sm:text-lg font-semibold truncate">
             {provider.name || "Unnamed Provider"} ({provider.providerId || "N/A"})
           </h3>
           <div className="flex items-center gap-2 mt-2">
-            <code className="text-xs bg-muted px-2 py-1 rounded font-mono truncate max-w-[220px]">
+            <code className="text-xs bg-muted px-2 py-1 rounded font-mono truncate max-w-[160px] sm:max-w-[220px]">
               {provider.address}
             </code>
             <Button
