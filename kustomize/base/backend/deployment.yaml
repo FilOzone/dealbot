@@ -14,7 +14,6 @@ spec:
       labels:
         app.kubernetes.io/name: dealbot
     spec:
-      serviceAccountName: dealbot
       containers:
         - name: dealbot
           image: dealbot:latest
