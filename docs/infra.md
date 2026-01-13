@@ -21,12 +21,12 @@ FilOzone/infra can override base manifests via overlays and patches. Common chan
 
 ## Ingress boundaries
 
-The base Ingress manifests include annotations that signal what infra should inject.
+The base Ingress manifests are intentionally minimal and meant to be patched or replaced by infra based on the target environment.
 
 - [kustomize/base/backend/ingress.yaml](../kustomize/base/backend/ingress.yaml)
 - [kustomize/base/web/ingress.yaml](../kustomize/base/web/ingress.yaml)
 
-If the environment uses a different ingress controller or routing model, infra can patch or replace these resources instead of injecting values.
+If the environment uses a different ingress controller or routing model, infra can patch or replace these resources.
 
 ## Secrets expectations
 

@@ -4,14 +4,6 @@ metadata:
   name: dealbot-api
   labels:
     app.kubernetes.io/name: dealbot
-  annotations:
-    # Signals to infra repo what should be injected
-    filozone.io/inject-hostname: "true"
-    filozone.io/inject-tls: "true"
-    filozone.io/inject-ingress-class: "true"
-    filozone.io/inject-security-policy: "true"
-    # API-specific annotations
-    filozone.io/rate-limit-required: "true"
 spec:
   rules:
     - host: dealbot-api.example.com
