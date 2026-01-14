@@ -2,6 +2,7 @@ import { Injectable, Logger } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import type { Repository } from "typeorm";
 import { SpPerformanceAllTime } from "../../database/entities/sp-performance-all-time.entity.js";
+import { StorageProvider } from "../../database/entities/storage-provider.entity.js";
 import type { NetworkOverallStatsDto } from "../dto/network-stats.dto.js";
 
 /**
@@ -21,6 +22,8 @@ export class NetworkStatsService {
   constructor(
     @InjectRepository(SpPerformanceAllTime)
     private readonly allTimeRepo: Repository<SpPerformanceAllTime>,
+    @InjectRepository(StorageProvider)
+    private readonly spRepo: Repository<StorageProvider>,
   ) {}
 
   /**
@@ -38,15 +41,28 @@ export class NetworkStatsService {
       const sevenDaysAgo = new Date();
       sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
 
-      // Build query with optional filters
+      // Count providers from storage_providers table (with filters applied)
+      const providerCountQuery = this.spRepo.createQueryBuilder("provider");
+      if (options?.approvedOnly) {
+        providerCountQuery.andWhere("provider.is_approved = true");
+      }
+      if (options?.activeOnly) {
+        providerCountQuery.andWhere("provider.is_active = true");
+      }
+      const totalProviders = await providerCountQuery.getCount();
+
+      // Count approved providers (with filters applied)
+      const approvedCountQuery = this.spRepo.createQueryBuilder("provider").where("provider.is_approved = true");
+      if (options?.activeOnly) {
+        approvedCountQuery.andWhere("provider.is_active = true");
+      }
+      const activeProviders = await approvedCountQuery.getCount();
+
+      // Build query for performance metrics with optional filters
       const query = this.allTimeRepo
         .createQueryBuilder("sp")
         .innerJoin("storage_providers", "provider", "provider.address = sp.sp_address")
-        .select("COUNT(DISTINCT sp.sp_address)", "totalProviders")
-        .addSelect(
-          "COUNT(DISTINCT sp.sp_address) FILTER (WHERE sp.total_deals > 0 OR sp.total_retrievals > 0)",
-          "activeProviders",
-        )
+        .select("1", "dummy")
         .addSelect("COALESCE(SUM(sp.total_deals), 0)", "totalDeals")
         .addSelect("COALESCE(SUM(sp.successful_deals), 0)", "successfulDeals")
         .addSelect("COALESCE(SUM(sp.total_retrievals), 0)", "totalRetrievals")
@@ -95,9 +111,18 @@ export class NetworkStatsService {
 
       const stats = await query.getRawOne();
 
-      // Handle empty result
-      if (!stats || stats.totalProviders === "0" || stats.totalProviders === 0) {
+      // Handle empty result - if no providers exist, return empty stats
+      if (totalProviders === 0) {
         return this.getEmptyOverallStats();
+      }
+
+      // Handle case where providers exist but no performance data
+      if (!stats) {
+        return {
+          ...this.getEmptyOverallStats(),
+          totalProviders,
+          activeProviders,
+        };
       }
 
       // Parse numeric values (handle potential string returns from DB)
@@ -111,8 +136,8 @@ export class NetworkStatsService {
       const retrievalSuccessRate = totalRetrievals > 0 ? (successfulRetrievals / totalRetrievals) * 100 : 0;
 
       return {
-        totalProviders: Number(stats.totalProviders || 0),
-        activeProviders: Number(stats.activeProviders || 0),
+        totalProviders,
+        activeProviders,
         totalDeals,
         successfulDeals,
         dealSuccessRate: Math.round(dealSuccessRate * 100) / 100,
