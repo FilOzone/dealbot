@@ -14,7 +14,7 @@ export class NetworkOverallStatsDto {
     description: "Number of FWSS approved storage providers",
     example: 12,
   })
-  activeProviders: number;
+  approvedProviders: number;
 
   @ApiProperty({
     description: "Total number of deals across all providers",

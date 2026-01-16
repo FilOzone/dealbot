@@ -38,7 +38,7 @@ function SummaryCards() {
       {
         label: "TOTAL PROVIDERS",
         value: formatNumber(data.totalProviders),
-        description: `${formatNumber(data.activeProviders)} active`,
+        description: `${formatNumber(data.approvedProviders)} approved`,
       },
       {
         label: "TOTAL UPLOADS",

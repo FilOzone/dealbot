@@ -37,10 +37,6 @@ export class NetworkStatsService {
    */
   async getOverallStats(options?: { approvedOnly?: boolean; activeOnly?: boolean }): Promise<NetworkOverallStatsDto> {
     try {
-      // Calculate active providers threshold (7 days ago)
-      const sevenDaysAgo = new Date();
-      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-
       // Count providers from storage_providers table (with filters applied)
       const providerCountQuery = this.spRepo.createQueryBuilder("provider");
       if (options?.approvedOnly) {
@@ -56,7 +52,7 @@ export class NetworkStatsService {
       if (options?.activeOnly) {
         approvedCountQuery.andWhere("provider.is_active = true");
       }
-      const activeProviders = await approvedCountQuery.getCount();
+      const approvedProviders = await approvedCountQuery.getCount();
 
       // Build query for performance metrics with optional filters
       const query = this.allTimeRepo
@@ -97,8 +93,7 @@ export class NetworkStatsService {
           "ROUND(AVG(sp.avg_retrieval_throughput_bps) FILTER (WHERE sp.avg_retrieval_throughput_bps IS NOT NULL))",
           "avgRetrievalThroughputBps",
         )
-        .addSelect("MAX(sp.refreshed_at)", "lastRefreshedAt")
-        .setParameter("sevenDaysAgo", sevenDaysAgo);
+        .addSelect("MAX(sp.refreshed_at)", "lastRefreshedAt");
 
       // Apply filters if provided
       if (options?.approvedOnly) {
@@ -121,7 +116,7 @@ export class NetworkStatsService {
         return {
           ...this.getEmptyOverallStats(),
           totalProviders,
-          activeProviders,
+          approvedProviders,
         };
       }
 
@@ -137,7 +132,7 @@ export class NetworkStatsService {
 
       return {
         totalProviders,
-        activeProviders,
+        approvedProviders,
         totalDeals,
         successfulDeals,
         dealSuccessRate: Math.round(dealSuccessRate * 100) / 100,
@@ -169,7 +164,7 @@ export class NetworkStatsService {
   private getEmptyOverallStats(): NetworkOverallStatsDto {
     return {
       totalProviders: 0,
-      activeProviders: 0,
+      approvedProviders: 0,
       totalDeals: 0,
       successfulDeals: 0,
       dealSuccessRate: 0,
