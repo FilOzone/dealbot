@@ -4,6 +4,7 @@ import { ConfigService } from "@nestjs/config";
 import * as fs from "fs";
 import * as path from "path";
 import { KAGGLE_BASE_URL } from "../common/constants.js";
+import { writeWithBackpressure } from "../common/stream-utils.js";
 import type { DataFile } from "../common/types.js";
 import type { IConfig, IDatasetConfig } from "../config/app.config.js";
 import type { IKaggleDataset } from "./types.js";
@@ -178,35 +179,38 @@ export class DataSourceService {
     randomDataSize: number,
     suffixBuffer: Buffer,
   ): Promise<void> {
-    return new Promise((resolve, reject) => {
-      const writeStream = fs.createWriteStream(filePath);
-      const chunkSize = 1024 * 1024; // 1 MB chunks
+    const writeStream = fs.createWriteStream(filePath);
+    const chunkSize = 1024 * 1024; // 1 MB chunks
 
-      writeStream.on("error", (error) => {
-        writeStream.close();
-        reject(error);
+    // Helper to wait for stream finish event
+    const waitForFinish = () =>
+      new Promise<void>((resolve, reject) => {
+        writeStream.once("finish", resolve);
+        writeStream.once("error", reject);
       });
 
-      writeStream.on("finish", () => {
-        resolve();
-      });
-
+    try {
       // Write prefix
-      writeStream.write(prefixBuffer);
+      await writeWithBackpressure(writeStream, prefixBuffer);
 
-      // Write random data in chunks
+      // Write random data in chunks with backpressure handling
       let remainingBytes = randomDataSize;
       while (remainingBytes > 0) {
         const currentChunkSize = Math.min(chunkSize, remainingBytes);
         const chunk = crypto.randomBytes(currentChunkSize);
-        writeStream.write(chunk);
+        await writeWithBackpressure(writeStream, chunk);
         remainingBytes -= currentChunkSize;
       }
 
       // Write suffix and close
-      writeStream.write(suffixBuffer);
+      await writeWithBackpressure(writeStream, suffixBuffer);
       writeStream.end();
-    });
+
+      // Wait for finish event
+      await waitForFinish();
+    } finally {
+      writeStream.destroy();
+    }
   }
 
   /**
