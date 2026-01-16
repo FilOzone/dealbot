@@ -296,7 +296,7 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       total: 1,
       rootCIDVerified: ipniValidated,
       durationMs,
-      failedCIDs: ipniValidated ? [] : [{ cid: rootCID, reason: "not verified via filecoin-pin" }],
+      failedCIDs: ipniValidated ? [] : [{ cid: rootCID, reason: "IPNI did not return expected provider results via filecoin-pin" }],
       verifiedAt: new Date().toISOString(),
     };
 
