@@ -8,7 +8,7 @@
  */
 export interface NetworkOverallStats {
   totalProviders: number;
-  activeProviders: number;
+  approvedProviders: number;
   totalDeals: number;
   successfulDeals: number;
   dealSuccessRate: number;

@@ -5,16 +5,16 @@ import { ApiProperty } from "@nestjs/swagger";
  */
 export class NetworkOverallStatsDto {
   @ApiProperty({
-    description: "Total number of active storage providers",
+    description: "Total number of storage providers",
     example: 15,
   })
   totalProviders: number;
 
   @ApiProperty({
-    description: "Number of providers with recent activity (last 7 days)",
+    description: "Number of FWSS approved storage providers",
     example: 12,
   })
-  activeProviders: number;
+  approvedProviders: number;
 
   @ApiProperty({
     description: "Total number of deals across all providers",
