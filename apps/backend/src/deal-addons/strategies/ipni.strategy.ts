@@ -270,14 +270,17 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
     }
 
     const rootCidObj = CID.parse(rootCID);
-    const maxAttempts = Math.ceil(ipniTimeoutMs / 5000 / 2);
+    const ATTEMPT_INTERVAL_MS = 5000;
+    const ATTEMPT_MULTIPLIER = 2;
+    // Derive maxAttempts from total IPNI timeout, per-attempt interval and a multiplier.
+    const maxAttempts = Math.ceil((ipniTimeoutMs / ATTEMPT_INTERVAL_MS) / ATTEMPT_MULTIPLIER);
 
     this.logger.log(`Verifying rootCID in IPNI: ${rootCID.slice(0, 12)}...`);
 
     // NOTE: filecoin-pin does not currently validate that all blocks are advertised on IPNI.
     const ipniValidated = await waitForIpniProviderResults(rootCidObj, {
       maxAttempts,
-      delayMs: 5000,
+      delayMs: ATTEMPT_INTERVAL_MS,
       expectedProviders: [buildExpectedProviderInfo(storageProvider)],
     }).catch((error) => {
       this.logger.warn(`IPNI verification failed: ${error.message}`);
