@@ -192,12 +192,23 @@ export function loadConfig(): IConfig {
     dataset: {
       localDatasetsPath: process.env.DEALBOT_LOCAL_DATASETS_PATH || DEFAULT_LOCAL_DATASETS_PATH,
       totalPages: Number.parseInt(process.env.KAGGLE_DATASET_TOTAL_PAGES || "500", 10),
-      randomDatasetSizes:
-        process.env.RANDOM_DATASET_SIZES?.split(",").map((s) => Number.parseInt(s.trim(), 10)) || [
+      randomDatasetSizes: (() => {
+        const envValue = process.env.RANDOM_DATASET_SIZES;
+        if (envValue && envValue.trim().length > 0) {
+          const parsed = envValue
+            .split(",")
+            .map((s) => Number.parseInt(s.trim(), 10))
+            .filter((n) => Number.isFinite(n) && !Number.isNaN(n));
+          if (parsed.length > 0) {
+            return parsed;
+          }
+        }
+        return [
           10 << 10, // 10 KiB
           10 << 20, // 10 MB
           100 << 20, // 100 MB
-        ],
+        ];
+      })(),
     },
     proxy: {
       list: process.env.PROXY_LIST?.split(",") || [],
