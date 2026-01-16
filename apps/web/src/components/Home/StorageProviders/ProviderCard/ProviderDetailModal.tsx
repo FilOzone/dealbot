@@ -37,10 +37,10 @@ function ProviderDetailModal({ provider, open, onOpenChange }: ProviderDetailMod
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent className="max-h-[85vh] flex flex-col sm:max-w-2xl">
         <DialogHeader className="overflow-hidden">
-          <div className="flex gap-2 min-w-0 items-center">
-            <DialogTitle className="text-2xl font-bold truncate">{provider.name || "Provider Details"}</DialogTitle>
+          <div className="flex flex-col sm:flex-row gap-2 min-w-0 sm:items-center">
+            <DialogTitle className="text-xl sm:text-2xl font-bold truncate">{provider.name || "Provider Details"}</DialogTitle>
             <div className="flex items-center gap-1">
               <Badge variant={provider.isActive ? "default" : "secondary"}>
                 {provider.isActive ? "Active" : "Inactive"}
@@ -70,6 +70,7 @@ function ProviderDetailModal({ provider, open, onOpenChange }: ProviderDetailMod
         </div>
 
         {/* Content */}
+        <div className="overflow-y-auto flex-1 -mx-4 sm:-mx-6 px-4 sm:px-6">
         {loading ? (
           <div className="space-y-4">
             <Skeleton className="h-32 w-full" />
@@ -92,7 +93,7 @@ function ProviderDetailModal({ provider, open, onOpenChange }: ProviderDetailMod
                 <Activity className="h-5 w-5" />
                 Activity Overview
               </h3>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <Card>
                   <CardContent className="p-4">
                     <div className="text-xs uppercase tracking-wide text-muted-foreground">Total Uploads</div>
@@ -168,7 +169,7 @@ function ProviderDetailModal({ provider, open, onOpenChange }: ProviderDetailMod
             {/* Latency Metrics */}
             <div>
               <h3 className="text-lg font-semibold mb-4">Latency Metrics</h3>
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
                 <div className="bg-card border rounded-lg p-4">
                   <p className="text-xs text-muted-foreground mb-1">Ingest Latency</p>
                   <p className="text-lg font-semibold">{formatMilliseconds(data.metrics.avgIngestLatencyMs)}</p>
@@ -195,7 +196,7 @@ function ProviderDetailModal({ provider, open, onOpenChange }: ProviderDetailMod
             {/* Throughput */}
             <div>
               <h3 className="text-lg font-semibold mb-4">Throughput</h3>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="bg-card border rounded-lg p-4">
                   <p className="text-xs text-muted-foreground mb-1">Ingest Throughput</p>
                   <p className="text-lg font-semibold">{formatThroughput(data.metrics.avgIngestThroughputBps ?? 0)}</p>
@@ -210,6 +211,7 @@ function ProviderDetailModal({ provider, open, onOpenChange }: ProviderDetailMod
             </div>
           </div>
         ) : null}
+        </div>
       </DialogContent>
     </Dialog>
   );
