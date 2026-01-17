@@ -60,6 +60,7 @@ export const configValidationSchema = Joi.object({
   // Kaggle
   DEALBOT_LOCAL_DATASETS_PATH: Joi.string().default(DEFAULT_LOCAL_DATASETS_PATH),
   KAGGLE_DATASET_TOTAL_PAGES: Joi.number().default(500),
+  RANDOM_DATASET_SIZES: Joi.string().default("10240,10485760,104857600"), // 10 KiB, 10 MB, 100 MB
 
   // Proxy
   PROXY_LIST: Joi.string().default(""),
@@ -126,6 +127,7 @@ export interface ISchedulingConfig {
 export interface IDatasetConfig {
   totalPages: number;
   localDatasetsPath: string;
+  randomDatasetSizes: number[];
 }
 
 export interface IProxyConfig {
@@ -190,6 +192,23 @@ export function loadConfig(): IConfig {
     dataset: {
       localDatasetsPath: process.env.DEALBOT_LOCAL_DATASETS_PATH || DEFAULT_LOCAL_DATASETS_PATH,
       totalPages: Number.parseInt(process.env.KAGGLE_DATASET_TOTAL_PAGES || "500", 10),
+      randomDatasetSizes: (() => {
+        const envValue = process.env.RANDOM_DATASET_SIZES;
+        if (envValue && envValue.trim().length > 0) {
+          const parsed = envValue
+            .split(",")
+            .map((s) => Number.parseInt(s.trim(), 10))
+            .filter((n) => Number.isFinite(n) && !Number.isNaN(n));
+          if (parsed.length > 0) {
+            return parsed;
+          }
+        }
+        return [
+          10 << 10, // 10 KiB
+          10 << 20, // 10 MB
+          100 << 20, // 100 MB
+        ];
+      })(),
     },
     proxy: {
       list: process.env.PROXY_LIST?.split(",") || [],
