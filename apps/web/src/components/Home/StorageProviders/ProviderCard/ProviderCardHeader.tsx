@@ -75,8 +75,13 @@ function ProviderCardHeader({
         <p className="text-sm text-muted-foreground mt-3 line-clamp-2">{provider.description}</p>
       )}
 
-      {versionError ? null : versionLoading ? (
+      {versionLoading ? (
         <Skeleton className="h-5 w-full" />
+      ) : versionError ? (
+        <div className="text-sm flex justify-between items-center gap-2 mb-0">
+          <p className="text-sm text-muted-foreground">Curio Version:</p>
+          <span className="font-medium text-muted-foreground">Unknown</span>
+        </div>
       ) : version ? (
         <div className="text-sm flex justify-between items-center gap-2 mb-0">
           <p className="text-sm text-muted-foreground">Curio Version:</p>
