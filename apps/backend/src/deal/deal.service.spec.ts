@@ -44,6 +44,8 @@ describe("DealService", () => {
   const mockDataSourceService = {
     fetchKaggleDataset: vi.fn(),
     fetchLocalDataset: vi.fn(),
+    generateRandomDataset: vi.fn(),
+    cleanupRandomDataset: vi.fn(),
   };
 
   const mockConfigService = {

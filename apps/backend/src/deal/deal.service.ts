@@ -54,21 +54,27 @@ export class DealService implements OnModuleInit {
     this.logger.log(`Starting deal creation for ${totalProviders} providers (CDN: ${enableCDN}, IPNI: ${enableIpni})`);
 
     const dataFile = await this.fetchDataFile(SIZE_CONSTANTS.MIN_UPLOAD_SIZE, SIZE_CONSTANTS.MAX_UPLOAD_SIZE);
-    const preprocessed = await this.dealAddonsService.preprocessDeal({
-      enableCDN,
-      enableIpni,
-      dataFile,
-    });
 
-    const providers = this.walletSdkService.getTestingProviders();
+    try {
+      const preprocessed = await this.dealAddonsService.preprocessDeal({
+        enableCDN,
+        enableIpni,
+        dataFile,
+      });
 
-    const results = await this.processProvidersInParallel(providers, preprocessed);
+      const providers = this.walletSdkService.getTestingProviders();
 
-    const successfulDeals = results.filter((result) => result.success).map((result) => result.deal!);
+      const results = await this.processProvidersInParallel(providers, preprocessed);
 
-    this.logger.log(`Deal creation completed: ${successfulDeals.length}/${totalProviders} successful`);
+      const successfulDeals = results.filter((result) => result.success).map((result) => result.deal!);
 
-    return successfulDeals;
+      this.logger.log(`Deal creation completed: ${successfulDeals.length}/${totalProviders} successful`);
+
+      return successfulDeals;
+    } finally {
+      // Cleanup random dataset file after all uploads complete (success or failure)
+      await this.dataSourceService.cleanupRandomDataset(dataFile.name);
+    }
   }
 
   async createDeal(providerInfo: ProviderInfoEx, dealInput: DealPreprocessingResult): Promise<Deal> {
@@ -219,8 +225,14 @@ export class DealService implements OnModuleInit {
   private async fetchDataFile(minSize: number, maxSize: number): Promise<DataFile> {
     try {
       return await this.dataSourceService.fetchKaggleDataset(minSize, maxSize);
-    } catch (_err) {
-      return await this.dataSourceService.fetchLocalDataset(minSize, maxSize);
+    } catch (kaggleErr) {
+      this.logger.warn("Failed to fetch Kaggle dataset, falling back to local dataset", kaggleErr);
+      try {
+        return await this.dataSourceService.fetchLocalDataset(minSize, maxSize);
+      } catch (localErr) {
+        this.logger.warn("Failed to fetch local dataset, generating random dataset", localErr);
+        return await this.dataSourceService.generateRandomDataset(minSize, maxSize);
+      }
     }
   }
 }
