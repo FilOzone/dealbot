@@ -50,7 +50,7 @@ When you merge a PR to `main`, the release pipeline starts.
 
 ### 4. release-please Opens/Updates the Release PR
 
-- release-please opens/updates a single PR titled like `chore: release to production (backend 0.2.0)`
+- release-please opens/updates a single PR titled like `chore: release to production (backend 0.2.0, web 0.5.0)`, listing all components that have changes
 - Includes per-app `package.json` version bumps and changelog entries
 - See [release-please-flow.md](release-please-flow.md) for versioning details
 
