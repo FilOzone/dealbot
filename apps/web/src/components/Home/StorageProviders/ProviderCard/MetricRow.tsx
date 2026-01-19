@@ -21,7 +21,7 @@ function MetricRow({
   const getRateColor = (rate: number) => (rate < successThreshold ? "text-red-600" : "text-green-600");
 
   return (
-    <div className="grid grid-cols-[1.5fr_1fr_1fr_1fr_1fr] gap-2 py-2 text-sm border-b last:border-b-0 min-w-[480px]">
+    <div className="grid grid-cols-[1.5fr_1fr_1fr_1fr_1fr] gap-2 py-2 text-sm border-b last:border-b-0">
       <div className="font-medium text-foreground">{label}</div>
       <div className="text-right text-muted-foreground">{allTimeAttempts.toLocaleString()}</div>
       <div className={`text-right font-semibold ${getRateColor(allTimeRate)}`}>{formatRate(allTimeRate)}</div>
