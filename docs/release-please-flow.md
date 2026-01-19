@@ -83,9 +83,9 @@ When merged to `main`:
 
 ### 2. release-please Creates/Updates Release PR
 
-**Automatically creates a PR titled:**
+**Automatically creates a PR titled like:**
 ```
-chore: release to production
+chore: release to production (backend 0.2.0)
 ```
 
 **The PR includes:**
