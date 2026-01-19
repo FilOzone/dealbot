@@ -1,6 +1,6 @@
+import { Writable } from "node:stream";
 import * as fs from "fs";
 import * as path from "path";
-import { Writable } from "node:stream";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { writeWithBackpressure } from "./stream-utils.js";
 
