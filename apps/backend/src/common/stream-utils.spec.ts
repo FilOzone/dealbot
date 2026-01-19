@@ -1,5 +1,6 @@
 import * as fs from "fs";
 import * as path from "path";
+import { Writable } from "node:stream";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { writeWithBackpressure } from "./stream-utils.js";
 
@@ -92,6 +93,21 @@ describe("stream-utils", () => {
 
       const written = await fs.promises.readFile(testFile);
       expect(written.length).toBe(1024);
+    });
+
+    it("should reject if stream errors while waiting for drain", async () => {
+      const writeStream = new Writable({
+        highWaterMark: 1,
+        write(_chunk, _encoding, _callback) {
+          // Intentionally never call callback to keep backpressure active.
+        },
+      });
+      const buffer = Buffer.alloc(1024);
+
+      const writePromise = writeWithBackpressure(writeStream as unknown as fs.WriteStream, buffer);
+      writeStream.destroy(new Error("boom"));
+
+      await expect(writePromise).rejects.toThrow("boom");
     });
 
     it("should handle multiple writes that cause backpressure", async () => {
