@@ -15,7 +15,7 @@ Build Docker images (e.g., sha-<sha> and sha-<run>-<sha>)
   ↓
 ArgoCD auto-deploys to STAGING (watches ordered tags via Image Updater)
   ↓
-release-please opens/updates Release PR
+release-please opens/updates Release PR (title includes component + version)
   ↓
 Developer reviews and merges PR
   ↓
@@ -50,7 +50,7 @@ When you merge a PR to `main`, the release pipeline starts.
 
 ### 4. release-please Opens/Updates the Release PR
 
-- release-please opens/updates a single PR (usually titled `chore: release to production`)
+- release-please opens/updates a single PR titled like `chore: release to production (backend 0.2.0)`
 - Includes per-app `package.json` version bumps and changelog entries
 - See [release-please-flow.md](release-please-flow.md) for versioning details
 
