@@ -111,9 +111,9 @@ describe("stream-utils", () => {
       writeStream.end();
       await new Promise<void>((resolve) => writeStream.on("finish", () => resolve()));
 
-      // Should have triggered drain multiple times (since we're doing 5 in parallel, at least 4 drains are expected)
+      // Should have triggered drain multiple times (since we're writing 5 chunks that each exceed highWaterMark, we expect backpressure to trigger each time)
       // see https://nodejs.org/api/stream.html#event-drain
-      expect(drainCount).toBeGreaterThanOrEqual(4);
+      expect(drainCount).toBe(5);
 
       const written = await fs.promises.readFile(testFile);
       expect(written.length).toBe(1280); // 5 * 256
