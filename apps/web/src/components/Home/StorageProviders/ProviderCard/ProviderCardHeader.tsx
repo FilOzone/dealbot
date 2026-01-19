@@ -8,7 +8,6 @@ interface ProviderCardHeaderProps {
   provider: Provider;
   version?: string;
   versionLoading: boolean;
-  versionError: string | null;
   hasMetrics: boolean;
   health: {
     status: string;
@@ -25,7 +24,6 @@ function ProviderCardHeader({
   provider,
   version,
   versionLoading,
-  versionError,
   hasMetrics,
   health,
   isImproving,
@@ -77,17 +75,12 @@ function ProviderCardHeader({
 
       {versionLoading ? (
         <Skeleton className="h-5 w-full" />
-      ) : versionError ? (
+      ) : (
         <div className="text-sm flex justify-between items-center gap-2 mb-0">
           <p className="text-sm text-muted-foreground">Curio Version:</p>
-          <span className="font-medium text-muted-foreground">Unknown</span>
+          <span className="font-medium">{version ?? "Unknown"}</span>
         </div>
-      ) : version ? (
-        <div className="text-sm flex justify-between items-center gap-2 mb-0">
-          <p className="text-sm text-muted-foreground">Curio Version:</p>
-          <span className="font-medium">{version}</span>
-        </div>
-      ) : null}
+      )}
 
       {hasMetrics && (
         <div className="flex items-center justify-between mt-3 pt-3 border-t">

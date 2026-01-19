@@ -17,7 +17,7 @@ interface ProviderCardProps {
 function ProviderCard({ provider, batchedVersion }: ProviderCardProps) {
   const [copiedProvider, setCopiedProvider] = useState<string | null>(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
-  const { version, loading, error } = useProviderVersion({
+  const { version, loading } = useProviderVersion({
     serviceUrl: provider.provider.serviceUrl,
     batchedVersion,
   });
@@ -92,7 +92,6 @@ function ProviderCard({ provider, batchedVersion }: ProviderCardProps) {
           provider={provider.provider}
           version={version}
           versionLoading={loading}
-          versionError={error}
           hasMetrics={hasMetrics}
           health={health}
           isImproving={isImproving}
