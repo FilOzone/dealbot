@@ -10,6 +10,7 @@ import { DataSourceService } from "../dataSource/dataSource.service.js";
 import { DealAddonsService } from "../deal-addons/deal-addons.service.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
 import { DealService } from "./deal.service.js";
+import { DealPreprocessingResult } from "src/deal-addons/types.js";
 
 vi.mock("@filoz/synapse-sdk", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@filoz/synapse-sdk")>();
@@ -195,6 +196,97 @@ describe("DealService", () => {
       expect(mockDeal.status).toBe(DealStatus.FAILED);
       expect(mockDeal.errorMessage).toBe("Storage creation failed");
       expect(dealRepoMock.save).toHaveBeenCalledWith(mockDeal);
+    });
+
+    describe("dataset versioning", () => {
+      let dealInputWithMetadata: DealPreprocessingResult;
+
+      beforeEach(() => {
+        const uploadMock = vi.fn(async (_data, { onUploadComplete, onPieceAdded }) => {
+          await onUploadComplete("bafk-uploaded");
+          await onPieceAdded({ transactionHash: "0xhash" });
+          return { pieceCid: "bafk-uploaded", size: 1024, pieceId: "piece-123" };
+        });
+
+        mockSynapseInstance.createStorage.mockResolvedValue({
+          dataSetId: "dataset-123",
+          upload: uploadMock,
+        });
+
+        dealInputWithMetadata = {
+          ...mockDealInput,
+          synapseConfig: {
+            dataSetMetadata: { customKey: "customValue" },
+            pieceMetadata: {},
+          },
+        };
+      });
+
+      const createServiceWithVersion = async (dealbotDataSetVersion: string | undefined) => {
+        mockConfigService.get.mockReturnValue({
+          walletPrivateKey: "mockKey",
+          network: "calibration",
+          walletAddress: "0x123",
+          enableCDNTesting: true,
+          enableIpniTesting: true,
+          dealbotDataSetVersion,
+        });
+
+        const module: TestingModule = await Test.createTestingModule({
+          providers: [
+            DealService,
+            { provide: DataSourceService, useValue: mockDataSourceService },
+            { provide: ConfigService, useValue: mockConfigService },
+            { provide: WalletSdkService, useValue: mockWalletSdkService },
+            { provide: DealAddonsService, useValue: mockDealAddonsService },
+            { provide: getRepositoryToken(Deal), useValue: mockDealRepository },
+            { provide: getRepositoryToken(StorageProvider), useValue: mockStorageProviderRepository },
+          ],
+        }).compile();
+
+        const testService = module.get<DealService>(DealService);
+        (Synapse.create as Mock).mockResolvedValue(mockSynapseInstance);
+        await testService.onModuleInit();
+
+        return testService;
+      };
+
+      it("includes version in metadata when DEALBOT_DATASET_VERSION is set", async () => {
+        const testService = await createServiceWithVersion("dealbot-v2");
+        await testService.createDeal(mockProviderInfo, dealInputWithMetadata);
+
+        expect(mockSynapseInstance.createStorage).toHaveBeenCalledWith({
+          providerAddress: "0xProvider",
+          metadata: {
+            version: "dealbot-v2",
+            customKey: "customValue",
+          },
+        });
+      });
+
+      it("does not include version in metadata when DEALBOT_DATASET_VERSION is undefined", async () => {
+        const testService = await createServiceWithVersion(undefined);
+        await testService.createDeal(mockProviderInfo, dealInputWithMetadata);
+
+        expect(mockSynapseInstance.createStorage).toHaveBeenCalledWith({
+          providerAddress: "0xProvider",
+          metadata: {
+            customKey: "customValue",
+          },
+        });
+      });
+
+      it("does not include version in metadata when DEALBOT_DATASET_VERSION is empty string", async () => {
+        const testService = await createServiceWithVersion("");
+        await testService.createDeal(mockProviderInfo, dealInputWithMetadata);
+
+        expect(mockSynapseInstance.createStorage).toHaveBeenCalledWith({
+          providerAddress: "0xProvider",
+          metadata: {
+            customKey: "customValue",
+          },
+        });
+      });
     });
   });
 
