@@ -78,7 +78,7 @@ function ProviderCardHeader({
       ) : (
         <div className="text-sm flex justify-between items-center gap-2 mb-0">
           <p className="text-sm text-muted-foreground">Curio Version:</p>
-          <span className="font-medium">{version ?? "Unknown"}</span>
+          <span className="font-medium">{version || "Unknown"}</span>
         </div>
       )}
 
