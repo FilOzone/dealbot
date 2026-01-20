@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.2](https://github.com/FilOzone/dealbot/compare/backend-v0.1.1...backend-v0.1.2) (2026-01-20)
+
+
+### Bug Fixes
+
+* **backend:** add optional dealbot dataset versioning ([#131](https://github.com/FilOzone/dealbot/issues/131)) ([597b6ea](https://github.com/FilOzone/dealbot/commit/597b6ea53d4ad2c9e991c97b0c07863fac1c1dab))
+
 ## [0.1.1](https://github.com/FilOzone/dealbot/compare/backend-v0.1.0...backend-v0.1.1) (2026-01-20)
 
 
