@@ -97,7 +97,12 @@ export class DealService implements OnModuleInit {
 
       const storage = await this.synapse.createStorage({
         providerAddress,
-        metadata: dealInput.synapseConfig.dataSetMetadata,
+        metadata: {
+          ...(this.blockchainConfig.dealbotDatasetVersion
+            ? { version: this.blockchainConfig.dealbotDatasetVersion }
+            : {}),
+          ...dealInput.synapseConfig.dataSetMetadata,
+        },
       });
 
       deal.dataSetId = storage.dataSetId;

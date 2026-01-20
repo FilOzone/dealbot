@@ -25,6 +25,7 @@ export const configValidationSchema = Joi.object({
   USE_ONLY_APPROVED_PROVIDERS: Joi.boolean().default(true),
   ENABLE_CDN_TESTING: Joi.boolean().default(true),
   ENABLE_IPNI_TESTING: Joi.boolean().default(true),
+  DEALBOT_DATASET_VERSION: Joi.string().optional(),
 
   // Scheduling
   DEAL_INTERVAL_SECONDS: Joi.number().default(30),
@@ -114,6 +115,7 @@ export interface IBlockchainConfig {
   useOnlyApprovedProviders: boolean;
   enableCDNTesting: boolean;
   enableIpniTesting: boolean;
+  dealbotDatasetVersion?: string;
 }
 
 export interface ISchedulingConfig {
@@ -181,6 +183,7 @@ export function loadConfig(): IConfig {
       useOnlyApprovedProviders: process.env.USE_ONLY_APPROVED_PROVIDERS === "true",
       enableCDNTesting: process.env.ENABLE_CDN_TESTING === "true",
       enableIpniTesting: process.env.ENABLE_IPNI_TESTING === "true",
+      dealbotDatasetVersion: process.env.DEALBOT_DATASET_VERSION,
     },
     scheduling: {
       dealIntervalSeconds: Number.parseInt(process.env.DEAL_INTERVAL_SECONDS || "30", 10),
