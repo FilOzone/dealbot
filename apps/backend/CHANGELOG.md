@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.1](https://github.com/FilOzone/dealbot/compare/backend-v0.1.0...backend-v0.1.1) (2026-01-20)
+
+
+### Bug Fixes
+
+* create random data when others fail ([#127](https://github.com/FilOzone/dealbot/issues/127)) ([3d30ce7](https://github.com/FilOzone/dealbot/commit/3d30ce761ababc32ac6f38c250bbaf19df02c1e1))
+
 ## [0.1.0](https://github.com/FilOzone/dealbot/compare/backend-v0.0.1...backend-v0.1.0) (2026-01-16)
 
 

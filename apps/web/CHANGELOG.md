@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.1](https://github.com/FilOzone/dealbot/compare/web-v0.1.0...web-v0.1.1) (2026-01-20)
+
+
+### Bug Fixes
+
+* **web:** display 'Unknown' for curio version when SP version check fails ([#125](https://github.com/FilOzone/dealbot/issues/125)) ([3b86ffe](https://github.com/FilOzone/dealbot/commit/3b86ffe4b44b1e5b87e554aa8f76cd79143382e3))
+
 ## [0.1.0](https://github.com/FilOzone/dealbot/compare/web-v0.0.1...web-v0.1.0) (2026-01-16)
 
 
