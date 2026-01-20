@@ -16,5 +16,5 @@
   },
   "separate-pull-requests": false,
   "pull-request-title-pattern": "chore${scope}: release to production (${component} ${version})",
-  "group-pull-request-title-pattern": "chore${scope}: release to production (${component} ${version})"
+  "group-pull-request-title-pattern": "chore${scope}: release to production (${branch})"
 }
