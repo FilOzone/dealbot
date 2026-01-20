@@ -46,32 +46,38 @@ jobs:
         if: always()
         uses: actions/github-script@v7
         env:
+          PRS_CREATED: ${{ steps.release.outputs.prs_created }}
           RELEASE_PRS: ${{ steps.release.outputs.prs }}
           RELEASE_PR: ${{ steps.release.outputs.pr }}
         with:
           script: |
             const owner = context.repo.owner;
             const repo = context.repo.repo;
-            let prs = [];
-            if (process.env.RELEASE_PRS) {
-              try {
-                prs = JSON.parse(process.env.RELEASE_PRS);
-              } catch (error) {
-                core.info(`Failed to parse release-please prs output: ${error}`);
-              }
+            if (process.env.PRS_CREATED !== "true") {
+              core.info("No release PR created or updated in this run.");
+              return;
             }
-            if (!prs.length && process.env.RELEASE_PR) {
+            let pr = null;
+            if (process.env.RELEASE_PR) {
               try {
-                prs = [JSON.parse(process.env.RELEASE_PR)];
+                pr = JSON.parse(process.env.RELEASE_PR);
               } catch (error) {
                 core.info(`Failed to parse release-please pr output: ${error}`);
               }
             }
-            if (!prs.length) {
-              core.info("No release PR data found in release-please outputs.");
+            if (!pr && process.env.RELEASE_PRS) {
+              try {
+                const prs = JSON.parse(process.env.RELEASE_PRS);
+                pr = prs[0];
+              } catch (error) {
+                core.info(`Failed to parse release-please prs output: ${error}`);
+              }
+            }
+            if (!pr?.number) {
+              core.info("Release PR number not found in release-please outputs.");
               return;
             }
-            const prNumber = prs[0].number;
+            const prNumber = pr.number;
             const { data } = await github.rest.pulls.get({
               owner,
               repo,
@@ -81,6 +87,7 @@ jobs:
               core.info(`Release PR #${prNumber} is ${data.state}; skipping add-to-project.`);
               return;
             }
+            core.info(`Release PR #${prNumber} is open; will add to project.`);
             core.setOutput("node_id", data.node_id);
             core.setOutput("number", String(prNumber));
 
@@ -147,9 +154,11 @@ jobs:
   add-release-pr-to-project:
     needs:
       - release-please
-      - retag-backend
-      - retag-web
-    if: always()
+    if: |
+      always() &&
+      !cancelled() &&
+      needs.release-please.result == 'success' &&
+      needs.release-please.outputs.release_pr_node_id != ''
     runs-on: ubuntu-latest
     steps:
       - name: Add release PR to project
