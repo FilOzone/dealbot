@@ -115,7 +115,7 @@ export interface IBlockchainConfig {
   useOnlyApprovedProviders: boolean;
   enableCDNTesting: boolean;
   enableIpniTesting: boolean;
-  dealbotDatasetVersion?: string;
+  dealbotDataSetVersion?: string;
 }
 
 export interface ISchedulingConfig {
@@ -183,7 +183,7 @@ export function loadConfig(): IConfig {
       useOnlyApprovedProviders: process.env.USE_ONLY_APPROVED_PROVIDERS === "true",
       enableCDNTesting: process.env.ENABLE_CDN_TESTING === "true",
       enableIpniTesting: process.env.ENABLE_IPNI_TESTING === "true",
-      dealbotDatasetVersion: process.env.DEALBOT_DATASET_VERSION,
+      dealbotDataSetVersion: process.env.DEALBOT_DATASET_VERSION,
     },
     scheduling: {
       dealIntervalSeconds: Number.parseInt(process.env.DEAL_INTERVAL_SECONDS || "30", 10),
