@@ -8,9 +8,9 @@ import { StorageProvider } from "../database/entities/storage-provider.entity.js
 import { DealStatus } from "../database/types.js";
 import { DataSourceService } from "../dataSource/dataSource.service.js";
 import { DealAddonsService } from "../deal-addons/deal-addons.service.js";
+import { DealPreprocessingResult } from "../deal-addons/types.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
 import { DealService } from "./deal.service.js";
-import { DealPreprocessingResult } from "src/deal-addons/types.js";
 
 vi.mock("@filoz/synapse-sdk", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@filoz/synapse-sdk")>();
