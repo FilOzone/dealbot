@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.2](https://github.com/FilOzone/dealbot/compare/web-v0.1.1...web-v0.1.2) (2026-01-20)
+
+
+### Bug Fixes
+
+* **web:** use OR for version fallback ([#133](https://github.com/FilOzone/dealbot/issues/133)) ([922665d](https://github.com/FilOzone/dealbot/commit/922665dd5635507b1980a435181ae8f746ff777f))
+
 ## [0.1.1](https://github.com/FilOzone/dealbot/compare/web-v0.1.0...web-v0.1.1) (2026-01-20)
 
 
