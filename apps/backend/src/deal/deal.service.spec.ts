@@ -258,8 +258,8 @@ describe("DealService", () => {
         expect(mockSynapseInstance.createStorage).toHaveBeenCalledWith({
           providerAddress: "0xProvider",
           metadata: {
-            version: "dealbot-v2",
             customKey: "customValue",
+            dealbotDataSetVersion: "dealbot-v2",
           },
         });
       });
@@ -284,6 +284,33 @@ describe("DealService", () => {
           providerAddress: "0xProvider",
           metadata: {
             customKey: "customValue",
+          },
+        });
+      });
+
+      it("config dealbotDataSetVersion takes precedence over dealInput metadata", async () => {
+        const testService = await createServiceWithVersion("dealbot-v3");
+
+        // Create dealInput with conflicting dealbotDataSetVersion ( not expected, but just in case )
+        const dealInputWithConflict = {
+          ...mockDealInput,
+          synapseConfig: {
+            dataSetMetadata: {
+              customKey: "customValue",
+              dealbotDataSetVersion: "old-version", // This should be overwritten
+            },
+            pieceMetadata: {},
+          },
+        };
+
+        await testService.createDeal(mockProviderInfo, dealInputWithConflict);
+
+        // Verify config value overwrites dealInput value
+        expect(mockSynapseInstance.createStorage).toHaveBeenCalledWith({
+          providerAddress: "0xProvider",
+          metadata: {
+            customKey: "customValue",
+            dealbotDataSetVersion: "dealbot-v3", // Config value wins
           },
         });
       });
