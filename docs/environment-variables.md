@@ -4,19 +4,18 @@ This document provides a comprehensive guide to all environment variables used b
 
 ## Quick Reference
 
-| Category                                     | Variables                                                                                                                                                                                                                   |
-| -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [Application](#application-configuration)    | `NODE_ENV`, `DEALBOT_PORT`, `DEALBOT_HOST`, `DEALBOT_ALLOWED_ORIGINS`                                                                                                                                                       |
-| [Database](#database-configuration)          | `DATABASE_HOST`, `DATABASE_PORT`, `DATABASE_USER`, `DATABASE_PASSWORD`, `DATABASE_NAME`                                                                                                                                     |
-| [Blockchain](#blockchain-configuration)      | `NETWORK`, `WALLET_ADDRESS`, `WALLET_PRIVATE_KEY`, `CHECK_DATASET_CREATION_FEES`, `USE_ONLY_APPROVED_PROVIDERS`, `ENABLE_CDN_TESTING`, `ENABLE_IPNI_TESTING`, `OVERRIDE_CONTRACT_ADDRESSES`, `WARM_STORAGE_SERVICE_ADDRESS` |
-| [Dataset Versioning](#dataset-versioning)    | `DEALBOT_DATASET_VERSION`                                                                                                                                                                                                   |
-| [Scheduling](#scheduling-configuration)      | `DEAL_INTERVAL_SECONDS`, `RETRIEVAL_INTERVAL_SECONDS`, `DEAL_START_OFFSET_SECONDS`, `RETRIEVAL_START_OFFSET_SECONDS`, `METRICS_START_OFFSET_SECONDS`                                                                        |
-| [Dataset](#dataset-configuration)            | `DEALBOT_LOCAL_DATASETS_PATH`, `KAGGLE_DATASET_TOTAL_PAGES`, `RANDOM_DATASET_SIZES`                                                                                                                                         |
-| [Proxy](#proxy-configuration)                | `PROXY_LIST`, `PROXY_LOCATIONS`                                                                                                                                                                                             |
-| [Timeouts](#timeout-configuration)           | `CONNECT_TIMEOUT_MS`, `HTTP_REQUEST_TIMEOUT_MS`, `HTTP2_REQUEST_TIMEOUT_MS`, `RETRIEVAL_TIMEOUT_BUFFER_MS`                                                                                                                  |
-| [Debug/Development](#debugdevelopment-flags) | `DEALBOT_DISABLE_SCHEDULER`, `DEALBOT_DISABLE_CHAIN`                                                                                                                                                                        |
-| [External Services](#external-services)      | `FILBEAM_BOT_TOKEN`                                                                                                                                                                                                         |
-| [Web Frontend](#web-frontend)                | `VITE_API_BASE_URL`                                                                                                                                                                                                         |
+| Category                                  | Variables                                                                                                                                                    |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| [Application](#application-configuration) | `NODE_ENV`, `DEALBOT_PORT`, `DEALBOT_HOST`, `DEALBOT_ALLOWED_ORIGINS`                                                                                        |
+| [Database](#database-configuration)       | `DATABASE_HOST`, `DATABASE_PORT`, `DATABASE_USER`, `DATABASE_PASSWORD`, `DATABASE_NAME`                                                                      |
+| [Blockchain](#blockchain-configuration)   | `NETWORK`, `WALLET_ADDRESS`, `WALLET_PRIVATE_KEY`, `CHECK_DATASET_CREATION_FEES`, `USE_ONLY_APPROVED_PROVIDERS`, `ENABLE_CDN_TESTING`, `ENABLE_IPNI_TESTING` |
+| [Dataset Versioning](#dataset-versioning) | `DEALBOT_DATASET_VERSION`                                                                                                                                    |
+| [Scheduling](#scheduling-configuration)   | `DEAL_INTERVAL_SECONDS`, `RETRIEVAL_INTERVAL_SECONDS`, `DEAL_START_OFFSET_SECONDS`, `RETRIEVAL_START_OFFSET_SECONDS`, `METRICS_START_OFFSET_SECONDS`         |
+| [Dataset](#dataset-configuration)         | `DEALBOT_LOCAL_DATASETS_PATH`, `KAGGLE_DATASET_TOTAL_PAGES`, `RANDOM_DATASET_SIZES`                                                                          |
+| [Proxy](#proxy-configuration)             | `PROXY_LIST`, `PROXY_LOCATIONS`                                                                                                                              |
+| [Timeouts](#timeout-configuration)        | `CONNECT_TIMEOUT_MS`, `HTTP_REQUEST_TIMEOUT_MS`, `HTTP2_REQUEST_TIMEOUT_MS`, `RETRIEVAL_TIMEOUT_BUFFER_MS`                                                   |
+| [External Services](#external-services)   | `FILBEAM_BOT_TOKEN`                                                                                                                                          |
+| [Web Frontend](#web-frontend)             | `VITE_API_BASE_URL`                                                                                                                                          |
 
 ---
 
@@ -270,7 +269,7 @@ WALLET_ADDRESS=0x1234567890abcdef1234567890abcdef12345678
 
 **When to update**:
 
-- Set to `false` to skip addition of dataset creation fess into storage costs.
+- Set to `false` to skip addition of dataset creation fees into storage costs.
 
 ---
 
@@ -280,11 +279,11 @@ WALLET_ADDRESS=0x1234567890abcdef1234567890abcdef12345678
 - **Required**: No
 - **Default**: `true`
 
-**Role**: Restricts deal-making to only FWSS approved storage providers. This ensures deals are made with approved providers.
+**Role**: Restricts deal-making to only Filecoin Warm Storage Service (FWSS) approved storage providers. This ensures deals are made with approved providers.
 
 **When to update**:
 
-- Set to `false` to test with any storage provider available for testing ( providers which supports "PDP" product in ServiceProviderRegistry )
+- Set to `false` to test with any storage provider available for testing (providers that support "PDP" product in ServiceProviderRegistry)
 
 ---
 
@@ -294,7 +293,7 @@ WALLET_ADDRESS=0x1234567890abcdef1234567890abcdef12345678
 - **Required**: No
 - **Default**: `true`
 
-**Role**: Enables adding deal-making with CDN support. Adds key(`withCDN`) to dataset metadata, used to request that CDN services should be enabled.
+**Role**: Enables adding deal-making with CDN support. Adds a key(`withCDN`) to dataset metadata, used to request that CDN services should be enabled.
 
 **When to update**:
 
@@ -309,7 +308,7 @@ WALLET_ADDRESS=0x1234567890abcdef1234567890abcdef12345678
 - **Required**: No
 - **Default**: `true`
 
-**Role**: Enables deal-making with IPFS support. Adds key(`withIPFSIndexing`) to dataset metadata, used to request that IPFS indexing is performed.
+**Role**: Enables deal-making with IPFS support. Adds a key(`withIPFSIndexing`) to dataset metadata, used to request that IPFS indexing is performed.
 
 **When to update**:
 
