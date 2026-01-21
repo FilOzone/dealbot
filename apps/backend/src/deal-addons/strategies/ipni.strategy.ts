@@ -204,10 +204,14 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       const serviceUrl = deal.storageProvider.serviceUrl;
       const pdpServer = new PDPServer(null, serviceUrl);
 
+      const rootCID = deal.metadata[this.name]?.rootCID ?? "";
+      const blockCIDs = deal.metadata[this.name]?.blockCIDs ?? [];
+
       const result = await this.monitorAndVerifyIPNI(
         pdpServer,
-        deal.pieceCid,
-        deal.metadata[this.name]?.rootCID ?? "",
+        deal,
+        blockCIDs.map((cid) => CID.parse(cid)),
+        rootCID,
         deal.storageProvider,
         this.POLLING_TIMEOUT_MS,
         this.IPNI_LOOKUP_TIMEOUT_MS,
@@ -234,7 +238,8 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
 
   async monitorAndVerifyIPNI(
     pdpServer: PDPServer,
-    pieceCid: string,
+    deal: Deal,
+    blockCIDs: CID[],
     rootCID: string,
     storageProvider: StorageProvider,
     statusTimeoutMs: number,
@@ -242,6 +247,7 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
     pollIntervalMs: number,
   ): Promise<MonitorAndVerifyResult> {
     const startTime = Date.now();
+    const pieceCid = deal.pieceCid;
     let monitoringResult: PieceMonitoringResult;
     try {
       monitoringResult = await this.monitorPieceStatus(pdpServer, pieceCid, statusTimeoutMs, pollIntervalMs);
@@ -270,15 +276,35 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
     }
 
     const rootCidObj = CID.parse(rootCID);
+
+    if (!rootCidObj || blockCIDs.length === 0) {
+      this.logger.warn(`No rootCID or blockCIDs for deal ${deal.id}`);
+      return {
+        monitoringResult,
+        ipniResult: {
+          verified: 0,
+          unverified: 0,
+          total: blockCIDs.length + (rootCidObj ? 1 : 0),
+          rootCIDVerified: false,
+          durationMs: Infinity, // what is the right value here...
+          failedCIDs: [rootCidObj, ...blockCIDs].map((cid) => ({
+            cid: cid.toString(),
+            reason: "No rootCID or blockCIDs for deal",
+          })),
+          verifiedAt: new Date().toISOString(),
+        },
+      };
+    }
     const ATTEMPT_INTERVAL_MS = 5000;
     const ATTEMPT_MULTIPLIER = 2;
     // Derive maxAttempts from total IPNI timeout, per-attempt interval and a multiplier.
-    const maxAttempts = Math.ceil((ipniTimeoutMs / ATTEMPT_INTERVAL_MS) / ATTEMPT_MULTIPLIER);
+    const maxAttempts = Math.ceil(ipniTimeoutMs / ATTEMPT_INTERVAL_MS / ATTEMPT_MULTIPLIER);
 
     this.logger.log(`Verifying rootCID in IPNI: ${rootCID.slice(0, 12)}...`);
 
     // NOTE: filecoin-pin does not currently validate that all blocks are advertised on IPNI.
     const ipniValidated = await waitForIpniProviderResults(rootCidObj, {
+      childBlocks: blockCIDs,
       maxAttempts,
       delayMs: ATTEMPT_INTERVAL_MS,
       expectedProviders: [buildExpectedProviderInfo(storageProvider)],
@@ -296,7 +322,9 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       total: 1,
       rootCIDVerified: ipniValidated,
       durationMs,
-      failedCIDs: ipniValidated ? [] : [{ cid: rootCID, reason: "IPNI did not return expected provider results via filecoin-pin" }],
+      failedCIDs: ipniValidated
+        ? []
+        : [{ cid: rootCID, reason: "IPNI did not return expected provider results via filecoin-pin" }],
       verifiedAt: new Date().toISOString(),
     };
 

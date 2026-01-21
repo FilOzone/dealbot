@@ -44,7 +44,7 @@
     "cors": "^2.8.5",
     "cron": "4.3.5",
     "ethers": "^6.16.0",
-    "filecoin-pin": "^0.14.0",
+    "filecoin-pin": "^0.15.0",
     "helmet": "^8.1.0",
     "https-proxy-agent": "^7.0.6",
     "joi": "^17.13.3",
