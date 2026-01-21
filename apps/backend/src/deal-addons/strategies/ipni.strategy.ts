@@ -589,8 +589,10 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
     }
 
     // Helper function to calculate duration in milliseconds
+    // Skip invocation if uploadEndTime is undefined
     const calculateDuration = (eventTime: Date): number => {
-      const duration = eventTime.getTime() - uploadEndTime.getTime();
+      if (!uploadEndTime) return 0;
+      const duration = Math.round(eventTime.getTime() - uploadEndTime.getTime());
       return Math.max(0, duration);
     };
 
@@ -616,7 +618,7 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
 
     if (finalStatus.retrieved && !deal.ipniRetrievedAt) {
       const retrievedTimestamp = finalStatus.retrievedAt ? new Date(finalStatus.retrievedAt) : now;
-      deal.ipniRetrievedAt = new Date(retrievedTimestamp);
+      deal.ipniRetrievedAt = retrievedTimestamp;
 
       if (uploadEndTime) {
         deal.ipniTimeToRetrieveMs = calculateDuration(retrievedTimestamp);
