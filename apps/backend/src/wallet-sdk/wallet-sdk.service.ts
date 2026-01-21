@@ -344,9 +344,7 @@ export class WalletSdkService implements OnModuleInit {
   }
 
   getFWSSAddress(): string {
-    return this.blockchainConfig.overrideContractAddresses && this.blockchainConfig.warmStorageServiceAddress
-      ? this.blockchainConfig.warmStorageServiceAddress
-      : CONTRACT_ADDRESSES.WARM_STORAGE[this.blockchainConfig.network];
+    return CONTRACT_ADDRESSES.WARM_STORAGE[this.blockchainConfig.network];
   }
 
   /**
