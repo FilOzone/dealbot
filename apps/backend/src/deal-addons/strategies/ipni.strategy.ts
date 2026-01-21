@@ -279,11 +279,13 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
           indexed: sdkStatus.indexed,
           advertised: sdkStatus.advertised,
           retrieved: sdkStatus.retrieved,
-          retrievedAt: sdkStatus.retrievedAt,
+          retrievedAt: sdkStatus.retrievedAt, // retrievedAt is optional from sdk
+          // sdkStatus does not provide these fields, so we use the last known values
           indexedAt: lastStatus.indexedAt,
           advertisedAt: lastStatus.advertisedAt,
         };
 
+        // Update indexedAt and advertisedAt if they have changed
         if (currentStatus.indexed && !lastStatus.indexed) {
           currentStatus.indexedAt = new Date().toISOString();
           this.logger.log(`Piece indexed: ${pieceCid.slice(0, 12)}...`);
@@ -294,7 +296,11 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
           this.logger.log(`Piece advertised: ${pieceCid.slice(0, 12)}...`);
         }
 
-        if (currentStatus.retrievedAt && !lastStatus.retrievedAt) {
+        // Return if status has changed to retrieved
+        if (currentStatus.retrieved && !lastStatus.retrieved) {
+          // sdk can return undefined for retrievedAt, so we use the current time
+          currentStatus.retrievedAt = currentStatus.retrievedAt ?? new Date().toISOString();
+
           const durationSec = ((Date.now() - startTime) / 1000).toFixed(1);
           this.logger.log(`Piece retrieved: ${pieceCid.slice(0, 12)}... (${durationSec}s)`);
           return {
@@ -565,7 +571,7 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
     const { monitoringResult, ipniResult } = result;
     const { finalStatus } = monitoringResult;
     const now = new Date();
-    const uploadEndTime = deal.uploadEndTime || now;
+    const uploadEndTime = deal.uploadEndTime;
 
     // Determine IPNI status based on progression
     // Terminal state is VERIFIED when rootCID (minimum) is verified via filecoinpin.contact
@@ -582,22 +588,39 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       deal.ipniStatus = IpniStatus.FAILED;
     }
 
+    // Helper function to calculate duration in milliseconds
+    const calculateDuration = (eventTime: Date): number => {
+      const duration = eventTime.getTime() - uploadEndTime.getTime();
+      return Math.max(0, duration);
+    };
+
     // Update timestamps and calculate time-to-stage metrics
     if (finalStatus.indexed && !deal.ipniIndexedAt) {
       const indexedTimestamp = finalStatus.indexedAt ? new Date(finalStatus.indexedAt) : now;
       deal.ipniIndexedAt = indexedTimestamp;
-      deal.ipniTimeToIndexMs = Math.round(indexedTimestamp.getTime() - uploadEndTime.getTime());
+
+      // only calculate if uploadEndTime exists ( metrics are meaningless without a valid start time )
+      if (uploadEndTime) {
+        deal.ipniTimeToIndexMs = calculateDuration(indexedTimestamp);
+      }
     }
 
     if (finalStatus.advertised && !deal.ipniAdvertisedAt) {
       const advertisedTimestamp = finalStatus.advertisedAt ? new Date(finalStatus.advertisedAt) : now;
       deal.ipniAdvertisedAt = advertisedTimestamp;
-      deal.ipniTimeToAdvertiseMs = Math.round(advertisedTimestamp.getTime() - uploadEndTime.getTime());
+
+      if (uploadEndTime) {
+        deal.ipniTimeToAdvertiseMs = calculateDuration(advertisedTimestamp);
+      }
     }
 
-    if (finalStatus.retrievedAt && !deal.ipniRetrievedAt) {
-      deal.ipniRetrievedAt = new Date(finalStatus.retrievedAt);
-      deal.ipniTimeToRetrieveMs = Math.round(new Date(finalStatus.retrievedAt).getTime() - uploadEndTime.getTime());
+    if (finalStatus.retrieved && !deal.ipniRetrievedAt) {
+      const retrievedTimestamp = finalStatus.retrievedAt ? new Date(finalStatus.retrievedAt) : now;
+      deal.ipniRetrievedAt = new Date(retrievedTimestamp);
+
+      if (uploadEndTime) {
+        deal.ipniTimeToRetrieveMs = calculateDuration(retrievedTimestamp);
+      }
     }
 
     // Update verification metrics and timestamp
@@ -605,7 +628,10 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
     if (ipniResult.rootCIDVerified && !deal.ipniVerifiedAt) {
       const verifiedTimestamp = new Date(ipniResult.verifiedAt);
       deal.ipniVerifiedAt = verifiedTimestamp;
-      deal.ipniTimeToVerifyMs = Math.round(verifiedTimestamp.getTime() - uploadEndTime.getTime());
+
+      if (uploadEndTime) {
+        deal.ipniTimeToVerifyMs = calculateDuration(verifiedTimestamp);
+      }
     }
 
     deal.ipniVerifiedCidsCount = ipniResult.verified;
