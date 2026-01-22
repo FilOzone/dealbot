@@ -53,4 +53,78 @@ describe("MetricsSchedulerService scheduling", () => {
     const delayMs = setTimeoutSpy.mock.calls[0]?.[1];
     expect(delayMs).toBe(35 * 60 * 1000);
   });
+
+  it("returns null when no daily metrics rows exist", async () => {
+    const dataSource = {
+      query: vi.fn().mockResolvedValue([{ last_created: null }]),
+    } as unknown as DataSource;
+    const configService = { get: vi.fn() } as unknown as ConfigService<IConfig, true>;
+    const service = new MetricsSchedulerService(dataSource, configService);
+
+    const result = await (service as unknown as { getLastDailyCreatedTime: () => Promise<Date | null> }).getLastDailyCreatedTime();
+
+    expect(result).toBeNull();
+  });
+
+  it("returns the most recent daily metrics timestamp", async () => {
+    const lastCreated = "2024-01-01T00:00:00.000Z";
+    const dataSource = {
+      query: vi.fn().mockResolvedValue([{ last_created: lastCreated }]),
+    } as unknown as DataSource;
+    const configService = { get: vi.fn() } as unknown as ConfigService<IConfig, true>;
+    const service = new MetricsSchedulerService(dataSource, configService);
+
+    const result = await (service as unknown as { getLastDailyCreatedTime: () => Promise<Date | null> }).getLastDailyCreatedTime();
+
+    expect(result).toBeInstanceOf(Date);
+    expect(result?.toISOString()).toBe(lastCreated);
+  });
+
+  it("returns the most recent refresh timestamp for weekly and all-time views", async () => {
+    const lastWeek = new Date("2024-01-01T00:00:00.000Z");
+    const allTime = "2024-01-02T00:00:00.000Z";
+    const dataSource = {
+      query: vi
+        .fn()
+        .mockResolvedValueOnce([{ last_refreshed: lastWeek }])
+        .mockResolvedValueOnce([{ last_refreshed: allTime }]),
+    } as unknown as DataSource;
+    const configService = { get: vi.fn() } as unknown as ConfigService<IConfig, true>;
+    const service = new MetricsSchedulerService(dataSource, configService);
+
+    const weekly = await (service as unknown as { getLastWeekRefreshTime: () => Promise<Date | null> }).getLastWeekRefreshTime();
+    const allTimeResult = await (
+      service as unknown as { getLastAllTimeRefreshTime: () => Promise<Date | null> }
+    ).getLastAllTimeRefreshTime();
+
+    expect(weekly).toBeInstanceOf(Date);
+    expect(weekly?.getTime()).toBe(lastWeek.getTime());
+    expect(allTimeResult).toBeInstanceOf(Date);
+    expect(allTimeResult?.toISOString()).toBe(allTime);
+  });
+
+  it("parses timestamps from Date, string, and null", () => {
+    const dataSource = {} as DataSource;
+    const configService = { get: vi.fn() } as unknown as ConfigService<IConfig, true>;
+    const service = new MetricsSchedulerService(dataSource, configService);
+
+    const parseTimestamp = (service as unknown as { parseTimestamp: (value: unknown) => Date | null }).parseTimestamp;
+    const dateValue = new Date("2024-01-01T00:00:00.000Z");
+
+    expect(parseTimestamp(dateValue)?.getTime()).toBe(dateValue.getTime());
+    expect(parseTimestamp("2024-01-01T00:00:00.000Z")?.toISOString()).toBe("2024-01-01T00:00:00.000Z");
+    expect(parseTimestamp(null)).toBeNull();
+  });
+
+  it("propagates database errors for metrics timestamps", async () => {
+    const dataSource = {
+      query: vi.fn().mockRejectedValue(new Error("DB failure")),
+    } as unknown as DataSource;
+    const configService = { get: vi.fn() } as unknown as ConfigService<IConfig, true>;
+    const service = new MetricsSchedulerService(dataSource, configService);
+
+    await expect(
+      (service as unknown as { getLastDailyCreatedTime: () => Promise<Date | null> }).getLastDailyCreatedTime(),
+    ).rejects.toThrow("DB failure");
+  });
 });
