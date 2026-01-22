@@ -589,11 +589,20 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
     }
 
     // Helper function to calculate duration in milliseconds
-    // Skip invocation if uploadEndTime is undefined
-    const calculateDuration = (eventTime: Date): number => {
-      if (!uploadEndTime) return 0;
+    // return null if uploadEndTime is missing ( metrics are meaningless when start time is missing )
+    // log warning for unexpected case where end time is before start time
+    const calculateDuration = (eventTime: Date, eventName: string): number | null => {
+      if (!uploadEndTime) return null;
       const duration = Math.round(eventTime.getTime() - uploadEndTime.getTime());
-      return Math.max(0, duration);
+
+      if (duration <= 0) {
+        this.logger.warn(
+          `Invalid duration for ${eventName}: ${duration}ms (eventTime: ${eventTime.toISOString()}, uploadEndTime: ${uploadEndTime.toISOString()})`,
+        );
+        return null;
+      }
+
+      return duration;
     };
 
     // Update timestamps and calculate time-to-stage metrics
@@ -601,9 +610,9 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       const indexedTimestamp = finalStatus.indexedAt ? new Date(finalStatus.indexedAt) : now;
       deal.ipniIndexedAt = indexedTimestamp;
 
-      // only calculate if uploadEndTime exists ( metrics are meaningless without a valid start time )
-      if (uploadEndTime) {
-        deal.ipniTimeToIndexMs = calculateDuration(indexedTimestamp);
+      const timeToIndexMs = calculateDuration(indexedTimestamp, "indexed");
+      if (timeToIndexMs) {
+        deal.ipniTimeToIndexMs = timeToIndexMs;
       }
     }
 
@@ -611,8 +620,9 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       const advertisedTimestamp = finalStatus.advertisedAt ? new Date(finalStatus.advertisedAt) : now;
       deal.ipniAdvertisedAt = advertisedTimestamp;
 
-      if (uploadEndTime) {
-        deal.ipniTimeToAdvertiseMs = calculateDuration(advertisedTimestamp);
+      const timeToAdvertiseMs = calculateDuration(advertisedTimestamp, "advertised");
+      if (timeToAdvertiseMs) {
+        deal.ipniTimeToAdvertiseMs = timeToAdvertiseMs;
       }
     }
 
@@ -620,8 +630,9 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       const retrievedTimestamp = finalStatus.retrievedAt ? new Date(finalStatus.retrievedAt) : now;
       deal.ipniRetrievedAt = retrievedTimestamp;
 
-      if (uploadEndTime) {
-        deal.ipniTimeToRetrieveMs = calculateDuration(retrievedTimestamp);
+      const timeToRetrieveMs = calculateDuration(retrievedTimestamp, "retrieved");
+      if (timeToRetrieveMs) {
+        deal.ipniTimeToRetrieveMs = timeToRetrieveMs;
       }
     }
 
@@ -631,8 +642,9 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       const verifiedTimestamp = new Date(ipniResult.verifiedAt);
       deal.ipniVerifiedAt = verifiedTimestamp;
 
-      if (uploadEndTime) {
-        deal.ipniTimeToVerifyMs = calculateDuration(verifiedTimestamp);
+      const timeToVerifyMs = calculateDuration(verifiedTimestamp, "verified");
+      if (timeToVerifyMs) {
+        deal.ipniTimeToVerifyMs = timeToVerifyMs;
       }
     }
 
