@@ -1,12 +1,13 @@
-import { request } from "node:https";
 import { Readable } from "node:stream";
-import { METADATA_KEYS, PDPServer } from "@filoz/synapse-sdk";
+import { METADATA_KEYS, PDPServer, type ProviderInfo } from "@filoz/synapse-sdk";
 import { CarWriter } from "@ipld/car";
 import { Injectable, Logger } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
+import { waitForIpniProviderResults } from "filecoin-pin/core/utils";
 import { CID } from "multiformats/cid";
 import * as raw from "multiformats/codecs/raw";
 import { sha256 } from "multiformats/hashes/sha2";
+import { StorageProvider } from "src/database/entities/storage-provider.entity.js";
 import type { Repository } from "typeorm";
 import { MAX_BLOCK_SIZE } from "../../common/constants.js";
 import { Deal } from "../../database/entities/deal.entity.js";
@@ -22,14 +23,36 @@ import type {
 } from "../types.js";
 import { AddonPriority } from "../types.js";
 import type {
-  BlockCIDsVerificationResult,
   IPNIVerificationResult,
   MonitorAndVerifyResult,
   PieceMonitoringResult,
   PieceStatus,
-  RootCIDVerificationResult,
-  SingleCIDVerificationResult,
 } from "./ipni.types.js";
+
+/**
+ * Convert from a dealbot StorageProvider to a synapse-sdk ProviderInfo object
+ */
+function buildExpectedProviderInfo(storageProvider: StorageProvider): ProviderInfo {
+  return {
+    id: storageProvider.providerId ?? (0 as number),
+    serviceProvider: storageProvider.address,
+    payee: storageProvider.payee,
+    name: storageProvider.name,
+    description: storageProvider.description,
+    active: storageProvider.isActive,
+    products: {
+      PDP: {
+        type: "PDP",
+        isActive: true,
+        capabilities: {},
+        data: {
+          serviceURL: storageProvider.serviceUrl,
+          // we don't need the other fields for IPNI verification
+        } as any,
+      },
+    },
+  };
+}
 
 /**
  * IPNI (InterPlanetary Network Indexer) add-on strategy
@@ -171,16 +194,25 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
    * Start IPNI monitoring and update deal entity with tracking metrics
    */
   private async startIpniMonitoring(deal: Deal): Promise<void> {
+    if (!deal.storageProvider) {
+      // this should never happen, we need to tighten up the types for successful deals.
+      this.logger.warn(`No storage provider for deal ${deal.id}`);
+      return;
+    }
+
     try {
-      const pdpServer = new PDPServer(null, deal.storageProvider!.serviceUrl);
-      const expectedMultiaddr = this.serviceURLToMultiaddr(deal.storageProvider!.serviceUrl);
+      const serviceUrl = deal.storageProvider.serviceUrl;
+      const pdpServer = new PDPServer(null, serviceUrl);
+
+      const rootCID = deal.metadata[this.name]?.rootCID ?? "";
+      const blockCIDs = deal.metadata[this.name]?.blockCIDs ?? [];
 
       const result = await this.monitorAndVerifyIPNI(
         pdpServer,
-        deal.pieceCid,
-        deal.metadata[this.name]?.blockCIDs ?? [],
-        deal.metadata[this.name]?.rootCID ?? "",
-        expectedMultiaddr,
+        deal,
+        blockCIDs.map((cid) => CID.parse(cid)),
+        rootCID,
+        deal.storageProvider,
         this.POLLING_TIMEOUT_MS,
         this.IPNI_LOOKUP_TIMEOUT_MS,
         this.POLLING_INTERVAL_MS,
@@ -206,14 +238,16 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
 
   async monitorAndVerifyIPNI(
     pdpServer: PDPServer,
-    pieceCid: string,
-    blockCIDs: string[],
+    deal: Deal,
+    blockCIDs: CID[],
     rootCID: string,
-    expectedMultiaddr: string,
+    storageProvider: StorageProvider,
     statusTimeoutMs: number,
     ipniTimeoutMs: number,
     pollIntervalMs: number,
   ): Promise<MonitorAndVerifyResult> {
+    const startTime = Date.now();
+    const pieceCid = deal.pieceCid;
     let monitoringResult: PieceMonitoringResult;
     try {
       monitoringResult = await this.monitorPieceStatus(pdpServer, pieceCid, statusTimeoutMs, pollIntervalMs);
@@ -241,8 +275,64 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       await new Promise((resolve) => setTimeout(resolve, this.IPNI_VERIFICATION_DELAY_MS));
     }
 
-    // Always verify CIDs via filecoinpin.contact - this is the terminal state
-    const ipniResult = await this.verifyIPNIAdvertisement(rootCID, blockCIDs, expectedMultiaddr, ipniTimeoutMs);
+    const rootCidObj = CID.parse(rootCID);
+
+    if (!rootCidObj || blockCIDs.length === 0) {
+      this.logger.warn(`No rootCID or blockCIDs for deal ${deal.id}`);
+      return {
+        monitoringResult,
+        ipniResult: {
+          verified: 0,
+          unverified: 0,
+          total: blockCIDs.length + (rootCidObj ? 1 : 0),
+          rootCIDVerified: false,
+          durationMs: Infinity, // what is the right value here...
+          failedCIDs: [rootCidObj, ...blockCIDs].map((cid) => ({
+            cid: cid.toString(),
+            reason: "No rootCID or blockCIDs for deal",
+          })),
+          verifiedAt: new Date().toISOString(),
+        },
+      };
+    }
+    const ATTEMPT_INTERVAL_MS = 5000;
+    const ATTEMPT_MULTIPLIER = 2;
+    // Derive maxAttempts from total IPNI timeout, per-attempt interval and a multiplier.
+    const maxAttempts = Math.ceil(ipniTimeoutMs / ATTEMPT_INTERVAL_MS / ATTEMPT_MULTIPLIER);
+
+    this.logger.log(`Verifying rootCID in IPNI: ${rootCID.slice(0, 12)}...`);
+
+    // NOTE: filecoin-pin does not currently validate that all blocks are advertised on IPNI.
+    const ipniValidated = await waitForIpniProviderResults(rootCidObj, {
+      childBlocks: blockCIDs,
+      maxAttempts,
+      delayMs: ATTEMPT_INTERVAL_MS,
+      expectedProviders: [buildExpectedProviderInfo(storageProvider)],
+    }).catch((error) => {
+      this.logger.warn(`IPNI verification failed: ${error.message}`);
+      return false;
+    });
+
+    const durationMs = Date.now() - startTime;
+
+    // We only verify rootCID (not individual block CIDs)
+    const ipniResult: IPNIVerificationResult = {
+      verified: ipniValidated ? 1 : 0,
+      unverified: ipniValidated ? 0 : 1,
+      total: 1,
+      rootCIDVerified: ipniValidated,
+      durationMs,
+      failedCIDs: ipniValidated
+        ? []
+        : [{ cid: rootCID, reason: "IPNI did not return expected provider results via filecoin-pin" }],
+      verifiedAt: new Date().toISOString(),
+    };
+
+    if (ipniValidated) {
+      this.logger.log(`IPNI verified: rootCID ${rootCID.slice(0, 12)}... (${(durationMs / 1000).toFixed(1)}s)`);
+    } else {
+      this.logger.warn(`IPNI verification failed for rootCID: ${rootCID.slice(0, 12)}...`);
+    }
 
     return {
       monitoringResult,
@@ -325,243 +415,6 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
     const durationSec = ((Date.now() - startTime) / 1000).toFixed(1);
     this.logger.warn(`Piece retrieval timeout: ${pieceCid.slice(0, 12)}... (${durationSec}s)`);
     throw new Error(`Timeout waiting for piece retrieval after ${durationSec}s`);
-  }
-
-  /**
-   * Verify that CIDs are available in the IPNI indexer (filecoinpin.contact)
-   *
-   * This function checks that the IPNI indexer has successfully indexed the CIDs
-   * and is returning the correct provider multiaddr. This is the terminal verification
-   * state for IPNI tracking.
-   *
-   * Process:
-   * 1. First verify the rootCID is available (minimum requirement)
-   * 2. Then verify individual blockCIDs
-   * 3. Allow retries with delays to handle asynchronous indexing
-   *
-   * @param rootCID - The IPFS root CID to verify first
-   * @param blockCIDs - Array of block CIDs to verify
-   * @param expectedMultiaddr - The expected provider multiaddr (SP's address)
-   * @param maxDurationMs - Maximum time to spend on verification
-   * @returns Verification results with counts and failed CIDs
-   */
-  async verifyIPNIAdvertisement(
-    rootCID: string,
-    blockCIDs: string[],
-    expectedMultiaddr: string,
-    maxDurationMs: number,
-  ): Promise<IPNIVerificationResult> {
-    const startTime = Date.now();
-    const failedCIDs: IPNIVerificationResult["failedCIDs"] = [];
-
-    // Step 1: Verify rootCID first (minimum requirement for verification)
-    const rootCIDResult = await this.verifyRootCID(rootCID, expectedMultiaddr, maxDurationMs, startTime);
-
-    if (rootCIDResult.failed) {
-      failedCIDs.push(rootCIDResult.failed);
-    }
-
-    // Step 2: Verify individual blockCIDs (bonus verification beyond minimum)
-    let blockCIDsVerified = 0;
-    if (rootCIDResult.verified) {
-      const blockCIDsResult = await this.verifyBlockCIDs(blockCIDs, expectedMultiaddr, maxDurationMs, startTime);
-      blockCIDsVerified = blockCIDsResult.verified;
-      failedCIDs.push(...blockCIDsResult.failed);
-    }
-
-    const durationMs = Date.now() - startTime;
-    const verifiedAt = new Date().toISOString();
-    const successCount = (rootCIDResult.verified ? 1 : 0) + blockCIDsVerified;
-    const totalCIDs = blockCIDs.length + 1; // +1 for rootCID
-
-    // Log results
-    if (failedCIDs.length > 0) {
-      this.logger.warn(`IPNI verification: ${successCount}/${totalCIDs} CIDs verified, ${failedCIDs.length} failed`);
-    } else {
-      this.logger.log(`IPNI verified: ${successCount} CIDs (${(durationMs / 1000).toFixed(1)}s)`);
-    }
-
-    return {
-      verified: successCount,
-      unverified: totalCIDs - successCount,
-      total: totalCIDs,
-      rootCIDVerified: rootCIDResult.verified,
-      durationMs,
-      failedCIDs,
-      verifiedAt,
-    };
-  }
-
-  /**
-   * Verify the rootCID with retries
-   */
-  private async verifyRootCID(
-    rootCID: string,
-    expectedMultiaddr: string,
-    maxDurationMs: number,
-    startTime: number,
-  ): Promise<RootCIDVerificationResult> {
-    this.logger.log(`Verifying rootCID in IPNI: ${rootCID.slice(0, 12)}...`);
-
-    const maxRetries = 5;
-    for (let retry = 0; retry < maxRetries; retry++) {
-      const elapsed = Date.now() - startTime;
-      if (elapsed > maxDurationMs) {
-        this.logger.warn(`IPNI verification timeout while checking rootCID after ${(elapsed / 1000).toFixed(1)}s`);
-        return { verified: false, failed: { cid: rootCID, reason: "timeout" } };
-      }
-
-      const result = await this.verifySingleCID(rootCID, expectedMultiaddr);
-
-      if (result.verified) {
-        this.logger.log(`RootCID verified in IPNI`);
-        return { verified: true };
-      }
-
-      // Retry logic
-      if (retry < maxRetries - 1) {
-        this.logger.debug(`RootCID ${result.reason || "verification failed"}, retry ${retry + 1}/${maxRetries}...`);
-        await new Promise((resolve) => setTimeout(resolve, this.IPNI_VERIFICATION_RETRY_INTERVAL_MS));
-      } else {
-        return {
-          verified: false,
-          failed: {
-            cid: rootCID,
-            reason: result.reason || "unknown",
-            addrs: result.addrs,
-          },
-        };
-      }
-    }
-
-    return {
-      verified: false,
-      failed: { cid: rootCID, reason: "max retries exceeded" },
-    };
-  }
-
-  /**
-   * Verify multiple blockCIDs
-   */
-  private async verifyBlockCIDs(
-    blockCIDs: string[],
-    expectedMultiaddr: string,
-    maxDurationMs: number,
-    startTime: number,
-  ): Promise<BlockCIDsVerificationResult> {
-    this.logger.log(`Verifying ${blockCIDs.length} blockCIDs in IPNI...`);
-
-    let verified = 0;
-    const failed: BlockCIDsVerificationResult["failed"] = [];
-
-    for (const cid of blockCIDs) {
-      const elapsed = Date.now() - startTime;
-      if (elapsed > maxDurationMs) {
-        this.logger.warn(
-          `IPNI verification timeout: ${verified + 1}/${blockCIDs.length + 1} verified after ${(elapsed / 1000).toFixed(
-            1,
-          )}s`,
-        );
-        break;
-      }
-
-      const result = await this.verifySingleCID(cid, expectedMultiaddr);
-
-      if (result.verified) {
-        verified++;
-      } else {
-        failed.push({
-          cid,
-          reason: result.reason || "unknown",
-          addrs: result.addrs,
-        });
-      }
-    }
-
-    return { verified, failed };
-  }
-
-  /**
-   * Verify a single CID in IPNI
-   */
-  private async verifySingleCID(cid: string, expectedMultiaddr: string): Promise<SingleCIDVerificationResult> {
-    try {
-      const addrs = await this.queryIPNI(cid, 5000);
-
-      if (addrs.length === 0) {
-        return { verified: false, reason: "not found", addrs };
-      }
-
-      if (!addrs.includes(expectedMultiaddr)) {
-        return { verified: false, reason: "wrong multiaddr", addrs };
-      }
-
-      return { verified: true };
-    } catch (error) {
-      return { verified: false, reason: error.message };
-    }
-  }
-
-  async queryIPNI(cid: string, timeoutMs = 5000): Promise<string[]> {
-    const response = await this.httpsGet("filecoinpin.contact", `/cid/${cid.toString()}`, timeoutMs);
-    return this.extractProviderAddrs(response);
-  }
-
-  httpsGet(hostname: string, path: string, timeoutMs = 5000) {
-    return new Promise((resolve, reject) => {
-      const options = {
-        hostname,
-        path,
-        method: "GET",
-        timeout: timeoutMs,
-        headers: {
-          "User-Agent": "filecoin-pin-health-check/1.0",
-          Accept: "application/json",
-        },
-        autoSelectFamilyAttemptTimeout: 500,
-      };
-
-      const req = request(options, (res) => {
-        let data = "";
-        res.on("data", (chunk) => {
-          data += chunk.toString();
-        });
-        res.on("end", () => {
-          if (res.statusCode !== 200) {
-            reject(new Error(`HTTP ${res.statusCode}: ${res.statusMessage}`));
-            return;
-          }
-          try {
-            resolve(JSON.parse(data));
-          } catch (error) {
-            reject(new Error(`Failed to parse JSON response: ${error.message}`));
-          }
-        });
-      });
-
-      req.on("error", (error: Error) => {
-        reject(new Error(`Request failed: ${error.message} (unknown)`));
-      });
-
-      req.on("timeout", () => {
-        req.destroy();
-        reject(new Error(`Request timed out after ${timeoutMs}ms`));
-      });
-
-      req.end();
-    });
-  }
-
-  extractProviderAddrs(ipniResponse: any): string[] {
-    const providerAddrs: string[] = [];
-    for (const multihashResult of ipniResponse.MultihashResults || []) {
-      for (const providerResult of multihashResult.ProviderResults || []) {
-        if (providerResult.Provider?.Addrs) {
-          providerAddrs.push(...providerResult.Provider.Addrs);
-        }
-      }
-    }
-    return providerAddrs;
   }
 
   /**
@@ -663,17 +516,6 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
     } catch (error) {
       this.logger.error(`Failed to save IPNI metrics: ${error.message}`);
       throw error;
-    }
-  }
-
-  serviceURLToMultiaddr(serviceURL: string) {
-    try {
-      const url = new URL(serviceURL);
-      const hostname = url.hostname;
-
-      return `/dns/${hostname}/tcp/443/https`;
-    } catch (error) {
-      throw new Error(`Failed to convert serviceURL to multiaddr: ${error.message}`);
     }
   }
 

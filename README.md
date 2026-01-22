@@ -37,6 +37,7 @@ dealbot/
 
 ## Developer Docs
 
+- [docs/environment-variables.md](docs/environment-variables.md) - Comprehensive environment variables reference
 - [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) - Local Kubernetes development (Kind + Kustomize)
 - [docs/infra.md](docs/infra.md) - Integration with FilOzone/infra
 - [docs/release-process.md](docs/release-process.md) - Release pipeline overview
@@ -82,7 +83,7 @@ cp .env.example .env
 - `NETWORK` - `calibration` or `mainnet`
 - `DEALBOT_PORT` - Backend server port (default: `8080`)
 
-See [`backend/.env.example`](backend/.env.example) for all options.
+See [docs/environment-variables.md](docs/environment-variables.md) for detailed documentation on all options.
 
 #### Frontend Configuration
 

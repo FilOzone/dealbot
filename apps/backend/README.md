@@ -71,7 +71,9 @@ pnpm start:prod
 
 ## Configuration
 
-All configuration is done via environment variables in `.env`:
+All configuration is done via environment variables in `.env`.
+
+> **📖 For detailed documentation on all environment variables, see [docs/environment-variables.md](../../docs/environment-variables.md)**
 
 ### Database Configuration
 
