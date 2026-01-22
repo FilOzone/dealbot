@@ -1,36 +1,30 @@
-import type { ConfigService } from "@nestjs/config";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { IConfig } from "../config/app.config.js";
-import type { DealService } from "../deal/deal.service.js";
-import type { RetrievalService } from "../retrieval/retrieval.service.js";
-import type { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
-import { SchedulerService } from "./scheduler.service.js";
+import { DbAnchoredScheduler } from "./db-anchored-scheduler.js";
 
-describe("SchedulerService scheduling", () => {
+describe("DbAnchoredScheduler scheduling", () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.restoreAllMocks();
   });
 
-  const createService = () =>
-    new SchedulerService(
-      {} as DealService,
-      {} as RetrievalService,
-      { get: vi.fn() } as unknown as ConfigService<IConfig, true>,
-      {} as WalletSdkService,
-    );
+  const createScheduler = () =>
+    new DbAnchoredScheduler({
+      log: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+    });
 
   it("uses the startup offset when no rows exist", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2024-01-01T00:00:00Z"));
     const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout");
 
-    const service = createService();
-    await (service as unknown as { scheduleInitialRun: (args: unknown) => Promise<void> }).scheduleInitialRun({
+    const scheduler = createScheduler();
+    await scheduler.scheduleInitialRun({
       jobName: "dealCreation",
       intervalSeconds: 600,
       startOffsetSeconds: 120,
-      getLastCreated: async () => null,
+      getLastRunAt: async () => null,
       run: async () => {},
     });
 
@@ -44,12 +38,12 @@ describe("SchedulerService scheduling", () => {
     vi.setSystemTime(new Date("2024-01-01T00:05:00Z"));
     const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout");
 
-    const service = createService();
-    await (service as unknown as { scheduleInitialRun: (args: unknown) => Promise<void> }).scheduleInitialRun({
+    const scheduler = createScheduler();
+    await scheduler.scheduleInitialRun({
       jobName: "dealCreation",
       intervalSeconds: 600,
       startOffsetSeconds: 120,
-      getLastCreated: async () => new Date("2024-01-01T00:10:00Z"),
+      getLastRunAt: async () => new Date("2024-01-01T00:10:00Z"),
       run: async () => {},
     });
 
@@ -63,14 +57,14 @@ describe("SchedulerService scheduling", () => {
     vi.setSystemTime(new Date("2024-01-01T00:00:00Z"));
     const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout");
 
-    const service = createService();
+    const scheduler = createScheduler();
     const run = vi.fn().mockResolvedValue(undefined);
-    const getLastCreated = vi.fn().mockResolvedValue(new Date("2024-01-01T00:05:00Z"));
+    const getLastRunAt = vi.fn().mockResolvedValue(new Date("2024-01-01T00:05:00Z"));
 
-    await (service as unknown as { executeScheduledJob: (args: unknown) => Promise<void> }).executeScheduledJob({
+    await (scheduler as unknown as { executeScheduledJob: (args: unknown) => Promise<void> }).executeScheduledJob({
       jobName: "dealCreation",
       intervalSeconds: 600,
-      getLastCreated,
+      getLastRunAt,
       run,
     });
 
@@ -85,14 +79,14 @@ describe("SchedulerService scheduling", () => {
     vi.setSystemTime(new Date("2024-01-01T00:00:00Z"));
     const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout");
 
-    const service = createService();
+    const scheduler = createScheduler();
     const run = vi.fn().mockResolvedValue(undefined);
-    const getLastCreated = vi.fn().mockResolvedValue(null);
+    const getLastRunAt = vi.fn().mockResolvedValue(null);
 
-    await (service as unknown as { executeScheduledJob: (args: unknown) => Promise<void> }).executeScheduledJob({
+    await (scheduler as unknown as { executeScheduledJob: (args: unknown) => Promise<void> }).executeScheduledJob({
       jobName: "dealCreation",
       intervalSeconds: 600,
-      getLastCreated,
+      getLastRunAt,
       run,
     });
 

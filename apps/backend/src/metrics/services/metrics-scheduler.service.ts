@@ -5,6 +5,7 @@ import { InjectDataSource } from "@nestjs/typeorm";
 import type { DataSource } from "typeorm";
 import type { IConfig, ISchedulingConfig } from "../../config/app.config.js";
 import { IpniStatus } from "../../database/types.js";
+import { DbAnchoredScheduler } from "../../scheduler/db-anchored-scheduler.js";
 
 /**
  * Service responsible for refreshing materialized views and aggregating metrics.
@@ -19,12 +20,15 @@ import { IpniStatus } from "../../database/types.js";
 @Injectable()
 export class MetricsSchedulerService implements OnModuleInit {
   private readonly logger = new Logger(MetricsSchedulerService.name);
+  private readonly dbScheduler: DbAnchoredScheduler;
 
   constructor(
     @InjectDataSource()
     private readonly dataSource: DataSource,
     private readonly configService: ConfigService<IConfig, true>,
-  ) {}
+  ) {
+    this.dbScheduler = new DbAnchoredScheduler(this.logger);
+  }
 
   async onModuleInit() {
     await this.setupMetricsSchedules();
@@ -64,9 +68,6 @@ export class MetricsSchedulerService implements OnModuleInit {
     this.logger.log("Metrics scheduler setup: daily metrics + performance refresh every 1800s");
   }
 
-  /**
-   * Schedule the first run using DB timestamps or startup offset for fresh DBs.
-   */
   private async scheduleInitialRun({
     jobName,
     intervalSeconds,
@@ -80,106 +81,12 @@ export class MetricsSchedulerService implements OnModuleInit {
     getLastRunAt: () => Promise<Date | null>;
     run: () => Promise<void>;
   }): Promise<void> {
-    let nextRunAt: Date;
-    const initialDelaySeconds = Math.max(0, startOffsetSeconds);
-
-    try {
-      const lastRunAt = await getLastRunAt();
-      if (lastRunAt) {
-        nextRunAt = new Date(lastRunAt.getTime() + intervalSeconds * 1000);
-      } else {
-        nextRunAt = new Date(Date.now() + initialDelaySeconds * 1000);
-      }
-    } catch (error) {
-      this.logger.warn(`[${jobName}] Failed to load last run time, using startup offset`, error);
-      nextRunAt = new Date(Date.now() + initialDelaySeconds * 1000);
-    }
-
-    this.scheduleRunAt({
+    await this.dbScheduler.scheduleInitialRun({
       jobName,
       intervalSeconds,
+      startOffsetSeconds,
       getLastRunAt,
       run,
-      runAt: nextRunAt,
-      reason: "initial",
-    });
-  }
-
-  /**
-   * Schedule a one-shot timer and re-arm after the job completes.
-   */
-  private scheduleRunAt({
-    jobName,
-    intervalSeconds,
-    getLastRunAt,
-    run,
-    runAt,
-    reason,
-  }: {
-    jobName: string;
-    intervalSeconds: number;
-    getLastRunAt: () => Promise<Date | null>;
-    run: () => Promise<void>;
-    runAt: Date;
-    reason: string;
-  }): void {
-    const delayMs = Math.max(0, runAt.getTime() - Date.now());
-    const delaySeconds = Math.round(delayMs / 1000);
-    this.logger.log(`[${jobName}] Next run scheduled (${reason}) in ${delaySeconds}s at ${runAt.toISOString()}`);
-
-    setTimeout(() => {
-      void this.executeScheduledJob({
-        jobName,
-        intervalSeconds,
-        getLastRunAt,
-        run,
-      });
-    }, delayMs);
-  }
-
-  /**
-   * Execute a scheduled job and compute the next run time from DB state.
-   */
-  private async executeScheduledJob({
-    jobName,
-    intervalSeconds,
-    getLastRunAt,
-    run,
-  }: {
-    jobName: string;
-    intervalSeconds: number;
-    getLastRunAt: () => Promise<Date | null>;
-    run: () => Promise<void>;
-  }): Promise<void> {
-    const runStartedAt = new Date();
-    try {
-      await run();
-    } catch (error) {
-      this.logger.error(`[${jobName}] Scheduled run failed`, error);
-    }
-
-    const runFinishedAt = new Date();
-    let nextRunAt: Date;
-
-    try {
-      const lastRunAt = await getLastRunAt();
-      if (lastRunAt && lastRunAt.getTime() >= runStartedAt.getTime()) {
-        nextRunAt = new Date(lastRunAt.getTime() + intervalSeconds * 1000);
-      } else {
-        nextRunAt = new Date(runFinishedAt.getTime() + intervalSeconds * 1000);
-      }
-    } catch (error) {
-      this.logger.warn(`[${jobName}] Failed to load last run time, using run completion`, error);
-      nextRunAt = new Date(runFinishedAt.getTime() + intervalSeconds * 1000);
-    }
-
-    this.scheduleRunAt({
-      jobName,
-      intervalSeconds,
-      getLastRunAt,
-      run,
-      runAt: nextRunAt,
-      reason: "post-run",
     });
   }
 

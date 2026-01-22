@@ -2,6 +2,7 @@ import type { ConfigService } from "@nestjs/config";
 import type { DataSource } from "typeorm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { IConfig } from "../../config/app.config.js";
+import { DbAnchoredScheduler } from "../../scheduler/db-anchored-scheduler.js";
 import { MetricsSchedulerService } from "./metrics-scheduler.service.js";
 
 describe("MetricsSchedulerService scheduling", () => {
@@ -35,13 +36,13 @@ describe("MetricsSchedulerService scheduling", () => {
     vi.setSystemTime(new Date("2024-01-01T00:05:00Z"));
     const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout");
 
-    const dataSource = {} as DataSource;
-    const configService = {
-      get: vi.fn(),
-    } as unknown as ConfigService<IConfig, true>;
-    const service = new MetricsSchedulerService(dataSource, configService);
+    const scheduler = new DbAnchoredScheduler({
+      log: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+    });
 
-    await (service as unknown as { scheduleInitialRun: (args: unknown) => Promise<void> }).scheduleInitialRun({
+    await scheduler.scheduleInitialRun({
       jobName: "aggregate-daily-metrics",
       intervalSeconds: 1800,
       startOffsetSeconds: 120,
