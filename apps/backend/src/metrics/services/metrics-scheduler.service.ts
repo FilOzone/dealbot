@@ -2,10 +2,13 @@ import { Injectable, Logger, type OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { Cron, SchedulerRegistry } from "@nestjs/schedule";
 import { InjectDataSource } from "@nestjs/typeorm";
+import { InjectMetric } from "@willsoto/nestjs-prometheus";
+import type { Gauge } from "prom-client";
 import type { DataSource } from "typeorm";
 import { scheduleJobWithOffset } from "../../common/utils.js";
 import type { IConfig, ISchedulingConfig } from "../../config/app.config.js";
 import { IpniStatus } from "../../database/types.js";
+import { WalletSdkService } from "../../wallet-sdk/wallet-sdk.service.js";
 
 /**
  * Service responsible for refreshing materialized views and aggregating metrics
@@ -29,6 +32,9 @@ export class MetricsSchedulerService implements OnModuleInit {
     private readonly dataSource: DataSource,
     private readonly configService: ConfigService<IConfig, true>,
     private readonly schedulerRegistry: SchedulerRegistry,
+    private readonly walletSdkService: WalletSdkService,
+    @InjectMetric("wallet_balance")
+    private readonly walletBalanceGauge: Gauge,
   ) {}
 
   async onModuleInit() {
@@ -141,6 +147,7 @@ export class MetricsSchedulerService implements OnModuleInit {
     );
 
     try {
+      await this.updateWalletBalances();
       // Aggregate deal metrics by storage provider (metric_type='deal', service_type=NULL)
       const dealMetrics = await this.dataSource.query(
         `
@@ -327,6 +334,23 @@ export class MetricsSchedulerService implements OnModuleInit {
     } catch (error) {
       this.logger.error(`Failed to aggregate daily metrics: ${error.message}`, error.stack);
       throw error;
+    }
+  }
+
+  private async updateWalletBalances(): Promise<void> {
+    if (process.env.DEALBOT_DISABLE_CHAIN === "true") {
+      this.logger.warn("Chain integration disabled; skipping wallet balance metrics.");
+      return;
+    }
+
+    try {
+      const { usdfc, fil } = await this.walletSdkService.getWalletBalances();
+      const walletShort = this.configService.get("blockchain").walletAddress.slice(0, 8);
+
+      this.walletBalanceGauge.set({ currency: "USDFC", wallet: walletShort }, Number(usdfc));
+      this.walletBalanceGauge.set({ currency: "FIL", wallet: walletShort }, Number(fil));
+    } catch (error) {
+      this.logger.warn(`Failed to update wallet balance metrics: ${error.message}`);
     }
   }
 

@@ -34,6 +34,7 @@ export class WalletSdkService implements OnModuleInit {
   private paymentsService: PaymentsService;
   private warmStorageService: WarmStorageService;
   private spRegistry: SPRegistryService;
+  private rpcProvider: JsonRpcProvider;
   private providerCache: Map<string, ProviderInfoEx> = new Map();
   private activeProviderAddresses: Set<string> = new Set();
   private approvedProviderAddresses: Set<string> = new Set();
@@ -68,9 +69,9 @@ export class WalletSdkService implements OnModuleInit {
       warmStorageAddress,
     });
 
-    const provider = new JsonRpcProvider(RPC_URLS[this.blockchainConfig.network].http);
-    this.warmStorageService = await WarmStorageService.create(provider, warmStorageAddress);
-    this.spRegistry = new SPRegistryService(provider, this.warmStorageService.getServiceProviderRegistryAddress());
+    this.rpcProvider = new JsonRpcProvider(RPC_URLS[this.blockchainConfig.network].http);
+    this.warmStorageService = await WarmStorageService.create(this.rpcProvider, warmStorageAddress);
+    this.spRegistry = new SPRegistryService(this.rpcProvider, this.warmStorageService.getServiceProviderRegistryAddress());
     this.paymentsService = synapse.payments;
   }
 
@@ -201,6 +202,18 @@ export class WalletSdkService implements OnModuleInit {
     return {
       paymentsService: this.paymentsService,
       warmStorageService: this.warmStorageService,
+    };
+  }
+
+  /**
+   * Get wallet balances in base units.
+   */
+  async getWalletBalances(): Promise<{ usdfc: bigint; fil: bigint }> {
+    const accountInfo = await this.paymentsService.accountInfo();
+    const filBalance = await this.rpcProvider.getBalance(this.blockchainConfig.walletAddress);
+    return {
+      usdfc: accountInfo.funds,
+      fil: filBalance,
     };
   }
 

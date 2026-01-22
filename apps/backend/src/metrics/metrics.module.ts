@@ -7,6 +7,7 @@ import { Retrieval } from "../database/entities/retrieval.entity.js";
 import { SpPerformanceAllTime } from "../database/entities/sp-performance-all-time.entity.js";
 import { SpPerformanceLastWeek } from "../database/entities/sp-performance-last-week.entity.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
+import { WalletSdkModule } from "../wallet-sdk/wallet-sdk.module.js";
 import { DailyMetricsController } from "./controllers/daily-metrics.controller.js";
 import { FailedDealsController } from "./controllers/failed-deals.controller.js";
 import { FailedRetrievalsController } from "./controllers/failed-retrievals.controller.js";
@@ -38,6 +39,7 @@ import { ProvidersService } from "./services/providers.service.js";
 @Module({
   imports: [
     DatabaseModule,
+    WalletSdkModule,
     TypeOrmModule.forFeature([
       SpPerformanceLastWeek,
       SpPerformanceAllTime,
