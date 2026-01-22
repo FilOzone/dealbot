@@ -1,7 +1,5 @@
 import { Injectable, Logger, type OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import { SchedulerRegistry } from "@nestjs/schedule";
-import { scheduleJobWithOffset } from "../common/utils.js";
 import type { IConfig, ISchedulingConfig } from "../config/app.config.js";
 import { DealService } from "../deal/deal.service.js";
 import { RetrievalService } from "../retrieval/retrieval.service.js";
@@ -19,14 +17,13 @@ export class SchedulerService implements OnModuleInit {
     private dealService: DealService,
     private retrievalService: RetrievalService,
     private readonly configService: ConfigService<IConfig, true>,
-    private schedulerRegistry: SchedulerRegistry,
     private walletSdkService: WalletSdkService,
   ) {}
 
   async onModuleInit() {
     if (process.env.DEALBOT_DISABLE_SCHEDULER === "true") {
       this.logger.warn(
-        "Scheduler disabled via DEALBOT_DISABLE_SCHEDULER=true; skipping wallet initialization and cron jobs.",
+        "Scheduler disabled via DEALBOT_DISABLE_SCHEDULER=true; skipping wallet initialization and scheduler jobs.",
       );
       return;
     }
@@ -38,7 +35,7 @@ export class SchedulerService implements OnModuleInit {
 
     try {
       await this.walletSdkService.ensureWalletAllowances();
-      this.setupDynamicCronJobs();
+      await this.setupDynamicSchedules();
       this.logger.log("Wallet and scheduler initialization completed successfully");
     } catch (error) {
       this.logger.fatal("Failed to initialize DEALBOT", {
@@ -49,32 +46,150 @@ export class SchedulerService implements OnModuleInit {
     }
   }
 
-  private setupDynamicCronJobs() {
+  private async setupDynamicSchedules(): Promise<void> {
     const config = this.configService.get<ISchedulingConfig>("scheduling");
     this.logger.log(`Scheduling configuration found: ${JSON.stringify(config)}`);
 
-    scheduleJobWithOffset(
-      "dealCreation",
-      config.dealStartOffsetSeconds,
-      config.dealIntervalSeconds,
-      this.schedulerRegistry,
-      this.handleDealCreation.bind(this),
-      this.logger,
-    );
+    await this.scheduleInitialRun({
+      jobName: "dealCreation",
+      intervalSeconds: config.dealIntervalSeconds,
+      startOffsetSeconds: config.dealStartOffsetSeconds,
+      getLastCreated: () => this.dealService.getLastCreatedTime(),
+      run: this.handleDealCreation.bind(this),
+    });
 
-    scheduleJobWithOffset(
-      "retrievalTests",
-      config.retrievalStartOffsetSeconds,
-      config.retrievalIntervalSeconds,
-      this.schedulerRegistry,
-      this.handleRetrievalTests.bind(this),
-      this.logger,
-    );
+    await this.scheduleInitialRun({
+      jobName: "retrievalTests",
+      intervalSeconds: config.retrievalIntervalSeconds,
+      startOffsetSeconds: config.retrievalStartOffsetSeconds,
+      getLastCreated: () => this.retrievalService.getLastCreatedTime(),
+      run: this.handleRetrievalTests.bind(this),
+    });
 
     this.logger.log(
-      `Staggered scheduler setup: Deal creation (offset: ${config.dealStartOffsetSeconds}s, interval: ${config.dealIntervalSeconds}s), ` +
-        `Retrieval tests (offset: ${config.retrievalStartOffsetSeconds}s, interval: ${config.retrievalIntervalSeconds}s)`,
+      `Scheduler setup: Deal creation interval ${config.dealIntervalSeconds}s, ` +
+        `Retrieval tests interval ${config.retrievalIntervalSeconds}s`,
     );
+  }
+
+  /**
+   * Schedule the first run using the last created row if available,
+   * otherwise apply the startup offset for a fresh DB.
+   */
+  private async scheduleInitialRun({
+    jobName,
+    intervalSeconds,
+    startOffsetSeconds,
+    getLastCreated,
+    run,
+  }: {
+    jobName: string;
+    intervalSeconds: number;
+    startOffsetSeconds: number;
+    getLastCreated: () => Promise<Date | null>;
+    run: () => Promise<void>;
+  }): Promise<void> {
+    let nextRunAt: Date;
+    const initialDelaySeconds = Math.max(0, startOffsetSeconds);
+
+    try {
+      const lastCreated = await getLastCreated();
+      if (lastCreated) {
+        nextRunAt = new Date(lastCreated.getTime() + intervalSeconds * 1000);
+      } else {
+        nextRunAt = new Date(Date.now() + initialDelaySeconds * 1000);
+      }
+    } catch (error) {
+      this.logger.warn(`[${jobName}] Failed to load last created time, using startup offset`, error);
+      nextRunAt = new Date(Date.now() + initialDelaySeconds * 1000);
+    }
+
+    this.scheduleRunAt({
+      jobName,
+      intervalSeconds,
+      getLastCreated,
+      run,
+      runAt: nextRunAt,
+      reason: "initial",
+    });
+  }
+
+  /**
+   * Schedule a one-shot timer for the next run and re-arm after completion.
+   */
+  private scheduleRunAt({
+    jobName,
+    intervalSeconds,
+    getLastCreated,
+    run,
+    runAt,
+    reason,
+  }: {
+    jobName: string;
+    intervalSeconds: number;
+    getLastCreated: () => Promise<Date | null>;
+    run: () => Promise<void>;
+    runAt: Date;
+    reason: string;
+  }): void {
+    const delayMs = Math.max(0, runAt.getTime() - Date.now());
+    const delaySeconds = Math.round(delayMs / 1000);
+    this.logger.log(`[${jobName}] Next run scheduled (${reason}) in ${delaySeconds}s at ${runAt.toISOString()}`);
+
+    setTimeout(() => {
+      void this.executeScheduledJob({
+        jobName,
+        intervalSeconds,
+        getLastCreated,
+        run,
+      });
+    }, delayMs);
+  }
+
+  /**
+   * Execute a scheduled job and compute the next run time from DB state.
+   */
+  private async executeScheduledJob({
+    jobName,
+    intervalSeconds,
+    getLastCreated,
+    run,
+  }: {
+    jobName: string;
+    intervalSeconds: number;
+    getLastCreated: () => Promise<Date | null>;
+    run: () => Promise<void>;
+  }): Promise<void> {
+    const runStartedAt = new Date();
+    try {
+      await run();
+    } catch (error) {
+      this.logger.error(`[${jobName}] Scheduled run failed`, error);
+    }
+
+    const runFinishedAt = new Date();
+    let nextRunAt: Date;
+
+    try {
+      const lastCreated = await getLastCreated();
+      if (lastCreated && lastCreated.getTime() >= runStartedAt.getTime()) {
+        nextRunAt = new Date(lastCreated.getTime() + intervalSeconds * 1000);
+      } else {
+        nextRunAt = new Date(runFinishedAt.getTime() + intervalSeconds * 1000);
+      }
+    } catch (error) {
+      this.logger.warn(`[${jobName}] Failed to load last created time, using run completion`, error);
+      nextRunAt = new Date(runFinishedAt.getTime() + intervalSeconds * 1000);
+    }
+
+    this.scheduleRunAt({
+      jobName,
+      intervalSeconds,
+      getLastCreated,
+      run,
+      runAt: nextRunAt,
+      reason: "post-run",
+    });
   }
 
   async handleDealCreation() {
