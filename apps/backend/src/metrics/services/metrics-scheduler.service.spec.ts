@@ -61,7 +61,9 @@ describe("MetricsSchedulerService scheduling", () => {
     const configService = { get: vi.fn() } as unknown as ConfigService<IConfig, true>;
     const service = new MetricsSchedulerService(dataSource, configService);
 
-    const result = await (service as unknown as { getLastDailyCreatedTime: () => Promise<Date | null> }).getLastDailyCreatedTime();
+    const result = await (
+      service as unknown as { getLastDailyCreatedTime: () => Promise<Date | null> }
+    ).getLastDailyCreatedTime();
 
     expect(result).toBeNull();
   });
@@ -74,7 +76,9 @@ describe("MetricsSchedulerService scheduling", () => {
     const configService = { get: vi.fn() } as unknown as ConfigService<IConfig, true>;
     const service = new MetricsSchedulerService(dataSource, configService);
 
-    const result = await (service as unknown as { getLastDailyCreatedTime: () => Promise<Date | null> }).getLastDailyCreatedTime();
+    const result = await (
+      service as unknown as { getLastDailyCreatedTime: () => Promise<Date | null> }
+    ).getLastDailyCreatedTime();
 
     expect(result).toBeInstanceOf(Date);
     expect(result?.toISOString()).toBe(lastCreated);
@@ -92,7 +96,9 @@ describe("MetricsSchedulerService scheduling", () => {
     const configService = { get: vi.fn() } as unknown as ConfigService<IConfig, true>;
     const service = new MetricsSchedulerService(dataSource, configService);
 
-    const weekly = await (service as unknown as { getLastWeekRefreshTime: () => Promise<Date | null> }).getLastWeekRefreshTime();
+    const weekly = await (
+      service as unknown as { getLastWeekRefreshTime: () => Promise<Date | null> }
+    ).getLastWeekRefreshTime();
     const allTimeResult = await (
       service as unknown as { getLastAllTimeRefreshTime: () => Promise<Date | null> }
     ).getLastAllTimeRefreshTime();

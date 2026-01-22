@@ -57,4 +57,48 @@ describe("SchedulerService scheduling", () => {
     const delayMs = setTimeoutSpy.mock.calls[0]?.[1];
     expect(delayMs).toBe(15 * 60 * 1000);
   });
+
+  it("re-schedules based on newly created rows during execution", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2024-01-01T00:00:00Z"));
+    const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout");
+
+    const service = createService();
+    const run = vi.fn().mockResolvedValue(undefined);
+    const getLastCreated = vi.fn().mockResolvedValue(new Date("2024-01-01T00:05:00Z"));
+
+    await (service as unknown as { executeScheduledJob: (args: unknown) => Promise<void> }).executeScheduledJob({
+      jobName: "dealCreation",
+      intervalSeconds: 600,
+      getLastCreated,
+      run,
+    });
+
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(setTimeoutSpy).toHaveBeenCalledTimes(1);
+    const delayMs = setTimeoutSpy.mock.calls[0]?.[1];
+    expect(delayMs).toBe(15 * 60 * 1000);
+  });
+
+  it("falls back to run completion time when no new rows were created", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2024-01-01T00:00:00Z"));
+    const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout");
+
+    const service = createService();
+    const run = vi.fn().mockResolvedValue(undefined);
+    const getLastCreated = vi.fn().mockResolvedValue(null);
+
+    await (service as unknown as { executeScheduledJob: (args: unknown) => Promise<void> }).executeScheduledJob({
+      jobName: "dealCreation",
+      intervalSeconds: 600,
+      getLastCreated,
+      run,
+    });
+
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(setTimeoutSpy).toHaveBeenCalledTimes(1);
+    const delayMs = setTimeoutSpy.mock.calls[0]?.[1];
+    expect(delayMs).toBe(10 * 60 * 1000);
+  });
 });
