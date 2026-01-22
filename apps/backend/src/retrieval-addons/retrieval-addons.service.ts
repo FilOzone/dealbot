@@ -368,6 +368,23 @@ export class RetrievalAddonsService {
         }
       }
 
+      // Validate HTTP status code before processing (must be 2xx for success)
+      if (result.metrics.statusCode < 200 || result.metrics.statusCode >= 300) {
+        // Try to extract error message from response body if it's text
+        let responsePreview = "";
+        try {
+          const responseText = result.data.toString("utf8", 0, Math.min(500, result.data.length));
+          if (responseText.trim().length > 0) {
+            responsePreview = `Response body snippet: ${responseText.substring(0, 200)}`;
+          }
+        } catch {
+          // Ignore errors when trying to read response as text
+        }
+        throw new Error(
+          `HTTP request returned non-2xx status code ${result.metrics.statusCode} when retrieving ${urlResult.url}. ${responsePreview}`,
+        );
+      }
+
       // Preprocess data if strategy supports it
       let processedData = result.data;
       if (strategy.preprocessRetrievedData) {
@@ -379,8 +396,22 @@ export class RetrievalAddonsService {
       if (strategy.validateData) {
         try {
           validation = await strategy.validateData(processedData, config);
+          // Log additional context if validation failed, including the URL used
+          if (!validation.isValid) {
+            this.logger.warn(
+              `Validation failed for ${urlResult.method} retrieval of deal ${config.deal.id}: ` +
+                `URL: ${urlResult.url}, ` +
+                `Status: ${result.metrics.statusCode}, ` +
+                `Response Size: ${result.metrics.responseSize} bytes, ` +
+                `Details: ${validation.details || "unknown"}`,
+            );
+          }
         } catch (error) {
-          this.logger.warn(`Validation failed for ${urlResult.method}: ${error.message}`);
+          this.logger.warn(
+            `Validation error for ${urlResult.method} retrieval of deal ${config.deal.id}: ` +
+              `URL: ${urlResult.url}, ` +
+              `Error: ${error.message}`,
+          );
           validation = {
             isValid: false,
             method: "validation-error",
@@ -407,7 +438,7 @@ export class RetrievalAddonsService {
         success: true,
       };
     } catch (error) {
-      this.logger.error(`Retrieval failed for ${urlResult.method}: ${error.message}`, error.stack);
+      this.logger.error(`Retrieval of ${urlResult.url} failed for ${urlResult.method}: ${error.message}`, error.stack);
 
       return {
         url: urlResult.url,
