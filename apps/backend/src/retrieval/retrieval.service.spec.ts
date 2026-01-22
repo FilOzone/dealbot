@@ -32,6 +32,7 @@ describe("RetrievalService timeouts", () => {
   const mockRetrievalRepository = {
     create: vi.fn(),
     save: vi.fn(),
+    createQueryBuilder: vi.fn(),
   };
 
   const mockSpRepository = {
@@ -185,5 +186,61 @@ describe("RetrievalService timeouts", () => {
         errorMessage: timeoutError,
       }),
     );
+  });
+
+  it("returns null when no retrievals exist", async () => {
+    service = await createService();
+
+    const queryBuilder = {
+      select: vi.fn().mockReturnThis(),
+      getRawOne: vi.fn().mockResolvedValue({ lastCreated: null }),
+    };
+    mockRetrievalRepository.createQueryBuilder.mockReturnValue(queryBuilder);
+
+    await expect(service.getLastCreatedTime()).resolves.toBeNull();
+  });
+
+  it("returns the last created timestamp when it is a Date", async () => {
+    service = await createService();
+
+    const lastCreated = new Date("2024-01-01T00:00:00.000Z");
+    const queryBuilder = {
+      select: vi.fn().mockReturnThis(),
+      getRawOne: vi.fn().mockResolvedValue({ lastCreated }),
+    };
+    mockRetrievalRepository.createQueryBuilder.mockReturnValue(queryBuilder);
+
+    const result = await service.getLastCreatedTime();
+
+    expect(result).toBeInstanceOf(Date);
+    expect(result?.getTime()).toBe(lastCreated.getTime());
+  });
+
+  it("converts string timestamps to Date instances", async () => {
+    service = await createService();
+
+    const lastCreated = "2024-01-01T00:00:00.000Z";
+    const queryBuilder = {
+      select: vi.fn().mockReturnThis(),
+      getRawOne: vi.fn().mockResolvedValue({ lastCreated }),
+    };
+    mockRetrievalRepository.createQueryBuilder.mockReturnValue(queryBuilder);
+
+    const result = await service.getLastCreatedTime();
+
+    expect(result).toBeInstanceOf(Date);
+    expect(result?.toISOString()).toBe(lastCreated);
+  });
+
+  it("propagates database errors", async () => {
+    service = await createService();
+
+    const queryBuilder = {
+      select: vi.fn().mockReturnThis(),
+      getRawOne: vi.fn().mockRejectedValue(new Error("DB failure")),
+    };
+    mockRetrievalRepository.createQueryBuilder.mockReturnValue(queryBuilder);
+
+    await expect(service.getLastCreatedTime()).rejects.toThrow("DB failure");
   });
 });
