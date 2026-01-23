@@ -1,22 +1,33 @@
 import type { ProviderPerformanceDto } from "@/types/providers";
+import { calculateSuccessRate } from "@/utils/calculations";
+import { formatPercentage } from "@/utils/formatters";
 
 interface ProviderCardQuickStatsProps {
   weeklyMetrics: ProviderPerformanceDto;
 }
 
 function ProviderCardQuickStats({ weeklyMetrics }: ProviderCardQuickStatsProps) {
+  const totalAttempts = weeklyMetrics.totalDeals + weeklyMetrics.totalRetrievals;
+  const totalSuccesses = weeklyMetrics.successfulDeals + weeklyMetrics.successfulRetrievals;
+  const combinedSuccessRate = calculateSuccessRate(totalSuccesses, totalAttempts);
+
   return (
     <div className="mt-4 pt-4 border-t">
-      <div className="grid grid-cols-2 gap-3 text-sm">
+      <div className="grid grid-cols-3 gap-3 text-sm">
         <div>
           <p className="text-xs text-muted-foreground mb-1">Upload Success</p>
-          <p className="font-semibold text-lg">{Number(weeklyMetrics.dealSuccessRate).toFixed(1)}%</p>
+          <p className="font-semibold text-lg">{formatPercentage(weeklyMetrics.dealSuccessRate)}</p>
           <p className="text-xs text-muted-foreground">{weeklyMetrics.totalDeals} attempts (7d)</p>
         </div>
         <div>
           <p className="text-xs text-muted-foreground mb-1">Retrieval Success</p>
-          <p className="font-semibold text-lg">{Number(weeklyMetrics.retrievalSuccessRate).toFixed(1)}%</p>
+          <p className="font-semibold text-lg">{formatPercentage(weeklyMetrics.retrievalSuccessRate)}</p>
           <p className="text-xs text-muted-foreground">{weeklyMetrics.totalRetrievals} attempts (7d)</p>
+        </div>
+        <div>
+          <p className="text-xs text-muted-foreground mb-1">Total Success</p>
+          <p className="font-semibold text-lg">{formatPercentage(combinedSuccessRate)}</p>
+          <p className="text-xs text-muted-foreground">{totalAttempts} attempts (7d)</p>
         </div>
       </div>
     </div>

@@ -76,85 +76,35 @@ export class IpniRetrievalStrategy implements IRetrievalAddon {
 
   /**
    * Validate IPNI retrieved data
-   * The PDP provider returns a CAR file, so we validate by checking the size matches
-   * the expected CAR file size from metadata.
-   *
-   * TODO: In the future, we should also:
-   * - Parse the CAR file and extract blocks
-   * - Verify block CIDs match expected blockCIDs
-   * - Reconstruct original data and verify against originalSize
-   * SEE https://github.com/FilOzone/dealbot/issues/144 for more details.
+   * IPNI returns the original data (extracted from CAR blocks)
    */
   async validateData(retrievedData: Buffer, config: RetrievalConfiguration): Promise<ValidationResult> {
     const actualSize = retrievedData.length;
-    const carSize = config.deal.metadata?.[this.name]?.carSize;
-    const originalSize = config.deal.metadata?.[this.name]?.originalSize;
-
-    const rootCIDStr = config.deal.metadata?.[this.name]?.rootCID;
-    const blockCIDs = config.deal.metadata?.[this.name]?.blockCIDs;
-    const blockCount = config.deal.metadata?.[this.name]?.blockCount;
-    const storageProvider = config.storageProvider;
-
-    // Early return if carSize metadata is missing - cannot validate
-    if (carSize === undefined || carSize === null) {
-      this.logger.warn(
-        `IPNI validation skipped for deal ${config.deal.id}: carSize metadata is missing. ` +
-          `Retrieved ${actualSize} bytes from ${storageProvider}`,
-      );
-      return {
-        isValid: false,
-        method: "car-size-check",
-        details: `Cannot validate: carSize metadata is missing. Retrieved ${actualSize} bytes`,
-        comparison: { expected: undefined, actual: actualSize },
-      };
-    }
-
-    const expectedCarSize = Number(carSize);
-
-    // Validate by checking size matches expected CAR file size
-    const isValid = actualSize === expectedCarSize;
+    const expectedSize = Number(config.deal.fileSize || config.deal.metadata?.[this.name]?.originalSize);
+    const isValid = actualSize === expectedSize;
 
     if (!isValid) {
-      // Calculate size difference and percentage
-      const sizeDiff = actualSize - expectedCarSize;
-      const sizeDiffPercent = expectedCarSize > 0 ? ((sizeDiff / expectedCarSize) * 100).toFixed(2) : "N/A";
-
-      // Build detailed log message with IPFS validation details
-      // Note: Storage Provider and Root CID are logged in full (no truncation)
-      const logParts = [
-        `IPNI retrieval validation failed for deal ${config.deal.id}:`,
-        `  Storage Provider: ${String(storageProvider)}`,
-        rootCIDStr ? `  Expected Root CID: ${rootCIDStr}` : "  Expected Root CID: missing",
-        `  Retrieved Data Size: ${actualSize} bytes`,
-        `  Expected CAR File Size: ${expectedCarSize} bytes (from metadata.carSize)`,
-        originalSize ? `  Original File Size: ${originalSize} bytes (for reference)` : null,
-        `  Size Difference: ${sizeDiff > 0 ? "+" : ""}${sizeDiff} bytes (${sizeDiffPercent}%)`,
-        blockCount ? `  Block Count in CAR: ${blockCount}` : "  Block Count: missing",
-        blockCIDs ? `  Block CIDs in CAR: ${blockCIDs.length} entries` : "  Block CIDs: missing",
-        blockCIDs && blockCIDs.length > 0 ? `  First Block CID (rootCID): ${blockCIDs[0]}` : null,
-      ].filter((part): part is string => part !== null);
-
-      this.logger.warn(logParts.join("\n"));
+      this.logger.warn(
+        `IPNI retrieval size mismatch for deal ${config.deal.id}: ` + `expected ${expectedSize}, got ${actualSize}`,
+      );
     }
+
+    const blockCIDs = config.deal.metadata?.[this.name]?.blockCIDs;
+    const blockCount = config.deal.metadata?.[this.name]?.blockCount;
 
     let additionalDetails = "";
     if (blockCIDs && blockCount) {
       additionalDetails = ` (${blockCount} blocks in CAR)`;
     }
 
-    let details: string;
-    if (isValid) {
-      details = `CAR size matches expected ${expectedCarSize} bytes${additionalDetails}`;
-    } else {
-      details = `CAR size mismatch: expected ${expectedCarSize}, got ${actualSize}${additionalDetails}`;
-    }
-
     return {
       isValid,
-      method: "car-size-check",
-      details,
+      method: "size-check",
+      details: isValid
+        ? `Size matches expected ${expectedSize} bytes${additionalDetails}`
+        : `Size mismatch: expected ${expectedSize}, got ${actualSize}${additionalDetails}`,
       comparison: {
-        expected: expectedCarSize,
+        expected: expectedSize,
         actual: actualSize,
       },
     };

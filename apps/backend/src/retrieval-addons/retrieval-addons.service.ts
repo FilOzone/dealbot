@@ -1,5 +1,4 @@
 import { Injectable, Logger } from "@nestjs/common";
-import { RetrievalError, type RetrievalErrorResponseInfo } from "../common/errors.js";
 import { ServiceType } from "../database/types.js";
 import { HttpClientService } from "../http-client/http-client.service.js";
 import type { RequestWithMetrics } from "../http-client/types.js";
@@ -369,12 +368,6 @@ export class RetrievalAddonsService {
         }
       }
 
-      // Validate HTTP status code before processing (must be 2xx for success)
-      if (result.metrics.statusCode < 200 || result.metrics.statusCode >= 300) {
-        const responsePreview = this.buildResponsePreview(result.data);
-        throw RetrievalError.fromHttpResponse(result.metrics.statusCode, responsePreview);
-      }
-
       // Preprocess data if strategy supports it
       let processedData = result.data;
       if (strategy.preprocessRetrievedData) {
@@ -386,22 +379,8 @@ export class RetrievalAddonsService {
       if (strategy.validateData) {
         try {
           validation = await strategy.validateData(processedData, config);
-          // Log additional context if validation failed, including the URL used
-          if (!validation.isValid) {
-            this.logger.warn(
-              `Validation failed for ${urlResult.method} retrieval of deal ${config.deal.id}: ` +
-                `URL: ${urlResult.url}, ` +
-                `Status: ${result.metrics.statusCode}, ` +
-                `Response Size: ${result.metrics.responseSize} bytes, ` +
-                `Details: ${validation.details || "unknown"}`,
-            );
-          }
         } catch (error) {
-          this.logger.warn(
-            `Validation error for ${urlResult.method} retrieval of deal ${config.deal.id}: ` +
-              `URL: ${urlResult.url}, ` +
-              `Error: ${error.message}`,
-          );
+          this.logger.warn(`Validation failed for ${urlResult.method}: ${error.message}`);
           validation = {
             isValid: false,
             method: "validation-error",
@@ -428,13 +407,7 @@ export class RetrievalAddonsService {
         success: true,
       };
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      const errorStack = error instanceof Error ? error.stack : undefined;
-      const responseInfo = this.extractResponseInfo(error);
-      const errorCode = this.extractErrorCode(error);
-      const context = this.formatRetrievalContext(config, urlResult, { ...responseInfo, errorCode });
-
-      this.logger.error(`Retrieval failed for ${urlResult.method}: ${errorMessage} (${context})`, errorStack);
+      this.logger.error(`Retrieval failed for ${urlResult.method}: ${error.message}`, error.stack);
 
       return {
         url: urlResult.url,
@@ -457,105 +430,6 @@ export class RetrievalAddonsService {
   private ensureNotAborted(signal?: AbortSignal): void {
     if (signal?.aborted) {
       throw new Error("Retrieval job aborted");
-    }
-  }
-
-  private formatRetrievalContext(
-    config: RetrievalConfiguration,
-    urlResult: RetrievalUrlResult,
-    extras?: RetrievalErrorResponseInfo & { errorCode?: string },
-  ): string {
-    const pieceCid = config.deal.pieceCid ? `${config.deal.pieceCid.slice(0, 12)}...` : "missing";
-    const headerKeys = urlResult.headers ? Object.keys(urlResult.headers) : [];
-    const hasAuthHeader = headerKeys.includes("Authorization");
-
-    const parts = [
-      `deal=${config.deal.id}`,
-      `piece=${pieceCid}`,
-      `sp=${config.storageProvider}`,
-      `url=${urlResult.url}`,
-      `http=${urlResult.httpVersion ?? "1.1"}`,
-      `headers=${headerKeys.length ? headerKeys.join(",") : "none"}`,
-      `auth=${hasAuthHeader ? "yes" : "no"}`,
-    ];
-
-    if (extras?.statusCode !== undefined) {
-      parts.push(`status=${extras.statusCode}`);
-    }
-
-    if (extras?.errorCode) {
-      parts.push(`code=${extras.errorCode}`);
-    }
-
-    if (extras?.responsePreview) {
-      parts.push(`response="${extras.responsePreview}"`);
-    }
-
-    return parts.join(" ");
-  }
-
-  private extractResponseInfo(error: unknown): RetrievalErrorResponseInfo {
-    if (error instanceof RetrievalError) {
-      return error.responseInfo ?? {};
-    }
-
-    if (!error || typeof error !== "object") {
-      return {};
-    }
-
-    // Handle axios-style errors with response object
-    const response = (error as { response?: { status?: number; data?: unknown } }).response;
-    if (!response) {
-      return {};
-    }
-
-    return {
-      statusCode: typeof response.status === "number" ? response.status : undefined,
-      responsePreview: this.buildResponsePreview(response.data),
-    };
-  }
-
-  private extractErrorCode(error: unknown): string | undefined {
-    if (error instanceof RetrievalError) {
-      return error.code;
-    }
-
-    if (!error || typeof error !== "object") {
-      return undefined;
-    }
-
-    // Handle generic errors with code property (e.g., Node.js system errors)
-    const code = (error as { code?: string }).code;
-    return typeof code === "string" && code.length > 0 ? code : undefined;
-  }
-
-  private buildResponsePreview(payload: unknown, maxLength: number = 200): string | undefined {
-    if (payload === undefined || payload === null) {
-      return undefined;
-    }
-
-    try {
-      let text = "";
-
-      if (Buffer.isBuffer(payload)) {
-        text = payload.toString("utf8", 0, Math.min(payload.length, maxLength));
-      } else if (payload instanceof ArrayBuffer) {
-        const buffer = Buffer.from(payload);
-        text = buffer.toString("utf8", 0, Math.min(buffer.length, maxLength));
-      } else if (typeof payload === "string") {
-        text = payload.slice(0, maxLength);
-      } else {
-        text = JSON.stringify(payload).slice(0, maxLength);
-      }
-
-      const sanitized = text.replace(/\s+/g, " ").trim();
-      if (sanitized.length === 0) {
-        return undefined;
-      }
-
-      return sanitized.replace(/"/g, "'");
-    } catch {
-      return undefined;
     }
   }
 
