@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.1.3](https://github.com/FilOzone/dealbot/compare/web-v0.1.2...web-v0.1.3) (2026-01-23)
+
+
+### Bug Fixes
+
+* **backend:** negative avg time to retrieve metrics ([#140](https://github.com/FilOzone/dealbot/issues/140)) ([3da277f](https://github.com/FilOzone/dealbot/commit/3da277fcf14116b886d0e85c350083c657a78866))
+* use node:24-alpine ([#148](https://github.com/FilOzone/dealbot/issues/148)) ([57510bf](https://github.com/FilOzone/dealbot/commit/57510bf21c277635330a6089f4fe05922f9387dc))
+* use node:25-alpine for docker images ([#146](https://github.com/FilOzone/dealbot/issues/146)) ([e53ea5c](https://github.com/FilOzone/dealbot/commit/e53ea5c38b6effa4896f4e70a0c94d85d9600f29))
+
 ## [0.1.2](https://github.com/FilOzone/dealbot/compare/web-v0.1.1...web-v0.1.2) (2026-01-20)
 
 
