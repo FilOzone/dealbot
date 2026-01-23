@@ -355,11 +355,10 @@ export class MetricsSchedulerService implements OnModuleInit {
       const { usdfc, fil } = await this.walletSdkService.getWalletBalances();
       const walletShort = this.configService.get("blockchain").walletAddress.slice(0, 8);
 
-      // Note: These balances represent the Filecoin Pay (payments contract) state,
-      // not the raw wallet balance. USDFC is the deposited amount in the contract.
-      // Converting bigint to Number provides ~15-16 significant figures of precision.
-      // For a 50 token balance, precision is lost after ~14 decimal places
-      // (e.g., 0.00000000000001 USDFC). This is negligible for runway monitoring.
+      // Note: USDFC is the available balance in the Filecoin Pay contract (funds minus lockups),
+      // not the raw wallet balance. Converting bigint to Number provides ~15-16 significant
+      // figures of precision. For a 50 token balance, precision is lost after ~14 decimal
+      // places (e.g., 0.00000000000001 USDFC). This is negligible for runway monitoring.
       this.walletBalanceGauge.set({ currency: "USDFC", wallet: walletShort }, Number(usdfc));
       this.walletBalanceGauge.set({ currency: "FIL", wallet: walletShort }, Number(fil));
     } catch (error) {

@@ -207,12 +207,13 @@ export class WalletSdkService implements OnModuleInit {
 
   /**
    * Get wallet balances in base units.
+   * USDFC is the available balance in the Filecoin Pay contract (funds minus lockups).
    */
   async getWalletBalances(): Promise<{ usdfc: bigint; fil: bigint }> {
     const accountInfo = await this.paymentsService.accountInfo();
     const filBalance = await this.rpcProvider.getBalance(this.blockchainConfig.walletAddress);
     return {
-      usdfc: accountInfo.funds,
+      usdfc: accountInfo.availableFunds,
       fil: filBalance,
     };
   }
