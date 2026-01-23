@@ -129,7 +129,6 @@ function ProviderCardDetailedStats({
               <div className="pl-2 space-y-1">
                 <LatencyMetricRow label="Time to Index" value={allTimeMetrics.avgIpniTimeToIndexMs} />
                 <LatencyMetricRow label="Time to Advertise" value={allTimeMetrics.avgIpniTimeToAdvertiseMs} />
-                <LatencyMetricRow label="Time to Retrieve Request" value={allTimeMetrics.avgIpniTimeToRetrieveMs} />
                 <LatencyMetricRow label="Time to Verify" value={allTimeMetrics.avgIpniTimeToVerifyMs} />
               </div>
             </div>
