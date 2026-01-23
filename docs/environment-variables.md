@@ -8,7 +8,7 @@ This document provides a comprehensive guide to all environment variables used b
 | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | [Application](#application-configuration) | `NODE_ENV`, `DEALBOT_PORT`, `DEALBOT_HOST`, `DEALBOT_ALLOWED_ORIGINS`                                                                                        |
 | [Database](#database-configuration)       | `DATABASE_HOST`, `DATABASE_PORT`, `DATABASE_USER`, `DATABASE_PASSWORD`, `DATABASE_NAME`                                                                      |
-| [Blockchain](#blockchain-configuration)   | `NETWORK`, `WALLET_ADDRESS`, `WALLET_PRIVATE_KEY`, `CHECK_DATASET_CREATION_FEES`, `USE_ONLY_APPROVED_PROVIDERS`, `ENABLE_CDN_TESTING`, `ENABLE_IPNI_TESTING` |
+| [Blockchain](#blockchain-configuration)   | `NETWORK`, `WALLET_ADDRESS`, `WALLET_PRIVATE_KEY`, `CHECK_DATASET_CREATION_FEES`, `USE_ONLY_APPROVED_PROVIDERS`, `ENABLE_CDN_TESTING`, `ENABLE_IPNI_TESTING`, `ALWAYS_ENABLE_IPNI` |
 | [Dataset Versioning](#dataset-versioning) | `DEALBOT_DATASET_VERSION`                                                                                                                                    |
 | [Scheduling](#scheduling-configuration)   | `DEAL_INTERVAL_SECONDS`, `RETRIEVAL_INTERVAL_SECONDS`, `DEAL_START_OFFSET_SECONDS`, `RETRIEVAL_START_OFFSET_SECONDS`, `METRICS_START_OFFSET_SECONDS`         |
 | [Dataset](#dataset-configuration)         | `DEALBOT_LOCAL_DATASETS_PATH`, `KAGGLE_DATASET_TOTAL_PAGES`, `RANDOM_DATASET_SIZES`                                                                          |
@@ -314,6 +314,23 @@ WALLET_ADDRESS=0x1234567890abcdef1234567890abcdef12345678
 
 - Set to `false` to skip deal-making with IPFS support.
 - Keep as `true` for deal-making with IPNI Indexing support.
+
+---
+
+### `ALWAYS_ENABLE_IPNI`
+
+- **Type**: `boolean`
+- **Required**: No
+- **Default**: `true`
+
+**Role**: When `ENABLE_IPNI_TESTING` is `true`, forces IPNI on for every deal (no randomization). Randomized IPNI only happens when `ENABLE_IPNI_TESTING=true` and `ALWAYS_ENABLE_IPNI=false`.
+
+**When to update**:
+
+- Set to `false` to keep IPNI as a randomized test path.
+- Keep as `true` to always enable IPNI when testing is enabled.
+
+**Note**: If `ENABLE_IPNI_TESTING=false`, IPNI is disabled regardless of this setting.
 
 ---
 

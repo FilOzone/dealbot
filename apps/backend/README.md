@@ -104,6 +104,7 @@ All configuration is done via environment variables in `.env`.
 | `CHECK_DATASET_CREATION_FEES` | Check fees before dataset creation     | `true`                     |
 | `ENABLE_CDN_TESTING`          | Enable CDN retrieval testing           | `true`                     |
 | `ENABLE_IPNI_TESTING`         | Enable IPNI retrieval testing          | `true`                     |
+| `ALWAYS_ENABLE_IPNI`          | Always enable IPNI (no randomization)  | `true`                     |
 | `USE_ONLY_APPROVED_PROVIDERS` | Only use approved storage providers    | `true`                     |
 
 ### Scheduling Configuration

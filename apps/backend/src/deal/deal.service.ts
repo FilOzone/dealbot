@@ -49,7 +49,8 @@ export class DealService implements OnModuleInit {
   async createDealsForAllProviders(): Promise<Deal[]> {
     const totalProviders = this.walletSdkService.getTestingProvidersCount();
     const enableCDN = this.blockchainConfig.enableCDNTesting ? Math.random() > 0.5 : false;
-    const enableIpni = this.blockchainConfig.enableIpniTesting ? Math.random() > 0.5 : false;
+    const enableIpni =
+      this.blockchainConfig.enableIpniTesting && (this.blockchainConfig.alwaysEnableIpni || Math.random() > 0.5);
 
     this.logger.log(`Starting deal creation for ${totalProviders} providers (CDN: ${enableCDN}, IPNI: ${enableIpni})`);
 
