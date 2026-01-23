@@ -426,9 +426,7 @@ export class WalletSdkService implements OnModuleInit {
         const details = Array.from(duplicateIds.entries()).map(
           ([address, ids]) => `${address} (providerIds: ${Array.from(ids).join(", ")})`,
         );
-        this.logger.warn(
-          `Duplicate provider addresses detected; skipping those entries: ${details.join("; ")}`,
-        );
+        this.logger.warn(`Duplicate provider addresses detected; skipping those entries: ${details.join("; ")}`);
         for (const address of duplicateIds.keys()) {
           dedupedProviders.delete(address);
         }
