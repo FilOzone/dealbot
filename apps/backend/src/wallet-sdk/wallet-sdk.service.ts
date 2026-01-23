@@ -420,31 +420,59 @@ export class WalletSdkService implements OnModuleInit {
   async syncProvidersToDatabase(providerInfos: ProviderInfoEx[]): Promise<void> {
     try {
       const dedupedProviders = new Map<string, ProviderInfoEx>();
-      const duplicateIds = new Map<string, Set<string>>();
+      const duplicatesByAddress = new Map<string, Set<number>>();
+      const conflictAddresses = new Set<string>();
+      const resolvedInactiveAddresses = new Set<string>();
 
       for (const info of providerInfos) {
-        const address = info.serviceProvider as string;
+        const address = info.serviceProvider;
         const existing = dedupedProviders.get(address);
         if (existing) {
-          let ids = duplicateIds.get(address);
+          this.logger.warn(`Duplicate provider address ${address} (providerIds: ${existing.id}, ${info.id})`);
+          let ids = duplicatesByAddress.get(address);
           if (!ids) {
-            ids = new Set<string>();
-            duplicateIds.set(address, ids);
-            ids.add(String(existing.id));
+            ids = new Set<number>();
+            duplicatesByAddress.set(address, ids);
+            ids.add(existing.id);
           }
-          ids.add(String(info.id));
+          ids.add(info.id);
+
+          if (!existing.active && info.active) {
+            resolvedInactiveAddresses.add(address);
+            dedupedProviders.set(address, info);
+            continue;
+          }
+
+          conflictAddresses.add(address);
+          dedupedProviders.set(address, info);
           continue;
         }
         dedupedProviders.set(address, info);
       }
 
-      if (duplicateIds.size > 0) {
-        const details = Array.from(duplicateIds.entries()).map(
-          ([address, ids]) => `${address} (providerIds: ${Array.from(ids).join(", ")})`,
+      if (duplicatesByAddress.size > 0) {
+        const formatDetails = (addresses: Set<string>) =>
+          Array.from(addresses).map((address) => {
+            const ids = duplicatesByAddress.get(address) ?? new Set<number>();
+            return `${address} (providerIds: ${Array.from(ids).join(", ")})`;
+          });
+
+        const resolvedOnly = new Set(
+          Array.from(resolvedInactiveAddresses).filter((address) => !conflictAddresses.has(address)),
         );
-        this.logger.warn(`Duplicate provider addresses detected; skipping those entries: ${details.join("; ")}`);
-        for (const address of duplicateIds.keys()) {
-          dedupedProviders.delete(address);
+
+        if (conflictAddresses.size > 0) {
+          // if there is no difference between active/inactive, we keep the newest (highest providerId).
+          this.logger.error(
+            `Duplicate provider addresses with conflicting active status; keeping newest entries: ${formatDetails(conflictAddresses).join("; ")}`,
+          );
+        }
+
+        if (resolvedOnly.size > 0) {
+          // if there is a difference between active/inactive, we replace the inactive entries with the active ones.
+          this.logger.warn(
+            `Duplicate provider addresses detected; replaced inactive entries with active ones: ${formatDetails(resolvedOnly).join("; ")}`,
+          );
         }
       }
 
