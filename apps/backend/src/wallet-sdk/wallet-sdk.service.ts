@@ -403,7 +403,38 @@ export class WalletSdkService implements OnModuleInit {
    */
   async syncProvidersToDatabase(providerInfos: ProviderInfoEx[]): Promise<void> {
     try {
-      const entities = providerInfos.map((info) =>
+      const dedupedProviders = new Map<string, ProviderInfoEx>();
+      const duplicateIds = new Map<string, Set<string>>();
+
+      for (const info of providerInfos) {
+        const address = info.serviceProvider as string;
+        const existing = dedupedProviders.get(address);
+        if (existing) {
+          let ids = duplicateIds.get(address);
+          if (!ids) {
+            ids = new Set<string>();
+            duplicateIds.set(address, ids);
+            ids.add(String(existing.id));
+          }
+          ids.add(String(info.id));
+          continue;
+        }
+        dedupedProviders.set(address, info);
+      }
+
+      if (duplicateIds.size > 0) {
+        const details = Array.from(duplicateIds.entries()).map(
+          ([address, ids]) => `${address} (providerIds: ${Array.from(ids).join(", ")})`,
+        );
+        this.logger.warn(
+          `Duplicate provider addresses detected; skipping those entries: ${details.join("; ")}`,
+        );
+        for (const address of duplicateIds.keys()) {
+          dedupedProviders.delete(address);
+        }
+      }
+
+      const entities = Array.from(dedupedProviders.values()).map((info) =>
         this.spRepository.create({
           address: info.serviceProvider as Hex,
           providerId: info.id,
