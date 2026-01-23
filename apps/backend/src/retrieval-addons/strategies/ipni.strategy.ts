@@ -116,9 +116,7 @@ export class IpniRetrievalStrategy implements IRetrievalAddon {
         `  Size Difference: ${sizeDiff > 0 ? "+" : ""}${sizeDiff} bytes (${sizeDiffPercent}%)`,
         blockCount ? `  Block Count in CAR: ${blockCount}` : "  Block Count: missing",
         blockCIDs ? `  Block CIDs in CAR: ${blockCIDs.length} entries` : "  Block CIDs: missing",
-        blockCIDs && blockCIDs.length > 0
-          ? `  First Block CID (rootCID): ${blockCIDs[0]}`
-          : null,
+        blockCIDs && blockCIDs.length > 0 ? `  First Block CID (rootCID): ${blockCIDs[0]}` : null,
       ].filter((part): part is string => part !== null);
 
       this.logger.warn(logParts.join("\n"));
