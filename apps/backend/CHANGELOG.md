@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.2.0](https://github.com/FilOzone/dealbot/compare/backend-v0.1.2...backend-v0.2.0) (2026-01-23)
+
+
+### Features
+
+* use filecoin-pin for IPNI validation ([#124](https://github.com/FilOzone/dealbot/issues/124)) ([e9298ac](https://github.com/FilOzone/dealbot/commit/e9298ac9956dbf5df2f3dbd577871f2e63ef9336))
+
+
+### Bug Fixes
+
+* **backend:** negative avg time to retrieve metrics ([#140](https://github.com/FilOzone/dealbot/issues/140)) ([3da277f](https://github.com/FilOzone/dealbot/commit/3da277fcf14116b886d0e85c350083c657a78866))
+* better error messages and ipni data size check fix ([#151](https://github.com/FilOzone/dealbot/issues/151)) ([a52050c](https://github.com/FilOzone/dealbot/commit/a52050cd9355ab08bd2d56500d3c69344c61a2f2))
+* ENV var defaults ([#142](https://github.com/FilOzone/dealbot/issues/142)) ([24ffa9f](https://github.com/FilOzone/dealbot/commit/24ffa9f9b2493ebca7eed9a2326ea8f72336124b))
+* pass valid accept/format parameter for ipfs query ([#155](https://github.com/FilOzone/dealbot/issues/155)) ([30ca5d6](https://github.com/FilOzone/dealbot/commit/30ca5d6fdc727e4e56c085142c186471c305d146))
+* use node:24-alpine ([#148](https://github.com/FilOzone/dealbot/issues/148)) ([57510bf](https://github.com/FilOzone/dealbot/commit/57510bf21c277635330a6089f4fe05922f9387dc))
+* use node:25-alpine for docker images ([#146](https://github.com/FilOzone/dealbot/issues/146)) ([e53ea5c](https://github.com/FilOzone/dealbot/commit/e53ea5c38b6effa4896f4e70a0c94d85d9600f29))
+
 ## [0.1.2](https://github.com/FilOzone/dealbot/compare/backend-v0.1.1...backend-v0.1.2) (2026-01-20)
 
 
