@@ -1,12 +1,13 @@
 import { Injectable, Logger, type OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { Cron, SchedulerRegistry } from "@nestjs/schedule";
-import { InjectDataSource } from "@nestjs/typeorm";
+import { InjectDataSource, InjectRepository } from "@nestjs/typeorm";
 import { InjectMetric } from "@willsoto/nestjs-prometheus";
 import type { Gauge } from "prom-client";
-import type { DataSource } from "typeorm";
+import type { DataSource, Repository } from "typeorm";
 import { scheduleJobWithOffset } from "../../common/utils.js";
 import type { IConfig, ISchedulingConfig } from "../../config/app.config.js";
+import { StorageProvider } from "../../database/entities/storage-provider.entity.js";
 import { IpniStatus } from "../../database/types.js";
 import { WalletSdkService } from "../../wallet-sdk/wallet-sdk.service.js";
 
@@ -33,8 +34,14 @@ export class MetricsSchedulerService implements OnModuleInit {
     private readonly configService: ConfigService<IConfig, true>,
     private readonly schedulerRegistry: SchedulerRegistry,
     private readonly walletSdkService: WalletSdkService,
+    @InjectRepository(StorageProvider)
+    private readonly spRepository: Repository<StorageProvider>,
     @InjectMetric("wallet_balance")
     private readonly walletBalanceGauge: Gauge,
+    @InjectMetric("storage_providers_active")
+    private readonly storageProvidersActive: Gauge,
+    @InjectMetric("storage_providers_tested")
+    private readonly storageProvidersTested: Gauge,
   ) {}
 
   async onModuleInit() {
@@ -148,6 +155,7 @@ export class MetricsSchedulerService implements OnModuleInit {
 
     try {
       await this.updateWalletBalances();
+      await this.updateStorageProviderMetrics();
       // Aggregate deal metrics by storage provider (metric_type='deal', service_type=NULL)
       const dealMetrics = await this.dataSource.query(
         `
@@ -347,10 +355,35 @@ export class MetricsSchedulerService implements OnModuleInit {
       const { usdfc, fil } = await this.walletSdkService.getWalletBalances();
       const walletShort = this.configService.get("blockchain").walletAddress.slice(0, 8);
 
+      // Note: These balances represent the Filecoin Pay (payments contract) state,
+      // not the raw wallet balance. USDFC is the deposited amount in the contract.
+      // Converting bigint to Number provides ~15-16 significant figures of precision.
+      // For a 50 token balance, precision is lost after ~14 decimal places
+      // (e.g., 0.00000000000001 USDFC). This is negligible for runway monitoring.
       this.walletBalanceGauge.set({ currency: "USDFC", wallet: walletShort }, Number(usdfc));
       this.walletBalanceGauge.set({ currency: "FIL", wallet: walletShort }, Number(fil));
     } catch (error) {
       this.logger.warn(`Failed to update wallet balance metrics: ${error.message}`);
+    }
+  }
+
+  private async updateStorageProviderMetrics(): Promise<void> {
+    try {
+      const totalProviders = await this.spRepository.count();
+      const activeCount = await this.spRepository.count({ where: { isActive: true } });
+      const inactiveCount = Math.max(0, totalProviders - activeCount);
+
+      this.storageProvidersActive.set({ status: "active" }, activeCount);
+      this.storageProvidersActive.set({ status: "inactive" }, inactiveCount);
+
+      const useOnlyApprovedProviders = this.configService.get("blockchain").useOnlyApprovedProviders;
+      // Providers considered "tested" depend on USE_ONLY_APPROVED_PROVIDERS config.
+      const testedCount = await this.spRepository.count({
+        where: useOnlyApprovedProviders ? { isActive: true, isApproved: true } : { isActive: true },
+      });
+      this.storageProvidersTested.set(testedCount);
+    } catch (error) {
+      this.logger.warn(`Failed to update storage provider metrics: ${error.message}`);
     }
   }
 

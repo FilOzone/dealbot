@@ -1,8 +1,6 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
-import { InjectMetric } from "@willsoto/nestjs-prometheus";
-import type { Gauge } from "prom-client";
 import type { Repository } from "typeorm";
 import type { IConfig } from "../../config/app.config.js";
 import { Deal } from "../../database/entities/deal.entity.js";
@@ -42,10 +40,6 @@ export class ProvidersService {
     @InjectRepository(Retrieval)
     private readonly retrievalRepo: Repository<Retrieval>,
     private readonly configService: ConfigService<IConfig, true>,
-    @InjectMetric("storage_providers_active")
-    private readonly storageProvidersActive: Gauge,
-    @InjectMetric("storage_providers_tested")
-    private readonly storageProvidersTested: Gauge,
   ) {}
 
   /**
@@ -78,21 +72,6 @@ export class ProvidersService {
     }
 
     const providers = await query.getMany();
-
-    // Update Prometheus metrics with global counts (independent of request filters).
-    const totalProviders = await this.spRepository.count();
-    const activeCount = await this.spRepository.count({ where: { isActive: true } });
-    const inactiveCount = Math.max(0, totalProviders - activeCount);
-
-    this.storageProvidersActive.set({ status: "active" }, activeCount);
-    this.storageProvidersActive.set({ status: "inactive" }, inactiveCount);
-
-    const useOnlyApprovedProviders = this.configService.get("blockchain").useOnlyApprovedProviders;
-    // Providers considered "tested" depend on USE_ONLY_APPROVED_PROVIDERS.
-    const testedCount = await this.spRepository.count({
-      where: useOnlyApprovedProviders ? { isActive: true, isApproved: true } : { isActive: true },
-    });
-    this.storageProvidersTested.set(testedCount);
 
     return { providers, total };
   }

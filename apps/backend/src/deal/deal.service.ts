@@ -148,15 +148,14 @@ export class DealService implements OnModuleInit {
         dealDuration,
       );
 
-      // Record upload metrics if available
-      if (deal.ingestLatencyMs && deal.ingestThroughputBps) {
+      // Record upload duration if available
+      if (deal.ingestLatencyMs) {
         this.dealUploadDuration.observe(
           {
             provider: providerShort,
           },
           deal.ingestLatencyMs / 1000,
         );
-
       }
 
       // Record chain latency if available

@@ -67,12 +67,17 @@ export class MetricsPrometheusInterceptor implements NestInterceptor {
 
   /**
    * Normalize URL path by removing IDs and other dynamic segments
-   * to avoid high cardinality in metrics
+   * to avoid high cardinality in metrics.
+   *
+   * Pattern order matters:
+   * 1. Hex IDs (8+ chars) - e.g., "12345abc" -> ":id"
+   * 2. Numeric IDs - e.g., "123" -> ":id" (won't match already-replaced segments)
+   * 3. UUIDs (36 chars with dashes) - e.g., "550e8400-e29b-..." -> ":uuid"
    */
   private normalizePath(path: string): string {
     return path
       .split("?")[0] // Remove query parameters
-      .replace(/\/[0-9a-f]{8,}/gi, "/:id") // Replace hex IDs
+      .replace(/\/[0-9a-f]{8,}/gi, "/:id") // Replace hex IDs (8+ hex chars)
       .replace(/\/\d+/g, "/:id") // Replace numeric IDs
       .replace(/\/[0-9a-f-]{36}/gi, "/:uuid"); // Replace UUIDs
   }
