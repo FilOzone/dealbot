@@ -89,12 +89,27 @@ export class IpniRetrievalStrategy implements IRetrievalAddon {
     const actualSize = retrievedData.length;
     const carSize = config.deal.metadata?.[this.name]?.carSize;
     const originalSize = config.deal.metadata?.[this.name]?.originalSize;
-    const expectedCarSize = Number(carSize);
 
     const rootCIDStr = config.deal.metadata?.[this.name]?.rootCID;
     const blockCIDs = config.deal.metadata?.[this.name]?.blockCIDs;
     const blockCount = config.deal.metadata?.[this.name]?.blockCount;
     const storageProvider = config.storageProvider;
+
+    // Early return if carSize metadata is missing - cannot validate
+    if (carSize === undefined || carSize === null) {
+      this.logger.warn(
+        `IPNI validation skipped for deal ${config.deal.id}: carSize metadata is missing. ` +
+          `Retrieved ${actualSize} bytes from ${storageProvider}`,
+      );
+      return {
+        isValid: false,
+        method: "car-size-check",
+        details: `Cannot validate: carSize metadata is missing. Retrieved ${actualSize} bytes`,
+        comparison: { expected: undefined, actual: actualSize },
+      };
+    }
+
+    const expectedCarSize = Number(carSize);
 
     // Validate by checking size matches expected CAR file size
     const isValid = actualSize === expectedCarSize;
@@ -130,8 +145,6 @@ export class IpniRetrievalStrategy implements IRetrievalAddon {
     let details: string;
     if (isValid) {
       details = `CAR size matches expected ${expectedCarSize} bytes${additionalDetails}`;
-    } else if (!carSize) {
-      details = `Cannot validate: carSize metadata is missing. Retrieved ${actualSize} bytes${additionalDetails}`;
     } else {
       details = `CAR size mismatch: expected ${expectedCarSize}, got ${actualSize}${additionalDetails}`;
     }
