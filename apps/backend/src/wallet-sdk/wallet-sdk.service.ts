@@ -85,14 +85,30 @@ export class WalletSdkService implements OnModuleInit {
 
       const approvedIds = await this.warmStorageService.getApprovedProviderIds();
 
-      const providerCount = await this.spRegistry.getProviderCount();
+      const totalProviders = await this.spRegistry.getProviderCount();
 
-      const providerPromises: Promise<ProviderInfo | null>[] = [];
-      for (let i = 1; i <= Number(providerCount); i++) {
-        providerPromises.push(this.spRegistry.getProvider(i));
+      const activeProviders = await this.spRegistry.getAllActiveProviders();
+      const activeProviderIds = new Set(activeProviders.map((info) => Number(info.id)));
+      const allProviderIds = Array.from({ length: totalProviders }, (_, i) => i + 1);
+      const inactiveProviderIds = allProviderIds.filter((id) => !activeProviderIds.has(id));
+
+      const providerInfos: ProviderInfo[] = [...activeProviders];
+      if (inactiveProviderIds.length > 0) {
+        if (inactiveProviderIds.length > 50) {
+          // batch get remaining providers if we have more than 50 inactive providers. This is not currently happening, but may in the future.
+          const batchSize = 50;
+          const batches = Math.ceil(inactiveProviderIds.length / batchSize);
+          for (let i = 0; i < batches; i++) {
+            const start = i * batchSize;
+            const batch = inactiveProviderIds.slice(start, start + batchSize);
+            const providerBatch = await this.spRegistry.getProviders(batch);
+            providerInfos.push(...providerBatch);
+          }
+        } else {
+          providerInfos.push(...(await this.spRegistry.getProviders(inactiveProviderIds)));
+        }
       }
 
-      const providerInfos = await Promise.all(providerPromises);
       const validProviders = providerInfos.filter((info) => !!info);
 
       this.providerCache.clear();
