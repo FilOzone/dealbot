@@ -1,15 +1,15 @@
 import { Injectable, Logger, type OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import { SchedulerRegistry } from "@nestjs/schedule";
-import { scheduleJobWithOffset } from "../common/utils.js";
 import type { IConfig, ISchedulingConfig } from "../config/app.config.js";
 import { DealService } from "../deal/deal.service.js";
 import { RetrievalService } from "../retrieval/retrieval.service.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
+import { DbAnchoredScheduler } from "./db-anchored-scheduler.js";
 
 @Injectable()
 export class SchedulerService implements OnModuleInit {
   private readonly logger = new Logger(SchedulerService.name);
+  private readonly dbScheduler: DbAnchoredScheduler;
   private isRunningDealCreation = false;
   private isRunningRetrievalTests = false;
   private retrievalAbortController?: AbortController;
@@ -19,14 +19,15 @@ export class SchedulerService implements OnModuleInit {
     private dealService: DealService,
     private retrievalService: RetrievalService,
     private readonly configService: ConfigService<IConfig, true>,
-    private schedulerRegistry: SchedulerRegistry,
     private walletSdkService: WalletSdkService,
-  ) {}
+  ) {
+    this.dbScheduler = new DbAnchoredScheduler(this.logger);
+  }
 
   async onModuleInit() {
     if (process.env.DEALBOT_DISABLE_SCHEDULER === "true") {
       this.logger.warn(
-        "Scheduler disabled via DEALBOT_DISABLE_SCHEDULER=true; skipping wallet initialization and cron jobs.",
+        "Scheduler disabled via DEALBOT_DISABLE_SCHEDULER=true; skipping wallet initialization and scheduler jobs.",
       );
       return;
     }
@@ -38,7 +39,7 @@ export class SchedulerService implements OnModuleInit {
 
     try {
       await this.walletSdkService.ensureWalletAllowances();
-      this.setupDynamicCronJobs();
+      await this.setupDynamicSchedules();
       this.logger.log("Wallet and scheduler initialization completed successfully");
     } catch (error) {
       this.logger.fatal("Failed to initialize DEALBOT", {
@@ -49,32 +50,52 @@ export class SchedulerService implements OnModuleInit {
     }
   }
 
-  private setupDynamicCronJobs() {
+  private async setupDynamicSchedules(): Promise<void> {
     const config = this.configService.get<ISchedulingConfig>("scheduling");
     this.logger.log(`Scheduling configuration found: ${JSON.stringify(config)}`);
 
-    scheduleJobWithOffset(
-      "dealCreation",
-      config.dealStartOffsetSeconds,
-      config.dealIntervalSeconds,
-      this.schedulerRegistry,
-      this.handleDealCreation.bind(this),
-      this.logger,
-    );
+    await this.scheduleInitialRun({
+      jobName: "dealCreation",
+      intervalSeconds: config.dealIntervalSeconds,
+      startOffsetSeconds: config.dealStartOffsetSeconds,
+      getLastRunAt: () => this.dealService.getLastCreatedTime(),
+      run: this.handleDealCreation.bind(this),
+    });
 
-    scheduleJobWithOffset(
-      "retrievalTests",
-      config.retrievalStartOffsetSeconds,
-      config.retrievalIntervalSeconds,
-      this.schedulerRegistry,
-      this.handleRetrievalTests.bind(this),
-      this.logger,
-    );
+    await this.scheduleInitialRun({
+      jobName: "retrievalTests",
+      intervalSeconds: config.retrievalIntervalSeconds,
+      startOffsetSeconds: config.retrievalStartOffsetSeconds,
+      getLastRunAt: () => this.retrievalService.getLastCreatedTime(),
+      run: this.handleRetrievalTests.bind(this),
+    });
 
     this.logger.log(
-      `Staggered scheduler setup: Deal creation (offset: ${config.dealStartOffsetSeconds}s, interval: ${config.dealIntervalSeconds}s), ` +
-        `Retrieval tests (offset: ${config.retrievalStartOffsetSeconds}s, interval: ${config.retrievalIntervalSeconds}s)`,
+      `Scheduler setup: Deal creation interval ${config.dealIntervalSeconds}s, ` +
+        `Retrieval tests interval ${config.retrievalIntervalSeconds}s`,
     );
+  }
+
+  private async scheduleInitialRun({
+    jobName,
+    intervalSeconds,
+    startOffsetSeconds,
+    getLastRunAt,
+    run,
+  }: {
+    jobName: string;
+    intervalSeconds: number;
+    startOffsetSeconds: number;
+    getLastRunAt: () => Promise<Date | null>;
+    run: () => Promise<void>;
+  }): Promise<void> {
+    await this.dbScheduler.scheduleInitialRun({
+      jobName,
+      intervalSeconds,
+      startOffsetSeconds,
+      getLastRunAt,
+      run,
+    });
   }
 
   async handleDealCreation() {

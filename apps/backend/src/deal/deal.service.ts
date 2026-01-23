@@ -77,6 +77,22 @@ export class DealService implements OnModuleInit {
     }
   }
 
+  /**
+   * Returns the latest deal creation timestamp for interval scheduling.
+   */
+  async getLastCreatedTime(): Promise<Date | null> {
+    const result = await this.dealRepository
+      .createQueryBuilder("deal")
+      .select("MAX(deal.createdAt)", "lastCreated")
+      .getRawOne<{ lastCreated: Date | string | null }>();
+
+    if (!result?.lastCreated) {
+      return null;
+    }
+
+    return result.lastCreated instanceof Date ? result.lastCreated : new Date(result.lastCreated);
+  }
+
   async createDeal(providerInfo: ProviderInfoEx, dealInput: DealPreprocessingResult): Promise<Deal> {
     const providerAddress = providerInfo.serviceProvider;
     const deal = this.dealRepository.create({

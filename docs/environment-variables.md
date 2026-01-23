@@ -392,12 +392,13 @@ RETRIEVAL_INTERVAL_SECONDS * 1000 - RETRIEVAL_TIMEOUT_BUFFER_MS >= max(HTTP_REQU
 - **Required**: No
 - **Default**: `0`
 
-**Role**: Delay before the first deal creation job runs after startup.
+**Role**: Delay before the first deal creation job runs when no deals exist yet (fresh DB).
 
 **When to update**:
 
 - Increase to allow other services to initialize first
 - Keep at `0` for immediate deal creation on startup
+- Ignored once deals exist; scheduling uses last deal `created_at + interval`
 
 ---
 
@@ -407,12 +408,13 @@ RETRIEVAL_INTERVAL_SECONDS * 1000 - RETRIEVAL_TIMEOUT_BUFFER_MS >= max(HTTP_REQU
 - **Required**: No
 - **Default**: `600` (10 minutes) / `300` (5 minutes in .env.example)
 
-**Role**: Delay before the first retrieval test runs after startup. This offset prevents retrieval tests from running concurrently with deal creation.
+**Role**: Delay before the first retrieval test runs when no retrievals exist yet (fresh DB). This offset helps stagger the initial run.
 
 **When to update**:
 
 - Adjust to stagger job execution and prevent resource contention
 - Increase if deal creation takes longer than expected
+- Ignored once retrievals exist; scheduling uses last retrieval `created_at + interval`
 
 ---
 
@@ -422,11 +424,12 @@ RETRIEVAL_INTERVAL_SECONDS * 1000 - RETRIEVAL_TIMEOUT_BUFFER_MS >= max(HTTP_REQU
 - **Required**: No
 - **Default**: `900` (15 minutes) / `600` (10 minutes in .env.example)
 
-**Role**: Delay before metrics collection jobs start after startup.
+**Role**: Delay before metrics collection jobs start when no metrics rows exist yet (fresh DB).
 
 **When to update**:
 
 - Adjust to ensure metrics collection doesn't overlap with other jobs
+- Ignored once metrics rows exist; scheduling uses last `created_at` / `refreshed_at` + interval
 
 ---
 

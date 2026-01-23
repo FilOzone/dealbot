@@ -31,6 +31,22 @@ export class RetrievalService {
     this.httpRequestTimeoutMs = Math.max(timeouts.httpRequestTimeoutMs, timeouts.http2RequestTimeoutMs);
   }
 
+  /**
+   * Returns the latest retrieval creation timestamp for interval scheduling.
+   */
+  async getLastCreatedTime(): Promise<Date | null> {
+    const result = await this.retrievalRepository
+      .createQueryBuilder("retrieval")
+      .select("MAX(retrieval.createdAt)", "lastCreated")
+      .getRawOne<{ lastCreated: Date | string | null }>();
+
+    if (!result?.lastCreated) {
+      return null;
+    }
+
+    return result.lastCreated instanceof Date ? result.lastCreated : new Date(result.lastCreated);
+  }
+
   async performRandomBatchRetrievals(count: number, timeoutMs: number, signal?: AbortSignal): Promise<Retrieval[]> {
     const deals = await this.selectRandomDealsForRetrieval(count);
     const totalDeals = deals.length;

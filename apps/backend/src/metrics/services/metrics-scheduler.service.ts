@@ -1,87 +1,135 @@
 import { Injectable, Logger, type OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import { Cron, SchedulerRegistry } from "@nestjs/schedule";
+import { Cron } from "@nestjs/schedule";
 import { InjectDataSource } from "@nestjs/typeorm";
 import type { DataSource } from "typeorm";
-import { scheduleJobWithOffset } from "../../common/utils.js";
 import type { IConfig, ISchedulingConfig } from "../../config/app.config.js";
 import { IpniStatus } from "../../database/types.js";
+import { DbAnchoredScheduler } from "../../scheduler/db-anchored-scheduler.js";
 
 /**
- * Service responsible for refreshing materialized views and aggregating metrics
- * Uses staggered cron jobs to prevent concurrent execution with deal/retrieval jobs
+ * Service responsible for refreshing materialized views and aggregating metrics.
  *
- * Staggered Schedule (with default offsets):
- * - Deal creation: offset 0s (00:00, 00:30, 01:00...)
- * - Retrieval tests: offset 600s/10min (00:10, 00:40, 01:10...)
- * - Daily metrics: offset 900s/15min (00:15, 00:45, 01:15...)
- * - Weekly/All-time performance: offset 1200s/20min (00:20, 00:50, 01:20...)
- * - Cleanup: Weekly on Sunday at 02:00
+ * Scheduling approach:
+ * - Each job schedules its next run based on the latest DB timestamp (created_at/refreshed_at) + interval.
+ * - If no rows exist yet, it schedules for now + start offset to stagger the first run.
+ * - This avoids wall-clock alignment and reduces delay to first jobs after a restart.
  *
- * This prevents database contention and resource conflicts by spacing jobs 5 minutes apart
+ * This approach ensures consistent scheduling despite re-deploys or restarts.
  */
 @Injectable()
 export class MetricsSchedulerService implements OnModuleInit {
   private readonly logger = new Logger(MetricsSchedulerService.name);
+  private readonly dbScheduler: DbAnchoredScheduler;
 
   constructor(
     @InjectDataSource()
     private readonly dataSource: DataSource,
     private readonly configService: ConfigService<IConfig, true>,
-    private readonly schedulerRegistry: SchedulerRegistry,
-  ) {}
+  ) {
+    this.dbScheduler = new DbAnchoredScheduler(this.logger);
+  }
 
   async onModuleInit() {
-    this.setupStaggeredMetricsJobs();
+    await this.setupMetricsSchedules();
   }
 
   /**
-   * Setup staggered metrics jobs to prevent concurrent execution
-   * Jobs are delayed based on METRICS_START_OFFSET_SECONDS config
+   * Schedule metrics jobs using DB timestamps and startup offsets.
    */
-  private setupStaggeredMetricsJobs() {
+  private async setupMetricsSchedules(): Promise<void> {
     const config = this.configService.get<ISchedulingConfig>("scheduling");
-    const baseOffsetSeconds = config.metricsStartOffsetSeconds;
+    const baseOffsetSeconds = Math.max(0, config.metricsStartOffsetSeconds);
 
-    // Daily metrics aggregation: base offset + 0 minutes (e.g., 15 min after deal creation)
-    scheduleJobWithOffset(
-      "aggregate-daily-metrics",
-      baseOffsetSeconds,
-      1800,
-      this.schedulerRegistry,
-      () => this.aggregateDailyMetrics(),
-      this.logger,
-    );
+    await this.scheduleInitialRun({
+      jobName: "aggregate-daily-metrics",
+      intervalSeconds: 1800,
+      startOffsetSeconds: baseOffsetSeconds,
+      getLastRunAt: () => this.getLastDailyCreatedTime(),
+      run: () => this.aggregateDailyMetrics(),
+    });
 
-    // Weekly performance: base offset + 5 minutes (e.g., 20 min after deal creation)
-    scheduleJobWithOffset(
-      "refresh-last-week-performance",
-      baseOffsetSeconds + 300,
-      1800,
-      this.schedulerRegistry,
-      () => this.refreshWeeklyPerformance(),
-      this.logger,
-    );
+    await this.scheduleInitialRun({
+      jobName: "refresh-last-week-performance",
+      intervalSeconds: 1800,
+      startOffsetSeconds: baseOffsetSeconds + 300,
+      getLastRunAt: () => this.getLastWeekRefreshTime(),
+      run: () => this.refreshWeeklyPerformance(),
+    });
 
-    // All-time performance: base offset + 5 minutes (e.g., 20 min after deal creation)
-    scheduleJobWithOffset(
-      "refresh-all-time-performance",
-      baseOffsetSeconds + 300,
-      1800,
-      this.schedulerRegistry,
-      () => this.refreshAllTimePerformance(),
-      this.logger,
-    );
+    await this.scheduleInitialRun({
+      jobName: "refresh-all-time-performance",
+      intervalSeconds: 1800,
+      startOffsetSeconds: baseOffsetSeconds + 600,
+      getLastRunAt: () => this.getLastAllTimeRefreshTime(),
+      run: () => this.refreshAllTimePerformance(),
+    });
 
-    this.logger.log(
-      `Staggered metrics jobs setup with base offset ${baseOffsetSeconds}s: ` +
-        `Daily metrics (+0min), Weekly perf (+5min), All-time perf (+10min)`,
+    this.logger.log("Metrics scheduler setup: daily metrics + performance refresh every 1800s");
+  }
+
+  private async scheduleInitialRun({
+    jobName,
+    intervalSeconds,
+    startOffsetSeconds,
+    getLastRunAt,
+    run,
+  }: {
+    jobName: string;
+    intervalSeconds: number;
+    startOffsetSeconds: number;
+    getLastRunAt: () => Promise<Date | null>;
+    run: () => Promise<void>;
+  }): Promise<void> {
+    await this.dbScheduler.scheduleInitialRun({
+      jobName,
+      intervalSeconds,
+      startOffsetSeconds,
+      getLastRunAt,
+      run,
+    });
+  }
+
+  /**
+   * Returns the most recent metrics_daily insert timestamp.
+   */
+  private async getLastDailyCreatedTime(): Promise<Date | null> {
+    const rows = await this.dataSource.query("SELECT MAX(created_at) AS last_created FROM metrics_daily");
+    return this.parseTimestamp(rows?.[0]?.last_created);
+  }
+
+  /**
+   * Returns the most recent refresh timestamp for last-week materialized view.
+   */
+  private async getLastWeekRefreshTime(): Promise<Date | null> {
+    const rows = await this.dataSource.query(
+      "SELECT MAX(refreshed_at) AS last_refreshed FROM sp_performance_last_week",
     );
+    return this.parseTimestamp(rows?.[0]?.last_refreshed);
+  }
+
+  /**
+   * Returns the most recent refresh timestamp for all-time materialized view.
+   */
+  private async getLastAllTimeRefreshTime(): Promise<Date | null> {
+    const rows = await this.dataSource.query("SELECT MAX(refreshed_at) AS last_refreshed FROM sp_performance_all_time");
+    return this.parseTimestamp(rows?.[0]?.last_refreshed);
+  }
+
+  /**
+   * Normalize DB timestamps to a Date instance.
+   */
+  private parseTimestamp(value: unknown): Date | null {
+    if (!value) {
+      return null;
+    }
+
+    return value instanceof Date ? value : new Date(String(value));
   }
 
   /**
    * Refresh last week performance materialized view
-   * Scheduled dynamically with staggered offset
+   * Scheduled dynamically based on last refresh timestamp
    *
    * Uses CONCURRENTLY to avoid blocking reads during refresh
    */
@@ -102,7 +150,7 @@ export class MetricsSchedulerService implements OnModuleInit {
 
   /**
    * Refresh all-time performance materialized view
-   * Scheduled dynamically with staggered offset
+   * Scheduled dynamically based on last refresh timestamp
    *
    * Uses CONCURRENTLY to avoid blocking reads during refresh
    */
@@ -123,7 +171,7 @@ export class MetricsSchedulerService implements OnModuleInit {
 
   /**
    * Aggregate daily metrics
-   * Scheduled dynamically with staggered offset
+   * Scheduled dynamically based on last insert timestamp
    *
    * Aggregates data from start of today (00:00:00) until now
    * Uses ON CONFLICT to update existing records, providing real-time metrics

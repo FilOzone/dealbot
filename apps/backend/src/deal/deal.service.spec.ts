@@ -36,6 +36,7 @@ describe("DealService", () => {
   const mockDealRepository = {
     create: vi.fn(),
     save: vi.fn(),
+    createQueryBuilder: vi.fn(),
   };
 
   const mockStorageProviderRepository = {
@@ -406,6 +407,56 @@ describe("DealService", () => {
       // Should return only the successful one
       expect(results).toHaveLength(1);
       expect(results[0].spAddress).toBe("0xSuccess");
+    });
+  });
+
+  describe("getLastCreatedTime", () => {
+    it("returns null when no deals exist", async () => {
+      const queryBuilder = {
+        select: vi.fn().mockReturnThis(),
+        getRawOne: vi.fn().mockResolvedValue({ lastCreated: null }),
+      };
+      dealRepoMock.createQueryBuilder.mockReturnValue(queryBuilder);
+
+      await expect(service.getLastCreatedTime()).resolves.toBeNull();
+    });
+
+    it("returns the last created timestamp when it is a Date", async () => {
+      const lastCreated = new Date("2024-01-01T00:00:00.000Z");
+      const queryBuilder = {
+        select: vi.fn().mockReturnThis(),
+        getRawOne: vi.fn().mockResolvedValue({ lastCreated }),
+      };
+      dealRepoMock.createQueryBuilder.mockReturnValue(queryBuilder);
+
+      const result = await service.getLastCreatedTime();
+
+      expect(result).toBeInstanceOf(Date);
+      expect(result?.getTime()).toBe(lastCreated.getTime());
+    });
+
+    it("converts string timestamps to Date instances", async () => {
+      const lastCreated = "2024-01-01T00:00:00.000Z";
+      const queryBuilder = {
+        select: vi.fn().mockReturnThis(),
+        getRawOne: vi.fn().mockResolvedValue({ lastCreated }),
+      };
+      dealRepoMock.createQueryBuilder.mockReturnValue(queryBuilder);
+
+      const result = await service.getLastCreatedTime();
+
+      expect(result).toBeInstanceOf(Date);
+      expect(result?.toISOString()).toBe(lastCreated);
+    });
+
+    it("propagates database errors", async () => {
+      const queryBuilder = {
+        select: vi.fn().mockReturnThis(),
+        getRawOne: vi.fn().mockRejectedValue(new Error("DB failure")),
+      };
+      dealRepoMock.createQueryBuilder.mockReturnValue(queryBuilder);
+
+      await expect(service.getLastCreatedTime()).rejects.toThrow("DB failure");
     });
   });
 });
