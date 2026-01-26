@@ -55,7 +55,7 @@ describe("DealService", () => {
       network: "calibration",
       walletAddress: "0x123",
       enableCDNTesting: true,
-      enableIpniTesting: true,
+      enableIpniTesting: "always",
     }),
   };
 
@@ -228,7 +228,7 @@ describe("DealService", () => {
           network: "calibration",
           walletAddress: "0x123",
           enableCDNTesting: true,
-          enableIpniTesting: true,
+          enableIpniTesting: "always",
           dealbotDataSetVersion,
         });
 

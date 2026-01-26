@@ -49,8 +49,17 @@ export class DealService implements OnModuleInit {
   async createDealsForAllProviders(): Promise<Deal[]> {
     const totalProviders = this.walletSdkService.getTestingProvidersCount();
     const enableCDN = this.blockchainConfig.enableCDNTesting ? Math.random() > 0.5 : false;
-    const enableIpni =
-      this.blockchainConfig.enableIpniTesting && (this.blockchainConfig.alwaysEnableIpni || Math.random() > 0.5);
+    const enableIpni = (() => {
+      switch (this.blockchainConfig.enableIpniTesting) {
+        case "disabled":
+          return false;
+        case "random":
+          return Math.random() > 0.5;
+        // case "always": // left commented out because it's the default case and biome doesn't like fallthroughs
+        default:
+          return true;
+      }
+    })();
 
     this.logger.log(`Starting deal creation for ${totalProviders} providers (CDN: ${enableCDN}, IPNI: ${enableIpni})`);
 
