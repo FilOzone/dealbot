@@ -1,26 +1,16 @@
-import { Readable } from "node:stream";
 import { METADATA_KEYS, PDPServer, type ProviderInfo } from "@filoz/synapse-sdk";
-import { CarWriter } from "@ipld/car";
 import { Injectable, Logger } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { waitForIpniProviderResults } from "filecoin-pin/core/utils";
 import { CID } from "multiformats/cid";
-import * as raw from "multiformats/codecs/raw";
-import { sha256 } from "multiformats/hashes/sha2";
 import { StorageProvider } from "src/database/entities/storage-provider.entity.js";
 import type { Repository } from "typeorm";
-import { MAX_BLOCK_SIZE } from "../../common/constants.js";
+import { buildUnixfsCar } from "../../common/car-utils.js";
 import { Deal } from "../../database/entities/deal.entity.js";
 import type { DealMetadata, IpniMetadata } from "../../database/types.js";
 import { IpniStatus, ServiceType } from "../../database/types.js";
 import type { IDealAddon } from "../interfaces/deal-addon.interface.js";
-import type {
-  AddonExecutionContext,
-  CarDataFile,
-  DealConfiguration,
-  IpniPreprocessingResult,
-  SynapseConfig,
-} from "../types.js";
+import type { AddonExecutionContext, DealConfiguration, IpniPreprocessingResult, SynapseConfig } from "../types.js";
 import { AddonPriority } from "../types.js";
 import type {
   IPNIVerificationResult,
@@ -89,7 +79,7 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
    */
   async preprocessData(context: AddonExecutionContext): Promise<IpniPreprocessingResult> {
     try {
-      const carResult = await this.convertToCar(context.currentData);
+      const carResult = await buildUnixfsCar(context.currentData);
 
       this.logger.log(`CAR conversion: ${carResult.blockCount} blocks, ${(carResult.carSize / 1024).toFixed(1)}KB`);
 
@@ -517,77 +507,5 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       this.logger.error(`Failed to save IPNI metrics: ${error.message}`);
       throw error;
     }
-  }
-
-  /**
-   * Convert data file to CAR format
-   * Splits data into blocks and creates a CAR archive
-   *
-   * @param dataFile - Original data file to convert
-   * @returns CAR file data with CIDs and metadata
-   * @private
-   */
-  private async convertToCar(dataFile: { data: Buffer; size: number; name: string }): Promise<CarDataFile> {
-    const numBlocks = Math.ceil(dataFile.size / MAX_BLOCK_SIZE);
-    const blocks: { cid: CID; bytes: Uint8Array }[] = [];
-
-    // Create blocks from data
-    for (let i = 0; i < numBlocks; i++) {
-      const blockData = dataFile.data.slice(i * MAX_BLOCK_SIZE, (i + 1) * MAX_BLOCK_SIZE);
-      const hash = await sha256.digest(blockData);
-      const cid = CID.create(1, raw.code, hash);
-
-      blocks.push({ cid, bytes: blockData });
-    }
-
-    // Use first block as root CID
-    const rootCID = blocks[0].cid;
-
-    // Create CAR file with first block as root
-    const { writer, out } = CarWriter.create([rootCID]);
-
-    // Collect CAR output into a Uint8Array
-    const chunks: Buffer[] = [];
-    const carStream = Readable.from(out);
-
-    carStream.on("data", (chunk: Buffer) => {
-      chunks.push(chunk);
-    });
-
-    // Write all blocks to CAR
-    const writePromise = (async () => {
-      for (const block of blocks) {
-        await writer.put(block);
-      }
-      await writer.close();
-    })();
-
-    // Wait for both writing and collecting to complete
-    await writePromise;
-    await new Promise<void>((resolve, reject) => {
-      carStream.on("end", resolve);
-      carStream.on("error", reject);
-    });
-
-    // Combine chunks into single Uint8Array
-    const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
-    const carData = new Uint8Array(totalLength);
-    let offset = 0;
-    for (const chunk of chunks) {
-      carData.set(chunk, offset);
-      offset += chunk.length;
-    }
-
-    const totalBlockSize = blocks.reduce((sum, b) => sum + b.bytes.length, 0);
-    const blockCIDs = blocks.map((b) => b.cid);
-
-    return {
-      carData,
-      rootCID,
-      blockCIDs,
-      blockCount: blocks.length,
-      totalBlockSize,
-      carSize: carData.length,
-    };
   }
 }

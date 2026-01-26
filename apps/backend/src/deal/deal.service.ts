@@ -1,24 +1,39 @@
-import { type PieceCID, RPC_URLS, SIZE_CONSTANTS, Synapse, type UploadResult } from "@filoz/synapse-sdk";
-import { Injectable, Logger, type OnModuleInit } from "@nestjs/common";
+import { type PieceCID, RPC_URLS, SIZE_CONSTANTS, Synapse } from "@filoz/synapse-sdk";
+import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
+import { executeUpload } from "filecoin-pin";
+import { CID } from "multiformats/cid";
 import type { Repository } from "typeorm";
+import { buildUnixfsCar } from "../common/car-utils.js";
 import type { DataFile } from "../common/types.js";
 import type { IBlockchainConfig, IConfig } from "../config/app.config.js";
 import { Deal } from "../database/entities/deal.entity.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
-import { DealStatus, type ServiceType } from "../database/types.js";
+import { DealStatus, ServiceType } from "../database/types.js";
 import { DataSourceService } from "../dataSource/dataSource.service.js";
 import { DealAddonsService } from "../deal-addons/deal-addons.service.js";
 import type { DealPreprocessingResult } from "../deal-addons/types.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
 import type { ProviderInfoEx } from "../wallet-sdk/wallet-sdk.types.js";
 
+type UploadPayload = {
+  carData: Uint8Array;
+  rootCid: CID;
+};
+
+type UploadResultSummary = {
+  pieceCid: string;
+  pieceId?: number;
+};
+
+type SynapseServiceArg = Parameters<typeof executeUpload>[0];
+type FilecoinPinLogger = Parameters<typeof executeUpload>[3]["logger"];
+
 @Injectable()
-export class DealService implements OnModuleInit {
+export class DealService {
   private readonly logger = new Logger(DealService.name);
   private readonly blockchainConfig: IBlockchainConfig;
-  private synapse: Synapse;
 
   constructor(
     private readonly dataSourceService: DataSourceService,
@@ -33,19 +48,6 @@ export class DealService implements OnModuleInit {
     this.blockchainConfig = this.configService.get("blockchain");
   }
 
-  async onModuleInit() {
-    try {
-      this.synapse = await Synapse.create({
-        privateKey: this.blockchainConfig.walletPrivateKey,
-        rpcURL: RPC_URLS[this.blockchainConfig.network].http,
-        warmStorageAddress: this.walletSdkService.getFWSSAddress(),
-      });
-    } catch (error) {
-      this.logger.error(`Failed to initialize DealService: ${error.message}`, error.stack);
-      throw error;
-    }
-  }
-
   async createDealsForAllProviders(): Promise<Deal[]> {
     const totalProviders = this.walletSdkService.getTestingProvidersCount();
     const enableCDN = this.blockchainConfig.enableCDNTesting ? Math.random() > 0.5 : false;
@@ -54,17 +56,22 @@ export class DealService implements OnModuleInit {
     this.logger.log(`Starting deal creation for ${totalProviders} providers (CDN: ${enableCDN}, IPNI: ${enableIpni})`);
 
     const dataFile = await this.fetchDataFile(SIZE_CONSTANTS.MIN_UPLOAD_SIZE, SIZE_CONSTANTS.MAX_UPLOAD_SIZE);
+    let synapse: Synapse | undefined;
 
     try {
+      synapse = await this.createSynapseForJob();
+
       const preprocessed = await this.dealAddonsService.preprocessDeal({
         enableCDN,
         enableIpni,
         dataFile,
       });
 
+      const uploadPayload = await this.prepareUploadPayload(preprocessed);
+
       const providers = this.walletSdkService.getTestingProviders();
 
-      const results = await this.processProvidersInParallel(providers, preprocessed);
+      const results = await this.processProvidersInParallel(synapse, providers, preprocessed, uploadPayload);
 
       const successfulDeals = results.filter((result) => result.success).map((result) => result.deal!);
 
@@ -74,10 +81,18 @@ export class DealService implements OnModuleInit {
     } finally {
       // Cleanup random dataset file after all uploads complete (success or failure)
       await this.dataSourceService.cleanupRandomDataset(dataFile.name);
+      if (synapse) {
+        await this.cleanupSynapse(synapse);
+      }
     }
   }
 
-  async createDeal(providerInfo: ProviderInfoEx, dealInput: DealPreprocessingResult): Promise<Deal> {
+  async createDeal(
+    synapse: Synapse,
+    providerInfo: ProviderInfoEx,
+    dealInput: DealPreprocessingResult,
+    uploadPayload: UploadPayload,
+  ): Promise<Deal> {
     const providerAddress = providerInfo.serviceProvider;
     const deal = this.dealRepository.create({
       fileName: dealInput.processedData.name,
@@ -101,7 +116,7 @@ export class DealService implements OnModuleInit {
         dataSetMetadata.dealbotDataSetVersion = this.blockchainConfig.dealbotDataSetVersion;
       }
 
-      const storage = await this.synapse.createStorage({
+      const storage = await synapse.storage.createContext({
         providerAddress,
         metadata: dataSetMetadata,
       });
@@ -109,17 +124,35 @@ export class DealService implements OnModuleInit {
       deal.dataSetId = storage.dataSetId;
       deal.uploadStartTime = new Date();
 
-      const uploadResult: UploadResult = await storage.upload(dealInput.processedData.data, {
-        onUploadComplete: (pieceCid) => this.handleUploadComplete(deal, pieceCid, dealInput.appliedAddons),
-        onPieceAdded: (hash) => this.handleRootAdded(deal, hash),
-        metadata: dealInput.synapseConfig.pieceMetadata,
+      const synapseService = { synapse, storage, providerInfo } as unknown as SynapseServiceArg;
+      const uploadResult = await executeUpload(synapseService, uploadPayload.carData, uploadPayload.rootCid, {
+        logger: this.createFilecoinPinLogger(),
+        contextId: providerAddress,
+        pieceMetadata: dealInput.synapseConfig.pieceMetadata,
+        ipniValidation: { enabled: false },
+        onProgress: (event) => {
+          switch (event.type) {
+            case "onUploadComplete":
+              void this.handleUploadComplete(deal, event.data.pieceCid, dealInput.appliedAddons).catch((error) => {
+                this.logger.warn(`Upload completion handler failed: ${error.message}`);
+              });
+              break;
+            case "onPieceAdded":
+              void this.handleRootAdded(deal, { transactionHash: event.data.txHash });
+              break;
+            default:
+              break;
+          }
+        },
       });
 
-      this.updateDealWithUploadResult(deal, uploadResult);
+      this.updateDealWithUploadResult(deal, uploadResult, uploadPayload.carData.length);
 
-      this.logger.log(
-        `Deal created: ${uploadResult.pieceCid.toString().slice(0, 12)}... (${providerAddress.slice(0, 8)}...)`,
-      );
+      if (!deal.transactionHash && uploadResult.transactionHash) {
+        deal.transactionHash = uploadResult.transactionHash;
+      }
+
+      this.logger.log(`Deal created: ${uploadResult.pieceCid.slice(0, 12)}... (${providerAddress.slice(0, 8)}...)`);
 
       await this.dealAddonsService.postProcessDeal(deal, dealInput.appliedAddons);
 
@@ -140,9 +173,97 @@ export class DealService implements OnModuleInit {
   // Deal Creation Helpers
   // ============================================================================
 
-  private updateDealWithUploadResult(deal: Deal, uploadResult: UploadResult): void {
-    deal.pieceCid = uploadResult.pieceCid.toString();
-    deal.pieceSize = uploadResult.size;
+  private async createSynapseForJob(): Promise<Synapse> {
+    try {
+      return await Synapse.create({
+        privateKey: this.blockchainConfig.walletPrivateKey,
+        rpcURL: RPC_URLS[this.blockchainConfig.network].http,
+        warmStorageAddress: this.walletSdkService.getFWSSAddress(),
+      });
+    } catch (error) {
+      this.logger.error(`Failed to initialize Synapse for deal job: ${error.message}`, error.stack);
+      throw error;
+    }
+  }
+
+  private async cleanupSynapse(synapse: Synapse): Promise<void> {
+    try {
+      await synapse.telemetry?.sentry?.close?.();
+    } catch (error) {
+      this.logger.warn(`Failed to cleanup Synapse telemetry: ${error.message}`);
+    }
+  }
+
+  private async prepareUploadPayload(dealInput: DealPreprocessingResult): Promise<UploadPayload> {
+    const ipniMetadata = dealInput.metadata[ServiceType.IPFS_PIN];
+    if (ipniMetadata?.rootCID) {
+      return {
+        carData: dealInput.processedData.data,
+        rootCid: CID.parse(ipniMetadata.rootCID),
+      };
+    }
+
+    const data = Buffer.isBuffer(dealInput.processedData.data)
+      ? dealInput.processedData.data
+      : Buffer.from(dealInput.processedData.data);
+
+    const carResult = await buildUnixfsCar({
+      data,
+      size: dealInput.processedData.size,
+      name: dealInput.processedData.name,
+    });
+
+    return {
+      carData: carResult.carData,
+      rootCid: carResult.rootCID,
+    };
+  }
+
+  private createFilecoinPinLogger(): FilecoinPinLogger {
+    const formatMessage = (payload: unknown, message?: string): string => {
+      if (message) {
+        return this.appendPayload(message, payload);
+      }
+      if (typeof payload === "string") {
+        return payload;
+      }
+      return this.appendPayload("", payload);
+    };
+
+    return {
+      info: (payload: unknown, message?: string) => this.logger.log(formatMessage(payload, message)),
+      warn: (payload: unknown, message?: string) => this.logger.warn(formatMessage(payload, message)),
+      error: (payload: unknown, message?: string) => this.logger.error(formatMessage(payload, message)),
+      debug: (payload: unknown, message?: string) => this.logger.debug(formatMessage(payload, message)),
+    } as FilecoinPinLogger;
+  }
+
+  private appendPayload(message: string, payload: unknown): string {
+    if (payload === undefined || payload === null) {
+      return message;
+    }
+
+    let serialized: string;
+    if (payload instanceof Error) {
+      serialized = payload.stack ?? payload.message;
+    } else {
+      try {
+        serialized = JSON.stringify(payload);
+      } catch {
+        serialized = String(payload);
+      }
+    }
+
+    if (!message) {
+      return serialized;
+    }
+
+    return `${message} ${serialized}`;
+  }
+
+  private updateDealWithUploadResult(deal: Deal, uploadResult: UploadResultSummary, pieceSize: number): void {
+    deal.pieceCid = uploadResult.pieceCid;
+    deal.pieceSize = pieceSize;
     deal.pieceId = uploadResult.pieceId;
     deal.status = DealStatus.DEAL_CREATED;
     deal.dealConfirmedTime = new Date();
@@ -162,8 +283,10 @@ export class DealService implements OnModuleInit {
   // ============================================================================
 
   private async processProvidersInParallel(
+    synapse: Synapse,
     providers: ProviderInfoEx[],
     dealInput: DealPreprocessingResult,
+    uploadPayload: UploadPayload,
     maxConcurrency: number = 10,
   ): Promise<Array<{ success: boolean; deal?: Deal; error?: string; provider: string }>> {
     const results: Array<{
@@ -175,7 +298,7 @@ export class DealService implements OnModuleInit {
 
     for (let i = 0; i < providers.length; i += maxConcurrency) {
       const batch = providers.slice(i, i + maxConcurrency);
-      const batchPromises = batch.map((provider) => this.createDeal(provider, dealInput));
+      const batchPromises = batch.map((provider) => this.createDeal(synapse, provider, dealInput, uploadPayload));
       const batchResults = await Promise.allSettled(batchPromises);
 
       batchResults.forEach((result, index) => {
