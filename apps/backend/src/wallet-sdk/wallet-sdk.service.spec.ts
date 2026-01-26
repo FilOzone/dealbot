@@ -82,12 +82,8 @@ describe("WalletSdkService", () => {
 
     await service.syncProvidersToDatabase([inactive, active, other]);
 
-    expect(loggerMock.warn).toHaveBeenCalledWith(
-      expect.stringContaining("Duplicate provider address 0xdup"),
-    );
-    expect(loggerMock.warn).toHaveBeenCalledWith(
-      expect.stringContaining("replaced inactive entries with active ones"),
-    );
+    expect(loggerMock.warn).toHaveBeenCalledWith(expect.stringContaining("Duplicate provider address 0xdup"));
+    expect(loggerMock.warn).toHaveBeenCalledWith(expect.stringContaining("replaced inactive entries with active ones"));
     expect(loggerMock.error).not.toHaveBeenCalled();
 
     const [entities, options] = repoMock.upsert.mock.calls[0];
