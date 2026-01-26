@@ -1,4 +1,4 @@
-import { Injectable, type NestInterceptor, type ExecutionContext, type CallHandler } from "@nestjs/common";
+import { type CallHandler, type ExecutionContext, Injectable, type NestInterceptor } from "@nestjs/common";
 import { InjectMetric } from "@willsoto/nestjs-prometheus";
 import type { Counter, Histogram } from "prom-client";
 import { Observable, tap } from "rxjs";

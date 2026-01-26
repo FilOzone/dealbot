@@ -222,7 +222,6 @@ export class RetrievalService {
         },
         executionResult.metrics.ttfb / 1000,
       );
-
     } else {
       retrieval.completedAt = new Date();
       retrieval.startedAt = new Date();

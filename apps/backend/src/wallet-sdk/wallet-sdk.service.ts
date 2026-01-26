@@ -71,7 +71,10 @@ export class WalletSdkService implements OnModuleInit {
 
     this.rpcProvider = new JsonRpcProvider(RPC_URLS[this.blockchainConfig.network].http);
     this.warmStorageService = await WarmStorageService.create(this.rpcProvider, warmStorageAddress);
-    this.spRegistry = new SPRegistryService(this.rpcProvider, this.warmStorageService.getServiceProviderRegistryAddress());
+    this.spRegistry = new SPRegistryService(
+      this.rpcProvider,
+      this.warmStorageService.getServiceProviderRegistryAddress(),
+    );
     this.paymentsService = synapse.payments;
   }
 

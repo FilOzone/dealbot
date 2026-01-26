@@ -1,8 +1,6 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from "@nestjs/common";
-import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
 import type { Repository } from "typeorm";
-import type { IConfig } from "../../config/app.config.js";
 import { Deal } from "../../database/entities/deal.entity.js";
 import { MetricsDaily } from "../../database/entities/metrics-daily.entity.js";
 import { Retrieval } from "../../database/entities/retrieval.entity.js";
@@ -39,7 +37,6 @@ export class ProvidersService {
     private readonly dealRepo: Repository<Deal>,
     @InjectRepository(Retrieval)
     private readonly retrievalRepo: Repository<Retrieval>,
-    private readonly configService: ConfigService<IConfig, true>,
   ) {}
 
   /**
@@ -150,7 +147,7 @@ export class ProvidersService {
     if (options?.minHealthScore !== undefined) {
       query.andWhere(
         `(
-          CASE 
+          CASE
             WHEN (sp.total_deals_7d > 0 OR sp.total_retrievals_7d > 0)
             THEN (COALESCE(sp.deal_success_rate_7d, 0) * 0.6 + COALESCE(sp.retrieval_success_rate_7d, 0) * 0.4)
             ELSE 0
