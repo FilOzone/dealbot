@@ -437,14 +437,18 @@ export class WalletSdkService implements OnModuleInit {
           }
           ids.add(info.id);
 
-          if (!existing.active && info.active) {
-            resolvedInactiveAddresses.add(address);
-            dedupedProviders.set(address, info);
+          if (existing.active !== info.active) {
+            if (info.active && !existing.active) {
+              resolvedInactiveAddresses.add(address);
+              dedupedProviders.set(address, info);
+            }
             continue;
           }
 
           conflictAddresses.add(address);
-          dedupedProviders.set(address, info);
+          if (info.id > existing.id) {
+            dedupedProviders.set(address, info);
+          }
           continue;
         }
         dedupedProviders.set(address, info);
@@ -462,9 +466,9 @@ export class WalletSdkService implements OnModuleInit {
         );
 
         if (conflictAddresses.size > 0) {
-          // if there is no difference between active/inactive, we keep the newest (highest providerId).
+          // if there is no difference between active/inactive, we keep the highest providerId.
           this.logger.error(
-            `Duplicate provider addresses with conflicting active status; keeping newest entries: ${formatDetails(conflictAddresses).join("; ")}`,
+            `Duplicate provider addresses without active/inactive resolution; keeping highest providerId entries: ${formatDetails(conflictAddresses).join("; ")}`,
           );
         }
 

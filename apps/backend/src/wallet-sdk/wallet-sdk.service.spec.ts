@@ -82,7 +82,12 @@ describe("WalletSdkService", () => {
 
     await service.syncProvidersToDatabase([inactive, active, other]);
 
-    expect(loggerMock.warn).toHaveBeenCalledWith(expect.stringContaining("replaced inactive entries with active ones"));
+    expect(loggerMock.warn).toHaveBeenCalledWith(
+      expect.stringContaining("Duplicate provider address 0xdup"),
+    );
+    expect(loggerMock.warn).toHaveBeenCalledWith(
+      expect.stringContaining("replaced inactive entries with active ones"),
+    );
     expect(loggerMock.error).not.toHaveBeenCalled();
 
     const [entities, options] = repoMock.upsert.mock.calls[0];
@@ -95,7 +100,7 @@ describe("WalletSdkService", () => {
     );
   });
 
-  it("keeps newest entry for conflicting duplicates and logs an error", async () => {
+  it("keeps active entry for mixed-status duplicates and does not log an error", async () => {
     const active = makeProvider({
       id: 30,
       active: true,
@@ -111,11 +116,38 @@ describe("WalletSdkService", () => {
 
     await service.syncProvidersToDatabase([active, inactive]);
 
-    expect(loggerMock.error).toHaveBeenCalledWith(expect.stringContaining("conflicting active status"));
+    expect(loggerMock.warn).toHaveBeenCalledWith(expect.stringContaining("Duplicate provider address 0xdup2"));
+    expect(loggerMock.error).not.toHaveBeenCalled();
 
     const [entities] = repoMock.upsert.mock.calls[0];
     expect(entities).toEqual(
-      expect.arrayContaining([expect.objectContaining({ address: "0xdup2", providerId: 31, name: "inactive" })]),
+      expect.arrayContaining([expect.objectContaining({ address: "0xdup2", providerId: 30, name: "active" })]),
+    );
+  });
+
+  it("keeps highest providerId for same-status duplicates and logs an error", async () => {
+    const first = makeProvider({
+      id: 40,
+      active: true,
+      serviceProvider: "0xdup3",
+      name: "first",
+    });
+    const second = makeProvider({
+      id: 41,
+      active: true,
+      serviceProvider: "0xdup3",
+      name: "second",
+    });
+
+    await service.syncProvidersToDatabase([first, second]);
+
+    expect(loggerMock.error).toHaveBeenCalledWith(
+      expect.stringContaining("Duplicate provider addresses without active/inactive resolution"),
+    );
+
+    const [entities] = repoMock.upsert.mock.calls[0];
+    expect(entities).toEqual(
+      expect.arrayContaining([expect.objectContaining({ address: "0xdup3", providerId: 41, name: "second" })]),
     );
   });
 });
