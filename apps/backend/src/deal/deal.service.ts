@@ -2,6 +2,8 @@ import { type PieceCID, RPC_URLS, SIZE_CONSTANTS, Synapse, type UploadResult } f
 import { Injectable, Logger, type OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
+import { InjectMetric } from "@willsoto/nestjs-prometheus";
+import type { Counter, Histogram } from "prom-client";
 import type { Repository } from "typeorm";
 import type { DataFile } from "../common/types.js";
 import type { IBlockchainConfig, IConfig } from "../config/app.config.js";
@@ -29,6 +31,14 @@ export class DealService implements OnModuleInit {
     private readonly dealRepository: Repository<Deal>,
     @InjectRepository(StorageProvider)
     private readonly storageProviderRepository: Repository<StorageProvider>,
+    @InjectMetric("deals_created_total")
+    private readonly dealsCreatedCounter: Counter,
+    @InjectMetric("deal_creation_duration_seconds")
+    private readonly dealCreationDuration: Histogram,
+    @InjectMetric("deal_upload_duration_seconds")
+    private readonly dealUploadDuration: Histogram,
+    @InjectMetric("deal_chain_latency_seconds")
+    private readonly dealChainLatency: Histogram,
   ) {
     this.blockchainConfig = this.configService.get("blockchain");
   }
@@ -79,6 +89,9 @@ export class DealService implements OnModuleInit {
 
   async createDeal(providerInfo: ProviderInfoEx, dealInput: DealPreprocessingResult): Promise<Deal> {
     const providerAddress = providerInfo.serviceProvider;
+    const providerShort = providerAddress.slice(0, 8);
+    const dealStartTime = Date.now();
+
     const deal = this.dealRepository.create({
       fileName: dealInput.processedData.name,
       fileSize: dealInput.processedData.size,
@@ -117,18 +130,64 @@ export class DealService implements OnModuleInit {
 
       this.updateDealWithUploadResult(deal, uploadResult);
 
-      this.logger.log(
-        `Deal created: ${uploadResult.pieceCid.toString().slice(0, 12)}... (${providerAddress.slice(0, 8)}...)`,
-      );
+      this.logger.log(`Deal created: ${uploadResult.pieceCid.toString().slice(0, 12)}... (${providerShort}...)`);
 
       await this.dealAddonsService.postProcessDeal(deal, dealInput.appliedAddons);
 
+      // Record success metrics using short provider labels to limit cardinality.
+      this.dealsCreatedCounter.inc({
+        status: "success",
+        provider: providerShort,
+      });
+
+      const dealDuration = (Date.now() - dealStartTime) / 1000;
+      this.dealCreationDuration.observe(
+        {
+          provider: providerShort,
+        },
+        dealDuration,
+      );
+
+      // Record upload duration if available
+      if (deal.ingestLatencyMs) {
+        this.dealUploadDuration.observe(
+          {
+            provider: providerShort,
+          },
+          deal.ingestLatencyMs / 1000,
+        );
+      }
+
+      // Record chain latency if available
+      if (deal.chainLatencyMs) {
+        this.dealChainLatency.observe(
+          {
+            provider: providerShort,
+          },
+          deal.chainLatencyMs / 1000,
+        );
+      }
+
       return deal;
     } catch (error) {
-      this.logger.error(`Deal creation failed for ${providerAddress.slice(0, 8)}...: ${error.message}`);
+      this.logger.error(`Deal creation failed for ${providerShort}...: ${error.message}`);
 
       deal.status = DealStatus.FAILED;
       deal.errorMessage = error.message;
+
+      // Record failure metrics
+      this.dealsCreatedCounter.inc({
+        status: "failed",
+        provider: providerShort,
+      });
+
+      const dealDuration = (Date.now() - dealStartTime) / 1000;
+      this.dealCreationDuration.observe(
+        {
+          provider: providerShort,
+        },
+        dealDuration,
+      );
 
       throw error;
     } finally {

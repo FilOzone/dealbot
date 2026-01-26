@@ -1,6 +1,8 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
+import { InjectMetric } from "@willsoto/nestjs-prometheus";
+import type { Counter, Histogram } from "prom-client";
 import type { Repository } from "typeorm";
 import type { Hex } from "../common/types.js";
 import { withTimeout } from "../common/utils.js";
@@ -26,6 +28,12 @@ export class RetrievalService {
     @InjectRepository(StorageProvider)
     private readonly spRepository: Repository<StorageProvider>,
     private readonly configService: ConfigService<IConfig, true>,
+    @InjectMetric("retrievals_tested_total")
+    private readonly retrievalsTestedCounter: Counter,
+    @InjectMetric("retrieval_latency_seconds")
+    private readonly retrievalLatency: Histogram,
+    @InjectMetric("retrieval_ttfb_seconds")
+    private readonly retrievalTtfb: Histogram,
   ) {
     const timeouts = this.configService.get("timeouts");
     this.httpRequestTimeoutMs = Math.max(timeouts.httpRequestTimeoutMs, timeouts.http2RequestTimeoutMs);
@@ -185,12 +193,46 @@ export class RetrievalService {
       serviceType: executionResult.method,
     });
 
+    const providerShort = deal.spAddress.slice(0, 8);
+    const method = executionResult.method;
+
     if (executionResult.success) {
       this.mapExecutionResultToRetrieval(retrieval, executionResult);
+
+      // Record success metrics; success rates are derived from counters in PromQL.
+      this.retrievalsTestedCounter.inc({
+        status: "success",
+        method,
+        provider: providerShort,
+      });
+
+      // Record latency and TTFB
+      this.retrievalLatency.observe(
+        {
+          method,
+          provider: providerShort,
+        },
+        executionResult.metrics.latency / 1000,
+      );
+
+      this.retrievalTtfb.observe(
+        {
+          method,
+          provider: providerShort,
+        },
+        executionResult.metrics.ttfb / 1000,
+      );
     } else {
       retrieval.completedAt = new Date();
       retrieval.startedAt = new Date();
       retrieval.errorMessage = executionResult.error || "Unknown error";
+
+      // Record failure metrics
+      this.retrievalsTestedCounter.inc({
+        status: "failed",
+        method,
+        provider: providerShort,
+      });
     }
 
     return this.saveRetrieval(retrieval);
