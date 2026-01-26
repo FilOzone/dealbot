@@ -73,7 +73,8 @@ export function calculateProviderHealth(provider: ProviderDetailResponse): Healt
 
   // Check for degradation: 7-day vs all-time
   const totalAllTimeAttempts = Number(provider.allTime.totalDeals) + Number(provider.allTime.totalRetrievals);
-  const totalAllTimeSuccesses = Number(provider.allTime.successfulDeals) + Number(provider.allTime.successfulRetrievals);
+  const totalAllTimeSuccesses =
+    Number(provider.allTime.successfulDeals) + Number(provider.allTime.successfulRetrievals);
   const combinedAllTimeRate = calculateSuccessRate(totalAllTimeSuccesses, totalAllTimeAttempts);
   const degradation = combinedAllTimeRate - combined7dRate;
 
