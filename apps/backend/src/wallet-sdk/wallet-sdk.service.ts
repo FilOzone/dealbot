@@ -89,14 +89,30 @@ export class WalletSdkService implements OnModuleInit {
 
       const approvedIds = await this.warmStorageService.getApprovedProviderIds();
 
-      const providerCount = await this.spRegistry.getProviderCount();
+      const totalProviders = await this.spRegistry.getProviderCount();
 
-      const providerPromises: Promise<ProviderInfo | null>[] = [];
-      for (let i = 1; i <= Number(providerCount); i++) {
-        providerPromises.push(this.spRegistry.getProvider(i));
+      const activeProviders = await this.spRegistry.getAllActiveProviders();
+      const activeProviderIds = new Set(activeProviders.map((info) => Number(info.id)));
+      const allProviderIds = Array.from({ length: totalProviders }, (_, i) => i + 1);
+      const inactiveProviderIds = allProviderIds.filter((id) => !activeProviderIds.has(id));
+
+      const providerInfos: ProviderInfo[] = [...activeProviders];
+      if (inactiveProviderIds.length > 0) {
+        if (inactiveProviderIds.length > 50) {
+          // batch get remaining providers if we have more than 50 inactive providers. This is not currently happening, but may in the future.
+          const batchSize = 50;
+          const batches = Math.ceil(inactiveProviderIds.length / batchSize);
+          for (let i = 0; i < batches; i++) {
+            const start = i * batchSize;
+            const batch = inactiveProviderIds.slice(start, start + batchSize);
+            const providerBatch = await this.spRegistry.getProviders(batch);
+            providerInfos.push(...providerBatch);
+          }
+        } else {
+          providerInfos.push(...(await this.spRegistry.getProviders(inactiveProviderIds)));
+        }
       }
 
-      const providerInfos = await Promise.all(providerPromises);
       const validProviders = providerInfos.filter((info) => !!info);
 
       this.providerCache.clear();
@@ -420,7 +436,68 @@ export class WalletSdkService implements OnModuleInit {
    */
   async syncProvidersToDatabase(providerInfos: ProviderInfoEx[]): Promise<void> {
     try {
-      const entities = providerInfos.map((info) =>
+      const dedupedProviders = new Map<string, ProviderInfoEx>();
+      const duplicatesByAddress = new Map<string, Set<number>>();
+      const conflictAddresses = new Set<string>();
+      const resolvedInactiveAddresses = new Set<string>();
+
+      for (const info of providerInfos) {
+        const address = info.serviceProvider;
+        const existing = dedupedProviders.get(address);
+        if (existing) {
+          this.logger.warn(`Duplicate provider address ${address} (providerIds: ${existing.id}, ${info.id})`);
+          let ids = duplicatesByAddress.get(address);
+          if (!ids) {
+            ids = new Set<number>();
+            duplicatesByAddress.set(address, ids);
+            ids.add(existing.id);
+          }
+          ids.add(info.id);
+
+          if (existing.active !== info.active) {
+            if (info.active && !existing.active) {
+              resolvedInactiveAddresses.add(address);
+              dedupedProviders.set(address, info);
+            }
+            continue;
+          }
+
+          conflictAddresses.add(address);
+          if (info.id > existing.id) {
+            dedupedProviders.set(address, info);
+          }
+          continue;
+        }
+        dedupedProviders.set(address, info);
+      }
+
+      if (duplicatesByAddress.size > 0) {
+        const formatDetails = (addresses: Set<string>) =>
+          Array.from(addresses).map((address) => {
+            const ids = duplicatesByAddress.get(address) ?? new Set<number>();
+            return `${address} (providerIds: ${Array.from(ids).join(", ")})`;
+          });
+
+        const resolvedOnly = new Set(
+          Array.from(resolvedInactiveAddresses).filter((address) => !conflictAddresses.has(address)),
+        );
+
+        if (conflictAddresses.size > 0) {
+          // if there is no difference between active/inactive, we keep the highest providerId.
+          this.logger.error(
+            `Duplicate provider addresses without active/inactive resolution; keeping highest providerId entries: ${formatDetails(conflictAddresses).join("; ")}`,
+          );
+        }
+
+        if (resolvedOnly.size > 0) {
+          // if there is a difference between active/inactive, we replace the inactive entries with the active ones.
+          this.logger.warn(
+            `Duplicate provider addresses detected; replaced inactive entries with active ones: ${formatDetails(resolvedOnly).join("; ")}`,
+          );
+        }
+      }
+
+      const entities = Array.from(dedupedProviders.values()).map((info) =>
         this.spRepository.create({
           address: info.serviceProvider as Hex,
           providerId: info.id,
