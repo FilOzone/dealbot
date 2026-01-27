@@ -58,6 +58,10 @@ RUN printf '%s\n' \
     '        respond ''{"status":"error","reason":"static-unavailable"}'' 503' \
     '    }' \
     '' \
+    '    handle /metrics {' \
+    '        reverse_proxy {$DEALBOT_API_UPSTREAM}' \
+    '    }' \
+    '' \
     '    handle /api* {' \
     '        reverse_proxy {$DEALBOT_API_UPSTREAM}' \
     '    }' \
