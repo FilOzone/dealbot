@@ -1,4 +1,5 @@
 import type { ProviderDetailResponse } from "@/types/providers";
+import { calculateSuccessRate } from "@/utils/calculations";
 
 export type HealthStatus = "excellent" | "good" | "warning" | "critical" | "inactive";
 
@@ -45,32 +46,37 @@ export function calculateProviderHealth(provider: ProviderDetailResponse): Healt
   }
 
   // Primary criteria: 7-day success rates (most important for current performance)
-  const avg7dRate = (Number(provider.weekly.dealSuccessRate) + Number(provider.weekly.retrievalSuccessRate)) / 2;
+  const totalWeeklyAttempts = Number(provider.weekly.totalDeals) + Number(provider.weekly.totalRetrievals);
+  const totalWeeklySuccesses = Number(provider.weekly.successfulDeals) + Number(provider.weekly.successfulRetrievals);
+  const combined7dRate = calculateSuccessRate(totalWeeklySuccesses, totalWeeklyAttempts);
 
-  if (avg7dRate >= THRESHOLDS.EXCELLENT) {
+  if (combined7dRate >= THRESHOLDS.EXCELLENT) {
     status = "excellent";
-    reasons.push(`Excellent 7-day performance (${avg7dRate.toFixed(1)}%)`);
-  } else if (avg7dRate >= THRESHOLDS.GOOD) {
+    reasons.push(`Excellent 7-day performance (${combined7dRate.toFixed(1)}%)`);
+  } else if (combined7dRate >= THRESHOLDS.GOOD) {
     status = "good";
     score -= 5;
-    reasons.push(`Good 7-day performance (${avg7dRate.toFixed(1)}%)`);
-  } else if (avg7dRate >= THRESHOLDS.WARNING) {
+    reasons.push(`Good 7-day performance (${combined7dRate.toFixed(1)}%)`);
+  } else if (combined7dRate >= THRESHOLDS.WARNING) {
     status = "warning";
     score -= 20;
-    reasons.push(`Below optimal 7-day success rate (${avg7dRate.toFixed(1)}%)`);
-  } else if (avg7dRate >= THRESHOLDS.CRITICAL) {
+    reasons.push(`Below optimal 7-day success rate (${combined7dRate.toFixed(1)}%)`);
+  } else if (combined7dRate >= THRESHOLDS.CRITICAL) {
     status = "critical";
     score -= 40;
-    reasons.push(`Poor 7-day success rate (${avg7dRate.toFixed(1)}%)`);
+    reasons.push(`Poor 7-day success rate (${combined7dRate.toFixed(1)}%)`);
   } else {
     status = "critical";
     score -= 50;
-    reasons.push(`Critical: Very low 7-day success rate (${avg7dRate.toFixed(1)}%)`);
+    reasons.push(`Critical: Very low 7-day success rate (${combined7dRate.toFixed(1)}%)`);
   }
 
   // Check for degradation: 7-day vs all-time
-  const avgAllTimeRate = (Number(provider.allTime.dealSuccessRate) + Number(provider.allTime.retrievalSuccessRate)) / 2;
-  const degradation = avgAllTimeRate - avg7dRate;
+  const totalAllTimeAttempts = Number(provider.allTime.totalDeals) + Number(provider.allTime.totalRetrievals);
+  const totalAllTimeSuccesses =
+    Number(provider.allTime.successfulDeals) + Number(provider.allTime.successfulRetrievals);
+  const combinedAllTimeRate = calculateSuccessRate(totalAllTimeSuccesses, totalAllTimeAttempts);
+  const degradation = combinedAllTimeRate - combined7dRate;
 
   if (degradation > THRESHOLDS.DEGRADATION_THRESHOLD) {
     if (status !== "critical") {
