@@ -7,8 +7,8 @@ interface ProviderCardQuickStatsProps {
 }
 
 function ProviderCardQuickStats({ weeklyMetrics }: ProviderCardQuickStatsProps) {
-  const totalAttempts = weeklyMetrics.totalDeals + weeklyMetrics.totalRetrievals;
-  const totalSuccesses = weeklyMetrics.successfulDeals + weeklyMetrics.successfulRetrievals;
+  const totalAttempts = Number(weeklyMetrics.totalDeals) + Number(weeklyMetrics.totalRetrievals);
+  const totalSuccesses = Number(weeklyMetrics.successfulDeals) + Number(weeklyMetrics.successfulRetrievals);
   const combinedSuccessRate = calculateSuccessRate(totalSuccesses, totalAttempts);
 
   return (
