@@ -304,16 +304,20 @@ WALLET_ADDRESS=0x1234567890abcdef1234567890abcdef12345678
 
 ### `ENABLE_IPNI_TESTING`
 
-- **Type**: `boolean`
+- **Type**: `string` (enum)
 - **Required**: No
-- **Default**: `true`
+- **Default**: `always`
+- **Valid values**: `disabled`, `random`, `always`
 
-**Role**: Enables deal-making with IPFS support. Adds a key(`withIPFSIndexing`) to dataset metadata, used to request that IPFS indexing is performed.
+**Role**: Controls if IPNI is enabled for deals. Adds a key (`withIPFSIndexing`) to dataset metadata when IPNI is enabled.
 
 **When to update**:
 
-- Set to `false` to skip deal-making with IPFS support.
-- Keep as `true` for deal-making with IPNI Indexing support.
+- Set to `disabled` to skip deal-making with IPNI support.
+- Set to `random` to enable IPNI for ~50% of deals.
+- Set to `always` to enable IPNI for every deal.
+
+**Note**: Legacy values `true` and `false` are accepted and map to `always` and `disabled` respectively.
 
 ---
 

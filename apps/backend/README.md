@@ -103,7 +103,7 @@ All configuration is done via environment variables in `.env`.
 | `WALLET_PRIVATE_KEY`          | Your wallet private key (keep secure!) | `0x...`                    |
 | `CHECK_DATASET_CREATION_FEES` | Check fees before dataset creation     | `true`                     |
 | `ENABLE_CDN_TESTING`          | Enable CDN retrieval testing           | `true`                     |
-| `ENABLE_IPNI_TESTING`         | Enable IPNI retrieval testing          | `true`                     |
+| `ENABLE_IPNI_TESTING`         | IPNI testing mode (`disabled`/`random`/`always`) | `always`          |
 | `USE_ONLY_APPROVED_PROVIDERS` | Only use approved storage providers    | `true`                     |
 
 ### Scheduling Configuration

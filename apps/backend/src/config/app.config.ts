@@ -22,7 +22,10 @@ export const configValidationSchema = Joi.object({
   CHECK_DATASET_CREATION_FEES: Joi.boolean().default(true),
   USE_ONLY_APPROVED_PROVIDERS: Joi.boolean().default(true),
   ENABLE_CDN_TESTING: Joi.boolean().default(true),
-  ENABLE_IPNI_TESTING: Joi.boolean().default(true),
+  ENABLE_IPNI_TESTING: Joi.string()
+    .lowercase()
+    .valid("disabled", "random", "always", "true", "false")
+    .default("always"),
   DEALBOT_DATASET_VERSION: Joi.string().optional(),
 
   // Scheduling
@@ -89,6 +92,8 @@ export const configValidationSchema = Joi.object({
     }), // Stop retrieval batch 60s before next run
 });
 
+export type IpniTestingMode = "disabled" | "random" | "always";
+
 export interface IAppConfig {
   env: string;
   port: number;
@@ -110,7 +115,7 @@ export interface IBlockchainConfig {
   checkDatasetCreationFees: boolean;
   useOnlyApprovedProviders: boolean;
   enableCDNTesting: boolean;
-  enableIpniTesting: boolean;
+  enableIpniTesting: IpniTestingMode;
   dealbotDataSetVersion?: string;
 }
 
@@ -155,6 +160,23 @@ export interface IConfig {
   timeouts: ITimeoutConfig;
 }
 
+const parseIpniTestingMode = (value: string | undefined): IpniTestingMode => {
+  if (!value) {
+    return "always";
+  }
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "true") {
+    return "always";
+  }
+  if (normalized === "false") {
+    return "disabled";
+  }
+  if (normalized === "disabled" || normalized === "random" || normalized === "always") {
+    return normalized;
+  }
+  return "always";
+};
+
 export function loadConfig(): IConfig {
   return {
     app: {
@@ -176,7 +198,7 @@ export function loadConfig(): IConfig {
       checkDatasetCreationFees: process.env.CHECK_DATASET_CREATION_FEES !== "false",
       useOnlyApprovedProviders: process.env.USE_ONLY_APPROVED_PROVIDERS !== "false",
       enableCDNTesting: process.env.ENABLE_CDN_TESTING !== "false",
-      enableIpniTesting: process.env.ENABLE_IPNI_TESTING !== "false",
+      enableIpniTesting: parseIpniTestingMode(process.env.ENABLE_IPNI_TESTING),
       dealbotDataSetVersion: process.env.DEALBOT_DATASET_VERSION,
     },
     scheduling: {
