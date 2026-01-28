@@ -54,9 +54,6 @@ export function isPieceStatusResponse(value: unknown): value is PieceStatusRespo
   if (typeof obj.advertised !== "boolean") {
     return false;
   }
-  if (typeof obj.retrieved !== "boolean") {
-    return false;
-  }
 
   return true;
 }
