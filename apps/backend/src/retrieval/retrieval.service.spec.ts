@@ -1,6 +1,7 @@
 import { ConfigService } from "@nestjs/config";
 import { Test, TestingModule } from "@nestjs/testing";
 import { getRepositoryToken } from "@nestjs/typeorm";
+import { getToken } from "@willsoto/nestjs-prometheus";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Deal } from "../database/entities/deal.entity.js";
 import { Retrieval } from "../database/entities/retrieval.entity.js";
@@ -37,6 +38,9 @@ describe("RetrievalService timeouts", () => {
   const mockSpRepository = {
     findOne: vi.fn(),
   };
+  const mockRetrievalsTestedCounter = { inc: vi.fn() };
+  const mockRetrievalLatency = { observe: vi.fn() };
+  const mockRetrievalTtfb = { observe: vi.fn() };
 
   const defaultTimeouts = {
     httpRequestTimeoutMs: 10000,
@@ -72,6 +76,9 @@ describe("RetrievalService timeouts", () => {
         { provide: getRepositoryToken(Deal), useValue: mockDealRepository },
         { provide: getRepositoryToken(Retrieval), useValue: mockRetrievalRepository },
         { provide: getRepositoryToken(StorageProvider), useValue: mockSpRepository },
+        { provide: getToken("retrievals_tested_total"), useValue: mockRetrievalsTestedCounter },
+        { provide: getToken("retrieval_latency_seconds"), useValue: mockRetrievalLatency },
+        { provide: getToken("retrieval_ttfb_seconds"), useValue: mockRetrievalTtfb },
       ],
     }).compile();
 

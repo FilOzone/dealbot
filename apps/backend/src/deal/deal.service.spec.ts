@@ -2,6 +2,7 @@ import { SIZE_CONSTANTS, Synapse } from "@filoz/synapse-sdk";
 import { ConfigService } from "@nestjs/config";
 import { Test, TestingModule } from "@nestjs/testing";
 import { getRepositoryToken } from "@nestjs/typeorm";
+import { getToken } from "@willsoto/nestjs-prometheus";
 import { executeUpload } from "filecoin-pin";
 import { CID } from "multiformats/cid";
 import { afterEach, beforeEach, describe, expect, it, Mock, vi } from "vitest";
@@ -63,7 +64,7 @@ describe("DealService", () => {
       network: "calibration",
       walletAddress: "0x123",
       enableCDNTesting: true,
-      enableIpniTesting: true,
+      enableIpniTesting: "always",
     }),
   };
 
@@ -78,6 +79,10 @@ describe("DealService", () => {
     postProcessDeal: vi.fn(),
     handleUploadComplete: vi.fn(),
   };
+  const mockDealsCreatedCounter = { inc: vi.fn() };
+  const mockDealCreationDuration = { observe: vi.fn() };
+  const mockDealUploadDuration = { observe: vi.fn() };
+  const mockDealChainLatency = { observe: vi.fn() };
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -89,6 +94,10 @@ describe("DealService", () => {
         { provide: DealAddonsService, useValue: mockDealAddonsService },
         { provide: getRepositoryToken(Deal), useValue: mockDealRepository },
         { provide: getRepositoryToken(StorageProvider), useValue: mockStorageProviderRepository },
+        { provide: getToken("deals_created_total"), useValue: mockDealsCreatedCounter },
+        { provide: getToken("deal_creation_duration_seconds"), useValue: mockDealCreationDuration },
+        { provide: getToken("deal_upload_duration_seconds"), useValue: mockDealUploadDuration },
+        { provide: getToken("deal_chain_latency_seconds"), useValue: mockDealChainLatency },
       ],
     }).compile();
 
@@ -234,7 +243,7 @@ describe("DealService", () => {
           network: "calibration",
           walletAddress: "0x123",
           enableCDNTesting: true,
-          enableIpniTesting: true,
+          enableIpniTesting: "always",
           dealbotDataSetVersion,
         });
 
@@ -247,6 +256,10 @@ describe("DealService", () => {
             { provide: DealAddonsService, useValue: mockDealAddonsService },
             { provide: getRepositoryToken(Deal), useValue: mockDealRepository },
             { provide: getRepositoryToken(StorageProvider), useValue: mockStorageProviderRepository },
+            { provide: getToken("deals_created_total"), useValue: mockDealsCreatedCounter },
+            { provide: getToken("deal_creation_duration_seconds"), useValue: mockDealCreationDuration },
+            { provide: getToken("deal_upload_duration_seconds"), useValue: mockDealUploadDuration },
+            { provide: getToken("deal_chain_latency_seconds"), useValue: mockDealChainLatency },
           ],
         }).compile();
 

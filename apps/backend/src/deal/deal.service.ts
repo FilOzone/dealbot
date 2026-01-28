@@ -2,8 +2,10 @@ import { type PieceCID, RPC_URLS, SIZE_CONSTANTS, Synapse } from "@filoz/synapse
 import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
+import { InjectMetric } from "@willsoto/nestjs-prometheus";
 import { executeUpload } from "filecoin-pin";
 import { CID } from "multiformats/cid";
+import type { Counter, Histogram } from "prom-client";
 import type { Repository } from "typeorm";
 import { buildUnixfsCar } from "../common/car-utils.js";
 import type { DataFile } from "../common/types.js";
@@ -25,6 +27,7 @@ type UploadPayload = {
 type UploadResultSummary = {
   pieceCid: string;
   pieceId?: number;
+  transactionHash?: string;
 };
 
 type SynapseServiceArg = Parameters<typeof executeUpload>[0];
@@ -44,31 +47,30 @@ export class DealService {
     private readonly dealRepository: Repository<Deal>,
     @InjectRepository(StorageProvider)
     private readonly storageProviderRepository: Repository<StorageProvider>,
+    @InjectMetric("deals_created_total")
+    private readonly dealsCreatedCounter: Counter,
+    @InjectMetric("deal_creation_duration_seconds")
+    private readonly dealCreationDuration: Histogram,
+    @InjectMetric("deal_upload_duration_seconds")
+    private readonly dealUploadDuration: Histogram,
+    @InjectMetric("deal_chain_latency_seconds")
+    private readonly dealChainLatency: Histogram,
   ) {
     this.blockchainConfig = this.configService.get("blockchain");
   }
 
   async createDealsForAllProviders(): Promise<Deal[]> {
     const totalProviders = this.walletSdkService.getTestingProvidersCount();
-    const enableCDN = this.blockchainConfig.enableCDNTesting ? Math.random() > 0.5 : false;
-    const enableIpni = this.blockchainConfig.enableIpniTesting ? Math.random() > 0.5 : false;
+    const { enableCDN, enableIpni } = this.getTestingDealOptions();
 
     this.logger.log(`Starting deal creation for ${totalProviders} providers (CDN: ${enableCDN}, IPNI: ${enableIpni})`);
 
-    const dataFile = await this.fetchDataFile(SIZE_CONSTANTS.MIN_UPLOAD_SIZE, SIZE_CONSTANTS.MAX_UPLOAD_SIZE);
+    const { preprocessed, cleanup } = await this.prepareDealInput(enableCDN, enableIpni);
     let synapse: Synapse | undefined;
 
     try {
       synapse = await this.createSynapseForJob();
-
-      const preprocessed = await this.dealAddonsService.preprocessDeal({
-        enableCDN,
-        enableIpni,
-        dataFile,
-      });
-
       const uploadPayload = await this.prepareUploadPayload(preprocessed);
-
       const providers = this.walletSdkService.getTestingProviders();
 
       const results = await this.processProvidersInParallel(synapse, providers, preprocessed, uploadPayload);
@@ -80,11 +82,65 @@ export class DealService {
       return successfulDeals;
     } finally {
       // Cleanup random dataset file after all uploads complete (success or failure)
-      await this.dataSourceService.cleanupRandomDataset(dataFile.name);
+      await cleanup();
       if (synapse) {
         await this.cleanupSynapse(synapse);
       }
     }
+  }
+
+  async createDealForProvider(
+    providerInfo: ProviderInfoEx,
+    options: {
+      enableCDN: boolean;
+      enableIpni: boolean;
+      existingDealId?: string;
+    },
+  ): Promise<Deal> {
+    const { preprocessed, cleanup } = await this.prepareDealInput(options.enableCDN, options.enableIpni);
+    let synapse: Synapse | undefined;
+
+    try {
+      synapse = await this.createSynapseForJob();
+      const uploadPayload = await this.prepareUploadPayload(preprocessed);
+      return await this.createDeal(synapse, providerInfo, preprocessed, uploadPayload, options.existingDealId);
+    } finally {
+      await cleanup();
+      if (synapse) {
+        await this.cleanupSynapse(synapse);
+      }
+    }
+  }
+
+  /**
+   * Prepare a deal payload using the same data-source and preprocessing logic as normal deal creation.
+   */
+  async prepareDealInput(
+    enableCDN: boolean,
+    enableIpni: boolean,
+  ): Promise<{ preprocessed: DealPreprocessingResult; cleanup: () => Promise<void> }> {
+    const dataFile = await this.fetchDataFile(SIZE_CONSTANTS.MIN_UPLOAD_SIZE, SIZE_CONSTANTS.MAX_UPLOAD_SIZE);
+
+    const preprocessed = await this.dealAddonsService.preprocessDeal({
+      enableCDN,
+      enableIpni,
+      dataFile,
+    });
+
+    const cleanup = async () => this.dataSourceService.cleanupRandomDataset(dataFile.name);
+
+    return { preprocessed, cleanup };
+  }
+
+  getTestingDealOptions(): { enableCDN: boolean; enableIpni: boolean } {
+    const enableCDN = this.blockchainConfig.enableCDNTesting ? Math.random() > 0.5 : false;
+    const enableIpni = this.getIpniEnabled(this.blockchainConfig.enableIpniTesting);
+
+    return { enableCDN, enableIpni };
+  }
+
+  getWalletAddress(): string {
+    return this.blockchainConfig.walletAddress;
   }
 
   async createDeal(
@@ -92,17 +148,32 @@ export class DealService {
     providerInfo: ProviderInfoEx,
     dealInput: DealPreprocessingResult,
     uploadPayload: UploadPayload,
+    existingDealId?: string,
   ): Promise<Deal> {
     const providerAddress = providerInfo.serviceProvider;
-    const deal = this.dealRepository.create({
-      fileName: dealInput.processedData.name,
-      fileSize: dealInput.processedData.size,
-      spAddress: providerAddress,
-      status: DealStatus.PENDING,
-      walletAddress: this.blockchainConfig.walletAddress,
-      metadata: dealInput.metadata,
-      serviceTypes: dealInput.appliedAddons,
-    });
+    const providerShort = providerAddress.slice(0, 8);
+    const dealStartTime = Date.now();
+
+    let deal: Deal;
+    if (existingDealId) {
+      const existingDeal = await this.dealRepository.findOne({
+        where: { id: existingDealId },
+      });
+      if (!existingDeal) {
+        throw new Error(`Deal not found: ${existingDealId}`);
+      }
+      deal = existingDeal;
+    } else {
+      deal = this.dealRepository.create();
+    }
+
+    deal.fileName = dealInput.processedData.name;
+    deal.fileSize = dealInput.processedData.size;
+    deal.spAddress = providerAddress;
+    deal.status = DealStatus.PENDING;
+    deal.walletAddress = this.blockchainConfig.walletAddress;
+    deal.metadata = dealInput.metadata;
+    deal.serviceTypes = dealInput.appliedAddons;
 
     try {
       // Load storageProvider relation
@@ -152,16 +223,64 @@ export class DealService {
         deal.transactionHash = uploadResult.transactionHash;
       }
 
-      this.logger.log(`Deal created: ${uploadResult.pieceCid.slice(0, 12)}... (${providerAddress.slice(0, 8)}...)`);
+      this.logger.log(`Deal created: ${String(uploadResult.pieceCid).slice(0, 12)}... (${providerShort}...)`);
 
       await this.dealAddonsService.postProcessDeal(deal, dealInput.appliedAddons);
 
+      // Record success metrics using short provider labels to limit cardinality.
+      this.dealsCreatedCounter.inc({
+        status: "success",
+        provider: providerShort,
+      });
+
+      const dealDuration = (Date.now() - dealStartTime) / 1000;
+      this.dealCreationDuration.observe(
+        {
+          provider: providerShort,
+        },
+        dealDuration,
+      );
+
+      // Record upload duration if available
+      if (deal.ingestLatencyMs) {
+        this.dealUploadDuration.observe(
+          {
+            provider: providerShort,
+          },
+          deal.ingestLatencyMs / 1000,
+        );
+      }
+
+      // Record chain latency if available
+      if (deal.chainLatencyMs) {
+        this.dealChainLatency.observe(
+          {
+            provider: providerShort,
+          },
+          deal.chainLatencyMs / 1000,
+        );
+      }
+
       return deal;
     } catch (error) {
-      this.logger.error(`Deal creation failed for ${providerAddress.slice(0, 8)}...: ${error.message}`);
+      this.logger.error(`Deal creation failed for ${providerShort}...: ${error.message}`);
 
       deal.status = DealStatus.FAILED;
       deal.errorMessage = error.message;
+
+      // Record failure metrics
+      this.dealsCreatedCounter.inc({
+        status: "failed",
+        provider: providerShort,
+      });
+
+      const dealDuration = (Date.now() - dealStartTime) / 1000;
+      this.dealCreationDuration.observe(
+        {
+          provider: providerShort,
+        },
+        dealDuration,
+      );
 
       throw error;
     } finally {
@@ -362,6 +481,17 @@ export class DealService {
         this.logger.warn("Failed to fetch local dataset, generating random dataset", localErr);
         return await this.dataSourceService.generateRandomDataset(minSize, maxSize);
       }
+    }
+  }
+
+  private getIpniEnabled(mode: IBlockchainConfig["enableIpniTesting"]): boolean {
+    switch (mode) {
+      case "disabled":
+        return false;
+      case "random":
+        return Math.random() > 0.5;
+      default:
+        return true;
     }
   }
 }

@@ -147,7 +147,7 @@ export class ProvidersService {
     if (options?.minHealthScore !== undefined) {
       query.andWhere(
         `(
-          CASE 
+          CASE
             WHEN (sp.total_deals_7d > 0 OR sp.total_retrievals_7d > 0)
             THEN (COALESCE(sp.deal_success_rate_7d, 0) * 0.6 + COALESCE(sp.retrieval_success_rate_7d, 0) * 0.4)
             ELSE 0
