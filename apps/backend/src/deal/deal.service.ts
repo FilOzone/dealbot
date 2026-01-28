@@ -58,18 +58,7 @@ export class DealService implements OnModuleInit {
 
   async createDealsForAllProviders(): Promise<Deal[]> {
     const totalProviders = this.walletSdkService.getTestingProvidersCount();
-    const enableCDN = this.blockchainConfig.enableCDNTesting ? Math.random() > 0.5 : false;
-    const enableIpni = (() => {
-      switch (this.blockchainConfig.enableIpniTesting) {
-        case "disabled":
-          return false;
-        case "random":
-          return Math.random() > 0.5;
-        // case "always": // left commented out because it's the default case and biome doesn't like fallthroughs
-        default:
-          return true;
-      }
-    })();
+    const { enableCDN, enableIpni } = this.getTestingDealOptions();
 
     this.logger.log(`Starting deal creation for ${totalProviders} providers (CDN: ${enableCDN}, IPNI: ${enableIpni})`);
 
@@ -87,6 +76,23 @@ export class DealService implements OnModuleInit {
       return successfulDeals;
     } finally {
       // Cleanup random dataset file after all uploads complete (success or failure)
+      await cleanup();
+    }
+  }
+
+  async createDealForProvider(
+    providerInfo: ProviderInfoEx,
+    options: {
+      enableCDN: boolean;
+      enableIpni: boolean;
+      existingDealId?: string;
+    },
+  ): Promise<Deal> {
+    const { preprocessed, cleanup } = await this.prepareDealInput(options.enableCDN, options.enableIpni);
+
+    try {
+      return await this.createDeal(providerInfo, preprocessed, options.existingDealId);
+    } finally {
       await cleanup();
     }
   }
@@ -111,20 +117,46 @@ export class DealService implements OnModuleInit {
     return { preprocessed, cleanup };
   }
 
-  async createDeal(providerInfo: ProviderInfoEx, dealInput: DealPreprocessingResult): Promise<Deal> {
+  getTestingDealOptions(): { enableCDN: boolean; enableIpni: boolean } {
+    const enableCDN = this.blockchainConfig.enableCDNTesting ? Math.random() > 0.5 : false;
+    const enableIpni = this.getIpniEnabled(this.blockchainConfig.enableIpniTesting);
+
+    return { enableCDN, enableIpni };
+  }
+
+  getWalletAddress(): string {
+    return this.blockchainConfig.walletAddress;
+  }
+
+  async createDeal(
+    providerInfo: ProviderInfoEx,
+    dealInput: DealPreprocessingResult,
+    existingDealId?: string,
+  ): Promise<Deal> {
     const providerAddress = providerInfo.serviceProvider;
     const providerShort = providerAddress.slice(0, 8);
     const dealStartTime = Date.now();
 
-    const deal = this.dealRepository.create({
-      fileName: dealInput.processedData.name,
-      fileSize: dealInput.processedData.size,
-      spAddress: providerAddress,
-      status: DealStatus.PENDING,
-      walletAddress: this.blockchainConfig.walletAddress,
-      metadata: dealInput.metadata,
-      serviceTypes: dealInput.appliedAddons,
-    });
+    let deal: Deal;
+    if (existingDealId) {
+      const existingDeal = await this.dealRepository.findOne({
+        where: { id: existingDealId },
+      });
+      if (!existingDeal) {
+        throw new Error(`Deal not found: ${existingDealId}`);
+      }
+      deal = existingDeal;
+    } else {
+      deal = this.dealRepository.create();
+    }
+
+    deal.fileName = dealInput.processedData.name;
+    deal.fileSize = dealInput.processedData.size;
+    deal.spAddress = providerAddress;
+    deal.status = DealStatus.PENDING;
+    deal.walletAddress = this.blockchainConfig.walletAddress;
+    deal.metadata = dealInput.metadata;
+    deal.serviceTypes = dealInput.appliedAddons;
 
     try {
       // Load storageProvider relation
@@ -322,6 +354,17 @@ export class DealService implements OnModuleInit {
         this.logger.warn("Failed to fetch local dataset, generating random dataset", localErr);
         return await this.dataSourceService.generateRandomDataset(minSize, maxSize);
       }
+    }
+  }
+
+  private getIpniEnabled(mode: IBlockchainConfig["enableIpniTesting"]): boolean {
+    switch (mode) {
+      case "disabled":
+        return false;
+      case "random":
+        return Math.random() > 0.5;
+      default:
+        return true;
     }
   }
 }

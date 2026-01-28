@@ -1,9 +1,7 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from "@nestjs/common";
-import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
 import type { Repository } from "typeorm";
 import type { Hex } from "../common/types.js";
-import type { IBlockchainConfig, IConfig, IpniTestingMode } from "../config/app.config.js";
 import { Deal } from "../database/entities/deal.entity.js";
 import { DealStatus } from "../database/types.js";
 import { DealService } from "../deal/deal.service.js";
@@ -16,18 +14,14 @@ import type { RetrievalMethodResultDto, TriggerRetrievalResponseDto } from "./dt
 @Injectable()
 export class DevToolsService {
   private readonly logger = new Logger(DevToolsService.name);
-  private readonly blockchainConfig: IBlockchainConfig;
 
   constructor(
     private readonly walletSdkService: WalletSdkService,
     private readonly dealService: DealService,
     private readonly retrievalAddonsService: RetrievalAddonsService,
-    private readonly configService: ConfigService<IConfig, true>,
     @InjectRepository(Deal)
     private readonly dealRepository: Repository<Deal>,
-  ) {
-    this.blockchainConfig = this.configService.get("blockchain");
-  }
+  ) {}
 
   /**
    * List all available storage providers for testing
@@ -86,15 +80,14 @@ export class DevToolsService {
     }
 
     // Get CDN/IPNI settings from config
-    const enableCDN = this.blockchainConfig.enableCDNTesting;
-    const enableIpni = this.getIpniEnabled(this.blockchainConfig.enableIpniTesting);
+    const { enableCDN, enableIpni } = this.dealService.getTestingDealOptions();
 
     this.logger.log(`Deal settings - CDN: ${enableCDN}, IPNI: ${enableIpni}`);
 
     // Create a pending deal record first so we can return the ID immediately
     const pendingDeal = this.dealRepository.create({
       spAddress,
-      walletAddress: this.blockchainConfig.walletAddress,
+      walletAddress: this.dealService.getWalletAddress(),
       fileName: "pending",
       fileSize: 0,
       status: DealStatus.PENDING,
@@ -132,47 +125,12 @@ export class DevToolsService {
     enableCDN: boolean,
     enableIpni: boolean,
   ): Promise<void> {
-    let cleanupDataFile: (() => Promise<void>) | null = null;
-
     try {
-      const { preprocessed, cleanup } = await this.dealService.prepareDealInput(enableCDN, enableIpni);
-      cleanupDataFile = cleanup;
-
-      // Update the pending deal with file info
-      await this.dealRepository.update(dealId, {
-        fileName: preprocessed.processedData.name,
-        fileSize: preprocessed.processedData.size,
+      const deal = await this.dealService.createDealForProvider(providerInfo!, {
+        enableCDN,
+        enableIpni,
+        existingDealId: dealId,
       });
-
-      // Create deal (this will create its own deal record, but we'll use ours for tracking)
-      const deal = await this.dealService.createDeal(providerInfo!, preprocessed);
-
-      // Update our pending deal record with the results
-      await this.dealRepository.update(dealId, {
-        pieceCid: deal.pieceCid,
-        pieceSize: deal.pieceSize,
-        pieceId: deal.pieceId,
-        dataSetId: deal.dataSetId,
-        status: deal.status,
-        transactionHash: deal.transactionHash,
-        metadata: deal.metadata,
-        serviceTypes: deal.serviceTypes,
-        uploadStartTime: deal.uploadStartTime,
-        uploadEndTime: deal.uploadEndTime,
-        pieceAddedTime: deal.pieceAddedTime,
-        dealConfirmedTime: deal.dealConfirmedTime,
-        ingestLatencyMs: deal.ingestLatencyMs,
-        chainLatencyMs: deal.chainLatencyMs,
-        dealLatencyMs: deal.dealLatencyMs,
-        ingestThroughputBps: deal.ingestThroughputBps,
-        fileName: deal.fileName,
-        fileSize: deal.fileSize,
-      });
-
-      // Delete the duplicate deal record created by dealService
-      if (deal.id !== dealId) {
-        await this.dealRepository.delete(deal.id);
-      }
 
       this.logger.log(`Background deal ${dealId} completed successfully: ${deal.pieceCid?.slice(0, 12)}...`);
     } catch (error) {
@@ -183,11 +141,6 @@ export class DevToolsService {
         status: DealStatus.FAILED,
         errorMessage: error.message,
       });
-    } finally {
-      // Cleanup random dataset file
-      if (cleanupDataFile) {
-        await cleanupDataFile();
-      }
     }
   }
 
@@ -307,20 +260,5 @@ export class DevToolsService {
     }
 
     return deal;
-  }
-
-  /**
-   * Determine if IPNI is enabled based on config mode
-   */
-  private getIpniEnabled(mode: IpniTestingMode): boolean {
-    switch (mode) {
-      case "disabled":
-        return false;
-      case "random":
-        return Math.random() > 0.5;
-      // case "always":
-      default:
-        return true;
-    }
   }
 }

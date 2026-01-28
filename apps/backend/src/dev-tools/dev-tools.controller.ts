@@ -65,42 +65,8 @@ export class DevToolsController {
     return this.devToolsService.getDeal(dealId);
   }
 
-  @Get("data-fetch")
-  @ApiOperation({ summary: "Trigger data fetch for a deal" })
-  @ApiQuery({
-    name: "dealId",
-    required: false,
-    description: "Specific deal ID to fetch data for",
-    example: "550e8400-e29b-41d4-a716-446655440000",
-  })
-  @ApiQuery({
-    name: "spAddress",
-    required: false,
-    description: "Storage provider address (uses most recent deal for this SP)",
-    example: "0x1234567890abcdef1234567890abcdef12345678",
-  })
-  @ApiResponse({
-    status: 200,
-    description: "Data fetch test results",
-    type: TriggerRetrievalResponseDto,
-  })
-  @ApiResponse({
-    status: 400,
-    description: "Neither dealId nor spAddress provided",
-  })
-  @ApiResponse({
-    status: 404,
-    description: "Deal or storage provider not found",
-  })
-  @UsePipes(new ValidationPipe({ transform: true }))
-  async triggerDataFetch(@Query() query: TriggerRetrievalQueryDto): Promise<TriggerRetrievalResponseDto> {
-    this.logger.log(`GET /api/dev/data-fetch?dealId=${query.dealId}&spAddress=${query.spAddress}`);
-    return this.devToolsService.triggerRetrieval(query.dealId, query.spAddress);
-  }
-
-  // Alias for backwards compatibility with the plan
   @Get("retrieval")
-  @ApiOperation({ summary: "Trigger retrieval for a deal (alias for data-fetch)" })
+  @ApiOperation({ summary: "Trigger retrieval for a deal" })
   @ApiQuery({
     name: "dealId",
     required: false,
