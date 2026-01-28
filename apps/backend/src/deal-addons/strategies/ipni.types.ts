@@ -9,10 +9,8 @@ export interface PieceStatus {
   status: string;
   indexed: boolean;
   advertised: boolean;
-  retrieved: boolean;
-  retrievedAt?: string | null;
-  indexedAt?: string | null;
-  advertisedAt?: string | null;
+  indexedAt: string | null;
+  advertisedAt: string | null;
 }
 
 /**

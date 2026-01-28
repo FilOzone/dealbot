@@ -1,5 +1,5 @@
 import { Readable } from "node:stream";
-import { METADATA_KEYS, PDPServer, type ProviderInfo } from "@filoz/synapse-sdk";
+import { METADATA_KEYS, type ProviderInfo } from "@filoz/synapse-sdk";
 import { CarWriter } from "@ipld/car";
 import { Injectable, Logger } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
@@ -13,6 +13,7 @@ import { MAX_BLOCK_SIZE } from "../../common/constants.js";
 import { Deal } from "../../database/entities/deal.entity.js";
 import type { DealMetadata, IpniMetadata } from "../../database/types.js";
 import { IpniStatus, ServiceType } from "../../database/types.js";
+import { HttpClientService } from "../../http-client/http-client.service.js";
 import type { IDealAddon } from "../interfaces/deal-addon.interface.js";
 import type {
   AddonExecutionContext,
@@ -66,6 +67,7 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
   constructor(
     @InjectRepository(Deal)
     private readonly dealRepository: Repository<Deal>,
+    private readonly httpClientService: HttpClientService,
   ) {}
 
   readonly name = ServiceType.IPFS_PIN;
@@ -73,7 +75,6 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
   readonly POLLING_INTERVAL_MS = 2500;
   readonly POLLING_TIMEOUT_MS = 10 * 60 * 1000;
   readonly IPNI_LOOKUP_TIMEOUT_MS = 60 * 60 * 1000;
-  readonly IPNI_VERIFICATION_DELAY_MS = 30 * 1000; // Wait 30s after retrieve request before verifying
   readonly IPNI_VERIFICATION_RETRY_INTERVAL_MS = 10 * 1000;
 
   /**
@@ -202,13 +203,12 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
 
     try {
       const serviceUrl = deal.storageProvider.serviceUrl;
-      const pdpServer = new PDPServer(null, serviceUrl);
 
       const rootCID = deal.metadata[this.name]?.rootCID ?? "";
       const blockCIDs = deal.metadata[this.name]?.blockCIDs ?? [];
 
       const result = await this.monitorAndVerifyIPNI(
-        pdpServer,
+        serviceUrl,
         deal,
         blockCIDs.map((cid) => CID.parse(cid)),
         rootCID,
@@ -237,7 +237,7 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
   }
 
   async monitorAndVerifyIPNI(
-    pdpServer: PDPServer,
+    serviceURL: string,
     deal: Deal,
     blockCIDs: CID[],
     rootCID: string,
@@ -246,11 +246,12 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
     ipniTimeoutMs: number,
     pollIntervalMs: number,
   ): Promise<MonitorAndVerifyResult> {
-    const startTime = Date.now();
+    const startTime = deal.uploadEndTime.getTime();
     const pieceCid = deal.pieceCid;
     let monitoringResult: PieceMonitoringResult;
     try {
-      monitoringResult = await this.monitorPieceStatus(pdpServer, pieceCid, statusTimeoutMs, pollIntervalMs);
+      // we monitor the piece status by calling the SP directly to get piece status. as soon as it's advertised, we can move on to verifying the IPNI advertisement.
+      monitoringResult = await this.monitorPieceStatus(serviceURL, pieceCid, statusTimeoutMs, pollIntervalMs);
     } catch (error) {
       this.logger.warn(`Piece status monitoring incomplete: ${error.message}`);
       monitoringResult = {
@@ -259,20 +260,12 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
           status: "timeout",
           indexed: false,
           advertised: false,
-          retrieved: false,
-          retrievedAt: null,
           indexedAt: null,
           advertisedAt: null,
         },
         checks: 0,
         durationMs: statusTimeoutMs,
       };
-    }
-
-    // Wait after sp_received_retrieve_request to allow IPNI indexer time to process
-    if (monitoringResult.finalStatus.retrieved) {
-      this.logger.log(`Waiting ${this.IPNI_VERIFICATION_DELAY_MS / 1000}s for IPNI indexer to process CIDs...`);
-      await new Promise((resolve) => setTimeout(resolve, this.IPNI_VERIFICATION_DELAY_MS));
     }
 
     const rootCidObj = CID.parse(rootCID);
@@ -341,7 +334,7 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
   }
 
   async monitorPieceStatus(
-    pdpServer: PDPServer,
+    serviceURL: string,
     pieceCid: string,
     maxDurationMs: number,
     pollIntervalMs: number,
@@ -351,8 +344,6 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       status: "",
       indexed: false,
       advertised: false,
-      retrieved: false,
-      retrievedAt: null,
       indexedAt: null,
       advertisedAt: null,
     };
@@ -362,14 +353,12 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       checkCount++;
 
       try {
-        const sdkStatus = await pdpServer.getPieceStatus(pieceCid);
+        const sdkStatus = await this.httpClientService.getPieceStatus(serviceURL, pieceCid);
 
         const currentStatus: PieceStatus = {
           status: sdkStatus.status,
           indexed: sdkStatus.indexed,
           advertised: sdkStatus.advertised,
-          retrieved: sdkStatus.retrieved,
-          retrievedAt: sdkStatus.retrievedAt, // retrievedAt is optional from sdk
           // sdkStatus does not provide these fields, so we use the last known values
           indexedAt: lastStatus.indexedAt,
           advertisedAt: lastStatus.advertisedAt,
@@ -381,18 +370,10 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
           this.logger.log(`Piece indexed: ${pieceCid.slice(0, 12)}...`);
         }
 
+        // Return as soon as status has changed to advertised
         if (currentStatus.advertised && !lastStatus.advertised) {
           currentStatus.advertisedAt = new Date().toISOString();
           this.logger.log(`Piece advertised: ${pieceCid.slice(0, 12)}...`);
-        }
-
-        // Return if status has changed to retrieved
-        if (currentStatus.retrieved && !lastStatus.retrieved) {
-          // sdk can return undefined for retrievedAt, so we use the current time
-          currentStatus.retrievedAt = currentStatus.retrievedAt ?? new Date().toISOString();
-
-          const durationSec = ((Date.now() - startTime) / 1000).toFixed(1);
-          this.logger.log(`Piece retrieved: ${pieceCid.slice(0, 12)}... (${durationSec}s)`);
           return {
             success: true,
             finalStatus: currentStatus,
@@ -431,8 +412,6 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
     // The rootCID must be verified for the deal to be considered verified
     if (ipniResult.rootCIDVerified) {
       deal.ipniStatus = IpniStatus.VERIFIED;
-    } else if (finalStatus.retrieved) {
-      deal.ipniStatus = IpniStatus.SP_RECEIVED_RETRIEVE_REQUEST;
     } else if (finalStatus.advertised) {
       deal.ipniStatus = IpniStatus.SP_ADVERTISED;
     } else if (finalStatus.indexed) {
@@ -465,6 +444,10 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
 
       const timeToIndexMs = calculateDuration(indexedTimestamp, "indexed");
       if (timeToIndexMs) {
+        /**
+         * Time taken for the SP to index the piece after upload:
+         * time = indexedAt - uploadEndTime
+         */
         deal.ipniTimeToIndexMs = timeToIndexMs;
       }
     }
@@ -475,17 +458,11 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
 
       const timeToAdvertiseMs = calculateDuration(advertisedTimestamp, "advertised");
       if (timeToAdvertiseMs) {
+        /**
+         * Time taken for the SP to advertise the piece to IPNI after indexing:
+         * time = advertisedAt - indexedAt
+         */
         deal.ipniTimeToAdvertiseMs = timeToAdvertiseMs;
-      }
-    }
-
-    if (finalStatus.retrieved && !deal.ipniRetrievedAt) {
-      const retrievedTimestamp = finalStatus.retrievedAt ? new Date(finalStatus.retrievedAt) : now;
-      deal.ipniRetrievedAt = retrievedTimestamp;
-
-      const timeToRetrieveMs = calculateDuration(retrievedTimestamp, "retrieved");
-      if (timeToRetrieveMs) {
-        deal.ipniTimeToRetrieveMs = timeToRetrieveMs;
       }
     }
 

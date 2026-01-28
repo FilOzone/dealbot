@@ -29,6 +29,10 @@ export enum IpniStatus {
   PENDING = "pending",
   SP_INDEXED = "sp_indexed",
   SP_ADVERTISED = "sp_advertised",
+  /**
+   * We no longer use this field and it needs to be fully removed from DB and queries.
+   * @deprecated
+   */
   SP_RECEIVED_RETRIEVE_REQUEST = "sp_received_retrieve_request",
   VERIFIED = "verified",
   FAILED = "failed",
