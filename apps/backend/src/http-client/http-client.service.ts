@@ -549,5 +549,4 @@ export class HttpClientService {
       connectTimeoutSignal,
     };
   }
-
 }

@@ -93,5 +93,4 @@ describe("HttpClientService", () => {
 
     await assertion;
   });
-
 });

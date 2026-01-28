@@ -14,8 +14,6 @@ import { Deal } from "../../database/entities/deal.entity.js";
 import type { DealMetadata, IpniMetadata } from "../../database/types.js";
 import { IpniStatus, ServiceType } from "../../database/types.js";
 import { HttpClientService } from "../../http-client/http-client.service.js";
-import type { PieceStatusResponse } from "./ipni.types.js";
-import { validatePieceStatusResponse } from "./ipni.types.js";
 import type { IDealAddon } from "../interfaces/deal-addon.interface.js";
 import type {
   AddonExecutionContext,
@@ -30,7 +28,9 @@ import type {
   MonitorAndVerifyResult,
   PieceMonitoringResult,
   PieceStatus,
+  PieceStatusResponse,
 } from "./ipni.types.js";
+import { validatePieceStatusResponse } from "./ipni.types.js";
 
 /**
  * Convert from a dealbot StorageProvider to a synapse-sdk ProviderInfo object
@@ -444,9 +444,7 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
     }
   }
 
-  private getHttpErrorResponse(
-    error: unknown,
-  ): { status?: number; statusText?: string; data?: unknown } | undefined {
+  private getHttpErrorResponse(error: unknown): { status?: number; statusText?: string; data?: unknown } | undefined {
     if (typeof error !== "object" || error === null) {
       return undefined;
     }
