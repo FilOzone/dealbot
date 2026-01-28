@@ -1,4 +1,3 @@
-import { SIZE_CONSTANTS } from "@filoz/synapse-sdk";
 import { BadRequestException, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
@@ -7,9 +6,7 @@ import type { Hex } from "../common/types.js";
 import type { IBlockchainConfig, IConfig, IpniTestingMode } from "../config/app.config.js";
 import { Deal } from "../database/entities/deal.entity.js";
 import { DealStatus } from "../database/types.js";
-import { DataSourceService } from "../dataSource/dataSource.service.js";
 import { DealService } from "../deal/deal.service.js";
-import { DealAddonsService } from "../deal-addons/deal-addons.service.js";
 import { RetrievalAddonsService } from "../retrieval-addons/retrieval-addons.service.js";
 import type { RetrievalConfiguration } from "../retrieval-addons/types.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
@@ -23,8 +20,6 @@ export class DevToolsService {
 
   constructor(
     private readonly walletSdkService: WalletSdkService,
-    private readonly dataSourceService: DataSourceService,
-    private readonly dealAddonsService: DealAddonsService,
     private readonly dealService: DealService,
     private readonly retrievalAddonsService: RetrievalAddonsService,
     private readonly configService: ConfigService<IConfig, true>,
@@ -137,23 +132,16 @@ export class DevToolsService {
     enableCDN: boolean,
     enableIpni: boolean,
   ): Promise<void> {
-    let dataFile: Awaited<ReturnType<typeof this.fetchDataFile>> | null = null;
+    let cleanupDataFile: (() => Promise<void>) | null = null;
 
     try {
-      // Fetch data file
-      dataFile = await this.fetchDataFile(SIZE_CONSTANTS.MIN_UPLOAD_SIZE, SIZE_CONSTANTS.MAX_UPLOAD_SIZE);
+      const { preprocessed, cleanup } = await this.dealService.prepareDealInput(enableCDN, enableIpni);
+      cleanupDataFile = cleanup;
 
       // Update the pending deal with file info
       await this.dealRepository.update(dealId, {
-        fileName: dataFile.name,
-        fileSize: dataFile.size,
-      });
-
-      // Preprocess deal
-      const preprocessed = await this.dealAddonsService.preprocessDeal({
-        enableCDN,
-        enableIpni,
-        dataFile,
+        fileName: preprocessed.processedData.name,
+        fileSize: preprocessed.processedData.size,
       });
 
       // Create deal (this will create its own deal record, but we'll use ours for tracking)
@@ -197,8 +185,8 @@ export class DevToolsService {
       });
     } finally {
       // Cleanup random dataset file
-      if (dataFile) {
-        await this.dataSourceService.cleanupRandomDataset(dataFile.name);
+      if (cleanupDataFile) {
+        await cleanupDataFile();
       }
     }
   }
@@ -330,26 +318,9 @@ export class DevToolsService {
         return false;
       case "random":
         return Math.random() > 0.5;
-      case "always":
+      // case "always":
       default:
         return true;
-    }
-  }
-
-  /**
-   * Fetch a data file for deal creation
-   */
-  private async fetchDataFile(minSize: number, maxSize: number) {
-    try {
-      return await this.dataSourceService.fetchKaggleDataset(minSize, maxSize);
-    } catch (kaggleErr) {
-      this.logger.warn("Failed to fetch Kaggle dataset, falling back to local dataset", kaggleErr);
-      try {
-        return await this.dataSourceService.fetchLocalDataset(minSize, maxSize);
-      } catch (localErr) {
-        this.logger.warn("Failed to fetch local dataset, generating random dataset", localErr);
-        return await this.dataSourceService.generateRandomDataset(minSize, maxSize);
-      }
     }
   }
 }

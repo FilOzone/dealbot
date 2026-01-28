@@ -73,15 +73,9 @@ export class DealService implements OnModuleInit {
 
     this.logger.log(`Starting deal creation for ${totalProviders} providers (CDN: ${enableCDN}, IPNI: ${enableIpni})`);
 
-    const dataFile = await this.fetchDataFile(SIZE_CONSTANTS.MIN_UPLOAD_SIZE, SIZE_CONSTANTS.MAX_UPLOAD_SIZE);
+    const { preprocessed, cleanup } = await this.prepareDealInput(enableCDN, enableIpni);
 
     try {
-      const preprocessed = await this.dealAddonsService.preprocessDeal({
-        enableCDN,
-        enableIpni,
-        dataFile,
-      });
-
       const providers = this.walletSdkService.getTestingProviders();
 
       const results = await this.processProvidersInParallel(providers, preprocessed);
@@ -93,8 +87,28 @@ export class DealService implements OnModuleInit {
       return successfulDeals;
     } finally {
       // Cleanup random dataset file after all uploads complete (success or failure)
-      await this.dataSourceService.cleanupRandomDataset(dataFile.name);
+      await cleanup();
     }
+  }
+
+  /**
+   * Prepare a deal payload using the same data-source and preprocessing logic as normal deal creation.
+   */
+  async prepareDealInput(
+    enableCDN: boolean,
+    enableIpni: boolean,
+  ): Promise<{ preprocessed: DealPreprocessingResult; cleanup: () => Promise<void> }> {
+    const dataFile = await this.fetchDataFile(SIZE_CONSTANTS.MIN_UPLOAD_SIZE, SIZE_CONSTANTS.MAX_UPLOAD_SIZE);
+
+    const preprocessed = await this.dealAddonsService.preprocessDeal({
+      enableCDN,
+      enableIpni,
+      dataFile,
+    });
+
+    const cleanup = async () => this.dataSourceService.cleanupRandomDataset(dataFile.name);
+
+    return { preprocessed, cleanup };
   }
 
   async createDeal(providerInfo: ProviderInfoEx, dealInput: DealPreprocessingResult): Promise<Deal> {

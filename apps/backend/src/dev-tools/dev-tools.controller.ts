@@ -1,8 +1,8 @@
-import { Controller, Get, Logger, Param, Query } from "@nestjs/common";
+import { Controller, Get, Logger, Param, Query, UsePipes, ValidationPipe } from "@nestjs/common";
 import { ApiOperation, ApiQuery, ApiResponse, ApiTags } from "@nestjs/swagger";
 import { DevToolsService } from "./dev-tools.service.js";
-import { TriggerDealResponseDto } from "./dto/trigger-deal.dto.js";
-import { TriggerRetrievalResponseDto } from "./dto/trigger-retrieval.dto.js";
+import { TriggerDealQueryDto, TriggerDealResponseDto } from "./dto/trigger-deal.dto.js";
+import { TriggerRetrievalQueryDto, TriggerRetrievalResponseDto } from "./dto/trigger-retrieval.dto.js";
 
 @ApiTags("Dev Tools")
 @Controller("api/dev")
@@ -32,7 +32,7 @@ export class DevToolsController {
   })
   @ApiResponse({
     status: 200,
-    description: "Deal accepted - use /api/dev/deal/status?dealId=... to check progress",
+    description: "Deal accepted - use /api/dev/deals/:dealId to check progress",
     type: TriggerDealResponseDto,
   })
   @ApiResponse({
@@ -43,9 +43,10 @@ export class DevToolsController {
     status: 400,
     description: "Storage provider is not active",
   })
-  async triggerDeal(@Query("spAddress") spAddress: string): Promise<TriggerDealResponseDto> {
-    this.logger.log(`GET /api/dev/deal?spAddress=${spAddress}`);
-    return this.devToolsService.triggerDeal(spAddress);
+  @UsePipes(new ValidationPipe({ transform: true }))
+  async triggerDeal(@Query() query: TriggerDealQueryDto): Promise<TriggerDealResponseDto> {
+    this.logger.log(`GET /api/dev/deal?spAddress=${query.spAddress}`);
+    return this.devToolsService.triggerDeal(query.spAddress);
   }
 
   @Get("deals/:dealId")
@@ -91,12 +92,10 @@ export class DevToolsController {
     status: 404,
     description: "Deal or storage provider not found",
   })
-  async triggerDataFetch(
-    @Query("dealId") dealId?: string,
-    @Query("spAddress") spAddress?: string,
-  ): Promise<TriggerRetrievalResponseDto> {
-    this.logger.log(`GET /api/dev/data-fetch?dealId=${dealId}&spAddress=${spAddress}`);
-    return this.devToolsService.triggerRetrieval(dealId, spAddress);
+  @UsePipes(new ValidationPipe({ transform: true }))
+  async triggerDataFetch(@Query() query: TriggerRetrievalQueryDto): Promise<TriggerRetrievalResponseDto> {
+    this.logger.log(`GET /api/dev/data-fetch?dealId=${query.dealId}&spAddress=${query.spAddress}`);
+    return this.devToolsService.triggerRetrieval(query.dealId, query.spAddress);
   }
 
   // Alias for backwards compatibility with the plan
@@ -127,11 +126,9 @@ export class DevToolsController {
     status: 404,
     description: "Deal or storage provider not found",
   })
-  async triggerRetrieval(
-    @Query("dealId") dealId?: string,
-    @Query("spAddress") spAddress?: string,
-  ): Promise<TriggerRetrievalResponseDto> {
-    this.logger.log(`GET /api/dev/retrieval?dealId=${dealId}&spAddress=${spAddress}`);
-    return this.devToolsService.triggerRetrieval(dealId, spAddress);
+  @UsePipes(new ValidationPipe({ transform: true }))
+  async triggerRetrieval(@Query() query: TriggerRetrievalQueryDto): Promise<TriggerRetrievalResponseDto> {
+    this.logger.log(`GET /api/dev/retrieval?dealId=${query.dealId}&spAddress=${query.spAddress}`);
+    return this.devToolsService.triggerRetrieval(query.dealId, query.spAddress);
   }
 }
