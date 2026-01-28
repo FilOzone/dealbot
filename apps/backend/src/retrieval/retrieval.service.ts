@@ -64,6 +64,10 @@ export class RetrievalService {
     return allRetrievals;
   }
 
+  async performRetrievalsForDeal(deal: Deal, signal?: AbortSignal): Promise<Retrieval[]> {
+    return this.performAllRetrievals(deal, signal);
+  }
+
   // ============================================================================
   // Parallel Processing
   // ============================================================================

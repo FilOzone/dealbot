@@ -6,7 +6,7 @@ This document provides a comprehensive guide to all environment variables used b
 
 | Category                                  | Variables                                                                                                                                                    |
 | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| [Application](#application-configuration) | `NODE_ENV`, `DEALBOT_PORT`, `DEALBOT_HOST`, `DEALBOT_ALLOWED_ORIGINS`                                                                                        |
+| [Application](#application-configuration) | `NODE_ENV`, `DEALBOT_PORT`, `DEALBOT_HOST`, `DEALBOT_ALLOWED_ORIGINS`, `ENABLE_DEV_MODE`                                                                     |
 | [Database](#database-configuration)       | `DATABASE_HOST`, `DATABASE_PORT`, `DATABASE_USER`, `DATABASE_PASSWORD`, `DATABASE_NAME`                                                                      |
 | [Blockchain](#blockchain-configuration)   | `NETWORK`, `WALLET_ADDRESS`, `WALLET_PRIVATE_KEY`, `CHECK_DATASET_CREATION_FEES`, `USE_ONLY_APPROVED_PROVIDERS`, `ENABLE_CDN_TESTING`, `ENABLE_IPNI_TESTING` |
 | [Dataset Versioning](#dataset-versioning) | `DEALBOT_DATASET_VERSION`                                                                                                                                    |
@@ -102,6 +102,29 @@ DEALBOT_HOST=0.0.0.0
 
 ```bash
 DEALBOT_ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173,https://staging.dealbot.example.com
+```
+
+---
+
+### `ENABLE_DEV_MODE`
+
+- **Type**: `boolean`
+- **Required**: No
+- **Default**: `false`
+
+**Role**: Enables the `/api/dev/*` endpoints for manually triggering deals and retrievals during local development.
+
+**When to update**:
+
+- Set to `true` only for local development or isolated test environments
+- Keep as `false` for any deployed Dealbot instance unless separate gating or security measures are in place
+
+**Security warning**: This flag exposes unauthenticated dev-only endpoints that bypass normal scheduling and safeguards. Do not enable in production or shared environments without additional access controls.
+
+**Example**:
+
+```bash
+ENABLE_DEV_MODE=true
 ```
 
 ---
