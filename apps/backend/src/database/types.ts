@@ -30,8 +30,12 @@ export enum IpniStatus {
   SP_INDEXED = "sp_indexed",
   SP_ADVERTISED = "sp_advertised",
   /**
-   * We no longer use this field and it needs to be fully removed from DB and queries.
    * @deprecated
+   * This status is no longer used by new code paths and is kept only for legacy data handling.
+   * It must not be used for any new writes or business logic.
+   *
+   * TODO: Fully remove from the database schema and all queries once the migration
+   * tracked in https://github.com/FilOzone/dealbot/issues/168 is complete.
    */
   SP_RECEIVED_RETRIEVE_REQUEST = "sp_received_retrieve_request",
   VERIFIED = "verified",

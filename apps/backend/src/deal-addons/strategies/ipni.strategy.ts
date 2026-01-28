@@ -14,6 +14,8 @@ import { Deal } from "../../database/entities/deal.entity.js";
 import type { DealMetadata, IpniMetadata } from "../../database/types.js";
 import { IpniStatus, ServiceType } from "../../database/types.js";
 import { HttpClientService } from "../../http-client/http-client.service.js";
+import type { PieceStatusResponse } from "./ipni.types.js";
+import { validatePieceStatusResponse } from "./ipni.types.js";
 import type { IDealAddon } from "../interfaces/deal-addon.interface.js";
 import type {
   AddonExecutionContext,
@@ -48,7 +50,7 @@ function buildExpectedProviderInfo(storageProvider: StorageProvider): ProviderIn
         capabilities: {},
         data: {
           serviceURL: storageProvider.serviceUrl,
-          // we don't need the other fields for IPNI verification
+          // We don't need the other fields for IPNI verification.
         } as any,
       },
     },
@@ -353,7 +355,7 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       checkCount++;
 
       try {
-        const sdkStatus = await this.httpClientService.getPieceStatus(serviceURL, pieceCid);
+        const sdkStatus = await this.getPieceStatus(serviceURL, pieceCid);
 
         const currentStatus: PieceStatus = {
           status: sdkStatus.status,
@@ -365,15 +367,19 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
         };
 
         // Update indexedAt and advertisedAt if they have changed
-        if (currentStatus.indexed && !lastStatus.indexed) {
+        if (currentStatus.indexed && !currentStatus.indexedAt) {
           currentStatus.indexedAt = new Date().toISOString();
-          this.logger.log(`Piece indexed: ${pieceCid.slice(0, 12)}...`);
+          if (!lastStatus.indexed) {
+            this.logger.log(`Piece indexed: ${pieceCid.slice(0, 12)}...`);
+          }
         }
 
         // Return as soon as status has changed to advertised
-        if (currentStatus.advertised && !lastStatus.advertised) {
+        if (currentStatus.advertised && !currentStatus.advertisedAt) {
           currentStatus.advertisedAt = new Date().toISOString();
-          this.logger.log(`Piece advertised: ${pieceCid.slice(0, 12)}...`);
+          if (!lastStatus.advertised) {
+            this.logger.log(`Piece advertised: ${pieceCid.slice(0, 12)}...`);
+          }
           return {
             success: true,
             finalStatus: currentStatus,
@@ -396,6 +402,85 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
     const durationSec = ((Date.now() - startTime) / 1000).toFixed(1);
     this.logger.warn(`Piece retrieval timeout: ${pieceCid.slice(0, 12)}... (${durationSec}s)`);
     throw new Error(`Timeout waiting for piece retrieval after ${durationSec}s`);
+  }
+
+  /**
+   * Get indexing and IPNI status for a piece from PDP server
+   */
+  private async getPieceStatus(serviceURL: string, pieceCid: string): Promise<PieceStatusResponse> {
+    if (!pieceCid || typeof pieceCid !== "string") {
+      throw new Error(`Invalid PieceCID: ${String(pieceCid)}`);
+    }
+
+    const url = `${serviceURL}/pdp/piece/${pieceCid}/status`;
+    this.logger.debug(`Getting piece status from ${url}`);
+
+    try {
+      const { data } = await this.httpClientService.requestWithoutProxyAndMetrics<Buffer>(url, {
+        method: "GET",
+        headers: {
+          Accept: "application/json",
+        },
+      });
+      const parsed = JSON.parse(data.toString());
+      return validatePieceStatusResponse(parsed);
+    } catch (error) {
+      const errorResponse = this.getHttpErrorResponse(error);
+      if (errorResponse?.status) {
+        const errorText = this.formatHttpErrorData(errorResponse.data);
+        if (errorResponse.status === 404) {
+          const message = `Piece not found or does not belong to service: ${errorText}`;
+          this.logger.warn(`Failed to get piece status for ${pieceCid}: ${message}`);
+          throw new Error(message);
+        }
+        const statusText = errorResponse.statusText ?? "";
+        const message = `Failed to get piece status: ${errorResponse.status} ${statusText} - ${errorText}`;
+        this.logger.warn(`Failed to get piece status for ${pieceCid}: ${message}`);
+        throw new Error(message);
+      }
+
+      this.logger.warn(`Failed to get piece status for ${pieceCid}: ${error.message}`);
+      throw error;
+    }
+  }
+
+  private getHttpErrorResponse(
+    error: unknown,
+  ): { status?: number; statusText?: string; data?: unknown } | undefined {
+    if (typeof error !== "object" || error === null) {
+      return undefined;
+    }
+
+    if (!("response" in error)) {
+      return undefined;
+    }
+
+    const response = (error as { response?: unknown }).response;
+    if (typeof response !== "object" || response === null) {
+      return undefined;
+    }
+
+    return response as { status?: number; statusText?: string; data?: unknown };
+  }
+
+  private formatHttpErrorData(data: unknown): string {
+    if (Buffer.isBuffer(data)) {
+      return data.toString();
+    }
+
+    if (typeof data === "string") {
+      return data;
+    }
+
+    if (data == null) {
+      return "unknown error";
+    }
+
+    try {
+      return JSON.stringify(data);
+    } catch {
+      return String(data);
+    }
   }
 
   /**
@@ -459,8 +544,8 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       const timeToAdvertiseMs = calculateDuration(advertisedTimestamp, "advertised");
       if (timeToAdvertiseMs) {
         /**
-         * Time taken for the SP to advertise the piece to IPNI after indexing:
-         * time = advertisedAt - indexedAt
+         * Time taken for the SP to advertise the piece to IPNI after upload:
+         * time = advertisedAt - uploadEndTime
          */
         deal.ipniTimeToAdvertiseMs = timeToAdvertiseMs;
       }

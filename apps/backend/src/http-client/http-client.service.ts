@@ -9,8 +9,7 @@ import { SocksProxyAgent } from "socks-proxy-agent";
 import { ProxyAgent as UndiciProxyAgent, request as undiciRequest } from "undici";
 import type { IConfig } from "../config/app.config.js";
 import { ProxyService } from "../proxy/proxy.service.js";
-import type { HttpVersion, PieceStatusResponse, RequestMetrics, RequestWithMetrics } from "./types.js";
-import { validatePieceStatusResponse } from "./types.js";
+import type { HttpVersion, RequestMetrics, RequestWithMetrics } from "./types.js";
 
 @Injectable()
 export class HttpClientService {
@@ -551,46 +550,4 @@ export class HttpClientService {
     };
   }
 
-  /**
-   * Get indexing and IPNI status for a piece from PDP server
-   *
-   * @param serviceURL - The PDP service URL
-   * @param pieceCid - The PieceCID as a string
-   * @returns Piece status information including indexing and IPNI advertisement status
-   * @throws Error if piece not found or doesn't belong to service (404)
-   * @throws Error if request fails or response validation fails
-   */
-  async getPieceStatus(serviceURL: string, pieceCid: string): Promise<PieceStatusResponse> {
-    if (!pieceCid || typeof pieceCid !== "string") {
-      throw new Error(`Invalid PieceCID: ${String(pieceCid)}`);
-    }
-
-    const url = `${serviceURL}/pdp/piece/${pieceCid}/status`;
-    this.logger.debug(`Getting piece status from ${url}`);
-
-    try {
-      const response = await fetch(url, {
-        method: "GET",
-        headers: {
-          Accept: "application/json",
-        },
-      });
-
-      if (response.status === 404) {
-        const errorText = await response.text();
-        throw new Error(`Piece not found or does not belong to service: ${errorText}`);
-      }
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Failed to get piece status: ${response.status} ${response.statusText} - ${errorText}`);
-      }
-
-      const data = await response.json();
-      return validatePieceStatusResponse(data);
-    } catch (error) {
-      this.logger.warn(`Failed to get piece status for ${pieceCid.slice(0, 12)}...: ${error.message}`);
-      throw error;
-    }
-  }
 }

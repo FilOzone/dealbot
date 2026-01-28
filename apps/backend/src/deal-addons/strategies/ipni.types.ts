@@ -1,6 +1,50 @@
+import Joi from "joi";
+
 /**
  * Type definitions for IPNI strategy
  */
+
+/**
+ * Response from PDP server for piece status
+ * Includes indexing and advertisement status
+ */
+export interface PieceStatusResponse {
+  pieceCid: string;
+  status: string;
+  indexed: boolean;
+  advertised: boolean;
+}
+
+const pieceStatusResponseSchema = Joi.object({
+  pieceCid: Joi.string().required(),
+  status: Joi.string().required(),
+  indexed: Joi.boolean().required(),
+  advertised: Joi.boolean().required(),
+}).required();
+
+/**
+ * Type guard for PieceStatusResponse
+ * Validates the response from checking piece indexing and IPNI status
+ *
+ * @param value - The value to validate
+ * @returns True if the value matches PieceStatusResponse interface
+ */
+export function isPieceStatusResponse(value: unknown): value is PieceStatusResponse {
+  return !pieceStatusResponseSchema.validate(value).error;
+}
+
+/**
+ * Validates and returns a PieceStatusResponse
+ * @param value - The value to validate
+ * @throws Error if validation fails
+ */
+export function validatePieceStatusResponse(value: unknown): PieceStatusResponse {
+  const { error, value: validated } = pieceStatusResponseSchema.validate(value, { abortEarly: false });
+  if (error) {
+    throw new Error(`Invalid piece status response format: ${error.message}`);
+  }
+  return validated as PieceStatusResponse;
+}
 
 /**
  * Status information from PDP server for a piece
