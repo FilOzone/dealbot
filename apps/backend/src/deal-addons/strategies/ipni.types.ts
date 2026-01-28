@@ -20,7 +20,9 @@ const pieceStatusResponseSchema = Joi.object({
   status: Joi.string().required(),
   indexed: Joi.boolean().required(),
   advertised: Joi.boolean().required(),
-}).required();
+})
+  .unknown(true)
+  .required();
 
 /**
  * Type guard for PieceStatusResponse
