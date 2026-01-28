@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.3.0](https://github.com/FilOzone/dealbot/compare/backend-v0.2.0...backend-v0.3.0) (2026-01-28)
+
+
+### Features
+
+* add prometheus metrics ([#147](https://github.com/FilOzone/dealbot/issues/147)) ([6392272](https://github.com/FilOzone/dealbot/commit/6392272e8e38970495e4f55a372c6ee17faf6d17))
+
+
+### Bug Fixes
+
+* allow always enabling IPNI testing ([#157](https://github.com/FilOzone/dealbot/issues/157)) ([0e5f10f](https://github.com/FilOzone/dealbot/commit/0e5f10f1376ac23277a9b3266b9bd1ddb81a97f4))
+* dev-tool for testing deals+retrievals on-demand ([#167](https://github.com/FilOzone/dealbot/issues/167)) ([768263e](https://github.com/FilOzone/dealbot/commit/768263e33c3be530d38c199750bc10c32e9e45b6))
+* import getPieceStatus logic ([#166](https://github.com/FilOzone/dealbot/issues/166)) ([8e5695b](https://github.com/FilOzone/dealbot/commit/8e5695b1fc49921537808baf9b5f5afcfd8d0d9c))
+* **metrics:** export prometheus providers and proxy /metrics ([#161](https://github.com/FilOzone/dealbot/issues/161)) ([33612e4](https://github.com/FilOzone/dealbot/commit/33612e495da63fe0d3b75bc0b1f3ad2643027a95)), closes [#147](https://github.com/FilOzone/dealbot/issues/147)
+* prevent upsert DB failure on duplicate SPs ([#156](https://github.com/FilOzone/dealbot/issues/156)) ([d49d614](https://github.com/FilOzone/dealbot/commit/d49d614d4b9ccf08a69bbfd58e33b870380e7fe6))
+
 ## [0.2.0](https://github.com/FilOzone/dealbot/compare/backend-v0.1.2...backend-v0.2.0) (2026-01-23)
 
 
