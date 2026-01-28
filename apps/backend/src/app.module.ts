@@ -5,6 +5,7 @@ import { configValidationSchema, loadConfig } from "./config/app.config.js";
 import { DatabaseModule } from "./database/database.module.js";
 import { DataSourceModule } from "./dataSource/dataSource.module.js";
 import { DealModule } from "./deal/deal.module.js";
+import { DevToolsModule } from "./dev-tools/dev-tools.module.js";
 import { MetricsModule } from "./metrics/metrics.module.js";
 import { MetricsPrometheusModule } from "./metrics-prometheus/metrics-prometheus.module.js";
 import { RetrievalModule } from "./retrieval/retrieval.module.js";
@@ -24,6 +25,7 @@ import { SchedulerModule } from "./scheduler/scheduler.module.js";
     RetrievalModule,
     DataSourceModule,
     MetricsModule,
+    ...(process.env.ENABLE_DEV_MODE === "true" ? [DevToolsModule] : []),
   ],
   controllers: [AppController],
 })

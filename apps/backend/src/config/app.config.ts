@@ -7,6 +7,7 @@ export const configValidationSchema = Joi.object({
   NODE_ENV: Joi.string().valid("development", "production", "test").default("development"),
   DEALBOT_PORT: Joi.number().default(3000),
   DEALBOT_HOST: Joi.string().default("127.0.0.1"),
+  ENABLE_DEV_MODE: Joi.boolean().default(false),
 
   // Database
   DATABASE_HOST: Joi.string().required(),
@@ -98,6 +99,7 @@ export interface IAppConfig {
   env: string;
   port: number;
   host: string;
+  enableDevMode: boolean;
 }
 
 export interface IDatabaseConfig {
@@ -183,6 +185,7 @@ export function loadConfig(): IConfig {
       env: process.env.NODE_ENV || "development",
       port: Number.parseInt(process.env.DEALBOT_PORT || "3000", 10),
       host: process.env.DEALBOT_HOST || "127.0.0.1",
+      enableDevMode: process.env.ENABLE_DEV_MODE === "true",
     },
     database: {
       host: process.env.DATABASE_HOST || "localhost",

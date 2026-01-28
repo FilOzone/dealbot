@@ -12,8 +12,14 @@ data:
   DATABASE_NAME: filecoin_dealbot
   DATABASE_PASSWORD: dealbot_password
   NETWORK: calibration
-  DEAL_INTERVAL_SECONDS: "300"
-  RETRIEVAL_INTERVAL_SECONDS: "600"
+  # Dev mode - enables /api/dev/* endpoints for manual deal/retrieval testing
+  ENABLE_DEV_MODE: "true"
+  # Longer intervals for local dev (1hr deals, 2hr retrievals)
+  DEAL_INTERVAL_SECONDS: "3600"
+  RETRIEVAL_INTERVAL_SECONDS: "7200"
   DEAL_START_OFFSET_SECONDS: "0"
-  RETRIEVAL_START_OFFSET_SECONDS: "300"
-  METRICS_START_OFFSET_SECONDS: "600"
+  RETRIEVAL_START_OFFSET_SECONDS: "3600"
+  METRICS_START_OFFSET_SECONDS: "7200"
+  # Disable CDN, enable IPNI for local testing
+  ENABLE_CDN_TESTING: "false"
+  ENABLE_IPNI_TESTING: "always"
