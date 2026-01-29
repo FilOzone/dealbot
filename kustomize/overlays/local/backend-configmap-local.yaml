@@ -14,12 +14,12 @@ data:
   NETWORK: calibration
   # Dev mode - enables /api/dev/* endpoints for manual deal/retrieval testing
   ENABLE_DEV_MODE: "true"
-  # 5hr intervals and offsets so deals, retrievals, and metrics don't run during local dev
+  # 5hr intervals and staggered offsets so deals, retrievals, and metrics don't run during local dev
   DEAL_INTERVAL_SECONDS: "18000"
   RETRIEVAL_INTERVAL_SECONDS: "18000"
   DEAL_START_OFFSET_SECONDS: "18000"
-  RETRIEVAL_START_OFFSET_SECONDS: "18000"
-  METRICS_START_OFFSET_SECONDS: "18000"
+  RETRIEVAL_START_OFFSET_SECONDS: "19000"
+  METRICS_START_OFFSET_SECONDS: "20000"
   # Disable CDN, enable IPNI for local testing
   ENABLE_CDN_TESTING: "false"
   ENABLE_IPNI_TESTING: "always"
