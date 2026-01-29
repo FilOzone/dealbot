@@ -43,6 +43,15 @@ describe("DealService", () => {
   let retrievalAddonsMock: any;
 
   const mockRootCid = "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi";
+  const triggerUploadProgress = async (onProgress?: (event: any) => Promise<void> | void): Promise<void> => {
+    if (!onProgress) {
+      return;
+    }
+
+    await onProgress({ type: "onUploadComplete", data: { pieceCid: "bafk-uploaded" } });
+    await onProgress({ type: "onPieceAdded", data: { txHash: "0xhash" } });
+    await onProgress({ type: "onPieceConfirmed", data: { pieceIds: [123] } });
+  };
 
   const mockDealRepository = {
     create: vi.fn(),
@@ -116,6 +125,7 @@ describe("DealService", () => {
     walletSdkMock = mockWalletSdkService;
     dealAddonsMock = mockDealAddonsService;
     retrievalAddonsMock = mockRetrievalAddonsService;
+    dealAddonsMock.handleUploadComplete.mockResolvedValue(undefined);
   });
 
   afterEach(() => {
@@ -159,11 +169,14 @@ describe("DealService", () => {
         dataSetId: "dataset-123",
       });
 
-      (executeUpload as Mock).mockResolvedValue({
-        pieceCid: "bafk-uploaded",
-        pieceId: 123,
-        transactionHash: "0xhash",
-        ipniValidated: true,
+      (executeUpload as Mock).mockImplementation(async (_service, _data, _rootCid, options) => {
+        await triggerUploadProgress(options?.onProgress);
+        return {
+          pieceCid: "bafk-uploaded",
+          pieceId: 123,
+          transactionHash: "0xhash",
+          ipniValidated: true,
+        };
       });
       retrievalAddonsMock.testAllRetrievalMethods.mockResolvedValue({
         dealId: "deal-1",
@@ -229,6 +242,73 @@ describe("DealService", () => {
       expect(dealRepoMock.save).toHaveBeenCalledWith(mockDeal);
     });
 
+    it("fails deal creation when upload completion handlers fail (IPNI gating)", async () => {
+      const uploadPayload = {
+        carData: Uint8Array.from([1, 2, 3]),
+        rootCid: CID.parse(mockRootCid),
+      };
+
+      mockSynapseInstance.storage.createContext.mockResolvedValue({
+        dataSetId: "dataset-123",
+      });
+
+      (executeUpload as Mock).mockImplementation(async (_service, _data, _rootCid, options) => {
+        await triggerUploadProgress(options?.onProgress);
+        return {
+          pieceCid: "bafk-uploaded",
+          pieceId: 123,
+          transactionHash: "0xhash",
+          ipniValidated: true,
+        };
+      });
+
+      const ipniError = new Error("IPNI verification failed");
+      dealAddonsMock.handleUploadComplete.mockRejectedValueOnce(ipniError);
+
+      await expect(
+        service.createDeal(mockSynapseInstance, mockProviderInfo, mockDealInput, uploadPayload),
+      ).rejects.toThrow("IPNI verification failed");
+
+      expect(mockDeal.status).toBe(DealStatus.FAILED);
+      expect(mockDeal.errorMessage).toBe("IPNI verification failed");
+      expect(retrievalAddonsMock.testAllRetrievalMethods).not.toHaveBeenCalled();
+    });
+
+    it("fails deal creation when retrievals do not all succeed", async () => {
+      const uploadPayload = {
+        carData: Uint8Array.from([1, 2, 3]),
+        rootCid: CID.parse(mockRootCid),
+      };
+
+      mockSynapseInstance.storage.createContext.mockResolvedValue({
+        dataSetId: "dataset-123",
+      });
+
+      (executeUpload as Mock).mockImplementation(async (_service, _data, _rootCid, options) => {
+        await triggerUploadProgress(options?.onProgress);
+        return {
+          pieceCid: "bafk-uploaded",
+          pieceId: 123,
+          transactionHash: "0xhash",
+          ipniValidated: true,
+        };
+      });
+
+      retrievalAddonsMock.testAllRetrievalMethods.mockResolvedValue({
+        dealId: "deal-1",
+        results: [],
+        summary: { totalMethods: 2, successfulMethods: 1, failedMethods: 1 },
+        testedAt: new Date(),
+      });
+
+      await expect(
+        service.createDeal(mockSynapseInstance, mockProviderInfo, mockDealInput, uploadPayload),
+      ).rejects.toThrow("Retrieval gate failed");
+
+      expect(mockDeal.status).toBe(DealStatus.FAILED);
+      expect(mockDeal.errorMessage).toContain("Retrieval gate failed");
+    });
+
     describe("dataset versioning", () => {
       let dealInputWithMetadata: DealPreprocessingResult;
 
@@ -237,10 +317,14 @@ describe("DealService", () => {
           dataSetId: "dataset-123",
         });
 
-        (executeUpload as Mock).mockResolvedValue({
-          pieceCid: "bafk-uploaded",
-          pieceId: 123,
-          ipniValidated: true,
+        (executeUpload as Mock).mockImplementation(async (_service, _data, _rootCid, options) => {
+          await triggerUploadProgress(options?.onProgress);
+          return {
+            pieceCid: "bafk-uploaded",
+            pieceId: 123,
+            transactionHash: "0xhash",
+            ipniValidated: true,
+          };
         });
         mockRetrievalAddonsService.testAllRetrievalMethods.mockResolvedValue({
           dealId: "deal-1",

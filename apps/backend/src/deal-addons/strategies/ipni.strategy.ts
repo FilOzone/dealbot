@@ -134,7 +134,7 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
 
   /**
    * Handler triggered when upload is complete
-   * Starts IPNI tracking and monitoring in the background
+   * Runs IPNI tracking and verification before continuing
    */
   async onUploadComplete(deal: Deal): Promise<void> {
     if (!deal.storageProvider) {
@@ -148,10 +148,7 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
 
     this.logger.log(`IPNI tracking started: ${deal.pieceCid?.slice(0, 12)}...`);
 
-    // Start monitoring asynchronously (don't await)
-    this.startIpniMonitoring(deal).catch((error) => {
-      this.logger.error(`IPNI monitoring failed: ${error.message}`);
-    });
+    await this.startIpniMonitoring(deal);
   }
 
   /**
@@ -214,6 +211,10 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
 
       // Update deal entity with tracking metrics
       await this.updateDealWithIpniMetrics(deal, result);
+
+      if (!result.ipniResult.rootCIDVerified) {
+        throw new Error(`IPNI verification failed for deal ${deal.id}: root CID not verified`);
+      }
     } catch (error) {
       // Mark IPNI as failed and save to database
       deal.ipniStatus = IpniStatus.FAILED;
