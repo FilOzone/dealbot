@@ -39,8 +39,8 @@ export function createFilecoinPinLogger(logger: Logger): FilecoinPinLogger {
 
   return {
     info: (payload: unknown, message?: string) => logger.log(formatMessage(payload, message)),
-    warn: (payload: unknown, message?: string) => logger.log(formatMessage(payload, message)),
-    error: (payload: unknown, message?: string) => logger.log(formatMessage(payload, message)),
-    debug: (payload: unknown, message?: string) => logger.log(formatMessage(payload, message)),
+    warn: (payload: unknown, message?: string) => logger.warn(formatMessage(payload, message)),
+    error: (payload: unknown, message?: string) => logger.error(formatMessage(payload, message)),
+    debug: (payload: unknown, message?: string) => logger.debug(formatMessage(payload, message)),
   } as FilecoinPinLogger;
 }

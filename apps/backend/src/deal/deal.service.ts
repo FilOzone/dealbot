@@ -298,7 +298,6 @@ export class DealService {
         );
       }
 
-      deal.pieceId = uploadResult.pieceId;
       deal.status = DealStatus.DEAL_CREATED;
 
       this.logger.log(`Deal ${deal.id} created: ${deal.pieceCid} (sp: ${providerAddress})`);

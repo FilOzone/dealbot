@@ -307,6 +307,7 @@ describe("DealService", () => {
 
       expect(mockDeal.status).toBe(DealStatus.FAILED);
       expect(mockDeal.errorMessage).toContain("Retrieval gate failed");
+      expect(dealRepoMock.save).toHaveBeenCalledWith(mockDeal);
     });
 
     describe("dataset versioning", () => {
