@@ -3,19 +3,21 @@ import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
 import { InjectMetric } from "@willsoto/nestjs-prometheus";
-import { executeUpload } from "filecoin-pin";
+import { cleanupSynapseService, executeUpload } from "filecoin-pin";
 import { CID } from "multiformats/cid";
 import type { Counter, Histogram } from "prom-client";
 import type { Repository } from "typeorm";
 import { buildUnixfsCar } from "../common/car-utils.js";
-import type { DataFile } from "../common/types.js";
+import type { DataFile, Hex } from "../common/types.js";
 import type { IBlockchainConfig, IConfig } from "../config/app.config.js";
 import { Deal } from "../database/entities/deal.entity.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
-import { DealStatus, ServiceType } from "../database/types.js";
+import { DealStatus, IpniStatus, ServiceType } from "../database/types.js";
 import { DataSourceService } from "../dataSource/dataSource.service.js";
 import { DealAddonsService } from "../deal-addons/deal-addons.service.js";
 import type { DealPreprocessingResult } from "../deal-addons/types.js";
+import { RetrievalAddonsService } from "../retrieval-addons/retrieval-addons.service.js";
+import type { RetrievalConfiguration } from "../retrieval-addons/types.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
 import type { ProviderInfoEx } from "../wallet-sdk/wallet-sdk.types.js";
 
@@ -43,6 +45,7 @@ export class DealService {
     private readonly configService: ConfigService<IConfig, true>,
     private readonly walletSdkService: WalletSdkService,
     private readonly dealAddonsService: DealAddonsService,
+    private readonly retrievalAddonsService: RetrievalAddonsService,
     @InjectRepository(Deal)
     private readonly dealRepository: Repository<Deal>,
     @InjectRepository(StorageProvider)
@@ -186,6 +189,7 @@ export class DealService {
       if (this.blockchainConfig.dealbotDataSetVersion) {
         dataSetMetadata.dealbotDataSetVersion = this.blockchainConfig.dealbotDataSetVersion;
       }
+      const filecoinPinLogger = this.createFilecoinPinLogger();
 
       const storage = await synapse.storage.createContext({
         providerAddress,
@@ -194,36 +198,102 @@ export class DealService {
 
       deal.dataSetId = storage.dataSetId;
       deal.uploadStartTime = new Date();
+      deal.pieceSize = uploadPayload.carData.length;
+      let onUploadCompleteAddonsPromise: Promise<void> | null = null;
 
       const synapseService = { synapse, storage, providerInfo } as unknown as SynapseServiceArg;
       const uploadResult = await executeUpload(synapseService, uploadPayload.carData, uploadPayload.rootCid, {
-        logger: this.createFilecoinPinLogger(),
+        logger: filecoinPinLogger,
         contextId: providerAddress,
         pieceMetadata: dealInput.synapseConfig.pieceMetadata,
+        /**
+         * do not do IPNI validation here, we need to call /pdp/piece/<pieceCid>/status to get other metrics.
+         * See `onUploadComplete` handler in deal-addons/strategies/ipni.strategy.ts for implementation.
+         */
         ipniValidation: { enabled: false },
-        onProgress: (event) => {
+        onProgress: async (event) => {
+          this.logger.debug(`Upload progress event: ${event.type}`);
           switch (event.type) {
             case "onUploadComplete":
-              void this.handleUploadComplete(deal, event.data.pieceCid, dealInput.appliedAddons).catch((error) => {
+              deal.uploadEndTime = new Date();
+              deal.status = DealStatus.UPLOADED;
+              deal.ingestLatencyMs = deal.uploadEndTime.getTime() - deal.uploadStartTime.getTime();
+              deal.pieceCid = event.data.pieceCid.toString();
+              this.logger.log(`Upload complete event, pieceCid: ${deal.pieceCid}`);
+              onUploadCompleteAddonsPromise = this.dealAddonsService.handleUploadComplete(deal, dealInput.appliedAddons).catch((error) => {
                 this.logger.warn(`Upload completion handler failed: ${error.message}`);
               });
+              deal.ingestThroughputBps = Math.round(
+                deal.fileSize / ((deal.uploadEndTime.getTime() - deal.uploadStartTime.getTime()) / 1000),
+              );
               break;
             case "onPieceAdded":
-              void this.handleRootAdded(deal, { transactionHash: event.data.txHash });
+              this.logger.log(`Piece added event, txHash: ${event.data.txHash}`);
+              deal.pieceAddedTime = new Date();
+              if (event.data.txHash != null) {
+                deal.transactionHash = event.data.txHash as `0x${string}`;
+              } else {
+                this.logger.warn(`No transaction hash found for piece added event: ${deal.pieceCid}`);
+              }
+              deal.status = DealStatus.PIECE_ADDED;
               break;
-            default:
+            case "onPieceConfirmed":
+              this.logger.log(`Piece confirmed event, pieceIds: ${event.data.pieceIds.join(", ")}`);
+              deal.pieceConfirmedTime = new Date();
+              deal.status = DealStatus.PIECE_CONFIRMED;
+              deal.chainLatencyMs = deal.pieceConfirmedTime.getTime() - deal.pieceAddedTime.getTime();
               break;
           }
         },
       });
+      if (deal.pieceCid == null || deal.pieceAddedTime == null || deal.pieceConfirmedTime == null) {
+        throw new Error("Dealbot did not receive onProgress events during upload");
+      }
+
+      if (!deal.transactionHash) {
+        this.logger.error(`No transaction hash found for deal: ${deal.pieceCid}`);
+      }
+
+      this.logger.log(this.appendPayload("Upload result:", uploadResult));
 
       this.updateDealWithUploadResult(deal, uploadResult, uploadPayload.carData.length);
 
-      if (!deal.transactionHash && uploadResult.transactionHash) {
-        deal.transactionHash = uploadResult.transactionHash;
+      // wait for onUploadComplete handlers to complete
+      if (onUploadCompleteAddonsPromise != null) {
+        try {
+          await onUploadCompleteAddonsPromise;
+        } catch (error) {
+          this.logger.error(`onUploadComplete handlers failed: ${error.message}`);
+        } finally {
+          onUploadCompleteAddonsPromise = null;
+        }
       }
 
-      this.logger.log(`Deal created: ${String(uploadResult.pieceCid).slice(0, 12)}... (${providerShort}...)`);
+      const retrievalConfig: RetrievalConfiguration = {
+        deal,
+        walletAddress: deal.walletAddress as Hex,
+        storageProvider: deal.spAddress as Hex,
+      };
+      const retrievalStartTime = Date.now();
+      const retrievalTest = await this.retrievalAddonsService.testAllRetrievalMethods(retrievalConfig);
+
+      if (retrievalTest.summary.failedMethods > 0) {
+        throw new Error(
+          `Retrieval gate failed: ${retrievalTest.summary.failedMethods}/${retrievalTest.summary.totalMethods} methods failed`,
+        );
+      } else if (retrievalTest.summary.totalMethods === 0) {
+        throw new Error('No retrieval methods to test')
+      } else {
+        // retrievals were successful.. lets log some stats
+        this.logger.log(`Retrieval test completed in ${retrievalTest.testedAt.getTime() - retrievalStartTime}ms: ` +
+          `${retrievalTest.summary.successfulMethods}/${retrievalTest.summary.totalMethods} successful`,
+        );
+      }
+
+      deal.pieceId = uploadResult.pieceId;
+      deal.status = DealStatus.DEAL_CREATED;
+
+      this.logger.log(`Deal ${deal.id} created: ${deal.pieceCid} (sp: ${providerAddress})`);
 
       await this.dealAddonsService.postProcessDeal(deal, dealInput.appliedAddons);
 
@@ -311,6 +381,11 @@ export class DealService {
     } catch (error) {
       this.logger.warn(`Failed to cleanup Synapse telemetry: ${error.message}`);
     }
+    try {
+      await cleanupSynapseService();
+    } catch (error) {
+      this.logger.warn(`Failed to cleanup Synapse service: ${error.message}`);
+    }
   }
 
   private async prepareUploadPayload(dealInput: DealPreprocessingResult): Promise<UploadPayload> {
@@ -351,9 +426,9 @@ export class DealService {
 
     return {
       info: (payload: unknown, message?: string) => this.logger.log(formatMessage(payload, message)),
-      warn: (payload: unknown, message?: string) => this.logger.warn(formatMessage(payload, message)),
-      error: (payload: unknown, message?: string) => this.logger.error(formatMessage(payload, message)),
-      debug: (payload: unknown, message?: string) => this.logger.debug(formatMessage(payload, message)),
+      warn: (payload: unknown, message?: string) => this.logger.log(formatMessage(payload, message)),
+      error: (payload: unknown, message?: string) => this.logger.log(formatMessage(payload, message)),
+      debug: (payload: unknown, message?: string) => this.logger.log(formatMessage(payload, message)),
     } as FilecoinPinLogger;
   }
 
@@ -367,7 +442,7 @@ export class DealService {
       serialized = payload.stack ?? payload.message;
     } else {
       try {
-        serialized = JSON.stringify(payload);
+        serialized = JSON.stringify(payload, (_key, value) => (typeof value === "bigint" ? value.toString() : value));
       } catch {
         serialized = String(payload);
       }
@@ -382,11 +457,15 @@ export class DealService {
 
   private updateDealWithUploadResult(deal: Deal, uploadResult: UploadResultSummary, pieceSize: number): void {
     deal.pieceCid = uploadResult.pieceCid;
+    deal.dealConfirmedTime = new Date();
     deal.pieceSize = pieceSize;
     deal.pieceId = uploadResult.pieceId;
-    deal.status = DealStatus.DEAL_CREATED;
-    deal.dealConfirmedTime = new Date();
-    deal.dealLatencyMs = deal.dealConfirmedTime.getTime() - deal.uploadStartTime.getTime();
+    if (deal.uploadStartTime) {
+      deal.dealLatencyMs = deal.dealConfirmedTime.getTime() - deal.uploadStartTime.getTime();
+    }
+    if (deal.pieceConfirmedTime && deal.pieceAddedTime) {
+      deal.chainLatencyMs = deal.pieceConfirmedTime.getTime() - deal.pieceAddedTime.getTime();
+    }
   }
 
   private async saveDeal(deal: Deal): Promise<void> {
@@ -443,45 +522,23 @@ export class DealService {
   }
 
   // ============================================================================
-  // Upload Lifecycle Handlers
-  // ============================================================================
-
-  private async handleUploadComplete(deal: Deal, pieceCid: PieceCID, appliedAddons: ServiceType[]): Promise<void> {
-    deal.pieceCid = pieceCid.toString();
-    deal.uploadEndTime = new Date();
-    deal.ingestLatencyMs = deal.uploadEndTime.getTime() - deal.uploadStartTime.getTime();
-    deal.ingestThroughputBps = Math.round(
-      deal.fileSize / ((deal.uploadEndTime.getTime() - deal.uploadStartTime.getTime()) / 1000),
-    );
-    deal.status = DealStatus.UPLOADED;
-
-    // Trigger addon onUploadComplete handlers
-    await this.dealAddonsService.handleUploadComplete(deal, appliedAddons);
-  }
-
-  private async handleRootAdded(deal: Deal, result: any): Promise<void> {
-    deal.pieceAddedTime = new Date();
-    deal.chainLatencyMs = deal.pieceAddedTime.getTime() - deal.uploadEndTime.getTime();
-    deal.status = DealStatus.PIECE_ADDED;
-    deal.transactionHash = result.transactionHash;
-  }
-
-  // ============================================================================
   // Data Source Management
   // ============================================================================
 
-  private async fetchDataFile(minSize: number, maxSize: number): Promise<DataFile> {
-    try {
-      return await this.dataSourceService.fetchKaggleDataset(minSize, maxSize);
-    } catch (kaggleErr) {
-      this.logger.warn("Failed to fetch Kaggle dataset, falling back to local dataset", kaggleErr);
-      try {
-        return await this.dataSourceService.fetchLocalDataset(minSize, maxSize);
-      } catch (localErr) {
-        this.logger.warn("Failed to fetch local dataset, generating random dataset", localErr);
-        return await this.dataSourceService.generateRandomDataset(minSize, maxSize);
-      }
-    }
+  private async fetchDataFile(_minSize: number, _maxSize: number): Promise<DataFile> {
+    // try {
+    //   return await this.dataSourceService.fetchKaggleDataset(minSize, maxSize);
+    // } catch (kaggleErr) {
+    //   this.logger.warn("Failed to fetch Kaggle dataset, falling back to local dataset", kaggleErr);
+    //   try {
+    //     return await this.dataSourceService.fetchLocalDataset(minSize, maxSize);
+    //   } catch (localErr) {
+    //     this.logger.warn("Failed to fetch local dataset, generating random dataset", localErr);
+    // test 1Mb only for now
+    return await this.dataSourceService.generateRandomDataset(1 << 20, 1 << 20);
+    // return await this.dataSourceService.generateRandomDataset(minSize, maxSize);
+    // }
+    // }
   }
 
   private getIpniEnabled(mode: IBlockchainConfig["enableIpniTesting"]): boolean {

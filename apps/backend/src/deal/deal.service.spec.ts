@@ -12,6 +12,7 @@ import { DealStatus } from "../database/types.js";
 import { DataSourceService } from "../dataSource/dataSource.service.js";
 import { DealAddonsService } from "../deal-addons/deal-addons.service.js";
 import { DealPreprocessingResult } from "../deal-addons/types.js";
+import { RetrievalAddonsService } from "../retrieval-addons/retrieval-addons.service.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
 import { DealService } from "./deal.service.js";
 
@@ -39,6 +40,7 @@ describe("DealService", () => {
   let dataSourceMock: any;
   let walletSdkMock: any;
   let dealAddonsMock: any;
+  let retrievalAddonsMock: any;
 
   const mockRootCid = "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi";
 
@@ -79,6 +81,9 @@ describe("DealService", () => {
     postProcessDeal: vi.fn(),
     handleUploadComplete: vi.fn(),
   };
+  const mockRetrievalAddonsService = {
+    testAllRetrievalMethods: vi.fn(),
+  };
   const mockDealsCreatedCounter = { inc: vi.fn() };
   const mockDealCreationDuration = { observe: vi.fn() };
   const mockDealUploadDuration = { observe: vi.fn() };
@@ -92,6 +97,7 @@ describe("DealService", () => {
         { provide: ConfigService, useValue: mockConfigService },
         { provide: WalletSdkService, useValue: mockWalletSdkService },
         { provide: DealAddonsService, useValue: mockDealAddonsService },
+        { provide: RetrievalAddonsService, useValue: mockRetrievalAddonsService },
         { provide: getRepositoryToken(Deal), useValue: mockDealRepository },
         { provide: getRepositoryToken(StorageProvider), useValue: mockStorageProviderRepository },
         { provide: getToken("deals_created_total"), useValue: mockDealsCreatedCounter },
@@ -109,6 +115,7 @@ describe("DealService", () => {
     dataSourceMock = mockDataSourceService;
     walletSdkMock = mockWalletSdkService;
     dealAddonsMock = mockDealAddonsService;
+    retrievalAddonsMock = mockRetrievalAddonsService;
   });
 
   afterEach(() => {
@@ -156,6 +163,13 @@ describe("DealService", () => {
         pieceCid: "bafk-uploaded",
         pieceId: 123,
         transactionHash: "0xhash",
+        ipniValidated: true,
+      });
+      retrievalAddonsMock.testAllRetrievalMethods.mockResolvedValue({
+        dealId: "deal-1",
+        results: [],
+        summary: { totalMethods: 1, successfulMethods: 1, failedMethods: 0 },
+        testedAt: new Date(),
       });
 
       const deal = await service.createDeal(mockSynapseInstance, mockProviderInfo, mockDealInput, uploadPayload);
@@ -226,6 +240,13 @@ describe("DealService", () => {
         (executeUpload as Mock).mockResolvedValue({
           pieceCid: "bafk-uploaded",
           pieceId: 123,
+          ipniValidated: true,
+        });
+        mockRetrievalAddonsService.testAllRetrievalMethods.mockResolvedValue({
+          dealId: "deal-1",
+          results: [],
+          summary: { totalMethods: 1, successfulMethods: 1, failedMethods: 0 },
+          testedAt: new Date(),
         });
 
         dealInputWithMetadata = {
@@ -254,6 +275,7 @@ describe("DealService", () => {
             { provide: ConfigService, useValue: mockConfigService },
             { provide: WalletSdkService, useValue: mockWalletSdkService },
             { provide: DealAddonsService, useValue: mockDealAddonsService },
+            { provide: RetrievalAddonsService, useValue: mockRetrievalAddonsService },
             { provide: getRepositoryToken(Deal), useValue: mockDealRepository },
             { provide: getRepositoryToken(StorageProvider), useValue: mockStorageProviderRepository },
             { provide: getToken("deals_created_total"), useValue: mockDealsCreatedCounter },
