@@ -1,5 +1,5 @@
 import { RPC_URLS, SIZE_CONSTANTS, Synapse } from "@filoz/synapse-sdk";
-import { Injectable, Logger } from "@nestjs/common";
+import { Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
 import { InjectMetric } from "@willsoto/nestjs-prometheus";
@@ -36,9 +36,10 @@ type UploadResultSummary = {
 type SynapseServiceArg = Parameters<typeof executeUpload>[0];
 
 @Injectable()
-export class DealService {
+export class DealService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(DealService.name);
   private readonly blockchainConfig: IBlockchainConfig;
+  private sharedSynapse?: Synapse;
 
   constructor(
     private readonly dataSourceService: DataSourceService,
@@ -62,6 +63,18 @@ export class DealService {
     this.blockchainConfig = this.configService.get("blockchain");
   }
 
+  async onModuleInit(): Promise<void> {
+    this.logger.log("Initializing shared Synapse instance for deal creation.");
+    this.sharedSynapse = await this.createSynapseInstance();
+  }
+
+  async onModuleDestroy(): Promise<void> {
+    if (this.sharedSynapse) {
+      await this.cleanupSynapseInstance(this.sharedSynapse);
+      this.sharedSynapse = undefined;
+    }
+  }
+
   async createDealsForAllProviders(): Promise<Deal[]> {
     const totalProviders = this.walletSdkService.getTestingProvidersCount();
     const { enableCDN, enableIpni } = this.getTestingDealOptions();
@@ -69,10 +82,9 @@ export class DealService {
     this.logger.log(`Starting deal creation for ${totalProviders} providers (CDN: ${enableCDN}, IPNI: ${enableIpni})`);
 
     const { preprocessed, cleanup } = await this.prepareDealInput(enableCDN, enableIpni);
-    let synapse: Synapse | undefined;
 
     try {
-      synapse = await this.createSynapseForJob();
+      const synapse = this.sharedSynapse ?? (await this.createSynapseInstance());
       const uploadPayload = await this.prepareUploadPayload(preprocessed);
       const providers = this.walletSdkService.getTestingProviders();
 
@@ -86,9 +98,6 @@ export class DealService {
     } finally {
       // Cleanup random dataset file after all uploads complete (success or failure)
       await cleanup();
-      if (synapse) {
-        await this.cleanupSynapse(synapse);
-      }
     }
   }
 
@@ -101,17 +110,13 @@ export class DealService {
     },
   ): Promise<Deal> {
     const { preprocessed, cleanup } = await this.prepareDealInput(options.enableCDN, options.enableIpni);
-    let synapse: Synapse | undefined;
 
     try {
-      synapse = await this.createSynapseForJob();
+      const synapse = this.sharedSynapse ?? (await this.createSynapseInstance());
       const uploadPayload = await this.prepareUploadPayload(preprocessed);
       return await this.createDeal(synapse, providerInfo, preprocessed, uploadPayload, options.existingDealId);
     } finally {
       await cleanup();
-      if (synapse) {
-        await this.cleanupSynapse(synapse);
-      }
     }
   }
 
@@ -263,8 +268,6 @@ export class DealService {
         this.logger.error(`No transaction hash found for deal: ${deal.pieceCid}`);
       }
 
-      this.logger.log(appendPayload("Upload result:", uploadResult));
-
       this.updateDealWithUploadResult(deal, uploadResult, uploadPayload.carData.length);
 
       // wait for onUploadComplete handlers to complete
@@ -369,7 +372,7 @@ export class DealService {
   // Deal Creation Helpers
   // ============================================================================
 
-  private async createSynapseForJob(): Promise<Synapse> {
+  private async createSynapseInstance(): Promise<Synapse> {
     try {
       return await Synapse.create({
         privateKey: this.blockchainConfig.walletPrivateKey,
@@ -382,7 +385,7 @@ export class DealService {
     }
   }
 
-  private async cleanupSynapse(synapse: Synapse): Promise<void> {
+  private async cleanupSynapseInstance(synapse: Synapse): Promise<void> {
     try {
       await synapse.telemetry?.sentry?.close?.();
     } catch (error) {
