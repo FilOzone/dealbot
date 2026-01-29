@@ -236,7 +236,7 @@ export class DealService {
               this.logger.log(`Piece added event, txHash: ${event.data.txHash}`);
               deal.pieceAddedTime = new Date();
               if (event.data.txHash != null) {
-                deal.transactionHash = event.data.txHash as `0x${string}`;
+                deal.transactionHash = event.data.txHash as Hex;
               } else {
                 this.logger.warn(`No transaction hash found for piece added event: ${deal.pieceCid}`);
               }
@@ -256,7 +256,7 @@ export class DealService {
       }
 
       if (!deal.transactionHash && uploadResult.transactionHash) {
-        deal.transactionHash = uploadResult.transactionHash as `0x${string}`;
+        deal.transactionHash = uploadResult.transactionHash as Hex;
       }
 
       if (!deal.transactionHash) {
