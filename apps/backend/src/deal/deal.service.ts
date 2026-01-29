@@ -423,7 +423,10 @@ export class DealService {
   private updateDealWithUploadResult(deal: Deal, uploadResult: UploadResultSummary, pieceSize: number): void {
     deal.pieceCid = uploadResult.pieceCid;
     deal.dealConfirmedTime = new Date();
-    deal.pieceSize = pieceSize;
+    // Only set pieceSize here if it hasn't been set earlier in the deal flow.
+    if (deal.pieceSize == null) {
+      deal.pieceSize = pieceSize;
+    }
     deal.pieceId = uploadResult.pieceId;
     if (deal.uploadStartTime) {
       deal.dealLatencyMs = deal.dealConfirmedTime.getTime() - deal.uploadStartTime.getTime();
