@@ -8,7 +8,7 @@ import { CID } from "multiformats/cid";
 import type { Counter, Histogram } from "prom-client";
 import type { Repository } from "typeorm";
 import { buildUnixfsCar } from "../common/car-utils.js";
-import { appendPayload, createFilecoinPinLogger } from "../common/filecoin-pin-logger.js";
+import { createFilecoinPinLogger } from "../common/filecoin-pin-logger.js";
 import type { DataFile, Hex } from "../common/types.js";
 import type { IBlockchainConfig, IConfig } from "../config/app.config.js";
 import { Deal } from "../database/entities/deal.entity.js";

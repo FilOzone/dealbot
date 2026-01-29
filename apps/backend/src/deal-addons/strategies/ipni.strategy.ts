@@ -1,6 +1,4 @@
-import { Readable } from "node:stream";
 import { METADATA_KEYS, type ProviderInfo } from "@filoz/synapse-sdk";
-import { CarWriter } from "@ipld/car";
 import { Injectable, Logger } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { waitForIpniProviderResults } from "filecoin-pin/core/utils";
