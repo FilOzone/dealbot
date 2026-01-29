@@ -428,9 +428,6 @@ export class DealService {
     if (deal.uploadStartTime) {
       deal.dealLatencyMs = deal.dealConfirmedTime.getTime() - deal.uploadStartTime.getTime();
     }
-    if (deal.pieceConfirmedTime && deal.pieceAddedTime) {
-      deal.chainLatencyMs = deal.pieceConfirmedTime.getTime() - deal.pieceAddedTime.getTime();
-    }
   }
 
   private async saveDeal(deal: Deal): Promise<void> {
