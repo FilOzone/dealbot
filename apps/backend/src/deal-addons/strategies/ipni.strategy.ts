@@ -75,9 +75,8 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
   readonly name = ServiceType.IPFS_PIN;
   readonly priority = AddonPriority.HIGH; // Run first to transform data
   readonly POLLING_INTERVAL_MS = 2500;
-  readonly POLLING_TIMEOUT_MS = 10 * 60 * 1000;
-  readonly IPNI_LOOKUP_TIMEOUT_MS = 60 * 60 * 1000;
-  readonly IPNI_VERIFICATION_RETRY_INTERVAL_MS = 10 * 1000;
+  readonly POLLING_TIMEOUT_MS = 2 * 60 * 1000; // 2 minutes - max time to wait for SP to advertise piece
+  readonly IPNI_LOOKUP_TIMEOUT_MS = 3 * 60 * 1000; // 3 minutes - max time to wait for IPNI propagation
 
   /**
    * Check if IPNI is enabled in the deal configuration
