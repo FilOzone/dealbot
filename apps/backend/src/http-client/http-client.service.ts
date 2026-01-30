@@ -192,7 +192,7 @@ export class HttpClientService {
         httpVersion: "2",
       };
 
-      this.logger.log(
+      this.logger.debug(
         `HTTP/2 Request successful - TTFB: ${metrics.ttfb}ms, Total: ${metrics.totalTime}ms, Size: ${this.formatBytes(
           dataBuffer.length,
         )}`,

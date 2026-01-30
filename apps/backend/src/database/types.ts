@@ -2,6 +2,7 @@ export enum DealStatus {
   PENDING = "pending",
   UPLOADED = "uploaded",
   PIECE_ADDED = "piece_added",
+  PIECE_CONFIRMED = "piece_confirmed",
   DEAL_CREATED = "deal_created",
   FAILED = "failed",
 }

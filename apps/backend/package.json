@@ -27,7 +27,7 @@
     "test:e2e:k8s": "VITEST_INCLUDE_K8S=true vitest run --config ./test/vitest-e2e.config.ts test/k8s-integration.e2e-spec.ts"
   },
   "dependencies": {
-    "@filoz/synapse-sdk": "0.36.0",
+    "@filoz/synapse-sdk": "0.36.1",
     "@ipld/car": "^5.4.2",
     "@nestjs/axios": "^4.0.1",
     "@nestjs/common": "^11.1.9",
@@ -45,7 +45,7 @@
     "cors": "^2.8.5",
     "cron": "4.3.5",
     "ethers": "^6.16.0",
-    "filecoin-pin": "^0.15.0",
+    "filecoin-pin": "^0.15.1",
     "helmet": "^8.1.0",
     "https-proxy-agent": "^7.0.6",
     "joi": "^17.13.3",

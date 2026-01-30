@@ -129,7 +129,7 @@ export class DealAddonsService {
       this.logger.debug(`onUploadComplete handlers completed for deal ${deal.id}`);
     } catch (error) {
       this.logger.warn(`onUploadComplete handler failed for deal ${deal.id}: ${error.message}`);
-      // Don't throw - handler failures shouldn't break the deal
+      throw error;
     }
   }
 

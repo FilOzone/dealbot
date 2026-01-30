@@ -17,7 +17,7 @@ const baseConfig: IBlockchainConfig = {
   checkDatasetCreationFees: false,
   useOnlyApprovedProviders: false,
   enableCDNTesting: false,
-  enableIpniTesting: false,
+  enableIpniTesting: "always",
 };
 
 const makeProvider = (overrides: Partial<ProviderInfoEx>): ProviderInfoEx =>
