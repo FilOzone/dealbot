@@ -20,11 +20,10 @@ export async function buildUnixfsCar(dataFile: { data: Buffer; size: number; nam
   const tempDir = join(tmpdir(), `dealbot-car-${randomBytes(6).toString("hex")}`);
   const tempFilePath = join(tempDir, safeName);
   let carPath: string | undefined;
-
-  await mkdir(tempDir, { recursive: true });
-  await writeFile(tempFilePath, dataFile.data);
-
   try {
+    await mkdir(tempDir, { recursive: true });
+    await writeFile(tempFilePath, dataFile.data);
+
     const carResult = await createCarFromPath(tempFilePath);
     carPath = carResult.carPath;
     const carBytes = await readFile(carPath);
@@ -50,8 +49,16 @@ export async function buildUnixfsCar(dataFile: { data: Buffer; size: number; nam
     };
   } finally {
     if (carPath) {
-      await cleanupTempCar(carPath);
+      try {
+        await cleanupTempCar(carPath);
+      } catch {
+        // Best-effort cleanup; avoid masking the original error.
+      }
     }
-    await rm(tempDir, { recursive: true, force: true });
+    try {
+      await rm(tempDir, { recursive: true, force: true });
+    } catch {
+      // Best-effort cleanup; avoid masking the original error.
+    }
   }
 }

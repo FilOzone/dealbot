@@ -31,6 +31,7 @@ vi.mock("@filoz/synapse-sdk", async (importOriginal) => {
 
 vi.mock("filecoin-pin", () => ({
   executeUpload: vi.fn(),
+  cleanupSynapseService: vi.fn(),
 }));
 
 describe("DealService", () => {

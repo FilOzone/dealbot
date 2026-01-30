@@ -12,7 +12,7 @@ export class AddPieceConfirmedStatus1760000000001 implements MigrationInterface 
           WHERE enumlabel = 'piece_confirmed'
             AND enumtypid = 'deals_status_enum'::regtype
         ) THEN
-          ALTER TYPE deals_status_enum ADD VALUE 'piece_confirmed' AFTER 'piece_added';
+          ALTER TYPE deals_status_enum ADD VALUE 'piece_confirmed';
         END IF;
       END $$;
     `);
