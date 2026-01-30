@@ -283,8 +283,9 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
         if (!uploadCompleteOk) {
           throw uploadCompleteError ?? new Error("Upload completion handlers failed");
         }
-        // pieceUploadToRetrievableDuration = dealConfirmedTime - uploadStartTime
         deal.dealConfirmedTime = new Date();
+        // pieceUploadToRetrievableDuration
+        deal.dealLatencyMs = deal.ipniVerifiedAt.getTime() - deal.uploadStartTime.getTime();
       }
 
       const retrievalConfig: RetrievalConfiguration = {
@@ -438,9 +439,6 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     deal.pieceSize = pieceSize;
 
     deal.pieceId = uploadResult.pieceId;
-    if (deal.uploadStartTime) {
-      deal.dealLatencyMs = deal.dealConfirmedTime.getTime() - deal.uploadStartTime.getTime();
-    }
   }
 
   private async saveDeal(deal: Deal): Promise<void> {

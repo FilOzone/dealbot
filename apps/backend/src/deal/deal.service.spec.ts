@@ -140,7 +140,9 @@ describe("DealService", () => {
     walletSdkMock = mockWalletSdkService;
     dealAddonsMock = mockDealAddonsService;
     retrievalAddonsMock = mockRetrievalAddonsService;
-    dealAddonsMock.handleUploadComplete.mockResolvedValue(undefined);
+    dealAddonsMock.handleUploadComplete.mockImplementation(async (deal: Deal) => {
+      deal.ipniVerifiedAt = new Date();
+    });
   });
 
   afterEach(() => {
