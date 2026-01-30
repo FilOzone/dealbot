@@ -17,10 +17,10 @@ This is distinct from the inline retrieval verification in the [Data Storage Che
 A **successful** retrieval requires ALL of:
 
 1. Randomly select a previously stored test piece of a **single constant size** (10 MB) from a successful deal
-2. Verify the root CID is discoverable via IPNI and the SP is listed as a provider
+2. **TBD:** Verify the root CID is discoverable via IPNI and the SP is listed as a provider
 3. Request retrieval via the SP IPFS gateway (`/ipfs/{rootCid}`)
 4. Download completes successfully (HTTP 2xx)
-5. Downloaded content matches the expected content.
+5. Downloaded content matches the expected content (**TBD**: size-check only until CID verification lands).
 
 **Failure** occurs if any required check fails (IPNI verification, download, or content match) or the retrieval exceeds its max allowed time.
 
@@ -65,8 +65,10 @@ Not every deal is tested every cycle. Dealbot selects a batch of deals for retri
 - **Constant size:** Only deals with a 10 MB test piece are eligible (**TBD**)
 - **IPNI-ready:** Only deals with a root CID in metadata are eligible (**TBD**)
 - **Grouped by SP:** Deals are grouped by storage provider
-- **Random per SP:** For each SP, select a random sample of up to **10** root CIDs (**TBD: make configurable**)
-- **Randomization:** Within each provider's deals, selection order is shuffled
+- **Balanced batch size:** Compute `dealsPerProvider = ceil(count / providers.length)`
+- **Random per SP:** For each SP, randomly sample up to `dealsPerProvider` deals (capped by remaining slots)
+- **Randomization:** Within each provider's deals, selection order is shuffled before sampling
+- **Fill remaining slots:** If the balanced pass yields fewer than `count` deals, fill the remainder from the remaining pool across providers
 
 This ensures each SP gets tested with roughly equal frequency, and tests cover a variety of deals rather than always testing the most recent ones.
 
@@ -84,6 +86,7 @@ Verifies that the root CID is discoverable via IPNI and that the SP is listed as
 - **Applicable when:** Deal has a root CID in metadata
 - **What this tests:** The piece was advertised to IPNI and the SP is discoverable as a provider
 
+**TBD:** The retrieval job does not currently perform this verification. IPNI verification currently runs during deal creation.
 Source: [`ipni.strategy.ts` line 239 (`monitorAndVerifyIPNI`)](../../apps/backend/src/deal-addons/strategies/ipni.strategy.ts)
 
 ### 2. IPFS Gateway Retrieval
@@ -105,8 +108,8 @@ For each retrieval attempt:
 | # | Assertion | How It's Checked | Implemented? |
 |---|-----------|-----------------|:---:|
 | 1 | Constant-size test piece selected | Only 10 MB test pieces are eligible for retrieval | **TBD** |
-| 2 | Root CID is discoverable via IPNI | IPNI query for root CID returns a result | Yes |
-| 3 | SP is listed as provider in IPNI response | IPNI result includes the SP as a provider | Yes |
+| 2 | Root CID is discoverable via IPNI | IPNI query for root CID returns a result | **TBD** |
+| 3 | SP is listed as provider in IPNI response | IPNI result includes the SP as a provider | **TBD** |
 | 4 | IPFS content is retrievable | HTTP response returns 2xx status | Yes |
 | 5 | Content integrity via CID | CID of downloaded content matches upload-time CID | **TBD** |
 | 6 | Retrieval completes within max time | Retrieval completes within a configurable max time; otherwise marked failed | **TBD** |
@@ -115,14 +118,16 @@ For each retrieval attempt:
 
 ## Retrieval Result Recording
 
+Each retrieval run can create **multiple** `Retrieval` entities for a single deal: one per retrieval method result (e.g., `direct_sp`, `cdn`, `ipfs_pin`).
+
 Each retrieval attempt creates a `Retrieval` entity in the database:
 
 | Field | Description |
 |-------|-------------|
 | `dealId` | Which deal was tested |
-| `serviceType` | Retrieval method used (`ipfs_pin`) |
+| `serviceType` | Retrieval method used (`direct_sp`, `cdn`, or `ipfs_pin`) |
 | `retrievalEndpoint` | URL used for the download |
-| `status` | `success`, `failed`, or `timeout` |
+| `status` | Currently persisted as `success` or `failed` (`timeout` is **TBD**) |
 | `latencyMs` | Total download time |
 | `ttfbMs` | Time to first byte |
 | `throughputBps` | Download throughput in bytes per second |
@@ -151,7 +156,14 @@ Key environment variables that control retrieval testing:
 |----------|---------|-------------|
 | `RETRIEVAL_INTERVAL_SECONDS` | `60` | How often retrieval tests run |
 | `RETRIEVAL_START_OFFSET_SECONDS` | `600` | Delay before first retrieval run (10 min) |
-| `HTTP_REQUEST_TIMEOUT_MS` | `600000` | Max time for a single HTTP retrieval (10 min) |
+| `HTTP_REQUEST_TIMEOUT_MS` | `600000` | Base max time for a single HTTP/1.1 retrieval |
+| `HTTP2_REQUEST_TIMEOUT_MS` | `600000` | Base max time for a single HTTP/2 retrieval (IPFS gateway) |
+| `RETRIEVAL_TIMEOUT_BUFFER_MS` | `60000` | Buffer subtracted from the scheduler interval when computing the batch timeout |
+
+Effective timeouts:
+
+- **Per-retrieval timeout:** `max(HTTP_REQUEST_TIMEOUT_MS, HTTP2_REQUEST_TIMEOUT_MS)`
+- **Batch timeout:** `RETRIEVAL_INTERVAL_SECONDS * 1000 - RETRIEVAL_TIMEOUT_BUFFER_MS` (minimum 10s)
 
 Source: [`apps/backend/src/config/app.config.ts`](../../apps/backend/src/config/app.config.ts)
 

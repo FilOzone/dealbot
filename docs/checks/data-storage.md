@@ -16,7 +16,7 @@ A "deal" is dealbot's end-to-end test of an upload to a storage provider (SP). E
 4. Waits for the SP to index and advertise the piece (and records on-chain submission)
 5. **TBD:** Runs retrieval checks as defined in [Retrieval Check](./retrievals.md) and gates deal success on those results
 
-A deal is **not** considered successful until all of these steps pass.  
+A deal is **not** considered successful until all of these steps pass.
 **TBD:** Retrieval and IPNI verification do not yet block `DEAL_CREATED`.
 
 ### Definition of Successful Data Storage Operation

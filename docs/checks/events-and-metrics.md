@@ -20,6 +20,8 @@ Events are grouped by check type. Each event includes a short definition, its im
 | <a id="spIndexingComplete"></a>`spIndexingComplete` | SP has indexed the piece locally (`indexed=true`). | Yes (async) | [`ipni.strategy.ts`](../../apps/backend/src/deal-addons/strategies/ipni.strategy.ts) |
 | <a id="spAdvertisedToIpni"></a>`spAdvertisedToIpni` | SP has announced the piece to IPNI (`advertised=true`). | Yes (async) | [`ipni.strategy.ts`](../../apps/backend/src/deal-addons/strategies/ipni.strategy.ts) |
 | <a id="verifyIpniAdvertisement"></a>`verifyIpniAdvertisement` | Dealbot confirms IPNI has provider records for the root CID. | Yes (async) | [`ipni.strategy.ts`](../../apps/backend/src/deal-addons/strategies/ipni.strategy.ts) |
+| <a id="ipniVerificationStart"></a>`ipniVerificationStart` | IPNI lookup begins for root CID + provider (deal creation flow). | **TBD** | [`ipni.strategy.ts`](../../apps/backend/src/deal-addons/strategies/ipni.strategy.ts) |
+| <a id="ipniVerificationComplete"></a>`ipniVerificationComplete` | IPNI lookup completes (pass/fail) for root CID + provider. | Yes (async) | [`ipni.strategy.ts`](../../apps/backend/src/deal-addons/strategies/ipni.strategy.ts) |
 | <a id="verifyIpfsRetrievalStart"></a>`verifyIpfsRetrievalStart` | Retrieval begins via SP IPFS gateway (`/ipfs/{rootCid}`). | **TBD** | [`retrieval.service.ts`](../../apps/backend/src/retrieval/retrieval.service.ts) |
 | <a id="verifyIpfsRetrievalFirstByteReceived"></a>`verifyIpfsRetrievalFirstByteReceived` | First byte received from `/ipfs/{rootCid}`. | **TBD** | [`retrieval.service.ts`](../../apps/backend/src/retrieval/retrieval.service.ts) |
 | <a id="verifyIpfsRetrievalLastByteReceived"></a>`verifyIpfsRetrievalLastByteReceived` | Last byte received from `/ipfs/{rootCid}`. | **TBD** | [`retrieval.service.ts`](../../apps/backend/src/retrieval/retrieval.service.ts) |
@@ -34,8 +36,6 @@ Events are grouped by check type. Each event includes a short definition, its im
 | <a id="retrieveFromSpStart"></a>`retrieveFromSpStart` | Retrieval attempt begins for a deal via SP IPFS gateway. | **TBD** | [`retrieval.service.ts`](../../apps/backend/src/retrieval/retrieval.service.ts) |
 | <a id="retrieveFromSpFirstByteReceived"></a>`retrieveFromSpFirstByteReceived` | First byte received from a retrieval attempt. | **TBD** | [`retrieval.service.ts`](../../apps/backend/src/retrieval/retrieval.service.ts) |
 | <a id="retrieveFromSpEnd"></a>`retrieveFromSpEnd` | Retrieval attempt finishes (success or failure). | Yes | [`retrieval.service.ts`](../../apps/backend/src/retrieval/retrieval.service.ts) |
-| <a id="ipniVerificationStart"></a>`ipniVerificationStart` | IPNI lookup begins for root CID + provider. | **TBD** | [`ipni.strategy.ts`](../../apps/backend/src/deal-addons/strategies/ipni.strategy.ts) |
-| <a id="ipniVerificationComplete"></a>`ipniVerificationComplete` | IPNI lookup completes (pass/fail). | Yes | [`ipni.strategy.ts`](../../apps/backend/src/deal-addons/strategies/ipni.strategy.ts) |
 
 > See [Retrieval Check](./retrievals.md) for the retrieval selection and verification process.
 
