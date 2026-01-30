@@ -1,6 +1,6 @@
 # Data Storage Check
 
-This document is the **source of truth** for how dealbot's Data Storage check is intended to work. Items marked **TBD** describe behavior that is not yet implemented; code changes will follow.
+This document is the **source of truth** for how dealbot's Data Storage check works. Items marked **TBD** are not yet implemented; code changes will follow.
 
 Source code links throughout this document point to the current implementation.
 
@@ -13,18 +13,19 @@ A "deal" is dealbot's end-to-end test of an upload to a storage provider (SP). E
 1. Generates a random data file
 2. Converts it to [CAR format](https://ipld.io/specs/transport/car/)
 3. Uploads it to **every testing SP**, creating one dataset per SP (provider scope is controlled by `USE_ONLY_APPROVED_PROVIDERS`)
-4. Waits for the SP to index the piece and confirm on-chain
-5. Runs retrieval checks as defined in [Retrieval Check](./retrievals.md)
+4. Waits for the SP to index and advertise the piece (and records on-chain submission)
+5. **TBD:** Runs retrieval checks as defined in [Retrieval Check](./retrievals.md) and gates deal success on those results
 
-A deal is **not** considered successful until all of these steps pass.
+A deal is **not** considered successful until all of these steps pass.  
+**TBD:** Retrieval and IPNI verification do not yet block `DEAL_CREATED`.
 
 ### Definition of Successful Data Storage Operation
-
-A **successful** Data Storage operation requires ALL of:
 
 1. Dealbot uploads a test piece to the SP
 2. SP confirms receipt and piece lands on-chain
 3. Retrieval checks pass (see [Retrieval Check](./retrievals.md))
+
+**TBD:** Retrieval checks and IPNI verification do not yet gate `DEAL_CREATED`.
 
 **Failure** occurs if any step fails or the deal exceeds its max allowed time. There are no timing-based quality assertions. Operational timeouts exist to prevent jobs from running indefinitely, but they are not quality assertions. A per-deal max time limit that fails the deal if exceeded is **TBD**.
 
@@ -38,7 +39,7 @@ Each deal asserts the following for every SP:
 | 2 | Piece submission recorded on-chain | `onPieceAdded` callback fires with a transaction hash | Yes |
 | 3 | Piece is confirmed on-chain | `onPieceConfirmed` callback fires | **TBD** |
 | 4 | SP indexes piece locally | PDP server reports `indexed: true` | Yes (async) |
-| 5 | Retrieval checks pass | See [Retrieval Check](./retrievals.md) for specific assertions | **TBD** (part of deal flow) |
+| 5 | Retrieval checks pass | See [Retrieval Check](./retrievals.md) for specific assertions | **TBD** (separate scheduled job until inline verification lands) |
 | 6 | Deal completes within max time | Entire deal (all steps) completes within a configurable max time; otherwise marked failed | **TBD** |
 | 7 | Deal blocked until all checks pass | Deal is not marked successful until assertions 1–6 pass | **TBD** |
 
@@ -59,8 +60,8 @@ For each testing SP (up to 10 in parallel):
     |
     +-- Create dataset on-chain via Synapse SDK (idempotent)
     +-- Upload CAR data to SP
-    +-- Wait for SP to index the piece
-    +-- Wait for on-chain confirmation
+    +-- Wait for SP to index and advertise the piece
+    +-- Wait for on-chain confirmation                   [TBD]
     +-- Run retrieval checks                              [TBD]
     +-- Mark deal as successful only after all checks pass [TBD]
 ```
@@ -96,11 +97,11 @@ Source: [`ipni.strategy.ts` line 530 (`convertToCar`)](../../apps/backend/src/de
 
 For each **testing SP**, dealbot:
 
-1. **Creates a dataset on-chain** via the Synapse SDK (`synapse.createStorageContext()`), one dataset per SP. Dataset creation is idempotent (if a dataset with the same metadata already exists for the SP, it is reused).
-2. **Uploads the CAR file** to the SP. Three callbacks track progress:
-   - `onUploadComplete` — SP confirms receipt. Records the piece CID, upload latency, and throughput.
-   - `onPieceAdded` — piece submission is recorded (transaction hash available). Indexing in the SP/Curio DB should be complete.
-   - `onPieceConfirmed` — piece is confirmed on-chain. Records chain latency.
+1. **Creates a dataset on-chain** via the Synapse SDK (`synapse.createStorage(...)`), one dataset per SP. Dataset creation is idempotent (if a dataset with the same metadata already exists for the SP, it is reused).
+2. **Uploads the CAR file** to the SP. Callbacks track progress:
+   - `onUploadComplete` — SP confirms receipt (PDP 2xx). Records the piece CID, upload latency, and throughput.
+   - `onPieceAdded` — piece submission is recorded on-chain (transaction hash available).
+   - `onPieceConfirmed` — **TBD**: will track chain confirmation once the callback is wired.
 
 SPs are processed in parallel batches of up to 10. Failures for individual SPs do not block other SPs.
 
@@ -113,16 +114,18 @@ The set of **testing providers** is determined by configuration:
 - Only **active PDP providers** are eligible (dev-tagged providers are excluded)
 - If `USE_ONLY_APPROVED_PROVIDERS=true` (default), only approved providers are tested
 
+**Hosted config note:** `dealbot.filoz.org` runs with `USE_ONLY_APPROVED_PROVIDERS=false` so non-approved SPs are included for evaluation. The default remains `true` for safety in self-hosted deployments.
+
 Source: [`wallet-sdk.service.ts` line 213 (`getTestingProviders`)](../../apps/backend/src/wallet-sdk/wallet-sdk.service.ts)
 
-### 4. Wait for SP to Index and Confirm On-Chain
+### 4. Wait for SP to Index and Advertise
 
 After upload completes, dealbot polls the SP's PDP server to track the piece through its lifecycle:
 
 | Status | Meaning |
 |--------|---------|
 | `sp_indexed` | SP has indexed the piece locally — it is now retrievable |
-| `sp_advertised` | SP has advertised the piece to the IPNI network |
+| `sp_advertised` | SP has advertised the piece to IPNI (IPNI terminology: `sp_announced_advertisement`) |
 
 - **Poll interval:** 2.5 seconds
 - **Timeout:** 10 minutes (default; see `POLLING_TIMEOUT_MS`)
@@ -133,7 +136,7 @@ Source: [`ipni.strategy.ts` line 343 (`monitorPieceStatus`)](../../apps/backend/
 
 ### 5. Retrieve and Verify Content — **TBD**
 
-> **TBD:** This step is not yet implemented as part of the deal creation flow. Currently, retrieval runs as a [separate scheduled job](../../apps/backend/src/retrieval/retrieval.service.ts) and does not block deal completion.
+> **TBD:** Retrieval runs as a [separate scheduled job](../../apps/backend/src/retrieval/retrieval.service.ts) and does not yet block deal completion.
 
 Once the SP has indexed the piece, dealbot runs the retrieval checks defined in [Retrieval Check](./retrievals.md). The deal is **not** marked as successful until those retrieval checks pass.
 
@@ -148,9 +151,8 @@ After the SP advertises the piece to IPNI, dealbot verifies two things:
 
 The verification flow:
 
-1. Waits 30 seconds after `sp_advertised` for the IPNI indexer to process.
-2. Queries IPNI for the root CID.
-3. Checks that the IPNI response contains the expected SP as a provider for this content.
+1. Queries IPNI for the root CID.
+2. Checks that the IPNI response contains the expected SP as a provider for this content.
 
 This uses the `waitForIpniProviderResults` function from the `filecoin-pin` library.
 
@@ -159,7 +161,7 @@ This uses the `waitForIpniProviderResults` function from the `filecoin-pin` libr
 
 Source: [`ipni.strategy.ts` line 239 (`monitorAndVerifyIPNI`)](../../apps/backend/src/deal-addons/strategies/ipni.strategy.ts)
 
-> **Current implementation note:** IPNI verification currently runs asynchronously and does not block the deal from being marked as `DEAL_CREATED`. The intended behavior is that a deal is not considered fully successful until IPNI verification also passes. **TBD.**
+> **TBD:** IPNI verification runs asynchronously and does not yet block the deal from being marked as `DEAL_CREATED`.
 
 ## Deal Status Progression
 
@@ -189,17 +191,17 @@ Source: [`apps/backend/src/database/types.ts` line 1 (`DealStatus`)](../../apps/
 Tracked independently from deal status, IPNI verification progresses through:
 
 ```
-PENDING ──> SP_INDEXED ──> SP_ADVERTISED ──> SP_RECEIVED_RETRIEVE_REQUEST ──> VERIFIED
-   |            |               |                      |                         |
-   v            v               v                      v                         v
- FAILED      FAILED          FAILED                 FAILED                    (done)
+PENDING ──> SP_INDEXED ──> SP_ADVERTISED ──> VERIFIED
+   |            |               |               |
+   v            v               v               v
+ FAILED      FAILED          FAILED            (done)
 ```
 
 | Status | Meaning |
 |--------|---------|
 | `pending` | IPNI monitoring started |
 | `sp_indexed` | SP indexed the piece locally |
-| `sp_advertised` | SP advertised the piece to IPNI |
+| `sp_advertised` | SP advertised the piece to IPNI (IPNI terminology: `sp_announced_advertisement`) |
 | `verified` | Root CID is discoverable via IPNI and the SP is listed as a provider in the IPNI response |
 | `failed` | Monitoring timed out or verification failed |
 
@@ -207,18 +209,15 @@ Source: [`apps/backend/src/database/types.ts` line 28 (`IpniStatus`)](../../apps
 
 ## Metrics Recorded
 
-Each deal records timing and throughput metrics:
+Metric definitions live in [Dealbot Events & Metrics](./events-and-metrics.md). For this check, the relevant metrics are:
 
-| Metric | Description |
-|--------|-------------|
-| `ingestLatencyMs` | Time from upload start to SP confirmation |
-| `ingestThroughputBps` | Upload throughput in bytes per second |
-| `chainLatencyMs` | Time from upload confirmation to on-chain piece addition |
-| `dealLatencyMs` | Total time from upload start to deal confirmation |
-| `ipniTimeToIndexMs` | Time from upload to SP indexing the piece |
-| `ipniTimeToAdvertiseMs` | Time from upload to SP advertising the piece |
-| `ipniTimeToRetrieveMs` | Time from upload to SP receiving a retrieve request |
-| `ipniTimeToVerifyMs` | Time from upload to IPNI verification of root CID |
+- [`ingestLatencyMs`](./events-and-metrics.md#ingestLatencyMs)
+- [`ingestThroughputBps`](./events-and-metrics.md#ingestThroughputBps)
+- [`chainLatencyMs`](./events-and-metrics.md#chainLatencyMs)
+- [`dealLatencyMs`](./events-and-metrics.md#dealLatencyMs)
+- [`ipniTimeToIndexMs`](./events-and-metrics.md#ipniTimeToIndexMs)
+- [`ipniTimeToAdvertiseMs`](./events-and-metrics.md#ipniTimeToAdvertiseMs)
+- [`ipniTimeToVerifyMs`](./events-and-metrics.md#ipniTimeToVerifyMs)
 
 Prometheus counters and histograms are also exported:
 
@@ -259,15 +258,15 @@ See also: [`docs/environment-variables.md`](../environment-variables.md) for the
 
 ## TBD Summary
 
-The following items describe intended behavior that is not yet implemented:
+The following items are **TBD**:
 
 | Item | Description |
 |------|-------------|
-| Inline retrieval verification | After SP indexes, immediately retrieve and verify content as part of the deal flow — deal must not be marked successful until retrieval passes (currently retrieval runs as a separate scheduled job) |
-| CID-based content verification | Verify retrieved content by re-computing CID and comparing to upload-time CID (currently size-check only) |
-| Per-deal max time limit | If the entire deal (all steps) does not complete within a configurable max time, mark the deal as failed. Currently, operational timeouts prevent infinite runs but are not treated as a quality assertion that fails the deal. |
-| Deal gated on all checks | Deal should not be marked successful until retrieval and IPNI verification pass (currently IPNI runs async and does not block deal status) |
+| Inline retrieval verification | After SP indexes, immediately retrieve and verify content as part of the deal flow — deal must not be marked successful until retrieval passes (separate scheduled job until inline verification lands) |
+| CID-based content verification | Verify retrieved content by re-computing CID and comparing to upload-time CID (size-check only until CID verification lands) |
+| Per-deal max time limit | If the entire deal (all steps) does not complete within a configurable max time, mark the deal as failed. Operational timeouts prevent infinite runs but are not treated as a quality assertion that fails the deal. |
+| Deal gated on all checks | Deal should not be marked successful until retrieval and IPNI verification pass (IPNI runs async until gating is implemented) |
 | Status model update | Deal statuses may need new states to reflect retrieval and IPNI verification gates |
-| `onPieceConfirmed` callback tracking | Track `onPieceConfirmed` callback as a distinct step — piece confirmed on-chain (currently only `onPieceAdded` is tracked as a deal status gate) |
+| `onPieceConfirmed` callback tracking | Track `onPieceConfirmed` callback as a distinct step — piece confirmed on-chain (only `onPieceAdded` is tracked as a deal status gate until this lands) |
 | IPFS gateway retrieval verification | After SP indexes, retrieve content via the SP IPFS gateway (`/ipfs/{rootCid}`) and verify it before the deal can pass |
-| `filecoin-pin` CAR conversion | CAR conversion should use the `filecoin-pin` library integration (currently uses a local implementation in `ipni.strategy.ts`) |
+| `filecoin-pin` CAR conversion | CAR conversion should use the `filecoin-pin` library integration (local implementation in `ipni.strategy.ts` until this lands) |

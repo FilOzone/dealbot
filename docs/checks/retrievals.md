@@ -1,6 +1,6 @@
 # Retrieval Check
 
-This document is the **source of truth** for how dealbot's Retrieval check is intended to work. Items marked **TBD** describe behavior that is not yet implemented; code changes will follow.
+This document is the **source of truth** for how dealbot's Retrieval check works. Items marked **TBD** are not yet implemented; code changes will follow.
 
 Source code links throughout this document point to the current implementation.
 
@@ -159,11 +159,11 @@ See also: [`docs/environment-variables.md`](../environment-variables.md) for the
 
 ## TBD Summary
 
-The following items describe intended behavior that is not yet implemented:
+The following items are **TBD**:
 
 | Item | Description |
 |------|-------------|
 | Enforce constant size selection | Only select 10 MB test pieces for retrieval checks. |
 | Remove PDP `/piece` retrieval | Retrieval checks should only use the SP IPFS gateway (`/ipfs/{rootCid}`). |
-| Per-retrieval max time limit | If a retrieval does not complete within a configurable max time, mark it as failed. Currently, operational timeouts prevent infinite runs but are not treated as a quality assertion that fails the retrieval. |
-| CID-based content verification | Verify retrieved content by re-computing CID and comparing to upload-time CID (currently size-check only). See [issue #144](https://github.com/FilOzone/dealbot/issues/144). |
+| Per-retrieval max time limit | If a retrieval does not complete within a configurable max time, mark it as failed. Operational timeouts prevent infinite runs but are not treated as a quality assertion that fails the retrieval. |
+| CID-based content verification | Verify retrieved content by re-computing CID and comparing to upload-time CID (size-check only until CID verification lands). See [issue #144](https://github.com/FilOzone/dealbot/issues/144). |
