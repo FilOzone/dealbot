@@ -64,6 +64,22 @@ export class RetrievalService {
     return allRetrievals;
   }
 
+  async performRandomRetrievalForProvider(
+    spAddress: string,
+    timeoutMs: number,
+    signal?: AbortSignal,
+  ): Promise<Retrieval[]> {
+    const deal = await this.selectRandomSuccessfulDealForProvider(spAddress);
+    if (!deal) {
+      this.logger.warn(`No successful deals available for ${spAddress}, skipping retrieval`);
+      return [];
+    }
+
+    this.logger.log(`Starting retrieval test for ${spAddress} (Timeout: ${Math.round(timeoutMs / 1000)}s)`);
+
+    return withTimeout(this.performAllRetrievals(deal, signal), timeoutMs, `Retrieval for deal ${deal.id} timed out`);
+  }
+
   async performRetrievalsForDeal(deal: Deal, signal?: AbortSignal): Promise<Retrieval[]> {
     return this.performAllRetrievals(deal, signal);
   }
@@ -290,6 +306,22 @@ export class RetrievalService {
     const selectedDeals = this.selectBalancedDeals(dealsByProvider, count);
 
     return selectedDeals;
+  }
+
+  /**
+   * We select a random successful deal (DEAL_CREATED only) for a given provider.
+   * Uses Postgres ORDER BY RANDOM() since Dealbot is Postgres-only.
+   */
+  private async selectRandomSuccessfulDealForProvider(spAddress: string): Promise<Deal | null> {
+    return this.dealRepository
+      .createQueryBuilder("deal")
+      .where("deal.sp_address = :spAddress", { spAddress })
+      .andWhere("deal.status IN (:...statuses)", {
+        statuses: [DealStatus.DEAL_CREATED],
+      })
+      .orderBy("RANDOM()")
+      .limit(1)
+      .getOne();
   }
 
   private groupDealsByProvider(deals: Deal[]): Map<string, Deal[]> {
