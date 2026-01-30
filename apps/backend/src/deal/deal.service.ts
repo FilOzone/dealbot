@@ -178,9 +178,23 @@ export class DealService implements OnModuleInit {
       deal.dataSetId = storage.dataSetId;
       deal.uploadStartTime = new Date();
 
+      const safeOnUploadComplete = (pieceCid: PieceCID) => {
+        void this.handleUploadComplete(deal, pieceCid, dealInput.appliedAddons).catch((callbackError) => {
+          const callbackMessage = callbackError instanceof Error ? callbackError.message : String(callbackError);
+          this.logger.warn(`Upload completion handler failed for ${providerShort}...: ${callbackMessage}`);
+        });
+      };
+
+      const safeOnPieceAdded = (hash: any) => {
+        void this.handleRootAdded(deal, hash).catch((callbackError) => {
+          const callbackMessage = callbackError instanceof Error ? callbackError.message : String(callbackError);
+          this.logger.warn(`Piece added handler failed for ${providerShort}...: ${callbackMessage}`);
+        });
+      };
+
       const uploadResult: UploadResult = await storage.upload(dealInput.processedData.data, {
-        onUploadComplete: (pieceCid) => this.handleUploadComplete(deal, pieceCid, dealInput.appliedAddons),
-        onPieceAdded: (hash) => this.handleRootAdded(deal, hash),
+        onUploadComplete: safeOnUploadComplete,
+        onPieceAdded: safeOnPieceAdded,
         metadata: dealInput.synapseConfig.pieceMetadata,
       });
 
