@@ -8,7 +8,7 @@ For event and metric definitions used by the dashboard, see [Dealbot Events & Me
 
 ## Overview
 
-A "deal" is dealbot's end-to-end test of an upload to a storage provider (SP). Every deal cycle, dealbot:
+A "deal" is dealbot's end-to-end test of uploading a piece to a storage provider (SP). Every deal cycle, dealbot:
 
 1. Generates a random data file
 2. Converts it to [CAR format](https://ipld.io/specs/transport/car/)
@@ -35,7 +35,7 @@ Each deal asserts the following for every SP:
 
 | # | Assertion | How It's Checked | Implemented? |
 |---|-----------|-----------------|:---:|
-| 1 | SP accepts data upload | Upload completes without error; piece CID is returned | Yes |
+| 1 | SP accepts piece upload | Upload completes without error; piece CID is returned | Yes |
 | 2 | Piece submission recorded on-chain | `onPieceAdded` callback fires with a transaction hash | Yes |
 | 3 | Piece is confirmed on-chain | `onPieceConfirmed` callback fires | **TBD** |
 | 4 | SP indexes piece locally | PDP server reports `indexed: true` | Yes (async) |
@@ -89,7 +89,7 @@ The raw data is converted to a CAR (Content Addressable Archive) file (via `file
 This produces:
 - A **root CID** that uniquely identifies the content
 - An array of **block CIDs** for each chunk
-- The **CAR file bytes** that get uploaded to the SP
+- The **CAR file bytes** that get uploaded as the piece to the SP
 
 Source: [`ipni.strategy.ts` (`convertToCar`)](../../apps/backend/src/deal-addons/strategies/ipni.strategy.ts#L530)
 
@@ -177,7 +177,7 @@ PENDING ──> UPLOADED ──> PIECE_ADDED ──> DEAL_CREATED
 | Status | Meaning |
 |--------|---------|
 | `pending` | Deal entity created, upload not yet started |
-| `uploaded` | SP confirmed receipt of the data (piece CID assigned) |
+| `uploaded` | SP confirmed receipt of the piece (piece CID assigned) |
 | `piece_added` | Piece confirmed on-chain (transaction hash recorded) |
 | `deal_created` | Full upload result received; deal is complete |
 | `failed` | Any step in the pipeline errored |

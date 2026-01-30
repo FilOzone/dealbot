@@ -12,7 +12,7 @@ Events are grouped by check type. Each event includes a short definition, its im
 
 | Event | Definition | Status | Source of truth |
 |------|------------|:------:|-----------------|
-| <a id="uploadToSpStart"></a>`uploadToSpStart` | Dealbot starts an upload attempt to an SP (before invoking the upload call). | **TBD** | [`deal.service.ts`](../../apps/backend/src/deal/deal.service.ts) |
+| <a id="uploadToSpStart"></a>`uploadToSpStart` | Dealbot starts an upload attempt for a piece to an SP (before invoking the upload call). | **TBD** | [`deal.service.ts`](../../apps/backend/src/deal/deal.service.ts) |
 | <a id="uploadToSpEnd"></a>`uploadToSpEnd` | Upload finishes when the PDP server returns a 2xx; piece CID is known; ingest metrics are recorded. | Yes | [`deal.service.ts`](../../apps/backend/src/deal/deal.service.ts) (`handleUploadComplete`) |
 | <a id="pieceAdded"></a>`pieceAdded` | Piece submission is recorded on-chain by polling the PDP SP; transaction hash is known. | Yes | [`deal.service.ts`](../../apps/backend/src/deal/deal.service.ts) (`handleRootAdded`) |
 | <a id="pieceConfirmed"></a>`pieceConfirmed` | Piece is confirmed on-chain by polling a chain RPC endpoint. | **TBD** | Synapse SDK callback (not yet tracked) |
@@ -33,7 +33,7 @@ Events are grouped by check type. Each event includes a short definition, its im
 
 | Event | Definition | Status | Source of truth |
 |------|------------|:------:|-----------------|
-| <a id="retrieveFromSpStart"></a>`retrieveFromSpStart` | Retrieval attempt begins for a deal via SP IPFS gateway. | **TBD** | [`retrieval.service.ts`](../../apps/backend/src/retrieval/retrieval.service.ts) |
+| <a id="retrieveFromSpStart"></a>`retrieveFromSpStart` | Retrieval attempt begins for a piece via SP IPFS gateway. | **TBD** | [`retrieval.service.ts`](../../apps/backend/src/retrieval/retrieval.service.ts) |
 | <a id="retrieveFromSpFirstByteReceived"></a>`retrieveFromSpFirstByteReceived` | First byte received from a retrieval attempt. | **TBD** | [`retrieval.service.ts`](../../apps/backend/src/retrieval/retrieval.service.ts) |
 | <a id="retrieveFromSpEnd"></a>`retrieveFromSpEnd` | Retrieval attempt finishes (success or failure). | Yes | [`retrieval.service.ts`](../../apps/backend/src/retrieval/retrieval.service.ts) |
 

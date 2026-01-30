@@ -8,7 +8,7 @@ For event and metric definitions used by the dashboard, see [Dealbot Events & Me
 
 ## Overview
 
-The Retrieval check tests that **previously stored** data remains retrievable over time. It runs on a separate schedule from deal creation and selects deals that have already been uploaded and confirmed.
+The Retrieval check tests that **previously stored** data remains retrievable over time. It runs on a separate schedule from deal creation and selects pieces that have already been uploaded and confirmed.
 
 This is distinct from the inline retrieval verification in the [Data Storage Check](./data-storage.md), which confirms an SP can serve data immediately after indexing. The Retrieval check answers a different question: **does the SP continue to serve data correctly after the initial storage operation?**
 
@@ -35,11 +35,11 @@ Operational timeouts exist to prevent jobs from running indefinitely, but they a
 The scheduler triggers retrieval testing on a configurable interval.
 
 ```
-Select batch of previously created deals
+Select batch of previously created pieces
 (balanced across SPs, randomized, constant-size)
         |
         v
-For each deal (up to 5 in parallel):
+For each piece (up to 5 in parallel):
     |
     +-- Verify IPNI provider listing for root CID
     +-- Download content from SP IPFS gateway (`/ipfs/...`)
@@ -57,17 +57,17 @@ For each deal (up to 5 in parallel):
 | Deal selection | [`retrieval.service.ts`](../../apps/backend/src/retrieval/retrieval.service.ts#L273) | `selectRandomDealsForRetrieval()` |
 | Method testing | [`retrieval-addons.service.ts`](../../apps/backend/src/retrieval-addons/retrieval-addons.service.ts#L161) | `testAllRetrievalMethods()` |
 
-## Deal Selection
+## Piece Selection
 
-Not every deal is tested every cycle. Dealbot selects a batch of deals for retrieval testing with the following constraints:
+Not every piece is tested every cycle. Dealbot selects a batch of pieces for retrieval testing with the following constraints:
 
-- **Eligible deals:** Only deals with status `DEAL_CREATED` or `PIECE_ADDED`
-- **Constant size:** Only deals with a 10 MB test piece are eligible (**TBD**)
-- **IPNI-ready:** Only deals with a root CID in metadata are eligible (**TBD**)
-- **Grouped by SP:** Deals are grouped by storage provider
+- **Eligible pieces:** Only pieces from deals with status `DEAL_CREATED` or `PIECE_ADDED`
+- **Constant size:** Only 10 MB test pieces are eligible (**TBD**)
+- **IPNI-ready:** Only pieces with a root CID in metadata are eligible (**TBD**)
+- **Grouped by SP:** Pieces are grouped by storage provider
 - **Balanced batch size:** Compute `dealsPerProvider = ceil(count / providers.length)`
-- **Random per SP:** For each SP, randomly sample up to `dealsPerProvider` deals (capped by remaining slots)
-- **Randomization:** Within each provider's deals, selection order is shuffled before sampling
+- **Random per SP:** For each SP, randomly sample up to `dealsPerProvider` pieces (capped by remaining slots)
+- **Randomization:** Within each provider's pieces, selection order is shuffled before sampling
 - **Fill remaining slots:** If the balanced pass yields fewer than `count` deals, fill the remainder from the remaining pool across providers
 
 This ensures each SP gets tested with roughly equal frequency, and tests cover a variety of deals rather than always testing the most recent ones.
@@ -95,7 +95,7 @@ Downloads content from the SP's IPFS gateway.
 
 - **URL:** `{serviceURL}/ipfs/{rootCID}`
 - **Request:** HTTP/2 with `Accept: application/vnd.ipld.car` header
-- **Applicable when:** Deal was created with IPNI enabled and has a root CID in metadata
+- **Applicable when:** Piece has a root CID in metadata (deal was created with IPNI enabled)
 - **Validation:** CAR file size must match expected CAR size from deal metadata
 - **What this tests:** The SP can serve content by root CID via its IPFS gateway
 
@@ -118,7 +118,7 @@ For each retrieval attempt:
 
 ## Retrieval Result Recording
 
-Each retrieval run can create **multiple** `Retrieval` entities for a single deal: one per retrieval method result (e.g., `direct_sp`, `cdn`, `ipfs_pin`).
+Each retrieval run can create **multiple** `Retrieval` entities for a single piece: one per retrieval method result (e.g., `direct_sp`, `cdn`, `ipfs_pin`).
 
 Each retrieval attempt creates a `Retrieval` entity in the database:
 
