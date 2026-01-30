@@ -75,7 +75,7 @@ Dealbot generates a random binary file with a unique name and embedded markers (
 - **File format:** `random-{timestamp}-{uniqueId}.bin`
 - **Possible sizes:** 10 KiB, 10 MB, or 100 MB (configurable via `RANDOM_DATASET_SIZES`)
 
-Source: [`dataSource.service.ts` line 116](../../apps/backend/src/dataSource/dataSource.service.ts)
+Source: [`dataSource.service.ts`](../../apps/backend/src/dataSource/dataSource.service.ts#L116)
 
 ### 2. Convert to CAR Format
 
@@ -91,7 +91,7 @@ This produces:
 - An array of **block CIDs** for each chunk
 - The **CAR file bytes** that get uploaded to the SP
 
-Source: [`ipni.strategy.ts` line 530 (`convertToCar`)](../../apps/backend/src/deal-addons/strategies/ipni.strategy.ts)
+Source: [`ipni.strategy.ts` (`convertToCar`)](../../apps/backend/src/deal-addons/strategies/ipni.strategy.ts#L530)
 
 ### 3. Upload to Each SP
 
@@ -105,7 +105,7 @@ For each **testing SP**, dealbot:
 
 SPs are processed in parallel batches of up to 10. Failures for individual SPs do not block other SPs.
 
-Source: [`deal.service.ts` line 100 (`createDeal`)](../../apps/backend/src/deal/deal.service.ts)
+Source: [`deal.service.ts` (`createDeal`)](../../apps/backend/src/deal/deal.service.ts#L100)
 
 #### Testing Provider Scope
 
@@ -116,7 +116,7 @@ The set of **testing providers** is determined by configuration:
 
 **Hosted config note:** `dealbot.filoz.org` runs with `USE_ONLY_APPROVED_PROVIDERS=false` so non-approved SPs are included for evaluation. The default remains `true` for safety in self-hosted deployments.
 
-Source: [`wallet-sdk.service.ts` line 213 (`getTestingProviders`)](../../apps/backend/src/wallet-sdk/wallet-sdk.service.ts)
+Source: [`wallet-sdk.service.ts` (`getTestingProviders`)](../../apps/backend/src/wallet-sdk/wallet-sdk.service.ts#L213)
 
 ### 4. Wait for SP to Index and Advertise
 
@@ -132,7 +132,7 @@ After upload completes, dealbot polls the SP's PDP server to track the piece thr
 
 Once the SP reports `sp_indexed`, the content is retrievable via the SP IPFS gateway. This is the trigger for the next step.
 
-Source: [`ipni.strategy.ts` line 343 (`monitorPieceStatus`)](../../apps/backend/src/deal-addons/strategies/ipni.strategy.ts)
+Source: [`ipni.strategy.ts` (`monitorPieceStatus`)](../../apps/backend/src/deal-addons/strategies/ipni.strategy.ts#L343)
 
 ### 5. Retrieve and Verify Content — **TBD**
 
@@ -159,7 +159,7 @@ This uses the `waitForIpniProviderResults` function from the `filecoin-pin` libr
 - **Lookup timeout:** 1 hour (derived from retry attempts and interval)
 - **Retry interval:** 5 seconds
 
-Source: [`ipni.strategy.ts` line 239 (`monitorAndVerifyIPNI`)](../../apps/backend/src/deal-addons/strategies/ipni.strategy.ts)
+Source: [`ipni.strategy.ts` (`monitorAndVerifyIPNI`)](../../apps/backend/src/deal-addons/strategies/ipni.strategy.ts#L239)
 
 > **TBD:** IPNI verification runs asynchronously and does not yet block the deal from being marked as `DEAL_CREATED`.
 
@@ -182,7 +182,7 @@ PENDING ──> UPLOADED ──> PIECE_ADDED ──> DEAL_CREATED
 | `deal_created` | Full upload result received; deal is complete |
 | `failed` | Any step in the pipeline errored |
 
-Source: [`apps/backend/src/database/types.ts` line 1 (`DealStatus`)](../../apps/backend/src/database/types.ts)
+Source: [`types.ts` (`DealStatus`)](../../apps/backend/src/database/types.ts#L1)
 
 > **Note:** The current status model does not include retrieval verification or IPNI verification as gates. Statuses will need to be extended so a deal is not marked successful until all checks pass. **TBD.**
 
@@ -205,7 +205,7 @@ PENDING ──> SP_INDEXED ──> SP_ADVERTISED ──> VERIFIED
 | `verified` | Root CID is discoverable via IPNI and the SP is listed as a provider in the IPNI response |
 | `failed` | Monitoring timed out or verification failed |
 
-Source: [`apps/backend/src/database/types.ts` line 28 (`IpniStatus`)](../../apps/backend/src/database/types.ts)
+Source: [`types.ts` (`IpniStatus`)](../../apps/backend/src/database/types.ts#L28)
 
 ## Metrics Recorded
 
@@ -249,12 +249,20 @@ See also: [`docs/environment-variables.md`](../environment-variables.md) for the
 
 | Step | File | Entry Point |
 |------|------|-------------|
-| Scheduler trigger | [`scheduler.service.ts`](../../apps/backend/src/scheduler/scheduler.service.ts) | `handleDealCreation()` (line 80) |
-| Deal orchestration | [`deal.service.ts`](../../apps/backend/src/deal/deal.service.ts) | `createDealsForAllProviders()` (line 59) |
-| Per-SP deal creation | [`deal.service.ts`](../../apps/backend/src/deal/deal.service.ts) | `createDeal()` (line 100) |
-| Addon preprocessing | [`deal-addons.service.ts`](../../apps/backend/src/deal-addons/deal-addons.service.ts) | `preprocessDeal()` (line 64) |
-| IPNI / CAR conversion | [`ipni.strategy.ts`](../../apps/backend/src/deal-addons/strategies/ipni.strategy.ts) | `preprocessData()` (line 90) |
-| Random data generation | [`dataSource.service.ts`](../../apps/backend/src/dataSource/dataSource.service.ts) | `generateRandomDataset()` (line 116) |
+| Scheduler trigger | [`scheduler.service.ts`](../../apps/backend/src/scheduler/scheduler.service.ts#L80) | `handleDealCreation()` |
+| Deal orchestration | [`deal.service.ts`](../../apps/backend/src/deal/deal.service.ts#L59) | `createDealsForAllProviders()` |
+| Per-SP deal creation | [`deal.service.ts`](../../apps/backend/src/deal/deal.service.ts#L100) | `createDeal()` |
+| Addon preprocessing | [`deal-addons.service.ts`](../../apps/backend/src/deal-addons/deal-addons.service.ts#L64) | `preprocessDeal()` |
+| IPNI / CAR conversion | [`ipni.strategy.ts`](../../apps/backend/src/deal-addons/strategies/ipni.strategy.ts#L90) | `preprocessData()` |
+| Random data generation | [`dataSource.service.ts`](../../apps/backend/src/dataSource/dataSource.service.ts#L116) | `generateRandomDataset()` |
+
+## Retries and Polling
+
+- **Piece status polling:** Dealbot polls the PDP SP for `indexed`/`advertised` status until the polling timeout.  
+- **IPNI verification retries:** `waitForIpniProviderResults` retries IPNI lookups with a fixed delay between attempts, bounded by the configured IPNI timeout.
+- **Upload retries:** No explicit upload retry logic is implemented in dealbot; failures are surfaced by the SDK and mark the deal as failed.
+
+Source: [`ipni.strategy.ts`](../../apps/backend/src/deal-addons/strategies/ipni.strategy.ts#L239), [`ipni.strategy.ts`](../../apps/backend/src/deal-addons/strategies/ipni.strategy.ts#L343)
 
 ## TBD Summary
 

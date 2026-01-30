@@ -52,10 +52,10 @@ For each deal (up to 5 in parallel):
 
 | Step | File | Entry Point |
 |------|------|-------------|
-| Scheduler trigger | [`scheduler.service.ts`](../../apps/backend/src/scheduler/scheduler.service.ts) | `handleRetrievalTests()` (line 110) |
-| Batch orchestration | [`retrieval.service.ts`](../../apps/backend/src/retrieval/retrieval.service.ts) | `performRandomBatchRetrievals()` (line 42) |
-| Deal selection | [`retrieval.service.ts`](../../apps/backend/src/retrieval/retrieval.service.ts) | `selectRandomDealsForRetrieval()` (line 273) |
-| Method testing | [`retrieval-addons.service.ts`](../../apps/backend/src/retrieval-addons/retrieval-addons.service.ts) | `testAllRetrievalMethods()` (line 161) |
+| Scheduler trigger | [`scheduler.service.ts`](../../apps/backend/src/scheduler/scheduler.service.ts#L110) | `handleRetrievalTests()` |
+| Batch orchestration | [`retrieval.service.ts`](../../apps/backend/src/retrieval/retrieval.service.ts#L42) | `performRandomBatchRetrievals()` |
+| Deal selection | [`retrieval.service.ts`](../../apps/backend/src/retrieval/retrieval.service.ts#L273) | `selectRandomDealsForRetrieval()` |
+| Method testing | [`retrieval-addons.service.ts`](../../apps/backend/src/retrieval-addons/retrieval-addons.service.ts#L161) | `testAllRetrievalMethods()` |
 
 ## Deal Selection
 
@@ -72,7 +72,7 @@ Not every deal is tested every cycle. Dealbot selects a batch of deals for retri
 
 This ensures each SP gets tested with roughly equal frequency, and tests cover a variety of deals rather than always testing the most recent ones.
 
-Source: [`retrieval.service.ts` line 273 (`selectRandomDealsForRetrieval`)](../../apps/backend/src/retrieval/retrieval.service.ts)
+Source: [`retrieval.service.ts` (`selectRandomDealsForRetrieval`)](../../apps/backend/src/retrieval/retrieval.service.ts#L273)
 
 ## Retrieval Checks
 
@@ -87,7 +87,7 @@ Verifies that the root CID is discoverable via IPNI and that the SP is listed as
 - **What this tests:** The piece was advertised to IPNI and the SP is discoverable as a provider
 
 **TBD:** The retrieval job does not currently perform this verification. IPNI verification currently runs during deal creation.
-Source: [`ipni.strategy.ts` line 239 (`monitorAndVerifyIPNI`)](../../apps/backend/src/deal-addons/strategies/ipni.strategy.ts)
+Source: [`ipni.strategy.ts` (`monitorAndVerifyIPNI`)](../../apps/backend/src/deal-addons/strategies/ipni.strategy.ts#L239)
 
 ### 2. IPFS Gateway Retrieval
 
@@ -136,7 +136,7 @@ Each retrieval attempt creates a `Retrieval` entity in the database:
 | `errorMessage` | Error details (if failed) |
 | `retryCount` | Number of retry attempts |
 
-Source: [`apps/backend/src/database/entities/retrieval.entity.ts`](../../apps/backend/src/database/entities/retrieval.entity.ts)
+Source: [`retrieval.entity.ts`](../../apps/backend/src/database/entities/retrieval.entity.ts)
 
 ## Metrics Recorded
 
@@ -164,6 +164,16 @@ Effective timeouts:
 
 - **Per-retrieval timeout:** `max(HTTP_REQUEST_TIMEOUT_MS, HTTP2_REQUEST_TIMEOUT_MS)`
 - **Batch timeout:** `RETRIEVAL_INTERVAL_SECONDS * 1000 - RETRIEVAL_TIMEOUT_BUFFER_MS` (minimum 10s)
+
+## Retries
+
+Retrieval retries are method-specific and defined by each strategy:
+
+- **Default:** 1 attempt (no retries).
+- **CDN:** 3 attempts with a 10s delay to allow cache warming between attempts.
+- **Retry count:** Recorded per retrieval as `retryCount` (`0` means the first attempt succeeded).
+
+Source: [`retrieval-addons.service.ts`](../../apps/backend/src/retrieval-addons/retrieval-addons.service.ts#L234), [`cdn.strategy.ts`](../../apps/backend/src/retrieval-addons/strategies/cdn.strategy.ts#L23)
 
 Source: [`apps/backend/src/config/app.config.ts`](../../apps/backend/src/config/app.config.ts)
 
