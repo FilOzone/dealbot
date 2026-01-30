@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.4](https://github.com/FilOzone/dealbot/compare/web-v0.1.3...web-v0.1.4) (2026-01-30)
+
+
+### Bug Fixes
+
+* enhance provider health calculations and update UI stats ([#154](https://github.com/FilOzone/dealbot/issues/154)) ([9dccc64](https://github.com/FilOzone/dealbot/commit/9dccc64c99f6226cc4ea86f984b60e71641c9ae9))
+* **metrics:** export prometheus providers and proxy /metrics ([#161](https://github.com/FilOzone/dealbot/issues/161)) ([33612e4](https://github.com/FilOzone/dealbot/commit/33612e495da63fe0d3b75bc0b1f3ad2643027a95)), closes [#147](https://github.com/FilOzone/dealbot/issues/147)
+
 ## [0.1.3](https://github.com/FilOzone/dealbot/compare/web-v0.1.2...web-v0.1.3) (2026-01-23)
 
 
