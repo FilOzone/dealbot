@@ -34,18 +34,14 @@ Operational timeouts exist to prevent jobs from running indefinitely, but they a
 
 The scheduler triggers retrieval testing on a configurable interval.
 
-```
-Select batch of previously created pieces
-(balanced across SPs, randomized, constant-size)
-        |
-        v
-For each piece (up to 5 in parallel):
-    |
-    +-- Verify IPNI provider listing for root CID
-    +-- Download content from SP IPFS gateway (`/ipfs/...`)
-    +-- Measure latency, TTFB, throughput
-    +-- Validate downloaded data
-    +-- Record result (success/failure)
+```mermaid
+flowchart TD
+  A["Select batch of pieces<br/>balanced across SPs, randomized, constant-size"] --> B{"For each piece<br/>up to 5 in parallel"}
+  B --> C["IPNI verification (TBD)"]
+  C --> D["Download via SP IPFS gateway<br/>/ipfs/{rootCid}"]
+  D --> E["Measure latency, TTFB, throughput"]
+  E --> F["Validate downloaded data"]
+  F --> G["Record result (success/failure)"]
 ```
 
 ### Source Code Entry Points

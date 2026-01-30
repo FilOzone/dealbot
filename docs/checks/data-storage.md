@@ -46,21 +46,20 @@ Each deal asserts the following for every SP:
 
 The scheduler triggers deal creation on a configurable interval.
 
-```
-Generate random data
-        |
-        v
-Convert to CAR format
-        |
-        v
-For each testing SP (up to 10 in parallel):
-    |
-    +-- Create dataset on-chain via Synapse SDK (idempotent)
-    +-- Upload CAR data to SP
-    +-- Wait for SP to index and advertise the piece
-    +-- Wait for on-chain confirmation                   [TBD]
-    +-- Run retrieval checks                              [TBD]
-    +-- Mark deal as successful only after all checks pass [TBD]
+```mermaid
+flowchart TD
+  A["Generate random data"] --> B["Convert to CAR format"]
+  B --> C{"For each testing SP<br/>up to DEAL_MAX_CONCURRENCY in parallel"}
+  C --> D["Create dataset on-chain<br/>Synapse, idempotent"]
+  D --> E["Upload CAR as piece to SP"]
+  E --> F["onUploadComplete: start monitoring SP status"]
+  F --> G["Wait for SP to index & advertise"]
+  G --> H["IPNI verification"]
+  E --> I["Wait for on-chain confirmation<br/>(TBD)"]
+  H --> J{IPNI verified<br/>and on-chain confirmed}
+  I --> J
+  J --> K["Run retrieval checks<br/>(TBD)"]
+  K --> L["Mark deal successful after all checks pass<br/>(TBD)"]
 ```
 
 **Key constraint:** One data file is generated per cycle and reused across all SPs. This ensures fair comparison — every SP is tested with identical data in a given cycle.
@@ -100,7 +99,7 @@ For each **testing SP**, dealbot:
    - `onPieceAdded` — piece submission is recorded on-chain (transaction hash available).
    - `onPieceConfirmed` — **TBD**: will track chain confirmation once the callback is wired.
 
-SPs are processed in parallel batches of up to 10. Failures for individual SPs do not block other SPs.
+SPs are processed in parallel batches controlled by `DEAL_MAX_CONCURRENCY` (added in PR #175). Failures for individual SPs do not block other SPs.
 
 Source: [`deal.service.ts` (`createDeal`)](../../apps/backend/src/deal/deal.service.ts#L100)
 
@@ -230,6 +229,7 @@ Key environment variables that control deal creation behavior:
 | `RANDOM_DATASET_SIZES` | `10240,10485760,104857600` | Possible random file sizes in bytes (10 KiB, 10 MB, 100 MB) |
 | `USE_ONLY_APPROVED_PROVIDERS` | `true` | Only test approved SPs |
 | `DEAL_START_OFFSET_SECONDS` | `0` | Delay before first deal creation run |
+| `DEAL_MAX_CONCURRENCY` | **TBD** | Max number of SPs processed in parallel (added in PR #175) |
 
 Source: [`apps/backend/src/config/app.config.ts`](../../apps/backend/src/config/app.config.ts)
 

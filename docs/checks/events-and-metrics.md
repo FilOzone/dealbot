@@ -8,6 +8,33 @@ This document describes the expected flow and metrics. Items marked **TBD** are 
 
 Events are grouped by check type. Each event includes a short definition, its implementation status, and a link to the expected source of truth.
 
+### Event Timeline
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant Dealbot
+  participant SP as Storage Provider (PDP)
+  participant IPNI
+  participant Retrieval as Retrieval Job
+
+  Dealbot->>SP: uploadToSpStart
+  SP-->>Dealbot: uploadToSpEnd (2xx, piece CID)
+  Dealbot-->>Dealbot: dealCreated (upload result returned)
+  SP-->>Dealbot: pieceAdded (tx hash, async)
+  Note over SP,Dealbot: pieceConfirmed (TBD, async)
+  Dealbot->>SP: monitor piece status
+  SP-->>Dealbot: spIndexingComplete
+  SP-->>Dealbot: spAdvertisedToIpni
+  Dealbot->>IPNI: ipniVerificationStart (TBD)
+  IPNI-->>Dealbot: ipniVerificationComplete
+
+  Note over Retrieval: Retrieval runs on a separate schedule (TBD to gate deal success)
+  Retrieval->>SP: retrieveFromSpStart (TBD)
+  SP-->>Retrieval: retrieveFromSpFirstByteReceived (TBD)
+  SP-->>Retrieval: retrieveFromSpEnd
+```
+
 ### Data Storage Events
 
 | Event | Definition | Status | Source of truth |
