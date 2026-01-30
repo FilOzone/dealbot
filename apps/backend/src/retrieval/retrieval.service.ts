@@ -71,13 +71,11 @@ export class RetrievalService {
   ): Promise<Retrieval[]> {
     const deal = await this.selectRandomSuccessfulDealForProvider(spAddress);
     if (!deal) {
-      this.logger.warn(`No successful deals available for ${spAddress.slice(0, 8)}..., skipping retrieval`);
+      this.logger.warn(`No successful deals available for ${spAddress}, skipping retrieval`);
       return [];
     }
 
-    this.logger.log(
-      `Starting retrieval test for ${spAddress.slice(0, 8)}... (Timeout: ${Math.round(timeoutMs / 1000)}s)`,
-    );
+    this.logger.log(`Starting retrieval test for ${spAddress} (Timeout: ${Math.round(timeoutMs / 1000)}s)`);
 
     return withTimeout(this.performAllRetrievals(deal, signal), timeoutMs, `Retrieval for deal ${deal.id} timed out`);
   }
@@ -311,7 +309,8 @@ export class RetrievalService {
   }
 
   /**
-   * We select a random successful deal (DEAL_CREATED) for a given provider.
+   * We select a random successful deal (DEAL_CREATED only) for a given provider.
+   * Uses Postgres ORDER BY RANDOM() since Dealbot is Postgres-only.
    */
   private async selectRandomSuccessfulDealForProvider(spAddress: string): Promise<Deal | null> {
     return this.dealRepository

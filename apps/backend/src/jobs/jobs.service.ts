@@ -125,6 +125,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
 
   private buildConnectionString(): string {
     const db = this.configService.get("database");
+    // NOTE: db.password must be raw (not pre-encoded). Encode here for pg-boss/Postgres URI safety.
     const password = encodeURIComponent(db.password || "");
     return `postgres://${db.username}:${password}@${db.host}:${db.port}/${db.database}`;
   }
@@ -182,19 +183,24 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         }
         provider = this.walletSdkService.getTestingProviders().find((p) => p.serviceProvider === spAddress);
         if (!provider) {
-          this.logger.warn(`Deal job skipped: provider ${spAddress.slice(0, 8)}... not found`);
+          this.logger.warn(`Deal job skipped: provider ${spAddress} not found`);
           return;
         }
       }
-      await this.dealService.createDealForProvider(provider, {
-        enableCDN: false,
-        enableIpni: true,
-      });
+      await this.dealService.createDealForProvider(provider, this.dealService.getTestingDealOptions());
     } catch (error) {
-      this.logger.error(`Deal job failed for ${spAddress.slice(0, 8)}...: ${error.message}`, error.stack);
+      this.logger.error(`Deal job failed for ${spAddress}: ${error.message}`, error.stack);
+      // Jobs are not retried once attempted; failures are handled by the next schedule tick.
       throw error;
     } finally {
-      await this.releaseSpLock(spAddress);
+      try {
+        await this.releaseSpLock(spAddress);
+      } catch (releaseError) {
+        this.logger.error(
+          `Failed to release deal lock for ${spAddress}: ${releaseError.message}`,
+          releaseError.stack,
+        );
+      }
     }
   }
 
@@ -222,10 +228,18 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
 
       await this.retrievalService.performRandomRetrievalForProvider(spAddress, timeoutMs);
     } catch (error) {
-      this.logger.error(`Retrieval job failed for ${spAddress.slice(0, 8)}...: ${error.message}`, error.stack);
+      this.logger.error(`Retrieval job failed for ${spAddress}: ${error.message}`, error.stack);
+      // Jobs are not retried once attempted; failures are handled by the next schedule tick.
       throw error;
     } finally {
-      await this.releaseSpLock(spAddress);
+      try {
+        await this.releaseSpLock(spAddress);
+      } catch (releaseError) {
+        this.logger.error(
+          `Failed to release retrieval lock for ${spAddress}: ${releaseError.message}`,
+          releaseError.stack,
+        );
+      }
     }
   }
 
@@ -254,14 +268,14 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
   }
 
   private async tryAcquireSpLock(spAddress: string): Promise<boolean> {
-    const result = await this.dataSource.query("SELECT pg_try_advisory_lock(hashtext($1)::bigint) AS acquired", [
+    const result = await this.dataSource.query("SELECT pg_try_advisory_lock(hashtextextended($1, 0)) AS acquired", [
       spAddress,
     ]);
     return Boolean(result?.[0]?.acquired);
   }
 
   private async releaseSpLock(spAddress: string): Promise<void> {
-    await this.dataSource.query("SELECT pg_advisory_unlock(hashtext($1)::bigint)", [spAddress]);
+    await this.dataSource.query("SELECT pg_advisory_unlock(hashtextextended($1, 0))", [spAddress]);
   }
 
   private async tick(): Promise<void> {
@@ -298,6 +312,8 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     const defaultDealsPerHour = 3600 / scheduling.dealIntervalSeconds;
     const defaultRetrievalsPerHour = 3600 / scheduling.retrievalIntervalSeconds;
     const defaultMetricsPerHour = 2;
+    // Keep cleanup weekly to match legacy cron schedule unless explicitly changed in code.
+    const defaultMetricsCleanupIntervalSeconds = 7 * 24 * 3600;
 
     const dealsPerHourRaw = jobsConfig?.dealsPerSpPerHour ?? defaultDealsPerHour;
     const retrievalsPerHourRaw = jobsConfig?.retrievalsPerSpPerHour ?? defaultRetrievalsPerHour;
@@ -310,7 +326,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     const dealIntervalSeconds = Math.max(1, Math.round(3600 / dealsPerHour));
     const retrievalIntervalSeconds = Math.max(1, Math.round(3600 / retrievalsPerHour));
     const metricsIntervalSeconds = Math.max(1, Math.round(3600 / metricsPerHour));
-    const metricsCleanupIntervalSeconds = 7 * 24 * 3600;
+    const metricsCleanupIntervalSeconds = defaultMetricsCleanupIntervalSeconds;
 
     return {
       dealIntervalSeconds,
@@ -321,7 +337,6 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
   }
 
   private async ensureScheduleRows(): Promise<void> {
-    const scheduling = this.configService.get("scheduling");
     const now = new Date();
     const { dealIntervalSeconds, retrievalIntervalSeconds, metricsIntervalSeconds, metricsCleanupIntervalSeconds } =
       this.getIntervalSecondsForRates();
@@ -334,9 +349,9 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     const providerAddresses = providers.map((provider) => provider.address);
 
     const phaseMs = this.schedulePhaseSeconds() * 1000;
-    const dealStartAt = new Date(now.getTime() + scheduling.dealStartOffsetSeconds * 1000 + phaseMs);
-    const retrievalStartAt = new Date(now.getTime() + scheduling.retrievalStartOffsetSeconds * 1000 + phaseMs);
-    const metricsStartAt = new Date(now.getTime() + scheduling.metricsStartOffsetSeconds * 1000 + phaseMs);
+    const dealStartAt = new Date(now.getTime() + phaseMs);
+    const retrievalStartAt = new Date(now.getTime() + phaseMs);
+    const metricsStartAt = new Date(now.getTime() + phaseMs);
 
     for (const address of providerAddresses) {
       await this.dataSource.query(
@@ -345,7 +360,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         VALUES ($1, $2, $3, $4)
         ON CONFLICT (job_type, sp_address) DO UPDATE
         SET interval_seconds = EXCLUDED.interval_seconds,
-            paused = false,
+            paused = job_schedule_state.paused,
             updated_at = NOW()
         `,
         ["deal", address, dealIntervalSeconds, dealStartAt],
@@ -357,7 +372,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         VALUES ($1, $2, $3, $4)
         ON CONFLICT (job_type, sp_address) DO UPDATE
         SET interval_seconds = EXCLUDED.interval_seconds,
-            paused = false,
+            paused = job_schedule_state.paused,
             updated_at = NOW()
         `,
         ["retrieval", address, retrievalIntervalSeconds, retrievalStartAt],
@@ -396,7 +411,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       VALUES ($1, '', $2, $3)
       ON CONFLICT (job_type, sp_address) DO UPDATE
       SET interval_seconds = EXCLUDED.interval_seconds,
-          paused = false,
+          paused = job_schedule_state.paused,
           updated_at = NOW()
       `,
       ["metrics", metricsIntervalSeconds, metricsStartAt],
@@ -408,7 +423,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       VALUES ($1, '', $2, $3)
       ON CONFLICT (job_type, sp_address) DO UPDATE
       SET interval_seconds = EXCLUDED.interval_seconds,
-          paused = false,
+          paused = job_schedule_state.paused,
           updated_at = NOW()
       `,
       ["metrics_cleanup", metricsCleanupIntervalSeconds, metricsStartAt],

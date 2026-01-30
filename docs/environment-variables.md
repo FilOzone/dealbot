@@ -487,6 +487,8 @@ rate-based (per hour) and persisted in Postgres so restarts do not reset timing.
 
 **Role**: Target deal creation rate per storage provider.
 
+**Limits**: Config schema caps this at 20 to avoid excessive on-chain activity.
+
 ---
 
 ### `RETRIEVALS_PER_SP_PER_HOUR`
@@ -496,6 +498,8 @@ rate-based (per hour) and persisted in Postgres so restarts do not reset timing.
 - **Default**: Derived from `RETRIEVAL_INTERVAL_SECONDS` (1 per interval per SP)
 
 **Role**: Target retrieval test rate per storage provider.
+
+**Limits**: Config schema caps this at 20 to avoid overloading providers.
 
 ---
 
@@ -507,6 +511,8 @@ rate-based (per hour) and persisted in Postgres so restarts do not reset timing.
 
 **Role**: How often metrics aggregation runs per hour.
 
+**Limits**: Config schema caps this at 3 to limit database load.
+
 ---
 
 ### `JOB_SCHEDULER_POLL_SECONDS`
@@ -516,6 +522,8 @@ rate-based (per hour) and persisted in Postgres so restarts do not reset timing.
 - **Default**: `300`
 
 **Role**: How often the scheduler polls Postgres for due jobs.
+
+**Notes**: Minimum is 60 seconds to avoid excessive polling; default is 300 seconds.
 
 ---
 

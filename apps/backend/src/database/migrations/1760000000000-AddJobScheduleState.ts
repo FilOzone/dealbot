@@ -52,12 +52,7 @@ export class AddJobScheduleState1760000000000 implements MigrationInterface {
       DROP TABLE IF EXISTS job_schedule_state
     `);
 
-    await queryRunner.query(`
-      DROP SCHEMA IF EXISTS pgboss CASCADE
-    `);
-
-    await queryRunner.query(`
-      DROP EXTENSION IF EXISTS pgcrypto
-    `);
+    // NOTE: We intentionally keep the pgboss schema and pgcrypto extension on rollback
+    // to avoid disrupting other consumers or losing job history.
   }
 }

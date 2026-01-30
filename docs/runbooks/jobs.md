@@ -49,6 +49,7 @@ WHERE job_type IN ('deal', 'retrieval')
 
 - Offsets (`*_START_OFFSET_SECONDS`) are ignored in pg-boss mode.
 - Job schedules are rate-based (per hour) and persist across restarts.
+- Paused schedules remain paused until explicitly resumed.
 
 ## Staggering multiple dealbot deployments
 
