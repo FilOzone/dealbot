@@ -67,6 +67,8 @@ export const configValidationSchema = Joi.object({
   JOB_CATCHUP_MAX_ENQUEUE: Joi.number().min(1).default(10),
   JOB_CATCHUP_SPREAD_HOURS: Joi.number().min(0).default(3),
   JOB_LOCK_RETRY_SECONDS: Joi.number().min(10).default(60),
+  JOB_SCHEDULE_PHASE_SECONDS: Joi.number().min(0).default(0),
+  JOB_ENQUEUE_JITTER_SECONDS: Joi.number().min(0).default(0),
 
   // Kaggle
   DEALBOT_LOCAL_DATASETS_PATH: Joi.string().default(DEFAULT_LOCAL_DATASETS_PATH),
@@ -196,6 +198,19 @@ export interface IJobsConfig {
    * Only used when `DEALBOT_JOBS_MODE=pgboss`.
    */
   lockRetrySeconds: number;
+  /**
+   * Per-instance phase offset (seconds) applied when initializing schedules.
+   *
+   * Use this to stagger multiple dealbot deployments that are not sharing a DB.
+   * Only used when `DEALBOT_JOBS_MODE=pgboss`.
+   */
+  schedulePhaseSeconds: number;
+  /**
+   * Random delay (seconds) added when enqueuing jobs.
+   *
+   * Helps avoid synchronized bursts across instances. Only used with pg-boss.
+   */
+  enqueueJitterSeconds: number;
 }
 
 export interface IDatasetConfig {
@@ -294,6 +309,8 @@ export function loadConfig(): IConfig {
       catchupMaxEnqueue: Number.parseInt(process.env.JOB_CATCHUP_MAX_ENQUEUE || "10", 10),
       catchupSpreadHours: Number.parseInt(process.env.JOB_CATCHUP_SPREAD_HOURS || "3", 10),
       lockRetrySeconds: Number.parseInt(process.env.JOB_LOCK_RETRY_SECONDS || "60", 10),
+      schedulePhaseSeconds: Number.parseInt(process.env.JOB_SCHEDULE_PHASE_SECONDS || "0", 10),
+      enqueueJitterSeconds: Number.parseInt(process.env.JOB_ENQUEUE_JITTER_SECONDS || "0", 10),
     },
     dataset: {
       localDatasetsPath: process.env.DEALBOT_LOCAL_DATASETS_PATH || DEFAULT_LOCAL_DATASETS_PATH,

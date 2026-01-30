@@ -1,0 +1,78 @@
+# Jobs Runbook (pg-boss)
+
+This runbook covers operational tasks for the pg-boss scheduler.
+
+## Pausing jobs
+
+pg-boss schedules are stored in the `job_schedule_state` table.
+To pause job execution for maintenance windows, set `paused = true`.
+
+```sql
+-- Pause all deal and retrieval jobs
+UPDATE job_schedule_state
+SET paused = true, updated_at = NOW()
+WHERE job_type IN ('deal', 'retrieval');
+
+-- Pause metrics jobs
+UPDATE job_schedule_state
+SET paused = true, updated_at = NOW()
+WHERE job_type IN ('metrics', 'metrics_cleanup');
+```
+
+To pause a single provider:
+
+```sql
+UPDATE job_schedule_state
+SET paused = true, updated_at = NOW()
+WHERE job_type IN ('deal', 'retrieval')
+  AND sp_address = '<sp-address>';
+```
+
+## Resuming jobs
+
+```sql
+UPDATE job_schedule_state
+SET paused = false, next_run_at = NOW(), updated_at = NOW()
+WHERE job_type IN ('deal', 'retrieval', 'metrics', 'metrics_cleanup');
+```
+
+To resume a single provider:
+
+```sql
+UPDATE job_schedule_state
+SET paused = false, next_run_at = NOW(), updated_at = NOW()
+WHERE job_type IN ('deal', 'retrieval')
+  AND sp_address = '<sp-address>';
+```
+
+## Notes
+
+- Offsets (`*_START_OFFSET_SECONDS`) are ignored in pg-boss mode.
+- Job schedules are rate-based (per hour) and persist across restarts.
+
+## Staggering multiple dealbot deployments
+
+Some SPs deploy testnet and mainnet in the same computer room. If you are running more than
+one dealbot in the same environment, use a phase offset and jitter to spread load and avoid
+uplink/downlink backlogs happening at the same time:
+
+- `JOB_SCHEDULE_PHASE_SECONDS` shifts the initial `next_run_at` for all schedules.
+- `JOB_ENQUEUE_JITTER_SECONDS` adds random delay when jobs are enqueued.
+
+Example with two deployments running the same rates:
+
+Deployment A:
+
+```
+JOB_SCHEDULE_PHASE_SECONDS=0
+JOB_ENQUEUE_JITTER_SECONDS=300
+```
+
+Deployment B:
+
+```
+JOB_SCHEDULE_PHASE_SECONDS=1200
+JOB_ENQUEUE_JITTER_SECONDS=300
+```
+
+This staggers schedules by 20 minutes and randomizes starts within 5 minutes.

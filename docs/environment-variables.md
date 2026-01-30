@@ -11,7 +11,7 @@ This document provides a comprehensive guide to all environment variables used b
 | [Blockchain](#blockchain-configuration)   | `NETWORK`, `WALLET_ADDRESS`, `WALLET_PRIVATE_KEY`, `CHECK_DATASET_CREATION_FEES`, `USE_ONLY_APPROVED_PROVIDERS`, `ENABLE_CDN_TESTING`, `ENABLE_IPNI_TESTING` |
 | [Dataset Versioning](#dataset-versioning) | `DEALBOT_DATASET_VERSION`                                                                                                                                    |
 | [Scheduling](#scheduling-configuration)   | `DEAL_INTERVAL_SECONDS`, `RETRIEVAL_INTERVAL_SECONDS`, `DEAL_START_OFFSET_SECONDS`, `RETRIEVAL_START_OFFSET_SECONDS`, `METRICS_START_OFFSET_SECONDS`         |
-| [Jobs (pg-boss)](#jobs-pg-boss)           | `DEALBOT_JOBS_MODE`, `DEALS_PER_SP_PER_HOUR`, `RETRIEVALS_PER_SP_PER_HOUR`, `METRICS_PER_HOUR`, `JOB_SCHEDULER_POLL_SECONDS`, `JOB_CATCHUP_MAX_ENQUEUE`, `JOB_CATCHUP_SPREAD_HOURS`, `JOB_LOCK_RETRY_SECONDS` |
+| [Jobs (pg-boss)](#jobs-pg-boss)           | `DEALBOT_JOBS_MODE`, `DEALS_PER_SP_PER_HOUR`, `RETRIEVALS_PER_SP_PER_HOUR`, `METRICS_PER_HOUR`, `JOB_SCHEDULER_POLL_SECONDS`, `JOB_CATCHUP_MAX_ENQUEUE`, `JOB_CATCHUP_SPREAD_HOURS`, `JOB_LOCK_RETRY_SECONDS`, `JOB_SCHEDULE_PHASE_SECONDS`, `JOB_ENQUEUE_JITTER_SECONDS` |
 | [Dataset](#dataset-configuration)         | `DEALBOT_LOCAL_DATASETS_PATH`, `KAGGLE_DATASET_TOTAL_PAGES`, `RANDOM_DATASET_SIZES`                                                                          |
 | [Proxy](#proxy-configuration)             | `PROXY_LIST`, `PROXY_LOCATIONS`                                                                                                                              |
 | [Timeouts](#timeout-configuration)        | `CONNECT_TIMEOUT_MS`, `HTTP_REQUEST_TIMEOUT_MS`, `HTTP2_REQUEST_TIMEOUT_MS`, `RETRIEVAL_TIMEOUT_BUFFER_MS`                                                   |
@@ -372,6 +372,9 @@ DEALBOT_DATASET_VERSION=dealbot-v2
 
 These variables control when and how often the Dealbot runs its automated jobs.
 
+**Note**: When `DEALBOT_JOBS_MODE=pgboss`, the offsets below are not used; pg-boss uses
+rate-based scheduling instead (see [Jobs (pg-boss)](#jobs-pg-boss)).
+
 ### `DEAL_INTERVAL_SECONDS`
 
 - **Type**: `number`
@@ -472,6 +475,8 @@ rate-based (per hour) and persisted in Postgres so restarts do not reset timing.
 
 **Role**: Switches between the legacy in-process cron scheduler and pg-boss.
 
+**Runbook**: See `docs/runbooks/jobs.md` for pg-boss operational guidance (pausing, resuming, maintenance).
+
 ---
 
 ### `DEALS_PER_SP_PER_HOUR`
@@ -542,6 +547,29 @@ is handled by future polls.
 - **Default**: `60`
 
 **Role**: Delay before re-queuing a job when the per-SP mutual-exclusion lock is held.
+
+---
+
+### `JOB_SCHEDULE_PHASE_SECONDS`
+
+- **Type**: `number`
+- **Required**: No
+- **Default**: `0`
+
+**Role**: Per-instance schedule phase offset (seconds) applied when initializing schedules.
+Use this to stagger multiple dealbot deployments that are not sharing a database.
+
+---
+
+### `JOB_ENQUEUE_JITTER_SECONDS`
+
+- **Type**: `number`
+- **Required**: No
+- **Default**: `0`
+
+**Role**: Random delay (seconds) applied when enqueuing jobs to avoid synchronized bursts.
+
+---
 
 ## Dataset Configuration
 

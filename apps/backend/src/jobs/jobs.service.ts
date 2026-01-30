@@ -115,6 +115,14 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     return Math.max(10, this.configService.get("jobs")?.lockRetrySeconds ?? 60);
   }
 
+  private schedulePhaseSeconds(): number {
+    return Math.max(0, this.configService.get("jobs")?.schedulePhaseSeconds ?? 0);
+  }
+
+  private enqueueJitterSeconds(): number {
+    return Math.max(0, this.configService.get("jobs")?.enqueueJitterSeconds ?? 0);
+  }
+
   private buildConnectionString(): string {
     const db = this.configService.get("database");
     const password = encodeURIComponent(db.password || "");
@@ -325,9 +333,10 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     });
     const providerAddresses = providers.map((provider) => provider.address);
 
-    const dealStartAt = new Date(now.getTime() + scheduling.dealStartOffsetSeconds * 1000);
-    const retrievalStartAt = new Date(now.getTime() + scheduling.retrievalStartOffsetSeconds * 1000);
-    const metricsStartAt = new Date(now.getTime() + scheduling.metricsStartOffsetSeconds * 1000);
+    const phaseMs = this.schedulePhaseSeconds() * 1000;
+    const dealStartAt = new Date(now.getTime() + scheduling.dealStartOffsetSeconds * 1000 + phaseMs);
+    const retrievalStartAt = new Date(now.getTime() + scheduling.retrievalStartOffsetSeconds * 1000 + phaseMs);
+    const metricsStartAt = new Date(now.getTime() + scheduling.metricsStartOffsetSeconds * 1000 + phaseMs);
 
     for (const address of providerAddresses) {
       await this.dataSource.query(
@@ -446,7 +455,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         const payload = this.mapJobPayload(row);
 
         for (let i = 0; i < immediateCount; i += 1) {
-          if (await this.safeSend(jobName, payload)) {
+          if (await this.safeSend(jobName, payload, { startAfter: this.withJitter(now) })) {
             successCount += 1;
           }
         }
@@ -456,10 +465,10 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
             if (spreadSeconds > 0) {
               const offsetSeconds = Math.ceil(((i + 1) * spreadSeconds) / (delayedCount + 1));
               const startAfter = new Date(now.getTime() + offsetSeconds * 1000);
-              if (await this.safeSend(jobName, payload, { startAfter })) {
+              if (await this.safeSend(jobName, payload, { startAfter: this.withJitter(startAfter) })) {
                 successCount += 1;
               }
-            } else if (await this.safeSend(jobName, payload)) {
+            } else if (await this.safeSend(jobName, payload, { startAfter: this.withJitter(now) })) {
               successCount += 1;
             }
           }
@@ -521,5 +530,14 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       this.logger.warn(`Failed to enqueue ${name}: ${error.message}`);
       return false;
     }
+  }
+
+  private withJitter(base: Date): Date {
+    const jitterSeconds = this.enqueueJitterSeconds();
+    if (jitterSeconds <= 0) {
+      return base;
+    }
+    const jitterMs = Math.floor(Math.random() * (jitterSeconds * 1000 + 1));
+    return new Date(base.getTime() + jitterMs);
   }
 }
