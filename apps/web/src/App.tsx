@@ -11,7 +11,7 @@ export default function App() {
   return (
     <div className="min-h-screen bg-background text-foreground">
       <Header />
-      <main className="relative z-10 container mx-auto px-6 py-8 space-y-8">
+      <main className="relative z-10 container mx-auto px-4 sm:px-6 py-8 space-y-8">
         <div className="text-center py-6">
           <p className="text-sm text-muted-foreground">Automated deal creation & storage performance monitoring</p>
         </div>
