@@ -196,10 +196,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       try {
         await this.releaseSpLock(spAddress);
       } catch (releaseError) {
-        this.logger.error(
-          `Failed to release deal lock for ${spAddress}: ${releaseError.message}`,
-          releaseError.stack,
-        );
+        this.logger.error(`Failed to release deal lock for ${spAddress}: ${releaseError.message}`, releaseError.stack);
       }
     }
   }

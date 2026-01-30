@@ -3,8 +3,8 @@ import { Column, CreateDateColumn, Entity, Index, PrimaryGeneratedColumn, Update
 export type JobScheduleType = "deal" | "retrieval" | "metrics" | "metrics_cleanup";
 
 @Entity("job_schedule_state")
-@Index("job_schedule_state_job_type_sp_unique", ["jobType", "spAddress"], { unique: true, synchronize: false })
-@Index("idx_job_schedule_state_next_run", ["nextRunAt"], { synchronize: false })
+@Index("job_schedule_state_job_type_sp_unique", ["jobType", "spAddress"], { unique: true })
+@Index("idx_job_schedule_state_next_run", ["nextRunAt"])
 export class JobScheduleState {
   @PrimaryGeneratedColumn("increment", { type: "bigint" })
   id!: string;

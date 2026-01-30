@@ -1,4 +1,4 @@
-import { type INestApplication } from "@nestjs/common";
+import type { INestApplication } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { Test } from "@nestjs/testing";
 import request from "supertest";
