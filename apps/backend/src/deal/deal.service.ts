@@ -210,7 +210,6 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
 
       deal.dataSetId = storage.dataSetId;
       deal.uploadStartTime = new Date();
-      deal.pieceSize = uploadPayload.carData.length;
       let onUploadCompleteAddonsPromise: Promise<boolean> | null = null;
       let uploadCompleteError: Error | undefined;
 
@@ -284,6 +283,8 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
         if (!uploadCompleteOk) {
           throw uploadCompleteError ?? new Error("Upload completion handlers failed");
         }
+        // pieceUploadToRetrievableDuration = dealConfirmedTime - uploadStartTime
+        deal.dealConfirmedTime = new Date();
       }
 
       const retrievalConfig: RetrievalConfiguration = {
@@ -301,6 +302,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       } else if (retrievalTest.summary.totalMethods === 0) {
         throw new Error("No retrieval methods to test");
       } else {
+        // dataStorageCheckDuration = retrievalTest.testedAt - deal.uploadEndTime
         // retrievals were successful.. lets log some stats
         this.logger.log(
           `Retrieval test completed in ${retrievalTest.testedAt.getTime() - retrievalStartTime}ms: ` +
@@ -432,11 +434,9 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
 
   private updateDealWithUploadResult(deal: Deal, uploadResult: UploadResultSummary, pieceSize: number): void {
     deal.pieceCid = uploadResult.pieceCid;
-    deal.dealConfirmedTime = new Date();
     // Only set pieceSize here if it hasn't been set earlier in the deal flow.
-    if (deal.pieceSize == null) {
-      deal.pieceSize = pieceSize;
-    }
+    deal.pieceSize = pieceSize;
+
     deal.pieceId = uploadResult.pieceId;
     if (deal.uploadStartTime) {
       deal.dealLatencyMs = deal.dealConfirmedTime.getTime() - deal.uploadStartTime.getTime();
