@@ -207,6 +207,35 @@ describe("DealService", () => {
       expect(dealRepoMock.save).toHaveBeenCalledWith(mockDeal);
     });
 
+    it("handles errors in upload callbacks by failing the deal", async () => {
+      // Only call onUploadComplete to test callback error handling
+      const uploadMock = vi.fn(async (_data, { onUploadComplete }) => {
+        if (onUploadComplete) onUploadComplete("bafk-uploaded");
+        return { pieceCid: "bafk-uploaded", size: 1024, pieceId: "piece-123" };
+      });
+
+      mockSynapseInstance.createStorage.mockResolvedValue({
+        dataSetId: "dataset-123",
+        upload: uploadMock,
+      });
+
+      const handleUploadCompleteSpy = vi
+        .spyOn(service as any, "handleUploadComplete")
+        .mockRejectedValue(new Error("Upload cb failed"));
+      const loggerWarnSpy = vi.spyOn((service as any).logger, "warn");
+
+      // The deal should fail because the callback failed
+      await expect(service.createDeal(mockProviderInfo, mockDealInput)).rejects.toThrow("Upload cb failed");
+
+      expect(handleUploadCompleteSpy).toHaveBeenCalled();
+      expect(loggerWarnSpy).toHaveBeenCalledWith(expect.stringContaining("Upload completion handler failed"));
+
+      // Verify deal was marked as FAILED
+      expect(mockDeal.status).toBe(DealStatus.FAILED);
+      expect(mockDeal.errorMessage).toBe("Upload cb failed");
+      expect(dealRepoMock.save).toHaveBeenCalledWith(mockDeal);
+    });
+
     describe("dataset versioning", () => {
       let dealInputWithMetadata: DealPreprocessingResult;
 
