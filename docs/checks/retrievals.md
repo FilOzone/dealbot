@@ -70,24 +70,18 @@ Not every piece is tested every cycle. Dealbot selects a batch of pieces for ret
 - **Randomization:** Within each provider's pieces, selection order is shuffled before sampling
 - **Fill remaining slots:** If the balanced pass yields fewer than `count` deals, fill the remainder from the remaining pool across providers
 
-This ensures each SP gets tested with roughly equal frequency, and tests cover a variety of deals rather than always testing the most recent ones.
+This ensures each SP gets tested with roughly equal frequency, and tests cover a variety of pieces rather than always testing the most recent ones.
 
 Source: [`retrieval.service.ts` (`selectRandomDealsForRetrieval`)](../../apps/backend/src/retrieval/retrieval.service.ts#L273)
 
 ## Retrieval Checks
 
-For each selected deal, dealbot performs the following retrieval checks:
+For each selected piece, dealbot performs the following retrieval checks:
 
 ### 1. IPNI Verification
 
-Verifies that the root CID is discoverable via IPNI and that the SP is listed as a provider for that content.
-
-- **Lookup:** IPNI query for the root CID
-- **Applicable when:** Deal has a root CID in metadata
-- **What this tests:** The piece was advertised to IPNI and the SP is discoverable as a provider
-
-**TBD:** The retrieval job does not currently perform this verification. IPNI verification currently runs during deal creation.
-Source: [`ipni.strategy.ts` (`monitorAndVerifyIPNI`)](../../apps/backend/src/deal-addons/strategies/ipni.strategy.ts#L239)
+**TBD:** The retrieval job does not currently perform IPNI verification. When implemented, it will reuse the IPNI verification flow described in the Data Storage check.
+Source: [`ipni.strategy.ts` (`monitorAndVerifyIPNI`)](../../apps/backend/src/deal-addons/strategies/ipni.strategy.ts#L239), [Data Storage Check](./data-storage.md#6-ipni-verification)
 
 ### 2. IPFS Gateway Retrieval
 
@@ -140,13 +134,7 @@ Source: [`retrieval.entity.ts`](../../apps/backend/src/database/entities/retriev
 
 ## Metrics Recorded
 
-Prometheus counters and histograms:
-
-| Prometheus Metric | Type | Description |
-|-------------------|------|-------------|
-| `retrievals_tested_total` | Counter | Total retrievals tested, labeled by status, method, and provider |
-| `retrieval_latency_seconds` | Histogram | Total retrieval download latency |
-| `retrieval_ttfb_seconds` | Histogram | Time to first byte |
+Metric definitions (including Prometheus metrics) live in [Dealbot Events & Metrics](./events-and-metrics.md).
 
 ## Configuration
 

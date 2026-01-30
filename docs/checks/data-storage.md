@@ -16,15 +16,12 @@ A "deal" is dealbot's end-to-end test of uploading a piece to a storage provider
 4. Waits for the SP to index and advertise the piece (and records on-chain submission)
 5. **TBD:** Runs retrieval checks as defined in [Retrieval Check](./retrievals.md) and gates deal success on those results
 
-A deal is **not** considered successful until all of these steps pass.
+A deal is **not** considered successful until all required assertions pass (see below).
 **TBD:** Retrieval and IPNI verification do not yet block `DEAL_CREATED`.
 
 ### Definition of Successful Data Storage Operation
 
-1. Dealbot uploads a test piece to the SP
-2. SP confirms receipt and piece lands on-chain
-3. Retrieval checks pass (see [Retrieval Check](./retrievals.md))
-
+A successful operation requires all assertions in the table below to pass (upload, on-chain confirmation, and retrieval checks).
 **TBD:** Retrieval checks and IPNI verification do not yet gate `DEAL_CREATED`.
 
 **Failure** occurs if any step fails or the deal exceeds its max allowed time. There are no timing-based quality assertions. Operational timeouts exist to prevent jobs from running indefinitely, but they are not quality assertions. A per-deal max time limit that fails the deal if exceeded is **TBD**.
@@ -219,14 +216,7 @@ Metric definitions live in [Dealbot Events & Metrics](./events-and-metrics.md). 
 - [`ipniTimeToAdvertiseMs`](./events-and-metrics.md#ipniTimeToAdvertiseMs)
 - [`ipniTimeToVerifyMs`](./events-and-metrics.md#ipniTimeToVerifyMs)
 
-Prometheus counters and histograms are also exported:
-
-| Prometheus Metric | Type | Description |
-|-------------------|------|-------------|
-| `deals_created_total` | Counter | Total deals created, labeled by status and provider |
-| `deal_creation_duration_seconds` | Histogram | End-to-end deal creation time |
-| `deal_upload_duration_seconds` | Histogram | Upload (ingest) time |
-| `deal_chain_latency_seconds` | Histogram | Time for on-chain confirmation |
+Prometheus metrics are defined in [Dealbot Events & Metrics](./events-and-metrics.md).
 
 ## Configuration
 
@@ -258,7 +248,7 @@ See also: [`docs/environment-variables.md`](../environment-variables.md) for the
 
 ## Retries and Polling
 
-- **Piece status polling:** Dealbot polls the PDP SP for `indexed`/`advertised` status until the polling timeout.  
+- **Piece status polling:** Dealbot polls the PDP SP for `indexed`/`advertised` status until the polling timeout.
 - **IPNI verification retries:** `waitForIpniProviderResults` retries IPNI lookups with a fixed delay between attempts, bounded by the configured IPNI timeout.
 - **Upload retries:** No explicit upload retry logic is implemented in dealbot; failures are surfaced by the SDK and mark the deal as failed.
 
