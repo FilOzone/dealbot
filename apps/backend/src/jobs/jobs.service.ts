@@ -1,0 +1,525 @@
+import { Injectable, Logger, type OnApplicationShutdown, type OnModuleInit } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import { InjectDataSource, InjectRepository } from "@nestjs/typeorm";
+import PgBoss from "pg-boss";
+import type { DataSource, Repository } from "typeorm";
+import type { IConfig } from "../config/app.config.js";
+import { StorageProvider } from "../database/entities/storage-provider.entity.js";
+import { DealService } from "../deal/deal.service.js";
+import { MetricsSchedulerService } from "../metrics/services/metrics-scheduler.service.js";
+import { RetrievalService } from "../retrieval/retrieval.service.js";
+import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
+
+type JobType = "deal" | "retrieval" | "metrics" | "metrics_cleanup";
+
+type DealJobData = { spAddress: string; intervalSeconds: number };
+type RetrievalJobData = { spAddress: string; intervalSeconds: number };
+type MetricsJobData = { intervalSeconds: number };
+
+type ScheduleRow = {
+  id: number;
+  job_type: JobType;
+  sp_address: string;
+  interval_seconds: number;
+  next_run_at: string;
+};
+
+type PgBossSendOptions = PgBoss.PublishOptions;
+
+@Injectable()
+export class JobsService implements OnModuleInit, OnApplicationShutdown {
+  private readonly logger = new Logger(JobsService.name);
+  private boss: PgBoss | null = null;
+  private bossErrorHandler?: (error: Error) => void;
+  private schedulerInterval: ReturnType<typeof setInterval> | null = null;
+  private tickPromise: Promise<void> | null = null;
+
+  constructor(
+    private readonly configService: ConfigService<IConfig, true>,
+    @InjectDataSource()
+    private readonly dataSource: DataSource,
+    @InjectRepository(StorageProvider)
+    private readonly storageProviderRepository: Repository<StorageProvider>,
+    private readonly dealService: DealService,
+    private readonly retrievalService: RetrievalService,
+    private readonly metricsSchedulerService: MetricsSchedulerService,
+    private readonly walletSdkService: WalletSdkService,
+  ) {}
+
+  async onModuleInit(): Promise<void> {
+    if (!this.isPgBossEnabled()) {
+      return;
+    }
+
+    this.logger.log("pg-boss mode enabled; initializing job scheduler");
+
+    if (process.env.DEALBOT_DISABLE_CHAIN !== "true") {
+      await this.walletSdkService.ensureWalletAllowances();
+      await this.walletSdkService.loadProviders();
+    }
+    await this.startBoss();
+    if (!this.boss) {
+      this.logger.error("pg-boss failed to start; job scheduler is disabled.");
+      return;
+    }
+    this.registerWorkers();
+
+    await this.tick();
+    this.schedulerInterval = setInterval(() => {
+      void this.tick();
+    }, this.schedulerPollMs());
+  }
+
+  async onApplicationShutdown(): Promise<void> {
+    if (this.schedulerInterval) {
+      clearInterval(this.schedulerInterval);
+      this.schedulerInterval = null;
+    }
+    if (this.tickPromise) {
+      await this.tickPromise;
+      this.tickPromise = null;
+    }
+    if (this.boss) {
+      if (this.bossErrorHandler) {
+        this.boss.off("error", this.bossErrorHandler);
+        this.bossErrorHandler = undefined;
+      }
+      await this.boss.stop();
+      this.boss = null;
+    }
+  }
+
+  private isPgBossEnabled(): boolean {
+    return (this.configService.get("jobs")?.mode ?? "cron") === "pgboss";
+  }
+
+  private schedulerPollMs(): number {
+    const seconds = this.configService.get("jobs")?.schedulerPollSeconds ?? 300;
+    return Math.max(1000, seconds * 1000);
+  }
+
+  private catchupMaxEnqueue(): number {
+    return Math.max(1, this.configService.get("jobs")?.catchupMaxEnqueue ?? 10);
+  }
+
+  private catchupSpreadSeconds(): number {
+    const hours = this.configService.get("jobs")?.catchupSpreadHours ?? 3;
+    return Math.max(0, hours * 3600);
+  }
+
+  private perSpImmediateLimit(): number {
+    return 1;
+  }
+
+  private lockRetrySeconds(): number {
+    return Math.max(10, this.configService.get("jobs")?.lockRetrySeconds ?? 60);
+  }
+
+  private buildConnectionString(): string {
+    const db = this.configService.get("database");
+    const password = encodeURIComponent(db.password || "");
+    return `postgres://${db.username}:${password}@${db.host}:${db.port}/${db.database}`;
+  }
+
+  private async startBoss(): Promise<void> {
+    if (this.boss) return;
+    const boss = new PgBoss({
+      connectionString: this.buildConnectionString(),
+      schema: "pgboss",
+    });
+    this.bossErrorHandler = (error: Error) => {
+      this.logger.error(`pg-boss error: ${error.message}`, error.stack);
+    };
+    boss.on("error", this.bossErrorHandler);
+    try {
+      await boss.start();
+      this.boss = boss;
+    } catch (error) {
+      boss.off("error", this.bossErrorHandler);
+      this.bossErrorHandler = undefined;
+      this.logger.error(`Failed to start pg-boss: ${error.message}`, error.stack);
+    }
+  }
+
+  private registerWorkers(): void {
+    if (!this.boss) return;
+
+    void this.boss
+      .subscribe("deal.run", async (job) => this.handleDealJob(job.data as DealJobData))
+      .catch((error) => this.logger.error(`Failed to subscribe to deal.run: ${error.message}`, error.stack));
+    void this.boss
+      .subscribe("retrieval.run", async (job) => this.handleRetrievalJob(job.data as RetrievalJobData))
+      .catch((error) => this.logger.error(`Failed to subscribe to retrieval.run: ${error.message}`, error.stack));
+    void this.boss
+      .subscribe("metrics.run", async (job) => this.handleMetricsJob(job.data as MetricsJobData))
+      .catch((error) => this.logger.error(`Failed to subscribe to metrics.run: ${error.message}`, error.stack));
+    void this.boss
+      .subscribe("metrics.cleanup", async (job) => this.handleMetricsCleanupJob(job.data as MetricsJobData))
+      .catch((error) => this.logger.error(`Failed to subscribe to metrics.cleanup: ${error.message}`, error.stack));
+  }
+
+  private async handleDealJob(data: DealJobData): Promise<void> {
+    const spAddress = data.spAddress;
+    const acquired = await this.tryAcquireSpLock(spAddress);
+    if (!acquired) {
+      await this.requeueJob("deal.run", data);
+      return;
+    }
+
+    try {
+      let provider = this.walletSdkService.getTestingProviders().find((p) => p.serviceProvider === spAddress);
+      if (!provider) {
+        if (process.env.DEALBOT_DISABLE_CHAIN !== "true") {
+          await this.walletSdkService.loadProviders();
+        }
+        provider = this.walletSdkService.getTestingProviders().find((p) => p.serviceProvider === spAddress);
+        if (!provider) {
+          this.logger.warn(`Deal job skipped: provider ${spAddress.slice(0, 8)}... not found`);
+          return;
+        }
+      }
+      await this.dealService.createDealForProvider(provider, {
+        enableCDN: false,
+        enableIpni: true,
+      });
+    } catch (error) {
+      this.logger.error(`Deal job failed for ${spAddress.slice(0, 8)}...: ${error.message}`, error.stack);
+      throw error;
+    } finally {
+      await this.releaseSpLock(spAddress);
+    }
+  }
+
+  private async handleRetrievalJob(data: RetrievalJobData): Promise<void> {
+    const spAddress = data.spAddress;
+    const acquired = await this.tryAcquireSpLock(spAddress);
+    if (!acquired) {
+      await this.requeueJob("retrieval.run", data);
+      return;
+    }
+
+    try {
+      const timeoutsConfig = this.configService.get("timeouts");
+      const intervalMs = data.intervalSeconds * 1000;
+      const timeoutMs = Math.max(10000, intervalMs - timeoutsConfig.retrievalTimeoutBufferMs);
+      const httpTimeoutMs = Math.max(timeoutsConfig.httpRequestTimeoutMs, timeoutsConfig.http2RequestTimeoutMs);
+
+      if (timeoutMs < httpTimeoutMs) {
+        this.logger.warn(
+          `Retrieval interval (${intervalMs}ms) minus buffer (${timeoutsConfig.retrievalTimeoutBufferMs}ms) yields ${timeoutMs}ms, ` +
+            `which is less than the HTTP timeout (${httpTimeoutMs}ms). ` +
+            "Retrieval runs may be skipped unless the interval or timeouts are adjusted.",
+        );
+      }
+
+      await this.retrievalService.performRandomRetrievalForProvider(spAddress, timeoutMs);
+    } catch (error) {
+      this.logger.error(`Retrieval job failed for ${spAddress.slice(0, 8)}...: ${error.message}`, error.stack);
+      throw error;
+    } finally {
+      await this.releaseSpLock(spAddress);
+    }
+  }
+
+  private async handleMetricsJob(data: MetricsJobData): Promise<void> {
+    void data;
+    await this.metricsSchedulerService.aggregateDailyMetrics();
+    await this.metricsSchedulerService.refreshWeeklyPerformance();
+    await this.metricsSchedulerService.refreshAllTimePerformance();
+  }
+
+  private async handleMetricsCleanupJob(data: MetricsJobData): Promise<void> {
+    void data;
+    await this.metricsSchedulerService.cleanupOldMetrics({ allowWhenPgBoss: true });
+  }
+
+  private async requeueJob(name: string, data: DealJobData | RetrievalJobData): Promise<void> {
+    if (!this.boss) return;
+    const startAfter = new Date(Date.now() + this.lockRetrySeconds() * 1000);
+    try {
+      // We only requeue on lock contention; once a job starts, we do not retry it.
+      const options: PgBossSendOptions = { startAfter, retryLimit: 0 };
+      await this.boss.publish(name, data, options);
+    } catch (error) {
+      this.logger.warn(`Failed to requeue ${name}: ${error.message}`);
+    }
+  }
+
+  private async tryAcquireSpLock(spAddress: string): Promise<boolean> {
+    const result = await this.dataSource.query("SELECT pg_try_advisory_lock(hashtext($1)::bigint) AS acquired", [
+      spAddress,
+    ]);
+    return Boolean(result?.[0]?.acquired);
+  }
+
+  private async releaseSpLock(spAddress: string): Promise<void> {
+    await this.dataSource.query("SELECT pg_advisory_unlock(hashtext($1)::bigint)", [spAddress]);
+  }
+
+  private async tick(): Promise<void> {
+    if (this.tickPromise) {
+      this.logger.warn("Previous pg-boss scheduler tick still running; skipping");
+      return;
+    }
+    this.tickPromise = this.runTick();
+    try {
+      await this.tickPromise;
+    } finally {
+      this.tickPromise = null;
+    }
+  }
+
+  private async runTick(): Promise<void> {
+    try {
+      await this.ensureScheduleRows();
+      await this.enqueueDueJobs();
+    } catch (error) {
+      this.logger.error(`pg-boss scheduler tick failed: ${error.message}`, error.stack);
+    }
+  }
+
+  private getIntervalSecondsForRates(): {
+    dealIntervalSeconds: number;
+    retrievalIntervalSeconds: number;
+    metricsIntervalSeconds: number;
+    metricsCleanupIntervalSeconds: number;
+  } {
+    const scheduling = this.configService.get("scheduling");
+    const jobsConfig = this.configService.get("jobs");
+
+    const defaultDealsPerHour = 3600 / scheduling.dealIntervalSeconds;
+    const defaultRetrievalsPerHour = 3600 / scheduling.retrievalIntervalSeconds;
+    const defaultMetricsPerHour = 2;
+
+    const dealsPerHourRaw = jobsConfig?.dealsPerSpPerHour ?? defaultDealsPerHour;
+    const retrievalsPerHourRaw = jobsConfig?.retrievalsPerSpPerHour ?? defaultRetrievalsPerHour;
+    const metricsPerHourRaw = jobsConfig?.metricsPerHour ?? defaultMetricsPerHour;
+
+    const dealsPerHour = dealsPerHourRaw > 0 ? dealsPerHourRaw : defaultDealsPerHour;
+    const retrievalsPerHour = retrievalsPerHourRaw > 0 ? retrievalsPerHourRaw : defaultRetrievalsPerHour;
+    const metricsPerHour = metricsPerHourRaw > 0 ? metricsPerHourRaw : defaultMetricsPerHour;
+
+    const dealIntervalSeconds = Math.max(1, Math.round(3600 / dealsPerHour));
+    const retrievalIntervalSeconds = Math.max(1, Math.round(3600 / retrievalsPerHour));
+    const metricsIntervalSeconds = Math.max(1, Math.round(3600 / metricsPerHour));
+    const metricsCleanupIntervalSeconds = 7 * 24 * 3600;
+
+    return {
+      dealIntervalSeconds,
+      retrievalIntervalSeconds,
+      metricsIntervalSeconds,
+      metricsCleanupIntervalSeconds,
+    };
+  }
+
+  private async ensureScheduleRows(): Promise<void> {
+    const scheduling = this.configService.get("scheduling");
+    const now = new Date();
+    const { dealIntervalSeconds, retrievalIntervalSeconds, metricsIntervalSeconds, metricsCleanupIntervalSeconds } =
+      this.getIntervalSecondsForRates();
+
+    const useOnlyApprovedProviders = this.configService.get("blockchain").useOnlyApprovedProviders;
+    const providers = await this.storageProviderRepository.find({
+      select: { address: true },
+      where: useOnlyApprovedProviders ? { isActive: true, isApproved: true } : { isActive: true },
+    });
+    const providerAddresses = providers.map((provider) => provider.address);
+
+    const dealStartAt = new Date(now.getTime() + scheduling.dealStartOffsetSeconds * 1000);
+    const retrievalStartAt = new Date(now.getTime() + scheduling.retrievalStartOffsetSeconds * 1000);
+    const metricsStartAt = new Date(now.getTime() + scheduling.metricsStartOffsetSeconds * 1000);
+
+    for (const address of providerAddresses) {
+      await this.dataSource.query(
+        `
+        INSERT INTO job_schedule_state (job_type, sp_address, interval_seconds, next_run_at)
+        VALUES ($1, $2, $3, $4)
+        ON CONFLICT (job_type, sp_address) DO UPDATE
+        SET interval_seconds = EXCLUDED.interval_seconds,
+            paused = false,
+            updated_at = NOW()
+        `,
+        ["deal", address, dealIntervalSeconds, dealStartAt],
+      );
+
+      await this.dataSource.query(
+        `
+        INSERT INTO job_schedule_state (job_type, sp_address, interval_seconds, next_run_at)
+        VALUES ($1, $2, $3, $4)
+        ON CONFLICT (job_type, sp_address) DO UPDATE
+        SET interval_seconds = EXCLUDED.interval_seconds,
+            paused = false,
+            updated_at = NOW()
+        `,
+        ["retrieval", address, retrievalIntervalSeconds, retrievalStartAt],
+      );
+    }
+
+    // Pause providers that are no longer active/testing.
+    if (providerAddresses.length > 0) {
+      await this.dataSource.query(
+        `
+        UPDATE job_schedule_state
+        SET paused = true,
+            updated_at = NOW()
+        WHERE job_type IN ('deal', 'retrieval')
+          AND sp_address <> ''
+          AND sp_address <> ALL($1::text[])
+        `,
+        [providerAddresses],
+      );
+    } else {
+      await this.dataSource.query(
+        `
+        UPDATE job_schedule_state
+        SET paused = true,
+            updated_at = NOW()
+        WHERE job_type IN ('deal', 'retrieval')
+          AND sp_address <> ''
+        `,
+      );
+    }
+
+    // Global metrics schedule (sp_address = '')
+    await this.dataSource.query(
+      `
+      INSERT INTO job_schedule_state (job_type, sp_address, interval_seconds, next_run_at)
+      VALUES ($1, '', $2, $3)
+      ON CONFLICT (job_type, sp_address) DO UPDATE
+      SET interval_seconds = EXCLUDED.interval_seconds,
+          paused = false,
+          updated_at = NOW()
+      `,
+      ["metrics", metricsIntervalSeconds, metricsStartAt],
+    );
+
+    await this.dataSource.query(
+      `
+      INSERT INTO job_schedule_state (job_type, sp_address, interval_seconds, next_run_at)
+      VALUES ($1, '', $2, $3)
+      ON CONFLICT (job_type, sp_address) DO UPDATE
+      SET interval_seconds = EXCLUDED.interval_seconds,
+          paused = false,
+          updated_at = NOW()
+      `,
+      ["metrics_cleanup", metricsCleanupIntervalSeconds, metricsStartAt],
+    );
+  }
+
+  private async enqueueDueJobs(): Promise<void> {
+    if (!this.boss) return;
+
+    const now = new Date();
+    const catchupMax = this.catchupMaxEnqueue();
+    const spreadSeconds = this.catchupSpreadSeconds();
+    const immediateLimit = this.perSpImmediateLimit();
+
+    await this.dataSource.transaction(async (manager) => {
+      const rows: ScheduleRow[] = await manager.query(
+        `
+        SELECT id, job_type, sp_address, interval_seconds, next_run_at
+        FROM job_schedule_state
+        WHERE paused = false
+          AND next_run_at <= NOW()
+        ORDER BY next_run_at ASC
+        FOR UPDATE SKIP LOCKED
+        `,
+      );
+
+      for (const row of rows) {
+        const intervalMs = row.interval_seconds * 1000;
+        if (intervalMs <= 0) continue;
+
+        const nextRunAt = new Date(row.next_run_at);
+        const diffMs = now.getTime() - nextRunAt.getTime();
+        if (diffMs < 0) continue;
+
+        const runsDue = Math.floor(diffMs / intervalMs) + 1;
+        if (runsDue <= 0) continue;
+
+        const totalToEnqueue = Math.min(runsDue, catchupMax);
+        const immediateCount = Math.min(totalToEnqueue, immediateLimit);
+        const delayedCount = Math.max(0, totalToEnqueue - immediateCount);
+
+        let successCount = 0;
+        const jobName = this.mapJobName(row.job_type);
+        const payload = this.mapJobPayload(row);
+
+        for (let i = 0; i < immediateCount; i += 1) {
+          if (await this.safeSend(jobName, payload)) {
+            successCount += 1;
+          }
+        }
+
+        if (delayedCount > 0) {
+          for (let i = 0; i < delayedCount; i += 1) {
+            if (spreadSeconds > 0) {
+              const offsetSeconds = Math.ceil(((i + 1) * spreadSeconds) / (delayedCount + 1));
+              const startAfter = new Date(now.getTime() + offsetSeconds * 1000);
+              if (await this.safeSend(jobName, payload, { startAfter })) {
+                successCount += 1;
+              }
+            } else if (await this.safeSend(jobName, payload)) {
+              successCount += 1;
+            }
+          }
+        }
+
+        if (successCount > 0) {
+          const newNextRunAt = new Date(nextRunAt.getTime() + successCount * intervalMs);
+          await manager.query(
+            `
+            UPDATE job_schedule_state
+            SET next_run_at = $1,
+                last_run_at = $2,
+                updated_at = NOW()
+            WHERE id = $3
+            `,
+            [newNextRunAt, now, row.id],
+          );
+        }
+      }
+    });
+  }
+
+  private mapJobName(jobType: JobType): string {
+    switch (jobType) {
+      case "deal":
+        return "deal.run";
+      case "retrieval":
+        return "retrieval.run";
+      case "metrics":
+        return "metrics.run";
+      case "metrics_cleanup":
+        return "metrics.cleanup";
+      default: {
+        const exhaustiveCheck: never = jobType;
+        throw new Error(`Unhandled job type: ${exhaustiveCheck}`);
+      }
+    }
+  }
+
+  private mapJobPayload(row: ScheduleRow): DealJobData | RetrievalJobData | MetricsJobData {
+    if (row.job_type === "deal" || row.job_type === "retrieval") {
+      return { spAddress: row.sp_address, intervalSeconds: row.interval_seconds };
+    }
+    return { intervalSeconds: row.interval_seconds };
+  }
+
+  private async safeSend(
+    name: string,
+    data: DealJobData | RetrievalJobData | MetricsJobData,
+    options?: PgBossSendOptions,
+  ) {
+    if (!this.boss) return false;
+    try {
+      // Disable retries so "attempted" jobs don't rerun; failures are handled by the next schedule tick.
+      const finalOptions: PgBossSendOptions = { retryLimit: 0, ...options };
+      await this.boss.publish(name, data, finalOptions);
+      return true;
+    } catch (error) {
+      this.logger.warn(`Failed to enqueue ${name}: ${error.message}`);
+      return false;
+    }
+  }
+}

@@ -11,6 +11,7 @@ This document provides a comprehensive guide to all environment variables used b
 | [Blockchain](#blockchain-configuration)   | `NETWORK`, `WALLET_ADDRESS`, `WALLET_PRIVATE_KEY`, `CHECK_DATASET_CREATION_FEES`, `USE_ONLY_APPROVED_PROVIDERS`, `ENABLE_CDN_TESTING`, `ENABLE_IPNI_TESTING` |
 | [Dataset Versioning](#dataset-versioning) | `DEALBOT_DATASET_VERSION`                                                                                                                                    |
 | [Scheduling](#scheduling-configuration)   | `DEAL_INTERVAL_SECONDS`, `RETRIEVAL_INTERVAL_SECONDS`, `DEAL_START_OFFSET_SECONDS`, `RETRIEVAL_START_OFFSET_SECONDS`, `METRICS_START_OFFSET_SECONDS`         |
+| [Jobs (pg-boss)](#jobs-pg-boss)           | `DEALBOT_JOBS_MODE`, `DEALS_PER_SP_PER_HOUR`, `RETRIEVALS_PER_SP_PER_HOUR`, `METRICS_PER_HOUR`, `JOB_SCHEDULER_POLL_SECONDS`, `JOB_CATCHUP_MAX_ENQUEUE`, `JOB_CATCHUP_SPREAD_HOURS`, `JOB_LOCK_RETRY_SECONDS` |
 | [Dataset](#dataset-configuration)         | `DEALBOT_LOCAL_DATASETS_PATH`, `KAGGLE_DATASET_TOTAL_PAGES`, `RANDOM_DATASET_SIZES`                                                                          |
 | [Proxy](#proxy-configuration)             | `PROXY_LIST`, `PROXY_LOCATIONS`                                                                                                                              |
 | [Timeouts](#timeout-configuration)        | `CONNECT_TIMEOUT_MS`, `HTTP_REQUEST_TIMEOUT_MS`, `HTTP2_REQUEST_TIMEOUT_MS`, `RETRIEVAL_TIMEOUT_BUFFER_MS`                                                   |
@@ -456,6 +457,91 @@ RETRIEVAL_INTERVAL_SECONDS * 1000 - RETRIEVAL_TIMEOUT_BUFFER_MS >= max(HTTP_REQU
 - Adjust to ensure metrics collection doesn't overlap with other jobs
 
 ---
+
+## Jobs (pg-boss)
+
+These variables are only used when `DEALBOT_JOBS_MODE=pgboss`. In this mode, scheduling is
+rate-based (per hour) and persisted in Postgres so restarts do not reset timing.
+
+### `DEALBOT_JOBS_MODE`
+
+- **Type**: `string`
+- **Required**: No
+- **Default**: `cron`
+- **Valid values**: `cron`, `pgboss`
+
+**Role**: Switches between the legacy in-process cron scheduler and pg-boss.
+
+---
+
+### `DEALS_PER_SP_PER_HOUR`
+
+- **Type**: `number`
+- **Required**: No
+- **Default**: Derived from `DEAL_INTERVAL_SECONDS` (1 per interval per SP)
+
+**Role**: Target deal creation rate per storage provider.
+
+---
+
+### `RETRIEVALS_PER_SP_PER_HOUR`
+
+- **Type**: `number`
+- **Required**: No
+- **Default**: Derived from `RETRIEVAL_INTERVAL_SECONDS` (1 per interval per SP)
+
+**Role**: Target retrieval test rate per storage provider.
+
+---
+
+### `METRICS_PER_HOUR`
+
+- **Type**: `number`
+- **Required**: No
+- **Default**: `2`
+
+**Role**: How often metrics aggregation runs per hour.
+
+---
+
+### `JOB_SCHEDULER_POLL_SECONDS`
+
+- **Type**: `number`
+- **Required**: No
+- **Default**: `300`
+
+**Role**: How often the scheduler polls Postgres for due jobs.
+
+---
+
+### `JOB_CATCHUP_MAX_ENQUEUE`
+
+- **Type**: `number`
+- **Required**: No
+- **Default**: `10`
+
+**Role**: Maximum number of jobs to enqueue per schedule row per poll. Any remaining backlog
+is handled by future polls.
+
+---
+
+### `JOB_CATCHUP_SPREAD_HOURS`
+
+- **Type**: `number`
+- **Required**: No
+- **Default**: `3`
+
+**Role**: When catching up, delayed jobs are spread evenly over this window.
+
+---
+
+### `JOB_LOCK_RETRY_SECONDS`
+
+- **Type**: `number`
+- **Required**: No
+- **Default**: `60`
+
+**Role**: Delay before re-queuing a job when the per-SP mutual-exclusion lock is held.
 
 ## Dataset Configuration
 
