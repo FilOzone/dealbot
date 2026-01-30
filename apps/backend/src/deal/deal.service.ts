@@ -178,11 +178,41 @@ export class DealService implements OnModuleInit {
       deal.dataSetId = storage.dataSetId;
       deal.uploadStartTime = new Date();
 
+      let callbackError: Error | null = null;
+      const pendingCallbacks: Promise<void>[] = [];
+
+      const safeOnUploadComplete = (pieceCid: PieceCID) => {
+        const promise = this.handleUploadComplete(deal, pieceCid, dealInput.appliedAddons).catch((error) => {
+          const err = error instanceof Error ? error : new Error(String(error));
+          this.logger.warn(`Upload completion handler failed for ${providerShort}...: ${err.message}`);
+          callbackError = err;
+        });
+        pendingCallbacks.push(promise);
+      };
+
+      const safeOnPieceAdded = (hash: Parameters<DealService["handleRootAdded"]>[1]) => {
+        const promise = this.handleRootAdded(deal, hash).catch((error) => {
+          const err = error instanceof Error ? error : new Error(String(error));
+          this.logger.warn(`Piece added handler failed for ${providerShort}...: ${err.message}`);
+          callbackError = err;
+        });
+        pendingCallbacks.push(promise);
+      };
+
       const uploadResult: UploadResult = await storage.upload(dealInput.processedData.data, {
-        onUploadComplete: (pieceCid) => this.handleUploadComplete(deal, pieceCid, dealInput.appliedAddons),
-        onPieceAdded: (hash) => this.handleRootAdded(deal, hash),
+        onUploadComplete: safeOnUploadComplete,
+        onPieceAdded: safeOnPieceAdded,
         metadata: dealInput.synapseConfig.pieceMetadata,
       });
+
+      // Wait for any floating callbacks to finish before proceeding
+      await Promise.all(pendingCallbacks);
+
+      // If any callback failed, throw the error to trigger the main catch block
+      // This ensures the deal is marked as FAILED if callbacks (like IPNI updates) fail
+      if (callbackError) {
+        throw callbackError;
+      }
 
       this.updateDealWithUploadResult(deal, uploadResult);
 

@@ -14,8 +14,14 @@ export function scheduleJobWithOffset(
 
   setTimeout(() => {
     const cronExpression = secondsToCronExpression(intervalSeconds);
-    const job = new CronJob(cronExpression, () => {
-      callback();
+    const job = new CronJob(cronExpression, async () => {
+      try {
+        await callback();
+      } catch (error) {
+        if (logger) {
+          logger.error(`Scheduled job ${name} failed`, error instanceof Error ? error.stack : String(error));
+        }
+      }
     });
 
     schedulerRegistry.addCronJob(name, job);
