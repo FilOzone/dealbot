@@ -1,4 +1,10 @@
-import { BadRequestException, Injectable, Logger, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import type { Repository } from "typeorm";
 import { Deal } from "../database/entities/deal.entity.js";
@@ -12,6 +18,7 @@ import type { RetrievalMethodResultDto, TriggerRetrievalResponseDto } from "./dt
 @Injectable()
 export class DevToolsService {
   private readonly logger = new Logger(DevToolsService.name);
+  private isRunningCreateAll = false;
 
   constructor(
     private readonly walletSdkService: WalletSdkService,
@@ -143,17 +150,30 @@ export class DevToolsService {
   }
 
   /**
-   * Get deal status by ID
+   * Trigger deal creation for all providers (same flow as scheduler).
+   * Loads providers, then calls createDealsForAllProviders.
    */
-  async getDeal(dealId: string): Promise<TriggerDealResponseDto> {
-    const deal = await this.dealRepository.findOne({
-      where: { id: dealId },
-    });
-
-    if (!deal) {
-      throw new NotFoundException(`Deal not found: ${dealId}`);
+  async triggerDealsForAllProviders(): Promise<{ deals: TriggerDealResponseDto[]; total: number }> {
+    if (this.isRunningCreateAll) {
+      throw new ConflictException("Deal creation for all providers is already in progress");
     }
 
+    this.isRunningCreateAll = true;
+    this.logger.log("Starting deal creation for all providers (dev-tools)");
+
+    try {
+      const deals = await this.dealService.createDealsForAllProviders();
+      const dtos = deals.map((d) => this.dealToResponseDto(d));
+
+      this.logger.log(`Deal creation for all providers completed: ${deals.length} deals`);
+
+      return { deals: dtos, total: dtos.length };
+    } finally {
+      this.isRunningCreateAll = false;
+    }
+  }
+
+  private dealToResponseDto(deal: Deal): TriggerDealResponseDto {
     return {
       id: deal.id,
       pieceCid: deal.pieceCid || "",
@@ -169,6 +189,21 @@ export class DevToolsService {
       spAddress: deal.spAddress,
       errorMessage: deal.errorMessage,
     };
+  }
+
+  /**
+   * Get deal status by ID
+   */
+  async getDeal(dealId: string): Promise<TriggerDealResponseDto> {
+    const deal = await this.dealRepository.findOne({
+      where: { id: dealId },
+    });
+
+    if (!deal) {
+      throw new NotFoundException(`Deal not found: ${dealId}`);
+    }
+
+    return this.dealToResponseDto(deal);
   }
 
   /**

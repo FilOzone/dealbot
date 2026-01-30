@@ -70,12 +70,27 @@ describe("DealService", () => {
   };
 
   const mockConfigService = {
-    get: vi.fn().mockReturnValue({
-      walletPrivateKey: "mockKey",
-      network: "calibration",
-      walletAddress: "0x123",
-      enableCDNTesting: true,
-      enableIpniTesting: "always",
+    get: vi.fn().mockImplementation((key: string) => {
+      if (key === "scheduling") {
+        return {
+          dealMaxConcurrency: 2,
+          dealIntervalSeconds: 30,
+          dealStartOffsetSeconds: 0,
+          retrievalIntervalSeconds: 60,
+          retrievalStartOffsetSeconds: 600,
+          metricsStartOffsetSeconds: 900,
+        };
+      }
+      if (key === "blockchain") {
+        return {
+          walletPrivateKey: "mockKey",
+          network: "calibration",
+          walletAddress: "0x123",
+          enableCDNTesting: true,
+          enableIpniTesting: "always",
+        };
+      }
+      return undefined;
     }),
   };
 
@@ -460,6 +475,28 @@ describe("DealService", () => {
   describe("createDealsForAllProviders", () => {
     beforeEach(async () => {
       (Synapse.create as Mock).mockResolvedValue({});
+      mockConfigService.get.mockImplementation((key: string) => {
+        if (key === "scheduling") {
+          return {
+            dealMaxConcurrency: 2,
+            dealIntervalSeconds: 30,
+            dealStartOffsetSeconds: 0,
+            retrievalIntervalSeconds: 60,
+            retrievalStartOffsetSeconds: 600,
+            metricsStartOffsetSeconds: 900,
+          };
+        }
+        if (key === "blockchain") {
+          return {
+            walletPrivateKey: "mockKey",
+            network: "calibration",
+            walletAddress: "0x123",
+            enableCDNTesting: true,
+            enableIpniTesting: "always",
+          };
+        }
+        return undefined;
+      });
     });
 
     it("orchestrates deal creation for multiple providers", async () => {

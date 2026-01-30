@@ -88,7 +88,14 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       const uploadPayload = await this.prepareUploadPayload(preprocessed);
       const providers = this.walletSdkService.getTestingProviders();
 
-      const results = await this.processProvidersInParallel(synapse, providers, preprocessed, uploadPayload);
+      const maxConcurrency = this.configService.get("scheduling").dealMaxConcurrency;
+      const results = await this.processProvidersInParallel(
+        synapse,
+        providers,
+        preprocessed,
+        uploadPayload,
+        maxConcurrency,
+      );
 
       const successfulDeals = results.filter((result) => result.success).map((result) => result.deal!);
 
@@ -453,7 +460,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     providers: ProviderInfoEx[],
     dealInput: DealPreprocessingResult,
     uploadPayload: UploadPayload,
-    maxConcurrency: number = 10,
+    maxConcurrency: number,
   ): Promise<Array<{ success: boolean; deal?: Deal; error?: string; provider: string }>> {
     const results: Array<{
       success: boolean;
