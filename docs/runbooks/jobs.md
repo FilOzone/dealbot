@@ -45,6 +45,49 @@ WHERE job_type IN ('deal', 'retrieval')
   AND sp_address = '<sp-address>';
 ```
 
+## Trigger jobs on demand
+
+You can force schedules to be due immediately by setting `next_run_at = NOW()`.
+The scheduler will enqueue jobs on the next poll.
+
+Kick off a metrics run now:
+
+```sql
+UPDATE job_schedule_state
+SET paused = false, next_run_at = NOW(), updated_at = NOW()
+WHERE job_type = 'metrics';
+```
+
+Run all deal schedules now:
+
+```sql
+UPDATE job_schedule_state
+SET paused = false, next_run_at = NOW(), updated_at = NOW()
+WHERE job_type = 'deal';
+```
+
+Run all retrieval schedules now:
+
+```sql
+UPDATE job_schedule_state
+SET paused = false, next_run_at = NOW(), updated_at = NOW()
+WHERE job_type = 'retrieval';
+```
+
+Run a deal or retrieval for a specific SP:
+
+```sql
+UPDATE job_schedule_state
+SET paused = false, next_run_at = NOW(), updated_at = NOW()
+WHERE job_type = 'deal'
+  AND sp_address = '<sp-address>';
+
+UPDATE job_schedule_state
+SET paused = false, next_run_at = NOW(), updated_at = NOW()
+WHERE job_type = 'retrieval'
+  AND sp_address = '<sp-address>';
+```
+
 ## Notes
 
 - Offsets (`*_START_OFFSET_SECONDS`) are ignored in pg-boss mode.
