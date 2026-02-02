@@ -15,7 +15,7 @@ This document provides a comprehensive guide to all environment variables used b
 | [Proxy](#proxy-configuration)             | `PROXY_LIST`, `PROXY_LOCATIONS`                                                                                                                              |
 | [Timeouts](#timeout-configuration)        | `CONNECT_TIMEOUT_MS`, `HTTP_REQUEST_TIMEOUT_MS`, `HTTP2_REQUEST_TIMEOUT_MS`, `RETRIEVAL_TIMEOUT_BUFFER_MS`                                                   |
 | [External Services](#external-services)   | `FILBEAM_BOT_TOKEN`                                                                                                                                          |
-| [Web Frontend](#web-frontend)             | `VITE_API_BASE_URL`                                                                                                                                          |
+| [Web Frontend](#web-frontend)             | `VITE_API_BASE_URL`, `VITE_PLAUSIBLE_DATA_DOMAIN`                                                                                                            |
 
 ---
 
@@ -654,6 +654,30 @@ PROXY_LOCATIONS=us-east,eu-west
 
 ```bash
 VITE_API_BASE_URL=http://localhost:9000
+```
+
+---
+
+### `VITE_PLAUSIBLE_DATA_DOMAIN`
+
+- **Type**: `string` (domain)
+- **Required**: No
+- **Default**: Empty (Plausible disabled)
+- **Location**: `apps/web/.env`
+
+**Role**: Enables Plausible analytics for the web frontend when set. The value should match the Plausible site domain
+you want to attribute events to (e.g., `dealbot.filoz.org` or `staging.dealbot.filoz.org`).
+
+**When to update**:
+
+- Set to the production domain for production deployments
+- Set to the staging domain for staging deployments
+- Leave empty to disable analytics (local development or privacy-sensitive environments)
+
+**Example**:
+
+```bash
+VITE_PLAUSIBLE_DATA_DOMAIN=dealbot.filoz.org
 ```
 
 ---

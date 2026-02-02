@@ -69,9 +69,10 @@ pnpm preview
 
 ### Environment Variables
 
-| Variable            | Description          | Default                 |
-| ------------------- | -------------------- | ----------------------- |
-| `VITE_API_BASE_URL` | Backend API base URL | `http://localhost:8080` |
+| Variable                     | Description                     | Default                 |
+| ---------------------------- | ------------------------------- | ----------------------- |
+| `VITE_API_BASE_URL`          | Backend API base URL            | `http://localhost:8080` |
+| `VITE_PLAUSIBLE_DATA_DOMAIN` | Enable Plausible site analytics | Empty (disabled)        |
 
 All environment variables must be prefixed with `VITE_` to be accessible in the application.
 
