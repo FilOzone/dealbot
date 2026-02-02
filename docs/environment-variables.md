@@ -489,6 +489,8 @@ rate-based (per hour) and persisted in Postgres so restarts do not reset timing.
 
 **Limits**: Config schema caps this at 20 to avoid excessive on-chain activity.
 
+**Notes**: Fractional values are supported. For example, `0.25` means one deal every 4 hours per storage provider.
+
 ---
 
 ### `RETRIEVALS_PER_SP_PER_HOUR`
@@ -500,6 +502,8 @@ rate-based (per hour) and persisted in Postgres so restarts do not reset timing.
 **Role**: Target retrieval test rate per storage provider.
 
 **Limits**: Config schema caps this at 20 to avoid overloading providers.
+
+**Notes**: Fractional values are supported. For example, `0.25` means one retrieval every 4 hours per storage provider.
 
 ---
 
