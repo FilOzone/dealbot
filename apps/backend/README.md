@@ -122,10 +122,10 @@ Control when and how often automated jobs run:
 
 ### Dataset Configuration
 
-| Variable                      | Description                    | Default      |
-| ----------------------------- | ------------------------------ | ------------ |
-| `DEALBOT_LOCAL_DATASETS_PATH` | Local path for dataset storage | `./datasets` |
-| `KAGGLE_DATASET_TOTAL_PAGES`  | Number of Kaggle dataset pages | `500`        |
+| Variable                      | Description                                     | Default      |
+| ----------------------------- | ----------------------------------------------- | ------------ |
+| `DEALBOT_LOCAL_DATASETS_PATH` | Local path for random dataset storage           | `./datasets` |
+| `RANDOM_DATASET_SIZES`        | Comma-separated byte sizes for random datasets | `10240,10485760,104857600` |
 
 ### Proxy Configuration (Optional)
 
