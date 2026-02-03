@@ -12,7 +12,7 @@ This document provides a comprehensive guide to all environment variables used b
 | [Dataset Versioning](#dataset-versioning) | `DEALBOT_DATASET_VERSION`                                                                                                                                    |
 | [Scheduling](#scheduling-configuration)   | `DEAL_INTERVAL_SECONDS`, `RETRIEVAL_INTERVAL_SECONDS`, `DEAL_START_OFFSET_SECONDS`, `RETRIEVAL_START_OFFSET_SECONDS`, `METRICS_START_OFFSET_SECONDS`         |
 | [Jobs (pg-boss)](#jobs-pg-boss)           | `DEALBOT_JOBS_MODE`, `DEALS_PER_SP_PER_HOUR`, `RETRIEVALS_PER_SP_PER_HOUR`, `METRICS_PER_HOUR`, `JOB_SCHEDULER_POLL_SECONDS`, `JOB_CATCHUP_MAX_ENQUEUE`, `JOB_CATCHUP_SPREAD_HOURS`, `JOB_LOCK_RETRY_SECONDS`, `JOB_SCHEDULE_PHASE_SECONDS`, `JOB_ENQUEUE_JITTER_SECONDS` |
-| [Dataset](#dataset-configuration)         | `DEALBOT_LOCAL_DATASETS_PATH`, `KAGGLE_DATASET_TOTAL_PAGES`, `RANDOM_DATASET_SIZES`                                                                          |
+| [Dataset](#dataset-configuration)         | `DEALBOT_LOCAL_DATASETS_PATH`, `RANDOM_DATASET_SIZES`                                                                                                        |
 | [Proxy](#proxy-configuration)             | `PROXY_LIST`, `PROXY_LOCATIONS`                                                                                                                              |
 | [Timeouts](#timeout-configuration)        | `CONNECT_TIMEOUT_MS`, `HTTP_REQUEST_TIMEOUT_MS`, `HTTP2_REQUEST_TIMEOUT_MS`, `RETRIEVAL_TIMEOUT_BUFFER_MS`                                                   |
 | [External Services](#external-services)   | `FILBEAM_BOT_TOKEN`                                                                                                                                          |
@@ -591,25 +591,11 @@ Use this to stagger multiple dealbot deployments that are not sharing a database
 - **Required**: No
 - **Default**: `./datasets`
 
-**Role**: Directory path where local dataset files are stored. If kaggle dataset download fails, the files in this directory are used as fallback to create deals.
+**Role**: Directory path where randomly generated dataset files are stored.
 
 **When to update**:
 
 - When using a different storage location
-
----
-
-### `KAGGLE_DATASET_TOTAL_PAGES`
-
-- **Type**: `number`
-- **Required**: No
-- **Default**: `500`
-
-**Role**: Number of pages to fetch when discovering Kaggle datasets for testing.
-
-**When to update**:
-
-- Increase for more dataset variety
 
 ---
 

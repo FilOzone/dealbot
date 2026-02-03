@@ -48,11 +48,11 @@ jobs:
     steps:
       - name: Checkout
         if: inputs.ref == ''
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Checkout (ref)
         if: inputs.ref != ''
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: ${{ inputs.ref }}
 
