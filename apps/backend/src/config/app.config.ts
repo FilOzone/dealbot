@@ -61,9 +61,8 @@ export const configValidationSchema = Joi.object({
   RETRIEVAL_START_OFFSET_SECONDS: Joi.number().default(600),
   METRICS_START_OFFSET_SECONDS: Joi.number().default(900),
 
-  // Kaggle
+  // Dataset
   DEALBOT_LOCAL_DATASETS_PATH: Joi.string().default(DEFAULT_LOCAL_DATASETS_PATH),
-  KAGGLE_DATASET_TOTAL_PAGES: Joi.number().default(500),
   RANDOM_DATASET_SIZES: Joi.string().default("10240,10485760,104857600"), // 10 KiB, 10 MB, 100 MB
 
   // Proxy
@@ -132,7 +131,6 @@ export interface ISchedulingConfig {
 }
 
 export interface IDatasetConfig {
-  totalPages: number;
   localDatasetsPath: string;
   randomDatasetSizes: number[];
 }
@@ -216,7 +214,6 @@ export function loadConfig(): IConfig {
     },
     dataset: {
       localDatasetsPath: process.env.DEALBOT_LOCAL_DATASETS_PATH || DEFAULT_LOCAL_DATASETS_PATH,
-      totalPages: Number.parseInt(process.env.KAGGLE_DATASET_TOTAL_PAGES || "500", 10),
       randomDatasetSizes: (() => {
         const envValue = process.env.RANDOM_DATASET_SIZES;
         if (envValue && envValue.trim().length > 0) {

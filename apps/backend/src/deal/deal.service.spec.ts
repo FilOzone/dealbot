@@ -64,8 +64,6 @@ describe("DealService", () => {
   };
 
   const mockDataSourceService = {
-    fetchKaggleDataset: vi.fn(),
-    fetchLocalDataset: vi.fn(),
     generateRandomDataset: vi.fn(),
     cleanupRandomDataset: vi.fn(),
   };
@@ -525,7 +523,7 @@ describe("DealService", () => {
 
       walletSdkMock.getTestingProvidersCount.mockReturnValue(2);
       walletSdkMock.getTestingProviders.mockReturnValue(providers);
-      dataSourceMock.fetchKaggleDataset.mockResolvedValue(dataFile);
+      dataSourceMock.generateRandomDataset.mockResolvedValue(dataFile);
       dealAddonsMock.preprocessDeal.mockResolvedValue(preprocessed);
 
       // Mock createDeal to succeed
@@ -536,7 +534,7 @@ describe("DealService", () => {
       const results = await service.createDealsForAllProviders();
 
       // Verify data fetching
-      expect(dataSourceMock.fetchKaggleDataset).toHaveBeenCalledWith(
+      expect(dataSourceMock.generateRandomDataset).toHaveBeenCalledWith(
         SIZE_CONSTANTS.MIN_UPLOAD_SIZE,
         SIZE_CONSTANTS.MAX_UPLOAD_SIZE,
       );
@@ -558,44 +556,12 @@ describe("DealService", () => {
       expect(results).toHaveLength(2);
     });
 
-    it("falls back to local dataset if Kaggle fetch fails", async () => {
-      const dataFile = { name: "local", size: 10, data: Buffer.from("test") };
-      walletSdkMock.getTestingProvidersCount.mockReturnValue(0);
-      walletSdkMock.getTestingProviders.mockReturnValue([]);
-
-      dataSourceMock.fetchKaggleDataset.mockRejectedValue(new Error("Network Error"));
-      dataSourceMock.fetchLocalDataset.mockResolvedValue(dataFile);
-      dealAddonsMock.preprocessDeal.mockResolvedValue({
-        processedData: dataFile,
-        metadata: {
-          ipfs_pin: {
-            enabled: true,
-            rootCID: mockRootCid,
-            blockCIDs: [],
-            blockCount: 1,
-            carSize: 1,
-            originalSize: 1,
-          },
-        },
-        appliedAddons: [],
-        synapseConfig: {},
-      });
-
-      await service.createDealsForAllProviders();
-
-      expect(dataSourceMock.fetchKaggleDataset).toHaveBeenCalled();
-      expect(dataSourceMock.fetchLocalDataset).toHaveBeenCalledWith(
-        SIZE_CONSTANTS.MIN_UPLOAD_SIZE,
-        SIZE_CONSTANTS.MAX_UPLOAD_SIZE,
-      );
-    });
-
     it("aggregates successful deals even if some fail", async () => {
       const providers = [{ serviceProvider: "0xSuccess" }, { serviceProvider: "0xFail" }];
       walletSdkMock.getTestingProviders.mockReturnValue(providers);
       walletSdkMock.getTestingProvidersCount.mockReturnValue(2);
       const dataFile = { name: "test", size: 100, data: Buffer.from("test") };
-      dataSourceMock.fetchKaggleDataset.mockResolvedValue(dataFile);
+      dataSourceMock.generateRandomDataset.mockResolvedValue(dataFile);
       dealAddonsMock.preprocessDeal.mockResolvedValue({
         processedData: dataFile,
         metadata: {

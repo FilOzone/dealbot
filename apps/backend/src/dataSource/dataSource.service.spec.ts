@@ -15,7 +15,6 @@ describe("DataSourceService", () => {
       get: vi.fn((key: string) => {
         if (key === "dataset") {
           return {
-            totalPages: 10,
             localDatasetsPath: testDatasetsPath,
             randomDatasetSizes: [
               10 << 10, // 10 KiB
@@ -82,7 +81,7 @@ describe("DataSourceService", () => {
       expect(Buffer.compare(result1.data, result2.data)).not.toBe(0);
     });
 
-    it("should save generated dataset to local datasets path", async () => {
+    it("should save generated dataset to the configured datasets path", async () => {
       const minSize = 1024;
       const maxSize = 200 * 1024 * 1024;
 

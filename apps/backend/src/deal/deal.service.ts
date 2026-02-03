@@ -499,17 +499,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
   // ============================================================================
 
   private async fetchDataFile(minSize: number, maxSize: number): Promise<DataFile> {
-    try {
-      return await this.dataSourceService.fetchKaggleDataset(minSize, maxSize);
-    } catch (kaggleErr) {
-      this.logger.warn("Failed to fetch Kaggle dataset, falling back to local dataset", kaggleErr);
-      try {
-        return await this.dataSourceService.fetchLocalDataset(minSize, maxSize);
-      } catch (localErr) {
-        this.logger.warn("Failed to fetch local dataset, generating random dataset", localErr);
-        return await this.dataSourceService.generateRandomDataset(minSize, maxSize);
-      }
-    }
+    return await this.dataSourceService.generateRandomDataset(minSize, maxSize);
   }
 
   private getIpniEnabled(mode: IBlockchainConfig["enableIpniTesting"]): boolean {

@@ -487,25 +487,11 @@ RETRIEVAL_INTERVAL_SECONDS * 1000 - RETRIEVAL_TIMEOUT_BUFFER_MS >= max(HTTP_REQU
 - **Required**: No
 - **Default**: `./datasets`
 
-**Role**: Directory path where local dataset files are stored. If kaggle dataset download fails, the files in this directory are used as fallback to create deals.
+**Role**: Directory path where randomly generated dataset files are stored.
 
 **When to update**:
 
 - When using a different storage location
-
----
-
-### `KAGGLE_DATASET_TOTAL_PAGES`
-
-- **Type**: `number`
-- **Required**: No
-- **Default**: `500`
-
-**Role**: Number of pages to fetch when discovering Kaggle datasets for testing.
-
-**When to update**:
-
-- Increase for more dataset variety
 
 ---
 
