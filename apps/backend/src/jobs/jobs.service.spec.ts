@@ -247,4 +247,56 @@ describe("JobsService schedule rows", () => {
 
     vi.useRealTimers();
   });
+
+  it("requeues retrieval job when lock cannot be acquired (preventing concurrent execution)", async () => {
+    baseConfigValues = {
+      ...baseConfigValues,
+      jobs: {
+        ...baseConfigValues.jobs,
+        lockRetrySeconds: 10,
+      } as IConfig["jobs"],
+    };
+    const configService = {
+      get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
+    };
+
+    service = new JobsService(
+      configService as any,
+      storageProviderRepositoryMock as any,
+      jobScheduleRepositoryMock as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+    );
+
+    const publish = vi.fn();
+    (service as unknown as { boss: { publish: typeof publish } }).boss = { publish };
+
+    // Simulate lock being held (e.g. by a running deal execution)
+    jobScheduleRepositoryMock.acquireAdvisoryLock.mockResolvedValueOnce(false);
+
+    const now = new Date("2024-01-01T00:00:00Z");
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
+
+    const spAddress = "0xccc";
+    await callPrivate(service, "handleRetrievalJob", { spAddress, intervalSeconds: 60 });
+
+    // Ensure we tried to acquire the lock for the specific SP
+    expect(jobScheduleRepositoryMock.acquireAdvisoryLock).toHaveBeenCalledWith(spAddress);
+
+    // Should requeue instead of running
+    expect(publish).toHaveBeenCalledTimes(1);
+    expect(publish).toHaveBeenCalledWith(
+      "retrieval.run",
+      expect.objectContaining({ spAddress }),
+      expect.objectContaining({ startAfter: expect.any(Date) }),
+    );
+
+    const startAfter = publish.mock.calls[0][2]?.startAfter as Date;
+    expect(startAfter.getTime()).toBeGreaterThanOrEqual(now.getTime() + 10_000);
+
+    vi.useRealTimers();
+  });
 });
