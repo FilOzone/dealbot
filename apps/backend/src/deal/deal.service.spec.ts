@@ -12,6 +12,7 @@ import { DealAddonsService } from "../deal-addons/deal-addons.service.js";
 import { DealPreprocessingResult } from "../deal-addons/types.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
 import { DealService } from "./deal.service.js";
+import { privateKeyToAccount } from "viem/accounts";
 
 vi.mock("@filoz/synapse-sdk", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@filoz/synapse-sdk")>();
@@ -52,7 +53,7 @@ describe("DealService", () => {
 
   const mockConfigService = {
     get: vi.fn().mockReturnValue({
-      walletPrivateKey: "mockKey",
+      walletPrivateKey: "0xMockKey",
       network: "calibration",
       walletAddress: "0x123",
       enableCDNTesting: true,
@@ -85,11 +86,26 @@ describe("DealService", () => {
         { provide: WalletSdkService, useValue: mockWalletSdkService },
         { provide: DealAddonsService, useValue: mockDealAddonsService },
         { provide: getRepositoryToken(Deal), useValue: mockDealRepository },
-        { provide: getRepositoryToken(StorageProvider), useValue: mockStorageProviderRepository },
-        { provide: getToken("deals_created_total"), useValue: mockDealsCreatedCounter },
-        { provide: getToken("deal_creation_duration_seconds"), useValue: mockDealCreationDuration },
-        { provide: getToken("deal_upload_duration_seconds"), useValue: mockDealUploadDuration },
-        { provide: getToken("deal_chain_latency_seconds"), useValue: mockDealChainLatency },
+        {
+          provide: getRepositoryToken(StorageProvider),
+          useValue: mockStorageProviderRepository,
+        },
+        {
+          provide: getToken("deals_created_total"),
+          useValue: mockDealsCreatedCounter,
+        },
+        {
+          provide: getToken("deal_creation_duration_seconds"),
+          useValue: mockDealCreationDuration,
+        },
+        {
+          provide: getToken("deal_upload_duration_seconds"),
+          useValue: mockDealUploadDuration,
+        },
+        {
+          provide: getToken("deal_chain_latency_seconds"),
+          useValue: mockDealChainLatency,
+        },
       ],
     }).compile();
 
@@ -112,8 +128,7 @@ describe("DealService", () => {
       (Synapse.create as Mock).mockResolvedValue({});
       await service.onModuleInit();
       expect(Synapse.create).toHaveBeenCalledWith({
-        privateKey: "mockKey",
-        rpcURL: "http://localhost:1234",
+        account: privateKeyToAccount("0xMockKey"),
         warmStorageAddress: "0xFWSS",
       });
     });
@@ -140,7 +155,11 @@ describe("DealService", () => {
 
       mockProviderInfo = { serviceProvider: "0xProvider" };
       mockDealInput = {
-        processedData: { name: "test.txt", size: 2048, data: Buffer.from("test") },
+        processedData: {
+          name: "test.txt",
+          size: 2048,
+          data: Buffer.from("test"),
+        },
         metadata: { foo: "bar" },
         appliedAddons: [],
         synapseConfig: { coolDownMs: 1 },
@@ -155,7 +174,11 @@ describe("DealService", () => {
       const uploadMock = vi.fn(async (_data, { onUploadComplete, onPieceAdded }) => {
         await onUploadComplete("bafk-uploaded");
         await onPieceAdded({ transactionHash: "0xhash" });
-        return { pieceCid: "bafk-uploaded", size: 1024, pieceId: "piece-123" };
+        return {
+          pieceCid: "bafk-uploaded",
+          size: 1024,
+          pieceId: "piece-123",
+        };
       });
 
       mockSynapseInstance.createStorage.mockResolvedValue({
@@ -243,7 +266,11 @@ describe("DealService", () => {
         const uploadMock = vi.fn(async (_data, { onUploadComplete, onPieceAdded }) => {
           await onUploadComplete("bafk-uploaded");
           await onPieceAdded({ transactionHash: "0xhash" });
-          return { pieceCid: "bafk-uploaded", size: 1024, pieceId: "piece-123" };
+          return {
+            pieceCid: "bafk-uploaded",
+            size: 1024,
+            pieceId: "piece-123",
+          };
         });
 
         mockSynapseInstance.createStorage.mockResolvedValue({
@@ -262,7 +289,7 @@ describe("DealService", () => {
 
       const createServiceWithVersion = async (dealbotDataSetVersion: string | undefined) => {
         mockConfigService.get.mockReturnValue({
-          walletPrivateKey: "mockKey",
+          walletPrivateKey: "0xMockKey",
           network: "calibration",
           walletAddress: "0x123",
           enableCDNTesting: true,
@@ -278,11 +305,26 @@ describe("DealService", () => {
             { provide: WalletSdkService, useValue: mockWalletSdkService },
             { provide: DealAddonsService, useValue: mockDealAddonsService },
             { provide: getRepositoryToken(Deal), useValue: mockDealRepository },
-            { provide: getRepositoryToken(StorageProvider), useValue: mockStorageProviderRepository },
-            { provide: getToken("deals_created_total"), useValue: mockDealsCreatedCounter },
-            { provide: getToken("deal_creation_duration_seconds"), useValue: mockDealCreationDuration },
-            { provide: getToken("deal_upload_duration_seconds"), useValue: mockDealUploadDuration },
-            { provide: getToken("deal_chain_latency_seconds"), useValue: mockDealChainLatency },
+            {
+              provide: getRepositoryToken(StorageProvider),
+              useValue: mockStorageProviderRepository,
+            },
+            {
+              provide: getToken("deals_created_total"),
+              useValue: mockDealsCreatedCounter,
+            },
+            {
+              provide: getToken("deal_creation_duration_seconds"),
+              useValue: mockDealCreationDuration,
+            },
+            {
+              provide: getToken("deal_upload_duration_seconds"),
+              useValue: mockDealUploadDuration,
+            },
+            {
+              provide: getToken("deal_chain_latency_seconds"),
+              useValue: mockDealChainLatency,
+            },
           ],
         }).compile();
 
@@ -383,9 +425,10 @@ describe("DealService", () => {
       dealAddonsMock.preprocessDeal.mockResolvedValue(preprocessed);
 
       // Mock createDeal to succeed
-      const createDealSpy = vi
-        .spyOn(service, "createDeal")
-        .mockResolvedValue({ id: 1, status: DealStatus.DEAL_CREATED } as unknown as Deal);
+      const createDealSpy = vi.spyOn(service, "createDeal").mockResolvedValue({
+        id: 1,
+        status: DealStatus.DEAL_CREATED,
+      } as unknown as Deal);
 
       const results = await service.createDealsForAllProviders();
 
@@ -438,7 +481,10 @@ describe("DealService", () => {
 
       const createDealSpy = vi.spyOn(service, "createDeal");
       // First call succeeds
-      createDealSpy.mockResolvedValueOnce({ id: 1, spAddress: "0xSuccess" } as unknown as Deal);
+      createDealSpy.mockResolvedValueOnce({
+        id: 1,
+        spAddress: "0xSuccess",
+      } as unknown as Deal);
       // Second call fails
       createDealSpy.mockRejectedValueOnce(new Error("Deal failed"));
 

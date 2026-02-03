@@ -77,7 +77,9 @@ export const configValidationSchema = Joi.object({
     .min(0)
     .default(60000)
     .custom((value, helpers) => {
-      const root = helpers.state.ancestors[0] as { RETRIEVAL_INTERVAL_SECONDS?: number };
+      const root = helpers.state.ancestors[0] as {
+        RETRIEVAL_INTERVAL_SECONDS?: number;
+      };
       const retrievalIntervalSeconds =
         root && typeof root.RETRIEVAL_INTERVAL_SECONDS === "number" ? root.RETRIEVAL_INTERVAL_SECONDS : undefined;
       if (typeof retrievalIntervalSeconds !== "number" || retrievalIntervalSeconds <= 0) {
@@ -113,7 +115,7 @@ export interface IDatabaseConfig {
 export interface IBlockchainConfig {
   network: Network;
   walletAddress: string;
-  walletPrivateKey: string;
+  walletPrivateKey: `0x${string}`;
   checkDatasetCreationFees: boolean;
   useOnlyApprovedProviders: boolean;
   enableCDNTesting: boolean;

@@ -11,7 +11,6 @@ import { SPRegistryService } from "@filoz/synapse-sdk/sp-registry";
 import { Injectable, Logger, type OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
-import { JsonRpcProvider, MaxUint256 } from "ethers";
 import type { Repository } from "typeorm";
 import type { Hex } from "viem";
 import { DEV_TAG } from "../common/constants.js";
@@ -26,6 +25,7 @@ import type {
   WalletServices,
   WalletStatusLog,
 } from "./wallet-sdk.types.js";
+import { privateKeyToAccount } from "viem/accounts";
 
 @Injectable()
 export class WalletSdkService implements OnModuleInit {
@@ -34,7 +34,6 @@ export class WalletSdkService implements OnModuleInit {
   private paymentsService: PaymentsService;
   private warmStorageService: WarmStorageService;
   private spRegistry: SPRegistryService;
-  private rpcProvider: JsonRpcProvider;
   private providerCache: Map<string, ProviderInfoEx> = new Map();
   private activeProviderAddresses: Set<string> = new Set();
   private approvedProviderAddresses: Set<string> = new Set();
@@ -64,7 +63,7 @@ export class WalletSdkService implements OnModuleInit {
   private async initializeServices(): Promise<void> {
     const warmStorageAddress = this.getFWSSAddress();
     const synapse = await Synapse.create({
-      privateKey: this.blockchainConfig.walletPrivateKey,
+      account: privateKeyToAccount(this.blockchainConfig.walletPrivateKey),
       rpcURL: RPC_URLS[this.blockchainConfig.network].http,
       warmStorageAddress,
     });
@@ -76,6 +75,7 @@ export class WalletSdkService implements OnModuleInit {
       this.warmStorageService.getServiceProviderRegistryAddress(),
     );
     this.paymentsService = synapse.payments;
+    this.synapseClient = synapse.client;
   }
 
   /**
@@ -230,7 +230,7 @@ export class WalletSdkService implements OnModuleInit {
    */
   async getWalletBalances(): Promise<{ usdfc: bigint; fil: bigint }> {
     const accountInfo = await this.paymentsService.accountInfo();
-    const filBalance = await this.rpcProvider.getBalance(this.blockchainConfig.walletAddress);
+    const filBalance = await this.paymentsService.walletBalance();
     return {
       usdfc: accountInfo.availableFunds,
       fil: filBalance,
@@ -333,11 +333,11 @@ export class WalletSdkService implements OnModuleInit {
 
     this.logger.log("Depositing additional funds", depositLog);
 
-    const depositTx = await this.paymentsService.deposit(depositAmount);
-    await depositTx.wait();
+    const hash = await this.paymentsService.deposit(depositAmount);
+    await this.synapseClient.waitForTransactionReceipt({ hash });
 
     const successLog: TransactionLog = {
-      transactionHash: depositTx.hash,
+      transactionHash: hash,
       depositAmount: depositAmount.toString(),
     };
 
@@ -359,17 +359,11 @@ export class WalletSdkService implements OnModuleInit {
 
     this.logger.log("Approving storage service allowances", approvalLog);
 
-    const approveTx = await this.paymentsService.approveService(
-      contractAddress,
-      MaxUint256,
-      MaxUint256,
-      requirements.approvalDuration,
-    );
-
-    await approveTx.wait();
+    const hash = await this.paymentsService.approveService(contractAddress, null, null, requirements.approvalDuration);
+    await this.synapseClient.waitForTransactionReceipt({ hash });
 
     const successLog: TransactionLog = {
-      transactionHash: approveTx.hash,
+      transactionHash: hash,
       serviceAddress: contractAddress,
     };
 

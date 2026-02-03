@@ -1,4 +1,4 @@
-import { type PieceCID, RPC_URLS, SIZE_CONSTANTS, Synapse, type UploadResult } from "@filoz/synapse-sdk";
+import { type PieceCID, SIZE_CONSTANTS, Synapse, type UploadResult } from "@filoz/synapse-sdk";
 import { Injectable, Logger, type OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
@@ -15,6 +15,7 @@ import { DealAddonsService } from "../deal-addons/deal-addons.service.js";
 import type { DealPreprocessingResult } from "../deal-addons/types.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
 import type { ProviderInfoEx } from "../wallet-sdk/wallet-sdk.types.js";
+import { privateKeyToAccount } from "viem/accounts";
 
 @Injectable()
 export class DealService implements OnModuleInit {
@@ -46,8 +47,7 @@ export class DealService implements OnModuleInit {
   async onModuleInit() {
     try {
       this.synapse = await Synapse.create({
-        privateKey: this.blockchainConfig.walletPrivateKey,
-        rpcURL: RPC_URLS[this.blockchainConfig.network].http,
+        account: privateKeyToAccount(this.blockchainConfig.walletPrivateKey),
         warmStorageAddress: this.walletSdkService.getFWSSAddress(),
       });
     } catch (error) {
@@ -103,7 +103,10 @@ export class DealService implements OnModuleInit {
   async prepareDealInput(
     enableCDN: boolean,
     enableIpni: boolean,
-  ): Promise<{ preprocessed: DealPreprocessingResult; cleanup: () => Promise<void> }> {
+  ): Promise<{
+    preprocessed: DealPreprocessingResult;
+    cleanup: () => Promise<void>;
+  }> {
     const dataFile = await this.fetchDataFile(SIZE_CONSTANTS.MIN_UPLOAD_SIZE, SIZE_CONSTANTS.MAX_UPLOAD_SIZE);
 
     const preprocessed = await this.dealAddonsService.preprocessDeal({
