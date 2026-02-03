@@ -1,5 +1,5 @@
 # Build stage
-FROM node:24-alpine AS builder
+FROM node:25-alpine AS builder
 
 WORKDIR /app
 
@@ -27,7 +27,7 @@ COPY apps/backend/src/ ./apps/backend/src/
 RUN pnpm --filter dealbot-backend run build
 
 # Runtime stage
-FROM node:24-alpine AS runner
+FROM node:25-alpine AS runner
 
 # Install required packages for health checks
 RUN apk add --no-cache curl wget
