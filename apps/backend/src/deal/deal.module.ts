@@ -7,6 +7,7 @@ import { StorageProvider } from "../database/entities/storage-provider.entity.js
 import { DataSourceModule } from "../dataSource/dataSource.module.js";
 import { DealAddonsModule } from "../deal-addons/deal-addons.module.js";
 import { MetricsModule } from "../metrics/metrics.module.js";
+import { RetrievalAddonsModule } from "../retrieval-addons/retrieval-addons.module.js";
 import { WalletSdkModule } from "../wallet-sdk/wallet-sdk.module.js";
 import { DealService } from "./deal.service.js";
 
@@ -18,6 +19,7 @@ import { DealService } from "./deal.service.js";
     MetricsModule,
     WalletSdkModule,
     DealAddonsModule,
+    RetrievalAddonsModule,
   ],
   providers: [DealService],
   exports: [DealService],

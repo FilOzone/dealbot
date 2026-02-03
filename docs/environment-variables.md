@@ -10,8 +10,8 @@ This document provides a comprehensive guide to all environment variables used b
 | [Database](#database-configuration)       | `DATABASE_HOST`, `DATABASE_PORT`, `DATABASE_USER`, `DATABASE_PASSWORD`, `DATABASE_NAME`                                                                      |
 | [Blockchain](#blockchain-configuration)   | `NETWORK`, `WALLET_ADDRESS`, `WALLET_PRIVATE_KEY`, `CHECK_DATASET_CREATION_FEES`, `USE_ONLY_APPROVED_PROVIDERS`, `ENABLE_CDN_TESTING`, `ENABLE_IPNI_TESTING` |
 | [Dataset Versioning](#dataset-versioning) | `DEALBOT_DATASET_VERSION`                                                                                                                                    |
-| [Scheduling](#scheduling-configuration)   | `DEAL_INTERVAL_SECONDS`, `RETRIEVAL_INTERVAL_SECONDS`, `DEAL_START_OFFSET_SECONDS`, `RETRIEVAL_START_OFFSET_SECONDS`, `METRICS_START_OFFSET_SECONDS`         |
-| [Dataset](#dataset-configuration)         | `DEALBOT_LOCAL_DATASETS_PATH`, `RANDOM_DATASET_SIZES`                                                                                                        |
+| [Scheduling](#scheduling-configuration)   | `DEAL_INTERVAL_SECONDS`, `DEAL_MAX_CONCURRENCY`, `RETRIEVAL_INTERVAL_SECONDS`, `DEAL_START_OFFSET_SECONDS`, `RETRIEVAL_START_OFFSET_SECONDS`, `METRICS_START_OFFSET_SECONDS`         |
+| [Dataset](#dataset-configuration)         | `DEALBOT_LOCAL_DATASETS_PATH`, `KAGGLE_DATASET_TOTAL_PAGES`, `RANDOM_DATASET_SIZES`                                                                          |
 | [Proxy](#proxy-configuration)             | `PROXY_LIST`, `PROXY_LOCATIONS`                                                                                                                              |
 | [Timeouts](#timeout-configuration)        | `CONNECT_TIMEOUT_MS`, `HTTP_REQUEST_TIMEOUT_MS`, `HTTP2_REQUEST_TIMEOUT_MS`, `RETRIEVAL_TIMEOUT_BUFFER_MS`                                                   |
 | [External Services](#external-services)   | `FILBEAM_BOT_TOKEN`                                                                                                                                          |
@@ -388,6 +388,28 @@ These variables control when and how often the Dealbot runs its automated jobs.
 
 ```bash
 DEAL_INTERVAL_SECONDS=3600
+```
+
+---
+
+### `DEAL_MAX_CONCURRENCY`
+
+- **Type**: `number`
+- **Required**: No
+- **Default**: `2`
+- **Minimum**: `1`
+
+**Role**: Maximum number of deals created in parallel per batch when running deal creation for all providers. Providers are processed in batches of this size; batches run sequentially.
+
+**When to update**:
+
+- Increase for faster deal creation (more concurrent uploads; higher load)
+- Decrease to reduce load or for more conservative testing
+
+**Example**:
+
+```bash
+DEAL_MAX_CONCURRENCY=4
 ```
 
 ---
