@@ -48,7 +48,7 @@
     "filecoin-pin": "^0.15.1",
     "helmet": "^8.1.0",
     "https-proxy-agent": "^7.0.6",
-    "joi": "^17.13.3",
+    "joi": "^18.0.2",
     "multiformats": "^13.4.2",
     "pg": "^8.18.0",
     "prom-client": "^15.1.3",
