@@ -1,14 +1,15 @@
 import { Injectable, Logger, type OnApplicationShutdown, type OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import { InjectDataSource, InjectRepository } from "@nestjs/typeorm";
+import { InjectRepository } from "@nestjs/typeorm";
 import PgBoss from "pg-boss";
-import type { DataSource, Repository } from "typeorm";
+import type { Repository } from "typeorm";
 import type { IConfig } from "../config/app.config.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
 import { DealService } from "../deal/deal.service.js";
 import { MetricsSchedulerService } from "../metrics/services/metrics-scheduler.service.js";
 import { RetrievalService } from "../retrieval/retrieval.service.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
+import { JobScheduleRepository } from "./repositories/job-schedule.repository.js";
 
 type JobType = "deal" | "retrieval" | "metrics" | "metrics_cleanup";
 
@@ -36,16 +37,20 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
 
   constructor(
     private readonly configService: ConfigService<IConfig, true>,
-    @InjectDataSource()
-    private readonly dataSource: DataSource,
     @InjectRepository(StorageProvider)
     private readonly storageProviderRepository: Repository<StorageProvider>,
+    private readonly jobScheduleRepository: JobScheduleRepository,
     private readonly dealService: DealService,
     private readonly retrievalService: RetrievalService,
     private readonly metricsSchedulerService: MetricsSchedulerService,
     private readonly walletSdkService: WalletSdkService,
   ) {}
 
+  /**
+   * Initializes the scheduler.
+   * If pg-boss mode is enabled, it ensures wallets are ready (unless chain disabled),
+   * starts pg-boss, registers workers, and starts the scheduler polling loop.
+   */
   async onModuleInit(): Promise<void> {
     if (!this.isPgBossEnabled()) {
       return;
@@ -70,6 +75,10 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     }, this.schedulerPollMs());
   }
 
+  /**
+   * Cleans up resources on shutdown.
+   * Stops the polling loop and gracefully stops pg-boss.
+   */
   async onApplicationShutdown(): Promise<void> {
     if (this.schedulerInterval) {
       clearInterval(this.schedulerInterval);
@@ -265,16 +274,18 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
   }
 
   private async tryAcquireSpLock(spAddress: string): Promise<boolean> {
-    const result = await this.dataSource.query("SELECT pg_try_advisory_lock(hashtextextended($1, 0)) AS acquired", [
-      spAddress,
-    ]);
-    return Boolean(result?.[0]?.acquired);
+    return this.jobScheduleRepository.acquireAdvisoryLock(spAddress);
   }
 
   private async releaseSpLock(spAddress: string): Promise<void> {
-    await this.dataSource.query("SELECT pg_advisory_unlock(hashtextextended($1, 0))", [spAddress]);
+    await this.jobScheduleRepository.releaseAdvisoryLock(spAddress);
   }
 
+  /**
+   * Main scheduler tick.
+   * Runs `ensureScheduleRows` to sync providers to the DB, and `enqueueDueJobs` to process pending schedules.
+   * Ensures only one tick runs at a time locally.
+   */
   private async tick(): Promise<void> {
     if (this.tickPromise) {
       this.logger.warn("Previous pg-boss scheduler tick still running; skipping");
@@ -333,6 +344,13 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     };
   }
 
+  /**
+   * Syncs the "job_schedule_state" table with the current list of active providers.
+   * - Inserts new rows for new providers.
+   * - Updates intervals if config changed.
+   * - Pauses rows for providers that are no longer active.
+   * - Ensures global metrics jobs exist.
+   */
   private async ensureScheduleRows(): Promise<void> {
     const now = new Date();
     const { dealIntervalSeconds, retrievalIntervalSeconds, metricsIntervalSeconds, metricsCleanupIntervalSeconds } =
@@ -351,82 +369,27 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     const metricsStartAt = new Date(now.getTime() + phaseMs);
 
     for (const address of providerAddresses) {
-      await this.dataSource.query(
-        `
-        INSERT INTO job_schedule_state (job_type, sp_address, interval_seconds, next_run_at)
-        VALUES ($1, $2, $3, $4)
-        ON CONFLICT (job_type, sp_address) DO UPDATE
-        SET interval_seconds = EXCLUDED.interval_seconds,
-            paused = job_schedule_state.paused,
-            updated_at = NOW()
-        `,
-        ["deal", address, dealIntervalSeconds, dealStartAt],
-      );
-
-      await this.dataSource.query(
-        `
-        INSERT INTO job_schedule_state (job_type, sp_address, interval_seconds, next_run_at)
-        VALUES ($1, $2, $3, $4)
-        ON CONFLICT (job_type, sp_address) DO UPDATE
-        SET interval_seconds = EXCLUDED.interval_seconds,
-            paused = job_schedule_state.paused,
-            updated_at = NOW()
-        `,
-        ["retrieval", address, retrievalIntervalSeconds, retrievalStartAt],
-      );
+      await this.jobScheduleRepository.upsertSchedule("deal", address, dealIntervalSeconds, dealStartAt);
+      await this.jobScheduleRepository.upsertSchedule("retrieval", address, retrievalIntervalSeconds, retrievalStartAt);
     }
 
-    // Pause providers that are no longer active/testing.
-    if (providerAddresses.length > 0) {
-      await this.dataSource.query(
-        `
-        UPDATE job_schedule_state
-        SET paused = true,
-            updated_at = NOW()
-        WHERE job_type IN ('deal', 'retrieval')
-          AND sp_address <> ''
-          AND sp_address <> ALL($1::text[])
-        `,
-        [providerAddresses],
-      );
-    } else {
-      await this.dataSource.query(
-        `
-        UPDATE job_schedule_state
-        SET paused = true,
-            updated_at = NOW()
-        WHERE job_type IN ('deal', 'retrieval')
-          AND sp_address <> ''
-        `,
-      );
-    }
+    await this.jobScheduleRepository.pauseMissingProviders(providerAddresses);
 
     // Global metrics schedule (sp_address = '')
-    await this.dataSource.query(
-      `
-      INSERT INTO job_schedule_state (job_type, sp_address, interval_seconds, next_run_at)
-      VALUES ($1, '', $2, $3)
-      ON CONFLICT (job_type, sp_address) DO UPDATE
-      SET interval_seconds = EXCLUDED.interval_seconds,
-          paused = job_schedule_state.paused,
-          updated_at = NOW()
-      `,
-      ["metrics", metricsIntervalSeconds, metricsStartAt],
-    );
-
-    await this.dataSource.query(
-      `
-      INSERT INTO job_schedule_state (job_type, sp_address, interval_seconds, next_run_at)
-      VALUES ($1, '', $2, $3)
-      ON CONFLICT (job_type, sp_address) DO UPDATE
-      SET interval_seconds = EXCLUDED.interval_seconds,
-          paused = job_schedule_state.paused,
-          updated_at = NOW()
-      `,
-      ["metrics_cleanup", metricsCleanupIntervalSeconds, metricsStartAt],
+    await this.jobScheduleRepository.upsertSchedule("metrics", "", metricsIntervalSeconds, metricsStartAt);
+    await this.jobScheduleRepository.upsertSchedule(
+      "metrics_cleanup",
+      "",
+      metricsCleanupIntervalSeconds,
+      metricsStartAt,
     );
   }
 
+  /**
+   * Queries the DB for jobs that are due (`next_run_at <= now`).
+   * Enqueues them into pg-boss, respecting rate limits/jitter.
+   * Updates the `next_run_at` in the DB upon successful enqueue.
+   */
   private async enqueueDueJobs(): Promise<void> {
     if (!this.boss) return;
 
@@ -435,17 +398,8 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     const spreadSeconds = this.catchupSpreadSeconds();
     const immediateLimit = this.perSpImmediateLimit();
 
-    await this.dataSource.transaction(async (manager) => {
-      const rows: ScheduleRow[] = await manager.query(
-        `
-        SELECT id, job_type, sp_address, interval_seconds, next_run_at
-        FROM job_schedule_state
-        WHERE paused = false
-          AND next_run_at <= NOW()
-        ORDER BY next_run_at ASC
-        FOR UPDATE SKIP LOCKED
-        `,
-      );
+    await this.jobScheduleRepository.runTransaction(async (manager) => {
+      const rows = await this.jobScheduleRepository.findDueSchedulesWithManager(manager, now);
 
       for (const row of rows) {
         const intervalMs = row.interval_seconds * 1000;
@@ -455,6 +409,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         const diffMs = now.getTime() - nextRunAt.getTime();
         if (diffMs < 0) continue;
 
+        // Calculate how many runs we missed (or are due)
         const runsDue = Math.floor(diffMs / intervalMs) + 1;
         if (runsDue <= 0) continue;
 
@@ -466,12 +421,14 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         const jobName = this.mapJobName(row.job_type);
         const payload = this.mapJobPayload(row);
 
+        // Enqueue immediate jobs
         for (let i = 0; i < immediateCount; i += 1) {
           if (await this.safeSend(jobName, payload, { startAfter: this.withJitter(now) })) {
             successCount += 1;
           }
         }
 
+        // Enqueue delayed jobs (spread out to avoid thundering herd if many were missed)
         if (delayedCount > 0) {
           for (let i = 0; i < delayedCount; i += 1) {
             if (spreadSeconds > 0) {
@@ -488,16 +445,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
 
         if (successCount > 0) {
           const newNextRunAt = new Date(nextRunAt.getTime() + successCount * intervalMs);
-          await manager.query(
-            `
-            UPDATE job_schedule_state
-            SET next_run_at = $1,
-                last_run_at = $2,
-                updated_at = NOW()
-            WHERE id = $3
-            `,
-            [newNextRunAt, now, row.id],
-          );
+          await this.jobScheduleRepository.updateScheduleAfterRun(manager, row.id, newNextRunAt, now);
         }
       }
     });

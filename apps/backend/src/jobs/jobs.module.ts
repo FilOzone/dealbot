@@ -8,6 +8,7 @@ import { MetricsModule } from "../metrics/metrics.module.js";
 import { RetrievalModule } from "../retrieval/retrieval.module.js";
 import { WalletSdkModule } from "../wallet-sdk/wallet-sdk.module.js";
 import { JobsService } from "./jobs.service.js";
+import { JobScheduleRepository } from "./repositories/job-schedule.repository.js";
 
 @Module({
   imports: [
@@ -18,6 +19,6 @@ import { JobsService } from "./jobs.service.js";
     MetricsModule,
     WalletSdkModule,
   ],
-  providers: [JobsService],
+  providers: [JobsService, JobScheduleRepository],
 })
 export class JobsModule {}
