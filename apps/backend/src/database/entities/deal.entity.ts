@@ -49,7 +49,7 @@ export class Deal {
   status: DealStatus;
 
   @Column({ name: "transaction_hash", nullable: true })
-  transactionHash: string;
+  transactionHash: `0x${string}`;
 
   @Column({ type: "jsonb", default: {} })
   metadata: DealMetadata;
@@ -66,6 +66,8 @@ export class Deal {
 
   @Column({ name: "piece_added_time", type: "timestamp", nullable: true })
   pieceAddedTime: Date;
+  @Column({ name: "piece_confirmed_time", type: "timestamp", nullable: true })
+  pieceConfirmedTime: Date;
 
   @Column({ name: "deal_confirmed_time", type: "timestamp", nullable: true })
   dealConfirmedTime: Date;
@@ -78,6 +80,9 @@ export class Deal {
 
   @Column({ name: "deal_latency_ms", nullable: true, type: "int" })
   dealLatencyMs: number;
+
+  @Column({ name: "deal_latency_with_ipni_ms", nullable: true, type: "int" })
+  dealLatencyWithIpniMs: number;
 
   @Column({ name: "ingest_throughput_bps", nullable: true, type: "int" })
   ingestThroughputBps: number;
