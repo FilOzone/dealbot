@@ -4,9 +4,7 @@ import type { Network } from "../common/types.js";
 
 export const configValidationSchema = Joi.object({
   // Application
-  NODE_ENV: Joi.string()
-    .valid("development", "production", "test")
-    .default("development"),
+  NODE_ENV: Joi.string().valid("development", "production", "test").default("development"),
   DEALBOT_PORT: Joi.number().default(3000),
   DEALBOT_HOST: Joi.string().default("127.0.0.1"),
   ENABLE_DEV_MODE: Joi.boolean().default(false),
@@ -42,18 +40,9 @@ export const configValidationSchema = Joi.object({
         HTTP_REQUEST_TIMEOUT_MS?: number;
         HTTP2_REQUEST_TIMEOUT_MS?: number;
       };
-      const bufferMs =
-        typeof root.RETRIEVAL_TIMEOUT_BUFFER_MS === "number"
-          ? root.RETRIEVAL_TIMEOUT_BUFFER_MS
-          : 0;
-      const http1TimeoutMs =
-        typeof root.HTTP_REQUEST_TIMEOUT_MS === "number"
-          ? root.HTTP_REQUEST_TIMEOUT_MS
-          : 0;
-      const http2TimeoutMs =
-        typeof root.HTTP2_REQUEST_TIMEOUT_MS === "number"
-          ? root.HTTP2_REQUEST_TIMEOUT_MS
-          : 0;
+      const bufferMs = typeof root.RETRIEVAL_TIMEOUT_BUFFER_MS === "number" ? root.RETRIEVAL_TIMEOUT_BUFFER_MS : 0;
+      const http1TimeoutMs = typeof root.HTTP_REQUEST_TIMEOUT_MS === "number" ? root.HTTP_REQUEST_TIMEOUT_MS : 0;
+      const http2TimeoutMs = typeof root.HTTP2_REQUEST_TIMEOUT_MS === "number" ? root.HTTP2_REQUEST_TIMEOUT_MS : 0;
       const requiredMs = Math.max(http1TimeoutMs, http2TimeoutMs);
       const availableMs = value * 1000 - bufferMs;
 
@@ -72,9 +61,7 @@ export const configValidationSchema = Joi.object({
   METRICS_START_OFFSET_SECONDS: Joi.number().default(900),
 
   // Kaggle
-  DEALBOT_LOCAL_DATASETS_PATH: Joi.string().default(
-    DEFAULT_LOCAL_DATASETS_PATH,
-  ),
+  DEALBOT_LOCAL_DATASETS_PATH: Joi.string().default(DEFAULT_LOCAL_DATASETS_PATH),
   KAGGLE_DATASET_TOTAL_PAGES: Joi.number().default(500),
   RANDOM_DATASET_SIZES: Joi.string().default("10240,10485760,104857600"), // 10 KiB, 10 MB, 100 MB
 
@@ -94,13 +81,8 @@ export const configValidationSchema = Joi.object({
         RETRIEVAL_INTERVAL_SECONDS?: number;
       };
       const retrievalIntervalSeconds =
-        root && typeof root.RETRIEVAL_INTERVAL_SECONDS === "number"
-          ? root.RETRIEVAL_INTERVAL_SECONDS
-          : undefined;
-      if (
-        typeof retrievalIntervalSeconds !== "number" ||
-        retrievalIntervalSeconds <= 0
-      ) {
+        root && typeof root.RETRIEVAL_INTERVAL_SECONDS === "number" ? root.RETRIEVAL_INTERVAL_SECONDS : undefined;
+      if (typeof retrievalIntervalSeconds !== "number" || retrievalIntervalSeconds <= 0) {
         return value;
       }
       const maxBufferMs = retrievalIntervalSeconds * 1000;
@@ -193,11 +175,7 @@ const parseIpniTestingMode = (value: string | undefined): IpniTestingMode => {
   if (normalized === "false") {
     return "disabled";
   }
-  if (
-    normalized === "disabled" ||
-    normalized === "random" ||
-    normalized === "always"
-  ) {
+  if (normalized === "disabled" || normalized === "random" || normalized === "always") {
     return normalized;
   }
   return "always";
@@ -220,47 +198,24 @@ export function loadConfig(): IConfig {
     },
     blockchain: {
       network: (process.env.NETWORK || "calibration") as Network,
-      walletAddress:
-        process.env.WALLET_ADDRESS ||
-        "0x0000000000000000000000000000000000000000",
+      walletAddress: process.env.WALLET_ADDRESS || "0x0000000000000000000000000000000000000000",
       walletPrivateKey: process.env.WALLET_PRIVATE_KEY || "",
-      checkDatasetCreationFees:
-        process.env.CHECK_DATASET_CREATION_FEES !== "false",
-      useOnlyApprovedProviders:
-        process.env.USE_ONLY_APPROVED_PROVIDERS !== "false",
+      checkDatasetCreationFees: process.env.CHECK_DATASET_CREATION_FEES !== "false",
+      useOnlyApprovedProviders: process.env.USE_ONLY_APPROVED_PROVIDERS !== "false",
       enableCDNTesting: process.env.ENABLE_CDN_TESTING !== "false",
       enableIpniTesting: parseIpniTestingMode(process.env.ENABLE_IPNI_TESTING),
       dealbotDataSetVersion: process.env.DEALBOT_DATASET_VERSION,
     },
     scheduling: {
-      dealIntervalSeconds: Number.parseInt(
-        process.env.DEAL_INTERVAL_SECONDS || "30",
-        10,
-      ),
-      retrievalIntervalSeconds: Number.parseInt(
-        process.env.RETRIEVAL_INTERVAL_SECONDS || "60",
-        10,
-      ),
-      dealStartOffsetSeconds: Number.parseInt(
-        process.env.DEAL_START_OFFSET_SECONDS || "0",
-        10,
-      ),
-      retrievalStartOffsetSeconds: Number.parseInt(
-        process.env.RETRIEVAL_START_OFFSET_SECONDS || "600",
-        10,
-      ),
-      metricsStartOffsetSeconds: Number.parseInt(
-        process.env.METRICS_START_OFFSET_SECONDS || "900",
-        10,
-      ),
+      dealIntervalSeconds: Number.parseInt(process.env.DEAL_INTERVAL_SECONDS || "30", 10),
+      retrievalIntervalSeconds: Number.parseInt(process.env.RETRIEVAL_INTERVAL_SECONDS || "60", 10),
+      dealStartOffsetSeconds: Number.parseInt(process.env.DEAL_START_OFFSET_SECONDS || "0", 10),
+      retrievalStartOffsetSeconds: Number.parseInt(process.env.RETRIEVAL_START_OFFSET_SECONDS || "600", 10),
+      metricsStartOffsetSeconds: Number.parseInt(process.env.METRICS_START_OFFSET_SECONDS || "900", 10),
     },
     dataset: {
-      localDatasetsPath:
-        process.env.DEALBOT_LOCAL_DATASETS_PATH || DEFAULT_LOCAL_DATASETS_PATH,
-      totalPages: Number.parseInt(
-        process.env.KAGGLE_DATASET_TOTAL_PAGES || "500",
-        10,
-      ),
+      localDatasetsPath: process.env.DEALBOT_LOCAL_DATASETS_PATH || DEFAULT_LOCAL_DATASETS_PATH,
+      totalPages: Number.parseInt(process.env.KAGGLE_DATASET_TOTAL_PAGES || "500", 10),
       randomDatasetSizes: (() => {
         const envValue = process.env.RANDOM_DATASET_SIZES;
         if (envValue && envValue.trim().length > 0) {
@@ -287,22 +242,10 @@ export function loadConfig(): IConfig {
       botToken: process.env.FILBEAM_BOT_TOKEN || "",
     },
     timeouts: {
-      connectTimeoutMs: Number.parseInt(
-        process.env.CONNECT_TIMEOUT_MS || "10000",
-        10,
-      ),
-      httpRequestTimeoutMs: Number.parseInt(
-        process.env.HTTP_REQUEST_TIMEOUT_MS || "600000",
-        10,
-      ),
-      http2RequestTimeoutMs: Number.parseInt(
-        process.env.HTTP2_REQUEST_TIMEOUT_MS || "600000",
-        10,
-      ),
-      retrievalTimeoutBufferMs: Number.parseInt(
-        process.env.RETRIEVAL_TIMEOUT_BUFFER_MS || "60000",
-        10,
-      ),
+      connectTimeoutMs: Number.parseInt(process.env.CONNECT_TIMEOUT_MS || "10000", 10),
+      httpRequestTimeoutMs: Number.parseInt(process.env.HTTP_REQUEST_TIMEOUT_MS || "600000", 10),
+      http2RequestTimeoutMs: Number.parseInt(process.env.HTTP2_REQUEST_TIMEOUT_MS || "600000", 10),
+      retrievalTimeoutBufferMs: Number.parseInt(process.env.RETRIEVAL_TIMEOUT_BUFFER_MS || "60000", 10),
     },
   };
 }

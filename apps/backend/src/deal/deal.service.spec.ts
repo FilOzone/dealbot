@@ -171,17 +171,15 @@ describe("DealService", () => {
     });
 
     it("processes the full deal lifecycle successfully", async () => {
-      const uploadMock = vi.fn(
-        async (_data, { onUploadComplete, onPieceAdded }) => {
-          await onUploadComplete("bafk-uploaded");
-          await onPieceAdded({ transactionHash: "0xhash" });
-          return {
-            pieceCid: "bafk-uploaded",
-            size: 1024,
-            pieceId: "piece-123",
-          };
-        },
-      );
+      const uploadMock = vi.fn(async (_data, { onUploadComplete, onPieceAdded }) => {
+        await onUploadComplete("bafk-uploaded");
+        await onPieceAdded({ transactionHash: "0xhash" });
+        return {
+          pieceCid: "bafk-uploaded",
+          size: 1024,
+          pieceId: "piece-123",
+        };
+      });
 
       mockSynapseInstance.createStorage.mockResolvedValue({
         dataSetId: "dataset-123",
@@ -214,9 +212,7 @@ describe("DealService", () => {
         upload: uploadMock,
       });
 
-      await expect(
-        service.createDeal(mockProviderInfo, mockDealInput),
-      ).rejects.toThrow("Upload failed");
+      await expect(service.createDeal(mockProviderInfo, mockDealInput)).rejects.toThrow("Upload failed");
 
       expect(mockDeal.status).toBe(DealStatus.FAILED);
       expect(mockDeal.errorMessage).toBe("Upload failed");
@@ -227,9 +223,7 @@ describe("DealService", () => {
       const error = new Error("Storage creation failed");
       mockSynapseInstance.createStorage.mockRejectedValue(error);
 
-      await expect(
-        service.createDeal(mockProviderInfo, mockDealInput),
-      ).rejects.toThrow("Storage creation failed");
+      await expect(service.createDeal(mockProviderInfo, mockDealInput)).rejects.toThrow("Storage creation failed");
 
       expect(mockDeal.status).toBe(DealStatus.FAILED);
       expect(mockDeal.errorMessage).toBe("Storage creation failed");
@@ -254,14 +248,10 @@ describe("DealService", () => {
       const loggerWarnSpy = vi.spyOn((service as any).logger, "warn");
 
       // The deal should fail because the callback failed
-      await expect(
-        service.createDeal(mockProviderInfo, mockDealInput),
-      ).rejects.toThrow("Upload cb failed");
+      await expect(service.createDeal(mockProviderInfo, mockDealInput)).rejects.toThrow("Upload cb failed");
 
       expect(handleUploadCompleteSpy).toHaveBeenCalled();
-      expect(loggerWarnSpy).toHaveBeenCalledWith(
-        expect.stringContaining("Upload completion handler failed"),
-      );
+      expect(loggerWarnSpy).toHaveBeenCalledWith(expect.stringContaining("Upload completion handler failed"));
 
       // Verify deal was marked as FAILED
       expect(mockDeal.status).toBe(DealStatus.FAILED);
@@ -273,17 +263,15 @@ describe("DealService", () => {
       let dealInputWithMetadata: DealPreprocessingResult;
 
       beforeEach(() => {
-        const uploadMock = vi.fn(
-          async (_data, { onUploadComplete, onPieceAdded }) => {
-            await onUploadComplete("bafk-uploaded");
-            await onPieceAdded({ transactionHash: "0xhash" });
-            return {
-              pieceCid: "bafk-uploaded",
-              size: 1024,
-              pieceId: "piece-123",
-            };
-          },
-        );
+        const uploadMock = vi.fn(async (_data, { onUploadComplete, onPieceAdded }) => {
+          await onUploadComplete("bafk-uploaded");
+          await onPieceAdded({ transactionHash: "0xhash" });
+          return {
+            pieceCid: "bafk-uploaded",
+            size: 1024,
+            pieceId: "piece-123",
+          };
+        });
 
         mockSynapseInstance.createStorage.mockResolvedValue({
           dataSetId: "dataset-123",
@@ -299,9 +287,7 @@ describe("DealService", () => {
         };
       });
 
-      const createServiceWithVersion = async (
-        dealbotDataSetVersion: string | undefined,
-      ) => {
+      const createServiceWithVersion = async (dealbotDataSetVersion: string | undefined) => {
         mockConfigService.get.mockReturnValue({
           walletPrivateKey: "0xMockKey",
           network: "calibration",
@@ -424,10 +410,7 @@ describe("DealService", () => {
     });
 
     it("orchestrates deal creation for multiple providers", async () => {
-      const providers = [
-        { serviceProvider: "0x1" },
-        { serviceProvider: "0x2" },
-      ];
+      const providers = [{ serviceProvider: "0x1" }, { serviceProvider: "0x2" }];
       const dataFile = { name: "test", size: 100, data: Buffer.from("test") };
       const preprocessed = {
         processedData: dataFile,
@@ -476,9 +459,7 @@ describe("DealService", () => {
       walletSdkMock.getTestingProvidersCount.mockReturnValue(0);
       walletSdkMock.getTestingProviders.mockReturnValue([]);
 
-      dataSourceMock.fetchKaggleDataset.mockRejectedValue(
-        new Error("Network Error"),
-      );
+      dataSourceMock.fetchKaggleDataset.mockRejectedValue(new Error("Network Error"));
       dataSourceMock.fetchLocalDataset.mockResolvedValue({ name: "local" });
       dealAddonsMock.preprocessDeal.mockResolvedValue({});
 
@@ -492,10 +473,7 @@ describe("DealService", () => {
     });
 
     it("aggregates successful deals even if some fail", async () => {
-      const providers = [
-        { serviceProvider: "0xSuccess" },
-        { serviceProvider: "0xFail" },
-      ];
+      const providers = [{ serviceProvider: "0xSuccess" }, { serviceProvider: "0xFail" }];
       walletSdkMock.getTestingProviders.mockReturnValue(providers);
       walletSdkMock.getTestingProvidersCount.mockReturnValue(2);
       dataSourceMock.fetchKaggleDataset.mockResolvedValue({});
