@@ -24,6 +24,10 @@ export class SchedulerService implements OnModuleInit {
   ) {}
 
   async onModuleInit() {
+    if (process.env.DEALBOT_JOBS_MODE === "pgboss") {
+      this.logger.log("pg-boss mode enabled; skipping legacy cron scheduler.");
+      return;
+    }
     if (process.env.DEALBOT_DISABLE_SCHEDULER === "true") {
       this.logger.warn(
         "Scheduler disabled via DEALBOT_DISABLE_SCHEDULER=true; skipping wallet initialization and cron jobs.",
