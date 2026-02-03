@@ -1,4 +1,9 @@
-import { type PieceCID, RPC_URLS, SIZE_CONSTANTS, Synapse, type UploadResult } from "@filoz/synapse-sdk";
+import {
+  type PieceCID,
+  SIZE_CONSTANTS,
+  Synapse,
+  type UploadResult,
+} from "@filoz/synapse-sdk";
 import { Injectable, Logger, type OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
@@ -15,6 +20,7 @@ import { DealAddonsService } from "../deal-addons/deal-addons.service.js";
 import type { DealPreprocessingResult } from "../deal-addons/types.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
 import type { ProviderInfoEx } from "../wallet-sdk/wallet-sdk.types.js";
+import { privateKeyToAccount } from "viem/accounts";
 
 @Injectable()
 export class DealService implements OnModuleInit {
@@ -46,12 +52,14 @@ export class DealService implements OnModuleInit {
   async onModuleInit() {
     try {
       this.synapse = await Synapse.create({
-        privateKey: this.blockchainConfig.walletPrivateKey,
-        rpcURL: RPC_URLS[this.blockchainConfig.network].http,
+        account: privateKeyToAccount(this.blockchainConfig.walletPrivateKey),
         warmStorageAddress: this.walletSdkService.getFWSSAddress(),
       });
     } catch (error) {
-      this.logger.error(`Failed to initialize DealService: ${error.message}`, error.stack);
+      this.logger.error(
+        `Failed to initialize DealService: ${error.message}`,
+        error.stack,
+      );
       throw error;
     }
   }
@@ -60,18 +68,30 @@ export class DealService implements OnModuleInit {
     const totalProviders = this.walletSdkService.getTestingProvidersCount();
     const { enableCDN, enableIpni } = this.getTestingDealOptions();
 
-    this.logger.log(`Starting deal creation for ${totalProviders} providers (CDN: ${enableCDN}, IPNI: ${enableIpni})`);
+    this.logger.log(
+      `Starting deal creation for ${totalProviders} providers (CDN: ${enableCDN}, IPNI: ${enableIpni})`,
+    );
 
-    const { preprocessed, cleanup } = await this.prepareDealInput(enableCDN, enableIpni);
+    const { preprocessed, cleanup } = await this.prepareDealInput(
+      enableCDN,
+      enableIpni,
+    );
 
     try {
       const providers = this.walletSdkService.getTestingProviders();
 
-      const results = await this.processProvidersInParallel(providers, preprocessed);
+      const results = await this.processProvidersInParallel(
+        providers,
+        preprocessed,
+      );
 
-      const successfulDeals = results.filter((result) => result.success).map((result) => result.deal!);
+      const successfulDeals = results
+        .filter((result) => result.success)
+        .map((result) => result.deal!);
 
-      this.logger.log(`Deal creation completed: ${successfulDeals.length}/${totalProviders} successful`);
+      this.logger.log(
+        `Deal creation completed: ${successfulDeals.length}/${totalProviders} successful`,
+      );
 
       return successfulDeals;
     } finally {
@@ -88,10 +108,17 @@ export class DealService implements OnModuleInit {
       existingDealId?: string;
     },
   ): Promise<Deal> {
-    const { preprocessed, cleanup } = await this.prepareDealInput(options.enableCDN, options.enableIpni);
+    const { preprocessed, cleanup } = await this.prepareDealInput(
+      options.enableCDN,
+      options.enableIpni,
+    );
 
     try {
-      return await this.createDeal(providerInfo, preprocessed, options.existingDealId);
+      return await this.createDeal(
+        providerInfo,
+        preprocessed,
+        options.existingDealId,
+      );
     } finally {
       await cleanup();
     }
@@ -103,8 +130,14 @@ export class DealService implements OnModuleInit {
   async prepareDealInput(
     enableCDN: boolean,
     enableIpni: boolean,
-  ): Promise<{ preprocessed: DealPreprocessingResult; cleanup: () => Promise<void> }> {
-    const dataFile = await this.fetchDataFile(SIZE_CONSTANTS.MIN_UPLOAD_SIZE, SIZE_CONSTANTS.MAX_UPLOAD_SIZE);
+  ): Promise<{
+    preprocessed: DealPreprocessingResult;
+    cleanup: () => Promise<void>;
+  }> {
+    const dataFile = await this.fetchDataFile(
+      SIZE_CONSTANTS.MIN_UPLOAD_SIZE,
+      SIZE_CONSTANTS.MAX_UPLOAD_SIZE,
+    );
 
     const preprocessed = await this.dealAddonsService.preprocessDeal({
       enableCDN,
@@ -112,14 +145,19 @@ export class DealService implements OnModuleInit {
       dataFile,
     });
 
-    const cleanup = async () => this.dataSourceService.cleanupRandomDataset(dataFile.name);
+    const cleanup = async () =>
+      this.dataSourceService.cleanupRandomDataset(dataFile.name);
 
     return { preprocessed, cleanup };
   }
 
   getTestingDealOptions(): { enableCDN: boolean; enableIpni: boolean } {
-    const enableCDN = this.blockchainConfig.enableCDNTesting ? Math.random() > 0.5 : false;
-    const enableIpni = this.getIpniEnabled(this.blockchainConfig.enableIpniTesting);
+    const enableCDN = this.blockchainConfig.enableCDNTesting
+      ? Math.random() > 0.5
+      : false;
+    const enableIpni = this.getIpniEnabled(
+      this.blockchainConfig.enableIpniTesting,
+    );
 
     return { enableCDN, enableIpni };
   }
@@ -167,7 +205,8 @@ export class DealService implements OnModuleInit {
       const dataSetMetadata = { ...dealInput.synapseConfig.dataSetMetadata };
 
       if (this.blockchainConfig.dealbotDataSetVersion) {
-        dataSetMetadata.dealbotDataSetVersion = this.blockchainConfig.dealbotDataSetVersion;
+        dataSetMetadata.dealbotDataSetVersion =
+          this.blockchainConfig.dealbotDataSetVersion;
       }
 
       const storage = await this.synapse.createStorage({
@@ -182,28 +221,41 @@ export class DealService implements OnModuleInit {
       const pendingCallbacks: Promise<void>[] = [];
 
       const safeOnUploadComplete = (pieceCid: PieceCID) => {
-        const promise = this.handleUploadComplete(deal, pieceCid, dealInput.appliedAddons).catch((error) => {
+        const promise = this.handleUploadComplete(
+          deal,
+          pieceCid,
+          dealInput.appliedAddons,
+        ).catch((error) => {
           const err = error instanceof Error ? error : new Error(String(error));
-          this.logger.warn(`Upload completion handler failed for ${providerShort}...: ${err.message}`);
+          this.logger.warn(
+            `Upload completion handler failed for ${providerShort}...: ${err.message}`,
+          );
           callbackError = err;
         });
         pendingCallbacks.push(promise);
       };
 
-      const safeOnPieceAdded = (hash: Parameters<DealService["handleRootAdded"]>[1]) => {
+      const safeOnPieceAdded = (
+        hash: Parameters<DealService["handleRootAdded"]>[1],
+      ) => {
         const promise = this.handleRootAdded(deal, hash).catch((error) => {
           const err = error instanceof Error ? error : new Error(String(error));
-          this.logger.warn(`Piece added handler failed for ${providerShort}...: ${err.message}`);
+          this.logger.warn(
+            `Piece added handler failed for ${providerShort}...: ${err.message}`,
+          );
           callbackError = err;
         });
         pendingCallbacks.push(promise);
       };
 
-      const uploadResult: UploadResult = await storage.upload(dealInput.processedData.data, {
-        onUploadComplete: safeOnUploadComplete,
-        onPieceAdded: safeOnPieceAdded,
-        metadata: dealInput.synapseConfig.pieceMetadata,
-      });
+      const uploadResult: UploadResult = await storage.upload(
+        dealInput.processedData.data,
+        {
+          onUploadComplete: safeOnUploadComplete,
+          onPieceAdded: safeOnPieceAdded,
+          metadata: dealInput.synapseConfig.pieceMetadata,
+        },
+      );
 
       // Wait for any floating callbacks to finish before proceeding
       await Promise.all(pendingCallbacks);
@@ -216,9 +268,14 @@ export class DealService implements OnModuleInit {
 
       this.updateDealWithUploadResult(deal, uploadResult);
 
-      this.logger.log(`Deal created: ${uploadResult.pieceCid.toString().slice(0, 12)}... (${providerShort}...)`);
+      this.logger.log(
+        `Deal created: ${uploadResult.pieceCid.toString().slice(0, 12)}... (${providerShort}...)`,
+      );
 
-      await this.dealAddonsService.postProcessDeal(deal, dealInput.appliedAddons);
+      await this.dealAddonsService.postProcessDeal(
+        deal,
+        dealInput.appliedAddons,
+      );
 
       // Record success metrics using short provider labels to limit cardinality.
       this.dealsCreatedCounter.inc({
@@ -256,7 +313,9 @@ export class DealService implements OnModuleInit {
 
       return deal;
     } catch (error) {
-      this.logger.error(`Deal creation failed for ${providerShort}...: ${error.message}`);
+      this.logger.error(
+        `Deal creation failed for ${providerShort}...: ${error.message}`,
+      );
 
       deal.status = DealStatus.FAILED;
       deal.errorMessage = error.message;
@@ -285,20 +344,26 @@ export class DealService implements OnModuleInit {
   // Deal Creation Helpers
   // ============================================================================
 
-  private updateDealWithUploadResult(deal: Deal, uploadResult: UploadResult): void {
+  private updateDealWithUploadResult(
+    deal: Deal,
+    uploadResult: UploadResult,
+  ): void {
     deal.pieceCid = uploadResult.pieceCid.toString();
     deal.pieceSize = uploadResult.size;
     deal.pieceId = uploadResult.pieceId;
     deal.status = DealStatus.DEAL_CREATED;
     deal.dealConfirmedTime = new Date();
-    deal.dealLatencyMs = deal.dealConfirmedTime.getTime() - deal.uploadStartTime.getTime();
+    deal.dealLatencyMs =
+      deal.dealConfirmedTime.getTime() - deal.uploadStartTime.getTime();
   }
 
   private async saveDeal(deal: Deal): Promise<void> {
     try {
       await this.dealRepository.save(deal);
     } catch (error) {
-      this.logger.warn(`Failed to save deal ${deal.pieceCid}: ${error.message}`);
+      this.logger.warn(
+        `Failed to save deal ${deal.pieceCid}: ${error.message}`,
+      );
     }
   }
 
@@ -310,7 +375,9 @@ export class DealService implements OnModuleInit {
     providers: ProviderInfoEx[],
     dealInput: DealPreprocessingResult,
     maxConcurrency: number = 10,
-  ): Promise<Array<{ success: boolean; deal?: Deal; error?: string; provider: string }>> {
+  ): Promise<
+    Array<{ success: boolean; deal?: Deal; error?: string; provider: string }>
+  > {
     const results: Array<{
       success: boolean;
       deal?: Deal;
@@ -320,7 +387,9 @@ export class DealService implements OnModuleInit {
 
     for (let i = 0; i < providers.length; i += maxConcurrency) {
       const batch = providers.slice(i, i + maxConcurrency);
-      const batchPromises = batch.map((provider) => this.createDeal(provider, dealInput));
+      const batchPromises = batch.map((provider) =>
+        this.createDeal(provider, dealInput),
+      );
       const batchResults = await Promise.allSettled(batchPromises);
 
       batchResults.forEach((result, index) => {
@@ -349,12 +418,19 @@ export class DealService implements OnModuleInit {
   // Upload Lifecycle Handlers
   // ============================================================================
 
-  private async handleUploadComplete(deal: Deal, pieceCid: PieceCID, appliedAddons: ServiceType[]): Promise<void> {
+  private async handleUploadComplete(
+    deal: Deal,
+    pieceCid: PieceCID,
+    appliedAddons: ServiceType[],
+  ): Promise<void> {
     deal.pieceCid = pieceCid.toString();
     deal.uploadEndTime = new Date();
-    deal.ingestLatencyMs = deal.uploadEndTime.getTime() - deal.uploadStartTime.getTime();
+    deal.ingestLatencyMs =
+      deal.uploadEndTime.getTime() - deal.uploadStartTime.getTime();
     deal.ingestThroughputBps = Math.round(
-      deal.fileSize / ((deal.uploadEndTime.getTime() - deal.uploadStartTime.getTime()) / 1000),
+      deal.fileSize /
+        ((deal.uploadEndTime.getTime() - deal.uploadStartTime.getTime()) /
+          1000),
     );
     deal.status = DealStatus.UPLOADED;
 
@@ -364,7 +440,8 @@ export class DealService implements OnModuleInit {
 
   private async handleRootAdded(deal: Deal, result: any): Promise<void> {
     deal.pieceAddedTime = new Date();
-    deal.chainLatencyMs = deal.pieceAddedTime.getTime() - deal.uploadEndTime.getTime();
+    deal.chainLatencyMs =
+      deal.pieceAddedTime.getTime() - deal.uploadEndTime.getTime();
     deal.status = DealStatus.PIECE_ADDED;
     deal.transactionHash = result.transactionHash;
   }
@@ -373,21 +450,35 @@ export class DealService implements OnModuleInit {
   // Data Source Management
   // ============================================================================
 
-  private async fetchDataFile(minSize: number, maxSize: number): Promise<DataFile> {
+  private async fetchDataFile(
+    minSize: number,
+    maxSize: number,
+  ): Promise<DataFile> {
     try {
       return await this.dataSourceService.fetchKaggleDataset(minSize, maxSize);
     } catch (kaggleErr) {
-      this.logger.warn("Failed to fetch Kaggle dataset, falling back to local dataset", kaggleErr);
+      this.logger.warn(
+        "Failed to fetch Kaggle dataset, falling back to local dataset",
+        kaggleErr,
+      );
       try {
         return await this.dataSourceService.fetchLocalDataset(minSize, maxSize);
       } catch (localErr) {
-        this.logger.warn("Failed to fetch local dataset, generating random dataset", localErr);
-        return await this.dataSourceService.generateRandomDataset(minSize, maxSize);
+        this.logger.warn(
+          "Failed to fetch local dataset, generating random dataset",
+          localErr,
+        );
+        return await this.dataSourceService.generateRandomDataset(
+          minSize,
+          maxSize,
+        );
       }
     }
   }
 
-  private getIpniEnabled(mode: IBlockchainConfig["enableIpniTesting"]): boolean {
+  private getIpniEnabled(
+    mode: IBlockchainConfig["enableIpniTesting"],
+  ): boolean {
     switch (mode) {
       case "disabled":
         return false;

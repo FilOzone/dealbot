@@ -11,7 +11,6 @@ import { SPRegistryService } from "@filoz/synapse-sdk/sp-registry";
 import { Injectable, Logger, type OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
-import { JsonRpcProvider, MaxUint256 } from "ethers";
 import type { Repository } from "typeorm";
 import type { Hex } from "viem";
 import { DEV_TAG } from "../common/constants.js";
@@ -26,6 +25,7 @@ import type {
   WalletServices,
   WalletStatusLog,
 } from "./wallet-sdk.types.js";
+import { privateKeyToAccount } from "viem/accounts";
 
 @Injectable()
 export class WalletSdkService implements OnModuleInit {
@@ -34,7 +34,6 @@ export class WalletSdkService implements OnModuleInit {
   private paymentsService: PaymentsService;
   private warmStorageService: WarmStorageService;
   private spRegistry: SPRegistryService;
-  private rpcProvider: JsonRpcProvider;
   private providerCache: Map<string, ProviderInfoEx> = new Map();
   private activeProviderAddresses: Set<string> = new Set();
   private approvedProviderAddresses: Set<string> = new Set();
@@ -44,7 +43,8 @@ export class WalletSdkService implements OnModuleInit {
     @InjectRepository(StorageProvider)
     private readonly spRepository: Repository<StorageProvider>,
   ) {
-    this.blockchainConfig = this.configService.get<IBlockchainConfig>("blockchain");
+    this.blockchainConfig =
+      this.configService.get<IBlockchainConfig>("blockchain");
   }
 
   async onModuleInit() {
@@ -64,18 +64,24 @@ export class WalletSdkService implements OnModuleInit {
   private async initializeServices(): Promise<void> {
     const warmStorageAddress = this.getFWSSAddress();
     const synapse = await Synapse.create({
-      privateKey: this.blockchainConfig.walletPrivateKey,
+      account: privateKeyToAccount(this.blockchainConfig.walletPrivateKey),
       rpcURL: RPC_URLS[this.blockchainConfig.network].http,
       warmStorageAddress,
     });
 
-    this.rpcProvider = new JsonRpcProvider(RPC_URLS[this.blockchainConfig.network].http);
-    this.warmStorageService = await WarmStorageService.create(this.rpcProvider, warmStorageAddress);
+    this.rpcProvider = new JsonRpcProvider(
+      RPC_URLS[this.blockchainConfig.network].http,
+    );
+    this.warmStorageService = await WarmStorageService.create(
+      this.rpcProvider,
+      warmStorageAddress,
+    );
     this.spRegistry = new SPRegistryService(
       this.rpcProvider,
       this.warmStorageService.getServiceProviderRegistryAddress(),
     );
     this.paymentsService = synapse.payments;
+    this.synapseClient = synapse.client;
   }
 
   /**
@@ -87,14 +93,22 @@ export class WalletSdkService implements OnModuleInit {
     try {
       this.logger.log("Loading all service providers from sp-registry...");
 
-      const approvedIds = await this.warmStorageService.getApprovedProviderIds();
+      const approvedIds =
+        await this.warmStorageService.getApprovedProviderIds();
 
       const totalProviders = await this.spRegistry.getProviderCount();
 
       const activeProviders = await this.spRegistry.getAllActiveProviders();
-      const activeProviderIds = new Set(activeProviders.map((info) => Number(info.id)));
-      const allProviderIds = Array.from({ length: totalProviders }, (_, i) => i + 1);
-      const inactiveProviderIds = allProviderIds.filter((id) => !activeProviderIds.has(id));
+      const activeProviderIds = new Set(
+        activeProviders.map((info) => Number(info.id)),
+      );
+      const allProviderIds = Array.from(
+        { length: totalProviders },
+        (_, i) => i + 1,
+      );
+      const inactiveProviderIds = allProviderIds.filter(
+        (id) => !activeProviderIds.has(id),
+      );
 
       const providerInfos: ProviderInfo[] = [...activeProviders];
       if (inactiveProviderIds.length > 0) {
@@ -109,7 +123,9 @@ export class WalletSdkService implements OnModuleInit {
             providerInfos.push(...providerBatch);
           }
         } else {
-          providerInfos.push(...(await this.spRegistry.getProviders(inactiveProviderIds)));
+          providerInfos.push(
+            ...(await this.spRegistry.getProviders(inactiveProviderIds)),
+          );
         }
       }
 
@@ -119,14 +135,16 @@ export class WalletSdkService implements OnModuleInit {
       const extendedProviders = validProviders.map((info) => {
         const isActivePDP = info.active;
         const supportsPDP = !!info.products?.PDP;
-        const isDevTagged = info.products?.PDP?.capabilities?.service_status === DEV_TAG;
+        const isDevTagged =
+          info.products?.PDP?.capabilities?.service_status === DEV_TAG;
 
         const isActive = isActivePDP && supportsPDP && !isDevTagged;
         const isApproved = approvedIds.includes(info.id);
 
         // select approved providers which are not dev tagged
         if (isActive) this.activeProviderAddresses.add(info.serviceProvider);
-        if (isApproved && isActive) this.approvedProviderAddresses.add(info.serviceProvider);
+        if (isApproved && isActive)
+          this.approvedProviderAddresses.add(info.serviceProvider);
         this.providerCache.set(info.serviceProvider, {
           ...info,
           isApproved,
@@ -148,7 +166,10 @@ export class WalletSdkService implements OnModuleInit {
         `Loaded ${this.providerCache.size} providers from on-chain (${this.activeProviderAddresses.size} testing) (${this.approvedProviderAddresses.size} approved)`,
       );
     } catch (error) {
-      this.logger.error("Failed to load registered providers from on-chain", error);
+      this.logger.error(
+        "Failed to load registered providers from on-chain",
+        error,
+      );
       // Fallback to empty array, let the application handle this gracefully
       this.providerCache.clear();
       this.activeProviderAddresses.clear();
@@ -211,7 +232,9 @@ export class WalletSdkService implements OnModuleInit {
    * Get testing providers
    */
   getTestingProviders(): ProviderInfoEx[] {
-    return this.blockchainConfig.useOnlyApprovedProviders ? this.getApprovedProviders() : this.getAllActiveProviders();
+    return this.blockchainConfig.useOnlyApprovedProviders
+      ? this.getApprovedProviders()
+      : this.getAllActiveProviders();
   }
 
   /**
@@ -230,7 +253,7 @@ export class WalletSdkService implements OnModuleInit {
    */
   async getWalletBalances(): Promise<{ usdfc: bigint; fil: bigint }> {
     const accountInfo = await this.paymentsService.accountInfo();
-    const filBalance = await this.rpcProvider.getBalance(this.blockchainConfig.walletAddress);
+    const filBalance = await this.paymentsService.walletBalance();
     return {
       usdfc: accountInfo.availableFunds,
       fil: filBalance,
@@ -272,8 +295,12 @@ export class WalletSdkService implements OnModuleInit {
       storageCheck,
       serviceApprovals,
       datasetCreationFees,
-      totalRequiredFunds: storageCheck.costs.perMonth * APPROVAL_DURATION_MONTHS + datasetCreationFees,
-      approvalDuration: BigInt(TIME_CONSTANTS.EPOCHS_PER_MONTH * APPROVAL_DURATION_MONTHS), // 6 months in epochs
+      totalRequiredFunds:
+        storageCheck.costs.perMonth * APPROVAL_DURATION_MONTHS +
+        datasetCreationFees,
+      approvalDuration: BigInt(
+        TIME_CONSTANTS.EPOCHS_PER_MONTH * APPROVAL_DURATION_MONTHS,
+      ), // 6 months in epochs
     };
   }
 
@@ -313,17 +340,22 @@ export class WalletSdkService implements OnModuleInit {
    */
   requiresApproval(requirements: StorageRequirements): boolean {
     return (
-      requirements.serviceApprovals.rateAllowance < requirements.storageCheck.rateAllowanceNeeded ||
+      requirements.serviceApprovals.rateAllowance <
+        requirements.storageCheck.rateAllowanceNeeded ||
       requirements.serviceApprovals.lockupAllowance <
-        requirements.storageCheck.lockupAllowanceNeeded + requirements.datasetCreationFees
+        requirements.storageCheck.lockupAllowanceNeeded +
+          requirements.datasetCreationFees
     );
   }
 
   /**
    * Handle insufficient funds by depositing required amount
    */
-  async handleInsufficientFunds(requirements: StorageRequirements): Promise<void> {
-    const depositAmount = requirements.totalRequiredFunds - requirements.accountInfo.funds;
+  async handleInsufficientFunds(
+    requirements: StorageRequirements,
+  ): Promise<void> {
+    const depositAmount =
+      requirements.totalRequiredFunds - requirements.accountInfo.funds;
 
     const depositLog: FundDepositLog = {
       currentFunds: requirements.accountInfo.funds.toString(),
@@ -333,11 +365,11 @@ export class WalletSdkService implements OnModuleInit {
 
     this.logger.log("Depositing additional funds", depositLog);
 
-    const depositTx = await this.paymentsService.deposit(depositAmount);
-    await depositTx.wait();
+    const hash = await this.paymentsService.deposit(depositAmount);
+    await this.synapseClient.waitForTransactionReceipt({ hash });
 
     const successLog: TransactionLog = {
-      transactionHash: depositTx.hash,
+      transactionHash: hash,
       depositAmount: depositAmount.toString(),
     };
 
@@ -347,29 +379,32 @@ export class WalletSdkService implements OnModuleInit {
   /**
    * Approve storage service with required allowances
    */
-  async approveStorageService(requirements: StorageRequirements): Promise<void> {
+  async approveStorageService(
+    requirements: StorageRequirements,
+  ): Promise<void> {
     const contractAddress = this.getFWSSAddress();
 
     const approvalLog: ServiceApprovalLog = {
       serviceAddress: contractAddress,
       rateAllowance: "Maximum of uint256",
       lockupAllowance: "Maximum of uint256",
-      durationMonths: Number(requirements.approvalDuration / TIME_CONSTANTS.EPOCHS_PER_MONTH),
+      durationMonths: Number(
+        requirements.approvalDuration / TIME_CONSTANTS.EPOCHS_PER_MONTH,
+      ),
     };
 
     this.logger.log("Approving storage service allowances", approvalLog);
 
-    const approveTx = await this.paymentsService.approveService(
+    const hash = await this.paymentsService.approveService(
       contractAddress,
-      MaxUint256,
-      MaxUint256,
+      null,
+      null,
       requirements.approvalDuration,
     );
-
-    await approveTx.wait();
+    await this.synapseClient.waitForTransactionReceipt({ hash });
 
     const successLog: TransactionLog = {
-      transactionHash: approveTx.hash,
+      transactionHash: hash,
       serviceAddress: contractAddress,
     };
 
@@ -434,7 +469,9 @@ export class WalletSdkService implements OnModuleInit {
   /**
    * Create or update provider in database
    */
-  async syncProvidersToDatabase(providerInfos: ProviderInfoEx[]): Promise<void> {
+  async syncProvidersToDatabase(
+    providerInfos: ProviderInfoEx[],
+  ): Promise<void> {
     try {
       const dedupedProviders = new Map<string, ProviderInfoEx>();
       const duplicatesByAddress = new Map<string, Set<number>>();
@@ -445,7 +482,9 @@ export class WalletSdkService implements OnModuleInit {
         const address = info.serviceProvider;
         const existing = dedupedProviders.get(address);
         if (existing) {
-          this.logger.warn(`Duplicate provider address ${address} (providerIds: ${existing.id}, ${info.id})`);
+          this.logger.warn(
+            `Duplicate provider address ${address} (providerIds: ${existing.id}, ${info.id})`,
+          );
           let ids = duplicatesByAddress.get(address);
           if (!ids) {
             ids = new Set<number>();
@@ -479,7 +518,9 @@ export class WalletSdkService implements OnModuleInit {
           });
 
         const resolvedOnly = new Set(
-          Array.from(resolvedInactiveAddresses).filter((address) => !conflictAddresses.has(address)),
+          Array.from(resolvedInactiveAddresses).filter(
+            (address) => !conflictAddresses.has(address),
+          ),
         );
 
         if (conflictAddresses.size > 0) {

@@ -38,9 +38,6 @@ importers:
 
   apps/backend:
     dependencies:
-      '@filoz/synapse-sdk':
-        specifier: 0.36.0
-        version: 0.36.0(iso-filecoin@7.4.7(typescript@5.9.3))(typescript@5.9.3)(zod@4.2.0)
       '@ipld/car':
         specifier: ^5.4.2
         version: 5.4.2
@@ -89,9 +86,6 @@ importers:
       cron:
         specifier: 4.3.5
         version: 4.3.5
-      ethers:
-        specifier: ^6.16.0
-        version: 6.16.0
       filecoin-pin:
         specifier: ^0.15.0
         version: 0.15.0(iso-filecoin@7.4.7(typescript@5.9.3))(react-native@0.83.1(@babel/core@7.28.5)(@types/react@19.2.7)(react@19.2.1))(typescript@5.9.3)(viem@2.42.1(typescript@5.9.3)(zod@4.2.0))(zod@4.2.0)
@@ -971,9 +965,6 @@ packages:
     resolution: {integrity: sha512-tXEf51uTA8+FeMTFZ/BmThYcvBJ2ICqw3n48Fsu4OHlVasKDqBYR9UEjJANGATLyziQFTfMND6+a0AAX1fSsUQ==}
     peerDependencies:
       viem: 2.x
-
-  '@filoz/synapse-sdk@0.36.0':
-    resolution: {integrity: sha512-qGTckax6mT2t2mcVIYSRGCAdhi6p3c9I1jcDrPSX8db6VsHdL5a5TEODb0Sp8AMnCAm4oqQe2rZkxfALLJ0ZAQ==}
 
   '@filoz/synapse-sdk@0.36.1':
     resolution: {integrity: sha512-wdKHrRYE5EQeWJCPZ4C12A0/2bdFqDjwZnhdk806yJFlCc5II+zuNRmjW5ndlobcbGF+bK60m0QN/pv6jzUtUw==}
@@ -7124,25 +7115,6 @@ snapshots:
     transitivePeerDependencies:
       - iso-filecoin
       - typescript
-      - zod
-
-  '@filoz/synapse-sdk@0.36.0(iso-filecoin@7.4.7(typescript@5.9.3))(typescript@5.9.3)(zod@4.2.0)':
-    dependencies:
-      '@filoz/synapse-core': 0.1.4(iso-filecoin@7.4.7(typescript@5.9.3))(typescript@5.9.3)(viem@2.42.1(typescript@5.9.3)(zod@4.2.0))(zod@4.2.0)
-      '@web3-storage/data-segment': 5.3.0
-      ethers: 6.16.0
-      multiformats: 13.4.2
-      ox: 0.9.17(typescript@5.9.3)(zod@4.2.0)
-      viem: 2.42.1(typescript@5.9.3)(zod@4.2.0)
-    optionalDependencies:
-      '@sentry/browser': 10.30.0
-      '@sentry/node': 10.30.0
-    transitivePeerDependencies:
-      - bufferutil
-      - iso-filecoin
-      - supports-color
-      - typescript
-      - utf-8-validate
       - zod
 
   '@filoz/synapse-sdk@0.36.1(iso-filecoin@7.4.7(typescript@5.9.3))(typescript@5.9.3)(zod@4.2.0)':
