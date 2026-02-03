@@ -30,6 +30,12 @@ export class TriggerDealResponseDto {
   @ApiProperty({ description: "Deal latency in milliseconds", required: false })
   dealLatencyMs?: number;
 
+  @ApiProperty({
+    description: "Deal latency with IPNI verification in milliseconds (if IPNI enabled)",
+    required: false,
+  })
+  dealLatencyWithIpniMs?: number;
+
   @ApiProperty({ description: "Ingest latency in milliseconds", required: false })
   ingestLatencyMs?: number;
 

@@ -212,6 +212,11 @@ describe("DealService", () => {
       expect(deal.pieceCid).toBe("bafk-uploaded");
       expect(deal.status).toBe(DealStatus.DEAL_CREATED);
       expect(deal.transactionHash).toBe("0xhash");
+      expect(deal.pieceConfirmedTime).toBeInstanceOf(Date);
+      expect(deal.uploadStartTime).toBeInstanceOf(Date);
+
+      expect(deal.dealLatencyMs).toBeGreaterThanOrEqual(0);
+      expect(deal.dealLatencyWithIpniMs).toBeGreaterThanOrEqual(0);
 
       // Verify persistence
       expect(dealRepoMock.save).toHaveBeenCalledWith(deal);
@@ -324,6 +329,40 @@ describe("DealService", () => {
       expect(mockDeal.status).toBe(DealStatus.FAILED);
       expect(mockDeal.errorMessage).toContain("Retrieval gate failed");
       expect(dealRepoMock.save).toHaveBeenCalledWith(mockDeal);
+    });
+
+    it("sets dealLatencyMs even when IPNI verification is not enabled", async () => {
+      dealAddonsMock.handleUploadComplete.mockResolvedValueOnce(undefined);
+
+      const uploadPayload = {
+        carData: Uint8Array.from([1, 2, 3]),
+        rootCid: CID.parse(mockRootCid),
+      };
+
+      mockSynapseInstance.storage.createContext.mockResolvedValue({
+        dataSetId: "dataset-123",
+      });
+
+      (executeUpload as Mock).mockImplementation(async (_service, _data, _rootCid, options) => {
+        await triggerUploadProgress(options?.onProgress);
+        return {
+          pieceCid: "bafk-uploaded",
+          pieceId: 123,
+          transactionHash: "0xhash",
+          ipniValidated: true,
+        };
+      });
+      retrievalAddonsMock.testAllRetrievalMethods.mockResolvedValue({
+        dealId: "deal-1",
+        results: [],
+        summary: { totalMethods: 1, successfulMethods: 1, failedMethods: 0 },
+        testedAt: new Date(),
+      });
+
+      const deal = await service.createDeal(mockSynapseInstance, mockProviderInfo, mockDealInput, uploadPayload);
+
+      expect(deal.dealLatencyMs).toBeGreaterThanOrEqual(0);
+      expect(deal.dealLatencyWithIpniMs).toBeUndefined();
     });
 
     describe("dataset versioning", () => {

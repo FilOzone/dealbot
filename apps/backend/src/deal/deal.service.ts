@@ -266,6 +266,8 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
         throw new Error("Dealbot did not receive onProgress events during upload");
       }
 
+      deal.dealLatencyMs = deal.pieceConfirmedTime.getTime() - deal.uploadStartTime.getTime();
+
       if (!deal.transactionHash && uploadResult.transactionHash) {
         deal.transactionHash = uploadResult.transactionHash as Hex;
       }
@@ -284,8 +286,10 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
           throw uploadCompleteError ?? new Error("Upload completion handlers failed");
         }
         deal.dealConfirmedTime = new Date();
-        // pieceUploadToRetrievableDuration
-        deal.dealLatencyMs = deal.ipniVerifiedAt.getTime() - deal.uploadStartTime.getTime();
+        if (deal.ipniVerifiedAt) {
+          // pieceUploadToRetrievableDuration (IPNI verified)
+          deal.dealLatencyWithIpniMs = deal.ipniVerifiedAt.getTime() - deal.uploadStartTime.getTime();
+        }
       }
 
       const retrievalConfig: RetrievalConfiguration = {

@@ -175,6 +175,7 @@ export class DevToolsService {
       fileName: deal.fileName,
       fileSize: deal.fileSize,
       dealLatencyMs: deal.dealLatencyMs,
+      dealLatencyWithIpniMs: deal.dealLatencyWithIpniMs,
       ingestLatencyMs: deal.ingestLatencyMs,
       ipniTimeToIndexMs: deal.ipniTimeToIndexMs,
       ipniTimeToAdvertiseMs: deal.ipniTimeToAdvertiseMs,

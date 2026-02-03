@@ -81,6 +81,9 @@ export class Deal {
   @Column({ name: "deal_latency_ms", nullable: true, type: "int" })
   dealLatencyMs: number;
 
+  @Column({ name: "deal_latency_with_ipni_ms", nullable: true, type: "int" })
+  dealLatencyWithIpniMs: number;
+
   @Column({ name: "ingest_throughput_bps", nullable: true, type: "int" })
   ingestThroughputBps: number;
 
