@@ -16,7 +16,7 @@ This document provides a comprehensive guide to all environment variables used b
 | [Proxy](#proxy-configuration)             | `PROXY_LIST`, `PROXY_LOCATIONS`                                                                                                                              |
 | [Timeouts](#timeout-configuration)        | `CONNECT_TIMEOUT_MS`, `HTTP_REQUEST_TIMEOUT_MS`, `HTTP2_REQUEST_TIMEOUT_MS`, `RETRIEVAL_TIMEOUT_BUFFER_MS`                                                   |
 | [External Services](#external-services)   | `FILBEAM_BOT_TOKEN`                                                                                                                                          |
-| [Web Frontend](#web-frontend)             | `VITE_API_BASE_URL`                                                                                                                                          |
+| [Web Frontend](#web-frontend)             | `VITE_API_BASE_URL`, `VITE_PLAUSIBLE_DATA_DOMAIN`, `DEALBOT_API_BASE_URL`                                                                                    |
 
 ---
 
@@ -775,9 +775,16 @@ PROXY_LOCATIONS=us-east,eu-west
 - **Type**: `string` (URL)
 - **Required**: No
 - **Default**: `http://localhost:8080`
-- **Location**: `apps/web/.env`
+- **Location**: `apps/web/.env` (dev) and container runtime (production)
 
 **Role**: Base URL for the backend API, used by the Vite development server to proxy API requests.
+In production containers, this is read from `runtime-config.js`, which is generated at container
+startup from environment variables.
+
+**Runtime wiring (Docker/K8s)**:
+
+- Container entrypoint writes `/srv/runtime-config.js` from `DEALBOT_API_BASE_URL`
+- Fallback: `VITE_API_BASE_URL` if `DEALBOT_API_BASE_URL` is not set
 
 **When to update**:
 
@@ -791,6 +798,62 @@ VITE_API_BASE_URL=http://localhost:9000
 ```
 
 ---
+
+### `VITE_PLAUSIBLE_DATA_DOMAIN`
+
+- **Type**: `string` (domain)
+- **Required**: No
+- **Default**: Empty (Plausible disabled)
+- **Location**: `apps/web/.env` (dev) and container runtime (production)
+
+**Role**: Enables Plausible analytics for the web frontend when set. The value should match the Plausible site domain
+you want to attribute events to (e.g., `dealbot.filoz.org` or `staging.dealbot.filoz.org`).
+
+**Runtime wiring (Docker/K8s)**:
+
+- Container entrypoint writes `/srv/runtime-config.js` from `VITE_PLAUSIBLE_DATA_DOMAIN`
+
+**When to update**:
+
+- Set to the production domain for production deployments
+- Set to the staging domain for staging deployments
+- Leave empty to disable analytics (local development or privacy-sensitive environments)
+
+**Example**:
+
+```bash
+VITE_PLAUSIBLE_DATA_DOMAIN=dealbot.filoz.org
+```
+
+**Docker run example**:
+
+```bash
+docker run \
+  -e DEALBOT_API_BASE_URL=http://dealbot-api:3130 \
+  -e VITE_PLAUSIBLE_DATA_DOMAIN=dealbot.filoz.org \
+  -p 8080:80 \
+  dealbot-web:latest
+```
+
+---
+
+### `DEALBOT_API_BASE_URL`
+
+- **Type**: `string` (URL)
+- **Required**: No
+- **Default**: Empty (uses relative URLs)
+- **Location**: Container runtime env (production)
+
+**Role**: Runtime override for the web frontend API base URL. Used to populate
+`/srv/runtime-config.js` on container startup.
+
+**When to update**:
+
+- Set in production to point the frontend at your backend service
+- Leave empty to use relative `/api` paths
+
+---
+
 
 ## Environment Files Reference
 
