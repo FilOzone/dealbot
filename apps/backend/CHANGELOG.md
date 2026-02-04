@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.3.0](https://github.com/FilOzone/dealbot/compare/backend-v0.2.0...backend-v0.3.0) (2026-02-04)
+
+
+### Features
+
+* add pg-boss scheduling with per‑SP rate control and durable queues ([#181](https://github.com/FilOzone/dealbot/issues/181)) ([e781e76](https://github.com/FilOzone/dealbot/commit/e781e76094aa5fe296949ec16beba21b573e451e))
+* add prometheus metrics ([#147](https://github.com/FilOzone/dealbot/issues/147)) ([6392272](https://github.com/FilOzone/dealbot/commit/6392272e8e38970495e4f55a372c6ee17faf6d17))
+* deal overhaul ([#175](https://github.com/FilOzone/dealbot/issues/175)) ([40f9801](https://github.com/FilOzone/dealbot/commit/40f98012bba5909a88c657ca543c1f82f6514207))
+
+
+### Bug Fixes
+
+* allow always enabling IPNI testing ([#157](https://github.com/FilOzone/dealbot/issues/157)) ([0e5f10f](https://github.com/FilOzone/dealbot/commit/0e5f10f1376ac23277a9b3266b9bd1ddb81a97f4))
+* dev-tool for testing deals+retrievals on-demand ([#167](https://github.com/FilOzone/dealbot/issues/167)) ([768263e](https://github.com/FilOzone/dealbot/commit/768263e33c3be530d38c199750bc10c32e9e45b6))
+* do not wait so long for piece and ipni status ([#182](https://github.com/FilOzone/dealbot/issues/182)) ([bf16a19](https://github.com/FilOzone/dealbot/commit/bf16a1963d80087941e72f6b97a865719181bf24))
+* ensure synapse-sdk errors are caught ([#179](https://github.com/FilOzone/dealbot/issues/179)) ([ad5aa55](https://github.com/FilOzone/dealbot/commit/ad5aa55655de2db88e4ffc585d7c24876854c6bd))
+* import getPieceStatus logic ([#166](https://github.com/FilOzone/dealbot/issues/166)) ([8e5695b](https://github.com/FilOzone/dealbot/commit/8e5695b1fc49921537808baf9b5f5afcfd8d0d9c))
+* **metrics:** export prometheus providers and proxy /metrics ([#161](https://github.com/FilOzone/dealbot/issues/161)) ([33612e4](https://github.com/FilOzone/dealbot/commit/33612e495da63fe0d3b75bc0b1f3ad2643027a95)), closes [#147](https://github.com/FilOzone/dealbot/issues/147)
+* prevent upsert DB failure on duplicate SPs ([#156](https://github.com/FilOzone/dealbot/issues/156)) ([d49d614](https://github.com/FilOzone/dealbot/commit/d49d614d4b9ccf08a69bbfd58e33b870380e7fe6))
+* remove kaggle/local dataset handling ([#183](https://github.com/FilOzone/dealbot/issues/183)) ([53032e1](https://github.com/FilOzone/dealbot/commit/53032e15f996bce1e94759c26f5c816597adec05))
+
 ## [0.2.0](https://github.com/FilOzone/dealbot/compare/backend-v0.1.2...backend-v0.2.0) (2026-01-23)
 
 
