@@ -1,6 +1,7 @@
 import { Controller, Get, Logger, Param, Query, UsePipes, ValidationPipe } from "@nestjs/common";
 import { ApiOperation, ApiQuery, ApiResponse, ApiTags } from "@nestjs/swagger";
 import { DevToolsService } from "./dev-tools.service.js";
+import { CreateDealsAllResponseDto } from "./dto/create-deals-all.dto.js";
 import { TriggerDealQueryDto, TriggerDealResponseDto } from "./dto/trigger-deal.dto.js";
 import { TriggerRetrievalQueryDto, TriggerRetrievalResponseDto } from "./dto/trigger-retrieval.dto.js";
 
@@ -20,6 +21,30 @@ export class DevToolsController {
   listProviders() {
     this.logger.log("GET /api/dev/providers");
     return this.devToolsService.listProviders();
+  }
+
+  @Get("deals/create-all")
+  @ApiOperation({
+    summary: "Create deals for all providers (scheduler flow)",
+    description:
+      "Loads providers, then runs createDealsForAllProviders. Same logic as the scheduled deal-creation job. Blocks until complete.",
+  })
+  @ApiResponse({
+    status: 200,
+    description: "Deals created for all registered providers",
+    type: CreateDealsAllResponseDto,
+  })
+  @ApiResponse({
+    status: 400,
+    description: "No registered providers found",
+  })
+  @ApiResponse({
+    status: 409,
+    description: "Deal creation for all providers already in progress",
+  })
+  async createDealsForAllProviders(): Promise<CreateDealsAllResponseDto> {
+    this.logger.log("GET /api/dev/deals/create-all");
+    return this.devToolsService.triggerDealsForAllProviders();
   }
 
   @Get("deal")

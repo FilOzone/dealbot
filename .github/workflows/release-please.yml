@@ -44,7 +44,7 @@ jobs:
       - name: Resolve release PR node ID
         id: release-pr
         if: always()
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         env:
           PRS_CREATED: ${{ steps.release.outputs.prs_created }}
           RELEASE_PRS: ${{ steps.release.outputs.prs }}

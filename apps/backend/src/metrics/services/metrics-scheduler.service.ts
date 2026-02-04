@@ -45,6 +45,10 @@ export class MetricsSchedulerService implements OnModuleInit {
   ) {}
 
   async onModuleInit() {
+    if (process.env.DEALBOT_JOBS_MODE === "pgboss") {
+      this.logger.log("pg-boss mode enabled; skipping legacy metrics cron scheduler.");
+      return;
+    }
     this.setupStaggeredMetricsJobs();
   }
 
@@ -395,7 +399,10 @@ export class MetricsSchedulerService implements OnModuleInit {
   @Cron("0 2 * * 0", {
     name: "cleanup-old-metrics",
   })
-  async cleanupOldMetrics(): Promise<void> {
+  async cleanupOldMetrics({ allowWhenPgBoss = false }: { allowWhenPgBoss?: boolean } = {}): Promise<void> {
+    if (process.env.DEALBOT_JOBS_MODE === "pgboss" && !allowWhenPgBoss) {
+      return;
+    }
     const startTime = Date.now();
     const retentionDays = 90;
     const cutoffDate = new Date();

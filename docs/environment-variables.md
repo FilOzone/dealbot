@@ -10,8 +10,9 @@ This document provides a comprehensive guide to all environment variables used b
 | [Database](#database-configuration)       | `DATABASE_HOST`, `DATABASE_PORT`, `DATABASE_USER`, `DATABASE_PASSWORD`, `DATABASE_NAME`                                                                      |
 | [Blockchain](#blockchain-configuration)   | `NETWORK`, `WALLET_ADDRESS`, `WALLET_PRIVATE_KEY`, `CHECK_DATASET_CREATION_FEES`, `USE_ONLY_APPROVED_PROVIDERS`, `ENABLE_CDN_TESTING`, `ENABLE_IPNI_TESTING` |
 | [Dataset Versioning](#dataset-versioning) | `DEALBOT_DATASET_VERSION`                                                                                                                                    |
-| [Scheduling](#scheduling-configuration)   | `DEAL_INTERVAL_SECONDS`, `RETRIEVAL_INTERVAL_SECONDS`, `DEAL_START_OFFSET_SECONDS`, `RETRIEVAL_START_OFFSET_SECONDS`, `METRICS_START_OFFSET_SECONDS`         |
-| [Dataset](#dataset-configuration)         | `DEALBOT_LOCAL_DATASETS_PATH`, `KAGGLE_DATASET_TOTAL_PAGES`, `RANDOM_DATASET_SIZES`                                                                          |
+| [Scheduling](#scheduling-configuration)   | `DEAL_INTERVAL_SECONDS`, `DEAL_MAX_CONCURRENCY`, `RETRIEVAL_INTERVAL_SECONDS`, `DEAL_START_OFFSET_SECONDS`, `RETRIEVAL_START_OFFSET_SECONDS`, `METRICS_START_OFFSET_SECONDS`         |
+| [Jobs (pg-boss)](#jobs-pg-boss)           | `DEALBOT_JOBS_MODE`, `DEALS_PER_SP_PER_HOUR`, `RETRIEVALS_PER_SP_PER_HOUR`, `METRICS_PER_HOUR`, `JOB_SCHEDULER_POLL_SECONDS`, `JOB_CATCHUP_MAX_ENQUEUE`, `JOB_CATCHUP_SPREAD_HOURS`, `JOB_LOCK_RETRY_SECONDS`, `JOB_SCHEDULE_PHASE_SECONDS`, `JOB_ENQUEUE_JITTER_SECONDS` |
+| [Dataset](#dataset-configuration)         | `DEALBOT_LOCAL_DATASETS_PATH`, `RANDOM_DATASET_SIZES`                                                                                                        |
 | [Proxy](#proxy-configuration)             | `PROXY_LIST`, `PROXY_LOCATIONS`                                                                                                                              |
 | [Timeouts](#timeout-configuration)        | `CONNECT_TIMEOUT_MS`, `HTTP_REQUEST_TIMEOUT_MS`, `HTTP2_REQUEST_TIMEOUT_MS`, `RETRIEVAL_TIMEOUT_BUFFER_MS`                                                   |
 | [External Services](#external-services)   | `FILBEAM_BOT_TOKEN`                                                                                                                                          |
@@ -371,6 +372,9 @@ DEALBOT_DATASET_VERSION=dealbot-v2
 
 These variables control when and how often the Dealbot runs its automated jobs.
 
+**Note**: When `DEALBOT_JOBS_MODE=pgboss`, the offsets below are not used; pg-boss uses
+rate-based scheduling instead (see [Jobs (pg-boss)](#jobs-pg-boss)).
+
 ### `DEAL_INTERVAL_SECONDS`
 
 - **Type**: `number`
@@ -388,6 +392,28 @@ These variables control when and how often the Dealbot runs its automated jobs.
 
 ```bash
 DEAL_INTERVAL_SECONDS=3600
+```
+
+---
+
+### `DEAL_MAX_CONCURRENCY`
+
+- **Type**: `number`
+- **Required**: No
+- **Default**: `2`
+- **Minimum**: `1`
+
+**Role**: Maximum number of deals created in parallel per batch when running deal creation for all providers. Providers are processed in batches of this size; batches run sequentially.
+
+**When to update**:
+
+- Increase for faster deal creation (more concurrent uploads; higher load)
+- Decrease to reduce load or for more conservative testing
+
+**Example**:
+
+```bash
+DEAL_MAX_CONCURRENCY=4
 ```
 
 ---
@@ -457,6 +483,128 @@ RETRIEVAL_INTERVAL_SECONDS * 1000 - RETRIEVAL_TIMEOUT_BUFFER_MS >= max(HTTP_REQU
 
 ---
 
+## Jobs (pg-boss)
+
+These variables are only used when `DEALBOT_JOBS_MODE=pgboss`. In this mode, scheduling is
+rate-based (per hour) and persisted in Postgres so restarts do not reset timing.
+
+### `DEALBOT_JOBS_MODE`
+
+- **Type**: `string`
+- **Required**: No
+- **Default**: `cron`
+- **Valid values**: `cron`, `pgboss`
+
+**Role**: Switches between the legacy in-process cron scheduler and pg-boss.
+
+**Runbook**: See `docs/runbooks/jobs.md` for pg-boss operational guidance (pausing, resuming, maintenance).
+
+---
+
+### `DEALS_PER_SP_PER_HOUR`
+
+- **Type**: `number`
+- **Required**: No
+- **Default**: Derived from `DEAL_INTERVAL_SECONDS` (1 per interval per SP)
+
+**Role**: Target deal creation rate per storage provider.
+
+**Limits**: Config schema caps this at 20 to avoid excessive on-chain activity.
+
+**Notes**: Fractional values are supported. For example, `0.25` means one deal every 4 hours per storage provider.
+
+---
+
+### `RETRIEVALS_PER_SP_PER_HOUR`
+
+- **Type**: `number`
+- **Required**: No
+- **Default**: Derived from `RETRIEVAL_INTERVAL_SECONDS` (1 per interval per SP)
+
+**Role**: Target retrieval test rate per storage provider.
+
+**Limits**: Config schema caps this at 20 to avoid overloading providers.
+
+**Notes**: Fractional values are supported. For example, `0.25` means one retrieval every 4 hours per storage provider.
+
+---
+
+### `METRICS_PER_HOUR`
+
+- **Type**: `number`
+- **Required**: No
+- **Default**: `2`
+
+**Role**: How often metrics aggregation runs per hour.
+
+**Limits**: Config schema caps this at 3 to limit database load.
+
+---
+
+### `JOB_SCHEDULER_POLL_SECONDS`
+
+- **Type**: `number`
+- **Required**: No
+- **Default**: `300`
+
+**Role**: How often the scheduler polls Postgres for due jobs.
+
+**Notes**: Minimum is 60 seconds to avoid excessive polling; default is 300 seconds.
+
+---
+
+### `JOB_CATCHUP_MAX_ENQUEUE`
+
+- **Type**: `number`
+- **Required**: No
+- **Default**: `10`
+
+**Role**: Maximum number of jobs to enqueue per schedule row per poll. Any remaining backlog
+is handled by future polls.
+
+---
+
+### `JOB_CATCHUP_SPREAD_HOURS`
+
+- **Type**: `number`
+- **Required**: No
+- **Default**: `3`
+
+**Role**: When catching up, delayed jobs are spread evenly over this window.
+
+---
+
+### `JOB_LOCK_RETRY_SECONDS`
+
+- **Type**: `number`
+- **Required**: No
+- **Default**: `60`
+
+**Role**: Delay before re-queuing a job when the per-SP mutual-exclusion lock is held.
+
+---
+
+### `JOB_SCHEDULE_PHASE_SECONDS`
+
+- **Type**: `number`
+- **Required**: No
+- **Default**: `0`
+
+**Role**: Per-instance schedule phase offset (seconds) applied when initializing schedules.
+Use this to stagger multiple dealbot deployments that are not sharing a database.
+
+---
+
+### `JOB_ENQUEUE_JITTER_SECONDS`
+
+- **Type**: `number`
+- **Required**: No
+- **Default**: `0`
+
+**Role**: Random delay (seconds) applied when enqueuing jobs to avoid synchronized bursts.
+
+---
+
 ## Dataset Configuration
 
 ### `DEALBOT_LOCAL_DATASETS_PATH`
@@ -465,25 +613,11 @@ RETRIEVAL_INTERVAL_SECONDS * 1000 - RETRIEVAL_TIMEOUT_BUFFER_MS >= max(HTTP_REQU
 - **Required**: No
 - **Default**: `./datasets`
 
-**Role**: Directory path where local dataset files are stored. If kaggle dataset download fails, the files in this directory are used as fallback to create deals.
+**Role**: Directory path where randomly generated dataset files are stored.
 
 **When to update**:
 
 - When using a different storage location
-
----
-
-### `KAGGLE_DATASET_TOTAL_PAGES`
-
-- **Type**: `number`
-- **Required**: No
-- **Default**: `500`
-
-**Role**: Number of pages to fetch when discovering Kaggle datasets for testing.
-
-**When to update**:
-
-- Increase for more dataset variety
 
 ---
 
