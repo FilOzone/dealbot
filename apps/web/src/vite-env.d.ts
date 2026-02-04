@@ -8,3 +8,10 @@ interface ImportMeta {
     readonly VITE_PLAUSIBLE_DATA_DOMAIN?: string;
   };
 }
+
+interface Window {
+  __DEALBOT_CONFIG__?: {
+    API_BASE_URL?: string;
+    PLAUSIBLE_DATA_DOMAIN?: string;
+  };
+}

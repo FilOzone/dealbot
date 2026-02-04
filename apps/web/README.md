@@ -75,6 +75,10 @@ pnpm preview
 | `VITE_PLAUSIBLE_DATA_DOMAIN` | Enable Plausible site analytics | Empty (disabled)        |
 
 All environment variables must be prefixed with `VITE_` to be accessible in the application.
+For local development, Vite reads `VITE_*` variables from `apps/web/.env` at dev-server startup.
+For production containers, runtime overrides are supported via `runtime-config.js` (generated on
+container start). Set `VITE_API_BASE_URL` and/or `VITE_PLAUSIBLE_DATA_DOMAIN` as container env vars
+to avoid rebuilds.
 
 ## Development
 

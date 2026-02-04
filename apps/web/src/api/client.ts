@@ -18,11 +18,13 @@ const JSON_HEADERS = { "Content-Type": "application/json" } as const;
 
 /**
  * Get the base API URL with fallback priority:
- * 1. Build-time value from import.meta.env.VITE_API_BASE_URL (set via Docker ARG / Vite env)
- * 2. Empty string (uses relative URLs)
+ * 1. Runtime value from window.__DEALBOT_CONFIG__.API_BASE_URL
+ * 2. Build-time value from import.meta.env.VITE_API_BASE_URL (set via Docker ARG / Vite env)
+ * 3. Empty string (uses relative URLs)
  */
 const getBaseUrl = (): string => {
-  return import.meta.env.VITE_API_BASE_URL ?? "";
+  const runtimeBaseUrl = typeof window === "undefined" ? undefined : window.__DEALBOT_CONFIG__?.API_BASE_URL;
+  return runtimeBaseUrl ?? import.meta.env.VITE_API_BASE_URL ?? "";
 };
 
 /**
