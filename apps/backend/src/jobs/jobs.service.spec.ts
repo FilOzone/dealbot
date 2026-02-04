@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { IConfig } from "../config/app.config.js";
 import { JobsService } from "./jobs.service.js";
 
+type JobsServiceDeps = ConstructorParameters<typeof JobsService>;
+
 const callPrivate = <T>(target: T, key: string, ...args: unknown[]) => {
   return (target as unknown as Record<string, (...innerArgs: unknown[]) => unknown>)[key](...args);
 };
@@ -17,8 +19,42 @@ describe("JobsService schedule rows", () => {
     acquireAdvisoryLock: ReturnType<typeof vi.fn>;
     releaseAdvisoryLock: ReturnType<typeof vi.fn>;
     updateScheduleAfterRun: ReturnType<typeof vi.fn>;
+    countBossJobStates: ReturnType<typeof vi.fn>;
+    minBossJobAgeSecondsByState: ReturnType<typeof vi.fn>;
+  };
+  let metricsMocks: {
+    jobsQueuedGauge: JobsServiceDeps[7];
+    jobsRetryScheduledGauge: JobsServiceDeps[8];
+    oldestQueuedAgeGauge: JobsServiceDeps[9];
+    oldestInFlightAgeGauge: JobsServiceDeps[10];
+    jobsInFlightGauge: JobsServiceDeps[11];
+    jobsEnqueueAttemptsCounter: JobsServiceDeps[12];
+    jobsStartedCounter: JobsServiceDeps[13];
+    jobsCompletedCounter: JobsServiceDeps[14];
+    jobDuration: JobsServiceDeps[15];
   };
   let baseConfigValues: Partial<IConfig>;
+  let configService: JobsServiceDeps[0];
+  let buildService: (
+    overrides?: Partial<{
+      configService: JobsServiceDeps[0];
+      storageProviderRepository: JobsServiceDeps[1];
+      jobScheduleRepository: JobsServiceDeps[2];
+      dealService: JobsServiceDeps[3];
+      retrievalService: JobsServiceDeps[4];
+      metricsSchedulerService: JobsServiceDeps[5];
+      walletSdkService: JobsServiceDeps[6];
+      jobsQueuedGauge: JobsServiceDeps[7];
+      jobsRetryScheduledGauge: JobsServiceDeps[8];
+      oldestQueuedAgeGauge: JobsServiceDeps[9];
+      oldestInFlightAgeGauge: JobsServiceDeps[10];
+      jobsInFlightGauge: JobsServiceDeps[11];
+      jobsEnqueueAttemptsCounter: JobsServiceDeps[12];
+      jobsStartedCounter: JobsServiceDeps[13];
+      jobsCompletedCounter: JobsServiceDeps[14];
+      jobDuration: JobsServiceDeps[15];
+    }>,
+  ) => JobsService;
 
   beforeEach(() => {
     storageProviderRepositoryMock = {
@@ -35,6 +71,20 @@ describe("JobsService schedule rows", () => {
       acquireAdvisoryLock: vi.fn(),
       releaseAdvisoryLock: vi.fn(),
       updateScheduleAfterRun: vi.fn(),
+      countBossJobStates: vi.fn(),
+      minBossJobAgeSecondsByState: vi.fn(),
+    };
+
+    metricsMocks = {
+      jobsQueuedGauge: { set: vi.fn() } as unknown as JobsServiceDeps[7],
+      jobsRetryScheduledGauge: { set: vi.fn() } as unknown as JobsServiceDeps[8],
+      oldestQueuedAgeGauge: { set: vi.fn() } as unknown as JobsServiceDeps[9],
+      oldestInFlightAgeGauge: { set: vi.fn() } as unknown as JobsServiceDeps[10],
+      jobsInFlightGauge: { set: vi.fn() } as unknown as JobsServiceDeps[11],
+      jobsEnqueueAttemptsCounter: { inc: vi.fn() } as unknown as JobsServiceDeps[12],
+      jobsStartedCounter: { inc: vi.fn() } as unknown as JobsServiceDeps[13],
+      jobsCompletedCounter: { inc: vi.fn() } as unknown as JobsServiceDeps[14],
+      jobDuration: { observe: vi.fn() } as unknown as JobsServiceDeps[15],
     };
 
     baseConfigValues = {
@@ -59,24 +109,116 @@ describe("JobsService schedule rows", () => {
       } as IConfig["database"],
     };
 
-    const configService = {
+    configService = {
       get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
-    };
+    } as JobsServiceDeps[0];
 
-    service = new JobsService(
-      configService as any,
-      storageProviderRepositoryMock as any,
-      jobScheduleRepositoryMock as any,
-      {} as any,
-      {} as any,
-      {} as any,
-      {} as any,
-    );
+    buildService = (overrides = {}) =>
+      new JobsService(
+        overrides.configService ?? configService,
+        overrides.storageProviderRepository ?? (storageProviderRepositoryMock as unknown as JobsServiceDeps[1]),
+        overrides.jobScheduleRepository ?? (jobScheduleRepositoryMock as unknown as JobsServiceDeps[2]),
+        overrides.dealService ?? ({} as JobsServiceDeps[3]),
+        overrides.retrievalService ?? ({} as JobsServiceDeps[4]),
+        overrides.metricsSchedulerService ?? ({} as JobsServiceDeps[5]),
+        overrides.walletSdkService ?? ({} as JobsServiceDeps[6]),
+        overrides.jobsQueuedGauge ?? metricsMocks.jobsQueuedGauge,
+        overrides.jobsRetryScheduledGauge ?? metricsMocks.jobsRetryScheduledGauge,
+        overrides.oldestQueuedAgeGauge ?? metricsMocks.oldestQueuedAgeGauge,
+        overrides.oldestInFlightAgeGauge ?? metricsMocks.oldestInFlightAgeGauge,
+        overrides.jobsInFlightGauge ?? metricsMocks.jobsInFlightGauge,
+        overrides.jobsEnqueueAttemptsCounter ?? metricsMocks.jobsEnqueueAttemptsCounter,
+        overrides.jobsStartedCounter ?? metricsMocks.jobsStartedCounter,
+        overrides.jobsCompletedCounter ?? metricsMocks.jobsCompletedCounter,
+        overrides.jobDuration ?? metricsMocks.jobDuration,
+      );
+
+    service = buildService();
   });
 
   afterEach(() => {
     vi.useRealTimers();
     vi.restoreAllMocks();
+  });
+
+  it("records metrics for successful job execution", async () => {
+    const startedCounter = metricsMocks.jobsStartedCounter as unknown as { inc: ReturnType<typeof vi.fn> };
+    const completedCounter = metricsMocks.jobsCompletedCounter as unknown as { inc: ReturnType<typeof vi.fn> };
+    const durationHistogram = metricsMocks.jobDuration as unknown as { observe: ReturnType<typeof vi.fn> };
+
+    const startTime = new Date("2024-01-01T00:00:00Z");
+    vi.useFakeTimers();
+    vi.setSystemTime(startTime);
+
+    const run = vi.fn(async () => {
+      vi.setSystemTime(new Date(startTime.getTime() + 5_000));
+      return "success";
+    });
+
+    await callPrivate(service, "recordJobExecution", "deal", run);
+
+    expect(run).toHaveBeenCalled();
+    expect(startedCounter.inc).toHaveBeenCalledWith({ job_type: "deal" });
+    expect(completedCounter.inc).toHaveBeenCalledWith({ job_type: "deal", handler_result: "success" });
+    expect(durationHistogram.observe).toHaveBeenCalledWith({ job_type: "deal" }, 5);
+  });
+
+  it("records metrics for failed job execution", async () => {
+    const startedCounter = metricsMocks.jobsStartedCounter as unknown as { inc: ReturnType<typeof vi.fn> };
+    const completedCounter = metricsMocks.jobsCompletedCounter as unknown as { inc: ReturnType<typeof vi.fn> };
+    const durationHistogram = metricsMocks.jobDuration as unknown as { observe: ReturnType<typeof vi.fn> };
+
+    const startTime = new Date("2024-01-01T00:00:00Z");
+    vi.useFakeTimers();
+    vi.setSystemTime(startTime);
+
+    const run = vi.fn(async () => {
+      vi.setSystemTime(new Date(startTime.getTime() + 2_000));
+      throw new Error("boom");
+    });
+
+    await expect(callPrivate(service, "recordJobExecution", "deal", run)).rejects.toThrow("boom");
+
+    expect(startedCounter.inc).toHaveBeenCalledWith({ job_type: "deal" });
+    expect(completedCounter.inc).toHaveBeenCalledWith({ job_type: "deal", handler_result: "error" });
+    expect(durationHistogram.observe).toHaveBeenCalledWith({ job_type: "deal" }, 2);
+  });
+
+  it("updates queue metrics from pg-boss state and age queries", async () => {
+    const jobsQueuedGauge = metricsMocks.jobsQueuedGauge as unknown as { set: ReturnType<typeof vi.fn> };
+    const jobsRetryGauge = metricsMocks.jobsRetryScheduledGauge as unknown as { set: ReturnType<typeof vi.fn> };
+    const jobsInFlightGauge = metricsMocks.jobsInFlightGauge as unknown as { set: ReturnType<typeof vi.fn> };
+    const oldestQueuedGauge = metricsMocks.oldestQueuedAgeGauge as unknown as { set: ReturnType<typeof vi.fn> };
+    const oldestInFlightGauge = metricsMocks.oldestInFlightAgeGauge as unknown as { set: ReturnType<typeof vi.fn> };
+
+    jobScheduleRepositoryMock.countBossJobStates.mockResolvedValueOnce([
+      { name: "deal.run", state: "created", count: 2 },
+      { name: "retrieval.run", state: "active", count: 1 },
+      { name: "metrics.run", state: "retry", count: 3 },
+      { name: "unknown", state: "created", count: 99 },
+    ]);
+    jobScheduleRepositoryMock.minBossJobAgeSecondsByState
+      .mockResolvedValueOnce([{ name: "deal.run", min_age_seconds: 12 }])
+      .mockResolvedValueOnce([{ name: "retrieval.run", min_age_seconds: 34 }]);
+
+    await callPrivate(service, "updateQueueMetrics");
+
+    expect(jobsQueuedGauge.set).toHaveBeenCalledWith({ job_type: "deal" }, 0);
+    expect(jobsQueuedGauge.set).toHaveBeenCalledWith({ job_type: "retrieval" }, 0);
+    expect(jobsQueuedGauge.set).toHaveBeenCalledWith({ job_type: "metrics" }, 0);
+    expect(jobsQueuedGauge.set).toHaveBeenCalledWith({ job_type: "metrics_cleanup" }, 0);
+
+    expect(jobsRetryGauge.set).toHaveBeenCalledWith({ job_type: "metrics" }, 3);
+    expect(jobsInFlightGauge.set).toHaveBeenCalledWith({ job_type: "retrieval" }, 1);
+    expect(jobsQueuedGauge.set).toHaveBeenCalledWith({ job_type: "deal" }, 2);
+
+    expect(oldestQueuedGauge.set).toHaveBeenCalledWith({ job_type: "deal" }, 12);
+    expect(oldestInFlightGauge.set).toHaveBeenCalledWith({ job_type: "retrieval" }, 34);
+  });
+
+  it("maps job names to job types", async () => {
+    expect(callPrivate(service, "mapJobTypeFromName", "deal.run")).toBe("deal");
+    expect(callPrivate(service, "mapJobTypeFromName", "unknown.job")).toBeNull();
   });
 
   it("adds schedule rows for newly seen providers", async () => {
@@ -109,19 +251,11 @@ describe("JobsService schedule rows", () => {
       ...baseConfigValues,
       blockchain: { useOnlyApprovedProviders: true } as IConfig["blockchain"],
     };
-    const configService = {
+    configService = {
       get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
-    };
+    } as JobsServiceDeps[0];
 
-    service = new JobsService(
-      configService as any,
-      storageProviderRepositoryMock as any,
-      jobScheduleRepositoryMock as any,
-      {} as any,
-      {} as any,
-      {} as any,
-      {} as any,
-    );
+    service = buildService({ configService });
 
     storageProviderRepositoryMock.find.mockResolvedValueOnce([]);
     await callPrivate(service, "ensureScheduleRows");
@@ -161,19 +295,11 @@ describe("JobsService schedule rows", () => {
         enqueueJitterSeconds: 0,
       } as IConfig["jobs"],
     };
-    const configService = {
+    configService = {
       get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
-    };
+    } as JobsServiceDeps[0];
 
-    service = new JobsService(
-      configService as any,
-      storageProviderRepositoryMock as any,
-      jobScheduleRepositoryMock as any,
-      {} as any,
-      {} as any,
-      {} as any,
-      {} as any,
-    );
+    service = buildService({ configService });
 
     const publish = vi.fn();
     (service as unknown as { boss: { publish: typeof publish } }).boss = { publish };
@@ -216,19 +342,11 @@ describe("JobsService schedule rows", () => {
         lockRetrySeconds: 10,
       } as IConfig["jobs"],
     };
-    const configService = {
+    configService = {
       get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
-    };
+    } as JobsServiceDeps[0];
 
-    service = new JobsService(
-      configService as any,
-      storageProviderRepositoryMock as any,
-      jobScheduleRepositoryMock as any,
-      {} as any,
-      {} as any,
-      {} as any,
-      {} as any,
-    );
+    service = buildService({ configService });
 
     const publish = vi.fn();
     (service as unknown as { boss: { publish: typeof publish } }).boss = { publish };
@@ -256,19 +374,11 @@ describe("JobsService schedule rows", () => {
         lockRetrySeconds: 10,
       } as IConfig["jobs"],
     };
-    const configService = {
+    configService = {
       get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
-    };
+    } as JobsServiceDeps[0];
 
-    service = new JobsService(
-      configService as any,
-      storageProviderRepositoryMock as any,
-      jobScheduleRepositoryMock as any,
-      {} as any,
-      {} as any,
-      {} as any,
-      {} as any,
-    );
+    service = buildService({ configService });
 
     const publish = vi.fn();
     (service as unknown as { boss: { publish: typeof publish } }).boss = { publish };
