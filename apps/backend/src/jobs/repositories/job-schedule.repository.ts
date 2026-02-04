@@ -137,6 +137,41 @@ export class JobScheduleRepository {
   }
 
   /**
+   * Counts pg-boss jobs by name and state for the requested states.
+   */
+  async countBossJobStates(states: string[]): Promise<{ name: string; state: string; count: number }[]> {
+    return this.dataSource.query(
+      `
+      SELECT name, state, COUNT(*)::int AS count
+      FROM pgboss.job
+      WHERE state = ANY($1::text[])
+      GROUP BY name, state
+      `,
+      [states],
+    );
+  }
+
+  /**
+   * Returns the minimum age (seconds) for jobs in a given pg-boss state, grouped by name.
+   * Uses created_on for queued jobs and started_on for active jobs.
+   */
+  async minBossJobAgeSecondsByState(
+    state: "created" | "active",
+    now: Date,
+  ): Promise<{ name: string; min_age_seconds: number | null }[]> {
+    const timestampColumn = state === "created" ? "created_on" : "started_on";
+    return this.dataSource.query(
+      `
+      SELECT name, MIN(EXTRACT(EPOCH FROM ($1 - ${timestampColumn}))) AS min_age_seconds
+      FROM pgboss.job
+      WHERE state = $2
+      GROUP BY name
+      `,
+      [now, state],
+    );
+  }
+
+  /**
    * Tries to acquire a Postgres advisory lock for a specific provider.
    * This ensures only one worker processes a specific provider at a time if multiple workers pick up jobs.
    *

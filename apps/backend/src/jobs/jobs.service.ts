@@ -1,7 +1,9 @@
 import { Injectable, Logger, type OnApplicationShutdown, type OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
+import { InjectMetric } from "@willsoto/nestjs-prometheus";
 import PgBoss from "pg-boss";
+import type { Counter, Gauge, Histogram } from "prom-client";
 import type { Repository } from "typeorm";
 import type { IConfig } from "../config/app.config.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
@@ -26,6 +28,7 @@ type ScheduleRow = {
 };
 
 type PgBossSendOptions = PgBoss.PublishOptions;
+type JobRunStatus = "success" | "error";
 
 @Injectable()
 export class JobsService implements OnModuleInit, OnApplicationShutdown {
@@ -44,6 +47,24 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     private readonly retrievalService: RetrievalService,
     private readonly metricsSchedulerService: MetricsSchedulerService,
     private readonly walletSdkService: WalletSdkService,
+    @InjectMetric("jobs_queued")
+    private readonly jobsQueuedGauge: Gauge,
+    @InjectMetric("jobs_retry_scheduled")
+    private readonly jobsRetryScheduledGauge: Gauge,
+    @InjectMetric("oldest_queued_age_seconds")
+    private readonly oldestQueuedAgeGauge: Gauge,
+    @InjectMetric("oldest_in_flight_age_seconds")
+    private readonly oldestInFlightAgeGauge: Gauge,
+    @InjectMetric("jobs_in_flight")
+    private readonly jobsInFlightGauge: Gauge,
+    @InjectMetric("jobs_enqueue_attempts_total")
+    private readonly jobsEnqueueAttemptsCounter: Counter,
+    @InjectMetric("jobs_started_total")
+    private readonly jobsStartedCounter: Counter,
+    @InjectMetric("jobs_completed_total")
+    private readonly jobsCompletedCounter: Counter,
+    @InjectMetric("job_duration_seconds")
+    private readonly jobDuration: Histogram,
   ) {}
 
   /**
@@ -180,96 +201,113 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     const spAddress = data.spAddress;
     const acquired = await this.tryAcquireSpLock(spAddress);
     if (!acquired) {
-      await this.requeueJob("deal.run", data);
+      await this.requeueJob("deal", "deal.run", data);
       return;
     }
 
-    try {
-      let provider = this.walletSdkService.getTestingProviders().find((p) => p.serviceProvider === spAddress);
-      if (!provider) {
-        if (process.env.DEALBOT_DISABLE_CHAIN !== "true") {
-          await this.walletSdkService.loadProviders();
-        }
-        provider = this.walletSdkService.getTestingProviders().find((p) => p.serviceProvider === spAddress);
-        if (!provider) {
-          this.logger.warn(`Deal job skipped: provider ${spAddress} not found`);
-          return;
-        }
-      }
-      await this.dealService.createDealForProvider(provider, this.dealService.getTestingDealOptions());
-    } catch (error) {
-      this.logger.error(`Deal job failed for ${spAddress}: ${error.message}`, error.stack);
-      // Jobs are not retried once attempted; failures are handled by the next schedule tick.
-      throw error;
-    } finally {
+    await this.recordJobExecution("deal", async () => {
       try {
-        await this.releaseSpLock(spAddress);
-      } catch (releaseError) {
-        this.logger.error(`Failed to release deal lock for ${spAddress}: ${releaseError.message}`, releaseError.stack);
+        let provider = this.walletSdkService.getTestingProviders().find((p) => p.serviceProvider === spAddress);
+        if (!provider) {
+          if (process.env.DEALBOT_DISABLE_CHAIN !== "true") {
+            await this.walletSdkService.loadProviders();
+          }
+          provider = this.walletSdkService.getTestingProviders().find((p) => p.serviceProvider === spAddress);
+          if (!provider) {
+            this.logger.warn(`Deal job skipped: provider ${spAddress} not found`);
+            return "success";
+          }
+        }
+        await this.dealService.createDealForProvider(provider, this.dealService.getTestingDealOptions());
+        return "success";
+      } catch (error) {
+        this.logger.error(`Deal job failed for ${spAddress}: ${error.message}`, error.stack);
+        // Jobs are not retried once attempted; failures are handled by the next schedule tick.
+        throw error;
+      } finally {
+        try {
+          await this.releaseSpLock(spAddress);
+        } catch (releaseError) {
+          this.logger.error(`Failed to release deal lock for ${spAddress}: ${releaseError.message}`, releaseError.stack);
+        }
       }
-    }
+    });
   }
 
   private async handleRetrievalJob(data: RetrievalJobData): Promise<void> {
     const spAddress = data.spAddress;
     const acquired = await this.tryAcquireSpLock(spAddress);
     if (!acquired) {
-      await this.requeueJob("retrieval.run", data);
+      await this.requeueJob("retrieval", "retrieval.run", data);
       return;
     }
 
-    try {
-      const timeoutsConfig = this.configService.get("timeouts");
-      const intervalMs = data.intervalSeconds * 1000;
-      const timeoutMs = Math.max(10000, intervalMs - timeoutsConfig.retrievalTimeoutBufferMs);
-      const httpTimeoutMs = Math.max(timeoutsConfig.httpRequestTimeoutMs, timeoutsConfig.http2RequestTimeoutMs);
-
-      if (timeoutMs < httpTimeoutMs) {
-        this.logger.warn(
-          `Retrieval interval (${intervalMs}ms) minus buffer (${timeoutsConfig.retrievalTimeoutBufferMs}ms) yields ${timeoutMs}ms, ` +
-            `which is less than the HTTP timeout (${httpTimeoutMs}ms). ` +
-            "Retrieval runs may be skipped unless the interval or timeouts are adjusted.",
-        );
-      }
-
-      await this.retrievalService.performRandomRetrievalForProvider(spAddress, timeoutMs);
-    } catch (error) {
-      this.logger.error(`Retrieval job failed for ${spAddress}: ${error.message}`, error.stack);
-      // Jobs are not retried once attempted; failures are handled by the next schedule tick.
-      throw error;
-    } finally {
+    await this.recordJobExecution("retrieval", async () => {
       try {
-        await this.releaseSpLock(spAddress);
-      } catch (releaseError) {
-        this.logger.error(
-          `Failed to release retrieval lock for ${spAddress}: ${releaseError.message}`,
-          releaseError.stack,
-        );
+        const timeoutsConfig = this.configService.get("timeouts");
+        const intervalMs = data.intervalSeconds * 1000;
+        const timeoutMs = Math.max(10000, intervalMs - timeoutsConfig.retrievalTimeoutBufferMs);
+        const httpTimeoutMs = Math.max(timeoutsConfig.httpRequestTimeoutMs, timeoutsConfig.http2RequestTimeoutMs);
+
+        if (timeoutMs < httpTimeoutMs) {
+          this.logger.warn(
+            `Retrieval interval (${intervalMs}ms) minus buffer (${timeoutsConfig.retrievalTimeoutBufferMs}ms) yields ${timeoutMs}ms, ` +
+              `which is less than the HTTP timeout (${httpTimeoutMs}ms). ` +
+              "Retrieval runs may be skipped unless the interval or timeouts are adjusted.",
+          );
+        }
+
+        await this.retrievalService.performRandomRetrievalForProvider(spAddress, timeoutMs);
+        return "success";
+      } catch (error) {
+        this.logger.error(`Retrieval job failed for ${spAddress}: ${error.message}`, error.stack);
+        // Jobs are not retried once attempted; failures are handled by the next schedule tick.
+        throw error;
+      } finally {
+        try {
+          await this.releaseSpLock(spAddress);
+        } catch (releaseError) {
+          this.logger.error(
+            `Failed to release retrieval lock for ${spAddress}: ${releaseError.message}`,
+            releaseError.stack,
+          );
+        }
       }
-    }
+    });
   }
 
   private async handleMetricsJob(data: MetricsJobData): Promise<void> {
     void data;
-    await this.metricsSchedulerService.aggregateDailyMetrics();
-    await this.metricsSchedulerService.refreshWeeklyPerformance();
-    await this.metricsSchedulerService.refreshAllTimePerformance();
+    await this.recordJobExecution("metrics", async () => {
+      await this.metricsSchedulerService.aggregateDailyMetrics();
+      await this.metricsSchedulerService.refreshWeeklyPerformance();
+      await this.metricsSchedulerService.refreshAllTimePerformance();
+      return "success";
+    });
   }
 
   private async handleMetricsCleanupJob(data: MetricsJobData): Promise<void> {
     void data;
-    await this.metricsSchedulerService.cleanupOldMetrics({ allowWhenPgBoss: true });
+    await this.recordJobExecution("metrics_cleanup", async () => {
+      await this.metricsSchedulerService.cleanupOldMetrics({ allowWhenPgBoss: true });
+      return "success";
+    });
   }
 
-  private async requeueJob(name: string, data: DealJobData | RetrievalJobData): Promise<void> {
+  /**
+   * Requeues a job when we fail to acquire the per-provider lock.
+   */
+  private async requeueJob(jobType: JobType, name: string, data: DealJobData | RetrievalJobData): Promise<void> {
     if (!this.boss) return;
     const startAfter = new Date(Date.now() + this.lockRetrySeconds() * 1000);
     try {
       // We only requeue on lock contention; once a job starts, we do not retry it.
       const options: PgBossSendOptions = { startAfter, retryLimit: 0 };
       await this.boss.publish(name, data, options);
+      this.jobsEnqueueAttemptsCounter.inc({ job_type: jobType, outcome: "success" });
     } catch (error) {
       this.logger.warn(`Failed to requeue ${name}: ${error.message}`);
+      this.jobsEnqueueAttemptsCounter.inc({ job_type: jobType, outcome: "error" });
     }
   }
 
@@ -299,10 +337,14 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     }
   }
 
+  /**
+   * Runs one scheduler tick and updates queue metrics.
+   */
   private async runTick(): Promise<void> {
     try {
       await this.ensureScheduleRows();
       await this.enqueueDueJobs();
+      await this.updateQueueMetrics();
     } catch (error) {
       this.logger.error(`pg-boss scheduler tick failed: ${error.message}`, error.stack);
     }
@@ -423,7 +465,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
 
         // Enqueue immediate jobs
         for (let i = 0; i < immediateCount; i += 1) {
-          if (await this.safeSend(jobName, payload, { startAfter: this.withJitter(now) })) {
+          if (await this.safeSend(row.job_type, jobName, payload, { startAfter: this.withJitter(now) })) {
             successCount += 1;
           }
         }
@@ -434,10 +476,10 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
             if (spreadSeconds > 0) {
               const offsetSeconds = Math.ceil(((i + 1) * spreadSeconds) / (delayedCount + 1));
               const startAfter = new Date(now.getTime() + offsetSeconds * 1000);
-              if (await this.safeSend(jobName, payload, { startAfter: this.withJitter(startAfter) })) {
+              if (await this.safeSend(row.job_type, jobName, payload, { startAfter: this.withJitter(startAfter) })) {
                 successCount += 1;
               }
-            } else if (await this.safeSend(jobName, payload, { startAfter: this.withJitter(now) })) {
+            } else if (await this.safeSend(row.job_type, jobName, payload, { startAfter: this.withJitter(now) })) {
               successCount += 1;
             }
           }
@@ -475,7 +517,11 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     return { intervalSeconds: row.interval_seconds };
   }
 
+  /**
+   * Publishes a job to pg-boss and tracks enqueue attempts.
+   */
   private async safeSend(
+    jobType: JobType,
     name: string,
     data: DealJobData | RetrievalJobData | MetricsJobData,
     options?: PgBossSendOptions,
@@ -485,9 +531,11 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       // Disable retries so "attempted" jobs don't rerun; failures are handled by the next schedule tick.
       const finalOptions: PgBossSendOptions = { retryLimit: 0, ...options };
       await this.boss.publish(name, data, finalOptions);
+      this.jobsEnqueueAttemptsCounter.inc({ job_type: jobType, outcome: "success" });
       return true;
     } catch (error) {
       this.logger.warn(`Failed to enqueue ${name}: ${error.message}`);
+      this.jobsEnqueueAttemptsCounter.inc({ job_type: jobType, outcome: "error" });
       return false;
     }
   }
@@ -499,5 +547,84 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     }
     const jitterMs = Math.floor(Math.random() * (jitterSeconds * 1000 + 1));
     return new Date(base.getTime() + jitterMs);
+  }
+
+  /**
+   * Records handler start/end metrics around a job execution.
+   */
+  private async recordJobExecution(jobType: JobType, run: () => Promise<JobRunStatus>): Promise<void> {
+    const startedAt = Date.now();
+    this.jobsStartedCounter.inc({ job_type: jobType });
+    try {
+      const status = await run();
+      const finishedAt = Date.now();
+      this.jobDuration.observe({ job_type: jobType }, (finishedAt - startedAt) / 1000);
+      this.jobsCompletedCounter.inc({ job_type: jobType, handler_result: status });
+    } catch (error) {
+      const finishedAt = Date.now();
+      this.jobDuration.observe({ job_type: jobType }, (finishedAt - startedAt) / 1000);
+      this.jobsCompletedCounter.inc({ job_type: jobType, handler_result: "error" });
+      throw error;
+    }
+  }
+
+  /**
+   * Refreshes queue depth and age gauges from pg-boss tables.
+   */
+  private async updateQueueMetrics(): Promise<void> {
+    const jobTypes: JobType[] = ["deal", "retrieval", "metrics", "metrics_cleanup"];
+    for (const jobType of jobTypes) {
+      this.jobsQueuedGauge.set({ job_type: jobType }, 0);
+      this.jobsRetryScheduledGauge.set({ job_type: jobType }, 0);
+      this.jobsInFlightGauge.set({ job_type: jobType }, 0);
+      this.oldestQueuedAgeGauge.set({ job_type: jobType }, 0);
+      this.oldestInFlightAgeGauge.set({ job_type: jobType }, 0);
+    }
+
+    const rows = await this.jobScheduleRepository.countBossJobStates(["created", "retry", "active"]);
+    for (const row of rows) {
+      const jobType = this.mapJobTypeFromName(row.name);
+      if (!jobType) continue;
+      if (row.state === "active") {
+        this.jobsInFlightGauge.set({ job_type: jobType }, row.count);
+      } else if (row.state === "retry") {
+        this.jobsRetryScheduledGauge.set({ job_type: jobType }, row.count);
+      } else {
+        this.jobsQueuedGauge.set({ job_type: jobType }, row.count);
+      }
+    }
+
+    const now = new Date();
+    const queuedAges = await this.jobScheduleRepository.minBossJobAgeSecondsByState("created", now);
+    for (const row of queuedAges) {
+      const jobType = this.mapJobTypeFromName(row.name);
+      if (!jobType) continue;
+      this.oldestQueuedAgeGauge.set({ job_type: jobType }, Math.max(0, row.min_age_seconds ?? 0));
+    }
+
+    const activeAges = await this.jobScheduleRepository.minBossJobAgeSecondsByState("active", now);
+    for (const row of activeAges) {
+      const jobType = this.mapJobTypeFromName(row.name);
+      if (!jobType) continue;
+      this.oldestInFlightAgeGauge.set({ job_type: jobType }, Math.max(0, row.min_age_seconds ?? 0));
+    }
+  }
+
+  /**
+   * Maps a pg-boss job name to the internal job type.
+   */
+  private mapJobTypeFromName(name: string): JobType | null {
+    switch (name) {
+      case "deal.run":
+        return "deal";
+      case "retrieval.run":
+        return "retrieval";
+      case "metrics.run":
+        return "metrics";
+      case "metrics.cleanup":
+        return "metrics_cleanup";
+      default:
+        return null;
+    }
   }
 }
