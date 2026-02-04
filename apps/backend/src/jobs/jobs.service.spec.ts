@@ -18,6 +18,17 @@ describe("JobsService schedule rows", () => {
     releaseAdvisoryLock: ReturnType<typeof vi.fn>;
     updateScheduleAfterRun: ReturnType<typeof vi.fn>;
   };
+  let metricsMocks: {
+    jobsQueuedGauge: { set: ReturnType<typeof vi.fn> };
+    jobsRetryScheduledGauge: { set: ReturnType<typeof vi.fn> };
+    oldestQueuedAgeGauge: { set: ReturnType<typeof vi.fn> };
+    oldestInFlightAgeGauge: { set: ReturnType<typeof vi.fn> };
+    jobsInFlightGauge: { set: ReturnType<typeof vi.fn> };
+    jobsEnqueueAttemptsCounter: { inc: ReturnType<typeof vi.fn> };
+    jobsStartedCounter: { inc: ReturnType<typeof vi.fn> };
+    jobsCompletedCounter: { inc: ReturnType<typeof vi.fn> };
+    jobDuration: { observe: ReturnType<typeof vi.fn> };
+  };
   let baseConfigValues: Partial<IConfig>;
 
   beforeEach(() => {
@@ -35,6 +46,18 @@ describe("JobsService schedule rows", () => {
       acquireAdvisoryLock: vi.fn(),
       releaseAdvisoryLock: vi.fn(),
       updateScheduleAfterRun: vi.fn(),
+    };
+
+    metricsMocks = {
+      jobsQueuedGauge: { set: vi.fn() },
+      jobsRetryScheduledGauge: { set: vi.fn() },
+      oldestQueuedAgeGauge: { set: vi.fn() },
+      oldestInFlightAgeGauge: { set: vi.fn() },
+      jobsInFlightGauge: { set: vi.fn() },
+      jobsEnqueueAttemptsCounter: { inc: vi.fn() },
+      jobsStartedCounter: { inc: vi.fn() },
+      jobsCompletedCounter: { inc: vi.fn() },
+      jobDuration: { observe: vi.fn() },
     };
 
     baseConfigValues = {
@@ -71,6 +94,15 @@ describe("JobsService schedule rows", () => {
       {} as any,
       {} as any,
       {} as any,
+      metricsMocks.jobsQueuedGauge as any,
+      metricsMocks.jobsRetryScheduledGauge as any,
+      metricsMocks.oldestQueuedAgeGauge as any,
+      metricsMocks.oldestInFlightAgeGauge as any,
+      metricsMocks.jobsInFlightGauge as any,
+      metricsMocks.jobsEnqueueAttemptsCounter as any,
+      metricsMocks.jobsStartedCounter as any,
+      metricsMocks.jobsCompletedCounter as any,
+      metricsMocks.jobDuration as any,
     );
   });
 
@@ -121,6 +153,15 @@ describe("JobsService schedule rows", () => {
       {} as any,
       {} as any,
       {} as any,
+      metricsMocks.jobsQueuedGauge as any,
+      metricsMocks.jobsRetryScheduledGauge as any,
+      metricsMocks.oldestQueuedAgeGauge as any,
+      metricsMocks.oldestInFlightAgeGauge as any,
+      metricsMocks.jobsInFlightGauge as any,
+      metricsMocks.jobsEnqueueAttemptsCounter as any,
+      metricsMocks.jobsStartedCounter as any,
+      metricsMocks.jobsCompletedCounter as any,
+      metricsMocks.jobDuration as any,
     );
 
     storageProviderRepositoryMock.find.mockResolvedValueOnce([]);
@@ -173,6 +214,15 @@ describe("JobsService schedule rows", () => {
       {} as any,
       {} as any,
       {} as any,
+      metricsMocks.jobsQueuedGauge as any,
+      metricsMocks.jobsRetryScheduledGauge as any,
+      metricsMocks.oldestQueuedAgeGauge as any,
+      metricsMocks.oldestInFlightAgeGauge as any,
+      metricsMocks.jobsInFlightGauge as any,
+      metricsMocks.jobsEnqueueAttemptsCounter as any,
+      metricsMocks.jobsStartedCounter as any,
+      metricsMocks.jobsCompletedCounter as any,
+      metricsMocks.jobDuration as any,
     );
 
     const publish = vi.fn();
@@ -228,6 +278,15 @@ describe("JobsService schedule rows", () => {
       {} as any,
       {} as any,
       {} as any,
+      metricsMocks.jobsQueuedGauge as any,
+      metricsMocks.jobsRetryScheduledGauge as any,
+      metricsMocks.oldestQueuedAgeGauge as any,
+      metricsMocks.oldestInFlightAgeGauge as any,
+      metricsMocks.jobsInFlightGauge as any,
+      metricsMocks.jobsEnqueueAttemptsCounter as any,
+      metricsMocks.jobsStartedCounter as any,
+      metricsMocks.jobsCompletedCounter as any,
+      metricsMocks.jobDuration as any,
     );
 
     const publish = vi.fn();
@@ -268,6 +327,15 @@ describe("JobsService schedule rows", () => {
       {} as any,
       {} as any,
       {} as any,
+      metricsMocks.jobsQueuedGauge as any,
+      metricsMocks.jobsRetryScheduledGauge as any,
+      metricsMocks.oldestQueuedAgeGauge as any,
+      metricsMocks.oldestInFlightAgeGauge as any,
+      metricsMocks.jobsInFlightGauge as any,
+      metricsMocks.jobsEnqueueAttemptsCounter as any,
+      metricsMocks.jobsStartedCounter as any,
+      metricsMocks.jobsCompletedCounter as any,
+      metricsMocks.jobDuration as any,
     );
 
     const publish = vi.fn();
