@@ -347,9 +347,14 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     try {
       await this.ensureScheduleRows();
       await this.enqueueDueJobs();
+    } catch (error) {
+      this.logger.error(`pg-boss scheduler core tick failed: ${error.message}`, error.stack);
+    }
+
+    try {
       await this.updateQueueMetrics();
     } catch (error) {
-      this.logger.error(`pg-boss scheduler tick failed: ${error.message}`, error.stack);
+      this.logger.error(`pg-boss scheduler metrics update failed: ${error.message}`, error.stack);
     }
   }
 

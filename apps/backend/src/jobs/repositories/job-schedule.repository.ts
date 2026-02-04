@@ -159,10 +159,20 @@ export class JobScheduleRepository {
     state: "created" | "active",
     now: Date,
   ): Promise<{ name: string; min_age_seconds: number | null }[]> {
-    const timestampColumn = state === "created" ? "created_on" : "started_on";
     return this.dataSource.query(
       `
-      SELECT name, MIN(EXTRACT(EPOCH FROM ($1 - ${timestampColumn}))) AS min_age_seconds
+      SELECT
+        name,
+        MIN(
+          EXTRACT(
+            EPOCH FROM (
+              $1 - CASE
+                    WHEN $2 = 'created' THEN created_on
+                    ELSE started_on
+                  END
+            )
+          )
+        ) AS min_age_seconds
       FROM pgboss.job
       WHERE state = $2
       GROUP BY name
