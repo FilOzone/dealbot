@@ -34,7 +34,7 @@ function ProviderCardDetailedStats({
           <div className="flex items-center justify-between gap-2">
             <span className="text-sm text-muted-foreground">Service URL</span>
             <div className="flex items-center gap-1.5">
-              <code className="text-xs bg-muted px-2 py-1 rounded font-mono truncate max-w-[160px]">
+              <code className="text-xs bg-muted px-2 py-1 rounded font-mono truncate max-w-[120px] sm:max-w-[200px]">
                 {provider.serviceUrl}
               </code>
               <Button
@@ -56,50 +56,52 @@ function ProviderCardDetailedStats({
 
       <div className="border-t pt-4">
         <h4 className="text-sm font-semibold mb-3">Success Rates</h4>
-        <div className="bg-muted/30 rounded-lg p-3">
-          <div className="grid grid-cols-[1.5fr_1fr_1fr_1fr_1fr] gap-2 pb-2 text-xs font-semibold text-muted-foreground border-b mb-1">
-            <div>Metric</div>
-            <div className="text-right">All Time</div>
-            <div className="text-right">Rate</div>
-            <div className="text-right">7 Days</div>
-            <div className="text-right">Rate</div>
+        <div className="bg-muted/30 rounded-lg p-3 overflow-x-auto">
+          <div className="min-w-[480px]">
+            <div className="grid grid-cols-[1.5fr_1fr_1fr_1fr_1fr] gap-2 pb-2 text-xs font-semibold text-muted-foreground border-b mb-1">
+              <div>Metric</div>
+              <div className="text-right">All Time</div>
+              <div className="text-right">Rate</div>
+              <div className="text-right">7 Days</div>
+              <div className="text-right">Rate</div>
+            </div>
+
+            <MetricRow
+              label="Uploads"
+              allTimeAttempts={allTimeMetrics.totalDeals}
+              allTimeRate={allTimeMetrics.dealSuccessRate}
+              weeklyAttempts={weeklyMetrics.totalDeals}
+              weeklyRate={weeklyMetrics.dealSuccessRate}
+            />
+
+            <MetricRow
+              label="SP /piece Retrieval"
+              allTimeAttempts={allTimeMetrics.totalRetrievals}
+              allTimeRate={allTimeMetrics.retrievalSuccessRate}
+              weeklyAttempts={weeklyMetrics.totalRetrievals}
+              weeklyRate={weeklyMetrics.retrievalSuccessRate}
+            />
+
+            {allTimeMetrics.totalIpniDeals > 0 && (
+              <MetricRow
+                label="IPNI Indexing"
+                allTimeAttempts={allTimeMetrics.totalIpniDeals}
+                allTimeRate={allTimeMetrics.ipniSuccessRate}
+                weeklyAttempts={weeklyMetrics.totalIpniDeals}
+                weeklyRate={weeklyMetrics.ipniSuccessRate}
+              />
+            )}
+
+            {allTimeMetrics.totalIpfsRetrievals > 0 && (
+              <MetricRow
+                label="IPFS Mainnet Retrieval"
+                allTimeAttempts={allTimeMetrics.totalIpfsRetrievals}
+                allTimeRate={allTimeMetrics.ipfsRetrievalSuccessRate}
+                weeklyAttempts={weeklyMetrics.totalIpfsRetrievals}
+                weeklyRate={weeklyMetrics.ipfsRetrievalSuccessRate}
+              />
+            )}
           </div>
-
-          <MetricRow
-            label="Uploads"
-            allTimeAttempts={allTimeMetrics.totalDeals}
-            allTimeRate={allTimeMetrics.dealSuccessRate}
-            weeklyAttempts={weeklyMetrics.totalDeals}
-            weeklyRate={weeklyMetrics.dealSuccessRate}
-          />
-
-          <MetricRow
-            label="SP /piece Retrieval"
-            allTimeAttempts={allTimeMetrics.totalRetrievals}
-            allTimeRate={allTimeMetrics.retrievalSuccessRate}
-            weeklyAttempts={weeklyMetrics.totalRetrievals}
-            weeklyRate={weeklyMetrics.retrievalSuccessRate}
-          />
-
-          {allTimeMetrics.totalIpniDeals > 0 && (
-            <MetricRow
-              label="IPNI Indexing"
-              allTimeAttempts={allTimeMetrics.totalIpniDeals}
-              allTimeRate={allTimeMetrics.ipniSuccessRate}
-              weeklyAttempts={weeklyMetrics.totalIpniDeals}
-              weeklyRate={weeklyMetrics.ipniSuccessRate}
-            />
-          )}
-
-          {allTimeMetrics.totalIpfsRetrievals > 0 && (
-            <MetricRow
-              label="IPFS Mainnet Retrieval"
-              allTimeAttempts={allTimeMetrics.totalIpfsRetrievals}
-              allTimeRate={allTimeMetrics.ipfsRetrievalSuccessRate}
-              weeklyAttempts={weeklyMetrics.totalIpfsRetrievals}
-              weeklyRate={weeklyMetrics.ipfsRetrievalSuccessRate}
-            />
-          )}
         </div>
       </div>
 
@@ -150,7 +152,7 @@ function ProviderCardDetailedStats({
 
       <div className="border-t pt-4">
         <h4 className="text-sm font-semibold mb-3">Avg Throughput (All Time)</h4>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div className="space-y-1">
             <p className="text-xs text-muted-foreground">Upload Ingest</p>
             <p className="text-sm font-medium">{formatThroughput(allTimeMetrics.avgIngestThroughputBps ?? 0)}</p>
