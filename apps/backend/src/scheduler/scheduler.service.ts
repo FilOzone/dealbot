@@ -87,13 +87,12 @@ export class SchedulerService implements OnModuleInit {
     return getMaintenanceWindowStatus(now, scheduling.maintenanceWindowsUtc, scheduling.maintenanceWindowMinutes);
   }
 
-  private logMaintenanceSkip(taskLabel: string) {
-    const scheduling = this.configService.get<ISchedulingConfig>("scheduling");
-    const status = this.getMaintenanceWindowStatus();
-    if (!status.active) {
+  private logMaintenanceSkip(taskLabel: string, maintenance: ReturnType<typeof getMaintenanceWindowStatus>) {
+    if (!maintenance.active) {
       return;
     }
-    const windowLabel = status.window?.label ?? "unknown";
+    const scheduling = this.configService.get<ISchedulingConfig>("scheduling");
+    const windowLabel = maintenance.window?.label ?? "unknown";
     this.logger.log(
       `Maintenance window active (${windowLabel} UTC, ${scheduling.maintenanceWindowMinutes}m); skipping ${taskLabel}`,
     );
@@ -102,7 +101,7 @@ export class SchedulerService implements OnModuleInit {
   async handleDealCreation() {
     const maintenance = this.getMaintenanceWindowStatus();
     if (maintenance.active) {
-      this.logMaintenanceSkip("deal creation");
+      this.logMaintenanceSkip("deal creation", maintenance);
       return;
     }
 
@@ -138,7 +137,7 @@ export class SchedulerService implements OnModuleInit {
   async handleRetrievalTests() {
     const maintenance = this.getMaintenanceWindowStatus();
     if (maintenance.active) {
-      this.logMaintenanceSkip("retrieval tests");
+      this.logMaintenanceSkip("retrieval tests", maintenance);
       return;
     }
 

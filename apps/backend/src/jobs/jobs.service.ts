@@ -416,6 +416,27 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
    * Enqueues them into pg-boss, respecting rate limits/jitter.
    * Updates the `next_run_at` in the DB upon successful enqueue.
    */
+  private getScheduleTiming(
+    row: ScheduleRow,
+    now: Date,
+  ): {
+    intervalMs: number;
+    nextRunAt: Date;
+    runsDue: number;
+  } | null {
+    const intervalMs = row.interval_seconds * 1000;
+    if (intervalMs <= 0) return null;
+
+    const nextRunAt = new Date(row.next_run_at);
+    const diffMs = now.getTime() - nextRunAt.getTime();
+    if (diffMs < 0) return null;
+
+    const runsDue = Math.floor(diffMs / intervalMs) + 1;
+    if (runsDue <= 0) return null;
+
+    return { intervalMs, nextRunAt, runsDue };
+  }
+
   private async enqueueDueJobs(): Promise<void> {
     if (!this.boss) return;
 
@@ -434,31 +455,18 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
 
       for (const row of rows) {
         if (maintenance.active && (row.job_type === "deal" || row.job_type === "retrieval")) {
-          const intervalMs = row.interval_seconds * 1000;
-          if (intervalMs <= 0) continue;
-
-          const nextRunAt = new Date(row.next_run_at);
-          const diffMs = now.getTime() - nextRunAt.getTime();
-          if (diffMs < 0) continue;
-
-          const runsDue = Math.floor(diffMs / intervalMs) + 1;
-          if (runsDue <= 0) continue;
+          const timing = this.getScheduleTiming(row, now);
+          if (!timing) continue;
+          const { intervalMs, nextRunAt, runsDue } = timing;
 
           const newNextRunAt = new Date(nextRunAt.getTime() + runsDue * intervalMs);
           await this.jobScheduleRepository.updateScheduleAfterRun(manager, row.id, newNextRunAt, now);
           continue;
         }
 
-        const intervalMs = row.interval_seconds * 1000;
-        if (intervalMs <= 0) continue;
-
-        const nextRunAt = new Date(row.next_run_at);
-        const diffMs = now.getTime() - nextRunAt.getTime();
-        if (diffMs < 0) continue;
-
-        // Calculate how many runs we missed (or are due)
-        const runsDue = Math.floor(diffMs / intervalMs) + 1;
-        if (runsDue <= 0) continue;
+        const timing = this.getScheduleTiming(row, now);
+        if (!timing) continue;
+        const { intervalMs, nextRunAt, runsDue } = timing;
 
         const totalToEnqueue = Math.min(runsDue, catchupMax);
         const immediateCount = Math.min(totalToEnqueue, immediateLimit);

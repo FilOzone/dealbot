@@ -47,7 +47,7 @@ export function getMaintenanceWindowStatus(
     return { active: false };
   }
 
-  const nowMinutes = now.getUTCHours() * 60 + now.getUTCMinutes() + now.getUTCSeconds() / 60;
+  const nowMinutes = now.getUTCHours() * 60 + now.getUTCMinutes();
   const duration = durationMinutes;
 
   for (const window of parsed) {
