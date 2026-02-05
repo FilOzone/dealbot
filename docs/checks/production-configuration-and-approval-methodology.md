@@ -23,7 +23,7 @@ Relevant parameters include:
 
 | Parameter | Value | Notes |
 |-----------|-------|-------|
-| [Data Storage Check](#data-storage-check) frequency | Once per 15 minutes | 96 per day |
+| [Data Storage Check](./data-storage.md) frequency | Once per 15 minutes | 96 per day |
 | `MIN_NUM_DATASETS_FOR_CHECKS` | 15 | Ensure there are enough datasets with pieces being added so that statistical significance for [Data Retention Fault Rate](#data-retention-fault-rate) can be achieved quicker. |
 | `RANDOM_PIECE_SIZES` | 10485760 | 10MB files are used for simplicity |
 | Max [`ingestMs`](./events-and-metrics.md#ingestMs) | 20s | |
@@ -47,7 +47,7 @@ Relevant parameters include:
 
 | Parameter | Value | Notes |
 |-----------|-------|-------|
-| [Retrieval Check](#retrieval-check) frequency | Once per 15 minutes | 96 per day |
+| [Retrieval Check](./retrievals.md) frequency | Once per 15 minutes | 96 per day |
 | `RANDOM_PIECE_SIZES` | `10485760` | Only download ~10MB files are used for simplicity |
 | `MAX_RETRIEVAL_CHECKS_PER_SP_PER_CYCLE` | 1 |  |
 | Max [`ipniVerifyMs`](./events-and-metrics.md#ipniVerifyMs) | 10s | |
@@ -77,7 +77,7 @@ With the current configuration, Dealbot will add this much synthetic load on SP'
 
 Over the course of a day this means:
 * 75 proof challenges
-* 960 MB of SP download bandwith in support of adding new pieces
+* 960 MB of SP download bandwidth in support of adding new pieces
 * 860 MB of disk space for the pieces.
 * 1,920 MB of SP upload bandwidth in support of retrievals
 
