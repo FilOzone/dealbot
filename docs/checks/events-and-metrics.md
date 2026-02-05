@@ -86,7 +86,7 @@ sequenceDiagram
 
 ### Count Related Metrics
 
-* All count-related metrics have a label/attribute like `success|failure` or `200`.
+* All count-related metrics have a `value` label/attribute that will be set to `success|failure` or `200|500|etc.`.
 
 | Metric | Relevant Checks | When Emitted | Additional Info | Source of truth |
 |---|---|---|---|---|
