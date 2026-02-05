@@ -30,15 +30,15 @@ A successful operation requires all assertions in the table below to pass (e.g.,
 
 Each deal asserts the following for every SP:
 
-| # | Assertion | How It's Checked | Retries | Relevant Metric for Setting a Max Duration | Implemented? |
-|---|-----------|-----------------|:---:|-----------------------------------|:---:|
-| 1 | SP accepts piece upload | Upload completes without error (HTTP 200); piece CID is returned | 1 | [`ingestMs`](./events-and-metrics.md#ingestms) | Yes |
-| 2 | Piece submission recorded on-chain | Synapse `onPieceAdded` callback fires with a transaction hash | n/a | n/a | Yes |
-| 3 | Piece is confirmed on-chain | Synapse `onPieceConfirmed` callback fires | n/a | [`pieceConfirmedOnChainMs`](./events-and-metrics.md#pieceConfirmedOnChainMs) | **TBD** |
-| 4 | SP indexes piece locally | PDP server reports `indexed: true` | n/a | [`spIndexLocallyMs`](./events-and-metrics.md#spIndexLocallyMs) | Yes |
-| 5 | Content is discoverable on filecoinpin.contact | IPNI index returns a <IpfsRootCid,SP> provider record | Unlimited polling with delay until timeout | [`ipniVerifyMs`](./events-and-metrics.md#ipniVerifyMs) | **TBD** |
-| 6 | Content is retrievable | See [Retrieval Check](./retrievals.md) for specific assertions | See [Retrieval Check](./retrievals.md) | See [Retrieval Check](./retrievals.md) | **TBD** |
-| 7 | All checks pass | Deal is not marked successful until all assertions pass within window | n/a | [`dataStorageCheckMs`](./events-and-metrics.md#dataStorageCheckMs) | **TBD** |
+| # | Assertion | How It's Checked | [Sub Status Affected](#sub-status-meanings) | Retries | Relevant Metric for Setting a Max Duration | Implemented? |
+|---|-----------|-----------------|:---:|:---:|-----------------------------------|:---:|
+| 1 | SP accepts piece upload | Upload completes without error (HTTP 200); piece CID is returned | Upload | 1 | [`ingestMs`](./events-and-metrics.md#ingestms) | Yes |
+| 2 | Piece submission recorded on-chain | Synapse `onPieceAdded` callback fires with a transaction hash | Onchain | n/a | n/a | Yes |
+| 3 | Piece is confirmed on-chain | Synapse `onPieceConfirmed` callback fires | Onchain | n/a | [`pieceConfirmedOnChainMs`](./events-and-metrics.md#pieceConfirmedOnChainMs) | **TBD** |
+| 4 | SP indexes piece locally | PDP server reports `indexed: true` | Discoverability | n/a | [`spIndexLocallyMs`](./events-and-metrics.md#spIndexLocallyMs) | Yes |
+| 5 | Content is discoverable on filecoinpin.contact | IPNI index returns a <IpfsRootCid,SP> provider record | Discoverability | Unlimited polling with delay until timeout | [`ipniVerifyMs`](./events-and-metrics.md#ipniVerifyMs) | **TBD** |
+| 6 | Content is retrievable | See [Retrieval Check](./retrievals.md) for specific assertions | Retrieval | See [Retrieval Check](./retrievals.md) | See [Retrieval Check](./retrievals.md) | **TBD** |
+| 7 | All checks pass | Deal is not marked successful until all assertions pass within window | All four | n/a | [`dataStorageCheckMs`](./events-and-metrics.md#dataStorageCheckMs) | **TBD** |
 
 ## Deal Lifecycle
 
