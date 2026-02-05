@@ -14,106 +14,82 @@ Events are grouped by check type. Each event includes a short definition, its im
 sequenceDiagram
   autonumber
   participant Dealbot
-  participant SP as Storage Provider (PDP)
-  participant IPNI
+  participant SP as PDP Storage Provider
+  participant RPC as Chain RPC Provider
+  participant IPNI as filecoinpin.contact IPNI Instance
   participant Retrieval as Retrieval Job
 
-  Dealbot->>SP: uploadToSpStart
-  SP-->>Dealbot: uploadToSpEnd (2xx, piece CID)
-  Dealbot-->>Dealbot: dealCreated (upload result returned)
-  SP-->>Dealbot: pieceAdded (tx hash, async)
-  Note over SP,Dealbot: pieceConfirmed (TBD, async)
-  Dealbot->>SP: monitor piece status
-  SP-->>Dealbot: spIndexingComplete
-  SP-->>Dealbot: spAdvertisedToIpni
-  Dealbot->>IPNI: ipniVerificationStart (TBD)
-  IPNI-->>Dealbot: ipniVerificationComplete
+  rect rgb(50, 50, 50)
+    %% Data Storage Only
+    Dealbot->>SP: uploadToSpStart
+    SP-->>Dealbot: uploadToSpEnd (2xx, piece CID)
+    Dealbot-->>Dealbot: dealCreated (upload result returned)
+    SP-->>Dealbot: pieceAdded (tx hash, async)
+    RPC-->>Dealbot: pieceConfirmed (TBD, async)
+    SP-->>Dealbot: spIndexingComplete
+    SP-->>Dealbot: spAnnouncedAdvertisementToIpni
+    Dealbot->>IPNI: ipniVerificationStart (TBD)
+    IPNI-->>Dealbot: ipniVerificationComplete
+  end
 
-  Note over Retrieval: Retrieval runs on a separate schedule (TBD to gate deal success)
-  Retrieval->>SP: retrieveFromSpStart (TBD)
-  SP-->>Retrieval: retrieveFromSpFirstByteReceived (TBD)
-  SP-->>Retrieval: retrieveFromSpEnd
+  Retrieval-->>SP: ipfsRetrievalStart (TBD)
+  SP-->>Retrieval: ipfsRetrievalFirstByteReceived (TBD)
+  SP-->>Retrieval: ipfsRetrievalLastByteReceived (TBD)
+  Dealbot-->>Dealbot: ipfsRetrievalIntegrityChecked (TBD)
 ```
 
-### Data Storage Events
+### Event List
 
-| Event | Definition | Status | Source of truth |
-|------|------------|:------:|-----------------|
-| <a id="uploadToSpStart"></a>`uploadToSpStart` | Dealbot starts an upload attempt for a piece to an SP (before invoking the upload call). | **TBD** | [`deal.service.ts`](../../apps/backend/src/deal/deal.service.ts) |
-| <a id="uploadToSpEnd"></a>`uploadToSpEnd` | Upload finishes when the PDP server returns a 2xx; piece CID is known; ingest metrics are recorded. | Yes | [`deal.service.ts`](../../apps/backend/src/deal/deal.service.ts) (`handleUploadComplete`) |
-| <a id="pieceAdded"></a>`pieceAdded` | Piece submission is recorded on-chain by polling the PDP SP; transaction hash is known. | Yes | [`deal.service.ts`](../../apps/backend/src/deal/deal.service.ts) (`handleRootAdded`) |
-| <a id="pieceConfirmed"></a>`pieceConfirmed` | Piece is confirmed on-chain by polling a chain RPC endpoint. | **TBD** | Synapse SDK callback (not yet tracked) |
-| <a id="dealCreated"></a>`dealCreated` | Deal is marked `DEAL_CREATED` after the upload result is returned. | Yes | [`deal.service.ts`](../../apps/backend/src/deal/deal.service.ts) (`updateDealWithUploadResult`) |
-| <a id="spIndexingComplete"></a>`spIndexingComplete` | SP has indexed the piece locally (`indexed=true`). | Yes (async) | [`ipni.strategy.ts`](../../apps/backend/src/deal-addons/strategies/ipni.strategy.ts) |
-| <a id="spAdvertisedToIpni"></a>`spAdvertisedToIpni` | SP has announced the piece to IPNI (`advertised=true`). | Yes (async) | [`ipni.strategy.ts`](../../apps/backend/src/deal-addons/strategies/ipni.strategy.ts) |
-| <a id="verifyIpniAdvertisement"></a>`verifyIpniAdvertisement` | Dealbot confirms IPNI has provider records for the root CID. | Yes (async) | [`ipni.strategy.ts`](../../apps/backend/src/deal-addons/strategies/ipni.strategy.ts) |
-| <a id="ipniVerificationStart"></a>`ipniVerificationStart` | IPNI lookup begins for root CID + provider (deal creation flow). | **TBD** | [`ipni.strategy.ts`](../../apps/backend/src/deal-addons/strategies/ipni.strategy.ts) |
-| <a id="ipniVerificationComplete"></a>`ipniVerificationComplete` | IPNI lookup completes (pass/fail) for root CID + provider. | Yes (async) | [`ipni.strategy.ts`](../../apps/backend/src/deal-addons/strategies/ipni.strategy.ts) |
-| <a id="verifyIpfsRetrievalStart"></a>`verifyIpfsRetrievalStart` | Retrieval begins via SP IPFS gateway (`/ipfs/{rootCid}`). | **TBD** | [`retrieval.service.ts`](../../apps/backend/src/retrieval/retrieval.service.ts) |
-| <a id="verifyIpfsRetrievalFirstByteReceived"></a>`verifyIpfsRetrievalFirstByteReceived` | First byte received from `/ipfs/{rootCid}`. | **TBD** | [`retrieval.service.ts`](../../apps/backend/src/retrieval/retrieval.service.ts) |
-| <a id="verifyIpfsRetrievalLastByteReceived"></a>`verifyIpfsRetrievalLastByteReceived` | Last byte received from `/ipfs/{rootCid}`. | **TBD** | [`retrieval.service.ts`](../../apps/backend/src/retrieval/retrieval.service.ts) |
-| <a id="verifyIpfsRetrievalIntegrityCheck"></a>`verifyIpfsRetrievalIntegrityCheck` | Retrieved content matches expected CID. | **TBD** | [`retrieval.service.ts`](../../apps/backend/src/retrieval/retrieval.service.ts) |
-
-> See [Data Storage Check](./data-storage.md) for the end-to-end deal flow.
-
-### Retrieval Events
-
-| Event | Definition | Status | Source of truth |
-|------|------------|:------:|-----------------|
-| <a id="retrieveFromSpStart"></a>`retrieveFromSpStart` | Retrieval attempt begins for a piece via SP IPFS gateway. | **TBD** | [`retrieval.service.ts`](../../apps/backend/src/retrieval/retrieval.service.ts) |
-| <a id="retrieveFromSpFirstByteReceived"></a>`retrieveFromSpFirstByteReceived` | First byte received from a retrieval attempt. | **TBD** | [`retrieval.service.ts`](../../apps/backend/src/retrieval/retrieval.service.ts) |
-| <a id="retrieveFromSpEnd"></a>`retrieveFromSpEnd` | Retrieval attempt finishes (success or failure). | Yes | [`retrieval.service.ts`](../../apps/backend/src/retrieval/retrieval.service.ts) |
-
-> See [Retrieval Check](./retrievals.md) for the retrieval selection and verification process.
+| Event | Definition | Relevant Checks | Implemented | Source of truth |
+|------|------------|:------:|:------:|-----------------|
+| <a id="uploadToSpStart"></a>`uploadToSpStart` | Dealbot is about to start an upload attempt for a piece to an SP. | Data Storage | **TBD** | [`deal.service.ts`](../../apps/backend/src/deal/deal.service.ts) |
+| <a id="uploadToSpEnd"></a>`uploadToSpEnd` | Upload finishes when the PDP server returns a 2xx; piece CID is known; ingest metrics are recorded. | Data Storage | Yes | [`deal.service.ts`](../../apps/backend/src/deal/deal.service.ts) (`handleUploadComplete`) |
+| <a id="pieceAdded"></a>`pieceAdded` | Piece submission is recorded on-chain by polling the PDP SP; transaction hash is known. | Data Storage | Yes | [`deal.service.ts`](../../apps/backend/src/deal/deal.service.ts) (`handleRootAdded`) |
+| <a id="pieceConfirmed"></a>`pieceConfirmed` | Piece is confirmed on-chain by polling a chain RPC endpoint. | Data Storage | **TBD** | Synapse SDK callback (not yet tracked) |
+| <a id="dealCreated"></a>`dealCreated` | Deal is marked `DEAL_CREATED` after the upload result is returned. | Data Storage | Yes | [`deal.service.ts`](../../apps/backend/src/deal/deal.service.ts) (`updateDealWithUploadResult`) |
+| <a id="spIndexingComplete"></a>`spIndexingComplete` | By polling SP, dealbot learned SP has indexed the piece locally (`indexed=true`). | Data Storage | Yes | [`ipni.strategy.ts`](../../apps/backend/src/deal-addons/strategies/ipni.strategy.ts) |
+| <a id="spAdvertisedToIpni"></a>`spAnnouncedAdvertisementToIpni` | By polling SP, dealbot learned SP has announced the advertisement to IPNI (`advertised=true`). | Data Storage | Yes | [`ipni.strategy.ts`](../../apps/backend/src/deal-addons/strategies/ipni.strategy.ts) |
+| <a id="ipniVerificationStart"></a>`ipniVerificationStart` | Dealbot begins polling filecoinpin.contact for <IpfsRootCid,SP> provider record. | Data Storage, Retrieval | **TBD** | [`ipni.strategy.ts`](../../apps/backend/src/deal-addons/strategies/ipni.strategy.ts) |
+| <a id="ipniVerificationComplete"></a>`ipniVerificationComplete` | IPNI verification completes (pass or timeout) for root CID + provider. | Data Storage, Retrieval | Yes | [`ipni.strategy.ts`](../../apps/backend/src/deal-addons/strategies/ipni.strategy.ts) |
+| <a id="ipfsRetrievalStart"></a>`ipfsRetrievalStart` | Dealbot to SP `/ipfs/` retrieval begins. | Data Storage, Retrieval | **TBD** | [`retrieval.service.ts`](../../apps/backend/src/retrieval/retrieval.service.ts) |
+| <a id="ipfsRetrievalFirstByteReceived"></a>`ipfsRetrievalFirstByteReceived` | First byte received from `/ipfs/{rootCid}`. | Data Storage, Retrieval | **TBD** | [`retrieval.service.ts`](../../apps/backend/src/retrieval/retrieval.service.ts) |
+| <a id="ipfsRetrievalLastByteReceived"></a>`ipfsRetrievalLastByteReceived` | Last byte received from `/ipfs/{rootCid}`. | Data Storage, Retrieval |**TBD** | [`retrieval.service.ts`](../../apps/backend/src/retrieval/retrieval.service.ts) |
+| <a id="ipfsRetrievalIntegrityChecked"></a>`ipfsRetrievalIntegrityChecked` | Retrieved content matches expected CID. | Data Storage, Retrieval | **TBD** | [`retrieval.service.ts`](../../apps/backend/src/retrieval/retrieval.service.ts) |
 
 ## Metrics
 
-Metrics are derived from the events above. They are exported via Prometheus and recorded on deal or retrieval entities.
+* The metrics below are derived from the events above. 
+* They are exported via Prometheus and recorded on deal or retrieval entities in the database.
+* All Prometheus/OpenTelemetry metrics have a label/attribute of `checkType=dataStprage|retrieval`.
 
-### Deal (Data Storage) Metrics
+### Time Related Metrics
 
-Timing metrics derived from events:
+* All time-related metrics are emitted as histograms.
+* Histogram buckets are defined in **TBD** .
 
-| Metric | Timer Starts | Timer Ends | Source of truth |
-|--------|--------------|------------|-----------------|
-| <a id="ingestLatencyMs"></a>`ingestLatencyMs` | [`uploadToSpStart`](#uploadToSpStart) | [`uploadToSpEnd`](#uploadToSpEnd) | [`deal.service.ts`](../../apps/backend/src/deal/deal.service.ts) |
-| <a id="ingestThroughputBps"></a>`ingestThroughputBps` | [`uploadToSpStart`](#uploadToSpStart) | [`uploadToSpEnd`](#uploadToSpEnd) | [`deal.service.ts`](../../apps/backend/src/deal/deal.service.ts) |
-| <a id="chainLatencyMs"></a>`chainLatencyMs` | [`uploadToSpEnd`](#uploadToSpEnd) | [`pieceAdded`](#pieceAdded) | [`deal.service.ts`](../../apps/backend/src/deal/deal.service.ts) |
-| <a id="dealLatencyMs"></a>`dealLatencyMs` | [`uploadToSpStart`](#uploadToSpStart) | [`dealCreated`](#dealCreated) | [`deal.service.ts`](../../apps/backend/src/deal/deal.service.ts) |
-| <a id="ipniTimeToIndexMs"></a>`ipniTimeToIndexMs` | [`uploadToSpEnd`](#uploadToSpEnd) | [`spIndexingComplete`](#spIndexingComplete) | [`ipni.strategy.ts`](../../apps/backend/src/deal-addons/strategies/ipni.strategy.ts) |
-| <a id="ipniTimeToAdvertiseMs"></a>`ipniTimeToAdvertiseMs` | [`uploadToSpEnd`](#uploadToSpEnd) | [`spAdvertisedToIpni`](#spAdvertisedToIpni) | [`ipni.strategy.ts`](../../apps/backend/src/deal-addons/strategies/ipni.strategy.ts) |
-| <a id="ipniTimeToVerifyMs"></a>`ipniTimeToVerifyMs` | [`uploadToSpEnd`](#uploadToSpEnd) | [`verifyIpniAdvertisement`](#verifyIpniAdvertisement) | [`ipni.strategy.ts`](../../apps/backend/src/deal-addons/strategies/ipni.strategy.ts) |
+| Metric | Relevant Checks | Timer Starts | Timer Ends | Additional Info | Source of truth |
+|--------|----------------|--------------|------------|-----------------|-----------------|
+| <a id="ingestMs"></a>`ingestMs` | Data Storage | [`uploadToSpStart`](#uploadToSpStart) | [`uploadToSpEnd`](#uploadToSpEnd) |  | [`deal.service.ts`](../../apps/backend/src/deal/deal.service.ts) |
+| <a id="ingestThroughputBps"></a>`ingestThroughputBps` | Data Storage | n/a | n/a | `(uploadedPieceBytes / ingestMs) * 1000` | [`deal.service.ts`](../../apps/backend/src/deal/deal.service.ts) |
+| <a id="pieceConfirmedOnChainMs"></a>`pieceConfirmedOnChainMs` | Data Storage | [`uploadToSpEnd`](#uploadToSpEnd) | [`pieceConfirmed`](#pieceConfirmed) |  | [`deal.service.ts`](../../apps/backend/src/deal/deal.service.ts) |
+| <a id="spIndexLocallyMs"></a>`spIndexLocallyMs` | Data Storage | [`uploadToSpEnd`](#uploadToSpEnd) | [`spIndexingComplete`](#spIndexingComplete) |  | [`ipni.strategy.ts`](../../apps/backend/src/deal-addons/strategies/ipni.strategy.ts) |
+| <a id="spAnnounceAdvertisementMs"></a>`spAnnounceAdvertisementMs` | Data Storage | [`uploadToSpEnd`](#uploadToSpEnd) | [`spAdvertisedToIpni`](#spAdvertisedToIpni) |  | [`ipni.strategy.ts`](../../apps/backend/src/deal-addons/strategies/ipni.strategy.ts) |
+| <a id="ipniVerifyMs"></a>`ipniVerifyMs` | Data Storage, Retrieval | [`spIndexingComplete`](#spIndexingComplete) | [`verifyIpniAdvertisement`](#verifyIpniAdvertisement) |  | [`ipni.strategy.ts`](../../apps/backend/src/deal-addons/strategies/ipni.strategy.ts) |
+| <a id="ipfsRetrievalFirstByteMs"></a>`ipfsRetrievalFirstByteMs` | Data Storage, Retrieval | [`ipfsRetrievalStart`](#ipfsRetrievalStart) | [`ipfsRetrievalFirstByteReceived`](#ipfsRetrievalFirstByteReceived) |  | [`retrieval.service.ts`](../../apps/backend/src/retrieval/retrieval.service.ts) |
+| <a id="ipfsRetrievalLastByteMs"></a>`ipfsRetrievalLastByteMs` | Data Storage, Retrieval | [`ipfsRetrievalStart`](#ipfsRetrievalStart) | [`ipfsRetrievalLastByteReceived`](#ipfsRetrievalLastByteReceived) |  | [`retrieval.service.ts`](../../apps/backend/src/retrieval/retrieval.service.ts) |
+| <a id="throughputBps"></a>`ipfsRetrievalThroughputBps` | Data Storage, Retrieval | n/a | n/a | `(downloadedCarBytes / ipfsRetrievalLastByteMs) * 1000 | [`retrieval.service.ts`](../../apps/backend/src/retrieval/retrieval.service.ts) |
+| <a id="dataStorageCheckMs"></a>`dataStorageCheckMs` | Data Storage | [`uploadToSpStart`](#uploadToSpStart) | [`ipfsRetrievalIntegrityChecked`](#ipfsRetrievalIntegrityChecked) |  | |
+| <a id="retrievalCheckMs"></a>`retrievalCheckMs` | Retrieval | [`verifyIpniAdvertisement`](#verifyIpniAdvertisement) | [`ipfsRetrievalIntegrityChecked`](#ipfsRetrievalIntegrityChecked) |  | |
 
-Prometheus metrics:
 
-| Prometheus Metric | Type | Description |
-|-------------------|------|-------------|
-| `deals_created_total` | Counter | Total deals created, labeled by status and provider |
-| `deal_creation_duration_seconds` | Histogram | End-to-end deal creation time |
-| `deal_upload_duration_seconds` | Histogram | Upload (ingest) time |
-| `deal_chain_latency_seconds` | Histogram | Time for on-chain confirmation |
+### Count Related Metrics
 
-### Retrieval Metrics
+* All count-related metrics have a label/attribute like `success|failure` or `200`.
 
-Timing metrics derived from events:
-
-| Metric | Timer Starts | Timer Ends | Source of truth |
-|--------|--------------|------------|-----------------|
-| <a id="latencyMs"></a>`latencyMs` | [`retrieveFromSpStart`](#retrieveFromSpStart) | [`retrieveFromSpEnd`](#retrieveFromSpEnd) | [`retrieval.service.ts`](../../apps/backend/src/retrieval/retrieval.service.ts) |
-| <a id="ttfbMs"></a>`ttfbMs` | [`retrieveFromSpStart`](#retrieveFromSpStart) | [`retrieveFromSpFirstByteReceived`](#retrieveFromSpFirstByteReceived) | [`retrieval.service.ts`](../../apps/backend/src/retrieval/retrieval.service.ts) |
-| <a id="throughputBps"></a>`throughputBps` | [`retrieveFromSpStart`](#retrieveFromSpStart) | [`retrieveFromSpEnd`](#retrieveFromSpEnd) | [`retrieval.service.ts`](../../apps/backend/src/retrieval/retrieval.service.ts) |
-| <a id="bytesRetrieved"></a>`bytesRetrieved` | [`retrieveFromSpStart`](#retrieveFromSpStart) | [`retrieveFromSpEnd`](#retrieveFromSpEnd) | [`retrieval.service.ts`](../../apps/backend/src/retrieval/retrieval.service.ts) |
-| <a id="responseCode"></a>`responseCode` | [`retrieveFromSpEnd`](#retrieveFromSpEnd) | [`retrieveFromSpEnd`](#retrieveFromSpEnd) | [`retrieval.service.ts`](../../apps/backend/src/retrieval/retrieval.service.ts) |
-
-Prometheus metrics:
-
-| Prometheus Metric | Type | Description |
-|-------------------|------|-------------|
-| `retrievals_tested_total` | Counter | Total retrievals tested, labeled by status, method, and provider |
-| `retrieval_latency_seconds` | Histogram | Total retrieval download latency |
-| `retrieval_ttfb_seconds` | Histogram | Time to first byte |
-
-## Definitions and Usage Notes
-
-- **Source of truth:** The code links above are the authoritative definitions.
-- **Timing metrics:** Metrics are recorded for observability; there are no timing-based quality assertions, aside from max-runtime thresholds (**TBD**).
+| Metric | Relevant Checks | When Emmitted | Additional Info | Source of truth |
+|--------|----------------|--------------|------------|-----------------|-----------------|
+| <a id="dataStorageUploadStatus"></a>`dataStorageUploadStatus` | Data Storage | [`uploadToSpEnd`](#uploadToSpEnd) when successful |  | 
+| <a id="dataStorageOnchainStatus"></a>`dataStorageOnchainStatus` | Data Storage | [`pieceConfirmed`](#pieceConfirmed) when successful |  |  | |
+| <a id="discoverabilityStatus"></a>`discoverabilityStatus` | Data Storage, Retrieval | [`ipniVerificationComplete`](#ipniVerificationComplete) when successful |  |  | |
+| <a id="ipfsRetrievalHttpResponseCode"></a>`ipfsRetrievalHttpResponseCode` | Data Storage, Retrieval | [`ipfsRetrievalLastByteReceived`](#ipfsRetrievalLastByteReceived) |  | [`retrieval.service.ts`](../../apps/backend/src/retrieval/retrieval.service.ts) |
+| <a id="retrievalStatus"></a>`retrievalStatus` | Data Storage, Retrieval | [`ipfsRetrievalIntegrityChecked`](#ipfsRetrievalIntegrityChecked) when successful |  |  | |
