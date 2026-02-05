@@ -8,7 +8,7 @@ For event and metric definitions used by the dashboard, see [Dealbot Events & Me
 
 ## Overview
 
-The Retrieval check tests that **previously stored** pieces from [data storage checks](./data-storage.md) remains retrievable over time. It runs on a separate schedule from data storage checks.
+The Retrieval check tests that **previously stored** pieces from [data storage checks](./data-storage.md) remain retrievable over time. It runs on a separate schedule from data storage checks.
 
 This is distinct from the inline retrieval verification in the [Data Storage Check](./data-storage.md), which confirms an SP can serve data immediately after indexing. The Retrieval check answers a different question: **does the SP continue to serve data correctly after the initial storage operation?**
 
@@ -83,7 +83,7 @@ For each retrieval attempt:
 | # | Assertion | How It's Checked | Retries | Relevant Metric for Setting a Max Duration | Implemented? |
 |---|-----------|-----------------|:---:|-------------------------------------------|:---:|
 | 1 | Valid <IpfsRootCid,SP> provider record from filecoinpin.contact | IPNI query for root CID returns a result that includes the SP as a provider | unlimited polling with delay until timeout | [`ipniVerifyMs`](./events-and-metrics.md#ipniVerifyMs) | **TBD** |
-| 2 | IPFS content is retrievable | HTTP response returns 2xx status | Unlimited if a connection doesn't establish within 5s or if get a 5xx response | [`ipfsRetrievalLastByteMs`](./events-and-metrics.md#ipfsRetrievalLastByteMs) | Yes |
+| 2 | IPFS content is retrievable | HTTP response returns 2xx status | Unlimited if a connection doesn't establish within 5s or on 5xx response | [`ipfsRetrievalLastByteMs`](./events-and-metrics.md#ipfsRetrievalLastByteMs) | Yes |
 | 3 | Content integrity via CID | CID of downloaded content matches ipfsRootCid | none - if we receive non-matching bytes it's a failure | n/a (this is client side and fast) | **TBD** |
 | 4 | All checks pass | Check is not marked successful until all assertions pass within window | n/a | [`retrievalCheckMs`](./events-and-metrics.md#retrievalCheckMs) | **TBD** |
 

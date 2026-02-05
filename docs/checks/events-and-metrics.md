@@ -61,9 +61,8 @@ sequenceDiagram
 * The metrics below are derived from the events above. 
 * They are exported via Prometheus and recorded on deal or retrieval entities in the database.
 * All Prometheus/OpenTelemetry metrics have label/attributes for:
-   - `checkType=dataStorage|retrieval` - so we can metrics results to a particular check
-   - `providerId` - so we can filter metrics to a particular SP
-   - 
+   - `checkType=dataStorage|retrieval` — attribute metrics to a particular check
+   - `providerId` — filter metrics to a particular SP 
 
 ### Time Related Metrics
 
@@ -89,9 +88,9 @@ sequenceDiagram
 
 * All count-related metrics have a label/attribute like `success|failure` or `200`.
 
-| Metric | Relevant Checks | When Emmitted | Additional Info | Source of truth |
+| Metric | Relevant Checks | When Emitted | Additional Info | Source of truth |
 |--------|----------------|--------------|------------|-----------------|-----------------|
-| <a id="dataStorageUploadStatus"></a>`dataStorageUploadStatus` | Data Storage | [`uploadToSpEnd`](#uploadToSpEnd) when successful |  | 
+| <a id="dataStorageUploadStatus"></a>`dataStorageUploadStatus` | Data Storage | [`uploadToSpEnd`](#uploadToSpEnd) when successful |  |  | 
 | <a id="dataStorageOnchainStatus"></a>`dataStorageOnchainStatus` | Data Storage | [`pieceConfirmed`](#pieceConfirmed) when successful |  |  | [`deal.service.ts`](../../apps/backend/src/deal/deal.service.ts) |
 | <a id="discoverabilityStatus"></a>`discoverabilityStatus` | Data Storage, Retrieval | [`ipniVerificationComplete`](#ipniVerificationComplete) when successful |  |  | |
 | <a id="ipfsRetrievalHttpResponseCode"></a>`ipfsRetrievalHttpResponseCode` | Data Storage, Retrieval | [`ipfsRetrievalLastByteReceived`](#ipfsRetrievalLastByteReceived) |  | [`retrieval.service.ts`](../../apps/backend/src/retrieval/retrieval.service.ts) |

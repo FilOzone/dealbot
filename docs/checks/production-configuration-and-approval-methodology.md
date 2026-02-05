@@ -48,7 +48,7 @@ Relevant parameters include:
 | Parameter | Value | Notes |
 |-----------|-------|-------|
 | [Retrieval Check](./retrievals.md) frequency | Once per 15 minutes | 96 per day |
-| `RANDOM_PIECE_SIZES` | `10485760` | Only download ~10MB files are used for simplicity |
+| `RANDOM_PIECE_SIZES` | `10485760` | Only ~10MB files are used for retrieval downloads, for simplicity |
 | `MAX_RETRIEVAL_CHECKS_PER_SP_PER_CYCLE` | 1 |  |
 | Max [`ipniVerifyMs`](./events-and-metrics.md#ipniVerifyMs) | 10s | |
 | Max [`ipfsRetrievalLastByteMs`](./events-and-metrics.md#ipfsRetrievalLastByteMs) | 20s | |
