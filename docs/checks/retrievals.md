@@ -124,6 +124,8 @@ Key environment variables that control retrieval testing:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
+| `MAX_RETRIEVAL_CHECKS_PER_SP_PER_CYCLE` | **TBD** | Number of pieces to select per SP under test per retrieval cycle. |
+| `MAX_RETRIEVAL_CHECKS_IN_PARALLEL` | **TBD** | Max number of retrieval checks run in parallel (across all SPs) per cycle. |
 | `IPNI_VERIFICATION_TIMEOUT_MS` | `10000` | Max duration to attempt the IPNI verification step  |
 | `IPNI_VERIFICATION_POLLING_MS` | `2000` | How long to give between IPNI polling attempts  |
 | `IPFS_RETRIEVAL_REQUEST_CONNECTION_ESTABLISH_TIMEOUT_MS` | `5000` | Max duration to wait for an HTTP connection get established. |
