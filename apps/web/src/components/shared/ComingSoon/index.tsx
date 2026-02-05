@@ -15,8 +15,8 @@ export default function ComingSoon({
   return (
     <div className="flex items-center justify-center min-h-[60vh]">
       <div className="text-center space-y-4">
-        <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-white p-4 shadow-sm border border-slate-200">
-          <Icon className="h-10 w-10 text-slate-900" />
+        <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-background p-4 shadow-sm border border-border">
+          <Icon className="h-10 w-10 text-foreground" />
         </div>
         <h1 className="text-4xl font-bold tracking-tight">{title}</h1>
         <p className="text-lg text-muted-foreground max-w-md mx-auto">{description}</p>
