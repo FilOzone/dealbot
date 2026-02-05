@@ -1,12 +1,12 @@
 ## Purpose
 
-This document outlines how dealbot is configured for production by the Filecoi Onchain Cloud working group, particularly for determining which SPs to approve for the "official" Filecoin Warm Storage Service contracts on calibration and mainnet.  A reader, especially an SP seeking to be approved for paid FOC storage deals by default, should be able to read this document and understand how they are evaluated.  While [data-storage.md](./data-storage.md), [retrievals.md](./retrievals.md), and [events-and-metrics.md](./events-and-metrics.md) discussed the dealbot checks and metrics in general, this document provides the context and background for how they are configured and used in production.
+This document outlines how dealbot is configured for production by the Filecoin Onchain Cloud working group, particularly for determining which SPs to approve for the "official" Filecoin Warm Storage Service contracts on calibration and mainnet.  A reader, especially an SP seeking to be approved for paid FOC storage deals by default, should be able to read this document and understand how they are evaluated.  While [data-storage.md](./data-storage.md), [retrievals.md](./retrievals.md), and [events-and-metrics.md](./events-and-metrics.md) discussed the dealbot checks and metrics in general, this document provides the context and background for how they are configured and used in production.
 
 
 
 ## Approval Acceptance Criteria
 
-Our goal in have an "approved" SP list to support a production-grade quality of service for Filecoin Onchain Cloud storage.  In order to be an approved SP, one must satisfy all of the following criteria. 
+Our goal in having an "approved" SP list is to support a production-grade quality of service for Filecoin Onchain Cloud storage.  In order to be an approved SP, one must satisfy all of the following criteria. 
 
 | Metric | Threshold | Minimum Sample Size |
 |--------|-----------|---------------------|
@@ -15,7 +15,7 @@ Our goal in have an "approved" SP list to support a production-grade quality of 
 | [Retrieval Success Rate](#retrieval-success-rate) | ≥ 97% | 200 |
 
 ### Data Storage Success Rate
-This is calculated as the success rate of [Data Storage checks](./data-storage.md), which includes uploading data, indexing it, adding it onchain, and verifying it publicly discoverable,retrievable, and verifiable with [standard IPFS tooling](https://github.com/filecoin-project/filecoin-pin/blob/master/documentation/glossary.md#standard-ipfs-tooling).  
+This is calculated as the success rate of [Data Storage checks](./data-storage.md), which includes uploading data, indexing it, adding it onchain, and verifying it publicly discoverable, retrievable, and verifiable with [standard IPFS tooling](https://github.com/filecoin-project/filecoin-pin/blob/master/documentation/glossary.md#standard-ipfs-tooling).  
 
 See ["How are data storage and retrieval check statistics/thresholds calculated?"](#how-are-data-storage-and-retrieval-check-statisticsthresholds-calculated) for more details.
 
@@ -33,7 +33,7 @@ Relevant parameters include:
 | Max [`ipfsRetrievalLastByteMs`](./events-and-metrics.md#ipfsRetrievalLastByteMs) | 20s | |
 | Max [`dataStorageCheckMs`](./events-and-metrics.md#dataStorageCheckMs) | 120s | |
 
-This minimum observed success rate threshold count is for having 95% confidence that the success rater is greater than 95%.  See ["How were data storage and retrieval statistics calculated?"](#how-were-data-storage-and-retrieval-statistics-calculated) for more details.
+This minimum observed success rate threshold count is for having 95% confidence that the success rate is greater than 95%.  See ["How are data storage and retrieval check statistics/thresholds calculated?"](#how-are-data-storage-and-retrieval-check-statisticsthresholds-calculated) for more details.
 
 ### Data Retention Fault Rate
 This is calculated by looking at all the dataset proofs on chain for the SPs and determining how many challenges were missed or failed.  Note that on mainnet each dataset incurs 5 challenges per day.  To help get to statistical significance quicker, dealbot will seed the SPs with 15 datasets.  Each dataset faces 5 challenges per day. This means you can be approved for durability after a faultless ~7 days.
@@ -53,7 +53,7 @@ Relevant parameters include:
 | Max [`ipfsRetrievalLastByteMs`](./events-and-metrics.md#ipfsRetrievalLastByteMs) | 20s | |
 | Max [`retrievalCheckMs`](./events-and-metrics.md#retrievalCheckMs) | 30s | |
 
-This minimum observed success rate threshold count is for having 95% confidence that the success rater is greater than 95%.  See ["How were data storage and retrieval statistics calculated?"](#how-were-data-storage-and-retrieval-statistics-calculated) for more details.
+This minimum observed success rate threshold count is for having 95% confidence that the success rate is greater than 95%.  See ["How are data storage and retrieval check statistics/thresholds calculated?"](#how-are-data-storage-and-retrieval-check-statisticsthresholds-calculated) for more details.
 
 ## SP Maintenance Window
 
@@ -88,7 +88,7 @@ Over the course of a day this means:
 
 ### Where is the configuration that the "production dealbot" uses?
 
-This is in a private repo because it includes other infrastructure configuration that is not relevant to the public.  We are happy to answer any questions
+This is in a private repo because it includes other infrastructure configuration that is not relevant to the public.  We are happy to answer any questions.
 
 ### Does dealbot cleanup old pieces?
 
@@ -104,7 +104,7 @@ TODO: fill this in covering things like
 - 95% confidence level
 - One sided confidence interval
 - It doesn't matter how much data is stored in a dataset
-- DataSets beyond the the ones created by dealbot factor in as samples.
+- DataSets beyond the ones created by dealbot factor in as samples.
 
 ## Why aren't there latency/throughput requirements?
 

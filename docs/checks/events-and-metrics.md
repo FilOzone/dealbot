@@ -60,7 +60,7 @@ sequenceDiagram
 
 * The metrics below are derived from the events above. 
 * They are exported via Prometheus and recorded on deal or retrieval entities in the database.
-* All Prometheus/OpenTelemetry metrics have a label/attribute of `checkType=dataStprage|retrieval`.
+* All Prometheus/OpenTelemetry metrics have a label/attribute of `checkType=dataStorage|retrieval`.
 
 ### Time Related Metrics
 
@@ -74,12 +74,12 @@ sequenceDiagram
 | <a id="pieceConfirmedOnChainMs"></a>`pieceConfirmedOnChainMs` | Data Storage | [`uploadToSpEnd`](#uploadToSpEnd) | [`pieceConfirmed`](#pieceConfirmed) |  | [`deal.service.ts`](../../apps/backend/src/deal/deal.service.ts) |
 | <a id="spIndexLocallyMs"></a>`spIndexLocallyMs` | Data Storage | [`uploadToSpEnd`](#uploadToSpEnd) | [`spIndexingComplete`](#spIndexingComplete) |  | [`ipni.strategy.ts`](../../apps/backend/src/deal-addons/strategies/ipni.strategy.ts) |
 | <a id="spAnnounceAdvertisementMs"></a>`spAnnounceAdvertisementMs` | Data Storage | [`uploadToSpEnd`](#uploadToSpEnd) | [`spAdvertisedToIpni`](#spAdvertisedToIpni) |  | [`ipni.strategy.ts`](../../apps/backend/src/deal-addons/strategies/ipni.strategy.ts) |
-| <a id="ipniVerifyMs"></a>`ipniVerifyMs` | Data Storage, Retrieval | [`spIndexingComplete`](#spIndexingComplete) | [`verifyIpniAdvertisement`](#verifyIpniAdvertisement) |  | [`ipni.strategy.ts`](../../apps/backend/src/deal-addons/strategies/ipni.strategy.ts) |
+| <a id="ipniVerifyMs"></a>`ipniVerifyMs` | Data Storage, Retrieval | [`ipniVerificationStart`](#ipniVerificationStart) | [`ipniVerificationComplete`](#ipniVerificationComplete) |  | [`ipni.strategy.ts`](../../apps/backend/src/deal-addons/strategies/ipni.strategy.ts) |
 | <a id="ipfsRetrievalFirstByteMs"></a>`ipfsRetrievalFirstByteMs` | Data Storage, Retrieval | [`ipfsRetrievalStart`](#ipfsRetrievalStart) | [`ipfsRetrievalFirstByteReceived`](#ipfsRetrievalFirstByteReceived) |  | [`retrieval.service.ts`](../../apps/backend/src/retrieval/retrieval.service.ts) |
 | <a id="ipfsRetrievalLastByteMs"></a>`ipfsRetrievalLastByteMs` | Data Storage, Retrieval | [`ipfsRetrievalStart`](#ipfsRetrievalStart) | [`ipfsRetrievalLastByteReceived`](#ipfsRetrievalLastByteReceived) |  | [`retrieval.service.ts`](../../apps/backend/src/retrieval/retrieval.service.ts) |
-| <a id="throughputBps"></a>`ipfsRetrievalThroughputBps` | Data Storage, Retrieval | n/a | n/a | `(downloadedCarBytes / ipfsRetrievalLastByteMs) * 1000 | [`retrieval.service.ts`](../../apps/backend/src/retrieval/retrieval.service.ts) |
+| <a id="throughputBps"></a>`ipfsRetrievalThroughputBps` | Data Storage, Retrieval | n/a | n/a | `(downloadedCarBytes / ipfsRetrievalLastByteMs) * 1000` | [`retrieval.service.ts`](../../apps/backend/src/retrieval/retrieval.service.ts) |
 | <a id="dataStorageCheckMs"></a>`dataStorageCheckMs` | Data Storage | [`uploadToSpStart`](#uploadToSpStart) | [`ipfsRetrievalIntegrityChecked`](#ipfsRetrievalIntegrityChecked) |  | |
-| <a id="retrievalCheckMs"></a>`retrievalCheckMs` | Retrieval | [`verifyIpniAdvertisement`](#verifyIpniAdvertisement) | [`ipfsRetrievalIntegrityChecked`](#ipfsRetrievalIntegrityChecked) |  | |
+| <a id="retrievalCheckMs"></a>`retrievalCheckMs` | Retrieval | [`ipniVerificationStart`](#ipniVerificationStart) | [`ipfsRetrievalIntegrityChecked`](#ipfsRetrievalIntegrityChecked) |  | |
 
 
 ### Count Related Metrics
@@ -89,7 +89,7 @@ sequenceDiagram
 | Metric | Relevant Checks | When Emmitted | Additional Info | Source of truth |
 |--------|----------------|--------------|------------|-----------------|-----------------|
 | <a id="dataStorageUploadStatus"></a>`dataStorageUploadStatus` | Data Storage | [`uploadToSpEnd`](#uploadToSpEnd) when successful |  | 
-| <a id="dataStorageOnchainStatus"></a>`dataStorageOnchainStatus` | Data Storage | [`pieceConfirmed`](#pieceConfirmed) when successful |  |  | |
+| <a id="dataStorageOnchainStatus"></a>`dataStorageOnchainStatus` | Data Storage | [`pieceConfirmed`](#pieceConfirmed) when successful |  |  | [`deal.service.ts`](../../apps/backend/src/deal/deal.service.ts) |
 | <a id="discoverabilityStatus"></a>`discoverabilityStatus` | Data Storage, Retrieval | [`ipniVerificationComplete`](#ipniVerificationComplete) when successful |  |  | |
 | <a id="ipfsRetrievalHttpResponseCode"></a>`ipfsRetrievalHttpResponseCode` | Data Storage, Retrieval | [`ipfsRetrievalLastByteReceived`](#ipfsRetrievalLastByteReceived) |  | [`retrieval.service.ts`](../../apps/backend/src/retrieval/retrieval.service.ts) |
 | <a id="retrievalStatus"></a>`retrievalStatus` | Data Storage, Retrieval | [`ipfsRetrievalIntegrityChecked`](#ipfsRetrievalIntegrityChecked) when successful |  |  | |

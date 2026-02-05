@@ -12,9 +12,9 @@ A "deal" is dealbot's end-to-end test of uploading a piece to a storage provider
 
 1. Generates a random data file
 2. Converts it to [CAR format](https://ipld.io/specs/transport/car/)
-3. Uploads the CAR to **[every testable SP](#what-sps-does-dealbot-run-data-storage-checks-against)** as a new piece in one of the [dealbot-managed datasets](#how-any-datasets-are-created-by-dealbot-per-sp-for-data-storage-checks).
+3. Uploads the CAR to **[every testable SP](#3-determine-which-sps-to-check-for-this-cycle)** as a new piece in one of the [dealbot-managed datasets](#4-upload-to-each-sp).
 4. Waits for: 
-   - IPNI discoverability, meaning the SP indexes the CAR announces the index to IPNI and dealbot confirm that IPNI has the index
+   - IPNI discoverability, meaning the SP indexes the CAR announces the index to IPNI and dealbot confirms that IPNI has the index
    - Onchain confirmation, meaning the SP sends a message adding the piece to the dataset and dealbot confirms it onchain
 5. **TBD:** Runs retrieval checks as defined in [Retrieval Check](./retrievals.md) and gates deal success on those results
 
@@ -109,7 +109,7 @@ After upload completes, dealbot polls the SP's PDP server to track the piece thr
 
 | PDP SP Status | Meaning |
 |--------|---------|
-| `sp_indexed` | SP has indexed the piece locally.  Any CID in the CAR it is now retrievable with `/ipfs/$CID` retrieval |
+| `sp_indexed` | SP has indexed the piece locally.  Any CID in the CAR is now retrievable with `/ipfs/$CID` retrieval |
 | `sp_advertised` | SP has announced the piece index to IPNI. (In IPNI terminology this is "advertisement announcement" (see [docs](https://docs.cid.contact/filecoin-network-indexer/technical-walkthrough))) |
 
 - **Poll interval:** 2.5 seconds (see `TBD_VARIABLE`)
@@ -130,7 +130,7 @@ Source: [`ipni.strategy.ts` (`monitorAndVerifyIPNI`)](../../apps/backend/src/dea
 
 ### 7. Retrieve and Verify Content — **TBD**
 
-See [Retrieval Check](./retrievals.md) for the specifics of retrieving and  verifying the returned bytes match the CID.
+See [Retrieval Check](./retrievals.md) for the specifics of retrieving and verifying the returned bytes match the CID.
 
 ## Deal Status Progression
 
@@ -219,16 +219,6 @@ Key environment variables that control deal creation behavior:
 Source: [`apps/backend/src/config/app.config.ts`](../../apps/backend/src/config/app.config.ts)
 
 See also: [`docs/environment-variables.md`](../environment-variables.md) for the full configuration reference.
-
-## Retries and Polling
-
-TODO: remove this....
-
-- **Piece status polling:** Dealbot polls the PDP SP for `indexed`/`advertised` status until the polling timeout.
-- **IPNI verification retries:** `waitForIpniProviderResults` retries IPNI lookups with a fixed delay between attempts, bounded by the configured IPNI timeout.
-- **Upload retries:** No explicit upload retry logic is implemented in dealbot; failures are surfaced by the SDK and mark the deal as failed.
-
-Source: [`ipni.strategy.ts`](../../apps/backend/src/deal-addons/strategies/ipni.strategy.ts#L239), [`ipni.strategy.ts`](../../apps/backend/src/deal-addons/strategies/ipni.strategy.ts#L343)
 
 ## TBD Summary
 

@@ -22,7 +22,7 @@ A **successful** retrieval requires ALL of:
 4. Download completes successfully (HTTP 2xx)
 5. Downloaded content hashed to the requested CID (**TBD**: size-check only until CID verification lands).
 
-**Failure** occurs if any required check fails (IPNI verification, download, or content verificaiont) or the retrieval exceeds its max allowed time.
+**Failure** occurs if any required check fails (IPNI verification, download, or content verification) or the retrieval exceeds its max allowed time.
 
 Operational timeouts exist to prevent jobs from running indefinitely, but they are not quality assertions. A per-retrieval max time limit that fails the retrieval if exceeded is **TBD**.
 
@@ -44,7 +44,7 @@ flowchart TD
 
 ### 1. SP selection
 
-The set of SPs to under test is determined with the same logic specified in [data storage](.//data-storage.md#3-determine-which-sps-to-check-for-this-cycle).
+The set of SPs to under test is determined with the same logic specified in [data storage](./data-storage.md#3-determine-which-sps-to-check-for-this-cycle).
 
 ### 2. Piece Selection
 
@@ -62,7 +62,7 @@ For each selected piece, dealbot performs the following retrieval checks:
 
 ### 1. IPNI Verification
 
-**TBD:** IPNI verification is the same as described in [Data Storage Check](./data-storage.md#6-verify-ipni-indexing).  The only difference is that we don't wait as long since we already knows the piece was indexed.  We're just making sure that it's still indexed.
+**TBD:** IPNI verification is the same as described in [Data Storage Check](./data-storage.md#6-verify-ipni-indexing).  The only difference is that we don't wait as long since we already know the piece was indexed.  We're just making sure that it's still indexed.
 
 ### 2. `/ipfs` Retrieval
 
@@ -140,7 +140,7 @@ The following items are **TBD**:
 
 | Item | Description |
 |------|-------------|
-| Enforce piece selection selection based on RANDOM_PIECE_SIZES | Only select pieces of the selected size. |
+| Enforce piece selection based on RANDOM_PIECE_SIZES | Only select pieces of the selected size. |
 | Remove PDP `/piece` retrieval | Retrieval checks should only use the SP IPFS gateway (`/ipfs/{rootCid}`). |
 | Per-retrieval max time limit | If a retrieval does not complete within a configurable max time, mark it as failed. Operational timeouts prevent infinite runs but are not treated as a quality assertion that fails the retrieval. |
 | CID-based content verification | Verify retrieved content by re-computing CID and comparing to upload-time CID (size-check only until CID verification lands). See [issue #144](https://github.com/FilOzone/dealbot/issues/144). |
