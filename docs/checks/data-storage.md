@@ -47,7 +47,7 @@ The scheduler triggers deal creation on a configurable interval.
 ```mermaid
 flowchart TD
   A["Generate random data"] --> B["Convert to CAR format"]
-  B -- "For each SP-under-test (up to DEAL_MAX_CONCURRENCY in parallel)" --> D["Ensure MIN_NUM_DATASETS_FOR_CHECKS have been created on-chain (create if necessary)<br/>(uses Synapse, idempotent)"]
+  B -- "For each SP under test (up to DEAL_MAX_CONCURRENCY in parallel)" --> D["Ensure MIN_NUM_DATASETS_FOR_CHECKS have been created on-chain (create if necessary)<br/>(uses Synapse, idempotent)"]
   D --> E["Select a dataset for data storage check"]
   E --> F["Upload CAR as piece to SP"]
   F --> G["onUploadComplete: start monitoring SP status"]
@@ -86,11 +86,11 @@ The set of **SPs under test** is determined by configuration:
 
 Source: [`wallet-sdk.service.ts` (`getTestingProviders`)](../../apps/backend/src/wallet-sdk/wallet-sdk.service.ts#L213)
 
-**SP under test** are processed in parallel batches controlled by `DEAL_MAX_CONCURRENCY`. Failures for individual SPs do not block other SPs.
+**SPs under test** are processed in parallel batches controlled by `DEAL_MAX_CONCURRENCY`. Failures for individual SPs do not block other SPs.
 
 ### 4. Upload to Each SP
 
-For each **SP under testing** in the current batch, dealbot:
+For each **SP under test** in the current batch, dealbot:
 
 1. **Creates datasets on-chain** if necessary.  
    - This is done via the Synapse SDK (`synapse.createStorage(...)`).

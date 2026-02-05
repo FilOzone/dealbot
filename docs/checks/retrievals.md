@@ -44,11 +44,11 @@ flowchart TD
 
 ### 1. SP selection
 
-The set of SPs to under test is determined with the same logic specified in [data storage](./data-storage.md#3-determine-which-sps-to-check-for-this-cycle).
+The set of SPs under test is determined with the same logic specified in [data storage](./data-storage.md#3-determine-which-sps-to-check-for-this-cycle).
 
 ### 2. Piece Selection
 
-Dealbot randomly selects MAX_RETRIEVAL_CHECKS_PER_SP_PER_CYCLE pieces per SP-under-test for retrieval testing with the following constraints:
+Dealbot randomly selects MAX_RETRIEVAL_CHECKS_PER_SP_PER_CYCLE pieces per SP under test for retrieval testing with the following constraints:
 
 - Only pieces from "data storage" check deals with overall status `success`.
 - Only pieces with a root CID in metadata
