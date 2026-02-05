@@ -147,18 +147,21 @@ flowchart TD
   O["Onchain Status"]
   D["Discoverability Status"]
   R["Retrieval Status"]
-  JOIN["Wait for Onchain and Retrieval Verification"]
+  JOIN["Onchain and Retrieval both passed"]
   OK["Deal success"]
   FAIL["Deal failure"]
 
   U -->|failure| FAIL
   U -->|success| O
   U -->|success| D
+
   O -->|failure| FAIL
-  O -->|success| JOIN
   D -->|failure| FAIL
+
   D -->|success| R
   R -->|failure| FAIL
+
+  O -->|success| JOIN
   R -->|success| JOIN
   JOIN --> OK
 ```
