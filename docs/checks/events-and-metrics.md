@@ -60,7 +60,10 @@ sequenceDiagram
 
 * The metrics below are derived from the events above. 
 * They are exported via Prometheus and recorded on deal or retrieval entities in the database.
-* All Prometheus/OpenTelemetry metrics have a label/attribute of `checkType=dataStorage|retrieval`.
+* All Prometheus/OpenTelemetry metrics have label/attributes for:
+   - `checkType=dataStorage|retrieval` - so we can metrics results to a particular check
+   - `providerId` - so we can filter metrics to a particular SP
+   - 
 
 ### Time Related Metrics
 
