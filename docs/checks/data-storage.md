@@ -95,7 +95,7 @@ For each **SP under testing** in the current batch, dealbot:
 1. **Creates datasets on-chain** if necessary.  
    - This is done via the Synapse SDK (`synapse.createStorage(...)`).
    - Dataset creation is idempotent.
-   - See [How any datasets are created by dealbot per SP for "data storage" checks?](#how-any-datasets-are-created-by-dealbot-per-sp-for-data-storage-checks) for more info
+   - The quantity per SP is controlled by [`MIN_NUM_DATASETS_FOR_CHECKS`](#MIN_NUM_DATASETS_FOR_CHECKS).
 2. **Uploads the CAR file** to the SP. Callbacks track progress:
    - `onUploadComplete` — SP confirms receipt (HTTP 2xx). Records the piece CID.
    - `onPieceAdded` — piece submission is recorded on-chain (transaction hash available).
@@ -214,6 +214,7 @@ Key environment variables that control deal creation behavior:
 | `USE_ONLY_APPROVED_PROVIDERS` | `true` | Only test approved SPs |
 | `DEAL_START_OFFSET_SECONDS` | `0` | Delay before first deal creation run |
 | `DEAL_MAX_CONCURRENCY` | **TBD** | Max number of SPs processed in parallel |
+| <a id="MIN_NUM_DATASETS_FOR_CHECKS"></a>`MIN_NUM_DATASETS_FOR_CHECKS` | **TBD** (I assume this will be 1) | Minimum number of datasets to create on-chain for each SP.  The usecase for setting this greater than one is if you want an SP to have more non-empty datasets. |
 
 Source: [`apps/backend/src/config/app.config.ts`](../../apps/backend/src/config/app.config.ts)
 
@@ -245,25 +246,7 @@ The following items are **TBD**:
 | `filecoin-pin` CAR conversion | CAR conversion should use the `filecoin-pin` library integration (local implementation in `ipni.strategy.ts` until this lands) |
 
 ## FAQ
-### How any datasets are created by dealbot per SP for "data storage" checks?
-MIN_NUM_DATASETS_FOR_CHECKS
-
-### What SPs does dealbot run "data storage" checks against?
-(provider scope is controlled by `USE_ONLY_APPROVED_PROVIDERS`)
-
-
-
-### Maintenance Window
 
 ### Why do we check filecoinpin.contact rather than cid.contact?
 
-NOmenclature of check, cycles, runs, batch
-
-
-Production values:
-- USE_ONLY_APPROVED_PROVIDERS: false
-- RANDOM_PIECE_SIZES: 10MB
-- MIN_NUM_DATASETS_FOR_CHECKS: 15
-
-
-
+See https://github.com/filecoin-project/filecoin-pin/blob/master/documentation/content-routing-faq.md#why-is-there-filecoinpincontact-and-cidcontact
