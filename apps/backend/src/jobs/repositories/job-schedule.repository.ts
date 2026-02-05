@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import { InjectDataSource } from "@nestjs/typeorm";
 import type { DataSource } from "typeorm";
 import type { JobScheduleType } from "../../database/entities/job-schedule-state.entity.js";
@@ -13,6 +13,8 @@ export type ScheduleRow = {
 
 @Injectable()
 export class JobScheduleRepository {
+  private readonly logger = new Logger(JobScheduleRepository.name);
+
   constructor(
     @InjectDataSource()
     private readonly dataSource: DataSource,
@@ -47,35 +49,59 @@ export class JobScheduleRepository {
   }
 
   /**
-   * Pauses schedule rows for providers that are no longer in the active list.
-   * This is used to "soft delete" schedules when a provider is removed from configuration or goes inactive.
+   * Deletes schedule rows for providers that are no longer in the active list.
    *
-   * @param activeAddresses - List of currently active provider addresses to keep enabled.
+   * @param activeAddresses - List of currently active provider addresses to keep.
    */
-  async pauseMissingProviders(activeAddresses: string[]): Promise<void> {
-    if (activeAddresses.length === 0) {
-      await this.dataSource.query(
-        `
-        UPDATE job_schedule_state
-        SET paused = true,
-            updated_at = NOW()
-        WHERE job_type IN ('deal', 'retrieval')
-          AND sp_address <> ''
-        `,
-      );
-    } else {
-      await this.dataSource.query(
-        `
-        UPDATE job_schedule_state
-        SET paused = true,
-            updated_at = NOW()
+  async deleteSchedulesForInactiveProviders(activeAddresses: string[]): Promise<string[]> {
+    try {
+      if (activeAddresses.length === 0) {
+        const result =
+          (await this.dataSource.query(
+            `
+          DELETE FROM job_schedule_state
+          WHERE job_type IN ('deal', 'retrieval')
+            AND sp_address <> ''
+          RETURNING sp_address
+          `,
+          )) || [];
+        return result.map((row: { sp_address: string }) => row.sp_address);
+      }
+
+      const result =
+        (await this.dataSource.query(
+          `
+        DELETE FROM job_schedule_state
         WHERE job_type IN ('deal', 'retrieval')
           AND sp_address <> ''
           AND sp_address <> ALL($1::text[])
+        RETURNING sp_address
         `,
-        [activeAddresses],
-      );
+          [activeAddresses],
+        )) || [];
+      return result.map((row: { sp_address: string }) => row.sp_address);
+    } catch (error) {
+      if (error instanceof Error) {
+        this.logger.error(`Failed to delete schedules for inactive providers: ${error.message}`, error.stack);
+      } else {
+        this.logger.error("Failed to delete schedules for inactive providers", String(error));
+      }
+      throw error;
     }
+  }
+
+  /**
+   * Counts manually paused jobs by type.
+   */
+  async countPausedSchedules(): Promise<{ job_type: string; count: number }[]> {
+    return this.dataSource.query(
+      `
+      SELECT job_type, COUNT(*)::int AS count
+      FROM job_schedule_state
+      WHERE paused = true
+      GROUP BY job_type
+      `,
+    );
   }
 
   /**
@@ -144,7 +170,7 @@ export class JobScheduleRepository {
       `
       SELECT name, state, COUNT(*)::int AS count
       FROM pgboss.job
-      WHERE state = ANY($1::text[])
+      WHERE state::text = ANY($1::text[])
       GROUP BY name, state
       `,
       [states],
@@ -167,14 +193,14 @@ export class JobScheduleRepository {
           EXTRACT(
             EPOCH FROM (
               $1 - CASE
-                    WHEN $2 = 'created' THEN created_on
+                    WHEN $2::text = 'created' THEN created_on
                     ELSE started_on
                   END
             )
           )
         ) AS min_age_seconds
       FROM pgboss.job
-      WHERE state = $2
+      WHERE state::text = $2
       GROUP BY name
       `,
       [now, state],

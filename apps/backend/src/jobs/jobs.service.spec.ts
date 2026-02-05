@@ -13,7 +13,8 @@ describe("JobsService schedule rows", () => {
   let storageProviderRepositoryMock: { find: ReturnType<typeof vi.fn> };
   let jobScheduleRepositoryMock: {
     upsertSchedule: ReturnType<typeof vi.fn>;
-    pauseMissingProviders: ReturnType<typeof vi.fn>;
+    deleteSchedulesForInactiveProviders: ReturnType<typeof vi.fn>;
+    countPausedSchedules: ReturnType<typeof vi.fn>;
     findDueSchedulesWithManager: ReturnType<typeof vi.fn>;
     runTransaction: ReturnType<typeof vi.fn>;
     acquireAdvisoryLock: ReturnType<typeof vi.fn>;
@@ -31,7 +32,8 @@ describe("JobsService schedule rows", () => {
     jobsEnqueueAttemptsCounter: JobsServiceDeps[12];
     jobsStartedCounter: JobsServiceDeps[13];
     jobsCompletedCounter: JobsServiceDeps[14];
-    jobDuration: JobsServiceDeps[15];
+    jobsPausedGauge: JobsServiceDeps[15];
+    jobDuration: JobsServiceDeps[16];
   };
   let baseConfigValues: Partial<IConfig>;
   let configService: JobsServiceDeps[0];
@@ -52,7 +54,8 @@ describe("JobsService schedule rows", () => {
       jobsEnqueueAttemptsCounter: JobsServiceDeps[12];
       jobsStartedCounter: JobsServiceDeps[13];
       jobsCompletedCounter: JobsServiceDeps[14];
-      jobDuration: JobsServiceDeps[15];
+      jobsPausedGauge: JobsServiceDeps[15];
+      jobDuration: JobsServiceDeps[16];
     }>,
   ) => JobsService;
 
@@ -63,7 +66,8 @@ describe("JobsService schedule rows", () => {
 
     jobScheduleRepositoryMock = {
       upsertSchedule: vi.fn(),
-      pauseMissingProviders: vi.fn(),
+      deleteSchedulesForInactiveProviders: vi.fn(async () => []),
+      countPausedSchedules: vi.fn(async () => []),
       findDueSchedulesWithManager: vi.fn(),
       runTransaction: vi.fn(async (callback: (manager: unknown) => Promise<void>) => {
         await callback({});
@@ -84,7 +88,8 @@ describe("JobsService schedule rows", () => {
       jobsEnqueueAttemptsCounter: { inc: vi.fn() } as unknown as JobsServiceDeps[12],
       jobsStartedCounter: { inc: vi.fn() } as unknown as JobsServiceDeps[13],
       jobsCompletedCounter: { inc: vi.fn() } as unknown as JobsServiceDeps[14],
-      jobDuration: { observe: vi.fn() } as unknown as JobsServiceDeps[15],
+      jobsPausedGauge: { set: vi.fn() } as unknown as JobsServiceDeps[15],
+      jobDuration: { observe: vi.fn() } as unknown as JobsServiceDeps[16],
     };
 
     baseConfigValues = {
@@ -111,7 +116,7 @@ describe("JobsService schedule rows", () => {
 
     configService = {
       get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
-    } as JobsServiceDeps[0];
+    } as unknown as JobsServiceDeps[0];
 
     buildService = (overrides = {}) =>
       new JobsService(
@@ -130,6 +135,7 @@ describe("JobsService schedule rows", () => {
         overrides.jobsEnqueueAttemptsCounter ?? metricsMocks.jobsEnqueueAttemptsCounter,
         overrides.jobsStartedCounter ?? metricsMocks.jobsStartedCounter,
         overrides.jobsCompletedCounter ?? metricsMocks.jobsCompletedCounter,
+        overrides.jobsPausedGauge ?? metricsMocks.jobsPausedGauge,
         overrides.jobDuration ?? metricsMocks.jobDuration,
       );
 
@@ -190,6 +196,7 @@ describe("JobsService schedule rows", () => {
     const jobsInFlightGauge = metricsMocks.jobsInFlightGauge as unknown as { set: ReturnType<typeof vi.fn> };
     const oldestQueuedGauge = metricsMocks.oldestQueuedAgeGauge as unknown as { set: ReturnType<typeof vi.fn> };
     const oldestInFlightGauge = metricsMocks.oldestInFlightAgeGauge as unknown as { set: ReturnType<typeof vi.fn> };
+    const jobsPausedGauge = metricsMocks.jobsPausedGauge as unknown as { set: ReturnType<typeof vi.fn> };
 
     jobScheduleRepositoryMock.countBossJobStates.mockResolvedValueOnce([
       { name: "deal.run", state: "created", count: 2 },
@@ -214,6 +221,7 @@ describe("JobsService schedule rows", () => {
 
     expect(oldestQueuedGauge.set).toHaveBeenCalledWith({ job_type: "deal" }, 12);
     expect(oldestInFlightGauge.set).toHaveBeenCalledWith({ job_type: "retrieval" }, 34);
+    expect(jobsPausedGauge.set).toHaveBeenCalledWith({ job_type: "deal" }, 0);
   });
 
   it("maps job names to job types", async () => {
@@ -237,13 +245,13 @@ describe("JobsService schedule rows", () => {
     expect(upsertsForB.map((call) => call[0]).sort()).toEqual(["deal", "retrieval"]);
   });
 
-  it("pauses schedule rows for providers no longer present", async () => {
+  it("deletes schedule rows for providers no longer present", async () => {
     const providerA = { address: "0xaaa" };
     storageProviderRepositoryMock.find.mockResolvedValueOnce([providerA]);
 
     await callPrivate(service, "ensureScheduleRows");
 
-    expect(jobScheduleRepositoryMock.pauseMissingProviders).toHaveBeenCalledWith([providerA.address]);
+    expect(jobScheduleRepositoryMock.deleteSchedulesForInactiveProviders).toHaveBeenCalledWith([providerA.address]);
   });
 
   it("uses approved-only filter when configured", async () => {
@@ -253,7 +261,7 @@ describe("JobsService schedule rows", () => {
     };
     configService = {
       get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
-    } as JobsServiceDeps[0];
+    } as unknown as JobsServiceDeps[0];
 
     service = buildService({ configService });
 
@@ -297,7 +305,7 @@ describe("JobsService schedule rows", () => {
     };
     configService = {
       get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
-    } as JobsServiceDeps[0];
+    } as unknown as JobsServiceDeps[0];
 
     service = buildService({ configService });
 
@@ -344,7 +352,7 @@ describe("JobsService schedule rows", () => {
     };
     configService = {
       get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
-    } as JobsServiceDeps[0];
+    } as unknown as JobsServiceDeps[0];
 
     service = buildService({ configService });
 
@@ -376,7 +384,7 @@ describe("JobsService schedule rows", () => {
     };
     configService = {
       get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
-    } as JobsServiceDeps[0];
+    } as unknown as JobsServiceDeps[0];
 
     service = buildService({ configService });
 

@@ -63,6 +63,8 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     private readonly jobsStartedCounter: Counter,
     @InjectMetric("jobs_completed_total")
     private readonly jobsCompletedCounter: Counter,
+    @InjectMetric("jobs_paused")
+    private readonly jobsPausedGauge: Gauge,
     @InjectMetric("job_duration_seconds")
     private readonly jobDuration: Histogram,
   ) {}
@@ -423,7 +425,18 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       await this.jobScheduleRepository.upsertSchedule("retrieval", address, retrievalIntervalSeconds, retrievalStartAt);
     }
 
-    await this.jobScheduleRepository.pauseMissingProviders(providerAddresses);
+    if (providerAddresses.length > 0) {
+      const deletedAddresses = await this.jobScheduleRepository.deleteSchedulesForInactiveProviders(providerAddresses);
+      if (deletedAddresses.length > 0) {
+        this.logger.warn(
+          `Deleted job schedules for ${deletedAddresses.length} providers no longer in active list: [${deletedAddresses.join(", ")}]`,
+        );
+      }
+    } else {
+      this.logger.warn(
+        "No active providers found in database; skipping job schedule deletion to prevent accidental mass-deletion.",
+      );
+    }
 
     // Global metrics schedule (sp_address = '')
     await this.jobScheduleRepository.upsertSchedule("metrics", "", metricsIntervalSeconds, metricsStartAt);
@@ -585,6 +598,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       this.jobsQueuedGauge.set({ job_type: jobType }, 0);
       this.jobsRetryScheduledGauge.set({ job_type: jobType }, 0);
       this.jobsInFlightGauge.set({ job_type: jobType }, 0);
+      this.jobsPausedGauge.set({ job_type: jobType }, 0);
       this.oldestQueuedAgeGauge.set({ job_type: jobType }, 0);
       this.oldestInFlightAgeGauge.set({ job_type: jobType }, 0);
     }
@@ -600,6 +614,11 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       } else {
         this.jobsQueuedGauge.set({ job_type: jobType }, row.count);
       }
+    }
+
+    const pausedSchedules = await this.jobScheduleRepository.countPausedSchedules();
+    for (const row of pausedSchedules) {
+      this.jobsPausedGauge.set({ job_type: row.job_type }, row.count);
     }
 
     const now = new Date();
