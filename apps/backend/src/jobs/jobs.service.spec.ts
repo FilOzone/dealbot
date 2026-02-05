@@ -224,6 +224,18 @@ describe("JobsService schedule rows", () => {
     expect(jobsPausedGauge.set).toHaveBeenCalledWith({ job_type: "deal" }, 0);
   });
 
+  it("updates paused job metrics from paused schedule counts", async () => {
+    const jobsPausedGauge = metricsMocks.jobsPausedGauge as unknown as { set: ReturnType<typeof vi.fn> };
+
+    jobScheduleRepositoryMock.countBossJobStates.mockResolvedValueOnce([]);
+    jobScheduleRepositoryMock.countPausedSchedules.mockResolvedValueOnce([{ job_type: "deal", count: 2 }]);
+    jobScheduleRepositoryMock.minBossJobAgeSecondsByState.mockResolvedValueOnce([]).mockResolvedValueOnce([]);
+
+    await callPrivate(service, "updateQueueMetrics");
+
+    expect(jobsPausedGauge.set).toHaveBeenCalledWith({ job_type: "deal" }, 2);
+  });
+
   it("maps job names to job types", async () => {
     expect(callPrivate(service, "mapJobTypeFromName", "deal.run")).toBe("deal");
     expect(callPrivate(service, "mapJobTypeFromName", "unknown.job")).toBeNull();
@@ -252,6 +264,14 @@ describe("JobsService schedule rows", () => {
     await callPrivate(service, "ensureScheduleRows");
 
     expect(jobScheduleRepositoryMock.deleteSchedulesForInactiveProviders).toHaveBeenCalledWith([providerA.address]);
+  });
+
+  it("does not delete schedule rows when no active providers exist", async () => {
+    storageProviderRepositoryMock.find.mockResolvedValueOnce([]);
+
+    await callPrivate(service, "ensureScheduleRows");
+
+    expect(jobScheduleRepositoryMock.deleteSchedulesForInactiveProviders).not.toHaveBeenCalled();
   });
 
   it("uses approved-only filter when configured", async () => {

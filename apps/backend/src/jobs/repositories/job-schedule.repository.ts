@@ -51,11 +51,19 @@ export class JobScheduleRepository {
   /**
    * Deletes schedule rows for providers that are no longer in the active list.
    *
+   * Note: if activeAddresses is empty, this method deletes all provider schedules
+   * (excluding global schedules with empty sp_address). Callers should guard against
+   * empty inputs unless that behavior is intended.
+   *
    * @param activeAddresses - List of currently active provider addresses to keep.
+   * @returns Array of storage provider addresses whose schedules were deleted.
    */
   async deleteSchedulesForInactiveProviders(activeAddresses: string[]): Promise<string[]> {
     try {
       if (activeAddresses.length === 0) {
+        this.logger.warn(
+          "Deleting all provider schedules because activeAddresses is empty. Ensure this is intended to avoid mass deletion.",
+        );
         const result =
           (await this.dataSource.query(
             `
