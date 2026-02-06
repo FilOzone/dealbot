@@ -4,6 +4,7 @@ metadata:
   name: dealbot-env
 data:
   NODE_ENV: production
+  DEALBOT_RUN_MODE: "api"
   DEALBOT_HOST: 0.0.0.0
   DEALBOT_PORT: "3130"
   DATABASE_HOST: dealbot-postgres

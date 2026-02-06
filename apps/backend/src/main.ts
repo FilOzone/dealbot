@@ -7,8 +7,12 @@ import helmet from "helmet";
 const logger = new Logger("Main");
 
 async function bootstrap() {
-  const { AppModule } = await import("./app.module.js");
-  const app = await NestFactory.create(AppModule, {
+  const runMode = (process.env.DEALBOT_RUN_MODE || "both").toLowerCase();
+  const isWorkerOnly = runMode === "worker";
+  const rootModule = isWorkerOnly
+    ? (await import("./worker.module.js")).WorkerModule
+    : (await import("./app.module.js")).AppModule;
+  const app = await NestFactory.create(rootModule, {
     logger: ["log", "fatal", "error", "warn"],
   });
 
@@ -16,49 +20,58 @@ async function bootstrap() {
   // so resources (DB pools, schedulers, etc.) can be released on SIGINT/SIGTERM.
   app.enableShutdownHooks();
 
-  app.use(
-    helmet({
-      contentSecurityPolicy: {
-        directives: {
-          defaultSrc: [`'self'`],
-          styleSrc: [`'self'`, `'unsafe-inline'`],
-          imgSrc: [`'self'`, "data:", "validator.swagger.io"],
-          scriptSrc: [`'self'`, `https: 'unsafe-inline'`],
-          connectSrc: [`'self'`, `https:`],
+  if (!isWorkerOnly) {
+    app.use(
+      helmet({
+        contentSecurityPolicy: {
+          directives: {
+            defaultSrc: [`'self'`],
+            styleSrc: [`'self'`, `'unsafe-inline'`],
+            imgSrc: [`'self'`, "data:", "validator.swagger.io"],
+            scriptSrc: [`'self'`, `https: 'unsafe-inline'`],
+            connectSrc: [`'self'`, `https:`],
+          },
         },
-      },
-    }),
-  );
+      }),
+    );
 
-  // Configure CORS using express cors middleware directly
-  const allowedOrigins = (process.env.DEALBOT_ALLOWED_ORIGINS ?? "")
-    .split(",")
-    .map((o) => o.trim())
-    .filter(Boolean);
+    // Configure CORS using express cors middleware directly
+    const allowedOrigins = (process.env.DEALBOT_ALLOWED_ORIGINS ?? "")
+      .split(",")
+      .map((o) => o.trim())
+      .filter(Boolean);
 
-  app.use(
-    cors({
-      credentials: true,
-      origin: allowedOrigins.length > 0 ? allowedOrigins : false, // Disable CORS if no origins configured
-    }),
-  );
+    app.use(
+      cors({
+        credentials: true,
+        origin: allowedOrigins.length > 0 ? allowedOrigins : false, // Disable CORS if no origins configured
+      }),
+    );
 
-  const config = new DocumentBuilder()
-    .setTitle("Dealbot")
-    .setDescription("FWSS Dealbot API methods")
-    .setVersion("1.0")
-    .addTag("dealbot")
-    .build();
-  const document = SwaggerModule.createDocument(app, config);
-  SwaggerModule.setup("api", app, document);
-
-  const port = Number.parseInt(process.env.DEALBOT_PORT ?? "3000", 10);
-  if (Number.isNaN(port)) {
-    throw new Error(`Invalid DEALBOT_PORT: ${process.env.DEALBOT_PORT}`);
+    const config = new DocumentBuilder()
+      .setTitle("Dealbot")
+      .setDescription("FWSS Dealbot API methods")
+      .setVersion("1.0")
+      .addTag("dealbot")
+      .build();
+    const document = SwaggerModule.createDocument(app, config);
+    SwaggerModule.setup("api", app, document);
   }
-  const host = process.env.DEALBOT_HOST || "127.0.0.1";
+
+  const port = Number.parseInt(
+    isWorkerOnly ? process.env.DEALBOT_METRICS_PORT || "9090" : process.env.DEALBOT_PORT || "3000",
+    10,
+  );
+  if (Number.isNaN(port)) {
+    throw new Error(`Invalid ${isWorkerOnly ? "DEALBOT_METRICS_PORT" : "DEALBOT_PORT"}`);
+  }
+  const host = isWorkerOnly ? process.env.DEALBOT_METRICS_HOST || "0.0.0.0" : process.env.DEALBOT_HOST || "127.0.0.1";
   await app.listen(port, host);
-  logger.log(`Dealbot backend is running on ${host}:${port}`);
+  logger.log(
+    isWorkerOnly
+      ? `Dealbot worker is running; metrics available on ${host}:${port}/metrics`
+      : `Dealbot backend is running on ${host}:${port}`,
+  );
 }
 
 bootstrap();

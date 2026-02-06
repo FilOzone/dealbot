@@ -81,6 +81,9 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     }
 
     this.logger.log("pg-boss mode enabled; initializing job scheduler");
+    const runMode = this.configService.get("app")?.runMode ?? "both";
+    const schedulerEnabled = runMode !== "worker" && (this.configService.get("jobs")?.pgbossSchedulerEnabled ?? true);
+    const workersEnabled = runMode !== "api";
 
     if (process.env.DEALBOT_DISABLE_CHAIN !== "true") {
       await this.walletSdkService.ensureWalletAllowances();
@@ -91,7 +94,19 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       this.logger.error("pg-boss failed to start; job scheduler is disabled.");
       return;
     }
-    this.registerWorkers();
+    if (workersEnabled) {
+      this.registerWorkers();
+    } else {
+      this.logger.warn("pg-boss workers disabled; run mode is api.");
+    }
+
+    if (!schedulerEnabled) {
+      this.logger.warn("pg-boss scheduler disabled; no enqueue loop will run.");
+      if (!workersEnabled) {
+        this.logger.warn("pg-boss workers disabled; no jobs will be processed.");
+      }
+      return;
+    }
 
     await this.tick();
     this.schedulerInterval = setInterval(() => {
@@ -187,22 +202,29 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     if (!this.boss) return;
 
     const scheduling = this.configService.get("scheduling");
+    const workerPollSeconds = Math.max(1, this.configService.get("jobs")?.workerPollSeconds ?? 60);
     const dealTeamSize = Math.max(1, scheduling?.dealMaxConcurrency ?? 1);
     const retrievalTeamSize = Math.max(1, scheduling?.retrievalMaxConcurrency ?? 1);
 
     void this.boss
-      .subscribe("deal.run", { teamSize: dealTeamSize }, async (job) => this.handleDealJob(job.data as DealJobData))
+      .subscribe("deal.run", { teamSize: dealTeamSize, newJobCheckIntervalSeconds: workerPollSeconds }, async (job) =>
+        this.handleDealJob(job.data as DealJobData),
+      )
       .catch((error) => this.logger.error(`Failed to subscribe to deal.run: ${error.message}`, error.stack));
     void this.boss
-      .subscribe("retrieval.run", { teamSize: retrievalTeamSize }, async (job) =>
-        this.handleRetrievalJob(job.data as RetrievalJobData),
+      .subscribe(
+        "retrieval.run",
+        { teamSize: retrievalTeamSize, newJobCheckIntervalSeconds: workerPollSeconds },
+        async (job) => this.handleRetrievalJob(job.data as RetrievalJobData),
       )
       .catch((error) => this.logger.error(`Failed to subscribe to retrieval.run: ${error.message}`, error.stack));
     void this.boss
-      .subscribe("metrics.run", { teamSize: 1 }, async (job) => this.handleMetricsJob(job.data as MetricsJobData))
+      .subscribe("metrics.run", { teamSize: 1, newJobCheckIntervalSeconds: workerPollSeconds }, async (job) =>
+        this.handleMetricsJob(job.data as MetricsJobData),
+      )
       .catch((error) => this.logger.error(`Failed to subscribe to metrics.run: ${error.message}`, error.stack));
     void this.boss
-      .subscribe("metrics.cleanup", { teamSize: 1 }, async (job) =>
+      .subscribe("metrics.cleanup", { teamSize: 1, newJobCheckIntervalSeconds: workerPollSeconds }, async (job) =>
         this.handleMetricsCleanupJob(job.data as MetricsJobData),
       )
       .catch((error) => this.logger.error(`Failed to subscribe to metrics.cleanup: ${error.message}`, error.stack));

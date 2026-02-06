@@ -232,10 +232,26 @@ describe("JobsService schedule rows", () => {
 
     callPrivate(service, "registerWorkers");
 
-    expect(subscribe).toHaveBeenCalledWith("deal.run", { teamSize: 4 }, expect.any(Function));
-    expect(subscribe).toHaveBeenCalledWith("retrieval.run", { teamSize: 5 }, expect.any(Function));
-    expect(subscribe).toHaveBeenCalledWith("metrics.run", { teamSize: 1 }, expect.any(Function));
-    expect(subscribe).toHaveBeenCalledWith("metrics.cleanup", { teamSize: 1 }, expect.any(Function));
+    expect(subscribe).toHaveBeenCalledWith(
+      "deal.run",
+      { teamSize: 4, newJobCheckIntervalSeconds: 60 },
+      expect.any(Function),
+    );
+    expect(subscribe).toHaveBeenCalledWith(
+      "retrieval.run",
+      { teamSize: 5, newJobCheckIntervalSeconds: 60 },
+      expect.any(Function),
+    );
+    expect(subscribe).toHaveBeenCalledWith(
+      "metrics.run",
+      { teamSize: 1, newJobCheckIntervalSeconds: 60 },
+      expect.any(Function),
+    );
+    expect(subscribe).toHaveBeenCalledWith(
+      "metrics.cleanup",
+      { teamSize: 1, newJobCheckIntervalSeconds: 60 },
+      expect.any(Function),
+    );
   });
 
   it("updates paused job metrics from paused schedule counts", async () => {
