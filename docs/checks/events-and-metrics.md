@@ -1,14 +1,14 @@
 # Dealbot Events & Metrics
 
-This document is the **source of truth** for the events emitted by dealbot checks and the metrics computed from them. It is intended for dashboard consumers and maintainers who need to understand what each metric means and where it comes from.
+This document is the intended **source of truth** for the events emitted by dealbot [checks](./README.md#check) and the metrics computed from them. It is intended for dealbot dashboard consumers and maintainers who need to understand what each metric means and where it comes from.
 
 This document describes the expected flow and metrics. Items marked **TBD** are not yet implemented.
 
 ## Event Model
 
-Events are grouped by check type. Each event includes a short definition, its implementation status, and a link to the expected source of truth.
-
 ### Event Timeline
+
+Below are the sequence of events for a Data Storage check.  The Data Storage flow is used because it encapsulates a Retrieval check as well.
 
 ```mermaid
 sequenceDiagram
@@ -42,14 +42,14 @@ sequenceDiagram
 | Event | Definition | Relevant Checks | Implemented | Source of truth |
 |------|------------|:------:|:------:|-----------------|
 | <a id="uploadToSpStart"></a>`uploadToSpStart` | Dealbot is about to start an upload attempt for a piece to an SP. | Data Storage | **TBD** | [`deal.service.ts`](../../apps/backend/src/deal/deal.service.ts) |
-| <a id="uploadToSpEnd"></a>`uploadToSpEnd` | Upload finishes when the PDP server returns a 2xx; piece CID is known; ingest metrics are recorded. | Data Storage | Yes | [`deal.service.ts`](../../apps/backend/src/deal/deal.service.ts) (`handleUploadComplete`) |
+| <a id="uploadToSpEnd"></a>`uploadToSpEnd` | Upload finished (success with HTTP 2xx, failure). | Data Storage | Yes | [`deal.service.ts`](../../apps/backend/src/deal/deal.service.ts) (`handleUploadComplete`) |
+| <a id="dealCreated"></a>`dealCreated` | Deal is marked `DEAL_CREATED` if the upload result is successful. | Data Storage | Yes | [`deal.service.ts`](../../apps/backend/src/deal/deal.service.ts) (`updateDealWithUploadResult`) |
 | <a id="pieceAdded"></a>`pieceAdded` | Piece submission is recorded on-chain by polling the PDP SP; transaction hash is known. | Data Storage | Yes | [`deal.service.ts`](../../apps/backend/src/deal/deal.service.ts) (`handleRootAdded`) |
 | <a id="pieceConfirmed"></a>`pieceConfirmed` | Piece is confirmed on-chain by polling a chain RPC endpoint. | Data Storage | **TBD** | Synapse SDK callback (not yet tracked) |
-| <a id="dealCreated"></a>`dealCreated` | Deal is marked `DEAL_CREATED` after the upload result is returned. | Data Storage | Yes | [`deal.service.ts`](../../apps/backend/src/deal/deal.service.ts) (`updateDealWithUploadResult`) |
 | <a id="spIndexingComplete"></a>`spIndexingComplete` | By polling SP, dealbot learned SP has indexed the piece locally (`indexed=true`). | Data Storage | Yes | [`ipni.strategy.ts`](../../apps/backend/src/deal-addons/strategies/ipni.strategy.ts) |
 | <a id="spAdvertisedToIpni"></a>`spAnnouncedAdvertisementToIpni` | By polling SP, dealbot learned SP has announced the advertisement to IPNI (`advertised=true`). | Data Storage | Yes | [`ipni.strategy.ts`](../../apps/backend/src/deal-addons/strategies/ipni.strategy.ts) |
 | <a id="ipniVerificationStart"></a>`ipniVerificationStart` | Dealbot begins polling filecoinpin.contact for <IpfsRootCid,SP> provider record. | Data Storage, Retrieval | **TBD** | [`ipni.strategy.ts`](../../apps/backend/src/deal-addons/strategies/ipni.strategy.ts) |
-| <a id="ipniVerificationComplete"></a>`ipniVerificationComplete` | IPNI verification completes (pass or timeout) for root CID + provider. | Data Storage, Retrieval | Yes | [`ipni.strategy.ts`](../../apps/backend/src/deal-addons/strategies/ipni.strategy.ts) |
+| <a id="ipniVerificationComplete"></a>`ipniVerificationComplete` | IPNI verification completes (pass or timeout). | Data Storage, Retrieval | Yes | [`ipni.strategy.ts`](../../apps/backend/src/deal-addons/strategies/ipni.strategy.ts) |
 | <a id="ipfsRetrievalStart"></a>`ipfsRetrievalStart` | Dealbot to SP `/ipfs/` retrieval begins. | Data Storage, Retrieval | **TBD** | [`retrieval.service.ts`](../../apps/backend/src/retrieval/retrieval.service.ts) |
 | <a id="ipfsRetrievalFirstByteReceived"></a>`ipfsRetrievalFirstByteReceived` | First byte received from `/ipfs/{rootCid}`. | Data Storage, Retrieval | **TBD** | [`retrieval.service.ts`](../../apps/backend/src/retrieval/retrieval.service.ts) |
 | <a id="ipfsRetrievalLastByteReceived"></a>`ipfsRetrievalLastByteReceived` | Last byte received from `/ipfs/{rootCid}`. | Data Storage, Retrieval |**TBD** | [`retrieval.service.ts`](../../apps/backend/src/retrieval/retrieval.service.ts) |
@@ -57,12 +57,12 @@ sequenceDiagram
 
 ## Metrics
 
-* The metrics below are derived from the events above. 
-* They are exported via Prometheus and recorded on deal or retrieval entities in the database.
+* The metrics below are derived from the [events above](#event-list). 
+* They are exported via Prometheus.
 * All Prometheus/OpenTelemetry metrics have label/attributes for:
    - `checkType=dataStorage|retrieval` — attribute metrics to a particular check
-   - `providerId` — filter metrics to a particular SP 
-   - `providerStatus=approved|unapproved` — filter metrics to only approved SPs
+   - `providerId` — attribute metrics to a particular SP 
+   - `providerStatus=approved|unapproved` — attribute metrics to only approved SPs for example
 
 ### Time Related Metrics
 
@@ -85,14 +85,16 @@ sequenceDiagram
 | <a id="retrievalCheckMs"></a>`retrievalCheckMs` | Retrieval | Retrieval check start | [`ipfsRetrievalIntegrityChecked`](#ipfsRetrievalIntegrityChecked) | Duration of a Retrieval check | |
 
 
-### Count Related Metrics
+### Status Count Related Metrics
 
-* All count-related metrics have a `value` label/attribute that will be set to `success|failure` or `200|500|etc.`.
+- These count metrics are used to track the occurrence of a particular status for a check.
+- All Prometheus/OpenTelemetry status count metrics have label/attributes for:
+   - `value=success|failure|200|500|otherHttpStatusCodes` — attribute metrics to a particular check result
 
-| Metric | Relevant Checks | When Emitted | Additional Info | Source of truth |
+| Metric | Relevant Checks | When Emitted In Successful Case| Additional Info | Source of truth |
 |---|---|---|---|---|
-| <a id="dataStorageUploadStatus"></a>`dataStorageUploadStatus` | Data Storage | [`uploadToSpEnd`](#uploadToSpEnd) when successful |  |  |
-| <a id="dataStorageOnchainStatus"></a>`dataStorageOnchainStatus` | Data Storage | [`pieceConfirmed`](#pieceConfirmed) when successful |  | [`deal.service.ts`](../../apps/backend/src/deal/deal.service.ts) |
-| <a id="discoverabilityStatus"></a>`discoverabilityStatus` | Data Storage, Retrieval | [`ipniVerificationComplete`](#ipniVerificationComplete) when successful |  |  |
+| <a id="dataStorageUploadStatus"></a>`dataStorageUploadStatus` | Data Storage | [`uploadToSpEnd`](#uploadToSpEnd) |  |  |
+| <a id="dataStorageOnchainStatus"></a>`dataStorageOnchainStatus` | Data Storage | [`pieceConfirmed`](#pieceConfirmed) |  | [`deal.service.ts`](../../apps/backend/src/deal/deal.service.ts) |
+| <a id="discoverabilityStatus"></a>`discoverabilityStatus` | Data Storage, Retrieval | [`ipniVerificationComplete`](#ipniVerificationComplete) |  |  |
 | <a id="ipfsRetrievalHttpResponseCode"></a>`ipfsRetrievalHttpResponseCode` | Data Storage, Retrieval | [`ipfsRetrievalLastByteReceived`](#ipfsRetrievalLastByteReceived) |  | [`retrieval.service.ts`](../../apps/backend/src/retrieval/retrieval.service.ts) |
-| <a id="retrievalStatus"></a>`retrievalStatus` | Data Storage, Retrieval | [`ipfsRetrievalIntegrityChecked`](#ipfsRetrievalIntegrityChecked) when successful |  |  |
+| <a id="retrievalStatus"></a>`retrievalStatus` | Data Storage, Retrieval | [`ipfsRetrievalIntegrityChecked`](#ipfsRetrievalIntegrityChecked) |  |  |

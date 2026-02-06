@@ -22,7 +22,7 @@ A **successful** retrieval requires ALL of:
 4. Download completes successfully (HTTP 2xx)
 5. Downloaded content hashed to the requested CID (**TBD**: size-check only until CID verification lands).
 
-**Failure** occurs if any required check fails (IPNI verification, download, or content verification) or the retrieval exceeds its max allowed time.
+**Failure** occurs if ANY required check fails (IPNI verification, download, or content verification) or the retrieval exceeds its max allowed time.
 
 Operational timeouts exist to prevent jobs from running indefinitely, but they are not quality assertions. A per-retrieval max time limit that fails the retrieval if exceeded is **TBD**.
 
@@ -34,12 +34,13 @@ The scheduler triggers retrieval testing on a configurable interval.
 
 ```mermaid
 flowchart TD
-  A["For each SP under test, select MAX_RETRIEVAL_CHECKS_PER_SP_PER_CYCLE random piece"] --> B{"For each piece<br/>up to MAX_RETRIEVAL_CHECKS_IN_PARALLEL"}
+  A["For each SP under test, select MAX_RETRIEVAL_CHECKS_PER_SP_PER_CYCLE random pieces"] --> B{"For each piece<br/>up to MAX_RETRIEVAL_CHECKS_IN_PARALLEL"}
   B --> C["IPNI verification (TBD)"]
-  C --> D["Download via SP IPFS gateway<br/>/ipfs/{rootCid}"]
+  C --> G["Record result (success/failure)"]
+  B --> D["Download via SP IPFS gateway<br/>/ipfs/{rootCid}"]
   D --> E["Measure latency, TTFB, throughput"]
   E --> F["Validate downloaded data"]
-  F --> G["Record result (success/failure)"]
+  F --> G
 ```
 
 ### 1. SP selection
@@ -66,12 +67,11 @@ For each selected piece, dealbot performs the following retrieval checks:
 
 ### 2. `/ipfs` Retrieval
 
-Downloads content from the SP with [`/ipfs` retrieval](https://github.com/filecoin-project/filecoin-pin/blob/master/documentation/glossary.md#ipfs-retrieval)
+Downloads content from the SP directly with [`/ipfs` retrieval](https://github.com/filecoin-project/filecoin-pin/blob/master/documentation/glossary.md#ipfs-retrieval)
 
 - **URL:** `{serviceURL}/ipfs/{rootCID}`
 - **Request:** HTTP/2 with `Accept: application/vnd.ipld.car` header (TODO: remove this - it shouldn't be needed)
 - **Applicable when:** Piece has a root CID in metadata (deal was created with IPNI enabled)
-- **Validation:** CAR file size must match expected CAR size from deal metadata
 - **What this tests:** The SP can serve content by root CID via its IPFS gateway
 
 Source: [`apps/backend/src/retrieval-addons/strategies/ipni.strategy.ts`](../../apps/backend/src/retrieval-addons/strategies/ipni.strategy.ts)
@@ -86,9 +86,6 @@ For each retrieval attempt:
 | 2 | IPFS content is retrievable | HTTP response returns 2xx status | Unlimited if a connection doesn't establish within 5s or on 5xx response | [`ipfsRetrievalLastByteMs`](./events-and-metrics.md#ipfsRetrievalLastByteMs) | Yes |
 | 3 | Content integrity via CID | CID of downloaded content matches ipfsRootCid | none - if we receive non-matching bytes it's a failure | n/a (this is client side and fast) | **TBD** |
 | 4 | All checks pass | Check is not marked successful until all assertions pass within window | n/a | [`retrievalCheckMs`](./events-and-metrics.md#retrievalCheckMs) | **TBD** |
-
-
-> **Note on timing:** Timing-related metrics (latency, TTFB, throughput) are recorded for observability only. Operational timeouts prevent infinite runs but are not treated as quality assertions.
 
 ## Retrieval Result Recording
 
@@ -130,9 +127,6 @@ Key environment variables that control retrieval testing:
 | `IPNI_VERIFICATION_POLLING_MS` | `2000` | How long to give between IPNI polling attempts  |
 | `IPFS_RETRIEVAL_REQUEST_CONNECTION_ESTABLISH_TIMEOUT_MS` | `5000` | Max duration to wait for an HTTP connection get established. |
 | `IPFS_RETRIEVAL_TIMEOUT_MS` | `20000` | Max duration to wait for an `/ipfs` request check to complete |
-
-Effective timeouts:
-
 
 See also: [`docs/environment-variables.md`](../environment-variables.md) for the full configuration reference.
 

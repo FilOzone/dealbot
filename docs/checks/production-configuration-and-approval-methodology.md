@@ -1,11 +1,12 @@
 ## Purpose
 
-This document outlines how dealbot is configured for production by the Filecoin Onchain Cloud working group, particularly for determining which SPs to approve for the "official" Filecoin Warm Storage Service contracts on calibration and mainnet.  A reader, especially an SP seeking to be approved for paid FOC storage deals by default, should be able to read this document and understand how they are evaluated.  While [data-storage.md](./data-storage.md), [retrievals.md](./retrievals.md), and [events-and-metrics.md](./events-and-metrics.md) discussed the dealbot checks and metrics in general, this document provides the context and background for how they are configured and used in production.
+This document outlines how dealbot is configured for production by the Filecoin Onchain Cloud working group, particularly for determining which SPs to approve for the "official" Filecoin Warm Storage Service contracts on calibration and mainnet.  A reader, especially an SP seeking to be approved for paid FOC storage deals by default, should be able to read this document and understand how they are evaluated.  While [data-storage.md](./data-storage.md), [retrievals.md](./retrievals.md), and [events-and-metrics.md](./events-and-metrics.md) discuss the dealbot checks and metrics in general, this document provides the context and background for how they are configured and used in production.
 
 
 
 ## Approval Acceptance Criteria
 
+### Summary
 Our goal in having an "approved" SP list is to support a production-grade quality of service for Filecoin Onchain Cloud storage.  In order to be an approved SP, one must satisfy all of the following criteria. 
 
 | Metric | Threshold | Minimum Sample Size |
@@ -15,9 +16,7 @@ Our goal in having an "approved" SP list is to support a production-grade qualit
 | [Retrieval Success Rate](#retrieval-success-rate) | ≥ 97% | 200 |
 
 ### Data Storage Success Rate
-This is calculated as the success rate of [Data Storage checks](./data-storage.md), which includes uploading data, indexing it, adding it onchain, and verifying it publicly discoverable, retrievable, and verifiable with [standard IPFS tooling](https://github.com/filecoin-project/filecoin-pin/blob/master/documentation/glossary.md#standard-ipfs-tooling).  
-
-See ["How are data storage and retrieval check statistics/thresholds calculated?"](#how-are-data-storage-and-retrieval-check-statisticsthresholds-calculated) for more details.
+This is calculated as the success rate of [Data Storage checks](./data-storage.md), which includes uploading data, indexing it, adding it onchain, and verifying itis publicly discoverable, retrievable, and verifiable with [standard IPFS tooling](https://github.com/filecoin-project/filecoin-pin/blob/master/documentation/glossary.md#standard-ipfs-tooling).  
 
 Relevant parameters include:
 
@@ -27,18 +26,19 @@ Relevant parameters include:
 | `MIN_NUM_DATASETS_FOR_CHECKS` | 15 | Ensure there are enough datasets with pieces being added so that statistical significance for [Data Retention Fault Rate](#data-retention-fault-rate) can be achieved quicker. |
 | `RANDOM_PIECE_SIZES` | 10485760 | 10MB files are used for simplicity |
 | Max [`ingestMs`](./events-and-metrics.md#ingestMs) | 20s | |
+| Max [`pieceAddedOnChainMs`](./events-and-metrics.md#pieceAddedOnChainMs) | 60s | |
 | Max [`pieceConfirmedOnChainMs`](./events-and-metrics.md#pieceConfirmedOnChainMs) | 60s | |
 | Max [`spAnnounceAdvertisementMs`](./events-and-metrics.md#spAnnounceAdvertisementMs) | 20s | |
 | Max [`ipniVerifyMs`](./events-and-metrics.md#ipniVerifyMs) | 60s | |
 | Max [`ipfsRetrievalLastByteMs`](./events-and-metrics.md#ipfsRetrievalLastByteMs) | 20s | |
-| Max [`dataStorageCheckMs`](./events-and-metrics.md#dataStorageCheckMs) | 120s | |
+| Max [`dataStorageCheckMs`](./events-and-metrics.md#dataStorageCheckMs) | 180s | |
 
-This minimum observed success rate threshold count is for having 95% confidence that the success rate is greater than 95%.  See ["How are data storage and retrieval check statistics/thresholds calculated?"](#how-are-data-storage-and-retrieval-check-statisticsthresholds-calculated) for more details.
+This minimum observed success rate threshold count is for having 95% confidence that the success rate is greater than 95%.  See [How are data storage and retrieval check statistics/thresholds calculated?](#how-are-data-storage-and-retrieval-check-statisticsthresholds-calculated) for more details.
 
 ### Data Retention Fault Rate
-This is calculated by looking at all the dataset proofs on chain for the SPs and determining how many challenges were missed or failed.  Note that on mainnet each dataset incurs 5 challenges per day.  To help get to statistical significance quicker, dealbot will seed the SPs with 15 datasets.  Each dataset faces 5 challenges per day. This means you can be approved for durability after a faultless ~7 days.
+This is calculated by looking at all the dataset proofs on chain for the SPs and determining how many challenges were missed or failed.  Note that on mainnet each dataset incurs 5 challenges per day.  To help get to statistical significance quicker, dealbot will seed the SPs with `MIN_NUM_DATASETS_FOR_CHECKS=15` datasets.  Each dataset faces 5 challenges per day. This means an SP can be approved for data retention after a faultless ~7 days if the SP doesn't have other datasets.
 
-See ["How are data retention statistics/threshold calculated?"](#how-are-data-retention-statisticsthreshold-calculated) for more details.
+See [How are data retention statistics/threshold calculated?](#how-are-data-retention-statisticsthreshold-calculated) for more details.
 
 ### Retrieval Success Rate
 This is calculated as the success rate of [Retrieval checks](./retrievals.md), which includes verifying that previously stored data is still publicly discoverable, retrievable, and verifiable with [standard IPFS tooling](https://github.com/filecoin-project/filecoin-pin/blob/master/documentation/glossary.md#standard-ipfs-tooling).   
@@ -49,18 +49,17 @@ Relevant parameters include:
 |-----------|-------|-------|
 | `NUM_RETRIEVAL_CHECKS_PER_SP_PER_HOUR` | 4 | 96 per day |
 | `RANDOM_PIECE_SIZES` | `10485760` | Only ~10MB files are used for retrieval downloads, for simplicity |
-| `MAX_RETRIEVAL_CHECKS_PER_SP_PER_CYCLE` | 1 |  |
 | Max [`ipniVerifyMs`](./events-and-metrics.md#ipniVerifyMs) | 10s | |
 | Max [`ipfsRetrievalLastByteMs`](./events-and-metrics.md#ipfsRetrievalLastByteMs) | 20s | |
 | Max [`retrievalCheckMs`](./events-and-metrics.md#retrievalCheckMs) | 30s | |
 
-This minimum observed success rate threshold count is for having 95% confidence that the success rate is greater than 95%.  See ["How are data storage and retrieval check statistics/thresholds calculated?"](#how-are-data-storage-and-retrieval-check-statisticsthresholds-calculated) for more details.
+This minimum observed success rate threshold count is for having 95% confidence that the success rate is greater than 95%.  See [How are data storage and retrieval check statistics/thresholds calculated?](#how-are-data-storage-and-retrieval-check-statisticsthresholds-calculated) for more details.
 
 ## SP Maintenance Window
 
 Dealbot provides two 20 minute windows per day where it doesn't run "checks" so that SPs can plan their maintenance activities without having their dealbot scores impacted:
-1. 07:00-07:20 UTC
-2. 22:00-22:20 UTC
+- 07:00-07:20 UTC
+- 22:00-22:20 UTC
 
 These times are on the end of the "global trough" and "early morning lull" respectively.  See issue [#163](https://github.com/filecoin-project/dealbot/issues/163) for more details.
 
@@ -72,8 +71,8 @@ The "production dealbot" has `USE_ONLY_APPROVED_PROVIDERS=false` so non-approved
 
 With the current configuration, Dealbot will add this much synthetic load on SP's:
 - 15 datasets, requiring 5 challenges per day per dataset.  The dataset floor price that is paid by Dealbot to the SP covers the cost of the challenges.
-- One 10MB piece being uploaded per 15 minutes.  
-- Two 10MB pieces being downloaded per 15 minutes (the newly create piece and a random existing one)
+- 4x10MB pieces being uploaded per hour.  
+- 8x10MB pieces being downloaded per hour (the newly create pieces as part of the Data Storage checks and random existing pieces as part of the Retrieval checks)
 
 Over the course of a day this means:
 * 75 proof challenges
