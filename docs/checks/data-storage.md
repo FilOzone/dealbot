@@ -46,18 +46,18 @@ The scheduler triggers deal creation on a configurable interval.
 
 ```mermaid
 flowchart TD
-  A["Generate random data"] --> B["Convert to CAR format"]
-  B -- "For each SP under test (up to DEAL_MAX_CONCURRENCY in parallel)" --> D["Ensure MIN_NUM_DATASETS_FOR_CHECKS have been created on-chain (create if necessary)<br/>(uses Synapse, idempotent)"]
-  D --> E["Select a dataset for data storage check"]
-  E --> F["Upload CAR as piece to SP"]
-  F --> G["onUploadComplete: start monitoring SP status"]
-  G --> H["Wait for SP to index & announce index to IPNI"]
-  H --> I["IPNI verification"]
-  F --> J["Wait for on-chain piece creation confirmation<br/>(TBD)"]
-  I --> K{IPNI verified<br/>and on-chain confirmed}
-  J --> K
-  K --> L["Run retrieval checks<br/>(TBD)"]
-  L --> M["Mark deal successful if all checks pass within timeout<br/>(TBD)"]
+  GenerateData["Generate random data"] --> CreateCar["Convert to CAR format"]
+  CreateCar -- "For each SP under test (up to DEAL_MAX_CONCURRENCY in parallel)" --> CreateDataSets["Ensure MIN_NUM_DATASETS_FOR_CHECKS have been created on-chain (create if necessary)<br/>(uses Synapse, idempotent)"]
+  CreateDataSets --> SelectDataSet["Select a dataset for data storage check"]
+  SelectDataSet --> Upload["Upload CAR as piece to SP"]
+  Upload --> Chain["Wait for on-chain piece creation confirmation"]
+  Upload --> LocalIndex["Wait for SP local indexing"]
+  LocalIndex --> IpniAnnouncement["Wait for SP to announce local index to IPNI"]
+  IpniAnnouncement --> IpniVerification["IPNI verification"]
+  LocalIndex --> IpfsRetrieval["SP /ipfs Retrieval Check"]
+  Chain --> CheckResults["Mark data storage check successful if all steps pass"]
+  IpniVerification --> CheckResults
+  IpfsRetrieval --> CheckResults
 ```
 
 **Key constraint:** One data file is generated per cycle and reused across all SPs. This ensures fair comparison — every SP is tested with identical data in a given cycle.
@@ -138,7 +138,7 @@ A deal's **overall status** is a function of four sub-statuses: **Upload**, **On
 
 1. **Upload** must succeed first.
 2. After upload succeeds, **Onchain** and **Discoverability** run in parallel (two branches).
-3. After **Discoverability** succeeds, **Retrieval** runs.
+3. **Retrieval** runs as soon as **Discoverability** progresses past `sp_indexed`.
 
 
 ```mermaid
@@ -147,24 +147,31 @@ flowchart TD
   O["Onchain Status"]
   D["Discoverability Status"]
   R["Retrieval Status"]
-  JOIN["Onchain and Retrieval both passed"]
-  OK["Deal success"]
-  FAIL["Deal failure"]
+  OK["Data Storage Check success"]
+  FAIL["Data Storage Check failure"]
 
   U -->|failure| FAIL
   U -->|success| O
   U -->|success| D
+  D -->|sp_indexed| R
 
   O -->|failure| FAIL
   D -->|failure| FAIL
-
-  D -->|success| R
   R -->|failure| FAIL
 
-  O -->|success| JOIN
-  R -->|success| JOIN
-  JOIN --> OK
+  O -->|success| OK
+  D -->|success| OK
+  R -->|success| OK
 ```
+
+It's expected that a Data Storage check will still store an overall status for easy querying:
+
+| Overall Status | Meaning |
+|--------|---------|
+| `pending` | Piece upload to the SP hasn't started. |
+| `inProgress` | Data Storage check is running. |
+| `success` | All sub-statuses are `success`. |
+| `failure` | Any sub-status is `failure`. |
 
 ---
 
@@ -192,7 +199,7 @@ flowchart TD
 
 | Retrieval Status | Meaning |
 |--------|---------|
-| `pending` | Retrieval checking hasn't started yet because discoverability verification hasn't started yet. |
+| `pending` | Retrieval checking hasn't started yet because Discoverability verification hasn't progressed past `sp_indexed`. |
 | `success` | Piece was retrieved and verified with [standard IPFS tooling](https://github.com/filecoin-project/filecoin-pin/blob/master/documentation/glossary.md#standard-ipfs-tooling).  |
 | `failed` | Piece wasn't retrieved and verified within the allotted time. |
 

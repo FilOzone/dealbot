@@ -17,7 +17,6 @@ sequenceDiagram
   participant SP as PDP Storage Provider
   participant RPC as Chain RPC Provider
   participant IPNI as filecoinpin.contact IPNI Instance
-  participant Retrieval as Retrieval Job
 
   rect rgb(50, 50, 50)
     %% Data Storage Only
@@ -28,13 +27,13 @@ sequenceDiagram
     RPC-->>Dealbot: pieceConfirmed (TBD, async)
     SP-->>Dealbot: spIndexingComplete
     SP-->>Dealbot: spAnnouncedAdvertisementToIpni
-    Dealbot->>IPNI: ipniVerificationStart (TBD)
-    IPNI-->>Dealbot: ipniVerificationComplete
   end
-
-  Retrieval-->>SP: ipfsRetrievalStart (TBD)
-  SP-->>Retrieval: ipfsRetrievalFirstByteReceived (TBD)
-  SP-->>Retrieval: ipfsRetrievalLastByteReceived (TBD)
+    
+  Dealbot->>IPNI: ipniVerificationStart (TBD)
+  IPNI-->>Dealbot: ipniVerificationComplete
+  Dealbot-->>SP: ipfsRetrievalStart (TBD)
+  SP-->>Dealbot: ipfsRetrievalFirstByteReceived (TBD)
+  SP-->>Dealbot: ipfsRetrievalLastByteReceived (TBD)
   Dealbot-->>Dealbot: ipfsRetrievalIntegrityChecked (TBD)
 ```
 
@@ -63,6 +62,7 @@ sequenceDiagram
 * All Prometheus/OpenTelemetry metrics have label/attributes for:
    - `checkType=dataStorage|retrieval` — attribute metrics to a particular check
    - `providerId` — filter metrics to a particular SP 
+   - `providerStatus=approved|unapproved` — filter metrics to only approved SPs
 
 ### Time Related Metrics
 
@@ -73,15 +73,16 @@ sequenceDiagram
 |--------|----------------|--------------|------------|-----------------|-----------------|
 | <a id="ingestMs"></a>`ingestMs` | Data Storage | [`uploadToSpStart`](#uploadToSpStart) | [`uploadToSpEnd`](#uploadToSpEnd) |  | [`deal.service.ts`](../../apps/backend/src/deal/deal.service.ts) |
 | <a id="ingestThroughputBps"></a>`ingestThroughputBps` | Data Storage | n/a | n/a | `(uploadedPieceBytes / ingestMs) * 1000` | [`deal.service.ts`](../../apps/backend/src/deal/deal.service.ts) |
-| <a id="pieceConfirmedOnChainMs"></a>`pieceConfirmedOnChainMs` | Data Storage | [`uploadToSpEnd`](#uploadToSpEnd) | [`pieceConfirmed`](#pieceConfirmed) |  | [`deal.service.ts`](../../apps/backend/src/deal/deal.service.ts) |
+| <a id="pieceAddedOnChainMs"></a>`pieceAddedOnChainMs` | Data Storage | [`uploadToSpEnd`](#uploadToSpEnd) | [`pieceAdded`](#pieceAdded) |  | [`deal.service.ts`](../../apps/backend/src/deal/deal.service.ts) |
+| <a id="pieceConfirmedOnChainMs"></a>`pieceConfirmedOnChainMs` | Data Storage | [`pieceAdded`](#pieceAdded) | [`pieceConfirmed`](#pieceConfirmed) |  | [`deal.service.ts`](../../apps/backend/src/deal/deal.service.ts) |
 | <a id="spIndexLocallyMs"></a>`spIndexLocallyMs` | Data Storage | [`uploadToSpEnd`](#uploadToSpEnd) | [`spIndexingComplete`](#spIndexingComplete) |  | [`ipni.strategy.ts`](../../apps/backend/src/deal-addons/strategies/ipni.strategy.ts) |
 | <a id="spAnnounceAdvertisementMs"></a>`spAnnounceAdvertisementMs` | Data Storage | [`uploadToSpEnd`](#uploadToSpEnd) | [`spAdvertisedToIpni`](#spAdvertisedToIpni) |  | [`ipni.strategy.ts`](../../apps/backend/src/deal-addons/strategies/ipni.strategy.ts) |
 | <a id="ipniVerifyMs"></a>`ipniVerifyMs` | Data Storage, Retrieval | [`ipniVerificationStart`](#ipniVerificationStart) | [`ipniVerificationComplete`](#ipniVerificationComplete) |  | [`ipni.strategy.ts`](../../apps/backend/src/deal-addons/strategies/ipni.strategy.ts) |
 | <a id="ipfsRetrievalFirstByteMs"></a>`ipfsRetrievalFirstByteMs` | Data Storage, Retrieval | [`ipfsRetrievalStart`](#ipfsRetrievalStart) | [`ipfsRetrievalFirstByteReceived`](#ipfsRetrievalFirstByteReceived) |  | [`retrieval.service.ts`](../../apps/backend/src/retrieval/retrieval.service.ts) |
 | <a id="ipfsRetrievalLastByteMs"></a>`ipfsRetrievalLastByteMs` | Data Storage, Retrieval | [`ipfsRetrievalStart`](#ipfsRetrievalStart) | [`ipfsRetrievalLastByteReceived`](#ipfsRetrievalLastByteReceived) |  | [`retrieval.service.ts`](../../apps/backend/src/retrieval/retrieval.service.ts) |
 | <a id="throughputBps"></a>`ipfsRetrievalThroughputBps` | Data Storage, Retrieval | n/a | n/a | `(downloadedCarBytes / ipfsRetrievalLastByteMs) * 1000` | [`retrieval.service.ts`](../../apps/backend/src/retrieval/retrieval.service.ts) |
-| <a id="dataStorageCheckMs"></a>`dataStorageCheckMs` | Data Storage | [`uploadToSpStart`](#uploadToSpStart) | [`ipfsRetrievalIntegrityChecked`](#ipfsRetrievalIntegrityChecked) |  | |
-| <a id="retrievalCheckMs"></a>`retrievalCheckMs` | Retrieval | [`ipniVerificationStart`](#ipniVerificationStart) | [`ipfsRetrievalIntegrityChecked`](#ipfsRetrievalIntegrityChecked) |  | |
+| <a id="dataStorageCheckMs"></a>`dataStorageCheckMs` | Data Storage | [`uploadToSpStart`](#uploadToSpStart) | [`ipfsRetrievalIntegrityChecked`](#ipfsRetrievalIntegrityChecked) | Duration of a Data Storage check | |
+| <a id="retrievalCheckMs"></a>`retrievalCheckMs` | Retrieval | Retrieval check start | [`ipfsRetrievalIntegrityChecked`](#ipfsRetrievalIntegrityChecked) | Duration of a Retrieval check | |
 
 
 ### Count Related Metrics

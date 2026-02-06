@@ -23,7 +23,7 @@ Relevant parameters include:
 
 | Parameter | Value | Notes |
 |-----------|-------|-------|
-| [Data Storage Check](./data-storage.md) frequency | Once per 15 minutes | 96 per day |
+| `NUM_DATA_STORAGE_CHECKS_PER_SP_PER_HOUR` | 4 | 96 per day |
 | `MIN_NUM_DATASETS_FOR_CHECKS` | 15 | Ensure there are enough datasets with pieces being added so that statistical significance for [Data Retention Fault Rate](#data-retention-fault-rate) can be achieved quicker. |
 | `RANDOM_PIECE_SIZES` | 10485760 | 10MB files are used for simplicity |
 | Max [`ingestMs`](./events-and-metrics.md#ingestMs) | 20s | |
@@ -47,7 +47,7 @@ Relevant parameters include:
 
 | Parameter | Value | Notes |
 |-----------|-------|-------|
-| [Retrieval Check](./retrievals.md) frequency | Once per 15 minutes | 96 per day |
+| `NUM_RETRIEVAL_CHECKS_PER_SP_PER_HOUR` | 4 | 96 per day |
 | `RANDOM_PIECE_SIZES` | `10485760` | Only ~10MB files are used for retrieval downloads, for simplicity |
 | `MAX_RETRIEVAL_CHECKS_PER_SP_PER_CYCLE` | 1 |  |
 | Max [`ipniVerifyMs`](./events-and-metrics.md#ipniVerifyMs) | 10s | |
