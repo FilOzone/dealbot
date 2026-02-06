@@ -11,7 +11,9 @@ import { RetrievalAddonsService } from "../retrieval-addons/retrieval-addons.ser
 import { RetrievalService } from "./retrieval.service.js";
 
 describe("RetrievalService timeouts", () => {
-  type RetrievalServicePrivate = RetrievalService & {
+  // Mapped type strips private members so the intersection doesn't collapse to `never`.
+  type PublicInterface<T> = { [K in keyof T]: T[K] };
+  type RetrievalServicePrivate = PublicInterface<RetrievalService> & {
     processRetrievalsInParallel: (
       deals: Deal[],
       options: { timeoutMs: number; maxConcurrency?: number; signal?: AbortSignal },
@@ -82,7 +84,7 @@ describe("RetrievalService timeouts", () => {
       ],
     }).compile();
 
-    return module.get<RetrievalService>(RetrievalService) as RetrievalServicePrivate;
+    return module.get<RetrievalService>(RetrievalService) as unknown as RetrievalServicePrivate;
   };
 
   it("starts a batch when there is enough time remaining for a full HTTP timeout", async () => {
