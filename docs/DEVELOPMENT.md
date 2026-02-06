@@ -136,6 +136,10 @@ make render
 kubectl kustomize kustomize/overlays/local
 ```
 
+## Local monitoring
+`make up` does not install local Prometheus + Grafana by default. To install, run `MONITORING=1 make up`.
+See [docs/local-monitoring.md](local-monitoring.md) for details and dashboard import.
+
 ## SOPS/External Secrets parity
 If you want to reuse SOPS-managed secrets from the infra repo:
 ```bash
