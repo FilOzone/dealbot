@@ -5,6 +5,7 @@ import { InjectMetric } from "@willsoto/nestjs-prometheus";
 import PgBoss from "pg-boss";
 import type { Counter, Gauge, Histogram } from "prom-client";
 import type { Repository } from "typeorm";
+import { getMaintenanceWindowStatus } from "../common/maintenance-window.js";
 import type { IConfig } from "../config/app.config.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
 import { DealService } from "../deal/deal.service.js";
@@ -63,6 +64,8 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     private readonly jobsStartedCounter: Counter,
     @InjectMetric("jobs_completed_total")
     private readonly jobsCompletedCounter: Counter,
+    @InjectMetric("jobs_paused")
+    private readonly jobsPausedGauge: Gauge,
     @InjectMetric("job_duration_seconds")
     private readonly jobDuration: Histogram,
   ) {}
@@ -205,8 +208,27 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       .catch((error) => this.logger.error(`Failed to subscribe to metrics.cleanup: ${error.message}`, error.stack));
   }
 
+  private getMaintenanceWindowStatus(now: Date = new Date()) {
+    const scheduling = this.configService.get("scheduling");
+    return getMaintenanceWindowStatus(now, scheduling.maintenanceWindowsUtc, scheduling.maintenanceWindowMinutes);
+  }
+
+  private logMaintenanceSkip(taskLabel: string, windowLabel?: string) {
+    const scheduling = this.configService.get("scheduling");
+    const label = windowLabel ?? "unknown";
+    this.logger.log(
+      `Maintenance window active (${label} UTC, ${scheduling.maintenanceWindowMinutes}m); skipping ${taskLabel}`,
+    );
+  }
+
   private async handleDealJob(data: DealJobData): Promise<void> {
     const spAddress = data.spAddress;
+    const maintenance = this.getMaintenanceWindowStatus();
+    if (maintenance.active) {
+      this.logMaintenanceSkip(`deal job for ${spAddress}`, maintenance.window?.label);
+      return;
+    }
+
     const acquired = await this.tryAcquireSpLock(spAddress);
     if (!acquired) {
       await this.requeueJob("deal", "deal.run", data);
@@ -247,6 +269,12 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
 
   private async handleRetrievalJob(data: RetrievalJobData): Promise<void> {
     const spAddress = data.spAddress;
+    const maintenance = this.getMaintenanceWindowStatus();
+    if (maintenance.active) {
+      this.logMaintenanceSkip(`retrieval job for ${spAddress}`, maintenance.window?.label);
+      return;
+    }
+
     const acquired = await this.tryAcquireSpLock(spAddress);
     if (!acquired) {
       await this.requeueJob("retrieval", "retrieval.run", data);
@@ -431,7 +459,18 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       await this.jobScheduleRepository.upsertSchedule("retrieval", address, retrievalIntervalSeconds, retrievalStartAt);
     }
 
-    await this.jobScheduleRepository.pauseMissingProviders(providerAddresses);
+    if (providerAddresses.length > 0) {
+      const deletedAddresses = await this.jobScheduleRepository.deleteSchedulesForInactiveProviders(providerAddresses);
+      if (deletedAddresses.length > 0) {
+        this.logger.warn(
+          `Deleted job schedules for ${deletedAddresses.length} providers no longer in active list: [${deletedAddresses.join(", ")}]`,
+        );
+      }
+    } else {
+      this.logger.warn(
+        "No active providers found in database; skipping job schedule deletion to prevent accidental mass-deletion.",
+      );
+    }
 
     // Global metrics schedule (sp_address = '')
     await this.jobScheduleRepository.upsertSchedule("metrics", "", metricsIntervalSeconds, metricsStartAt);
@@ -448,28 +487,57 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
    * Enqueues them into pg-boss, respecting rate limits/jitter.
    * Updates the `next_run_at` in the DB upon successful enqueue.
    */
+  private getScheduleTiming(
+    row: ScheduleRow,
+    now: Date,
+  ): {
+    intervalMs: number;
+    nextRunAt: Date;
+    runsDue: number;
+  } | null {
+    const intervalMs = row.interval_seconds * 1000;
+    if (intervalMs <= 0) return null;
+
+    const nextRunAt = new Date(row.next_run_at);
+    const diffMs = now.getTime() - nextRunAt.getTime();
+    if (diffMs < 0) return null;
+
+    const runsDue = Math.floor(diffMs / intervalMs) + 1;
+    if (runsDue <= 0) return null;
+
+    return { intervalMs, nextRunAt, runsDue };
+  }
+
   private async enqueueDueJobs(): Promise<void> {
     if (!this.boss) return;
 
     const now = new Date();
+    const maintenance = this.getMaintenanceWindowStatus(now);
     const catchupMax = this.catchupMaxEnqueue();
     const spreadSeconds = this.catchupSpreadSeconds();
     const immediateLimit = this.perSpImmediateLimit();
+
+    if (maintenance.active) {
+      this.logMaintenanceSkip("deal/retrieval enqueues", maintenance.window?.label);
+    }
 
     await this.jobScheduleRepository.runTransaction(async (manager) => {
       const rows = await this.jobScheduleRepository.findDueSchedulesWithManager(manager, now);
 
       for (const row of rows) {
-        const intervalMs = row.interval_seconds * 1000;
-        if (intervalMs <= 0) continue;
+        if (maintenance.active && (row.job_type === "deal" || row.job_type === "retrieval")) {
+          const timing = this.getScheduleTiming(row, now);
+          if (!timing) continue;
+          const { intervalMs, nextRunAt, runsDue } = timing;
 
-        const nextRunAt = new Date(row.next_run_at);
-        const diffMs = now.getTime() - nextRunAt.getTime();
-        if (diffMs < 0) continue;
+          const newNextRunAt = new Date(nextRunAt.getTime() + runsDue * intervalMs);
+          await this.jobScheduleRepository.updateScheduleAfterRun(manager, row.id, newNextRunAt, now);
+          continue;
+        }
 
-        // Calculate how many runs we missed (or are due)
-        const runsDue = Math.floor(diffMs / intervalMs) + 1;
-        if (runsDue <= 0) continue;
+        const timing = this.getScheduleTiming(row, now);
+        if (!timing) continue;
+        const { intervalMs, nextRunAt, runsDue } = timing;
 
         const totalToEnqueue = Math.min(runsDue, catchupMax);
         const immediateCount = Math.min(totalToEnqueue, immediateLimit);
@@ -593,6 +661,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       this.jobsQueuedGauge.set({ job_type: jobType }, 0);
       this.jobsRetryScheduledGauge.set({ job_type: jobType }, 0);
       this.jobsInFlightGauge.set({ job_type: jobType }, 0);
+      this.jobsPausedGauge.set({ job_type: jobType }, 0);
       this.oldestQueuedAgeGauge.set({ job_type: jobType }, 0);
       this.oldestInFlightAgeGauge.set({ job_type: jobType }, 0);
     }
@@ -608,6 +677,11 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       } else {
         this.jobsQueuedGauge.set({ job_type: jobType }, row.count);
       }
+    }
+
+    const pausedSchedules = await this.jobScheduleRepository.countPausedSchedules();
+    for (const row of pausedSchedules) {
+      this.jobsPausedGauge.set({ job_type: row.job_type }, row.count);
     }
 
     const now = new Date();

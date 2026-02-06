@@ -6,6 +6,8 @@ This runbook covers operational tasks for the pg-boss scheduler.
 
 pg-boss schedules are stored in the `job_schedule_state` table.
 To pause job execution for maintenance windows, set `paused = true`.
+For routine daily maintenance windows, prefer `DEALBOT_MAINTENANCE_WINDOWS_UTC` and
+`DEALBOT_MAINTENANCE_WINDOW_MINUTES`, which skip deal/retrieval checks automatically in both cron and pg-boss modes.
 
 ```sql
 -- Pause all deal and retrieval jobs
@@ -92,7 +94,8 @@ WHERE job_type = 'retrieval'
 
 - Offsets (`*_START_OFFSET_SECONDS`) are ignored in pg-boss mode.
 - Job schedules are rate-based (per hour) and persist across restarts.
-- Paused schedules remain paused until explicitly resumed.
+- Paused schedules remain paused until explicitly resumed. Pausing is strictly for manual/admin use.
+- Schedules for providers that are removed from configuration or go inactive are **automatically deleted** to keep the job list clean. Manually paused jobs for active providers are preserved.
 
 ## Staggering multiple dealbot deployments
 

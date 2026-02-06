@@ -110,6 +110,14 @@ const metricProviders = [
     labelNames: ["job_type"] as const,
   }),
   /**
+   * Manually paused jobs per type (paused = true in job_schedule_state).
+   */
+  makeGaugeProvider({
+    name: "jobs_paused",
+    help: "Number of manually paused jobs in job_schedule_state",
+    labelNames: ["job_type"] as const,
+  }),
+  /**
    * Enqueue attempts per type (success/error).
    */
   makeCounterProvider({

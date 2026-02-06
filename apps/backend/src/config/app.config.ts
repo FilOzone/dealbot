@@ -1,5 +1,6 @@
 import Joi from "joi";
 import { DEFAULT_LOCAL_DATASETS_PATH } from "../common/constants.js";
+import { parseMaintenanceWindowTimes } from "../common/maintenance-window.js";
 import type { Network } from "../common/types.js";
 
 export const configValidationSchema = Joi.object({
@@ -62,6 +63,19 @@ export const configValidationSchema = Joi.object({
   DEAL_START_OFFSET_SECONDS: Joi.number().default(0),
   RETRIEVAL_START_OFFSET_SECONDS: Joi.number().default(600),
   METRICS_START_OFFSET_SECONDS: Joi.number().default(900),
+  DEALBOT_MAINTENANCE_WINDOWS_UTC: Joi.string()
+    .default("07:00,22:00")
+    .custom((value, helpers) => {
+      try {
+        parseMaintenanceWindowTimes(value.split(","));
+      } catch (error) {
+        return helpers.error("any.invalid", {
+          message: error instanceof Error ? error.message : "Invalid maintenance window format",
+        });
+      }
+      return value;
+    }),
+  DEALBOT_MAINTENANCE_WINDOW_MINUTES: Joi.number().min(20).max(360).default(20),
   // Per-hour limits are guardrails to avoid excessive background load.
   METRICS_PER_HOUR: Joi.number().min(0.001).max(3).optional(),
   DEALS_PER_SP_PER_HOUR: Joi.number().min(0.001).max(20).optional(),
@@ -142,6 +156,8 @@ export interface ISchedulingConfig {
   dealStartOffsetSeconds: number;
   retrievalStartOffsetSeconds: number;
   metricsStartOffsetSeconds: number;
+  maintenanceWindowsUtc: string[];
+  maintenanceWindowMinutes: number;
 }
 
 export interface IJobsConfig {
@@ -301,6 +317,11 @@ export function loadConfig(): IConfig {
       dealStartOffsetSeconds: Number.parseInt(process.env.DEAL_START_OFFSET_SECONDS || "0", 10),
       retrievalStartOffsetSeconds: Number.parseInt(process.env.RETRIEVAL_START_OFFSET_SECONDS || "600", 10),
       metricsStartOffsetSeconds: Number.parseInt(process.env.METRICS_START_OFFSET_SECONDS || "900", 10),
+      maintenanceWindowsUtc: (process.env.DEALBOT_MAINTENANCE_WINDOWS_UTC || "07:00,22:00")
+        .split(",")
+        .map((value) => value.trim())
+        .filter((value) => value.length > 0),
+      maintenanceWindowMinutes: Number.parseInt(process.env.DEALBOT_MAINTENANCE_WINDOW_MINUTES || "20", 10),
     },
     jobs: {
       mode: (process.env.DEALBOT_JOBS_MODE || "cron") as "cron" | "pgboss",
