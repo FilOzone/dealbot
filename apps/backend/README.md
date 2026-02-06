@@ -110,15 +110,18 @@ All configuration is done via environment variables in `.env`.
 
 Control when and how often automated jobs run:
 
-| Variable                         | Description                       | Default (seconds) |
+| Variable                         | Description                       | Recommended |
 | -------------------------------- | --------------------------------- | ----------------- |
 | `DEAL_INTERVAL_SECONDS`          | How often to create new deals     | `1800` (30 min)   |
+| `DEAL_MAX_CONCURRENCY`           | Max parallel deal creations       | `6`               |
 | `RETRIEVAL_INTERVAL_SECONDS`     | How often to test retrievals      | `3600` (60 min)   |
+| `RETRIEVAL_MAX_CONCURRENCY`      | Max parallel retrieval tests      | `5`               |
 | `DEAL_START_OFFSET_SECONDS`      | Delay before first deal creation  | `0`               |
 | `RETRIEVAL_START_OFFSET_SECONDS` | Delay before first retrieval test | `300` (5 min)     |
 | `METRICS_START_OFFSET_SECONDS`   | Delay before first metrics job    | `600` (10 min)    |
 
 **Note:** Offsets prevent concurrent execution of multiple jobs at startup.
+**Note:** Config defaults differ for some intervals (e.g., `DEAL_INTERVAL_SECONDS=30`, `RETRIEVAL_INTERVAL_SECONDS=60`); see `docs/environment-variables.md` for details.
 
 ### Dataset Configuration
 

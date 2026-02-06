@@ -96,6 +96,8 @@ describe("JobsService schedule rows", () => {
       blockchain: { useOnlyApprovedProviders: false } as IConfig["blockchain"],
       scheduling: {
         dealIntervalSeconds: 600,
+        dealMaxConcurrency: 4,
+        retrievalMaxConcurrency: 5,
         retrievalIntervalSeconds: 1200,
       } as IConfig["scheduling"],
       jobs: {
@@ -222,6 +224,18 @@ describe("JobsService schedule rows", () => {
     expect(oldestQueuedGauge.set).toHaveBeenCalledWith({ job_type: "deal" }, 12);
     expect(oldestInFlightGauge.set).toHaveBeenCalledWith({ job_type: "retrieval" }, 34);
     expect(jobsPausedGauge.set).toHaveBeenCalledWith({ job_type: "deal" }, 0);
+  });
+
+  it("registers pg-boss subscriptions with per-queue team sizes", async () => {
+    const subscribe = vi.fn().mockResolvedValue(undefined);
+    (service as unknown as { boss: { subscribe: typeof subscribe } }).boss = { subscribe };
+
+    callPrivate(service, "registerWorkers");
+
+    expect(subscribe).toHaveBeenCalledWith("deal.run", { teamSize: 4 }, expect.any(Function));
+    expect(subscribe).toHaveBeenCalledWith("retrieval.run", { teamSize: 5 }, expect.any(Function));
+    expect(subscribe).toHaveBeenCalledWith("metrics.run", { teamSize: 1 }, expect.any(Function));
+    expect(subscribe).toHaveBeenCalledWith("metrics.cleanup", { teamSize: 1 }, expect.any(Function));
   });
 
   it("updates paused job metrics from paused schedule counts", async () => {

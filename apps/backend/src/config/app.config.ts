@@ -33,7 +33,8 @@ export const configValidationSchema = Joi.object({
 
   // Scheduling
   DEAL_INTERVAL_SECONDS: Joi.number().default(30),
-  DEAL_MAX_CONCURRENCY: Joi.number().min(1).default(2),
+  DEAL_MAX_CONCURRENCY: Joi.number().integer().min(1).default(6),
+  RETRIEVAL_MAX_CONCURRENCY: Joi.number().integer().min(1).default(5),
   RETRIEVAL_INTERVAL_SECONDS: Joi.number()
     .min(1)
     .default(60)
@@ -150,6 +151,7 @@ export interface IBlockchainConfig {
 export interface ISchedulingConfig {
   dealIntervalSeconds: number;
   dealMaxConcurrency: number;
+  retrievalMaxConcurrency: number;
   retrievalIntervalSeconds: number;
   dealStartOffsetSeconds: number;
   retrievalStartOffsetSeconds: number;
@@ -309,7 +311,8 @@ export function loadConfig(): IConfig {
     },
     scheduling: {
       dealIntervalSeconds: Number.parseInt(process.env.DEAL_INTERVAL_SECONDS || "30", 10),
-      dealMaxConcurrency: Number.parseInt(process.env.DEAL_MAX_CONCURRENCY || "2", 10),
+      dealMaxConcurrency: Number.parseInt(process.env.DEAL_MAX_CONCURRENCY || "6", 10),
+      retrievalMaxConcurrency: Number.parseInt(process.env.RETRIEVAL_MAX_CONCURRENCY || "5", 10),
       retrievalIntervalSeconds: Number.parseInt(process.env.RETRIEVAL_INTERVAL_SECONDS || "60", 10),
       dealStartOffsetSeconds: Number.parseInt(process.env.DEAL_START_OFFSET_SECONDS || "0", 10),
       retrievalStartOffsetSeconds: Number.parseInt(process.env.RETRIEVAL_START_OFFSET_SECONDS || "600", 10),

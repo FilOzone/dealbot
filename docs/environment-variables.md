@@ -10,7 +10,7 @@ This document provides a comprehensive guide to all environment variables used b
 | [Database](#database-configuration)       | `DATABASE_HOST`, `DATABASE_PORT`, `DATABASE_USER`, `DATABASE_PASSWORD`, `DATABASE_NAME`                                                                      |
 | [Blockchain](#blockchain-configuration)   | `NETWORK`, `WALLET_ADDRESS`, `WALLET_PRIVATE_KEY`, `CHECK_DATASET_CREATION_FEES`, `USE_ONLY_APPROVED_PROVIDERS`, `ENABLE_CDN_TESTING`, `ENABLE_IPNI_TESTING` |
 | [Dataset Versioning](#dataset-versioning) | `DEALBOT_DATASET_VERSION`                                                                                                                                    |
-| [Scheduling](#scheduling-configuration)   | `DEAL_INTERVAL_SECONDS`, `DEAL_MAX_CONCURRENCY`, `RETRIEVAL_INTERVAL_SECONDS`, `DEAL_START_OFFSET_SECONDS`, `RETRIEVAL_START_OFFSET_SECONDS`, `METRICS_START_OFFSET_SECONDS`, `DEALBOT_MAINTENANCE_WINDOWS_UTC`, `DEALBOT_MAINTENANCE_WINDOW_MINUTES`         |
+| [Scheduling](#scheduling-configuration)   | `DEAL_INTERVAL_SECONDS`, `DEAL_MAX_CONCURRENCY`, `RETRIEVAL_MAX_CONCURRENCY`, `RETRIEVAL_INTERVAL_SECONDS`, `DEAL_START_OFFSET_SECONDS`, `RETRIEVAL_START_OFFSET_SECONDS`, `METRICS_START_OFFSET_SECONDS`, `DEALBOT_MAINTENANCE_WINDOWS_UTC`, `DEALBOT_MAINTENANCE_WINDOW_MINUTES`         |
 | [Jobs (pg-boss)](#jobs-pg-boss)           | `DEALBOT_JOBS_MODE`, `DEALS_PER_SP_PER_HOUR`, `RETRIEVALS_PER_SP_PER_HOUR`, `METRICS_PER_HOUR`, `JOB_SCHEDULER_POLL_SECONDS`, `JOB_CATCHUP_MAX_ENQUEUE`, `JOB_CATCHUP_SPREAD_HOURS`, `JOB_LOCK_RETRY_SECONDS`, `JOB_SCHEDULE_PHASE_SECONDS`, `JOB_ENQUEUE_JITTER_SECONDS` |
 | [Dataset](#dataset-configuration)         | `DEALBOT_LOCAL_DATASETS_PATH`, `RANDOM_DATASET_SIZES`                                                                                                        |
 | [Proxy](#proxy-configuration)             | `PROXY_LIST`, `PROXY_LOCATIONS`                                                                                                                              |
@@ -400,10 +400,10 @@ DEAL_INTERVAL_SECONDS=3600
 
 - **Type**: `number`
 - **Required**: No
-- **Default**: `2`
+- **Default**: `6`
 - **Minimum**: `1`
 
-**Role**: Maximum number of deals created in parallel per batch when running deal creation for all providers. Providers are processed in batches of this size; batches run sequentially.
+**Role**: Controls deal-job concurrency. When `DEALBOT_JOBS_MODE=cron`, this is the maximum number of providers processed in parallel per batch; batches run sequentially. When `DEALBOT_JOBS_MODE=pgboss`, this sets the pg-boss `teamSize` for `deal.run` workers.
 
 **When to update**:
 
@@ -415,6 +415,36 @@ DEAL_INTERVAL_SECONDS=3600
 ```bash
 DEAL_MAX_CONCURRENCY=4
 ```
+
+**Sizing note**: A rough estimate for required concurrency is
+`(providers * jobs_per_hour_per_provider * avg_duration_seconds) / 3600`.
+Use p95 duration for a more conservative default.
+
+---
+
+### `RETRIEVAL_MAX_CONCURRENCY`
+
+- **Type**: `number`
+- **Required**: No
+- **Default**: `5`
+- **Minimum**: `1`
+
+**Role**: Maximum number of retrieval tests executed in parallel when running pg-boss workers.
+
+**When to update**:
+
+- Increase to clear retrieval backlogs faster (higher provider load)
+- Decrease to limit simultaneous retrievals
+
+**Example**:
+
+```bash
+RETRIEVAL_MAX_CONCURRENCY=5
+```
+
+**Sizing note**: A rough estimate for required concurrency is
+`(providers * jobs_per_hour_per_provider * avg_duration_seconds) / 3600`.
+Use p95 duration for a more conservative default.
 
 ---
 
