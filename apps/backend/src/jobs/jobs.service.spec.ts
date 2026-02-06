@@ -91,6 +91,7 @@ describe("JobsService schedule rows", () => {
       blockchain: { useOnlyApprovedProviders: false } as IConfig["blockchain"],
       scheduling: {
         dealIntervalSeconds: 600,
+        retrievalMaxConcurrency: 5,
         retrievalIntervalSeconds: 1200,
       } as IConfig["scheduling"],
       jobs: {
