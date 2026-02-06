@@ -33,8 +33,8 @@ export const configValidationSchema = Joi.object({
 
   // Scheduling
   DEAL_INTERVAL_SECONDS: Joi.number().default(30),
-  DEAL_MAX_CONCURRENCY: Joi.number().min(1).default(6),
-  RETRIEVAL_MAX_CONCURRENCY: Joi.number().min(1).default(5),
+  DEAL_MAX_CONCURRENCY: Joi.number().integer().min(1).default(6),
+  RETRIEVAL_MAX_CONCURRENCY: Joi.number().integer().min(1).default(5),
   RETRIEVAL_INTERVAL_SECONDS: Joi.number()
     .min(1)
     .default(60)

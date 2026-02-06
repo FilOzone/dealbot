@@ -403,7 +403,7 @@ DEAL_INTERVAL_SECONDS=3600
 - **Default**: `6`
 - **Minimum**: `1`
 
-**Role**: Maximum number of deals created in parallel per batch when running deal creation for all providers. Providers are processed in batches of this size; batches run sequentially.
+**Role**: Controls deal-job concurrency. When `DEALBOT_JOBS_MODE=cron`, this is the maximum number of providers processed in parallel per batch; batches run sequentially. When `DEALBOT_JOBS_MODE=pgboss`, this sets the pg-boss `teamSize` for `deal.run` workers.
 
 **When to update**:
 
