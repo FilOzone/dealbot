@@ -7,16 +7,19 @@ declare const process: {
 declare global {
   // React Testing Library checks this flag to decide whether to warn about act()
   // usage outside a testing environment.
-  // eslint-disable-next-line no-var
-  var IS_REACT_ACT_ENVIRONMENT: boolean | undefined;
+  interface GlobalThis {
+    IS_REACT_ACT_ENVIRONMENT?: boolean;
+  }
 }
 
 if (process.env.NODE_ENV !== "test") {
   process.env.NODE_ENV = "test";
 }
 
-if (!globalThis.IS_REACT_ACT_ENVIRONMENT) {
-  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+const globalWithAct = globalThis as GlobalThis;
+
+if (!globalWithAct.IS_REACT_ACT_ENVIRONMENT) {
+  globalWithAct.IS_REACT_ACT_ENVIRONMENT = true;
 }
 
 export {};
