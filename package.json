@@ -18,7 +18,8 @@
     "test": "pnpm -r test",
     "test:watch": "pnpm -r test:watch",
     "test:cov": "pnpm -r test:cov",
-    "test:e2e": "pnpm -r test:e2e"
+    "test:e2e": "pnpm -r test:e2e",
+    "typecheck": "pnpm -r typecheck"
   },
   "devDependencies": {
     "@biomejs/biome": "catalog:",
