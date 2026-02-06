@@ -172,11 +172,12 @@ export class JobScheduleRepository {
 
   /**
    * Counts pg-boss jobs by name and state for the requested states.
+   * Casts state to text so drivers always return a string (pg-boss uses job_state enum).
    */
   async countBossJobStates(states: string[]): Promise<{ name: string; state: string; count: number }[]> {
     return this.dataSource.query(
       `
-      SELECT name, state, COUNT(*)::int AS count
+      SELECT name, state::text AS state, COUNT(*)::int AS count
       FROM pgboss.job
       WHERE state::text = ANY($1::text[])
       GROUP BY name, state
@@ -187,7 +188,7 @@ export class JobScheduleRepository {
 
   /**
    * Returns the minimum age (seconds) for jobs in a given pg-boss state, grouped by name.
-   * Uses created_on for queued jobs and started_on for active jobs.
+   * Uses createdon for queued jobs and startedon for active jobs (pg-boss schema column names).
    */
   async minBossJobAgeSecondsByState(
     state: "created" | "active",
@@ -201,8 +202,8 @@ export class JobScheduleRepository {
           EXTRACT(
             EPOCH FROM (
               $1 - CASE
-                    WHEN $2::text = 'created' THEN created_on
-                    ELSE started_on
+                    WHEN $2::text = 'created' THEN createdon
+                    ELSE startedon
                   END
             )
           )
