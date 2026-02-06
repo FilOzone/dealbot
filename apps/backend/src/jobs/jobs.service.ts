@@ -659,16 +659,23 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     }
 
     const rows = await this.jobScheduleRepository.countBossJobStates(["created", "retry", "active"]);
-    for (const row of rows) {
-      const jobType = this.mapJobTypeFromName(row.name);
-      if (!jobType) continue;
-      if (row.state === "active") {
-        this.jobsInFlightGauge.set({ job_type: jobType }, row.count);
-      } else if (row.state === "retry") {
-        this.jobsRetryScheduledGauge.set({ job_type: jobType }, row.count);
-      } else {
-        this.jobsQueuedGauge.set({ job_type: jobType }, row.count);
+    if (rows.length > 0) {
+      for (const row of rows) {
+        const jobType = this.mapJobTypeFromName(row.name);
+        if (!jobType) continue;
+        const state = String(row.state).toLowerCase();
+        if (state === "active") {
+          this.jobsInFlightGauge.set({ job_type: jobType }, row.count);
+        } else if (state === "retry") {
+          this.jobsRetryScheduledGauge.set({ job_type: jobType }, row.count);
+        } else {
+          this.jobsQueuedGauge.set({ job_type: jobType }, row.count);
+        }
       }
+    } else {
+      this.logger.error(
+        "pgboss.job returned zero rows for states created/retry/active; metrics will remain at 0. Verify the backend is connected to the expected database and schema.",
+      );
     }
 
     const pausedSchedules = await this.jobScheduleRepository.countPausedSchedules();
