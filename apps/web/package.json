@@ -21,7 +21,7 @@
     "test:watch": "vitest",
     "test:cov": "vitest run --coverage",
     "test:debug": "vitest --inspect-brk --inspect --logHeapUsage --threads=false",
-    "typecheck": "tsc -b"
+    "typecheck": "tsc -b tsconfig.app.json tsconfig.node.json && tsc -p tsconfig.vitest.json"
   },
   "dependencies": {
     "@radix-ui/react-accordion": "^1.2.12",

@@ -25,7 +25,7 @@
     "test:debug": "vitest --inspect-brk --inspect --logHeapUsage --threads=false",
     "test:e2e": "vitest run --config ./test/vitest-e2e.config.ts",
     "test:e2e:k8s": "VITEST_INCLUDE_K8S=true vitest run --config ./test/vitest-e2e.config.ts test/k8s-integration.e2e-spec.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit --incremental false"
   },
   "dependencies": {
     "@filoz/synapse-sdk": "0.36.1",

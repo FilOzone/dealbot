@@ -127,3 +127,22 @@ jobs:
           DATABASE_USER: test
           DATABASE_PASSWORD: test
           DATABASE_NAME: test
+
+  docker-build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build web image
+        run: docker build --file apps/web/Dockerfile .
+
+      - name: Build backend image
+        run: docker build --file apps/backend/Dockerfile .
