@@ -191,20 +191,16 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       .subscribe("deal.run", { teamSize: dealTeamSize }, async (job) => this.handleDealJob(job.data as DealJobData))
       .catch((error) => this.logger.error(`Failed to subscribe to deal.run: ${error.message}`, error.stack));
     void this.boss
-      .subscribe(
-        "retrieval.run",
-        { teamSize: retrievalTeamSize },
-        async (job) => this.handleRetrievalJob(job.data as RetrievalJobData),
+      .subscribe("retrieval.run", { teamSize: retrievalTeamSize }, async (job) =>
+        this.handleRetrievalJob(job.data as RetrievalJobData),
       )
       .catch((error) => this.logger.error(`Failed to subscribe to retrieval.run: ${error.message}`, error.stack));
     void this.boss
       .subscribe("metrics.run", { teamSize: 1 }, async (job) => this.handleMetricsJob(job.data as MetricsJobData))
       .catch((error) => this.logger.error(`Failed to subscribe to metrics.run: ${error.message}`, error.stack));
     void this.boss
-      .subscribe(
-        "metrics.cleanup",
-        { teamSize: 1 },
-        async (job) => this.handleMetricsCleanupJob(job.data as MetricsJobData),
+      .subscribe("metrics.cleanup", { teamSize: 1 }, async (job) =>
+        this.handleMetricsCleanupJob(job.data as MetricsJobData),
       )
       .catch((error) => this.logger.error(`Failed to subscribe to metrics.cleanup: ${error.message}`, error.stack));
   }
