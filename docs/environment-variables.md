@@ -400,7 +400,7 @@ DEAL_INTERVAL_SECONDS=3600
 
 - **Type**: `number`
 - **Required**: No
-- **Default**: `6`
+- **Default**: `10`
 - **Minimum**: `1`
 
 **Role**: Controls deal-job concurrency. When `DEALBOT_JOBS_MODE=cron`, this is the maximum number of providers processed in parallel per batch; batches run sequentially. When `DEALBOT_JOBS_MODE=pgboss`, this sets the pg-boss `teamSize` for `deal.run` workers.
@@ -413,7 +413,7 @@ DEAL_INTERVAL_SECONDS=3600
 **Example**:
 
 ```bash
-DEAL_MAX_CONCURRENCY=4
+DEAL_MAX_CONCURRENCY=10
 ```
 
 **Sizing note**: A rough estimate for required concurrency is
@@ -426,7 +426,7 @@ Use p95 duration for a more conservative default.
 
 - **Type**: `number`
 - **Required**: No
-- **Default**: `5`
+- **Default**: `10`
 - **Minimum**: `1`
 
 **Role**: Maximum number of retrieval tests executed in parallel when running pg-boss workers.
@@ -439,7 +439,7 @@ Use p95 duration for a more conservative default.
 **Example**:
 
 ```bash
-RETRIEVAL_MAX_CONCURRENCY=5
+RETRIEVAL_MAX_CONCURRENCY=10
 ```
 
 **Sizing note**: A rough estimate for required concurrency is
