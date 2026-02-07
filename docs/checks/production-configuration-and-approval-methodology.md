@@ -59,7 +59,7 @@ Dealbot provides two 20 minute windows per day where it doesn't run "checks" so 
 - 07:00-07:20 UTC
 - 22:00-22:20 UTC
 
-These times are on the end of the "global trough" and "early morning lull" respectively.  See issue [#163](https://github.com/filecoin-project/dealbot/issues/163) for more details.
+These times are on the end of the "global trough" and "early morning lull" respectively.  See issue [#163](https://github.com/FilOzone/dealbot/issues/163) for more details.
 
 ## SPs in Scope for Testing
 
@@ -67,15 +67,15 @@ The "production dealbot" has `USE_ONLY_APPROVED_PROVIDERS=false` so non-approved
 
 ## SP Resource Consumption for Dealbot Checks
 
-With the current configuration, Dealbot will add this much synthetic load on SP's:
+With the current configuration, Dealbot will add this much synthetic load on SPs:
 - 15 datasets, requiring 5 challenges per day per dataset.  The dataset floor price that is paid by Dealbot to the SP covers the cost of the challenges.
 - 4x10MB pieces being uploaded per hour.  
-- 8x10MB pieces being downloaded per hour (the newly create pieces as part of the Data Storage checks and random existing pieces as part of the Retrieval checks)
+- 8x10MB pieces being downloaded per hour (the newly created pieces as part of the Data Storage checks and random existing pieces as part of the Retrieval checks)
 
 Over the course of a day this means:
 * 75 proof challenges
 * 960 MB of SP download bandwidth in support of adding new pieces
-* 860 MB of disk space for the pieces.
+* 960 MB of disk space for the pieces.
 * 1,920 MB of SP upload bandwidth in support of retrievals
 
 ## Appendix

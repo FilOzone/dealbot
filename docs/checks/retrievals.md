@@ -20,7 +20,7 @@ A **successful** retrieval requires ALL of:
 2. **TBD:** Verify the root CID is discoverable via IPNI and the SP is listed as a provider
 3. Perform [`/ipfs` retrieval](https://github.com/filecoin-project/filecoin-pin/blob/master/documentation/glossary.md#ipfs-retrieval) with the SP.
 4. Download completes successfully (HTTP 2xx)
-5. Downloaded content hashed to the requested CID (**TBD**: size-check only until CID verification lands).
+5. Downloaded content hashes to the requested CID (**TBD**: size-check only until CID verification lands).
 
 **Failure** occurs if ANY required check fails (IPNI verification, download, or content verification) or the retrieval exceeds its max allowed time.
 
