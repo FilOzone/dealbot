@@ -8,9 +8,9 @@ For event and metric definitions used by the dashboard, see [Dealbot Events & Me
 
 ## Overview
 
-A "deal" is dealbot's end-to-end test of uploading a piece to a storage provider (SP) and confirming the uploaded data is publicly discoverable and retrievable.  
+A "data storage check" is dealbot's end-to-end test of uploading a piece to a storage provider (SP) and confirming the uploaded data is publicly discoverable and retrievable.  ("Deal" is a synonym for "data storage check".)
 
-Every deal cycle, dealbot:
+Every data storage check, dealbot:
 
 1. Generates a random data file
 2. Converts it to [CAR format](https://ipld.io/specs/transport/car/)
@@ -40,7 +40,7 @@ Each deal asserts the following for every SP:
 
 ## Deal Lifecycle
 
-The dealbot scheduler triggers data storage jobs at a configurable rate.
+The dealbot scheduler triggers data storage check jobs at a configurable rate.
 
 ```mermaid
 flowchart TD
@@ -106,13 +106,9 @@ After upload completes, dealbot waits for the piece to be confirmed onchain.  Th
 ### 6. Wait for SP to Index and Announce Index to IPNI
 
 After upload completes, dealbot polls the SP's PDP server to track the piece through its indexing lifecycle:
-
-| PDP SP Status | Meaning |
-|--------|---------|
-| `sp_indexed` | SP has indexed the piece locally.  Any CID in the CAR is now retrievable with `/ipfs/$CID` retrieval, but it may not be discoverable by the rest of the network. Direct SP [retrieval checking](#8-retrieve-and-verify-content) can commence.  |
-| `sp_advertised` | SP has announced the piece index to IPNI. (In IPNI terminology this is "advertisement announcement" (see [docs](https://docs.cid.contact/filecoin-network-indexer/technical-walkthrough))). [IPNI indexing verification](#7-verify-ipni-indexing) can commence. |
-
-- **Poll interval:** 2.5 seconds (see `TBD_VARIABLE`)
+- **`sp_indexed`**: SP has indexed the piece locally. Any CID in the CAR is now retrievable with `/ipfs/$CID` retrieval, but it may not be discoverable by the rest of the network. Direct SP [retrieval checking](#8-retrieve-and-verify-content) can commence.
+- **`sp_advertised`**: SP has announced the piece index to IPNI. (In IPNI terminology this is "advertisement announcement" (see [docs](https://docs.cid.contact/filecoin-network-indexer/technical-walkthrough))). [IPNI indexing verification](#7-verify-ipni-indexing) can commence.
+- **Poll interval**: 2.5 seconds (see `TBD_VARIABLE`)
 
 
 Source: [`ipni.strategy.ts` (`monitorPieceStatus`)](../../apps/backend/src/deal-addons/strategies/ipni.strategy.ts#L343)

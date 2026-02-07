@@ -2,12 +2,10 @@
 
 This document outlines how dealbot is configured for production by the Filecoin Onchain Cloud working group, particularly for determining which SPs to approve for the "official" Filecoin Warm Storage Service contracts on calibration and mainnet.  A reader, especially an SP seeking to be approved for paid FOC storage deals by default, should be able to read this document and understand how they are evaluated.  While [data-storage.md](./data-storage.md), [retrievals.md](./retrievals.md), and [events-and-metrics.md](./events-and-metrics.md) discuss the dealbot checks and metrics in general, this document provides the context and background for how they are configured and used in production.
 
-
-
 ## Approval Acceptance Criteria
 
 ### Summary
-Our goal in having an "approved" SP list is to support a production-grade quality of service for Filecoin Onchain Cloud storage.  In order to be an approved SP, one must satisfy all of the following criteria. 
+Our goal in having an "approved" SP list is to support a production-grade quality of service for Filecoin Onchain Cloud storage.  In order to be an approved SP, one must satisfy all of the following criteria:
 
 | Metric | Threshold | Minimum Sample Size |
 |--------|-----------|---------------------|
@@ -16,7 +14,7 @@ Our goal in having an "approved" SP list is to support a production-grade qualit
 | [Retrieval Success Rate](#retrieval-success-rate) | ≥ 97% | 200 |
 
 ### Data Storage Success Rate
-This is calculated as the success rate of [Data Storage checks](./data-storage.md), which includes uploading data, indexing it, adding it onchain, and verifying itis publicly discoverable, retrievable, and verifiable with [standard IPFS tooling](https://github.com/filecoin-project/filecoin-pin/blob/master/documentation/glossary.md#standard-ipfs-tooling).  
+This is calculated as the success rate of [Data Storage checks](./data-storage.md), which includes uploading data, indexing it, adding it onchain, and verifying it's publicly discoverable, retrievable, and verifiable with [standard IPFS tooling](https://github.com/filecoin-project/filecoin-pin/blob/master/documentation/glossary.md#standard-ipfs-tooling).  
 
 Relevant parameters include:
 
@@ -24,7 +22,7 @@ Relevant parameters include:
 |-----------|-------|-------|
 | `NUM_DATA_STORAGE_CHECKS_PER_SP_PER_HOUR` | 4 | 96 per day |
 | `MIN_NUM_DATASETS_FOR_CHECKS` | 15 | Ensure there are enough datasets with pieces being added so that statistical significance for [Data Retention Fault Rate](#data-retention-fault-rate) can be achieved quicker. |
-| `RANDOM_PIECE_SIZES` | 10485760 | 10MB files are used for simplicity |
+| `RANDOM_PIECE_SIZES` | 10485760 | 10MB files are used for simplicity.  See [Why are 10MB files used for testing?](#why-are-10mb-files-used-for-testing) for more details. |
 | Max [`ingestMs`](./events-and-metrics.md#ingestMs) | 20s | |
 | Max [`pieceAddedOnChainMs`](./events-and-metrics.md#pieceAddedOnChainMs) | 60s | |
 | Max [`pieceConfirmedOnChainMs`](./events-and-metrics.md#pieceConfirmedOnChainMs) | 60s | |
@@ -36,9 +34,9 @@ Relevant parameters include:
 This minimum observed success rate threshold count is for having 95% confidence that the success rate is greater than 95%.  See [How are data storage and retrieval check statistics/thresholds calculated?](#how-are-data-storage-and-retrieval-check-statisticsthresholds-calculated) for more details.
 
 ### Data Retention Fault Rate
-This is calculated by looking at all the dataset proofs on chain for the SPs and determining how many challenges were missed or failed.  Note that on mainnet each dataset incurs 5 challenges per day.  To help get to statistical significance quicker, dealbot will seed the SPs with `MIN_NUM_DATASETS_FOR_CHECKS=15` datasets.  Each dataset faces 5 challenges per day. This means an SP can be approved for data retention after a faultless ~7 days if the SP doesn't have other datasets.
+This is calculated by looking at all the dataset proofs on chain for the SPs and determining how many challenges were missed or failed.  Note that on mainnet each dataset incurs 5 challenges per day.  To help get to statistical significance quicker, dealbot will seed the SPs with `MIN_NUM_DATASETS_FOR_CHECKS=15` datasets.  This means an SP can be approved for data retention after a faultless ~7 days if the SP doesn't have other datasets.
 
-See [How are data retention statistics/threshold calculated?](#how-are-data-retention-statisticsthreshold-calculated) for more details.
+See [How are data retention statistics/thresholds calculated?](#how-are-data-retention-statisticsthresholds-calculated) for more details.
 
 ### Retrieval Success Rate
 This is calculated as the success rate of [Retrieval checks](./retrievals.md), which includes verifying that previously stored data is still publicly discoverable, retrievable, and verifiable with [standard IPFS tooling](https://github.com/filecoin-project/filecoin-pin/blob/master/documentation/glossary.md#standard-ipfs-tooling).   
@@ -95,12 +93,12 @@ This is in a private repo because it includes other infrastructure configuration
 No, not currently.  TODO: link to backlog item for this.
 
 ## How are data storage and retrieval check statistics/thresholds calculated?
-TODO: fill this in covering things like
+TODO for researcher/PM/Steve: fill this in covering things like
 - 95% confidence level
 - One sided confidence interval
 
-## How are data retention statistics/threshold calculated?
-TODO: fill this in covering things like
+## How are data retention statistics/thresholds calculated?
+TODO for researcher/PM/Steve: fill this in covering things like
 - 95% confidence level
 - One sided confidence interval
 - It doesn't matter how much data is stored in a dataset
@@ -108,13 +106,13 @@ TODO: fill this in covering things like
 
 ## Why aren't there latency/throughput requirements?
 
-Latency and throughput are not just a function of the SP's infrastructure.  They are also a function of the node doing the retrieval checking and the link between them.  We aren't doing any multi-region probing currently, which is why the low bar has been set for retrieval testing of being able to retrieve a 10MB piece from an SP in 20 seconds.  
+Latency and throughput are not just a function of the SP's infrastructure.  They are also dependent on the node doing the retrieval checking and the link between them.  We aren't doing any multi-region probing currently, which is why the low bar has been set for retrieval testing of being able to retrieve a 10MB piece from an SP in 20 seconds.  
 
 ## Why are 10MB files used for testing?
 
 10MB files are used for simplicity.  It's an approximation of a static website, which is a usecase for Filecoin Onchain Cloud.  Until we have piece cleanup functionality, it was an easy way to not fill up SP disk space too rapidly.
 
-## Why are we using the SP's IPFS gateway for retrieval testing?
+## Why are we using the SP's `/ipfs` endpoint for retrieval testing?
 
-We are using the SP's IPFS gateway for retrieval testing because it is the most common way that SPs serve data to the public.  We could use other ways to retrieve the data, but it would add more complexity to the dealbot code and the SPs would need to be able to handle other ways to retrieve the data.  We could also use a mix of ways to retrieve the data, but it would add more complexity to the dealbot code and the SPs would need to be able to handle a mix of ways to retrieve the data.  The SP's IPFS gateway is a good compromise between complexity and SP resource consumption.
+We are using the SP's `/ipfs` for retrieval testing because it is the golden path.  We could mix other ways to retrieve the data (e.g., `/piece`, via CDM), but it would add more complexity to the dealbot code.  
 

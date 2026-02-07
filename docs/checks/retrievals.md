@@ -10,7 +10,7 @@ For event and metric definitions used by the dashboard, see [Dealbot Events & Me
 
 The Retrieval check tests that **previously stored** pieces from [data storage checks](./data-storage.md) remain retrievable over time. It runs on a separate schedule from data storage checks.
 
-This is distinct from the inline retrieval verification in the [Data Storage Check](./data-storage.md), which confirms an SP can serve data immediately after indexing. The Retrieval check answers a different question: **does the SP continue to serve data correctly after the initial storage operation?**
+This is distinct from the inline retrieval verification in the data storage check, which confirms an SP can serve data immediately after indexing. The Retrieval check answers a different question: **does the SP continue to serve data correctly after the initial storage operation?**
 
 ### Definition of Successful Retrieval
 
@@ -93,7 +93,7 @@ Each retrieval step (post IPNI validation) creates a `Retrieval` entity in the d
 
 | Field | Description |
 |-------|-------------|
-| `pieceId` | Which piece was tested |
+| `dealId` | Which deal was tested |
 | `retrievalMethod` | Only `sp_ipfs` supported currently but in future could imagine `sp_piece` or `cdn` |
 | `retrievalEndpoint` | URL used for the download |
 | `status` | `success` or `failed` |
