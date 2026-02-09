@@ -29,6 +29,7 @@ helm upgrade --install grafana grafana/grafana \
   -n monitoring --create-namespace \
   -f kustomize/overlays/local/monitoring/grafana-values.yaml
 ```
+Note: the Grafana datasource URL assumes the Prometheus release name is `prometheus`.
 
 ## Apply the local monitoring overlay
 ```bash
@@ -51,9 +52,10 @@ kubectl get secret -n monitoring <grafana-secret> -o jsonpath='{.data.admin-pass
 
 ## Access Prometheus (optional)
 ```bash
-kubectl -n monitoring port-forward svc/prometheus-server 9090:9090
+kubectl -n monitoring port-forward svc/prometheus-server 9091:9090
 ```
-Then open http://localhost:9090 and check Targets.
+Then open http://localhost:9091 and check Targets.
+Note: `9090` is reserved for the dealbot-worker metrics NodePort mapping in the Kind config.
 
 ## Dashboard notes
 - The dashboard in `grafana-dashboard.json` references a datasource named `prometheus`.

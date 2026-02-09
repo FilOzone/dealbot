@@ -18,7 +18,6 @@ SECRET_ENV_FILE ?= .env
 MONITORING ?= 0
 MONITORING_NAMESPACE ?= monitoring
 MONITORING_OVERLAY ?= kustomize/overlays/local/monitoring
-PROM_RELEASE ?= prometheus
 GRAFANA_RELEASE ?= grafana
 PROM_VALUES ?= $(MONITORING_OVERLAY)/prometheus-values.yaml
 GRAFANA_VALUES ?= $(MONITORING_OVERLAY)/grafana-values.yaml
@@ -78,7 +77,7 @@ monitoring-install:
 	helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
 	helm repo add grafana https://grafana.github.io/helm-charts
 	helm repo update
-	helm upgrade --install $(PROM_RELEASE) prometheus-community/prometheus \
+	helm upgrade --install prometheus prometheus-community/prometheus \
 		-n $(MONITORING_NAMESPACE) --create-namespace \
 		-f $(PROM_VALUES)
 	helm upgrade --install $(GRAFANA_RELEASE) grafana/grafana \
@@ -93,7 +92,7 @@ monitoring-up: monitoring-install monitoring-apply
 monitoring-down:
 	-kubectl delete -k $(MONITORING_OVERLAY)
 	-helm uninstall $(GRAFANA_RELEASE) -n $(MONITORING_NAMESPACE)
-	-helm uninstall $(PROM_RELEASE) -n $(MONITORING_NAMESPACE)
+	-helm uninstall prometheus -n $(MONITORING_NAMESPACE)
 
 logs:
 	@echo "Use 'make backend-logs' or 'make web-logs'"
@@ -131,7 +130,7 @@ local-up:
 	$(MAKE) image-build
 	$(MAKE) kind-load
 	$(MAKE) deploy
-	@if [ "$(MONITORING)" == "1" ]; then $(MAKE) monitoring-up; fi
+	@if [ "$(MONITORING)" = "1" ]; then $(MAKE) monitoring-up; fi
 
 up:
 	$(MAKE) kind-up

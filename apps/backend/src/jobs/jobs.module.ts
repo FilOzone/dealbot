@@ -11,6 +11,9 @@ import { WalletSdkModule } from "../wallet-sdk/wallet-sdk.module.js";
 import { JobsService } from "./jobs.service.js";
 import { JobScheduleRepository } from "./repositories/job-schedule.repository.js";
 
+const runMode = (process.env.DEALBOT_RUN_MODE || "both").toLowerCase();
+const metricsModule = runMode === "worker" ? MetricsWorkerModule : MetricsModule;
+
 @Module({
   imports: [
     DatabaseModule,
@@ -18,7 +21,7 @@ import { JobScheduleRepository } from "./repositories/job-schedule.repository.js
     DealModule,
     RetrievalModule,
     // ConfigService isn't available at module definition time, so read env directly here.
-    process.env.DEALBOT_RUN_MODE === "worker" ? MetricsWorkerModule : MetricsModule,
+    metricsModule,
     WalletSdkModule,
   ],
   providers: [JobsService, JobScheduleRepository],
