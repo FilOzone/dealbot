@@ -30,9 +30,7 @@ const __dirname = dirname(__filename);
           username: dbConfig.username,
           password: dbConfig.password,
           database: dbConfig.database,
-          extra: {
-            max: dbConfig.poolMax,
-          },
+          poolSize: dbConfig.poolMax,
           entities: [
             Deal,
             StorageProvider,
