@@ -16,7 +16,7 @@ DealBot creates synthetic traffic for SPs in the onchain SP registry and monitor
 A "check" refers to a task type that dealbot performs on a SP.  We currently have [Data Storage](./data-storage.md) and [Retrieval](./retrievals.md) checks.
 
 ### Deal
-This is psonymn for "Data Storage Check".  This is covered in the [data-storage.md](./data-storage.md).
+This is synonym for "Data Storage Check".  This is covered in the [data-storage.md](./data-storage.md).
  
 ### Job
 A "job" refers to a specific instance of running a "check" task against an SP.  Jobs gets scheduled to run at a specific rate based on the check type (e.g., data storage, retrieval), and they get scheduled for all SPs that have been configured for dealbot to test (e.g., only approved SPs, all SPs).
