@@ -92,6 +92,10 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     await this.startBoss();
     if (!this.boss) {
       this.logger.error("pg-boss failed to start; job scheduler is disabled.");
+      if (workersEnabled || schedulerEnabled) {
+        this.logger.error("pg-boss is required for this run mode; exiting to trigger restart.");
+        process.exit(1);
+      }
       return;
     }
     if (workersEnabled) {
@@ -171,6 +175,11 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     return Math.max(0, this.configService.get("jobs")?.enqueueJitterSeconds ?? 0);
   }
 
+  private pgbossPoolMax(): number {
+    const poolMax = this.configService.get("jobs")?.pgbossPoolMax ?? 1;
+    return Math.max(1, poolMax);
+  }
+
   private buildConnectionString(): string {
     const db = this.configService.get("database");
     // NOTE: db.password must be raw (not pre-encoded). Encode here for pg-boss/Postgres URI safety.
@@ -180,9 +189,11 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
 
   private async startBoss(): Promise<void> {
     if (this.boss) return;
+    const poolMax = this.pgbossPoolMax();
     const boss = new PgBoss({
       connectionString: this.buildConnectionString(),
       schema: "pgboss",
+      max: poolMax,
     });
     this.bossErrorHandler = (error: Error) => {
       this.logger.error(`pg-boss error: ${error.message}`, error.stack);
