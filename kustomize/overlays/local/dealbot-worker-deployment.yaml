@@ -5,7 +5,7 @@ metadata:
   labels:
     app.kubernetes.io/name: dealbot-worker
 spec:
-  replicas: 10
+  replicas: 5
   selector:
     matchLabels:
       app.kubernetes.io/name: dealbot-worker
