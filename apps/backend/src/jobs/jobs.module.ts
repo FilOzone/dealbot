@@ -11,6 +11,7 @@ import { WalletSdkModule } from "../wallet-sdk/wallet-sdk.module.js";
 import { JobsService } from "./jobs.service.js";
 import { JobScheduleRepository } from "./repositories/job-schedule.repository.js";
 
+// ConfigService isn't available at module definition time, so read env directly here.
 const runMode = (process.env.DEALBOT_RUN_MODE || "both").toLowerCase();
 const metricsModule = runMode === "worker" ? MetricsWorkerModule : MetricsModule;
 
@@ -20,7 +21,6 @@ const metricsModule = runMode === "worker" ? MetricsWorkerModule : MetricsModule
     TypeOrmModule.forFeature([StorageProvider, JobScheduleState]),
     DealModule,
     RetrievalModule,
-    // ConfigService isn't available at module definition time, so read env directly here.
     metricsModule,
     WalletSdkModule,
   ],
