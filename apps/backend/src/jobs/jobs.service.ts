@@ -175,11 +175,8 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     return Math.max(0, this.configService.get("jobs")?.enqueueJitterSeconds ?? 0);
   }
 
-  private pgbossPoolMax(): number | undefined {
-    const poolMax = this.configService.get("jobs")?.pgbossPoolMax;
-    if (poolMax === undefined || poolMax === null) {
-      return undefined;
-    }
+  private pgbossPoolMax(): number {
+    const poolMax = this.configService.get("jobs")?.pgbossPoolMax ?? 1;
     return Math.max(1, poolMax);
   }
 
@@ -196,7 +193,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     const boss = new PgBoss({
       connectionString: this.buildConnectionString(),
       schema: "pgboss",
-      ...(poolMax ? { max: poolMax } : {}),
+      max: poolMax,
     });
     this.bossErrorHandler = (error: Error) => {
       this.logger.error(`pg-boss error: ${error.message}`, error.stack);

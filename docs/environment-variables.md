@@ -7,7 +7,7 @@ This document provides a comprehensive guide to all environment variables used b
 | Category                                  | Variables                                                                                                                                                    |
 | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | [Application](#application-configuration) | `NODE_ENV`, `DEALBOT_PORT`, `DEALBOT_HOST`, `DEALBOT_RUN_MODE`, `DEALBOT_METRICS_PORT`, `DEALBOT_METRICS_HOST`, `DEALBOT_ALLOWED_ORIGINS`, `ENABLE_DEV_MODE` |
-| [Database](#database-configuration)       | `DATABASE_HOST`, `DATABASE_PORT`, `DATABASE_USER`, `DATABASE_PASSWORD`, `DATABASE_NAME`                                                                      |
+| [Database](#database-configuration)       | `DATABASE_HOST`, `DATABASE_PORT`, `DATABASE_POOL_MAX`, `DATABASE_USER`, `DATABASE_PASSWORD`, `DATABASE_NAME`                                                 |
 | [Blockchain](#blockchain-configuration)   | `NETWORK`, `WALLET_ADDRESS`, `WALLET_PRIVATE_KEY`, `CHECK_DATASET_CREATION_FEES`, `USE_ONLY_APPROVED_PROVIDERS`, `ENABLE_CDN_TESTING`, `ENABLE_IPNI_TESTING` |
 | [Dataset Versioning](#dataset-versioning) | `DEALBOT_DATASET_VERSION`                                                                                                                                    |
 | [Scheduling](#scheduling-configuration)   | `DEAL_INTERVAL_SECONDS`, `DEAL_MAX_CONCURRENCY`, `RETRIEVAL_MAX_CONCURRENCY`, `RETRIEVAL_INTERVAL_SECONDS`, `DEAL_START_OFFSET_SECONDS`, `RETRIEVAL_START_OFFSET_SECONDS`, `METRICS_START_OFFSET_SECONDS`, `DEALBOT_MAINTENANCE_WINDOWS_UTC`, `DEALBOT_MAINTENANCE_WINDOW_MINUTES`         |
@@ -225,6 +225,23 @@ DATABASE_HOST=dealbot-db.abc123.us-east-1.rds.amazonaws.com
 
 - When using a non-standard PostgreSQL port
 - When connecting through a port-forwarded tunnel
+
+---
+
+### `DATABASE_POOL_MAX`
+
+- **Type**: `number`
+- **Required**: No
+- **Default**: `1`
+
+**Role**: Maximum number of connections in the TypeORM pool per process.
+Lower this when using a session-mode pooler with a low `pool_size`.
+
+**Example**:
+
+```bash
+DATABASE_POOL_MAX=1
+```
 
 ---
 
@@ -707,7 +724,7 @@ DEALBOT_PGBOSS_SCHEDULER_ENABLED=false
 
 - **Type**: `number`
 - **Required**: No
-- **Default**: pg-boss default (10)
+- **Default**: `1`
 
 **Role**: Maximum number of pg-boss connections per instance. Lower this when running through a
 session-mode pooler (e.g. Supabase) to avoid exceeding pooler `pool_size`.

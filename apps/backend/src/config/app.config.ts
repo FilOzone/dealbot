@@ -17,6 +17,7 @@ export const configValidationSchema = Joi.object({
   // Database
   DATABASE_HOST: Joi.string().required(),
   DATABASE_PORT: Joi.number().default(5432),
+  DATABASE_POOL_MAX: Joi.number().integer().min(1).default(1),
   DATABASE_USER: Joi.string().required(),
   DATABASE_PASSWORD: Joi.string().required(),
   DATABASE_NAME: Joi.string().required(),
@@ -87,7 +88,7 @@ export const configValidationSchema = Joi.object({
   JOB_SCHEDULER_POLL_SECONDS: Joi.number().min(60).default(300),
   JOB_WORKER_POLL_SECONDS: Joi.number().min(5).default(60),
   DEALBOT_PGBOSS_SCHEDULER_ENABLED: Joi.boolean().default(true),
-  DEALBOT_PGBOSS_POOL_MAX: Joi.number().integer().min(1).optional(),
+  DEALBOT_PGBOSS_POOL_MAX: Joi.number().integer().min(1).default(1),
   JOB_CATCHUP_MAX_ENQUEUE: Joi.number().min(1).default(10),
   JOB_CATCHUP_SPREAD_HOURS: Joi.number().min(0).default(3),
   JOB_LOCK_RETRY_SECONDS: Joi.number().min(10).default(60),
@@ -141,6 +142,7 @@ export interface IAppConfig {
 export interface IDatabaseConfig {
   host: string;
   port: number;
+  poolMax: number;
   username: string;
   password: string;
   database: string;
@@ -227,7 +229,7 @@ export interface IJobsConfig {
    * Helpful when using a session-mode pooler with a low pool_size (e.g. Supabase).
    * Only used when `DEALBOT_JOBS_MODE=pgboss`.
    */
-  pgbossPoolMax?: number;
+  pgbossPoolMax: number;
   /**
    * Maximum number of jobs to enqueue per schedule row per poll.
    *
@@ -333,6 +335,7 @@ export function loadConfig(): IConfig {
     database: {
       host: process.env.DATABASE_HOST || "localhost",
       port: Number.parseInt(process.env.DATABASE_PORT || "5432", 10),
+      poolMax: Number.parseInt(process.env.DATABASE_POOL_MAX || "1", 10),
       username: process.env.DATABASE_USER || "dealbot",
       password: process.env.DATABASE_PASSWORD || "dealbot_password",
       database: process.env.DATABASE_NAME || "filecoin_dealbot",
@@ -373,9 +376,7 @@ export function loadConfig(): IConfig {
       schedulerPollSeconds: Number.parseInt(process.env.JOB_SCHEDULER_POLL_SECONDS || "300", 10),
       workerPollSeconds: Number.parseInt(process.env.JOB_WORKER_POLL_SECONDS || "60", 10),
       pgbossSchedulerEnabled: process.env.DEALBOT_PGBOSS_SCHEDULER_ENABLED !== "false",
-      pgbossPoolMax: process.env.DEALBOT_PGBOSS_POOL_MAX
-        ? Number.parseInt(process.env.DEALBOT_PGBOSS_POOL_MAX, 10)
-        : undefined,
+      pgbossPoolMax: Number.parseInt(process.env.DEALBOT_PGBOSS_POOL_MAX || "1", 10),
       catchupMaxEnqueue: Number.parseInt(process.env.JOB_CATCHUP_MAX_ENQUEUE || "10", 10),
       catchupSpreadHours: Number.parseInt(process.env.JOB_CATCHUP_SPREAD_HOURS || "3", 10),
       lockRetrySeconds: Number.parseInt(process.env.JOB_LOCK_RETRY_SECONDS || "60", 10),
