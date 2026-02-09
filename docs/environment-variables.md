@@ -11,7 +11,7 @@ This document provides a comprehensive guide to all environment variables used b
 | [Blockchain](#blockchain-configuration)   | `NETWORK`, `WALLET_ADDRESS`, `WALLET_PRIVATE_KEY`, `CHECK_DATASET_CREATION_FEES`, `USE_ONLY_APPROVED_PROVIDERS`, `ENABLE_CDN_TESTING`, `ENABLE_IPNI_TESTING` |
 | [Dataset Versioning](#dataset-versioning) | `DEALBOT_DATASET_VERSION`                                                                                                                                    |
 | [Scheduling](#scheduling-configuration)   | `DEAL_INTERVAL_SECONDS`, `DEAL_MAX_CONCURRENCY`, `RETRIEVAL_MAX_CONCURRENCY`, `RETRIEVAL_INTERVAL_SECONDS`, `DEAL_START_OFFSET_SECONDS`, `RETRIEVAL_START_OFFSET_SECONDS`, `METRICS_START_OFFSET_SECONDS`, `DEALBOT_MAINTENANCE_WINDOWS_UTC`, `DEALBOT_MAINTENANCE_WINDOW_MINUTES`         |
-| [Jobs (pg-boss)](#jobs-pg-boss)           | `DEALBOT_JOBS_MODE`, `DEALBOT_PGBOSS_SCHEDULER_ENABLED`, `DEALS_PER_SP_PER_HOUR`, `RETRIEVALS_PER_SP_PER_HOUR`, `METRICS_PER_HOUR`, `JOB_SCHEDULER_POLL_SECONDS`, `JOB_WORKER_POLL_SECONDS`, `JOB_CATCHUP_MAX_ENQUEUE`, `JOB_CATCHUP_SPREAD_HOURS`, `JOB_LOCK_RETRY_SECONDS`, `JOB_SCHEDULE_PHASE_SECONDS`, `JOB_ENQUEUE_JITTER_SECONDS` |
+| [Jobs (pg-boss)](#jobs-pg-boss)           | `DEALBOT_JOBS_MODE`, `DEALBOT_PGBOSS_SCHEDULER_ENABLED`, `DEALBOT_PGBOSS_POOL_MAX`, `DEALS_PER_SP_PER_HOUR`, `RETRIEVALS_PER_SP_PER_HOUR`, `METRICS_PER_HOUR`, `JOB_SCHEDULER_POLL_SECONDS`, `JOB_WORKER_POLL_SECONDS`, `JOB_CATCHUP_MAX_ENQUEUE`, `JOB_CATCHUP_SPREAD_HOURS`, `JOB_LOCK_RETRY_SECONDS`, `JOB_SCHEDULE_PHASE_SECONDS`, `JOB_ENQUEUE_JITTER_SECONDS` |
 | [Dataset](#dataset-configuration)         | `DEALBOT_LOCAL_DATASETS_PATH`, `RANDOM_DATASET_SIZES`                                                                                                        |
 | [Proxy](#proxy-configuration)             | `PROXY_LIST`, `PROXY_LOCATIONS`                                                                                                                              |
 | [Timeouts](#timeout-configuration)        | `CONNECT_TIMEOUT_MS`, `HTTP_REQUEST_TIMEOUT_MS`, `HTTP2_REQUEST_TIMEOUT_MS`, `RETRIEVAL_TIMEOUT_BUFFER_MS`                                                   |
@@ -699,6 +699,23 @@ rate-based (per hour) and persisted in Postgres so restarts do not reset timing.
 
 ```bash
 DEALBOT_PGBOSS_SCHEDULER_ENABLED=false
+```
+
+---
+
+### `DEALBOT_PGBOSS_POOL_MAX`
+
+- **Type**: `number`
+- **Required**: No
+- **Default**: pg-boss default (10)
+
+**Role**: Maximum number of pg-boss connections per instance. Lower this when running through a
+session-mode pooler (e.g. Supabase) to avoid exceeding pooler `pool_size`.
+
+**Example**:
+
+```bash
+DEALBOT_PGBOSS_POOL_MAX=2
 ```
 
 ---

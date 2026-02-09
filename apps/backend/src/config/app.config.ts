@@ -87,6 +87,7 @@ export const configValidationSchema = Joi.object({
   JOB_SCHEDULER_POLL_SECONDS: Joi.number().min(60).default(300),
   JOB_WORKER_POLL_SECONDS: Joi.number().min(5).default(60),
   DEALBOT_PGBOSS_SCHEDULER_ENABLED: Joi.boolean().default(true),
+  DEALBOT_PGBOSS_POOL_MAX: Joi.number().integer().min(1).optional(),
   JOB_CATCHUP_MAX_ENQUEUE: Joi.number().min(1).default(10),
   JOB_CATCHUP_SPREAD_HOURS: Joi.number().min(0).default(3),
   JOB_LOCK_RETRY_SECONDS: Joi.number().min(10).default(60),
@@ -220,6 +221,13 @@ export interface IJobsConfig {
    * Only used when `DEALBOT_JOBS_MODE=pgboss`.
    */
   pgbossSchedulerEnabled: boolean;
+  /**
+   * Maximum number of pg-boss connections per instance.
+   *
+   * Helpful when using a session-mode pooler with a low pool_size (e.g. Supabase).
+   * Only used when `DEALBOT_JOBS_MODE=pgboss`.
+   */
+  pgbossPoolMax?: number;
   /**
    * Maximum number of jobs to enqueue per schedule row per poll.
    *
@@ -365,6 +373,9 @@ export function loadConfig(): IConfig {
       schedulerPollSeconds: Number.parseInt(process.env.JOB_SCHEDULER_POLL_SECONDS || "300", 10),
       workerPollSeconds: Number.parseInt(process.env.JOB_WORKER_POLL_SECONDS || "60", 10),
       pgbossSchedulerEnabled: process.env.DEALBOT_PGBOSS_SCHEDULER_ENABLED !== "false",
+      pgbossPoolMax: process.env.DEALBOT_PGBOSS_POOL_MAX
+        ? Number.parseInt(process.env.DEALBOT_PGBOSS_POOL_MAX, 10)
+        : undefined,
       catchupMaxEnqueue: Number.parseInt(process.env.JOB_CATCHUP_MAX_ENQUEUE || "10", 10),
       catchupSpreadHours: Number.parseInt(process.env.JOB_CATCHUP_SPREAD_HOURS || "3", 10),
       lockRetrySeconds: Number.parseInt(process.env.JOB_LOCK_RETRY_SECONDS || "60", 10),
