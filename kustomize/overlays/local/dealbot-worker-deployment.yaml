@@ -5,7 +5,11 @@ metadata:
   labels:
     app.kubernetes.io/name: dealbot-worker
 spec:
+<<<<<<< HEAD
+  replicas: 5
+=======
   replicas: 2
+>>>>>>> d9b4ca6 (chore: address pr comments)
   selector:
     matchLabels:
       app.kubernetes.io/name: dealbot-worker
