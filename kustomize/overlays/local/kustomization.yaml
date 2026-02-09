@@ -7,6 +7,8 @@ resources:
   - ../../base/backend
   - ../../base/web
   - ./postgres
+  - dealbot-worker-deployment.yaml
+  - dealbot-worker-service.yaml
 
 # Patch services to use NodePort for local access and update configmap
 patches:

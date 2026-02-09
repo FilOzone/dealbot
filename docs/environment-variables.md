@@ -11,7 +11,7 @@ This document provides a comprehensive guide to all environment variables used b
 | [Blockchain](#blockchain-configuration)   | `NETWORK`, `WALLET_ADDRESS`, `WALLET_PRIVATE_KEY`, `CHECK_DATASET_CREATION_FEES`, `USE_ONLY_APPROVED_PROVIDERS`, `ENABLE_CDN_TESTING`, `ENABLE_IPNI_TESTING` |
 | [Dataset Versioning](#dataset-versioning) | `DEALBOT_DATASET_VERSION`                                                                                                                                    |
 | [Scheduling](#scheduling-configuration)   | `DEAL_INTERVAL_SECONDS`, `DEAL_MAX_CONCURRENCY`, `RETRIEVAL_MAX_CONCURRENCY`, `RETRIEVAL_INTERVAL_SECONDS`, `DEAL_START_OFFSET_SECONDS`, `RETRIEVAL_START_OFFSET_SECONDS`, `METRICS_START_OFFSET_SECONDS`, `DEALBOT_MAINTENANCE_WINDOWS_UTC`, `DEALBOT_MAINTENANCE_WINDOW_MINUTES`         |
-| [Jobs (pg-boss)](#jobs-pg-boss)           | `DEALBOT_JOBS_MODE`, `DEALS_PER_SP_PER_HOUR`, `RETRIEVALS_PER_SP_PER_HOUR`, `METRICS_PER_HOUR`, `JOB_SCHEDULER_POLL_SECONDS`, `JOB_CATCHUP_MAX_ENQUEUE`, `JOB_CATCHUP_SPREAD_HOURS`, `JOB_LOCK_RETRY_SECONDS`, `JOB_SCHEDULE_PHASE_SECONDS`, `JOB_ENQUEUE_JITTER_SECONDS` |
+| [Jobs (pg-boss)](#jobs-pg-boss)           | `DEALBOT_JOBS_MODE`, `DEALBOT_PGBOSS_SCHEDULER_ENABLED`, `DEALS_PER_SP_PER_HOUR`, `RETRIEVALS_PER_SP_PER_HOUR`, `METRICS_PER_HOUR`, `JOB_SCHEDULER_POLL_SECONDS`, `JOB_WORKER_POLL_SECONDS`, `JOB_CATCHUP_MAX_ENQUEUE`, `JOB_CATCHUP_SPREAD_HOURS`, `JOB_LOCK_RETRY_SECONDS`, `JOB_SCHEDULE_PHASE_SECONDS`, `JOB_ENQUEUE_JITTER_SECONDS` |
 | [Dataset](#dataset-configuration)         | `DEALBOT_LOCAL_DATASETS_PATH`, `RANDOM_DATASET_SIZES`                                                                                                        |
 | [Proxy](#proxy-configuration)             | `PROXY_LIST`, `PROXY_LOCATIONS`                                                                                                                              |
 | [Timeouts](#timeout-configuration)        | `CONNECT_TIMEOUT_MS`, `HTTP_REQUEST_TIMEOUT_MS`, `HTTP2_REQUEST_TIMEOUT_MS`, `RETRIEVAL_TIMEOUT_BUFFER_MS`                                                   |
@@ -60,6 +60,59 @@ This document provides a comprehensive guide to all environment variables used b
 
 ```bash
 DEALBOT_PORT=9000
+```
+
+---
+
+### `DEALBOT_RUN_MODE`
+
+- **Type**: `string`
+- **Required**: No
+- **Default**: `both`
+- **Valid values**: `api`, `worker`, `both`
+
+**Role**: Controls which components run in the process:
+
+- `api`: API server + scheduler (no workers)
+- `worker`: workers + `/metrics` only (no API)
+- `both`: API server + scheduler + workers
+
+**Example**:
+
+```bash
+DEALBOT_RUN_MODE=worker
+```
+
+---
+
+### `DEALBOT_METRICS_PORT`
+
+- **Type**: `number`
+- **Required**: No
+- **Default**: `9090`
+
+**Role**: Port used for the metrics-only HTTP server when `DEALBOT_RUN_MODE=worker`.
+
+**Example**:
+
+```bash
+DEALBOT_METRICS_PORT=9090
+```
+
+---
+
+### `DEALBOT_METRICS_HOST`
+
+- **Type**: `string`
+- **Required**: No
+- **Default**: `0.0.0.0`
+
+**Role**: Host/interface used for the metrics-only HTTP server when `DEALBOT_RUN_MODE=worker`.
+
+**Example**:
+
+```bash
+DEALBOT_METRICS_HOST=0.0.0.0
 ```
 
 ---
@@ -619,6 +672,34 @@ rate-based (per hour) and persisted in Postgres so restarts do not reset timing.
 **Role**: How often the scheduler polls Postgres for due jobs.
 
 **Notes**: Minimum is 60 seconds to avoid excessive polling; default is 300 seconds.
+
+---
+
+### `JOB_WORKER_POLL_SECONDS`
+
+- **Type**: `number`
+- **Required**: No
+- **Default**: `60`
+
+**Role**: How often pg-boss workers check for new jobs.
+
+**Notes**: Minimum is 5 seconds. Lower values reduce job pickup latency but increase DB chatter.
+
+---
+
+### `DEALBOT_PGBOSS_SCHEDULER_ENABLED`
+
+- **Type**: `boolean`
+- **Required**: No
+- **Default**: `true`
+
+**Role**: Enables/disables the pg-boss scheduler loop that enqueues due jobs. Set to `false` for worker-only pods that should only process existing jobs.
+
+**Example**:
+
+```bash
+DEALBOT_PGBOSS_SCHEDULER_ENABLED=false
+```
 
 ---
 

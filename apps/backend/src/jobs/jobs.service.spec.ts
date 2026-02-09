@@ -93,6 +93,7 @@ describe("JobsService schedule rows", () => {
     };
 
     baseConfigValues = {
+      app: { runMode: "both" } as IConfig["app"],
       blockchain: { useOnlyApprovedProviders: false } as IConfig["blockchain"],
       scheduling: {
         dealIntervalSeconds: 600,
@@ -101,11 +102,14 @@ describe("JobsService schedule rows", () => {
         retrievalIntervalSeconds: 1200,
       } as IConfig["scheduling"],
       jobs: {
+        mode: "pgboss",
         schedulePhaseSeconds: 0,
         catchupMaxEnqueue: 10,
         catchupSpreadHours: 3,
         enqueueJitterSeconds: 0,
         lockRetrySeconds: 60,
+        pgbossSchedulerEnabled: true,
+        workerPollSeconds: 60,
       } as IConfig["jobs"],
       database: {
         host: "localhost",
@@ -147,6 +151,7 @@ describe("JobsService schedule rows", () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.restoreAllMocks();
+    delete process.env.DEALBOT_DISABLE_CHAIN;
   });
 
   it("records metrics for successful job execution", async () => {
@@ -232,10 +237,105 @@ describe("JobsService schedule rows", () => {
 
     callPrivate(service, "registerWorkers");
 
-    expect(subscribe).toHaveBeenCalledWith("deal.run", { teamSize: 4 }, expect.any(Function));
-    expect(subscribe).toHaveBeenCalledWith("retrieval.run", { teamSize: 5 }, expect.any(Function));
-    expect(subscribe).toHaveBeenCalledWith("metrics.run", { teamSize: 1 }, expect.any(Function));
-    expect(subscribe).toHaveBeenCalledWith("metrics.cleanup", { teamSize: 1 }, expect.any(Function));
+    expect(subscribe).toHaveBeenCalledWith(
+      "deal.run",
+      { teamSize: 4, newJobCheckIntervalSeconds: 60 },
+      expect.any(Function),
+    );
+    expect(subscribe).toHaveBeenCalledWith(
+      "retrieval.run",
+      { teamSize: 5, newJobCheckIntervalSeconds: 60 },
+      expect.any(Function),
+    );
+    expect(subscribe).toHaveBeenCalledWith(
+      "metrics.run",
+      { teamSize: 1, newJobCheckIntervalSeconds: 60 },
+      expect.any(Function),
+    );
+    expect(subscribe).toHaveBeenCalledWith(
+      "metrics.cleanup",
+      { teamSize: 1, newJobCheckIntervalSeconds: 60 },
+      expect.any(Function),
+    );
+  });
+
+  it("skips registering workers in api mode", async () => {
+    baseConfigValues = {
+      ...baseConfigValues,
+      app: { runMode: "api" } as IConfig["app"],
+    };
+    const registerWorkers = vi.fn();
+    const tick = vi.fn().mockResolvedValue(undefined);
+    const startBoss = vi.fn().mockImplementation(async () => {
+      (service as unknown as { boss: object }).boss = {};
+    });
+    vi.spyOn(global, "setInterval").mockReturnValue(0 as unknown as ReturnType<typeof setInterval>);
+
+    service = buildService();
+    (service as unknown as { registerWorkers: typeof registerWorkers }).registerWorkers = registerWorkers;
+    (service as unknown as { tick: typeof tick }).tick = tick;
+    (service as unknown as { startBoss: typeof startBoss }).startBoss = startBoss;
+    process.env.DEALBOT_DISABLE_CHAIN = "true";
+
+    await service.onModuleInit();
+
+    expect(registerWorkers).not.toHaveBeenCalled();
+    expect(tick).toHaveBeenCalled();
+    expect(setInterval).toHaveBeenCalled();
+  });
+
+  it("skips scheduler loop in worker mode", async () => {
+    baseConfigValues = {
+      ...baseConfigValues,
+      app: { runMode: "worker" } as IConfig["app"],
+    };
+    const registerWorkers = vi.fn();
+    const tick = vi.fn().mockResolvedValue(undefined);
+    const startBoss = vi.fn().mockImplementation(async () => {
+      (service as unknown as { boss: object }).boss = {};
+    });
+    vi.spyOn(global, "setInterval").mockReturnValue(0 as unknown as ReturnType<typeof setInterval>);
+
+    service = buildService();
+    (service as unknown as { registerWorkers: typeof registerWorkers }).registerWorkers = registerWorkers;
+    (service as unknown as { tick: typeof tick }).tick = tick;
+    (service as unknown as { startBoss: typeof startBoss }).startBoss = startBoss;
+    process.env.DEALBOT_DISABLE_CHAIN = "true";
+
+    await service.onModuleInit();
+
+    expect(registerWorkers).toHaveBeenCalled();
+    expect(tick).not.toHaveBeenCalled();
+    expect(setInterval).not.toHaveBeenCalled();
+  });
+
+  it("registers workers but skips scheduler when disabled in both mode", async () => {
+    baseConfigValues = {
+      ...baseConfigValues,
+      app: { runMode: "both" } as IConfig["app"],
+      jobs: {
+        ...baseConfigValues.jobs,
+        pgbossSchedulerEnabled: false,
+      } as IConfig["jobs"],
+    };
+    const registerWorkers = vi.fn();
+    const tick = vi.fn().mockResolvedValue(undefined);
+    const startBoss = vi.fn().mockImplementation(async () => {
+      (service as unknown as { boss: object }).boss = {};
+    });
+    vi.spyOn(global, "setInterval").mockReturnValue(0 as unknown as ReturnType<typeof setInterval>);
+
+    service = buildService();
+    (service as unknown as { registerWorkers: typeof registerWorkers }).registerWorkers = registerWorkers;
+    (service as unknown as { tick: typeof tick }).tick = tick;
+    (service as unknown as { startBoss: typeof startBoss }).startBoss = startBoss;
+    process.env.DEALBOT_DISABLE_CHAIN = "true";
+
+    await service.onModuleInit();
+
+    expect(registerWorkers).toHaveBeenCalled();
+    expect(tick).not.toHaveBeenCalled();
+    expect(setInterval).not.toHaveBeenCalled();
   });
 
   it("updates paused job metrics from paused schedule counts", async () => {
