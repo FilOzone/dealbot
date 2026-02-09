@@ -58,12 +58,11 @@ async function bootstrap() {
     SwaggerModule.setup("api", app, document);
   }
 
-  const port = Number.parseInt(
-    isWorkerOnly ? process.env.DEALBOT_METRICS_PORT || "9090" : process.env.DEALBOT_PORT || "3000",
-    10,
-  );
+  const portEnvValue = isWorkerOnly ? process.env.DEALBOT_METRICS_PORT : process.env.DEALBOT_PORT;
+  const port = Number.parseInt(isWorkerOnly ? portEnvValue || "9090" : portEnvValue || "3000", 10);
   if (Number.isNaN(port)) {
-    throw new Error(`Invalid ${isWorkerOnly ? "DEALBOT_METRICS_PORT" : "DEALBOT_PORT"}`);
+    const name = isWorkerOnly ? "DEALBOT_METRICS_PORT" : "DEALBOT_PORT";
+    throw new Error(`Invalid ${name}: ${portEnvValue ?? ""}`);
   }
   const host = isWorkerOnly ? process.env.DEALBOT_METRICS_HOST || "0.0.0.0" : process.env.DEALBOT_HOST || "127.0.0.1";
   await app.listen(port, host);

@@ -202,7 +202,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     if (!this.boss) return;
 
     const scheduling = this.configService.get("scheduling");
-    const workerPollSeconds = Math.max(1, this.configService.get("jobs")?.workerPollSeconds ?? 60);
+    const workerPollSeconds = Math.max(5, this.configService.get("jobs")?.workerPollSeconds ?? 60);
     const dealTeamSize = Math.max(1, scheduling?.dealMaxConcurrency ?? 1);
     const retrievalTeamSize = Math.max(1, scheduling?.retrievalMaxConcurrency ?? 1);
 

@@ -6,7 +6,7 @@ import type { Network } from "../common/types.js";
 export const configValidationSchema = Joi.object({
   // Application
   NODE_ENV: Joi.string().valid("development", "production", "test").default("development"),
-  DEALBOT_RUN_MODE: Joi.string().valid("api", "worker", "both").default("both"),
+  DEALBOT_RUN_MODE: Joi.string().lowercase().valid("api", "worker", "both").default("both"),
   DEALBOT_PORT: Joi.number().default(3000),
   DEALBOT_HOST: Joi.string().default("127.0.0.1"),
   DEALBOT_METRICS_PORT: Joi.number().default(9090),
