@@ -63,14 +63,15 @@ For each selected piece, dealbot performs the following retrieval checks:
 
 ### 1. IPNI Verification
 
-**TBD:** IPNI verification is the same as described in [Data Storage Check](./data-storage.md#6-verify-ipni-indexing).  The only difference is that we don't wait as long since we already know the piece was indexed.  We're just making sure that it's still indexed.
+IPNI verification is the same as described in [Data Storage Check](./data-storage.md#6-verify-ipni-indexing).  The only difference is that we don't wait as long since we already know the piece was indexed.  We're just making sure that it's still indexed.
 
 ### 2. `/ipfs` Retrieval
 
 Downloads content from the SP directly with [`/ipfs` retrieval](https://github.com/filecoin-project/filecoin-pin/blob/master/documentation/glossary.md#ipfs-retrieval)
 
 - **URL:** `{serviceURL}/ipfs/{rootCID}`
-- **Request:** HTTP/2 with `Accept: application/vnd.ipld.car` header (TODO: remove this - it shouldn't be needed)
+- **Request:** [HTTP/2 with `Accept: application/vnd.ipld.car` header](https://specs.ipfs.tech/http-gateways/trustless-gateway/#accept-request-header)
+   - Note: we don't know why this header is needed given browser requestst to SP `/ipfs` endpoints work find, but we found empirically in early 2026 that it was required for the dealbot to have success when making requests to most SPs.  Adding this header doesn't do any hard, so we haven't investigated further.
 - **Applicable when:** Piece has a root CID in metadata (deal was created with IPNI enabled)
 - **What this tests:** The SP can serve content by root CID via its IPFS gateway
 
@@ -83,7 +84,7 @@ For each retrieval attempt:
 | # | Assertion | How It's Checked | Retries | Relevant Metric for Setting a Max Duration | Implemented? |
 |---|-----------|-----------------|:---:|-------------------------------------------|:---:|
 | 1 | Valid <IpfsRootCid,SP> provider record from filecoinpin.contact | IPNI query for root CID returns a result that includes the SP as a provider | unlimited polling with delay until timeout | [`ipniVerifyMs`](./events-and-metrics.md#ipniVerifyMs) | **TBD** |
-| 2 | IPFS content is retrievable | HTTP response returns 2xx status | Unlimited if a connection doesn't establish within 5s or on 5xx response | [`ipfsRetrievalLastByteMs`](./events-and-metrics.md#ipfsRetrievalLastByteMs) | Yes |
+| 2 | IPFS content is retrievable | HTTP response returns 2xx status | 0.  Failure to establish a connection or getting a 5xx response marks the retrieval as failed.  There is no retry. | [`ipfsRetrievalLastByteMs`](./events-and-metrics.md#ipfsRetrievalLastByteMs) | Yes |
 | 3 | Content integrity via CID | CID of downloaded content matches ipfsRootCid | none - if we receive non-matching bytes it's a failure | n/a (this is client side and fast) | **TBD** |
 | 4 | All checks pass | Check is not marked successful until all assertions pass within window | n/a | [`retrievalCheckMs`](./events-and-metrics.md#retrievalCheckMs) | **TBD** |
 

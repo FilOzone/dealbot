@@ -63,7 +63,7 @@ These times are on the end of the "global trough" and "early morning lull" respe
 
 ## SPs in Scope for Testing
 
-The "production dealbot" has `USE_ONLY_APPROVED_PROVIDERS=false` so non-approved SPs are included for evaluation. This means approved and non-approved SPs are both included for evaluation.  Only "dev" SPs in the SP Registry are excluded from testing.
+The "production dealbot" has `USE_ONLY_APPROVED_PROVIDERS=false` so non-approved SPs are included for evaluation. This means approved and non-approved SPs are both included for evaluation.  Only "dev" or "inactive" SPs in the SP Registry are excluded from testing.
 
 ## SP Resource Consumption for Dealbot Checks
 
@@ -110,7 +110,7 @@ Latency and throughput are not just a function of the SP's infrastructure.  They
 
 ## Why are 10MB files used for testing?
 
-10MB files are used for simplicity.  It's an approximation of a static website, which is a usecase for Filecoin Onchain Cloud.  Until we have piece cleanup functionality, it was an easy way to not fill up SP disk space too rapidly.
+10MB files are used for simplicity.  It's an approximation of a static website, which is a usecase for Filecoin Onchain Cloud.  Until we have piece cleanup functionality, it was an easy way to not fill up SP disk space too rapidly.  It's also a better size for mesuring SP throughput than smaller files.
 
 ## Why are we using the SP's `/ipfs` endpoint for retrieval testing?
 

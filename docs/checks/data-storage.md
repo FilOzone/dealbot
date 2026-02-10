@@ -14,13 +14,13 @@ Every data storage check, dealbot:
 
 1. Generates a random data file
 2. Converts it to [CAR format](https://ipld.io/specs/transport/car/)
-3. Uploads the CAR to **[every testable SP](#3-determine-which-sps-to-check-for-this-cycle)** as a new piece in one of the [dealbot-managed datasets](#4-upload-to-each-sp).
+3. Uploads the CAR to **[a testable SP](#3-determine-which-sps-to-check-for-this-cycle)** as a new piece in one of the [dealbot-managed datasets](#4-upload-to-each-sp).
 4. Waits for: 
    - Onchain confirmation - the SP sends a message adding the piece to the dataset and dealbot confirms it onchain
    - IPNI discoverability - the SP indexes the CAR announces the index to IPNI and dealbot confirms that IPNI has the index.
 5. Runs retrieval checks as defined in [Retrieval Check](./retrievals.md).
 
-A successful operation requires all [assertions in the table below ](./data-storage.md#what-gets-asserted) to pass.
+A successful operation requires all [assertions in the table below](./data-storage.md#what-gets-asserted) to pass.
 
 Failure occurs if any step fails or the deal exceeds its max allowed time. There are no timing-based quality assertions. Operational timeouts exist to prevent jobs from running indefinitely, but they are not quality assertions.
 
@@ -34,8 +34,8 @@ Each deal asserts the following for every SP:
 | 2 | Piece submission recorded on-chain | Synapse `onPieceAdded` callback fires with a transaction hash | Onchain | n/a | [`pieceAddedOnChainMs`](./events-and-metrics.md#pieceAddedOnChainMs) | Yes |
 | 3 | Piece is confirmed on-chain | Synapse `onPieceConfirmed` callback fires | Onchain | n/a | [`pieceConfirmedOnChainMs`](./events-and-metrics.md#pieceConfirmedOnChainMs) | **TBD** |
 | 4 | SP indexes piece locally | PDP server reports `indexed: true` | Discoverability | n/a | [`spIndexLocallyMs`](./events-and-metrics.md#spIndexLocallyMs) | Yes |
-| 5 | Content is discoverable on filecoinpin.contact | IPNI index returns a <IpfsRootCid,SP> provider record | Discoverability | Unlimited polling with delay until timeout | [`ipniVerifyMs`](./events-and-metrics.md#ipniVerifyMs) | **TBD** |
-| 6 | Content is retrievable | See [Retrieval Check](./retrievals.md) for specific assertions | Retrieval | See [Retrieval Check](./retrievals.md) | See [Retrieval Check](./retrievals.md) | **TBD** |
+| 5 | Content is discoverable on filecoinpin.contact | IPNI index returns a <IpfsRootCid,SP> provider record | Discoverability | Polling with delay until timeout | [`ipniVerifyMs`](./events-and-metrics.md#ipniVerifyMs) | **TBD** |
+| 6 | Content is retrievable | See [Retrieval Check](./retrievals.md#what-gets-asserted) for specific assertions | Retrieval | 0 | [`ipfsRetrievalLastByteMs`](./events-and-metrics.md#ipfsRetrievalLastByteMs) | **TBD** |
 | 7 | All checks pass | Deal is not marked successful until all assertions pass within window | All four | n/a | [`dataStorageCheckMs`](./events-and-metrics.md#dataStorageCheckMs) | **TBD** |
 
 ## Deal Lifecycle
@@ -60,7 +60,7 @@ flowchart TD
 
 ### 1. Generate Random Data
 
-Dealbot generates a random binary file with a unique name and embedded markers (prefix/suffix with timestamp and unique ID). The same file is reused across all SPs in the cycle.  This ensures fair comparison — every SP is tested with identical data in a given cycle.
+Dealbot generates a random binary file with a unique name and embedded markers (prefix/suffix with timestamp and unique ID).
 
 - **File format:** `random-{timestamp}-{uniqueId}.bin`
 - **Possible sizes:** 10 KiB, 10 MB, or 100 MB (configurable via `RANDOM_PIECE_SIZES`)
@@ -69,7 +69,7 @@ Source: [`dataSource.service.ts`](../../apps/backend/src/dataSource/dataSource.s
 
 ### 2. Convert to CAR Format
 
-The raw data is converted to a CAR (Content Addressable Archive) file (via `filecoin-pin` integration — **TBD**).  See https://github.com/filecoin-project/filecoin-pin/blob/master/documentation/behind-the-scenes-of-adding-a-file.md#create-car for more info.
+The raw data is converted to a CAR (Content Addressable Archive) file (via `filecoin-pin` integration).  See https://github.com/filecoin-project/filecoin-pin/blob/master/documentation/behind-the-scenes-of-adding-a-file.md#create-car for more info.
 
 Source: [`ipni.strategy.ts` (`convertToCar`)](../../apps/backend/src/deal-addons/strategies/ipni.strategy.ts#L530)
 
@@ -101,7 +101,7 @@ Source: [`deal.service.ts` (`createDeal`)](../../apps/backend/src/deal/deal.serv
 
 After upload completes, dealbot waits for the piece to be confirmed onchain.  The following callbacks are tracked:
    - `onPieceAdded` — piece submission is recorded as reported by the SP on-chain (transaction hash available).
-   - `onPieceConfirmed` — **TBD** confirm the piece is onchain by querying the chain RPC endpoint.
+   - `onPieceConfirmed` — confirm the piece is onchain by querying the chain RPC endpoint. filecoin-pin and synapse-sdk are doing this work under the hood
 
 ### 6. Wait for SP to Index and Announce Index to IPNI
 
