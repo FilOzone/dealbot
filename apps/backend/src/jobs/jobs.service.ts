@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+import { hostname } from "node:os";
 import { Injectable, Logger, type OnApplicationShutdown, type OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
@@ -19,6 +21,8 @@ type JobType = "deal" | "retrieval" | "metrics" | "metrics_cleanup";
 type DealJobData = { spAddress: string; intervalSeconds: number };
 type RetrievalJobData = { spAddress: string; intervalSeconds: number };
 type MetricsJobData = { intervalSeconds: number };
+type DealJob = PgBoss.JobWithDoneCallback<DealJobData, void>;
+type RetrievalJob = PgBoss.JobWithDoneCallback<RetrievalJobData, void>;
 
 type ScheduleRow = {
   id: number;
@@ -38,6 +42,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
   private bossErrorHandler?: (error: Error) => void;
   private schedulerInterval: ReturnType<typeof setInterval> | null = null;
   private tickPromise: Promise<void> | null = null;
+  private readonly workerIdentity = process.env.POD_NAME ?? process.env.HOSTNAME ?? hostname();
 
   constructor(
     private readonly configService: ConfigService<IConfig, true>,
@@ -167,6 +172,10 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     return Math.max(10, this.configService.get("jobs")?.lockRetrySeconds ?? 60);
   }
 
+  private lockStaleSeconds(): number {
+    return Math.max(60, this.configService.get("jobs")?.lockStaleSeconds ?? 3600);
+  }
+
   private schedulePhaseSeconds(): number {
     return Math.max(0, this.configService.get("jobs")?.schedulePhaseSeconds ?? 0);
   }
@@ -218,15 +227,17 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     const retrievalTeamSize = Math.max(1, scheduling?.retrievalMaxConcurrency ?? 1);
 
     void this.boss
-      .subscribe("deal.run", { teamSize: dealTeamSize, newJobCheckIntervalSeconds: workerPollSeconds }, async (job) =>
-        this.handleDealJob(job.data as DealJobData),
+      .subscribe<DealJobData, void>(
+        "deal.run",
+        { teamSize: dealTeamSize, newJobCheckIntervalSeconds: workerPollSeconds },
+        async (job) => this.handleDealJob(job),
       )
       .catch((error) => this.logger.error(`Failed to subscribe to deal.run: ${error.message}`, error.stack));
     void this.boss
-      .subscribe(
+      .subscribe<RetrievalJobData, void>(
         "retrieval.run",
         { teamSize: retrievalTeamSize, newJobCheckIntervalSeconds: workerPollSeconds },
-        async (job) => this.handleRetrievalJob(job.data as RetrievalJobData),
+        async (job) => this.handleRetrievalJob(job),
       )
       .catch((error) => this.logger.error(`Failed to subscribe to retrieval.run: ${error.message}`, error.stack));
     void this.boss
@@ -254,7 +265,8 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     );
   }
 
-  private async handleDealJob(data: DealJobData): Promise<void> {
+  private async handleDealJob(job: DealJob): Promise<void> {
+    const data = job.data as DealJobData;
     const spAddress = data.spAddress;
     const maintenance = this.getMaintenanceWindowStatus();
     if (maintenance.active) {
@@ -262,7 +274,11 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       return;
     }
 
-    const acquired = await this.tryAcquireSpLock(spAddress);
+    const jobId = typeof job.id === "string" ? job.id : randomUUID();
+    if (!job.id) {
+      this.logger.warn(`Deal job missing id; generated fallback id ${jobId} for ${spAddress}`);
+    }
+    const acquired = await this.tryAcquireSpMutex("deal", spAddress, jobId);
     if (!acquired) {
       await this.requeueJob("deal", "deal.run", data);
       return;
@@ -289,7 +305,10 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         throw error;
       } finally {
         try {
-          await this.releaseSpLock(spAddress);
+          const released = await this.releaseSpMutex("deal", spAddress, jobId);
+          if (!released) {
+            this.logger.warn(`Deal lock release skipped for ${spAddress}: lock not owned by job ${jobId}`);
+          }
         } catch (releaseError) {
           this.logger.error(
             `Failed to release deal lock for ${spAddress}: ${releaseError.message}`,
@@ -300,7 +319,8 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     });
   }
 
-  private async handleRetrievalJob(data: RetrievalJobData): Promise<void> {
+  private async handleRetrievalJob(job: RetrievalJob): Promise<void> {
+    const data = job.data as RetrievalJobData;
     const spAddress = data.spAddress;
     const maintenance = this.getMaintenanceWindowStatus();
     if (maintenance.active) {
@@ -308,7 +328,11 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       return;
     }
 
-    const acquired = await this.tryAcquireSpLock(spAddress);
+    const jobId = typeof job.id === "string" ? job.id : randomUUID();
+    if (!job.id) {
+      this.logger.warn(`Retrieval job missing id; generated fallback id ${jobId} for ${spAddress}`);
+    }
+    const acquired = await this.tryAcquireSpMutex("retrieval", spAddress, jobId);
     if (!acquired) {
       await this.requeueJob("retrieval", "retrieval.run", data);
       return;
@@ -337,7 +361,10 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         throw error;
       } finally {
         try {
-          await this.releaseSpLock(spAddress);
+          const released = await this.releaseSpMutex("retrieval", spAddress, jobId);
+          if (!released) {
+            this.logger.warn(`Retrieval lock release skipped for ${spAddress}: lock not owned by job ${jobId}`);
+          }
         } catch (releaseError) {
           this.logger.error(
             `Failed to release retrieval lock for ${spAddress}: ${releaseError.message}`,
@@ -383,12 +410,18 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     }
   }
 
-  private async tryAcquireSpLock(spAddress: string): Promise<boolean> {
-    return this.jobScheduleRepository.acquireAdvisoryLock(spAddress);
+  private async tryAcquireSpMutex(jobType: "deal" | "retrieval", spAddress: string, jobId: string): Promise<boolean> {
+    return this.jobScheduleRepository.acquireJobMutex(
+      jobType,
+      spAddress,
+      jobId,
+      this.workerIdentity,
+      this.lockStaleSeconds(),
+    );
   }
 
-  private async releaseSpLock(spAddress: string): Promise<void> {
-    await this.jobScheduleRepository.releaseAdvisoryLock(spAddress);
+  private async releaseSpMutex(jobType: "deal" | "retrieval", spAddress: string, jobId: string): Promise<boolean> {
+    return this.jobScheduleRepository.releaseJobMutex(jobType, spAddress, jobId);
   }
 
   /**

@@ -17,8 +17,8 @@ describe("JobsService schedule rows", () => {
     countPausedSchedules: ReturnType<typeof vi.fn>;
     findDueSchedulesWithManager: ReturnType<typeof vi.fn>;
     runTransaction: ReturnType<typeof vi.fn>;
-    acquireAdvisoryLock: ReturnType<typeof vi.fn>;
-    releaseAdvisoryLock: ReturnType<typeof vi.fn>;
+    acquireJobMutex: ReturnType<typeof vi.fn>;
+    releaseJobMutex: ReturnType<typeof vi.fn>;
     updateScheduleAfterRun: ReturnType<typeof vi.fn>;
     countBossJobStates: ReturnType<typeof vi.fn>;
     minBossJobAgeSecondsByState: ReturnType<typeof vi.fn>;
@@ -72,8 +72,8 @@ describe("JobsService schedule rows", () => {
       runTransaction: vi.fn(async (callback: (manager: unknown) => Promise<void>) => {
         await callback({});
       }),
-      acquireAdvisoryLock: vi.fn(),
-      releaseAdvisoryLock: vi.fn(),
+      acquireJobMutex: vi.fn(),
+      releaseJobMutex: vi.fn(),
       updateScheduleAfterRun: vi.fn(),
       countBossJobStates: vi.fn(),
       minBossJobAgeSecondsByState: vi.fn(),
@@ -493,13 +493,16 @@ describe("JobsService schedule rows", () => {
     const publish = vi.fn();
     (service as unknown as { boss: { publish: typeof publish } }).boss = { publish };
 
-    jobScheduleRepositoryMock.acquireAdvisoryLock.mockResolvedValueOnce(false);
+    jobScheduleRepositoryMock.acquireJobMutex.mockResolvedValueOnce(false);
 
     const now = new Date("2024-01-01T00:00:00Z");
     vi.useFakeTimers();
     vi.setSystemTime(now);
 
-    await callPrivate(service, "handleDealJob", { spAddress: "0xaaa", intervalSeconds: 60 });
+    await callPrivate(service, "handleDealJob", {
+      id: "job-1",
+      data: { spAddress: "0xaaa", intervalSeconds: 60 },
+    });
 
     expect(publish).toHaveBeenCalledTimes(1);
     const startAfter = publish.mock.calls[0][2]?.startAfter as Date;
@@ -526,17 +529,26 @@ describe("JobsService schedule rows", () => {
     (service as unknown as { boss: { publish: typeof publish } }).boss = { publish };
 
     // Simulate lock being held (e.g. by a running deal execution)
-    jobScheduleRepositoryMock.acquireAdvisoryLock.mockResolvedValueOnce(false);
+    jobScheduleRepositoryMock.acquireJobMutex.mockResolvedValueOnce(false);
 
     const now = new Date("2024-01-01T00:00:00Z");
     vi.useFakeTimers();
     vi.setSystemTime(now);
 
     const spAddress = "0xccc";
-    await callPrivate(service, "handleRetrievalJob", { spAddress, intervalSeconds: 60 });
+    await callPrivate(service, "handleRetrievalJob", {
+      id: "job-2",
+      data: { spAddress, intervalSeconds: 60 },
+    });
 
     // Ensure we tried to acquire the lock for the specific SP
-    expect(jobScheduleRepositoryMock.acquireAdvisoryLock).toHaveBeenCalledWith(spAddress);
+    expect(jobScheduleRepositoryMock.acquireJobMutex).toHaveBeenCalledWith(
+      "retrieval",
+      spAddress,
+      "job-2",
+      expect.any(String),
+      expect.any(Number),
+    );
 
     // Should requeue instead of running
     expect(publish).toHaveBeenCalledTimes(1);

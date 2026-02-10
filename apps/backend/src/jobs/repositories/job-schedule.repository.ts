@@ -217,25 +217,51 @@ export class JobScheduleRepository {
   }
 
   /**
-   * Tries to acquire a Postgres advisory lock for a specific provider.
-   * This ensures only one worker processes a specific provider at a time if multiple workers pick up jobs.
-   *
-   * @param spAddress - The provider address to lock.
-   * @returns true if the lock was acquired, false otherwise.
+   * Tries to acquire a DB-backed mutex for a specific provider.
+   * Enforces a single in-flight job per provider across all workers.
    */
-  async acquireAdvisoryLock(spAddress: string): Promise<boolean> {
-    const result = await this.dataSource.query("SELECT pg_try_advisory_lock(hashtextextended($1, 0)) AS acquired", [
-      spAddress,
-    ]);
-    return Boolean(result?.[0]?.acquired);
+  async acquireJobMutex(
+    jobType: JobScheduleType,
+    spAddress: string,
+    jobId: string,
+    hostname: string,
+    staleSeconds: number,
+  ): Promise<boolean> {
+    const rows = await this.dataSource.query(
+      `
+      WITH upsert AS (
+        INSERT INTO job_mutex (job_type, sp_address, job_id, hostname, acquired_at, updated_at)
+        VALUES ($1, $2, $3, $4, NOW(), NOW())
+        ON CONFLICT (sp_address) DO UPDATE
+          SET job_type = EXCLUDED.job_type,
+              job_id = EXCLUDED.job_id,
+              hostname = EXCLUDED.hostname,
+              acquired_at = NOW(),
+              updated_at = NOW()
+          WHERE job_mutex.acquired_at < NOW() - ($5::int * INTERVAL '1 second')
+        RETURNING 1
+      )
+      SELECT COUNT(*)::int AS acquired FROM upsert
+      `,
+      [jobType, spAddress, jobId, hostname, staleSeconds],
+    );
+    return Number(rows?.[0]?.acquired ?? 0) > 0;
   }
 
   /**
-   * Releases the Postgres advisory lock for a specific provider.
-   *
-   * @param spAddress - The provider address to unlock.
+   * Releases a DB-backed mutex for a specific provider.
    */
-  async releaseAdvisoryLock(spAddress: string): Promise<void> {
-    await this.dataSource.query("SELECT pg_advisory_unlock(hashtextextended($1, 0))", [spAddress]);
+  async releaseJobMutex(jobType: JobScheduleType, spAddress: string, jobId: string): Promise<boolean> {
+    const rows = await this.dataSource.query(
+      `
+      DELETE FROM job_mutex
+      WHERE sp_address = $1
+        AND job_type = $2
+        AND job_id = $3
+      RETURNING 1
+      `,
+      [spAddress, jobType, jobId],
+    );
+    return rows.length > 0;
   }
 }
