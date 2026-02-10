@@ -1,5 +1,7 @@
 import { Injectable, Logger } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
 import { validateCarContent } from "../../common/car-utils.js";
+import type { IConfig, IDatasetConfig } from "../../config/app.config.js";
 import { ServiceType } from "../../database/types.js";
 import { WalletSdkService } from "../../wallet-sdk/wallet-sdk.service.js";
 import type { IRetrievalAddon } from "../interfaces/retrieval-addon.interface.js";
@@ -18,7 +20,10 @@ export class IpniRetrievalStrategy implements IRetrievalAddon {
   readonly name = ServiceType.IPFS_PIN;
   readonly priority = RetrievalPriority.MEDIUM; // Alternative method
 
-  constructor(private readonly walletSdkService: WalletSdkService) {}
+  constructor(
+    private readonly walletSdkService: WalletSdkService,
+    private readonly configService: ConfigService<IConfig, true>,
+  ) {}
 
   /**
    * IPNI retrieval is only available if IPNI was enabled during deal creation
@@ -150,21 +155,22 @@ export class IpniRetrievalStrategy implements IRetrievalAddon {
     // full content validation — unpack, rebuild, compare root CIDs
     if (!rootCIDStr) {
       this.logger.warn(
-        `IPNI content validation skipped for deal ${config.deal.id}: rootCID metadata is missing. ` +
-          `Size check passed (${actualSize} bytes)`,
+        `IPNI content validation failed for deal ${config.deal.id}: rootCID metadata is missing. ` +
+          `Cannot perform content validation.`,
       );
       return {
-        isValid: true,
+        isValid: false,
         method: "car-content-validation",
-        details: `CAR size matches expected ${expectedCarSize} bytes but content validation skipped (rootCID missing)`,
+        details: `Cannot validate: rootCID metadata is missing`,
         comparison: {
-          expected: expectedCarSize,
+          expected: undefined,
           actual: actualSize,
         },
       };
     }
 
-    const validationResult = await validateCarContent(retrievedData, rootCIDStr);
+    const datasetConfig = this.configService.get<IDatasetConfig>("dataset");
+    const validationResult = await validateCarContent(retrievedData, rootCIDStr, datasetConfig.localDatasetsPath);
 
     if (!validationResult.isValid) {
       this.logger.warn(
