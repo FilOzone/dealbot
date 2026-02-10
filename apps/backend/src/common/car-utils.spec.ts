@@ -2,8 +2,8 @@ import { randomBytes } from "node:crypto";
 import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createCarFromPath, cleanupTempCar } from "filecoin-pin/core/unixfs";
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { cleanupTempCar, createCarFromPath } from "filecoin-pin/core/unixfs";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { unpackCarToPath, validateCarContent } from "./car-utils.js";
 
 describe("car-utils", () => {

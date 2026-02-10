@@ -18,7 +18,7 @@ export class IpniRetrievalStrategy implements IRetrievalAddon {
   readonly name = ServiceType.IPFS_PIN;
   readonly priority = RetrievalPriority.MEDIUM; // Alternative method
 
-  constructor(private readonly walletSdkService: WalletSdkService) { }
+  constructor(private readonly walletSdkService: WalletSdkService) {}
 
   /**
    * IPNI retrieval is only available if IPNI was enabled during deal creation
@@ -99,7 +99,7 @@ export class IpniRetrievalStrategy implements IRetrievalAddon {
     if (carSize === undefined || carSize === null) {
       this.logger.warn(
         `IPNI validation skipped for deal ${config.deal.id}: carSize metadata is missing. ` +
-        `Retrieved ${actualSize} bytes from ${storageProvider}`,
+          `Retrieved ${actualSize} bytes from ${storageProvider}`,
       );
       return {
         isValid: false,
@@ -151,7 +151,7 @@ export class IpniRetrievalStrategy implements IRetrievalAddon {
     if (!rootCIDStr) {
       this.logger.warn(
         `IPNI content validation skipped for deal ${config.deal.id}: rootCID metadata is missing. ` +
-        `Size check passed (${actualSize} bytes)`,
+          `Size check passed (${actualSize} bytes)`,
       );
       return {
         isValid: true,

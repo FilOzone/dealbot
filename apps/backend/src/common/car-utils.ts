@@ -134,10 +134,7 @@ export async function unpackCarToPath(
  * content, and compare root CIDs. This proves CAR structure, UnixFS DAG integrity,
  * and content correctness.
  */
-export async function validateCarContent(
-  carBytes: Uint8Array,
-  expectedRootCID: string,
-): Promise<CarValidationResult> {
+export async function validateCarContent(carBytes: Uint8Array, expectedRootCID: string): Promise<CarValidationResult> {
   const tempBase = join(tmpdir(), `dealbot-validate-${randomBytes(6).toString("hex")}`);
   const extractDir = join(tempBase, "extracted");
   const errors: string[] = [];
