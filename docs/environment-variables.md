@@ -768,6 +768,16 @@ is handled by future polls.
 
 ---
 
+### `JOB_LOCK_STALE_SECONDS`
+
+- **Type**: `number`
+- **Required**: No
+- **Default**: `600`
+
+**Role**: Age (seconds) at which an in-flight per-SP mutex is considered stale and can be replaced.
+
+---
+
 ### `JOB_SCHEDULE_PHASE_SECONDS`
 
 - **Type**: `number`
