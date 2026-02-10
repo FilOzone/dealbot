@@ -102,7 +102,7 @@ WHERE job_type = 'retrieval'
 
 Use these formulas to reason about whether the system can keep up and how much backlog it can absorb.
 
-Per-SP capacity (one job at a time):
+Per-SP capacity (one job per SP at a time):
 
 - Per-SP load (minutes/hour) = `(deals_per_sp_per_hour * deal_max_minutes) + (retrievals_per_sp_per_hour * retrieval_max_minutes)`
 - If per-SP load > 60, that SP can **never** catch up (backlog grows).
@@ -116,9 +116,9 @@ Cluster capacity (worker pool bound):
 
 Example (18 SPs, 4 deals/hr @ 5m, 6 retrievals/hr @ 2m, 5 workers, 10/10 concurrency):
 
-- Per-SP load = `4*5 + 6*2 = 32 min/hr` (OK; 28 min/hr headroom)
-- Deal capacity = `5*10*(60/5)=600 deals/hr` => `600/4 = 150 SPs`
-- Retrieval capacity = `5*10*(60/2)=1500 retrievals/hr` => `1500/6 = 250 SPs`
+- Per-SP load = `4*5m + 6*2m = 32 min/hr` (OK; 28 min/hr headroom)
+- Deal capacity = `5 workers * 10 deals/hr/worker * (60/5m) = 600 deals/hr` => `600/4 = 150 SPs`
+- Retrieval capacity = `5 workers * 10 retrievals/hr/worker * (60/2m) = 1500 retrievals/hr` => `1500/6 = 250 SPs`
 - Binding limit = deals => **~150 SPs max** before capacity <= arrival
 
 ## Staggering multiple dealbot deployments
