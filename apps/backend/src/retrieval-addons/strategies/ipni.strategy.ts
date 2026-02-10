@@ -1,4 +1,5 @@
 import { Injectable, Logger } from "@nestjs/common";
+import { validateCarContent } from "../../common/car-utils.js";
 import { ServiceType } from "../../database/types.js";
 import { WalletSdkService } from "../../wallet-sdk/wallet-sdk.service.js";
 import type { IRetrievalAddon } from "../interfaces/retrieval-addon.interface.js";
@@ -17,7 +18,7 @@ export class IpniRetrievalStrategy implements IRetrievalAddon {
   readonly name = ServiceType.IPFS_PIN;
   readonly priority = RetrievalPriority.MEDIUM; // Alternative method
 
-  constructor(private readonly walletSdkService: WalletSdkService) {}
+  constructor(private readonly walletSdkService: WalletSdkService) { }
 
   /**
    * IPNI retrieval is only available if IPNI was enabled during deal creation
@@ -80,14 +81,9 @@ export class IpniRetrievalStrategy implements IRetrievalAddon {
 
   /**
    * Validate IPNI retrieved data
-   * The PDP provider returns a CAR file, so we validate by checking the size matches
-   * the expected CAR file size from metadata.
-   *
-   * TODO: In the future, we should also:
-   * - Parse the CAR file and extract blocks
-   * - Verify block CIDs match expected blockCIDs
-   * - Reconstruct original data and verify against originalSize
-   * SEE https://github.com/FilOzone/dealbot/issues/144 for more details.
+   * The PDP provider returns a CAR file. We perform two validation steps:
+   * 1. Fast size pre-check against expected CAR size
+   * 2. Full content validation: unpack CAR → rebuild → compare root CIDs
    */
   async validateData(retrievedData: Buffer, config: RetrievalConfiguration): Promise<ValidationResult> {
     const actualSize = retrievedData.length;
@@ -103,11 +99,11 @@ export class IpniRetrievalStrategy implements IRetrievalAddon {
     if (carSize === undefined || carSize === null) {
       this.logger.warn(
         `IPNI validation skipped for deal ${config.deal.id}: carSize metadata is missing. ` +
-          `Retrieved ${actualSize} bytes from ${storageProvider}`,
+        `Retrieved ${actualSize} bytes from ${storageProvider}`,
       );
       return {
         isValid: false,
-        method: "car-size-check",
+        method: "car-content-validation",
         details: `Cannot validate: carSize metadata is missing. Retrieved ${actualSize} bytes`,
         comparison: { expected: undefined, actual: actualSize },
       };
@@ -115,16 +111,11 @@ export class IpniRetrievalStrategy implements IRetrievalAddon {
 
     const expectedCarSize = Number(carSize);
 
-    // Validate by checking size matches expected CAR file size
-    const isValid = actualSize === expectedCarSize;
-
-    if (!isValid) {
-      // Calculate size difference and percentage
+    // fast size pre-check — fail immediately on size mismatch
+    if (actualSize !== expectedCarSize) {
       const sizeDiff = actualSize - expectedCarSize;
       const sizeDiffPercent = expectedCarSize > 0 ? ((sizeDiff / expectedCarSize) * 100).toFixed(2) : "N/A";
 
-      // Build detailed log message with IPFS validation details
-      // Note: Storage Provider and Root CID are logged in full (no truncation)
       const logParts = [
         `IPNI retrieval validation failed for deal ${config.deal.id}:`,
         `  Storage Provider: ${String(storageProvider)}`,
@@ -139,27 +130,55 @@ export class IpniRetrievalStrategy implements IRetrievalAddon {
       ].filter((part): part is string => part !== null);
 
       this.logger.warn(logParts.join("\n"));
+
+      let additionalDetails = "";
+      if (blockCIDs && blockCount) {
+        additionalDetails = ` (${blockCount} blocks in CAR)`;
+      }
+
+      return {
+        isValid: false,
+        method: "car-content-validation",
+        details: `CAR size mismatch: expected ${expectedCarSize}, got ${actualSize}${additionalDetails}`,
+        comparison: {
+          expected: expectedCarSize,
+          actual: actualSize,
+        },
+      };
     }
 
-    let additionalDetails = "";
-    if (blockCIDs && blockCount) {
-      additionalDetails = ` (${blockCount} blocks in CAR)`;
+    // full content validation — unpack, rebuild, compare root CIDs
+    if (!rootCIDStr) {
+      this.logger.warn(
+        `IPNI content validation skipped for deal ${config.deal.id}: rootCID metadata is missing. ` +
+        `Size check passed (${actualSize} bytes)`,
+      );
+      return {
+        isValid: true,
+        method: "car-content-validation",
+        details: `CAR size matches expected ${expectedCarSize} bytes but content validation skipped (rootCID missing)`,
+        comparison: {
+          expected: expectedCarSize,
+          actual: actualSize,
+        },
+      };
     }
 
-    let details: string;
-    if (isValid) {
-      details = `CAR size matches expected ${expectedCarSize} bytes${additionalDetails}`;
-    } else {
-      details = `CAR size mismatch: expected ${expectedCarSize}, got ${actualSize}${additionalDetails}`;
+    const validationResult = await validateCarContent(retrievedData, rootCIDStr);
+
+    if (!validationResult.isValid) {
+      this.logger.warn(
+        `IPNI content validation failed for deal ${config.deal.id} from ${storageProvider}: ${validationResult.details}`,
+      );
     }
 
     return {
-      isValid,
-      method: "car-size-check",
-      details,
+      isValid: validationResult.isValid,
+      method: "car-content-validation",
+      details: validationResult.details,
       comparison: {
-        expected: expectedCarSize,
-        actual: actualSize,
+        expected: rootCIDStr,
+        actual: validationResult.rebuiltRootCID ?? "unknown",
       },
     };
   }
