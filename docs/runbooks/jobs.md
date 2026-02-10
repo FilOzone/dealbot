@@ -1,6 +1,7 @@
 # Jobs Runbook (pg-boss)
 
 This runbook covers operational tasks for the pg-boss scheduler.
+For system behavior and job definitions, see `docs/jobs.md`.
 
 ## Pausing jobs
 
@@ -90,60 +91,7 @@ WHERE job_type = 'retrieval'
   AND sp_address = '<sp-address>';
 ```
 
-## Notes
+## References
 
-- Offsets (`*_START_OFFSET_SECONDS`) are ignored in pg-boss mode.
-- Job schedules are rate-based (per hour) and persist across restarts.
-- Paused schedules remain paused until explicitly resumed. Pausing is strictly for manual/admin use.
-- Schedules for providers that are removed from configuration or go inactive are **automatically deleted** to keep the job list clean. Manually paused jobs for active providers are preserved.
-- Deal and retrieval jobs share the same per-SP mutex, so only one job runs per provider at a time.
-
-## Capacity and limits
-
-Use these formulas to reason about whether the system can keep up and how much backlog it can absorb.
-
-Per-SP capacity (one job per SP at a time):
-
-- Per-SP load (minutes/hour) = `(deals_per_sp_per_hour * deal_max_minutes) + (retrievals_per_sp_per_hour * retrieval_max_minutes)`
-- If per-SP load > 60, that SP can **never** catch up (backlog grows).
-- If per-SP load <= 60, backlog will eventually drain (catch-up rate = `60 - per_sp_load` minutes/hour).
-
-Cluster capacity (worker pool bound):
-
-- Deal capacity (deals/hour) = `workers * DEAL_MAX_CONCURRENCY * (60 / deal_max_minutes)`
-- Retrieval capacity (retrievals/hour) = `workers * RETRIEVAL_MAX_CONCURRENCY * (60 / retrieval_max_minutes)`
-- Max sustainable SP count = `min(deal_capacity / deals_per_sp_per_hour, retrieval_capacity / retrievals_per_sp_per_hour)`
-
-Example (18 SPs, 4 deals/hr @ 5m, 6 retrievals/hr @ 2m, 5 workers, 10/10 concurrency):
-
-- Per-SP load = `4*5m + 6*2m = 32 min/hr` (OK; 28 min/hr headroom)
-- Deal capacity = `5 workers * 10 deals/hr/worker * (60/5m) = 600 deals/hr` => `600/4 = 150 SPs`
-- Retrieval capacity = `5 workers * 10 retrievals/hr/worker * (60/2m) = 1500 retrievals/hr` => `1500/6 = 250 SPs`
-- Binding limit = deals => **~150 SPs max** before capacity <= arrival
-
-## Staggering multiple dealbot deployments
-
-Some SPs deploy testnet and mainnet in the same computer room. If you are running more than
-one dealbot in the same environment, use a phase offset and jitter to spread load and avoid
-uplink/downlink backlogs happening at the same time:
-
-- `JOB_SCHEDULE_PHASE_SECONDS` shifts the initial `next_run_at` for all schedules.
-- `JOB_ENQUEUE_JITTER_SECONDS` adds random delay when jobs are enqueued.
-
-Example with two deployments running the same rates:
-
-Deployment A:
-
-```
-JOB_SCHEDULE_PHASE_SECONDS=0
-JOB_ENQUEUE_JITTER_SECONDS=300
-```
-
-Deployment B:
-
-```
-JOB_SCHEDULE_PHASE_SECONDS=1200
-JOB_ENQUEUE_JITTER_SECONDS=300
-```
-
-This staggers schedules by 20 minutes and randomizes starts within 5 minutes.
+- System overview: `docs/jobs.md`
+- Environment variables: `docs/environment-variables.md`
