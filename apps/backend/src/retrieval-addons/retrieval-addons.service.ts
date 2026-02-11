@@ -465,7 +465,7 @@ export class RetrievalAddonsService {
     urlResult: RetrievalUrlResult,
     extras?: RetrievalErrorResponseInfo & { errorCode?: string },
   ): string {
-    const pieceCid = config.deal.pieceCid ? `${config.deal.pieceCid.slice(0, 12)}...` : "missing";
+    const pieceCid = config.deal.pieceCid ?? "missing";
     const headerKeys = urlResult.headers ? Object.keys(urlResult.headers) : [];
     const hasAuthHeader = headerKeys.includes("Authorization");
 
