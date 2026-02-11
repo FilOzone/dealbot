@@ -148,7 +148,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
   }
 
   getTestingDealOptions(): { enableCDN: boolean; enableIpni: boolean } {
-    const enableCDN = this.blockchainConfig.enableCDNTesting ? Math.random() > 0.5 : false;
+    const enableCDN = true;
     const enableIpni = this.getIpniEnabled(this.blockchainConfig.enableIpniTesting);
 
     return { enableCDN, enableIpni };

@@ -28,7 +28,6 @@ export const configValidationSchema = Joi.object({
   WALLET_PRIVATE_KEY: Joi.string().required(),
   CHECK_DATASET_CREATION_FEES: Joi.boolean().default(true),
   USE_ONLY_APPROVED_PROVIDERS: Joi.boolean().default(true),
-  ENABLE_CDN_TESTING: Joi.boolean().default(true),
   ENABLE_IPNI_TESTING: Joi.string()
     .lowercase()
     .valid("disabled", "random", "always", "true", "false")
@@ -154,7 +153,6 @@ export interface IBlockchainConfig {
   walletPrivateKey: string;
   checkDatasetCreationFees: boolean;
   useOnlyApprovedProviders: boolean;
-  enableCDNTesting: boolean;
   enableIpniTesting: IpniTestingMode;
   dealbotDataSetVersion?: string;
 }
@@ -346,7 +344,6 @@ export function loadConfig(): IConfig {
       walletPrivateKey: process.env.WALLET_PRIVATE_KEY || "",
       checkDatasetCreationFees: process.env.CHECK_DATASET_CREATION_FEES !== "false",
       useOnlyApprovedProviders: process.env.USE_ONLY_APPROVED_PROVIDERS !== "false",
-      enableCDNTesting: process.env.ENABLE_CDN_TESTING !== "false",
       enableIpniTesting: parseIpniTestingMode(process.env.ENABLE_IPNI_TESTING),
       dealbotDataSetVersion: process.env.DEALBOT_DATASET_VERSION,
     },
