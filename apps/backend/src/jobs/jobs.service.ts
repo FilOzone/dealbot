@@ -213,18 +213,18 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
 
     const scheduling = this.configService.get("scheduling");
     const workerPollSeconds = Math.max(5, this.configService.get("jobs")?.workerPollSeconds ?? 60);
-    const dealTeamSize = Math.max(1, scheduling?.dealMaxConcurrency ?? 1);
-    const retrievalTeamSize = Math.max(1, scheduling?.retrievalMaxConcurrency ?? 1);
+    const dealBatchSize = Math.max(1, scheduling?.dealMaxConcurrency ?? 1);
+    const retrievalBatchSize = Math.max(1, scheduling?.retrievalMaxConcurrency ?? 1);
 
     void this.boss
-      .work("deal.run", { batchSize: dealTeamSize, pollingIntervalSeconds: workerPollSeconds }, async ([job]) =>
+      .work("deal.run", { batchSize: dealBatchSize, pollingIntervalSeconds: workerPollSeconds }, async ([job]) =>
         this.handleDealJob(job.data as DealJobData),
       )
       .catch((error) => this.logger.error(`Failed to register worker for deal.run: ${error.message}`, error.stack));
     void this.boss
       .work(
         "retrieval.run",
-        { batchSize: retrievalTeamSize, pollingIntervalSeconds: workerPollSeconds },
+        { batchSize: retrievalBatchSize, pollingIntervalSeconds: workerPollSeconds },
         async ([job]) => this.handleRetrievalJob(job.data as RetrievalJobData),
       )
       .catch((error) =>
