@@ -1,4 +1,5 @@
 import { Injectable, Logger } from "@nestjs/common";
+import { awaitWithAbort } from "../common/abort-utils.js";
 import type { Deal } from "../database/entities/deal.entity.js";
 import type { DealMetadata, ServiceType } from "../database/types.js";
 import type { IDealAddon } from "./interfaces/deal-addon.interface.js";
@@ -116,18 +117,21 @@ export class DealAddonsService {
    * @param deal - Deal entity with upload information
    * @param appliedAddons - Names of add-ons that were applied during preprocessing
    */
-  async handleUploadComplete(deal: Deal, appliedAddons: ServiceType[]): Promise<void> {
+  async handleUploadComplete(deal: Deal, appliedAddons: ServiceType[], signal?: AbortSignal): Promise<void> {
     this.logger.debug(`Running onUploadComplete handlers for deal ${deal.id}`);
+
+    signal?.throwIfAborted();
 
     const uploadCompletePromises = appliedAddons
       .map((addonName) => this.addons.get(addonName))
       .filter((addon) => addon?.onUploadComplete)
-      .map((addon) => addon!.onUploadComplete!(deal));
+      .map((addon) => addon!.onUploadComplete!(deal, signal));
 
     try {
-      await Promise.all(uploadCompletePromises);
+      await awaitWithAbort(Promise.all(uploadCompletePromises), signal);
       this.logger.debug(`onUploadComplete handlers completed for deal ${deal.id}`);
     } catch (error) {
+      signal?.throwIfAborted();
       this.logger.warn(`onUploadComplete handler failed for deal ${deal.id}: ${error.message}`);
       throw error;
     }

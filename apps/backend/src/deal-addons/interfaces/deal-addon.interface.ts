@@ -53,7 +53,7 @@ export interface IDealAddon<T extends CdnMetadata | IpniMetadata | DirectMetadat
    * @param deal - Deal entity with upload information
    * @returns Promise that resolves when handler is complete
    */
-  onUploadComplete?(deal: Deal): Promise<void>;
+  onUploadComplete?(deal: Deal, signal?: AbortSignal): Promise<void>;
 
   /**
    * Optional post-processing after deal creation

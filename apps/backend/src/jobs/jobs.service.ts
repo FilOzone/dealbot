@@ -29,7 +29,7 @@ type ScheduleRow = {
 };
 
 type PgBossSendOptions = PgBoss.PublishOptions;
-type JobRunStatus = "success" | "error";
+type JobRunStatus = "success" | "error" | "aborted";
 
 @Injectable()
 export class JobsService implements OnModuleInit, OnApplicationShutdown {
@@ -219,14 +219,14 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
 
     void this.boss
       .subscribe("deal.run", { teamSize: dealTeamSize, newJobCheckIntervalSeconds: workerPollSeconds }, async (job) =>
-        this.handleDealJob(job.data as DealJobData),
+        this.handleDealJob(job.id, job.data as DealJobData),
       )
       .catch((error) => this.logger.error(`Failed to subscribe to deal.run: ${error.message}`, error.stack));
     void this.boss
       .subscribe(
         "retrieval.run",
         { teamSize: retrievalTeamSize, newJobCheckIntervalSeconds: workerPollSeconds },
-        async (job) => this.handleRetrievalJob(job.data as RetrievalJobData),
+        async (job) => this.handleRetrievalJob(job.id, job.data as RetrievalJobData),
       )
       .catch((error) => this.logger.error(`Failed to subscribe to retrieval.run: ${error.message}`, error.stack));
     void this.boss
@@ -254,7 +254,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     );
   }
 
-  private async handleDealJob(data: DealJobData): Promise<void> {
+  private async handleDealJob(jobId: string, data: DealJobData): Promise<void> {
     const spAddress = data.spAddress;
     const maintenance = this.getMaintenanceWindowStatus();
     if (maintenance.active) {
@@ -290,16 +290,19 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
             return "success";
           }
         }
-        await this.dealService.createDealForProvider(provider, this.dealService.getTestingDealOptions());
+        await this.dealService.createDealForProvider(provider, {
+          ...this.dealService.getTestingDealOptions(),
+          signal: abortController.signal,
+        });
         return "success";
       } catch (error) {
         if (abortController.signal.aborted) {
           this.logger.error(`Deal job aborted after timeout (${timeoutSeconds}s) for ${spAddress}`);
-        } else {
-          this.logger.error(`Deal job failed for ${spAddress}: ${error.message}`, error.stack);
+          return "aborted";
         }
-        // Jobs are not retried once attempted; failures are handled by the next schedule tick.
-        throw error;
+        this.logger.error(`Data Storage check failed for ${spAddress}: ${error.message}`, error.stack);
+        // Business failure (deal didn't complete) — job ran successfully; record as success.
+        return "success";
       } finally {
         clearTimeout(timeoutId);
         try {
@@ -314,7 +317,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     });
   }
 
-  private async handleRetrievalJob(data: RetrievalJobData): Promise<void> {
+  private async handleRetrievalJob(jobId: string, data: RetrievalJobData): Promise<void> {
     const spAddress = data.spAddress;
     const maintenance = this.getMaintenanceWindowStatus();
     if (maintenance.active) {
@@ -352,16 +355,16 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
           );
         }
 
-        await this.retrievalService.performRandomRetrievalForProvider(spAddress, timeoutMs);
+        await this.retrievalService.performRandomRetrievalForProvider(spAddress, timeoutMs, abortController.signal);
         return "success";
       } catch (error) {
         if (abortController.signal.aborted) {
           this.logger.error(`Retrieval job aborted after timeout (${timeoutSeconds}s) for ${spAddress}`);
-        } else {
-          this.logger.error(`Retrieval job failed for ${spAddress}: ${error.message}`, error.stack);
+          return "aborted";
         }
-        // Jobs are not retried once attempted; failures are handled by the next schedule tick.
-        throw error;
+        this.logger.error(`Retrieval check failed for ${spAddress}: ${error.message}`, error.stack);
+        // Business failure (retrieval didn't complete) — job ran successfully; record as success.
+        return "success";
       } finally {
         clearTimeout(timeoutId);
         try {

@@ -197,6 +197,137 @@ describe("JobsService schedule rows", () => {
     expect(durationHistogram.observe).toHaveBeenCalledWith({ job_type: "deal" }, 2);
   });
 
+  it("records metrics for aborted job execution", async () => {
+    const startedCounter = metricsMocks.jobsStartedCounter as unknown as { inc: ReturnType<typeof vi.fn> };
+    const completedCounter = metricsMocks.jobsCompletedCounter as unknown as { inc: ReturnType<typeof vi.fn> };
+    const durationHistogram = metricsMocks.jobDuration as unknown as { observe: ReturnType<typeof vi.fn> };
+
+    const startTime = new Date("2024-01-01T00:00:00Z");
+    vi.useFakeTimers();
+    vi.setSystemTime(startTime);
+
+    const run = vi.fn(async () => {
+      vi.setSystemTime(new Date(startTime.getTime() + 3_000));
+      return "aborted" as const;
+    });
+
+    await callPrivate(service, "recordJobExecution", "deal", run);
+
+    expect(startedCounter.inc).toHaveBeenCalledWith({ job_type: "deal" });
+    expect(completedCounter.inc).toHaveBeenCalledWith({ job_type: "deal", handler_result: "aborted" });
+    expect(durationHistogram.observe).toHaveBeenCalledWith({ job_type: "deal" }, 3);
+  });
+
+  it("deal job records aborted when abort signal fires", async () => {
+    const completedCounter = metricsMocks.jobsCompletedCounter as unknown as { inc: ReturnType<typeof vi.fn> };
+
+    baseConfigValues = {
+      ...baseConfigValues,
+      jobs: {
+        ...baseConfigValues.jobs,
+        dealJobTimeoutSeconds: 1,
+      } as IConfig["jobs"],
+    };
+    configService = {
+      get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
+    } as unknown as JobsServiceDeps[0];
+
+    const dealService = {
+      createDealForProvider: vi.fn(async (_provider: unknown, opts: { signal: AbortSignal }) => {
+        // Wait for the abort signal to fire before throwing
+        await new Promise<void>((resolve) => {
+          if (opts.signal.aborted) return resolve();
+          opts.signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+        throw new Error("The operation was aborted");
+      }),
+      getTestingDealOptions: vi.fn(() => ({})),
+    };
+
+    const walletSdkService = {
+      getTestingProviders: vi.fn(() => [{ serviceProvider: "0xaaa" }]),
+      ensureWalletAllowances: vi.fn(),
+      loadProviders: vi.fn(),
+    };
+
+    service = buildService({
+      configService,
+      dealService: dealService as unknown as ConstructorParameters<typeof JobsService>[3],
+      walletSdkService: walletSdkService as unknown as ConstructorParameters<typeof JobsService>[6],
+    });
+
+    jobScheduleRepositoryMock.acquireAdvisoryLock.mockResolvedValueOnce(true);
+    jobScheduleRepositoryMock.releaseAdvisoryLock.mockResolvedValueOnce(undefined);
+
+    // Trigger the timeout immediately by using fake timers
+    vi.useFakeTimers();
+    const now = new Date("2024-01-01T00:00:00Z");
+    vi.setSystemTime(now);
+
+    const jobPromise = callPrivate(service, "handleDealJob", "job-123", {
+      spAddress: "0xaaa",
+      intervalSeconds: 60,
+    });
+
+    // Advance past the timeout to trigger the abort
+    await vi.advanceTimersByTimeAsync(120_000);
+    await jobPromise;
+
+    expect(completedCounter.inc).toHaveBeenCalledWith({ job_type: "deal", handler_result: "aborted" });
+  });
+
+  it("retrieval job records aborted when abort signal fires", async () => {
+    const completedCounter = metricsMocks.jobsCompletedCounter as unknown as { inc: ReturnType<typeof vi.fn> };
+
+    baseConfigValues = {
+      ...baseConfigValues,
+      jobs: {
+        ...baseConfigValues.jobs,
+        retrievalJobTimeoutSeconds: 1,
+      } as IConfig["jobs"],
+      timeouts: {
+        retrievalTimeoutBufferMs: 1000,
+        httpRequestTimeoutMs: 5000,
+        http2RequestTimeoutMs: 5000,
+      } as IConfig["timeouts"],
+    };
+    configService = {
+      get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
+    } as unknown as JobsServiceDeps[0];
+
+    const retrievalService = {
+      performRandomRetrievalForProvider: vi.fn(async (_sp: string, _timeout: number, signal: AbortSignal) => {
+        await new Promise<void>((resolve) => {
+          if (signal.aborted) return resolve();
+          signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+        throw new Error("The operation was aborted");
+      }),
+    };
+
+    service = buildService({
+      configService,
+      retrievalService: retrievalService as unknown as ConstructorParameters<typeof JobsService>[4],
+    });
+
+    jobScheduleRepositoryMock.acquireAdvisoryLock.mockResolvedValueOnce(true);
+    jobScheduleRepositoryMock.releaseAdvisoryLock.mockResolvedValueOnce(undefined);
+
+    vi.useFakeTimers();
+    const now = new Date("2024-01-01T00:00:00Z");
+    vi.setSystemTime(now);
+
+    const jobPromise = callPrivate(service, "handleRetrievalJob", "job-456", {
+      spAddress: "0xaaa",
+      intervalSeconds: 60,
+    });
+
+    await vi.advanceTimersByTimeAsync(60_000);
+    await jobPromise;
+
+    expect(completedCounter.inc).toHaveBeenCalledWith({ job_type: "retrieval", handler_result: "aborted" });
+  });
+
   it("updates queue metrics from pg-boss state and age queries", async () => {
     const jobsQueuedGauge = metricsMocks.jobsQueuedGauge as unknown as { set: ReturnType<typeof vi.fn> };
     const jobsRetryGauge = metricsMocks.jobsRetryScheduledGauge as unknown as { set: ReturnType<typeof vi.fn> };
@@ -499,7 +630,7 @@ describe("JobsService schedule rows", () => {
     vi.useFakeTimers();
     vi.setSystemTime(now);
 
-    await callPrivate(service, "handleDealJob", { spAddress: "0xaaa", intervalSeconds: 60 });
+    await callPrivate(service, "handleDealJob", "job-123", { spAddress: "0xaaa", intervalSeconds: 60 });
 
     expect(publish).toHaveBeenCalledTimes(1);
     const startAfter = publish.mock.calls[0][2]?.startAfter as Date;
@@ -533,7 +664,7 @@ describe("JobsService schedule rows", () => {
     vi.setSystemTime(now);
 
     const spAddress = "0xccc";
-    await callPrivate(service, "handleRetrievalJob", { spAddress, intervalSeconds: 60 });
+    await callPrivate(service, "handleRetrievalJob", "job-456", { spAddress, intervalSeconds: 60 });
 
     // Ensure we tried to acquire the lock for the specific SP
     expect(jobScheduleRepositoryMock.acquireAdvisoryLock).toHaveBeenCalledWith(spAddress);
