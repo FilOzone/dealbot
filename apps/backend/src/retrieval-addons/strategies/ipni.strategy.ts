@@ -16,6 +16,11 @@ import { RetrievalPriority } from "../types.js";
 @Injectable()
 export class IpniRetrievalStrategy implements IRetrievalAddon {
   private readonly logger = new Logger(IpniRetrievalStrategy.name);
+  private readonly validationMethods = {
+    metadataMissing: "metadata-missing",
+    carSizeCheck: "car-size-check",
+    carContentValidation: "car-content-validation",
+  } as const;
 
   readonly name = ServiceType.IPFS_PIN;
   readonly priority = RetrievalPriority.MEDIUM; // Alternative method
@@ -103,12 +108,12 @@ export class IpniRetrievalStrategy implements IRetrievalAddon {
     // Early return if carSize metadata is missing - cannot validate
     if (carSize === undefined || carSize === null) {
       this.logger.warn(
-        `IPNI validation skipped for deal ${config.deal.id}: carSize metadata is missing. ` +
-          `Retrieved ${actualSize} bytes from ${storageProvider}`,
+        `IPNI validation could not run for deal ${config.deal.id}: carSize metadata is missing. ` +
+          `Retrieved ${actualSize} bytes from ${storageProvider}.`,
       );
       return {
         isValid: false,
-        method: "car-content-validation",
+        method: this.validationMethods.metadataMissing,
         details: `Cannot validate: carSize metadata is missing. Retrieved ${actualSize} bytes`,
         comparison: { expected: undefined, actual: actualSize },
       };
@@ -143,7 +148,7 @@ export class IpniRetrievalStrategy implements IRetrievalAddon {
 
       return {
         isValid: false,
-        method: "car-content-validation",
+        method: this.validationMethods.carSizeCheck,
         details: `CAR size mismatch: expected ${expectedCarSize}, got ${actualSize}${additionalDetails}`,
         comparison: {
           expected: expectedCarSize,
@@ -160,10 +165,10 @@ export class IpniRetrievalStrategy implements IRetrievalAddon {
       );
       return {
         isValid: false,
-        method: "car-content-validation",
-        details: `Cannot validate: rootCID metadata is missing`,
+        method: this.validationMethods.carSizeCheck,
+        details: "CAR size check passed, but rootCID metadata is missing; content validation skipped",
         comparison: {
-          expected: undefined,
+          expected: expectedCarSize,
           actual: actualSize,
         },
       };
@@ -180,7 +185,7 @@ export class IpniRetrievalStrategy implements IRetrievalAddon {
 
     return {
       isValid: validationResult.isValid,
-      method: "car-content-validation",
+      method: this.validationMethods.carContentValidation,
       details: validationResult.details,
       comparison: {
         expected: rootCIDStr,

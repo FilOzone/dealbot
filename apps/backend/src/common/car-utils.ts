@@ -1,9 +1,11 @@
 import { randomBytes } from "node:crypto";
+import { createWriteStream } from "node:fs";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import { CarReader } from "@ipld/car";
-import { MemoryBlockstore } from "blockstore-core/memory";
 import { cleanupTempCar, createCarFromPath } from "filecoin-pin/core/unixfs";
 import { exporter } from "ipfs-unixfs-exporter";
 import { CID } from "multiformats/cid";
@@ -24,6 +26,18 @@ export type UnixfsCarResult = {
   totalBlockSize: number;
   carSize: number;
 };
+
+class CarReaderBlockstore {
+  constructor(private readonly reader: CarReader) {}
+
+  async *get(cid: CID, _options?: unknown): AsyncGenerator<Uint8Array> {
+    const block = await this.reader.get(cid);
+    if (!block) {
+      throw new Error(`Block not found for CID: ${cid.toString()}`);
+    }
+    yield block.bytes;
+  }
+}
 
 export async function buildUnixfsCar(dataFile: { data: Buffer; size: number; name: string }): Promise<UnixfsCarResult> {
   const safeName = dataFile.name?.trim() ? dataFile.name.replace(/[^\w.-]+/g, "_") : "dealbot-upload";
@@ -75,24 +89,39 @@ export async function buildUnixfsCar(dataFile: { data: Buffer; size: number; nam
 
 /**
  * Unpack a CAR file's content to disk by decoding the UnixFS DAG.
- * Returns the root CID and list of extracted file paths.
+ * Returns the root CID and list of extracted file paths. If expectedRootCID is
+ * provided, it will be used to select the root when multiple roots are present.
  */
 export async function unpackCarToPath(
   carBytes: Uint8Array,
   outputDir: string,
+  expectedRootCID?: string,
 ): Promise<{ rootCID: CID; files: string[] }> {
   const reader = await CarReader.fromBytes(carBytes);
   const roots = await reader.getRoots();
   if (roots.length === 0) {
     throw new Error("CAR file has no roots");
   }
-  const rootCID = roots[0];
-
-  // populate a MemoryBlockstore with all blocks from the CAR
-  const blockstore = new MemoryBlockstore();
-  for await (const block of reader.blocks()) {
-    await blockstore.put(block.cid, block.bytes);
+  let rootCID: CID | undefined;
+  if (expectedRootCID) {
+    rootCID = roots.find((cid) => cid.toString() === expectedRootCID);
   }
+  if (!rootCID) {
+    // For single-root CARs, proceed with that root even if it doesn't match
+    // the expected CID so validation can report a mismatch instead of an
+    // unpack error. Only reject when the CAR is multi-root and ambiguous.
+    if (roots.length === 1) {
+      rootCID = roots[0];
+    } else {
+      const rootList = roots.map((cid) => cid.toString()).join(", ");
+      if (expectedRootCID) {
+        throw new Error(`Expected root CID ${expectedRootCID} not found in CAR roots: ${rootList}`);
+      }
+      throw new Error(`Multi-root CAR files are not supported; found roots: ${rootList}`);
+    }
+  }
+
+  const blockstore = new CarReaderBlockstore(reader);
 
   // export the DAG from the root CID
   const entry = await exporter(rootCID, blockstore);
@@ -102,12 +131,7 @@ export async function unpackCarToPath(
 
   if (entry.type === "file" || entry.type === "raw" || entry.type === "identity") {
     const outPath = join(outputDir, entry.name || "data");
-    const chunks: Uint8Array[] = [];
-    for await (const chunk of entry.content()) {
-      chunks.push(chunk);
-    }
-    const data = Buffer.concat(chunks);
-    await writeFile(outPath, data);
+    await pipeline(Readable.from(entry.content()), createWriteStream(outPath));
     files.push(outPath);
   } else if (entry.type === "directory") {
     for await (const child of entry.entries()) {
@@ -115,12 +139,7 @@ export async function unpackCarToPath(
       const childEntry = await exporter(child.cid, blockstore);
       if (childEntry.type === "file" || childEntry.type === "raw" || childEntry.type === "identity") {
         const outPath = join(outputDir, child.name);
-        const chunks: Uint8Array[] = [];
-        for await (const chunk of childEntry.content()) {
-          chunks.push(chunk);
-        }
-        const data = Buffer.concat(chunks);
-        await writeFile(outPath, data);
+        await pipeline(Readable.from(childEntry.content()), createWriteStream(outPath));
         files.push(outPath);
       }
     }
@@ -147,7 +166,7 @@ export async function validateCarContent(
     // unpack the CAR to extract original content
     let unpackResult: { rootCID: CID; files: string[] };
     try {
-      unpackResult = await unpackCarToPath(carBytes, extractDir);
+      unpackResult = await unpackCarToPath(carBytes, extractDir, expectedRootCID);
     } catch (err) {
       return {
         isValid: false,
