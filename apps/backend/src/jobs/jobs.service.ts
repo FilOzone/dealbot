@@ -4,7 +4,7 @@ import { Injectable, Logger, type OnApplicationShutdown, type OnModuleInit } fro
 import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
 import { InjectMetric } from "@willsoto/nestjs-prometheus";
-import PgBoss from "pg-boss";
+import { PgBoss, type SendOptions } from "pg-boss";
 import type { Counter, Gauge, Histogram } from "prom-client";
 import type { Repository } from "typeorm";
 import { getMaintenanceWindowStatus } from "../common/maintenance-window.js";
@@ -32,7 +32,6 @@ type ScheduleRow = {
   next_run_at: string;
 };
 
-type PgBossSendOptions = PgBoss.PublishOptions;
 type JobRunStatus = "success" | "error";
 
 @Injectable()
@@ -223,33 +222,35 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
 
     const scheduling = this.configService.get("scheduling");
     const workerPollSeconds = Math.max(5, this.configService.get("jobs")?.workerPollSeconds ?? 60);
-    const dealTeamSize = Math.max(1, scheduling?.dealMaxConcurrency ?? 1);
-    const retrievalTeamSize = Math.max(1, scheduling?.retrievalMaxConcurrency ?? 1);
+    const dealBatchSize = Math.max(1, scheduling?.dealMaxConcurrency ?? 1);
+    const retrievalBatchSize = Math.max(1, scheduling?.retrievalMaxConcurrency ?? 1);
 
     void this.boss
-      .subscribe<DealJobData, void>(
-        "deal.run",
-        { teamSize: dealTeamSize, newJobCheckIntervalSeconds: workerPollSeconds },
-        async (job) => this.handleDealJob(job),
+      .work("deal.run", { batchSize: dealBatchSize, pollingIntervalSeconds: workerPollSeconds }, async ([job]) =>
+        this.handleDealJob(job.data as DealJobData),
       )
-      .catch((error) => this.logger.error(`Failed to subscribe to deal.run: ${error.message}`, error.stack));
+      .catch((error) => this.logger.error(`Failed to register worker for deal.run: ${error.message}`, error.stack));
     void this.boss
-      .subscribe<RetrievalJobData, void>(
+      .work(
         "retrieval.run",
-        { teamSize: retrievalTeamSize, newJobCheckIntervalSeconds: workerPollSeconds },
-        async (job) => this.handleRetrievalJob(job),
+        { batchSize: retrievalBatchSize, pollingIntervalSeconds: workerPollSeconds },
+        async ([job]) => this.handleRetrievalJob(job.data as RetrievalJobData),
       )
-      .catch((error) => this.logger.error(`Failed to subscribe to retrieval.run: ${error.message}`, error.stack));
+      .catch((error) =>
+        this.logger.error(`Failed to register worker for retrieval.run: ${error.message}`, error.stack),
+      );
     void this.boss
-      .subscribe("metrics.run", { teamSize: 1, newJobCheckIntervalSeconds: workerPollSeconds }, async (job) =>
+      .work("metrics.run", { batchSize: 1, pollingIntervalSeconds: workerPollSeconds }, async ([job]) =>
         this.handleMetricsJob(job.data as MetricsJobData),
       )
-      .catch((error) => this.logger.error(`Failed to subscribe to metrics.run: ${error.message}`, error.stack));
+      .catch((error) => this.logger.error(`Failed to register worker for metrics.run: ${error.message}`, error.stack));
     void this.boss
-      .subscribe("metrics.cleanup", { teamSize: 1, newJobCheckIntervalSeconds: workerPollSeconds }, async (job) =>
+      .work("metrics.cleanup", { batchSize: 1, pollingIntervalSeconds: workerPollSeconds }, async ([job]) =>
         this.handleMetricsCleanupJob(job.data as MetricsJobData),
       )
-      .catch((error) => this.logger.error(`Failed to subscribe to metrics.cleanup: ${error.message}`, error.stack));
+      .catch((error) =>
+        this.logger.error(`Failed to register worker for metrics.cleanup: ${error.message}`, error.stack),
+      );
   }
 
   private getMaintenanceWindowStatus(now: Date = new Date()) {
@@ -401,8 +402,8 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     const startAfter = new Date(Date.now() + this.lockRetrySeconds() * 1000);
     try {
       // We only requeue on lock contention; once a job starts, we do not retry it.
-      const options: PgBossSendOptions = { startAfter, retryLimit: 0 };
-      await this.boss.publish(name, data, options);
+      const options: SendOptions = { startAfter, retryLimit: 0 };
+      await this.boss.send(name, data, options);
       this.jobsEnqueueAttemptsCounter.inc({ job_type: jobType, outcome: "success" });
     } catch (error) {
       this.logger.warn(`Failed to requeue ${name}: ${error.message}`);
@@ -674,13 +675,13 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     jobType: JobType,
     name: string,
     data: DealJobData | RetrievalJobData | MetricsJobData,
-    options?: PgBossSendOptions,
+    options?: SendOptions,
   ) {
     if (!this.boss) return false;
     try {
       // Disable retries so "attempted" jobs don't rerun; failures are handled by the next schedule tick.
-      const finalOptions: PgBossSendOptions = { retryLimit: 0, ...options };
-      await this.boss.publish(name, data, finalOptions);
+      const finalOptions: SendOptions = { retryLimit: 0, ...options };
+      await this.boss.send(name, data, finalOptions);
       this.jobsEnqueueAttemptsCounter.inc({ job_type: jobType, outcome: "success" });
       return true;
     } catch (error) {
