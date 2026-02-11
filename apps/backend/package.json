@@ -59,7 +59,7 @@
     "socks-proxy-agent": "^8.0.5",
     "typeorm": "^0.3.28",
     "undici": "^7.21.0",
-    "viem": "^2.45.1"
+    "viem": "^2.45.2"
   },
   "devDependencies": {
     "@biomejs/biome": "catalog:",
