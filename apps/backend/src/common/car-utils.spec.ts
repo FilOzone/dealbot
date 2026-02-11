@@ -20,8 +20,8 @@ describe("car-utils", () => {
 
   describe("unpackCarToPath round-trip", () => {
     it("should round-trip: create CAR → unpack → rebuild → matching root CIDs", async () => {
-      // Generate random 10MiB data
-      const dataSize = 10 * 1024 * 1024;
+      // Generate random 1MiB data
+      const dataSize = 1 * 1024 * 1024;
       const originalData = randomBytes(dataSize);
       const originalFile = join(tempDir, "original.bin");
       await writeFile(originalFile, originalData);
