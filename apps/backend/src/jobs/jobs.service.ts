@@ -4,7 +4,7 @@ import { Injectable, Logger, type OnApplicationShutdown, type OnModuleInit } fro
 import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
 import { InjectMetric } from "@willsoto/nestjs-prometheus";
-import { PgBoss, type SendOptions } from "pg-boss";
+import { type Job, PgBoss, type SendOptions } from "pg-boss";
 import type { Counter, Gauge, Histogram } from "prom-client";
 import type { Repository } from "typeorm";
 import { getMaintenanceWindowStatus } from "../common/maintenance-window.js";
@@ -21,8 +21,8 @@ type JobType = "deal" | "retrieval" | "metrics" | "metrics_cleanup";
 type DealJobData = { spAddress: string; intervalSeconds: number };
 type RetrievalJobData = { spAddress: string; intervalSeconds: number };
 type MetricsJobData = { intervalSeconds: number };
-type DealJob = PgBoss.JobWithDoneCallback<DealJobData, void>;
-type RetrievalJob = PgBoss.JobWithDoneCallback<RetrievalJobData, void>;
+type RetrievalJob = Job<RetrievalJobData>;
+type DealJob = Job<DealJobData>;
 
 type ScheduleRow = {
   id: number;
@@ -226,27 +226,33 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     const retrievalBatchSize = Math.max(1, scheduling?.retrievalMaxConcurrency ?? 1);
 
     void this.boss
-      .work("deal.run", { batchSize: dealBatchSize, pollingIntervalSeconds: workerPollSeconds }, async ([job]) =>
-        this.handleDealJob(job.data as DealJobData),
+      .work<DealJobData, void>(
+        "deal.run",
+        { batchSize: dealBatchSize, pollingIntervalSeconds: workerPollSeconds },
+        async ([job]) => this.handleDealJob(job),
       )
       .catch((error) => this.logger.error(`Failed to register worker for deal.run: ${error.message}`, error.stack));
     void this.boss
-      .work(
+      .work<RetrievalJobData, void>(
         "retrieval.run",
         { batchSize: retrievalBatchSize, pollingIntervalSeconds: workerPollSeconds },
-        async ([job]) => this.handleRetrievalJob(job.data as RetrievalJobData),
+        async ([job]) => this.handleRetrievalJob(job),
       )
       .catch((error) =>
         this.logger.error(`Failed to register worker for retrieval.run: ${error.message}`, error.stack),
       );
     void this.boss
-      .work("metrics.run", { batchSize: 1, pollingIntervalSeconds: workerPollSeconds }, async ([job]) =>
-        this.handleMetricsJob(job.data as MetricsJobData),
+      .work<MetricsJobData, void>(
+        "metrics.run",
+        { batchSize: 1, pollingIntervalSeconds: workerPollSeconds },
+        async ([job]) => this.handleMetricsJob(job.data),
       )
       .catch((error) => this.logger.error(`Failed to register worker for metrics.run: ${error.message}`, error.stack));
     void this.boss
-      .work("metrics.cleanup", { batchSize: 1, pollingIntervalSeconds: workerPollSeconds }, async ([job]) =>
-        this.handleMetricsCleanupJob(job.data as MetricsJobData),
+      .work<MetricsJobData, void>(
+        "metrics.cleanup",
+        { batchSize: 1, pollingIntervalSeconds: workerPollSeconds },
+        async ([job]) => this.handleMetricsCleanupJob(job.data),
       )
       .catch((error) =>
         this.logger.error(`Failed to register worker for metrics.cleanup: ${error.message}`, error.stack),
