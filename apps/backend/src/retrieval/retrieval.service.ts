@@ -5,7 +5,6 @@ import { InjectMetric } from "@willsoto/nestjs-prometheus";
 import type { Counter, Histogram } from "prom-client";
 import type { Repository } from "typeorm";
 import type { Hex } from "../common/types.js";
-import { withTimeout } from "../common/utils.js";
 import type { IConfig } from "../config/app.config.js";
 import { Deal } from "../database/entities/deal.entity.js";
 import { Retrieval } from "../database/entities/retrieval.entity.js";
@@ -43,7 +42,7 @@ export class RetrievalService {
     this.httpRequestTimeoutMs = Math.max(timeouts.httpRequestTimeoutMs, timeouts.http2RequestTimeoutMs);
   }
 
-  async performRandomBatchRetrievals(count: number, timeoutMs: number, signal?: AbortSignal): Promise<Retrieval[]> {
+  async performRandomBatchRetrievals(count: number, signal?: AbortSignal): Promise<Retrieval[]> {
     const deals = await this.selectRandomDealsForRetrieval(count);
     const totalDeals = deals.length;
 
@@ -52,10 +51,9 @@ export class RetrievalService {
       return [];
     }
 
-    this.logger.log(`Starting retrieval tests for ${totalDeals} deals (Timeout: ${Math.round(timeoutMs / 1000)}s)`);
+    this.logger.log(`Starting retrieval tests for ${totalDeals} deals`);
 
     const results = await this.processRetrievalsInParallel(deals, {
-      timeoutMs,
       maxConcurrency: 5,
       signal,
     });
@@ -70,7 +68,6 @@ export class RetrievalService {
 
   async performRandomRetrievalForProvider(
     spAddress: string,
-    timeoutMs: number,
     signal?: AbortSignal,
   ): Promise<Retrieval[]> {
     const deal = await this.selectRandomSuccessfulDealForProvider(spAddress);
@@ -79,9 +76,9 @@ export class RetrievalService {
       return [];
     }
 
-    this.logger.log(`Starting retrieval test for ${spAddress} (Timeout: ${Math.round(timeoutMs / 1000)}s)`);
+    this.logger.log(`Starting retrieval test for ${spAddress}`);
 
-    return withTimeout(this.performAllRetrievals(deal, signal), timeoutMs, `Retrieval for deal ${deal.id} timed out`);
+    return this.performAllRetrievals(deal, signal);
   }
 
   async performRetrievalsForDeal(deal: Deal, signal?: AbortSignal): Promise<Retrieval[]> {
@@ -95,51 +92,22 @@ export class RetrievalService {
   private async processRetrievalsInParallel(
     deals: Deal[],
     {
-      timeoutMs,
       maxConcurrency = 5,
       signal,
     }: {
-      timeoutMs: number;
       maxConcurrency?: number;
       signal?: AbortSignal;
     },
   ): Promise<Retrieval[][]> {
     const results: Retrieval[][] = [];
-    const deadline = Date.now() + timeoutMs;
-
     for (let i = 0; i < deals.length; i += maxConcurrency) {
       if (signal?.aborted) {
         this.logger.warn("Retrieval job aborted. Skipping remaining deals.");
         break;
       }
 
-      // Check if we have exceeded the global deadline
-      if (Date.now() >= deadline) {
-        this.logger.warn(`Deadline reached. Skipping remaining ${deals.length - i} deals.`);
-        break;
-      }
-
       const batch = deals.slice(i, i + maxConcurrency);
-      const remainingTimeMs = Math.max(0, deadline - Date.now());
-
-      // Don't start a new batch unless there's enough time for full HTTP timeout
-      if (remainingTimeMs < this.httpRequestTimeoutMs) {
-        this.logger.warn(
-          `Insufficient time remaining for next batch ` +
-            `(${Math.round(remainingTimeMs / 1000)}s left, requires ${Math.round(this.httpRequestTimeoutMs / 1000)}s).`,
-        );
-        break;
-      }
-
-      // Each individual deal gets the remaining global time, OR the HTTP timeout (whichever is less)
-      // By ensuring batch timeout >= HTTP timeout, individual HTTP requests will always
-      // timeout first and be captured by Promise.allSettled in the normal flow.
-      // The batch timeout then only serves as a safety net for the global deadline.
-      const batchTimeout = Math.min(remainingTimeMs, this.httpRequestTimeoutMs);
-
-      const batchPromises = batch.map((deal) =>
-        withTimeout(this.performAllRetrievals(deal, signal), batchTimeout, `Retrieval for deal ${deal.id} timed out`),
-      );
+      const batchPromises = batch.map((deal) => this.performAllRetrievals(deal, signal));
 
       const batchResults = await Promise.allSettled(batchPromises);
 

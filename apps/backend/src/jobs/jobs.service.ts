@@ -342,20 +342,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
 
     await this.recordJobExecution("retrieval", async () => {
       try {
-        const timeoutsConfig = this.configService.get("timeouts");
-        const intervalMs = data.intervalSeconds * 1000;
-        const timeoutMs = Math.max(10000, intervalMs - timeoutsConfig.retrievalTimeoutBufferMs);
-        const httpTimeoutMs = Math.max(timeoutsConfig.httpRequestTimeoutMs, timeoutsConfig.http2RequestTimeoutMs);
-
-        if (timeoutMs < httpTimeoutMs) {
-          this.logger.warn(
-            `Retrieval interval (${intervalMs}ms) minus buffer (${timeoutsConfig.retrievalTimeoutBufferMs}ms) yields ${timeoutMs}ms, ` +
-              `which is less than the HTTP timeout (${httpTimeoutMs}ms). ` +
-              "Retrieval runs may be skipped unless the interval or timeouts are adjusted.",
-          );
-        }
-
-        await this.retrievalService.performRandomRetrievalForProvider(spAddress, timeoutMs, abortController.signal);
+        await this.retrievalService.performRandomRetrievalForProvider(spAddress, abortController.signal);
         return "success";
       } catch (error) {
         if (abortController.signal.aborted) {

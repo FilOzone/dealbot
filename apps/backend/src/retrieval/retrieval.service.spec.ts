@@ -16,7 +16,7 @@ describe("RetrievalService timeouts", () => {
   type RetrievalServicePrivate = PublicInterface<RetrievalService> & {
     processRetrievalsInParallel: (
       deals: Deal[],
-      options: { timeoutMs: number; maxConcurrency?: number; signal?: AbortSignal },
+      options: { maxConcurrency?: number; signal?: AbortSignal },
     ) => Promise<Retrieval[][]>;
     performAllRetrievals: (deal: Deal, signal?: AbortSignal) => Promise<Retrieval[]>;
   };
@@ -48,7 +48,6 @@ describe("RetrievalService timeouts", () => {
     httpRequestTimeoutMs: 10000,
     http2RequestTimeoutMs: 10000,
     connectTimeoutMs: 10000,
-    retrievalTimeoutBufferMs: 60000,
   };
 
   afterEach(() => {
@@ -87,13 +86,11 @@ describe("RetrievalService timeouts", () => {
     return module.get<RetrievalService>(RetrievalService) as unknown as RetrievalServicePrivate;
   };
 
-  it("starts a batch when there is enough time remaining for a full HTTP timeout", async () => {
+  it("processes all deals when no abort signal is triggered", async () => {
     service = await createService();
     performAllRetrievalsSpy = vi.spyOn(service, "performAllRetrievals").mockResolvedValue([]);
-    vi.spyOn(Date, "now").mockReturnValue(0);
 
     const results = await service.processRetrievalsInParallel([buildDeal()], {
-      timeoutMs: 20000,
       maxConcurrency: 1,
     });
 
@@ -101,68 +98,39 @@ describe("RetrievalService timeouts", () => {
     expect(results).toHaveLength(1);
   });
 
-  it("skips starting a batch when remaining time is less than the HTTP timeout", async () => {
-    service = await createService();
-    performAllRetrievalsSpy = vi.spyOn(service, "performAllRetrievals").mockResolvedValue([]);
-    vi.spyOn(Date, "now").mockReturnValue(0);
-
-    const results = await service.processRetrievalsInParallel([buildDeal()], {
-      timeoutMs: 5000,
-      maxConcurrency: 1,
-    });
-
-    expect(performAllRetrievalsSpy).not.toHaveBeenCalled();
-    expect(results).toHaveLength(0);
-  });
-
-  it("times out a retrieval when the batch timeout is exceeded", async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(0);
-
-    service = await createService({
-      ...defaultTimeouts,
-      httpRequestTimeoutMs: 50,
-      http2RequestTimeoutMs: 50,
-    });
-
-    performAllRetrievalsSpy = vi.spyOn(service, "performAllRetrievals").mockImplementation(() => new Promise(() => {}));
-
-    const promise = service.processRetrievalsInParallel([buildDeal()], {
-      timeoutMs: 200,
-      maxConcurrency: 1,
-    });
-
-    await vi.advanceTimersByTimeAsync(100);
-
-    const results = await promise;
-
-    expect(performAllRetrievalsSpy).toHaveBeenCalledTimes(1);
-    expect(results).toHaveLength(0);
-
-    // Note: the underlying retrieval promise remains pending; timeouts don't cancel work.
-    // Cancellation is handled by the scheduler abort signal in real runs.
-  });
-
-  it("returns partial results when aborted between batches", async () => {
+  it("aborts processing remaining deals when signal is aborted", async () => {
     service = await createService();
     const abortController = new AbortController();
 
-    performAllRetrievalsSpy = vi.spyOn(service, "performAllRetrievals").mockImplementationOnce(async () => {
+    performAllRetrievalsSpy = vi.spyOn(service, "performAllRetrievals").mockImplementation(async () => {
       abortController.abort();
       return [];
     });
 
+    // 2 deals, maxConcurrency 1. First deal aborts, second should be skipped.
     const results = await service.processRetrievalsInParallel(
       [buildDeal({ id: "deal-1" }), buildDeal({ id: "deal-2" })],
       {
-        timeoutMs: 20000,
         maxConcurrency: 1,
         signal: abortController.signal,
       },
     );
 
     expect(performAllRetrievalsSpy).toHaveBeenCalledTimes(1);
-    expect(results).toHaveLength(1);
+    expect(results).toHaveLength(1); // Only the first batch (of 1) should return results
+  });
+
+  it("passes abort signal to performAllRetrievals", async () => {
+    service = await createService();
+    const abortController = new AbortController();
+    performAllRetrievalsSpy = vi.spyOn(service, "performAllRetrievals").mockResolvedValue([]);
+
+    await service.processRetrievalsInParallel([buildDeal()], {
+      maxConcurrency: 1,
+      signal: abortController.signal,
+    });
+
+    expect(performAllRetrievalsSpy).toHaveBeenCalledWith(expect.anything(), abortController.signal);
   });
 
   it("records a failed retrieval when an execution result fails", async () => {
