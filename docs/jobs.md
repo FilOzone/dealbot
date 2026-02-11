@@ -1,32 +1,34 @@
 # Jobs (pg-boss)
 
-This doc explains what a job is in dealbot when `DEALBOT_JOBS_MODE=pgboss`. For operational steps (pausing/resuming/triggering jobs), see the runbook in `docs/runbooks/jobs.md`.
+This doc explains what a job is in dealbot when `DEALBOT_JOBS_MODE=pgboss`. For operational steps (pausing/resuming/triggering jobs), see the runbook in [`docs/runbooks/jobs.md`](./runbooks/jobs.md).
 
 ## Summary
 
 - Jobs are scheduled via `job_schedule_state` rows and executed via pg-boss queues.
 - There is one schedule row per `<job_type, sp_address>` plus global jobs that use an empty `sp_address`.
 - A scheduler loop polls for due schedules, enqueues pg-boss jobs, and advances `next_run_at`.
-- Workers subscribe to pg-boss queues and execute the actual deal/retrieval/metrics handlers.
+- Workers poll pg-boss queues via [`boss.work()`](https://github.com/timgit/pg-boss/blob/master/docs/api/workers.md) and execute the actual deal/retrieval/metrics handlers.
 
 ## Cardinality and Tables
 
-- **Schedule rows**: `job_schedule_state` has a unique constraint on `(job_type, sp_address)`, which means one row per job type per SP address. Global jobs use `sp_address = ''`. Source: `apps/backend/src/database/entities/job-schedule-state.entity.ts`, `apps/backend/src/database/migrations/1760000000000-AddJobScheduleState.ts`.
-- **Per-SP mutex**: `job_mutex` enforces one in-flight job per SP address across all workers (deal and retrieval share the same lock). Source: `apps/backend/src/database/migrations/1760000000003-AddJobMutex.ts`, `apps/backend/src/jobs/repositories/job-schedule.repository.ts`.
-- **Queue rows**: pg-boss stores jobs in the `pgboss.job` table (created by pg-boss under the `pgboss` schema). We read from this table for metrics. Source: `apps/backend/src/jobs/repositories/job-schedule.repository.ts` (queries `pgboss.job`).
+- **Schedule rows**: `job_schedule_state` has a unique constraint on `(job_type, sp_address)`, which means one row per job type per SP address. Global jobs use `sp_address = ''`. Source: [`job-schedule-state.entity.ts`](../apps/backend/src/database/entities/job-schedule-state.entity.ts), [`1760000000000-AddJobScheduleState.ts`](../apps/backend/src/database/migrations/1760000000000-AddJobScheduleState.ts).
+- **Per-SP mutex**: `job_mutex` enforces one in-flight job per SP address across all workers (deal and retrieval share the same lock). Source: [`1760000000003-AddJobMutex.ts`](../apps/backend/src/database/migrations/1760000000003-AddJobMutex.ts), [`job-schedule.repository.ts`](../apps/backend/src/jobs/repositories/job-schedule.repository.ts).
+- **Queue rows**: pg-boss stores jobs in the `pgboss.job` table (created by pg-boss under the `pgboss` schema). We read from this table for metrics. Source: [`job-schedule.repository.ts`](../apps/backend/src/jobs/repositories/job-schedule.repository.ts) (queries `pgboss.job`).
 
 ## Job Types and Queues
 
-Job types map to pg-boss queue names in `JobsService.mapJobName`:
+Job types map to pg-boss queue names in [`JobsService.mapJobName`](../apps/backend/src/jobs/jobs.service.ts):
 
 - `deal` -> `deal.run`
 - `retrieval` -> `retrieval.run`
 - `metrics` -> `metrics.run`
 - `metrics_cleanup` -> `metrics.cleanup`
 
-Publishing via `boss.publish(name, data, options)` inserts rows into `pgboss.job` under the configured `pgboss` schema, and workers consume them via `boss.subscribe(name, ...)` in our current pg-boss version (6.1.0). Newer pg-boss releases document workers via `work()` / `offWork()` and use `publish/subscribe` for pub/sub fan-out.
+Jobs are enqueued via [`boss.send(name, data, options)`](https://github.com/timgit/pg-boss/blob/master/docs/api/jobs.md), which inserts rows into `pgboss.job`. Workers consume them via [`boss.work(name, options, handler)`](https://github.com/timgit/pg-boss/blob/master/docs/api/workers.md).
 
-Source: `apps/backend/src/jobs/jobs.service.ts`.
+> **Note:** pg-boss also has a separate [pub/sub API](https://github.com/timgit/pg-boss/blob/master/docs/api/pubsub.md) (`publish`/`subscribe`) for fan-out to multiple queues. We do **not** use pub/sub — we use `send`/`work` for direct queue processing.
+
+Source: [`jobs.service.ts`](../apps/backend/src/jobs/jobs.service.ts).
 
 ## Pg-boss vs Dealbot Scheduling
 
@@ -36,26 +38,17 @@ Source: `apps/backend/src/jobs/jobs.service.ts`.
 
 ## Pg-boss Storage, Retention, and Cleanup
 
-- Queue rows are stored in `pgboss.job`. Archived jobs are stored in `pgboss.archive`.
-- pg-boss has built-in maintenance that archives completed/failed/cancelled jobs and deletes archived rows after a retention window.
-- These behaviors are controlled by constructor options such as `archiveCompletedAfterSeconds`, `archiveFailedAfterSeconds`, `deleteAfterDays`, and `maintenanceIntervalSeconds` / `maintenanceIntervalMinutes`.
-- Dealbot currently uses pg-boss defaults for these options (we do not set them in code).
+- Queue rows are stored in `pgboss.job`. pg-boss manages job lifecycle within this table (there is no separate archive table in pg-boss v9+).
+- pg-boss has built-in supervision that handles expired jobs and maintenance. These behaviors are controlled by [constructor options](https://github.com/timgit/pg-boss/blob/master/docs/api/constructor.md) such as `superviseIntervalSeconds`, `maintenanceIntervalSeconds`, and `monitorIntervalSeconds`.
+- Dealbot currently uses pg-boss defaults for these options (we do not override them in code).
 
-Reference: https://timgit.github.io/pg-boss/#/./api/constructor
-
-## Worker API Versioning
-
-- Our code uses the pg-boss v6 worker API (`boss.subscribe(queue, options, handler)`).
-- Newer pg-boss versions document workers via `work()` / `offWork()` and treat `publish/subscribe` as pub/sub fan-out.
-- If we upgrade pg-boss, we should refactor worker registration to `work()` and re-verify publish semantics.
-
-Reference: https://timgit.github.io/pg-boss/#/./api/workers
+Reference: [pg-boss constructor docs](https://github.com/timgit/pg-boss/blob/master/docs/api/constructor.md)
 
 ## How Schedules Are Created and Updated
 
-1. **Startup provider sync**: When pg-boss is enabled, `JobsService` calls `WalletSdkService.ensureWalletAllowances()` and `WalletSdkService.loadProviders()` (unless `DEALBOT_DISABLE_CHAIN=true`). `loadProviders()` pulls providers from the on-chain SP registry and syncs them into the `storage_providers` table (fields include `is_active` and `is_approved`). Source: `apps/backend/src/jobs/jobs.service.ts`, `apps/backend/src/wallet-sdk/wallet-sdk.service.ts`.
+1. **Startup provider sync**: When pg-boss is enabled, `JobsService` calls `WalletSdkService.ensureWalletAllowances()` and `WalletSdkService.loadProviders()` (unless `DEALBOT_DISABLE_CHAIN=true`). `loadProviders()` pulls providers from the on-chain SP registry and syncs them into the `storage_providers` table (fields include `is_active` and `is_approved`). Source: [`jobs.service.ts`](../apps/backend/src/jobs/jobs.service.ts), [`wallet-sdk.service.ts`](../apps/backend/src/wallet-sdk/wallet-sdk.service.ts).
 
-2. **Scheduler tick creates/updates schedules**: The scheduler loop runs immediately on startup and then every `JOB_SCHEDULER_POLL_SECONDS`. It queries `storage_providers` and upserts schedules for each active provider (and only approved providers if `USE_ONLY_APPROVED_PROVIDERS=true`). It also ensures global metrics schedules exist (`sp_address = ''`). It deletes deal/retrieval schedules for providers that are no longer active/approved. Source: `apps/backend/src/jobs/jobs.service.ts`, `apps/backend/src/jobs/repositories/job-schedule.repository.ts`.
+2. **Scheduler tick creates/updates schedules**: The scheduler loop runs immediately on startup and then every `JOB_SCHEDULER_POLL_SECONDS`. It queries `storage_providers` and upserts schedules for each active provider (and only approved providers if `USE_ONLY_APPROVED_PROVIDERS=true`). It also ensures global metrics schedules exist (`sp_address = ''`). It deletes deal/retrieval schedules for providers that are no longer active/approved. Source: [`jobs.service.ts`](../apps/backend/src/jobs/jobs.service.ts), [`job-schedule.repository.ts`](../apps/backend/src/jobs/repositories/job-schedule.repository.ts).
 
 3. **New SP added to registry (example)**: A new provider becomes visible once `WalletSdkService.loadProviders()` runs and syncs the `storage_providers` table. On the next scheduler tick, `ensureScheduleRows()` upserts `deal` and `retrieval` schedules for that SP. If `USE_ONLY_APPROVED_PROVIDERS=true`, the provider must be both `is_active=true` and `is_approved=true` to be scheduled.
 
@@ -69,16 +62,16 @@ Note: In pg-boss mode, provider sync currently happens at startup (and whenever 
 
 - **Initial value**: set by `upsertSchedule()` when schedules are created, using `now + JOB_SCHEDULE_PHASE_SECONDS`.
 - **On each tick**: The scheduler finds rows where `next_run_at <= now`, computes how many runs are due based on `interval_seconds`, enqueues up to `JOB_CATCHUP_MAX_ENQUEUE` runs per schedule row, and on successful enqueue advances `next_run_at` by `successCount * interval_seconds` while updating `last_run_at`.
-- **Maintenance windows**: for deal/retrieval during maintenance windows, no jobs are enqueued, but `next_run_at` is still advanced to skip missed runs.
+- **Maintenance windows**: For deal/retrieval during maintenance windows, no jobs are enqueued, but `next_run_at` is still advanced to skip missed runs.
 
-Source: `apps/backend/src/jobs/jobs.service.ts`, `apps/backend/src/jobs/repositories/job-schedule.repository.ts`.
+Source: [`jobs.service.ts`](../apps/backend/src/jobs/jobs.service.ts), [`job-schedule.repository.ts`](../apps/backend/src/jobs/repositories/job-schedule.repository.ts).
 
 ## Polling Behavior
 
 - **Scheduler polling**: `JobsService` runs a scheduler tick every `JOB_SCHEDULER_POLL_SECONDS` (default 300s).
-- **Worker polling**: pg-boss workers check for new jobs every `JOB_WORKER_POLL_SECONDS` (default 60s) via `newJobCheckIntervalSeconds`.
+- **Worker polling**: pg-boss workers check for new jobs every `JOB_WORKER_POLL_SECONDS` (default 60s) via the [`pollingIntervalSeconds`](https://github.com/timgit/pg-boss/blob/master/docs/api/workers.md) worker option.
 
-Source: `apps/backend/src/jobs/jobs.service.ts`, `apps/backend/src/config/app.config.ts`.
+Source: [`jobs.service.ts`](../apps/backend/src/jobs/jobs.service.ts), [`app.config.ts`](../apps/backend/src/config/app.config.ts).
 
 ## Run Modes
 
@@ -129,10 +122,10 @@ flowchart LR
 
 ## Parallelism and Limits
 
-- **Queue concurrency**: Deal queue concurrency is `DEAL_MAX_CONCURRENCY` (pg-boss `teamSize`), retrieval queue concurrency is `RETRIEVAL_MAX_CONCURRENCY`, and metrics/cleanup are fixed at `teamSize=1`. These limits apply per instance; total concurrency scales with the number of worker pods.
+- **Queue concurrency**: Deal queue concurrency is `DEAL_MAX_CONCURRENCY` (pg-boss [`batchSize`](https://github.com/timgit/pg-boss/blob/master/docs/api/workers.md)), retrieval queue concurrency is `RETRIEVAL_MAX_CONCURRENCY`, and metrics/cleanup are fixed at `batchSize=1`. These limits apply per instance; total concurrency scales with the number of worker pods.
 - **Per-SP mutex**: `job_mutex` ensures only one job runs per SP at a time across both deal and retrieval queues. If a lock is held, the job is re-queued after `JOB_LOCK_RETRY_SECONDS`.
 
-Source: `apps/backend/src/jobs/jobs.service.ts`, `apps/backend/src/jobs/repositories/job-schedule.repository.ts`.
+Source: [`jobs.service.ts`](../apps/backend/src/jobs/jobs.service.ts), [`job-schedule.repository.ts`](../apps/backend/src/jobs/repositories/job-schedule.repository.ts).
 
 ## Backpressure and Catch-Up
 
@@ -190,18 +183,18 @@ JOB_ENQUEUE_JITTER_SECONDS=300
 
 This staggers schedules by 20 minutes and randomizes starts within 5 minutes.
 
-## Is There a “Job Run” Record?
+## Is There a "Job Run" Record?
 
-- Dealbot does **not** store a first-class “job run” entity.
+- Dealbot does **not** store a first-class "job run" entity.
 - `job_schedule_state.last_run_at` is updated when schedules are advanced (enqueue time), not when handlers finish.
 - pg-boss itself stores each queued job in `pgboss.job` with states like `created`, `active`, and `retry` (we query this table for queue metrics).
 - Execution metrics are exported via Prometheus (`jobs_started_total`, `jobs_completed_total`, `job_duration_seconds`).
 
-Source: `apps/backend/src/jobs/jobs.service.ts`, `apps/backend/src/jobs/repositories/job-schedule.repository.ts`, `apps/backend/src/metrics-prometheus/metrics-prometheus.module.ts`.
+Source: [`jobs.service.ts`](../apps/backend/src/jobs/jobs.service.ts), [`job-schedule.repository.ts`](../apps/backend/src/jobs/repositories/job-schedule.repository.ts), [`metrics-prometheus.module.ts`](../apps/backend/src/metrics-prometheus/metrics-prometheus.module.ts).
 
 ## Critical Environment Variables
 
-See the “Jobs (pg-boss)” section in `docs/environment-variables.md` for full definitions. The most important knobs are:
+See the "Jobs (pg-boss)" section in [`docs/environment-variables.md`](./environment-variables.md) for full definitions. The most important knobs are:
 
 - `DEALBOT_JOBS_MODE`
 - `DEALBOT_PGBOSS_SCHEDULER_ENABLED`
@@ -216,8 +209,8 @@ See the “Jobs (pg-boss)” section in `docs/environment-variables.md` for full
 
 ## Source of Truth Links
 
-- Job schedule entity: `apps/backend/src/database/entities/job-schedule-state.entity.ts`
-- Job schedule repository: `apps/backend/src/jobs/repositories/job-schedule.repository.ts`
-- Scheduler + workers: `apps/backend/src/jobs/jobs.service.ts`
-- Provider sync (SP registry): `apps/backend/src/wallet-sdk/wallet-sdk.service.ts`
-- Job metrics: `apps/backend/src/metrics-prometheus/metrics-prometheus.module.ts`
+- Job schedule entity: [`job-schedule-state.entity.ts`](../apps/backend/src/database/entities/job-schedule-state.entity.ts)
+- Job schedule repository: [`job-schedule.repository.ts`](../apps/backend/src/jobs/repositories/job-schedule.repository.ts)
+- Scheduler + workers: [`jobs.service.ts`](../apps/backend/src/jobs/jobs.service.ts)
+- Provider sync (SP registry): [`wallet-sdk.service.ts`](../apps/backend/src/wallet-sdk/wallet-sdk.service.ts)
+- Job metrics: [`metrics-prometheus.module.ts`](../apps/backend/src/metrics-prometheus/metrics-prometheus.module.ts)
