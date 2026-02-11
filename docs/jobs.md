@@ -77,9 +77,55 @@ Source: `apps/backend/src/jobs/jobs.service.ts`, `apps/backend/src/jobs/reposito
 
 - **Scheduler polling**: `JobsService` runs a scheduler tick every `JOB_SCHEDULER_POLL_SECONDS` (default 300s).
 - **Worker polling**: pg-boss workers check for new jobs every `JOB_WORKER_POLL_SECONDS` (default 60s) via `newJobCheckIntervalSeconds`.
-- **Run modes**: `DEALBOT_RUN_MODE=api` disables workers; `DEALBOT_PGBOSS_SCHEDULER_ENABLED=false` disables the enqueue loop. Both can be used for worker-only or scheduler-only deployments.
 
 Source: `apps/backend/src/jobs/jobs.service.ts`, `apps/backend/src/config/app.config.ts`.
+
+## Run Modes
+
+`DEALBOT_RUN_MODE` controls which components run in a process:
+
+- `api`: API server + scheduler + `/metrics` (no workers)
+- `worker`: workers + `/metrics` only (no API)
+- `both`: API server + scheduler + workers + `/metrics`
+
+Notes:
+
+- In pg-boss mode, `DEALBOT_RUN_MODE=api` disables workers.
+- Set `DEALBOT_PGBOSS_SCHEDULER_ENABLED=false` to disable the enqueue loop (worker-only pods).
+- `/metrics` is served on `DEALBOT_PORT` for `api`/`both` and on `DEALBOT_METRICS_PORT` for `worker`.
+
+## Architecture (api + worker)
+
+```mermaid
+flowchart LR
+  subgraph API["mode=api"]
+    APIHTTP["API server"]
+    Scheduler["Scheduler tick"]
+    APIMetrics["/metrics endpoint"]
+  end
+
+  subgraph Worker["mode=worker"]
+    Workers["pg-boss workers"]
+    Metrics["/metrics server"]
+  end
+
+  DB["Postgres"]
+  ScheduleTable["job_schedule_state"]
+  MutexTable["job_mutex"]
+  BossJobs["pgboss.job"]
+
+  APIHTTP --> DB
+  APIMetrics --> DB
+  Scheduler --> ScheduleTable
+  Scheduler --> BossJobs
+  ScheduleTable --> DB
+  MutexTable --> DB
+  BossJobs --> DB
+
+  Workers --> BossJobs
+  Workers --> MutexTable
+  Workers --> DB
+```
 
 ## Parallelism and Limits
 
