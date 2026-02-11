@@ -496,7 +496,7 @@ describe("JobsService schedule rows", () => {
     vi.setSystemTime(now);
 
     await callPrivate(service, "handleDealJob", {
-      id: "job-1",
+      id: "00000000-0000-4000-8000-000000000001",
       data: { spAddress: "0xaaa", intervalSeconds: 60 },
     });
 
@@ -533,7 +533,7 @@ describe("JobsService schedule rows", () => {
 
     const spAddress = "0xccc";
     await callPrivate(service, "handleRetrievalJob", {
-      id: "job-2",
+      id: "00000000-0000-4000-8000-000000000002",
       data: { spAddress, intervalSeconds: 60 },
     });
 
@@ -541,7 +541,7 @@ describe("JobsService schedule rows", () => {
     expect(jobScheduleRepositoryMock.acquireJobMutex).toHaveBeenCalledWith(
       "retrieval",
       spAddress,
-      "job-2",
+      "00000000-0000-4000-8000-000000000002",
       expect.any(String),
       expect.any(Number),
     );

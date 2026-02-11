@@ -172,7 +172,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
   }
 
   private lockStaleSeconds(): number {
-    return Math.max(60, this.configService.get("jobs")?.lockStaleSeconds ?? 3600);
+    return Math.max(60, this.configService.get("jobs")?.lockStaleSeconds ?? 600);
   }
 
   private schedulePhaseSeconds(): number {
