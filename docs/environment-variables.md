@@ -11,7 +11,7 @@ This document provides a comprehensive guide to all environment variables used b
 | [Blockchain](#blockchain-configuration)   | `NETWORK`, `WALLET_ADDRESS`, `WALLET_PRIVATE_KEY`, `CHECK_DATASET_CREATION_FEES`, `USE_ONLY_APPROVED_PROVIDERS`, `ENABLE_CDN_TESTING`, `ENABLE_IPNI_TESTING` |
 | [Dataset Versioning](#dataset-versioning) | `DEALBOT_DATASET_VERSION`                                                                                                                                    |
 | [Scheduling](#scheduling-configuration)   | `DEAL_INTERVAL_SECONDS`, `DEAL_MAX_CONCURRENCY`, `RETRIEVAL_MAX_CONCURRENCY`, `RETRIEVAL_INTERVAL_SECONDS`, `DEAL_START_OFFSET_SECONDS`, `RETRIEVAL_START_OFFSET_SECONDS`, `METRICS_START_OFFSET_SECONDS`, `DEALBOT_MAINTENANCE_WINDOWS_UTC`, `DEALBOT_MAINTENANCE_WINDOW_MINUTES`         |
-| [Jobs (pg-boss)](#jobs-pg-boss)           | `DEALBOT_JOBS_MODE`, `DEALBOT_PGBOSS_SCHEDULER_ENABLED`, `DEALBOT_PGBOSS_POOL_MAX`, `DEALS_PER_SP_PER_HOUR`, `RETRIEVALS_PER_SP_PER_HOUR`, `METRICS_PER_HOUR`, `JOB_SCHEDULER_POLL_SECONDS`, `JOB_WORKER_POLL_SECONDS`, `JOB_CATCHUP_MAX_ENQUEUE`, `JOB_CATCHUP_SPREAD_HOURS`, `JOB_LOCK_RETRY_SECONDS`, `JOB_SCHEDULE_PHASE_SECONDS`, `JOB_ENQUEUE_JITTER_SECONDS` |
+| [Jobs (pg-boss)](#jobs-pg-boss)           | `DEALBOT_JOBS_MODE`, `DEALBOT_PGBOSS_SCHEDULER_ENABLED`, `DEALBOT_PGBOSS_POOL_MAX`, `DEALS_PER_SP_PER_HOUR`, `RETRIEVALS_PER_SP_PER_HOUR`, `METRICS_PER_HOUR`, `JOB_SCHEDULER_POLL_SECONDS`, `JOB_WORKER_POLL_SECONDS`, `JOB_CATCHUP_MAX_ENQUEUE`, `JOB_CATCHUP_SPREAD_HOURS`, `JOB_LOCK_RETRY_SECONDS`, `JOB_SCHEDULE_PHASE_SECONDS`, `JOB_ENQUEUE_JITTER_SECONDS`, `DEAL_JOB_TIMEOUT_SECONDS`, `RETRIEVAL_JOB_TIMEOUT_SECONDS` |
 | [Dataset](#dataset-configuration)         | `DEALBOT_LOCAL_DATASETS_PATH`, `RANDOM_DATASET_SIZES`                                                                                                        |
 | [Proxy](#proxy-configuration)             | `PROXY_LIST`, `PROXY_LOCATIONS`                                                                                                                              |
 | [Timeouts](#timeout-configuration)        | `CONNECT_TIMEOUT_MS`, `HTTP_REQUEST_TIMEOUT_MS`, `HTTP2_REQUEST_TIMEOUT_MS`, `RETRIEVAL_TIMEOUT_BUFFER_MS`                                                   |
@@ -786,6 +786,42 @@ Use this to stagger multiple dealbot deployments that are not sharing a database
 - **Default**: `0`
 
 **Role**: Random delay (seconds) applied when enqueuing jobs to avoid synchronized bursts.
+
+---
+
+### `DEAL_JOB_TIMEOUT_SECONDS`
+
+- **Type**: `number`
+- **Required**: No
+- **Default**: `600` (10 minutes)
+- **Minimum**: `120` (2 minutes)
+
+**Role**: Maximum runtime for data storage jobs before forced abort. When a deal job exceeds this timeout, it is actively cancelled using `AbortController`.
+
+**When to update**:
+
+- Increase if deal uploads consistently take longer than the default (e.g., slower networks, IPNI delays)
+- Decrease if you want to fail-fast on stuck jobs
+
+**Note**: This is independent of HTTP-level timeouts. The job timeout enforces end-to-end execution time including all operations (provider lookup, upload, IPNI verification, etc.).
+
+---
+
+### `RETRIEVAL_JOB_TIMEOUT_SECONDS`
+
+- **Type**: `number`
+- **Required**: No
+- **Default**: `300` (5 minutes)
+- **Minimum**: `60`
+
+**Role**: Maximum runtime for retrieval test jobs before forced abort. When a retrieval job exceeds this timeout, it is actively cancelled using `AbortController`.
+
+**When to update**:
+
+- Increase if retrieval tests consistently take longer than the default
+- Decrease to detect and fail stuck retrievals faster
+
+**Note**: This is independent of HTTP-level timeouts and the schedule-based `RETRIEVAL_TIMEOUT_BUFFER_MS`. The job timeout enforces end-to-end execution time.
 
 ---
 

@@ -94,6 +94,8 @@ export const configValidationSchema = Joi.object({
   JOB_LOCK_RETRY_SECONDS: Joi.number().min(10).default(60),
   JOB_SCHEDULE_PHASE_SECONDS: Joi.number().min(0).default(0),
   JOB_ENQUEUE_JITTER_SECONDS: Joi.number().min(0).default(0),
+  DEAL_JOB_TIMEOUT_SECONDS: Joi.number().min(120).default(600), // 10 minutes max runtime for data storage jobs
+  RETRIEVAL_JOB_TIMEOUT_SECONDS: Joi.number().min(60).default(300), // 5 minutes max runtime for retrieval jobs
 
   // Dataset
   DEALBOT_LOCAL_DATASETS_PATH: Joi.string().default(DEFAULT_LOCAL_DATASETS_PATH),
@@ -105,8 +107,8 @@ export const configValidationSchema = Joi.object({
 
   // Timeouts (in milliseconds)
   CONNECT_TIMEOUT_MS: Joi.number().min(1000).default(10000), // 10 seconds to establish connection/receive headers
-  HTTP_REQUEST_TIMEOUT_MS: Joi.number().min(1000).default(600000), // 10 minutes total for HTTP requests (Body transfer)
-  HTTP2_REQUEST_TIMEOUT_MS: Joi.number().min(1000).default(600000), // 10 minutes total for HTTP/2 requests (Body transfer)
+  HTTP_REQUEST_TIMEOUT_MS: Joi.number().min(1000).default(240000), // 4 minutes total for HTTP requests (10MiB @ 170KB/s + overhead)
+  HTTP2_REQUEST_TIMEOUT_MS: Joi.number().min(1000).default(240000), // 4 minutes total for HTTP/2 requests (10MiB @ 170KB/s + overhead)
   RETRIEVAL_TIMEOUT_BUFFER_MS: Joi.number()
     .min(0)
     .default(60000)
@@ -264,6 +266,20 @@ export interface IJobsConfig {
    * Helps avoid synchronized bursts across instances. Only used with pg-boss.
    */
   enqueueJitterSeconds: number;
+  /**
+   * Maximum runtime (seconds) for deal jobs before forced abort.
+   *
+   * Uses AbortController to actively cancel job execution.
+   * Only used when `DEALBOT_JOBS_MODE=pgboss`.
+   */
+  dealJobTimeoutSeconds: number;
+  /**
+   * Maximum runtime (seconds) for retrieval jobs before forced abort.
+   *
+   * Uses AbortController to actively cancel job execution.
+   * Only used when `DEALBOT_JOBS_MODE=pgboss`.
+   */
+  retrievalJobTimeoutSeconds: number;
 }
 
 export interface IDatasetConfig {
@@ -382,6 +398,8 @@ export function loadConfig(): IConfig {
       lockRetrySeconds: Number.parseInt(process.env.JOB_LOCK_RETRY_SECONDS || "60", 10),
       schedulePhaseSeconds: Number.parseInt(process.env.JOB_SCHEDULE_PHASE_SECONDS || "0", 10),
       enqueueJitterSeconds: Number.parseInt(process.env.JOB_ENQUEUE_JITTER_SECONDS || "0", 10),
+      dealJobTimeoutSeconds: Number.parseInt(process.env.DEAL_JOB_TIMEOUT_SECONDS || "600", 10),
+      retrievalJobTimeoutSeconds: Number.parseInt(process.env.RETRIEVAL_JOB_TIMEOUT_SECONDS || "300", 10),
     },
     dataset: {
       localDatasetsPath: process.env.DEALBOT_LOCAL_DATASETS_PATH || DEFAULT_LOCAL_DATASETS_PATH,
@@ -412,8 +430,8 @@ export function loadConfig(): IConfig {
     },
     timeouts: {
       connectTimeoutMs: Number.parseInt(process.env.CONNECT_TIMEOUT_MS || "10000", 10),
-      httpRequestTimeoutMs: Number.parseInt(process.env.HTTP_REQUEST_TIMEOUT_MS || "600000", 10),
-      http2RequestTimeoutMs: Number.parseInt(process.env.HTTP2_REQUEST_TIMEOUT_MS || "600000", 10),
+      httpRequestTimeoutMs: Number.parseInt(process.env.HTTP_REQUEST_TIMEOUT_MS || "240000", 10),
+      http2RequestTimeoutMs: Number.parseInt(process.env.HTTP2_REQUEST_TIMEOUT_MS || "240000", 10),
       retrievalTimeoutBufferMs: Number.parseInt(process.env.RETRIEVAL_TIMEOUT_BUFFER_MS || "60000", 10),
     },
   };

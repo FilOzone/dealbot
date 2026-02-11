@@ -268,6 +268,15 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       return;
     }
 
+    // Create AbortController for job timeout enforcement
+    const abortController = new AbortController();
+    const timeoutSeconds = this.configService.get("jobs").dealJobTimeoutSeconds;
+    const timeoutMs = Math.max(120000, timeoutSeconds * 1000);
+    const timeoutId = setTimeout(() => {
+      abortController.abort();
+      this.logger.warn(`Deal job timed out after ${timeoutSeconds}s for ${spAddress} (job ${jobId})`);
+    }, timeoutMs);
+
     await this.recordJobExecution("deal", async () => {
       try {
         let provider = this.walletSdkService.getTestingProviders().find((p) => p.serviceProvider === spAddress);
@@ -284,10 +293,15 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         await this.dealService.createDealForProvider(provider, this.dealService.getTestingDealOptions());
         return "success";
       } catch (error) {
-        this.logger.error(`Deal job failed for ${spAddress}: ${error.message}`, error.stack);
+        if (abortController.signal.aborted) {
+          this.logger.error(`Deal job aborted after timeout (${timeoutSeconds}s) for ${spAddress}`);
+        } else {
+          this.logger.error(`Deal job failed for ${spAddress}: ${error.message}`, error.stack);
+        }
         // Jobs are not retried once attempted; failures are handled by the next schedule tick.
         throw error;
       } finally {
+        clearTimeout(timeoutId);
         try {
           await this.releaseSpLock(spAddress);
         } catch (releaseError) {
@@ -314,6 +328,15 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       return;
     }
 
+    // Create AbortController for job timeout enforcement
+    const abortController = new AbortController();
+    const timeoutSeconds = this.configService.get("jobs").retrievalJobTimeoutSeconds;
+    const timeoutMs = Math.max(60000, timeoutSeconds * 1000);
+    const timeoutId = setTimeout(() => {
+      abortController.abort();
+      this.logger.warn(`Retrieval job timed out after ${timeoutSeconds}s for ${spAddress} (job ${jobId})`);
+    }, timeoutMs);
+
     await this.recordJobExecution("retrieval", async () => {
       try {
         const timeoutsConfig = this.configService.get("timeouts");
@@ -332,10 +355,15 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         await this.retrievalService.performRandomRetrievalForProvider(spAddress, timeoutMs);
         return "success";
       } catch (error) {
-        this.logger.error(`Retrieval job failed for ${spAddress}: ${error.message}`, error.stack);
+        if (abortController.signal.aborted) {
+          this.logger.error(`Retrieval job aborted after timeout (${timeoutSeconds}s) for ${spAddress}`);
+        } else {
+          this.logger.error(`Retrieval job failed for ${spAddress}: ${error.message}`, error.stack);
+        }
         // Jobs are not retried once attempted; failures are handled by the next schedule tick.
         throw error;
       } finally {
+        clearTimeout(timeoutId);
         try {
           await this.releaseSpLock(spAddress);
         } catch (releaseError) {
