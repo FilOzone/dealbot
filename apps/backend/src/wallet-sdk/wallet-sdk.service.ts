@@ -116,6 +116,8 @@ export class WalletSdkService implements OnModuleInit {
       const validProviders = providerInfos.filter((info) => !!info);
 
       this.providerCache.clear();
+      this.activeProviderAddresses.clear();
+      this.approvedProviderAddresses.clear();
       const extendedProviders = validProviders.map((info) => {
         const isActivePDP = info.active;
         const supportsPDP = !!info.products?.PDP;

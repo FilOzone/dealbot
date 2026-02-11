@@ -1,6 +1,6 @@
 import { Injectable, Logger, type OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import { SchedulerRegistry } from "@nestjs/schedule";
+import { Cron, SchedulerRegistry } from "@nestjs/schedule";
 import { getMaintenanceWindowStatus } from "../common/maintenance-window.js";
 import { scheduleJobWithOffset } from "../common/utils.js";
 import type { IConfig, ISchedulingConfig } from "../config/app.config.js";
@@ -13,6 +13,7 @@ export class SchedulerService implements OnModuleInit {
   private readonly logger = new Logger(SchedulerService.name);
   private isRunningDealCreation = false;
   private isRunningRetrievalTests = false;
+  private isRunningProviderRefresh = false;
   private retrievalAbortController?: AbortController;
   private retrievalRunPromise?: Promise<void>;
 
@@ -211,5 +212,33 @@ export class SchedulerService implements OnModuleInit {
     })();
 
     await this.retrievalRunPromise;
+  }
+
+  @Cron("0 0 * * *", { name: "providers-refresh" })
+  async handleProviderRefreshDaily() {
+    if (process.env.DEALBOT_JOBS_MODE === "pgboss") {
+      return;
+    }
+    if (process.env.DEALBOT_DISABLE_SCHEDULER === "true") {
+      return;
+    }
+    if (process.env.DEALBOT_DISABLE_CHAIN === "true") {
+      this.logger.warn("Chain integration disabled; skipping daily provider refresh.");
+      return;
+    }
+    if (this.isRunningProviderRefresh) {
+      this.logger.warn("Previous provider refresh still running, skipping...");
+      return;
+    }
+
+    this.isRunningProviderRefresh = true;
+    this.logger.log("Starting daily provider refresh");
+    try {
+      await this.walletSdkService.loadProviders();
+    } catch (error) {
+      this.logger.error("Failed to refresh providers", error);
+    } finally {
+      this.isRunningProviderRefresh = false;
+    }
   }
 }
