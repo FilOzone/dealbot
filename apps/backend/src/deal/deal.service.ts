@@ -79,7 +79,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     const totalProviders = this.walletSdkService.getTestingProvidersCount();
     const { enableCDN, enableIpni } = this.getTestingDealOptions();
 
-    this.logger.log(`Starting deal creation for ${totalProviders} providers (CDN: ${enableCDN}, IPNI: ${enableIpni})`);
+    this.logger.log(`Starting deal creation for ${totalProviders} providers`);
 
     const { preprocessed, cleanup } = await this.prepareDealInput(enableCDN, enableIpni);
 
@@ -148,7 +148,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
   }
 
   getTestingDealOptions(): { enableCDN: boolean; enableIpni: boolean } {
-    const enableCDN = true;
+    const enableCDN = false;
     const enableIpni = this.getIpniEnabled(this.blockchainConfig.enableIpniTesting);
 
     return { enableCDN, enableIpni };

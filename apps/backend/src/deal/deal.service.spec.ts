@@ -580,7 +580,7 @@ describe("DealService", () => {
       expect(dealAddonsMock.preprocessDeal).toHaveBeenCalledWith(
         expect.objectContaining({
           dataFile,
-          enableCDN: true,
+          enableCDN: false,
           enableIpni: expect.any(Boolean),
         }),
       );
