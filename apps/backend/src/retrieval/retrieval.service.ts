@@ -197,7 +197,13 @@ export class RetrievalService {
       this.logger.log(`Retrievals for ${deal.pieceCid}: ${successCount}/${retrievals.length} successful`);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      this.logger.error(`All retrievals failed for ${deal.pieceCid}: ${errorMessage}`);
+      if (signal?.aborted) {
+        const abortReason = signal.reason;
+        const abortMessage = abortReason instanceof Error ? abortReason.message : String(abortReason ?? "");
+        this.logger.warn(`Retrievals aborted for ${deal.pieceCid}: ${abortMessage || errorMessage}`);
+      } else {
+        this.logger.error(`All retrievals failed for ${deal.pieceCid}: ${errorMessage}`);
+      }
 
       // Don't try to record timeouts here. If this catch block fires, it's either:
       // 1. The batch timeout fired because we're out of time (global deadline) - don't record
@@ -212,8 +218,13 @@ export class RetrievalService {
     }
 
     if (testResult.aborted || signal?.aborted) {
-      this.logger.warn(`Retrieval job aborted after testing for ${deal.pieceCid}; recorded partial results.`);
-      throw signal?.reason instanceof Error ? signal.reason : new Error("Retrieval job aborted");
+      const abortReason = signal?.reason;
+      const abortMessage = abortReason instanceof Error ? abortReason.message : String(abortReason ?? "");
+      this.logger.warn(
+        `Retrieval job aborted after testing for ${deal.pieceCid}; recorded partial results.` +
+          (abortMessage ? ` Reason: ${abortMessage}` : ""),
+      );
+      return retrievals;
     }
 
     return retrievals;

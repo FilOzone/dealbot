@@ -188,6 +188,12 @@ export class RetrievalAddonsService {
       if (result.status === "fulfilled") {
         return result.value;
       } else {
+        let errorMessage = "";
+        if (result.reason instanceof Error) {
+          errorMessage = result.reason.message;
+        } else if (result.reason) {
+          errorMessage = String(result.reason);
+        }
         // Create failed result - retryCount unknown for catastrophic failures
         return {
           url: urlResults[index].url,
@@ -202,7 +208,7 @@ export class RetrievalAddonsService {
             responseSize: 0,
           },
           success: false,
-          error: result.reason?.message || "Unknown error",
+          error: errorMessage || "Unknown error",
           retryCount: undefined, // Unknown for catastrophic failures
         };
       }
@@ -291,7 +297,8 @@ export class RetrievalAddonsService {
         }
       } catch (error) {
         signal?.throwIfAborted();
-        this.logger.warn(`${strategy.name} attempt ${attempt}/${attempts} failed: ${error.message}`);
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        this.logger.warn(`${strategy.name} attempt ${attempt}/${attempts} failed: ${errorMessage}`);
 
         // If all attempts fail, throw the error
         if (attempt === attempts) {

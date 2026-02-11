@@ -272,9 +272,12 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     const abortController = new AbortController();
     const timeoutSeconds = this.configService.get("jobs").dealJobTimeoutSeconds;
     const timeoutMs = Math.max(120000, timeoutSeconds * 1000);
+    const effectiveTimeoutSeconds = Math.round(timeoutMs / 1000);
     const timeoutId = setTimeout(() => {
       abortController.abort();
-      this.logger.warn(`Deal job timed out after ${timeoutSeconds}s for ${spAddress} (job ${jobId})`);
+      this.logger.warn(
+        `Deal job timed out after ${effectiveTimeoutSeconds}s (configured ${timeoutSeconds}s) for ${spAddress} (job ${jobId})`,
+      );
     }, timeoutMs);
 
     await this.recordJobExecution("deal", async () => {
@@ -297,7 +300,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         return "success";
       } catch (error) {
         if (abortController.signal.aborted) {
-          this.logger.error(`Deal job aborted after timeout (${timeoutSeconds}s) for ${spAddress}`);
+          this.logger.error(`Deal job aborted after timeout (${effectiveTimeoutSeconds}s) for ${spAddress}`);
           return "aborted";
         }
         this.logger.error(`Data Storage check failed for ${spAddress}: ${error.message}`, error.stack);
@@ -335,9 +338,12 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     const abortController = new AbortController();
     const timeoutSeconds = this.configService.get("jobs").retrievalJobTimeoutSeconds;
     const timeoutMs = Math.max(60000, timeoutSeconds * 1000);
+    const effectiveTimeoutSeconds = Math.round(timeoutMs / 1000);
     const timeoutId = setTimeout(() => {
       abortController.abort();
-      this.logger.warn(`Retrieval job timed out after ${timeoutSeconds}s for ${spAddress} (job ${jobId})`);
+      this.logger.warn(
+        `Retrieval job timed out after ${effectiveTimeoutSeconds}s (configured ${timeoutSeconds}s) for ${spAddress} (job ${jobId})`,
+      );
     }, timeoutMs);
 
     await this.recordJobExecution("retrieval", async () => {
@@ -359,7 +365,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         return "success";
       } catch (error) {
         if (abortController.signal.aborted) {
-          this.logger.error(`Retrieval job aborted after timeout (${timeoutSeconds}s) for ${spAddress}`);
+          this.logger.error(`Retrieval job aborted after timeout (${effectiveTimeoutSeconds}s) for ${spAddress}`);
           return "aborted";
         }
         this.logger.error(`Retrieval check failed for ${spAddress}: ${error.message}`, error.stack);
