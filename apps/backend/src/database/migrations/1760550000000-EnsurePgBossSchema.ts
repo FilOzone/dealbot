@@ -1,5 +1,5 @@
-import type { MigrationInterface, QueryRunner } from "typeorm";
 import { getConstructionPlans } from "pg-boss";
+import type { MigrationInterface, QueryRunner } from "typeorm";
 
 export class EnsurePgBossSchema1760550000000 implements MigrationInterface {
   name = "EnsurePgBossSchema1760550000000";
@@ -47,9 +47,7 @@ export class EnsurePgBossSchema1760550000000 implements MigrationInterface {
       await queryRunner.query(`ALTER SCHEMA ${newSchema} RENAME TO ${schema}`);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      throw new Error(
-        `pg-boss migration failed: ${message}. See docs/runbooks/jobs.md for manual migration steps.`,
-      );
+      throw new Error(`pg-boss migration failed: ${message}. See docs/runbooks/jobs.md for manual migration steps.`);
     }
   }
 
