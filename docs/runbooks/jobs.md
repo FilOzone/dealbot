@@ -189,8 +189,7 @@ FROM pgboss.job;
 ### 3) Ensure required queues exist in the new schema
 
 ```sql
-SELECT pgboss_new.create_queue('deal.run', '{"policy":"standard"}'::jsonb);
-SELECT pgboss_new.create_queue('retrieval.run', '{"policy":"standard"}'::jsonb);
+SELECT pgboss_new.create_queue('sp.work', '{"policy":"singleton"}'::jsonb);
 SELECT pgboss_new.create_queue('metrics.run', '{"policy":"standard"}'::jsonb);
 SELECT pgboss_new.create_queue('metrics.cleanup', '{"policy":"standard"}'::jsonb);
 ```
