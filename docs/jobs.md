@@ -139,9 +139,11 @@ Use these formulas to reason about whether the system can keep up and how much b
 
 Per-SP capacity (one job per SP at a time):
 
-- Per-SP execution-minutes/hour = `(deals_per_sp_per_hour * deal_max_minutes) + (retrievals_per_sp_per_hour * retrieval_max_minutes)`
-- If per-SP execution-minutes/hour > 60, that SP can never catch up (backlog grows).
-- If per-SP execution-minutes/hour <= 60, backlog will eventually drain (catch-up rate = `60 - per_sp_load` minutes/hour).
+- Per-SP execution-minutes per hour = `(deals_per_sp_per_hour * deal_max_minutes) + (retrievals_per_sp_per_hour * retrieval_max_minutes)`
+- If per-SP execution-minutes per hour > 60, that SP can never catch up (backlog grows).
+- If per-SP execution-minutes per hour <= 60, backlog will eventually drain (headroom = `60 - per-SP execution-minutes per hour`).
+
+Note: 60 execution-minutes per hour = 100% utilization for a single SP.
 
 Cluster capacity (worker pool bound):
 
@@ -153,7 +155,7 @@ Note: Deal and retrieval jobs share the same `sp.work` queue, so the effective c
 
 Example (18 SPs, 4 deals/hr @ 5m, 6 retrievals/hr @ 2m, 5 dealbot workers, 10/10 concurrency):
 
-- Per-SP execution-minutes/hour = `4*5m + 6*2m = 32 min/hr` (OK; 28 min/hr headroom)
+- Per-SP execution-minutes per hour = `4*5m + 6*2m = 32 execution-min/hr` (OK; 28 execution-min/hr headroom)
 - Deal capacity = `5 dealbot workers * 10 * (60/5m) = 600 deals/hr` => `600/4 = 150 SPs`
 - Retrieval capacity = `5 dealbot workers * 10 * (60/2m) = 1500 retrievals/hr` => `1500/6 = 250 SPs`
 - Limited by deals. We can support ~150 SPs before hitting capacity with the parameters above.
