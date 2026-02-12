@@ -103,11 +103,11 @@ If the database still has the legacy pg-boss schema (no `queue` table), the appl
 startup migration (apps/backend/src/database/migrations/1760550000000-EnsurePgBossSchema.ts) will fail with:
 
 ```
-Legacy pg-boss schema detected. You must run pg-boss migrations manually first; see docs/runbooks/jobs.md.
+pg-boss migration failed: <reason>. See docs/runbooks/jobs.md for manual migration steps.
 ```
 
 Use the steps below to prepare a new schema (`pgboss_new`) and validate it before deploying.
-Once `pgboss_new` exists, the app migration will swap it into place automatically.
+Once `pgboss_new` exists, the app migration will copy it into a fresh `pgboss` schema on deploy.
 
 ### 1) Create the new schema with pg-boss (v12)
 
@@ -199,8 +199,9 @@ SELECT pgboss_new.create_queue('metrics.cleanup', '{"policy":"standard"}'::jsonb
 ### 4) Deploy
 
 On deploy, the migration will:
-- Rename `pgboss` to `pgboss_v6` (backup).
-- Rename `pgboss_new` to `pgboss`.
+- Rename the existing `pgboss` schema to `pgboss_v6` (backup) if it is legacy.
+- Create a fresh `pgboss` schema (v12) and copy data from `pgboss_new` (if present) or from `pgboss_v6`.
+- Leave `pgboss_new` intact for verification (you can drop it later).
 
 Stop the app before running the manual steps to avoid concurrent writes.
 

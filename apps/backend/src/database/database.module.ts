@@ -43,6 +43,7 @@ const __dirname = dirname(__filename);
           ],
           migrations: [join(__dirname, "migrations", "*.{js,ts}")],
           migrationsRun: runMigrations,
+          migrationsTransactionMode: "each",
           synchronize: appConfig.env !== "production",
           logging: false,
         };

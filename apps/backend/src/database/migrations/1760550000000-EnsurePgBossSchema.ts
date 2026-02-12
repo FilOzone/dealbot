@@ -12,39 +12,59 @@ export class EnsurePgBossSchema1760550000000 implements MigrationInterface {
       const newSchema = "pgboss_new";
 
       const schemaExists = await this.schemaExists(queryRunner, schema);
-      if (!schemaExists) {
-        await this.installSchema(queryRunner, schema);
-      }
+      const legacyExists = await this.schemaExists(queryRunner, legacySchema);
+      const newSchemaExists = await this.schemaExists(queryRunner, newSchema);
 
-      const queueExists = await this.relationExists(queryRunner, `${schema}.queue`);
-      if (queueExists) {
-        // Already on v12+ schema; skip swap logic.
+      if (!schemaExists && !legacyExists && !newSchemaExists) {
+        // Fresh database: install and seed required queues.
+        await this.installSchema(queryRunner, schema);
         await this.ensureCompatColumns(queryRunner, schema);
         await this.ensureQueues(queryRunner, schema);
         return;
       }
-      const legacyExists = await this.schemaExists(queryRunner, legacySchema);
-      if (legacyExists) {
-        throw new Error(
-          `Legacy schema ${legacySchema} already exists. Rename or drop it before upgrading pg-boss schema.`,
-        );
+
+      if (schemaExists) {
+        const queueExists = await this.relationExists(queryRunner, `${schema}.queue`);
+        if (queueExists) {
+          // Already on v12+ schema; keep in place and ensure compat/queues.
+          await this.ensureCompatColumns(queryRunner, schema);
+          await this.ensureQueues(queryRunner, schema);
+          return;
+        }
       }
 
-      const newSchemaExists = await this.schemaExists(queryRunner, newSchema);
+      let sourceSchema: string | null = null;
       if (newSchemaExists) {
-        throw new Error(
-          `Target schema ${newSchema} already exists. Rename or drop it before upgrading pg-boss schema.`,
-        );
+        sourceSchema = newSchema;
+      } else if (legacyExists) {
+        sourceSchema = legacySchema;
+      } else if (schemaExists) {
+        sourceSchema = schema;
       }
 
-      await this.installSchema(queryRunner, newSchema);
-      await this.copyQueues(queryRunner, schema, newSchema);
-      await this.copySchedules(queryRunner, schema, newSchema);
-      await this.copyJobs(queryRunner, schema, newSchema);
-      await this.ensureCompatColumns(queryRunner, newSchema);
+      if (!sourceSchema) {
+        throw new Error("No pg-boss schema found to migrate.");
+      }
 
-      await queryRunner.query(`ALTER SCHEMA ${schema} RENAME TO ${legacySchema}`);
-      await queryRunner.query(`ALTER SCHEMA ${newSchema} RENAME TO ${schema}`);
+      if (schemaExists && sourceSchema !== schema) {
+        if (legacyExists) {
+          throw new Error(
+            `Both ${schema} and ${legacySchema} exist. Rename or drop one before upgrading pg-boss schema.`,
+          );
+        }
+        await queryRunner.query(`ALTER SCHEMA ${schema} RENAME TO ${legacySchema}`);
+        sourceSchema = newSchemaExists ? newSchema : legacySchema;
+      } else if (sourceSchema === schema) {
+        await queryRunner.query(`ALTER SCHEMA ${schema} RENAME TO ${legacySchema}`);
+        sourceSchema = legacySchema;
+      }
+
+      await this.installSchema(queryRunner, schema);
+      await this.copyQueues(queryRunner, sourceSchema, schema);
+      await this.copySchedules(queryRunner, sourceSchema, schema);
+      await this.copyJobs(queryRunner, sourceSchema, schema);
+      await this.ensureCompatColumns(queryRunner, schema);
+      await this.ensureQueues(queryRunner, schema);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       throw new Error(`pg-boss migration failed: ${message}. See docs/runbooks/jobs.md for manual migration steps.`);
