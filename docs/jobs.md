@@ -63,16 +63,16 @@ Note: In pg-boss mode, provider sync currently happens at startup (and whenever 
 
 - **Initial value**: set by `upsertSchedule()` when schedules are created, using `now + JOB_SCHEDULE_PHASE_SECONDS`.
 - **On each tick**: The scheduler finds rows where `next_run_at <= now`, computes how many runs are due based on `interval_seconds`, enqueues up to `JOB_CATCHUP_MAX_ENQUEUE` runs per schedule row, and on successful enqueue advances `next_run_at` by `successCount * interval_seconds` while updating `last_run_at`.
-- **Maintenance windows**: Deal/retrieval jobs are enqueued, but workers defer execution until the maintenance window ends. Jobs that started before the window can run into it. A stricter "do not enqueue near window" policy is planned.
+- **Maintenance windows**: Deal/retrieval jobs are not enqueued during a maintenance window. We also skip enqueue if we are within `max(DEAL_JOB_TIMEOUT_SECONDS, RETRIEVAL_JOB_TIMEOUT_SECONDS)` of an upcoming window to avoid starting work that would overlap the window. (TODO: this depends on https://github.com/FilOzone/dealbot/pull/263)
 
-Advancing `next_run_at` by `successCount * interval_seconds` records how many scheduled runs have been placed in the queue. The backlog lives in pg-boss rather than in `job_schedule_state`, which avoids re-enqueuing the same historical slots on every scheduler tick.
+Advancing `next_run_at` by `successCount * interval_seconds` records how many scheduled runs have been placed in the queue. The backlog lives in pg-boss rather than in `job_schedule_state`, which avoids re-enqueuing the same historical slots on every scheduler tick. This does **not** make jobs execute faster — execution rate is still bounded by worker capacity and the per-SP `singletonKey`.
 
 ## Backfill and Backpressure
 
-- **Backfill**: If dealbot is down, the scheduler will enqueue missed runs on restart, up to `JOB_CATCHUP_MAX_ENQUEUE` per schedule row per tick. This preserves historical coverage without flooding workers.
+- **Backfill**: If dealbot is down, the scheduler will enqueue missed runs on restart, up to `JOB_CATCHUP_MAX_ENQUEUE` per schedule row per tick. This preserves historical coverage while controlling enqueue rate.
 - **Staggering**: `JOB_CATCHUP_SPREAD_HOURS` spreads backfill jobs over a window, and `JOB_ENQUEUE_JITTER_SECONDS` adds randomized delay to avoid synchronized bursts across deployments.
 
-Backfill caps and spreading are about **enqueue rate**, not execution concurrency. Even with `singletonKey` limiting one active job per SP, a long outage could enqueue thousands of jobs at once, causing DB write bursts, large `pgboss.job` growth, and noisy metrics. Caps/jitter prevent that “enqueue storm” while still allowing backlog to drain.
+Backfill caps and spreading are about **enqueue rate**, not execution concurrency. Even with `singletonKey` limiting one active job per SP, a long outage could enqueue thousands of jobs at once, causing DB write bursts, large `pgboss.job` growth, and noisy metrics. Caps/jitter prevent that “enqueue storm” while still allowing backlog to drain at the worker rate. Increasing the cap only makes the backlog visible in the queue faster; to actually process it faster you need more worker capacity (or to relax per-SP exclusivity).
 
 Example: If a job is scheduled every 15 minutes but takes 20 minutes, jobs will queue in pg-boss. The per-SP singleton prevents overlap, so runs execute sequentially and backlog grows. Backfill caps prevent a thundering herd when the system recovers.
 
