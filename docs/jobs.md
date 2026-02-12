@@ -7,24 +7,26 @@ This doc explains what a job is in dealbot when `DEALBOT_JOBS_MODE=pgboss`. For 
 - Jobs are scheduled via `job_schedule_state` rows and executed via pg-boss queues.
 - There is one schedule row per `<job_type, sp_address>` plus global jobs that use an empty `sp_address`.
 - A scheduler loop polls for due schedules, enqueues pg-boss jobs, and advances `next_run_at`.
+- Deal/retrieval jobs share the `sp.work` queue with `policy=singleton` and `singletonKey=spAddress` to ensure only one active job per SP while allowing backlog.
 - Workers poll pg-boss queues via [`boss.work()`](https://github.com/timgit/pg-boss/blob/master/docs/api/workers.md) and execute the actual deal/retrieval/metrics handlers.
 
 ## Cardinality and Tables
 
 - **Schedule rows**: `job_schedule_state` has a unique constraint on `(job_type, sp_address)`, which means one row per job type per SP address. Global jobs use `sp_address = ''`. Source: [`job-schedule-state.entity.ts`](../apps/backend/src/database/entities/job-schedule-state.entity.ts), [`1760000000000-AddJobScheduleState.ts`](../apps/backend/src/database/migrations/1760000000000-AddJobScheduleState.ts).
-- **Per-SP mutex**: `job_mutex` enforces one in-flight job per SP address across all workers (deal and retrieval share the same lock). Source: [`1760000000003-AddJobMutex.ts`](../apps/backend/src/database/migrations/1760000000003-AddJobMutex.ts), [`job-schedule.repository.ts`](../apps/backend/src/jobs/repositories/job-schedule.repository.ts).
 - **Queue rows**: pg-boss stores jobs in the `pgboss.job` table (created by pg-boss under the `pgboss` schema). We read from this table for metrics. Source: [`job-schedule.repository.ts`](../apps/backend/src/jobs/repositories/job-schedule.repository.ts) (queries `pgboss.job`).
 
 ## Job Types and Queues
 
 Job types map to pg-boss queue names in [`JobsService.mapJobName`](../apps/backend/src/jobs/jobs.service.ts):
 
-- `deal` -> `deal.run`
-- `retrieval` -> `retrieval.run`
+- `deal` -> `sp.work` (with `jobType=deal`)
+- `retrieval` -> `sp.work` (with `jobType=retrieval`)
 - `metrics` -> `metrics.run`
 - `metrics_cleanup` -> `metrics.cleanup`
 
 Jobs are enqueued via [`boss.send(name, data, options)`](https://github.com/timgit/pg-boss/blob/master/docs/api/jobs.md), which inserts rows into `pgboss.job`. Workers consume them via [`boss.work(name, options, handler)`](https://github.com/timgit/pg-boss/blob/master/docs/api/workers.md).
+
+> **Note:** `sp.work` is created with `policy=singleton` and jobs set `singletonKey=spAddress` so only one active job per SP can run at a time.
 
 > **Note:** pg-boss also has a separate [pub/sub API](https://github.com/timgit/pg-boss/blob/master/docs/api/pubsub.md) (`publish`/`subscribe`) for fan-out to multiple queues. We do **not** use pub/sub — we use `send`/`work` for direct queue processing.
 
@@ -34,7 +36,7 @@ Source: [`jobs.service.ts`](../apps/backend/src/jobs/jobs.service.ts).
 
 - pg-boss provides durable queues and worker execution. Dealbot owns schedule state and timing via `job_schedule_state`.
 - We do not call `boss.schedule(...)` or use pg-boss cron scheduling. The scheduler tick decides when a job is due and enqueues it.
-- This custom scheduler exists because we need per-SP rate schedules, catch-up behavior with caps/jitter, maintenance-window skipping, and a cross-queue per-SP mutex (deal + retrieval).
+- This custom scheduler exists because we need per-SP rate schedules, catch-up behavior with caps/jitter, maintenance-window deferral, and per-SP singleton execution (deal + retrieval share a queue).
 
 ## Pg-boss Storage, Retention, and Cleanup
 
@@ -62,7 +64,7 @@ Note: In pg-boss mode, provider sync currently happens at startup (and whenever 
 
 - **Initial value**: set by `upsertSchedule()` when schedules are created, using `now + JOB_SCHEDULE_PHASE_SECONDS`.
 - **On each tick**: The scheduler finds rows where `next_run_at <= now`, computes how many runs are due based on `interval_seconds`, enqueues up to `JOB_CATCHUP_MAX_ENQUEUE` runs per schedule row, and on successful enqueue advances `next_run_at` by `successCount * interval_seconds` while updating `last_run_at`.
-- **Maintenance windows**: For deal/retrieval during maintenance windows, no jobs are enqueued, but `next_run_at` is still advanced to skip missed runs.
+- **Maintenance windows**: Deal/retrieval jobs are still enqueued, but workers defer execution until the window ends; `next_run_at` advances based on successful enqueues.
 
 Source: [`jobs.service.ts`](../apps/backend/src/jobs/jobs.service.ts), [`job-schedule.repository.ts`](../apps/backend/src/jobs/repositories/job-schedule.repository.ts).
 
@@ -104,26 +106,26 @@ flowchart LR
 
   DB["Postgres"]
   ScheduleTable["job_schedule_state"]
-  MutexTable["job_mutex"]
   BossJobs["pgboss.job"]
+  SpQueue["sp.work (singleton)"]
 
   APIHTTP --> DB
   APIMetrics --> DB
   Scheduler --> ScheduleTable
   Scheduler --> BossJobs
+  Scheduler --> SpQueue
   ScheduleTable --> DB
-  MutexTable --> DB
   BossJobs --> DB
 
   Workers --> BossJobs
-  Workers --> MutexTable
+  Workers --> SpQueue
   Workers --> DB
 ```
 
 ## Parallelism and Limits
 
-- **Queue concurrency**: Deal queue concurrency is `DEAL_MAX_CONCURRENCY` (pg-boss [`batchSize`](https://github.com/timgit/pg-boss/blob/master/docs/api/workers.md)), retrieval queue concurrency is `RETRIEVAL_MAX_CONCURRENCY`, and metrics/cleanup are fixed at `batchSize=1`. These limits apply per instance; total concurrency scales with the number of worker pods.
-- **Per-SP mutex**: `job_mutex` ensures only one job runs per SP at a time across both deal and retrieval queues. If a lock is held, the job is re-queued after `JOB_LOCK_RETRY_SECONDS`.
+- **Queue concurrency**: Deal/retrieval share the `sp.work` queue. Per-instance worker concurrency is `DEAL_MAX_CONCURRENCY + RETRIEVAL_MAX_CONCURRENCY` (pg-boss `localConcurrency`), with `batchSize=1`. Metrics/cleanup remain fixed at `batchSize=1`. Total concurrency scales with the number of worker pods.
+- **Per-SP exclusion**: `sp.work` is created with `policy=singleton`, and jobs are enqueued with `singletonKey=spAddress`, ensuring only one active job per SP across all workers while allowing backlog.
 
 Source: [`jobs.service.ts`](../apps/backend/src/jobs/jobs.service.ts), [`job-schedule.repository.ts`](../apps/backend/src/jobs/repositories/job-schedule.repository.ts).
 
@@ -131,9 +133,7 @@ Source: [`jobs.service.ts`](../apps/backend/src/jobs/jobs.service.ts), [`job-sch
 
 - **Catch-up cap**: `JOB_CATCHUP_MAX_ENQUEUE` limits how many runs are enqueued per schedule row per tick.
 - **Staggering**: `JOB_CATCHUP_SPREAD_HOURS` spreads catch-up jobs, and `JOB_ENQUEUE_JITTER_SECONDS` adds random delay.
-- **Lock contention**: `JOB_LOCK_RETRY_SECONDS` delays re-queues when the per-SP lock is held; `JOB_LOCK_STALE_SECONDS` allows replacement of stale locks.
-
-Example: If a job is scheduled every 15 minutes but takes 20 minutes, jobs will queue in pg-boss. The per-SP mutex prevents overlap, so runs execute sequentially and a backlog grows. Catch-up limits cap how fast backlog is enqueued per tick.
+Example: If a job is scheduled every 15 minutes but takes 20 minutes, jobs will queue in pg-boss. The per-SP singleton prevents overlap, so runs execute sequentially and a backlog grows. Catch-up limits cap how fast backlog is enqueued per tick.
 
 ## Capacity and Limits
 
@@ -150,6 +150,8 @@ Cluster capacity (worker pool bound):
 - Deal capacity (deals/hour) = `workers * DEAL_MAX_CONCURRENCY * (60 / deal_max_minutes)`
 - Retrieval capacity (retrievals/hour) = `workers * RETRIEVAL_MAX_CONCURRENCY * (60 / retrieval_max_minutes)`
 - Max sustainable SP count = `min(deal_capacity / deals_per_sp_per_hour, retrieval_capacity / retrievals_per_sp_per_hour)`
+
+Note: Deal and retrieval jobs share the same `sp.work` queue, so the effective concurrency is the combined budget (`DEAL_MAX_CONCURRENCY + RETRIEVAL_MAX_CONCURRENCY`) and will skew toward whichever job type dominates the backlog.
 
 Example (18 SPs, 4 deals/hr @ 5m, 6 retrievals/hr @ 2m, 5 workers, 10/10 concurrency):
 
@@ -202,7 +204,6 @@ See the "Jobs (pg-boss)" section in [`docs/environment-variables.md`](./environm
 - `DEALS_PER_SP_PER_HOUR`, `RETRIEVALS_PER_SP_PER_HOUR`, `METRICS_PER_HOUR`
 - `JOB_SCHEDULER_POLL_SECONDS`, `JOB_WORKER_POLL_SECONDS`
 - `JOB_CATCHUP_MAX_ENQUEUE`, `JOB_CATCHUP_SPREAD_HOURS`
-- `JOB_LOCK_RETRY_SECONDS`, `JOB_LOCK_STALE_SECONDS`
 - `JOB_SCHEDULE_PHASE_SECONDS`, `JOB_ENQUEUE_JITTER_SECONDS`
 - `DEAL_MAX_CONCURRENCY`, `RETRIEVAL_MAX_CONCURRENCY`
 - `USE_ONLY_APPROVED_PROVIDERS`

@@ -11,7 +11,7 @@ This document provides a comprehensive guide to all environment variables used b
 | [Blockchain](#blockchain-configuration)   | `NETWORK`, `WALLET_ADDRESS`, `WALLET_PRIVATE_KEY`, `CHECK_DATASET_CREATION_FEES`, `USE_ONLY_APPROVED_PROVIDERS`, `ENABLE_CDN_TESTING`, `ENABLE_IPNI_TESTING` |
 | [Dataset Versioning](#dataset-versioning) | `DEALBOT_DATASET_VERSION`                                                                                                                                    |
 | [Scheduling](#scheduling-configuration)   | `DEAL_INTERVAL_SECONDS`, `DEAL_MAX_CONCURRENCY`, `RETRIEVAL_MAX_CONCURRENCY`, `RETRIEVAL_INTERVAL_SECONDS`, `DEAL_START_OFFSET_SECONDS`, `RETRIEVAL_START_OFFSET_SECONDS`, `METRICS_START_OFFSET_SECONDS`, `DEALBOT_MAINTENANCE_WINDOWS_UTC`, `DEALBOT_MAINTENANCE_WINDOW_MINUTES`         |
-| [Jobs (pg-boss)](#jobs-pg-boss)           | `DEALBOT_JOBS_MODE`, `DEALBOT_PGBOSS_SCHEDULER_ENABLED`, `DEALBOT_PGBOSS_POOL_MAX`, `DEALS_PER_SP_PER_HOUR`, `RETRIEVALS_PER_SP_PER_HOUR`, `METRICS_PER_HOUR`, `JOB_SCHEDULER_POLL_SECONDS`, `JOB_WORKER_POLL_SECONDS`, `JOB_CATCHUP_MAX_ENQUEUE`, `JOB_CATCHUP_SPREAD_HOURS`, `JOB_LOCK_RETRY_SECONDS`, `JOB_SCHEDULE_PHASE_SECONDS`, `JOB_ENQUEUE_JITTER_SECONDS` |
+| [Jobs (pg-boss)](#jobs-pg-boss)           | `DEALBOT_JOBS_MODE`, `DEALBOT_PGBOSS_SCHEDULER_ENABLED`, `DEALBOT_PGBOSS_POOL_MAX`, `DEALS_PER_SP_PER_HOUR`, `RETRIEVALS_PER_SP_PER_HOUR`, `METRICS_PER_HOUR`, `JOB_SCHEDULER_POLL_SECONDS`, `JOB_WORKER_POLL_SECONDS`, `JOB_CATCHUP_MAX_ENQUEUE`, `JOB_CATCHUP_SPREAD_HOURS`, `JOB_SCHEDULE_PHASE_SECONDS`, `JOB_ENQUEUE_JITTER_SECONDS` |
 | [Dataset](#dataset-configuration)         | `DEALBOT_LOCAL_DATASETS_PATH`, `RANDOM_DATASET_SIZES`                                                                                                        |
 | [Proxy](#proxy-configuration)             | `PROXY_LIST`, `PROXY_LOCATIONS`                                                                                                                              |
 | [Timeouts](#timeout-configuration)        | `CONNECT_TIMEOUT_MS`, `HTTP_REQUEST_TIMEOUT_MS`, `HTTP2_REQUEST_TIMEOUT_MS`, `RETRIEVAL_TIMEOUT_BUFFER_MS`                                                   |
@@ -473,7 +473,7 @@ DEAL_INTERVAL_SECONDS=3600
 - **Default**: `10`
 - **Minimum**: `1`
 
-**Role**: Controls deal-job concurrency. When `DEALBOT_JOBS_MODE=cron`, this is the maximum number of providers processed in parallel per batch; batches run sequentially. When `DEALBOT_JOBS_MODE=pgboss`, this sets the pg-boss `teamSize` for `deal.run` workers.
+**Role**: Controls deal-job concurrency. When `DEALBOT_JOBS_MODE=cron`, this is the maximum number of providers processed in parallel per batch; batches run sequentially. When `DEALBOT_JOBS_MODE=pgboss`, deal and retrieval share the `sp.work` queue; the per-instance worker concurrency is `DEAL_MAX_CONCURRENCY + RETRIEVAL_MAX_CONCURRENCY` (pg-boss `localConcurrency`), and this value contributes to that combined budget.
 
 **When to update**:
 
@@ -499,7 +499,7 @@ Use p95 duration for a more conservative default.
 - **Default**: `10`
 - **Minimum**: `1`
 
-**Role**: Maximum number of retrieval tests executed in parallel when running pg-boss workers.
+**Role**: Maximum number of retrieval tests executed in parallel. When `DEALBOT_JOBS_MODE=pgboss`, deal and retrieval share the `sp.work` queue; the per-instance worker concurrency is `DEAL_MAX_CONCURRENCY + RETRIEVAL_MAX_CONCURRENCY`, and this value contributes to that combined budget.
 
 **When to update**:
 
@@ -755,26 +755,6 @@ is handled by future polls.
 - **Default**: `3`
 
 **Role**: When catching up, delayed jobs are spread evenly over this window.
-
----
-
-### `JOB_LOCK_RETRY_SECONDS`
-
-- **Type**: `number`
-- **Required**: No
-- **Default**: `60`
-
-**Role**: Delay before re-queuing a job when the per-SP mutual-exclusion lock is held.
-
----
-
-### `JOB_LOCK_STALE_SECONDS`
-
-- **Type**: `number`
-- **Required**: No
-- **Default**: `600`
-
-**Role**: Age (seconds) at which an in-flight per-SP mutex is considered stale and can be replaced.
 
 ---
 

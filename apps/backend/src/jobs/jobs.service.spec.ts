@@ -17,8 +17,6 @@ describe("JobsService schedule rows", () => {
     countPausedSchedules: ReturnType<typeof vi.fn>;
     findDueSchedulesWithManager: ReturnType<typeof vi.fn>;
     runTransaction: ReturnType<typeof vi.fn>;
-    acquireJobMutex: ReturnType<typeof vi.fn>;
-    releaseJobMutex: ReturnType<typeof vi.fn>;
     updateScheduleAfterRun: ReturnType<typeof vi.fn>;
     countBossJobStates: ReturnType<typeof vi.fn>;
     minBossJobAgeSecondsByState: ReturnType<typeof vi.fn>;
@@ -72,8 +70,6 @@ describe("JobsService schedule rows", () => {
       runTransaction: vi.fn(async (callback: (manager: unknown) => Promise<void>) => {
         await callback({});
       }),
-      acquireJobMutex: vi.fn(),
-      releaseJobMutex: vi.fn(),
       updateScheduleAfterRun: vi.fn(),
       countBossJobStates: vi.fn(),
       minBossJobAgeSecondsByState: vi.fn(),
@@ -107,7 +103,6 @@ describe("JobsService schedule rows", () => {
         catchupMaxEnqueue: 10,
         catchupSpreadHours: 3,
         enqueueJitterSeconds: 0,
-        lockRetrySeconds: 60,
         pgbossSchedulerEnabled: true,
         workerPollSeconds: 60,
       } as IConfig["jobs"],
@@ -206,14 +201,14 @@ describe("JobsService schedule rows", () => {
     const jobsPausedGauge = metricsMocks.jobsPausedGauge as unknown as { set: ReturnType<typeof vi.fn> };
 
     jobScheduleRepositoryMock.countBossJobStates.mockResolvedValueOnce([
-      { name: "deal.run", state: "created", count: 2 },
-      { name: "retrieval.run", state: "active", count: 1 },
-      { name: "metrics.run", state: "retry", count: 3 },
-      { name: "unknown", state: "created", count: 99 },
+      { job_type: "deal", state: "created", count: 2 },
+      { job_type: "retrieval", state: "active", count: 1 },
+      { job_type: "metrics", state: "retry", count: 3 },
+      { job_type: "unknown", state: "created", count: 99 },
     ]);
     jobScheduleRepositoryMock.minBossJobAgeSecondsByState
-      .mockResolvedValueOnce([{ name: "deal.run", min_age_seconds: 12 }])
-      .mockResolvedValueOnce([{ name: "retrieval.run", min_age_seconds: 34 }]);
+      .mockResolvedValueOnce([{ job_type: "deal", min_age_seconds: 12 }])
+      .mockResolvedValueOnce([{ job_type: "retrieval", min_age_seconds: 34 }]);
 
     await callPrivate(service, "updateQueueMetrics");
 
@@ -237,10 +232,9 @@ describe("JobsService schedule rows", () => {
 
     callPrivate(service, "registerWorkers");
 
-    expect(work).toHaveBeenCalledWith("deal.run", { batchSize: 4, pollingIntervalSeconds: 60 }, expect.any(Function));
     expect(work).toHaveBeenCalledWith(
-      "retrieval.run",
-      { batchSize: 5, pollingIntervalSeconds: 60 },
+      "sp.work",
+      { batchSize: 1, localConcurrency: 9, pollingIntervalSeconds: 60 },
       expect.any(Function),
     );
     expect(work).toHaveBeenCalledWith(
@@ -344,11 +338,6 @@ describe("JobsService schedule rows", () => {
     await callPrivate(service, "updateQueueMetrics");
 
     expect(jobsPausedGauge.set).toHaveBeenCalledWith({ job_type: "deal" }, 2);
-  });
-
-  it("maps job names to job types", async () => {
-    expect(callPrivate(service, "mapJobTypeFromName", "deal.run")).toBe("deal");
-    expect(callPrivate(service, "mapJobTypeFromName", "unknown.job")).toBeNull();
   });
 
   it("adds schedule rows for newly seen providers", async () => {
@@ -459,6 +448,11 @@ describe("JobsService schedule rows", () => {
     await callPrivate(service, "enqueueDueJobs");
 
     expect(send).toHaveBeenCalledTimes(3);
+    for (const call of send.mock.calls) {
+      expect(call[0]).toBe("sp.work");
+      expect(call[1]).toMatchObject({ jobType: "deal", spAddress: "0xaaa" });
+      expect(call[2]).toMatchObject({ singletonKey: "0xaaa" });
+    }
     const startAfters = send.mock.calls.map((call) => call[2]?.startAfter as Date);
     for (const startAfter of startAfters) {
       expect(startAfter).toBeInstanceOf(Date);
@@ -470,93 +464,5 @@ describe("JobsService schedule rows", () => {
 
     // Check update call
     expect(jobScheduleRepositoryMock.updateScheduleAfterRun).toHaveBeenCalled();
-  });
-
-  it("requeues deal job when lock cannot be acquired", async () => {
-    baseConfigValues = {
-      ...baseConfigValues,
-      jobs: {
-        ...baseConfigValues.jobs,
-        lockRetrySeconds: 10,
-      } as IConfig["jobs"],
-    };
-    configService = {
-      get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
-    } as unknown as JobsServiceDeps[0];
-
-    service = buildService({ configService });
-
-    const send = vi.fn();
-    (service as unknown as { boss: { send: typeof send } }).boss = { send };
-
-    jobScheduleRepositoryMock.acquireJobMutex.mockResolvedValueOnce(false);
-
-    const now = new Date("2024-01-01T00:00:00Z");
-    vi.useFakeTimers();
-    vi.setSystemTime(now);
-
-    await callPrivate(service, "handleDealJob", {
-      id: "00000000-0000-4000-8000-000000000001",
-      data: { spAddress: "0xaaa", intervalSeconds: 60 },
-    });
-
-    expect(send).toHaveBeenCalledTimes(1);
-    const startAfter = send.mock.calls[0][2]?.startAfter as Date;
-    expect(startAfter.getTime()).toBeGreaterThanOrEqual(now.getTime() + 10_000);
-
-    vi.useRealTimers();
-  });
-
-  it("requeues retrieval job when lock cannot be acquired (preventing concurrent execution)", async () => {
-    baseConfigValues = {
-      ...baseConfigValues,
-      jobs: {
-        ...baseConfigValues.jobs,
-        lockRetrySeconds: 10,
-      } as IConfig["jobs"],
-    };
-    configService = {
-      get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
-    } as unknown as JobsServiceDeps[0];
-
-    service = buildService({ configService });
-
-    const send = vi.fn();
-    (service as unknown as { boss: { send: typeof send } }).boss = { send };
-
-    // Simulate lock being held (e.g. by a running deal execution)
-    jobScheduleRepositoryMock.acquireJobMutex.mockResolvedValueOnce(false);
-
-    const now = new Date("2024-01-01T00:00:00Z");
-    vi.useFakeTimers();
-    vi.setSystemTime(now);
-
-    const spAddress = "0xccc";
-    await callPrivate(service, "handleRetrievalJob", {
-      id: "00000000-0000-4000-8000-000000000002",
-      data: { spAddress, intervalSeconds: 60 },
-    });
-
-    // Ensure we tried to acquire the lock for the specific SP
-    expect(jobScheduleRepositoryMock.acquireJobMutex).toHaveBeenCalledWith(
-      "retrieval",
-      spAddress,
-      "00000000-0000-4000-8000-000000000002",
-      expect.any(String),
-      expect.any(Number),
-    );
-
-    // Should requeue instead of running
-    expect(send).toHaveBeenCalledTimes(1);
-    expect(send).toHaveBeenCalledWith(
-      "retrieval.run",
-      expect.objectContaining({ spAddress }),
-      expect.objectContaining({ startAfter: expect.any(Date) }),
-    );
-
-    const startAfter = send.mock.calls[0][2]?.startAfter as Date;
-    expect(startAfter.getTime()).toBeGreaterThanOrEqual(now.getTime() + 10_000);
-
-    vi.useRealTimers();
   });
 });

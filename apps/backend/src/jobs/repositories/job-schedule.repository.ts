@@ -2,6 +2,13 @@ import { Injectable, Logger } from "@nestjs/common";
 import { InjectDataSource } from "@nestjs/typeorm";
 import type { DataSource } from "typeorm";
 import type { JobScheduleType } from "../../database/entities/job-schedule-state.entity.js";
+import {
+  LEGACY_DEAL_QUEUE,
+  LEGACY_RETRIEVAL_QUEUE,
+  METRICS_CLEANUP_QUEUE,
+  METRICS_QUEUE,
+  SP_WORK_QUEUE,
+} from "../job-queues.js";
 
 export type ScheduleRow = {
   id: number;
@@ -171,33 +178,51 @@ export class JobScheduleRepository {
   }
 
   /**
-   * Counts pg-boss jobs by name and state for the requested states.
+   * Counts pg-boss jobs by dealbot job type and state for the requested states.
+   * Uses `data->>'jobType'` for the shared sp.work queue and maps legacy queue names.
    * Casts state to text so drivers always return a string (pg-boss uses job_state enum).
    */
-  async countBossJobStates(states: string[]): Promise<{ name: string; state: string; count: number }[]> {
+  async countBossJobStates(states: string[]): Promise<{ job_type: string; state: string; count: number }[]> {
     return this.dataSource.query(
       `
-      SELECT name, state::text AS state, COUNT(*)::int AS count
+      SELECT
+        CASE
+          WHEN name = $2 THEN COALESCE(data->>'jobType', 'unknown')
+          WHEN name = $3 THEN 'metrics'
+          WHEN name = $4 THEN 'metrics_cleanup'
+          WHEN name = $5 THEN 'deal'
+          WHEN name = $6 THEN 'retrieval'
+          ELSE name
+        END AS job_type,
+        state::text AS state,
+        COUNT(*)::int AS count
       FROM pgboss.job
       WHERE state::text = ANY($1::text[])
-      GROUP BY name, state
+      GROUP BY 1, 2
       `,
-      [states],
+      [states, SP_WORK_QUEUE, METRICS_QUEUE, METRICS_CLEANUP_QUEUE, LEGACY_DEAL_QUEUE, LEGACY_RETRIEVAL_QUEUE],
     );
   }
 
   /**
-   * Returns the minimum age (seconds) for jobs in a given pg-boss state, grouped by name.
+   * Returns the minimum age (seconds) for jobs in a given pg-boss state, grouped by job type.
    * Uses createdon for queued jobs and startedon for active jobs (pg-boss schema column names).
    */
   async minBossJobAgeSecondsByState(
     state: "created" | "active",
     now: Date,
-  ): Promise<{ name: string; min_age_seconds: number | null }[]> {
+  ): Promise<{ job_type: string; min_age_seconds: number | null }[]> {
     return this.dataSource.query(
       `
       SELECT
-        name,
+        CASE
+          WHEN name = $3 THEN COALESCE(data->>'jobType', 'unknown')
+          WHEN name = $4 THEN 'metrics'
+          WHEN name = $5 THEN 'metrics_cleanup'
+          WHEN name = $6 THEN 'deal'
+          WHEN name = $7 THEN 'retrieval'
+          ELSE name
+        END AS job_type,
         MIN(
           EXTRACT(
             EPOCH FROM (
@@ -210,58 +235,9 @@ export class JobScheduleRepository {
         ) AS min_age_seconds
       FROM pgboss.job
       WHERE state::text = $2
-      GROUP BY name
+      GROUP BY 1
       `,
-      [now, state],
+      [now, state, SP_WORK_QUEUE, METRICS_QUEUE, METRICS_CLEANUP_QUEUE, LEGACY_DEAL_QUEUE, LEGACY_RETRIEVAL_QUEUE],
     );
-  }
-
-  /**
-   * Tries to acquire a DB-backed mutex for a specific provider.
-   * Enforces a single in-flight job per provider across all workers.
-   */
-  async acquireJobMutex(
-    jobType: JobScheduleType,
-    spAddress: string,
-    jobId: string,
-    hostname: string,
-    staleSeconds: number,
-  ): Promise<boolean> {
-    const rows = await this.dataSource.query(
-      `
-      WITH upsert AS (
-        INSERT INTO job_mutex (job_type, sp_address, job_id, hostname, acquired_at, updated_at)
-        VALUES ($1, $2, $3, $4, NOW(), NOW())
-        ON CONFLICT (sp_address) DO UPDATE
-          SET job_type = EXCLUDED.job_type,
-              job_id = EXCLUDED.job_id,
-              hostname = EXCLUDED.hostname,
-              acquired_at = NOW(),
-              updated_at = NOW()
-          WHERE job_mutex.acquired_at < NOW() - ($5::int * INTERVAL '1 second')
-        RETURNING 1
-      )
-      SELECT COUNT(*)::int AS acquired FROM upsert
-      `,
-      [jobType, spAddress, jobId, hostname, staleSeconds],
-    );
-    return Number(rows?.[0]?.acquired ?? 0) > 0;
-  }
-
-  /**
-   * Releases a DB-backed mutex for a specific provider.
-   */
-  async releaseJobMutex(jobType: JobScheduleType, spAddress: string, jobId: string): Promise<boolean> {
-    const rows = await this.dataSource.query(
-      `
-      DELETE FROM job_mutex
-      WHERE sp_address = $1
-        AND job_type = $2
-        AND job_id = $3
-      RETURNING 1
-      `,
-      [spAddress, jobType, jobId],
-    );
-    return rows.length > 0;
   }
 }

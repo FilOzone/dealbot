@@ -91,8 +91,6 @@ export const configValidationSchema = Joi.object({
   DEALBOT_PGBOSS_POOL_MAX: Joi.number().integer().min(1).default(1),
   JOB_CATCHUP_MAX_ENQUEUE: Joi.number().min(1).default(10),
   JOB_CATCHUP_SPREAD_HOURS: Joi.number().min(0).default(3),
-  JOB_LOCK_RETRY_SECONDS: Joi.number().min(10).default(60),
-  JOB_LOCK_STALE_SECONDS: Joi.number().min(60).default(600),
   JOB_SCHEDULE_PHASE_SECONDS: Joi.number().min(0).default(0),
   JOB_ENQUEUE_JITTER_SECONDS: Joi.number().min(0).default(0),
 
@@ -246,20 +244,6 @@ export interface IJobsConfig {
    */
   catchupSpreadHours: number;
   /**
-   * Delay (seconds) before re-queuing a job when the per-SP lock is held.
-   *
-   * Higher values reduce lock churn but slow recovery from contention.
-   * Only used when `DEALBOT_JOBS_MODE=pgboss`.
-   */
-  lockRetrySeconds: number;
-  /**
-   * Age (seconds) at which an in-flight lock is considered stale and can be replaced.
-   *
-   * Use a value larger than your longest expected job runtime.
-   * Only used when `DEALBOT_JOBS_MODE=pgboss`.
-   */
-  lockStaleSeconds: number;
-  /**
    * Per-instance phase offset (seconds) applied when initializing schedules.
    *
    * Use this to stagger multiple dealbot deployments that are not sharing a DB.
@@ -387,8 +371,6 @@ export function loadConfig(): IConfig {
       pgbossPoolMax: Number.parseInt(process.env.DEALBOT_PGBOSS_POOL_MAX || "1", 10),
       catchupMaxEnqueue: Number.parseInt(process.env.JOB_CATCHUP_MAX_ENQUEUE || "10", 10),
       catchupSpreadHours: Number.parseInt(process.env.JOB_CATCHUP_SPREAD_HOURS || "3", 10),
-      lockRetrySeconds: Number.parseInt(process.env.JOB_LOCK_RETRY_SECONDS || "60", 10),
-      lockStaleSeconds: Number.parseInt(process.env.JOB_LOCK_STALE_SECONDS || "600", 10),
       schedulePhaseSeconds: Number.parseInt(process.env.JOB_SCHEDULE_PHASE_SECONDS || "0", 10),
       enqueueJitterSeconds: Number.parseInt(process.env.JOB_ENQUEUE_JITTER_SECONDS || "0", 10),
     },
