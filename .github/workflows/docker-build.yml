@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - pre-release
 
 concurrency:
   group: docker-build-${{ github.ref }}
@@ -53,11 +54,11 @@ jobs:
       dockerfile: apps/backend/Dockerfile
       image: filozone/dealbot-backend
       tags: |
-        ghcr.io/filozone/dealbot-backend:sha-${{ github.sha }}
-        ghcr.io/filozone/dealbot-backend:sha-${{ github.run_number }}-${{ github.sha }}
+        ${{ github.ref_name == 'pre-release' && format('ghcr.io/filozone/dealbot-backend:pre-release-{0}', github.sha) || format('ghcr.io/filozone/dealbot-backend:sha-{0}', github.sha) }}
+        ${{ github.ref_name == 'main' && format('ghcr.io/filozone/dealbot-backend:sha-{0}-{1}', github.run_number, github.sha) || '' }}
       summary: |
-        echo "backend image (sha): ghcr.io/filozone/dealbot-backend:sha-${{ github.sha }}"
-        echo "backend image (ordered): ghcr.io/filozone/dealbot-backend:sha-${{ github.run_number }}-${{ github.sha }}"
+        echo "backend image (sha): ${{ github.ref_name == 'pre-release' && format('pre-release-{0}', github.sha) || format('sha-{0}', github.sha) }}"
+        ${{ github.ref_name == 'main' && format('echo "backend image (ordered): ghcr.io/filozone/dealbot-backend:sha-{0}-{1}"', github.run_number, github.sha) || '' }}
 
   build-web:
     needs: [detect-changes, integration-test]
@@ -71,8 +72,8 @@ jobs:
       dockerfile: apps/web/Dockerfile
       image: filozone/dealbot-web
       tags: |
-        ghcr.io/filozone/dealbot-web:sha-${{ github.sha }}
-        ghcr.io/filozone/dealbot-web:sha-${{ github.run_number }}-${{ github.sha }}
+        ${{ github.ref_name == 'pre-release' && format('ghcr.io/filozone/dealbot-web:pre-release-{0}', github.sha) || format('ghcr.io/filozone/dealbot-web:sha-{0}', github.sha) }}
+        ${{ github.ref_name == 'main' && format('ghcr.io/filozone/dealbot-web:sha-{0}-{1}', github.run_number, github.sha) || '' }}
       summary: |
-        echo "web image (sha): ghcr.io/filozone/dealbot-web:sha-${{ github.sha }}"
-        echo "web image (ordered): ghcr.io/filozone/dealbot-web:sha-${{ github.run_number }}-${{ github.sha }}"
+        echo "web image (sha): ${{ github.ref_name == 'pre-release' && format('pre-release-{0}', github.sha) || format('sha-{0}', github.sha) }}"
+        ${{ github.ref_name == 'main' && format('echo "web image (ordered): ghcr.io/filozone/dealbot-web:sha-{0}-{1}"', github.run_number, github.sha) || '' }}
