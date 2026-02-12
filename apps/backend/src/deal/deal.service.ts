@@ -77,11 +77,11 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
 
   async createDealsForAllProviders(): Promise<Deal[]> {
     const totalProviders = this.walletSdkService.getTestingProvidersCount();
-    const { enableCDN, enableIpni } = this.getTestingDealOptions();
+    const { enableIpni } = this.getTestingDealOptions();
 
     this.logger.log(`Starting deal creation for ${totalProviders} providers`);
 
-    const { preprocessed, cleanup } = await this.prepareDealInput(enableCDN, enableIpni);
+    const { preprocessed, cleanup } = await this.prepareDealInput(enableIpni);
 
     try {
       const synapse = this.sharedSynapse ?? (await this.createSynapseInstance());
@@ -111,12 +111,11 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
   async createDealForProvider(
     providerInfo: ProviderInfoEx,
     options: {
-      enableCDN: boolean;
       enableIpni: boolean;
       existingDealId?: string;
     },
   ): Promise<Deal> {
-    const { preprocessed, cleanup } = await this.prepareDealInput(options.enableCDN, options.enableIpni);
+    const { preprocessed, cleanup } = await this.prepareDealInput(options.enableIpni);
 
     try {
       const synapse = this.sharedSynapse ?? (await this.createSynapseInstance());
@@ -131,13 +130,11 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
    * Prepare a deal payload using the same data-source and preprocessing logic as normal deal creation.
    */
   async prepareDealInput(
-    enableCDN: boolean,
     enableIpni: boolean,
   ): Promise<{ preprocessed: DealPreprocessingResult; cleanup: () => Promise<void> }> {
     const dataFile = await this.fetchDataFile(SIZE_CONSTANTS.MIN_UPLOAD_SIZE, SIZE_CONSTANTS.MAX_UPLOAD_SIZE);
 
     const preprocessed = await this.dealAddonsService.preprocessDeal({
-      enableCDN,
       enableIpni,
       dataFile,
     });
@@ -147,11 +144,10 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     return { preprocessed, cleanup };
   }
 
-  getTestingDealOptions(): { enableCDN: boolean; enableIpni: boolean } {
-    const enableCDN = false;
+  getTestingDealOptions(): { enableIpni: boolean } {
     const enableIpni = this.getIpniEnabled(this.blockchainConfig.enableIpniTesting);
 
-    return { enableCDN, enableIpni };
+    return { enableIpni };
   }
 
   getWalletAddress(): string {

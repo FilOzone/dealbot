@@ -63,8 +63,8 @@ export class FailedRetrievalsController {
   @ApiQuery({
     name: "serviceType",
     required: false,
-    description: "Filter by service type (cdn, direct_sp, ipfs_pin)",
-    example: "cdn",
+    description: "Filter by service type (direct_sp, ipfs_pin)",
+    example: "direct_sp",
   })
   @ApiResponse({
     status: 200,

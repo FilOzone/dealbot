@@ -151,7 +151,7 @@ backend/
 │   ├── deal/                   # Deal creation logic
 │   ├── deal-addons/            # Deal add-ons and extensions
 │   ├── retrieval/              # Retrieval testing logic
-│   ├── retrieval-addons/       # Retrieval add-ons (CDN, IPNI)
+│   ├── retrieval-addons/       # Retrieval add-ons (IPNI)
 │   ├── metrics/                # Metrics collection and analytics
 │   ├── scheduler/              # Cron job scheduling
 │   ├── wallet-sdk/             # Wallet and smart contract operations
