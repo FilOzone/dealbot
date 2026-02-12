@@ -147,8 +147,8 @@ Note: 60 execution-minutes per hour = 100% utilization for a single SP.
 
 Cluster capacity (worker pool bound):
 
-- Deal capacity (deals/hour) = `dealbot_workers * DEAL_MAX_CONCURRENCY * (60 / deal_max_minutes)`
-- Retrieval capacity (retrievals/hour) = `dealbot_workers * RETRIEVAL_MAX_CONCURRENCY * (60 / retrieval_max_minutes)`
+- Deal capacity (deals/hour) = `dealbot_worker_processes * DEAL_MAX_CONCURRENCY * (60 / deal_max_minutes)`
+- Retrieval capacity (retrievals/hour) = `dealbot_worker_processes * RETRIEVAL_MAX_CONCURRENCY * (60 / retrieval_max_minutes)`
 - Max sustainable SP count = `min(deal_capacity / deals_per_sp_per_hour, retrieval_capacity / retrievals_per_sp_per_hour)`
 
 Note: Deal and retrieval jobs share the same `sp.work` queue, so the effective concurrency is the combined budget (`DEAL_MAX_CONCURRENCY + RETRIEVAL_MAX_CONCURRENCY`) and will skew toward whichever job type dominates the backlog.
@@ -156,8 +156,8 @@ Note: Deal and retrieval jobs share the same `sp.work` queue, so the effective c
 Example (18 SPs, 4 deals/hr @ 5m, 6 retrievals/hr @ 2m, 5 dealbot workers, 10/10 concurrency):
 
 - Per-SP execution-minutes per hour = `4*5m + 6*2m = 32 execution-min/hr` (OK; 28 execution-min/hr headroom)
-- Deal capacity = `5 dealbot workers * 10 * (60/5m) = 600 deals/hr` => `600/4 = 150 SPs`
-- Retrieval capacity = `5 dealbot workers * 10 * (60/2m) = 1500 retrievals/hr` => `1500/6 = 250 SPs`
+- Deal capacity = `5 dealbot worker processes * 10 concurrency slots * (60/5m) = 600 deals/hr` => `600/4 = 150 SPs`
+- Retrieval capacity = `5 dealbot worker processes * 10 concurrency slots * (60/2m) = 1500 retrievals/hr` => `1500/6 = 250 SPs`
 - Limited by deals. We can support ~150 SPs before hitting capacity with the parameters above.
 
 ## Staggering Multiple Deployments
