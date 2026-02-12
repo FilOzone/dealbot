@@ -189,10 +189,13 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
   private async startBoss(): Promise<void> {
     if (this.boss) return;
     const poolMax = this.pgbossPoolMax();
+    const runMode = this.configService.get("app")?.runMode ?? "both";
+    const migrate = runMode !== "worker";
     const boss = new PgBoss({
       connectionString: this.buildConnectionString(),
       schema: "pgboss",
       max: poolMax,
+      migrate,
     });
     this.bossErrorHandler = (error: Error) => {
       this.logger.error(`pg-boss error: ${error.message}`, error.stack);

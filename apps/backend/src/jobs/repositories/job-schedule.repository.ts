@@ -188,7 +188,7 @@ export class JobScheduleRepository {
 
   /**
    * Returns the minimum age (seconds) for jobs in a given pg-boss state, grouped by name.
-   * Uses createdon for queued jobs and startedon for active jobs (pg-boss schema column names).
+   * Uses created_on for queued jobs and started_on for active jobs (pg-boss schema column names).
    */
   async minBossJobAgeSecondsByState(
     state: "created" | "active",
@@ -202,8 +202,8 @@ export class JobScheduleRepository {
           EXTRACT(
             EPOCH FROM (
               $1 - CASE
-                    WHEN $2::text = 'created' THEN createdon
-                    ELSE startedon
+                    WHEN $2::text = 'created' THEN created_on
+                    ELSE started_on
                   END
             )
           )
