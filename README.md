@@ -22,18 +22,23 @@ This is a monorepo containing two separate applications:
 
 ```
 dealbot/
-├── backend/          # NestJS API server (Port 8080)
-│   ├── src/
-│   │   ├── deal/            # Deal creation and management
-│   │   ├── retrieval/       # Storage retrieval testing
-│   │   ├── metrics/         # Performance metrics and analytics
-│   │   ├── scheduler/       # Automated task scheduling
-│   │   └── wallet-sdk/      # Wallet and contract operations
-│   └── README.md     # Backend-specific documentation
-└── web/              # React + Vite dashboard (Port 5173)
-    ├── src/
-    └── README.md     # Frontend-specific documentation
+├── apps/
+│   ├── backend/      # NestJS API server (Port 8080)
+│   │   ├── src/
+│   │   │   ├── deal/            # Deal creation and management
+│   │   │   ├── retrieval/       # Storage retrieval testing
+│   │   │   ├── metrics/         # Performance metrics and analytics
+│   │   │   ├── jobs/            # pg-boss scheduling + workers
+│   │   │   ├── scheduler/       # Automated task scheduling
+│   │   │   └── wallet-sdk/      # Wallet and contract operations
+│   │   └── README.md     # Backend-specific documentation
+│   └── web/          # React + Vite dashboard (Port 5173)
+│       ├── src/
+│       └── README.md     # Frontend-specific documentation
 ```
+
+Backend docs: [apps/backend/README.md](apps/backend/README.md)  
+Frontend docs: [apps/web/README.md](apps/web/README.md)
 
 ## Developer Docs
 
