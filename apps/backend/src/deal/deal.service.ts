@@ -357,7 +357,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
 
       return deal;
     } catch (error) {
-      this.logger.error(`Deal creation failed for ${providerShort}...: ${error.message}`);
+      this.logger.error(`Deal creation failed for ${providerAddress}: ${error.message}`);
 
       deal.status = DealStatus.FAILED;
       deal.errorMessage = error.message;

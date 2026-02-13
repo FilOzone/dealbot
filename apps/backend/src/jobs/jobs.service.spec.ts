@@ -13,7 +13,8 @@ describe("JobsService schedule rows", () => {
   let storageProviderRepositoryMock: { find: ReturnType<typeof vi.fn> };
   let jobScheduleRepositoryMock: {
     upsertSchedule: ReturnType<typeof vi.fn>;
-    pauseMissingProviders: ReturnType<typeof vi.fn>;
+    deleteSchedulesForInactiveProviders: ReturnType<typeof vi.fn>;
+    countPausedSchedules: ReturnType<typeof vi.fn>;
     findDueSchedulesWithManager: ReturnType<typeof vi.fn>;
     runTransaction: ReturnType<typeof vi.fn>;
     acquireAdvisoryLock: ReturnType<typeof vi.fn>;
@@ -31,7 +32,8 @@ describe("JobsService schedule rows", () => {
     jobsEnqueueAttemptsCounter: JobsServiceDeps[12];
     jobsStartedCounter: JobsServiceDeps[13];
     jobsCompletedCounter: JobsServiceDeps[14];
-    jobDuration: JobsServiceDeps[15];
+    jobsPausedGauge: JobsServiceDeps[15];
+    jobDuration: JobsServiceDeps[16];
   };
   let baseConfigValues: Partial<IConfig>;
   let configService: JobsServiceDeps[0];
@@ -52,7 +54,8 @@ describe("JobsService schedule rows", () => {
       jobsEnqueueAttemptsCounter: JobsServiceDeps[12];
       jobsStartedCounter: JobsServiceDeps[13];
       jobsCompletedCounter: JobsServiceDeps[14];
-      jobDuration: JobsServiceDeps[15];
+      jobsPausedGauge: JobsServiceDeps[15];
+      jobDuration: JobsServiceDeps[16];
     }>,
   ) => JobsService;
 
@@ -63,7 +66,8 @@ describe("JobsService schedule rows", () => {
 
     jobScheduleRepositoryMock = {
       upsertSchedule: vi.fn(),
-      pauseMissingProviders: vi.fn(),
+      deleteSchedulesForInactiveProviders: vi.fn(async () => []),
+      countPausedSchedules: vi.fn(async () => []),
       findDueSchedulesWithManager: vi.fn(),
       runTransaction: vi.fn(async (callback: (manager: unknown) => Promise<void>) => {
         await callback({});
@@ -84,21 +88,28 @@ describe("JobsService schedule rows", () => {
       jobsEnqueueAttemptsCounter: { inc: vi.fn() } as unknown as JobsServiceDeps[12],
       jobsStartedCounter: { inc: vi.fn() } as unknown as JobsServiceDeps[13],
       jobsCompletedCounter: { inc: vi.fn() } as unknown as JobsServiceDeps[14],
-      jobDuration: { observe: vi.fn() } as unknown as JobsServiceDeps[15],
+      jobsPausedGauge: { set: vi.fn() } as unknown as JobsServiceDeps[15],
+      jobDuration: { observe: vi.fn() } as unknown as JobsServiceDeps[16],
     };
 
     baseConfigValues = {
+      app: { runMode: "both" } as IConfig["app"],
       blockchain: { useOnlyApprovedProviders: false } as IConfig["blockchain"],
       scheduling: {
         dealIntervalSeconds: 600,
+        dealMaxConcurrency: 4,
+        retrievalMaxConcurrency: 5,
         retrievalIntervalSeconds: 1200,
       } as IConfig["scheduling"],
       jobs: {
+        mode: "pgboss",
         schedulePhaseSeconds: 0,
         catchupMaxEnqueue: 10,
         catchupSpreadHours: 3,
         enqueueJitterSeconds: 0,
         lockRetrySeconds: 60,
+        pgbossSchedulerEnabled: true,
+        workerPollSeconds: 60,
       } as IConfig["jobs"],
       database: {
         host: "localhost",
@@ -111,7 +122,7 @@ describe("JobsService schedule rows", () => {
 
     configService = {
       get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
-    } as JobsServiceDeps[0];
+    } as unknown as JobsServiceDeps[0];
 
     buildService = (overrides = {}) =>
       new JobsService(
@@ -130,6 +141,7 @@ describe("JobsService schedule rows", () => {
         overrides.jobsEnqueueAttemptsCounter ?? metricsMocks.jobsEnqueueAttemptsCounter,
         overrides.jobsStartedCounter ?? metricsMocks.jobsStartedCounter,
         overrides.jobsCompletedCounter ?? metricsMocks.jobsCompletedCounter,
+        overrides.jobsPausedGauge ?? metricsMocks.jobsPausedGauge,
         overrides.jobDuration ?? metricsMocks.jobDuration,
       );
 
@@ -139,6 +151,7 @@ describe("JobsService schedule rows", () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.restoreAllMocks();
+    delete process.env.DEALBOT_DISABLE_CHAIN;
   });
 
   it("records metrics for successful job execution", async () => {
@@ -190,6 +203,7 @@ describe("JobsService schedule rows", () => {
     const jobsInFlightGauge = metricsMocks.jobsInFlightGauge as unknown as { set: ReturnType<typeof vi.fn> };
     const oldestQueuedGauge = metricsMocks.oldestQueuedAgeGauge as unknown as { set: ReturnType<typeof vi.fn> };
     const oldestInFlightGauge = metricsMocks.oldestInFlightAgeGauge as unknown as { set: ReturnType<typeof vi.fn> };
+    const jobsPausedGauge = metricsMocks.jobsPausedGauge as unknown as { set: ReturnType<typeof vi.fn> };
 
     jobScheduleRepositoryMock.countBossJobStates.mockResolvedValueOnce([
       { name: "deal.run", state: "created", count: 2 },
@@ -214,6 +228,122 @@ describe("JobsService schedule rows", () => {
 
     expect(oldestQueuedGauge.set).toHaveBeenCalledWith({ job_type: "deal" }, 12);
     expect(oldestInFlightGauge.set).toHaveBeenCalledWith({ job_type: "retrieval" }, 34);
+    expect(jobsPausedGauge.set).toHaveBeenCalledWith({ job_type: "deal" }, 0);
+  });
+
+  it("registers pg-boss workers with per-queue batch sizes", async () => {
+    const work = vi.fn().mockResolvedValue(undefined);
+    (service as unknown as { boss: { work: typeof work } }).boss = { work };
+
+    callPrivate(service, "registerWorkers");
+
+    expect(work).toHaveBeenCalledWith("deal.run", { batchSize: 4, pollingIntervalSeconds: 60 }, expect.any(Function));
+    expect(work).toHaveBeenCalledWith(
+      "retrieval.run",
+      { batchSize: 5, pollingIntervalSeconds: 60 },
+      expect.any(Function),
+    );
+    expect(work).toHaveBeenCalledWith(
+      "metrics.run",
+      { batchSize: 1, pollingIntervalSeconds: 60 },
+      expect.any(Function),
+    );
+    expect(work).toHaveBeenCalledWith(
+      "metrics.cleanup",
+      { batchSize: 1, pollingIntervalSeconds: 60 },
+      expect.any(Function),
+    );
+  });
+
+  it("skips registering workers in api mode", async () => {
+    baseConfigValues = {
+      ...baseConfigValues,
+      app: { runMode: "api" } as IConfig["app"],
+    };
+    const registerWorkers = vi.fn();
+    const tick = vi.fn().mockResolvedValue(undefined);
+    const startBoss = vi.fn().mockImplementation(async () => {
+      (service as unknown as { boss: object }).boss = {};
+    });
+    vi.spyOn(global, "setInterval").mockReturnValue(0 as unknown as ReturnType<typeof setInterval>);
+
+    service = buildService();
+    (service as unknown as { registerWorkers: typeof registerWorkers }).registerWorkers = registerWorkers;
+    (service as unknown as { tick: typeof tick }).tick = tick;
+    (service as unknown as { startBoss: typeof startBoss }).startBoss = startBoss;
+    process.env.DEALBOT_DISABLE_CHAIN = "true";
+
+    await service.onModuleInit();
+
+    expect(registerWorkers).not.toHaveBeenCalled();
+    expect(tick).toHaveBeenCalled();
+    expect(setInterval).toHaveBeenCalled();
+  });
+
+  it("skips scheduler loop in worker mode", async () => {
+    baseConfigValues = {
+      ...baseConfigValues,
+      app: { runMode: "worker" } as IConfig["app"],
+    };
+    const registerWorkers = vi.fn();
+    const tick = vi.fn().mockResolvedValue(undefined);
+    const startBoss = vi.fn().mockImplementation(async () => {
+      (service as unknown as { boss: object }).boss = {};
+    });
+    vi.spyOn(global, "setInterval").mockReturnValue(0 as unknown as ReturnType<typeof setInterval>);
+
+    service = buildService();
+    (service as unknown as { registerWorkers: typeof registerWorkers }).registerWorkers = registerWorkers;
+    (service as unknown as { tick: typeof tick }).tick = tick;
+    (service as unknown as { startBoss: typeof startBoss }).startBoss = startBoss;
+    process.env.DEALBOT_DISABLE_CHAIN = "true";
+
+    await service.onModuleInit();
+
+    expect(registerWorkers).toHaveBeenCalled();
+    expect(tick).not.toHaveBeenCalled();
+    expect(setInterval).not.toHaveBeenCalled();
+  });
+
+  it("registers workers but skips scheduler when disabled in both mode", async () => {
+    baseConfigValues = {
+      ...baseConfigValues,
+      app: { runMode: "both" } as IConfig["app"],
+      jobs: {
+        ...baseConfigValues.jobs,
+        pgbossSchedulerEnabled: false,
+      } as IConfig["jobs"],
+    };
+    const registerWorkers = vi.fn();
+    const tick = vi.fn().mockResolvedValue(undefined);
+    const startBoss = vi.fn().mockImplementation(async () => {
+      (service as unknown as { boss: object }).boss = {};
+    });
+    vi.spyOn(global, "setInterval").mockReturnValue(0 as unknown as ReturnType<typeof setInterval>);
+
+    service = buildService();
+    (service as unknown as { registerWorkers: typeof registerWorkers }).registerWorkers = registerWorkers;
+    (service as unknown as { tick: typeof tick }).tick = tick;
+    (service as unknown as { startBoss: typeof startBoss }).startBoss = startBoss;
+    process.env.DEALBOT_DISABLE_CHAIN = "true";
+
+    await service.onModuleInit();
+
+    expect(registerWorkers).toHaveBeenCalled();
+    expect(tick).not.toHaveBeenCalled();
+    expect(setInterval).not.toHaveBeenCalled();
+  });
+
+  it("updates paused job metrics from paused schedule counts", async () => {
+    const jobsPausedGauge = metricsMocks.jobsPausedGauge as unknown as { set: ReturnType<typeof vi.fn> };
+
+    jobScheduleRepositoryMock.countBossJobStates.mockResolvedValueOnce([]);
+    jobScheduleRepositoryMock.countPausedSchedules.mockResolvedValueOnce([{ job_type: "deal", count: 2 }]);
+    jobScheduleRepositoryMock.minBossJobAgeSecondsByState.mockResolvedValueOnce([]).mockResolvedValueOnce([]);
+
+    await callPrivate(service, "updateQueueMetrics");
+
+    expect(jobsPausedGauge.set).toHaveBeenCalledWith({ job_type: "deal" }, 2);
   });
 
   it("maps job names to job types", async () => {
@@ -237,13 +367,21 @@ describe("JobsService schedule rows", () => {
     expect(upsertsForB.map((call) => call[0]).sort()).toEqual(["deal", "retrieval"]);
   });
 
-  it("pauses schedule rows for providers no longer present", async () => {
+  it("deletes schedule rows for providers no longer present", async () => {
     const providerA = { address: "0xaaa" };
     storageProviderRepositoryMock.find.mockResolvedValueOnce([providerA]);
 
     await callPrivate(service, "ensureScheduleRows");
 
-    expect(jobScheduleRepositoryMock.pauseMissingProviders).toHaveBeenCalledWith([providerA.address]);
+    expect(jobScheduleRepositoryMock.deleteSchedulesForInactiveProviders).toHaveBeenCalledWith([providerA.address]);
+  });
+
+  it("does not delete schedule rows when no active providers exist", async () => {
+    storageProviderRepositoryMock.find.mockResolvedValueOnce([]);
+
+    await callPrivate(service, "ensureScheduleRows");
+
+    expect(jobScheduleRepositoryMock.deleteSchedulesForInactiveProviders).not.toHaveBeenCalled();
   });
 
   it("uses approved-only filter when configured", async () => {
@@ -253,7 +391,7 @@ describe("JobsService schedule rows", () => {
     };
     configService = {
       get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
-    } as JobsServiceDeps[0];
+    } as unknown as JobsServiceDeps[0];
 
     service = buildService({ configService });
 
@@ -297,12 +435,12 @@ describe("JobsService schedule rows", () => {
     };
     configService = {
       get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
-    } as JobsServiceDeps[0];
+    } as unknown as JobsServiceDeps[0];
 
     service = buildService({ configService });
 
-    const publish = vi.fn();
-    (service as unknown as { boss: { publish: typeof publish } }).boss = { publish };
+    const send = vi.fn();
+    (service as unknown as { boss: { send: typeof send } }).boss = { send };
 
     const now = new Date("2024-01-01T00:00:10Z");
     vi.useFakeTimers();
@@ -320,8 +458,8 @@ describe("JobsService schedule rows", () => {
 
     await callPrivate(service, "enqueueDueJobs");
 
-    expect(publish).toHaveBeenCalledTimes(3);
-    const startAfters = publish.mock.calls.map((call) => call[2]?.startAfter as Date);
+    expect(send).toHaveBeenCalledTimes(3);
+    const startAfters = send.mock.calls.map((call) => call[2]?.startAfter as Date);
     for (const startAfter of startAfters) {
       expect(startAfter).toBeInstanceOf(Date);
     }
@@ -344,12 +482,12 @@ describe("JobsService schedule rows", () => {
     };
     configService = {
       get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
-    } as JobsServiceDeps[0];
+    } as unknown as JobsServiceDeps[0];
 
     service = buildService({ configService });
 
-    const publish = vi.fn();
-    (service as unknown as { boss: { publish: typeof publish } }).boss = { publish };
+    const send = vi.fn();
+    (service as unknown as { boss: { send: typeof send } }).boss = { send };
 
     jobScheduleRepositoryMock.acquireAdvisoryLock.mockResolvedValueOnce(false);
 
@@ -359,8 +497,8 @@ describe("JobsService schedule rows", () => {
 
     await callPrivate(service, "handleDealJob", { spAddress: "0xaaa", intervalSeconds: 60 });
 
-    expect(publish).toHaveBeenCalledTimes(1);
-    const startAfter = publish.mock.calls[0][2]?.startAfter as Date;
+    expect(send).toHaveBeenCalledTimes(1);
+    const startAfter = send.mock.calls[0][2]?.startAfter as Date;
     expect(startAfter.getTime()).toBeGreaterThanOrEqual(now.getTime() + 10_000);
 
     vi.useRealTimers();
@@ -376,12 +514,12 @@ describe("JobsService schedule rows", () => {
     };
     configService = {
       get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
-    } as JobsServiceDeps[0];
+    } as unknown as JobsServiceDeps[0];
 
     service = buildService({ configService });
 
-    const publish = vi.fn();
-    (service as unknown as { boss: { publish: typeof publish } }).boss = { publish };
+    const send = vi.fn();
+    (service as unknown as { boss: { send: typeof send } }).boss = { send };
 
     // Simulate lock being held (e.g. by a running deal execution)
     jobScheduleRepositoryMock.acquireAdvisoryLock.mockResolvedValueOnce(false);
@@ -397,14 +535,14 @@ describe("JobsService schedule rows", () => {
     expect(jobScheduleRepositoryMock.acquireAdvisoryLock).toHaveBeenCalledWith(spAddress);
 
     // Should requeue instead of running
-    expect(publish).toHaveBeenCalledTimes(1);
-    expect(publish).toHaveBeenCalledWith(
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send).toHaveBeenCalledWith(
       "retrieval.run",
       expect.objectContaining({ spAddress }),
       expect.objectContaining({ startAfter: expect.any(Date) }),
     );
 
-    const startAfter = publish.mock.calls[0][2]?.startAfter as Date;
+    const startAfter = send.mock.calls[0][2]?.startAfter as Date;
     expect(startAfter.getTime()).toBeGreaterThanOrEqual(now.getTime() + 10_000);
 
     vi.useRealTimers();

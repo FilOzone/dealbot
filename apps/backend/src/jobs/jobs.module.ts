@@ -5,10 +5,15 @@ import { JobScheduleState } from "../database/entities/job-schedule-state.entity
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
 import { DealModule } from "../deal/deal.module.js";
 import { MetricsModule } from "../metrics/metrics.module.js";
+import { MetricsWorkerModule } from "../metrics/metrics-worker.module.js";
 import { RetrievalModule } from "../retrieval/retrieval.module.js";
 import { WalletSdkModule } from "../wallet-sdk/wallet-sdk.module.js";
 import { JobsService } from "./jobs.service.js";
 import { JobScheduleRepository } from "./repositories/job-schedule.repository.js";
+
+// ConfigService isn't available at module definition time, so read env directly here.
+const runMode = (process.env.DEALBOT_RUN_MODE || "both").toLowerCase();
+const metricsModule = runMode === "worker" ? MetricsWorkerModule : MetricsModule;
 
 @Module({
   imports: [
@@ -16,7 +21,7 @@ import { JobScheduleRepository } from "./repositories/job-schedule.repository.js
     TypeOrmModule.forFeature([StorageProvider, JobScheduleState]),
     DealModule,
     RetrievalModule,
-    MetricsModule,
+    metricsModule,
     WalletSdkModule,
   ],
   providers: [JobsService, JobScheduleRepository],

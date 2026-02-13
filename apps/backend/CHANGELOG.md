@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.4.0](https://github.com/FilOzone/dealbot/compare/backend-v0.3.0...backend-v0.4.0) (2026-02-09)
+
+
+### Features
+
+* **backend:** add daily maintenance windows ([#225](https://github.com/FilOzone/dealbot/issues/225)) ([5a0e481](https://github.com/FilOzone/dealbot/commit/5a0e4815405d38159c23e1fbdbf5dc78d0bcda0d))
+* **metrics:** add minimal pg-boss job health metrics ([#223](https://github.com/FilOzone/dealbot/issues/223)) ([31e2db6](https://github.com/FilOzone/dealbot/commit/31e2db6b1a4ff220648e7dc2ba8bf510b7da34bd))
+* split worker and api ([#240](https://github.com/FilOzone/dealbot/issues/240)) ([bbaf671](https://github.com/FilOzone/dealbot/commit/bbaf6712bfd5df7eebcbedbb8d55e991797f08e0))
+
+
+### Bug Fixes
+
+* add local grafana and prom services ([#242](https://github.com/FilOzone/dealbot/issues/242)) ([8757943](https://github.com/FilOzone/dealbot/commit/875794385aecbdfe63f53668ff323a9c9346a419))
+* delete inactive provider schedules ([#230](https://github.com/FilOzone/dealbot/issues/230)) ([74096ef](https://github.com/FilOzone/dealbot/commit/74096ef62654c10217e511aec192146d7a43ccab))
+* increase concurrency for deals & retrievals ([#236](https://github.com/FilOzone/dealbot/issues/236)) ([c7d177b](https://github.com/FilOzone/dealbot/commit/c7d177bb8999b2506dfade5f434628b33acfc6f4))
+* increase deal/retrieval job concurrency ([#232](https://github.com/FilOzone/dealbot/issues/232)) ([1b36f16](https://github.com/FilOzone/dealbot/commit/1b36f162e64356b25f450c3f32e50d0bd7c39164))
+* limit db connections ([#243](https://github.com/FilOzone/dealbot/issues/243)) ([90d1616](https://github.com/FilOzone/dealbot/commit/90d1616fc327da57d651bdee3de2b96352dc0aa8))
+* normalize job state metrics ([#234](https://github.com/FilOzone/dealbot/issues/234)) ([c04feb6](https://github.com/FilOzone/dealbot/commit/c04feb65e242fbbcf9b54924adc85749270c5255))
+* web dockerFile builds ([#235](https://github.com/FilOzone/dealbot/issues/235)) ([df0fec9](https://github.com/FilOzone/dealbot/commit/df0fec9df97231dea2ab53af638cd28dbdeae914))
+
 ## [0.3.0](https://github.com/FilOzone/dealbot/compare/backend-v0.2.0...backend-v0.3.0) (2026-02-04)
 
 

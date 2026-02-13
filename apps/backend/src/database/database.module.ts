@@ -23,6 +23,7 @@ const __dirname = dirname(__filename);
       useFactory: (configService: ConfigService<IConfig, true>) => {
         const dbConfig = configService.get<IDatabaseConfig>("database");
         const appConfig = configService.get<IAppConfig>("app");
+        const runMigrations = appConfig.env === "production" && appConfig.runMode !== "worker";
         return {
           type: "postgres",
           host: dbConfig.host,
@@ -30,6 +31,7 @@ const __dirname = dirname(__filename);
           username: dbConfig.username,
           password: dbConfig.password,
           database: dbConfig.database,
+          poolSize: dbConfig.poolMax,
           entities: [
             Deal,
             StorageProvider,
@@ -40,7 +42,8 @@ const __dirname = dirname(__filename);
             JobScheduleState,
           ],
           migrations: [join(__dirname, "migrations", "*.{js,ts}")],
-          migrationsRun: appConfig.env === "production",
+          migrationsRun: runMigrations,
+          migrationsTransactionMode: "each",
           synchronize: appConfig.env !== "production",
           logging: false,
         };

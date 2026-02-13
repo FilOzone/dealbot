@@ -166,7 +166,7 @@ export class RetrievalService {
 
     const provider = await this.findStorageProvider(deal.spAddress);
     if (!provider) {
-      throw new Error(`Storage provider ${deal.spAddress.slice(0, 8)}... not found`);
+      throw new Error(`Storage provider ${deal.spAddress} not found`);
     }
 
     const config: RetrievalConfiguration = {
@@ -183,14 +183,12 @@ export class RetrievalService {
       );
 
       const successCount = retrievals.filter((r) => r.status === RetrievalStatus.SUCCESS).length;
-      this.logger.log(
-        `Retrievals for ${deal.pieceCid.slice(0, 12)}...: ${successCount}/${retrievals.length} successful`,
-      );
+      this.logger.log(`Retrievals for ${deal.pieceCid}: ${successCount}/${retrievals.length} successful`);
 
       return retrievals;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      this.logger.error(`All retrievals failed for ${deal.pieceCid.slice(0, 12)}...: ${errorMessage}`);
+      this.logger.error(`All retrievals failed for ${deal.pieceCid}: ${errorMessage}`);
 
       // Don't try to record timeouts here. If this catch block fires, it's either:
       // 1. The batch timeout fired because we're out of time (global deadline) - don't record
