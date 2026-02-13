@@ -264,9 +264,12 @@ describe("JobsService schedule rows", () => {
     const now = new Date("2024-01-01T00:00:00Z");
     vi.setSystemTime(now);
 
-    const jobPromise = callPrivate(service, "handleDealJob", "job-123", {
-      spAddress: "0xaaa",
-      intervalSeconds: 60,
+    const jobPromise = callPrivate(service, "handleDealJob", {
+      id: "job-123",
+      data: {
+        spAddress: "0xaaa",
+        intervalSeconds: 60,
+      },
     });
 
     // Advance past the timeout to trigger the abort
@@ -317,9 +320,12 @@ describe("JobsService schedule rows", () => {
     const now = new Date("2024-01-01T00:00:00Z");
     vi.setSystemTime(now);
 
-    const jobPromise = callPrivate(service, "handleRetrievalJob", "job-456", {
-      spAddress: "0xaaa",
-      intervalSeconds: 60,
+    const jobPromise = callPrivate(service, "handleRetrievalJob", {
+      id: "job-456",
+      data: {
+        spAddress: "0xaaa",
+        intervalSeconds: 60,
+      },
     });
 
     await vi.advanceTimersByTimeAsync(60_000);
@@ -362,30 +368,26 @@ describe("JobsService schedule rows", () => {
     expect(jobsPausedGauge.set).toHaveBeenCalledWith({ job_type: "deal" }, 0);
   });
 
-  it("registers pg-boss subscriptions with per-queue team sizes", async () => {
-    const subscribe = vi.fn().mockResolvedValue(undefined);
-    (service as unknown as { boss: { subscribe: typeof subscribe } }).boss = { subscribe };
+  it("registers pg-boss workers with per-queue batch sizes", async () => {
+    const work = vi.fn().mockResolvedValue(undefined);
+    (service as unknown as { boss: { work: typeof work } }).boss = { work };
 
     callPrivate(service, "registerWorkers");
 
-    expect(subscribe).toHaveBeenCalledWith(
-      "deal.run",
-      { teamSize: 4, newJobCheckIntervalSeconds: 60 },
-      expect.any(Function),
-    );
-    expect(subscribe).toHaveBeenCalledWith(
+    expect(work).toHaveBeenCalledWith("deal.run", { batchSize: 4, pollingIntervalSeconds: 60 }, expect.any(Function));
+    expect(work).toHaveBeenCalledWith(
       "retrieval.run",
-      { teamSize: 5, newJobCheckIntervalSeconds: 60 },
+      { batchSize: 5, pollingIntervalSeconds: 60 },
       expect.any(Function),
     );
-    expect(subscribe).toHaveBeenCalledWith(
+    expect(work).toHaveBeenCalledWith(
       "metrics.run",
-      { teamSize: 1, newJobCheckIntervalSeconds: 60 },
+      { batchSize: 1, pollingIntervalSeconds: 60 },
       expect.any(Function),
     );
-    expect(subscribe).toHaveBeenCalledWith(
+    expect(work).toHaveBeenCalledWith(
       "metrics.cleanup",
-      { teamSize: 1, newJobCheckIntervalSeconds: 60 },
+      { batchSize: 1, pollingIntervalSeconds: 60 },
       expect.any(Function),
     );
   });
@@ -574,8 +576,8 @@ describe("JobsService schedule rows", () => {
 
     service = buildService({ configService });
 
-    const publish = vi.fn();
-    (service as unknown as { boss: { publish: typeof publish } }).boss = { publish };
+    const send = vi.fn();
+    (service as unknown as { boss: { send: typeof send } }).boss = { send };
 
     const now = new Date("2024-01-01T00:00:10Z");
     vi.useFakeTimers();
@@ -593,8 +595,8 @@ describe("JobsService schedule rows", () => {
 
     await callPrivate(service, "enqueueDueJobs");
 
-    expect(publish).toHaveBeenCalledTimes(3);
-    const startAfters = publish.mock.calls.map((call) => call[2]?.startAfter as Date);
+    expect(send).toHaveBeenCalledTimes(3);
+    const startAfters = send.mock.calls.map((call) => call[2]?.startAfter as Date);
     for (const startAfter of startAfters) {
       expect(startAfter).toBeInstanceOf(Date);
     }
@@ -621,8 +623,8 @@ describe("JobsService schedule rows", () => {
 
     service = buildService({ configService });
 
-    const publish = vi.fn();
-    (service as unknown as { boss: { publish: typeof publish } }).boss = { publish };
+    const send = vi.fn();
+    (service as unknown as { boss: { send: typeof send } }).boss = { send };
 
     jobScheduleRepositoryMock.acquireAdvisoryLock.mockResolvedValueOnce(false);
 
@@ -630,10 +632,13 @@ describe("JobsService schedule rows", () => {
     vi.useFakeTimers();
     vi.setSystemTime(now);
 
-    await callPrivate(service, "handleDealJob", "job-123", { spAddress: "0xaaa", intervalSeconds: 60 });
+    await callPrivate(service, "handleDealJob", {
+      id: "job-123",
+      data: { spAddress: "0xaaa", intervalSeconds: 60 },
+    });
 
-    expect(publish).toHaveBeenCalledTimes(1);
-    const startAfter = publish.mock.calls[0][2]?.startAfter as Date;
+    expect(send).toHaveBeenCalledTimes(1);
+    const startAfter = send.mock.calls[0][2]?.startAfter as Date;
     expect(startAfter.getTime()).toBeGreaterThanOrEqual(now.getTime() + 10_000);
 
     vi.useRealTimers();
@@ -653,8 +658,8 @@ describe("JobsService schedule rows", () => {
 
     service = buildService({ configService });
 
-    const publish = vi.fn();
-    (service as unknown as { boss: { publish: typeof publish } }).boss = { publish };
+    const send = vi.fn();
+    (service as unknown as { boss: { send: typeof send } }).boss = { send };
 
     // Simulate lock being held (e.g. by a running deal execution)
     jobScheduleRepositoryMock.acquireAdvisoryLock.mockResolvedValueOnce(false);
@@ -664,20 +669,23 @@ describe("JobsService schedule rows", () => {
     vi.setSystemTime(now);
 
     const spAddress = "0xccc";
-    await callPrivate(service, "handleRetrievalJob", "job-456", { spAddress, intervalSeconds: 60 });
+    await callPrivate(service, "handleRetrievalJob", {
+      id: "job-456",
+      data: { spAddress, intervalSeconds: 60 },
+    });
 
     // Ensure we tried to acquire the lock for the specific SP
     expect(jobScheduleRepositoryMock.acquireAdvisoryLock).toHaveBeenCalledWith(spAddress);
 
     // Should requeue instead of running
-    expect(publish).toHaveBeenCalledTimes(1);
-    expect(publish).toHaveBeenCalledWith(
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send).toHaveBeenCalledWith(
       "retrieval.run",
       expect.objectContaining({ spAddress }),
       expect.objectContaining({ startAfter: expect.any(Date) }),
     );
 
-    const startAfter = publish.mock.calls[0][2]?.startAfter as Date;
+    const startAfter = send.mock.calls[0][2]?.startAfter as Date;
     expect(startAfter.getTime()).toBeGreaterThanOrEqual(now.getTime() + 10_000);
 
     vi.useRealTimers();
