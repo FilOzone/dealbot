@@ -3,7 +3,6 @@ import { awaitWithAbort } from "../common/abort-utils.js";
 import type { Deal } from "../database/entities/deal.entity.js";
 import type { DealMetadata, ServiceType } from "../database/types.js";
 import type { IDealAddon } from "./interfaces/deal-addon.interface.js";
-import { CdnAddonStrategy } from "./strategies/cdn.strategy.js";
 import { DirectAddonStrategy } from "./strategies/direct.strategy.js";
 import { IpniAddonStrategy } from "./strategies/ipni.strategy.js";
 import type { AddonExecutionContext, DealConfiguration, DealPreprocessingResult, SynapseConfig } from "./types.js";
@@ -20,7 +19,6 @@ export class DealAddonsService {
 
   constructor(
     private readonly directAddon: DirectAddonStrategy,
-    private readonly cdnAddon: CdnAddonStrategy,
     private readonly ipniAddon: IpniAddonStrategy,
   ) {
     this.registerAddons();
@@ -33,7 +31,6 @@ export class DealAddonsService {
    */
   private registerAddons(): void {
     this.registerAddon(this.directAddon);
-    this.registerAddon(this.cdnAddon);
     this.registerAddon(this.ipniAddon);
 
     this.logger.log(`Registered ${this.addons.size} deal add-ons: ${Array.from(this.addons.keys()).join(", ")}`);

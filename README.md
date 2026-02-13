@@ -7,7 +7,7 @@
 [![NestJS](https://img.shields.io/badge/nestjs-11.x-red.svg)](https://nestjs.com)
 [![React](https://img.shields.io/badge/react-19.x-blue.svg)](https://react.dev)
 
-An intelligent automation system for creating and monitoring PDP deals on the Filecoin network. Features automated deal creation, CDN performance testing, comprehensive metrics tracking, and a modern web dashboard.
+An intelligent automation system for creating and monitoring PDP deals on the Filecoin network. Features automated deal creation, retrieval performance testing, comprehensive metrics tracking, and a modern web dashboard.
 
 ## Features
 
@@ -15,6 +15,10 @@ An intelligent automation system for creating and monitoring PDP deals on the Fi
 - **Performance Monitoring** - Real-time metrics for deals and retrievals
 - **Add-ons Testing** - FWSS add-ons testing and comparison with provider performance
 - **Analytics Dashboard** - Modern React UI with charts and statistics
+
+## What does dealbot do and what does it check?
+
+See [docs/checks/README.md](docs/checks/README.md) for more details.
 
 ## Project Structure
 

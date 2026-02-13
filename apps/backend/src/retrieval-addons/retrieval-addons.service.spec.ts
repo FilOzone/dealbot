@@ -31,9 +31,8 @@ describe("RetrievalAddonsService error handling", () => {
 
     const service = new RetrievalAddonsService(
       strategy as unknown as ConstructorParameters<typeof RetrievalAddonsService>[0],
-      noop("cdn") as unknown as ConstructorParameters<typeof RetrievalAddonsService>[1],
-      noop("ipni") as unknown as ConstructorParameters<typeof RetrievalAddonsService>[2],
-      httpClientService as unknown as ConstructorParameters<typeof RetrievalAddonsService>[3],
+      noop("ipni") as unknown as ConstructorParameters<typeof RetrievalAddonsService>[1],
+      httpClientService as unknown as ConstructorParameters<typeof RetrievalAddonsService>[2],
     );
 
     const config: RetrievalConfiguration = {

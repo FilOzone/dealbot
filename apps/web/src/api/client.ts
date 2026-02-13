@@ -141,7 +141,7 @@ export async function fetchProviderDailyMetrics(
 }
 
 /**
- * Fetch service type comparison metrics (CDN vs Direct SP vs IPFS Pin)
+ * Fetch service type comparison metrics (Direct SP vs IPFS Pin)
  * @param options - Query options for date range
  */
 export async function fetchServiceComparison(

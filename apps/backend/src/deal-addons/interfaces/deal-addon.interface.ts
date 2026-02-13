@@ -1,5 +1,5 @@
 import type { Deal } from "../../database/entities/deal.entity.js";
-import type { CdnMetadata, DealMetadata, DirectMetadata, IpniMetadata, ServiceType } from "../../database/types.js";
+import type { DealMetadata, DirectMetadata, IpniMetadata, ServiceType } from "../../database/types.js";
 import type { AddonExecutionContext, DealConfiguration, PreprocessingResult, SynapseConfig } from "../types.js";
 
 /**
@@ -7,10 +7,10 @@ import type { AddonExecutionContext, DealConfiguration, PreprocessingResult, Syn
  * Each add-on implements this interface to provide specific functionality
  * during the deal creation process
  */
-export interface IDealAddon<T extends CdnMetadata | IpniMetadata | DirectMetadata = any> {
+export interface IDealAddon<T extends IpniMetadata | DirectMetadata = any> {
   /**
    * Unique identifier for the add-on
-   * @example ServiceType.DIRECT_SP, ServiceType.CDN
+   * @example ServiceType.DIRECT_SP
    */
   readonly name: ServiceType;
 

@@ -5,7 +5,6 @@ import { ServiceType } from "../database/types.js";
 import { HttpClientService } from "../http-client/http-client.service.js";
 import type { RequestWithMetrics } from "../http-client/types.js";
 import type { IRetrievalAddon } from "./interfaces/retrieval-addon.interface.js";
-import { CdnRetrievalStrategy } from "./strategies/cdn.strategy.js";
 import { DirectRetrievalStrategy } from "./strategies/direct.strategy.js";
 import { IpniRetrievalStrategy } from "./strategies/ipni.strategy.js";
 import type {
@@ -28,7 +27,6 @@ export class RetrievalAddonsService {
 
   constructor(
     private readonly directRetrieval: DirectRetrievalStrategy,
-    private readonly cdnRetrieval: CdnRetrievalStrategy,
     private readonly ipniRetrieval: IpniRetrievalStrategy,
     private readonly httpClientService: HttpClientService,
   ) {
@@ -41,7 +39,6 @@ export class RetrievalAddonsService {
    */
   private registerAddons(): void {
     this.registerAddon(this.directRetrieval);
-    this.registerAddon(this.cdnRetrieval);
     this.registerAddon(this.ipniRetrieval);
 
     this.logger.log(`Registered ${this.addons.size} retrieval add-ons: ${Array.from(this.addons.keys()).join(", ")}`);
@@ -244,7 +241,7 @@ export class RetrievalAddonsService {
 
   /**
    * Execute retrieval with retries based on strategy configuration
-   * Strategies can define retry behavior (e.g., CDN cache warming)
+   * Strategies can define retry behavior (e.g., cache warming)
    *
    * @param urlResult - URL result from strategy
    * @param config - Retrieval configuration
