@@ -22,7 +22,7 @@ const JSON_HEADERS = { "Content-Type": "application/json" } as const;
  * 2. Build-time value from import.meta.env.VITE_API_BASE_URL (set via Docker ARG / Vite env)
  * 3. Empty string (uses relative URLs)
  */
-const getBaseUrl = (): string => {
+export const getBaseUrl = (): string => {
   const runtimeBaseUrl = typeof window === "undefined" ? undefined : window.__DEALBOT_CONFIG__?.API_BASE_URL;
   return runtimeBaseUrl ?? import.meta.env.VITE_API_BASE_URL ?? "";
 };

@@ -1,8 +1,12 @@
+import { subDays } from "date-fns";
 import type { DateRange, OnSelectHandler } from "react-day-picker";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 import { Card, CardContent, CardFooter } from "@/components/ui/card";
 import type { PresetOption, PresetValue, TimeWindow } from "@/lib/time-window";
+
+const today = new Date();
+const ninetyDaysAgo = subDays(today, 90);
 
 type WindowContentProps = {
   timeWindow: TimeWindow;
@@ -13,7 +17,7 @@ type WindowContentProps = {
 
 const WindowContent = ({ timeWindow, onDateRangeSelect, presetOptions, onPresetSelect }: WindowContentProps) => {
   return (
-    <Card className="rounded-md flex flex-col items-starts border-none">
+    <Card className="rounded-md border-none mx-auto w-fit max-w-[540px]">
       <CardContent>
         <Calendar
           required
@@ -22,9 +26,11 @@ const WindowContent = ({ timeWindow, onDateRangeSelect, presetOptions, onPresetS
           selected={timeWindow.range}
           onSelect={onDateRangeSelect}
           numberOfMonths={2}
+          disabled={{ before: ninetyDaysAgo, after: today }}
+          className="p-0 [--cell-size:--spacing(8.5)]"
         />
       </CardContent>
-      <CardFooter className="max-w-[536px] flex flex-wrap gap-2 border-t pt-4">
+      <CardFooter className="flex flex-wrap gap-2 border-t pt-4">
         {presetOptions.map((presetOption) => (
           <Button
             key={presetOption.value}
