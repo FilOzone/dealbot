@@ -52,7 +52,7 @@ export class RetrievalService {
 
     const results = await this.processRetrievalsInParallel(deals, {
       timeoutMs,
-      maxConcurrency: 5,
+      maxConcurrency: 10,
       signal,
     });
 
@@ -92,7 +92,7 @@ export class RetrievalService {
     deals: Deal[],
     {
       timeoutMs,
-      maxConcurrency = 5,
+      maxConcurrency = 10,
       signal,
     }: {
       timeoutMs: number;

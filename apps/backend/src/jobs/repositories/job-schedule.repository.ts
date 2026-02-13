@@ -2,6 +2,13 @@ import { Injectable, Logger } from "@nestjs/common";
 import { InjectDataSource } from "@nestjs/typeorm";
 import type { DataSource } from "typeorm";
 import type { JobScheduleType } from "../../database/entities/job-schedule-state.entity.js";
+import {
+  LEGACY_DEAL_QUEUE,
+  LEGACY_RETRIEVAL_QUEUE,
+  METRICS_CLEANUP_QUEUE,
+  METRICS_QUEUE,
+  SP_WORK_QUEUE,
+} from "../job-queues.js";
 
 export type ScheduleRow = {
   id: number;
@@ -171,33 +178,51 @@ export class JobScheduleRepository {
   }
 
   /**
-   * Counts pg-boss jobs by name and state for the requested states.
+   * Counts pg-boss jobs by dealbot job type and state for the requested states.
+   * Uses `data->>'jobType'` for the shared sp.work queue and maps legacy queue names.
    * Casts state to text so drivers always return a string (pg-boss uses job_state enum).
    */
-  async countBossJobStates(states: string[]): Promise<{ name: string; state: string; count: number }[]> {
+  async countBossJobStates(states: string[]): Promise<{ job_type: string; state: string; count: number }[]> {
     return this.dataSource.query(
       `
-      SELECT name, state::text AS state, COUNT(*)::int AS count
+      SELECT
+        CASE
+          WHEN name = $2 THEN COALESCE(data->>'jobType', 'unknown')
+          WHEN name = $3 THEN 'metrics'
+          WHEN name = $4 THEN 'metrics_cleanup'
+          WHEN name = $5 THEN 'deal'
+          WHEN name = $6 THEN 'retrieval'
+          ELSE name
+        END AS job_type,
+        state::text AS state,
+        COUNT(*)::int AS count
       FROM pgboss.job
       WHERE state::text = ANY($1::text[])
-      GROUP BY name, state
+      GROUP BY 1, 2
       `,
-      [states],
+      [states, SP_WORK_QUEUE, METRICS_QUEUE, METRICS_CLEANUP_QUEUE, LEGACY_DEAL_QUEUE, LEGACY_RETRIEVAL_QUEUE],
     );
   }
 
   /**
-   * Returns the minimum age (seconds) for jobs in a given pg-boss state, grouped by name.
+   * Returns the minimum age (seconds) for jobs in a given pg-boss state, grouped by job type.
    * Uses created_on for queued jobs and started_on for active jobs (pg-boss schema column names).
    */
   async minBossJobAgeSecondsByState(
     state: "created" | "active",
     now: Date,
-  ): Promise<{ name: string; min_age_seconds: number | null }[]> {
+  ): Promise<{ job_type: string; min_age_seconds: number | null }[]> {
     return this.dataSource.query(
       `
       SELECT
-        name,
+        CASE
+          WHEN name = $3 THEN COALESCE(data->>'jobType', 'unknown')
+          WHEN name = $4 THEN 'metrics'
+          WHEN name = $5 THEN 'metrics_cleanup'
+          WHEN name = $6 THEN 'deal'
+          WHEN name = $7 THEN 'retrieval'
+          ELSE name
+        END AS job_type,
         MIN(
           EXTRACT(
             EPOCH FROM (
@@ -210,32 +235,9 @@ export class JobScheduleRepository {
         ) AS min_age_seconds
       FROM pgboss.job
       WHERE state::text = $2
-      GROUP BY name
+      GROUP BY 1
       `,
-      [now, state],
+      [now, state, SP_WORK_QUEUE, METRICS_QUEUE, METRICS_CLEANUP_QUEUE, LEGACY_DEAL_QUEUE, LEGACY_RETRIEVAL_QUEUE],
     );
-  }
-
-  /**
-   * Tries to acquire a Postgres advisory lock for a specific provider.
-   * This ensures only one worker processes a specific provider at a time if multiple workers pick up jobs.
-   *
-   * @param spAddress - The provider address to lock.
-   * @returns true if the lock was acquired, false otherwise.
-   */
-  async acquireAdvisoryLock(spAddress: string): Promise<boolean> {
-    const result = await this.dataSource.query("SELECT pg_try_advisory_lock(hashtextextended($1, 0)) AS acquired", [
-      spAddress,
-    ]);
-    return Boolean(result?.[0]?.acquired);
-  }
-
-  /**
-   * Releases the Postgres advisory lock for a specific provider.
-   *
-   * @param spAddress - The provider address to unlock.
-   */
-  async releaseAdvisoryLock(spAddress: string): Promise<void> {
-    await this.dataSource.query("SELECT pg_advisory_unlock(hashtextextended($1, 0))", [spAddress]);
   }
 }
