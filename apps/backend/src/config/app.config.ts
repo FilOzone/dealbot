@@ -98,10 +98,6 @@ export const configValidationSchema = Joi.object({
   DEALBOT_LOCAL_DATASETS_PATH: Joi.string().default(DEFAULT_LOCAL_DATASETS_PATH),
   RANDOM_DATASET_SIZES: Joi.string().default("10240,10485760,104857600"), // 10 KiB, 10 MB, 100 MB
 
-  // Proxy
-  PROXY_LIST: Joi.string().default(""),
-  PROXY_LOCATIONS: Joi.string().default(""),
-
   // Timeouts (in milliseconds)
   CONNECT_TIMEOUT_MS: Joi.number().min(1000).default(10000), // 10 seconds to establish connection/receive headers
   HTTP_REQUEST_TIMEOUT_MS: Joi.number().min(1000).default(600000), // 10 minutes total for HTTP requests (Body transfer)
@@ -269,11 +265,6 @@ export interface IDatasetConfig {
   randomDatasetSizes: number[];
 }
 
-export interface IProxyConfig {
-  list: string[];
-  locations: string[];
-}
-
 export interface ITimeoutConfig {
   connectTimeoutMs: number;
   httpRequestTimeoutMs: number;
@@ -288,7 +279,6 @@ export interface IConfig {
   scheduling: ISchedulingConfig;
   jobs: IJobsConfig;
   dataset: IDatasetConfig;
-  proxy: IProxyConfig;
   timeouts: ITimeoutConfig;
 }
 
@@ -394,10 +384,6 @@ export function loadConfig(): IConfig {
           100 << 20, // 100 MB
         ];
       })(),
-    },
-    proxy: {
-      list: process.env.PROXY_LIST?.split(",") || [],
-      locations: process.env.PROXY_LOCATIONS?.split(",") || [],
     },
     timeouts: {
       connectTimeoutMs: Number.parseInt(process.env.CONNECT_TIMEOUT_MS || "10000", 10),
