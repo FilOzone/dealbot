@@ -140,7 +140,7 @@ Use these formulas to reason about whether the system can keep up and how much b
 Per-SP capacity (one job per SP at a time):
 
 - Per-SP execution-minutes per hour = `(deals_per_sp_per_hour * deal_max_minutes) + (retrievals_per_sp_per_hour * retrieval_max_minutes)`
-- If per-SP execution-minutes per hour > 60, that SP can never catch up (backlog grows).
+- If per-SP execution-minutes per hour > 60, that SP can never catch up (backlog grows), even if we had infinite dealbot workers.  
 - If per-SP execution-minutes per hour <= 60, backlog will eventually drain (headroom = `60 - per-SP execution-minutes per hour`).
 
 Note: 60 execution-minutes per hour = 100% utilization for a single SP.
