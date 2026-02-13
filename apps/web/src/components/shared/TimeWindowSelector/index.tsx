@@ -1,3 +1,4 @@
+import { useCallback, useState } from "react";
 import type { DateRange, OnSelectHandler } from "react-day-picker";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import type { PresetValue, TimeWindow } from "@/lib/time-window";
@@ -12,17 +13,37 @@ interface TimeWindowSelectorProps {
 }
 
 function TimeWindowSelector({ timeWindow, onDateRangeSelect, onPresetSelect }: TimeWindowSelectorProps) {
+  const [open, setOpen] = useState(false);
+
+  const handleDateRangeSelect: OnSelectHandler<DateRange> = useCallback(
+    (range, triggerDate, modifiers, e) => {
+      onDateRangeSelect(range, triggerDate, modifiers, e);
+      if (range.from && range.to) {
+        setOpen(false);
+      }
+    },
+    [onDateRangeSelect],
+  );
+
+  const handlePresetSelect = useCallback(
+    (preset: PresetValue) => {
+      onPresetSelect(preset);
+      setOpen(false);
+    },
+    [onPresetSelect],
+  );
+
   return (
-    <Popover>
+    <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <WindowTrigger label={getTimeWindowLabel(timeWindow)} />
       </PopoverTrigger>
       <PopoverContent className="w-auto p-0" align="start">
         <WindowContent
           timeWindow={timeWindow}
-          onDateRangeSelect={onDateRangeSelect}
+          onDateRangeSelect={handleDateRangeSelect}
           presetOptions={PRESET_OPTIONS}
-          onPresetSelect={onPresetSelect}
+          onPresetSelect={handlePresetSelect}
         />
       </PopoverContent>
     </Popover>
