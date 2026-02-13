@@ -1,6 +1,4 @@
-import type { PresetOptions } from "./types";
-
-export const PRESET_OPTIONS: PresetOptions[] = [
+export const PRESET_OPTIONS = [
   { value: "1h", label: "Last Hour" },
   { value: "6h", label: "Last 6 Hours" },
   { value: "12h", label: "Last 12 Hours" },
@@ -12,4 +10,4 @@ export const PRESET_OPTIONS: PresetOptions[] = [
   { value: "60d", label: "Last 60 Days" },
   { value: "90d", label: "Last 90 Days" },
   { value: "all", label: "All Time" },
-];
+] as const;

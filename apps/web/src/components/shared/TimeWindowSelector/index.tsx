@@ -1,52 +1,28 @@
-import { format } from "date-fns";
-import { useState } from "react";
 import type { DateRange, OnSelectHandler } from "react-day-picker";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { PRESET_OPTIONS } from "./constants";
-import type { TimeWindow } from "./types";
+import { PRESET_OPTIONS, getTimeWindowLabel } from "@/lib/time-window";
+import type { PresetValue, TimeWindow } from "@/lib/time-window";
 import WindowContent from "./WindowContent";
 import WindowTrigger from "./WindowTrigger";
 
 interface TimeWindowSelectorProps {
-  value: TimeWindow;
-  onChange: (window: TimeWindow) => void;
+  timeWindow: TimeWindow;
+  onDateRangeSelect: OnSelectHandler<DateRange>;
+  onPresetSelect: (preset: PresetValue) => void;
 }
 
-function TimeWindowSelector({ value, onChange }: TimeWindowSelectorProps) {
-  const [isOpen, setIsOpen] = useState(false);
-
-  const handlePresetSelect = (preset: string, label: string) => {
-    onChange({
-      type: "preset",
-      preset,
-      label,
-    });
-    setIsOpen(false);
-  };
-
-  const handleDateRangeSelect: OnSelectHandler<DateRange> = (selected) => {
-    onChange({
-      type: "custom",
-      from: selected.from,
-      to: selected.to,
-      label: selected.from && selected.to ? `${format(selected.from, "MMM d")} - ${format(selected.to, "MMM d")}` : "",
-    });
-    if (selected.from && selected.to) {
-      setIsOpen(false);
-    }
-  };
-
+function TimeWindowSelector({ timeWindow, onDateRangeSelect, onPresetSelect }: TimeWindowSelectorProps) {
   return (
-    <Popover open={isOpen} onOpenChange={setIsOpen}>
+    <Popover>
       <PopoverTrigger asChild>
-        <WindowTrigger label={value.label} />
+        <WindowTrigger label={getTimeWindowLabel(timeWindow)} />
       </PopoverTrigger>
       <PopoverContent className="w-auto p-0" align="start">
         <WindowContent
-          value={value}
-          onDateRangeSelect={handleDateRangeSelect}
+          timeWindow={timeWindow}
+          onDateRangeSelect={onDateRangeSelect}
           presetOptions={PRESET_OPTIONS}
-          onPresetSelect={handlePresetSelect}
+          onPresetSelect={onPresetSelect}
         />
       </PopoverContent>
     </Popover>
