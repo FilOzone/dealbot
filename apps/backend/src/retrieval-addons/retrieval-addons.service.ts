@@ -341,6 +341,66 @@ export class RetrievalAddonsService {
 
     try {
       this.ensureNotAborted(signal);
+
+      if (urlResult.method === ServiceType.IPFS_PIN && strategy.validateDataStream) {
+        const streamResult = await this.httpClientService.requestWithoutProxyAndMetricsStream(urlResult.url, {
+          headers: urlResult.headers,
+          httpVersion: urlResult.httpVersion,
+          signal,
+        });
+
+        if (streamResult.statusCode < 200 || streamResult.statusCode >= 300) {
+          const responsePreview = await this.buildResponsePreviewFromStream(streamResult.body);
+          throw RetrievalError.fromHttpResponse(streamResult.statusCode, responsePreview);
+        }
+
+        let validation = {} as ValidationResult;
+        try {
+          validation = await strategy.validateDataStream(streamResult.body, config);
+          if (!validation.isValid) {
+            this.logger.warn(
+              `Validation failed for ${urlResult.method} retrieval of deal ${config.deal.id}: ` +
+                `URL: ${urlResult.url}, ` +
+                `Status: ${streamResult.statusCode}, ` +
+                `Response Size: ${validation.bytesRead ?? 0} bytes, ` +
+                `Details: ${validation.details || "unknown"}`,
+            );
+          }
+        } catch (error) {
+          this.logger.warn(
+            `Validation error for ${urlResult.method} retrieval of deal ${config.deal.id}: ` +
+              `URL: ${urlResult.url}, ` +
+              `Error: ${error.message}`,
+          );
+          validation = {
+            isValid: false,
+            method: "validation-error",
+            details: error.message,
+          };
+        }
+
+        const endTime = performance.now();
+        const totalTime = endTime - streamResult.startTime;
+        const responseSize = validation.bytesRead ?? 0;
+        const throughput = totalTime > 0 ? responseSize / (totalTime / 1000) : 0;
+
+        return {
+          url: urlResult.url,
+          method: urlResult.method,
+          data: Buffer.alloc(0),
+          metrics: {
+            latency: Math.round(totalTime),
+            ttfb: Math.round(streamResult.ttfb),
+            throughput,
+            statusCode: streamResult.statusCode,
+            timestamp: new Date(),
+            responseSize,
+          },
+          validation,
+          success: true,
+        };
+      }
+
       let result: RequestWithMetrics<Buffer>;
       try {
         // TODO: use proxy for IPFS_PIN as well
@@ -554,6 +614,38 @@ export class RetrievalAddonsService {
       }
 
       return sanitized.replace(/"/g, "'");
+    } catch {
+      return undefined;
+    }
+  }
+
+  private async buildResponsePreviewFromStream(
+    stream: AsyncIterable<Uint8Array>,
+    maxLength: number = 200,
+  ): Promise<string | undefined> {
+    try {
+      const chunks: Buffer[] = [];
+      let collected = 0;
+
+      for await (const chunk of stream) {
+        if (collected < maxLength) {
+          const remaining = maxLength - collected;
+          const slice = chunk.length > remaining ? chunk.subarray(0, remaining) : chunk;
+          chunks.push(Buffer.from(slice));
+          collected += slice.length;
+        }
+      }
+
+      if (chunks.length === 0) {
+        return undefined;
+      }
+
+      const text = Buffer.concat(chunks).toString("utf8").replace(/\s+/g, " ").trim();
+      if (text.length === 0) {
+        return undefined;
+      }
+
+      return text.replace(/"/g, "'");
     } catch {
       return undefined;
     }

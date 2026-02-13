@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { cleanupTempCar, createCarFromPath } from "filecoin-pin/core/unixfs";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { validateCarContent } from "./car-utils.js";
+import { validateCarContentStream } from "./car-utils.js";
 
 describe("car-utils", () => {
   let tempDir: string;
@@ -18,7 +18,13 @@ describe("car-utils", () => {
     await rm(tempDir, { recursive: true, force: true });
   });
 
-  describe("validateCarContent", () => {
+  describe("validateCarContentStream", () => {
+    async function* chunked(bytes: Uint8Array, chunkSize: number = 1024): AsyncIterable<Uint8Array> {
+      for (let i = 0; i < bytes.length; i += chunkSize) {
+        yield bytes.subarray(i, i + chunkSize);
+      }
+    }
+
     it("should return isValid=true for a valid CAR with matching root CID", async () => {
       const originalData = randomBytes(4096);
       const originalFile = join(tempDir, "valid.bin");
@@ -28,7 +34,7 @@ describe("car-utils", () => {
       const carBytes = await readFile(carResult.carPath);
       const rootCID = carResult.rootCid.toString();
 
-      const result = await validateCarContent(carBytes, rootCID);
+      const result = await validateCarContentStream(chunked(carBytes), rootCID);
 
       expect(result.isValid).toBe(true);
       expect(result.method).toBe("car-content-validation");
@@ -47,7 +53,7 @@ describe("car-utils", () => {
       const carBytes = await readFile(carResult.carPath);
 
       const fakeRootCID = "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi";
-      const result = await validateCarContent(carBytes, fakeRootCID);
+      const result = await validateCarContentStream(chunked(carBytes), fakeRootCID);
 
       expect(result.isValid).toBe(false);
       expect(result.method).toBe("car-content-validation");
@@ -75,7 +81,7 @@ describe("car-utils", () => {
         corrupted[i] = corrupted[i] ^ 0xff;
       }
 
-      const result = await validateCarContent(corrupted, rootCID);
+      const result = await validateCarContentStream(chunked(corrupted), rootCID);
 
       expect(result.isValid).toBe(false);
       expect(result.method).toBe("car-content-validation");
@@ -86,12 +92,32 @@ describe("car-utils", () => {
 
     it("should return isValid=false for completely invalid bytes", async () => {
       const garbage = randomBytes(1024);
-      const result = await validateCarContent(garbage, "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi");
+      const result = await validateCarContentStream(
+        chunked(garbage),
+        "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi",
+      );
 
       expect(result.isValid).toBe(false);
       expect(result.method).toBe("car-content-validation");
       expect(result.errors).toBeDefined();
       expect(result.errors!.some((e) => e.includes("car-read-error"))).toBe(true);
+    });
+
+    it("should validate CAR content from a stream", async () => {
+      const originalData = randomBytes(4096);
+      const originalFile = join(tempDir, "stream.bin");
+      await writeFile(originalFile, originalData);
+
+      const carResult = await createCarFromPath(originalFile);
+      const carBytes = await readFile(carResult.carPath);
+      const rootCID = carResult.rootCid.toString();
+      const result = await validateCarContentStream(chunked(carBytes), rootCID);
+
+      expect(result.isValid).toBe(true);
+      expect(result.method).toBe("car-content-validation");
+      expect(result.verifiedRootCID).toBe(rootCID);
+
+      await cleanupTempCar(carResult.carPath);
     });
   });
 });

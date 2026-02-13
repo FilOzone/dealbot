@@ -49,6 +49,15 @@ export interface IRetrievalAddon {
   validateData?(retrievedData: Buffer, config: RetrievalConfiguration): Promise<ValidationResult>;
 
   /**
+   * Optional: Validate retrieved data from a stream (for large payloads)
+   *
+   * @param stream - Async iterable of response bytes
+   * @param config - Original retrieval configuration
+   * @returns Validation result with status and details
+   */
+  validateDataStream?(stream: AsyncIterable<Uint8Array>, config: RetrievalConfiguration): Promise<ValidationResult>;
+
+  /**
    * Optional: Get expected performance metrics for this retrieval method
    * Useful for monitoring and alerting on performance degradation
    *

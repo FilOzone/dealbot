@@ -3,6 +3,7 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CarReader } from "@ipld/car";
+import { CarBlockIterator } from "@ipld/car/iterator";
 import { cleanupTempCar, createCarFromPath } from "filecoin-pin/core/unixfs";
 import { CID } from "multiformats/cid";
 import { identity } from "multiformats/hashes/identity";
@@ -25,24 +26,6 @@ export type UnixfsCarResult = {
   totalBlockSize: number;
   carSize: number;
 };
-
-class CarReaderBlockstore {
-  constructor(
-    private readonly reader: CarReader,
-    private readonly verifyBlocks: boolean = false,
-  ) {}
-
-  async get(cid: CID, _options?: unknown): Promise<Uint8Array> {
-    const block = await this.reader.get(cid);
-    if (!block) {
-      throw new Error(`Block not found for CID: ${cid.toString()}`);
-    }
-    if (this.verifyBlocks) {
-      await verifyCidBytes(cid, block.bytes);
-    }
-    return block.bytes;
-  }
-}
 
 const supportedHashers: MultihashHasher[] = [sha256, identity];
 
@@ -109,28 +92,14 @@ export async function buildUnixfsCar(dataFile: { data: Buffer; size: number; nam
   }
 }
 
-/**
- * Validate CAR content by verifying that all CAR blocks hash to their CIDs and
- * that the expected root is present. This avoids reconstruction and relies on
- * CID integrity for validation.
- */
-export async function validateCarContent(carBytes: Uint8Array, expectedRootCID: string): Promise<CarValidationResult> {
+async function validateCarContentIterator(
+  iterator: CarBlockIterator,
+  expectedRootCID: string,
+): Promise<CarValidationResult> {
   const errors: string[] = [];
-  let reader: CarReader;
-  try {
-    reader = await CarReader.fromBytes(carBytes);
-  } catch (err) {
-    return {
-      isValid: false,
-      method: "car-content-validation",
-      details: `Failed to read CAR: ${err instanceof Error ? err.message : String(err)}`,
-      errors: [`car-read-error: ${err instanceof Error ? err.message : String(err)}`],
-    };
-  }
-
   let roots: CID[];
   try {
-    roots = await reader.getRoots();
+    roots = await iterator.getRoots();
   } catch (err) {
     return {
       isValid: false,
@@ -171,7 +140,7 @@ export async function validateCarContent(carBytes: Uint8Array, expectedRootCID: 
 
   let verifiedBlocks = 0;
   let rootBlockFound = false;
-  for await (const block of reader.blocks()) {
+  for await (const block of iterator) {
     if (block.cid.toString() === rootCID.toString()) {
       rootBlockFound = true;
     }
@@ -200,4 +169,23 @@ export async function validateCarContent(carBytes: Uint8Array, expectedRootCID: 
     verifiedRootCID: rootCIDStr,
     errors: errors.length > 0 ? errors : undefined,
   };
+}
+
+export async function validateCarContentStream(
+  carStream: AsyncIterable<Uint8Array>,
+  expectedRootCID: string,
+): Promise<CarValidationResult> {
+  let iterator: CarBlockIterator;
+  try {
+    iterator = await CarBlockIterator.fromIterable(carStream);
+  } catch (err) {
+    return {
+      isValid: false,
+      method: "car-content-validation",
+      details: `Failed to read CAR: ${err instanceof Error ? err.message : String(err)}`,
+      errors: [`car-read-error: ${err instanceof Error ? err.message : String(err)}`],
+    };
+  }
+
+  return validateCarContentIterator(iterator, expectedRootCID);
 }

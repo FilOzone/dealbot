@@ -46,6 +46,9 @@ export interface ValidationResult {
   /** Details about validation */
   details?: string;
 
+  /** Bytes read from stream (streaming validation only) */
+  bytesRead?: number;
+
   /** Expected vs actual comparison data */
   comparison?: {
     expected: any;

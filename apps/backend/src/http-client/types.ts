@@ -15,3 +15,13 @@ export interface RequestWithMetrics<T> {
   data: T;
   metrics: RequestMetrics;
 }
+
+export interface RequestStreamContext {
+  body: AsyncIterable<Uint8Array>;
+  statusCode: number;
+  headers: Record<string, string | string[] | undefined>;
+  startTime: number;
+  ttfb: number;
+  proxyUrl: string;
+  httpVersion: HttpVersion;
+}
