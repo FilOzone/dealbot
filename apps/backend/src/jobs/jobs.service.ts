@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { Injectable, Logger, type OnApplicationShutdown, type OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
@@ -269,11 +268,6 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       return;
     }
 
-    if (!job.id) {
-      const fallbackId = randomUUID();
-      this.logger.warn(`Deal job missing id; generated fallback id ${fallbackId} for ${spAddress}`);
-    }
-
     await this.recordJobExecution("deal", async () => {
       try {
         let provider = this.walletSdkService.getTestingProviders().find((p) => p.serviceProvider === spAddress);
@@ -306,11 +300,6 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       this.logMaintenanceSkip(`retrieval job for ${spAddress}`, maintenance.window?.label);
       await this.deferJobForMaintenance("retrieval", data, maintenance, now);
       return;
-    }
-
-    if (!job.id) {
-      const fallbackId = randomUUID();
-      this.logger.warn(`Retrieval job missing id; generated fallback id ${fallbackId} for ${spAddress}`);
     }
 
     await this.recordJobExecution("retrieval", async () => {

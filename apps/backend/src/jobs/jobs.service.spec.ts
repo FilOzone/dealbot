@@ -94,6 +94,8 @@ describe("JobsService schedule rows", () => {
       scheduling: {
         dealIntervalSeconds: 600,
         retrievalIntervalSeconds: 1200,
+        maintenanceWindowsUtc: ["07:00", "22:00"],
+        maintenanceWindowMinutes: 20,
       } as IConfig["scheduling"],
       jobs: {
         mode: "pgboss",
@@ -452,5 +454,83 @@ describe("JobsService schedule rows", () => {
 
     // Check update call
     expect(jobScheduleRepositoryMock.updateScheduleAfterRun).toHaveBeenCalled();
+  });
+
+  it("defers jobs until maintenance window ends (same-day)", async () => {
+    baseConfigValues = {
+      ...baseConfigValues,
+      scheduling: {
+        ...baseConfigValues.scheduling,
+        maintenanceWindowsUtc: ["07:00"],
+        maintenanceWindowMinutes: 20,
+      } as IConfig["scheduling"],
+    };
+    configService = {
+      get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
+    } as unknown as JobsServiceDeps[0];
+
+    service = buildService({ configService });
+
+    const safeSend = vi.fn().mockResolvedValue(true);
+    (service as unknown as { safeSend: typeof safeSend }).safeSend = safeSend;
+
+    const now = new Date("2024-01-01T07:05:00Z");
+    const maintenance = callPrivate(service, "getMaintenanceWindowStatus", now) as any;
+
+    await callPrivate(
+      service,
+      "deferJobForMaintenance",
+      "deal",
+      { jobType: "deal", spAddress: "0xaaa", intervalSeconds: 60 },
+      maintenance,
+      now,
+    );
+
+    const expectedResumeAt = new Date("2024-01-01T07:20:00Z");
+    expect(safeSend).toHaveBeenCalledWith(
+      "deal",
+      "sp.work",
+      { jobType: "deal", spAddress: "0xaaa", intervalSeconds: 60 },
+      { startAfter: expectedResumeAt },
+    );
+  });
+
+  it("defers jobs until maintenance window ends (wraps midnight)", async () => {
+    baseConfigValues = {
+      ...baseConfigValues,
+      scheduling: {
+        ...baseConfigValues.scheduling,
+        maintenanceWindowsUtc: ["23:50"],
+        maintenanceWindowMinutes: 20,
+      } as IConfig["scheduling"],
+    };
+    configService = {
+      get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
+    } as unknown as JobsServiceDeps[0];
+
+    service = buildService({ configService });
+
+    const safeSend = vi.fn().mockResolvedValue(true);
+    (service as unknown as { safeSend: typeof safeSend }).safeSend = safeSend;
+
+    const now = new Date("2024-01-01T23:55:00Z");
+    const maintenance = callPrivate(service, "getMaintenanceWindowStatus", now) as any;
+
+    await callPrivate(
+      service,
+      "deferJobForMaintenance",
+      "retrieval",
+      { jobType: "retrieval", spAddress: "0xbbb", intervalSeconds: 60 },
+      maintenance,
+      now,
+    );
+
+    const expectedResumeAt = new Date("2024-01-02T00:10:00Z");
+    expect(safeSend).toHaveBeenCalledWith(
+      "retrieval",
+      "sp.work",
+      { jobType: "retrieval", spAddress: "0xbbb", intervalSeconds: 60 },
+      { startAfter: expectedResumeAt },
+    );
   });
 });
