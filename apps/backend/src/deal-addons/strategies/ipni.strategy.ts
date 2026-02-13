@@ -258,7 +258,8 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       monitoringResult = await this.monitorPieceStatus(serviceURL, pieceCid, statusTimeoutMs, pollIntervalMs, signal);
     } catch (error) {
       signal?.throwIfAborted();
-      this.logger.warn(`Piece status monitoring incomplete: ${error.message}`);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.warn(`Piece status monitoring incomplete: ${errorMessage}`);
       monitoringResult = {
         success: false,
         finalStatus: {

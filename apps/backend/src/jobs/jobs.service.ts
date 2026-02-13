@@ -282,8 +282,9 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     const timeoutSeconds = this.configService.get("jobs").dealJobTimeoutSeconds;
     const timeoutMs = Math.max(120000, timeoutSeconds * 1000);
     const effectiveTimeoutSeconds = Math.round(timeoutMs / 1000);
+    const abortReason = new Error(`Deal job timeout (${effectiveTimeoutSeconds}s) for ${spAddress}`);
     const timeoutId = setTimeout(() => {
-      abortController.abort();
+      abortController.abort(abortReason);
     }, timeoutMs);
 
     await this.recordJobExecution("deal", async () => {
@@ -306,7 +307,13 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         return "success";
       } catch (error) {
         if (abortController.signal.aborted) {
-          this.logger.error(`Deal job aborted after timeout (${effectiveTimeoutSeconds}s) for ${spAddress}`);
+          const reason = abortController.signal.reason;
+          const reasonMessage = reason instanceof Error ? reason.message : String(reason ?? "");
+          this.logger.error(
+            reasonMessage
+              ? `Deal job aborted: ${reasonMessage}`
+              : `Deal job aborted after timeout (${effectiveTimeoutSeconds}s) for ${spAddress}`,
+          );
           return "aborted";
         }
         const errorMessage = error instanceof Error ? error.message : String(error);
@@ -348,8 +355,9 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     const timeoutSeconds = this.configService.get("jobs").retrievalJobTimeoutSeconds;
     const timeoutMs = Math.max(60000, timeoutSeconds * 1000);
     const effectiveTimeoutSeconds = Math.round(timeoutMs / 1000);
+    const abortReason = new Error(`Retrieval job timeout (${effectiveTimeoutSeconds}s) for ${spAddress}`);
     const timeoutId = setTimeout(() => {
-      abortController.abort();
+      abortController.abort(abortReason);
     }, timeoutMs);
 
     await this.recordJobExecution("retrieval", async () => {
@@ -371,7 +379,13 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         return "success";
       } catch (error) {
         if (abortController.signal.aborted) {
-          this.logger.error(`Retrieval job aborted after timeout (${effectiveTimeoutSeconds}s) for ${spAddress}`);
+          const reason = abortController.signal.reason;
+          const reasonMessage = reason instanceof Error ? reason.message : String(reason ?? "");
+          this.logger.error(
+            reasonMessage
+              ? `Retrieval job aborted: ${reasonMessage}`
+              : `Retrieval job aborted after timeout (${effectiveTimeoutSeconds}s) for ${spAddress}`,
+          );
           return "aborted";
         }
         const errorMessage = error instanceof Error ? error.message : String(error);

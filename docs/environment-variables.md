@@ -916,7 +916,7 @@ PROXY_LOCATIONS=us-east,eu-west
 
 - **Type**: `number` (milliseconds)
 - **Required**: No
-- **Default**: `600000` (10 minutes)
+- **Default**: `240000` (4 minutes)
 - **Minimum**: `1000`
 
 **Role**: Maximum total time for HTTP/1.1 requests, including body transfer.
@@ -932,7 +932,7 @@ PROXY_LOCATIONS=us-east,eu-west
 
 - **Type**: `number` (milliseconds)
 - **Required**: No
-- **Default**: `600000` (10 minutes)
+- **Default**: `240000` (4 minutes)
 - **Minimum**: `1000`
 
 **Role**: Maximum total time for HTTP/2 requests, including body transfer.
