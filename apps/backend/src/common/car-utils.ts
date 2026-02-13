@@ -110,11 +110,6 @@ export async function buildUnixfsCar(dataFile: { data: Buffer; size: number; nam
 }
 
 /**
- * Unpack a CAR file's content to disk by decoding the UnixFS DAG.
- * Returns the root CID and list of extracted file paths. If expectedRootCID is
- * provided, it will be used to select the root when multiple roots are present.
- */
-/**
  * Validate CAR content by verifying that all CAR blocks hash to their CIDs and
  * that the expected root is present. This avoids reconstruction and relies on
  * CID integrity for validation.

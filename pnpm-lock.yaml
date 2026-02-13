@@ -107,9 +107,6 @@ importers:
       https-proxy-agent:
         specifier: ^7.0.6
         version: 7.0.6
-      ipfs-unixfs-exporter:
-        specifier: ^15.0.2
-        version: 15.0.2
       joi:
         specifier: ^18.0.2
         version: 18.0.2

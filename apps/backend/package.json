@@ -50,7 +50,6 @@
     "filecoin-pin": "^0.15.1",
     "helmet": "^8.1.0",
     "https-proxy-agent": "^7.0.6",
-    "ipfs-unixfs-exporter": "^15.0.2",
     "joi": "^18.0.2",
     "multiformats": "^13.4.2",
     "pg": "^8.18.0",
