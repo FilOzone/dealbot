@@ -33,7 +33,7 @@ importers:
   .:
     devDependencies:
       '@biomejs/biome':
-        specifier: 2.3.14
+        specifier: 'catalog:'
         version: 2.3.14
       typescript:
         specifier: 'catalog:'
