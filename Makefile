@@ -119,7 +119,7 @@ secret: namespace
 	@if [ ! -f "$(SECRET_ENV_FILE)" ]; then echo "SECRET_ENV_FILE $(SECRET_ENV_FILE) not found"; exit 1; fi
 	@tmp_env_file="$$(mktemp)"; \
 		trap 'rm -f "$$tmp_env_file"' EXIT; \
-		grep -E '^(WALLET_PRIVATE_KEY|WALLET_ADDRESS|DATABASE_PASSWORD|FILBEAM_BOT_TOKEN)=' "$(SECRET_ENV_FILE)" > "$$tmp_env_file" || true; \
+		grep -E '^(WALLET_PRIVATE_KEY|WALLET_ADDRESS|DATABASE_PASSWORD)=' "$(SECRET_ENV_FILE)" > "$$tmp_env_file" || true; \
 		if ! grep -q '^WALLET_PRIVATE_KEY=' "$$tmp_env_file"; then echo "WALLET_PRIVATE_KEY is required (set in $(SECRET_ENV_FILE))"; exit 1; fi; \
 		if ! grep -q '^WALLET_ADDRESS=' "$$tmp_env_file"; then echo "WALLET_ADDRESS is required (set in $(SECRET_ENV_FILE))"; exit 1; fi; \
 		kubectl -n $(NAMESPACE) create secret generic $(SECRET_NAME) \

@@ -281,10 +281,6 @@ export interface ITimeoutConfig {
   retrievalTimeoutBufferMs: number;
 }
 
-export interface IFilBeamConfig {
-  botToken: string;
-}
-
 export interface IConfig {
   app: IAppConfig;
   database: IDatabaseConfig;
@@ -293,7 +289,6 @@ export interface IConfig {
   jobs: IJobsConfig;
   dataset: IDatasetConfig;
   proxy: IProxyConfig;
-  filBeam: IFilBeamConfig;
   timeouts: ITimeoutConfig;
 }
 
@@ -403,9 +398,6 @@ export function loadConfig(): IConfig {
     proxy: {
       list: process.env.PROXY_LIST?.split(",") || [],
       locations: process.env.PROXY_LOCATIONS?.split(",") || [],
-    },
-    filBeam: {
-      botToken: process.env.FILBEAM_BOT_TOKEN || "",
     },
     timeouts: {
       connectTimeoutMs: Number.parseInt(process.env.CONNECT_TIMEOUT_MS || "10000", 10),

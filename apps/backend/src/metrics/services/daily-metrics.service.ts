@@ -165,13 +165,25 @@ export class DailyMetricsService {
         return this.getEmptyServiceComparisonResponse(startDate, endDate);
       }
 
-      // Filter to only retrieval metrics for supported service types
       const retrievalMetrics = metrics.filter(
-        (m) => m.serviceType === ServiceType.DIRECT_SP || m.serviceType === ServiceType.IPFS_PIN,
+        (m): m is MetricsDaily & { serviceType: ServiceType } => m.serviceType !== null,
+      );
+      const supportedServiceTypes = new Set<ServiceType>([ServiceType.DIRECT_SP, ServiceType.IPFS_PIN]);
+      const unsupportedServiceTypes = new Set(
+        retrievalMetrics.map((m) => m.serviceType).filter((serviceType) => !supportedServiceTypes.has(serviceType)),
       );
 
+      if (unsupportedServiceTypes.size > 0) {
+        this.logger.warn(
+          `Service comparison excludes unsupported service types: ${[...unsupportedServiceTypes].join(", ")}`,
+        );
+      }
+
+      // ServiceComparisonMetricsDto only exposes the supported service types.
+      const supportedRetrievalMetrics = retrievalMetrics.filter((m) => supportedServiceTypes.has(m.serviceType));
+
       // Group by date and aggregate by service type
-      const dailyMetrics = this.aggregateByServiceType(retrievalMetrics);
+      const dailyMetrics = this.aggregateByServiceType(supportedRetrievalMetrics);
       const summary = this.calculateServiceSummary(dailyMetrics);
 
       return {

@@ -15,7 +15,6 @@ This document provides a comprehensive guide to all environment variables used b
 | [Dataset](#dataset-configuration)         | `DEALBOT_LOCAL_DATASETS_PATH`, `RANDOM_DATASET_SIZES`                                                                                                        |
 | [Proxy](#proxy-configuration)             | `PROXY_LIST`, `PROXY_LOCATIONS`                                                                                                                              |
 | [Timeouts](#timeout-configuration)        | `CONNECT_TIMEOUT_MS`, `HTTP_REQUEST_TIMEOUT_MS`, `HTTP2_REQUEST_TIMEOUT_MS`, `RETRIEVAL_TIMEOUT_BUFFER_MS`                                                   |
-| [External Services](#external-services)   | `FILBEAM_BOT_TOKEN`                                                                                                                                          |
 | [Web Frontend](#web-frontend)             | `VITE_API_BASE_URL`, `VITE_PLAUSIBLE_DATA_DOMAIN`, `DEALBOT_API_BASE_URL`                                                                                    |
 
 ---
@@ -921,19 +920,6 @@ PROXY_LOCATIONS=us-east,eu-west
 - Decrease if you want to maximize retrieval testing time
 
 **Constraint**: Must be less than `RETRIEVAL_INTERVAL_SECONDS * 1000`
-
----
-
-## External Services
-
-### `FILBEAM_BOT_TOKEN`
-
-- **Type**: `string`
-- **Required**: No
-- **Default**: Empty
-- **Security**: **SENSITIVE** - API token
-
-**Role**: Authentication token for FilBeam bot integration. Enables FilBeam to distinguish bot traffic from real user traffic.
 
 ---
 
