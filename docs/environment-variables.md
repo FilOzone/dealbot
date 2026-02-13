@@ -823,7 +823,7 @@ Use this to stagger multiple dealbot deployments that are not sharing a database
 - Increase if retrieval tests consistently take longer than the default
 - Decrease to detect and fail stuck retrievals faster
 
-**Note**: This is independent of HTTP-level timeouts and the schedule-based `RETRIEVAL_TIMEOUT_BUFFER_MS`. The job timeout enforces end-to-end execution time.
+**Note**: This is independent of HTTP-level timeouts and the schedule-based `RETRIEVAL_TIMEOUT_BUFFER_MS`. The job timeout enforces end-to-end execution time of a Retrieval Check job.
 
 ---
 
