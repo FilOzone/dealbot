@@ -1,6 +1,3 @@
-import { exampleHandler } from "./example";
+import { providersHandler } from "./providers";
 
-export const handlers = [
-  // Mock Metrics handlers would come here
-  exampleHandler,
-];
+export const handlers = [providersHandler];

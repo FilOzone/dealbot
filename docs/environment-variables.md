@@ -16,7 +16,7 @@ This document provides a comprehensive guide to all environment variables used b
 | [Proxy](#proxy-configuration)             | `PROXY_LIST`, `PROXY_LOCATIONS`                                                                                                                              |
 | [Timeouts](#timeout-configuration)        | `CONNECT_TIMEOUT_MS`, `HTTP_REQUEST_TIMEOUT_MS`, `HTTP2_REQUEST_TIMEOUT_MS`, `RETRIEVAL_TIMEOUT_BUFFER_MS`                                                   |
 | [External Services](#external-services)   | `FILBEAM_BOT_TOKEN`                                                                                                                                          |
-| [Web Frontend](#web-frontend)             | `VITE_API_BASE_URL`, `VITE_PLAUSIBLE_DATA_DOMAIN`, `DEALBOT_API_BASE_URL`                                                                                    |
+| [Web Frontend](#web-frontend)             | `VITE_API_BASE_URL`, `VITE_ENABLE_MOCKING`, `VITE_PLAUSIBLE_DATA_DOMAIN`, `DEALBOT_API_BASE_URL`                                                                                    |
 
 ---
 
@@ -868,6 +868,31 @@ VITE_API_BASE_URL=http://localhost:9000
 
 ---
 
+### `VITE_ENABLE_MOCKING`
+
+- **Type**: `string`
+- **Required**: No
+- **Default**: Empty (disabled)
+- **Valid values**: `true` to enable, any other value or empty to disable
+- **Location**: `apps/web/.env` (dev only)
+
+**Role**: Enables [Mock Service Worker (MSW)](https://mswjs.io/) to intercept API requests and return mock
+responses. When set to `"true"`, the MSW service worker is registered at app startup and all requests
+matching handlers in `test/mocks/handlers/` are intercepted; unmatched requests pass through normally.
+
+**When to update**:
+
+- Set to `true` when developing frontend features without a running backend
+- Leave empty (or remove) when working against a real backend API
+
+**Example**:
+
+```bash
+VITE_ENABLE_MOCKING=true
+```
+
+---
+
 ### `VITE_PLAUSIBLE_DATA_DOMAIN`
 
 - **Type**: `string` (domain)
@@ -922,7 +947,6 @@ docker run \
 - Leave empty to use relative `/api` paths
 
 ---
-
 
 ## Environment Files Reference
 

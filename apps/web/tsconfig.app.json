@@ -30,6 +30,6 @@
       "@test/*": ["./test/*"]
     }
   },
-  "include": ["src"],
+  "include": ["src", "test/mocks"],
   "exclude": ["src/**/*.test.ts", "src/**/*.test.tsx", "src/**/*.spec.ts", "src/**/*.spec.tsx"]
 }
