@@ -1,4 +1,5 @@
 import { createColumnHelper } from "@tanstack/react-table";
+import type { ProviderWindowMetrics } from "@/schamas/providersWindowMetrics";
 import {
   ApprovalBadge,
   DataRetentionFaultRateHeader,
@@ -11,10 +12,14 @@ import {
   StorageSuccessRateHeader,
   SuccessRateCell,
 } from "../components";
-import type { ProviderData } from "../types";
-import { ACCEPTANCE_CRITERIA, getFaultRateStatus, getSamplesStatus, getSuccessRateStatus } from "../utils/acceptance-criteria";
+import {
+  ACCEPTANCE_CRITERIA,
+  getFaultRateStatus,
+  getSamplesStatus,
+  getSuccessRateStatus,
+} from "../utils/acceptance-criteria";
 
-const columnHelper = createColumnHelper<ProviderData>();
+const columnHelper = createColumnHelper<ProviderWindowMetrics>();
 
 export const columns = [
   columnHelper.accessor("providerId", {

@@ -1,22 +1,17 @@
 import { useQuery } from "@tanstack/react-query";
 import { getBaseUrl } from "@/api/client";
-import type { ProviderData } from "@/components/NewLanding/ProvidersTable/types";
-
-interface ProvidersResponse {
-  data: ProviderData[];
-  meta: {
-    startDate: string | null;
-    endDate: string | null;
-    count: number;
-  };
-}
+import {
+  type ProviderWindowMetricsResponse,
+  providerWindowMetricsResponseSchema,
+} from "@/schamas/providersWindowMetrics";
 
 interface UseProvidersQueryOptions {
   startDate?: string;
   endDate?: string;
   preset?: string;
 }
-async function fetchProviders(options: UseProvidersQueryOptions): Promise<ProvidersResponse> {
+
+async function fetchProviders(options: UseProvidersQueryOptions): Promise<ProviderWindowMetricsResponse> {
   const params = new URLSearchParams();
 
   if (options.preset) {
@@ -38,7 +33,8 @@ async function fetchProviders(options: UseProvidersQueryOptions): Promise<Provid
     throw new Error("Failed to fetch providers");
   }
 
-  return response.json();
+  const json: unknown = await response.json();
+  return providerWindowMetricsResponseSchema.parse(json);
 }
 
 export function useProvidersQuery(options: UseProvidersQueryOptions = {}) {

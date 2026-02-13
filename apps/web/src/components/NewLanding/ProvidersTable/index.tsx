@@ -1,9 +1,9 @@
 import { flexRender, getCoreRowModel, useReactTable } from "@tanstack/react-table";
 import { useMemo } from "react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import type { ProviderWindowMetrics } from "@/schamas/providersWindowMetrics";
 import { ProviderTableRow } from "./components";
 import { columns } from "./data/column-definitions";
-import type { ProviderData } from "./types";
 
 const EmptyState = (
   <TableRow>
@@ -30,12 +30,12 @@ const ErrorState = ({ message }: { message: string }) => (
 );
 
 interface ProvidersTableProps {
-  data?: ProviderData[];
+  data?: ProviderWindowMetrics[];
   isLoading?: boolean;
   error?: Error | null;
 }
 
-const EMPTY_DATA: ProviderData[] = [];
+const EMPTY_DATA: ProviderWindowMetrics[] = [];
 
 export default function ProvidersTable({ data = EMPTY_DATA, isLoading = false, error = null }: ProvidersTableProps) {
   const table = useReactTable(

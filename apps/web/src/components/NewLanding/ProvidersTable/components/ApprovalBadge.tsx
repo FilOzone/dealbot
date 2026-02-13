@@ -7,5 +7,9 @@ interface ApprovalBadgeProps {
 export function ApprovalBadge({ approved }: ApprovalBadgeProps) {
   if (!approved) return null;
 
-  return <Badge className="text-center" variant="default">Approved</Badge>;
+  return (
+    <Badge className="text-center" variant="default">
+      Approved
+    </Badge>
+  );
 }

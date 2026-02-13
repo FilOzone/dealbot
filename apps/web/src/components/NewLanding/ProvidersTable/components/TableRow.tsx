@@ -1,10 +1,10 @@
 import { flexRender, type Row } from "@tanstack/react-table";
 import { memo } from "react";
 import { TableCell, TableRow as UITableRow } from "@/components/ui/table";
-import type { ProviderData } from "../types";
+import type { ProviderWindowMetrics } from "@/schamas/providersWindowMetrics";
 
 interface ProviderTableRowProps {
-  row: Row<ProviderData>;
+  row: Row<ProviderWindowMetrics>;
 }
 
 function ProviderTableRowComponent({ row }: ProviderTableRowProps) {
