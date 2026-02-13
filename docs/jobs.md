@@ -69,7 +69,7 @@ Advancing `next_run_at` by `successCount * interval_seconds` records how many sc
 
 ## Backfill and Backpressure
 
-- **Backfill**: If dealbot is down, the scheduler will enqueue missed runs on restart, up to `JOB_CATCHUP_MAX_ENQUEUE` per schedule row per tick. This preserves historical coverage while controlling enqueue rate.
+- **Backfill**: If the dealbot scheduler is down, it will enqueue missed runs on restart, up to `JOB_CATCHUP_MAX_ENQUEUE` per schedule row per tick. This preserves historical coverage while controlling enqueue rate.
 - **Staggering**: `JOB_CATCHUP_SPREAD_HOURS` spreads backfill jobs over a window, and `JOB_ENQUEUE_JITTER_SECONDS` adds randomized delay to avoid synchronized bursts across deployments.
 
 Backfill caps and spreading are about **enqueue rate**, not execution concurrency. Even with `singletonKey` limiting one active job per SP, a long outage could enqueue thousands of jobs at once, causing DB write bursts, large `pgboss.job` growth, and noisy metrics. Caps/jitter prevent that “enqueue storm” while still allowing backlog to drain at the worker rate. Increasing the cap only makes the backlog visible in the queue faster; to actually process it faster you need more worker capacity (or to relax per-SP exclusivity).
