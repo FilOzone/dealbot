@@ -1,6 +1,6 @@
 # Data Storage Check
 
-This document is the **source of truth** for how dealbot's Data Storage check works. Items marked **TBD** are not yet implemented; code changes will follow.
+This document is the **source of truth** for how dealbot's Data Storage check works. (Items marked **TBD** are not yet implemented; code changes will follow.)
 
 Source code links throughout this document point to the current implementation.
 
@@ -44,9 +44,7 @@ The dealbot scheduler triggers data storage check jobs at a configurable rate.
 
 ```mermaid
 flowchart TD
-  GenerateData["Generate random data"] --> CreateCar["Convert to CAR format"]
-  CreateCar -- "For each SP under test" --> CreateDataSets["Ensure MIN_NUM_DATASETS_FOR_CHECKS have been created on-chain (create if necessary)<br/>(uses Synapse, idempotent)"]
-  CreateDataSets --> SelectDataSet["Select a dataset for data storage check"]
+  CreateCar --> SelectDataSet["Select a dataset for data storage check"]
   SelectDataSet --> Upload["Upload CAR as piece to SP"]
   Upload --> Chain["Wait for on-chain piece creation confirmation"]
   Upload --> LocalIndex["Wait for SP local indexing"]
@@ -73,47 +71,30 @@ The raw data is converted to a CAR (Content Addressable Archive) file (via `file
 
 Source: [`ipni.strategy.ts` (`convertToCar`)](../../apps/backend/src/deal-addons/strategies/ipni.strategy.ts#L530)
 
-### 3. Determine Which SPs to Check for this Cycle
+### 3. Upload to the SP
 
-The set of **SPs under test** is determined by configuration:
-
-- Only **active PDP providers** are eligible (dev-tagged providers are excluded)
-- If `USE_ONLY_APPROVED_PROVIDERS=true` (default), only approved providers are tested
-
-Source: [`wallet-sdk.service.ts` (`getTestingProviders`)](../../apps/backend/src/wallet-sdk/wallet-sdk.service.ts#L213)
-
-**SPs under test** are processed in parallel batches controlled by `DEAL_MAX_CONCURRENCY`. Failures for individual SPs do not block other SPs.
-
-### 4. Upload to Each SP
-
-For each **SP under test** in the current batch, dealbot:
-
-1. **Creates datasets on-chain** if necessary.  
-   - This is done via the Synapse SDK (`synapse.createStorage(...)`).
-   - Dataset creation is idempotent.
-   - The quantity per SP is controlled by [`MIN_NUM_DATASETS_FOR_CHECKS`](#MIN_NUM_DATASETS_FOR_CHECKS).
-2. **Uploads the CAR file** to the SP. Callbacks track progress:
+1. Select a previously created dataset for this data storage check.
+2. **Uploads the CAR file** to the SP (adding a piece to the selected dataset). Callbacks track progress:
    - `onUploadComplete` — SP confirms receipt (HTTP 2xx). Records the piece CID.
 
 Source: [`deal.service.ts` (`createDeal`)](../../apps/backend/src/deal/deal.service.ts#L100)
 
-### 5. Wait for Onchain Confirmation
+### 4. Wait for Onchain Confirmation
 
 After upload completes, dealbot waits for the piece to be confirmed onchain.  The following callbacks are tracked:
    - `onPieceAdded` — piece submission is recorded as reported by the SP on-chain (transaction hash available).
    - `onPieceConfirmed` — confirm the piece is onchain by querying the chain RPC endpoint. filecoin-pin and synapse-sdk are doing this work under the hood
 
-### 6. Wait for SP to Index and Announce Index to IPNI
+### 5. Wait for SP to Index and Announce Index to IPNI
 
 After upload completes, dealbot polls the SP's PDP server to track the piece through its indexing lifecycle:
 - **`sp_indexed`**: SP has indexed the piece locally. Any CID in the CAR is now retrievable with `/ipfs/$CID` retrieval, but it may not be discoverable by the rest of the network. Direct SP [retrieval checking](#8-retrieve-and-verify-content) can commence.
 - **`sp_advertised`**: SP has announced the piece index to IPNI. (In IPNI terminology this is "advertisement announcement" (see [docs](https://docs.cid.contact/filecoin-network-indexer/technical-walkthrough))). [IPNI indexing verification](#7-verify-ipni-indexing) can commence.
 - **Poll interval**: 2.5 seconds (see `TBD_VARIABLE`)
 
-
 Source: [`ipni.strategy.ts` (`monitorPieceStatus`)](../../apps/backend/src/deal-addons/strategies/ipni.strategy.ts#L343)
 
-### 7. Verify IPNI indexing
+### 6. Verify IPNI indexing
 
 After the SP announces the piece index to IPNI, dealbot ensures the uploaded piece can be discovered by others with [standard IPFS tooling](https://github.com/filecoin-project/filecoin-pin/blob/master/documentation/glossary.md#standard-ipfs-tooling).  It does this by polling filecoinpin.contact for a valid provider record for the <IPFSRootCid,SP>.  
 
@@ -123,7 +104,7 @@ This uses the `waitForIpniProviderResults` function from the `filecoin-pin` libr
 
 Source: [`ipni.strategy.ts` (`monitorAndVerifyIPNI`)](../../apps/backend/src/deal-addons/strategies/ipni.strategy.ts#L239)
 
-### 8. Retrieve and Verify Content — **TBD**
+### 7. Retrieve and Verify Content — **TBD**
 
 See [Retrieval Check](./retrievals.md) for the specifics of retrieving and verifying the returned bytes match the CID.
 
@@ -166,7 +147,8 @@ It's expected that a Data Storage check will still store an overall status for e
 | `pending` | Upload Status = `pending` (i.e., piece upload to the SP hasn't started.) |
 | `inProgress` | Data Storage check is running. |
 | `success` | **All** sub-statuses are `success`. |
-| `failure` | **Any** sub-status is `failure`. |
+| `failure.timedout` | **Any** sub-status is `failure.timedout`. |
+| `failure.other` | **Any** sub-status is `failure.other`. |
 
 ---
 
@@ -176,13 +158,15 @@ It's expected that a Data Storage check will still store an overall status for e
 |--------|---------|
 | `pending` | Piece upload to the SP hasn't started. |
 | `success` | SP confirmed receipt of the piece. |
-| `failure` | Failed to upload within the allotted time.
+| `failure.timedout` | Failed to upload within the allotted time.
+| `failure.other` | Failed to upload for other reasons. |
 
 | Onchain Status | Meaning |
 |--------|---------|
 | `pending` | Onchain verification hasn't started yet because waiting for successful upload. |
 | `success` | Piece confirmed on-chain (transaction hash recorded). |
-| `failure` | Failed to confirm piece onchain within the allotted time. |
+| `failure.timedout` | Failed to confirm piece onchain within the allotted time. |
+| `failure.other` | Failed to confirm piece onchain for other reasons. |
 
 | Discoverability Status | Meaning |
 |--------|---------|
@@ -190,13 +174,15 @@ It's expected that a Data Storage check will still store an overall status for e
 | `sp_indexed` | SP indexed the piece locally |
 | `sp_announced_advertisement` | SP announced the local index to IPNI so IPNI can pull it from the SP. |
 | `success` | Root CID is discoverable via IPNI and the SP is listed as a provider in the IPNI response. |
-| `failed` | Dealbot failed to confirm <IPFSRootCid,SP> provider record within the allotted time |
+| `failure.timedout` | Dealbot failed to confirm <IPFSRootCid,SP> provider record within the allotted time |
+| `failure.other` | Dealbot failed to confirm <IPFSRootCid,SP> provider record for other reasons. |
 
 | Retrieval Status | Meaning |
 |--------|---------|
 | `pending` | Retrieval checking hasn't started yet because Discoverability verification hasn't progressed past `sp_indexed`. |
 | `success` | Piece was retrieved and verified with [standard IPFS tooling](https://github.com/filecoin-project/filecoin-pin/blob/master/documentation/glossary.md#standard-ipfs-tooling).  |
-| `failed` | Piece wasn't retrieved and verified within the allotted time. |
+| `failure.timedout` | Piece wasn't retrieved and verified within the allotted time. |
+| `failure.other` | Piece wasn't retrieved and verified for other reasons. |
 
 Sources: 
 - [`types.ts` (`DealStatus`)](../../apps/backend/src/database/types.ts#L1)
@@ -213,16 +199,20 @@ Key environment variables that control deal creation behavior:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `RANDOM_PIECE_SIZES` | `10240,10485760,104857600` | Possible random file sizes in bytes (10 KiB, 10 MB, 100 MB) |
-| `USE_ONLY_APPROVED_PROVIDERS` | `true` | Only test approved SPs |
-| <a id="MIN_NUM_DATASETS_FOR_CHECKS"></a>`MIN_NUM_DATASETS_FOR_CHECKS` | **TBD** (I assume this will be 1) | Minimum number of datasets to create on-chain for each SP.  The usecase for setting this greater than one is if you want an SP to have more non-empty datasets. |
 
 Source: [`apps/backend/src/config/app.config.ts`](../../apps/backend/src/config/app.config.ts)
 
 See also: [`docs/environment-variables.md`](../environment-variables.md) for the full configuration reference.
 
+## FAQ
+
+### Why do we check filecoinpin.contact rather than cid.contact?
+
+See https://github.com/filecoin-project/filecoin-pin/blob/master/documentation/content-routing-faq.md#why-is-there-filecoinpincontact-and-cidcontact
+
 ## TBD Summary
 
-The following items are **TBD**:
+The following items are **TBD**.  This set will get reviewed and cleaned up as part of https://github.com/FilOzone/dealbot/issues/280.
 
 | Item | Description |
 |------|-------------|
@@ -234,9 +224,3 @@ The following items are **TBD**:
 | `onPieceConfirmed` callback tracking | Track `onPieceConfirmed` callback as a distinct step — piece confirmed on-chain (only `onPieceAdded` is tracked as a deal status gate until this lands) |
 | IPFS gateway retrieval verification | After SP indexes, retrieve content via the SP IPFS gateway (`/ipfs/{rootCid}`) and verify it before the deal can pass |
 | `filecoin-pin` CAR conversion | CAR conversion should use the `filecoin-pin` library integration (local implementation in `ipni.strategy.ts` until this lands) |
-
-## FAQ
-
-### Why do we check filecoinpin.contact rather than cid.contact?
-
-See https://github.com/filecoin-project/filecoin-pin/blob/master/documentation/content-routing-faq.md#why-is-there-filecoinpincontact-and-cidcontact

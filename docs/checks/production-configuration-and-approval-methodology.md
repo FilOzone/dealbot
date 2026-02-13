@@ -90,15 +90,15 @@ This is in a private repo because it includes other infrastructure configuration
 
 ### Does dealbot cleanup old pieces?
 
-No, not currently.  TODO: link to backlog item for this.
+No, not currently.  See issue [#284](https://github.com/FilOzone/dealbot/issues/284) for more details.
 
 ## How are data storage and retrieval check statistics/thresholds calculated?
-TODO for researcher/PM/Steve: fill this in covering things like
+TODO for researcher/PM/Steve (tracked in issue [#174](https://github.com/FilOzone/dealbot/issues/174)): fill this in covering things like
 - 95% confidence level
 - One sided confidence interval
 
 ## How are data retention statistics/thresholds calculated?
-TODO for researcher/PM/Steve: fill this in covering things like
+TODO for researcher/PM/Steve (tracked in issue [#174](https://github.com/FilOzone/dealbot/issues/174)): fill this in covering things like
 - 95% confidence level
 - One sided confidence interval
 - It doesn't matter how much data is stored in a dataset
@@ -110,7 +110,7 @@ Latency and throughput are not just a function of the SP's infrastructure.  They
 
 ## Why are 10MB files used for testing?
 
-10MB files are used for simplicity.  It's an approximation of a static website, which is a usecase for Filecoin Onchain Cloud.  Until we have piece cleanup functionality, it was an easy way to not fill up SP disk space too rapidly.  It's also a better size for mesuring SP throughput than smaller files.
+10MB files are used for simplicity.  It's an approximation of a static website, which is a use case for Filecoin Onchain Cloud.  Until we have piece cleanup functionality, it was an easy way to not fill up SP disk space too rapidly.  It's also a better size for measuring SP throughput than smaller files.
 
 ## Why are we using the SP's `/ipfs` endpoint for retrieval testing?
 

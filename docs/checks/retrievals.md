@@ -17,7 +17,7 @@ This is distinct from the inline retrieval verification in the data storage chec
 A **successful** retrieval requires ALL of:
 
 1. Randomly select a previously stored test piece of a dealbot-managed dataset.
-2. **TBD:** Verify the root CID is discoverable via IPNI and the SP is listed as a provider
+2. Verify the root CID is discoverable via IPNI and the SP is listed as a provider
 3. Perform [`/ipfs` retrieval](https://github.com/filecoin-project/filecoin-pin/blob/master/documentation/glossary.md#ipfs-retrieval) with the SP.
 4. Download completes successfully (HTTP 2xx)
 5. Downloaded content hashes to the requested CID (**TBD**: size-check only until CID verification lands).
@@ -34,20 +34,14 @@ The scheduler triggers retrieval testing on a configurable interval.
 
 ```mermaid
 flowchart TD
-  A["For each SP under test, select MAX_RETRIEVAL_CHECKS_PER_SP_PER_CYCLE random pieces"] --> B{"For each piece<br/>up to MAX_RETRIEVAL_CHECKS_IN_PARALLEL"}
-  B --> C["IPNI verification (TBD)"]
-  C --> G["Record result (success/failure)"]
-  B --> D["Download via SP IPFS gateway<br/>/ipfs/{rootCid}"]
-  D --> E["Measure latency, TTFB, throughput"]
-  E --> F["Validate downloaded data"]
-  F --> G
+  SelectPiece["Select random test piece for SP under test"] --> IPNIVerify["IPNI verification (TBD)"]
+  IPNIVerify --> RecordResult["Record result (success/failure)"]
+  SelectPiece --> DownloadPiece["Download via SP IPFS gateway<br/>/ipfs/{rootCid}"]
+  DownloadPiece --> ValidateData["Validate downloaded data"]
+  ValidateData --> RecordResult
 ```
 
-### 1. SP selection
-
-The set of SPs under test is determined with the same logic specified in [data storage](./data-storage.md#3-determine-which-sps-to-check-for-this-cycle).
-
-### 2. Piece Selection
+### Piece Selection
 
 Dealbot randomly selects MAX_RETRIEVAL_CHECKS_PER_SP_PER_CYCLE pieces per SP under test for retrieval testing with the following constraints:
 
@@ -57,15 +51,15 @@ Dealbot randomly selects MAX_RETRIEVAL_CHECKS_PER_SP_PER_CYCLE pieces per SP und
 
 Source: [`retrieval.service.ts` (`selectRandomDealsForRetrieval`)](../../apps/backend/src/retrieval/retrieval.service.ts#L273)
 
-## Retrieval Checks
+### Retrieval Checks
 
-For each selected piece, dealbot performs the following retrieval checks:
+For each selected piece, dealbot performs the following in parallel:
 
-### 1. IPNI Verification
+#### IPNI Verification
 
 IPNI verification is the same as described in [Data Storage Check](./data-storage.md#6-verify-ipni-indexing).  The only difference is that we don't wait as long since we already know the piece was indexed.  We're just making sure that it's still indexed.
 
-### 2. `/ipfs` Retrieval
+#### `/ipfs` Retrieval
 
 Downloads content from the SP directly with [`/ipfs` retrieval](https://github.com/filecoin-project/filecoin-pin/blob/master/documentation/glossary.md#ipfs-retrieval)
 
@@ -123,7 +117,6 @@ Key environment variables that control retrieval testing:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `MAX_RETRIEVAL_CHECKS_PER_SP_PER_CYCLE` | **TBD** | Number of pieces to select per SP under test per retrieval cycle. |
-| `MAX_RETRIEVAL_CHECKS_IN_PARALLEL` | **TBD** | Max number of retrieval checks run in parallel (across all SPs) per cycle. |
 | `IPNI_VERIFICATION_TIMEOUT_MS` | `10000` | Max duration to attempt the IPNI verification step  |
 | `IPNI_VERIFICATION_POLLING_MS` | `2000` | How long to give between IPNI polling attempts  |
 | `IPFS_RETRIEVAL_REQUEST_CONNECTION_ESTABLISH_TIMEOUT_MS` | `5000` | Max duration to wait for an HTTP connection get established. |
@@ -133,7 +126,7 @@ See also: [`docs/environment-variables.md`](../environment-variables.md) for the
 
 ## TBD Summary
 
-The following items are **TBD**:
+The following items are **TBD**.  This set will get reviewed and cleaned up as part of https://github.com/FilOzone/dealbot/issues/280.
 
 | Item | Description |
 |------|-------------|

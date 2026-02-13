@@ -2,7 +2,7 @@
 
 This document is the intended **source of truth** for the events emitted by dealbot [checks](./README.md#check) and the metrics computed from them. It is intended for dealbot dashboard consumers and maintainers who need to understand what each metric means and where it comes from.
 
-This document describes the expected flow and metrics. Items marked **TBD** are not yet implemented.
+This document describes the expected flow and metrics. Items marked **TBD** are not yet implemented but will get reviewed and cleaned up as part of https://github.com/FilOzone/dealbot/issues/280.
 
 ## Event Model
 
