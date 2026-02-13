@@ -462,7 +462,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     const defaultMetricsPerHour = 2;
     // Keep cleanup weekly to match legacy cron schedule unless explicitly changed in code.
     const defaultMetricsCleanupIntervalSeconds = 7 * 24 * 3600;
-    const providersRefreshIntervalSeconds = 24 * 3600;
+    const providersRefreshIntervalSeconds = 4 * 3600;
 
     const dealsPerHourRaw = jobsConfig?.dealsPerSpPerHour ?? defaultDealsPerHour;
     const retrievalsPerHourRaw = jobsConfig?.retrievalsPerSpPerHour ?? defaultRetrievalsPerHour;

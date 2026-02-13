@@ -214,8 +214,8 @@ export class SchedulerService implements OnModuleInit {
     await this.retrievalRunPromise;
   }
 
-  @Cron("0 0 * * *", { name: "providers-refresh" })
-  async handleProviderRefreshDaily() {
+  @Cron("0 */4 * * *", { name: "providers-refresh" })
+  async handleProviderRefreshEvery4Hours() {
     if (process.env.DEALBOT_JOBS_MODE === "pgboss") {
       return;
     }
@@ -223,7 +223,7 @@ export class SchedulerService implements OnModuleInit {
       return;
     }
     if (process.env.DEALBOT_DISABLE_CHAIN === "true") {
-      this.logger.warn("Chain integration disabled; skipping daily provider refresh.");
+      this.logger.warn("Chain integration disabled; skipping 4-hour provider refresh.");
       return;
     }
     if (this.isRunningProviderRefresh) {
@@ -232,7 +232,7 @@ export class SchedulerService implements OnModuleInit {
     }
 
     this.isRunningProviderRefresh = true;
-    this.logger.log("Starting daily provider refresh");
+    this.logger.log("Starting 4-hour provider refresh");
     try {
       await this.walletSdkService.loadProviders();
     } catch (error) {
