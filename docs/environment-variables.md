@@ -804,7 +804,7 @@ Use this to stagger multiple dealbot deployments that are not sharing a database
 - Increase if deal uploads consistently take longer than the default (e.g., slower networks, IPNI delays)
 - Decrease if you want to fail-fast on stuck jobs
 
-**Note**: This is independent of HTTP-level timeouts. The job timeout enforces end-to-end execution time including all operations (provider lookup, upload, IPNI verification, etc.).
+**Note**: This is independent of HTTP-level timeouts. The job timeout enforces end-to-end execution time of a Data Storage Check job including all operations (provider lookup, upload, IPNI verification, etc.).
 
 ---
 
