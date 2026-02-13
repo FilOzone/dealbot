@@ -20,7 +20,7 @@ import type {
  * Uses metrics_daily table which aggregates by:
  * - dailyBucket (date)
  * - spAddress (provider)
- * - serviceType (CDN, DIRECT, IPFS)
+ * - serviceType (DIRECT_SP, IPFS_PIN)
  *
  * @class DailyMetricsService
  */
@@ -141,7 +141,7 @@ export class DailyMetricsService {
 
   /**
    * Get service type comparison metrics for a date range
-   * Breaks down retrieval metrics by service type (CDN, DIRECT_SP, IPFS_PIN)
+   * Breaks down retrieval metrics by service type (DIRECT_SP, IPFS_PIN)
    *
    * @param startDate - Start date for the query
    * @param endDate - End date for the query
@@ -165,11 +165,25 @@ export class DailyMetricsService {
         return this.getEmptyServiceComparisonResponse(startDate, endDate);
       }
 
-      // Filter to only retrieval metrics (service_type not null)
-      const retrievalMetrics = metrics.filter((m) => m.serviceType !== null);
+      const retrievalMetrics = metrics.filter(
+        (m): m is MetricsDaily & { serviceType: ServiceType } => m.serviceType !== null,
+      );
+      const supportedServiceTypes = new Set<ServiceType>([ServiceType.DIRECT_SP, ServiceType.IPFS_PIN]);
+      const unsupportedServiceTypes = new Set(
+        retrievalMetrics.map((m) => m.serviceType).filter((serviceType) => !supportedServiceTypes.has(serviceType)),
+      );
+
+      if (unsupportedServiceTypes.size > 0) {
+        this.logger.warn(
+          `Service comparison excludes unsupported service types: ${[...unsupportedServiceTypes].join(", ")}`,
+        );
+      }
+
+      // ServiceComparisonMetricsDto only exposes the supported service types.
+      const supportedRetrievalMetrics = retrievalMetrics.filter((m) => supportedServiceTypes.has(m.serviceType));
 
       // Group by date and aggregate by service type
-      const dailyMetrics = this.aggregateByServiceType(retrievalMetrics);
+      const dailyMetrics = this.aggregateByServiceType(supportedRetrievalMetrics);
       const summary = this.calculateServiceSummary(dailyMetrics);
 
       return {
@@ -520,7 +534,7 @@ export class DailyMetricsService {
 
   /**
    * Aggregate metrics by service type for each date
-   * Groups by dailyBucket and separates by service type (CDN, DIRECT_SP, IPFS_PIN)
+   * Groups by dailyBucket and separates by service type (DIRECT_SP, IPFS_PIN)
    *
    * @private
    */
@@ -606,7 +620,6 @@ export class DailyMetricsService {
     for (const [date, serviceMap] of dateServiceMap) {
       aggregated.push({
         date,
-        cdn: aggregateService(serviceMap.get(ServiceType.CDN)),
         directSp: aggregateService(serviceMap.get(ServiceType.DIRECT_SP)),
         ipfsPin: aggregateService(serviceMap.get(ServiceType.IPFS_PIN)),
       });
@@ -621,26 +634,17 @@ export class DailyMetricsService {
    * @private
    */
   private calculateServiceSummary(dailyMetrics: ServiceComparisonMetricsDto[]) {
-    let cdnTotalRetrievals = 0;
     let directSpTotalRetrievals = 0;
     let ipfsPinTotalRetrievals = 0;
 
-    let cdnSuccessRateSum = 0;
-    let cdnSuccessRateCount = 0;
     let directSpSuccessRateSum = 0;
     let directSpSuccessRateCount = 0;
     let ipfsPinSuccessRateSum = 0;
     let ipfsPinSuccessRateCount = 0;
 
     for (const day of dailyMetrics) {
-      cdnTotalRetrievals += day.cdn.totalRetrievals;
       directSpTotalRetrievals += day.directSp.totalRetrievals;
       ipfsPinTotalRetrievals += day.ipfsPin.totalRetrievals;
-
-      if (day.cdn.totalRetrievals > 0) {
-        cdnSuccessRateSum += day.cdn.successRate;
-        cdnSuccessRateCount++;
-      }
 
       if (day.directSp.totalRetrievals > 0) {
         directSpSuccessRateSum += day.directSp.successRate;
@@ -655,11 +659,8 @@ export class DailyMetricsService {
 
     return {
       totalDays: dailyMetrics.length,
-      cdnTotalRetrievals,
       directSpTotalRetrievals,
       ipfsPinTotalRetrievals,
-      cdnAvgSuccessRate:
-        cdnSuccessRateCount > 0 ? Math.round((cdnSuccessRateSum / cdnSuccessRateCount) * 100) / 100 : 0,
       directSpAvgSuccessRate:
         directSpSuccessRateCount > 0 ? Math.round((directSpSuccessRateSum / directSpSuccessRateCount) * 100) / 100 : 0,
       ipfsPinAvgSuccessRate:
@@ -751,10 +752,8 @@ export class DailyMetricsService {
       },
       summary: {
         totalDays: 0,
-        cdnTotalRetrievals: 0,
         directSpTotalRetrievals: 0,
         ipfsPinTotalRetrievals: 0,
-        cdnAvgSuccessRate: 0,
         directSpAvgSuccessRate: 0,
         ipfsPinAvgSuccessRate: 0,
       },

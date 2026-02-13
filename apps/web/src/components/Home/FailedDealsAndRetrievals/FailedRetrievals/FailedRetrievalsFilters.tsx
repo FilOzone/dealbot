@@ -109,7 +109,6 @@ function FailedRetrievalsFilters({
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Service Types</SelectItem>
-                <SelectItem value={ServiceType.CDN}>CDN</SelectItem>
                 <SelectItem value={ServiceType.DIRECT_SP}>Direct SP</SelectItem>
                 <SelectItem value={ServiceType.IPFS_PIN}>IPFS Pin</SelectItem>
               </SelectContent>

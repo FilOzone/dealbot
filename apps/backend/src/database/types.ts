@@ -9,7 +9,6 @@ export enum DealStatus {
 
 export enum ServiceType {
   DIRECT_SP = "direct_sp",
-  CDN = "cdn",
   IPFS_PIN = "ipfs_pin",
 }
 
@@ -46,18 +45,6 @@ export enum IpniStatus {
 /**
  * Metadata schema for deal storage and retrieval
  */
-
-/**
- * CDN-specific metadata
- * Generated during deal preprocessing when CDN is enabled
- */
-export interface CdnMetadata {
-  /** Whether CDN is enabled for this deal */
-  enabled: boolean;
-
-  /** CDN provider name (e.g., "fil-beam") */
-  provider: string;
-}
 
 /**
  * IPNI-specific metadata
@@ -97,9 +84,6 @@ export interface DirectMetadata {
  * Stored in deal.metadata JSONB column
  */
 export interface DealMetadata {
-  /** CDN metadata (if CDN is enabled) */
-  [ServiceType.CDN]?: CdnMetadata;
-
   /** IPNI metadata (if IPNI is enabled) */
   [ServiceType.IPFS_PIN]?: IpniMetadata;
 

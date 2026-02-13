@@ -78,10 +78,10 @@ export class DevToolsService {
       throw new BadRequestException(`Storage provider is not active: ${spAddress}`);
     }
 
-    // Get CDN/IPNI settings from config
-    const { enableCDN, enableIpni } = this.dealService.getTestingDealOptions();
+    // Get IPNI settings from config
+    const { enableIpni } = this.dealService.getTestingDealOptions();
 
-    this.logger.log(`Deal settings - CDN: ${enableCDN}, IPNI: ${enableIpni}`);
+    this.logger.log(`Deal settings - IPNI: ${enableIpni}`);
 
     // Create a pending deal record first so we can return the ID immediately
     const pendingDeal = this.dealRepository.create({
@@ -99,7 +99,7 @@ export class DevToolsService {
     this.logger.log(`Created pending deal ${dealId}, starting background processing`);
 
     // Fire off the deal creation in the background (don't await)
-    this.processDealInBackground(dealId, providerInfo, enableCDN, enableIpni).catch((err) => {
+    this.processDealInBackground(dealId, providerInfo, enableIpni).catch((err) => {
       this.logger.error(`Background deal processing failed for ${dealId}: ${err.message}`);
     });
 
@@ -121,12 +121,10 @@ export class DevToolsService {
   private async processDealInBackground(
     dealId: string,
     providerInfo: ReturnType<typeof this.walletSdkService.getProviderInfo>,
-    enableCDN: boolean,
     enableIpni: boolean,
   ): Promise<void> {
     try {
       const deal = await this.dealService.createDealForProvider(providerInfo!, {
-        enableCDN,
         enableIpni,
         existingDealId: dealId,
       });

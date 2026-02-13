@@ -16,7 +16,6 @@ const baseConfig: IBlockchainConfig = {
   walletPrivateKey: "test",
   checkDatasetCreationFees: false,
   useOnlyApprovedProviders: false,
-  enableCDNTesting: false,
   enableIpniTesting: "always",
 };
 
