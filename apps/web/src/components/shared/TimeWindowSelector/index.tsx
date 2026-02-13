@@ -1,7 +1,7 @@
 import type { DateRange, OnSelectHandler } from "react-day-picker";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { PRESET_OPTIONS, getTimeWindowLabel } from "@/lib/time-window";
 import type { PresetValue, TimeWindow } from "@/lib/time-window";
+import { getTimeWindowLabel, PRESET_OPTIONS } from "@/lib/time-window";
 import WindowContent from "./WindowContent";
 import WindowTrigger from "./WindowTrigger";
 
