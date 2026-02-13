@@ -16,6 +16,11 @@ export class RemoveCdnServiceType1760600000000 implements MigrationInterface {
     await queryRunner.query(`DELETE FROM metrics_daily WHERE service_type = 'cdn'`);
     await queryRunner.query(`
       UPDATE deals
+      SET metadata = metadata - 'cdnMetadata'
+      WHERE metadata ? 'cdnMetadata'
+    `);
+    await queryRunner.query(`
+      UPDATE deals
       SET service_types = array_to_string(array_remove(string_to_array(service_types, ','), 'cdn'), ',')
       WHERE service_types IS NOT NULL
     `);
