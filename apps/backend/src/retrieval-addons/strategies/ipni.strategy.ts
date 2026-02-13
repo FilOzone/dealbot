@@ -1,7 +1,5 @@
 import { Injectable, Logger } from "@nestjs/common";
-import { ConfigService } from "@nestjs/config";
 import { validateCarContent } from "../../common/car-utils.js";
-import type { IConfig, IDatasetConfig } from "../../config/app.config.js";
 import { ServiceType } from "../../database/types.js";
 import { WalletSdkService } from "../../wallet-sdk/wallet-sdk.service.js";
 import type { IRetrievalAddon } from "../interfaces/retrieval-addon.interface.js";
@@ -25,10 +23,7 @@ export class IpniRetrievalStrategy implements IRetrievalAddon {
   readonly name = ServiceType.IPFS_PIN;
   readonly priority = RetrievalPriority.MEDIUM; // Alternative method
 
-  constructor(
-    private readonly walletSdkService: WalletSdkService,
-    private readonly configService: ConfigService<IConfig, true>,
-  ) {}
+  constructor(private readonly walletSdkService: WalletSdkService) {}
 
   /**
    * IPNI retrieval is only available if IPNI was enabled during deal creation
@@ -174,8 +169,7 @@ export class IpniRetrievalStrategy implements IRetrievalAddon {
       };
     }
 
-    const datasetConfig = this.configService.get<IDatasetConfig>("dataset");
-    const validationResult = await validateCarContent(retrievedData, rootCIDStr, datasetConfig.localDatasetsPath);
+    const validationResult = await validateCarContent(retrievedData, rootCIDStr);
 
     if (!validationResult.isValid) {
       this.logger.warn(
@@ -189,7 +183,7 @@ export class IpniRetrievalStrategy implements IRetrievalAddon {
       details: validationResult.details,
       comparison: {
         expected: rootCIDStr,
-        actual: validationResult.rebuiltRootCID ?? "unknown",
+        actual: validationResult.verifiedRootCID ?? "unknown",
       },
     };
   }

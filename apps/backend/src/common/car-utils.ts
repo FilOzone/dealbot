@@ -1,20 +1,19 @@
 import { randomBytes } from "node:crypto";
-import { createWriteStream } from "node:fs";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Readable } from "node:stream";
-import { pipeline } from "node:stream/promises";
 import { CarReader } from "@ipld/car";
 import { cleanupTempCar, createCarFromPath } from "filecoin-pin/core/unixfs";
-import { exporter } from "ipfs-unixfs-exporter";
 import { CID } from "multiformats/cid";
+import { identity } from "multiformats/hashes/identity";
+import type { MultihashHasher } from "multiformats/hashes/interface";
+import { sha256 } from "multiformats/hashes/sha2";
 
 export type CarValidationResult = {
   isValid: boolean;
   method: string;
   details: string;
-  rebuiltRootCID?: string;
+  verifiedRootCID?: string;
   errors?: string[];
 };
 
@@ -28,14 +27,37 @@ export type UnixfsCarResult = {
 };
 
 class CarReaderBlockstore {
-  constructor(private readonly reader: CarReader) {}
+  constructor(
+    private readonly reader: CarReader,
+    private readonly verifyBlocks: boolean = false,
+  ) {}
 
-  async *get(cid: CID, _options?: unknown): AsyncGenerator<Uint8Array> {
+  async get(cid: CID, _options?: unknown): Promise<Uint8Array> {
     const block = await this.reader.get(cid);
     if (!block) {
       throw new Error(`Block not found for CID: ${cid.toString()}`);
     }
-    yield block.bytes;
+    if (this.verifyBlocks) {
+      await verifyCidBytes(cid, block.bytes);
+    }
+    return block.bytes;
+  }
+}
+
+const supportedHashers: MultihashHasher[] = [sha256, identity];
+
+function getHasher(code: number): MultihashHasher | undefined {
+  return supportedHashers.find((hasher) => hasher.code === code);
+}
+
+async function verifyCidBytes(cid: CID, bytes: Uint8Array): Promise<void> {
+  const hasher = getHasher(cid.multihash.code);
+  if (!hasher) {
+    throw new Error(`Unsupported multihash code ${cid.multihash.code} for CID ${cid.toString()}`);
+  }
+  const digest = await hasher.digest(bytes);
+  if (Buffer.compare(Buffer.from(digest.bytes), Buffer.from(cid.multihash.bytes)) !== 0) {
+    throw new Error(`CID hash mismatch for ${cid.toString()}`);
   }
 }
 
@@ -92,153 +114,95 @@ export async function buildUnixfsCar(dataFile: { data: Buffer; size: number; nam
  * Returns the root CID and list of extracted file paths. If expectedRootCID is
  * provided, it will be used to select the root when multiple roots are present.
  */
-export async function unpackCarToPath(
-  carBytes: Uint8Array,
-  outputDir: string,
-  expectedRootCID?: string,
-): Promise<{ rootCID: CID; files: string[] }> {
-  const reader = await CarReader.fromBytes(carBytes);
-  const roots = await reader.getRoots();
-  if (roots.length === 0) {
-    throw new Error("CAR file has no roots");
+/**
+ * Validate CAR content by verifying that all CAR blocks hash to their CIDs and
+ * that the expected root is present. This avoids reconstruction and relies on
+ * CID integrity for validation.
+ */
+export async function validateCarContent(carBytes: Uint8Array, expectedRootCID: string): Promise<CarValidationResult> {
+  const errors: string[] = [];
+  let reader: CarReader;
+  try {
+    reader = await CarReader.fromBytes(carBytes);
+  } catch (err) {
+    return {
+      isValid: false,
+      method: "car-content-validation",
+      details: `Failed to read CAR: ${err instanceof Error ? err.message : String(err)}`,
+      errors: [`car-read-error: ${err instanceof Error ? err.message : String(err)}`],
+    };
   }
+
+  let roots: CID[];
+  try {
+    roots = await reader.getRoots();
+  } catch (err) {
+    return {
+      isValid: false,
+      method: "car-content-validation",
+      details: `Failed to read CAR roots: ${err instanceof Error ? err.message : String(err)}`,
+      errors: [`car-roots-error: ${err instanceof Error ? err.message : String(err)}`],
+    };
+  }
+
+  if (roots.length === 0) {
+    return {
+      isValid: false,
+      method: "car-content-validation",
+      details: "CAR file has no roots",
+      errors: ["car-roots-missing"],
+    };
+  }
+
   let rootCID: CID | undefined;
   if (expectedRootCID) {
     rootCID = roots.find((cid) => cid.toString() === expectedRootCID);
   }
+
   if (!rootCID) {
-    // For single-root CARs, proceed with that root even if it doesn't match
-    // the expected CID so validation can report a mismatch instead of an
-    // unpack error. Only reject when the CAR is multi-root and ambiguous.
     if (roots.length === 1) {
       rootCID = roots[0];
+      errors.push(`root-cid-mismatch: CAR root CID ${rootCID.toString()} !== expected ${expectedRootCID}`);
     } else {
       const rootList = roots.map((cid) => cid.toString()).join(", ");
-      if (expectedRootCID) {
-        throw new Error(`Expected root CID ${expectedRootCID} not found in CAR roots: ${rootList}`);
-      }
-      throw new Error(`Multi-root CAR files are not supported; found roots: ${rootList}`);
+      return {
+        isValid: false,
+        method: "car-content-validation",
+        details: `Expected root CID ${expectedRootCID} not found in CAR roots: ${rootList}`,
+        errors: [`root-cid-mismatch: expected ${expectedRootCID} not found in CAR roots: ${rootList}`],
+      };
     }
   }
 
-  const blockstore = new CarReaderBlockstore(reader);
-
-  // export the DAG from the root CID
-  const entry = await exporter(rootCID, blockstore);
-  const files: string[] = [];
-
-  await mkdir(outputDir, { recursive: true });
-
-  if (entry.type === "file" || entry.type === "raw" || entry.type === "identity") {
-    const outPath = join(outputDir, entry.name || "data");
-    await pipeline(Readable.from(entry.content()), createWriteStream(outPath));
-    files.push(outPath);
-  } else if (entry.type === "directory") {
-    for await (const child of entry.entries()) {
-      // re-export each child to get its content
-      const childEntry = await exporter(child.cid, blockstore);
-      if (childEntry.type === "file" || childEntry.type === "raw" || childEntry.type === "identity") {
-        const outPath = join(outputDir, child.name);
-        await pipeline(Readable.from(childEntry.content()), createWriteStream(outPath));
-        files.push(outPath);
-      }
+  let verifiedBlocks = 0;
+  let rootBlockFound = false;
+  for await (const block of reader.blocks()) {
+    if (block.cid.toString() === rootCID.toString()) {
+      rootBlockFound = true;
     }
-  }
-
-  return { rootCID, files };
-}
-
-/**
- * Validate CAR content by round-tripping: unpack the CAR, rebuild from extracted
- * content, and compare root CIDs. This proves CAR structure, UnixFS DAG integrity,
- * and content correctness.
- */
-export async function validateCarContent(
-  carBytes: Uint8Array,
-  expectedRootCID: string,
-  baseTempDir?: string,
-): Promise<CarValidationResult> {
-  const tempBase = join(baseTempDir ?? tmpdir(), `dealbot-validate-${randomBytes(6).toString("hex")}`);
-  const extractDir = join(tempBase, "extracted");
-  const errors: string[] = [];
-
-  try {
-    // unpack the CAR to extract original content
-    let unpackResult: { rootCID: CID; files: string[] };
     try {
-      unpackResult = await unpackCarToPath(carBytes, extractDir, expectedRootCID);
+      await verifyCidBytes(block.cid, block.bytes);
+      verifiedBlocks += 1;
     } catch (err) {
-      return {
-        isValid: false,
-        method: "car-content-validation",
-        details: `Failed to unpack CAR: ${err instanceof Error ? err.message : String(err)}`,
-        errors: [`unpack-error: ${err instanceof Error ? err.message : String(err)}`],
-      };
-    }
-
-    // check that the CAR's root CID matches what we expect
-    const carRootCID = unpackResult.rootCID.toString();
-    if (carRootCID !== expectedRootCID) {
-      errors.push(`root-cid-mismatch: CAR root CID ${carRootCID} !== expected ${expectedRootCID}`);
-    }
-
-    if (unpackResult.files.length === 0) {
-      return {
-        isValid: false,
-        method: "car-content-validation",
-        details: "CAR unpacked but no files were extracted",
-        rebuiltRootCID: carRootCID,
-        errors: ["no-files-extracted"],
-      };
-    }
-
-    // rebuild a CAR from the extracted content
-    let rebuiltRootCID: string;
-    let rebuiltCarPath: string | undefined;
-    try {
-      const rebuiltResult = await createCarFromPath(unpackResult.files[0]);
-      rebuiltCarPath = rebuiltResult.carPath;
-      rebuiltRootCID = rebuiltResult.rootCid.toString();
-    } catch (err) {
-      return {
-        isValid: false,
-        method: "car-content-validation",
-        details: `Failed to rebuild CAR: ${err instanceof Error ? err.message : String(err)}`,
-        rebuiltRootCID: undefined,
-        errors: [`rebuild-error: ${err instanceof Error ? err.message : String(err)}`],
-      };
-    } finally {
-      if (rebuiltCarPath) {
-        try {
-          await cleanupTempCar(rebuiltCarPath);
-        } catch {
-          // best-effort cleanup
-        }
-      }
-    }
-
-    // compare rebuilt root CID with expected
-    if (rebuiltRootCID !== expectedRootCID) {
-      errors.push(`rebuilt-cid-mismatch: rebuilt root CID ${rebuiltRootCID} !== expected ${expectedRootCID}`);
-    }
-
-    const isValid = errors.length === 0;
-    const details = isValid
-      ? `CAR content validated: root CID ${expectedRootCID} matches after round-trip`
-      : `CAR content validation failed: ${errors.join("; ")}`;
-
-    return {
-      isValid,
-      method: "car-content-validation",
-      details,
-      rebuiltRootCID,
-      errors: errors.length > 0 ? errors : undefined,
-    };
-  } finally {
-    try {
-      await rm(tempBase, { recursive: true, force: true });
-    } catch {
-      // best-effort cleanup
+      errors.push(`cid-verify-error: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
+
+  if (!rootBlockFound) {
+    errors.push(`root-block-missing: ${rootCID.toString()}`);
+  }
+
+  const isValid = errors.length === 0;
+  const rootCIDStr = rootCID.toString();
+  const details = isValid
+    ? `CAR content validated: verified ${verifiedBlocks} blocks for root CID ${rootCIDStr}`
+    : `CAR content validation failed: ${errors.join("; ")}`;
+
+  return {
+    isValid,
+    method: "car-content-validation",
+    details,
+    verifiedRootCID: rootCIDStr,
+    errors: errors.length > 0 ? errors : undefined,
+  };
 }
