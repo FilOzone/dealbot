@@ -610,6 +610,7 @@ describe("DealService", () => {
           enableCDN: expect.any(Boolean),
           enableIpni: expect.any(Boolean),
         }),
+        undefined,
       );
 
       // Verify parallelism/iteration

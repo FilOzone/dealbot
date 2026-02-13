@@ -36,7 +36,7 @@ export interface IDealAddon<T extends CdnMetadata | IpniMetadata | DirectMetadat
    * @returns Preprocessing result with transformed data and metadata
    * @throws Error if preprocessing fails
    */
-  preprocessData(context: AddonExecutionContext): Promise<PreprocessingResult<T>>;
+  preprocessData(context: AddonExecutionContext, signal?: AbortSignal): Promise<PreprocessingResult<T>>;
 
   /**
    * Get Synapse SDK configuration for this add-on

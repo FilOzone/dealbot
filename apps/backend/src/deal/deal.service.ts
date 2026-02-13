@@ -117,11 +117,15 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       signal?: AbortSignal;
     },
   ): Promise<Deal> {
-    const { preprocessed, cleanup } = await this.prepareDealInput(options.enableCDN, options.enableIpni);
+    const { preprocessed, cleanup } = await this.prepareDealInput(
+      options.enableCDN,
+      options.enableIpni,
+      options.signal,
+    );
 
     try {
       const synapse = this.sharedSynapse ?? (await this.createSynapseInstance());
-      const uploadPayload = await this.prepareUploadPayload(preprocessed);
+      const uploadPayload = await this.prepareUploadPayload(preprocessed, options.signal);
       return await this.createDeal(
         synapse,
         providerInfo,
@@ -141,14 +145,18 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
   async prepareDealInput(
     enableCDN: boolean,
     enableIpni: boolean,
+    signal?: AbortSignal,
   ): Promise<{ preprocessed: DealPreprocessingResult; cleanup: () => Promise<void> }> {
     const dataFile = await this.fetchDataFile(SIZE_CONSTANTS.MIN_UPLOAD_SIZE, SIZE_CONSTANTS.MAX_UPLOAD_SIZE);
 
-    const preprocessed = await this.dealAddonsService.preprocessDeal({
-      enableCDN,
-      enableIpni,
-      dataFile,
-    });
+    const preprocessed = await this.dealAddonsService.preprocessDeal(
+      {
+        enableCDN,
+        enableIpni,
+        dataFile,
+      },
+      signal,
+    );
 
     const cleanup = async () => this.dataSourceService.cleanupRandomDataset(dataFile.name);
 
@@ -432,7 +440,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  private async prepareUploadPayload(dealInput: DealPreprocessingResult): Promise<UploadPayload> {
+  private async prepareUploadPayload(dealInput: DealPreprocessingResult, signal?: AbortSignal): Promise<UploadPayload> {
     const ipniMetadata = dealInput.metadata[ServiceType.IPFS_PIN];
     if (ipniMetadata?.rootCID) {
       return {
@@ -445,11 +453,17 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       ? dealInput.processedData.data
       : Buffer.from(dealInput.processedData.data);
 
-    const carResult = await buildUnixfsCar({
-      data,
-      size: dealInput.processedData.size,
-      name: dealInput.processedData.name,
-    });
+    signal?.throwIfAborted();
+    const carResult = await buildUnixfsCar(
+      {
+        data,
+        size: dealInput.processedData.size,
+        name: dealInput.processedData.name,
+      },
+      {
+        signal,
+      },
+    );
 
     return {
       carData: carResult.carData,

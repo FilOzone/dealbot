@@ -151,7 +151,9 @@ export class RetrievalService {
           results.push(result.value);
         } else {
           if (!signal?.aborted) {
-            const errorMessage = result.reason?.message || "Unknown error";
+            const errorReason = result.reason;
+            const errorMessage =
+              errorReason instanceof Error ? errorReason.message : String(errorReason ?? "Unknown error");
             this.logger.error(`Batch retrieval failed for deal ${deal?.id || "unknown"}: ${errorMessage}`);
           }
         }

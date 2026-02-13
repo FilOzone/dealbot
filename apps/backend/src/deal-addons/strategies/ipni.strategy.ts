@@ -80,9 +80,10 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
    * Convert data to CAR format for IPNI indexing
    * This is the main preprocessing step that transforms the data
    */
-  async preprocessData(context: AddonExecutionContext): Promise<IpniPreprocessingResult> {
+  async preprocessData(context: AddonExecutionContext, signal?: AbortSignal): Promise<IpniPreprocessingResult> {
     try {
-      const carResult = await buildUnixfsCar(context.currentData);
+      signal?.throwIfAborted();
+      const carResult = await buildUnixfsCar(context.currentData, { signal });
 
       this.logger.log(`CAR conversion: ${carResult.blockCount} blocks, ${(carResult.carSize / 1024).toFixed(1)}KB`);
 

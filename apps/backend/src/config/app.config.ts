@@ -94,8 +94,8 @@ export const configValidationSchema = Joi.object({
   JOB_LOCK_RETRY_SECONDS: Joi.number().min(10).default(60),
   JOB_SCHEDULE_PHASE_SECONDS: Joi.number().min(0).default(0),
   JOB_ENQUEUE_JITTER_SECONDS: Joi.number().min(0).default(0),
-  DEAL_JOB_TIMEOUT_SECONDS: Joi.number().min(120).default(600), // 10 minutes max runtime for data storage jobs
-  RETRIEVAL_JOB_TIMEOUT_SECONDS: Joi.number().min(60).default(300), // 5 minutes max runtime for retrieval jobs
+  DEAL_JOB_TIMEOUT_SECONDS: Joi.number().min(120).default(360), // 6 minutes max runtime for data storage jobs (TODO: reduce default to 3 minutes)
+  RETRIEVAL_JOB_TIMEOUT_SECONDS: Joi.number().min(60).default(60), // 1 minute max runtime for retrieval jobs (TODO: reduce default to 30 seconds)
 
   // Dataset
   DEALBOT_LOCAL_DATASETS_PATH: Joi.string().default(DEFAULT_LOCAL_DATASETS_PATH),
@@ -398,8 +398,8 @@ export function loadConfig(): IConfig {
       lockRetrySeconds: Number.parseInt(process.env.JOB_LOCK_RETRY_SECONDS || "60", 10),
       schedulePhaseSeconds: Number.parseInt(process.env.JOB_SCHEDULE_PHASE_SECONDS || "0", 10),
       enqueueJitterSeconds: Number.parseInt(process.env.JOB_ENQUEUE_JITTER_SECONDS || "0", 10),
-      dealJobTimeoutSeconds: Number.parseInt(process.env.DEAL_JOB_TIMEOUT_SECONDS || "600", 10),
-      retrievalJobTimeoutSeconds: Number.parseInt(process.env.RETRIEVAL_JOB_TIMEOUT_SECONDS || "300", 10),
+      dealJobTimeoutSeconds: Number.parseInt(process.env.DEAL_JOB_TIMEOUT_SECONDS || "360", 10),
+      retrievalJobTimeoutSeconds: Number.parseInt(process.env.RETRIEVAL_JOB_TIMEOUT_SECONDS || "60", 10),
     },
     dataset: {
       localDatasetsPath: process.env.DEALBOT_LOCAL_DATASETS_PATH || DEFAULT_LOCAL_DATASETS_PATH,

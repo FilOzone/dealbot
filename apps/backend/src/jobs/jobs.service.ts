@@ -275,9 +275,6 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     const effectiveTimeoutSeconds = Math.round(timeoutMs / 1000);
     const timeoutId = setTimeout(() => {
       abortController.abort();
-      this.logger.warn(
-        `Deal job timed out after ${effectiveTimeoutSeconds}s (configured ${timeoutSeconds}s) for ${spAddress} (job ${jobId})`,
-      );
     }, timeoutMs);
 
     await this.recordJobExecution("deal", async () => {
@@ -303,7 +300,9 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
           this.logger.error(`Deal job aborted after timeout (${effectiveTimeoutSeconds}s) for ${spAddress}`);
           return "aborted";
         }
-        this.logger.error(`Data Storage check failed for ${spAddress}: ${error.message}`, error.stack);
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        const errorStack = error instanceof Error ? error.stack : undefined;
+        this.logger.error(`Data Storage check failed for ${spAddress}: ${errorMessage}`, errorStack);
         // Business failure (deal didn't complete) — job ran successfully; record as success.
         return "success";
       } finally {
@@ -341,9 +340,6 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     const effectiveTimeoutSeconds = Math.round(timeoutMs / 1000);
     const timeoutId = setTimeout(() => {
       abortController.abort();
-      this.logger.warn(
-        `Retrieval job timed out after ${effectiveTimeoutSeconds}s (configured ${timeoutSeconds}s) for ${spAddress} (job ${jobId})`,
-      );
     }, timeoutMs);
 
     await this.recordJobExecution("retrieval", async () => {
@@ -368,7 +364,9 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
           this.logger.error(`Retrieval job aborted after timeout (${effectiveTimeoutSeconds}s) for ${spAddress}`);
           return "aborted";
         }
-        this.logger.error(`Retrieval check failed for ${spAddress}: ${error.message}`, error.stack);
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        const errorStack = error instanceof Error ? error.stack : undefined;
+        this.logger.error(`Retrieval check failed for ${spAddress}: ${errorMessage}`, errorStack);
         // Business failure (retrieval didn't complete) — job ran successfully; record as success.
         return "success";
       } finally {

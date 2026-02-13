@@ -793,8 +793,9 @@ Use this to stagger multiple dealbot deployments that are not sharing a database
 
 - **Type**: `number`
 - **Required**: No
-- **Default**: `600` (10 minutes)
+- **Default**: `360` (6 minutes)
 - **Minimum**: `120` (2 minutes)
+- **Enforced**: Yes (config validation)
 
 **Role**: Maximum runtime for data storage jobs before forced abort. When a deal job exceeds this timeout, it is actively cancelled using `AbortController`.
 
@@ -811,8 +812,9 @@ Use this to stagger multiple dealbot deployments that are not sharing a database
 
 - **Type**: `number`
 - **Required**: No
-- **Default**: `300` (5 minutes)
+- **Default**: `60` (1 minute)
 - **Minimum**: `60`
+- **Enforced**: Yes (config validation)
 
 **Role**: Maximum runtime for retrieval test jobs before forced abort. When a retrieval job exceeds this timeout, it is actively cancelled using `AbortController`.
 
