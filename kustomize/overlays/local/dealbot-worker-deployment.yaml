@@ -1,0 +1,61 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dealbot-worker
+  labels:
+    app.kubernetes.io/name: dealbot-worker
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: dealbot-worker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: dealbot-worker
+    spec:
+      containers:
+        - name: dealbot-worker
+          image: dealbot:latest
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: dealbot-env
+            - secretRef:
+                name: dealbot-secrets
+          env:
+            - name: DEALBOT_RUN_MODE
+              value: "worker"
+            - name: DEALBOT_PGBOSS_SCHEDULER_ENABLED
+              value: "false"
+            - name: DEALBOT_METRICS_HOST
+              value: "0.0.0.0"
+            - name: DEALBOT_METRICS_PORT
+              value: "9090"
+          ports:
+            - name: metrics
+              containerPort: 9090
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /metrics
+              port: metrics
+            initialDelaySeconds: 10
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: metrics
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          volumeMounts:
+            - name: datasets
+              mountPath: /datasets
+      volumes:
+        - name: datasets
+          emptyDir:
+            sizeLimit: 5Gi

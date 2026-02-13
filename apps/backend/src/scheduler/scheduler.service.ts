@@ -1,6 +1,7 @@
 import { Injectable, Logger, type OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { SchedulerRegistry } from "@nestjs/schedule";
+import { getMaintenanceWindowStatus } from "../common/maintenance-window.js";
 import { scheduleJobWithOffset } from "../common/utils.js";
 import type { IConfig, ISchedulingConfig } from "../config/app.config.js";
 import { DealService } from "../deal/deal.service.js";
@@ -24,6 +25,10 @@ export class SchedulerService implements OnModuleInit {
   ) {}
 
   async onModuleInit() {
+    if (process.env.DEALBOT_JOBS_MODE === "pgboss") {
+      this.logger.log("pg-boss mode enabled; skipping legacy cron scheduler.");
+      return;
+    }
     if (process.env.DEALBOT_DISABLE_SCHEDULER === "true") {
       this.logger.warn(
         "Scheduler disabled via DEALBOT_DISABLE_SCHEDULER=true; skipping wallet initialization and cron jobs.",
@@ -77,7 +82,29 @@ export class SchedulerService implements OnModuleInit {
     );
   }
 
+  private getMaintenanceWindowStatus(now: Date = new Date()) {
+    const scheduling = this.configService.get<ISchedulingConfig>("scheduling");
+    return getMaintenanceWindowStatus(now, scheduling.maintenanceWindowsUtc, scheduling.maintenanceWindowMinutes);
+  }
+
+  private logMaintenanceSkip(taskLabel: string, maintenance: ReturnType<typeof getMaintenanceWindowStatus>) {
+    if (!maintenance.active) {
+      return;
+    }
+    const scheduling = this.configService.get<ISchedulingConfig>("scheduling");
+    const windowLabel = maintenance.window?.label ?? "unknown";
+    this.logger.log(
+      `Maintenance window active (${windowLabel} UTC, ${scheduling.maintenanceWindowMinutes}m); skipping ${taskLabel}`,
+    );
+  }
+
   async handleDealCreation() {
+    const maintenance = this.getMaintenanceWindowStatus();
+    if (maintenance.active) {
+      this.logMaintenanceSkip("deal creation", maintenance);
+      return;
+    }
+
     if (this.isRunningDealCreation) {
       this.logger.warn("Previous deal creation job still running, skipping...");
       return;
@@ -108,6 +135,12 @@ export class SchedulerService implements OnModuleInit {
   }
 
   async handleRetrievalTests() {
+    const maintenance = this.getMaintenanceWindowStatus();
+    if (maintenance.active) {
+      this.logMaintenanceSkip("retrieval tests", maintenance);
+      return;
+    }
+
     if (this.isRunningRetrievalTests) {
       this.logger.warn("Previous retrieval test still running, aborting before starting a new run...");
       this.retrievalAbortController?.abort();

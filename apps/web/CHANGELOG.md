@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.2.0](https://github.com/FilOzone/dealbot/compare/web-v0.1.4...web-v0.2.0) (2026-02-09)
+
+
+### Features
+
+* **web:** setup new dashboard routes and layout ([#229](https://github.com/FilOzone/dealbot/issues/229)) ([6fae8e1](https://github.com/FilOzone/dealbot/commit/6fae8e1b1f430887c19d5c75937085436e94a7df))
+
+
+### Bug Fixes
+
+* web dockerFile builds ([#235](https://github.com/FilOzone/dealbot/issues/235)) ([df0fec9](https://github.com/FilOzone/dealbot/commit/df0fec9df97231dea2ab53af638cd28dbdeae914))
+* web tests should run despite env ([#233](https://github.com/FilOzone/dealbot/issues/233)) ([a522647](https://github.com/FilOzone/dealbot/commit/a522647a72fc7f72cc0eba72849b8f69eb6de562))
+
+## [0.1.4](https://github.com/FilOzone/dealbot/compare/web-v0.1.3...web-v0.1.4) (2026-02-04)
+
+
+### Bug Fixes
+
+* add missing docker files ([#224](https://github.com/FilOzone/dealbot/issues/224)) ([415ce42](https://github.com/FilOzone/dealbot/commit/415ce426250d73e83a641f0f53f0d62da6081160))
+* enhance provider health calculations and update UI stats ([#154](https://github.com/FilOzone/dealbot/issues/154)) ([9dccc64](https://github.com/FilOzone/dealbot/commit/9dccc64c99f6226cc4ea86f984b60e71641c9ae9))
+* **metrics:** export prometheus providers and proxy /metrics ([#161](https://github.com/FilOzone/dealbot/issues/161)) ([33612e4](https://github.com/FilOzone/dealbot/commit/33612e495da63fe0d3b75bc0b1f3ad2643027a95)), closes [#147](https://github.com/FilOzone/dealbot/issues/147)
+* use new rechart types ([#204](https://github.com/FilOzone/dealbot/issues/204)) ([593acf3](https://github.com/FilOzone/dealbot/commit/593acf3ef7455146b6b71ed0eb2d3f46bf887287))
+
 ## [0.1.3](https://github.com/FilOzone/dealbot/compare/web-v0.1.2...web-v0.1.3) (2026-01-23)
 
 

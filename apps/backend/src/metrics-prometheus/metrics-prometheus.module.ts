@@ -68,6 +68,88 @@ const metricProviders = [
     help: "Wallet balance in base units (per currency)",
     labelNames: ["currency", "wallet"] as const,
   }),
+  // Job scheduler metrics (pg-boss)
+  /**
+   * Current queued jobs per type (pg-boss state: created).
+   */
+  makeGaugeProvider({
+    name: "jobs_queued",
+    help: "Number of queued jobs (pg-boss state: created)",
+    labelNames: ["job_type"] as const,
+  }),
+  /**
+   * Jobs scheduled for retry per type (pg-boss state: retry).
+   */
+  makeGaugeProvider({
+    name: "jobs_retry_scheduled",
+    help: "Number of jobs in retry state (pg-boss state: retry)",
+    labelNames: ["job_type"] as const,
+  }),
+  /**
+   * Oldest queued job age per type (seconds).
+   */
+  makeGaugeProvider({
+    name: "oldest_queued_age_seconds",
+    help: "Age in seconds of the oldest queued job (pg-boss state: created)",
+    labelNames: ["job_type"] as const,
+  }),
+  /**
+   * Oldest in-flight job age per type (seconds).
+   */
+  makeGaugeProvider({
+    name: "oldest_in_flight_age_seconds",
+    help: "Age in seconds of the oldest active job (pg-boss state: active)",
+    labelNames: ["job_type"] as const,
+  }),
+  /**
+   * Currently executing jobs per type (pg-boss state: active).
+   */
+  makeGaugeProvider({
+    name: "jobs_in_flight",
+    help: "Number of active jobs currently executing",
+    labelNames: ["job_type"] as const,
+  }),
+  /**
+   * Manually paused jobs per type (paused = true in job_schedule_state).
+   */
+  makeGaugeProvider({
+    name: "jobs_paused",
+    help: "Number of manually paused jobs in job_schedule_state",
+    labelNames: ["job_type"] as const,
+  }),
+  /**
+   * Enqueue attempts per type (success/error).
+   */
+  makeCounterProvider({
+    name: "jobs_enqueue_attempts_total",
+    help: "Total number of enqueue attempts",
+    labelNames: ["job_type", "outcome"] as const,
+  }),
+  /**
+   * Jobs started by handlers per type.
+   */
+  makeCounterProvider({
+    name: "jobs_started_total",
+    help: "Total number of jobs started",
+    labelNames: ["job_type"] as const,
+  }),
+  /**
+   * Handler completion results per type.
+   */
+  makeCounterProvider({
+    name: "jobs_completed_total",
+    help: "Total number of jobs completed",
+    labelNames: ["job_type", "handler_result"] as const,
+  }),
+  /**
+   * Handler execution duration per type (seconds).
+   */
+  makeHistogramProvider({
+    name: "job_duration_seconds",
+    help: "Job execution duration in seconds",
+    labelNames: ["job_type"] as const,
+    buckets: [0.1, 0.5, 1, 2, 5, 10, 30, 60, 120, 300, 600],
+  }),
   // Upload metrics
   makeHistogramProvider({
     name: "deal_upload_duration_seconds",

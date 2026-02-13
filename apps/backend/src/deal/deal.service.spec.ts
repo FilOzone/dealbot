@@ -73,6 +73,7 @@ describe("DealService", () => {
       if (key === "scheduling") {
         return {
           dealMaxConcurrency: 2,
+          retrievalMaxConcurrency: 5,
           dealIntervalSeconds: 30,
           dealStartOffsetSeconds: 0,
           retrievalIntervalSeconds: 60,

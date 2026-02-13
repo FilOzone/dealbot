@@ -131,7 +131,7 @@ export class DevToolsService {
         existingDealId: dealId,
       });
 
-      this.logger.log(`Background deal ${dealId} completed successfully: ${deal.pieceCid?.slice(0, 12)}...`);
+      this.logger.log(`Background deal ${dealId} completed successfully: ${deal.pieceCid}`);
     } catch (error) {
       this.logger.error(`Background deal ${dealId} failed: ${error.message}`);
 
@@ -212,7 +212,7 @@ export class DevToolsService {
     // Find the deal
     const deal = await this.findDeal(dealId, spAddress);
 
-    this.logger.log(`Triggering data fetch for deal: ${deal.id} (piece: ${deal.pieceCid?.slice(0, 12)}...)`);
+    this.logger.log(`Triggering data fetch for deal: ${deal.id} (piece: ${deal.pieceCid})`);
 
     const retrievals = await this.retrievalService.performRetrievalsForDeal(deal);
 

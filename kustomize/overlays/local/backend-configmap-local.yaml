@@ -4,6 +4,7 @@ metadata:
   name: dealbot-env
 data:
   NODE_ENV: production
+  DEALBOT_RUN_MODE: "api"
   DEALBOT_HOST: 0.0.0.0
   DEALBOT_PORT: "3130"
   DATABASE_HOST: dealbot-postgres
@@ -23,6 +24,10 @@ data:
   # Disable CDN, enable IPNI for local testing
   ENABLE_CDN_TESTING: "false"
   ENABLE_IPNI_TESTING: "always"
-  USE_ONLY_APPROVED_PROVIDERS: "false"
-  DEAL_MAX_CONCURRENCY: "5"
+  DEALBOT_JOBS_MODE: "pgboss"
+  RETRIEVALS_PER_SP_PER_HOUR: "6"
+  DEALS_PER_SP_PER_HOUR: "1"
+  USE_ONLY_APPROVED_PROVIDERS: "true"
+  DEAL_MAX_CONCURRENCY: "3"
+  JOB_WORKER_POLL_SECONDS: "60"
   RANDOM_DATASET_SIZES: "10485760"
