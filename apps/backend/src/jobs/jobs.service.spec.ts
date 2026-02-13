@@ -93,16 +93,13 @@ describe("JobsService schedule rows", () => {
       blockchain: { useOnlyApprovedProviders: false } as IConfig["blockchain"],
       scheduling: {
         dealIntervalSeconds: 600,
-        dealMaxConcurrency: 4,
-        retrievalMaxConcurrency: 5,
         retrievalIntervalSeconds: 1200,
       } as IConfig["scheduling"],
       jobs: {
         mode: "pgboss",
         schedulePhaseSeconds: 0,
         catchupMaxEnqueue: 10,
-        catchupSpreadHours: 3,
-        enqueueJitterSeconds: 0,
+        pgbossLocalConcurrency: 9,
         pgbossSchedulerEnabled: true,
         workerPollSeconds: 60,
       } as IConfig["jobs"],
@@ -412,14 +409,12 @@ describe("JobsService schedule rows", () => {
     );
   });
 
-  it("caps catch-up enqueue count and respects immediate vs delayed", async () => {
+  it("caps catch-up enqueue count", async () => {
     baseConfigValues = {
       ...baseConfigValues,
       jobs: {
         ...baseConfigValues.jobs,
         catchupMaxEnqueue: 3,
-        catchupSpreadHours: 1,
-        enqueueJitterSeconds: 0,
       } as IConfig["jobs"],
     };
     configService = {
@@ -451,16 +446,9 @@ describe("JobsService schedule rows", () => {
     for (const call of send.mock.calls) {
       expect(call[0]).toBe("sp.work");
       expect(call[1]).toMatchObject({ jobType: "deal", spAddress: "0xaaa" });
-      expect(call[2]).toMatchObject({ singletonKey: "0xaaa" });
+      expect(call[2]).toMatchObject({ singletonKey: "0xaaa", retryLimit: 0 });
+      expect(call[2]?.startAfter).toBeUndefined();
     }
-    const startAfters = send.mock.calls.map((call) => call[2]?.startAfter as Date);
-    for (const startAfter of startAfters) {
-      expect(startAfter).toBeInstanceOf(Date);
-    }
-    const timestamps = startAfters.map((startAfter) => startAfter.getTime()).sort((a, b) => a - b);
-    expect(timestamps[0]).toBe(now.getTime());
-    expect(timestamps[1]).toBeGreaterThan(now.getTime());
-    expect(timestamps[2]).toBeGreaterThan(timestamps[1]);
 
     // Check update call
     expect(jobScheduleRepositoryMock.updateScheduleAfterRun).toHaveBeenCalled();

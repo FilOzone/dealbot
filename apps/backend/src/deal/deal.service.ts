@@ -88,7 +88,8 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       const uploadPayload = await this.prepareUploadPayload(preprocessed);
       const providers = this.walletSdkService.getTestingProviders();
 
-      const maxConcurrency = this.configService.get("scheduling").dealMaxConcurrency;
+      // Legacy cron-only path: keep fixed concurrency until cron mode is removed.
+      const maxConcurrency = 10;
       const results = await this.processProvidersInParallel(
         synapse,
         providers,

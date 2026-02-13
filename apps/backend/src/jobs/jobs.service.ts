@@ -156,21 +156,8 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     return Math.max(1, this.configService.get("jobs")?.catchupMaxEnqueue ?? 10);
   }
 
-  private catchupSpreadSeconds(): number {
-    const hours = this.configService.get("jobs")?.catchupSpreadHours ?? 3;
-    return Math.max(0, hours * 3600);
-  }
-
-  private perSpImmediateLimit(): number {
-    return 1;
-  }
-
   private schedulePhaseSeconds(): number {
     return Math.max(0, this.configService.get("jobs")?.schedulePhaseSeconds ?? 0);
-  }
-
-  private enqueueJitterSeconds(): number {
-    return Math.max(0, this.configService.get("jobs")?.enqueueJitterSeconds ?? 0);
   }
 
   private pgbossPoolMax(): number {
@@ -214,11 +201,9 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
   private registerWorkers(): void {
     if (!this.boss) return;
 
-    const scheduling = this.configService.get("scheduling");
+    const jobsConfig = this.configService.get("jobs");
     const workerPollSeconds = Math.max(5, this.configService.get("jobs")?.workerPollSeconds ?? 60);
-    const dealConcurrency = Math.max(1, scheduling?.dealMaxConcurrency ?? 1);
-    const retrievalConcurrency = Math.max(1, scheduling?.retrievalMaxConcurrency ?? 1);
-    const spConcurrency = Math.max(1, dealConcurrency + retrievalConcurrency);
+    const spConcurrency = Math.max(1, jobsConfig?.pgbossLocalConcurrency ?? 1);
 
     void this.boss
       .work<SpJobData, void>(
@@ -407,7 +392,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     if (resumeAt == null) {
       return;
     }
-    await this.safeSend(jobType, SP_WORK_QUEUE, data, { startAfter: this.withJitter(resumeAt) });
+    await this.safeSend(jobType, SP_WORK_QUEUE, data, { startAfter: resumeAt });
   }
 
   /**
@@ -536,7 +521,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
 
   /**
    * Queries the DB for jobs that are due (`next_run_at <= now`).
-   * Enqueues them into pg-boss, respecting rate limits/jitter.
+   * Enqueues them into pg-boss, respecting rate limits.
    * Updates the `next_run_at` in the DB upon successful enqueue.
    */
   private getScheduleTiming(
@@ -566,8 +551,6 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     const now = new Date();
     const maintenance = this.getMaintenanceWindowStatus(now);
     const catchupMax = this.catchupMaxEnqueue();
-    const spreadSeconds = this.catchupSpreadSeconds();
-    const immediateLimit = this.perSpImmediateLimit();
 
     if (maintenance.active) {
       this.logMaintenanceSkip("deal/retrieval enqueues", maintenance.window?.label);
@@ -582,32 +565,13 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         const { intervalMs, nextRunAt, runsDue } = timing;
 
         const totalToEnqueue = Math.min(runsDue, catchupMax);
-        const immediateCount = Math.min(totalToEnqueue, immediateLimit);
-        const delayedCount = Math.max(0, totalToEnqueue - immediateCount);
-
         let successCount = 0;
         const jobName = this.mapJobName(row.job_type);
         const payload = this.mapJobPayload(row);
 
-        // Enqueue immediate jobs
-        for (let i = 0; i < immediateCount; i += 1) {
-          if (await this.safeSend(row.job_type, jobName, payload, { startAfter: this.withJitter(now) })) {
+        for (let i = 0; i < totalToEnqueue; i += 1) {
+          if (await this.safeSend(row.job_type, jobName, payload)) {
             successCount += 1;
-          }
-        }
-
-        // Enqueue delayed jobs (spread out to avoid thundering herd if many were missed)
-        if (delayedCount > 0) {
-          for (let i = 0; i < delayedCount; i += 1) {
-            if (spreadSeconds > 0) {
-              const offsetSeconds = Math.ceil(((i + 1) * spreadSeconds) / (delayedCount + 1));
-              const startAfter = new Date(now.getTime() + offsetSeconds * 1000);
-              if (await this.safeSend(row.job_type, jobName, payload, { startAfter: this.withJitter(startAfter) })) {
-                successCount += 1;
-              }
-            } else if (await this.safeSend(row.job_type, jobName, payload, { startAfter: this.withJitter(now) })) {
-              successCount += 1;
-            }
           }
         }
 
@@ -665,15 +629,6 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       this.jobsEnqueueAttemptsCounter.inc({ job_type: jobType, outcome: "error" });
       return false;
     }
-  }
-
-  private withJitter(base: Date): Date {
-    const jitterSeconds = this.enqueueJitterSeconds();
-    if (jitterSeconds <= 0) {
-      return base;
-    }
-    const jitterMs = Math.floor(Math.random() * (jitterSeconds * 1000 + 1));
-    return new Date(base.getTime() + jitterMs);
   }
 
   /**
