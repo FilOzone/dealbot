@@ -14,7 +14,7 @@ This document provides a comprehensive guide to all environment variables used b
 | [Jobs (pg-boss)](#jobs-pg-boss)           | `DEALBOT_JOBS_MODE`, `DEALBOT_PGBOSS_SCHEDULER_ENABLED`, `DEALBOT_PGBOSS_POOL_MAX`, `DEALS_PER_SP_PER_HOUR`, `RETRIEVALS_PER_SP_PER_HOUR`, `METRICS_PER_HOUR`, `JOB_SCHEDULER_POLL_SECONDS`, `JOB_WORKER_POLL_SECONDS`, `PG_BOSS_LOCAL_CONCURRENCY`, `JOB_CATCHUP_MAX_ENQUEUE`, `JOB_SCHEDULE_PHASE_SECONDS`, `JOB_ENQUEUE_JITTER_SECONDS`, `DEAL_JOB_TIMEOUT_SECONDS`, `RETRIEVAL_JOB_TIMEOUT_SECONDS` |
 | [Dataset](#dataset-configuration)         | `DEALBOT_LOCAL_DATASETS_PATH`, `RANDOM_DATASET_SIZES`                                                                                                        |
 | [Proxy](#proxy-configuration)             | `PROXY_LIST`, `PROXY_LOCATIONS`                                                                                                                              |
-| [Timeouts](#timeout-configuration)        | `CONNECT_TIMEOUT_MS`, `HTTP_REQUEST_TIMEOUT_MS`, `HTTP2_REQUEST_TIMEOUT_MS`, `RETRIEVAL_TIMEOUT_BUFFER_MS`                                                   |
+| [Timeouts](#timeout-configuration)        | `CONNECT_TIMEOUT_MS`, `HTTP_REQUEST_TIMEOUT_MS`, `HTTP2_REQUEST_TIMEOUT_MS`                                                                                  |
 | [Web Frontend](#web-frontend)             | `VITE_API_BASE_URL`, `VITE_PLAUSIBLE_DATA_DOMAIN`, `DEALBOT_API_BASE_URL`                                                                                    |
 
 ---
@@ -465,11 +465,7 @@ DEAL_INTERVAL_SECONDS=3600
 - Increase for less frequent retrieval testing
 - Decrease for more frequent monitoring (may increase load on providers)
 
-**Constraint**: Must be large enough to accommodate the timeout settings:
 
-```
-RETRIEVAL_INTERVAL_SECONDS * 1000 - RETRIEVAL_TIMEOUT_BUFFER_MS >= max(HTTP_REQUEST_TIMEOUT_MS, HTTP2_REQUEST_TIMEOUT_MS)
-```
 
 ---
 
@@ -763,7 +759,7 @@ Use this to stagger multiple dealbot deployments that are not sharing a database
 - Increase if retrieval tests consistently take longer than the default
 - Decrease to detect and fail stuck retrievals faster
 
-**Note**: This is independent of HTTP-level timeouts and the schedule-based `RETRIEVAL_TIMEOUT_BUFFER_MS`. The job timeout enforces end-to-end execution time of a Retrieval Check job.
+**Note**: This is independent of HTTP-level timeouts. The job timeout enforces end-to-end execution time of a Retrieval Check job.
 
 ---
 ## Dataset Configuration
@@ -895,24 +891,6 @@ PROXY_LOCATIONS=us-east,eu-west
 **When to update**:
 
 - Typically kept in sync with `HTTP_REQUEST_TIMEOUT_MS`
-
----
-
-### `RETRIEVAL_TIMEOUT_BUFFER_MS`
-
-- **Type**: `number` (milliseconds)
-- **Required**: No
-- **Default**: `60000` (1 minute)
-- **Minimum**: `0`
-
-**Role**: Safety buffer to stop retrieval batch processing before the next scheduled run. Prevents overlapping retrieval batches.
-
-**When to update**:
-
-- Increase if retrieval batches are overlapping
-- Decrease if you want to maximize retrieval testing time
-
-**Constraint**: Must be less than `RETRIEVAL_INTERVAL_SECONDS * 1000`
 
 ---
 
