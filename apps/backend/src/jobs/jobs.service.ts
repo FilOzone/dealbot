@@ -30,7 +30,7 @@ type ScheduleRow = {
   next_run_at: string;
 };
 
-type JobRunStatus = "success" | "error";
+type JobRunStatus = "success" | "error" | "aborted";
 
 @Injectable()
 export class JobsService implements OnModuleInit, OnApplicationShutdown {
@@ -268,6 +268,16 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       return;
     }
 
+    // Create AbortController for job timeout enforcement
+    const abortController = new AbortController();
+    const timeoutSeconds = this.configService.get("jobs").dealJobTimeoutSeconds;
+    const timeoutMs = Math.max(120000, timeoutSeconds * 1000);
+    const effectiveTimeoutSeconds = Math.round(timeoutMs / 1000);
+    const abortReason = new Error(`Deal job timeout (${effectiveTimeoutSeconds}s) for ${spAddress}`);
+    const timeoutId = setTimeout(() => {
+      abortController.abort(abortReason);
+    }, timeoutMs);
+
     await this.recordJobExecution("deal", async () => {
       try {
         let provider = this.walletSdkService.getTestingProviders().find((p) => p.serviceProvider === spAddress);
@@ -281,12 +291,29 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
             return "success";
           }
         }
-        await this.dealService.createDealForProvider(provider, this.dealService.getTestingDealOptions());
+        await this.dealService.createDealForProvider(provider, {
+          ...this.dealService.getTestingDealOptions(),
+          signal: abortController.signal,
+        });
         return "success";
       } catch (error) {
-        this.logger.error(`Deal job failed for ${spAddress}: ${error.message}`, error.stack);
+        if (abortController.signal.aborted) {
+          const reason = abortController.signal.reason;
+          const reasonMessage = reason instanceof Error ? reason.message : String(reason ?? "");
+          this.logger.error(
+            reasonMessage
+              ? `Deal job aborted: ${reasonMessage}`
+              : `Deal job aborted after timeout (${effectiveTimeoutSeconds}s) for ${spAddress}`,
+          );
+          return "aborted";
+        }
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        const errorStack = error instanceof Error ? error.stack : undefined;
+        this.logger.error(`Deal job failed for ${spAddress}: ${errorMessage}`, errorStack);
         // Jobs are not retried once attempted; failures are handled by the next schedule tick.
         throw error;
+      } finally {
+        clearTimeout(timeoutId);
       }
     });
   }
@@ -301,6 +328,16 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       await this.deferJobForMaintenance("retrieval", data, maintenance, now);
       return;
     }
+
+    // Create AbortController for job timeout enforcement
+    const abortController = new AbortController();
+    const timeoutSeconds = this.configService.get("jobs").retrievalJobTimeoutSeconds;
+    const timeoutMs = Math.max(60000, timeoutSeconds * 1000);
+    const effectiveTimeoutSeconds = Math.round(timeoutMs / 1000);
+    const abortReason = new Error(`Retrieval job timeout (${effectiveTimeoutSeconds}s) for ${spAddress}`);
+    const timeoutId = setTimeout(() => {
+      abortController.abort(abortReason);
+    }, timeoutMs);
 
     await this.recordJobExecution("retrieval", async () => {
       try {
@@ -317,12 +354,26 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
           );
         }
 
-        await this.retrievalService.performRandomRetrievalForProvider(spAddress, timeoutMs);
+        await this.retrievalService.performRandomRetrievalForProvider(spAddress, timeoutMs, abortController.signal);
         return "success";
       } catch (error) {
-        this.logger.error(`Retrieval job failed for ${spAddress}: ${error.message}`, error.stack);
+        if (abortController.signal.aborted) {
+          const reason = abortController.signal.reason;
+          const reasonMessage = reason instanceof Error ? reason.message : String(reason ?? "");
+          this.logger.error(
+            reasonMessage
+              ? `Retrieval job aborted: ${reasonMessage}`
+              : `Retrieval job aborted after timeout (${effectiveTimeoutSeconds}s) for ${spAddress}`,
+          );
+          return "aborted";
+        }
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        const errorStack = error instanceof Error ? error.stack : undefined;
+        this.logger.error(`Retrieval job failed for ${spAddress}: ${errorMessage}`, errorStack);
         // Jobs are not retried once attempted; failures are handled by the next schedule tick.
         throw error;
+      } finally {
+        clearTimeout(timeoutId);
       }
     });
   }

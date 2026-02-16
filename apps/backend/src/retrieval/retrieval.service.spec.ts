@@ -58,7 +58,7 @@ describe("RetrievalService timeouts", () => {
 
   const buildDeal = (overrides: Partial<Deal> = {}): Deal =>
     ({
-      id: 1,
+      id: "deal-1",
       spAddress: "0xsp",
       walletAddress: "0xwallet",
       pieceCid: "bafy-piece",
@@ -141,6 +141,28 @@ describe("RetrievalService timeouts", () => {
 
     // Note: the underlying retrieval promise remains pending; timeouts don't cancel work.
     // Cancellation is handled by the scheduler abort signal in real runs.
+  });
+
+  it("returns partial results when aborted between batches", async () => {
+    service = await createService();
+    const abortController = new AbortController();
+
+    performAllRetrievalsSpy = vi.spyOn(service, "performAllRetrievals").mockImplementationOnce(async () => {
+      abortController.abort();
+      return [];
+    });
+
+    const results = await service.processRetrievalsInParallel(
+      [buildDeal({ id: "deal-1" }), buildDeal({ id: "deal-2" })],
+      {
+        timeoutMs: 20000,
+        maxConcurrency: 1,
+        signal: abortController.signal,
+      },
+    );
+
+    expect(performAllRetrievalsSpy).toHaveBeenCalledTimes(1);
+    expect(results).toHaveLength(1);
   });
 
   it("records a failed retrieval when an execution result fails", async () => {

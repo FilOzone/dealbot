@@ -12,7 +12,11 @@ import { Retrieval } from "../database/entities/retrieval.entity.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
 import { DealStatus, RetrievalStatus } from "../database/types.js";
 import { RetrievalAddonsService } from "../retrieval-addons/retrieval-addons.service.js";
-import type { RetrievalConfiguration, RetrievalExecutionResult } from "../retrieval-addons/types.js";
+import type {
+  RetrievalConfiguration,
+  RetrievalExecutionResult,
+  RetrievalTestResult,
+} from "../retrieval-addons/types.js";
 
 @Injectable()
 export class RetrievalService {
@@ -146,9 +150,18 @@ export class RetrievalService {
         if (result.status === "fulfilled") {
           results.push(result.value);
         } else {
-          const errorMessage = result.reason?.message || "Unknown error";
-          this.logger.error(`Batch retrieval failed for deal ${deal?.id || "unknown"}: ${errorMessage}`);
+          if (!signal?.aborted) {
+            const errorReason = result.reason;
+            const errorMessage =
+              errorReason instanceof Error ? errorReason.message : String(errorReason ?? "Unknown error");
+            this.logger.error(`Batch retrieval failed for deal ${deal?.id || "unknown"}: ${errorMessage}`);
+          }
         }
+      }
+
+      if (signal?.aborted) {
+        this.logger.warn("Retrieval job aborted after batch completion. Skipping remaining deals.");
+        break;
       }
     }
 
@@ -160,9 +173,7 @@ export class RetrievalService {
   // ============================================================================
 
   private async performAllRetrievals(deal: Deal, signal?: AbortSignal): Promise<Retrieval[]> {
-    if (signal?.aborted) {
-      throw new Error("Retrieval job aborted");
-    }
+    signal?.throwIfAborted();
 
     const provider = await this.findStorageProvider(deal.spAddress);
     if (!provider) {
@@ -175,20 +186,26 @@ export class RetrievalService {
       storageProvider: deal.spAddress as Hex,
     };
 
+    let testResult: RetrievalTestResult;
+    let retrievals: Retrieval[];
     try {
-      const testResult = await this.retrievalAddonsService.testAllRetrievalMethods(config, signal);
+      testResult = await this.retrievalAddonsService.testAllRetrievalMethods(config, signal);
 
-      const retrievals = await Promise.all(
+      retrievals = await Promise.all(
         testResult.results.map((executionResult) => this.createRetrievalFromResult(deal, executionResult)),
       );
 
       const successCount = retrievals.filter((r) => r.status === RetrievalStatus.SUCCESS).length;
       this.logger.log(`Retrievals for ${deal.pieceCid}: ${successCount}/${retrievals.length} successful`);
-
-      return retrievals;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      this.logger.error(`All retrievals failed for ${deal.pieceCid}: ${errorMessage}`);
+      if (signal?.aborted) {
+        const abortReason = signal.reason;
+        const abortMessage = abortReason instanceof Error ? abortReason.message : String(abortReason ?? "");
+        this.logger.warn(`Retrievals aborted for ${deal.pieceCid}: ${abortMessage || errorMessage}`);
+      } else {
+        this.logger.error(`All retrievals failed for ${deal.pieceCid}: ${errorMessage}`);
+      }
 
       // Don't try to record timeouts here. If this catch block fires, it's either:
       // 1. The batch timeout fired because we're out of time (global deadline) - don't record
@@ -201,6 +218,18 @@ export class RetrievalService {
 
       throw error;
     }
+
+    if (testResult.aborted || signal?.aborted) {
+      const abortReason = signal?.reason;
+      const abortMessage = abortReason instanceof Error ? abortReason.message : String(abortReason ?? "");
+      this.logger.warn(
+        `Retrieval job aborted after testing for ${deal.pieceCid}; recorded partial results.` +
+          (abortMessage ? ` Reason: ${abortMessage}` : ""),
+      );
+      return retrievals;
+    }
+
+    return retrievals;
   }
 
   private async createRetrievalFromResult(deal: Deal, executionResult: RetrievalExecutionResult): Promise<Retrieval> {
