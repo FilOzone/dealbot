@@ -110,6 +110,9 @@ export interface RetrievalTestResult {
 
   /** Timestamp of test */
   testedAt: Date;
+
+  /** Whether the test was aborted */
+  aborted?: boolean;
 }
 
 /**

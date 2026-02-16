@@ -10,8 +10,8 @@ This document provides a comprehensive guide to all environment variables used b
 | [Database](#database-configuration)       | `DATABASE_HOST`, `DATABASE_PORT`, `DATABASE_POOL_MAX`, `DATABASE_USER`, `DATABASE_PASSWORD`, `DATABASE_NAME`                                                 |
 | [Blockchain](#blockchain-configuration)   | `NETWORK`, `WALLET_ADDRESS`, `WALLET_PRIVATE_KEY`, `CHECK_DATASET_CREATION_FEES`, `USE_ONLY_APPROVED_PROVIDERS`, `ENABLE_IPNI_TESTING` |
 | [Dataset Versioning](#dataset-versioning) | `DEALBOT_DATASET_VERSION`                                                                                                                                    |
-| [Scheduling](#scheduling-configuration)   | `DEAL_INTERVAL_SECONDS`, `DEAL_MAX_CONCURRENCY`, `RETRIEVAL_MAX_CONCURRENCY`, `RETRIEVAL_INTERVAL_SECONDS`, `DEAL_START_OFFSET_SECONDS`, `RETRIEVAL_START_OFFSET_SECONDS`, `METRICS_START_OFFSET_SECONDS`, `DEALBOT_MAINTENANCE_WINDOWS_UTC`, `DEALBOT_MAINTENANCE_WINDOW_MINUTES`         |
-| [Jobs (pg-boss)](#jobs-pg-boss)           | `DEALBOT_JOBS_MODE`, `DEALBOT_PGBOSS_SCHEDULER_ENABLED`, `DEALBOT_PGBOSS_POOL_MAX`, `DEALS_PER_SP_PER_HOUR`, `RETRIEVALS_PER_SP_PER_HOUR`, `METRICS_PER_HOUR`, `JOB_SCHEDULER_POLL_SECONDS`, `JOB_WORKER_POLL_SECONDS`, `JOB_CATCHUP_MAX_ENQUEUE`, `JOB_CATCHUP_SPREAD_HOURS`, `JOB_LOCK_RETRY_SECONDS`, `JOB_SCHEDULE_PHASE_SECONDS`, `JOB_ENQUEUE_JITTER_SECONDS` |
+| [Scheduling](#scheduling-configuration)   | `DEAL_INTERVAL_SECONDS`, `RETRIEVAL_INTERVAL_SECONDS`, `DEAL_START_OFFSET_SECONDS`, `RETRIEVAL_START_OFFSET_SECONDS`, `METRICS_START_OFFSET_SECONDS`, `DEALBOT_MAINTENANCE_WINDOWS_UTC`, `DEALBOT_MAINTENANCE_WINDOW_MINUTES`                                                                                                                                 |
+| [Jobs (pg-boss)](#jobs-pg-boss)           | `DEALBOT_JOBS_MODE`, `DEALBOT_PGBOSS_SCHEDULER_ENABLED`, `DEALBOT_PGBOSS_POOL_MAX`, `DEALS_PER_SP_PER_HOUR`, `RETRIEVALS_PER_SP_PER_HOUR`, `METRICS_PER_HOUR`, `JOB_SCHEDULER_POLL_SECONDS`, `JOB_WORKER_POLL_SECONDS`, `PG_BOSS_LOCAL_CONCURRENCY`, `JOB_CATCHUP_MAX_ENQUEUE`, `JOB_SCHEDULE_PHASE_SECONDS`, `JOB_ENQUEUE_JITTER_SECONDS`, `DEAL_JOB_TIMEOUT_SECONDS`, `RETRIEVAL_JOB_TIMEOUT_SECONDS` |
 | [Dataset](#dataset-configuration)         | `DEALBOT_LOCAL_DATASETS_PATH`, `RANDOM_DATASET_SIZES`                                                                                                        |
 | [Timeouts](#timeout-configuration)        | `CONNECT_TIMEOUT_MS`, `HTTP_REQUEST_TIMEOUT_MS`, `HTTP2_REQUEST_TIMEOUT_MS`, `RETRIEVAL_TIMEOUT_BUFFER_MS`                                                   |
 | [Web Frontend](#web-frontend)             | `VITE_API_BASE_URL`, `VITE_PLAUSIBLE_DATA_DOMAIN`, `DEALBOT_API_BASE_URL`                                                                                    |
@@ -449,57 +449,7 @@ DEAL_INTERVAL_SECONDS=3600
 
 ---
 
-### `DEAL_MAX_CONCURRENCY`
 
-- **Type**: `number`
-- **Required**: No
-- **Default**: `10`
-- **Minimum**: `1`
-
-**Role**: Controls deal-job concurrency. When `DEALBOT_JOBS_MODE=cron`, this is the maximum number of providers processed in parallel per batch; batches run sequentially. When `DEALBOT_JOBS_MODE=pgboss`, this sets the pg-boss `teamSize` for `deal.run` workers.
-
-**When to update**:
-
-- Increase for faster deal creation (more concurrent uploads; higher load)
-- Decrease to reduce load or for more conservative testing
-
-**Example**:
-
-```bash
-DEAL_MAX_CONCURRENCY=10
-```
-
-**Sizing note**: A rough estimate for required concurrency is
-`(providers * jobs_per_hour_per_provider * avg_duration_seconds) / 3600`.
-Use p95 duration for a more conservative default.
-
----
-
-### `RETRIEVAL_MAX_CONCURRENCY`
-
-- **Type**: `number`
-- **Required**: No
-- **Default**: `10`
-- **Minimum**: `1`
-
-**Role**: Maximum number of retrieval tests executed in parallel when running pg-boss workers.
-
-**When to update**:
-
-- Increase to clear retrieval backlogs faster (higher provider load)
-- Decrease to limit simultaneous retrievals
-
-**Example**:
-
-```bash
-RETRIEVAL_MAX_CONCURRENCY=10
-```
-
-**Sizing note**: A rough estimate for required concurrency is
-`(providers * jobs_per_hour_per_provider * avg_duration_seconds) / 3600`.
-Use p95 duration for a more conservative default.
-
----
 
 ### `RETRIEVAL_INTERVAL_SECONDS`
 
@@ -687,6 +637,32 @@ rate-based (per hour) and persisted in Postgres so restarts do not reset timing.
 
 ---
 
+### `PG_BOSS_LOCAL_CONCURRENCY`
+
+- **Type**: `number`
+- **Required**: No
+- **Default**: `20`
+- **Minimum**: `1`
+
+**Role**: Per-instance pg-boss worker concurrency for the `sp.work` queue (`localConcurrency`). This is the total concurrency budget shared by deal and retrieval jobs.
+
+**When to update**:
+
+- Increase for faster throughput (more concurrent jobs; higher load)
+- Decrease to reduce load or for more conservative testing
+
+**Example**:
+
+```bash
+PG_BOSS_LOCAL_CONCURRENCY=20
+```
+
+**Sizing note**: A rough estimate for required concurrency is
+`(providers * jobs_per_hour_per_provider * avg_duration_seconds) / 3600`.
+Use p95 duration for a more conservative default.
+
+---
+
 ### `DEALBOT_PGBOSS_SCHEDULER_ENABLED`
 
 - **Type**: `boolean`
@@ -731,26 +707,6 @@ is handled by future polls.
 
 ---
 
-### `JOB_CATCHUP_SPREAD_HOURS`
-
-- **Type**: `number`
-- **Required**: No
-- **Default**: `3`
-
-**Role**: When catching up, delayed jobs are spread evenly over this window.
-
----
-
-### `JOB_LOCK_RETRY_SECONDS`
-
-- **Type**: `number`
-- **Required**: No
-- **Default**: `60`
-
-**Role**: Delay before re-queuing a job when the per-SP mutual-exclusion lock is held.
-
----
-
 ### `JOB_SCHEDULE_PHASE_SECONDS`
 
 - **Type**: `number`
@@ -772,6 +728,43 @@ Use this to stagger multiple dealbot deployments that are not sharing a database
 
 ---
 
+### `DEAL_JOB_TIMEOUT_SECONDS`
+
+- **Type**: `number`
+- **Required**: No
+- **Default**: `360` (6 minutes)
+- **Minimum**: `120` (2 minutes)
+- **Enforced**: Yes (config validation)
+
+**Role**: Maximum runtime for data storage jobs before forced abort. When a deal job exceeds this timeout, it is actively cancelled using `AbortController`.
+
+**When to update**:
+
+- Increase if deal uploads consistently take longer than the default (e.g., slower networks, IPNI delays)
+- Decrease if you want to fail-fast on stuck jobs
+
+**Note**: This is independent of HTTP-level timeouts. The job timeout enforces end-to-end execution time of a Data Storage Check job including all operations (provider lookup, upload, IPNI verification, etc.).
+
+---
+
+### `RETRIEVAL_JOB_TIMEOUT_SECONDS`
+
+- **Type**: `number`
+- **Required**: No
+- **Default**: `60` (1 minute)
+- **Minimum**: `60`
+- **Enforced**: Yes (config validation)
+
+**Role**: Maximum runtime for retrieval test jobs before forced abort. When a retrieval job exceeds this timeout, it is actively cancelled using `AbortController`.
+
+**When to update**:
+
+- Increase if retrieval tests consistently take longer than the default
+- Decrease to detect and fail stuck retrievals faster
+
+**Note**: This is independent of HTTP-level timeouts and the schedule-based `RETRIEVAL_TIMEOUT_BUFFER_MS`. The job timeout enforces end-to-end execution time of a Retrieval Check job.
+
+---
 ## Dataset Configuration
 
 ### `DEALBOT_LOCAL_DATASETS_PATH`
@@ -832,7 +825,7 @@ RANDOM_DATASET_SIZES=1024,10240,102400
 
 - **Type**: `number` (milliseconds)
 - **Required**: No
-- **Default**: `600000` (10 minutes)
+- **Default**: `240000` (4 minutes)
 - **Minimum**: `1000`
 
 **Role**: Maximum total time for HTTP/1.1 requests, including body transfer.
@@ -848,7 +841,7 @@ RANDOM_DATASET_SIZES=1024,10240,102400
 
 - **Type**: `number` (milliseconds)
 - **Required**: No
-- **Default**: `600000` (10 minutes)
+- **Default**: `240000` (4 minutes)
 - **Minimum**: `1000`
 
 **Role**: Maximum total time for HTTP/2 requests, including body transfer.

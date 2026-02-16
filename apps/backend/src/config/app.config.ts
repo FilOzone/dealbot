@@ -36,8 +36,6 @@ export const configValidationSchema = Joi.object({
 
   // Scheduling
   DEAL_INTERVAL_SECONDS: Joi.number().default(30),
-  DEAL_MAX_CONCURRENCY: Joi.number().integer().min(1).default(10),
-  RETRIEVAL_MAX_CONCURRENCY: Joi.number().integer().min(1).default(10),
   RETRIEVAL_INTERVAL_SECONDS: Joi.number()
     .min(1)
     .default(60)
@@ -86,13 +84,14 @@ export const configValidationSchema = Joi.object({
   // Polling interval for pg-boss scheduler (lower = more responsive, higher = less DB chatter).
   JOB_SCHEDULER_POLL_SECONDS: Joi.number().min(60).default(300),
   JOB_WORKER_POLL_SECONDS: Joi.number().min(5).default(60),
+  PG_BOSS_LOCAL_CONCURRENCY: Joi.number().integer().min(1).default(20),
   DEALBOT_PGBOSS_SCHEDULER_ENABLED: Joi.boolean().default(true),
   DEALBOT_PGBOSS_POOL_MAX: Joi.number().integer().min(1).default(1),
   JOB_CATCHUP_MAX_ENQUEUE: Joi.number().min(1).default(10),
-  JOB_CATCHUP_SPREAD_HOURS: Joi.number().min(0).default(3),
-  JOB_LOCK_RETRY_SECONDS: Joi.number().min(10).default(60),
   JOB_SCHEDULE_PHASE_SECONDS: Joi.number().min(0).default(0),
   JOB_ENQUEUE_JITTER_SECONDS: Joi.number().min(0).default(0),
+  DEAL_JOB_TIMEOUT_SECONDS: Joi.number().min(120).default(360), // 6 minutes max runtime for data storage jobs (TODO: reduce default to 3 minutes)
+  RETRIEVAL_JOB_TIMEOUT_SECONDS: Joi.number().min(60).default(60), // 1 minute max runtime for retrieval jobs (TODO: reduce default to 30 seconds)
 
   // Dataset
   DEALBOT_LOCAL_DATASETS_PATH: Joi.string().default(DEFAULT_LOCAL_DATASETS_PATH),
@@ -100,8 +99,8 @@ export const configValidationSchema = Joi.object({
 
   // Timeouts (in milliseconds)
   CONNECT_TIMEOUT_MS: Joi.number().min(1000).default(10000), // 10 seconds to establish connection/receive headers
-  HTTP_REQUEST_TIMEOUT_MS: Joi.number().min(1000).default(600000), // 10 minutes total for HTTP requests (Body transfer)
-  HTTP2_REQUEST_TIMEOUT_MS: Joi.number().min(1000).default(600000), // 10 minutes total for HTTP/2 requests (Body transfer)
+  HTTP_REQUEST_TIMEOUT_MS: Joi.number().min(1000).default(240000), // 4 minutes total for HTTP requests (10MiB @ 170KB/s + overhead)
+  HTTP2_REQUEST_TIMEOUT_MS: Joi.number().min(1000).default(240000), // 4 minutes total for HTTP/2 requests (10MiB @ 170KB/s + overhead)
   RETRIEVAL_TIMEOUT_BUFFER_MS: Joi.number()
     .min(0)
     .default(60000)
@@ -155,8 +154,6 @@ export interface IBlockchainConfig {
 
 export interface ISchedulingConfig {
   dealIntervalSeconds: number;
-  dealMaxConcurrency: number;
-  retrievalMaxConcurrency: number;
   retrievalIntervalSeconds: number;
   dealStartOffsetSeconds: number;
   retrievalStartOffsetSeconds: number;
@@ -211,6 +208,12 @@ export interface IJobsConfig {
    */
   workerPollSeconds: number;
   /**
+   * Per-instance pg-boss worker concurrency for the `sp.work` queue.
+   *
+   * Only used when `DEALBOT_JOBS_MODE=pgboss`.
+   */
+  pgbossLocalConcurrency: number;
+  /**
    * Enables the pg-boss scheduler loop (enqueueing due jobs).
    *
    * Set to false to run "worker-only" pods that only process existing jobs.
@@ -232,20 +235,6 @@ export interface IJobsConfig {
    */
   catchupMaxEnqueue: number;
   /**
-   * Window (hours) over which catch-up jobs are staggered.
-   *
-   * Higher values smooth load but delay backlog completion.
-   * Only used when `DEALBOT_JOBS_MODE=pgboss`.
-   */
-  catchupSpreadHours: number;
-  /**
-   * Delay (seconds) before re-queuing a job when the per-SP lock is held.
-   *
-   * Higher values reduce lock churn but slow recovery from contention.
-   * Only used when `DEALBOT_JOBS_MODE=pgboss`.
-   */
-  lockRetrySeconds: number;
-  /**
    * Per-instance phase offset (seconds) applied when initializing schedules.
    *
    * Use this to stagger multiple dealbot deployments that are not sharing a DB.
@@ -258,6 +247,20 @@ export interface IJobsConfig {
    * Helps avoid synchronized bursts across instances. Only used with pg-boss.
    */
   enqueueJitterSeconds: number;
+  /**
+   * Maximum runtime (seconds) for deal jobs before forced abort.
+   *
+   * Uses AbortController to actively cancel job execution.
+   * Only used when `DEALBOT_JOBS_MODE=pgboss`.
+   */
+  dealJobTimeoutSeconds: number;
+  /**
+   * Maximum runtime (seconds) for retrieval jobs before forced abort.
+   *
+   * Uses AbortController to actively cancel job execution.
+   * Only used when `DEALBOT_JOBS_MODE=pgboss`.
+   */
+  retrievalJobTimeoutSeconds: number;
 }
 
 export interface IDatasetConfig {
@@ -334,8 +337,6 @@ export function loadConfig(): IConfig {
     },
     scheduling: {
       dealIntervalSeconds: Number.parseInt(process.env.DEAL_INTERVAL_SECONDS || "30", 10),
-      dealMaxConcurrency: Number.parseInt(process.env.DEAL_MAX_CONCURRENCY || "10", 10),
-      retrievalMaxConcurrency: Number.parseInt(process.env.RETRIEVAL_MAX_CONCURRENCY || "10", 10),
       retrievalIntervalSeconds: Number.parseInt(process.env.RETRIEVAL_INTERVAL_SECONDS || "60", 10),
       dealStartOffsetSeconds: Number.parseInt(process.env.DEAL_START_OFFSET_SECONDS || "0", 10),
       retrievalStartOffsetSeconds: Number.parseInt(process.env.RETRIEVAL_START_OFFSET_SECONDS || "600", 10),
@@ -357,13 +358,14 @@ export function loadConfig(): IConfig {
         : undefined,
       schedulerPollSeconds: Number.parseInt(process.env.JOB_SCHEDULER_POLL_SECONDS || "300", 10),
       workerPollSeconds: Number.parseInt(process.env.JOB_WORKER_POLL_SECONDS || "60", 10),
+      pgbossLocalConcurrency: Number.parseInt(process.env.PG_BOSS_LOCAL_CONCURRENCY || "20", 10),
       pgbossSchedulerEnabled: process.env.DEALBOT_PGBOSS_SCHEDULER_ENABLED !== "false",
       pgbossPoolMax: Number.parseInt(process.env.DEALBOT_PGBOSS_POOL_MAX || "1", 10),
       catchupMaxEnqueue: Number.parseInt(process.env.JOB_CATCHUP_MAX_ENQUEUE || "10", 10),
-      catchupSpreadHours: Number.parseInt(process.env.JOB_CATCHUP_SPREAD_HOURS || "3", 10),
-      lockRetrySeconds: Number.parseInt(process.env.JOB_LOCK_RETRY_SECONDS || "60", 10),
       schedulePhaseSeconds: Number.parseInt(process.env.JOB_SCHEDULE_PHASE_SECONDS || "0", 10),
       enqueueJitterSeconds: Number.parseInt(process.env.JOB_ENQUEUE_JITTER_SECONDS || "0", 10),
+      dealJobTimeoutSeconds: Number.parseInt(process.env.DEAL_JOB_TIMEOUT_SECONDS || "360", 10),
+      retrievalJobTimeoutSeconds: Number.parseInt(process.env.RETRIEVAL_JOB_TIMEOUT_SECONDS || "60", 10),
     },
     dataset: {
       localDatasetsPath: process.env.DEALBOT_LOCAL_DATASETS_PATH || DEFAULT_LOCAL_DATASETS_PATH,
@@ -387,8 +389,8 @@ export function loadConfig(): IConfig {
     },
     timeouts: {
       connectTimeoutMs: Number.parseInt(process.env.CONNECT_TIMEOUT_MS || "10000", 10),
-      httpRequestTimeoutMs: Number.parseInt(process.env.HTTP_REQUEST_TIMEOUT_MS || "600000", 10),
-      http2RequestTimeoutMs: Number.parseInt(process.env.HTTP2_REQUEST_TIMEOUT_MS || "600000", 10),
+      httpRequestTimeoutMs: Number.parseInt(process.env.HTTP_REQUEST_TIMEOUT_MS || "240000", 10),
+      http2RequestTimeoutMs: Number.parseInt(process.env.HTTP2_REQUEST_TIMEOUT_MS || "240000", 10),
       retrievalTimeoutBufferMs: Number.parseInt(process.env.RETRIEVAL_TIMEOUT_BUFFER_MS || "60000", 10),
     },
   };

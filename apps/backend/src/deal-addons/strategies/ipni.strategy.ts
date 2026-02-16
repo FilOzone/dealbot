@@ -5,6 +5,7 @@ import { waitForIpniProviderResults } from "filecoin-pin/core/utils";
 import { CID } from "multiformats/cid";
 import { StorageProvider } from "src/database/entities/storage-provider.entity.js";
 import type { Repository } from "typeorm";
+import { delay } from "../../common/abort-utils.js";
 import { buildUnixfsCar } from "../../common/car-utils.js";
 import { Deal } from "../../database/entities/deal.entity.js";
 import type { DealMetadata, IpniMetadata } from "../../database/types.js";
@@ -79,9 +80,10 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
    * Convert data to CAR format for IPNI indexing
    * This is the main preprocessing step that transforms the data
    */
-  async preprocessData(context: AddonExecutionContext): Promise<IpniPreprocessingResult> {
+  async preprocessData(context: AddonExecutionContext, signal?: AbortSignal): Promise<IpniPreprocessingResult> {
     try {
-      const carResult = await buildUnixfsCar(context.currentData);
+      signal?.throwIfAborted();
+      const carResult = await buildUnixfsCar(context.currentData, { signal });
 
       this.logger.log(`CAR conversion: ${carResult.blockCount} blocks, ${(carResult.carSize / 1024).toFixed(1)}KB`);
 
@@ -133,7 +135,7 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
    * Handler triggered when upload is complete
    * Runs IPNI tracking and verification before continuing
    */
-  async onUploadComplete(deal: Deal): Promise<void> {
+  async onUploadComplete(deal: Deal, signal?: AbortSignal): Promise<void> {
     if (!deal.storageProvider) {
       this.logger.warn(`No storage provider for deal ${deal.id}`);
       return;
@@ -143,9 +145,11 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
     deal.ipniStatus = IpniStatus.PENDING;
     await this.dealRepository.save(deal);
 
+    signal?.throwIfAborted();
+
     this.logger.log(`IPNI tracking started: ${deal.pieceCid}`);
 
-    await this.startIpniMonitoring(deal);
+    await this.startIpniMonitoring(deal, signal);
   }
 
   /**
@@ -182,7 +186,7 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
   /**
    * Start IPNI monitoring and update deal entity with tracking metrics
    */
-  private async startIpniMonitoring(deal: Deal): Promise<void> {
+  private async startIpniMonitoring(deal: Deal, signal?: AbortSignal): Promise<void> {
     if (!deal.storageProvider) {
       // this should never happen, we need to tighten up the types for successful deals.
       this.logger.warn(`No storage provider for deal ${deal.id}`);
@@ -190,6 +194,7 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
     }
 
     try {
+      signal?.throwIfAborted();
       const serviceUrl = deal.storageProvider.serviceUrl;
 
       const rootCID = deal.metadata[this.name]?.rootCID ?? "";
@@ -204,15 +209,21 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
         this.POLLING_TIMEOUT_MS,
         this.IPNI_LOOKUP_TIMEOUT_MS,
         this.POLLING_INTERVAL_MS,
+        signal,
       );
+
+      signal?.throwIfAborted();
 
       // Update deal entity with tracking metrics
       await this.updateDealWithIpniMetrics(deal, result);
+
+      signal?.throwIfAborted();
 
       if (!result.ipniResult.rootCIDVerified) {
         throw new Error(`IPNI verification failed for deal ${deal.id}: root CID not verified`);
       }
     } catch (error) {
+      signal?.throwIfAborted();
       // Mark IPNI as failed and save to database
       deal.ipniStatus = IpniStatus.FAILED;
 
@@ -237,15 +248,18 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
     statusTimeoutMs: number,
     ipniTimeoutMs: number,
     pollIntervalMs: number,
+    signal?: AbortSignal,
   ): Promise<MonitorAndVerifyResult> {
     const startTime = deal.uploadEndTime.getTime();
     const pieceCid = deal.pieceCid;
     let monitoringResult: PieceMonitoringResult;
     try {
       // we monitor the piece status by calling the SP directly to get piece status. as soon as it's advertised, we can move on to verifying the IPNI advertisement.
-      monitoringResult = await this.monitorPieceStatus(serviceURL, pieceCid, statusTimeoutMs, pollIntervalMs);
+      monitoringResult = await this.monitorPieceStatus(serviceURL, pieceCid, statusTimeoutMs, pollIntervalMs, signal);
     } catch (error) {
-      this.logger.warn(`Piece status monitoring incomplete: ${error.message}`);
+      signal?.throwIfAborted();
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.warn(`Piece status monitoring incomplete: ${errorMessage}`);
       monitoringResult = {
         success: false,
         finalStatus: {
@@ -293,7 +307,9 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       maxAttempts,
       delayMs: ATTEMPT_INTERVAL_MS,
       expectedProviders: [buildExpectedProviderInfo(storageProvider)],
+      signal,
     }).catch((error) => {
+      signal?.throwIfAborted();
       this.logger.warn(`IPNI verification failed: ${error.message}`);
       return false;
     });
@@ -330,6 +346,7 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
     pieceCid: string,
     maxDurationMs: number,
     pollIntervalMs: number,
+    signal?: AbortSignal,
   ): Promise<PieceMonitoringResult> {
     const startTime = Date.now();
     let lastStatus: PieceStatus = {
@@ -342,10 +359,12 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
     let checkCount = 0;
 
     while (Date.now() - startTime < maxDurationMs) {
+      signal?.throwIfAborted();
       checkCount++;
 
       try {
-        const sdkStatus = await this.getPieceStatus(serviceURL, pieceCid);
+        const sdkStatus = await this.getPieceStatus(serviceURL, pieceCid, signal);
+        signal?.throwIfAborted();
 
         const currentStatus: PieceStatus = {
           status: sdkStatus.status,
@@ -380,12 +399,13 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
 
         lastStatus = currentStatus;
       } catch (error) {
+        signal?.throwIfAborted();
         if (checkCount % 20 === 0) {
           this.logger.debug(`Status check error: ${error.message}`);
         }
       }
 
-      await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+      await delay(pollIntervalMs, signal);
     }
 
     // Timeout reached
@@ -397,7 +417,11 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
   /**
    * Get indexing and IPNI status for a piece from PDP server
    */
-  private async getPieceStatus(serviceURL: string, pieceCid: string): Promise<PieceStatusResponse> {
+  private async getPieceStatus(
+    serviceURL: string,
+    pieceCid: string,
+    signal?: AbortSignal,
+  ): Promise<PieceStatusResponse> {
     if (!pieceCid || typeof pieceCid !== "string") {
       throw new Error(`Invalid PieceCID: ${String(pieceCid)}`);
     }
@@ -411,6 +435,7 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
         headers: {
           Accept: "application/json",
         },
+        signal,
       });
       const parsed = JSON.parse(data.toString());
       return validatePieceStatusResponse(parsed);

@@ -88,7 +88,8 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       const uploadPayload = await this.prepareUploadPayload(preprocessed);
       const providers = this.walletSdkService.getTestingProviders();
 
-      const maxConcurrency = this.configService.get("scheduling").dealMaxConcurrency;
+      // Legacy cron-only path: keep fixed concurrency until cron mode is removed.
+      const maxConcurrency = 10;
       const results = await this.processProvidersInParallel(
         synapse,
         providers,
@@ -113,14 +114,22 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     options: {
       enableIpni: boolean;
       existingDealId?: string;
+      signal?: AbortSignal;
     },
   ): Promise<Deal> {
-    const { preprocessed, cleanup } = await this.prepareDealInput(options.enableIpni);
+    const { preprocessed, cleanup } = await this.prepareDealInput(options.enableIpni, options.signal);
 
     try {
       const synapse = this.sharedSynapse ?? (await this.createSynapseInstance());
-      const uploadPayload = await this.prepareUploadPayload(preprocessed);
-      return await this.createDeal(synapse, providerInfo, preprocessed, uploadPayload, options.existingDealId);
+      const uploadPayload = await this.prepareUploadPayload(preprocessed, options.signal);
+      return await this.createDeal(
+        synapse,
+        providerInfo,
+        preprocessed,
+        uploadPayload,
+        options.existingDealId,
+        options.signal,
+      );
     } finally {
       await cleanup();
     }
@@ -131,13 +140,17 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
    */
   async prepareDealInput(
     enableIpni: boolean,
+    signal?: AbortSignal,
   ): Promise<{ preprocessed: DealPreprocessingResult; cleanup: () => Promise<void> }> {
     const dataFile = await this.fetchDataFile(SIZE_CONSTANTS.MIN_UPLOAD_SIZE, SIZE_CONSTANTS.MAX_UPLOAD_SIZE);
 
-    const preprocessed = await this.dealAddonsService.preprocessDeal({
-      enableIpni,
-      dataFile,
-    });
+    const preprocessed = await this.dealAddonsService.preprocessDeal(
+      {
+        enableIpni,
+        dataFile,
+      },
+      signal,
+    );
 
     const cleanup = async () => this.dataSourceService.cleanupRandomDataset(dataFile.name);
 
@@ -160,6 +173,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     dealInput: DealPreprocessingResult,
     uploadPayload: UploadPayload,
     existingDealId?: string,
+    signal?: AbortSignal,
   ): Promise<Deal> {
     const providerAddress = providerInfo.serviceProvider;
     const providerShort = providerAddress.slice(0, 8);
@@ -199,10 +213,13 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       }
       const filecoinPinLogger = createFilecoinPinLogger(this.logger);
 
+      signal?.throwIfAborted();
+
       const storage = await synapse.storage.createContext({
         providerAddress,
         metadata: dataSetMetadata,
       });
+      signal?.throwIfAborted();
 
       deal.dataSetId = storage.dataSetId;
       deal.uploadStartTime = new Date();
@@ -229,7 +246,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
               deal.pieceCid = event.data.pieceCid.toString();
               this.logger.log(`Upload complete event, pieceCid: ${deal.pieceCid}`);
               onUploadCompleteAddonsPromise = this.dealAddonsService
-                .handleUploadComplete(deal, dealInput.appliedAddons)
+                .handleUploadComplete(deal, dealInput.appliedAddons, signal)
                 .then(() => true)
                 .catch((error) => {
                   uploadCompleteError = error;
@@ -256,8 +273,11 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
               deal.chainLatencyMs = deal.pieceConfirmedTime.getTime() - deal.pieceAddedTime.getTime();
               break;
           }
+          // throw if aborted, AFTER adding data to the `deal` object. Everything in this `onProgress` callback is synchronous.
+          signal?.throwIfAborted();
         },
       });
+      signal?.throwIfAborted();
       if (deal.pieceCid == null || deal.pieceAddedTime == null || deal.pieceConfirmedTime == null) {
         throw new Error("Dealbot did not receive onProgress events during upload");
       }
@@ -286,6 +306,8 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
           // pieceUploadToRetrievableDuration (IPNI verified)
           deal.dealLatencyWithIpniMs = deal.ipniVerifiedAt.getTime() - deal.uploadStartTime.getTime();
         }
+        // throw if aborted after saving dealConfirmedTime and dealLatencyWithIpniMs
+        signal?.throwIfAborted();
       }
 
       const retrievalConfig: RetrievalConfiguration = {
@@ -294,7 +316,9 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
         storageProvider: deal.spAddress as Hex,
       };
       const retrievalStartTime = Date.now();
-      const retrievalTest = await this.retrievalAddonsService.testAllRetrievalMethods(retrievalConfig);
+      signal?.throwIfAborted();
+      const retrievalTest = await this.retrievalAddonsService.testAllRetrievalMethods(retrievalConfig, signal);
+      signal?.throwIfAborted();
 
       if (retrievalTest.summary.failedMethods > 0) {
         throw new Error(
@@ -353,10 +377,11 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
 
       return deal;
     } catch (error) {
-      this.logger.error(`Deal creation failed for ${providerAddress}: ${error.message}`);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Deal creation failed for ${providerAddress}: ${errorMessage}`);
 
       deal.status = DealStatus.FAILED;
-      deal.errorMessage = error.message;
+      deal.errorMessage = errorMessage;
 
       // Record failure metrics
       this.dealsCreatedCounter.inc({
@@ -408,7 +433,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  private async prepareUploadPayload(dealInput: DealPreprocessingResult): Promise<UploadPayload> {
+  private async prepareUploadPayload(dealInput: DealPreprocessingResult, signal?: AbortSignal): Promise<UploadPayload> {
     const ipniMetadata = dealInput.metadata[ServiceType.IPFS_PIN];
     if (ipniMetadata?.rootCID) {
       return {
@@ -421,11 +446,17 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       ? dealInput.processedData.data
       : Buffer.from(dealInput.processedData.data);
 
-    const carResult = await buildUnixfsCar({
-      data,
-      size: dealInput.processedData.size,
-      name: dealInput.processedData.name,
-    });
+    signal?.throwIfAborted();
+    const carResult = await buildUnixfsCar(
+      {
+        data,
+        size: dealInput.processedData.size,
+        name: dealInput.processedData.name,
+      },
+      {
+        signal,
+      },
+    );
 
     return {
       carData: carResult.carData,

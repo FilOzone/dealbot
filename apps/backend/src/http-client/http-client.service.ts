@@ -55,6 +55,33 @@ export class HttpClientService {
     });
   }
 
+  async requestWithRandomProxyAndMetrics<T = any>(
+    url: string,
+    options: {
+      method?: "GET" | "POST" | "PUT" | "DELETE";
+      data?: any;
+      headers?: Record<string, string>;
+      httpVersion?: HttpVersion;
+      signal?: AbortSignal;
+    } = {},
+  ): Promise<RequestWithMetrics<T>> {
+    // TODO: implement proxy selection; fall back to direct request for now.
+    return this.requestWithMetrics<T>(url, options);
+  }
+
+  async requestWithoutProxyAndMetrics<T = any>(
+    url: string,
+    options: {
+      method?: "GET" | "POST" | "PUT" | "DELETE";
+      data?: any;
+      headers?: Record<string, string>;
+      httpVersion?: HttpVersion;
+      signal?: AbortSignal;
+    } = {},
+  ): Promise<RequestWithMetrics<T>> {
+    return this.requestWithMetrics<T>(url, options);
+  }
+
   /**
    * HTTP/2 request using undici
    */

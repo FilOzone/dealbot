@@ -135,6 +135,11 @@ const metricProviders = [
   }),
   /**
    * Handler completion results per type.
+   *
+   * handler_result values:
+   *   "success" — job ran and the check completed (regardless of business outcome)
+   *   "aborted" — job ran but was terminated by the timeout abort signal
+   *   "error"   — job infrastructure failure (uncaught exception in recordJobExecution)
    */
   makeCounterProvider({
     name: "jobs_completed_total",

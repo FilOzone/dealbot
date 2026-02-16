@@ -36,7 +36,7 @@ export interface IDealAddon<T extends IpniMetadata | DirectMetadata = any> {
    * @returns Preprocessing result with transformed data and metadata
    * @throws Error if preprocessing fails
    */
-  preprocessData(context: AddonExecutionContext): Promise<PreprocessingResult<T>>;
+  preprocessData(context: AddonExecutionContext, signal?: AbortSignal): Promise<PreprocessingResult<T>>;
 
   /**
    * Get Synapse SDK configuration for this add-on
@@ -53,7 +53,7 @@ export interface IDealAddon<T extends IpniMetadata | DirectMetadata = any> {
    * @param deal - Deal entity with upload information
    * @returns Promise that resolves when handler is complete
    */
-  onUploadComplete?(deal: Deal): Promise<void>;
+  onUploadComplete?(deal: Deal, signal?: AbortSignal): Promise<void>;
 
   /**
    * Optional post-processing after deal creation
