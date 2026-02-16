@@ -281,7 +281,7 @@ export class WalletSdkService implements OnModuleInit {
    * Calculate fees required for dataset creation across all providers
    */
   private calculateDatasetCreationFees(providerCount: number): bigint {
-    const minDataSetPerSP = 2n; // withCDN & withoutCDN
+    const minDataSetPerSP = 1n; // single dataset per storage provider
     const datasetCreationFees = 1n * 10n ** 17n; // 0.1 USDFC
     return minDataSetPerSP * datasetCreationFees * BigInt(providerCount);
   }

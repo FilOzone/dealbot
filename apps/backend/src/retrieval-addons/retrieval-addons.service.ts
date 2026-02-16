@@ -1,10 +1,10 @@
 import { Injectable, Logger } from "@nestjs/common";
+import { delay } from "../common/abort-utils.js";
 import { RetrievalError, type RetrievalErrorResponseInfo } from "../common/errors.js";
 import { ServiceType } from "../database/types.js";
 import { HttpClientService } from "../http-client/http-client.service.js";
 import type { RequestWithMetrics } from "../http-client/types.js";
 import type { IRetrievalAddon } from "./interfaces/retrieval-addon.interface.js";
-import { CdnRetrievalStrategy } from "./strategies/cdn.strategy.js";
 import { DirectRetrievalStrategy } from "./strategies/direct.strategy.js";
 import { IpniRetrievalStrategy } from "./strategies/ipni.strategy.js";
 import type {
@@ -27,7 +27,6 @@ export class RetrievalAddonsService {
 
   constructor(
     private readonly directRetrieval: DirectRetrievalStrategy,
-    private readonly cdnRetrieval: CdnRetrievalStrategy,
     private readonly ipniRetrieval: IpniRetrievalStrategy,
     private readonly httpClientService: HttpClientService,
   ) {
@@ -40,7 +39,6 @@ export class RetrievalAddonsService {
    */
   private registerAddons(): void {
     this.registerAddon(this.directRetrieval);
-    this.registerAddon(this.cdnRetrieval);
     this.registerAddon(this.ipniRetrieval);
 
     this.logger.log(`Registered ${this.addons.size} retrieval add-ons: ${Array.from(this.addons.keys()).join(", ")}`);
@@ -166,6 +164,8 @@ export class RetrievalAddonsService {
       throw new Error(`No retrieval methods available for deal ${config.deal.id}`);
     }
 
+    signal?.throwIfAborted();
+
     this.logger.log(
       `Testing ${urlResults.length} retrieval methods for deal ${config.deal.id}: ` +
         `${urlResults.map((r) => r.method).join(", ")}`,
@@ -178,11 +178,19 @@ export class RetrievalAddonsService {
 
     const results = await Promise.allSettled(retrievalPromises);
 
+    const aborted = signal?.aborted ?? false;
+
     // Process results
     const executionResults: RetrievalExecutionResult[] = results.map((result, index) => {
       if (result.status === "fulfilled") {
         return result.value;
       } else {
+        let errorMessage = "";
+        if (result.reason instanceof Error) {
+          errorMessage = result.reason.message;
+        } else if (result.reason) {
+          errorMessage = String(result.reason);
+        }
         // Create failed result - retryCount unknown for catastrophic failures
         return {
           url: urlResults[index].url,
@@ -197,7 +205,7 @@ export class RetrievalAddonsService {
             responseSize: 0,
           },
           success: false,
-          error: result.reason?.message || "Unknown error",
+          error: errorMessage || "Unknown error",
           retryCount: undefined, // Unknown for catastrophic failures
         };
       }
@@ -227,12 +235,13 @@ export class RetrievalAddonsService {
         fastestLatency: fastestResult?.metrics.latency,
       },
       testedAt: new Date(),
+      aborted,
     };
   }
 
   /**
    * Execute retrieval with retries based on strategy configuration
-   * Strategies can define retry behavior (e.g., CDN cache warming)
+   * Strategies can define retry behavior (e.g., cache warming)
    *
    * @param urlResult - URL result from strategy
    * @param config - Retrieval configuration
@@ -264,9 +273,10 @@ export class RetrievalAddonsService {
     const results: Array<RetrievalExecutionResult & { attemptNumber: number }> = [];
 
     for (let attempt = 1; attempt <= attempts; attempt++) {
-      this.ensureNotAborted(signal);
+      signal?.throwIfAborted();
       try {
         const result = await this.executeRetrieval(urlResult, config, signal);
+        signal?.throwIfAborted();
         results.push({ ...result, attemptNumber: attempt });
 
         if (attempts > 1 && result.success) {
@@ -279,11 +289,13 @@ export class RetrievalAddonsService {
 
         // Add delay between attempts if configured
         if (attempt < attempts && delayMs > 0) {
-          this.ensureNotAborted(signal);
-          await this.delay(delayMs);
+          signal?.throwIfAborted();
+          await delay(delayMs, signal);
         }
       } catch (error) {
-        this.logger.warn(`${strategy.name} attempt ${attempt}/${attempts} failed: ${error.message}`);
+        signal?.throwIfAborted();
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        this.logger.warn(`${strategy.name} attempt ${attempt}/${attempts} failed: ${errorMessage}`);
 
         // If all attempts fail, throw the error
         if (attempt === attempts) {
@@ -316,15 +328,6 @@ export class RetrievalAddonsService {
   }
 
   /**
-   * Delay helper for CDN cache warming
-   * @param ms - Milliseconds to delay
-   * @private
-   */
-  private delay(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
-  }
-
-  /**
    * Execute a single retrieval with metrics and validation
    * @private
    */
@@ -340,8 +343,7 @@ export class RetrievalAddonsService {
     }
 
     try {
-      this.ensureNotAborted(signal);
-
+      signal?.throwIfAborted();
       if (urlResult.method === ServiceType.IPFS_PIN && strategy.validateDataStream) {
         const streamResult = await this.httpClientService.requestWithoutProxyAndMetricsStream(urlResult.url, {
           headers: urlResult.headers,
@@ -357,6 +359,7 @@ export class RetrievalAddonsService {
         let validation = {} as ValidationResult;
         try {
           validation = await strategy.validateDataStream(streamResult.body, config);
+          signal?.throwIfAborted();
           if (!validation.isValid) {
             this.logger.warn(
               `Validation failed for ${urlResult.method} retrieval of deal ${config.deal.id}: ` +
@@ -384,6 +387,7 @@ export class RetrievalAddonsService {
         const responseSize = validation.bytesRead ?? 0;
         const throughput = totalTime > 0 ? responseSize / (totalTime / 1000) : 0;
 
+        signal?.throwIfAborted();
         return {
           url: urlResult.url,
           method: urlResult.method,
@@ -430,6 +434,7 @@ export class RetrievalAddonsService {
       }
 
       // Validate HTTP status code before processing (must be 2xx for success)
+      signal?.throwIfAborted();
       if (result.metrics.statusCode < 200 || result.metrics.statusCode >= 300) {
         const responsePreview = this.buildResponsePreview(result.data);
         throw RetrievalError.fromHttpResponse(result.metrics.statusCode, responsePreview);
@@ -439,6 +444,7 @@ export class RetrievalAddonsService {
       let processedData = result.data;
       if (strategy.preprocessRetrievedData) {
         processedData = await strategy.preprocessRetrievedData(result.data);
+        signal?.throwIfAborted();
       }
 
       // Validate data if strategy supports it
@@ -446,6 +452,7 @@ export class RetrievalAddonsService {
       if (strategy.validateData) {
         try {
           validation = await strategy.validateData(processedData, config);
+          signal?.throwIfAborted();
           // Log additional context if validation failed, including the URL used
           if (!validation.isValid) {
             this.logger.warn(
@@ -488,6 +495,9 @@ export class RetrievalAddonsService {
         success: true,
       };
     } catch (error) {
+      if (signal?.aborted) {
+        this.logger.warn(`Retrieval aborted for ${urlResult.method}. Failure details below`);
+      }
       const errorMessage = error instanceof Error ? error.message : String(error);
       const errorStack = error instanceof Error ? error.stack : undefined;
       const responseInfo = this.extractResponseInfo(error);
@@ -509,14 +519,8 @@ export class RetrievalAddonsService {
           responseSize: 0,
         },
         success: false,
-        error: error.message,
+        error: errorMessage,
       };
-    }
-  }
-
-  private ensureNotAborted(signal?: AbortSignal): void {
-    if (signal?.aborted) {
-      throw new Error("Retrieval job aborted");
     }
   }
 

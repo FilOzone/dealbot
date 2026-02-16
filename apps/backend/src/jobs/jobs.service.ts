@@ -2,7 +2,7 @@ import { Injectable, Logger, type OnApplicationShutdown, type OnModuleInit } fro
 import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
 import { InjectMetric } from "@willsoto/nestjs-prometheus";
-import PgBoss from "pg-boss";
+import { type Job, PgBoss, type SendOptions } from "pg-boss";
 import type { Counter, Gauge, Histogram } from "prom-client";
 import type { Repository } from "typeorm";
 import { getMaintenanceWindowStatus } from "../common/maintenance-window.js";
@@ -12,13 +12,15 @@ import { DealService } from "../deal/deal.service.js";
 import { MetricsSchedulerService } from "../metrics/services/metrics-scheduler.service.js";
 import { RetrievalService } from "../retrieval/retrieval.service.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
+import { METRICS_CLEANUP_QUEUE, METRICS_QUEUE, SP_WORK_QUEUE } from "./job-queues.js";
 import { JobScheduleRepository } from "./repositories/job-schedule.repository.js";
 
 type JobType = "deal" | "retrieval" | "metrics" | "metrics_cleanup";
+type SpJobType = "deal" | "retrieval";
 
-type DealJobData = { spAddress: string; intervalSeconds: number };
-type RetrievalJobData = { spAddress: string; intervalSeconds: number };
+type SpJobData = { jobType: SpJobType; spAddress: string; intervalSeconds: number };
 type MetricsJobData = { intervalSeconds: number };
+type SpJob = Job<SpJobData>;
 
 type ScheduleRow = {
   id: number;
@@ -28,8 +30,7 @@ type ScheduleRow = {
   next_run_at: string;
 };
 
-type PgBossSendOptions = PgBoss.PublishOptions;
-type JobRunStatus = "success" | "error";
+type JobRunStatus = "success" | "error" | "aborted";
 
 @Injectable()
 export class JobsService implements OnModuleInit, OnApplicationShutdown {
@@ -154,25 +155,8 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     return Math.max(1, this.configService.get("jobs")?.catchupMaxEnqueue ?? 10);
   }
 
-  private catchupSpreadSeconds(): number {
-    const hours = this.configService.get("jobs")?.catchupSpreadHours ?? 3;
-    return Math.max(0, hours * 3600);
-  }
-
-  private perSpImmediateLimit(): number {
-    return 1;
-  }
-
-  private lockRetrySeconds(): number {
-    return Math.max(10, this.configService.get("jobs")?.lockRetrySeconds ?? 60);
-  }
-
   private schedulePhaseSeconds(): number {
     return Math.max(0, this.configService.get("jobs")?.schedulePhaseSeconds ?? 0);
-  }
-
-  private enqueueJitterSeconds(): number {
-    return Math.max(0, this.configService.get("jobs")?.enqueueJitterSeconds ?? 0);
   }
 
   private pgbossPoolMax(): number {
@@ -190,10 +174,13 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
   private async startBoss(): Promise<void> {
     if (this.boss) return;
     const poolMax = this.pgbossPoolMax();
+    const runMode = this.configService.get("app")?.runMode ?? "both";
+    const migrate = runMode !== "worker";
     const boss = new PgBoss({
       connectionString: this.buildConnectionString(),
       schema: "pgboss",
       max: poolMax,
+      migrate,
     });
     this.bossErrorHandler = (error: Error) => {
       this.logger.error(`pg-boss error: ${error.message}`, error.stack);
@@ -201,6 +188,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     boss.on("error", this.bossErrorHandler);
     try {
       await boss.start();
+      await boss.createQueue(SP_WORK_QUEUE, { policy: "singleton" });
       this.boss = boss;
     } catch (error) {
       boss.off("error", this.bossErrorHandler);
@@ -212,33 +200,48 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
   private registerWorkers(): void {
     if (!this.boss) return;
 
-    const scheduling = this.configService.get("scheduling");
+    const jobsConfig = this.configService.get("jobs");
     const workerPollSeconds = Math.max(5, this.configService.get("jobs")?.workerPollSeconds ?? 60);
-    const dealTeamSize = Math.max(1, scheduling?.dealMaxConcurrency ?? 1);
-    const retrievalTeamSize = Math.max(1, scheduling?.retrievalMaxConcurrency ?? 1);
+    const spConcurrency = Math.max(1, jobsConfig?.pgbossLocalConcurrency ?? 1);
 
     void this.boss
-      .subscribe("deal.run", { teamSize: dealTeamSize, newJobCheckIntervalSeconds: workerPollSeconds }, async (job) =>
-        this.handleDealJob(job.data as DealJobData),
+      .work<SpJobData, void>(
+        SP_WORK_QUEUE,
+        { batchSize: 1, localConcurrency: spConcurrency, pollingIntervalSeconds: workerPollSeconds },
+        async ([job]) => {
+          if (!job) {
+            return;
+          }
+          if (job.data.jobType === "deal") {
+            await this.handleDealJob(job);
+            return;
+          }
+          if (job.data.jobType === "retrieval") {
+            await this.handleRetrievalJob(job);
+            return;
+          }
+          this.logger.warn(`Skipping unknown SP job type "${String(job.data.jobType)}" for ${job.data.spAddress}`);
+        },
       )
-      .catch((error) => this.logger.error(`Failed to subscribe to deal.run: ${error.message}`, error.stack));
+      .catch((error) =>
+        this.logger.error(`Failed to register worker for ${SP_WORK_QUEUE}: ${error.message}`, error.stack),
+      );
     void this.boss
-      .subscribe(
-        "retrieval.run",
-        { teamSize: retrievalTeamSize, newJobCheckIntervalSeconds: workerPollSeconds },
-        async (job) => this.handleRetrievalJob(job.data as RetrievalJobData),
+      .work<MetricsJobData, void>(
+        METRICS_QUEUE,
+        { batchSize: 1, pollingIntervalSeconds: workerPollSeconds },
+        async ([job]) => this.handleMetricsJob(job.data),
       )
-      .catch((error) => this.logger.error(`Failed to subscribe to retrieval.run: ${error.message}`, error.stack));
+      .catch((error) => this.logger.error(`Failed to register worker for metrics.run: ${error.message}`, error.stack));
     void this.boss
-      .subscribe("metrics.run", { teamSize: 1, newJobCheckIntervalSeconds: workerPollSeconds }, async (job) =>
-        this.handleMetricsJob(job.data as MetricsJobData),
+      .work<MetricsJobData, void>(
+        METRICS_CLEANUP_QUEUE,
+        { batchSize: 1, pollingIntervalSeconds: workerPollSeconds },
+        async ([job]) => this.handleMetricsCleanupJob(job.data),
       )
-      .catch((error) => this.logger.error(`Failed to subscribe to metrics.run: ${error.message}`, error.stack));
-    void this.boss
-      .subscribe("metrics.cleanup", { teamSize: 1, newJobCheckIntervalSeconds: workerPollSeconds }, async (job) =>
-        this.handleMetricsCleanupJob(job.data as MetricsJobData),
-      )
-      .catch((error) => this.logger.error(`Failed to subscribe to metrics.cleanup: ${error.message}`, error.stack));
+      .catch((error) =>
+        this.logger.error(`Failed to register worker for metrics.cleanup: ${error.message}`, error.stack),
+      );
   }
 
   private getMaintenanceWindowStatus(now: Date = new Date()) {
@@ -250,23 +253,30 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     const scheduling = this.configService.get("scheduling");
     const label = windowLabel ?? "unknown";
     this.logger.log(
-      `Maintenance window active (${label} UTC, ${scheduling.maintenanceWindowMinutes}m); skipping ${taskLabel}`,
+      `Maintenance window active (${label} UTC, ${scheduling.maintenanceWindowMinutes}m); deferring ${taskLabel}`,
     );
   }
 
-  private async handleDealJob(data: DealJobData): Promise<void> {
+  private async handleDealJob(job: SpJob): Promise<void> {
+    const data = job.data;
     const spAddress = data.spAddress;
-    const maintenance = this.getMaintenanceWindowStatus();
+    const now = new Date();
+    const maintenance = this.getMaintenanceWindowStatus(now);
     if (maintenance.active) {
       this.logMaintenanceSkip(`deal job for ${spAddress}`, maintenance.window?.label);
+      await this.deferJobForMaintenance("deal", data, maintenance, now);
       return;
     }
 
-    const acquired = await this.tryAcquireSpLock(spAddress);
-    if (!acquired) {
-      await this.requeueJob("deal", "deal.run", data);
-      return;
-    }
+    // Create AbortController for job timeout enforcement
+    const abortController = new AbortController();
+    const timeoutSeconds = this.configService.get("jobs").dealJobTimeoutSeconds;
+    const timeoutMs = Math.max(120000, timeoutSeconds * 1000);
+    const effectiveTimeoutSeconds = Math.round(timeoutMs / 1000);
+    const abortReason = new Error(`Deal job timeout (${effectiveTimeoutSeconds}s) for ${spAddress}`);
+    const timeoutId = setTimeout(() => {
+      abortController.abort(abortReason);
+    }, timeoutMs);
 
     await this.recordJobExecution("deal", async () => {
       try {
@@ -281,38 +291,53 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
             return "success";
           }
         }
-        await this.dealService.createDealForProvider(provider, this.dealService.getTestingDealOptions());
+        await this.dealService.createDealForProvider(provider, {
+          ...this.dealService.getTestingDealOptions(),
+          signal: abortController.signal,
+        });
         return "success";
       } catch (error) {
-        this.logger.error(`Deal job failed for ${spAddress}: ${error.message}`, error.stack);
+        if (abortController.signal.aborted) {
+          const reason = abortController.signal.reason;
+          const reasonMessage = reason instanceof Error ? reason.message : String(reason ?? "");
+          this.logger.error(
+            reasonMessage
+              ? `Deal job aborted: ${reasonMessage}`
+              : `Deal job aborted after timeout (${effectiveTimeoutSeconds}s) for ${spAddress}`,
+          );
+          return "aborted";
+        }
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        const errorStack = error instanceof Error ? error.stack : undefined;
+        this.logger.error(`Deal job failed for ${spAddress}: ${errorMessage}`, errorStack);
         // Jobs are not retried once attempted; failures are handled by the next schedule tick.
         throw error;
       } finally {
-        try {
-          await this.releaseSpLock(spAddress);
-        } catch (releaseError) {
-          this.logger.error(
-            `Failed to release deal lock for ${spAddress}: ${releaseError.message}`,
-            releaseError.stack,
-          );
-        }
+        clearTimeout(timeoutId);
       }
     });
   }
 
-  private async handleRetrievalJob(data: RetrievalJobData): Promise<void> {
+  private async handleRetrievalJob(job: SpJob): Promise<void> {
+    const data = job.data;
     const spAddress = data.spAddress;
-    const maintenance = this.getMaintenanceWindowStatus();
+    const now = new Date();
+    const maintenance = this.getMaintenanceWindowStatus(now);
     if (maintenance.active) {
       this.logMaintenanceSkip(`retrieval job for ${spAddress}`, maintenance.window?.label);
+      await this.deferJobForMaintenance("retrieval", data, maintenance, now);
       return;
     }
 
-    const acquired = await this.tryAcquireSpLock(spAddress);
-    if (!acquired) {
-      await this.requeueJob("retrieval", "retrieval.run", data);
-      return;
-    }
+    // Create AbortController for job timeout enforcement
+    const abortController = new AbortController();
+    const timeoutSeconds = this.configService.get("jobs").retrievalJobTimeoutSeconds;
+    const timeoutMs = Math.max(60000, timeoutSeconds * 1000);
+    const effectiveTimeoutSeconds = Math.round(timeoutMs / 1000);
+    const abortReason = new Error(`Retrieval job timeout (${effectiveTimeoutSeconds}s) for ${spAddress}`);
+    const timeoutId = setTimeout(() => {
+      abortController.abort(abortReason);
+    }, timeoutMs);
 
     await this.recordJobExecution("retrieval", async () => {
       try {
@@ -329,21 +354,26 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
           );
         }
 
-        await this.retrievalService.performRandomRetrievalForProvider(spAddress, timeoutMs);
+        await this.retrievalService.performRandomRetrievalForProvider(spAddress, timeoutMs, abortController.signal);
         return "success";
       } catch (error) {
-        this.logger.error(`Retrieval job failed for ${spAddress}: ${error.message}`, error.stack);
+        if (abortController.signal.aborted) {
+          const reason = abortController.signal.reason;
+          const reasonMessage = reason instanceof Error ? reason.message : String(reason ?? "");
+          this.logger.error(
+            reasonMessage
+              ? `Retrieval job aborted: ${reasonMessage}`
+              : `Retrieval job aborted after timeout (${effectiveTimeoutSeconds}s) for ${spAddress}`,
+          );
+          return "aborted";
+        }
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        const errorStack = error instanceof Error ? error.stack : undefined;
+        this.logger.error(`Retrieval job failed for ${spAddress}: ${errorMessage}`, errorStack);
         // Jobs are not retried once attempted; failures are handled by the next schedule tick.
         throw error;
       } finally {
-        try {
-          await this.releaseSpLock(spAddress);
-        } catch (releaseError) {
-          this.logger.error(
-            `Failed to release retrieval lock for ${spAddress}: ${releaseError.message}`,
-            releaseError.stack,
-          );
-        }
+        clearTimeout(timeoutId);
       }
     });
   }
@@ -366,29 +396,43 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     });
   }
 
-  /**
-   * Requeues a job when we fail to acquire the per-provider lock.
-   */
-  private async requeueJob(jobType: JobType, name: string, data: DealJobData | RetrievalJobData): Promise<void> {
-    if (!this.boss) return;
-    const startAfter = new Date(Date.now() + this.lockRetrySeconds() * 1000);
-    try {
-      // We only requeue on lock contention; once a job starts, we do not retry it.
-      const options: PgBossSendOptions = { startAfter, retryLimit: 0 };
-      await this.boss.publish(name, data, options);
-      this.jobsEnqueueAttemptsCounter.inc({ job_type: jobType, outcome: "success" });
-    } catch (error) {
-      this.logger.warn(`Failed to requeue ${name}: ${error.message}`);
-      this.jobsEnqueueAttemptsCounter.inc({ job_type: jobType, outcome: "error" });
+  private maintenanceResumeAt(now: Date, maintenance: ReturnType<typeof getMaintenanceWindowStatus>): Date | null {
+    if (!maintenance.active || !maintenance.window) {
+      return null;
     }
+    const scheduling = this.configService.get("scheduling");
+    const durationMinutes = scheduling.maintenanceWindowMinutes;
+    if (durationMinutes <= 0) {
+      return null;
+    }
+
+    const nowMinutes = now.getUTCHours() * 60 + now.getUTCMinutes();
+    const startMinutes = maintenance.window.startMinutes;
+    const endMinutes = startMinutes + durationMinutes;
+    const baseDay = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0, 0);
+
+    if (endMinutes < 24 * 60) {
+      return new Date(baseDay + endMinutes * 60 * 1000);
+    }
+
+    const wrappedEnd = endMinutes - 24 * 60;
+    if (nowMinutes >= startMinutes) {
+      return new Date(baseDay + (24 * 60 + wrappedEnd) * 60 * 1000);
+    }
+    return new Date(baseDay + wrappedEnd * 60 * 1000);
   }
 
-  private async tryAcquireSpLock(spAddress: string): Promise<boolean> {
-    return this.jobScheduleRepository.acquireAdvisoryLock(spAddress);
-  }
-
-  private async releaseSpLock(spAddress: string): Promise<void> {
-    await this.jobScheduleRepository.releaseAdvisoryLock(spAddress);
+  private async deferJobForMaintenance(
+    jobType: SpJobType,
+    data: SpJobData,
+    maintenance: ReturnType<typeof getMaintenanceWindowStatus>,
+    now: Date,
+  ): Promise<void> {
+    const resumeAt = this.maintenanceResumeAt(now, maintenance);
+    if (resumeAt == null) {
+      return;
+    }
+    await this.safeSend(jobType, SP_WORK_QUEUE, data, { startAfter: resumeAt });
   }
 
   /**
@@ -517,7 +561,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
 
   /**
    * Queries the DB for jobs that are due (`next_run_at <= now`).
-   * Enqueues them into pg-boss, respecting rate limits/jitter.
+   * Enqueues them into pg-boss, respecting rate limits.
    * Updates the `next_run_at` in the DB upon successful enqueue.
    */
   private getScheduleTiming(
@@ -547,8 +591,6 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     const now = new Date();
     const maintenance = this.getMaintenanceWindowStatus(now);
     const catchupMax = this.catchupMaxEnqueue();
-    const spreadSeconds = this.catchupSpreadSeconds();
-    const immediateLimit = this.perSpImmediateLimit();
 
     if (maintenance.active) {
       this.logMaintenanceSkip("deal/retrieval enqueues", maintenance.window?.label);
@@ -558,47 +600,18 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       const rows = await this.jobScheduleRepository.findDueSchedulesWithManager(manager, now);
 
       for (const row of rows) {
-        if (maintenance.active && (row.job_type === "deal" || row.job_type === "retrieval")) {
-          const timing = this.getScheduleTiming(row, now);
-          if (!timing) continue;
-          const { intervalMs, nextRunAt, runsDue } = timing;
-
-          const newNextRunAt = new Date(nextRunAt.getTime() + runsDue * intervalMs);
-          await this.jobScheduleRepository.updateScheduleAfterRun(manager, row.id, newNextRunAt, now);
-          continue;
-        }
-
         const timing = this.getScheduleTiming(row, now);
         if (!timing) continue;
         const { intervalMs, nextRunAt, runsDue } = timing;
 
         const totalToEnqueue = Math.min(runsDue, catchupMax);
-        const immediateCount = Math.min(totalToEnqueue, immediateLimit);
-        const delayedCount = Math.max(0, totalToEnqueue - immediateCount);
-
         let successCount = 0;
         const jobName = this.mapJobName(row.job_type);
         const payload = this.mapJobPayload(row);
 
-        // Enqueue immediate jobs
-        for (let i = 0; i < immediateCount; i += 1) {
-          if (await this.safeSend(row.job_type, jobName, payload, { startAfter: this.withJitter(now) })) {
+        for (let i = 0; i < totalToEnqueue; i += 1) {
+          if (await this.safeSend(row.job_type, jobName, payload)) {
             successCount += 1;
-          }
-        }
-
-        // Enqueue delayed jobs (spread out to avoid thundering herd if many were missed)
-        if (delayedCount > 0) {
-          for (let i = 0; i < delayedCount; i += 1) {
-            if (spreadSeconds > 0) {
-              const offsetSeconds = Math.ceil(((i + 1) * spreadSeconds) / (delayedCount + 1));
-              const startAfter = new Date(now.getTime() + offsetSeconds * 1000);
-              if (await this.safeSend(row.job_type, jobName, payload, { startAfter: this.withJitter(startAfter) })) {
-                successCount += 1;
-              }
-            } else if (await this.safeSend(row.job_type, jobName, payload, { startAfter: this.withJitter(now) })) {
-              successCount += 1;
-            }
           }
         }
 
@@ -613,13 +626,13 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
   private mapJobName(jobType: JobType): string {
     switch (jobType) {
       case "deal":
-        return "deal.run";
+        return SP_WORK_QUEUE;
       case "retrieval":
-        return "retrieval.run";
+        return SP_WORK_QUEUE;
       case "metrics":
-        return "metrics.run";
+        return METRICS_QUEUE;
       case "metrics_cleanup":
-        return "metrics.cleanup";
+        return METRICS_CLEANUP_QUEUE;
       default: {
         const exhaustiveCheck: never = jobType;
         throw new Error(`Unhandled job type: ${exhaustiveCheck}`);
@@ -627,9 +640,9 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     }
   }
 
-  private mapJobPayload(row: ScheduleRow): DealJobData | RetrievalJobData | MetricsJobData {
+  private mapJobPayload(row: ScheduleRow): SpJobData | MetricsJobData {
     if (row.job_type === "deal" || row.job_type === "retrieval") {
-      return { spAddress: row.sp_address, intervalSeconds: row.interval_seconds };
+      return { jobType: row.job_type, spAddress: row.sp_address, intervalSeconds: row.interval_seconds };
     }
     return { intervalSeconds: row.interval_seconds };
   }
@@ -637,17 +650,18 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
   /**
    * Publishes a job to pg-boss and tracks enqueue attempts.
    */
-  private async safeSend(
-    jobType: JobType,
-    name: string,
-    data: DealJobData | RetrievalJobData | MetricsJobData,
-    options?: PgBossSendOptions,
-  ) {
+  private async safeSend(jobType: JobType, name: string, data: SpJobData | MetricsJobData, options?: SendOptions) {
     if (!this.boss) return false;
     try {
       // Disable retries so "attempted" jobs don't rerun; failures are handled by the next schedule tick.
-      const finalOptions: PgBossSendOptions = { retryLimit: 0, ...options };
-      await this.boss.publish(name, data, finalOptions);
+      const finalOptions: SendOptions = { retryLimit: 0, ...options };
+      if (jobType === "deal" || jobType === "retrieval") {
+        const spData = data as SpJobData;
+        if (!finalOptions.singletonKey) {
+          finalOptions.singletonKey = spData.spAddress;
+        }
+      }
+      await this.boss.send(name, data, finalOptions);
       this.jobsEnqueueAttemptsCounter.inc({ job_type: jobType, outcome: "success" });
       return true;
     } catch (error) {
@@ -655,15 +669,6 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       this.jobsEnqueueAttemptsCounter.inc({ job_type: jobType, outcome: "error" });
       return false;
     }
-  }
-
-  private withJitter(base: Date): Date {
-    const jitterSeconds = this.enqueueJitterSeconds();
-    if (jitterSeconds <= 0) {
-      return base;
-    }
-    const jitterMs = Math.floor(Math.random() * (jitterSeconds * 1000 + 1));
-    return new Date(base.getTime() + jitterMs);
   }
 
   /**
@@ -702,8 +707,8 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     const rows = await this.jobScheduleRepository.countBossJobStates(["created", "retry", "active"]);
     if (rows.length > 0) {
       for (const row of rows) {
-        const jobType = this.mapJobTypeFromName(row.name);
-        if (!jobType) continue;
+        const jobType = row.job_type as JobType;
+        if (!jobTypes.includes(jobType)) continue;
         const state = String(row.state).toLowerCase();
         if (state === "active") {
           this.jobsInFlightGauge.set({ job_type: jobType }, row.count);
@@ -727,34 +732,16 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     const now = new Date();
     const queuedAges = await this.jobScheduleRepository.minBossJobAgeSecondsByState("created", now);
     for (const row of queuedAges) {
-      const jobType = this.mapJobTypeFromName(row.name);
-      if (!jobType) continue;
+      const jobType = row.job_type as JobType;
+      if (!jobTypes.includes(jobType)) continue;
       this.oldestQueuedAgeGauge.set({ job_type: jobType }, Math.max(0, row.min_age_seconds ?? 0));
     }
 
     const activeAges = await this.jobScheduleRepository.minBossJobAgeSecondsByState("active", now);
     for (const row of activeAges) {
-      const jobType = this.mapJobTypeFromName(row.name);
-      if (!jobType) continue;
+      const jobType = row.job_type as JobType;
+      if (!jobTypes.includes(jobType)) continue;
       this.oldestInFlightAgeGauge.set({ job_type: jobType }, Math.max(0, row.min_age_seconds ?? 0));
-    }
-  }
-
-  /**
-   * Maps a pg-boss job name to the internal job type.
-   */
-  private mapJobTypeFromName(name: string): JobType | null {
-    switch (name) {
-      case "deal.run":
-        return "deal";
-      case "retrieval.run":
-        return "retrieval";
-      case "metrics.run":
-        return "metrics";
-      case "metrics.cleanup":
-        return "metrics_cleanup";
-      default:
-        return null;
     }
   }
 }

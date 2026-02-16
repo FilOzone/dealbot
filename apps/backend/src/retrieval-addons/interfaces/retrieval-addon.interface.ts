@@ -4,12 +4,12 @@ import type { ExpectedMetrics, RetrievalConfiguration, RetrievalUrlResult, Valid
 /**
  * Interface for retrieval add-on strategies
  * Each add-on implements this interface to provide specific retrieval methods
- * (CDN, IPNI, Direct, etc.)
+ * (IPNI, Direct, etc.)
  */
 export interface IRetrievalAddon {
   /**
    * Unique identifier for the retrieval method
-   * @example 'cdn', 'ipni', 'direct'
+   * @example 'ipfs_pin', 'direct_sp'
    */
   readonly name: ServiceType;
 
@@ -76,7 +76,7 @@ export interface IRetrievalAddon {
 
   /**
    * Optional: Get retry configuration for this retrieval method
-   * Useful for strategies that need multiple attempts (e.g., CDN cache warming)
+   * Useful for strategies that need multiple attempts (e.g., cache warming)
    *
    * @returns Retry configuration with attempt count and delay
    */

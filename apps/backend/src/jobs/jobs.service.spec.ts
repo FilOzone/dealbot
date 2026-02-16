@@ -17,8 +17,6 @@ describe("JobsService schedule rows", () => {
     countPausedSchedules: ReturnType<typeof vi.fn>;
     findDueSchedulesWithManager: ReturnType<typeof vi.fn>;
     runTransaction: ReturnType<typeof vi.fn>;
-    acquireAdvisoryLock: ReturnType<typeof vi.fn>;
-    releaseAdvisoryLock: ReturnType<typeof vi.fn>;
     updateScheduleAfterRun: ReturnType<typeof vi.fn>;
     countBossJobStates: ReturnType<typeof vi.fn>;
     minBossJobAgeSecondsByState: ReturnType<typeof vi.fn>;
@@ -72,8 +70,6 @@ describe("JobsService schedule rows", () => {
       runTransaction: vi.fn(async (callback: (manager: unknown) => Promise<void>) => {
         await callback({});
       }),
-      acquireAdvisoryLock: vi.fn(),
-      releaseAdvisoryLock: vi.fn(),
       updateScheduleAfterRun: vi.fn(),
       countBossJobStates: vi.fn(),
       minBossJobAgeSecondsByState: vi.fn(),
@@ -97,17 +93,15 @@ describe("JobsService schedule rows", () => {
       blockchain: { useOnlyApprovedProviders: false } as IConfig["blockchain"],
       scheduling: {
         dealIntervalSeconds: 600,
-        dealMaxConcurrency: 4,
-        retrievalMaxConcurrency: 5,
         retrievalIntervalSeconds: 1200,
+        maintenanceWindowsUtc: ["07:00", "22:00"],
+        maintenanceWindowMinutes: 20,
       } as IConfig["scheduling"],
       jobs: {
         mode: "pgboss",
         schedulePhaseSeconds: 0,
         catchupMaxEnqueue: 10,
-        catchupSpreadHours: 3,
-        enqueueJitterSeconds: 0,
-        lockRetrySeconds: 60,
+        pgbossLocalConcurrency: 9,
         pgbossSchedulerEnabled: true,
         workerPollSeconds: 60,
       } as IConfig["jobs"],
@@ -197,6 +191,139 @@ describe("JobsService schedule rows", () => {
     expect(durationHistogram.observe).toHaveBeenCalledWith({ job_type: "deal" }, 2);
   });
 
+  it("records metrics for aborted job execution", async () => {
+    const startedCounter = metricsMocks.jobsStartedCounter as unknown as { inc: ReturnType<typeof vi.fn> };
+    const completedCounter = metricsMocks.jobsCompletedCounter as unknown as { inc: ReturnType<typeof vi.fn> };
+    const durationHistogram = metricsMocks.jobDuration as unknown as { observe: ReturnType<typeof vi.fn> };
+
+    const startTime = new Date("2024-01-01T00:00:00Z");
+    vi.useFakeTimers();
+    vi.setSystemTime(startTime);
+
+    const run = vi.fn(async () => {
+      vi.setSystemTime(new Date(startTime.getTime() + 3_000));
+      return "aborted" as const;
+    });
+
+    await callPrivate(service, "recordJobExecution", "deal", run);
+
+    expect(startedCounter.inc).toHaveBeenCalledWith({ job_type: "deal" });
+    expect(completedCounter.inc).toHaveBeenCalledWith({ job_type: "deal", handler_result: "aborted" });
+    expect(durationHistogram.observe).toHaveBeenCalledWith({ job_type: "deal" }, 3);
+  });
+
+  it("deal job records aborted when abort signal fires", async () => {
+    const completedCounter = metricsMocks.jobsCompletedCounter as unknown as { inc: ReturnType<typeof vi.fn> };
+
+    baseConfigValues = {
+      ...baseConfigValues,
+      jobs: {
+        ...baseConfigValues.jobs,
+        dealJobTimeoutSeconds: 1,
+      } as IConfig["jobs"],
+    };
+    configService = {
+      get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
+    } as unknown as JobsServiceDeps[0];
+
+    const dealService = {
+      createDealForProvider: vi.fn(async (_provider: unknown, opts: { signal: AbortSignal }) => {
+        // Wait for the abort signal to fire before throwing
+        await new Promise<void>((resolve) => {
+          if (opts.signal.aborted) return resolve();
+          opts.signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+        throw new Error("The operation was aborted");
+      }),
+      getTestingDealOptions: vi.fn(() => ({})),
+    };
+
+    const walletSdkService = {
+      getTestingProviders: vi.fn(() => [{ serviceProvider: "0xaaa" }]),
+      ensureWalletAllowances: vi.fn(),
+      loadProviders: vi.fn(),
+    };
+
+    service = buildService({
+      configService,
+      dealService: dealService as unknown as ConstructorParameters<typeof JobsService>[3],
+      walletSdkService: walletSdkService as unknown as ConstructorParameters<typeof JobsService>[6],
+    });
+
+    // Trigger the timeout immediately by using fake timers
+    vi.useFakeTimers();
+    const now = new Date("2024-01-01T00:00:00Z");
+    vi.setSystemTime(now);
+
+    const jobPromise = callPrivate(service, "handleDealJob", {
+      id: "job-123",
+      data: {
+        jobType: "deal",
+        spAddress: "0xaaa",
+        intervalSeconds: 60,
+      },
+    });
+
+    // Advance past the timeout to trigger the abort
+    await vi.advanceTimersByTimeAsync(120_000);
+    await jobPromise;
+
+    expect(completedCounter.inc).toHaveBeenCalledWith({ job_type: "deal", handler_result: "aborted" });
+  });
+
+  it("retrieval job records aborted when abort signal fires", async () => {
+    const completedCounter = metricsMocks.jobsCompletedCounter as unknown as { inc: ReturnType<typeof vi.fn> };
+
+    baseConfigValues = {
+      ...baseConfigValues,
+      jobs: {
+        ...baseConfigValues.jobs,
+        retrievalJobTimeoutSeconds: 1,
+      } as IConfig["jobs"],
+      timeouts: {
+        retrievalTimeoutBufferMs: 1000,
+        httpRequestTimeoutMs: 5000,
+        http2RequestTimeoutMs: 5000,
+      } as IConfig["timeouts"],
+    };
+    configService = {
+      get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
+    } as unknown as JobsServiceDeps[0];
+
+    const retrievalService = {
+      performRandomRetrievalForProvider: vi.fn(async (_sp: string, _timeout: number, signal: AbortSignal) => {
+        await new Promise<void>((resolve) => {
+          if (signal.aborted) return resolve();
+          signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+        throw new Error("The operation was aborted");
+      }),
+    };
+
+    service = buildService({
+      configService,
+      retrievalService: retrievalService as unknown as ConstructorParameters<typeof JobsService>[4],
+    });
+
+    vi.useFakeTimers();
+    const now = new Date("2024-01-01T00:00:00Z");
+    vi.setSystemTime(now);
+
+    const jobPromise = callPrivate(service, "handleRetrievalJob", {
+      id: "job-456",
+      data: {
+        jobType: "retrieval",
+        spAddress: "0xaaa",
+        intervalSeconds: 60,
+      },
+    });
+
+    await vi.advanceTimersByTimeAsync(60_000);
+    await jobPromise;
+
+    expect(completedCounter.inc).toHaveBeenCalledWith({ job_type: "retrieval", handler_result: "aborted" });
+  });
+
   it("updates queue metrics from pg-boss state and age queries", async () => {
     const jobsQueuedGauge = metricsMocks.jobsQueuedGauge as unknown as { set: ReturnType<typeof vi.fn> };
     const jobsRetryGauge = metricsMocks.jobsRetryScheduledGauge as unknown as { set: ReturnType<typeof vi.fn> };
@@ -206,14 +333,14 @@ describe("JobsService schedule rows", () => {
     const jobsPausedGauge = metricsMocks.jobsPausedGauge as unknown as { set: ReturnType<typeof vi.fn> };
 
     jobScheduleRepositoryMock.countBossJobStates.mockResolvedValueOnce([
-      { name: "deal.run", state: "created", count: 2 },
-      { name: "retrieval.run", state: "active", count: 1 },
-      { name: "metrics.run", state: "retry", count: 3 },
-      { name: "unknown", state: "created", count: 99 },
+      { job_type: "deal", state: "created", count: 2 },
+      { job_type: "retrieval", state: "active", count: 1 },
+      { job_type: "metrics", state: "retry", count: 3 },
+      { job_type: "unknown", state: "created", count: 99 },
     ]);
     jobScheduleRepositoryMock.minBossJobAgeSecondsByState
-      .mockResolvedValueOnce([{ name: "deal.run", min_age_seconds: 12 }])
-      .mockResolvedValueOnce([{ name: "retrieval.run", min_age_seconds: 34 }]);
+      .mockResolvedValueOnce([{ job_type: "deal", min_age_seconds: 12 }])
+      .mockResolvedValueOnce([{ job_type: "retrieval", min_age_seconds: 34 }]);
 
     await callPrivate(service, "updateQueueMetrics");
 
@@ -231,30 +358,25 @@ describe("JobsService schedule rows", () => {
     expect(jobsPausedGauge.set).toHaveBeenCalledWith({ job_type: "deal" }, 0);
   });
 
-  it("registers pg-boss subscriptions with per-queue team sizes", async () => {
-    const subscribe = vi.fn().mockResolvedValue(undefined);
-    (service as unknown as { boss: { subscribe: typeof subscribe } }).boss = { subscribe };
+  it("registers pg-boss workers with per-queue batch sizes", async () => {
+    const work = vi.fn().mockResolvedValue(undefined);
+    (service as unknown as { boss: { work: typeof work } }).boss = { work };
 
     callPrivate(service, "registerWorkers");
 
-    expect(subscribe).toHaveBeenCalledWith(
-      "deal.run",
-      { teamSize: 4, newJobCheckIntervalSeconds: 60 },
+    expect(work).toHaveBeenCalledWith(
+      "sp.work",
+      { batchSize: 1, localConcurrency: 9, pollingIntervalSeconds: 60 },
       expect.any(Function),
     );
-    expect(subscribe).toHaveBeenCalledWith(
-      "retrieval.run",
-      { teamSize: 5, newJobCheckIntervalSeconds: 60 },
-      expect.any(Function),
-    );
-    expect(subscribe).toHaveBeenCalledWith(
+    expect(work).toHaveBeenCalledWith(
       "metrics.run",
-      { teamSize: 1, newJobCheckIntervalSeconds: 60 },
+      { batchSize: 1, pollingIntervalSeconds: 60 },
       expect.any(Function),
     );
-    expect(subscribe).toHaveBeenCalledWith(
+    expect(work).toHaveBeenCalledWith(
       "metrics.cleanup",
-      { teamSize: 1, newJobCheckIntervalSeconds: 60 },
+      { batchSize: 1, pollingIntervalSeconds: 60 },
       expect.any(Function),
     );
   });
@@ -350,11 +472,6 @@ describe("JobsService schedule rows", () => {
     expect(jobsPausedGauge.set).toHaveBeenCalledWith({ job_type: "deal" }, 2);
   });
 
-  it("maps job names to job types", async () => {
-    expect(callPrivate(service, "mapJobTypeFromName", "deal.run")).toBe("deal");
-    expect(callPrivate(service, "mapJobTypeFromName", "unknown.job")).toBeNull();
-  });
-
   it("adds schedule rows for newly seen providers", async () => {
     const providerA = { address: "0xaaa" };
     const providerB = { address: "0xbbb" };
@@ -427,14 +544,12 @@ describe("JobsService schedule rows", () => {
     );
   });
 
-  it("caps catch-up enqueue count and respects immediate vs delayed", async () => {
+  it("caps catch-up enqueue count", async () => {
     baseConfigValues = {
       ...baseConfigValues,
       jobs: {
         ...baseConfigValues.jobs,
         catchupMaxEnqueue: 3,
-        catchupSpreadHours: 1,
-        enqueueJitterSeconds: 0,
       } as IConfig["jobs"],
     };
     configService = {
@@ -443,8 +558,8 @@ describe("JobsService schedule rows", () => {
 
     service = buildService({ configService });
 
-    const publish = vi.fn();
-    (service as unknown as { boss: { publish: typeof publish } }).boss = { publish };
+    const send = vi.fn();
+    (service as unknown as { boss: { send: typeof send } }).boss = { send };
 
     const now = new Date("2024-01-01T00:00:10Z");
     vi.useFakeTimers();
@@ -462,27 +577,26 @@ describe("JobsService schedule rows", () => {
 
     await callPrivate(service, "enqueueDueJobs");
 
-    expect(publish).toHaveBeenCalledTimes(3);
-    const startAfters = publish.mock.calls.map((call) => call[2]?.startAfter as Date);
-    for (const startAfter of startAfters) {
-      expect(startAfter).toBeInstanceOf(Date);
+    expect(send).toHaveBeenCalledTimes(3);
+    for (const call of send.mock.calls) {
+      expect(call[0]).toBe("sp.work");
+      expect(call[1]).toMatchObject({ jobType: "deal", spAddress: "0xaaa" });
+      expect(call[2]).toMatchObject({ singletonKey: "0xaaa", retryLimit: 0 });
+      expect(call[2]?.startAfter).toBeUndefined();
     }
-    const timestamps = startAfters.map((startAfter) => startAfter.getTime()).sort((a, b) => a - b);
-    expect(timestamps[0]).toBe(now.getTime());
-    expect(timestamps[1]).toBeGreaterThan(now.getTime());
-    expect(timestamps[2]).toBeGreaterThan(timestamps[1]);
 
     // Check update call
     expect(jobScheduleRepositoryMock.updateScheduleAfterRun).toHaveBeenCalled();
   });
 
-  it("requeues deal job when lock cannot be acquired", async () => {
+  it("defers jobs until maintenance window ends (same-day)", async () => {
     baseConfigValues = {
       ...baseConfigValues,
-      jobs: {
-        ...baseConfigValues.jobs,
-        lockRetrySeconds: 10,
-      } as IConfig["jobs"],
+      scheduling: {
+        ...baseConfigValues.scheduling,
+        maintenanceWindowsUtc: ["07:00"],
+        maintenanceWindowMinutes: 20,
+      } as IConfig["scheduling"],
     };
     configService = {
       get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
@@ -490,65 +604,66 @@ describe("JobsService schedule rows", () => {
 
     service = buildService({ configService });
 
-    const publish = vi.fn();
-    (service as unknown as { boss: { publish: typeof publish } }).boss = { publish };
+    const safeSend = vi.fn().mockResolvedValue(true);
+    (service as unknown as { safeSend: typeof safeSend }).safeSend = safeSend;
 
-    jobScheduleRepositoryMock.acquireAdvisoryLock.mockResolvedValueOnce(false);
+    const now = new Date("2024-01-01T07:05:00Z");
+    const maintenance = callPrivate(service, "getMaintenanceWindowStatus", now) as any;
 
-    const now = new Date("2024-01-01T00:00:00Z");
-    vi.useFakeTimers();
-    vi.setSystemTime(now);
-
-    await callPrivate(service, "handleDealJob", { spAddress: "0xaaa", intervalSeconds: 60 });
-
-    expect(publish).toHaveBeenCalledTimes(1);
-    const startAfter = publish.mock.calls[0][2]?.startAfter as Date;
-    expect(startAfter.getTime()).toBeGreaterThanOrEqual(now.getTime() + 10_000);
-
-    vi.useRealTimers();
-  });
-
-  it("requeues retrieval job when lock cannot be acquired (preventing concurrent execution)", async () => {
-    baseConfigValues = {
-      ...baseConfigValues,
-      jobs: {
-        ...baseConfigValues.jobs,
-        lockRetrySeconds: 10,
-      } as IConfig["jobs"],
-    };
-    configService = {
-      get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
-    } as unknown as JobsServiceDeps[0];
-
-    service = buildService({ configService });
-
-    const publish = vi.fn();
-    (service as unknown as { boss: { publish: typeof publish } }).boss = { publish };
-
-    // Simulate lock being held (e.g. by a running deal execution)
-    jobScheduleRepositoryMock.acquireAdvisoryLock.mockResolvedValueOnce(false);
-
-    const now = new Date("2024-01-01T00:00:00Z");
-    vi.useFakeTimers();
-    vi.setSystemTime(now);
-
-    const spAddress = "0xccc";
-    await callPrivate(service, "handleRetrievalJob", { spAddress, intervalSeconds: 60 });
-
-    // Ensure we tried to acquire the lock for the specific SP
-    expect(jobScheduleRepositoryMock.acquireAdvisoryLock).toHaveBeenCalledWith(spAddress);
-
-    // Should requeue instead of running
-    expect(publish).toHaveBeenCalledTimes(1);
-    expect(publish).toHaveBeenCalledWith(
-      "retrieval.run",
-      expect.objectContaining({ spAddress }),
-      expect.objectContaining({ startAfter: expect.any(Date) }),
+    await callPrivate(
+      service,
+      "deferJobForMaintenance",
+      "deal",
+      { jobType: "deal", spAddress: "0xaaa", intervalSeconds: 60 },
+      maintenance,
+      now,
     );
 
-    const startAfter = publish.mock.calls[0][2]?.startAfter as Date;
-    expect(startAfter.getTime()).toBeGreaterThanOrEqual(now.getTime() + 10_000);
+    const expectedResumeAt = new Date("2024-01-01T07:20:00Z");
+    expect(safeSend).toHaveBeenCalledWith(
+      "deal",
+      "sp.work",
+      { jobType: "deal", spAddress: "0xaaa", intervalSeconds: 60 },
+      { startAfter: expectedResumeAt },
+    );
+  });
 
-    vi.useRealTimers();
+  it("defers jobs until maintenance window ends (wraps midnight)", async () => {
+    baseConfigValues = {
+      ...baseConfigValues,
+      scheduling: {
+        ...baseConfigValues.scheduling,
+        maintenanceWindowsUtc: ["23:50"],
+        maintenanceWindowMinutes: 20,
+      } as IConfig["scheduling"],
+    };
+    configService = {
+      get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
+    } as unknown as JobsServiceDeps[0];
+
+    service = buildService({ configService });
+
+    const safeSend = vi.fn().mockResolvedValue(true);
+    (service as unknown as { safeSend: typeof safeSend }).safeSend = safeSend;
+
+    const now = new Date("2024-01-01T23:55:00Z");
+    const maintenance = callPrivate(service, "getMaintenanceWindowStatus", now) as any;
+
+    await callPrivate(
+      service,
+      "deferJobForMaintenance",
+      "retrieval",
+      { jobType: "retrieval", spAddress: "0xbbb", intervalSeconds: 60 },
+      maintenance,
+      now,
+    );
+
+    const expectedResumeAt = new Date("2024-01-02T00:10:00Z");
+    expect(safeSend).toHaveBeenCalledWith(
+      "retrieval",
+      "sp.work",
+      { jobType: "retrieval", spAddress: "0xbbb", intervalSeconds: 60 },
+      { startAfter: expectedResumeAt },
+    );
   });
 });

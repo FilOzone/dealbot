@@ -89,6 +89,7 @@ Phase 2 (optional, later): add three worker Deployments (same backend image):
 
 ### Notes / risks
 
-- Multiple replicas per worker type are allowed; pg-boss will handle locking, but
-  per-job concurrency limits must be set in the worker config.
+- Multiple replicas per worker type are allowed; per-SP exclusion is enforced by
+  the pg-boss `sp.work` singleton queue (`singletonKey=spAddress`), and per-job
+  concurrency limits must be set in the worker config.
 - Supabase is on Postgres 17 (per `select version()`); infra should align DB versions.

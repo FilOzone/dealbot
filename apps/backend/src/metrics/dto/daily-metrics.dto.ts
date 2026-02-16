@@ -119,7 +119,7 @@ export interface ServiceMetrics {
 
 /**
  * Service type comparison metrics for a specific date
- * Breaks down retrieval metrics by service type (CDN, DIRECT_SP, IPFS_PIN)
+ * Breaks down retrieval metrics by service type (DIRECT_SP, IPFS_PIN)
  */
 export class ServiceComparisonMetricsDto {
   @ApiProperty({
@@ -127,19 +127,6 @@ export class ServiceComparisonMetricsDto {
     example: "2024-01-15",
   })
   date: string;
-
-  @ApiProperty({
-    description: "CDN retrieval metrics",
-    example: {
-      totalRetrievals: 100,
-      successfulRetrievals: 98,
-      successRate: 98.0,
-      avgLatencyMs: 350,
-      avgTtfbMs: 120,
-      totalDataRetrievedBytes: "1073741824",
-    },
-  })
-  cdn: ServiceMetrics;
 
   @ApiProperty({
     description: "Direct SP retrieval metrics",
@@ -191,20 +178,16 @@ export class ServiceComparisonResponseDto {
     description: "Summary statistics across all days",
     example: {
       totalDays: 30,
-      cdnTotalRetrievals: 3000,
       directSpTotalRetrievals: 4500,
       ipfsPinTotalRetrievals: 1500,
-      cdnAvgSuccessRate: 98.2,
       directSpAvgSuccessRate: 96.5,
       ipfsPinAvgSuccessRate: 95.8,
     },
   })
   summary: {
     totalDays: number;
-    cdnTotalRetrievals: number;
     directSpTotalRetrievals: number;
     ipfsPinTotalRetrievals: number;
-    cdnAvgSuccessRate: number;
     directSpAvgSuccessRate: number;
     ipfsPinAvgSuccessRate: number;
   };
