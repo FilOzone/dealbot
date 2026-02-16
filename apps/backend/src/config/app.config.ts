@@ -36,8 +36,6 @@ export const configValidationSchema = Joi.object({
 
   // Scheduling
   DEAL_INTERVAL_SECONDS: Joi.number().default(30),
-  DEAL_MAX_CONCURRENCY: Joi.number().integer().min(1).default(10),
-  RETRIEVAL_MAX_CONCURRENCY: Joi.number().integer().min(1).default(10),
   RETRIEVAL_INTERVAL_SECONDS: Joi.number()
     .min(1)
     .default(60)
@@ -86,11 +84,10 @@ export const configValidationSchema = Joi.object({
   // Polling interval for pg-boss scheduler (lower = more responsive, higher = less DB chatter).
   JOB_SCHEDULER_POLL_SECONDS: Joi.number().min(60).default(300),
   JOB_WORKER_POLL_SECONDS: Joi.number().min(5).default(60),
+  PG_BOSS_LOCAL_CONCURRENCY: Joi.number().integer().min(1).default(20),
   DEALBOT_PGBOSS_SCHEDULER_ENABLED: Joi.boolean().default(true),
   DEALBOT_PGBOSS_POOL_MAX: Joi.number().integer().min(1).default(1),
   JOB_CATCHUP_MAX_ENQUEUE: Joi.number().min(1).default(10),
-  JOB_CATCHUP_SPREAD_HOURS: Joi.number().min(0).default(3),
-  JOB_LOCK_RETRY_SECONDS: Joi.number().min(10).default(60),
   JOB_SCHEDULE_PHASE_SECONDS: Joi.number().min(0).default(0),
   JOB_ENQUEUE_JITTER_SECONDS: Joi.number().min(0).default(0),
   DEAL_JOB_TIMEOUT_SECONDS: Joi.number().min(120).default(360), // 6 minutes max runtime for data storage jobs (TODO: reduce default to 3 minutes)
@@ -161,8 +158,6 @@ export interface IBlockchainConfig {
 
 export interface ISchedulingConfig {
   dealIntervalSeconds: number;
-  dealMaxConcurrency: number;
-  retrievalMaxConcurrency: number;
   retrievalIntervalSeconds: number;
   dealStartOffsetSeconds: number;
   retrievalStartOffsetSeconds: number;
@@ -217,6 +212,12 @@ export interface IJobsConfig {
    */
   workerPollSeconds: number;
   /**
+   * Per-instance pg-boss worker concurrency for the `sp.work` queue.
+   *
+   * Only used when `DEALBOT_JOBS_MODE=pgboss`.
+   */
+  pgbossLocalConcurrency: number;
+  /**
    * Enables the pg-boss scheduler loop (enqueueing due jobs).
    *
    * Set to false to run "worker-only" pods that only process existing jobs.
@@ -237,20 +238,6 @@ export interface IJobsConfig {
    * Only used when `DEALBOT_JOBS_MODE=pgboss`.
    */
   catchupMaxEnqueue: number;
-  /**
-   * Window (hours) over which catch-up jobs are staggered.
-   *
-   * Higher values smooth load but delay backlog completion.
-   * Only used when `DEALBOT_JOBS_MODE=pgboss`.
-   */
-  catchupSpreadHours: number;
-  /**
-   * Delay (seconds) before re-queuing a job when the per-SP lock is held.
-   *
-   * Higher values reduce lock churn but slow recovery from contention.
-   * Only used when `DEALBOT_JOBS_MODE=pgboss`.
-   */
-  lockRetrySeconds: number;
   /**
    * Per-instance phase offset (seconds) applied when initializing schedules.
    *
@@ -360,8 +347,6 @@ export function loadConfig(): IConfig {
     },
     scheduling: {
       dealIntervalSeconds: Number.parseInt(process.env.DEAL_INTERVAL_SECONDS || "30", 10),
-      dealMaxConcurrency: Number.parseInt(process.env.DEAL_MAX_CONCURRENCY || "10", 10),
-      retrievalMaxConcurrency: Number.parseInt(process.env.RETRIEVAL_MAX_CONCURRENCY || "10", 10),
       retrievalIntervalSeconds: Number.parseInt(process.env.RETRIEVAL_INTERVAL_SECONDS || "60", 10),
       dealStartOffsetSeconds: Number.parseInt(process.env.DEAL_START_OFFSET_SECONDS || "0", 10),
       retrievalStartOffsetSeconds: Number.parseInt(process.env.RETRIEVAL_START_OFFSET_SECONDS || "600", 10),
@@ -383,11 +368,10 @@ export function loadConfig(): IConfig {
         : undefined,
       schedulerPollSeconds: Number.parseInt(process.env.JOB_SCHEDULER_POLL_SECONDS || "300", 10),
       workerPollSeconds: Number.parseInt(process.env.JOB_WORKER_POLL_SECONDS || "60", 10),
+      pgbossLocalConcurrency: Number.parseInt(process.env.PG_BOSS_LOCAL_CONCURRENCY || "20", 10),
       pgbossSchedulerEnabled: process.env.DEALBOT_PGBOSS_SCHEDULER_ENABLED !== "false",
       pgbossPoolMax: Number.parseInt(process.env.DEALBOT_PGBOSS_POOL_MAX || "1", 10),
       catchupMaxEnqueue: Number.parseInt(process.env.JOB_CATCHUP_MAX_ENQUEUE || "10", 10),
-      catchupSpreadHours: Number.parseInt(process.env.JOB_CATCHUP_SPREAD_HOURS || "3", 10),
-      lockRetrySeconds: Number.parseInt(process.env.JOB_LOCK_RETRY_SECONDS || "60", 10),
       schedulePhaseSeconds: Number.parseInt(process.env.JOB_SCHEDULE_PHASE_SECONDS || "0", 10),
       enqueueJitterSeconds: Number.parseInt(process.env.JOB_ENQUEUE_JITTER_SECONDS || "0", 10),
       dealJobTimeoutSeconds: Number.parseInt(process.env.DEAL_JOB_TIMEOUT_SECONDS || "360", 10),
