@@ -17,7 +17,6 @@ export class IpniRetrievalStrategy implements IRetrievalAddon {
   private readonly logger = new Logger(IpniRetrievalStrategy.name);
   private readonly validationMethods = {
     metadataMissing: "metadata-missing",
-    carSizeCheck: "car-size-check",
     carContentValidation: "car-content-validation",
   } as const;
 
@@ -96,35 +95,8 @@ export class IpniRetrievalStrategy implements IRetrievalAddon {
     stream: AsyncIterable<Uint8Array>,
     config: RetrievalConfiguration,
   ): Promise<ValidationResult> {
-    const carSize = config.deal.metadata?.[this.name]?.carSize;
-    const originalSize = config.deal.metadata?.[this.name]?.originalSize;
-
     const rootCIDStr = config.deal.metadata?.[this.name]?.rootCID;
-    const blockCIDs = config.deal.metadata?.[this.name]?.blockCIDs;
-    const blockCount = config.deal.metadata?.[this.name]?.blockCount;
     const storageProvider = config.storageProvider;
-
-    let bytesRead = 0;
-    async function* countingStream(): AsyncIterable<Uint8Array> {
-      for await (const chunk of stream) {
-        bytesRead += chunk.length;
-        yield chunk;
-      }
-    }
-
-    if (carSize === undefined || carSize === null) {
-      await closeStream(stream);
-      this.logger.warn(`IPNI validation could not run for deal ${config.deal.id}: carSize metadata is missing.`);
-      return {
-        isValid: false,
-        method: this.validationMethods.metadataMissing,
-        details: "Cannot validate: carSize metadata is missing",
-        comparison: { expected: undefined, actual: undefined },
-        bytesRead: 0,
-      };
-    }
-
-    const expectedCarSize = Number(carSize);
 
     if (!rootCIDStr) {
       await closeStream(stream);
@@ -135,52 +107,11 @@ export class IpniRetrievalStrategy implements IRetrievalAddon {
       return {
         isValid: false,
         method: this.validationMethods.metadataMissing,
-        details: "Cannot validate: rootCID metadata is missing; content validation skipped",
-        comparison: {
-          expected: expectedCarSize,
-          actual: undefined,
-        },
-        bytesRead: 0,
+        details: "Cannot validate: rootCID metadata is missing",
       };
     }
 
-    const validationResult = await validateCarContentStream(countingStream(), rootCIDStr);
-
-    if (bytesRead !== expectedCarSize) {
-      const sizeDiff = bytesRead - expectedCarSize;
-      const sizeDiffPercent = expectedCarSize > 0 ? ((sizeDiff / expectedCarSize) * 100).toFixed(2) : "N/A";
-
-      const logParts = [
-        `IPNI retrieval validation failed for deal ${config.deal.id}:`,
-        `  Storage Provider: ${String(storageProvider)}`,
-        `  Expected Root CID: ${rootCIDStr}`,
-        `  Retrieved Data Size: ${bytesRead} bytes`,
-        `  Expected CAR File Size: ${expectedCarSize} bytes (from metadata.carSize)`,
-        originalSize ? `  Original File Size: ${originalSize} bytes (for reference)` : null,
-        `  Size Difference: ${sizeDiff > 0 ? "+" : ""}${sizeDiff} bytes (${sizeDiffPercent}%)`,
-        blockCount ? `  Block Count in CAR: ${blockCount}` : "  Block Count: missing",
-        blockCIDs ? `  Block CIDs in CAR: ${blockCIDs.length} entries` : "  Block CIDs: missing",
-        blockCIDs && blockCIDs.length > 0 ? `  First Block CID (rootCID): ${blockCIDs[0]}` : null,
-      ].filter((part): part is string => part !== null);
-
-      this.logger.warn(logParts.join("\n"));
-
-      let additionalDetails = "";
-      if (blockCIDs && blockCount) {
-        additionalDetails = ` (${blockCount} blocks in CAR)`;
-      }
-
-      return {
-        isValid: false,
-        method: this.validationMethods.carSizeCheck,
-        details: `CAR size mismatch: expected ${expectedCarSize}, got ${bytesRead}${additionalDetails}`,
-        comparison: {
-          expected: expectedCarSize,
-          actual: bytesRead,
-        },
-        bytesRead,
-      };
-    }
+    const validationResult = await validateCarContentStream(stream, rootCIDStr);
 
     if (!validationResult.isValid) {
       this.logger.warn(
@@ -196,7 +127,6 @@ export class IpniRetrievalStrategy implements IRetrievalAddon {
         expected: rootCIDStr,
         actual: validationResult.verifiedRootCID ?? "unknown",
       },
-      bytesRead,
     };
   }
 
