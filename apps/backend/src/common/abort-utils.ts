@@ -2,11 +2,17 @@
  * Returns the abort reason from a signal as an Error, or creates a generic AbortError.
  */
 export function createAbortError(signal?: AbortSignal): Error {
-  if (signal?.reason instanceof Error) {
-    return signal.reason;
+  const reason = signal?.reason;
+  if (reason instanceof Error) {
+    return reason;
   }
-  const error = new Error("The operation was aborted");
+  const baseMessage = "The operation was aborted";
+  const message = reason === undefined ? baseMessage : `${baseMessage}: ${String(reason)}`;
+  const error: Error & { cause?: unknown } = new Error(message);
   error.name = "AbortError";
+  if (reason !== undefined) {
+    error.cause = reason;
+  }
   return error;
 }
 

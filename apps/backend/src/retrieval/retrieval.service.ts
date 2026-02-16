@@ -1,11 +1,9 @@
 import { Injectable, Logger } from "@nestjs/common";
-import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
 import { InjectMetric } from "@willsoto/nestjs-prometheus";
 import type { Counter, Histogram } from "prom-client";
 import type { Repository } from "typeorm";
 import type { Hex } from "../common/types.js";
-import type { IConfig } from "../config/app.config.js";
 import { Deal } from "../database/entities/deal.entity.js";
 import { Retrieval } from "../database/entities/retrieval.entity.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
@@ -20,7 +18,6 @@ import type {
 @Injectable()
 export class RetrievalService {
   private readonly logger = new Logger(RetrievalService.name);
-  private readonly httpRequestTimeoutMs: number;
 
   constructor(
     private readonly retrievalAddonsService: RetrievalAddonsService,
@@ -30,17 +27,13 @@ export class RetrievalService {
     private readonly retrievalRepository: Repository<Retrieval>,
     @InjectRepository(StorageProvider)
     private readonly spRepository: Repository<StorageProvider>,
-    private readonly configService: ConfigService<IConfig, true>,
     @InjectMetric("retrievals_tested_total")
     private readonly retrievalsTestedCounter: Counter,
     @InjectMetric("retrieval_latency_seconds")
     private readonly retrievalLatency: Histogram,
     @InjectMetric("retrieval_ttfb_seconds")
     private readonly retrievalTtfb: Histogram,
-  ) {
-    const timeouts = this.configService.get("timeouts");
-    this.httpRequestTimeoutMs = Math.max(timeouts.httpRequestTimeoutMs, timeouts.http2RequestTimeoutMs);
-  }
+  ) {}
 
   async performRandomBatchRetrievals(count: number, signal?: AbortSignal): Promise<Retrieval[]> {
     const deals = await this.selectRandomDealsForRetrieval(count);
@@ -54,7 +47,7 @@ export class RetrievalService {
     this.logger.log(`Starting retrieval tests for ${totalDeals} deals`);
 
     const results = await this.processRetrievalsInParallel(deals, {
-      maxConcurrency: 5,
+      maxConcurrency: 10,
       signal,
     });
 
@@ -66,10 +59,7 @@ export class RetrievalService {
     return allRetrievals;
   }
 
-  async performRandomRetrievalForProvider(
-    spAddress: string,
-    signal?: AbortSignal,
-  ): Promise<Retrieval[]> {
+  async performRandomRetrievalForProvider(spAddress: string, signal?: AbortSignal): Promise<Retrieval[]> {
     const deal = await this.selectRandomSuccessfulDealForProvider(spAddress);
     if (!deal) {
       this.logger.warn(`No successful deals available for ${spAddress}, skipping retrieval`);
@@ -92,7 +82,7 @@ export class RetrievalService {
   private async processRetrievalsInParallel(
     deals: Deal[],
     {
-      maxConcurrency = 5,
+      maxConcurrency = 10,
       signal,
     }: {
       maxConcurrency?: number;
@@ -119,7 +109,9 @@ export class RetrievalService {
           results.push(result.value);
         } else {
           if (!signal?.aborted) {
-            const errorMessage = result.reason?.message || "Unknown error";
+            const errorReason = result.reason;
+            const errorMessage =
+              errorReason instanceof Error ? errorReason.message : String(errorReason ?? "Unknown error");
             this.logger.error(`Batch retrieval failed for deal ${deal?.id || "unknown"}: ${errorMessage}`);
           }
         }
@@ -165,7 +157,13 @@ export class RetrievalService {
       this.logger.log(`Retrievals for ${deal.pieceCid}: ${successCount}/${retrievals.length} successful`);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      this.logger.error(`All retrievals failed for ${deal.pieceCid}: ${errorMessage}`);
+      if (signal?.aborted) {
+        const abortReason = signal.reason;
+        const abortMessage = abortReason instanceof Error ? abortReason.message : String(abortReason ?? "");
+        this.logger.warn(`Retrievals aborted for ${deal.pieceCid}: ${abortMessage || errorMessage}`);
+      } else {
+        this.logger.error(`All retrievals failed for ${deal.pieceCid}: ${errorMessage}`);
+      }
 
       // Don't try to record timeouts here. If this catch block fires, it's either:
       // 1. The batch timeout fired because we're out of time (global deadline) - don't record
@@ -180,8 +178,13 @@ export class RetrievalService {
     }
 
     if (testResult.aborted || signal?.aborted) {
-      this.logger.warn(`Retrieval job aborted after testing for ${deal.pieceCid}; recorded partial results.`);
-      throw signal?.reason instanceof Error ? signal.reason : new Error("Retrieval job aborted");
+      const abortReason = signal?.reason;
+      const abortMessage = abortReason instanceof Error ? abortReason.message : String(abortReason ?? "");
+      this.logger.warn(
+        `Retrieval job aborted after testing for ${deal.pieceCid}; recorded partial results.` +
+          (abortMessage ? ` Reason: ${abortMessage}` : ""),
+      );
+      return retrievals;
     }
 
     return retrievals;

@@ -3,7 +3,6 @@ import { awaitWithAbort } from "../common/abort-utils.js";
 import type { Deal } from "../database/entities/deal.entity.js";
 import type { DealMetadata, ServiceType } from "../database/types.js";
 import type { IDealAddon } from "./interfaces/deal-addon.interface.js";
-import { CdnAddonStrategy } from "./strategies/cdn.strategy.js";
 import { DirectAddonStrategy } from "./strategies/direct.strategy.js";
 import { IpniAddonStrategy } from "./strategies/ipni.strategy.js";
 import type { AddonExecutionContext, DealConfiguration, DealPreprocessingResult, SynapseConfig } from "./types.js";
@@ -20,7 +19,6 @@ export class DealAddonsService {
 
   constructor(
     private readonly directAddon: DirectAddonStrategy,
-    private readonly cdnAddon: CdnAddonStrategy,
     private readonly ipniAddon: IpniAddonStrategy,
   ) {
     this.registerAddons();
@@ -33,7 +31,6 @@ export class DealAddonsService {
    */
   private registerAddons(): void {
     this.registerAddon(this.directAddon);
-    this.registerAddon(this.cdnAddon);
     this.registerAddon(this.ipniAddon);
 
     this.logger.log(`Registered ${this.addons.size} deal add-ons: ${Array.from(this.addons.keys()).join(", ")}`);
@@ -62,7 +59,7 @@ export class DealAddonsService {
    * @returns Complete preprocessing result with processed data and metadata
    * @throws Error if preprocessing fails
    */
-  async preprocessDeal(config: DealConfiguration): Promise<DealPreprocessingResult> {
+  async preprocessDeal(config: DealConfiguration, signal?: AbortSignal): Promise<DealPreprocessingResult> {
     const startTime = Date.now();
     this.logger.log(`Starting deal preprocessing for file: ${config.dataFile.name}`);
 
@@ -83,7 +80,7 @@ export class DealAddonsService {
       );
 
       // Execute preprocessing pipeline
-      const pipelineResult = await this.executePreprocessingPipeline(sortedAddons, config);
+      const pipelineResult = await this.executePreprocessingPipeline(sortedAddons, config, signal);
 
       // Merge Synapse configurations from all add-ons
       const synapseConfig = this.mergeSynapseConfigs(sortedAddons, pipelineResult.aggregatedMetadata);
@@ -132,7 +129,8 @@ export class DealAddonsService {
       this.logger.debug(`onUploadComplete handlers completed for deal ${deal.id}`);
     } catch (error) {
       signal?.throwIfAborted();
-      this.logger.warn(`onUploadComplete handler failed for deal ${deal.id}: ${error.message}`);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.warn(`onUploadComplete handler failed for deal ${deal.id}: ${errorMessage}`);
       throw error;
     }
   }
@@ -203,6 +201,7 @@ export class DealAddonsService {
   private async executePreprocessingPipeline(
     addons: IDealAddon[],
     config: DealConfiguration,
+    signal?: AbortSignal,
   ): Promise<{
     finalData: Buffer | Uint8Array;
     finalSize: number;
@@ -224,7 +223,7 @@ export class DealAddonsService {
         this.logger.debug(`Executing add-on: ${addon.name}`);
 
         // Execute preprocessing
-        const result = await addon.preprocessData(context);
+        const result = await addon.preprocessData(context, signal);
 
         // Validate result if validation is implemented
         if (addon.validate) {

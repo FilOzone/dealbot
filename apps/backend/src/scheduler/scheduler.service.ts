@@ -170,10 +170,7 @@ export class SchedulerService implements OnModuleInit {
         }
         this.logger.log(`Starting batch retrieval`);
 
-        const result = await this.retrievalService.performRandomBatchRetrievals(
-          providerCount,
-          abortController.signal,
-        );
+        const result = await this.retrievalService.performRandomBatchRetrievals(providerCount, abortController.signal);
         this.logger.log(`Scheduled retrieval tests completed for ${result.length} retrievals`);
       } catch (error) {
         this.logger.error("Failed to perform scheduled retrievals", error);

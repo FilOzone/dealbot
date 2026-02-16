@@ -77,18 +77,19 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
 
   async createDealsForAllProviders(): Promise<Deal[]> {
     const totalProviders = this.walletSdkService.getTestingProvidersCount();
-    const { enableCDN, enableIpni } = this.getTestingDealOptions();
+    const { enableIpni } = this.getTestingDealOptions();
 
-    this.logger.log(`Starting deal creation for ${totalProviders} providers (CDN: ${enableCDN}, IPNI: ${enableIpni})`);
+    this.logger.log(`Starting deal creation for ${totalProviders} providers`);
 
-    const { preprocessed, cleanup } = await this.prepareDealInput(enableCDN, enableIpni);
+    const { preprocessed, cleanup } = await this.prepareDealInput(enableIpni);
 
     try {
       const synapse = this.sharedSynapse ?? (await this.createSynapseInstance());
       const uploadPayload = await this.prepareUploadPayload(preprocessed);
       const providers = this.walletSdkService.getTestingProviders();
 
-      const maxConcurrency = this.configService.get("scheduling").dealMaxConcurrency;
+      // Legacy cron-only path: keep fixed concurrency until cron mode is removed.
+      const maxConcurrency = 10;
       const results = await this.processProvidersInParallel(
         synapse,
         providers,
@@ -111,17 +112,16 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
   async createDealForProvider(
     providerInfo: ProviderInfoEx,
     options: {
-      enableCDN: boolean;
       enableIpni: boolean;
       existingDealId?: string;
       signal?: AbortSignal;
     },
   ): Promise<Deal> {
-    const { preprocessed, cleanup } = await this.prepareDealInput(options.enableCDN, options.enableIpni);
+    const { preprocessed, cleanup } = await this.prepareDealInput(options.enableIpni, options.signal);
 
     try {
       const synapse = this.sharedSynapse ?? (await this.createSynapseInstance());
-      const uploadPayload = await this.prepareUploadPayload(preprocessed);
+      const uploadPayload = await this.prepareUploadPayload(preprocessed, options.signal);
       return await this.createDeal(
         synapse,
         providerInfo,
@@ -139,27 +139,28 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
    * Prepare a deal payload using the same data-source and preprocessing logic as normal deal creation.
    */
   async prepareDealInput(
-    enableCDN: boolean,
     enableIpni: boolean,
+    signal?: AbortSignal,
   ): Promise<{ preprocessed: DealPreprocessingResult; cleanup: () => Promise<void> }> {
     const dataFile = await this.fetchDataFile(SIZE_CONSTANTS.MIN_UPLOAD_SIZE, SIZE_CONSTANTS.MAX_UPLOAD_SIZE);
 
-    const preprocessed = await this.dealAddonsService.preprocessDeal({
-      enableCDN,
-      enableIpni,
-      dataFile,
-    });
+    const preprocessed = await this.dealAddonsService.preprocessDeal(
+      {
+        enableIpni,
+        dataFile,
+      },
+      signal,
+    );
 
     const cleanup = async () => this.dataSourceService.cleanupRandomDataset(dataFile.name);
 
     return { preprocessed, cleanup };
   }
 
-  getTestingDealOptions(): { enableCDN: boolean; enableIpni: boolean } {
-    const enableCDN = this.blockchainConfig.enableCDNTesting ? Math.random() > 0.5 : false;
+  getTestingDealOptions(): { enableIpni: boolean } {
     const enableIpni = this.getIpniEnabled(this.blockchainConfig.enableIpniTesting);
 
-    return { enableCDN, enableIpni };
+    return { enableIpni };
   }
 
   getWalletAddress(): string {
@@ -432,7 +433,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  private async prepareUploadPayload(dealInput: DealPreprocessingResult): Promise<UploadPayload> {
+  private async prepareUploadPayload(dealInput: DealPreprocessingResult, signal?: AbortSignal): Promise<UploadPayload> {
     const ipniMetadata = dealInput.metadata[ServiceType.IPFS_PIN];
     if (ipniMetadata?.rootCID) {
       return {
@@ -445,11 +446,17 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       ? dealInput.processedData.data
       : Buffer.from(dealInput.processedData.data);
 
-    const carResult = await buildUnixfsCar({
-      data,
-      size: dealInput.processedData.size,
-      name: dealInput.processedData.name,
-    });
+    signal?.throwIfAborted();
+    const carResult = await buildUnixfsCar(
+      {
+        data,
+        size: dealInput.processedData.size,
+        name: dealInput.processedData.name,
+      },
+      {
+        signal,
+      },
+    );
 
     return {
       carData: carResult.carData,

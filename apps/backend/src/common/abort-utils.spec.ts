@@ -16,12 +16,13 @@ describe("createAbortError", () => {
     expect(error).toBe(reason);
   });
 
-  it("returns a generic AbortError when signal reason is not an Error", () => {
+  it("returns an AbortError that preserves non-Error reasons", () => {
     const controller = new AbortController();
     controller.abort("string reason");
     const error = createAbortError(controller.signal);
     expect(error.name).toBe("AbortError");
-    expect(error.message).toBe("The operation was aborted");
+    expect(error.message).toBe("The operation was aborted: string reason");
+    expect((error as Error & { cause?: unknown }).cause).toBe("string reason");
   });
 });
 

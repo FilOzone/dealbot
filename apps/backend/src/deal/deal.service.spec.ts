@@ -72,8 +72,6 @@ describe("DealService", () => {
     get: vi.fn().mockImplementation((key: string) => {
       if (key === "scheduling") {
         return {
-          dealMaxConcurrency: 2,
-          retrievalMaxConcurrency: 5,
           dealIntervalSeconds: 30,
           dealStartOffsetSeconds: 0,
           retrievalIntervalSeconds: 60,
@@ -86,7 +84,6 @@ describe("DealService", () => {
           walletPrivateKey: "mockKey",
           network: "calibration",
           walletAddress: "0x123",
-          enableCDNTesting: true,
           enableIpniTesting: "always",
         };
       }
@@ -428,7 +425,6 @@ describe("DealService", () => {
           walletPrivateKey: "mockKey",
           network: "calibration",
           walletAddress: "0x123",
-          enableCDNTesting: true,
           enableIpniTesting: "always",
           dealbotDataSetVersion,
         });
@@ -543,7 +539,6 @@ describe("DealService", () => {
       mockConfigService.get.mockImplementation((key: string) => {
         if (key === "scheduling") {
           return {
-            dealMaxConcurrency: 2,
             dealIntervalSeconds: 30,
             dealStartOffsetSeconds: 0,
             retrievalIntervalSeconds: 60,
@@ -556,7 +551,6 @@ describe("DealService", () => {
             walletPrivateKey: "mockKey",
             network: "calibration",
             walletAddress: "0x123",
-            enableCDNTesting: true,
             enableIpniTesting: "always",
           };
         }
@@ -607,9 +601,9 @@ describe("DealService", () => {
       expect(dealAddonsMock.preprocessDeal).toHaveBeenCalledWith(
         expect.objectContaining({
           dataFile,
-          enableCDN: expect.any(Boolean),
           enableIpni: expect.any(Boolean),
         }),
+        undefined,
       );
 
       // Verify parallelism/iteration

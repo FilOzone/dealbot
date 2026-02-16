@@ -56,7 +56,7 @@ The application will automatically run migrations on startup.
 pnpm start:dev
 ```
 
-Server runs at: `http://localhost:8080`  
+Server runs at: `http://localhost:8080`
 API Documentation: `http://localhost:8080/api`
 
 #### Production Mode
@@ -102,26 +102,31 @@ All configuration is done via environment variables in `.env`.
 | `WALLET_ADDRESS`              | Your Filecoin wallet address           | `0x...`                    |
 | `WALLET_PRIVATE_KEY`          | Your wallet private key (keep secure!) | `0x...`                    |
 | `CHECK_DATASET_CREATION_FEES` | Check fees before dataset creation     | `true`                     |
-| `ENABLE_CDN_TESTING`          | Enable CDN retrieval testing           | `true`                     |
 | `ENABLE_IPNI_TESTING`         | IPNI testing mode (`disabled`/`random`/`always`) | `always`          |
 | `USE_ONLY_APPROVED_PROVIDERS` | Only use approved storage providers    | `true`                     |
 
-### Scheduling Configuration
+### Scheduling Configuration (pg-boss)
 
-Control when and how often automated jobs run:
+These settings apply when `DEALBOT_JOBS_MODE=pgboss` (recommended). See
+[`docs/jobs.md`](../../docs/jobs.md) for scheduling behavior and
+[`docs/environment-variables.md`](../../docs/environment-variables.md) for defaults and full definitions.
 
-| Variable                         | Description                       | Recommended |
-| -------------------------------- | --------------------------------- | ----------------- |
-| `DEAL_INTERVAL_SECONDS`          | How often to create new deals     | `1800` (30 min)   |
-| `DEAL_MAX_CONCURRENCY`           | Max parallel deal creations       | `10`              |
-| `RETRIEVAL_INTERVAL_SECONDS`     | How often to test retrievals      | `3600` (60 min)   |
-| `RETRIEVAL_MAX_CONCURRENCY`      | Max parallel retrieval tests      | `10`              |
-| `DEAL_START_OFFSET_SECONDS`      | Delay before first deal creation  | `0`               |
-| `RETRIEVAL_START_OFFSET_SECONDS` | Delay before first retrieval test | `300` (5 min)     |
-| `METRICS_START_OFFSET_SECONDS`   | Delay before first metrics job    | `600` (10 min)    |
+| Variable                         | Description                              | Recommended |
+| -------------------------------- | ---------------------------------------- | ------------------------------ |
+| `DEALBOT_JOBS_MODE`              | Enable pg-boss scheduling                 | `pgboss`                       |
+| `DEALS_PER_SP_PER_HOUR`          | Deal checks per SP per hour               | `1`                            |
+| `RETRIEVALS_PER_SP_PER_HOUR`     | Retrieval checks per SP per hour          | `1`                            |
+| `METRICS_PER_HOUR`               | Metrics runs per hour                     | `2`                            |
+| `PG_BOSS_LOCAL_CONCURRENCY`      | Per-process `sp.work` concurrency         | `20`                           |
+| `JOB_SCHEDULER_POLL_SECONDS`     | Scheduler poll interval                   | `300`                          |
+| `JOB_WORKER_POLL_SECONDS`        | Worker poll interval                      | `60`                           |
+| `JOB_CATCHUP_MAX_ENQUEUE`        | Max catch-up enqueues per schedule per tick | `10`                         |
+| `JOB_SCHEDULE_PHASE_SECONDS`     | Phase offset for multi-deploy staggering  | `0`                            |
+| `DEALBOT_PGBOSS_POOL_MAX`        | Max pg-boss DB connections per instance   | `1`                            |
+| `DEALBOT_PGBOSS_SCHEDULER_ENABLED` | Enable the enqueue loop                 | `true` (api/both), `false` (worker) |
+| `DEALBOT_RUN_MODE`               | Run mode for the application              | `both` (or split api/worker)   |
 
-**Note:** Offsets prevent concurrent execution of multiple jobs at startup.
-**Note:** Config defaults differ for some intervals (e.g., `DEAL_INTERVAL_SECONDS=30`, `RETRIEVAL_INTERVAL_SECONDS=60`); see `docs/environment-variables.md` for details.
+**Note:** If you run multiple deployments in the same environment, use a non-zero `JOB_SCHEDULE_PHASE_SECONDS` to stagger schedules.
 
 ### Dataset Configuration
 
@@ -152,7 +157,7 @@ backend/
 │   ├── deal/                   # Deal creation logic
 │   ├── deal-addons/            # Deal add-ons and extensions
 │   ├── retrieval/              # Retrieval testing logic
-│   ├── retrieval-addons/       # Retrieval add-ons (CDN, IPNI)
+│   ├── retrieval-addons/       # Retrieval add-ons (IPNI)
 │   ├── metrics/                # Metrics collection and analytics
 │   ├── scheduler/              # Cron job scheduling
 │   ├── wallet-sdk/             # Wallet and smart contract operations

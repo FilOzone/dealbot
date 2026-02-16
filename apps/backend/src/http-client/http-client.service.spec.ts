@@ -31,7 +31,6 @@ describe("HttpClientService", () => {
           httpRequestTimeoutMs: 120000,
           http2RequestTimeoutMs: 600000,
           connectTimeoutMs: 25,
-          retrievalTimeoutBufferMs: 60000,
         };
       }
       return undefined;
