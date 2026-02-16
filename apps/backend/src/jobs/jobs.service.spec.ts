@@ -281,7 +281,6 @@ describe("JobsService schedule rows", () => {
         retrievalJobTimeoutSeconds: 1,
       } as IConfig["jobs"],
       timeouts: {
-        retrievalTimeoutBufferMs: 1000,
         httpRequestTimeoutMs: 5000,
         http2RequestTimeoutMs: 5000,
       } as IConfig["timeouts"],
@@ -291,7 +290,7 @@ describe("JobsService schedule rows", () => {
     } as unknown as JobsServiceDeps[0];
 
     const retrievalService = {
-      performRandomRetrievalForProvider: vi.fn(async (_sp: string, _timeout: number, signal: AbortSignal) => {
+      performRandomRetrievalForProvider: vi.fn(async (_sp: string, signal: AbortSignal) => {
         await new Promise<void>((resolve) => {
           if (signal.aborted) return resolve();
           signal.addEventListener("abort", () => resolve(), { once: true });

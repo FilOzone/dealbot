@@ -36,31 +36,7 @@ export const configValidationSchema = Joi.object({
 
   // Scheduling
   DEAL_INTERVAL_SECONDS: Joi.number().default(30),
-  RETRIEVAL_INTERVAL_SECONDS: Joi.number()
-    .min(1)
-    .default(60)
-    .custom((value, helpers) => {
-      const root = helpers.state.ancestors[0] as {
-        RETRIEVAL_TIMEOUT_BUFFER_MS?: number;
-        HTTP_REQUEST_TIMEOUT_MS?: number;
-        HTTP2_REQUEST_TIMEOUT_MS?: number;
-      };
-      const bufferMs = typeof root.RETRIEVAL_TIMEOUT_BUFFER_MS === "number" ? root.RETRIEVAL_TIMEOUT_BUFFER_MS : 0;
-      const http1TimeoutMs = typeof root.HTTP_REQUEST_TIMEOUT_MS === "number" ? root.HTTP_REQUEST_TIMEOUT_MS : 0;
-      const http2TimeoutMs = typeof root.HTTP2_REQUEST_TIMEOUT_MS === "number" ? root.HTTP2_REQUEST_TIMEOUT_MS : 0;
-      const requiredMs = Math.max(http1TimeoutMs, http2TimeoutMs);
-      const availableMs = value * 1000 - bufferMs;
-
-      if (requiredMs > 0 && availableMs < requiredMs) {
-        return helpers.error("any.invalid", {
-          message:
-            `"RETRIEVAL_INTERVAL_SECONDS" minus "RETRIEVAL_TIMEOUT_BUFFER_MS" must be ` +
-            `>= max(HTTP_REQUEST_TIMEOUT_MS, HTTP2_REQUEST_TIMEOUT_MS) (${requiredMs} ms)`,
-        });
-      }
-
-      return value;
-    }),
+  RETRIEVAL_INTERVAL_SECONDS: Joi.number().min(60).default(60),
   DEAL_START_OFFSET_SECONDS: Joi.number().default(0),
   RETRIEVAL_START_OFFSET_SECONDS: Joi.number().default(600),
   METRICS_START_OFFSET_SECONDS: Joi.number().default(900),
@@ -101,24 +77,6 @@ export const configValidationSchema = Joi.object({
   CONNECT_TIMEOUT_MS: Joi.number().min(1000).default(10000), // 10 seconds to establish connection/receive headers
   HTTP_REQUEST_TIMEOUT_MS: Joi.number().min(1000).default(240000), // 4 minutes total for HTTP requests (10MiB @ 170KB/s + overhead)
   HTTP2_REQUEST_TIMEOUT_MS: Joi.number().min(1000).default(240000), // 4 minutes total for HTTP/2 requests (10MiB @ 170KB/s + overhead)
-  RETRIEVAL_TIMEOUT_BUFFER_MS: Joi.number()
-    .min(0)
-    .default(60000)
-    .custom((value, helpers) => {
-      const root = helpers.state.ancestors[0] as { RETRIEVAL_INTERVAL_SECONDS?: number };
-      const retrievalIntervalSeconds =
-        root && typeof root.RETRIEVAL_INTERVAL_SECONDS === "number" ? root.RETRIEVAL_INTERVAL_SECONDS : undefined;
-      if (typeof retrievalIntervalSeconds !== "number" || retrievalIntervalSeconds <= 0) {
-        return value;
-      }
-      const maxBufferMs = retrievalIntervalSeconds * 1000;
-      if (value > maxBufferMs) {
-        return helpers.error("any.invalid", {
-          message: `"RETRIEVAL_TIMEOUT_BUFFER_MS" must be <= RETRIEVAL_INTERVAL_SECONDS * 1000 (${maxBufferMs} ms)`,
-        });
-      }
-      return value;
-    }), // Stop retrieval batch 60s before next run
 });
 
 export type IpniTestingMode = "disabled" | "random" | "always";
@@ -272,7 +230,6 @@ export interface ITimeoutConfig {
   connectTimeoutMs: number;
   httpRequestTimeoutMs: number;
   http2RequestTimeoutMs: number;
-  retrievalTimeoutBufferMs: number;
 }
 
 export interface IConfig {
@@ -391,7 +348,6 @@ export function loadConfig(): IConfig {
       connectTimeoutMs: Number.parseInt(process.env.CONNECT_TIMEOUT_MS || "10000", 10),
       httpRequestTimeoutMs: Number.parseInt(process.env.HTTP_REQUEST_TIMEOUT_MS || "240000", 10),
       http2RequestTimeoutMs: Number.parseInt(process.env.HTTP2_REQUEST_TIMEOUT_MS || "240000", 10),
-      retrievalTimeoutBufferMs: Number.parseInt(process.env.RETRIEVAL_TIMEOUT_BUFFER_MS || "60000", 10),
     },
   };
 }
