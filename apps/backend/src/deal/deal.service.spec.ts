@@ -72,8 +72,6 @@ describe("DealService", () => {
     get: vi.fn().mockImplementation((key: string) => {
       if (key === "scheduling") {
         return {
-          dealMaxConcurrency: 2,
-          retrievalMaxConcurrency: 5,
           dealIntervalSeconds: 30,
           dealStartOffsetSeconds: 0,
           retrievalIntervalSeconds: 60,
@@ -86,7 +84,6 @@ describe("DealService", () => {
           walletPrivateKey: "mockKey",
           network: "calibration",
           walletAddress: "0x123",
-          enableCDNTesting: true,
           enableIpniTesting: "always",
         };
       }
@@ -264,6 +261,30 @@ describe("DealService", () => {
       expect(dealRepoMock.save).toHaveBeenCalledWith(mockDeal);
     });
 
+    it("records abort reasons when signal aborts with a non-Error value", async () => {
+      const uploadPayload = {
+        carData: Uint8Array.from([1, 2, 3]),
+        rootCid: CID.parse(mockRootCid),
+      };
+      const abortController = new AbortController();
+      abortController.abort("abort-reason");
+
+      await expect(
+        service.createDeal(
+          mockSynapseInstance,
+          mockProviderInfo,
+          mockDealInput,
+          uploadPayload,
+          undefined,
+          abortController.signal,
+        ),
+      ).rejects.toBe("abort-reason");
+
+      expect(mockDeal.status).toBe(DealStatus.FAILED);
+      expect(mockDeal.errorMessage).toBe("abort-reason");
+      expect(dealRepoMock.save).toHaveBeenCalledWith(mockDeal);
+    });
+
     it("fails deal creation when upload completion handlers fail (IPNI gating)", async () => {
       const uploadPayload = {
         carData: Uint8Array.from([1, 2, 3]),
@@ -404,7 +425,6 @@ describe("DealService", () => {
           walletPrivateKey: "mockKey",
           network: "calibration",
           walletAddress: "0x123",
-          enableCDNTesting: true,
           enableIpniTesting: "always",
           dealbotDataSetVersion,
         });
@@ -519,7 +539,6 @@ describe("DealService", () => {
       mockConfigService.get.mockImplementation((key: string) => {
         if (key === "scheduling") {
           return {
-            dealMaxConcurrency: 2,
             dealIntervalSeconds: 30,
             dealStartOffsetSeconds: 0,
             retrievalIntervalSeconds: 60,
@@ -532,7 +551,6 @@ describe("DealService", () => {
             walletPrivateKey: "mockKey",
             network: "calibration",
             walletAddress: "0x123",
-            enableCDNTesting: true,
             enableIpniTesting: "always",
           };
         }
@@ -583,9 +601,9 @@ describe("DealService", () => {
       expect(dealAddonsMock.preprocessDeal).toHaveBeenCalledWith(
         expect.objectContaining({
           dataFile,
-          enableCDN: expect.any(Boolean),
           enableIpni: expect.any(Boolean),
         }),
+        undefined,
       );
 
       // Verify parallelism/iteration

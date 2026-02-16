@@ -1,5 +1,5 @@
 import type { Deal } from "../../database/entities/deal.entity.js";
-import type { CdnMetadata, DealMetadata, DirectMetadata, IpniMetadata, ServiceType } from "../../database/types.js";
+import type { DealMetadata, DirectMetadata, IpniMetadata, ServiceType } from "../../database/types.js";
 import type { AddonExecutionContext, DealConfiguration, PreprocessingResult, SynapseConfig } from "../types.js";
 
 /**
@@ -7,10 +7,10 @@ import type { AddonExecutionContext, DealConfiguration, PreprocessingResult, Syn
  * Each add-on implements this interface to provide specific functionality
  * during the deal creation process
  */
-export interface IDealAddon<T extends CdnMetadata | IpniMetadata | DirectMetadata = any> {
+export interface IDealAddon<T extends IpniMetadata | DirectMetadata = any> {
   /**
    * Unique identifier for the add-on
-   * @example ServiceType.DIRECT_SP, ServiceType.CDN
+   * @example ServiceType.DIRECT_SP
    */
   readonly name: ServiceType;
 
@@ -36,7 +36,7 @@ export interface IDealAddon<T extends CdnMetadata | IpniMetadata | DirectMetadat
    * @returns Preprocessing result with transformed data and metadata
    * @throws Error if preprocessing fails
    */
-  preprocessData(context: AddonExecutionContext): Promise<PreprocessingResult<T>>;
+  preprocessData(context: AddonExecutionContext, signal?: AbortSignal): Promise<PreprocessingResult<T>>;
 
   /**
    * Get Synapse SDK configuration for this add-on
@@ -53,7 +53,7 @@ export interface IDealAddon<T extends CdnMetadata | IpniMetadata | DirectMetadat
    * @param deal - Deal entity with upload information
    * @returns Promise that resolves when handler is complete
    */
-  onUploadComplete?(deal: Deal): Promise<void>;
+  onUploadComplete?(deal: Deal, signal?: AbortSignal): Promise<void>;
 
   /**
    * Optional post-processing after deal creation

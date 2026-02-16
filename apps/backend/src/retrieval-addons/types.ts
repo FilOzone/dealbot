@@ -9,7 +9,7 @@ export interface RetrievalConfiguration {
   /** Deal entity containing metadata about storage and add-ons */
   deal: Deal;
 
-  /** Wallet address for CDN URL construction */
+  /** Wallet address associated with the deal */
   walletAddress: Hex;
 
   /** Storage provider address */
@@ -110,13 +110,16 @@ export interface RetrievalTestResult {
 
   /** Timestamp of test */
   testedAt: Date;
+
+  /** Whether the test was aborted */
+  aborted?: boolean;
 }
 
 /**
  * Priority levels for retrieval strategies
  */
 export enum RetrievalPriority {
-  /** Highest priority - preferred retrieval method (e.g., CDN) */
+  /** Highest priority - preferred retrieval method */
   HIGH = 1,
 
   /** Medium priority - alternative methods (e.g., IPNI) */

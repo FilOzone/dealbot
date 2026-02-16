@@ -8,7 +8,6 @@
  */
 export const ServiceType = {
   DIRECT_SP: "direct_sp",
-  CDN: "cdn",
   IPFS_PIN: "ipfs_pin",
 } as const;
 
@@ -29,11 +28,10 @@ export interface ServiceMetrics {
 
 /**
  * Service comparison metrics for a specific date
- * Breaks down by service type (CDN, DIRECT_SP, IPFS_PIN)
+ * Breaks down by service type (DIRECT_SP, IPFS_PIN)
  */
 export interface ServiceComparisonMetrics {
   date: string; // ISO date string (YYYY-MM-DD)
-  cdn: ServiceMetrics;
   directSp: ServiceMetrics;
   ipfsPin: ServiceMetrics;
 }
@@ -49,10 +47,8 @@ export interface ServiceComparisonResponse {
   };
   summary: {
     totalDays: number;
-    cdnTotalRetrievals: number;
     directSpTotalRetrievals: number;
     ipfsPinTotalRetrievals: number;
-    cdnAvgSuccessRate: number;
     directSpAvgSuccessRate: number;
     ipfsPinAvgSuccessRate: number;
   };

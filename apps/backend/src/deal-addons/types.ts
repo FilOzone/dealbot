@@ -1,12 +1,11 @@
 import type { CID } from "multiformats";
 import type { DataFile } from "../common/types.js";
-import type { CdnMetadata, DealMetadata, DirectMetadata, IpniMetadata, ServiceType } from "../database/types.js";
+import type { DealMetadata, DirectMetadata, IpniMetadata, ServiceType } from "../database/types.js";
 
 /**
  * Configuration for creating a deal with optional add-ons
  */
 export interface DealConfiguration {
-  enableCDN: boolean;
   enableIpni: boolean;
   dataFile: DataFile;
 }
@@ -14,7 +13,7 @@ export interface DealConfiguration {
 /**
  * Result of data preprocessing by add-ons
  */
-export interface PreprocessingResult<T extends CdnMetadata | IpniMetadata | DirectMetadata = any> {
+export interface PreprocessingResult<T extends IpniMetadata | DirectMetadata = any> {
   /** Processed data ready for upload */
   data: Buffer | Uint8Array;
 
@@ -31,7 +30,6 @@ export interface PreprocessingResult<T extends CdnMetadata | IpniMetadata | Dire
 /**
  * Preprocessing results for each strategy
  */
-export type CdnPreprocessingResult = PreprocessingResult<CdnMetadata>;
 export type IpniPreprocessingResult = PreprocessingResult<IpniMetadata>;
 export type DirectPreprocessingResult = PreprocessingResult<DirectMetadata>;
 
@@ -87,7 +85,7 @@ export enum AddonPriority {
   /** Run first - data transformation add-ons (e.g., IPNI CAR conversion) */
   HIGH = 1,
 
-  /** Run second - configuration add-ons (e.g., CDN) */
+  /** Run second - configuration add-ons */
   MEDIUM = 5,
 
   /** Run last - post-processing add-ons */

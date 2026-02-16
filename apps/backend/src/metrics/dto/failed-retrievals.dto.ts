@@ -41,13 +41,13 @@ export class FailedRetrievalDto {
   @ApiProperty({
     description: "Service type used for retrieval",
     enum: ServiceType,
-    example: ServiceType.CDN,
+    example: ServiceType.DIRECT_SP,
   })
   serviceType: ServiceType;
 
   @ApiProperty({
     description: "Retrieval endpoint URL",
-    example: "https://cdn.example.com/retrieve/bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi",
+    example: "https://provider.example.com/piece/bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi",
   })
   retrievalEndpoint: string;
 
@@ -196,7 +196,7 @@ export class ServiceTypeFailureStatsDto {
   @ApiProperty({
     description: "Service type",
     enum: ServiceType,
-    example: ServiceType.CDN,
+    example: ServiceType.DIRECT_SP,
   })
   serviceType: ServiceType;
 
