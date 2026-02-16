@@ -115,7 +115,7 @@ export class SchedulerService implements OnModuleInit {
     this.logger.log("Starting scheduled deal creation for all registered providers");
 
     try {
-      await this.walletSdkService.loadProviders();
+      await this.walletSdkService.ensureProvidersLoaded();
 
       const providerCount = this.walletSdkService.getTestingProvidersCount();
 

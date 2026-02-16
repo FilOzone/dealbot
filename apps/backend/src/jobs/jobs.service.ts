@@ -89,7 +89,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
 
     if (process.env.DEALBOT_DISABLE_CHAIN !== "true") {
       await this.walletSdkService.ensureWalletAllowances();
-      await this.walletSdkService.loadProviders();
+      await this.walletSdkService.ensureProvidersLoaded();
     }
     await this.startBoss();
     if (!this.boss) {
