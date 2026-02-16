@@ -29,11 +29,11 @@ export class HttpClientService {
     this.connectTimeoutMs = timeouts.connectTimeoutMs;
   }
 
-  async requestWithRandomProxyAndMetrics<T = any>(
+  async requestWithRandomProxyAndMetrics<T = unknown>(
     url: string,
     options: {
       method?: "GET" | "POST" | "PUT" | "DELETE";
-      data?: any;
+      data?: unknown;
       headers?: Record<string, string>;
       proxyUrl?: string;
       httpVersion?: HttpVersion; // '1.1' | '2'
@@ -69,11 +69,11 @@ export class HttpClientService {
     });
   }
 
-  async requestWithoutProxyAndMetrics<T = any>(
+  async requestWithoutProxyAndMetrics<T = unknown>(
     url: string,
     options: {
       method?: "GET" | "POST" | "PUT" | "DELETE";
-      data?: any;
+      data?: unknown;
       headers?: Record<string, string>;
       httpVersion?: HttpVersion;
       signal?: AbortSignal;
@@ -103,7 +103,7 @@ export class HttpClientService {
     url: string,
     options: {
       method?: "GET" | "POST" | "PUT" | "DELETE";
-      data?: any;
+      data?: unknown;
       headers?: Record<string, string>;
       httpVersion?: HttpVersion;
       signal?: AbortSignal;
@@ -131,11 +131,11 @@ export class HttpClientService {
   /**
    * HTTP/2 request with proxy using undici
    */
-  private async requestWithHttp2AndProxy<T = any>(
+  private async requestWithHttp2AndProxy<T = unknown>(
     url: string,
     options: {
       method: string;
-      data?: any;
+      data?: unknown;
       headers: Record<string, string>;
       proxyUrl: string;
       signal?: AbortSignal;
@@ -240,11 +240,11 @@ export class HttpClientService {
   /**
    * HTTP/2 request without proxy using undici
    */
-  private async requestWithHttp2Direct<T = any>(
+  private async requestWithHttp2Direct<T = unknown>(
     url: string,
     options: {
       method: string;
-      data?: any;
+      data?: unknown;
       headers: Record<string, string>;
       signal?: AbortSignal;
     },
@@ -337,7 +337,7 @@ export class HttpClientService {
     url: string,
     options: {
       method: string;
-      data?: any;
+      data?: unknown;
       headers: Record<string, string>;
       signal?: AbortSignal;
     },
@@ -403,7 +403,7 @@ export class HttpClientService {
     url: string,
     options: {
       method: string;
-      data?: any;
+      data?: unknown;
       headers: Record<string, string>;
       signal?: AbortSignal;
     },
@@ -457,11 +457,11 @@ export class HttpClientService {
   /**
    * HTTP/1.1 request with proxy (your existing implementation)
    */
-  private async requestWithHttp1AndProxy<T = any>(
+  private async requestWithHttp1AndProxy<T = unknown>(
     url: string,
     options: {
       method: string;
-      data?: any;
+      data?: unknown;
       headers: Record<string, string>;
       proxyUrl: string;
       signal?: AbortSignal;
@@ -547,11 +547,11 @@ export class HttpClientService {
   /**
    * HTTP/1.1 request without proxy (your existing implementation)
    */
-  private async requestWithHttp1Direct<T = any>(
+  private async requestWithHttp1Direct<T = unknown>(
     url: string,
     options: {
       method: string;
-      data?: any;
+      data?: unknown;
       headers: Record<string, string>;
       signal?: AbortSignal;
     },
@@ -633,7 +633,7 @@ export class HttpClientService {
    * Convert response data to Buffer
    * Handles different data types returned by axios
    */
-  private convertToBuffer(data: any): Buffer {
+  private convertToBuffer(data: unknown): Buffer {
     if (Buffer.isBuffer(data)) {
       return data;
     }

@@ -51,8 +51,8 @@ export interface ValidationResult {
 
   /** Expected vs actual comparison data */
   comparison?: {
-    expected: any;
-    actual: any;
+    expected: unknown;
+    actual: unknown;
   };
 }
 

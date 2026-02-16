@@ -1,5 +1,6 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { validateCarContentStream } from "../../common/car-utils.js";
+import { closeStream } from "../../common/stream-utils.js";
 import { ServiceType } from "../../database/types.js";
 import { WalletSdkService } from "../../wallet-sdk/wallet-sdk.service.js";
 import type { IRetrievalAddon } from "../interfaces/retrieval-addon.interface.js";
@@ -87,8 +88,9 @@ export class IpniRetrievalStrategy implements IRetrievalAddon {
   /**
    * Validate IPNI retrieved data
    * The PDP provider returns a CAR file. We perform two validation steps:
-   * 1. Fast size pre-check against expected CAR size
-   * 2. Full content validation: unpack CAR → rebuild → compare root CIDs
+   * 1. Size check against expected CAR size (after streaming)
+   * 2. Full content validation: stream CAR blocks and verify each block's multihash against its CID,
+   *    ensuring the expected root CID (and block set) from metadata is present.
    */
   async validateDataStream(
     stream: AsyncIterable<Uint8Array>,
@@ -111,77 +113,34 @@ export class IpniRetrievalStrategy implements IRetrievalAddon {
     }
 
     if (carSize === undefined || carSize === null) {
-      for await (const _chunk of countingStream()) {
-        // Drain stream to completion to avoid hanging the request.
-      }
-      this.logger.warn(
-        `IPNI validation could not run for deal ${config.deal.id}: carSize metadata is missing. ` +
-          `Retrieved ${bytesRead} bytes from ${storageProvider}.`,
-      );
+      await closeStream(stream);
+      this.logger.warn(`IPNI validation could not run for deal ${config.deal.id}: carSize metadata is missing.`);
       return {
         isValid: false,
         method: this.validationMethods.metadataMissing,
-        details: `Cannot validate: carSize metadata is missing. Retrieved ${bytesRead} bytes`,
-        comparison: { expected: undefined, actual: bytesRead },
-        bytesRead,
+        details: "Cannot validate: carSize metadata is missing",
+        comparison: { expected: undefined, actual: undefined },
+        bytesRead: 0,
       };
     }
 
     const expectedCarSize = Number(carSize);
 
     if (!rootCIDStr) {
-      for await (const _chunk of countingStream()) {
-        // Drain stream to completion to avoid hanging the request.
-      }
-      if (bytesRead !== expectedCarSize) {
-        const sizeDiff = bytesRead - expectedCarSize;
-        const sizeDiffPercent = expectedCarSize > 0 ? ((sizeDiff / expectedCarSize) * 100).toFixed(2) : "N/A";
-
-        const logParts = [
-          `IPNI retrieval validation failed for deal ${config.deal.id}:`,
-          `  Storage Provider: ${String(storageProvider)}`,
-          rootCIDStr ? `  Expected Root CID: ${rootCIDStr}` : "  Expected Root CID: missing",
-          `  Retrieved Data Size: ${bytesRead} bytes`,
-          `  Expected CAR File Size: ${expectedCarSize} bytes (from metadata.carSize)`,
-          originalSize ? `  Original File Size: ${originalSize} bytes (for reference)` : null,
-          `  Size Difference: ${sizeDiff > 0 ? "+" : ""}${sizeDiff} bytes (${sizeDiffPercent}%)`,
-          blockCount ? `  Block Count in CAR: ${blockCount}` : "  Block Count: missing",
-          blockCIDs ? `  Block CIDs in CAR: ${blockCIDs.length} entries` : "  Block CIDs: missing",
-          blockCIDs && blockCIDs.length > 0 ? `  First Block CID (rootCID): ${blockCIDs[0]}` : null,
-        ].filter((part): part is string => part !== null);
-
-        this.logger.warn(logParts.join("\n"));
-
-        let additionalDetails = "";
-        if (blockCIDs && blockCount) {
-          additionalDetails = ` (${blockCount} blocks in CAR)`;
-        }
-
-        return {
-          isValid: false,
-          method: this.validationMethods.carSizeCheck,
-          details: `CAR size mismatch: expected ${expectedCarSize}, got ${bytesRead}${additionalDetails}`,
-          comparison: {
-            expected: expectedCarSize,
-            actual: bytesRead,
-          },
-          bytesRead,
-        };
-      }
-
+      await closeStream(stream);
       this.logger.warn(
         `IPNI content validation failed for deal ${config.deal.id}: rootCID metadata is missing. ` +
           `Cannot perform content validation.`,
       );
       return {
         isValid: false,
-        method: this.validationMethods.carSizeCheck,
-        details: "CAR size check passed, but rootCID metadata is missing; content validation skipped",
+        method: this.validationMethods.metadataMissing,
+        details: "Cannot validate: rootCID metadata is missing; content validation skipped",
         comparison: {
           expected: expectedCarSize,
-          actual: bytesRead,
+          actual: undefined,
         },
-        bytesRead,
+        bytesRead: 0,
       };
     }
 

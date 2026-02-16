@@ -632,11 +632,12 @@ export class RetrievalAddonsService {
       let collected = 0;
 
       for await (const chunk of stream) {
-        if (collected < maxLength) {
-          const remaining = maxLength - collected;
-          const slice = chunk.length > remaining ? chunk.subarray(0, remaining) : chunk;
-          chunks.push(Buffer.from(slice));
-          collected += slice.length;
+        const remaining = maxLength - collected;
+        const slice = chunk.length > remaining ? chunk.subarray(0, remaining) : chunk;
+        chunks.push(Buffer.from(slice));
+        collected += slice.length;
+        if (collected >= maxLength) {
+          break;
         }
       }
 

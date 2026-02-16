@@ -1,6 +1,24 @@
 import type { WriteStream } from "node:fs";
 
 /**
+ * Close an async iterable stream by calling `.return()` on its iterator.
+ * This signals the stream to release its underlying resources (e.g. HTTP
+ * connections) immediately, without consuming any remaining data.
+ * Silently swallows errors so callers can use it in cleanup paths without
+ * masking the original error.
+ */
+export async function closeStream(stream: AsyncIterable<Uint8Array>): Promise<void> {
+  try {
+    const iterator = stream[Symbol.asyncIterator]();
+    if (iterator.return) {
+      await iterator.return();
+    }
+  } catch {
+    // Ignore — stream may already be closed/errored
+  }
+}
+
+/**
  * Write a buffer to a stream with proper backpressure handling
  * Returns a promise that resolves when the write is complete and buffer is drained
  */

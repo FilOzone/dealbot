@@ -103,6 +103,118 @@ describe("car-utils", () => {
       expect(result.errors!.some((e) => e.includes("car-read-error"))).toBe(true);
     });
 
+    it("should fully consume the stream on a valid CAR", async () => {
+      const originalData = randomBytes(4096);
+      const originalFile = join(tempDir, "drain-valid.bin");
+      await writeFile(originalFile, originalData);
+
+      const carResult = await createCarFromPath(originalFile);
+      const carBytes = await readFile(carResult.carPath);
+      const rootCID = carResult.rootCid.toString();
+
+      let chunksYielded = 0;
+      async function* trackingStream(): AsyncIterable<Uint8Array> {
+        for (let i = 0; i < carBytes.length; i += 1024) {
+          chunksYielded++;
+          yield carBytes.subarray(i, i + 1024);
+        }
+      }
+
+      const totalChunks = Math.ceil(carBytes.length / 1024);
+      const result = await validateCarContentStream(trackingStream(), rootCID);
+
+      expect(result.isValid).toBe(true);
+      expect(chunksYielded).toBe(totalChunks);
+
+      await cleanupTempCar(carResult.carPath);
+    });
+
+    it("should close the stream when the CAR header is invalid", async () => {
+      let chunksYielded = 0;
+      let returnCalled = false;
+
+      // Use a large stream with many small chunks to ensure
+      // CarBlockIterator.fromIterable only reads the first few for the header
+      const trackingIterable: AsyncIterable<Uint8Array> = {
+        [Symbol.asyncIterator]() {
+          return {
+            async next() {
+              if (chunksYielded >= 100) {
+                return { done: true, value: undefined };
+              }
+              chunksYielded++;
+              // Yield 1 byte at a time to ensure header parsing fails before consuming all
+              return { done: false, value: randomBytes(1) };
+            },
+            async return() {
+              returnCalled = true;
+              return { done: true, value: undefined };
+            },
+          };
+        },
+      };
+
+      const result = await validateCarContentStream(
+        trackingIterable,
+        "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi",
+      );
+
+      expect(result.isValid).toBe(false);
+      expect(result.errors!.some((e) => e.includes("car-read-error"))).toBe(true);
+      // The stream should be closed via .return(), NOT left open
+      expect(returnCalled).toBe(true);
+    });
+
+    it("should close the stream early when block verification fails", async () => {
+      const originalData = randomBytes(4096);
+      const originalFile = join(tempDir, "drain-corrupt.bin");
+      await writeFile(originalFile, originalData);
+
+      const carResult = await createCarFromPath(originalFile);
+      const carBytes = await readFile(carResult.carPath);
+      const rootCID = carResult.rootCid.toString();
+
+      // Corrupt data in the middle (after header, in block data)
+      const corrupted = Buffer.from(carBytes);
+      const midpoint = Math.floor(corrupted.length / 2);
+      for (let i = midpoint; i < midpoint + 256 && i < corrupted.length; i++) {
+        corrupted[i] = corrupted[i] ^ 0xff;
+      }
+
+      let returnCalled = false;
+
+      const trackingIterable: AsyncIterable<Uint8Array> = {
+        [Symbol.asyncIterator]() {
+          let offset = 0;
+          return {
+            async next() {
+              if (offset >= corrupted.length) {
+                return { done: true as const, value: undefined };
+              }
+              const chunk = corrupted.subarray(offset, offset + 1024);
+              offset += 1024;
+              return { done: false as const, value: chunk };
+            },
+            async return() {
+              returnCalled = true;
+              return { done: true as const, value: undefined };
+            },
+          };
+        },
+      };
+
+      const result = await validateCarContentStream(trackingIterable, rootCID);
+
+      expect(result.isValid).toBe(false);
+      expect(result.errors!.some((e) => e.includes("cid-verify-error"))).toBe(true);
+      // The break from for-await calls .return() on the CarBlockIterator, which
+      // signals stream closure. For small files the CAR library may have already
+      // buffered all chunks, but .return() is still called to release resources.
+      expect(returnCalled).toBe(true);
+
+      await cleanupTempCar(carResult.carPath);
+    });
+
     it("should validate CAR content from a stream", async () => {
       const originalData = randomBytes(4096);
       const originalFile = join(tempDir, "stream.bin");

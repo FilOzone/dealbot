@@ -9,6 +9,7 @@ import { CID } from "multiformats/cid";
 import { identity } from "multiformats/hashes/identity";
 import type { MultihashHasher } from "multiformats/hashes/interface";
 import { sha256 } from "multiformats/hashes/sha2";
+import { closeStream } from "./stream-utils.js";
 
 export type CarValidationResult = {
   isValid: boolean;
@@ -151,16 +152,23 @@ async function validateCarContentIterator(
 
   let verifiedBlocks = 0;
   let rootBlockFound = false;
-  for await (const block of iterator) {
-    if (block.cid.toString() === rootCID.toString()) {
-      rootBlockFound = true;
+  try {
+    for await (const block of iterator) {
+      if (block.cid.toString() === rootCID.toString()) {
+        rootBlockFound = true;
+      }
+      try {
+        await verifyCidBytes(block.cid, block.bytes);
+        verifiedBlocks += 1;
+      } catch (err) {
+        errors.push(`cid-verify-error: ${err instanceof Error ? err.message : String(err)}`);
+        break; // No need to consume remaining blocks — one bad block fails validation
+      }
     }
-    try {
-      await verifyCidBytes(block.cid, block.bytes);
-      verifiedBlocks += 1;
-    } catch (err) {
-      errors.push(`cid-verify-error: ${err instanceof Error ? err.message : String(err)}`);
-    }
+  } catch (iterationError) {
+    errors.push(
+      `iteration-error: ${iterationError instanceof Error ? iterationError.message : String(iterationError)}`,
+    );
   }
 
   if (!rootBlockFound) {
@@ -190,6 +198,7 @@ export async function validateCarContentStream(
   try {
     iterator = await CarBlockIterator.fromIterable(carStream);
   } catch (err) {
+    await closeStream(carStream);
     return {
       isValid: false,
       method: "car-content-validation",
@@ -198,5 +207,11 @@ export async function validateCarContentStream(
     };
   }
 
-  return validateCarContentIterator(iterator, expectedRootCID);
+  const result = await validateCarContentIterator(iterator, expectedRootCID);
+  if (!result.isValid) {
+    // CarBlockIterator doesn't propagate .return() to the underlying stream,
+    // so close it explicitly when validation broke out early.
+    await closeStream(carStream);
+  }
+  return result;
 }
