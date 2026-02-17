@@ -245,6 +245,13 @@ export class WalletSdkService implements OnModuleInit {
   }
 
   /**
+   * Get the current block number from the RPC provider
+   */
+  async getBlockNumber(): Promise<number> {
+    return await this.rpcProvider.getBlockNumber();
+  }
+
+  /**
    * Calculate storage requirements including costs and allowances
    */
   async calculateStorageRequirements(): Promise<StorageRequirements> {

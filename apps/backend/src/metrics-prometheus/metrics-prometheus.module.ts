@@ -52,6 +52,12 @@ const metricProviders = [
     labelNames: ["method", "provider"] as const,
     buckets: [0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10],
   }),
+  // Data Retention Metrics
+  makeCounterProvider({
+    name: "data_retention_periods_total",
+    help: "Total number of estimated proving periods by status (faulted/success) per provider",
+    labelNames: ["status", "provider"] as const,
+  }),
   // Storage provider metrics: absolute counts, independent of query filters.
   makeGaugeProvider({
     name: "storage_providers_active",

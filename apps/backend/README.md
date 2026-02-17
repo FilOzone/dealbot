@@ -96,14 +96,15 @@ All configuration is done via environment variables in `.env`.
 
 ### Blockchain Configuration
 
-| Variable                      | Description                            | Example                    |
-| ----------------------------- | -------------------------------------- | -------------------------- |
-| `NETWORK`                     | Filecoin network                       | `calibration` or `mainnet` |
-| `WALLET_ADDRESS`              | Your Filecoin wallet address           | `0x...`                    |
-| `WALLET_PRIVATE_KEY`          | Your wallet private key (keep secure!) | `0x...`                    |
-| `CHECK_DATASET_CREATION_FEES` | Check fees before dataset creation     | `true`                     |
-| `ENABLE_IPNI_TESTING`         | IPNI testing mode (`disabled`/`random`/`always`) | `always`          |
-| `USE_ONLY_APPROVED_PROVIDERS` | Only use approved storage providers    | `true`                     |
+| Variable                      | Description                                      | Example                                           |
+| ----------------------------- | ------------------------------------------------ | ------------------------------------------------- |
+| `NETWORK`                     | Filecoin network                                 | `calibration` or `mainnet`                        |
+| `WALLET_ADDRESS`              | Your Filecoin wallet address                     | `0x...`                                           |
+| `WALLET_PRIVATE_KEY`          | Your wallet private key (keep secure!)           | `0x...`                                           |
+| `CHECK_DATASET_CREATION_FEES` | Check fees before dataset creation               | `true`                                            |
+| `ENABLE_IPNI_TESTING`         | IPNI testing mode (`disabled`/`random`/`always`) | `always`                                          |
+| `USE_ONLY_APPROVED_PROVIDERS` | Only use approved storage providers              | `true`                                            |
+| `PDP_SUBGRAPH_ENDPOINT`       | PDP subgraph API endpoint for querying deal data | `https://api.thegraph.com/subgraphs/filecoin/pdp` |
 
 ### Scheduling Configuration (pg-boss)
 
@@ -111,28 +112,29 @@ These settings apply when `DEALBOT_JOBS_MODE=pgboss` (recommended). See
 [`docs/jobs.md`](../../docs/jobs.md) for scheduling behavior and
 [`docs/environment-variables.md`](../../docs/environment-variables.md) for defaults and full definitions.
 
-| Variable                         | Description                              | Recommended |
-| -------------------------------- | ---------------------------------------- | ------------------------------ |
-| `DEALBOT_JOBS_MODE`              | Enable pg-boss scheduling                 | `pgboss`                       |
-| `DEALS_PER_SP_PER_HOUR`          | Deal checks per SP per hour               | `1`                            |
-| `RETRIEVALS_PER_SP_PER_HOUR`     | Retrieval checks per SP per hour          | `1`                            |
-| `METRICS_PER_HOUR`               | Metrics runs per hour                     | `2`                            |
-| `PG_BOSS_LOCAL_CONCURRENCY`      | Per-process `sp.work` concurrency         | `20`                           |
-| `JOB_SCHEDULER_POLL_SECONDS`     | Scheduler poll interval                   | `300`                          |
-| `JOB_WORKER_POLL_SECONDS`        | Worker poll interval                      | `60`                           |
-| `JOB_CATCHUP_MAX_ENQUEUE`        | Max catch-up enqueues per schedule per tick | `10`                         |
-| `JOB_SCHEDULE_PHASE_SECONDS`     | Phase offset for multi-deploy staggering  | `0`                            |
-| `DEALBOT_PGBOSS_POOL_MAX`        | Max pg-boss DB connections per instance   | `1`                            |
-| `DEALBOT_PGBOSS_SCHEDULER_ENABLED` | Enable the enqueue loop                 | `true` (api/both), `false` (worker) |
-| `DEALBOT_RUN_MODE`               | Run mode for the application              | `both` (or split api/worker)   |
+| Variable                               | Description                                 | Recommended                         |
+| -------------------------------------- | ------------------------------------------- | ----------------------------------- |
+| `DEALBOT_JOBS_MODE`                    | Enable pg-boss scheduling                   | `pgboss`                            |
+| `DATA_RETENTION_POLL_INTERVAL_SECONDS` | Data retention polling interval (seconds)   | `3600` (1 hour)                     |
+| `DEALS_PER_SP_PER_HOUR`                | Deal checks per SP per hour                 | `1`                                 |
+| `RETRIEVALS_PER_SP_PER_HOUR`           | Retrieval checks per SP per hour            | `1`                                 |
+| `METRICS_PER_HOUR`                     | Metrics runs per hour                       | `2`                                 |
+| `PG_BOSS_LOCAL_CONCURRENCY`            | Per-process `sp.work` concurrency           | `20`                                |
+| `JOB_SCHEDULER_POLL_SECONDS`           | Scheduler poll interval                     | `300`                               |
+| `JOB_WORKER_POLL_SECONDS`              | Worker poll interval                        | `60`                                |
+| `JOB_CATCHUP_MAX_ENQUEUE`              | Max catch-up enqueues per schedule per tick | `10`                                |
+| `JOB_SCHEDULE_PHASE_SECONDS`           | Phase offset for multi-deploy staggering    | `0`                                 |
+| `DEALBOT_PGBOSS_POOL_MAX`              | Max pg-boss DB connections per instance     | `1`                                 |
+| `DEALBOT_PGBOSS_SCHEDULER_ENABLED`     | Enable the enqueue loop                     | `true` (api/both), `false` (worker) |
+| `DEALBOT_RUN_MODE`                     | Run mode for the application                | `both` (or split api/worker)        |
 
 **Note:** If you run multiple deployments in the same environment, use a non-zero `JOB_SCHEDULE_PHASE_SECONDS` to stagger schedules.
 
 ### Dataset Configuration
 
-| Variable                      | Description                                     | Default      |
-| ----------------------------- | ----------------------------------------------- | ------------ |
-| `DEALBOT_LOCAL_DATASETS_PATH` | Local path for random dataset storage           | `./datasets` |
+| Variable                      | Description                                    | Default                    |
+| ----------------------------- | ---------------------------------------------- | -------------------------- |
+| `DEALBOT_LOCAL_DATASETS_PATH` | Local path for random dataset storage          | `./datasets`               |
 | `RANDOM_DATASET_SIZES`        | Comma-separated byte sizes for random datasets | `10240,10485760,104857600` |
 
 ### Proxy Configuration (Optional)

@@ -33,6 +33,7 @@ export const configValidationSchema = Joi.object({
     .valid("disabled", "random", "always", "true", "false")
     .default("always"),
   DEALBOT_DATASET_VERSION: Joi.string().optional(),
+  PDP_SUBGRAPH_ENDPOINT: Joi.string().uri().required(),
 
   // Scheduling
   DEAL_INTERVAL_SECONDS: Joi.number().default(30),
@@ -61,6 +62,7 @@ export const configValidationSchema = Joi.object({
 
       return value;
     }),
+  DATA_RETENTION_POLL_INTERVAL_SECONDS: Joi.number().default(3600),
   DEAL_START_OFFSET_SECONDS: Joi.number().default(0),
   RETRIEVAL_START_OFFSET_SECONDS: Joi.number().default(600),
   METRICS_START_OFFSET_SECONDS: Joi.number().default(900),
@@ -151,11 +153,13 @@ export interface IBlockchainConfig {
   useOnlyApprovedProviders: boolean;
   enableIpniTesting: IpniTestingMode;
   dealbotDataSetVersion?: string;
+  pdpSubgraphEndpoint: string;
 }
 
 export interface ISchedulingConfig {
   dealIntervalSeconds: number;
   retrievalIntervalSeconds: number;
+  dataRetentionPollIntervalSeconds: number;
   dealStartOffsetSeconds: number;
   retrievalStartOffsetSeconds: number;
   metricsStartOffsetSeconds: number;
@@ -321,10 +325,12 @@ export function loadConfig(): IConfig {
       useOnlyApprovedProviders: process.env.USE_ONLY_APPROVED_PROVIDERS !== "false",
       enableIpniTesting: parseIpniTestingMode(process.env.ENABLE_IPNI_TESTING),
       dealbotDataSetVersion: process.env.DEALBOT_DATASET_VERSION,
+      pdpSubgraphEndpoint: process.env.PDP_SUBGRAPH_ENDPOINT || "",
     },
     scheduling: {
       dealIntervalSeconds: Number.parseInt(process.env.DEAL_INTERVAL_SECONDS || "30", 10),
       retrievalIntervalSeconds: Number.parseInt(process.env.RETRIEVAL_INTERVAL_SECONDS || "60", 10),
+      dataRetentionPollIntervalSeconds: Number.parseInt(process.env.DATA_RETENTION_POLL_INTERVAL_SECONDS || "3600", 10),
       dealStartOffsetSeconds: Number.parseInt(process.env.DEAL_START_OFFSET_SECONDS || "0", 10),
       retrievalStartOffsetSeconds: Number.parseInt(process.env.RETRIEVAL_START_OFFSET_SECONDS || "600", 10),
       metricsStartOffsetSeconds: Number.parseInt(process.env.METRICS_START_OFFSET_SECONDS || "900", 10),
