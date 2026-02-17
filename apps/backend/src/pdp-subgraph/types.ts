@@ -49,9 +49,7 @@ const dataSetSchema = Joi.object({
   currentDeadlineCount: Joi.string().pattern(/^\d+$/).required().custom(toBigInt),
   nextDeadline: Joi.string().pattern(/^\d+$/).required().custom(toBigInt),
   maxProvingPeriod: Joi.string().pattern(/^\d+$/).required().custom(toBigInt),
-})
-  .unknown(true)
-  .required();
+}).unknown(true);
 
 const providerDataSetResponseSchema = Joi.object({
   providers: Joi.array()

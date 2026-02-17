@@ -21,17 +21,18 @@ describe("JobsService schedule rows", () => {
     countBossJobStates: ReturnType<typeof vi.fn>;
     minBossJobAgeSecondsByState: ReturnType<typeof vi.fn>;
   };
+  let dataRetentionServiceMock: { pollDataRetention: ReturnType<typeof vi.fn> };
   let metricsMocks: {
-    jobsQueuedGauge: JobsServiceDeps[7];
-    jobsRetryScheduledGauge: JobsServiceDeps[8];
-    oldestQueuedAgeGauge: JobsServiceDeps[9];
-    oldestInFlightAgeGauge: JobsServiceDeps[10];
-    jobsInFlightGauge: JobsServiceDeps[11];
-    jobsEnqueueAttemptsCounter: JobsServiceDeps[12];
-    jobsStartedCounter: JobsServiceDeps[13];
-    jobsCompletedCounter: JobsServiceDeps[14];
-    jobsPausedGauge: JobsServiceDeps[15];
-    jobDuration: JobsServiceDeps[16];
+    jobsQueuedGauge: JobsServiceDeps[8];
+    jobsRetryScheduledGauge: JobsServiceDeps[9];
+    oldestQueuedAgeGauge: JobsServiceDeps[10];
+    oldestInFlightAgeGauge: JobsServiceDeps[11];
+    jobsInFlightGauge: JobsServiceDeps[12];
+    jobsEnqueueAttemptsCounter: JobsServiceDeps[13];
+    jobsStartedCounter: JobsServiceDeps[14];
+    jobsCompletedCounter: JobsServiceDeps[15];
+    jobsPausedGauge: JobsServiceDeps[16];
+    jobDuration: JobsServiceDeps[17];
   };
   let baseConfigValues: Partial<IConfig>;
   let configService: JobsServiceDeps[0];
@@ -44,16 +45,17 @@ describe("JobsService schedule rows", () => {
       retrievalService: JobsServiceDeps[4];
       metricsSchedulerService: JobsServiceDeps[5];
       walletSdkService: JobsServiceDeps[6];
-      jobsQueuedGauge: JobsServiceDeps[7];
-      jobsRetryScheduledGauge: JobsServiceDeps[8];
-      oldestQueuedAgeGauge: JobsServiceDeps[9];
-      oldestInFlightAgeGauge: JobsServiceDeps[10];
-      jobsInFlightGauge: JobsServiceDeps[11];
-      jobsEnqueueAttemptsCounter: JobsServiceDeps[12];
-      jobsStartedCounter: JobsServiceDeps[13];
-      jobsCompletedCounter: JobsServiceDeps[14];
-      jobsPausedGauge: JobsServiceDeps[15];
-      jobDuration: JobsServiceDeps[16];
+      dataRetentionService: JobsServiceDeps[7];
+      jobsQueuedGauge: JobsServiceDeps[8];
+      jobsRetryScheduledGauge: JobsServiceDeps[9];
+      oldestQueuedAgeGauge: JobsServiceDeps[10];
+      oldestInFlightAgeGauge: JobsServiceDeps[11];
+      jobsInFlightGauge: JobsServiceDeps[12];
+      jobsEnqueueAttemptsCounter: JobsServiceDeps[13];
+      jobsStartedCounter: JobsServiceDeps[14];
+      jobsCompletedCounter: JobsServiceDeps[15];
+      jobsPausedGauge: JobsServiceDeps[16];
+      jobDuration: JobsServiceDeps[17];
     }>,
   ) => JobsService;
 
@@ -75,17 +77,21 @@ describe("JobsService schedule rows", () => {
       minBossJobAgeSecondsByState: vi.fn(),
     };
 
+    dataRetentionServiceMock = {
+      pollDataRetention: vi.fn(),
+    };
+
     metricsMocks = {
-      jobsQueuedGauge: { set: vi.fn() } as unknown as JobsServiceDeps[7],
-      jobsRetryScheduledGauge: { set: vi.fn() } as unknown as JobsServiceDeps[8],
-      oldestQueuedAgeGauge: { set: vi.fn() } as unknown as JobsServiceDeps[9],
-      oldestInFlightAgeGauge: { set: vi.fn() } as unknown as JobsServiceDeps[10],
-      jobsInFlightGauge: { set: vi.fn() } as unknown as JobsServiceDeps[11],
-      jobsEnqueueAttemptsCounter: { inc: vi.fn() } as unknown as JobsServiceDeps[12],
-      jobsStartedCounter: { inc: vi.fn() } as unknown as JobsServiceDeps[13],
-      jobsCompletedCounter: { inc: vi.fn() } as unknown as JobsServiceDeps[14],
-      jobsPausedGauge: { set: vi.fn() } as unknown as JobsServiceDeps[15],
-      jobDuration: { observe: vi.fn() } as unknown as JobsServiceDeps[16],
+      jobsQueuedGauge: { set: vi.fn() } as unknown as JobsServiceDeps[8],
+      jobsRetryScheduledGauge: { set: vi.fn() } as unknown as JobsServiceDeps[9],
+      oldestQueuedAgeGauge: { set: vi.fn() } as unknown as JobsServiceDeps[10],
+      oldestInFlightAgeGauge: { set: vi.fn() } as unknown as JobsServiceDeps[11],
+      jobsInFlightGauge: { set: vi.fn() } as unknown as JobsServiceDeps[12],
+      jobsEnqueueAttemptsCounter: { inc: vi.fn() } as unknown as JobsServiceDeps[13],
+      jobsStartedCounter: { inc: vi.fn() } as unknown as JobsServiceDeps[14],
+      jobsCompletedCounter: { inc: vi.fn() } as unknown as JobsServiceDeps[15],
+      jobsPausedGauge: { set: vi.fn() } as unknown as JobsServiceDeps[16],
+      jobDuration: { observe: vi.fn() } as unknown as JobsServiceDeps[17],
     };
 
     baseConfigValues = {
@@ -94,6 +100,7 @@ describe("JobsService schedule rows", () => {
       scheduling: {
         dealIntervalSeconds: 600,
         retrievalIntervalSeconds: 1200,
+        dataRetentionPollIntervalSeconds: 3600,
         maintenanceWindowsUtc: ["07:00", "22:00"],
         maintenanceWindowMinutes: 20,
       } as IConfig["scheduling"],
@@ -127,6 +134,7 @@ describe("JobsService schedule rows", () => {
         overrides.retrievalService ?? ({} as JobsServiceDeps[4]),
         overrides.metricsSchedulerService ?? ({} as JobsServiceDeps[5]),
         overrides.walletSdkService ?? ({} as JobsServiceDeps[6]),
+        overrides.dataRetentionService ?? (dataRetentionServiceMock as unknown as JobsServiceDeps[7]),
         overrides.jobsQueuedGauge ?? metricsMocks.jobsQueuedGauge,
         overrides.jobsRetryScheduledGauge ?? metricsMocks.jobsRetryScheduledGauge,
         overrides.oldestQueuedAgeGauge ?? metricsMocks.oldestQueuedAgeGauge,
@@ -215,6 +223,7 @@ describe("JobsService schedule rows", () => {
     expect(jobsQueuedGauge.set).toHaveBeenCalledWith({ job_type: "retrieval" }, 0);
     expect(jobsQueuedGauge.set).toHaveBeenCalledWith({ job_type: "metrics" }, 0);
     expect(jobsQueuedGauge.set).toHaveBeenCalledWith({ job_type: "metrics_cleanup" }, 0);
+    expect(jobsQueuedGauge.set).toHaveBeenCalledWith({ job_type: "data_retention_poll" }, 0);
 
     expect(jobsRetryGauge.set).toHaveBeenCalledWith({ job_type: "metrics" }, 3);
     expect(jobsInFlightGauge.set).toHaveBeenCalledWith({ job_type: "retrieval" }, 1);
@@ -243,6 +252,11 @@ describe("JobsService schedule rows", () => {
     );
     expect(work).toHaveBeenCalledWith(
       "metrics.cleanup",
+      { batchSize: 1, pollingIntervalSeconds: 60 },
+      expect.any(Function),
+    );
+    expect(work).toHaveBeenCalledWith(
+      "data.retention.poll",
       { batchSize: 1, pollingIntervalSeconds: 60 },
       expect.any(Function),
     );
@@ -407,6 +421,12 @@ describe("JobsService schedule rows", () => {
       "metrics_cleanup",
       "",
       expect.any(Number),
+      expect.any(Date),
+    );
+    expect(jobScheduleRepositoryMock.upsertSchedule).toHaveBeenCalledWith(
+      "data_retention_poll",
+      "",
+      3600,
       expect.any(Date),
     );
   });

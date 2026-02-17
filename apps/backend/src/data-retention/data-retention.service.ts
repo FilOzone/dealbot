@@ -91,8 +91,6 @@ export class DataRetentionService {
           successPeriods: estimatedTotalSuccess,
         });
       }
-
-      this.logger.log(`Fetched ${providers.length} providers with data sets from subgraph`);
     } catch (error) {
       this.logger.error("Failed to poll data retention", error);
     }
