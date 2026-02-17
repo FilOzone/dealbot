@@ -6,6 +6,11 @@ import {
   makeHistogramProvider,
   PrometheusModule,
 } from "@willsoto/nestjs-prometheus";
+import {
+  DataStorageCheckMetrics,
+  DiscoverabilityCheckMetrics,
+  RetrievalCheckMetrics,
+} from "../metrics/utils/check-metrics.service.js";
 import { MetricsPrometheusInterceptor } from "./metrics-prometheus.interceptor.js";
 
 const metricProviders = [
@@ -257,12 +262,21 @@ const metricProviders = [
   ],
   providers: [
     ...metricProviders,
+    DataStorageCheckMetrics,
+    RetrievalCheckMetrics,
+    DiscoverabilityCheckMetrics,
     // HTTP metrics interceptor
     {
       provide: APP_INTERCEPTOR,
       useClass: MetricsPrometheusInterceptor,
     },
   ],
-  exports: [PrometheusModule, ...metricProviders],
+  exports: [
+    PrometheusModule,
+    ...metricProviders,
+    DataStorageCheckMetrics,
+    RetrievalCheckMetrics,
+    DiscoverabilityCheckMetrics,
+  ],
 })
 export class MetricsPrometheusModule {}

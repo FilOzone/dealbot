@@ -1,14 +1,17 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { InjectMetric } from "@willsoto/nestjs-prometheus";
-import type { Counter, Histogram } from "prom-client";
 import type { Repository } from "typeorm";
 import type { Hex } from "../common/types.js";
 import { Deal } from "../database/entities/deal.entity.js";
 import { Retrieval } from "../database/entities/retrieval.entity.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
 import { DealStatus, RetrievalStatus } from "../database/types.js";
-import { buildCheckMetricLabels, type CheckMetricLabels } from "../metrics/utils/check-metric-labels.js";
+import {
+  buildCheckMetricLabels,
+  type CheckMetricLabels,
+  classifyFailureStatus,
+} from "../metrics/utils/check-metric-labels.js";
+import { RetrievalCheckMetrics } from "../metrics/utils/check-metrics.service.js";
 import { RetrievalAddonsService } from "../retrieval-addons/retrieval-addons.service.js";
 import type {
   RetrievalConfiguration,
@@ -28,18 +31,7 @@ export class RetrievalService {
     private readonly retrievalRepository: Repository<Retrieval>,
     @InjectRepository(StorageProvider)
     private readonly spRepository: Repository<StorageProvider>,
-    @InjectMetric("ipfsRetrievalFirstByteMs")
-    private readonly ipfsRetrievalFirstByteMs: Histogram,
-    @InjectMetric("ipfsRetrievalLastByteMs")
-    private readonly ipfsRetrievalLastByteMs: Histogram,
-    @InjectMetric("ipfsRetrievalThroughputBps")
-    private readonly ipfsRetrievalThroughputBps: Histogram,
-    @InjectMetric("retrievalCheckMs")
-    private readonly retrievalCheckMs: Histogram,
-    @InjectMetric("retrievalStatus")
-    private readonly retrievalStatusCounter: Counter,
-    @InjectMetric("ipfsRetrievalHttpResponseCode")
-    private readonly retrievalHttpResponseCounter: Counter,
+    private readonly retrievalMetrics: RetrievalCheckMetrics,
   ) {}
 
   async performRandomBatchRetrievals(count: number, signal?: AbortSignal): Promise<Retrieval[]> {
@@ -159,7 +151,7 @@ export class RetrievalService {
     let testResult: RetrievalTestResult;
     let retrievals: Retrieval[];
     const retrievalCheckStartTime = Date.now();
-    this.recordRetrievalStatus(providerLabels, "pending");
+    this.retrievalMetrics.recordStatus(providerLabels, "pending");
     try {
       testResult = await this.retrievalAddonsService.testAllRetrievalMethods(config, signal);
 
@@ -179,7 +171,7 @@ export class RetrievalService {
         this.logger.warn(`Retrievals aborted for ${deal.pieceCid}: ${abortMessage || errorMessage}`);
       } else {
         this.logger.error(`All retrievals failed for ${deal.pieceCid}: ${errorMessage}`);
-        this.recordRetrievalStatus(providerLabels, this.classifyFailureStatus(errorMessage));
+        this.retrievalMetrics.recordStatus(providerLabels, classifyFailureStatus(error));
       }
 
       // Don't try to record timeouts here. If this catch block fires, it's either:
@@ -205,8 +197,8 @@ export class RetrievalService {
     }
 
     const retrievalCheckDurationMs = Date.now() - retrievalCheckStartTime;
-    this.observeDuration(this.retrievalCheckMs, providerLabels, retrievalCheckDurationMs);
-    this.recordRetrievalStatus(
+    this.retrievalMetrics.observeCheckDuration(providerLabels, retrievalCheckDurationMs);
+    this.retrievalMetrics.recordStatus(
       providerLabels,
       retrievals.every((retrieval) => retrieval.status === RetrievalStatus.SUCCESS) ? "success" : "failure.other",
     );
@@ -228,14 +220,12 @@ export class RetrievalService {
 
     if (executionResult.success) {
       this.mapExecutionResultToRetrieval(retrieval, executionResult);
-
       this.recordRetrievalEventMetrics(executionResult, providerLabels);
     } else {
       retrieval.completedAt = new Date();
       retrieval.startedAt = new Date();
       retrieval.errorMessage = executionResult.error || "Unknown error";
-
-      this.recordRetrievalHttpResponse(providerLabels, executionResult.metrics.statusCode);
+      this.retrievalMetrics.recordHttpResponseCode(providerLabels, executionResult.metrics.statusCode);
     }
 
     return this.saveRetrieval(retrieval);
@@ -245,84 +235,12 @@ export class RetrievalService {
     executionResult: RetrievalExecutionResult,
     providerLabels: CheckMetricLabels,
   ): void {
-    if (!executionResult.success) {
-      return;
-    }
+    if (!executionResult.success) return;
 
-    if (executionResult.metrics.ttfb > 0) {
-      this.observeDuration(this.ipfsRetrievalFirstByteMs, providerLabels, executionResult.metrics.ttfb);
-    }
-
-    if (executionResult.metrics.latency > 0) {
-      this.observeDuration(this.ipfsRetrievalLastByteMs, providerLabels, executionResult.metrics.latency);
-    }
-
-    if (executionResult.metrics.throughput > 0) {
-      this.observeThroughput(this.ipfsRetrievalThroughputBps, providerLabels, executionResult.metrics.throughput);
-    }
-
-    this.recordRetrievalHttpResponse(providerLabels, executionResult.metrics.statusCode);
-  }
-
-  private observeDuration(
-    metric: Histogram,
-    providerLabels: CheckMetricLabels,
-    durationMs: number | null | undefined,
-  ): void {
-    if (!durationMs || durationMs <= 0) {
-      return;
-    }
-
-    metric.observe(
-      {
-        ...providerLabels,
-      },
-      durationMs,
-    );
-  }
-
-  private observeThroughput(
-    metric: Histogram,
-    providerLabels: CheckMetricLabels,
-    throughputBps: number | null | undefined,
-  ): void {
-    if (!throughputBps || throughputBps <= 0) {
-      return;
-    }
-
-    metric.observe(
-      {
-        ...providerLabels,
-      },
-      throughputBps,
-    );
-  }
-
-  private recordRetrievalStatus(providerLabels: CheckMetricLabels, value: string): void {
-    this.retrievalStatusCounter.inc({
-      ...providerLabels,
-      value,
-    });
-  }
-
-  private recordRetrievalHttpResponse(providerLabels: CheckMetricLabels, statusCode: number): void {
-    let value = "failure";
-    if (statusCode === 200) {
-      value = "200";
-    } else if (statusCode === 500) {
-      value = "500";
-    } else if (statusCode > 0) {
-      value = "otherHttpStatusCodes";
-    }
-
-    this.retrievalHttpResponseCounter.inc({
-      ...providerLabels,
-      value,
-    });
-  }
-
-  private classifyFailureStatus(errorMessage: string): "failure.timedout" | "failure.other" {
-    return /timeout|timed out/i.test(errorMessage) ? "failure.timedout" : "failure.other";
+    this.retrievalMetrics.observeFirstByteMs(providerLabels, executionResult.metrics.ttfb);
+    this.retrievalMetrics.observeLastByteMs(providerLabels, executionResult.metrics.latency);
+    this.retrievalMetrics.observeThroughput(providerLabels, executionResult.metrics.throughput);
+    this.retrievalMetrics.recordHttpResponseCode(providerLabels, executionResult.metrics.statusCode);
   }
 
   // ============================================================================

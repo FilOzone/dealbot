@@ -27,3 +27,8 @@ export const buildCheckMetricLabels = ({
     providerStatus,
   };
 };
+
+export function classifyFailureStatus(error: unknown): "failure.timedout" | "failure.other" {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return /timeout|timed out/i.test(message) ? "failure.timedout" : "failure.other";
+}

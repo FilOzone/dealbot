@@ -1,6 +1,7 @@
 import { waitForIpniProviderResults } from "filecoin-pin/core/utils";
 import { CID } from "multiformats/cid";
 import { describe, expect, it, vi } from "vitest";
+import { DiscoverabilityCheckMetrics } from "../../metrics/utils/check-metrics.service.js";
 import { IpniAddonStrategy } from "./ipni.strategy.js";
 
 vi.mock("filecoin-pin/core/utils", () => ({
@@ -13,25 +14,29 @@ describe("IpniAddonStrategy getPieceStatus", () => {
     const httpClientService = {
       requestWithoutProxyAndMetrics: vi.fn(),
     };
-    const spIndexLocallyMs = { observe: vi.fn() };
-    const spAnnounceAdvertisementMs = { observe: vi.fn() };
-    const ipniVerifyMs = { observe: vi.fn() };
-    const discoverabilityStatusCounter = { inc: vi.fn() };
+    const mockDiscoverabilityMetrics = {
+      observeSpIndexLocallyMs: vi.fn(),
+      observeSpAnnounceAdvertisementMs: vi.fn(),
+      observeIpniVerifyMs: vi.fn(),
+      recordStatus: vi.fn(),
+      buildLabelsForDeal: vi.fn().mockImplementation((deal: any) => {
+        if (!deal.spAddress) return null;
+        return {
+          checkType: "dataStorage",
+          providerId: deal.storageProvider?.providerId != null ? String(deal.storageProvider.providerId) : "unknown",
+          providerStatus: deal.storageProvider?.isApproved ? "approved" : "unapproved",
+        };
+      }),
+    };
 
     return {
       strategy: new IpniAddonStrategy(
         mockRepo as any,
         httpClientService as any,
-        spIndexLocallyMs as any,
-        spAnnounceAdvertisementMs as any,
-        ipniVerifyMs as any,
-        discoverabilityStatusCounter as any,
+        mockDiscoverabilityMetrics as unknown as DiscoverabilityCheckMetrics,
       ),
       httpClientService,
-      spIndexLocallyMs,
-      spAnnounceAdvertisementMs,
-      ipniVerifyMs,
-      discoverabilityStatusCounter,
+      discoverabilityMetrics: mockDiscoverabilityMetrics,
       mockRepo,
     };
   };
@@ -113,14 +118,7 @@ describe("IpniAddonStrategy getPieceStatus", () => {
     vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
 
     try {
-      const {
-        strategy,
-        spIndexLocallyMs,
-        spAnnounceAdvertisementMs,
-        ipniVerifyMs,
-        discoverabilityStatusCounter,
-        mockRepo,
-      } = createStrategy();
+      const { strategy, discoverabilityMetrics, mockRepo } = createStrategy();
 
       const uploadEndTime = new Date("2026-01-01T00:00:00Z");
       const indexedAt = new Date(uploadEndTime.getTime() + 1000).toISOString();
@@ -185,16 +183,88 @@ describe("IpniAddonStrategy getPieceStatus", () => {
         providerStatus: "approved",
       };
 
-      expect(spIndexLocallyMs.observe).toHaveBeenCalledWith(labels, 1000);
-      expect(spAnnounceAdvertisementMs.observe).toHaveBeenCalledWith(labels, 2000);
-      expect(ipniVerifyMs.observe).toHaveBeenCalledWith(labels, 1500);
-      expect(discoverabilityStatusCounter.inc).toHaveBeenCalledWith({ ...labels, value: "sp_indexed" });
-      expect(discoverabilityStatusCounter.inc).toHaveBeenCalledWith({
-        ...labels,
-        value: "sp_announced_advertisement",
-      });
-      expect(discoverabilityStatusCounter.inc).toHaveBeenCalledWith({ ...labels, value: "success" });
+      expect(discoverabilityMetrics.observeSpIndexLocallyMs).toHaveBeenCalledWith(labels, 1000);
+      expect(discoverabilityMetrics.observeSpAnnounceAdvertisementMs).toHaveBeenCalledWith(labels, 2000);
+      expect(discoverabilityMetrics.observeIpniVerifyMs).toHaveBeenCalledWith(labels, 1500);
+      expect(discoverabilityMetrics.recordStatus).toHaveBeenCalledWith(labels, "sp_indexed");
+      expect(discoverabilityMetrics.recordStatus).toHaveBeenCalledWith(labels, "sp_announced_advertisement");
+      expect(discoverabilityMetrics.recordStatus).toHaveBeenCalledWith(labels, "success");
 
+      expect(mockRepo.save).toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("records failure.timedout discoverability status when IPNI verification times out", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
+
+    try {
+      const { strategy, discoverabilityMetrics, mockRepo } = createStrategy();
+
+      const uploadEndTime = new Date("2026-01-01T00:00:00Z");
+
+      vi.spyOn(strategy as any, "monitorPieceStatus").mockResolvedValue({
+        success: false,
+        finalStatus: {
+          status: "timeout",
+          indexed: false,
+          advertised: false,
+          indexedAt: null,
+          advertisedAt: null,
+        },
+        checks: 5,
+        durationMs: 10_000,
+      });
+
+      vi.mocked(waitForIpniProviderResults).mockImplementation(async () => {
+        vi.advanceTimersByTime(10_000);
+        return false;
+      });
+
+      const deal = {
+        id: "deal-2",
+        spAddress: "0xsp",
+        uploadEndTime,
+        pieceCid: "bafk-piece-timeout",
+        metadata: {
+          ipfs_pin: {
+            rootCID: "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi",
+            blockCIDs: ["bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi"],
+          },
+        },
+        storageProvider: {
+          providerId: 9,
+          isApproved: true,
+          serviceUrl: "http://sp.example.com",
+          payee: "t0100",
+          name: "SP",
+          description: "SP",
+          isActive: true,
+        },
+      } as any;
+
+      const result = await (strategy as any).monitorAndVerifyIPNI(
+        "http://sp.example.com",
+        deal,
+        [CID.parse(deal.metadata.ipfs_pin.rootCID)],
+        deal.metadata.ipfs_pin.rootCID,
+        deal.storageProvider,
+        10_000,
+        10_000,
+        1000,
+      );
+
+      await (strategy as any).updateDealWithIpniMetrics(deal, result);
+
+      const labels = {
+        checkType: "dataStorage",
+        providerId: "9",
+        providerStatus: "approved",
+      };
+
+      expect(discoverabilityMetrics.recordStatus).toHaveBeenCalledWith(labels, "failure.timedout");
       expect(mockRepo.save).toHaveBeenCalled();
     } finally {
       vi.useRealTimers();

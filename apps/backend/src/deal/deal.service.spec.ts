@@ -2,7 +2,6 @@ import { SIZE_CONSTANTS, Synapse } from "@filoz/synapse-sdk";
 import { ConfigService } from "@nestjs/config";
 import { Test, TestingModule } from "@nestjs/testing";
 import { getRepositoryToken } from "@nestjs/typeorm";
-import { getToken } from "@willsoto/nestjs-prometheus";
 import { executeUpload } from "filecoin-pin";
 import { CID } from "multiformats/cid";
 import { afterEach, beforeEach, describe, expect, it, Mock, vi } from "vitest";
@@ -12,6 +11,7 @@ import { DealStatus } from "../database/types.js";
 import { DataSourceService } from "../dataSource/dataSource.service.js";
 import { DealAddonsService } from "../deal-addons/deal-addons.service.js";
 import { DealPreprocessingResult } from "../deal-addons/types.js";
+import { DataStorageCheckMetrics, RetrievalCheckMetrics } from "../metrics/utils/check-metrics.service.js";
 import { RetrievalAddonsService } from "../retrieval-addons/retrieval-addons.service.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
 import type { ProviderInfoEx } from "../wallet-sdk/wallet-sdk.types.js";
@@ -112,18 +112,24 @@ describe("DealService", () => {
   const mockRetrievalAddonsService = {
     testAllRetrievalMethods: vi.fn(),
   };
-  const mockIngestMs = { observe: vi.fn() };
-  const mockIngestThroughputBps = { observe: vi.fn() };
-  const mockPieceAddedOnChainMs = { observe: vi.fn() };
-  const mockPieceConfirmedOnChainMs = { observe: vi.fn() };
-  const mockDataStorageCheckMs = { observe: vi.fn() };
-  const mockIpfsRetrievalFirstByteMs = { observe: vi.fn() };
-  const mockIpfsRetrievalLastByteMs = { observe: vi.fn() };
-  const mockIpfsRetrievalThroughputBps = { observe: vi.fn() };
-  const mockUploadStatusCounter = { inc: vi.fn() };
-  const mockOnchainStatusCounter = { inc: vi.fn() };
-  const mockRetrievalStatusCounter = { inc: vi.fn() };
-  const mockRetrievalHttpResponseCounter = { inc: vi.fn() };
+  const mockDataStorageMetrics = {
+    observeIngestMs: vi.fn(),
+    observeIngestThroughput: vi.fn(),
+    observePieceAddedOnChainMs: vi.fn(),
+    observePieceConfirmedOnChainMs: vi.fn(),
+    observeCheckDuration: vi.fn(),
+    recordUploadStatus: vi.fn(),
+    recordOnchainStatus: vi.fn(),
+  };
+  const mockRetrievalMetrics = {
+    observeFirstByteMs: vi.fn(),
+    observeLastByteMs: vi.fn(),
+    observeThroughput: vi.fn(),
+    observeCheckDuration: vi.fn(),
+    recordStatus: vi.fn(),
+    recordHttpResponseCode: vi.fn(),
+    recordResultMetrics: vi.fn(),
+  };
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -136,18 +142,8 @@ describe("DealService", () => {
         { provide: RetrievalAddonsService, useValue: mockRetrievalAddonsService },
         { provide: getRepositoryToken(Deal), useValue: mockDealRepository },
         { provide: getRepositoryToken(StorageProvider), useValue: mockStorageProviderRepository },
-        { provide: getToken("ingestMs"), useValue: mockIngestMs },
-        { provide: getToken("ingestThroughputBps"), useValue: mockIngestThroughputBps },
-        { provide: getToken("pieceAddedOnChainMs"), useValue: mockPieceAddedOnChainMs },
-        { provide: getToken("pieceConfirmedOnChainMs"), useValue: mockPieceConfirmedOnChainMs },
-        { provide: getToken("dataStorageCheckMs"), useValue: mockDataStorageCheckMs },
-        { provide: getToken("ipfsRetrievalFirstByteMs"), useValue: mockIpfsRetrievalFirstByteMs },
-        { provide: getToken("ipfsRetrievalLastByteMs"), useValue: mockIpfsRetrievalLastByteMs },
-        { provide: getToken("ipfsRetrievalThroughputBps"), useValue: mockIpfsRetrievalThroughputBps },
-        { provide: getToken("dataStorageUploadStatus"), useValue: mockUploadStatusCounter },
-        { provide: getToken("dataStorageOnchainStatus"), useValue: mockOnchainStatusCounter },
-        { provide: getToken("retrievalStatus"), useValue: mockRetrievalStatusCounter },
-        { provide: getToken("ipfsRetrievalHttpResponseCode"), useValue: mockRetrievalHttpResponseCounter },
+        { provide: DataStorageCheckMetrics, useValue: mockDataStorageMetrics },
+        { provide: RetrievalCheckMetrics, useValue: mockRetrievalMetrics },
       ],
     }).compile();
 
@@ -319,21 +315,23 @@ describe("DealService", () => {
           providerStatus: "approved",
         };
 
-        expect(mockUploadStatusCounter.inc).toHaveBeenCalledWith({ ...labels, value: "pending" });
-        expect(mockUploadStatusCounter.inc).toHaveBeenCalledWith({ ...labels, value: "success" });
-        expect(mockOnchainStatusCounter.inc).toHaveBeenCalledWith({ ...labels, value: "pending" });
-        expect(mockOnchainStatusCounter.inc).toHaveBeenCalledWith({ ...labels, value: "success" });
-        expect(mockRetrievalStatusCounter.inc).toHaveBeenCalledWith({ ...labels, value: "pending" });
-        expect(mockRetrievalStatusCounter.inc).toHaveBeenCalledWith({ ...labels, value: "success" });
+        expect(mockDataStorageMetrics.recordUploadStatus).toHaveBeenCalledWith(labels, "pending");
+        expect(mockDataStorageMetrics.recordUploadStatus).toHaveBeenCalledWith(labels, "success");
+        expect(mockDataStorageMetrics.recordOnchainStatus).toHaveBeenCalledWith(labels, "pending");
+        expect(mockDataStorageMetrics.recordOnchainStatus).toHaveBeenCalledWith(labels, "success");
+        expect(mockRetrievalMetrics.recordStatus).toHaveBeenCalledWith(labels, "pending");
+        expect(mockRetrievalMetrics.recordStatus).toHaveBeenCalledWith(labels, "success");
 
-        expect(mockIngestMs.observe).toHaveBeenCalledWith(labels, 1500);
-        expect(mockPieceAddedOnChainMs.observe).toHaveBeenCalledWith(labels, 2000);
-        expect(mockPieceConfirmedOnChainMs.observe).toHaveBeenCalledWith(labels, 3000);
-        expect(mockIpfsRetrievalFirstByteMs.observe).toHaveBeenCalledWith(labels, 120);
-        expect(mockIpfsRetrievalLastByteMs.observe).toHaveBeenCalledWith(labels, 500);
-        expect(mockIpfsRetrievalThroughputBps.observe).toHaveBeenCalledWith(labels, 10_000);
-        expect(mockDataStorageCheckMs.observe).toHaveBeenCalledWith(labels, 10_500);
-        expect(mockRetrievalHttpResponseCounter.inc).toHaveBeenCalledWith({ ...labels, value: "200" });
+        expect(mockDataStorageMetrics.observeIngestMs).toHaveBeenCalledWith(labels, 1500);
+        expect(mockDataStorageMetrics.observePieceAddedOnChainMs).toHaveBeenCalledWith(labels, 2000);
+        expect(mockDataStorageMetrics.observePieceConfirmedOnChainMs).toHaveBeenCalledWith(labels, 3000);
+        expect(mockDataStorageMetrics.observeCheckDuration).toHaveBeenCalledWith(labels, 10_500);
+        expect(mockRetrievalMetrics.recordResultMetrics).toHaveBeenCalledWith(
+          expect.arrayContaining([
+            expect.objectContaining({ success: true, metrics: expect.objectContaining({ ttfb: 120 }) }),
+          ]),
+          labels,
+        );
       } finally {
         vi.useRealTimers();
       }
@@ -365,9 +363,39 @@ describe("DealService", () => {
         providerStatus: "unapproved",
       };
 
-      expect(mockUploadStatusCounter.inc).toHaveBeenCalledWith({ ...labels, value: "pending" });
-      expect(mockUploadStatusCounter.inc).toHaveBeenCalledWith({ ...labels, value: "failure.timedout" });
-      expect(mockOnchainStatusCounter.inc).not.toHaveBeenCalled();
+      expect(mockDataStorageMetrics.recordUploadStatus).toHaveBeenCalledWith(labels, "pending");
+      expect(mockDataStorageMetrics.recordUploadStatus).toHaveBeenCalledWith(labels, "failure.timedout");
+      expect(mockDataStorageMetrics.recordOnchainStatus).not.toHaveBeenCalled();
+    });
+
+    it("records failure.other upload status when upload fails with non-timeout error", async () => {
+      const uploadPayload = {
+        carData: Uint8Array.from([1, 2, 3]),
+        rootCid: CID.parse(mockRootCid),
+      };
+      const providerInfo = { ...mockProviderInfo, isApproved: false };
+      mockStorageProviderRepository.findOne.mockResolvedValue({
+        providerId: 7,
+        isApproved: false,
+      });
+      mockSynapseInstance.storage.createContext.mockResolvedValue({
+        dataSetId: "dataset-123",
+      });
+
+      (executeUpload as Mock).mockRejectedValue(new Error("connection refused"));
+
+      await expect(service.createDeal(mockSynapseInstance, providerInfo, mockDealInput, uploadPayload)).rejects.toThrow(
+        "connection refused",
+      );
+
+      const labels = {
+        checkType: "dataStorage",
+        providerId: "7",
+        providerStatus: "unapproved",
+      };
+
+      expect(mockDataStorageMetrics.recordUploadStatus).toHaveBeenCalledWith(labels, "pending");
+      expect(mockDataStorageMetrics.recordUploadStatus).toHaveBeenCalledWith(labels, "failure.other");
     });
 
     it("handles upload failures correctly by marking deal as FAILED", async () => {
@@ -502,6 +530,50 @@ describe("DealService", () => {
       expect(dealRepoMock.save).toHaveBeenCalledWith(mockDeal);
     });
 
+    it("records retrieval failure status when upload+onchain succeed but retrieval fails", async () => {
+      const uploadPayload = {
+        carData: Uint8Array.from([1, 2, 3]),
+        rootCid: CID.parse(mockRootCid),
+      };
+      mockStorageProviderRepository.findOne.mockResolvedValue({
+        providerId: 42,
+        isApproved: true,
+      });
+
+      mockSynapseInstance.storage.createContext.mockResolvedValue({
+        dataSetId: "dataset-123",
+      });
+
+      (executeUpload as Mock).mockImplementation(async (_service, _data, _rootCid, options) => {
+        await triggerUploadProgress(options?.onProgress);
+        return {
+          pieceCid: "bafk-uploaded",
+          pieceId: 123,
+          transactionHash: "0xhash",
+          ipniValidated: true,
+        };
+      });
+
+      retrievalAddonsMock.testAllRetrievalMethods.mockRejectedValue(new Error("retrieval timed out"));
+
+      await expect(
+        service.createDeal(mockSynapseInstance, mockProviderInfo, mockDealInput, uploadPayload),
+      ).rejects.toThrow("retrieval timed out");
+
+      const labels = {
+        checkType: "dataStorage",
+        providerId: "42",
+        providerStatus: "approved",
+      };
+
+      // Upload and onchain should have succeeded
+      expect(mockDataStorageMetrics.recordUploadStatus).toHaveBeenCalledWith(labels, "success");
+      expect(mockDataStorageMetrics.recordOnchainStatus).toHaveBeenCalledWith(labels, "success");
+      // Retrieval should record pending then failure
+      expect(mockRetrievalMetrics.recordStatus).toHaveBeenCalledWith(labels, "pending");
+      expect(mockRetrievalMetrics.recordStatus).toHaveBeenCalledWith(labels, "failure.timedout");
+    });
+
     it("sets dealLatencyMs even when IPNI verification is not enabled", async () => {
       dealAddonsMock.handleUploadComplete.mockResolvedValueOnce(undefined);
 
@@ -588,18 +660,8 @@ describe("DealService", () => {
             { provide: RetrievalAddonsService, useValue: mockRetrievalAddonsService },
             { provide: getRepositoryToken(Deal), useValue: mockDealRepository },
             { provide: getRepositoryToken(StorageProvider), useValue: mockStorageProviderRepository },
-            { provide: getToken("ingestMs"), useValue: mockIngestMs },
-            { provide: getToken("ingestThroughputBps"), useValue: mockIngestThroughputBps },
-            { provide: getToken("pieceAddedOnChainMs"), useValue: mockPieceAddedOnChainMs },
-            { provide: getToken("pieceConfirmedOnChainMs"), useValue: mockPieceConfirmedOnChainMs },
-            { provide: getToken("dataStorageCheckMs"), useValue: mockDataStorageCheckMs },
-            { provide: getToken("ipfsRetrievalFirstByteMs"), useValue: mockIpfsRetrievalFirstByteMs },
-            { provide: getToken("ipfsRetrievalLastByteMs"), useValue: mockIpfsRetrievalLastByteMs },
-            { provide: getToken("ipfsRetrievalThroughputBps"), useValue: mockIpfsRetrievalThroughputBps },
-            { provide: getToken("dataStorageUploadStatus"), useValue: mockUploadStatusCounter },
-            { provide: getToken("dataStorageOnchainStatus"), useValue: mockOnchainStatusCounter },
-            { provide: getToken("retrievalStatus"), useValue: mockRetrievalStatusCounter },
-            { provide: getToken("ipfsRetrievalHttpResponseCode"), useValue: mockRetrievalHttpResponseCounter },
+            { provide: DataStorageCheckMetrics, useValue: mockDataStorageMetrics },
+            { provide: RetrievalCheckMetrics, useValue: mockRetrievalMetrics },
           ],
         }).compile();
 

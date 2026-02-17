@@ -1,10 +1,8 @@
 import { METADATA_KEYS, type ProviderInfo } from "@filoz/synapse-sdk";
 import { Injectable, Logger } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { InjectMetric } from "@willsoto/nestjs-prometheus";
 import { waitForIpniProviderResults } from "filecoin-pin/core/utils";
 import { CID } from "multiformats/cid";
-import type { Counter, Histogram } from "prom-client";
 import { StorageProvider } from "src/database/entities/storage-provider.entity.js";
 import type { Repository } from "typeorm";
 import { delay } from "../../common/abort-utils.js";
@@ -13,7 +11,9 @@ import { Deal } from "../../database/entities/deal.entity.js";
 import type { DealMetadata, IpniMetadata } from "../../database/types.js";
 import { IpniStatus, ServiceType } from "../../database/types.js";
 import { HttpClientService } from "../../http-client/http-client.service.js";
-import { buildCheckMetricLabels, type CheckMetricLabels } from "../../metrics/utils/check-metric-labels.js";
+import { classifyFailureStatus } from "../../metrics/utils/check-metric-labels.js";
+import { DiscoverabilityCheckMetrics } from "../../metrics/utils/check-metrics.service.js";
+
 import type { IDealAddon } from "../interfaces/deal-addon.interface.js";
 import type { AddonExecutionContext, DealConfiguration, IpniPreprocessingResult, SynapseConfig } from "../types.js";
 import { AddonPriority } from "../types.js";
@@ -64,14 +64,7 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
     @InjectRepository(Deal)
     private readonly dealRepository: Repository<Deal>,
     private readonly httpClientService: HttpClientService,
-    @InjectMetric("spIndexLocallyMs")
-    private readonly spIndexLocallyMs: Histogram,
-    @InjectMetric("spAnnounceAdvertisementMs")
-    private readonly spAnnounceAdvertisementMs: Histogram,
-    @InjectMetric("ipniVerifyMs")
-    private readonly ipniVerifyMs: Histogram,
-    @InjectMetric("discoverabilityStatus")
-    private readonly discoverabilityStatusCounter: Counter,
+    private readonly discoverabilityMetrics: DiscoverabilityCheckMetrics,
   ) {}
 
   readonly name = ServiceType.IPFS_PIN;
@@ -155,7 +148,10 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
     // Set initial IPNI status to pending
     deal.ipniStatus = IpniStatus.PENDING;
     await this.dealRepository.save(deal);
-    this.recordDiscoverabilityStatusForDeal(deal, "pending");
+    const pendingLabels = this.discoverabilityMetrics.buildLabelsForDeal(deal);
+    if (pendingLabels) {
+      this.discoverabilityMetrics.recordStatus(pendingLabels, "pending");
+    }
 
     signal?.throwIfAborted();
 
@@ -248,8 +244,11 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       }
 
       if (!finalDiscoverabilityStatus) {
-        const failureStatus = this.classifyFailureStatus(error);
-        this.recordDiscoverabilityStatusForDeal(deal, failureStatus);
+        const failureStatus = classifyFailureStatus(error);
+        const failLabels = this.discoverabilityMetrics.buildLabelsForDeal(deal);
+        if (failLabels) {
+          this.discoverabilityMetrics.recordStatus(failLabels, failureStatus);
+        }
       }
 
       // Re-throw to be caught by onUploadComplete handler
@@ -318,11 +317,7 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
 
     this.logger.log(`Verifying rootCID in IPNI: ${rootCID}`);
 
-    const providerLabels = buildCheckMetricLabels({
-      checkType: "dataStorage",
-      providerId: storageProvider.providerId,
-      providerIsApproved: storageProvider.isApproved,
-    });
+    const providerLabels = this.discoverabilityMetrics.buildLabelsForDeal(deal);
     const ipniVerificationStartTime = Date.now();
 
     // NOTE: filecoin-pin does not currently validate that all blocks are advertised on IPNI.
@@ -354,7 +349,7 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
     };
 
     if (providerLabels) {
-      this.observeDuration(this.ipniVerifyMs, providerLabels, ipniVerificationDurationMs);
+      this.discoverabilityMetrics.observeIpniVerifyMs(providerLabels, ipniVerificationDurationMs);
     }
 
     if (ipniValidated) {
@@ -532,7 +527,7 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
     const { finalStatus } = monitoringResult;
     const now = new Date();
     const uploadEndTime = deal.uploadEndTime;
-    const providerLabels = this.buildProviderLabels(deal);
+    const providerLabels = this.discoverabilityMetrics.buildLabelsForDeal(deal);
 
     // Determine IPNI status based on progression
     // Terminal state is VERIFIED when rootCID (minimum) is verified via filecoinpin.contact
@@ -577,8 +572,8 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
          */
         deal.ipniTimeToIndexMs = timeToIndexMs;
         if (providerLabels) {
-          this.observeDuration(this.spIndexLocallyMs, providerLabels, timeToIndexMs);
-          this.recordDiscoverabilityStatus(providerLabels, "sp_indexed");
+          this.discoverabilityMetrics.observeSpIndexLocallyMs(providerLabels, timeToIndexMs);
+          this.discoverabilityMetrics.recordStatus(providerLabels, "sp_indexed");
         }
       }
     }
@@ -595,8 +590,8 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
          */
         deal.ipniTimeToAdvertiseMs = timeToAdvertiseMs;
         if (providerLabels) {
-          this.observeDuration(this.spAnnounceAdvertisementMs, providerLabels, timeToAdvertiseMs);
-          this.recordDiscoverabilityStatus(providerLabels, "sp_announced_advertisement");
+          this.discoverabilityMetrics.observeSpAnnounceAdvertisementMs(providerLabels, timeToAdvertiseMs);
+          this.discoverabilityMetrics.recordStatus(providerLabels, "sp_announced_advertisement");
         }
       }
     }
@@ -629,7 +624,7 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       finalDiscoverabilityStatus = "failure.timedout";
     }
     if (providerLabels) {
-      this.recordDiscoverabilityStatus(providerLabels, finalDiscoverabilityStatus);
+      this.discoverabilityMetrics.recordStatus(providerLabels, finalDiscoverabilityStatus);
     }
 
     // Save the updated deal entity
@@ -641,55 +636,5 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
     }
 
     return finalDiscoverabilityStatus;
-  }
-
-  private buildProviderLabels(deal: Deal): CheckMetricLabels | null {
-    const providerAddress = deal.spAddress;
-    if (!providerAddress) {
-      return null;
-    }
-
-    return buildCheckMetricLabels({
-      checkType: "dataStorage",
-      providerId: deal.storageProvider?.providerId,
-      providerIsApproved: deal.storageProvider?.isApproved,
-    });
-  }
-
-  private observeDuration(
-    metric: Histogram,
-    providerLabels: CheckMetricLabels,
-    durationMs: number | null | undefined,
-  ): void {
-    if (!durationMs || durationMs <= 0) {
-      return;
-    }
-
-    metric.observe(
-      {
-        ...providerLabels,
-      },
-      durationMs,
-    );
-  }
-
-  private recordDiscoverabilityStatus(providerLabels: CheckMetricLabels, value: string): void {
-    this.discoverabilityStatusCounter.inc({
-      ...providerLabels,
-      value,
-    });
-  }
-
-  private recordDiscoverabilityStatusForDeal(deal: Deal, value: string): void {
-    const providerLabels = this.buildProviderLabels(deal);
-    if (!providerLabels) {
-      return;
-    }
-    this.recordDiscoverabilityStatus(providerLabels, value);
-  }
-
-  private classifyFailureStatus(error: unknown): "failure.timedout" | "failure.other" {
-    const message = error instanceof Error ? error.message : String(error ?? "");
-    return /timeout|timed out/i.test(message) ? "failure.timedout" : "failure.other";
   }
 }

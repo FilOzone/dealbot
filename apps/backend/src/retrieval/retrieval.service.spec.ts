@@ -1,11 +1,11 @@
 import { Test, TestingModule } from "@nestjs/testing";
 import { getRepositoryToken } from "@nestjs/typeorm";
-import { getToken } from "@willsoto/nestjs-prometheus";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Deal } from "../database/entities/deal.entity.js";
 import { Retrieval } from "../database/entities/retrieval.entity.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
 import { RetrievalStatus } from "../database/types.js";
+import { RetrievalCheckMetrics } from "../metrics/utils/check-metrics.service.js";
 import { RetrievalAddonsService } from "../retrieval-addons/retrieval-addons.service.js";
 import { RetrievalService } from "./retrieval.service.js";
 
@@ -39,12 +39,15 @@ describe("RetrievalService timeouts", () => {
   const mockSpRepository = {
     findOne: vi.fn(),
   };
-  const mockRetrievalStatusCounter = { inc: vi.fn() };
-  const mockIpfsRetrievalFirstByteMs = { observe: vi.fn() };
-  const mockIpfsRetrievalLastByteMs = { observe: vi.fn() };
-  const mockIpfsRetrievalThroughputBps = { observe: vi.fn() };
-  const mockRetrievalCheckMs = { observe: vi.fn() };
-  const mockRetrievalHttpResponseCounter = { inc: vi.fn() };
+  const mockRetrievalMetrics = {
+    observeFirstByteMs: vi.fn(),
+    observeLastByteMs: vi.fn(),
+    observeThroughput: vi.fn(),
+    observeCheckDuration: vi.fn(),
+    recordStatus: vi.fn(),
+    recordHttpResponseCode: vi.fn(),
+    recordResultMetrics: vi.fn(),
+  };
 
   afterEach(() => {
     vi.useRealTimers();
@@ -68,12 +71,7 @@ describe("RetrievalService timeouts", () => {
         { provide: getRepositoryToken(Deal), useValue: mockDealRepository },
         { provide: getRepositoryToken(Retrieval), useValue: mockRetrievalRepository },
         { provide: getRepositoryToken(StorageProvider), useValue: mockSpRepository },
-        { provide: getToken("ipfsRetrievalFirstByteMs"), useValue: mockIpfsRetrievalFirstByteMs },
-        { provide: getToken("ipfsRetrievalLastByteMs"), useValue: mockIpfsRetrievalLastByteMs },
-        { provide: getToken("ipfsRetrievalThroughputBps"), useValue: mockIpfsRetrievalThroughputBps },
-        { provide: getToken("retrievalCheckMs"), useValue: mockRetrievalCheckMs },
-        { provide: getToken("retrievalStatus"), useValue: mockRetrievalStatusCounter },
-        { provide: getToken("ipfsRetrievalHttpResponseCode"), useValue: mockRetrievalHttpResponseCounter },
+        { provide: RetrievalCheckMetrics, useValue: mockRetrievalMetrics },
       ],
     }).compile();
 
@@ -258,13 +256,13 @@ describe("RetrievalService timeouts", () => {
         providerStatus: "unapproved",
       };
 
-      expect(mockRetrievalCheckMs.observe).toHaveBeenCalledWith(labels, 2500);
-      expect(mockIpfsRetrievalFirstByteMs.observe).toHaveBeenCalledWith(labels, 100);
-      expect(mockIpfsRetrievalLastByteMs.observe).toHaveBeenCalledWith(labels, 400);
-      expect(mockIpfsRetrievalThroughputBps.observe).toHaveBeenCalledWith(labels, 10_000);
-      expect(mockRetrievalStatusCounter.inc).toHaveBeenCalledWith({ ...labels, value: "pending" });
-      expect(mockRetrievalStatusCounter.inc).toHaveBeenCalledWith({ ...labels, value: "success" });
-      expect(mockRetrievalHttpResponseCounter.inc).toHaveBeenCalledWith({ ...labels, value: "200" });
+      expect(mockRetrievalMetrics.observeCheckDuration).toHaveBeenCalledWith(labels, 2500);
+      expect(mockRetrievalMetrics.observeFirstByteMs).toHaveBeenCalledWith(labels, 100);
+      expect(mockRetrievalMetrics.observeLastByteMs).toHaveBeenCalledWith(labels, 400);
+      expect(mockRetrievalMetrics.observeThroughput).toHaveBeenCalledWith(labels, 10_000);
+      expect(mockRetrievalMetrics.recordStatus).toHaveBeenCalledWith(labels, "pending");
+      expect(mockRetrievalMetrics.recordStatus).toHaveBeenCalledWith(labels, "success");
+      expect(mockRetrievalMetrics.recordHttpResponseCode).toHaveBeenCalledWith(labels, 200);
     } finally {
       vi.useRealTimers();
     }
@@ -283,7 +281,7 @@ describe("RetrievalService timeouts", () => {
       providerStatus: "unapproved",
     };
 
-    expect(mockRetrievalStatusCounter.inc).toHaveBeenCalledWith({ ...labels, value: "pending" });
-    expect(mockRetrievalStatusCounter.inc).toHaveBeenCalledWith({ ...labels, value: "failure.timedout" });
+    expect(mockRetrievalMetrics.recordStatus).toHaveBeenCalledWith(labels, "pending");
+    expect(mockRetrievalMetrics.recordStatus).toHaveBeenCalledWith(labels, "failure.timedout");
   });
 });

@@ -2,10 +2,8 @@ import { RPC_URLS, SIZE_CONSTANTS, Synapse } from "@filoz/synapse-sdk";
 import { Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
-import { InjectMetric } from "@willsoto/nestjs-prometheus";
 import { cleanupSynapseService, executeUpload } from "filecoin-pin";
 import { CID } from "multiformats/cid";
-import type { Counter, Histogram } from "prom-client";
 import type { Repository } from "typeorm";
 import { buildUnixfsCar } from "../common/car-utils.js";
 import { createFilecoinPinLogger } from "../common/filecoin-pin-logger.js";
@@ -17,9 +15,10 @@ import { DealStatus, ServiceType } from "../database/types.js";
 import { DataSourceService } from "../dataSource/dataSource.service.js";
 import { DealAddonsService } from "../deal-addons/deal-addons.service.js";
 import type { DealPreprocessingResult } from "../deal-addons/types.js";
-import { buildCheckMetricLabels, type CheckMetricLabels } from "../metrics/utils/check-metric-labels.js";
+import { buildCheckMetricLabels, classifyFailureStatus } from "../metrics/utils/check-metric-labels.js";
+import { DataStorageCheckMetrics, RetrievalCheckMetrics } from "../metrics/utils/check-metrics.service.js";
 import { RetrievalAddonsService } from "../retrieval-addons/retrieval-addons.service.js";
-import type { RetrievalConfiguration, RetrievalExecutionResult } from "../retrieval-addons/types.js";
+import type { RetrievalConfiguration } from "../retrieval-addons/types.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
 import type { ProviderInfoEx } from "../wallet-sdk/wallet-sdk.types.js";
 
@@ -52,30 +51,8 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     private readonly dealRepository: Repository<Deal>,
     @InjectRepository(StorageProvider)
     private readonly storageProviderRepository: Repository<StorageProvider>,
-    @InjectMetric("ingestMs")
-    private readonly ingestMs: Histogram,
-    @InjectMetric("ingestThroughputBps")
-    private readonly ingestThroughputBps: Histogram,
-    @InjectMetric("pieceAddedOnChainMs")
-    private readonly pieceAddedOnChainMs: Histogram,
-    @InjectMetric("pieceConfirmedOnChainMs")
-    private readonly pieceConfirmedOnChainMs: Histogram,
-    @InjectMetric("dataStorageCheckMs")
-    private readonly dataStorageCheckMs: Histogram,
-    @InjectMetric("ipfsRetrievalFirstByteMs")
-    private readonly ipfsRetrievalFirstByteMs: Histogram,
-    @InjectMetric("ipfsRetrievalLastByteMs")
-    private readonly ipfsRetrievalLastByteMs: Histogram,
-    @InjectMetric("ipfsRetrievalThroughputBps")
-    private readonly ipfsRetrievalThroughputBps: Histogram,
-    @InjectMetric("dataStorageUploadStatus")
-    private readonly uploadStatusCounter: Counter,
-    @InjectMetric("dataStorageOnchainStatus")
-    private readonly onchainStatusCounter: Counter,
-    @InjectMetric("retrievalStatus")
-    private readonly retrievalStatusCounter: Counter,
-    @InjectMetric("ipfsRetrievalHttpResponseCode")
-    private readonly retrievalHttpResponseCounter: Counter,
+    private readonly dataStorageMetrics: DataStorageCheckMetrics,
+    private readonly retrievalMetrics: RetrievalCheckMetrics,
   ) {
     this.blockchainConfig = this.configService.get("blockchain");
   }
@@ -235,7 +212,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
         providerId: deal.storageProvider?.providerId,
         providerIsApproved: providerInfo.isApproved ?? deal.storageProvider?.isApproved,
       });
-      this.recordUploadStatus(providerLabels, "pending");
+      this.dataStorageMetrics.recordUploadStatus(providerLabels, "pending");
 
       const dataSetMetadata = { ...dealInput.synapseConfig.dataSetMetadata };
 
@@ -277,9 +254,9 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
               deal.pieceCid = event.data.pieceCid.toString();
               this.logger.log(`Upload complete event, pieceCid: ${deal.pieceCid}`);
               uploadSucceeded = true;
-              this.observeDuration(this.ingestMs, providerLabels, deal.ingestLatencyMs);
-              this.recordUploadStatus(providerLabels, "success");
-              this.recordOnchainStatus(providerLabels, "pending");
+              this.dataStorageMetrics.observeIngestMs(providerLabels, deal.ingestLatencyMs);
+              this.dataStorageMetrics.recordUploadStatus(providerLabels, "success");
+              this.dataStorageMetrics.recordOnchainStatus(providerLabels, "pending");
               onUploadCompleteAddonsPromise = this.dealAddonsService
                 .handleUploadComplete(deal, dealInput.appliedAddons, signal)
                 .then(() => true)
@@ -288,7 +265,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
                   return false;
                 });
               deal.ingestThroughputBps = Math.round(deal.fileSize / (deal.ingestLatencyMs / 1000));
-              this.observeThroughput(this.ingestThroughputBps, providerLabels, deal.ingestThroughputBps);
+              this.dataStorageMetrics.observeIngestThroughput(providerLabels, deal.ingestThroughputBps);
               break;
             case "onPieceAdded":
               this.logger.log(`Piece added event, txHash: ${event.data.txHash}`);
@@ -299,10 +276,10 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
                 this.logger.warn(`No transaction hash found for piece added event: ${deal.pieceCid}`);
               }
               deal.status = DealStatus.PIECE_ADDED;
-              {
-                const pieceAddedMs = deal.pieceAddedTime.getTime() - deal.uploadEndTime.getTime();
-                this.observeDuration(this.pieceAddedOnChainMs, providerLabels, pieceAddedMs);
-              }
+              this.dataStorageMetrics.observePieceAddedOnChainMs(
+                providerLabels,
+                deal.pieceAddedTime.getTime() - deal.uploadEndTime.getTime(),
+              );
               break;
             case "onPieceConfirmed":
               this.logger.log(`Piece confirmed event, pieceIds: ${event.data.pieceIds.join(", ")}`);
@@ -310,8 +287,8 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
               deal.status = DealStatus.PIECE_CONFIRMED;
               deal.chainLatencyMs = deal.pieceConfirmedTime.getTime() - deal.pieceAddedTime.getTime();
               onchainSucceeded = true;
-              this.observeDuration(this.pieceConfirmedOnChainMs, providerLabels, deal.chainLatencyMs);
-              this.recordOnchainStatus(providerLabels, "success");
+              this.dataStorageMetrics.observePieceConfirmedOnChainMs(providerLabels, deal.chainLatencyMs);
+              this.dataStorageMetrics.recordOnchainStatus(providerLabels, "success");
               break;
           }
           // throw if aborted, AFTER adding data to the `deal` object. Everything in this `onProgress` callback is synchronous.
@@ -358,13 +335,13 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       };
       const retrievalStartTime = Date.now();
       retrievalStarted = true;
-      this.recordRetrievalStatus(providerLabels, "pending");
+      this.retrievalMetrics.recordStatus(providerLabels, "pending");
       signal?.throwIfAborted();
       const retrievalTest = await this.retrievalAddonsService.testAllRetrievalMethods(retrievalConfig, signal);
       signal?.throwIfAborted();
 
-      this.recordRetrievalMetrics(retrievalTest.results, providerLabels);
-      this.recordRetrievalStatus(
+      this.retrievalMetrics.recordResultMetrics(retrievalTest.results, providerLabels);
+      this.retrievalMetrics.recordStatus(
         providerLabels,
         retrievalTest.summary.totalMethods > 0 && retrievalTest.summary.failedMethods === 0
           ? "success"
@@ -390,7 +367,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       deal.status = DealStatus.DEAL_CREATED;
       if (deal.uploadStartTime) {
         const checkDurationMs = Date.now() - deal.uploadStartTime.getTime();
-        this.observeDuration(this.dataStorageCheckMs, providerLabels, checkDurationMs);
+        this.dataStorageMetrics.observeCheckDuration(providerLabels, checkDurationMs);
       }
 
       this.logger.log(`Deal ${deal.id} created: ${deal.pieceCid} (sp: ${providerAddress})`);
@@ -401,19 +378,19 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       this.logger.error(`Deal creation failed for ${providerAddress}: ${errorMessage}`);
-      const failureStatus = this.classifyFailureStatus(errorMessage);
+      const failureStatus = classifyFailureStatus(error);
 
       deal.status = DealStatus.FAILED;
       deal.errorMessage = errorMessage;
 
       if (!uploadSucceeded) {
-        this.recordUploadStatus(providerLabels, failureStatus);
+        this.dataStorageMetrics.recordUploadStatus(providerLabels, failureStatus);
       } else if (!onchainSucceeded) {
-        this.recordOnchainStatus(providerLabels, failureStatus);
+        this.dataStorageMetrics.recordOnchainStatus(providerLabels, failureStatus);
       }
 
       if (retrievalStarted && !retrievalStatusEmitted) {
-        this.recordRetrievalStatus(providerLabels, failureStatus);
+        this.retrievalMetrics.recordStatus(providerLabels, failureStatus);
         retrievalStatusEmitted = true;
       }
 
@@ -421,105 +398,6 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     } finally {
       await this.saveDeal(deal);
     }
-  }
-
-  private recordRetrievalMetrics(results: RetrievalExecutionResult[], providerLabels: CheckMetricLabels): void {
-    for (const result of results) {
-      if (result.success) {
-        if (result.metrics.ttfb > 0) {
-          this.observeDuration(this.ipfsRetrievalFirstByteMs, providerLabels, result.metrics.ttfb);
-        }
-
-        if (result.metrics.latency > 0) {
-          this.observeDuration(this.ipfsRetrievalLastByteMs, providerLabels, result.metrics.latency);
-        }
-
-        if (result.metrics.throughput > 0) {
-          this.observeThroughput(this.ipfsRetrievalThroughputBps, providerLabels, result.metrics.throughput);
-        }
-
-        // Retrieval integrity validation is reflected via retrievalStatus and HTTP code metrics.
-
-        this.recordRetrievalHttpResponse(providerLabels, result.metrics.statusCode);
-      } else {
-        this.recordRetrievalHttpResponse(providerLabels, result.metrics.statusCode);
-      }
-    }
-  }
-
-  private observeDuration(
-    metric: Histogram,
-    providerLabels: CheckMetricLabels,
-    durationMs: number | null | undefined,
-  ): void {
-    if (!durationMs || durationMs <= 0) {
-      return;
-    }
-
-    metric.observe(
-      {
-        ...providerLabels,
-      },
-      durationMs,
-    );
-  }
-
-  private observeThroughput(
-    metric: Histogram,
-    providerLabels: CheckMetricLabels,
-    throughputBps: number | null | undefined,
-  ): void {
-    if (!throughputBps || throughputBps <= 0) {
-      return;
-    }
-
-    metric.observe(
-      {
-        ...providerLabels,
-      },
-      throughputBps,
-    );
-  }
-
-  private recordUploadStatus(providerLabels: CheckMetricLabels, value: string): void {
-    this.uploadStatusCounter.inc({
-      ...providerLabels,
-      value,
-    });
-  }
-
-  private recordOnchainStatus(providerLabels: CheckMetricLabels, value: string): void {
-    this.onchainStatusCounter.inc({
-      ...providerLabels,
-      value,
-    });
-  }
-
-  private recordRetrievalStatus(providerLabels: CheckMetricLabels, value: string): void {
-    this.retrievalStatusCounter.inc({
-      ...providerLabels,
-      value,
-    });
-  }
-
-  private recordRetrievalHttpResponse(providerLabels: CheckMetricLabels, statusCode: number): void {
-    let value = "failure";
-    if (statusCode === 200) {
-      value = "200";
-    } else if (statusCode === 500) {
-      value = "500";
-    } else if (statusCode > 0) {
-      value = "otherHttpStatusCodes";
-    }
-
-    this.retrievalHttpResponseCounter.inc({
-      ...providerLabels,
-      value,
-    });
-  }
-
-  private classifyFailureStatus(errorMessage: string): "failure.timedout" | "failure.other" {
-    return /timeout|timed out/i.test(errorMessage) ? "failure.timedout" : "failure.other";
   }
 
   // ============================================================================
