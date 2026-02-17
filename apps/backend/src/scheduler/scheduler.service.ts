@@ -168,37 +168,9 @@ export class SchedulerService implements OnModuleInit {
           this.logger.warn("No registered providers found, skipping retrieval tests");
           return;
         }
+        this.logger.log(`Starting batch retrieval`);
 
-        // Calculate the maximum time this job is allowed to run
-        // Interval (seconds) * 1000 - Buffer (milliseconds)
-        // e.g. 1 hour interval (3600s) - 60s buffer = 3540s timeout
-        const schedulerConfig = this.configService.get("scheduling");
-        const timeoutsConfig = this.configService.get("timeouts");
-
-        const intervalMs = schedulerConfig.retrievalIntervalSeconds * 1000;
-        const bufferMs = timeoutsConfig.retrievalTimeoutBufferMs;
-        // Ensure we have at least 10 seconds if the buffer is too large relative to the interval
-        const timeoutMs = Math.max(10000, intervalMs - bufferMs);
-        const httpTimeoutMs = Math.max(timeoutsConfig.httpRequestTimeoutMs, timeoutsConfig.http2RequestTimeoutMs);
-
-        if (timeoutMs < httpTimeoutMs) {
-          this.logger.warn(
-            `Retrieval interval (${intervalMs}ms) minus buffer (${bufferMs}ms) yields ${timeoutMs}ms, ` +
-              `which is less than the HTTP timeout (${httpTimeoutMs}ms). ` +
-              "Retrieval batches may be skipped unless the interval or timeouts are adjusted.",
-          );
-        }
-
-        this.logger.log(
-          `Starting batch retrieval with timeout of ${Math.round(timeoutMs / 1000)}s ` +
-            `(Interval: ${schedulerConfig.retrievalIntervalSeconds}s, Buffer: ${Math.round(bufferMs / 1000)}s)`,
-        );
-
-        const result = await this.retrievalService.performRandomBatchRetrievals(
-          providerCount,
-          timeoutMs,
-          abortController.signal,
-        );
+        const result = await this.retrievalService.performRandomBatchRetrievals(providerCount, abortController.signal);
         this.logger.log(`Scheduled retrieval tests completed for ${result.length} retrievals`);
       } catch (error) {
         this.logger.error("Failed to perform scheduled retrievals", error);

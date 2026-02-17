@@ -37,31 +37,7 @@ export const configValidationSchema = Joi.object({
 
   // Scheduling
   DEAL_INTERVAL_SECONDS: Joi.number().default(30),
-  RETRIEVAL_INTERVAL_SECONDS: Joi.number()
-    .min(1)
-    .default(60)
-    .custom((value, helpers) => {
-      const root = helpers.state.ancestors[0] as {
-        RETRIEVAL_TIMEOUT_BUFFER_MS?: number;
-        HTTP_REQUEST_TIMEOUT_MS?: number;
-        HTTP2_REQUEST_TIMEOUT_MS?: number;
-      };
-      const bufferMs = typeof root.RETRIEVAL_TIMEOUT_BUFFER_MS === "number" ? root.RETRIEVAL_TIMEOUT_BUFFER_MS : 0;
-      const http1TimeoutMs = typeof root.HTTP_REQUEST_TIMEOUT_MS === "number" ? root.HTTP_REQUEST_TIMEOUT_MS : 0;
-      const http2TimeoutMs = typeof root.HTTP2_REQUEST_TIMEOUT_MS === "number" ? root.HTTP2_REQUEST_TIMEOUT_MS : 0;
-      const requiredMs = Math.max(http1TimeoutMs, http2TimeoutMs);
-      const availableMs = value * 1000 - bufferMs;
-
-      if (requiredMs > 0 && availableMs < requiredMs) {
-        return helpers.error("any.invalid", {
-          message:
-            `"RETRIEVAL_INTERVAL_SECONDS" minus "RETRIEVAL_TIMEOUT_BUFFER_MS" must be ` +
-            `>= max(HTTP_REQUEST_TIMEOUT_MS, HTTP2_REQUEST_TIMEOUT_MS) (${requiredMs} ms)`,
-        });
-      }
-
-      return value;
-    }),
+  RETRIEVAL_INTERVAL_SECONDS: Joi.number().min(60).default(60),
   DATA_RETENTION_POLL_INTERVAL_SECONDS: Joi.number().default(3600),
   DEAL_START_OFFSET_SECONDS: Joi.number().default(0),
   RETRIEVAL_START_OFFSET_SECONDS: Joi.number().default(600),
@@ -91,6 +67,9 @@ export const configValidationSchema = Joi.object({
   DEALBOT_PGBOSS_POOL_MAX: Joi.number().integer().min(1).default(1),
   JOB_CATCHUP_MAX_ENQUEUE: Joi.number().min(1).default(10),
   JOB_SCHEDULE_PHASE_SECONDS: Joi.number().min(0).default(0),
+  JOB_ENQUEUE_JITTER_SECONDS: Joi.number().min(0).default(0),
+  DEAL_JOB_TIMEOUT_SECONDS: Joi.number().min(120).default(360), // 6 minutes max runtime for data storage jobs (TODO: reduce default to 3 minutes)
+  RETRIEVAL_JOB_TIMEOUT_SECONDS: Joi.number().min(60).default(60), // 1 minute max runtime for retrieval jobs (TODO: reduce default to 30 seconds)
 
   // Dataset
   DEALBOT_LOCAL_DATASETS_PATH: Joi.string().default(DEFAULT_LOCAL_DATASETS_PATH),
@@ -102,26 +81,8 @@ export const configValidationSchema = Joi.object({
 
   // Timeouts (in milliseconds)
   CONNECT_TIMEOUT_MS: Joi.number().min(1000).default(10000), // 10 seconds to establish connection/receive headers
-  HTTP_REQUEST_TIMEOUT_MS: Joi.number().min(1000).default(600000), // 10 minutes total for HTTP requests (Body transfer)
-  HTTP2_REQUEST_TIMEOUT_MS: Joi.number().min(1000).default(600000), // 10 minutes total for HTTP/2 requests (Body transfer)
-  RETRIEVAL_TIMEOUT_BUFFER_MS: Joi.number()
-    .min(0)
-    .default(60000)
-    .custom((value, helpers) => {
-      const root = helpers.state.ancestors[0] as { RETRIEVAL_INTERVAL_SECONDS?: number };
-      const retrievalIntervalSeconds =
-        root && typeof root.RETRIEVAL_INTERVAL_SECONDS === "number" ? root.RETRIEVAL_INTERVAL_SECONDS : undefined;
-      if (typeof retrievalIntervalSeconds !== "number" || retrievalIntervalSeconds <= 0) {
-        return value;
-      }
-      const maxBufferMs = retrievalIntervalSeconds * 1000;
-      if (value > maxBufferMs) {
-        return helpers.error("any.invalid", {
-          message: `"RETRIEVAL_TIMEOUT_BUFFER_MS" must be <= RETRIEVAL_INTERVAL_SECONDS * 1000 (${maxBufferMs} ms)`,
-        });
-      }
-      return value;
-    }), // Stop retrieval batch 60s before next run
+  HTTP_REQUEST_TIMEOUT_MS: Joi.number().min(1000).default(240000), // 4 minutes total for HTTP requests (10MiB @ 170KB/s + overhead)
+  HTTP2_REQUEST_TIMEOUT_MS: Joi.number().min(1000).default(240000), // 4 minutes total for HTTP/2 requests (10MiB @ 170KB/s + overhead)
 });
 
 export type IpniTestingMode = "disabled" | "random" | "always";
@@ -246,6 +207,26 @@ export interface IJobsConfig {
    * Only used when `DEALBOT_JOBS_MODE=pgboss`.
    */
   schedulePhaseSeconds: number;
+  /**
+   * Random delay (seconds) added when enqueuing jobs.
+   *
+   * Helps avoid synchronized bursts across instances. Only used with pg-boss.
+   */
+  enqueueJitterSeconds: number;
+  /**
+   * Maximum runtime (seconds) for deal jobs before forced abort.
+   *
+   * Uses AbortController to actively cancel job execution.
+   * Only used when `DEALBOT_JOBS_MODE=pgboss`.
+   */
+  dealJobTimeoutSeconds: number;
+  /**
+   * Maximum runtime (seconds) for retrieval jobs before forced abort.
+   *
+   * Uses AbortController to actively cancel job execution.
+   * Only used when `DEALBOT_JOBS_MODE=pgboss`.
+   */
+  retrievalJobTimeoutSeconds: number;
 }
 
 export interface IDatasetConfig {
@@ -262,7 +243,6 @@ export interface ITimeoutConfig {
   connectTimeoutMs: number;
   httpRequestTimeoutMs: number;
   http2RequestTimeoutMs: number;
-  retrievalTimeoutBufferMs: number;
 }
 
 export interface IConfig {
@@ -356,6 +336,9 @@ export function loadConfig(): IConfig {
       pgbossPoolMax: Number.parseInt(process.env.DEALBOT_PGBOSS_POOL_MAX || "1", 10),
       catchupMaxEnqueue: Number.parseInt(process.env.JOB_CATCHUP_MAX_ENQUEUE || "10", 10),
       schedulePhaseSeconds: Number.parseInt(process.env.JOB_SCHEDULE_PHASE_SECONDS || "0", 10),
+      enqueueJitterSeconds: Number.parseInt(process.env.JOB_ENQUEUE_JITTER_SECONDS || "0", 10),
+      dealJobTimeoutSeconds: Number.parseInt(process.env.DEAL_JOB_TIMEOUT_SECONDS || "360", 10),
+      retrievalJobTimeoutSeconds: Number.parseInt(process.env.RETRIEVAL_JOB_TIMEOUT_SECONDS || "60", 10),
     },
     dataset: {
       localDatasetsPath: process.env.DEALBOT_LOCAL_DATASETS_PATH || DEFAULT_LOCAL_DATASETS_PATH,
@@ -383,9 +366,8 @@ export function loadConfig(): IConfig {
     },
     timeouts: {
       connectTimeoutMs: Number.parseInt(process.env.CONNECT_TIMEOUT_MS || "10000", 10),
-      httpRequestTimeoutMs: Number.parseInt(process.env.HTTP_REQUEST_TIMEOUT_MS || "600000", 10),
-      http2RequestTimeoutMs: Number.parseInt(process.env.HTTP2_REQUEST_TIMEOUT_MS || "600000", 10),
-      retrievalTimeoutBufferMs: Number.parseInt(process.env.RETRIEVAL_TIMEOUT_BUFFER_MS || "60000", 10),
+      httpRequestTimeoutMs: Number.parseInt(process.env.HTTP_REQUEST_TIMEOUT_MS || "240000", 10),
+      http2RequestTimeoutMs: Number.parseInt(process.env.HTTP2_REQUEST_TIMEOUT_MS || "240000", 10),
     },
   };
 }
