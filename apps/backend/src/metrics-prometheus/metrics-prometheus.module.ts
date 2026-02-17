@@ -153,7 +153,7 @@ const metricProviders = [
     name: "job_duration_seconds",
     help: "Job execution duration in seconds",
     labelNames: ["job_type"] as const,
-    buckets: [1, 2, 3, 4, 5, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330, 360, 420],
+    buckets: [1, 2, 3, 4, 5, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330, 360, 420, 600],
   }),
   // Upload metrics
   makeHistogramProvider({
