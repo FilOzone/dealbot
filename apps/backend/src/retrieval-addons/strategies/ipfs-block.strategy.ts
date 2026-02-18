@@ -13,7 +13,7 @@ import type { ExpectedMetrics, RetrievalConfiguration, RetrievalUrlResult, Valid
 import { RetrievalPriority } from "../types.js";
 
 /**
- * IPNI (InterPlanetary Network Indexer) retrieval strategy.
+ * IPFS-block retrieval strategy.
  *
  * Terminology:
  * - **IPNI** = the index that lists the SP as a provider for content (we do not call an "IPNI URL" here).
@@ -24,8 +24,8 @@ import { RetrievalPriority } from "../types.js";
  * No CAR involved.
  */
 @Injectable()
-export class IpniRetrievalStrategy implements IRetrievalAddon {
-  private readonly logger = new Logger(IpniRetrievalStrategy.name);
+export class IpfsBlockRetrievalStrategy implements IRetrievalAddon {
+  private readonly logger = new Logger(IpfsBlockRetrievalStrategy.name);
   private readonly blockFetchConcurrency: number;
   private readonly validationMethods = {
     metadataMissing: "metadata-missing",
@@ -52,14 +52,16 @@ export class IpniRetrievalStrategy implements IRetrievalAddon {
     const ipniEnabled = config.deal.metadata?.[this.name]?.enabled === true;
 
     if (!ipniEnabled) {
-      this.logger.debug(`IPNI not available for deal ${config.deal.id}: IPNI not enabled during creation`);
+      this.logger.debug(
+        `IPFS block retrieval not available for deal ${config.deal.id}: IPNI not enabled during creation`,
+      );
       return false;
     }
 
     // Verify we have the root CID
     const rootCID = config.deal.metadata?.[this.name]?.rootCID;
     if (!rootCID) {
-      this.logger.warn(`IPNI not available for deal ${config.deal.id}: missing root CID`);
+      this.logger.warn(`IPFS block retrieval not available for deal ${config.deal.id}: missing root CID`);
       return false;
     }
 
@@ -101,16 +103,16 @@ export class IpniRetrievalStrategy implements IRetrievalAddon {
   }
 
   /**
-   * Validate by traversing the DAG from the root CID and fetching each block from the SP endpoint,
-   * not from IPNI. We use GET /ipfs/<cid> with Accept: application/vnd.ipld.raw, verify the CID
-   * multihash, then decode dag-pb links (raw blocks have no links).
+   * Validate by traversing the DAG from the root CID and fetching each block from the SP endpoint.
+   * We use GET /ipfs/<cid> with Accept: application/vnd.ipld.raw, verify the CID multihash, then
+   * decode dag-pb links (raw blocks have no links).
    */
   async validateByBlockFetch(config: RetrievalConfiguration, signal?: AbortSignal): Promise<ValidationResult> {
     const dealMetadata = config.deal.metadata?.[this.name];
     const rootCIDStr = dealMetadata?.rootCID;
 
     if (!rootCIDStr) {
-      this.logger.warn(`IPNI block-fetch validation failed for deal ${config.deal.id}: rootCID metadata is missing.`);
+      this.logger.warn(`IPFS block-fetch validation failed for deal ${config.deal.id}: rootCID metadata is missing.`);
       return {
         isValid: false,
         method: this.validationMethods.metadataMissing,
@@ -118,16 +120,18 @@ export class IpniRetrievalStrategy implements IRetrievalAddon {
       };
     }
 
-    const providerInfo = this.walletSdkService.getProviderInfo(config.storageProvider);
-    if (!providerInfo?.products.PDP) {
+    let spEndpoint: string;
+    try {
+      const rootUrl = this.constructUrl(config).url;
+      spEndpoint = rootUrl.replace(/\/ipfs\/[^/]+$/, "");
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
       return {
         isValid: false,
         method: this.validationMethods.blockFetch,
-        details: `Provider ${config.storageProvider} not found or has no PDP`,
+        details: errorMessage,
       };
     }
-
-    const spEndpoint = providerInfo.products.PDP.data.serviceURL.replace(/\/$/, "");
     let failed = 0;
     const queue: string[] = [];
     const enqueued = new Set<string>();
@@ -195,7 +199,7 @@ export class IpniRetrievalStrategy implements IRetrievalAddon {
         `See logs for detailed block errors.`;
 
     if (!isValid) {
-      this.logger.warn(`IPNI block-fetch validation failed for deal ${config.deal.id}: ${details}`);
+      this.logger.warn(`IPFS block-fetch validation failed for deal ${config.deal.id}: ${details}`);
     }
 
     return {
@@ -203,10 +207,6 @@ export class IpniRetrievalStrategy implements IRetrievalAddon {
       method: this.validationMethods.blockFetch,
       details,
       bytesRead: totalBytes,
-      comparison: {
-        expected: "dag-traversal",
-        actual: verified,
-      },
     };
   }
 

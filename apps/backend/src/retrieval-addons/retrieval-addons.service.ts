@@ -6,7 +6,7 @@ import { HttpClientService } from "../http-client/http-client.service.js";
 import type { RequestWithMetrics } from "../http-client/types.js";
 import type { IRetrievalAddon } from "./interfaces/retrieval-addon.interface.js";
 import { DirectRetrievalStrategy } from "./strategies/direct.strategy.js";
-import { IpniRetrievalStrategy } from "./strategies/ipni.strategy.js";
+import { IpfsBlockRetrievalStrategy } from "./strategies/ipfs-block.strategy.js";
 import type {
   RetrievalConfiguration,
   RetrievalExecutionResult,
@@ -27,7 +27,7 @@ export class RetrievalAddonsService {
 
   constructor(
     private readonly directRetrieval: DirectRetrievalStrategy,
-    private readonly ipniRetrieval: IpniRetrievalStrategy,
+    private readonly ipfsBlockRetrieval: IpfsBlockRetrievalStrategy,
     private readonly httpClientService: HttpClientService,
   ) {
     this.registerAddons();
@@ -39,7 +39,7 @@ export class RetrievalAddonsService {
    */
   private registerAddons(): void {
     this.registerAddon(this.directRetrieval);
-    this.registerAddon(this.ipniRetrieval);
+    this.registerAddon(this.ipfsBlockRetrieval);
 
     this.logger.log(`Registered ${this.addons.size} retrieval add-ons: ${Array.from(this.addons.keys()).join(", ")}`);
   }
@@ -368,6 +368,7 @@ export class RetrievalAddonsService {
           method: urlResult.method,
           metrics: {
             latency: Math.round(totalTime),
+            // TODO: decide how to aggregate per-block TTFB for IPFS block fetches.
             ttfb: 0,
             throughput,
             statusCode: validation.isValid ? 200 : 0,
