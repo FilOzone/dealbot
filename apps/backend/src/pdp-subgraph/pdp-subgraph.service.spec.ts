@@ -3,8 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { IConfig } from "../config/app.config.js";
 import { PDPSubgraphService } from "./pdp-subgraph.service.js";
 
-const VALID_ADDRESS = "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045";
-const SUBGRAPH_ENDPOINT = "https://api.thegraph.com/subgraphs/filecoin/pdp";
+const VALID_ADDRESS = "0xd8da6bf26964af9d7eed9e03e53415d37aa96045" as const;
+const SUBGRAPH_ENDPOINT = "https://api.thegraph.com/subgraphs/filecoin/pdp" as const;
 
 const makeSubgraphResponse = (providers: Record<string, unknown>[] = []) => ({
   data: { providers },

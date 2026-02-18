@@ -7,8 +7,8 @@ import type { IProviderDataSetResponse } from "../pdp-subgraph/types.js";
 import type { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
 import { DataRetentionService } from "./data-retention.service.js";
 
-const PROVIDER_A = "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045" as const;
-const PROVIDER_B = "0xAb5801a7D398351b8bE11C439e05C5B3259aeC9B" as const;
+const PROVIDER_A = "0xd8da6bf26964af9d7eed9e03e53415d37aa96045" as const;
+const PROVIDER_B = "0xab5801a7d398351b8be11c439e05c5b3259aec9b" as const;
 
 type ProviderEntry = IProviderDataSetResponse["providers"][number];
 
