@@ -344,48 +344,23 @@ export class RetrievalAddonsService {
 
     try {
       signal?.throwIfAborted();
-      if (urlResult.method === ServiceType.IPFS_PIN && strategy.validateDataStream) {
-        const streamResult = await this.httpClientService.requestWithoutProxyAndMetricsStream(urlResult.url, {
-          headers: urlResult.headers,
-          httpVersion: urlResult.httpVersion,
-          signal,
-        });
-
-        if (streamResult.statusCode < 200 || streamResult.statusCode >= 300) {
-          const responsePreview = await this.buildResponsePreviewFromStream(streamResult.body);
-          throw RetrievalError.fromHttpResponse(streamResult.statusCode, responsePreview);
-        }
-
-        let validation = {} as ValidationResult;
+      if (urlResult.method === ServiceType.IPFS_PIN && strategy.validateByBlockFetch) {
+        let validation: ValidationResult;
+        const startTime = performance.now();
         try {
-          validation = await strategy.validateDataStream(streamResult.body, config);
-          signal?.throwIfAborted();
-          if (!validation.isValid) {
-            this.logger.warn(
-              `Validation failed for ${urlResult.method} retrieval of deal ${config.deal.id}: ` +
-                `URL: ${urlResult.url}, ` +
-                `Status: ${streamResult.statusCode}, ` +
-                `Response Size: ${validation.bytesRead ?? 0} bytes, ` +
-                `Details: ${validation.details || "unknown"}`,
-            );
-          }
+          validation = await strategy.validateByBlockFetch(config, signal);
         } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
           this.logger.warn(
-            `Validation error for ${urlResult.method} retrieval of deal ${config.deal.id}: ` +
-              `URL: ${urlResult.url}, ` +
-              `Error: ${error.message}`,
+            `Block-fetch validation error for ${urlResult.method} retrieval of deal ${config.deal.id}: ${errorMessage}`,
           );
           validation = {
             isValid: false,
             method: "validation-error",
-            details: error.message,
+            details: errorMessage,
           };
         }
-
-        const endTime = performance.now();
-        const totalTime = endTime - streamResult.startTime;
-        const responseSize = validation.bytesRead ?? 0;
-        const throughput = totalTime > 0 ? responseSize / (totalTime / 1000) : 0;
+        const totalTime = performance.now() - startTime;
 
         signal?.throwIfAborted();
         return {
@@ -394,11 +369,11 @@ export class RetrievalAddonsService {
           data: Buffer.alloc(0),
           metrics: {
             latency: Math.round(totalTime),
-            ttfb: Math.round(streamResult.ttfb),
-            throughput,
-            statusCode: streamResult.statusCode,
+            ttfb: 0,
+            throughput: 0,
+            statusCode: validation.isValid ? 200 : 0,
             timestamp: new Date(),
-            responseSize,
+            responseSize: 0,
           },
           validation,
           success: true,

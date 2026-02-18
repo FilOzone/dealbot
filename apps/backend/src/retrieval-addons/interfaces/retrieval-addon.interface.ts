@@ -58,6 +58,16 @@ export interface IRetrievalAddon {
   validateDataStream?(stream: AsyncIterable<Uint8Array>, config: RetrievalConfiguration): Promise<ValidationResult>;
 
   /**
+   * Optional: Validate by fetching each expected block from the SP (e.g. GET /ipfs/<cid> with Accept: application/vnd.ipld.raw).
+   * Used when the strategy does not use a single CAR stream; the service will call this instead of fetch + validateDataStream.
+   *
+   * @param config - Retrieval configuration (must include expected CIDs in metadata)
+   * @param signal - Optional abort signal
+   * @returns Validation result
+   */
+  validateByBlockFetch?(config: RetrievalConfiguration, signal?: AbortSignal): Promise<ValidationResult>;
+
+  /**
    * Optional: Get expected performance metrics for this retrieval method
    * Useful for monitoring and alerting on performance degradation
    *

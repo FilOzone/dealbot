@@ -1,29 +1,38 @@
 import { Injectable, Logger } from "@nestjs/common";
-import { validateCarContentStream } from "../../common/car-utils.js";
-import { closeStream } from "../../common/stream-utils.js";
+import { validateBlock } from "@web3-storage/car-block-validator";
+import { CID } from "multiformats/cid";
 import { ServiceType } from "../../database/types.js";
+import { HttpClientService } from "../../http-client/http-client.service.js";
 import { WalletSdkService } from "../../wallet-sdk/wallet-sdk.service.js";
 import type { IRetrievalAddon } from "../interfaces/retrieval-addon.interface.js";
 import type { ExpectedMetrics, RetrievalConfiguration, RetrievalUrlResult, ValidationResult } from "../types.js";
 import { RetrievalPriority } from "../types.js";
 
 /**
- * IPNI (InterPlanetary Network Indexer) retrieval strategy
- * Retrieves data through IPFS network using the root CID from CAR file
- * Only applicable for deals that were created with IPNI enabled
+ * IPNI (InterPlanetary Network Indexer) retrieval strategy.
+ *
+ * Terminology:
+ * - **IPNI** = the index that lists the SP as a provider for content (we do not call an "IPNI URL" here).
+ * - **SP endpoint** = the storage provider's content gateway; we call this to fetch blocks (GET /ipfs/<cid>).
+ *
+ * This strategy validates that the SP serves the root CID and all DAG block CIDs (stored at deal creation)
+ * by fetching each block from the **SP endpoint** with Accept: application/vnd.ipld.raw. No CAR involved.
  */
 @Injectable()
 export class IpniRetrievalStrategy implements IRetrievalAddon {
   private readonly logger = new Logger(IpniRetrievalStrategy.name);
   private readonly validationMethods = {
     metadataMissing: "metadata-missing",
-    carContentValidation: "car-content-validation",
+    blockFetch: "block-fetch",
   } as const;
 
   readonly name = ServiceType.IPFS_PIN;
   readonly priority = RetrievalPriority.MEDIUM; // Alternative method
 
-  constructor(private readonly walletSdkService: WalletSdkService) {}
+  constructor(
+    private readonly walletSdkService: WalletSdkService,
+    private readonly httpClientService: HttpClientService,
+  ) {}
 
   /**
    * IPNI retrieval is only available if IPNI was enabled during deal creation
@@ -48,8 +57,8 @@ export class IpniRetrievalStrategy implements IRetrievalAddon {
   }
 
   /**
-   * Construct IPNI retrieval URL using root CID from CAR file
-   * Uses IPFS gateway to retrieve data
+   * Return the SP endpoint URL for the root block. This is the storage provider's content gateway
+   * (not an IPNI index URL). The service may use it as the base for block fetches.
    */
   constructUrl(config: RetrievalConfiguration): RetrievalUrlResult {
     const rootCID = config.deal.metadata?.[this.name]?.rootCID;
@@ -68,42 +77,31 @@ export class IpniRetrievalStrategy implements IRetrievalAddon {
       throw new Error(`Provider ${config.storageProvider} does not support PDP`);
     }
 
-    const serviceUrl = providerInfo.products.PDP.data.serviceURL;
-    const url = `${serviceUrl.replace(/\/$/, "")}/ipfs/${rootCID}`;
-    const headers = {
-      Accept: "application/vnd.ipld.car",
-    };
+    const spEndpoint = providerInfo.products.PDP.data.serviceURL.replace(/\/$/, "");
+    const url = `${spEndpoint}/ipfs/${rootCID}`;
 
-    this.logger.debug(`Constructed IPNI retrieval URL: ${url}`);
+    this.logger.debug(`Constructed SP endpoint URL (root): ${url}`);
 
     return {
       url,
       method: this.name,
-      headers,
+      headers: {},
       httpVersion: "2",
     };
   }
 
   /**
-   * Validate IPNI retrieved data
-   * The PDP provider returns a CAR file. We perform two validation steps:
-   * 1. Size check against expected CAR size (after streaming)
-   * 2. Full content validation: stream CAR blocks and verify each block's multihash against its CID,
-   *    ensuring the expected root CID (and block set) from metadata is present.
+   * Validate by fetching each expected block from the SP endpoint (content gateway), not from IPNI.
+   * GET /ipfs/<cid> with Accept: application/vnd.ipld.raw. No CAR — we only verify the root and
+   * all child block CIDs (from deal metadata) are served and valid.
    */
-  async validateDataStream(
-    stream: AsyncIterable<Uint8Array>,
-    config: RetrievalConfiguration,
-  ): Promise<ValidationResult> {
-    const rootCIDStr = config.deal.metadata?.[this.name]?.rootCID;
-    const storageProvider = config.storageProvider;
+  async validateByBlockFetch(config: RetrievalConfiguration, signal?: AbortSignal): Promise<ValidationResult> {
+    const dealMetadata = config.deal.metadata?.[this.name];
+    const rootCIDStr = dealMetadata?.rootCID;
+    const blockCIDsStr = dealMetadata?.blockCIDs ?? [];
 
     if (!rootCIDStr) {
-      await closeStream(stream);
-      this.logger.warn(
-        `IPNI content validation failed for deal ${config.deal.id}: rootCID metadata is missing. ` +
-          `Cannot perform content validation.`,
-      );
+      this.logger.warn(`IPNI block-fetch validation failed for deal ${config.deal.id}: rootCID metadata is missing.`);
       return {
         isValid: false,
         method: this.validationMethods.metadataMissing,
@@ -111,21 +109,60 @@ export class IpniRetrievalStrategy implements IRetrievalAddon {
       };
     }
 
-    const validationResult = await validateCarContentStream(stream, rootCIDStr);
+    const providerInfo = this.walletSdkService.getProviderInfo(config.storageProvider);
+    if (!providerInfo?.products.PDP) {
+      return {
+        isValid: false,
+        method: this.validationMethods.blockFetch,
+        details: `Provider ${config.storageProvider} not found or has no PDP`,
+      };
+    }
 
-    if (!validationResult.isValid) {
-      this.logger.warn(
-        `IPNI content validation failed for deal ${config.deal.id} from ${storageProvider}: ${validationResult.details}`,
-      );
+    const spEndpoint = providerInfo.products.PDP.data.serviceURL.replace(/\/$/, "");
+    const uniqueCids = Array.from(new Set([rootCIDStr, ...blockCIDsStr]));
+    const errors: string[] = [];
+    let verified = 0;
+
+    for (const cidStr of uniqueCids) {
+      signal?.throwIfAborted();
+      const url = `${spEndpoint}/ipfs/${cidStr}`;
+      try {
+        const result = await this.httpClientService.requestWithoutProxyAndMetrics<Buffer>(url, {
+          headers: { Accept: "application/vnd.ipld.raw" },
+          httpVersion: "2",
+          signal,
+        });
+
+        if (result.metrics.statusCode < 200 || result.metrics.statusCode >= 300) {
+          errors.push(`cid ${cidStr}: HTTP ${result.metrics.statusCode}`);
+          continue;
+        }
+
+        const cid = CID.parse(cidStr);
+        await validateBlock({ cid, bytes: new Uint8Array(result.data) });
+        verified += 1;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        errors.push(`cid ${cidStr}: ${msg}`);
+      }
+    }
+
+    const isValid = errors.length === 0;
+    const details = isValid
+      ? `Block-fetch validation: verified ${verified} blocks (root + DAG) from SP`
+      : `Block-fetch validation failed: ${errors.join("; ")}`;
+
+    if (!isValid) {
+      this.logger.warn(`IPNI block-fetch validation failed for deal ${config.deal.id}: ${details}`);
     }
 
     return {
-      isValid: validationResult.isValid,
-      method: this.validationMethods.carContentValidation,
-      details: validationResult.details,
+      isValid,
+      method: this.validationMethods.blockFetch,
+      details,
       comparison: {
-        expected: rootCIDStr,
-        actual: validationResult.verifiedRootCID ?? "unknown",
+        expected: uniqueCids.length,
+        actual: verified,
       },
     };
   }
