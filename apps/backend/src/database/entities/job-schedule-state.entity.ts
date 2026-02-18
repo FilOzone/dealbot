@@ -1,6 +1,6 @@
 import { Column, CreateDateColumn, Entity, Index, PrimaryGeneratedColumn, UpdateDateColumn } from "typeorm";
 
-export type JobScheduleType = "deal" | "retrieval" | "metrics" | "metrics_cleanup";
+export type JobType = "deal" | "retrieval" | "metrics" | "metrics_cleanup" | "providers_refresh";
 
 @Entity("job_schedule_state")
 @Index("job_schedule_state_job_type_sp_unique", ["jobType", "spAddress"], { unique: true })
@@ -10,7 +10,7 @@ export class JobScheduleState {
   id!: string;
 
   @Column({ name: "job_type" })
-  jobType!: JobScheduleType;
+  jobType!: JobType;
 
   @Column({ name: "sp_address", default: "" })
   spAddress!: string;

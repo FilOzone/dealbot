@@ -145,4 +145,35 @@ describe("WalletSdkService", () => {
       expect.arrayContaining([expect.objectContaining({ address: "0xdup3", providerId: 41, name: "second" })]),
     );
   });
+
+  it("coalesces concurrent ensureProvidersLoaded calls", async () => {
+    let resolveLoad: (value: boolean) => void;
+    const loadPromise = new Promise<boolean>((resolve) => {
+      resolveLoad = resolve;
+    });
+    const loadProvidersInternal = vi.fn(() => loadPromise);
+    (service as any).loadProvidersInternal = loadProvidersInternal;
+
+    const first = service.ensureProvidersLoaded();
+    const second = service.ensureProvidersLoaded();
+
+    expect(loadProvidersInternal).toHaveBeenCalledTimes(1);
+
+    resolveLoad!(true);
+    await Promise.all([first, second]);
+
+    expect(loadProvidersInternal).toHaveBeenCalledTimes(1);
+    expect((service as any).providersLoadedOnce).toBe(true);
+  });
+
+  it("retries ensureProvidersLoaded after a failed load", async () => {
+    const loadProvidersInternal = vi.fn().mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    (service as any).loadProvidersInternal = loadProvidersInternal;
+
+    await service.ensureProvidersLoaded();
+    await service.ensureProvidersLoaded();
+
+    expect(loadProvidersInternal).toHaveBeenCalledTimes(2);
+    expect((service as any).providersLoadedOnce).toBe(true);
+  });
 });
