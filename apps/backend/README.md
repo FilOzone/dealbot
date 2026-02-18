@@ -96,15 +96,15 @@ All configuration is done via environment variables in `.env`.
 
 ### Blockchain Configuration
 
-| Variable                      | Description                                      | Example                                           |
-| ----------------------------- | ------------------------------------------------ | ------------------------------------------------- |
-| `NETWORK`                     | Filecoin network                                 | `calibration` or `mainnet`                        |
-| `WALLET_ADDRESS`              | Your Filecoin wallet address                     | `0x...`                                           |
-| `WALLET_PRIVATE_KEY`          | Your wallet private key (keep secure!)           | `0x...`                                           |
-| `CHECK_DATASET_CREATION_FEES` | Check fees before dataset creation               | `true`                                            |
-| `ENABLE_IPNI_TESTING`         | IPNI testing mode (`disabled`/`random`/`always`) | `always`                                          |
-| `USE_ONLY_APPROVED_PROVIDERS` | Only use approved storage providers              | `true`                                            |
-| `PDP_SUBGRAPH_ENDPOINT`       | PDP subgraph API endpoint for querying deal data | `https://api.thegraph.com/subgraphs/filecoin/pdp` |
+| Variable                      | Description                                                | Example                                           |
+| ----------------------------- | ---------------------------------------------------------- | ------------------------------------------------- |
+| `NETWORK`                     | Filecoin network                                           | `calibration` or `mainnet`                        |
+| `WALLET_ADDRESS`              | Your Filecoin wallet address                               | `0x...`                                           |
+| `WALLET_PRIVATE_KEY`          | Your wallet private key (keep secure!)                     | `0x...`                                           |
+| `CHECK_DATASET_CREATION_FEES` | Check fees before dataset creation                         | `true`                                            |
+| `ENABLE_IPNI_TESTING`         | IPNI testing mode (`disabled`/`random`/`always`)           | `always`                                          |
+| `USE_ONLY_APPROVED_PROVIDERS` | Only use approved storage providers                        | `true`                                            |
+| `PDP_SUBGRAPH_ENDPOINT`       | PDP subgraph API endpoint for PDP proof-set/data-retention | `https://api.thegraph.com/subgraphs/filecoin/pdp` |
 
 ### Scheduling Configuration (pg-boss)
 

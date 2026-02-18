@@ -1,4 +1,5 @@
 import type { ConfigService } from "@nestjs/config";
+import type { Counter } from "prom-client";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { IConfig } from "../config/app.config.js";
 import type { PDPSubgraphService } from "../pdp-subgraph/pdp-subgraph.service.js";
@@ -76,7 +77,7 @@ describe("DataRetentionService", () => {
       configServiceMock,
       walletSdkServiceMock as unknown as WalletSdkService,
       pdpSubgraphServiceMock as unknown as PDPSubgraphService,
-      counterMock as any,
+      counterMock as unknown as Counter,
     );
   });
 
@@ -369,7 +370,7 @@ describe("DataRetentionService", () => {
     expect(pdpSubgraphServiceMock.fetchProvidersWithDatasets).toHaveBeenCalledTimes(2);
   });
 
-  it("rejects with error when provider not found in cache but returned from subgraph", async () => {
+  it("logs error and skips counter update when provider not found in cache but returned from subgraph", async () => {
     // Provider C not in cache
     const PROVIDER_C = "0x1234567890123456789012345678901234567890";
     pdpSubgraphServiceMock.fetchProvidersWithDatasets.mockResolvedValueOnce([makeProvider({ address: PROVIDER_C })]);

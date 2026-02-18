@@ -61,7 +61,8 @@ export class DataRetentionService {
 
       const blockNumberBigInt = BigInt(blockNumber);
       // Create snapshot of provider cache to avoid race condition if loadProviders() clears cache
-      const providerInfoMap = new Map(providerInfos.map((info) => [info.serviceProvider, info]));
+      // Normalize addresses to lowercase for consistent lookups
+      const providerInfoMap = new Map(providerInfos.map((info) => [info.serviceProvider.toLowerCase(), info]));
       const providerAddresses = Array.from(providerInfoMap.keys());
 
       for (let i = 0; i < providerAddresses.length; i += DataRetentionService.MAX_PROVIDER_BATCH_LENGTH) {
@@ -79,7 +80,7 @@ export class DataRetentionService {
           // Process providers in parallel
           const processingResults = await Promise.allSettled(
             providersFromSubgraph.map((provider) => {
-              const providerInfo = providerInfoMap.get(provider.address);
+              const providerInfo = providerInfoMap.get(provider.address.toLowerCase());
               if (!providerInfo) {
                 return Promise.reject(
                   new Error(
@@ -130,7 +131,8 @@ export class DataRetentionService {
     const estimatedTotalPeriods = totalProvingPeriods + estimatedOverduePeriods;
     const estimatedTotalSuccess = estimatedTotalPeriods - estimatedTotalFaulted;
 
-    const previous = this.providerCumulativeTotals.get(address);
+    const normalizedAddress = address.toLowerCase();
+    const previous = this.providerCumulativeTotals.get(normalizedAddress);
     const faultedDelta = previous ? estimatedTotalFaulted - previous.faultedPeriods : estimatedTotalFaulted;
     const successDelta = previous ? estimatedTotalSuccess - previous.successPeriods : estimatedTotalSuccess;
 
@@ -166,7 +168,7 @@ export class DataRetentionService {
         .inc(Number(successDelta));
     }
 
-    this.providerCumulativeTotals.set(address, {
+    this.providerCumulativeTotals.set(normalizedAddress, {
       faultedPeriods: estimatedTotalFaulted,
       successPeriods: estimatedTotalSuccess,
     });

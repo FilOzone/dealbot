@@ -92,6 +92,10 @@ export class PDPSubgraphService {
     addresses: string[],
     attempt: number = 1,
   ): Promise<IProviderDataSetResponse["providers"]> {
+    if (!this.blockchainConfig.pdpSubgraphEndpoint) {
+      throw new Error("No PDP subgraph endpoint configured");
+    }
+
     const variables = {
       blockNumber: blockNumber.toString(),
       addresses,

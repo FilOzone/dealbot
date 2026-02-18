@@ -33,7 +33,7 @@ export const configValidationSchema = Joi.object({
     .valid("disabled", "random", "always", "true", "false")
     .default("always"),
   DEALBOT_DATASET_VERSION: Joi.string().optional(),
-  PDP_SUBGRAPH_ENDPOINT: Joi.string().uri().required(),
+  PDP_SUBGRAPH_ENDPOINT: Joi.string().uri().optional().allow(""),
 
   // Scheduling
   DEAL_INTERVAL_SECONDS: Joi.number().default(30),
@@ -110,7 +110,7 @@ export interface IBlockchainConfig {
   useOnlyApprovedProviders: boolean;
   enableIpniTesting: IpniTestingMode;
   dealbotDataSetVersion?: string;
-  pdpSubgraphEndpoint: string;
+  pdpSubgraphEndpoint?: string;
 }
 
 export interface ISchedulingConfig {

@@ -41,12 +41,14 @@ const toBigInt = (value: unknown, helpers: Joi.CustomHelpers) => {
   }
 };
 
-/** Joi custom validator to validate ethereum Address */
+/** Joi custom validator to validate ethereum Address and normalize to lowercase */
 const toEthereumAddress = (value: unknown, helpers: Joi.CustomHelpers) => {
   if (!isAddress(value as string)) {
     return helpers.error("any.invalid", { message: "Invalid Ethereum address" });
   }
-  return value as Hex;
+
+  // Normalize to lowercase for consistent key lookups
+  return (value as string).toLowerCase() as Hex;
 };
 
 const dataSetSchema = Joi.object({
