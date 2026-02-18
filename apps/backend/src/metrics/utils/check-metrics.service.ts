@@ -11,10 +11,13 @@ function observePositive(metric: Histogram, labels: CheckMetricLabels, value: nu
 }
 
 function classifyHttpResponseCode(statusCode: number): string {
+  if (!Number.isFinite(statusCode) || statusCode <= 0) return "failure";
   if (statusCode === 200) return "200";
   if (statusCode === 500) return "500";
-  if (statusCode > 0) return "otherHttpStatusCodes";
-  return "failure";
+  if (statusCode >= 200 && statusCode < 300) return "2xxSuccess";
+  if (statusCode >= 400 && statusCode < 500) return "4xxClientError";
+  if (statusCode >= 500 && statusCode < 600) return "5xxServerError";
+  return "otherHttpStatusCodes";
 }
 
 @Injectable()

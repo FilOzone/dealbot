@@ -36,12 +36,12 @@
                         "mode": "absolute",
                         "steps": [
                             {
-                                "color": "green",
-                                "value": 0
+                                "color": "red",
+                                "value": null
                             },
                             {
-                                "color": "red",
-                                "value": 0
+                                "color": "green",
+                                "value": 1
                             }
                         ]
                     }

@@ -45,19 +45,20 @@ describe("DealService", () => {
   let retrievalAddonsMock: any;
 
   const mockRootCid = "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi";
+  const advanceTimersIfFake = (ms: number): void => {
+    if (typeof vi.isFakeTimers === "function" && vi.isFakeTimers()) {
+      vi.advanceTimersByTime(ms);
+    }
+  };
   const triggerUploadProgress = async (onProgress?: (event: any) => Promise<void> | void): Promise<void> => {
     if (!onProgress) {
       return;
     }
 
     await onProgress({ type: "onUploadComplete", data: { pieceCid: "bafk-uploaded" } });
-    if (typeof vi.isFakeTimers === "function" && vi.isFakeTimers()) {
-      vi.advanceTimersByTime(2000);
-    }
+    advanceTimersIfFake(2000);
     await onProgress({ type: "onPieceAdded", data: { txHash: "0xhash" } });
-    if (typeof vi.isFakeTimers === "function" && vi.isFakeTimers()) {
-      vi.advanceTimersByTime(3000);
-    }
+    advanceTimersIfFake(3000);
     await onProgress({ type: "onPieceConfirmed", data: { pieceIds: [123] } });
   };
 

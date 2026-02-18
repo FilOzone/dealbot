@@ -1,6 +1,7 @@
 import { waitForIpniProviderResults } from "filecoin-pin/core/utils";
 import { CID } from "multiformats/cid";
 import { describe, expect, it, vi } from "vitest";
+import { buildCheckMetricLabels } from "../../metrics/utils/check-metric-labels.js";
 import { DiscoverabilityCheckMetrics } from "../../metrics/utils/check-metrics.service.js";
 import { IpniAddonStrategy } from "./ipni.strategy.js";
 
@@ -21,11 +22,11 @@ describe("IpniAddonStrategy getPieceStatus", () => {
       recordStatus: vi.fn(),
       buildLabelsForDeal: vi.fn().mockImplementation((deal: any) => {
         if (!deal.spAddress) return null;
-        return {
+        return buildCheckMetricLabels({
           checkType: "dataStorage",
-          providerId: deal.storageProvider?.providerId != null ? String(deal.storageProvider.providerId) : "unknown",
-          providerStatus: deal.storageProvider?.isApproved ? "approved" : "unapproved",
-        };
+          providerId: deal.storageProvider?.providerId,
+          providerIsApproved: deal.storageProvider?.isApproved,
+        });
       }),
     };
 
