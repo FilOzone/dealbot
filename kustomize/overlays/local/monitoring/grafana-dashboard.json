@@ -1767,7 +1767,7 @@
                     "sort": "none"
                 }
             },
-            "pluginVersion": "12.3.1",
+            "pluginVersion": "11.5.2",
             "targets": [
                 {
                     "datasource": {
@@ -1868,7 +1868,7 @@
                     "sort": "none"
                 }
             },
-            "pluginVersion": "12.3.1",
+            "pluginVersion": "11.5.2",
             "targets": [
                 {
                     "editorMode": "code",
@@ -1963,7 +1963,7 @@
                     "sort": "none"
                 }
             },
-            "pluginVersion": "12.3.1",
+            "pluginVersion": "11.5.2",
             "targets": [
                 {
                     "editorMode": "code",
@@ -2098,7 +2098,7 @@
                     "sort": "none"
                 }
             },
-            "pluginVersion": "12.3.1",
+            "pluginVersion": "11.5.2",
             "targets": [
                 {
                     "editorMode": "code",
@@ -2201,7 +2201,7 @@
                     "sort": "none"
                 }
             },
-            "pluginVersion": "12.3.1",
+            "pluginVersion": "11.5.2",
             "targets": [
                 {
                     "editorMode": "code",
@@ -2303,7 +2303,7 @@
                     "sort": "none"
                 }
             },
-            "pluginVersion": "12.3.1",
+            "pluginVersion": "11.5.2",
             "targets": [
                 {
                     "editorMode": "code",
@@ -2401,7 +2401,7 @@
                     "sort": "none"
                 }
             },
-            "pluginVersion": "12.3.1",
+            "pluginVersion": "11.5.2",
             "targets": [
                 {
                     "editorMode": "code",
@@ -2517,7 +2517,7 @@
                     "sort": "none"
                 }
             },
-            "pluginVersion": "12.3.1",
+            "pluginVersion": "11.5.2",
             "targets": [
                 {
                     "editorMode": "code",

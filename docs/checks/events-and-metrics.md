@@ -90,6 +90,7 @@ sequenceDiagram
 - These count metrics are used to track the occurrence of a particular status for a check.
 - All Prometheus/OpenTelemetry status count metrics have label/attributes for:
    - `value` — see [Sub-status meanings](./data-storage.md#sub-status-meanings) for valid values per metric
+   - For `ipfsRetrievalHttpResponseCode`, `value` is one of: `200`, `500`, `2xxSuccess`, `4xxClientError`, `5xxServerError`, `otherHttpStatusCodes`, `failure`
 
 | Metric | Relevant Checks | When Emitted In Successful Case| Additional Info | Source of truth |
 |---|---|---|---|---|

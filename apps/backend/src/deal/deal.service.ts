@@ -247,7 +247,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
         onProgress: async (event) => {
           this.logger.debug(`Upload progress event: ${event.type}`);
           switch (event.type) {
-            case "onUploadComplete":
+            case "onUploadComplete": {
               deal.uploadEndTime = new Date();
               deal.status = DealStatus.UPLOADED;
               deal.ingestLatencyMs = deal.uploadEndTime.getTime() - deal.uploadStartTime.getTime();
@@ -264,9 +264,18 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
                   uploadCompleteError = error;
                   return false;
                 });
-              deal.ingestThroughputBps = Math.round(deal.fileSize / (deal.ingestLatencyMs / 1000));
-              this.dataStorageMetrics.observeIngestThroughput(providerLabels, deal.ingestThroughputBps);
+              const ingestSeconds = deal.ingestLatencyMs / 1000;
+              if (ingestSeconds > 0 && Number.isFinite(ingestSeconds)) {
+                deal.ingestThroughputBps = Math.round(deal.fileSize / ingestSeconds);
+                this.dataStorageMetrics.observeIngestThroughput(providerLabels, deal.ingestThroughputBps);
+              } else {
+                deal.ingestThroughputBps = 0;
+                this.logger.warn(
+                  `Skipping ingest throughput: invalid ingest latency (${deal.ingestLatencyMs}ms) for deal ${deal.id}`,
+                );
+              }
               break;
+            }
             case "onPieceAdded":
               this.logger.log(`Piece added event, txHash: ${event.data.txHash}`);
               deal.pieceAddedTime = new Date();

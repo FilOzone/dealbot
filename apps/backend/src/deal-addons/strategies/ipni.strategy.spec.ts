@@ -1,6 +1,10 @@
 import { waitForIpniProviderResults } from "filecoin-pin/core/utils";
 import { CID } from "multiformats/cid";
+import type { Mock } from "vitest";
 import { describe, expect, it, vi } from "vitest";
+import { Deal } from "../../database/entities/deal.entity.js";
+import { StorageProvider } from "../../database/entities/storage-provider.entity.js";
+import { IpniStatus, ServiceType } from "../../database/types.js";
 import { buildCheckMetricLabels } from "../../metrics/utils/check-metric-labels.js";
 import { DiscoverabilityCheckMetrics } from "../../metrics/utils/check-metrics.service.js";
 import { IpniAddonStrategy } from "./ipni.strategy.js";
@@ -10,9 +14,52 @@ vi.mock("filecoin-pin/core/utils", () => ({
 }));
 
 describe("IpniAddonStrategy getPieceStatus", () => {
+  type DealForMetrics = {
+    spAddress?: string;
+    storageProvider?: {
+      providerId?: number;
+      isApproved?: boolean;
+    } | null;
+  } | null;
+  type StrategyPrivates = {
+    getPieceStatus: (serviceURL: string, pieceCid: string) => Promise<unknown>;
+    monitorPieceStatus: (...args: unknown[]) => Promise<unknown>;
+    monitorAndVerifyIPNI: (...args: unknown[]) => Promise<unknown>;
+    updateDealWithIpniMetrics: (deal: Deal, result: unknown) => Promise<unknown>;
+    startIpniMonitoring: (deal: Deal) => Promise<unknown>;
+  };
+  const asStrategyPrivates = (strategy: IpniAddonStrategy): StrategyPrivates => strategy as unknown as StrategyPrivates;
+  const buildStorageProvider = (overrides: Partial<StorageProvider> = {}): StorageProvider =>
+    Object.assign(new StorageProvider(), {
+      address: "0xsp",
+      providerId: 9,
+      isApproved: true,
+      serviceUrl: "http://sp.example.com",
+      payee: "t0100",
+      name: "SP",
+      description: "SP",
+      isActive: true,
+      region: "test",
+      metadata: {},
+      ...overrides,
+    });
+  const buildDeal = (overrides: Partial<Deal> = {}): Deal =>
+    Object.assign(new Deal(), {
+      id: "deal-1",
+      spAddress: "0xsp",
+      fileName: "file",
+      fileSize: 1,
+      walletAddress: "0xwallet",
+      metadata: {},
+      ...overrides,
+    });
+
   const createStrategy = () => {
-    const mockRepo = { save: vi.fn() };
-    const httpClientService = {
+    type HttpClientServiceMock = {
+      requestWithoutProxyAndMetrics: Mock;
+    };
+    const mockRepo = { save: vi.fn() } as unknown as ConstructorParameters<typeof IpniAddonStrategy>[0];
+    const httpClientService: HttpClientServiceMock = {
       requestWithoutProxyAndMetrics: vi.fn(),
     };
     const mockDiscoverabilityMetrics = {
@@ -20,8 +67,8 @@ describe("IpniAddonStrategy getPieceStatus", () => {
       observeSpAnnounceAdvertisementMs: vi.fn(),
       observeIpniVerifyMs: vi.fn(),
       recordStatus: vi.fn(),
-      buildLabelsForDeal: vi.fn().mockImplementation((deal: any) => {
-        if (!deal.spAddress) return null;
+      buildLabelsForDeal: vi.fn().mockImplementation((deal: DealForMetrics) => {
+        if (!deal?.spAddress) return null;
         return buildCheckMetricLabels({
           checkType: "dataStorage",
           providerId: deal.storageProvider?.providerId,
@@ -32,8 +79,8 @@ describe("IpniAddonStrategy getPieceStatus", () => {
 
     return {
       strategy: new IpniAddonStrategy(
-        mockRepo as any,
-        httpClientService as any,
+        mockRepo,
+        httpClientService as unknown as ConstructorParameters<typeof IpniAddonStrategy>[1],
         mockDiscoverabilityMetrics as unknown as DiscoverabilityCheckMetrics,
       ),
       httpClientService,
@@ -55,7 +102,9 @@ describe("IpniAddonStrategy getPieceStatus", () => {
       data: Buffer.from(JSON.stringify(payload)),
     });
 
-    await expect((strategy as any).getPieceStatus("https://example.com", payload.pieceCid)).resolves.toEqual(payload);
+    const strategyForTest = asStrategyPrivates(strategy);
+
+    await expect(strategyForTest.getPieceStatus("https://example.com", payload.pieceCid)).resolves.toEqual(payload);
   });
 
   it("throws on invalid response format", async () => {
@@ -65,7 +114,9 @@ describe("IpniAddonStrategy getPieceStatus", () => {
       data: Buffer.from(JSON.stringify({ foo: "bar" })),
     });
 
-    await expect((strategy as any).getPieceStatus("https://example.com", "bafy-invalid")).rejects.toThrow(
+    const strategyForTest = asStrategyPrivates(strategy);
+
+    await expect(strategyForTest.getPieceStatus("https://example.com", "bafy-invalid")).rejects.toThrow(
       "Invalid piece status response format",
     );
   });
@@ -82,7 +133,9 @@ describe("IpniAddonStrategy getPieceStatus", () => {
 
     httpClientService.requestWithoutProxyAndMetrics.mockRejectedValueOnce(error);
 
-    await expect((strategy as any).getPieceStatus("https://example.com", "bafy-404")).rejects.toThrow(
+    const strategyForTest = asStrategyPrivates(strategy);
+
+    await expect(strategyForTest.getPieceStatus("https://example.com", "bafy-404")).rejects.toThrow(
       "Piece not found or does not belong to service: missing",
     );
   });
@@ -99,7 +152,9 @@ describe("IpniAddonStrategy getPieceStatus", () => {
 
     httpClientService.requestWithoutProxyAndMetrics.mockRejectedValueOnce(error);
 
-    await expect((strategy as any).getPieceStatus("https://example.com", "bafy-500")).rejects.toThrow(
+    const strategyForTest = asStrategyPrivates(strategy);
+
+    await expect(strategyForTest.getPieceStatus("https://example.com", "bafy-500")).rejects.toThrow(
       "Failed to get piece status: 500 Internal Server Error - boom",
     );
   });
@@ -109,9 +164,9 @@ describe("IpniAddonStrategy getPieceStatus", () => {
 
     httpClientService.requestWithoutProxyAndMetrics.mockRejectedValueOnce(new Error("network down"));
 
-    await expect((strategy as any).getPieceStatus("https://example.com", "bafy-network")).rejects.toThrow(
-      "network down",
-    );
+    const strategyForTest = asStrategyPrivates(strategy);
+
+    await expect(strategyForTest.getPieceStatus("https://example.com", "bafy-network")).rejects.toThrow("network down");
   });
 
   it("emits discoverability metrics when IPNI verification succeeds", async () => {
@@ -125,7 +180,8 @@ describe("IpniAddonStrategy getPieceStatus", () => {
       const indexedAt = new Date(uploadEndTime.getTime() + 1000).toISOString();
       const advertisedAt = new Date(uploadEndTime.getTime() + 2000).toISOString();
 
-      vi.spyOn(strategy as any, "monitorPieceStatus").mockResolvedValue({
+      const strategyForTest = asStrategyPrivates(strategy);
+      vi.spyOn(strategyForTest, "monitorPieceStatus").mockResolvedValue({
         success: true,
         finalStatus: {
           status: "ok",
@@ -143,40 +199,37 @@ describe("IpniAddonStrategy getPieceStatus", () => {
         return true;
       });
 
-      const deal = {
+      const deal = buildDeal({
         id: "deal-1",
         spAddress: "0xsp",
         uploadEndTime,
         pieceCid: "bafk-piece",
         metadata: {
-          ipfs_pin: {
+          [ServiceType.IPFS_PIN]: {
+            enabled: true,
             rootCID: "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi",
             blockCIDs: ["bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi"],
+            blockCount: 1,
+            carSize: 1,
+            originalSize: 1,
           },
         },
-        storageProvider: {
-          providerId: 9,
-          isApproved: true,
-          serviceUrl: "http://sp.example.com",
-          payee: "t0100",
-          name: "SP",
-          description: "SP",
-          isActive: true,
-        },
-      } as any;
+        storageProvider: buildStorageProvider(),
+      });
+      const ipniMetadata = deal.metadata[ServiceType.IPFS_PIN]!;
 
-      const result = await (strategy as any).monitorAndVerifyIPNI(
+      const result = await strategyForTest.monitorAndVerifyIPNI(
         "http://sp.example.com",
         deal,
-        [CID.parse(deal.metadata.ipfs_pin.rootCID)],
-        deal.metadata.ipfs_pin.rootCID,
+        [CID.parse(ipniMetadata.rootCID)],
+        ipniMetadata.rootCID,
         deal.storageProvider,
         10_000,
         10_000,
         1000,
       );
 
-      await (strategy as any).updateDealWithIpniMetrics(deal, result);
+      await strategyForTest.updateDealWithIpniMetrics(deal, result);
 
       const labels = {
         checkType: "dataStorage",
@@ -206,7 +259,8 @@ describe("IpniAddonStrategy getPieceStatus", () => {
 
       const uploadEndTime = new Date("2026-01-01T00:00:00Z");
 
-      vi.spyOn(strategy as any, "monitorPieceStatus").mockResolvedValue({
+      const strategyForTest = asStrategyPrivates(strategy);
+      vi.spyOn(strategyForTest, "monitorPieceStatus").mockResolvedValue({
         success: false,
         finalStatus: {
           status: "timeout",
@@ -224,40 +278,37 @@ describe("IpniAddonStrategy getPieceStatus", () => {
         return false;
       });
 
-      const deal = {
+      const deal = buildDeal({
         id: "deal-2",
         spAddress: "0xsp",
         uploadEndTime,
         pieceCid: "bafk-piece-timeout",
         metadata: {
-          ipfs_pin: {
+          [ServiceType.IPFS_PIN]: {
+            enabled: true,
             rootCID: "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi",
             blockCIDs: ["bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi"],
+            blockCount: 1,
+            carSize: 1,
+            originalSize: 1,
           },
         },
-        storageProvider: {
-          providerId: 9,
-          isApproved: true,
-          serviceUrl: "http://sp.example.com",
-          payee: "t0100",
-          name: "SP",
-          description: "SP",
-          isActive: true,
-        },
-      } as any;
+        storageProvider: buildStorageProvider(),
+      });
+      const ipniMetadata = deal.metadata[ServiceType.IPFS_PIN]!;
 
-      const result = await (strategy as any).monitorAndVerifyIPNI(
+      const result = await strategyForTest.monitorAndVerifyIPNI(
         "http://sp.example.com",
         deal,
-        [CID.parse(deal.metadata.ipfs_pin.rootCID)],
-        deal.metadata.ipfs_pin.rootCID,
+        [CID.parse(ipniMetadata.rootCID)],
+        ipniMetadata.rootCID,
         deal.storageProvider,
         10_000,
         10_000,
         1000,
       );
 
-      await (strategy as any).updateDealWithIpniMetrics(deal, result);
+      await strategyForTest.updateDealWithIpniMetrics(deal, result);
 
       const labels = {
         checkType: "dataStorage",
@@ -275,33 +326,30 @@ describe("IpniAddonStrategy getPieceStatus", () => {
   it("emits failure status via startIpniMonitoring catch block when monitorAndVerifyIPNI throws", async () => {
     const { strategy, discoverabilityMetrics, mockRepo } = createStrategy();
 
-    const deal = {
+    const deal = buildDeal({
       id: "deal-3",
       spAddress: "0xsp",
       uploadEndTime: new Date("2026-01-01T00:00:00Z"),
       pieceCid: "bafk-piece-error",
-      ipniStatus: undefined as any,
+      ipniStatus: IpniStatus.PENDING,
       metadata: {
-        ipfs_pin: {
+        [ServiceType.IPFS_PIN]: {
+          enabled: true,
           rootCID: "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi",
           blockCIDs: ["bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi"],
+          blockCount: 1,
+          carSize: 1,
+          originalSize: 1,
         },
       },
-      storageProvider: {
-        providerId: 9,
-        isApproved: true,
-        serviceUrl: "http://sp.example.com",
-        payee: "t0100",
-        name: "SP",
-        description: "SP",
-        isActive: true,
-      },
-    } as any;
+      storageProvider: buildStorageProvider(),
+    });
 
     // monitorAndVerifyIPNI throws before updateDealWithIpniMetrics is called
-    vi.spyOn(strategy as any, "monitorAndVerifyIPNI").mockRejectedValue(new Error("connection timed out"));
+    const strategyForTest = asStrategyPrivates(strategy);
+    vi.spyOn(strategyForTest, "monitorAndVerifyIPNI").mockRejectedValue(new Error("connection timed out"));
 
-    await expect((strategy as any).startIpniMonitoring(deal)).rejects.toThrow("connection timed out");
+    await expect(strategyForTest.startIpniMonitoring(deal)).rejects.toThrow("connection timed out");
 
     const labels = {
       checkType: "dataStorage",
@@ -317,32 +365,29 @@ describe("IpniAddonStrategy getPieceStatus", () => {
   it("emits failure.other via startIpniMonitoring catch block for non-timeout errors", async () => {
     const { strategy, discoverabilityMetrics, mockRepo } = createStrategy();
 
-    const deal = {
+    const deal = buildDeal({
       id: "deal-4",
       spAddress: "0xsp",
       uploadEndTime: new Date("2026-01-01T00:00:00Z"),
       pieceCid: "bafk-piece-error2",
-      ipniStatus: undefined as any,
+      ipniStatus: IpniStatus.PENDING,
       metadata: {
-        ipfs_pin: {
+        [ServiceType.IPFS_PIN]: {
+          enabled: true,
           rootCID: "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi",
           blockCIDs: ["bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi"],
+          blockCount: 1,
+          carSize: 1,
+          originalSize: 1,
         },
       },
-      storageProvider: {
-        providerId: 9,
-        isApproved: true,
-        serviceUrl: "http://sp.example.com",
-        payee: "t0100",
-        name: "SP",
-        description: "SP",
-        isActive: true,
-      },
-    } as any;
+      storageProvider: buildStorageProvider(),
+    });
 
-    vi.spyOn(strategy as any, "monitorAndVerifyIPNI").mockRejectedValue(new Error("unexpected error"));
+    const strategyForTest = asStrategyPrivates(strategy);
+    vi.spyOn(strategyForTest, "monitorAndVerifyIPNI").mockRejectedValue(new Error("unexpected error"));
 
-    await expect((strategy as any).startIpniMonitoring(deal)).rejects.toThrow("unexpected error");
+    await expect(strategyForTest.startIpniMonitoring(deal)).rejects.toThrow("unexpected error");
 
     const labels = {
       checkType: "dataStorage",

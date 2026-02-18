@@ -38,19 +38,28 @@ vi.mock("filecoin-pin", () => ({
 describe("DealService", () => {
   let service: DealService;
   // We need access to the repository mocks to verify calls
-  let dealRepoMock: any;
-  let dataSourceMock: any;
-  let walletSdkMock: any;
-  let dealAddonsMock: any;
-  let retrievalAddonsMock: any;
+  let dealRepoMock: typeof mockDealRepository;
+  let dataSourceMock: typeof mockDataSourceService;
+  let walletSdkMock: typeof mockWalletSdkService;
+  let dealAddonsMock: typeof mockDealAddonsService;
+  let retrievalAddonsMock: typeof mockRetrievalAddonsService;
 
   const mockRootCid = "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi";
+  type UploadProgressEvent =
+    | { type: "onUploadComplete"; data: { pieceCid: string } }
+    | { type: "onPieceAdded"; data: { txHash: string } }
+    | { type: "onPieceConfirmed"; data: { pieceIds: number[] } };
+  type ExecuteUploadOptions = {
+    onProgress?: (event: UploadProgressEvent) => Promise<void> | void;
+  };
   const advanceTimersIfFake = (ms: number): void => {
     if (typeof vi.isFakeTimers === "function" && vi.isFakeTimers()) {
       vi.advanceTimersByTime(ms);
     }
   };
-  const triggerUploadProgress = async (onProgress?: (event: any) => Promise<void> | void): Promise<void> => {
+  const triggerUploadProgress = async (
+    onProgress?: (event: UploadProgressEvent) => Promise<void> | void,
+  ): Promise<void> => {
     if (!onProgress) {
       return;
     }
@@ -167,18 +176,20 @@ describe("DealService", () => {
   });
 
   describe("createDeal", () => {
-    let mockSynapseInstance: any;
+    let mockSynapseInstance: Synapse;
+    let createContextMock: Mock;
     let mockProviderInfo: ProviderInfoEx;
-    let mockDealInput: any;
-    let mockDeal: any;
+    let mockDealInput: DealPreprocessingResult;
+    let mockDeal: Deal;
 
     beforeEach(async () => {
       // Setup common mocks for createDeal
+      createContextMock = vi.fn();
       mockSynapseInstance = {
         storage: {
-          createContext: vi.fn(),
+          createContext: createContextMock,
         },
-      };
+      } as unknown as Synapse;
 
       mockProviderInfo = {
         id: 101,
@@ -192,11 +203,15 @@ describe("DealService", () => {
       };
       mockDealInput = {
         processedData: { name: "test.txt", size: 2048, data: Buffer.from("test") },
-        metadata: { foo: "bar" },
+        metadata: {},
         appliedAddons: [],
         synapseConfig: { dataSetMetadata: {}, pieceMetadata: {} },
       };
-      mockDeal = { id: 1, status: DealStatus.PENDING, spAddress: "0xProvider" };
+      mockDeal = Object.assign(new Deal(), {
+        id: "deal-1",
+        status: DealStatus.PENDING,
+        spAddress: "0xProvider",
+      });
 
       dealRepoMock.create.mockReturnValue(mockDeal);
       mockStorageProviderRepository.findOne.mockResolvedValue({});
@@ -208,7 +223,7 @@ describe("DealService", () => {
         rootCid: CID.parse(mockRootCid),
       };
 
-      mockSynapseInstance.storage.createContext.mockResolvedValue({
+      createContextMock.mockResolvedValue({
         dataSetId: "dataset-123",
       });
 
@@ -230,9 +245,7 @@ describe("DealService", () => {
 
       const deal = await service.createDeal(mockSynapseInstance, mockProviderInfo, mockDealInput, uploadPayload);
 
-      expect(mockSynapseInstance.storage.createContext).toHaveBeenCalledWith(
-        expect.objectContaining({ providerAddress: "0xProvider" }),
-      );
+      expect(createContextMock).toHaveBeenCalledWith(expect.objectContaining({ providerAddress: "0xProvider" }));
       expect(dealRepoMock.create).toHaveBeenCalled();
 
       // Verify deal updates
@@ -266,7 +279,7 @@ describe("DealService", () => {
           isApproved: true,
         });
 
-        mockSynapseInstance.storage.createContext.mockResolvedValue({
+        createContextMock.mockResolvedValue({
           dataSetId: "dataset-123",
         });
 
@@ -348,7 +361,7 @@ describe("DealService", () => {
         providerId: 7,
         isApproved: false,
       });
-      mockSynapseInstance.storage.createContext.mockResolvedValue({
+      createContextMock.mockResolvedValue({
         dataSetId: "dataset-123",
       });
 
@@ -379,7 +392,7 @@ describe("DealService", () => {
         providerId: 7,
         isApproved: false,
       });
-      mockSynapseInstance.storage.createContext.mockResolvedValue({
+      createContextMock.mockResolvedValue({
         dataSetId: "dataset-123",
       });
 
@@ -406,7 +419,7 @@ describe("DealService", () => {
         rootCid: CID.parse(mockRootCid),
       };
 
-      mockSynapseInstance.storage.createContext.mockResolvedValue({
+      createContextMock.mockResolvedValue({
         dataSetId: "dataset-123",
       });
 
@@ -428,7 +441,7 @@ describe("DealService", () => {
         rootCid: CID.parse(mockRootCid),
       };
 
-      mockSynapseInstance.storage.createContext.mockRejectedValue(error);
+      createContextMock.mockRejectedValue(error);
 
       await expect(
         service.createDeal(mockSynapseInstance, mockProviderInfo, mockDealInput, uploadPayload),
@@ -469,7 +482,7 @@ describe("DealService", () => {
         rootCid: CID.parse(mockRootCid),
       };
 
-      mockSynapseInstance.storage.createContext.mockResolvedValue({
+      createContextMock.mockResolvedValue({
         dataSetId: "dataset-123",
       });
 
@@ -501,7 +514,7 @@ describe("DealService", () => {
         rootCid: CID.parse(mockRootCid),
       };
 
-      mockSynapseInstance.storage.createContext.mockResolvedValue({
+      createContextMock.mockResolvedValue({
         dataSetId: "dataset-123",
       });
 
@@ -541,16 +554,18 @@ describe("DealService", () => {
         isApproved: true,
       });
 
-      mockSynapseInstance.storage.createContext.mockResolvedValue({
+      createContextMock.mockResolvedValue({
         dataSetId: "dataset-123",
       });
 
       // Upload fires onUploadComplete and onPieceAdded, but rejects before onPieceConfirmed
-      (executeUpload as Mock).mockImplementation(async (_service: any, _data: any, _rootCid: any, options: any) => {
-        await options?.onProgress?.({ type: "onUploadComplete", data: { pieceCid: "bafk-uploaded" } });
-        await options?.onProgress?.({ type: "onPieceAdded", data: { txHash: "0xhash" } });
-        throw new Error("timed out waiting for piece confirmation");
-      });
+      (executeUpload as Mock).mockImplementation(
+        async (_service: unknown, _data: unknown, _rootCid: unknown, options?: ExecuteUploadOptions) => {
+          await options?.onProgress?.({ type: "onUploadComplete", data: { pieceCid: "bafk-uploaded" } });
+          await options?.onProgress?.({ type: "onPieceAdded", data: { txHash: "0xhash" } });
+          throw new Error("timed out waiting for piece confirmation");
+        },
+      );
 
       await expect(
         service.createDeal(mockSynapseInstance, mockProviderInfo, mockDealInput, uploadPayload),
@@ -582,7 +597,7 @@ describe("DealService", () => {
         isApproved: true,
       });
 
-      mockSynapseInstance.storage.createContext.mockResolvedValue({
+      createContextMock.mockResolvedValue({
         dataSetId: "dataset-123",
       });
 
@@ -624,7 +639,7 @@ describe("DealService", () => {
         rootCid: CID.parse(mockRootCid),
       };
 
-      mockSynapseInstance.storage.createContext.mockResolvedValue({
+      createContextMock.mockResolvedValue({
         dataSetId: "dataset-123",
       });
 
@@ -654,7 +669,7 @@ describe("DealService", () => {
       let dealInputWithMetadata: DealPreprocessingResult;
 
       beforeEach(() => {
-        mockSynapseInstance.storage.createContext.mockResolvedValue({
+        createContextMock.mockResolvedValue({
           dataSetId: "dataset-123",
         });
 
@@ -720,7 +735,7 @@ describe("DealService", () => {
         };
         await testService.createDeal(mockSynapseInstance, mockProviderInfo, dealInputWithMetadata, uploadPayload);
 
-        expect(mockSynapseInstance.storage.createContext).toHaveBeenCalledWith({
+        expect(createContextMock).toHaveBeenCalledWith({
           providerAddress: "0xProvider",
           metadata: {
             customKey: "customValue",
@@ -737,7 +752,7 @@ describe("DealService", () => {
         };
         await testService.createDeal(mockSynapseInstance, mockProviderInfo, dealInputWithMetadata, uploadPayload);
 
-        expect(mockSynapseInstance.storage.createContext).toHaveBeenCalledWith({
+        expect(createContextMock).toHaveBeenCalledWith({
           providerAddress: "0xProvider",
           metadata: {
             customKey: "customValue",
@@ -753,7 +768,7 @@ describe("DealService", () => {
         };
         await testService.createDeal(mockSynapseInstance, mockProviderInfo, dealInputWithMetadata, uploadPayload);
 
-        expect(mockSynapseInstance.storage.createContext).toHaveBeenCalledWith({
+        expect(createContextMock).toHaveBeenCalledWith({
           providerAddress: "0xProvider",
           metadata: {
             customKey: "customValue",
@@ -783,7 +798,7 @@ describe("DealService", () => {
         await testService.createDeal(mockSynapseInstance, mockProviderInfo, dealInputWithConflict, uploadPayload);
 
         // Verify config value overwrites dealInput value
-        expect(mockSynapseInstance.storage.createContext).toHaveBeenCalledWith({
+        expect(createContextMock).toHaveBeenCalledWith({
           providerAddress: "0xProvider",
           metadata: {
             customKey: "customValue",

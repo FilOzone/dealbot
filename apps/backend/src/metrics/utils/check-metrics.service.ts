@@ -5,8 +5,13 @@ import type { Deal } from "../../database/entities/deal.entity.js";
 import type { RetrievalExecutionResult } from "../../retrieval-addons/types.js";
 import { buildCheckMetricLabels, type CheckMetricLabels } from "./check-metric-labels.js";
 
+const metricsLogger = new Logger("CheckMetrics");
+
 function observePositive(metric: Histogram, labels: CheckMetricLabels, value: number | null | undefined): void {
-  if (!value || value <= 0) return;
+  if (value == null || !Number.isFinite(value) || value <= 0) {
+    metricsLogger.warn(`Dropping non-finite or non-positive metric value: ${value}`, "observePositive");
+    return;
+  }
   metric.observe({ ...labels }, value);
 }
 
