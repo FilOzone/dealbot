@@ -447,7 +447,7 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
     this.logger.debug(`Getting piece status from ${url}`);
 
     try {
-      const { data } = await this.httpClientService.requestWithoutProxyAndMetrics<Buffer>(url, {
+      const { data } = await this.httpClientService.requestWithMetrics<Buffer>(url, {
         method: "GET",
         headers: {
           Accept: "application/json",

@@ -6,10 +6,9 @@ import type { RetrievalConfiguration } from "./types.js";
 describe("RetrievalAddonsService error handling", () => {
   it("captures non-Error throw messages in execution results", async () => {
     const httpClientService = {
-      requestWithRandomProxyAndMetrics: vi.fn(async () => {
+      requestWithMetrics: vi.fn(async () => {
         throw "abort-reason";
       }),
-      requestWithoutProxyAndMetrics: vi.fn(),
     };
 
     const strategy = {

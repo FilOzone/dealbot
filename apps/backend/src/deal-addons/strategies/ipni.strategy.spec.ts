@@ -56,11 +56,11 @@ describe("IpniAddonStrategy getPieceStatus", () => {
 
   const createStrategy = () => {
     type HttpClientServiceMock = {
-      requestWithoutProxyAndMetrics: Mock;
+      requestWithMetrics: Mock;
     };
     const mockRepo = { save: vi.fn() } as unknown as ConstructorParameters<typeof IpniAddonStrategy>[0];
     const httpClientService: HttpClientServiceMock = {
-      requestWithoutProxyAndMetrics: vi.fn(),
+      requestWithMetrics: vi.fn(),
     };
     const mockDiscoverabilityMetrics = {
       observeSpIndexLocallyMs: vi.fn(),
@@ -98,7 +98,7 @@ describe("IpniAddonStrategy getPieceStatus", () => {
       advertised: false,
     };
 
-    httpClientService.requestWithoutProxyAndMetrics.mockResolvedValueOnce({
+    httpClientService.requestWithMetrics.mockResolvedValueOnce({
       data: Buffer.from(JSON.stringify(payload)),
     });
 
@@ -110,7 +110,7 @@ describe("IpniAddonStrategy getPieceStatus", () => {
   it("throws on invalid response format", async () => {
     const { strategy, httpClientService } = createStrategy();
 
-    httpClientService.requestWithoutProxyAndMetrics.mockResolvedValueOnce({
+    httpClientService.requestWithMetrics.mockResolvedValueOnce({
       data: Buffer.from(JSON.stringify({ foo: "bar" })),
     });
 
@@ -131,7 +131,7 @@ describe("IpniAddonStrategy getPieceStatus", () => {
       },
     };
 
-    httpClientService.requestWithoutProxyAndMetrics.mockRejectedValueOnce(error);
+    httpClientService.requestWithMetrics.mockRejectedValueOnce(error);
 
     const strategyForTest = asStrategyPrivates(strategy);
 
@@ -150,7 +150,7 @@ describe("IpniAddonStrategy getPieceStatus", () => {
       },
     };
 
-    httpClientService.requestWithoutProxyAndMetrics.mockRejectedValueOnce(error);
+    httpClientService.requestWithMetrics.mockRejectedValueOnce(error);
 
     const strategyForTest = asStrategyPrivates(strategy);
 
@@ -162,7 +162,7 @@ describe("IpniAddonStrategy getPieceStatus", () => {
   it("rethrows network errors", async () => {
     const { strategy, httpClientService } = createStrategy();
 
-    httpClientService.requestWithoutProxyAndMetrics.mockRejectedValueOnce(new Error("network down"));
+    httpClientService.requestWithMetrics.mockRejectedValueOnce(new Error("network down"));
 
     const strategyForTest = asStrategyPrivates(strategy);
 
