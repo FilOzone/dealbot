@@ -160,8 +160,8 @@ export class IpfsBlockRetrievalStrategy implements IRetrievalAddon {
     const processCid = async (cidStr: string) => {
       signal?.throwIfAborted();
 
-      const url = `${spEndpoint}/ipfs/${cidStr}?format=raw`;
-      const result = await this.httpClientService.requestWithoutProxyAndMetrics<Buffer>(url, {
+      const url = `${spEndpoint}/ipfs/${cidStr}`;
+      const result = await this.httpClientService.requestWithMetrics<Buffer>(url, {
         headers: { Accept: "application/vnd.ipld.raw" },
         httpVersion: "2",
         signal,

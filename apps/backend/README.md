@@ -135,15 +135,6 @@ These settings apply when `DEALBOT_JOBS_MODE=pgboss` (recommended). See
 | `DEALBOT_LOCAL_DATASETS_PATH` | Local path for random dataset storage           | `./datasets` |
 | `RANDOM_DATASET_SIZES`        | Comma-separated byte sizes for random datasets | `10240,10485760,104857600` |
 
-### Proxy Configuration (Optional)
-
-For retrieval testing through proxies:
-
-| Variable          | Description                                      | Example                                 |
-| ----------------- | ------------------------------------------------ | --------------------------------------- |
-| `PROXY_LIST`      | Comma-separated proxy URLs                       | `http://user:pass@host:port,http://...` |
-| `PROXY_LOCATIONS` | Comma-separated location identifiers for proxies | `us-east,eu-west`                       |
-
 ## Project Structure
 
 ```
@@ -162,7 +153,6 @@ backend/
 │   ├── scheduler/              # Cron job scheduling
 │   ├── wallet-sdk/             # Wallet and smart contract operations
 │   ├── http-client/            # HTTP client utilities
-│   ├── proxy/                  # Proxy management
 │   └── common/                 # Shared utilities and decorators
 ├── test/                       # E2E tests
 ├── dist/                       # Compiled output (after build)

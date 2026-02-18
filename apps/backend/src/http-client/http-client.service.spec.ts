@@ -3,7 +3,6 @@ import { ConfigService } from "@nestjs/config";
 import { Test, TestingModule } from "@nestjs/testing";
 import { of } from "rxjs";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ProxyService } from "../proxy/proxy.service.js";
 import { HttpClientService } from "./http-client.service.js";
 
 const { undiciRequestMock } = vi.hoisted(() => ({
@@ -11,17 +10,12 @@ const { undiciRequestMock } = vi.hoisted(() => ({
 }));
 
 vi.mock("undici", () => ({
-  ProxyAgent: class {},
   request: undiciRequestMock,
 }));
 
 describe("HttpClientService", () => {
   const mockHttpService = {
     request: vi.fn(),
-  };
-
-  const mockProxyService = {
-    getRandomProxy: vi.fn(),
   };
 
   const mockConfigService = {
@@ -47,7 +41,6 @@ describe("HttpClientService", () => {
       providers: [
         HttpClientService,
         { provide: HttpService, useValue: mockHttpService },
-        { provide: ProxyService, useValue: mockProxyService },
         { provide: ConfigService, useValue: mockConfigService },
       ],
     }).compile();
@@ -65,7 +58,7 @@ describe("HttpClientService", () => {
       }),
     );
 
-    await service.requestWithoutProxyAndMetrics("http://example.com", { httpVersion: "1.1" });
+    await service.requestWithMetrics("http://example.com", { httpVersion: "1.1" });
 
     const config = mockHttpService.request.mock.calls[0][0];
     expect(config.timeout).toBe(120000);
@@ -86,8 +79,8 @@ describe("HttpClientService", () => {
 
     vi.useFakeTimers();
 
-    const promise = service.requestWithoutProxyAndMetrics("http://example.com", { httpVersion: "2" });
-    const assertion = expect(promise).rejects.toThrow("HTTP/2 direct connection/headers timed out after 25ms");
+    const promise = service.requestWithMetrics("http://example.com", { httpVersion: "2" });
+    const assertion = expect(promise).rejects.toThrow("HTTP/2 connection/headers timed out after 25ms");
     await vi.advanceTimersByTimeAsync(25);
 
     await assertion;
