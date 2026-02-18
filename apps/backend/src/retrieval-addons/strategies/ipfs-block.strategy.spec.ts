@@ -29,7 +29,7 @@ function cidFromUrl(url: string): string {
 
 function createStrategy() {
   const httpClientService = {
-    requestWithoutProxyAndMetrics: vi.fn(),
+    requestWithMetrics: vi.fn(),
   };
 
   const walletSdkService = {
@@ -104,7 +104,7 @@ describe("IpfsBlockRetrievalStrategy", () => {
         [leaf2.cid.toString(), leaf2.bytes],
       ]);
 
-      httpClientService.requestWithoutProxyAndMetrics.mockImplementation(async (url: string) => {
+      httpClientService.requestWithMetrics.mockImplementation(async (url: string) => {
         const cidStr = cidFromUrl(url);
         const bytes = blockMap.get(cidStr);
         if (!bytes) throw new Error(`Not found: ${cidStr}`);
@@ -132,7 +132,7 @@ describe("IpfsBlockRetrievalStrategy", () => {
       const corruptLeafBytes = new Uint8Array(leaf.bytes);
       corruptLeafBytes[0] ^= 0xff;
 
-      httpClientService.requestWithoutProxyAndMetrics.mockImplementation(async (url: string) => {
+      httpClientService.requestWithMetrics.mockImplementation(async (url: string) => {
         const cidStr = cidFromUrl(url);
         let bytes: Uint8Array;
         if (cidStr === root.cid.toString()) {
@@ -159,7 +159,7 @@ describe("IpfsBlockRetrievalStrategy", () => {
       const leaf = await makeRawBlock(new Uint8Array([1, 2, 3]));
       const root = await makeDagPbBlock([leaf.cid]);
 
-      httpClientService.requestWithoutProxyAndMetrics.mockImplementation(async (url: string) => {
+      httpClientService.requestWithMetrics.mockImplementation(async (url: string) => {
         const cidStr = cidFromUrl(url);
         if (cidStr === root.cid.toString()) {
           return {
@@ -187,7 +187,7 @@ describe("IpfsBlockRetrievalStrategy", () => {
 
       const root = await makeDagPbBlock([fakeCid]);
 
-      httpClientService.requestWithoutProxyAndMetrics.mockImplementation(async (url: string) => {
+      httpClientService.requestWithMetrics.mockImplementation(async (url: string) => {
         const cidStr = cidFromUrl(url);
         const bytes = cidStr === root.cid.toString() ? root.bytes : leaf.bytes;
         return {
@@ -218,7 +218,7 @@ describe("IpfsBlockRetrievalStrategy", () => {
         [shared.cid.toString(), shared.bytes],
       ]);
 
-      httpClientService.requestWithoutProxyAndMetrics.mockImplementation(async (url: string) => {
+      httpClientService.requestWithMetrics.mockImplementation(async (url: string) => {
         const cidStr = cidFromUrl(url);
         const bytes = blockMap.get(cidStr);
         if (!bytes) throw new Error(`Not found: ${cidStr}`);
@@ -233,9 +233,7 @@ describe("IpfsBlockRetrievalStrategy", () => {
 
       expect(result.isValid).toBe(true);
       // Shared block fetched once, not twice
-      const fetchedCids = httpClientService.requestWithoutProxyAndMetrics.mock.calls.map((call: any[]) =>
-        cidFromUrl(call[0]),
-      );
+      const fetchedCids = httpClientService.requestWithMetrics.mock.calls.map((call: any[]) => cidFromUrl(call[0]));
       const sharedFetches = fetchedCids.filter((c: string) => c === shared.cid.toString());
       expect(sharedFetches).toHaveLength(1);
     });
