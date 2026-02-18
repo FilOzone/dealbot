@@ -29,7 +29,10 @@ const makeProvider = (overrides: Partial<ProviderEntry> = {}): ProviderEntry => 
 describe("DataRetentionService", () => {
   let service: DataRetentionService;
   let configServiceMock: ConfigService<IConfig, true>;
-  let walletSdkServiceMock: { getBlockNumber: ReturnType<typeof vi.fn> };
+  let walletSdkServiceMock: {
+    getBlockNumber: ReturnType<typeof vi.fn>;
+    getTestingProviders: ReturnType<typeof vi.fn>;
+  };
   let pdpSubgraphServiceMock: { fetchProvidersWithDatasets: ReturnType<typeof vi.fn> };
   let counterMock: { labels: ReturnType<typeof vi.fn>; inc: ReturnType<typeof vi.fn> };
 
@@ -45,6 +48,18 @@ describe("DataRetentionService", () => {
 
     walletSdkServiceMock = {
       getBlockNumber: vi.fn().mockResolvedValue(1200),
+      getTestingProviders: vi.fn().mockReturnValue([
+        {
+          id: 1,
+          serviceProvider: PROVIDER_A,
+          isApproved: true,
+        },
+        {
+          id: 2,
+          serviceProvider: PROVIDER_B,
+          isApproved: false,
+        },
+      ]),
     };
 
     pdpSubgraphServiceMock = {
@@ -76,21 +91,50 @@ describe("DataRetentionService", () => {
     expect(pdpSubgraphServiceMock.fetchProvidersWithDatasets).not.toHaveBeenCalled();
   });
 
+  it("returns early when no testing providers configured", async () => {
+    walletSdkServiceMock.getTestingProviders.mockReturnValueOnce(null);
+
+    await service.pollDataRetention();
+
+    expect(pdpSubgraphServiceMock.fetchProvidersWithDatasets).not.toHaveBeenCalled();
+  });
+
+  it("returns early when testing providers array is empty", async () => {
+    walletSdkServiceMock.getTestingProviders.mockReturnValueOnce([]);
+
+    await service.pollDataRetention();
+
+    expect(pdpSubgraphServiceMock.fetchProvidersWithDatasets).not.toHaveBeenCalled();
+  });
+
   it("fetches providers and increments counters on first poll", async () => {
     pdpSubgraphServiceMock.fetchProvidersWithDatasets.mockResolvedValueOnce([makeProvider()]);
 
     await service.pollDataRetention();
 
     expect(walletSdkServiceMock.getBlockNumber).toHaveBeenCalled();
-    expect(pdpSubgraphServiceMock.fetchProvidersWithDatasets).toHaveBeenCalledWith(1200);
+    expect(pdpSubgraphServiceMock.fetchProvidersWithDatasets).toHaveBeenCalledWith({
+      blockNumber: 1200,
+      addresses: [PROVIDER_A, PROVIDER_B],
+    });
 
     // estimatedOverduePeriods = (1200 - (900 + 1)) / 100 = 299 / 100 = 2 (integer division)
     // estimatedTotalFaulted = 10 + 2 = 12
     // estimatedTotalPeriods = 100 + 2 = 102
     // estimatedTotalSuccess = 102 - 12 = 90
     // First poll: delta = full value (no previous)
-    expect(counterMock.labels).toHaveBeenCalledWith({ status: "faulted", provider: PROVIDER_A });
-    expect(counterMock.labels).toHaveBeenCalledWith({ status: "success", provider: PROVIDER_A });
+    expect(counterMock.labels).toHaveBeenCalledWith({
+      checkType: "dataRetention",
+      providerId: "1",
+      providerStatus: "approved",
+      value: "fault",
+    });
+    expect(counterMock.labels).toHaveBeenCalledWith({
+      checkType: "dataRetention",
+      providerId: "1",
+      providerStatus: "approved",
+      value: "success",
+    });
   });
 
   it("computes deltas correctly on consecutive polls", async () => {
@@ -138,10 +182,10 @@ describe("DataRetentionService", () => {
 
     const labelCalls = counterMock.labels.mock.calls;
     const providerAFaulted = labelCalls.some(
-      (call: [Record<string, string>]) => call[0].provider === PROVIDER_A && call[0].status === "faulted",
+      (call: [Record<string, string>]) => call[0].providerId === "1" && call[0].value === "fault",
     );
     const providerBFaulted = labelCalls.some(
-      (call: [Record<string, string>]) => call[0].provider === PROVIDER_B && call[0].status === "faulted",
+      (call: [Record<string, string>]) => call[0].providerId === "2" && call[0].value === "fault",
     );
     expect(providerAFaulted).toBe(true);
     expect(providerBFaulted).toBe(true);
@@ -167,8 +211,18 @@ describe("DataRetentionService", () => {
     // estimatedTotalFaulted = 10 + 0 = 10
     // estimatedTotalPeriods = 100 + 0 = 100
     // estimatedTotalSuccess = 100 - 10 = 90
-    expect(counterMock.labels).toHaveBeenCalledWith({ status: "faulted", provider: PROVIDER_A });
-    expect(counterMock.labels).toHaveBeenCalledWith({ status: "success", provider: PROVIDER_A });
+    expect(counterMock.labels).toHaveBeenCalledWith({
+      checkType: "dataRetention",
+      providerId: "1",
+      providerStatus: "approved",
+      value: "fault",
+    });
+    expect(counterMock.labels).toHaveBeenCalledWith({
+      checkType: "dataRetention",
+      providerId: "1",
+      providerStatus: "approved",
+      value: "success",
+    });
   });
 
   it("handles empty providers array without errors", async () => {
@@ -189,8 +243,18 @@ describe("DataRetentionService", () => {
     // estimatedTotalFaulted = 10 + 0 = 10
     // estimatedTotalPeriods = 100 + 0 = 100
     // estimatedTotalSuccess = 100 - 10 = 90
-    expect(counterMock.labels).toHaveBeenCalledWith({ status: "faulted", provider: PROVIDER_A });
-    expect(counterMock.labels).toHaveBeenCalledWith({ status: "success", provider: PROVIDER_A });
+    expect(counterMock.labels).toHaveBeenCalledWith({
+      checkType: "dataRetention",
+      providerId: "1",
+      providerStatus: "approved",
+      value: "fault",
+    });
+    expect(counterMock.labels).toHaveBeenCalledWith({
+      checkType: "dataRetention",
+      providerId: "1",
+      providerStatus: "approved",
+      value: "success",
+    });
   });
 
   it("catches and logs errors without rethrowing", async () => {
@@ -249,7 +313,70 @@ describe("DataRetentionService", () => {
     // estimatedTotalSuccess = 52 - 2 = 50
 
     // Both faulted (2) and success (50) are positive, so both should be incremented
-    expect(counterMock.labels).toHaveBeenCalledWith({ status: "faulted", provider: PROVIDER_A });
-    expect(counterMock.labels).toHaveBeenCalledWith({ status: "success", provider: PROVIDER_A });
+    expect(counterMock.labels).toHaveBeenCalledWith({
+      checkType: "dataRetention",
+      providerId: "1",
+      providerStatus: "approved",
+      value: "fault",
+    });
+    expect(counterMock.labels).toHaveBeenCalledWith({
+      checkType: "dataRetention",
+      providerId: "1",
+      providerStatus: "approved",
+      value: "success",
+    });
+  });
+
+  it("processes providers in batches of MAX_PROVIDER_BATCH_LENGTH", async () => {
+    // Create 75 providers (should be split into 2 batches: 50 + 25)
+    const manyProviders = Array.from({ length: 75 }, (_, i) => ({
+      id: i + 1,
+      serviceProvider: `0x${i.toString().padStart(40, "0")}`,
+      isApproved: true,
+    }));
+    walletSdkServiceMock.getTestingProviders.mockReturnValueOnce(manyProviders);
+
+    pdpSubgraphServiceMock.fetchProvidersWithDatasets.mockResolvedValue([]);
+
+    await service.pollDataRetention();
+
+    // Should be called twice: once for first 50, once for remaining 25
+    expect(pdpSubgraphServiceMock.fetchProvidersWithDatasets).toHaveBeenCalledTimes(2);
+    expect(pdpSubgraphServiceMock.fetchProvidersWithDatasets).toHaveBeenNthCalledWith(1, {
+      blockNumber: 1200,
+      addresses: expect.arrayContaining([expect.any(String)]),
+    });
+    expect(pdpSubgraphServiceMock.fetchProvidersWithDatasets.mock.calls[0][0].addresses).toHaveLength(50);
+    expect(pdpSubgraphServiceMock.fetchProvidersWithDatasets.mock.calls[1][0].addresses).toHaveLength(25);
+  });
+
+  it("continues processing next batch if one batch fails", async () => {
+    const manyProviders = Array.from({ length: 75 }, (_, i) => ({
+      id: i + 1,
+      serviceProvider: `0x${i.toString().padStart(40, "0")}`,
+      isApproved: true,
+    }));
+    walletSdkServiceMock.getTestingProviders.mockReturnValueOnce(manyProviders);
+
+    // First batch fails, second succeeds
+    pdpSubgraphServiceMock.fetchProvidersWithDatasets
+      .mockRejectedValueOnce(new Error("Subgraph timeout"))
+      .mockResolvedValueOnce([]);
+
+    await service.pollDataRetention();
+
+    // Both batches should be attempted
+    expect(pdpSubgraphServiceMock.fetchProvidersWithDatasets).toHaveBeenCalledTimes(2);
+  });
+
+  it("rejects with error when provider not found in cache but returned from subgraph", async () => {
+    // Provider C not in cache
+    const PROVIDER_C = "0x1234567890123456789012345678901234567890";
+    pdpSubgraphServiceMock.fetchProvidersWithDatasets.mockResolvedValueOnce([makeProvider({ address: PROVIDER_C })]);
+
+    await service.pollDataRetention();
+
+    // Should not increment counters for missing provider
+    expect(counterMock.labels).not.toHaveBeenCalled();
   });
 });

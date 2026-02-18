@@ -1,7 +1,7 @@
 export const Queries = {
   GET_PROVIDERS_WITH_DATASETS: `
-      query GetProvidersWithDataSet($blockNumber: BigInt!) {
-        providers {
+      query GetProvidersWithDataSet($addresses: [Bytes!], $blockNumber: BigInt!) {
+        providers(where: {address_in: $addresses}) {
           address
           totalFaultedPeriods
           totalProvingPeriods

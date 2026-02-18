@@ -4,11 +4,15 @@ import { InjectMetric } from "@willsoto/nestjs-prometheus";
 import { Counter } from "prom-client";
 import { IConfig } from "../config/app.config.js";
 import { PDPSubgraphService } from "../pdp-subgraph/pdp-subgraph.service.js";
+import { type IProviderDataSetResponse } from "../pdp-subgraph/types.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
+import { type ProviderInfoEx } from "../wallet-sdk/wallet-sdk.types.js";
 
 @Injectable()
 export class DataRetentionService {
   private readonly logger = new Logger(DataRetentionService.name);
+
+  private static readonly MAX_PROVIDER_BATCH_LENGTH = 50;
 
   /**
    * Tracks cumulative faulted/success period totals per provider address.
@@ -26,15 +30,15 @@ export class DataRetentionService {
     private readonly configService: ConfigService<IConfig, true>,
     private readonly walletSdkService: WalletSdkService,
     private readonly pdpSubgraphService: PDPSubgraphService,
-    @InjectMetric("data_retention_periods_total")
-    private readonly dataRetentionPeriodsTotalCounter: Counter,
+    @InjectMetric("dataSetChallengeStatus")
+    private readonly dataSetChallengeStatusCounter: Counter,
   ) {
     this.providerCumulativeTotals = new Map();
   }
 
   /**
    * Polls the PDP subgraph for provider proof-set data, computes estimated
-   * faulted and successful proving periods, and increments Prometheus counters
+   * faulted and successful proving periods (challenges), and increments Prometheus counters
    * with the delta since the last poll.
    */
   async pollDataRetention(): Promise<void> {
@@ -48,51 +52,123 @@ export class DataRetentionService {
 
     try {
       const blockNumber = await this.walletSdkService.getBlockNumber();
-      const providers = await this.pdpSubgraphService.fetchProvidersWithDatasets(blockNumber);
+      const providerInfos = this.walletSdkService.getTestingProviders();
 
-      for (const provider of providers) {
-        const { address, totalFaultedPeriods, totalProvingPeriods, proofSets } = provider;
+      if (!providerInfos || providerInfos.length === 0) {
+        this.logger.warn("No testing providers configured");
+        return;
+      }
 
-        const estimatedOverduePeriods = proofSets.reduce((acc, proofSet) => {
-          if (proofSet.maxProvingPeriod === 0n) {
-            return acc;
-          }
-          return acc + (BigInt(blockNumber) - (proofSet.nextDeadline + 1n)) / proofSet.maxProvingPeriod;
-        }, 0n);
+      const blockNumberBigInt = BigInt(blockNumber);
+      // Create snapshot of provider cache to avoid race condition if loadProviders() clears cache
+      const providerInfoMap = new Map(providerInfos.map((info) => [info.serviceProvider, info]));
+      const providerAddresses = Array.from(providerInfoMap.keys());
 
-        const estimatedTotalFaulted = totalFaultedPeriods + estimatedOverduePeriods;
-        const estimatedTotalPeriods = totalProvingPeriods + estimatedOverduePeriods;
-        const estimatedTotalSuccess = estimatedTotalPeriods - estimatedTotalFaulted;
+      for (let i = 0; i < providerAddresses.length; i += DataRetentionService.MAX_PROVIDER_BATCH_LENGTH) {
+        const batchAddresses = providerAddresses.slice(
+          i,
+          Math.min(providerAddresses.length, i + DataRetentionService.MAX_PROVIDER_BATCH_LENGTH),
+        );
 
-        const previous = this.providerCumulativeTotals.get(address);
-        const faultedDelta = previous ? estimatedTotalFaulted - previous.faultedPeriods : estimatedTotalFaulted;
-        const successDelta = previous ? estimatedTotalSuccess - previous.successPeriods : estimatedTotalSuccess;
+        try {
+          const providersFromSubgraph = await this.pdpSubgraphService.fetchProvidersWithDatasets({
+            blockNumber,
+            addresses: batchAddresses,
+          });
 
-        if (faultedDelta < 0n || successDelta < 0n) {
-          this.logger.warn(
-            `Negative delta detected for provider ${address} (faulted: ${faultedDelta}, success: ${successDelta}); skipping counter update`,
+          // Process providers in parallel
+          const processingResults = await Promise.allSettled(
+            providersFromSubgraph.map((provider) => {
+              const providerInfo = providerInfoMap.get(provider.address);
+              if (!providerInfo) {
+                return Promise.reject(
+                  new Error(
+                    `Provider ${provider.address} returned from subgraph but not found in local cache - data inconsistency`,
+                  ),
+                );
+              }
+              return this.processProvider(provider, blockNumberBigInt, providerInfo);
+            }),
           );
-        }
 
-        if (faultedDelta > 0n) {
-          this.dataRetentionPeriodsTotalCounter
-            .labels({ status: "faulted", provider: address })
-            .inc(Number(faultedDelta));
+          // Log any processing failures
+          processingResults.forEach((result, index) => {
+            if (result.status === "rejected") {
+              this.logger.error(`Failed to process provider ${providersFromSubgraph[index].address}: ${result.reason}`);
+            }
+          });
+        } catch (error) {
+          this.logger.error(
+            `Failed to fetch batch starting at index ${i}: ${error instanceof Error ? error.message : "Unknown error"}`,
+          );
+          // Continue processing next batch
         }
-
-        if (successDelta > 0n) {
-          this.dataRetentionPeriodsTotalCounter
-            .labels({ status: "success", provider: address })
-            .inc(Number(successDelta));
-        }
-
-        this.providerCumulativeTotals.set(address, {
-          faultedPeriods: estimatedTotalFaulted,
-          successPeriods: estimatedTotalSuccess,
-        });
       }
     } catch (error) {
       this.logger.error("Failed to poll data retention", error);
     }
+  }
+
+  /**
+   * Process a single provider's data retention metrics
+   */
+  private async processProvider(
+    provider: IProviderDataSetResponse["providers"][number],
+    blockNumberBigInt: bigint,
+    providerInfo: ProviderInfoEx,
+  ): Promise<void> {
+    const { address, totalFaultedPeriods, totalProvingPeriods, proofSets } = provider;
+    // Note: Query filters proofSets with nextDeadline_lt: $blockNumber, so all deadlines are in the past
+    const estimatedOverduePeriods = proofSets.reduce((acc, proofSet) => {
+      if (proofSet.maxProvingPeriod === 0n) {
+        return acc;
+      }
+      return acc + (blockNumberBigInt - (proofSet.nextDeadline + 1n)) / proofSet.maxProvingPeriod;
+    }, 0n);
+
+    const estimatedTotalFaulted = totalFaultedPeriods + estimatedOverduePeriods;
+    const estimatedTotalPeriods = totalProvingPeriods + estimatedOverduePeriods;
+    const estimatedTotalSuccess = estimatedTotalPeriods - estimatedTotalFaulted;
+
+    const previous = this.providerCumulativeTotals.get(address);
+    const faultedDelta = previous ? estimatedTotalFaulted - previous.faultedPeriods : estimatedTotalFaulted;
+    const successDelta = previous ? estimatedTotalSuccess - previous.successPeriods : estimatedTotalSuccess;
+
+    if (faultedDelta < 0n || successDelta < 0n) {
+      this.logger.warn(
+        `Negative delta detected for provider ${address} (faulted: ${faultedDelta}, success: ${successDelta}); skipping counter update`,
+      );
+      return;
+    }
+
+    const providerIdStr = providerInfo.id.toString();
+    const providerStatus = providerInfo.isApproved ? "approved" : "unapproved";
+
+    if (faultedDelta > 0n) {
+      this.dataSetChallengeStatusCounter
+        .labels({
+          checkType: "dataRetention",
+          providerId: providerIdStr,
+          providerStatus,
+          value: "fault",
+        })
+        .inc(Number(faultedDelta));
+    }
+
+    if (successDelta > 0n) {
+      this.dataSetChallengeStatusCounter
+        .labels({
+          checkType: "dataRetention",
+          providerId: providerIdStr,
+          providerStatus,
+          value: "success",
+        })
+        .inc(Number(successDelta));
+    }
+
+    this.providerCumulativeTotals.set(address, {
+      faultedPeriods: estimatedTotalFaulted,
+      successPeriods: estimatedTotalSuccess,
+    });
   }
 }

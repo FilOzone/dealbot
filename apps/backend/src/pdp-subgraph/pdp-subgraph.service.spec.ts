@@ -55,7 +55,10 @@ describe("PDPSubgraphService", () => {
       json: async () => makeSubgraphResponse([makeValidProvider()]),
     });
 
-    const providers = await service.fetchProvidersWithDatasets(5000);
+    const providers = await service.fetchProvidersWithDatasets({
+      blockNumber: 5000,
+      addresses: [VALID_ADDRESS],
+    });
 
     expect(fetchMock).toHaveBeenCalledWith(SUBGRAPH_ENDPOINT, {
       method: "POST",
@@ -76,8 +79,21 @@ describe("PDPSubgraphService", () => {
       json: async () => makeSubgraphResponse([]),
     });
 
-    const providers = await service.fetchProvidersWithDatasets(5000);
+    const providers = await service.fetchProvidersWithDatasets({
+      blockNumber: 5000,
+      addresses: [VALID_ADDRESS],
+    });
     expect(providers).toEqual([]);
+  });
+
+  it("returns empty array when addresses array is empty", async () => {
+    const providers = await service.fetchProvidersWithDatasets({
+      blockNumber: 5000,
+      addresses: [],
+    });
+
+    expect(providers).toEqual([]);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("throws on HTTP error response", async () => {
@@ -86,7 +102,12 @@ describe("PDPSubgraphService", () => {
       status: 500,
     });
 
-    await expect(service.fetchProvidersWithDatasets(5000)).rejects.toThrow("Failed to fetch provider data");
+    await expect(
+      service.fetchProvidersWithDatasets({
+        blockNumber: 5000,
+        addresses: [VALID_ADDRESS],
+      }),
+    ).rejects.toThrow("Failed to fetch provider data after 3 attempts");
   });
 
   it("throws on GraphQL errors in response", async () => {
@@ -98,16 +119,27 @@ describe("PDPSubgraphService", () => {
       }),
     });
 
-    await expect(service.fetchProvidersWithDatasets(5000)).rejects.toThrow("Failed to fetch provider data");
+    await expect(
+      service.fetchProvidersWithDatasets({
+        blockNumber: 5000,
+        addresses: [VALID_ADDRESS],
+      }),
+    ).rejects.toThrow("Failed to fetch provider data after 3 attempts");
   });
 
   it("throws on network failure", async () => {
     fetchMock.mockRejectedValueOnce(new Error("Network error"));
 
-    await expect(service.fetchProvidersWithDatasets(5000)).rejects.toThrow("Failed to fetch provider data");
+    const promise = service.fetchProvidersWithDatasets({
+      blockNumber: 5000,
+      addresses: [VALID_ADDRESS],
+    });
+
+    await expect(promise).rejects.toThrow("Failed to fetch provider data after 3 attempts");
+    expect(fetchMock).toHaveBeenCalledTimes(3); // Initial + 2 retries = 3 total
   });
 
-  it("throws when response data fails validation", async () => {
+  it("throws immediately on validation error without retrying", async () => {
     fetchMock.mockResolvedValueOnce({
       ok: true,
       json: async () => ({
@@ -115,7 +147,34 @@ describe("PDPSubgraphService", () => {
       }),
     });
 
-    await expect(service.fetchProvidersWithDatasets(5000)).rejects.toThrow("Failed to fetch provider data");
+    await expect(
+      service.fetchProvidersWithDatasets({
+        blockNumber: 5000,
+        addresses: [VALID_ADDRESS],
+      }),
+    ).rejects.toThrow("Data validation failed");
+
+    // Should only be called once - no retries for validation errors
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("throws immediately when response data is missing required fields", async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        data: { providers: [{ address: VALID_ADDRESS }] }, // Missing required fields
+      }),
+    });
+
+    await expect(
+      service.fetchProvidersWithDatasets({
+        blockNumber: 5000,
+        addresses: [VALID_ADDRESS],
+      }),
+    ).rejects.toThrow("Data validation failed");
+
+    // Should only be called once - no retries for validation errors
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("sends blockNumber as string in the GraphQL variables", async () => {
@@ -124,9 +183,121 @@ describe("PDPSubgraphService", () => {
       json: async () => makeSubgraphResponse([makeValidProvider()]),
     });
 
-    await service.fetchProvidersWithDatasets(12345);
+    await service.fetchProvidersWithDatasets({
+      blockNumber: 12345,
+      addresses: [VALID_ADDRESS],
+    });
 
     const body = JSON.parse(fetchMock.mock.calls[0][1].body);
     expect(body.variables.blockNumber).toBe("12345");
+  });
+
+  it("retries network errors but not validation errors", async () => {
+    // First attempt: network error (should retry)
+    fetchMock.mockRejectedValueOnce(new Error("Network timeout"));
+
+    // Second attempt: succeeds but validation fails (should not retry)
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        data: { providers: [{ address: "invalid" }] },
+      }),
+    });
+
+    await expect(
+      service.fetchProvidersWithDatasets({
+        blockNumber: 5000,
+        addresses: [VALID_ADDRESS],
+      }),
+    ).rejects.toThrow("Data validation failed");
+
+    // Should be called twice: initial network error + 1 retry that fails validation
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("sends addresses array in the GraphQL variables", async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => makeSubgraphResponse([makeValidProvider()]),
+    });
+
+    const addresses = [VALID_ADDRESS, "0xAb5801a7D398351b8bE11C439e05C5B3259aeC9B"];
+    await service.fetchProvidersWithDatasets({
+      blockNumber: 5000,
+      addresses,
+    });
+
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body.variables.addresses).toEqual(addresses);
+  });
+
+  it("batches large address lists into chunks of MAX_PROVIDERS_PER_QUERY", async () => {
+    // Create 150 addresses (should be split into 2 batches: 100 + 50)
+    const addresses = Array.from({ length: 150 }, (_, i) => `0x${i.toString().padStart(40, "0")}`);
+
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => makeSubgraphResponse([]),
+    });
+
+    await service.fetchProvidersWithDatasets({
+      blockNumber: 5000,
+      addresses,
+    });
+
+    // Should make 2 requests
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("retries failed requests with exponential backoff", async () => {
+    vi.useFakeTimers();
+
+    // Fail on first attempt, succeed on second attempt (1 retry)
+    fetchMock.mockRejectedValueOnce(new Error("Network timeout")).mockResolvedValueOnce({
+      ok: true,
+      json: async () => makeSubgraphResponse([makeValidProvider()]),
+    });
+
+    const promise = service.fetchProvidersWithDatasets({
+      blockNumber: 5000,
+      addresses: [VALID_ADDRESS],
+    });
+
+    // Fast-forward through retry delays
+    await vi.runAllTimersAsync();
+    const providers = await promise;
+
+    expect(fetchMock).toHaveBeenCalledTimes(2); // Initial attempt + 1 retry
+    expect(providers).toHaveLength(1);
+
+    vi.useRealTimers();
+  });
+
+  it("processes batches with concurrency control", async () => {
+    // Create 120 addresses (should be 2 batches of 100 each, but processed with concurrency limit)
+    const addresses = Array.from({ length: 120 }, (_, i) => `0x${i.toString().padStart(40, "0")}`);
+
+    let concurrentCalls = 0;
+    let maxConcurrentCalls = 0;
+
+    fetchMock.mockImplementation(async () => {
+      concurrentCalls++;
+      maxConcurrentCalls = Math.max(maxConcurrentCalls, concurrentCalls);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      concurrentCalls--;
+      return {
+        ok: true,
+        json: async () => makeSubgraphResponse([]),
+      };
+    });
+
+    await service.fetchProvidersWithDatasets({
+      blockNumber: 5000,
+      addresses,
+    });
+
+    // Should respect MAX_CONCURRENT_REQUESTS (50)
+    expect(maxConcurrentCalls).toBeLessThanOrEqual(50);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });

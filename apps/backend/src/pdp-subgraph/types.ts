@@ -1,6 +1,11 @@
 import Joi from "joi";
 import { Hex, isAddress } from "viem";
 
+export type ProvidersWithDataSetsOptions = {
+  addresses: string[];
+  blockNumber: number;
+};
+
 /**
  * A single proof set within a provider, representing deadline and fault data.
  * All numeric fields are bigints converted from the subgraph string representation.
