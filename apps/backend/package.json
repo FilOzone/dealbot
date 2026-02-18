@@ -28,7 +28,7 @@
     "typecheck": "tsc --noEmit --incremental false"
   },
   "dependencies": {
-    "@filoz/synapse-sdk": "0.36.1",
+    "@filoz/synapse-sdk": "0.37.0",
     "@ipld/car": "^5.4.2",
     "@ipld/dag-pb": "^4.1.4",
     "@nestjs/axios": "^4.0.1",
@@ -47,7 +47,7 @@
     "cors": "^2.8.6",
     "cron": "4.4.0",
     "ethers": "^6.16.0",
-    "filecoin-pin": "^0.15.1",
+    "filecoin-pin": "^0.16.0",
     "helmet": "^8.1.0",
     "joi": "^18.0.2",
     "multiformats": "^13.4.2",
@@ -57,8 +57,8 @@
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2",
     "typeorm": "^0.3.28",
-    "undici": "^7.21.0",
-    "viem": "^2.45.2"
+    "undici": "^7.22.0",
+    "viem": "^2.46.1"
   },
   "devDependencies": {
     "@biomejs/biome": "catalog:",
