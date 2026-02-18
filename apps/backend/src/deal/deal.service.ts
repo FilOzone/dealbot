@@ -2,10 +2,8 @@ import { RPC_URLS, SIZE_CONSTANTS, Synapse } from "@filoz/synapse-sdk";
 import { Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
-import { InjectMetric } from "@willsoto/nestjs-prometheus";
 import { cleanupSynapseService, executeUpload } from "filecoin-pin";
 import { CID } from "multiformats/cid";
-import type { Counter, Histogram } from "prom-client";
 import type { Repository } from "typeorm";
 import { buildUnixfsCar } from "../common/car-utils.js";
 import { createFilecoinPinLogger } from "../common/filecoin-pin-logger.js";
@@ -17,6 +15,8 @@ import { DealStatus, ServiceType } from "../database/types.js";
 import { DataSourceService } from "../dataSource/dataSource.service.js";
 import { DealAddonsService } from "../deal-addons/deal-addons.service.js";
 import type { DealPreprocessingResult } from "../deal-addons/types.js";
+import { buildCheckMetricLabels, classifyFailureStatus } from "../metrics/utils/check-metric-labels.js";
+import { DataStorageCheckMetrics, RetrievalCheckMetrics } from "../metrics/utils/check-metrics.service.js";
 import { RetrievalAddonsService } from "../retrieval-addons/retrieval-addons.service.js";
 import type { RetrievalConfiguration } from "../retrieval-addons/types.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
@@ -51,14 +51,8 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     private readonly dealRepository: Repository<Deal>,
     @InjectRepository(StorageProvider)
     private readonly storageProviderRepository: Repository<StorageProvider>,
-    @InjectMetric("deals_created_total")
-    private readonly dealsCreatedCounter: Counter,
-    @InjectMetric("deal_creation_duration_seconds")
-    private readonly dealCreationDuration: Histogram,
-    @InjectMetric("deal_upload_duration_seconds")
-    private readonly dealUploadDuration: Histogram,
-    @InjectMetric("deal_chain_latency_seconds")
-    private readonly dealChainLatency: Histogram,
+    private readonly dataStorageMetrics: DataStorageCheckMetrics,
+    private readonly retrievalMetrics: RetrievalCheckMetrics,
   ) {
     this.blockchainConfig = this.configService.get("blockchain");
   }
@@ -176,8 +170,16 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     signal?: AbortSignal,
   ): Promise<Deal> {
     const providerAddress = providerInfo.serviceProvider;
-    const providerShort = providerAddress.slice(0, 8);
-    const dealStartTime = Date.now();
+    const checkType = "dataStorage" as const;
+    let providerLabels = buildCheckMetricLabels({
+      checkType,
+      providerId: undefined,
+      providerIsApproved: providerInfo.isApproved,
+    });
+    let uploadSucceeded = false;
+    let onchainSucceeded = false;
+    let retrievalStarted = false;
+    let retrievalStatusEmitted = false;
 
     let deal: Deal;
     if (existingDealId) {
@@ -205,6 +207,12 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       deal.storageProvider = await this.storageProviderRepository.findOne({
         where: { address: deal.spAddress },
       });
+      providerLabels = buildCheckMetricLabels({
+        checkType,
+        providerId: deal.storageProvider?.providerId,
+        providerIsApproved: providerInfo.isApproved ?? deal.storageProvider?.isApproved,
+      });
+      this.dataStorageMetrics.recordUploadStatus(providerLabels, "pending");
 
       const dataSetMetadata = { ...dealInput.synapseConfig.dataSetMetadata };
 
@@ -239,12 +247,16 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
         onProgress: async (event) => {
           this.logger.debug(`Upload progress event: ${event.type}`);
           switch (event.type) {
-            case "onUploadComplete":
+            case "onUploadComplete": {
               deal.uploadEndTime = new Date();
               deal.status = DealStatus.UPLOADED;
               deal.ingestLatencyMs = deal.uploadEndTime.getTime() - deal.uploadStartTime.getTime();
               deal.pieceCid = event.data.pieceCid.toString();
               this.logger.log(`Upload complete event, pieceCid: ${deal.pieceCid}`);
+              uploadSucceeded = true;
+              this.dataStorageMetrics.observeIngestMs(providerLabels, deal.ingestLatencyMs);
+              this.dataStorageMetrics.recordUploadStatus(providerLabels, "success");
+              this.dataStorageMetrics.recordOnchainStatus(providerLabels, "pending");
               onUploadCompleteAddonsPromise = this.dealAddonsService
                 .handleUploadComplete(deal, dealInput.appliedAddons, signal)
                 .then(() => true)
@@ -252,10 +264,18 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
                   uploadCompleteError = error;
                   return false;
                 });
-              deal.ingestThroughputBps = Math.round(
-                deal.fileSize / ((deal.uploadEndTime.getTime() - deal.uploadStartTime.getTime()) / 1000),
-              );
+              const ingestSeconds = deal.ingestLatencyMs / 1000;
+              if (ingestSeconds > 0 && Number.isFinite(ingestSeconds)) {
+                deal.ingestThroughputBps = Math.round(deal.fileSize / ingestSeconds);
+                this.dataStorageMetrics.observeIngestThroughput(providerLabels, deal.ingestThroughputBps);
+              } else {
+                deal.ingestThroughputBps = 0;
+                this.logger.warn(
+                  `Skipping ingest throughput: invalid ingest latency (${deal.ingestLatencyMs}ms) for deal ${deal.id}`,
+                );
+              }
               break;
+            }
             case "onPieceAdded":
               this.logger.log(`Piece added event, txHash: ${event.data.txHash}`);
               deal.pieceAddedTime = new Date();
@@ -265,12 +285,19 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
                 this.logger.warn(`No transaction hash found for piece added event: ${deal.pieceCid}`);
               }
               deal.status = DealStatus.PIECE_ADDED;
+              this.dataStorageMetrics.observePieceAddedOnChainMs(
+                providerLabels,
+                deal.pieceAddedTime.getTime() - deal.uploadEndTime.getTime(),
+              );
               break;
             case "onPieceConfirmed":
               this.logger.log(`Piece confirmed event, pieceIds: ${event.data.pieceIds.join(", ")}`);
               deal.pieceConfirmedTime = new Date();
               deal.status = DealStatus.PIECE_CONFIRMED;
               deal.chainLatencyMs = deal.pieceConfirmedTime.getTime() - deal.pieceAddedTime.getTime();
+              onchainSucceeded = true;
+              this.dataStorageMetrics.observePieceConfirmedOnChainMs(providerLabels, deal.chainLatencyMs);
+              this.dataStorageMetrics.recordOnchainStatus(providerLabels, "success");
               break;
           }
           // throw if aborted, AFTER adding data to the `deal` object. Everything in this `onProgress` callback is synchronous.
@@ -316,9 +343,20 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
         storageProvider: deal.spAddress as Hex,
       };
       const retrievalStartTime = Date.now();
+      retrievalStarted = true;
+      this.retrievalMetrics.recordStatus(providerLabels, "pending");
       signal?.throwIfAborted();
       const retrievalTest = await this.retrievalAddonsService.testAllRetrievalMethods(retrievalConfig, signal);
       signal?.throwIfAborted();
+
+      this.retrievalMetrics.recordResultMetrics(retrievalTest.results, providerLabels);
+      this.retrievalMetrics.recordStatus(
+        providerLabels,
+        retrievalTest.summary.totalMethods > 0 && retrievalTest.summary.failedMethods === 0
+          ? "success"
+          : "failure.other",
+      );
+      retrievalStatusEmitted = true;
 
       if (retrievalTest.summary.failedMethods > 0) {
         throw new Error(
@@ -336,66 +374,34 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       }
 
       deal.status = DealStatus.DEAL_CREATED;
+      if (deal.uploadStartTime) {
+        const checkDurationMs = Date.now() - deal.uploadStartTime.getTime();
+        this.dataStorageMetrics.observeCheckDuration(providerLabels, checkDurationMs);
+      }
 
       this.logger.log(`Deal ${deal.id} created: ${deal.pieceCid} (sp: ${providerAddress})`);
 
       await this.dealAddonsService.postProcessDeal(deal, dealInput.appliedAddons);
 
-      // Record success metrics using short provider labels to limit cardinality.
-      this.dealsCreatedCounter.inc({
-        status: "success",
-        provider: providerShort,
-      });
-
-      const dealDuration = (Date.now() - dealStartTime) / 1000;
-      this.dealCreationDuration.observe(
-        {
-          provider: providerShort,
-        },
-        dealDuration,
-      );
-
-      // Record upload duration if available
-      if (deal.ingestLatencyMs) {
-        this.dealUploadDuration.observe(
-          {
-            provider: providerShort,
-          },
-          deal.ingestLatencyMs / 1000,
-        );
-      }
-
-      // Record chain latency if available
-      if (deal.chainLatencyMs) {
-        this.dealChainLatency.observe(
-          {
-            provider: providerShort,
-          },
-          deal.chainLatencyMs / 1000,
-        );
-      }
-
       return deal;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       this.logger.error(`Deal creation failed for ${providerAddress}: ${errorMessage}`);
+      const failureStatus = classifyFailureStatus(error);
 
       deal.status = DealStatus.FAILED;
       deal.errorMessage = errorMessage;
 
-      // Record failure metrics
-      this.dealsCreatedCounter.inc({
-        status: "failed",
-        provider: providerShort,
-      });
+      if (!uploadSucceeded) {
+        this.dataStorageMetrics.recordUploadStatus(providerLabels, failureStatus);
+      } else if (!onchainSucceeded) {
+        this.dataStorageMetrics.recordOnchainStatus(providerLabels, failureStatus);
+      }
 
-      const dealDuration = (Date.now() - dealStartTime) / 1000;
-      this.dealCreationDuration.observe(
-        {
-          provider: providerShort,
-        },
-        dealDuration,
-      );
+      if (retrievalStarted && !retrievalStatusEmitted) {
+        this.retrievalMetrics.recordStatus(providerLabels, failureStatus);
+        retrievalStatusEmitted = true;
+      }
 
       throw error;
     } finally {

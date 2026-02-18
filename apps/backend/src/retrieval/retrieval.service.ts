@@ -1,13 +1,17 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { InjectMetric } from "@willsoto/nestjs-prometheus";
-import type { Counter, Histogram } from "prom-client";
 import type { Repository } from "typeorm";
 import type { Hex } from "../common/types.js";
 import { Deal } from "../database/entities/deal.entity.js";
 import { Retrieval } from "../database/entities/retrieval.entity.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
 import { DealStatus, RetrievalStatus } from "../database/types.js";
+import {
+  buildCheckMetricLabels,
+  type CheckMetricLabels,
+  classifyFailureStatus,
+} from "../metrics/utils/check-metric-labels.js";
+import { RetrievalCheckMetrics } from "../metrics/utils/check-metrics.service.js";
 import { RetrievalAddonsService } from "../retrieval-addons/retrieval-addons.service.js";
 import type {
   RetrievalConfiguration,
@@ -27,12 +31,7 @@ export class RetrievalService {
     private readonly retrievalRepository: Repository<Retrieval>,
     @InjectRepository(StorageProvider)
     private readonly spRepository: Repository<StorageProvider>,
-    @InjectMetric("retrievals_tested_total")
-    private readonly retrievalsTestedCounter: Counter,
-    @InjectMetric("retrieval_latency_seconds")
-    private readonly retrievalLatency: Histogram,
-    @InjectMetric("retrieval_ttfb_seconds")
-    private readonly retrievalTtfb: Histogram,
+    private readonly retrievalMetrics: RetrievalCheckMetrics,
   ) {}
 
   async performRandomBatchRetrievals(count: number, signal?: AbortSignal): Promise<Retrieval[]> {
@@ -137,6 +136,11 @@ export class RetrievalService {
     if (!provider) {
       throw new Error(`Storage provider ${deal.spAddress} not found`);
     }
+    const providerLabels = buildCheckMetricLabels({
+      checkType: "retrieval",
+      providerId: provider.providerId,
+      providerIsApproved: provider.isApproved,
+    });
 
     const config: RetrievalConfiguration = {
       deal,
@@ -146,11 +150,15 @@ export class RetrievalService {
 
     let testResult: RetrievalTestResult;
     let retrievals: Retrieval[];
+    const retrievalCheckStartTime = Date.now();
+    this.retrievalMetrics.recordStatus(providerLabels, "pending");
     try {
       testResult = await this.retrievalAddonsService.testAllRetrievalMethods(config, signal);
 
       retrievals = await Promise.all(
-        testResult.results.map((executionResult) => this.createRetrievalFromResult(deal, executionResult)),
+        testResult.results.map((executionResult) =>
+          this.createRetrievalFromResult(deal, executionResult, providerLabels),
+        ),
       );
 
       const successCount = retrievals.filter((r) => r.status === RetrievalStatus.SUCCESS).length;
@@ -163,6 +171,7 @@ export class RetrievalService {
         this.logger.warn(`Retrievals aborted for ${deal.pieceCid}: ${abortMessage || errorMessage}`);
       } else {
         this.logger.error(`All retrievals failed for ${deal.pieceCid}: ${errorMessage}`);
+        this.retrievalMetrics.recordStatus(providerLabels, classifyFailureStatus(error));
       }
 
       // Don't try to record timeouts here. If this catch block fires, it's either:
@@ -187,10 +196,21 @@ export class RetrievalService {
       return retrievals;
     }
 
+    const retrievalCheckDurationMs = Date.now() - retrievalCheckStartTime;
+    this.retrievalMetrics.observeCheckDuration(providerLabels, retrievalCheckDurationMs);
+    this.retrievalMetrics.recordStatus(
+      providerLabels,
+      retrievals.every((retrieval) => retrieval.status === RetrievalStatus.SUCCESS) ? "success" : "failure.other",
+    );
+
     return retrievals;
   }
 
-  private async createRetrievalFromResult(deal: Deal, executionResult: RetrievalExecutionResult): Promise<Retrieval> {
+  private async createRetrievalFromResult(
+    deal: Deal,
+    executionResult: RetrievalExecutionResult,
+    providerLabels: CheckMetricLabels,
+  ): Promise<Retrieval> {
     const retrieval = this.retrievalRepository.create({
       dealId: deal.id,
       status: executionResult.success ? RetrievalStatus.SUCCESS : RetrievalStatus.FAILED,
@@ -198,49 +218,29 @@ export class RetrievalService {
       serviceType: executionResult.method,
     });
 
-    const providerShort = deal.spAddress.slice(0, 8);
-    const method = executionResult.method;
-
     if (executionResult.success) {
       this.mapExecutionResultToRetrieval(retrieval, executionResult);
-
-      // Record success metrics; success rates are derived from counters in PromQL.
-      this.retrievalsTestedCounter.inc({
-        status: "success",
-        method,
-        provider: providerShort,
-      });
-
-      // Record latency and TTFB
-      this.retrievalLatency.observe(
-        {
-          method,
-          provider: providerShort,
-        },
-        executionResult.metrics.latency / 1000,
-      );
-
-      this.retrievalTtfb.observe(
-        {
-          method,
-          provider: providerShort,
-        },
-        executionResult.metrics.ttfb / 1000,
-      );
+      this.recordRetrievalEventMetrics(executionResult, providerLabels);
     } else {
       retrieval.completedAt = new Date();
       retrieval.startedAt = new Date();
       retrieval.errorMessage = executionResult.error || "Unknown error";
-
-      // Record failure metrics
-      this.retrievalsTestedCounter.inc({
-        status: "failed",
-        method,
-        provider: providerShort,
-      });
+      this.retrievalMetrics.recordHttpResponseCode(providerLabels, executionResult.metrics.statusCode);
     }
 
     return this.saveRetrieval(retrieval);
+  }
+
+  private recordRetrievalEventMetrics(
+    executionResult: RetrievalExecutionResult,
+    providerLabels: CheckMetricLabels,
+  ): void {
+    if (!executionResult.success) return;
+
+    this.retrievalMetrics.observeFirstByteMs(providerLabels, executionResult.metrics.ttfb);
+    this.retrievalMetrics.observeLastByteMs(providerLabels, executionResult.metrics.latency);
+    this.retrievalMetrics.observeThroughput(providerLabels, executionResult.metrics.throughput);
+    this.retrievalMetrics.recordHttpResponseCode(providerLabels, executionResult.metrics.statusCode);
   }
 
   // ============================================================================

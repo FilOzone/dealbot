@@ -18,7 +18,7 @@
     "editable": true,
     "fiscalYearStartMonth": 0,
     "graphTooltip": 0,
-    "id": 1,
+    "id": 35,
     "links": [],
     "panels": [
         {
@@ -36,12 +36,12 @@
                         "mode": "absolute",
                         "steps": [
                             {
-                                "color": "green",
-                                "value": 0
+                                "color": "red",
+                                "value": null
                             },
                             {
-                                "color": "red",
-                                "value": 80
+                                "color": "green",
+                                "value": 1
                             }
                         ]
                     }
@@ -72,7 +72,7 @@
                 "textMode": "auto",
                 "wideLayout": true
             },
-            "pluginVersion": "12.3.1",
+            "pluginVersion": "11.5.2",
             "targets": [
                 {
                     "datasource": {
@@ -100,7 +100,7 @@
             },
             "id": 8,
             "panels": [],
-            "title": "Chain status",
+            "title": "Data Storage Latencies",
             "type": "row"
         },
         {
@@ -137,7 +137,6 @@
                             "type": "linear"
                         },
                         "showPoints": "auto",
-                        "showValues": false,
                         "spanNulls": false,
                         "stacking": {
                             "group": "A",
@@ -153,14 +152,15 @@
                         "steps": [
                             {
                                 "color": "green",
-                                "value": 0
+                                "value": null
                             },
                             {
                                 "color": "red",
                                 "value": 80
                             }
                         ]
-                    }
+                    },
+                    "unit": "ms"
                 },
                 "overrides": []
             },
@@ -185,17 +185,24 @@
                     "sort": "none"
                 }
             },
-            "pluginVersion": "12.3.1",
+            "pluginVersion": "11.5.2",
             "targets": [
                 {
                     "editorMode": "code",
-                    "expr": "sum(rate(deal_chain_latency_seconds_sum{app=\"dealbot\"}[$__rate_interval])) / sum(rate(deal_chain_latency_seconds_count{app=\"dealbot\"}[$__rate_interval]))",
-                    "legendFormat": "__auto",
+                    "expr": "histogram_quantile(0.50, sum by (le) (rate(ingestMs_bucket{checkType=\"dataStorage\",providerId=~\"$provider_id\",providerStatus=~\"$provider_status\"}[$__rate_interval])))",
+                    "legendFormat": "P50",
                     "range": true,
                     "refId": "A"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "histogram_quantile(0.90, sum by (le) (rate(ingestMs_bucket{checkType=\"dataStorage\",providerId=~\"$provider_id\",providerStatus=~\"$provider_status\"}[$__rate_interval])))",
+                    "legendFormat": "P90",
+                    "range": true,
+                    "refId": "B"
                 }
             ],
-            "title": "Chain Latency (avg, min interval=25m)",
+            "title": "Ingest Latency (P50/P90)",
             "type": "timeseries"
         },
         {
@@ -232,7 +239,6 @@
                             "type": "linear"
                         },
                         "showPoints": "auto",
-                        "showValues": false,
                         "spanNulls": false,
                         "stacking": {
                             "group": "A",
@@ -248,14 +254,15 @@
                         "steps": [
                             {
                                 "color": "green",
-                                "value": 0
+                                "value": null
                             },
                             {
                                 "color": "red",
                                 "value": 80
                             }
                         ]
-                    }
+                    },
+                    "unit": "ms"
                 },
                 "overrides": []
             },
@@ -279,17 +286,38 @@
                     "sort": "none"
                 }
             },
-            "pluginVersion": "12.3.1",
+            "pluginVersion": "11.5.2",
             "targets": [
                 {
                     "editorMode": "code",
-                    "expr": "sum by (wallet, currency) (wallet_balance{app=\"dealbot\"}) / 1e18",
-                    "legendFormat": "{{wallet}} {{currency}}",
+                    "expr": "histogram_quantile(0.50, sum by (le) (rate(pieceAddedOnChainMs_bucket{checkType=\"dataStorage\",providerId=~\"$provider_id\",providerStatus=~\"$provider_status\"}[$__rate_interval])))",
+                    "legendFormat": "Piece Added P50",
                     "range": true,
                     "refId": "A"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "histogram_quantile(0.90, sum by (le) (rate(pieceAddedOnChainMs_bucket{checkType=\"dataStorage\",providerId=~\"$provider_id\",providerStatus=~\"$provider_status\"}[$__rate_interval])))",
+                    "legendFormat": "Piece Added P90",
+                    "range": true,
+                    "refId": "B"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "histogram_quantile(0.50, sum by (le) (rate(pieceConfirmedOnChainMs_bucket{checkType=\"dataStorage\",providerId=~\"$provider_id\",providerStatus=~\"$provider_status\"}[$__rate_interval])))",
+                    "legendFormat": "Piece Confirmed P50",
+                    "range": true,
+                    "refId": "C"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "histogram_quantile(0.90, sum by (le) (rate(pieceConfirmedOnChainMs_bucket{checkType=\"dataStorage\",providerId=~\"$provider_id\",providerStatus=~\"$provider_status\"}[$__rate_interval])))",
+                    "legendFormat": "Piece Confirmed P90",
+                    "range": true,
+                    "refId": "D"
                 }
             ],
-            "title": "Dealbot Wallet",
+            "title": "On-chain Latency (Piece Added vs Confirmed, P50/P90)",
             "type": "timeseries"
         },
         {
@@ -326,7 +354,6 @@
                             "type": "linear"
                         },
                         "showPoints": "auto",
-                        "showValues": false,
                         "spanNulls": false,
                         "stacking": {
                             "group": "A",
@@ -342,14 +369,15 @@
                         "steps": [
                             {
                                 "color": "green",
-                                "value": 0
+                                "value": null
                             },
                             {
                                 "color": "red",
                                 "value": 80
                             }
                         ]
-                    }
+                    },
+                    "unit": "ms"
                 },
                 "overrides": []
             },
@@ -374,7 +402,7 @@
                     "sort": "none"
                 }
             },
-            "pluginVersion": "12.3.1",
+            "pluginVersion": "11.5.2",
             "targets": [
                 {
                     "datasource": {
@@ -383,7 +411,7 @@
                     },
                     "editorMode": "code",
                     "exemplar": false,
-                    "expr": "histogram_quantile(0.50, sum by (le) (rate(deal_chain_latency_seconds_bucket{app=\"dealbot\"}[$__rate_interval])))",
+                    "expr": "histogram_quantile(0.50, sum by (le) (rate(dataStorageCheckMs_bucket{checkType=\"dataStorage\",providerId=~\"$provider_id\",providerStatus=~\"$provider_status\"}[$__rate_interval])))",
                     "instant": false,
                     "legendFormat": "P50",
                     "range": true,
@@ -395,7 +423,7 @@
                         "uid": "prometheus"
                     },
                     "editorMode": "code",
-                    "expr": "histogram_quantile(0.90, sum by (le) (rate(deal_chain_latency_seconds_bucket{app=\"dealbot\"}[$__rate_interval])))",
+                    "expr": "histogram_quantile(0.90, sum by (le) (rate(dataStorageCheckMs_bucket{checkType=\"dataStorage\",providerId=~\"$provider_id\",providerStatus=~\"$provider_status\"}[$__rate_interval])))",
                     "hide": false,
                     "instant": false,
                     "legendFormat": "P90",
@@ -408,7 +436,7 @@
                         "uid": "prometheus"
                     },
                     "editorMode": "code",
-                    "expr": "histogram_quantile(0.99, sum by (le) (rate(deal_chain_latency_seconds_bucket{app=\"dealbot\"}[$__rate_interval])))",
+                    "expr": "histogram_quantile(0.99, sum by (le) (rate(dataStorageCheckMs_bucket{checkType=\"dataStorage\",providerId=~\"$provider_id\",providerStatus=~\"$provider_status\"}[$__rate_interval])))",
                     "hide": false,
                     "instant": false,
                     "legendFormat": "P99",
@@ -416,7 +444,251 @@
                     "refId": "C"
                 }
             ],
-            "title": "Deal Chain Latency (P50/P90/P99, min interval=25m)",
+            "title": "Data Storage Check Duration (P50/P90/P99)",
+            "type": "timeseries"
+        },
+        {
+            "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "palette-classic"
+                    },
+                    "custom": {
+                        "axisBorderShow": false,
+                        "axisCenteredZero": false,
+                        "axisColorMode": "text",
+                        "axisLabel": "",
+                        "axisPlacement": "auto",
+                        "barAlignment": 0,
+                        "barWidthFactor": 0.6,
+                        "drawStyle": "line",
+                        "fillOpacity": 25,
+                        "gradientMode": "none",
+                        "hideFrom": {
+                            "legend": false,
+                            "tooltip": false,
+                            "viz": false
+                        },
+                        "insertNulls": false,
+                        "lineInterpolation": "linear",
+                        "lineWidth": 1,
+                        "pointSize": 5,
+                        "scaleDistribution": {
+                            "type": "linear"
+                        },
+                        "showPoints": "auto",
+                        "spanNulls": false,
+                        "stacking": {
+                            "group": "A",
+                            "mode": "normal"
+                        },
+                        "thresholdsStyle": {
+                            "mode": "off"
+                        }
+                    },
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": null
+                            },
+                            {
+                                "color": "red",
+                                "value": 80
+                            }
+                        ]
+                    },
+                    "unit": "ms"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 12,
+                "y": 17
+            },
+            "id": 28,
+            "interval": "15m",
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": {
+                    "hideZeros": false,
+                    "mode": "single",
+                    "sort": "none"
+                }
+            },
+            "pluginVersion": "11.5.2",
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "histogram_quantile(0.50, sum by (le) (rate(ingestMs_bucket{checkType=\"dataStorage\",providerId=~\"$provider_id\",providerStatus=~\"$provider_status\"}[$__rate_interval])))",
+                    "legendFormat": "Ingest P50",
+                    "range": true,
+                    "refId": "A"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "histogram_quantile(0.50, sum by (le) (rate(pieceAddedOnChainMs_bucket{checkType=\"dataStorage\",providerId=~\"$provider_id\",providerStatus=~\"$provider_status\"}[$__rate_interval])))",
+                    "legendFormat": "Piece Added P50",
+                    "range": true,
+                    "refId": "B"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "histogram_quantile(0.50, sum by (le) (rate(pieceConfirmedOnChainMs_bucket{checkType=\"dataStorage\",providerId=~\"$provider_id\",providerStatus=~\"$provider_status\"}[$__rate_interval])))",
+                    "legendFormat": "Piece Confirmed P50",
+                    "range": true,
+                    "refId": "C"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "histogram_quantile(0.50, sum by (le) (rate(spIndexLocallyMs_bucket{checkType=\"dataStorage\",providerId=~\"$provider_id\",providerStatus=~\"$provider_status\"}[$__rate_interval])))",
+                    "legendFormat": "SP Indexed P50",
+                    "range": true,
+                    "refId": "D"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "histogram_quantile(0.50, sum by (le) (rate(spAnnounceAdvertisementMs_bucket{checkType=\"dataStorage\",providerId=~\"$provider_id\",providerStatus=~\"$provider_status\"}[$__rate_interval])))",
+                    "legendFormat": "SP Announced P50",
+                    "range": true,
+                    "refId": "E"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "histogram_quantile(0.50, sum by (le) (rate(ipniVerifyMs_bucket{checkType=\"dataStorage\",providerId=~\"$provider_id\",providerStatus=~\"$provider_status\"}[$__rate_interval])))",
+                    "legendFormat": "IPNI Verify P50",
+                    "range": true,
+                    "refId": "F"
+                }
+            ],
+            "title": "Data Storage Stage Timings (P50)",
+            "type": "timeseries"
+        },
+        {
+            "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "palette-classic"
+                    },
+                    "custom": {
+                        "axisBorderShow": false,
+                        "axisCenteredZero": false,
+                        "axisColorMode": "text",
+                        "axisLabel": "",
+                        "axisPlacement": "auto",
+                        "barAlignment": 0,
+                        "barWidthFactor": 0.6,
+                        "drawStyle": "line",
+                        "fillOpacity": 0,
+                        "gradientMode": "none",
+                        "hideFrom": {
+                            "legend": false,
+                            "tooltip": false,
+                            "viz": false
+                        },
+                        "insertNulls": false,
+                        "lineInterpolation": "linear",
+                        "lineWidth": 1,
+                        "pointSize": 5,
+                        "scaleDistribution": {
+                            "type": "linear"
+                        },
+                        "showPoints": "auto",
+                        "spanNulls": false,
+                        "stacking": {
+                            "group": "A",
+                            "mode": "none"
+                        },
+                        "thresholdsStyle": {
+                            "mode": "off"
+                        }
+                    },
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": null
+                            },
+                            {
+                                "color": "red",
+                                "value": 80
+                            }
+                        ]
+                    },
+                    "unit": "ms"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 12,
+                "y": 25
+            },
+            "id": 21,
+            "interval": "25m",
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": {
+                    "hideZeros": false,
+                    "mode": "single",
+                    "sort": "none"
+                }
+            },
+            "pluginVersion": "11.5.2",
+            "targets": [
+                {
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "prometheus"
+                    },
+                    "editorMode": "code",
+                    "exemplar": false,
+                    "expr": "histogram_quantile(0.50, sum by (le) (rate(retrievalCheckMs_bucket{checkType=\"retrieval\",providerId=~\"$provider_id\",providerStatus=~\"$provider_status\"}[$__rate_interval])))",
+                    "instant": false,
+                    "legendFormat": "P50",
+                    "range": true,
+                    "refId": "A"
+                },
+                {
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "prometheus"
+                    },
+                    "editorMode": "code",
+                    "expr": "histogram_quantile(0.90, sum by (le) (rate(retrievalCheckMs_bucket{checkType=\"retrieval\",providerId=~\"$provider_id\",providerStatus=~\"$provider_status\"}[$__rate_interval])))",
+                    "hide": false,
+                    "instant": false,
+                    "legendFormat": "P90",
+                    "range": true,
+                    "refId": "B"
+                }
+            ],
+            "title": "Retrieval Check Duration (P50/P90)",
             "type": "timeseries"
         },
         {
@@ -425,11 +697,11 @@
                 "h": 1,
                 "w": 24,
                 "x": 0,
-                "y": 25
+                "y": 33
             },
             "id": 9,
             "panels": [],
-            "title": "Deal status",
+            "title": "Data Storage Status",
             "type": "row"
         },
         {
@@ -466,7 +738,6 @@
                             "type": "linear"
                         },
                         "showPoints": "auto",
-                        "showValues": false,
                         "spanNulls": false,
                         "stacking": {
                             "group": "A",
@@ -482,7 +753,7 @@
                         "steps": [
                             {
                                 "color": "green",
-                                "value": 0
+                                "value": null
                             },
                             {
                                 "color": "red",
@@ -497,7 +768,7 @@
                 "h": 8,
                 "w": 12,
                 "x": 0,
-                "y": 26
+                "y": 34
             },
             "id": 5,
             "interval": "5m",
@@ -514,17 +785,17 @@
                     "sort": "none"
                 }
             },
-            "pluginVersion": "12.3.1",
+            "pluginVersion": "11.5.2",
             "targets": [
                 {
                     "editorMode": "code",
-                    "expr": "sum (increase(deals_created_total{app=\"dealbot\"}[$__interval]))",
-                    "legendFormat": "Value",
+                    "expr": "sum by (value) (rate(dataStorageUploadStatus{checkType=\"dataStorage\",providerId=~\"$provider_id\",providerStatus=~\"$provider_status\"}[$__rate_interval]))",
+                    "legendFormat": "{{value}}",
                     "range": true,
                     "refId": "A"
                 }
             ],
-            "title": "Total Deals created",
+            "title": "Upload Status Rate",
             "type": "timeseries"
         },
         {
@@ -561,7 +832,6 @@
                             "type": "linear"
                         },
                         "showPoints": "auto",
-                        "showValues": false,
                         "spanNulls": false,
                         "stacking": {
                             "group": "A",
@@ -578,7 +848,7 @@
                         "steps": [
                             {
                                 "color": "green",
-                                "value": 0
+                                "value": null
                             },
                             {
                                 "color": "red",
@@ -624,7 +894,7 @@
                 "h": 8,
                 "w": 12,
                 "x": 12,
-                "y": 26
+                "y": 34
             },
             "id": 3,
             "interval": "1h",
@@ -641,20 +911,19 @@
                     "sort": "none"
                 }
             },
-            "pluginVersion": "12.3.1",
+            "pluginVersion": "11.5.2",
             "targets": [
                 {
                     "editorMode": "code",
                     "exemplar": false,
-                    "expr": "sum by (status) (\n  increase(deals_created_total{app=\"dealbot\"}[$__interval])\n)",
+                    "expr": "sum by (value) (rate(dataStorageOnchainStatus{checkType=\"dataStorage\",providerId=~\"$provider_id\",providerStatus=~\"$provider_status\"}[$__rate_interval]))",
                     "instant": false,
-                    "interval": "",
-                    "legendFormat": "__auto",
+                    "legendFormat": "{{value}}",
                     "range": true,
                     "refId": "A"
                 }
             ],
-            "title": "Deals by status per Hour",
+            "title": "On-chain Status Rate",
             "type": "timeseries"
         },
         {
@@ -663,11 +932,11 @@
                 "h": 1,
                 "w": 24,
                 "x": 0,
-                "y": 34
+                "y": 42
             },
             "id": 10,
             "panels": [],
-            "title": "Retrievals status",
+            "title": "Discoverability & Retrieval Status",
             "type": "row"
         },
         {
@@ -704,7 +973,6 @@
                             "type": "linear"
                         },
                         "showPoints": "auto",
-                        "showValues": false,
                         "spanNulls": false,
                         "stacking": {
                             "group": "A",
@@ -720,7 +988,7 @@
                         "steps": [
                             {
                                 "color": "green",
-                                "value": 0
+                                "value": null
                             },
                             {
                                 "color": "red",
@@ -735,7 +1003,7 @@
                 "h": 8,
                 "w": 12,
                 "x": 0,
-                "y": 35
+                "y": 43
             },
             "id": 7,
             "interval": "5m",
@@ -752,17 +1020,17 @@
                     "sort": "none"
                 }
             },
-            "pluginVersion": "12.3.1",
+            "pluginVersion": "11.5.2",
             "targets": [
                 {
                     "editorMode": "code",
-                    "expr": "sum(increase(retrievals_tested_total{app=\"dealbot\"}[$__interval]))",
-                    "legendFormat": "__auto",
+                    "expr": "sum by (value) (rate(discoverabilityStatus{checkType=\"dataStorage\",providerId=~\"$provider_id\",providerStatus=~\"$provider_status\"}[$__rate_interval]))",
+                    "legendFormat": "{{value}}",
                     "range": true,
                     "refId": "A"
                 }
             ],
-            "title": "Total Retrievals",
+            "title": "Discoverability Status Rate",
             "type": "timeseries"
         },
         {
@@ -799,7 +1067,6 @@
                             "type": "linear"
                         },
                         "showPoints": "auto",
-                        "showValues": false,
                         "spanNulls": false,
                         "stacking": {
                             "group": "A",
@@ -815,7 +1082,7 @@
                         "steps": [
                             {
                                 "color": "green",
-                                "value": 0
+                                "value": null
                             },
                             {
                                 "color": "red",
@@ -830,7 +1097,7 @@
                 "h": 8,
                 "w": 12,
                 "x": 12,
-                "y": 35
+                "y": 43
             },
             "id": 6,
             "interval": "1h",
@@ -847,17 +1114,17 @@
                     "sort": "none"
                 }
             },
-            "pluginVersion": "12.3.1",
+            "pluginVersion": "11.5.2",
             "targets": [
                 {
                     "editorMode": "code",
-                    "expr": "sum by (status) (\n  increase(retrievals_tested_total{app=\"dealbot\"}[$__interval])\n)",
-                    "legendFormat": "__auto",
+                    "expr": "sum by (checkType, value) (rate(retrievalStatus{checkType=~\"dataStorage|retrieval\",providerId=~\"$provider_id\",providerStatus=~\"$provider_status\"}[$__rate_interval]))",
+                    "legendFormat": "{{checkType}} {{value}}",
                     "range": true,
                     "refId": "A"
                 }
             ],
-            "title": "Retrievals by status per Hour",
+            "title": "Retrieval Status Rate",
             "type": "timeseries"
         },
         {
@@ -866,7 +1133,7 @@
                 "h": 1,
                 "w": 24,
                 "x": 0,
-                "y": 43
+                "y": 51
             },
             "id": 11,
             "panels": [],
@@ -907,7 +1174,6 @@
                             "type": "linear"
                         },
                         "showPoints": "auto",
-                        "showValues": false,
                         "spanNulls": false,
                         "stacking": {
                             "group": "A",
@@ -923,7 +1189,7 @@
                         "steps": [
                             {
                                 "color": "green",
-                                "value": 0
+                                "value": null
                             },
                             {
                                 "color": "red",
@@ -938,7 +1204,7 @@
                 "h": 8,
                 "w": 12,
                 "x": 0,
-                "y": 44
+                "y": 52
             },
             "id": 15,
             "options": {
@@ -954,7 +1220,7 @@
                     "sort": "none"
                 }
             },
-            "pluginVersion": "12.3.1",
+            "pluginVersion": "11.5.2",
             "targets": [
                 {
                     "datasource": {
@@ -1006,7 +1272,6 @@
                             "type": "linear"
                         },
                         "showPoints": "auto",
-                        "showValues": false,
                         "spanNulls": false,
                         "stacking": {
                             "group": "A",
@@ -1022,7 +1287,7 @@
                         "steps": [
                             {
                                 "color": "green",
-                                "value": 0
+                                "value": null
                             },
                             {
                                 "color": "red",
@@ -1037,7 +1302,7 @@
                 "h": 8,
                 "w": 12,
                 "x": 12,
-                "y": 44
+                "y": 52
             },
             "id": 14,
             "options": {
@@ -1053,7 +1318,7 @@
                     "sort": "none"
                 }
             },
-            "pluginVersion": "12.3.1",
+            "pluginVersion": "11.5.2",
             "targets": [
                 {
                     "editorMode": "code",
@@ -1100,7 +1365,6 @@
                             "type": "linear"
                         },
                         "showPoints": "auto",
-                        "showValues": false,
                         "spanNulls": false,
                         "stacking": {
                             "group": "A",
@@ -1116,7 +1380,7 @@
                         "steps": [
                             {
                                 "color": "green",
-                                "value": 0
+                                "value": null
                             },
                             {
                                 "color": "red",
@@ -1131,7 +1395,7 @@
                 "h": 8,
                 "w": 12,
                 "x": 0,
-                "y": 52
+                "y": 60
             },
             "id": 18,
             "options": {
@@ -1147,7 +1411,7 @@
                     "sort": "none"
                 }
             },
-            "pluginVersion": "12.3.1",
+            "pluginVersion": "11.5.2",
             "targets": [
                 {
                     "datasource": {
@@ -1200,7 +1464,6 @@
                             "type": "linear"
                         },
                         "showPoints": "auto",
-                        "showValues": false,
                         "spanNulls": false,
                         "stacking": {
                             "group": "A",
@@ -1216,7 +1479,7 @@
                         "steps": [
                             {
                                 "color": "green",
-                                "value": 0
+                                "value": null
                             },
                             {
                                 "color": "red",
@@ -1231,7 +1494,7 @@
                 "h": 8,
                 "w": 12,
                 "x": 12,
-                "y": 52
+                "y": 60
             },
             "id": 12,
             "options": {
@@ -1247,7 +1510,7 @@
                     "sort": "none"
                 }
             },
-            "pluginVersion": "12.3.1",
+            "pluginVersion": "11.5.2",
             "targets": [
                 {
                     "editorMode": "code",
@@ -1294,7 +1557,6 @@
                             "type": "linear"
                         },
                         "showPoints": "auto",
-                        "showValues": false,
                         "spanNulls": false,
                         "stacking": {
                             "group": "A",
@@ -1376,7 +1638,7 @@
                 "h": 8,
                 "w": 12,
                 "x": 0,
-                "y": 60
+                "y": 68
             },
             "id": 17,
             "options": {
@@ -1392,7 +1654,7 @@
                     "sort": "none"
                 }
             },
-            "pluginVersion": "12.3.1",
+            "pluginVersion": "11.5.2",
             "targets": [
                 {
                     "datasource": {
@@ -1421,7 +1683,7 @@
                     "refId": "A"
                 }
             ],
-            "title": "Job Queue Pressure (Enqueue Rate \u2212 Start Rate)",
+            "title": "Job Queue Pressure (Enqueue Rate − Start Rate)",
             "type": "timeseries"
         },
         {
@@ -1489,7 +1751,7 @@
                 "h": 8,
                 "w": 12,
                 "x": 0,
-                "y": 68
+                "y": 76
             },
             "id": 19,
             "options": {
@@ -1505,7 +1767,7 @@
                     "sort": "none"
                 }
             },
-            "pluginVersion": "12.3.1",
+            "pluginVersion": "11.5.2",
             "targets": [
                 {
                     "datasource": {
@@ -1589,7 +1851,7 @@
                 "h": 8,
                 "w": 12,
                 "x": 0,
-                "y": 76
+                "y": 84
             },
             "id": 13,
             "interval": "5m",
@@ -1606,7 +1868,7 @@
                     "sort": "none"
                 }
             },
-            "pluginVersion": "12.3.1",
+            "pluginVersion": "11.5.2",
             "targets": [
                 {
                     "editorMode": "code",
@@ -1684,7 +1946,7 @@
                 "h": 8,
                 "w": 12,
                 "x": 0,
-                "y": 84
+                "y": 92
             },
             "id": 16,
             "interval": "30m",
@@ -1701,7 +1963,7 @@
                     "sort": "none"
                 }
             },
-            "pluginVersion": "12.3.1",
+            "pluginVersion": "11.5.2",
             "targets": [
                 {
                     "editorMode": "code",
@@ -1739,11 +2001,553 @@
             ],
             "title": "Job runtime p50 / p95 / p99",
             "type": "timeseries"
+        },
+        {
+            "collapsed": false,
+            "gridPos": {
+                "h": 1,
+                "w": 24,
+                "x": 0,
+                "y": 100
+            },
+            "id": 22,
+            "panels": [],
+            "title": "Throughput & Success Rates",
+            "type": "row"
+        },
+        {
+            "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "palette-classic"
+                    },
+                    "custom": {
+                        "axisBorderShow": false,
+                        "axisCenteredZero": false,
+                        "axisColorMode": "text",
+                        "axisLabel": "",
+                        "axisPlacement": "auto",
+                        "barAlignment": 0,
+                        "barWidthFactor": 0.6,
+                        "drawStyle": "line",
+                        "fillOpacity": 0,
+                        "gradientMode": "none",
+                        "hideFrom": {
+                            "legend": false,
+                            "tooltip": false,
+                            "viz": false
+                        },
+                        "insertNulls": false,
+                        "lineInterpolation": "linear",
+                        "lineWidth": 1,
+                        "pointSize": 5,
+                        "scaleDistribution": {
+                            "type": "linear"
+                        },
+                        "showPoints": "auto",
+                        "showValues": false,
+                        "spanNulls": false,
+                        "stacking": {
+                            "group": "A",
+                            "mode": "none"
+                        },
+                        "thresholdsStyle": {
+                            "mode": "off"
+                        }
+                    },
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": 0
+                            },
+                            {
+                                "color": "red",
+                                "value": 80
+                            }
+                        ]
+                    },
+                    "unit": "binBps"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 0,
+                "y": 101
+            },
+            "id": 23,
+            "interval": "5m",
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": {
+                    "hideZeros": false,
+                    "mode": "single",
+                    "sort": "none"
+                }
+            },
+            "pluginVersion": "11.5.2",
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "histogram_quantile(0.50, sum by (le) (rate(ingestThroughputBps_bucket{checkType=\"dataStorage\",providerId=~\"$provider_id\",providerStatus=~\"$provider_status\"}[$__rate_interval])))",
+                    "legendFormat": "P50",
+                    "range": true,
+                    "refId": "A"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "histogram_quantile(0.90, sum by (le) (rate(ingestThroughputBps_bucket{checkType=\"dataStorage\",providerId=~\"$provider_id\",providerStatus=~\"$provider_status\"}[$__rate_interval])))",
+                    "legendFormat": "P90",
+                    "range": true,
+                    "refId": "B"
+                }
+            ],
+            "title": "Ingest Throughput (P50/P90)",
+            "type": "timeseries"
+        },
+        {
+            "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "palette-classic"
+                    },
+                    "custom": {
+                        "axisBorderShow": false,
+                        "axisCenteredZero": false,
+                        "axisColorMode": "text",
+                        "axisLabel": "",
+                        "axisPlacement": "auto",
+                        "barAlignment": 0,
+                        "barWidthFactor": 0.6,
+                        "drawStyle": "line",
+                        "fillOpacity": 0,
+                        "gradientMode": "none",
+                        "hideFrom": {
+                            "legend": false,
+                            "tooltip": false,
+                            "viz": false
+                        },
+                        "insertNulls": false,
+                        "lineInterpolation": "linear",
+                        "lineWidth": 1,
+                        "pointSize": 5,
+                        "scaleDistribution": {
+                            "type": "linear"
+                        },
+                        "showPoints": "auto",
+                        "showValues": false,
+                        "spanNulls": false,
+                        "stacking": {
+                            "group": "A",
+                            "mode": "none"
+                        },
+                        "thresholdsStyle": {
+                            "mode": "off"
+                        }
+                    },
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": 0
+                            },
+                            {
+                                "color": "red",
+                                "value": 80
+                            }
+                        ]
+                    },
+                    "unit": "binBps"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 12,
+                "y": 101
+            },
+            "id": 24,
+            "interval": "5m",
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": {
+                    "hideZeros": false,
+                    "mode": "single",
+                    "sort": "none"
+                }
+            },
+            "pluginVersion": "11.5.2",
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "histogram_quantile(0.50, sum by (le, checkType) (rate(ipfsRetrievalThroughputBps_bucket{checkType=~\"dataStorage|retrieval\",providerId=~\"$provider_id\",providerStatus=~\"$provider_status\"}[$__rate_interval])))",
+                    "legendFormat": "P50 {{checkType}}",
+                    "range": true,
+                    "refId": "A"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "histogram_quantile(0.90, sum by (le, checkType) (rate(ipfsRetrievalThroughputBps_bucket{checkType=~\"dataStorage|retrieval\",providerId=~\"$provider_id\",providerStatus=~\"$provider_status\"}[$__rate_interval])))",
+                    "legendFormat": "P90 {{checkType}}",
+                    "range": true,
+                    "refId": "B"
+                }
+            ],
+            "title": "IPFS Retrieval Throughput (P50/P90)",
+            "type": "timeseries"
+        },
+        {
+            "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "palette-classic"
+                    },
+                    "custom": {
+                        "axisBorderShow": false,
+                        "axisCenteredZero": false,
+                        "axisColorMode": "text",
+                        "axisLabel": "",
+                        "axisPlacement": "auto",
+                        "barAlignment": 0,
+                        "barWidthFactor": 0.6,
+                        "drawStyle": "line",
+                        "fillOpacity": 0,
+                        "gradientMode": "none",
+                        "hideFrom": {
+                            "legend": false,
+                            "tooltip": false,
+                            "viz": false
+                        },
+                        "insertNulls": false,
+                        "lineInterpolation": "linear",
+                        "lineWidth": 1,
+                        "pointSize": 5,
+                        "scaleDistribution": {
+                            "type": "linear"
+                        },
+                        "showPoints": "auto",
+                        "showValues": false,
+                        "spanNulls": false,
+                        "stacking": {
+                            "group": "A",
+                            "mode": "none"
+                        },
+                        "thresholdsStyle": {
+                            "mode": "off"
+                        }
+                    },
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": 0
+                            },
+                            {
+                                "color": "red",
+                                "value": 80
+                            }
+                        ]
+                    }
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 0,
+                "y": 109
+            },
+            "id": 25,
+            "interval": "5m",
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": {
+                    "hideZeros": false,
+                    "mode": "single",
+                    "sort": "none"
+                }
+            },
+            "pluginVersion": "11.5.2",
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "sum by (value) (rate(ipfsRetrievalHttpResponseCode{checkType=~\"dataStorage|retrieval\",providerId=~\"$provider_id\",providerStatus=~\"$provider_status\"}[$__rate_interval]))",
+                    "legendFormat": "{{value}}",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "IPFS Retrieval HTTP Response Codes (Rate)",
+            "type": "timeseries"
+        },
+        {
+            "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "palette-classic"
+                    },
+                    "custom": {
+                        "axisBorderShow": false,
+                        "axisCenteredZero": false,
+                        "axisColorMode": "text",
+                        "axisLabel": "",
+                        "axisPlacement": "auto",
+                        "barAlignment": 0,
+                        "barWidthFactor": 0.6,
+                        "drawStyle": "line",
+                        "fillOpacity": 0,
+                        "gradientMode": "none",
+                        "hideFrom": {
+                            "legend": false,
+                            "tooltip": false,
+                            "viz": false
+                        },
+                        "insertNulls": false,
+                        "lineInterpolation": "linear",
+                        "lineWidth": 1,
+                        "pointSize": 5,
+                        "scaleDistribution": {
+                            "type": "linear"
+                        },
+                        "showPoints": "auto",
+                        "showValues": false,
+                        "spanNulls": false,
+                        "stacking": {
+                            "group": "A",
+                            "mode": "none"
+                        },
+                        "thresholdsStyle": {
+                            "mode": "off"
+                        }
+                    },
+                    "mappings": [],
+                    "max": 1,
+                    "min": 0,
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": 0
+                            },
+                            {
+                                "color": "red",
+                                "value": 80
+                            }
+                        ]
+                    },
+                    "unit": "percentunit"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 12,
+                "y": 109
+            },
+            "id": 26,
+            "interval": "5m",
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": {
+                    "hideZeros": false,
+                    "mode": "single",
+                    "sort": "none"
+                }
+            },
+            "pluginVersion": "11.5.2",
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "sum(rate(dataStorageUploadStatus{checkType=\"dataStorage\",value=\"success\",providerId=~\"$provider_id\",providerStatus=~\"$provider_status\"}[$__rate_interval])) / clamp_min(sum(rate(dataStorageUploadStatus{checkType=\"dataStorage\",value=~\"success|failure\\..*\",providerId=~\"$provider_id\",providerStatus=~\"$provider_status\"}[$__rate_interval])), 1e-9)",
+                    "legendFormat": "upload",
+                    "range": true,
+                    "refId": "A"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "sum(rate(dataStorageOnchainStatus{checkType=\"dataStorage\",value=\"success\",providerId=~\"$provider_id\",providerStatus=~\"$provider_status\"}[$__rate_interval])) / clamp_min(sum(rate(dataStorageOnchainStatus{checkType=\"dataStorage\",value=~\"success|failure\\..*\",providerId=~\"$provider_id\",providerStatus=~\"$provider_status\"}[$__rate_interval])), 1e-9)",
+                    "legendFormat": "onchain",
+                    "range": true,
+                    "refId": "B"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "sum(rate(discoverabilityStatus{checkType=\"dataStorage\",value=\"success\",providerId=~\"$provider_id\",providerStatus=~\"$provider_status\"}[$__rate_interval])) / clamp_min(sum(rate(discoverabilityStatus{checkType=\"dataStorage\",value=~\"success|failure\\..*\",providerId=~\"$provider_id\",providerStatus=~\"$provider_status\"}[$__rate_interval])), 1e-9)",
+                    "legendFormat": "discoverability",
+                    "range": true,
+                    "refId": "C"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "sum by (checkType) (rate(retrievalStatus{checkType=~\"dataStorage|retrieval\",value=\"success\",providerId=~\"$provider_id\",providerStatus=~\"$provider_status\"}[$__rate_interval])) / clamp_min(sum by (checkType) (rate(retrievalStatus{checkType=~\"dataStorage|retrieval\",value=~\"success|failure\\..*\",providerId=~\"$provider_id\",providerStatus=~\"$provider_status\"}[$__rate_interval])), 1e-9)",
+                    "legendFormat": "retrieval {{checkType}}",
+                    "range": true,
+                    "refId": "D"
+                }
+            ],
+            "title": "Success Rate (Upload/On-chain/Discoverability/Retrieval)",
+            "type": "timeseries"
+        },
+        {
+            "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "palette-classic"
+                    },
+                    "custom": {
+                        "axisBorderShow": false,
+                        "axisCenteredZero": false,
+                        "axisColorMode": "text",
+                        "axisLabel": "",
+                        "axisPlacement": "auto",
+                        "barAlignment": 0,
+                        "barWidthFactor": 0.6,
+                        "drawStyle": "line",
+                        "fillOpacity": 0,
+                        "gradientMode": "none",
+                        "hideFrom": {
+                            "legend": false,
+                            "tooltip": false,
+                            "viz": false
+                        },
+                        "insertNulls": false,
+                        "lineInterpolation": "linear",
+                        "lineWidth": 1,
+                        "pointSize": 5,
+                        "scaleDistribution": {
+                            "type": "linear"
+                        },
+                        "showPoints": "auto",
+                        "showValues": false,
+                        "spanNulls": false,
+                        "stacking": {
+                            "group": "A",
+                            "mode": "none"
+                        },
+                        "thresholdsStyle": {
+                            "mode": "off"
+                        }
+                    },
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green"
+                            },
+                            {
+                                "color": "red",
+                                "value": 0
+                            }
+                        ]
+                    }
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 24,
+                "x": 0,
+                "y": 117
+            },
+            "id": 27,
+            "interval": "5m",
+            "options": {
+                "description": "Net rate of pending minus completed (success/failure) checks. Positive values indicate backlog growth; negative values indicate backlog draining. This is a trend signal, not an absolute count.",
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": {
+                    "hideZeros": false,
+                    "mode": "single",
+                    "sort": "none"
+                }
+            },
+            "pluginVersion": "11.5.2",
+            "targets": [
+                {
+                    "editorMode": "code",
+                    "expr": "sum(rate(dataStorageUploadStatus{checkType=\"dataStorage\",value=\"pending\",providerId=~\"$provider_id\",providerStatus=~\"$provider_status\"}[$__rate_interval])) - sum(rate(dataStorageUploadStatus{checkType=\"dataStorage\",value=~\"success|failure\\..*\",providerId=~\"$provider_id\",providerStatus=~\"$provider_status\"}[$__rate_interval]))",
+                    "legendFormat": "upload net",
+                    "range": true,
+                    "refId": "A"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "sum(rate(dataStorageOnchainStatus{checkType=\"dataStorage\",value=\"pending\",providerId=~\"$provider_id\",providerStatus=~\"$provider_status\"}[$__rate_interval])) - sum(rate(dataStorageOnchainStatus{checkType=\"dataStorage\",value=~\"success|failure\\..*\",providerId=~\"$provider_id\",providerStatus=~\"$provider_status\"}[$__rate_interval]))",
+                    "legendFormat": "onchain net",
+                    "range": true,
+                    "refId": "B"
+                },
+                {
+                    "editorMode": "code",
+                    "expr": "sum by (checkType) (rate(retrievalStatus{checkType=~\"dataStorage|retrieval\",value=\"pending\",providerId=~\"$provider_id\",providerStatus=~\"$provider_status\"}[$__rate_interval])) - sum by (checkType) (rate(retrievalStatus{checkType=~\"dataStorage|retrieval\",value=~\"success|failure\\..*\",providerId=~\"$provider_id\",providerStatus=~\"$provider_status\"}[$__rate_interval]))",
+                    "legendFormat": "retrieval {{checkType}} net",
+                    "range": true,
+                    "refId": "C"
+                }
+            ],
+            "title": "Pending Net Flow (Upload/On-chain/Retrieval)",
+            "type": "timeseries"
         }
     ],
     "preload": false,
     "refresh": "auto",
-    "schemaVersion": 42,
+    "schemaVersion": 40,
     "tags": [],
     "templating": {
         "list": [
@@ -1755,6 +2559,48 @@
                     "value": [
                         "$__all"
                     ]
+                },
+                "definition": "label_values(dataStorageUploadStatus,providerId)",
+                "includeAll": true,
+                "name": "provider_id",
+                "options": [],
+                "query": {
+                    "qryType": 1,
+                    "query": "label_values(dataStorageUploadStatus,providerId)",
+                    "refId": "PrometheusVariableQueryEditor-ProviderId"
+                },
+                "refresh": 1,
+                "regex": "",
+                "type": "query"
+            },
+            {
+                "allValue": ".*",
+                "allowCustomValue": false,
+                "current": {
+                    "text": "All",
+                    "value": [
+                        "$__all"
+                    ]
+                },
+                "definition": "label_values(dataStorageUploadStatus,providerStatus)",
+                "includeAll": true,
+                "name": "provider_status",
+                "options": [],
+                "query": {
+                    "qryType": 1,
+                    "query": "label_values(dataStorageUploadStatus,providerStatus)",
+                    "refId": "PrometheusVariableQueryEditor-ProviderStatus"
+                },
+                "refresh": 1,
+                "regex": "",
+                "type": "query"
+            },
+            {
+                "allValue": ".*",
+                "allowCustomValue": false,
+                "current": {
+                    "text": "All",
+                    "value": "$__all"
                 },
                 "definition": "label_values(jobs_queued{app=\"dealbot\"},job_type)",
                 "includeAll": true,
