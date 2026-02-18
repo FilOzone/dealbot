@@ -2,7 +2,6 @@ import { SIZE_CONSTANTS, Synapse } from "@filoz/synapse-sdk";
 import { ConfigService } from "@nestjs/config";
 import { Test, TestingModule } from "@nestjs/testing";
 import { getRepositoryToken } from "@nestjs/typeorm";
-import { getToken } from "@willsoto/nestjs-prometheus";
 import { executeUpload } from "filecoin-pin";
 import { CID } from "multiformats/cid";
 import { afterEach, beforeEach, describe, expect, it, Mock, vi } from "vitest";
@@ -12,8 +11,10 @@ import { DealStatus } from "../database/types.js";
 import { DataSourceService } from "../dataSource/dataSource.service.js";
 import { DealAddonsService } from "../deal-addons/deal-addons.service.js";
 import { DealPreprocessingResult } from "../deal-addons/types.js";
+import { DataStorageCheckMetrics, RetrievalCheckMetrics } from "../metrics/utils/check-metrics.service.js";
 import { RetrievalAddonsService } from "../retrieval-addons/retrieval-addons.service.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
+import type { ProviderInfoEx } from "../wallet-sdk/wallet-sdk.types.js";
 import { DealService } from "./deal.service.js";
 
 vi.mock("@filoz/synapse-sdk", async (importOriginal) => {
@@ -37,20 +38,36 @@ vi.mock("filecoin-pin", () => ({
 describe("DealService", () => {
   let service: DealService;
   // We need access to the repository mocks to verify calls
-  let dealRepoMock: any;
-  let dataSourceMock: any;
-  let walletSdkMock: any;
-  let dealAddonsMock: any;
-  let retrievalAddonsMock: any;
+  let dealRepoMock: typeof mockDealRepository;
+  let dataSourceMock: typeof mockDataSourceService;
+  let walletSdkMock: typeof mockWalletSdkService;
+  let dealAddonsMock: typeof mockDealAddonsService;
+  let retrievalAddonsMock: typeof mockRetrievalAddonsService;
 
   const mockRootCid = "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi";
-  const triggerUploadProgress = async (onProgress?: (event: any) => Promise<void> | void): Promise<void> => {
+  type UploadProgressEvent =
+    | { type: "onUploadComplete"; data: { pieceCid: string } }
+    | { type: "onPieceAdded"; data: { txHash: string } }
+    | { type: "onPieceConfirmed"; data: { pieceIds: number[] } };
+  type ExecuteUploadOptions = {
+    onProgress?: (event: UploadProgressEvent) => Promise<void> | void;
+  };
+  const advanceTimersIfFake = (ms: number): void => {
+    if (typeof vi.isFakeTimers === "function" && vi.isFakeTimers()) {
+      vi.advanceTimersByTime(ms);
+    }
+  };
+  const triggerUploadProgress = async (
+    onProgress?: (event: UploadProgressEvent) => Promise<void> | void,
+  ): Promise<void> => {
     if (!onProgress) {
       return;
     }
 
     await onProgress({ type: "onUploadComplete", data: { pieceCid: "bafk-uploaded" } });
+    advanceTimersIfFake(2000);
     await onProgress({ type: "onPieceAdded", data: { txHash: "0xhash" } });
+    advanceTimersIfFake(3000);
     await onProgress({ type: "onPieceConfirmed", data: { pieceIds: [123] } });
   };
 
@@ -105,10 +122,24 @@ describe("DealService", () => {
   const mockRetrievalAddonsService = {
     testAllRetrievalMethods: vi.fn(),
   };
-  const mockDealsCreatedCounter = { inc: vi.fn() };
-  const mockDealCreationDuration = { observe: vi.fn() };
-  const mockDealUploadDuration = { observe: vi.fn() };
-  const mockDealChainLatency = { observe: vi.fn() };
+  const mockDataStorageMetrics = {
+    observeIngestMs: vi.fn(),
+    observeIngestThroughput: vi.fn(),
+    observePieceAddedOnChainMs: vi.fn(),
+    observePieceConfirmedOnChainMs: vi.fn(),
+    observeCheckDuration: vi.fn(),
+    recordUploadStatus: vi.fn(),
+    recordOnchainStatus: vi.fn(),
+  };
+  const mockRetrievalMetrics = {
+    observeFirstByteMs: vi.fn(),
+    observeLastByteMs: vi.fn(),
+    observeThroughput: vi.fn(),
+    observeCheckDuration: vi.fn(),
+    recordStatus: vi.fn(),
+    recordHttpResponseCode: vi.fn(),
+    recordResultMetrics: vi.fn(),
+  };
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -121,10 +152,8 @@ describe("DealService", () => {
         { provide: RetrievalAddonsService, useValue: mockRetrievalAddonsService },
         { provide: getRepositoryToken(Deal), useValue: mockDealRepository },
         { provide: getRepositoryToken(StorageProvider), useValue: mockStorageProviderRepository },
-        { provide: getToken("deals_created_total"), useValue: mockDealsCreatedCounter },
-        { provide: getToken("deal_creation_duration_seconds"), useValue: mockDealCreationDuration },
-        { provide: getToken("deal_upload_duration_seconds"), useValue: mockDealUploadDuration },
-        { provide: getToken("deal_chain_latency_seconds"), useValue: mockDealChainLatency },
+        { provide: DataStorageCheckMetrics, useValue: mockDataStorageMetrics },
+        { provide: RetrievalCheckMetrics, useValue: mockRetrievalMetrics },
       ],
     }).compile();
 
@@ -147,27 +176,42 @@ describe("DealService", () => {
   });
 
   describe("createDeal", () => {
-    let mockSynapseInstance: any;
-    let mockProviderInfo: any;
-    let mockDealInput: any;
-    let mockDeal: any;
+    let mockSynapseInstance: Synapse;
+    let createContextMock: Mock;
+    let mockProviderInfo: ProviderInfoEx;
+    let mockDealInput: DealPreprocessingResult;
+    let mockDeal: Deal;
 
     beforeEach(async () => {
       // Setup common mocks for createDeal
+      createContextMock = vi.fn();
       mockSynapseInstance = {
         storage: {
-          createContext: vi.fn(),
+          createContext: createContextMock,
         },
-      };
+      } as unknown as Synapse;
 
-      mockProviderInfo = { serviceProvider: "0xProvider" };
+      mockProviderInfo = {
+        id: 101,
+        serviceProvider: "0xProvider",
+        payee: "t0100",
+        name: "Test Provider",
+        description: "Test Provider",
+        active: true,
+        products: {},
+        isApproved: true,
+      };
       mockDealInput = {
         processedData: { name: "test.txt", size: 2048, data: Buffer.from("test") },
-        metadata: { foo: "bar" },
+        metadata: {},
         appliedAddons: [],
         synapseConfig: { dataSetMetadata: {}, pieceMetadata: {} },
       };
-      mockDeal = { id: 1, status: DealStatus.PENDING, spAddress: "0xProvider" };
+      mockDeal = Object.assign(new Deal(), {
+        id: "deal-1",
+        status: DealStatus.PENDING,
+        spAddress: "0xProvider",
+      });
 
       dealRepoMock.create.mockReturnValue(mockDeal);
       mockStorageProviderRepository.findOne.mockResolvedValue({});
@@ -179,7 +223,7 @@ describe("DealService", () => {
         rootCid: CID.parse(mockRootCid),
       };
 
-      mockSynapseInstance.storage.createContext.mockResolvedValue({
+      createContextMock.mockResolvedValue({
         dataSetId: "dataset-123",
       });
 
@@ -201,9 +245,7 @@ describe("DealService", () => {
 
       const deal = await service.createDeal(mockSynapseInstance, mockProviderInfo, mockDealInput, uploadPayload);
 
-      expect(mockSynapseInstance.storage.createContext).toHaveBeenCalledWith(
-        expect.objectContaining({ providerAddress: "0xProvider" }),
-      );
+      expect(createContextMock).toHaveBeenCalledWith(expect.objectContaining({ providerAddress: "0xProvider" }));
       expect(dealRepoMock.create).toHaveBeenCalled();
 
       // Verify deal updates
@@ -221,6 +263,155 @@ describe("DealService", () => {
       expect(dealAddonsMock.postProcessDeal).toHaveBeenCalledWith(deal, []);
     });
 
+    it("emits data-storage metrics for successful deals", async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
+
+      try {
+        const uploadPayload = {
+          carData: Uint8Array.from([1, 2, 3]),
+          rootCid: CID.parse(mockRootCid),
+        };
+
+        const providerInfo = { ...mockProviderInfo, isApproved: true };
+        mockStorageProviderRepository.findOne.mockResolvedValue({
+          providerId: 42,
+          isApproved: true,
+        });
+
+        createContextMock.mockResolvedValue({
+          dataSetId: "dataset-123",
+        });
+
+        (executeUpload as Mock).mockImplementation(async (_service, _data, _rootCid, options) => {
+          vi.advanceTimersByTime(1500);
+          await triggerUploadProgress(async (event) => {
+            await options?.onProgress?.(event);
+          });
+          return {
+            pieceCid: "bafk-uploaded",
+            pieceId: 123,
+            transactionHash: "0xhash",
+            ipniValidated: true,
+          };
+        });
+
+        retrievalAddonsMock.testAllRetrievalMethods.mockImplementation(async () => {
+          vi.advanceTimersByTime(4000);
+          return {
+            dealId: "deal-1",
+            results: [
+              {
+                url: "http://example.com",
+                method: "direct",
+                data: Buffer.alloc(0),
+                metrics: {
+                  latency: 500,
+                  ttfb: 120,
+                  throughput: 10_000,
+                  statusCode: 200,
+                  timestamp: new Date(),
+                  responseSize: 0,
+                },
+                success: true,
+              },
+            ],
+            summary: { totalMethods: 1, successfulMethods: 1, failedMethods: 0 },
+            testedAt: new Date(),
+          };
+        });
+
+        await service.createDeal(mockSynapseInstance, providerInfo, mockDealInput, uploadPayload);
+
+        const labels = {
+          checkType: "dataStorage",
+          providerId: "42",
+          providerStatus: "approved",
+        };
+
+        expect(mockDataStorageMetrics.recordUploadStatus).toHaveBeenCalledWith(labels, "pending");
+        expect(mockDataStorageMetrics.recordUploadStatus).toHaveBeenCalledWith(labels, "success");
+        expect(mockDataStorageMetrics.recordOnchainStatus).toHaveBeenCalledWith(labels, "pending");
+        expect(mockDataStorageMetrics.recordOnchainStatus).toHaveBeenCalledWith(labels, "success");
+        expect(mockRetrievalMetrics.recordStatus).toHaveBeenCalledWith(labels, "pending");
+        expect(mockRetrievalMetrics.recordStatus).toHaveBeenCalledWith(labels, "success");
+
+        expect(mockDataStorageMetrics.observeIngestMs).toHaveBeenCalledWith(labels, 1500);
+        expect(mockDataStorageMetrics.observePieceAddedOnChainMs).toHaveBeenCalledWith(labels, 2000);
+        expect(mockDataStorageMetrics.observePieceConfirmedOnChainMs).toHaveBeenCalledWith(labels, 3000);
+        expect(mockDataStorageMetrics.observeCheckDuration).toHaveBeenCalledWith(labels, 10_500);
+        expect(mockRetrievalMetrics.recordResultMetrics).toHaveBeenCalledWith(
+          expect.arrayContaining([
+            expect.objectContaining({ success: true, metrics: expect.objectContaining({ ttfb: 120 }) }),
+          ]),
+          labels,
+        );
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("records upload timeout status when upload fails", async () => {
+      const uploadPayload = {
+        carData: Uint8Array.from([1, 2, 3]),
+        rootCid: CID.parse(mockRootCid),
+      };
+      const providerInfo = { ...mockProviderInfo, isApproved: false };
+      mockStorageProviderRepository.findOne.mockResolvedValue({
+        providerId: 7,
+        isApproved: false,
+      });
+      createContextMock.mockResolvedValue({
+        dataSetId: "dataset-123",
+      });
+
+      (executeUpload as Mock).mockRejectedValue(new Error("timed out waiting for upload"));
+
+      await expect(service.createDeal(mockSynapseInstance, providerInfo, mockDealInput, uploadPayload)).rejects.toThrow(
+        "timed out",
+      );
+
+      const labels = {
+        checkType: "dataStorage",
+        providerId: "7",
+        providerStatus: "unapproved",
+      };
+
+      expect(mockDataStorageMetrics.recordUploadStatus).toHaveBeenCalledWith(labels, "pending");
+      expect(mockDataStorageMetrics.recordUploadStatus).toHaveBeenCalledWith(labels, "failure.timedout");
+      expect(mockDataStorageMetrics.recordOnchainStatus).not.toHaveBeenCalled();
+    });
+
+    it("records failure.other upload status when upload fails with non-timeout error", async () => {
+      const uploadPayload = {
+        carData: Uint8Array.from([1, 2, 3]),
+        rootCid: CID.parse(mockRootCid),
+      };
+      const providerInfo = { ...mockProviderInfo, isApproved: false };
+      mockStorageProviderRepository.findOne.mockResolvedValue({
+        providerId: 7,
+        isApproved: false,
+      });
+      createContextMock.mockResolvedValue({
+        dataSetId: "dataset-123",
+      });
+
+      (executeUpload as Mock).mockRejectedValue(new Error("connection refused"));
+
+      await expect(service.createDeal(mockSynapseInstance, providerInfo, mockDealInput, uploadPayload)).rejects.toThrow(
+        "connection refused",
+      );
+
+      const labels = {
+        checkType: "dataStorage",
+        providerId: "7",
+        providerStatus: "unapproved",
+      };
+
+      expect(mockDataStorageMetrics.recordUploadStatus).toHaveBeenCalledWith(labels, "pending");
+      expect(mockDataStorageMetrics.recordUploadStatus).toHaveBeenCalledWith(labels, "failure.other");
+    });
+
     it("handles upload failures correctly by marking deal as FAILED", async () => {
       const error = new Error("Upload failed");
       const uploadPayload = {
@@ -228,7 +419,7 @@ describe("DealService", () => {
         rootCid: CID.parse(mockRootCid),
       };
 
-      mockSynapseInstance.storage.createContext.mockResolvedValue({
+      createContextMock.mockResolvedValue({
         dataSetId: "dataset-123",
       });
 
@@ -250,7 +441,7 @@ describe("DealService", () => {
         rootCid: CID.parse(mockRootCid),
       };
 
-      mockSynapseInstance.storage.createContext.mockRejectedValue(error);
+      createContextMock.mockRejectedValue(error);
 
       await expect(
         service.createDeal(mockSynapseInstance, mockProviderInfo, mockDealInput, uploadPayload),
@@ -291,7 +482,7 @@ describe("DealService", () => {
         rootCid: CID.parse(mockRootCid),
       };
 
-      mockSynapseInstance.storage.createContext.mockResolvedValue({
+      createContextMock.mockResolvedValue({
         dataSetId: "dataset-123",
       });
 
@@ -323,7 +514,7 @@ describe("DealService", () => {
         rootCid: CID.parse(mockRootCid),
       };
 
-      mockSynapseInstance.storage.createContext.mockResolvedValue({
+      createContextMock.mockResolvedValue({
         dataSetId: "dataset-123",
       });
 
@@ -353,6 +544,93 @@ describe("DealService", () => {
       expect(dealRepoMock.save).toHaveBeenCalledWith(mockDeal);
     });
 
+    it("records onchain failure status when upload succeeds but onchain confirmation fails", async () => {
+      const uploadPayload = {
+        carData: Uint8Array.from([1, 2, 3]),
+        rootCid: CID.parse(mockRootCid),
+      };
+      mockStorageProviderRepository.findOne.mockResolvedValue({
+        providerId: 42,
+        isApproved: true,
+      });
+
+      createContextMock.mockResolvedValue({
+        dataSetId: "dataset-123",
+      });
+
+      // Upload fires onUploadComplete and onPieceAdded, but rejects before onPieceConfirmed
+      (executeUpload as Mock).mockImplementation(
+        async (_service: unknown, _data: unknown, _rootCid: unknown, options?: ExecuteUploadOptions) => {
+          await options?.onProgress?.({ type: "onUploadComplete", data: { pieceCid: "bafk-uploaded" } });
+          await options?.onProgress?.({ type: "onPieceAdded", data: { txHash: "0xhash" } });
+          throw new Error("timed out waiting for piece confirmation");
+        },
+      );
+
+      await expect(
+        service.createDeal(mockSynapseInstance, mockProviderInfo, mockDealInput, uploadPayload),
+      ).rejects.toThrow("timed out");
+
+      const labels = {
+        checkType: "dataStorage",
+        providerId: "42",
+        providerStatus: "approved",
+      };
+
+      // Upload should have succeeded
+      expect(mockDataStorageMetrics.recordUploadStatus).toHaveBeenCalledWith(labels, "pending");
+      expect(mockDataStorageMetrics.recordUploadStatus).toHaveBeenCalledWith(labels, "success");
+      // Onchain should record pending then failure
+      expect(mockDataStorageMetrics.recordOnchainStatus).toHaveBeenCalledWith(labels, "pending");
+      expect(mockDataStorageMetrics.recordOnchainStatus).toHaveBeenCalledWith(labels, "failure.timedout");
+      // Retrieval should not have been started
+      expect(mockRetrievalMetrics.recordStatus).not.toHaveBeenCalled();
+    });
+
+    it("records retrieval failure status when upload+onchain succeed but retrieval fails", async () => {
+      const uploadPayload = {
+        carData: Uint8Array.from([1, 2, 3]),
+        rootCid: CID.parse(mockRootCid),
+      };
+      mockStorageProviderRepository.findOne.mockResolvedValue({
+        providerId: 42,
+        isApproved: true,
+      });
+
+      createContextMock.mockResolvedValue({
+        dataSetId: "dataset-123",
+      });
+
+      (executeUpload as Mock).mockImplementation(async (_service, _data, _rootCid, options) => {
+        await triggerUploadProgress(options?.onProgress);
+        return {
+          pieceCid: "bafk-uploaded",
+          pieceId: 123,
+          transactionHash: "0xhash",
+          ipniValidated: true,
+        };
+      });
+
+      retrievalAddonsMock.testAllRetrievalMethods.mockRejectedValue(new Error("retrieval timed out"));
+
+      await expect(
+        service.createDeal(mockSynapseInstance, mockProviderInfo, mockDealInput, uploadPayload),
+      ).rejects.toThrow("retrieval timed out");
+
+      const labels = {
+        checkType: "dataStorage",
+        providerId: "42",
+        providerStatus: "approved",
+      };
+
+      // Upload and onchain should have succeeded
+      expect(mockDataStorageMetrics.recordUploadStatus).toHaveBeenCalledWith(labels, "success");
+      expect(mockDataStorageMetrics.recordOnchainStatus).toHaveBeenCalledWith(labels, "success");
+      // Retrieval should record pending then failure
+      expect(mockRetrievalMetrics.recordStatus).toHaveBeenCalledWith(labels, "pending");
+      expect(mockRetrievalMetrics.recordStatus).toHaveBeenCalledWith(labels, "failure.timedout");
+    });
+
     it("sets dealLatencyMs even when IPNI verification is not enabled", async () => {
       dealAddonsMock.handleUploadComplete.mockResolvedValueOnce(undefined);
 
@@ -361,7 +639,7 @@ describe("DealService", () => {
         rootCid: CID.parse(mockRootCid),
       };
 
-      mockSynapseInstance.storage.createContext.mockResolvedValue({
+      createContextMock.mockResolvedValue({
         dataSetId: "dataset-123",
       });
 
@@ -391,7 +669,7 @@ describe("DealService", () => {
       let dealInputWithMetadata: DealPreprocessingResult;
 
       beforeEach(() => {
-        mockSynapseInstance.storage.createContext.mockResolvedValue({
+        createContextMock.mockResolvedValue({
           dataSetId: "dataset-123",
         });
 
@@ -439,10 +717,8 @@ describe("DealService", () => {
             { provide: RetrievalAddonsService, useValue: mockRetrievalAddonsService },
             { provide: getRepositoryToken(Deal), useValue: mockDealRepository },
             { provide: getRepositoryToken(StorageProvider), useValue: mockStorageProviderRepository },
-            { provide: getToken("deals_created_total"), useValue: mockDealsCreatedCounter },
-            { provide: getToken("deal_creation_duration_seconds"), useValue: mockDealCreationDuration },
-            { provide: getToken("deal_upload_duration_seconds"), useValue: mockDealUploadDuration },
-            { provide: getToken("deal_chain_latency_seconds"), useValue: mockDealChainLatency },
+            { provide: DataStorageCheckMetrics, useValue: mockDataStorageMetrics },
+            { provide: RetrievalCheckMetrics, useValue: mockRetrievalMetrics },
           ],
         }).compile();
 
@@ -459,7 +735,7 @@ describe("DealService", () => {
         };
         await testService.createDeal(mockSynapseInstance, mockProviderInfo, dealInputWithMetadata, uploadPayload);
 
-        expect(mockSynapseInstance.storage.createContext).toHaveBeenCalledWith({
+        expect(createContextMock).toHaveBeenCalledWith({
           providerAddress: "0xProvider",
           metadata: {
             customKey: "customValue",
@@ -476,7 +752,7 @@ describe("DealService", () => {
         };
         await testService.createDeal(mockSynapseInstance, mockProviderInfo, dealInputWithMetadata, uploadPayload);
 
-        expect(mockSynapseInstance.storage.createContext).toHaveBeenCalledWith({
+        expect(createContextMock).toHaveBeenCalledWith({
           providerAddress: "0xProvider",
           metadata: {
             customKey: "customValue",
@@ -492,7 +768,7 @@ describe("DealService", () => {
         };
         await testService.createDeal(mockSynapseInstance, mockProviderInfo, dealInputWithMetadata, uploadPayload);
 
-        expect(mockSynapseInstance.storage.createContext).toHaveBeenCalledWith({
+        expect(createContextMock).toHaveBeenCalledWith({
           providerAddress: "0xProvider",
           metadata: {
             customKey: "customValue",
@@ -522,7 +798,7 @@ describe("DealService", () => {
         await testService.createDeal(mockSynapseInstance, mockProviderInfo, dealInputWithConflict, uploadPayload);
 
         // Verify config value overwrites dealInput value
-        expect(mockSynapseInstance.storage.createContext).toHaveBeenCalledWith({
+        expect(createContextMock).toHaveBeenCalledWith({
           providerAddress: "0xProvider",
           metadata: {
             customKey: "customValue",

@@ -7,6 +7,7 @@ import type { Counter, Gauge, Histogram } from "prom-client";
 import type { Repository } from "typeorm";
 import { getMaintenanceWindowStatus } from "../common/maintenance-window.js";
 import type { IConfig } from "../config/app.config.js";
+import type { JobType } from "../database/entities/job-schedule-state.entity.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
 import { DealService } from "../deal/deal.service.js";
 import { MetricsSchedulerService } from "../metrics/services/metrics-scheduler.service.js";
@@ -15,11 +16,11 @@ import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
 import { METRICS_CLEANUP_QUEUE, METRICS_QUEUE, SP_WORK_QUEUE } from "./job-queues.js";
 import { JobScheduleRepository } from "./repositories/job-schedule.repository.js";
 
-type JobType = "deal" | "retrieval" | "metrics" | "metrics_cleanup";
 type SpJobType = "deal" | "retrieval";
 
 type SpJobData = { jobType: SpJobType; spAddress: string; intervalSeconds: number };
 type MetricsJobData = { intervalSeconds: number };
+type ProvidersRefreshJobData = { intervalSeconds: number };
 type SpJob = Job<SpJobData>;
 
 type ScheduleRow = {
@@ -88,7 +89,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
 
     if (process.env.DEALBOT_DISABLE_CHAIN !== "true") {
       await this.walletSdkService.ensureWalletAllowances();
-      await this.walletSdkService.loadProviders();
+      await this.walletSdkService.ensureProvidersLoaded();
     }
     await this.startBoss();
     if (!this.boss) {
@@ -242,6 +243,11 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       .catch((error) =>
         this.logger.error(`Failed to register worker for metrics.cleanup: ${error.message}`, error.stack),
       );
+    void this.boss
+      .work("providers.refresh", { batchSize: 1, pollingIntervalSeconds: workerPollSeconds }, async ([job]) =>
+        this.handleProvidersRefreshJob(job.data as ProvidersRefreshJobData),
+      )
+      .catch((error) => this.logger.error(`Failed to subscribe to providers.refresh: ${error.message}`, error.stack));
   }
 
   private getMaintenanceWindowStatus(now: Date = new Date()) {
@@ -383,6 +389,18 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     });
   }
 
+  private async handleProvidersRefreshJob(data: ProvidersRefreshJobData): Promise<void> {
+    void data;
+    await this.recordJobExecution("providers_refresh", async () => {
+      if (process.env.DEALBOT_DISABLE_CHAIN === "true") {
+        this.logger.warn("Chain integration disabled; skipping provider refresh job.");
+        return "success";
+      }
+      await this.walletSdkService.loadProviders();
+      return "success";
+    });
+  }
+
   private maintenanceResumeAt(now: Date, maintenance: ReturnType<typeof getMaintenanceWindowStatus>): Date | null {
     if (!maintenance.active || !maintenance.window) {
       return null;
@@ -463,6 +481,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     retrievalIntervalSeconds: number;
     metricsIntervalSeconds: number;
     metricsCleanupIntervalSeconds: number;
+    providersRefreshIntervalSeconds: number;
   } {
     const scheduling = this.configService.get("scheduling");
     const jobsConfig = this.configService.get("jobs");
@@ -472,6 +491,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     const defaultMetricsPerHour = 2;
     // Keep cleanup weekly to match legacy cron schedule unless explicitly changed in code.
     const defaultMetricsCleanupIntervalSeconds = 7 * 24 * 3600;
+    const providersRefreshIntervalSeconds = 4 * 3600;
 
     const dealsPerHourRaw = jobsConfig?.dealsPerSpPerHour ?? defaultDealsPerHour;
     const retrievalsPerHourRaw = jobsConfig?.retrievalsPerSpPerHour ?? defaultRetrievalsPerHour;
@@ -491,6 +511,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       retrievalIntervalSeconds,
       metricsIntervalSeconds,
       metricsCleanupIntervalSeconds,
+      providersRefreshIntervalSeconds,
     };
   }
 
@@ -499,12 +520,17 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
    * - Inserts new rows for new providers.
    * - Updates intervals if config changed.
    * - Pauses rows for providers that are no longer active.
-   * - Ensures global metrics jobs exist.
+   * - Ensures global metrics and provider refresh jobs exist.
    */
   private async ensureScheduleRows(): Promise<void> {
     const now = new Date();
-    const { dealIntervalSeconds, retrievalIntervalSeconds, metricsIntervalSeconds, metricsCleanupIntervalSeconds } =
-      this.getIntervalSecondsForRates();
+    const {
+      dealIntervalSeconds,
+      retrievalIntervalSeconds,
+      metricsIntervalSeconds,
+      metricsCleanupIntervalSeconds,
+      providersRefreshIntervalSeconds,
+    } = this.getIntervalSecondsForRates();
 
     const useOnlyApprovedProviders = this.configService.get("blockchain").useOnlyApprovedProviders;
     const providers = await this.storageProviderRepository.find({
@@ -517,6 +543,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     const dealStartAt = new Date(now.getTime() + phaseMs);
     const retrievalStartAt = new Date(now.getTime() + phaseMs);
     const metricsStartAt = new Date(now.getTime() + phaseMs);
+    const providersRefreshStartAt = new Date(now.getTime() + phaseMs);
 
     for (const address of providerAddresses) {
       await this.jobScheduleRepository.upsertSchedule("deal", address, dealIntervalSeconds, dealStartAt);
@@ -543,6 +570,12 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       "",
       metricsCleanupIntervalSeconds,
       metricsStartAt,
+    );
+    await this.jobScheduleRepository.upsertSchedule(
+      "providers_refresh",
+      "",
+      providersRefreshIntervalSeconds,
+      providersRefreshStartAt,
     );
   }
 
@@ -620,6 +653,8 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         return METRICS_QUEUE;
       case "metrics_cleanup":
         return METRICS_CLEANUP_QUEUE;
+      case "providers_refresh":
+        return "providers.refresh";
       default: {
         const exhaustiveCheck: never = jobType;
         throw new Error(`Unhandled job type: ${exhaustiveCheck}`);
@@ -627,7 +662,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     }
   }
 
-  private mapJobPayload(row: ScheduleRow): SpJobData | MetricsJobData {
+  private mapJobPayload(row: ScheduleRow): SpJobData | MetricsJobData | ProvidersRefreshJobData {
     if (row.job_type === "deal" || row.job_type === "retrieval") {
       return { jobType: row.job_type, spAddress: row.sp_address, intervalSeconds: row.interval_seconds };
     }
@@ -637,7 +672,12 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
   /**
    * Publishes a job to pg-boss and tracks enqueue attempts.
    */
-  private async safeSend(jobType: JobType, name: string, data: SpJobData | MetricsJobData, options?: SendOptions) {
+  private async safeSend(
+    jobType: JobType,
+    name: string,
+    data: SpJobData | MetricsJobData | ProvidersRefreshJobData,
+    options?: SendOptions,
+  ) {
     if (!this.boss) return false;
     try {
       // Disable retries so "attempted" jobs don't rerun; failures are handled by the next schedule tick.
@@ -681,7 +721,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
    * Refreshes queue depth and age gauges from pg-boss tables.
    */
   private async updateQueueMetrics(): Promise<void> {
-    const jobTypes: JobType[] = ["deal", "retrieval", "metrics", "metrics_cleanup"];
+    const jobTypes: JobType[] = ["deal", "retrieval", "metrics", "metrics_cleanup", "providers_refresh"];
     for (const jobType of jobTypes) {
       this.jobsQueuedGauge.set({ job_type: jobType }, 0);
       this.jobsRetryScheduledGauge.set({ job_type: jobType }, 0);

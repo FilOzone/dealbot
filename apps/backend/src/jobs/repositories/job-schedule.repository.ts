@@ -1,7 +1,7 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { InjectDataSource } from "@nestjs/typeorm";
 import type { DataSource } from "typeorm";
-import type { JobScheduleType } from "../../database/entities/job-schedule-state.entity.js";
+import type { JobType } from "../../database/entities/job-schedule-state.entity.js";
 import {
   LEGACY_DEAL_QUEUE,
   LEGACY_RETRIEVAL_QUEUE,
@@ -12,7 +12,7 @@ import {
 
 export type ScheduleRow = {
   id: number;
-  job_type: JobScheduleType;
+  job_type: JobType;
   sp_address: string;
   interval_seconds: number;
   next_run_at: string;
@@ -36,12 +36,7 @@ export class JobScheduleRepository {
    * @param intervalSeconds - The frequency of the job in seconds
    * @param nextRunAt - The scheduled time for the next run
    */
-  async upsertSchedule(
-    jobType: JobScheduleType,
-    spAddress: string,
-    intervalSeconds: number,
-    nextRunAt: Date,
-  ): Promise<void> {
+  async upsertSchedule(jobType: JobType, spAddress: string, intervalSeconds: number, nextRunAt: Date): Promise<void> {
     await this.dataSource.query(
       `
       INSERT INTO job_schedule_state (job_type, sp_address, interval_seconds, next_run_at)

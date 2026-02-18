@@ -153,7 +153,7 @@ export class IpfsBlockRetrievalStrategy implements IRetrievalAddon {
       signal?.throwIfAborted();
 
       const url = `${spEndpoint}/ipfs/${cidStr}`;
-      const result = await this.httpClientService.requestWithoutProxyAndMetrics<Buffer>(url, {
+      const result = await this.httpClientService.requestWithMetrics<Buffer>(url, {
         headers: { Accept: "application/vnd.ipld.raw" },
         httpVersion: "2",
         signal,
