@@ -239,24 +239,27 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         this.logger.error(`Failed to register worker for ${SP_WORK_QUEUE}: ${error.message}`, error.stack),
       );
     void this.boss
-      .work<
-        MetricsJobData,
-        void
-      >(METRICS_QUEUE, { batchSize: 1, pollingIntervalSeconds: workerPollSeconds }, async ([job]) => this.handleMetricsJob(job.data))
+      .work<MetricsJobData, void>(
+        METRICS_QUEUE,
+        { batchSize: 1, pollingIntervalSeconds: workerPollSeconds },
+        async ([job]) => this.handleMetricsJob(job.data),
+      )
       .catch((error) => this.logger.error(`Failed to register worker for metrics.run: ${error.message}`, error.stack));
     void this.boss
-      .work<
-        MetricsJobData,
-        void
-      >(METRICS_CLEANUP_QUEUE, { batchSize: 1, pollingIntervalSeconds: workerPollSeconds }, async ([job]) => this.handleMetricsCleanupJob(job.data))
+      .work<MetricsJobData, void>(
+        METRICS_CLEANUP_QUEUE,
+        { batchSize: 1, pollingIntervalSeconds: workerPollSeconds },
+        async ([job]) => this.handleMetricsCleanupJob(job.data),
+      )
       .catch((error) =>
         this.logger.error(`Failed to register worker for metrics.cleanup: ${error.message}`, error.stack),
       );
     void this.boss
-      .work<
-        DataRetentionJobData,
-        void
-      >(DATA_RETENTION_POLL_QUEUE, { batchSize: 1, pollingIntervalSeconds: workerPollSeconds }, async ([job]) => this.handleDataRetentionJob(job.data))
+      .work<DataRetentionJobData, void>(
+        DATA_RETENTION_POLL_QUEUE,
+        { batchSize: 1, pollingIntervalSeconds: workerPollSeconds },
+        async ([job]) => this.handleDataRetentionJob(job.data),
+      )
       .catch((error) =>
         this.logger.error(`Failed to register worker for data.retention.poll: ${error.message}`, error.stack),
       );
