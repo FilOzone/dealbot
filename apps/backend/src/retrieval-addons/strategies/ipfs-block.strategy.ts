@@ -1,9 +1,10 @@
 import * as dagPB from "@ipld/dag-pb";
 import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import { validateBlock } from "@web3-storage/car-block-validator";
+import { create as createBlock } from "multiformats/block";
 import { CID } from "multiformats/cid";
 import * as raw from "multiformats/codecs/raw";
+import { sha256 } from "multiformats/hashes/sha2";
 import type { IConfig } from "../../config/app.config.js";
 import { ServiceType } from "../../database/types.js";
 import { HttpClientService } from "../../http-client/http-client.service.js";
@@ -11,6 +12,12 @@ import { WalletSdkService } from "../../wallet-sdk/wallet-sdk.service.js";
 import type { IRetrievalAddon } from "../interfaces/retrieval-addon.interface.js";
 import type { ExpectedMetrics, RetrievalConfiguration, RetrievalUrlResult, ValidationResult } from "../types.js";
 import { RetrievalPriority } from "../types.js";
+
+// UnixFS DAGs use only dag-pb (interior nodes) and raw (leaf data) codecs
+const unixfsCodecs: Record<number, { code: number; decode: (bytes: Uint8Array) => unknown }> = {
+  [dagPB.code]: dagPB,
+  [raw.code]: raw,
+};
 
 /**
  * IPFS-block retrieval strategy.
@@ -21,7 +28,7 @@ import { RetrievalPriority } from "../types.js";
  *
  * This strategy validates that the SP serves the root CID and all DAG blocks by traversing links from
  * the root and fetching each block from the **SP endpoint** with Accept: application/vnd.ipld.raw.
- * No CAR involved.
+ * Expects UnixFS data — blocks must be dag-pb or raw codec with sha2-256 hashing. No CAR involved.
  */
 @Injectable()
 export class IpfsBlockRetrievalStrategy implements IRetrievalAddon {
@@ -68,6 +75,20 @@ export class IpfsBlockRetrievalStrategy implements IRetrievalAddon {
     return true;
   }
 
+  private getSpEndpoint(config: RetrievalConfiguration): string {
+    const providerInfo = this.walletSdkService.getProviderInfo(config.storageProvider);
+
+    if (!providerInfo) {
+      throw new Error(`Provider ${config.storageProvider} not found in approved providers`);
+    }
+
+    if (!providerInfo.products.PDP) {
+      throw new Error(`Provider ${config.storageProvider} does not support PDP`);
+    }
+
+    return providerInfo.products.PDP.data.serviceURL.replace(/\/$/, "");
+  }
+
   /**
    * Return the SP endpoint URL for the root block. This is the storage provider's content gateway
    * (not an IPNI index URL). The service may use it as the base for block fetches.
@@ -79,18 +100,8 @@ export class IpfsBlockRetrievalStrategy implements IRetrievalAddon {
       throw new Error(`Deal ${config.deal.id} does not have IPNI root CID`);
     }
 
-    const providerInfo = this.walletSdkService.getProviderInfo(config.storageProvider);
-
-    if (!providerInfo) {
-      throw new Error(`Provider ${config.storageProvider} not found in approved providers`);
-    }
-
-    if (!providerInfo.products.PDP) {
-      throw new Error(`Provider ${config.storageProvider} does not support PDP`);
-    }
-
-    const spEndpoint = providerInfo.products.PDP.data.serviceURL.replace(/\/$/, "");
-    const url = `${spEndpoint}/ipfs/${rootCID}`;
+    const spEndpoint = this.getSpEndpoint(config);
+    const url = `${spEndpoint}/ipfs/${rootCID}?format=raw`;
 
     this.logger.debug(`Constructed SP endpoint URL (root): ${url}`);
 
@@ -103,9 +114,9 @@ export class IpfsBlockRetrievalStrategy implements IRetrievalAddon {
   }
 
   /**
-   * Validate by traversing the DAG from the root CID and fetching each block from the SP endpoint.
-   * We use GET /ipfs/<cid> with Accept: application/vnd.ipld.raw, verify the CID multihash, then
-   * decode dag-pb links (raw blocks have no links).
+   * Validate by traversing the UnixFS DAG from the root CID and fetching each block from the SP
+   * endpoint. Blocks are requested via GET /ipfs/<cid>?format=raw with Accept:
+   * application/vnd.ipld.raw, hash-verified against the CID, and decoded to discover links.
    */
   async validateByBlockFetch(config: RetrievalConfiguration, signal?: AbortSignal): Promise<ValidationResult> {
     const dealMetadata = config.deal.metadata?.[this.name];
@@ -122,8 +133,7 @@ export class IpfsBlockRetrievalStrategy implements IRetrievalAddon {
 
     let spEndpoint: string;
     try {
-      const rootUrl = this.constructUrl(config).url;
-      spEndpoint = rootUrl.replace(/\/ipfs\/[^/]+$/, "");
+      spEndpoint = this.getSpEndpoint(config);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       return {
@@ -150,7 +160,7 @@ export class IpfsBlockRetrievalStrategy implements IRetrievalAddon {
     const processCid = async (cidStr: string) => {
       signal?.throwIfAborted();
 
-      const url = `${spEndpoint}/ipfs/${cidStr}`;
+      const url = `${spEndpoint}/ipfs/${cidStr}?format=raw`;
       const result = await this.httpClientService.requestWithoutProxyAndMetrics<Buffer>(url, {
         headers: { Accept: "application/vnd.ipld.raw" },
         httpVersion: "2",
@@ -166,14 +176,24 @@ export class IpfsBlockRetrievalStrategy implements IRetrievalAddon {
       }
 
       const cid = CID.parse(cidStr);
-      const bytes = new Uint8Array(result.data);
-      await validateBlock({ cid, bytes });
-      verified += 1;
-      totalBytes += result.data.length;
+      const bytes = result.data;
 
-      const links = this.extractDagLinks(cid, bytes);
-      for (const link of links) {
-        enqueue(link);
+      if (cid.multihash.code !== sha256.code) {
+        throw new Error(`Unsupported hash algorithm 0x${cid.multihash.code.toString(16)} for ${cidStr}`);
+      }
+
+      const codec = unixfsCodecs[cid.code];
+      if (!codec) {
+        throw new Error(`Unsupported codec 0x${cid.code.toString(16)} for ${cidStr}, expected dag-pb or raw`);
+      }
+
+      // Hash-verifies and decodes; throws on mismatch
+      const block = await createBlock({ bytes, cid, hasher: sha256, codec });
+      verified += 1;
+      totalBytes += bytes.length;
+
+      for (const [, linkCid] of block.links()) {
+        enqueue(linkCid.toString());
       }
     };
 
@@ -215,27 +235,6 @@ export class IpfsBlockRetrievalStrategy implements IRetrievalAddon {
       bytesRead: totalBytes,
       ttfb: firstBlockTtfb,
     };
-  }
-
-  private extractDagLinks(cid: CID, bytes: Uint8Array): string[] {
-    if (cid.code === raw.code) {
-      return [];
-    }
-
-    if (cid.code !== dagPB.code) {
-      this.logger.warn(`Unknown codec 0x${cid.code.toString(16)} for CID ${cid} — treating as leaf`);
-      return [];
-    }
-
-    const node = dagPB.decode(bytes);
-    const links: string[] = [];
-    for (const link of node.Links ?? []) {
-      const linkCid = CID.asCID(link.Hash);
-      if (linkCid) {
-        links.push(linkCid.toString());
-      }
-    }
-    return links;
   }
 
   /**
