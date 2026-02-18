@@ -195,7 +195,6 @@ export class RetrievalAddonsService {
         return {
           url: urlResults[index].url,
           method: urlResults[index].method,
-          data: Buffer.alloc(0),
           metrics: {
             latency: 0,
             ttfb: 0,
@@ -361,19 +360,19 @@ export class RetrievalAddonsService {
           };
         }
         const totalTime = performance.now() - startTime;
+        const responseSize = validation.bytesRead ?? 0;
+        const throughput = totalTime > 0 && responseSize > 0 ? responseSize / (totalTime / 1000) : 0;
 
-        signal?.throwIfAborted();
         return {
           url: urlResult.url,
           method: urlResult.method,
-          data: Buffer.alloc(0),
           metrics: {
             latency: Math.round(totalTime),
             ttfb: 0,
-            throughput: 0,
+            throughput,
             statusCode: validation.isValid ? 200 : 0,
             timestamp: new Date(),
-            responseSize: 0,
+            responseSize,
           },
           validation,
           success: true,
@@ -484,7 +483,6 @@ export class RetrievalAddonsService {
       return {
         url: urlResult.url,
         method: urlResult.method,
-        data: Buffer.alloc(0),
         metrics: {
           latency: 0,
           ttfb: 0,
@@ -593,39 +591,6 @@ export class RetrievalAddonsService {
       }
 
       return sanitized.replace(/"/g, "'");
-    } catch {
-      return undefined;
-    }
-  }
-
-  private async buildResponsePreviewFromStream(
-    stream: AsyncIterable<Uint8Array>,
-    maxLength: number = 200,
-  ): Promise<string | undefined> {
-    try {
-      const chunks: Buffer[] = [];
-      let collected = 0;
-
-      for await (const chunk of stream) {
-        const remaining = maxLength - collected;
-        const slice = chunk.length > remaining ? chunk.subarray(0, remaining) : chunk;
-        chunks.push(Buffer.from(slice));
-        collected += slice.length;
-        if (collected >= maxLength) {
-          break;
-        }
-      }
-
-      if (chunks.length === 0) {
-        return undefined;
-      }
-
-      const text = Buffer.concat(chunks).toString("utf8").replace(/\s+/g, " ").trim();
-      if (text.length === 0) {
-        return undefined;
-      }
-
-      return text.replace(/"/g, "'");
     } catch {
       return undefined;
     }

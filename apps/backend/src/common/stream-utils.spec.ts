@@ -1,9 +1,8 @@
-import { randomBytes } from "node:crypto";
 import { Writable } from "node:stream";
 import * as fs from "fs";
 import * as path from "path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { closeStream, writeWithBackpressure } from "./stream-utils.js";
+import { writeWithBackpressure } from "./stream-utils.js";
 
 describe("stream-utils", () => {
   const testDir = "./test-stream-utils";
@@ -20,53 +19,6 @@ describe("stream-utils", () => {
     } catch {
       // Ignore cleanup errors
     }
-  });
-
-  describe("closeStream", () => {
-    it("should call .return() on the underlying iterator", async () => {
-      let returnCalled = false;
-      const iterable: AsyncIterable<Uint8Array> = {
-        [Symbol.asyncIterator]() {
-          return {
-            async next() {
-              return { done: false, value: randomBytes(1024) };
-            },
-            async return() {
-              returnCalled = true;
-              return { done: true, value: undefined };
-            },
-          };
-        },
-      };
-
-      await closeStream(iterable);
-      expect(returnCalled).toBe(true);
-    });
-
-    it("should not throw when .return() errors", async () => {
-      const iterable: AsyncIterable<Uint8Array> = {
-        [Symbol.asyncIterator]() {
-          return {
-            async next() {
-              return { done: true, value: undefined };
-            },
-            async return() {
-              throw new Error("stream error");
-            },
-          };
-        },
-      };
-
-      await expect(closeStream(iterable)).resolves.toBeUndefined();
-    });
-
-    it("should handle iterators without .return()", async () => {
-      async function* emptyStream(): AsyncIterable<Uint8Array> {
-        // yields nothing
-      }
-      // Generator iterators always have .return(), but we test the guard
-      await expect(closeStream(emptyStream())).resolves.toBeUndefined();
-    });
   });
 
   describe("writeWithBackpressure", () => {

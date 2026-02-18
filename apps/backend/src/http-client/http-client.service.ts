@@ -9,7 +9,7 @@ import { SocksProxyAgent } from "socks-proxy-agent";
 import { ProxyAgent as UndiciProxyAgent, request as undiciRequest } from "undici";
 import type { IConfig } from "../config/app.config.js";
 import { ProxyService } from "../proxy/proxy.service.js";
-import type { HttpVersion, RequestMetrics, RequestStreamContext, RequestWithMetrics } from "./types.js";
+import type { HttpVersion, RequestMetrics, RequestWithMetrics } from "./types.js";
 
 @Injectable()
 export class HttpClientService {
@@ -92,35 +92,6 @@ export class HttpClientService {
     }
 
     return this.requestWithHttp1Direct<T>(url, {
-      method,
-      data,
-      headers,
-      signal,
-    });
-  }
-
-  async requestWithoutProxyAndMetricsStream(
-    url: string,
-    options: {
-      method?: "GET" | "POST" | "PUT" | "DELETE";
-      data?: unknown;
-      headers?: Record<string, string>;
-      httpVersion?: HttpVersion;
-      signal?: AbortSignal;
-    } = {},
-  ): Promise<RequestStreamContext> {
-    const { method = "GET", data, headers = {}, httpVersion = "1.1", signal } = options;
-
-    if (httpVersion === "2") {
-      return this.requestWithHttp2DirectStream(url, {
-        method,
-        data,
-        headers,
-        signal,
-      });
-    }
-
-    return this.requestWithHttp1DirectStream(url, {
       method,
       data,
       headers,
@@ -326,130 +297,6 @@ export class HttpClientService {
       };
     } catch (error) {
       this.logger.warn(`HTTP/2 Direct request failed: ${error.message}`);
-      throw error;
-    }
-  }
-
-  /**
-   * HTTP/2 streaming request without proxy using undici
-   */
-  private async requestWithHttp2DirectStream(
-    url: string,
-    options: {
-      method: string;
-      data?: unknown;
-      headers: Record<string, string>;
-      signal?: AbortSignal;
-    },
-  ): Promise<RequestStreamContext> {
-    const { method, data, headers } = options;
-
-    try {
-      this.logger.debug(`Requesting ${url} via HTTP/2 (direct stream)`);
-
-      const startTime = performance.now();
-      let ttfbTime = 0;
-      let statusCode = 0;
-
-      const { signal, connectTimeoutSignal } = this.buildHttp2Signals(options.signal);
-      const requestOptions: any = {
-        method,
-        headers: {
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-          ...headers,
-        },
-        signal,
-      };
-
-      if (data) {
-        requestOptions.body = typeof data === "string" ? data : JSON.stringify(data);
-        requestOptions.headers["Content-Type"] = "application/json";
-      }
-
-      let response: Awaited<ReturnType<typeof undiciRequest>>;
-      try {
-        response = await undiciRequest(url, requestOptions);
-      } catch (error) {
-        if (connectTimeoutSignal.aborted) {
-          throw new Error(`HTTP/2 direct connection/headers timed out after ${this.connectTimeoutMs}ms`);
-        }
-        throw error;
-      }
-
-      ttfbTime = performance.now() - startTime;
-      statusCode = response.statusCode;
-
-      this.logger.debug(`TTFB (HTTP/2 direct stream): ${ttfbTime.toFixed(2)}ms`);
-
-      return {
-        body: response.body as AsyncIterable<Uint8Array>,
-        statusCode,
-        headers: response.headers as Record<string, string | string[] | undefined>,
-        startTime,
-        ttfb: ttfbTime,
-        proxyUrl: "direct",
-        httpVersion: "2",
-      };
-    } catch (error) {
-      this.logger.warn(`HTTP/2 Direct stream request failed: ${error.message}`);
-      throw error;
-    }
-  }
-
-  /**
-   * HTTP/1.1 streaming request without proxy using undici
-   */
-  private async requestWithHttp1DirectStream(
-    url: string,
-    options: {
-      method: string;
-      data?: unknown;
-      headers: Record<string, string>;
-      signal?: AbortSignal;
-    },
-  ): Promise<RequestStreamContext> {
-    const { method, data, headers } = options;
-
-    try {
-      this.logger.debug(`Requesting ${url} via HTTP/1.1 (direct stream)`);
-
-      const startTime = performance.now();
-      let ttfbTime = 0;
-      let statusCode = 0;
-
-      const signal = this.buildHttp1Signal(options.signal);
-      const requestOptions: any = {
-        method,
-        headers: {
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-          ...headers,
-        },
-        signal,
-      };
-
-      if (data) {
-        requestOptions.body = typeof data === "string" ? data : JSON.stringify(data);
-        requestOptions.headers["Content-Type"] = "application/json";
-      }
-
-      const response = await undiciRequest(url, requestOptions);
-
-      ttfbTime = performance.now() - startTime;
-      statusCode = response.statusCode;
-
-      this.logger.debug(`TTFB (HTTP/1.1 direct stream): ${ttfbTime.toFixed(2)}ms`);
-
-      return {
-        body: response.body as AsyncIterable<Uint8Array>,
-        statusCode,
-        headers: response.headers as Record<string, string | string[] | undefined>,
-        startTime,
-        ttfb: ttfbTime,
-        proxyUrl: "direct",
-        httpVersion: "1.1",
-      };
-    } catch (error) {
-      this.logger.warn(`HTTP/1.1 Direct stream request failed: ${error.message}`);
       throw error;
     }
   }
@@ -701,13 +548,5 @@ export class HttpClientService {
       signal: anySignal([transferTimeoutSignal, connectTimeoutSignal]),
       connectTimeoutSignal,
     };
-  }
-
-  private buildHttp1Signal(parentSignal?: AbortSignal): AbortSignal {
-    const timeoutSignal = AbortSignal.timeout(this.http1TimeoutMs);
-    if (parentSignal) {
-      return anySignal([timeoutSignal, parentSignal]);
-    }
-    return timeoutSignal;
   }
 }

@@ -46,7 +46,7 @@ export interface ValidationResult {
   /** Details about validation */
   details?: string;
 
-  /** Bytes read from stream (streaming validation only) */
+  /** Total bytes read/validated (streaming or block-fetch validation) */
   bytesRead?: number;
 
   /** Expected vs actual comparison data */
@@ -66,8 +66,8 @@ export interface RetrievalExecutionResult {
   /** Strategy/method name */
   method: ServiceType;
 
-  /** Retrieved data */
-  data: Buffer;
+  /** Retrieved payload, if any; omitted for validation-only methods (e.g. block-fetch) */
+  data?: Buffer;
 
   /** Response metrics */
   metrics: {
