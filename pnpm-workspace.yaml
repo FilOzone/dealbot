@@ -2,7 +2,7 @@ packages:
   - apps/*
 
 catalog:
-  '@biomejs/biome': 2.3.14
+  '@biomejs/biome': 2.4.1
   '@swc/core': 1.15.11
   '@vitest/coverage-v8': 4.0.18
   typescript: 5.9.3
