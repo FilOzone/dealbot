@@ -531,6 +531,47 @@ describe("DealService", () => {
       expect(dealRepoMock.save).toHaveBeenCalledWith(mockDeal);
     });
 
+    it("records onchain failure status when upload succeeds but onchain confirmation fails", async () => {
+      const uploadPayload = {
+        carData: Uint8Array.from([1, 2, 3]),
+        rootCid: CID.parse(mockRootCid),
+      };
+      mockStorageProviderRepository.findOne.mockResolvedValue({
+        providerId: 42,
+        isApproved: true,
+      });
+
+      mockSynapseInstance.storage.createContext.mockResolvedValue({
+        dataSetId: "dataset-123",
+      });
+
+      // Upload fires onUploadComplete and onPieceAdded, but rejects before onPieceConfirmed
+      (executeUpload as Mock).mockImplementation(async (_service: any, _data: any, _rootCid: any, options: any) => {
+        await options?.onProgress?.({ type: "onUploadComplete", data: { pieceCid: "bafk-uploaded" } });
+        await options?.onProgress?.({ type: "onPieceAdded", data: { txHash: "0xhash" } });
+        throw new Error("timed out waiting for piece confirmation");
+      });
+
+      await expect(
+        service.createDeal(mockSynapseInstance, mockProviderInfo, mockDealInput, uploadPayload),
+      ).rejects.toThrow("timed out");
+
+      const labels = {
+        checkType: "dataStorage",
+        providerId: "42",
+        providerStatus: "approved",
+      };
+
+      // Upload should have succeeded
+      expect(mockDataStorageMetrics.recordUploadStatus).toHaveBeenCalledWith(labels, "pending");
+      expect(mockDataStorageMetrics.recordUploadStatus).toHaveBeenCalledWith(labels, "success");
+      // Onchain should record pending then failure
+      expect(mockDataStorageMetrics.recordOnchainStatus).toHaveBeenCalledWith(labels, "pending");
+      expect(mockDataStorageMetrics.recordOnchainStatus).toHaveBeenCalledWith(labels, "failure.timedout");
+      // Retrieval should not have been started
+      expect(mockRetrievalMetrics.recordStatus).not.toHaveBeenCalled();
+    });
+
     it("records retrieval failure status when upload+onchain succeed but retrieval fails", async () => {
       const uploadPayload = {
         carData: Uint8Array.from([1, 2, 3]),

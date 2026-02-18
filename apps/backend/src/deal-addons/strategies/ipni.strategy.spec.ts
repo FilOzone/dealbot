@@ -271,4 +271,86 @@ describe("IpniAddonStrategy getPieceStatus", () => {
       vi.useRealTimers();
     }
   });
+
+  it("emits failure status via startIpniMonitoring catch block when monitorAndVerifyIPNI throws", async () => {
+    const { strategy, discoverabilityMetrics, mockRepo } = createStrategy();
+
+    const deal = {
+      id: "deal-3",
+      spAddress: "0xsp",
+      uploadEndTime: new Date("2026-01-01T00:00:00Z"),
+      pieceCid: "bafk-piece-error",
+      ipniStatus: undefined as any,
+      metadata: {
+        ipfs_pin: {
+          rootCID: "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi",
+          blockCIDs: ["bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi"],
+        },
+      },
+      storageProvider: {
+        providerId: 9,
+        isApproved: true,
+        serviceUrl: "http://sp.example.com",
+        payee: "t0100",
+        name: "SP",
+        description: "SP",
+        isActive: true,
+      },
+    } as any;
+
+    // monitorAndVerifyIPNI throws before updateDealWithIpniMetrics is called
+    vi.spyOn(strategy as any, "monitorAndVerifyIPNI").mockRejectedValue(new Error("connection timed out"));
+
+    await expect((strategy as any).startIpniMonitoring(deal)).rejects.toThrow("connection timed out");
+
+    const labels = {
+      checkType: "dataStorage",
+      providerId: "9",
+      providerStatus: "approved",
+    };
+
+    // Catch block should emit failure.timedout via classifyFailureStatus
+    expect(discoverabilityMetrics.recordStatus).toHaveBeenCalledWith(labels, "failure.timedout");
+    expect(mockRepo.save).toHaveBeenCalled();
+  });
+
+  it("emits failure.other via startIpniMonitoring catch block for non-timeout errors", async () => {
+    const { strategy, discoverabilityMetrics, mockRepo } = createStrategy();
+
+    const deal = {
+      id: "deal-4",
+      spAddress: "0xsp",
+      uploadEndTime: new Date("2026-01-01T00:00:00Z"),
+      pieceCid: "bafk-piece-error2",
+      ipniStatus: undefined as any,
+      metadata: {
+        ipfs_pin: {
+          rootCID: "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi",
+          blockCIDs: ["bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi"],
+        },
+      },
+      storageProvider: {
+        providerId: 9,
+        isApproved: true,
+        serviceUrl: "http://sp.example.com",
+        payee: "t0100",
+        name: "SP",
+        description: "SP",
+        isActive: true,
+      },
+    } as any;
+
+    vi.spyOn(strategy as any, "monitorAndVerifyIPNI").mockRejectedValue(new Error("unexpected error"));
+
+    await expect((strategy as any).startIpniMonitoring(deal)).rejects.toThrow("unexpected error");
+
+    const labels = {
+      checkType: "dataStorage",
+      providerId: "9",
+      providerStatus: "approved",
+    };
+
+    expect(discoverabilityMetrics.recordStatus).toHaveBeenCalledWith(labels, "failure.other");
+    expect(mockRepo.save).toHaveBeenCalled();
+  });
 });

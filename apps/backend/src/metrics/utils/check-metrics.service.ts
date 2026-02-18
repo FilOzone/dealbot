@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import { InjectMetric } from "@willsoto/nestjs-prometheus";
 import type { Counter, Histogram } from "prom-client";
 import type { Deal } from "../../database/entities/deal.entity.js";
@@ -126,6 +126,8 @@ export class RetrievalCheckMetrics {
 
 @Injectable()
 export class DiscoverabilityCheckMetrics {
+  private readonly logger = new Logger(DiscoverabilityCheckMetrics.name);
+
   constructor(
     @InjectMetric("spIndexLocallyMs")
     private readonly spIndexLocallyMs: Histogram,
@@ -137,19 +139,35 @@ export class DiscoverabilityCheckMetrics {
     private readonly discoverabilityStatusCounter: Counter,
   ) {}
 
-  observeSpIndexLocallyMs(labels: CheckMetricLabels, value: number | null | undefined): void {
+  observeSpIndexLocallyMs(labels: CheckMetricLabels | null, value: number | null | undefined): void {
+    if (!labels) {
+      this.logger.warn("[metrics] Cannot emit spIndexLocallyMs: no provider labels");
+      return;
+    }
     observePositive(this.spIndexLocallyMs, labels, value);
   }
 
-  observeSpAnnounceAdvertisementMs(labels: CheckMetricLabels, value: number | null | undefined): void {
+  observeSpAnnounceAdvertisementMs(labels: CheckMetricLabels | null, value: number | null | undefined): void {
+    if (!labels) {
+      this.logger.warn("[metrics] Cannot emit spAnnounceAdvertisementMs: no provider labels");
+      return;
+    }
     observePositive(this.spAnnounceAdvertisementMs, labels, value);
   }
 
-  observeIpniVerifyMs(labels: CheckMetricLabels, value: number | null | undefined): void {
+  observeIpniVerifyMs(labels: CheckMetricLabels | null, value: number | null | undefined): void {
+    if (!labels) {
+      this.logger.warn("[metrics] Cannot emit ipniVerifyMs: no provider labels");
+      return;
+    }
     observePositive(this.ipniVerifyMs, labels, value);
   }
 
-  recordStatus(labels: CheckMetricLabels, value: string): void {
+  recordStatus(labels: CheckMetricLabels | null, value: string): void {
+    if (!labels) {
+      this.logger.warn(`[metrics] Cannot emit discoverabilityStatus (${value}): no provider labels`);
+      return;
+    }
     this.discoverabilityStatusCounter.inc({ ...labels, value });
   }
 

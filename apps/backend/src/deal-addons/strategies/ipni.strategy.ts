@@ -148,10 +148,7 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
     // Set initial IPNI status to pending
     deal.ipniStatus = IpniStatus.PENDING;
     await this.dealRepository.save(deal);
-    const pendingLabels = this.discoverabilityMetrics.buildLabelsForDeal(deal);
-    if (pendingLabels) {
-      this.discoverabilityMetrics.recordStatus(pendingLabels, "pending");
-    }
+    this.discoverabilityMetrics.recordStatus(this.discoverabilityMetrics.buildLabelsForDeal(deal), "pending");
 
     signal?.throwIfAborted();
 
@@ -245,10 +242,7 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
 
       if (!finalDiscoverabilityStatus) {
         const failureStatus = classifyFailureStatus(error);
-        const failLabels = this.discoverabilityMetrics.buildLabelsForDeal(deal);
-        if (failLabels) {
-          this.discoverabilityMetrics.recordStatus(failLabels, failureStatus);
-        }
+        this.discoverabilityMetrics.recordStatus(this.discoverabilityMetrics.buildLabelsForDeal(deal), failureStatus);
       }
 
       // Re-throw to be caught by onUploadComplete handler
@@ -317,7 +311,6 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
 
     this.logger.log(`Verifying rootCID in IPNI: ${rootCID}`);
 
-    const providerLabels = this.discoverabilityMetrics.buildLabelsForDeal(deal);
     const ipniVerificationStartTime = Date.now();
 
     // NOTE: filecoin-pin does not currently validate that all blocks are advertised on IPNI.
@@ -348,9 +341,10 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       verifiedAt: new Date().toISOString(),
     };
 
-    if (providerLabels) {
-      this.discoverabilityMetrics.observeIpniVerifyMs(providerLabels, ipniVerificationDurationMs);
-    }
+    this.discoverabilityMetrics.observeIpniVerifyMs(
+      this.discoverabilityMetrics.buildLabelsForDeal(deal),
+      ipniVerificationDurationMs,
+    );
 
     if (ipniValidated) {
       this.logger.log(`IPNI verified: rootCID ${rootCID} (${(ipniVerificationDurationMs / 1000).toFixed(1)}s)`);
@@ -527,7 +521,7 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
     const { finalStatus } = monitoringResult;
     const now = new Date();
     const uploadEndTime = deal.uploadEndTime;
-    const providerLabels = this.discoverabilityMetrics.buildLabelsForDeal(deal);
+    const labels = this.discoverabilityMetrics.buildLabelsForDeal(deal);
 
     // Determine IPNI status based on progression
     // Terminal state is VERIFIED when rootCID (minimum) is verified via filecoinpin.contact
@@ -564,6 +558,8 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       const indexedTimestamp = finalStatus.indexedAt ? new Date(finalStatus.indexedAt) : now;
       deal.ipniIndexedAt = indexedTimestamp;
 
+      this.discoverabilityMetrics.recordStatus(labels, "sp_indexed");
+
       const timeToIndexMs = calculateDuration(indexedTimestamp, "indexed");
       if (timeToIndexMs) {
         /**
@@ -571,16 +567,15 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
          * time = indexedAt - uploadEndTime
          */
         deal.ipniTimeToIndexMs = timeToIndexMs;
-        if (providerLabels) {
-          this.discoverabilityMetrics.observeSpIndexLocallyMs(providerLabels, timeToIndexMs);
-          this.discoverabilityMetrics.recordStatus(providerLabels, "sp_indexed");
-        }
+        this.discoverabilityMetrics.observeSpIndexLocallyMs(labels, timeToIndexMs);
       }
     }
 
     if (finalStatus.advertised && !deal.ipniAdvertisedAt) {
       const advertisedTimestamp = finalStatus.advertisedAt ? new Date(finalStatus.advertisedAt) : now;
       deal.ipniAdvertisedAt = advertisedTimestamp;
+
+      this.discoverabilityMetrics.recordStatus(labels, "sp_announced_advertisement");
 
       const timeToAdvertiseMs = calculateDuration(advertisedTimestamp, "advertised");
       if (timeToAdvertiseMs) {
@@ -589,10 +584,7 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
          * time = advertisedAt - uploadEndTime
          */
         deal.ipniTimeToAdvertiseMs = timeToAdvertiseMs;
-        if (providerLabels) {
-          this.discoverabilityMetrics.observeSpAnnounceAdvertisementMs(providerLabels, timeToAdvertiseMs);
-          this.discoverabilityMetrics.recordStatus(providerLabels, "sp_announced_advertisement");
-        }
+        this.discoverabilityMetrics.observeSpAnnounceAdvertisementMs(labels, timeToAdvertiseMs);
       }
     }
 
@@ -623,9 +615,7 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
     } else if (!monitoringResult.success && finalStatus.status === "timeout") {
       finalDiscoverabilityStatus = "failure.timedout";
     }
-    if (providerLabels) {
-      this.discoverabilityMetrics.recordStatus(providerLabels, finalDiscoverabilityStatus);
-    }
+    this.discoverabilityMetrics.recordStatus(labels, finalDiscoverabilityStatus);
 
     // Save the updated deal entity
     try {
