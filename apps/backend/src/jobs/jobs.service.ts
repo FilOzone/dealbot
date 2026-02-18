@@ -7,21 +7,27 @@ import type { Counter, Gauge, Histogram } from "prom-client";
 import type { Repository } from "typeorm";
 import { getMaintenanceWindowStatus } from "../common/maintenance-window.js";
 import type { IConfig } from "../config/app.config.js";
+import { DataRetentionService } from "../data-retention/data-retention.service.js";
 import type { JobType } from "../database/entities/job-schedule-state.entity.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
 import { DealService } from "../deal/deal.service.js";
 import { MetricsSchedulerService } from "../metrics/services/metrics-scheduler.service.js";
 import { RetrievalService } from "../retrieval/retrieval.service.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
-import { METRICS_CLEANUP_QUEUE, METRICS_QUEUE, SP_WORK_QUEUE } from "./job-queues.js";
+import { DATA_RETENTION_POLL_QUEUE, METRICS_CLEANUP_QUEUE, METRICS_QUEUE, SP_WORK_QUEUE } from "./job-queues.js";
 import { JobScheduleRepository } from "./repositories/job-schedule.repository.js";
 
 type SpJobType = "deal" | "retrieval";
 
-type SpJobData = { jobType: SpJobType; spAddress: string; intervalSeconds: number };
+type SpJobData = {
+  jobType: SpJobType;
+  spAddress: string;
+  intervalSeconds: number;
+};
 type MetricsJobData = { intervalSeconds: number };
 type ProvidersRefreshJobData = { intervalSeconds: number };
 type SpJob = Job<SpJobData>;
+type DataRetentionJobData = { intervalSeconds: number };
 
 type ScheduleRow = {
   id: number;
@@ -50,6 +56,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     private readonly retrievalService: RetrievalService,
     private readonly metricsSchedulerService: MetricsSchedulerService,
     private readonly walletSdkService: WalletSdkService,
+    private readonly dataRetentionService: DataRetentionService,
     @InjectMetric("jobs_queued")
     private readonly jobsQueuedGauge: Gauge,
     @InjectMetric("jobs_retry_scheduled")
@@ -208,7 +215,11 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     void this.boss
       .work<SpJobData, void>(
         SP_WORK_QUEUE,
-        { batchSize: 1, localConcurrency: spConcurrency, pollingIntervalSeconds: workerPollSeconds },
+        {
+          batchSize: 1,
+          localConcurrency: spConcurrency,
+          pollingIntervalSeconds: workerPollSeconds,
+        },
         async ([job]) => {
           if (!job) {
             return;
@@ -242,6 +253,15 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       )
       .catch((error) =>
         this.logger.error(`Failed to register worker for metrics.cleanup: ${error.message}`, error.stack),
+      );
+    void this.boss
+      .work<DataRetentionJobData, void>(
+        DATA_RETENTION_POLL_QUEUE,
+        { batchSize: 1, pollingIntervalSeconds: workerPollSeconds },
+        async ([job]) => this.handleDataRetentionJob(job.data),
+      )
+      .catch((error) =>
+        this.logger.error(`Failed to register worker for data.retention.poll: ${error.message}`, error.stack),
       );
     void this.boss
       .work("providers.refresh", { batchSize: 1, pollingIntervalSeconds: workerPollSeconds }, async ([job]) =>
@@ -384,7 +404,17 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
   private async handleMetricsCleanupJob(data: MetricsJobData): Promise<void> {
     void data;
     await this.recordJobExecution("metrics_cleanup", async () => {
-      await this.metricsSchedulerService.cleanupOldMetrics({ allowWhenPgBoss: true });
+      await this.metricsSchedulerService.cleanupOldMetrics({
+        allowWhenPgBoss: true,
+      });
+      return "success";
+    });
+  }
+
+  private async handleDataRetentionJob(data: DataRetentionJobData): Promise<void> {
+    void data;
+    await this.recordJobExecution("data_retention_poll", async () => {
+      await this.dataRetentionService.pollDataRetention();
       return "success";
     });
   }
@@ -481,6 +511,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     retrievalIntervalSeconds: number;
     metricsIntervalSeconds: number;
     metricsCleanupIntervalSeconds: number;
+    dataRetentionPollIntervalSeconds: number;
     providersRefreshIntervalSeconds: number;
   } {
     const scheduling = this.configService.get("scheduling");
@@ -505,12 +536,14 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     const retrievalIntervalSeconds = Math.max(1, Math.round(3600 / retrievalsPerHour));
     const metricsIntervalSeconds = Math.max(1, Math.round(3600 / metricsPerHour));
     const metricsCleanupIntervalSeconds = defaultMetricsCleanupIntervalSeconds;
+    const dataRetentionPollIntervalSeconds = scheduling.dataRetentionPollIntervalSeconds;
 
     return {
       dealIntervalSeconds,
       retrievalIntervalSeconds,
       metricsIntervalSeconds,
       metricsCleanupIntervalSeconds,
+      dataRetentionPollIntervalSeconds,
       providersRefreshIntervalSeconds,
     };
   }
@@ -529,6 +562,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       retrievalIntervalSeconds,
       metricsIntervalSeconds,
       metricsCleanupIntervalSeconds,
+      dataRetentionPollIntervalSeconds,
       providersRefreshIntervalSeconds,
     } = this.getIntervalSecondsForRates();
 
@@ -563,12 +597,18 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       );
     }
 
-    // Global metrics schedule (sp_address = '')
+    // Global job schedules (sp_address = '')
     await this.jobScheduleRepository.upsertSchedule("metrics", "", metricsIntervalSeconds, metricsStartAt);
     await this.jobScheduleRepository.upsertSchedule(
       "metrics_cleanup",
       "",
       metricsCleanupIntervalSeconds,
+      metricsStartAt,
+    );
+    await this.jobScheduleRepository.upsertSchedule(
+      "data_retention_poll",
+      "",
+      dataRetentionPollIntervalSeconds,
       metricsStartAt,
     );
     await this.jobScheduleRepository.upsertSchedule(
@@ -653,6 +693,8 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         return METRICS_QUEUE;
       case "metrics_cleanup":
         return METRICS_CLEANUP_QUEUE;
+      case "data_retention_poll":
+        return DATA_RETENTION_POLL_QUEUE;
       case "providers_refresh":
         return "providers.refresh";
       default: {
@@ -664,7 +706,11 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
 
   private mapJobPayload(row: ScheduleRow): SpJobData | MetricsJobData | ProvidersRefreshJobData {
     if (row.job_type === "deal" || row.job_type === "retrieval") {
-      return { jobType: row.job_type, spAddress: row.sp_address, intervalSeconds: row.interval_seconds };
+      return {
+        jobType: row.job_type,
+        spAddress: row.sp_address,
+        intervalSeconds: row.interval_seconds,
+      };
     }
     return { intervalSeconds: row.interval_seconds };
   }
@@ -689,11 +735,17 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         }
       }
       await this.boss.send(name, data, finalOptions);
-      this.jobsEnqueueAttemptsCounter.inc({ job_type: jobType, outcome: "success" });
+      this.jobsEnqueueAttemptsCounter.inc({
+        job_type: jobType,
+        outcome: "success",
+      });
       return true;
     } catch (error) {
       this.logger.warn(`Failed to enqueue ${name}: ${error.message}`);
-      this.jobsEnqueueAttemptsCounter.inc({ job_type: jobType, outcome: "error" });
+      this.jobsEnqueueAttemptsCounter.inc({
+        job_type: jobType,
+        outcome: "error",
+      });
       return false;
     }
   }
@@ -708,11 +760,17 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       const status = await run();
       const finishedAt = Date.now();
       this.jobDuration.observe({ job_type: jobType }, (finishedAt - startedAt) / 1000);
-      this.jobsCompletedCounter.inc({ job_type: jobType, handler_result: status });
+      this.jobsCompletedCounter.inc({
+        job_type: jobType,
+        handler_result: status,
+      });
     } catch (error) {
       const finishedAt = Date.now();
       this.jobDuration.observe({ job_type: jobType }, (finishedAt - startedAt) / 1000);
-      this.jobsCompletedCounter.inc({ job_type: jobType, handler_result: "error" });
+      this.jobsCompletedCounter.inc({
+        job_type: jobType,
+        handler_result: "error",
+      });
       throw error;
     }
   }
@@ -721,7 +779,14 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
    * Refreshes queue depth and age gauges from pg-boss tables.
    */
   private async updateQueueMetrics(): Promise<void> {
-    const jobTypes: JobType[] = ["deal", "retrieval", "metrics", "metrics_cleanup", "providers_refresh"];
+    const jobTypes: JobType[] = [
+      "deal",
+      "retrieval",
+      "metrics",
+      "metrics_cleanup",
+      "data_retention_poll",
+      "providers_refresh",
+    ];
     for (const jobType of jobTypes) {
       this.jobsQueuedGauge.set({ job_type: jobType }, 0);
       this.jobsRetryScheduledGauge.set({ job_type: jobType }, 0);

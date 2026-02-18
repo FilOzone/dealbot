@@ -1,5 +1,6 @@
 import { Module } from "@nestjs/common";
 import { TypeOrmModule } from "@nestjs/typeorm";
+import { DataRetentionModule } from "../data-retention/data-retention.module.js";
 import { DatabaseModule } from "../database/database.module.js";
 import { JobScheduleState } from "../database/entities/job-schedule-state.entity.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
@@ -23,6 +24,7 @@ const metricsModule = runMode === "worker" ? MetricsWorkerModule : MetricsModule
     RetrievalModule,
     metricsModule,
     WalletSdkModule,
+    DataRetentionModule,
   ],
   providers: [JobsService, JobScheduleRepository],
 })
