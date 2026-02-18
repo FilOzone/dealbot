@@ -538,7 +538,7 @@ describe("JobsService schedule rows", () => {
     });
   });
 
-  it("always inserts global metrics schedules", async () => {
+  it("always inserts global metrics and providers refresh schedules", async () => {
     storageProviderRepositoryMock.find.mockResolvedValueOnce([]);
 
     await callPrivate(service, "ensureScheduleRows");
@@ -556,9 +556,15 @@ describe("JobsService schedule rows", () => {
       expect.any(Date),
     );
     expect(jobScheduleRepositoryMock.upsertSchedule).toHaveBeenCalledWith(
+      "providers_refresh",
+      "",
+      expect.any(Number),
+      expect.any(Date),
+    );
+    expect(jobScheduleRepositoryMock.upsertSchedule).toHaveBeenCalledWith(
       "data_retention_poll",
       "",
-      3600,
+      expect.any(Number),
       expect.any(Date),
     );
   });

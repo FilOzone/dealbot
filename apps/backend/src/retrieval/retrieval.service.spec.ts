@@ -1,11 +1,11 @@
 import { Test, TestingModule } from "@nestjs/testing";
 import { getRepositoryToken } from "@nestjs/typeorm";
-import { getToken } from "@willsoto/nestjs-prometheus";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Deal } from "../database/entities/deal.entity.js";
 import { Retrieval } from "../database/entities/retrieval.entity.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
 import { RetrievalStatus } from "../database/types.js";
+import { RetrievalCheckMetrics } from "../metrics/utils/check-metrics.service.js";
 import { RetrievalAddonsService } from "../retrieval-addons/retrieval-addons.service.js";
 import { RetrievalService } from "./retrieval.service.js";
 
@@ -39,9 +39,15 @@ describe("RetrievalService timeouts", () => {
   const mockSpRepository = {
     findOne: vi.fn(),
   };
-  const mockRetrievalsTestedCounter = { inc: vi.fn() };
-  const mockRetrievalLatency = { observe: vi.fn() };
-  const mockRetrievalTtfb = { observe: vi.fn() };
+  const mockRetrievalMetrics = {
+    observeFirstByteMs: vi.fn(),
+    observeLastByteMs: vi.fn(),
+    observeThroughput: vi.fn(),
+    observeCheckDuration: vi.fn(),
+    recordStatus: vi.fn(),
+    recordHttpResponseCode: vi.fn(),
+    recordResultMetrics: vi.fn(),
+  };
 
   afterEach(() => {
     vi.useRealTimers();
@@ -65,9 +71,7 @@ describe("RetrievalService timeouts", () => {
         { provide: getRepositoryToken(Deal), useValue: mockDealRepository },
         { provide: getRepositoryToken(Retrieval), useValue: mockRetrievalRepository },
         { provide: getRepositoryToken(StorageProvider), useValue: mockSpRepository },
-        { provide: getToken("retrievals_tested_total"), useValue: mockRetrievalsTestedCounter },
-        { provide: getToken("retrieval_latency_seconds"), useValue: mockRetrievalLatency },
-        { provide: getToken("retrieval_ttfb_seconds"), useValue: mockRetrievalTtfb },
+        { provide: RetrievalCheckMetrics, useValue: mockRetrievalMetrics },
       ],
     }).compile();
 
@@ -193,5 +197,91 @@ describe("RetrievalService timeouts", () => {
         errorMessage: timeoutError,
       }),
     );
+  });
+
+  it("emits retrieval timing and status metrics", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
+
+    try {
+      service = await createService();
+
+      mockSpRepository.findOne.mockResolvedValue({ address: "0xsp", providerId: 7, isApproved: false });
+      mockRetrievalRepository.create.mockImplementation(
+        (data: Parameters<typeof mockRetrievalRepository.create>[0]) =>
+          data as ReturnType<typeof mockRetrievalRepository.create>,
+      );
+      mockRetrievalRepository.save.mockImplementation(
+        async (data: Parameters<typeof mockRetrievalRepository.save>[0]) =>
+          data as ReturnType<typeof mockRetrievalRepository.save>,
+      );
+
+      mockRetrievalAddonsService.testAllRetrievalMethods.mockImplementation(async () => {
+        vi.advanceTimersByTime(2500);
+        return {
+          dealId: "deal-1",
+          results: [
+            {
+              url: "http://example.com",
+              method: "direct",
+              data: Buffer.alloc(0),
+              metrics: {
+                latency: 400,
+                ttfb: 100,
+                throughput: 10_000,
+                statusCode: 200,
+                timestamp: new Date(),
+                responseSize: 0,
+              },
+              success: true,
+              retryCount: 0,
+            },
+          ],
+          summary: {
+            totalMethods: 1,
+            successfulMethods: 1,
+            failedMethods: 0,
+            fastestMethod: "direct",
+            fastestLatency: 400,
+          },
+          testedAt: new Date(),
+        };
+      });
+
+      await service.performAllRetrievals(buildDeal());
+
+      const labels = {
+        checkType: "retrieval",
+        providerId: "7",
+        providerStatus: "unapproved",
+      };
+
+      expect(mockRetrievalMetrics.observeCheckDuration).toHaveBeenCalledWith(labels, 2500);
+      expect(mockRetrievalMetrics.observeFirstByteMs).toHaveBeenCalledWith(labels, 100);
+      expect(mockRetrievalMetrics.observeLastByteMs).toHaveBeenCalledWith(labels, 400);
+      expect(mockRetrievalMetrics.observeThroughput).toHaveBeenCalledWith(labels, 10_000);
+      expect(mockRetrievalMetrics.recordStatus).toHaveBeenCalledWith(labels, "pending");
+      expect(mockRetrievalMetrics.recordStatus).toHaveBeenCalledWith(labels, "success");
+      expect(mockRetrievalMetrics.recordHttpResponseCode).toHaveBeenCalledWith(labels, 200);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("records timed out retrieval status when retrieval throws", async () => {
+    service = await createService();
+    mockSpRepository.findOne.mockResolvedValue({ address: "0xsp", providerId: 7, isApproved: false });
+    mockRetrievalAddonsService.testAllRetrievalMethods.mockRejectedValue(new Error("timeout"));
+
+    await expect(service.performAllRetrievals(buildDeal())).rejects.toThrow("timeout");
+
+    const labels = {
+      checkType: "retrieval",
+      providerId: "7",
+      providerStatus: "unapproved",
+    };
+
+    expect(mockRetrievalMetrics.recordStatus).toHaveBeenCalledWith(labels, "pending");
+    expect(mockRetrievalMetrics.recordStatus).toHaveBeenCalledWith(labels, "failure.timedout");
   });
 });

@@ -38,6 +38,8 @@ export class WalletSdkService implements OnModuleInit {
   private providerCache: Map<string, ProviderInfoEx> = new Map();
   private activeProviderAddresses: Set<string> = new Set();
   private approvedProviderAddresses: Set<string> = new Set();
+  private providersLoadPromise: Promise<boolean> | null = null;
+  private providersLoadedOnce = false;
 
   constructor(
     private readonly configService: ConfigService<IConfig, true>,
@@ -55,7 +57,7 @@ export class WalletSdkService implements OnModuleInit {
       return;
     }
     await this.initializeServices();
-    await this.loadProviders();
+    await this.ensureProvidersLoaded();
   }
 
   /**
@@ -84,6 +86,30 @@ export class WalletSdkService implements OnModuleInit {
    * Only loads active providers that support the PDP product and excludes dev-tagged providers
    */
   async loadProviders(): Promise<void> {
+    if (this.providersLoadPromise) {
+      await this.providersLoadPromise;
+      return;
+    }
+
+    this.providersLoadPromise = this.loadProvidersInternal();
+    try {
+      const success = await this.providersLoadPromise;
+      if (success) {
+        this.providersLoadedOnce = true;
+      }
+    } finally {
+      this.providersLoadPromise = null;
+    }
+  }
+
+  async ensureProvidersLoaded(): Promise<void> {
+    if (this.providersLoadedOnce) {
+      return;
+    }
+    await this.loadProviders();
+  }
+
+  private async loadProvidersInternal(): Promise<boolean> {
     try {
       this.logger.log("Loading all service providers from sp-registry...");
 
@@ -116,6 +142,8 @@ export class WalletSdkService implements OnModuleInit {
       const validProviders = providerInfos.filter((info) => !!info);
 
       this.providerCache.clear();
+      this.activeProviderAddresses.clear();
+      this.approvedProviderAddresses.clear();
       const extendedProviders = validProviders.map((info) => {
         const isActivePDP = info.active;
         const supportsPDP = !!info.products?.PDP;
@@ -147,12 +175,14 @@ export class WalletSdkService implements OnModuleInit {
       this.logger.log(
         `Loaded ${this.providerCache.size} providers from on-chain (${this.activeProviderAddresses.size} testing) (${this.approvedProviderAddresses.size} approved)`,
       );
+      return true;
     } catch (error) {
       this.logger.error("Failed to load registered providers from on-chain", error);
       // Fallback to empty array, let the application handle this gracefully
       this.providerCache.clear();
       this.activeProviderAddresses.clear();
       this.approvedProviderAddresses.clear();
+      return false;
     }
   }
 

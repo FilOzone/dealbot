@@ -14,7 +14,7 @@ const toMessage = (e: unknown) => (e instanceof Error ? e.message : "Unknown err
  *
  * Strategy:
  * - HTTP providers: Use pre-fetched batchedVersion
- * - HTTPS providers: Direct fetch (CSP-allowed, no proxy needed)
+ * - HTTPS providers: Direct fetch (CSP-allowed)
  */
 export function useProviderVersion({ serviceUrl, batchedVersion }: IUseProviderVersion) {
   const [version, setVersion] = useState("");

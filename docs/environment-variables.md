@@ -13,7 +13,6 @@ This document provides a comprehensive guide to all environment variables used b
 | [Scheduling](#scheduling-configuration)   | `DEAL_INTERVAL_SECONDS`, `RETRIEVAL_INTERVAL_SECONDS`, `DATA_RETENTION_POLL_INTERVAL_SECONDS`, `DEAL_START_OFFSET_SECONDS`, `RETRIEVAL_START_OFFSET_SECONDS`, `METRICS_START_OFFSET_SECONDS`, `DEALBOT_MAINTENANCE_WINDOWS_UTC`, `DEALBOT_MAINTENANCE_WINDOW_MINUTES`                                                                                                                                   |
 | [Jobs (pg-boss)](#jobs-pg-boss)           | `DEALBOT_JOBS_MODE`, `DEALBOT_PGBOSS_SCHEDULER_ENABLED`, `DEALBOT_PGBOSS_POOL_MAX`, `DEALS_PER_SP_PER_HOUR`, `RETRIEVALS_PER_SP_PER_HOUR`, `METRICS_PER_HOUR`, `JOB_SCHEDULER_POLL_SECONDS`, `JOB_WORKER_POLL_SECONDS`, `PG_BOSS_LOCAL_CONCURRENCY`, `JOB_CATCHUP_MAX_ENQUEUE`, `JOB_SCHEDULE_PHASE_SECONDS`, `JOB_ENQUEUE_JITTER_SECONDS`, `DEAL_JOB_TIMEOUT_SECONDS`, `RETRIEVAL_JOB_TIMEOUT_SECONDS` |
 | [Dataset](#dataset-configuration)         | `DEALBOT_LOCAL_DATASETS_PATH`, `RANDOM_DATASET_SIZES`                                                                                                                                                                                                                                                                                                                                                   |
-| [Proxy](#proxy-configuration)             | `PROXY_LIST`, `PROXY_LOCATIONS`                                                                                                                                                                                                                                                                                                                                                                         |
 | [Timeouts](#timeout-configuration)        | `CONNECT_TIMEOUT_MS`, `HTTP_REQUEST_TIMEOUT_MS`, `HTTP2_REQUEST_TIMEOUT_MS`                                                                                                                                                                                                                                                                                                                             |
 | [Web Frontend](#web-frontend)             | `VITE_API_BASE_URL`, `VITE_PLAUSIBLE_DATA_DOMAIN`, `DEALBOT_API_BASE_URL`                                                                                                                                                                                                                                                                                                                               |
 
@@ -834,51 +833,6 @@ Use this to stagger multiple dealbot deployments that are not sharing a database
 
 ```bash
 RANDOM_DATASET_SIZES=1024,10240,102400
-```
-
----
-
-## Proxy Configuration
-
-### `PROXY_LIST`
-
-- **Type**: `string` (comma-separated proxy URLs)
-- **Required**: No
-- **Default**: Empty
-
-**Role**: List of HTTP proxy servers to use for retrieval tests. Useful for geo-distributed testing.
-
-**When to update**:
-
-- When testing retrieval from different geographic locations
-
-**Format**: `http://username:password@host:port`
-
-**Example**:
-
-```bash
-PROXY_LIST=http://user:pass@proxy1.example.com:8080,http://user:pass@proxy2.example.com:8080
-```
-
----
-
-### `PROXY_LOCATIONS`
-
-- **Type**: `string` (comma-separated location identifiers)
-- **Required**: No
-- **Default**: Empty
-
-**Role**: Labels for each proxy in `PROXY_LIST`. Not used for anything, just for reporting.
-
-**When to update**:
-
-- When adding or removing proxies
-- Must have the same number of entries as `PROXY_LIST`
-
-**Example**:
-
-```bash
-PROXY_LOCATIONS=us-east,eu-west
 ```
 
 ---
