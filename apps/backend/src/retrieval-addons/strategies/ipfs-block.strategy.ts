@@ -134,22 +134,20 @@ export class IpfsBlockRetrievalStrategy implements IRetrievalAddon {
     }
     let failed = 0;
     const queue: string[] = [];
-    const enqueued = new Set<string>();
     const seen = new Set<string>();
     let verified = 0;
     let totalBytes = 0;
+    let firstBlockTtfb: number | undefined;
 
     const enqueue = (cidStr: string) => {
-      if (enqueued.has(cidStr)) return;
-      enqueued.add(cidStr);
+      if (seen.has(cidStr)) return;
+      seen.add(cidStr);
       queue.push(cidStr);
     };
 
     enqueue(rootCIDStr);
 
     const processCid = async (cidStr: string) => {
-      if (seen.has(cidStr)) return;
-      seen.add(cidStr);
       signal?.throwIfAborted();
 
       const url = `${spEndpoint}/ipfs/${cidStr}`;
@@ -161,6 +159,10 @@ export class IpfsBlockRetrievalStrategy implements IRetrievalAddon {
 
       if (result.metrics.statusCode < 200 || result.metrics.statusCode >= 300) {
         throw new Error(`HTTP ${result.metrics.statusCode}`);
+      }
+
+      if (firstBlockTtfb === undefined) {
+        firstBlockTtfb = result.metrics.ttfb;
       }
 
       const cid = CID.parse(cidStr);
@@ -175,20 +177,24 @@ export class IpfsBlockRetrievalStrategy implements IRetrievalAddon {
       }
     };
 
-    while (queue.length > 0) {
+    // Concurrency pool: keep all slots busy rather than waiting for wave completion
+    const active = new Set<Promise<void>>();
+    while (queue.length > 0 || active.size > 0) {
       signal?.throwIfAborted();
-      const batch = queue.splice(0, this.blockFetchConcurrency);
-      await Promise.all(
-        batch.map(async (cidStr) => {
-          try {
-            await processCid(cidStr);
-          } catch (err) {
+      while (active.size < this.blockFetchConcurrency && queue.length > 0) {
+        const cidStr = queue.shift()!;
+        const p = processCid(cidStr)
+          .catch((err) => {
             const msg = err instanceof Error ? err.message : String(err);
             failed += 1;
             this.logger.warn(`IPFS block-fetch validation error for deal ${config.deal.id}: cid ${cidStr} - ${msg}`);
-          }
-        }),
-      );
+          })
+          .finally(() => active.delete(p));
+        active.add(p);
+      }
+      if (active.size > 0) {
+        await Promise.race(active);
+      }
     }
 
     const isValid = failed === 0;
@@ -207,6 +213,7 @@ export class IpfsBlockRetrievalStrategy implements IRetrievalAddon {
       method: this.validationMethods.blockFetch,
       details,
       bytesRead: totalBytes,
+      ttfb: firstBlockTtfb,
     };
   }
 
@@ -216,7 +223,8 @@ export class IpfsBlockRetrievalStrategy implements IRetrievalAddon {
     }
 
     if (cid.code !== dagPB.code) {
-      throw new Error(`unsupported codec ${cid.code}`);
+      this.logger.warn(`Unknown codec 0x${cid.code.toString(16)} for CID ${cid} — treating as leaf`);
+      return [];
     }
 
     const node = dagPB.decode(bytes);

@@ -359,6 +359,9 @@ export class RetrievalAddonsService {
             details: errorMessage,
           };
         }
+        // TODO: totalTime includes per-block hash verification (validateBlock) which
+        // inflates latency and deflates throughput relative to pure network performance.
+        // Splitting fetch and hash into separate queues would give accurate download metrics.
         const totalTime = performance.now() - startTime;
         const responseSize = validation.bytesRead ?? 0;
         const throughput = totalTime > 0 && responseSize > 0 ? responseSize / (totalTime / 1000) : 0;
@@ -368,8 +371,7 @@ export class RetrievalAddonsService {
           method: urlResult.method,
           metrics: {
             latency: Math.round(totalTime),
-            // TODO: decide how to aggregate per-block TTFB for IPFS block fetches.
-            ttfb: 0,
+            ttfb: validation.ttfb ?? 0,
             throughput,
             statusCode: validation.isValid ? 200 : 0,
             timestamp: new Date(),
