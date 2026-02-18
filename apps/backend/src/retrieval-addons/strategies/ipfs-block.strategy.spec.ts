@@ -5,6 +5,7 @@ import * as raw from "multiformats/codecs/raw";
 import { create as createDigest } from "multiformats/hashes/digest";
 import { sha256 } from "multiformats/hashes/sha2";
 import { describe, expect, it, vi } from "vitest";
+import type { Deal } from "../../database/entities/deal.entity.js";
 import { ServiceType } from "../../database/types.js";
 import { IpfsBlockRetrievalStrategy } from "./ipfs-block.strategy.js";
 
@@ -53,13 +54,22 @@ function createStrategy() {
 }
 
 function mockDealConfig(rootCID: string) {
-  return {
-    deal: {
-      id: "test-deal-1",
-      metadata: {
-        [ServiceType.IPFS_PIN]: { enabled: true, rootCID },
+  const deal = {
+    id: "test-deal-1",
+    metadata: {
+      [ServiceType.IPFS_PIN]: {
+        enabled: true,
+        rootCID,
+        blockCIDs: [],
+        blockCount: 0,
+        carSize: 0,
+        originalSize: 0,
       },
     },
+  } as unknown as Deal;
+
+  return {
+    deal,
     walletAddress: "0x1234" as any,
     storageProvider: "0x5678" as any,
   };
@@ -74,10 +84,8 @@ describe("IpfsBlockRetrievalStrategy", () => {
 
     it("returns false when IPNI is not enabled", () => {
       const { strategy } = createStrategy();
-      const config = {
-        ...mockDealConfig("bafyroot"),
-        deal: { id: "d1", metadata: {} },
-      };
+      const config = mockDealConfig("bafyroot");
+      config.deal = { ...config.deal, id: "d1", metadata: {} };
       expect(strategy.canHandle(config as any)).toBe(false);
     });
   });
@@ -234,11 +242,11 @@ describe("IpfsBlockRetrievalStrategy", () => {
 
     it("returns missing metadata result when rootCID absent", async () => {
       const { strategy } = createStrategy();
-      const config = {
-        deal: { id: "d1", metadata: { [ServiceType.IPFS_PIN]: { enabled: true } } },
-        walletAddress: "0x1234" as any,
-        storageProvider: "0x5678" as any,
-      };
+      const config = mockDealConfig("bafyroot");
+      const ipniMetadata = config.deal.metadata?.[ServiceType.IPFS_PIN];
+      if (ipniMetadata) {
+        delete (ipniMetadata as Partial<typeof ipniMetadata>).rootCID;
+      }
 
       const result = await strategy.validateByBlockFetch(config as any);
 
