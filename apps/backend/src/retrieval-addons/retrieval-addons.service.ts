@@ -1,7 +1,6 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { delay } from "../common/abort-utils.js";
 import { RetrievalError, type RetrievalErrorResponseInfo } from "../common/errors.js";
-import { ServiceType } from "../database/types.js";
 import { HttpClientService } from "../http-client/http-client.service.js";
 import type { RequestWithMetrics } from "../http-client/types.js";
 import type { IRetrievalAddon } from "./interfaces/retrieval-addon.interface.js";
@@ -345,32 +344,11 @@ export class RetrievalAddonsService {
     try {
       signal?.throwIfAborted();
       let result: RequestWithMetrics<Buffer>;
-      try {
-        // TODO: use proxy for IPFS_PIN as well
-        if (urlResult.method === ServiceType.IPFS_PIN) {
-          result = await this.httpClientService.requestWithoutProxyAndMetrics<Buffer>(urlResult.url, {
-            headers: urlResult.headers,
-            httpVersion: urlResult.httpVersion,
-            signal,
-          });
-        } else {
-          result = await this.httpClientService.requestWithRandomProxyAndMetrics<Buffer>(urlResult.url, {
-            headers: urlResult.headers,
-            httpVersion: urlResult.httpVersion,
-            signal,
-          });
-        }
-      } catch (error) {
-        if (error.message === "No proxy available") {
-          result = await this.httpClientService.requestWithoutProxyAndMetrics<Buffer>(urlResult.url, {
-            headers: urlResult.headers,
-            httpVersion: urlResult.httpVersion,
-            signal,
-          });
-        } else {
-          throw error;
-        }
-      }
+      result = await this.httpClientService.requestWithMetrics<Buffer>(urlResult.url, {
+        headers: urlResult.headers,
+        httpVersion: urlResult.httpVersion,
+        signal,
+      });
 
       // Validate HTTP status code before processing (must be 2xx for success)
       signal?.throwIfAborted();

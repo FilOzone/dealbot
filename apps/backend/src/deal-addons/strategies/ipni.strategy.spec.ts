@@ -5,7 +5,7 @@ describe("IpniAddonStrategy getPieceStatus", () => {
   const createStrategy = () => {
     const mockRepo = { save: vi.fn() };
     const httpClientService = {
-      requestWithoutProxyAndMetrics: vi.fn(),
+      requestWithMetrics: vi.fn(),
     };
 
     return {
@@ -23,7 +23,7 @@ describe("IpniAddonStrategy getPieceStatus", () => {
       advertised: false,
     };
 
-    httpClientService.requestWithoutProxyAndMetrics.mockResolvedValueOnce({
+    httpClientService.requestWithMetrics.mockResolvedValueOnce({
       data: Buffer.from(JSON.stringify(payload)),
     });
 
@@ -33,7 +33,7 @@ describe("IpniAddonStrategy getPieceStatus", () => {
   it("throws on invalid response format", async () => {
     const { strategy, httpClientService } = createStrategy();
 
-    httpClientService.requestWithoutProxyAndMetrics.mockResolvedValueOnce({
+    httpClientService.requestWithMetrics.mockResolvedValueOnce({
       data: Buffer.from(JSON.stringify({ foo: "bar" })),
     });
 
@@ -52,7 +52,7 @@ describe("IpniAddonStrategy getPieceStatus", () => {
       },
     };
 
-    httpClientService.requestWithoutProxyAndMetrics.mockRejectedValueOnce(error);
+    httpClientService.requestWithMetrics.mockRejectedValueOnce(error);
 
     await expect((strategy as any).getPieceStatus("https://example.com", "bafy-404")).rejects.toThrow(
       "Piece not found or does not belong to service: missing",
@@ -69,7 +69,7 @@ describe("IpniAddonStrategy getPieceStatus", () => {
       },
     };
 
-    httpClientService.requestWithoutProxyAndMetrics.mockRejectedValueOnce(error);
+    httpClientService.requestWithMetrics.mockRejectedValueOnce(error);
 
     await expect((strategy as any).getPieceStatus("https://example.com", "bafy-500")).rejects.toThrow(
       "Failed to get piece status: 500 Internal Server Error - boom",
@@ -79,7 +79,7 @@ describe("IpniAddonStrategy getPieceStatus", () => {
   it("rethrows network errors", async () => {
     const { strategy, httpClientService } = createStrategy();
 
-    httpClientService.requestWithoutProxyAndMetrics.mockRejectedValueOnce(new Error("network down"));
+    httpClientService.requestWithMetrics.mockRejectedValueOnce(new Error("network down"));
 
     await expect((strategy as any).getPieceStatus("https://example.com", "bafy-network")).rejects.toThrow(
       "network down",
