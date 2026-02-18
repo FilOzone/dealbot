@@ -49,6 +49,9 @@ export interface ValidationResult {
   /** Total bytes read/validated (streaming or block-fetch validation) */
   bytesRead?: number;
 
+  /** Time to first byte of the first block response (ms), for block-fetch strategies */
+  ttfb?: number;
+
   /** Expected vs actual comparison data */
   comparison?: {
     expected: unknown;
