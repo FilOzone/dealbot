@@ -42,6 +42,8 @@ export class DataStorageCheckMetrics {
     private readonly uploadStatusCounter: Counter,
     @InjectMetric("dataStorageOnchainStatus")
     private readonly onchainStatusCounter: Counter,
+    @InjectMetric("dataStorageStatus")
+    private readonly dataStorageStatusCounter: Counter,
   ) {}
 
   observeIngestMs(labels: CheckMetricLabels, value: number | null | undefined): void {
@@ -70,6 +72,14 @@ export class DataStorageCheckMetrics {
 
   recordOnchainStatus(labels: CheckMetricLabels, value: string): void {
     this.onchainStatusCounter.inc({ ...labels, value });
+  }
+
+  /**
+   * Record overall data storage check status. Emit once per check when it completes.
+   * value: "success" | "failure.timedout" | "failure.other" (see data-storage.md#deal-status-progression).
+   */
+  recordDataStorageStatus(labels: CheckMetricLabels, value: string): void {
+    this.dataStorageStatusCounter.inc({ ...labels, value });
   }
 }
 
