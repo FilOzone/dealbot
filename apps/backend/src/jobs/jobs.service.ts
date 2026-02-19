@@ -13,7 +13,7 @@ import { DealService } from "../deal/deal.service.js";
 import { MetricsSchedulerService } from "../metrics/services/metrics-scheduler.service.js";
 import { RetrievalService } from "../retrieval/retrieval.service.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
-import { METRICS_CLEANUP_QUEUE, METRICS_QUEUE, SP_WORK_QUEUE } from "./job-queues.js";
+import { METRICS_CLEANUP_QUEUE, METRICS_QUEUE, PROVIDERS_REFRESH_QUEUE, SP_WORK_QUEUE } from "./job-queues.js";
 import { JobScheduleRepository } from "./repositories/job-schedule.repository.js";
 
 type SpJobType = "deal" | "retrieval";
@@ -244,10 +244,12 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         this.logger.error(`Failed to register worker for metrics.cleanup: ${error.message}`, error.stack),
       );
     void this.boss
-      .work("providers.refresh", { batchSize: 1, pollingIntervalSeconds: workerPollSeconds }, async ([job]) =>
+      .work(PROVIDERS_REFRESH_QUEUE, { batchSize: 1, pollingIntervalSeconds: workerPollSeconds }, async ([job]) =>
         this.handleProvidersRefreshJob(job.data as ProvidersRefreshJobData),
       )
-      .catch((error) => this.logger.error(`Failed to subscribe to providers.refresh: ${error.message}`, error.stack));
+      .catch((error) =>
+        this.logger.error(`Failed to subscribe to ${PROVIDERS_REFRESH_QUEUE}: ${error.message}`, error.stack),
+      );
   }
 
   private getMaintenanceWindowStatus(now: Date = new Date()) {
@@ -654,7 +656,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       case "metrics_cleanup":
         return METRICS_CLEANUP_QUEUE;
       case "providers_refresh":
-        return "providers.refresh";
+        return PROVIDERS_REFRESH_QUEUE;
       default: {
         const exhaustiveCheck: never = jobType;
         throw new Error(`Unhandled job type: ${exhaustiveCheck}`);
