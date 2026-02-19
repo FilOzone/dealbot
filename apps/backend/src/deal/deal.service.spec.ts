@@ -334,6 +334,7 @@ describe("DealService", () => {
         expect(mockDataStorageMetrics.recordUploadStatus).toHaveBeenCalledWith(labels, "success");
         expect(mockDataStorageMetrics.recordOnchainStatus).toHaveBeenCalledWith(labels, "pending");
         expect(mockDataStorageMetrics.recordOnchainStatus).toHaveBeenCalledWith(labels, "success");
+        expect(mockDataStorageMetrics.recordDataStorageStatus).toHaveBeenCalledWith(labels, "pending");
         expect(mockDataStorageMetrics.recordDataStorageStatus).toHaveBeenCalledWith(labels, "success");
         expect(mockRetrievalMetrics.recordStatus).toHaveBeenCalledWith(labels, "pending");
         expect(mockRetrievalMetrics.recordStatus).toHaveBeenCalledWith(labels, "success");
@@ -382,6 +383,7 @@ describe("DealService", () => {
       expect(mockDataStorageMetrics.recordUploadStatus).toHaveBeenCalledWith(labels, "pending");
       expect(mockDataStorageMetrics.recordUploadStatus).toHaveBeenCalledWith(labels, "failure.timedout");
       expect(mockDataStorageMetrics.recordOnchainStatus).not.toHaveBeenCalled();
+      expect(mockDataStorageMetrics.recordDataStorageStatus).toHaveBeenCalledWith(labels, "pending");
       expect(mockDataStorageMetrics.recordDataStorageStatus).toHaveBeenCalledWith(labels, "failure.timedout");
     });
 
@@ -413,6 +415,7 @@ describe("DealService", () => {
 
       expect(mockDataStorageMetrics.recordUploadStatus).toHaveBeenCalledWith(labels, "pending");
       expect(mockDataStorageMetrics.recordUploadStatus).toHaveBeenCalledWith(labels, "failure.other");
+      expect(mockDataStorageMetrics.recordDataStorageStatus).toHaveBeenCalledWith(labels, "pending");
       expect(mockDataStorageMetrics.recordDataStorageStatus).toHaveBeenCalledWith(labels, "failure.other");
     });
 
@@ -587,6 +590,7 @@ describe("DealService", () => {
       // Onchain should record pending then failure
       expect(mockDataStorageMetrics.recordOnchainStatus).toHaveBeenCalledWith(labels, "pending");
       expect(mockDataStorageMetrics.recordOnchainStatus).toHaveBeenCalledWith(labels, "failure.timedout");
+      expect(mockDataStorageMetrics.recordDataStorageStatus).toHaveBeenCalledWith(labels, "pending");
       expect(mockDataStorageMetrics.recordDataStorageStatus).toHaveBeenCalledWith(labels, "failure.timedout");
       // Retrieval should not have been started
       expect(mockRetrievalMetrics.recordStatus).not.toHaveBeenCalled();
@@ -631,6 +635,7 @@ describe("DealService", () => {
       // Upload and onchain should have succeeded
       expect(mockDataStorageMetrics.recordUploadStatus).toHaveBeenCalledWith(labels, "success");
       expect(mockDataStorageMetrics.recordOnchainStatus).toHaveBeenCalledWith(labels, "success");
+      expect(mockDataStorageMetrics.recordDataStorageStatus).toHaveBeenCalledWith(labels, "pending");
       expect(mockDataStorageMetrics.recordDataStorageStatus).toHaveBeenCalledWith(labels, "failure.timedout");
       // Retrieval should record pending then failure
       expect(mockRetrievalMetrics.recordStatus).toHaveBeenCalledWith(labels, "pending");

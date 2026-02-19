@@ -213,6 +213,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
         providerIsApproved: providerInfo.isApproved ?? deal.storageProvider?.isApproved,
       });
       this.dataStorageMetrics.recordUploadStatus(providerLabels, "pending");
+      this.dataStorageMetrics.recordDataStorageStatus(providerLabels, "pending");
 
       const dataSetMetadata = { ...dealInput.synapseConfig.dataSetMetadata };
 

@@ -75,8 +75,9 @@ export class DataStorageCheckMetrics {
   }
 
   /**
-   * Record overall data storage check status. Emit once per check when it completes.
-   * value: "success" | "failure.timedout" | "failure.other" (see data-storage.md#deal-status-progression).
+   * Record overall data storage check status.
+   * Emit "pending" when the check starts; emit "success" | "failure.timedout" | "failure.other" when it completes.
+   * See data-storage.md#deal-status-progression.
    */
   recordDataStorageStatus(labels: CheckMetricLabels, value: string): void {
     this.dataStorageStatusCounter.inc({ ...labels, value });
