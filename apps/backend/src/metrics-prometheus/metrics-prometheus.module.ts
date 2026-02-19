@@ -125,6 +125,12 @@ const metricProviders = [
     labelNames: ["checkType", "providerId", "providerStatus", "value"] as const,
   }),
   makeCounterProvider({
+    // docs/checks/data-storage.md#deal-status-progression (Overall Status)
+    name: "dataStorageStatus",
+    help: "Data storage check overall status counts (success when all sub-statuses succeed, failure.timedout/failure.other otherwise)",
+    labelNames: ["checkType", "providerId", "providerStatus", "value"] as const,
+  }),
+  makeCounterProvider({
     // docs/checks/data-storage.md#sub-status-meanings (Discoverability Status)
     name: "discoverabilityStatus",
     help: "Discoverability sub-status counts",
