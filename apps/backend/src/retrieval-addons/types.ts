@@ -52,6 +52,9 @@ export interface ValidationResult {
   /** Time to first byte of the first block response (ms), for block-fetch strategies */
   ttfb?: number;
 
+  /** Time to first byte for each fetched block (ms), for block-fetch strategies */
+  blockTtfbMs?: number[];
+
   /** Expected vs actual comparison data */
   comparison?: {
     expected: unknown;

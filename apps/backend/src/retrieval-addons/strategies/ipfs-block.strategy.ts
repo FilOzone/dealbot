@@ -148,6 +148,7 @@ export class IpfsBlockRetrievalStrategy implements IRetrievalAddon {
     let verified = 0;
     let totalBytes = 0;
     let firstBlockTtfb: number | undefined;
+    const blockTtfbMs: number[] = [];
 
     const enqueue = (cidStr: string) => {
       if (seen.has(cidStr)) return;
@@ -171,8 +172,12 @@ export class IpfsBlockRetrievalStrategy implements IRetrievalAddon {
         throw new Error(`HTTP ${result.metrics.statusCode}`);
       }
 
+      const ttfbMs = result.metrics.ttfb;
       if (firstBlockTtfb === undefined) {
-        firstBlockTtfb = result.metrics.ttfb;
+        firstBlockTtfb = ttfbMs;
+      }
+      if (Number.isFinite(ttfbMs) && ttfbMs > 0) {
+        blockTtfbMs.push(ttfbMs);
       }
 
       const cid = CID.parse(cidStr);
@@ -234,6 +239,7 @@ export class IpfsBlockRetrievalStrategy implements IRetrievalAddon {
       details,
       bytesRead: totalBytes,
       ttfb: firstBlockTtfb,
+      blockTtfbMs: blockTtfbMs.length > 0 ? blockTtfbMs : undefined,
     };
   }
 
