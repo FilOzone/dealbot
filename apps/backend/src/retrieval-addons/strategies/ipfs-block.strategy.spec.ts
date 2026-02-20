@@ -121,6 +121,8 @@ describe("IpfsBlockRetrievalStrategy", () => {
       expect(result.method).toBe("block-fetch");
       expect(result.bytesRead).toBe(root.bytes.length + leaf1.bytes.length + leaf2.bytes.length);
       expect(result.ttfb).toBe(10);
+      expect(result.blockTtfbMs).toHaveLength(3);
+      expect(result.blockTtfbMs?.every((value) => value === 10)).toBe(true);
     });
 
     it("detects hash mismatch (corrupted block bytes)", async () => {

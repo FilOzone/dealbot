@@ -240,6 +240,11 @@ export class RetrievalService {
     this.retrievalMetrics.observeFirstByteMs(providerLabels, executionResult.metrics.ttfb);
     this.retrievalMetrics.observeLastByteMs(providerLabels, executionResult.metrics.latency);
     this.retrievalMetrics.observeThroughput(providerLabels, executionResult.metrics.throughput);
+    if (executionResult.validation?.blockTtfbMs) {
+      for (const ttfb of executionResult.validation.blockTtfbMs) {
+        this.retrievalMetrics.observeBlockFirstByteMs(providerLabels, ttfb);
+      }
+    }
     this.retrievalMetrics.recordHttpResponseCode(providerLabels, executionResult.metrics.statusCode);
   }
 
