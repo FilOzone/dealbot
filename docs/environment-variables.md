@@ -801,7 +801,9 @@ Use this to stagger multiple dealbot deployments that are not sharing a database
 - **Required**: No
 - **Default**: `10240,10485760,104857600` (10 KiB, 10 MB, 100 MB)
 
-**Role**: Sizes of randomly generated datasets used for deal-making, in bytes.
+**Role**: Sizes of randomly generated pieces used for data-storage checks, in bytes (original content size before CAR conversion).
+
+**Note**: For IPNI-enabled deals, original content size is stored in deal metadata (`metadata.ipfs_pin.originalSize`) while `deals.file_size` stores the CAR size (bytes uploaded).
 
 **When to update**:
 

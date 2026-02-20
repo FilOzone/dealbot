@@ -351,7 +351,9 @@ export class RetrievalService {
       .andWhere("deal.metadata -> 'ipfs_pin' ->> 'enabled' = 'true'")
       .andWhere("deal.metadata -> 'ipfs_pin' ->> 'rootCID' IS NOT NULL");
     if (randomDatasetSizes.length > 0) {
-      query.andWhere("deal.file_size IN (:...sizes)", { sizes: randomDatasetSizes });
+      query.andWhere("(deal.metadata -> 'ipfs_pin' ->> 'originalSize')::bigint IN (:...sizes)", {
+        sizes: randomDatasetSizes,
+      });
     }
     return query.orderBy("RANDOM()").limit(1).getOne();
   }
