@@ -1,6 +1,6 @@
 # Retrieval Check
 
-This document is the **source of truth** for how dealbot's Retrieval check works. Items marked **TBD** are not yet implemented; code changes will follow.
+This document is the **source of truth** for how dealbot's Retrieval check works.
 
 Source code links throughout this document point to the current implementation.
 
@@ -25,7 +25,7 @@ A **successful** retrieval requires ALL of:
 
 **Failure** occurs if ANY required check fails (IPNI verification, download, or content verification) or the retrieval exceeds its max allowed time.
 
-Operational timeouts exist to prevent jobs from running indefinitely, but they are not quality assertions. A per-retrieval max time limit that fails the retrieval if exceeded is **TBD**.
+Operational timeouts exist to prevent jobs from running indefinitely. If a retrieval exceeds the configured limit (`RETRIEVAL_JOB_TIMEOUT_SECONDS`), it is marked as failed.
 
 > **Note on location:** Retrieval latency varies by dealbot-to-SP distance. Measurements reflect dealbot's probe location, not absolute SP performance. This check tests retrievability, not latency.
 
@@ -44,11 +44,11 @@ flowchart TD
 
 ### Piece Selection
 
-Dealbot randomly selects MAX_RETRIEVAL_CHECKS_PER_SP_PER_CYCLE pieces per SP under test for retrieval testing with the following constraints:
+Dealbot randomly selects **one** piece per SP for each scheduled retrieval job. The per‑SP job frequency is controlled by `RETRIEVALS_PER_SP_PER_HOUR`. Selection follows these constraints:
 
 - Only pieces from "data storage" check deals with overall status **success** (saved in the DB as `DEAL_CREATED`).
 - Only pieces with IPNI metadata enabled and a root CID.
-- Only pieces of size `RANDOM_PIECE_SIZES`.
+- Only pieces of size `RANDOM_DATASET_SIZES` (matched against `metadata.ipfs_pin.originalSize`).
 
 Source: [`retrieval.service.ts` (`selectRandomDealsForRetrieval`)](../../apps/backend/src/retrieval/retrieval.service.ts#L273)
 
@@ -58,7 +58,7 @@ For each selected piece, dealbot performs the following in parallel:
 
 #### IPNI Verification
 
-Retrieval checks **only query the IPNI indexer** to confirm the SP is listed as a provider for the root CID. We do **not** poll the SP for piece status in retrieval checks. The polling interval and timeout are currently hardcoded (2s polling, 10s timeout).
+Retrieval checks **only query the IPNI indexer** to confirm the SP is listed as a provider for the root CID. We do **not** poll the SP for piece status in retrieval checks. The polling interval and timeout are controlled by `IPNI_VERIFICATION_POLLING_MS` and `IPNI_VERIFICATION_TIMEOUT_MS`.
 
 #### `/ipfs` Retrieval
 
@@ -117,16 +117,7 @@ Key environment variables that control retrieval testing:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `MAX_RETRIEVAL_CHECKS_PER_SP_PER_CYCLE` | **TBD** | Number of pieces to select per SP under test per retrieval cycle. |
 | `IPFS_RETRIEVAL_REQUEST_CONNECTION_ESTABLISH_TIMEOUT_MS` | `5000` | Max duration to wait for an HTTP connection get established. |
 | `IPFS_RETRIEVAL_TIMEOUT_MS` | `20000` | Max duration to wait for an `/ipfs` request check to complete |
 
 See also: [`docs/environment-variables.md`](../environment-variables.md) for the full configuration reference.
-
-## TBD Summary
-
-The following items are **TBD**.  This set will get reviewed and cleaned up as part of https://github.com/FilOzone/dealbot/issues/280.
-
-| Item | Description |
-|------|-------------|
-| Per-retrieval max time limit | If a retrieval does not complete within a configurable max time, mark it as failed. Operational timeouts prevent infinite runs but are not treated as a quality assertion that fails the retrieval. |
