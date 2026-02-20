@@ -1,17 +1,13 @@
-import { waitForIpniProviderResults } from "filecoin-pin/core/utils";
 import { CID } from "multiformats/cid";
 import type { Mock } from "vitest";
 import { describe, expect, it, vi } from "vitest";
 import { Deal } from "../../database/entities/deal.entity.js";
 import { StorageProvider } from "../../database/entities/storage-provider.entity.js";
 import { IpniStatus, ServiceType } from "../../database/types.js";
+import { IpniVerificationService } from "../../ipni/ipni-verification.service.js";
 import { buildCheckMetricLabels } from "../../metrics/utils/check-metric-labels.js";
 import { DiscoverabilityCheckMetrics } from "../../metrics/utils/check-metrics.service.js";
 import { IpniAddonStrategy } from "./ipni.strategy.js";
-
-vi.mock("filecoin-pin/core/utils", () => ({
-  waitForIpniProviderResults: vi.fn(),
-}));
 
 describe("IpniAddonStrategy getPieceStatus", () => {
   type DealForMetrics = {
@@ -77,15 +73,29 @@ describe("IpniAddonStrategy getPieceStatus", () => {
       }),
     };
 
+    const mockIpniVerificationService = {
+      verify: vi.fn(),
+    };
+
+    const mockConfigService = {
+      get: vi.fn(() => ({
+        ipniVerificationTimeoutMs: 10_000,
+        ipniVerificationPollingMs: 2_000,
+      })),
+    };
+
     return {
       strategy: new IpniAddonStrategy(
         mockRepo,
         httpClientService as unknown as ConstructorParameters<typeof IpniAddonStrategy>[1],
         mockDiscoverabilityMetrics as unknown as DiscoverabilityCheckMetrics,
+        mockIpniVerificationService as unknown as IpniVerificationService,
+        mockConfigService as unknown as ConstructorParameters<typeof IpniAddonStrategy>[4],
       ),
       httpClientService,
       discoverabilityMetrics: mockDiscoverabilityMetrics,
       mockRepo,
+      ipniVerificationService: mockIpniVerificationService,
     };
   };
 
@@ -174,7 +184,7 @@ describe("IpniAddonStrategy getPieceStatus", () => {
     vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
 
     try {
-      const { strategy, discoverabilityMetrics, mockRepo } = createStrategy();
+      const { strategy, discoverabilityMetrics, mockRepo, ipniVerificationService } = createStrategy();
 
       const uploadEndTime = new Date("2026-01-01T00:00:00Z");
       const indexedAt = new Date(uploadEndTime.getTime() + 1000).toISOString();
@@ -194,9 +204,17 @@ describe("IpniAddonStrategy getPieceStatus", () => {
         durationMs: 2000,
       });
 
-      vi.mocked(waitForIpniProviderResults).mockImplementation(async () => {
+      ipniVerificationService.verify.mockImplementation(async () => {
         vi.advanceTimersByTime(1500);
-        return true;
+        return {
+          verified: 1,
+          unverified: 0,
+          total: 1,
+          rootCIDVerified: true,
+          durationMs: 1500,
+          failedCIDs: [],
+          verifiedAt: new Date().toISOString(),
+        };
       });
 
       const deal = buildDeal({
@@ -227,6 +245,7 @@ describe("IpniAddonStrategy getPieceStatus", () => {
         10_000,
         10_000,
         1000,
+        2000,
       );
 
       await strategyForTest.updateDealWithIpniMetrics(deal, result);
@@ -255,7 +274,7 @@ describe("IpniAddonStrategy getPieceStatus", () => {
     vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
 
     try {
-      const { strategy, discoverabilityMetrics, mockRepo } = createStrategy();
+      const { strategy, discoverabilityMetrics, mockRepo, ipniVerificationService } = createStrategy();
 
       const uploadEndTime = new Date("2026-01-01T00:00:00Z");
 
@@ -273,9 +292,17 @@ describe("IpniAddonStrategy getPieceStatus", () => {
         durationMs: 10_000,
       });
 
-      vi.mocked(waitForIpniProviderResults).mockImplementation(async () => {
+      ipniVerificationService.verify.mockImplementation(async () => {
         vi.advanceTimersByTime(10_000);
-        return false;
+        return {
+          verified: 0,
+          unverified: 1,
+          total: 1,
+          rootCIDVerified: false,
+          durationMs: 10_000,
+          failedCIDs: [],
+          verifiedAt: new Date().toISOString(),
+        };
       });
 
       const deal = buildDeal({
@@ -306,6 +333,7 @@ describe("IpniAddonStrategy getPieceStatus", () => {
         10_000,
         10_000,
         1000,
+        2000,
       );
 
       await strategyForTest.updateDealWithIpniMetrics(deal, result);

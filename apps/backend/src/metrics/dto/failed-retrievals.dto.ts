@@ -47,7 +47,7 @@ export class FailedRetrievalDto {
 
   @ApiProperty({
     description: "Retrieval endpoint URL",
-    example: "https://provider.example.com/piece/bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi",
+    example: "https://provider.example.com/ipfs/bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi",
   })
   retrievalEndpoint: string;
 

@@ -12,26 +12,18 @@ describe("RetrievalAddonsService error handling", () => {
     };
 
     const strategy = {
-      name: "direct",
+      name: "ipfs_pin",
       priority: 1,
       canHandle: () => true,
       constructUrl: () => ({
         url: "http://example.com",
-        method: "direct",
+        method: "ipfs_pin",
       }),
     };
 
-    const noop = (name: string) => ({
-      name,
-      priority: 2,
-      canHandle: () => false,
-      constructUrl: vi.fn(),
-    });
-
     const service = new RetrievalAddonsService(
       strategy as unknown as ConstructorParameters<typeof RetrievalAddonsService>[0],
-      noop("ipni") as unknown as ConstructorParameters<typeof RetrievalAddonsService>[1],
-      httpClientService as unknown as ConstructorParameters<typeof RetrievalAddonsService>[2],
+      httpClientService as unknown as ConstructorParameters<typeof RetrievalAddonsService>[1],
     );
 
     const config: RetrievalConfiguration = {
