@@ -50,7 +50,7 @@ Dealbot randomly selects **one** piece per SP for each scheduled retrieval job. 
 - Only pieces with IPNI metadata enabled and a root CID.
 - Only pieces of size `RANDOM_DATASET_SIZES` (matched against `metadata.ipfs_pin.originalSize`).
 
-Source: [`retrieval.service.ts` (`selectRandomDealsForRetrieval`)](../../apps/backend/src/retrieval/retrieval.service.ts#L273)
+Source: [`retrieval.service.ts` (`selectRandomDealsForRetrieval`)](../../apps/backend/src/retrieval/retrieval.service.ts#L318)
 
 ### Retrieval Checks
 

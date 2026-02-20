@@ -167,6 +167,8 @@ export class RetrievalService {
     let retrievals: Retrieval[];
     let finalStatusEmitted = false;
     const retrievalCheckStartTime = Date.now();
+    // If this throws, we want the job to fail fast: missing/invalid CIDs are an orchestration
+    // failure and we should not mark the retrieval as pending for this deal.
     const ipniContext = this.isPgBossMode() ? this.getIpniCidsForRetrieval(deal) : null;
     this.retrievalMetrics.recordStatus(providerLabels, "pending");
     if (this.isPgBossMode()) {
@@ -482,7 +484,11 @@ export class RetrievalService {
       this.discoverabilityMetrics.recordStatus(providerLabels, failureStatus);
       return { ok: false, failureStatus };
     } catch (error) {
-      signal?.throwIfAborted();
+      if (signal?.aborted) {
+        const failureStatus = "failure.timedout";
+        this.discoverabilityMetrics.recordStatus(providerLabels, failureStatus);
+        return { ok: false, failureStatus };
+      }
       const failureStatus = classifyFailureStatus(error);
       this.logger.warn(
         `Retrieval IPNI verification failed for deal ${dealId}: ${error instanceof Error ? error.message : error}`,
