@@ -1,5 +1,36 @@
 # Changelog
 
+## [1.0.0](https://github.com/FilOzone/dealbot/compare/backend-v0.4.0...backend-v1.0.0) (2026-02-20)
+
+
+### ⚠ BREAKING CHANGES
+
+* remove proxy support ([#283](https://github.com/FilOzone/dealbot/issues/283))
+
+### Features
+
+* add metrics for data-storage-check ([#287](https://github.com/FilOzone/dealbot/issues/287)) ([34659ae](https://github.com/FilOzone/dealbot/commit/34659ae129d0cfb877f19d9f9dcb408f26214b1e))
+* cap deal/retrievals with abort signals ([#263](https://github.com/FilOzone/dealbot/issues/263)) ([0623bcf](https://github.com/FilOzone/dealbot/commit/0623bcfc19286ed4429296dd6b9c819116eb6c74))
+
+
+### Bug Fixes
+
+* always disable CDN testing ([#264](https://github.com/FilOzone/dealbot/issues/264)) ([66d66df](https://github.com/FilOzone/dealbot/commit/66d66df5a2b3b0b4203b3a1338167c8bceedb9a8))
+* emit overall data-storage check status ([#296](https://github.com/FilOzone/dealbot/issues/296)) ([690b656](https://github.com/FilOzone/dealbot/commit/690b656ca7eaea5850f39b2f54adbd5f358e4f5a))
+* emit per-block TTFB for ipfs block fetch ([#298](https://github.com/FilOzone/dealbot/issues/298)) ([6e4332f](https://github.com/FilOzone/dealbot/commit/6e4332ff1ef3f255d7fe21a33834df0bef4df9d3))
+* ipfs data is validated ([#249](https://github.com/FilOzone/dealbot/issues/249)) ([aa6ddd2](https://github.com/FilOzone/dealbot/commit/aa6ddd21749d70c247d89aba46ff32590269153c))
+* log full pieceCid, CID, and providerAddresses ([#244](https://github.com/FilOzone/dealbot/issues/244)) ([bc9c0a2](https://github.com/FilOzone/dealbot/commit/bc9c0a2fedb3d32a77d929b60f343458d68a9fce))
+* more granular job duration buckets ([#291](https://github.com/FilOzone/dealbot/issues/291)) ([36fbf28](https://github.com/FilOzone/dealbot/commit/36fbf28de424b3de5d50fe3f4e19003095653540))
+* pgboss upgrade db migrations ([#269](https://github.com/FilOzone/dealbot/issues/269)) ([a26b14a](https://github.com/FilOzone/dealbot/commit/a26b14ad8cd9f60e5c305bc4b6ac163de04f8e6c))
+* providers table is updated every 4 hours ([#268](https://github.com/FilOzone/dealbot/issues/268)) ([e5debd9](https://github.com/FilOzone/dealbot/commit/e5debd9bb27609fd20648efbd4cc786dd00d8aa4))
+* remove RETRIEVAL_TIMEOUT_BUFFER_MS ([#266](https://github.com/FilOzone/dealbot/issues/266)) ([4f650a8](https://github.com/FilOzone/dealbot/commit/4f650a809e9ab571985c718a4be7308c70a31f46))
+* use single pgboss queue to enforce per SP lock ([#247](https://github.com/FilOzone/dealbot/issues/247)) ([6fe757a](https://github.com/FilOzone/dealbot/commit/6fe757acf881405dfa6a87de0f4830a406f95154))
+
+
+### Code Refactoring
+
+* remove proxy support ([#283](https://github.com/FilOzone/dealbot/issues/283)) ([bb68729](https://github.com/FilOzone/dealbot/commit/bb68729d0840e3d4bb6e599264e106a773ebefac))
+
 ## [0.4.0](https://github.com/FilOzone/dealbot/compare/backend-v0.3.0...backend-v0.4.0) (2026-02-09)
 
 
