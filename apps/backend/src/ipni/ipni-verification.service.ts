@@ -43,7 +43,8 @@ export class IpniVerificationService {
       signal,
     }).catch((error) => {
       signal?.throwIfAborted();
-      this.logger.warn(`IPNI verification failed: ${error.message}`);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.warn(`IPNI verification failed: ${errorMessage}`);
       return false;
     });
 
