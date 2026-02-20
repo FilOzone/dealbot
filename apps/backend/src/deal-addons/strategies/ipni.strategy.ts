@@ -7,10 +7,10 @@ import { StorageProvider } from "src/database/entities/storage-provider.entity.j
 import type { Repository } from "typeorm";
 import { delay } from "../../common/abort-utils.js";
 import { buildUnixfsCar } from "../../common/car-utils.js";
+import type { IConfig } from "../../config/app.config.js";
 import { Deal } from "../../database/entities/deal.entity.js";
 import type { DealMetadata, IpniMetadata } from "../../database/types.js";
 import { IpniStatus, ServiceType } from "../../database/types.js";
-import type { IConfig } from "../../config/app.config.js";
 import { HttpClientService } from "../../http-client/http-client.service.js";
 import { IpniVerificationService } from "../../ipni/ipni-verification.service.js";
 import { classifyFailureStatus } from "../../metrics/utils/check-metric-labels.js";
