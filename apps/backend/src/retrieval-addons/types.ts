@@ -54,6 +54,8 @@ export interface ValidationResult {
 
   /** HTTP status code observed during validation (if any) */
   httpStatusCode?: number;
+  /** Time to first byte for each fetched block (ms), for block-fetch strategies */
+  blockTtfbMs?: number[];
 
   /** Expected vs actual comparison data */
   comparison?: {
