@@ -52,6 +52,9 @@ export interface ValidationResult {
   /** Time to first byte of the first block response (ms), for block-fetch strategies */
   ttfb?: number;
 
+  /** HTTP status code observed during validation (if any) */
+  httpStatusCode?: number;
+
   /** Expected vs actual comparison data */
   comparison?: {
     expected: unknown;

@@ -1,7 +1,6 @@
-import { METADATA_KEYS, type ProviderInfo } from "@filoz/synapse-sdk";
+import { METADATA_KEYS } from "@filoz/synapse-sdk";
 import { Injectable, Logger } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { waitForIpniProviderResults } from "filecoin-pin/core/utils";
 import { CID } from "multiformats/cid";
 import { StorageProvider } from "src/database/entities/storage-provider.entity.js";
 import type { Repository } from "typeorm";
@@ -11,45 +10,15 @@ import { Deal } from "../../database/entities/deal.entity.js";
 import type { DealMetadata, IpniMetadata } from "../../database/types.js";
 import { IpniStatus, ServiceType } from "../../database/types.js";
 import { HttpClientService } from "../../http-client/http-client.service.js";
+import { IpniVerificationService } from "../../ipni/ipni-verification.service.js";
 import { classifyFailureStatus } from "../../metrics/utils/check-metric-labels.js";
 import { DiscoverabilityCheckMetrics } from "../../metrics/utils/check-metrics.service.js";
 
 import type { IDealAddon } from "../interfaces/deal-addon.interface.js";
 import type { AddonExecutionContext, DealConfiguration, IpniPreprocessingResult, SynapseConfig } from "../types.js";
 import { AddonPriority } from "../types.js";
-import type {
-  IPNIVerificationResult,
-  MonitorAndVerifyResult,
-  PieceMonitoringResult,
-  PieceStatus,
-  PieceStatusResponse,
-} from "./ipni.types.js";
+import type { MonitorAndVerifyResult, PieceMonitoringResult, PieceStatus, PieceStatusResponse } from "./ipni.types.js";
 import { validatePieceStatusResponse } from "./ipni.types.js";
-
-/**
- * Convert from a dealbot StorageProvider to a synapse-sdk ProviderInfo object
- */
-function buildExpectedProviderInfo(storageProvider: StorageProvider): ProviderInfo {
-  return {
-    id: storageProvider.providerId ?? (0 as number),
-    serviceProvider: storageProvider.address,
-    payee: storageProvider.payee,
-    name: storageProvider.name,
-    description: storageProvider.description,
-    active: storageProvider.isActive,
-    products: {
-      PDP: {
-        type: "PDP",
-        isActive: true,
-        capabilities: {},
-        data: {
-          serviceURL: storageProvider.serviceUrl,
-          // We don't need the other fields for IPNI verification.
-        } as any,
-      },
-    },
-  };
-}
 
 /**
  * IPNI (InterPlanetary Network Indexer) add-on strategy
@@ -65,6 +34,7 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
     private readonly dealRepository: Repository<Deal>,
     private readonly httpClientService: HttpClientService,
     private readonly discoverabilityMetrics: DiscoverabilityCheckMetrics,
+    private readonly ipniVerificationService: IpniVerificationService,
   ) {}
 
   readonly name = ServiceType.IPFS_PIN;
@@ -305,49 +275,24 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       };
     }
     const ATTEMPT_INTERVAL_MS = 5000;
-    const ATTEMPT_MULTIPLIER = 2;
-    // Derive maxAttempts from total IPNI timeout, per-attempt interval and a multiplier.
-    const maxAttempts = Math.ceil(ipniTimeoutMs / ATTEMPT_INTERVAL_MS / ATTEMPT_MULTIPLIER);
-
     this.logger.log(`Verifying rootCID in IPNI: ${rootCID}`);
-
-    const ipniVerificationStartTime = Date.now();
-
     // NOTE: filecoin-pin does not currently validate that all blocks are advertised on IPNI.
-    const ipniValidated = await waitForIpniProviderResults(rootCidObj, {
-      childBlocks: blockCIDs,
-      maxAttempts,
-      delayMs: ATTEMPT_INTERVAL_MS,
-      expectedProviders: [buildExpectedProviderInfo(storageProvider)],
+    const ipniResult = await this.ipniVerificationService.verify({
+      rootCid: rootCidObj,
+      blockCids: blockCIDs,
+      storageProvider,
+      timeoutMs: ipniTimeoutMs,
+      pollIntervalMs: ATTEMPT_INTERVAL_MS,
       signal,
-    }).catch((error) => {
-      signal?.throwIfAborted();
-      this.logger.warn(`IPNI verification failed: ${error.message}`);
-      return false;
     });
-
-    const ipniVerificationDurationMs = Date.now() - ipniVerificationStartTime;
-
-    // We only verify rootCID (not individual block CIDs)
-    const ipniResult: IPNIVerificationResult = {
-      verified: ipniValidated ? 1 : 0,
-      unverified: ipniValidated ? 0 : 1,
-      total: 1,
-      rootCIDVerified: ipniValidated,
-      durationMs: ipniVerificationDurationMs,
-      failedCIDs: ipniValidated
-        ? []
-        : [{ cid: rootCID, reason: "IPNI did not return expected provider results via filecoin-pin" }],
-      verifiedAt: new Date().toISOString(),
-    };
 
     this.discoverabilityMetrics.observeIpniVerifyMs(
       this.discoverabilityMetrics.buildLabelsForDeal(deal),
-      ipniVerificationDurationMs,
+      ipniResult.durationMs,
     );
 
-    if (ipniValidated) {
-      this.logger.log(`IPNI verified: rootCID ${rootCID} (${(ipniVerificationDurationMs / 1000).toFixed(1)}s)`);
+    if (ipniResult.rootCIDVerified) {
+      this.logger.log(`IPNI verified: rootCID ${rootCID} (${(ipniResult.durationMs / 1000).toFixed(1)}s)`);
     } else {
       this.logger.warn(`IPNI verification failed for rootCID: ${rootCID}`);
     }

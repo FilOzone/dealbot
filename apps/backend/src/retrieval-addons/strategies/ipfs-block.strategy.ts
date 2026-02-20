@@ -148,6 +148,7 @@ export class IpfsBlockRetrievalStrategy implements IRetrievalAddon {
     let verified = 0;
     let totalBytes = 0;
     let firstBlockTtfb: number | undefined;
+    let firstHttpStatusCode: number | undefined;
 
     const enqueue = (cidStr: string) => {
       if (seen.has(cidStr)) return;
@@ -160,7 +161,7 @@ export class IpfsBlockRetrievalStrategy implements IRetrievalAddon {
     const processCid = async (cidStr: string) => {
       signal?.throwIfAborted();
 
-      const url = `${spEndpoint}/ipfs/${cidStr}`;
+      const url = `${spEndpoint}/ipfs/${cidStr}?format=raw`;
       const result = await this.httpClientService.requestWithMetrics<Buffer>(url, {
         headers: { Accept: "application/vnd.ipld.raw" },
         httpVersion: "2",
@@ -168,6 +169,9 @@ export class IpfsBlockRetrievalStrategy implements IRetrievalAddon {
       });
 
       if (result.metrics.statusCode < 200 || result.metrics.statusCode >= 300) {
+        if (firstHttpStatusCode === undefined) {
+          firstHttpStatusCode = result.metrics.statusCode;
+        }
         throw new Error(`HTTP ${result.metrics.statusCode}`);
       }
 
@@ -234,6 +238,7 @@ export class IpfsBlockRetrievalStrategy implements IRetrievalAddon {
       details,
       bytesRead: totalBytes,
       ttfb: firstBlockTtfb,
+      httpStatusCode: firstHttpStatusCode,
     };
   }
 

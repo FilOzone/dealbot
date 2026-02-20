@@ -1,3 +1,4 @@
+import { ConfigService } from "@nestjs/config";
 import { Test, TestingModule } from "@nestjs/testing";
 import { getRepositoryToken } from "@nestjs/typeorm";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -5,7 +6,8 @@ import { Deal } from "../database/entities/deal.entity.js";
 import { Retrieval } from "../database/entities/retrieval.entity.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
 import { RetrievalStatus } from "../database/types.js";
-import { RetrievalCheckMetrics } from "../metrics/utils/check-metrics.service.js";
+import { IpniVerificationService } from "../ipni/ipni-verification.service.js";
+import { DiscoverabilityCheckMetrics, RetrievalCheckMetrics } from "../metrics/utils/check-metrics.service.js";
 import { RetrievalAddonsService } from "../retrieval-addons/retrieval-addons.service.js";
 import { RetrievalService } from "./retrieval.service.js";
 
@@ -25,6 +27,21 @@ describe("RetrievalService timeouts", () => {
 
   const mockRetrievalAddonsService = {
     testAllRetrievalMethods: vi.fn(),
+    getApplicableStrategies: vi.fn().mockReturnValue([{}]),
+  };
+  const mockConfigService = {
+    get: vi.fn((key: string) => {
+      if (key === "jobs") return { mode: "cron" };
+      if (key === "dataset") return { randomDatasetSizes: [10] };
+      return undefined;
+    }),
+  };
+  const mockIpniVerificationService = {
+    verify: vi.fn(),
+  };
+  const mockDiscoverabilityMetrics = {
+    recordStatus: vi.fn(),
+    observeIpniVerifyMs: vi.fn(),
   };
 
   const mockDealRepository = {
@@ -72,6 +89,9 @@ describe("RetrievalService timeouts", () => {
         { provide: getRepositoryToken(Retrieval), useValue: mockRetrievalRepository },
         { provide: getRepositoryToken(StorageProvider), useValue: mockSpRepository },
         { provide: RetrievalCheckMetrics, useValue: mockRetrievalMetrics },
+        { provide: DiscoverabilityCheckMetrics, useValue: mockDiscoverabilityMetrics },
+        { provide: IpniVerificationService, useValue: mockIpniVerificationService },
+        { provide: ConfigService, useValue: mockConfigService },
       ],
     }).compile();
 

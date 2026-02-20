@@ -1,23 +1,30 @@
 import { Injectable, Logger } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
+import { CID } from "multiformats/cid";
 import type { Repository } from "typeorm";
 import type { Hex } from "../common/types.js";
+import type { IConfig } from "../config/app.config.js";
 import { Deal } from "../database/entities/deal.entity.js";
 import { Retrieval } from "../database/entities/retrieval.entity.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
-import { DealStatus, RetrievalStatus } from "../database/types.js";
+import { DealStatus, RetrievalStatus, ServiceType } from "../database/types.js";
+import { IpniVerificationService } from "../ipni/ipni-verification.service.js";
 import {
   buildCheckMetricLabels,
   type CheckMetricLabels,
   classifyFailureStatus,
 } from "../metrics/utils/check-metric-labels.js";
-import { RetrievalCheckMetrics } from "../metrics/utils/check-metrics.service.js";
+import { DiscoverabilityCheckMetrics, RetrievalCheckMetrics } from "../metrics/utils/check-metrics.service.js";
 import { RetrievalAddonsService } from "../retrieval-addons/retrieval-addons.service.js";
 import type {
   RetrievalConfiguration,
   RetrievalExecutionResult,
   RetrievalTestResult,
 } from "../retrieval-addons/types.js";
+
+const RETRIEVAL_IPNI_VERIFICATION_TIMEOUT_MS = 10_000;
+const RETRIEVAL_IPNI_VERIFICATION_POLLING_MS = 2_000;
 
 @Injectable()
 export class RetrievalService {
@@ -32,6 +39,9 @@ export class RetrievalService {
     @InjectRepository(StorageProvider)
     private readonly spRepository: Repository<StorageProvider>,
     private readonly retrievalMetrics: RetrievalCheckMetrics,
+    private readonly discoverabilityMetrics: DiscoverabilityCheckMetrics,
+    private readonly ipniVerificationService: IpniVerificationService,
+    private readonly configService: ConfigService<IConfig, true>,
   ) {}
 
   async performRandomBatchRetrievals(count: number, signal?: AbortSignal): Promise<Retrieval[]> {
@@ -148,10 +158,36 @@ export class RetrievalService {
       storageProvider: deal.spAddress as Hex,
     };
 
+    const applicableStrategies = this.retrievalAddonsService.getApplicableStrategies(config);
+    if (applicableStrategies.length === 0) {
+      this.logger.warn(
+        `Retrieval skipped for ${deal.pieceCid ?? deal.id}: no applicable retrieval strategies (likely missing IPNI metadata).`,
+      );
+      return [];
+    }
+
     let testResult: RetrievalTestResult;
     let retrievals: Retrieval[];
+    let finalStatusEmitted = false;
     const retrievalCheckStartTime = Date.now();
+    const ipniContext = this.isPgBossMode() ? this.getIpniCidsForRetrieval(deal) : null;
     this.retrievalMetrics.recordStatus(providerLabels, "pending");
+    if (this.isPgBossMode()) {
+      const ipniCheck = await this.verifyIpniForRetrieval(
+        ipniContext as { rootCid: CID; blockCids: CID[] },
+        deal.id,
+        provider,
+        providerLabels,
+        signal,
+      );
+      if (!ipniCheck.ok) {
+        const checkDurationMs = Date.now() - retrievalCheckStartTime;
+        this.retrievalMetrics.observeCheckDuration(providerLabels, checkDurationMs);
+        this.retrievalMetrics.recordStatus(providerLabels, ipniCheck.failureStatus ?? "failure.other");
+        finalStatusEmitted = true;
+        return [];
+      }
+    }
     try {
       testResult = await this.retrievalAddonsService.testAllRetrievalMethods(config, signal);
 
@@ -169,19 +205,21 @@ export class RetrievalService {
         const abortReason = signal.reason;
         const abortMessage = abortReason instanceof Error ? abortReason.message : String(abortReason ?? "");
         this.logger.warn(`Retrievals aborted for ${deal.pieceCid}: ${abortMessage || errorMessage}`);
+        if (!finalStatusEmitted) {
+          this.retrievalMetrics.recordStatus(providerLabels, "failure.timedout");
+          finalStatusEmitted = true;
+        }
       } else {
         this.logger.error(`All retrievals failed for ${deal.pieceCid}: ${errorMessage}`);
         this.retrievalMetrics.recordStatus(providerLabels, classifyFailureStatus(error));
+        finalStatusEmitted = true;
       }
 
-      // Don't try to record timeouts here. If this catch block fires, it's either:
-      // 1. The batch timeout fired because we're out of time (global deadline) - don't record
+      // If this catch block fires, it's either:
+      // 1. The job timeout fired (signal aborted) - record failure.timedout once
       // 2. A catastrophic error occurred (provider not found, etc.) - re-throw for logging
       // 3. Individual HTTP timeouts are captured by Promise.allSettled in testAllRetrievalMethods
       //    and converted to FAILED records through the normal flow
-      //
-      // This ensures we don't create duplicate/inaccurate TIMEOUT records when HTTP requests
-      // are still running in the background after batch timeout fires.
 
       throw error;
     }
@@ -193,6 +231,10 @@ export class RetrievalService {
         `Retrieval job aborted after testing for ${deal.pieceCid}; recorded partial results.` +
           (abortMessage ? ` Reason: ${abortMessage}` : ""),
       );
+      if (!finalStatusEmitted && signal?.aborted) {
+        this.retrievalMetrics.recordStatus(providerLabels, "failure.timedout");
+        finalStatusEmitted = true;
+      }
       return retrievals;
     }
 
@@ -202,6 +244,7 @@ export class RetrievalService {
       providerLabels,
       retrievals.every((retrieval) => retrieval.status === RetrievalStatus.SUCCESS) ? "success" : "failure.other",
     );
+    finalStatusEmitted = true;
 
     return retrievals;
   }
@@ -298,15 +341,19 @@ export class RetrievalService {
    * Uses Postgres ORDER BY RANDOM() since Dealbot is Postgres-only.
    */
   private async selectRandomSuccessfulDealForProvider(spAddress: string): Promise<Deal | null> {
-    return this.dealRepository
+    const randomDatasetSizes = this.getRandomDatasetSizes();
+    const query = this.dealRepository
       .createQueryBuilder("deal")
       .where("deal.sp_address = :spAddress", { spAddress })
       .andWhere("deal.status IN (:...statuses)", {
         statuses: [DealStatus.DEAL_CREATED],
       })
-      .orderBy("RANDOM()")
-      .limit(1)
-      .getOne();
+      .andWhere("deal.metadata -> 'ipfs_pin' ->> 'enabled' = 'true'")
+      .andWhere("deal.metadata -> 'ipfs_pin' ->> 'rootCID' IS NOT NULL");
+    if (randomDatasetSizes.length > 0) {
+      query.andWhere("deal.file_size IN (:...sizes)", { sizes: randomDatasetSizes });
+    }
+    return query.orderBy("RANDOM()").limit(1).getOne();
   }
 
   private groupDealsByProvider(deals: Deal[]): Map<string, Deal[]> {
@@ -362,6 +409,86 @@ export class RetrievalService {
     for (let i = array.length - 1; i > 0; i -= 1) {
       const j = Math.floor(Math.random() * (i + 1));
       [array[i], array[j]] = [array[j], array[i]];
+    }
+  }
+
+  private isPgBossMode(): boolean {
+    return (this.configService.get("jobs")?.mode ?? "cron") === "pgboss";
+  }
+
+  private getRandomDatasetSizes(): number[] {
+    return this.configService.get("dataset")?.randomDatasetSizes ?? [];
+  }
+
+  private getIpniCidsForRetrieval(deal: Deal): { rootCid: CID; blockCids: CID[] } {
+    const ipniMetadata = deal.metadata?.[ServiceType.IPFS_PIN];
+    if (!ipniMetadata?.rootCID) {
+      throw new Error(`Retrieval IPNI verification failed: missing root CID for deal ${deal.id}`);
+    }
+    if (!ipniMetadata.blockCIDs || ipniMetadata.blockCIDs.length === 0) {
+      throw new Error(`Retrieval IPNI verification failed: missing block CIDs for deal ${deal.id}`);
+    }
+
+    let rootCid: CID;
+    try {
+      rootCid = CID.parse(ipniMetadata.rootCID);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      throw new Error(`Retrieval IPNI verification failed: invalid root CID for deal ${deal.id}: ${errorMessage}`);
+    }
+
+    const blockCids: CID[] = ipniMetadata.blockCIDs.map((cid) => {
+      try {
+        return CID.parse(cid);
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        throw new Error(`Retrieval IPNI verification failed: invalid block CID for deal ${deal.id}: ${errorMessage}`);
+      }
+    });
+
+    return { rootCid, blockCids };
+  }
+
+  private async verifyIpniForRetrieval(
+    ipniContext: { rootCid: CID; blockCids: CID[] },
+    dealId: string,
+    provider: StorageProvider,
+    providerLabels: CheckMetricLabels,
+    signal?: AbortSignal,
+  ): Promise<{ ok: boolean; failureStatus?: "failure.timedout" | "failure.other" }> {
+    const { rootCid, blockCids } = ipniContext;
+
+    const timeoutMs = RETRIEVAL_IPNI_VERIFICATION_TIMEOUT_MS;
+    const pollIntervalMs = RETRIEVAL_IPNI_VERIFICATION_POLLING_MS;
+    this.discoverabilityMetrics.recordStatus(providerLabels, "pending");
+
+    try {
+      const ipniResult = await this.ipniVerificationService.verify({
+        rootCid,
+        blockCids,
+        storageProvider: provider,
+        timeoutMs,
+        pollIntervalMs,
+        signal,
+      });
+
+      this.discoverabilityMetrics.observeIpniVerifyMs(providerLabels, ipniResult.durationMs);
+
+      if (ipniResult.rootCIDVerified) {
+        this.discoverabilityMetrics.recordStatus(providerLabels, "success");
+        return { ok: true };
+      }
+      const failureStatus = ipniResult.durationMs >= timeoutMs ? "failure.timedout" : "failure.other";
+      this.discoverabilityMetrics.recordStatus(providerLabels, failureStatus);
+      return { ok: false, failureStatus };
+    } catch (error) {
+      signal?.throwIfAborted();
+      const failureStatus = classifyFailureStatus(error);
+      this.logger.warn(
+        `Retrieval IPNI verification failed for deal ${dealId}: ${error instanceof Error ? error.message : error}`,
+      );
+      this.discoverabilityMetrics.recordStatus(providerLabels, failureStatus);
+      return { ok: false, failureStatus };
     }
   }
 }
