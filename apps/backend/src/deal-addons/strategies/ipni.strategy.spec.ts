@@ -77,12 +77,20 @@ describe("IpniAddonStrategy getPieceStatus", () => {
       verify: vi.fn(),
     };
 
+    const mockConfigService = {
+      get: vi.fn(() => ({
+        ipniVerificationTimeoutMs: 10_000,
+        ipniVerificationPollingMs: 2_000,
+      })),
+    };
+
     return {
       strategy: new IpniAddonStrategy(
         mockRepo,
         httpClientService as unknown as ConstructorParameters<typeof IpniAddonStrategy>[1],
         mockDiscoverabilityMetrics as unknown as DiscoverabilityCheckMetrics,
         mockIpniVerificationService as unknown as IpniVerificationService,
+        mockConfigService as unknown as ConstructorParameters<typeof IpniAddonStrategy>[4],
       ),
       httpClientService,
       discoverabilityMetrics: mockDiscoverabilityMetrics,
@@ -237,6 +245,7 @@ describe("IpniAddonStrategy getPieceStatus", () => {
         10_000,
         10_000,
         1000,
+        2000,
       );
 
       await strategyForTest.updateDealWithIpniMetrics(deal, result);
@@ -324,6 +333,7 @@ describe("IpniAddonStrategy getPieceStatus", () => {
         10_000,
         10_000,
         1000,
+        2000,
       );
 
       await strategyForTest.updateDealWithIpniMetrics(deal, result);

@@ -1,5 +1,6 @@
 import { METADATA_KEYS } from "@filoz/synapse-sdk";
 import { Injectable, Logger } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
 import { CID } from "multiformats/cid";
 import { StorageProvider } from "src/database/entities/storage-provider.entity.js";
@@ -9,6 +10,7 @@ import { buildUnixfsCar } from "../../common/car-utils.js";
 import { Deal } from "../../database/entities/deal.entity.js";
 import type { DealMetadata, IpniMetadata } from "../../database/types.js";
 import { IpniStatus, ServiceType } from "../../database/types.js";
+import type { IConfig } from "../../config/app.config.js";
 import { HttpClientService } from "../../http-client/http-client.service.js";
 import { IpniVerificationService } from "../../ipni/ipni-verification.service.js";
 import { classifyFailureStatus } from "../../metrics/utils/check-metric-labels.js";
@@ -35,6 +37,7 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
     private readonly httpClientService: HttpClientService,
     private readonly discoverabilityMetrics: DiscoverabilityCheckMetrics,
     private readonly ipniVerificationService: IpniVerificationService,
+    private readonly configService: ConfigService<IConfig, true>,
   ) {}
 
   readonly name = ServiceType.IPFS_PIN;
@@ -175,6 +178,9 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
 
       const rootCID = deal.metadata[this.name]?.rootCID ?? "";
       const blockCIDs = deal.metadata[this.name]?.blockCIDs ?? [];
+      const timeouts = this.configService.get("timeouts");
+      const ipniTimeoutMs = timeouts?.ipniVerificationTimeoutMs ?? this.IPNI_LOOKUP_TIMEOUT_MS;
+      const ipniPollIntervalMs = timeouts?.ipniVerificationPollingMs ?? this.POLLING_INTERVAL_MS;
 
       const result = await this.monitorAndVerifyIPNI(
         serviceUrl,
@@ -183,8 +189,9 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
         rootCID,
         deal.storageProvider,
         this.POLLING_TIMEOUT_MS,
-        this.IPNI_LOOKUP_TIMEOUT_MS,
+        ipniTimeoutMs,
         this.POLLING_INTERVAL_MS,
+        ipniPollIntervalMs,
         signal,
       );
 
@@ -229,6 +236,7 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
     statusTimeoutMs: number,
     ipniTimeoutMs: number,
     pollIntervalMs: number,
+    ipniPollIntervalMs: number,
     signal?: AbortSignal,
   ): Promise<MonitorAndVerifyResult> {
     const pieceCid = deal.pieceCid;
@@ -274,7 +282,6 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
         },
       };
     }
-    const ATTEMPT_INTERVAL_MS = 5000;
     this.logger.log(`Verifying rootCID in IPNI: ${rootCID}`);
     // NOTE: filecoin-pin does not currently validate that all blocks are advertised on IPNI.
     const ipniResult = await this.ipniVerificationService.verify({
@@ -282,7 +289,7 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       blockCids: blockCIDs,
       storageProvider,
       timeoutMs: ipniTimeoutMs,
-      pollIntervalMs: ATTEMPT_INTERVAL_MS,
+      pollIntervalMs: ipniPollIntervalMs,
       signal,
     });
 

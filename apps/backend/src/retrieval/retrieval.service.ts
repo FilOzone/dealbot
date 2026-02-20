@@ -23,9 +23,6 @@ import type {
   RetrievalTestResult,
 } from "../retrieval-addons/types.js";
 
-const RETRIEVAL_IPNI_VERIFICATION_TIMEOUT_MS = 10_000;
-const RETRIEVAL_IPNI_VERIFICATION_POLLING_MS = 2_000;
-
 @Injectable()
 export class RetrievalService {
   private readonly logger = new Logger(RetrievalService.name);
@@ -460,8 +457,9 @@ export class RetrievalService {
   ): Promise<{ ok: boolean; failureStatus?: "failure.timedout" | "failure.other" }> {
     const { rootCid, blockCids } = ipniContext;
 
-    const timeoutMs = RETRIEVAL_IPNI_VERIFICATION_TIMEOUT_MS;
-    const pollIntervalMs = RETRIEVAL_IPNI_VERIFICATION_POLLING_MS;
+    const timeouts = this.configService.get("timeouts");
+    const timeoutMs = timeouts?.ipniVerificationTimeoutMs ?? 10_000;
+    const pollIntervalMs = timeouts?.ipniVerificationPollingMs ?? 2_000;
     this.discoverabilityMetrics.recordStatus(providerLabels, "pending");
 
     try {

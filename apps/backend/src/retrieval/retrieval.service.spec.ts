@@ -33,6 +33,7 @@ describe("RetrievalService timeouts", () => {
     get: vi.fn((key: string) => {
       if (key === "jobs") return { mode: "cron" };
       if (key === "dataset") return { randomDatasetSizes: [10] };
+      if (key === "timeouts") return { ipniVerificationTimeoutMs: 10_000, ipniVerificationPollingMs: 2_000 };
       return undefined;
     }),
   };
