@@ -142,7 +142,7 @@ export class DataRetentionService {
     // Reset baseline to current values to prevent stalled metrics
     if (faultedDelta < 0n || successDelta < 0n) {
       this.logger.warn(
-        `Negative delta detected for provider ${address} (faulted: ${faultedDelta}, success: ${successDelta}). `,
+        `Negative delta detected for provider ${address} (faulted: ${faultedDelta}, success: ${successDelta}).`,
       );
       // Reset baseline without incrementing counters
       this.providerCumulativeTotals.set(normalizedAddress, {

@@ -401,8 +401,8 @@ WALLET_ADDRESS=0x1234567890abcdef1234567890abcdef12345678
 ### `PDP_SUBGRAPH_ENDPOINT`
 
 - **Type**: `string` (URL)
-- **Required**: Yes
-- **Default**: None
+- **Required**: No
+- **Default**: Empty string (feature disabled)
 
 **Role**: The Graph API endpoint for querying PDP (Proof of Data Possession) subgraph data. This endpoint is used to retrieve data retention info for provider data.
 
