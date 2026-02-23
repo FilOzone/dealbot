@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { validateProviderDataSetResponse } from "./types.js";
+import { validateProviderDataSetResponse, validateSubgraphMetaResponse } from "./types.js";
 
 // Subgraph stores addresses in lowercase
 const VALID_ADDRESS = "0xd8da6bf26964af9d7eed9e03e53415d37aa96045" as const;
@@ -150,5 +150,101 @@ describe("validateProviderDataSetResponse", () => {
 
     expect(result.providers[0].totalFaultedPeriods).toBe(0n);
     expect(result.providers[0].proofSets[0].maxProvingPeriod).toBe(0n);
+  });
+});
+
+describe("validateSubgraphMetaResponse", () => {
+  it("validates a well-formed subgraph meta response", () => {
+    const input = {
+      _meta: {
+        block: {
+          number: 12345,
+        },
+      },
+    };
+
+    const result = validateSubgraphMetaResponse(input);
+
+    expect(result._meta.block.number).toBe(12345);
+  });
+
+  it("accepts large block numbers", () => {
+    const input = {
+      _meta: {
+        block: {
+          number: 999999999,
+        },
+      },
+    };
+
+    const result = validateSubgraphMetaResponse(input);
+
+    expect(result._meta.block.number).toBe(999999999);
+  });
+
+  it("accepts numeric strings block number", () => {
+    const result = validateSubgraphMetaResponse({
+      _meta: {
+        block: {
+          number: "12345",
+        },
+      },
+    });
+
+    expect(result._meta.block.number).toBe(12345);
+  });
+
+  it("throws on missing _meta field", () => {
+    expect(() => validateSubgraphMetaResponse({})).toThrow("Invalid subgraph meta response format");
+  });
+
+  it("throws on missing block field", () => {
+    expect(() =>
+      validateSubgraphMetaResponse({
+        _meta: {},
+      }),
+    ).toThrow("Invalid subgraph meta response format");
+  });
+
+  it("throws on missing number field", () => {
+    expect(() =>
+      validateSubgraphMetaResponse({
+        _meta: {
+          block: {},
+        },
+      }),
+    ).toThrow("Invalid subgraph meta response format");
+  });
+
+  it("throws on null input", () => {
+    expect(() => validateSubgraphMetaResponse(null)).toThrow("Invalid subgraph meta response format");
+  });
+
+  it("throws on undefined input", () => {
+    expect(() => validateSubgraphMetaResponse(undefined)).toThrow("Invalid subgraph meta response format");
+  });
+
+  it("throws on negative block number", () => {
+    expect(() =>
+      validateSubgraphMetaResponse({
+        _meta: {
+          block: {
+            number: -1,
+          },
+        },
+      }),
+    ).toThrow("Invalid subgraph meta response format");
+  });
+
+  it("throws on floating point block number", () => {
+    expect(() =>
+      validateSubgraphMetaResponse({
+        _meta: {
+          block: {
+            number: 123.45,
+          },
+        },
+      }),
+    ).toThrow("Invalid subgraph meta response format");
   });
 });

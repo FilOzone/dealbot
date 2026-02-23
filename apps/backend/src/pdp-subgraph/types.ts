@@ -88,10 +88,16 @@ const toEthereumAddress = (value: unknown, helpers: Joi.CustomHelpers) => {
 const metaSchema = Joi.object({
   _meta: Joi.object({
     block: Joi.object({
-      number: Joi.number().required(),
-    }).required(),
-  }).required(),
-}).required();
+      number: Joi.number().integer().positive().required(),
+    })
+      .unknown(true)
+      .required(),
+  })
+    .unknown(true)
+    .required(),
+})
+  .unknown(true)
+  .required();
 
 const dataSetSchema = Joi.object({
   totalFaultedPeriods: Joi.string().pattern(/^\d+$/).required().custom(toBigInt),
