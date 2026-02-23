@@ -121,6 +121,9 @@ describe("PDPSubgraphService", () => {
         addresses: [VALID_ADDRESS],
       });
 
+      // This stops Node.js from throwing an Unhandled Rejection during fast-forward.
+      promise.catch(() => {});
+
       await vi.runAllTimersAsync();
 
       await expect(promise).rejects.toThrow("Failed to fetch provider data after 3 attempts");
@@ -140,6 +143,7 @@ describe("PDPSubgraphService", () => {
         blockNumber: 5000,
         addresses: [VALID_ADDRESS],
       });
+      promise.catch(() => {});
 
       await vi.runAllTimersAsync();
 
@@ -155,6 +159,7 @@ describe("PDPSubgraphService", () => {
         blockNumber: 5000,
         addresses: [VALID_ADDRESS],
       });
+      promise.catch(() => {});
 
       await vi.runAllTimersAsync();
 
@@ -232,6 +237,7 @@ describe("PDPSubgraphService", () => {
         blockNumber: 5000,
         addresses: [VALID_ADDRESS],
       });
+      promise.catch(() => {});
 
       await vi.runAllTimersAsync();
 
@@ -372,6 +378,7 @@ describe("PDPSubgraphService", () => {
       });
 
       const promise = service.fetchSubgraphMeta();
+      promise.catch(() => {});
 
       await vi.runAllTimersAsync();
 
@@ -388,6 +395,7 @@ describe("PDPSubgraphService", () => {
       });
 
       const promise = service.fetchSubgraphMeta();
+      promise.catch(() => {});
 
       await vi.runAllTimersAsync();
 
@@ -452,6 +460,7 @@ describe("PDPSubgraphService", () => {
       fetchMock.mockRejectedValue(new Error("Network timeout"));
 
       const promise = service.fetchSubgraphMeta();
+      promise.catch(() => {});
 
       await vi.runAllTimersAsync();
 
