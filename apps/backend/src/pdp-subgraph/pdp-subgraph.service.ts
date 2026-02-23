@@ -37,10 +37,10 @@ export class PDPSubgraphService {
   }
 
   /**
-   * Fetch subgraph metadata including the latest indexed block number and timestamp
+   * Fetch subgraph metadata including the latest indexed block number
    *
    * @param attempt - Current retry attempt number (default: 1)
-   * @returns Subgraph metadata with block information
+   * @returns Subgraph metadata with block number
    * @throws Error if endpoint is not configured or after MAX_RETRIES attempts
    */
   async fetchSubgraphMeta(attempt: number = 1): Promise<SubgraphMeta> {
