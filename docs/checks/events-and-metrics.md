@@ -4,11 +4,11 @@ This document is the intended **source of truth** for the events emitted by deal
 
 This document describes the expected flow and metrics. Items marked **TBD** are not yet implemented but will get reviewed and cleaned up as part of https://github.com/FilOzone/dealbot/issues/280.
 
-## Event Model
+## Data Storage Event Model
 
-### Event Timeline
+Below are the sequence of events for a [Data Storage check](./data-storage.md).  The Data Storage flow is used because it encapsulates a [Retrieval check](./retrievals.md) as well.
 
-Below are the sequence of events for a Data Storage check.  The Data Storage flow is used because it encapsulates a Retrieval check as well.
+### Data Storage Event Timeline
 
 ```mermaid
 sequenceDiagram
@@ -57,10 +57,10 @@ sequenceDiagram
 
 ## Metrics
 
-* The metrics below are derived from the [events above](#event-list).
+* Many of the metrics below are derived from the [events above](#event-list).
 * They are exported via Prometheus.
 * All Prometheus/OpenTelemetry metrics have label/attributes for:
-   - `checkType=dataStorage|retrieval` — attribute metrics to a particular check
+   - `checkType=dataStorage|retrieval|dataRetention` — attribute metrics to a particular check
    - `providerId` — attribute metrics to a particular SP
    - `providerStatus=approved|unapproved` — attribute metrics to only approved SPs for example
 
@@ -101,3 +101,4 @@ sequenceDiagram
 | <a id="discoverabilityStatus"></a>`discoverabilityStatus` | Data Storage, Retrieval | [`ipniVerificationComplete`](#ipniVerificationComplete) |  |  |
 | <a id="ipfsRetrievalHttpResponseCode"></a>`ipfsRetrievalHttpResponseCode` | Data Storage, Retrieval | [`ipfsRetrievalLastByteReceived`](#ipfsRetrievalLastByteReceived) |  | [`retrieval.service.ts`](../../apps/backend/src/retrieval/retrieval.service.ts) |
 | <a id="retrievalStatus"></a>`retrievalStatus` | Data Storage, Retrieval | [`ipfsRetrievalIntegrityChecked`](#ipfsRetrievalIntegrityChecked) |  |  |
+| <a id="dataSetChallengeStatus"></a>`dataSetChallengeStatus` | Data Retention | |  |  |
