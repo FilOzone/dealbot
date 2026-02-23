@@ -46,10 +46,19 @@ export interface ValidationResult {
   /** Details about validation */
   details?: string;
 
+  /** Total bytes read/validated (streaming or block-fetch validation) */
+  bytesRead?: number;
+
+  /** Time to first byte of the first block response (ms), for block-fetch strategies */
+  ttfb?: number;
+
+  /** Time to first byte for each fetched block (ms), for block-fetch strategies */
+  blockTtfbMs?: number[];
+
   /** Expected vs actual comparison data */
   comparison?: {
-    expected: any;
-    actual: any;
+    expected: unknown;
+    actual: unknown;
   };
 }
 
@@ -63,8 +72,8 @@ export interface RetrievalExecutionResult {
   /** Strategy/method name */
   method: ServiceType;
 
-  /** Retrieved data */
-  data: Buffer;
+  /** Retrieved payload, if any; omitted for validation-only methods (e.g. block-fetch) */
+  data?: Buffer;
 
   /** Response metrics */
   metrics: {

@@ -70,6 +70,7 @@ export const configValidationSchema = Joi.object({
   JOB_ENQUEUE_JITTER_SECONDS: Joi.number().min(0).default(0),
   DEAL_JOB_TIMEOUT_SECONDS: Joi.number().min(120).default(360), // 6 minutes max runtime for data storage jobs (TODO: reduce default to 3 minutes)
   RETRIEVAL_JOB_TIMEOUT_SECONDS: Joi.number().min(60).default(60), // 1 minute max runtime for retrieval jobs (TODO: reduce default to 30 seconds)
+  IPFS_BLOCK_FETCH_CONCURRENCY: Joi.number().integer().min(1).max(32).default(6),
 
   // Dataset
   DEALBOT_LOCAL_DATASETS_PATH: Joi.string().default(DEFAULT_LOCAL_DATASETS_PATH),
@@ -236,6 +237,10 @@ export interface ITimeoutConfig {
   http2RequestTimeoutMs: number;
 }
 
+export interface IRetrievalConfig {
+  ipfsBlockFetchConcurrency: number;
+}
+
 export interface IConfig {
   app: IAppConfig;
   database: IDatabaseConfig;
@@ -244,6 +249,7 @@ export interface IConfig {
   jobs: IJobsConfig;
   dataset: IDatasetConfig;
   timeouts: ITimeoutConfig;
+  retrieval: IRetrievalConfig;
 }
 
 const parseIpniTestingMode = (value: string | undefined): IpniTestingMode => {
@@ -354,6 +360,9 @@ export function loadConfig(): IConfig {
       connectTimeoutMs: Number.parseInt(process.env.CONNECT_TIMEOUT_MS || "10000", 10),
       httpRequestTimeoutMs: Number.parseInt(process.env.HTTP_REQUEST_TIMEOUT_MS || "240000", 10),
       http2RequestTimeoutMs: Number.parseInt(process.env.HTTP2_REQUEST_TIMEOUT_MS || "240000", 10),
+    },
+    retrieval: {
+      ipfsBlockFetchConcurrency: Number.parseInt(process.env.IPFS_BLOCK_FETCH_CONCURRENCY || "6", 10),
     },
   };
 }

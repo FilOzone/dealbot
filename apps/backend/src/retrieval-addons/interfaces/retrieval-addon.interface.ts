@@ -49,6 +49,16 @@ export interface IRetrievalAddon {
   validateData?(retrievedData: Buffer, config: RetrievalConfiguration): Promise<ValidationResult>;
 
   /**
+   * Optional: Validate by fetching each expected block from the SP (e.g. GET /ipfs/<cid> with Accept: application/vnd.ipld.raw).
+   * Used when the strategy does not use a single CAR stream.
+   *
+   * @param config - Retrieval configuration (must include expected CIDs in metadata)
+   * @param signal - Optional abort signal
+   * @returns Validation result
+   */
+  validateByBlockFetch?(config: RetrievalConfiguration, signal?: AbortSignal): Promise<ValidationResult>;
+
+  /**
    * Optional: Get expected performance metrics for this retrieval method
    * Useful for monitoring and alerting on performance degradation
    *

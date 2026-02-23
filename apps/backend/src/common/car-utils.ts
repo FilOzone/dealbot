@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CarReader } from "@ipld/car";
 import { cleanupTempCar, createCarFromPath } from "filecoin-pin/core/unixfs";
-import { CID } from "multiformats/cid";
+import type { CID } from "multiformats/cid";
 
 export type UnixfsCarResult = {
   carData: Uint8Array;

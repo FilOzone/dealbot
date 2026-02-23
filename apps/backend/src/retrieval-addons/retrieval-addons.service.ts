@@ -1,11 +1,12 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { delay } from "../common/abort-utils.js";
 import { RetrievalError, type RetrievalErrorResponseInfo } from "../common/errors.js";
+import { ServiceType } from "../database/types.js";
 import { HttpClientService } from "../http-client/http-client.service.js";
 import type { RequestWithMetrics } from "../http-client/types.js";
 import type { IRetrievalAddon } from "./interfaces/retrieval-addon.interface.js";
 import { DirectRetrievalStrategy } from "./strategies/direct.strategy.js";
-import { IpniRetrievalStrategy } from "./strategies/ipni.strategy.js";
+import { IpfsBlockRetrievalStrategy } from "./strategies/ipfs-block.strategy.js";
 import type {
   RetrievalConfiguration,
   RetrievalExecutionResult,
@@ -26,7 +27,7 @@ export class RetrievalAddonsService {
 
   constructor(
     private readonly directRetrieval: DirectRetrievalStrategy,
-    private readonly ipniRetrieval: IpniRetrievalStrategy,
+    private readonly ipfsBlockRetrieval: IpfsBlockRetrievalStrategy,
     private readonly httpClientService: HttpClientService,
   ) {
     this.registerAddons();
@@ -38,7 +39,7 @@ export class RetrievalAddonsService {
    */
   private registerAddons(): void {
     this.registerAddon(this.directRetrieval);
-    this.registerAddon(this.ipniRetrieval);
+    this.registerAddon(this.ipfsBlockRetrieval);
 
     this.logger.log(`Registered ${this.addons.size} retrieval add-ons: ${Array.from(this.addons.keys()).join(", ")}`);
   }
@@ -194,7 +195,6 @@ export class RetrievalAddonsService {
         return {
           url: urlResults[index].url,
           method: urlResults[index].method,
-          data: Buffer.alloc(0),
           metrics: {
             latency: 0,
             ttfb: 0,
@@ -343,6 +343,45 @@ export class RetrievalAddonsService {
 
     try {
       signal?.throwIfAborted();
+      if (urlResult.method === ServiceType.IPFS_PIN && strategy.validateByBlockFetch) {
+        let validation: ValidationResult;
+        const startTime = performance.now();
+        try {
+          validation = await strategy.validateByBlockFetch(config, signal);
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          this.logger.warn(
+            `Block-fetch validation error for ${urlResult.method} retrieval of deal ${config.deal.id}: ${errorMessage}`,
+          );
+          validation = {
+            isValid: false,
+            method: "validation-error",
+            details: errorMessage,
+          };
+        }
+        // TODO: totalTime includes per-block hash verification (validateBlock) which
+        // inflates latency and deflates throughput relative to pure network performance.
+        // Splitting fetch and hash into separate queues would give accurate download metrics.
+        const totalTime = performance.now() - startTime;
+        const responseSize = validation.bytesRead ?? 0;
+        const throughput = totalTime > 0 && responseSize > 0 ? responseSize / (totalTime / 1000) : 0;
+
+        return {
+          url: urlResult.url,
+          method: urlResult.method,
+          metrics: {
+            latency: Math.round(totalTime),
+            ttfb: validation.ttfb ?? 0,
+            throughput,
+            statusCode: validation.isValid ? 200 : 0,
+            timestamp: new Date(),
+            responseSize,
+          },
+          validation,
+          success: true,
+        };
+      }
+
       let result: RequestWithMetrics<Buffer>;
       result = await this.httpClientService.requestWithMetrics<Buffer>(urlResult.url, {
         headers: urlResult.headers,
@@ -426,7 +465,6 @@ export class RetrievalAddonsService {
       return {
         url: urlResult.url,
         method: urlResult.method,
-        data: Buffer.alloc(0),
         metrics: {
           latency: 0,
           ttfb: 0,

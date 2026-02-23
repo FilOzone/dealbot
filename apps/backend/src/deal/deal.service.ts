@@ -213,6 +213,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
         providerIsApproved: providerInfo.isApproved ?? deal.storageProvider?.isApproved,
       });
       this.dataStorageMetrics.recordUploadStatus(providerLabels, "pending");
+      this.dataStorageMetrics.recordDataStorageStatus(providerLabels, "pending");
 
       const dataSetMetadata = { ...dealInput.synapseConfig.dataSetMetadata };
 
@@ -378,6 +379,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
         const checkDurationMs = Date.now() - deal.uploadStartTime.getTime();
         this.dataStorageMetrics.observeCheckDuration(providerLabels, checkDurationMs);
       }
+      this.dataStorageMetrics.recordDataStorageStatus(providerLabels, "success");
 
       this.logger.log(`Deal ${deal.id} created: ${deal.pieceCid} (sp: ${providerAddress})`);
 
@@ -402,6 +404,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
         this.retrievalMetrics.recordStatus(providerLabels, failureStatus);
         retrievalStatusEmitted = true;
       }
+      this.dataStorageMetrics.recordDataStorageStatus(providerLabels, failureStatus);
 
       throw error;
     } finally {

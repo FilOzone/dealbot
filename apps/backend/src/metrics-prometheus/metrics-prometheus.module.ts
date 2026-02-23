@@ -84,6 +84,13 @@ const metricProviders = [
     buckets: [1, 5, 10, 50, 100, 250, 500, 1000, 2000, 5000, 10000, 30000],
   }),
   makeHistogramProvider({
+    // docs/checks/events-and-metrics.md#ipfsRetrievalBlockFirstByteMs
+    name: "ipfsRetrievalBlockFirstByteMs",
+    help: "Time to first byte for individual IPFS block fetches (ms)",
+    labelNames: ["checkType", "providerId", "providerStatus"] as const,
+    buckets: [1, 5, 10, 50, 100, 250, 500, 1000, 2000, 5000, 10000, 30000],
+  }),
+  makeHistogramProvider({
     // docs/checks/events-and-metrics.md#ipfsRetrievalLastByteMs
     name: "ipfsRetrievalLastByteMs",
     help: "Time to last byte for IPFS retrievals (ms)",
@@ -122,6 +129,12 @@ const metricProviders = [
     // docs/checks/data-storage.md#sub-status-meanings (Onchain Status)
     name: "dataStorageOnchainStatus",
     help: "Data storage onchain sub-status counts",
+    labelNames: ["checkType", "providerId", "providerStatus", "value"] as const,
+  }),
+  makeCounterProvider({
+    // docs/checks/data-storage.md#deal-status-progression (Overall Status)
+    name: "dataStorageStatus",
+    help: "Data storage check overall status counts (success when all sub-statuses succeed, failure.timedout/failure.other otherwise)",
     labelNames: ["checkType", "providerId", "providerStatus", "value"] as const,
   }),
   makeCounterProvider({

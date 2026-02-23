@@ -8,6 +8,7 @@ import {
   LEGACY_RETRIEVAL_QUEUE,
   METRICS_CLEANUP_QUEUE,
   METRICS_QUEUE,
+  PROVIDERS_REFRESH_QUEUE,
   SP_WORK_QUEUE,
 } from "../job-queues.js";
 
@@ -189,6 +190,7 @@ export class JobScheduleRepository {
           WHEN name = $5 THEN 'deal'
           WHEN name = $6 THEN 'retrieval'
           WHEN name = $7 THEN 'data_retention_poll'
+          WHEN name = $8 THEN 'providers_refresh'
           ELSE name
         END AS job_type,
         state::text AS state,
@@ -205,6 +207,7 @@ export class JobScheduleRepository {
         LEGACY_DEAL_QUEUE,
         LEGACY_RETRIEVAL_QUEUE,
         DATA_RETENTION_POLL_QUEUE,
+        PROVIDERS_REFRESH_QUEUE,
       ],
     );
   }
@@ -227,6 +230,7 @@ export class JobScheduleRepository {
           WHEN name = $6 THEN 'deal'
           WHEN name = $7 THEN 'retrieval'
           WHEN name = $8 THEN 'data_retention_poll'
+          WHEN name = $9 THEN 'providers_refresh'
           ELSE name
         END AS job_type,
         MIN(
@@ -252,6 +256,7 @@ export class JobScheduleRepository {
         LEGACY_DEAL_QUEUE,
         LEGACY_RETRIEVAL_QUEUE,
         DATA_RETENTION_POLL_QUEUE,
+        PROVIDERS_REFRESH_QUEUE,
       ],
     );
   }

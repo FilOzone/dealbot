@@ -42,6 +42,8 @@ export class DataStorageCheckMetrics {
     private readonly uploadStatusCounter: Counter,
     @InjectMetric("dataStorageOnchainStatus")
     private readonly onchainStatusCounter: Counter,
+    @InjectMetric("dataStorageStatus")
+    private readonly dataStorageStatusCounter: Counter,
   ) {}
 
   observeIngestMs(labels: CheckMetricLabels, value: number | null | undefined): void {
@@ -71,6 +73,15 @@ export class DataStorageCheckMetrics {
   recordOnchainStatus(labels: CheckMetricLabels, value: string): void {
     this.onchainStatusCounter.inc({ ...labels, value });
   }
+
+  /**
+   * Record overall data storage check status.
+   * Emit "pending" when the check starts; emit "success" | "failure.timedout" | "failure.other" when it completes.
+   * See data-storage.md#deal-status-progression.
+   */
+  recordDataStorageStatus(labels: CheckMetricLabels, value: string): void {
+    this.dataStorageStatusCounter.inc({ ...labels, value });
+  }
 }
 
 @Injectable()
@@ -78,6 +89,8 @@ export class RetrievalCheckMetrics {
   constructor(
     @InjectMetric("ipfsRetrievalFirstByteMs")
     private readonly ipfsRetrievalFirstByteMs: Histogram,
+    @InjectMetric("ipfsRetrievalBlockFirstByteMs")
+    private readonly ipfsRetrievalBlockFirstByteMs: Histogram,
     @InjectMetric("ipfsRetrievalLastByteMs")
     private readonly ipfsRetrievalLastByteMs: Histogram,
     @InjectMetric("ipfsRetrievalThroughputBps")
@@ -92,6 +105,10 @@ export class RetrievalCheckMetrics {
 
   observeFirstByteMs(labels: CheckMetricLabels, value: number | null | undefined): void {
     observePositive(this.ipfsRetrievalFirstByteMs, labels, value);
+  }
+
+  observeBlockFirstByteMs(labels: CheckMetricLabels, value: number | null | undefined): void {
+    observePositive(this.ipfsRetrievalBlockFirstByteMs, labels, value);
   }
 
   observeLastByteMs(labels: CheckMetricLabels, value: number | null | undefined): void {
@@ -123,6 +140,11 @@ export class RetrievalCheckMetrics {
         this.observeFirstByteMs(labels, result.metrics.ttfb);
         this.observeLastByteMs(labels, result.metrics.latency);
         this.observeThroughput(labels, result.metrics.throughput);
+        if (result.validation?.blockTtfbMs) {
+          for (const ttfb of result.validation.blockTtfbMs) {
+            this.observeBlockFirstByteMs(labels, ttfb);
+          }
+        }
       }
       this.recordHttpResponseCode(labels, result.metrics.statusCode);
     }

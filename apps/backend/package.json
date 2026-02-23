@@ -30,6 +30,7 @@
   "dependencies": {
     "@filoz/synapse-sdk": "0.36.1",
     "@ipld/car": "^5.4.2",
+    "@ipld/dag-pb": "^4.1.4",
     "@nestjs/axios": "^4.0.1",
     "@nestjs/common": "^11.1.13",
     "@nestjs/config": "^4.0.3",
