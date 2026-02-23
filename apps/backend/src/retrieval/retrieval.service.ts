@@ -163,55 +163,67 @@ export class RetrievalService {
       return [];
     }
 
-    let testResult: RetrievalTestResult;
-    let retrievals: Retrieval[];
-    let finalStatusEmitted = false;
+    let terminalStatus: "success" | "failure.timedout" | "failure.other" | null = null;
+    let retrievals: Retrieval[] = [];
+    let caughtError: unknown = null;
     const retrievalCheckStartTime = Date.now();
     // If this throws, we want the job to fail fast: missing/invalid CIDs are an orchestration
     // failure and we should not mark the retrieval as pending for this deal.
     const ipniContext = this.isPgBossMode() ? this.getIpniCidsForRetrieval(deal) : null;
     this.retrievalMetrics.recordStatus(providerLabels, "pending");
-    if (this.isPgBossMode()) {
-      const ipniCheck = await this.verifyIpniForRetrieval(
-        ipniContext as { rootCid: CID; blockCids: CID[] },
-        deal.id,
-        provider,
-        providerLabels,
-        signal,
-      );
-      if (!ipniCheck.ok) {
-        const checkDurationMs = Date.now() - retrievalCheckStartTime;
-        this.retrievalMetrics.observeCheckDuration(providerLabels, checkDurationMs);
-        this.retrievalMetrics.recordStatus(providerLabels, ipniCheck.failureStatus ?? "failure.other");
-        finalStatusEmitted = true;
-        return [];
-      }
-    }
+
     try {
-      testResult = await this.retrievalAddonsService.testAllRetrievalMethods(config, signal);
+      if (this.isPgBossMode()) {
+        const ipniCheck = await this.verifyIpniForRetrieval(
+          ipniContext as { rootCid: CID; blockCids: CID[] },
+          deal.id,
+          provider,
+          providerLabels,
+          signal,
+        );
+        if (!ipniCheck.ok) {
+          terminalStatus = ipniCheck.failureStatus ?? "failure.other";
+        }
+      }
 
-      retrievals = await Promise.all(
-        testResult.results.map((executionResult) =>
-          this.createRetrievalFromResult(deal, executionResult, providerLabels),
-        ),
-      );
+      if (!terminalStatus) {
+        const testResult: RetrievalTestResult = await this.retrievalAddonsService.testAllRetrievalMethods(
+          config,
+          signal,
+        );
+        retrievals = await Promise.all(
+          testResult.results.map((executionResult) =>
+            this.createRetrievalFromResult(deal, executionResult, providerLabels),
+          ),
+        );
 
-      const successCount = retrievals.filter((r) => r.status === RetrievalStatus.SUCCESS).length;
-      this.logger.log(`Retrievals for ${deal.pieceCid}: ${successCount}/${retrievals.length} successful`);
+        const successCount = retrievals.filter((r) => r.status === RetrievalStatus.SUCCESS).length;
+        this.logger.log(`Retrievals for ${deal.pieceCid}: ${successCount}/${retrievals.length} successful`);
+
+        if (testResult.aborted || signal?.aborted) {
+          const abortReason = signal?.reason;
+          const abortMessage = abortReason instanceof Error ? abortReason.message : String(abortReason ?? "");
+          this.logger.warn(
+            `Retrieval job aborted after testing for ${deal.pieceCid}; recorded partial results.` +
+              (abortMessage ? ` Reason: ${abortMessage}` : ""),
+          );
+          terminalStatus = signal?.aborted ? "failure.timedout" : "failure.other";
+        } else {
+          terminalStatus = retrievals.every((retrieval) => retrieval.status === RetrievalStatus.SUCCESS)
+            ? "success"
+            : "failure.other";
+        }
+      }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       if (signal?.aborted) {
         const abortReason = signal.reason;
         const abortMessage = abortReason instanceof Error ? abortReason.message : String(abortReason ?? "");
         this.logger.warn(`Retrievals aborted for ${deal.pieceCid}: ${abortMessage || errorMessage}`);
-        if (!finalStatusEmitted) {
-          this.retrievalMetrics.recordStatus(providerLabels, "failure.timedout");
-          finalStatusEmitted = true;
-        }
+        terminalStatus = "failure.timedout";
       } else {
         this.logger.error(`All retrievals failed for ${deal.pieceCid}: ${errorMessage}`);
-        this.retrievalMetrics.recordStatus(providerLabels, classifyFailureStatus(error));
-        finalStatusEmitted = true;
+        terminalStatus = classifyFailureStatus(error);
       }
 
       // If this catch block fires, it's either:
@@ -219,31 +231,24 @@ export class RetrievalService {
       // 2. A catastrophic error occurred (provider not found, etc.) - re-throw for logging
       // 3. Individual HTTP timeouts are captured by Promise.allSettled in testAllRetrievalMethods
       //    and converted to FAILED records through the normal flow
-
-      throw error;
-    }
-
-    if (testResult.aborted || signal?.aborted) {
-      const abortReason = signal?.reason;
-      const abortMessage = abortReason instanceof Error ? abortReason.message : String(abortReason ?? "");
-      this.logger.warn(
-        `Retrieval job aborted after testing for ${deal.pieceCid}; recorded partial results.` +
-          (abortMessage ? ` Reason: ${abortMessage}` : ""),
-      );
-      if (!finalStatusEmitted && signal?.aborted) {
-        this.retrievalMetrics.recordStatus(providerLabels, "failure.timedout");
-        finalStatusEmitted = true;
+      caughtError = error;
+    } finally {
+      const retrievalCheckDurationMs = Date.now() - retrievalCheckStartTime;
+      this.retrievalMetrics.observeCheckDuration(providerLabels, retrievalCheckDurationMs);
+      if (terminalStatus) {
+        this.retrievalMetrics.recordStatus(providerLabels, terminalStatus);
       }
-      return retrievals;
     }
 
-    const retrievalCheckDurationMs = Date.now() - retrievalCheckStartTime;
-    this.retrievalMetrics.observeCheckDuration(providerLabels, retrievalCheckDurationMs);
-    this.retrievalMetrics.recordStatus(
-      providerLabels,
-      retrievals.every((retrieval) => retrieval.status === RetrievalStatus.SUCCESS) ? "success" : "failure.other",
-    );
-    finalStatusEmitted = true;
+    if (!terminalStatus) {
+      const message = `Missing terminal retrieval status for deal ${deal.id} (${deal.pieceCid ?? "unknown pieceCid"})`;
+      this.logger.error(message);
+      throw new Error(message);
+    }
+
+    if (caughtError) {
+      throw caughtError;
+    }
 
     return retrievals;
   }

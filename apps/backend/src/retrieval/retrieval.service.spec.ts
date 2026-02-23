@@ -290,9 +290,15 @@ describe("RetrievalService timeouts", () => {
   });
 
   it("records timed out retrieval status when retrieval throws", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
+
     service = await createService();
     mockSpRepository.findOne.mockResolvedValue({ address: "0xsp", providerId: 7, isApproved: false });
-    mockRetrievalAddonsService.testAllRetrievalMethods.mockRejectedValue(new Error("timeout"));
+    mockRetrievalAddonsService.testAllRetrievalMethods.mockImplementation(async () => {
+      vi.advanceTimersByTime(1750);
+      throw new Error("timeout");
+    });
 
     await expect(service.performAllRetrievals(buildDeal())).rejects.toThrow("timeout");
 
@@ -304,5 +310,72 @@ describe("RetrievalService timeouts", () => {
 
     expect(mockRetrievalMetrics.recordStatus).toHaveBeenCalledWith(labels, "pending");
     expect(mockRetrievalMetrics.recordStatus).toHaveBeenCalledWith(labels, "failure.timedout");
+    expect(mockRetrievalMetrics.observeCheckDuration).toHaveBeenCalledWith(labels, 1750);
+  });
+
+  it("records timed out status for partial results when signal aborts", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
+
+    service = await createService();
+    const abortController = new AbortController();
+    mockSpRepository.findOne.mockResolvedValue({ address: "0xsp", providerId: 7, isApproved: false });
+    mockRetrievalRepository.create.mockImplementation(
+      (data: Parameters<typeof mockRetrievalRepository.create>[0]) =>
+        data as ReturnType<typeof mockRetrievalRepository.create>,
+    );
+    mockRetrievalRepository.save.mockImplementation(
+      async (data: Parameters<typeof mockRetrievalRepository.save>[0]) =>
+        data as ReturnType<typeof mockRetrievalRepository.save>,
+    );
+
+    mockRetrievalAddonsService.testAllRetrievalMethods.mockImplementation(async () => {
+      vi.advanceTimersByTime(900);
+      abortController.abort(new Error("retrieval timeout"));
+
+      return {
+        dealId: "deal-1",
+        results: [
+          {
+            url: "http://example.com",
+            method: "direct",
+            data: Buffer.alloc(0),
+            metrics: {
+              latency: 100,
+              ttfb: 50,
+              throughput: 5000,
+              statusCode: 504,
+              timestamp: new Date(),
+              responseSize: 0,
+            },
+            success: false,
+            error: "timeout",
+            retryCount: 0,
+          },
+        ],
+        summary: {
+          totalMethods: 1,
+          successfulMethods: 0,
+          failedMethods: 1,
+          fastestMethod: undefined,
+          fastestLatency: undefined,
+        },
+        testedAt: new Date(),
+        aborted: true,
+      };
+    });
+
+    const retrievals = await service.performAllRetrievals(buildDeal(), abortController.signal);
+
+    const labels = {
+      checkType: "retrieval",
+      providerId: "7",
+      providerStatus: "unapproved",
+    };
+
+    expect(retrievals).toHaveLength(1);
+    expect(mockRetrievalMetrics.recordStatus).toHaveBeenCalledWith(labels, "pending");
+    expect(mockRetrievalMetrics.recordStatus).toHaveBeenCalledWith(labels, "failure.timedout");
+    expect(mockRetrievalMetrics.observeCheckDuration).toHaveBeenCalledWith(labels, 900);
   });
 });

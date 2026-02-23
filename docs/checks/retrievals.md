@@ -115,9 +115,17 @@ Metric definitions (including Prometheus metrics) live in [Dealbot Events & Metr
 
 Key environment variables that control retrieval testing:
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `IPFS_RETRIEVAL_REQUEST_CONNECTION_ESTABLISH_TIMEOUT_MS` | `5000` | Max duration to wait for an HTTP connection get established. |
-| `IPFS_RETRIEVAL_TIMEOUT_MS` | `20000` | Max duration to wait for an `/ipfs` request check to complete |
+| Variable | Description |
+|----------|-------------|
+| `RETRIEVAL_INTERVAL_SECONDS` | Retrieval schedule interval in cron mode. |
+| `RETRIEVALS_PER_SP_PER_HOUR` | Retrieval rate per SP in pg-boss mode. |
+| `RETRIEVAL_JOB_TIMEOUT_SECONDS` | Max end-to-end retrieval job runtime before abort. |
+| `CONNECT_TIMEOUT_MS` | Connection/header timeout for HTTP requests. |
+| `HTTP_REQUEST_TIMEOUT_MS` | Total timeout for HTTP/1.1 retrieval requests. |
+| `HTTP2_REQUEST_TIMEOUT_MS` | Total timeout for HTTP/2 retrieval requests. |
+| `IPNI_VERIFICATION_TIMEOUT_MS` | Max time to wait for IPNI provider verification. |
+| `IPNI_VERIFICATION_POLLING_MS` | Poll interval between IPNI verification attempts. |
+| `IPFS_BLOCK_FETCH_CONCURRENCY` | Parallel block fetches during DAG traversal validation. |
+| `RANDOM_DATASET_SIZES` | Eligible original content sizes for random retrieval selection. |
 
 See also: [`docs/environment-variables.md`](../environment-variables.md) for the full configuration reference.
