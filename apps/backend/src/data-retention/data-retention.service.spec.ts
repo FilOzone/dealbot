@@ -1,7 +1,9 @@
 import type { ConfigService } from "@nestjs/config";
 import type { Counter } from "prom-client";
+import { Repository } from "typeorm";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { IConfig } from "../config/app.config.js";
+import { StorageProvider } from "../database/entities/storage-provider.entity.js";
 import type { PDPSubgraphService } from "../pdp-subgraph/pdp-subgraph.service.js";
 import type { ProviderDataSetResponse } from "../pdp-subgraph/types.js";
 import type { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
@@ -37,7 +39,14 @@ describe("DataRetentionService", () => {
     fetchSubgraphMeta: ReturnType<typeof vi.fn>;
     fetchProvidersWithDatasets: ReturnType<typeof vi.fn>;
   };
-  let counterMock: { labels: ReturnType<typeof vi.fn>; inc: ReturnType<typeof vi.fn> };
+  let counterMock: {
+    labels: ReturnType<typeof vi.fn>;
+    inc: ReturnType<typeof vi.fn>;
+    remove: ReturnType<typeof vi.fn>;
+  };
+  let mockSPRepository: {
+    find: ReturnType<typeof vi.fn>;
+  };
 
   beforeEach(() => {
     configServiceMock = {
@@ -76,15 +85,19 @@ describe("DataRetentionService", () => {
     };
 
     const incMock = vi.fn();
+    const removeMock = vi.fn();
     counterMock = {
       labels: vi.fn().mockReturnValue({ inc: incMock }),
       inc: incMock,
+      remove: removeMock,
     };
 
+    mockSPRepository = { find: vi.fn() };
     service = new DataRetentionService(
       configServiceMock,
       walletSdkServiceMock as unknown as WalletSdkService,
       pdpSubgraphServiceMock as unknown as PDPSubgraphService,
+      mockSPRepository as unknown as Repository<StorageProvider>,
       counterMock as unknown as Counter,
     );
   });
@@ -450,5 +463,339 @@ describe("DataRetentionService", () => {
 
     // Should not increment counters for missing provider
     expect(counterMock.labels).not.toHaveBeenCalled();
+  });
+
+  describe("cleanupStaleProviders", () => {
+    it("does not cleanup when no stale providers exist", async () => {
+      // First poll establishes baseline for both providers
+      pdpSubgraphServiceMock.fetchProvidersWithDatasets.mockResolvedValueOnce([
+        makeProvider({ address: PROVIDER_A }),
+        makeProvider({ address: PROVIDER_B }),
+      ]);
+
+      await service.pollDataRetention();
+
+      // Repository should not be queried since no stale providers
+      expect(mockSPRepository.find).not.toHaveBeenCalled();
+    });
+
+    it("successfully cleans up stale provider with valid database entry", async () => {
+      // First poll: establish baseline for PROVIDER_A
+      pdpSubgraphServiceMock.fetchProvidersWithDatasets.mockResolvedValueOnce([makeProvider({ address: PROVIDER_A })]);
+      await service.pollDataRetention();
+
+      // Second poll: PROVIDER_A removed from active list, only PROVIDER_B active
+      walletSdkServiceMock.getTestingProviders.mockReturnValueOnce([
+        {
+          id: 2,
+          serviceProvider: PROVIDER_B,
+          isApproved: false,
+        },
+      ]);
+
+      mockSPRepository.find.mockResolvedValueOnce([
+        {
+          address: PROVIDER_A,
+          providerId: 1,
+          isApproved: true,
+        },
+      ]);
+
+      pdpSubgraphServiceMock.fetchProvidersWithDatasets.mockResolvedValueOnce([makeProvider({ address: PROVIDER_B })]);
+
+      await service.pollDataRetention();
+
+      // Should fetch stale provider info from database
+      expect(mockSPRepository.find).toHaveBeenCalledWith({
+        where: { address: expect.anything() },
+        select: ["address", "providerId", "isApproved"],
+      });
+
+      // Should remove both counter label combinations
+      expect(counterMock.remove).toHaveBeenCalledWith({
+        checkType: "dataRetention",
+        providerId: "1",
+        providerStatus: "approved",
+        value: "success",
+      });
+      expect(counterMock.remove).toHaveBeenCalledWith({
+        checkType: "dataRetention",
+        providerId: "1",
+        providerStatus: "approved",
+        value: "fault",
+      });
+    });
+
+    it("skips cleanup entirely when database fetch fails", async () => {
+      // First poll: establish baseline
+      pdpSubgraphServiceMock.fetchProvidersWithDatasets.mockResolvedValueOnce([makeProvider({ address: PROVIDER_A })]);
+      await service.pollDataRetention();
+
+      // Second poll: provider removed, but DB fails
+      walletSdkServiceMock.getTestingProviders.mockReturnValueOnce([
+        {
+          id: 2,
+          serviceProvider: PROVIDER_B,
+          isApproved: false,
+        },
+      ]);
+
+      mockSPRepository.find.mockRejectedValueOnce(new Error("Database connection failed"));
+
+      pdpSubgraphServiceMock.fetchProvidersWithDatasets.mockResolvedValueOnce([makeProvider({ address: PROVIDER_B })]);
+
+      await service.pollDataRetention();
+
+      // Should attempt to fetch from database
+      expect(mockSPRepository.find).toHaveBeenCalled();
+
+      // Should NOT remove any counters (cleanup skipped)
+      expect((counterMock as unknown as Counter).remove).not.toHaveBeenCalled();
+
+      // Third poll: provider returns, should use old baseline (preventing double-counting)
+      walletSdkServiceMock.getTestingProviders.mockReturnValueOnce([
+        {
+          id: 1,
+          serviceProvider: PROVIDER_A,
+          isApproved: true,
+        },
+      ]);
+
+      pdpSubgraphServiceMock.fetchProvidersWithDatasets.mockResolvedValueOnce([
+        makeProvider({ address: PROVIDER_A, totalFaultedPeriods: 12n, totalProvingPeriods: 105n }),
+      ]);
+
+      counterMock.labels.mockClear();
+      await service.pollDataRetention();
+
+      // Should compute delta from original baseline, not from zero
+      expect(counterMock.labels).toHaveBeenCalled();
+    });
+
+    it("retains baseline when provider not found in database", async () => {
+      // First poll: establish baseline
+      pdpSubgraphServiceMock.fetchProvidersWithDatasets.mockResolvedValueOnce([makeProvider({ address: PROVIDER_A })]);
+      await service.pollDataRetention();
+
+      // Second poll: provider removed from active list
+      walletSdkServiceMock.getTestingProviders.mockReturnValueOnce([
+        {
+          id: 2,
+          serviceProvider: PROVIDER_B,
+          isApproved: false,
+        },
+      ]);
+
+      // Database returns empty array (provider not found)
+      mockSPRepository.find.mockResolvedValueOnce([]);
+
+      pdpSubgraphServiceMock.fetchProvidersWithDatasets.mockResolvedValueOnce([makeProvider({ address: PROVIDER_B })]);
+
+      await service.pollDataRetention();
+
+      // Should NOT remove counters (provider not in DB)
+      expect(counterMock.remove).not.toHaveBeenCalled();
+
+      // Third poll: provider returns
+      walletSdkServiceMock.getTestingProviders.mockReturnValueOnce([
+        {
+          id: 1,
+          serviceProvider: PROVIDER_A,
+          isApproved: true,
+        },
+      ]);
+
+      pdpSubgraphServiceMock.fetchProvidersWithDatasets.mockResolvedValueOnce([
+        makeProvider({ address: PROVIDER_A, totalFaultedPeriods: 12n, totalProvingPeriods: 105n }),
+      ]);
+
+      counterMock.labels.mockClear();
+      await service.pollDataRetention();
+
+      // Should use old baseline (delta from 10 to 12 = 2)
+      expect(counterMock.labels).toHaveBeenCalled();
+    });
+
+    it("retains baseline when provider has null providerId", async () => {
+      // First poll: establish baseline
+      pdpSubgraphServiceMock.fetchProvidersWithDatasets.mockResolvedValueOnce([makeProvider({ address: PROVIDER_A })]);
+      await service.pollDataRetention();
+
+      // Second poll: provider removed
+      walletSdkServiceMock.getTestingProviders.mockReturnValueOnce([
+        {
+          id: 2,
+          serviceProvider: PROVIDER_B,
+          isApproved: false,
+        },
+      ]);
+
+      // Database returns provider but with null providerId
+      mockSPRepository.find.mockResolvedValueOnce([
+        {
+          address: PROVIDER_A,
+          providerId: null,
+          isApproved: true,
+        },
+      ]);
+
+      pdpSubgraphServiceMock.fetchProvidersWithDatasets.mockResolvedValueOnce([makeProvider({ address: PROVIDER_B })]);
+
+      await service.pollDataRetention();
+
+      // Should NOT remove counters (missing providerId)
+      expect(counterMock.remove).not.toHaveBeenCalled();
+    });
+
+    it("retains baseline when counter removal throws error", async () => {
+      // First poll: establish baseline
+      pdpSubgraphServiceMock.fetchProvidersWithDatasets.mockResolvedValueOnce([makeProvider({ address: PROVIDER_A })]);
+      await service.pollDataRetention();
+
+      // Second poll: provider removed
+      walletSdkServiceMock.getTestingProviders.mockReturnValueOnce([
+        {
+          id: 2,
+          serviceProvider: PROVIDER_B,
+          isApproved: false,
+        },
+      ]);
+
+      mockSPRepository.find.mockResolvedValueOnce([
+        {
+          address: PROVIDER_A,
+          providerId: 1,
+          isApproved: true,
+        },
+      ]);
+
+      // Counter removal throws error
+      counterMock.remove.mockImplementationOnce(() => {
+        throw new Error("Counter removal failed");
+      });
+
+      pdpSubgraphServiceMock.fetchProvidersWithDatasets.mockResolvedValueOnce([makeProvider({ address: PROVIDER_B })]);
+
+      await service.pollDataRetention();
+
+      // Should attempt removal
+      expect(counterMock.remove).toHaveBeenCalled();
+
+      // Third poll: provider returns, should still have baseline
+      walletSdkServiceMock.getTestingProviders.mockReturnValueOnce([
+        {
+          id: 1,
+          serviceProvider: PROVIDER_A,
+          isApproved: true,
+        },
+      ]);
+
+      pdpSubgraphServiceMock.fetchProvidersWithDatasets.mockResolvedValueOnce([
+        makeProvider({ address: PROVIDER_A, totalFaultedPeriods: 12n, totalProvingPeriods: 110n }),
+      ]);
+
+      counterMock.labels.mockClear();
+      await service.pollDataRetention();
+
+      // Should compute delta from original baseline
+      expect(counterMock.labels).toHaveBeenCalled();
+    });
+
+    it("cleans up multiple stale providers in batch", async () => {
+      const PROVIDER_C = "0x1111111111111111111111111111111111111111";
+
+      // First poll: establish baselines for A, B, C
+      walletSdkServiceMock.getTestingProviders.mockReturnValueOnce([
+        { id: 1, serviceProvider: PROVIDER_A, isApproved: true },
+        { id: 2, serviceProvider: PROVIDER_B, isApproved: false },
+        { id: 3, serviceProvider: PROVIDER_C, isApproved: true },
+      ]);
+
+      pdpSubgraphServiceMock.fetchProvidersWithDatasets.mockResolvedValueOnce([
+        makeProvider({ address: PROVIDER_A }),
+        makeProvider({ address: PROVIDER_B }),
+        makeProvider({ address: PROVIDER_C }),
+      ]);
+
+      await service.pollDataRetention();
+
+      // Second poll: only PROVIDER_A remains active
+      walletSdkServiceMock.getTestingProviders.mockReturnValueOnce([
+        { id: 1, serviceProvider: PROVIDER_A, isApproved: true },
+      ]);
+
+      mockSPRepository.find.mockResolvedValueOnce([
+        { address: PROVIDER_B, providerId: 2, isApproved: false },
+        { address: PROVIDER_C, providerId: 3, isApproved: true },
+      ]);
+
+      pdpSubgraphServiceMock.fetchProvidersWithDatasets.mockResolvedValueOnce([makeProvider({ address: PROVIDER_A })]);
+
+      await service.pollDataRetention();
+
+      // Should fetch both stale providers in one query
+      expect(mockSPRepository.find).toHaveBeenCalledWith({
+        where: { address: expect.anything() },
+        select: ["address", "providerId", "isApproved"],
+      });
+
+      // Should remove counters for both providers (4 total: 2 providers × 2 values)
+      expect(counterMock.remove).toHaveBeenCalledTimes(4);
+    });
+
+    it("skips cleanup when processing errors occurred", async () => {
+      // First poll: establish baseline
+      pdpSubgraphServiceMock.fetchProvidersWithDatasets.mockResolvedValueOnce([makeProvider({ address: PROVIDER_A })]);
+      await service.pollDataRetention();
+
+      // Second poll: provider removed, but processing has errors
+      walletSdkServiceMock.getTestingProviders.mockReturnValueOnce([
+        { id: 2, serviceProvider: PROVIDER_B, isApproved: false },
+      ]);
+
+      // Simulate processing error
+      pdpSubgraphServiceMock.fetchProvidersWithDatasets.mockRejectedValueOnce(new Error("Processing failed"));
+
+      await service.pollDataRetention();
+
+      // Should NOT attempt cleanup due to processing errors
+      expect(mockSPRepository.find).not.toHaveBeenCalled();
+      expect(counterMock.remove).not.toHaveBeenCalled();
+    });
+
+    it("normalizes addresses to lowercase for consistent lookups", async () => {
+      const PROVIDER_MIXED_CASE = "0xD8Da6bF26964aF9D7eEd9e03E53415D37aA96045" as const;
+
+      // First poll with mixed case address
+      walletSdkServiceMock.getTestingProviders.mockReturnValueOnce([
+        { id: 1, serviceProvider: PROVIDER_MIXED_CASE, isApproved: true },
+      ]);
+
+      pdpSubgraphServiceMock.fetchProvidersWithDatasets.mockResolvedValueOnce([
+        makeProvider({ address: PROVIDER_MIXED_CASE.toLowerCase() as `0x${string}` }),
+      ]);
+
+      await service.pollDataRetention();
+
+      // Second poll: provider removed
+      walletSdkServiceMock.getTestingProviders.mockReturnValueOnce([
+        { id: 2, serviceProvider: PROVIDER_B, isApproved: false },
+      ]);
+
+      mockSPRepository.find.mockResolvedValueOnce([
+        {
+          address: PROVIDER_MIXED_CASE,
+          providerId: 1,
+          isApproved: true,
+        },
+      ]);
+
+      pdpSubgraphServiceMock.fetchProvidersWithDatasets.mockResolvedValueOnce([makeProvider({ address: PROVIDER_B })]);
+
+      await service.pollDataRetention();
+
+      // Should successfully find and clean up provider despite case difference
+      expect(counterMock.remove).toHaveBeenCalled();
+    });
   });
 });

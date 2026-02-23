@@ -1,8 +1,11 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
+import { InjectRepository } from "@nestjs/typeorm";
 import { InjectMetric } from "@willsoto/nestjs-prometheus";
 import { Counter } from "prom-client";
+import { Raw, Repository } from "typeorm";
 import { IConfig } from "../config/app.config.js";
+import { StorageProvider } from "../database/entities/storage-provider.entity.js";
 import { buildCheckMetricLabels, CheckMetricLabels } from "../metrics/utils/check-metric-labels.js";
 import { PDPSubgraphService } from "../pdp-subgraph/pdp-subgraph.service.js";
 import { type ProviderDataSetResponse } from "../pdp-subgraph/types.js";
@@ -31,6 +34,8 @@ export class DataRetentionService {
     private readonly configService: ConfigService<IConfig, true>,
     private readonly walletSdkService: WalletSdkService,
     private readonly pdpSubgraphService: PDPSubgraphService,
+    @InjectRepository(StorageProvider)
+    private readonly storageProviderRepository: Repository<StorageProvider>,
     @InjectMetric("dataSetChallengeStatus")
     private readonly dataSetChallengeStatusCounter: Counter,
   ) {
@@ -67,6 +72,8 @@ export class DataRetentionService {
       const providerInfoMap = new Map(providerInfos.map((info) => [info.serviceProvider.toLowerCase(), info]));
       const providerAddresses = Array.from(providerInfoMap.keys());
 
+      let hasProcessingErrors = false;
+
       for (let i = 0; i < providerAddresses.length; i += DataRetentionService.MAX_PROVIDER_BATCH_LENGTH) {
         const batchAddresses = providerAddresses.slice(
           i,
@@ -97,18 +104,107 @@ export class DataRetentionService {
           // Log any processing failures
           processingResults.forEach((result, index) => {
             if (result.status === "rejected") {
+              hasProcessingErrors = true;
               this.logger.error(`Failed to process provider ${providersFromSubgraph[index].address}: ${result.reason}`);
             }
           });
         } catch (error) {
+          hasProcessingErrors = true;
           this.logger.error(
             `Failed to fetch batch starting at index ${i}: ${error instanceof Error ? error.message : "Unknown error"}`,
           );
           // Continue processing next batch
         }
       }
+
+      // Only cleanup stale providers after successful poll to preserve baselines during transient failures
+      if (!hasProcessingErrors) {
+        await this.cleanupStaleProviders(providerAddresses);
+      } else {
+        this.logger.warn("Skipping stale provider cleanup due to processing errors");
+      }
     } catch (error) {
       this.logger.error("Failed to poll data retention", error);
+    }
+  }
+
+  /**
+   * Removes stale provider entries from the cumulative totals map and their associated
+   * Prometheus counter metrics.
+   *
+   * CRITICAL: Local baselines are ONLY deleted if the Prometheus metric is successfully
+   * removed. This prevents massive metric inflation (double-counting) if a provider
+   * temporarily drops offline and returns later.
+   *
+   * @param activeProviderAddresses - Array of currently active provider addresses (normalized to lowercase)
+   */
+  private async cleanupStaleProviders(activeProviderAddresses: string[]): Promise<void> {
+    const activeAddressSet = new Set(activeProviderAddresses);
+    const staleAddresses: string[] = [];
+
+    for (const [address] of this.providerCumulativeTotals) {
+      if (!activeAddressSet.has(address)) {
+        staleAddresses.push(address);
+      }
+    }
+
+    if (staleAddresses.length === 0) {
+      return;
+    }
+
+    this.logger.log(`Cleaning up ${staleAddresses.length} stale provider(s)`);
+
+    let staleProviders: StorageProvider[] = [];
+    try {
+      staleProviders = await this.storageProviderRepository.find({
+        where: { address: Raw((alias) => `LOWER(${alias}) IN (:...addresses)`, { addresses: staleAddresses }) },
+        select: ["address", "providerId", "isApproved"],
+      });
+    } catch (error) {
+      // Bail entirely on DB failure to protect metric baselines
+      this.logger.error(
+        `Failed to fetch stale provider info from database: ${error instanceof Error ? error.message : "Unknown error"}. Skipping cleanup to prevent metric desync.`,
+      );
+      return;
+    }
+
+    const providerLookup = new Map(staleProviders.map((p) => [p.address.toLowerCase(), p]));
+
+    for (const address of staleAddresses) {
+      try {
+        const provider = providerLookup.get(address);
+
+        if (provider && provider.providerId != null) {
+          const labels = buildCheckMetricLabels({
+            checkType: "dataRetention",
+            providerId: provider.providerId,
+            providerIsApproved: provider.isApproved,
+          });
+
+          // Attempt to remove Prometheus metrics FIRST
+          this.dataSetChallengeStatusCounter.remove({ ...labels, value: "success" });
+          this.dataSetChallengeStatusCounter.remove({ ...labels, value: "fault" });
+
+          // Only delete local memory if Prometheus removal succeeded without throwing
+          this.providerCumulativeTotals.delete(address);
+
+          this.logger.debug(`Removed baseline and metrics for stale provider: ${address} (ID: ${provider.providerId})`);
+        } else {
+          // Provider not in database or missing ID.
+          // CRITICAL: We DO NOT delete the local baseline here.
+          // Because the DB syncs with the chain periodically, this provider might be
+          // repopulated. If we delete the baseline now, and it returns later, we will
+          // suffer from the double-counting/metric inflation bug.
+          this.logger.debug(
+            `Retaining baseline for stale provider: ${address} (not found in DB, waiting for potential chain sync)`,
+          );
+        }
+      } catch (error) {
+        // If Prometheus removal fails, leave the baseline in the map
+        this.logger.error(
+          `Failed to cleanup metrics for provider ${address}: ${error instanceof Error ? error.message : "Unknown error"}. Baseline retained to prevent metric inflation.`,
+        );
+      }
     }
   }
 
