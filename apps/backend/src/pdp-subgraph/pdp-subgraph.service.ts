@@ -1,4 +1,3 @@
-import { setTimeout } from "node:timers/promises";
 import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import type { IBlockchainConfig, IConfig } from "../config/app.config.js";
@@ -47,8 +46,7 @@ export class PDPSubgraphService {
     }
 
     try {
-      await this.enforceRateLimit(1);
-      this.trackRequest();
+      await this.enforceRateLimit();
 
       const response = await fetch(this.blockchainConfig.pdpSubgraphEndpoint, {
         method: "POST",
@@ -94,7 +92,7 @@ export class PDPSubgraphService {
         this.logger.warn(
           `Subgraph meta request failed (attempt ${attempt}/${PDPSubgraphService.MAX_RETRIES}): ${errorMessage}. Retrying in ${delay}ms...`,
         );
-        await setTimeout(delay);
+        await new Promise((resolve) => setTimeout(resolve, delay));
         return this.fetchSubgraphMeta(attempt + 1);
       }
 
@@ -147,8 +145,6 @@ export class PDPSubgraphService {
     for (let i = 0; i < batches.length; i += PDPSubgraphService.MAX_CONCURRENT_REQUESTS) {
       const batchGroup = batches.slice(i, i + PDPSubgraphService.MAX_CONCURRENT_REQUESTS);
 
-      await this.enforceRateLimit(batchGroup.length);
-
       const results = await Promise.all(batchGroup.map((batch) => this.fetchWithRetry(blockNumber, batch)));
 
       allProviders.push(...results.flat());
@@ -176,7 +172,7 @@ export class PDPSubgraphService {
     };
 
     try {
-      this.trackRequest();
+      await this.enforceRateLimit();
 
       const response = await fetch(this.blockchainConfig.pdpSubgraphEndpoint, {
         method: "POST",
@@ -224,7 +220,7 @@ export class PDPSubgraphService {
         this.logger.warn(
           `Subgraph request failed (attempt ${attempt}/${PDPSubgraphService.MAX_RETRIES}): ${errorMessage}. Retrying in ${delay}ms...`,
         );
-        await setTimeout(delay);
+        await new Promise((resolve) => setTimeout(resolve, delay));
         return this.fetchWithRetry(blockNumber, addresses, attempt + 1);
       }
 
@@ -236,18 +232,17 @@ export class PDPSubgraphService {
   }
 
   /**
-   * Track request timestamp for rate limiting
-   */
-  private trackRequest(): void {
-    this.requestTimestamps.push(Date.now());
-  }
-
-  /**
    * Enforce rate limiting: max 50 requests per 10 seconds
    * This rate limit is applied by Goldsky on their public endpoints
    * Read more here: https://docs.goldsky.com/subgraphs/graphql-endpoints#public-endpoints
    */
-  private async enforceRateLimit(requestCount: number): Promise<void> {
+  private async enforceRateLimit(requestCount: number = 1): Promise<void> {
+    if (requestCount > PDPSubgraphService.MAX_CONCURRENT_REQUESTS) {
+      throw new Error(
+        `Cannot request ${requestCount} items; exceeds rate limit window of ${PDPSubgraphService.MAX_CONCURRENT_REQUESTS}`,
+      );
+    }
+
     const now = Date.now();
     const windowStart = now - PDPSubgraphService.RATE_LIMIT_WINDOW_MS;
 
@@ -256,13 +251,23 @@ export class PDPSubgraphService {
     const availableSlots = PDPSubgraphService.MAX_CONCURRENT_REQUESTS - this.requestTimestamps.length;
 
     if (requestCount > availableSlots) {
-      const oldestTimestamp = this.requestTimestamps[0] || now;
-      const waitTime = oldestTimestamp + PDPSubgraphService.RATE_LIMIT_WINDOW_MS - now;
+      const requiredSlots = requestCount - availableSlots;
+
+      const index = Math.min(this.requestTimestamps.length, requiredSlots) - 1;
+      const oldestTimestamp = this.requestTimestamps[index] || now;
+
+      // wait time with 10ms buffer
+      const waitTime = oldestTimestamp + PDPSubgraphService.RATE_LIMIT_WINDOW_MS - now + 10;
 
       if (waitTime > 0) {
-        await setTimeout(waitTime);
+        await new Promise((resolve) => setTimeout(resolve, waitTime));
         return this.enforceRateLimit(requestCount);
       }
+    }
+
+    // Reserve the slots NOW
+    for (let i = 0; i < requestCount; i++) {
+      this.requestTimestamps.push(Date.now());
     }
   }
 }
