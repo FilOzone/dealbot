@@ -4,7 +4,7 @@ import { InjectMetric } from "@willsoto/nestjs-prometheus";
 import { Counter } from "prom-client";
 import { IConfig } from "../config/app.config.js";
 import { PDPSubgraphService } from "../pdp-subgraph/pdp-subgraph.service.js";
-import { type IProviderDataSetResponse } from "../pdp-subgraph/types.js";
+import { type ProviderDataSetResponse } from "../pdp-subgraph/types.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
 import { type ProviderInfoEx } from "../wallet-sdk/wallet-sdk.types.js";
 
@@ -51,7 +51,7 @@ export class DataRetentionService {
     }
 
     try {
-      const blockNumber = await this.walletSdkService.getBlockNumber();
+      const subgraphMeta = await this.pdpSubgraphService.fetchSubgraphMeta();
       const providerInfos = this.walletSdkService.getTestingProviders();
 
       if (!providerInfos || providerInfos.length === 0) {
@@ -59,6 +59,7 @@ export class DataRetentionService {
         return;
       }
 
+      const blockNumber = subgraphMeta._meta.block.number;
       const blockNumberBigInt = BigInt(blockNumber);
       // Create snapshot of provider cache to avoid race condition if loadProviders() clears cache
       // Normalize addresses to lowercase for consistent lookups
@@ -114,7 +115,7 @@ export class DataRetentionService {
    * Process a single provider's data retention metrics
    */
   private async processProvider(
-    provider: IProviderDataSetResponse["providers"][number],
+    provider: ProviderDataSetResponse["providers"][number],
     blockNumberBigInt: bigint,
     providerInfo: ProviderInfoEx,
   ): Promise<void> {

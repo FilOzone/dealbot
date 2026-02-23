@@ -14,4 +14,13 @@ export const Queries = {
         }
       }
     `,
+  GET_SUBGRAPH_META: `
+    query GetSubgraphMeta {
+      _meta {
+        block {
+          number
+        }
+      }
+    }
+  `,
 } as const;

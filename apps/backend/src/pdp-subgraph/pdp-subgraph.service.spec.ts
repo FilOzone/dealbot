@@ -25,6 +25,16 @@ const makeValidProvider = (overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 });
 
+const makeSubgraphMetaResponse = (blockNumber = 12345) => ({
+  data: {
+    _meta: {
+      block: {
+        number: blockNumber,
+      },
+    },
+  },
+});
+
 describe("PDPSubgraphService", () => {
   let service: PDPSubgraphService;
   let fetchMock: ReturnType<typeof vi.fn>;
@@ -299,5 +309,131 @@ describe("PDPSubgraphService", () => {
     // Should respect MAX_CONCURRENT_REQUESTS (50)
     expect(maxConcurrentCalls).toBeLessThanOrEqual(50);
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  describe("fetchSubgraphMeta", () => {
+    it("fetches and returns subgraph metadata with block number and timestamp", async () => {
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        json: async () => makeSubgraphMetaResponse(12345),
+      });
+
+      const meta = await service.fetchSubgraphMeta();
+
+      expect(fetchMock).toHaveBeenCalledWith(SUBGRAPH_ENDPOINT, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: expect.stringContaining("GetSubgraphMeta"),
+      });
+
+      expect(meta).toEqual({
+        _meta: {
+          block: {
+            number: 12345,
+          },
+        },
+      });
+    });
+
+    it("throws when PDP subgraph endpoint is not configured", async () => {
+      const configService = {
+        get: vi.fn(() => ({ pdpSubgraphEndpoint: "" })),
+      } as unknown as ConfigService<IConfig, true>;
+
+      const serviceWithoutEndpoint = new PDPSubgraphService(configService);
+
+      await expect(serviceWithoutEndpoint.fetchSubgraphMeta()).rejects.toThrow("No PDP subgraph endpoint configured");
+    });
+
+    it("throws on HTTP error response", async () => {
+      fetchMock.mockResolvedValueOnce({
+        ok: false,
+        status: 500,
+        statusText: "Internal Server Error",
+      });
+
+      await expect(service.fetchSubgraphMeta()).rejects.toThrow("Failed to fetch subgraph metadata after 3 attempts");
+    });
+
+    it("throws on GraphQL errors in response", async () => {
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          errors: [{ message: "Query timeout" }],
+        }),
+      });
+
+      await expect(service.fetchSubgraphMeta()).rejects.toThrow("Failed to fetch subgraph metadata after 3 attempts");
+    });
+
+    it("throws on validation failure without retry", async () => {
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            _meta: {
+              block: {
+                number: "not-a-number", // Invalid - should be number
+              },
+            },
+          },
+        }),
+      });
+
+      await expect(service.fetchSubgraphMeta()).rejects.toThrow("Data validation failed");
+      expect(fetchMock).toHaveBeenCalledTimes(1); // Should not retry validation errors
+    });
+
+    it("throws on missing required fields", async () => {
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            _meta: {
+              block: {
+                number: undefined, // missing required field
+              },
+            },
+          },
+        }),
+      });
+
+      await expect(service.fetchSubgraphMeta()).rejects.toThrow("Data validation failed");
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("retries on network failures with exponential backoff", async () => {
+      vi.useFakeTimers();
+
+      fetchMock.mockRejectedValueOnce(new Error("Network timeout")).mockResolvedValueOnce({
+        ok: true,
+        json: async () => makeSubgraphMetaResponse(12345),
+      });
+
+      const promise = service.fetchSubgraphMeta();
+
+      await vi.runAllTimersAsync();
+      const meta = await promise;
+
+      expect(fetchMock).toHaveBeenCalledTimes(2); // Initial + 1 retry
+      expect(meta._meta.block.number).toBe(12345);
+
+      vi.useRealTimers();
+    });
+
+    it("throws after MAX_RETRIES attempts on persistent network errors", async () => {
+      vi.useFakeTimers();
+
+      fetchMock.mockRejectedValue(new Error("Network timeout"));
+
+      const promise = service.fetchSubgraphMeta();
+
+      await vi.runAllTimersAsync();
+
+      await expect(promise).rejects.toThrow("Failed to fetch subgraph metadata after 3 attempts");
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+
+      vi.useRealTimers();
+    });
   });
 });

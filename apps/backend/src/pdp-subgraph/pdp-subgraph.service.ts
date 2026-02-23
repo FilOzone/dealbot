@@ -1,9 +1,10 @@
+import { setTimeout } from "node:timers/promises";
 import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import type { IBlockchainConfig, IConfig } from "../config/app.config.js";
 import { Queries } from "./queries.js";
-import type { IProviderDataSetResponse, ProvidersWithDataSetsOptions } from "./types.js";
-import { validateProviderDataSetResponse } from "./types.js";
+import type { GraphQLResponse, ProviderDataSetResponse, ProvidersWithDataSetsOptions, SubgraphMeta } from "./types.js";
+import { validateProviderDataSetResponse, validateSubgraphMetaResponse } from "./types.js";
 
 /**
  * Error thrown when data validation fails.
@@ -34,6 +35,79 @@ export class PDPSubgraphService {
   }
 
   /**
+   * Fetch subgraph metadata including the latest indexed block number and timestamp
+   *
+   * @param attempt - Current retry attempt number (default: 1)
+   * @returns Subgraph metadata with block information
+   * @throws Error if endpoint is not configured or after MAX_RETRIES attempts
+   */
+  async fetchSubgraphMeta(attempt: number = 1): Promise<SubgraphMeta> {
+    if (!this.blockchainConfig.pdpSubgraphEndpoint) {
+      throw new Error("No PDP subgraph endpoint configured");
+    }
+
+    try {
+      await this.enforceRateLimit(1);
+      this.trackRequest();
+
+      const response = await fetch(this.blockchainConfig.pdpSubgraphEndpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          query: Queries.GET_SUBGRAPH_META,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const result = (await response.json()) as GraphQLResponse;
+
+      if (result.errors) {
+        const errorMessage = result.errors?.[0]?.message || "Unknown GraphQL error";
+        throw new Error(`GraphQL error: ${errorMessage}`);
+      }
+      let validated: SubgraphMeta;
+      try {
+        validated = validateSubgraphMetaResponse(result.data);
+      } catch (validationError) {
+        const errorMessage = validationError instanceof Error ? validationError.message : "Unknown validation error";
+        throw new ValidationError(`Data validation failed: ${errorMessage}`);
+      }
+
+      return validated;
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "Unknown error";
+
+      // No need to retry on validation errors - they indicate schema/data issues, not transient failures
+      if (error instanceof ValidationError) {
+        this.logger.error(`Subgraph data validation failed: ${errorMessage}`);
+        throw error;
+      }
+
+      // Retry on network/HTTP errors
+      if (attempt < PDPSubgraphService.MAX_RETRIES) {
+        const delay = PDPSubgraphService.INITIAL_RETRY_DELAY_MS * (1 << (attempt - 1));
+        this.logger.warn(
+          `Subgraph meta request failed (attempt ${attempt}/${PDPSubgraphService.MAX_RETRIES}): ${errorMessage}. Retrying in ${delay}ms...`,
+        );
+        await setTimeout(delay);
+        return this.fetchSubgraphMeta(attempt + 1);
+      }
+
+      this.logger.error(
+        `Subgraph meta request failed after ${PDPSubgraphService.MAX_RETRIES} attempts: ${errorMessage}`,
+      );
+      throw new Error(
+        `Failed to fetch subgraph metadata after ${PDPSubgraphService.MAX_RETRIES} attempts: ${errorMessage}`,
+      );
+    }
+  }
+
+  /**
    * Fetch providers with datasets from subgraph with batching, pagination, and rate limiting
    *
    * @param options - Options containing block number and provider addresses
@@ -41,7 +115,7 @@ export class PDPSubgraphService {
    */
   async fetchProvidersWithDatasets(
     options: ProvidersWithDataSetsOptions,
-  ): Promise<IProviderDataSetResponse["providers"]> {
+  ): Promise<ProviderDataSetResponse["providers"]> {
     const { blockNumber, addresses } = options;
 
     if (addresses.length === 0) {
@@ -61,14 +135,14 @@ export class PDPSubgraphService {
   private async fetchMultipleBatchesWithRateLimit(
     blockNumber: number,
     addresses: string[],
-  ): Promise<IProviderDataSetResponse["providers"]> {
+  ): Promise<ProviderDataSetResponse["providers"]> {
     const batches: string[][] = [];
     for (let i = 0; i < addresses.length; i += PDPSubgraphService.MAX_PROVIDERS_PER_QUERY) {
       const addressesLimit = Math.min(addresses.length, i + PDPSubgraphService.MAX_PROVIDERS_PER_QUERY);
       batches.push(addresses.slice(i, addressesLimit));
     }
 
-    const allProviders: IProviderDataSetResponse["providers"] = [];
+    const allProviders: ProviderDataSetResponse["providers"] = [];
 
     for (let i = 0; i < batches.length; i += PDPSubgraphService.MAX_CONCURRENT_REQUESTS) {
       const batchGroup = batches.slice(i, i + PDPSubgraphService.MAX_CONCURRENT_REQUESTS);
@@ -91,7 +165,7 @@ export class PDPSubgraphService {
     blockNumber: number,
     addresses: string[],
     attempt: number = 1,
-  ): Promise<IProviderDataSetResponse["providers"]> {
+  ): Promise<ProviderDataSetResponse["providers"]> {
     if (!this.blockchainConfig.pdpSubgraphEndpoint) {
       throw new Error("No PDP subgraph endpoint configured");
     }
@@ -119,14 +193,14 @@ export class PDPSubgraphService {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
 
-      const result = (await response.json()) as { data: unknown; errors?: unknown };
+      const result = (await response.json()) as GraphQLResponse;
 
       if (result.errors) {
-        const errorMessage = (result.errors as { message: string }[])?.[0]?.message || "Unknown GraphQL error";
+        const errorMessage = result.errors?.[0]?.message || "Unknown GraphQL error";
         throw new Error(`GraphQL error: ${errorMessage}`);
       }
 
-      let validated: IProviderDataSetResponse;
+      let validated: ProviderDataSetResponse;
       try {
         validated = validateProviderDataSetResponse(result.data);
       } catch (validationError) {
@@ -150,7 +224,7 @@ export class PDPSubgraphService {
         this.logger.warn(
           `Subgraph request failed (attempt ${attempt}/${PDPSubgraphService.MAX_RETRIES}): ${errorMessage}. Retrying in ${delay}ms...`,
         );
-        await new Promise((resolve) => setTimeout(resolve, delay));
+        await setTimeout(delay);
         return this.fetchWithRetry(blockNumber, addresses, attempt + 1);
       }
 
@@ -186,7 +260,7 @@ export class PDPSubgraphService {
       const waitTime = oldestTimestamp + PDPSubgraphService.RATE_LIMIT_WINDOW_MS - now;
 
       if (waitTime > 0) {
-        await new Promise((resolve) => setTimeout(resolve, waitTime));
+        await setTimeout(waitTime);
         return this.enforceRateLimit(requestCount);
       }
     }

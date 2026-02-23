@@ -3,14 +3,14 @@ import type { Counter } from "prom-client";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { IConfig } from "../config/app.config.js";
 import type { PDPSubgraphService } from "../pdp-subgraph/pdp-subgraph.service.js";
-import type { IProviderDataSetResponse } from "../pdp-subgraph/types.js";
+import type { ProviderDataSetResponse } from "../pdp-subgraph/types.js";
 import type { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
 import { DataRetentionService } from "./data-retention.service.js";
 
 const PROVIDER_A = "0xd8da6bf26964af9d7eed9e03e53415d37aa96045" as const;
 const PROVIDER_B = "0xab5801a7d398351b8be11c439e05c5b3259aec9b" as const;
 
-type ProviderEntry = IProviderDataSetResponse["providers"][number];
+type ProviderEntry = ProviderDataSetResponse["providers"][number];
 
 const makeProvider = (overrides: Partial<ProviderEntry> = {}): ProviderEntry => ({
   address: PROVIDER_A,
@@ -31,10 +31,12 @@ describe("DataRetentionService", () => {
   let service: DataRetentionService;
   let configServiceMock: ConfigService<IConfig, true>;
   let walletSdkServiceMock: {
-    getBlockNumber: ReturnType<typeof vi.fn>;
     getTestingProviders: ReturnType<typeof vi.fn>;
   };
-  let pdpSubgraphServiceMock: { fetchProvidersWithDatasets: ReturnType<typeof vi.fn> };
+  let pdpSubgraphServiceMock: {
+    fetchSubgraphMeta: ReturnType<typeof vi.fn>;
+    fetchProvidersWithDatasets: ReturnType<typeof vi.fn>;
+  };
   let counterMock: { labels: ReturnType<typeof vi.fn>; inc: ReturnType<typeof vi.fn> };
 
   beforeEach(() => {
@@ -48,7 +50,6 @@ describe("DataRetentionService", () => {
     } as unknown as ConfigService<IConfig, true>;
 
     walletSdkServiceMock = {
-      getBlockNumber: vi.fn().mockResolvedValue(1200),
       getTestingProviders: vi.fn().mockReturnValue([
         {
           id: 1,
@@ -64,6 +65,13 @@ describe("DataRetentionService", () => {
     };
 
     pdpSubgraphServiceMock = {
+      fetchSubgraphMeta: vi.fn().mockResolvedValue({
+        _meta: {
+          block: {
+            number: 1200,
+          },
+        },
+      }),
       fetchProvidersWithDatasets: vi.fn().mockResolvedValue([]),
     };
 
@@ -88,7 +96,7 @@ describe("DataRetentionService", () => {
 
     await service.pollDataRetention();
 
-    expect(walletSdkServiceMock.getBlockNumber).not.toHaveBeenCalled();
+    expect(pdpSubgraphServiceMock.fetchSubgraphMeta).not.toHaveBeenCalled();
     expect(pdpSubgraphServiceMock.fetchProvidersWithDatasets).not.toHaveBeenCalled();
   });
 
@@ -113,7 +121,7 @@ describe("DataRetentionService", () => {
 
     await service.pollDataRetention();
 
-    expect(walletSdkServiceMock.getBlockNumber).toHaveBeenCalled();
+    expect(pdpSubgraphServiceMock.fetchSubgraphMeta).toHaveBeenCalled();
     expect(pdpSubgraphServiceMock.fetchProvidersWithDatasets).toHaveBeenCalledWith({
       blockNumber: 1200,
       addresses: [PROVIDER_A, PROVIDER_B],
@@ -146,7 +154,13 @@ describe("DataRetentionService", () => {
     const firstCallCount = counterMock.labels.mock.calls.length;
 
     // Second poll: blockNumber=1300, provider totals changed
-    walletSdkServiceMock.getBlockNumber.mockResolvedValueOnce(1300);
+    pdpSubgraphServiceMock.fetchSubgraphMeta.mockResolvedValueOnce({
+      _meta: {
+        block: {
+          number: 1300,
+        },
+      },
+    });
     pdpSubgraphServiceMock.fetchProvidersWithDatasets.mockResolvedValueOnce([
       makeProvider({
         totalFaultedPeriods: 12n,
