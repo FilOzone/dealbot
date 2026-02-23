@@ -3,6 +3,7 @@ import { ConfigService } from "@nestjs/config";
 import { InjectMetric } from "@willsoto/nestjs-prometheus";
 import { Counter } from "prom-client";
 import { IConfig } from "../config/app.config.js";
+import { buildCheckMetricLabels, CheckMetricLabels } from "../metrics/utils/check-metric-labels.js";
 import { PDPSubgraphService } from "../pdp-subgraph/pdp-subgraph.service.js";
 import { type ProviderDataSetResponse } from "../pdp-subgraph/types.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
@@ -134,44 +135,79 @@ export class DataRetentionService {
 
     const normalizedAddress = address.toLowerCase();
     const previous = this.providerCumulativeTotals.get(normalizedAddress);
-    const faultedDelta = previous ? estimatedTotalFaulted - previous.faultedPeriods : estimatedTotalFaulted;
-    const successDelta = previous ? estimatedTotalSuccess - previous.successPeriods : estimatedTotalSuccess;
+    const faultedDelta = estimatedTotalFaulted - (previous?.faultedPeriods ?? 0n);
+    const successDelta = estimatedTotalSuccess - (previous?.successPeriods ?? 0n);
 
+    // Handle negative deltas: can occur due to chain reorgs, subgraph corrections, or data inconsistencies
+    // Reset baseline to current values to prevent stalled metrics
     if (faultedDelta < 0n || successDelta < 0n) {
       this.logger.warn(
-        `Negative delta detected for provider ${address} (faulted: ${faultedDelta}, success: ${successDelta}); skipping counter update`,
+        `Negative delta detected for provider ${address} (faulted: ${faultedDelta}, success: ${successDelta}). `,
       );
+      // Reset baseline without incrementing counters
+      this.providerCumulativeTotals.set(normalizedAddress, {
+        faultedPeriods: estimatedTotalFaulted,
+        successPeriods: estimatedTotalSuccess,
+      });
       return;
     }
 
-    const providerIdStr = providerInfo.id.toString();
-    const providerStatus = providerInfo.isApproved ? "approved" : "unapproved";
+    const providerLabels = buildCheckMetricLabels({
+      checkType: "dataRetention",
+      providerId: providerInfo.id,
+      providerIsApproved: providerInfo.isApproved,
+    });
 
     if (faultedDelta > 0n) {
-      this.dataSetChallengeStatusCounter
-        .labels({
-          checkType: "dataRetention",
-          providerId: providerIdStr,
-          providerStatus,
-          value: "fault",
-        })
-        .inc(Number(faultedDelta));
+      this.safeIncrementCounter(this.dataSetChallengeStatusCounter, providerLabels, "fault", faultedDelta);
     }
 
     if (successDelta > 0n) {
-      this.dataSetChallengeStatusCounter
-        .labels({
-          checkType: "dataRetention",
-          providerId: providerIdStr,
-          providerStatus,
-          value: "success",
-        })
-        .inc(Number(successDelta));
+      this.safeIncrementCounter(this.dataSetChallengeStatusCounter, providerLabels, "success", successDelta);
     }
 
     this.providerCumulativeTotals.set(normalizedAddress, {
       faultedPeriods: estimatedTotalFaulted,
       successPeriods: estimatedTotalSuccess,
     });
+  }
+
+  /**
+   * Safely increments a Prometheus counter with a BigInt value.
+   * If the value exceeds Number.MAX_SAFE_INTEGER, increments in chunks to prevent precision loss.
+   *
+   * @param counter - The Prometheus counter to increment
+   * @param labels - The label set for the counter
+   * @param value - The BigInt value to increment by
+   */
+  private safeIncrementCounter(
+    counter: Counter,
+    labels: CheckMetricLabels,
+    value: "success" | "fault",
+    increment: bigint,
+  ): void {
+    if (increment <= 0n) {
+      return;
+    }
+
+    const MAX_SAFE_INTEGER_BIGINT = BigInt(Number.MAX_SAFE_INTEGER);
+
+    if (increment <= MAX_SAFE_INTEGER_BIGINT) {
+      // Safe to convert directly
+      counter.labels({ ...labels, value }).inc(Number(increment));
+      return;
+    }
+
+    // Value exceeds safe integer range - increment in chunks
+    this.logger.warn(
+      `Large counter increment detected (${increment.toString()}). Incrementing in chunks to prevent precision loss.`,
+    );
+
+    let remaining = increment;
+    while (remaining > 0n) {
+      const chunk = remaining > MAX_SAFE_INTEGER_BIGINT ? MAX_SAFE_INTEGER_BIGINT : remaining;
+      counter.labels({ ...labels, value }).inc(Number(chunk));
+      remaining -= chunk;
+    }
   }
 }

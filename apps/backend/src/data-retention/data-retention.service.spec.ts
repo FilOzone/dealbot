@@ -279,7 +279,7 @@ describe("DataRetentionService", () => {
     await expect(service.pollDataRetention()).resolves.toBeUndefined();
   });
 
-  it("warns on negative deltas and does not increment counters", async () => {
+  it("resets baseline on negative deltas without incrementing counters", async () => {
     // First poll: high values
     pdpSubgraphServiceMock.fetchProvidersWithDatasets.mockResolvedValueOnce([
       makeProvider({ totalFaultedPeriods: 100n, totalProvingPeriods: 200n }),
@@ -287,7 +287,7 @@ describe("DataRetentionService", () => {
     await service.pollDataRetention();
     counterMock.labels.mockClear();
 
-    // Second poll: lower values (e.g., chain reorg)
+    // Second poll: lower values (e.g., chain reorg or subgraph correction)
     pdpSubgraphServiceMock.fetchProvidersWithDatasets.mockResolvedValueOnce([
       makeProvider({ totalFaultedPeriods: 50n, totalProvingPeriods: 100n }),
     ]);
@@ -295,6 +295,63 @@ describe("DataRetentionService", () => {
 
     // Both deltas are negative, so counters should not be incremented
     expect(counterMock.labels).not.toHaveBeenCalled();
+
+    // Third poll: values increase from new baseline
+    pdpSubgraphServiceMock.fetchProvidersWithDatasets.mockResolvedValueOnce([
+      makeProvider({ totalFaultedPeriods: 52n, totalProvingPeriods: 105n }),
+    ]);
+    await service.pollDataRetention();
+
+    // Should now increment based on new baseline (52-50=2 faulted, 55-50=5 success)
+    expect(counterMock.labels).toHaveBeenCalled();
+  });
+
+  it("handles large BigInt deltas by incrementing in chunks", async () => {
+    // Create a delta larger than Number.MAX_SAFE_INTEGER
+    const largeValue = BigInt(Number.MAX_SAFE_INTEGER) + 1000n;
+
+    pdpSubgraphServiceMock.fetchProvidersWithDatasets.mockResolvedValueOnce([
+      makeProvider({ totalFaultedPeriods: largeValue, totalProvingPeriods: largeValue * 2n }),
+    ]);
+
+    await service.pollDataRetention();
+
+    // Should have been called multiple times (chunked increments)
+    expect(counterMock.inc).toHaveBeenCalled();
+    // Verify it was called with safe values (not exceeding MAX_SAFE_INTEGER)
+    const incCalls = counterMock.inc.mock.calls;
+    incCalls.forEach((call) => {
+      const value = call[0];
+      expect(value).toBeLessThanOrEqual(Number.MAX_SAFE_INTEGER);
+    });
+  });
+
+  it("handles BigInt delta exactly at MAX_SAFE_INTEGER boundary", async () => {
+    const maxSafeInt = BigInt(Number.MAX_SAFE_INTEGER);
+
+    pdpSubgraphServiceMock.fetchProvidersWithDatasets.mockResolvedValueOnce([
+      makeProvider({ totalFaultedPeriods: maxSafeInt, totalProvingPeriods: maxSafeInt * 2n }),
+    ]);
+
+    await service.pollDataRetention();
+
+    // Should increment without chunking since it's exactly at the boundary
+    expect(counterMock.inc).toHaveBeenCalled();
+  });
+
+  it("does not increment counter when delta is zero", async () => {
+    // First poll
+    pdpSubgraphServiceMock.fetchProvidersWithDatasets.mockResolvedValueOnce([makeProvider()]);
+    await service.pollDataRetention();
+    counterMock.labels.mockClear();
+    counterMock.inc.mockClear();
+
+    // Second poll with same data
+    pdpSubgraphServiceMock.fetchProvidersWithDatasets.mockResolvedValueOnce([makeProvider()]);
+    await service.pollDataRetention();
+
+    // No increments since deltas are zero
+    expect(counterMock.inc).not.toHaveBeenCalled();
   });
 
   it("accumulates overdue periods across multiple proof sets", async () => {
