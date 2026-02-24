@@ -74,6 +74,8 @@ describe("DealService", () => {
   const mockDealRepository = {
     create: vi.fn(),
     save: vi.fn(),
+    count: vi.fn(),
+    createQueryBuilder: vi.fn(),
   };
 
   const mockStorageProviderRepository = {
@@ -935,6 +937,32 @@ describe("DealService", () => {
       // Should return only the successful one
       expect(results).toHaveLength(1);
       expect(results[0].spAddress).toBe("0xSuccess");
+    });
+  });
+
+  describe("hasDatasetWithIndex", () => {
+    it("returns true when a deal with the given dealbotDS index exists", async () => {
+      const getCountMock = vi.fn().mockResolvedValue(1);
+      const chainMock = { andWhere: vi.fn().mockReturnThis(), getCount: getCountMock };
+      const whereMock = vi.fn().mockReturnValue(chainMock);
+      mockDealRepository.createQueryBuilder = vi.fn().mockReturnValue({ where: whereMock });
+
+      const result = await service.hasDatasetWithIndex("0xProvider", 2);
+
+      expect(result).toBe(true);
+      expect(mockDealRepository.createQueryBuilder).toHaveBeenCalledWith("deal");
+      expect(whereMock).toHaveBeenCalledWith("deal.sp_address = :spAddress", { spAddress: "0xProvider" });
+    });
+
+    it("returns false when no deal with the given dealbotDS index exists", async () => {
+      const getCountMock = vi.fn().mockResolvedValue(0);
+      const chainMock = { andWhere: vi.fn().mockReturnThis(), getCount: getCountMock };
+      const whereMock = vi.fn().mockReturnValue(chainMock);
+      mockDealRepository.createQueryBuilder = vi.fn().mockReturnValue({ where: whereMock });
+
+      const result = await service.hasDatasetWithIndex("0xProvider", 5);
+
+      expect(result).toBe(false);
     });
   });
 });

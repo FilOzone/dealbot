@@ -109,6 +109,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       enableIpni: boolean;
       existingDealId?: string;
       signal?: AbortSignal;
+      extraDataSetMetadata?: Record<string, string>;
     },
   ): Promise<Deal> {
     const { preprocessed, cleanup } = await this.prepareDealInput(options.enableIpni, options.signal);
@@ -123,6 +124,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
         uploadPayload,
         options.existingDealId,
         options.signal,
+        options.extraDataSetMetadata,
       );
     } finally {
       await cleanup();
@@ -168,6 +170,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     uploadPayload: UploadPayload,
     existingDealId?: string,
     signal?: AbortSignal,
+    extraDataSetMetadata?: Record<string, string>,
   ): Promise<Deal> {
     const providerAddress = providerInfo.serviceProvider;
     const checkType = "dataStorage" as const;
@@ -215,7 +218,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       this.dataStorageMetrics.recordUploadStatus(providerLabels, "pending");
       this.dataStorageMetrics.recordDataStorageStatus(providerLabels, "pending");
 
-      const dataSetMetadata = { ...dealInput.synapseConfig.dataSetMetadata };
+      const dataSetMetadata = { ...dealInput.synapseConfig.dataSetMetadata, ...extraDataSetMetadata };
 
       if (this.blockchainConfig.dealbotDataSetVersion) {
         dataSetMetadata.dealbotDataSetVersion = this.blockchainConfig.dealbotDataSetVersion;
@@ -370,7 +373,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
         // retrievals were successful.. lets log some stats
         this.logger.log(
           `Retrieval test completed in ${retrievalTest.testedAt.getTime() - retrievalStartTime}ms: ` +
-            `${retrievalTest.summary.successfulMethods}/${retrievalTest.summary.totalMethods} successful`,
+          `${retrievalTest.summary.successfulMethods}/${retrievalTest.summary.totalMethods} successful`,
         );
       }
 
@@ -410,6 +413,19 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     } finally {
       await this.saveDeal(deal);
     }
+  }
+
+  /**
+   * Checks if a successful deal with a specific dealbotDS metadata index exists for a provider.
+   */
+  async hasDatasetWithIndex(spAddress: string, dsIndex: number): Promise<boolean> {
+    const count = await this.dealRepository
+      .createQueryBuilder("deal")
+      .where("deal.sp_address = :spAddress", { spAddress })
+      .andWhere("deal.status = :status", { status: DealStatus.DEAL_CREATED })
+      .andWhere("deal.metadata @> :meta", { meta: { dealbotDS: String(dsIndex) } })
+      .getCount();
+    return count > 0;
   }
 
   // ============================================================================
