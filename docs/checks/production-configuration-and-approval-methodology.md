@@ -34,7 +34,7 @@ Relevant parameters include:
 This minimum observed success rate threshold count is for having 95% confidence that the success rate is greater than 95%.  See [How are data storage and retrieval check statistics/thresholds calculated?](#how-are-data-storage-and-retrieval-check-statisticsthresholds-calculated) for more details.
 
 ### Data Retention Fault Rate
-This is calculated by looking at all the dataset proofs on chain for the SPs and determining how many challenges were missed or failed.  Note that on mainnet each dataset incurs 5 challenges per day.  To help get to statistical significance quicker, dealbot will seed the SPs with `MIN_NUM_DATASETS_FOR_CHECKS=15` datasets.  This means an SP can be approved for data retention after a faultless ~7 days if the SP doesn't have other datasets.
+Per the [Data Retention check](./data-retention.md), this is calculated by looking at all the dataset proofs on chain for the SPs and determining how many challenges were missed or failed.  Note that on mainnet each dataset incurs 5 challenges per day.  To help get to statistical significance quicker, dealbot will seed the SPs with `MIN_NUM_DATASETS_FOR_CHECKS=15` datasets.  This means an SP can be approved for data retention after a faultless ~7 days if the SP doesn't have other datasets.
 
 See [How are data retention statistics/thresholds calculated?](#how-are-data-retention-statisticsthresholds-calculated) for more details.
 
