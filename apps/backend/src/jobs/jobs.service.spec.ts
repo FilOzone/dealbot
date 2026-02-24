@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { IConfig } from "../config/app.config.js";
+import { METRICS_CLEANUP_QUEUE, METRICS_QUEUE, PROVIDERS_REFRESH_QUEUE, SP_WORK_QUEUE } from "./job-queues.js";
 import { JobsService } from "./jobs.service.js";
 
 type JobsServiceDeps = ConstructorParameters<typeof JobsService>;
@@ -364,20 +365,36 @@ describe("JobsService schedule rows", () => {
     callPrivate(service, "registerWorkers");
 
     expect(work).toHaveBeenCalledWith(
-      "sp.work",
+      SP_WORK_QUEUE,
       { batchSize: 1, localConcurrency: 9, pollingIntervalSeconds: 60 },
       expect.any(Function),
     );
     expect(work).toHaveBeenCalledWith(
-      "metrics.run",
+      METRICS_QUEUE,
       { batchSize: 1, pollingIntervalSeconds: 60 },
       expect.any(Function),
     );
     expect(work).toHaveBeenCalledWith(
-      "metrics.cleanup",
+      METRICS_CLEANUP_QUEUE,
       { batchSize: 1, pollingIntervalSeconds: 60 },
       expect.any(Function),
     );
+    expect(work).toHaveBeenCalledWith(
+      PROVIDERS_REFRESH_QUEUE,
+      { batchSize: 1, pollingIntervalSeconds: 60 },
+      expect.any(Function),
+    );
+  });
+
+  it("creates all worker queues when starting pg-boss", async () => {
+    const createQueue = vi.fn().mockResolvedValue(undefined);
+
+    await callPrivate(service, "ensureWorkerQueues", { createQueue });
+
+    expect(createQueue).toHaveBeenCalledWith(SP_WORK_QUEUE, { policy: "singleton" });
+    expect(createQueue).toHaveBeenCalledWith(METRICS_QUEUE);
+    expect(createQueue).toHaveBeenCalledWith(METRICS_CLEANUP_QUEUE);
+    expect(createQueue).toHaveBeenCalledWith(PROVIDERS_REFRESH_QUEUE);
   });
 
   it("skips registering workers in api mode", async () => {
