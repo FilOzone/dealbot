@@ -120,6 +120,8 @@ This gives n ≈ 197, which is rounded up to **200** for convenience.
 
 The 2 percentage point gap between the observed rate (97%) and the true-rate threshold (95%) is narrow, so a meaningful number of samples is required to make the confidence interval tight enough to rule out a true rate below 95%.  With only, say, ~50 samples, the error bars would be too wide to draw that conclusion.
 
+In addition, even though an observed rate above 97% (e.g., 99%) would require less than ~200 samples, we still use the 200 minimum samples to keep things simple.  The dealbot does not do any statistical calculations currently for whether the lower confidence bound of an observed rate for an observed number of samples is above the 95% threshold.
+
 ## How are data retention statistics/thresholds calculated?
 
 The approval threshold is set at a **fault rate of ≤ 0.2% over a minimum of 500 proof challenges**. The 0.2% observed rate and 500 sample minimum are intentionally simple numbers for SPs to reason about.  The underlying statistical goal is to have **95% confidence (one-sided) that the true fault rate is less than 1%, but allowing for up to 1 observed fault in the sample**.
