@@ -630,7 +630,6 @@ export class ProvidersService {
     let totalIpniDeals = 0;
     let ipniIndexedDeals = 0;
     let ipniAdvertisedDeals = 0;
-    let ipniRetrievedDeals = 0;
     let ipniVerifiedDeals = 0;
     let ipniFailedDeals = 0;
     let timeToIndexSum = 0;
@@ -657,14 +656,9 @@ export class ProvidersService {
         if (deal.ingestThroughputBps) ingestThroughputSum += deal.ingestThroughputBps;
         if (deal.serviceTypes.includes(ServiceType.IPFS_PIN)) {
           totalIpniDeals++;
-          // IPNI status is incremental: PENDING -> SP_INDEXED -> SP_ADVERTISED -> SP_RECEIVED_RETRIEVE_REQUEST -> VERIFIED
+          // IPNI status is incremental: PENDING -> SP_INDEXED -> SP_ADVERTISED -> VERIFIED
           if (deal.ipniStatus === IpniStatus.VERIFIED) {
             ipniVerifiedDeals++;
-            ipniRetrievedDeals++;
-            ipniAdvertisedDeals++;
-            ipniIndexedDeals++;
-          } else if (deal.ipniStatus === IpniStatus.SP_RECEIVED_RETRIEVE_REQUEST) {
-            ipniRetrievedDeals++;
             ipniAdvertisedDeals++;
             ipniIndexedDeals++;
           } else if (deal.ipniStatus === IpniStatus.SP_ADVERTISED) {
@@ -800,7 +794,6 @@ export class ProvidersService {
         totalIpniDeals,
         ipniIndexedDeals,
         ipniAdvertisedDeals,
-        ipniRetrievedDeals,
         ipniVerifiedDeals,
         ipniFailedDeals,
         ipniSuccessRate,
@@ -887,7 +880,6 @@ export class ProvidersService {
     let totalIpniDeals = 0;
     let ipniIndexedDeals = 0;
     let ipniAdvertisedDeals = 0;
-    let ipniRetrievedDeals = 0;
     let ipniVerifiedDeals = 0;
     let ipniFailedDeals = 0;
     let totalIpfsRetrievals = 0;
@@ -970,7 +962,6 @@ export class ProvidersService {
           totalIpniDeals += metric.totalIpniDeals;
           ipniIndexedDeals += metric.ipniIndexedDeals;
           ipniAdvertisedDeals += metric.ipniAdvertisedDeals;
-          ipniRetrievedDeals += metric.ipniRetrievedDeals;
           ipniVerifiedDeals += metric.ipniVerifiedDeals;
           ipniFailedDeals += metric.ipniFailedDeals;
 
@@ -1051,7 +1042,7 @@ export class ProvidersService {
     // Calculate averages and rates
     const dealSuccessRate = totalDeals > 0 ? (successfulDeals / totalDeals) * 100 : 0;
     const retrievalSuccessRate = totalRetrievals > 0 ? (successfulRetrievals / totalRetrievals) * 100 : 0;
-    const ipniSuccessRate = totalIpniDeals > 0 ? (ipniRetrievedDeals / totalIpniDeals) * 100 : 0;
+    const ipniSuccessRate = totalIpniDeals > 0 ? (ipniVerifiedDeals / totalIpniDeals) * 100 : 0;
     const ipfsRetrievalSuccessRate =
       totalIpfsRetrievals > 0 ? (successfulIpfsRetrievals / totalIpfsRetrievals) * 100 : 0;
 
@@ -1114,7 +1105,6 @@ export class ProvidersService {
       totalIpniDeals,
       ipniIndexedDeals,
       ipniAdvertisedDeals,
-      ipniRetrievedDeals,
       ipniVerifiedDeals,
       ipniFailedDeals,
       ipniSuccessRate: Math.round(ipniSuccessRate * 10) / 10,
@@ -1172,7 +1162,6 @@ export class ProvidersService {
         totalIpniDeals: 0,
         ipniIndexedDeals: 0,
         ipniAdvertisedDeals: 0,
-        ipniRetrievedDeals: 0,
         ipniVerifiedDeals: 0,
         ipniFailedDeals: 0,
         ipniSuccessRate: 0,
@@ -1222,7 +1211,6 @@ export class ProvidersService {
       totalIpniDeals: entity.totalIpniDeals,
       ipniIndexedDeals: entity.ipniIndexedDeals,
       ipniAdvertisedDeals: entity.ipniAdvertisedDeals,
-      ipniRetrievedDeals: entity.ipniRetrievedDeals,
       ipniVerifiedDeals: entity.ipniVerifiedDeals,
       ipniFailedDeals: entity.ipniFailedDeals,
       ipniSuccessRate: entity.ipniSuccessRate,

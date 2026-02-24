@@ -106,9 +106,6 @@ export class MetricsDaily {
   @Column({ name: "ipni_advertised_deals", type: "integer", default: 0 })
   ipniAdvertisedDeals: number;
 
-  @Column({ name: "ipni_retrieved_deals", type: "integer", default: 0 })
-  ipniRetrievedDeals: number;
-
   @Column({ name: "ipni_verified_deals", type: "integer", default: 0 })
   ipniVerifiedDeals: number;
 

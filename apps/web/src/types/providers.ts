@@ -73,7 +73,6 @@ export interface ProviderPerformanceDto {
   totalIpniDeals: number;
   ipniIndexedDeals: number;
   ipniAdvertisedDeals: number;
-  ipniRetrievedDeals: number;
   ipniVerifiedDeals: number;
   ipniFailedDeals: number;
   ipniSuccessRate: number;

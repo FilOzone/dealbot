@@ -94,9 +94,6 @@ export class SpPerformanceLastWeek {
   @ViewColumn({ name: "ipni_advertised_deals" })
   ipniAdvertisedDeals: number;
 
-  @ViewColumn({ name: "ipni_retrieved_deals" })
-  ipniRetrievedDeals: number;
-
   @ViewColumn({ name: "ipni_verified_deals" })
   ipniVerifiedDeals: number;
 

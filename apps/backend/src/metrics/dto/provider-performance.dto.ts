@@ -134,9 +134,6 @@ export class ProviderPerformanceDto {
   @ApiProperty({ description: "IPNI deals that reached advertised status" })
   ipniAdvertisedDeals: number;
 
-  @ApiProperty({ description: "IPNI deals that reached retrieved status" })
-  ipniRetrievedDeals: number;
-
   @ApiProperty({
     description: "IPNI deals that are verified with filecoinpin.contact",
   })
