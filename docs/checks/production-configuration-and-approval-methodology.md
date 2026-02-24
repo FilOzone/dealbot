@@ -126,7 +126,7 @@ The approval threshold is set at a **fault rate of ≤ 0.2% over a minimum of 50
 
 ### What counts as a sample
 
-Each challenge on a dataset counts as one sample and there are 5 challenges each day for each dataset, regardless of how much data is stored in that dataset.  Dealbot seeds each SP with `MIN_NUM_DATASETS_FOR_CHECKS=15` datasets to accumulate samples faster, but any datasets the SP holds beyond those 15 also contribute. With 500 samples needed, and at least 15 datasets providing 5 samples a day, an SP can get approved in less than 7 days.
+Each challenge on a dataset counts as one sample and there are 5 challenges each day for each dataset on mainnet, regardless of how much data is stored in that dataset.  Dealbot seeds each SP with `MIN_NUM_DATASETS_FOR_CHECKS=15` datasets to accumulate samples faster, but any datasets the SP holds beyond those 15 also contribute. With 500 samples needed, and at least 15 datasets providing 5 samples a day, an SP can get approved in less than 7 days.
 
 ### Derivation of the 500-sample minimum
 
