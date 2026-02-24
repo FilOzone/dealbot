@@ -33,6 +33,7 @@ export const configValidationSchema = Joi.object({
     .valid("disabled", "random", "always", "true", "false")
     .default("always"),
   DEALBOT_DATASET_VERSION: Joi.string().optional(),
+  MIN_NUM_DATASETS_FOR_CHECKS: Joi.number().integer().min(1).default(1),
   PDP_SUBGRAPH_ENDPOINT: Joi.string().uri().optional().allow(""),
 
   // Scheduling
@@ -58,6 +59,7 @@ export const configValidationSchema = Joi.object({
   // Per-hour limits are guardrails to avoid excessive background load.
   METRICS_PER_HOUR: Joi.number().min(0.001).max(3).optional(),
   DEALS_PER_SP_PER_HOUR: Joi.number().min(0.001).max(20).optional(),
+  DATASET_CREATIONS_PER_SP_PER_HOUR: Joi.number().min(0.001).max(20).optional(),
   RETRIEVALS_PER_SP_PER_HOUR: Joi.number().min(0.001).max(20).optional(),
   // Polling interval for pg-boss scheduler (lower = more responsive, higher = less DB chatter).
   JOB_SCHEDULER_POLL_SECONDS: Joi.number().min(60).default(300),
@@ -113,6 +115,7 @@ export interface IBlockchainConfig {
   useOnlyApprovedProviders: boolean;
   enableIpniTesting: IpniTestingMode;
   dealbotDataSetVersion?: string;
+  minNumDatasetsForChecks: number;
   pdpSubgraphEndpoint?: string;
 }
 
@@ -158,6 +161,12 @@ export interface IJobsConfig {
    * Only used when `DEALBOT_JOBS_MODE=pgboss`.
    */
   retrievalsPerSpPerHour?: number;
+  /**
+   * Target number of dataset creation runs per storage provider per hour.
+   *
+   * Only used when `DEALBOT_JOBS_MODE=pgboss` and `MIN_NUM_DATASETS_FOR_CHECKS > 1`.
+   */
+  datasetCreationsPerSpPerHour?: number;
   /**
    * How often the scheduler polls Postgres for due jobs (seconds).
    *
@@ -305,6 +314,7 @@ export function loadConfig(): IConfig {
       useOnlyApprovedProviders: process.env.USE_ONLY_APPROVED_PROVIDERS !== "false",
       enableIpniTesting: parseIpniTestingMode(process.env.ENABLE_IPNI_TESTING),
       dealbotDataSetVersion: process.env.DEALBOT_DATASET_VERSION,
+      minNumDatasetsForChecks: Number.parseInt(process.env.MIN_NUM_DATASETS_FOR_CHECKS || "1", 10),
       pdpSubgraphEndpoint: process.env.PDP_SUBGRAPH_ENDPOINT || "",
     },
     scheduling: {
@@ -328,6 +338,9 @@ export function loadConfig(): IConfig {
         : undefined,
       retrievalsPerSpPerHour: process.env.RETRIEVALS_PER_SP_PER_HOUR
         ? Number.parseFloat(process.env.RETRIEVALS_PER_SP_PER_HOUR)
+        : undefined,
+      datasetCreationsPerSpPerHour: process.env.DATASET_CREATIONS_PER_SP_PER_HOUR
+        ? Number.parseFloat(process.env.DATASET_CREATIONS_PER_SP_PER_HOUR)
         : undefined,
       schedulerPollSeconds: Number.parseInt(process.env.JOB_SCHEDULER_POLL_SECONDS || "300", 10),
       workerPollSeconds: Number.parseInt(process.env.JOB_WORKER_POLL_SECONDS || "60", 10),
