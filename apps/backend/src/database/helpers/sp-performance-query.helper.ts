@@ -123,7 +123,6 @@ export function generateSpPerformanceQuery(dateFilter?: string): string {
       -- IPNI performance metrics
       ROUND(AVG(d.ipni_time_to_index_ms) FILTER (WHERE d.ipni_time_to_index_ms IS NOT NULL))::int as avg_ipni_time_to_index_ms,
       ROUND(AVG(d.ipni_time_to_advertise_ms) FILTER (WHERE d.ipni_time_to_advertise_ms IS NOT NULL))::int as avg_ipni_time_to_advertise_ms,
-      ROUND(AVG(d.ipni_time_to_retrieve_ms) FILTER (WHERE d.ipni_time_to_retrieve_ms IS NOT NULL))::int as avg_ipni_time_to_retrieve_ms,
       ROUND(AVG(d.ipni_time_to_verify_ms) FILTER (WHERE d.ipni_time_to_verify_ms IS NOT NULL))::int as avg_ipni_time_to_verify_ms,
       
       -- Data volumes

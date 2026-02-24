@@ -78,7 +78,6 @@ export interface ProviderPerformanceDto {
   ipniSuccessRate: number;
   avgIpniTimeToIndexMs: number;
   avgIpniTimeToAdvertiseMs: number;
-  avgIpniTimeToRetrieveMs: number;
   avgIpniTimeToVerifyMs: number;
 
   totalIpfsRetrievals: number;

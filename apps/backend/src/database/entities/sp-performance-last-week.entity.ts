@@ -109,9 +109,6 @@ export class SpPerformanceLastWeek {
   @ViewColumn({ name: "avg_ipni_time_to_advertise_ms" })
   avgIpniTimeToAdvertiseMs: number;
 
-  @ViewColumn({ name: "avg_ipni_time_to_retrieve_ms" })
-  avgIpniTimeToRetrieveMs: number;
-
   @ViewColumn({ name: "avg_ipni_time_to_verify_ms" })
   avgIpniTimeToVerifyMs: number;
 

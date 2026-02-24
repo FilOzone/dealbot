@@ -189,7 +189,6 @@ export class MetricsSchedulerService implements OnModuleInit {
           ipni_success_rate,
           avg_ipni_time_to_index_ms,
           avg_ipni_time_to_advertise_ms,
-          avg_ipni_time_to_retrieve_ms,
           avg_ipni_time_to_verify_ms,
           created_at,
           updated_at
@@ -235,7 +234,6 @@ export class MetricsSchedulerService implements OnModuleInit {
           ) as ipni_success_rate,
           COALESCE(ROUND(AVG(ipni_time_to_index_ms) FILTER (WHERE ipni_time_to_index_ms IS NOT NULL), 0), 0) as avg_ipni_time_to_index_ms,
           COALESCE(ROUND(AVG(ipni_time_to_advertise_ms) FILTER (WHERE ipni_time_to_advertise_ms IS NOT NULL), 0), 0) as avg_ipni_time_to_advertise_ms,
-          COALESCE(ROUND(AVG(ipni_time_to_retrieve_ms) FILTER (WHERE ipni_time_to_retrieve_ms IS NOT NULL), 0), 0) as avg_ipni_time_to_retrieve_ms,
           COALESCE(ROUND(AVG(ipni_time_to_verify_ms) FILTER (WHERE ipni_time_to_verify_ms IS NOT NULL), 0), 0) as avg_ipni_time_to_verify_ms,
           NOW() as created_at,
           NOW() as updated_at
@@ -261,7 +259,6 @@ export class MetricsSchedulerService implements OnModuleInit {
           ipni_success_rate = EXCLUDED.ipni_success_rate,
           avg_ipni_time_to_index_ms = EXCLUDED.avg_ipni_time_to_index_ms,
           avg_ipni_time_to_advertise_ms = EXCLUDED.avg_ipni_time_to_advertise_ms,
-          avg_ipni_time_to_retrieve_ms = EXCLUDED.avg_ipni_time_to_retrieve_ms,
           avg_ipni_time_to_verify_ms = EXCLUDED.avg_ipni_time_to_verify_ms,
           updated_at = NOW()
         RETURNING sp_address

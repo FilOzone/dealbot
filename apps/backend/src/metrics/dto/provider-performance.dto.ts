@@ -153,9 +153,6 @@ export class ProviderPerformanceDto {
   })
   avgIpniTimeToAdvertiseMs: number;
 
-  @ApiProperty({ description: "Average time to IPNI retrieve in milliseconds" })
-  avgIpniTimeToRetrieveMs: number;
-
   @ApiProperty({ description: "Average time to IPNI verify in milliseconds" })
   avgIpniTimeToVerifyMs: number;
 

@@ -130,13 +130,6 @@ export class MetricsDaily {
   avgIpniTimeToAdvertiseMs: number;
 
   @Column({
-    name: "avg_ipni_time_to_retrieve_ms",
-    type: "integer",
-    nullable: true,
-  })
-  avgIpniTimeToRetrieveMs: number;
-
-  @Column({
     name: "avg_ipni_time_to_verify_ms",
     type: "integer",
     nullable: true,
