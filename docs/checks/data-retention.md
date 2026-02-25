@@ -235,6 +235,6 @@ Providers may temporarily drop from the active list due to configuration changes
 ### How does this differ from the Data Storage check?
 
 - **Data Storage check**: Tests the full lifecycle of uploading new data (upload → onchain confirmation → IPNI indexing → retrieval)
-- **Data Retention check**: Monitors ongoing data availability through PDP challenge performance for previously stored data
+- **Data Retention check**: Monitors ongoing data retention through PDP challenge performance for previously stored data
 
 Both checks work together to provide comprehensive storage provider quality metrics.
