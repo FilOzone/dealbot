@@ -93,16 +93,76 @@ This is in a private repo because it includes other infrastructure configuration
 No, not currently.  See issue [#284](https://github.com/FilOzone/dealbot/issues/284) for more details.
 
 ## How are data storage and retrieval check statistics/thresholds calculated?
-TODO for researcher/PM/Steve (tracked in issue [#174](https://github.com/FilOzone/dealbot/issues/174)): fill this in covering things like
-- 95% confidence level
-- One sided confidence interval
+
+The approval thresholds are set at an **observed success rate of ≥ 97% over a minimum of 200 checks**.  The 97% observed rate and 200 sample minimum are intentionally simple numbers for SPs to reason about.  The underlying statistical goal is to have **95% confidence (one-sided) that the true success rate is greater than 95%, given an observed success rate of at least 97%**.
+
+### Derivation of the 200-sample minimum
+
+Using the normal approximation to a one-sided 95% confidence interval, the lower confidence bound on an observed proportion p̂ is:
+
+```
+p_lower = p̂ - Z_0.95 · sqrt(p̂(1 - p̂) / n)
+```
+
+Setting the target lower bound to 0.95, the observed rate p̂ = 0.97, and Z_0.95 = 1.645 (one-sided):
+
+```
+0.95 = 0.97 - 1.645 · sqrt(0.97 · 0.03 / n)
+0.02 = 1.645 · sqrt(0.0291 / n)
+sqrt(0.0291 / n) = 0.02 / 1.645 ≈ 0.01216
+0.0291 / n = 0.0001478
+n ≈ 197
+```
+
+This gives n ≈ 197, which is rounded up to **200** for convenience.
+
+### Intuition
+
+The 2 percentage point gap between the observed rate (97%) and the true-rate threshold (95%) is narrow, so a meaningful number of samples is required to make the confidence interval tight enough to rule out a true rate below 95%.  With only, say, ~50 samples, the error bars would be too wide to draw that conclusion.
+
+In addition, even though an observed rate above 97% (e.g., 99%) would require less than ~200 samples, we still use the 200 minimum samples to keep things simple.  The dealbot does not do any statistical calculations currently for whether the lower confidence bound of an observed rate for an observed number of samples is above the 95% threshold.
 
 ## How are data retention statistics/thresholds calculated?
-TODO for researcher/PM/Steve (tracked in issue [#174](https://github.com/FilOzone/dealbot/issues/174)): fill this in covering things like
-- 95% confidence level
-- One sided confidence interval
-- It doesn't matter how much data is stored in a dataset
-- DataSets beyond the ones created by dealbot factor in as samples.
+
+The approval threshold is set at a **fault rate of ≤ 0.2% over a minimum of 500 proof challenges**. The 0.2% observed rate and 500 sample minimum are intentionally simple numbers for SPs to reason about.  The underlying statistical goal is to have **95% confidence (one-sided) that the true fault rate is less than 1%, but allowing for up to 1 observed fault in the sample**.
+
+### What counts as a sample
+
+Each challenge on a dataset counts as one sample and there are 5 challenges each day for each dataset on mainnet, regardless of how much data is stored in that dataset.  Dealbot seeds each SP with `MIN_NUM_DATASETS_FOR_CHECKS=15` datasets to accumulate samples faster, but any datasets the SP holds beyond those 15 also contribute. With 500 samples needed, and at least 15 datasets providing 5 samples a day, an SP can get approved in less than 7 days.
+
+### Derivation of the 500-sample minimum
+
+With up to 1 allowed fault, the threshold is reached when the probability of observing 1 or fewer faults in n trials, assuming the true fault rate is exactly 1%, falls to 5% or below.  Using the binomial distribution:
+
+```
+P(X ≤ 1 | n, p = 0.01) = 0.99^n + n · 0.01 · 0.99^(n-1) ≤ 0.05
+```
+
+Factoring:
+
+```
+0.99^(n-1) · (0.99 + 0.01n) ≤ 0.05
+```
+
+Solving numerically:
+
+| n   | P(≤ 1 fault \| p = 1%) |
+|-----|------------------------|
+| 300 | 19.9%                  |
+| 400 | 9.2%                   |
+| 450 | 6.1%                   |
+| 470 | 5.3%                   |
+| 480 | 4.9% ✓                 |
+
+This gives n ≈ 480, which is rounded up to **500** for convenience.
+
+### Why allow 1 fault?
+
+Requiring zero faults would demand only ~300 samples (298 to be precise), but a single transient fault - for example a missed proof due to a brief infrastructure hiccup rather than a genuine data retention problem - would permanently disqualify an otherwise reliable SP.  Allowing 1 fault while requiring ~500 samples gives SPs reasonable tolerance for one-off issues while still demanding strong evidence of reliability.
+
+### Intuition
+
+Each fault you permit requires significantly more evidence to still conclude the SP is reliable.  The 60% increase in required samples (298 → 480) reflects the extra "benefit of the doubt" granted by the 1-fault allowance.
 
 ## Why aren't there latency/throughput requirements?
 

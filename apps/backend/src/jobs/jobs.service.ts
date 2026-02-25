@@ -198,13 +198,20 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     boss.on("error", this.bossErrorHandler);
     try {
       await boss.start();
-      await boss.createQueue(SP_WORK_QUEUE, { policy: "singleton" });
+      await this.ensureWorkerQueues(boss);
       this.boss = boss;
     } catch (error) {
       boss.off("error", this.bossErrorHandler);
       this.bossErrorHandler = undefined;
       this.logger.error(`Failed to start pg-boss: ${error.message}`, error.stack);
     }
+  }
+
+  private async ensureWorkerQueues(boss: Pick<PgBoss, "createQueue">): Promise<void> {
+    await boss.createQueue(SP_WORK_QUEUE, { policy: "singleton" });
+    await boss.createQueue(METRICS_QUEUE);
+    await boss.createQueue(METRICS_CLEANUP_QUEUE);
+    await boss.createQueue(PROVIDERS_REFRESH_QUEUE);
   }
 
   private registerWorkers(): void {
