@@ -183,7 +183,7 @@ export class DataRetentionService {
 
           // Attempt to remove Prometheus metrics FIRST
           this.dataSetChallengeStatusCounter.remove({ ...labels, value: "success" });
-          this.dataSetChallengeStatusCounter.remove({ ...labels, value: "fault" });
+          this.dataSetChallengeStatusCounter.remove({ ...labels, value: "failure" });
 
           // Only delete local memory if Prometheus removal succeeded without throwing
           this.providerCumulativeTotals.delete(address);
@@ -255,7 +255,7 @@ export class DataRetentionService {
     });
 
     if (faultedDelta > 0n) {
-      this.safeIncrementCounter(this.dataSetChallengeStatusCounter, providerLabels, "fault", faultedDelta);
+      this.safeIncrementCounter(this.dataSetChallengeStatusCounter, providerLabels, "failure", faultedDelta);
     }
 
     if (successDelta > 0n) {
@@ -279,7 +279,7 @@ export class DataRetentionService {
   private safeIncrementCounter(
     counter: Counter,
     labels: CheckMetricLabels,
-    value: "success" | "fault",
+    value: "success" | "failure",
     increment: bigint,
   ): void {
     if (increment <= 0n) {
