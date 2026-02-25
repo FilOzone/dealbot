@@ -1,6 +1,6 @@
 # Data Retention Check
 
-This document describes how dealbot's Data Retention check monitors storage provider (SP) performance in maintaining data availability through Filecoin's Proof of Data Possession (PDP) protocol.
+This document describes how dealbot's Data Retention check monitors storage provider (SP) performance in retaining data through Filecoin's Proof of Data Possession (PDP) protocol.
 
 Source code links throughout this document point to the current implementation.
 
@@ -8,7 +8,7 @@ For event and metric definitions used by the dashboard, see [Dealbot Events & Me
 
 ## Overview
 
-The Data Retention check monitors storage providers' ability to maintain data availability over time by tracking their PDP challenge performance. Unlike the [Data Storage check](./data-storage.md) which tests the upload and initial verification of new data, the Data Retention check evaluates how well providers maintain previously stored data.
+The Data Retention check monitors storage providers' ability to retain data over time by tracking their PDP challenge performance. Unlike the [Data Storage check](./data-storage.md) which tests the upload and initial verification of new data, the Data Retention check evaluates how well providers maintain previously stored data.
 
 Every data retention check cycle, dealbot:
 
@@ -31,11 +31,20 @@ Dealbot polls The Graph API endpoint for PDP (Proof of Data Possession) data at 
 
 **Data retrieved**:
 
-- Current block number (for consistent snapshots)
-- Provider addresses with active datasets
-- Total faulted proving periods per provider
-- Total successful proving periods per provider
-- Proof set deadlines and proving period configurations
+From `GET_SUBGRAPH_META` query:
+
+- `_meta.block.number` - Current block number (used as `currentBlock` in formulas for consistent snapshots)
+
+From `GET_PROVIDERS_WITH_DATASETS` query for each provider:
+
+- `address` - Provider address
+- `totalFaultedPeriods` - Cumulative count of faulted proving periods across all proof sets
+- `totalProvingPeriods` - Cumulative count of all proving periods (successful + faulted) across all proof sets
+- For each `proofSets` where `nextDeadline < currentBlock`:
+  - `nextDeadline` - The most recent proving deadline (used as `lastDeadline` in formulas)
+  - `maxProvingPeriod` - Maximum number of epochs between two consecutive proofs (used in overdue period calculation)
+  - `totalFaultedPeriods` - Faulted periods for this specific proof set
+  - `currentDeadlineCount` - Number of deadlines that have passed for this proof set
 
 Source: [`pdp-subgraph.service.ts` (`fetchSubgraphMeta`, `fetchProvidersWithDatasets`)](../../apps/backend/src/pdp-subgraph/pdp-subgraph.service.ts)
 
@@ -128,28 +137,13 @@ Source: [`pdp-subgraph.service.ts` (`enforceRateLimit`)](../../apps/backend/src/
 
 ## Metrics Recorded
 
-Dealbot records the following Prometheus metrics for data retention monitoring:
-
-### `dataSetChallengeStatus`
-
-**Type**: Counter
-
-**Description**: Tracks the cumulative number of PDP challenge outcomes (successful or faulted) for each storage provider.
-
-**Labels**:
-
-- `checkType`: Always `"dataRetention"`
-- `providerId`: Unique identifier for the storage provider
-- `providerStatus`: Provider approval status (`"approved"` or `"unapproved"`)
-- `value`: Challenge outcome (`"success"` or `"fault"`)
+See [`dataSetChallengeStatus`](./events-and-metrics.md#dataSetChallengeStatus) for more info.
 
 **Increment behavior**:
 
 - Only increments when positive deltas are detected
 - Increments by the delta amount (not always 1)
 - Handles large values (>MAX_SAFE_INTEGER) via chunked increments
-
-Source: [`data-retention.service.ts`](../../apps/backend/src/data-retention/data-retention.service.ts)
 
 ## Configuration
 
