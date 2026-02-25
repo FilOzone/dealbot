@@ -34,7 +34,14 @@ Relevant parameters include:
 This minimum observed success rate threshold count is for having 95% confidence that the success rate is greater than 95%.  See [How are data storage and retrieval check statistics/thresholds calculated?](#how-are-data-storage-and-retrieval-check-statisticsthresholds-calculated) for more details.
 
 ### Data Retention Fault Rate
-Per the [Data Retention check](./data-retention.md), this is calculated by looking at all the dataset proofs on chain for the SPs and determining how many challenges were missed or failed.  Note that on mainnet each dataset incurs 5 challenges per day.  To help get to statistical significance quicker, dealbot will seed the SPs with [`MIN_NUM_DATASETS_FOR_CHECKS`](../environment-variables.md#dataset-configuration)=15 datasets.  This means an SP can be approved for data retention after a faultless ~7 days if the SP doesn't have other datasets.
+Per the [Data Retention check](./data-retention.md), this is calculated by looking at all the dataset proofs on chain for the SPs and determining how many challenges were missed or failed.  
+
+Relevant parameters include:
+
+| Parameter | Value | Notes |
+|-----------|-------|-------|
+| [`PDP_SUBGRAPH_ENDPOINT`](../environment-variables.md#pdp_subgraph_endpoint) | TODO: fill this in | Uses the subgraph from [pdp-explorer](https://github.com/FilOzone/pdp-explorer). |
+| [`MIN_NUM_DATASETS_FOR_CHECKS`](../environment-variables.md#dataset-configuration) | 15 | Ensure there are enough datasets with pieces being added so that statistical significance for [Data Retention Fault Rate](#data-retention-fault-rate) can be achieved quicker. Note that on mainnet each dataset incurs 5 challenges[^1] per daily proof[^2]. With this many datasets, an SP can be approved for data retention after a faultless ~7 days even if the SP doesn't have other datasets. |
 
 See [How are data retention statistics/thresholds calculated?](#how-are-data-retention-statisticsthresholds-calculated) for more details.
 
@@ -174,5 +181,7 @@ Latency and throughput are not just a function of the SP's infrastructure.  They
 
 ## Why are we using the SP's `/ipfs` endpoint for retrieval testing?
 
-We are using the SP's `/ipfs` for retrieval testing because it is the golden path.  We could mix other ways to retrieve the data (e.g., `/piece`, via CDM), but it would add more complexity to the dealbot code.  
+We are using the SP's `/ipfs` for retrieval testing because it is the golden path.  We could mix other ways to retrieve the data (e.g., `/piece`, via CDM), but it would add more complexity to the dealbot code.
 
+[^1]: 5 challenges per proof is defined in the [SimplePDPService.sol](https://github.com/FilOzone/pdp/blob/12a37996ffcd3f9e92f42b64c843defa759fb4ae/src/SimplePDPService.sol#L161) contract.
+[^2]: A daily proof per dataset is configured in the FilecoinWarmStorageService.sol contract. This was set on 2026-02-25 to be 2880 epochs (24 hours) as part of [this transaction](https://filecoin.blockscout.com/tx/0x9c203efb7a7bdde0e36e02734e2940dd15ee8bf55fc02573894d2637965b9c34). See [filecoin-services#422](https://github.com/FilOzone/filecoin-services/issues/422#issuecomment-3943282334).
