@@ -266,6 +266,46 @@ describe("DealService", () => {
       expect(dealAddonsMock.postProcessDeal).toHaveBeenCalledWith(deal, []);
     });
 
+    it("merges extraDataSetMetadata into deal.metadata", async () => {
+      const uploadPayload = {
+        carData: Uint8Array.from([1, 2, 3]),
+        rootCid: CID.parse(mockRootCid),
+      };
+      createContextMock.mockResolvedValue({
+        dataSetId: "dataset-456",
+      });
+      (executeUpload as Mock).mockImplementation(async (_service, _data, _rootCid, options) => {
+        await triggerUploadProgress(options?.onProgress);
+        return {
+          pieceCid: "bafk-uploaded",
+          pieceId: 456,
+          transactionHash: "0xhash2",
+          ipniValidated: true,
+        };
+      });
+      retrievalAddonsMock.testAllRetrievalMethods.mockResolvedValue({
+        dealId: "deal-1",
+        results: [],
+        summary: { totalMethods: 1, successfulMethods: 1, failedMethods: 0 },
+        testedAt: new Date(),
+      });
+
+      const deal = await service.createDeal(
+        mockSynapseInstance,
+        mockProviderInfo,
+        mockDealInput,
+        uploadPayload,
+        undefined,
+        undefined,
+        { dealbotDS: "1" },
+      );
+
+      expect(deal.metadata).toEqual(expect.objectContaining({ dealbotDS: "1" }));
+      expect(dealRepoMock.save).toHaveBeenCalledWith(
+        expect.objectContaining({ metadata: expect.objectContaining({ dealbotDS: "1" }) }),
+      );
+    });
+
     it("emits data-storage metrics for successful deals", async () => {
       vi.useFakeTimers();
       vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
