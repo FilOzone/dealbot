@@ -121,6 +121,23 @@ Source: [`data-retention.service.ts` (`cleanupStaleProviders`)](../../apps/backe
 
 Providers are processed in batches of 50 to avoid overwhelming the subgraph API and to enable parallel processing within reasonable limits.
 
+**Why batching instead of per-provider scheduling?**
+
+The data retention check processes all providers in a single scheduled poll rather than creating individual job schedules per provider. This design choice is driven by several technical considerations:
+
+1. **Subgraph rate limiting**: Goldsky enforces strict rate limits (50 requests per 10-second window). Batching significantly reduces API load:
+   - **Current batched approach** (100 providers): 2 batch requests + 1 metadata request = 3 total requests
+   - **Per-provider approach** (100 providers): 100 × (1 metadata + 1 provider request) = 200 total requests
+
+   The batched approach stays well within rate limits and reduces infrastructure load.
+
+2. **Block consistency**: Batching ensures all providers are evaluated against the same `currentBlock` (indexed block height). Per-provider polling would read different block heights, leading to inconsistencies in:
+   - Cumulative total calculations
+   - Proving and faulted period computations
+   - Delta calculations across providers
+
+   This consistency is critical for accurate metrics and fair provider comparisons.
+
 Source: [`data-retention.service.ts` (MAX_PROVIDER_BATCH_LENGTH)](../../apps/backend/src/data-retention/data-retention.service.ts#L19)
 
 ### Subgraph Rate Limiting
