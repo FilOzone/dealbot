@@ -175,15 +175,22 @@ export class DataRetentionService {
         const provider = providerLookup.get(address);
 
         if (provider && provider.providerId != null) {
-          const labels = buildCheckMetricLabels({
+          const approvedLabels = buildCheckMetricLabels({
             checkType: "dataRetention",
             providerId: provider.providerId,
-            providerIsApproved: provider.isApproved,
+            providerIsApproved: true,
+          });
+          const unapprovedLabels = buildCheckMetricLabels({
+            checkType: "dataRetention",
+            providerId: provider.providerId,
+            providerIsApproved: false,
           });
 
           // Attempt to remove Prometheus metrics FIRST
-          this.dataSetChallengeStatusCounter.remove({ ...labels, value: "success" });
-          this.dataSetChallengeStatusCounter.remove({ ...labels, value: "failure" });
+          this.dataSetChallengeStatusCounter.remove({ ...approvedLabels, value: "success" });
+          this.dataSetChallengeStatusCounter.remove({ ...approvedLabels, value: "failure" });
+          this.dataSetChallengeStatusCounter.remove({ ...unapprovedLabels, value: "success" });
+          this.dataSetChallengeStatusCounter.remove({ ...unapprovedLabels, value: "failure" });
 
           // Only delete local memory if Prometheus removal succeeded without throwing
           this.providerCumulativeTotals.delete(address);
