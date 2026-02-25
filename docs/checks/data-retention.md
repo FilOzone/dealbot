@@ -38,19 +38,21 @@ From `GET_SUBGRAPH_META` query:
 From `GET_PROVIDERS_WITH_DATASETS` query for each provider:
 
 - `address` - Provider address
-- `totalFaultedPeriods` - Cumulative count of faulted proving periods across all proof sets
-- `totalProvingPeriods` - Cumulative count of all proving periods (successful + faulted) across all proof sets
+- `totalFaultedPeriods` - Cumulative count of faulted proving periods across all data sets
+- `totalProvingPeriods` - Cumulative count of all proving periods (successful + faulted) across all data sets
 - For each `proofSets` where `nextDeadline < currentBlock`:
   - `nextDeadline` - The most recent proving deadline (used as `lastDeadline` in formulas)
   - `maxProvingPeriod` - Maximum number of epochs between two consecutive proofs (used in overdue period calculation)
-  - `totalFaultedPeriods` - Faulted periods for this specific proof set
-  - `currentDeadlineCount` - Number of deadlines that have passed for this proof set
+  - `totalFaultedPeriods` - Faulted periods for this specific data set
+  - `currentDeadlineCount` - Number of deadlines that have passed for this data set
+
+> **Note**: The subgraph query uses the field name `proofSets`, but this refers to "dataSets" in the current codebase. The terminology was updated from "proof set" to "data set" but the subgraph schema retains the old naming.
 
 Source: [`pdp-subgraph.service.ts` (`fetchSubgraphMeta`, `fetchProvidersWithDatasets`)](../../apps/backend/src/pdp-subgraph/pdp-subgraph.service.ts)
 
 ### 2. Estimate Overdue Periods
 
-For each provider's proof sets, dealbot estimates how many proving periods have elapsed since the last deadline:
+For each provider's data sets, dealbot estimates how many proving periods have elapsed since the last deadline:
 
 ```
 estimatedOverduePeriods = (currentBlock - (lastDeadline + 1)) / maxProvingPeriod
