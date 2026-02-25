@@ -4,6 +4,7 @@ import { Repository } from "typeorm";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { IConfig } from "../config/app.config.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
+import { buildCheckMetricLabels } from "../metrics/utils/check-metric-labels.js";
 import type { PDPSubgraphService } from "../pdp-subgraph/pdp-subgraph.service.js";
 import type { ProviderDataSetResponse } from "../pdp-subgraph/types.js";
 import type { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
@@ -149,7 +150,7 @@ describe("DataRetentionService", () => {
       checkType: "dataRetention",
       providerId: "1",
       providerStatus: "approved",
-      value: "fault",
+      value: "failure",
     });
     expect(counterMock.labels).toHaveBeenCalledWith({
       checkType: "dataRetention",
@@ -210,10 +211,10 @@ describe("DataRetentionService", () => {
 
     const labelCalls = counterMock.labels.mock.calls;
     const providerAFaulted = labelCalls.some(
-      (call: [Record<string, string>]) => call[0].providerId === "1" && call[0].value === "fault",
+      (call: [Record<string, string>]) => call[0].providerId === "1" && call[0].value === "failure",
     );
     const providerBFaulted = labelCalls.some(
-      (call: [Record<string, string>]) => call[0].providerId === "2" && call[0].value === "fault",
+      (call: [Record<string, string>]) => call[0].providerId === "2" && call[0].value === "failure",
     );
     expect(providerAFaulted).toBe(true);
     expect(providerBFaulted).toBe(true);
@@ -243,7 +244,7 @@ describe("DataRetentionService", () => {
       checkType: "dataRetention",
       providerId: "1",
       providerStatus: "approved",
-      value: "fault",
+      value: "failure",
     });
     expect(counterMock.labels).toHaveBeenCalledWith({
       checkType: "dataRetention",
@@ -275,7 +276,7 @@ describe("DataRetentionService", () => {
       checkType: "dataRetention",
       providerId: "1",
       providerStatus: "approved",
-      value: "fault",
+      value: "failure",
     });
     expect(counterMock.labels).toHaveBeenCalledWith({
       checkType: "dataRetention",
@@ -402,7 +403,7 @@ describe("DataRetentionService", () => {
       checkType: "dataRetention",
       providerId: "1",
       providerStatus: "approved",
-      value: "fault",
+      value: "failure",
     });
     expect(counterMock.labels).toHaveBeenCalledWith({
       checkType: "dataRetention",
@@ -511,19 +512,21 @@ describe("DataRetentionService", () => {
         select: ["address", "providerId", "isApproved"],
       });
 
-      // Should remove both counter label combinations
-      expect(counterMock.remove).toHaveBeenCalledWith({
+      // Should remove all counter label combinations
+      const approvedLabels = buildCheckMetricLabels({
         checkType: "dataRetention",
-        providerId: "1",
-        providerStatus: "approved",
-        value: "success",
+        providerId: 1,
+        providerIsApproved: true,
       });
-      expect(counterMock.remove).toHaveBeenCalledWith({
+      const unapprovedLabels = buildCheckMetricLabels({
         checkType: "dataRetention",
-        providerId: "1",
-        providerStatus: "approved",
-        value: "fault",
+        providerId: 1,
+        providerIsApproved: false,
       });
+      expect(counterMock.remove).toHaveBeenCalledWith({ ...approvedLabels, value: "success" });
+      expect(counterMock.remove).toHaveBeenCalledWith({ ...approvedLabels, value: "failure" });
+      expect(counterMock.remove).toHaveBeenCalledWith({ ...unapprovedLabels, value: "success" });
+      expect(counterMock.remove).toHaveBeenCalledWith({ ...unapprovedLabels, value: "failure" });
     });
 
     it("skips cleanup entirely when database fetch fails", async () => {
@@ -739,8 +742,8 @@ describe("DataRetentionService", () => {
         select: ["address", "providerId", "isApproved"],
       });
 
-      // Should remove counters for both providers (4 total: 2 providers × 2 values)
-      expect(counterMock.remove).toHaveBeenCalledTimes(4);
+      // Should remove counters for both providers (8 total: 2 providers × 4 values)
+      expect(counterMock.remove).toHaveBeenCalledTimes(8);
     });
 
     it("skips cleanup when processing errors occurred", async () => {
