@@ -221,11 +221,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     void this.boss
       .work<SpJobData, void>(
         SP_WORK_QUEUE,
-        {
-          batchSize: 1,
-          localConcurrency: spConcurrency,
-          pollingIntervalSeconds: workerPollSeconds,
-        },
+        { batchSize: 1, localConcurrency: spConcurrency, pollingIntervalSeconds: workerPollSeconds },
         async ([job]) => {
           if (!job) {
             return;
@@ -412,9 +408,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
   private async handleMetricsCleanupJob(data: MetricsJobData): Promise<void> {
     void data;
     await this.recordJobExecution("metrics_cleanup", async () => {
-      await this.metricsSchedulerService.cleanupOldMetrics({
-        allowWhenPgBoss: true,
-      });
+      await this.metricsSchedulerService.cleanupOldMetrics({ allowWhenPgBoss: true });
       return "success";
     });
   }
@@ -714,11 +708,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
 
   private mapJobPayload(row: ScheduleRow): SpJobData | MetricsJobData | ProvidersRefreshJobData {
     if (row.job_type === "deal" || row.job_type === "retrieval") {
-      return {
-        jobType: row.job_type,
-        spAddress: row.sp_address,
-        intervalSeconds: row.interval_seconds,
-      };
+      return { jobType: row.job_type, spAddress: row.sp_address, intervalSeconds: row.interval_seconds };
     }
     return { intervalSeconds: row.interval_seconds };
   }
@@ -743,17 +733,11 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         }
       }
       await this.boss.send(name, data, finalOptions);
-      this.jobsEnqueueAttemptsCounter.inc({
-        job_type: jobType,
-        outcome: "success",
-      });
+      this.jobsEnqueueAttemptsCounter.inc({ job_type: jobType, outcome: "success" });
       return true;
     } catch (error) {
       this.logger.warn(`Failed to enqueue ${name}: ${error.message}`);
-      this.jobsEnqueueAttemptsCounter.inc({
-        job_type: jobType,
-        outcome: "error",
-      });
+      this.jobsEnqueueAttemptsCounter.inc({ job_type: jobType, outcome: "error" });
       return false;
     }
   }
@@ -768,17 +752,11 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       const status = await run();
       const finishedAt = Date.now();
       this.jobDuration.observe({ job_type: jobType }, (finishedAt - startedAt) / 1000);
-      this.jobsCompletedCounter.inc({
-        job_type: jobType,
-        handler_result: status,
-      });
+      this.jobsCompletedCounter.inc({ job_type: jobType, handler_result: status });
     } catch (error) {
       const finishedAt = Date.now();
       this.jobDuration.observe({ job_type: jobType }, (finishedAt - startedAt) / 1000);
-      this.jobsCompletedCounter.inc({
-        job_type: jobType,
-        handler_result: "error",
-      });
+      this.jobsCompletedCounter.inc({ job_type: jobType, handler_result: "error" });
       throw error;
     }
   }

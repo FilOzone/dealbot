@@ -15,6 +15,7 @@ This document provides a comprehensive guide to all environment variables used b
 | [Dataset](#dataset-configuration)         | `DEALBOT_LOCAL_DATASETS_PATH`, `RANDOM_DATASET_SIZES`                                                                                                        |
 | [Timeouts](#timeout-configuration)        | `CONNECT_TIMEOUT_MS`, `HTTP_REQUEST_TIMEOUT_MS`, `HTTP2_REQUEST_TIMEOUT_MS`                                                                                  |
 | [Web Frontend](#web-frontend)             | `VITE_API_BASE_URL`, `VITE_PLAUSIBLE_DATA_DOMAIN`, `DEALBOT_API_BASE_URL`                                                                                    |
+
 ---
 
 ## Application Configuration
@@ -468,6 +469,8 @@ DEAL_INTERVAL_SECONDS=3600
 
 ---
 
+
+
 ### `RETRIEVAL_INTERVAL_SECONDS`
 
 - **Type**: `number`
@@ -797,7 +800,6 @@ Use this to stagger multiple dealbot deployments that are not sharing a database
 **Note**: This is independent of HTTP-level timeouts. The job timeout enforces end-to-end execution time of a Retrieval Check job.
 
 ---
-
 ### `IPFS_BLOCK_FETCH_CONCURRENCY`
 
 - **Type**: `number`
@@ -816,7 +818,6 @@ Use this to stagger multiple dealbot deployments that are not sharing a database
 **Note**: This affects the number of concurrent `/ipfs/<cid>` requests per retrieval.
 
 ---
-
 ## Dataset Configuration
 
 ### `DEALBOT_LOCAL_DATASETS_PATH`
@@ -989,6 +990,7 @@ docker run \
 - Leave empty to use relative `/api` paths
 
 ---
+
 
 ## Environment Files Reference
 
