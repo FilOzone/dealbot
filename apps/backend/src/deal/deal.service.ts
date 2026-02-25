@@ -202,7 +202,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     deal.spAddress = providerAddress;
     deal.status = DealStatus.PENDING;
     deal.walletAddress = this.blockchainConfig.walletAddress;
-    deal.metadata = dealInput.metadata;
+    deal.metadata = { ...(dealInput.metadata ?? {}), ...extraDataSetMetadata };
     deal.serviceTypes = dealInput.appliedAddons;
 
     try {
