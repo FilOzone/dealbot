@@ -1,6 +1,8 @@
 import type { MigrationInterface, QueryRunner } from "typeorm";
 import { generateSpPerformanceQuery } from "../helpers/sp-performance-query.helper.js";
 
+const STATUS_BACKUP_TABLE = "migration_1761500000000_ipni_status_backup";
+
 export class RemoveSpReceivedRetrieveRequest1761500000000 implements MigrationInterface {
   name = "RemoveSpReceivedRetrieveRequest1761500000000";
 
@@ -9,13 +11,28 @@ export class RemoveSpReceivedRetrieveRequest1761500000000 implements MigrationIn
     await queryRunner.query(`DROP MATERIALIZED VIEW IF EXISTS sp_performance_all_time CASCADE`);
     await queryRunner.query(`DROP MATERIALIZED VIEW IF EXISTS sp_performance_last_week CASCADE`);
 
-    // 2. Update any deals with ipni_status = 'sp_received_retrieve_request' to 'sp_advertised'
+    // 2. Back up rows that currently use the deprecated status so down() can restore them
+    await queryRunner.query(`
+      CREATE TABLE IF NOT EXISTS ${STATUS_BACKUP_TABLE} (
+        deal_id UUID PRIMARY KEY
+      )
+    `);
+    await queryRunner.query(`TRUNCATE TABLE ${STATUS_BACKUP_TABLE}`);
+    await queryRunner.query(`
+      INSERT INTO ${STATUS_BACKUP_TABLE} (deal_id)
+      SELECT id
+      FROM deals
+      WHERE ipni_status = 'sp_received_retrieve_request'
+      ON CONFLICT (deal_id) DO NOTHING
+    `);
+
+    // 3. Update any deals with ipni_status = 'sp_received_retrieve_request' to 'sp_advertised'
     await queryRunner.query(`
       UPDATE deals SET ipni_status = 'sp_advertised'
       WHERE ipni_status = 'sp_received_retrieve_request'
     `);
 
-    // 3. Remove 'sp_received_retrieve_request' from deals_ipni_status_enum
+    // 4. Remove 'sp_received_retrieve_request' from deals_ipni_status_enum
     await queryRunner.query(`
       CREATE TYPE deals_ipni_status_enum_new AS ENUM ('pending', 'sp_indexed', 'sp_advertised', 'verified', 'failed')
     `);
@@ -27,10 +44,10 @@ export class RemoveSpReceivedRetrieveRequest1761500000000 implements MigrationIn
     await queryRunner.query(`DROP TYPE deals_ipni_status_enum`);
     await queryRunner.query(`ALTER TYPE deals_ipni_status_enum_new RENAME TO deals_ipni_status_enum`);
 
-    // 4. Drop ipni_retrieved_deals column from metrics_daily
+    // 5. Drop ipni_retrieved_deals column from metrics_daily
     await queryRunner.query(`ALTER TABLE metrics_daily DROP COLUMN IF EXISTS ipni_retrieved_deals`);
 
-    // 5. Recreate materialized views
+    // 6. Recreate materialized views
     await queryRunner.query(`
       CREATE MATERIALIZED VIEW sp_performance_all_time AS
       ${generateSpPerformanceQuery()}
@@ -69,8 +86,21 @@ export class RemoveSpReceivedRetrieveRequest1761500000000 implements MigrationIn
     await queryRunner.query(`DROP TYPE deals_ipni_status_enum`);
     await queryRunner.query(`ALTER TYPE deals_ipni_status_enum_new RENAME TO deals_ipni_status_enum`);
 
-    // 4. Recreate materialized views (will use current helper which no longer has the old columns,
-    //    but down() is best-effort; views will be recreated on next migration up)
+    // 4. Restore rows that were rewritten during up()
+    await queryRunner.query(`
+      DO $$
+      BEGIN
+        IF to_regclass('public.${STATUS_BACKUP_TABLE}') IS NOT NULL THEN
+          UPDATE deals d
+          SET ipni_status = 'sp_received_retrieve_request'
+          FROM ${STATUS_BACKUP_TABLE} b
+          WHERE d.id = b.deal_id;
+        END IF;
+      END $$;
+    `);
+    await queryRunner.query(`DROP TABLE IF EXISTS ${STATUS_BACKUP_TABLE}`);
+
+    // 5. Recreate materialized views
     await queryRunner.query(`
       CREATE MATERIALIZED VIEW sp_performance_all_time AS
       ${generateSpPerformanceQuery()}

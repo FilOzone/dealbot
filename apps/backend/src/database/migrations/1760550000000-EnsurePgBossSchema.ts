@@ -23,6 +23,20 @@ export class EnsurePgBossSchema1760550000000 implements MigrationInterface {
         return;
       }
 
+      // Handle placeholder schema created by earlier migrations that doesn't contain pg-boss tables yet.
+      if (schemaExists && !legacyExists && !newSchemaExists) {
+        const queueExists = await this.relationExists(queryRunner, `${schema}.queue`);
+        const jobExists = await this.relationExists(queryRunner, `${schema}.job`);
+        const scheduleExists = await this.relationExists(queryRunner, `${schema}.schedule`);
+        if (!queueExists && !jobExists && !scheduleExists) {
+          await queryRunner.query(`DROP SCHEMA ${schema} CASCADE`);
+          await this.installSchema(queryRunner, schema);
+          await this.ensureCompatColumns(queryRunner, schema);
+          await this.ensureQueues(queryRunner, schema);
+          return;
+        }
+      }
+
       if (schemaExists) {
         const queueExists = await this.relationExists(queryRunner, `${schema}.queue`);
         if (queueExists) {

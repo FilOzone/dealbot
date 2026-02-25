@@ -45,7 +45,11 @@ export class RemoveIpniRetrievedColumns1761500000001 implements MigrationInterfa
 
     // 2. Add back ipni_retrieved_at column and index
     await queryRunner.query(`ALTER TABLE deals ADD COLUMN ipni_retrieved_at TIMESTAMP`);
-    await queryRunner.query(`CREATE INDEX "IDX_deals_ipni_retrieved_at" ON deals (ipni_retrieved_at)`);
+    await queryRunner.query(`
+      CREATE INDEX "IDX_deals_ipni_retrieved_at"
+      ON deals (ipni_retrieved_at)
+      WHERE ipni_retrieved_at IS NOT NULL
+    `);
 
     // 3. Add back ipni_time_to_retrieve_ms column
     await queryRunner.query(`ALTER TABLE deals ADD COLUMN ipni_time_to_retrieve_ms INTEGER`);
