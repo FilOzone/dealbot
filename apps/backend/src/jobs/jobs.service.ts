@@ -70,7 +70,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     private readonly jobsPausedGauge: Gauge,
     @InjectMetric("job_duration_seconds")
     private readonly jobDuration: Histogram,
-  ) { }
+  ) {}
 
   /**
    * Initializes the scheduler.
@@ -616,7 +616,8 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     const dealsPerHour = dealsPerHourRaw > 0 ? dealsPerHourRaw : defaultDealsPerHour;
     const retrievalsPerHour = retrievalsPerHourRaw > 0 ? retrievalsPerHourRaw : defaultRetrievalsPerHour;
     const metricsPerHour = metricsPerHourRaw > 0 ? metricsPerHourRaw : defaultMetricsPerHour;
-    const datasetCreationsPerHour = datasetCreationsPerHourRaw > 0 ? datasetCreationsPerHourRaw : defaultDatasetCreationsPerHour;
+    const datasetCreationsPerHour =
+      datasetCreationsPerHourRaw > 0 ? datasetCreationsPerHourRaw : defaultDatasetCreationsPerHour;
 
     const dealIntervalSeconds = Math.max(1, Math.round(3600 / dealsPerHour));
     const retrievalIntervalSeconds = Math.max(1, Math.round(3600 / retrievalsPerHour));
@@ -672,7 +673,12 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       await this.jobScheduleRepository.upsertSchedule("deal", address, dealIntervalSeconds, dealStartAt);
       await this.jobScheduleRepository.upsertSchedule("retrieval", address, retrievalIntervalSeconds, retrievalStartAt);
       if (minDatasets > 1) {
-        await this.jobScheduleRepository.upsertSchedule("data_set_creation", address, datasetCreationIntervalSeconds, datasetCreationStartAt);
+        await this.jobScheduleRepository.upsertSchedule(
+          "data_set_creation",
+          address,
+          datasetCreationIntervalSeconds,
+          datasetCreationStartAt,
+        );
       }
     }
 
@@ -849,7 +855,14 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
    * Refreshes queue depth and age gauges from pg-boss tables.
    */
   private async updateQueueMetrics(): Promise<void> {
-    const jobTypes: JobType[] = ["deal", "retrieval", "data_set_creation", "metrics", "metrics_cleanup", "providers_refresh"];
+    const jobTypes: JobType[] = [
+      "deal",
+      "retrieval",
+      "data_set_creation",
+      "metrics",
+      "metrics_cleanup",
+      "providers_refresh",
+    ];
     for (const jobType of jobTypes) {
       this.jobsQueuedGauge.set({ job_type: jobType }, 0);
       this.jobsRetryScheduledGauge.set({ job_type: jobType }, 0);

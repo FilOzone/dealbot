@@ -373,7 +373,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
         // retrievals were successful.. lets log some stats
         this.logger.log(
           `Retrieval test completed in ${retrievalTest.testedAt.getTime() - retrievalStartTime}ms: ` +
-          `${retrievalTest.summary.successfulMethods}/${retrievalTest.summary.totalMethods} successful`,
+            `${retrievalTest.summary.successfulMethods}/${retrievalTest.summary.totalMethods} successful`,
         );
       }
 
