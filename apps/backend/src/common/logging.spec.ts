@@ -25,6 +25,19 @@ describe("toStructuredError", () => {
     });
   });
 
+  it("normalizes non-string error codes to strings", () => {
+    const error = Object.assign(new Error("boom"), { code: 404 });
+
+    const result = toStructuredError(error);
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        type: "error",
+        code: "404",
+      }),
+    );
+  });
+
   it("serializes non-Error payloads and preserves bigint values as strings", () => {
     const payload = { a: 1n, nested: { ok: true } };
 

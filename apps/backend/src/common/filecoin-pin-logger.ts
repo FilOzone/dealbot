@@ -1,43 +1,10 @@
 import { Logger } from "@nestjs/common";
 import { executeUpload } from "filecoin-pin";
-import { toStructuredError } from "./logging.js";
+import { toJsonSafe, toStructuredError } from "./logging.js";
 
 export type FilecoinPinLogger = Parameters<typeof executeUpload>[3]["logger"];
 
-export function appendPayload(message: string, payload: unknown): string {
-  if (payload === undefined || payload === null) {
-    return message;
-  }
-
-  let serialized: string;
-  if (payload instanceof Error) {
-    serialized = payload.stack ?? payload.message;
-  } else {
-    try {
-      serialized = JSON.stringify(payload, (_key, value) => (typeof value === "bigint" ? value.toString() : value));
-    } catch {
-      serialized = String(payload);
-    }
-  }
-
-  if (!message) {
-    return serialized;
-  }
-
-  return `${message} ${serialized}`;
-}
-
 export function createFilecoinPinLogger(logger: Logger): FilecoinPinLogger {
-  const toJsonSafe = (value: unknown): unknown => {
-    try {
-      return JSON.parse(
-        JSON.stringify(value, (_key, current) => (typeof current === "bigint" ? String(current) : current)),
-      );
-    } catch {
-      return String(value);
-    }
-  };
-
   const formatEntry = (payload: unknown, message?: string) => {
     const fallbackMessage = typeof payload === "string" && payload.length > 0 ? payload : "filecoin-pin event";
     const entry: Record<string, unknown> = {

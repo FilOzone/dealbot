@@ -9,7 +9,7 @@ export type StructuredError = {
   details?: unknown;
 };
 
-function toJsonSafe(value: unknown): unknown {
+export function toJsonSafe(value: unknown): unknown {
   try {
     return JSON.parse(
       JSON.stringify(value, (_key, current) => (typeof current === "bigint" ? current.toString() : current)),
@@ -25,11 +25,14 @@ function toJsonSafe(value: unknown): unknown {
 export function toStructuredError(error: unknown): StructuredError {
   if (error instanceof Error) {
     const typedError = error as ErrorWithCode;
+    const rawCode = typedError.code;
+    const stringCode = rawCode === null || rawCode === undefined ? undefined : String(rawCode);
+
     return {
       type: "error",
       name: error.name,
       message: error.message,
-      code: typeof typedError.code === "string" && typedError.code.length > 0 ? typedError.code : undefined,
+      code: stringCode && stringCode.length > 0 ? stringCode : undefined,
       stack: error.stack,
     };
   }

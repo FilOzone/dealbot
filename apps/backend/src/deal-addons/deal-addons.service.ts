@@ -108,7 +108,8 @@ export class DealAddonsService {
         message: "Deal preprocessing failed",
         error: toStructuredError(error),
       });
-      throw new Error(`Deal preprocessing failed: ${error.message}`);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      throw new Error(`Deal preprocessing failed: ${errorMessage}`);
     }
   }
 
@@ -269,7 +270,8 @@ export class DealAddonsService {
           addon: addon.name,
           error: toStructuredError(error),
         });
-        throw new Error(`Add-on ${addon.name} preprocessing failed: ${error.message}`);
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        throw new Error(`Add-on ${addon.name} preprocessing failed: ${errorMessage}`);
       }
     }
 
