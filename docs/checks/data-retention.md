@@ -8,7 +8,7 @@ For event and metric definitions used by the dashboard, see [Dealbot Events & Me
 
 ## Overview
 
-The Data Retention check monitors storage providers' ability to retain data over time by tracking their PDP challenge performance. Unlike the [Data Storage check](./data-storage.md) which tests the upload and initial verification of new data, the Data Retention check evaluates how well providers maintain previously stored data.
+The Data Retention check monitors storage providers' ability to retain data over time by tracking their PDP challenge performance. Unlike the [Data Storage check](./data-storage.md) which tests the upload and initial verification of new data, the Data Retention check evaluates how well providers maintain previously stored data.  (See also [Why is this called "data retention" vs. "data availability"?](#why-is-this-called-data-retention-vs-data-availability))
 
 Every data retention check cycle, dealbot:
 
@@ -257,3 +257,34 @@ Providers may temporarily drop from the active list due to configuration changes
 - **Data Retention check**: Monitors ongoing data retention through PDP challenge performance for previously stored data
 
 Both checks work together to provide comprehensive storage provider quality metrics.
+
+### Why is this called "data retention" vs. "data availability"?
+
+This check relies on the [Proof of Data Possession (PDP) protocol](https://github.com/FilOzone/pdp), which monitors data retention over time.  We use "data retention" to be precise about the nature of the check.
+
+> Data retention = “How long do we keep it?”
+
+Retention is about **preservation over time**:
+
+- What data must be kept, and for how long (days, months, years)
+- Whether it must be recoverable after deletion, corruption, or disasters
+- Policies like TTLs, backups, archives, legal/compliance holds
+- Typical metrics/controls: retention period, backup frequency, restore points (RPO), restore time (RTO), deletion guarantees
+
+Example: “Keep audit logs for 7 years” is a retention requirement even if nobody reads them most days.
+
+> Data availability = “Can I access it when I need it?”
+
+Availability is about **accessibility and uptime**:
+
+- Is the data reachable now, with acceptable latency and error rate?
+- What’s the acceptable downtime (SLA/SLO)?
+- What happens during outages, partitions, or maintenance?
+- Typical metrics/controls: uptime %, read/write success rate, latency, failover behavior
+
+Example: “Users must be able to fetch their profile data 99.9% of the time” is an availability requirement even if you only retain profiles while the account exists.
+
+> Why the distinction matters
+
+- You can have **high retention, low availability**: data is safely stored in cold archive, but slow or hard to retrieve.
+- You can have **high availability, low retention**: data is accessible right now, but only for a short window (e.g., ephemeral caches, short TTL event streams).
