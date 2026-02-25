@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import type { Repository } from "typeorm";
+import { toStructuredError } from "../../common/logging.js";
 import { Deal } from "../../database/entities/deal.entity.js";
 import { MetricsDaily } from "../../database/entities/metrics-daily.entity.js";
 import { Retrieval } from "../../database/entities/retrieval.entity.js";
@@ -422,7 +423,13 @@ export class ProvidersService {
         return { spAddress, version };
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
-        this.logger.warn(`Failed to fetch version for ${spAddress}: ${errorMessage}`);
+        this.logger.warn({
+          event: "fetch_provider_curio_version_failed",
+          message: `Failed to fetch version for ${spAddress}`,
+          spAddress,
+          errorMessage,
+          error: toStructuredError(error),
+        });
         return { spAddress, version: null };
       }
     });
@@ -473,7 +480,13 @@ export class ProvidersService {
       return version;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      this.logger.error(`Failed to fetch version for ${spAddress}: ${errorMessage}`);
+      this.logger.error({
+        event: "fetch_provider_curio_version_failed",
+        message: `Failed to fetch version for ${spAddress}`,
+        spAddress,
+        errorMessage,
+        error: toStructuredError(error),
+      });
       throw new NotFoundException(`Unable to fetch version from provider ${spAddress}: ${errorMessage}`);
     }
   }

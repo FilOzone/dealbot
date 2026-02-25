@@ -1,6 +1,7 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { delay } from "../common/abort-utils.js";
 import { RetrievalError, type RetrievalErrorResponseInfo } from "../common/errors.js";
+import { toStructuredError } from "../common/logging.js";
 import { ServiceType } from "../database/types.js";
 import { HttpClientService } from "../http-client/http-client.service.js";
 import type { RequestWithMetrics } from "../http-client/types.js";
@@ -129,7 +130,13 @@ export class RetrievalAddonsService {
       try {
         return strategy.constructUrl(config);
       } catch (error) {
-        this.logger.error(`Failed to construct URL with strategy ${strategy.name}: ${error.message}`);
+        this.logger.error({
+          event: "construct_retrieval_url_failed",
+          message: `Failed to construct URL with strategy ${strategy.name}`,
+          strategy: strategy.name,
+          dealId: config.deal.id,
+          error: toStructuredError(error),
+        });
         throw error;
       }
     });
@@ -294,7 +301,16 @@ export class RetrievalAddonsService {
       } catch (error) {
         signal?.throwIfAborted();
         const errorMessage = error instanceof Error ? error.message : String(error);
-        this.logger.warn(`${strategy.name} attempt ${attempt}/${attempts} failed: ${errorMessage}`);
+        this.logger.warn({
+          event: "retrieval_attempt_failed",
+          message: `${strategy.name} attempt ${attempt}/${attempts} failed`,
+          strategy: strategy.name,
+          attempt,
+          attempts,
+          dealId: config.deal.id,
+          errorMessage,
+          error: toStructuredError(error),
+        });
 
         // If all attempts fail, throw the error
         if (attempt === attempts) {
@@ -420,15 +436,19 @@ export class RetrievalAddonsService {
             );
           }
         } catch (error) {
-          this.logger.warn(
-            `Validation error for ${urlResult.method} retrieval of deal ${config.deal.id}: ` +
-              `URL: ${urlResult.url}, ` +
-              `Error: ${error.message}`,
-          );
+          this.logger.warn({
+            event: "retrieval_validation_error",
+            message: `Validation error for ${urlResult.method} retrieval of deal ${config.deal.id}`,
+            method: urlResult.method,
+            dealId: config.deal.id,
+            url: urlResult.url,
+            error: toStructuredError(error),
+          });
+          const errorMessage = error instanceof Error ? error.message : String(error);
           validation = {
             isValid: false,
             method: "validation-error",
-            details: error.message,
+            details: errorMessage,
           };
         }
       }
@@ -455,12 +475,16 @@ export class RetrievalAddonsService {
         this.logger.warn(`Retrieval aborted for ${urlResult.method}. Failure details below`);
       }
       const errorMessage = error instanceof Error ? error.message : String(error);
-      const errorStack = error instanceof Error ? error.stack : undefined;
       const responseInfo = this.extractResponseInfo(error);
       const errorCode = this.extractErrorCode(error);
       const context = this.formatRetrievalContext(config, urlResult, { ...responseInfo, errorCode });
 
-      this.logger.error(`Retrieval failed for ${urlResult.method}: ${errorMessage} (${context})`, errorStack);
+      this.logger.error({
+        event: "retrieval_failed",
+        message: `Retrieval failed for ${urlResult.method}`,
+        context,
+        error: toStructuredError(error),
+      });
 
       return {
         url: urlResult.url,

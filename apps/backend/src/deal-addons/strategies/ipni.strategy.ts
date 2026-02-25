@@ -7,6 +7,7 @@ import { StorageProvider } from "src/database/entities/storage-provider.entity.j
 import type { Repository } from "typeorm";
 import { delay } from "../../common/abort-utils.js";
 import { buildUnixfsCar } from "../../common/car-utils.js";
+import { toStructuredError } from "../../common/logging.js";
 import { Deal } from "../../database/entities/deal.entity.js";
 import type { DealMetadata, IpniMetadata } from "../../database/types.js";
 import { IpniStatus, ServiceType } from "../../database/types.js";
@@ -107,8 +108,13 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
         originalData: context.currentData.data,
       };
     } catch (error) {
-      this.logger.error(`CAR conversion failed: ${error.message}`);
-      throw new Error(`IPNI preprocessing failed: ${error.message}`);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.error({
+        event: "ipni_car_conversion_failed",
+        message: "CAR conversion failed",
+        error: toStructuredError(error),
+      });
+      throw new Error(`IPNI preprocessing failed: ${errorMessage}`);
     }
   }
 
@@ -235,9 +241,21 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
 
       try {
         await this.dealRepository.save(deal);
-        this.logger.warn(`IPNI failed: ${deal.pieceCid} - ${error.message}`);
+        this.logger.warn({
+          event: "ipni_tracking_failed",
+          message: `IPNI failed for ${deal.pieceCid}`,
+          dealId: deal.id,
+          pieceCid: deal.pieceCid,
+          error: toStructuredError(error),
+        });
       } catch (saveError) {
-        this.logger.error(`Failed to save IPNI failure status: ${saveError.message}`);
+        this.logger.error({
+          event: "ipni_failure_status_save_failed",
+          message: "Failed to save IPNI failure status",
+          dealId: deal.id,
+          pieceCid: deal.pieceCid,
+          error: toStructuredError(saveError),
+        });
       }
 
       if (!finalDiscoverabilityStatus) {
@@ -269,7 +287,14 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
     } catch (error) {
       signal?.throwIfAborted();
       const errorMessage = error instanceof Error ? error.message : String(error);
-      this.logger.warn(`Piece status monitoring incomplete: ${errorMessage}`);
+      this.logger.warn({
+        event: "ipni_piece_status_monitoring_incomplete",
+        message: "Piece status monitoring incomplete",
+        dealId: deal.id,
+        pieceCid,
+        errorMessage,
+        error: toStructuredError(error),
+      });
       monitoringResult = {
         success: false,
         finalStatus: {
@@ -322,7 +347,12 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       signal,
     }).catch((error) => {
       signal?.throwIfAborted();
-      this.logger.warn(`IPNI verification failed: ${error.message}`);
+      this.logger.warn({
+        event: "ipni_rootcid_verification_failed",
+        message: "IPNI verification failed while waiting for provider results",
+        rootCid: rootCID,
+        error: toStructuredError(error),
+      });
       return false;
     });
 
@@ -418,7 +448,12 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       } catch (error) {
         signal?.throwIfAborted();
         if (checkCount % 20 === 0) {
-          this.logger.debug(`Status check error: ${error.message}`);
+          this.logger.debug({
+            event: "piece_status_check_error",
+            message: "Status check error",
+            pieceCid,
+            error: toStructuredError(error),
+          });
         }
       }
 
@@ -462,16 +497,33 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
         const errorText = this.formatHttpErrorData(errorResponse.data);
         if (errorResponse.status === 404) {
           const message = `Piece not found or does not belong to service: ${errorText}`;
-          this.logger.warn(`Failed to get piece status for ${pieceCid}: ${message}`);
+          this.logger.warn({
+            event: "piece_status_request_failed",
+            message: `Failed to get piece status for ${pieceCid}`,
+            pieceCid,
+            statusCode: errorResponse.status,
+            detail: message,
+          });
           throw new Error(message);
         }
         const statusText = errorResponse.statusText ?? "";
         const message = `Failed to get piece status: ${errorResponse.status} ${statusText} - ${errorText}`;
-        this.logger.warn(`Failed to get piece status for ${pieceCid}: ${message}`);
+        this.logger.warn({
+          event: "piece_status_request_failed",
+          message: `Failed to get piece status for ${pieceCid}`,
+          pieceCid,
+          statusCode: errorResponse.status,
+          detail: message,
+        });
         throw new Error(message);
       }
 
-      this.logger.warn(`Failed to get piece status for ${pieceCid}: ${error.message}`);
+      this.logger.warn({
+        event: "piece_status_request_failed",
+        message: `Failed to get piece status for ${pieceCid}`,
+        pieceCid,
+        error: toStructuredError(error),
+      });
       throw error;
     }
   }
@@ -621,7 +673,13 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
     try {
       await this.dealRepository.save(deal);
     } catch (error) {
-      this.logger.error(`Failed to save IPNI metrics: ${error.message}`);
+      this.logger.error({
+        event: "save_ipni_metrics_failed",
+        message: "Failed to save IPNI metrics",
+        dealId: deal.id,
+        pieceCid: deal.pieceCid,
+        error: toStructuredError(error),
+      });
       throw error;
     }
 

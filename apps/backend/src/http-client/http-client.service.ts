@@ -5,6 +5,7 @@ import { anySignal } from "any-signal";
 import type { AxiosRequestConfig } from "axios";
 import { firstValueFrom } from "rxjs";
 import { request as undiciRequest } from "undici";
+import { toStructuredError } from "../common/logging.js";
 import type { IConfig } from "../config/app.config.js";
 import type { HttpVersion, RequestMetrics, RequestWithMetrics } from "./types.js";
 
@@ -141,7 +142,12 @@ export class HttpClientService {
         metrics,
       };
     } catch (error) {
-      this.logger.warn(`HTTP/2 request failed: ${error.message}`);
+      this.logger.warn({
+        event: "http2_request_failed",
+        message: `HTTP/2 request failed for ${url}`,
+        url,
+        error: toStructuredError(error),
+      });
       throw error;
     }
   }
@@ -225,7 +231,12 @@ export class HttpClientService {
         metrics,
       };
     } catch (error) {
-      this.logger.warn(`Request failed: ${error.message}`);
+      this.logger.warn({
+        event: "http_request_failed",
+        message: `HTTP/1.1 request failed for ${url}`,
+        url,
+        error: toStructuredError(error),
+      });
       throw error;
     }
   }

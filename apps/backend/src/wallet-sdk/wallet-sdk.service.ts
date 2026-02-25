@@ -15,6 +15,7 @@ import { JsonRpcProvider, MaxUint256 } from "ethers";
 import type { Repository } from "typeorm";
 import type { Hex } from "viem";
 import { DEV_TAG } from "../common/constants.js";
+import { toStructuredError } from "../common/logging.js";
 import type { IBlockchainConfig, IConfig } from "../config/app.config.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
 import type {
@@ -169,7 +170,11 @@ export class WalletSdkService implements OnModuleInit {
       });
 
       this.syncProvidersToDatabase(extendedProviders).catch((err) =>
-        this.logger.error(`Failed to sync providers to DB: ${err.message}`),
+        this.logger.error({
+          event: "providers_sync_to_db_failed",
+          message: "Failed to sync providers to DB",
+          error: toStructuredError(err),
+        }),
       );
 
       this.logger.log(
@@ -177,7 +182,11 @@ export class WalletSdkService implements OnModuleInit {
       );
       return true;
     } catch (error) {
-      this.logger.error("Failed to load registered providers from on-chain", error);
+      this.logger.error({
+        event: "providers_load_failed",
+        message: "Failed to load registered providers from on-chain",
+        error: toStructuredError(error),
+      });
       // Fallback to empty array, let the application handle this gracefully
       this.providerCache.clear();
       this.activeProviderAddresses.clear();
@@ -328,7 +337,10 @@ export class WalletSdkService implements OnModuleInit {
       providerCount: requirements.providerCount,
     };
 
-    this.logger.log("Wallet status check completed", logData);
+    this.logger.log({
+      event: "wallet_status_check_completed",
+      ...logData,
+    });
   }
 
   /**
@@ -361,7 +373,10 @@ export class WalletSdkService implements OnModuleInit {
       depositAmount: depositAmount.toString(),
     };
 
-    this.logger.log("Depositing additional funds", depositLog);
+    this.logger.log({
+      event: "wallet_deposit_started",
+      ...depositLog,
+    });
 
     const depositTx = await this.paymentsService.deposit(depositAmount);
     await depositTx.wait();
@@ -371,7 +386,10 @@ export class WalletSdkService implements OnModuleInit {
       depositAmount: depositAmount.toString(),
     };
 
-    this.logger.log("Funds deposited successfully", successLog);
+    this.logger.log({
+      event: "wallet_deposit_succeeded",
+      ...successLog,
+    });
   }
 
   /**
@@ -387,7 +405,10 @@ export class WalletSdkService implements OnModuleInit {
       durationMonths: Number(requirements.approvalDuration / TIME_CONSTANTS.EPOCHS_PER_MONTH),
     };
 
-    this.logger.log("Approving storage service allowances", approvalLog);
+    this.logger.log({
+      event: "storage_service_approval_started",
+      ...approvalLog,
+    });
 
     const approveTx = await this.paymentsService.approveService(
       contractAddress,
@@ -403,7 +424,10 @@ export class WalletSdkService implements OnModuleInit {
       serviceAddress: contractAddress,
     };
 
-    this.logger.log("Storage service approved successfully", successLog);
+    this.logger.log({
+      event: "storage_service_approval_succeeded",
+      ...successLog,
+    });
   }
 
   getFWSSAddress(): string {
@@ -514,9 +538,12 @@ export class WalletSdkService implements OnModuleInit {
 
         if (conflictAddresses.size > 0) {
           // if there is no difference between active/inactive, we keep the highest providerId.
-          this.logger.error(
-            `Duplicate provider addresses without active/inactive resolution; keeping highest providerId entries: ${formatDetails(conflictAddresses).join("; ")}`,
-          );
+          this.logger.error({
+            event: "duplicate_provider_addresses_unresolved",
+            message:
+              "Duplicate provider addresses without active/inactive resolution; keeping highest providerId entries",
+            details: formatDetails(conflictAddresses),
+          });
         }
 
         if (resolvedOnly.size > 0) {
@@ -547,7 +574,11 @@ export class WalletSdkService implements OnModuleInit {
         skipUpdateIfNoValuesChanged: true,
       });
     } catch (error) {
-      this.logger.warn(`Failed to track providers : ${error.message}`);
+      this.logger.warn({
+        event: "track_providers_failed",
+        message: "Failed to track providers",
+        error: toStructuredError(error),
+      });
       throw error;
     }
   }

@@ -3,6 +3,7 @@ import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import * as fs from "fs";
 import * as path from "path";
+import { toStructuredError } from "../common/logging.js";
 import { writeWithBackpressure } from "../common/stream-utils.js";
 import type { DataFile } from "../common/types.js";
 import type { IConfig, IDatasetConfig } from "../config/app.config.js";
@@ -70,7 +71,11 @@ export class DataSourceService {
         size: fileData.length,
       };
     } catch (error) {
-      this.logger.error("Failed to generate random dataset", error);
+      this.logger.error({
+        event: "generate_random_dataset_failed",
+        message: "Failed to generate random dataset",
+        error: toStructuredError(error),
+      });
       throw error;
     }
   }
@@ -144,7 +149,12 @@ export class DataSourceService {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") {
         this.logger.debug(`Random dataset file not found for cleanup: ${fileName}`);
       } else {
-        this.logger.warn(`Failed to cleanup random dataset ${fileName}`, error);
+        this.logger.warn({
+          event: "cleanup_random_dataset_failed",
+          message: `Failed to cleanup random dataset ${fileName}`,
+          fileName,
+          error: toStructuredError(error),
+        });
       }
     }
   }

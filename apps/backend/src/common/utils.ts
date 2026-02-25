@@ -1,6 +1,7 @@
 import type { Logger } from "@nestjs/common";
 import type { SchedulerRegistry } from "@nestjs/schedule";
 import { CronJob } from "cron";
+import { toStructuredError } from "./logging.js";
 
 export function scheduleJobWithOffset(
   name: string,
@@ -19,7 +20,11 @@ export function scheduleJobWithOffset(
         await callback();
       } catch (error) {
         if (logger) {
-          logger.error(`Scheduled job ${name} failed`, error instanceof Error ? error.stack : String(error));
+          logger.error({
+            event: "scheduled_job_failed",
+            message: `Scheduled job ${name} failed`,
+            error: toStructuredError(error),
+          });
         }
       }
     });

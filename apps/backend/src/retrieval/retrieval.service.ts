@@ -1,6 +1,7 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import type { Repository } from "typeorm";
+import { toStructuredError } from "../common/logging.js";
 import type { Hex } from "../common/types.js";
 import { Deal } from "../database/entities/deal.entity.js";
 import { Retrieval } from "../database/entities/retrieval.entity.js";
@@ -111,7 +112,13 @@ export class RetrievalService {
             const errorReason = result.reason;
             const errorMessage =
               errorReason instanceof Error ? errorReason.message : String(errorReason ?? "Unknown error");
-            this.logger.error(`Batch retrieval failed for deal ${deal?.id || "unknown"}: ${errorMessage}`);
+            this.logger.error({
+              event: "batch_retrieval_failed",
+              message: `Batch retrieval failed for deal ${deal?.id || "unknown"}`,
+              dealId: deal?.id ?? "unknown",
+              errorMessage,
+              error: toStructuredError(errorReason),
+            });
           }
         }
       }
@@ -168,9 +175,21 @@ export class RetrievalService {
       if (signal?.aborted) {
         const abortReason = signal.reason;
         const abortMessage = abortReason instanceof Error ? abortReason.message : String(abortReason ?? "");
-        this.logger.warn(`Retrievals aborted for ${deal.pieceCid}: ${abortMessage || errorMessage}`);
+        this.logger.warn({
+          event: "retrievals_aborted",
+          message: `Retrievals aborted for ${deal.pieceCid}`,
+          pieceCid: deal.pieceCid,
+          reason: abortMessage || errorMessage,
+          error: toStructuredError(error),
+        });
       } else {
-        this.logger.error(`All retrievals failed for ${deal.pieceCid}: ${errorMessage}`);
+        this.logger.error({
+          event: "all_retrievals_failed",
+          message: `All retrievals failed for ${deal.pieceCid}`,
+          pieceCid: deal.pieceCid,
+          errorMessage,
+          error: toStructuredError(error),
+        });
         this.retrievalMetrics.recordStatus(providerLabels, classifyFailureStatus(error));
       }
 
@@ -267,7 +286,13 @@ export class RetrievalService {
     try {
       return await this.retrievalRepository.save(retrieval);
     } catch (error) {
-      this.logger.warn(`Failed to save retrieval: ${error.message}`);
+      this.logger.warn({
+        event: "save_retrieval_failed",
+        message: "Failed to save retrieval",
+        retrievalId: retrieval.id,
+        dealId: retrieval.dealId,
+        error: toStructuredError(error),
+      });
       return retrieval;
     }
   }

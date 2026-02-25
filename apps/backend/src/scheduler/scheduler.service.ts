@@ -1,6 +1,7 @@
 import { Injectable, Logger, type OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { Cron, SchedulerRegistry } from "@nestjs/schedule";
+import { toStructuredError } from "../common/logging.js";
 import { getMaintenanceWindowStatus } from "../common/maintenance-window.js";
 import { scheduleJobWithOffset } from "../common/utils.js";
 import type { IConfig, ISchedulingConfig } from "../config/app.config.js";
@@ -47,9 +48,10 @@ export class SchedulerService implements OnModuleInit {
       this.setupDynamicCronJobs();
       this.logger.log("Wallet and scheduler initialization completed successfully");
     } catch (error) {
-      this.logger.fatal("Failed to initialize DEALBOT", {
-        error: error instanceof Error ? error.message : String(error),
-        stack: error instanceof Error ? error.stack : undefined,
+      this.logger.fatal({
+        event: "dealbot_initialize_failed",
+        message: "Failed to initialize DEALBOT",
+        error: toStructuredError(error),
       });
       throw error;
     }
@@ -129,7 +131,11 @@ export class SchedulerService implements OnModuleInit {
       const deals = await this.dealService.createDealsForAllProviders();
       this.logger.log(`Scheduled deal creation completed for ${deals.length} deals`);
     } catch (error) {
-      this.logger.error("Failed to create scheduled deals", error);
+      this.logger.error({
+        event: "scheduled_deal_creation_failed",
+        message: "Failed to create scheduled deals",
+        error: toStructuredError(error),
+      });
     } finally {
       this.isRunningDealCreation = false;
     }
@@ -150,7 +156,11 @@ export class SchedulerService implements OnModuleInit {
         try {
           await this.retrievalRunPromise;
         } catch (error) {
-          this.logger.warn("Previous retrieval run ended after abort", error);
+          this.logger.warn({
+            event: "previous_retrieval_run_abort_failed",
+            message: "Previous retrieval run ended after abort",
+            error: toStructuredError(error),
+          });
         }
       }
     }
@@ -174,7 +184,11 @@ export class SchedulerService implements OnModuleInit {
         const result = await this.retrievalService.performRandomBatchRetrievals(providerCount, abortController.signal);
         this.logger.log(`Scheduled retrieval tests completed for ${result.length} retrievals`);
       } catch (error) {
-        this.logger.error("Failed to perform scheduled retrievals", error);
+        this.logger.error({
+          event: "scheduled_retrievals_failed",
+          message: "Failed to perform scheduled retrievals",
+          error: toStructuredError(error),
+        });
       } finally {
         if (this.retrievalAbortController === abortController) {
           this.retrievalAbortController = undefined;
@@ -208,7 +222,11 @@ export class SchedulerService implements OnModuleInit {
     try {
       await this.walletSdkService.loadProviders();
     } catch (error) {
-      this.logger.error("Failed to refresh providers", error);
+      this.logger.error({
+        event: "provider_refresh_failed",
+        message: "Failed to refresh providers",
+        error: toStructuredError(error),
+      });
     } finally {
       this.isRunningProviderRefresh = false;
     }

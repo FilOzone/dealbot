@@ -7,6 +7,7 @@ import { CID } from "multiformats/cid";
 import type { Repository } from "typeorm";
 import { buildUnixfsCar } from "../common/car-utils.js";
 import { createFilecoinPinLogger } from "../common/filecoin-pin-logger.js";
+import { toStructuredError } from "../common/logging.js";
 import type { DataFile, Hex } from "../common/types.js";
 import type { IBlockchainConfig, IConfig } from "../config/app.config.js";
 import { Deal } from "../database/entities/deal.entity.js";
@@ -317,7 +318,13 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       }
 
       if (!deal.transactionHash) {
-        this.logger.error(`No transaction hash found for deal: ${deal.pieceCid}`);
+        this.logger.error({
+          event: "deal_transaction_hash_missing",
+          message: `No transaction hash found for deal: ${deal.pieceCid}`,
+          dealId: deal.id,
+          pieceCid: deal.pieceCid,
+          providerAddress,
+        });
       }
 
       this.updateDealWithUploadResult(deal, uploadResult, uploadPayload.carData.length);
@@ -388,7 +395,13 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       return deal;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      this.logger.error(`Deal creation failed for ${providerAddress}: ${errorMessage}`);
+      this.logger.error({
+        event: "deal_creation_failed",
+        message: `Deal creation failed for ${providerAddress}`,
+        providerAddress,
+        errorMessage,
+        error: toStructuredError(error),
+      });
       const failureStatus = classifyFailureStatus(error);
 
       deal.status = DealStatus.FAILED;
@@ -424,7 +437,11 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
         warmStorageAddress: this.walletSdkService.getFWSSAddress(),
       });
     } catch (error) {
-      this.logger.error(`Failed to initialize Synapse for deal job: ${error.message}`, error.stack);
+      this.logger.error({
+        event: "synapse_init_failed",
+        message: "Failed to initialize Synapse for deal job",
+        error: toStructuredError(error),
+      });
       throw error;
     }
   }
@@ -433,12 +450,20 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     try {
       await synapse.telemetry?.sentry?.close?.();
     } catch (error) {
-      this.logger.warn(`Failed to cleanup Synapse telemetry: ${error.message}`);
+      this.logger.warn({
+        event: "synapse_telemetry_cleanup_failed",
+        message: "Failed to cleanup Synapse telemetry",
+        error: toStructuredError(error),
+      });
     }
     try {
       await cleanupSynapseService();
     } catch (error) {
-      this.logger.warn(`Failed to cleanup Synapse service: ${error.message}`);
+      this.logger.warn({
+        event: "synapse_service_cleanup_failed",
+        message: "Failed to cleanup Synapse service",
+        error: toStructuredError(error),
+      });
     }
   }
 
@@ -485,7 +510,13 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     try {
       await this.dealRepository.save(deal);
     } catch (error) {
-      this.logger.warn(`Failed to save deal ${deal.pieceCid}: ${error.message}`);
+      this.logger.warn({
+        event: "save_deal_failed",
+        message: `Failed to save deal ${deal.pieceCid}`,
+        dealId: deal.id,
+        pieceCid: deal.pieceCid,
+        error: toStructuredError(error),
+      });
     }
   }
 
