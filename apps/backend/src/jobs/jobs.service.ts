@@ -25,11 +25,7 @@ import { JobScheduleRepository } from "./repositories/job-schedule.repository.js
 
 type SpJobType = "deal" | "retrieval";
 
-type SpJobData = {
-  jobType: SpJobType;
-  spAddress: string;
-  intervalSeconds: number;
-};
+type SpJobData = { jobType: SpJobType; spAddress: string; intervalSeconds: number };
 type MetricsJobData = { intervalSeconds: number };
 type ProvidersRefreshJobData = { intervalSeconds: number };
 type SpJob = Job<SpJobData>;
