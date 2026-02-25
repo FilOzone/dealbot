@@ -4,8 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 const getConfig = () => ({
   dashboardUrl: window.__DEALBOT_CONFIG__?.DASHBOARD_URL ?? import.meta.env.VITE_DASHBOARD_URL ?? "",
-  dashboardEmbedUrl:
-    window.__DEALBOT_CONFIG__?.DASHBOARD_EMBED_URL ?? import.meta.env.VITE_DASHBOARD_EMBED_URL ?? "",
+  dashboardEmbedUrl: window.__DEALBOT_CONFIG__?.DASHBOARD_EMBED_URL ?? import.meta.env.VITE_DASHBOARD_EMBED_URL ?? "",
   logsUrl: window.__DEALBOT_CONFIG__?.LOGS_URL ?? import.meta.env.VITE_LOGS_URL ?? "",
 });
 
@@ -22,10 +21,9 @@ export default function Landing() {
         </div>
 
         <p className="text-muted-foreground text-lg">
-          DealBot creates synthetic traffic for SPs in the onchain SP registry and monitors
-          success/failures. It collects metrics from this traffic and computes stats for each SP to
-          help determine which SPs are eligible for approval in Filecoin Warm Storage Service
-          contracts.{" "}
+          DealBot creates synthetic traffic for SPs in the onchain SP registry and monitors success/failures. It
+          collects metrics from this traffic and computes stats for each SP to help determine which SPs are eligible for
+          approval in Filecoin Warm Storage Service contracts.{" "}
           <a
             href="https://github.com/FilOzone/dealbot/tree/main/docs/checks#what-is-dealbot"
             target="_blank"
@@ -37,9 +35,8 @@ export default function Landing() {
         </p>
 
         <p className="text-sm text-muted-foreground">
-          This instance checks <strong>all non-dev SPs</strong> in the registry.{" "}
-          <strong>Filecoin Onchain Cloud</strong> uses these results to determine which SPs should
-          be approved for storage deals by default.{" "}
+          This instance checks <strong>all non-dev SPs</strong> in the registry. <strong>Filecoin Onchain Cloud</strong>{" "}
+          uses these results to determine which SPs should be approved for storage deals by default.{" "}
           <a
             href="https://github.com/FilOzone/dealbot/blob/main/docs/checks/production-configuration-and-approval-methodology.md"
             target="_blank"
@@ -61,8 +58,8 @@ export default function Landing() {
             <Info className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
             <span>
               To filter the dashboard or logs to your SP, update the{" "}
-              <code className="font-mono text-foreground">providerId</code> variable on the
-              dashboard to the appropriate provider ID.
+              <code className="font-mono text-foreground">providerId</code> variable on the dashboard to the appropriate
+              provider ID.
             </span>
           </div>
           <div className="flex flex-wrap gap-3">
@@ -75,8 +72,7 @@ export default function Landing() {
               </Button>
             ) : (
               <p className="text-xs text-destructive">
-                No dashboard URL configured — set{" "}
-                <code className="font-mono">VITE_DASHBOARD_URL</code> or{" "}
+                No dashboard URL configured — set <code className="font-mono">VITE_DASHBOARD_URL</code> or{" "}
                 <code className="font-mono">DASHBOARD_URL</code> in runtime config.
               </p>
             )}
