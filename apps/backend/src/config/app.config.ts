@@ -72,7 +72,7 @@ export const configValidationSchema = Joi.object({
 
   // Dataset
   DEALBOT_LOCAL_DATASETS_PATH: Joi.string().default(DEFAULT_LOCAL_DATASETS_PATH),
-  RANDOM_DATASET_SIZES: Joi.string().default("10240,10485760,104857600"), // 10 KiB, 10 MB, 100 MB
+  RANDOM_PIECE_SIZES: Joi.string().default("10485760"), // 10 MiB
 
   // Timeouts (in milliseconds)
   CONNECT_TIMEOUT_MS: Joi.number().min(1000).default(10000), // 10 seconds to establish connection/receive headers
@@ -337,7 +337,7 @@ export function loadConfig(): IConfig {
     dataset: {
       localDatasetsPath: process.env.DEALBOT_LOCAL_DATASETS_PATH || DEFAULT_LOCAL_DATASETS_PATH,
       randomDatasetSizes: (() => {
-        const envValue = process.env.RANDOM_DATASET_SIZES;
+        const envValue = process.env.RANDOM_PIECE_SIZES;
         if (envValue && envValue.trim().length > 0) {
           const parsed = envValue
             .split(",")
@@ -348,9 +348,7 @@ export function loadConfig(): IConfig {
           }
         }
         return [
-          10 << 10, // 10 KiB
-          10 << 20, // 10 MB
-          100 << 20, // 100 MB
+          10 << 20, // 10 MiB
         ];
       })(),
     },

@@ -61,7 +61,7 @@ flowchart TD
 Dealbot generates a random binary file with a unique name and embedded markers (prefix/suffix with timestamp and unique ID).
 
 - **File format:** `random-{timestamp}-{uniqueId}.bin`
-- **Possible sizes:** 10 KiB, 10 MB, or 100 MB (configurable via `RANDOM_PIECE_SIZES`)
+- **Possible sizes:** Configurable via `RANDOM_PIECE_SIZES` (default: 10 MiB)
 
 Source: [`dataSource.service.ts`](../../apps/backend/src/dataSource/dataSource.service.ts#L116)
 
@@ -196,13 +196,13 @@ Metric definitions live in [Dealbot Events & Metrics](./events-and-metrics.md).
 
 Key environment variables that control deal creation behavior:
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `RANDOM_PIECE_SIZES` | `10240,10485760,104857600` | Possible random file sizes in bytes (10 KiB, 10 MB, 100 MB) |
+| Variable | Description |
+|----------|-------------|
+| `RANDOM_PIECE_SIZES` | Possible random file sizes in bytes for data-storage checks. See [`docs/environment-variables.md#random_piece_sizes`](../environment-variables.md#random_piece_sizes) for defaults and examples. |
 
 Source: [`apps/backend/src/config/app.config.ts`](../../apps/backend/src/config/app.config.ts)
 
-See also: [`docs/environment-variables.md`](../environment-variables.md) for the full configuration reference.
+See also: [`docs/environment-variables.md`](../environment-variables.md) for the source-of-truth configuration reference.
 
 ## FAQ
 

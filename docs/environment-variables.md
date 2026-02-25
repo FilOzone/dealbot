@@ -12,7 +12,7 @@ This document provides a comprehensive guide to all environment variables used b
 | [Dataset Versioning](#dataset-versioning) | `DEALBOT_DATASET_VERSION`                                                                                                                                    |
 | [Scheduling](#scheduling-configuration)   | `DEAL_INTERVAL_SECONDS`, `RETRIEVAL_INTERVAL_SECONDS`, `DEAL_START_OFFSET_SECONDS`, `RETRIEVAL_START_OFFSET_SECONDS`, `METRICS_START_OFFSET_SECONDS`, `DEALBOT_MAINTENANCE_WINDOWS_UTC`, `DEALBOT_MAINTENANCE_WINDOW_MINUTES`                                                                                                                                 |
 | [Jobs (pg-boss)](#jobs-pg-boss)           | `DEALBOT_JOBS_MODE`, `DEALBOT_PGBOSS_SCHEDULER_ENABLED`, `DEALBOT_PGBOSS_POOL_MAX`, `DEALS_PER_SP_PER_HOUR`, `RETRIEVALS_PER_SP_PER_HOUR`, `METRICS_PER_HOUR`, `JOB_SCHEDULER_POLL_SECONDS`, `JOB_WORKER_POLL_SECONDS`, `PG_BOSS_LOCAL_CONCURRENCY`, `JOB_CATCHUP_MAX_ENQUEUE`, `JOB_SCHEDULE_PHASE_SECONDS`, `JOB_ENQUEUE_JITTER_SECONDS`, `DEAL_JOB_TIMEOUT_SECONDS`, `RETRIEVAL_JOB_TIMEOUT_SECONDS`, `IPFS_BLOCK_FETCH_CONCURRENCY` |
-| [Dataset](#dataset-configuration)         | `DEALBOT_LOCAL_DATASETS_PATH`, `RANDOM_DATASET_SIZES`                                                                                                        |
+| [Dataset](#dataset-configuration)         | `DEALBOT_LOCAL_DATASETS_PATH`, `RANDOM_PIECE_SIZES`                                                                                                          |
 | [Timeouts](#timeout-configuration)        | `CONNECT_TIMEOUT_MS`, `HTTP_REQUEST_TIMEOUT_MS`, `HTTP2_REQUEST_TIMEOUT_MS`, `IPNI_VERIFICATION_TIMEOUT_MS`, `IPNI_VERIFICATION_POLLING_MS`                   |
 | [Web Frontend](#web-frontend)             | `VITE_API_BASE_URL`, `VITE_PLAUSIBLE_DATA_DOMAIN`, `DEALBOT_API_BASE_URL`                                                                                    |
 
@@ -795,13 +795,13 @@ Use this to stagger multiple dealbot deployments that are not sharing a database
 
 ---
 
-### `RANDOM_DATASET_SIZES`
+### `RANDOM_PIECE_SIZES`
 
 - **Type**: `string` (comma-separated numbers in bytes)
 - **Required**: No
-- **Default**: `10240,10485760,104857600` (10 KiB, 10 MB, 100 MB)
+- **Default**: `10485760` (10 MiB)
 
-**Role**: Sizes of randomly generated pieces used for data-storage checks, in bytes (original content size before CAR conversion).
+**Role**: Sizes of randomly generated content used for data-storage checks, in bytes (original content size before CAR conversion).
 
 **Note**: For IPNI-enabled deals, original content size is stored in deal metadata (`metadata.ipfs_pin.originalSize`) while `deals.file_size` stores the CAR size (bytes uploaded).
 
@@ -814,7 +814,7 @@ Use this to stagger multiple dealbot deployments that are not sharing a database
 **Example scenario**: Testing with smaller files only:
 
 ```bash
-RANDOM_DATASET_SIZES=1024,10240,102400
+RANDOM_PIECE_SIZES=1024,10240,102400
 ```
 
 ---

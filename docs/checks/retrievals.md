@@ -48,7 +48,7 @@ Dealbot randomly selects **one** piece per SP for each scheduled retrieval job. 
 
 - Only pieces from "data storage" check deals with overall status **success** (saved in the DB as `DEAL_CREATED`).
 - Only pieces with IPNI metadata enabled and a root CID.
-- Only pieces of size `RANDOM_DATASET_SIZES` (matched against `metadata.ipfs_pin.originalSize`).
+- Only pieces of size `RANDOM_PIECE_SIZES` (matched against `metadata.ipfs_pin.originalSize`).
 
 Source: [`retrieval.service.ts` (`selectRandomDealsForRetrieval`)](../../apps/backend/src/retrieval/retrieval.service.ts#L318)
 
@@ -126,6 +126,6 @@ Key environment variables that control retrieval testing:
 | `IPNI_VERIFICATION_TIMEOUT_MS` | Max time to wait for IPNI provider verification. |
 | `IPNI_VERIFICATION_POLLING_MS` | Poll interval between IPNI verification attempts. |
 | `IPFS_BLOCK_FETCH_CONCURRENCY` | Parallel block fetches during DAG traversal validation. |
-| `RANDOM_DATASET_SIZES` | Eligible original content sizes for random retrieval selection. |
+| `RANDOM_PIECE_SIZES` | Eligible original content sizes for random retrieval selection. |
 
 See also: [`docs/environment-variables.md`](../environment-variables.md) for the full configuration reference.
