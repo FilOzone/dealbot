@@ -58,8 +58,6 @@ estimatedOverduePeriods = (currentBlock - (lastDeadline + 1)) / maxProvingPeriod
 
 This calculation accounts for challenges that may have been missed between the last recorded deadline and the current block.
 
-**Note**: Proof sets with `maxProvingPeriod = 0` are skipped to avoid division by zero.
-
 Source: [`data-retention.service.ts` (`processProvider`)](../../apps/backend/src/data-retention/data-retention.service.ts#L209)
 
 ### 3. Compute Challenge Totals
