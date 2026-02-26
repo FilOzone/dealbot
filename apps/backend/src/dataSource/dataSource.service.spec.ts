@@ -18,8 +18,8 @@ describe("DataSourceService", () => {
             localDatasetsPath: testDatasetsPath,
             randomDatasetSizes: [
               10 << 10, // 10 KiB
-              10 << 20, // 10 MB
-              100 << 20, // 100 MB
+              10 << 20, // 10 MiB
+              100 << 20, // 100 MiB
             ],
           };
         }
