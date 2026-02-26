@@ -202,7 +202,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     deal.spAddress = providerAddress;
     deal.status = DealStatus.PENDING;
     deal.walletAddress = this.blockchainConfig.walletAddress;
-    deal.metadata = { ...(dealInput.metadata ?? {}), ...extraDataSetMetadata };
+    deal.metadata = dealInput.metadata;
     deal.serviceTypes = dealInput.appliedAddons;
 
     try {
@@ -416,16 +416,39 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Checks if a successful deal with a specific dealbotDS metadata index exists for a provider.
+   * Returns a Synapse instance for interacting with the storage SDK.
+   * Creates a new instance if the shared one is not available.
    */
-  async hasDatasetWithIndex(spAddress: string, dsIndex: number): Promise<boolean> {
-    const count = await this.dealRepository
-      .createQueryBuilder("deal")
-      .where("deal.sp_address = :spAddress", { spAddress })
-      .andWhere("deal.status = :status", { status: DealStatus.DEAL_CREATED })
-      .andWhere("deal.metadata @> :meta", { meta: { dealbotDS: String(dsIndex) } })
-      .getCount();
-    return count > 0;
+  async getSynapseInstance(): Promise<Synapse> {
+    return this.sharedSynapse ?? (await this.createSynapseInstance());
+  }
+
+  /**
+   * Finds all data-sets for the current client using the Synapse SDK.
+   */
+  async findProviderDataSets(
+    synapse: Synapse,
+    providerAddress: string,
+  ): Promise<{ dataSetId: number | bigint; metadata: Record<string, string>; serviceProvider: string }[]> {
+    const allDataSets = await synapse.storage.findDataSets();
+    return allDataSets
+      .filter((ds) => ds.serviceProvider.toLowerCase() === providerAddress.toLowerCase())
+      .map((ds) => ({ dataSetId: ds.dataSetId, metadata: ds.metadata, serviceProvider: ds.serviceProvider }));
+  }
+
+  /**
+   * Creates a data-set context for a provider with the given metadata.
+   */
+  async createDataSetContext(
+    synapse: Synapse,
+    providerAddress: string,
+    metadata: Record<string, string>,
+  ): Promise<{ dataSetId: number | undefined }> {
+    const storage = await synapse.storage.createContext({
+      providerAddress,
+      metadata,
+    });
+    return { dataSetId: storage.dataSetId };
   }
 
   // ============================================================================

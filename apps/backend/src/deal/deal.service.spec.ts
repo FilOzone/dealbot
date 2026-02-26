@@ -75,7 +75,6 @@ describe("DealService", () => {
     create: vi.fn(),
     save: vi.fn(),
     count: vi.fn(),
-    createQueryBuilder: vi.fn(),
   };
 
   const mockStorageProviderRepository = {
@@ -264,46 +263,6 @@ describe("DealService", () => {
       // Verify persistence
       expect(dealRepoMock.save).toHaveBeenCalledWith(deal);
       expect(dealAddonsMock.postProcessDeal).toHaveBeenCalledWith(deal, []);
-    });
-
-    it("merges extraDataSetMetadata into deal.metadata", async () => {
-      const uploadPayload = {
-        carData: Uint8Array.from([1, 2, 3]),
-        rootCid: CID.parse(mockRootCid),
-      };
-      createContextMock.mockResolvedValue({
-        dataSetId: "dataset-456",
-      });
-      (executeUpload as Mock).mockImplementation(async (_service, _data, _rootCid, options) => {
-        await triggerUploadProgress(options?.onProgress);
-        return {
-          pieceCid: "bafk-uploaded",
-          pieceId: 456,
-          transactionHash: "0xhash2",
-          ipniValidated: true,
-        };
-      });
-      retrievalAddonsMock.testAllRetrievalMethods.mockResolvedValue({
-        dealId: "deal-1",
-        results: [],
-        summary: { totalMethods: 1, successfulMethods: 1, failedMethods: 0 },
-        testedAt: new Date(),
-      });
-
-      const deal = await service.createDeal(
-        mockSynapseInstance,
-        mockProviderInfo,
-        mockDealInput,
-        uploadPayload,
-        undefined,
-        undefined,
-        { dealbotDS: "1" },
-      );
-
-      expect(deal.metadata).toEqual(expect.objectContaining({ dealbotDS: "1" }));
-      expect(dealRepoMock.save).toHaveBeenCalledWith(
-        expect.objectContaining({ metadata: expect.objectContaining({ dealbotDS: "1" }) }),
-      );
     });
 
     it("emits data-storage metrics for successful deals", async () => {
@@ -980,29 +939,44 @@ describe("DealService", () => {
     });
   });
 
-  describe("hasDatasetWithIndex", () => {
-    it("returns true when a deal with the given dealbotDS index exists", async () => {
-      const getCountMock = vi.fn().mockResolvedValue(1);
-      const chainMock = { andWhere: vi.fn().mockReturnThis(), getCount: getCountMock };
-      const whereMock = vi.fn().mockReturnValue(chainMock);
-      mockDealRepository.createQueryBuilder = vi.fn().mockReturnValue({ where: whereMock });
+  describe("findProviderDataSets", () => {
+    it("returns data-sets filtered by provider address", async () => {
+      const findDataSetsMock = vi.fn().mockResolvedValue([
+        { dataSetId: 1, metadata: {}, serviceProvider: "0xaaa" },
+        { dataSetId: 2, metadata: { dealbotDS: "1" }, serviceProvider: "0xaaa" },
+        { dataSetId: 3, metadata: {}, serviceProvider: "0xbbb" },
+      ]);
+      const synapseMock = { storage: { findDataSets: findDataSetsMock } };
 
-      const result = await service.hasDatasetWithIndex("0xProvider", 2);
+      const result = await service.findProviderDataSets(synapseMock as unknown as Synapse, "0xaaa");
 
-      expect(result).toBe(true);
-      expect(mockDealRepository.createQueryBuilder).toHaveBeenCalledWith("deal");
-      expect(whereMock).toHaveBeenCalledWith("deal.sp_address = :spAddress", { spAddress: "0xProvider" });
+      expect(result).toHaveLength(2);
+      expect(result[0].dataSetId).toBe(1);
+      expect(result[1].metadata).toEqual({ dealbotDS: "1" });
     });
 
-    it("returns false when no deal with the given dealbotDS index exists", async () => {
-      const getCountMock = vi.fn().mockResolvedValue(0);
-      const chainMock = { andWhere: vi.fn().mockReturnThis(), getCount: getCountMock };
-      const whereMock = vi.fn().mockReturnValue(chainMock);
-      mockDealRepository.createQueryBuilder = vi.fn().mockReturnValue({ where: whereMock });
+    it("performs case-insensitive provider address matching", async () => {
+      const findDataSetsMock = vi.fn().mockResolvedValue([{ dataSetId: 1, metadata: {}, serviceProvider: "0xAAA" }]);
+      const synapseMock = { storage: { findDataSets: findDataSetsMock } };
 
-      const result = await service.hasDatasetWithIndex("0xProvider", 5);
+      const result = await service.findProviderDataSets(synapseMock as unknown as Synapse, "0xaaa");
 
-      expect(result).toBe(false);
+      expect(result).toHaveLength(1);
+    });
+  });
+
+  describe("createDataSetContext", () => {
+    it("creates a context with the given metadata", async () => {
+      const createContextMock = vi.fn().mockResolvedValue({ dataSetId: 42 });
+      const synapseMock = { storage: { createContext: createContextMock } };
+
+      const result = await service.createDataSetContext(synapseMock as unknown as Synapse, "0xaaa", { dealbotDS: "1" });
+
+      expect(result).toEqual({ dataSetId: 42 });
+      expect(createContextMock).toHaveBeenCalledWith({
+        providerAddress: "0xaaa",
+        metadata: { dealbotDS: "1" },
+      });
     });
   });
 });
