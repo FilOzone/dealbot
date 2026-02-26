@@ -1,4 +1,5 @@
 type ErrorWithCode = Error & { code?: unknown };
+const MAX_ERROR_STACK_LENGTH = 4 * 1024;
 
 export type StructuredError = {
   type: "error" | "non_error";
@@ -19,6 +20,15 @@ export function toJsonSafe(value: unknown): unknown {
   }
 }
 
+function truncateErrorStack(stack: string | undefined): string | undefined {
+  if (!stack || stack.length <= MAX_ERROR_STACK_LENGTH) {
+    return stack;
+  }
+
+  const omittedChars = stack.length - MAX_ERROR_STACK_LENGTH;
+  return `${stack.slice(0, MAX_ERROR_STACK_LENGTH)}... [truncated ${omittedChars} chars]`;
+}
+
 /**
  * Serializes unknown error values into structured JSON-friendly fields.
  */
@@ -33,7 +43,7 @@ export function toStructuredError(error: unknown): StructuredError {
       name: error.name,
       message: error.message,
       code: stringCode && stringCode.length > 0 ? stringCode : undefined,
-      stack: error.stack,
+      stack: truncateErrorStack(error.stack),
     };
   }
 

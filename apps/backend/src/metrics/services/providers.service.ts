@@ -422,12 +422,10 @@ export class ProvidersService {
         const version = await this.getProviderCurioVersion(spAddress);
         return { spAddress, version };
       } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
         this.logger.warn({
           event: "fetch_provider_curio_version_failed",
           message: `Failed to fetch version for ${spAddress}`,
           spAddress,
-          errorMessage,
           error: toStructuredError(error),
         });
         return { spAddress, version: null };
@@ -484,7 +482,6 @@ export class ProvidersService {
         event: "fetch_provider_curio_version_failed",
         message: `Failed to fetch version for ${spAddress}`,
         spAddress,
-        errorMessage,
         error: toStructuredError(error),
       });
       throw new NotFoundException(`Unable to fetch version from provider ${spAddress}: ${errorMessage}`);

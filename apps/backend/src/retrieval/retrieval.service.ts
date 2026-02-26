@@ -110,13 +110,10 @@ export class RetrievalService {
         } else {
           if (!signal?.aborted) {
             const errorReason = result.reason;
-            const errorMessage =
-              errorReason instanceof Error ? errorReason.message : String(errorReason ?? "Unknown error");
             this.logger.error({
               event: "batch_retrieval_failed",
               message: `Batch retrieval failed for deal ${deal?.id || "unknown"}`,
               dealId: deal?.id ?? "unknown",
-              errorMessage,
               error: toStructuredError(errorReason),
             });
           }
@@ -187,7 +184,6 @@ export class RetrievalService {
           event: "all_retrievals_failed",
           message: `All retrievals failed for ${deal.pieceCid}`,
           pieceCid: deal.pieceCid,
-          errorMessage,
           error: toStructuredError(error),
         });
         this.retrievalMetrics.recordStatus(providerLabels, classifyFailureStatus(error));

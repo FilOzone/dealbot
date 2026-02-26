@@ -399,7 +399,6 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
         event: "deal_creation_failed",
         message: `Deal creation failed for ${providerAddress}`,
         providerAddress,
-        errorMessage,
         error: toStructuredError(error),
       });
       const failureStatus = classifyFailureStatus(error);

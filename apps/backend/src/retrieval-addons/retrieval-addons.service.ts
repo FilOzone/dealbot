@@ -300,7 +300,6 @@ export class RetrievalAddonsService {
         }
       } catch (error) {
         signal?.throwIfAborted();
-        const errorMessage = error instanceof Error ? error.message : String(error);
         this.logger.warn({
           event: "retrieval_attempt_failed",
           message: `${strategy.name} attempt ${attempt}/${attempts} failed`,
@@ -308,7 +307,6 @@ export class RetrievalAddonsService {
           attempt,
           attempts,
           dealId: config.deal.id,
-          errorMessage,
           error: toStructuredError(error),
         });
 

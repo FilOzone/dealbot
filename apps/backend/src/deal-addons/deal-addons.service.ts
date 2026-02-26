@@ -135,12 +135,10 @@ export class DealAddonsService {
       this.logger.debug(`onUploadComplete handlers completed for deal ${deal.id}`);
     } catch (error) {
       signal?.throwIfAborted();
-      const errorMessage = error instanceof Error ? error.message : String(error);
       this.logger.warn({
         event: "addon_on_upload_complete_failed",
         message: `onUploadComplete handler failed for deal ${deal.id}`,
         dealId: deal.id,
-        errorMessage,
         error: toStructuredError(error),
       });
       throw error;

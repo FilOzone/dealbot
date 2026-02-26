@@ -9,6 +9,7 @@ const LOG_LEVELS: Record<string, LogLevel[]> = {
   error: ["fatal", "error"],
   warn: ["fatal", "error", "warn"],
   log: ["fatal", "error", "warn", "log"],
+  // Accept pino-style "info" input (used by filecoin-pin and synapse-sdk) and map it to Nest's "log" level.
   info: ["fatal", "error", "warn", "log"],
   debug: ["fatal", "error", "warn", "log", "debug"],
   verbose: ["fatal", "error", "warn", "log", "debug", "verbose"],
