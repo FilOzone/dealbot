@@ -91,7 +91,7 @@ describe("JobsService schedule rows", () => {
 
     baseConfigValues = {
       app: { runMode: "both" } as IConfig["app"],
-      blockchain: { useOnlyApprovedProviders: false, minNumDatasetsForChecks: 1 } as IConfig["blockchain"],
+      blockchain: { useOnlyApprovedProviders: false, minNumDataSetsForChecks: 1 } as IConfig["blockchain"],
       scheduling: {
         dealIntervalSeconds: 600,
         retrievalIntervalSeconds: 1200,
@@ -491,7 +491,7 @@ describe("JobsService schedule rows", () => {
   it("adds schedule rows for newly seen providers", async () => {
     baseConfigValues = {
       ...baseConfigValues,
-      blockchain: { ...baseConfigValues.blockchain, minNumDatasetsForChecks: 3 } as IConfig["blockchain"],
+      blockchain: { ...baseConfigValues.blockchain, minNumDataSetsForChecks: 3 } as IConfig["blockchain"],
     };
     configService = {
       get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
@@ -699,13 +699,14 @@ describe("JobsService schedule rows", () => {
     );
   });
 
-  it("deal job creates deal without metadata when minNumDatasetsForChecks is 1", async () => {
+  it("deal job creates deal without metadata when minNumDataSetsForChecks is 1", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2024-01-01T12:00:00Z"));
     const dealService = {
       createDealForProvider: vi.fn(async () => ({})),
       getTestingDealOptions: vi.fn(() => ({ enableIpni: true })),
-      hasDatasetWithIndex: vi.fn(async () => false),
+      getSynapseInstance: vi.fn(async () => ({})),
+      findProviderDataSets: vi.fn(async () => []),
     };
 
     const walletSdkService = {
@@ -729,15 +730,15 @@ describe("JobsService schedule rows", () => {
       expect.objectContaining({ serviceProvider: "0xaaa" }),
       expect.objectContaining({ extraDataSetMetadata: undefined }),
     );
-    expect(dealService.hasDatasetWithIndex).not.toHaveBeenCalled();
+    expect(dealService.findProviderDataSets).not.toHaveBeenCalled();
   });
 
-  it("deal job passes dealbotDS metadata when selecting a provisioned dataset index", async () => {
+  it("deal job passes dealbotDS metadata when selecting a provisioned data set index", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2024-01-01T12:00:00Z"));
     baseConfigValues = {
       ...baseConfigValues,
-      blockchain: { ...baseConfigValues.blockchain, minNumDatasetsForChecks: 3 } as IConfig["blockchain"],
+      blockchain: { ...baseConfigValues.blockchain, minNumDataSetsForChecks: 3 } as IConfig["blockchain"],
     };
     configService = {
       get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
@@ -746,7 +747,11 @@ describe("JobsService schedule rows", () => {
     const dealService = {
       createDealForProvider: vi.fn(async () => ({})),
       getTestingDealOptions: vi.fn(() => ({ enableIpni: true })),
-      hasDatasetWithIndex: vi.fn(async () => true),
+      getSynapseInstance: vi.fn(async () => ({})),
+      findProviderDataSets: vi.fn(async () => [
+        { dataSetId: 1, metadata: {}, serviceProvider: "0xaaa" },
+        { dataSetId: 2, metadata: { dealbotDS: "1" }, serviceProvider: "0xaaa" },
+      ]),
     };
 
     const walletSdkService = {
@@ -768,7 +773,7 @@ describe("JobsService schedule rows", () => {
       data: { jobType: "deal", spAddress: "0xaaa", intervalSeconds: 60 },
     });
 
-    expect(dealService.hasDatasetWithIndex).toHaveBeenCalledWith("0xaaa", 1);
+    expect(dealService.findProviderDataSets).toHaveBeenCalled();
     expect(dealService.createDealForProvider).toHaveBeenCalledTimes(1);
     expect(dealService.createDealForProvider).toHaveBeenCalledWith(
       expect.objectContaining({ serviceProvider: "0xaaa" }),
@@ -780,12 +785,12 @@ describe("JobsService schedule rows", () => {
     vi.spyOn(Math, "random").mockRestore();
   });
 
-  it("deal job falls back to default dataset when selecting an unprovisioned index", async () => {
+  it("deal job falls back to default data set when selecting an unprovisioned index", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2024-01-01T12:00:00Z"));
     baseConfigValues = {
       ...baseConfigValues,
-      blockchain: { ...baseConfigValues.blockchain, minNumDatasetsForChecks: 3 } as IConfig["blockchain"],
+      blockchain: { ...baseConfigValues.blockchain, minNumDataSetsForChecks: 3 } as IConfig["blockchain"],
     };
     configService = {
       get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
@@ -794,7 +799,8 @@ describe("JobsService schedule rows", () => {
     const dealService = {
       createDealForProvider: vi.fn(async () => ({})),
       getTestingDealOptions: vi.fn(() => ({})),
-      hasDatasetWithIndex: vi.fn(async () => false),
+      getSynapseInstance: vi.fn(async () => ({})),
+      findProviderDataSets: vi.fn(async () => []),
     };
 
     const walletSdkService = {
@@ -816,7 +822,7 @@ describe("JobsService schedule rows", () => {
       data: { jobType: "deal", spAddress: "0xaaa", intervalSeconds: 60 },
     });
 
-    expect(dealService.hasDatasetWithIndex).toHaveBeenCalledWith("0xaaa", 2);
+    expect(dealService.findProviderDataSets).toHaveBeenCalled();
     expect(dealService.createDealForProvider).toHaveBeenCalledTimes(1);
     expect(dealService.createDealForProvider).toHaveBeenCalledWith(
       expect.objectContaining({ serviceProvider: "0xaaa" }),
@@ -826,11 +832,11 @@ describe("JobsService schedule rows", () => {
     vi.spyOn(Math, "random").mockRestore();
   });
 
-  it("data_set_creation job skips when minNumDatasetsForChecks <= 1", async () => {
+  it("data_set_creation job creates initial data set when minNumDataSetsForChecks is 1", async () => {
     const dealService = {
-      createDealForProvider: vi.fn(async () => ({})),
-      getTestingDealOptions: vi.fn(() => ({})),
-      hasDatasetWithIndex: vi.fn(async () => false),
+      getSynapseInstance: vi.fn(async () => ({})),
+      findProviderDataSets: vi.fn(async () => []),
+      createDataSetContext: vi.fn(async () => ({ dataSetId: 1 })),
     };
 
     service = buildService({
@@ -842,36 +848,32 @@ describe("JobsService schedule rows", () => {
       data: { jobType: "data_set_creation", spAddress: "0xaaa", intervalSeconds: 3600 },
     });
 
-    expect(dealService.createDealForProvider).not.toHaveBeenCalled();
+    expect(dealService.createDataSetContext).toHaveBeenCalledTimes(1);
+    expect(dealService.createDataSetContext).toHaveBeenCalledWith(expect.anything(), "0xaaa", {});
   });
 
-  it("data_set_creation job skips when dataset already exists for the index", async () => {
+  it("data_set_creation job skips when all data sets already exist", async () => {
     baseConfigValues = {
       ...baseConfigValues,
-      blockchain: { ...baseConfigValues.blockchain, minNumDatasetsForChecks: 3 } as IConfig["blockchain"],
+      blockchain: { ...baseConfigValues.blockchain, minNumDataSetsForChecks: 3 } as IConfig["blockchain"],
     };
     configService = {
       get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
     } as unknown as JobsServiceDeps[0];
 
     const dealService = {
-      createDealForProvider: vi.fn(async () => ({})),
-      getTestingDealOptions: vi.fn(() => ({})),
-      hasDatasetWithIndex: vi.fn(async () => true),
+      getSynapseInstance: vi.fn(async () => ({})),
+      findProviderDataSets: vi.fn(async () => [
+        { dataSetId: 1, metadata: {}, serviceProvider: "0xaaa" },
+        { dataSetId: 2, metadata: { dealbotDS: "1" }, serviceProvider: "0xaaa" },
+        { dataSetId: 3, metadata: { dealbotDS: "2" }, serviceProvider: "0xaaa" },
+      ]),
+      createDataSetContext: vi.fn(async () => ({ dataSetId: 4 })),
     };
-
-    const walletSdkService = {
-      getTestingProviders: vi.fn(() => [{ serviceProvider: "0xaaa" }]),
-      ensureWalletAllowances: vi.fn(),
-      loadProviders: vi.fn(),
-    };
-
-    vi.spyOn(Math, "random").mockReturnValue(0.5);
 
     service = buildService({
       configService,
       dealService: dealService as unknown as ConstructorParameters<typeof JobsService>[3],
-      walletSdkService: walletSdkService as unknown as ConstructorParameters<typeof JobsService>[6],
     });
 
     await callPrivate(service, "handleDataSetCreationJob", {
@@ -879,40 +881,29 @@ describe("JobsService schedule rows", () => {
       data: { jobType: "data_set_creation", spAddress: "0xaaa", intervalSeconds: 3600 },
     });
 
-    expect(dealService.createDealForProvider).not.toHaveBeenCalled();
-
-    vi.spyOn(Math, "random").mockRestore();
+    expect(dealService.createDataSetContext).not.toHaveBeenCalled();
   });
 
-  it("data_set_creation job creates deal with dealbotDS metadata when index >= 1 and not yet provisioned", async () => {
+  it("data_set_creation job creates all missing data sets deterministically", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2024-01-01T12:00:00Z"));
     baseConfigValues = {
       ...baseConfigValues,
-      blockchain: { ...baseConfigValues.blockchain, minNumDatasetsForChecks: 3 } as IConfig["blockchain"],
+      blockchain: { ...baseConfigValues.blockchain, minNumDataSetsForChecks: 3 } as IConfig["blockchain"],
     };
     configService = {
       get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
     } as unknown as JobsServiceDeps[0];
 
     const dealService = {
-      createDealForProvider: vi.fn(async () => ({})),
-      getTestingDealOptions: vi.fn(() => ({ enableIpni: true })),
-      hasDatasetWithIndex: vi.fn(async () => false),
+      getSynapseInstance: vi.fn(async () => ({})),
+      findProviderDataSets: vi.fn(async () => []),
+      createDataSetContext: vi.fn(async () => ({ dataSetId: 1 })),
     };
-
-    const walletSdkService = {
-      getTestingProviders: vi.fn(() => [{ serviceProvider: "0xaaa" }]),
-      ensureWalletAllowances: vi.fn(),
-      loadProviders: vi.fn(),
-    };
-
-    vi.spyOn(Math, "random").mockReturnValue(0.5);
 
     service = buildService({
       configService,
       dealService: dealService as unknown as ConstructorParameters<typeof JobsService>[3],
-      walletSdkService: walletSdkService as unknown as ConstructorParameters<typeof JobsService>[6],
     });
 
     await callPrivate(service, "handleDataSetCreationJob", {
@@ -920,47 +911,9 @@ describe("JobsService schedule rows", () => {
       data: { jobType: "data_set_creation", spAddress: "0xaaa", intervalSeconds: 3600 },
     });
 
-    expect(dealService.createDealForProvider).toHaveBeenCalledTimes(1);
-    expect(dealService.createDealForProvider).toHaveBeenCalledWith(
-      expect.objectContaining({ serviceProvider: "0xaaa" }),
-      expect.objectContaining({
-        extraDataSetMetadata: { dealbotDS: "1" },
-      }),
-    );
-
-    vi.spyOn(Math, "random").mockRestore();
-  });
-
-  it("data_set_creation job does nothing when dsIndex is 0", async () => {
-    baseConfigValues = {
-      ...baseConfigValues,
-      blockchain: { ...baseConfigValues.blockchain, minNumDatasetsForChecks: 3 } as IConfig["blockchain"],
-    };
-    configService = {
-      get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
-    } as unknown as JobsServiceDeps[0];
-
-    const dealService = {
-      createDealForProvider: vi.fn(async () => ({})),
-      getTestingDealOptions: vi.fn(() => ({})),
-      hasDatasetWithIndex: vi.fn(async () => false),
-    };
-
-    vi.spyOn(Math, "random").mockReturnValue(0);
-
-    service = buildService({
-      configService,
-      dealService: dealService as unknown as ConstructorParameters<typeof JobsService>[3],
-    });
-
-    await callPrivate(service, "handleDataSetCreationJob", {
-      id: "job-ds-4",
-      data: { jobType: "data_set_creation", spAddress: "0xaaa", intervalSeconds: 3600 },
-    });
-
-    expect(dealService.createDealForProvider).not.toHaveBeenCalled();
-    expect(dealService.hasDatasetWithIndex).not.toHaveBeenCalled();
-
-    vi.spyOn(Math, "random").mockRestore();
+    expect(dealService.createDataSetContext).toHaveBeenCalledTimes(3);
+    expect(dealService.createDataSetContext).toHaveBeenCalledWith(expect.anything(), "0xaaa", {});
+    expect(dealService.createDataSetContext).toHaveBeenCalledWith(expect.anything(), "0xaaa", { dealbotDS: "1" });
+    expect(dealService.createDataSetContext).toHaveBeenCalledWith(expect.anything(), "0xaaa", { dealbotDS: "2" });
   });
 });

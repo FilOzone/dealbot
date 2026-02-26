@@ -13,6 +13,7 @@ import { DealService } from "../deal/deal.service.js";
 import { MetricsSchedulerService } from "../metrics/services/metrics-scheduler.service.js";
 import { RetrievalService } from "../retrieval/retrieval.service.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
+import { provisionDataSets } from "./data-set-creation.handler.js";
 import { METRICS_CLEANUP_QUEUE, METRICS_QUEUE, PROVIDERS_REFRESH_QUEUE, SP_WORK_QUEUE } from "./job-queues.js";
 import { JobScheduleRepository } from "./repositories/job-schedule.repository.js";
 
@@ -311,23 +312,25 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
           }
         }
 
-        // Dataset-aware deal creation
-        const minDatasets = this.configService.get("blockchain").minNumDatasetsForChecks;
+        // Data-set-aware deal creation
+        const minDataSets = this.configService.get("blockchain").minNumDataSetsForChecks;
         let extraDataSetMetadata: Record<string, string> | undefined;
 
-        if (minDatasets > 1) {
-          const dsIndex = Math.floor(Math.random() * minDatasets);
+        if (minDataSets > 1) {
+          const dsIndex = Math.floor(Math.random() * minDataSets);
           if (dsIndex > 0) {
-            const provisioned = await this.dealService.hasDatasetWithIndex(spAddress, dsIndex);
+            const synapse = await this.dealService.getSynapseInstance();
+            const providerDataSets = await this.dealService.findProviderDataSets(synapse, spAddress);
+            const provisioned = providerDataSets.some((ds) => ds.metadata?.dealbotDS === String(dsIndex));
             if (provisioned) {
               extraDataSetMetadata = { dealbotDS: String(dsIndex) };
             } else {
               this.logger.log(
-                `Dataset #${dsIndex} not yet provisioned for ${spAddress}; falling back to default dataset`,
+                `Data set #${dsIndex} not yet provisioned for ${spAddress}; falling back to default data set`,
               );
             }
           }
-          // dsIndex === 0 → baseline dataset, no metadata needed
+          // dsIndex === 0 → baseline data set, no metadata needed
         }
 
         await this.dealService.createDealForProvider(provider, {
@@ -446,10 +449,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       return;
     }
 
-    const minDatasets = this.configService.get("blockchain").minNumDatasetsForChecks;
-    if (minDatasets <= 1) {
-      return;
-    }
+    const minDataSets = this.configService.get("blockchain").minNumDataSetsForChecks;
 
     // Create AbortController for job timeout enforcement
     const abortController = new AbortController();
@@ -463,35 +463,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
 
     await this.recordJobExecution("data_set_creation", async () => {
       try {
-        const dsIndex = Math.floor(Math.random() * minDatasets);
-        if (dsIndex === 0) {
-          return "success";
-        }
-
-        const exists = await this.dealService.hasDatasetWithIndex(spAddress, dsIndex);
-        if (exists) {
-          return "success";
-        }
-
-        this.logger.log(`Creating dataset #${dsIndex} for provider ${spAddress}`);
-
-        let provider = this.walletSdkService.getTestingProviders().find((p) => p.serviceProvider === spAddress);
-        if (!provider) {
-          if (process.env.DEALBOT_DISABLE_CHAIN !== "true") {
-            await this.walletSdkService.loadProviders();
-          }
-          provider = this.walletSdkService.getTestingProviders().find((p) => p.serviceProvider === spAddress);
-          if (!provider) {
-            this.logger.warn(`Data set creation job skipped: provider ${spAddress} not found`);
-            return "success";
-          }
-        }
-
-        await this.dealService.createDealForProvider(provider, {
-          ...this.dealService.getTestingDealOptions(),
-          signal: abortController.signal,
-          extraDataSetMetadata: { dealbotDS: String(dsIndex) },
-        });
+        await provisionDataSets({ dealService: this.dealService, logger: this.logger }, spAddress, minDataSets);
         return "success";
       } catch (error) {
         if (abortController.signal.aborted) {
@@ -592,7 +564,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
   private getIntervalSecondsForRates(): {
     dealIntervalSeconds: number;
     retrievalIntervalSeconds: number;
-    datasetCreationIntervalSeconds: number;
+    dataSetCreationIntervalSeconds: number;
     metricsIntervalSeconds: number;
     metricsCleanupIntervalSeconds: number;
     providersRefreshIntervalSeconds: number;
@@ -603,7 +575,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     const defaultDealsPerHour = 3600 / scheduling.dealIntervalSeconds;
     const defaultRetrievalsPerHour = 3600 / scheduling.retrievalIntervalSeconds;
     const defaultMetricsPerHour = 2;
-    const defaultDatasetCreationsPerHour = 1;
+    const defaultDataSetCreationsPerHour = 1;
     // Keep cleanup weekly to match legacy cron schedule unless explicitly changed in code.
     const defaultMetricsCleanupIntervalSeconds = 7 * 24 * 3600;
     const providersRefreshIntervalSeconds = 4 * 3600;
@@ -611,24 +583,24 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     const dealsPerHourRaw = jobsConfig?.dealsPerSpPerHour ?? defaultDealsPerHour;
     const retrievalsPerHourRaw = jobsConfig?.retrievalsPerSpPerHour ?? defaultRetrievalsPerHour;
     const metricsPerHourRaw = jobsConfig?.metricsPerHour ?? defaultMetricsPerHour;
-    const datasetCreationsPerHourRaw = jobsConfig?.datasetCreationsPerSpPerHour ?? defaultDatasetCreationsPerHour;
+    const dataSetCreationsPerHourRaw = jobsConfig?.dataSetCreationsPerSpPerHour ?? defaultDataSetCreationsPerHour;
 
     const dealsPerHour = dealsPerHourRaw > 0 ? dealsPerHourRaw : defaultDealsPerHour;
     const retrievalsPerHour = retrievalsPerHourRaw > 0 ? retrievalsPerHourRaw : defaultRetrievalsPerHour;
     const metricsPerHour = metricsPerHourRaw > 0 ? metricsPerHourRaw : defaultMetricsPerHour;
-    const datasetCreationsPerHour =
-      datasetCreationsPerHourRaw > 0 ? datasetCreationsPerHourRaw : defaultDatasetCreationsPerHour;
+    const dataSetCreationsPerHour =
+      dataSetCreationsPerHourRaw > 0 ? dataSetCreationsPerHourRaw : defaultDataSetCreationsPerHour;
 
     const dealIntervalSeconds = Math.max(1, Math.round(3600 / dealsPerHour));
     const retrievalIntervalSeconds = Math.max(1, Math.round(3600 / retrievalsPerHour));
     const metricsIntervalSeconds = Math.max(1, Math.round(3600 / metricsPerHour));
-    const datasetCreationIntervalSeconds = Math.max(1, Math.round(3600 / datasetCreationsPerHour));
+    const dataSetCreationIntervalSeconds = Math.max(1, Math.round(3600 / dataSetCreationsPerHour));
     const metricsCleanupIntervalSeconds = defaultMetricsCleanupIntervalSeconds;
 
     return {
       dealIntervalSeconds,
       retrievalIntervalSeconds,
-      datasetCreationIntervalSeconds,
+      dataSetCreationIntervalSeconds,
       metricsIntervalSeconds,
       metricsCleanupIntervalSeconds,
       providersRefreshIntervalSeconds,
@@ -647,7 +619,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     const {
       dealIntervalSeconds,
       retrievalIntervalSeconds,
-      datasetCreationIntervalSeconds,
+      dataSetCreationIntervalSeconds,
       metricsIntervalSeconds,
       metricsCleanupIntervalSeconds,
       providersRefreshIntervalSeconds,
@@ -663,21 +635,21 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     const phaseMs = this.schedulePhaseSeconds() * 1000;
     const dealStartAt = new Date(now.getTime() + phaseMs);
     const retrievalStartAt = new Date(now.getTime() + phaseMs);
-    const datasetCreationStartAt = new Date(now.getTime() + phaseMs);
+    const dataSetCreationStartAt = new Date(now.getTime() + phaseMs);
     const metricsStartAt = new Date(now.getTime() + phaseMs);
     const providersRefreshStartAt = new Date(now.getTime() + phaseMs);
 
-    const minDatasets = this.configService.get("blockchain").minNumDatasetsForChecks;
+    const minDataSets = this.configService.get("blockchain").minNumDataSetsForChecks;
 
     for (const address of providerAddresses) {
       await this.jobScheduleRepository.upsertSchedule("deal", address, dealIntervalSeconds, dealStartAt);
       await this.jobScheduleRepository.upsertSchedule("retrieval", address, retrievalIntervalSeconds, retrievalStartAt);
-      if (minDatasets > 1) {
+      if (minDataSets >= 1) {
         await this.jobScheduleRepository.upsertSchedule(
           "data_set_creation",
           address,
-          datasetCreationIntervalSeconds,
-          datasetCreationStartAt,
+          dataSetCreationIntervalSeconds,
+          dataSetCreationStartAt,
         );
       }
     }
