@@ -111,7 +111,7 @@ export interface IBlockchainConfig {
   useOnlyApprovedProviders: boolean;
   enableIpniTesting: IpniTestingMode;
   dealbotDataSetVersion?: string;
-  minNumDatasetsForChecks: number;
+  minNumDataSetsForChecks: number;
 }
 
 export interface ISchedulingConfig {
@@ -160,7 +160,7 @@ export interface IJobsConfig {
    *
    * Only used when `DEALBOT_JOBS_MODE=pgboss` and `MIN_NUM_DATASETS_FOR_CHECKS > 1`.
    */
-  datasetCreationsPerSpPerHour?: number;
+  dataSetCreationsPerSpPerHour?: number;
   /**
    * How often the scheduler polls Postgres for due jobs (seconds).
    *
@@ -306,7 +306,7 @@ export function loadConfig(): IConfig {
       useOnlyApprovedProviders: process.env.USE_ONLY_APPROVED_PROVIDERS !== "false",
       enableIpniTesting: parseIpniTestingMode(process.env.ENABLE_IPNI_TESTING),
       dealbotDataSetVersion: process.env.DEALBOT_DATASET_VERSION,
-      minNumDatasetsForChecks: Number.parseInt(process.env.MIN_NUM_DATASETS_FOR_CHECKS || "1", 10),
+      minNumDataSetsForChecks: Number.parseInt(process.env.MIN_NUM_DATASETS_FOR_CHECKS || "1", 10),
     },
     scheduling: {
       dealIntervalSeconds: Number.parseInt(process.env.DEAL_INTERVAL_SECONDS || "30", 10),
@@ -329,7 +329,7 @@ export function loadConfig(): IConfig {
       retrievalsPerSpPerHour: process.env.RETRIEVALS_PER_SP_PER_HOUR
         ? Number.parseFloat(process.env.RETRIEVALS_PER_SP_PER_HOUR)
         : undefined,
-      datasetCreationsPerSpPerHour: process.env.DATASET_CREATIONS_PER_SP_PER_HOUR
+      dataSetCreationsPerSpPerHour: process.env.DATASET_CREATIONS_PER_SP_PER_HOUR
         ? Number.parseFloat(process.env.DATASET_CREATIONS_PER_SP_PER_HOUR)
         : undefined,
       schedulerPollSeconds: Number.parseInt(process.env.JOB_SCHEDULER_POLL_SECONDS || "300", 10),
