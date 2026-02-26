@@ -6,7 +6,6 @@ import { ServiceType } from "../database/types.js";
 import { HttpClientService } from "../http-client/http-client.service.js";
 import type { RequestWithMetrics } from "../http-client/types.js";
 import type { IRetrievalAddon } from "./interfaces/retrieval-addon.interface.js";
-import { DirectRetrievalStrategy } from "./strategies/direct.strategy.js";
 import { IpfsBlockRetrievalStrategy } from "./strategies/ipfs-block.strategy.js";
 import type {
   RetrievalConfiguration,
@@ -27,7 +26,6 @@ export class RetrievalAddonsService {
   private readonly addons: Map<string, IRetrievalAddon> = new Map();
 
   constructor(
-    private readonly directRetrieval: DirectRetrievalStrategy,
     private readonly ipfsBlockRetrieval: IpfsBlockRetrievalStrategy,
     private readonly httpClientService: HttpClientService,
   ) {
@@ -39,7 +37,6 @@ export class RetrievalAddonsService {
    * @private
    */
   private registerAddons(): void {
-    this.registerAddon(this.directRetrieval);
     this.registerAddon(this.ipfsBlockRetrieval);
 
     this.logger.log(`Registered ${this.addons.size} retrieval add-ons: ${Array.from(this.addons.keys()).join(", ")}`);
@@ -379,6 +376,16 @@ export class RetrievalAddonsService {
         const totalTime = performance.now() - startTime;
         const responseSize = validation.bytesRead ?? 0;
         const throughput = totalTime > 0 && responseSize > 0 ? responseSize / (totalTime / 1000) : 0;
+        const validationOk = validation.isValid;
+        let statusCode = 200;
+        if (!validationOk) {
+          if (validation.httpStatusCode != null) {
+            statusCode = validation.httpStatusCode;
+          } else if (validation.method === "metadata-missing") {
+            statusCode = 0;
+          }
+        }
+        const error = validationOk ? undefined : validation.details || "IPFS block-fetch validation failed";
 
         return {
           url: urlResult.url,
@@ -387,12 +394,13 @@ export class RetrievalAddonsService {
             latency: Math.round(totalTime),
             ttfb: validation.ttfb ?? 0,
             throughput,
-            statusCode: validation.isValid ? 200 : 0,
+            statusCode,
             timestamp: new Date(),
             responseSize,
           },
           validation,
-          success: true,
+          success: validationOk,
+          error,
         };
       }
 
@@ -491,7 +499,7 @@ export class RetrievalAddonsService {
           latency: 0,
           ttfb: 0,
           throughput: 0,
-          statusCode: 0,
+          statusCode: responseInfo.statusCode ?? 0,
           timestamp: new Date(),
           responseSize: 0,
         },
