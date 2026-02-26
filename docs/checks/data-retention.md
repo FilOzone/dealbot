@@ -213,7 +213,7 @@ flowchart TD
     CalcTotals --> CalcDeltas[Calculate Deltas from Baseline]
     CalcDeltas --> CheckDeltas{Deltas<br/>Positive?}
 
-    CheckDeltas -->|Negative| ResetBaseline[Reset Baseline. No Metric Update]
+    CheckDeltas -->|Negative| ResetBaseline[Decrement Provider Baseline. No Metric Update]
     CheckDeltas -->|Positive| IncrementMetrics[Increment Prometheus Counters]
     IncrementMetrics --> UpdateBaseline[Update Baseline]
     ResetBaseline --> MoreBatches{More<br/>Batches?}
@@ -226,7 +226,7 @@ flowchart TD
 
     Cleanup --> FetchStale[Fetch Stale Provider Info from DB]
     FetchStale --> RemoveMetrics[Remove Prometheus Metrics]
-    RemoveMetrics --> DeleteBaseline[Delete Baseline from Memory]
+    RemoveMetrics --> DeleteBaseline[Delete Provider Baseline from Memory]
 
     SkipCleanup --> End[Complete]
     DeleteBaseline --> End
