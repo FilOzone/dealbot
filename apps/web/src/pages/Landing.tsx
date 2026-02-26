@@ -2,17 +2,50 @@ import { Activity, ExternalLink, Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
-const getConfig = () => ({
-  dashboardUrl: window.__DEALBOT_CONFIG__?.DASHBOARD_URL ?? import.meta.env.VITE_DASHBOARD_URL ?? "",
-  dashboardEmbedUrl: window.__DEALBOT_CONFIG__?.DASHBOARD_EMBED_URL ?? import.meta.env.VITE_DASHBOARD_EMBED_URL ?? "",
-  logsUrl: window.__DEALBOT_CONFIG__?.LOGS_URL ?? import.meta.env.VITE_LOGS_URL ?? "",
-});
+const sanitizeConfigUrl = (value: string) => {
+  if (!value) {
+    return "";
+  }
+
+  try {
+    const parsed = new URL(value);
+    const isHttps = parsed.protocol === "https:";
+    const isLocalDev = parsed.protocol === "http:" && ["localhost", "127.0.0.1"].includes(parsed.hostname);
+    return isHttps || isLocalDev ? parsed.toString() : "";
+  } catch {
+    return "";
+  }
+};
+
+const getConfigUrl = (runtimeValue?: string, buildValue?: string) => {
+  const raw = (runtimeValue ?? buildValue ?? "").trim();
+  const safe = sanitizeConfigUrl(raw);
+  return { safe, isInvalid: Boolean(raw) && !safe };
+};
+
+const getConfig = () => {
+  const runtimeConfig = typeof window === "undefined" ? undefined : window.__DEALBOT_CONFIG__;
+
+  const dashboardUrl = getConfigUrl(runtimeConfig?.DASHBOARD_URL, import.meta.env.VITE_DASHBOARD_URL);
+  const dashboardEmbedUrl = getConfigUrl(runtimeConfig?.DASHBOARD_EMBED_URL, import.meta.env.VITE_DASHBOARD_EMBED_URL);
+  const logsUrl = getConfigUrl(runtimeConfig?.LOGS_URL, import.meta.env.VITE_LOGS_URL);
+
+  return {
+    dashboardUrl: dashboardUrl.safe,
+    dashboardUrlInvalid: dashboardUrl.isInvalid,
+    dashboardEmbedUrl: dashboardEmbedUrl.safe,
+    dashboardEmbedUrlInvalid: dashboardEmbedUrl.isInvalid,
+    logsUrl: logsUrl.safe,
+    logsUrlInvalid: logsUrl.isInvalid,
+  };
+};
 
 export default function Landing() {
-  const { dashboardUrl, dashboardEmbedUrl, logsUrl } = getConfig();
+  const { dashboardUrl, dashboardUrlInvalid, dashboardEmbedUrl, dashboardEmbedUrlInvalid, logsUrl, logsUrlInvalid } =
+    getConfig();
 
   return (
-    <div className="flex flex-col items-center gap-8 py-12 max-w-5xl mx-auto">
+    <div className="flex w-full flex-col items-center gap-12 pt-8">
       {/* Hero */}
       <div className="text-center space-y-4">
         <div className="flex items-center justify-center gap-2 text-primary">
@@ -72,8 +105,17 @@ export default function Landing() {
               </Button>
             ) : (
               <p className="text-xs text-destructive">
-                No dashboard URL configured — set <code className="font-mono">VITE_DASHBOARD_URL</code> or{" "}
-                <code className="font-mono">DASHBOARD_URL</code> in runtime config.
+                {dashboardUrlInvalid ? (
+                  <>
+                    Dashboard URL is invalid. Use <code className="font-mono">https://...</code> (or{" "}
+                    <code className="font-mono">http://localhost...</code> for local dev).
+                  </>
+                ) : (
+                  <>
+                    No dashboard URL configured — set <code className="font-mono">VITE_DASHBOARD_URL</code> or{" "}
+                    <code className="font-mono">DASHBOARD_URL</code> in runtime config.
+                  </>
+                )}
               </p>
             )}
             {logsUrl && (
@@ -84,20 +126,39 @@ export default function Landing() {
                 </a>
               </Button>
             )}
+            {logsUrlInvalid && (
+              <p className="text-xs text-destructive">
+                Logs URL is invalid. Use <code className="font-mono">https://...</code> (or{" "}
+                <code className="font-mono">http://localhost...</code> for local dev).
+              </p>
+            )}
           </div>
         </CardContent>
       </Card>
 
       {/* Embedded dashboard */}
       {dashboardEmbedUrl && (
-        <div className="w-full rounded-xl border overflow-hidden">
-          <iframe
-            src={dashboardEmbedUrl}
-            title="Metrics Dashboard"
-            className="w-full"
-            style={{ height: "80vh", minHeight: "600px", minWidth: "800px", border: "none" }}
-          />
+        <div className="w-full self-stretch space-y-3">
+          <p className="text-sm text-muted-foreground">
+            On smaller screens, the embedded dashboard may show internal scrolling.
+          </p>
+          <div className="w-full max-w-none overflow-hidden rounded-xl border">
+            <iframe
+              src={dashboardEmbedUrl}
+              title="Metrics Dashboard"
+              className="h-[70vh] min-h-[480px] w-full md:h-[80vh] md:min-h-[600px]"
+              style={{ border: "none" }}
+              loading="lazy"
+              sandbox="allow-same-origin allow-scripts allow-popups allow-popups-to-escape-sandbox"
+            />
+          </div>
         </div>
+      )}
+      {dashboardEmbedUrlInvalid && (
+        <p className="w-full text-xs text-destructive">
+          Dashboard embed URL is invalid. Use <code className="font-mono">https://...</code> (or{" "}
+          <code className="font-mono">http://localhost...</code> for local dev).
+        </p>
       )}
     </div>
   );
