@@ -1,28 +1,10 @@
-import { ConsoleLogger, type LogLevel } from "@nestjs/common";
+import { ConsoleLogger } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
 import cors from "cors";
 import helmet from "helmet";
+import { resolveLogLevels } from "./common/log-levels.js";
 import { toStructuredError } from "./common/logging.js";
-
-const LOG_LEVELS: Record<string, LogLevel[]> = {
-  fatal: ["fatal"],
-  error: ["fatal", "error"],
-  warn: ["fatal", "error", "warn"],
-  log: ["fatal", "error", "warn", "log"],
-  // Accept pino-style "info" input (used by filecoin-pin and synapse-sdk) and map it to Nest's "log" level.
-  info: ["fatal", "error", "warn", "log"],
-  debug: ["fatal", "error", "warn", "log", "debug"],
-  verbose: ["fatal", "error", "warn", "log", "debug", "verbose"],
-};
-
-function resolveLogLevels(level: string | undefined): LogLevel[] {
-  if (!level) {
-    return LOG_LEVELS.log;
-  }
-  const normalized = level.toLowerCase().trim();
-  return LOG_LEVELS[normalized] ?? LOG_LEVELS.log;
-}
 
 /** Logger used for bootstrap/exit paths before Nest app is created or on unhandled rejection. */
 const exitLogger = new ConsoleLogger("Main", {
@@ -116,12 +98,23 @@ async function bootstrap() {
     throw new Error(`Invalid ${name}: ${portEnvValue ?? ""}`);
   }
   const host = isWorkerOnly ? process.env.DEALBOT_METRICS_HOST || "0.0.0.0" : process.env.DEALBOT_HOST || "127.0.0.1";
+  logger.log({
+    event: "bootstrap_listen_start",
+    message: "Starting HTTP listener",
+    host,
+    port,
+    runMode,
+  });
   await app.listen(port, host);
-  logger.log(
-    isWorkerOnly
+  logger.log({
+    event: "bootstrap_listen_complete",
+    message: isWorkerOnly
       ? `Dealbot worker is running; metrics available on ${host}:${port}/metrics`
       : `Dealbot backend is running on ${host}:${port}`,
-  );
+    host,
+    port,
+    runMode,
+  });
 }
 
 process.once("unhandledRejection", (reason: unknown, _promise: Promise<unknown>) => {
