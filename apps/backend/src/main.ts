@@ -31,13 +31,23 @@ const exitLogger = new ConsoleLogger("Main", {
   logLevels: resolveLogLevels(process.env.LOG_LEVEL),
 });
 
-function logErrorAndExit(event: string, message: string, error: unknown): never {
-  exitLogger.error({
+let isExiting = false;
+
+function logErrorAndExit(event: string, message: string, error: unknown): void {
+  if (isExiting) {
+    return;
+  }
+  isExiting = true;
+
+  exitLogger.fatal({
     event,
     message,
     error: toStructuredError(error),
   });
-  process.exit(1);
+  process.exitCode = 1;
+  setImmediate(() => {
+    process.exit(1);
+  });
 }
 
 async function bootstrap() {
@@ -114,8 +124,12 @@ async function bootstrap() {
   );
 }
 
-void bootstrap().catch((error: unknown) => logErrorAndExit("bootstrap_failed", "Bootstrap failed", error));
-
-process.on("unhandledRejection", (reason: unknown, _promise: Promise<unknown>) => {
+process.once("unhandledRejection", (reason: unknown, _promise: Promise<unknown>) => {
   logErrorAndExit("unhandled_rejection", "Unhandled rejection", reason);
 });
+
+process.once("uncaughtException", (error: unknown) => {
+  logErrorAndExit("uncaught_exception", "Uncaught exception", error);
+});
+
+void bootstrap().catch((error: unknown) => logErrorAndExit("bootstrap_failed", "Bootstrap failed", error));
