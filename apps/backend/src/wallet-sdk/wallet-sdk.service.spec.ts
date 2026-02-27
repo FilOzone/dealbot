@@ -137,7 +137,11 @@ describe("WalletSdkService", () => {
     await service.syncProvidersToDatabase([first, second]);
 
     expect(loggerMock.error).toHaveBeenCalledWith(
-      expect.stringContaining("Duplicate provider addresses without active/inactive resolution"),
+      expect.objectContaining({
+        event: "duplicate_provider_addresses_unresolved",
+        message: expect.stringContaining("Duplicate provider addresses without active/inactive resolution"),
+        details: expect.arrayContaining([expect.stringContaining("0xdup3")]),
+      }),
     );
 
     const [entities] = repoMock.upsert.mock.calls[0];

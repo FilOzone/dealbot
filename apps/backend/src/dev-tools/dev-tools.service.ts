@@ -1,6 +1,7 @@
 import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import type { Repository } from "typeorm";
+import { toStructuredError } from "../common/logging.js";
 import { Deal } from "../database/entities/deal.entity.js";
 import { DealStatus, RetrievalStatus } from "../database/types.js";
 import { DealService } from "../deal/deal.service.js";
@@ -100,7 +101,12 @@ export class DevToolsService {
 
     // Fire off the deal creation in the background (don't await)
     this.processDealInBackground(dealId, providerInfo, enableIpni).catch((err) => {
-      this.logger.error(`Background deal processing failed for ${dealId}: ${err.message}`);
+      this.logger.error({
+        event: "background_deal_processing_failed",
+        message: `Background deal processing failed for ${dealId}`,
+        dealId,
+        error: toStructuredError(err),
+      });
     });
 
     // Return immediately with the pending deal info
@@ -131,12 +137,18 @@ export class DevToolsService {
 
       this.logger.log(`Background deal ${dealId} completed successfully: ${deal.pieceCid}`);
     } catch (error) {
-      this.logger.error(`Background deal ${dealId} failed: ${error.message}`);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.error({
+        event: "background_deal_failed",
+        message: `Background deal ${dealId} failed`,
+        dealId,
+        error: toStructuredError(error),
+      });
 
       // Update deal with error status
       await this.dealRepository.update(dealId, {
         status: DealStatus.FAILED,
-        errorMessage: error.message,
+        errorMessage,
       });
     }
   }

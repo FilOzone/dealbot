@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, Logger } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Between, type Repository } from "typeorm";
+import { toStructuredError } from "../../common/logging.js";
 import { MetricsDaily } from "../../database/entities/metrics-daily.entity.js";
 import { MetricType, ServiceType } from "../../database/types.js";
 import type {
@@ -72,7 +73,11 @@ export class DailyMetricsService {
         summary,
       };
     } catch (error) {
-      this.logger.error(`Failed to fetch daily metrics: ${error.message}`, error.stack);
+      this.logger.error({
+        event: "fetch_daily_metrics_failed",
+        message: "Failed to fetch daily metrics",
+        error: toStructuredError(error),
+      });
       throw error;
     }
   }
@@ -120,7 +125,12 @@ export class DailyMetricsService {
         summary,
       };
     } catch (error) {
-      this.logger.error(`Failed to fetch provider daily metrics for ${spAddress}: ${error.message}`, error.stack);
+      this.logger.error({
+        event: "fetch_provider_daily_metrics_failed",
+        message: `Failed to fetch provider daily metrics for ${spAddress}`,
+        spAddress,
+        error: toStructuredError(error),
+      });
       throw error;
     }
   }
@@ -195,7 +205,11 @@ export class DailyMetricsService {
         summary,
       };
     } catch (error) {
-      this.logger.error(`Failed to fetch service comparison: ${error.message}`, error.stack);
+      this.logger.error({
+        event: "fetch_service_comparison_failed",
+        message: "Failed to fetch service comparison",
+        error: toStructuredError(error),
+      });
       throw error;
     }
   }

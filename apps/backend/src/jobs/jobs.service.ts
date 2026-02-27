@@ -5,6 +5,7 @@ import { InjectMetric } from "@willsoto/nestjs-prometheus";
 import { type Job, PgBoss, type SendOptions } from "pg-boss";
 import type { Counter, Gauge, Histogram } from "prom-client";
 import type { Repository } from "typeorm";
+import { toStructuredError } from "../common/logging.js";
 import { getMaintenanceWindowStatus } from "../common/maintenance-window.js";
 import type { IConfig } from "../config/app.config.js";
 import type { JobType } from "../database/entities/job-schedule-state.entity.js";
@@ -93,9 +94,16 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     }
     await this.startBoss();
     if (!this.boss) {
-      this.logger.error("pg-boss failed to start; job scheduler is disabled.");
+      this.logger.error({
+        event: "pgboss_start_unavailable",
+        message: "pg-boss failed to start; job scheduler is disabled.",
+      });
       if (workersEnabled || schedulerEnabled) {
-        this.logger.error("pg-boss is required for this run mode; exiting to trigger restart.");
+        this.logger.error({
+          event: "pgboss_required_for_run_mode",
+          message: "pg-boss is required for this run mode; exiting to trigger restart.",
+          runMode,
+        });
         process.exit(1);
       }
       return;
@@ -184,7 +192,11 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       migrate,
     });
     this.bossErrorHandler = (error: Error) => {
-      this.logger.error(`pg-boss error: ${error.message}`, error.stack);
+      this.logger.error({
+        event: "pgboss_error",
+        message: "pg-boss error",
+        error: toStructuredError(error),
+      });
     };
     boss.on("error", this.bossErrorHandler);
     try {
@@ -194,7 +206,11 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     } catch (error) {
       boss.off("error", this.bossErrorHandler);
       this.bossErrorHandler = undefined;
-      this.logger.error(`Failed to start pg-boss: ${error.message}`, error.stack);
+      this.logger.error({
+        event: "pgboss_start_failed",
+        message: "Failed to start pg-boss",
+        error: toStructuredError(error),
+      });
     }
   }
 
@@ -232,7 +248,11 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         },
       )
       .catch((error) =>
-        this.logger.error(`Failed to register worker for ${SP_WORK_QUEUE}: ${error.message}`, error.stack),
+        this.logger.error({
+          event: "worker_register_failed",
+          message: `Failed to register worker for ${SP_WORK_QUEUE}`,
+          error: toStructuredError(error),
+        }),
       );
     void this.boss
       .work<MetricsJobData, void>(
@@ -240,7 +260,13 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         { batchSize: 1, pollingIntervalSeconds: workerPollSeconds },
         async ([job]) => this.handleMetricsJob(job.data),
       )
-      .catch((error) => this.logger.error(`Failed to register worker for metrics.run: ${error.message}`, error.stack));
+      .catch((error) =>
+        this.logger.error({
+          event: "worker_register_failed",
+          message: "Failed to register worker for metrics.run",
+          error: toStructuredError(error),
+        }),
+      );
     void this.boss
       .work<MetricsJobData, void>(
         METRICS_CLEANUP_QUEUE,
@@ -248,14 +274,22 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         async ([job]) => this.handleMetricsCleanupJob(job.data),
       )
       .catch((error) =>
-        this.logger.error(`Failed to register worker for metrics.cleanup: ${error.message}`, error.stack),
+        this.logger.error({
+          event: "worker_register_failed",
+          message: "Failed to register worker for metrics.cleanup",
+          error: toStructuredError(error),
+        }),
       );
     void this.boss
       .work(PROVIDERS_REFRESH_QUEUE, { batchSize: 1, pollingIntervalSeconds: workerPollSeconds }, async ([job]) =>
         this.handleProvidersRefreshJob(job.data as ProvidersRefreshJobData),
       )
       .catch((error) =>
-        this.logger.error(`Failed to subscribe to ${PROVIDERS_REFRESH_QUEUE}: ${error.message}`, error.stack),
+        this.logger.error({
+          event: "worker_register_failed",
+          message: `Failed to subscribe to ${PROVIDERS_REFRESH_QUEUE}`,
+          error: toStructuredError(error),
+        }),
       );
   }
 
@@ -315,16 +349,20 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         if (abortController.signal.aborted) {
           const reason = abortController.signal.reason;
           const reasonMessage = reason instanceof Error ? reason.message : String(reason ?? "");
-          this.logger.error(
-            reasonMessage
-              ? `Deal job aborted: ${reasonMessage}`
-              : `Deal job aborted after timeout (${effectiveTimeoutSeconds}s) for ${spAddress}`,
-          );
+          this.logger.error({
+            event: "deal_job_aborted",
+            message: reasonMessage || `Deal job aborted after timeout (${effectiveTimeoutSeconds}s) for ${spAddress}`,
+            spAddress,
+            timeoutSeconds: effectiveTimeoutSeconds,
+            error: toStructuredError(reason ?? error),
+          });
           return "aborted";
         }
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        const errorStack = error instanceof Error ? error.stack : undefined;
-        this.logger.error(`Deal job failed for ${spAddress}: ${errorMessage}`, errorStack);
+        this.logger.error({
+          event: "deal_job_failed",
+          message: `Deal job failed for ${spAddress}`,
+          error: toStructuredError(error),
+        });
         // Jobs are not retried once attempted; failures are handled by the next schedule tick.
         throw error;
       } finally {
@@ -362,16 +400,21 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         if (abortController.signal.aborted) {
           const reason = abortController.signal.reason;
           const reasonMessage = reason instanceof Error ? reason.message : String(reason ?? "");
-          this.logger.error(
-            reasonMessage
-              ? `Retrieval job aborted: ${reasonMessage}`
-              : `Retrieval job aborted after timeout (${effectiveTimeoutSeconds}s) for ${spAddress}`,
-          );
+          this.logger.error({
+            event: "retrieval_job_aborted",
+            message:
+              reasonMessage || `Retrieval job aborted after timeout (${effectiveTimeoutSeconds}s) for ${spAddress}`,
+            spAddress,
+            timeoutSeconds: effectiveTimeoutSeconds,
+            error: toStructuredError(reason ?? error),
+          });
           return "aborted";
         }
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        const errorStack = error instanceof Error ? error.stack : undefined;
-        this.logger.error(`Retrieval job failed for ${spAddress}: ${errorMessage}`, errorStack);
+        this.logger.error({
+          event: "retrieval_job_failed",
+          message: `Retrieval job failed for ${spAddress}`,
+          error: toStructuredError(error),
+        });
         // Jobs are not retried once attempted; failures are handled by the next schedule tick.
         throw error;
       } finally {
@@ -475,13 +518,21 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       await this.ensureScheduleRows();
       await this.enqueueDueJobs();
     } catch (error) {
-      this.logger.error(`pg-boss scheduler core tick failed: ${error.message}`, error.stack);
+      this.logger.error({
+        event: "pgboss_scheduler_tick_failed",
+        message: "pg-boss scheduler core tick failed",
+        error: toStructuredError(error),
+      });
     }
 
     try {
       await this.updateQueueMetrics();
     } catch (error) {
-      this.logger.error(`pg-boss scheduler metrics update failed: ${error.message}`, error.stack);
+      this.logger.error({
+        event: "pgboss_scheduler_metrics_update_failed",
+        message: "pg-boss scheduler metrics update failed",
+        error: toStructuredError(error),
+      });
     }
   }
 
@@ -701,7 +752,13 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       this.jobsEnqueueAttemptsCounter.inc({ job_type: jobType, outcome: "success" });
       return true;
     } catch (error) {
-      this.logger.warn(`Failed to enqueue ${name}: ${error.message}`);
+      this.logger.warn({
+        event: "job_enqueue_failed",
+        message: `Failed to enqueue ${name}`,
+        queue: name,
+        jobType,
+        error: toStructuredError(error),
+      });
       this.jobsEnqueueAttemptsCounter.inc({ job_type: jobType, outcome: "error" });
       return false;
     }
@@ -755,9 +812,11 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         }
       }
     } else {
-      this.logger.error(
-        "pgboss.job returned zero rows for states created/retry/active; metrics will remain at 0. Verify the backend is connected to the expected database and schema.",
-      );
+      this.logger.error({
+        event: "pgboss_job_state_query_empty",
+        message:
+          "pgboss.job returned zero rows for states created/retry/active; metrics will remain at 0. Verify the backend is connected to the expected database and schema.",
+      });
     }
 
     const pausedSchedules = await this.jobScheduleRepository.countPausedSchedules();

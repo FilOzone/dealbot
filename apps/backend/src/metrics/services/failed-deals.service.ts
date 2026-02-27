@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, Logger } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Between, IsNull, Like, Not, type Repository } from "typeorm";
+import { toStructuredError } from "../../common/logging.js";
 import { Deal } from "../../database/entities/deal.entity.js";
 import { DealStatus } from "../../database/types.js";
 import type {
@@ -115,7 +116,11 @@ export class FailedDealsService {
         summary,
       };
     } catch (error) {
-      this.logger.error(`Failed to fetch failed deals: ${error.message}`, error.stack);
+      this.logger.error({
+        event: "fetch_failed_deals_failed",
+        message: "Failed to fetch failed deals",
+        error: toStructuredError(error),
+      });
       throw error;
     }
   }
@@ -133,7 +138,11 @@ export class FailedDealsService {
 
       return await this.calculateSummary(startDate, endDate);
     } catch (error) {
-      this.logger.error(`Failed to fetch error summary: ${error.message}`, error.stack);
+      this.logger.error({
+        event: "fetch_failed_deals_summary_failed",
+        message: "Failed to fetch failed deals error summary",
+        error: toStructuredError(error),
+      });
       throw error;
     }
   }

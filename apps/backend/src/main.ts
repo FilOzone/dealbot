@@ -1,10 +1,27 @@
-import { Logger } from "@nestjs/common";
+import { ConsoleLogger, type LogLevel } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
 import cors from "cors";
 import helmet from "helmet";
 
-const logger = new Logger("Main");
+const LOG_LEVELS: Record<string, LogLevel[]> = {
+  fatal: ["fatal"],
+  error: ["fatal", "error"],
+  warn: ["fatal", "error", "warn"],
+  log: ["fatal", "error", "warn", "log"],
+  // Accept pino-style "info" input (used by filecoin-pin and synapse-sdk) and map it to Nest's "log" level.
+  info: ["fatal", "error", "warn", "log"],
+  debug: ["fatal", "error", "warn", "log", "debug"],
+  verbose: ["fatal", "error", "warn", "log", "debug", "verbose"],
+};
+
+function resolveLogLevels(level: string | undefined): LogLevel[] {
+  if (!level) {
+    return LOG_LEVELS.log;
+  }
+  const normalized = level.toLowerCase().trim();
+  return LOG_LEVELS[normalized] ?? LOG_LEVELS.log;
+}
 
 function logErrorAndExit(message: string, error: unknown): never {
   const err = error instanceof Error ? error : new Error(String(error));
@@ -13,13 +30,20 @@ function logErrorAndExit(message: string, error: unknown): never {
 }
 
 async function bootstrap() {
+  const logLevels = resolveLogLevels(process.env.LOG_LEVEL);
+  const logger = new ConsoleLogger("Main", {
+    json: true,
+    colors: false,
+    logLevels,
+  });
+
   const runMode = (process.env.DEALBOT_RUN_MODE || "both").toLowerCase();
   const isWorkerOnly = runMode === "worker";
   const rootModule = isWorkerOnly
     ? (await import("./worker.module.js")).WorkerModule
     : (await import("./app.module.js")).AppModule;
   const app = await NestFactory.create(rootModule, {
-    logger: ["log", "fatal", "error", "warn"],
+    logger,
   });
 
   // Ensure Nest calls lifecycle shutdown hooks (OnApplicationShutdown / BeforeApplicationShutdown)

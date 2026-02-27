@@ -108,8 +108,15 @@ describe("scheduleJobWithOffset", () => {
 
     expect(callback).toHaveBeenCalled();
     expect(logger.error).toHaveBeenCalledWith(
-      expect.stringContaining("Scheduled job test-job failed"),
-      expect.any(String),
+      expect.objectContaining({
+        event: "scheduled_job_failed",
+        message: "Scheduled job test-job failed",
+        error: expect.objectContaining({
+          type: "error",
+          name: "Error",
+          message: "Job failed",
+        }),
+      }),
     );
   });
 
