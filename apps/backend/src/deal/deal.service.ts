@@ -1,4 +1,5 @@
-import { RPC_URLS, SIZE_CONSTANTS, Synapse } from "@filoz/synapse-sdk";
+import { randomBytes } from "node:crypto";
+import { PDPAuthHelper, PDPServer, RPC_URLS, SIZE_CONSTANTS, Synapse } from "@filoz/synapse-sdk";
 import { Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
@@ -416,39 +417,87 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Returns a Synapse instance for interacting with the storage SDK.
-   * Creates a new instance if the shared one is not available.
+   * Checks if an on-chain data set exists for a provider with specific metadata.
    */
-  async getSynapseInstance(): Promise<Synapse> {
-    return this.sharedSynapse ?? (await this.createSynapseInstance());
-  }
-
-  /**
-   * Finds all data-sets for the current client using the Synapse SDK.
-   */
-  async findProviderDataSets(
-    synapse: Synapse,
-    providerAddress: string,
-  ): Promise<{ dataSetId: number | bigint; metadata: Record<string, string>; serviceProvider: string }[]> {
-    const allDataSets = await synapse.storage.findDataSets();
-    return allDataSets
-      .filter((ds) => ds.serviceProvider.toLowerCase() === providerAddress.toLowerCase())
-      .map((ds) => ({ dataSetId: ds.dataSetId, metadata: ds.metadata, serviceProvider: ds.serviceProvider }));
-  }
-
-  /**
-   * Creates a data-set context for a provider with the given metadata.
-   */
-  async createDataSetContext(
-    synapse: Synapse,
-    providerAddress: string,
-    metadata: Record<string, string>,
-  ): Promise<{ dataSetId: number | undefined }> {
-    const storage = await synapse.storage.createContext({
+  async checkDataSetExists(providerAddress: string, metadata: Record<string, string>): Promise<boolean> {
+    const synapse = this.sharedSynapse ?? (await this.createSynapseInstance());
+    const context = await synapse.storage.createContext({
       providerAddress,
       metadata,
     });
-    return { dataSetId: storage.dataSetId };
+    return context.dataSetId !== undefined;
+  }
+
+  /**
+   * Creates an on-chain data-set for a provider with the given metadata.
+   *
+   * Uses PDPServer.createDataSet() which sends an EIP-712 signed transaction
+   * to the PDP service, creating the data-set on-chain and polling for
+   * confirmation.
+   *
+   * @returns The confirmed on-chain data-set ID.
+   */
+  async createDataSet(providerAddress: string, metadata: Record<string, string>): Promise<{ dataSetId: number }> {
+    const synapse = this.sharedSynapse ?? (await this.createSynapseInstance());
+    const provider = this.walletSdkService.getProviderInfo(providerAddress);
+    if (!provider) {
+      throw new Error(`Provider ${providerAddress} not found in registry`);
+    }
+
+    const serviceURL = provider.products.PDP?.data.serviceURL;
+    if (!serviceURL) {
+      throw new Error(`Provider ${providerAddress} has no PDP serviceURL`);
+    }
+
+    const signer = synapse.getSigner();
+    const warmStorageAddress = synapse.getWarmStorageAddress();
+    const chainId = synapse.getChainId();
+    const authHelper = new PDPAuthHelper(warmStorageAddress, signer, BigInt(chainId));
+    const pdpServer = new PDPServer(authHelper, serviceURL);
+
+    const metadataEntries = Object.entries(metadata).map(([key, value]) => ({ key, value }));
+
+    const payer = await synapse.getClient().getAddress();
+    const clientDataSetId = BigInt(`0x${randomBytes(32).toString("hex")}`);
+
+    const result = await pdpServer.createDataSet(
+      clientDataSetId,
+      provider.payee,
+      payer,
+      metadataEntries,
+      warmStorageAddress,
+    );
+
+    this.logger.log(`Data-set creation tx submitted: ${result.txHash} for provider ${providerAddress}`);
+
+    // Poll for on-chain confirmation
+    const confirmed = await this.pollForDataSetCreation(pdpServer, result.txHash);
+
+    this.logger.log(`Data-set created on-chain: ID=${confirmed.dataSetId} for provider ${providerAddress}`);
+
+    return { dataSetId: confirmed.dataSetId! };
+  }
+
+  /**
+   * Polls the PDP server until the data-set creation transaction is confirmed on-chain.
+   */
+  private async pollForDataSetCreation(
+    pdpServer: PDPServer,
+    txHash: string,
+    maxAttempts = 60,
+    intervalMs = 5000,
+  ): Promise<{ dataSetId?: number }> {
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      const status = await pdpServer.getDataSetCreationStatus(txHash);
+      if (status.dataSetCreated && status.dataSetId != null) {
+        return { dataSetId: status.dataSetId };
+      }
+      if (status.ok === false) {
+        throw new Error(`Data-set creation tx failed: ${txHash}`);
+      }
+      await new Promise((resolve) => setTimeout(resolve, intervalMs));
+    }
+    throw new Error(`Data-set creation timed out after ${(maxAttempts * intervalMs) / 1000}s for tx: ${txHash}`);
   }
 
   // ============================================================================
