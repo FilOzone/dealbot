@@ -6,15 +6,7 @@ import helmet from "helmet";
 import { resolveLogLevels } from "./common/log-levels.js";
 import { toStructuredError } from "./common/logging.js";
 
-/** Logger used for bootstrap/exit paths before Nest app is created or on unhandled rejection. */
-const exitLogger = new ConsoleLogger("Main", {
-  json: true,
-  colors: false,
-  logLevels: resolveLogLevels(process.env.LOG_LEVEL),
-});
-
 let isExiting = false;
-
 function logErrorAndExit(event: string, message: string, error: unknown): void {
   if (isExiting) {
     return;
@@ -31,6 +23,21 @@ function logErrorAndExit(event: string, message: string, error: unknown): void {
     process.exit(1);
   });
 }
+
+process.once("unhandledRejection", (reason: unknown, _promise: Promise<unknown>) => {
+  logErrorAndExit("unhandled_rejection", "Unhandled rejection", reason);
+});
+
+process.once("uncaughtException", (error: unknown) => {
+  logErrorAndExit("uncaught_exception", "Uncaught exception", error);
+});
+
+/** Logger used for bootstrap/exit paths before Nest app is created or on unhandled rejection. */
+const exitLogger = new ConsoleLogger("Main", {
+  json: true,
+  colors: false,
+  logLevels: resolveLogLevels(process.env.LOG_LEVEL),
+});
 
 async function bootstrap() {
   const logLevels = resolveLogLevels(process.env.LOG_LEVEL);
@@ -118,13 +125,5 @@ async function bootstrap() {
     runMode,
   });
 }
-
-process.once("unhandledRejection", (reason: unknown, _promise: Promise<unknown>) => {
-  logErrorAndExit("unhandled_rejection", "Unhandled rejection", reason);
-});
-
-process.once("uncaughtException", (error: unknown) => {
-  logErrorAndExit("uncaught_exception", "Uncaught exception", error);
-});
 
 void bootstrap().catch((error: unknown) => logErrorAndExit("bootstrap_failed", "Bootstrap failed", error));
