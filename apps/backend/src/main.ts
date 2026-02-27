@@ -114,9 +114,7 @@ async function bootstrap() {
   );
 }
 
-void bootstrap().catch((error: unknown) =>
-  logErrorAndExit("bootstrap_failed", "Bootstrap failed", error),
-);
+void bootstrap().catch((error: unknown) => logErrorAndExit("bootstrap_failed", "Bootstrap failed", error));
 
 process.on("unhandledRejection", (reason: unknown, _promise: Promise<unknown>) => {
   logErrorAndExit("unhandled_rejection", "Unhandled rejection", reason);
