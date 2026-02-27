@@ -1,4 +1,5 @@
-import { RPC_URLS, SIZE_CONSTANTS, Synapse } from "@filoz/synapse-sdk";
+import { randomBytes } from "node:crypto";
+import { PDPAuthHelper, PDPServer, RPC_URLS, SIZE_CONSTANTS, Synapse } from "@filoz/synapse-sdk";
 import { Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
@@ -110,6 +111,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       enableIpni: boolean;
       existingDealId?: string;
       signal?: AbortSignal;
+      extraDataSetMetadata?: Record<string, string>;
     },
   ): Promise<Deal> {
     const { preprocessed, cleanup } = await this.prepareDealInput(options.enableIpni, options.signal);
@@ -124,6 +126,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
         uploadPayload,
         options.existingDealId,
         options.signal,
+        options.extraDataSetMetadata,
       );
     } finally {
       await cleanup();
@@ -158,6 +161,23 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     return { enableIpni };
   }
 
+  async buildDataSetMetadata(
+    enableIpni: boolean,
+    extraMetadata?: Record<string, string>,
+  ): Promise<Record<string, string>> {
+    const metadata: Record<string, string> = { ...extraMetadata };
+
+    if (enableIpni) {
+      metadata.type = "deals";
+    }
+
+    if (this.blockchainConfig.dealbotDataSetVersion) {
+      metadata.dealbotDataSetVersion = this.blockchainConfig.dealbotDataSetVersion;
+    }
+
+    return metadata;
+  }
+
   getWalletAddress(): string {
     return this.blockchainConfig.walletAddress;
   }
@@ -169,6 +189,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     uploadPayload: UploadPayload,
     existingDealId?: string,
     signal?: AbortSignal,
+    extraDataSetMetadata?: Record<string, string>,
   ): Promise<Deal> {
     const providerAddress = providerInfo.serviceProvider;
     const checkType = "dataStorage" as const;
@@ -216,7 +237,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       this.dataStorageMetrics.recordUploadStatus(providerLabels, "pending");
       this.dataStorageMetrics.recordDataStorageStatus(providerLabels, "pending");
 
-      const dataSetMetadata = { ...dealInput.synapseConfig.dataSetMetadata };
+      const dataSetMetadata = { ...dealInput.synapseConfig.dataSetMetadata, ...extraDataSetMetadata };
 
       if (this.blockchainConfig.dealbotDataSetVersion) {
         dataSetMetadata.dealbotDataSetVersion = this.blockchainConfig.dealbotDataSetVersion;
@@ -422,6 +443,90 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     } finally {
       await this.saveDeal(deal);
     }
+  }
+
+  /**
+   * Checks if an on-chain data set exists for a provider with specific metadata.
+   */
+  async checkDataSetExists(providerAddress: string, metadata: Record<string, string>): Promise<boolean> {
+    const synapse = this.sharedSynapse ?? (await this.createSynapseInstance());
+    const context = await synapse.storage.createContext({
+      providerAddress,
+      metadata,
+    });
+    return context.dataSetId !== undefined;
+  }
+
+  /**
+   * Creates an on-chain data-set for a provider with the given metadata.
+   *
+   * Uses PDPServer.createDataSet() which sends an EIP-712 signed transaction
+   * to the PDP service, creating the data-set on-chain and polling for
+   * confirmation.
+   *
+   * @returns The confirmed on-chain data-set ID.
+   */
+  async createDataSet(providerAddress: string, metadata: Record<string, string>): Promise<{ dataSetId: number }> {
+    const synapse = this.sharedSynapse ?? (await this.createSynapseInstance());
+    const provider = this.walletSdkService.getProviderInfo(providerAddress);
+    if (!provider) {
+      throw new Error(`Provider ${providerAddress} not found in registry`);
+    }
+
+    const serviceURL = provider.products.PDP?.data.serviceURL;
+    if (!serviceURL) {
+      throw new Error(`Provider ${providerAddress} has no PDP serviceURL`);
+    }
+
+    const signer = synapse.getSigner();
+    const warmStorageAddress = synapse.getWarmStorageAddress();
+    const chainId = synapse.getChainId();
+    const authHelper = new PDPAuthHelper(warmStorageAddress, signer, BigInt(chainId));
+    const pdpServer = new PDPServer(authHelper, serviceURL);
+
+    const metadataEntries = Object.entries(metadata).map(([key, value]) => ({ key, value }));
+
+    const payer = await synapse.getClient().getAddress();
+    const clientDataSetId = BigInt(`0x${randomBytes(32).toString("hex")}`);
+
+    const result = await pdpServer.createDataSet(
+      clientDataSetId,
+      provider.payee,
+      payer,
+      metadataEntries,
+      warmStorageAddress,
+    );
+
+    this.logger.log(`Data-set creation tx submitted: ${result.txHash} for provider ${providerAddress}`);
+
+    // Poll for on-chain confirmation
+    const confirmed = await this.pollForDataSetCreation(pdpServer, result.txHash);
+
+    this.logger.log(`Data-set created on-chain: ID=${confirmed.dataSetId} for provider ${providerAddress}`);
+
+    return { dataSetId: confirmed.dataSetId! };
+  }
+
+  /**
+   * Polls the PDP server until the data-set creation transaction is confirmed on-chain.
+   */
+  private async pollForDataSetCreation(
+    pdpServer: PDPServer,
+    txHash: string,
+    maxAttempts = 60,
+    intervalMs = 5000,
+  ): Promise<{ dataSetId?: number }> {
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      const status = await pdpServer.getDataSetCreationStatus(txHash);
+      if (status.dataSetCreated && status.dataSetId != null) {
+        return { dataSetId: status.dataSetId };
+      }
+      if (status.ok === false) {
+        throw new Error(`Data-set creation tx failed: ${txHash}`);
+      }
+      await new Promise((resolve) => setTimeout(resolve, intervalMs));
+    }
+    throw new Error(`Data-set creation timed out after ${(maxAttempts * intervalMs) / 1000}s for tx: ${txHash}`);
   }
 
   // ============================================================================
