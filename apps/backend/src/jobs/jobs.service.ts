@@ -38,6 +38,7 @@ type JobRunStatus = "success" | "error" | "aborted";
 export class JobsService implements OnModuleInit, OnApplicationShutdown {
   private readonly logger = new Logger(JobsService.name);
   private boss: PgBoss | null = null;
+  private bossStartFailure: unknown;
   private bossErrorHandler?: (error: Error) => void;
   private schedulerInterval: ReturnType<typeof setInterval> | null = null;
   private tickPromise: Promise<void> | null = null;
@@ -99,12 +100,18 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         message: "pg-boss failed to start; job scheduler is disabled.",
       });
       if (workersEnabled || schedulerEnabled) {
-        this.logger.error({
+        const startupError = this.bossStartFailure === undefined ? undefined : toStructuredError(this.bossStartFailure);
+        this.logger.fatal({
           event: "pgboss_required_for_run_mode",
-          message: "pg-boss is required for this run mode; exiting to trigger restart.",
+          message: "pg-boss is required for this run mode; failing startup.",
           runMode,
+          error: startupError,
         });
-        process.exit(1);
+        const reason =
+          this.bossStartFailure instanceof Error && this.bossStartFailure.message.length > 0
+            ? this.bossStartFailure.message
+            : "unknown pg-boss startup failure";
+        throw new Error(`pg-boss is required for run mode "${runMode}" but failed to start: ${reason}`);
       }
       return;
     }
@@ -182,6 +189,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
 
   private async startBoss(): Promise<void> {
     if (this.boss) return;
+    this.bossStartFailure = undefined;
     const poolMax = this.pgbossPoolMax();
     const runMode = this.configService.get("app")?.runMode ?? "both";
     const migrate = runMode !== "worker";
@@ -204,6 +212,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       await this.ensureWorkerQueues(boss);
       this.boss = boss;
     } catch (error) {
+      this.bossStartFailure = error;
       boss.off("error", this.bossErrorHandler);
       this.bossErrorHandler = undefined;
       this.logger.error({

@@ -116,12 +116,23 @@ async function bootstrap() {
     throw new Error(`Invalid ${name}: ${portEnvValue ?? ""}`);
   }
   const host = isWorkerOnly ? process.env.DEALBOT_METRICS_HOST || "0.0.0.0" : process.env.DEALBOT_HOST || "127.0.0.1";
+  logger.log({
+    event: "bootstrap_listen_start",
+    message: "Starting HTTP listener",
+    host,
+    port,
+    runMode,
+  });
   await app.listen(port, host);
-  logger.log(
-    isWorkerOnly
+  logger.log({
+    event: "bootstrap_listen_complete",
+    message: isWorkerOnly
       ? `Dealbot worker is running; metrics available on ${host}:${port}/metrics`
       : `Dealbot backend is running on ${host}:${port}`,
-  );
+    host,
+    port,
+    runMode,
+  });
 }
 
 process.once("unhandledRejection", (reason: unknown, _promise: Promise<unknown>) => {
