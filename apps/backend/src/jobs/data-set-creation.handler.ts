@@ -2,7 +2,10 @@ import type { Logger } from "@nestjs/common";
 import type { DealService } from "../deal/deal.service.js";
 
 export interface DataSetCreationDeps {
-  dealService: Pick<DealService, "checkDataSetExists" | "createDataSet">;
+  dealService: Pick<
+    DealService,
+    "checkDataSetExists" | "createDataSet" | "getTestingDealOptions" | "buildDataSetMetadata"
+  >;
   logger: Logger;
 }
 
@@ -23,11 +26,14 @@ export async function provisionDataSets(
 ): Promise<void> {
   const { dealService, logger } = deps;
 
+  const dealOptions = dealService.getTestingDealOptions();
+
   let createdCount = 0;
   for (let i = 0; i < minDataSets; i++) {
     signal?.throwIfAborted();
 
-    const metadata: Record<string, string> = i > 0 ? { dealbotDS: String(i) } : {};
+    const extraMetadata: Record<string, string> = i > 0 ? { dealbotDS: String(i) } : {};
+    const metadata = await dealService.buildDataSetMetadata(dealOptions.enableIpni, extraMetadata);
 
     // Check if data-set already exists by attempting to resolve its context
     const exists = await dealService.checkDataSetExists(spAddress, metadata);
