@@ -160,6 +160,23 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     return { enableIpni };
   }
 
+  async buildDataSetMetadata(
+    enableIpni: boolean,
+    extraMetadata?: Record<string, string>,
+  ): Promise<Record<string, string>> {
+    const metadata: Record<string, string> = { ...extraMetadata };
+
+    if (enableIpni) {
+      metadata.type = "deals";
+    }
+
+    if (this.blockchainConfig.dealbotDataSetVersion) {
+      metadata.dealbotDataSetVersion = this.blockchainConfig.dealbotDataSetVersion;
+    }
+
+    return metadata;
+  }
+
   getWalletAddress(): string {
     return this.blockchainConfig.walletAddress;
   }

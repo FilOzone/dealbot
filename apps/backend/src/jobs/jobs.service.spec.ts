@@ -746,6 +746,7 @@ describe("JobsService schedule rows", () => {
     const dealService = {
       createDealForProvider: vi.fn(async () => ({})),
       getTestingDealOptions: vi.fn(() => ({ enableIpni: true })),
+      buildDataSetMetadata: vi.fn(async () => ({})),
       checkDataSetExists: vi.fn(async () => true),
     };
 
@@ -792,7 +793,8 @@ describe("JobsService schedule rows", () => {
 
     const dealService = {
       createDealForProvider: vi.fn(async () => ({})),
-      getTestingDealOptions: vi.fn(() => ({})),
+      getTestingDealOptions: vi.fn(() => ({ enableIpni: true })),
+      buildDataSetMetadata: vi.fn(async () => ({})),
       checkDataSetExists: vi.fn(async () => false),
     };
 
@@ -828,6 +830,8 @@ describe("JobsService schedule rows", () => {
     const dealService = {
       checkDataSetExists: vi.fn(async () => false),
       createDataSet: vi.fn(async () => ({ dataSetId: 1 })),
+      getTestingDealOptions: vi.fn(() => ({ enableIpni: true })),
+      buildDataSetMetadata: vi.fn(async () => ({})),
     };
 
     service = buildService({
@@ -855,6 +859,8 @@ describe("JobsService schedule rows", () => {
     const dealService = {
       checkDataSetExists: vi.fn(async () => true),
       createDataSet: vi.fn(async () => ({ dataSetId: 4 })),
+      getTestingDealOptions: vi.fn(() => ({ enableIpni: true })),
+      buildDataSetMetadata: vi.fn(async () => ({})),
     };
 
     service = buildService({
@@ -884,6 +890,12 @@ describe("JobsService schedule rows", () => {
     const dealService = {
       checkDataSetExists: vi.fn(async () => false),
       createDataSet: vi.fn(async () => ({ dataSetId: 1 })),
+      getTestingDealOptions: vi.fn(() => ({ enableIpni: true })),
+      buildDataSetMetadata: vi.fn(async (_enableIpni: boolean, extra: any) => ({
+        ...extra,
+        type: "deals",
+        dealbotDataSetVersion: "1.0",
+      })),
     };
 
     service = buildService({
@@ -897,15 +909,25 @@ describe("JobsService schedule rows", () => {
     });
 
     expect(dealService.createDataSet).toHaveBeenCalledTimes(3);
-    expect(dealService.createDataSet).toHaveBeenCalledWith("0xaaa", {});
-    expect(dealService.createDataSet).toHaveBeenCalledWith("0xaaa", { dealbotDS: "1" });
-    expect(dealService.createDataSet).toHaveBeenCalledWith("0xaaa", { dealbotDS: "2" });
+    expect(dealService.createDataSet).toHaveBeenCalledWith("0xaaa", { type: "deals", dealbotDataSetVersion: "1.0" });
+    expect(dealService.createDataSet).toHaveBeenCalledWith("0xaaa", {
+      dealbotDS: "1",
+      type: "deals",
+      dealbotDataSetVersion: "1.0",
+    });
+    expect(dealService.createDataSet).toHaveBeenCalledWith("0xaaa", {
+      dealbotDS: "2",
+      type: "deals",
+      dealbotDataSetVersion: "1.0",
+    });
   });
 
   it("data_set_creation job stops provisioning when abort signal fires", async () => {
     const dealService = {
       checkDataSetExists: vi.fn(async () => false),
       createDataSet: vi.fn(async () => ({ dataSetId: 1 })),
+      getTestingDealOptions: vi.fn(() => ({ enableIpni: true })),
+      buildDataSetMetadata: vi.fn(async () => ({})),
     };
 
     const logger = { log: vi.fn() } as any;

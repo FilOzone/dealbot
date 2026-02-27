@@ -312,6 +312,8 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
           }
         }
 
+        const dealOptions = this.dealService.getTestingDealOptions();
+
         // Data-set-aware deal creation
         const minDataSets = this.configService.get("blockchain").minNumDataSetsForChecks;
         let extraDataSetMetadata: Record<string, string> | undefined;
@@ -319,11 +321,12 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         if (minDataSets > 1) {
           const dsIndex = Math.floor(Math.random() * minDataSets);
           if (dsIndex > 0) {
-            const expectedMetadata = { dealbotDS: String(dsIndex) };
+            const extraMetadata = { dealbotDS: String(dsIndex) };
+            const expectedMetadata = await this.dealService.buildDataSetMetadata(dealOptions.enableIpni, extraMetadata);
             const exists = await this.dealService.checkDataSetExists(spAddress, expectedMetadata);
 
             if (exists) {
-              extraDataSetMetadata = expectedMetadata;
+              extraDataSetMetadata = extraMetadata;
             } else {
               this.logger.log(
                 `Data set #${dsIndex} not yet provisioned for ${spAddress}; falling back to default data set`,
@@ -334,7 +337,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         }
 
         await this.dealService.createDealForProvider(provider, {
-          ...this.dealService.getTestingDealOptions(),
+          ...dealOptions,
           signal: abortController.signal,
           extraDataSetMetadata,
         });
