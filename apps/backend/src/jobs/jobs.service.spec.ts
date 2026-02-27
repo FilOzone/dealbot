@@ -105,6 +105,7 @@ describe("JobsService schedule rows", () => {
         pgbossLocalConcurrency: 9,
         pgbossSchedulerEnabled: true,
         workerPollSeconds: 60,
+        dataSetCreationJobTimeoutSeconds: 300,
       } as IConfig["jobs"],
       database: {
         host: "localhost",
@@ -705,8 +706,7 @@ describe("JobsService schedule rows", () => {
     const dealService = {
       createDealForProvider: vi.fn(async () => ({})),
       getTestingDealOptions: vi.fn(() => ({ enableIpni: true })),
-      getSynapseInstance: vi.fn(async () => ({})),
-      findProviderDataSets: vi.fn(async () => []),
+      checkDataSetExists: vi.fn(async () => false),
     };
 
     const walletSdkService = {
@@ -730,7 +730,6 @@ describe("JobsService schedule rows", () => {
       expect.objectContaining({ serviceProvider: "0xaaa" }),
       expect.objectContaining({ extraDataSetMetadata: undefined }),
     );
-    expect(dealService.findProviderDataSets).not.toHaveBeenCalled();
   });
 
   it("deal job passes dealbotDS metadata when selecting a provisioned data set index", async () => {
@@ -747,11 +746,7 @@ describe("JobsService schedule rows", () => {
     const dealService = {
       createDealForProvider: vi.fn(async () => ({})),
       getTestingDealOptions: vi.fn(() => ({ enableIpni: true })),
-      getSynapseInstance: vi.fn(async () => ({})),
-      findProviderDataSets: vi.fn(async () => [
-        { dataSetId: 1, metadata: {}, serviceProvider: "0xaaa" },
-        { dataSetId: 2, metadata: { dealbotDS: "1" }, serviceProvider: "0xaaa" },
-      ]),
+      checkDataSetExists: vi.fn(async () => true),
     };
 
     const walletSdkService = {
@@ -773,7 +768,6 @@ describe("JobsService schedule rows", () => {
       data: { jobType: "deal", spAddress: "0xaaa", intervalSeconds: 60 },
     });
 
-    expect(dealService.findProviderDataSets).toHaveBeenCalled();
     expect(dealService.createDealForProvider).toHaveBeenCalledTimes(1);
     expect(dealService.createDealForProvider).toHaveBeenCalledWith(
       expect.objectContaining({ serviceProvider: "0xaaa" }),
@@ -799,8 +793,7 @@ describe("JobsService schedule rows", () => {
     const dealService = {
       createDealForProvider: vi.fn(async () => ({})),
       getTestingDealOptions: vi.fn(() => ({})),
-      getSynapseInstance: vi.fn(async () => ({})),
-      findProviderDataSets: vi.fn(async () => []),
+      checkDataSetExists: vi.fn(async () => false),
     };
 
     const walletSdkService = {
@@ -822,7 +815,6 @@ describe("JobsService schedule rows", () => {
       data: { jobType: "deal", spAddress: "0xaaa", intervalSeconds: 60 },
     });
 
-    expect(dealService.findProviderDataSets).toHaveBeenCalled();
     expect(dealService.createDealForProvider).toHaveBeenCalledTimes(1);
     expect(dealService.createDealForProvider).toHaveBeenCalledWith(
       expect.objectContaining({ serviceProvider: "0xaaa" }),
@@ -834,9 +826,8 @@ describe("JobsService schedule rows", () => {
 
   it("data_set_creation job creates initial data set when minNumDataSetsForChecks is 1", async () => {
     const dealService = {
-      getSynapseInstance: vi.fn(async () => ({})),
-      findProviderDataSets: vi.fn(async () => []),
-      createDataSetContext: vi.fn(async () => ({ dataSetId: 1 })),
+      checkDataSetExists: vi.fn(async () => false),
+      createDataSet: vi.fn(async () => ({ dataSetId: 1 })),
     };
 
     service = buildService({
@@ -848,8 +839,8 @@ describe("JobsService schedule rows", () => {
       data: { jobType: "data_set_creation", spAddress: "0xaaa", intervalSeconds: 3600 },
     });
 
-    expect(dealService.createDataSetContext).toHaveBeenCalledTimes(1);
-    expect(dealService.createDataSetContext).toHaveBeenCalledWith(expect.anything(), "0xaaa", {});
+    expect(dealService.createDataSet).toHaveBeenCalledTimes(1);
+    expect(dealService.createDataSet).toHaveBeenCalledWith("0xaaa", {});
   });
 
   it("data_set_creation job skips when all data sets already exist", async () => {
@@ -862,13 +853,8 @@ describe("JobsService schedule rows", () => {
     } as unknown as JobsServiceDeps[0];
 
     const dealService = {
-      getSynapseInstance: vi.fn(async () => ({})),
-      findProviderDataSets: vi.fn(async () => [
-        { dataSetId: 1, metadata: {}, serviceProvider: "0xaaa" },
-        { dataSetId: 2, metadata: { dealbotDS: "1" }, serviceProvider: "0xaaa" },
-        { dataSetId: 3, metadata: { dealbotDS: "2" }, serviceProvider: "0xaaa" },
-      ]),
-      createDataSetContext: vi.fn(async () => ({ dataSetId: 4 })),
+      checkDataSetExists: vi.fn(async () => true),
+      createDataSet: vi.fn(async () => ({ dataSetId: 4 })),
     };
 
     service = buildService({
@@ -881,7 +867,7 @@ describe("JobsService schedule rows", () => {
       data: { jobType: "data_set_creation", spAddress: "0xaaa", intervalSeconds: 3600 },
     });
 
-    expect(dealService.createDataSetContext).not.toHaveBeenCalled();
+    expect(dealService.createDataSet).not.toHaveBeenCalled();
   });
 
   it("data_set_creation job creates all missing data sets deterministically", async () => {
@@ -896,9 +882,8 @@ describe("JobsService schedule rows", () => {
     } as unknown as JobsServiceDeps[0];
 
     const dealService = {
-      getSynapseInstance: vi.fn(async () => ({})),
-      findProviderDataSets: vi.fn(async () => []),
-      createDataSetContext: vi.fn(async () => ({ dataSetId: 1 })),
+      checkDataSetExists: vi.fn(async () => false),
+      createDataSet: vi.fn(async () => ({ dataSetId: 1 })),
     };
 
     service = buildService({
@@ -911,9 +896,31 @@ describe("JobsService schedule rows", () => {
       data: { jobType: "data_set_creation", spAddress: "0xaaa", intervalSeconds: 3600 },
     });
 
-    expect(dealService.createDataSetContext).toHaveBeenCalledTimes(3);
-    expect(dealService.createDataSetContext).toHaveBeenCalledWith(expect.anything(), "0xaaa", {});
-    expect(dealService.createDataSetContext).toHaveBeenCalledWith(expect.anything(), "0xaaa", { dealbotDS: "1" });
-    expect(dealService.createDataSetContext).toHaveBeenCalledWith(expect.anything(), "0xaaa", { dealbotDS: "2" });
+    expect(dealService.createDataSet).toHaveBeenCalledTimes(3);
+    expect(dealService.createDataSet).toHaveBeenCalledWith("0xaaa", {});
+    expect(dealService.createDataSet).toHaveBeenCalledWith("0xaaa", { dealbotDS: "1" });
+    expect(dealService.createDataSet).toHaveBeenCalledWith("0xaaa", { dealbotDS: "2" });
+  });
+
+  it("data_set_creation job stops provisioning when abort signal fires", async () => {
+    const dealService = {
+      checkDataSetExists: vi.fn(async () => false),
+      createDataSet: vi.fn(async () => ({ dataSetId: 1 })),
+    };
+
+    const logger = { log: vi.fn() } as any;
+
+    // Pre-abort the signal so throwIfAborted fires on first check
+    const controller = new AbortController();
+    controller.abort(new Error("Job timed out"));
+
+    const { provisionDataSets } = await import("./data-set-creation.handler.js");
+
+    await expect(provisionDataSets({ dealService, logger }, "0xaaa", 5, controller.signal)).rejects.toThrow(
+      "Job timed out",
+    );
+
+    // No datasets should have been created since abort was already signaled
+    expect(dealService.createDataSet).not.toHaveBeenCalled();
   });
 });

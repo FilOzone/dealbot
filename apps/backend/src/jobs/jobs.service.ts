@@ -319,18 +319,18 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         if (minDataSets > 1) {
           const dsIndex = Math.floor(Math.random() * minDataSets);
           if (dsIndex > 0) {
-            const synapse = await this.dealService.getSynapseInstance();
-            const providerDataSets = await this.dealService.findProviderDataSets(synapse, spAddress);
-            const provisioned = providerDataSets.some((ds) => ds.metadata?.dealbotDS === String(dsIndex));
-            if (provisioned) {
-              extraDataSetMetadata = { dealbotDS: String(dsIndex) };
+            const expectedMetadata = { dealbotDS: String(dsIndex) };
+            const exists = await this.dealService.checkDataSetExists(spAddress, expectedMetadata);
+
+            if (exists) {
+              extraDataSetMetadata = expectedMetadata;
             } else {
               this.logger.log(
                 `Data set #${dsIndex} not yet provisioned for ${spAddress}; falling back to default data set`,
               );
             }
           }
-          // dsIndex === 0 → baseline data set, no metadata needed
+          // dsIndex === 0 → baseline data set, no `dealbotDS` metadata key needed
         }
 
         await this.dealService.createDealForProvider(provider, {
@@ -453,7 +453,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
 
     // Create AbortController for job timeout enforcement
     const abortController = new AbortController();
-    const timeoutSeconds = this.configService.get("jobs").dealJobTimeoutSeconds;
+    const timeoutSeconds = this.configService.get("jobs").dataSetCreationJobTimeoutSeconds;
     const timeoutMs = Math.max(120000, timeoutSeconds * 1000);
     const effectiveTimeoutSeconds = Math.round(timeoutMs / 1000);
     const abortReason = new Error(`Data set creation job timeout (${effectiveTimeoutSeconds}s) for ${spAddress}`);
@@ -463,7 +463,12 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
 
     await this.recordJobExecution("data_set_creation", async () => {
       try {
-        await provisionDataSets({ dealService: this.dealService, logger: this.logger }, spAddress, minDataSets);
+        await provisionDataSets(
+          { dealService: this.dealService, logger: this.logger },
+          spAddress,
+          minDataSets,
+          abortController.signal,
+        );
         return "success";
       } catch (error) {
         if (abortController.signal.aborted) {
