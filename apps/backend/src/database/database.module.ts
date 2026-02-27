@@ -4,6 +4,7 @@ import { TypeOrmModule } from "@nestjs/typeorm";
 import { dirname, join } from "path";
 import { DataSource, type DataSourceOptions } from "typeorm";
 import { fileURLToPath } from "url";
+import { NEST_STARTUP_LOG_LEVELS } from "../common/log-levels.js";
 import { toStructuredError } from "../common/logging.js";
 import type { IAppConfig, IConfig, IDatabaseConfig } from "../config/app.config.js";
 import { Deal } from "./entities/deal.entity.js";
@@ -16,9 +17,12 @@ import { StorageProvider } from "./entities/storage-provider.entity.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
+
+// Keep startup diagnostics visible regardless of runtime LOG_LEVEL configuration.
 const startupLogger = new ConsoleLogger("DatabaseModule", {
   json: true,
   colors: false,
+  logLevels: [...NEST_STARTUP_LOG_LEVELS],
 });
 
 function toSafeDataSourceContext(options: DataSourceOptions): Record<string, unknown> {

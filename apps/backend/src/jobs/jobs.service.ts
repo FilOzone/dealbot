@@ -38,7 +38,7 @@ type JobRunStatus = "success" | "error" | "aborted";
 export class JobsService implements OnModuleInit, OnApplicationShutdown {
   private readonly logger = new Logger(JobsService.name);
   private boss: PgBoss | null = null;
-  private bossStartFailure: unknown;
+  private bossStartFailure?: unknown;
   private bossErrorHandler?: (error: Error) => void;
   private schedulerInterval: ReturnType<typeof setInterval> | null = null;
   private tickPromise: Promise<void> | null = null;

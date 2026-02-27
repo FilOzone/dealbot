@@ -1,28 +1,10 @@
-import { ConsoleLogger, type LogLevel } from "@nestjs/common";
+import { ConsoleLogger } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
 import cors from "cors";
 import helmet from "helmet";
+import { resolveLogLevels } from "./common/log-levels.js";
 import { toStructuredError } from "./common/logging.js";
-
-const LOG_LEVELS: Record<string, LogLevel[]> = {
-  fatal: ["fatal"],
-  error: ["fatal", "error"],
-  warn: ["fatal", "error", "warn"],
-  log: ["fatal", "error", "warn", "log"],
-  // Accept pino-style "info" input (used by filecoin-pin and synapse-sdk) and map it to Nest's "log" level.
-  info: ["fatal", "error", "warn", "log"],
-  debug: ["fatal", "error", "warn", "log", "debug"],
-  verbose: ["fatal", "error", "warn", "log", "debug", "verbose"],
-};
-
-function resolveLogLevels(level: string | undefined): LogLevel[] {
-  if (!level) {
-    return LOG_LEVELS.log;
-  }
-  const normalized = level.toLowerCase().trim();
-  return LOG_LEVELS[normalized] ?? LOG_LEVELS.log;
-}
 
 /** Logger used for bootstrap/exit paths before Nest app is created or on unhandled rejection. */
 const exitLogger = new ConsoleLogger("Main", {
