@@ -68,7 +68,7 @@ function toSafeDataSourceContext(options: DataSourceOptions): Record<string, unk
           migrationsRun: runMigrations,
           migrationsTransactionMode: "each",
           synchronize: appConfig.env !== "production",
-          logging: false,
+          logging: true,
         };
       },
       dataSourceFactory: async (options?: DataSourceOptions) => {
