@@ -5,6 +5,7 @@ import { InjectDataSource, InjectRepository } from "@nestjs/typeorm";
 import { InjectMetric } from "@willsoto/nestjs-prometheus";
 import type { Gauge } from "prom-client";
 import type { DataSource, Repository } from "typeorm";
+import { toStructuredError } from "../../common/logging.js";
 import { scheduleJobWithOffset } from "../../common/utils.js";
 import type { IConfig, ISchedulingConfig } from "../../config/app.config.js";
 import { StorageProvider } from "../../database/entities/storage-provider.entity.js";
@@ -112,7 +113,11 @@ export class MetricsSchedulerService implements OnModuleInit {
       const duration = Date.now() - startTime;
       this.logger.log(`Successfully refreshed sp_performance_last_week in ${duration}ms`);
     } catch (error) {
-      this.logger.error(`Failed to refresh sp_performance_last_week: ${error.message}`, error.stack);
+      this.logger.error({
+        event: "refresh_weekly_performance_failed",
+        message: "Failed to refresh sp_performance_last_week",
+        error: toStructuredError(error),
+      });
       throw error;
     }
   }
@@ -133,7 +138,11 @@ export class MetricsSchedulerService implements OnModuleInit {
       const duration = Date.now() - startTime;
       this.logger.log(`Successfully refreshed sp_performance_all_time in ${duration}ms`);
     } catch (error) {
-      this.logger.error(`Failed to refresh sp_performance_all_time: ${error.message}`, error.stack);
+      this.logger.error({
+        event: "refresh_all_time_performance_failed",
+        message: "Failed to refresh sp_performance_all_time",
+        error: toStructuredError(error),
+      });
       throw error;
     }
   }
@@ -338,7 +347,11 @@ export class MetricsSchedulerService implements OnModuleInit {
       const duration = Date.now() - startTime;
       this.logger.log(`Successfully aggregated daily metrics for ${dealMetrics.length} providers in ${duration}ms`);
     } catch (error) {
-      this.logger.error(`Failed to aggregate daily metrics: ${error.message}`, error.stack);
+      this.logger.error({
+        event: "aggregate_daily_metrics_failed",
+        message: "Failed to aggregate daily metrics",
+        error: toStructuredError(error),
+      });
       throw error;
     }
   }
@@ -360,7 +373,11 @@ export class MetricsSchedulerService implements OnModuleInit {
       this.walletBalanceGauge.set({ currency: "USDFC", wallet: walletShort }, Number(usdfc));
       this.walletBalanceGauge.set({ currency: "FIL", wallet: walletShort }, Number(fil));
     } catch (error) {
-      this.logger.warn(`Failed to update wallet balance metrics: ${error.message}`);
+      this.logger.warn({
+        event: "update_wallet_balance_metrics_failed",
+        message: "Failed to update wallet balance metrics",
+        error: toStructuredError(error),
+      });
     }
   }
 
@@ -380,7 +397,11 @@ export class MetricsSchedulerService implements OnModuleInit {
       });
       this.storageProvidersTested.set(testedCount);
     } catch (error) {
-      this.logger.warn(`Failed to update storage provider metrics: ${error.message}`);
+      this.logger.warn({
+        event: "update_storage_provider_metrics_failed",
+        message: "Failed to update storage provider metrics",
+        error: toStructuredError(error),
+      });
     }
   }
 
@@ -418,7 +439,11 @@ export class MetricsSchedulerService implements OnModuleInit {
       const duration = Date.now() - startTime;
       this.logger.log(`Successfully cleaned up ${result.length} old daily metrics records in ${duration}ms`);
     } catch (error) {
-      this.logger.error(`Failed to cleanup old metrics: ${error.message}`, error.stack);
+      this.logger.error({
+        event: "cleanup_old_metrics_failed",
+        message: "Failed to cleanup old metrics",
+        error: toStructuredError(error),
+      });
       throw error;
     }
   }
