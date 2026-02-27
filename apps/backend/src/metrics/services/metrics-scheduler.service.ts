@@ -184,13 +184,11 @@ export class MetricsSchedulerService implements OnModuleInit {
           total_ipni_deals,
           ipni_indexed_deals,
           ipni_advertised_deals,
-          ipni_retrieved_deals,
           ipni_verified_deals,
           ipni_failed_deals,
           ipni_success_rate,
           avg_ipni_time_to_index_ms,
           avg_ipni_time_to_advertise_ms,
-          avg_ipni_time_to_retrieve_ms,
           avg_ipni_time_to_verify_ms,
           created_at,
           updated_at
@@ -220,11 +218,10 @@ export class MetricsSchedulerService implements OnModuleInit {
           0 as successful_retrievals,
           0 as failed_retrievals,
           0 as total_data_retrieved_bytes,
-          -- IPNI metrics (incremental states: PENDING -> INDEXED -> ADVERTISED -> RETRIEVED)
+          -- IPNI metrics (incremental states: PENDING -> INDEXED -> ADVERTISED -> VERIFIED)
           COUNT(*) FILTER (WHERE ipni_status IS NOT NULL) as total_ipni_deals,
-          COUNT(*) FILTER (WHERE ipni_status IN ('${IpniStatus.SP_INDEXED}', '${IpniStatus.SP_ADVERTISED}', '${IpniStatus.SP_RECEIVED_RETRIEVE_REQUEST}', '${IpniStatus.VERIFIED}')) as ipni_indexed_deals,
-          COUNT(*) FILTER (WHERE ipni_status IN ('${IpniStatus.SP_ADVERTISED}', '${IpniStatus.SP_RECEIVED_RETRIEVE_REQUEST}', '${IpniStatus.VERIFIED}')) as ipni_advertised_deals,
-          COUNT(*) FILTER (WHERE ipni_status IN ('${IpniStatus.SP_RECEIVED_RETRIEVE_REQUEST}', '${IpniStatus.VERIFIED}')) as ipni_retrieved_deals,
+          COUNT(*) FILTER (WHERE ipni_status IN ('${IpniStatus.SP_INDEXED}', '${IpniStatus.SP_ADVERTISED}', '${IpniStatus.VERIFIED}')) as ipni_indexed_deals,
+          COUNT(*) FILTER (WHERE ipni_status IN ('${IpniStatus.SP_ADVERTISED}', '${IpniStatus.VERIFIED}')) as ipni_advertised_deals,
           COUNT(*) FILTER (WHERE ipni_status = '${IpniStatus.VERIFIED}') as ipni_verified_deals,
           COUNT(*) FILTER (WHERE ipni_status = '${IpniStatus.FAILED}') as ipni_failed_deals,
           COALESCE(
@@ -237,7 +234,6 @@ export class MetricsSchedulerService implements OnModuleInit {
           ) as ipni_success_rate,
           COALESCE(ROUND(AVG(ipni_time_to_index_ms) FILTER (WHERE ipni_time_to_index_ms IS NOT NULL), 0), 0) as avg_ipni_time_to_index_ms,
           COALESCE(ROUND(AVG(ipni_time_to_advertise_ms) FILTER (WHERE ipni_time_to_advertise_ms IS NOT NULL), 0), 0) as avg_ipni_time_to_advertise_ms,
-          COALESCE(ROUND(AVG(ipni_time_to_retrieve_ms) FILTER (WHERE ipni_time_to_retrieve_ms IS NOT NULL), 0), 0) as avg_ipni_time_to_retrieve_ms,
           COALESCE(ROUND(AVG(ipni_time_to_verify_ms) FILTER (WHERE ipni_time_to_verify_ms IS NOT NULL), 0), 0) as avg_ipni_time_to_verify_ms,
           NOW() as created_at,
           NOW() as updated_at
@@ -258,13 +254,11 @@ export class MetricsSchedulerService implements OnModuleInit {
           total_ipni_deals = EXCLUDED.total_ipni_deals,
           ipni_indexed_deals = EXCLUDED.ipni_indexed_deals,
           ipni_advertised_deals = EXCLUDED.ipni_advertised_deals,
-          ipni_retrieved_deals = EXCLUDED.ipni_retrieved_deals,
           ipni_verified_deals = EXCLUDED.ipni_verified_deals,
           ipni_failed_deals = EXCLUDED.ipni_failed_deals,
           ipni_success_rate = EXCLUDED.ipni_success_rate,
           avg_ipni_time_to_index_ms = EXCLUDED.avg_ipni_time_to_index_ms,
           avg_ipni_time_to_advertise_ms = EXCLUDED.avg_ipni_time_to_advertise_ms,
-          avg_ipni_time_to_retrieve_ms = EXCLUDED.avg_ipni_time_to_retrieve_ms,
           avg_ipni_time_to_verify_ms = EXCLUDED.avg_ipni_time_to_verify_ms,
           updated_at = NOW()
         RETURNING sp_address

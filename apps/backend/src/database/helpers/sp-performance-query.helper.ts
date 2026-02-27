@@ -100,17 +100,12 @@ export function generateSpPerformanceQuery(dateFilter?: string): string {
         ServiceType.IPFS_PIN
       }'))::bigint as avg_ipfs_retrieval_throughput_bps,
       
-      -- IPNI tracking metrics - incremental states: PENDING -> SP_INDEXED -> SP_ADVERTISED -> SP_RECEIVED_RETRIEVE_REQUEST -> VERIFIED
+      -- IPNI tracking metrics - incremental states: PENDING -> SP_INDEXED -> SP_ADVERTISED -> VERIFIED
       COUNT(DISTINCT d.id) FILTER (WHERE d.ipni_status IS NOT NULL) as total_ipni_deals,
       COUNT(DISTINCT d.id) FILTER (WHERE d.ipni_status IN ('${IpniStatus.SP_INDEXED}', '${
         IpniStatus.SP_ADVERTISED
-      }', '${IpniStatus.SP_RECEIVED_RETRIEVE_REQUEST}', '${IpniStatus.VERIFIED}')) as ipni_indexed_deals,
-      COUNT(DISTINCT d.id) FILTER (WHERE d.ipni_status IN ('${IpniStatus.SP_ADVERTISED}', '${
-        IpniStatus.SP_RECEIVED_RETRIEVE_REQUEST
-      }', '${IpniStatus.VERIFIED}')) as ipni_advertised_deals,
-      COUNT(DISTINCT d.id) FILTER (WHERE d.ipni_status IN ('${IpniStatus.SP_RECEIVED_RETRIEVE_REQUEST}', '${
-        IpniStatus.VERIFIED
-      }')) as ipni_retrieved_deals,
+      }', '${IpniStatus.VERIFIED}')) as ipni_indexed_deals,
+      COUNT(DISTINCT d.id) FILTER (WHERE d.ipni_status IN ('${IpniStatus.SP_ADVERTISED}', '${IpniStatus.VERIFIED}')) as ipni_advertised_deals,
       COUNT(DISTINCT d.id) FILTER (WHERE d.ipni_status = '${IpniStatus.VERIFIED}') as ipni_verified_deals,
       COUNT(DISTINCT d.id) FILTER (WHERE d.ipni_status = '${IpniStatus.FAILED}') as ipni_failed_deals,
       
@@ -128,7 +123,6 @@ export function generateSpPerformanceQuery(dateFilter?: string): string {
       -- IPNI performance metrics
       ROUND(AVG(d.ipni_time_to_index_ms) FILTER (WHERE d.ipni_time_to_index_ms IS NOT NULL))::int as avg_ipni_time_to_index_ms,
       ROUND(AVG(d.ipni_time_to_advertise_ms) FILTER (WHERE d.ipni_time_to_advertise_ms IS NOT NULL))::int as avg_ipni_time_to_advertise_ms,
-      ROUND(AVG(d.ipni_time_to_retrieve_ms) FILTER (WHERE d.ipni_time_to_retrieve_ms IS NOT NULL))::int as avg_ipni_time_to_retrieve_ms,
       ROUND(AVG(d.ipni_time_to_verify_ms) FILTER (WHERE d.ipni_time_to_verify_ms IS NOT NULL))::int as avg_ipni_time_to_verify_ms,
       
       -- Data volumes
