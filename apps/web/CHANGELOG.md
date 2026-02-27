@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.0.0](https://github.com/FilOzone/dealbot/compare/web-v0.2.0...web-v1.0.0) (2026-02-27)
+
+
+### ⚠ BREAKING CHANGES
+
+* remove proxy support ([#283](https://github.com/FilOzone/dealbot/issues/283))
+
+### Bug Fixes
+
+* always disable CDN testing ([#264](https://github.com/FilOzone/dealbot/issues/264)) ([66d66df](https://github.com/FilOzone/dealbot/commit/66d66df5a2b3b0b4203b3a1338167c8bceedb9a8))
+
+
+### Code Refactoring
+
+* remove proxy support ([#283](https://github.com/FilOzone/dealbot/issues/283)) ([bb68729](https://github.com/FilOzone/dealbot/commit/bb68729d0840e3d4bb6e599264e106a773ebefac))
+
 ## [0.2.0](https://github.com/FilOzone/dealbot/compare/web-v0.1.4...web-v0.2.0) (2026-02-09)
 
 
