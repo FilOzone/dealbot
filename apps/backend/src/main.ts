@@ -6,6 +6,12 @@ import helmet from "helmet";
 
 const logger = new Logger("Main");
 
+function logErrorAndExit(message: string, error: unknown): never {
+  const err = error instanceof Error ? error : new Error(String(error));
+  logger.error(`${message}: ${err.message}`, err.stack);
+  process.exit(1);
+}
+
 async function bootstrap() {
   const runMode = (process.env.DEALBOT_RUN_MODE || "both").toLowerCase();
   const isWorkerOnly = runMode === "worker";
@@ -73,4 +79,9 @@ async function bootstrap() {
   );
 }
 
-bootstrap();
+void bootstrap().catch((error: unknown) => logErrorAndExit("Bootstrap failed", error));
+
+process.on("unhandledRejection", (reason: unknown, _promise: Promise<unknown>) => {
+  logger.error("Unhandled rejection", reason instanceof Error ? reason.stack : String(reason));
+  logErrorAndExit("Unhandled rejection", reason);
+});
