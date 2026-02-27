@@ -38,20 +38,6 @@ function toSafeDataSourceContext(options: DataSourceOptions): Record<string, unk
   };
 }
 
-function resolveTypeOrmLogging(
-  appEnv: string,
-  logLevel: string | undefined,
-): false | Array<"query" | "error" | "warn"> {
-  const normalized = (logLevel ?? "").toLowerCase().trim();
-  if (normalized === "debug" || normalized === "verbose") {
-    return ["query", "error", "warn"];
-  }
-  if (appEnv === "production") {
-    return ["error", "warn"];
-  }
-  return false;
-}
-
 @Module({
   imports: [
     TypeOrmModule.forRootAsync({
@@ -82,7 +68,7 @@ function resolveTypeOrmLogging(
           migrationsRun: runMigrations,
           migrationsTransactionMode: "each",
           synchronize: appConfig.env !== "production",
-          logging: resolveTypeOrmLogging(appConfig.env, process.env.LOG_LEVEL),
+          logging: false,
         };
       },
       dataSourceFactory: async (options?: DataSourceOptions) => {
