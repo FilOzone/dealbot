@@ -46,6 +46,8 @@ async function bootstrap() {
     ? (await import("./worker.module.js")).WorkerModule
     : (await import("./app.module.js")).AppModule;
   const app = await NestFactory.create(rootModule, {
+    // Allow bootstrap errors to propagate so our catch path can emit structured fatal logs.
+    abortOnError: false,
     logger,
   });
 
