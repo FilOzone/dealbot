@@ -312,21 +312,36 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
           }
         }
 
+        const dealOptions = this.dealService.getTestingDealOptions();
+
         // Data-set-aware deal creation
         const minDataSets = this.configService.get("blockchain").minNumDataSetsForChecks;
+        const baseDataSetMetadata = this.dealService.getBaseDataSetMetadata(dealOptions.enableIpni);
         let extraDataSetMetadata: Record<string, string> | undefined;
 
         if (minDataSets > 1) {
           const dsIndex = Math.floor(Math.random() * minDataSets);
           if (dsIndex > 0) {
-            const expectedMetadata = { dealbotDS: String(dsIndex) };
-            const exists = await this.dealService.checkDataSetExists(spAddress, expectedMetadata);
+            const dsIndexMetadata = { dealbotDS: String(dsIndex) };
+            const expectedMetadata = { ...baseDataSetMetadata, ...dsIndexMetadata };
+            try {
+              const exists = await this.dealService.checkDataSetExists(
+                spAddress,
+                expectedMetadata,
+                abortController.signal,
+              );
 
-            if (exists) {
-              extraDataSetMetadata = expectedMetadata;
-            } else {
-              this.logger.log(
-                `Data set #${dsIndex} not yet provisioned for ${spAddress}; falling back to default data set`,
+              if (exists) {
+                extraDataSetMetadata = dsIndexMetadata;
+              } else {
+                this.logger.log(
+                  `Data set #${dsIndex} not yet provisioned for ${spAddress}; falling back to default data set`,
+                );
+              }
+            } catch (error) {
+              const errorMessage = error instanceof Error ? error.message : String(error);
+              this.logger.warn(
+                `Failed to verify data set #${dsIndex} for ${spAddress}: ${errorMessage}; falling back to default data set`,
               );
             }
           }
@@ -334,7 +349,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         }
 
         await this.dealService.createDealForProvider(provider, {
-          ...this.dealService.getTestingDealOptions(),
+          ...dealOptions,
           signal: abortController.signal,
           extraDataSetMetadata,
         });
@@ -450,6 +465,8 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     }
 
     const minDataSets = this.configService.get("blockchain").minNumDataSetsForChecks;
+    const dealOptions = this.dealService.getTestingDealOptions();
+    const baseDataSetMetadata = this.dealService.getBaseDataSetMetadata(dealOptions.enableIpni);
 
     // Create AbortController for job timeout enforcement
     const abortController = new AbortController();
@@ -467,6 +484,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
           { dealService: this.dealService, logger: this.logger },
           spAddress,
           minDataSets,
+          baseDataSetMetadata,
           abortController.signal,
         );
         return "success";

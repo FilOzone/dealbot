@@ -19,6 +19,7 @@ export async function provisionDataSets(
   deps: DataSetCreationDeps,
   spAddress: string,
   minDataSets: number,
+  baseDataSetMetadata: Record<string, string>,
   signal?: AbortSignal,
 ): Promise<void> {
   const { dealService, logger } = deps;
@@ -27,17 +28,20 @@ export async function provisionDataSets(
   for (let i = 0; i < minDataSets; i++) {
     signal?.throwIfAborted();
 
-    const metadata: Record<string, string> = i > 0 ? { dealbotDS: String(i) } : {};
+    const metadata: Record<string, string> = {
+      ...baseDataSetMetadata,
+      ...(i > 0 ? { dealbotDS: String(i) } : {}),
+    };
 
     // Check if data-set already exists by attempting to resolve its context
-    const exists = await dealService.checkDataSetExists(spAddress, metadata);
+    const exists = await dealService.checkDataSetExists(spAddress, metadata, signal);
 
     if (exists) {
       continue;
     }
 
     logger.log(`Creating data-set #${i} for provider ${spAddress}`);
-    await dealService.createDataSet(spAddress, metadata);
+    await dealService.createDataSet(spAddress, metadata, signal);
     createdCount++;
   }
 
