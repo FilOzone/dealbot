@@ -4,6 +4,7 @@ import { InjectRepository } from "@nestjs/typeorm";
 import { InjectMetric } from "@willsoto/nestjs-prometheus";
 import { Counter } from "prom-client";
 import { Raw, Repository } from "typeorm";
+import { toStructuredError } from "../common/logging.js";
 import { IConfig } from "../config/app.config.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
 import { buildCheckMetricLabels, CheckMetricLabels } from "../metrics/utils/check-metric-labels.js";
@@ -48,11 +49,12 @@ export class DataRetentionService {
    * with the delta since the last poll.
    */
   async pollDataRetention(): Promise<void> {
-    this.logger.log("Polling data retention");
-
     const pdpSubgraphEndpoint = this.configService.get("blockchain").pdpSubgraphEndpoint;
     if (!pdpSubgraphEndpoint) {
-      this.logger.warn("No PDP subgraph endpoint configured");
+      this.logger.warn({
+        event: "pdp_subgraph_endpoint_not_configured",
+        message: "No PDP subgraph endpoint configured",
+      });
       return;
     }
 
@@ -61,7 +63,10 @@ export class DataRetentionService {
       const providerInfos = this.walletSdkService.getTestingProviders();
 
       if (!providerInfos || providerInfos.length === 0) {
-        this.logger.warn("No testing providers configured");
+        this.logger.warn({
+          event: "no_testing_providers_configured",
+          message: "No testing providers configured",
+        });
         return;
       }
 
@@ -105,14 +110,22 @@ export class DataRetentionService {
           processingResults.forEach((result, index) => {
             if (result.status === "rejected") {
               hasProcessingErrors = true;
-              this.logger.error(`Failed to process provider ${providersFromSubgraph[index].address}: ${result.reason}`);
+              this.logger.error({
+                event: "provider_processing_failed",
+                message: `Failed to process provider ${providersFromSubgraph[index].address}`,
+                providerAddress: providersFromSubgraph[index].address,
+                error: toStructuredError(result.reason),
+              });
             }
           });
         } catch (error) {
           hasProcessingErrors = true;
-          this.logger.error(
-            `Failed to fetch batch starting at index ${i}: ${error instanceof Error ? error.message : "Unknown error"}`,
-          );
+          this.logger.error({
+            event: "provider_batch_fetch_failed",
+            message: `Failed to fetch batch starting at index ${i}`,
+            batchStartIndex: i,
+            error: toStructuredError(error),
+          });
           // Continue processing next batch
         }
       }
@@ -121,10 +134,17 @@ export class DataRetentionService {
       if (!hasProcessingErrors) {
         await this.cleanupStaleProviders(providerAddresses);
       } else {
-        this.logger.warn("Skipping stale provider cleanup due to processing errors");
+        this.logger.warn({
+          event: "stale_provider_cleanup_skipped",
+          message: "Skipping stale provider cleanup due to processing errors",
+        });
       }
     } catch (error) {
-      this.logger.error("Failed to poll data retention", error);
+      this.logger.error({
+        event: "data_retention_poll_failed",
+        message: "Failed to poll data retention",
+        error: toStructuredError(error),
+      });
     }
   }
 
@@ -152,7 +172,11 @@ export class DataRetentionService {
       return;
     }
 
-    this.logger.log(`Cleaning up ${staleAddresses.length} stale provider(s)`);
+    this.logger.log({
+      event: "stale_provider_cleanup_started",
+      message: `Cleaning up ${staleAddresses.length} stale provider(s)`,
+      staleProviderCount: staleAddresses.length,
+    });
 
     let staleProviders: StorageProvider[] = [];
     try {
@@ -162,9 +186,11 @@ export class DataRetentionService {
       });
     } catch (error) {
       // Bail entirely on DB failure to protect metric baselines
-      this.logger.error(
-        `Failed to fetch stale provider info from database: ${error instanceof Error ? error.message : "Unknown error"}. Skipping cleanup to prevent metric desync.`,
-      );
+      this.logger.error({
+        event: "stale_provider_db_fetch_failed",
+        message: "Failed to fetch stale provider info from database. Skipping cleanup to prevent metric desync.",
+        error: toStructuredError(error),
+      });
       return;
     }
 
@@ -195,22 +221,32 @@ export class DataRetentionService {
           // Only delete local memory if Prometheus removal succeeded without throwing
           this.providerCumulativeTotals.delete(address);
 
-          this.logger.debug(`Removed baseline and metrics for stale provider: ${address} (ID: ${provider.providerId})`);
+          this.logger.debug({
+            event: "stale_provider_metrics_removed",
+            message: `Removed baseline and metrics for stale provider: ${address}`,
+            providerAddress: address,
+            providerId: provider.providerId,
+          });
         } else {
           // Provider not in database or missing ID.
           // CRITICAL: We DO NOT delete the local baseline here.
           // Because the DB syncs with the chain periodically, this provider might be
           // repopulated. If we delete the baseline now, and it returns later, we will
           // suffer from the double-counting/metric inflation bug.
-          this.logger.debug(
-            `Retaining baseline for stale provider: ${address} (not found in DB, waiting for potential chain sync)`,
-          );
+          this.logger.debug({
+            event: "stale_provider_baseline_retained",
+            message: `Retaining baseline for stale provider: ${address} (not found in DB, waiting for potential chain sync)`,
+            providerAddress: address,
+          });
         }
       } catch (error) {
         // If Prometheus removal fails, leave the baseline in the map
-        this.logger.error(
-          `Failed to cleanup metrics for provider ${address}: ${error instanceof Error ? error.message : "Unknown error"}. Baseline retained to prevent metric inflation.`,
-        );
+        this.logger.error({
+          event: "provider_metrics_cleanup_failed",
+          message: `Failed to cleanup metrics for provider ${address}. Baseline retained to prevent metric inflation.`,
+          providerAddress: address,
+          error: toStructuredError(error),
+        });
       }
     }
   }
@@ -244,9 +280,13 @@ export class DataRetentionService {
     // Handle negative deltas: can occur due to chain reorgs, subgraph corrections, or data inconsistencies
     // Reset baseline to current values to prevent stalled metrics
     if (faultedDelta < 0n || successDelta < 0n) {
-      this.logger.warn(
-        `Negative delta detected for provider ${address} (faulted: ${faultedDelta}, success: ${successDelta}).`,
-      );
+      this.logger.warn({
+        event: "negative_delta_detected",
+        message: `Negative delta detected for provider ${address}`,
+        providerAddress: address,
+        faultedDelta: faultedDelta.toString(),
+        successDelta: successDelta.toString(),
+      });
       // Reset baseline without incrementing counters
       this.providerCumulativeTotals.set(normalizedAddress, {
         faultedPeriods: estimatedTotalFaulted,
@@ -302,9 +342,11 @@ export class DataRetentionService {
     }
 
     // Value exceeds safe integer range - increment in chunks
-    this.logger.warn(
-      `Large counter increment detected (${increment.toString()}). Incrementing in chunks to prevent precision loss.`,
-    );
+    this.logger.warn({
+      event: "large_counter_increment_detected",
+      message: "Large counter increment detected. Incrementing in chunks to prevent precision loss.",
+      increment: increment.toString(),
+    });
 
     let remaining = increment;
     while (remaining > 0n) {

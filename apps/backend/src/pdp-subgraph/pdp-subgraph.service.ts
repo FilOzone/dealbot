@@ -1,5 +1,6 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
+import { toStructuredError } from "../common/logging.js";
 import type { IBlockchainConfig, IConfig } from "../config/app.config.js";
 import { Queries } from "./queries.js";
 import type { GraphQLResponse, ProviderDataSetResponse, ProvidersWithDataSetsOptions, SubgraphMeta } from "./types.js";
@@ -85,23 +86,35 @@ export class PDPSubgraphService {
 
       // No need to retry on validation errors - they indicate schema/data issues, not transient failures
       if (error instanceof ValidationError) {
-        this.logger.error(`Subgraph data validation failed: ${errorMessage}`);
+        this.logger.error({
+          event: "subgraph_meta_validation_failed",
+          message: "Subgraph data validation failed",
+          error: toStructuredError(error),
+        });
         throw error;
       }
 
       // Retry on network/HTTP errors
       if (attempt < PDPSubgraphService.MAX_RETRIES) {
         const delay = PDPSubgraphService.INITIAL_RETRY_DELAY_MS * (1 << (attempt - 1));
-        this.logger.warn(
-          `Subgraph meta request failed (attempt ${attempt}/${PDPSubgraphService.MAX_RETRIES}): ${errorMessage}. Retrying in ${delay}ms...`,
-        );
+        this.logger.warn({
+          event: "subgraph_meta_request_retry",
+          message: `Subgraph meta request failed (attempt ${attempt}/${PDPSubgraphService.MAX_RETRIES}). Retrying in ${delay}ms...`,
+          attempt,
+          maxRetries: PDPSubgraphService.MAX_RETRIES,
+          retryDelayMs: delay,
+          error: toStructuredError(error),
+        });
         await new Promise((resolve) => setTimeout(resolve, delay));
         return this.fetchSubgraphMeta(attempt + 1);
       }
 
-      this.logger.error(
-        `Subgraph meta request failed after ${PDPSubgraphService.MAX_RETRIES} attempts: ${errorMessage}`,
-      );
+      this.logger.error({
+        event: "subgraph_meta_request_failed",
+        message: `Subgraph meta request failed after ${PDPSubgraphService.MAX_RETRIES} attempts`,
+        maxRetries: PDPSubgraphService.MAX_RETRIES,
+        error: toStructuredError(error),
+      });
       throw new Error(
         `Failed to fetch subgraph metadata after ${PDPSubgraphService.MAX_RETRIES} attempts: ${errorMessage}`,
       );
@@ -213,21 +226,39 @@ export class PDPSubgraphService {
 
       // No need to retry on validation errors - they indicate schema/data issues, not transient failures
       if (error instanceof ValidationError) {
-        this.logger.error(`Subgraph data validation failed: ${errorMessage}`);
+        this.logger.error({
+          event: "subgraph_provider_data_validation_failed",
+          message: "Subgraph data validation failed",
+          error: toStructuredError(error),
+        });
         throw error;
       }
 
       // Retry on network/HTTP errors
       if (attempt < PDPSubgraphService.MAX_RETRIES) {
         const delay = PDPSubgraphService.INITIAL_RETRY_DELAY_MS * (1 << (attempt - 1));
-        this.logger.warn(
-          `Subgraph request failed (attempt ${attempt}/${PDPSubgraphService.MAX_RETRIES}): ${errorMessage}. Retrying in ${delay}ms...`,
-        );
+        this.logger.warn({
+          event: "subgraph_provider_request_retry",
+          message: `Subgraph request failed (attempt ${attempt}/${PDPSubgraphService.MAX_RETRIES}). Retrying in ${delay}ms...`,
+          attempt,
+          maxRetries: PDPSubgraphService.MAX_RETRIES,
+          retryDelayMs: delay,
+          blockNumber,
+          addressCount: addresses.length,
+          error: toStructuredError(error),
+        });
         await new Promise((resolve) => setTimeout(resolve, delay));
         return this.fetchWithRetry(blockNumber, addresses, attempt + 1);
       }
 
-      this.logger.error(`Subgraph request failed after ${PDPSubgraphService.MAX_RETRIES} attempts: ${errorMessage}`);
+      this.logger.error({
+        event: "subgraph_provider_request_failed",
+        message: `Subgraph request failed after ${PDPSubgraphService.MAX_RETRIES} attempts`,
+        maxRetries: PDPSubgraphService.MAX_RETRIES,
+        blockNumber,
+        addressCount: addresses.length,
+        error: toStructuredError(error),
+      });
       throw new Error(
         `Failed to fetch provider data after ${PDPSubgraphService.MAX_RETRIES} attempts: ${errorMessage}`,
       );
