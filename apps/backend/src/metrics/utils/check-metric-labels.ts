@@ -1,4 +1,4 @@
-export type CheckType = "dataStorage" | "retrieval";
+export type CheckType = "dataStorage" | "retrieval" | "dataRetention";
 export type ProviderStatus = "approved" | "unapproved";
 
 export type CheckMetricLabels = {

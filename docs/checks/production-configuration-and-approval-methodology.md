@@ -20,9 +20,9 @@ Relevant parameters include:
 
 | Parameter | Value | Notes |
 |-----------|-------|-------|
-| `DEALS_PER_SP_PER_HOUR` | 4 | 96 per day |
-| `MIN_NUM_DATASETS_FOR_CHECKS` | 15 | Ensure there are enough datasets with pieces being added so that statistical significance for [Data Retention Fault Rate](#data-retention-fault-rate) can be achieved quicker. |
-| `RANDOM_PIECE_SIZES` | 10485760 | 10MB files are used for simplicity.  See [Why are 10MB files used for testing?](#why-are-10mb-files-used-for-testing) for more details. |
+| [`DEALS_PER_SP_PER_HOUR`](../environment-variables.md#deals_per_sp_per_hour) | 4 | 96 per day |
+| [`MIN_NUM_DATASETS_FOR_CHECKS`](../environment-variables.md#dataset-configuration) | 15 | Ensure there are enough datasets with pieces being added so that statistical significance for [Data Retention Fault Rate](#data-retention-fault-rate) can be achieved quicker. |
+| [`RANDOM_PIECE_SIZES`](../environment-variables.md#random_dataset_sizes) | 10485760 | 10MB files are used for simplicity.  See [Why are 10MB files used for testing?](#why-are-10mb-files-used-for-testing) for more details. |
 | Max [`ingestMs`](./events-and-metrics.md#ingestMs) | 20s | |
 | Max [`pieceAddedOnChainMs`](./events-and-metrics.md#pieceAddedOnChainMs) | 60s | |
 | Max [`pieceConfirmedOnChainMs`](./events-and-metrics.md#pieceConfirmedOnChainMs) | 60s | |
@@ -34,7 +34,14 @@ Relevant parameters include:
 This minimum observed success rate threshold count is for having 95% confidence that the success rate is greater than 95%.  See [How are data storage and retrieval check statistics/thresholds calculated?](#how-are-data-storage-and-retrieval-check-statisticsthresholds-calculated) for more details.
 
 ### Data Retention Fault Rate
-This is calculated by looking at all the dataset proofs on chain for the SPs and determining how many challenges were missed or failed.  Note that on mainnet each dataset incurs 5 challenges per day.  To help get to statistical significance quicker, dealbot will seed the SPs with `MIN_NUM_DATASETS_FOR_CHECKS=15` datasets.  This means an SP can be approved for data retention after a faultless ~7 days if the SP doesn't have other datasets.
+Per the [Data Retention check](./data-retention.md), this is calculated by looking at all the dataset proofs on chain for the SPs and determining how many challenges were missed or failed.  
+
+Relevant parameters include:
+
+| Parameter | Value | Notes |
+|-----------|-------|-------|
+| [`PDP_SUBGRAPH_ENDPOINT`](../environment-variables.md#pdp_subgraph_endpoint) | TODO: fill this in | Uses the subgraph from [pdp-explorer](https://github.com/FilOzone/pdp-explorer). |
+| [`MIN_NUM_DATASETS_FOR_CHECKS`](../environment-variables.md#dataset-configuration) | 15 | Ensure there are enough datasets with pieces being added so that statistical significance for [Data Retention Fault Rate](#data-retention-fault-rate) can be achieved quicker. Note that on mainnet each dataset incurs 5 challenges[^1] per daily proof[^2]. With this many datasets, an SP can be approved for data retention after a faultless ~7 days even if the SP doesn't have other datasets. |
 
 See [How are data retention statistics/thresholds calculated?](#how-are-data-retention-statisticsthresholds-calculated) for more details.
 
@@ -45,8 +52,8 @@ Relevant parameters include:
 
 | Parameter | Value | Notes |
 |-----------|-------|-------|
-| `RETRIEVALS_PER_SP_PER_HOUR` | 4 | 96 per day |
-| `RANDOM_PIECE_SIZES` | `10485760` | Only ~10MB files are used for retrieval downloads, for simplicity |
+| [`RETRIEVALS_PER_SP_PER_HOUR`](../environment-variables.md#retrievals_per_sp_per_hour) | 4 | 96 per day |
+| [`RANDOM_PIECE_SIZES`](../environment-variables.md#random_dataset_sizes) | `10485760` | Only ~10MB files are used for retrieval downloads, for simplicity |
 | Max [`ipniVerifyMs`](./events-and-metrics.md#ipniVerifyMs) | 10s | |
 | Max [`ipfsRetrievalLastByteMs`](./events-and-metrics.md#ipfsRetrievalLastByteMs) | 20s | |
 | Max [`retrievalCheckMs`](./events-and-metrics.md#retrievalCheckMs) | 30s | |
@@ -63,7 +70,7 @@ These times are on the end of the "global trough" and "early morning lull" respe
 
 ## SPs in Scope for Testing
 
-The "production dealbot" has `USE_ONLY_APPROVED_PROVIDERS=false` so non-approved SPs are included for evaluation. This means approved and non-approved SPs are both included for evaluation.  Only "dev" or "inactive" SPs in the SP Registry are excluded from testing.
+The "production dealbot" has [`USE_ONLY_APPROVED_PROVIDERS`](../environment-variables.md#use_only_approved_providers)=false so non-approved SPs are included for evaluation. This means approved and non-approved SPs are both included for evaluation.  Only "dev" or "inactive" SPs in the SP Registry are excluded from testing.
 
 ## SP Resource Consumption for Dealbot Checks
 
@@ -128,7 +135,7 @@ The approval threshold is set at a **fault rate of ≤ 0.2% over a minimum of 50
 
 ### What counts as a sample
 
-Each challenge on a dataset counts as one sample and there are 5 challenges each day for each dataset on mainnet, regardless of how much data is stored in that dataset.  Dealbot seeds each SP with `MIN_NUM_DATASETS_FOR_CHECKS=15` datasets to accumulate samples faster, but any datasets the SP holds beyond those 15 also contribute. With 500 samples needed, and at least 15 datasets providing 5 samples a day, an SP can get approved in less than 7 days.
+Each challenge on a dataset counts as one sample and there are 5 challenges each day for each dataset on mainnet, regardless of how much data is stored in that dataset.  Dealbot seeds each SP with [`MIN_NUM_DATASETS_FOR_CHECKS`](../environment-variables.md#dataset-configuration)=15 datasets to accumulate samples faster, but any datasets the SP holds beyond those 15 also contribute. With 500 samples needed, and at least 15 datasets providing 5 samples a day, an SP can get approved in less than 7 days.
 
 ### Derivation of the 500-sample minimum
 
@@ -174,4 +181,7 @@ Latency and throughput are not just a function of the SP's infrastructure.  They
 
 ## Why are we using the SP's `/ipfs` endpoint for retrieval testing?
 
-We are using the SP's `/ipfs` for retrieval testing because it is the golden path.  We could mix other ways to retrieve the data (e.g., `/piece`, via CDM), but it would add more complexity to the dealbot code.  
+We are using the SP's `/ipfs` for retrieval testing because it is the golden path.  We could mix other ways to retrieve the data (e.g., `/piece`, via CDM), but it would add more complexity to the dealbot code.
+
+[^1]: 5 challenges per proof is defined in the [SimplePDPService.sol](https://github.com/FilOzone/pdp/blob/12a37996ffcd3f9e92f42b64c843defa759fb4ae/src/SimplePDPService.sol#L161) contract.
+[^2]: A daily proof per dataset is configured in the FilecoinWarmStorageService.sol contract. This was set on 2026-02-25 to be 2880 epochs (24 hours) as part of [this transaction](https://filecoin.blockscout.com/tx/0x9c203efb7a7bdde0e36e02734e2940dd15ee8bf55fc02573894d2637965b9c34). See [filecoin-services#422](https://github.com/FilOzone/filecoin-services/issues/422#issuecomment-3943282334).

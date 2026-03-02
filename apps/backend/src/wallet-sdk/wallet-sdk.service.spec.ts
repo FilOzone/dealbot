@@ -17,6 +17,7 @@ const baseConfig: IBlockchainConfig = {
   checkDatasetCreationFees: false,
   useOnlyApprovedProviders: false,
   enableIpniTesting: "always",
+  pdpSubgraphEndpoint: "https://api.thegraph.com/subgraphs/filecoin/pdp",
 };
 
 const makeProvider = (overrides: Partial<ProviderInfoEx>): ProviderInfoEx =>
