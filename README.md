@@ -49,6 +49,7 @@ Frontend docs: [apps/web/README.md](apps/web/README.md)
 - [docs/environment-variables.md](docs/environment-variables.md) - Comprehensive environment variables reference
 - [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) - Local Kubernetes development (Kind + Kustomize)
 - [docs/infra.md](docs/infra.md) - Integration with FilOzone/infra
+- [docs/production-operations.md](docs/production-operations.md) - Ops-readiness scope, staging limits, and promotion criteria
 - [docs/release-process.md](docs/release-process.md) - Release pipeline overview
 - [docs/release-please-flow.md](docs/release-please-flow.md) - release-please details
 
