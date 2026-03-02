@@ -20,7 +20,7 @@ Relevant parameters include:
 
 | Parameter | Value | Notes |
 |-----------|-------|-------|
-| [`NUM_DATA_STORAGE_CHECKS_PER_SP_PER_HOUR`](../environment-variables.md#deals_per_sp_per_hour) | 4 | 96 per day |
+| [`DEALS_PER_SP_PER_HOUR`](../environment-variables.md#deals_per_sp_per_hour) | 4 | 96 per day |
 | [`MIN_NUM_DATASETS_FOR_CHECKS`](../environment-variables.md#dataset-configuration) | 15 | Ensure there are enough datasets with pieces being added so that statistical significance for [Data Retention Fault Rate](#data-retention-fault-rate) can be achieved quicker. |
 | [`RANDOM_PIECE_SIZES`](../environment-variables.md#random_dataset_sizes) | 10485760 | 10MB files are used for simplicity.  See [Why are 10MB files used for testing?](#why-are-10mb-files-used-for-testing) for more details. |
 | Max [`ingestMs`](./events-and-metrics.md#ingestMs) | 20s | |
@@ -52,7 +52,7 @@ Relevant parameters include:
 
 | Parameter | Value | Notes |
 |-----------|-------|-------|
-| [`NUM_RETRIEVAL_CHECKS_PER_SP_PER_HOUR`](../environment-variables.md#retrievals_per_sp_per_hour) | 4 | 96 per day |
+| [`RETRIEVALS_PER_SP_PER_HOUR`](../environment-variables.md#retrievals_per_sp_per_hour) | 4 | 96 per day |
 | [`RANDOM_PIECE_SIZES`](../environment-variables.md#random_dataset_sizes) | `10485760` | Only ~10MB files are used for retrieval downloads, for simplicity |
 | Max [`ipniVerifyMs`](./events-and-metrics.md#ipniVerifyMs) | 10s | |
 | Max [`ipfsRetrievalLastByteMs`](./events-and-metrics.md#ipfsRetrievalLastByteMs) | 20s | |

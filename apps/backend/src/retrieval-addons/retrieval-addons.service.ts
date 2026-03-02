@@ -1,11 +1,11 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { delay } from "../common/abort-utils.js";
 import { RetrievalError, type RetrievalErrorResponseInfo } from "../common/errors.js";
+import { toStructuredError } from "../common/logging.js";
 import { ServiceType } from "../database/types.js";
 import { HttpClientService } from "../http-client/http-client.service.js";
 import type { RequestWithMetrics } from "../http-client/types.js";
 import type { IRetrievalAddon } from "./interfaces/retrieval-addon.interface.js";
-import { DirectRetrievalStrategy } from "./strategies/direct.strategy.js";
 import { IpfsBlockRetrievalStrategy } from "./strategies/ipfs-block.strategy.js";
 import type {
   RetrievalConfiguration,
@@ -26,7 +26,6 @@ export class RetrievalAddonsService {
   private readonly addons: Map<string, IRetrievalAddon> = new Map();
 
   constructor(
-    private readonly directRetrieval: DirectRetrievalStrategy,
     private readonly ipfsBlockRetrieval: IpfsBlockRetrievalStrategy,
     private readonly httpClientService: HttpClientService,
   ) {
@@ -38,7 +37,6 @@ export class RetrievalAddonsService {
    * @private
    */
   private registerAddons(): void {
-    this.registerAddon(this.directRetrieval);
     this.registerAddon(this.ipfsBlockRetrieval);
 
     this.logger.log(`Registered ${this.addons.size} retrieval add-ons: ${Array.from(this.addons.keys()).join(", ")}`);
@@ -129,7 +127,13 @@ export class RetrievalAddonsService {
       try {
         return strategy.constructUrl(config);
       } catch (error) {
-        this.logger.error(`Failed to construct URL with strategy ${strategy.name}: ${error.message}`);
+        this.logger.error({
+          event: "construct_retrieval_url_failed",
+          message: `Failed to construct URL with strategy ${strategy.name}`,
+          strategy: strategy.name,
+          dealId: config.deal.id,
+          error: toStructuredError(error),
+        });
         throw error;
       }
     });
@@ -293,8 +297,15 @@ export class RetrievalAddonsService {
         }
       } catch (error) {
         signal?.throwIfAborted();
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        this.logger.warn(`${strategy.name} attempt ${attempt}/${attempts} failed: ${errorMessage}`);
+        this.logger.warn({
+          event: "retrieval_attempt_failed",
+          message: `${strategy.name} attempt ${attempt}/${attempts} failed`,
+          strategy: strategy.name,
+          attempt,
+          attempts,
+          dealId: config.deal.id,
+          error: toStructuredError(error),
+        });
 
         // If all attempts fail, throw the error
         if (attempt === attempts) {
@@ -365,6 +376,16 @@ export class RetrievalAddonsService {
         const totalTime = performance.now() - startTime;
         const responseSize = validation.bytesRead ?? 0;
         const throughput = totalTime > 0 && responseSize > 0 ? responseSize / (totalTime / 1000) : 0;
+        const validationOk = validation.isValid;
+        let statusCode = 200;
+        if (!validationOk) {
+          if (validation.httpStatusCode != null) {
+            statusCode = validation.httpStatusCode;
+          } else if (validation.method === "metadata-missing") {
+            statusCode = 0;
+          }
+        }
+        const error = validationOk ? undefined : validation.details || "IPFS block-fetch validation failed";
 
         return {
           url: urlResult.url,
@@ -373,12 +394,13 @@ export class RetrievalAddonsService {
             latency: Math.round(totalTime),
             ttfb: validation.ttfb ?? 0,
             throughput,
-            statusCode: validation.isValid ? 200 : 0,
+            statusCode,
             timestamp: new Date(),
             responseSize,
           },
           validation,
-          success: true,
+          success: validationOk,
+          error,
         };
       }
 
@@ -420,15 +442,19 @@ export class RetrievalAddonsService {
             );
           }
         } catch (error) {
-          this.logger.warn(
-            `Validation error for ${urlResult.method} retrieval of deal ${config.deal.id}: ` +
-              `URL: ${urlResult.url}, ` +
-              `Error: ${error.message}`,
-          );
+          this.logger.warn({
+            event: "retrieval_validation_error",
+            message: `Validation error for ${urlResult.method} retrieval of deal ${config.deal.id}`,
+            method: urlResult.method,
+            dealId: config.deal.id,
+            url: urlResult.url,
+            error: toStructuredError(error),
+          });
+          const errorMessage = error instanceof Error ? error.message : String(error);
           validation = {
             isValid: false,
             method: "validation-error",
-            details: error.message,
+            details: errorMessage,
           };
         }
       }
@@ -455,12 +481,16 @@ export class RetrievalAddonsService {
         this.logger.warn(`Retrieval aborted for ${urlResult.method}. Failure details below`);
       }
       const errorMessage = error instanceof Error ? error.message : String(error);
-      const errorStack = error instanceof Error ? error.stack : undefined;
       const responseInfo = this.extractResponseInfo(error);
       const errorCode = this.extractErrorCode(error);
       const context = this.formatRetrievalContext(config, urlResult, { ...responseInfo, errorCode });
 
-      this.logger.error(`Retrieval failed for ${urlResult.method}: ${errorMessage} (${context})`, errorStack);
+      this.logger.error({
+        event: "retrieval_failed",
+        message: `Retrieval failed for ${urlResult.method}`,
+        context,
+        error: toStructuredError(error),
+      });
 
       return {
         url: urlResult.url,
@@ -469,7 +499,7 @@ export class RetrievalAddonsService {
           latency: 0,
           ttfb: 0,
           throughput: 0,
-          statusCode: 0,
+          statusCode: responseInfo.statusCode ?? 0,
           timestamp: new Date(),
           responseSize: 0,
         },

@@ -1,19 +1,54 @@
-import { Logger } from "@nestjs/common";
+import { ConsoleLogger } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
 import cors from "cors";
 import helmet from "helmet";
+import { resolveLogLevels } from "./common/log-levels.js";
+import { toStructuredError } from "./common/logging.js";
 
-const logger = new Logger("Main");
+/** Logger used for bootstrap/exit paths before Nest app is created or on unhandled rejection. */
+const exitLogger = new ConsoleLogger("Main", {
+  json: true,
+  colors: false,
+  logLevels: resolveLogLevels(process.env.LOG_LEVEL),
+});
+
+let isExiting = false;
+
+function logErrorAndExit(event: string, message: string, error: unknown): void {
+  if (isExiting) {
+    return;
+  }
+  isExiting = true;
+
+  exitLogger.fatal({
+    event,
+    message,
+    error: toStructuredError(error),
+  });
+  process.exitCode = 1;
+  setImmediate(() => {
+    process.exit(1);
+  });
+}
 
 async function bootstrap() {
+  const logLevels = resolveLogLevels(process.env.LOG_LEVEL);
+  const logger = new ConsoleLogger("Main", {
+    json: true,
+    colors: false,
+    logLevels,
+  });
+
   const runMode = (process.env.DEALBOT_RUN_MODE || "both").toLowerCase();
   const isWorkerOnly = runMode === "worker";
   const rootModule = isWorkerOnly
     ? (await import("./worker.module.js")).WorkerModule
     : (await import("./app.module.js")).AppModule;
   const app = await NestFactory.create(rootModule, {
-    logger: ["log", "fatal", "error", "warn"],
+    // Allow bootstrap errors to propagate so our catch path can emit structured fatal logs.
+    abortOnError: false,
+    logger,
   });
 
   // Ensure Nest calls lifecycle shutdown hooks (OnApplicationShutdown / BeforeApplicationShutdown)
@@ -65,12 +100,31 @@ async function bootstrap() {
     throw new Error(`Invalid ${name}: ${portEnvValue ?? ""}`);
   }
   const host = isWorkerOnly ? process.env.DEALBOT_METRICS_HOST || "0.0.0.0" : process.env.DEALBOT_HOST || "127.0.0.1";
+  logger.log({
+    event: "bootstrap_listen_start",
+    message: "Starting HTTP listener",
+    host,
+    port,
+    runMode,
+  });
   await app.listen(port, host);
-  logger.log(
-    isWorkerOnly
+  logger.log({
+    event: "bootstrap_listen_complete",
+    message: isWorkerOnly
       ? `Dealbot worker is running; metrics available on ${host}:${port}/metrics`
       : `Dealbot backend is running on ${host}:${port}`,
-  );
+    host,
+    port,
+    runMode,
+  });
 }
 
-bootstrap();
+process.once("unhandledRejection", (reason: unknown, _promise: Promise<unknown>) => {
+  logErrorAndExit("unhandled_rejection", "Unhandled rejection", reason);
+});
+
+process.once("uncaughtException", (error: unknown) => {
+  logErrorAndExit("uncaught_exception", "Uncaught exception", error);
+});
+
+void bootstrap().catch((error: unknown) => logErrorAndExit("bootstrap_failed", "Bootstrap failed", error));

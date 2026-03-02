@@ -1,6 +1,7 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { InjectDataSource } from "@nestjs/typeorm";
 import type { DataSource } from "typeorm";
+import { toStructuredError } from "../../common/logging.js";
 import type { JobType } from "../../database/entities/job-schedule-state.entity.js";
 import {
   DATA_RETENTION_POLL_QUEUE,
@@ -93,11 +94,11 @@ export class JobScheduleRepository {
         )) || [];
       return result.map((row: { sp_address: string }) => row.sp_address);
     } catch (error) {
-      if (error instanceof Error) {
-        this.logger.error(`Failed to delete schedules for inactive providers: ${error.message}`, error.stack);
-      } else {
-        this.logger.error("Failed to delete schedules for inactive providers", String(error));
-      }
+      this.logger.error({
+        event: "delete_inactive_provider_schedules_failed",
+        message: "Failed to delete schedules for inactive providers",
+        error: toStructuredError(error),
+      });
       throw error;
     }
   }

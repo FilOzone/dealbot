@@ -106,9 +106,6 @@ export class MetricsDaily {
   @Column({ name: "ipni_advertised_deals", type: "integer", default: 0 })
   ipniAdvertisedDeals: number;
 
-  @Column({ name: "ipni_retrieved_deals", type: "integer", default: 0 })
-  ipniRetrievedDeals: number;
-
   @Column({ name: "ipni_verified_deals", type: "integer", default: 0 })
   ipniVerifiedDeals: number;
 
@@ -131,13 +128,6 @@ export class MetricsDaily {
     nullable: true,
   })
   avgIpniTimeToAdvertiseMs: number;
-
-  @Column({
-    name: "avg_ipni_time_to_retrieve_ms",
-    type: "integer",
-    nullable: true,
-  })
-  avgIpniTimeToRetrieveMs: number;
 
   @Column({
     name: "avg_ipni_time_to_verify_ms",

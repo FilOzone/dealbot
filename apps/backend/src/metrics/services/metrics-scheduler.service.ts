@@ -5,6 +5,7 @@ import { InjectDataSource, InjectRepository } from "@nestjs/typeorm";
 import { InjectMetric } from "@willsoto/nestjs-prometheus";
 import type { Gauge } from "prom-client";
 import type { DataSource, Repository } from "typeorm";
+import { toStructuredError } from "../../common/logging.js";
 import { scheduleJobWithOffset } from "../../common/utils.js";
 import type { IConfig, ISchedulingConfig } from "../../config/app.config.js";
 import { StorageProvider } from "../../database/entities/storage-provider.entity.js";
@@ -112,7 +113,11 @@ export class MetricsSchedulerService implements OnModuleInit {
       const duration = Date.now() - startTime;
       this.logger.log(`Successfully refreshed sp_performance_last_week in ${duration}ms`);
     } catch (error) {
-      this.logger.error(`Failed to refresh sp_performance_last_week: ${error.message}`, error.stack);
+      this.logger.error({
+        event: "refresh_weekly_performance_failed",
+        message: "Failed to refresh sp_performance_last_week",
+        error: toStructuredError(error),
+      });
       throw error;
     }
   }
@@ -133,7 +138,11 @@ export class MetricsSchedulerService implements OnModuleInit {
       const duration = Date.now() - startTime;
       this.logger.log(`Successfully refreshed sp_performance_all_time in ${duration}ms`);
     } catch (error) {
-      this.logger.error(`Failed to refresh sp_performance_all_time: ${error.message}`, error.stack);
+      this.logger.error({
+        event: "refresh_all_time_performance_failed",
+        message: "Failed to refresh sp_performance_all_time",
+        error: toStructuredError(error),
+      });
       throw error;
     }
   }
@@ -184,13 +193,11 @@ export class MetricsSchedulerService implements OnModuleInit {
           total_ipni_deals,
           ipni_indexed_deals,
           ipni_advertised_deals,
-          ipni_retrieved_deals,
           ipni_verified_deals,
           ipni_failed_deals,
           ipni_success_rate,
           avg_ipni_time_to_index_ms,
           avg_ipni_time_to_advertise_ms,
-          avg_ipni_time_to_retrieve_ms,
           avg_ipni_time_to_verify_ms,
           created_at,
           updated_at
@@ -220,11 +227,10 @@ export class MetricsSchedulerService implements OnModuleInit {
           0 as successful_retrievals,
           0 as failed_retrievals,
           0 as total_data_retrieved_bytes,
-          -- IPNI metrics (incremental states: PENDING -> INDEXED -> ADVERTISED -> RETRIEVED)
+          -- IPNI metrics (incremental states: PENDING -> INDEXED -> ADVERTISED -> VERIFIED)
           COUNT(*) FILTER (WHERE ipni_status IS NOT NULL) as total_ipni_deals,
-          COUNT(*) FILTER (WHERE ipni_status IN ('${IpniStatus.SP_INDEXED}', '${IpniStatus.SP_ADVERTISED}', '${IpniStatus.SP_RECEIVED_RETRIEVE_REQUEST}', '${IpniStatus.VERIFIED}')) as ipni_indexed_deals,
-          COUNT(*) FILTER (WHERE ipni_status IN ('${IpniStatus.SP_ADVERTISED}', '${IpniStatus.SP_RECEIVED_RETRIEVE_REQUEST}', '${IpniStatus.VERIFIED}')) as ipni_advertised_deals,
-          COUNT(*) FILTER (WHERE ipni_status IN ('${IpniStatus.SP_RECEIVED_RETRIEVE_REQUEST}', '${IpniStatus.VERIFIED}')) as ipni_retrieved_deals,
+          COUNT(*) FILTER (WHERE ipni_status IN ('${IpniStatus.SP_INDEXED}', '${IpniStatus.SP_ADVERTISED}', '${IpniStatus.VERIFIED}')) as ipni_indexed_deals,
+          COUNT(*) FILTER (WHERE ipni_status IN ('${IpniStatus.SP_ADVERTISED}', '${IpniStatus.VERIFIED}')) as ipni_advertised_deals,
           COUNT(*) FILTER (WHERE ipni_status = '${IpniStatus.VERIFIED}') as ipni_verified_deals,
           COUNT(*) FILTER (WHERE ipni_status = '${IpniStatus.FAILED}') as ipni_failed_deals,
           COALESCE(
@@ -237,7 +243,6 @@ export class MetricsSchedulerService implements OnModuleInit {
           ) as ipni_success_rate,
           COALESCE(ROUND(AVG(ipni_time_to_index_ms) FILTER (WHERE ipni_time_to_index_ms IS NOT NULL), 0), 0) as avg_ipni_time_to_index_ms,
           COALESCE(ROUND(AVG(ipni_time_to_advertise_ms) FILTER (WHERE ipni_time_to_advertise_ms IS NOT NULL), 0), 0) as avg_ipni_time_to_advertise_ms,
-          COALESCE(ROUND(AVG(ipni_time_to_retrieve_ms) FILTER (WHERE ipni_time_to_retrieve_ms IS NOT NULL), 0), 0) as avg_ipni_time_to_retrieve_ms,
           COALESCE(ROUND(AVG(ipni_time_to_verify_ms) FILTER (WHERE ipni_time_to_verify_ms IS NOT NULL), 0), 0) as avg_ipni_time_to_verify_ms,
           NOW() as created_at,
           NOW() as updated_at
@@ -258,13 +263,11 @@ export class MetricsSchedulerService implements OnModuleInit {
           total_ipni_deals = EXCLUDED.total_ipni_deals,
           ipni_indexed_deals = EXCLUDED.ipni_indexed_deals,
           ipni_advertised_deals = EXCLUDED.ipni_advertised_deals,
-          ipni_retrieved_deals = EXCLUDED.ipni_retrieved_deals,
           ipni_verified_deals = EXCLUDED.ipni_verified_deals,
           ipni_failed_deals = EXCLUDED.ipni_failed_deals,
           ipni_success_rate = EXCLUDED.ipni_success_rate,
           avg_ipni_time_to_index_ms = EXCLUDED.avg_ipni_time_to_index_ms,
           avg_ipni_time_to_advertise_ms = EXCLUDED.avg_ipni_time_to_advertise_ms,
-          avg_ipni_time_to_retrieve_ms = EXCLUDED.avg_ipni_time_to_retrieve_ms,
           avg_ipni_time_to_verify_ms = EXCLUDED.avg_ipni_time_to_verify_ms,
           updated_at = NOW()
         RETURNING sp_address
@@ -344,7 +347,11 @@ export class MetricsSchedulerService implements OnModuleInit {
       const duration = Date.now() - startTime;
       this.logger.log(`Successfully aggregated daily metrics for ${dealMetrics.length} providers in ${duration}ms`);
     } catch (error) {
-      this.logger.error(`Failed to aggregate daily metrics: ${error.message}`, error.stack);
+      this.logger.error({
+        event: "aggregate_daily_metrics_failed",
+        message: "Failed to aggregate daily metrics",
+        error: toStructuredError(error),
+      });
       throw error;
     }
   }
@@ -366,7 +373,11 @@ export class MetricsSchedulerService implements OnModuleInit {
       this.walletBalanceGauge.set({ currency: "USDFC", wallet: walletShort }, Number(usdfc));
       this.walletBalanceGauge.set({ currency: "FIL", wallet: walletShort }, Number(fil));
     } catch (error) {
-      this.logger.warn(`Failed to update wallet balance metrics: ${error.message}`);
+      this.logger.warn({
+        event: "update_wallet_balance_metrics_failed",
+        message: "Failed to update wallet balance metrics",
+        error: toStructuredError(error),
+      });
     }
   }
 
@@ -386,7 +397,11 @@ export class MetricsSchedulerService implements OnModuleInit {
       });
       this.storageProvidersTested.set(testedCount);
     } catch (error) {
-      this.logger.warn(`Failed to update storage provider metrics: ${error.message}`);
+      this.logger.warn({
+        event: "update_storage_provider_metrics_failed",
+        message: "Failed to update storage provider metrics",
+        error: toStructuredError(error),
+      });
     }
   }
 
@@ -424,7 +439,11 @@ export class MetricsSchedulerService implements OnModuleInit {
       const duration = Date.now() - startTime;
       this.logger.log(`Successfully cleaned up ${result.length} old daily metrics records in ${duration}ms`);
     } catch (error) {
-      this.logger.error(`Failed to cleanup old metrics: ${error.message}`, error.stack);
+      this.logger.error({
+        event: "cleanup_old_metrics_failed",
+        message: "Failed to cleanup old metrics",
+        error: toStructuredError(error),
+      });
       throw error;
     }
   }

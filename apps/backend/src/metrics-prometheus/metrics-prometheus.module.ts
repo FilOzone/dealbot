@@ -13,6 +13,31 @@ import {
 } from "../metrics/utils/check-metrics.service.js";
 import { MetricsPrometheusInterceptor } from "./metrics-prometheus.interceptor.js";
 
+const KiB = 1 << 10;
+const MiB = 1 << 20;
+const GiB = 1 << 30;
+const throughputBuckets = [
+  10 * KiB,
+  50 * KiB,
+  100 * KiB,
+  500 * KiB,
+  1 * MiB,
+  5 * MiB,
+  10 * MiB,
+  50 * MiB,
+  100 * MiB,
+  250 * MiB,
+  500 * MiB,
+  750 * MiB,
+  1 * GiB,
+  1.25 * GiB,
+  1.5 * GiB,
+  1.75 * GiB,
+  2 * GiB,
+  2.5 * GiB,
+  3 * GiB,
+];
+
 const metricProviders = [
   // HTTP metrics: API request volume and latency by method/path/status.
   makeCounterProvider({
@@ -39,7 +64,7 @@ const metricProviders = [
     name: "ingestThroughputBps",
     help: "Ingest throughput in bytes per second",
     labelNames: ["checkType", "providerId", "providerStatus"] as const,
-    buckets: [1e3, 1e4, 1e5, 1e6, 5e6, 1e7, 5e7, 1e8, 5e8],
+    buckets: throughputBuckets,
   }),
   makeHistogramProvider({
     // docs/checks/events-and-metrics.md#pieceAddedOnChainMs
@@ -102,7 +127,7 @@ const metricProviders = [
     name: "ipfsRetrievalThroughputBps",
     help: "IPFS retrieval throughput in bytes per second",
     labelNames: ["checkType", "providerId", "providerStatus"] as const,
-    buckets: [1e3, 1e4, 1e5, 1e6, 5e6, 1e7, 5e7, 1e8, 5e8],
+    buckets: throughputBuckets,
   }),
   makeHistogramProvider({
     // docs/checks/events-and-metrics.md#dataStorageCheckMs

@@ -135,7 +135,7 @@ These settings apply when `DEALBOT_JOBS_MODE=pgboss` (recommended). See
 | Variable                      | Description                                     | Default      |
 | ----------------------------- | ----------------------------------------------- | ------------ |
 | `DEALBOT_LOCAL_DATASETS_PATH` | Local path for random dataset storage           | `./datasets` |
-| `RANDOM_DATASET_SIZES`        | Comma-separated byte sizes for random datasets | `10240,10485760,104857600` |
+| `RANDOM_PIECE_SIZES`          | Comma-separated byte sizes for uploaded content | `10485760` |
 
 ## Project Structure
 

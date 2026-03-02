@@ -15,10 +15,10 @@ export class JobScheduleState {
   @PrimaryGeneratedColumn("increment", { type: "bigint" })
   id!: string;
 
-  @Column({ name: "job_type" })
+  @Column({ name: "job_type", type: "text" })
   jobType!: JobType;
 
-  @Column({ name: "sp_address", default: "" })
+  @Column({ name: "sp_address", type: "text", default: "" })
   spAddress!: string;
 
   @Column({ name: "interval_seconds" })

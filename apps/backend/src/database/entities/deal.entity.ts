@@ -102,9 +102,6 @@ export class Deal {
   @Column({ name: "ipni_advertised_at", type: "timestamp", nullable: true })
   ipniAdvertisedAt: Date;
 
-  @Column({ name: "ipni_retrieved_at", type: "timestamp", nullable: true })
-  ipniRetrievedAt: Date;
-
   @Column({ name: "ipni_verified_at", type: "timestamp", nullable: true })
   ipniVerifiedAt: Date;
 
@@ -114,9 +111,6 @@ export class Deal {
 
   @Column({ name: "ipni_time_to_advertise_ms", nullable: true, type: "int" })
   ipniTimeToAdvertiseMs: number;
-
-  @Column({ name: "ipni_time_to_retrieve_ms", nullable: true, type: "int" })
-  ipniTimeToRetrieveMs: number;
 
   @Column({ name: "ipni_time_to_verify_ms", nullable: true, type: "int" })
   ipniTimeToVerifyMs: number;

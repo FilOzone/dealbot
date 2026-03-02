@@ -1,5 +1,6 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { awaitWithAbort } from "../common/abort-utils.js";
+import { toStructuredError } from "../common/logging.js";
 import type { Deal } from "../database/entities/deal.entity.js";
 import type { DealMetadata, ServiceType } from "../database/types.js";
 import type { IDealAddon } from "./interfaces/deal-addon.interface.js";
@@ -102,8 +103,13 @@ export class DealAddonsService {
         appliedAddons: pipelineResult.appliedAddons,
       };
     } catch (error) {
-      this.logger.error(`Deal preprocessing failed: ${error.message}`, error.stack);
-      throw new Error(`Deal preprocessing failed: ${error.message}`);
+      this.logger.error({
+        event: "deal_preprocessing_failed",
+        message: "Deal preprocessing failed",
+        error: toStructuredError(error),
+      });
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      throw new Error(`Deal preprocessing failed: ${errorMessage}`);
     }
   }
 
@@ -129,8 +135,12 @@ export class DealAddonsService {
       this.logger.debug(`onUploadComplete handlers completed for deal ${deal.id}`);
     } catch (error) {
       signal?.throwIfAborted();
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      this.logger.warn(`onUploadComplete handler failed for deal ${deal.id}: ${errorMessage}`);
+      this.logger.warn({
+        event: "addon_on_upload_complete_failed",
+        message: `onUploadComplete handler failed for deal ${deal.id}`,
+        dealId: deal.id,
+        error: toStructuredError(error),
+      });
       throw error;
     }
   }
@@ -154,7 +164,12 @@ export class DealAddonsService {
       await Promise.all(postProcessPromises);
       this.logger.debug(`Post-processing completed for deal ${deal.id}`);
     } catch (error) {
-      this.logger.warn(`Post-processing failed for deal ${deal.id}: ${error.message}`);
+      this.logger.warn({
+        event: "addon_post_process_failed",
+        message: `Post-processing failed for deal ${deal.id}`,
+        dealId: deal.id,
+        error: toStructuredError(error),
+      });
       // Don't throw - post-processing failures shouldn't break the deal
     }
   }
@@ -247,8 +262,14 @@ export class DealAddonsService {
             `metadata keys: ${Object.keys(result.metadata).join(", ")}`,
         );
       } catch (error) {
-        this.logger.error(`Add-on ${addon.name} failed: ${error.message}`, error.stack);
-        throw new Error(`Add-on ${addon.name} preprocessing failed: ${error.message}`);
+        this.logger.error({
+          event: "deal_addon_failed",
+          message: `Add-on ${addon.name} failed`,
+          addon: addon.name,
+          error: toStructuredError(error),
+        });
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        throw new Error(`Add-on ${addon.name} preprocessing failed: ${errorMessage}`);
       }
     }
 
