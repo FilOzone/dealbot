@@ -3,16 +3,16 @@
 This document covers application-level operational readiness for Dealbot.
 For cluster deployment and post-deployment operations (logs, rollout, rollback, secrets, backup checks), use the infra runbook in `FilOzone/infra`:
 
-- `https://github.com/FilOzone/infra/blob/main/docs/runbooks/dealbot.md`
+- [Infra Dealbot runbook](https://github.com/FilOzone/infra/blob/main/docs/runbooks/dealbot.md)
 
 Related issues:
 
-- Infra runbook track: `https://github.com/FilOzone/infra/issues/32`
-- Ops-readiness umbrella: `https://github.com/FilOzone/dealbot/issues/90`
+- Infra runbook track: [FilOzone/infra#32](https://github.com/FilOzone/infra/issues/32)
+- Ops-readiness umbrella: [FilOzone/dealbot#90](https://github.com/FilOzone/dealbot/issues/90)
 
 Team-internal tracker:
 
-- Operational readiness Notion page (Filoz internal): `https://www.notion.so/filecoindev/FOC-Operational-Excellence-Dealbot-317dc41950c180fda76eddc205a63453?source=copy_link`.
+- Operational readiness Notion page (Filoz internal; requires team access): [FOC Operational Excellence: Dealbot](https://www.notion.so/filecoindev/FOC-Operational-Excellence-Dealbot-317dc41950c180fda76eddc205a63453?source=copy_link).
 
 ## 1) System Architecture
 
@@ -72,7 +72,7 @@ Promote only when all are true:
 
 - No sustained UI errors in staging.
 - No sustained backend crash loops in staging logs.
-- Scheduler/worker are making progress (jobs enqueued and completed).
+- Scheduler and workers are making progress (jobs enqueued and completed).
 - No unresolved critical alerts tied to Dealbot.
 - Intended image tags and env changes are committed in infra and synced by ArgoCD.
 
@@ -80,7 +80,7 @@ Promote only when all are true:
 
 Provider-specific public log visibility depends on:
 
-- `https://github.com/FilOzone/dealbot/issues/277`
-- `https://github.com/FilOzone/dealbot/issues/311`
+- [FilOzone/dealbot#277](https://github.com/FilOzone/dealbot/issues/277)
+- [FilOzone/dealbot#311](https://github.com/FilOzone/dealbot/issues/311)
 
 Until both are complete, provider-specific troubleshooting is not fully self-serve through the public dashboard and may require Filoz team-assisted log triage.
