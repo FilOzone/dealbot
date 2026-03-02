@@ -212,6 +212,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     await boss.createQueue(METRICS_QUEUE);
     await boss.createQueue(METRICS_CLEANUP_QUEUE);
     await boss.createQueue(PROVIDERS_REFRESH_QUEUE);
+    await boss.createQueue(DATA_RETENTION_POLL_QUEUE);
   }
 
   private registerWorkers(): void {
