@@ -1,11 +1,20 @@
 import { randomBytes } from "node:crypto";
-import { PDPAuthHelper, PDPServer, RPC_URLS, SIZE_CONSTANTS, Synapse } from "@filoz/synapse-sdk";
+import {
+  METADATA_KEYS,
+  PDPAuthHelper,
+  PDPServer,
+  RPC_URLS,
+  SIZE_CONSTANTS,
+  Synapse,
+  WarmStorageService,
+} from "@filoz/synapse-sdk";
 import { Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
 import { cleanupSynapseService, executeUpload } from "filecoin-pin";
 import { CID } from "multiformats/cid";
 import type { Repository } from "typeorm";
+import { awaitWithAbort } from "../common/abort-utils.js";
 import { buildUnixfsCar } from "../common/car-utils.js";
 import { createFilecoinPinLogger } from "../common/filecoin-pin-logger.js";
 import { toStructuredError } from "../common/logging.js";
@@ -114,6 +123,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       extraDataSetMetadata?: Record<string, string>;
     },
   ): Promise<Deal> {
+    options.signal?.throwIfAborted();
     const { preprocessed, cleanup } = await this.prepareDealInput(options.enableIpni, options.signal);
 
     try {
@@ -161,20 +171,14 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     return { enableIpni };
   }
 
-  async buildDataSetMetadata(
-    enableIpni: boolean,
-    extraMetadata?: Record<string, string>,
-  ): Promise<Record<string, string>> {
-    const metadata: Record<string, string> = { ...extraMetadata };
-
+  getBaseDataSetMetadata(enableIpni: boolean): Record<string, string> {
+    const metadata: Record<string, string> = {};
     if (enableIpni) {
-      metadata.type = "deals";
+      metadata[METADATA_KEYS.WITH_IPFS_INDEXING] = "";
     }
-
     if (this.blockchainConfig.dealbotDataSetVersion) {
       metadata.dealbotDataSetVersion = this.blockchainConfig.dealbotDataSetVersion;
     }
-
     return metadata;
   }
 
@@ -448,25 +452,38 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
   /**
    * Checks if an on-chain data set exists for a provider with specific metadata.
    */
-  async checkDataSetExists(providerAddress: string, metadata: Record<string, string>): Promise<boolean> {
+  async checkDataSetExists(
+    providerAddress: string,
+    metadata: Record<string, string>,
+    signal?: AbortSignal,
+  ): Promise<boolean> {
+    signal?.throwIfAborted();
     const synapse = this.sharedSynapse ?? (await this.createSynapseInstance());
-    const context = await synapse.storage.createContext({
-      providerAddress,
-      metadata,
-    });
+    const context = await awaitWithAbort(
+      synapse.storage.createContext({
+        providerAddress,
+        metadata,
+      }),
+      signal,
+    );
+    signal?.throwIfAborted();
     return context.dataSetId !== undefined;
   }
 
   /**
    * Creates an on-chain data-set for a provider with the given metadata.
    *
-   * Uses PDPServer.createDataSet() which sends an EIP-712 signed transaction
-   * to the PDP service, creating the data-set on-chain and polling for
-   * confirmation.
+   * Uses PDPServer.createDataSet() for submission and the SDK's
+   * WarmStorageService.waitForDataSetCreationWithStatus() for confirmation.
    *
    * @returns The confirmed on-chain data-set ID.
    */
-  async createDataSet(providerAddress: string, metadata: Record<string, string>): Promise<{ dataSetId: number }> {
+  async createDataSet(
+    providerAddress: string,
+    metadata: Record<string, string>,
+    signal?: AbortSignal,
+  ): Promise<{ dataSetId: number }> {
+    signal?.throwIfAborted();
     const synapse = this.sharedSynapse ?? (await this.createSynapseInstance());
     const provider = this.walletSdkService.getProviderInfo(providerAddress);
     if (!provider) {
@@ -489,44 +506,29 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     const payer = await synapse.getClient().getAddress();
     const clientDataSetId = BigInt(`0x${randomBytes(32).toString("hex")}`);
 
-    const result = await pdpServer.createDataSet(
-      clientDataSetId,
-      provider.payee,
-      payer,
-      metadataEntries,
-      warmStorageAddress,
+    const result = await awaitWithAbort(
+      pdpServer.createDataSet(clientDataSetId, provider.payee, payer, metadataEntries, warmStorageAddress),
+      signal,
     );
+    signal?.throwIfAborted();
 
     this.logger.log(`Data-set creation tx submitted: ${result.txHash} for provider ${providerAddress}`);
 
-    // Poll for on-chain confirmation
-    const confirmed = await this.pollForDataSetCreation(pdpServer, result.txHash);
-
-    this.logger.log(`Data-set created on-chain: ID=${confirmed.dataSetId} for provider ${providerAddress}`);
-
-    return { dataSetId: confirmed.dataSetId! };
-  }
-
-  /**
-   * Polls the PDP server until the data-set creation transaction is confirmed on-chain.
-   */
-  private async pollForDataSetCreation(
-    pdpServer: PDPServer,
-    txHash: string,
-    maxAttempts = 60,
-    intervalMs = 5000,
-  ): Promise<{ dataSetId?: number }> {
-    for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      const status = await pdpServer.getDataSetCreationStatus(txHash);
-      if (status.dataSetCreated && status.dataSetId != null) {
-        return { dataSetId: status.dataSetId };
-      }
-      if (status.ok === false) {
-        throw new Error(`Data-set creation tx failed: ${txHash}`);
-      }
-      await new Promise((resolve) => setTimeout(resolve, intervalMs));
+    const warmStorageService = await awaitWithAbort(
+      WarmStorageService.create(synapse.getProvider(), warmStorageAddress),
+      signal,
+    );
+    const confirmed = await awaitWithAbort(
+      warmStorageService.waitForDataSetCreationWithStatus(result.txHash, pdpServer, 60 * 5000, 5000),
+      signal,
+    );
+    if (confirmed.summary.dataSetId == null) {
+      throw new Error(`Data-set creation completed without dataSetId for tx: ${result.txHash}`);
     }
-    throw new Error(`Data-set creation timed out after ${(maxAttempts * intervalMs) / 1000}s for tx: ${txHash}`);
+
+    this.logger.log(`Data-set created on-chain: ID=${confirmed.summary.dataSetId} for provider ${providerAddress}`);
+
+    return { dataSetId: confirmed.summary.dataSetId };
   }
 
   // ============================================================================

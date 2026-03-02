@@ -378,26 +378,42 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
 
         // Data-set-aware deal creation
         const minDataSets = this.configService.get("blockchain").minNumDataSetsForChecks;
+        const baseDataSetMetadata = this.dealService.getBaseDataSetMetadata(dealOptions.enableIpni);
         let extraDataSetMetadata: Record<string, string> | undefined;
 
         if (minDataSets > 1) {
           const dsIndex = Math.floor(Math.random() * minDataSets);
           if (dsIndex > 0) {
-            const extraMetadata = { dealbotDS: String(dsIndex) };
-            const expectedMetadata = await this.dealService.buildDataSetMetadata(dealOptions.enableIpni, extraMetadata);
-            const exists = await this.dealService.checkDataSetExists(spAddress, expectedMetadata);
+            const dsIndexMetadata = { dealbotDS: String(dsIndex) };
+            const expectedMetadata = { ...baseDataSetMetadata, ...dsIndexMetadata };
+            try {
+              const exists = await this.dealService.checkDataSetExists(
+                spAddress,
+                expectedMetadata,
+                abortController.signal,
+              );
 
-            if (exists) {
-              extraDataSetMetadata = extraMetadata;
-            } else {
-              this.logger.log(
-                `Data set #${dsIndex} not yet provisioned for ${spAddress}; falling back to default data set`,
+              if (exists) {
+                extraDataSetMetadata = dsIndexMetadata;
+              } else {
+                this.logger.log(
+                  `Data set #${dsIndex} not yet provisioned for ${spAddress}; falling back to default data set`,
+                );
+              }
+            } catch (error) {
+              if (abortController.signal.aborted) {
+                throw abortController.signal.reason;
+              }
+              const errorMessage = error instanceof Error ? error.message : String(error);
+              this.logger.warn(
+                `Failed to verify data set #${dsIndex} for ${spAddress}: ${errorMessage}; falling back to default data set`,
               );
             }
           }
           // dsIndex === 0 → baseline data set, no `dealbotDS` metadata key needed
         }
 
+        abortController.signal.throwIfAborted();
         await this.dealService.createDealForProvider(provider, {
           ...dealOptions,
           signal: abortController.signal,
@@ -532,6 +548,8 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     }
 
     const minDataSets = this.configService.get("blockchain").minNumDataSetsForChecks;
+    const dealOptions = this.dealService.getTestingDealOptions();
+    const baseDataSetMetadata = this.dealService.getBaseDataSetMetadata(dealOptions.enableIpni);
 
     // Create AbortController for job timeout enforcement
     const abortController = new AbortController();
@@ -549,6 +567,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
           { dealService: this.dealService, logger: this.logger },
           spAddress,
           minDataSets,
+          baseDataSetMetadata,
           abortController.signal,
         );
         return "success";

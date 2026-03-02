@@ -2,10 +2,7 @@ import type { Logger } from "@nestjs/common";
 import type { DealService } from "../deal/deal.service.js";
 
 export interface DataSetCreationDeps {
-  dealService: Pick<
-    DealService,
-    "checkDataSetExists" | "createDataSet" | "getTestingDealOptions" | "buildDataSetMetadata"
-  >;
+  dealService: Pick<DealService, "checkDataSetExists" | "createDataSet">;
   logger: Logger;
 }
 
@@ -22,28 +19,29 @@ export async function provisionDataSets(
   deps: DataSetCreationDeps,
   spAddress: string,
   minDataSets: number,
+  baseDataSetMetadata: Record<string, string>,
   signal?: AbortSignal,
 ): Promise<void> {
   const { dealService, logger } = deps;
-
-  const dealOptions = dealService.getTestingDealOptions();
 
   let createdCount = 0;
   for (let i = 0; i < minDataSets; i++) {
     signal?.throwIfAborted();
 
-    const extraMetadata: Record<string, string> = i > 0 ? { dealbotDS: String(i) } : {};
-    const metadata = await dealService.buildDataSetMetadata(dealOptions.enableIpni, extraMetadata);
+    const metadata: Record<string, string> = {
+      ...baseDataSetMetadata,
+      ...(i > 0 ? { dealbotDS: String(i) } : {}),
+    };
 
     // Check if data-set already exists by attempting to resolve its context
-    const exists = await dealService.checkDataSetExists(spAddress, metadata);
+    const exists = await dealService.checkDataSetExists(spAddress, metadata, signal);
 
     if (exists) {
       continue;
     }
 
     logger.log(`Creating data-set #${i} for provider ${spAddress}`);
-    await dealService.createDataSet(spAddress, metadata);
+    await dealService.createDataSet(spAddress, metadata, signal);
     createdCount++;
   }
 
