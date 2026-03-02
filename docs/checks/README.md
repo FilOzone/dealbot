@@ -4,6 +4,7 @@ The files are:
 - [production-configuration-and-approval-methodology.md](./production-configuration-and-approval-methodology.md): Defines the production configuration and approval methodology.
 - [data-storage.md](./data-storage.md): Defines the "data storage check" and how it is calculated.
 - [retrievals.md](./retrievals.md): Defines the "retrieval check" and how it is calculated.
+- [data-retention.md](./data-retention.md): Defines the "data retention check" and how it is calculated.
 - [events-and-metrics.md](./events-and-metrics.md): Defines the events and metrics that are used to assess SP performance.
 
 
