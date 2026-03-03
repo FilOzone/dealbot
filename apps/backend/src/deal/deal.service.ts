@@ -17,7 +17,7 @@ import type { Repository } from "typeorm";
 import { awaitWithAbort } from "../common/abort-utils.js";
 import { buildUnixfsCar } from "../common/car-utils.js";
 import { createFilecoinPinLogger } from "../common/filecoin-pin-logger.js";
-import { type DealLogContext, toStructuredError } from "../common/logging.js";
+import { type DataSetLogContext, type DealLogContext, toStructuredError } from "../common/logging.js";
 import type { DataFile, Hex } from "../common/types.js";
 import type { IBlockchainConfig, IConfig } from "../config/app.config.js";
 import { Deal } from "../database/entities/deal.entity.js";
@@ -519,6 +519,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
   async createDataSet(
     providerAddress: string,
     metadata: Record<string, string>,
+    dataSetLogContext: DataSetLogContext,
     signal?: AbortSignal,
   ): Promise<{ dataSetId: number }> {
     signal?.throwIfAborted();
@@ -550,7 +551,12 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     );
     signal?.throwIfAborted();
 
-    this.logger.log(`Data-set creation tx submitted: ${result.txHash} for provider ${providerAddress}`);
+    this.logger.log({
+      ...dataSetLogContext,
+      event: "data_set_creation_tx_submitted",
+      message: `Data-set creation tx submitted`,
+      txHash: result.txHash,
+    });
 
     const warmStorageService = await awaitWithAbort(
       WarmStorageService.create(synapse.getProvider(), warmStorageAddress),
@@ -564,7 +570,12 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       throw new Error(`Data-set creation completed without dataSetId for tx: ${result.txHash}`);
     }
 
-    this.logger.log(`Data-set created on-chain: ID=${confirmed.summary.dataSetId} for provider ${providerAddress}`);
+    this.logger.log({
+      ...dataSetLogContext,
+      event: "data_set_creation_completed",
+      message: `Data-set created on-chain`,
+      dataSetId: confirmed.summary.dataSetId,
+    });
 
     return { dataSetId: confirmed.summary.dataSetId };
   }

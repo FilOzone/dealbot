@@ -82,3 +82,13 @@ export type RetrievalLogContext = {
   pieceCid?: string;
   ipfsRootCID?: string;
 };
+
+/**
+ * Structured logging context for data set creation operations
+ */
+export type DataSetLogContext = {
+  providerAddress: string;
+  providerId?: number;
+  dataSetIndex?: number;
+  dataSetId?: number;
+};

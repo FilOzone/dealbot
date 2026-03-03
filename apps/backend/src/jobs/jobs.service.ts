@@ -562,7 +562,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     const now = new Date();
     const maintenance = this.getMaintenanceWindowStatus(now);
     if (maintenance.active) {
-      this.logMaintenanceSkip(`data_set_creation job for ${spAddress}`, maintenance.window?.label);
+      this.logMaintenanceSkip(`data_set_creation job for ${spAddress}`, maintenance.window?.label, spAddress);
       await this.deferJobForMaintenance("data_set_creation", data, maintenance, now);
       return;
     }
@@ -582,12 +582,17 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     }, timeoutMs);
 
     await this.recordJobExecution("data_set_creation", async () => {
+      const dataSetLogContext = {
+        providerAddress: spAddress,
+        providerId: this.walletSdkService.getProviderInfo(spAddress)?.id,
+      };
       try {
         await provisionDataSets(
           { dealService: this.dealService, logger: this.logger },
           spAddress,
           minDataSets,
           baseDataSetMetadata,
+          dataSetLogContext,
           abortController.signal,
         );
         return "success";
@@ -595,16 +600,23 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         if (abortController.signal.aborted) {
           const reason = abortController.signal.reason;
           const reasonMessage = reason instanceof Error ? reason.message : String(reason ?? "");
-          this.logger.error(
-            reasonMessage
-              ? `Data set creation job aborted: ${reasonMessage}`
-              : `Data set creation job aborted after timeout (${effectiveTimeoutSeconds}s) for ${spAddress}`,
-          );
+          this.logger.error({
+            ...dataSetLogContext,
+            event: "data_set_creation_job_aborted",
+            message:
+              reasonMessage ||
+              `Data set creation job aborted after timeout (${effectiveTimeoutSeconds}s) for ${spAddress}`,
+            timeoutSeconds: effectiveTimeoutSeconds,
+            error: toStructuredError(reason ?? error),
+          });
           return "aborted";
         }
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        const errorStack = error instanceof Error ? error.stack : undefined;
-        this.logger.error(`Data set creation job failed for ${spAddress}: ${errorMessage}`, errorStack);
+        this.logger.error({
+          ...dataSetLogContext,
+          event: `data_set_creation_job_failed`,
+          message: `Data set creation job failed for ${spAddress}`,
+          error: toStructuredError(error),
+        });
         throw error;
       } finally {
         clearTimeout(timeoutId);
