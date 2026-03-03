@@ -166,7 +166,11 @@ export class RetrievalAddonsService {
    * @param config - Retrieval configuration
    * @returns Test result with all method results and summary
    */
-  async testAllRetrievalMethods(config: RetrievalConfiguration, signal?: AbortSignal): Promise<RetrievalTestResult> {
+  async testAllRetrievalMethods(
+    config: RetrievalConfiguration,
+    signal?: AbortSignal,
+    logContext?: Partial<RetrievalLogContext>,
+  ): Promise<RetrievalTestResult> {
     const startTime = Date.now();
     const urlResults = this.constructAllUrls(config);
 
@@ -176,14 +180,16 @@ export class RetrievalAddonsService {
 
     signal?.throwIfAborted();
 
-    this.logger.log(
-      `Testing ${urlResults.length} retrieval methods for deal ${config.deal.id}: ` +
-        `${urlResults.map((r) => r.method).join(", ")}`,
-    );
+    this.logger.log({
+      ...logContext,
+      event: "retrieval_test_started",
+      message: `Testing ${urlResults.length} retrieval methods for deal ${config.deal.id}`,
+      urls: urlResults.map((r) => r.url),
+    });
 
     // Execute all retrievals in parallel
     const retrievalPromises = urlResults.map((urlResult) =>
-      this.executeRetrievalWithRetries(urlResult, config, signal),
+      this.executeRetrievalWithRetries(urlResult, config, signal, logContext),
     );
 
     const results = await Promise.allSettled(retrievalPromises);
@@ -228,10 +234,14 @@ export class RetrievalAddonsService {
     );
 
     const duration = Date.now() - startTime;
-    this.logger.log(
-      `Retrieval test completed in ${duration}ms: ` +
-        `${successfulResults.length}/${executionResults.length} successful`,
-    );
+    this.logger.log({
+      ...logContext,
+      event: "retrieval_test_completed",
+      message: `Retrieval test completed in ${duration}ms`,
+      durationMs: duration,
+      successfulRetrievals: successfulResults.length,
+      totalRetrievals: executionResults.length,
+    });
 
     return {
       dealId: config.deal.id,
@@ -261,10 +271,12 @@ export class RetrievalAddonsService {
     urlResult: RetrievalUrlResult,
     config: RetrievalConfiguration,
     signal?: AbortSignal,
+    logContext?: Partial<RetrievalLogContext>,
   ): Promise<RetrievalExecutionResult> {
     const retrievalLogContext: RetrievalLogContext = {
+      ...logContext,
       dealId: config.deal.id,
-      providerId: config.deal.storageProvider?.providerId,
+      providerId: config.deal.storageProvider?.providerId ?? logContext?.providerId,
       providerAddress: config.deal.spAddress,
       pieceCid: config.deal.pieceCid,
       ipfsRootCID: config.deal.metadata?.[ServiceType.IPFS_PIN]?.rootCID,
@@ -375,9 +387,13 @@ export class RetrievalAddonsService {
           validation = await strategy.validateByBlockFetch(config, signal);
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : String(error);
-          this.logger.warn(
-            `Block-fetch validation error for ${urlResult.method} retrieval of deal ${config.deal.id}: ${errorMessage}`,
-          );
+          this.logger.warn({
+            ...retrievalLogContext,
+            event: "retrieval_block_fetch_validation_error",
+            message: `Block-fetch validation error for ${urlResult.method} retrieval of deal ${config.deal.id}: ${errorMessage}`,
+            method: urlResult.method,
+            error: toStructuredError(error),
+          });
           validation = {
             isValid: false,
             method: "validation-error",
@@ -447,13 +463,15 @@ export class RetrievalAddonsService {
           signal?.throwIfAborted();
           // Log additional context if validation failed, including the URL used
           if (!validation.isValid) {
-            this.logger.warn(
-              `Validation failed for ${urlResult.method} retrieval of deal ${config.deal.id}: ` +
-                `URL: ${urlResult.url}, ` +
-                `Status: ${result.metrics.statusCode}, ` +
-                `Response Size: ${result.metrics.responseSize} bytes, ` +
-                `Details: ${validation.details || "unknown"}`,
-            );
+            this.logger.warn({
+              ...retrievalLogContext,
+              event: "retrieval_validation_failed",
+              message: `Validation failed for ${urlResult.method} retrieval of deal ${config.deal.id}`,
+              url: urlResult.url,
+              statusCode: result.metrics.statusCode,
+              responseSize: result.metrics.responseSize,
+              details: validation.details || "unknown",
+            });
           }
         } catch (error) {
           this.logger.warn({
@@ -492,7 +510,11 @@ export class RetrievalAddonsService {
       };
     } catch (error) {
       if (signal?.aborted) {
-        this.logger.warn(`Retrieval aborted for ${urlResult.method}. Failure details below`);
+        this.logger.warn({
+          ...retrievalLogContext,
+          event: "retrieval_aborted",
+          message: `Retrieval aborted for ${urlResult.method}. Failure details below`,
+        });
       }
       const errorMessage = error instanceof Error ? error.message : String(error);
       const responseInfo = this.extractResponseInfo(error);

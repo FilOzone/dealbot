@@ -62,9 +62,9 @@ export function toStructuredError(error: unknown): StructuredError {
 }
 
 /**
- * Structured logging context for deal-related operations
+ * Common base logging context for deal and retrieval operations
  */
-export type DealLogContext = {
+export type BaseDealRetrievalLogContext = {
   dealId: string;
   providerAddress: string;
   providerId?: number;
@@ -73,15 +73,14 @@ export type DealLogContext = {
 };
 
 /**
+ * Structured logging context for deal-related operations
+ */
+export type DealLogContext = BaseDealRetrievalLogContext;
+
+/**
  * Structured logging context for retrieval-related operations
  */
-export type RetrievalLogContext = {
-  dealId: string;
-  providerAddress: string;
-  providerId?: number;
-  pieceCid?: string;
-  ipfsRootCID?: string;
-};
+export type RetrievalLogContext = BaseDealRetrievalLogContext;
 
 /**
  * Structured logging context for data set creation operations

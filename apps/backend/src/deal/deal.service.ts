@@ -1,4 +1,3 @@
-import { randomBytes } from "node:crypto";
 import {
   METADATA_KEYS,
   PDPAuthHelper,
@@ -13,6 +12,7 @@ import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
 import { cleanupSynapseService, executeUpload } from "filecoin-pin";
 import { CID } from "multiformats/cid";
+import { randomBytes } from "node:crypto";
 import type { Repository } from "typeorm";
 import { awaitWithAbort } from "../common/abort-utils.js";
 import { buildUnixfsCar } from "../common/car-utils.js";
@@ -121,6 +121,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       existingDealId?: string;
       signal?: AbortSignal;
       extraDataSetMetadata?: Record<string, string>;
+      logContext?: Pick<DealLogContext, "providerAddress" | "providerId">;
     },
   ): Promise<Deal> {
     options.signal?.throwIfAborted();
@@ -137,6 +138,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
         options.existingDealId,
         options.signal,
         options.extraDataSetMetadata,
+        options.logContext,
       );
     } finally {
       await cleanup();
@@ -194,6 +196,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     existingDealId?: string,
     signal?: AbortSignal,
     extraDataSetMetadata?: Record<string, string>,
+    logContext?: Pick<DealLogContext, "providerAddress" | "providerId">,
   ): Promise<Deal> {
     const providerAddress = providerInfo.serviceProvider;
     const checkType = "dataStorage" as const;
@@ -229,9 +232,10 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     deal.serviceTypes = dealInput.appliedAddons;
 
     const dealLogContext: DealLogContext = {
+      ...logContext,
       dealId: deal.id,
       providerAddress,
-      providerId: deal.storageProvider?.providerId,
+      providerId: providerInfo.id ?? logContext?.providerId,
       ipfsRootCID: uploadPayload.rootCid.toString(),
     };
 
@@ -253,7 +257,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       if (this.blockchainConfig.dealbotDataSetVersion) {
         dataSetMetadata.dealbotDataSetVersion = this.blockchainConfig.dealbotDataSetVersion;
       }
-      const filecoinPinLogger = createFilecoinPinLogger(this.logger);
+      const filecoinPinLogger = createFilecoinPinLogger(this.logger, dealLogContext);
 
       signal?.throwIfAborted();
 
@@ -297,7 +301,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
               this.dataStorageMetrics.recordUploadStatus(providerLabels, "success");
               this.dataStorageMetrics.recordOnchainStatus(providerLabels, "pending");
               onUploadCompleteAddonsPromise = this.dealAddonsService
-                .handleUploadComplete(deal, dealInput.appliedAddons, signal)
+                .handleUploadComplete(deal, dealInput.appliedAddons, signal, dealLogContext)
                 .then(() => true)
                 .catch((error) => {
                   uploadCompleteError = error;
@@ -406,7 +410,11 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       retrievalStarted = true;
       this.retrievalMetrics.recordStatus(providerLabels, "pending");
       signal?.throwIfAborted();
-      const retrievalTest = await this.retrievalAddonsService.testAllRetrievalMethods(retrievalConfig, signal);
+      const retrievalTest = await this.retrievalAddonsService.testAllRetrievalMethods(
+        retrievalConfig,
+        signal,
+        dealLogContext,
+      );
       signal?.throwIfAborted();
 
       this.retrievalMetrics.recordResultMetrics(retrievalTest.results, providerLabels);
@@ -453,7 +461,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
         message: `Deal ${deal.id} created: ${deal.pieceCid} (sp: ${providerAddress})`,
       });
 
-      await this.dealAddonsService.postProcessDeal(deal, dealInput.appliedAddons);
+      await this.dealAddonsService.postProcessDeal(deal, dealInput.appliedAddons, dealLogContext);
 
       return deal;
     } catch (error) {

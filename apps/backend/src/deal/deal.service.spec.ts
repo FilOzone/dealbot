@@ -265,7 +265,15 @@ describe("DealService", () => {
 
       // Verify persistence
       expect(dealRepoMock.save).toHaveBeenCalledWith(deal);
-      expect(dealAddonsMock.postProcessDeal).toHaveBeenCalledWith(deal, []);
+      expect(dealAddonsMock.postProcessDeal).toHaveBeenCalledWith(
+        deal,
+        [],
+        expect.objectContaining({
+          dealId: deal.id,
+          providerAddress: mockProviderInfo.serviceProvider,
+          ipfsRootCID: uploadPayload.rootCid.toString(),
+        }),
+      );
     });
 
     it("emits data-storage metrics for successful deals", async () => {

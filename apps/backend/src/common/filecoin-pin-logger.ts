@@ -4,10 +4,11 @@ import { toJsonSafe, toStructuredError } from "./logging.js";
 
 export type FilecoinPinLogger = Parameters<typeof executeUpload>[3]["logger"];
 
-export function createFilecoinPinLogger(logger: Logger): FilecoinPinLogger {
+export function createFilecoinPinLogger(logger: Logger, logContext?: Record<string, unknown>): FilecoinPinLogger {
   const formatEntry = (payload: unknown, message?: string) => {
     const fallbackMessage = typeof payload === "string" && payload.length > 0 ? payload : "filecoin-pin event";
     const entry: Record<string, unknown> = {
+      ...logContext,
       event: "filecoin_pin_log",
       message: message ?? fallbackMessage,
     };

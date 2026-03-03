@@ -118,9 +118,13 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
    * Handler triggered when upload is complete
    * Runs IPNI tracking and verification before continuing
    */
-  async onUploadComplete(deal: Deal, signal?: AbortSignal): Promise<void> {
+  async onUploadComplete(deal: Deal, signal?: AbortSignal, logContext?: Partial<DealLogContext>): Promise<void> {
     if (!deal.storageProvider) {
-      this.logger.warn(`No storage provider for deal ${deal.id}`);
+      this.logger.warn({
+        ...logContext,
+        event: "ipni_no_storage_provider",
+        message: `No storage provider for deal ${deal.id}`,
+      });
       return;
     }
 
@@ -131,9 +135,13 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
 
     signal?.throwIfAborted();
 
-    this.logger.log(`IPNI tracking started: ${deal.pieceCid}`);
+    this.logger.log({
+      ...logContext,
+      event: "ipni_tracking_started",
+      message: `IPNI tracking started: ${deal.pieceCid}`,
+    });
 
-    await this.startIpniMonitoring(deal, signal);
+    await this.startIpniMonitoring(deal, signal, logContext);
   }
 
   /**
@@ -170,17 +178,26 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
   /**
    * Start IPNI monitoring and update deal entity with tracking metrics
    */
-  private async startIpniMonitoring(deal: Deal, signal?: AbortSignal): Promise<void> {
+  private async startIpniMonitoring(
+    deal: Deal,
+    signal?: AbortSignal,
+    logContext?: Partial<DealLogContext>,
+  ): Promise<void> {
     if (!deal.storageProvider) {
       // this should never happen, we need to tighten up the types for successful deals.
-      this.logger.warn(`No storage provider for deal ${deal.id}`);
+      this.logger.warn({
+        ...logContext,
+        event: "ipni_no_storage_provider",
+        message: `No storage provider for deal ${deal.id}`,
+      });
       return;
     }
 
     const dealLogContext: DealLogContext = {
+      ...logContext,
       dealId: deal.id,
       providerAddress: deal.spAddress,
-      providerId: deal.storageProvider?.providerId,
+      providerId: deal.storageProvider?.providerId || logContext?.providerId,
       pieceCid: deal.pieceCid,
       ipfsRootCID: deal.metadata[this.name]?.rootCID,
     };

@@ -5,7 +5,7 @@ import { InjectMetric } from "@willsoto/nestjs-prometheus";
 import { type Job, PgBoss, type SendOptions } from "pg-boss";
 import type { Counter, Gauge, Histogram } from "prom-client";
 import type { Repository } from "typeorm";
-import { toStructuredError } from "../common/logging.js";
+import { DealLogContext, toStructuredError } from "../common/logging.js";
 import { getMaintenanceWindowStatus } from "../common/maintenance-window.js";
 import type { IConfig } from "../config/app.config.js";
 import { DataRetentionService } from "../data-retention/data-retention.service.js";
@@ -368,7 +368,9 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     }, timeoutMs);
 
     await this.recordJobExecution("deal", async () => {
-      let providerId: number | undefined;
+      const logContext: Pick<DealLogContext, "providerAddress" | "providerId"> = {
+        providerAddress: spAddress,
+      };
       try {
         let provider = this.walletSdkService.getTestingProviders().find((p) => p.serviceProvider === spAddress);
         if (!provider) {
@@ -378,14 +380,14 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
           provider = this.walletSdkService.getTestingProviders().find((p) => p.serviceProvider === spAddress);
           if (!provider) {
             this.logger.warn({
+              ...logContext,
               event: "deal_job_skipped",
               message: `Deal job skipped: provider ${spAddress} not found`,
-              providerAddress: spAddress,
             });
             return "success";
           }
         }
-        providerId = provider.id;
+        logContext.providerId = provider.id;
 
         const dealOptions = this.dealService.getTestingDealOptions();
 
@@ -409,18 +411,22 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
               if (exists) {
                 extraDataSetMetadata = dsIndexMetadata;
               } else {
-                this.logger.log(
-                  `Data set #${dsIndex} not yet provisioned for ${spAddress}; falling back to default data set`,
-                );
+                this.logger.log({
+                  ...logContext,
+                  event: "deal_job_dataset_fallback",
+                  message: `Data set #${dsIndex} not yet provisioned for ${spAddress}; falling back to default data set`,
+                });
               }
             } catch (error) {
               if (abortController.signal.aborted) {
                 throw abortController.signal.reason;
               }
               const errorMessage = error instanceof Error ? error.message : String(error);
-              this.logger.warn(
-                `Failed to verify data set #${dsIndex} for ${spAddress}: ${errorMessage}; falling back to default data set`,
-              );
+              this.logger.warn({
+                ...logContext,
+                event: "deal_job_dataset_check_failed",
+                message: `Failed to verify data set #${dsIndex} for ${spAddress}: ${errorMessage}; falling back to default data set`,
+              });
             }
           }
           // dsIndex === 0 → baseline data set, no `dealbotDS` metadata key needed
@@ -431,6 +437,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
           ...dealOptions,
           signal: abortController.signal,
           extraDataSetMetadata,
+          logContext,
         });
         return "success";
       } catch (error) {
@@ -438,20 +445,18 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
           const reason = abortController.signal.reason;
           const reasonMessage = reason instanceof Error ? reason.message : String(reason ?? "");
           this.logger.error({
+            ...logContext,
             event: "deal_job_aborted",
             message: reasonMessage || `Deal job aborted after timeout (${effectiveTimeoutSeconds}s) for ${spAddress}`,
-            providerAddress: spAddress,
-            providerId,
             timeoutSeconds: effectiveTimeoutSeconds,
             error: toStructuredError(reason ?? error),
           });
           return "aborted";
         }
         this.logger.error({
+          ...logContext,
           event: "deal_job_failed",
           message: `Deal job failed for ${spAddress}`,
-          providerAddress: spAddress,
-          providerId,
           error: toStructuredError(error),
         });
         // Jobs are not retried once attempted; failures are handled by the next schedule tick.
@@ -484,30 +489,31 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     }, timeoutMs);
 
     await this.recordJobExecution("retrieval", async () => {
-      const providerId = this.walletSdkService.getProviderInfo(spAddress)?.id;
+      const logContext = {
+        providerAddress: spAddress,
+        providerId: this.walletSdkService.getProviderInfo(spAddress)?.id,
+      };
       try {
-        await this.retrievalService.performRandomRetrievalForProvider(spAddress, abortController.signal);
+        await this.retrievalService.performRandomRetrievalForProvider(spAddress, abortController.signal, logContext);
         return "success";
       } catch (error) {
         if (abortController.signal.aborted) {
           const reason = abortController.signal.reason;
           const reasonMessage = reason instanceof Error ? reason.message : String(reason ?? "");
           this.logger.error({
+            ...logContext,
             event: "retrieval_job_aborted",
             message:
               reasonMessage || `Retrieval job aborted after timeout (${effectiveTimeoutSeconds}s) for ${spAddress}`,
-            providerAddress: spAddress,
-            providerId,
             timeoutSeconds: effectiveTimeoutSeconds,
             error: toStructuredError(reason ?? error),
           });
           return "aborted";
         }
         this.logger.error({
+          ...logContext,
           event: "retrieval_job_failed",
           message: `Retrieval job failed for ${spAddress}`,
-          providerAddress: spAddress,
-          providerId,
           error: toStructuredError(error),
         });
         // Jobs are not retried once attempted; failures are handled by the next schedule tick.

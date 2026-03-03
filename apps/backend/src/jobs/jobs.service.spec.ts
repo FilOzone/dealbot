@@ -259,6 +259,7 @@ describe("JobsService schedule rows", () => {
       getTestingProviders: vi.fn(() => [{ serviceProvider: "0xaaa" }]),
       ensureWalletAllowances: vi.fn(),
       loadProviders: vi.fn(),
+      getProviderInfo: vi.fn(() => ({ id: 1 })),
     };
 
     service = buildService({
@@ -746,6 +747,7 @@ describe("JobsService schedule rows", () => {
       getTestingProviders: vi.fn(() => [{ serviceProvider: "0xaaa" }]),
       ensureWalletAllowances: vi.fn(),
       loadProviders: vi.fn(),
+      getProviderInfo: vi.fn(() => ({ id: 1 })),
     };
 
     service = buildService({
@@ -787,6 +789,7 @@ describe("JobsService schedule rows", () => {
       getTestingProviders: vi.fn(() => [{ serviceProvider: "0xaaa" }]),
       ensureWalletAllowances: vi.fn(),
       loadProviders: vi.fn(),
+      getProviderInfo: vi.fn(() => ({ id: 1 })),
     };
 
     vi.spyOn(Math, "random").mockReturnValue(0.5);
@@ -840,6 +843,7 @@ describe("JobsService schedule rows", () => {
       getTestingProviders: vi.fn(() => [{ serviceProvider: "0xaaa" }]),
       ensureWalletAllowances: vi.fn(),
       loadProviders: vi.fn(),
+      getProviderInfo: vi.fn(() => ({ id: 1 })),
     };
 
     vi.spyOn(Math, "random").mockReturnValue(0.8);
@@ -893,6 +897,7 @@ describe("JobsService schedule rows", () => {
       getTestingProviders: vi.fn(() => [{ serviceProvider: "0xaaa" }]),
       ensureWalletAllowances: vi.fn(),
       loadProviders: vi.fn(),
+      getProviderInfo: vi.fn(() => ({ id: 1 })),
     };
 
     vi.spyOn(Math, "random").mockReturnValue(0.5);
@@ -946,6 +951,7 @@ describe("JobsService schedule rows", () => {
       getTestingProviders: vi.fn(() => [{ serviceProvider: "0xaaa" }]),
       ensureWalletAllowances: vi.fn(),
       loadProviders: vi.fn(),
+      getProviderInfo: vi.fn(() => ({ id: 1 })),
     };
 
     vi.spyOn(Math, "random").mockReturnValue(0.8);

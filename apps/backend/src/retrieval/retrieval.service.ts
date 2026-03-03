@@ -66,16 +66,28 @@ export class RetrievalService {
     return allRetrievals;
   }
 
-  async performRandomRetrievalForProvider(spAddress: string, signal?: AbortSignal): Promise<Retrieval[]> {
+  async performRandomRetrievalForProvider(
+    spAddress: string,
+    signal?: AbortSignal,
+    logContext?: Pick<RetrievalLogContext, "providerAddress" | "providerId">,
+  ): Promise<Retrieval[]> {
     const deal = await this.selectRandomSuccessfulDealForProvider(spAddress);
     if (!deal) {
-      this.logger.warn(`No successful deals available for ${spAddress}, skipping retrieval`);
+      this.logger.warn({
+        ...logContext,
+        event: "retrieval_job_skipped",
+        message: `No successful deals available for ${spAddress}, skipping retrieval`,
+      });
       return [];
     }
 
-    this.logger.log(`Starting retrieval test for ${spAddress}`);
+    this.logger.log({
+      ...logContext,
+      event: "retrieval_job_started",
+      message: `Starting retrieval test for ${spAddress}`,
+    });
 
-    return this.performAllRetrievals(deal, signal);
+    return this.performAllRetrievals(deal, signal, logContext);
   }
 
   async performRetrievalsForDeal(deal: Deal, signal?: AbortSignal): Promise<Retrieval[]> {
@@ -144,7 +156,11 @@ export class RetrievalService {
   // Retrieval Execution
   // ============================================================================
 
-  private async performAllRetrievals(deal: Deal, signal?: AbortSignal): Promise<Retrieval[]> {
+  private async performAllRetrievals(
+    deal: Deal,
+    signal?: AbortSignal,
+    logContext?: Pick<RetrievalLogContext, "providerAddress" | "providerId">,
+  ): Promise<Retrieval[]> {
     signal?.throwIfAborted();
 
     const provider = await this.findStorageProvider(deal.spAddress);
@@ -156,6 +172,14 @@ export class RetrievalService {
       providerId: provider.providerId,
       providerIsApproved: provider.isApproved,
     });
+    const retrievalLogContext: RetrievalLogContext = {
+      ...logContext,
+      dealId: deal.id,
+      providerId: provider.providerId ?? logContext?.providerId,
+      providerAddress: deal.spAddress,
+      pieceCid: deal.pieceCid,
+      ipfsRootCID: deal.metadata?.[ServiceType.IPFS_PIN]?.rootCID,
+    };
 
     const config: RetrievalConfiguration = {
       deal,
@@ -165,9 +189,11 @@ export class RetrievalService {
 
     const applicableStrategies = this.retrievalAddonsService.getApplicableStrategies(config);
     if (applicableStrategies.length === 0) {
-      this.logger.warn(
-        `Retrieval skipped for ${deal.pieceCid ?? deal.id}: no applicable retrieval strategies (likely missing IPNI metadata).`,
-      );
+      this.logger.warn({
+        ...logContext,
+        event: "retrieval_job_skipped_no_strategies",
+        message: `Retrieval skipped for ${deal.pieceCid ?? deal.id}: no applicable retrieval strategies (likely missing IPNI metadata).`,
+      });
       return [];
     }
 
@@ -198,6 +224,7 @@ export class RetrievalService {
         const testResult: RetrievalTestResult = await this.retrievalAddonsService.testAllRetrievalMethods(
           config,
           signal,
+          logContext,
         );
         retrievals = await Promise.all(
           testResult.results.map((executionResult) =>
@@ -206,15 +233,22 @@ export class RetrievalService {
         );
 
         const successCount = retrievals.filter((r) => r.status === RetrievalStatus.SUCCESS).length;
-        this.logger.log(`Retrievals for ${deal.pieceCid}: ${successCount}/${retrievals.length} successful`);
+        this.logger.log({
+          ...logContext,
+          event: "retrievals_completed",
+          message: `Retrievals for ${deal.pieceCid}: ${successCount}/${retrievals.length} successful`,
+        });
 
         if (testResult.aborted || signal?.aborted) {
           const abortReason = signal?.reason;
           const abortMessage = abortReason instanceof Error ? abortReason.message : String(abortReason ?? "");
-          this.logger.warn(
-            `Retrieval job aborted after testing for ${deal.pieceCid}; recorded partial results.` +
-              (abortMessage ? ` Reason: ${abortMessage}` : ""),
-          );
+          this.logger.warn({
+            ...logContext,
+            event: "retrieval_job_aborted",
+            message: `Retrieval job aborted after testing for ${deal.pieceCid}; recorded partial results.`,
+            reason: abortMessage || "Unknown",
+            error: toStructuredError(abortReason),
+          });
           terminalStatus = signal?.aborted ? "failure.timedout" : "failure.other";
         } else {
           terminalStatus = retrievals.every((retrieval) => retrieval.status === RetrievalStatus.SUCCESS)
@@ -224,13 +258,6 @@ export class RetrievalService {
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      const retrievalLogContext: RetrievalLogContext = {
-        dealId: deal.id,
-        providerId: provider.providerId,
-        providerAddress: deal.spAddress,
-        pieceCid: deal.pieceCid,
-        ipfsRootCID: deal.metadata?.[ServiceType.IPFS_PIN]?.rootCID,
-      };
       if (signal?.aborted) {
         const abortReason = signal.reason;
         const abortMessage = abortReason instanceof Error ? abortReason.message : String(abortReason ?? "");
