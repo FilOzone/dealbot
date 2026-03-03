@@ -23,6 +23,14 @@ import { AddonPriority } from "../types.js";
 import type { MonitorAndVerifyResult, PieceMonitoringResult, PieceStatus, PieceStatusResponse } from "./ipni.types.js";
 import { validatePieceStatusResponse } from "./ipni.types.js";
 
+type DealLog = {
+  dealId: string;
+  providerAddress: string;
+  providerId?: number;
+  pieceCid?: string;
+  ipfsRootCID?: string;
+};
+
 /**
  * IPNI (InterPlanetary Network Indexer) add-on strategy
  * Converts data to CAR format for IPFS indexing and retrieval
@@ -177,6 +185,14 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       return;
     }
 
+    const dealLog: DealLog = {
+      dealId: deal.id,
+      providerAddress: deal.spAddress,
+      providerId: deal.storageProvider?.providerId,
+      pieceCid: deal.pieceCid,
+      ipfsRootCID: deal.metadata[this.name]?.rootCID,
+    };
+
     let finalDiscoverabilityStatus: string | null = null;
     try {
       signal?.throwIfAborted();
@@ -198,13 +214,14 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
         ipniTimeoutMs,
         this.POLLING_INTERVAL_MS,
         ipniPollIntervalMs,
+        dealLog,
         signal,
       );
 
       signal?.throwIfAborted();
 
       // Update deal entity with tracking metrics
-      finalDiscoverabilityStatus = await this.updateDealWithIpniMetrics(deal, result);
+      finalDiscoverabilityStatus = await this.updateDealWithIpniMetrics(deal, result, dealLog);
 
       signal?.throwIfAborted();
 
@@ -219,18 +236,16 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       try {
         await this.dealRepository.save(deal);
         this.logger.warn({
+          ...dealLog,
           event: "ipni_tracking_failed",
           message: `IPNI failed for ${deal.pieceCid}`,
-          dealId: deal.id,
-          pieceCid: deal.pieceCid,
           error: toStructuredError(error),
         });
       } catch (saveError) {
         this.logger.error({
+          ...dealLog,
           event: "ipni_failure_status_save_failed",
           message: "Failed to save IPNI failure status",
-          dealId: deal.id,
-          pieceCid: deal.pieceCid,
           error: toStructuredError(saveError),
         });
       }
@@ -255,6 +270,7 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
     ipniTimeoutMs: number,
     pollIntervalMs: number,
     ipniPollIntervalMs: number,
+    dealLog: DealLog,
     signal?: AbortSignal,
   ): Promise<MonitorAndVerifyResult> {
     const pieceCid = deal.pieceCid;
@@ -265,10 +281,9 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
     } catch (error) {
       signal?.throwIfAborted();
       this.logger.warn({
+        ...dealLog,
         event: "ipni_piece_status_monitoring_incomplete",
         message: "Piece status monitoring incomplete",
-        dealId: deal.id,
-        pieceCid,
         error: toStructuredError(error),
       });
       monitoringResult = {
@@ -513,7 +528,11 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
   /**
    * Update deal entity with IPNI tracking metrics
    */
-  private async updateDealWithIpniMetrics(deal: Deal, result: MonitorAndVerifyResult): Promise<string> {
+  private async updateDealWithIpniMetrics(
+    deal: Deal,
+    result: MonitorAndVerifyResult,
+    dealLog: DealLog,
+  ): Promise<string> {
     const { monitoringResult, ipniResult } = result;
     const { finalStatus } = monitoringResult;
     const now = new Date();
@@ -619,10 +638,9 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       await this.dealRepository.save(deal);
     } catch (error) {
       this.logger.error({
+        ...dealLog,
         event: "save_ipni_metrics_failed",
         message: "Failed to save IPNI metrics",
-        dealId: deal.id,
-        pieceCid: deal.pieceCid,
         error: toStructuredError(error),
       });
       throw error;

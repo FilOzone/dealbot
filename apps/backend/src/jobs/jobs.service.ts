@@ -253,7 +253,12 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
             await this.handleRetrievalJob(job);
             return;
           }
-          this.logger.warn(`Skipping unknown SP job type "${String(job.data.jobType)}" for ${job.data.spAddress}`);
+          this.logger.warn({
+            event: "unknown_sp_job_type",
+            message: `Skipping unknown SP job type "${String(job.data.jobType)}" for ${job.data.spAddress}`,
+            jobType: job.data.jobType,
+            spAddress: job.data.spAddress,
+          });
         },
       )
       .catch((error) =>
@@ -307,12 +312,14 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     return getMaintenanceWindowStatus(now, scheduling.maintenanceWindowsUtc, scheduling.maintenanceWindowMinutes);
   }
 
-  private logMaintenanceSkip(taskLabel: string, windowLabel?: string) {
+  private logMaintenanceSkip(taskLabel: string, windowLabel?: string, spAddress?: string) {
     const scheduling = this.configService.get("scheduling");
     const label = windowLabel ?? "unknown";
-    this.logger.log(
-      `Maintenance window active (${label} UTC, ${scheduling.maintenanceWindowMinutes}m); deferring ${taskLabel}`,
-    );
+    this.logger.log({
+      event: "maintenance_window_active",
+      message: `Maintenance window active (${label} UTC, ${scheduling.maintenanceWindowMinutes}m); deferring ${taskLabel}`,
+      spAddress: spAddress ?? "",
+    });
   }
 
   private async handleDealJob(job: SpJob): Promise<void> {
@@ -321,7 +328,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     const now = new Date();
     const maintenance = this.getMaintenanceWindowStatus(now);
     if (maintenance.active) {
-      this.logMaintenanceSkip(`deal job for ${spAddress}`, maintenance.window?.label);
+      this.logMaintenanceSkip(`deal job for ${spAddress}`, maintenance.window?.label, spAddress);
       await this.deferJobForMaintenance("deal", data, maintenance, now);
       return;
     }
@@ -345,7 +352,11 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
           }
           provider = this.walletSdkService.getTestingProviders().find((p) => p.serviceProvider === spAddress);
           if (!provider) {
-            this.logger.warn(`Deal job skipped: provider ${spAddress} not found`);
+            this.logger.warn({
+              event: "deal_job_skipped",
+              message: `Deal job skipped: provider ${spAddress} not found`,
+              spAddress,
+            });
             return "success";
           }
         }
@@ -370,6 +381,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         this.logger.error({
           event: "deal_job_failed",
           message: `Deal job failed for ${spAddress}`,
+          spAddress,
           error: toStructuredError(error),
         });
         // Jobs are not retried once attempted; failures are handled by the next schedule tick.
@@ -386,7 +398,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     const now = new Date();
     const maintenance = this.getMaintenanceWindowStatus(now);
     if (maintenance.active) {
-      this.logMaintenanceSkip(`retrieval job for ${spAddress}`, maintenance.window?.label);
+      this.logMaintenanceSkip(`retrieval job for ${spAddress}`, maintenance.window?.label, spAddress);
       await this.deferJobForMaintenance("retrieval", data, maintenance, now);
       return;
     }
@@ -422,6 +434,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         this.logger.error({
           event: "retrieval_job_failed",
           message: `Retrieval job failed for ${spAddress}`,
+          spAddress,
           error: toStructuredError(error),
         });
         // Jobs are not retried once attempted; failures are handled by the next schedule tick.

@@ -125,6 +125,13 @@ export class DealAddonsService {
 
     signal?.throwIfAborted();
 
+    const dealLog = {
+      dealId: deal.id,
+      providerId: deal.storageProvider?.providerId,
+      providerAddress: deal.spAddress,
+      pieceCid: deal.pieceCid,
+    };
+
     const uploadCompletePromises = appliedAddons
       .map((addonName) => this.addons.get(addonName))
       .filter((addon) => addon?.onUploadComplete)
@@ -136,9 +143,9 @@ export class DealAddonsService {
     } catch (error) {
       signal?.throwIfAborted();
       this.logger.warn({
+        ...dealLog,
         event: "addon_on_upload_complete_failed",
         message: `onUploadComplete handler failed for deal ${deal.id}`,
-        dealId: deal.id,
         error: toStructuredError(error),
       });
       throw error;
@@ -155,6 +162,13 @@ export class DealAddonsService {
   async postProcessDeal(deal: Deal, appliedAddons: string[]): Promise<void> {
     this.logger.debug(`Running post-processing for deal ${deal.id}`);
 
+    const dealLog = {
+      dealId: deal.id,
+      providerId: deal.storageProvider?.providerId,
+      providerAddress: deal.spAddress,
+      pieceCid: deal.pieceCid,
+    };
+
     const postProcessPromises = appliedAddons
       .map((addonName) => this.addons.get(addonName))
       .filter((addon) => addon?.postProcess)
@@ -165,9 +179,9 @@ export class DealAddonsService {
       this.logger.debug(`Post-processing completed for deal ${deal.id}`);
     } catch (error) {
       this.logger.warn({
+        ...dealLog,
         event: "addon_post_process_failed",
         message: `Post-processing failed for deal ${deal.id}`,
-        dealId: deal.id,
         error: toStructuredError(error),
       });
       // Don't throw - post-processing failures shouldn't break the deal

@@ -121,6 +121,10 @@ export class RetrievalService {
               event: "batch_retrieval_failed",
               message: `Batch retrieval failed for deal ${deal?.id || "unknown"}`,
               dealId: deal?.id ?? "unknown",
+              providerId: deal?.storageProvider?.providerId,
+              providerAddress: deal?.spAddress,
+              pieceCid: deal?.pieceCid,
+              ipfsRootCID: deal?.metadata?.[ServiceType.IPFS_PIN]?.rootCID,
               error: toStructuredError(errorReason),
             });
           }
@@ -220,22 +224,29 @@ export class RetrievalService {
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
+      const log = {
+        dealId: deal.id,
+        providerId: provider.providerId,
+        providerAddress: deal.spAddress,
+        pieceCid: deal.pieceCid,
+        ipfsRootCID: deal.metadata?.[ServiceType.IPFS_PIN]?.rootCID,
+      };
       if (signal?.aborted) {
         const abortReason = signal.reason;
         const abortMessage = abortReason instanceof Error ? abortReason.message : String(abortReason ?? "");
         this.logger.warn({
+          ...log,
           event: "retrievals_aborted",
           message: `Retrievals aborted for ${deal.pieceCid}`,
-          pieceCid: deal.pieceCid,
           reason: abortMessage || errorMessage,
           error: toStructuredError(error),
         });
         terminalStatus = "failure.timedout";
       } else {
         this.logger.error({
+          ...log,
           event: "all_retrievals_failed",
           message: `All retrievals failed for ${deal.pieceCid}`,
-          pieceCid: deal.pieceCid,
           error: toStructuredError(error),
         });
         terminalStatus = classifyFailureStatus(error);
@@ -521,9 +532,15 @@ export class RetrievalService {
         return { ok: false, failureStatus };
       }
       const failureStatus = classifyFailureStatus(error);
-      this.logger.warn(
-        `Retrieval IPNI verification failed for deal ${dealId}: ${error instanceof Error ? error.message : error}`,
-      );
+      this.logger.warn({
+        event: "retrieval_ipni_verification_failed",
+        message: `Retrieval IPNI verification failed for deal ${dealId}`,
+        dealId,
+        providerId: provider.providerId,
+        providerAddress: provider.address,
+        ipfsRootCID: ipniContext.rootCid.toString(),
+        error: toStructuredError(error),
+      });
       this.discoverabilityMetrics.recordStatus(providerLabels, failureStatus);
       return { ok: false, failureStatus };
     }

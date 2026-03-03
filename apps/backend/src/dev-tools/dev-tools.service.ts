@@ -97,14 +97,20 @@ export class DevToolsService {
     const savedDeal = await this.dealRepository.save(pendingDeal);
     const dealId = savedDeal.id;
 
+    const dealLog = {
+      dealId,
+      providerId: providerInfo?.id,
+      providerAddress: spAddress,
+    };
+
     this.logger.log(`Created pending deal ${dealId}, starting background processing`);
 
     // Fire off the deal creation in the background (don't await)
-    this.processDealInBackground(dealId, providerInfo, enableIpni).catch((err) => {
+    this.processDealInBackground(dealId, providerInfo, enableIpni, dealLog).catch((err) => {
       this.logger.error({
+        ...dealLog,
         event: "background_deal_processing_failed",
         message: `Background deal processing failed for ${dealId}`,
-        dealId,
         error: toStructuredError(err),
       });
     });
@@ -128,6 +134,7 @@ export class DevToolsService {
     dealId: string,
     providerInfo: ReturnType<typeof this.walletSdkService.getProviderInfo>,
     enableIpni: boolean,
+    dealLog: { dealId: string; providerId?: number; providerAddress: string },
   ): Promise<void> {
     try {
       const deal = await this.dealService.createDealForProvider(providerInfo!, {
@@ -139,9 +146,9 @@ export class DevToolsService {
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       this.logger.error({
+        ...dealLog,
         event: "background_deal_failed",
         message: `Background deal ${dealId} failed`,
-        dealId,
         error: toStructuredError(error),
       });
 

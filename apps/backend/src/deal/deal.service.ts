@@ -36,6 +36,13 @@ type UploadResultSummary = {
 
 type SynapseServiceArg = Parameters<typeof executeUpload>[0];
 
+type DealLog = {
+  dealId: string;
+  providerAddress: string;
+  providerId?: number;
+  pieceCid?: string;
+};
+
 @Injectable()
 export class DealService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(DealService.name);
@@ -203,6 +210,12 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     deal.metadata = dealInput.metadata;
     deal.serviceTypes = dealInput.appliedAddons;
 
+    const dealLog: DealLog = {
+      dealId: deal.id,
+      providerAddress,
+      providerId: deal.storageProvider?.providerId,
+    };
+
     try {
       // Load storageProvider relation
       deal.storageProvider = await this.storageProviderRepository.findOne({
@@ -254,7 +267,12 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
               deal.status = DealStatus.UPLOADED;
               deal.ingestLatencyMs = deal.uploadEndTime.getTime() - deal.uploadStartTime.getTime();
               deal.pieceCid = event.data.pieceCid.toString();
-              this.logger.log(`Upload complete event, pieceCid: ${deal.pieceCid}`);
+              dealLog.pieceCid = event.data.pieceCid.toString();
+              this.logger.log({
+                ...dealLog,
+                event: "upload_complete",
+                message: `Upload complete event`,
+              });
               uploadSucceeded = true;
               this.dataStorageMetrics.observeIngestMs(providerLabels, deal.ingestLatencyMs);
               this.dataStorageMetrics.recordUploadStatus(providerLabels, "success");
@@ -272,9 +290,12 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
                 this.dataStorageMetrics.observeIngestThroughput(providerLabels, deal.ingestThroughputBps);
               } else {
                 deal.ingestThroughputBps = 0;
-                this.logger.warn(
-                  `Skipping ingest throughput: invalid ingest latency (${deal.ingestLatencyMs}ms) for deal ${deal.id}`,
-                );
+                this.logger.warn({
+                  ...dealLog,
+                  event: "ingest_throughput_skipped",
+                  message: `Skipping ingest throughput: invalid ingest latency (${deal.ingestLatencyMs}ms) for deal ${deal.id}`,
+                  ingestLatencyMs: deal.ingestLatencyMs,
+                });
               }
               break;
             }
@@ -284,7 +305,11 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
               if (event.data.txHash != null) {
                 deal.transactionHash = event.data.txHash as Hex;
               } else {
-                this.logger.warn(`No transaction hash found for piece added event: ${deal.pieceCid}`);
+                this.logger.warn({
+                  ...dealLog,
+                  event: "piece_added_no_tx_hash",
+                  message: `No transaction hash found for piece added event: ${deal.pieceCid}`,
+                });
               }
               deal.status = DealStatus.PIECE_ADDED;
               this.dataStorageMetrics.observePieceAddedOnChainMs(
@@ -319,11 +344,9 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
 
       if (!deal.transactionHash) {
         this.logger.error({
+          ...dealLog,
           event: "deal_transaction_hash_missing",
           message: `No transaction hash found for deal: ${deal.pieceCid}`,
-          dealId: deal.id,
-          pieceCid: deal.pieceCid,
-          providerAddress,
         });
       }
 
@@ -379,6 +402,13 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
           `Retrieval test completed in ${retrievalTest.testedAt.getTime() - retrievalStartTime}ms: ` +
             `${retrievalTest.summary.successfulMethods}/${retrievalTest.summary.totalMethods} successful`,
         );
+        this.logger.log({
+          ...dealLog,
+          event: "deal_creation_retrieval_test_completed",
+          message: `Retrieval test completed in ${retrievalTest.testedAt.getTime() - retrievalStartTime}ms`,
+          totalMethods: retrievalTest.summary.totalMethods,
+          successfulMethods: retrievalTest.summary.successfulMethods,
+        });
       }
 
       deal.status = DealStatus.DEAL_CREATED;
@@ -388,7 +418,11 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       }
       this.dataStorageMetrics.recordDataStorageStatus(providerLabels, "success");
 
-      this.logger.log(`Deal ${deal.id} created: ${deal.pieceCid} (sp: ${providerAddress})`);
+      this.logger.log({
+        ...dealLog,
+        event: "deal_creation_completed",
+        message: `Deal ${deal.id} created: ${deal.pieceCid} (sp: ${providerAddress})`,
+      });
 
       await this.dealAddonsService.postProcessDeal(deal, dealInput.appliedAddons);
 
@@ -396,9 +430,9 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       this.logger.error({
+        ...dealLog,
         event: "deal_creation_failed",
         message: `Deal creation failed for ${providerAddress}`,
-        providerAddress,
         error: toStructuredError(error),
       });
       const failureStatus = classifyFailureStatus(error);
@@ -420,7 +454,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
 
       throw error;
     } finally {
-      await this.saveDeal(deal);
+      await this.saveDeal(deal, dealLog);
     }
   }
 
@@ -505,15 +539,14 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     deal.pieceId = uploadResult.pieceId;
   }
 
-  private async saveDeal(deal: Deal): Promise<void> {
+  private async saveDeal(deal: Deal, dealLog: DealLog): Promise<void> {
     try {
       await this.dealRepository.save(deal);
     } catch (error) {
       this.logger.warn({
+        ...dealLog,
         event: "save_deal_failed",
         message: `Failed to save deal ${deal.pieceCid}`,
-        dealId: deal.id,
-        pieceCid: deal.pieceCid,
         error: toStructuredError(error),
       });
     }
