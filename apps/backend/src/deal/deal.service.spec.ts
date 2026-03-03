@@ -5,6 +5,7 @@ import { Test, TestingModule } from "@nestjs/testing";
 import { getRepositoryToken } from "@nestjs/typeorm";
 import { executeUpload } from "filecoin-pin";
 import { CID } from "multiformats/cid";
+import { DataSetLogContext } from "src/common/logging.js";
 import { afterEach, beforeEach, describe, expect, it, Mock, vi } from "vitest";
 import { Deal } from "../database/entities/deal.entity.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
@@ -990,10 +991,15 @@ describe("DealService", () => {
   });
 
   describe("createDataSet", () => {
+    const logContext: DataSetLogContext = {
+      providerAddress: "0xprovider",
+      dataSetIndex: 0,
+    };
+
     it("throws when provider is not found in registry", async () => {
       vi.spyOn(mockWalletSdkService, "getProviderInfo").mockReturnValue(undefined);
 
-      await expect(service.createDataSet("0xunknown", { dealbotDS: "1" })).rejects.toThrow(
+      await expect(service.createDataSet("0xunknown", { dealbotDS: "1" }, logContext)).rejects.toThrow(
         "Provider 0xunknown not found in registry",
       );
     });
@@ -1003,7 +1009,7 @@ describe("DealService", () => {
         products: { PDP: { data: {} } },
       } as any);
 
-      await expect(service.createDataSet("0xprovider", {})).rejects.toThrow(
+      await expect(service.createDataSet("0xprovider", {}, logContext)).rejects.toThrow(
         "Provider 0xprovider has no PDP serviceURL",
       );
     });
@@ -1040,7 +1046,7 @@ describe("DealService", () => {
         waitForDataSetCreationWithStatus,
       } as any);
 
-      const result = await service.createDataSet("0xprovider", { dealbotDS: "1" });
+      const result = await service.createDataSet("0xprovider", { dealbotDS: "1" }, logContext);
 
       expect(result.dataSetId).toBe(42);
       expect(createDataSetSpy).toHaveBeenCalledWith(
@@ -1081,7 +1087,7 @@ describe("DealService", () => {
         waitForDataSetCreationWithStatus: vi.fn().mockRejectedValue(new Error("Data set creation timed out")),
       } as any);
 
-      await expect(service.createDataSet("0xprovider", {})).rejects.toThrow(/timed out/);
+      await expect(service.createDataSet("0xprovider", {}, logContext)).rejects.toThrow(/timed out/);
     });
 
     it("aborts createDataSet while waiting for SDK confirmation", async () => {
@@ -1111,7 +1117,7 @@ describe("DealService", () => {
       } as any);
 
       const controller = new AbortController();
-      const resultPromise = service.createDataSet("0xprovider", {}, controller.signal);
+      const resultPromise = service.createDataSet("0xprovider", {}, logContext, controller.signal);
       controller.abort(new Error("Job timed out"));
 
       await expect(resultPromise).rejects.toThrow("Job timed out");
@@ -1141,7 +1147,7 @@ describe("DealService", () => {
         }),
       } as any);
 
-      await expect(service.createDataSet("0xprovider", {})).rejects.toThrow(
+      await expect(service.createDataSet("0xprovider", {}, logContext)).rejects.toThrow(
         "Data-set creation completed without dataSetId for tx: 0xtxhash",
       );
     });

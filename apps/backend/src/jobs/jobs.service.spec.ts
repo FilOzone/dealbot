@@ -316,9 +316,14 @@ describe("JobsService schedule rows", () => {
       }),
     };
 
+    const walletSdkService = {
+      getProviderInfo: vi.fn(() => [{ id: 2 }]),
+    };
+
     service = buildService({
       configService,
       retrievalService: retrievalService as unknown as ConstructorParameters<typeof JobsService>[4],
+      walletSdkService: walletSdkService as unknown as ConstructorParameters<typeof JobsService>[6],
     });
 
     vi.useFakeTimers();
@@ -972,8 +977,13 @@ describe("JobsService schedule rows", () => {
       createDataSet: vi.fn(async () => ({ dataSetId: 1 })),
     };
 
+    const walletSdkService = {
+      getProviderInfo: vi.fn(() => ({ id: 1 })),
+    };
+
     service = buildService({
       dealService: dealService as unknown as ConstructorParameters<typeof JobsService>[3],
+      walletSdkService: walletSdkService as unknown as ConstructorParameters<typeof JobsService>[6],
     });
 
     await callPrivate(service, "handleDataSetCreationJob", {
@@ -982,7 +992,17 @@ describe("JobsService schedule rows", () => {
     });
 
     expect(dealService.createDataSet).toHaveBeenCalledTimes(1);
-    expect(dealService.createDataSet).toHaveBeenCalledWith("0xaaa", { withIpniIndexing: "" }, expect.any(AbortSignal));
+    expect(dealService.createDataSet).toHaveBeenCalledWith(
+      "0xaaa",
+      { withIpniIndexing: "" },
+      {
+        dataSetIndex: 0,
+        providerAddress: "0xaaa",
+        providerId: 1,
+        metadata: { withIpniIndexing: "" },
+      },
+      expect.any(AbortSignal),
+    );
   });
 
   it("data_set_creation job skips when all data sets already exist", async () => {
@@ -1001,9 +1021,14 @@ describe("JobsService schedule rows", () => {
       createDataSet: vi.fn(async () => ({ dataSetId: 4 })),
     };
 
+    const walletSdkService = {
+      getProviderInfo: vi.fn(() => ({ id: 1 })),
+    };
+
     service = buildService({
       configService,
       dealService: dealService as unknown as ConstructorParameters<typeof JobsService>[3],
+      walletSdkService: walletSdkService as unknown as ConstructorParameters<typeof JobsService>[6],
     });
 
     await callPrivate(service, "handleDataSetCreationJob", {
@@ -1037,9 +1062,14 @@ describe("JobsService schedule rows", () => {
       createDataSet: vi.fn(async () => ({ dataSetId: 1 })),
     };
 
+    const walletSdkService = {
+      getProviderInfo: vi.fn(() => ({ id: 1 })),
+    };
+
     service = buildService({
       configService,
       dealService: dealService as unknown as ConstructorParameters<typeof JobsService>[3],
+      walletSdkService: walletSdkService as unknown as ConstructorParameters<typeof JobsService>[6],
     });
 
     await callPrivate(service, "handleDataSetCreationJob", {
@@ -1051,16 +1081,34 @@ describe("JobsService schedule rows", () => {
     expect(dealService.createDataSet).toHaveBeenCalledWith(
       "0xaaa",
       { dealbotDataSetVersion: "v1" },
+      {
+        dataSetIndex: 0,
+        providerAddress: "0xaaa",
+        providerId: 1,
+        metadata: { dealbotDataSetVersion: "v1" },
+      },
       expect.any(AbortSignal),
     );
     expect(dealService.createDataSet).toHaveBeenCalledWith(
       "0xaaa",
       { dealbotDataSetVersion: "v1", dealbotDS: "1" },
+      {
+        dataSetIndex: 1,
+        providerAddress: "0xaaa",
+        providerId: 1,
+        metadata: { dealbotDataSetVersion: "v1", dealbotDS: "1" },
+      },
       expect.any(AbortSignal),
     );
     expect(dealService.createDataSet).toHaveBeenCalledWith(
       "0xaaa",
       { dealbotDataSetVersion: "v1", dealbotDS: "2" },
+      {
+        dataSetIndex: 2,
+        providerAddress: "0xaaa",
+        providerId: 1,
+        metadata: { dealbotDataSetVersion: "v1", dealbotDS: "2" },
+      },
       expect.any(AbortSignal),
     );
   });
@@ -1079,9 +1127,9 @@ describe("JobsService schedule rows", () => {
 
     const { provisionDataSets } = await import("./data-set-creation.handler.js");
 
-    await expect(provisionDataSets({ dealService, logger }, "0xaaa", 5, {}, controller.signal)).rejects.toThrow(
-      "Job timed out",
-    );
+    await expect(
+      provisionDataSets({ dealService, logger }, "0xaaa", 5, {}, { providerAddress: "0xaaa" }, controller.signal),
+    ).rejects.toThrow("Job timed out");
 
     // No datasets should have been created since abort was already signaled
     expect(dealService.createDataSet).not.toHaveBeenCalled();

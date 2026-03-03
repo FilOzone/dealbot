@@ -37,6 +37,7 @@ export async function provisionDataSets(
 
     const logContext: DataSetLogContext = {
       ...dataSetLogContext,
+      metadata,
       dataSetIndex: i,
     };
 
@@ -47,13 +48,14 @@ export async function provisionDataSets(
       continue;
     }
 
+    const result = await dealService.createDataSet(spAddress, metadata, logContext, signal);
+
     logger.log({
       ...logContext,
-      event: "data_set_creation_started",
-      message: `Creating data-set #${i} for provider ${spAddress}`,
+      event: "data_set_creation_completed",
+      message: `Created data-set #${i} for provider ${spAddress}`,
+      dataSetId: result.dataSetId,
     });
-    const result = await dealService.createDataSet(spAddress, metadata, logContext, signal);
-    logContext.dataSetId = result.dataSetId;
     createdCount++;
   }
 

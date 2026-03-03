@@ -89,6 +89,7 @@ export type RetrievalLogContext = {
 export type DataSetLogContext = {
   providerAddress: string;
   providerId?: number;
-  dataSetIndex?: number;
   dataSetId?: number;
+  dataSetIndex?: number;
+  metadata?: Record<string, string>;
 };
