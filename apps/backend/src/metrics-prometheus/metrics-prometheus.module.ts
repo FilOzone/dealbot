@@ -180,6 +180,12 @@ const metricProviders = [
     help: "HTTP response codes for IPFS retrievals",
     labelNames: ["checkType", "providerId", "providerStatus", "value"] as const,
   }),
+  // Data Retention Metrics
+  makeCounterProvider({
+    name: "dataSetChallengeStatus",
+    help: "Provider dataset challenge status",
+    labelNames: ["checkType", "providerId", "providerStatus", "value"] as const,
+  }),
   // Storage provider metrics: absolute counts, independent of query filters.
   makeGaugeProvider({
     name: "storage_providers_active",

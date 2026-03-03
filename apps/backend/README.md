@@ -104,6 +104,7 @@ All configuration is done via environment variables in `.env`.
 | `CHECK_DATASET_CREATION_FEES` | Check fees before dataset creation     | `true`                     |
 | `ENABLE_IPNI_TESTING`         | IPNI testing mode (`disabled`/`random`/`always`) | `always`          |
 | `USE_ONLY_APPROVED_PROVIDERS` | Only use approved storage providers    | `true`                     |
+| `PDP_SUBGRAPH_ENDPOINT`       | PDP subgraph API endpoint for PDP proof-set/data-retention | `https://api.thegraph.com/subgraphs/filecoin/pdp` |
 
 ### Scheduling Configuration (pg-boss)
 
@@ -114,6 +115,7 @@ These settings apply when `DEALBOT_JOBS_MODE=pgboss` (recommended). See
 | Variable                         | Description                              | Recommended |
 | -------------------------------- | ---------------------------------------- | ------------------------------ |
 | `DEALBOT_JOBS_MODE`              | Enable pg-boss scheduling                 | `pgboss`                       |
+| `DATA_RETENTION_POLL_INTERVAL_SECONDS` | Data retention polling interval (seconds)   | `3600` (1 hour)        |
 | `DEALS_PER_SP_PER_HOUR`          | Deal checks per SP per hour               | `1`                            |
 | `RETRIEVALS_PER_SP_PER_HOUR`     | Retrieval checks per SP per hour          | `1`                            |
 | `METRICS_PER_HOUR`               | Metrics runs per hour                     | `2`                            |

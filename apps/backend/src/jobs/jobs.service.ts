@@ -8,21 +8,30 @@ import type { Repository } from "typeorm";
 import { toStructuredError } from "../common/logging.js";
 import { getMaintenanceWindowStatus } from "../common/maintenance-window.js";
 import type { IConfig } from "../config/app.config.js";
+import { DataRetentionService } from "../data-retention/data-retention.service.js";
 import type { JobType } from "../database/entities/job-schedule-state.entity.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
 import { DealService } from "../deal/deal.service.js";
 import { MetricsSchedulerService } from "../metrics/services/metrics-scheduler.service.js";
 import { RetrievalService } from "../retrieval/retrieval.service.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
-import { METRICS_CLEANUP_QUEUE, METRICS_QUEUE, PROVIDERS_REFRESH_QUEUE, SP_WORK_QUEUE } from "./job-queues.js";
+import { provisionDataSets } from "./data-set-creation.handler.js";
+import {
+  DATA_RETENTION_POLL_QUEUE,
+  METRICS_CLEANUP_QUEUE,
+  METRICS_QUEUE,
+  PROVIDERS_REFRESH_QUEUE,
+  SP_WORK_QUEUE,
+} from "./job-queues.js";
 import { JobScheduleRepository } from "./repositories/job-schedule.repository.js";
 
-type SpJobType = "deal" | "retrieval";
+type SpJobType = "deal" | "retrieval" | "data_set_creation";
 
 type SpJobData = { jobType: SpJobType; spAddress: string; intervalSeconds: number };
 type MetricsJobData = { intervalSeconds: number };
 type ProvidersRefreshJobData = { intervalSeconds: number };
 type SpJob = Job<SpJobData>;
+type DataRetentionJobData = { intervalSeconds: number };
 
 type ScheduleRow = {
   id: number;
@@ -52,6 +61,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     private readonly retrievalService: RetrievalService,
     private readonly metricsSchedulerService: MetricsSchedulerService,
     private readonly walletSdkService: WalletSdkService,
+    private readonly dataRetentionService: DataRetentionService,
     @InjectMetric("jobs_queued")
     private readonly jobsQueuedGauge: Gauge,
     @InjectMetric("jobs_retry_scheduled")
@@ -228,6 +238,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     await boss.createQueue(METRICS_QUEUE);
     await boss.createQueue(METRICS_CLEANUP_QUEUE);
     await boss.createQueue(PROVIDERS_REFRESH_QUEUE);
+    await boss.createQueue(DATA_RETENTION_POLL_QUEUE);
   }
 
   private registerWorkers(): void {
@@ -251,6 +262,10 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
           }
           if (job.data.jobType === "retrieval") {
             await this.handleRetrievalJob(job);
+            return;
+          }
+          if (job.data.jobType === "data_set_creation") {
+            await this.handleDataSetCreationJob(job);
             return;
           }
           this.logger.warn({
@@ -293,6 +308,15 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
           message: "Failed to register worker for metrics.cleanup",
           error: toStructuredError(error),
         }),
+      );
+    void this.boss
+      .work<DataRetentionJobData, void>(
+        DATA_RETENTION_POLL_QUEUE,
+        { batchSize: 1, pollingIntervalSeconds: workerPollSeconds },
+        async ([job]) => this.handleDataRetentionJob(job.data),
+      )
+      .catch((error) =>
+        this.logger.error(`Failed to register worker for data.retention.poll: ${error.message}`, error.stack),
       );
     void this.boss
       .work(PROVIDERS_REFRESH_QUEUE, { batchSize: 1, pollingIntervalSeconds: workerPollSeconds }, async ([job]) =>
@@ -362,9 +386,51 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
           }
         }
         providerId = provider.id;
+
+        const dealOptions = this.dealService.getTestingDealOptions();
+
+        // Data-set-aware deal creation
+        const minDataSets = this.configService.get("blockchain").minNumDataSetsForChecks;
+        const baseDataSetMetadata = this.dealService.getBaseDataSetMetadata(dealOptions.enableIpni);
+        let extraDataSetMetadata: Record<string, string> | undefined;
+
+        if (minDataSets > 1) {
+          const dsIndex = Math.floor(Math.random() * minDataSets);
+          if (dsIndex > 0) {
+            const dsIndexMetadata = { dealbotDS: String(dsIndex) };
+            const expectedMetadata = { ...baseDataSetMetadata, ...dsIndexMetadata };
+            try {
+              const exists = await this.dealService.checkDataSetExists(
+                spAddress,
+                expectedMetadata,
+                abortController.signal,
+              );
+
+              if (exists) {
+                extraDataSetMetadata = dsIndexMetadata;
+              } else {
+                this.logger.log(
+                  `Data set #${dsIndex} not yet provisioned for ${spAddress}; falling back to default data set`,
+                );
+              }
+            } catch (error) {
+              if (abortController.signal.aborted) {
+                throw abortController.signal.reason;
+              }
+              const errorMessage = error instanceof Error ? error.message : String(error);
+              this.logger.warn(
+                `Failed to verify data set #${dsIndex} for ${spAddress}: ${errorMessage}; falling back to default data set`,
+              );
+            }
+          }
+          // dsIndex === 0 → baseline data set, no `dealbotDS` metadata key needed
+        }
+
+        abortController.signal.throwIfAborted();
         await this.dealService.createDealForProvider(provider, {
-          ...this.dealService.getTestingDealOptions(),
+          ...dealOptions,
           signal: abortController.signal,
+          extraDataSetMetadata,
         });
         return "success";
       } catch (error) {
@@ -470,6 +536,14 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     });
   }
 
+  private async handleDataRetentionJob(data: DataRetentionJobData): Promise<void> {
+    void data;
+    await this.recordJobExecution("data_retention_poll", async () => {
+      await this.dataRetentionService.pollDataRetention();
+      return "success";
+    });
+  }
+
   private async handleProvidersRefreshJob(data: ProvidersRefreshJobData): Promise<void> {
     void data;
     await this.recordJobExecution("providers_refresh", async () => {
@@ -479,6 +553,62 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       }
       await this.walletSdkService.loadProviders();
       return "success";
+    });
+  }
+
+  private async handleDataSetCreationJob(job: SpJob): Promise<void> {
+    const data = job.data;
+    const spAddress = data.spAddress;
+    const now = new Date();
+    const maintenance = this.getMaintenanceWindowStatus(now);
+    if (maintenance.active) {
+      this.logMaintenanceSkip(`data_set_creation job for ${spAddress}`, maintenance.window?.label);
+      await this.deferJobForMaintenance("data_set_creation", data, maintenance, now);
+      return;
+    }
+
+    const minDataSets = this.configService.get("blockchain").minNumDataSetsForChecks;
+    const dealOptions = this.dealService.getTestingDealOptions();
+    const baseDataSetMetadata = this.dealService.getBaseDataSetMetadata(dealOptions.enableIpni);
+
+    // Create AbortController for job timeout enforcement
+    const abortController = new AbortController();
+    const timeoutSeconds = this.configService.get("jobs").dataSetCreationJobTimeoutSeconds;
+    const timeoutMs = Math.max(120000, timeoutSeconds * 1000);
+    const effectiveTimeoutSeconds = Math.round(timeoutMs / 1000);
+    const abortReason = new Error(`Data set creation job timeout (${effectiveTimeoutSeconds}s) for ${spAddress}`);
+    const timeoutId = setTimeout(() => {
+      abortController.abort(abortReason);
+    }, timeoutMs);
+
+    await this.recordJobExecution("data_set_creation", async () => {
+      try {
+        await provisionDataSets(
+          { dealService: this.dealService, logger: this.logger },
+          spAddress,
+          minDataSets,
+          baseDataSetMetadata,
+          abortController.signal,
+        );
+        return "success";
+      } catch (error) {
+        if (abortController.signal.aborted) {
+          const reason = abortController.signal.reason;
+          const reasonMessage = reason instanceof Error ? reason.message : String(reason ?? "");
+          this.logger.error(
+            reasonMessage
+              ? `Data set creation job aborted: ${reasonMessage}`
+              : `Data set creation job aborted after timeout (${effectiveTimeoutSeconds}s) for ${spAddress}`,
+          );
+          return "aborted";
+        }
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        const errorStack = error instanceof Error ? error.stack : undefined;
+        this.logger.error(`Data set creation job failed for ${spAddress}: ${errorMessage}`, errorStack);
+        throw error;
+      } finally {
+        clearTimeout(timeoutId);
+      }
     });
   }
 
@@ -568,8 +698,10 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
   private getIntervalSecondsForRates(): {
     dealIntervalSeconds: number;
     retrievalIntervalSeconds: number;
+    dataSetCreationIntervalSeconds: number;
     metricsIntervalSeconds: number;
     metricsCleanupIntervalSeconds: number;
+    dataRetentionPollIntervalSeconds: number;
     providersRefreshIntervalSeconds: number;
   } {
     const scheduling = this.configService.get("scheduling");
@@ -578,6 +710,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     const defaultDealsPerHour = 3600 / scheduling.dealIntervalSeconds;
     const defaultRetrievalsPerHour = 3600 / scheduling.retrievalIntervalSeconds;
     const defaultMetricsPerHour = 2;
+    const defaultDataSetCreationsPerHour = 1;
     // Keep cleanup weekly to match legacy cron schedule unless explicitly changed in code.
     const defaultMetricsCleanupIntervalSeconds = 7 * 24 * 3600;
     const providersRefreshIntervalSeconds = 4 * 3600;
@@ -585,21 +718,28 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     const dealsPerHourRaw = jobsConfig?.dealsPerSpPerHour ?? defaultDealsPerHour;
     const retrievalsPerHourRaw = jobsConfig?.retrievalsPerSpPerHour ?? defaultRetrievalsPerHour;
     const metricsPerHourRaw = jobsConfig?.metricsPerHour ?? defaultMetricsPerHour;
+    const dataSetCreationsPerHourRaw = jobsConfig?.dataSetCreationsPerSpPerHour ?? defaultDataSetCreationsPerHour;
 
     const dealsPerHour = dealsPerHourRaw > 0 ? dealsPerHourRaw : defaultDealsPerHour;
     const retrievalsPerHour = retrievalsPerHourRaw > 0 ? retrievalsPerHourRaw : defaultRetrievalsPerHour;
     const metricsPerHour = metricsPerHourRaw > 0 ? metricsPerHourRaw : defaultMetricsPerHour;
+    const dataSetCreationsPerHour =
+      dataSetCreationsPerHourRaw > 0 ? dataSetCreationsPerHourRaw : defaultDataSetCreationsPerHour;
 
     const dealIntervalSeconds = Math.max(1, Math.round(3600 / dealsPerHour));
     const retrievalIntervalSeconds = Math.max(1, Math.round(3600 / retrievalsPerHour));
     const metricsIntervalSeconds = Math.max(1, Math.round(3600 / metricsPerHour));
+    const dataSetCreationIntervalSeconds = Math.max(1, Math.round(3600 / dataSetCreationsPerHour));
     const metricsCleanupIntervalSeconds = defaultMetricsCleanupIntervalSeconds;
+    const dataRetentionPollIntervalSeconds = scheduling.dataRetentionPollIntervalSeconds;
 
     return {
       dealIntervalSeconds,
       retrievalIntervalSeconds,
+      dataSetCreationIntervalSeconds,
       metricsIntervalSeconds,
       metricsCleanupIntervalSeconds,
+      dataRetentionPollIntervalSeconds,
       providersRefreshIntervalSeconds,
     };
   }
@@ -616,8 +756,10 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     const {
       dealIntervalSeconds,
       retrievalIntervalSeconds,
+      dataSetCreationIntervalSeconds,
       metricsIntervalSeconds,
       metricsCleanupIntervalSeconds,
+      dataRetentionPollIntervalSeconds,
       providersRefreshIntervalSeconds,
     } = this.getIntervalSecondsForRates();
 
@@ -631,12 +773,23 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     const phaseMs = this.schedulePhaseSeconds() * 1000;
     const dealStartAt = new Date(now.getTime() + phaseMs);
     const retrievalStartAt = new Date(now.getTime() + phaseMs);
+    const dataSetCreationStartAt = new Date(now.getTime() + phaseMs);
     const metricsStartAt = new Date(now.getTime() + phaseMs);
     const providersRefreshStartAt = new Date(now.getTime() + phaseMs);
+
+    const minDataSets = this.configService.get("blockchain").minNumDataSetsForChecks;
 
     for (const address of providerAddresses) {
       await this.jobScheduleRepository.upsertSchedule("deal", address, dealIntervalSeconds, dealStartAt);
       await this.jobScheduleRepository.upsertSchedule("retrieval", address, retrievalIntervalSeconds, retrievalStartAt);
+      if (minDataSets >= 1) {
+        await this.jobScheduleRepository.upsertSchedule(
+          "data_set_creation",
+          address,
+          dataSetCreationIntervalSeconds,
+          dataSetCreationStartAt,
+        );
+      }
     }
 
     if (providerAddresses.length > 0) {
@@ -652,12 +805,18 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       );
     }
 
-    // Global metrics schedule (sp_address = '')
+    // Global job schedules (sp_address = '')
     await this.jobScheduleRepository.upsertSchedule("metrics", "", metricsIntervalSeconds, metricsStartAt);
     await this.jobScheduleRepository.upsertSchedule(
       "metrics_cleanup",
       "",
       metricsCleanupIntervalSeconds,
+      metricsStartAt,
+    );
+    await this.jobScheduleRepository.upsertSchedule(
+      "data_retention_poll",
+      "",
+      dataRetentionPollIntervalSeconds,
       metricsStartAt,
     );
     await this.jobScheduleRepository.upsertSchedule(
@@ -738,10 +897,14 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         return SP_WORK_QUEUE;
       case "retrieval":
         return SP_WORK_QUEUE;
+      case "data_set_creation":
+        return SP_WORK_QUEUE;
       case "metrics":
         return METRICS_QUEUE;
       case "metrics_cleanup":
         return METRICS_CLEANUP_QUEUE;
+      case "data_retention_poll":
+        return DATA_RETENTION_POLL_QUEUE;
       case "providers_refresh":
         return PROVIDERS_REFRESH_QUEUE;
       default: {
@@ -752,7 +915,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
   }
 
   private mapJobPayload(row: ScheduleRow): SpJobData | MetricsJobData | ProvidersRefreshJobData {
-    if (row.job_type === "deal" || row.job_type === "retrieval") {
+    if (row.job_type === "deal" || row.job_type === "retrieval" || row.job_type === "data_set_creation") {
       return { jobType: row.job_type, spAddress: row.sp_address, intervalSeconds: row.interval_seconds };
     }
     return { intervalSeconds: row.interval_seconds };
@@ -771,7 +934,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     try {
       // Disable retries so "attempted" jobs don't rerun; failures are handled by the next schedule tick.
       const finalOptions: SendOptions = { retryLimit: 0, ...options };
-      if (jobType === "deal" || jobType === "retrieval") {
+      if (jobType === "deal" || jobType === "retrieval" || jobType === "data_set_creation") {
         const spData = data as SpJobData;
         if (!finalOptions.singletonKey) {
           finalOptions.singletonKey = spData.spAddress;
@@ -816,7 +979,15 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
    * Refreshes queue depth and age gauges from pg-boss tables.
    */
   private async updateQueueMetrics(): Promise<void> {
-    const jobTypes: JobType[] = ["deal", "retrieval", "metrics", "metrics_cleanup", "providers_refresh"];
+    const jobTypes: JobType[] = [
+      "deal",
+      "retrieval",
+      "data_set_creation",
+      "metrics",
+      "metrics_cleanup",
+      "data_retention_poll",
+      "providers_refresh",
+    ];
     for (const jobType of jobTypes) {
       this.jobsQueuedGauge.set({ job_type: jobType }, 0);
       this.jobsRetryScheduledGauge.set({ job_type: jobType }, 0);

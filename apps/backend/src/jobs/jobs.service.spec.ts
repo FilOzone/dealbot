@@ -1,6 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { IConfig } from "../config/app.config.js";
-import { METRICS_CLEANUP_QUEUE, METRICS_QUEUE, PROVIDERS_REFRESH_QUEUE, SP_WORK_QUEUE } from "./job-queues.js";
+import {
+  DATA_RETENTION_POLL_QUEUE,
+  METRICS_CLEANUP_QUEUE,
+  METRICS_QUEUE,
+  PROVIDERS_REFRESH_QUEUE,
+  SP_WORK_QUEUE,
+} from "./job-queues.js";
 import { JobsService } from "./jobs.service.js";
 
 type JobsServiceDeps = ConstructorParameters<typeof JobsService>;
@@ -22,17 +28,18 @@ describe("JobsService schedule rows", () => {
     countBossJobStates: ReturnType<typeof vi.fn>;
     minBossJobAgeSecondsByState: ReturnType<typeof vi.fn>;
   };
+  let dataRetentionServiceMock: { pollDataRetention: ReturnType<typeof vi.fn> };
   let metricsMocks: {
-    jobsQueuedGauge: JobsServiceDeps[7];
-    jobsRetryScheduledGauge: JobsServiceDeps[8];
-    oldestQueuedAgeGauge: JobsServiceDeps[9];
-    oldestInFlightAgeGauge: JobsServiceDeps[10];
-    jobsInFlightGauge: JobsServiceDeps[11];
-    jobsEnqueueAttemptsCounter: JobsServiceDeps[12];
-    jobsStartedCounter: JobsServiceDeps[13];
-    jobsCompletedCounter: JobsServiceDeps[14];
-    jobsPausedGauge: JobsServiceDeps[15];
-    jobDuration: JobsServiceDeps[16];
+    jobsQueuedGauge: JobsServiceDeps[8];
+    jobsRetryScheduledGauge: JobsServiceDeps[9];
+    oldestQueuedAgeGauge: JobsServiceDeps[10];
+    oldestInFlightAgeGauge: JobsServiceDeps[11];
+    jobsInFlightGauge: JobsServiceDeps[12];
+    jobsEnqueueAttemptsCounter: JobsServiceDeps[13];
+    jobsStartedCounter: JobsServiceDeps[14];
+    jobsCompletedCounter: JobsServiceDeps[15];
+    jobsPausedGauge: JobsServiceDeps[16];
+    jobDuration: JobsServiceDeps[17];
   };
   let baseConfigValues: Partial<IConfig>;
   let configService: JobsServiceDeps[0];
@@ -45,16 +52,17 @@ describe("JobsService schedule rows", () => {
       retrievalService: JobsServiceDeps[4];
       metricsSchedulerService: JobsServiceDeps[5];
       walletSdkService: JobsServiceDeps[6];
-      jobsQueuedGauge: JobsServiceDeps[7];
-      jobsRetryScheduledGauge: JobsServiceDeps[8];
-      oldestQueuedAgeGauge: JobsServiceDeps[9];
-      oldestInFlightAgeGauge: JobsServiceDeps[10];
-      jobsInFlightGauge: JobsServiceDeps[11];
-      jobsEnqueueAttemptsCounter: JobsServiceDeps[12];
-      jobsStartedCounter: JobsServiceDeps[13];
-      jobsCompletedCounter: JobsServiceDeps[14];
-      jobsPausedGauge: JobsServiceDeps[15];
-      jobDuration: JobsServiceDeps[16];
+      dataRetentionService: JobsServiceDeps[7];
+      jobsQueuedGauge: JobsServiceDeps[8];
+      jobsRetryScheduledGauge: JobsServiceDeps[9];
+      oldestQueuedAgeGauge: JobsServiceDeps[10];
+      oldestInFlightAgeGauge: JobsServiceDeps[11];
+      jobsInFlightGauge: JobsServiceDeps[12];
+      jobsEnqueueAttemptsCounter: JobsServiceDeps[13];
+      jobsStartedCounter: JobsServiceDeps[14];
+      jobsCompletedCounter: JobsServiceDeps[15];
+      jobsPausedGauge: JobsServiceDeps[16];
+      jobDuration: JobsServiceDeps[17];
     }>,
   ) => JobsService;
 
@@ -76,25 +84,30 @@ describe("JobsService schedule rows", () => {
       minBossJobAgeSecondsByState: vi.fn(),
     };
 
+    dataRetentionServiceMock = {
+      pollDataRetention: vi.fn(),
+    };
+
     metricsMocks = {
-      jobsQueuedGauge: { set: vi.fn() } as unknown as JobsServiceDeps[7],
-      jobsRetryScheduledGauge: { set: vi.fn() } as unknown as JobsServiceDeps[8],
-      oldestQueuedAgeGauge: { set: vi.fn() } as unknown as JobsServiceDeps[9],
-      oldestInFlightAgeGauge: { set: vi.fn() } as unknown as JobsServiceDeps[10],
-      jobsInFlightGauge: { set: vi.fn() } as unknown as JobsServiceDeps[11],
-      jobsEnqueueAttemptsCounter: { inc: vi.fn() } as unknown as JobsServiceDeps[12],
-      jobsStartedCounter: { inc: vi.fn() } as unknown as JobsServiceDeps[13],
-      jobsCompletedCounter: { inc: vi.fn() } as unknown as JobsServiceDeps[14],
-      jobsPausedGauge: { set: vi.fn() } as unknown as JobsServiceDeps[15],
-      jobDuration: { observe: vi.fn() } as unknown as JobsServiceDeps[16],
+      jobsQueuedGauge: { set: vi.fn() } as unknown as JobsServiceDeps[8],
+      jobsRetryScheduledGauge: { set: vi.fn() } as unknown as JobsServiceDeps[9],
+      oldestQueuedAgeGauge: { set: vi.fn() } as unknown as JobsServiceDeps[10],
+      oldestInFlightAgeGauge: { set: vi.fn() } as unknown as JobsServiceDeps[11],
+      jobsInFlightGauge: { set: vi.fn() } as unknown as JobsServiceDeps[12],
+      jobsEnqueueAttemptsCounter: { inc: vi.fn() } as unknown as JobsServiceDeps[13],
+      jobsStartedCounter: { inc: vi.fn() } as unknown as JobsServiceDeps[14],
+      jobsCompletedCounter: { inc: vi.fn() } as unknown as JobsServiceDeps[15],
+      jobsPausedGauge: { set: vi.fn() } as unknown as JobsServiceDeps[16],
+      jobDuration: { observe: vi.fn() } as unknown as JobsServiceDeps[17],
     };
 
     baseConfigValues = {
       app: { runMode: "both" } as IConfig["app"],
-      blockchain: { useOnlyApprovedProviders: false } as IConfig["blockchain"],
+      blockchain: { useOnlyApprovedProviders: false, minNumDataSetsForChecks: 1 } as IConfig["blockchain"],
       scheduling: {
         dealIntervalSeconds: 600,
         retrievalIntervalSeconds: 1200,
+        dataRetentionPollIntervalSeconds: 3600,
         maintenanceWindowsUtc: ["07:00", "22:00"],
         maintenanceWindowMinutes: 20,
       } as IConfig["scheduling"],
@@ -105,6 +118,7 @@ describe("JobsService schedule rows", () => {
         pgbossLocalConcurrency: 9,
         pgbossSchedulerEnabled: true,
         workerPollSeconds: 60,
+        dataSetCreationJobTimeoutSeconds: 300,
       } as IConfig["jobs"],
       database: {
         host: "localhost",
@@ -128,6 +142,7 @@ describe("JobsService schedule rows", () => {
         overrides.retrievalService ?? ({} as JobsServiceDeps[4]),
         overrides.metricsSchedulerService ?? ({} as JobsServiceDeps[5]),
         overrides.walletSdkService ?? ({} as JobsServiceDeps[6]),
+        overrides.dataRetentionService ?? (dataRetentionServiceMock as unknown as JobsServiceDeps[7]),
         overrides.jobsQueuedGauge ?? metricsMocks.jobsQueuedGauge,
         overrides.jobsRetryScheduledGauge ?? metricsMocks.jobsRetryScheduledGauge,
         overrides.oldestQueuedAgeGauge ?? metricsMocks.oldestQueuedAgeGauge,
@@ -236,7 +251,8 @@ describe("JobsService schedule rows", () => {
         });
         throw new Error("The operation was aborted");
       }),
-      getTestingDealOptions: vi.fn(() => ({})),
+      getTestingDealOptions: vi.fn(() => ({ enableIpni: false })),
+      getBaseDataSetMetadata: vi.fn(() => ({})),
     };
 
     const walletSdkService = {
@@ -348,6 +364,7 @@ describe("JobsService schedule rows", () => {
     expect(jobsQueuedGauge.set).toHaveBeenCalledWith({ job_type: "retrieval" }, 0);
     expect(jobsQueuedGauge.set).toHaveBeenCalledWith({ job_type: "metrics" }, 0);
     expect(jobsQueuedGauge.set).toHaveBeenCalledWith({ job_type: "metrics_cleanup" }, 0);
+    expect(jobsQueuedGauge.set).toHaveBeenCalledWith({ job_type: "data_retention_poll" }, 0);
 
     expect(jobsRetryGauge.set).toHaveBeenCalledWith({ job_type: "metrics" }, 3);
     expect(jobsInFlightGauge.set).toHaveBeenCalledWith({ job_type: "retrieval" }, 1);
@@ -376,6 +393,11 @@ describe("JobsService schedule rows", () => {
     );
     expect(work).toHaveBeenCalledWith(
       METRICS_CLEANUP_QUEUE,
+      { batchSize: 1, pollingIntervalSeconds: 60 },
+      expect.any(Function),
+    );
+    expect(work).toHaveBeenCalledWith(
+      DATA_RETENTION_POLL_QUEUE,
       { batchSize: 1, pollingIntervalSeconds: 60 },
       expect.any(Function),
     );
@@ -489,6 +511,16 @@ describe("JobsService schedule rows", () => {
   });
 
   it("adds schedule rows for newly seen providers", async () => {
+    baseConfigValues = {
+      ...baseConfigValues,
+      blockchain: { ...baseConfigValues.blockchain, minNumDataSetsForChecks: 3 } as IConfig["blockchain"],
+    };
+    configService = {
+      get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
+    } as unknown as JobsServiceDeps[0];
+
+    service = buildService({ configService });
+
     const providerA = { address: "0xaaa" };
     const providerB = { address: "0xbbb" };
 
@@ -500,8 +532,8 @@ describe("JobsService schedule rows", () => {
     // Check upserts for providerB
     const upsertCalls = jobScheduleRepositoryMock.upsertSchedule.mock.calls;
     const upsertsForB = upsertCalls.filter((call) => call[1] === providerB.address);
-    expect(upsertsForB).toHaveLength(2);
-    expect(upsertsForB.map((call) => call[0]).sort()).toEqual(["deal", "retrieval"]);
+    expect(upsertsForB).toHaveLength(3);
+    expect(upsertsForB.map((call) => call[0]).sort()).toEqual(["data_set_creation", "deal", "retrieval"]);
   });
 
   it("deletes schedule rows for providers no longer present", async () => {
@@ -560,6 +592,12 @@ describe("JobsService schedule rows", () => {
     );
     expect(jobScheduleRepositoryMock.upsertSchedule).toHaveBeenCalledWith(
       "providers_refresh",
+      "",
+      expect.any(Number),
+      expect.any(Date),
+    );
+    expect(jobScheduleRepositoryMock.upsertSchedule).toHaveBeenCalledWith(
+      "data_retention_poll",
       "",
       expect.any(Number),
       expect.any(Date),
@@ -687,5 +725,365 @@ describe("JobsService schedule rows", () => {
       { jobType: "retrieval", spAddress: "0xbbb", intervalSeconds: 60 },
       { startAfter: expectedResumeAt },
     );
+  });
+
+  it("deal job creates deal without metadata when minNumDataSetsForChecks is 1", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2024-01-01T12:00:00Z"));
+    const dealService = {
+      createDealForProvider: vi.fn(async () => ({})),
+      getTestingDealOptions: vi.fn(() => ({ enableIpni: true })),
+      getBaseDataSetMetadata: vi.fn(() => ({ withIpniIndexing: "" })),
+      checkDataSetExists: vi.fn(async () => false),
+    };
+
+    const walletSdkService = {
+      getTestingProviders: vi.fn(() => [{ serviceProvider: "0xaaa" }]),
+      ensureWalletAllowances: vi.fn(),
+      loadProviders: vi.fn(),
+    };
+
+    service = buildService({
+      dealService: dealService as unknown as ConstructorParameters<typeof JobsService>[3],
+      walletSdkService: walletSdkService as unknown as ConstructorParameters<typeof JobsService>[6],
+    });
+
+    await callPrivate(service, "handleDealJob", {
+      id: "job-deal-1",
+      data: { jobType: "deal", spAddress: "0xaaa", intervalSeconds: 60 },
+    });
+
+    expect(dealService.createDealForProvider).toHaveBeenCalledTimes(1);
+    expect(dealService.createDealForProvider).toHaveBeenCalledWith(
+      expect.objectContaining({ serviceProvider: "0xaaa" }),
+      expect.objectContaining({ extraDataSetMetadata: undefined }),
+    );
+  });
+
+  it("deal job passes dealbotDS metadata when selecting a provisioned data set index", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2024-01-01T12:00:00Z"));
+    baseConfigValues = {
+      ...baseConfigValues,
+      blockchain: { ...baseConfigValues.blockchain, minNumDataSetsForChecks: 3 } as IConfig["blockchain"],
+    };
+    configService = {
+      get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
+    } as unknown as JobsServiceDeps[0];
+
+    const dealService = {
+      createDealForProvider: vi.fn(async () => ({})),
+      getTestingDealOptions: vi.fn(() => ({ enableIpni: true })),
+      getBaseDataSetMetadata: vi.fn(() => ({ dealbotDataSetVersion: "v1", withIpniIndexing: "" })),
+      checkDataSetExists: vi.fn(async () => true),
+    };
+
+    const walletSdkService = {
+      getTestingProviders: vi.fn(() => [{ serviceProvider: "0xaaa" }]),
+      ensureWalletAllowances: vi.fn(),
+      loadProviders: vi.fn(),
+    };
+
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+
+    service = buildService({
+      configService,
+      dealService: dealService as unknown as ConstructorParameters<typeof JobsService>[3],
+      walletSdkService: walletSdkService as unknown as ConstructorParameters<typeof JobsService>[6],
+    });
+
+    await callPrivate(service, "handleDealJob", {
+      id: "job-deal-2",
+      data: { jobType: "deal", spAddress: "0xaaa", intervalSeconds: 60 },
+    });
+
+    expect(dealService.checkDataSetExists).toHaveBeenCalledWith(
+      "0xaaa",
+      { dealbotDataSetVersion: "v1", withIpniIndexing: "", dealbotDS: "1" },
+      expect.any(AbortSignal),
+    );
+    expect(dealService.createDealForProvider).toHaveBeenCalledTimes(1);
+    expect(dealService.createDealForProvider).toHaveBeenCalledWith(
+      expect.objectContaining({ serviceProvider: "0xaaa" }),
+      expect.objectContaining({
+        extraDataSetMetadata: { dealbotDS: "1" },
+      }),
+    );
+
+    vi.spyOn(Math, "random").mockRestore();
+  });
+
+  it("deal job falls back to default data set when selecting an unprovisioned index", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2024-01-01T12:00:00Z"));
+    baseConfigValues = {
+      ...baseConfigValues,
+      blockchain: { ...baseConfigValues.blockchain, minNumDataSetsForChecks: 3 } as IConfig["blockchain"],
+    };
+    configService = {
+      get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
+    } as unknown as JobsServiceDeps[0];
+
+    const dealService = {
+      createDealForProvider: vi.fn(async () => ({})),
+      getTestingDealOptions: vi.fn(() => ({ enableIpni: false })),
+      getBaseDataSetMetadata: vi.fn(() => ({ dealbotDataSetVersion: "v1" })),
+      checkDataSetExists: vi.fn(async () => false),
+    };
+
+    const walletSdkService = {
+      getTestingProviders: vi.fn(() => [{ serviceProvider: "0xaaa" }]),
+      ensureWalletAllowances: vi.fn(),
+      loadProviders: vi.fn(),
+    };
+
+    vi.spyOn(Math, "random").mockReturnValue(0.8);
+
+    service = buildService({
+      configService,
+      dealService: dealService as unknown as ConstructorParameters<typeof JobsService>[3],
+      walletSdkService: walletSdkService as unknown as ConstructorParameters<typeof JobsService>[6],
+    });
+
+    await callPrivate(service, "handleDealJob", {
+      id: "job-deal-3",
+      data: { jobType: "deal", spAddress: "0xaaa", intervalSeconds: 60 },
+    });
+
+    expect(dealService.checkDataSetExists).toHaveBeenCalledWith(
+      "0xaaa",
+      { dealbotDataSetVersion: "v1", dealbotDS: "2" },
+      expect.any(AbortSignal),
+    );
+    expect(dealService.createDealForProvider).toHaveBeenCalledTimes(1);
+    expect(dealService.createDealForProvider).toHaveBeenCalledWith(
+      expect.objectContaining({ serviceProvider: "0xaaa" }),
+      expect.objectContaining({ extraDataSetMetadata: undefined }),
+    );
+
+    vi.spyOn(Math, "random").mockRestore();
+  });
+
+  it("deal job falls back to default data set when data-set existence check throws", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2024-01-01T12:00:00Z"));
+    baseConfigValues = {
+      ...baseConfigValues,
+      blockchain: { ...baseConfigValues.blockchain, minNumDataSetsForChecks: 3 } as IConfig["blockchain"],
+    };
+    configService = {
+      get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
+    } as unknown as JobsServiceDeps[0];
+
+    const dealService = {
+      createDealForProvider: vi.fn(async () => ({})),
+      getTestingDealOptions: vi.fn(() => ({ enableIpni: true })),
+      getBaseDataSetMetadata: vi.fn(() => ({ withIpniIndexing: "" })),
+      checkDataSetExists: vi.fn(async () => {
+        throw new Error("lookup failed");
+      }),
+    };
+
+    const walletSdkService = {
+      getTestingProviders: vi.fn(() => [{ serviceProvider: "0xaaa" }]),
+      ensureWalletAllowances: vi.fn(),
+      loadProviders: vi.fn(),
+    };
+
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+
+    service = buildService({
+      configService,
+      dealService: dealService as unknown as ConstructorParameters<typeof JobsService>[3],
+      walletSdkService: walletSdkService as unknown as ConstructorParameters<typeof JobsService>[6],
+    });
+
+    await callPrivate(service, "handleDealJob", {
+      id: "job-deal-4",
+      data: { jobType: "deal", spAddress: "0xaaa", intervalSeconds: 60 },
+    });
+
+    expect(dealService.createDealForProvider).toHaveBeenCalledWith(
+      expect.objectContaining({ serviceProvider: "0xaaa" }),
+      expect.objectContaining({ extraDataSetMetadata: undefined }),
+    );
+
+    vi.spyOn(Math, "random").mockRestore();
+  });
+
+  it("data storage job does not run data-storage check when data-set selection aborts", async () => {
+    const completedCounter = metricsMocks.jobsCompletedCounter as unknown as { inc: ReturnType<typeof vi.fn> };
+
+    baseConfigValues = {
+      ...baseConfigValues,
+      blockchain: { ...baseConfigValues.blockchain, minNumDataSetsForChecks: 3 } as IConfig["blockchain"],
+      jobs: {
+        ...baseConfigValues.jobs,
+        dealJobTimeoutSeconds: 1,
+      } as IConfig["jobs"],
+    };
+    configService = {
+      get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
+    } as unknown as JobsServiceDeps[0];
+
+    const dealService = {
+      createDealForProvider: vi.fn(async () => ({})),
+      getTestingDealOptions: vi.fn(() => ({ enableIpni: false })),
+      getBaseDataSetMetadata: vi.fn(() => ({ dealbotDataSetVersion: "v1" })),
+      checkDataSetExists: vi.fn(async (_sp: string, _metadata: Record<string, string>, signal?: AbortSignal) => {
+        vi.advanceTimersByTime(120_000);
+        signal?.throwIfAborted();
+        return false;
+      }),
+    };
+
+    const walletSdkService = {
+      getTestingProviders: vi.fn(() => [{ serviceProvider: "0xaaa" }]),
+      ensureWalletAllowances: vi.fn(),
+      loadProviders: vi.fn(),
+    };
+
+    vi.spyOn(Math, "random").mockReturnValue(0.8);
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2024-01-01T12:00:00Z"));
+
+    service = buildService({
+      configService,
+      dealService: dealService as unknown as ConstructorParameters<typeof JobsService>[3],
+      walletSdkService: walletSdkService as unknown as ConstructorParameters<typeof JobsService>[6],
+    });
+
+    await callPrivate(service, "handleDealJob", {
+      id: "job-deal-selection-abort",
+      data: { jobType: "deal", spAddress: "0xaaa", intervalSeconds: 60 },
+    });
+
+    expect(dealService.createDealForProvider).not.toHaveBeenCalled();
+    expect(completedCounter.inc).toHaveBeenCalledWith({ job_type: "deal", handler_result: "aborted" });
+
+    vi.spyOn(Math, "random").mockRestore();
+  });
+
+  it("data_set_creation job creates initial data set when minNumDataSetsForChecks is 1", async () => {
+    const dealService = {
+      getTestingDealOptions: vi.fn(() => ({ enableIpni: true })),
+      getBaseDataSetMetadata: vi.fn(() => ({ withIpniIndexing: "" })),
+      checkDataSetExists: vi.fn(async () => false),
+      createDataSet: vi.fn(async () => ({ dataSetId: 1 })),
+    };
+
+    service = buildService({
+      dealService: dealService as unknown as ConstructorParameters<typeof JobsService>[3],
+    });
+
+    await callPrivate(service, "handleDataSetCreationJob", {
+      id: "job-ds-1",
+      data: { jobType: "data_set_creation", spAddress: "0xaaa", intervalSeconds: 3600 },
+    });
+
+    expect(dealService.createDataSet).toHaveBeenCalledTimes(1);
+    expect(dealService.createDataSet).toHaveBeenCalledWith("0xaaa", { withIpniIndexing: "" }, expect.any(AbortSignal));
+  });
+
+  it("data_set_creation job skips when all data sets already exist", async () => {
+    baseConfigValues = {
+      ...baseConfigValues,
+      blockchain: { ...baseConfigValues.blockchain, minNumDataSetsForChecks: 3 } as IConfig["blockchain"],
+    };
+    configService = {
+      get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
+    } as unknown as JobsServiceDeps[0];
+
+    const dealService = {
+      getTestingDealOptions: vi.fn(() => ({ enableIpni: false })),
+      getBaseDataSetMetadata: vi.fn(() => ({ dealbotDataSetVersion: "v1" })),
+      checkDataSetExists: vi.fn(async () => true),
+      createDataSet: vi.fn(async () => ({ dataSetId: 4 })),
+    };
+
+    service = buildService({
+      configService,
+      dealService: dealService as unknown as ConstructorParameters<typeof JobsService>[3],
+    });
+
+    await callPrivate(service, "handleDataSetCreationJob", {
+      id: "job-ds-2",
+      data: { jobType: "data_set_creation", spAddress: "0xaaa", intervalSeconds: 3600 },
+    });
+
+    expect(dealService.createDataSet).not.toHaveBeenCalled();
+    expect(dealService.checkDataSetExists).toHaveBeenCalledWith(
+      "0xaaa",
+      { dealbotDataSetVersion: "v1" },
+      expect.any(AbortSignal),
+    );
+  });
+
+  it("data_set_creation job creates all missing data sets deterministically", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2024-01-01T12:00:00Z"));
+    baseConfigValues = {
+      ...baseConfigValues,
+      blockchain: { ...baseConfigValues.blockchain, minNumDataSetsForChecks: 3 } as IConfig["blockchain"],
+    };
+    configService = {
+      get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
+    } as unknown as JobsServiceDeps[0];
+
+    const dealService = {
+      getTestingDealOptions: vi.fn(() => ({ enableIpni: false })),
+      getBaseDataSetMetadata: vi.fn(() => ({ dealbotDataSetVersion: "v1" })),
+      checkDataSetExists: vi.fn(async () => false),
+      createDataSet: vi.fn(async () => ({ dataSetId: 1 })),
+    };
+
+    service = buildService({
+      configService,
+      dealService: dealService as unknown as ConstructorParameters<typeof JobsService>[3],
+    });
+
+    await callPrivate(service, "handleDataSetCreationJob", {
+      id: "job-ds-3",
+      data: { jobType: "data_set_creation", spAddress: "0xaaa", intervalSeconds: 3600 },
+    });
+
+    expect(dealService.createDataSet).toHaveBeenCalledTimes(3);
+    expect(dealService.createDataSet).toHaveBeenCalledWith(
+      "0xaaa",
+      { dealbotDataSetVersion: "v1" },
+      expect.any(AbortSignal),
+    );
+    expect(dealService.createDataSet).toHaveBeenCalledWith(
+      "0xaaa",
+      { dealbotDataSetVersion: "v1", dealbotDS: "1" },
+      expect.any(AbortSignal),
+    );
+    expect(dealService.createDataSet).toHaveBeenCalledWith(
+      "0xaaa",
+      { dealbotDataSetVersion: "v1", dealbotDS: "2" },
+      expect.any(AbortSignal),
+    );
+  });
+
+  it("data_set_creation job stops provisioning when abort signal fires", async () => {
+    const dealService = {
+      checkDataSetExists: vi.fn(async () => false),
+      createDataSet: vi.fn(async () => ({ dataSetId: 1 })),
+    };
+
+    const logger = { log: vi.fn() } as any;
+
+    // Pre-abort the signal so throwIfAborted fires on first check
+    const controller = new AbortController();
+    controller.abort(new Error("Job timed out"));
+
+    const { provisionDataSets } = await import("./data-set-creation.handler.js");
+
+    await expect(provisionDataSets({ dealService, logger }, "0xaaa", 5, {}, controller.signal)).rejects.toThrow(
+      "Job timed out",
+    );
+
+    // No datasets should have been created since abort was already signaled
+    expect(dealService.createDataSet).not.toHaveBeenCalled();
   });
 });

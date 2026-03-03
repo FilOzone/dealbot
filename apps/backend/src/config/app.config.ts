@@ -33,10 +33,13 @@ export const configValidationSchema = Joi.object({
     .valid("disabled", "random", "always", "true", "false")
     .default("always"),
   DEALBOT_DATASET_VERSION: Joi.string().optional(),
+  MIN_NUM_DATASETS_FOR_CHECKS: Joi.number().integer().min(1).default(1),
+  PDP_SUBGRAPH_ENDPOINT: Joi.string().uri().optional().allow(""),
 
   // Scheduling
   DEAL_INTERVAL_SECONDS: Joi.number().default(30),
   RETRIEVAL_INTERVAL_SECONDS: Joi.number().min(60).default(60),
+  DATA_RETENTION_POLL_INTERVAL_SECONDS: Joi.number().default(3600),
   DEAL_START_OFFSET_SECONDS: Joi.number().default(0),
   RETRIEVAL_START_OFFSET_SECONDS: Joi.number().default(600),
   METRICS_START_OFFSET_SECONDS: Joi.number().default(900),
@@ -56,6 +59,7 @@ export const configValidationSchema = Joi.object({
   // Per-hour limits are guardrails to avoid excessive background load.
   METRICS_PER_HOUR: Joi.number().min(0.001).max(3).optional(),
   DEALS_PER_SP_PER_HOUR: Joi.number().min(0.001).max(20).optional(),
+  DATASET_CREATIONS_PER_SP_PER_HOUR: Joi.number().min(0.001).max(20).default(1),
   RETRIEVALS_PER_SP_PER_HOUR: Joi.number().min(0.001).max(20).optional(),
   // Polling interval for pg-boss scheduler (lower = more responsive, higher = less DB chatter).
   JOB_SCHEDULER_POLL_SECONDS: Joi.number().min(60).default(300),
@@ -68,6 +72,7 @@ export const configValidationSchema = Joi.object({
   JOB_ENQUEUE_JITTER_SECONDS: Joi.number().min(0).default(0),
   DEAL_JOB_TIMEOUT_SECONDS: Joi.number().min(120).default(360), // 6 minutes max runtime for data storage jobs (TODO: reduce default to 3 minutes)
   RETRIEVAL_JOB_TIMEOUT_SECONDS: Joi.number().min(60).default(60), // 1 minute max runtime for retrieval jobs (TODO: reduce default to 30 seconds)
+  DATA_SET_CREATION_JOB_TIMEOUT_SECONDS: Joi.number().min(60).default(300), // 5 minutes max runtime for dataset creation jobs
   IPFS_BLOCK_FETCH_CONCURRENCY: Joi.number().integer().min(1).max(32).default(6),
 
   // Dataset
@@ -111,11 +116,14 @@ export interface IBlockchainConfig {
   useOnlyApprovedProviders: boolean;
   enableIpniTesting: IpniTestingMode;
   dealbotDataSetVersion?: string;
+  minNumDataSetsForChecks: number;
+  pdpSubgraphEndpoint?: string;
 }
 
 export interface ISchedulingConfig {
   dealIntervalSeconds: number;
   retrievalIntervalSeconds: number;
+  dataRetentionPollIntervalSeconds: number;
   dealStartOffsetSeconds: number;
   retrievalStartOffsetSeconds: number;
   metricsStartOffsetSeconds: number;
@@ -154,6 +162,12 @@ export interface IJobsConfig {
    * Only used when `DEALBOT_JOBS_MODE=pgboss`.
    */
   retrievalsPerSpPerHour?: number;
+  /**
+   * Target number of dataset creation runs per storage provider per hour.
+   *
+   * Only used when `DEALBOT_JOBS_MODE=pgboss`.
+   */
+  dataSetCreationsPerSpPerHour?: number;
   /**
    * How often the scheduler polls Postgres for due jobs (seconds).
    *
@@ -215,6 +229,13 @@ export interface IJobsConfig {
    * Only used when `DEALBOT_JOBS_MODE=pgboss`.
    */
   dealJobTimeoutSeconds: number;
+  /**
+   * Maximum runtime (seconds) for data-set creation jobs before forced abort.
+   *
+   * Uses AbortController to actively cancel job execution.
+   * Only used when `DEALBOT_JOBS_MODE=pgboss`.
+   */
+  dataSetCreationJobTimeoutSeconds: number;
   /**
    * Maximum runtime (seconds) for retrieval jobs before forced abort.
    *
@@ -301,10 +322,13 @@ export function loadConfig(): IConfig {
       useOnlyApprovedProviders: process.env.USE_ONLY_APPROVED_PROVIDERS !== "false",
       enableIpniTesting: parseIpniTestingMode(process.env.ENABLE_IPNI_TESTING),
       dealbotDataSetVersion: process.env.DEALBOT_DATASET_VERSION,
+      minNumDataSetsForChecks: Number.parseInt(process.env.MIN_NUM_DATASETS_FOR_CHECKS || "1", 10),
+      pdpSubgraphEndpoint: process.env.PDP_SUBGRAPH_ENDPOINT || "",
     },
     scheduling: {
       dealIntervalSeconds: Number.parseInt(process.env.DEAL_INTERVAL_SECONDS || "30", 10),
       retrievalIntervalSeconds: Number.parseInt(process.env.RETRIEVAL_INTERVAL_SECONDS || "60", 10),
+      dataRetentionPollIntervalSeconds: Number.parseInt(process.env.DATA_RETENTION_POLL_INTERVAL_SECONDS || "3600", 10),
       dealStartOffsetSeconds: Number.parseInt(process.env.DEAL_START_OFFSET_SECONDS || "0", 10),
       retrievalStartOffsetSeconds: Number.parseInt(process.env.RETRIEVAL_START_OFFSET_SECONDS || "600", 10),
       metricsStartOffsetSeconds: Number.parseInt(process.env.METRICS_START_OFFSET_SECONDS || "900", 10),
@@ -323,6 +347,7 @@ export function loadConfig(): IConfig {
       retrievalsPerSpPerHour: process.env.RETRIEVALS_PER_SP_PER_HOUR
         ? Number.parseFloat(process.env.RETRIEVALS_PER_SP_PER_HOUR)
         : undefined,
+      dataSetCreationsPerSpPerHour: Number.parseFloat(process.env.DATASET_CREATIONS_PER_SP_PER_HOUR || "1"),
       schedulerPollSeconds: Number.parseInt(process.env.JOB_SCHEDULER_POLL_SECONDS || "300", 10),
       workerPollSeconds: Number.parseInt(process.env.JOB_WORKER_POLL_SECONDS || "60", 10),
       pgbossLocalConcurrency: Number.parseInt(process.env.PG_BOSS_LOCAL_CONCURRENCY || "20", 10),
@@ -333,6 +358,7 @@ export function loadConfig(): IConfig {
       enqueueJitterSeconds: Number.parseInt(process.env.JOB_ENQUEUE_JITTER_SECONDS || "0", 10),
       dealJobTimeoutSeconds: Number.parseInt(process.env.DEAL_JOB_TIMEOUT_SECONDS || "360", 10),
       retrievalJobTimeoutSeconds: Number.parseInt(process.env.RETRIEVAL_JOB_TIMEOUT_SECONDS || "60", 10),
+      dataSetCreationJobTimeoutSeconds: Number.parseInt(process.env.DATA_SET_CREATION_JOB_TIMEOUT_SECONDS || "300", 10),
     },
     dataset: {
       localDatasetsPath: process.env.DEALBOT_LOCAL_DATASETS_PATH || DEFAULT_LOCAL_DATASETS_PATH,

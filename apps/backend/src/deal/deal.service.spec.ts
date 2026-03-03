@@ -1,4 +1,5 @@
-import { SIZE_CONSTANTS, Synapse } from "@filoz/synapse-sdk";
+import crypto from "node:crypto";
+import { METADATA_KEYS, PDPServer, SIZE_CONSTANTS, Synapse, WarmStorageService } from "@filoz/synapse-sdk";
 import { ConfigService } from "@nestjs/config";
 import { Test, TestingModule } from "@nestjs/testing";
 import { getRepositoryToken } from "@nestjs/typeorm";
@@ -74,6 +75,7 @@ describe("DealService", () => {
   const mockDealRepository = {
     create: vi.fn(),
     save: vi.fn(),
+    count: vi.fn(),
   };
 
   const mockStorageProviderRepository = {
@@ -112,6 +114,7 @@ describe("DealService", () => {
     getFWSSAddress: vi.fn().mockReturnValue("0xFWSS"),
     getTestingProvidersCount: vi.fn(),
     getTestingProviders: vi.fn(),
+    getProviderInfo: vi.fn().mockReturnValue(undefined),
   };
 
   const mockDealAddonsService = {
@@ -935,6 +938,212 @@ describe("DealService", () => {
       // Should return only the successful one
       expect(results).toHaveLength(1);
       expect(results[0].spAddress).toBe("0xSuccess");
+    });
+  });
+
+  describe("checkDataSetExists", () => {
+    it("returns true when createContext returns a valid dataSetId", async () => {
+      const synapseMock = {
+        storage: {
+          createContext: vi.fn().mockResolvedValue({ dataSetId: 1 }),
+        },
+      };
+
+      vi.spyOn(service as any, "createSynapseInstance").mockResolvedValue(synapseMock as unknown as Synapse);
+
+      const result = await service.checkDataSetExists("0xprovider", { dealbotDS: "1" });
+
+      expect(result).toBe(true);
+      expect(synapseMock.storage.createContext).toHaveBeenCalledWith({
+        providerAddress: "0xprovider",
+        metadata: { dealbotDS: "1" },
+      });
+    });
+
+    it("returns false when createContext returns undefined dataSetId", async () => {
+      const synapseMock = {
+        storage: {
+          createContext: vi.fn().mockResolvedValue({ dataSetId: undefined }),
+        },
+      };
+      vi.spyOn(service as any, "createSynapseInstance").mockResolvedValue(synapseMock as unknown as Synapse);
+
+      const result = await service.checkDataSetExists("0xprovider", { dealbotDS: "1" });
+
+      expect(result).toBe(false);
+    });
+  });
+
+  describe("getBaseDataSetMetadata", () => {
+    it("includes IPNI metadata key when IPNI is enabled", () => {
+      const metadata = service.getBaseDataSetMetadata(true);
+      expect(metadata).toEqual({ [METADATA_KEYS.WITH_IPFS_INDEXING]: "" });
+    });
+
+    it("includes dataset version when configured", () => {
+      (service as any).blockchainConfig.dealbotDataSetVersion = "v1";
+
+      const metadata = service.getBaseDataSetMetadata(false);
+
+      expect(metadata).toEqual({ dealbotDataSetVersion: "v1" });
+    });
+  });
+
+  describe("createDataSet", () => {
+    it("throws when provider is not found in registry", async () => {
+      vi.spyOn(mockWalletSdkService, "getProviderInfo").mockReturnValue(undefined);
+
+      await expect(service.createDataSet("0xunknown", { dealbotDS: "1" })).rejects.toThrow(
+        "Provider 0xunknown not found in registry",
+      );
+    });
+
+    it("throws when provider has no PDP serviceURL", async () => {
+      vi.spyOn(mockWalletSdkService, "getProviderInfo").mockReturnValue({
+        products: { PDP: { data: {} } },
+      } as any);
+
+      await expect(service.createDataSet("0xprovider", {})).rejects.toThrow(
+        "Provider 0xprovider has no PDP serviceURL",
+      );
+    });
+
+    it("creates a data set on-chain and waits for SDK confirmation", async () => {
+      const mockPayee = "0xpayee";
+      const mockServiceURL = "https://pdp.example.com";
+      vi.spyOn(mockWalletSdkService, "getProviderInfo").mockReturnValue({
+        payee: mockPayee,
+        products: {
+          PDP: { data: { serviceURL: mockServiceURL } },
+        },
+      });
+
+      const synapseMock = {
+        chainInfo: { id: 314159 },
+        getProvider: vi.fn().mockReturnValue({}),
+        getSigner: vi.fn().mockReturnValue("0xsigner"),
+        getWarmStorageAddress: vi.fn().mockReturnValue("0xwarmstorage"),
+        getChainId: vi.fn().mockReturnValue(314159),
+        getClient: vi.fn().mockReturnValue({ getAddress: vi.fn().mockResolvedValue("0xclient") }),
+      };
+      vi.spyOn(service as any, "createSynapseInstance").mockResolvedValue(synapseMock as unknown as Synapse);
+
+      vi.spyOn(crypto, "randomBytes").mockReturnValue(Buffer.from("00000000000000000000000000000001", "hex") as any);
+
+      const createDataSetSpy = vi
+        .spyOn(PDPServer.prototype, "createDataSet")
+        .mockResolvedValue({ txHash: "0xtxhash" } as any);
+      const waitForDataSetCreationWithStatus = vi.fn().mockResolvedValue({
+        summary: { dataSetId: 42, isComplete: true },
+      });
+      const createWarmStorageServiceSpy = vi.spyOn(WarmStorageService, "create").mockResolvedValue({
+        waitForDataSetCreationWithStatus,
+      } as any);
+
+      const result = await service.createDataSet("0xprovider", { dealbotDS: "1" });
+
+      expect(result.dataSetId).toBe(42);
+      expect(createDataSetSpy).toHaveBeenCalledWith(
+        expect.any(BigInt),
+        mockPayee,
+        "0xclient",
+        [{ key: "dealbotDS", value: "1" }],
+        "0xwarmstorage",
+      );
+      expect(createWarmStorageServiceSpy).toHaveBeenCalledWith({}, "0xwarmstorage");
+      expect(waitForDataSetCreationWithStatus).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.any(PDPServer),
+        300000,
+        5000,
+      );
+    });
+
+    it("throws timeout error when SDK wait times out", async () => {
+      const mockServiceURL = "https://pdp.example.com";
+      vi.spyOn(mockWalletSdkService, "getProviderInfo").mockReturnValue({
+        payee: "0xpayee",
+        products: { PDP: { data: { serviceURL: mockServiceURL } } },
+      });
+
+      const synapseMock = {
+        getProvider: vi.fn().mockReturnValue({}),
+        getSigner: vi.fn().mockReturnValue("0xsigner"),
+        getWarmStorageAddress: vi.fn().mockReturnValue("0xwarmstorage"),
+        getChainId: vi.fn().mockReturnValue(314159),
+        getClient: vi.fn().mockReturnValue({ getAddress: vi.fn().mockResolvedValue("0xclient") }),
+      };
+      vi.spyOn(service as any, "createSynapseInstance").mockResolvedValue(synapseMock as unknown as Synapse);
+      vi.spyOn(crypto, "randomBytes").mockReturnValue(Buffer.from("00000000000000000000000000000003", "hex") as any);
+
+      vi.spyOn(PDPServer.prototype, "createDataSet").mockResolvedValue({ txHash: "0xtimeout" } as any);
+      vi.spyOn(WarmStorageService, "create").mockResolvedValue({
+        waitForDataSetCreationWithStatus: vi.fn().mockRejectedValue(new Error("Data set creation timed out")),
+      } as any);
+
+      await expect(service.createDataSet("0xprovider", {})).rejects.toThrow(/timed out/);
+    });
+
+    it("aborts createDataSet while waiting for SDK confirmation", async () => {
+      const mockServiceURL = "https://pdp.example.com";
+      vi.spyOn(mockWalletSdkService, "getProviderInfo").mockReturnValue({
+        payee: "0xpayee",
+        products: { PDP: { data: { serviceURL: mockServiceURL } } },
+      });
+
+      const synapseMock = {
+        getProvider: vi.fn().mockReturnValue({}),
+        getSigner: vi.fn().mockReturnValue("0xsigner"),
+        getWarmStorageAddress: vi.fn().mockReturnValue("0xwarmstorage"),
+        getChainId: vi.fn().mockReturnValue(314159),
+        getClient: vi.fn().mockReturnValue({ getAddress: vi.fn().mockResolvedValue("0xclient") }),
+      };
+      vi.spyOn(service as any, "createSynapseInstance").mockResolvedValue(synapseMock as unknown as Synapse);
+      vi.spyOn(crypto, "randomBytes").mockReturnValue(Buffer.from("00000000000000000000000000000004", "hex") as any);
+      vi.spyOn(PDPServer.prototype, "createDataSet").mockResolvedValue({ txHash: "0xtxhash" } as any);
+
+      let resolveWait: ((value: unknown) => void) | undefined;
+      const waitPromise = new Promise((resolve) => {
+        resolveWait = resolve;
+      });
+      vi.spyOn(WarmStorageService, "create").mockResolvedValue({
+        waitForDataSetCreationWithStatus: vi.fn().mockReturnValue(waitPromise),
+      } as any);
+
+      const controller = new AbortController();
+      const resultPromise = service.createDataSet("0xprovider", {}, controller.signal);
+      controller.abort(new Error("Job timed out"));
+
+      await expect(resultPromise).rejects.toThrow("Job timed out");
+      resolveWait?.({ summary: { dataSetId: 1, isComplete: true } });
+    });
+
+    it("throws when SDK confirmation completes without a dataSetId", async () => {
+      const mockServiceURL = "https://pdp.example.com";
+      vi.spyOn(mockWalletSdkService, "getProviderInfo").mockReturnValue({
+        payee: "0xpayee",
+        products: { PDP: { data: { serviceURL: mockServiceURL } } },
+      });
+
+      const synapseMock = {
+        getProvider: vi.fn().mockReturnValue({}),
+        getSigner: vi.fn().mockReturnValue("0xsigner"),
+        getWarmStorageAddress: vi.fn().mockReturnValue("0xwarmstorage"),
+        getChainId: vi.fn().mockReturnValue(314159),
+        getClient: vi.fn().mockReturnValue({ getAddress: vi.fn().mockResolvedValue("0xclient") }),
+      };
+      vi.spyOn(service as any, "createSynapseInstance").mockResolvedValue(synapseMock as unknown as Synapse);
+      vi.spyOn(crypto, "randomBytes").mockReturnValue(Buffer.from("00000000000000000000000000000005", "hex") as any);
+      vi.spyOn(PDPServer.prototype, "createDataSet").mockResolvedValue({ txHash: "0xtxhash" } as any);
+      vi.spyOn(WarmStorageService, "create").mockResolvedValue({
+        waitForDataSetCreationWithStatus: vi.fn().mockResolvedValue({
+          summary: { dataSetId: null, isComplete: true },
+        }),
+      } as any);
+
+      await expect(service.createDataSet("0xprovider", {})).rejects.toThrow(
+        "Data-set creation completed without dataSetId for tx: 0xtxhash",
+      );
     });
   });
 });
