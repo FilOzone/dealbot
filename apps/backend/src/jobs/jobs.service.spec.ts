@@ -965,6 +965,9 @@ describe("JobsService schedule rows", () => {
   });
 
   it("data_set_creation job creates initial data set when minNumDataSetsForChecks is 1", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2024-01-01T12:00:00Z"));
+
     const dealService = {
       getTestingDealOptions: vi.fn(() => ({ enableIpni: true })),
       getBaseDataSetMetadata: vi.fn(() => ({ withIpniIndexing: "" })),
@@ -986,6 +989,9 @@ describe("JobsService schedule rows", () => {
   });
 
   it("data_set_creation job skips when all data sets already exist", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2024-01-01T12:00:00Z"));
+
     baseConfigValues = {
       ...baseConfigValues,
       blockchain: { ...baseConfigValues.blockchain, minNumDataSetsForChecks: 3 } as IConfig["blockchain"],
