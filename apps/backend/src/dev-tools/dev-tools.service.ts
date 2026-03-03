@@ -1,7 +1,7 @@
 import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import type { Repository } from "typeorm";
-import { toStructuredError } from "../common/logging.js";
+import { type DealLogContext, toStructuredError } from "../common/logging.js";
 import { Deal } from "../database/entities/deal.entity.js";
 import { DealStatus, RetrievalStatus } from "../database/types.js";
 import { DealService } from "../deal/deal.service.js";
@@ -97,7 +97,7 @@ export class DevToolsService {
     const savedDeal = await this.dealRepository.save(pendingDeal);
     const dealId = savedDeal.id;
 
-    const dealLog = {
+    const dealLogContext: DealLogContext = {
       dealId,
       providerId: providerInfo?.id,
       providerAddress: spAddress,
@@ -106,9 +106,9 @@ export class DevToolsService {
     this.logger.log(`Created pending deal ${dealId}, starting background processing`);
 
     // Fire off the deal creation in the background (don't await)
-    this.processDealInBackground(dealId, providerInfo, enableIpni, dealLog).catch((err) => {
+    this.processDealInBackground(dealId, providerInfo, enableIpni, dealLogContext).catch((err) => {
       this.logger.error({
-        ...dealLog,
+        ...dealLogContext,
         event: "background_deal_processing_failed",
         message: `Background deal processing failed for ${dealId}`,
         error: toStructuredError(err),
@@ -134,7 +134,7 @@ export class DevToolsService {
     dealId: string,
     providerInfo: ReturnType<typeof this.walletSdkService.getProviderInfo>,
     enableIpni: boolean,
-    dealLog: { dealId: string; providerId?: number; providerAddress: string },
+    dealLogContext: DealLogContext,
   ): Promise<void> {
     try {
       const deal = await this.dealService.createDealForProvider(providerInfo!, {
@@ -146,7 +146,7 @@ export class DevToolsService {
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       this.logger.error({
-        ...dealLog,
+        ...dealLogContext,
         event: "background_deal_failed",
         message: `Background deal ${dealId} failed`,
         error: toStructuredError(error),

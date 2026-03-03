@@ -3,7 +3,7 @@ import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
 import { CID } from "multiformats/cid";
 import type { Repository } from "typeorm";
-import { toStructuredError } from "../common/logging.js";
+import { RetrievalLogContext, toStructuredError } from "../common/logging.js";
 import type { Hex } from "../common/types.js";
 import type { IConfig } from "../config/app.config.js";
 import { Deal } from "../database/entities/deal.entity.js";
@@ -224,7 +224,7 @@ export class RetrievalService {
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      const log = {
+      const retrievalLogContext: RetrievalLogContext = {
         dealId: deal.id,
         providerId: provider.providerId,
         providerAddress: deal.spAddress,
@@ -235,7 +235,7 @@ export class RetrievalService {
         const abortReason = signal.reason;
         const abortMessage = abortReason instanceof Error ? abortReason.message : String(abortReason ?? "");
         this.logger.warn({
-          ...log,
+          ...retrievalLogContext,
           event: "retrievals_aborted",
           message: `Retrievals aborted for ${deal.pieceCid}`,
           reason: abortMessage || errorMessage,
@@ -244,7 +244,7 @@ export class RetrievalService {
         terminalStatus = "failure.timedout";
       } else {
         this.logger.error({
-          ...log,
+          ...retrievalLogContext,
           event: "all_retrievals_failed",
           message: `All retrievals failed for ${deal.pieceCid}`,
           error: toStructuredError(error),

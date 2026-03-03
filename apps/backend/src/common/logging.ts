@@ -60,3 +60,25 @@ export function toStructuredError(error: unknown): StructuredError {
     details: toJsonSafe(error),
   };
 }
+
+/**
+ * Structured logging context for deal-related operations
+ */
+export type DealLogContext = {
+  dealId: string;
+  providerAddress: string;
+  providerId?: number;
+  pieceCid?: string;
+  ipfsRootCID?: string;
+};
+
+/**
+ * Structured logging context for retrieval-related operations
+ */
+export type RetrievalLogContext = {
+  dealId: string;
+  providerAddress: string;
+  providerId?: number;
+  pieceCid?: string;
+  ipfsRootCID?: string;
+};

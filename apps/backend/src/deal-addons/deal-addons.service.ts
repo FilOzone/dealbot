@@ -1,8 +1,9 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { awaitWithAbort } from "../common/abort-utils.js";
-import { toStructuredError } from "../common/logging.js";
+import { DealLogContext, toStructuredError } from "../common/logging.js";
 import type { Deal } from "../database/entities/deal.entity.js";
-import type { DealMetadata, ServiceType } from "../database/types.js";
+import type { DealMetadata } from "../database/types.js";
+import { ServiceType } from "../database/types.js";
 import type { IDealAddon } from "./interfaces/deal-addon.interface.js";
 import { DirectAddonStrategy } from "./strategies/direct.strategy.js";
 import { IpniAddonStrategy } from "./strategies/ipni.strategy.js";
@@ -125,11 +126,12 @@ export class DealAddonsService {
 
     signal?.throwIfAborted();
 
-    const dealLog = {
+    const dealLogContext: DealLogContext = {
       dealId: deal.id,
       providerId: deal.storageProvider?.providerId,
       providerAddress: deal.spAddress,
       pieceCid: deal.pieceCid,
+      ipfsRootCID: deal.metadata?.[ServiceType.IPFS_PIN]?.rootCID,
     };
 
     const uploadCompletePromises = appliedAddons
@@ -143,7 +145,7 @@ export class DealAddonsService {
     } catch (error) {
       signal?.throwIfAborted();
       this.logger.warn({
-        ...dealLog,
+        ...dealLogContext,
         event: "addon_on_upload_complete_failed",
         message: `onUploadComplete handler failed for deal ${deal.id}`,
         error: toStructuredError(error),
@@ -162,13 +164,6 @@ export class DealAddonsService {
   async postProcessDeal(deal: Deal, appliedAddons: string[]): Promise<void> {
     this.logger.debug(`Running post-processing for deal ${deal.id}`);
 
-    const dealLog = {
-      dealId: deal.id,
-      providerId: deal.storageProvider?.providerId,
-      providerAddress: deal.spAddress,
-      pieceCid: deal.pieceCid,
-    };
-
     const postProcessPromises = appliedAddons
       .map((addonName) => this.addons.get(addonName))
       .filter((addon) => addon?.postProcess)
@@ -179,10 +174,14 @@ export class DealAddonsService {
       this.logger.debug(`Post-processing completed for deal ${deal.id}`);
     } catch (error) {
       this.logger.warn({
-        ...dealLog,
         event: "addon_post_process_failed",
         message: `Post-processing failed for deal ${deal.id}`,
         error: toStructuredError(error),
+        dealId: deal.id,
+        providerId: deal.storageProvider?.providerId,
+        providerAddress: deal.spAddress,
+        pieceCid: deal.pieceCid,
+        ipfsRootCID: deal.metadata?.[ServiceType.IPFS_PIN]?.rootCID,
       });
       // Don't throw - post-processing failures shouldn't break the deal
     }

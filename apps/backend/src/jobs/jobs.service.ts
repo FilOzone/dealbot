@@ -318,7 +318,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     this.logger.log({
       event: "maintenance_window_active",
       message: `Maintenance window active (${label} UTC, ${scheduling.maintenanceWindowMinutes}m); deferring ${taskLabel}`,
-      spAddress: spAddress ?? "",
+      providerAddress: spAddress ?? "",
     });
   }
 
@@ -344,6 +344,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     }, timeoutMs);
 
     await this.recordJobExecution("deal", async () => {
+      let providerId: number | undefined;
       try {
         let provider = this.walletSdkService.getTestingProviders().find((p) => p.serviceProvider === spAddress);
         if (!provider) {
@@ -355,11 +356,12 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
             this.logger.warn({
               event: "deal_job_skipped",
               message: `Deal job skipped: provider ${spAddress} not found`,
-              spAddress,
+              providerAddress: spAddress,
             });
             return "success";
           }
         }
+        providerId = provider.id;
         await this.dealService.createDealForProvider(provider, {
           ...this.dealService.getTestingDealOptions(),
           signal: abortController.signal,
@@ -372,7 +374,8 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
           this.logger.error({
             event: "deal_job_aborted",
             message: reasonMessage || `Deal job aborted after timeout (${effectiveTimeoutSeconds}s) for ${spAddress}`,
-            spAddress,
+            providerAddress: spAddress,
+            providerId,
             timeoutSeconds: effectiveTimeoutSeconds,
             error: toStructuredError(reason ?? error),
           });
@@ -381,7 +384,8 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         this.logger.error({
           event: "deal_job_failed",
           message: `Deal job failed for ${spAddress}`,
-          spAddress,
+          providerAddress: spAddress,
+          providerId,
           error: toStructuredError(error),
         });
         // Jobs are not retried once attempted; failures are handled by the next schedule tick.
@@ -414,6 +418,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     }, timeoutMs);
 
     await this.recordJobExecution("retrieval", async () => {
+      const providerId = this.walletSdkService.getProviderInfo(spAddress)?.id;
       try {
         await this.retrievalService.performRandomRetrievalForProvider(spAddress, abortController.signal);
         return "success";
@@ -425,7 +430,8 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
             event: "retrieval_job_aborted",
             message:
               reasonMessage || `Retrieval job aborted after timeout (${effectiveTimeoutSeconds}s) for ${spAddress}`,
-            spAddress,
+            providerAddress: spAddress,
+            providerId,
             timeoutSeconds: effectiveTimeoutSeconds,
             error: toStructuredError(reason ?? error),
           });
@@ -434,7 +440,8 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         this.logger.error({
           event: "retrieval_job_failed",
           message: `Retrieval job failed for ${spAddress}`,
-          spAddress,
+          providerAddress: spAddress,
+          providerId,
           error: toStructuredError(error),
         });
         // Jobs are not retried once attempted; failures are handled by the next schedule tick.

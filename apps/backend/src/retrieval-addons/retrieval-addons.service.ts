@@ -1,7 +1,7 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { delay } from "../common/abort-utils.js";
 import { RetrievalError, type RetrievalErrorResponseInfo } from "../common/errors.js";
-import { toStructuredError } from "../common/logging.js";
+import { type RetrievalLogContext, toStructuredError } from "../common/logging.js";
 import { ServiceType } from "../database/types.js";
 import { HttpClientService } from "../http-client/http-client.service.js";
 import type { RequestWithMetrics } from "../http-client/types.js";
@@ -14,14 +14,6 @@ import type {
   RetrievalUrlResult,
   ValidationResult,
 } from "./types.js";
-
-type RetrievalLog = {
-  dealId: string;
-  providerAddress: string;
-  providerId?: number;
-  pieceCid?: string;
-  ipfsRootCID?: string;
-};
 
 /**
  * Orchestrator service for managing retrieval add-ons
@@ -157,15 +149,14 @@ export class RetrievalAddonsService {
     const urlResult = this.constructPreferredUrl(config);
 
     this.logger.log(`Performing retrieval for deal ${config.deal.id} using ${urlResult.method}: ${urlResult.url}`);
-
-    const log: RetrievalLog = {
+    const retrievalLogContext: RetrievalLogContext = {
       dealId: config.deal.id,
       providerAddress: config.storageProvider,
       providerId: config.deal.storageProvider?.providerId,
       pieceCid: config.deal.pieceCid,
       ipfsRootCID: config.deal.metadata?.[ServiceType.IPFS_PIN]?.rootCID,
     };
-    return await this.executeRetrieval(urlResult, config, log, signal);
+    return await this.executeRetrieval(urlResult, config, retrievalLogContext, signal);
   }
 
   /**
@@ -271,7 +262,7 @@ export class RetrievalAddonsService {
     config: RetrievalConfiguration,
     signal?: AbortSignal,
   ): Promise<RetrievalExecutionResult> {
-    const retrievalLog: RetrievalLog = {
+    const retrievalLogContext: RetrievalLogContext = {
       dealId: config.deal.id,
       providerId: config.deal.storageProvider?.providerId,
       providerAddress: config.deal.spAddress,
@@ -300,7 +291,7 @@ export class RetrievalAddonsService {
     for (let attempt = 1; attempt <= attempts; attempt++) {
       signal?.throwIfAborted();
       try {
-        const result = await this.executeRetrieval(urlResult, config, retrievalLog, signal);
+        const result = await this.executeRetrieval(urlResult, config, retrievalLogContext, signal);
         signal?.throwIfAborted();
         results.push({ ...result, attemptNumber: attempt });
 
@@ -320,7 +311,7 @@ export class RetrievalAddonsService {
       } catch (error) {
         signal?.throwIfAborted();
         this.logger.warn({
-          ...retrievalLog,
+          ...retrievalLogContext,
           event: "retrieval_attempt_failed",
           message: `${strategy.name} attempt ${attempt}/${attempts} failed`,
           strategy: strategy.name,
@@ -366,7 +357,7 @@ export class RetrievalAddonsService {
   private async executeRetrieval(
     urlResult: RetrievalUrlResult,
     config: RetrievalConfiguration,
-    retrievalLog: RetrievalLog,
+    retrievalLogContext: RetrievalLogContext,
     signal?: AbortSignal,
   ): Promise<RetrievalExecutionResult> {
     const strategy = this.addons.get(urlResult.method);
@@ -466,7 +457,7 @@ export class RetrievalAddonsService {
           }
         } catch (error) {
           this.logger.warn({
-            ...retrievalLog,
+            ...retrievalLogContext,
             event: "retrieval_validation_error",
             message: `Validation error for ${urlResult.method} retrieval of deal ${config.deal.id}`,
             method: urlResult.method,
@@ -509,7 +500,7 @@ export class RetrievalAddonsService {
       const context = this.formatRetrievalContext(config, urlResult, { ...responseInfo, errorCode });
 
       this.logger.error({
-        ...retrievalLog,
+        ...retrievalLogContext,
         event: "retrieval_failed",
         message: `Retrieval failed for ${urlResult.method}`,
         context,

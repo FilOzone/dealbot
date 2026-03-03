@@ -7,7 +7,7 @@ import { CID } from "multiformats/cid";
 import type { Repository } from "typeorm";
 import { buildUnixfsCar } from "../common/car-utils.js";
 import { createFilecoinPinLogger } from "../common/filecoin-pin-logger.js";
-import { toStructuredError } from "../common/logging.js";
+import { type DealLogContext, toStructuredError } from "../common/logging.js";
 import type { DataFile, Hex } from "../common/types.js";
 import type { IBlockchainConfig, IConfig } from "../config/app.config.js";
 import { Deal } from "../database/entities/deal.entity.js";
@@ -35,13 +35,6 @@ type UploadResultSummary = {
 };
 
 type SynapseServiceArg = Parameters<typeof executeUpload>[0];
-
-type DealLog = {
-  dealId: string;
-  providerAddress: string;
-  providerId?: number;
-  pieceCid?: string;
-};
 
 @Injectable()
 export class DealService implements OnModuleInit, OnModuleDestroy {
@@ -210,10 +203,11 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     deal.metadata = dealInput.metadata;
     deal.serviceTypes = dealInput.appliedAddons;
 
-    const dealLog: DealLog = {
+    const dealLogContext: DealLogContext = {
       dealId: deal.id,
       providerAddress,
       providerId: deal.storageProvider?.providerId,
+      ipfsRootCID: uploadPayload.rootCid.toString(),
     };
 
     try {
@@ -267,9 +261,9 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
               deal.status = DealStatus.UPLOADED;
               deal.ingestLatencyMs = deal.uploadEndTime.getTime() - deal.uploadStartTime.getTime();
               deal.pieceCid = event.data.pieceCid.toString();
-              dealLog.pieceCid = event.data.pieceCid.toString();
+              dealLogContext.pieceCid = event.data.pieceCid.toString();
               this.logger.log({
-                ...dealLog,
+                ...dealLogContext,
                 event: "upload_complete",
                 message: `Upload complete event`,
               });
@@ -291,7 +285,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
               } else {
                 deal.ingestThroughputBps = 0;
                 this.logger.warn({
-                  ...dealLog,
+                  ...dealLogContext,
                   event: "ingest_throughput_skipped",
                   message: `Skipping ingest throughput: invalid ingest latency (${deal.ingestLatencyMs}ms) for deal ${deal.id}`,
                   ingestLatencyMs: deal.ingestLatencyMs,
@@ -300,13 +294,18 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
               break;
             }
             case "onPieceAdded":
-              this.logger.log(`Piece added event, txHash: ${event.data.txHash}`);
+              this.logger.log({
+                ...dealLogContext,
+                event: "piece_added",
+                message: `Piece added event, txHash: ${event.data.txHash}`,
+                txHash: event.data.txHash,
+              });
               deal.pieceAddedTime = new Date();
               if (event.data.txHash != null) {
                 deal.transactionHash = event.data.txHash as Hex;
               } else {
                 this.logger.warn({
-                  ...dealLog,
+                  ...dealLogContext,
                   event: "piece_added_no_tx_hash",
                   message: `No transaction hash found for piece added event: ${deal.pieceCid}`,
                 });
@@ -318,7 +317,12 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
               );
               break;
             case "onPieceConfirmed":
-              this.logger.log(`Piece confirmed event, pieceIds: ${event.data.pieceIds.join(", ")}`);
+              this.logger.log({
+                ...dealLogContext,
+                event: "piece_confirmed",
+                message: `Piece confirmed event, pieceIds: ${event.data.pieceIds.join(", ")}`,
+                pieceIds: event.data.pieceIds,
+              });
               deal.pieceConfirmedTime = new Date();
               deal.status = DealStatus.PIECE_CONFIRMED;
               deal.chainLatencyMs = deal.pieceConfirmedTime.getTime() - deal.pieceAddedTime.getTime();
@@ -344,7 +348,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
 
       if (!deal.transactionHash) {
         this.logger.error({
-          ...dealLog,
+          ...dealLogContext,
           event: "deal_transaction_hash_missing",
           message: `No transaction hash found for deal: ${deal.pieceCid}`,
         });
@@ -403,7 +407,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
             `${retrievalTest.summary.successfulMethods}/${retrievalTest.summary.totalMethods} successful`,
         );
         this.logger.log({
-          ...dealLog,
+          ...dealLogContext,
           event: "deal_creation_retrieval_test_completed",
           message: `Retrieval test completed in ${retrievalTest.testedAt.getTime() - retrievalStartTime}ms`,
           totalMethods: retrievalTest.summary.totalMethods,
@@ -419,7 +423,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       this.dataStorageMetrics.recordDataStorageStatus(providerLabels, "success");
 
       this.logger.log({
-        ...dealLog,
+        ...dealLogContext,
         event: "deal_creation_completed",
         message: `Deal ${deal.id} created: ${deal.pieceCid} (sp: ${providerAddress})`,
       });
@@ -430,7 +434,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       this.logger.error({
-        ...dealLog,
+        ...dealLogContext,
         event: "deal_creation_failed",
         message: `Deal creation failed for ${providerAddress}`,
         error: toStructuredError(error),
@@ -454,7 +458,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
 
       throw error;
     } finally {
-      await this.saveDeal(deal, dealLog);
+      await this.saveDeal(deal, dealLogContext);
     }
   }
 
@@ -539,12 +543,12 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     deal.pieceId = uploadResult.pieceId;
   }
 
-  private async saveDeal(deal: Deal, dealLog: DealLog): Promise<void> {
+  private async saveDeal(deal: Deal, dealLogContext: DealLogContext): Promise<void> {
     try {
       await this.dealRepository.save(deal);
     } catch (error) {
       this.logger.warn({
-        ...dealLog,
+        ...dealLogContext,
         event: "save_deal_failed",
         message: `Failed to save deal ${deal.pieceCid}`,
         error: toStructuredError(error),

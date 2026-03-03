@@ -7,7 +7,7 @@ import { StorageProvider } from "src/database/entities/storage-provider.entity.j
 import type { Repository } from "typeorm";
 import { delay } from "../../common/abort-utils.js";
 import { buildUnixfsCar } from "../../common/car-utils.js";
-import { toStructuredError } from "../../common/logging.js";
+import { type DealLogContext, toStructuredError } from "../../common/logging.js";
 import type { IConfig } from "../../config/app.config.js";
 import { Deal } from "../../database/entities/deal.entity.js";
 import type { DealMetadata, IpniMetadata } from "../../database/types.js";
@@ -22,14 +22,6 @@ import type { AddonExecutionContext, DealConfiguration, IpniPreprocessingResult,
 import { AddonPriority } from "../types.js";
 import type { MonitorAndVerifyResult, PieceMonitoringResult, PieceStatus, PieceStatusResponse } from "./ipni.types.js";
 import { validatePieceStatusResponse } from "./ipni.types.js";
-
-type DealLog = {
-  dealId: string;
-  providerAddress: string;
-  providerId?: number;
-  pieceCid?: string;
-  ipfsRootCID?: string;
-};
 
 /**
  * IPNI (InterPlanetary Network Indexer) add-on strategy
@@ -185,7 +177,7 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       return;
     }
 
-    const dealLog: DealLog = {
+    const dealLogContext: DealLogContext = {
       dealId: deal.id,
       providerAddress: deal.spAddress,
       providerId: deal.storageProvider?.providerId,
@@ -214,14 +206,14 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
         ipniTimeoutMs,
         this.POLLING_INTERVAL_MS,
         ipniPollIntervalMs,
-        dealLog,
+        dealLogContext,
         signal,
       );
 
       signal?.throwIfAborted();
 
       // Update deal entity with tracking metrics
-      finalDiscoverabilityStatus = await this.updateDealWithIpniMetrics(deal, result, dealLog);
+      finalDiscoverabilityStatus = await this.updateDealWithIpniMetrics(deal, result, dealLogContext);
 
       signal?.throwIfAborted();
 
@@ -236,14 +228,14 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       try {
         await this.dealRepository.save(deal);
         this.logger.warn({
-          ...dealLog,
+          ...dealLogContext,
           event: "ipni_tracking_failed",
           message: `IPNI failed for ${deal.pieceCid}`,
           error: toStructuredError(error),
         });
       } catch (saveError) {
         this.logger.error({
-          ...dealLog,
+          ...dealLogContext,
           event: "ipni_failure_status_save_failed",
           message: "Failed to save IPNI failure status",
           error: toStructuredError(saveError),
@@ -270,7 +262,7 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
     ipniTimeoutMs: number,
     pollIntervalMs: number,
     ipniPollIntervalMs: number,
-    dealLog: DealLog,
+    dealLogContext: DealLogContext,
     signal?: AbortSignal,
   ): Promise<MonitorAndVerifyResult> {
     const pieceCid = deal.pieceCid;
@@ -281,7 +273,7 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
     } catch (error) {
       signal?.throwIfAborted();
       this.logger.warn({
-        ...dealLog,
+        ...dealLogContext,
         event: "ipni_piece_status_monitoring_incomplete",
         message: "Piece status monitoring incomplete",
         error: toStructuredError(error),
@@ -531,7 +523,7 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
   private async updateDealWithIpniMetrics(
     deal: Deal,
     result: MonitorAndVerifyResult,
-    dealLog: DealLog,
+    dealLogContext: DealLogContext,
   ): Promise<string> {
     const { monitoringResult, ipniResult } = result;
     const { finalStatus } = monitoringResult;
@@ -638,7 +630,7 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       await this.dealRepository.save(deal);
     } catch (error) {
       this.logger.error({
-        ...dealLog,
+        ...dealLogContext,
         event: "save_ipni_metrics_failed",
         message: "Failed to save IPNI metrics",
         error: toStructuredError(error),
