@@ -2,7 +2,7 @@ import type { Logger } from "@nestjs/common";
 import type { DealService } from "../deal/deal.service.js";
 
 export interface DataSetCreationDeps {
-  dealService: Pick<DealService, "checkDataSetExists" | "createDataSet">;
+  dealService: Pick<DealService, "checkDataSetExists" | "createDataSetWithPiece">;
   logger: Logger;
 }
 
@@ -13,7 +13,8 @@ export interface DataSetCreationDeps {
  * Index 0 is the initial data-set (no dealbotDS metadata).
  * Indices 1+ are tagged with { dealbotDS: String(i) }.
  *
- * Uses pdpServer.createDataSet() for actual on-chain data-set creation.
+ * Uses createContext + executeUpload with a 200 KiB piece for on-chain data-set creation
+ * (empty datasets are being removed from curio and synapse-sdk).
  */
 export async function provisionDataSets(
   deps: DataSetCreationDeps,
@@ -41,7 +42,7 @@ export async function provisionDataSets(
     }
 
     logger.log(`Creating data-set #${i} for provider ${spAddress}`);
-    await dealService.createDataSet(spAddress, metadata, signal);
+    await dealService.createDataSetWithPiece(spAddress, metadata, signal);
     createdCount++;
   }
 

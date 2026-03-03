@@ -12,7 +12,11 @@ import { DealStatus } from "../database/types.js";
 import { DataSourceService } from "../dataSource/dataSource.service.js";
 import { DealAddonsService } from "../deal-addons/deal-addons.service.js";
 import { DealPreprocessingResult } from "../deal-addons/types.js";
-import { DataStorageCheckMetrics, RetrievalCheckMetrics } from "../metrics/utils/check-metrics.service.js";
+import {
+  DataSetCreationCheckMetrics,
+  DataStorageCheckMetrics,
+  RetrievalCheckMetrics,
+} from "../metrics/utils/check-metrics.service.js";
 import { RetrievalAddonsService } from "../retrieval-addons/retrieval-addons.service.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
 import type { ProviderInfoEx } from "../wallet-sdk/wallet-sdk.types.js";
@@ -144,6 +148,11 @@ describe("DealService", () => {
     recordHttpResponseCode: vi.fn(),
     recordResultMetrics: vi.fn(),
   };
+  const mockDataSetCreationMetrics = {
+    observeCheckDuration: vi.fn(),
+    recordStatus: vi.fn(),
+    recordOnchainEvent: vi.fn(),
+  };
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -158,6 +167,7 @@ describe("DealService", () => {
         { provide: getRepositoryToken(StorageProvider), useValue: mockStorageProviderRepository },
         { provide: DataStorageCheckMetrics, useValue: mockDataStorageMetrics },
         { provide: RetrievalCheckMetrics, useValue: mockRetrievalMetrics },
+        { provide: DataSetCreationCheckMetrics, useValue: mockDataSetCreationMetrics },
       ],
     }).compile();
 
@@ -733,6 +743,7 @@ describe("DealService", () => {
             { provide: getRepositoryToken(StorageProvider), useValue: mockStorageProviderRepository },
             { provide: DataStorageCheckMetrics, useValue: mockDataStorageMetrics },
             { provide: RetrievalCheckMetrics, useValue: mockRetrievalMetrics },
+            { provide: DataSetCreationCheckMetrics, useValue: mockDataSetCreationMetrics },
           ],
         }).compile();
 
@@ -1144,6 +1155,131 @@ describe("DealService", () => {
       await expect(service.createDataSet("0xprovider", {})).rejects.toThrow(
         "Data-set creation completed without dataSetId for tx: 0xtxhash",
       );
+    });
+  });
+
+  describe("createDataSetWithPiece", () => {
+    const mockProviderInfo: ProviderInfoEx = {
+      id: 101,
+      serviceProvider: "0xprovider",
+      payee: "t0100",
+      name: "Test Provider",
+      description: "Test Provider",
+      active: true,
+      products: {},
+      isApproved: true,
+    };
+
+    it("throws when provider is not found in registry", async () => {
+      vi.spyOn(mockWalletSdkService, "getProviderInfo").mockReturnValue(undefined);
+
+      await expect(service.createDataSetWithPiece("0xunknown", { dealbotDS: "1" })).rejects.toThrow(
+        "Provider 0xunknown not found in registry",
+      );
+    });
+
+    it("creates dataset with piece via createContext + executeUpload", async () => {
+      vi.spyOn(mockWalletSdkService, "getProviderInfo").mockReturnValue(mockProviderInfo);
+
+      const createContextMock = vi.fn().mockResolvedValue({ dataSetId: 42 });
+      const synapseMock = {
+        storage: { createContext: createContextMock },
+      } as unknown as Synapse;
+      vi.spyOn(service as any, "createSynapseInstance").mockResolvedValue(synapseMock);
+
+      (executeUpload as Mock).mockImplementation(async (_service, _data, _rootCid, options) => {
+        await triggerUploadProgress(options?.onProgress);
+        return { pieceCid: "bafk-seed", pieceId: 1, transactionHash: "0xhash" };
+      });
+
+      await service.createDataSetWithPiece("0xprovider", { dealbotDS: "1" });
+
+      expect(createContextMock).toHaveBeenCalledWith({
+        providerAddress: "0xprovider",
+        metadata: { dealbotDS: "1" },
+      });
+      expect(executeUpload).toHaveBeenCalledWith(
+        expect.any(Object),
+        expect.any(Uint8Array),
+        expect.any(Object),
+        expect.objectContaining({
+          pieceMetadata: {},
+          ipniValidation: { enabled: false },
+        }),
+      );
+      const carData = (executeUpload as Mock).mock.calls[0][1];
+      expect(carData).toBeInstanceOf(Uint8Array);
+      expect(carData.length).toBeGreaterThan(200 * 1024);
+      expect(mockDataSetCreationMetrics.recordStatus).toHaveBeenCalledWith(
+        expect.objectContaining({ checkType: "dataSetCreation" }),
+        "pending",
+      );
+      expect(mockDataSetCreationMetrics.recordStatus).toHaveBeenCalledWith(
+        expect.objectContaining({ checkType: "dataSetCreation" }),
+        "success",
+      );
+      expect(mockDataSetCreationMetrics.recordOnchainEvent).toHaveBeenCalledWith(
+        expect.objectContaining({ checkType: "dataSetCreation" }),
+        "pieceAdded",
+      );
+      expect(mockDataSetCreationMetrics.recordOnchainEvent).toHaveBeenCalledWith(
+        expect.objectContaining({ checkType: "dataSetCreation" }),
+        "pieceConfirmed",
+      );
+    });
+
+    it("does not invoke data-storage-check metrics or Deal persistence", async () => {
+      vi.spyOn(mockWalletSdkService, "getProviderInfo").mockReturnValue(mockProviderInfo);
+      const createContextMock = vi.fn().mockResolvedValue({ dataSetId: 1 });
+      vi.spyOn(service as any, "createSynapseInstance").mockResolvedValue({
+        storage: { createContext: createContextMock },
+      } as unknown as Synapse);
+      (executeUpload as Mock).mockImplementation(async (_s, _d, _r, opts) => {
+        await triggerUploadProgress(opts?.onProgress);
+        return {};
+      });
+
+      await service.createDataSetWithPiece("0xprovider", {});
+
+      expect(mockDataStorageMetrics.observeIngestMs).not.toHaveBeenCalled();
+      expect(mockDataStorageMetrics.recordUploadStatus).not.toHaveBeenCalled();
+      expect(mockDataStorageMetrics.observePieceAddedOnChainMs).not.toHaveBeenCalled();
+      expect(dealRepoMock.save).not.toHaveBeenCalled();
+      expect(dataSourceMock.generateRandomDataset).not.toHaveBeenCalled();
+    });
+
+    it("succeeds when upload finishes without both onPieceAdded and onPieceConfirmed", async () => {
+      vi.spyOn(mockWalletSdkService, "getProviderInfo").mockReturnValue(mockProviderInfo);
+      vi.spyOn(service as any, "createSynapseInstance").mockResolvedValue({
+        storage: { createContext: vi.fn().mockResolvedValue({ dataSetId: 1 }) },
+      } as unknown as Synapse);
+
+      (executeUpload as Mock).mockImplementation(async (_s, _d, _r, opts) => {
+        await opts?.onProgress?.({ type: "onUploadComplete", data: { pieceCid: "bafk" } });
+      });
+
+      await expect(service.createDataSetWithPiece("0xprovider", {})).resolves.toBeUndefined();
+      expect(mockDataSetCreationMetrics.recordStatus).toHaveBeenCalledWith(
+        expect.objectContaining({ checkType: "dataSetCreation" }),
+        "success",
+      );
+    });
+
+    it("aborts when signal is aborted during upload", async () => {
+      vi.spyOn(mockWalletSdkService, "getProviderInfo").mockReturnValue(mockProviderInfo);
+      vi.spyOn(service as any, "createSynapseInstance").mockResolvedValue({
+        storage: { createContext: vi.fn().mockResolvedValue({ dataSetId: 1 }) },
+      } as unknown as Synapse);
+
+      (executeUpload as Mock).mockImplementation(async () => {
+        await new Promise(() => {});
+      });
+
+      const controller = new AbortController();
+      const resultPromise = service.createDataSetWithPiece("0xprovider", {}, controller.signal);
+      controller.abort(new Error("Job aborted"));
+
+      await expect(resultPromise).rejects.toThrow("Job aborted");
     });
   });
 });

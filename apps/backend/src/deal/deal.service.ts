@@ -27,7 +27,11 @@ import { DataSourceService } from "../dataSource/dataSource.service.js";
 import { DealAddonsService } from "../deal-addons/deal-addons.service.js";
 import type { DealPreprocessingResult } from "../deal-addons/types.js";
 import { buildCheckMetricLabels, classifyFailureStatus } from "../metrics/utils/check-metric-labels.js";
-import { DataStorageCheckMetrics, RetrievalCheckMetrics } from "../metrics/utils/check-metrics.service.js";
+import {
+  DataSetCreationCheckMetrics,
+  DataStorageCheckMetrics,
+  RetrievalCheckMetrics,
+} from "../metrics/utils/check-metrics.service.js";
 import { RetrievalAddonsService } from "../retrieval-addons/retrieval-addons.service.js";
 import type { RetrievalConfiguration } from "../retrieval-addons/types.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
@@ -64,6 +68,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     private readonly storageProviderRepository: Repository<StorageProvider>,
     private readonly dataStorageMetrics: DataStorageCheckMetrics,
     private readonly retrievalMetrics: RetrievalCheckMetrics,
+    private readonly dataSetCreationMetrics: DataSetCreationCheckMetrics,
   ) {
     this.blockchainConfig = this.configService.get("blockchain");
   }
@@ -529,6 +534,173 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     this.logger.log(`Data-set created on-chain: ID=${confirmed.summary.dataSetId} for provider ${providerAddress}`);
 
     return { dataSetId: confirmed.summary.dataSetId };
+  }
+
+  /**
+   * Creates an on-chain data-set with a minimal 200 KiB piece for a provider.
+   * Uses createContext + executeUpload (same flow as data storage check) instead of
+   * PDPServer.createDataSet, since empty datasets are being removed from curio and synapse-sdk.
+   *
+   * Goal: ensure the dataset is created and exists. No IPNI verification, retrieval checks,
+   * or any post-upload steps. Skips Deal persistence and all data-storage-check metrics.
+   */
+  async createDataSetWithPiece(
+    providerAddress: string,
+    metadata: Record<string, string>,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    signal?.throwIfAborted();
+    const providerInfo = this.walletSdkService.getProviderInfo(providerAddress);
+    if (!providerInfo) {
+      throw new Error(`Provider ${providerAddress} not found in registry`);
+    }
+    const labels = buildCheckMetricLabels({
+      checkType: "dataSetCreation",
+      providerId: providerInfo.id,
+      providerIsApproved: providerInfo.isApproved,
+    });
+
+    const startedAt = Date.now();
+    this.dataSetCreationMetrics.recordStatus(labels, "pending");
+    this.logger.log({
+      event: "dataset_creation_with_piece_started",
+      message: "Starting data-set creation with piece",
+      providerAddress,
+      providerId: providerInfo.id,
+      metadata,
+    });
+
+    let pieceAdded = false;
+    let pieceConfirmed = false;
+    let pieceCid: string | undefined;
+    let pieceId: number | undefined;
+    let transactionHash: string | undefined;
+
+    try {
+      const synapse = this.sharedSynapse ?? (await this.createSynapseInstance());
+      signal?.throwIfAborted();
+
+      const DATA_SET_CREATION_PIECE_SIZE = 200 * 1024; // 200 KiB
+      const payload = Buffer.alloc(DATA_SET_CREATION_PIECE_SIZE, 0x61);
+      const dataFile = {
+        data: payload,
+        size: DATA_SET_CREATION_PIECE_SIZE,
+        name: "dataset-seed.bin",
+      };
+
+      const carResult = await buildUnixfsCar(dataFile, { signal });
+      signal?.throwIfAborted();
+
+      const storage = await awaitWithAbort(
+        synapse.storage.createContext({
+          providerAddress,
+          metadata,
+        }),
+        signal,
+      );
+      signal?.throwIfAborted();
+
+      const filecoinPinLogger = createFilecoinPinLogger(this.logger);
+      const synapseService = { synapse, storage, providerInfo } as unknown as SynapseServiceArg;
+
+      const uploadResult = (await awaitWithAbort(
+        executeUpload(synapseService, carResult.carData, carResult.rootCID, {
+          logger: filecoinPinLogger,
+          contextId: providerAddress,
+          pieceMetadata: {},
+          ipniValidation: { enabled: false },
+          onProgress: async (event) => {
+            switch (event.type) {
+              case "onUploadComplete":
+                pieceCid = event.data.pieceCid.toString();
+                this.logger.debug({
+                  event: "dataset_creation_upload_complete",
+                  message: "Data-set creation upload complete",
+                  providerAddress,
+                  providerId: providerInfo.id,
+                  pieceCid,
+                });
+                break;
+              case "onPieceAdded":
+                pieceAdded = true;
+                this.dataSetCreationMetrics.recordOnchainEvent(labels, "pieceAdded");
+                this.logger.debug({
+                  event: "dataset_creation_piece_added",
+                  message: "Data-set creation piece added",
+                  providerAddress,
+                  providerId: providerInfo.id,
+                  txHash: event.data.txHash ?? "unknown",
+                });
+                break;
+              case "onPieceConfirmed":
+                pieceConfirmed = true;
+                this.dataSetCreationMetrics.recordOnchainEvent(labels, "pieceConfirmed");
+                this.logger.debug({
+                  event: "dataset_creation_piece_confirmed",
+                  message: "Data-set creation piece confirmed",
+                  providerAddress,
+                  providerId: providerInfo.id,
+                  pieceIds: event.data.pieceIds,
+                });
+                break;
+            }
+            signal?.throwIfAborted();
+          },
+        }),
+        signal,
+      )) as Partial<UploadResultSummary> | undefined;
+
+      pieceCid = pieceCid ?? uploadResult?.pieceCid;
+      pieceId = uploadResult?.pieceId;
+      transactionHash = uploadResult?.transactionHash;
+
+      const durationMs = Date.now() - startedAt;
+      this.dataSetCreationMetrics.observeCheckDuration(labels, durationMs);
+      this.dataSetCreationMetrics.recordStatus(labels, "success");
+
+      if (!pieceAdded || !pieceConfirmed) {
+        this.logger.warn({
+          event: "dataset_creation_missing_onchain_events",
+          message: "Data-set creation succeeded without full on-chain progress events",
+          providerAddress,
+          providerId: providerInfo.id,
+          pieceAdded,
+          pieceConfirmed,
+        });
+      }
+
+      this.logger.log({
+        event: "dataset_creation_with_piece_succeeded",
+        message: "Data-set created with piece",
+        providerAddress,
+        providerId: providerInfo.id,
+        durationMs,
+        dataSetId: storage.dataSetId ?? "unknown",
+        pieceCid: pieceCid ?? "unknown",
+        pieceId: pieceId ?? "unknown",
+        txHash: transactionHash ?? "unknown",
+        pieceAdded,
+        pieceConfirmed,
+      });
+    } catch (error) {
+      const durationMs = Date.now() - startedAt;
+      this.dataSetCreationMetrics.observeCheckDuration(labels, durationMs);
+      this.dataSetCreationMetrics.recordStatus(labels, classifyFailureStatus(error));
+      this.logger.error({
+        event: "dataset_creation_with_piece_failed",
+        message: "Data-set creation with piece failed",
+        providerAddress,
+        providerId: providerInfo.id,
+        durationMs,
+        pieceAdded,
+        pieceConfirmed,
+        pieceCid,
+        pieceId,
+        transactionHash,
+        error: toStructuredError(error),
+      });
+      throw error;
+    }
   }
 
   // ============================================================================

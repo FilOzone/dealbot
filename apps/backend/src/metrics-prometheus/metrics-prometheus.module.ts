@@ -7,6 +7,7 @@ import {
   PrometheusModule,
 } from "@willsoto/nestjs-prometheus";
 import {
+  DataSetCreationCheckMetrics,
   DataStorageCheckMetrics,
   DiscoverabilityCheckMetrics,
   RetrievalCheckMetrics,
@@ -143,6 +144,13 @@ const metricProviders = [
     labelNames: ["checkType", "providerId", "providerStatus"] as const,
     buckets: [100, 500, 1000, 2000, 5000, 10000, 30000, 60000, 120000, 300000, 600000],
   }),
+  makeHistogramProvider({
+    // docs/checks/events-and-metrics.md#dataSetCreationMs
+    name: "dataSetCreationMs",
+    help: "End-to-end data-set creation upload duration (ms)",
+    labelNames: ["checkType", "providerId", "providerStatus"] as const,
+    buckets: [100, 500, 1000, 2000, 5000, 10000, 30000, 60000, 120000, 300000, 600000],
+  }),
   // Sub-status metrics (docs/checks/data-storage.md)
   makeCounterProvider({
     // docs/checks/data-storage.md#sub-status-meanings (Upload Status)
@@ -178,6 +186,18 @@ const metricProviders = [
     // docs/checks/events-and-metrics.md#ipfsRetrievalHttpResponseCode
     name: "ipfsRetrievalHttpResponseCode",
     help: "HTTP response codes for IPFS retrievals",
+    labelNames: ["checkType", "providerId", "providerStatus", "value"] as const,
+  }),
+  makeCounterProvider({
+    // docs/checks/events-and-metrics.md#dataSetCreationStatus
+    name: "dataSetCreationStatus",
+    help: "Data-set creation status counts",
+    labelNames: ["checkType", "providerId", "providerStatus", "value"] as const,
+  }),
+  makeCounterProvider({
+    // docs/checks/events-and-metrics.md#dataSetCreationOnchainEvent
+    name: "dataSetCreationOnchainEvent",
+    help: "Data-set creation on-chain progress event counts",
     labelNames: ["checkType", "providerId", "providerStatus", "value"] as const,
   }),
   // Data Retention Metrics
@@ -309,6 +329,7 @@ const metricProviders = [
     DataStorageCheckMetrics,
     RetrievalCheckMetrics,
     DiscoverabilityCheckMetrics,
+    DataSetCreationCheckMetrics,
     // HTTP metrics interceptor
     {
       provide: APP_INTERCEPTOR,
@@ -321,6 +342,7 @@ const metricProviders = [
     DataStorageCheckMetrics,
     RetrievalCheckMetrics,
     DiscoverabilityCheckMetrics,
+    DataSetCreationCheckMetrics,
   ],
 })
 export class MetricsPrometheusModule {}

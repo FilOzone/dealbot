@@ -60,7 +60,7 @@ sequenceDiagram
 * Many of the metrics below are derived from the [events above](#event-list).
 * They are exported via Prometheus.
 * All Prometheus/OpenTelemetry metrics have label/attributes for:
-   - `checkType=dataStorage|retrieval|dataRetention` — attribute metrics to a particular check
+   - `checkType=dataStorage|retrieval|dataRetention|dataSetCreation` — attribute metrics to a particular check/job
    - `providerId` — attribute metrics to a particular SP
    - `providerStatus=approved|unapproved` — attribute metrics to only approved SPs for example
 
@@ -84,6 +84,7 @@ sequenceDiagram
 | <a id="ipfsRetrievalThroughputBps"></a>`ipfsRetrievalThroughputBps` | Data Storage, Retrieval | n/a | n/a | `(downloadedCarBytes / ipfsRetrievalLastByteMs) * 1000` | [`retrieval.service.ts`](../../apps/backend/src/retrieval/retrieval.service.ts) |
 | <a id="dataStorageCheckMs"></a>`dataStorageCheckMs` | Data Storage | [`uploadToSpStart`](#uploadToSpStart) | [`ipfsRetrievalIntegrityChecked`](#ipfsRetrievalIntegrityChecked) | Duration of a Data Storage check | |
 | <a id="retrievalCheckMs"></a>`retrievalCheckMs` | Retrieval | Retrieval check start | [`ipfsRetrievalIntegrityChecked`](#ipfsRetrievalIntegrityChecked) | Duration of a Retrieval check | |
+| <a id="dataSetCreationMs"></a>`dataSetCreationMs` | Data-Set Creation | Data-set creation upload start | Upload handler completion | Duration of one data-set creation upload with piece | [`deal.service.ts`](../../apps/backend/src/deal/deal.service.ts) |
 
 
 ### Status Count Related Metrics
@@ -100,4 +101,6 @@ sequenceDiagram
 | <a id="discoverabilityStatus"></a>`discoverabilityStatus` | Data Storage, Retrieval | [`ipniVerificationComplete`](#ipniVerificationComplete) | `success`, `failure.timedout`, `failure.other` from [Data Storage Sub-status meanings](./data-storage.md#sub-status-meanings). |  |
 | <a id="ipfsRetrievalHttpResponseCode"></a>`ipfsRetrievalHttpResponseCode` | Data Storage, Retrieval | [`ipfsRetrievalLastByteReceived`](#ipfsRetrievalLastByteReceived) | `200`, `500`, `2xxSuccess`, `4xxClientError`, `5xxServerError`, `otherHttpStatusCodes`, `failure` | [`retrieval.service.ts`](../../apps/backend/src/retrieval/retrieval.service.ts) |
 | <a id="retrievalStatus"></a>`retrievalStatus` | Data Storage, Retrieval | [`ipfsRetrievalIntegrityChecked`](#ipfsRetrievalIntegrityChecked) | `success`, `failure.timedout`, `failure.other` from [Data Storage Sub-status meanings](./data-storage.md#sub-status-meanings). |  |
+| <a id="dataSetCreationStatus"></a>`dataSetCreationStatus` | Data-Set Creation | On data-set creation completion | `pending`, `success`, `failure.timedout`, `failure.other` | [`deal.service.ts`](../../apps/backend/src/deal/deal.service.ts) |
+| <a id="dataSetCreationOnchainEvent"></a>`dataSetCreationOnchainEvent` | Data-Set Creation | On each upload progress event | `pieceAdded`, `pieceConfirmed` | [`deal.service.ts`](../../apps/backend/src/deal/deal.service.ts) |
 | <a id="dataSetChallengeStatus"></a>`dataSetChallengeStatus` | Data Retention | Not tied to an [event above](#event-list) but rather to the periodic chain-checking done in the [Data Retention Check](./data-retention.md) | `success`, `failure` | [`data-retention.service.ts`](../../apps/backend/src/data-retention/data-retention.service.ts) |
