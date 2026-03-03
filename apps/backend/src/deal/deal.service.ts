@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import {
   METADATA_KEYS,
   PDPAuthHelper,
@@ -12,7 +13,6 @@ import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
 import { cleanupSynapseService, executeUpload } from "filecoin-pin";
 import { CID } from "multiformats/cid";
-import { randomBytes } from "node:crypto";
 import type { Repository } from "typeorm";
 import { awaitWithAbort } from "../common/abort-utils.js";
 import { buildUnixfsCar } from "../common/car-utils.js";
