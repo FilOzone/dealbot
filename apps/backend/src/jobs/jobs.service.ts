@@ -26,6 +26,10 @@ import {
 import { JobScheduleRepository } from "./repositories/job-schedule.repository.js";
 
 type SpJobType = "deal" | "retrieval" | "data_set_creation";
+const SP_JOB_TYPES: ReadonlySet<string> = new Set<string>(["deal", "retrieval", "data_set_creation"]);
+function isSpJobType(jobType: string): jobType is SpJobType {
+  return SP_JOB_TYPES.has(jobType);
+}
 
 type SpJobData = { jobType: SpJobType; spAddress: string; intervalSeconds: number };
 type MetricsJobData = { intervalSeconds: number };
@@ -841,7 +845,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     const catchupMax = this.catchupMaxEnqueue();
 
     if (maintenance.active) {
-      this.logMaintenanceSkip("job enqueues", maintenance.window?.label);
+      this.logMaintenanceSkip("SP job enqueues", maintenance.window?.label);
     }
 
     await this.jobScheduleRepository.runTransaction(async (manager) => {
@@ -852,12 +856,13 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         if (!timing) continue;
         const { intervalMs, nextRunAt, runsDue } = timing;
 
-        const isSpJob = row.job_type === "deal" || row.job_type === "retrieval" || row.job_type === "data_set_creation";
+        const isSpJob = isSpJobType(row.job_type);
 
         // During maintenance, skip global jobs entirely.
         if (maintenance.active && !isSpJob) {
+          this.logger.log(`Skipping global job ${row.job_type} during maintenance`);
           const newNextRunAt = new Date(now.getTime() + intervalMs);
-          await this.jobScheduleRepository.updateScheduleAfterRun(manager, row.id, newNextRunAt, now);
+          await this.jobScheduleRepository.advanceScheduleNextRun(manager, row.id, newNextRunAt);
           continue;
         }
 
@@ -926,16 +931,14 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     try {
       // Disable retries so "attempted" jobs don't rerun; failures are handled by the next schedule tick.
       const finalOptions: SendOptions = { retryLimit: 0, ...options };
-      if (jobType === "deal" || jobType === "retrieval" || jobType === "data_set_creation") {
+      if (isSpJobType(jobType)) {
         const spData = data as SpJobData;
         if (!finalOptions.singletonKey) {
           finalOptions.singletonKey = spData.spAddress;
         }
       } else {
         // Global jobs: use job type as singleton key.
-        if (!finalOptions.singletonKey) {
-          finalOptions.singletonKey = jobType;
-        }
+        finalOptions.singletonKey = jobType;
       }
       await this.boss.send(name, data, finalOptions);
       this.jobsEnqueueAttemptsCounter.inc({ job_type: jobType, outcome: "success" });

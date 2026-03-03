@@ -169,6 +169,31 @@ export class JobScheduleRepository {
   }
 
   /**
+   * Advances next_run_at without updating last_run_at.
+   * Used when a job is intentionally skipped (e.g. during maintenance)
+   * so it doesn't appear as though the job actually ran.
+   *
+   * @param manager - The transaction manager.
+   * @param id - The ID of the schedule row.
+   * @param nextRunAt - The new scheduled time.
+   */
+  async advanceScheduleNextRun(
+    manager: { query: (sql: string, params?: any[]) => Promise<any> },
+    id: number,
+    nextRunAt: Date,
+  ): Promise<void> {
+    await manager.query(
+      `
+      UPDATE job_schedule_state
+      SET next_run_at = $1,
+          updated_at = NOW()
+      WHERE id = $2
+      `,
+      [nextRunAt, id],
+    );
+  }
+
+  /**
    * Executes a callback within a database transaction.
    */
   async runTransaction<T>(runInTransaction: (entityManager: any) => Promise<T>): Promise<T> {

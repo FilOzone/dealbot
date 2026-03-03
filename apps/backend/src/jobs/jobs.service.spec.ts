@@ -25,6 +25,7 @@ describe("JobsService schedule rows", () => {
     findDueSchedulesWithManager: ReturnType<typeof vi.fn>;
     runTransaction: ReturnType<typeof vi.fn>;
     updateScheduleAfterRun: ReturnType<typeof vi.fn>;
+    advanceScheduleNextRun: ReturnType<typeof vi.fn>;
     countBossJobStates: ReturnType<typeof vi.fn>;
     minBossJobAgeSecondsByState: ReturnType<typeof vi.fn>;
   };
@@ -80,6 +81,7 @@ describe("JobsService schedule rows", () => {
         await callback({});
       }),
       updateScheduleAfterRun: vi.fn(),
+      advanceScheduleNextRun: vi.fn(),
       countBossJobStates: vi.fn(),
       minBossJobAgeSecondsByState: vi.fn(),
     };
@@ -748,8 +750,8 @@ describe("JobsService schedule rows", () => {
     // Global job should not be enqueued during maintenance
     expect(send).not.toHaveBeenCalled();
 
-    expect(jobScheduleRepositoryMock.updateScheduleAfterRun).toHaveBeenCalled();
-    const updateCall = jobScheduleRepositoryMock.updateScheduleAfterRun.mock.calls[0];
+    expect(jobScheduleRepositoryMock.advanceScheduleNextRun).toHaveBeenCalled();
+    const updateCall = jobScheduleRepositoryMock.advanceScheduleNextRun.mock.calls[0];
     const newNextRunAt = updateCall[2] as Date;
     expect(newNextRunAt.getTime()).toBe(now.getTime() + 1800 * 1000);
   });
