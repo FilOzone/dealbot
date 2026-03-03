@@ -272,7 +272,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
             event: "unknown_sp_job_type",
             message: `Skipping unknown SP job type "${String(job.data.jobType)}" for ${job.data.spAddress}`,
             jobType: job.data.jobType,
-            spAddress: job.data.spAddress,
+            providerAddress: job.data.spAddress,
           });
         },
       )
@@ -339,11 +339,13 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
   private logMaintenanceSkip(taskLabel: string, windowLabel?: string, spAddress?: string) {
     const scheduling = this.configService.get("scheduling");
     const label = windowLabel ?? "unknown";
-    this.logger.log({
+    const logPayload: Record<string, unknown> = {
       event: "maintenance_window_active",
       message: `Maintenance window active (${label} UTC, ${scheduling.maintenanceWindowMinutes}m); deferring ${taskLabel}`,
-      providerAddress: spAddress ?? "",
-    });
+    };
+    if (spAddress) logPayload.providerAddress = spAddress;
+
+    this.logger.log(logPayload);
   }
 
   private async handleDealJob(job: SpJob): Promise<void> {

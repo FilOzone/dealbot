@@ -190,7 +190,7 @@ export class RetrievalService {
     const applicableStrategies = this.retrievalAddonsService.getApplicableStrategies(config);
     if (applicableStrategies.length === 0) {
       this.logger.warn({
-        ...logContext,
+        ...retrievalLogContext,
         event: "retrieval_job_skipped_no_strategies",
         message: `Retrieval skipped for ${deal.pieceCid ?? deal.id}: no applicable retrieval strategies (likely missing IPNI metadata).`,
       });
@@ -224,7 +224,7 @@ export class RetrievalService {
         const testResult: RetrievalTestResult = await this.retrievalAddonsService.testAllRetrievalMethods(
           config,
           signal,
-          logContext,
+          retrievalLogContext,
         );
         retrievals = await Promise.all(
           testResult.results.map((executionResult) =>
@@ -234,7 +234,7 @@ export class RetrievalService {
 
         const successCount = retrievals.filter((r) => r.status === RetrievalStatus.SUCCESS).length;
         this.logger.log({
-          ...logContext,
+          ...retrievalLogContext,
           event: "retrievals_completed",
           message: `Retrievals for ${deal.pieceCid}: ${successCount}/${retrievals.length} successful`,
         });
@@ -243,7 +243,7 @@ export class RetrievalService {
           const abortReason = signal?.reason;
           const abortMessage = abortReason instanceof Error ? abortReason.message : String(abortReason ?? "");
           this.logger.warn({
-            ...logContext,
+            ...retrievalLogContext,
             event: "retrieval_job_aborted",
             message: `Retrieval job aborted after testing for ${deal.pieceCid}; recorded partial results.`,
             reason: abortMessage || "Unknown",

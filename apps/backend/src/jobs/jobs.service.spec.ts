@@ -318,7 +318,7 @@ describe("JobsService schedule rows", () => {
     };
 
     const walletSdkService = {
-      getProviderInfo: vi.fn(() => [{ id: 2 }]),
+      getProviderInfo: vi.fn(() => ({ id: 2 })),
     };
 
     service = buildService({
