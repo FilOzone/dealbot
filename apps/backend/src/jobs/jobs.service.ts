@@ -841,7 +841,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     const catchupMax = this.catchupMaxEnqueue();
 
     if (maintenance.active) {
-      this.logMaintenanceSkip("deal/retrieval enqueues", maintenance.window?.label);
+      this.logMaintenanceSkip("job enqueues", maintenance.window?.label);
     }
 
     await this.jobScheduleRepository.runTransaction(async (manager) => {
@@ -852,7 +852,16 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         if (!timing) continue;
         const { intervalMs, nextRunAt, runsDue } = timing;
 
-        const totalToEnqueue = Math.min(runsDue, catchupMax);
+        const isSpJob = row.job_type === "deal" || row.job_type === "retrieval" || row.job_type === "data_set_creation";
+
+        // During maintenance, skip global jobs entirely.
+        if (maintenance.active && !isSpJob) {
+          const newNextRunAt = new Date(now.getTime() + intervalMs);
+          await this.jobScheduleRepository.updateScheduleAfterRun(manager, row.id, newNextRunAt, now);
+          continue;
+        }
+
+        const totalToEnqueue = isSpJob ? Math.min(runsDue, catchupMax) : 1;
         let successCount = 0;
         const jobName = this.mapJobName(row.job_type);
         const payload = this.mapJobPayload(row);
@@ -864,7 +873,10 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         }
 
         if (successCount > 0) {
-          const newNextRunAt = new Date(nextRunAt.getTime() + successCount * intervalMs);
+          // For global jobs, skip ahead to the next future run instead of replaying missed intervals.
+          const newNextRunAt = isSpJob
+            ? new Date(nextRunAt.getTime() + successCount * intervalMs)
+            : new Date(now.getTime() + intervalMs);
           await this.jobScheduleRepository.updateScheduleAfterRun(manager, row.id, newNextRunAt, now);
         }
       }
@@ -918,6 +930,11 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         const spData = data as SpJobData;
         if (!finalOptions.singletonKey) {
           finalOptions.singletonKey = spData.spAddress;
+        }
+      } else {
+        // Global jobs: use job type as singleton key.
+        if (!finalOptions.singletonKey) {
+          finalOptions.singletonKey = jobType;
         }
       }
       await this.boss.send(name, data, finalOptions);

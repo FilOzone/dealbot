@@ -649,6 +649,111 @@ describe("JobsService schedule rows", () => {
     expect(jobScheduleRepositoryMock.updateScheduleAfterRun).toHaveBeenCalled();
   });
 
+  it("global jobs only enqueue once after downtime and skip to next future run", async () => {
+    service = buildService({});
+
+    const send = vi.fn();
+    (service as unknown as { boss: { send: typeof send } }).boss = { send };
+
+    const now = new Date("2024-01-01T04:00:00Z");
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
+
+    // metrics was due 8 intervals
+    jobScheduleRepositoryMock.findDueSchedulesWithManager.mockResolvedValueOnce([
+      {
+        id: 10,
+        job_type: "metrics",
+        sp_address: "",
+        interval_seconds: 1800,
+        next_run_at: "2024-01-01T00:00:00Z",
+      },
+    ]);
+
+    await callPrivate(service, "enqueueDueJobs");
+
+    // Should only enqueue once
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send.mock.calls[0][0]).toBe("metrics.run");
+
+    // next_run_at should jump to future
+    const updateCall = jobScheduleRepositoryMock.updateScheduleAfterRun.mock.calls[0];
+    const newNextRunAt = updateCall[2] as Date;
+    expect(newNextRunAt.getTime()).toBe(now.getTime() + 1800 * 1000);
+  });
+
+  it("global jobs get singletonKey set to job type", async () => {
+    service = buildService({});
+
+    const send = vi.fn();
+    (service as unknown as { boss: { send: typeof send } }).boss = { send };
+
+    const now = new Date("2024-01-01T00:01:00Z");
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
+
+    jobScheduleRepositoryMock.findDueSchedulesWithManager.mockResolvedValueOnce([
+      {
+        id: 11,
+        job_type: "providers_refresh",
+        sp_address: "",
+        interval_seconds: 14400,
+        next_run_at: "2024-01-01T00:00:00Z",
+      },
+    ]);
+
+    await callPrivate(service, "enqueueDueJobs");
+
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send.mock.calls[0][2]).toMatchObject({
+      singletonKey: "providers_refresh",
+      retryLimit: 0,
+    });
+  });
+
+  it("global jobs are skipped during maintenance windows", async () => {
+    baseConfigValues = {
+      ...baseConfigValues,
+      scheduling: {
+        ...baseConfigValues.scheduling,
+        maintenanceWindowsUtc: ["03:00"],
+        maintenanceWindowMinutes: 60,
+      } as IConfig["scheduling"],
+    };
+    configService = {
+      get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
+    } as unknown as JobsServiceDeps[0];
+
+    service = buildService({ configService });
+
+    const send = vi.fn();
+    (service as unknown as { boss: { send: typeof send } }).boss = { send };
+
+    const now = new Date("2024-01-01T03:30:00Z");
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
+
+    jobScheduleRepositoryMock.findDueSchedulesWithManager.mockResolvedValueOnce([
+      {
+        id: 20,
+        job_type: "metrics",
+        sp_address: "",
+        interval_seconds: 1800,
+        next_run_at: "2024-01-01T03:00:00Z",
+      },
+    ]);
+
+    await callPrivate(service, "enqueueDueJobs");
+
+    // Global job should not be enqueued during maintenance
+    expect(send).not.toHaveBeenCalled();
+
+    expect(jobScheduleRepositoryMock.updateScheduleAfterRun).toHaveBeenCalled();
+    const updateCall = jobScheduleRepositoryMock.updateScheduleAfterRun.mock.calls[0];
+    const newNextRunAt = updateCall[2] as Date;
+    expect(newNextRunAt.getTime()).toBe(now.getTime() + 1800 * 1000);
+  });
+
   it("defers jobs until maintenance window ends (same-day)", async () => {
     baseConfigValues = {
       ...baseConfigValues,
