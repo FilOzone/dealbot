@@ -69,7 +69,7 @@ export class RetrievalService {
   async performRandomRetrievalForProvider(
     spAddress: string,
     signal?: AbortSignal,
-    logContext?: Pick<RetrievalLogContext, "providerAddress" | "providerId">,
+    logContext?: Pick<RetrievalLogContext, "jobId" | "providerAddress" | "providerId">,
   ): Promise<Retrieval[]> {
     const deal = await this.selectRandomSuccessfulDealForProvider(spAddress);
     if (!deal) {
@@ -159,7 +159,7 @@ export class RetrievalService {
   private async performAllRetrievals(
     deal: Deal,
     signal?: AbortSignal,
-    logContext?: Pick<RetrievalLogContext, "providerAddress" | "providerId">,
+    logContext?: Pick<RetrievalLogContext, "jobId" | "providerAddress" | "providerId">,
   ): Promise<Retrieval[]> {
     signal?.throwIfAborted();
 
@@ -174,6 +174,7 @@ export class RetrievalService {
     });
     const retrievalLogContext: RetrievalLogContext = {
       ...logContext,
+      jobId: logContext?.jobId || "",
       dealId: deal.id,
       providerId: provider.providerId ?? logContext?.providerId,
       providerAddress: deal.spAddress,

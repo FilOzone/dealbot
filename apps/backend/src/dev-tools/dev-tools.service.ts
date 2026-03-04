@@ -99,6 +99,7 @@ export class DevToolsService {
 
     const dealLogContext: DealLogContext = {
       dealId,
+      jobId: "",
       providerId: providerInfo?.id,
       providerAddress: spAddress,
     };

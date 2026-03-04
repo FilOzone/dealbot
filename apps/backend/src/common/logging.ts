@@ -65,6 +65,7 @@ export function toStructuredError(error: unknown): StructuredError {
  * Common base logging context for deal and retrieval operations
  */
 export type BaseDealRetrievalLogContext = {
+  jobId: string;
   dealId: string;
   providerAddress: string;
   providerId?: number;
@@ -86,6 +87,7 @@ export type RetrievalLogContext = BaseDealRetrievalLogContext;
  * Structured logging context for data set creation operations
  */
 export type DataSetLogContext = {
+  jobId: string;
   providerAddress: string;
   providerId?: number;
   dataSetId?: number;

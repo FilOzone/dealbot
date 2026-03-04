@@ -133,6 +133,7 @@ export class DealAddonsService {
 
     const dealLogContext: DealLogContext = {
       ...logContext,
+      jobId: logContext?.jobId || "",
       dealId: deal.id,
       providerId: deal.storageProvider?.providerId ?? logContext?.providerId,
       providerAddress: deal.spAddress,
@@ -172,6 +173,7 @@ export class DealAddonsService {
 
     const dealLogContext: DealLogContext = {
       ...logContext,
+      jobId: logContext?.jobId || "",
       dealId: deal.id,
       providerId: deal.storageProvider?.providerId ?? logContext?.providerId,
       providerAddress: deal.spAddress,

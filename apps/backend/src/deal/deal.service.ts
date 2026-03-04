@@ -121,7 +121,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       existingDealId?: string;
       signal?: AbortSignal;
       extraDataSetMetadata?: Record<string, string>;
-      logContext?: Pick<DealLogContext, "providerAddress" | "providerId">;
+      logContext?: Pick<DealLogContext, "jobId" | "providerAddress" | "providerId">;
     },
   ): Promise<Deal> {
     options.signal?.throwIfAborted();
@@ -196,7 +196,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     existingDealId?: string,
     signal?: AbortSignal,
     extraDataSetMetadata?: Record<string, string>,
-    logContext?: Pick<DealLogContext, "providerAddress" | "providerId">,
+    logContext?: Pick<DealLogContext, "jobId" | "providerAddress" | "providerId">,
   ): Promise<Deal> {
     const providerAddress = providerInfo.serviceProvider;
     const checkType = "dataStorage" as const;
@@ -233,6 +233,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
 
     const dealLogContext: DealLogContext = {
       ...logContext,
+      jobId: logContext?.jobId || "",
       dealId: deal.id,
       providerAddress,
       providerId: providerInfo.id ?? logContext?.providerId,

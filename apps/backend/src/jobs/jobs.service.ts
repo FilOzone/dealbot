@@ -370,7 +370,8 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     }, timeoutMs);
 
     await this.recordJobExecution("deal", async () => {
-      const logContext: Pick<DealLogContext, "providerAddress" | "providerId"> = {
+      const logContext: Pick<DealLogContext, "jobId" | "providerAddress" | "providerId"> = {
+        jobId: job.id,
         providerAddress: spAddress,
       };
       try {
@@ -492,6 +493,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
 
     await this.recordJobExecution("retrieval", async () => {
       const logContext = {
+        jobId: job.id,
         providerAddress: spAddress,
         providerId: this.walletSdkService.getProviderInfo(spAddress)?.id,
       };
@@ -591,6 +593,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
 
     await this.recordJobExecution("data_set_creation", async () => {
       const dataSetLogContext = {
+        jobId: job.id,
         providerAddress: spAddress,
         providerId: this.walletSdkService.getProviderInfo(spAddress)?.id,
       };

@@ -145,11 +145,17 @@ export class RetrievalAddonsService {
    * @param config - Retrieval configuration
    * @returns Retrieval execution result
    */
-  async performRetrieval(config: RetrievalConfiguration, signal?: AbortSignal): Promise<RetrievalExecutionResult> {
+  async performRetrieval(
+    config: RetrievalConfiguration,
+    signal?: AbortSignal,
+    logContext?: Partial<RetrievalLogContext>,
+  ): Promise<RetrievalExecutionResult> {
     const urlResult = this.constructPreferredUrl(config);
 
     this.logger.log(`Performing retrieval for deal ${config.deal.id} using ${urlResult.method}: ${urlResult.url}`);
     const retrievalLogContext: RetrievalLogContext = {
+      ...logContext,
+      jobId: logContext?.jobId || "",
       dealId: config.deal.id,
       providerAddress: config.storageProvider,
       providerId: config.deal.storageProvider?.providerId,
@@ -275,6 +281,7 @@ export class RetrievalAddonsService {
   ): Promise<RetrievalExecutionResult> {
     const retrievalLogContext: RetrievalLogContext = {
       ...logContext,
+      jobId: logContext?.jobId || "",
       dealId: config.deal.id,
       providerId: config.deal.storageProvider?.providerId ?? logContext?.providerId,
       providerAddress: config.deal.spAddress,
@@ -369,7 +376,7 @@ export class RetrievalAddonsService {
   private async executeRetrieval(
     urlResult: RetrievalUrlResult,
     config: RetrievalConfiguration,
-    retrievalLogContext: RetrievalLogContext,
+    retrievalLogContext?: RetrievalLogContext,
     signal?: AbortSignal,
   ): Promise<RetrievalExecutionResult> {
     const strategy = this.addons.get(urlResult.method);

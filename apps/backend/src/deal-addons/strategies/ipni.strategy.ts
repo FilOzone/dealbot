@@ -195,6 +195,7 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
 
     const dealLogContext: DealLogContext = {
       ...logContext,
+      jobId: logContext?.jobId || "",
       dealId: deal.id,
       providerAddress: deal.spAddress,
       providerId: deal.storageProvider?.providerId || logContext?.providerId,

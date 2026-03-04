@@ -1002,6 +1002,7 @@ describe("JobsService schedule rows", () => {
       "0xaaa",
       { withIpniIndexing: "" },
       {
+        jobId: "job-ds-1",
         dataSetIndex: 0,
         providerAddress: "0xaaa",
         providerId: 1,
@@ -1088,6 +1089,7 @@ describe("JobsService schedule rows", () => {
       "0xaaa",
       { dealbotDataSetVersion: "v1" },
       {
+        jobId: "job-ds-3",
         dataSetIndex: 0,
         providerAddress: "0xaaa",
         providerId: 1,
@@ -1099,6 +1101,7 @@ describe("JobsService schedule rows", () => {
       "0xaaa",
       { dealbotDataSetVersion: "v1", dealbotDS: "1" },
       {
+        jobId: "job-ds-3",
         dataSetIndex: 1,
         providerAddress: "0xaaa",
         providerId: 1,
@@ -1110,6 +1113,7 @@ describe("JobsService schedule rows", () => {
       "0xaaa",
       { dealbotDataSetVersion: "v1", dealbotDS: "2" },
       {
+        jobId: "job-ds-3",
         dataSetIndex: 2,
         providerAddress: "0xaaa",
         providerId: 1,
@@ -1134,7 +1138,14 @@ describe("JobsService schedule rows", () => {
     const { provisionDataSets } = await import("./data-set-creation.handler.js");
 
     await expect(
-      provisionDataSets({ dealService, logger }, "0xaaa", 5, {}, { providerAddress: "0xaaa" }, controller.signal),
+      provisionDataSets(
+        { dealService, logger },
+        "0xaaa",
+        5,
+        {},
+        { providerAddress: "0xaaa", jobId: "job-ds-4" },
+        controller.signal,
+      ),
     ).rejects.toThrow("Job timed out");
 
     // No datasets should have been created since abort was already signaled
