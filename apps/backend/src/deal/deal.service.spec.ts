@@ -1000,6 +1000,7 @@ describe("DealService", () => {
 
   describe("createDataSet", () => {
     const logContext: DataSetLogContext = {
+      jobId: "1",
       providerAddress: "0xprovider",
       dataSetIndex: 0,
     };
