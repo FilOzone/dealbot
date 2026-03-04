@@ -184,7 +184,6 @@ This staggers schedules by 20 minutes.
 - pg-boss stores each queued job in `pgboss.job` with states like `created`, `active`, and `retry` (we query this table for queue metrics).
 - pg-boss job states reflect queue lifecycle, not check outcomes. Deal/retrieval check results live in dealbot records (deals/retrievals) and Prometheus metrics, so a job can complete while the check itself fails.
 - Execution metrics are exported via Prometheus (`jobs_started_total`, `jobs_completed_total`, `job_duration_seconds`).
-- Data-set creation upload metrics are also exported (`dataSetCreationMs`, `dataSetCreationStatus`, `dataSetCreationOnchainEvent`).
 
 ## Critical Environment Variables
 
