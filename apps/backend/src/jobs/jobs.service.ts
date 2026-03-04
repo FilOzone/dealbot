@@ -639,7 +639,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         }
         this.logger.error({
           ...dataSetLogContext,
-          event: `data_set_creation_job_failed`,
+          event: "data_set_creation_job_failed",
           message: `Data set creation job failed for ${spAddress}`,
           error: toStructuredError(error),
         });

@@ -216,7 +216,19 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
         where: { id: existingDealId },
       });
       if (!existingDeal) {
-        throw new Error(`Deal not found: ${existingDealId}`);
+        const error = new Error(`Deal not found: ${existingDealId}`);
+        this.logger.error({
+          ...logContext,
+          jobId: logContext?.jobId || "",
+          dealId: existingDealId,
+          providerAddress,
+          providerId: providerInfo.id ?? logContext?.providerId,
+          ipfsRootCID: uploadPayload.rootCid.toString(),
+          event: "deal_creation_failed",
+          message: `Deal creation failed for ${providerAddress}`,
+          error: toStructuredError(error),
+        });
+        throw error;
       }
       deal = existingDeal;
     } else {

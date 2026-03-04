@@ -52,7 +52,7 @@ export async function provisionDataSets(
 
     logger.log({
       ...logContext,
-      event: "data_set_creation_completed",
+      event: "data_set_provisioned",
       message: `Created data-set #${i} for provider ${spAddress}`,
       dataSetId: result.dataSetId,
     });

@@ -152,16 +152,22 @@ export class RetrievalAddonsService {
   ): Promise<RetrievalExecutionResult> {
     const urlResult = this.constructPreferredUrl(config);
 
-    this.logger.log(`Performing retrieval for deal ${config.deal.id} using ${urlResult.method}: ${urlResult.url}`);
     const retrievalLogContext: RetrievalLogContext = {
       ...logContext,
       jobId: logContext?.jobId || "",
       dealId: config.deal.id,
       providerAddress: config.storageProvider,
-      providerId: config.deal.storageProvider?.providerId,
+      providerId: config.deal.storageProvider?.providerId ?? logContext?.providerId,
       pieceCid: config.deal.pieceCid,
       ipfsRootCID: config.deal.metadata?.[ServiceType.IPFS_PIN]?.rootCID,
     };
+    this.logger.log({
+      ...retrievalLogContext,
+      event: "retrieval_started",
+      message: `Performing retrieval for deal ${config.deal.id}`,
+      method: urlResult.method,
+      url: urlResult.url,
+    });
     return await this.executeRetrieval(urlResult, config, retrievalLogContext, signal);
   }
 
