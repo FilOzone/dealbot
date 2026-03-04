@@ -198,7 +198,7 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       jobId: logContext?.jobId || "",
       dealId: deal.id,
       providerAddress: deal.spAddress,
-      providerId: deal.storageProvider?.providerId || logContext?.providerId,
+      providerId: (deal.storageProvider?.providerId || logContext?.providerId) ?? -1,
       pieceCid: deal.pieceCid,
       ipfsRootCID: deal.metadata[this.name]?.rootCID,
     };

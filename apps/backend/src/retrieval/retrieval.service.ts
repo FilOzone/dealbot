@@ -3,7 +3,7 @@ import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
 import { CID } from "multiformats/cid";
 import type { Repository } from "typeorm";
-import { RetrievalLogContext, toStructuredError } from "../common/logging.js";
+import { type RetrievalLogContext, toStructuredError } from "../common/logging.js";
 import type { Hex } from "../common/types.js";
 import type { IConfig } from "../config/app.config.js";
 import { Deal } from "../database/entities/deal.entity.js";
@@ -176,7 +176,7 @@ export class RetrievalService {
       ...logContext,
       jobId: logContext?.jobId || "",
       dealId: deal.id,
-      providerId: provider.providerId ?? logContext?.providerId,
+      providerId: provider.providerId ?? logContext?.providerId ?? -1,
       providerAddress: deal.spAddress,
       pieceCid: deal.pieceCid,
       ipfsRootCID: deal.metadata?.[ServiceType.IPFS_PIN]?.rootCID,

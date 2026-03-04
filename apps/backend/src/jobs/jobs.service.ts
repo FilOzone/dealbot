@@ -5,7 +5,7 @@ import { InjectMetric } from "@willsoto/nestjs-prometheus";
 import { type Job, PgBoss, type SendOptions } from "pg-boss";
 import type { Counter, Gauge, Histogram } from "prom-client";
 import type { Repository } from "typeorm";
-import { DealLogContext, JobLogContext, toStructuredError } from "../common/logging.js";
+import { type DealLogContext, type JobLogContext, toStructuredError } from "../common/logging.js";
 import { getMaintenanceWindowStatus } from "../common/maintenance-window.js";
 import type { IConfig } from "../config/app.config.js";
 import { DataRetentionService } from "../data-retention/data-retention.service.js";
@@ -377,7 +377,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     }, timeoutMs);
 
     await this.recordJobExecution("deal", async () => {
-      const logContext: Pick<DealLogContext, "jobId" | "providerAddress" | "providerId"> = {
+      const logContext: Pick<DealLogContext, "jobId" | "providerAddress"> & { providerId?: number } = {
         jobId: job.id,
         providerAddress: spAddress,
       };
@@ -447,7 +447,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
           ...dealOptions,
           signal: abortController.signal,
           extraDataSetMetadata,
-          logContext,
+          logContext: { jobId: logContext.jobId, providerAddress: logContext.providerAddress, providerId: provider.id },
         });
         return "success";
       } catch (error) {
@@ -506,7 +506,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       const logContext = {
         jobId: job.id,
         providerAddress: spAddress,
-        providerId: this.getProviderIdForLogging(spAddress),
+        providerId: this.getProviderIdForLogging(spAddress) ?? -1,
       };
       try {
         await this.retrievalService.performRandomRetrievalForProvider(spAddress, abortController.signal, logContext);
@@ -610,7 +610,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       const dataSetLogContext = {
         jobId: job.id,
         providerAddress: spAddress,
-        providerId: this.getProviderIdForLogging(spAddress),
+        providerId: this.getProviderIdForLogging(spAddress) ?? -1,
       };
       try {
         await provisionDataSets(

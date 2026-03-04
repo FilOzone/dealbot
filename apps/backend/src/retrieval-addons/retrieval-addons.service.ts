@@ -157,7 +157,7 @@ export class RetrievalAddonsService {
       jobId: logContext?.jobId || "",
       dealId: config.deal.id,
       providerAddress: config.storageProvider,
-      providerId: config.deal.storageProvider?.providerId ?? logContext?.providerId,
+      providerId: config.deal.storageProvider?.providerId ?? logContext?.providerId ?? -1,
       pieceCid: config.deal.pieceCid,
       ipfsRootCID: config.deal.metadata?.[ServiceType.IPFS_PIN]?.rootCID,
     };
@@ -289,7 +289,7 @@ export class RetrievalAddonsService {
       ...logContext,
       jobId: logContext?.jobId || "",
       dealId: config.deal.id,
-      providerId: config.deal.storageProvider?.providerId ?? logContext?.providerId,
+      providerId: config.deal.storageProvider?.providerId ?? logContext?.providerId ?? -1,
       providerAddress: config.deal.spAddress,
       pieceCid: config.deal.pieceCid,
       ipfsRootCID: config.deal.metadata?.[ServiceType.IPFS_PIN]?.rootCID,

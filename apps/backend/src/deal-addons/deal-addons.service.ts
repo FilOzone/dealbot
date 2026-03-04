@@ -1,6 +1,6 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { awaitWithAbort } from "../common/abort-utils.js";
-import { DealLogContext, toStructuredError } from "../common/logging.js";
+import { type DealLogContext, toStructuredError } from "../common/logging.js";
 import type { Deal } from "../database/entities/deal.entity.js";
 import type { DealMetadata } from "../database/types.js";
 import { ServiceType } from "../database/types.js";
@@ -135,7 +135,7 @@ export class DealAddonsService {
       ...logContext,
       jobId: logContext?.jobId || "",
       dealId: deal.id,
-      providerId: deal.storageProvider?.providerId ?? logContext?.providerId,
+      providerId: deal.storageProvider?.providerId ?? logContext?.providerId ?? -1,
       providerAddress: deal.spAddress,
       pieceCid: deal.pieceCid,
       ipfsRootCID: deal.metadata?.[ServiceType.IPFS_PIN]?.rootCID,
@@ -175,7 +175,7 @@ export class DealAddonsService {
       ...logContext,
       jobId: logContext?.jobId || "",
       dealId: deal.id,
-      providerId: deal.storageProvider?.providerId ?? logContext?.providerId,
+      providerId: deal.storageProvider?.providerId ?? logContext?.providerId ?? -1,
       providerAddress: deal.spAddress,
       pieceCid: deal.pieceCid,
       ipfsRootCID: deal.metadata?.[ServiceType.IPFS_PIN]?.rootCID,

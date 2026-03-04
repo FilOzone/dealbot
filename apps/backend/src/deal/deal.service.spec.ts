@@ -6,7 +6,7 @@ import { getRepositoryToken } from "@nestjs/typeorm";
 import { executeUpload } from "filecoin-pin";
 import { CID } from "multiformats/cid";
 import { afterEach, beforeEach, describe, expect, it, Mock, vi } from "vitest";
-import { DataSetLogContext } from "../common/logging.js";
+import type { DataSetLogContext } from "../common/logging.js";
 import { Deal } from "../database/entities/deal.entity.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
 import { DealStatus } from "../database/types.js";
@@ -1002,6 +1002,7 @@ describe("DealService", () => {
     const logContext: DataSetLogContext = {
       jobId: "1",
       providerAddress: "0xprovider",
+      providerId: 1,
       dataSetIndex: 0,
     };
 

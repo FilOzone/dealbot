@@ -62,13 +62,14 @@ export function toStructuredError(error: unknown): StructuredError {
 }
 
 /**
- * Common base logging context for deal and retrieval operations
+ * Common base logging context for deal and retrieval operations.
+ * providerId is required when we have providerAddress (resolved before kickoff).
  */
 export type BaseDealRetrievalLogContext = {
   jobId: string;
   dealId: string;
   providerAddress: string;
-  providerId?: number;
+  providerId: number;
   pieceCid?: string;
   ipfsRootCID?: string;
 };
@@ -89,7 +90,7 @@ export type RetrievalLogContext = BaseDealRetrievalLogContext;
 export type DataSetLogContext = {
   jobId: string;
   providerAddress: string;
-  providerId?: number;
+  providerId: number;
   dataSetId?: number;
   dataSetIndex?: number;
   metadata?: Record<string, string>;
@@ -101,5 +102,5 @@ export type DataSetLogContext = {
 export type JobLogContext = {
   jobId: string;
   providerAddress: string;
-  providerId?: number;
+  providerId: number;
 };

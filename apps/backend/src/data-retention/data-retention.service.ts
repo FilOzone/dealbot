@@ -110,10 +110,13 @@ export class DataRetentionService {
           processingResults.forEach((result, index) => {
             if (result.status === "rejected") {
               hasProcessingErrors = true;
+              const addr = providersFromSubgraph[index].address;
+              const providerInfo = providerInfoMap.get(addr.toLowerCase());
               this.logger.error({
                 event: "provider_processing_failed",
-                message: `Failed to process provider ${providersFromSubgraph[index].address}`,
-                providerAddress: providersFromSubgraph[index].address,
+                message: `Failed to process provider ${addr}`,
+                providerAddress: addr,
+                providerId: providerInfo?.id,
                 error: toStructuredError(result.reason),
               });
             }
@@ -241,10 +244,12 @@ export class DataRetentionService {
         }
       } catch (error) {
         // If Prometheus removal fails, leave the baseline in the map
+        const provider = providerLookup.get(address);
         this.logger.error({
           event: "provider_metrics_cleanup_failed",
           message: `Failed to cleanup metrics for provider ${address}. Baseline retained to prevent metric inflation.`,
           providerAddress: address,
+          providerId: provider?.providerId,
           error: toStructuredError(error),
         });
       }
@@ -284,6 +289,7 @@ export class DataRetentionService {
         event: "negative_delta_detected",
         message: `Negative delta detected for provider ${address}`,
         providerAddress: address,
+        providerId: providerInfo.id,
         faultedDelta: faultedDelta.toString(),
         successDelta: successDelta.toString(),
       });
