@@ -273,6 +273,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
             message: `Skipping unknown SP job type "${String(job.data.jobType)}" for ${job.data.spAddress}`,
             jobType: job.data.jobType,
             providerAddress: job.data.spAddress,
+            providerId: this.getProviderIdForLogging(job.data.spAddress),
           });
         },
       )
@@ -336,6 +337,10 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     return getMaintenanceWindowStatus(now, scheduling.maintenanceWindowsUtc, scheduling.maintenanceWindowMinutes);
   }
 
+  private getProviderIdForLogging(spAddress: string): number | undefined {
+    return this.walletSdkService.getProviderInfo(spAddress)?.id;
+  }
+
   private logMaintenanceSkip(taskLabel: string, windowLabel?: string, logContext?: Partial<JobLogContext>) {
     const scheduling = this.configService.get("scheduling");
     const label = windowLabel ?? "unknown";
@@ -355,7 +360,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       this.logMaintenanceSkip(`deal job for ${spAddress}`, maintenance.window?.label, {
         jobId: job.id,
         providerAddress: spAddress,
-        providerId: this.walletSdkService.getProviderInfo(spAddress)?.id,
+        providerId: this.getProviderIdForLogging(spAddress),
       });
       await this.deferJobForMaintenance("deal", data, maintenance, now);
       return;
@@ -481,7 +486,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       this.logMaintenanceSkip(`retrieval job for ${spAddress}`, maintenance.window?.label, {
         jobId: job.id,
         providerAddress: spAddress,
-        providerId: this.walletSdkService.getProviderInfo(spAddress)?.id,
+        providerId: this.getProviderIdForLogging(spAddress),
       });
       await this.deferJobForMaintenance("retrieval", data, maintenance, now);
       return;
@@ -501,7 +506,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       const logContext = {
         jobId: job.id,
         providerAddress: spAddress,
-        providerId: this.walletSdkService.getProviderInfo(spAddress)?.id,
+        providerId: this.getProviderIdForLogging(spAddress),
       };
       try {
         await this.retrievalService.performRandomRetrievalForProvider(spAddress, abortController.signal, logContext);
@@ -581,7 +586,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       this.logMaintenanceSkip(`data_set_creation job for ${spAddress}`, maintenance.window?.label, {
         jobId: job.id,
         providerAddress: spAddress,
-        providerId: this.walletSdkService.getProviderInfo(spAddress)?.id,
+        providerId: this.getProviderIdForLogging(spAddress),
       });
       await this.deferJobForMaintenance("data_set_creation", data, maintenance, now);
       return;
@@ -605,7 +610,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       const dataSetLogContext = {
         jobId: job.id,
         providerAddress: spAddress,
-        providerId: this.walletSdkService.getProviderInfo(spAddress)?.id,
+        providerId: this.getProviderIdForLogging(spAddress),
       };
       try {
         await provisionDataSets(
