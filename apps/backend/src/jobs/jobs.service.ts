@@ -5,7 +5,7 @@ import { InjectMetric } from "@willsoto/nestjs-prometheus";
 import { type Job, PgBoss, type SendOptions } from "pg-boss";
 import type { Counter, Gauge, Histogram } from "prom-client";
 import type { Repository } from "typeorm";
-import { DealLogContext, toStructuredError } from "../common/logging.js";
+import { DealLogContext, JobLogContext, toStructuredError } from "../common/logging.js";
 import { getMaintenanceWindowStatus } from "../common/maintenance-window.js";
 import type { IConfig } from "../config/app.config.js";
 import { DataRetentionService } from "../data-retention/data-retention.service.js";
@@ -336,16 +336,14 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     return getMaintenanceWindowStatus(now, scheduling.maintenanceWindowsUtc, scheduling.maintenanceWindowMinutes);
   }
 
-  private logMaintenanceSkip(taskLabel: string, windowLabel?: string, spAddress?: string) {
+  private logMaintenanceSkip(taskLabel: string, windowLabel?: string, logContext?: Partial<JobLogContext>) {
     const scheduling = this.configService.get("scheduling");
     const label = windowLabel ?? "unknown";
-    const logPayload: Record<string, unknown> = {
+    this.logger.log({
+      ...logContext,
       event: "maintenance_window_active",
       message: `Maintenance window active (${label} UTC, ${scheduling.maintenanceWindowMinutes}m); deferring ${taskLabel}`,
-    };
-    if (spAddress) logPayload.providerAddress = spAddress;
-
-    this.logger.log(logPayload);
+    });
   }
 
   private async handleDealJob(job: SpJob): Promise<void> {
@@ -354,7 +352,11 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     const now = new Date();
     const maintenance = this.getMaintenanceWindowStatus(now);
     if (maintenance.active) {
-      this.logMaintenanceSkip(`deal job for ${spAddress}`, maintenance.window?.label, spAddress);
+      this.logMaintenanceSkip(`deal job for ${spAddress}`, maintenance.window?.label, {
+        jobId: job.id,
+        providerAddress: spAddress,
+        providerId: this.walletSdkService.getProviderInfo(spAddress)?.id,
+      });
       await this.deferJobForMaintenance("deal", data, maintenance, now);
       return;
     }
@@ -476,7 +478,11 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     const now = new Date();
     const maintenance = this.getMaintenanceWindowStatus(now);
     if (maintenance.active) {
-      this.logMaintenanceSkip(`retrieval job for ${spAddress}`, maintenance.window?.label, spAddress);
+      this.logMaintenanceSkip(`retrieval job for ${spAddress}`, maintenance.window?.label, {
+        jobId: job.id,
+        providerAddress: spAddress,
+        providerId: this.walletSdkService.getProviderInfo(spAddress)?.id,
+      });
       await this.deferJobForMaintenance("retrieval", data, maintenance, now);
       return;
     }
@@ -572,7 +578,11 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     const now = new Date();
     const maintenance = this.getMaintenanceWindowStatus(now);
     if (maintenance.active) {
-      this.logMaintenanceSkip(`data_set_creation job for ${spAddress}`, maintenance.window?.label, spAddress);
+      this.logMaintenanceSkip(`data_set_creation job for ${spAddress}`, maintenance.window?.label, {
+        jobId: job.id,
+        providerAddress: spAddress,
+        providerId: this.walletSdkService.getProviderInfo(spAddress)?.id,
+      });
       await this.deferJobForMaintenance("data_set_creation", data, maintenance, now);
       return;
     }

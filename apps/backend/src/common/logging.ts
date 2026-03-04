@@ -94,3 +94,12 @@ export type DataSetLogContext = {
   dataSetIndex?: number;
   metadata?: Record<string, string>;
 };
+
+/**
+ * Structured logging context for job-level operations
+ */
+export type JobLogContext = {
+  jobId: string;
+  providerAddress: string;
+  providerId?: number;
+};
