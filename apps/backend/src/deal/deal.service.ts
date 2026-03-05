@@ -1,12 +1,9 @@
-import { randomBytes, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import {
   METADATA_KEYS,
-  PDPAuthHelper,
-  PDPServer,
   RPC_URLS,
   SIZE_CONSTANTS,
   Synapse,
-  WarmStorageService,
 } from "@filoz/synapse-sdk";
 import { Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
@@ -18,7 +15,6 @@ import { awaitWithAbort } from "../common/abort-utils.js";
 import { buildUnixfsCar } from "../common/car-utils.js";
 import { createFilecoinPinLogger } from "../common/filecoin-pin-logger.js";
 import {
-  type DataSetLogContext,
   type DealLogContext,
   type ProviderJobContext,
   toStructuredError,
@@ -539,78 +535,6 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     );
     signal?.throwIfAborted();
     return context.dataSetId !== undefined;
-  }
-
-  /**
-   * Creates an on-chain data-set for a provider with the given metadata.
-   *
-   * Uses PDPServer.createDataSet() for submission and the SDK's
-   * WarmStorageService.waitForDataSetCreationWithStatus() for confirmation.
-   *
-   * @returns The confirmed on-chain data-set ID.
-   */
-  async createDataSet(
-    providerAddress: string,
-    metadata: Record<string, string>,
-    dataSetLogContext: DataSetLogContext,
-    signal?: AbortSignal,
-  ): Promise<{ dataSetId: number }> {
-    signal?.throwIfAborted();
-    const synapse = this.sharedSynapse ?? (await this.createSynapseInstance());
-    const provider = this.walletSdkService.getProviderInfo(providerAddress);
-    if (!provider) {
-      throw new Error(`Provider ${providerAddress} not found in registry`);
-    }
-
-    const serviceURL = provider.products.PDP?.data.serviceURL;
-    if (!serviceURL) {
-      throw new Error(`Provider ${providerAddress} has no PDP serviceURL`);
-    }
-
-    const signer = synapse.getSigner();
-    const warmStorageAddress = synapse.getWarmStorageAddress();
-    const chainId = synapse.getChainId();
-    const authHelper = new PDPAuthHelper(warmStorageAddress, signer, BigInt(chainId));
-    const pdpServer = new PDPServer(authHelper, serviceURL);
-
-    const metadataEntries = Object.entries(metadata).map(([key, value]) => ({ key, value }));
-
-    const payer = await synapse.getClient().getAddress();
-    const clientDataSetId = BigInt(`0x${randomBytes(32).toString("hex")}`);
-
-    const result = await awaitWithAbort(
-      pdpServer.createDataSet(clientDataSetId, provider.payee, payer, metadataEntries, warmStorageAddress),
-      signal,
-    );
-    signal?.throwIfAborted();
-
-    this.logger.log({
-      ...dataSetLogContext,
-      event: "data_set_creation_tx_submitted",
-      message: `Data-set creation tx submitted`,
-      txHash: result.txHash,
-    });
-
-    const warmStorageService = await awaitWithAbort(
-      WarmStorageService.create(synapse.getProvider(), warmStorageAddress),
-      signal,
-    );
-    const confirmed = await awaitWithAbort(
-      warmStorageService.waitForDataSetCreationWithStatus(result.txHash, pdpServer, 60 * 5000, 5000),
-      signal,
-    );
-    if (confirmed.summary.dataSetId == null) {
-      throw new Error(`Data-set creation completed without dataSetId for tx: ${result.txHash}`);
-    }
-
-    this.logger.log({
-      ...dataSetLogContext,
-      event: "data_set_creation_completed",
-      message: `Data-set created on-chain`,
-      dataSetId: confirmed.summary.dataSetId,
-    });
-
-    return { dataSetId: confirmed.summary.dataSetId };
   }
 
   /**
