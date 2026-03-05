@@ -1054,7 +1054,7 @@ describe("JobsService schedule rows", () => {
       getTestingDealOptions: vi.fn(() => ({ enableIpni: true })),
       getBaseDataSetMetadata: vi.fn(() => ({ withIpniIndexing: "" })),
       checkDataSetExists: vi.fn(async () => false),
-      createDataSet: vi.fn(async () => ({ dataSetId: 1 })),
+      createDataSetWithPiece: vi.fn(async () => {}),
     };
 
     const walletSdkService = {
@@ -1071,17 +1071,10 @@ describe("JobsService schedule rows", () => {
       data: { jobType: "data_set_creation", spAddress: "0xaaa", intervalSeconds: 3600 },
     });
 
-    expect(dealService.createDataSet).toHaveBeenCalledTimes(1);
-    expect(dealService.createDataSet).toHaveBeenCalledWith(
+    expect(dealService.createDataSetWithPiece).toHaveBeenCalledTimes(1);
+    expect(dealService.createDataSetWithPiece).toHaveBeenCalledWith(
       "0xaaa",
       { withIpniIndexing: "" },
-      {
-        jobId: "job-ds-1",
-        dataSetIndex: 0,
-        providerAddress: "0xaaa",
-        providerId: 1,
-        metadata: { withIpniIndexing: "" },
-      },
       expect.any(AbortSignal),
     );
   });
@@ -1102,7 +1095,7 @@ describe("JobsService schedule rows", () => {
       getTestingDealOptions: vi.fn(() => ({ enableIpni: false })),
       getBaseDataSetMetadata: vi.fn(() => ({ dealbotDataSetVersion: "v1" })),
       checkDataSetExists: vi.fn(async () => true),
-      createDataSet: vi.fn(async () => ({ dataSetId: 4 })),
+      createDataSetWithPiece: vi.fn(async () => {}),
     };
 
     const walletSdkService = {
@@ -1120,7 +1113,7 @@ describe("JobsService schedule rows", () => {
       data: { jobType: "data_set_creation", spAddress: "0xaaa", intervalSeconds: 3600 },
     });
 
-    expect(dealService.createDataSet).not.toHaveBeenCalled();
+    expect(dealService.createDataSetWithPiece).not.toHaveBeenCalled();
     expect(dealService.checkDataSetExists).toHaveBeenCalledWith(
       "0xaaa",
       { dealbotDataSetVersion: "v1" },
@@ -1143,7 +1136,7 @@ describe("JobsService schedule rows", () => {
       getTestingDealOptions: vi.fn(() => ({ enableIpni: false })),
       getBaseDataSetMetadata: vi.fn(() => ({ dealbotDataSetVersion: "v1" })),
       checkDataSetExists: vi.fn(async () => false),
-      createDataSet: vi.fn(async () => ({ dataSetId: 1 })),
+      createDataSetWithPiece: vi.fn(async () => {}),
     };
 
     const walletSdkService = {
@@ -1161,41 +1154,20 @@ describe("JobsService schedule rows", () => {
       data: { jobType: "data_set_creation", spAddress: "0xaaa", intervalSeconds: 3600 },
     });
 
-    expect(dealService.createDataSet).toHaveBeenCalledTimes(3);
-    expect(dealService.createDataSet).toHaveBeenCalledWith(
+    expect(dealService.createDataSetWithPiece).toHaveBeenCalledTimes(3);
+    expect(dealService.createDataSetWithPiece).toHaveBeenCalledWith(
       "0xaaa",
       { dealbotDataSetVersion: "v1" },
-      {
-        jobId: "job-ds-3",
-        dataSetIndex: 0,
-        providerAddress: "0xaaa",
-        providerId: 1,
-        metadata: { dealbotDataSetVersion: "v1" },
-      },
       expect.any(AbortSignal),
     );
-    expect(dealService.createDataSet).toHaveBeenCalledWith(
+    expect(dealService.createDataSetWithPiece).toHaveBeenCalledWith(
       "0xaaa",
       { dealbotDataSetVersion: "v1", dealbotDS: "1" },
-      {
-        jobId: "job-ds-3",
-        dataSetIndex: 1,
-        providerAddress: "0xaaa",
-        providerId: 1,
-        metadata: { dealbotDataSetVersion: "v1", dealbotDS: "1" },
-      },
       expect.any(AbortSignal),
     );
-    expect(dealService.createDataSet).toHaveBeenCalledWith(
+    expect(dealService.createDataSetWithPiece).toHaveBeenCalledWith(
       "0xaaa",
       { dealbotDataSetVersion: "v1", dealbotDS: "2" },
-      {
-        jobId: "job-ds-3",
-        dataSetIndex: 2,
-        providerAddress: "0xaaa",
-        providerId: 1,
-        metadata: { dealbotDataSetVersion: "v1", dealbotDS: "2" },
-      },
       expect.any(AbortSignal),
     );
   });
@@ -1203,7 +1175,7 @@ describe("JobsService schedule rows", () => {
   it("data_set_creation job stops provisioning when abort signal fires", async () => {
     const dealService = {
       checkDataSetExists: vi.fn(async () => false),
-      createDataSet: vi.fn(async () => ({ dataSetId: 1 })),
+      createDataSetWithPiece: vi.fn(async () => {}),
     };
 
     const logger = { log: vi.fn() } as any;
@@ -1226,6 +1198,6 @@ describe("JobsService schedule rows", () => {
     ).rejects.toThrow("Job timed out");
 
     // No datasets should have been created since abort was already signaled
-    expect(dealService.createDataSet).not.toHaveBeenCalled();
+    expect(dealService.createDataSetWithPiece).not.toHaveBeenCalled();
   });
 });

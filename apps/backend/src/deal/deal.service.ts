@@ -1,12 +1,9 @@
-import { randomBytes, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import {
   METADATA_KEYS,
-  PDPAuthHelper,
-  PDPServer,
   RPC_URLS,
   SIZE_CONSTANTS,
   Synapse,
-  WarmStorageService,
 } from "@filoz/synapse-sdk";
 import { Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
@@ -18,7 +15,6 @@ import { awaitWithAbort } from "../common/abort-utils.js";
 import { buildUnixfsCar } from "../common/car-utils.js";
 import { createFilecoinPinLogger } from "../common/filecoin-pin-logger.js";
 import {
-  type DataSetLogContext,
   type DealLogContext,
   type ProviderJobContext,
   toStructuredError,
@@ -32,7 +28,11 @@ import { DataSourceService } from "../dataSource/dataSource.service.js";
 import { DealAddonsService } from "../deal-addons/deal-addons.service.js";
 import type { DealPreprocessingResult } from "../deal-addons/types.js";
 import { buildCheckMetricLabels, classifyFailureStatus } from "../metrics/utils/check-metric-labels.js";
-import { DataStorageCheckMetrics, RetrievalCheckMetrics } from "../metrics/utils/check-metrics.service.js";
+import {
+  DataSetCreationCheckMetrics,
+  DataStorageCheckMetrics,
+  RetrievalCheckMetrics,
+} from "../metrics/utils/check-metrics.service.js";
 import { RetrievalAddonsService } from "../retrieval-addons/retrieval-addons.service.js";
 import type { RetrievalConfiguration } from "../retrieval-addons/types.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
@@ -69,6 +69,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     private readonly storageProviderRepository: Repository<StorageProvider>,
     private readonly dataStorageMetrics: DataStorageCheckMetrics,
     private readonly retrievalMetrics: RetrievalCheckMetrics,
+    private readonly dataSetCreationMetrics: DataSetCreationCheckMetrics,
   ) {
     this.blockchainConfig = this.configService.get("blockchain");
   }
@@ -537,75 +538,173 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Creates an on-chain data-set for a provider with the given metadata.
+   * Creates an on-chain data-set with a minimal 200 KiB piece for a provider.
+   * Uses createContext + executeUpload (same flow as data storage check) instead of
+   * PDPServer.createDataSet, since empty datasets are being removed from curio and synapse-sdk.
    *
-   * Uses PDPServer.createDataSet() for submission and the SDK's
-   * WarmStorageService.waitForDataSetCreationWithStatus() for confirmation.
-   *
-   * @returns The confirmed on-chain data-set ID.
+   * Goal: ensure the dataset is created and exists. No IPNI verification, retrieval checks,
+   * or any post-upload steps. Skips Deal persistence and all data-storage-check metrics.
    */
-  async createDataSet(
+  async createDataSetWithPiece(
     providerAddress: string,
     metadata: Record<string, string>,
-    dataSetLogContext: DataSetLogContext,
     signal?: AbortSignal,
-  ): Promise<{ dataSetId: number }> {
+  ): Promise<void> {
     signal?.throwIfAborted();
-    const synapse = this.sharedSynapse ?? (await this.createSynapseInstance());
-    const provider = this.walletSdkService.getProviderInfo(providerAddress);
-    if (!provider) {
+    const providerInfo = this.walletSdkService.getProviderInfo(providerAddress);
+    if (!providerInfo) {
       throw new Error(`Provider ${providerAddress} not found in registry`);
     }
-
-    const serviceURL = provider.products.PDP?.data.serviceURL;
-    if (!serviceURL) {
-      throw new Error(`Provider ${providerAddress} has no PDP serviceURL`);
-    }
-
-    const signer = synapse.getSigner();
-    const warmStorageAddress = synapse.getWarmStorageAddress();
-    const chainId = synapse.getChainId();
-    const authHelper = new PDPAuthHelper(warmStorageAddress, signer, BigInt(chainId));
-    const pdpServer = new PDPServer(authHelper, serviceURL);
-
-    const metadataEntries = Object.entries(metadata).map(([key, value]) => ({ key, value }));
-
-    const payer = await synapse.getClient().getAddress();
-    const clientDataSetId = BigInt(`0x${randomBytes(32).toString("hex")}`);
-
-    const result = await awaitWithAbort(
-      pdpServer.createDataSet(clientDataSetId, provider.payee, payer, metadataEntries, warmStorageAddress),
-      signal,
-    );
-    signal?.throwIfAborted();
-
-    this.logger.log({
-      ...dataSetLogContext,
-      event: "data_set_creation_tx_submitted",
-      message: `Data-set creation tx submitted`,
-      txHash: result.txHash,
+    const labels = buildCheckMetricLabels({
+      checkType: "dataSetCreation",
+      providerId: providerInfo.id,
+      providerIsApproved: providerInfo.isApproved,
     });
 
-    const warmStorageService = await awaitWithAbort(
-      WarmStorageService.create(synapse.getProvider(), warmStorageAddress),
-      signal,
-    );
-    const confirmed = await awaitWithAbort(
-      warmStorageService.waitForDataSetCreationWithStatus(result.txHash, pdpServer, 60 * 5000, 5000),
-      signal,
-    );
-    if (confirmed.summary.dataSetId == null) {
-      throw new Error(`Data-set creation completed without dataSetId for tx: ${result.txHash}`);
-    }
-
+    const startedAt = Date.now();
+    this.dataSetCreationMetrics.recordStatus(labels, "pending");
     this.logger.log({
-      ...dataSetLogContext,
-      event: "data_set_creation_completed",
-      message: `Data-set created on-chain`,
-      dataSetId: confirmed.summary.dataSetId,
+      event: "dataset_creation_with_piece_started",
+      message: "Starting data-set creation with piece",
+      providerAddress,
+      providerId: providerInfo.id,
+      metadata,
     });
 
-    return { dataSetId: confirmed.summary.dataSetId };
+    let pieceAdded = false;
+    let pieceConfirmed = false;
+    let pieceCid: string | undefined;
+    let pieceId: number | undefined;
+    let transactionHash: string | undefined;
+
+    try {
+      const synapse = this.sharedSynapse ?? (await this.createSynapseInstance());
+      signal?.throwIfAborted();
+
+      const DATA_SET_CREATION_PIECE_SIZE = 200 * 1024; // 200 KiB
+      const payload = Buffer.alloc(DATA_SET_CREATION_PIECE_SIZE, 0x61);
+      const dataFile = {
+        data: payload,
+        size: DATA_SET_CREATION_PIECE_SIZE,
+        name: "dataset-seed.bin",
+      };
+
+      const carResult = await buildUnixfsCar(dataFile, { signal });
+      signal?.throwIfAborted();
+
+      const storage = await awaitWithAbort(
+        synapse.storage.createContext({
+          providerAddress,
+          metadata,
+        }),
+        signal,
+      );
+      signal?.throwIfAborted();
+
+      const filecoinPinLogger = createFilecoinPinLogger(this.logger);
+      const synapseService = { synapse, storage, providerInfo } as unknown as SynapseServiceArg;
+
+      const uploadResult = (await awaitWithAbort(
+        executeUpload(synapseService, carResult.carData, carResult.rootCID, {
+          logger: filecoinPinLogger,
+          contextId: providerAddress,
+          pieceMetadata: {},
+          ipniValidation: { enabled: false },
+          onProgress: async (event) => {
+            switch (event.type) {
+              case "onUploadComplete":
+                pieceCid = event.data.pieceCid.toString();
+                this.logger.debug({
+                  event: "dataset_creation_upload_complete",
+                  message: "Data-set creation upload complete",
+                  providerAddress,
+                  providerId: providerInfo.id,
+                  pieceCid,
+                });
+                break;
+              case "onPieceAdded":
+                pieceAdded = true;
+                this.logger.debug({
+                  event: "dataset_creation_piece_added",
+                  message: "Data-set creation piece added",
+                  providerAddress,
+                  providerId: providerInfo.id,
+                  txHash: event.data.txHash ?? "unknown",
+                });
+                break;
+              case "onPieceConfirmed":
+                pieceConfirmed = true;
+                this.logger.debug({
+                  event: "dataset_creation_piece_confirmed",
+                  message: "Data-set creation piece confirmed",
+                  providerAddress,
+                  providerId: providerInfo.id,
+                  pieceIds: event.data.pieceIds,
+                });
+                break;
+            }
+            signal?.throwIfAborted();
+          },
+        }),
+        signal,
+      )) as Partial<UploadResultSummary> | undefined;
+
+      pieceCid = pieceCid ?? uploadResult?.pieceCid;
+      pieceId = uploadResult?.pieceId;
+      transactionHash = uploadResult?.transactionHash;
+
+      const durationMs = Date.now() - startedAt;
+      this.dataSetCreationMetrics.observeCheckDuration(labels, durationMs);
+
+      if (!pieceCid) {
+        throw new Error("Data-set creation upload completed without producing a pieceCid");
+      }
+
+      this.dataSetCreationMetrics.recordStatus(labels, "success");
+
+      if (!pieceAdded || !pieceConfirmed) {
+        this.logger.warn({
+          event: "dataset_creation_missing_onchain_events",
+          message: "Data-set creation succeeded without full on-chain progress events",
+          providerAddress,
+          providerId: providerInfo.id,
+          pieceAdded,
+          pieceConfirmed,
+        });
+      }
+
+      this.logger.log({
+        event: "dataset_creation_with_piece_succeeded",
+        message: "Data-set created with piece",
+        providerAddress,
+        providerId: providerInfo.id,
+        durationMs,
+        dataSetId: storage.dataSetId ?? "unknown",
+        pieceCid: pieceCid ?? "unknown",
+        pieceId: pieceId ?? "unknown",
+        txHash: transactionHash ?? "unknown",
+        pieceAdded,
+        pieceConfirmed,
+      });
+    } catch (error) {
+      const durationMs = Date.now() - startedAt;
+      this.dataSetCreationMetrics.observeCheckDuration(labels, durationMs);
+      this.dataSetCreationMetrics.recordStatus(labels, classifyFailureStatus(error));
+      this.logger.error({
+        event: "dataset_creation_with_piece_failed",
+        message: "Data-set creation with piece failed",
+        providerAddress,
+        providerId: providerInfo.id,
+        durationMs,
+        pieceAdded,
+        pieceConfirmed,
+        pieceCid,
+        pieceId,
+        transactionHash,
+        error: toStructuredError(error),
+      });
+      throw error;
+    }
   }
 
   // ============================================================================

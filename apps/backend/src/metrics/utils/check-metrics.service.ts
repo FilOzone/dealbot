@@ -207,3 +207,21 @@ export class DiscoverabilityCheckMetrics {
     });
   }
 }
+
+@Injectable()
+export class DataSetCreationCheckMetrics {
+  constructor(
+    @InjectMetric("dataSetCreationMs")
+    private readonly dataSetCreationMs: Histogram,
+    @InjectMetric("dataSetCreationStatus")
+    private readonly dataSetCreationStatusCounter: Counter,
+  ) {}
+
+  observeCheckDuration(labels: CheckMetricLabels, value: number | null | undefined): void {
+    observePositive(this.dataSetCreationMs, labels, value);
+  }
+
+  recordStatus(labels: CheckMetricLabels, value: string): void {
+    this.dataSetCreationStatusCounter.inc({ ...labels, value });
+  }
+}

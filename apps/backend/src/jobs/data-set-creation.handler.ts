@@ -3,7 +3,7 @@ import type { DataSetLogContext, ProviderJobContext } from "../common/logging.js
 import type { DealService } from "../deal/deal.service.js";
 
 export interface DataSetCreationDeps {
-  dealService: Pick<DealService, "checkDataSetExists" | "createDataSet">;
+  dealService: Pick<DealService, "checkDataSetExists" | "createDataSetWithPiece">;
   logger: Logger;
 }
 
@@ -14,7 +14,8 @@ export interface DataSetCreationDeps {
  * Index 0 is the initial data-set (no dealbotDS metadata).
  * Indices 1+ are tagged with { dealbotDS: String(i) }.
  *
- * Uses pdpServer.createDataSet() for actual on-chain data-set creation.
+ * Uses createContext + executeUpload with a 200 KiB piece for on-chain data-set creation
+ * (empty datasets are being removed from curio and synapse-sdk).
  */
 export async function provisionDataSets(
   deps: DataSetCreationDeps,
@@ -48,13 +49,12 @@ export async function provisionDataSets(
       continue;
     }
 
-    const result = await dealService.createDataSet(spAddress, metadata, logContext, signal);
-
+    logger.log(`Creating data-set #${i} for provider ${spAddress}`);
+    await dealService.createDataSetWithPiece(spAddress, metadata, signal);
     logger.log({
       ...logContext,
       event: "data_set_provisioned",
       message: `Created data-set #${i} for provider ${spAddress}`,
-      dataSetId: result.dataSetId,
     });
     createdCount++;
   }
