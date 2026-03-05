@@ -154,10 +154,10 @@ export class RetrievalAddonsService {
 
     const retrievalLogContext: RetrievalLogContext = {
       ...logContext,
-      jobId: logContext?.jobId || "",
+      jobId: logContext?.jobId,
       dealId: config.deal.id,
       providerAddress: config.storageProvider,
-      providerId: config.deal.storageProvider?.providerId ?? logContext?.providerId ?? -1,
+      providerId: config.deal.storageProvider?.providerId ?? logContext?.providerId,
       pieceCid: config.deal.pieceCid,
       ipfsRootCID: config.deal.metadata?.[ServiceType.IPFS_PIN]?.rootCID,
     };
@@ -196,7 +196,7 @@ export class RetrievalAddonsService {
       ...logContext,
       event: "retrieval_test_started",
       message: `Testing ${urlResults.length} retrieval methods for deal ${config.deal.id}`,
-      urls: urlResults.map((r) => r.url),
+      urls: urlResults.map((r) => this.sanitizeUrlForLog(r.url)),
     });
 
     // Execute all retrievals in parallel
@@ -287,10 +287,10 @@ export class RetrievalAddonsService {
   ): Promise<RetrievalExecutionResult> {
     const retrievalLogContext: RetrievalLogContext = {
       ...logContext,
-      jobId: logContext?.jobId || "",
+      jobId: logContext?.jobId,
       dealId: config.deal.id,
-      providerId: config.deal.storageProvider?.providerId ?? logContext?.providerId ?? -1,
-      providerAddress: config.deal.spAddress,
+      providerId: config.deal.storageProvider?.providerId ?? logContext?.providerId,
+      providerAddress: config.storageProvider,
       pieceCid: config.deal.pieceCid,
       ipfsRootCID: config.deal.metadata?.[ServiceType.IPFS_PIN]?.rootCID,
     };
@@ -626,6 +626,20 @@ export class RetrievalAddonsService {
     // Handle generic errors with code property (e.g., Node.js system errors)
     const code = (error as { code?: string }).code;
     return typeof code === "string" && code.length > 0 ? code : undefined;
+  }
+
+  private sanitizeUrlForLog(url: string): string {
+    try {
+      const parsed = new URL(url);
+      return parsed.origin;
+    } catch {
+      const stripped = url.split("?")[0].split("#")[0];
+      if (stripped.startsWith("/")) {
+        const firstSegment = stripped.split("/").filter(Boolean)[0];
+        return firstSegment ? `/${firstSegment}` : "/";
+      }
+      return stripped.split("/")[0] || stripped;
+    }
   }
 
   private buildResponsePreview(payload: unknown, maxLength: number = 200): string | undefined {

@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import {
   METADATA_KEYS,
   PDPAuthHelper,
@@ -17,7 +17,12 @@ import type { Repository } from "typeorm";
 import { awaitWithAbort } from "../common/abort-utils.js";
 import { buildUnixfsCar } from "../common/car-utils.js";
 import { createFilecoinPinLogger } from "../common/filecoin-pin-logger.js";
-import { type DataSetLogContext, type DealLogContext, toStructuredError } from "../common/logging.js";
+import {
+  type DataSetLogContext,
+  type DealLogContext,
+  type ProviderJobContext,
+  toStructuredError,
+} from "../common/logging.js";
 import type { DataFile, Hex } from "../common/types.js";
 import type { IBlockchainConfig, IConfig } from "../config/app.config.js";
 import { Deal } from "../database/entities/deal.entity.js";
@@ -121,7 +126,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       existingDealId?: string;
       signal?: AbortSignal;
       extraDataSetMetadata?: Record<string, string>;
-      logContext?: Pick<DealLogContext, "jobId" | "providerAddress" | "providerId">;
+      logContext?: ProviderJobContext;
     },
   ): Promise<Deal> {
     options.signal?.throwIfAborted();
@@ -196,7 +201,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     existingDealId?: string,
     signal?: AbortSignal,
     extraDataSetMetadata?: Record<string, string>,
-    logContext?: Pick<DealLogContext, "jobId" | "providerAddress" | "providerId">,
+    logContext?: ProviderJobContext,
   ): Promise<Deal> {
     const providerAddress = providerInfo.serviceProvider;
     const checkType = "dataStorage" as const;
@@ -219,7 +224,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
         const error = new Error(`Deal not found: ${existingDealId}`);
         this.logger.error({
           ...logContext,
-          jobId: logContext?.jobId || "",
+          jobId: logContext?.jobId,
           dealId: existingDealId,
           providerAddress,
           providerId: providerInfo.id ?? logContext?.providerId,
@@ -233,6 +238,8 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       deal = existingDeal;
     } else {
       deal = this.dealRepository.create();
+      // Set a deterministic ID early so all logs in this run share a stable dealId.
+      deal.id = randomUUID();
     }
 
     deal.fileName = dealInput.processedData.name;
@@ -245,8 +252,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
 
     const dealLogContext: DealLogContext = {
       ...logContext,
-      jobId: logContext?.jobId || "",
-      dealId: deal.id,
+      dealId: existingDealId ?? deal.id,
       providerAddress,
       providerId: providerInfo.id ?? logContext?.providerId,
       ipfsRootCID: uploadPayload.rootCid.toString(),
@@ -257,6 +263,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       deal.storageProvider = await this.storageProviderRepository.findOne({
         where: { address: deal.spAddress },
       });
+      dealLogContext.providerId = deal.storageProvider?.providerId ?? dealLogContext.providerId;
       providerLabels = buildCheckMetricLabels({
         checkType,
         providerId: deal.storageProvider?.providerId,

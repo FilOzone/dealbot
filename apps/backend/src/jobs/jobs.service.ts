@@ -5,7 +5,7 @@ import { InjectMetric } from "@willsoto/nestjs-prometheus";
 import { type Job, PgBoss, type SendOptions } from "pg-boss";
 import type { Counter, Gauge, Histogram } from "prom-client";
 import type { Repository } from "typeorm";
-import { type DealLogContext, type JobLogContext, toStructuredError } from "../common/logging.js";
+import { type JobLogContext, type ProviderJobContext, toStructuredError } from "../common/logging.js";
 import { getMaintenanceWindowStatus } from "../common/maintenance-window.js";
 import type { IConfig } from "../config/app.config.js";
 import { DataRetentionService } from "../data-retention/data-retention.service.js";
@@ -273,7 +273,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
             message: `Skipping unknown SP job type "${String(job.data.jobType)}" for ${job.data.spAddress}`,
             jobType: job.data.jobType,
             providerAddress: job.data.spAddress,
-            providerId: this.getProviderIdForLogging(job.data.spAddress),
+            providerId: this.walletSdkService.getProviderInfo(job.data.spAddress)?.id,
           });
         },
       )
@@ -337,8 +337,31 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     return getMaintenanceWindowStatus(now, scheduling.maintenanceWindowsUtc, scheduling.maintenanceWindowMinutes);
   }
 
-  private getProviderIdForLogging(spAddress: string): number | undefined {
-    return this.walletSdkService.getProviderInfo(spAddress)?.id;
+  private async resolveProviderJobContext(spAddress: string, jobId: string): Promise<ProviderJobContext> {
+    let providerId = this.walletSdkService.getProviderInfo(spAddress)?.id;
+
+    if (providerId == null && process.env.DEALBOT_DISABLE_CHAIN !== "true") {
+      await this.walletSdkService.loadProviders();
+      providerId = this.walletSdkService.getProviderInfo(spAddress)?.id;
+    }
+
+    if (providerId == null) {
+      const provider = await this.storageProviderRepository.findOne({
+        where: { address: spAddress },
+        select: { providerId: true },
+      });
+      providerId = provider?.providerId;
+    }
+
+    if (providerId == null) {
+      throw new Error(`providerId is required for job execution but missing for provider ${spAddress}`);
+    }
+
+    return {
+      jobId,
+      providerAddress: spAddress,
+      providerId,
+    };
   }
 
   private logMaintenanceSkip(taskLabel: string, windowLabel?: string, logContext?: Partial<JobLogContext>) {
@@ -360,7 +383,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       this.logMaintenanceSkip(`deal job for ${spAddress}`, maintenance.window?.label, {
         jobId: job.id,
         providerAddress: spAddress,
-        providerId: this.getProviderIdForLogging(spAddress),
+        providerId: this.walletSdkService.getProviderInfo(spAddress)?.id,
       });
       await this.deferJobForMaintenance("deal", data, maintenance, now);
       return;
@@ -377,10 +400,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     }, timeoutMs);
 
     await this.recordJobExecution("deal", async () => {
-      const logContext: Pick<DealLogContext, "jobId" | "providerAddress"> & { providerId?: number } = {
-        jobId: job.id,
-        providerAddress: spAddress,
-      };
+      const logContext = await this.resolveProviderJobContext(spAddress, job.id);
       try {
         let provider = this.walletSdkService.getTestingProviders().find((p) => p.serviceProvider === spAddress);
         if (!provider) {
@@ -397,7 +417,6 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
             return "success";
           }
         }
-        logContext.providerId = provider.id;
 
         const dealOptions = this.dealService.getTestingDealOptions();
 
@@ -447,7 +466,11 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
           ...dealOptions,
           signal: abortController.signal,
           extraDataSetMetadata,
-          logContext: { jobId: logContext.jobId, providerAddress: logContext.providerAddress, providerId: provider.id },
+          logContext: {
+            jobId: logContext.jobId,
+            providerAddress: logContext.providerAddress,
+            providerId: provider.id ?? logContext.providerId,
+          },
         });
         return "success";
       } catch (error) {
@@ -486,7 +509,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       this.logMaintenanceSkip(`retrieval job for ${spAddress}`, maintenance.window?.label, {
         jobId: job.id,
         providerAddress: spAddress,
-        providerId: this.getProviderIdForLogging(spAddress),
+        providerId: this.walletSdkService.getProviderInfo(spAddress)?.id,
       });
       await this.deferJobForMaintenance("retrieval", data, maintenance, now);
       return;
@@ -503,11 +526,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     }, timeoutMs);
 
     await this.recordJobExecution("retrieval", async () => {
-      const logContext = {
-        jobId: job.id,
-        providerAddress: spAddress,
-        providerId: this.getProviderIdForLogging(spAddress) ?? -1,
-      };
+      const logContext = await this.resolveProviderJobContext(spAddress, job.id);
       try {
         await this.retrievalService.performRandomRetrievalForProvider(spAddress, abortController.signal, logContext);
         return "success";
@@ -586,7 +605,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       this.logMaintenanceSkip(`data_set_creation job for ${spAddress}`, maintenance.window?.label, {
         jobId: job.id,
         providerAddress: spAddress,
-        providerId: this.getProviderIdForLogging(spAddress),
+        providerId: this.walletSdkService.getProviderInfo(spAddress)?.id,
       });
       await this.deferJobForMaintenance("data_set_creation", data, maintenance, now);
       return;
@@ -607,11 +626,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     }, timeoutMs);
 
     await this.recordJobExecution("data_set_creation", async () => {
-      const dataSetLogContext = {
-        jobId: job.id,
-        providerAddress: spAddress,
-        providerId: this.getProviderIdForLogging(spAddress) ?? -1,
-      };
+      const dataSetLogContext = await this.resolveProviderJobContext(spAddress, job.id);
       try {
         await provisionDataSets(
           { dealService: this.dealService, logger: this.logger },

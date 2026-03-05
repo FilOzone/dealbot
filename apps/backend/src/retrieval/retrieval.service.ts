@@ -3,7 +3,7 @@ import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
 import { CID } from "multiformats/cid";
 import type { Repository } from "typeorm";
-import { type RetrievalLogContext, toStructuredError } from "../common/logging.js";
+import { type ProviderJobContext, type RetrievalLogContext, toStructuredError } from "../common/logging.js";
 import type { Hex } from "../common/types.js";
 import type { IConfig } from "../config/app.config.js";
 import { Deal } from "../database/entities/deal.entity.js";
@@ -69,7 +69,7 @@ export class RetrievalService {
   async performRandomRetrievalForProvider(
     spAddress: string,
     signal?: AbortSignal,
-    logContext?: Pick<RetrievalLogContext, "jobId" | "providerAddress" | "providerId">,
+    logContext?: ProviderJobContext,
   ): Promise<Retrieval[]> {
     const deal = await this.selectRandomSuccessfulDealForProvider(spAddress);
     if (!deal) {
@@ -159,7 +159,7 @@ export class RetrievalService {
   private async performAllRetrievals(
     deal: Deal,
     signal?: AbortSignal,
-    logContext?: Pick<RetrievalLogContext, "jobId" | "providerAddress" | "providerId">,
+    logContext?: ProviderJobContext,
   ): Promise<Retrieval[]> {
     signal?.throwIfAborted();
 
@@ -174,9 +174,9 @@ export class RetrievalService {
     });
     const retrievalLogContext: RetrievalLogContext = {
       ...logContext,
-      jobId: logContext?.jobId || "",
+      jobId: logContext?.jobId,
       dealId: deal.id,
-      providerId: provider.providerId ?? logContext?.providerId ?? -1,
+      providerId: provider.providerId ?? logContext?.providerId,
       providerAddress: deal.spAddress,
       pieceCid: deal.pieceCid,
       ipfsRootCID: deal.metadata?.[ServiceType.IPFS_PIN]?.rootCID,

@@ -133,9 +133,8 @@ export class DealAddonsService {
 
     const dealLogContext: DealLogContext = {
       ...logContext,
-      jobId: logContext?.jobId || "",
       dealId: deal.id,
-      providerId: deal.storageProvider?.providerId ?? logContext?.providerId ?? -1,
+      providerId: deal.storageProvider?.providerId ?? logContext?.providerId,
       providerAddress: deal.spAddress,
       pieceCid: deal.pieceCid,
       ipfsRootCID: deal.metadata?.[ServiceType.IPFS_PIN]?.rootCID,
@@ -173,9 +172,8 @@ export class DealAddonsService {
 
     const dealLogContext: DealLogContext = {
       ...logContext,
-      jobId: logContext?.jobId || "",
       dealId: deal.id,
-      providerId: deal.storageProvider?.providerId ?? logContext?.providerId ?? -1,
+      providerId: deal.storageProvider?.providerId ?? logContext?.providerId,
       providerAddress: deal.spAddress,
       pieceCid: deal.pieceCid,
       ipfsRootCID: deal.metadata?.[ServiceType.IPFS_PIN]?.rootCID,

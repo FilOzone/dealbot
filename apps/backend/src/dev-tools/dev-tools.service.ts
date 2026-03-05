@@ -78,6 +78,9 @@ export class DevToolsService {
     if (!providerInfo.active) {
       throw new BadRequestException(`Storage provider is not active: ${spAddress}`);
     }
+    if (providerInfo.id == null) {
+      throw new BadRequestException(`Storage provider is missing providerId: ${spAddress}`);
+    }
 
     // Get IPNI settings from config
     const { enableIpni } = this.dealService.getTestingDealOptions();
@@ -99,7 +102,6 @@ export class DevToolsService {
 
     const dealLogContext: DealLogContext = {
       dealId,
-      jobId: "",
       providerId: providerInfo.id,
       providerAddress: spAddress,
     };
@@ -137,10 +139,18 @@ export class DevToolsService {
     enableIpni: boolean,
     dealLogContext: DealLogContext,
   ): Promise<void> {
+    if (!providerInfo || providerInfo.id == null) {
+      throw new Error(`Missing provider info for background deal ${dealId}`);
+    }
     try {
-      const deal = await this.dealService.createDealForProvider(providerInfo!, {
+      const deal = await this.dealService.createDealForProvider(providerInfo, {
         enableIpni,
         existingDealId: dealId,
+        logContext: {
+          jobId: "dev_tools_manual_deal",
+          providerAddress: providerInfo.serviceProvider,
+          providerId: providerInfo.id,
+        },
       });
 
       this.logger.log(`Background deal ${dealId} completed successfully: ${deal.pieceCid}`);

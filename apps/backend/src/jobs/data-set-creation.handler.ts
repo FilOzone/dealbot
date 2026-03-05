@@ -1,5 +1,5 @@
 import type { Logger } from "@nestjs/common";
-import type { DataSetLogContext } from "../common/logging.js";
+import type { DataSetLogContext, ProviderJobContext } from "../common/logging.js";
 import type { DealService } from "../deal/deal.service.js";
 
 export interface DataSetCreationDeps {
@@ -21,7 +21,7 @@ export async function provisionDataSets(
   spAddress: string,
   minDataSets: number,
   baseDataSetMetadata: Record<string, string>,
-  dataSetLogContext: DataSetLogContext,
+  dataSetLogContext: ProviderJobContext,
   signal?: AbortSignal,
 ): Promise<void> {
   const { dealService, logger } = deps;

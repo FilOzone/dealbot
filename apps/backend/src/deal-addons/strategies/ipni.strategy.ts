@@ -195,10 +195,10 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
 
     const dealLogContext: DealLogContext = {
       ...logContext,
-      jobId: logContext?.jobId || "",
+      jobId: logContext?.jobId,
       dealId: deal.id,
       providerAddress: deal.spAddress,
-      providerId: (deal.storageProvider?.providerId || logContext?.providerId) ?? -1,
+      providerId: deal.storageProvider?.providerId ?? logContext?.providerId,
       pieceCid: deal.pieceCid,
       ipfsRootCID: deal.metadata[this.name]?.rootCID,
     };
@@ -287,7 +287,14 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
     let monitoringResult: PieceMonitoringResult;
     try {
       // we monitor the piece status by calling the SP directly to get piece status. as soon as it's advertised, we can move on to verifying the IPNI advertisement.
-      monitoringResult = await this.monitorPieceStatus(serviceURL, pieceCid, statusTimeoutMs, pollIntervalMs, signal);
+      monitoringResult = await this.monitorPieceStatus(
+        serviceURL,
+        pieceCid,
+        statusTimeoutMs,
+        pollIntervalMs,
+        dealLogContext,
+        signal,
+      );
     } catch (error) {
       signal?.throwIfAborted();
       this.logger.warn({
@@ -310,27 +317,67 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       };
     }
 
-    const rootCidObj = CID.parse(rootCID);
-
-    if (!rootCidObj || blockCIDs.length === 0) {
-      this.logger.warn(`No rootCID or blockCIDs for deal ${deal.id}`);
+    if (!rootCID || blockCIDs.length === 0) {
+      const totalCandidates = blockCIDs.length + (rootCID ? 1 : 0);
+      this.logger.warn({
+        ...dealLogContext,
+        event: "ipni_verification_input_missing",
+        message: `No rootCID or blockCIDs for deal ${deal.id}`,
+        hasRootCID: Boolean(rootCID),
+        blockCIDCount: blockCIDs.length,
+      });
       return {
         monitoringResult,
         ipniResult: {
           verified: 0,
-          unverified: 0,
-          total: blockCIDs.length + (rootCidObj ? 1 : 0),
+          unverified: totalCandidates,
+          total: totalCandidates,
           rootCIDVerified: false,
           durationMs: Infinity, // what is the right value here...
-          failedCIDs: [rootCidObj, ...blockCIDs].map((cid) => ({
-            cid: cid.toString(),
+          failedCIDs: [...(rootCID ? [rootCID] : []), ...blockCIDs.map((cid) => cid.toString())].map((cid) => ({
+            cid,
             reason: "No rootCID or blockCIDs for deal",
           })),
           verifiedAt: new Date().toISOString(),
         },
       };
     }
-    this.logger.log(`Verifying rootCID in IPNI: ${rootCID}`);
+
+    let rootCidObj: CID;
+    try {
+      rootCidObj = CID.parse(rootCID);
+    } catch (error) {
+      this.logger.warn({
+        ...dealLogContext,
+        event: "ipni_verification_input_invalid",
+        message: `Invalid rootCID for deal ${deal.id}`,
+        rootCID,
+        error: toStructuredError(error),
+      });
+      return {
+        monitoringResult,
+        ipniResult: {
+          verified: 0,
+          unverified: blockCIDs.length + 1,
+          total: blockCIDs.length + 1,
+          rootCIDVerified: false,
+          durationMs: Infinity,
+          failedCIDs: [rootCID, ...blockCIDs.map((cid) => cid.toString())].map((cid) => ({
+            cid,
+            reason: "Invalid rootCID for deal",
+          })),
+          verifiedAt: new Date().toISOString(),
+        },
+      };
+    }
+
+    this.logger.log({
+      ...dealLogContext,
+      event: "ipni_root_cid_verification_started",
+      message: `Verifying rootCID in IPNI: ${rootCID}`,
+      rootCID,
+      blockCIDCount: blockCIDs.length,
+    });
     // NOTE: filecoin-pin does not currently validate that all blocks are advertised on IPNI.
     const ipniResult = await this.ipniVerificationService.verify({
       rootCid: rootCidObj,
@@ -347,9 +394,21 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
     );
 
     if (ipniResult.rootCIDVerified) {
-      this.logger.log(`IPNI verified: rootCID ${rootCID} (${(ipniResult.durationMs / 1000).toFixed(1)}s)`);
+      this.logger.log({
+        ...dealLogContext,
+        event: "ipni_root_cid_verified",
+        message: `IPNI verified: rootCID ${rootCID} (${(ipniResult.durationMs / 1000).toFixed(1)}s)`,
+        rootCID,
+        verifyDurationMs: ipniResult.durationMs,
+      });
     } else {
-      this.logger.warn(`IPNI verification failed for rootCID: ${rootCID}`);
+      this.logger.warn({
+        ...dealLogContext,
+        event: "ipni_root_cid_verification_failed",
+        message: `IPNI verification failed for rootCID: ${rootCID}`,
+        rootCID,
+        verifyDurationMs: ipniResult.durationMs,
+      });
     }
 
     return {
@@ -363,6 +422,7 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
     pieceCid: string,
     maxDurationMs: number,
     pollIntervalMs: number,
+    dealLogContext?: DealLogContext,
     signal?: AbortSignal,
   ): Promise<PieceMonitoringResult> {
     const startTime = Date.now();
@@ -396,7 +456,11 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
         if (currentStatus.indexed && !currentStatus.indexedAt) {
           currentStatus.indexedAt = new Date().toISOString();
           if (!lastStatus.indexed) {
-            this.logger.log(`Piece indexed: ${pieceCid}`);
+            this.logger.log({
+              ...dealLogContext,
+              event: "piece_status_indexed",
+              message: `Piece indexed: ${pieceCid}`,
+            });
           }
         }
 
@@ -404,7 +468,11 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
         if (currentStatus.advertised && !currentStatus.advertisedAt) {
           currentStatus.advertisedAt = new Date().toISOString();
           if (!lastStatus.advertised) {
-            this.logger.log(`Piece advertised: ${pieceCid}`);
+            this.logger.log({
+              ...dealLogContext,
+              event: "piece_status_advertised",
+              message: `Piece advertised: ${pieceCid}`,
+            });
           }
           return {
             success: true,
@@ -432,7 +500,12 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
 
     // Timeout reached
     const durationSec = ((Date.now() - startTime) / 1000).toFixed(1);
-    this.logger.warn(`Piece retrieval timeout: ${pieceCid} (${durationSec}s)`);
+    this.logger.warn({
+      ...dealLogContext,
+      event: "piece_status_timeout",
+      message: `Piece retrieval timeout: ${pieceCid} (${durationSec}s)`,
+      durationSec: Number(durationSec),
+    });
     throw new Error(`Timeout waiting for piece retrieval after ${durationSec}s`);
   }
 
