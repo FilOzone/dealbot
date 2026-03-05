@@ -1,3 +1,4 @@
+import type { DealLogContext } from "../../common/logging.js";
 import type { Deal } from "../../database/entities/deal.entity.js";
 import type { DealMetadata, DirectMetadata, IpniMetadata, ServiceType } from "../../database/types.js";
 import type { AddonExecutionContext, DealConfiguration, PreprocessingResult, SynapseConfig } from "../types.js";
@@ -53,7 +54,7 @@ export interface IDealAddon<T extends IpniMetadata | DirectMetadata = any> {
    * @param deal - Deal entity with upload information
    * @returns Promise that resolves when handler is complete
    */
-  onUploadComplete?(deal: Deal, signal?: AbortSignal): Promise<void>;
+  onUploadComplete?(deal: Deal, signal?: AbortSignal, logContext?: Partial<DealLogContext>): Promise<void>;
 
   /**
    * Optional post-processing after deal creation
@@ -62,7 +63,7 @@ export interface IDealAddon<T extends IpniMetadata | DirectMetadata = any> {
    * @param deal - Created deal entity
    * @returns Promise that resolves when post-processing is complete
    */
-  postProcess?(deal: Deal): Promise<void>;
+  postProcess?(deal: Deal, logContext?: Partial<DealLogContext>): Promise<void>;
 
   /**
    * Optional validation of preprocessing result

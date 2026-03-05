@@ -3,7 +3,7 @@ import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
 import { CID } from "multiformats/cid";
 import type { Repository } from "typeorm";
-import { toStructuredError } from "../common/logging.js";
+import { type ProviderJobContext, type RetrievalLogContext, toStructuredError } from "../common/logging.js";
 import type { Hex } from "../common/types.js";
 import type { IConfig } from "../config/app.config.js";
 import { Deal } from "../database/entities/deal.entity.js";
@@ -66,16 +66,28 @@ export class RetrievalService {
     return allRetrievals;
   }
 
-  async performRandomRetrievalForProvider(spAddress: string, signal?: AbortSignal): Promise<Retrieval[]> {
+  async performRandomRetrievalForProvider(
+    spAddress: string,
+    signal?: AbortSignal,
+    logContext?: ProviderJobContext,
+  ): Promise<Retrieval[]> {
     const deal = await this.selectRandomSuccessfulDealForProvider(spAddress);
     if (!deal) {
-      this.logger.warn(`No successful deals available for ${spAddress}, skipping retrieval`);
+      this.logger.warn({
+        ...logContext,
+        event: "retrieval_job_skipped",
+        message: `No successful deals available for ${spAddress}, skipping retrieval`,
+      });
       return [];
     }
 
-    this.logger.log(`Starting retrieval test for ${spAddress}`);
+    this.logger.log({
+      ...logContext,
+      event: "retrieval_job_started",
+      message: `Starting retrieval test for ${spAddress}`,
+    });
 
-    return this.performAllRetrievals(deal, signal);
+    return this.performAllRetrievals(deal, signal, logContext);
   }
 
   async performRetrievalsForDeal(deal: Deal, signal?: AbortSignal): Promise<Retrieval[]> {
@@ -121,6 +133,10 @@ export class RetrievalService {
               event: "batch_retrieval_failed",
               message: `Batch retrieval failed for deal ${deal?.id || "unknown"}`,
               dealId: deal?.id ?? "unknown",
+              providerId: deal?.storageProvider?.providerId,
+              providerAddress: deal?.spAddress,
+              pieceCid: deal?.pieceCid,
+              ipfsRootCID: deal?.metadata?.[ServiceType.IPFS_PIN]?.rootCID,
               error: toStructuredError(errorReason),
             });
           }
@@ -140,7 +156,11 @@ export class RetrievalService {
   // Retrieval Execution
   // ============================================================================
 
-  private async performAllRetrievals(deal: Deal, signal?: AbortSignal): Promise<Retrieval[]> {
+  private async performAllRetrievals(
+    deal: Deal,
+    signal?: AbortSignal,
+    logContext?: ProviderJobContext,
+  ): Promise<Retrieval[]> {
     signal?.throwIfAborted();
 
     const provider = await this.findStorageProvider(deal.spAddress);
@@ -152,6 +172,15 @@ export class RetrievalService {
       providerId: provider.providerId,
       providerIsApproved: provider.isApproved,
     });
+    const retrievalLogContext: RetrievalLogContext = {
+      ...logContext,
+      jobId: logContext?.jobId,
+      dealId: deal.id,
+      providerId: provider.providerId ?? logContext?.providerId,
+      providerAddress: deal.spAddress,
+      pieceCid: deal.pieceCid,
+      ipfsRootCID: deal.metadata?.[ServiceType.IPFS_PIN]?.rootCID,
+    };
 
     const config: RetrievalConfiguration = {
       deal,
@@ -161,9 +190,11 @@ export class RetrievalService {
 
     const applicableStrategies = this.retrievalAddonsService.getApplicableStrategies(config);
     if (applicableStrategies.length === 0) {
-      this.logger.warn(
-        `Retrieval skipped for ${deal.pieceCid ?? deal.id}: no applicable retrieval strategies (likely missing IPNI metadata).`,
-      );
+      this.logger.warn({
+        ...retrievalLogContext,
+        event: "retrieval_job_skipped_no_strategies",
+        message: `Retrieval skipped for ${deal.pieceCid ?? deal.id}: no applicable retrieval strategies (likely missing IPNI metadata).`,
+      });
       return [];
     }
 
@@ -194,6 +225,7 @@ export class RetrievalService {
         const testResult: RetrievalTestResult = await this.retrievalAddonsService.testAllRetrievalMethods(
           config,
           signal,
+          retrievalLogContext,
         );
         retrievals = await Promise.all(
           testResult.results.map((executionResult) =>
@@ -202,15 +234,22 @@ export class RetrievalService {
         );
 
         const successCount = retrievals.filter((r) => r.status === RetrievalStatus.SUCCESS).length;
-        this.logger.log(`Retrievals for ${deal.pieceCid}: ${successCount}/${retrievals.length} successful`);
+        this.logger.log({
+          ...retrievalLogContext,
+          event: "retrievals_completed",
+          message: `Retrievals for ${deal.pieceCid}: ${successCount}/${retrievals.length} successful`,
+        });
 
         if (testResult.aborted || signal?.aborted) {
           const abortReason = signal?.reason;
           const abortMessage = abortReason instanceof Error ? abortReason.message : String(abortReason ?? "");
-          this.logger.warn(
-            `Retrieval job aborted after testing for ${deal.pieceCid}; recorded partial results.` +
-              (abortMessage ? ` Reason: ${abortMessage}` : ""),
-          );
+          this.logger.warn({
+            ...retrievalLogContext,
+            event: "retrieval_job_aborted",
+            message: `Retrieval job aborted after testing for ${deal.pieceCid}; recorded partial results.`,
+            reason: abortMessage || "Unknown",
+            error: toStructuredError(abortReason),
+          });
           terminalStatus = signal?.aborted ? "failure.timedout" : "failure.other";
         } else {
           terminalStatus = retrievals.every((retrieval) => retrieval.status === RetrievalStatus.SUCCESS)
@@ -224,18 +263,18 @@ export class RetrievalService {
         const abortReason = signal.reason;
         const abortMessage = abortReason instanceof Error ? abortReason.message : String(abortReason ?? "");
         this.logger.warn({
+          ...retrievalLogContext,
           event: "retrievals_aborted",
           message: `Retrievals aborted for ${deal.pieceCid}`,
-          pieceCid: deal.pieceCid,
           reason: abortMessage || errorMessage,
           error: toStructuredError(error),
         });
         terminalStatus = "failure.timedout";
       } else {
         this.logger.error({
+          ...retrievalLogContext,
           event: "all_retrievals_failed",
           message: `All retrievals failed for ${deal.pieceCid}`,
-          pieceCid: deal.pieceCid,
           error: toStructuredError(error),
         });
         terminalStatus = classifyFailureStatus(error);
@@ -521,9 +560,15 @@ export class RetrievalService {
         return { ok: false, failureStatus };
       }
       const failureStatus = classifyFailureStatus(error);
-      this.logger.warn(
-        `Retrieval IPNI verification failed for deal ${dealId}: ${error instanceof Error ? error.message : error}`,
-      );
+      this.logger.warn({
+        event: "retrieval_ipni_verification_failed",
+        message: `Retrieval IPNI verification failed for deal ${dealId}`,
+        dealId,
+        providerId: provider.providerId,
+        providerAddress: provider.address,
+        ipfsRootCID: ipniContext.rootCid.toString(),
+        error: toStructuredError(error),
+      });
       this.discoverabilityMetrics.recordStatus(providerLabels, failureStatus);
       return { ok: false, failureStatus };
     }

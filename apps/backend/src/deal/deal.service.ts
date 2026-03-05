@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import {
   METADATA_KEYS,
   PDPAuthHelper,
@@ -17,7 +17,12 @@ import type { Repository } from "typeorm";
 import { awaitWithAbort } from "../common/abort-utils.js";
 import { buildUnixfsCar } from "../common/car-utils.js";
 import { createFilecoinPinLogger } from "../common/filecoin-pin-logger.js";
-import { toStructuredError } from "../common/logging.js";
+import {
+  type DataSetLogContext,
+  type DealLogContext,
+  type ProviderJobContext,
+  toStructuredError,
+} from "../common/logging.js";
 import type { DataFile, Hex } from "../common/types.js";
 import type { IBlockchainConfig, IConfig } from "../config/app.config.js";
 import { Deal } from "../database/entities/deal.entity.js";
@@ -126,6 +131,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       existingDealId?: string;
       signal?: AbortSignal;
       extraDataSetMetadata?: Record<string, string>;
+      logContext?: ProviderJobContext;
     },
   ): Promise<Deal> {
     options.signal?.throwIfAborted();
@@ -142,6 +148,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
         options.existingDealId,
         options.signal,
         options.extraDataSetMetadata,
+        options.logContext,
       );
     } finally {
       await cleanup();
@@ -199,6 +206,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     existingDealId?: string,
     signal?: AbortSignal,
     extraDataSetMetadata?: Record<string, string>,
+    logContext?: ProviderJobContext,
   ): Promise<Deal> {
     const providerAddress = providerInfo.serviceProvider;
     const checkType = "dataStorage" as const;
@@ -218,11 +226,25 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
         where: { id: existingDealId },
       });
       if (!existingDeal) {
-        throw new Error(`Deal not found: ${existingDealId}`);
+        const error = new Error(`Deal not found: ${existingDealId}`);
+        this.logger.error({
+          ...logContext,
+          jobId: logContext?.jobId,
+          dealId: existingDealId,
+          providerAddress,
+          providerId: providerInfo.id ?? logContext?.providerId,
+          ipfsRootCID: uploadPayload.rootCid.toString(),
+          event: "deal_creation_failed",
+          message: `Deal creation failed for ${providerAddress}`,
+          error: toStructuredError(error),
+        });
+        throw error;
       }
       deal = existingDeal;
     } else {
       deal = this.dealRepository.create();
+      // Set a deterministic ID early so all logs in this run share a stable dealId.
+      deal.id = randomUUID();
     }
 
     deal.fileName = dealInput.processedData.name;
@@ -233,11 +255,20 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     deal.metadata = dealInput.metadata;
     deal.serviceTypes = dealInput.appliedAddons;
 
+    const dealLogContext: DealLogContext = {
+      ...logContext,
+      dealId: existingDealId ?? deal.id,
+      providerAddress,
+      providerId: providerInfo.id ?? logContext?.providerId,
+      ipfsRootCID: uploadPayload.rootCid.toString(),
+    };
+
     try {
       // Load storageProvider relation
       deal.storageProvider = await this.storageProviderRepository.findOne({
         where: { address: deal.spAddress },
       });
+      dealLogContext.providerId = deal.storageProvider?.providerId ?? dealLogContext.providerId;
       providerLabels = buildCheckMetricLabels({
         checkType,
         providerId: deal.storageProvider?.providerId,
@@ -251,7 +282,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       if (this.blockchainConfig.dealbotDataSetVersion) {
         dataSetMetadata.dealbotDataSetVersion = this.blockchainConfig.dealbotDataSetVersion;
       }
-      const filecoinPinLogger = createFilecoinPinLogger(this.logger);
+      const filecoinPinLogger = createFilecoinPinLogger(this.logger, dealLogContext);
 
       signal?.throwIfAborted();
 
@@ -284,13 +315,18 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
               deal.status = DealStatus.UPLOADED;
               deal.ingestLatencyMs = deal.uploadEndTime.getTime() - deal.uploadStartTime.getTime();
               deal.pieceCid = event.data.pieceCid.toString();
-              this.logger.log(`Upload complete event, pieceCid: ${deal.pieceCid}`);
+              dealLogContext.pieceCid = event.data.pieceCid.toString();
+              this.logger.log({
+                ...dealLogContext,
+                event: "upload_complete",
+                message: `Upload complete event`,
+              });
               uploadSucceeded = true;
               this.dataStorageMetrics.observeIngestMs(providerLabels, deal.ingestLatencyMs);
               this.dataStorageMetrics.recordUploadStatus(providerLabels, "success");
               this.dataStorageMetrics.recordOnchainStatus(providerLabels, "pending");
               onUploadCompleteAddonsPromise = this.dealAddonsService
-                .handleUploadComplete(deal, dealInput.appliedAddons, signal)
+                .handleUploadComplete(deal, dealInput.appliedAddons, signal, dealLogContext)
                 .then(() => true)
                 .catch((error) => {
                   uploadCompleteError = error;
@@ -302,19 +338,31 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
                 this.dataStorageMetrics.observeIngestThroughput(providerLabels, deal.ingestThroughputBps);
               } else {
                 deal.ingestThroughputBps = 0;
-                this.logger.warn(
-                  `Skipping ingest throughput: invalid ingest latency (${deal.ingestLatencyMs}ms) for deal ${deal.id}`,
-                );
+                this.logger.warn({
+                  ...dealLogContext,
+                  event: "ingest_throughput_skipped",
+                  message: `Skipping ingest throughput: invalid ingest latency (${deal.ingestLatencyMs}ms) for deal ${deal.id}`,
+                  ingestLatencyMs: deal.ingestLatencyMs,
+                });
               }
               break;
             }
             case "onPieceAdded":
-              this.logger.log(`Piece added event, txHash: ${event.data.txHash}`);
+              this.logger.log({
+                ...dealLogContext,
+                event: "piece_added",
+                message: `Piece added event, txHash: ${event.data.txHash}`,
+                txHash: event.data.txHash,
+              });
               deal.pieceAddedTime = new Date();
               if (event.data.txHash != null) {
                 deal.transactionHash = event.data.txHash as Hex;
               } else {
-                this.logger.warn(`No transaction hash found for piece added event: ${deal.pieceCid}`);
+                this.logger.warn({
+                  ...dealLogContext,
+                  event: "piece_added_no_tx_hash",
+                  message: `No transaction hash found for piece added event: ${deal.pieceCid}`,
+                });
               }
               deal.status = DealStatus.PIECE_ADDED;
               this.dataStorageMetrics.observePieceAddedOnChainMs(
@@ -323,7 +371,12 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
               );
               break;
             case "onPieceConfirmed":
-              this.logger.log(`Piece confirmed event, pieceIds: ${event.data.pieceIds.join(", ")}`);
+              this.logger.log({
+                ...dealLogContext,
+                event: "piece_confirmed",
+                message: `Piece confirmed event, pieceIds: ${event.data.pieceIds.join(", ")}`,
+                pieceIds: event.data.pieceIds,
+              });
               deal.pieceConfirmedTime = new Date();
               deal.status = DealStatus.PIECE_CONFIRMED;
               deal.chainLatencyMs = deal.pieceConfirmedTime.getTime() - deal.pieceAddedTime.getTime();
@@ -349,11 +402,9 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
 
       if (!deal.transactionHash) {
         this.logger.error({
+          ...dealLogContext,
           event: "deal_transaction_hash_missing",
           message: `No transaction hash found for deal: ${deal.pieceCid}`,
-          dealId: deal.id,
-          pieceCid: deal.pieceCid,
-          providerAddress,
         });
       }
 
@@ -384,7 +435,11 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       retrievalStarted = true;
       this.retrievalMetrics.recordStatus(providerLabels, "pending");
       signal?.throwIfAborted();
-      const retrievalTest = await this.retrievalAddonsService.testAllRetrievalMethods(retrievalConfig, signal);
+      const retrievalTest = await this.retrievalAddonsService.testAllRetrievalMethods(
+        retrievalConfig,
+        signal,
+        dealLogContext,
+      );
       signal?.throwIfAborted();
 
       this.retrievalMetrics.recordResultMetrics(retrievalTest.results, providerLabels);
@@ -409,6 +464,13 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
           `Retrieval test completed in ${retrievalTest.testedAt.getTime() - retrievalStartTime}ms: ` +
             `${retrievalTest.summary.successfulMethods}/${retrievalTest.summary.totalMethods} successful`,
         );
+        this.logger.log({
+          ...dealLogContext,
+          event: "deal_creation_retrieval_test_completed",
+          message: `Retrieval test completed in ${retrievalTest.testedAt.getTime() - retrievalStartTime}ms`,
+          totalMethods: retrievalTest.summary.totalMethods,
+          successfulMethods: retrievalTest.summary.successfulMethods,
+        });
       }
 
       deal.status = DealStatus.DEAL_CREATED;
@@ -418,17 +480,21 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       }
       this.dataStorageMetrics.recordDataStorageStatus(providerLabels, "success");
 
-      this.logger.log(`Deal ${deal.id} created: ${deal.pieceCid} (sp: ${providerAddress})`);
+      this.logger.log({
+        ...dealLogContext,
+        event: "deal_creation_completed",
+        message: `Deal ${deal.id} created: ${deal.pieceCid} (sp: ${providerAddress})`,
+      });
 
-      await this.dealAddonsService.postProcessDeal(deal, dealInput.appliedAddons);
+      await this.dealAddonsService.postProcessDeal(deal, dealInput.appliedAddons, dealLogContext);
 
       return deal;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       this.logger.error({
+        ...dealLogContext,
         event: "deal_creation_failed",
         message: `Deal creation failed for ${providerAddress}`,
-        providerAddress,
         error: toStructuredError(error),
       });
       const failureStatus = classifyFailureStatus(error);
@@ -450,7 +516,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
 
       throw error;
     } finally {
-      await this.saveDeal(deal);
+      await this.saveDeal(deal, dealLogContext);
     }
   }
 
@@ -486,6 +552,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
   async createDataSet(
     providerAddress: string,
     metadata: Record<string, string>,
+    dataSetLogContext: DataSetLogContext,
     signal?: AbortSignal,
   ): Promise<{ dataSetId: number }> {
     signal?.throwIfAborted();
@@ -517,7 +584,12 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     );
     signal?.throwIfAborted();
 
-    this.logger.log(`Data-set creation tx submitted: ${result.txHash} for provider ${providerAddress}`);
+    this.logger.log({
+      ...dataSetLogContext,
+      event: "data_set_creation_tx_submitted",
+      message: `Data-set creation tx submitted`,
+      txHash: result.txHash,
+    });
 
     const warmStorageService = await awaitWithAbort(
       WarmStorageService.create(synapse.getProvider(), warmStorageAddress),
@@ -531,7 +603,12 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       throw new Error(`Data-set creation completed without dataSetId for tx: ${result.txHash}`);
     }
 
-    this.logger.log(`Data-set created on-chain: ID=${confirmed.summary.dataSetId} for provider ${providerAddress}`);
+    this.logger.log({
+      ...dataSetLogContext,
+      event: "data_set_creation_completed",
+      message: `Data-set created on-chain`,
+      dataSetId: confirmed.summary.dataSetId,
+    });
 
     return { dataSetId: confirmed.summary.dataSetId };
   }
@@ -656,6 +733,11 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
 
       const durationMs = Date.now() - startedAt;
       this.dataSetCreationMetrics.observeCheckDuration(labels, durationMs);
+
+      if (!pieceCid) {
+        throw new Error("Data-set creation upload completed without producing a pieceCid");
+      }
+
       this.dataSetCreationMetrics.recordStatus(labels, "success");
 
       if (!pieceAdded || !pieceConfirmed) {
@@ -784,15 +866,14 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     deal.pieceId = uploadResult.pieceId;
   }
 
-  private async saveDeal(deal: Deal): Promise<void> {
+  private async saveDeal(deal: Deal, dealLogContext: DealLogContext): Promise<void> {
     try {
       await this.dealRepository.save(deal);
     } catch (error) {
       this.logger.warn({
+        ...dealLogContext,
         event: "save_deal_failed",
         message: `Failed to save deal ${deal.pieceCid}`,
-        dealId: deal.id,
-        pieceCid: deal.pieceCid,
         error: toStructuredError(error),
       });
     }
