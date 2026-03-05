@@ -13,7 +13,7 @@ Team-internal tracker:
 graph TD
     User["Operator / SP / Reviewer"] --> Web["Dealbot Web UI (React)"]
     Web --> API["Dealbot Backend API (NestJS)"]
-    API --> DB["Supabase Postgres"]
+    API --> DB["Postgres"]
     API --> Chain["Filecoin RPC / Contracts"]
     API --> Metrics["Prometheus Metrics Endpoint"]
 ```
