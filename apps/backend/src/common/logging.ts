@@ -60,3 +60,57 @@ export function toStructuredError(error: unknown): StructuredError {
     details: toJsonSafe(error),
   };
 }
+
+/**
+ * Common base logging context for deal and retrieval operations.
+ * Context fields are optional so callers can omit unknown identifiers rather
+ * than emitting placeholder sentinels (e.g. "", -1).
+ */
+export type BaseDealRetrievalLogContext = {
+  jobId?: string;
+  dealId?: string;
+  providerAddress?: string;
+  providerId?: number;
+  pieceCid?: string;
+  ipfsRootCID?: string;
+};
+
+/**
+ * Structured logging context for deal-related operations
+ */
+export type DealLogContext = BaseDealRetrievalLogContext;
+
+/**
+ * Structured logging context for retrieval-related operations
+ */
+export type RetrievalLogContext = BaseDealRetrievalLogContext;
+
+/**
+ * Strict context for scheduled SP jobs where provider identity must be known.
+ */
+export type ProviderJobContext = {
+  jobId: string;
+  providerAddress: string;
+  providerId: number;
+};
+
+/**
+ * Structured logging context for data set creation operations
+ */
+export type DataSetLogContext = {
+  jobId?: string;
+  providerAddress: string;
+  providerId?: number;
+  dataSetId?: number;
+  dataSetIndex?: number;
+  metadata?: Record<string, string>;
+};
+
+/**
+ * Structured logging context for job-level operations
+ */
+export type JobLogContext = {
+  jobId?: string;
+  providerAddress: string;
+  providerId?: number;
+};

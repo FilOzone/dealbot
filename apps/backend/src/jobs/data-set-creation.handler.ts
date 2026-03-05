@@ -1,4 +1,5 @@
 import type { Logger } from "@nestjs/common";
+import type { DataSetLogContext, ProviderJobContext } from "../common/logging.js";
 import type { DealService } from "../deal/deal.service.js";
 
 export interface DataSetCreationDeps {
@@ -20,6 +21,7 @@ export async function provisionDataSets(
   spAddress: string,
   minDataSets: number,
   baseDataSetMetadata: Record<string, string>,
+  dataSetLogContext: ProviderJobContext,
   signal?: AbortSignal,
 ): Promise<void> {
   const { dealService, logger } = deps;
@@ -33,6 +35,12 @@ export async function provisionDataSets(
       ...(i > 0 ? { dealbotDS: String(i) } : {}),
     };
 
+    const logContext: DataSetLogContext = {
+      ...dataSetLogContext,
+      metadata,
+      dataSetIndex: i,
+    };
+
     // Check if data-set already exists by attempting to resolve its context
     const exists = await dealService.checkDataSetExists(spAddress, metadata, signal);
 
@@ -40,12 +48,23 @@ export async function provisionDataSets(
       continue;
     }
 
-    logger.log(`Creating data-set #${i} for provider ${spAddress}`);
-    await dealService.createDataSet(spAddress, metadata, signal);
+    const result = await dealService.createDataSet(spAddress, metadata, logContext, signal);
+
+    logger.log({
+      ...logContext,
+      event: "data_set_provisioned",
+      message: `Created data-set #${i} for provider ${spAddress}`,
+      dataSetId: result.dataSetId,
+    });
     createdCount++;
   }
 
-  logger.log(
-    `Data-set provisioning complete for ${spAddress}: ${createdCount} created, ${minDataSets - createdCount} already existed`,
-  );
+  logger.log({
+    ...dataSetLogContext,
+    event: "data_sets_provisioning_completed",
+    message: `Data-set provisioning complete for ${spAddress}: ${createdCount} created, ${minDataSets - createdCount} already existed`,
+    createdCount,
+    minDataSets,
+    existingCount: minDataSets - createdCount,
+  });
 }

@@ -1,8 +1,9 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { awaitWithAbort } from "../common/abort-utils.js";
-import { toStructuredError } from "../common/logging.js";
+import { type DealLogContext, toStructuredError } from "../common/logging.js";
 import type { Deal } from "../database/entities/deal.entity.js";
-import type { DealMetadata, ServiceType } from "../database/types.js";
+import type { DealMetadata } from "../database/types.js";
+import { ServiceType } from "../database/types.js";
 import type { IDealAddon } from "./interfaces/deal-addon.interface.js";
 import { DirectAddonStrategy } from "./strategies/direct.strategy.js";
 import { IpniAddonStrategy } from "./strategies/ipni.strategy.js";
@@ -120,15 +121,29 @@ export class DealAddonsService {
    * @param deal - Deal entity with upload information
    * @param appliedAddons - Names of add-ons that were applied during preprocessing
    */
-  async handleUploadComplete(deal: Deal, appliedAddons: ServiceType[], signal?: AbortSignal): Promise<void> {
+  async handleUploadComplete(
+    deal: Deal,
+    appliedAddons: ServiceType[],
+    signal?: AbortSignal,
+    logContext?: Partial<DealLogContext>,
+  ): Promise<void> {
     this.logger.debug(`Running onUploadComplete handlers for deal ${deal.id}`);
 
     signal?.throwIfAborted();
 
+    const dealLogContext: DealLogContext = {
+      ...logContext,
+      dealId: deal.id,
+      providerId: deal.storageProvider?.providerId ?? logContext?.providerId,
+      providerAddress: deal.spAddress,
+      pieceCid: deal.pieceCid,
+      ipfsRootCID: deal.metadata?.[ServiceType.IPFS_PIN]?.rootCID,
+    };
+
     const uploadCompletePromises = appliedAddons
       .map((addonName) => this.addons.get(addonName))
       .filter((addon) => addon?.onUploadComplete)
-      .map((addon) => addon!.onUploadComplete!(deal, signal));
+      .map((addon) => addon!.onUploadComplete!(deal, signal, dealLogContext));
 
     try {
       await awaitWithAbort(Promise.all(uploadCompletePromises), signal);
@@ -136,9 +151,9 @@ export class DealAddonsService {
     } catch (error) {
       signal?.throwIfAborted();
       this.logger.warn({
+        ...dealLogContext,
         event: "addon_on_upload_complete_failed",
         message: `onUploadComplete handler failed for deal ${deal.id}`,
-        dealId: deal.id,
         error: toStructuredError(error),
       });
       throw error;
@@ -152,22 +167,31 @@ export class DealAddonsService {
    * @param deal - Created deal entity
    * @param appliedAddons - Names of add-ons that were applied during preprocessing
    */
-  async postProcessDeal(deal: Deal, appliedAddons: string[]): Promise<void> {
+  async postProcessDeal(deal: Deal, appliedAddons: string[], logContext?: Partial<DealLogContext>): Promise<void> {
     this.logger.debug(`Running post-processing for deal ${deal.id}`);
+
+    const dealLogContext: DealLogContext = {
+      ...logContext,
+      dealId: deal.id,
+      providerId: deal.storageProvider?.providerId ?? logContext?.providerId,
+      providerAddress: deal.spAddress,
+      pieceCid: deal.pieceCid,
+      ipfsRootCID: deal.metadata?.[ServiceType.IPFS_PIN]?.rootCID,
+    };
 
     const postProcessPromises = appliedAddons
       .map((addonName) => this.addons.get(addonName))
       .filter((addon) => addon?.postProcess)
-      .map((addon) => addon!.postProcess!(deal));
+      .map((addon) => addon!.postProcess!(deal, dealLogContext));
 
     try {
       await Promise.all(postProcessPromises);
       this.logger.debug(`Post-processing completed for deal ${deal.id}`);
     } catch (error) {
       this.logger.warn({
+        ...dealLogContext,
         event: "addon_post_process_failed",
         message: `Post-processing failed for deal ${deal.id}`,
-        dealId: deal.id,
         error: toStructuredError(error),
       });
       // Don't throw - post-processing failures shouldn't break the deal

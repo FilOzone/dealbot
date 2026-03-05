@@ -5,7 +5,7 @@ import { InjectMetric } from "@willsoto/nestjs-prometheus";
 import { type Job, PgBoss, type SendOptions } from "pg-boss";
 import type { Counter, Gauge, Histogram } from "prom-client";
 import type { Repository } from "typeorm";
-import { toStructuredError } from "../common/logging.js";
+import { type JobLogContext, type ProviderJobContext, toStructuredError } from "../common/logging.js";
 import { getMaintenanceWindowStatus } from "../common/maintenance-window.js";
 import type { IConfig } from "../config/app.config.js";
 import { DataRetentionService } from "../data-retention/data-retention.service.js";
@@ -268,7 +268,13 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
             await this.handleDataSetCreationJob(job);
             return;
           }
-          this.logger.warn(`Skipping unknown SP job type "${String(job.data.jobType)}" for ${job.data.spAddress}`);
+          this.logger.warn({
+            event: "unknown_sp_job_type",
+            message: `Skipping unknown SP job type "${String(job.data.jobType)}" for ${job.data.spAddress}`,
+            jobType: job.data.jobType,
+            providerAddress: job.data.spAddress,
+            providerId: this.walletSdkService.getProviderInfo(job.data.spAddress)?.id,
+          });
         },
       )
       .catch((error) =>
@@ -331,12 +337,41 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     return getMaintenanceWindowStatus(now, scheduling.maintenanceWindowsUtc, scheduling.maintenanceWindowMinutes);
   }
 
-  private logMaintenanceSkip(taskLabel: string, windowLabel?: string) {
+  private async resolveProviderJobContext(spAddress: string, jobId: string): Promise<ProviderJobContext> {
+    let providerId = this.walletSdkService.getProviderInfo(spAddress)?.id;
+
+    if (providerId == null && process.env.DEALBOT_DISABLE_CHAIN !== "true") {
+      await this.walletSdkService.loadProviders();
+      providerId = this.walletSdkService.getProviderInfo(spAddress)?.id;
+    }
+
+    if (providerId == null) {
+      const provider = await this.storageProviderRepository.findOne({
+        where: { address: spAddress },
+        select: { providerId: true },
+      });
+      providerId = provider?.providerId;
+    }
+
+    if (providerId == null) {
+      throw new Error(`providerId is required for job execution but missing for provider ${spAddress}`);
+    }
+
+    return {
+      jobId,
+      providerAddress: spAddress,
+      providerId,
+    };
+  }
+
+  private logMaintenanceSkip(taskLabel: string, windowLabel?: string, logContext?: Partial<JobLogContext>) {
     const scheduling = this.configService.get("scheduling");
     const label = windowLabel ?? "unknown";
-    this.logger.log(
-      `Maintenance window active (${label} UTC, ${scheduling.maintenanceWindowMinutes}m); deferring ${taskLabel}`,
-    );
+    this.logger.log({
+      ...logContext,
+      event: "maintenance_window_active",
+      message: `Maintenance window active (${label} UTC, ${scheduling.maintenanceWindowMinutes}m); deferring ${taskLabel}`,
+    });
   }
 
   private async handleDealJob(job: SpJob): Promise<void> {
@@ -345,7 +380,11 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     const now = new Date();
     const maintenance = this.getMaintenanceWindowStatus(now);
     if (maintenance.active) {
-      this.logMaintenanceSkip(`deal job for ${spAddress}`, maintenance.window?.label);
+      this.logMaintenanceSkip(`deal job for ${spAddress}`, maintenance.window?.label, {
+        jobId: job.id,
+        providerAddress: spAddress,
+        providerId: this.walletSdkService.getProviderInfo(spAddress)?.id,
+      });
       await this.deferJobForMaintenance("deal", data, maintenance, now);
       return;
     }
@@ -361,6 +400,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     }, timeoutMs);
 
     await this.recordJobExecution("deal", async () => {
+      const logContext = await this.resolveProviderJobContext(spAddress, job.id);
       try {
         let provider = this.walletSdkService.getTestingProviders().find((p) => p.serviceProvider === spAddress);
         if (!provider) {
@@ -369,7 +409,11 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
           }
           provider = this.walletSdkService.getTestingProviders().find((p) => p.serviceProvider === spAddress);
           if (!provider) {
-            this.logger.warn(`Deal job skipped: provider ${spAddress} not found`);
+            this.logger.warn({
+              ...logContext,
+              event: "deal_job_skipped",
+              message: `Deal job skipped: provider ${spAddress} not found`,
+            });
             return "success";
           }
         }
@@ -396,18 +440,22 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
               if (exists) {
                 extraDataSetMetadata = dsIndexMetadata;
               } else {
-                this.logger.log(
-                  `Data set #${dsIndex} not yet provisioned for ${spAddress}; falling back to default data set`,
-                );
+                this.logger.log({
+                  ...logContext,
+                  event: "deal_job_dataset_fallback",
+                  message: `Data set #${dsIndex} not yet provisioned for ${spAddress}; falling back to default data set`,
+                });
               }
             } catch (error) {
               if (abortController.signal.aborted) {
                 throw abortController.signal.reason;
               }
               const errorMessage = error instanceof Error ? error.message : String(error);
-              this.logger.warn(
-                `Failed to verify data set #${dsIndex} for ${spAddress}: ${errorMessage}; falling back to default data set`,
-              );
+              this.logger.warn({
+                ...logContext,
+                event: "deal_job_dataset_check_failed",
+                message: `Failed to verify data set #${dsIndex} for ${spAddress}: ${errorMessage}; falling back to default data set`,
+              });
             }
           }
           // dsIndex === 0 → baseline data set, no `dealbotDS` metadata key needed
@@ -418,6 +466,11 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
           ...dealOptions,
           signal: abortController.signal,
           extraDataSetMetadata,
+          logContext: {
+            jobId: logContext.jobId,
+            providerAddress: logContext.providerAddress,
+            providerId: provider.id ?? logContext.providerId,
+          },
         });
         return "success";
       } catch (error) {
@@ -425,15 +478,16 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
           const reason = abortController.signal.reason;
           const reasonMessage = reason instanceof Error ? reason.message : String(reason ?? "");
           this.logger.error({
+            ...logContext,
             event: "deal_job_aborted",
             message: reasonMessage || `Deal job aborted after timeout (${effectiveTimeoutSeconds}s) for ${spAddress}`,
-            spAddress,
             timeoutSeconds: effectiveTimeoutSeconds,
             error: toStructuredError(reason ?? error),
           });
           return "aborted";
         }
         this.logger.error({
+          ...logContext,
           event: "deal_job_failed",
           message: `Deal job failed for ${spAddress}`,
           error: toStructuredError(error),
@@ -452,7 +506,11 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     const now = new Date();
     const maintenance = this.getMaintenanceWindowStatus(now);
     if (maintenance.active) {
-      this.logMaintenanceSkip(`retrieval job for ${spAddress}`, maintenance.window?.label);
+      this.logMaintenanceSkip(`retrieval job for ${spAddress}`, maintenance.window?.label, {
+        jobId: job.id,
+        providerAddress: spAddress,
+        providerId: this.walletSdkService.getProviderInfo(spAddress)?.id,
+      });
       await this.deferJobForMaintenance("retrieval", data, maintenance, now);
       return;
     }
@@ -468,24 +526,26 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     }, timeoutMs);
 
     await this.recordJobExecution("retrieval", async () => {
+      const logContext = await this.resolveProviderJobContext(spAddress, job.id);
       try {
-        await this.retrievalService.performRandomRetrievalForProvider(spAddress, abortController.signal);
+        await this.retrievalService.performRandomRetrievalForProvider(spAddress, abortController.signal, logContext);
         return "success";
       } catch (error) {
         if (abortController.signal.aborted) {
           const reason = abortController.signal.reason;
           const reasonMessage = reason instanceof Error ? reason.message : String(reason ?? "");
           this.logger.error({
+            ...logContext,
             event: "retrieval_job_aborted",
             message:
               reasonMessage || `Retrieval job aborted after timeout (${effectiveTimeoutSeconds}s) for ${spAddress}`,
-            spAddress,
             timeoutSeconds: effectiveTimeoutSeconds,
             error: toStructuredError(reason ?? error),
           });
           return "aborted";
         }
         this.logger.error({
+          ...logContext,
           event: "retrieval_job_failed",
           message: `Retrieval job failed for ${spAddress}`,
           error: toStructuredError(error),
@@ -542,7 +602,11 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     const now = new Date();
     const maintenance = this.getMaintenanceWindowStatus(now);
     if (maintenance.active) {
-      this.logMaintenanceSkip(`data_set_creation job for ${spAddress}`, maintenance.window?.label);
+      this.logMaintenanceSkip(`data_set_creation job for ${spAddress}`, maintenance.window?.label, {
+        jobId: job.id,
+        providerAddress: spAddress,
+        providerId: this.walletSdkService.getProviderInfo(spAddress)?.id,
+      });
       await this.deferJobForMaintenance("data_set_creation", data, maintenance, now);
       return;
     }
@@ -562,12 +626,14 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     }, timeoutMs);
 
     await this.recordJobExecution("data_set_creation", async () => {
+      const dataSetLogContext = await this.resolveProviderJobContext(spAddress, job.id);
       try {
         await provisionDataSets(
           { dealService: this.dealService, logger: this.logger },
           spAddress,
           minDataSets,
           baseDataSetMetadata,
+          dataSetLogContext,
           abortController.signal,
         );
         return "success";
@@ -575,16 +641,23 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         if (abortController.signal.aborted) {
           const reason = abortController.signal.reason;
           const reasonMessage = reason instanceof Error ? reason.message : String(reason ?? "");
-          this.logger.error(
-            reasonMessage
-              ? `Data set creation job aborted: ${reasonMessage}`
-              : `Data set creation job aborted after timeout (${effectiveTimeoutSeconds}s) for ${spAddress}`,
-          );
+          this.logger.error({
+            ...dataSetLogContext,
+            event: "data_set_creation_job_aborted",
+            message:
+              reasonMessage ||
+              `Data set creation job aborted after timeout (${effectiveTimeoutSeconds}s) for ${spAddress}`,
+            timeoutSeconds: effectiveTimeoutSeconds,
+            error: toStructuredError(reason ?? error),
+          });
           return "aborted";
         }
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        const errorStack = error instanceof Error ? error.stack : undefined;
-        this.logger.error(`Data set creation job failed for ${spAddress}: ${errorMessage}`, errorStack);
+        this.logger.error({
+          ...dataSetLogContext,
+          event: "data_set_creation_job_failed",
+          message: `Data set creation job failed for ${spAddress}`,
+          error: toStructuredError(error),
+        });
         throw error;
       } finally {
         clearTimeout(timeoutId);
