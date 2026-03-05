@@ -166,7 +166,7 @@ export class RetrievalAddonsService {
       event: "retrieval_started",
       message: `Performing retrieval for deal ${config.deal.id}`,
       method: urlResult.method,
-      url: urlResult.url,
+      url: this.sanitizeUrlForLog(urlResult.url),
     });
     return await this.executeRetrieval(urlResult, config, retrievalLogContext, signal);
   }
@@ -480,7 +480,7 @@ export class RetrievalAddonsService {
               ...retrievalLogContext,
               event: "retrieval_validation_failed",
               message: `Validation failed for ${urlResult.method} retrieval of deal ${config.deal.id}`,
-              url: urlResult.url,
+              url: this.sanitizeUrlForLog(urlResult.url),
               statusCode: result.metrics.statusCode,
               responseSize: result.metrics.responseSize,
               details: validation.details || "unknown",
@@ -492,7 +492,7 @@ export class RetrievalAddonsService {
             event: "retrieval_validation_error",
             message: `Validation error for ${urlResult.method} retrieval of deal ${config.deal.id}`,
             method: urlResult.method,
-            url: urlResult.url,
+            url: this.sanitizeUrlForLog(urlResult.url),
             error: toStructuredError(error),
           });
           const errorMessage = error instanceof Error ? error.message : String(error);
@@ -572,7 +572,7 @@ export class RetrievalAddonsService {
       `deal=${config.deal.id}`,
       `piece=${pieceCid}`,
       `sp=${config.storageProvider}`,
-      `url=${urlResult.url}`,
+      `url=${this.sanitizeUrlForLog(urlResult.url)}`,
       `http=${urlResult.httpVersion ?? "1.1"}`,
       `headers=${headerKeys.length ? headerKeys.join(",") : "none"}`,
       `auth=${hasAuthHeader ? "yes" : "no"}`,
