@@ -194,12 +194,6 @@ const metricProviders = [
     help: "Data-set creation status counts",
     labelNames: ["checkType", "providerId", "providerStatus", "value"] as const,
   }),
-  makeCounterProvider({
-    // docs/checks/events-and-metrics.md#dataSetCreationOnchainEvent
-    name: "dataSetCreationOnchainEvent",
-    help: "Data-set creation on-chain progress event counts",
-    labelNames: ["checkType", "providerId", "providerStatus", "value"] as const,
-  }),
   // Data Retention Metrics
   makeCounterProvider({
     name: "dataSetChallengeStatus",

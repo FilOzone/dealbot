@@ -215,8 +215,6 @@ export class DataSetCreationCheckMetrics {
     private readonly dataSetCreationMs: Histogram,
     @InjectMetric("dataSetCreationStatus")
     private readonly dataSetCreationStatusCounter: Counter,
-    @InjectMetric("dataSetCreationOnchainEvent")
-    private readonly dataSetCreationOnchainEventCounter: Counter,
   ) {}
 
   observeCheckDuration(labels: CheckMetricLabels, value: number | null | undefined): void {
@@ -225,9 +223,5 @@ export class DataSetCreationCheckMetrics {
 
   recordStatus(labels: CheckMetricLabels, value: string): void {
     this.dataSetCreationStatusCounter.inc({ ...labels, value });
-  }
-
-  recordOnchainEvent(labels: CheckMetricLabels, value: "pieceAdded" | "pieceConfirmed"): void {
-    this.dataSetCreationOnchainEventCounter.inc({ ...labels, value });
   }
 }

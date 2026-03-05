@@ -624,7 +624,6 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
                 break;
               case "onPieceAdded":
                 pieceAdded = true;
-                this.dataSetCreationMetrics.recordOnchainEvent(labels, "pieceAdded");
                 this.logger.debug({
                   event: "dataset_creation_piece_added",
                   message: "Data-set creation piece added",
@@ -635,7 +634,6 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
                 break;
               case "onPieceConfirmed":
                 pieceConfirmed = true;
-                this.dataSetCreationMetrics.recordOnchainEvent(labels, "pieceConfirmed");
                 this.logger.debug({
                   event: "dataset_creation_piece_confirmed",
                   message: "Data-set creation piece confirmed",

@@ -150,7 +150,6 @@ describe("DealService", () => {
   const mockDataSetCreationMetrics = {
     observeCheckDuration: vi.fn(),
     recordStatus: vi.fn(),
-    recordOnchainEvent: vi.fn(),
   };
 
   beforeEach(async () => {
@@ -1066,14 +1065,6 @@ describe("DealService", () => {
       expect(mockDataSetCreationMetrics.recordStatus).toHaveBeenCalledWith(
         expect.objectContaining({ checkType: "dataSetCreation" }),
         "success",
-      );
-      expect(mockDataSetCreationMetrics.recordOnchainEvent).toHaveBeenCalledWith(
-        expect.objectContaining({ checkType: "dataSetCreation" }),
-        "pieceAdded",
-      );
-      expect(mockDataSetCreationMetrics.recordOnchainEvent).toHaveBeenCalledWith(
-        expect.objectContaining({ checkType: "dataSetCreation" }),
-        "pieceConfirmed",
       );
     });
 
