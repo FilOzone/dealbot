@@ -3,11 +3,6 @@
 This document covers application-level operational readiness for Dealbot.
 For cluster deployment and post-deployment operations (logs, rollout, rollback, secrets, backup checks), use the [FiloOzone/infra Dealbot runbook](https://github.com/FilOzone/infra/blob/main/docs/runbooks/dealbot.md).
 
-Related issues:
-
-- Infra runbook track: [FilOzone/infra#32](https://github.com/FilOzone/infra/issues/32)
-- Ops-readiness umbrella: [FilOzone/dealbot#90](https://github.com/FilOzone/dealbot/issues/90)
-
 Team-internal tracker:
 
 - Operational readiness Notion page (Filoz internal; requires team access): [FOC Operational Excellence: Dealbot](https://www.notion.so/filecoindev/FOC-Operational-Excellence-Dealbot-317dc41950c180fda76eddc205a63453?source=copy_link).
