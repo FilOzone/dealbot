@@ -1,9 +1,7 @@
 # Production Operations
 
 This document covers application-level operational readiness for Dealbot.
-For cluster deployment and post-deployment operations (logs, rollout, rollback, secrets, backup checks), use the infra runbook in `FilOzone/infra`:
-
-- [Infra Dealbot runbook](https://github.com/FilOzone/infra/blob/main/docs/runbooks/dealbot.md)
+For cluster deployment and post-deployment operations (logs, rollout, rollback, secrets, backup checks), use the [FiloOzone/infra Dealbot runbook](https://github.com/FilOzone/infra/blob/main/docs/runbooks/dealbot.md).
 
 Related issues:
 
