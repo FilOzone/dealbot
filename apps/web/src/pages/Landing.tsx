@@ -111,7 +111,9 @@ export default function Landing() {
             <p className="text-sm text-muted-foreground">Loading providers…</p>
           )}
           {!providersLoading && !providersError && (() => {
-            const activeProviders = providersResponse.providers.filter((p) => p.isActive);
+            const activeProviders = providersResponse.providers
+              .filter((p) => p.isActive)
+              .sort((a, b) => (a.providerId ?? Number.MAX_SAFE_INTEGER) - (b.providerId ?? Number.MAX_SAFE_INTEGER));
             return activeProviders.length === 0 ? (
               <p className="text-sm text-muted-foreground">No providers found.</p>
             ) : (
