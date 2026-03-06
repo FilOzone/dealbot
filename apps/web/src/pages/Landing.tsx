@@ -1,6 +1,6 @@
 import { Activity, ExternalLink } from "lucide-react";
-import { useProvidersList } from "@/hooks/useProvidersList";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useProvidersList } from "@/hooks/useProvidersList";
 
 /**
  * Builds a BetterStack dashboard or logs URL scoped to a single provider.
@@ -104,89 +104,89 @@ export default function Landing() {
           <CardTitle className="text-base">Storage providers – metrics & logs</CardTitle>
         </CardHeader>
         <CardContent>
-          {providersError && (
-            <p className="text-sm text-destructive">{providersError}</p>
-          )}
-          {providersLoading && (
-            <p className="text-sm text-muted-foreground">Loading providers…</p>
-          )}
-          {!providersLoading && !providersError && (() => {
-            const activeProviders = providersResponse.providers
-              .filter((p) => p.isActive)
-              .sort((a, b) => (a.providerId ?? Number.MAX_SAFE_INTEGER) - (b.providerId ?? Number.MAX_SAFE_INTEGER));
-            return activeProviders.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No providers found.</p>
-            ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full border-collapse text-sm">
-                <thead>
-                  <tr className="border-b">
-                    <th className="text-left py-2 pr-4 font-medium">SP name</th>
-                    <th className="text-left py-2 pr-4 font-medium">ID</th>
-                    <th className="text-left py-2 pr-4 font-medium">Metrics dashboard</th>
-                    <th className="text-left py-2 font-medium">Logs</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {activeProviders.map((provider) => {
-                    const hasId = provider.providerId != null;
-                    const metricsHref =
-                      dashboardUrl && hasId
-                        ? buildBetterStackUrlWithProvider(dashboardUrl, provider.providerId as number, "vs[provider_id]")
-                        : "";
-                    const logsHref =
-                      logsUrl && hasId
-                        ? buildBetterStackUrlWithProvider(logsUrl, provider.providerId as number, "vs[providerId]")
-                        : "";
-                    return (
-                      <tr key={provider.address} className="border-b last:border-b-0">
-                        <td className="py-2 pr-4">{provider.name || provider.address}</td>
-                        <td className="py-2 pr-4">{hasId ? provider.providerId : "—"}</td>
-                        <td className="py-2 pr-4">
-                          {metricsHref ? (
-                            <a
-                              href={metricsHref}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-primary underline-offset-4 hover:underline"
-                            >
-                              Metrics
-                              <ExternalLink className="ml-1 inline h-3 w-3" />
-                            </a>
-                          ) : (
-                            "—"
-                          )}
-                        </td>
-                        <td className="py-2">
-                          {logsHref ? (
-                            <a
-                              href={logsHref}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-primary underline-offset-4 hover:underline"
-                            >
-                              Logs
-                              <ExternalLink className="ml-1 inline h-3 w-3" />
-                            </a>
-                          ) : (
-                            "—"
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-            );
-          })()}
+          {providersError && <p className="text-sm text-destructive">{providersError}</p>}
+          {providersLoading && <p className="text-sm text-muted-foreground">Loading providers…</p>}
           {!providersLoading &&
             !providersError &&
-            providersResponse.total > providersResponse.providers.length && (
-              <p className="mt-2 text-xs text-muted-foreground">
-                Showing first {providersResponse.providers.length} of {providersResponse.total} providers.
-              </p>
-            )}
+            (() => {
+              const activeProviders = providersResponse.providers
+                .filter((p) => p.isActive)
+                .sort((a, b) => (a.providerId ?? Number.MAX_SAFE_INTEGER) - (b.providerId ?? Number.MAX_SAFE_INTEGER));
+              return activeProviders.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No providers found.</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full border-collapse text-sm">
+                    <thead>
+                      <tr className="border-b">
+                        <th className="text-left py-2 pr-4 font-medium">SP name</th>
+                        <th className="text-left py-2 pr-4 font-medium">ID</th>
+                        <th className="text-left py-2 pr-4 font-medium">Metrics dashboard</th>
+                        <th className="text-left py-2 font-medium">Logs</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {activeProviders.map((provider) => {
+                        const hasId = provider.providerId != null;
+                        const metricsHref =
+                          dashboardUrl && hasId
+                            ? buildBetterStackUrlWithProvider(
+                                dashboardUrl,
+                                provider.providerId as number,
+                                "vs[provider_id]",
+                              )
+                            : "";
+                        const logsHref =
+                          logsUrl && hasId
+                            ? buildBetterStackUrlWithProvider(logsUrl, provider.providerId as number, "vs[providerId]")
+                            : "";
+                        return (
+                          <tr key={provider.address} className="border-b last:border-b-0">
+                            <td className="py-2 pr-4">{provider.name || provider.address}</td>
+                            <td className="py-2 pr-4">{hasId ? provider.providerId : "—"}</td>
+                            <td className="py-2 pr-4">
+                              {metricsHref ? (
+                                <a
+                                  href={metricsHref}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-primary underline-offset-4 hover:underline"
+                                >
+                                  Metrics
+                                  <ExternalLink className="ml-1 inline h-3 w-3" />
+                                </a>
+                              ) : (
+                                "—"
+                              )}
+                            </td>
+                            <td className="py-2">
+                              {logsHref ? (
+                                <a
+                                  href={logsHref}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-primary underline-offset-4 hover:underline"
+                                >
+                                  Logs
+                                  <ExternalLink className="ml-1 inline h-3 w-3" />
+                                </a>
+                              ) : (
+                                "—"
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              );
+            })()}
+          {!providersLoading && !providersError && providersResponse.total > providersResponse.providers.length && (
+            <p className="mt-2 text-xs text-muted-foreground">
+              Showing first {providersResponse.providers.length} of {providersResponse.total} providers.
+            </p>
+          )}
         </CardContent>
       </Card>
     </div>
