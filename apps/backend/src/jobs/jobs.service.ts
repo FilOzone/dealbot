@@ -26,6 +26,10 @@ import {
 import { JobScheduleRepository } from "./repositories/job-schedule.repository.js";
 
 type SpJobType = "deal" | "retrieval" | "data_set_creation";
+const SP_JOB_TYPES: ReadonlySet<string> = new Set<string>(["deal", "retrieval", "data_set_creation"]);
+function isSpJobType(jobType: string): jobType is SpJobType {
+  return SP_JOB_TYPES.has(jobType);
+}
 
 type SpJobData = { jobType: SpJobType; spAddress: string; intervalSeconds: number };
 type MetricsJobData = { intervalSeconds: number };
@@ -914,7 +918,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     const catchupMax = this.catchupMaxEnqueue();
 
     if (maintenance.active) {
-      this.logMaintenanceSkip("deal/retrieval enqueues", maintenance.window?.label);
+      this.logMaintenanceSkip("SP job enqueues", maintenance.window?.label);
     }
 
     await this.jobScheduleRepository.runTransaction(async (manager) => {
@@ -925,7 +929,17 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         if (!timing) continue;
         const { intervalMs, nextRunAt, runsDue } = timing;
 
-        const totalToEnqueue = Math.min(runsDue, catchupMax);
+        const isSpJob = isSpJobType(row.job_type);
+
+        // During maintenance, skip global jobs entirely.
+        if (maintenance.active && !isSpJob) {
+          this.logger.log(`Skipping global job ${row.job_type} during maintenance`);
+          const newNextRunAt = new Date(now.getTime() + intervalMs);
+          await this.jobScheduleRepository.advanceScheduleNextRun(manager, row.id, newNextRunAt);
+          continue;
+        }
+
+        const totalToEnqueue = isSpJob ? Math.min(runsDue, catchupMax) : 1;
         let successCount = 0;
         const jobName = this.mapJobName(row.job_type);
         const payload = this.mapJobPayload(row);
@@ -937,7 +951,10 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         }
 
         if (successCount > 0) {
-          const newNextRunAt = new Date(nextRunAt.getTime() + successCount * intervalMs);
+          // For global jobs, skip ahead to the next future run instead of replaying missed intervals.
+          const newNextRunAt = isSpJob
+            ? new Date(nextRunAt.getTime() + successCount * intervalMs)
+            : new Date(now.getTime() + intervalMs);
           await this.jobScheduleRepository.updateScheduleAfterRun(manager, row.id, newNextRunAt, now);
         }
       }
@@ -987,11 +1004,14 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     try {
       // Disable retries so "attempted" jobs don't rerun; failures are handled by the next schedule tick.
       const finalOptions: SendOptions = { retryLimit: 0, ...options };
-      if (jobType === "deal" || jobType === "retrieval" || jobType === "data_set_creation") {
+      if (isSpJobType(jobType)) {
         const spData = data as SpJobData;
         if (!finalOptions.singletonKey) {
           finalOptions.singletonKey = spData.spAddress;
         }
+      } else {
+        // Global jobs: use job type as singleton key.
+        finalOptions.singletonKey = jobType;
       }
       await this.boss.send(name, data, finalOptions);
       this.jobsEnqueueAttemptsCounter.inc({ job_type: jobType, outcome: "success" });
