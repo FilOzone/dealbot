@@ -4,15 +4,20 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 /**
  * Builds a BetterStack dashboard or logs URL scoped to a single provider.
- * Appends time range (now-24h to now) and vs[provider_id] filter.
+ * Appends time range (now-24h to now) and provider filter.
+ * Metrics dashboard uses vs[provider_id]; logs dashboard uses vs[providerId].
  */
-function buildBetterStackUrlWithProvider(baseUrl: string, providerId: number): string {
+function buildBetterStackUrlWithProvider(
+  baseUrl: string,
+  providerId: number,
+  paramKey: "vs[provider_id]" | "vs[providerId]" = "vs[provider_id]",
+): string {
   if (!baseUrl) return "";
   try {
     const url = new URL(baseUrl);
     url.searchParams.set("rf", "now-24h");
     url.searchParams.set("rt", "now");
-    url.searchParams.set("vs[provider_id]", String(providerId));
+    url.searchParams.set(paramKey, String(providerId));
     return url.toString();
   } catch {
     return "";
@@ -125,11 +130,11 @@ export default function Landing() {
                     const hasId = provider.providerId != null;
                     const metricsHref =
                       dashboardUrl && hasId
-                        ? buildBetterStackUrlWithProvider(dashboardUrl, provider.providerId as number)
+                        ? buildBetterStackUrlWithProvider(dashboardUrl, provider.providerId as number, "vs[provider_id]")
                         : "";
                     const logsHref =
                       logsUrl && hasId
-                        ? buildBetterStackUrlWithProvider(logsUrl, provider.providerId as number)
+                        ? buildBetterStackUrlWithProvider(logsUrl, provider.providerId as number, "vs[providerId]")
                         : "";
                     return (
                       <tr key={provider.address} className="border-b last:border-b-0">
