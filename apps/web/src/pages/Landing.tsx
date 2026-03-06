@@ -113,6 +113,18 @@ export default function Landing() {
               {logsUrlInvalid && "LOGS_URL"} configured but invalid — links will be unavailable.
             </p>
           )}
+          {!dashboardUrl && !dashboardUrlInvalid && (
+            <p className="mb-2 text-sm text-muted-foreground">
+              Metrics dashboard links are disabled. Set <code>DASHBOARD_URL</code> in the web runtime config or
+              environment to enable them.
+            </p>
+          )}
+          {!logsUrl && !logsUrlInvalid && (
+            <p className="mb-2 text-sm text-muted-foreground">
+              Logs links are disabled. Set <code>LOGS_URL</code> in the web runtime config or environment to enable
+              them.
+            </p>
+          )}
           {providersError && <p className="text-sm text-destructive">{providersError}</p>}
           {providersLoading && <p className="text-sm text-muted-foreground">Loading providers…</p>}
           {!providersLoading &&
@@ -137,19 +149,18 @@ export default function Landing() {
                     <tbody>
                       {activeProviders.map((provider) => {
                         const providerId = provider.providerId;
-                        const hasId = typeof providerId === "number";
                         const metricsHref =
-                          dashboardUrl && hasId
+                          dashboardUrl && typeof providerId === "number"
                             ? buildBetterStackUrlWithProvider(dashboardUrl, providerId, "vs[provider_id]")
                             : "";
                         const logsHref =
-                          logsUrl && hasId
+                          logsUrl && typeof providerId === "number"
                             ? buildBetterStackUrlWithProvider(logsUrl, providerId, "vs[providerId]")
                             : "";
                         return (
                           <tr key={provider.address} className="border-b last:border-b-0">
                             <td className="py-2 pr-4">{provider.name || provider.address}</td>
-                            <td className="py-2 pr-4">{hasId ? provider.providerId : "—"}</td>
+                            <td className="py-2 pr-4">{typeof providerId === "number" ? providerId : "—"}</td>
                             <td className="py-2 pr-4">
                               {metricsHref ? (
                                 <a
