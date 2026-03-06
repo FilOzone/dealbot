@@ -1,5 +1,10 @@
 import { randomUUID } from "node:crypto";
-import { METADATA_KEYS, RPC_URLS, SIZE_CONSTANTS, Synapse } from "@filoz/synapse-sdk";
+import {
+  METADATA_KEYS,
+  RPC_URLS,
+  SIZE_CONSTANTS,
+  Synapse,
+} from "@filoz/synapse-sdk";
 import { Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
@@ -9,7 +14,11 @@ import type { Repository } from "typeorm";
 import { awaitWithAbort } from "../common/abort-utils.js";
 import { buildUnixfsCar } from "../common/car-utils.js";
 import { createFilecoinPinLogger } from "../common/filecoin-pin-logger.js";
-import { type DealLogContext, type ProviderJobContext, toStructuredError } from "../common/logging.js";
+import {
+  type DealLogContext,
+  type ProviderJobContext,
+  toStructuredError,
+} from "../common/logging.js";
 import type { DataFile, Hex } from "../common/types.js";
 import type { IBlockchainConfig, IConfig } from "../config/app.config.js";
 import { Deal } from "../database/entities/deal.entity.js";
