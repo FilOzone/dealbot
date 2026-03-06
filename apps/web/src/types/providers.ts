@@ -33,7 +33,7 @@ export interface PDPOffering {
  */
 export interface Provider {
   address: string;
-  providerId: number;
+  providerId?: number;
   name: string;
   description: string;
   payee: string;
