@@ -13,7 +13,7 @@ interface FailedRetrievalsFiltersProps {
   onSearchChange: (value: string) => void;
   onProviderFilterChange: (value: string) => void;
   onServiceTypeFilterChange: (value: ServiceType | "all") => void;
-  providers: Array<{ address: string; name?: string; providerId?: number }>;
+  providers: Array<{ address: string; name?: string; providerId?: number | null }>;
   totalRetrievals: number;
   filteredCount: number;
 }

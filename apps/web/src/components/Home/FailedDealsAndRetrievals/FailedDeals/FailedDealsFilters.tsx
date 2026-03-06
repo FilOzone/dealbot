@@ -10,7 +10,7 @@ interface FailedDealsFiltersProps {
   providerFilter: string;
   onSearchChange: (value: string) => void;
   onProviderFilterChange: (value: string) => void;
-  providers: Array<{ address: string; providerId?: number; name?: string }>;
+  providers: Array<{ address: string; providerId?: number | null; name?: string }>;
   totalDeals: number;
   filteredCount: number;
 }

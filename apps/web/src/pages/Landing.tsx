@@ -53,12 +53,14 @@ const getConfig = () => {
 
   return {
     dashboardUrl: dashboardUrl.safe,
+    dashboardUrlInvalid: dashboardUrl.isInvalid,
     logsUrl: logsUrl.safe,
+    logsUrlInvalid: logsUrl.isInvalid,
   };
 };
 
 export default function Landing() {
-  const { dashboardUrl, logsUrl } = getConfig();
+  const { dashboardUrl, dashboardUrlInvalid, logsUrl, logsUrlInvalid } = getConfig();
   const { providers: providersResponse, loading: providersLoading, error: providersError } = useProvidersList(0, 500);
 
   return (
@@ -104,6 +106,13 @@ export default function Landing() {
           <CardTitle className="text-base">Storage providers – metrics & logs</CardTitle>
         </CardHeader>
         <CardContent>
+          {(dashboardUrlInvalid || logsUrlInvalid) && (
+            <p className="mb-2 text-sm text-yellow-600">
+              Warning: {dashboardUrlInvalid && "DASHBOARD_URL"}
+              {dashboardUrlInvalid && logsUrlInvalid && " and "}
+              {logsUrlInvalid && "LOGS_URL"} configured but invalid — links will be unavailable.
+            </p>
+          )}
           {providersError && <p className="text-sm text-destructive">{providersError}</p>}
           {providersLoading && <p className="text-sm text-muted-foreground">Loading providers…</p>}
           {!providersLoading &&
@@ -127,18 +136,15 @@ export default function Landing() {
                     </thead>
                     <tbody>
                       {activeProviders.map((provider) => {
-                        const hasId = provider.providerId != null;
+                        const providerId = provider.providerId;
+                        const hasId = typeof providerId === "number";
                         const metricsHref =
                           dashboardUrl && hasId
-                            ? buildBetterStackUrlWithProvider(
-                                dashboardUrl,
-                                provider.providerId as number,
-                                "vs[provider_id]",
-                              )
+                            ? buildBetterStackUrlWithProvider(dashboardUrl, providerId, "vs[provider_id]")
                             : "";
                         const logsHref =
                           logsUrl && hasId
-                            ? buildBetterStackUrlWithProvider(logsUrl, provider.providerId as number, "vs[providerId]")
+                            ? buildBetterStackUrlWithProvider(logsUrl, providerId, "vs[providerId]")
                             : "";
                         return (
                           <tr key={provider.address} className="border-b last:border-b-0">
