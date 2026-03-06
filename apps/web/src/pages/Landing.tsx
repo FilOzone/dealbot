@@ -1,6 +1,28 @@
-import { Activity, ExternalLink, Info } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Activity, ExternalLink } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useProvidersList } from "@/hooks/useProvidersList";
+
+/**
+ * Builds a BetterStack dashboard or logs URL scoped to a single provider.
+ * Appends time range (now-24h to now) and provider filter.
+ * Metrics dashboard uses vs[provider_id]; logs dashboard uses vs[providerId].
+ */
+function buildBetterStackUrlWithProvider(
+  baseUrl: string,
+  providerId: number,
+  paramKey: "vs[provider_id]" | "vs[providerId]" = "vs[provider_id]",
+): string {
+  if (!baseUrl) return "";
+  try {
+    const url = new URL(baseUrl);
+    url.searchParams.set("rf", "now-24h");
+    url.searchParams.set("rt", "now");
+    url.searchParams.set(paramKey, String(providerId));
+    return url.toString();
+  } catch {
+    return "";
+  }
+}
 
 const sanitizeConfigUrl = (value: string) => {
   if (!value) {
@@ -27,22 +49,19 @@ const getConfig = () => {
   const runtimeConfig = typeof window === "undefined" ? undefined : window.__DEALBOT_CONFIG__;
 
   const dashboardUrl = getConfigUrl(runtimeConfig?.DASHBOARD_URL, import.meta.env.VITE_DASHBOARD_URL);
-  const dashboardEmbedUrl = getConfigUrl(runtimeConfig?.DASHBOARD_EMBED_URL, import.meta.env.VITE_DASHBOARD_EMBED_URL);
   const logsUrl = getConfigUrl(runtimeConfig?.LOGS_URL, import.meta.env.VITE_LOGS_URL);
 
   return {
     dashboardUrl: dashboardUrl.safe,
     dashboardUrlInvalid: dashboardUrl.isInvalid,
-    dashboardEmbedUrl: dashboardEmbedUrl.safe,
-    dashboardEmbedUrlInvalid: dashboardEmbedUrl.isInvalid,
     logsUrl: logsUrl.safe,
     logsUrlInvalid: logsUrl.isInvalid,
   };
 };
 
 export default function Landing() {
-  const { dashboardUrl, dashboardUrlInvalid, dashboardEmbedUrl, dashboardEmbedUrlInvalid, logsUrl, logsUrlInvalid } =
-    getConfig();
+  const { dashboardUrl, dashboardUrlInvalid, logsUrl, logsUrlInvalid } = getConfig();
+  const { providers: providersResponse, loading: providersLoading, error: providersError } = useProvidersList(0, 500);
 
   return (
     <div className="flex w-full flex-col items-center gap-12 pt-8">
@@ -81,85 +100,112 @@ export default function Landing() {
         </p>
       </div>
 
-      {/* SP filter instructions */}
+      {/* Storage providers – metrics & logs */}
       <Card className="w-full">
         <CardHeader>
-          <CardTitle className="text-base">View more details for a Storage Provider</CardTitle>
+          <CardTitle className="text-base">Storage providers – metrics & logs</CardTitle>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-start gap-2 rounded-lg border bg-muted/50 p-3 text-sm">
-            <Info className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-            <span>
-              To filter the dashboard or logs to your SP, update the{" "}
-              <code className="font-mono text-foreground">providerId</code> variable on the dashboard to the appropriate
-              provider ID.
-            </span>
-          </div>
-          <div className="flex flex-wrap gap-3">
-            {dashboardUrl ? (
-              <Button size="lg" asChild>
-                <a href={dashboardUrl} target="_blank" rel="noopener noreferrer">
-                  View Metrics Dashboard
-                  <ExternalLink className="ml-2 h-4 w-4" />
-                </a>
-              </Button>
-            ) : (
-              <p className="text-xs text-destructive">
-                {dashboardUrlInvalid ? (
-                  <>
-                    Dashboard URL is invalid. Use <code className="font-mono">https://...</code> (or{" "}
-                    <code className="font-mono">http://localhost...</code> for local dev).
-                  </>
-                ) : (
-                  <>
-                    No dashboard URL configured — set <code className="font-mono">VITE_DASHBOARD_URL</code> or{" "}
-                    <code className="font-mono">DASHBOARD_URL</code> in runtime config.
-                  </>
-                )}
-              </p>
-            )}
-            {logsUrl && (
-              <Button size="lg" variant="outline" asChild>
-                <a href={logsUrl} target="_blank" rel="noopener noreferrer">
-                  View Logs
-                  <ExternalLink className="ml-2 h-4 w-4" />
-                </a>
-              </Button>
-            )}
-            {logsUrlInvalid && (
-              <p className="text-xs text-destructive">
-                Logs URL is invalid. Use <code className="font-mono">https://...</code> (or{" "}
-                <code className="font-mono">http://localhost...</code> for local dev).
-              </p>
-            )}
-          </div>
+        <CardContent>
+          {(dashboardUrlInvalid || logsUrlInvalid) && (
+            <p className="mb-2 text-sm text-yellow-600">
+              Warning: {dashboardUrlInvalid && "DASHBOARD_URL"}
+              {dashboardUrlInvalid && logsUrlInvalid && " and "}
+              {logsUrlInvalid && "LOGS_URL"} configured but invalid — links will be unavailable.
+            </p>
+          )}
+          {!dashboardUrl && !dashboardUrlInvalid && (
+            <p className="mb-2 text-sm text-muted-foreground">
+              Metrics dashboard links are disabled. Set <code>DASHBOARD_URL</code> in the web runtime config or
+              environment to enable them.
+            </p>
+          )}
+          {!logsUrl && !logsUrlInvalid && (
+            <p className="mb-2 text-sm text-muted-foreground">
+              Logs links are disabled. Set <code>LOGS_URL</code> in the web runtime config or environment to enable
+              them.
+            </p>
+          )}
+          {providersError && <p className="text-sm text-destructive">{providersError}</p>}
+          {providersLoading && <p className="text-sm text-muted-foreground">Loading providers…</p>}
+          {!providersLoading &&
+            !providersError &&
+            (() => {
+              const activeProviders = providersResponse.providers
+                .filter((p) => p.isActive)
+                .sort((a, b) => (a.providerId ?? Number.MAX_SAFE_INTEGER) - (b.providerId ?? Number.MAX_SAFE_INTEGER));
+              return activeProviders.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No providers found.</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full border-collapse text-sm">
+                    <thead>
+                      <tr className="border-b">
+                        <th className="text-left py-2 pr-4 font-medium">SP name</th>
+                        <th className="text-left py-2 pr-4 font-medium">ID</th>
+                        <th className="text-left py-2 pr-4 font-medium">Metrics dashboard</th>
+                        <th className="text-left py-2 font-medium">Logs</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {activeProviders.map((provider) => {
+                        const providerId = provider.providerId;
+                        const metricsHref =
+                          dashboardUrl && typeof providerId === "number"
+                            ? buildBetterStackUrlWithProvider(dashboardUrl, providerId, "vs[provider_id]")
+                            : "";
+                        const logsHref =
+                          logsUrl && typeof providerId === "number"
+                            ? buildBetterStackUrlWithProvider(logsUrl, providerId, "vs[providerId]")
+                            : "";
+                        return (
+                          <tr key={provider.address} className="border-b last:border-b-0">
+                            <td className="py-2 pr-4">{provider.name || provider.address}</td>
+                            <td className="py-2 pr-4">{typeof providerId === "number" ? providerId : "—"}</td>
+                            <td className="py-2 pr-4">
+                              {metricsHref ? (
+                                <a
+                                  href={metricsHref}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-primary underline-offset-4 hover:underline"
+                                >
+                                  Metrics
+                                  <ExternalLink className="ml-1 inline h-3 w-3" />
+                                </a>
+                              ) : (
+                                "—"
+                              )}
+                            </td>
+                            <td className="py-2">
+                              {logsHref ? (
+                                <a
+                                  href={logsHref}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-primary underline-offset-4 hover:underline"
+                                >
+                                  Logs
+                                  <ExternalLink className="ml-1 inline h-3 w-3" />
+                                </a>
+                              ) : (
+                                "—"
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              );
+            })()}
+          {!providersLoading && !providersError && providersResponse.total > providersResponse.providers.length && (
+            <p className="mt-2 text-xs text-muted-foreground">
+              Showing first {providersResponse.providers.length} of {providersResponse.total} providers.
+            </p>
+          )}
         </CardContent>
       </Card>
-
-      {/* Embedded dashboard */}
-      {dashboardEmbedUrl && (
-        <div className="w-full self-stretch space-y-3">
-          <p className="text-sm text-muted-foreground">
-            On smaller screens, the embedded dashboard may show internal scrolling.
-          </p>
-          <div className="w-full max-w-none overflow-hidden rounded-xl border">
-            <iframe
-              src={dashboardEmbedUrl}
-              title="Metrics Dashboard"
-              className="h-[70vh] min-h-[480px] w-full md:h-[80vh] md:min-h-[600px]"
-              style={{ border: "none" }}
-              loading="lazy"
-              sandbox="allow-same-origin allow-scripts allow-popups allow-popups-to-escape-sandbox"
-            />
-          </div>
-        </div>
-      )}
-      {dashboardEmbedUrlInvalid && (
-        <p className="w-full text-xs text-destructive">
-          Dashboard embed URL is invalid. Use <code className="font-mono">https://...</code> (or{" "}
-          <code className="font-mono">http://localhost...</code> for local dev).
-        </p>
-      )}
     </div>
   );
 }
