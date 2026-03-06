@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.1](https://github.com/FilOzone/dealbot/compare/backend-v1.0.0...backend-v1.0.1) (2026-03-06)
+
+
+### Bug Fixes
+
+* do not create an empty data-set ([#330](https://github.com/FilOzone/dealbot/issues/330)) ([e7dba9a](https://github.com/FilOzone/dealbot/commit/e7dba9a6f63b8715fd1ca409db1658a0642f94aa))
+
 ## [1.0.0](https://github.com/FilOzone/dealbot/compare/backend-v0.4.0...backend-v1.0.0) (2026-03-03)
 
 

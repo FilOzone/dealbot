@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.1](https://github.com/FilOzone/dealbot/compare/web-v1.0.0...web-v1.0.1) (2026-03-06)
+
+
+### Bug Fixes
+
+* simple landing page with link to dashboard and logs ([#313](https://github.com/FilOzone/dealbot/issues/313)) ([574afa8](https://github.com/FilOzone/dealbot/commit/574afa816dc10bf4789a8d2bd28417d9ffb6bf72))
+
 ## [1.0.0](https://github.com/FilOzone/dealbot/compare/web-v0.2.0...web-v1.0.0) (2026-03-03)
 
 
