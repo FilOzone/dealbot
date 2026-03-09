@@ -845,7 +845,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     const catchupMax = this.catchupMaxEnqueue();
 
     if (maintenance.active) {
-      this.logMaintenanceSkip("SP job enqueues", maintenance.window?.label);
+      this.logMaintenanceSkip("Global job enqueues", maintenance.window?.label);
     }
 
     await this.jobScheduleRepository.runTransaction(async (manager) => {
