@@ -15,7 +15,7 @@ function buildBetterStackUrlWithProvider(
   if (!baseUrl) return "";
   try {
     const url = new URL(baseUrl);
-    url.searchParams.set("rf", "now-24h");
+    url.searchParams.set("rf", "now-72h");
     url.searchParams.set("rt", "now");
     url.searchParams.set(paramKey, String(providerId));
     return url.toString();
