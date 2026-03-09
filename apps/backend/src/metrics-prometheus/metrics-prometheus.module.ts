@@ -315,6 +315,7 @@ const metricProviders = [
       path: "/metrics",
       defaultLabels: {
         app: "dealbot",
+        network: process.env.NETWORK || "calibration",
       },
     }),
   ],
