@@ -98,6 +98,9 @@ export default function Landing() {
             See the approval methodology ↗
           </a>
         </p>
+            <p className="text-sm text-muted-foreground">
+                  We currently link to BetterStack public dashboards.  <a href="https://github.com/FilOzone/dealbot/issues/176#issuecomment-4013747738">Learn why.</a>
+            </p>
       </div>
 
       {/* Storage providers – metrics & logs */}
