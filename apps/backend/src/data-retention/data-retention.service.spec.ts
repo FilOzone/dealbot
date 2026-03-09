@@ -3,6 +3,7 @@ import type { Counter } from "prom-client";
 import { Repository } from "typeorm";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { IConfig } from "../config/app.config.js";
+import type { DataRetentionBaseline } from "../database/entities/data-retention-baseline.entity.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
 import { buildCheckMetricLabels } from "../metrics/utils/check-metric-labels.js";
 import type { PDPSubgraphService } from "../pdp-subgraph/pdp-subgraph.service.js";
@@ -44,6 +45,11 @@ describe("DataRetentionService", () => {
     labels: ReturnType<typeof vi.fn>;
     inc: ReturnType<typeof vi.fn>;
     remove: ReturnType<typeof vi.fn>;
+  };
+  let mockBaselineRepository: {
+    find: ReturnType<typeof vi.fn>;
+    upsert: ReturnType<typeof vi.fn>;
+    delete: ReturnType<typeof vi.fn>;
   };
   let mockSPRepository: {
     find: ReturnType<typeof vi.fn>;
@@ -93,11 +99,17 @@ describe("DataRetentionService", () => {
       remove: removeMock,
     };
 
+    mockBaselineRepository = {
+      find: vi.fn().mockResolvedValue([]),
+      upsert: vi.fn().mockResolvedValue(undefined),
+      delete: vi.fn().mockResolvedValue(undefined),
+    };
     mockSPRepository = { find: vi.fn() };
     service = new DataRetentionService(
       configServiceMock,
       walletSdkServiceMock as unknown as WalletSdkService,
       pdpSubgraphServiceMock as unknown as PDPSubgraphService,
+      mockBaselineRepository as unknown as Repository<DataRetentionBaseline>,
       mockSPRepository as unknown as Repository<StorageProvider>,
       counterMock as unknown as Counter,
     );
@@ -799,6 +811,142 @@ describe("DataRetentionService", () => {
 
       // Should successfully find and clean up provider despite case difference
       expect(counterMock.remove).toHaveBeenCalled();
+    });
+  });
+
+  describe("baseline persistence (restart resilience)", () => {
+    it("loads baselines from DB on first poll and prevents counter inflation", async () => {
+      // Simulate a restart: DB has persisted baselines from a previous run
+      mockBaselineRepository.find.mockResolvedValueOnce([
+        {
+          providerAddress: PROVIDER_A,
+          faultedPeriods: "12",
+          successPeriods: "90",
+          lastBlockNumber: "1100",
+        },
+      ]);
+
+      // Subgraph returns same-ish values (small delta, not full history)
+      // estimatedOverduePeriods = (1200 - (900 + 1)) / 100 = 2
+      // estimatedTotalFaulted = 10 + 2 = 12
+      // estimatedTotalSuccess = (100 + 2) - 12 = 90
+      // With DB baseline: faultedDelta = 12 - 12 = 0, successDelta = 90 - 90 = 0
+      pdpSubgraphServiceMock.fetchProvidersWithDatasets.mockResolvedValueOnce([makeProvider()]);
+
+      await service.pollDataRetention();
+
+      // Key assertion: counters should NOT be incremented because deltas are zero
+      // Without this fix, the full history (12 faulted + 90 success) would be emitted
+      expect(counterMock.labels).not.toHaveBeenCalled();
+    });
+
+    it("emits only the real delta when DB baseline exists", async () => {
+      // DB has baseline from previous run
+      mockBaselineRepository.find.mockResolvedValueOnce([
+        {
+          providerAddress: PROVIDER_A,
+          faultedPeriods: "10",
+          successPeriods: "85",
+          lastBlockNumber: "1000",
+        },
+      ]);
+
+      // Subgraph returns slightly higher values
+      // estimatedOverduePeriods = (1200 - (900 + 1)) / 100 = 2
+      // estimatedTotalFaulted = 10 + 2 = 12 → faultedDelta = 12 - 10 = 2
+      // estimatedTotalSuccess = (100 + 2) - 12 = 90 → successDelta = 90 - 85 = 5
+      pdpSubgraphServiceMock.fetchProvidersWithDatasets.mockResolvedValueOnce([makeProvider()]);
+
+      await service.pollDataRetention();
+
+      // Should increment by only the delta, not the full cumulative values
+      expect(counterMock.labels).toHaveBeenCalledWith(
+        expect.objectContaining({ value: "failure" }),
+      );
+      expect(counterMock.labels).toHaveBeenCalledWith(
+        expect.objectContaining({ value: "success" }),
+      );
+
+      // Verify the actual increment values
+      const incCalls = counterMock.inc.mock.calls;
+      // faultedDelta=2, successDelta=5
+      expect(incCalls).toEqual(expect.arrayContaining([[2], [5]]));
+    });
+
+    it("persists baselines to DB after successful processing", async () => {
+      pdpSubgraphServiceMock.fetchProvidersWithDatasets.mockResolvedValueOnce([makeProvider()]);
+
+      await service.pollDataRetention();
+
+      expect(mockBaselineRepository.upsert).toHaveBeenCalledWith(
+        {
+          providerAddress: PROVIDER_A,
+          faultedPeriods: "12",
+          successPeriods: "90",
+          lastBlockNumber: "1200",
+        },
+        ["providerAddress"],
+      );
+    });
+
+    it("only loads baselines from DB once across multiple polls", async () => {
+      pdpSubgraphServiceMock.fetchProvidersWithDatasets.mockResolvedValue([makeProvider()]);
+
+      await service.pollDataRetention();
+      await service.pollDataRetention();
+      await service.pollDataRetention();
+
+      // DB find should only be called once (lazy init)
+      expect(mockBaselineRepository.find).toHaveBeenCalledTimes(1);
+    });
+
+    it("retries DB load on next poll if first load fails", async () => {
+      mockBaselineRepository.find
+        .mockRejectedValueOnce(new Error("DB connection failed"))
+        .mockResolvedValueOnce([
+          {
+            providerAddress: PROVIDER_A,
+            faultedPeriods: "12",
+            successPeriods: "90",
+            lastBlockNumber: "1100",
+          },
+        ]);
+
+      pdpSubgraphServiceMock.fetchProvidersWithDatasets.mockResolvedValue([makeProvider()]);
+
+      // First poll: DB load fails, poll bails out to avoid emitting bloated values
+      await service.pollDataRetention();
+      expect(mockBaselineRepository.find).toHaveBeenCalledTimes(1);
+      expect(pdpSubgraphServiceMock.fetchSubgraphMeta).not.toHaveBeenCalled();
+      expect(counterMock.labels).not.toHaveBeenCalled();
+
+      // Second poll: DB load succeeds, baselines restored, normal delta computation
+      await service.pollDataRetention();
+      expect(mockBaselineRepository.find).toHaveBeenCalledTimes(2);
+      // Deltas from DB baseline: faultedDelta = 12 - 12 = 0, successDelta = 90 - 90 = 0
+      expect(counterMock.labels).not.toHaveBeenCalled();
+    });
+
+    it("deletes baseline from DB when stale provider is cleaned up", async () => {
+      // First poll: establish baseline for PROVIDER_A
+      pdpSubgraphServiceMock.fetchProvidersWithDatasets.mockResolvedValueOnce([makeProvider({ address: PROVIDER_A })]);
+      await service.pollDataRetention();
+
+      // Second poll: PROVIDER_A removed from active list
+      walletSdkServiceMock.getTestingProviders.mockReturnValueOnce([
+        { id: 2, serviceProvider: PROVIDER_B, isApproved: false },
+      ]);
+
+      mockSPRepository.find.mockResolvedValueOnce([
+        { address: PROVIDER_A, providerId: 1, isApproved: true },
+      ]);
+
+      pdpSubgraphServiceMock.fetchProvidersWithDatasets.mockResolvedValueOnce([makeProvider({ address: PROVIDER_B })]);
+
+      await service.pollDataRetention();
+
+      // Should delete the baseline from DB
+      expect(mockBaselineRepository.delete).toHaveBeenCalledWith({ providerAddress: PROVIDER_A });
     });
   });
 });
