@@ -860,12 +860,8 @@ describe("DataRetentionService", () => {
       await service.pollDataRetention();
 
       // Should increment by only the delta, not the full cumulative values
-      expect(counterMock.labels).toHaveBeenCalledWith(
-        expect.objectContaining({ value: "failure" }),
-      );
-      expect(counterMock.labels).toHaveBeenCalledWith(
-        expect.objectContaining({ value: "success" }),
-      );
+      expect(counterMock.labels).toHaveBeenCalledWith(expect.objectContaining({ value: "failure" }));
+      expect(counterMock.labels).toHaveBeenCalledWith(expect.objectContaining({ value: "success" }));
 
       // Verify the actual increment values
       const incCalls = counterMock.inc.mock.calls;
@@ -901,16 +897,14 @@ describe("DataRetentionService", () => {
     });
 
     it("retries DB load on next poll if first load fails", async () => {
-      mockBaselineRepository.find
-        .mockRejectedValueOnce(new Error("DB connection failed"))
-        .mockResolvedValueOnce([
-          {
-            providerAddress: PROVIDER_A,
-            faultedPeriods: "12",
-            successPeriods: "90",
-            lastBlockNumber: "1100",
-          },
-        ]);
+      mockBaselineRepository.find.mockRejectedValueOnce(new Error("DB connection failed")).mockResolvedValueOnce([
+        {
+          providerAddress: PROVIDER_A,
+          faultedPeriods: "12",
+          successPeriods: "90",
+          lastBlockNumber: "1100",
+        },
+      ]);
 
       pdpSubgraphServiceMock.fetchProvidersWithDatasets.mockResolvedValue([makeProvider()]);
 
@@ -937,9 +931,7 @@ describe("DataRetentionService", () => {
         { id: 2, serviceProvider: PROVIDER_B, isApproved: false },
       ]);
 
-      mockSPRepository.find.mockResolvedValueOnce([
-        { address: PROVIDER_A, providerId: 1, isApproved: true },
-      ]);
+      mockSPRepository.find.mockResolvedValueOnce([{ address: PROVIDER_A, providerId: 1, isApproved: true }]);
 
       pdpSubgraphServiceMock.fetchProvidersWithDatasets.mockResolvedValueOnce([makeProvider({ address: PROVIDER_B })]);
 

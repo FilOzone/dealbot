@@ -136,9 +136,7 @@ export class DataRetentionService {
               });
             } else {
               const addr = providersFromSubgraph[index].address.toLowerCase();
-              upsertPromises.push(
-                this.persistBaseline(addr, result.value, blockNumberBigInt),
-              );
+              upsertPromises.push(this.persistBaseline(addr, result.value, blockNumberBigInt));
             }
           });
 
