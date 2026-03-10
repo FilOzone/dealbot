@@ -320,13 +320,29 @@ export class DataRetentionService {
 
     const normalizedAddress = address.toLowerCase();
     const previous = this.providerCumulativeTotals.get(normalizedAddress);
-    const faultedDelta = estimatedTotalFaulted - (previous?.faultedPeriods ?? 0n);
-    const successDelta = estimatedTotalSuccess - (previous?.successPeriods ?? 0n);
 
     const newBaseline = {
       faultedPeriods: estimatedTotalFaulted,
       successPeriods: estimatedTotalSuccess,
     };
+
+    // First time seeing this provider (fresh deploy or newly added provider).
+    // Set baseline without emitting counters to avoid dumping full cumulative history.
+    if (previous === undefined) {
+      this.logger.log({
+        event: "baseline_initialized",
+        message: `Initialized baseline for provider ${address} (no prior baseline)`,
+        providerAddress: address,
+        providerId: providerInfo.id,
+        faultedPeriods: estimatedTotalFaulted.toString(),
+        successPeriods: estimatedTotalSuccess.toString(),
+      });
+      this.providerCumulativeTotals.set(normalizedAddress, newBaseline);
+      return newBaseline;
+    }
+
+    const faultedDelta = estimatedTotalFaulted - previous.faultedPeriods;
+    const successDelta = estimatedTotalSuccess - previous.successPeriods;
 
     // Handle negative deltas: can occur due to chain reorgs, subgraph corrections, or data inconsistencies
     // Reset baseline to current values to prevent stalled metrics

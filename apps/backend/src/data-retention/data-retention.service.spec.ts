@@ -142,7 +142,7 @@ describe("DataRetentionService", () => {
     expect(pdpSubgraphServiceMock.fetchProvidersWithDatasets).not.toHaveBeenCalled();
   });
 
-  it("fetches providers and increments counters on first poll", async () => {
+  it("sets baseline on first poll without emitting counters (fresh deploy / new provider)", async () => {
     pdpSubgraphServiceMock.fetchProvidersWithDatasets.mockResolvedValueOnce([makeProvider()]);
 
     await service.pollDataRetention();
@@ -153,23 +153,20 @@ describe("DataRetentionService", () => {
       addresses: [PROVIDER_A, PROVIDER_B],
     });
 
-    // estimatedOverduePeriods = (1200 - (900 + 1)) / 100 = 299 / 100 = 2 (integer division)
-    // estimatedTotalFaulted = 10 + 2 = 12
-    // estimatedTotalPeriods = 100 + 2 = 102
-    // estimatedTotalSuccess = 102 - 12 = 90
-    // First poll: delta = full value (no previous)
-    expect(counterMock.labels).toHaveBeenCalledWith({
-      checkType: "dataRetention",
-      providerId: "1",
-      providerStatus: "approved",
-      value: "failure",
-    });
-    expect(counterMock.labels).toHaveBeenCalledWith({
-      checkType: "dataRetention",
-      providerId: "1",
-      providerStatus: "approved",
-      value: "success",
-    });
+    // First poll with no prior baseline: should NOT emit counters
+    // (baseline is set for future delta computation)
+    expect(counterMock.labels).not.toHaveBeenCalled();
+
+    // But the baseline should be persisted so the next poll can compute real deltas
+    expect(mockBaselineRepository.upsert).toHaveBeenCalledWith(
+      {
+        providerAddress: PROVIDER_A,
+        faultedPeriods: "12",
+        successPeriods: "90",
+        lastBlockNumber: "1200",
+      },
+      ["providerAddress"],
+    );
   });
 
   it("computes deltas correctly on consecutive polls", async () => {
@@ -215,6 +212,12 @@ describe("DataRetentionService", () => {
   });
 
   it("handles multiple providers independently", async () => {
+    // Seed DB baselines so first poll emits deltas
+    mockBaselineRepository.find.mockResolvedValueOnce([
+      { providerAddress: PROVIDER_A, faultedPeriods: "0", successPeriods: "0", lastBlockNumber: "1000" },
+      { providerAddress: PROVIDER_B, faultedPeriods: "0", successPeriods: "0", lastBlockNumber: "1000" },
+    ]);
+
     const providerA = makeProvider({ address: PROVIDER_A, totalFaultedPeriods: 5n });
     const providerB = makeProvider({ address: PROVIDER_B, totalFaultedPeriods: 20n });
     pdpSubgraphServiceMock.fetchProvidersWithDatasets.mockResolvedValueOnce([providerA, providerB]);
@@ -233,6 +236,11 @@ describe("DataRetentionService", () => {
   });
 
   it("skips proof sets with maxProvingPeriod of zero", async () => {
+    // Seed baseline so we can verify the computed values via deltas
+    mockBaselineRepository.find.mockResolvedValueOnce([
+      { providerAddress: PROVIDER_A, faultedPeriods: "0", successPeriods: "0", lastBlockNumber: "1000" },
+    ]);
+
     const provider = makeProvider({
       proofSets: [
         {
@@ -275,6 +283,11 @@ describe("DataRetentionService", () => {
   });
 
   it("handles provider with empty proofSets", async () => {
+    // Seed baseline so we can verify the computed values via deltas
+    mockBaselineRepository.find.mockResolvedValueOnce([
+      { providerAddress: PROVIDER_A, faultedPeriods: "0", successPeriods: "0", lastBlockNumber: "1000" },
+    ]);
+
     const provider = makeProvider({ proofSets: [] });
     pdpSubgraphServiceMock.fetchProvidersWithDatasets.mockResolvedValueOnce([provider]);
 
@@ -336,6 +349,11 @@ describe("DataRetentionService", () => {
     // Create a delta larger than Number.MAX_SAFE_INTEGER
     const largeValue = BigInt(Number.MAX_SAFE_INTEGER) + 1000n;
 
+    // Seed baseline at zero so the full largeValue becomes the delta
+    mockBaselineRepository.find.mockResolvedValueOnce([
+      { providerAddress: PROVIDER_A, faultedPeriods: "0", successPeriods: "0", lastBlockNumber: "1000" },
+    ]);
+
     pdpSubgraphServiceMock.fetchProvidersWithDatasets.mockResolvedValueOnce([
       makeProvider({ totalFaultedPeriods: largeValue, totalProvingPeriods: largeValue * 2n }),
     ]);
@@ -355,6 +373,11 @@ describe("DataRetentionService", () => {
   it("handles BigInt delta exactly at MAX_SAFE_INTEGER boundary", async () => {
     const maxSafeInt = BigInt(Number.MAX_SAFE_INTEGER);
 
+    // Seed baseline at zero so the full value becomes the delta
+    mockBaselineRepository.find.mockResolvedValueOnce([
+      { providerAddress: PROVIDER_A, faultedPeriods: "0", successPeriods: "0", lastBlockNumber: "1000" },
+    ]);
+
     pdpSubgraphServiceMock.fetchProvidersWithDatasets.mockResolvedValueOnce([
       makeProvider({ totalFaultedPeriods: maxSafeInt, totalProvingPeriods: maxSafeInt * 2n }),
     ]);
@@ -365,22 +388,12 @@ describe("DataRetentionService", () => {
     expect(counterMock.inc).toHaveBeenCalled();
   });
 
-  it("does not increment counter when delta is zero", async () => {
-    // First poll
-    pdpSubgraphServiceMock.fetchProvidersWithDatasets.mockResolvedValueOnce([makeProvider()]);
-    await service.pollDataRetention();
-    counterMock.labels.mockClear();
-    counterMock.inc.mockClear();
-
-    // Second poll with same data
-    pdpSubgraphServiceMock.fetchProvidersWithDatasets.mockResolvedValueOnce([makeProvider()]);
-    await service.pollDataRetention();
-
-    // No increments since deltas are zero
-    expect(counterMock.inc).not.toHaveBeenCalled();
-  });
-
   it("accumulates overdue periods across multiple proof sets", async () => {
+    // Seed baseline at zero so overdue period computation is visible as delta
+    mockBaselineRepository.find.mockResolvedValueOnce([
+      { providerAddress: PROVIDER_A, faultedPeriods: "0", successPeriods: "0", lastBlockNumber: "1000" },
+    ]);
+
     const provider = makeProvider({
       totalFaultedPeriods: 0n,
       totalProvingPeriods: 50n,
@@ -869,22 +882,6 @@ describe("DataRetentionService", () => {
       expect(incCalls).toEqual(expect.arrayContaining([[2], [5]]));
     });
 
-    it("persists baselines to DB after successful processing", async () => {
-      pdpSubgraphServiceMock.fetchProvidersWithDatasets.mockResolvedValueOnce([makeProvider()]);
-
-      await service.pollDataRetention();
-
-      expect(mockBaselineRepository.upsert).toHaveBeenCalledWith(
-        {
-          providerAddress: PROVIDER_A,
-          faultedPeriods: "12",
-          successPeriods: "90",
-          lastBlockNumber: "1200",
-        },
-        ["providerAddress"],
-      );
-    });
-
     it("only loads baselines from DB once across multiple polls", async () => {
       pdpSubgraphServiceMock.fetchProvidersWithDatasets.mockResolvedValue([makeProvider()]);
 
@@ -919,6 +916,32 @@ describe("DataRetentionService", () => {
       expect(mockBaselineRepository.find).toHaveBeenCalledTimes(2);
       // Deltas from DB baseline: faultedDelta = 12 - 12 = 0, successDelta = 90 - 90 = 0
       expect(counterMock.labels).not.toHaveBeenCalled();
+    });
+
+    it("emits real deltas on second poll after fresh deploy baseline-only first poll", async () => {
+      // First poll: fresh deploy, no baselines in DB
+      pdpSubgraphServiceMock.fetchProvidersWithDatasets.mockResolvedValueOnce([makeProvider()]);
+      await service.pollDataRetention();
+      counterMock.labels.mockClear();
+      counterMock.inc.mockClear();
+
+      // Second poll: values have increased
+      pdpSubgraphServiceMock.fetchSubgraphMeta.mockResolvedValueOnce({
+        _meta: { block: { number: 1300 } },
+      });
+      pdpSubgraphServiceMock.fetchProvidersWithDatasets.mockResolvedValueOnce([
+        makeProvider({ totalFaultedPeriods: 12n, totalProvingPeriods: 105n }),
+      ]);
+
+      await service.pollDataRetention();
+
+      // Now real deltas should be emitted
+      // New estimatedOverduePeriods = (1300 - (900 + 1)) / 100 = 3
+      // New estimatedTotalFaulted = 12 + 3 = 15 → faultedDelta = 15 - 12 = 3
+      // New estimatedTotalSuccess = (105 + 3) - 15 = 93 → successDelta = 93 - 90 = 3
+      expect(counterMock.labels).toHaveBeenCalled();
+      const incCalls = counterMock.inc.mock.calls;
+      expect(incCalls).toEqual(expect.arrayContaining([[3], [3]]));
     });
 
     it("deletes baseline from DB when stale provider is cleaned up", async () => {
