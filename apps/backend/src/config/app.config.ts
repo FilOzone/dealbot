@@ -95,6 +95,14 @@ export const configValidationSchema = Joi.object({
   DATA_SET_CREATION_JOB_TIMEOUT_SECONDS: Joi.number().min(60).default(300), // 5 minutes max runtime for dataset creation jobs
   IPFS_BLOCK_FETCH_CONCURRENCY: Joi.number().integer().min(1).max(32).default(6),
 
+  // Piece Cleanup
+  MAX_DATASET_STORAGE_SIZE_BYTES: Joi.number()
+    .integer()
+    .min(1)
+    .default(24 * 1024 * 1024 * 1024), // 24 GiB per SP
+  JOB_PIECE_CLEANUP_PER_SP_PER_HOUR: Joi.number().min(0.001).max(20).default(1),
+  MAX_PIECE_CLEANUP_RUNTIME_SECONDS: Joi.number().min(60).default(300), // 5 minutes max runtime for cleanup jobs
+
   // Dataset
   DEALBOT_LOCAL_DATASETS_PATH: Joi.string().default(DEFAULT_LOCAL_DATASETS_PATH),
   RANDOM_PIECE_SIZES: Joi.string().default("10485760"), // 10 MiB
@@ -239,6 +247,20 @@ export interface IJobsConfig {
    * Uses AbortController to actively cancel job execution.
    */
   retrievalJobTimeoutSeconds: number;
+  /**
+   * Target number of piece cleanup runs per storage provider per hour.
+   *
+   * Increasing this makes cleanup more aggressive at the cost of more SP API calls.
+   * Only used when `DEALBOT_JOBS_MODE=pgboss`.
+   */
+  pieceCleanupPerSpPerHour: number;
+  /**
+   * Maximum runtime (seconds) for piece cleanup jobs before forced abort.
+   *
+   * Uses AbortController to actively cancel job execution.
+   * Only used when `DEALBOT_JOBS_MODE=pgboss`.
+   */
+  maxPieceCleanupRuntimeSeconds: number;
 }
 
 export interface IDatasetConfig {
@@ -258,6 +280,10 @@ export interface IRetrievalConfig {
   ipfsBlockFetchConcurrency: number;
 }
 
+export interface IPieceCleanupConfig {
+  maxDatasetStorageSizeBytes: number;
+}
+
 export interface ISpBlocklistConfig {
   /** Provider numeric IDs to block from all scheduled checks. */
   ids: Set<string>;
@@ -274,6 +300,7 @@ export interface IConfig {
   dataset: IDatasetConfig;
   timeouts: ITimeoutConfig;
   retrieval: IRetrievalConfig;
+  pieceCleanup: IPieceCleanupConfig;
   spBlocklists: ISpBlocklistConfig;
 }
 
@@ -346,6 +373,8 @@ export function loadConfig(): IConfig {
       dealJobTimeoutSeconds: Number.parseInt(process.env.DEAL_JOB_TIMEOUT_SECONDS || "360", 10),
       retrievalJobTimeoutSeconds: Number.parseInt(process.env.RETRIEVAL_JOB_TIMEOUT_SECONDS || "60", 10),
       dataSetCreationJobTimeoutSeconds: Number.parseInt(process.env.DATA_SET_CREATION_JOB_TIMEOUT_SECONDS || "300", 10),
+      pieceCleanupPerSpPerHour: Number.parseFloat(process.env.JOB_PIECE_CLEANUP_PER_SP_PER_HOUR || "1"),
+      maxPieceCleanupRuntimeSeconds: Number.parseInt(process.env.MAX_PIECE_CLEANUP_RUNTIME_SECONDS || "300", 10),
     },
     dataset: {
       localDatasetsPath: process.env.DEALBOT_LOCAL_DATASETS_PATH || DEFAULT_LOCAL_DATASETS_PATH,
@@ -374,6 +403,12 @@ export function loadConfig(): IConfig {
     },
     retrieval: {
       ipfsBlockFetchConcurrency: Number.parseInt(process.env.IPFS_BLOCK_FETCH_CONCURRENCY || "6", 10),
+    },
+    pieceCleanup: {
+      maxDatasetStorageSizeBytes: Number.parseInt(
+        process.env.MAX_DATASET_STORAGE_SIZE_BYTES || String(24 * 1024 * 1024 * 1024),
+        10,
+      ),
     },
     spBlocklists: {
       ids: parseIdList(process.env.BLOCKED_SP_IDS),

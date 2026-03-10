@@ -132,6 +132,13 @@ export class Deal {
   @Column({ name: "retry_count", default: 0 })
   retryCount: number;
 
+  // Piece cleanup tracking
+  @Column({ name: "cleaned_up", default: false })
+  cleanedUp: boolean;
+
+  @Column({ name: "cleaned_up_at", type: "timestamptz", nullable: true })
+  cleanedUpAt: Date;
+
   @CreateDateColumn({ name: "created_at", type: "timestamptz" })
   createdAt: Date;
 
