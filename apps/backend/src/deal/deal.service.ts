@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { type PieceCID, METADATA_KEYS, RPC_URLS, SIZE_CONSTANTS, Synapse, type UploadResult } from "@filoz/synapse-sdk";
+import { METADATA_KEYS, RPC_URLS, SIZE_CONSTANTS, Synapse } from "@filoz/synapse-sdk";
 import { Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
