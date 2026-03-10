@@ -22,7 +22,6 @@ import {
   DATA_RETENTION_POLL_QUEUE,
   METRICS_CLEANUP_QUEUE,
   METRICS_QUEUE,
-  PIECE_CLEANUP_QUEUE,
   PROVIDERS_REFRESH_QUEUE,
   SP_WORK_QUEUE,
 } from "./job-queues.js";
@@ -269,7 +268,6 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     await boss.createQueue(METRICS_CLEANUP_QUEUE);
     await boss.createQueue(PROVIDERS_REFRESH_QUEUE);
     await boss.createQueue(DATA_RETENTION_POLL_QUEUE);
-    await boss.createQueue(PIECE_CLEANUP_QUEUE);
   }
 
   private registerWorkers(): void {
@@ -475,16 +473,6 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       return;
     }
 
-    // Create AbortController for job timeout enforcement
-    const abortController = new AbortController();
-    const timeoutSeconds = this.configService.get("jobs").dealJobTimeoutSeconds;
-    const timeoutMs = Math.max(120000, timeoutSeconds * 1000);
-    const effectiveTimeoutSeconds = Math.round(timeoutMs / 1000);
-    const abortReason = new Error(`Deal job timeout (${effectiveTimeoutSeconds}s) for ${spAddress}`);
-    const timeoutId = setTimeout(() => {
-      abortController.abort(abortReason);
-    }, timeoutMs);
-
     // Over-quota gating: avoid adding more pieces while already above quota
     try {
       const overQuota = await this.pieceCleanupService.isProviderOverQuota(spAddress);
@@ -504,6 +492,16 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         error: toStructuredError(error),
       });
     }
+
+    // Create AbortController for job timeout enforcement
+    const abortController = new AbortController();
+    const timeoutSeconds = this.configService.get("jobs").dealJobTimeoutSeconds;
+    const timeoutMs = Math.max(120000, timeoutSeconds * 1000);
+    const effectiveTimeoutSeconds = Math.round(timeoutMs / 1000);
+    const abortReason = new Error(`Deal job timeout (${effectiveTimeoutSeconds}s) for ${spAddress}`);
+    const timeoutId = setTimeout(() => {
+      abortController.abort(abortReason);
+    }, timeoutMs);
 
     await this.recordJobExecution("deal", async () => {
       const logContext = await this.resolveRunnableProviderJobContext(

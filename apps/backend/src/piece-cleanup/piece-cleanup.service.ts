@@ -1,4 +1,4 @@
-import { RPC_URLS, Synapse } from "@filoz/synapse-sdk";
+import { RPC_URLS, StorageContext, Synapse } from "@filoz/synapse-sdk";
 import { Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
@@ -138,6 +138,11 @@ export class PieceCleanupService implements OnModuleInit, OnModuleDestroy {
     let failed = 0;
     let bytesRemoved = 0;
 
+    const synapse = this.sharedSynapse ?? (await this.createSynapseInstance());
+    const storage = await synapse.storage.createContext({
+      providerAddress: spAddress,
+    });
+
     // Fetch candidates in batches. Keep deleting until back under quota or runtime cap.
     while (bytesRemoved < excessBytes) {
       signal?.throwIfAborted();
@@ -170,7 +175,7 @@ export class PieceCleanupService implements OnModuleInit, OnModuleDestroy {
         }
 
         try {
-          await this.deletePiece(deal, signal);
+          await this.deletePiece(deal, signal, storage);
           deleted++;
           batchDeletedCount++;
           bytesRemoved += Number(deal.pieceSize || deal.fileSize || 0);
@@ -262,17 +267,18 @@ export class PieceCleanupService implements OnModuleInit, OnModuleDestroy {
   /**
    * Delete a single piece via Synapse SDK and mark the deal as cleaned up.
    */
-  async deletePiece(deal: Deal, signal?: AbortSignal): Promise<void> {
+  async deletePiece(deal: Deal, signal?: AbortSignal, existingStorage?: StorageContext): Promise<void> {
     if (deal.pieceId == null || deal.dataSetId == null) {
       throw new Error(`Deal ${deal.id} is missing pieceId or dataSetId`);
     }
 
     signal?.throwIfAborted();
 
-    const synapse = this.sharedSynapse ?? (await this.createSynapseInstance());
-    const storage = await synapse.storage.createContext({
-      providerAddress: deal.spAddress,
-    });
+    const storage =
+      existingStorage ??
+      (await (this.sharedSynapse ?? (await this.createSynapseInstance())).storage.createContext({
+        providerAddress: deal.spAddress,
+      }));
 
     try {
       await storage.deletePiece(deal.pieceId);
