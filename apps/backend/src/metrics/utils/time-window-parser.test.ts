@@ -91,12 +91,12 @@ describe("TimeWindowParser", () => {
   });
 
   describe("calculateTimeWindow", () => {
-    const referenceDate = new Date("2024-11-02T12:00:00Z");
+    const referenceDate = new Date("2024-11-02T12:00:00");
 
     it("should calculate time window for hours", () => {
       const window = calculateTimeWindow("1h", referenceDate);
       expect(window.endDate).toEqual(referenceDate);
-      expect(window.startDate).toEqual(new Date("2024-11-02T11:00:00Z"));
+      expect(window.startDate).toEqual(new Date("2024-11-02T11:00:00"));
       expect(window.days).toBe(0);
       expect(window.preset).toBe("1h");
       expect(window.isAllTime).toBe(false);
@@ -105,7 +105,7 @@ describe("TimeWindowParser", () => {
     it("should calculate time window for days", () => {
       const window = calculateTimeWindow("7d", referenceDate);
       expect(window.endDate).toEqual(referenceDate);
-      expect(window.startDate).toEqual(new Date("2024-10-26T12:00:00Z"));
+      expect(window.startDate).toEqual(new Date("2024-10-26T12:00:00"));
       expect(window.days).toBe(7);
       expect(window.preset).toBe("7d");
       expect(window.isAllTime).toBe(false);
@@ -114,7 +114,7 @@ describe("TimeWindowParser", () => {
     it("should calculate time window for fractional days", () => {
       const window = calculateTimeWindow("2.5d", referenceDate);
       expect(window.endDate).toEqual(referenceDate);
-      expect(window.startDate).toEqual(new Date("2024-10-31T00:00:00Z"));
+      expect(window.startDate).toEqual(new Date("2024-10-31T00:00:00"));
       expect(window.days).toBe(2.5);
       expect(window.preset).toBe("2.5d");
       expect(window.isAllTime).toBe(false);
