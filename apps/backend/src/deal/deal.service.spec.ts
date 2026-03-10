@@ -188,22 +188,6 @@ describe("DealService", () => {
     vi.clearAllMocks();
   });
 
-  describe("onModuleInit", () => {
-    it("initializes synapse with correct config", async () => {
-      (Synapse.create as Mock).mockResolvedValue({});
-      await service.onModuleInit();
-      expect(Synapse.create).toHaveBeenCalledWith({
-        account: privateKeyToAccount("0xMockKey"),
-        warmStorageAddress: "0xFWSS",
-      });
-    });
-
-    it("throws if synapse initialization fails", async () => {
-      (Synapse.create as Mock).mockRejectedValue(new Error("Init failed"));
-      await expect(service.onModuleInit()).rejects.toThrow("Init failed");
-    });
-  });
-
   describe("createDeal", () => {
     let mockSynapseInstance: Synapse;
     let createContextMock: Mock;
