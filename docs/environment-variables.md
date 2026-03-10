@@ -14,6 +14,7 @@ This document provides a comprehensive guide to all environment variables used b
 | [Jobs (pg-boss)](#jobs-pg-boss)           | `DEALBOT_PGBOSS_SCHEDULER_ENABLED`, `DEALBOT_PGBOSS_POOL_MAX`, `DEALS_PER_SP_PER_HOUR`, `DATASET_CREATIONS_PER_SP_PER_HOUR`, `RETRIEVALS_PER_SP_PER_HOUR`, `METRICS_PER_HOUR`, `JOB_SCHEDULER_POLL_SECONDS`, `JOB_WORKER_POLL_SECONDS`, `PG_BOSS_LOCAL_CONCURRENCY`, `JOB_CATCHUP_MAX_ENQUEUE`, `JOB_SCHEDULE_PHASE_SECONDS`, `JOB_ENQUEUE_JITTER_SECONDS`, `DEAL_JOB_TIMEOUT_SECONDS`, `RETRIEVAL_JOB_TIMEOUT_SECONDS`, `IPFS_BLOCK_FETCH_CONCURRENCY` |
 | [Dataset](#dataset-configuration)         | `DEALBOT_LOCAL_DATASETS_PATH`, `RANDOM_PIECE_SIZES`                                                                                                          |
 | [Timeouts](#timeout-configuration)        | `CONNECT_TIMEOUT_MS`, `HTTP_REQUEST_TIMEOUT_MS`, `HTTP2_REQUEST_TIMEOUT_MS`, `IPNI_VERIFICATION_TIMEOUT_MS`, `IPNI_VERIFICATION_POLLING_MS`                   |
+| [Piece Cleanup](#piece-cleanup)           | `MAX_DATASET_STORAGE_SIZE_BYTES`, `JOB_PIECE_CLEANUP_PER_SP_PER_HOUR`, `MAX_PIECE_CLEANUP_RUNTIME_SECONDS`       |
 | [Web Frontend](#web-frontend)             | `VITE_API_BASE_URL`, `VITE_PLAUSIBLE_DATA_DOMAIN`, `DEALBOT_API_BASE_URL`                                                                                    |
 
 ---
@@ -783,6 +784,74 @@ Use this to stagger multiple dealbot deployments that are not sharing a database
 **Note**: This affects the number of concurrent `/ipfs/<cid>` requests per retrieval.
 
 ---
+
+## Piece Cleanup
+
+These variables control the automatic cleanup of old pieces from storage providers to prevent
+unbounded data growth. Cleanup runs as a periodic pg-boss job per SP. When total stored data
+for a provider exceeds the configured quota, oldest pieces are deleted until back under quota.
+
+SPs that are over quota will also have new deal creation skipped until cleanup runs.
+
+### `MAX_DATASET_STORAGE_SIZE_BYTES`
+
+- **Type**: `number` (integer, bytes)
+- **Required**: No
+- **Default**: `25769803776` (24 GiB)
+- **Minimum**: `1`
+
+**Role**: Maximum total stored data per SP (in bytes) before cleanup kicks in. When total stored data for a provider exceeds this value, the cleanup job deletes the oldest pieces until the excess is removed. This is the single quota control for piece cleanup.
+
+**When to update**:
+
+- Increase for longer runway before cleanup kicks in (e.g. months vs weeks)
+- Decrease if SP storage is constrained or costs are a concern
+
+**Example**:
+
+```bash
+MAX_DATASET_STORAGE_SIZE_BYTES=12884901888  # 12 GiB per SP
+```
+
+---
+
+### `JOB_PIECE_CLEANUP_PER_SP_PER_HOUR`
+
+- **Type**: `number`
+- **Required**: No
+- **Default**: `1`
+- **Minimum**: `0.001`
+- **Maximum**: `20`
+
+**Role**: Target number of piece cleanup runs per storage provider per hour. Controls how frequently the cleanup job runs for each SP. The rate is converted to an interval internally (e.g. 1/hr = every 3600s, 2/hr = every 1800s).
+
+Only used when `DEALBOT_JOBS_MODE=pgboss`.
+
+**When to update**:
+
+- Increase to run cleanup more frequently when SPs are frequently over quota
+- Decrease to reduce scheduling overhead
+
+---
+
+### `MAX_PIECE_CLEANUP_RUNTIME_SECONDS`
+
+- **Type**: `number`
+- **Required**: No
+- **Default**: `300` (5 minutes)
+- **Minimum**: `60`
+
+**Role**: Maximum runtime for a cleanup job before forced abort via `AbortController`. Prevents stuck cleanup jobs from blocking the SP work queue.
+
+Only used when `DEALBOT_JOBS_MODE=pgboss`.
+
+**When to update**:
+
+- Increase if piece deletion calls to the Synapse SDK are known to be slow
+- Decrease for faster abort detection on stuck jobs
+
+---
+
 ## Dataset Configuration
 
 ### `DEALBOT_LOCAL_DATASETS_PATH`
