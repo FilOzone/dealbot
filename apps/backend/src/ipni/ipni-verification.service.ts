@@ -5,7 +5,6 @@ import { CID } from "multiformats/cid";
 import type { StorageProvider } from "../database/entities/storage-provider.entity.js";
 import type { IPNIVerificationResult } from "../deal-addons/strategies/ipni.types.js";
 
-
 export type IpniVerificationInput = {
   rootCid: CID;
   blockCids?: CID[];
@@ -130,7 +129,6 @@ export class IpniVerificationService {
       verifiedAt: new Date().toISOString(),
     };
   }
-
 
   private buildExpectedProviderInfo(storageProvider: StorageProvider): ProviderInfo {
     return {
