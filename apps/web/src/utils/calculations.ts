@@ -199,22 +199,6 @@ export function calculateImprovement(newValue: number, oldValue: number): number
 }
 
 /**
- * Calculate CDN improvement over direct retrieval
- *
- * @param cdnLatency - CDN average latency
- * @param directLatency - Direct average latency
- * @returns Improvement percentage (positive = CDN is faster)
- *
- * @example
- * calculateCdnImprovement(300, 500) // 40 (CDN is 40% faster)
- * calculateCdnImprovement(600, 500) // -20 (CDN is 20% slower)
- */
-export function calculateCdnImprovement(cdnLatency: number, directLatency: number): number {
-  if (directLatency === 0) return 0;
-  return ((directLatency - cdnLatency) / directLatency) * 100;
-}
-
-/**
  * Safely parse BigInt string to number
  * Returns 0 if parsing fails or value is too large
  *

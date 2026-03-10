@@ -3,8 +3,9 @@ FROM node:24-alpine AS builder
 
 WORKDIR /app
 
-# Accept build-time ARG for VITE_API_BASE_URL (optional - provides default fallback)
+# Accept build-time ARGs for Vite (optional - provide default fallback)
 ARG VITE_API_BASE_URL
+ARG VITE_PLAUSIBLE_DATA_DOMAIN
 
 # Install pnpm
 RUN npm i -g pnpm@9
@@ -29,8 +30,9 @@ COPY apps/web/index.html ./apps/web/
 COPY apps/web/public/ ./apps/web/public/
 COPY apps/web/src/ ./apps/web/src/
 
-# Build the web application with build-time env var (if provided)
+# Build the web application with build-time env vars (if provided)
 ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
+ENV VITE_PLAUSIBLE_DATA_DOMAIN=${VITE_PLAUSIBLE_DATA_DOMAIN}
 RUN pnpm --filter web run build
 
 # Runtime stage - serve with Caddy
@@ -40,8 +42,14 @@ FROM caddy:2-alpine
 # Override at runtime to match your backend Service DNS name.
 ENV DEALBOT_API_UPSTREAM=dealbot:3130
 
+# Plausible analytics domain for runtime-config.js (optional).
+# Override at runtime to enable analytics without rebuilding.
+ENV VITE_PLAUSIBLE_DATA_DOMAIN=
+
 # Copy built static files from builder stage
 COPY --from=builder /app/apps/web/dist /srv
+COPY apps/web/docker-entrypoint.sh /usr/bin/docker-entrypoint.sh
+RUN chmod +x /usr/bin/docker-entrypoint.sh
 
 # Create Caddyfile for SPA routing
 RUN printf '%s\n' \
@@ -75,4 +83,4 @@ RUN printf '%s\n' \
 # Expose port
 EXPOSE 80
 
-CMD ["caddy", "run", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]
+ENTRYPOINT ["/usr/bin/docker-entrypoint.sh"]

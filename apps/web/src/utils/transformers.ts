@@ -53,15 +53,14 @@ export function transformDailyMetricsToChart(
  *
  * @example
  * const chartData = transformServiceComparisonToChart(metrics, 'totalRetrievals');
- * // Returns: [{ date: '2024-01-01', CDN: 100, 'Direct SP': 150, 'IPFS Pin': 50 }, ...]
+ * // Returns: [{ date: '2024-01-01', 'Direct SP': 150, 'IPFS Pin': 50 }, ...]
  */
 export function transformServiceComparisonToChart(
   serviceMetrics: ServiceComparisonMetrics[],
-  metric: keyof ServiceComparisonMetrics["cdn"],
+  metric: keyof ServiceComparisonMetrics["directSp"],
 ): ChartDataPoint[] {
   return serviceMetrics.map((day) => ({
     date: day.date,
-    CDN: day.cdn[metric],
     "Direct SP": day.directSp[metric],
     "IPFS Pin": day.ipfsPin[metric],
   }));

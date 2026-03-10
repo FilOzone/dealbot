@@ -1,12 +1,12 @@
 import { Injectable, Logger } from "@nestjs/common";
+import { delay } from "../common/abort-utils.js";
 import { RetrievalError, type RetrievalErrorResponseInfo } from "../common/errors.js";
+import { type RetrievalLogContext, toStructuredError } from "../common/logging.js";
 import { ServiceType } from "../database/types.js";
 import { HttpClientService } from "../http-client/http-client.service.js";
 import type { RequestWithMetrics } from "../http-client/types.js";
 import type { IRetrievalAddon } from "./interfaces/retrieval-addon.interface.js";
-import { CdnRetrievalStrategy } from "./strategies/cdn.strategy.js";
-import { DirectRetrievalStrategy } from "./strategies/direct.strategy.js";
-import { IpniRetrievalStrategy } from "./strategies/ipni.strategy.js";
+import { IpfsBlockRetrievalStrategy } from "./strategies/ipfs-block.strategy.js";
 import type {
   RetrievalConfiguration,
   RetrievalExecutionResult,
@@ -26,9 +26,7 @@ export class RetrievalAddonsService {
   private readonly addons: Map<string, IRetrievalAddon> = new Map();
 
   constructor(
-    private readonly directRetrieval: DirectRetrievalStrategy,
-    private readonly cdnRetrieval: CdnRetrievalStrategy,
-    private readonly ipniRetrieval: IpniRetrievalStrategy,
+    private readonly ipfsBlockRetrieval: IpfsBlockRetrievalStrategy,
     private readonly httpClientService: HttpClientService,
   ) {
     this.registerAddons();
@@ -39,9 +37,7 @@ export class RetrievalAddonsService {
    * @private
    */
   private registerAddons(): void {
-    this.registerAddon(this.directRetrieval);
-    this.registerAddon(this.cdnRetrieval);
-    this.registerAddon(this.ipniRetrieval);
+    this.registerAddon(this.ipfsBlockRetrieval);
 
     this.logger.log(`Registered ${this.addons.size} retrieval add-ons: ${Array.from(this.addons.keys()).join(", ")}`);
   }
@@ -131,7 +127,13 @@ export class RetrievalAddonsService {
       try {
         return strategy.constructUrl(config);
       } catch (error) {
-        this.logger.error(`Failed to construct URL with strategy ${strategy.name}: ${error.message}`);
+        this.logger.error({
+          event: "construct_retrieval_url_failed",
+          message: `Failed to construct URL with strategy ${strategy.name}`,
+          strategy: strategy.name,
+          dealId: config.deal.id,
+          error: toStructuredError(error),
+        });
         throw error;
       }
     });
@@ -143,12 +145,30 @@ export class RetrievalAddonsService {
    * @param config - Retrieval configuration
    * @returns Retrieval execution result
    */
-  async performRetrieval(config: RetrievalConfiguration, signal?: AbortSignal): Promise<RetrievalExecutionResult> {
+  async performRetrieval(
+    config: RetrievalConfiguration,
+    signal?: AbortSignal,
+    logContext?: Partial<RetrievalLogContext>,
+  ): Promise<RetrievalExecutionResult> {
     const urlResult = this.constructPreferredUrl(config);
 
-    this.logger.log(`Performing retrieval for deal ${config.deal.id} using ${urlResult.method}: ${urlResult.url}`);
-
-    return await this.executeRetrieval(urlResult, config, signal);
+    const retrievalLogContext: RetrievalLogContext = {
+      ...logContext,
+      jobId: logContext?.jobId,
+      dealId: config.deal.id,
+      providerAddress: config.storageProvider,
+      providerId: config.deal.storageProvider?.providerId ?? logContext?.providerId,
+      pieceCid: config.deal.pieceCid,
+      ipfsRootCID: config.deal.metadata?.[ServiceType.IPFS_PIN]?.rootCID,
+    };
+    this.logger.log({
+      ...retrievalLogContext,
+      event: "retrieval_started",
+      message: `Performing retrieval for deal ${config.deal.id}`,
+      method: urlResult.method,
+      url: this.sanitizeUrlForLog(urlResult.url),
+    });
+    return await this.executeRetrieval(urlResult, config, retrievalLogContext, signal);
   }
 
   /**
@@ -158,7 +178,11 @@ export class RetrievalAddonsService {
    * @param config - Retrieval configuration
    * @returns Test result with all method results and summary
    */
-  async testAllRetrievalMethods(config: RetrievalConfiguration, signal?: AbortSignal): Promise<RetrievalTestResult> {
+  async testAllRetrievalMethods(
+    config: RetrievalConfiguration,
+    signal?: AbortSignal,
+    logContext?: Partial<RetrievalLogContext>,
+  ): Promise<RetrievalTestResult> {
     const startTime = Date.now();
     const urlResults = this.constructAllUrls(config);
 
@@ -166,28 +190,39 @@ export class RetrievalAddonsService {
       throw new Error(`No retrieval methods available for deal ${config.deal.id}`);
     }
 
-    this.logger.log(
-      `Testing ${urlResults.length} retrieval methods for deal ${config.deal.id}: ` +
-        `${urlResults.map((r) => r.method).join(", ")}`,
-    );
+    signal?.throwIfAborted();
+
+    this.logger.log({
+      ...logContext,
+      event: "retrieval_test_started",
+      message: `Testing ${urlResults.length} retrieval methods for deal ${config.deal.id}`,
+      urls: urlResults.map((r) => this.sanitizeUrlForLog(r.url)),
+    });
 
     // Execute all retrievals in parallel
     const retrievalPromises = urlResults.map((urlResult) =>
-      this.executeRetrievalWithRetries(urlResult, config, signal),
+      this.executeRetrievalWithRetries(urlResult, config, signal, logContext),
     );
 
     const results = await Promise.allSettled(retrievalPromises);
+
+    const aborted = signal?.aborted ?? false;
 
     // Process results
     const executionResults: RetrievalExecutionResult[] = results.map((result, index) => {
       if (result.status === "fulfilled") {
         return result.value;
       } else {
+        let errorMessage = "";
+        if (result.reason instanceof Error) {
+          errorMessage = result.reason.message;
+        } else if (result.reason) {
+          errorMessage = String(result.reason);
+        }
         // Create failed result - retryCount unknown for catastrophic failures
         return {
           url: urlResults[index].url,
           method: urlResults[index].method,
-          data: Buffer.alloc(0),
           metrics: {
             latency: 0,
             ttfb: 0,
@@ -197,7 +232,7 @@ export class RetrievalAddonsService {
             responseSize: 0,
           },
           success: false,
-          error: result.reason?.message || "Unknown error",
+          error: errorMessage || "Unknown error",
           retryCount: undefined, // Unknown for catastrophic failures
         };
       }
@@ -211,10 +246,14 @@ export class RetrievalAddonsService {
     );
 
     const duration = Date.now() - startTime;
-    this.logger.log(
-      `Retrieval test completed in ${duration}ms: ` +
-        `${successfulResults.length}/${executionResults.length} successful`,
-    );
+    this.logger.log({
+      ...logContext,
+      event: "retrieval_test_completed",
+      message: `Retrieval test completed in ${duration}ms`,
+      durationMs: duration,
+      successfulRetrievals: successfulResults.length,
+      totalRetrievals: executionResults.length,
+    });
 
     return {
       dealId: config.deal.id,
@@ -227,12 +266,13 @@ export class RetrievalAddonsService {
         fastestLatency: fastestResult?.metrics.latency,
       },
       testedAt: new Date(),
+      aborted,
     };
   }
 
   /**
    * Execute retrieval with retries based on strategy configuration
-   * Strategies can define retry behavior (e.g., CDN cache warming)
+   * Strategies can define retry behavior (e.g., cache warming)
    *
    * @param urlResult - URL result from strategy
    * @param config - Retrieval configuration
@@ -243,7 +283,17 @@ export class RetrievalAddonsService {
     urlResult: RetrievalUrlResult,
     config: RetrievalConfiguration,
     signal?: AbortSignal,
+    logContext?: Partial<RetrievalLogContext>,
   ): Promise<RetrievalExecutionResult> {
+    const retrievalLogContext: RetrievalLogContext = {
+      ...logContext,
+      jobId: logContext?.jobId,
+      dealId: config.deal.id,
+      providerId: config.deal.storageProvider?.providerId ?? logContext?.providerId,
+      providerAddress: config.storageProvider,
+      pieceCid: config.deal.pieceCid,
+      ipfsRootCID: config.deal.metadata?.[ServiceType.IPFS_PIN]?.rootCID,
+    };
     const strategy = this.addons.get(urlResult.method);
 
     if (!strategy) {
@@ -264,9 +314,10 @@ export class RetrievalAddonsService {
     const results: Array<RetrievalExecutionResult & { attemptNumber: number }> = [];
 
     for (let attempt = 1; attempt <= attempts; attempt++) {
-      this.ensureNotAborted(signal);
+      signal?.throwIfAborted();
       try {
-        const result = await this.executeRetrieval(urlResult, config, signal);
+        const result = await this.executeRetrieval(urlResult, config, retrievalLogContext, signal);
+        signal?.throwIfAborted();
         results.push({ ...result, attemptNumber: attempt });
 
         if (attempts > 1 && result.success) {
@@ -279,11 +330,20 @@ export class RetrievalAddonsService {
 
         // Add delay between attempts if configured
         if (attempt < attempts && delayMs > 0) {
-          this.ensureNotAborted(signal);
-          await this.delay(delayMs);
+          signal?.throwIfAborted();
+          await delay(delayMs, signal);
         }
       } catch (error) {
-        this.logger.warn(`${strategy.name} attempt ${attempt}/${attempts} failed: ${error.message}`);
+        signal?.throwIfAborted();
+        this.logger.warn({
+          ...retrievalLogContext,
+          event: "retrieval_attempt_failed",
+          message: `${strategy.name} attempt ${attempt}/${attempts} failed`,
+          strategy: strategy.name,
+          attempt,
+          attempts,
+          error: toStructuredError(error),
+        });
 
         // If all attempts fail, throw the error
         if (attempt === attempts) {
@@ -316,21 +376,13 @@ export class RetrievalAddonsService {
   }
 
   /**
-   * Delay helper for CDN cache warming
-   * @param ms - Milliseconds to delay
-   * @private
-   */
-  private delay(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
-  }
-
-  /**
    * Execute a single retrieval with metrics and validation
    * @private
    */
   private async executeRetrieval(
     urlResult: RetrievalUrlResult,
     config: RetrievalConfiguration,
+    retrievalLogContext?: RetrievalLogContext,
     signal?: AbortSignal,
   ): Promise<RetrievalExecutionResult> {
     const strategy = this.addons.get(urlResult.method);
@@ -340,36 +392,70 @@ export class RetrievalAddonsService {
     }
 
     try {
-      this.ensureNotAborted(signal);
-      let result: RequestWithMetrics<Buffer>;
-      try {
-        // TODO: use proxy for IPFS_PIN as well
-        if (urlResult.method === ServiceType.IPFS_PIN) {
-          result = await this.httpClientService.requestWithoutProxyAndMetrics<Buffer>(urlResult.url, {
-            headers: urlResult.headers,
-            httpVersion: urlResult.httpVersion,
-            signal,
+      signal?.throwIfAborted();
+      if (urlResult.method === ServiceType.IPFS_PIN && strategy.validateByBlockFetch) {
+        let validation: ValidationResult;
+        const startTime = performance.now();
+        try {
+          validation = await strategy.validateByBlockFetch(config, signal);
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          this.logger.warn({
+            ...retrievalLogContext,
+            event: "retrieval_block_fetch_validation_error",
+            message: `Block-fetch validation error for ${urlResult.method} retrieval of deal ${config.deal.id}: ${errorMessage}`,
+            method: urlResult.method,
+            error: toStructuredError(error),
           });
-        } else {
-          result = await this.httpClientService.requestWithRandomProxyAndMetrics<Buffer>(urlResult.url, {
-            headers: urlResult.headers,
-            httpVersion: urlResult.httpVersion,
-            signal,
-          });
+          validation = {
+            isValid: false,
+            method: "validation-error",
+            details: errorMessage,
+          };
         }
-      } catch (error) {
-        if (error.message === "No proxy available") {
-          result = await this.httpClientService.requestWithoutProxyAndMetrics<Buffer>(urlResult.url, {
-            headers: urlResult.headers,
-            httpVersion: urlResult.httpVersion,
-            signal,
-          });
-        } else {
-          throw error;
+        // TODO: totalTime includes per-block hash verification (validateBlock) which
+        // inflates latency and deflates throughput relative to pure network performance.
+        // Splitting fetch and hash into separate queues would give accurate download metrics.
+        const totalTime = performance.now() - startTime;
+        const responseSize = validation.bytesRead ?? 0;
+        const throughput = totalTime > 0 && responseSize > 0 ? responseSize / (totalTime / 1000) : 0;
+        const validationOk = validation.isValid;
+        let statusCode = 200;
+        if (!validationOk) {
+          if (validation.httpStatusCode != null) {
+            statusCode = validation.httpStatusCode;
+          } else if (validation.method === "metadata-missing") {
+            statusCode = 0;
+          }
         }
+        const error = validationOk ? undefined : validation.details || "IPFS block-fetch validation failed";
+
+        return {
+          url: urlResult.url,
+          method: urlResult.method,
+          metrics: {
+            latency: Math.round(totalTime),
+            ttfb: validation.ttfb ?? 0,
+            throughput,
+            statusCode,
+            timestamp: new Date(),
+            responseSize,
+          },
+          validation,
+          success: validationOk,
+          error,
+        };
       }
 
+      let result: RequestWithMetrics<Buffer>;
+      result = await this.httpClientService.requestWithMetrics<Buffer>(urlResult.url, {
+        headers: urlResult.headers,
+        httpVersion: urlResult.httpVersion,
+        signal,
+      });
+
       // Validate HTTP status code before processing (must be 2xx for success)
+      signal?.throwIfAborted();
       if (result.metrics.statusCode < 200 || result.metrics.statusCode >= 300) {
         const responsePreview = this.buildResponsePreview(result.data);
         throw RetrievalError.fromHttpResponse(result.metrics.statusCode, responsePreview);
@@ -379,6 +465,7 @@ export class RetrievalAddonsService {
       let processedData = result.data;
       if (strategy.preprocessRetrievedData) {
         processedData = await strategy.preprocessRetrievedData(result.data);
+        signal?.throwIfAborted();
       }
 
       // Validate data if strategy supports it
@@ -386,26 +473,33 @@ export class RetrievalAddonsService {
       if (strategy.validateData) {
         try {
           validation = await strategy.validateData(processedData, config);
+          signal?.throwIfAborted();
           // Log additional context if validation failed, including the URL used
           if (!validation.isValid) {
-            this.logger.warn(
-              `Validation failed for ${urlResult.method} retrieval of deal ${config.deal.id}: ` +
-                `URL: ${urlResult.url}, ` +
-                `Status: ${result.metrics.statusCode}, ` +
-                `Response Size: ${result.metrics.responseSize} bytes, ` +
-                `Details: ${validation.details || "unknown"}`,
-            );
+            this.logger.warn({
+              ...retrievalLogContext,
+              event: "retrieval_validation_failed",
+              message: `Validation failed for ${urlResult.method} retrieval of deal ${config.deal.id}`,
+              url: this.sanitizeUrlForLog(urlResult.url),
+              statusCode: result.metrics.statusCode,
+              responseSize: result.metrics.responseSize,
+              details: validation.details || "unknown",
+            });
           }
         } catch (error) {
-          this.logger.warn(
-            `Validation error for ${urlResult.method} retrieval of deal ${config.deal.id}: ` +
-              `URL: ${urlResult.url}, ` +
-              `Error: ${error.message}`,
-          );
+          this.logger.warn({
+            ...retrievalLogContext,
+            event: "retrieval_validation_error",
+            message: `Validation error for ${urlResult.method} retrieval of deal ${config.deal.id}`,
+            method: urlResult.method,
+            url: this.sanitizeUrlForLog(urlResult.url),
+            error: toStructuredError(error),
+          });
+          const errorMessage = error instanceof Error ? error.message : String(error);
           validation = {
             isValid: false,
             method: "validation-error",
-            details: error.message,
+            details: errorMessage,
           };
         }
       }
@@ -428,35 +522,40 @@ export class RetrievalAddonsService {
         success: true,
       };
     } catch (error) {
+      if (signal?.aborted) {
+        this.logger.warn({
+          ...retrievalLogContext,
+          event: "retrieval_aborted",
+          message: `Retrieval aborted for ${urlResult.method}. Failure details below`,
+        });
+      }
       const errorMessage = error instanceof Error ? error.message : String(error);
-      const errorStack = error instanceof Error ? error.stack : undefined;
       const responseInfo = this.extractResponseInfo(error);
       const errorCode = this.extractErrorCode(error);
       const context = this.formatRetrievalContext(config, urlResult, { ...responseInfo, errorCode });
 
-      this.logger.error(`Retrieval failed for ${urlResult.method}: ${errorMessage} (${context})`, errorStack);
+      this.logger.error({
+        ...retrievalLogContext,
+        event: "retrieval_failed",
+        message: `Retrieval failed for ${urlResult.method}`,
+        context,
+        error: toStructuredError(error),
+      });
 
       return {
         url: urlResult.url,
         method: urlResult.method,
-        data: Buffer.alloc(0),
         metrics: {
           latency: 0,
           ttfb: 0,
           throughput: 0,
-          statusCode: 0,
+          statusCode: responseInfo.statusCode ?? 0,
           timestamp: new Date(),
           responseSize: 0,
         },
         success: false,
-        error: error.message,
+        error: errorMessage,
       };
-    }
-  }
-
-  private ensureNotAborted(signal?: AbortSignal): void {
-    if (signal?.aborted) {
-      throw new Error("Retrieval job aborted");
     }
   }
 
@@ -465,7 +564,7 @@ export class RetrievalAddonsService {
     urlResult: RetrievalUrlResult,
     extras?: RetrievalErrorResponseInfo & { errorCode?: string },
   ): string {
-    const pieceCid = config.deal.pieceCid ? `${config.deal.pieceCid.slice(0, 12)}...` : "missing";
+    const pieceCid = config.deal.pieceCid ?? "missing";
     const headerKeys = urlResult.headers ? Object.keys(urlResult.headers) : [];
     const hasAuthHeader = headerKeys.includes("Authorization");
 
@@ -473,7 +572,7 @@ export class RetrievalAddonsService {
       `deal=${config.deal.id}`,
       `piece=${pieceCid}`,
       `sp=${config.storageProvider}`,
-      `url=${urlResult.url}`,
+      `url=${this.sanitizeUrlForLog(urlResult.url)}`,
       `http=${urlResult.httpVersion ?? "1.1"}`,
       `headers=${headerKeys.length ? headerKeys.join(",") : "none"}`,
       `auth=${hasAuthHeader ? "yes" : "no"}`,
@@ -527,6 +626,20 @@ export class RetrievalAddonsService {
     // Handle generic errors with code property (e.g., Node.js system errors)
     const code = (error as { code?: string }).code;
     return typeof code === "string" && code.length > 0 ? code : undefined;
+  }
+
+  private sanitizeUrlForLog(url: string): string {
+    try {
+      const parsed = new URL(url);
+      return parsed.origin;
+    } catch {
+      const stripped = url.split("?")[0].split("#")[0];
+      if (stripped.startsWith("/")) {
+        const firstSegment = stripped.split("/").filter(Boolean)[0];
+        return firstSegment ? `/${firstSegment}` : "/";
+      }
+      return stripped.split("/")[0] || stripped;
+    }
   }
 
   private buildResponsePreview(payload: unknown, maxLength: number = 200): string | undefined {

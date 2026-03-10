@@ -1,4 +1,4 @@
-import { ModeToggle } from "@/components/shared";
+import { ModeToggle, UIVersionToggle } from "@/components/shared";
 
 const Header = () => (
   <header className="sticky top-0 z-50 border-b bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/60">
@@ -13,7 +13,10 @@ const Header = () => (
             <p className="text-xs text-muted-foreground">Filecoin storage provider metrics</p>
           </div>
         </div>
-        <ModeToggle />
+        <div className="flex items-center gap-4">
+          <UIVersionToggle />
+          <ModeToggle />
+        </div>
       </div>
     </div>
   </header>

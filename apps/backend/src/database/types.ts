@@ -2,13 +2,13 @@ export enum DealStatus {
   PENDING = "pending",
   UPLOADED = "uploaded",
   PIECE_ADDED = "piece_added",
+  PIECE_CONFIRMED = "piece_confirmed",
   DEAL_CREATED = "deal_created",
   FAILED = "failed",
 }
 
 export enum ServiceType {
   DIRECT_SP = "direct_sp",
-  CDN = "cdn",
   IPFS_PIN = "ipfs_pin",
 }
 
@@ -29,15 +29,6 @@ export enum IpniStatus {
   PENDING = "pending",
   SP_INDEXED = "sp_indexed",
   SP_ADVERTISED = "sp_advertised",
-  /**
-   * @deprecated
-   * This status is no longer used by new code paths and is kept only for legacy data handling.
-   * It must not be used for any new writes or business logic.
-   *
-   * TODO: Fully remove from the database schema and all queries once the migration
-   * tracked in https://github.com/FilOzone/dealbot/issues/168 is complete.
-   */
-  SP_RECEIVED_RETRIEVE_REQUEST = "sp_received_retrieve_request",
   VERIFIED = "verified",
   FAILED = "failed",
 }
@@ -45,18 +36,6 @@ export enum IpniStatus {
 /**
  * Metadata schema for deal storage and retrieval
  */
-
-/**
- * CDN-specific metadata
- * Generated during deal preprocessing when CDN is enabled
- */
-export interface CdnMetadata {
-  /** Whether CDN is enabled for this deal */
-  enabled: boolean;
-
-  /** CDN provider name (e.g., "fil-beam") */
-  provider: string;
-}
 
 /**
  * IPNI-specific metadata
@@ -96,9 +75,6 @@ export interface DirectMetadata {
  * Stored in deal.metadata JSONB column
  */
 export interface DealMetadata {
-  /** CDN metadata (if CDN is enabled) */
-  [ServiceType.CDN]?: CdnMetadata;
-
   /** IPNI metadata (if IPNI is enabled) */
   [ServiceType.IPFS_PIN]?: IpniMetadata;
 

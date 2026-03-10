@@ -1,0 +1,49 @@
+alertmanager:
+  enabled: false
+
+pushgateway:
+  enabled: false
+
+server:
+  persistentVolume:
+    enabled: false
+
+extraScrapeConfigs: |
+  - job_name: dealbot
+    kubernetes_sd_configs:
+      - role: endpoints
+        namespaces:
+          names:
+            - dealbot
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_service_label_app_kubernetes_io_name]
+        action: keep
+        regex: dealbot
+      - source_labels: [__meta_kubernetes_endpoint_port_name]
+        action: keep
+        regex: http
+      - source_labels: [__meta_kubernetes_namespace]
+        target_label: namespace
+      - source_labels: [__meta_kubernetes_pod_name]
+        target_label: pod
+      - source_labels: [__meta_kubernetes_service_name]
+        target_label: service
+  - job_name: dealbot-worker
+    kubernetes_sd_configs:
+      - role: endpoints
+        namespaces:
+          names:
+            - dealbot
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_service_label_app_kubernetes_io_name]
+        action: keep
+        regex: dealbot-worker
+      - source_labels: [__meta_kubernetes_endpoint_port_name]
+        action: keep
+        regex: metrics
+      - source_labels: [__meta_kubernetes_namespace]
+        target_label: namespace
+      - source_labels: [__meta_kubernetes_pod_name]
+        target_label: pod
+      - source_labels: [__meta_kubernetes_service_name]
+        target_label: service

@@ -6,16 +6,15 @@ This document provides a comprehensive guide to all environment variables used b
 
 | Category                                  | Variables                                                                                                                                                    |
 | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| [Application](#application-configuration) | `NODE_ENV`, `DEALBOT_PORT`, `DEALBOT_HOST`, `DEALBOT_ALLOWED_ORIGINS`, `ENABLE_DEV_MODE`                                                                     |
-| [Database](#database-configuration)       | `DATABASE_HOST`, `DATABASE_PORT`, `DATABASE_USER`, `DATABASE_PASSWORD`, `DATABASE_NAME`                                                                      |
-| [Blockchain](#blockchain-configuration)   | `NETWORK`, `WALLET_ADDRESS`, `WALLET_PRIVATE_KEY`, `CHECK_DATASET_CREATION_FEES`, `USE_ONLY_APPROVED_PROVIDERS`, `ENABLE_CDN_TESTING`, `ENABLE_IPNI_TESTING` |
+| [Application](#application-configuration) | `NODE_ENV`, `DEALBOT_PORT`, `DEALBOT_HOST`, `DEALBOT_RUN_MODE`, `DEALBOT_METRICS_PORT`, `DEALBOT_METRICS_HOST`, `DEALBOT_ALLOWED_ORIGINS`, `ENABLE_DEV_MODE` |
+| [Database](#database-configuration)       | `DATABASE_HOST`, `DATABASE_PORT`, `DATABASE_POOL_MAX`, `DATABASE_USER`, `DATABASE_PASSWORD`, `DATABASE_NAME`                                                 |
+| [Blockchain](#blockchain-configuration)   | `NETWORK`, `WALLET_ADDRESS`, `WALLET_PRIVATE_KEY`, `CHECK_DATASET_CREATION_FEES`, `USE_ONLY_APPROVED_PROVIDERS`, `ENABLE_IPNI_TESTING`, `PDP_SUBGRAPH_ENDPOINT` |
 | [Dataset Versioning](#dataset-versioning) | `DEALBOT_DATASET_VERSION`                                                                                                                                    |
-| [Scheduling](#scheduling-configuration)   | `DEAL_INTERVAL_SECONDS`, `RETRIEVAL_INTERVAL_SECONDS`, `DEAL_START_OFFSET_SECONDS`, `RETRIEVAL_START_OFFSET_SECONDS`, `METRICS_START_OFFSET_SECONDS`         |
-| [Dataset](#dataset-configuration)         | `DEALBOT_LOCAL_DATASETS_PATH`, `KAGGLE_DATASET_TOTAL_PAGES`, `RANDOM_DATASET_SIZES`                                                                          |
-| [Proxy](#proxy-configuration)             | `PROXY_LIST`, `PROXY_LOCATIONS`                                                                                                                              |
-| [Timeouts](#timeout-configuration)        | `CONNECT_TIMEOUT_MS`, `HTTP_REQUEST_TIMEOUT_MS`, `HTTP2_REQUEST_TIMEOUT_MS`, `RETRIEVAL_TIMEOUT_BUFFER_MS`                                                   |
-| [External Services](#external-services)   | `FILBEAM_BOT_TOKEN`                                                                                                                                          |
-| [Web Frontend](#web-frontend)             | `VITE_API_BASE_URL`                                                                                                                                          |
+| [Scheduling](#scheduling-configuration)   | `DEAL_INTERVAL_SECONDS`, `RETRIEVAL_INTERVAL_SECONDS`, `DATA_RETENTION_POLL_INTERVAL_SECONDS`, `DEAL_START_OFFSET_SECONDS`, `RETRIEVAL_START_OFFSET_SECONDS`, `METRICS_START_OFFSET_SECONDS`, `DEALBOT_MAINTENANCE_WINDOWS_UTC`, `DEALBOT_MAINTENANCE_WINDOW_MINUTES`                                                                                                                                 |
+| [Jobs (pg-boss)](#jobs-pg-boss)           | `DEALBOT_JOBS_MODE`, `DEALBOT_PGBOSS_SCHEDULER_ENABLED`, `DEALBOT_PGBOSS_POOL_MAX`, `DEALS_PER_SP_PER_HOUR`, `RETRIEVALS_PER_SP_PER_HOUR`, `METRICS_PER_HOUR`, `JOB_SCHEDULER_POLL_SECONDS`, `JOB_WORKER_POLL_SECONDS`, `PG_BOSS_LOCAL_CONCURRENCY`, `JOB_CATCHUP_MAX_ENQUEUE`, `JOB_SCHEDULE_PHASE_SECONDS`, `JOB_ENQUEUE_JITTER_SECONDS`, `DEAL_JOB_TIMEOUT_SECONDS`, `RETRIEVAL_JOB_TIMEOUT_SECONDS`, `IPFS_BLOCK_FETCH_CONCURRENCY` |
+| [Dataset](#dataset-configuration)         | `DEALBOT_LOCAL_DATASETS_PATH`, `RANDOM_PIECE_SIZES`                                                                                                          |
+| [Timeouts](#timeout-configuration)        | `CONNECT_TIMEOUT_MS`, `HTTP_REQUEST_TIMEOUT_MS`, `HTTP2_REQUEST_TIMEOUT_MS`, `IPNI_VERIFICATION_TIMEOUT_MS`, `IPNI_VERIFICATION_POLLING_MS`                   |
+| [Web Frontend](#web-frontend)             | `VITE_API_BASE_URL`, `VITE_PLAUSIBLE_DATA_DOMAIN`, `DEALBOT_API_BASE_URL`                                                                                    |
 
 ---
 
@@ -59,6 +58,59 @@ This document provides a comprehensive guide to all environment variables used b
 
 ```bash
 DEALBOT_PORT=9000
+```
+
+---
+
+### `DEALBOT_RUN_MODE`
+
+- **Type**: `string`
+- **Required**: No
+- **Default**: `both`
+- **Valid values**: `api`, `worker`, `both`
+
+**Role**: Controls which components run in the process:
+
+- `api`: API server + scheduler (no workers)
+- `worker`: workers + `/metrics` only (no API)
+- `both`: API server + scheduler + workers
+
+**Example**:
+
+```bash
+DEALBOT_RUN_MODE=worker
+```
+
+---
+
+### `DEALBOT_METRICS_PORT`
+
+- **Type**: `number`
+- **Required**: No
+- **Default**: `9090`
+
+**Role**: Port used for the metrics-only HTTP server when `DEALBOT_RUN_MODE=worker`.
+
+**Example**:
+
+```bash
+DEALBOT_METRICS_PORT=9090
+```
+
+---
+
+### `DEALBOT_METRICS_HOST`
+
+- **Type**: `string`
+- **Required**: No
+- **Default**: `0.0.0.0`
+
+**Role**: Host/interface used for the metrics-only HTTP server when `DEALBOT_RUN_MODE=worker`.
+
+**Example**:
+
+```bash
+DEALBOT_METRICS_HOST=0.0.0.0
 ```
 
 ---
@@ -171,6 +223,23 @@ DATABASE_HOST=dealbot-db.abc123.us-east-1.rds.amazonaws.com
 
 - When using a non-standard PostgreSQL port
 - When connecting through a port-forwarded tunnel
+
+---
+
+### `DATABASE_POOL_MAX`
+
+- **Type**: `number`
+- **Required**: No
+- **Default**: `1`
+
+**Role**: Maximum number of connections in the TypeORM pool per process.
+Lower this when using a session-mode pooler with a low `pool_size`.
+
+**Example**:
+
+```bash
+DATABASE_POOL_MAX=1
+```
 
 ---
 
@@ -310,21 +379,6 @@ WALLET_ADDRESS=0x1234567890abcdef1234567890abcdef12345678
 
 ---
 
-### `ENABLE_CDN_TESTING`
-
-- **Type**: `boolean`
-- **Required**: No
-- **Default**: `true`
-
-**Role**: Enables adding deal-making with CDN support. Adds a key(`withCDN`) to dataset metadata, used to request that CDN services should be enabled.
-
-**When to update**:
-
-- Set to `false` to disable deal-making with CDN support.
-- Keep as `true` for deal-making with CDN support.
-
----
-
 ### `ENABLE_IPNI_TESTING`
 
 - **Type**: `string` (enum)
@@ -341,6 +395,26 @@ WALLET_ADDRESS=0x1234567890abcdef1234567890abcdef12345678
 - Set to `always` to enable IPNI for every deal.
 
 **Note**: Legacy values `true` and `false` are accepted and map to `always` and `disabled` respectively.
+
+---
+
+### `PDP_SUBGRAPH_ENDPOINT`
+
+- **Type**: `string` (URL)
+- **Required**: No
+- **Default**: Empty string (feature disabled)
+
+**Role**: The Graph API endpoint for querying PDP (Proof of Data Possession) subgraph data. This endpoint is used to retrieve data retention info for provider data.
+
+**When to update**:
+
+- When switching between different Graph API endpoints
+
+**Example**:
+
+```bash
+PDP_SUBGRAPH_ENDPOINT=https://api.thegraph.com/subgraphs/filecoin/pdp
+```
 
 ---
 
@@ -371,6 +445,9 @@ DEALBOT_DATASET_VERSION=dealbot-v2
 
 These variables control when and how often the Dealbot runs its automated jobs.
 
+**Note**: When `DEALBOT_JOBS_MODE=pgboss`, the offsets below are not used; pg-boss uses
+rate-based scheduling instead (see [Jobs (pg-boss)](#jobs-pg-boss)).
+
 ### `DEAL_INTERVAL_SECONDS`
 
 - **Type**: `number`
@@ -392,6 +469,8 @@ DEAL_INTERVAL_SECONDS=3600
 
 ---
 
+
+
 ### `RETRIEVAL_INTERVAL_SECONDS`
 
 - **Type**: `number`
@@ -405,10 +484,25 @@ DEAL_INTERVAL_SECONDS=3600
 - Increase for less frequent retrieval testing
 - Decrease for more frequent monitoring (may increase load on providers)
 
-**Constraint**: Must be large enough to accommodate the timeout settings:
+---
 
-```
-RETRIEVAL_INTERVAL_SECONDS * 1000 - RETRIEVAL_TIMEOUT_BUFFER_MS >= max(HTTP_REQUEST_TIMEOUT_MS, HTTP2_REQUEST_TIMEOUT_MS)
+### `DATA_RETENTION_POLL_INTERVAL_SECONDS`
+
+- **Type**: `number`
+- **Required**: No
+- **Default**: `3600` (1 hour)
+
+**Role**: How often the data retention polling job runs, in seconds. This job checks and manages data retention stats of providers for stored datasets.
+
+**When to update**:
+
+- Increase for less frequent data retention checks
+- Decrease for more frequent monitoring of data retention policies
+
+**Example scenario**: Running data retention checks every 2 hours:
+
+```bash
+DATA_RETENTION_POLL_INTERVAL_SECONDS=7200
 ```
 
 ---
@@ -457,6 +551,273 @@ RETRIEVAL_INTERVAL_SECONDS * 1000 - RETRIEVAL_TIMEOUT_BUFFER_MS >= max(HTTP_REQU
 
 ---
 
+### `DEALBOT_MAINTENANCE_WINDOWS_UTC`
+
+- **Type**: `string` (comma-separated HH:MM times in UTC)
+- **Required**: No
+- **Default**: `07:00,22:00`
+
+**Role**: Daily maintenance windows (UTC) during which deal creation and retrieval checks are skipped.
+
+**Notes**:
+
+- Times must be in 24-hour `HH:MM` format.
+- Applies to both cron and pg-boss modes.
+
+**Example**:
+
+```bash
+DEALBOT_MAINTENANCE_WINDOWS_UTC=06:30,21:30
+```
+
+---
+
+### `DEALBOT_MAINTENANCE_WINDOW_MINUTES`
+
+- **Type**: `number`
+- **Required**: No
+- **Default**: `20`
+- **Minimum**: `20`
+- **Maximum**: `360` (6 hours). With two daily windows, this keeps maintenance time ≤ runtime.
+
+**Role**: Duration (minutes) of each maintenance window in `DEALBOT_MAINTENANCE_WINDOWS_UTC`.
+
+**Example**:
+
+```bash
+DEALBOT_MAINTENANCE_WINDOW_MINUTES=30
+```
+
+---
+
+## Jobs (pg-boss)
+
+These variables are only used when `DEALBOT_JOBS_MODE=pgboss`. In this mode, scheduling is
+rate-based (per hour) and persisted in Postgres so restarts do not reset timing.
+
+### `DEALBOT_JOBS_MODE`
+
+- **Type**: `string`
+- **Required**: No
+- **Default**: `cron`
+- **Valid values**: `cron`, `pgboss`
+
+**Role**: Switches between the legacy in-process cron scheduler and pg-boss.
+
+**Runbook**: See `docs/runbooks/jobs.md` for pg-boss operational guidance (pausing, resuming, maintenance).
+
+---
+
+### `DEALS_PER_SP_PER_HOUR`
+
+- **Type**: `number`
+- **Required**: No
+- **Default**: Derived from `DEAL_INTERVAL_SECONDS` (1 per interval per SP)
+
+**Role**: Target deal creation rate per storage provider.
+
+**Limits**: Config schema caps this at 20 to avoid excessive on-chain activity.
+
+**Notes**: Fractional values are supported. For example, `0.25` means one deal every 4 hours per storage provider.
+
+---
+
+### `RETRIEVALS_PER_SP_PER_HOUR`
+
+- **Type**: `number`
+- **Required**: No
+- **Default**: Derived from `RETRIEVAL_INTERVAL_SECONDS` (1 per interval per SP)
+
+**Role**: Target retrieval test rate per storage provider.
+
+**Limits**: Config schema caps this at 20 to avoid overloading providers.
+
+**Notes**: Fractional values are supported. For example, `0.25` means one retrieval every 4 hours per storage provider.
+
+---
+
+### `METRICS_PER_HOUR`
+
+- **Type**: `number`
+- **Required**: No
+- **Default**: `2`
+
+**Role**: How often metrics aggregation runs per hour.
+
+**Limits**: Config schema caps this at 3 to limit database load.
+
+---
+
+### `JOB_SCHEDULER_POLL_SECONDS`
+
+- **Type**: `number`
+- **Required**: No
+- **Default**: `300`
+
+**Role**: How often the scheduler polls Postgres for due jobs.
+
+**Notes**: Minimum is 60 seconds to avoid excessive polling; default is 300 seconds.
+
+---
+
+### `JOB_WORKER_POLL_SECONDS`
+
+- **Type**: `number`
+- **Required**: No
+- **Default**: `60`
+
+**Role**: How often pg-boss workers check for new jobs.
+
+**Notes**: Minimum is 5 seconds. Lower values reduce job pickup latency but increase DB chatter.
+
+---
+
+### `PG_BOSS_LOCAL_CONCURRENCY`
+
+- **Type**: `number`
+- **Required**: No
+- **Default**: `20`
+- **Minimum**: `1`
+
+**Role**: Per-instance pg-boss worker concurrency for the `sp.work` queue (`localConcurrency`). This is the total concurrency budget shared by deal and retrieval jobs.
+
+**When to update**:
+
+- Increase for faster throughput (more concurrent jobs; higher load)
+- Decrease to reduce load or for more conservative testing
+
+**Example**:
+
+```bash
+PG_BOSS_LOCAL_CONCURRENCY=20
+```
+
+**Sizing note**: A rough estimate for required concurrency is
+`(providers * jobs_per_hour_per_provider * avg_duration_seconds) / 3600`.
+Use p95 duration for a more conservative default.
+
+---
+
+### `DEALBOT_PGBOSS_SCHEDULER_ENABLED`
+
+- **Type**: `boolean`
+- **Required**: No
+- **Default**: `true`
+
+**Role**: Enables/disables the pg-boss scheduler loop that enqueues due jobs. Set to `false` for worker-only pods that should only process existing jobs.
+
+**Example**:
+
+```bash
+DEALBOT_PGBOSS_SCHEDULER_ENABLED=false
+```
+
+---
+
+### `DEALBOT_PGBOSS_POOL_MAX`
+
+- **Type**: `number`
+- **Required**: No
+- **Default**: `1`
+
+**Role**: Maximum number of pg-boss connections per instance. Lower this when running through a
+session-mode pooler (e.g. Supabase) to avoid exceeding pooler `pool_size`.
+
+**Example**:
+
+```bash
+DEALBOT_PGBOSS_POOL_MAX=2
+```
+
+---
+
+### `JOB_CATCHUP_MAX_ENQUEUE`
+
+- **Type**: `number`
+- **Required**: No
+- **Default**: `10`
+
+**Role**: Maximum number of jobs to enqueue per schedule row per poll. Any remaining backlog
+is handled by future polls.
+
+---
+
+### `JOB_SCHEDULE_PHASE_SECONDS`
+
+- **Type**: `number`
+- **Required**: No
+- **Default**: `0`
+
+**Role**: Per-instance schedule phase offset (seconds) applied when initializing schedules.
+Use this to stagger multiple dealbot deployments that are not sharing a database.
+
+---
+
+### `JOB_ENQUEUE_JITTER_SECONDS`
+
+- **Type**: `number`
+- **Required**: No
+- **Default**: `0`
+
+**Role**: Random delay (seconds) applied when enqueuing jobs to avoid synchronized bursts.
+
+---
+
+### `DEAL_JOB_TIMEOUT_SECONDS`
+
+- **Type**: `number`
+- **Required**: No
+- **Default**: `360` (6 minutes)
+- **Minimum**: `120` (2 minutes)
+- **Enforced**: Yes (config validation)
+
+**Role**: Maximum runtime for data storage jobs before forced abort. When a deal job exceeds this timeout, it is actively cancelled using `AbortController`.
+
+**When to update**:
+
+- Increase if deal uploads consistently take longer than the default (e.g., slower networks, IPNI delays)
+- Decrease if you want to fail-fast on stuck jobs
+
+**Note**: This is independent of HTTP-level timeouts. The job timeout enforces end-to-end execution time of a Data Storage Check job including all operations (provider lookup, upload, IPNI verification, etc.).
+
+---
+
+### `RETRIEVAL_JOB_TIMEOUT_SECONDS`
+
+- **Type**: `number`
+- **Required**: No
+- **Default**: `60` (1 minute)
+- **Minimum**: `60`
+- **Enforced**: Yes (config validation)
+
+**Role**: Maximum runtime for retrieval test jobs before forced abort. When a retrieval job exceeds this timeout, it is actively cancelled using `AbortController`.
+
+**When to update**:
+
+- Increase if retrieval tests consistently take longer than the default
+- Decrease to detect and fail stuck retrievals faster
+
+**Note**: This is independent of HTTP-level timeouts. The job timeout enforces end-to-end execution time of a Retrieval Check job.
+
+---
+### `IPFS_BLOCK_FETCH_CONCURRENCY`
+
+- **Type**: `number`
+- **Required**: No
+- **Default**: `6`
+- **Minimum**: `1`
+- **Enforced**: Yes (config validation)
+
+**Role**: Maximum number of parallel block fetches when validating IPFS retrievals via DAG traversal.
+
+**When to update**:
+
+- Increase to speed up validation on fast networks and responsive gateways
+- Decrease to reduce pressure on slower storage providers or constrained environments
+
+**Note**: This affects the number of concurrent `/ipfs/<cid>` requests per retrieval.
+
+---
 ## Dataset Configuration
 
 ### `DEALBOT_LOCAL_DATASETS_PATH`
@@ -465,7 +826,7 @@ RETRIEVAL_INTERVAL_SECONDS * 1000 - RETRIEVAL_TIMEOUT_BUFFER_MS >= max(HTTP_REQU
 - **Required**: No
 - **Default**: `./datasets`
 
-**Role**: Directory path where local dataset files are stored. If kaggle dataset download fails, the files in this directory are used as fallback to create deals.
+**Role**: Directory path where randomly generated dataset files are stored.
 
 **When to update**:
 
@@ -473,27 +834,15 @@ RETRIEVAL_INTERVAL_SECONDS * 1000 - RETRIEVAL_TIMEOUT_BUFFER_MS >= max(HTTP_REQU
 
 ---
 
-### `KAGGLE_DATASET_TOTAL_PAGES`
-
-- **Type**: `number`
-- **Required**: No
-- **Default**: `500`
-
-**Role**: Number of pages to fetch when discovering Kaggle datasets for testing.
-
-**When to update**:
-
-- Increase for more dataset variety
-
----
-
-### `RANDOM_DATASET_SIZES`
+### `RANDOM_PIECE_SIZES`
 
 - **Type**: `string` (comma-separated numbers in bytes)
 - **Required**: No
-- **Default**: `10240,10485760,104857600` (10 KiB, 10 MB, 100 MB)
+- **Default**: `10485760` (10 MiB)
 
-**Role**: Sizes of randomly generated datasets used for deal-making, in bytes.
+**Role**: Sizes of randomly generated content used for data-storage checks, in bytes (original content size before CAR conversion).
+
+**Note**: For IPNI-enabled deals, original content size is stored in deal metadata (`metadata.ipfs_pin.originalSize`) while `deals.file_size` stores the CAR size (bytes uploaded).
 
 **When to update**:
 
@@ -504,52 +853,7 @@ RETRIEVAL_INTERVAL_SECONDS * 1000 - RETRIEVAL_TIMEOUT_BUFFER_MS >= max(HTTP_REQU
 **Example scenario**: Testing with smaller files only:
 
 ```bash
-RANDOM_DATASET_SIZES=1024,10240,102400
-```
-
----
-
-## Proxy Configuration
-
-### `PROXY_LIST`
-
-- **Type**: `string` (comma-separated proxy URLs)
-- **Required**: No
-- **Default**: Empty
-
-**Role**: List of HTTP proxy servers to use for retrieval tests. Useful for geo-distributed testing.
-
-**When to update**:
-
-- When testing retrieval from different geographic locations
-
-**Format**: `http://username:password@host:port`
-
-**Example**:
-
-```bash
-PROXY_LIST=http://user:pass@proxy1.example.com:8080,http://user:pass@proxy2.example.com:8080
-```
-
----
-
-### `PROXY_LOCATIONS`
-
-- **Type**: `string` (comma-separated location identifiers)
-- **Required**: No
-- **Default**: Empty
-
-**Role**: Labels for each proxy in `PROXY_LIST`. Not used for anything, just for reporting.
-
-**When to update**:
-
-- When adding or removing proxies
-- Must have the same number of entries as `PROXY_LIST`
-
-**Example**:
-
-```bash
-PROXY_LOCATIONS=us-east,eu-west
+RANDOM_PIECE_SIZES=1024,10240,102400
 ```
 
 ---
@@ -576,7 +880,7 @@ PROXY_LOCATIONS=us-east,eu-west
 
 - **Type**: `number` (milliseconds)
 - **Required**: No
-- **Default**: `600000` (10 minutes)
+- **Default**: `240000` (4 minutes)
 - **Minimum**: `1000`
 
 **Role**: Maximum total time for HTTP/1.1 requests, including body transfer.
@@ -592,7 +896,7 @@ PROXY_LOCATIONS=us-east,eu-west
 
 - **Type**: `number` (milliseconds)
 - **Required**: No
-- **Default**: `600000` (10 minutes)
+- **Default**: `240000` (4 minutes)
 - **Minimum**: `1000`
 
 **Role**: Maximum total time for HTTP/2 requests, including body transfer.
@@ -603,34 +907,35 @@ PROXY_LOCATIONS=us-east,eu-west
 
 ---
 
-### `RETRIEVAL_TIMEOUT_BUFFER_MS`
+### `IPNI_VERIFICATION_TIMEOUT_MS`
 
 - **Type**: `number` (milliseconds)
 - **Required**: No
-- **Default**: `60000` (1 minute)
-- **Minimum**: `0`
+- **Default**: `10000` (10 seconds)
+- **Minimum**: `1000`
 
-**Role**: Safety buffer to stop retrieval batch processing before the next scheduled run. Prevents overlapping retrieval batches.
+**Role**: Maximum time to wait for IPNI verification to confirm the provider for a root CID. Used by both data-storage and retrieval checks.
 
 **When to update**:
 
-- Increase if retrieval batches are overlapping
-- Decrease if you want to maximize retrieval testing time
-
-**Constraint**: Must be less than `RETRIEVAL_INTERVAL_SECONDS * 1000`
+- Increase if IPNI propagation is slow
+- Decrease to fail faster on unresponsive indexers
 
 ---
 
-## External Services
+### `IPNI_VERIFICATION_POLLING_MS`
 
-### `FILBEAM_BOT_TOKEN`
-
-- **Type**: `string`
+- **Type**: `number` (milliseconds)
 - **Required**: No
-- **Default**: Empty
-- **Security**: **SENSITIVE** - API token
+- **Default**: `2000` (2 seconds)
+- **Minimum**: `250`
 
-**Role**: Authentication token for FilBeam bot integration. Enables FilBeam to distinguish bot traffic from real user traffic.
+**Role**: Polling interval for IPNI verification. Used by both data-storage and retrieval checks.
+
+**When to update**:
+
+- Increase to reduce IPNI query load
+- Decrease to detect results faster
 
 ---
 
@@ -641,9 +946,16 @@ PROXY_LOCATIONS=us-east,eu-west
 - **Type**: `string` (URL)
 - **Required**: No
 - **Default**: `http://localhost:8080`
-- **Location**: `apps/web/.env`
+- **Location**: `apps/web/.env` (dev) and container runtime (production)
 
 **Role**: Base URL for the backend API, used by the Vite development server to proxy API requests.
+In production containers, this is read from `runtime-config.js`, which is generated at container
+startup from environment variables.
+
+**Runtime wiring (Docker/K8s)**:
+
+- Container entrypoint writes `/srv/runtime-config.js` from `DEALBOT_API_BASE_URL`
+- Fallback: `VITE_API_BASE_URL` if `DEALBOT_API_BASE_URL` is not set
 
 **When to update**:
 
@@ -657,6 +969,62 @@ VITE_API_BASE_URL=http://localhost:9000
 ```
 
 ---
+
+### `VITE_PLAUSIBLE_DATA_DOMAIN`
+
+- **Type**: `string` (domain)
+- **Required**: No
+- **Default**: Empty (Plausible disabled)
+- **Location**: `apps/web/.env` (dev) and container runtime (production)
+
+**Role**: Enables Plausible analytics for the web frontend when set. The value should match the Plausible site domain
+you want to attribute events to (e.g., `dealbot.filoz.org` or `staging.dealbot.filoz.org`).
+
+**Runtime wiring (Docker/K8s)**:
+
+- Container entrypoint writes `/srv/runtime-config.js` from `VITE_PLAUSIBLE_DATA_DOMAIN`
+
+**When to update**:
+
+- Set to the production domain for production deployments
+- Set to the staging domain for staging deployments
+- Leave empty to disable analytics (local development or privacy-sensitive environments)
+
+**Example**:
+
+```bash
+VITE_PLAUSIBLE_DATA_DOMAIN=dealbot.filoz.org
+```
+
+**Docker run example**:
+
+```bash
+docker run \
+  -e DEALBOT_API_BASE_URL=http://dealbot-api:3130 \
+  -e VITE_PLAUSIBLE_DATA_DOMAIN=dealbot.filoz.org \
+  -p 8080:80 \
+  dealbot-web:latest
+```
+
+---
+
+### `DEALBOT_API_BASE_URL`
+
+- **Type**: `string` (URL)
+- **Required**: No
+- **Default**: Empty (uses relative URLs)
+- **Location**: Container runtime env (production)
+
+**Role**: Runtime override for the web frontend API base URL. Used to populate
+`/srv/runtime-config.js` on container startup.
+
+**When to update**:
+
+- Set in production to point the frontend at your backend service
+- Leave empty to use relative `/api` paths
+
+---
+
 
 ## Environment Files Reference
 

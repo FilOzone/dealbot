@@ -1,7 +1,8 @@
-import { Config, StorageProviders, SummaryCards } from "@/components/Home";
-import DailyMetrics from "@/components/Home/DailyMetrics";
-import FailedDealsAndRetrievals from "@/components/Home/FailedDealsAndRetrievals";
-import { Footer, Header } from "@/components/shared";
+import { Route, Routes } from "react-router-dom";
+import Layout from "@/Layout";
+import Landing from "@/pages/Landing";
+import NewLanding from "@/pages/NewLanding";
+import NewProviderDetail from "@/pages/NewProviderDetail";
 
 /**
  * Main application component
@@ -9,30 +10,12 @@ import { Footer, Header } from "@/components/shared";
  */
 export default function App() {
   return (
-    <div className="min-h-screen bg-background text-foreground">
-      <Header />
-      <main className="relative z-10 container mx-auto px-6 py-8 space-y-8">
-        <div className="text-center py-6">
-          <p className="text-sm text-muted-foreground">Automated deal creation & storage performance monitoring</p>
-        </div>
-
-        {/* Infrastructure Configuration */}
-        <Config />
-
-        {/* Statistics */}
-        <SummaryCards />
-
-        {/* Storage Providers */}
-        <StorageProviders />
-
-        {/* Daily Metrics Section */}
-        <DailyMetrics />
-
-        {/* Failed Deals & Retrievals Section with Tabs */}
-        <FailedDealsAndRetrievals />
-      </main>
-
-      <Footer />
-    </div>
+    <Layout>
+      <Routes>
+        <Route path="/" element={<Landing />} />
+        <Route path="/new" element={<NewLanding />} />
+        <Route path="/new/provider/:providerAddress" element={<NewProviderDetail />} />
+      </Routes>
+    </Layout>
   );
 }

@@ -9,7 +9,7 @@ export interface RetrievalConfiguration {
   /** Deal entity containing metadata about storage and add-ons */
   deal: Deal;
 
-  /** Wallet address for CDN URL construction */
+  /** Wallet address associated with the deal */
   walletAddress: Hex;
 
   /** Storage provider address */
@@ -46,10 +46,21 @@ export interface ValidationResult {
   /** Details about validation */
   details?: string;
 
+  /** Total bytes read/validated (streaming or block-fetch validation) */
+  bytesRead?: number;
+
+  /** Time to first byte of the first block response (ms), for block-fetch strategies */
+  ttfb?: number;
+
+  /** HTTP status code observed during validation (if any) */
+  httpStatusCode?: number;
+  /** Time to first byte for each fetched block (ms), for block-fetch strategies */
+  blockTtfbMs?: number[];
+
   /** Expected vs actual comparison data */
   comparison?: {
-    expected: any;
-    actual: any;
+    expected: unknown;
+    actual: unknown;
   };
 }
 
@@ -63,8 +74,8 @@ export interface RetrievalExecutionResult {
   /** Strategy/method name */
   method: ServiceType;
 
-  /** Retrieved data */
-  data: Buffer;
+  /** Retrieved payload, if any; omitted for validation-only methods (e.g. block-fetch) */
+  data?: Buffer;
 
   /** Response metrics */
   metrics: {
@@ -110,13 +121,16 @@ export interface RetrievalTestResult {
 
   /** Timestamp of test */
   testedAt: Date;
+
+  /** Whether the test was aborted */
+  aborted?: boolean;
 }
 
 /**
  * Priority levels for retrieval strategies
  */
 export enum RetrievalPriority {
-  /** Highest priority - preferred retrieval method (e.g., CDN) */
+  /** Highest priority - preferred retrieval method */
   HIGH = 1,
 
   /** Medium priority - alternative methods (e.g., IPNI) */

@@ -7,12 +7,15 @@ resources:
   - ../../base/backend
   - ../../base/web
   - ./postgres
+  - dealbot-worker-deployment.yaml
+  - dealbot-worker-service.yaml
 
 # Patch services to use NodePort for local access and update configmap
 patches:
   - path: backend-service-nodeport.yaml
   - path: web-service-nodeport.yaml
   - path: backend-configmap-local.yaml
+  - path: backend-resources-local.yaml
 
 # Override images to use local tags
 images:

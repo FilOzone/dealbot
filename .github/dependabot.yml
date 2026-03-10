@@ -1,0 +1,79 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    open-pull-requests-limit: 5
+    schedule:
+      interval: monthly
+
+  - package-ecosystem: npm
+    directory: /
+    open-pull-requests-limit: 5
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 2
+    groups:
+      npm-dependencies:
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: npm
+    directory: /apps/backend
+    open-pull-requests-limit: 5
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 2
+    groups:
+      npm-dependencies:
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: npm
+    directory: /apps/web
+    open-pull-requests-limit: 5
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 2
+    groups:
+      npm-dependencies:
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: docker
+    directory: /apps/backend
+    open-pull-requests-limit: 5
+    schedule:
+      interval: weekly
+    groups:
+      docker-dependencies:
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: docker
+    directory: /apps/web
+    open-pull-requests-limit: 5
+    schedule:
+      interval: weekly
+    groups:
+      docker-dependencies:
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: docker
+    directory: /apps/postgres
+    open-pull-requests-limit: 5
+    schedule:
+      interval: weekly
+    groups:
+      docker-dependencies:
+        update-types:
+          - minor
+          - patch

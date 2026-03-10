@@ -1,73 +1,105 @@
-import { type PieceCID, SIZE_CONSTANTS, Synapse, type UploadResult } from "@filoz/synapse-sdk";
-import { Injectable, Logger, type OnModuleInit } from "@nestjs/common";
+import { randomUUID } from "node:crypto";
+import { type PieceCID, METADATA_KEYS, RPC_URLS, SIZE_CONSTANTS, Synapse, type UploadResult } from "@filoz/synapse-sdk";
+import { Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
-import { InjectMetric } from "@willsoto/nestjs-prometheus";
-import type { Counter, Histogram } from "prom-client";
+import { cleanupSynapseService, executeUpload } from "filecoin-pin";
+import { CID } from "multiformats/cid";
 import type { Repository } from "typeorm";
-import type { DataFile } from "../common/types.js";
+import { awaitWithAbort } from "../common/abort-utils.js";
+import { buildUnixfsCar } from "../common/car-utils.js";
+import { createFilecoinPinLogger } from "../common/filecoin-pin-logger.js";
+import { type DealLogContext, type ProviderJobContext, toStructuredError } from "../common/logging.js";
+import type { DataFile, Hex } from "../common/types.js";
 import type { IBlockchainConfig, IConfig } from "../config/app.config.js";
 import { Deal } from "../database/entities/deal.entity.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
-import { DealStatus, type ServiceType } from "../database/types.js";
+import { DealStatus, ServiceType } from "../database/types.js";
 import { DataSourceService } from "../dataSource/dataSource.service.js";
 import { DealAddonsService } from "../deal-addons/deal-addons.service.js";
 import type { DealPreprocessingResult } from "../deal-addons/types.js";
+import { buildCheckMetricLabels, classifyFailureStatus } from "../metrics/utils/check-metric-labels.js";
+import {
+  DataSetCreationCheckMetrics,
+  DataStorageCheckMetrics,
+  RetrievalCheckMetrics,
+} from "../metrics/utils/check-metrics.service.js";
+import { RetrievalAddonsService } from "../retrieval-addons/retrieval-addons.service.js";
+import type { RetrievalConfiguration } from "../retrieval-addons/types.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
 import type { ProviderInfoEx } from "../wallet-sdk/wallet-sdk.types.js";
 import { privateKeyToAccount } from "viem/accounts";
 
+type UploadPayload = {
+  carData: Uint8Array;
+  rootCid: CID;
+};
+
+type UploadResultSummary = {
+  pieceCid: string;
+  pieceId?: number;
+  transactionHash?: string;
+};
+
+type SynapseServiceArg = Parameters<typeof executeUpload>[0];
+
 @Injectable()
-export class DealService implements OnModuleInit {
+export class DealService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(DealService.name);
   private readonly blockchainConfig: IBlockchainConfig;
-  private synapse: Synapse;
+  private sharedSynapse?: Synapse;
 
   constructor(
     private readonly dataSourceService: DataSourceService,
     private readonly configService: ConfigService<IConfig, true>,
     private readonly walletSdkService: WalletSdkService,
     private readonly dealAddonsService: DealAddonsService,
+    private readonly retrievalAddonsService: RetrievalAddonsService,
     @InjectRepository(Deal)
     private readonly dealRepository: Repository<Deal>,
     @InjectRepository(StorageProvider)
     private readonly storageProviderRepository: Repository<StorageProvider>,
-    @InjectMetric("deals_created_total")
-    private readonly dealsCreatedCounter: Counter,
-    @InjectMetric("deal_creation_duration_seconds")
-    private readonly dealCreationDuration: Histogram,
-    @InjectMetric("deal_upload_duration_seconds")
-    private readonly dealUploadDuration: Histogram,
-    @InjectMetric("deal_chain_latency_seconds")
-    private readonly dealChainLatency: Histogram,
+    private readonly dataStorageMetrics: DataStorageCheckMetrics,
+    private readonly retrievalMetrics: RetrievalCheckMetrics,
+    private readonly dataSetCreationMetrics: DataSetCreationCheckMetrics,
   ) {
     this.blockchainConfig = this.configService.get("blockchain");
   }
 
-  async onModuleInit() {
-    try {
-      this.synapse = await Synapse.create({
-        account: privateKeyToAccount(this.blockchainConfig.walletPrivateKey),
-        warmStorageAddress: this.walletSdkService.getFWSSAddress(),
-      });
-    } catch (error) {
-      this.logger.error(`Failed to initialize DealService: ${error.message}`, error.stack);
-      throw error;
+  async onModuleInit(): Promise<void> {
+    this.logger.log("Initializing shared Synapse instance for deal creation.");
+    this.sharedSynapse = await this.createSynapseInstance();
+  }
+
+  async onModuleDestroy(): Promise<void> {
+    if (this.sharedSynapse) {
+      await this.cleanupSynapseInstance(this.sharedSynapse);
+      this.sharedSynapse = undefined;
     }
   }
 
   async createDealsForAllProviders(): Promise<Deal[]> {
     const totalProviders = this.walletSdkService.getTestingProvidersCount();
-    const { enableCDN, enableIpni } = this.getTestingDealOptions();
+    const { enableIpni } = this.getTestingDealOptions();
 
-    this.logger.log(`Starting deal creation for ${totalProviders} providers (CDN: ${enableCDN}, IPNI: ${enableIpni})`);
+    this.logger.log(`Starting deal creation for ${totalProviders} providers`);
 
-    const { preprocessed, cleanup } = await this.prepareDealInput(enableCDN, enableIpni);
+    const { preprocessed, cleanup } = await this.prepareDealInput(enableIpni);
 
     try {
+      const synapse = this.sharedSynapse ?? (await this.createSynapseInstance());
+      const uploadPayload = await this.prepareUploadPayload(preprocessed);
       const providers = this.walletSdkService.getTestingProviders();
 
-      const results = await this.processProvidersInParallel(providers, preprocessed);
+      // Legacy cron-only path: keep fixed concurrency until cron mode is removed.
+      const maxConcurrency = 10;
+      const results = await this.processProvidersInParallel(
+        synapse,
+        providers,
+        preprocessed,
+        uploadPayload,
+        maxConcurrency,
+      );
 
       const successfulDeals = results.filter((result) => result.success).map((result) => result.deal!);
 
@@ -83,15 +115,29 @@ export class DealService implements OnModuleInit {
   async createDealForProvider(
     providerInfo: ProviderInfoEx,
     options: {
-      enableCDN: boolean;
       enableIpni: boolean;
       existingDealId?: string;
+      signal?: AbortSignal;
+      extraDataSetMetadata?: Record<string, string>;
+      logContext?: ProviderJobContext;
     },
   ): Promise<Deal> {
-    const { preprocessed, cleanup } = await this.prepareDealInput(options.enableCDN, options.enableIpni);
+    options.signal?.throwIfAborted();
+    const { preprocessed, cleanup } = await this.prepareDealInput(options.enableIpni, options.signal);
 
     try {
-      return await this.createDeal(providerInfo, preprocessed, options.existingDealId);
+      const synapse = this.sharedSynapse ?? (await this.createSynapseInstance());
+      const uploadPayload = await this.prepareUploadPayload(preprocessed, options.signal);
+      return await this.createDeal(
+        synapse,
+        providerInfo,
+        preprocessed,
+        uploadPayload,
+        options.existingDealId,
+        options.signal,
+        options.extraDataSetMetadata,
+        options.logContext,
+      );
     } finally {
       await cleanup();
     }
@@ -101,30 +147,39 @@ export class DealService implements OnModuleInit {
    * Prepare a deal payload using the same data-source and preprocessing logic as normal deal creation.
    */
   async prepareDealInput(
-    enableCDN: boolean,
     enableIpni: boolean,
-  ): Promise<{
-    preprocessed: DealPreprocessingResult;
-    cleanup: () => Promise<void>;
-  }> {
+    signal?: AbortSignal,
+  ): Promise<{ preprocessed: DealPreprocessingResult; cleanup: () => Promise<void> }> {
     const dataFile = await this.fetchDataFile(SIZE_CONSTANTS.MIN_UPLOAD_SIZE, SIZE_CONSTANTS.MAX_UPLOAD_SIZE);
 
-    const preprocessed = await this.dealAddonsService.preprocessDeal({
-      enableCDN,
-      enableIpni,
-      dataFile,
-    });
+    const preprocessed = await this.dealAddonsService.preprocessDeal(
+      {
+        enableIpni,
+        dataFile,
+      },
+      signal,
+    );
 
     const cleanup = async () => this.dataSourceService.cleanupRandomDataset(dataFile.name);
 
     return { preprocessed, cleanup };
   }
 
-  getTestingDealOptions(): { enableCDN: boolean; enableIpni: boolean } {
-    const enableCDN = this.blockchainConfig.enableCDNTesting ? Math.random() > 0.5 : false;
+  getTestingDealOptions(): { enableIpni: boolean } {
     const enableIpni = this.getIpniEnabled(this.blockchainConfig.enableIpniTesting);
 
-    return { enableCDN, enableIpni };
+    return { enableIpni };
+  }
+
+  getBaseDataSetMetadata(enableIpni: boolean): Record<string, string> {
+    const metadata: Record<string, string> = {};
+    if (enableIpni) {
+      metadata[METADATA_KEYS.WITH_IPFS_INDEXING] = "";
+    }
+    if (this.blockchainConfig.dealbotDataSetVersion) {
+      metadata.dealbotDataSetVersion = this.blockchainConfig.dealbotDataSetVersion;
+    }
+    return metadata;
   }
 
   getWalletAddress(): string {
@@ -132,13 +187,26 @@ export class DealService implements OnModuleInit {
   }
 
   async createDeal(
+    synapse: Synapse,
     providerInfo: ProviderInfoEx,
     dealInput: DealPreprocessingResult,
+    uploadPayload: UploadPayload,
     existingDealId?: string,
+    signal?: AbortSignal,
+    extraDataSetMetadata?: Record<string, string>,
+    logContext?: ProviderJobContext,
   ): Promise<Deal> {
     const providerAddress = providerInfo.serviceProvider;
-    const providerShort = providerAddress.slice(0, 8);
-    const dealStartTime = Date.now();
+    const checkType = "dataStorage" as const;
+    let providerLabels = buildCheckMetricLabels({
+      checkType,
+      providerId: undefined,
+      providerIsApproved: providerInfo.isApproved,
+    });
+    let uploadSucceeded = false;
+    let onchainSucceeded = false;
+    let retrievalStarted = false;
+    let retrievalStatusEmitted = false;
 
     let deal: Deal;
     if (existingDealId) {
@@ -146,11 +214,25 @@ export class DealService implements OnModuleInit {
         where: { id: existingDealId },
       });
       if (!existingDeal) {
-        throw new Error(`Deal not found: ${existingDealId}`);
+        const error = new Error(`Deal not found: ${existingDealId}`);
+        this.logger.error({
+          ...logContext,
+          jobId: logContext?.jobId,
+          dealId: existingDealId,
+          providerAddress,
+          providerId: providerInfo.id ?? logContext?.providerId,
+          ipfsRootCID: uploadPayload.rootCid.toString(),
+          event: "deal_creation_failed",
+          message: `Deal creation failed for ${providerAddress}`,
+          error: toStructuredError(error),
+        });
+        throw error;
       }
       deal = existingDeal;
     } else {
       deal = this.dealRepository.create();
+      // Set a deterministic ID early so all logs in this run share a stable dealId.
+      deal.id = randomUUID();
     }
 
     deal.fileName = dealInput.processedData.name;
@@ -161,126 +243,459 @@ export class DealService implements OnModuleInit {
     deal.metadata = dealInput.metadata;
     deal.serviceTypes = dealInput.appliedAddons;
 
+    const dealLogContext: DealLogContext = {
+      ...logContext,
+      dealId: existingDealId ?? deal.id,
+      providerAddress,
+      providerId: providerInfo.id ?? logContext?.providerId,
+      ipfsRootCID: uploadPayload.rootCid.toString(),
+    };
+
     try {
       // Load storageProvider relation
       deal.storageProvider = await this.storageProviderRepository.findOne({
         where: { address: deal.spAddress },
       });
+      dealLogContext.providerId = deal.storageProvider?.providerId ?? dealLogContext.providerId;
+      providerLabels = buildCheckMetricLabels({
+        checkType,
+        providerId: deal.storageProvider?.providerId,
+        providerIsApproved: providerInfo.isApproved ?? deal.storageProvider?.isApproved,
+      });
+      this.dataStorageMetrics.recordUploadStatus(providerLabels, "pending");
+      this.dataStorageMetrics.recordDataStorageStatus(providerLabels, "pending");
 
-      const dataSetMetadata = { ...dealInput.synapseConfig.dataSetMetadata };
+      const dataSetMetadata = { ...dealInput.synapseConfig.dataSetMetadata, ...extraDataSetMetadata };
 
       if (this.blockchainConfig.dealbotDataSetVersion) {
         dataSetMetadata.dealbotDataSetVersion = this.blockchainConfig.dealbotDataSetVersion;
       }
+      const filecoinPinLogger = createFilecoinPinLogger(this.logger, dealLogContext);
 
-      const storage = await this.synapse.createStorage({
+      signal?.throwIfAborted();
+
+      const storage = await synapse.storage.createContext({
         providerAddress,
         metadata: dataSetMetadata,
       });
+      signal?.throwIfAborted();
 
       deal.dataSetId = storage.dataSetId;
       deal.uploadStartTime = new Date();
+      let onUploadCompleteAddonsPromise: Promise<boolean> | null = null;
+      let uploadCompleteError: Error | undefined;
 
-      let callbackError: Error | null = null;
-      const pendingCallbacks: Promise<void>[] = [];
-
-      const safeOnUploadComplete = (pieceCid: PieceCID) => {
-        const promise = this.handleUploadComplete(deal, pieceCid, dealInput.appliedAddons).catch((error) => {
-          const err = error instanceof Error ? error : new Error(String(error));
-          this.logger.warn(`Upload completion handler failed for ${providerShort}...: ${err.message}`);
-          callbackError = err;
-        });
-        pendingCallbacks.push(promise);
-      };
-
-      const safeOnPieceAdded = (hash: Parameters<DealService["handleRootAdded"]>[1]) => {
-        const promise = this.handleRootAdded(deal, hash).catch((error) => {
-          const err = error instanceof Error ? error : new Error(String(error));
-          this.logger.warn(`Piece added handler failed for ${providerShort}...: ${err.message}`);
-          callbackError = err;
-        });
-        pendingCallbacks.push(promise);
-      };
-
-      const uploadResult: UploadResult = await storage.upload(dealInput.processedData.data, {
-        onUploadComplete: safeOnUploadComplete,
-        onPieceAdded: safeOnPieceAdded,
-        metadata: dealInput.synapseConfig.pieceMetadata,
-      });
-
-      // Wait for any floating callbacks to finish before proceeding
-      await Promise.all(pendingCallbacks);
-
-      // If any callback failed, throw the error to trigger the main catch block
-      // This ensures the deal is marked as FAILED if callbacks (like IPNI updates) fail
-      if (callbackError) {
-        throw callbackError;
-      }
-
-      this.updateDealWithUploadResult(deal, uploadResult);
-
-      this.logger.log(`Deal created: ${uploadResult.pieceCid.toString().slice(0, 12)}... (${providerShort}...)`);
-
-      await this.dealAddonsService.postProcessDeal(deal, dealInput.appliedAddons);
-
-      // Record success metrics using short provider labels to limit cardinality.
-      this.dealsCreatedCounter.inc({
-        status: "success",
-        provider: providerShort,
-      });
-
-      const dealDuration = (Date.now() - dealStartTime) / 1000;
-      this.dealCreationDuration.observe(
-        {
-          provider: providerShort,
+      const synapseService = { synapse, storage, providerInfo } as unknown as SynapseServiceArg;
+      const uploadResult = await executeUpload(synapseService, uploadPayload.carData, uploadPayload.rootCid, {
+        logger: filecoinPinLogger,
+        contextId: providerAddress,
+        pieceMetadata: dealInput.synapseConfig.pieceMetadata,
+        /**
+         * do not do IPNI validation here, we need to call /pdp/piece/<pieceCid>/status to get other metrics.
+         * See `onUploadComplete` handler in deal-addons/strategies/ipni.strategy.ts for implementation.
+         */
+        ipniValidation: { enabled: false },
+        onProgress: async (event) => {
+          this.logger.debug(`Upload progress event: ${event.type}`);
+          switch (event.type) {
+            case "onUploadComplete": {
+              deal.uploadEndTime = new Date();
+              deal.status = DealStatus.UPLOADED;
+              deal.ingestLatencyMs = deal.uploadEndTime.getTime() - deal.uploadStartTime.getTime();
+              deal.pieceCid = event.data.pieceCid.toString();
+              dealLogContext.pieceCid = event.data.pieceCid.toString();
+              this.logger.log({
+                ...dealLogContext,
+                event: "upload_complete",
+                message: `Upload complete event`,
+              });
+              uploadSucceeded = true;
+              this.dataStorageMetrics.observeIngestMs(providerLabels, deal.ingestLatencyMs);
+              this.dataStorageMetrics.recordUploadStatus(providerLabels, "success");
+              this.dataStorageMetrics.recordOnchainStatus(providerLabels, "pending");
+              onUploadCompleteAddonsPromise = this.dealAddonsService
+                .handleUploadComplete(deal, dealInput.appliedAddons, signal, dealLogContext)
+                .then(() => true)
+                .catch((error) => {
+                  uploadCompleteError = error;
+                  return false;
+                });
+              const ingestSeconds = deal.ingestLatencyMs / 1000;
+              if (ingestSeconds > 0 && Number.isFinite(ingestSeconds)) {
+                deal.ingestThroughputBps = Math.round(deal.fileSize / ingestSeconds);
+                this.dataStorageMetrics.observeIngestThroughput(providerLabels, deal.ingestThroughputBps);
+              } else {
+                deal.ingestThroughputBps = 0;
+                this.logger.warn({
+                  ...dealLogContext,
+                  event: "ingest_throughput_skipped",
+                  message: `Skipping ingest throughput: invalid ingest latency (${deal.ingestLatencyMs}ms) for deal ${deal.id}`,
+                  ingestLatencyMs: deal.ingestLatencyMs,
+                });
+              }
+              break;
+            }
+            case "onPieceAdded":
+              this.logger.log({
+                ...dealLogContext,
+                event: "piece_added",
+                message: `Piece added event, txHash: ${event.data.txHash}`,
+                txHash: event.data.txHash,
+              });
+              deal.pieceAddedTime = new Date();
+              if (event.data.txHash != null) {
+                deal.transactionHash = event.data.txHash as Hex;
+              } else {
+                this.logger.warn({
+                  ...dealLogContext,
+                  event: "piece_added_no_tx_hash",
+                  message: `No transaction hash found for piece added event: ${deal.pieceCid}`,
+                });
+              }
+              deal.status = DealStatus.PIECE_ADDED;
+              this.dataStorageMetrics.observePieceAddedOnChainMs(
+                providerLabels,
+                deal.pieceAddedTime.getTime() - deal.uploadEndTime.getTime(),
+              );
+              break;
+            case "onPieceConfirmed":
+              this.logger.log({
+                ...dealLogContext,
+                event: "piece_confirmed",
+                message: `Piece confirmed event, pieceIds: ${event.data.pieceIds.join(", ")}`,
+                pieceIds: event.data.pieceIds,
+              });
+              deal.pieceConfirmedTime = new Date();
+              deal.status = DealStatus.PIECE_CONFIRMED;
+              deal.chainLatencyMs = deal.pieceConfirmedTime.getTime() - deal.pieceAddedTime.getTime();
+              onchainSucceeded = true;
+              this.dataStorageMetrics.observePieceConfirmedOnChainMs(providerLabels, deal.chainLatencyMs);
+              this.dataStorageMetrics.recordOnchainStatus(providerLabels, "success");
+              break;
+          }
+          // throw if aborted, AFTER adding data to the `deal` object. Everything in this `onProgress` callback is synchronous.
+          signal?.throwIfAborted();
         },
-        dealDuration,
+      });
+      signal?.throwIfAborted();
+      if (deal.pieceCid == null || deal.pieceAddedTime == null || deal.pieceConfirmedTime == null) {
+        throw new Error("Dealbot did not receive onProgress events during upload");
+      }
+
+      deal.dealLatencyMs = deal.pieceConfirmedTime.getTime() - deal.uploadStartTime.getTime();
+
+      if (!deal.transactionHash && uploadResult.transactionHash) {
+        deal.transactionHash = uploadResult.transactionHash as Hex;
+      }
+
+      if (!deal.transactionHash) {
+        this.logger.error({
+          ...dealLogContext,
+          event: "deal_transaction_hash_missing",
+          message: `No transaction hash found for deal: ${deal.pieceCid}`,
+        });
+      }
+
+      this.updateDealWithUploadResult(deal, uploadResult, uploadPayload.carData.length);
+
+      // wait for onUploadComplete handlers to complete
+      if (onUploadCompleteAddonsPromise != null) {
+        const uploadCompleteOk = await onUploadCompleteAddonsPromise;
+        onUploadCompleteAddonsPromise = null;
+        if (!uploadCompleteOk) {
+          throw uploadCompleteError ?? new Error("Upload completion handlers failed");
+        }
+        deal.dealConfirmedTime = new Date();
+        if (deal.ipniVerifiedAt) {
+          // pieceUploadToRetrievableDuration (IPNI verified)
+          deal.dealLatencyWithIpniMs = deal.ipniVerifiedAt.getTime() - deal.uploadStartTime.getTime();
+        }
+        // throw if aborted after saving dealConfirmedTime and dealLatencyWithIpniMs
+        signal?.throwIfAborted();
+      }
+
+      const retrievalConfig: RetrievalConfiguration = {
+        deal,
+        walletAddress: deal.walletAddress as Hex,
+        storageProvider: deal.spAddress as Hex,
+      };
+      const retrievalStartTime = Date.now();
+      retrievalStarted = true;
+      this.retrievalMetrics.recordStatus(providerLabels, "pending");
+      signal?.throwIfAborted();
+      const retrievalTest = await this.retrievalAddonsService.testAllRetrievalMethods(
+        retrievalConfig,
+        signal,
+        dealLogContext,
       );
+      signal?.throwIfAborted();
 
-      // Record upload duration if available
-      if (deal.ingestLatencyMs) {
-        this.dealUploadDuration.observe(
-          {
-            provider: providerShort,
-          },
-          deal.ingestLatencyMs / 1000,
+      this.retrievalMetrics.recordResultMetrics(retrievalTest.results, providerLabels);
+      this.retrievalMetrics.recordStatus(
+        providerLabels,
+        retrievalTest.summary.totalMethods > 0 && retrievalTest.summary.failedMethods === 0
+          ? "success"
+          : "failure.other",
+      );
+      retrievalStatusEmitted = true;
+
+      if (retrievalTest.summary.failedMethods > 0) {
+        throw new Error(
+          `Retrieval gate failed: ${retrievalTest.summary.failedMethods}/${retrievalTest.summary.totalMethods} methods failed`,
         );
+      } else if (retrievalTest.summary.totalMethods === 0) {
+        throw new Error("No retrieval methods to test");
+      } else {
+        // dataStorageCheckDuration = retrievalTest.testedAt - deal.uploadEndTime
+        // retrievals were successful.. lets log some stats
+        this.logger.log(
+          `Retrieval test completed in ${retrievalTest.testedAt.getTime() - retrievalStartTime}ms: ` +
+            `${retrievalTest.summary.successfulMethods}/${retrievalTest.summary.totalMethods} successful`,
+        );
+        this.logger.log({
+          ...dealLogContext,
+          event: "deal_creation_retrieval_test_completed",
+          message: `Retrieval test completed in ${retrievalTest.testedAt.getTime() - retrievalStartTime}ms`,
+          totalMethods: retrievalTest.summary.totalMethods,
+          successfulMethods: retrievalTest.summary.successfulMethods,
+        });
       }
 
-      // Record chain latency if available
-      if (deal.chainLatencyMs) {
-        this.dealChainLatency.observe(
-          {
-            provider: providerShort,
-          },
-          deal.chainLatencyMs / 1000,
-        );
+      deal.status = DealStatus.DEAL_CREATED;
+      if (deal.uploadStartTime) {
+        const checkDurationMs = Date.now() - deal.uploadStartTime.getTime();
+        this.dataStorageMetrics.observeCheckDuration(providerLabels, checkDurationMs);
       }
+      this.dataStorageMetrics.recordDataStorageStatus(providerLabels, "success");
+
+      this.logger.log({
+        ...dealLogContext,
+        event: "deal_creation_completed",
+        message: `Deal ${deal.id} created: ${deal.pieceCid} (sp: ${providerAddress})`,
+      });
+
+      await this.dealAddonsService.postProcessDeal(deal, dealInput.appliedAddons, dealLogContext);
 
       return deal;
     } catch (error) {
-      this.logger.error(`Deal creation failed for ${providerShort}...: ${error.message}`);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.error({
+        ...dealLogContext,
+        event: "deal_creation_failed",
+        message: `Deal creation failed for ${providerAddress}`,
+        error: toStructuredError(error),
+      });
+      const failureStatus = classifyFailureStatus(error);
 
       deal.status = DealStatus.FAILED;
-      deal.errorMessage = error.message;
+      deal.errorMessage = errorMessage;
 
-      // Record failure metrics
-      this.dealsCreatedCounter.inc({
-        status: "failed",
-        provider: providerShort,
-      });
+      if (!uploadSucceeded) {
+        this.dataStorageMetrics.recordUploadStatus(providerLabels, failureStatus);
+      } else if (!onchainSucceeded) {
+        this.dataStorageMetrics.recordOnchainStatus(providerLabels, failureStatus);
+      }
 
-      const dealDuration = (Date.now() - dealStartTime) / 1000;
-      this.dealCreationDuration.observe(
-        {
-          provider: providerShort,
-        },
-        dealDuration,
-      );
+      if (retrievalStarted && !retrievalStatusEmitted) {
+        this.retrievalMetrics.recordStatus(providerLabels, failureStatus);
+        retrievalStatusEmitted = true;
+      }
+      this.dataStorageMetrics.recordDataStorageStatus(providerLabels, failureStatus);
 
       throw error;
     } finally {
-      await this.saveDeal(deal);
+      await this.saveDeal(deal, dealLogContext);
+    }
+  }
+
+  /**
+   * Checks if an on-chain data set exists for a provider with specific metadata.
+   */
+  async checkDataSetExists(
+    providerAddress: string,
+    metadata: Record<string, string>,
+    signal?: AbortSignal,
+  ): Promise<boolean> {
+    signal?.throwIfAborted();
+    const synapse = this.sharedSynapse ?? (await this.createSynapseInstance());
+    const context = await awaitWithAbort(
+      synapse.storage.createContext({
+        providerAddress,
+        metadata,
+      }),
+      signal,
+    );
+    signal?.throwIfAborted();
+    return context.dataSetId !== undefined;
+  }
+
+  /**
+   * Creates an on-chain data-set with a minimal 200 KiB piece for a provider.
+   * Uses createContext + executeUpload (same flow as data storage check) instead of
+   * PDPServer.createDataSet, since empty datasets are being removed from curio and synapse-sdk.
+   *
+   * Goal: ensure the dataset is created and exists. No IPNI verification, retrieval checks,
+   * or any post-upload steps. Skips Deal persistence and all data-storage-check metrics.
+   */
+  async createDataSetWithPiece(
+    providerAddress: string,
+    metadata: Record<string, string>,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    signal?.throwIfAborted();
+    const providerInfo = this.walletSdkService.getProviderInfo(providerAddress);
+    if (!providerInfo) {
+      throw new Error(`Provider ${providerAddress} not found in registry`);
+    }
+    const labels = buildCheckMetricLabels({
+      checkType: "dataSetCreation",
+      providerId: providerInfo.id,
+      providerIsApproved: providerInfo.isApproved,
+    });
+
+    const startedAt = Date.now();
+    this.dataSetCreationMetrics.recordStatus(labels, "pending");
+    this.logger.log({
+      event: "dataset_creation_with_piece_started",
+      message: "Starting data-set creation with piece",
+      providerAddress,
+      providerId: providerInfo.id,
+      metadata,
+    });
+
+    let pieceAdded = false;
+    let pieceConfirmed = false;
+    let pieceCid: string | undefined;
+    let pieceId: number | undefined;
+    let transactionHash: string | undefined;
+
+    try {
+      const synapse = this.sharedSynapse ?? (await this.createSynapseInstance());
+      signal?.throwIfAborted();
+
+      const DATA_SET_CREATION_PIECE_SIZE = 200 * 1024; // 200 KiB
+      const payload = Buffer.alloc(DATA_SET_CREATION_PIECE_SIZE, 0x61);
+      const dataFile = {
+        data: payload,
+        size: DATA_SET_CREATION_PIECE_SIZE,
+        name: "dataset-seed.bin",
+      };
+
+      const carResult = await buildUnixfsCar(dataFile, { signal });
+      signal?.throwIfAborted();
+
+      const storage = await awaitWithAbort(
+        synapse.storage.createContext({
+          providerAddress,
+          metadata,
+        }),
+        signal,
+      );
+      signal?.throwIfAborted();
+
+      const filecoinPinLogger = createFilecoinPinLogger(this.logger);
+      const synapseService = { synapse, storage, providerInfo } as unknown as SynapseServiceArg;
+
+      const uploadResult = (await awaitWithAbort(
+        executeUpload(synapseService, carResult.carData, carResult.rootCID, {
+          logger: filecoinPinLogger,
+          contextId: providerAddress,
+          pieceMetadata: {},
+          ipniValidation: { enabled: false },
+          onProgress: async (event) => {
+            switch (event.type) {
+              case "onUploadComplete":
+                pieceCid = event.data.pieceCid.toString();
+                this.logger.debug({
+                  event: "dataset_creation_upload_complete",
+                  message: "Data-set creation upload complete",
+                  providerAddress,
+                  providerId: providerInfo.id,
+                  pieceCid,
+                });
+                break;
+              case "onPieceAdded":
+                pieceAdded = true;
+                this.logger.debug({
+                  event: "dataset_creation_piece_added",
+                  message: "Data-set creation piece added",
+                  providerAddress,
+                  providerId: providerInfo.id,
+                  txHash: event.data.txHash ?? "unknown",
+                });
+                break;
+              case "onPieceConfirmed":
+                pieceConfirmed = true;
+                this.logger.debug({
+                  event: "dataset_creation_piece_confirmed",
+                  message: "Data-set creation piece confirmed",
+                  providerAddress,
+                  providerId: providerInfo.id,
+                  pieceIds: event.data.pieceIds,
+                });
+                break;
+            }
+            signal?.throwIfAborted();
+          },
+        }),
+        signal,
+      )) as Partial<UploadResultSummary> | undefined;
+
+      pieceCid = pieceCid ?? uploadResult?.pieceCid;
+      pieceId = uploadResult?.pieceId;
+      transactionHash = uploadResult?.transactionHash;
+
+      const durationMs = Date.now() - startedAt;
+      this.dataSetCreationMetrics.observeCheckDuration(labels, durationMs);
+
+      if (!pieceCid) {
+        throw new Error("Data-set creation upload completed without producing a pieceCid");
+      }
+
+      this.dataSetCreationMetrics.recordStatus(labels, "success");
+
+      if (!pieceAdded || !pieceConfirmed) {
+        this.logger.warn({
+          event: "dataset_creation_missing_onchain_events",
+          message: "Data-set creation succeeded without full on-chain progress events",
+          providerAddress,
+          providerId: providerInfo.id,
+          pieceAdded,
+          pieceConfirmed,
+        });
+      }
+
+      this.logger.log({
+        event: "dataset_creation_with_piece_succeeded",
+        message: "Data-set created with piece",
+        providerAddress,
+        providerId: providerInfo.id,
+        durationMs,
+        dataSetId: storage.dataSetId ?? "unknown",
+        pieceCid: pieceCid ?? "unknown",
+        pieceId: pieceId ?? "unknown",
+        txHash: transactionHash ?? "unknown",
+        pieceAdded,
+        pieceConfirmed,
+      });
+    } catch (error) {
+      const durationMs = Date.now() - startedAt;
+      this.dataSetCreationMetrics.observeCheckDuration(labels, durationMs);
+      this.dataSetCreationMetrics.recordStatus(labels, classifyFailureStatus(error));
+      this.logger.error({
+        event: "dataset_creation_with_piece_failed",
+        message: "Data-set creation with piece failed",
+        providerAddress,
+        providerId: providerInfo.id,
+        durationMs,
+        pieceAdded,
+        pieceConfirmed,
+        pieceCid,
+        pieceId,
+        transactionHash,
+        error: toStructuredError(error),
+      });
+      throw error;
     }
   }
 
@@ -288,20 +703,93 @@ export class DealService implements OnModuleInit {
   // Deal Creation Helpers
   // ============================================================================
 
-  private updateDealWithUploadResult(deal: Deal, uploadResult: UploadResult): void {
-    deal.pieceCid = uploadResult.pieceCid.toString();
-    deal.pieceSize = uploadResult.size;
-    deal.pieceId = uploadResult.pieceId;
-    deal.status = DealStatus.DEAL_CREATED;
-    deal.dealConfirmedTime = new Date();
-    deal.dealLatencyMs = deal.dealConfirmedTime.getTime() - deal.uploadStartTime.getTime();
+  private async createSynapseInstance(): Promise<Synapse> {
+    try {
+      return await Synapse.create({
+        privateKey: this.blockchainConfig.walletPrivateKey,
+        rpcURL: RPC_URLS[this.blockchainConfig.network].http,
+        warmStorageAddress: this.walletSdkService.getFWSSAddress(),
+      });
+    } catch (error) {
+      this.logger.error({
+        event: "synapse_init_failed",
+        message: "Failed to initialize Synapse for deal job",
+        error: toStructuredError(error),
+      });
+      throw error;
+    }
   }
 
-  private async saveDeal(deal: Deal): Promise<void> {
+  private async cleanupSynapseInstance(synapse: Synapse): Promise<void> {
+    try {
+      await synapse.telemetry?.sentry?.close?.();
+    } catch (error) {
+      this.logger.warn({
+        event: "synapse_telemetry_cleanup_failed",
+        message: "Failed to cleanup Synapse telemetry",
+        error: toStructuredError(error),
+      });
+    }
+    try {
+      await cleanupSynapseService();
+    } catch (error) {
+      this.logger.warn({
+        event: "synapse_service_cleanup_failed",
+        message: "Failed to cleanup Synapse service",
+        error: toStructuredError(error),
+      });
+    }
+  }
+
+  private async prepareUploadPayload(dealInput: DealPreprocessingResult, signal?: AbortSignal): Promise<UploadPayload> {
+    const ipniMetadata = dealInput.metadata[ServiceType.IPFS_PIN];
+    if (ipniMetadata?.rootCID) {
+      return {
+        carData: dealInput.processedData.data,
+        rootCid: CID.parse(ipniMetadata.rootCID),
+      };
+    }
+
+    const data = Buffer.isBuffer(dealInput.processedData.data)
+      ? dealInput.processedData.data
+      : Buffer.from(dealInput.processedData.data);
+
+    signal?.throwIfAborted();
+    const carResult = await buildUnixfsCar(
+      {
+        data,
+        size: dealInput.processedData.size,
+        name: dealInput.processedData.name,
+      },
+      {
+        signal,
+      },
+    );
+
+    return {
+      carData: carResult.carData,
+      rootCid: carResult.rootCID,
+    };
+  }
+
+  private updateDealWithUploadResult(deal: Deal, uploadResult: UploadResultSummary, pieceSize: number): void {
+    deal.pieceCid = uploadResult.pieceCid;
+    // Only set pieceSize here if it hasn't been set earlier in the deal flow.
+    deal.pieceSize = pieceSize;
+
+    deal.pieceId = uploadResult.pieceId;
+  }
+
+  private async saveDeal(deal: Deal, dealLogContext: DealLogContext): Promise<void> {
     try {
       await this.dealRepository.save(deal);
     } catch (error) {
-      this.logger.warn(`Failed to save deal ${deal.pieceCid}: ${error.message}`);
+      this.logger.warn({
+        ...dealLogContext,
+        event: "save_deal_failed",
+        message: `Failed to save deal ${deal.pieceCid}`,
+        error: toStructuredError(error),
+      });
     }
   }
 
@@ -310,9 +798,11 @@ export class DealService implements OnModuleInit {
   // ============================================================================
 
   private async processProvidersInParallel(
+    synapse: Synapse,
     providers: ProviderInfoEx[],
     dealInput: DealPreprocessingResult,
-    maxConcurrency: number = 10,
+    uploadPayload: UploadPayload,
+    maxConcurrency: number,
   ): Promise<Array<{ success: boolean; deal?: Deal; error?: string; provider: string }>> {
     const results: Array<{
       success: boolean;
@@ -323,7 +813,7 @@ export class DealService implements OnModuleInit {
 
     for (let i = 0; i < providers.length; i += maxConcurrency) {
       const batch = providers.slice(i, i + maxConcurrency);
-      const batchPromises = batch.map((provider) => this.createDeal(provider, dealInput));
+      const batchPromises = batch.map((provider) => this.createDeal(synapse, provider, dealInput, uploadPayload));
       const batchResults = await Promise.allSettled(batchPromises);
 
       batchResults.forEach((result, index) => {
@@ -349,45 +839,11 @@ export class DealService implements OnModuleInit {
   }
 
   // ============================================================================
-  // Upload Lifecycle Handlers
-  // ============================================================================
-
-  private async handleUploadComplete(deal: Deal, pieceCid: PieceCID, appliedAddons: ServiceType[]): Promise<void> {
-    deal.pieceCid = pieceCid.toString();
-    deal.uploadEndTime = new Date();
-    deal.ingestLatencyMs = deal.uploadEndTime.getTime() - deal.uploadStartTime.getTime();
-    deal.ingestThroughputBps = Math.round(
-      deal.fileSize / ((deal.uploadEndTime.getTime() - deal.uploadStartTime.getTime()) / 1000),
-    );
-    deal.status = DealStatus.UPLOADED;
-
-    // Trigger addon onUploadComplete handlers
-    await this.dealAddonsService.handleUploadComplete(deal, appliedAddons);
-  }
-
-  private async handleRootAdded(deal: Deal, result: any): Promise<void> {
-    deal.pieceAddedTime = new Date();
-    deal.chainLatencyMs = deal.pieceAddedTime.getTime() - deal.uploadEndTime.getTime();
-    deal.status = DealStatus.PIECE_ADDED;
-    deal.transactionHash = result.transactionHash;
-  }
-
-  // ============================================================================
   // Data Source Management
   // ============================================================================
 
   private async fetchDataFile(minSize: number, maxSize: number): Promise<DataFile> {
-    try {
-      return await this.dataSourceService.fetchKaggleDataset(minSize, maxSize);
-    } catch (kaggleErr) {
-      this.logger.warn("Failed to fetch Kaggle dataset, falling back to local dataset", kaggleErr);
-      try {
-        return await this.dataSourceService.fetchLocalDataset(minSize, maxSize);
-      } catch (localErr) {
-        this.logger.warn("Failed to fetch local dataset, generating random dataset", localErr);
-        return await this.dataSourceService.generateRandomDataset(minSize, maxSize);
-      }
-    }
+    return await this.dataSourceService.generateRandomDataset(minSize, maxSize);
   }
 
   private getIpniEnabled(mode: IBlockchainConfig["enableIpniTesting"]): boolean {

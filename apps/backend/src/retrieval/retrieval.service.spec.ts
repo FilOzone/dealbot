@@ -1,20 +1,23 @@
 import { ConfigService } from "@nestjs/config";
 import { Test, TestingModule } from "@nestjs/testing";
 import { getRepositoryToken } from "@nestjs/typeorm";
-import { getToken } from "@willsoto/nestjs-prometheus";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Deal } from "../database/entities/deal.entity.js";
 import { Retrieval } from "../database/entities/retrieval.entity.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
 import { RetrievalStatus } from "../database/types.js";
+import { IpniVerificationService } from "../ipni/ipni-verification.service.js";
+import { DiscoverabilityCheckMetrics, RetrievalCheckMetrics } from "../metrics/utils/check-metrics.service.js";
 import { RetrievalAddonsService } from "../retrieval-addons/retrieval-addons.service.js";
 import { RetrievalService } from "./retrieval.service.js";
 
 describe("RetrievalService timeouts", () => {
-  type RetrievalServicePrivate = RetrievalService & {
+  // Mapped type strips private members so the intersection doesn't collapse to `never`.
+  type PublicInterface<T> = { [K in keyof T]: T[K] };
+  type RetrievalServicePrivate = PublicInterface<RetrievalService> & {
     processRetrievalsInParallel: (
       deals: Deal[],
-      options: { timeoutMs: number; maxConcurrency?: number; signal?: AbortSignal },
+      options: { maxConcurrency?: number; signal?: AbortSignal },
     ) => Promise<Retrieval[][]>;
     performAllRetrievals: (deal: Deal, signal?: AbortSignal) => Promise<Retrieval[]>;
   };
@@ -24,6 +27,22 @@ describe("RetrievalService timeouts", () => {
 
   const mockRetrievalAddonsService = {
     testAllRetrievalMethods: vi.fn(),
+    getApplicableStrategies: vi.fn().mockReturnValue([{}]),
+  };
+  const mockConfigService = {
+    get: vi.fn((key: string) => {
+      if (key === "jobs") return { mode: "cron" };
+      if (key === "dataset") return { randomDatasetSizes: [10] };
+      if (key === "timeouts") return { ipniVerificationTimeoutMs: 10_000, ipniVerificationPollingMs: 2_000 };
+      return undefined;
+    }),
+  };
+  const mockIpniVerificationService = {
+    verify: vi.fn(),
+  };
+  const mockDiscoverabilityMetrics = {
+    recordStatus: vi.fn(),
+    observeIpniVerifyMs: vi.fn(),
   };
 
   const mockDealRepository = {
@@ -38,15 +57,14 @@ describe("RetrievalService timeouts", () => {
   const mockSpRepository = {
     findOne: vi.fn(),
   };
-  const mockRetrievalsTestedCounter = { inc: vi.fn() };
-  const mockRetrievalLatency = { observe: vi.fn() };
-  const mockRetrievalTtfb = { observe: vi.fn() };
-
-  const defaultTimeouts = {
-    httpRequestTimeoutMs: 10000,
-    http2RequestTimeoutMs: 10000,
-    connectTimeoutMs: 10000,
-    retrievalTimeoutBufferMs: 60000,
+  const mockRetrievalMetrics = {
+    observeFirstByteMs: vi.fn(),
+    observeLastByteMs: vi.fn(),
+    observeThroughput: vi.fn(),
+    observeCheckDuration: vi.fn(),
+    recordStatus: vi.fn(),
+    recordHttpResponseCode: vi.fn(),
+    recordResultMetrics: vi.fn(),
   };
 
   afterEach(() => {
@@ -56,42 +74,36 @@ describe("RetrievalService timeouts", () => {
 
   const buildDeal = (overrides: Partial<Deal> = {}): Deal =>
     ({
-      id: 1,
+      id: "deal-1",
       spAddress: "0xsp",
       walletAddress: "0xwallet",
       pieceCid: "bafy-piece",
       ...overrides,
     }) as Deal;
 
-  const createService = async (timeouts = defaultTimeouts): Promise<RetrievalServicePrivate> => {
-    const configService = {
-      get: vi.fn((key: string) => (key === "timeouts" ? timeouts : undefined)),
-    };
-
+  const createService = async (): Promise<RetrievalServicePrivate> => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         RetrievalService,
         { provide: RetrievalAddonsService, useValue: mockRetrievalAddonsService },
-        { provide: ConfigService, useValue: configService },
         { provide: getRepositoryToken(Deal), useValue: mockDealRepository },
         { provide: getRepositoryToken(Retrieval), useValue: mockRetrievalRepository },
         { provide: getRepositoryToken(StorageProvider), useValue: mockSpRepository },
-        { provide: getToken("retrievals_tested_total"), useValue: mockRetrievalsTestedCounter },
-        { provide: getToken("retrieval_latency_seconds"), useValue: mockRetrievalLatency },
-        { provide: getToken("retrieval_ttfb_seconds"), useValue: mockRetrievalTtfb },
+        { provide: RetrievalCheckMetrics, useValue: mockRetrievalMetrics },
+        { provide: DiscoverabilityCheckMetrics, useValue: mockDiscoverabilityMetrics },
+        { provide: IpniVerificationService, useValue: mockIpniVerificationService },
+        { provide: ConfigService, useValue: mockConfigService },
       ],
     }).compile();
 
-    return module.get<RetrievalService>(RetrievalService) as RetrievalServicePrivate;
+    return module.get<RetrievalService>(RetrievalService) as unknown as RetrievalServicePrivate;
   };
 
-  it("starts a batch when there is enough time remaining for a full HTTP timeout", async () => {
+  it("processes all deals when no abort signal is triggered", async () => {
     service = await createService();
     performAllRetrievalsSpy = vi.spyOn(service, "performAllRetrievals").mockResolvedValue([]);
-    vi.spyOn(Date, "now").mockReturnValue(0);
 
     const results = await service.processRetrievalsInParallel([buildDeal()], {
-      timeoutMs: 20000,
       maxConcurrency: 1,
     });
 
@@ -99,46 +111,60 @@ describe("RetrievalService timeouts", () => {
     expect(results).toHaveLength(1);
   });
 
-  it("skips starting a batch when remaining time is less than the HTTP timeout", async () => {
+  it("aborts processing remaining deals when signal is aborted", async () => {
     service = await createService();
-    performAllRetrievalsSpy = vi.spyOn(service, "performAllRetrievals").mockResolvedValue([]);
-    vi.spyOn(Date, "now").mockReturnValue(0);
+    const abortController = new AbortController();
 
-    const results = await service.processRetrievalsInParallel([buildDeal()], {
-      timeoutMs: 5000,
-      maxConcurrency: 1,
+    performAllRetrievalsSpy = vi.spyOn(service, "performAllRetrievals").mockImplementation(async () => {
+      abortController.abort();
+      return [];
     });
 
-    expect(performAllRetrievalsSpy).not.toHaveBeenCalled();
-    expect(results).toHaveLength(0);
-  });
-
-  it("times out a retrieval when the batch timeout is exceeded", async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(0);
-
-    service = await createService({
-      ...defaultTimeouts,
-      httpRequestTimeoutMs: 50,
-      http2RequestTimeoutMs: 50,
-    });
-
-    performAllRetrievalsSpy = vi.spyOn(service, "performAllRetrievals").mockImplementation(() => new Promise(() => {}));
-
-    const promise = service.processRetrievalsInParallel([buildDeal()], {
-      timeoutMs: 200,
-      maxConcurrency: 1,
-    });
-
-    await vi.advanceTimersByTimeAsync(100);
-
-    const results = await promise;
+    // 2 deals, maxConcurrency 1. First deal aborts, second should be skipped.
+    const results = await service.processRetrievalsInParallel(
+      [buildDeal({ id: "deal-1" }), buildDeal({ id: "deal-2" })],
+      {
+        maxConcurrency: 1,
+        signal: abortController.signal,
+      },
+    );
 
     expect(performAllRetrievalsSpy).toHaveBeenCalledTimes(1);
-    expect(results).toHaveLength(0);
+    expect(results).toHaveLength(1); // Only the first batch (of 1) should return results
+  });
 
-    // Note: the underlying retrieval promise remains pending; timeouts don't cancel work.
-    // Cancellation is handled by the scheduler abort signal in real runs.
+  it("passes abort signal to performAllRetrievals", async () => {
+    service = await createService();
+    const abortController = new AbortController();
+    performAllRetrievalsSpy = vi.spyOn(service, "performAllRetrievals").mockResolvedValue([]);
+
+    await service.processRetrievalsInParallel([buildDeal()], {
+      maxConcurrency: 1,
+      signal: abortController.signal,
+    });
+
+    expect(performAllRetrievalsSpy).toHaveBeenCalledWith(expect.anything(), abortController.signal);
+  });
+
+  it("returns partial results when aborted between batches", async () => {
+    service = await createService();
+    const abortController = new AbortController();
+
+    performAllRetrievalsSpy = vi.spyOn(service, "performAllRetrievals").mockImplementationOnce(async () => {
+      abortController.abort();
+      return [];
+    });
+
+    const results = await service.processRetrievalsInParallel(
+      [buildDeal({ id: "deal-1" }), buildDeal({ id: "deal-2" })],
+      {
+        maxConcurrency: 1,
+        signal: abortController.signal,
+      },
+    );
+
+    expect(performAllRetrievalsSpy).toHaveBeenCalledTimes(1);
+    expect(results).toHaveLength(1);
   });
 
   it("records a failed retrieval when an execution result fails", async () => {
@@ -155,7 +181,7 @@ describe("RetrievalService timeouts", () => {
         data as ReturnType<typeof mockRetrievalRepository.save>,
     );
     mockRetrievalAddonsService.testAllRetrievalMethods.mockResolvedValue({
-      dealId: 1,
+      dealId: "deal-1",
       results: [
         {
           url: "http://example.com",
@@ -192,5 +218,164 @@ describe("RetrievalService timeouts", () => {
         errorMessage: timeoutError,
       }),
     );
+  });
+
+  it("emits retrieval timing and status metrics", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
+
+    try {
+      service = await createService();
+
+      mockSpRepository.findOne.mockResolvedValue({ address: "0xsp", providerId: 7, isApproved: false });
+      mockRetrievalRepository.create.mockImplementation(
+        (data: Parameters<typeof mockRetrievalRepository.create>[0]) =>
+          data as ReturnType<typeof mockRetrievalRepository.create>,
+      );
+      mockRetrievalRepository.save.mockImplementation(
+        async (data: Parameters<typeof mockRetrievalRepository.save>[0]) =>
+          data as ReturnType<typeof mockRetrievalRepository.save>,
+      );
+
+      mockRetrievalAddonsService.testAllRetrievalMethods.mockImplementation(async () => {
+        vi.advanceTimersByTime(2500);
+        return {
+          dealId: "deal-1",
+          results: [
+            {
+              url: "http://example.com",
+              method: "direct",
+              data: Buffer.alloc(0),
+              metrics: {
+                latency: 400,
+                ttfb: 100,
+                throughput: 10_000,
+                statusCode: 200,
+                timestamp: new Date(),
+                responseSize: 0,
+              },
+              success: true,
+              retryCount: 0,
+            },
+          ],
+          summary: {
+            totalMethods: 1,
+            successfulMethods: 1,
+            failedMethods: 0,
+            fastestMethod: "direct",
+            fastestLatency: 400,
+          },
+          testedAt: new Date(),
+        };
+      });
+
+      await service.performAllRetrievals(buildDeal());
+
+      const labels = {
+        checkType: "retrieval",
+        providerId: "7",
+        providerStatus: "unapproved",
+      };
+
+      expect(mockRetrievalMetrics.observeCheckDuration).toHaveBeenCalledWith(labels, 2500);
+      expect(mockRetrievalMetrics.observeFirstByteMs).toHaveBeenCalledWith(labels, 100);
+      expect(mockRetrievalMetrics.observeLastByteMs).toHaveBeenCalledWith(labels, 400);
+      expect(mockRetrievalMetrics.observeThroughput).toHaveBeenCalledWith(labels, 10_000);
+      expect(mockRetrievalMetrics.recordStatus).toHaveBeenCalledWith(labels, "pending");
+      expect(mockRetrievalMetrics.recordStatus).toHaveBeenCalledWith(labels, "success");
+      expect(mockRetrievalMetrics.recordHttpResponseCode).toHaveBeenCalledWith(labels, 200);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("records timed out retrieval status when retrieval throws", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
+
+    service = await createService();
+    mockSpRepository.findOne.mockResolvedValue({ address: "0xsp", providerId: 7, isApproved: false });
+    mockRetrievalAddonsService.testAllRetrievalMethods.mockImplementation(async () => {
+      vi.advanceTimersByTime(1750);
+      throw new Error("timeout");
+    });
+
+    await expect(service.performAllRetrievals(buildDeal())).rejects.toThrow("timeout");
+
+    const labels = {
+      checkType: "retrieval",
+      providerId: "7",
+      providerStatus: "unapproved",
+    };
+
+    expect(mockRetrievalMetrics.recordStatus).toHaveBeenCalledWith(labels, "pending");
+    expect(mockRetrievalMetrics.recordStatus).toHaveBeenCalledWith(labels, "failure.timedout");
+    expect(mockRetrievalMetrics.observeCheckDuration).toHaveBeenCalledWith(labels, 1750);
+  });
+
+  it("records timed out status for partial results when signal aborts", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
+
+    service = await createService();
+    const abortController = new AbortController();
+    mockSpRepository.findOne.mockResolvedValue({ address: "0xsp", providerId: 7, isApproved: false });
+    mockRetrievalRepository.create.mockImplementation(
+      (data: Parameters<typeof mockRetrievalRepository.create>[0]) =>
+        data as ReturnType<typeof mockRetrievalRepository.create>,
+    );
+    mockRetrievalRepository.save.mockImplementation(
+      async (data: Parameters<typeof mockRetrievalRepository.save>[0]) =>
+        data as ReturnType<typeof mockRetrievalRepository.save>,
+    );
+
+    mockRetrievalAddonsService.testAllRetrievalMethods.mockImplementation(async () => {
+      vi.advanceTimersByTime(900);
+      abortController.abort(new Error("retrieval timeout"));
+
+      return {
+        dealId: "deal-1",
+        results: [
+          {
+            url: "http://example.com",
+            method: "direct",
+            data: Buffer.alloc(0),
+            metrics: {
+              latency: 100,
+              ttfb: 50,
+              throughput: 5000,
+              statusCode: 504,
+              timestamp: new Date(),
+              responseSize: 0,
+            },
+            success: false,
+            error: "timeout",
+            retryCount: 0,
+          },
+        ],
+        summary: {
+          totalMethods: 1,
+          successfulMethods: 0,
+          failedMethods: 1,
+          fastestMethod: undefined,
+          fastestLatency: undefined,
+        },
+        testedAt: new Date(),
+        aborted: true,
+      };
+    });
+
+    const retrievals = await service.performAllRetrievals(buildDeal(), abortController.signal);
+
+    const labels = {
+      checkType: "retrieval",
+      providerId: "7",
+      providerStatus: "unapproved",
+    };
+
+    expect(retrievals).toHaveLength(1);
+    expect(mockRetrievalMetrics.recordStatus).toHaveBeenCalledWith(labels, "pending");
+    expect(mockRetrievalMetrics.recordStatus).toHaveBeenCalledWith(labels, "failure.timedout");
+    expect(mockRetrievalMetrics.observeCheckDuration).toHaveBeenCalledWith(labels, 900);
   });
 });

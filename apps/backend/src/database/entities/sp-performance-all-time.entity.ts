@@ -94,9 +94,6 @@ export class SpPerformanceAllTime {
   @ViewColumn({ name: "ipni_advertised_deals" })
   ipniAdvertisedDeals: number;
 
-  @ViewColumn({ name: "ipni_retrieved_deals" })
-  ipniRetrievedDeals: number;
-
   @ViewColumn({ name: "ipni_verified_deals" })
   ipniVerifiedDeals: number;
 
@@ -111,9 +108,6 @@ export class SpPerformanceAllTime {
 
   @ViewColumn({ name: "avg_ipni_time_to_advertise_ms" })
   avgIpniTimeToAdvertiseMs: number;
-
-  @ViewColumn({ name: "avg_ipni_time_to_retrieve_ms" })
-  avgIpniTimeToRetrieveMs: number;
 
   @ViewColumn({ name: "avg_ipni_time_to_verify_ms" })
   avgIpniTimeToVerifyMs: number;

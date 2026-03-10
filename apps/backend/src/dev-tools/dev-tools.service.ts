@@ -1,6 +1,7 @@
-import { BadRequestException, Injectable, Logger, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import type { Repository } from "typeorm";
+import { type DealLogContext, toStructuredError } from "../common/logging.js";
 import { Deal } from "../database/entities/deal.entity.js";
 import { DealStatus, RetrievalStatus } from "../database/types.js";
 import { DealService } from "../deal/deal.service.js";
@@ -12,6 +13,7 @@ import type { RetrievalMethodResultDto, TriggerRetrievalResponseDto } from "./dt
 @Injectable()
 export class DevToolsService {
   private readonly logger = new Logger(DevToolsService.name);
+  private isRunningCreateAll = false;
 
   constructor(
     private readonly walletSdkService: WalletSdkService,
@@ -76,11 +78,14 @@ export class DevToolsService {
     if (!providerInfo.active) {
       throw new BadRequestException(`Storage provider is not active: ${spAddress}`);
     }
+    if (providerInfo.id == null) {
+      throw new BadRequestException(`Storage provider is missing providerId: ${spAddress}`);
+    }
 
-    // Get CDN/IPNI settings from config
-    const { enableCDN, enableIpni } = this.dealService.getTestingDealOptions();
+    // Get IPNI settings from config
+    const { enableIpni } = this.dealService.getTestingDealOptions();
 
-    this.logger.log(`Deal settings - CDN: ${enableCDN}, IPNI: ${enableIpni}`);
+    this.logger.log(`Deal settings - IPNI: ${enableIpni}`);
 
     // Create a pending deal record first so we can return the ID immediately
     const pendingDeal = this.dealRepository.create({
@@ -95,11 +100,22 @@ export class DevToolsService {
     const savedDeal = await this.dealRepository.save(pendingDeal);
     const dealId = savedDeal.id;
 
+    const dealLogContext: DealLogContext = {
+      dealId,
+      providerId: providerInfo.id,
+      providerAddress: spAddress,
+    };
+
     this.logger.log(`Created pending deal ${dealId}, starting background processing`);
 
     // Fire off the deal creation in the background (don't await)
-    this.processDealInBackground(dealId, providerInfo, enableCDN, enableIpni).catch((err) => {
-      this.logger.error(`Background deal processing failed for ${dealId}: ${err.message}`);
+    this.processDealInBackground(dealId, providerInfo, enableIpni, dealLogContext).catch((err) => {
+      this.logger.error({
+        ...dealLogContext,
+        event: "background_deal_processing_failed",
+        message: `Background deal processing failed for ${dealId}`,
+        error: toStructuredError(err),
+      });
     });
 
     // Return immediately with the pending deal info
@@ -120,26 +136,82 @@ export class DevToolsService {
   private async processDealInBackground(
     dealId: string,
     providerInfo: ReturnType<typeof this.walletSdkService.getProviderInfo>,
-    enableCDN: boolean,
     enableIpni: boolean,
+    dealLogContext: DealLogContext,
   ): Promise<void> {
+    if (!providerInfo || providerInfo.id == null) {
+      throw new Error(`Missing provider info for background deal ${dealId}`);
+    }
     try {
-      const deal = await this.dealService.createDealForProvider(providerInfo!, {
-        enableCDN,
+      const deal = await this.dealService.createDealForProvider(providerInfo, {
         enableIpni,
         existingDealId: dealId,
+        logContext: {
+          jobId: "dev_tools_manual_deal",
+          providerAddress: providerInfo.serviceProvider,
+          providerId: providerInfo.id,
+        },
       });
 
-      this.logger.log(`Background deal ${dealId} completed successfully: ${deal.pieceCid?.slice(0, 12)}...`);
+      this.logger.log(`Background deal ${dealId} completed successfully: ${deal.pieceCid}`);
     } catch (error) {
-      this.logger.error(`Background deal ${dealId} failed: ${error.message}`);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.error({
+        ...dealLogContext,
+        event: "background_deal_failed",
+        message: `Background deal ${dealId} failed`,
+        error: toStructuredError(error),
+      });
 
       // Update deal with error status
       await this.dealRepository.update(dealId, {
         status: DealStatus.FAILED,
-        errorMessage: error.message,
+        errorMessage,
       });
     }
+  }
+
+  /**
+   * Trigger deal creation for all providers (same flow as scheduler).
+   * Loads providers, then calls createDealsForAllProviders.
+   */
+  async triggerDealsForAllProviders(): Promise<{ deals: TriggerDealResponseDto[]; total: number }> {
+    if (this.isRunningCreateAll) {
+      throw new ConflictException("Deal creation for all providers is already in progress");
+    }
+
+    this.isRunningCreateAll = true;
+    this.logger.log("Starting deal creation for all providers (dev-tools)");
+
+    try {
+      const deals = await this.dealService.createDealsForAllProviders();
+      const dtos = deals.map((d) => this.dealToResponseDto(d));
+
+      this.logger.log(`Deal creation for all providers completed: ${deals.length} deals`);
+
+      return { deals: dtos, total: dtos.length };
+    } finally {
+      this.isRunningCreateAll = false;
+    }
+  }
+
+  private dealToResponseDto(deal: Deal): TriggerDealResponseDto {
+    return {
+      id: deal.id,
+      pieceCid: deal.pieceCid || "",
+      status: deal.status,
+      fileName: deal.fileName,
+      fileSize: deal.fileSize,
+      dealLatencyMs: deal.dealLatencyMs,
+      dealLatencyWithIpniMs: deal.dealLatencyWithIpniMs,
+      ingestLatencyMs: deal.ingestLatencyMs,
+      ipniTimeToIndexMs: deal.ipniTimeToIndexMs,
+      ipniTimeToAdvertiseMs: deal.ipniTimeToAdvertiseMs,
+      ipniTimeToVerifyMs: deal.ipniTimeToVerifyMs,
+      serviceTypes: deal.serviceTypes || [],
+      spAddress: deal.spAddress,
+      errorMessage: deal.errorMessage,
+    };
   }
 
   /**
@@ -154,18 +226,7 @@ export class DevToolsService {
       throw new NotFoundException(`Deal not found: ${dealId}`);
     }
 
-    return {
-      id: deal.id,
-      pieceCid: deal.pieceCid || "",
-      status: deal.status,
-      fileName: deal.fileName,
-      fileSize: deal.fileSize,
-      dealLatencyMs: deal.dealLatencyMs,
-      ingestLatencyMs: deal.ingestLatencyMs,
-      serviceTypes: deal.serviceTypes || [],
-      spAddress: deal.spAddress,
-      errorMessage: deal.errorMessage,
-    };
+    return this.dealToResponseDto(deal);
   }
 
   /**
@@ -179,7 +240,7 @@ export class DevToolsService {
     // Find the deal
     const deal = await this.findDeal(dealId, spAddress);
 
-    this.logger.log(`Triggering data fetch for deal: ${deal.id} (piece: ${deal.pieceCid?.slice(0, 12)}...)`);
+    this.logger.log(`Triggering data fetch for deal: ${deal.id} (piece: ${deal.pieceCid})`);
 
     const retrievals = await this.retrievalService.performRetrievalsForDeal(deal);
 

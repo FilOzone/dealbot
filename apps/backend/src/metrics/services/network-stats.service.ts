@@ -1,6 +1,7 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import type { Repository } from "typeorm";
+import { toStructuredError } from "../../common/logging.js";
 import { SpPerformanceAllTime } from "../../database/entities/sp-performance-all-time.entity.js";
 import { StorageProvider } from "../../database/entities/storage-provider.entity.js";
 import type { NetworkOverallStatsDto } from "../dto/network-stats.dto.js";
@@ -151,7 +152,11 @@ export class NetworkStatsService {
         lastRefreshedAt: stats.lastRefreshedAt || new Date(),
       };
     } catch (error) {
-      this.logger.error(`Failed to fetch overall stats: ${error.message}`, error.stack);
+      this.logger.error({
+        event: "fetch_network_overall_stats_failed",
+        message: "Failed to fetch overall network stats",
+        error: toStructuredError(error),
+      });
       throw error;
     }
   }

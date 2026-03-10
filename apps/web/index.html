@@ -4,6 +4,21 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>DealBot</title>
+    <script src="/runtime-config.js"></script>
+    <!-- Privacy-friendly analytics by Plausible (optional) -->
+    <script type="module">
+      const plausibleDomain =
+        window.__DEALBOT_CONFIG__?.PLAUSIBLE_DATA_DOMAIN ??
+        import.meta.env.VITE_PLAUSIBLE_DATA_DOMAIN;
+      if (plausibleDomain) {
+        const script = document.createElement("script");
+        script.async = true;
+        script.src = "https://plausible.io/js/script.js";
+        script.setAttribute("data-domain", plausibleDomain);
+        document.head.appendChild(script);
+      }
+    </script>
+
   </head>
   <body>
     <div id="root"></div>

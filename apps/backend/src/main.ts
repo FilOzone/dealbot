@@ -1,64 +1,130 @@
-import { Logger } from "@nestjs/common";
+import { ConsoleLogger } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
 import cors from "cors";
 import helmet from "helmet";
+import { resolveLogLevels } from "./common/log-levels.js";
+import { toStructuredError } from "./common/logging.js";
 
-const logger = new Logger("Main");
+/** Logger used for bootstrap/exit paths before Nest app is created or on unhandled rejection. */
+const exitLogger = new ConsoleLogger("Main", {
+  json: true,
+  colors: false,
+  logLevels: resolveLogLevels(process.env.LOG_LEVEL),
+});
+
+let isExiting = false;
+
+function logErrorAndExit(event: string, message: string, error: unknown): void {
+  if (isExiting) {
+    return;
+  }
+  isExiting = true;
+
+  exitLogger.fatal({
+    event,
+    message,
+    error: toStructuredError(error),
+  });
+  process.exitCode = 1;
+  setImmediate(() => {
+    process.exit(1);
+  });
+}
 
 async function bootstrap() {
-  const { AppModule } = await import("./app.module.js");
-  const app = await NestFactory.create(AppModule, {
-    logger: ["log", "fatal", "error", "warn"],
+  const logLevels = resolveLogLevels(process.env.LOG_LEVEL);
+  const logger = new ConsoleLogger("Main", {
+    json: true,
+    colors: false,
+    logLevels,
+  });
+
+  const runMode = (process.env.DEALBOT_RUN_MODE || "both").toLowerCase();
+  const isWorkerOnly = runMode === "worker";
+  const rootModule = isWorkerOnly
+    ? (await import("./worker.module.js")).WorkerModule
+    : (await import("./app.module.js")).AppModule;
+  const app = await NestFactory.create(rootModule, {
+    // Allow bootstrap errors to propagate so our catch path can emit structured fatal logs.
+    abortOnError: false,
+    logger,
   });
 
   // Ensure Nest calls lifecycle shutdown hooks (OnApplicationShutdown / BeforeApplicationShutdown)
   // so resources (DB pools, schedulers, etc.) can be released on SIGINT/SIGTERM.
   app.enableShutdownHooks();
 
-  app.use(
-    helmet({
-      contentSecurityPolicy: {
-        directives: {
-          defaultSrc: [`'self'`],
-          styleSrc: [`'self'`, `'unsafe-inline'`],
-          imgSrc: [`'self'`, "data:", "validator.swagger.io"],
-          scriptSrc: [`'self'`, `https: 'unsafe-inline'`],
-          connectSrc: [`'self'`, `https:`],
+  if (!isWorkerOnly) {
+    app.use(
+      helmet({
+        contentSecurityPolicy: {
+          directives: {
+            defaultSrc: [`'self'`],
+            styleSrc: [`'self'`, `'unsafe-inline'`],
+            imgSrc: [`'self'`, "data:", "validator.swagger.io"],
+            scriptSrc: [`'self'`, `https: 'unsafe-inline'`],
+            connectSrc: [`'self'`, `https:`],
+          },
         },
-      },
-    }),
-  );
+      }),
+    );
 
-  // Configure CORS using express cors middleware directly
-  const allowedOrigins = (process.env.DEALBOT_ALLOWED_ORIGINS ?? "")
-    .split(",")
-    .map((o) => o.trim())
-    .filter(Boolean);
+    // Configure CORS using express cors middleware directly
+    const allowedOrigins = (process.env.DEALBOT_ALLOWED_ORIGINS ?? "")
+      .split(",")
+      .map((o) => o.trim())
+      .filter(Boolean);
 
-  app.use(
-    cors({
-      credentials: true,
-      origin: allowedOrigins.length > 0 ? allowedOrigins : false, // Disable CORS if no origins configured
-    }),
-  );
+    app.use(
+      cors({
+        credentials: true,
+        origin: allowedOrigins.length > 0 ? allowedOrigins : false, // Disable CORS if no origins configured
+      }),
+    );
 
-  const config = new DocumentBuilder()
-    .setTitle("Dealbot")
-    .setDescription("FWSS Dealbot API methods")
-    .setVersion("1.0")
-    .addTag("dealbot")
-    .build();
-  const document = SwaggerModule.createDocument(app, config);
-  SwaggerModule.setup("api", app, document);
-
-  const port = Number.parseInt(process.env.DEALBOT_PORT ?? "3000", 10);
-  if (Number.isNaN(port)) {
-    throw new Error(`Invalid DEALBOT_PORT: ${process.env.DEALBOT_PORT}`);
+    const config = new DocumentBuilder()
+      .setTitle("Dealbot")
+      .setDescription("FWSS Dealbot API methods")
+      .setVersion("1.0")
+      .addTag("dealbot")
+      .build();
+    const document = SwaggerModule.createDocument(app, config);
+    SwaggerModule.setup("api", app, document);
   }
-  const host = process.env.DEALBOT_HOST || "127.0.0.1";
+
+  const portEnvValue = isWorkerOnly ? process.env.DEALBOT_METRICS_PORT : process.env.DEALBOT_PORT;
+  const port = Number.parseInt(isWorkerOnly ? portEnvValue || "9090" : portEnvValue || "3000", 10);
+  if (Number.isNaN(port)) {
+    const name = isWorkerOnly ? "DEALBOT_METRICS_PORT" : "DEALBOT_PORT";
+    throw new Error(`Invalid ${name}: ${portEnvValue ?? ""}`);
+  }
+  const host = isWorkerOnly ? process.env.DEALBOT_METRICS_HOST || "0.0.0.0" : process.env.DEALBOT_HOST || "127.0.0.1";
+  logger.log({
+    event: "bootstrap_listen_start",
+    message: "Starting HTTP listener",
+    host,
+    port,
+    runMode,
+  });
   await app.listen(port, host);
-  logger.log(`Dealbot backend is running on ${host}:${port}`);
+  logger.log({
+    event: "bootstrap_listen_complete",
+    message: isWorkerOnly
+      ? `Dealbot worker is running; metrics available on ${host}:${port}/metrics`
+      : `Dealbot backend is running on ${host}:${port}`,
+    host,
+    port,
+    runMode,
+  });
 }
 
-bootstrap();
+process.once("unhandledRejection", (reason: unknown, _promise: Promise<unknown>) => {
+  logErrorAndExit("unhandled_rejection", "Unhandled rejection", reason);
+});
+
+process.once("uncaughtException", (error: unknown) => {
+  logErrorAndExit("uncaught_exception", "Uncaught exception", error);
+});
+
+void bootstrap().catch((error: unknown) => logErrorAndExit("bootstrap_failed", "Bootstrap failed", error));

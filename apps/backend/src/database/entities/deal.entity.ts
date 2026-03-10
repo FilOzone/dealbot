@@ -49,7 +49,7 @@ export class Deal {
   status: DealStatus;
 
   @Column({ name: "transaction_hash", nullable: true })
-  transactionHash: string;
+  transactionHash: `0x${string}`;
 
   @Column({ type: "jsonb", default: {} })
   metadata: DealMetadata;
@@ -66,6 +66,8 @@ export class Deal {
 
   @Column({ name: "piece_added_time", type: "timestamp", nullable: true })
   pieceAddedTime: Date;
+  @Column({ name: "piece_confirmed_time", type: "timestamp", nullable: true })
+  pieceConfirmedTime: Date;
 
   @Column({ name: "deal_confirmed_time", type: "timestamp", nullable: true })
   dealConfirmedTime: Date;
@@ -78,6 +80,9 @@ export class Deal {
 
   @Column({ name: "deal_latency_ms", nullable: true, type: "int" })
   dealLatencyMs: number;
+
+  @Column({ name: "deal_latency_with_ipni_ms", nullable: true, type: "int" })
+  dealLatencyWithIpniMs: number;
 
   @Column({ name: "ingest_throughput_bps", nullable: true, type: "int" })
   ingestThroughputBps: number;
@@ -97,9 +102,6 @@ export class Deal {
   @Column({ name: "ipni_advertised_at", type: "timestamp", nullable: true })
   ipniAdvertisedAt: Date;
 
-  @Column({ name: "ipni_retrieved_at", type: "timestamp", nullable: true })
-  ipniRetrievedAt: Date;
-
   @Column({ name: "ipni_verified_at", type: "timestamp", nullable: true })
   ipniVerifiedAt: Date;
 
@@ -109,9 +111,6 @@ export class Deal {
 
   @Column({ name: "ipni_time_to_advertise_ms", nullable: true, type: "int" })
   ipniTimeToAdvertiseMs: number;
-
-  @Column({ name: "ipni_time_to_retrieve_ms", nullable: true, type: "int" })
-  ipniTimeToRetrieveMs: number;
 
   @Column({ name: "ipni_time_to_verify_ms", nullable: true, type: "int" })
   ipniTimeToVerifyMs: number;

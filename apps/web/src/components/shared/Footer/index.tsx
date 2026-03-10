@@ -5,9 +5,7 @@ const Footer = () => (
         <div>
           <p className="text-sm font-semibold">Mini Deal Bot Analytics</p>
           <p className="text-sm text-muted-foreground">Automated storage deals on Filecoin network</p>
-          <p className="text-xs text-muted-foreground mt-1">
-            CDN A/B testing • Performance tracking • Real-time monitoring
-          </p>
+          <p className="text-xs text-muted-foreground mt-1">Performance tracking • Real-time monitoring</p>
         </div>
 
         <div>

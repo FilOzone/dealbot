@@ -18,4 +18,8 @@ nodes:
       - containerPort: 30080
         hostPort: 3000
         protocol: TCP
+      # Worker metrics (dealbot-worker)
+      - containerPort: 30082
+        hostPort: 9090
+        protocol: TCP
   - role: worker

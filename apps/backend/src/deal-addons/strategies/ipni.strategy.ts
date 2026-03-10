@@ -1,61 +1,27 @@
-import { Readable } from "node:stream";
-import { METADATA_KEYS, type ProviderInfo } from "@filoz/synapse-sdk";
-import { CarWriter } from "@ipld/car";
+import { METADATA_KEYS } from "@filoz/synapse-sdk";
 import { Injectable, Logger } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
-import { waitForIpniProviderResults } from "filecoin-pin/core/utils";
 import { CID } from "multiformats/cid";
-import * as raw from "multiformats/codecs/raw";
-import { sha256 } from "multiformats/hashes/sha2";
 import { StorageProvider } from "src/database/entities/storage-provider.entity.js";
 import type { Repository } from "typeorm";
-import { MAX_BLOCK_SIZE } from "../../common/constants.js";
+import { delay } from "../../common/abort-utils.js";
+import { buildUnixfsCar } from "../../common/car-utils.js";
+import { type DealLogContext, toStructuredError } from "../../common/logging.js";
+import type { IConfig } from "../../config/app.config.js";
 import { Deal } from "../../database/entities/deal.entity.js";
 import type { DealMetadata, IpniMetadata } from "../../database/types.js";
 import { IpniStatus, ServiceType } from "../../database/types.js";
 import { HttpClientService } from "../../http-client/http-client.service.js";
-import type { IDealAddon } from "../interfaces/deal-addon.interface.js";
-import type {
-  AddonExecutionContext,
-  CarDataFile,
-  DealConfiguration,
-  IpniPreprocessingResult,
-  SynapseConfig,
-} from "../types.js";
-import { AddonPriority } from "../types.js";
-import type {
-  IPNIVerificationResult,
-  MonitorAndVerifyResult,
-  PieceMonitoringResult,
-  PieceStatus,
-  PieceStatusResponse,
-} from "./ipni.types.js";
-import { validatePieceStatusResponse } from "./ipni.types.js";
+import { IpniVerificationService } from "../../ipni/ipni-verification.service.js";
+import { classifyFailureStatus } from "../../metrics/utils/check-metric-labels.js";
+import { DiscoverabilityCheckMetrics } from "../../metrics/utils/check-metrics.service.js";
 
-/**
- * Convert from a dealbot StorageProvider to a synapse-sdk ProviderInfo object
- */
-function buildExpectedProviderInfo(storageProvider: StorageProvider): ProviderInfo {
-  return {
-    id: storageProvider.providerId ?? (0 as number),
-    serviceProvider: storageProvider.address,
-    payee: storageProvider.payee,
-    name: storageProvider.name,
-    description: storageProvider.description,
-    active: storageProvider.isActive,
-    products: {
-      PDP: {
-        type: "PDP",
-        isActive: true,
-        capabilities: {},
-        data: {
-          serviceURL: storageProvider.serviceUrl,
-          // We don't need the other fields for IPNI verification.
-        } as any,
-      },
-    },
-  };
-}
+import type { IDealAddon } from "../interfaces/deal-addon.interface.js";
+import type { AddonExecutionContext, DealConfiguration, IpniPreprocessingResult, SynapseConfig } from "../types.js";
+import { AddonPriority } from "../types.js";
+import type { MonitorAndVerifyResult, PieceMonitoringResult, PieceStatus, PieceStatusResponse } from "./ipni.types.js";
+import { validatePieceStatusResponse } from "./ipni.types.js";
 
 /**
  * IPNI (InterPlanetary Network Indexer) add-on strategy
@@ -70,6 +36,9 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
     @InjectRepository(Deal)
     private readonly dealRepository: Repository<Deal>,
     private readonly httpClientService: HttpClientService,
+    private readonly discoverabilityMetrics: DiscoverabilityCheckMetrics,
+    private readonly ipniVerificationService: IpniVerificationService,
+    private readonly configService: ConfigService<IConfig, true>,
   ) {}
 
   readonly name = ServiceType.IPFS_PIN;
@@ -89,9 +58,10 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
    * Convert data to CAR format for IPNI indexing
    * This is the main preprocessing step that transforms the data
    */
-  async preprocessData(context: AddonExecutionContext): Promise<IpniPreprocessingResult> {
+  async preprocessData(context: AddonExecutionContext, signal?: AbortSignal): Promise<IpniPreprocessingResult> {
     try {
-      const carResult = await this.convertToCar(context.currentData);
+      signal?.throwIfAborted();
+      const carResult = await buildUnixfsCar(context.currentData, { signal });
 
       this.logger.log(`CAR conversion: ${carResult.blockCount} blocks, ${(carResult.carSize / 1024).toFixed(1)}KB`);
 
@@ -111,8 +81,13 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
         originalData: context.currentData.data,
       };
     } catch (error) {
-      this.logger.error(`CAR conversion failed: ${error.message}`);
-      throw new Error(`IPNI preprocessing failed: ${error.message}`);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.error({
+        event: "ipni_car_conversion_failed",
+        message: "CAR conversion failed",
+        error: toStructuredError(error),
+      });
+      throw new Error(`IPNI preprocessing failed: ${errorMessage}`);
     }
   }
 
@@ -141,24 +116,32 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
 
   /**
    * Handler triggered when upload is complete
-   * Starts IPNI tracking and monitoring in the background
+   * Runs IPNI tracking and verification before continuing
    */
-  async onUploadComplete(deal: Deal): Promise<void> {
+  async onUploadComplete(deal: Deal, signal?: AbortSignal, logContext?: Partial<DealLogContext>): Promise<void> {
     if (!deal.storageProvider) {
-      this.logger.warn(`No storage provider for deal ${deal.id}`);
+      this.logger.warn({
+        ...logContext,
+        event: "ipni_no_storage_provider",
+        message: `No storage provider for deal ${deal.id}`,
+      });
       return;
     }
 
     // Set initial IPNI status to pending
     deal.ipniStatus = IpniStatus.PENDING;
     await this.dealRepository.save(deal);
+    this.discoverabilityMetrics.recordStatus(this.discoverabilityMetrics.buildLabelsForDeal(deal), "pending");
 
-    this.logger.log(`IPNI tracking started: ${deal.pieceCid?.slice(0, 12)}...`);
+    signal?.throwIfAborted();
 
-    // Start monitoring asynchronously (don't await)
-    this.startIpniMonitoring(deal).catch((error) => {
-      this.logger.error(`IPNI monitoring failed: ${error.message}`);
+    this.logger.log({
+      ...logContext,
+      event: "ipni_tracking_started",
+      message: `IPNI tracking started: ${deal.pieceCid}`,
     });
+
+    await this.startIpniMonitoring(deal, signal, logContext);
   }
 
   /**
@@ -195,18 +178,41 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
   /**
    * Start IPNI monitoring and update deal entity with tracking metrics
    */
-  private async startIpniMonitoring(deal: Deal): Promise<void> {
+  private async startIpniMonitoring(
+    deal: Deal,
+    signal?: AbortSignal,
+    logContext?: Partial<DealLogContext>,
+  ): Promise<void> {
     if (!deal.storageProvider) {
       // this should never happen, we need to tighten up the types for successful deals.
-      this.logger.warn(`No storage provider for deal ${deal.id}`);
+      this.logger.warn({
+        ...logContext,
+        event: "ipni_no_storage_provider",
+        message: `No storage provider for deal ${deal.id}`,
+      });
       return;
     }
 
+    const dealLogContext: DealLogContext = {
+      ...logContext,
+      jobId: logContext?.jobId,
+      dealId: deal.id,
+      providerAddress: deal.spAddress,
+      providerId: deal.storageProvider?.providerId ?? logContext?.providerId,
+      pieceCid: deal.pieceCid,
+      ipfsRootCID: deal.metadata[this.name]?.rootCID,
+    };
+
+    let finalDiscoverabilityStatus: string | null = null;
     try {
+      signal?.throwIfAborted();
       const serviceUrl = deal.storageProvider.serviceUrl;
 
       const rootCID = deal.metadata[this.name]?.rootCID ?? "";
       const blockCIDs = deal.metadata[this.name]?.blockCIDs ?? [];
+      const timeouts = this.configService.get("timeouts");
+      const ipniTimeoutMs = timeouts?.ipniVerificationTimeoutMs ?? this.IPNI_LOOKUP_TIMEOUT_MS;
+      const ipniPollIntervalMs = timeouts?.ipniVerificationPollingMs ?? this.POLLING_INTERVAL_MS;
 
       const result = await this.monitorAndVerifyIPNI(
         serviceUrl,
@@ -215,21 +221,48 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
         rootCID,
         deal.storageProvider,
         this.POLLING_TIMEOUT_MS,
-        this.IPNI_LOOKUP_TIMEOUT_MS,
+        ipniTimeoutMs,
         this.POLLING_INTERVAL_MS,
+        ipniPollIntervalMs,
+        dealLogContext,
+        signal,
       );
 
+      signal?.throwIfAborted();
+
       // Update deal entity with tracking metrics
-      await this.updateDealWithIpniMetrics(deal, result);
+      finalDiscoverabilityStatus = await this.updateDealWithIpniMetrics(deal, result, dealLogContext);
+
+      signal?.throwIfAborted();
+
+      if (!result.ipniResult.rootCIDVerified) {
+        throw new Error(`IPNI verification failed for deal ${deal.id}: root CID not verified`);
+      }
     } catch (error) {
+      signal?.throwIfAborted();
       // Mark IPNI as failed and save to database
       deal.ipniStatus = IpniStatus.FAILED;
 
       try {
         await this.dealRepository.save(deal);
-        this.logger.warn(`IPNI failed: ${deal.pieceCid?.slice(0, 12)}... - ${error.message}`);
+        this.logger.warn({
+          ...dealLogContext,
+          event: "ipni_tracking_failed",
+          message: `IPNI failed for ${deal.pieceCid}`,
+          error: toStructuredError(error),
+        });
       } catch (saveError) {
-        this.logger.error(`Failed to save IPNI failure status: ${saveError.message}`);
+        this.logger.error({
+          ...dealLogContext,
+          event: "ipni_failure_status_save_failed",
+          message: "Failed to save IPNI failure status",
+          error: toStructuredError(saveError),
+        });
+      }
+
+      if (!finalDiscoverabilityStatus) {
+        const failureStatus = classifyFailureStatus(error);
+        this.discoverabilityMetrics.recordStatus(this.discoverabilityMetrics.buildLabelsForDeal(deal), failureStatus);
       }
 
       // Re-throw to be caught by onUploadComplete handler
@@ -246,15 +279,30 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
     statusTimeoutMs: number,
     ipniTimeoutMs: number,
     pollIntervalMs: number,
+    ipniPollIntervalMs: number,
+    dealLogContext: DealLogContext,
+    signal?: AbortSignal,
   ): Promise<MonitorAndVerifyResult> {
-    const startTime = deal.uploadEndTime.getTime();
     const pieceCid = deal.pieceCid;
     let monitoringResult: PieceMonitoringResult;
     try {
       // we monitor the piece status by calling the SP directly to get piece status. as soon as it's advertised, we can move on to verifying the IPNI advertisement.
-      monitoringResult = await this.monitorPieceStatus(serviceURL, pieceCid, statusTimeoutMs, pollIntervalMs);
+      monitoringResult = await this.monitorPieceStatus(
+        serviceURL,
+        pieceCid,
+        statusTimeoutMs,
+        pollIntervalMs,
+        dealLogContext,
+        signal,
+      );
     } catch (error) {
-      this.logger.warn(`Piece status monitoring incomplete: ${error.message}`);
+      signal?.throwIfAborted();
+      this.logger.warn({
+        ...dealLogContext,
+        event: "ipni_piece_status_monitoring_incomplete",
+        message: "Piece status monitoring incomplete",
+        error: toStructuredError(error),
+      });
       monitoringResult = {
         success: false,
         finalStatus: {
@@ -269,63 +317,98 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       };
     }
 
-    const rootCidObj = CID.parse(rootCID);
-
-    if (!rootCidObj || blockCIDs.length === 0) {
-      this.logger.warn(`No rootCID or blockCIDs for deal ${deal.id}`);
+    if (!rootCID || blockCIDs.length === 0) {
+      const totalCandidates = blockCIDs.length + (rootCID ? 1 : 0);
+      this.logger.warn({
+        ...dealLogContext,
+        event: "ipni_verification_input_missing",
+        message: `No rootCID or blockCIDs for deal ${deal.id}`,
+        hasRootCID: Boolean(rootCID),
+        blockCIDCount: blockCIDs.length,
+      });
       return {
         monitoringResult,
         ipniResult: {
           verified: 0,
-          unverified: 0,
-          total: blockCIDs.length + (rootCidObj ? 1 : 0),
+          unverified: totalCandidates,
+          total: totalCandidates,
           rootCIDVerified: false,
           durationMs: Infinity, // what is the right value here...
-          failedCIDs: [rootCidObj, ...blockCIDs].map((cid) => ({
-            cid: cid.toString(),
+          failedCIDs: [...(rootCID ? [rootCID] : []), ...blockCIDs.map((cid) => cid.toString())].map((cid) => ({
+            cid,
             reason: "No rootCID or blockCIDs for deal",
           })),
           verifiedAt: new Date().toISOString(),
         },
       };
     }
-    const ATTEMPT_INTERVAL_MS = 5000;
-    const ATTEMPT_MULTIPLIER = 2;
-    // Derive maxAttempts from total IPNI timeout, per-attempt interval and a multiplier.
-    const maxAttempts = Math.ceil(ipniTimeoutMs / ATTEMPT_INTERVAL_MS / ATTEMPT_MULTIPLIER);
 
-    this.logger.log(`Verifying rootCID in IPNI: ${rootCID.slice(0, 12)}...`);
+    let rootCidObj: CID;
+    try {
+      rootCidObj = CID.parse(rootCID);
+    } catch (error) {
+      this.logger.warn({
+        ...dealLogContext,
+        event: "ipni_verification_input_invalid",
+        message: `Invalid rootCID for deal ${deal.id}`,
+        rootCID,
+        error: toStructuredError(error),
+      });
+      return {
+        monitoringResult,
+        ipniResult: {
+          verified: 0,
+          unverified: blockCIDs.length + 1,
+          total: blockCIDs.length + 1,
+          rootCIDVerified: false,
+          durationMs: Infinity,
+          failedCIDs: [rootCID, ...blockCIDs.map((cid) => cid.toString())].map((cid) => ({
+            cid,
+            reason: "Invalid rootCID for deal",
+          })),
+          verifiedAt: new Date().toISOString(),
+        },
+      };
+    }
 
+    this.logger.log({
+      ...dealLogContext,
+      event: "ipni_root_cid_verification_started",
+      message: `Verifying rootCID in IPNI: ${rootCID}`,
+      rootCID,
+      blockCIDCount: blockCIDs.length,
+    });
     // NOTE: filecoin-pin does not currently validate that all blocks are advertised on IPNI.
-    const ipniValidated = await waitForIpniProviderResults(rootCidObj, {
-      childBlocks: blockCIDs,
-      maxAttempts,
-      delayMs: ATTEMPT_INTERVAL_MS,
-      expectedProviders: [buildExpectedProviderInfo(storageProvider)],
-    }).catch((error) => {
-      this.logger.warn(`IPNI verification failed: ${error.message}`);
-      return false;
+    const ipniResult = await this.ipniVerificationService.verify({
+      rootCid: rootCidObj,
+      blockCids: blockCIDs,
+      storageProvider,
+      timeoutMs: ipniTimeoutMs,
+      pollIntervalMs: ipniPollIntervalMs,
+      signal,
     });
 
-    const durationMs = Date.now() - startTime;
+    this.discoverabilityMetrics.observeIpniVerifyMs(
+      this.discoverabilityMetrics.buildLabelsForDeal(deal),
+      ipniResult.durationMs,
+    );
 
-    // We only verify rootCID (not individual block CIDs)
-    const ipniResult: IPNIVerificationResult = {
-      verified: ipniValidated ? 1 : 0,
-      unverified: ipniValidated ? 0 : 1,
-      total: 1,
-      rootCIDVerified: ipniValidated,
-      durationMs,
-      failedCIDs: ipniValidated
-        ? []
-        : [{ cid: rootCID, reason: "IPNI did not return expected provider results via filecoin-pin" }],
-      verifiedAt: new Date().toISOString(),
-    };
-
-    if (ipniValidated) {
-      this.logger.log(`IPNI verified: rootCID ${rootCID.slice(0, 12)}... (${(durationMs / 1000).toFixed(1)}s)`);
+    if (ipniResult.rootCIDVerified) {
+      this.logger.log({
+        ...dealLogContext,
+        event: "ipni_root_cid_verified",
+        message: `IPNI verified: rootCID ${rootCID} (${(ipniResult.durationMs / 1000).toFixed(1)}s)`,
+        rootCID,
+        verifyDurationMs: ipniResult.durationMs,
+      });
     } else {
-      this.logger.warn(`IPNI verification failed for rootCID: ${rootCID.slice(0, 12)}...`);
+      this.logger.warn({
+        ...dealLogContext,
+        event: "ipni_root_cid_verification_failed",
+        message: `IPNI verification failed for rootCID: ${rootCID}`,
+        rootCID,
+        verifyDurationMs: ipniResult.durationMs,
+      });
     }
 
     return {
@@ -339,6 +422,8 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
     pieceCid: string,
     maxDurationMs: number,
     pollIntervalMs: number,
+    dealLogContext?: DealLogContext,
+    signal?: AbortSignal,
   ): Promise<PieceMonitoringResult> {
     const startTime = Date.now();
     let lastStatus: PieceStatus = {
@@ -351,10 +436,12 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
     let checkCount = 0;
 
     while (Date.now() - startTime < maxDurationMs) {
+      signal?.throwIfAborted();
       checkCount++;
 
       try {
-        const sdkStatus = await this.getPieceStatus(serviceURL, pieceCid);
+        const sdkStatus = await this.getPieceStatus(serviceURL, pieceCid, signal);
+        signal?.throwIfAborted();
 
         const currentStatus: PieceStatus = {
           status: sdkStatus.status,
@@ -369,7 +456,11 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
         if (currentStatus.indexed && !currentStatus.indexedAt) {
           currentStatus.indexedAt = new Date().toISOString();
           if (!lastStatus.indexed) {
-            this.logger.log(`Piece indexed: ${pieceCid.slice(0, 12)}...`);
+            this.logger.log({
+              ...dealLogContext,
+              event: "piece_status_indexed",
+              message: `Piece indexed: ${pieceCid}`,
+            });
           }
         }
 
@@ -377,7 +468,11 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
         if (currentStatus.advertised && !currentStatus.advertisedAt) {
           currentStatus.advertisedAt = new Date().toISOString();
           if (!lastStatus.advertised) {
-            this.logger.log(`Piece advertised: ${pieceCid.slice(0, 12)}...`);
+            this.logger.log({
+              ...dealLogContext,
+              event: "piece_status_advertised",
+              message: `Piece advertised: ${pieceCid}`,
+            });
           }
           return {
             success: true,
@@ -389,24 +484,39 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
 
         lastStatus = currentStatus;
       } catch (error) {
+        signal?.throwIfAborted();
         if (checkCount % 20 === 0) {
-          this.logger.debug(`Status check error: ${error.message}`);
+          this.logger.debug({
+            event: "piece_status_check_error",
+            message: "Status check error",
+            pieceCid,
+            error: toStructuredError(error),
+          });
         }
       }
 
-      await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+      await delay(pollIntervalMs, signal);
     }
 
     // Timeout reached
     const durationSec = ((Date.now() - startTime) / 1000).toFixed(1);
-    this.logger.warn(`Piece retrieval timeout: ${pieceCid.slice(0, 12)}... (${durationSec}s)`);
+    this.logger.warn({
+      ...dealLogContext,
+      event: "piece_status_timeout",
+      message: `Piece retrieval timeout: ${pieceCid} (${durationSec}s)`,
+      durationSec: Number(durationSec),
+    });
     throw new Error(`Timeout waiting for piece retrieval after ${durationSec}s`);
   }
 
   /**
    * Get indexing and IPNI status for a piece from PDP server
    */
-  private async getPieceStatus(serviceURL: string, pieceCid: string): Promise<PieceStatusResponse> {
+  private async getPieceStatus(
+    serviceURL: string,
+    pieceCid: string,
+    signal?: AbortSignal,
+  ): Promise<PieceStatusResponse> {
     if (!pieceCid || typeof pieceCid !== "string") {
       throw new Error(`Invalid PieceCID: ${String(pieceCid)}`);
     }
@@ -415,11 +525,12 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
     this.logger.debug(`Getting piece status from ${url}`);
 
     try {
-      const { data } = await this.httpClientService.requestWithoutProxyAndMetrics<Buffer>(url, {
+      const { data } = await this.httpClientService.requestWithMetrics<Buffer>(url, {
         method: "GET",
         headers: {
           Accept: "application/json",
         },
+        signal,
       });
       const parsed = JSON.parse(data.toString());
       return validatePieceStatusResponse(parsed);
@@ -429,16 +540,33 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
         const errorText = this.formatHttpErrorData(errorResponse.data);
         if (errorResponse.status === 404) {
           const message = `Piece not found or does not belong to service: ${errorText}`;
-          this.logger.warn(`Failed to get piece status for ${pieceCid}: ${message}`);
+          this.logger.warn({
+            event: "piece_status_request_failed",
+            message: `Failed to get piece status for ${pieceCid}`,
+            pieceCid,
+            statusCode: errorResponse.status,
+            detail: message,
+          });
           throw new Error(message);
         }
         const statusText = errorResponse.statusText ?? "";
         const message = `Failed to get piece status: ${errorResponse.status} ${statusText} - ${errorText}`;
-        this.logger.warn(`Failed to get piece status for ${pieceCid}: ${message}`);
+        this.logger.warn({
+          event: "piece_status_request_failed",
+          message: `Failed to get piece status for ${pieceCid}`,
+          pieceCid,
+          statusCode: errorResponse.status,
+          detail: message,
+        });
         throw new Error(message);
       }
 
-      this.logger.warn(`Failed to get piece status for ${pieceCid}: ${error.message}`);
+      this.logger.warn({
+        event: "piece_status_request_failed",
+        message: `Failed to get piece status for ${pieceCid}`,
+        pieceCid,
+        error: toStructuredError(error),
+      });
       throw error;
     }
   }
@@ -483,11 +611,16 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
   /**
    * Update deal entity with IPNI tracking metrics
    */
-  private async updateDealWithIpniMetrics(deal: Deal, result: MonitorAndVerifyResult): Promise<void> {
+  private async updateDealWithIpniMetrics(
+    deal: Deal,
+    result: MonitorAndVerifyResult,
+    dealLogContext: DealLogContext,
+  ): Promise<string> {
     const { monitoringResult, ipniResult } = result;
     const { finalStatus } = monitoringResult;
     const now = new Date();
     const uploadEndTime = deal.uploadEndTime;
+    const labels = this.discoverabilityMetrics.buildLabelsForDeal(deal);
 
     // Determine IPNI status based on progression
     // Terminal state is VERIFIED when rootCID (minimum) is verified via filecoinpin.contact
@@ -524,6 +657,8 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       const indexedTimestamp = finalStatus.indexedAt ? new Date(finalStatus.indexedAt) : now;
       deal.ipniIndexedAt = indexedTimestamp;
 
+      this.discoverabilityMetrics.recordStatus(labels, "sp_indexed");
+
       const timeToIndexMs = calculateDuration(indexedTimestamp, "indexed");
       if (timeToIndexMs) {
         /**
@@ -531,12 +666,15 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
          * time = indexedAt - uploadEndTime
          */
         deal.ipniTimeToIndexMs = timeToIndexMs;
+        this.discoverabilityMetrics.observeSpIndexLocallyMs(labels, timeToIndexMs);
       }
     }
 
     if (finalStatus.advertised && !deal.ipniAdvertisedAt) {
       const advertisedTimestamp = finalStatus.advertisedAt ? new Date(finalStatus.advertisedAt) : now;
       deal.ipniAdvertisedAt = advertisedTimestamp;
+
+      this.discoverabilityMetrics.recordStatus(labels, "sp_announced_advertisement");
 
       const timeToAdvertiseMs = calculateDuration(advertisedTimestamp, "advertised");
       if (timeToAdvertiseMs) {
@@ -545,6 +683,7 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
          * time = advertisedAt - uploadEndTime
          */
         deal.ipniTimeToAdvertiseMs = timeToAdvertiseMs;
+        this.discoverabilityMetrics.observeSpAnnounceAdvertisementMs(labels, timeToAdvertiseMs);
       }
     }
 
@@ -565,88 +704,31 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
 
     const timeToVerifySec = deal.ipniTimeToVerifyMs ? (deal.ipniTimeToVerifyMs / 1000).toFixed(1) : "N/A";
     this.logger.log(
-      `IPNI ${deal.ipniStatus}: ${deal.pieceCid?.slice(0, 12)}... ` +
+      `IPNI ${deal.ipniStatus}: ${deal.pieceCid} ` +
         `(${timeToVerifySec}s, ${deal.ipniVerifiedCidsCount}/${ipniResult.total} CIDs verified, ${deal.ipniUnverifiedCidsCount} unverified)`,
     );
+
+    let finalDiscoverabilityStatus = "failure.other";
+    if (ipniResult.rootCIDVerified) {
+      finalDiscoverabilityStatus = "success";
+    } else if (!monitoringResult.success && finalStatus.status === "timeout") {
+      finalDiscoverabilityStatus = "failure.timedout";
+    }
+    this.discoverabilityMetrics.recordStatus(labels, finalDiscoverabilityStatus);
 
     // Save the updated deal entity
     try {
       await this.dealRepository.save(deal);
     } catch (error) {
-      this.logger.error(`Failed to save IPNI metrics: ${error.message}`);
+      this.logger.error({
+        ...dealLogContext,
+        event: "save_ipni_metrics_failed",
+        message: "Failed to save IPNI metrics",
+        error: toStructuredError(error),
+      });
       throw error;
     }
-  }
 
-  /**
-   * Convert data file to CAR format
-   * Splits data into blocks and creates a CAR archive
-   *
-   * @param dataFile - Original data file to convert
-   * @returns CAR file data with CIDs and metadata
-   * @private
-   */
-  private async convertToCar(dataFile: { data: Buffer; size: number; name: string }): Promise<CarDataFile> {
-    const numBlocks = Math.ceil(dataFile.size / MAX_BLOCK_SIZE);
-    const blocks: { cid: CID; bytes: Uint8Array }[] = [];
-
-    // Create blocks from data
-    for (let i = 0; i < numBlocks; i++) {
-      const blockData = dataFile.data.slice(i * MAX_BLOCK_SIZE, (i + 1) * MAX_BLOCK_SIZE);
-      const hash = await sha256.digest(blockData);
-      const cid = CID.create(1, raw.code, hash);
-
-      blocks.push({ cid, bytes: blockData });
-    }
-
-    // Use first block as root CID
-    const rootCID = blocks[0].cid;
-
-    // Create CAR file with first block as root
-    const { writer, out } = CarWriter.create([rootCID]);
-
-    // Collect CAR output into a Uint8Array
-    const chunks: Buffer[] = [];
-    const carStream = Readable.from(out);
-
-    carStream.on("data", (chunk: Buffer) => {
-      chunks.push(chunk);
-    });
-
-    // Write all blocks to CAR
-    const writePromise = (async () => {
-      for (const block of blocks) {
-        await writer.put(block);
-      }
-      await writer.close();
-    })();
-
-    // Wait for both writing and collecting to complete
-    await writePromise;
-    await new Promise<void>((resolve, reject) => {
-      carStream.on("end", resolve);
-      carStream.on("error", reject);
-    });
-
-    // Combine chunks into single Uint8Array
-    const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
-    const carData = new Uint8Array(totalLength);
-    let offset = 0;
-    for (const chunk of chunks) {
-      carData.set(chunk, offset);
-      offset += chunk.length;
-    }
-
-    const totalBlockSize = blocks.reduce((sum, b) => sum + b.bytes.length, 0);
-    const blockCIDs = blocks.map((b) => b.cid);
-
-    return {
-      carData,
-      rootCID,
-      blockCIDs,
-      blockCount: blocks.length,
-      totalBlockSize,
-      carSize: carData.length,
-    };
+    return finalDiscoverabilityStatus;
   }
 }

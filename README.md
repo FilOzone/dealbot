@@ -7,7 +7,7 @@
 [![NestJS](https://img.shields.io/badge/nestjs-11.x-red.svg)](https://nestjs.com)
 [![React](https://img.shields.io/badge/react-19.x-blue.svg)](https://react.dev)
 
-An intelligent automation system for creating and monitoring PDP deals on the Filecoin network. Features automated deal creation, CDN performance testing, comprehensive metrics tracking, and a modern web dashboard.
+An intelligent automation system for creating and monitoring PDP deals on the Filecoin network. Features automated deal creation, retrieval performance testing, comprehensive metrics tracking, and a modern web dashboard.
 
 ## Features
 
@@ -16,24 +16,33 @@ An intelligent automation system for creating and monitoring PDP deals on the Fi
 - **Add-ons Testing** - FWSS add-ons testing and comparison with provider performance
 - **Analytics Dashboard** - Modern React UI with charts and statistics
 
+## What does dealbot do and what does it check?
+
+See [docs/checks/README.md](docs/checks/README.md) for more details.
+
 ## Project Structure
 
 This is a monorepo containing two separate applications:
 
 ```
 dealbot/
-├── backend/          # NestJS API server (Port 8080)
-│   ├── src/
-│   │   ├── deal/            # Deal creation and management
-│   │   ├── retrieval/       # Storage retrieval testing
-│   │   ├── metrics/         # Performance metrics and analytics
-│   │   ├── scheduler/       # Automated task scheduling
-│   │   └── wallet-sdk/      # Wallet and contract operations
-│   └── README.md     # Backend-specific documentation
-└── web/              # React + Vite dashboard (Port 5173)
-    ├── src/
-    └── README.md     # Frontend-specific documentation
+├── apps/
+│   ├── backend/      # NestJS API server (Port 8080)
+│   │   ├── src/
+│   │   │   ├── deal/            # Deal creation and management
+│   │   │   ├── retrieval/       # Storage retrieval testing
+│   │   │   ├── metrics/         # Performance metrics and analytics
+│   │   │   ├── jobs/            # pg-boss scheduling + workers
+│   │   │   ├── scheduler/       # Automated task scheduling
+│   │   │   └── wallet-sdk/      # Wallet and contract operations
+│   │   └── README.md     # Backend-specific documentation
+│   └── web/          # React + Vite dashboard (Port 5173)
+│       ├── src/
+│       └── README.md     # Frontend-specific documentation
 ```
+
+Backend docs: [apps/backend/README.md](apps/backend/README.md)  
+Frontend docs: [apps/web/README.md](apps/web/README.md)
 
 ## Developer Docs
 

@@ -142,7 +142,7 @@ export class DailyMetricsController {
 
   /**
    * Get service type comparison metrics
-   * Breaks down retrieval metrics by service type (CDN, DIRECT_SP, IPFS_PIN) for comparison
+   * Breaks down retrieval metrics by service type (DIRECT_SP, IPFS_PIN) for comparison
    *
    * @route GET /api/v1/metrics/daily/service-comparison
    */
@@ -150,7 +150,7 @@ export class DailyMetricsController {
   @ApiOperation({
     summary: "Get service type comparison metrics",
     description:
-      "Returns daily retrieval metrics broken down by service type (CDN, DIRECT_SP, IPFS_PIN) for comparison and visualization. Useful for comparing performance across different retrieval methods.",
+      "Returns daily retrieval metrics broken down by service type (DIRECT_SP, IPFS_PIN) for comparison and visualization. Useful for comparing performance across different retrieval methods.",
   })
   @ApiQuery({
     name: "startDate",

@@ -50,3 +50,4 @@ curl "http://localhost:3000/api/dev/retrieval?spAddress=0x1234..." | jq
 
 - The local overlay sets long intervals (2+ hours) so scheduled deals/retrievals do not interfere with manual testing.
 - If a request fails, check backend logs for details.
+- Worker-only metrics (if enabled) are exposed at `http://localhost:9090/metrics`.

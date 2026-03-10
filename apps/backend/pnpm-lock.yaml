@@ -56,9 +56,6 @@ importers:
       helmet:
         specifier: ^8.1.0
         version: 8.1.0
-      https-proxy-agent:
-        specifier: ^7.0.6
-        version: 7.0.6
       joi:
         specifier: ^17.13.3
         version: 17.13.3
@@ -74,9 +71,6 @@ importers:
       rxjs:
         specifier: ^7.8.1
         version: 7.8.2
-      socks-proxy-agent:
-        specifier: ^8.0.5
-        version: 8.0.5
       typeorm:
         specifier: ^0.3.25
         version: 0.3.25(ioredis@5.7.0)(pg@8.16.3)(reflect-metadata@0.2.2)(ts-node@10.9.2(@types/node@22.17.1)(typescript@5.9.2))

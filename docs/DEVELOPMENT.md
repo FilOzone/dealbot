@@ -14,7 +14,7 @@ cp .env.example .env
 # Edit .env to add your WALLET_PRIVATE_KEY and WALLET_ADDRESS
 ```
 This creates the Kind cluster (`dealbot-local`).
-Local ports (via [kind-config.yaml](../kind-config.yaml) extraPortMappings): web UI at http://localhost:3000, backend API at http://localhost:8080.
+Local ports (via [kind-config.yaml](../kind-config.yaml) extraPortMappings): web UI at http://localhost:3000, backend API at http://localhost:8080, worker metrics at http://localhost:9090/metrics.
 If you see `Unexpected token '<'` in the browser console, the frontend is hitting the web server instead of the API; either rely on the web container's `/api*` reverse proxy, or set `VITE_API_BASE_URL=http://localhost:8080` for the web deployment.
 
 ## Secrets
@@ -135,6 +135,10 @@ make render
 # or
 kubectl kustomize kustomize/overlays/local
 ```
+
+## Local monitoring
+`make up` does not install local Prometheus + Grafana by default. To install, run `MONITORING=1 make up`.
+See [docs/local-monitoring.md](local-monitoring.md) for details and dashboard import.
 
 ## SOPS/External Secrets parity
 If you want to reuse SOPS-managed secrets from the infra repo:

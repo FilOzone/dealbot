@@ -6,7 +6,38 @@ import {
   makeHistogramProvider,
   PrometheusModule,
 } from "@willsoto/nestjs-prometheus";
+import {
+  DataSetCreationCheckMetrics,
+  DataStorageCheckMetrics,
+  DiscoverabilityCheckMetrics,
+  RetrievalCheckMetrics,
+} from "../metrics/utils/check-metrics.service.js";
 import { MetricsPrometheusInterceptor } from "./metrics-prometheus.interceptor.js";
+
+const KiB = 1 << 10;
+const MiB = 1 << 20;
+const GiB = 1 << 30;
+const throughputBuckets = [
+  10 * KiB,
+  50 * KiB,
+  100 * KiB,
+  500 * KiB,
+  1 * MiB,
+  5 * MiB,
+  10 * MiB,
+  50 * MiB,
+  100 * MiB,
+  250 * MiB,
+  500 * MiB,
+  750 * MiB,
+  1 * GiB,
+  1.25 * GiB,
+  1.5 * GiB,
+  1.75 * GiB,
+  2 * GiB,
+  2.5 * GiB,
+  3 * GiB,
+];
 
 const metricProviders = [
   // HTTP metrics: API request volume and latency by method/path/status.
@@ -22,35 +53,152 @@ const metricProviders = [
     buckets: [0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1, 2, 5],
   }),
   // Business metrics: system-state signals to be aggregated in PromQL.
-  // Deal metrics
+  makeHistogramProvider({
+    // docs/checks/events-and-metrics.md#ingestMs
+    name: "ingestMs",
+    help: "Time to upload a piece to a storage provider (ms)",
+    labelNames: ["checkType", "providerId", "providerStatus"] as const,
+    buckets: [10, 50, 100, 500, 1000, 2000, 5000, 10000, 30000, 60000, 120000, 300000],
+  }),
+  makeHistogramProvider({
+    // docs/checks/events-and-metrics.md#ingestThroughputBps
+    name: "ingestThroughputBps",
+    help: "Ingest throughput in bytes per second",
+    labelNames: ["checkType", "providerId", "providerStatus"] as const,
+    buckets: throughputBuckets,
+  }),
+  makeHistogramProvider({
+    // docs/checks/events-and-metrics.md#pieceAddedOnChainMs
+    name: "pieceAddedOnChainMs",
+    help: "Time from upload end to piece added on-chain (ms)",
+    labelNames: ["checkType", "providerId", "providerStatus"] as const,
+    buckets: [10, 50, 100, 500, 1000, 2000, 5000, 10000, 30000, 60000, 120000, 300000],
+  }),
+  makeHistogramProvider({
+    // docs/checks/events-and-metrics.md#pieceConfirmedOnChainMs
+    name: "pieceConfirmedOnChainMs",
+    help: "Time from piece added to piece confirmed on-chain (ms)",
+    labelNames: ["checkType", "providerId", "providerStatus"] as const,
+    buckets: [10, 50, 100, 500, 1000, 2000, 5000, 10000, 30000, 60000, 120000, 300000],
+  }),
+  makeHistogramProvider({
+    // docs/checks/events-and-metrics.md#spIndexLocallyMs
+    name: "spIndexLocallyMs",
+    help: "Time from upload end to SP indexing locally (ms)",
+    labelNames: ["checkType", "providerId", "providerStatus"] as const,
+    buckets: [10, 50, 100, 500, 1000, 2000, 5000, 10000, 30000, 60000, 120000, 300000],
+  }),
+  makeHistogramProvider({
+    // docs/checks/events-and-metrics.md#spAnnounceAdvertisementMs
+    name: "spAnnounceAdvertisementMs",
+    help: "Time from upload end to SP advertisement to IPNI (ms)",
+    labelNames: ["checkType", "providerId", "providerStatus"] as const,
+    buckets: [10, 50, 100, 500, 1000, 2000, 5000, 10000, 30000, 60000, 120000, 300000],
+  }),
+  makeHistogramProvider({
+    // docs/checks/events-and-metrics.md#ipniVerifyMs
+    name: "ipniVerifyMs",
+    help: "IPNI verification duration (ms)",
+    labelNames: ["checkType", "providerId", "providerStatus"] as const,
+    buckets: [10, 50, 100, 500, 1000, 2000, 5000, 10000, 30000, 60000, 120000, 300000],
+  }),
+  makeHistogramProvider({
+    // docs/checks/events-and-metrics.md#ipfsRetrievalFirstByteMs
+    name: "ipfsRetrievalFirstByteMs",
+    help: "Time to first byte for IPFS retrievals (ms)",
+    labelNames: ["checkType", "providerId", "providerStatus"] as const,
+    buckets: [1, 5, 10, 50, 100, 250, 500, 1000, 2000, 5000, 10000, 30000],
+  }),
+  makeHistogramProvider({
+    // docs/checks/events-and-metrics.md#ipfsRetrievalBlockFirstByteMs
+    name: "ipfsRetrievalBlockFirstByteMs",
+    help: "Time to first byte for individual IPFS block fetches (ms)",
+    labelNames: ["checkType", "providerId", "providerStatus"] as const,
+    buckets: [1, 5, 10, 50, 100, 250, 500, 1000, 2000, 5000, 10000, 30000],
+  }),
+  makeHistogramProvider({
+    // docs/checks/events-and-metrics.md#ipfsRetrievalLastByteMs
+    name: "ipfsRetrievalLastByteMs",
+    help: "Time to last byte for IPFS retrievals (ms)",
+    labelNames: ["checkType", "providerId", "providerStatus"] as const,
+    buckets: [1, 5, 10, 50, 100, 250, 500, 1000, 2000, 5000, 10000, 30000],
+  }),
+  makeHistogramProvider({
+    // docs/checks/events-and-metrics.md#ipfsRetrievalThroughputBps
+    name: "ipfsRetrievalThroughputBps",
+    help: "IPFS retrieval throughput in bytes per second",
+    labelNames: ["checkType", "providerId", "providerStatus"] as const,
+    buckets: throughputBuckets,
+  }),
+  makeHistogramProvider({
+    // docs/checks/events-and-metrics.md#dataStorageCheckMs
+    name: "dataStorageCheckMs",
+    help: "End-to-end data storage check duration (ms)",
+    labelNames: ["checkType", "providerId", "providerStatus"] as const,
+    buckets: [100, 500, 1000, 2000, 5000, 10000, 30000, 60000, 120000, 300000, 600000],
+  }),
+  makeHistogramProvider({
+    // docs/checks/events-and-metrics.md#retrievalCheckMs
+    name: "retrievalCheckMs",
+    help: "End-to-end retrieval check duration (ms)",
+    labelNames: ["checkType", "providerId", "providerStatus"] as const,
+    buckets: [100, 500, 1000, 2000, 5000, 10000, 30000, 60000, 120000, 300000, 600000],
+  }),
+  makeHistogramProvider({
+    // docs/checks/events-and-metrics.md#dataSetCreationMs
+    name: "dataSetCreationMs",
+    help: "End-to-end data-set creation upload duration (ms)",
+    labelNames: ["checkType", "providerId", "providerStatus"] as const,
+    buckets: [100, 500, 1000, 2000, 5000, 10000, 30000, 60000, 120000, 300000, 600000],
+  }),
+  // Sub-status metrics (docs/checks/data-storage.md)
   makeCounterProvider({
-    name: "deals_created_total",
-    help: "Total number of deals created",
-    labelNames: ["status", "provider"] as const,
+    // docs/checks/data-storage.md#sub-status-meanings (Upload Status)
+    name: "dataStorageUploadStatus",
+    help: "Data storage upload sub-status counts",
+    labelNames: ["checkType", "providerId", "providerStatus", "value"] as const,
   }),
-  makeHistogramProvider({
-    name: "deal_creation_duration_seconds",
-    help: "Duration of deal creation in seconds",
-    labelNames: ["provider"] as const,
-    buckets: [0.1, 0.5, 1, 2, 5, 10, 30, 60, 120],
-  }),
-  // Retrieval metrics
   makeCounterProvider({
-    name: "retrievals_tested_total",
-    help: "Total number of retrieval tests performed",
-    labelNames: ["status", "method", "provider"] as const,
+    // docs/checks/data-storage.md#sub-status-meanings (Onchain Status)
+    name: "dataStorageOnchainStatus",
+    help: "Data storage onchain sub-status counts",
+    labelNames: ["checkType", "providerId", "providerStatus", "value"] as const,
   }),
-  makeHistogramProvider({
-    name: "retrieval_latency_seconds",
-    help: "Retrieval latency in seconds",
-    labelNames: ["method", "provider"] as const,
-    buckets: [0.1, 0.5, 1, 2, 5, 10, 30, 60],
+  makeCounterProvider({
+    // docs/checks/data-storage.md#deal-status-progression (Overall Status)
+    name: "dataStorageStatus",
+    help: "Data storage check overall status counts (success when all sub-statuses succeed, failure.timedout/failure.other otherwise)",
+    labelNames: ["checkType", "providerId", "providerStatus", "value"] as const,
   }),
-  makeHistogramProvider({
-    name: "retrieval_ttfb_seconds",
-    help: "Time to first byte for retrievals in seconds",
-    labelNames: ["method", "provider"] as const,
-    buckets: [0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10],
+  makeCounterProvider({
+    // docs/checks/data-storage.md#sub-status-meanings (Discoverability Status)
+    name: "discoverabilityStatus",
+    help: "Discoverability sub-status counts",
+    labelNames: ["checkType", "providerId", "providerStatus", "value"] as const,
+  }),
+  makeCounterProvider({
+    // docs/checks/data-storage.md#sub-status-meanings (Retrieval Status)
+    name: "retrievalStatus",
+    help: "Retrieval sub-status counts",
+    labelNames: ["checkType", "providerId", "providerStatus", "value"] as const,
+  }),
+  makeCounterProvider({
+    // docs/checks/events-and-metrics.md#ipfsRetrievalHttpResponseCode
+    name: "ipfsRetrievalHttpResponseCode",
+    help: "HTTP response codes for IPFS retrievals",
+    labelNames: ["checkType", "providerId", "providerStatus", "value"] as const,
+  }),
+  makeCounterProvider({
+    // docs/checks/events-and-metrics.md#dataSetCreationStatus
+    name: "dataSetCreationStatus",
+    help: "Data-set creation status counts",
+    labelNames: ["checkType", "providerId", "providerStatus", "value"] as const,
+  }),
+  // Data Retention Metrics
+  makeCounterProvider({
+    name: "dataSetChallengeStatus",
+    help: "Provider dataset challenge status",
+    labelNames: ["checkType", "providerId", "providerStatus", "value"] as const,
   }),
   // Storage provider metrics: absolute counts, independent of query filters.
   makeGaugeProvider({
@@ -68,19 +216,92 @@ const metricProviders = [
     help: "Wallet balance in base units (per currency)",
     labelNames: ["currency", "wallet"] as const,
   }),
-  // Upload metrics
-  makeHistogramProvider({
-    name: "deal_upload_duration_seconds",
-    help: "Duration of file upload in seconds",
-    labelNames: ["provider"] as const,
-    buckets: [0.5, 1, 2, 5, 10, 30, 60, 120, 300],
+  // Job scheduler metrics (pg-boss)
+  /**
+   * Current queued jobs per type (pg-boss state: created).
+   */
+  makeGaugeProvider({
+    name: "jobs_queued",
+    help: "Number of queued jobs (pg-boss state: created)",
+    labelNames: ["job_type"] as const,
   }),
-  // Chain metrics
+  /**
+   * Jobs scheduled for retry per type (pg-boss state: retry).
+   */
+  makeGaugeProvider({
+    name: "jobs_retry_scheduled",
+    help: "Number of jobs in retry state (pg-boss state: retry)",
+    labelNames: ["job_type"] as const,
+  }),
+  /**
+   * Oldest queued job age per type (seconds).
+   */
+  makeGaugeProvider({
+    name: "oldest_queued_age_seconds",
+    help: "Age in seconds of the oldest queued job (pg-boss state: created)",
+    labelNames: ["job_type"] as const,
+  }),
+  /**
+   * Oldest in-flight job age per type (seconds).
+   */
+  makeGaugeProvider({
+    name: "oldest_in_flight_age_seconds",
+    help: "Age in seconds of the oldest active job (pg-boss state: active)",
+    labelNames: ["job_type"] as const,
+  }),
+  /**
+   * Currently executing jobs per type (pg-boss state: active).
+   */
+  makeGaugeProvider({
+    name: "jobs_in_flight",
+    help: "Number of active jobs currently executing",
+    labelNames: ["job_type"] as const,
+  }),
+  /**
+   * Manually paused jobs per type (paused = true in job_schedule_state).
+   */
+  makeGaugeProvider({
+    name: "jobs_paused",
+    help: "Number of manually paused jobs in job_schedule_state",
+    labelNames: ["job_type"] as const,
+  }),
+  /**
+   * Enqueue attempts per type (success/error).
+   */
+  makeCounterProvider({
+    name: "jobs_enqueue_attempts_total",
+    help: "Total number of enqueue attempts",
+    labelNames: ["job_type", "outcome"] as const,
+  }),
+  /**
+   * Jobs started by handlers per type.
+   */
+  makeCounterProvider({
+    name: "jobs_started_total",
+    help: "Total number of jobs started",
+    labelNames: ["job_type"] as const,
+  }),
+  /**
+   * Handler completion results per type.
+   *
+   * handler_result values:
+   *   "success" — job ran and the check completed (regardless of business outcome)
+   *   "aborted" — job ran but was terminated by the timeout abort signal
+   *   "error"   — job infrastructure failure (uncaught exception in recordJobExecution)
+   */
+  makeCounterProvider({
+    name: "jobs_completed_total",
+    help: "Total number of jobs completed",
+    labelNames: ["job_type", "handler_result"] as const,
+  }),
+  /**
+   * Handler execution duration per type (seconds).
+   */
   makeHistogramProvider({
-    name: "deal_chain_latency_seconds",
-    help: "Time from upload complete to piece added on chain in seconds",
-    labelNames: ["provider"] as const,
-    buckets: [1, 5, 10, 30, 60, 120, 300, 600],
+    name: "job_duration_seconds",
+    help: "Job execution duration in seconds",
+    labelNames: ["job_type"] as const,
+    buckets: [0.1, 0.5, 1, 2, 3, 4, 5, 10, 15, 20, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330, 360, 420, 600],
   }),
 ];
 
@@ -94,17 +315,29 @@ const metricProviders = [
       path: "/metrics",
       defaultLabels: {
         app: "dealbot",
+        network: process.env.NETWORK || "calibration",
       },
     }),
   ],
   providers: [
     ...metricProviders,
+    DataStorageCheckMetrics,
+    RetrievalCheckMetrics,
+    DiscoverabilityCheckMetrics,
+    DataSetCreationCheckMetrics,
     // HTTP metrics interceptor
     {
       provide: APP_INTERCEPTOR,
       useClass: MetricsPrometheusInterceptor,
     },
   ],
-  exports: [PrometheusModule, ...metricProviders],
+  exports: [
+    PrometheusModule,
+    ...metricProviders,
+    DataStorageCheckMetrics,
+    RetrievalCheckMetrics,
+    DiscoverabilityCheckMetrics,
+    DataSetCreationCheckMetrics,
+  ],
 })
 export class MetricsPrometheusModule {}

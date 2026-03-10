@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, Logger } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import type { Repository } from "typeorm";
+import { toStructuredError } from "../../common/logging.js";
 import { Retrieval } from "../../database/entities/retrieval.entity.js";
 import { RetrievalStatus, type ServiceType } from "../../database/types.js";
 import type {
@@ -124,7 +125,11 @@ export class FailedRetrievalsService {
         summary,
       };
     } catch (error) {
-      this.logger.error(`Failed to fetch failed retrievals: ${error.message}`, error.stack);
+      this.logger.error({
+        event: "fetch_failed_retrievals_failed",
+        message: "Failed to fetch failed retrievals",
+        error: toStructuredError(error),
+      });
       throw error;
     }
   }
@@ -142,7 +147,11 @@ export class FailedRetrievalsService {
 
       return await this.calculateSummary(startDate, endDate);
     } catch (error) {
-      this.logger.error(`Failed to fetch error summary: ${error.message}`, error.stack);
+      this.logger.error({
+        event: "fetch_failed_retrievals_summary_failed",
+        message: "Failed to fetch failed retrievals error summary",
+        error: toStructuredError(error),
+      });
       throw error;
     }
   }

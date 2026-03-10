@@ -22,7 +22,6 @@ interface UseServiceComparisonReturn {
  * Custom hook to fetch service type comparison metrics
  *
  * Compares retrieval performance across different service types:
- * - CDN (Content Delivery Network)
  * - DIRECT_SP (Direct Storage Provider)
  * - IPFS_PIN (IPFS Pinning Service)
  *

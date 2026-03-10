@@ -72,7 +72,6 @@ export const CHART_COLORS = {
   WARNING: "hsl(38, 92%, 50%)",
   ERROR: "hsl(0, 84%, 60%)",
   INFO: "hsl(199, 89%, 48%)",
-  CDN: "hsl(217, 91%, 60%)",
   DIRECT_SP: "hsl(142, 76%, 36%)",
   IPFS_PIN: "hsl(38, 92%, 50%)",
 } as const;

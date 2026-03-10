@@ -5,7 +5,7 @@ import { Deal } from "../database/entities/deal.entity.js";
 import { Retrieval } from "../database/entities/retrieval.entity.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
 import { HttpClientModule } from "../http-client/http-client.module.js";
-import { MetricsModule } from "../metrics/metrics.module.js";
+import { IpniModule } from "../ipni/ipni.module.js";
 import { RetrievalAddonsModule } from "../retrieval-addons/retrieval-addons.module.js";
 import { WalletSdkModule } from "../wallet-sdk/wallet-sdk.module.js";
 import { RetrievalService } from "./retrieval.service.js";
@@ -15,8 +15,8 @@ import { RetrievalService } from "./retrieval.service.js";
     DatabaseModule,
     TypeOrmModule.forFeature([Deal, Retrieval, StorageProvider]),
     HttpClientModule,
-    MetricsModule,
     WalletSdkModule,
+    IpniModule,
     RetrievalAddonsModule,
   ],
   providers: [RetrievalService],

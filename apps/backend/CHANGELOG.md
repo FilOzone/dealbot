@@ -1,5 +1,90 @@
 # Changelog
 
+## [1.0.0](https://github.com/FilOzone/dealbot/compare/backend-v0.4.0...backend-v1.0.0) (2026-03-03)
+
+
+### ⚠ BREAKING CHANGES
+
+* remove proxy support ([#283](https://github.com/FilOzone/dealbot/issues/283))
+
+### Features
+
+* add metrics for data-storage-check ([#287](https://github.com/FilOzone/dealbot/issues/287)) ([34659ae](https://github.com/FilOzone/dealbot/commit/34659ae129d0cfb877f19d9f9dcb408f26214b1e))
+* **backend:** add data retention polling with pdp subgraph integration ([#286](https://github.com/FilOzone/dealbot/issues/286)) ([be3c940](https://github.com/FilOzone/dealbot/commit/be3c940b9053a63856aefd0a5f690a42913831bc))
+* cap deal/retrievals with abort signals ([#263](https://github.com/FilOzone/dealbot/issues/263)) ([0623bcf](https://github.com/FilOzone/dealbot/commit/0623bcfc19286ed4429296dd6b9c819116eb6c74))
+* ensure SPs have MIN_NUM_DATASETS_FOR_CHECKS datasets ([#307](https://github.com/FilOzone/dealbot/issues/307)) ([576c03f](https://github.com/FilOzone/dealbot/commit/576c03f936c9421807ed975d21b472f68f574b10))
+
+
+### Bug Fixes
+
+* add explicit text type to job_schedule_state columns ([#316](https://github.com/FilOzone/dealbot/issues/316)) ([393de08](https://github.com/FilOzone/dealbot/commit/393de083e4ae88960777863cded359d946ce73f4))
+* add fake timers to data_set_creation tests ([#324](https://github.com/FilOzone/dealbot/issues/324)) ([88eec3b](https://github.com/FilOzone/dealbot/commit/88eec3bc8f4e8fa56598846267feb44091c74879))
+* align retrieval checks with docs ([#299](https://github.com/FilOzone/dealbot/issues/299)) ([27f9219](https://github.com/FilOzone/dealbot/commit/27f9219eb504dd5bc5716b80e675b528f83cef18))
+* always disable CDN testing ([#264](https://github.com/FilOzone/dealbot/issues/264)) ([66d66df](https://github.com/FilOzone/dealbot/commit/66d66df5a2b3b0b4203b3a1338167c8bceedb9a8))
+* dont let nest quit silently ([#317](https://github.com/FilOzone/dealbot/issues/317)) ([e7e42d9](https://github.com/FilOzone/dealbot/commit/e7e42d95c346e70337fdb8e7b42484fde911feb8))
+* emit overall data-storage check status ([#296](https://github.com/FilOzone/dealbot/issues/296)) ([690b656](https://github.com/FilOzone/dealbot/commit/690b656ca7eaea5850f39b2f54adbd5f358e4f5a))
+* emit per-block TTFB for ipfs block fetch ([#298](https://github.com/FilOzone/dealbot/issues/298)) ([6e4332f](https://github.com/FilOzone/dealbot/commit/6e4332ff1ef3f255d7fe21a33834df0bef4df9d3))
+* enable typeorm logging for database queries ([#318](https://github.com/FilOzone/dealbot/issues/318)) ([61d8819](https://github.com/FilOzone/dealbot/commit/61d88199dad4f89538a378fa8fdd04ac84b54ca1))
+* ipfs data is validated ([#249](https://github.com/FilOzone/dealbot/issues/249)) ([aa6ddd2](https://github.com/FilOzone/dealbot/commit/aa6ddd21749d70c247d89aba46ff32590269153c))
+* log datasource startup errors ([#315](https://github.com/FilOzone/dealbot/issues/315)) ([19a7d70](https://github.com/FilOzone/dealbot/commit/19a7d709ee7e1b3e3a23a238e012081198cf6e91))
+* log full pieceCid, CID, and providerAddresses ([#244](https://github.com/FilOzone/dealbot/issues/244)) ([bc9c0a2](https://github.com/FilOzone/dealbot/commit/bc9c0a2fedb3d32a77d929b60f343458d68a9fce))
+* more granular job duration buckets ([#291](https://github.com/FilOzone/dealbot/issues/291)) ([36fbf28](https://github.com/FilOzone/dealbot/commit/36fbf28de424b3de5d50fe3f4e19003095653540))
+* more granular throughput buckets ([#308](https://github.com/FilOzone/dealbot/issues/308)) ([24135d3](https://github.com/FilOzone/dealbot/commit/24135d320e31ee1c875b2fd65e38bc61f185a87e))
+* optimize sp-performance-query.helper.ts ([#320](https://github.com/FilOzone/dealbot/issues/320)) ([45d05d4](https://github.com/FilOzone/dealbot/commit/45d05d4a07b6a8b17b1bd099d9eaf0ab284bb661))
+* pgboss upgrade db migrations ([#269](https://github.com/FilOzone/dealbot/issues/269)) ([a26b14a](https://github.com/FilOzone/dealbot/commit/a26b14ad8cd9f60e5c305bc4b6ac163de04f8e6c))
+* providers table is updated every 4 hours ([#268](https://github.com/FilOzone/dealbot/issues/268)) ([e5debd9](https://github.com/FilOzone/dealbot/commit/e5debd9bb27609fd20648efbd4cc786dd00d8aa4))
+* providers.refresh queue is created on scheduler startup ([#302](https://github.com/FilOzone/dealbot/issues/302)) ([29b7a69](https://github.com/FilOzone/dealbot/commit/29b7a69ebfaa28902c4919b949f94fa5e1a2bb80))
+* remove RETRIEVAL_TIMEOUT_BUFFER_MS ([#266](https://github.com/FilOzone/dealbot/issues/266)) ([4f650a8](https://github.com/FilOzone/dealbot/commit/4f650a809e9ab571985c718a4be7308c70a31f46))
+* startup error logging ([#314](https://github.com/FilOzone/dealbot/issues/314)) ([2024276](https://github.com/FilOzone/dealbot/commit/2024276cb353520b6e6e87f24c1d55831d4ff2d8))
+* use single pgboss queue to enforce per SP lock ([#247](https://github.com/FilOzone/dealbot/issues/247)) ([6fe757a](https://github.com/FilOzone/dealbot/commit/6fe757acf881405dfa6a87de0f4830a406f95154))
+* use structured logging ([#312](https://github.com/FilOzone/dealbot/issues/312)) ([8dd77d8](https://github.com/FilOzone/dealbot/commit/8dd77d890e5ddeca025280976b50428c70fc2b75))
+
+
+### Code Refactoring
+
+* remove proxy support ([#283](https://github.com/FilOzone/dealbot/issues/283)) ([bb68729](https://github.com/FilOzone/dealbot/commit/bb68729d0840e3d4bb6e599264e106a773ebefac))
+
+## [0.4.0](https://github.com/FilOzone/dealbot/compare/backend-v0.3.0...backend-v0.4.0) (2026-02-09)
+
+
+### Features
+
+* **backend:** add daily maintenance windows ([#225](https://github.com/FilOzone/dealbot/issues/225)) ([5a0e481](https://github.com/FilOzone/dealbot/commit/5a0e4815405d38159c23e1fbdbf5dc78d0bcda0d))
+* **metrics:** add minimal pg-boss job health metrics ([#223](https://github.com/FilOzone/dealbot/issues/223)) ([31e2db6](https://github.com/FilOzone/dealbot/commit/31e2db6b1a4ff220648e7dc2ba8bf510b7da34bd))
+* split worker and api ([#240](https://github.com/FilOzone/dealbot/issues/240)) ([bbaf671](https://github.com/FilOzone/dealbot/commit/bbaf6712bfd5df7eebcbedbb8d55e991797f08e0))
+
+
+### Bug Fixes
+
+* add local grafana and prom services ([#242](https://github.com/FilOzone/dealbot/issues/242)) ([8757943](https://github.com/FilOzone/dealbot/commit/875794385aecbdfe63f53668ff323a9c9346a419))
+* delete inactive provider schedules ([#230](https://github.com/FilOzone/dealbot/issues/230)) ([74096ef](https://github.com/FilOzone/dealbot/commit/74096ef62654c10217e511aec192146d7a43ccab))
+* increase concurrency for deals & retrievals ([#236](https://github.com/FilOzone/dealbot/issues/236)) ([c7d177b](https://github.com/FilOzone/dealbot/commit/c7d177bb8999b2506dfade5f434628b33acfc6f4))
+* increase deal/retrieval job concurrency ([#232](https://github.com/FilOzone/dealbot/issues/232)) ([1b36f16](https://github.com/FilOzone/dealbot/commit/1b36f162e64356b25f450c3f32e50d0bd7c39164))
+* limit db connections ([#243](https://github.com/FilOzone/dealbot/issues/243)) ([90d1616](https://github.com/FilOzone/dealbot/commit/90d1616fc327da57d651bdee3de2b96352dc0aa8))
+* normalize job state metrics ([#234](https://github.com/FilOzone/dealbot/issues/234)) ([c04feb6](https://github.com/FilOzone/dealbot/commit/c04feb65e242fbbcf9b54924adc85749270c5255))
+* web dockerFile builds ([#235](https://github.com/FilOzone/dealbot/issues/235)) ([df0fec9](https://github.com/FilOzone/dealbot/commit/df0fec9df97231dea2ab53af638cd28dbdeae914))
+
+## [0.3.0](https://github.com/FilOzone/dealbot/compare/backend-v0.2.0...backend-v0.3.0) (2026-02-04)
+
+
+### Features
+
+* add pg-boss scheduling with per‑SP rate control and durable queues ([#181](https://github.com/FilOzone/dealbot/issues/181)) ([e781e76](https://github.com/FilOzone/dealbot/commit/e781e76094aa5fe296949ec16beba21b573e451e))
+* add prometheus metrics ([#147](https://github.com/FilOzone/dealbot/issues/147)) ([6392272](https://github.com/FilOzone/dealbot/commit/6392272e8e38970495e4f55a372c6ee17faf6d17))
+* deal overhaul ([#175](https://github.com/FilOzone/dealbot/issues/175)) ([40f9801](https://github.com/FilOzone/dealbot/commit/40f98012bba5909a88c657ca543c1f82f6514207))
+
+
+### Bug Fixes
+
+* allow always enabling IPNI testing ([#157](https://github.com/FilOzone/dealbot/issues/157)) ([0e5f10f](https://github.com/FilOzone/dealbot/commit/0e5f10f1376ac23277a9b3266b9bd1ddb81a97f4))
+* dev-tool for testing deals+retrievals on-demand ([#167](https://github.com/FilOzone/dealbot/issues/167)) ([768263e](https://github.com/FilOzone/dealbot/commit/768263e33c3be530d38c199750bc10c32e9e45b6))
+* do not wait so long for piece and ipni status ([#182](https://github.com/FilOzone/dealbot/issues/182)) ([bf16a19](https://github.com/FilOzone/dealbot/commit/bf16a1963d80087941e72f6b97a865719181bf24))
+* ensure synapse-sdk errors are caught ([#179](https://github.com/FilOzone/dealbot/issues/179)) ([ad5aa55](https://github.com/FilOzone/dealbot/commit/ad5aa55655de2db88e4ffc585d7c24876854c6bd))
+* import getPieceStatus logic ([#166](https://github.com/FilOzone/dealbot/issues/166)) ([8e5695b](https://github.com/FilOzone/dealbot/commit/8e5695b1fc49921537808baf9b5f5afcfd8d0d9c))
+* **metrics:** export prometheus providers and proxy /metrics ([#161](https://github.com/FilOzone/dealbot/issues/161)) ([33612e4](https://github.com/FilOzone/dealbot/commit/33612e495da63fe0d3b75bc0b1f3ad2643027a95)), closes [#147](https://github.com/FilOzone/dealbot/issues/147)
+* prevent upsert DB failure on duplicate SPs ([#156](https://github.com/FilOzone/dealbot/issues/156)) ([d49d614](https://github.com/FilOzone/dealbot/commit/d49d614d4b9ccf08a69bbfd58e33b870380e7fe6))
+* remove kaggle/local dataset handling ([#183](https://github.com/FilOzone/dealbot/issues/183)) ([53032e1](https://github.com/FilOzone/dealbot/commit/53032e15f996bce1e94759c26f5c816597adec05))
+
 ## [0.2.0](https://github.com/FilOzone/dealbot/compare/backend-v0.1.2...backend-v0.2.0) (2026-01-23)
 
 

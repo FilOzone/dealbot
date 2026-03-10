@@ -4,12 +4,12 @@ import type { ExpectedMetrics, RetrievalConfiguration, RetrievalUrlResult, Valid
 /**
  * Interface for retrieval add-on strategies
  * Each add-on implements this interface to provide specific retrieval methods
- * (CDN, IPNI, Direct, etc.)
+ * (IPNI, Direct, etc.)
  */
 export interface IRetrievalAddon {
   /**
    * Unique identifier for the retrieval method
-   * @example 'cdn', 'ipni', 'direct'
+   * @example 'ipfs_pin', 'direct_sp'
    */
   readonly name: ServiceType;
 
@@ -49,6 +49,16 @@ export interface IRetrievalAddon {
   validateData?(retrievedData: Buffer, config: RetrievalConfiguration): Promise<ValidationResult>;
 
   /**
+   * Optional: Validate by fetching each expected block from the SP (e.g. GET /ipfs/<cid> with Accept: application/vnd.ipld.raw).
+   * Used when the strategy does not use a single CAR stream.
+   *
+   * @param config - Retrieval configuration (must include expected CIDs in metadata)
+   * @param signal - Optional abort signal
+   * @returns Validation result
+   */
+  validateByBlockFetch?(config: RetrievalConfiguration, signal?: AbortSignal): Promise<ValidationResult>;
+
+  /**
    * Optional: Get expected performance metrics for this retrieval method
    * Useful for monitoring and alerting on performance degradation
    *
@@ -67,7 +77,7 @@ export interface IRetrievalAddon {
 
   /**
    * Optional: Get retry configuration for this retrieval method
-   * Useful for strategies that need multiple attempts (e.g., CDN cache warming)
+   * Useful for strategies that need multiple attempts (e.g., cache warming)
    *
    * @returns Retry configuration with attempt count and delay
    */
