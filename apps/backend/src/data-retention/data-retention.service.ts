@@ -303,7 +303,7 @@ export class DataRetentionService {
 
     const providerLabels = buildCheckMetricLabels({
       checkType: "dataRetention",
-      providerId: providerInfo.id,
+      providerId: Number(providerInfo.id),
       providerIsApproved: providerInfo.isApproved,
     });
 

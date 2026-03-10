@@ -1,12 +1,12 @@
 import {
-  CONTRACT_ADDRESSES,
-  type PaymentsService,
-  type ProviderInfo,
-  RPC_URLS,
+  mainnet,
+  calibration,
   Synapse,
   TIME_CONSTANTS,
-  WarmStorageService,
 } from "@filoz/synapse-sdk";
+import type { PaymentsService } from "@filoz/synapse-sdk/payments";
+import type { ProviderInfo } from "@filoz/synapse-sdk/sp-registry";
+import { WarmStorageService } from "@filoz/synapse-sdk/warm-storage";
 import { SPRegistryService } from "@filoz/synapse-sdk/sp-registry";
 import { Injectable, Logger, type OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
@@ -27,6 +27,7 @@ import type {
   WalletStatusLog,
 } from "./wallet-sdk.types.js";
 import { privateKeyToAccount } from "viem/accounts";
+import type { Client } from "viem";
 
 @Injectable()
 export class WalletSdkService implements OnModuleInit {
@@ -40,6 +41,7 @@ export class WalletSdkService implements OnModuleInit {
   private approvedProviderAddresses: Set<string> = new Set();
   private providersLoadPromise: Promise<boolean> | null = null;
   private providersLoadedOnce = false;
+  private synapseClient: Client | null = null;
 
   constructor(
     private readonly configService: ConfigService<IConfig, true>,
@@ -64,19 +66,19 @@ export class WalletSdkService implements OnModuleInit {
    * Initialize wallet services with provider and signer
    */
   private async initializeServices(): Promise<void> {
-    const warmStorageAddress = this.getFWSSAddress();
+    const account = privateKeyToAccount(this.blockchainConfig.walletPrivateKey)
     const synapse = await Synapse.create({
-      account: privateKeyToAccount(this.blockchainConfig.walletPrivateKey),
-      rpcURL: RPC_URLS[this.blockchainConfig.network].http,
-      warmStorageAddress,
+      account,
+      chain: this.blockchainConfig.network === 'mainnet' ? mainnet : calibration,
     });
 
-    this.rpcProvider = new JsonRpcProvider(RPC_URLS[this.blockchainConfig.network].http);
-    this.warmStorageService = await WarmStorageService.create(this.rpcProvider, warmStorageAddress);
-    this.spRegistry = new SPRegistryService(
-      this.rpcProvider,
-      this.warmStorageService.getServiceProviderRegistryAddress(),
-    );
+    this.warmStorageService = await WarmStorageService.create({
+      account,
+    })
+    // this.rpcProvider, warmStorageAddress);
+    this.spRegistry = new SPRegistryService({
+      client: synapse.client
+    });
     this.paymentsService = synapse.payments;
     this.synapseClient = synapse.client;
   }
