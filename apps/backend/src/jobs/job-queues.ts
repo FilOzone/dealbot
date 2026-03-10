@@ -5,4 +5,3 @@ export const LEGACY_DEAL_QUEUE = "deal.run";
 export const LEGACY_RETRIEVAL_QUEUE = "retrieval.run";
 export const DATA_RETENTION_POLL_QUEUE = "data.retention.poll";
 export const PROVIDERS_REFRESH_QUEUE = "providers.refresh";
-export const PIECE_CLEANUP_QUEUE = "piece.cleanup";
