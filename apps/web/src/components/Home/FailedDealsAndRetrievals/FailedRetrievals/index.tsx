@@ -16,7 +16,7 @@ interface FailedRetrievalsProps {
   onServiceTypeFilterChange: (value: ServiceType | "all") => void;
   onPageChange: (page: number) => void;
   onLimitChange: (limit: number) => void;
-  providers: Array<{ address: string; name?: string; providerId?: number }>;
+  providers: Array<{ address: string; name?: string; providerId?: number | null }>;
 }
 
 export function FailedRetrievals({
