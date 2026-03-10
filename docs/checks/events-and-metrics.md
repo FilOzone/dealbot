@@ -60,6 +60,7 @@ sequenceDiagram
 * Many of the metrics below are derived from the [events above](#event-list).
 * They are exported via Prometheus.
 * All Prometheus/OpenTelemetry metrics have label/attributes for:
+   - `network=calibration|mainnet`
    - `checkType=dataStorage|retrieval|dataRetention|dataSetCreation` — attribute metrics to a particular check/job
    - `providerId` — attribute metrics to a particular SP
    - `providerStatus=approved|unapproved` — attribute metrics to only approved SPs for example
