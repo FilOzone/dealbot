@@ -182,7 +182,7 @@ do_backup() {
         log_success "Roles dumped successfully"
 
         log "Step 2/4: Dumping database schema..."
-        if ! supabase db dump --db-url "$DB_URL" -f schema.sql --schema "$SCHEMA" --schema-only; then
+        if ! supabase db dump --db-url "$DB_URL" -f schema.sql --schema "$SCHEMA"; then
             log_error "Failed to dump schema"
             exit 1
         fi
@@ -260,7 +260,6 @@ do_restore() {
     log "=========================================="
     log "Restoring Backup"
     log "Source: $backup_dir"
-    log "Target: <database URL redacted>"
     log "=========================================="
 
     # Run restore sequence in a subshell to prevent directory pollution
