@@ -22,6 +22,7 @@ log_warning() { printf "${YELLOW}[%s] ⚠${NC} %s\n" "$(date -u +"%Y-%m-%d %H:%M
 
 # Usage information
 usage() {
+    local exit_code=${1:-0}
     cat << EOF
 Supabase Backup and Restore Script v${VERSION}
 
@@ -44,7 +45,7 @@ ENVIRONMENT VARIABLES:
     SUPABASE_DB_URL            Database connection URL (use this instead of --db-url)
 
 EOF
-    exit 0
+    exit "$exit_code"
 }
 
 # Parse command line arguments
@@ -102,11 +103,11 @@ parse_args() {
                 fi
                 ;;
             -h|--help)
-                usage
+                usage 0
                 ;;
             *)
                 log_error "Unknown option: $1"
-                usage
+                usage 1
                 ;;
         esac
     done
@@ -114,7 +115,7 @@ parse_args() {
     # Validate action
     if [[ "$ACTION" != "backup" && "$ACTION" != "restore" && "$ACTION" != "test" ]]; then
         log_error "Invalid action: $ACTION"
-        usage
+        usage 1
     fi
 
     if [[ -z "$DB_URL" ]]; then
@@ -181,7 +182,7 @@ do_backup() {
         log_success "Roles dumped successfully"
 
         log "Step 2/4: Dumping database schema..."
-        if ! supabase db dump --db-url "$DB_URL" -f schema.sql --schema "$SCHEMA"; then
+        if ! supabase db dump --db-url "$DB_URL" -f schema.sql --schema "$SCHEMA" --schema-only; then
             log_error "Failed to dump schema"
             exit 1
         fi
@@ -259,7 +260,7 @@ do_restore() {
     log "=========================================="
     log "Restoring Backup"
     log "Source: $backup_dir"
-    log "Target: ${target_url%%@*}@***"  # Hide password in logs
+    log "Target: <database URL redacted>"
     log "=========================================="
 
     # Run restore sequence in a subshell to prevent directory pollution

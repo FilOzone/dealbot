@@ -38,7 +38,7 @@ export SUPABASE_DB_URL="postgresql://postgres.[PROJECT-REF]:[PASSWORD]@aws-0-[RE
 ./scripts/supabase-backup-restore.sh test --db-url "$SUPABASE_DB_URL"
 
 # Show help
-./scripts/supabase-backup-restore.sh --help
+./scripts/supabase-backup-restore.sh backup --help
 ```
 
 Backup directory contains: `roles.sql`, `schema.sql`, `data.sql`, `metadata.json`
