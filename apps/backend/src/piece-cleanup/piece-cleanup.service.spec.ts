@@ -1,3 +1,4 @@
+import type { StorageContext } from "@filoz/synapse-sdk";
 import { ConfigService } from "@nestjs/config";
 import { Test, TestingModule } from "@nestjs/testing";
 import { getRepositoryToken } from "@nestjs/typeorm";
@@ -16,7 +17,13 @@ vi.mock("@filoz/synapse-sdk", async (importOriginal) => {
       calibration: { http: "http://localhost:1234" },
     },
     Synapse: {
-      create: vi.fn(),
+      create: vi.fn().mockResolvedValue({
+        storage: {
+          createContext: vi.fn().mockResolvedValue({
+            deletePiece: vi.fn(),
+          } as unknown as StorageContext),
+        },
+      }),
     },
   };
 });
