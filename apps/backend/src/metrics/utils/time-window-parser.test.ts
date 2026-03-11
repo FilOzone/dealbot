@@ -130,6 +130,12 @@ describe("TimeWindowParser", () => {
       expect(window.endDate.getTime() - window.startDate.getTime()).toBe(24 * HOUR_MS);
     });
 
+    it("should remain duration-stable across DST spring-forward boundaries", () => {
+      const dstReferenceDate = new Date("2024-03-11T00:30:00-07:00");
+      const window = calculateTimeWindow("24h", dstReferenceDate);
+      expect(window.endDate.getTime() - window.startDate.getTime()).toBe(24 * HOUR_MS);
+    });
+
     it("should handle 'all' preset", () => {
       const window = calculateTimeWindow("all", referenceDate);
       expect(window.endDate).toEqual(referenceDate);
