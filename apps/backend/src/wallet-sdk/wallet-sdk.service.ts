@@ -122,7 +122,7 @@ export class WalletSdkService implements OnModuleInit {
 
       const activeProviders = await this.spRegistry.getAllActiveProviders();
       const activeProviderIds = new Set(activeProviders.map((info) => Number(info.id)));
-      const allProviderIds = Array.from({ length: totalProviders }, (_, i) => i + 1);
+      const allProviderIds = Array.from({ length: Number(totalProviders) }, (_, i) => i + 1);
       const inactiveProviderIds = allProviderIds.filter((id) => !activeProviderIds.has(id));
 
       const providerInfos: ProviderInfo[] = [...activeProviders];
@@ -299,11 +299,11 @@ export class WalletSdkService implements OnModuleInit {
 
     const [accountInfo, storageCheck, serviceApprovals] = await Promise.all([
       this.paymentsService.accountInfo(),
-      this.warmStorageService.checkAllowanceForStorage(
-        STORAGE_SIZE_GB * 1024 * 1024 * 1024,
-        true,
-        this.paymentsService,
-      ),
+      this.warmStorageService.checkAllowanceForStorage({
+        sizeInBytes: STORAGE_SIZE_GB * 1024 * 1024 * 1024,
+        withCDN: true,
+        address: this.paymentsService,
+      }),
       this.paymentsService.serviceApproval(this.getFWSSAddress()),
     ]);
 
