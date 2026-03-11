@@ -241,6 +241,7 @@ export class PieceCleanupService implements OnModuleInit, OnModuleDestroy {
       .where("deal.sp_address = :spAddress", { spAddress })
       .andWhere("deal.status = :status", { status: DealStatus.DEAL_CREATED })
       .andWhere("deal.piece_id IS NOT NULL")
+      .andWhere("deal.data_set_id IS NOT NULL")
       .andWhere("deal.cleaned_up = :cleanedUp", { cleanedUp: false })
       .getRawOne<{ totalBytes: string }>();
 
@@ -268,8 +269,8 @@ export class PieceCleanupService implements OnModuleInit, OnModuleDestroy {
    * Delete a single piece via Synapse SDK and mark the deal as cleaned up.
    */
   async deletePiece(deal: Deal, signal?: AbortSignal, existingStorage?: StorageContext): Promise<void> {
-    if (deal.pieceId == null || deal.dataSetId == null) {
-      throw new Error(`Deal ${deal.id} is missing pieceId or dataSetId`);
+    if (deal.pieceId == null) {
+      throw new Error(`Deal ${deal.id} is missing pieceId`);
     }
 
     signal?.throwIfAborted();
