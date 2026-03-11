@@ -63,7 +63,6 @@ export interface TransactionLog {
 }
 
 export interface ServiceApprovalLog {
-  serviceAddress: string;
   rateAllowance: string;
   lockupAllowance: string;
   durationMonths: number;

@@ -26,6 +26,7 @@ import type {
   WalletServices,
   WalletStatusLog,
 } from "./wallet-sdk.types.js";
+import { waitForTransactionReceipt } from "viem/actions";
 import { privateKeyToAccount } from "viem/accounts";
 import type { Client } from "viem";
 
@@ -121,8 +122,8 @@ export class WalletSdkService implements OnModuleInit {
       const totalProviders = await this.spRegistry.getProviderCount();
 
       const activeProviders = await this.spRegistry.getAllActiveProviders();
-      const activeProviderIds = new Set(activeProviders.map((info) => Number(info.id)));
-      const allProviderIds = Array.from({ length: Number(totalProviders) }, (_, i) => i + 1);
+      const activeProviderIds = new Set(activeProviders.map((info) => info.id));
+      const allProviderIds = Array.from({ length: Number(totalProviders) }, (_, i) => BigInt(i + 1));
       const inactiveProviderIds = allProviderIds.filter((id) => !activeProviderIds.has(id));
 
       const providerInfos: ProviderInfo[] = [...activeProviders];
@@ -134,11 +135,15 @@ export class WalletSdkService implements OnModuleInit {
           for (let i = 0; i < batches; i++) {
             const start = i * batchSize;
             const batch = inactiveProviderIds.slice(start, start + batchSize);
-            const providerBatch = await this.spRegistry.getProviders(batch);
+            const providerBatch = await this.spRegistry.getProviders({
+              providerIds: batch,
+            });
             providerInfos.push(...providerBatch);
           }
         } else {
-          providerInfos.push(...(await this.spRegistry.getProviders(inactiveProviderIds)));
+          providerInfos.push(...(await this.spRegistry.getProviders({
+            providerIds: inactiveProviderIds,
+          })));
         }
       }
 
@@ -291,7 +296,7 @@ export class WalletSdkService implements OnModuleInit {
   async calculateStorageRequirements(): Promise<StorageRequirements> {
     const providerCount = this.getTestingProvidersCount();
 
-    const STORAGE_SIZE_GB = 100;
+    const STORAGE_SIZE_GB = 100n;
     const APPROVAL_DURATION_MONTHS = 6n;
     const datasetCreationFees = this.blockchainConfig.checkDatasetCreationFees
       ? this.calculateDatasetCreationFees(providerCount)
@@ -300,11 +305,10 @@ export class WalletSdkService implements OnModuleInit {
     const [accountInfo, storageCheck, serviceApprovals] = await Promise.all([
       this.paymentsService.accountInfo(),
       this.warmStorageService.checkAllowanceForStorage({
-        sizeInBytes: STORAGE_SIZE_GB * 1024 * 1024 * 1024,
+        sizeInBytes: STORAGE_SIZE_GB * 1024n * 1024n * 1024n,
         withCDN: true,
-        address: this.paymentsService,
       }),
-      this.paymentsService.serviceApproval(this.getFWSSAddress()),
+      this.paymentsService.serviceApproval(),
     ]);
 
     return {
@@ -380,8 +384,10 @@ export class WalletSdkService implements OnModuleInit {
       ...depositLog,
     });
 
-    const hash = await this.paymentsService.deposit(depositAmount);
-    await this.synapseClient.waitForTransactionReceipt({ hash });
+    const hash = await this.paymentsService.deposit({
+      amount: depositAmount,
+    });
+    await waitForTransactionReceipt(this.synapseClient!, { hash })
 
     const successLog: TransactionLog = {
       transactionHash: hash,
@@ -398,10 +404,7 @@ export class WalletSdkService implements OnModuleInit {
    * Approve storage service with required allowances
    */
   async approveStorageService(requirements: StorageRequirements): Promise<void> {
-    const contractAddress = this.getFWSSAddress();
-
     const approvalLog: ServiceApprovalLog = {
-      serviceAddress: contractAddress,
       rateAllowance: "Maximum of uint256",
       lockupAllowance: "Maximum of uint256",
       durationMonths: Number(requirements.approvalDuration / TIME_CONSTANTS.EPOCHS_PER_MONTH),
@@ -412,22 +415,19 @@ export class WalletSdkService implements OnModuleInit {
       ...approvalLog,
     });
 
-    const hash = await this.paymentsService.approveService(contractAddress, null, null, requirements.approvalDuration);
-    await this.synapseClient.waitForTransactionReceipt({ hash });
+    const hash = await this.paymentsService.approveService({
+      maxLockupPeriod: requirements.approvalDuration,
+    })
+    await waitForTransactionReceipt(this.synapseClient!, { hash })
 
     const successLog: TransactionLog = {
       transactionHash: hash,
-      serviceAddress: contractAddress,
     };
 
     this.logger.log({
       event: "storage_service_approval_succeeded",
       ...successLog,
     });
-  }
-
-  getFWSSAddress(): string {
-    return CONTRACT_ADDRESSES.WARM_STORAGE[this.blockchainConfig.network];
   }
 
   /**
