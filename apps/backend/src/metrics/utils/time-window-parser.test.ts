@@ -91,12 +91,14 @@ describe("TimeWindowParser", () => {
   });
 
   describe("calculateTimeWindow", () => {
-    const referenceDate = new Date("2024-11-02T12:00:00");
+    const HOUR_MS = 60 * 60 * 1000;
+    const referenceDate = new Date("2024-11-02T12:00:00Z");
 
     it("should calculate time window for hours", () => {
       const window = calculateTimeWindow("1h", referenceDate);
       expect(window.endDate).toEqual(referenceDate);
-      expect(window.startDate).toEqual(new Date("2024-11-02T11:00:00"));
+      expect(window.startDate.getTime()).toBe(referenceDate.getTime() - HOUR_MS);
+      expect(window.endDate.getTime() - window.startDate.getTime()).toBe(1 * HOUR_MS);
       expect(window.days).toBe(0);
       expect(window.preset).toBe("1h");
       expect(window.isAllTime).toBe(false);
@@ -105,7 +107,8 @@ describe("TimeWindowParser", () => {
     it("should calculate time window for days", () => {
       const window = calculateTimeWindow("7d", referenceDate);
       expect(window.endDate).toEqual(referenceDate);
-      expect(window.startDate).toEqual(new Date("2024-10-26T12:00:00"));
+      expect(window.startDate.getTime()).toBe(referenceDate.getTime() - 7 * 24 * HOUR_MS);
+      expect(window.endDate.getTime() - window.startDate.getTime()).toBe(7 * 24 * HOUR_MS);
       expect(window.days).toBe(7);
       expect(window.preset).toBe("7d");
       expect(window.isAllTime).toBe(false);
@@ -114,10 +117,17 @@ describe("TimeWindowParser", () => {
     it("should calculate time window for fractional days", () => {
       const window = calculateTimeWindow("2.5d", referenceDate);
       expect(window.endDate).toEqual(referenceDate);
-      expect(window.startDate).toEqual(new Date("2024-10-31T00:00:00"));
+      expect(window.startDate.getTime()).toBe(referenceDate.getTime() - 2.5 * 24 * HOUR_MS);
+      expect(window.endDate.getTime() - window.startDate.getTime()).toBe(2.5 * 24 * HOUR_MS);
       expect(window.days).toBe(2.5);
       expect(window.preset).toBe("2.5d");
       expect(window.isAllTime).toBe(false);
+    });
+
+    it("should remain duration-stable across DST fallback boundaries", () => {
+      const dstReferenceDate = new Date("2024-11-04T00:30:00-08:00");
+      const window = calculateTimeWindow("24h", dstReferenceDate);
+      expect(window.endDate.getTime() - window.startDate.getTime()).toBe(24 * HOUR_MS);
     });
 
     it("should handle 'all' preset", () => {

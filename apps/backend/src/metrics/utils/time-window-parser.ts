@@ -110,9 +110,8 @@ export function calculateTimeWindow(preset: string, referenceDate: Date = new Da
   // Parse duration
   const duration = parseDuration(preset);
 
-  // Calculate start date by subtracting hours
-  const startDate = new Date(referenceDate);
-  startDate.setHours(startDate.getHours() - duration.hours);
+  // Calculate start date using epoch milliseconds for timezone/DST-stable duration windows
+  const startDate = new Date(referenceDate.getTime() - duration.hours * 60 * 60 * 1000);
 
   // Calculate days (for display purposes)
   const days = Math.round((duration.hours / 24) * 10) / 10; // Round to 1 decimal
