@@ -167,7 +167,8 @@ describe("JobsService schedule rows", () => {
         overrides.metricsSchedulerService ?? ({} as JobsServiceDeps[5]),
         overrides.walletSdkService ?? ({} as JobsServiceDeps[6]),
         overrides.dataRetentionService ?? (dataRetentionServiceMock as unknown as JobsServiceDeps[7]),
-        overrides.pieceCleanupService ?? ({} as JobsServiceDeps[8]),
+        overrides.pieceCleanupService ??
+          ({ isProviderOverQuota: vi.fn().mockResolvedValue(false) } as unknown as JobsServiceDeps[8]),
         overrides.jobsQueuedGauge ?? metricsMocks.jobsQueuedGauge,
         overrides.jobsRetryScheduledGauge ?? metricsMocks.jobsRetryScheduledGauge,
         overrides.oldestQueuedAgeGauge ?? metricsMocks.oldestQueuedAgeGauge,
