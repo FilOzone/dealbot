@@ -349,13 +349,7 @@ describe("PieceCleanupService", () => {
     it("throws when deal is missing pieceId", async () => {
       const deal = makeDeal({ pieceId: undefined });
 
-      await expect(service.deletePiece(deal)).rejects.toThrow("missing pieceId or dataSetId");
-    });
-
-    it("throws when deal is missing dataSetId", async () => {
-      const deal = makeDeal({ dataSetId: undefined });
-
-      await expect(service.deletePiece(deal)).rejects.toThrow("missing pieceId or dataSetId");
+      await expect(service.deletePiece(deal)).rejects.toThrow("missing pieceId");
     });
 
     it("calls Synapse SDK to delete piece and marks deal as cleaned up", async () => {
