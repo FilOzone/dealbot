@@ -275,12 +275,12 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       signal?.throwIfAborted();
 
       const storage = await synapse.storage.createContext({
-        providerAddress,
+        providerId: typeof dealLogContext.providerId === 'number' ? BigInt(dealLogContext.providerId) : undefined,
         metadata: dataSetMetadata,
       });
       signal?.throwIfAborted();
 
-      deal.dataSetId = storage.dataSetId;
+      deal.dataSetId = storage.dataSetId ? Number(storage.dataSetId) : undefined;
       deal.uploadStartTime = new Date();
       let onUploadCompleteAddonsPromise: Promise<boolean> | null = null;
       let uploadCompleteError: Error | undefined;
@@ -518,9 +518,13 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
   ): Promise<boolean> {
     signal?.throwIfAborted();
     const synapse = this.sharedSynapse ?? (await this.createSynapseInstance());
+    const providerInfo = this.walletSdkService.getProviderInfo(providerAddress);
+    if (!providerInfo) {
+      throw new Error(`Provider ${providerAddress} not found in registry`);
+    }
     const context = await awaitWithAbort(
       synapse.storage.createContext({
-        providerAddress,
+        providerId: providerInfo.id,
         metadata,
       }),
       signal,
@@ -586,7 +590,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
 
       const storage = await awaitWithAbort(
         synapse.storage.createContext({
-          providerAddress,
+          providerId: providerInfo.id,
           metadata,
         }),
         signal,
