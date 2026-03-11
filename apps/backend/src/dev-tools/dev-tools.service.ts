@@ -102,7 +102,7 @@ export class DevToolsService {
 
     const dealLogContext: DealLogContext = {
       dealId,
-      providerId: Number(providerInfo.id),
+      providerId: providerInfo.id,
       providerAddress: spAddress,
     };
 
@@ -149,7 +149,7 @@ export class DevToolsService {
         logContext: {
           jobId: "dev_tools_manual_deal",
           providerAddress: providerInfo.serviceProvider,
-          providerId: Number(providerInfo.id),
+          providerId: providerInfo.id,
         },
       });
 

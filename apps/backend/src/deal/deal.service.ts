@@ -246,7 +246,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       ...logContext,
       dealId: existingDealId ?? deal.id,
       providerAddress,
-      providerId: providerInfo.id ? Number(providerInfo.id) : logContext?.providerId,
+      providerId: providerInfo.id ?? logContext?.providerId,
       ipfsRootCID: uploadPayload.rootCid.toString(),
     };
 
@@ -255,7 +255,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       deal.storageProvider = await this.storageProviderRepository.findOne({
         where: { address: deal.spAddress },
       });
-      dealLogContext.providerId = deal.storageProvider?.providerId ?? dealLogContext.providerId;
+      dealLogContext.providerId = typeof deal.storageProvider?.providerId === 'number' ? BigInt(deal.storageProvider?.providerId) : dealLogContext.providerId;
       providerLabels = buildCheckMetricLabels({
         checkType,
         providerId: deal.storageProvider?.providerId,
