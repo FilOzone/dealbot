@@ -94,6 +94,7 @@ export function parseDuration(preset: string): ParsedDuration {
  * @returns TimeWindow object with start/end dates
  */
 export function calculateTimeWindow(preset: string, referenceDate: Date = new Date()): TimeWindow {
+  const HOUR_IN_MS = 60 * 60 * 1000;
   const normalized = preset.trim().toLowerCase();
 
   // Handle "all" time special case
@@ -111,7 +112,8 @@ export function calculateTimeWindow(preset: string, referenceDate: Date = new Da
   const duration = parseDuration(preset);
 
   // Calculate start date using epoch milliseconds for timezone/DST-stable duration windows
-  const startDate = new Date(referenceDate.getTime() - duration.hours * 60 * 60 * 1000);
+  const durationMs = Math.round(duration.hours * HOUR_IN_MS);
+  const startDate = new Date(referenceDate.getTime() - durationMs);
 
   // Calculate days (for display purposes)
   const days = Math.round((duration.hours / 24) * 10) / 10; // Round to 1 decimal
