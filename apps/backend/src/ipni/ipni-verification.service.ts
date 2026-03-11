@@ -1,9 +1,9 @@
-import type { ProviderInfo } from "@filoz/synapse-sdk";
 import { Injectable, Logger } from "@nestjs/common";
 import { waitForIpniProviderResults } from "filecoin-pin/core/utils";
 import { CID } from "multiformats/cid";
 import type { StorageProvider } from "../database/entities/storage-provider.entity.js";
 import type { IPNIVerificationResult } from "../deal-addons/strategies/ipni.types.js";
+import { PDPProvider } from "filecoin-pin";
 
 const DEFAULT_POLL_INTERVAL_MS = 5000;
 const ATTEMPT_MULTIPLIER = 2;
@@ -68,23 +68,24 @@ export class IpniVerificationService {
     };
   }
 
-  private buildExpectedProviderInfo(storageProvider: StorageProvider): ProviderInfo {
+  private buildExpectedProviderInfo(storageProvider: StorageProvider): PDPProvider {
     return {
-      id: storageProvider.providerId ?? (0 as number),
-      serviceProvider: storageProvider.address,
-      payee: storageProvider.payee,
+      id: storageProvider.providerId ? BigInt(storageProvider.providerId) : 0n,
+      serviceProvider: storageProvider.address as `0x${string}`,
+      payee: storageProvider.payee as `0x${string}`,
       name: storageProvider.name,
       description: storageProvider.description,
-      active: storageProvider.isActive,
-      products: {
-        PDP: {
-          type: "PDP",
-          isActive: true,
-          capabilities: {},
-          data: {
-            serviceURL: storageProvider.serviceUrl,
-          } as any,
-        },
+      isActive: storageProvider.isActive,
+      pdp: { // TODO
+        serviceURL: storageProvider.serviceUrl,
+        minPieceSizeInBytes: 0n,
+        maxPieceSizeInBytes: 0n,
+        storagePricePerTibPerDay: 0n,
+        minProvingPeriodInEpochs: 0n,
+        location: 'todo',
+        paymentTokenAddress: '0x',
+        ipniPiece: true,
+        ipniIpfs: true,
       },
     };
   }
