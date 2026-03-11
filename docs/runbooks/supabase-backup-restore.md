@@ -8,7 +8,9 @@ Operational procedures for backing up and restoring the Supabase database.
 
 ## Prerequisites
 
-Requires Supabase CLI and PostgreSQL client:
+Requires Supabase CLI and PostgreSQL client. See official installation guides:
+- [Supabase CLI Installation](https://supabase.com/docs/guides/local-development)
+- [PostgreSQL Client Installation](https://www.postgresql.org/download)
 
 ```bash
 # macOS
