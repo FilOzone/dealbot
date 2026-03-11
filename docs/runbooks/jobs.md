@@ -14,7 +14,7 @@ For routine daily maintenance windows, prefer `DEALBOT_MAINTENANCE_WINDOWS_UTC` 
 -- Pause all deal and retrieval jobs
 UPDATE job_schedule_state
 SET paused = true, updated_at = NOW()
-WHERE job_type IN ('deal', 'retrieval');
+WHERE job_type IN ('deal', 'retrieval', 'piece_cleanup');
 
 -- Pause metrics jobs
 UPDATE job_schedule_state
@@ -27,7 +27,7 @@ To pause a single provider:
 ```sql
 UPDATE job_schedule_state
 SET paused = true, updated_at = NOW()
-WHERE job_type IN ('deal', 'retrieval')
+WHERE job_type IN ('deal', 'retrieval', 'piece_cleanup')
   AND sp_address = '<sp-address>';
 ```
 
@@ -36,7 +36,7 @@ WHERE job_type IN ('deal', 'retrieval')
 ```sql
 UPDATE job_schedule_state
 SET paused = false, next_run_at = NOW(), updated_at = NOW()
-WHERE job_type IN ('deal', 'retrieval', 'metrics', 'metrics_cleanup');
+WHERE job_type IN ('deal', 'retrieval', 'piece_cleanup', 'metrics', 'metrics_cleanup');
 ```
 
 To resume a single provider:
@@ -44,7 +44,7 @@ To resume a single provider:
 ```sql
 UPDATE job_schedule_state
 SET paused = false, next_run_at = NOW(), updated_at = NOW()
-WHERE job_type IN ('deal', 'retrieval')
+WHERE job_type IN ('deal', 'retrieval', 'piece_cleanup')
   AND sp_address = '<sp-address>';
 ```
 
@@ -88,6 +88,15 @@ WHERE job_type = 'deal'
 UPDATE job_schedule_state
 SET paused = false, next_run_at = NOW(), updated_at = NOW()
 WHERE job_type = 'retrieval'
+  AND sp_address = '<sp-address>';
+```
+
+Run piece cleanup for a specific SP:
+
+```sql
+UPDATE job_schedule_state
+SET paused = false, next_run_at = NOW(), updated_at = NOW()
+WHERE job_type = 'piece_cleanup'
   AND sp_address = '<sp-address>';
 ```
 
