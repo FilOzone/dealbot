@@ -178,7 +178,7 @@ export class PieceCleanupService implements OnModuleInit, OnModuleDestroy {
           await this.deletePiece(deal, signal, storage);
           deleted++;
           batchDeletedCount++;
-          bytesRemoved += Number(deal.pieceSize || deal.fileSize || 0);
+          bytesRemoved += Number(deal.pieceSize || 0);
           this.logger.log({
             event: "piece_cleanup_piece_deleted",
             message: `Deleted piece ${deal.pieceId} (pieceCid: ${deal.pieceCid}) from SP ${spAddress}`,
