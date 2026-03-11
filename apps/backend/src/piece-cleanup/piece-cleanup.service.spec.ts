@@ -309,19 +309,23 @@ describe("PieceCleanupService", () => {
       expect(result.skipped).toBe(false);
     });
 
-    it("uses fileSize as fallback when pieceSize is 0", async () => {
+    it("credits 0 bytes and bails out when pieceSize is 0", async () => {
       const excessBytes = 10 * MiB;
       mockQueryBuilder(THRESHOLD_BYTES + excessBytes);
 
       const deal1 = makeDeal({ id: "deal-1", pieceId: 1, pieceSize: 0, fileSize: 10 * MiB });
-      dealRepoMock.find.mockResolvedValue([deal1]);
+      // First batch returns the deal, second batch returns []
+      dealRepoMock.find.mockResolvedValueOnce([deal1]).mockResolvedValueOnce([]);
 
       const deletePieceSpy = vi.spyOn(service, "deletePiece").mockResolvedValue(undefined);
 
       const result = await service.cleanupPiecesForProvider("0xProvider");
 
+      // Piece is still deleted
       expect(result.deleted).toBe(1);
       expect(deletePieceSpy).toHaveBeenCalledTimes(1);
+      // pieceSize=0 credits 0 bytes, so the loop fetches a second batch to confirm no more candidates
+      expect(dealRepoMock.find).toHaveBeenCalledTimes(2);
     });
 
     it("loops through multiple batches when excess spans batches", async () => {
