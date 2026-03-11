@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { METADATA_KEYS, RPC_URLS, SIZE_CONSTANTS, Synapse } from "@filoz/synapse-sdk";
+import { METADATA_KEYS, SIZE_CONSTANTS, Synapse, mainnet, calibration } from "@filoz/synapse-sdk";
 import { Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
@@ -247,7 +247,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       ...logContext,
       dealId: existingDealId ?? deal.id,
       providerAddress,
-      providerId: providerInfo.id ?? logContext?.providerId,
+      providerId: providerInfo.id ? Number(providerInfo.id) : logContext?.providerId,
       ipfsRootCID: uploadPayload.rootCid.toString(),
     };
 
@@ -549,7 +549,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     }
     const labels = buildCheckMetricLabels({
       checkType: "dataSetCreation",
-      providerId: providerInfo.id,
+      providerId: Number(providerInfo.id),
       providerIsApproved: providerInfo.isApproved,
     });
 
@@ -706,9 +706,8 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
   private async createSynapseInstance(): Promise<Synapse> {
     try {
       return await Synapse.create({
-        privateKey: this.blockchainConfig.walletPrivateKey,
-        rpcURL: RPC_URLS[this.blockchainConfig.network].http,
-        warmStorageAddress: this.walletSdkService.getFWSSAddress(),
+        account: privateKeyToAccount(this.blockchainConfig.walletPrivateKey),
+        chain: this.blockchainConfig.network === 'mainnet' ? mainnet : calibration,
       });
     } catch (error) {
       this.logger.error({
@@ -721,15 +720,6 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async cleanupSynapseInstance(synapse: Synapse): Promise<void> {
-    try {
-      await synapse.telemetry?.sentry?.close?.();
-    } catch (error) {
-      this.logger.warn({
-        event: "synapse_telemetry_cleanup_failed",
-        message: "Failed to cleanup Synapse telemetry",
-        error: toStructuredError(error),
-      });
-    }
     try {
       await cleanupSynapseService();
     } catch (error) {
