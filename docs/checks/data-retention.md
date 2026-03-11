@@ -81,7 +81,11 @@ faultedDelta = currentTotalFaulted - previousTotalFaulted
 successDelta = currentTotalSuccess - previousTotalSuccess
 ```
 
+**First-seen provider handling**: When a provider has no prior baseline (fresh deploy or newly added provider), dealbot initializes the baseline to the current cumulative totals **without emitting any counters**. This prevents dumping the provider's full cumulative history as a single metric spike. Metrics for that provider will begin accumulating from the next poll onward.
+
 **Negative delta handling**: If deltas are negative (due to chain reorgs, subgraph corrections, or data inconsistencies), the baseline is reset to current values without incrementing counters. This prevents stalled metrics.
+
+**Baseline persistence**: Baselines are persisted to the `data_retention_baselines` database table after each successful poll. On service restart, baselines are reloaded from the database to prevent metric inflation.
 
 Source: [`data-retention.service.ts` (`processProvider`)](../../apps/backend/src/data-retention/data-retention.service.ts#L209)
 
@@ -93,6 +97,27 @@ For very large deltas (exceeding `Number.MAX_SAFE_INTEGER`), increments are chun
 
 Source: [`data-retention.service.ts` (`safeIncrementCounter`)](../../apps/backend/src/data-retention/data-retention.service.ts#L267)
 
+## Baseline Persistence
+
+To prevent metric inflation across service restarts, dealbot persists provider baselines to the database.
+
+**Storage**: Baselines are stored in the `data_retention_baselines` table with columns for `provider_address`, `faulted_periods`, `success_periods`, `last_block_number`, and `updated_at`.
+
+**Lifecycle**:
+
+1. **On first poll**: Load all baselines from database into memory. If load fails, abort poll to prevent emitting inflated values.
+2. **First-seen provider**: If a provider has no prior baseline (not in memory or database), initialize its baseline to the current cumulative totals without emitting counters. This avoids a metric spike from the provider's full history.
+3. **On each poll**: After processing providers, persist updated baselines to database.
+4. **On restart**: Reload baselines from database. Delta computation resumes from last persisted state, preventing double-counting.
+
+**Error handling**:
+
+- **DB load failure**: Poll aborted, retry on next cycle
+- **DB persist failure**: Warning logged, in-memory state remains consistent
+- **Stale provider cleanup**: Baselines deleted from both memory and database when providers are removed from active list
+
+Source: [`data-retention.service.ts` (`loadBaselinesFromDb`, `persistBaseline`)](../../apps/backend/src/data-retention/data-retention.service.ts), [`CreateDataRetentionBaselines` migration](../../apps/backend/src/database/migrations/1761500000002-CreateDataRetentionBaselines.ts)
+
 ## Stale Provider Cleanup
 
 To prevent unbounded memory growth, dealbot periodically removes baseline data for providers no longer in the active testing list.
@@ -103,6 +128,7 @@ To prevent unbounded memory growth, dealbot periodically removes baseline data f
 2. Fetch provider info from the database
 3. Remove Prometheus counter metrics for both success and fault labels
 4. Delete baseline entry from memory **only if** counter removal succeeds
+5. Delete baseline entry from database (non-blocking, logged on failure)
 
 **Critical safeguard**: Baselines are retained if:
 
@@ -200,7 +226,10 @@ Source: [`data-retention.service.ts` (`pollDataRetention`)](../../apps/backend/s
 flowchart TD
     Start[Scheduled Poll] --> CheckEndpoint{PDP Endpoint<br/>Configured?}
     CheckEndpoint -->|No| Skip[Skip Check]
-    CheckEndpoint -->|Yes| FetchMeta[Fetch Subgraph Metadata]
+    CheckEndpoint -->|Yes| LoadBaselines[Load Baselines from DB]
+    LoadBaselines --> CheckLoad{Load<br/>Success?}
+    CheckLoad -->|No| Skip
+    CheckLoad -->|Yes| FetchMeta[Fetch Subgraph Metadata]
     FetchMeta --> GetProviders[Get Active Testing Providers]
     GetProviders --> CheckProviders{Providers<br/>Configured?}
     CheckProviders -->|No| Skip
@@ -210,14 +239,18 @@ flowchart TD
     FetchData --> ProcessParallel[Process Providers in Parallel]
     ProcessParallel --> CalcOverdue[Calculate Overdue Periods]
     CalcOverdue --> CalcTotals[Calculate Total Faulted/Success]
-    CalcTotals --> CalcDeltas[Calculate Deltas from Baseline]
+    CalcTotals --> CheckBaseline{Has Prior<br/>Baseline?}
+    CheckBaseline -->|No| InitBaseline[Initialize Baseline. No Metric Emission]
+    InitBaseline --> PersistBaseline
+    CheckBaseline -->|Yes| CalcDeltas[Calculate Deltas from Baseline]
     CalcDeltas --> CheckDeltas{Deltas<br/>Positive?}
 
-    CheckDeltas -->|Negative| ResetBaseline[Decrement Provider Baseline. No Metric Update]
+    CheckDeltas -->|Negative| ResetBaseline[Reset Baseline. No Metric Update]
     CheckDeltas -->|Positive| IncrementMetrics[Increment Prometheus Counters]
-    IncrementMetrics --> UpdateBaseline[Update Baseline]
-    ResetBaseline --> MoreBatches{More<br/>Batches?}
-    UpdateBaseline --> MoreBatches
+    IncrementMetrics --> UpdateBaseline[Update Baseline in Memory]
+    ResetBaseline --> PersistBaseline[Persist Baseline to DB]
+    UpdateBaseline --> PersistBaseline
+    PersistBaseline --> MoreBatches{More<br/>Batches?}
 
     MoreBatches -->|Yes| BatchLoop
     MoreBatches -->|No| CheckErrors{Processing<br/>Errors?}
@@ -226,10 +259,11 @@ flowchart TD
 
     Cleanup --> FetchStale[Fetch Stale Provider Info from DB]
     FetchStale --> RemoveMetrics[Remove Prometheus Metrics]
-    RemoveMetrics --> DeleteBaseline[Delete Provider Baseline from Memory]
+    RemoveMetrics --> DeleteMemory[Delete Baseline from Memory]
+    DeleteMemory --> DeleteDB[Delete Baseline from DB]
 
     SkipCleanup --> End[Complete]
-    DeleteBaseline --> End
+    DeleteDB --> End
     Skip --> End
 ```
 
@@ -250,6 +284,38 @@ If a chain reorg causes challenge totals to decrease, dealbot detects negative d
 ### Why not clean up baselines immediately when providers go offline?
 
 Providers may temporarily drop from the active list due to configuration changes, approval status changes, or transient issues. Retaining baselines prevents massive metric inflation (double-counting) when providers return. Cleanup only occurs when we can successfully remove the associated Prometheus metrics.
+
+### What happens if the service restarts?
+
+Baselines are persisted to the database after each successful poll. On restart, the service loads all baselines from the database on the first poll, and delta computation resumes from the last persisted state. This prevents metric inflation (double-counting).
+
+**Example scenario:**
+
+```
+Poll 1 (fresh start, no DB baseline):
+  Subgraph: faulted=1000, success=9000
+  No prior baseline → Initialize baseline to 1000, 9000
+  Emit: nothing (first-seen provider, baseline only)
+
+Poll 2:
+  Subgraph: faulted=1005, success=9005
+  Memory baseline: 1000, 9000 → Delta: 5, 5
+  Emit: +5 faulted, +5 success
+
+--- SERVICE RESTARTS ---
+
+Poll 3 (after restart):
+  Subgraph: faulted=1005, success=9005
+  DB baseline: 1005, 9005 (loaded) → Delta: 0, 0
+  Emit: nothing (no new challenges)
+
+Poll 4:
+  Subgraph: faulted=1008, success=9012
+  Memory baseline: 1005, 9005 → Delta: 3, 7
+  Emit: +3 faulted, +7 success
+```
+
+If the database is unavailable on startup, the poll is aborted to prevent emitting inflated values. The service will retry on the next scheduled poll.
 
 ### How does this differ from the Data Storage check?
 
