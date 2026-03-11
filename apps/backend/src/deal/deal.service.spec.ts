@@ -205,9 +205,9 @@ describe("DealService", () => {
       } as unknown as Synapse;
 
       mockProviderInfo = {
-        id: 101,
+        id: 101n,
         serviceProvider: "0xProvider",
-        payee: "t0100",
+        payee: "0x100",
         name: "Test Provider",
         description: "Test Provider",
         active: true,
@@ -1013,9 +1013,9 @@ describe("DealService", () => {
 
   describe("createDataSetWithPiece", () => {
     const mockProviderInfo: ProviderInfoEx = {
-      id: 101,
+      id: 101n,
       serviceProvider: "0xprovider",
-      payee: "t0100",
+      payee: "0x100",
       name: "Test Provider",
       description: "Test Provider",
       active: true,
