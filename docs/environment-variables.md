@@ -911,7 +911,7 @@ RANDOM_PIECE_SIZES=1024,10240,102400
 
 - **Type**: `number` (milliseconds)
 - **Required**: No
-- **Default**: `10000` (10 seconds)
+- **Default**: `60000` (60 seconds)
 - **Minimum**: `1000`
 
 **Role**: Maximum time to wait for IPNI verification to confirm the provider for a root CID. Used by both data-storage and retrieval checks.

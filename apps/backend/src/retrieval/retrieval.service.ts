@@ -530,8 +530,8 @@ export class RetrievalService {
     const { rootCid, blockCids } = ipniContext;
 
     const timeouts = this.configService.get("timeouts");
-    const timeoutMs = timeouts?.ipniVerificationTimeoutMs ?? 10_000;
-    const pollIntervalMs = timeouts?.ipniVerificationPollingMs ?? 2_000;
+    const timeoutMs = timeouts.ipniVerificationTimeoutMs;
+    const pollIntervalMs = timeouts.ipniVerificationPollingMs;
     this.discoverabilityMetrics.recordStatus(providerLabels, "pending");
 
     try {
