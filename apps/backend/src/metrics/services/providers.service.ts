@@ -10,7 +10,12 @@ import { SpPerformanceLastWeek } from "../../database/entities/sp-performance-la
 import { StorageProvider } from "../../database/entities/storage-provider.entity.js";
 import { DealStatus, IpniStatus, MetricType, RetrievalStatus, ServiceType } from "../../database/types.js";
 import type { ProviderPerformanceDto, ProviderWindowPerformanceDto } from "../dto/provider-performance.dto.js";
-import { calculateTimeWindow, parseCustomDateRange, sanitizePreset } from "../utils/time-window-parser.js";
+import {
+  calculateTimeWindow,
+  type DateString,
+  parseCustomDateRange,
+  sanitizePreset,
+} from "../utils/time-window-parser.js";
 
 /**
  * Service for querying pre-computed metrics from materialized views
@@ -566,8 +571,8 @@ export class ProvidersService {
    */
   async getCustomWindowPerformance(
     spAddress: string,
-    startDateStr: string,
-    endDateStr: string,
+    startDateStr: DateString,
+    endDateStr: DateString,
   ): Promise<ProviderWindowPerformanceDto> {
     try {
       // Parse and validate date range

@@ -238,8 +238,20 @@ describe("TimeWindowParser", () => {
     });
 
     it("should reject invalid date strings", () => {
-      expect(() => parseCustomDateRange("invalid", "2024-10-31")).toThrow("Invalid start date");
-      expect(() => parseCustomDateRange("2024-10-01", "invalid")).toThrow("Invalid end date");
+      expect(() => parseCustomDateRange("invalid" as any, "2024-10-31")).toThrow("Invalid start date format");
+      expect(() => parseCustomDateRange("2024-10-01", "invalid" as any)).toThrow("Invalid end date format");
+    });
+
+    it("should reject datetime strings (must be date-only YYYY-MM-DD)", () => {
+      expect(() => parseCustomDateRange("2024-10-01T12:00:00" as any, "2024-10-31")).toThrow(
+        "Invalid start date format",
+      );
+      expect(() => parseCustomDateRange("2024-10-01T12:00:00Z" as any, "2024-10-31")).toThrow(
+        "Invalid start date format",
+      );
+      expect(() => parseCustomDateRange("2024-10-01", "2024-10-31T23:59:59Z" as any)).toThrow(
+        "Invalid end date format",
+      );
     });
 
     it("should reject invalid ranges", () => {

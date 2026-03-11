@@ -179,8 +179,19 @@ export function validateDateRange(startDate: Date, endDate: Date): void {
  * @param endDateStr - End date string (YYYY-MM-DD)
  * @returns TimeWindow object
  */
-export function parseCustomDateRange(startDateStr: string, endDateStr: string): TimeWindow {
-  // Parse dates
+export type DateString = `${number}-${number}-${number}`;
+
+export function parseCustomDateRange(startDateStr: DateString, endDateStr: DateString): TimeWindow {
+  // Validate YYYY-MM-DD format (date-only strings are parsed as UTC per spec)
+  const datePattern = /^\d{4}-\d{2}-\d{2}$/;
+  if (!datePattern.test(startDateStr)) {
+    throw new Error("Invalid start date format. Expected YYYY-MM-DD.");
+  }
+  if (!datePattern.test(endDateStr)) {
+    throw new Error("Invalid end date format. Expected YYYY-MM-DD.");
+  }
+
+  // Parse dates (date-only strings are always parsed as UTC midnight)
   const startDate = new Date(startDateStr);
   const endDate = new Date(endDateStr);
 
