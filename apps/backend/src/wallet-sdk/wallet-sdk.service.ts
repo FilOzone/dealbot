@@ -487,7 +487,7 @@ export class WalletSdkService implements OnModuleInit {
   async syncProvidersToDatabase(providerInfos: ProviderInfoEx[]): Promise<void> {
     try {
       const dedupedProviders = new Map<string, ProviderInfoEx>();
-      const duplicatesByAddress = new Map<string, Set<number>>();
+      const duplicatesByAddress = new Map<string, Set<bigint>>();
       const conflictAddresses = new Set<string>();
       const resolvedInactiveAddresses = new Set<string>();
 
@@ -498,7 +498,7 @@ export class WalletSdkService implements OnModuleInit {
           this.logger.warn(`Duplicate provider address ${address} (providerIds: ${existing.id}, ${info.id})`);
           let ids = duplicatesByAddress.get(address);
           if (!ids) {
-            ids = new Set<number>();
+            ids = new Set<bigint>();
             duplicatesByAddress.set(address, ids);
             ids.add(existing.id);
           }
@@ -524,7 +524,7 @@ export class WalletSdkService implements OnModuleInit {
       if (duplicatesByAddress.size > 0) {
         const formatDetails = (addresses: Set<string>) =>
           Array.from(addresses).map((address) => {
-            const ids = duplicatesByAddress.get(address) ?? new Set<number>();
+            const ids = duplicatesByAddress.get(address) ?? new Set<bigint>();
             return `${address} (providerIds: ${Array.from(ids).join(", ")})`;
           });
 
