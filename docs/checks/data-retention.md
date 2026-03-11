@@ -81,6 +81,8 @@ faultedDelta = currentTotalFaulted - previousTotalFaulted
 successDelta = currentTotalSuccess - previousTotalSuccess
 ```
 
+**First-seen provider handling**: When a provider has no prior baseline (fresh deploy or newly added provider), dealbot initializes the baseline to the current cumulative totals **without emitting any counters**. This prevents dumping the provider's full cumulative history as a single metric spike. Metrics for that provider will begin accumulating from the next poll onward.
+
 **Negative delta handling**: If deltas are negative (due to chain reorgs, subgraph corrections, or data inconsistencies), the baseline is reset to current values without incrementing counters. This prevents stalled metrics.
 
 **Baseline persistence**: Baselines are persisted to the `data_retention_baselines` database table after each successful poll. On service restart, baselines are reloaded from the database to prevent metric inflation.
@@ -104,8 +106,9 @@ To prevent metric inflation across service restarts, dealbot persists provider b
 **Lifecycle**:
 
 1. **On first poll**: Load all baselines from database into memory. If load fails, abort poll to prevent emitting inflated values.
-2. **On each poll**: After processing providers, persist updated baselines to database.
-3. **On restart**: Reload baselines from database. Delta computation resumes from last persisted state, preventing double-counting.
+2. **First-seen provider**: If a provider has no prior baseline (not in memory or database), initialize its baseline to the current cumulative totals without emitting counters. This avoids a metric spike from the provider's full history.
+3. **On each poll**: After processing providers, persist updated baselines to database.
+4. **On restart**: Reload baselines from database. Delta computation resumes from last persisted state, preventing double-counting.
 
 **Error handling**:
 
@@ -236,7 +239,10 @@ flowchart TD
     FetchData --> ProcessParallel[Process Providers in Parallel]
     ProcessParallel --> CalcOverdue[Calculate Overdue Periods]
     CalcOverdue --> CalcTotals[Calculate Total Faulted/Success]
-    CalcTotals --> CalcDeltas[Calculate Deltas from Baseline]
+    CalcTotals --> CheckBaseline{Has Prior<br/>Baseline?}
+    CheckBaseline -->|No| InitBaseline[Initialize Baseline. No Metric Emission]
+    InitBaseline --> PersistBaseline
+    CheckBaseline -->|Yes| CalcDeltas[Calculate Deltas from Baseline]
     CalcDeltas --> CheckDeltas{Deltas<br/>Positive?}
 
     CheckDeltas -->|Negative| ResetBaseline[Reset Baseline. No Metric Update]
@@ -286,10 +292,10 @@ Baselines are persisted to the database after each successful poll. On restart, 
 **Example scenario:**
 
 ```
-Poll 1 (fresh start):
+Poll 1 (fresh start, no DB baseline):
   Subgraph: faulted=1000, success=9000
-  DB baseline: none → Delta: 1000, 9000
-  Emit: +1000 faulted, +9000 success
+  No prior baseline → Initialize baseline to 1000, 9000
+  Emit: nothing (first-seen provider, baseline only)
 
 Poll 2:
   Subgraph: faulted=1005, success=9005
