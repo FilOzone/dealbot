@@ -332,8 +332,9 @@ do_test() {
     
     # Define cleanup function to be triggered on script exit
     cleanup_test_db() {
+        local db_to_drop="$1"
         log "Phase 5: Cleaning up test database..."
-        if psql "$DB_URL" -c "DROP DATABASE IF EXISTS \"${test_db_name}\" WITH (FORCE);" >/dev/null 2>&1; then
+        if psql "$DB_URL" -c "DROP DATABASE IF EXISTS ${db_to_drop} WITH (FORCE);" >/dev/null 2>&1; then
             log_success "Test database dropped"
         else
             log_warning "Failed to drop test database: $test_db_name"
@@ -341,10 +342,10 @@ do_test() {
     }
     
     # Set the EXIT trap. This guarantees cleanup runs even if the script crashes or is killed midway.
-    trap cleanup_test_db EXIT
+    trap "cleanup_test_db $test_db_name" EXIT
 
     log "Phase 2: Creating temporary test database..."
-    if ! psql "$DB_URL" -c "CREATE DATABASE \"${test_db_name}\";" >/dev/null 2>&1; then
+    if ! psql "$DB_URL" -c "CREATE DATABASE ${test_db_name};" >/dev/null 2>&1; then
         log_error "Failed to create test database"
         return 1
     fi
