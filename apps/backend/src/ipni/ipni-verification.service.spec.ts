@@ -45,10 +45,31 @@ describe("IpniVerificationService", () => {
       rootCid,
       storageProvider: buildStorageProvider(),
       timeoutMs: 10_000,
+      pollIntervalMs: 2_000,
     });
 
     expect(result.rootCIDVerified).toBe(true);
     expect(waitForIpniProviderResultsMock).toHaveBeenCalledTimes(1);
+    expect(waitForIpniProviderResultsMock).toHaveBeenCalledWith(
+      rootCid,
+      expect.objectContaining({
+        maxAttempts: 6,
+        delayMs: 2_000,
+      }),
+    );
+  });
+
+  it("rounds up attempt budget so partial intervals are not lost", async () => {
+    const service = new IpniVerificationService();
+    waitForIpniProviderResultsMock.mockResolvedValue(true);
+
+    await service.verify({
+      rootCid,
+      storageProvider: buildStorageProvider(),
+      timeoutMs: 9_000,
+      pollIntervalMs: 2_000,
+    });
+
     expect(waitForIpniProviderResultsMock).toHaveBeenCalledWith(
       rootCid,
       expect.objectContaining({
@@ -75,6 +96,7 @@ describe("IpniVerificationService", () => {
       rootCid,
       storageProvider: buildStorageProvider(),
       timeoutMs: 20,
+      pollIntervalMs: 2_000,
     });
 
     expect(result.rootCIDVerified).toBe(false);
@@ -94,6 +116,7 @@ describe("IpniVerificationService", () => {
       rootCid,
       storageProvider: buildStorageProvider(),
       timeoutMs: 60_000,
+      pollIntervalMs: 2_000,
       signal: abortController.signal,
     });
 

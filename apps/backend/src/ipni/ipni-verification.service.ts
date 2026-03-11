@@ -10,7 +10,7 @@ export type IpniVerificationInput = {
   blockCids?: CID[];
   storageProvider: StorageProvider;
   timeoutMs: number;
-  pollIntervalMs?: number;
+  pollIntervalMs: number;
   signal?: AbortSignal;
 };
 
@@ -26,10 +26,11 @@ export class IpniVerificationService {
     pollIntervalMs,
     signal,
   }: IpniVerificationInput): Promise<IPNIVerificationResult> {
-    const delayMs = Math.max(100, pollIntervalMs ?? 2000);
+    const delayMs = Math.max(100, pollIntervalMs);
     // Keep retrying at the configured polling cadence until timeout or outer job cancellation.
-    // Compute maxAttempts from timeoutMs/delayMs and add 1 to avoid rounding down and ensure
-    // the polling loop can span the full timeout window with one extra attempt.
+    // waitForIpniProviderResults uses attempt-then-delay: the first attempt is immediate,
+    // so N attempts span only (N-1) delays. Adding 1 ensures the attempt budget covers
+    // the full timeout window rather than falling short by up to one delayMs interval.
     const maxAttempts = Math.max(1, Math.ceil(timeoutMs / delayMs) + 1);
     const expectedProviders = [this.buildExpectedProviderInfo(storageProvider)];
     const expectedMultiaddr = serviceURLToMultiaddr(storageProvider.serviceUrl);
