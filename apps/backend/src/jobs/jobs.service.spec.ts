@@ -380,7 +380,7 @@ describe("JobsService schedule rows", () => {
     expect(retrievalService.performRandomRetrievalForProvider).toHaveBeenCalledWith("0xaaa", expect.any(AbortSignal), {
       jobId: "job-retrieval-provider-fallback",
       providerAddress: "0xaaa",
-      providerId: 42,
+      providerId: 42n,
     });
   });
 

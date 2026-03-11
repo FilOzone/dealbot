@@ -18,7 +18,7 @@ import {
 } from "../metrics/utils/check-metrics.service.js";
 import { RetrievalAddonsService } from "../retrieval-addons/retrieval-addons.service.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
-import type { ProviderInfoEx } from "../wallet-sdk/wallet-sdk.types.js";
+import type { PDPProviderEx } from "../wallet-sdk/wallet-sdk.types.js";
 import { DealService } from "./deal.service.js";
 import { privateKeyToAccount } from "viem/accounts";
 
@@ -191,7 +191,7 @@ describe("DealService", () => {
   describe("createDeal", () => {
     let mockSynapseInstance: Synapse;
     let createContextMock: Mock;
-    let mockProviderInfo: ProviderInfoEx;
+    let mockProviderInfo: PDPProviderEx;
     let mockDealInput: DealPreprocessingResult;
     let mockDeal: Deal;
 
@@ -210,9 +210,9 @@ describe("DealService", () => {
         payee: "0x100",
         name: "Test Provider",
         description: "Test Provider",
-        active: true,
-        products: {},
+        isActive: true,
         isApproved: true,
+        pdp: {}, // TODO
       };
       mockDealInput = {
         processedData: { name: "test.txt", size: 2048, data: Buffer.from("test") },
@@ -265,7 +265,7 @@ describe("DealService", () => {
       expect(deal.pieceCid).toBe("bafk-uploaded");
       expect(deal.status).toBe(DealStatus.DEAL_CREATED);
       expect(deal.transactionHash).toBe("0xhash");
-      expect(deal.pieceConfirmedTime).toBeInstanceOf(Date);
+      expect(deal.piecesConfirmedTime).toBeInstanceOf(Date);
       expect(deal.uploadStartTime).toBeInstanceOf(Date);
 
       expect(deal.dealLatencyMs).toBeGreaterThanOrEqual(0);
@@ -1012,15 +1012,15 @@ describe("DealService", () => {
   });
 
   describe("createDataSetWithPiece", () => {
-    const mockProviderInfo: ProviderInfoEx = {
+    const mockProviderInfo: PDPProviderEx = {
       id: 101n,
       serviceProvider: "0xprovider",
       payee: "0x100",
       name: "Test Provider",
       description: "Test Provider",
-      active: true,
-      products: {},
+      isActive: true,
       isApproved: true,
+      // TODO
     };
 
     it("throws when provider is not found in registry", async () => {
@@ -1048,7 +1048,7 @@ describe("DealService", () => {
       await service.createDataSetWithPiece("0xprovider", { dealbotDS: "1" });
 
       expect(createContextMock).toHaveBeenCalledWith({
-        providerAddress: "0xprovider",
+        providerId: 101n,
         metadata: { dealbotDS: "1" },
       });
       expect(executeUpload).toHaveBeenCalledWith(
