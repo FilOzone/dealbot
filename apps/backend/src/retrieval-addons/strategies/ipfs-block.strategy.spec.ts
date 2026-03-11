@@ -117,10 +117,14 @@ describe("IpfsBlockRetrievalStrategy", () => {
       const config = mockDealConfig(root.cid.toString());
       const result = await strategy.validateByBlockFetch(config);
 
-      expect(result.isValid).toBe(true);
-      expect(result.method).toBe("block-fetch");
-      expect(result.bytesRead).toBe(root.bytes.length + leaf1.bytes.length + leaf2.bytes.length);
-      expect(result.ttfb).toBe(10);
+      expect(result).toMatchObject({
+        isValid: true,
+        method: 'block-fetch',
+        bytesRead: root.bytes.length + leaf1.bytes.length + leaf2.bytes.length,
+        ttfb: 10,
+        blockTtfbMs: expect.any(Array),
+      })
+
       expect(result.blockTtfbMs).toHaveLength(3);
       expect(result.blockTtfbMs?.every((value) => value === 10)).toBe(true);
     });
