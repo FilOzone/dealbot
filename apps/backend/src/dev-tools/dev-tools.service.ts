@@ -75,7 +75,7 @@ export class DevToolsService {
       throw new NotFoundException(`Storage provider not found: ${spAddress}`);
     }
 
-    if (!providerInfo.active) {
+    if (!providerInfo.isActive) {
       throw new BadRequestException(`Storage provider is not active: ${spAddress}`);
     }
     if (providerInfo.id == null) {

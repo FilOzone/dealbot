@@ -26,7 +26,7 @@ export class Provider {
   isApproved: boolean;
 
   @ApiProperty({ description: "Region" })
-  region: string;
+  location: string;
 
   @ApiProperty({ description: "Metadata" })
   metadata: Record<string, any>;

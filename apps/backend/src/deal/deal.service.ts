@@ -27,7 +27,7 @@ import {
 import { RetrievalAddonsService } from "../retrieval-addons/retrieval-addons.service.js";
 import type { RetrievalConfiguration } from "../retrieval-addons/types.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
-import type { ProviderInfoEx } from "../wallet-sdk/wallet-sdk.types.js";
+import type { PDPProviderEx } from "../wallet-sdk/wallet-sdk.types.js";
 import { privateKeyToAccount } from "viem/accounts";
 
 type UploadPayload = {
@@ -112,7 +112,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
   }
 
   async createDealForProvider(
-    providerInfo: ProviderInfoEx,
+    pdpProvider: PDPProviderEx,
     options: {
       enableIpni: boolean;
       existingDealId?: string;
@@ -129,7 +129,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       const uploadPayload = await this.prepareUploadPayload(preprocessed, options.signal);
       return await this.createDeal(
         synapse,
-        providerInfo,
+        pdpProvider,
         preprocessed,
         uploadPayload,
         options.existingDealId,
@@ -187,7 +187,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
 
   async createDeal(
     synapse: Synapse,
-    providerInfo: ProviderInfoEx,
+    pdpProvider: PDPProviderEx,
     dealInput: DealPreprocessingResult,
     uploadPayload: UploadPayload,
     existingDealId?: string,
@@ -195,12 +195,12 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     extraDataSetMetadata?: Record<string, string>,
     logContext?: ProviderJobContext,
   ): Promise<Deal> {
-    const providerAddress = providerInfo.serviceProvider;
+    const providerAddress = pdpProvider.serviceProvider;
     const checkType = "dataStorage" as const;
     let providerLabels = buildCheckMetricLabels({
       checkType,
       providerId: undefined,
-      providerIsApproved: providerInfo.isApproved,
+      providerIsApproved: pdpProvider.isApproved,
     });
     let uploadSucceeded = false;
     let onchainSucceeded = false;
@@ -219,7 +219,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
           jobId: logContext?.jobId,
           dealId: existingDealId,
           providerAddress,
-          providerId: providerInfo.id ?? logContext?.providerId,
+          providerId: pdpProvider.id ?? logContext?.providerId,
           ipfsRootCID: uploadPayload.rootCid.toString(),
           event: "deal_creation_failed",
           message: `Deal creation failed for ${providerAddress}`,
@@ -246,7 +246,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       ...logContext,
       dealId: existingDealId ?? deal.id,
       providerAddress,
-      providerId: providerInfo.id ?? logContext?.providerId,
+      providerId: pdpProvider.id ?? logContext?.providerId,
       ipfsRootCID: uploadPayload.rootCid.toString(),
     };
 
@@ -259,7 +259,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       providerLabels = buildCheckMetricLabels({
         checkType,
         providerId: deal.storageProvider?.providerId,
-        providerIsApproved: providerInfo.isApproved ?? deal.storageProvider?.isApproved,
+        providerIsApproved: pdpProvider.isApproved ?? deal.storageProvider?.isApproved,
       });
       this.dataStorageMetrics.recordUploadStatus(providerLabels, "pending");
       this.dataStorageMetrics.recordDataStorageStatus(providerLabels, "pending");
@@ -284,7 +284,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       let onUploadCompleteAddonsPromise: Promise<boolean> | null = null;
       let uploadCompleteError: Error | undefined;
 
-      const synapseService = { synapse, storage, providerInfo } as unknown as SynapseServiceArg;
+      const synapseService = { synapse, storage, pdpProvider } as unknown as SynapseServiceArg;
       const uploadResult = await executeUpload(synapseService, uploadPayload.carData, uploadPayload.rootCid, {
         logger: filecoinPinLogger,
         contextId: providerAddress,
@@ -776,7 +776,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
 
   private async processProvidersInParallel(
     synapse: Synapse,
-    providers: ProviderInfoEx[],
+    providers: PDPProviderEx[],
     dealInput: DealPreprocessingResult,
     uploadPayload: UploadPayload,
     maxConcurrency: number,

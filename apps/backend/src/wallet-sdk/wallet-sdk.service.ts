@@ -3,6 +3,7 @@ import {
   calibration,
   Synapse,
   TIME_CONSTANTS,
+  PDPProvider,
 } from "@filoz/synapse-sdk";
 import type { PaymentsService } from "@filoz/synapse-sdk/payments";
 import type { ProviderInfo } from "@filoz/synapse-sdk/sp-registry";
@@ -19,7 +20,7 @@ import type { IBlockchainConfig, IConfig } from "../config/app.config.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
 import type {
   FundDepositLog,
-  ProviderInfoEx,
+  PDPProviderEx,
   ServiceApprovalLog,
   StorageRequirements,
   TransactionLog,
@@ -37,7 +38,7 @@ export class WalletSdkService implements OnModuleInit {
   private paymentsService: PaymentsService;
   private warmStorageService: WarmStorageService;
   private spRegistry: SPRegistryService;
-  private providerCache: Map<string, ProviderInfoEx> = new Map();
+  private providerCache: Map<string, PDPProviderEx> = new Map();
   private activeProviderAddresses: Set<string> = new Set();
   private approvedProviderAddresses: Set<string> = new Set();
   private providersLoadPromise: Promise<boolean> | null = null;
@@ -126,7 +127,7 @@ export class WalletSdkService implements OnModuleInit {
       const allProviderIds = Array.from({ length: Number(totalProviders) }, (_, i) => BigInt(i + 1));
       const inactiveProviderIds = allProviderIds.filter((id) => !activeProviderIds.has(id));
 
-      const providerInfos: ProviderInfo[] = [...activeProviders];
+      const providerInfos: PDPProvider[] = [...activeProviders];
       if (inactiveProviderIds.length > 0) {
         if (inactiveProviderIds.length > 50) {
           // batch get remaining providers if we have more than 50 inactive providers. This is not currently happening, but may in the future.
@@ -153,26 +154,19 @@ export class WalletSdkService implements OnModuleInit {
       this.activeProviderAddresses.clear();
       this.approvedProviderAddresses.clear();
       const extendedProviders = validProviders.map((info) => {
-        const isActivePDP = info.active;
-        const supportsPDP = !!info.products?.PDP;
-        const isDevTagged = info.products?.PDP?.capabilities?.service_status === DEV_TAG;
-
-        const isActive = isActivePDP && supportsPDP && !isDevTagged;
         const isApproved = approvedIds.includes(info.id);
 
         // select approved providers which are not dev tagged
-        if (isActive) this.activeProviderAddresses.add(info.serviceProvider);
-        if (isApproved && isActive) this.approvedProviderAddresses.add(info.serviceProvider);
+        if (info.isActive) this.activeProviderAddresses.add(info.serviceProvider);
+        if (isApproved && info.isActive) this.approvedProviderAddresses.add(info.serviceProvider);
         this.providerCache.set(info.serviceProvider, {
           ...info,
           isApproved,
-          active: isActive,
         });
 
         return {
           ...info,
           isApproved,
-          active: isActive,
         };
       });
 
@@ -228,8 +222,8 @@ export class WalletSdkService implements OnModuleInit {
   /**
    * Get approved providers
    */
-  getApprovedProviders(): ProviderInfoEx[] {
-    const approvedProviders: ProviderInfoEx[] = [];
+  getApprovedProviders(): PDPProviderEx[] {
+    const approvedProviders: PDPProviderEx[] = [];
 
     for (const address of this.approvedProviderAddresses) {
       const provider = this.providerCache.get(address);
@@ -242,8 +236,8 @@ export class WalletSdkService implements OnModuleInit {
   /**
    * Get all active providers
    */
-  getAllActiveProviders(): ProviderInfoEx[] {
-    const activeProviders: ProviderInfoEx[] = [];
+  getAllActiveProviders(): PDPProviderEx[] {
+    const activeProviders: PDPProviderEx[] = [];
 
     for (const address of this.activeProviderAddresses) {
       const provider = this.providerCache.get(address);
@@ -256,7 +250,7 @@ export class WalletSdkService implements OnModuleInit {
   /**
    * Get testing providers
    */
-  getTestingProviders(): ProviderInfoEx[] {
+  getTestingProviders(): PDPProviderEx[] {
     return this.blockchainConfig.useOnlyApprovedProviders ? this.getApprovedProviders() : this.getAllActiveProviders();
   }
 
@@ -286,7 +280,7 @@ export class WalletSdkService implements OnModuleInit {
   /**
    * Get approved provider info by address
    */
-  getProviderInfo(address: string): ProviderInfoEx | undefined {
+  getProviderInfo(address: string): PDPProviderEx | undefined {
     return this.providerCache.get(address);
   }
 
@@ -484,9 +478,9 @@ export class WalletSdkService implements OnModuleInit {
   /**
    * Create or update provider in database
    */
-  async syncProvidersToDatabase(providerInfos: ProviderInfoEx[]): Promise<void> {
+  async syncProvidersToDatabase(providerInfos: PDPProviderEx[]): Promise<void> {
     try {
-      const dedupedProviders = new Map<string, ProviderInfoEx>();
+      const dedupedProviders = new Map<string, PDPProviderEx>();
       const duplicatesByAddress = new Map<string, Set<bigint>>();
       const conflictAddresses = new Set<string>();
       const resolvedInactiveAddresses = new Set<string>();
@@ -504,8 +498,8 @@ export class WalletSdkService implements OnModuleInit {
           }
           ids.add(info.id);
 
-          if (existing.active !== info.active) {
-            if (info.active && !existing.active) {
+          if (existing.isActive !== info.isActive) {
+            if (info.isActive && !existing.isActive) {
               resolvedInactiveAddresses.add(address);
               dedupedProviders.set(address, info);
             }
@@ -557,11 +551,11 @@ export class WalletSdkService implements OnModuleInit {
           name: info.name,
           description: info.description,
           payee: info.payee,
-          serviceUrl: info.products.PDP?.data.serviceURL || "Unknown",
-          isActive: info.active,
+          serviceUrl: info.pdp.serviceURL,
+          isActive: info.isActive,
           isApproved: info.isApproved,
-          region: info.products.PDP?.data.location || "Unknown",
-          metadata: this.serializeBigInt(info.products.PDP) || {},
+          location: info.pdp.location,
+          metadata: this.serializeBigInt(info.pdp) || {},
         }),
       );
 

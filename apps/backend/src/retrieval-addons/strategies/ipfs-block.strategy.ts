@@ -82,11 +82,7 @@ export class IpfsBlockRetrievalStrategy implements IRetrievalAddon {
       throw new Error(`Provider ${config.storageProvider} not found in approved providers`);
     }
 
-    if (!providerInfo.products.PDP) {
-      throw new Error(`Provider ${config.storageProvider} does not support PDP`);
-    }
-
-    return providerInfo.products.PDP.data.serviceURL.replace(/\/$/, "");
+    return providerInfo.pdp.serviceURL.replace(/\/$/, "");
   }
 
   /**

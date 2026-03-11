@@ -1,4 +1,4 @@
-import type { ProviderInfo } from "@filoz/synapse-sdk/sp-registry";
+import type { PDPProvider } from "filecoin-pin";
 import type { PaymentsService } from "@filoz/synapse-sdk/payments";
 import type { WarmStorageService } from "@filoz/synapse-sdk/warm-storage";
 
@@ -7,7 +7,7 @@ export interface WalletServices {
   warmStorageService: WarmStorageService;
 }
 
-export interface ProviderInfoEx extends ProviderInfo {
+export interface PDPProviderEx extends PDPProvider {
   isApproved: boolean;
 }
 
