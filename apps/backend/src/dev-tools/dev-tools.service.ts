@@ -82,8 +82,6 @@ export class DevToolsService {
       throw new BadRequestException(`Storage provider is missing providerId: ${spAddress}`);
     }
 
-    // IPNI is always enabled for all deals
-    this.logger.log("Deal settings - IPNI: true");
 
     // Create a pending deal record first so we can return the ID immediately
     const pendingDeal = this.dealRepository.create({
