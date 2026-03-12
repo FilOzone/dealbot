@@ -69,30 +69,28 @@ export class JobScheduleRepository {
         this.logger.warn(
           "Deleting all provider schedules because activeAddresses is empty. Ensure this is intended to avoid mass deletion.",
         );
-        const result =
-          (await this.dataSource.query(
-            `
+        const [rows] = (await this.dataSource.query(
+          `
           DELETE FROM job_schedule_state
           WHERE job_type IN ('deal', 'retrieval', 'data_set_creation')
             AND sp_address <> ''
           RETURNING sp_address
           `,
-          )) || [];
-        return result.map((row: { sp_address: string }) => row.sp_address);
+        )) || [[]];
+        return rows.map((row: { sp_address: string }) => row.sp_address);
       }
 
-      const result =
-        (await this.dataSource.query(
-          `
+      const [rows] = (await this.dataSource.query(
+        `
         DELETE FROM job_schedule_state
         WHERE job_type IN ('deal', 'retrieval', 'data_set_creation')
           AND sp_address <> ''
           AND sp_address <> ALL($1::text[])
         RETURNING sp_address
         `,
-          [activeAddresses],
-        )) || [];
-      return result.map((row: { sp_address: string }) => row.sp_address);
+        [activeAddresses],
+      )) || [[]];
+      return rows.map((row: { sp_address: string }) => row.sp_address);
     } catch (error) {
       this.logger.error({
         event: "delete_inactive_provider_schedules_failed",
