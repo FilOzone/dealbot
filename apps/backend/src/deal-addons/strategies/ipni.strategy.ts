@@ -667,6 +667,8 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
           message: "Invalid duration calculated",
           eventName,
           durationMs: duration,
+          eventTime: eventTime.toISOString(),
+          uploadEndTime: uploadEndTime.toISOString(),
         });
         return null;
       }

@@ -114,12 +114,6 @@ export class HttpClientService {
       ttfbTime = performance.now() - startTime;
       statusCode = response.statusCode;
 
-      this.logger.debug({
-        event: "http2_ttfb",
-        message: "TTFB received",
-        ttfbMs: Math.round(ttfbTime * 100) / 100,
-      });
-
       const chunks: Buffer[] = [];
       for await (const chunk of response.body) {
         chunks.push(Buffer.from(chunk));
@@ -138,14 +132,6 @@ export class HttpClientService {
         timestamp: new Date(),
         httpVersion: "2",
       };
-
-      this.logger.log({
-        event: "http2_request_successful",
-        message: "HTTP/2 request successful",
-        ttfbMs: metrics.ttfb,
-        totalMs: metrics.totalTime,
-        sizeBytes: dataBuffer.length,
-      });
 
       return {
         data: dataBuffer as T,
@@ -186,7 +172,6 @@ export class HttpClientService {
       const startTime = performance.now();
       let ttfbTime = 0;
       let firstByteReceived = false;
-      let _responseSize = 0;
       let statusCode = 0;
 
       const config: AxiosRequestConfig = {
@@ -201,17 +186,11 @@ export class HttpClientService {
         signal,
         maxRedirects: 5,
         responseType: "arraybuffer",
-        onDownloadProgress: (progressEvent) => {
+        onDownloadProgress: () => {
           if (!firstByteReceived) {
             ttfbTime = performance.now() - startTime;
             firstByteReceived = true;
-            this.logger.debug({
-              event: "http1_ttfb",
-              message: "TTFB received",
-              ttfbMs: Math.round(ttfbTime * 100) / 100,
-            });
           }
-          _responseSize = progressEvent.loaded;
         },
       };
 
@@ -240,14 +219,6 @@ export class HttpClientService {
         timestamp: new Date(),
         httpVersion: "1.1",
       };
-
-      this.logger.log({
-        event: "http1_request_successful",
-        message: "HTTP/1.1 request successful",
-        ttfbMs: metrics.ttfb,
-        totalMs: metrics.totalTime,
-        sizeBytes: dataBuffer.length,
-      });
 
       return {
         data: dataBuffer as T,
