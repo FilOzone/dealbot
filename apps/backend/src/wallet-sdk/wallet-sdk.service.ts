@@ -147,10 +147,11 @@ export class WalletSdkService implements OnModuleInit {
       this.approvedProviderAddresses.clear();
       const extendedProviders = validProviders.map((info) => {
         const isActivePDP = info.active;
-        const supportsPDP = !!info.products?.PDP;
+        // In order to support ipniIpfs, the provider must have PDP product
+        const supportsIpniIpfs = !!info.products?.PDP?.data?.ipniIpfs;
         const isDevTagged = info.products?.PDP?.capabilities?.service_status === DEV_TAG;
 
-        const isActive = isActivePDP && supportsPDP && !isDevTagged;
+        const isActive = isActivePDP && supportsIpniIpfs && !isDevTagged;
         const isApproved = approvedIds.includes(info.id);
 
         // select approved providers which are not dev tagged
@@ -203,7 +204,7 @@ export class WalletSdkService implements OnModuleInit {
   }
 
   /**
-   * Get count of all providers
+   * Get count of all active providers supporting ipniIpfs
    */
   getAllActiveProvidersCount(): number {
     return this.activeProviderAddresses.size;
