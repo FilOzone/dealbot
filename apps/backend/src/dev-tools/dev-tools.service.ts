@@ -83,7 +83,7 @@ export class DevToolsService {
     }
 
     // Get IPNI settings from config
-    const { enableIpni } = this.dealService.getTestingDealOptions();
+    const { enableIpni } = this.dealService.TESTING_DEAL_OPTIONS;
 
     this.logger.log(`Deal settings - IPNI: ${enableIpni}`);
 

@@ -422,7 +422,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
           }
         }
 
-        const dealOptions = this.dealService.getTestingDealOptions();
+        const dealOptions = this.dealService.TESTING_DEAL_OPTIONS;
 
         // Data-set-aware deal creation
         const minDataSets = this.configService.get("blockchain").minNumDataSetsForChecks;
@@ -616,7 +616,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     }
 
     const minDataSets = this.configService.get("blockchain").minNumDataSetsForChecks;
-    const dealOptions = this.dealService.getTestingDealOptions();
+    const dealOptions = this.dealService.TESTING_DEAL_OPTIONS;
     const baseDataSetMetadata = this.dealService.getBaseDataSetMetadata(dealOptions.enableIpni);
 
     // Create AbortController for job timeout enforcement

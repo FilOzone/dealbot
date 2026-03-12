@@ -247,6 +247,7 @@ describe("JobsService schedule rows", () => {
     } as unknown as JobsServiceDeps[0];
 
     const dealService = {
+      TESTING_DEAL_OPTIONS: { enableIpni: true } as const,
       createDealForProvider: vi.fn(async (_provider: unknown, opts: { signal: AbortSignal }) => {
         // Wait for the abort signal to fire before throwing
         await new Promise<void>((resolve) => {
@@ -255,7 +256,6 @@ describe("JobsService schedule rows", () => {
         });
         throw new Error("The operation was aborted");
       }),
-      getTestingDealOptions: vi.fn(() => ({ enableIpni: false })),
       getBaseDataSetMetadata: vi.fn(() => ({})),
     };
 
@@ -916,8 +916,8 @@ describe("JobsService schedule rows", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2024-01-01T12:00:00Z"));
     const dealService = {
+      TESTING_DEAL_OPTIONS: { enableIpni: true } as const,
       createDealForProvider: vi.fn(async () => ({})),
-      getTestingDealOptions: vi.fn(() => ({ enableIpni: true })),
       getBaseDataSetMetadata: vi.fn(() => ({ withIpniIndexing: "" })),
       checkDataSetExists: vi.fn(async () => false),
     };
@@ -958,8 +958,8 @@ describe("JobsService schedule rows", () => {
     } as unknown as JobsServiceDeps[0];
 
     const dealService = {
+      TESTING_DEAL_OPTIONS: { enableIpni: true } as const,
       createDealForProvider: vi.fn(async () => ({})),
-      getTestingDealOptions: vi.fn(() => ({ enableIpni: true })),
       getBaseDataSetMetadata: vi.fn(() => ({ dealbotDataSetVersion: "v1", withIpniIndexing: "" })),
       checkDataSetExists: vi.fn(async () => true),
     };
@@ -1012,8 +1012,8 @@ describe("JobsService schedule rows", () => {
     } as unknown as JobsServiceDeps[0];
 
     const dealService = {
+      TESTING_DEAL_OPTIONS: { enableIpni: true } as const,
       createDealForProvider: vi.fn(async () => ({})),
-      getTestingDealOptions: vi.fn(() => ({ enableIpni: false })),
       getBaseDataSetMetadata: vi.fn(() => ({ dealbotDataSetVersion: "v1" })),
       checkDataSetExists: vi.fn(async () => false),
     };
@@ -1064,8 +1064,8 @@ describe("JobsService schedule rows", () => {
     } as unknown as JobsServiceDeps[0];
 
     const dealService = {
+      TESTING_DEAL_OPTIONS: { enableIpni: true } as const,
       createDealForProvider: vi.fn(async () => ({})),
-      getTestingDealOptions: vi.fn(() => ({ enableIpni: true })),
       getBaseDataSetMetadata: vi.fn(() => ({ withIpniIndexing: "" })),
       checkDataSetExists: vi.fn(async () => {
         throw new Error("lookup failed");
@@ -1116,8 +1116,8 @@ describe("JobsService schedule rows", () => {
     } as unknown as JobsServiceDeps[0];
 
     const dealService = {
+      TESTING_DEAL_OPTIONS: { enableIpni: true } as const,
       createDealForProvider: vi.fn(async () => ({})),
-      getTestingDealOptions: vi.fn(() => ({ enableIpni: false })),
       getBaseDataSetMetadata: vi.fn(() => ({ dealbotDataSetVersion: "v1" })),
       checkDataSetExists: vi.fn(async (_sp: string, _metadata: Record<string, string>, signal?: AbortSignal) => {
         vi.advanceTimersByTime(120_000);
@@ -1159,7 +1159,7 @@ describe("JobsService schedule rows", () => {
     vi.setSystemTime(new Date("2024-01-01T12:00:00Z"));
 
     const dealService = {
-      getTestingDealOptions: vi.fn(() => ({ enableIpni: true })),
+      TESTING_DEAL_OPTIONS: { enableIpni: true } as const,
       getBaseDataSetMetadata: vi.fn(() => ({ withIpniIndexing: "" })),
       checkDataSetExists: vi.fn(async () => false),
       createDataSetWithPiece: vi.fn(async () => {}),
@@ -1200,7 +1200,7 @@ describe("JobsService schedule rows", () => {
     } as unknown as JobsServiceDeps[0];
 
     const dealService = {
-      getTestingDealOptions: vi.fn(() => ({ enableIpni: false })),
+      TESTING_DEAL_OPTIONS: { enableIpni: true } as const,
       getBaseDataSetMetadata: vi.fn(() => ({ dealbotDataSetVersion: "v1" })),
       checkDataSetExists: vi.fn(async () => true),
       createDataSetWithPiece: vi.fn(async () => {}),
@@ -1241,7 +1241,7 @@ describe("JobsService schedule rows", () => {
     } as unknown as JobsServiceDeps[0];
 
     const dealService = {
-      getTestingDealOptions: vi.fn(() => ({ enableIpni: false })),
+      TESTING_DEAL_OPTIONS: { enableIpni: true } as const,
       getBaseDataSetMetadata: vi.fn(() => ({ dealbotDataSetVersion: "v1" })),
       checkDataSetExists: vi.fn(async () => false),
       createDataSetWithPiece: vi.fn(async () => {}),

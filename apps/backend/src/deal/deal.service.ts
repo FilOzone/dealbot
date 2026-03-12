@@ -48,6 +48,8 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
   private readonly blockchainConfig: IBlockchainConfig;
   private sharedSynapse?: Synapse;
 
+  readonly TESTING_DEAL_OPTIONS = { enableIpni: true } as const;
+
   constructor(
     private readonly dataSourceService: DataSourceService,
     private readonly configService: ConfigService<IConfig, true>,
@@ -79,7 +81,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
 
   async createDealsForAllProviders(): Promise<Deal[]> {
     const totalProviders = this.walletSdkService.getTestingProvidersCount();
-    const { enableIpni } = this.getTestingDealOptions();
+    const { enableIpni } = this.TESTING_DEAL_OPTIONS;
 
     this.logger.log(`Starting deal creation for ${totalProviders} providers`);
 
@@ -168,10 +170,6 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     const cleanup = async () => this.dataSourceService.cleanupRandomDataset(dataFile.name);
 
     return { preprocessed, cleanup };
-  }
-
-  getTestingDealOptions(): { enableIpni: boolean } {
-    return { enableIpni: true };
   }
 
   getBaseDataSetMetadata(enableIpni: boolean): Record<string, string> {
