@@ -106,7 +106,6 @@ describe("DealService", () => {
           walletPrivateKey: "mockKey",
           network: "calibration",
           walletAddress: "0x123",
-          enableIpniTesting: "always",
         };
       }
       return undefined;
@@ -733,7 +732,6 @@ describe("DealService", () => {
           walletPrivateKey: "mockKey",
           network: "calibration",
           walletAddress: "0x123",
-          enableIpniTesting: "always",
           dealbotDataSetVersion,
         });
 
@@ -858,7 +856,6 @@ describe("DealService", () => {
             walletPrivateKey: "mockKey",
             network: "calibration",
             walletAddress: "0x123",
-            enableIpniTesting: "always",
           };
         }
         return undefined;
@@ -908,8 +905,9 @@ describe("DealService", () => {
       expect(dealAddonsMock.preprocessDeal).toHaveBeenCalledWith(
         expect.objectContaining({
           dataFile,
-          enableIpni: expect.any(Boolean),
+          enableIpni: true,
         }),
+        undefined,
         undefined,
       );
 
@@ -992,17 +990,20 @@ describe("DealService", () => {
   });
 
   describe("getBaseDataSetMetadata", () => {
-    it("includes IPNI metadata key when IPNI is enabled", () => {
-      const metadata = service.getBaseDataSetMetadata(true);
+    it("always includes IPNI metadata key", () => {
+      const metadata = service.getBaseDataSetMetadata();
       expect(metadata).toEqual({ [METADATA_KEYS.WITH_IPFS_INDEXING]: "" });
     });
 
-    it("includes dataset version when configured", () => {
+    it("includes dataset version when configured along with IPNI metadata", () => {
       (service as any).blockchainConfig.dealbotDataSetVersion = "v1";
 
-      const metadata = service.getBaseDataSetMetadata(false);
+      const metadata = service.getBaseDataSetMetadata();
 
-      expect(metadata).toEqual({ dealbotDataSetVersion: "v1" });
+      expect(metadata).toEqual({
+        [METADATA_KEYS.WITH_IPFS_INDEXING]: "",
+        dealbotDataSetVersion: "v1",
+      });
     });
   });
 

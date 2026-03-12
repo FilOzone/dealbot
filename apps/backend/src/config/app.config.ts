@@ -28,10 +28,6 @@ export const configValidationSchema = Joi.object({
   WALLET_PRIVATE_KEY: Joi.string().required(),
   CHECK_DATASET_CREATION_FEES: Joi.boolean().default(true),
   USE_ONLY_APPROVED_PROVIDERS: Joi.boolean().default(true),
-  ENABLE_IPNI_TESTING: Joi.string()
-    .lowercase()
-    .valid("disabled", "random", "always", "true", "false")
-    .default("always"),
   DEALBOT_DATASET_VERSION: Joi.string().optional(),
   MIN_NUM_DATASETS_FOR_CHECKS: Joi.number().integer().min(1).default(1),
   PDP_SUBGRAPH_ENDPOINT: Joi.string().uri().optional().allow(""),
@@ -87,8 +83,6 @@ export const configValidationSchema = Joi.object({
   IPNI_VERIFICATION_POLLING_MS: Joi.number().min(250).default(2000), // 2 seconds between IPNI verification polls
 });
 
-export type IpniTestingMode = "disabled" | "random" | "always";
-
 export interface IAppConfig {
   env: string;
   runMode: "api" | "worker" | "both";
@@ -114,7 +108,6 @@ export interface IBlockchainConfig {
   walletPrivateKey: string;
   checkDatasetCreationFees: boolean;
   useOnlyApprovedProviders: boolean;
-  enableIpniTesting: IpniTestingMode;
   dealbotDataSetVersion?: string;
   minNumDataSetsForChecks: number;
   pdpSubgraphEndpoint?: string;
@@ -273,23 +266,6 @@ export interface IConfig {
   retrieval: IRetrievalConfig;
 }
 
-const parseIpniTestingMode = (value: string | undefined): IpniTestingMode => {
-  if (!value) {
-    return "always";
-  }
-  const normalized = value.trim().toLowerCase();
-  if (normalized === "true") {
-    return "always";
-  }
-  if (normalized === "false") {
-    return "disabled";
-  }
-  if (normalized === "disabled" || normalized === "random" || normalized === "always") {
-    return normalized;
-  }
-  return "always";
-};
-
 export function loadConfig(): IConfig {
   return {
     app: {
@@ -320,7 +296,6 @@ export function loadConfig(): IConfig {
       walletPrivateKey: process.env.WALLET_PRIVATE_KEY || "",
       checkDatasetCreationFees: process.env.CHECK_DATASET_CREATION_FEES !== "false",
       useOnlyApprovedProviders: process.env.USE_ONLY_APPROVED_PROVIDERS !== "false",
-      enableIpniTesting: parseIpniTestingMode(process.env.ENABLE_IPNI_TESTING),
       dealbotDataSetVersion: process.env.DEALBOT_DATASET_VERSION,
       minNumDataSetsForChecks: Number.parseInt(process.env.MIN_NUM_DATASETS_FOR_CHECKS || "1", 10),
       pdpSubgraphEndpoint: process.env.PDP_SUBGRAPH_ENDPOINT || "",
