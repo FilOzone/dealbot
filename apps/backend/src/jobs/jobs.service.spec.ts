@@ -1,4 +1,4 @@
-import { IsNull, Not } from "typeorm";
+import { JsonContains } from "typeorm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { IConfig } from "../config/app.config.js";
 import {
@@ -649,7 +649,7 @@ describe("JobsService schedule rows", () => {
 
     expect(storageProviderRepositoryMock.find).toHaveBeenCalledWith({
       select: { address: true },
-      where: { isActive: true, isApproved: true, metadata: { ipniIpfs: Not(IsNull()) } },
+      where: { isActive: true, isApproved: true, metadata: JsonContains({ data: { ipniIpfs: true } }) },
     });
   });
 

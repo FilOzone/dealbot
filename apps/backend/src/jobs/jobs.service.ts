@@ -4,7 +4,7 @@ import { InjectRepository } from "@nestjs/typeorm";
 import { InjectMetric } from "@willsoto/nestjs-prometheus";
 import { type Job, PgBoss, type SendOptions } from "pg-boss";
 import type { Counter, Gauge, Histogram } from "prom-client";
-import { IsNull, Not, type Repository } from "typeorm";
+import { JsonContains, type Repository } from "typeorm";
 import { type JobLogContext, type ProviderJobContext, toStructuredError } from "../common/logging.js";
 import { getMaintenanceWindowStatus } from "../common/maintenance-window.js";
 import type { IConfig } from "../config/app.config.js";
@@ -823,7 +823,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     const useOnlyApprovedProviders = this.configService.get("blockchain").useOnlyApprovedProviders;
     const baseWhereClause = {
       isActive: true,
-      metadata: { ipniIpfs: Not(IsNull()) },
+      metadata: JsonContains({ data: { ipniIpfs: true } }),
     };
     const providers = await this.storageProviderRepository.find({
       select: { address: true },
