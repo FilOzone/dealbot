@@ -1,6 +1,7 @@
 import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import type { Repository } from "typeorm";
+import { DEFAULT_DEAL_OPTIONS } from "../common/constants.js";
 import { type DealLogContext, toStructuredError } from "../common/logging.js";
 import { Deal } from "../database/entities/deal.entity.js";
 import { DealStatus, RetrievalStatus } from "../database/types.js";
@@ -83,7 +84,7 @@ export class DevToolsService {
     }
 
     // Get IPNI settings from config
-    const { enableIpni } = this.dealService.TESTING_DEAL_OPTIONS;
+    const { enableIpni } = DEFAULT_DEAL_OPTIONS;
 
     this.logger.log(`Deal settings - IPNI: ${enableIpni}`);
 

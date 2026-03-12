@@ -8,6 +8,7 @@ import { CID } from "multiformats/cid";
 import type { Repository } from "typeorm";
 import { awaitWithAbort } from "../common/abort-utils.js";
 import { buildUnixfsCar } from "../common/car-utils.js";
+import { DEFAULT_DEAL_OPTIONS } from "../common/constants.js";
 import { createFilecoinPinLogger } from "../common/filecoin-pin-logger.js";
 import { type DealLogContext, type ProviderJobContext, toStructuredError } from "../common/logging.js";
 import type { DataFile, Hex } from "../common/types.js";
@@ -48,8 +49,6 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
   private readonly blockchainConfig: IBlockchainConfig;
   private sharedSynapse?: Synapse;
 
-  readonly TESTING_DEAL_OPTIONS = { enableIpni: true } as const;
-
   constructor(
     private readonly dataSourceService: DataSourceService,
     private readonly configService: ConfigService<IConfig, true>,
@@ -81,7 +80,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
 
   async createDealsForAllProviders(): Promise<Deal[]> {
     const totalProviders = this.walletSdkService.getTestingProvidersCount();
-    const { enableIpni } = this.TESTING_DEAL_OPTIONS;
+    const { enableIpni } = DEFAULT_DEAL_OPTIONS;
 
     this.logger.log(`Starting deal creation for ${totalProviders} providers`);
 

@@ -5,6 +5,7 @@ import { InjectMetric } from "@willsoto/nestjs-prometheus";
 import { type Job, PgBoss, type SendOptions } from "pg-boss";
 import type { Counter, Gauge, Histogram } from "prom-client";
 import { JsonContains, type Repository } from "typeorm";
+import { DEFAULT_DEAL_OPTIONS } from "../common/constants.js";
 import { type JobLogContext, type ProviderJobContext, toStructuredError } from "../common/logging.js";
 import { getMaintenanceWindowStatus } from "../common/maintenance-window.js";
 import type { IConfig } from "../config/app.config.js";
@@ -422,7 +423,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
           }
         }
 
-        const dealOptions = this.dealService.TESTING_DEAL_OPTIONS;
+        const dealOptions = DEFAULT_DEAL_OPTIONS;
 
         // Data-set-aware deal creation
         const minDataSets = this.configService.get("blockchain").minNumDataSetsForChecks;
@@ -616,7 +617,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     }
 
     const minDataSets = this.configService.get("blockchain").minNumDataSetsForChecks;
-    const dealOptions = this.dealService.TESTING_DEAL_OPTIONS;
+    const dealOptions = DEFAULT_DEAL_OPTIONS;
     const baseDataSetMetadata = this.dealService.getBaseDataSetMetadata(dealOptions.enableIpni);
 
     // Create AbortController for job timeout enforcement
