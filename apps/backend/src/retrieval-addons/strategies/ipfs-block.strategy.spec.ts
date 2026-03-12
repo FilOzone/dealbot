@@ -34,9 +34,7 @@ function createStrategy() {
 
   const walletSdkService = {
     getProviderInfo: vi.fn().mockReturnValue({
-      products: {
-        PDP: { data: { serviceURL: "https://sp.example.com" } },
-      },
+      pdp: { serviceURL: "https://sp.example.com" },
     }),
   };
 
