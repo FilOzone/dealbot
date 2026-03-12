@@ -295,7 +295,11 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
          */
         ipniValidation: { enabled: false },
         onProgress: async (event) => {
-          this.logger.debug(`Upload progress event: ${event.type}`);
+          this.logger.debug({
+            ...dealLogContext,
+            event: "upload_progress",
+            message: `Upload progress: ${event.type}`,
+          });
           switch (event.type) {
             case "onUploadComplete": {
               deal.uploadEndTime = new Date();
@@ -445,12 +449,6 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       } else if (retrievalTest.summary.totalMethods === 0) {
         throw new Error("No retrieval methods to test");
       } else {
-        // dataStorageCheckDuration = retrievalTest.testedAt - deal.uploadEndTime
-        // retrievals were successful.. lets log some stats
-        this.logger.log(
-          `Retrieval test completed in ${retrievalTest.testedAt.getTime() - retrievalStartTime}ms: ` +
-            `${retrievalTest.summary.successfulMethods}/${retrievalTest.summary.totalMethods} successful`,
-        );
         this.logger.log({
           ...dealLogContext,
           event: "deal_creation_retrieval_test_completed",
