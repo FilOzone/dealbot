@@ -51,7 +51,7 @@ describe("DealService", () => {
 
   const mockRootCid = "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi";
   type UploadProgressEvent =
-    | { type: "onUploadComplete"; data: { pieceCid: string } }
+    | { type: "onStored"; data: { pieceCid: string } }
     | { type: "onPieceAdded"; data: { txHash: string } }
     | { type: "onPieceConfirmed"; data: { pieceIds: number[] } };
   type ExecuteUploadOptions = {
@@ -69,7 +69,7 @@ describe("DealService", () => {
       return;
     }
 
-    await onProgress({ type: "onUploadComplete", data: { pieceCid: "bafk-uploaded" } });
+    await onProgress({ type: "onStored", data: { pieceCid: "bafk-uploaded" } });
     advanceTimersIfFake(2000);
     await onProgress({ type: "onPieceAdded", data: { txHash: "0xhash" } });
     advanceTimersIfFake(3000);
@@ -212,7 +212,17 @@ describe("DealService", () => {
         description: "Test Provider",
         isActive: true,
         isApproved: true,
-        pdp: {}, // TODO
+        pdp: {
+          serviceURL: 'todo',
+          minPieceSizeInBytes: 0n,
+          maxPieceSizeInBytes: 100n,
+          storagePricePerTibPerDay: 1n,
+          minProvingPeriodInEpochs: 1n,
+          location: 'todo',
+          paymentTokenAddress: '0xtodo',
+          ipniPiece: true,
+          ipniIpfs: true,
+        },
       };
       mockDealInput = {
         processedData: { name: "test.txt", size: 2048, data: Buffer.from("test") },
@@ -585,10 +595,10 @@ describe("DealService", () => {
         dataSetId: "dataset-123",
       });
 
-      // Upload fires onUploadComplete and onPieceAdded, but rejects before onPieceConfirmed
+      // Upload fires onStored and onPieceAdded, but rejects before onPieceConfirmed
       (executeUpload as Mock).mockImplementation(
         async (_service: unknown, _data: unknown, _rootCid: unknown, options?: ExecuteUploadOptions) => {
-          await options?.onProgress?.({ type: "onUploadComplete", data: { pieceCid: "bafk-uploaded" } });
+          await options?.onProgress?.({ type: "onStored", data: { pieceCid: "bafk-uploaded" } });
           await options?.onProgress?.({ type: "onPieceAdded", data: { txHash: "0xhash" } });
           throw new Error("timed out waiting for piece confirmation");
         },
@@ -1020,7 +1030,17 @@ describe("DealService", () => {
       description: "Test Provider",
       isActive: true,
       isApproved: true,
-      // TODO
+      pdp: {
+        serviceURL: 'todo',
+        minPieceSizeInBytes: 0n,
+        maxPieceSizeInBytes: 100n,
+        storagePricePerTibPerDay: 1n,
+        minProvingPeriodInEpochs: 1n,
+        location: 'todo',
+        paymentTokenAddress: '0xtodo',
+        ipniPiece: true,
+        ipniIpfs: true,
+      },
     };
 
     it("throws when provider is not found in registry", async () => {
@@ -1121,7 +1141,7 @@ describe("DealService", () => {
       } as unknown as Synapse);
 
       (executeUpload as Mock).mockImplementation(async (_s, _d, _r, opts) => {
-        await opts?.onProgress?.({ type: "onUploadComplete", data: { pieceCid: "bafk" } });
+        await opts?.onProgress?.({ type: "onStored", data: { pieceCid: "bafk" } });
       });
 
       await expect(service.createDataSetWithPiece("0xprovider", {})).resolves.toBeUndefined();
