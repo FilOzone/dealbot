@@ -4,7 +4,7 @@ import { InjectRepository } from "@nestjs/typeorm";
 import { InjectMetric } from "@willsoto/nestjs-prometheus";
 import { type Job, PgBoss, type SendOptions } from "pg-boss";
 import type { Counter, Gauge, Histogram } from "prom-client";
-import { JsonContains, type Repository } from "typeorm";
+import type { Repository } from "typeorm";
 import { DEFAULT_DEAL_OPTIONS } from "../common/constants.js";
 import { type JobLogContext, type ProviderJobContext, toStructuredError } from "../common/logging.js";
 import { getMaintenanceWindowStatus } from "../common/maintenance-window.js";
@@ -822,13 +822,11 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     } = this.getIntervalSecondsForRates();
 
     const useOnlyApprovedProviders = this.configService.get("blockchain").useOnlyApprovedProviders;
-    const baseWhereClause = {
-      isActive: true,
-      metadata: JsonContains({ data: { ipniIpfs: true } }),
-    };
+    // Active providers are guaranteed to support ipniIpfs
+    // as validated by WalletSdkService.loadProvidersInternal()
     const providers = await this.storageProviderRepository.find({
       select: { address: true },
-      where: useOnlyApprovedProviders ? { ...baseWhereClause, isApproved: true } : { ...baseWhereClause },
+      where: useOnlyApprovedProviders ? { isActive: true, isApproved: true } : { isActive: true },
     });
     const providerAddresses = providers.map((provider) => provider.address);
 
