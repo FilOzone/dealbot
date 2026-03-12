@@ -20,6 +20,7 @@ import {
   ProviderWindowPerformanceDto,
 } from "../dto/provider-performance.dto.js";
 import { ProvidersService } from "../services/providers.service.js";
+import type { DateString } from "../utils/time-window-parser.js";
 
 /**
  * Public API controller for storage provider metrics
@@ -228,8 +229,8 @@ export class ProvidersController {
   async getProviderWindowPerformance(
     @Param("spAddress") spAddress: string,
     @Query("preset") preset?: string,
-    @Query("startDate") startDate?: string,
-    @Query("endDate") endDate?: string,
+    @Query("startDate") startDate?: DateString,
+    @Query("endDate") endDate?: DateString,
   ): Promise<ProviderWindowPerformanceDto> {
     this.logger.debug(`Getting window performance for ${spAddress}: preset=${preset}, dates=${startDate}-${endDate}`);
 
