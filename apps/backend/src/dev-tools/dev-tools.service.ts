@@ -1,7 +1,6 @@
 import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import type { Repository } from "typeorm";
-import { DEFAULT_DEAL_OPTIONS } from "../common/constants.js";
 import { type DealLogContext, toStructuredError } from "../common/logging.js";
 import { Deal } from "../database/entities/deal.entity.js";
 import { DealStatus, RetrievalStatus } from "../database/types.js";
@@ -83,10 +82,8 @@ export class DevToolsService {
       throw new BadRequestException(`Storage provider is missing providerId: ${spAddress}`);
     }
 
-    // Get IPNI settings from config
-    const { enableIpni } = DEFAULT_DEAL_OPTIONS;
-
-    this.logger.log(`Deal settings - IPNI: ${enableIpni}`);
+    // IPNI is always enabled for all deals
+    this.logger.log("Deal settings - IPNI: true");
 
     // Create a pending deal record first so we can return the ID immediately
     const pendingDeal = this.dealRepository.create({
@@ -110,7 +107,7 @@ export class DevToolsService {
     this.logger.log(`Created pending deal ${dealId}, starting background processing`);
 
     // Fire off the deal creation in the background (don't await)
-    this.processDealInBackground(dealId, providerInfo, enableIpni, dealLogContext).catch((err) => {
+    this.processDealInBackground(dealId, providerInfo, dealLogContext).catch((err) => {
       this.logger.error({
         ...dealLogContext,
         event: "background_deal_processing_failed",
@@ -137,7 +134,6 @@ export class DevToolsService {
   private async processDealInBackground(
     dealId: string,
     providerInfo: ReturnType<typeof this.walletSdkService.getProviderInfo>,
-    enableIpni: boolean,
     dealLogContext: DealLogContext,
   ): Promise<void> {
     if (!providerInfo || providerInfo.id == null) {
@@ -145,7 +141,6 @@ export class DevToolsService {
     }
     try {
       const deal = await this.dealService.createDealForProvider(providerInfo, {
-        enableIpni,
         existingDealId: dealId,
         logContext: {
           jobId: "dev_tools_manual_deal",

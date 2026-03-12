@@ -990,17 +990,20 @@ describe("DealService", () => {
   });
 
   describe("getBaseDataSetMetadata", () => {
-    it("includes IPNI metadata key when IPNI is enabled", () => {
-      const metadata = service.getBaseDataSetMetadata(true);
+    it("always includes IPNI metadata key", () => {
+      const metadata = service.getBaseDataSetMetadata();
       expect(metadata).toEqual({ [METADATA_KEYS.WITH_IPFS_INDEXING]: "" });
     });
 
-    it("includes dataset version when configured", () => {
+    it("includes dataset version when configured along with IPNI metadata", () => {
       (service as any).blockchainConfig.dealbotDataSetVersion = "v1";
 
-      const metadata = service.getBaseDataSetMetadata(false);
+      const metadata = service.getBaseDataSetMetadata();
 
-      expect(metadata).toEqual({ dealbotDataSetVersion: "v1" });
+      expect(metadata).toEqual({
+        [METADATA_KEYS.WITH_IPFS_INDEXING]: "",
+        dealbotDataSetVersion: "v1",
+      });
     });
   });
 

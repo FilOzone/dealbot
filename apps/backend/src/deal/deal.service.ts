@@ -1,14 +1,13 @@
-import { randomUUID } from "node:crypto";
 import { METADATA_KEYS, RPC_URLS, SIZE_CONSTANTS, Synapse } from "@filoz/synapse-sdk";
 import { Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
 import { cleanupSynapseService, executeUpload } from "filecoin-pin";
 import { CID } from "multiformats/cid";
+import { randomUUID } from "node:crypto";
 import type { Repository } from "typeorm";
 import { awaitWithAbort } from "../common/abort-utils.js";
 import { buildUnixfsCar } from "../common/car-utils.js";
-import { DEFAULT_DEAL_OPTIONS } from "../common/constants.js";
 import { createFilecoinPinLogger } from "../common/filecoin-pin-logger.js";
 import { type DealLogContext, type ProviderJobContext, toStructuredError } from "../common/logging.js";
 import type { DataFile, Hex } from "../common/types.js";
@@ -80,11 +79,10 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
 
   async createDealsForAllProviders(): Promise<Deal[]> {
     const totalProviders = this.walletSdkService.getTestingProvidersCount();
-    const { enableIpni } = DEFAULT_DEAL_OPTIONS;
 
     this.logger.log(`Starting deal creation for ${totalProviders} providers`);
 
-    const { preprocessed, cleanup } = await this.prepareDealInput(enableIpni);
+    const { preprocessed, cleanup } = await this.prepareDealInput();
 
     try {
       const synapse = this.sharedSynapse ?? (await this.createSynapseInstance());
@@ -115,7 +113,6 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
   async createDealForProvider(
     providerInfo: ProviderInfoEx,
     options: {
-      enableIpni: boolean;
       existingDealId?: string;
       signal?: AbortSignal;
       extraDataSetMetadata?: Record<string, string>;
@@ -123,11 +120,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     },
   ): Promise<Deal> {
     options.signal?.throwIfAborted();
-    const { preprocessed, cleanup } = await this.prepareDealInput(
-      options.enableIpni,
-      options.signal,
-      options.logContext,
-    );
+    const { preprocessed, cleanup } = await this.prepareDealInput(options.signal, options.logContext);
 
     try {
       const synapse = this.sharedSynapse ?? (await this.createSynapseInstance());
@@ -149,9 +142,9 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
 
   /**
    * Prepare a deal payload using the same data-source and preprocessing logic as normal deal creation.
+   * IPNI is always enabled for all deals.
    */
   async prepareDealInput(
-    enableIpni: boolean,
     signal?: AbortSignal,
     logContext?: ProviderJobContext,
   ): Promise<{ preprocessed: DealPreprocessingResult; cleanup: () => Promise<void> }> {
@@ -159,7 +152,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
 
     const preprocessed = await this.dealAddonsService.preprocessDeal(
       {
-        enableIpni,
+        enableIpni: true,
         dataFile,
       },
       signal,
@@ -171,11 +164,11 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     return { preprocessed, cleanup };
   }
 
-  getBaseDataSetMetadata(enableIpni: boolean): Record<string, string> {
-    const metadata: Record<string, string> = {};
-    if (enableIpni) {
-      metadata[METADATA_KEYS.WITH_IPFS_INDEXING] = "";
-    }
+  getBaseDataSetMetadata(): Record<string, string> {
+    // IPNI is always enabled for all deals
+    const metadata: Record<string, string> = {
+      [METADATA_KEYS.WITH_IPFS_INDEXING]: "",
+    };
     if (this.blockchainConfig.dealbotDataSetVersion) {
       metadata.dealbotDataSetVersion = this.blockchainConfig.dealbotDataSetVersion;
     }

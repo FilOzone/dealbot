@@ -5,7 +5,6 @@ import { InjectMetric } from "@willsoto/nestjs-prometheus";
 import { type Job, PgBoss, type SendOptions } from "pg-boss";
 import type { Counter, Gauge, Histogram } from "prom-client";
 import type { Repository } from "typeorm";
-import { DEFAULT_DEAL_OPTIONS } from "../common/constants.js";
 import { type JobLogContext, type ProviderJobContext, toStructuredError } from "../common/logging.js";
 import { getMaintenanceWindowStatus } from "../common/maintenance-window.js";
 import type { IConfig } from "../config/app.config.js";
@@ -423,11 +422,9 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
           }
         }
 
-        const dealOptions = DEFAULT_DEAL_OPTIONS;
-
         // Data-set-aware deal creation
         const minDataSets = this.configService.get("blockchain").minNumDataSetsForChecks;
-        const baseDataSetMetadata = this.dealService.getBaseDataSetMetadata(dealOptions.enableIpni);
+        const baseDataSetMetadata = this.dealService.getBaseDataSetMetadata();
         let extraDataSetMetadata: Record<string, string> | undefined;
 
         if (minDataSets > 1) {
@@ -468,7 +465,6 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
 
         abortController.signal.throwIfAborted();
         await this.dealService.createDealForProvider(provider, {
-          ...dealOptions,
           signal: abortController.signal,
           extraDataSetMetadata,
           logContext: {
@@ -617,8 +613,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     }
 
     const minDataSets = this.configService.get("blockchain").minNumDataSetsForChecks;
-    const dealOptions = DEFAULT_DEAL_OPTIONS;
-    const baseDataSetMetadata = this.dealService.getBaseDataSetMetadata(dealOptions.enableIpni);
+    const baseDataSetMetadata = this.dealService.getBaseDataSetMetadata();
 
     // Create AbortController for job timeout enforcement
     const abortController = new AbortController();
