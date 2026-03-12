@@ -82,7 +82,6 @@ export class DevToolsService {
       throw new BadRequestException(`Storage provider is missing providerId: ${spAddress}`);
     }
 
-
     // Create a pending deal record first so we can return the ID immediately
     const pendingDeal = this.dealRepository.create({
       spAddress,
