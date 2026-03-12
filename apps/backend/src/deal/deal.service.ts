@@ -1,10 +1,10 @@
+import { randomUUID } from "node:crypto";
 import { METADATA_KEYS, RPC_URLS, SIZE_CONSTANTS, Synapse } from "@filoz/synapse-sdk";
 import { Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
 import { cleanupSynapseService, executeUpload } from "filecoin-pin";
 import { CID } from "multiformats/cid";
-import { randomUUID } from "node:crypto";
 import type { Repository } from "typeorm";
 import { awaitWithAbort } from "../common/abort-utils.js";
 import { buildUnixfsCar } from "../common/car-utils.js";
