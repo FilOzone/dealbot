@@ -1,10 +1,10 @@
-import { randomUUID } from "node:crypto";
 import { METADATA_KEYS, RPC_URLS, SIZE_CONSTANTS, Synapse } from "@filoz/synapse-sdk";
 import { Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
 import { cleanupSynapseService, executeUpload } from "filecoin-pin";
 import { CID } from "multiformats/cid";
+import { randomUUID } from "node:crypto";
 import type { Repository } from "typeorm";
 import { awaitWithAbort } from "../common/abort-utils.js";
 import { buildUnixfsCar } from "../common/car-utils.js";
@@ -122,7 +122,11 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     },
   ): Promise<Deal> {
     options.signal?.throwIfAborted();
-    const { preprocessed, cleanup } = await this.prepareDealInput(options.enableIpni, options.signal);
+    const { preprocessed, cleanup } = await this.prepareDealInput(
+      options.enableIpni,
+      options.signal,
+      options.logContext,
+    );
 
     try {
       const synapse = this.sharedSynapse ?? (await this.createSynapseInstance());
@@ -148,6 +152,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
   async prepareDealInput(
     enableIpni: boolean,
     signal?: AbortSignal,
+    logContext?: ProviderJobContext,
   ): Promise<{ preprocessed: DealPreprocessingResult; cleanup: () => Promise<void> }> {
     const dataFile = await this.fetchDataFile(SIZE_CONSTANTS.MIN_UPLOAD_SIZE, SIZE_CONSTANTS.MAX_UPLOAD_SIZE);
 
@@ -157,6 +162,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
         dataFile,
       },
       signal,
+      logContext,
     );
 
     const cleanup = async () => this.dataSourceService.cleanupRandomDataset(dataFile.name);
@@ -165,9 +171,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
   }
 
   getTestingDealOptions(): { enableIpni: boolean } {
-    const enableIpni = this.getIpniEnabled(this.blockchainConfig.enableIpniTesting);
-
-    return { enableIpni };
+    return { enableIpni: true };
   }
 
   getBaseDataSetMetadata(enableIpni: boolean): Record<string, string> {
@@ -843,16 +847,5 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
 
   private async fetchDataFile(minSize: number, maxSize: number): Promise<DataFile> {
     return await this.dataSourceService.generateRandomDataset(minSize, maxSize);
-  }
-
-  private getIpniEnabled(mode: IBlockchainConfig["enableIpniTesting"]): boolean {
-    switch (mode) {
-      case "disabled":
-        return false;
-      case "random":
-        return Math.random() > 0.5;
-      default:
-        return true;
-    }
   }
 }

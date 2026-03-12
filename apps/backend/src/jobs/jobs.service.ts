@@ -4,7 +4,7 @@ import { InjectRepository } from "@nestjs/typeorm";
 import { InjectMetric } from "@willsoto/nestjs-prometheus";
 import { type Job, PgBoss, type SendOptions } from "pg-boss";
 import type { Counter, Gauge, Histogram } from "prom-client";
-import type { Repository } from "typeorm";
+import { IsNull, Not, type Repository } from "typeorm";
 import { type JobLogContext, type ProviderJobContext, toStructuredError } from "../common/logging.js";
 import { getMaintenanceWindowStatus } from "../common/maintenance-window.js";
 import type { IConfig } from "../config/app.config.js";
@@ -821,9 +821,13 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     } = this.getIntervalSecondsForRates();
 
     const useOnlyApprovedProviders = this.configService.get("blockchain").useOnlyApprovedProviders;
+    const baseWhereClause = {
+      isActive: true,
+      metadata: { ipniIpfs: Not(IsNull()) },
+    };
     const providers = await this.storageProviderRepository.find({
       select: { address: true },
-      where: useOnlyApprovedProviders ? { isActive: true, isApproved: true } : { isActive: true },
+      where: useOnlyApprovedProviders ? { ...baseWhereClause, isApproved: true } : { ...baseWhereClause },
     });
     const providerAddresses = providers.map((provider) => provider.address);
 

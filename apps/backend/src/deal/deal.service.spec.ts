@@ -106,7 +106,6 @@ describe("DealService", () => {
           walletPrivateKey: "mockKey",
           network: "calibration",
           walletAddress: "0x123",
-          enableIpniTesting: "always",
         };
       }
       return undefined;
@@ -733,7 +732,6 @@ describe("DealService", () => {
           walletPrivateKey: "mockKey",
           network: "calibration",
           walletAddress: "0x123",
-          enableIpniTesting: "always",
           dealbotDataSetVersion,
         });
 
@@ -858,7 +856,6 @@ describe("DealService", () => {
             walletPrivateKey: "mockKey",
             network: "calibration",
             walletAddress: "0x123",
-            enableIpniTesting: "always",
           };
         }
         return undefined;
@@ -908,8 +905,9 @@ describe("DealService", () => {
       expect(dealAddonsMock.preprocessDeal).toHaveBeenCalledWith(
         expect.objectContaining({
           dataFile,
-          enableIpni: expect.any(Boolean),
+          enableIpni: true,
         }),
+        undefined,
         undefined,
       );
 
