@@ -976,10 +976,32 @@ describe("DealService", () => {
   });
 
   describe("checkDataSetExists", () => {
+    const mockProviderInfo: PDPProviderEx = {
+      id: 101n,
+      serviceProvider: "0xprovider",
+      payee: "0x100",
+      name: "Test Provider",
+      description: "Test Provider",
+      isActive: true,
+      isApproved: true,
+      pdp: {
+        serviceURL: 'todo',
+        minPieceSizeInBytes: 0n,
+        maxPieceSizeInBytes: 100n,
+        storagePricePerTibPerDay: 1n,
+        minProvingPeriodInEpochs: 1n,
+        location: 'todo',
+        paymentTokenAddress: '0xtodo',
+        ipniPiece: true,
+        ipniIpfs: true,
+      },
+    };
+
     it("returns true when createContext returns a valid dataSetId", async () => {
+      vi.spyOn(mockWalletSdkService, "getProviderInfo").mockReturnValue(mockProviderInfo);
       const synapseMock = {
         storage: {
-          createContext: vi.fn().mockResolvedValue({ dataSetId: 1 }),
+          createContext: vi.fn().mockResolvedValue({ dataSetId: 1n }),
         },
       };
 
@@ -989,12 +1011,13 @@ describe("DealService", () => {
 
       expect(result).toBe(true);
       expect(synapseMock.storage.createContext).toHaveBeenCalledWith({
-        providerAddress: "0xprovider",
+        providerId: 101n,
         metadata: { dealbotDS: "1" },
       });
     });
 
     it("returns false when createContext returns undefined dataSetId", async () => {
+      vi.spyOn(mockWalletSdkService, "getProviderInfo").mockReturnValue(mockProviderInfo);
       const synapseMock = {
         storage: {
           createContext: vi.fn().mockResolvedValue({ dataSetId: undefined }),
