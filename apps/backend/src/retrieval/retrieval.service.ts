@@ -176,7 +176,7 @@ export class RetrievalService {
       ...logContext,
       jobId: logContext?.jobId,
       dealId: deal.id,
-      providerId: typeof provider.providerId === 'number' ? BigInt(provider.providerId) : logContext?.providerId,
+      providerId: provider.providerId ?? logContext?.providerId,
       providerAddress: deal.spAddress,
       pieceCid: deal.pieceCid,
       ipfsRootCID: deal.metadata?.[ServiceType.IPFS_PIN]?.rootCID,
