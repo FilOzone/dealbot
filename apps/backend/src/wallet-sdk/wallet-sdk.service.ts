@@ -164,7 +164,7 @@ export class WalletSdkService implements OnModuleInit {
         if (isActivePDP && supportsPDP && !isDevTagged && !supportsIpniIpfs) {
           this.logger.warn({
             event: "provider_missing_ipni_support",
-            message: `Active PDP provider ${info.id} does not support ipniIpfs and will be excluded from deals`,
+            message: "Active PDP provider does not support ipniIpfs and will be excluded from deals",
             providerId: info.id,
             providerAddress: info.serviceProvider,
           });

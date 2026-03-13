@@ -308,7 +308,7 @@ export class DealAddonsService {
       try {
         this.logger.debug({
           event: "deal_addon_executing",
-          message: "Executing add-on",
+          message: "Executing add-on for pre-processing data",
           addon: addon.name,
         });
 
@@ -334,7 +334,7 @@ export class DealAddonsService {
 
         this.logger.debug({
           event: "deal_addon_completed",
-          message: "Add-on completed",
+          message: "Add-on completed pre-processing data",
           addon: addon.name,
           sizeBytes: result.size,
           metadataKeys: Object.keys(result.metadata),
@@ -342,7 +342,7 @@ export class DealAddonsService {
       } catch (error) {
         this.logger.error({
           event: "deal_addon_failed",
-          message: `Add-on ${addon.name} failed`,
+          message: "Add-on failed to per-process data",
           addon: addon.name,
           error: toStructuredError(error),
         });
