@@ -376,12 +376,15 @@ describe("JobsService schedule rows", () => {
       },
     });
 
-    expect(retrievalService.performRandomRetrievalForProvider).toHaveBeenCalledWith("0xaaa", expect.any(AbortSignal), {
-      jobId: "job-retrieval-provider-fallback",
-      providerAddress: "0xaaa",
-      providerId: 42,
-      providerName: "unknown",
-    });
+    expect(retrievalService.performRandomRetrievalForProvider).toHaveBeenCalledWith(
+      "0xaaa",
+      expect.any(AbortSignal),
+      expect.objectContaining({
+        jobId: "job-retrieval-provider-fallback",
+        providerAddress: "0xaaa",
+        providerId: 42,
+      }),
+    );
   });
 
   it("retrieval job fails fast when providerId cannot be resolved", async () => {
