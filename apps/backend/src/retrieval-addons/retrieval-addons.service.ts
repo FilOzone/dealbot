@@ -152,6 +152,8 @@ export class RetrievalAddonsService {
           message: `Failed to construct URL with strategy ${strategy.name}`,
           strategy: strategy.name,
           dealId: config.deal.id,
+          providerId: config.deal.storageProvider?.providerId,
+          providerAddress: config.storageProvider,
           error: toStructuredError(error),
         });
         throw error;
