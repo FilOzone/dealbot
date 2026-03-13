@@ -249,7 +249,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       deal.storageProvider = await this.storageProviderRepository.findOne({
         where: { address: deal.spAddress },
       });
-      dealLogContext.providerId = typeof deal.storageProvider?.providerId === 'number' ? BigInt(deal.storageProvider?.providerId) : dealLogContext.providerId;
+      dealLogContext.providerId = deal.storageProvider?.providerId ?? dealLogContext.providerId;
       providerLabels = buildCheckMetricLabels({
         checkType,
         providerId: deal.storageProvider?.providerId,

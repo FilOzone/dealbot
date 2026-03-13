@@ -134,7 +134,7 @@ export class IpniVerificationService {
 
   private buildExpectedProviderInfo(storageProvider: StorageProvider): PDPProvider {
     return {
-      id: storageProvider.providerId ? BigInt(storageProvider.providerId) : 0n,
+      id: storageProvider.providerId ?? 0n,
       serviceProvider: storageProvider.address as `0x${string}`,
       payee: storageProvider.payee as `0x${string}`,
       name: storageProvider.name,
