@@ -559,7 +559,7 @@ export class WalletSdkService implements OnModuleInit {
       const entities = Array.from(dedupedProviders.values()).map((info) =>
         this.spRepository.create({
           address: info.serviceProvider as Hex,
-          providerId: Number(info.id),
+          providerId: info.id,
           name: info.name,
           description: info.description,
           payee: info.payee,

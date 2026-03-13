@@ -9,7 +9,7 @@ export type CheckMetricLabels = {
 
 export type CheckMetricLabelInput = {
   checkType: CheckType;
-  providerId?: number | null;
+  providerId?: bigint | null;
   providerIsApproved?: boolean | null;
 };
 

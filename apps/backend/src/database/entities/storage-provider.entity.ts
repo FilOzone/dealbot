@@ -8,7 +8,7 @@ export class StorageProvider {
   address!: string;
 
   @Column({ nullable: true })
-  providerId?: number;
+  providerId?: bigint;
 
   @Column()
   name!: string;

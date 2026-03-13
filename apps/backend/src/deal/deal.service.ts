@@ -542,7 +542,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     }
     const labels = buildCheckMetricLabels({
       checkType: "dataSetCreation",
-      providerId: Number(providerInfo.id),
+      providerId: providerInfo.id,
       providerIsApproved: providerInfo.isApproved,
     });
 

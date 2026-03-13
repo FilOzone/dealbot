@@ -85,8 +85,8 @@ describe("WalletSdkService", () => {
     expect(options).toEqual(expect.objectContaining({ conflictPaths: ["address"] }));
     expect(entities).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ address: "0xdup", providerId: 21, name: "new" }),
-        expect.objectContaining({ address: "0xother", providerId: 22 }),
+        expect.objectContaining({ address: "0xdup", providerId: 21n, name: "new" }),
+        expect.objectContaining({ address: "0xother", providerId: 22n }),
       ]),
     );
   });
@@ -112,7 +112,7 @@ describe("WalletSdkService", () => {
 
     const [entities] = repoMock.upsert.mock.calls[0];
     expect(entities).toEqual(
-      expect.arrayContaining([expect.objectContaining({ address: "0xdup2", providerId: 30, name: "active" })]),
+      expect.arrayContaining([expect.objectContaining({ address: "0xdup2", providerId: 30n, name: "active" })]),
     );
   });
 
@@ -142,7 +142,7 @@ describe("WalletSdkService", () => {
 
     const [entities] = repoMock.upsert.mock.calls[0];
     expect(entities).toEqual(
-      expect.arrayContaining([expect.objectContaining({ address: "0xdup3", providerId: 41, name: "second" })]),
+      expect.arrayContaining([expect.objectContaining({ address: "0xdup3", providerId: 41n, name: "second" })]),
     );
   });
 
