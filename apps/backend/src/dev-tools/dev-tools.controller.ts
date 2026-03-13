@@ -19,7 +19,12 @@ export class DevToolsController {
     description: "List of available storage providers for testing",
   })
   listProviders() {
-    this.logger.log("GET /api/dev/providers");
+    this.logger.log({
+      event: "api_request",
+      message: "GET /api/dev/providers",
+      endpoint: "/api/dev/providers",
+      method: "GET",
+    });
     return this.devToolsService.listProviders();
   }
 
@@ -43,7 +48,12 @@ export class DevToolsController {
     description: "Deal creation for all providers already in progress",
   })
   async createDealsForAllProviders(): Promise<CreateDealsAllResponseDto> {
-    this.logger.log("GET /api/dev/deals/create-all");
+    this.logger.log({
+      event: "api_request",
+      message: "GET /api/dev/deals/create-all",
+      endpoint: "/api/dev/deals/create-all",
+      method: "GET",
+    });
     return this.devToolsService.triggerDealsForAllProviders();
   }
 
@@ -70,7 +80,13 @@ export class DevToolsController {
   })
   @UsePipes(new ValidationPipe({ transform: true }))
   async triggerDeal(@Query() query: TriggerDealQueryDto): Promise<TriggerDealResponseDto> {
-    this.logger.log(`GET /api/dev/deal?spAddress=${query.spAddress}`);
+    this.logger.log({
+      event: "api_request",
+      message: "GET /api/dev/deal",
+      endpoint: "/api/dev/deal",
+      method: "GET",
+      spAddress: query.spAddress,
+    });
     return this.devToolsService.triggerDeal(query.spAddress);
   }
 
@@ -86,7 +102,13 @@ export class DevToolsController {
     description: "Deal not found",
   })
   async getDealStatus(@Param("dealId") dealId: string): Promise<TriggerDealResponseDto> {
-    this.logger.log(`GET /api/dev/deals/${dealId}`);
+    this.logger.log({
+      event: "api_request",
+      message: "GET /api/dev/deals/:dealId",
+      endpoint: "/api/dev/deals/:dealId",
+      method: "GET",
+      dealId,
+    });
     return this.devToolsService.getDeal(dealId);
   }
 
@@ -119,7 +141,14 @@ export class DevToolsController {
   })
   @UsePipes(new ValidationPipe({ transform: true }))
   async triggerRetrieval(@Query() query: TriggerRetrievalQueryDto): Promise<TriggerRetrievalResponseDto> {
-    this.logger.log(`GET /api/dev/retrieval?dealId=${query.dealId}&spAddress=${query.spAddress}`);
+    this.logger.log({
+      event: "api_request",
+      message: "GET /api/dev/retrieval",
+      endpoint: "/api/dev/retrieval",
+      method: "GET",
+      dealId: query.dealId,
+      spAddress: query.spAddress,
+    });
     return this.devToolsService.triggerRetrieval(query.dealId, query.spAddress);
   }
 }

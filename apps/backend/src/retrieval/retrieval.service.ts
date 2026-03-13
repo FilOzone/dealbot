@@ -47,11 +47,18 @@ export class RetrievalService {
     const totalDeals = deals.length;
 
     if (totalDeals === 0) {
-      this.logger.warn("No deals available for retrieval testing");
+      this.logger.warn({
+        event: "retrieval_batch_skipped",
+        message: "No deals available for retrieval testing",
+      });
       return [];
     }
 
-    this.logger.log(`Starting retrieval tests for ${totalDeals} deals`);
+    this.logger.log({
+      event: "retrieval_batch_started",
+      message: "Starting retrieval tests for deals",
+      count: totalDeals,
+    });
 
     const results = await this.processRetrievalsInParallel(deals, {
       maxConcurrency: 10,
@@ -61,7 +68,12 @@ export class RetrievalService {
     const allRetrievals = results.flat();
     const successfulRetrievals = allRetrievals.filter((r) => r.status === RetrievalStatus.SUCCESS);
 
-    this.logger.log(`Retrieval tests completed: ${successfulRetrievals.length}/${allRetrievals.length} successful`);
+    this.logger.log({
+      event: "retrieval_batch_completed",
+      message: "Retrieval tests completed",
+      successfulRetrievals: successfulRetrievals.length,
+      totalRetrievals: allRetrievals.length,
+    });
 
     return allRetrievals;
   }
@@ -111,7 +123,10 @@ export class RetrievalService {
     const results: Retrieval[][] = [];
     for (let i = 0; i < deals.length; i += maxConcurrency) {
       if (signal?.aborted) {
-        this.logger.warn("Retrieval job aborted. Skipping remaining deals.");
+        this.logger.warn({
+          event: "retrieval_batch_aborted",
+          message: "Retrieval job aborted. Skipping remaining deals.",
+        });
         break;
       }
 
@@ -144,7 +159,10 @@ export class RetrievalService {
       }
 
       if (signal?.aborted) {
-        this.logger.warn("Retrieval job aborted after batch completion. Skipping remaining deals.");
+        this.logger.warn({
+          event: "retrieval_batch_aborted_after_completion",
+          message: "Retrieval job aborted after batch completion. Skipping remaining deals.",
+        });
         break;
       }
     }
@@ -296,7 +314,11 @@ export class RetrievalService {
 
     if (!terminalStatus) {
       const message = `Missing terminal retrieval status for deal ${deal.id} (${deal.pieceCid ?? "unknown pieceCid"})`;
-      this.logger.error(message);
+      this.logger.error({
+        ...retrievalLogContext,
+        event: "retrieval_missing_terminal_status",
+        message,
+      });
       throw new Error(message);
     }
 
@@ -395,7 +417,10 @@ export class RetrievalService {
     });
 
     if (allDeals.length === 0) {
-      this.logger.warn("No deals available for retrieval testing");
+      this.logger.warn({
+        event: "retrieval_selection_empty",
+        message: "No deals available for retrieval testing",
+      });
       return [];
     }
 

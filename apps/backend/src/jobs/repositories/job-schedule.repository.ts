@@ -66,9 +66,11 @@ export class JobScheduleRepository {
   async deleteSchedulesForInactiveProviders(activeAddresses: string[]): Promise<string[]> {
     try {
       if (activeAddresses.length === 0) {
-        this.logger.warn(
-          "Deleting all provider schedules because activeAddresses is empty. Ensure this is intended to avoid mass deletion.",
-        );
+        this.logger.warn({
+          event: "delete_all_provider_schedules_warning",
+          message:
+            "Deleting all provider schedules because activeAddresses is empty. Ensure this is intended to avoid mass deletion.",
+        });
         const [rows] = (await this.dataSource.query(
           `
           DELETE FROM job_schedule_state

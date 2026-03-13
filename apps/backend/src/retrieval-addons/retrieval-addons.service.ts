@@ -39,7 +39,12 @@ export class RetrievalAddonsService {
   private registerAddons(): void {
     this.registerAddon(this.ipfsBlockRetrieval);
 
-    this.logger.log(`Registered ${this.addons.size} retrieval add-ons: ${Array.from(this.addons.keys()).join(", ")}`);
+    this.logger.log({
+      event: "retrieval_addons_registered",
+      message: "Retrieval add-ons registered",
+      count: this.addons.size,
+      addons: Array.from(this.addons.keys()),
+    });
   }
 
   /**
@@ -49,12 +54,21 @@ export class RetrievalAddonsService {
    */
   private registerAddon(addon: IRetrievalAddon): void {
     if (this.addons.has(addon.name)) {
-      this.logger.warn(`Retrieval add-on ${addon.name} is already registered, skipping`);
+      this.logger.warn({
+        event: "retrieval_addon_duplicate",
+        message: "Retrieval add-on already registered, skipping",
+        addon: addon.name,
+      });
       return;
     }
 
     this.addons.set(addon.name, addon);
-    this.logger.debug(`Registered retrieval add-on: ${addon.name} (priority: ${addon.priority})`);
+    this.logger.debug({
+      event: "retrieval_addon_registered",
+      message: "Registered retrieval add-on",
+      addon: addon.name,
+      priority: addon.priority,
+    });
   }
 
   /**

@@ -98,7 +98,10 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       return;
     }
 
-    this.logger.log("pg-boss mode enabled; initializing job scheduler");
+    this.logger.log({
+      event: "pgboss_initialization",
+      message: "Starting pg-boss initialization",
+    });
     const runMode = this.configService.get("app")?.runMode ?? "both";
     const schedulerEnabled = runMode !== "worker" && (this.configService.get("jobs")?.pgbossSchedulerEnabled ?? true);
     const workersEnabled = runMode !== "api";
@@ -132,13 +135,22 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     if (workersEnabled) {
       this.registerWorkers();
     } else {
-      this.logger.warn("pg-boss workers disabled; run mode is api.");
+      this.logger.warn({
+        event: "pgboss_workers_disabled",
+        message: "pg-boss workers disabled; run mode is api.",
+      });
     }
 
     if (!schedulerEnabled) {
-      this.logger.warn("pg-boss scheduler disabled; no enqueue loop will run.");
+      this.logger.warn({
+        event: "pgboss_scheduler_disabled",
+        message: "pg-boss scheduler disabled; no enqueue loop will run.",
+      });
       if (!workersEnabled) {
-        this.logger.warn("pg-boss workers disabled; no jobs will be processed.");
+        this.logger.warn({
+          event: "pgboss_workers_disabled",
+          message: "pg-boss workers disabled; no jobs will be processed.",
+        });
       }
       return;
     }
@@ -321,7 +333,11 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         async ([job]) => this.handleDataRetentionJob(job.data),
       )
       .catch((error) =>
-        this.logger.error(`Failed to register worker for data.retention.poll: ${error.message}`, error.stack),
+        this.logger.error({
+          event: "worker_register_failed",
+          message: "Failed to register worker for data.retention.poll",
+          error: toStructuredError(error),
+        }),
       );
     void this.boss
       .work(PROVIDERS_REFRESH_QUEUE, { batchSize: 1, pollingIntervalSeconds: workerPollSeconds }, async ([job]) =>
@@ -589,7 +605,10 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     void data;
     await this.recordJobExecution("providers_refresh", async () => {
       if (process.env.DEALBOT_DISABLE_CHAIN === "true") {
-        this.logger.warn("Chain integration disabled; skipping provider refresh job.");
+        this.logger.warn({
+          event: "chain_integration_disabled",
+          message: "Chain integration disabled; skipping provider refresh job.",
+        });
         return "success";
       }
       await this.walletSdkService.loadProviders();
@@ -711,7 +730,10 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
    */
   private async tick(): Promise<void> {
     if (this.tickPromise) {
-      this.logger.warn("Previous pg-boss scheduler tick still running; skipping");
+      this.logger.warn({
+        event: "pgboss_scheduler_tick_skipped",
+        message: "Previous pg-boss scheduler tick still running; skipping",
+      });
       return;
     }
     this.tickPromise = this.runTick();
@@ -935,7 +957,12 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
 
         // During maintenance, skip global jobs entirely.
         if (maintenance.active && !isSpJob) {
-          this.logger.log(`Skipping global job ${row.job_type} during maintenance`);
+          this.logger.log({
+            event: "global_job_enqueue_skipped",
+            message: `Skipping global job ${row.job_type} during maintenance`,
+            jobType: row.job_type,
+            maintenanceWindow: maintenance.window?.label,
+          });
           const newNextRunAt = new Date(now.getTime() + intervalMs);
           await this.jobScheduleRepository.advanceScheduleNextRun(manager, row.id, newNextRunAt);
           continue;

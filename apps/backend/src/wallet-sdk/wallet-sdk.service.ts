@@ -52,9 +52,11 @@ export class WalletSdkService implements OnModuleInit {
 
   async onModuleInit() {
     if (process.env.DEALBOT_DISABLE_CHAIN === "true") {
-      this.logger.warn(
-        "Chain integration disabled via DEALBOT_DISABLE_CHAIN=true; skipping Synapse initialization and provider loading.",
-      );
+      this.logger.warn({
+        event: "chain_integration_disabled",
+        message:
+          "Chain integration disabled via DEALBOT_DISABLE_CHAIN=true; skipping Synapse initialization and provider loading.",
+      });
       return;
     }
     await this.initializeServices();
@@ -112,7 +114,10 @@ export class WalletSdkService implements OnModuleInit {
 
   private async loadProvidersInternal(): Promise<boolean> {
     try {
-      this.logger.log("Loading all service providers from sp-registry...");
+      this.logger.log({
+        event: "providers_load_started",
+        message: "Loading all service providers from sp-registry",
+      });
 
       const approvedIds = await this.warmStorageService.getApprovedProviderIds();
 
@@ -189,9 +194,13 @@ export class WalletSdkService implements OnModuleInit {
         }),
       );
 
-      this.logger.log(
-        `Loaded ${this.providerCache.size} providers from on-chain (${this.activeProviderAddresses.size} testing) (${this.approvedProviderAddresses.size} approved)`,
-      );
+      this.logger.log({
+        event: "providers_load_completed",
+        message: "Loaded providers from on-chain",
+        totalProviders: this.providerCache.size,
+        testingProviders: this.activeProviderAddresses.size,
+        approvedProviders: this.approvedProviderAddresses.size,
+      });
       return true;
     } catch (error) {
       this.logger.error({
@@ -511,7 +520,13 @@ export class WalletSdkService implements OnModuleInit {
         const address = info.serviceProvider;
         const existing = dedupedProviders.get(address);
         if (existing) {
-          this.logger.warn(`Duplicate provider address ${address} (providerIds: ${existing.id}, ${info.id})`);
+          this.logger.warn({
+            event: "duplicate_provider_address",
+            message: "Duplicate provider address detected",
+            address,
+            existingProviderId: existing.id,
+            newProviderId: info.id,
+          });
           let ids = duplicatesByAddress.get(address);
           if (!ids) {
             ids = new Set<number>();
@@ -560,9 +575,11 @@ export class WalletSdkService implements OnModuleInit {
 
         if (resolvedOnly.size > 0) {
           // if there is a difference between active/inactive, we replace the inactive entries with the active ones.
-          this.logger.warn(
-            `Duplicate provider addresses detected; replaced inactive entries with active ones: ${formatDetails(resolvedOnly).join("; ")}`,
-          );
+          this.logger.warn({
+            event: "duplicate_provider_addresses_resolved",
+            message: "Duplicate provider addresses detected; replaced inactive entries with active ones",
+            details: formatDetails(resolvedOnly),
+          });
         }
       }
 
