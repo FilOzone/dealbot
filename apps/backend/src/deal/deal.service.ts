@@ -205,7 +205,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     const checkType = "dataStorage" as const;
     let providerLabels = buildCheckMetricLabels({
       checkType,
-      providerId: undefined,
+      providerId: providerInfo.id,
       providerName: providerInfo.name,
       providerIsApproved: providerInfo.isApproved,
     });
