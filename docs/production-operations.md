@@ -14,8 +14,3 @@ Deployment operations (logs, rollout, rollback, secrets, backup checks), staging
 
 - Operational readiness Notion page (Filoz internal; requires team access): [FOC Operational Excellence: Dealbot](https://www.notion.so/filecoindev/FOC-Operational-Excellence-Dealbot-317dc41950c180fda76eddc205a63453).
 - BetterStack and Grafana dashboard links are maintained in the Notion tracker above.
-
-## Related Issues
-
-- Infra runbook track: [FilOzone/infra#32](https://github.com/FilOzone/infra/issues/32)
-- Ops-readiness umbrella: [FilOzone/dealbot#90](https://github.com/FilOzone/dealbot/issues/90)
