@@ -108,14 +108,12 @@ describe("JobsService schedule rows", () => {
       app: { runMode: "both" } as IConfig["app"],
       blockchain: { useOnlyApprovedProviders: false, minNumDataSetsForChecks: 1 } as IConfig["blockchain"],
       scheduling: {
-        dealIntervalSeconds: 600,
-        retrievalIntervalSeconds: 1200,
+        providersRefreshIntervalSeconds: 4 * 3600,
         dataRetentionPollIntervalSeconds: 3600,
         maintenanceWindowsUtc: ["07:00", "22:00"],
         maintenanceWindowMinutes: 20,
       } as IConfig["scheduling"],
       jobs: {
-        mode: "pgboss",
         schedulePhaseSeconds: 0,
         catchupMaxEnqueue: 10,
         pgbossLocalConcurrency: 9,
