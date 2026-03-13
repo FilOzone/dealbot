@@ -391,7 +391,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       jobId,
       providerAddress: spAddress,
       providerId,
-      providerName: providerName ?? "unknown",
+      ...(providerName ? { providerName } : {}),
     };
   }
 
