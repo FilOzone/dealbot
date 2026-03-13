@@ -129,7 +129,7 @@ export class DataRetentionService {
               const providerInfo = providerInfoMap.get(addr.toLowerCase());
               this.logger.error({
                 event: "provider_processing_failed",
-                message: `Failed to process provider ${addr}`,
+                message: "Failed to process provider",
                 providerAddress: addr,
                 providerId: providerInfo?.id,
                 error: toStructuredError(result.reason),
@@ -155,7 +155,7 @@ export class DataRetentionService {
           hasProcessingErrors = true;
           this.logger.error({
             event: "provider_batch_fetch_failed",
-            message: `Failed to fetch batch starting at index ${i}`,
+            message: "Failed to fetch batch",
             batchStartIndex: i,
             error: toStructuredError(error),
           });
@@ -207,7 +207,7 @@ export class DataRetentionService {
 
     this.logger.log({
       event: "stale_provider_cleanup_started",
-      message: `Cleaning up ${staleAddresses.length} stale provider(s)`,
+      message: "Cleaning up stale provider(s)",
       staleProviderCount: staleAddresses.length,
     });
 
@@ -258,7 +258,7 @@ export class DataRetentionService {
           this.baselineRepository.delete({ providerAddress: address }).catch((err) => {
             this.logger.warn({
               event: "baseline_db_delete_failed",
-              message: `Failed to delete persisted baseline for stale provider: ${address}`,
+              message: "Failed to delete persisted baseline for stale provider",
               providerAddress: address,
               error: toStructuredError(err),
             });
@@ -266,7 +266,7 @@ export class DataRetentionService {
 
           this.logger.debug({
             event: "stale_provider_metrics_removed",
-            message: `Removed baseline and metrics for stale provider: ${address}`,
+            message: "Removed baseline and metrics for stale provider",
             providerAddress: address,
             providerId: provider.providerId,
           });
@@ -278,7 +278,7 @@ export class DataRetentionService {
           // suffer from the double-counting/metric inflation bug.
           this.logger.debug({
             event: "stale_provider_baseline_retained",
-            message: `Retaining baseline for stale provider: ${address} (not found in DB, waiting for potential chain sync)`,
+            message: "Retaining baseline for stale provider (not found in DB, waiting for potential chain sync)",
             providerAddress: address,
           });
         }
@@ -287,7 +287,7 @@ export class DataRetentionService {
         const provider = providerLookup.get(address);
         this.logger.error({
           event: "provider_metrics_cleanup_failed",
-          message: `Failed to cleanup metrics for provider ${address}. Baseline retained to prevent metric inflation.`,
+          message: "Failed to cleanup metrics for provider. Baseline retained to prevent metric inflation.",
           providerAddress: address,
           providerId: provider?.providerId,
           error: toStructuredError(error),
@@ -331,7 +331,7 @@ export class DataRetentionService {
     if (previous === undefined) {
       this.logger.log({
         event: "baseline_initialized",
-        message: `Initialized baseline for provider ${address} (no prior baseline)`,
+        message: "Initialized baseline for provider (no prior baseline)",
         providerAddress: address,
         providerId: providerInfo.id,
         faultedPeriods: estimatedTotalFaulted.toString(),
@@ -349,7 +349,7 @@ export class DataRetentionService {
     if (faultedDelta < 0n || successDelta < 0n) {
       this.logger.warn({
         event: "negative_delta_detected",
-        message: `Negative delta detected for provider ${address}`,
+        message: "Negative delta detected for provider",
         providerAddress: address,
         providerId: providerInfo.id,
         faultedDelta: faultedDelta.toString(),
@@ -398,7 +398,7 @@ export class DataRetentionService {
       this.baselinesLoaded = true;
       this.logger.log({
         event: "baselines_loaded_from_db",
-        message: `Loaded ${rows.length} baseline(s) from database`,
+        message: "Loaded baseline(s) from database",
         baselineCount: rows.length,
       });
     } catch (error) {

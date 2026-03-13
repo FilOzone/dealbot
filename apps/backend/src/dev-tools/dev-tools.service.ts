@@ -28,7 +28,11 @@ export class DevToolsService {
    */
   listProviders(): unknown[] {
     const providers = this.walletSdkService.getTestingProviders();
-    this.logger.log(`Listing ${providers.length} available providers`);
+    this.logger.log({
+      event: "providers_listed",
+      message: "Listing available providers",
+      count: providers.length,
+    });
     // Serialize BigInt values to strings for JSON response
     return providers.map((p) => this.serializeBigInt(p));
   }
@@ -67,7 +71,11 @@ export class DevToolsService {
    * Returns immediately with deal ID - processing happens in background.
    */
   async triggerDeal(spAddress: string): Promise<TriggerDealResponseDto> {
-    this.logger.log(`Triggering deal for SP: ${spAddress}`);
+    this.logger.log({
+      event: "deal_trigger_requested",
+      message: "Triggering deal for storage provider",
+      spAddress,
+    });
 
     // Validate SP exists
     const providerInfo = this.walletSdkService.getProviderInfo(spAddress);
@@ -101,14 +109,19 @@ export class DevToolsService {
       providerAddress: spAddress,
     };
 
-    this.logger.log(`Created pending deal ${dealId}, starting background processing`);
+    this.logger.log({
+      event: "deal_pending_created",
+      message: "Created pending deal, starting background processing",
+      dealId,
+      spAddress,
+    });
 
     // Fire off the deal creation in the background (don't await)
     this.processDealInBackground(dealId, providerInfo, dealLogContext).catch((err) => {
       this.logger.error({
         ...dealLogContext,
         event: "background_deal_processing_failed",
-        message: `Background deal processing failed for ${dealId}`,
+        message: "Background deal processing failed",
         error: toStructuredError(err),
       });
     });
@@ -146,13 +159,18 @@ export class DevToolsService {
         },
       });
 
-      this.logger.log(`Background deal ${dealId} completed successfully: ${deal.pieceCid}`);
+      this.logger.log({
+        ...dealLogContext,
+        event: "background_deal_completed",
+        message: "Background deal completed successfully",
+        pieceCid: deal.pieceCid,
+      });
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       this.logger.error({
         ...dealLogContext,
         event: "background_deal_failed",
-        message: `Background deal ${dealId} failed`,
+        message: "Background deal processing failed",
         error: toStructuredError(error),
       });
 
@@ -174,13 +192,20 @@ export class DevToolsService {
     }
 
     this.isRunningCreateAll = true;
-    this.logger.log("Starting deal creation for all providers (dev-tools)");
+    this.logger.log({
+      event: "deals_for_all_providers_started",
+      message: "Starting deal creation for all providers (dev-tools)",
+    });
 
     try {
       const deals = await this.dealService.createDealsForAllProviders();
       const dtos = deals.map((d) => this.dealToResponseDto(d));
 
-      this.logger.log(`Deal creation for all providers completed: ${deals.length} deals`);
+      this.logger.log({
+        event: "deals_for_all_providers_completed",
+        message: "Deal creation for all providers completed",
+        count: deals.length,
+      });
 
       return { deals: dtos, total: dtos.length };
     } finally {
@@ -233,7 +258,12 @@ export class DevToolsService {
     // Find the deal
     const deal = await this.findDeal(dealId, spAddress);
 
-    this.logger.log(`Triggering data fetch for deal: ${deal.id} (piece: ${deal.pieceCid})`);
+    this.logger.log({
+      event: "retrieval_trigger_requested",
+      message: "Triggering data fetch for deal",
+      dealId: deal.id,
+      pieceCid: deal.pieceCid,
+    });
 
     const retrievals = await this.retrievalService.performRetrievalsForDeal(deal);
 
@@ -266,7 +296,12 @@ export class DevToolsService {
       .filter((time): time is Date => Boolean(time));
     const testedAt = completedTimes.length > 0 ? completedTimes.reduce((max, time) => (time > max ? time : max)) : null;
 
-    this.logger.log(`Data fetch test completed: ${successfulMethods.length}/${retrievals.length} successful`);
+    this.logger.log({
+      event: "retrieval_test_completed",
+      message: "Data fetch test completed",
+      successfulMethods: successfulMethods.length,
+      totalMethods: retrievals.length,
+    });
 
     return {
       dealId: deal.id,

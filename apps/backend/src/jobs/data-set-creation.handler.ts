@@ -49,12 +49,16 @@ export async function provisionDataSets(
       continue;
     }
 
-    logger.log(`Creating data-set #${i} for provider ${spAddress}`);
+    logger.log({
+      ...logContext,
+      event: "creating_provisioned_data_set",
+      message: "Creating provisioned data-set",
+    });
     await dealService.createDataSetWithPiece(spAddress, metadata, signal);
     logger.log({
       ...logContext,
-      event: "data_set_provisioned",
-      message: `Created data-set #${i} for provider ${spAddress}`,
+      event: "created_provisioned_data_set",
+      message: "Created provisioned data-set",
     });
     createdCount++;
   }
@@ -62,7 +66,7 @@ export async function provisionDataSets(
   logger.log({
     ...dataSetLogContext,
     event: "data_sets_provisioning_completed",
-    message: `Data-set provisioning complete for ${spAddress}: ${createdCount} created, ${minDataSets - createdCount} already existed`,
+    message: "Data-set provisioning completed for provider",
     createdCount,
     minDataSets,
     existingCount: minDataSets - createdCount,

@@ -559,29 +559,33 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
         if (errorResponse.status === 404) {
           const message = `Piece not found or does not belong to service: ${errorText}`;
           this.logger.warn({
+            ...logContext,
             event: "piece_status_request_failed",
             message: "Failed to get piece status",
             pieceCid,
             statusCode: errorResponse.status,
             detail: message,
+            error: toStructuredError(error),
           });
           throw new Error(message);
         }
         const statusText = errorResponse.statusText ?? "";
         const message = `Failed to get piece status: ${errorResponse.status} ${statusText} - ${errorText}`;
         this.logger.warn({
+          ...logContext,
           event: "piece_status_request_failed",
-          message: `Failed to get piece status for ${pieceCid}`,
-          pieceCid,
+          message: "Failed to get piece status",
           statusCode: errorResponse.status,
           detail: message,
+          error: toStructuredError(error),
         });
         throw new Error(message);
       }
 
       this.logger.warn({
+        ...logContext,
         event: "piece_status_request_failed",
-        message: `Failed to get piece status for ${pieceCid}`,
+        message: "Failed to get piece status",
         pieceCid,
         error: toStructuredError(error),
       });

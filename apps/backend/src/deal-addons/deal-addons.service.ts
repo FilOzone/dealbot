@@ -77,6 +77,7 @@ export class DealAddonsService {
   ): Promise<DealPreprocessingResult> {
     const startTime = Date.now();
     this.logger.log({
+      ...logContext,
       event: "deal_preprocessing_started",
       message: "Starting deal preprocessing",
       fileName: config.dataFile.name,
@@ -90,6 +91,7 @@ export class DealAddonsService {
         this.logger.error({
           ...logContext,
           event: "no_deal_preprocessing_addons",
+          message: "No deal preprocessing addons found",
           enableIpni: config.enableIpni,
         });
 
@@ -100,8 +102,9 @@ export class DealAddonsService {
       const sortedAddons = this.sortAddonsByPriority(applicableAddons);
 
       this.logger.debug({
+        ...logContext,
         event: "deal_preprocessing_pipeline",
-        message: "Executing add-ons",
+        message: "Executing deal pre-processing add-ons",
         count: sortedAddons.length,
         order: sortedAddons.map((a) => a.name),
       });
@@ -114,6 +117,7 @@ export class DealAddonsService {
 
       const duration = Date.now() - startTime;
       this.logger.log({
+        ...logContext,
         event: "deal_preprocessing_completed",
         message: "Deal preprocessing completed",
         durationMs: duration,
@@ -132,6 +136,7 @@ export class DealAddonsService {
       };
     } catch (error) {
       this.logger.error({
+        ...logContext,
         event: "deal_preprocessing_failed",
         message: "Deal preprocessing failed",
         error: toStructuredError(error),
@@ -308,7 +313,7 @@ export class DealAddonsService {
       try {
         this.logger.debug({
           event: "deal_addon_executing",
-          message: "Executing add-on",
+          message: "Executing add-on for pre-processing data",
           addon: addon.name,
         });
 
@@ -334,7 +339,7 @@ export class DealAddonsService {
 
         this.logger.debug({
           event: "deal_addon_completed",
-          message: "Add-on completed",
+          message: "Add-on completed pre-processing data",
           addon: addon.name,
           sizeBytes: result.size,
           metadataKeys: Object.keys(result.metadata),
@@ -342,7 +347,7 @@ export class DealAddonsService {
       } catch (error) {
         this.logger.error({
           event: "deal_addon_failed",
-          message: `Add-on ${addon.name} failed`,
+          message: "Add-on failed to pre-process data",
           addon: addon.name,
           error: toStructuredError(error),
         });

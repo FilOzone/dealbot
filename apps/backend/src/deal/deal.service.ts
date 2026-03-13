@@ -66,7 +66,10 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
   }
 
   async onModuleInit(): Promise<void> {
-    this.logger.log("Initializing shared Synapse instance for deal creation.");
+    this.logger.log({
+      event: "synapse_initialization",
+      message: "Creating shared Synapse instance",
+    });
     this.sharedSynapse = await this.createSynapseInstance();
   }
 
@@ -301,7 +304,8 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
           this.logger.debug({
             ...dealLogContext,
             event: "upload_progress",
-            message: `Upload progress: ${event.type}`,
+            message: "Upload in progress",
+            filecoinPinEventType: event.type,
           });
           switch (event.type) {
             case "onUploadComplete": {
@@ -313,7 +317,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
               this.logger.log({
                 ...dealLogContext,
                 event: "upload_complete",
-                message: `Upload complete event`,
+                message: "Piece upload completed",
               });
               uploadSucceeded = true;
               this.dataStorageMetrics.observeIngestMs(providerLabels, deal.ingestLatencyMs);
@@ -483,7 +487,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       this.logger.error({
         ...dealLogContext,
         event: "deal_creation_failed",
-        message: `Deal creation failed for ${providerAddress}`,
+        message: "Deal creation failed",
         error: toStructuredError(error),
       });
       const failureStatus = classifyFailureStatus(error);

@@ -140,7 +140,7 @@ export class HttpClientService {
     } catch (error) {
       this.logger.warn({
         event: "http2_request_failed",
-        message: `HTTP/2 request failed for ${url}`,
+        message: "HTTP/2 request failed",
         url,
         error: toStructuredError(error),
       });
@@ -227,7 +227,7 @@ export class HttpClientService {
     } catch (error) {
       this.logger.warn({
         event: "http_request_failed",
-        message: `HTTP/1.1 request failed for ${url}`,
+        message: "HTTP/1.1 request failed",
         url,
         error: toStructuredError(error),
       });

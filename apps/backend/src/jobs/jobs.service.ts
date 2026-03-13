@@ -98,7 +98,10 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       return;
     }
 
-    this.logger.log("pg-boss mode enabled; initializing job scheduler");
+    this.logger.log({
+      event: "pgboss_initialization",
+      message: "Starting pg-boss initialization",
+    });
     const runMode = this.configService.get("app")?.runMode ?? "both";
     const schedulerEnabled = runMode !== "worker" && (this.configService.get("jobs")?.pgbossSchedulerEnabled ?? true);
     const workersEnabled = runMode !== "api";
@@ -132,13 +135,22 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     if (workersEnabled) {
       this.registerWorkers();
     } else {
-      this.logger.warn("pg-boss workers disabled; run mode is api.");
+      this.logger.warn({
+        event: "pgboss_workers_disabled",
+        message: "pg-boss workers disabled; run mode is api.",
+      });
     }
 
     if (!schedulerEnabled) {
-      this.logger.warn("pg-boss scheduler disabled; no enqueue loop will run.");
+      this.logger.warn({
+        event: "pgboss_scheduler_disabled",
+        message: "pg-boss scheduler disabled; no enqueue loop will run.",
+      });
       if (!workersEnabled) {
-        this.logger.warn("pg-boss workers disabled; no jobs will be processed.");
+        this.logger.warn({
+          event: "pgboss_workers_disabled",
+          message: "pg-boss workers disabled; no jobs will be processed.",
+        });
       }
       return;
     }
@@ -274,7 +286,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
           }
           this.logger.warn({
             event: "unknown_sp_job_type",
-            message: `Skipping unknown SP job type "${String(job.data.jobType)}" for ${job.data.spAddress}`,
+            message: "Skipping unknown SP job type",
             jobType: job.data.jobType,
             providerAddress: job.data.spAddress,
             providerId: this.walletSdkService.getProviderInfo(job.data.spAddress)?.id,
@@ -284,7 +296,8 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       .catch((error) =>
         this.logger.error({
           event: "worker_register_failed",
-          message: `Failed to register worker for ${SP_WORK_QUEUE}`,
+          message: "Failed to register worker",
+          queue: SP_WORK_QUEUE,
           error: toStructuredError(error),
         }),
       );
@@ -297,7 +310,8 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       .catch((error) =>
         this.logger.error({
           event: "worker_register_failed",
-          message: "Failed to register worker for metrics.run",
+          message: "Failed to register worker",
+          queue: METRICS_QUEUE,
           error: toStructuredError(error),
         }),
       );
@@ -310,7 +324,8 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       .catch((error) =>
         this.logger.error({
           event: "worker_register_failed",
-          message: "Failed to register worker for metrics.cleanup",
+          message: "Failed to register worker",
+          queue: METRICS_CLEANUP_QUEUE,
           error: toStructuredError(error),
         }),
       );
@@ -321,7 +336,12 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         async ([job]) => this.handleDataRetentionJob(job.data),
       )
       .catch((error) =>
-        this.logger.error(`Failed to register worker for data.retention.poll: ${error.message}`, error.stack),
+        this.logger.error({
+          event: "worker_register_failed",
+          message: "Failed to register worker",
+          queue: DATA_RETENTION_POLL_QUEUE,
+          error: toStructuredError(error),
+        }),
       );
     void this.boss
       .work(PROVIDERS_REFRESH_QUEUE, { batchSize: 1, pollingIntervalSeconds: workerPollSeconds }, async ([job]) =>
@@ -330,7 +350,8 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       .catch((error) =>
         this.logger.error({
           event: "worker_register_failed",
-          message: `Failed to subscribe to ${PROVIDERS_REFRESH_QUEUE}`,
+          message: "Failed to register worker",
+          queue: PROVIDERS_REFRESH_QUEUE,
           error: toStructuredError(error),
         }),
       );
@@ -416,7 +437,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
             this.logger.warn({
               ...logContext,
               event: "deal_job_skipped",
-              message: `Deal job skipped: provider ${spAddress} not found`,
+              message: "Deal job skipped: provider not found",
             });
             return "success";
           }
@@ -445,18 +466,20 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
                 this.logger.log({
                   ...logContext,
                   event: "deal_job_dataset_fallback",
-                  message: `Data set #${dsIndex} not yet provisioned for ${spAddress}; falling back to default data set`,
+                  message: "Data set not yet provisioned; falling back to default data set",
+                  dataSetIndex: dsIndex,
                 });
               }
             } catch (error) {
               if (abortController.signal.aborted) {
                 throw abortController.signal.reason;
               }
-              const errorMessage = error instanceof Error ? error.message : String(error);
               this.logger.warn({
                 ...logContext,
                 event: "deal_job_dataset_check_failed",
-                message: `Failed to verify data set #${dsIndex} for ${spAddress}: ${errorMessage}; falling back to default data set`,
+                message: "Failed to verify data set: falling back to default data set",
+                dataSetIndex: dsIndex,
+                error: toStructuredError(error),
               });
             }
           }
@@ -481,7 +504,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
           this.logger.error({
             ...logContext,
             event: "deal_job_aborted",
-            message: reasonMessage || `Deal job aborted after timeout (${effectiveTimeoutSeconds}s) for ${spAddress}`,
+            message: reasonMessage || "Deal job aborted after timeout",
             timeoutSeconds: effectiveTimeoutSeconds,
             error: toStructuredError(reason ?? error),
           });
@@ -490,7 +513,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         this.logger.error({
           ...logContext,
           event: "deal_job_failed",
-          message: `Deal job failed for ${spAddress}`,
+          message: "Deal job failed",
           error: toStructuredError(error),
         });
         // Jobs are not retried once attempted; failures are handled by the next schedule tick.
@@ -538,8 +561,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
           this.logger.error({
             ...logContext,
             event: "retrieval_job_aborted",
-            message:
-              reasonMessage || `Retrieval job aborted after timeout (${effectiveTimeoutSeconds}s) for ${spAddress}`,
+            message: reasonMessage || "Retrieval job aborted after timeout",
             timeoutSeconds: effectiveTimeoutSeconds,
             error: toStructuredError(reason ?? error),
           });
@@ -548,7 +570,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         this.logger.error({
           ...logContext,
           event: "retrieval_job_failed",
-          message: `Retrieval job failed for ${spAddress}`,
+          message: "Retrieval job failed",
           error: toStructuredError(error),
         });
         // Jobs are not retried once attempted; failures are handled by the next schedule tick.
@@ -589,7 +611,10 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     void data;
     await this.recordJobExecution("providers_refresh", async () => {
       if (process.env.DEALBOT_DISABLE_CHAIN === "true") {
-        this.logger.warn("Chain integration disabled; skipping provider refresh job.");
+        this.logger.warn({
+          event: "chain_integration_disabled",
+          message: "Chain integration disabled; skipping provider refresh job.",
+        });
         return "success";
       }
       await this.walletSdkService.loadProviders();
@@ -644,9 +669,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
           this.logger.error({
             ...dataSetLogContext,
             event: "data_set_creation_job_aborted",
-            message:
-              reasonMessage ||
-              `Data set creation job aborted after timeout (${effectiveTimeoutSeconds}s) for ${spAddress}`,
+            message: reasonMessage || "Data set creation job aborted after timeout",
             timeoutSeconds: effectiveTimeoutSeconds,
             error: toStructuredError(reason ?? error),
           });
@@ -655,7 +678,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         this.logger.error({
           ...dataSetLogContext,
           event: "data_set_creation_job_failed",
-          message: `Data set creation job failed for ${spAddress}`,
+          message: "Data set creation job failed",
           error: toStructuredError(error),
         });
         throw error;
@@ -711,7 +734,10 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
    */
   private async tick(): Promise<void> {
     if (this.tickPromise) {
-      this.logger.warn("Previous pg-boss scheduler tick still running; skipping");
+      this.logger.warn({
+        event: "pgboss_scheduler_tick_skipped",
+        message: "Previous pg-boss scheduler tick still running; skipping",
+      });
       return;
     }
     this.tickPromise = this.runTick();
@@ -935,7 +961,12 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
 
         // During maintenance, skip global jobs entirely.
         if (maintenance.active && !isSpJob) {
-          this.logger.log(`Skipping global job ${row.job_type} during maintenance`);
+          this.logger.log({
+            event: "global_job_enqueue_skipped",
+            message: "Skipping global job during maintenance",
+            jobType: row.job_type,
+            maintenanceWindow: maintenance.window?.label,
+          });
           const newNextRunAt = new Date(now.getTime() + intervalMs);
           await this.jobScheduleRepository.advanceScheduleNextRun(manager, row.id, newNextRunAt);
           continue;
@@ -1021,7 +1052,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     } catch (error) {
       this.logger.warn({
         event: "job_enqueue_failed",
-        message: `Failed to enqueue ${name}`,
+        message: "Failed to enqueue job",
         queue: name,
         jobType,
         error: toStructuredError(error),
