@@ -268,7 +268,9 @@ describe("DealService", () => {
 
       const deal = await service.createDeal(mockSynapseInstance, mockProviderInfo, mockDealInput, uploadPayload);
 
-      expect(createContextMock).toHaveBeenCalledWith(expect.objectContaining({ providerAddress: "0xProvider" }));
+      expect(createContextMock).toHaveBeenCalledWith(expect.objectContaining({
+        providerId: 101n,
+      }));
       expect(dealRepoMock.create).toHaveBeenCalled();
 
       // Verify deal updates
@@ -778,7 +780,7 @@ describe("DealService", () => {
         await testService.createDeal(mockSynapseInstance, mockProviderInfo, dealInputWithMetadata, uploadPayload);
 
         expect(createContextMock).toHaveBeenCalledWith({
-          providerAddress: "0xProvider",
+          providerId: 101n,
           metadata: {
             customKey: "customValue",
             dealbotDataSetVersion: "dealbot-v2",
@@ -795,7 +797,7 @@ describe("DealService", () => {
         await testService.createDeal(mockSynapseInstance, mockProviderInfo, dealInputWithMetadata, uploadPayload);
 
         expect(createContextMock).toHaveBeenCalledWith({
-          providerAddress: "0xProvider",
+          providerId: 101n,
           metadata: {
             customKey: "customValue",
           },
@@ -811,7 +813,7 @@ describe("DealService", () => {
         await testService.createDeal(mockSynapseInstance, mockProviderInfo, dealInputWithMetadata, uploadPayload);
 
         expect(createContextMock).toHaveBeenCalledWith({
-          providerAddress: "0xProvider",
+          providerId: 101n,
           metadata: {
             customKey: "customValue",
           },
@@ -841,7 +843,7 @@ describe("DealService", () => {
 
         // Verify config value overwrites dealInput value
         expect(createContextMock).toHaveBeenCalledWith({
-          providerAddress: "0xProvider",
+          providerId: 101n,
           metadata: {
             customKey: "customValue",
             dealbotDataSetVersion: "dealbot-v3", // Config value wins

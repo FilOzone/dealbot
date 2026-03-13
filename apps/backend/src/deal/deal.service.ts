@@ -274,7 +274,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       signal?.throwIfAborted();
 
       const storage = await synapse.storage.createContext({
-        providerId: typeof dealLogContext.providerId === 'number' ? BigInt(dealLogContext.providerId) : undefined,
+        providerId: dealLogContext.providerId,
         metadata: dataSetMetadata,
       });
       signal?.throwIfAborted();
