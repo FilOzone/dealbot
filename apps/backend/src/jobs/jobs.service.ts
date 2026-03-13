@@ -15,7 +15,7 @@ import { DealService } from "../deal/deal.service.js";
 import { MetricsSchedulerService } from "../metrics/services/metrics-scheduler.service.js";
 import { RetrievalService } from "../retrieval/retrieval.service.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
-import { provisionDataSets } from "./data-set-creation.handler.js";
+import { provisionNextMissingDataSet } from "./data-set-creation.handler.js";
 import {
   DATA_RETENTION_POLL_QUEUE,
   METRICS_CLEANUP_QUEUE,
@@ -668,7 +668,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     await this.recordJobExecution("data_set_creation", async () => {
       const dataSetLogContext = await this.resolveProviderJobContext(spAddress, job.id);
       try {
-        await provisionDataSets(
+        await provisionNextMissingDataSet(
           { dealService: this.dealService, logger: this.logger },
           spAddress,
           minDataSets,

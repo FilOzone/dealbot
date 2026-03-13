@@ -8,8 +8,11 @@ export interface DataSetCreationDeps {
 }
 
 /**
- * Ensures all required data-sets exist for a provider by deterministically
- * looping through indices 0..minDataSets-1 and creating any that are missing.
+ * Creates at most one missing data-set per invocation for incremental provisioning.
+ *
+ * Loops through indices 0..minDataSets-1, skips existing data-sets, and creates
+ * the first missing one then returns. The scheduler fires subsequent jobs to
+ * converge on the full set over multiple runs.
  *
  * Index 0 is the initial data-set (no dealbotDS metadata).
  * Indices 1+ are tagged with { dealbotDS: String(i) }.
@@ -17,7 +20,7 @@ export interface DataSetCreationDeps {
  * Uses createContext + executeUpload with a 200 KiB piece for on-chain data-set creation
  * (empty datasets are being removed from curio and synapse-sdk).
  */
-export async function provisionDataSets(
+export async function provisionNextMissingDataSet(
   deps: DataSetCreationDeps,
   spAddress: string,
   minDataSets: number,
@@ -27,7 +30,7 @@ export async function provisionDataSets(
 ): Promise<void> {
   const { dealService, logger } = deps;
 
-  let createdCount = 0;
+  let existingCount = 0;
   for (let i = 0; i < minDataSets; i++) {
     signal?.throwIfAborted();
 
@@ -46,6 +49,7 @@ export async function provisionDataSets(
     const exists = await dealService.checkDataSetExists(spAddress, metadata, signal);
 
     if (exists) {
+      existingCount++;
       continue;
     }
 
@@ -60,15 +64,26 @@ export async function provisionDataSets(
       event: "created_provisioned_data_set",
       message: "Created provisioned data-set",
     });
-    createdCount++;
+
+    logger.log({
+      ...dataSetLogContext,
+      event: "data_set_provisioning_progress",
+      message: "Created 1 data-set, deferring remaining to next run",
+      createdCount: 1,
+      createdIndex: i,
+      minDataSets,
+      checkedExistingCount: existingCount,
+      uncheckedCount: minDataSets - existingCount - 1,
+    });
+    return;
   }
 
   logger.log({
     ...dataSetLogContext,
     event: "data_sets_provisioning_completed",
     message: "Data-set provisioning completed for provider",
-    createdCount,
+    createdCount: 0,
     minDataSets,
-    existingCount: minDataSets - createdCount,
+    existingCount,
   });
 }
