@@ -52,8 +52,8 @@ describe("DealService", () => {
   const mockRootCid = "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi";
   type UploadProgressEvent =
     | { type: "onStored"; data: { pieceCid: string } }
-    | { type: "onPieceAdded"; data: { txHash: string } }
-    | { type: "onPieceConfirmed"; data: { pieceIds: number[] } };
+    | { type: "onPiecesAdded"; data: { txHash: string } }
+    | { type: "onPiecesConfirmed"; data: { pieceIds: number[] } };
   type ExecuteUploadOptions = {
     onProgress?: (event: UploadProgressEvent) => Promise<void> | void;
   };
@@ -71,9 +71,9 @@ describe("DealService", () => {
 
     await onProgress({ type: "onStored", data: { pieceCid: "bafk-uploaded" } });
     advanceTimersIfFake(2000);
-    await onProgress({ type: "onPieceAdded", data: { txHash: "0xhash" } });
+    await onProgress({ type: "onPiecesAdded", data: { txHash: "0xhash" } });
     advanceTimersIfFake(3000);
-    await onProgress({ type: "onPieceConfirmed", data: { pieceIds: [123] } });
+    await onProgress({ type: "onPiecesConfirmed", data: { pieceIds: [123] } });
   };
 
   const mockDealRepository = {
@@ -595,11 +595,11 @@ describe("DealService", () => {
         dataSetId: "dataset-123",
       });
 
-      // Upload fires onStored and onPieceAdded, but rejects before onPieceConfirmed
+      // Upload fires onStored and onPiecesAdded, but rejects before onPiecesConfirmed
       (executeUpload as Mock).mockImplementation(
         async (_service: unknown, _data: unknown, _rootCid: unknown, options?: ExecuteUploadOptions) => {
           await options?.onProgress?.({ type: "onStored", data: { pieceCid: "bafk-uploaded" } });
-          await options?.onProgress?.({ type: "onPieceAdded", data: { txHash: "0xhash" } });
+          await options?.onProgress?.({ type: "onPiecesAdded", data: { txHash: "0xhash" } });
           throw new Error("timed out waiting for piece confirmation");
         },
       );
@@ -1134,7 +1134,7 @@ describe("DealService", () => {
       );
     });
 
-    it("succeeds when upload finishes without both onPieceAdded and onPieceConfirmed", async () => {
+    it("succeeds when upload finishes without both onPiecesAdded and onPiecesConfirmed", async () => {
       vi.spyOn(mockWalletSdkService, "getProviderInfo").mockReturnValue(mockProviderInfo);
       vi.spyOn(service as any, "createSynapseInstance").mockResolvedValue({
         storage: { createContext: vi.fn().mockResolvedValue({ dataSetId: 1 }) },
