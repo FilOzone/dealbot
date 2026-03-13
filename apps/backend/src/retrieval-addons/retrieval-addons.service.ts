@@ -179,7 +179,7 @@ export class RetrievalAddonsService {
       jobId: logContext?.jobId,
       dealId: config.deal.id,
       providerAddress: config.storageProvider,
-      providerId: config.deal.storageProvider?.providerId ?? logContext?.providerId,
+      providerId: typeof config.deal.storageProvider?.providerId === 'number' ? BigInt(config.deal.storageProvider.providerId) : logContext?.providerId,
       pieceCid: config.deal.pieceCid,
       ipfsRootCID: config.deal.metadata?.[ServiceType.IPFS_PIN]?.rootCID,
     };
@@ -311,7 +311,7 @@ export class RetrievalAddonsService {
       ...logContext,
       jobId: logContext?.jobId,
       dealId: config.deal.id,
-      providerId: config.deal.storageProvider?.providerId ?? logContext?.providerId,
+      providerId: typeof config.deal.storageProvider?.providerId === 'number' ? BigInt(config.deal.storageProvider.providerId) : logContext?.providerId,
       providerAddress: config.storageProvider,
       pieceCid: config.deal.pieceCid,
       ipfsRootCID: config.deal.metadata?.[ServiceType.IPFS_PIN]?.rootCID,

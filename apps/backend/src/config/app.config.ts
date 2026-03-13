@@ -105,7 +105,7 @@ export interface IDatabaseConfig {
 export interface IBlockchainConfig {
   network: Network;
   walletAddress: string;
-  walletPrivateKey: string;
+  walletPrivateKey: `0x${string}`;
   checkDatasetCreationFees: boolean;
   useOnlyApprovedProviders: boolean;
   dealbotDataSetVersion?: string;
@@ -293,7 +293,7 @@ export function loadConfig(): IConfig {
     blockchain: {
       network: (process.env.NETWORK || "calibration") as Network,
       walletAddress: process.env.WALLET_ADDRESS || "0x0000000000000000000000000000000000000000",
-      walletPrivateKey: process.env.WALLET_PRIVATE_KEY || "",
+      walletPrivateKey: process.env.WALLET_PRIVATE_KEY as "0x${string}",
       checkDatasetCreationFees: process.env.CHECK_DATASET_CREATION_FEES !== "false",
       useOnlyApprovedProviders: process.env.USE_ONLY_APPROVED_PROVIDERS !== "false",
       dealbotDataSetVersion: process.env.DEALBOT_DATASET_VERSION,

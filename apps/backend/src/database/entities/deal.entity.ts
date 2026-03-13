@@ -64,10 +64,10 @@ export class Deal {
   @Column({ name: "upload_end_time", type: "timestamp", nullable: true })
   uploadEndTime: Date;
 
-  @Column({ name: "piece_added_time", type: "timestamp", nullable: true })
-  pieceAddedTime: Date;
-  @Column({ name: "piece_confirmed_time", type: "timestamp", nullable: true })
-  pieceConfirmedTime: Date;
+  @Column({ name: "pieces_added_time", type: "timestamp", nullable: true })
+  piecesAddedTime: Date;
+  @Column({ name: "pieces_confirmed_time", type: "timestamp", nullable: true })
+  piecesConfirmedTime: Date;
 
   @Column({ name: "deal_confirmed_time", type: "timestamp", nullable: true })
   dealConfirmedTime: Date;

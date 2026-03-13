@@ -1,11 +1,13 @@
-import type { PaymentsService, ProviderInfo, WarmStorageService } from "@filoz/synapse-sdk";
+import type { PDPProvider } from "filecoin-pin";
+import type { PaymentsService } from "@filoz/synapse-sdk/payments";
+import type { WarmStorageService } from "@filoz/synapse-sdk/warm-storage";
 
 export interface WalletServices {
   paymentsService: PaymentsService;
   warmStorageService: WarmStorageService;
 }
 
-export interface ProviderInfoEx extends ProviderInfo {
+export interface PDPProviderEx extends PDPProvider {
   isApproved: boolean;
 }
 
@@ -61,7 +63,6 @@ export interface TransactionLog {
 }
 
 export interface ServiceApprovalLog {
-  serviceAddress: string;
   rateAllowance: string;
   lockupAllowance: string;
   durationMonths: number;

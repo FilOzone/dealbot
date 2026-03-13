@@ -18,8 +18,9 @@ import {
 } from "../metrics/utils/check-metrics.service.js";
 import { RetrievalAddonsService } from "../retrieval-addons/retrieval-addons.service.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
-import type { ProviderInfoEx } from "../wallet-sdk/wallet-sdk.types.js";
+import type { PDPProviderEx } from "../wallet-sdk/wallet-sdk.types.js";
 import { DealService } from "./deal.service.js";
+import { privateKeyToAccount, generatePrivateKey } from "viem/accounts";
 
 vi.mock("@filoz/synapse-sdk", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@filoz/synapse-sdk")>();
@@ -50,9 +51,9 @@ describe("DealService", () => {
 
   const mockRootCid = "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi";
   type UploadProgressEvent =
-    | { type: "onUploadComplete"; data: { pieceCid: string } }
-    | { type: "onPieceAdded"; data: { txHash: string } }
-    | { type: "onPieceConfirmed"; data: { pieceIds: number[] } };
+    | { type: "onStored"; data: { pieceCid: string } }
+    | { type: "onPiecesAdded"; data: { txHash: string } }
+    | { type: "onPiecesConfirmed"; data: { pieceIds: number[] } };
   type ExecuteUploadOptions = {
     onProgress?: (event: UploadProgressEvent) => Promise<void> | void;
   };
@@ -68,11 +69,11 @@ describe("DealService", () => {
       return;
     }
 
-    await onProgress({ type: "onUploadComplete", data: { pieceCid: "bafk-uploaded" } });
+    await onProgress({ type: "onStored", data: { pieceCid: "bafk-uploaded" } });
     advanceTimersIfFake(2000);
-    await onProgress({ type: "onPieceAdded", data: { txHash: "0xhash" } });
+    await onProgress({ type: "onPiecesAdded", data: { txHash: "0xhash" } });
     advanceTimersIfFake(3000);
-    await onProgress({ type: "onPieceConfirmed", data: { pieceIds: [123] } });
+    await onProgress({ type: "onPiecesConfirmed", data: { pieceIds: [123] } });
   };
 
   const mockDealRepository = {
@@ -103,7 +104,7 @@ describe("DealService", () => {
       }
       if (key === "blockchain") {
         return {
-          walletPrivateKey: "mockKey",
+          walletPrivateKey: generatePrivateKey(),
           network: "calibration",
           walletAddress: "0x123",
         };
@@ -189,7 +190,7 @@ describe("DealService", () => {
   describe("createDeal", () => {
     let mockSynapseInstance: Synapse;
     let createContextMock: Mock;
-    let mockProviderInfo: ProviderInfoEx;
+    let mockProviderInfo: PDPProviderEx;
     let mockDealInput: DealPreprocessingResult;
     let mockDeal: Deal;
 
@@ -203,14 +204,24 @@ describe("DealService", () => {
       } as unknown as Synapse;
 
       mockProviderInfo = {
-        id: 101,
+        id: 101n,
         serviceProvider: "0xProvider",
-        payee: "t0100",
+        payee: "0x100",
         name: "Test Provider",
         description: "Test Provider",
-        active: true,
-        products: {},
+        isActive: true,
         isApproved: true,
+        pdp: {
+          serviceURL: 'todo',
+          minPieceSizeInBytes: 0n,
+          maxPieceSizeInBytes: 100n,
+          storagePricePerTibPerDay: 1n,
+          minProvingPeriodInEpochs: 1n,
+          location: 'todo',
+          paymentTokenAddress: '0xtodo',
+          ipniPiece: true,
+          ipniIpfs: true,
+        },
       };
       mockDealInput = {
         processedData: { name: "test.txt", size: 2048, data: Buffer.from("test") },
@@ -256,14 +267,16 @@ describe("DealService", () => {
 
       const deal = await service.createDeal(mockSynapseInstance, mockProviderInfo, mockDealInput, uploadPayload);
 
-      expect(createContextMock).toHaveBeenCalledWith(expect.objectContaining({ providerAddress: "0xProvider" }));
+      expect(createContextMock).toHaveBeenCalledWith(expect.objectContaining({
+        providerId: 101n,
+      }));
       expect(dealRepoMock.create).toHaveBeenCalled();
 
       // Verify deal updates
       expect(deal.pieceCid).toBe("bafk-uploaded");
       expect(deal.status).toBe(DealStatus.DEAL_CREATED);
       expect(deal.transactionHash).toBe("0xhash");
-      expect(deal.pieceConfirmedTime).toBeInstanceOf(Date);
+      expect(deal.piecesConfirmedTime).toBeInstanceOf(Date);
       expect(deal.uploadStartTime).toBeInstanceOf(Date);
 
       expect(deal.dealLatencyMs).toBeGreaterThanOrEqual(0);
@@ -583,11 +596,11 @@ describe("DealService", () => {
         dataSetId: "dataset-123",
       });
 
-      // Upload fires onUploadComplete and onPieceAdded, but rejects before onPieceConfirmed
+      // Upload fires onStored and onPiecesAdded, but rejects before onPiecesConfirmed
       (executeUpload as Mock).mockImplementation(
         async (_service: unknown, _data: unknown, _rootCid: unknown, options?: ExecuteUploadOptions) => {
-          await options?.onProgress?.({ type: "onUploadComplete", data: { pieceCid: "bafk-uploaded" } });
-          await options?.onProgress?.({ type: "onPieceAdded", data: { txHash: "0xhash" } });
+          await options?.onProgress?.({ type: "onStored", data: { pieceCid: "bafk-uploaded" } });
+          await options?.onProgress?.({ type: "onPiecesAdded", data: { txHash: "0xhash" } });
           throw new Error("timed out waiting for piece confirmation");
         },
       );
@@ -729,7 +742,7 @@ describe("DealService", () => {
 
       const createServiceWithVersion = async (dealbotDataSetVersion: string | undefined) => {
         mockConfigService.get.mockReturnValue({
-          walletPrivateKey: "mockKey",
+          walletPrivateKey: generatePrivateKey(),
           network: "calibration",
           walletAddress: "0x123",
           dealbotDataSetVersion,
@@ -765,7 +778,7 @@ describe("DealService", () => {
         await testService.createDeal(mockSynapseInstance, mockProviderInfo, dealInputWithMetadata, uploadPayload);
 
         expect(createContextMock).toHaveBeenCalledWith({
-          providerAddress: "0xProvider",
+          providerId: 101n,
           metadata: {
             customKey: "customValue",
             dealbotDataSetVersion: "dealbot-v2",
@@ -782,7 +795,7 @@ describe("DealService", () => {
         await testService.createDeal(mockSynapseInstance, mockProviderInfo, dealInputWithMetadata, uploadPayload);
 
         expect(createContextMock).toHaveBeenCalledWith({
-          providerAddress: "0xProvider",
+          providerId: 101n,
           metadata: {
             customKey: "customValue",
           },
@@ -798,7 +811,7 @@ describe("DealService", () => {
         await testService.createDeal(mockSynapseInstance, mockProviderInfo, dealInputWithMetadata, uploadPayload);
 
         expect(createContextMock).toHaveBeenCalledWith({
-          providerAddress: "0xProvider",
+          providerId: 101n,
           metadata: {
             customKey: "customValue",
           },
@@ -828,7 +841,7 @@ describe("DealService", () => {
 
         // Verify config value overwrites dealInput value
         expect(createContextMock).toHaveBeenCalledWith({
-          providerAddress: "0xProvider",
+          providerId: 101n,
           metadata: {
             customKey: "customValue",
             dealbotDataSetVersion: "dealbot-v3", // Config value wins
@@ -853,7 +866,7 @@ describe("DealService", () => {
         }
         if (key === "blockchain") {
           return {
-            walletPrivateKey: "mockKey",
+            walletPrivateKey: generatePrivateKey(),
             network: "calibration",
             walletAddress: "0x123",
           };
@@ -889,9 +902,10 @@ describe("DealService", () => {
       dealAddonsMock.preprocessDeal.mockResolvedValue(preprocessed);
 
       // Mock createDeal to succeed
-      const createDealSpy = vi
-        .spyOn(service, "createDeal")
-        .mockResolvedValue({ id: 1, status: DealStatus.DEAL_CREATED } as unknown as Deal);
+      const createDealSpy = vi.spyOn(service, "createDeal").mockResolvedValue({
+        id: 1,
+        status: DealStatus.DEAL_CREATED,
+      } as unknown as Deal);
 
       const results = await service.createDealsForAllProviders();
 
@@ -943,7 +957,10 @@ describe("DealService", () => {
 
       const createDealSpy = vi.spyOn(service, "createDeal");
       // First call succeeds
-      createDealSpy.mockResolvedValueOnce({ id: 1, spAddress: "0xSuccess" } as unknown as Deal);
+      createDealSpy.mockResolvedValueOnce({
+        id: 1,
+        spAddress: "0xSuccess",
+      } as unknown as Deal);
       // Second call fails
       createDealSpy.mockRejectedValueOnce(new Error("Deal failed"));
 
@@ -957,10 +974,32 @@ describe("DealService", () => {
   });
 
   describe("checkDataSetExists", () => {
+    const mockProviderInfo: PDPProviderEx = {
+      id: 101n,
+      serviceProvider: "0xprovider",
+      payee: "0x100",
+      name: "Test Provider",
+      description: "Test Provider",
+      isActive: true,
+      isApproved: true,
+      pdp: {
+        serviceURL: 'todo',
+        minPieceSizeInBytes: 0n,
+        maxPieceSizeInBytes: 100n,
+        storagePricePerTibPerDay: 1n,
+        minProvingPeriodInEpochs: 1n,
+        location: 'todo',
+        paymentTokenAddress: '0xtodo',
+        ipniPiece: true,
+        ipniIpfs: true,
+      },
+    };
+
     it("returns true when createContext returns a valid dataSetId", async () => {
+      vi.spyOn(mockWalletSdkService, "getProviderInfo").mockReturnValue(mockProviderInfo);
       const synapseMock = {
         storage: {
-          createContext: vi.fn().mockResolvedValue({ dataSetId: 1 }),
+          createContext: vi.fn().mockResolvedValue({ dataSetId: 1n }),
         },
       };
 
@@ -970,12 +1009,13 @@ describe("DealService", () => {
 
       expect(result).toBe(true);
       expect(synapseMock.storage.createContext).toHaveBeenCalledWith({
-        providerAddress: "0xprovider",
+        providerId: 101n,
         metadata: { dealbotDS: "1" },
       });
     });
 
     it("returns false when createContext returns undefined dataSetId", async () => {
+      vi.spyOn(mockWalletSdkService, "getProviderInfo").mockReturnValue(mockProviderInfo);
       const synapseMock = {
         storage: {
           createContext: vi.fn().mockResolvedValue({ dataSetId: undefined }),
@@ -1008,15 +1048,25 @@ describe("DealService", () => {
   });
 
   describe("createDataSetWithPiece", () => {
-    const mockProviderInfo: ProviderInfoEx = {
-      id: 101,
+    const mockProviderInfo: PDPProviderEx = {
+      id: 101n,
       serviceProvider: "0xprovider",
-      payee: "t0100",
+      payee: "0x100",
       name: "Test Provider",
       description: "Test Provider",
-      active: true,
-      products: {},
+      isActive: true,
       isApproved: true,
+      pdp: {
+        serviceURL: 'todo',
+        minPieceSizeInBytes: 0n,
+        maxPieceSizeInBytes: 100n,
+        storagePricePerTibPerDay: 1n,
+        minProvingPeriodInEpochs: 1n,
+        location: 'todo',
+        paymentTokenAddress: '0xtodo',
+        ipniPiece: true,
+        ipniIpfs: true,
+      },
     };
 
     it("throws when provider is not found in registry", async () => {
@@ -1044,7 +1094,7 @@ describe("DealService", () => {
       await service.createDataSetWithPiece("0xprovider", { dealbotDS: "1" });
 
       expect(createContextMock).toHaveBeenCalledWith({
-        providerAddress: "0xprovider",
+        providerId: 101n,
         metadata: { dealbotDS: "1" },
       });
       expect(executeUpload).toHaveBeenCalledWith(
@@ -1110,14 +1160,14 @@ describe("DealService", () => {
       );
     });
 
-    it("succeeds when upload finishes without both onPieceAdded and onPieceConfirmed", async () => {
+    it("succeeds when upload finishes without both onPiecesAdded and onPiecesConfirmed", async () => {
       vi.spyOn(mockWalletSdkService, "getProviderInfo").mockReturnValue(mockProviderInfo);
       vi.spyOn(service as any, "createSynapseInstance").mockResolvedValue({
         storage: { createContext: vi.fn().mockResolvedValue({ dataSetId: 1 }) },
       } as unknown as Synapse);
 
       (executeUpload as Mock).mockImplementation(async (_s, _d, _r, opts) => {
-        await opts?.onProgress?.({ type: "onUploadComplete", data: { pieceCid: "bafk" } });
+        await opts?.onProgress?.({ type: "onStored", data: { pieceCid: "bafk" } });
       });
 
       await expect(service.createDataSetWithPiece("0xprovider", {})).resolves.toBeUndefined();

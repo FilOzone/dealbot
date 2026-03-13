@@ -12,7 +12,7 @@ import { buildCheckMetricLabels, CheckMetricLabels } from "../metrics/utils/chec
 import { PDPSubgraphService } from "../pdp-subgraph/pdp-subgraph.service.js";
 import { type ProviderDataSetResponse } from "../pdp-subgraph/types.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
-import { type ProviderInfoEx } from "../wallet-sdk/wallet-sdk.types.js";
+import { type PDPProviderEx } from "../wallet-sdk/wallet-sdk.types.js";
 
 @Injectable()
 export class DataRetentionService {
@@ -303,7 +303,7 @@ export class DataRetentionService {
   private async processProvider(
     provider: ProviderDataSetResponse["providers"][number],
     blockNumberBigInt: bigint,
-    providerInfo: ProviderInfoEx,
+    pdpProvider: PDPProviderEx,
   ): Promise<{ faultedPeriods: bigint; successPeriods: bigint }> {
     const { address, totalFaultedPeriods, totalProvingPeriods, proofSets } = provider;
     // Note: Query filters proofSets with nextDeadline_lt: $blockNumber, so all deadlines are in the past
@@ -333,7 +333,7 @@ export class DataRetentionService {
         event: "baseline_initialized",
         message: `Initialized baseline for provider ${address} (no prior baseline)`,
         providerAddress: address,
-        providerId: providerInfo.id,
+        providerId: pdpProvider.id,
         faultedPeriods: estimatedTotalFaulted.toString(),
         successPeriods: estimatedTotalSuccess.toString(),
       });
@@ -351,7 +351,7 @@ export class DataRetentionService {
         event: "negative_delta_detected",
         message: `Negative delta detected for provider ${address}`,
         providerAddress: address,
-        providerId: providerInfo.id,
+        providerId: pdpProvider.id,
         faultedDelta: faultedDelta.toString(),
         successDelta: successDelta.toString(),
       });
@@ -362,8 +362,8 @@ export class DataRetentionService {
 
     const providerLabels = buildCheckMetricLabels({
       checkType: "dataRetention",
-      providerId: providerInfo.id,
-      providerIsApproved: providerInfo.isApproved,
+      providerId: pdpProvider.id,
+      providerIsApproved: pdpProvider.isApproved,
     });
 
     if (faultedDelta > 0n) {

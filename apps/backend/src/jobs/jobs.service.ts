@@ -354,7 +354,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         where: { address: spAddress },
         select: { providerId: true },
       });
-      providerId = provider?.providerId;
+      providerId = typeof provider?.providerId === 'number' ? BigInt(provider.providerId) : undefined;
     }
 
     if (providerId == null) {

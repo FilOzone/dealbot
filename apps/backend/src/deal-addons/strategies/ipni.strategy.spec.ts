@@ -13,7 +13,7 @@ describe("IpniAddonStrategy getPieceStatus", () => {
   type DealForMetrics = {
     spAddress?: string;
     storageProvider?: {
-      providerId?: number;
+      providerId?: bigint;
       isApproved?: boolean;
     } | null;
   } | null;
@@ -35,7 +35,7 @@ describe("IpniAddonStrategy getPieceStatus", () => {
       name: "SP",
       description: "SP",
       isActive: true,
-      region: "test",
+      location: "test",
       metadata: {},
       ...overrides,
     });

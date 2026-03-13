@@ -70,7 +70,7 @@ export type BaseDealRetrievalLogContext = {
   jobId?: string;
   dealId?: string;
   providerAddress?: string;
-  providerId?: number;
+  providerId?: bigint;
   pieceCid?: string;
   ipfsRootCID?: string;
 };
@@ -91,7 +91,7 @@ export type RetrievalLogContext = BaseDealRetrievalLogContext;
 export type ProviderJobContext = {
   jobId: string;
   providerAddress: string;
-  providerId: number;
+  providerId: bigint;
 };
 
 /**
@@ -100,7 +100,7 @@ export type ProviderJobContext = {
 export type DataSetLogContext = {
   jobId?: string;
   providerAddress: string;
-  providerId?: number;
+  providerId?: bigint;
   dataSetId?: number;
   dataSetIndex?: number;
   metadata?: Record<string, string>;
@@ -112,5 +112,5 @@ export type DataSetLogContext = {
 export type JobLogContext = {
   jobId?: string;
   providerAddress: string;
-  providerId?: number;
+  providerId?: bigint;
 };
