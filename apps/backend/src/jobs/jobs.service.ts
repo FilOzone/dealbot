@@ -959,7 +959,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         if (maintenance.active && !isSpJob) {
           this.logger.log({
             event: "global_job_enqueue_skipped",
-            message: `Skipping global job during maintenance`,
+            message: "Skipping global job during maintenance",
             jobType: row.job_type,
             maintenanceWindow: maintenance.window?.label,
           });
