@@ -216,7 +216,7 @@ export class DataRetentionService {
     try {
       staleProviders = await this.storageProviderRepository.find({
         where: { address: Raw((alias) => `LOWER(${alias}) IN (:...addresses)`, { addresses: staleAddresses }) },
-        select: ["address", "providerId", "isApproved"],
+        select: ["address", "providerId", "name", "isApproved"],
       });
     } catch (error) {
       // Bail entirely on DB failure to protect metric baselines
@@ -238,11 +238,13 @@ export class DataRetentionService {
           const approvedLabels = buildCheckMetricLabels({
             checkType: "dataRetention",
             providerId: provider.providerId,
+            providerName: provider.name,
             providerIsApproved: true,
           });
           const unapprovedLabels = buildCheckMetricLabels({
             checkType: "dataRetention",
             providerId: provider.providerId,
+            providerName: provider.name,
             providerIsApproved: false,
           });
 
@@ -368,6 +370,7 @@ export class DataRetentionService {
     const providerLabels = buildCheckMetricLabels({
       checkType: "dataRetention",
       providerId: providerInfo.id,
+      providerName: providerInfo.name,
       providerIsApproved: providerInfo.isApproved,
     });
 

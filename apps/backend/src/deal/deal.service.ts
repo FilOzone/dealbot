@@ -205,7 +205,8 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     const checkType = "dataStorage" as const;
     let providerLabels = buildCheckMetricLabels({
       checkType,
-      providerId: undefined,
+      providerId: providerInfo.id,
+      providerName: providerInfo.name,
       providerIsApproved: providerInfo.isApproved,
     });
     let uploadSucceeded = false;
@@ -266,6 +267,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       providerLabels = buildCheckMetricLabels({
         checkType,
         providerId: deal.storageProvider?.providerId,
+        providerName: providerInfo.name ?? deal.storageProvider?.name,
         providerIsApproved: providerInfo.isApproved ?? deal.storageProvider?.isApproved,
       });
       this.dataStorageMetrics.recordUploadStatus(providerLabels, "pending");
@@ -556,6 +558,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     const labels = buildCheckMetricLabels({
       checkType: "dataSetCreation",
       providerId: providerInfo.id,
+      providerName: providerInfo.name,
       providerIsApproved: providerInfo.isApproved,
     });
 
