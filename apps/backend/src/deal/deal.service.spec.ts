@@ -345,6 +345,7 @@ describe("DealService", () => {
         const labels = {
           checkType: "dataStorage",
           providerId: "42",
+          providerName: "Test Provider",
           providerStatus: "approved",
         };
 
@@ -395,6 +396,7 @@ describe("DealService", () => {
       const labels = {
         checkType: "dataStorage",
         providerId: "7",
+        providerName: "Test Provider",
         providerStatus: "unapproved",
       };
 
@@ -428,6 +430,7 @@ describe("DealService", () => {
       const labels = {
         checkType: "dataStorage",
         providerId: "7",
+        providerName: "Test Provider",
         providerStatus: "unapproved",
       };
 
@@ -599,6 +602,7 @@ describe("DealService", () => {
       const labels = {
         checkType: "dataStorage",
         providerId: "42",
+        providerName: "Test Provider",
         providerStatus: "approved",
       };
 
@@ -647,6 +651,7 @@ describe("DealService", () => {
       const labels = {
         checkType: "dataStorage",
         providerId: "42",
+        providerName: "Test Provider",
         providerStatus: "approved",
       };
 

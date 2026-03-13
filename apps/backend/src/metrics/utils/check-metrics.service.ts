@@ -225,6 +225,7 @@ export class DiscoverabilityCheckMetrics {
     return buildCheckMetricLabels({
       checkType: "dataStorage",
       providerId: deal.storageProvider?.providerId,
+      providerName: deal.storageProvider?.name,
       providerIsApproved: deal.storageProvider?.isApproved,
     });
   }

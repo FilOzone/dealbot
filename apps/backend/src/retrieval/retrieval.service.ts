@@ -189,6 +189,7 @@ export class RetrievalService {
     const providerLabels = buildCheckMetricLabels({
       checkType: "retrieval",
       providerId: provider.providerId,
+      providerName: provider.name,
       providerIsApproved: provider.isApproved,
     });
     const retrievalLogContext: RetrievalLogContext = {
