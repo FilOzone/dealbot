@@ -138,7 +138,7 @@ export class DealAddonsService {
     const dealLogContext: DealLogContext = {
       ...logContext,
       dealId: deal.id,
-      providerId: typeof deal.storageProvider?.providerId === 'number' ? BigInt(deal.storageProvider.providerId) : logContext?.providerId,
+      providerId: deal.storageProvider?.providerId ?? logContext?.providerId,
       providerAddress: deal.spAddress,
       pieceCid: deal.pieceCid,
       ipfsRootCID: deal.metadata?.[ServiceType.IPFS_PIN]?.rootCID,
@@ -177,7 +177,7 @@ export class DealAddonsService {
     const dealLogContext: DealLogContext = {
       ...logContext,
       dealId: deal.id,
-      providerId: typeof deal.storageProvider?.providerId === 'number' ? BigInt(deal.storageProvider.providerId) : logContext?.providerId,
+      providerId: deal.storageProvider?.providerId ?? logContext?.providerId,
       providerAddress: deal.spAddress,
       pieceCid: deal.pieceCid,
       ipfsRootCID: deal.metadata?.[ServiceType.IPFS_PIN]?.rootCID,
