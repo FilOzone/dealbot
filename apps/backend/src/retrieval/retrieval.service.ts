@@ -147,11 +147,11 @@ export class RetrievalService {
             this.logger.error({
               event: "batch_retrieval_failed",
               message: "Batch retrieval failed",
-              dealId: deal?.id ?? "unknown",
-              providerId: deal?.storageProvider?.providerId,
-              providerAddress: deal?.spAddress,
-              pieceCid: deal?.pieceCid,
-              ipfsRootCID: deal?.metadata?.[ServiceType.IPFS_PIN]?.rootCID,
+              dealId: deal.id,
+              providerId: deal.storageProvider?.providerId,
+              providerAddress: deal.spAddress,
+              pieceCid: deal.pieceCid,
+              ipfsRootCID: deal.metadata?.[ServiceType.IPFS_PIN]?.rootCID,
               error: toStructuredError(errorReason),
             });
           }
