@@ -101,7 +101,7 @@ export class FailedDealDto {
     example: "2024-01-15T10:33:00.000Z",
     nullable: true,
   })
-  pieceAddedTime?: Date;
+  piecesAddedTime?: Date;
 
   @ApiProperty({
     description: "Deal confirmed on chain time",

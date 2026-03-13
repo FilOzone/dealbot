@@ -17,6 +17,7 @@ import { EnsurePgBossSchema1760550000000 } from "../src/database/migrations/1760
 import { RemoveCdnServiceType1760600000000 } from "../src/database/migrations/1760600000000-RemoveCdnServiceType.js";
 import { RemoveSpReceivedRetrieveRequest1761500000000 } from "../src/database/migrations/1761500000000-RemoveSpReceivedRetrieveRequest.js";
 import { RemoveIpniRetrievedColumns1761500000001 } from "../src/database/migrations/1761500000001-RemoveIpniRetrievedColumns.js";
+import { RenameEvents1761500000003 } from "../src/database/migrations/1761500000003-RenameEvents.js";
 
 const execFileAsync = promisify(execFile);
 const dockerCheck = spawnSync("docker", ["info"], { stdio: "ignore" });
@@ -45,6 +46,7 @@ const ALL_MIGRATIONS: Array<new () => MigrationInterface> = [
   RemoveCdnServiceType1760600000000,
   RemoveSpReceivedRetrieveRequest1761500000000,
   RemoveIpniRetrievedColumns1761500000001,
+  RenameEvents1761500000003,
 ];
 
 type DatabaseConfig = {
