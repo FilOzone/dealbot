@@ -132,6 +132,7 @@ export class DataRetentionService {
                 message: "Failed to process provider",
                 providerAddress: addr,
                 providerId: providerInfo?.id,
+                providerName: providerInfo?.name,
                 error: toStructuredError(result.reason),
               });
             } else {
@@ -269,6 +270,7 @@ export class DataRetentionService {
             message: "Removed baseline and metrics for stale provider",
             providerAddress: address,
             providerId: provider.providerId,
+            providerName: provider.name,
           });
         } else {
           // Provider not in database or missing ID.
@@ -290,6 +292,7 @@ export class DataRetentionService {
           message: "Failed to cleanup metrics for provider. Baseline retained to prevent metric inflation.",
           providerAddress: address,
           providerId: provider?.providerId,
+          providerName: provider?.name,
           error: toStructuredError(error),
         });
       }
@@ -334,6 +337,7 @@ export class DataRetentionService {
         message: "Initialized baseline for provider (no prior baseline)",
         providerAddress: address,
         providerId: providerInfo.id,
+        providerName: providerInfo.name,
         faultedPeriods: estimatedTotalFaulted.toString(),
         successPeriods: estimatedTotalSuccess.toString(),
       });
@@ -352,6 +356,7 @@ export class DataRetentionService {
         message: "Negative delta detected for provider",
         providerAddress: address,
         providerId: providerInfo.id,
+        providerName: providerInfo.name,
         faultedDelta: faultedDelta.toString(),
         successDelta: successDelta.toString(),
       });

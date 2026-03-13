@@ -253,6 +253,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       dealId: existingDealId ?? deal.id,
       providerAddress,
       providerId: providerInfo.id ?? logContext?.providerId,
+      providerName: providerInfo.name ?? logContext?.providerName,
       ipfsRootCID: uploadPayload.rootCid.toString(),
     };
 
@@ -565,6 +566,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       message: "Starting data-set creation with piece",
       providerAddress,
       providerId: providerInfo.id,
+      providerName: providerInfo.name,
       metadata,
     });
 
@@ -616,6 +618,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
                   message: "Data-set creation upload complete",
                   providerAddress,
                   providerId: providerInfo.id,
+                  providerName: providerInfo.name,
                   pieceCid,
                 });
                 break;
@@ -626,6 +629,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
                   message: "Data-set creation piece added",
                   providerAddress,
                   providerId: providerInfo.id,
+                  providerName: providerInfo.name,
                   txHash: event.data.txHash ?? "unknown",
                 });
                 break;
@@ -636,6 +640,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
                   message: "Data-set creation piece confirmed",
                   providerAddress,
                   providerId: providerInfo.id,
+                  providerName: providerInfo.name,
                   pieceIds: event.data.pieceIds,
                 });
                 break;
@@ -665,6 +670,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
           message: "Data-set creation succeeded without full on-chain progress events",
           providerAddress,
           providerId: providerInfo.id,
+          providerName: providerInfo.name,
           pieceAdded,
           pieceConfirmed,
         });
@@ -675,6 +681,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
         message: "Data-set created with piece",
         providerAddress,
         providerId: providerInfo.id,
+        providerName: providerInfo.name,
         durationMs,
         dataSetId: storage.dataSetId ?? "unknown",
         pieceCid: pieceCid ?? "unknown",
@@ -692,6 +699,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
         message: "Data-set creation with piece failed",
         providerAddress,
         providerId: providerInfo.id,
+        providerName: providerInfo.name,
         durationMs,
         pieceAdded,
         pieceConfirmed,

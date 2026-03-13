@@ -87,6 +87,7 @@ export class RetrievalAddonsService {
         this.logger.debug({
           dealId: config.deal.id,
           providerId: config.deal.storageProvider?.providerId,
+          providerName: config.deal.storageProvider?.name,
           providerAddress: config.storageProvider,
           event: "retrieval_strategy_applicable",
           message: "Retrieval strategy is applicable",
@@ -127,6 +128,7 @@ export class RetrievalAddonsService {
     this.logger.debug({
       dealId: config.deal.id,
       providerId: config.deal.storageProvider?.providerId,
+      providerName: config.deal.storageProvider?.name,
       providerAddress: config.storageProvider,
       event: "retrieval_strategy_selected",
       message: "Using preferred retrieval strategy",
@@ -150,6 +152,7 @@ export class RetrievalAddonsService {
       this.logger.warn({
         dealId: config.deal.id,
         providerId: config.deal.storageProvider?.providerId,
+        providerName: config.deal.storageProvider?.name,
         providerAddress: config.storageProvider,
         event: "no_retrieval_strategies",
         message: "No applicable retrieval strategies found",
@@ -167,6 +170,7 @@ export class RetrievalAddonsService {
           strategy: strategy.name,
           dealId: config.deal.id,
           providerId: config.deal.storageProvider?.providerId,
+          providerName: config.deal.storageProvider?.name,
           providerAddress: config.storageProvider,
           error: toStructuredError(error),
         });
@@ -194,6 +198,7 @@ export class RetrievalAddonsService {
       dealId: config.deal.id,
       providerAddress: config.storageProvider,
       providerId: config.deal.storageProvider?.providerId ?? logContext?.providerId,
+      providerName: config.deal.storageProvider?.name ?? logContext?.providerName,
       pieceCid: config.deal.pieceCid,
       ipfsRootCID: config.deal.metadata?.[ServiceType.IPFS_PIN]?.rootCID,
     };
@@ -327,6 +332,7 @@ export class RetrievalAddonsService {
       jobId: logContext?.jobId,
       dealId: config.deal.id,
       providerId: config.deal.storageProvider?.providerId ?? logContext?.providerId,
+      providerName: config.deal.storageProvider?.name ?? logContext?.providerName,
       providerAddress: config.storageProvider,
       pieceCid: config.deal.pieceCid,
       ipfsRootCID: config.deal.metadata?.[ServiceType.IPFS_PIN]?.rootCID,

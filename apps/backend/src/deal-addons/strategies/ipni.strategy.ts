@@ -204,6 +204,7 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       dealId: deal.id,
       providerAddress: deal.spAddress,
       providerId: deal.storageProvider?.providerId ?? logContext?.providerId,
+      providerName: deal.storageProvider?.name ?? logContext?.providerName,
       pieceCid: deal.pieceCid,
       ipfsRootCID: deal.metadata[this.name]?.rootCID,
     };
