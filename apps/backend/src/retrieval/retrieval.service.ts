@@ -388,11 +388,19 @@ export class RetrievalService {
   // ============================================================================
 
   private async selectRandomDealsForRetrieval(count: number): Promise<Deal[]> {
-    const allDeals = await this.dealRepository.find({
-      where: [{ status: DealStatus.DEAL_CREATED }, { status: DealStatus.PIECE_ADDED }],
-      order: { createdAt: "DESC" },
-      take: Math.max(count * 2, 100),
-    });
+    const useOnlyApproved = this.configService.get("blockchain").useOnlyApprovedProviders;
+    const query = this.dealRepository
+      .createQueryBuilder("deal")
+      .innerJoin("deal.storageProvider", "sp", "sp.isActive = :isActive", { isActive: true })
+      .where("deal.status IN (:...statuses)", {
+        statuses: [DealStatus.DEAL_CREATED, DealStatus.PIECE_ADDED],
+      })
+      .orderBy("deal.createdAt", "DESC")
+      .take(Math.max(count * 2, 100));
+    if (useOnlyApproved) {
+      query.andWhere("sp.isApproved = :isApproved", { isApproved: true });
+    }
+    const allDeals = await query.getMany();
 
     if (allDeals.length === 0) {
       this.logger.warn("No deals available for retrieval testing");
@@ -413,6 +421,7 @@ export class RetrievalService {
     const randomDatasetSizes = this.getRandomDatasetSizes();
     const query = this.dealRepository
       .createQueryBuilder("deal")
+      .innerJoin("deal.storageProvider", "sp", "sp.isActive = :isActive", { isActive: true })
       .where("deal.sp_address = :spAddress", { spAddress })
       .andWhere("deal.status IN (:...statuses)", {
         statuses: [DealStatus.DEAL_CREATED],
