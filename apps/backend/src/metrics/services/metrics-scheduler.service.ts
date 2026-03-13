@@ -1,13 +1,11 @@
-import { Injectable, Logger, type OnModuleInit } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import { Cron, SchedulerRegistry } from "@nestjs/schedule";
 import { InjectDataSource, InjectRepository } from "@nestjs/typeorm";
 import { InjectMetric } from "@willsoto/nestjs-prometheus";
 import type { Gauge } from "prom-client";
 import type { DataSource, Repository } from "typeorm";
 import { toStructuredError } from "../../common/logging.js";
-import { scheduleJobWithOffset } from "../../common/utils.js";
-import type { IConfig, ISchedulingConfig } from "../../config/app.config.js";
+import type { IConfig } from "../../config/app.config.js";
 import { StorageProvider } from "../../database/entities/storage-provider.entity.js";
 import { IpniStatus } from "../../database/types.js";
 import { WalletSdkService } from "../../wallet-sdk/wallet-sdk.service.js";
@@ -26,14 +24,13 @@ import { WalletSdkService } from "../../wallet-sdk/wallet-sdk.service.js";
  * This prevents database contention and resource conflicts by spacing jobs 5 minutes apart
  */
 @Injectable()
-export class MetricsSchedulerService implements OnModuleInit {
+export class MetricsSchedulerService {
   private readonly logger = new Logger(MetricsSchedulerService.name);
 
   constructor(
     @InjectDataSource()
     private readonly dataSource: DataSource,
     private readonly configService: ConfigService<IConfig, true>,
-    private readonly schedulerRegistry: SchedulerRegistry,
     private readonly walletSdkService: WalletSdkService,
     @InjectRepository(StorageProvider)
     private readonly spRepository: Repository<StorageProvider>,
@@ -44,58 +41,6 @@ export class MetricsSchedulerService implements OnModuleInit {
     @InjectMetric("storage_providers_tested")
     private readonly storageProvidersTested: Gauge,
   ) {}
-
-  async onModuleInit() {
-    if (process.env.DEALBOT_JOBS_MODE === "pgboss") {
-      this.logger.log("pg-boss mode enabled; skipping legacy metrics cron scheduler.");
-      return;
-    }
-    this.setupStaggeredMetricsJobs();
-  }
-
-  /**
-   * Setup staggered metrics jobs to prevent concurrent execution
-   * Jobs are delayed based on METRICS_START_OFFSET_SECONDS config
-   */
-  private setupStaggeredMetricsJobs() {
-    const config = this.configService.get<ISchedulingConfig>("scheduling");
-    const baseOffsetSeconds = config.metricsStartOffsetSeconds;
-
-    // Daily metrics aggregation: base offset + 0 minutes (e.g., 15 min after deal creation)
-    scheduleJobWithOffset(
-      "aggregate-daily-metrics",
-      baseOffsetSeconds,
-      1800,
-      this.schedulerRegistry,
-      () => this.aggregateDailyMetrics(),
-      this.logger,
-    );
-
-    // Weekly performance: base offset + 5 minutes (e.g., 20 min after deal creation)
-    scheduleJobWithOffset(
-      "refresh-last-week-performance",
-      baseOffsetSeconds + 300,
-      1800,
-      this.schedulerRegistry,
-      () => this.refreshWeeklyPerformance(),
-      this.logger,
-    );
-
-    // All-time performance: base offset + 5 minutes (e.g., 20 min after deal creation)
-    scheduleJobWithOffset(
-      "refresh-all-time-performance",
-      baseOffsetSeconds + 300,
-      1800,
-      this.schedulerRegistry,
-      () => this.refreshAllTimePerformance(),
-      this.logger,
-    );
-
-    this.logger.log(
-      `Staggered metrics jobs setup with base offset ${baseOffsetSeconds}s: ` +
-        `Daily metrics (+0min), Weekly perf (+5min), All-time perf (+10min)`,
-    );
-  }
 
   /**
    * Refresh last week performance materialized view
@@ -407,13 +352,8 @@ export class MetricsSchedulerService implements OnModuleInit {
 
   /**
    * Cleanup old metrics data
-   * Runs weekly on Sunday at 02:00
-   *
    * Archives or deletes metrics older than retention period (default: 90 days)
    */
-  @Cron("0 2 * * 0", {
-    name: "cleanup-old-metrics",
-  })
   async cleanupOldMetrics({ allowWhenPgBoss = false }: { allowWhenPgBoss?: boolean } = {}): Promise<void> {
     if (process.env.DEALBOT_JOBS_MODE === "pgboss" && !allowWhenPgBoss) {
       return;
