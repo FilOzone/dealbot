@@ -1320,10 +1320,10 @@ describe("JobsService schedule rows", () => {
     const controller = new AbortController();
     controller.abort(new Error("Job timed out"));
 
-    const { provisionDataSets } = await import("./data-set-creation.handler.js");
+    const { provisionNextMissingDataSet } = await import("./data-set-creation.handler.js");
 
     await expect(
-      provisionDataSets(
+      provisionNextMissingDataSet(
         { dealService, logger },
         "0xaaa",
         5,

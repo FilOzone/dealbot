@@ -8,11 +8,11 @@ export interface DataSetCreationDeps {
 }
 
 /**
- * Ensures all required data-sets exist for a provider by deterministically
- * looping through indices 0..minDataSets-1 and creating the first missing one.
+ * Creates at most one missing data-set per invocation for incremental provisioning.
  *
- * Only one data-set is created per invocation to avoid timeouts. The scheduler
- * will fire subsequent jobs to create the remaining data-sets incrementally.
+ * Loops through indices 0..minDataSets-1, skips existing data-sets, and creates
+ * the first missing one then returns. The scheduler fires subsequent jobs to
+ * converge on the full set over multiple runs.
  *
  * Index 0 is the initial data-set (no dealbotDS metadata).
  * Indices 1+ are tagged with { dealbotDS: String(i) }.
@@ -20,7 +20,7 @@ export interface DataSetCreationDeps {
  * Uses createContext + executeUpload with a 200 KiB piece for on-chain data-set creation
  * (empty datasets are being removed from curio and synapse-sdk).
  */
-export async function provisionDataSets(
+export async function provisionNextMissingDataSet(
   deps: DataSetCreationDeps,
   spAddress: string,
   minDataSets: number,
@@ -67,12 +67,13 @@ export async function provisionDataSets(
 
     logger.log({
       ...dataSetLogContext,
-      event: "data_sets_provisioning_completed",
-      message: "Data-set provisioning completed for provider (created 1, deferring any remaining)",
+      event: "data_set_provisioning_progress",
+      message: "Created 1 data-set, deferring remaining to next run",
       createdCount: 1,
+      createdIndex: i,
       minDataSets,
-      existingCount,
-      remainingCount: minDataSets - existingCount - 1,
+      checkedExistingCount: existingCount,
+      uncheckedCount: minDataSets - existingCount - 1,
     });
     return;
   }
