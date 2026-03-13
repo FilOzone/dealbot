@@ -30,7 +30,12 @@ export class DealAddonsService {
   private registerAddons(): void {
     this.registerAddon(this.ipniAddon);
 
-    this.logger.log(`Registered ${this.addons.size} deal add-ons: ${Array.from(this.addons.keys()).join(", ")}`);
+    this.logger.log({
+      event: "deal_addons_registered",
+      message: "Deal add-ons registered",
+      count: this.addons.size,
+      addons: Array.from(this.addons.keys()),
+    });
   }
 
   /**
@@ -40,12 +45,21 @@ export class DealAddonsService {
    */
   private registerAddon(addon: IDealAddon): void {
     if (this.addons.has(addon.name)) {
-      this.logger.warn(`Add-on ${addon.name} is already registered, skipping`);
+      this.logger.warn({
+        event: "deal_addon_duplicate",
+        message: "Add-on already registered, skipping",
+        addon: addon.name,
+      });
       return;
     }
 
     this.addons.set(addon.name, addon);
-    this.logger.debug(`Registered add-on: ${addon.name} (priority: ${addon.priority})`);
+    this.logger.debug({
+      event: "deal_addon_registered",
+      message: "Registered add-on",
+      addon: addon.name,
+      priority: addon.priority,
+    });
   }
 
   /**
@@ -62,7 +76,11 @@ export class DealAddonsService {
     logContext?: ProviderJobContext,
   ): Promise<DealPreprocessingResult> {
     const startTime = Date.now();
-    this.logger.log(`Starting deal preprocessing for file: ${config.dataFile.name}`);
+    this.logger.log({
+      event: "deal_preprocessing_started",
+      message: "Starting deal preprocessing",
+      fileName: config.dataFile.name,
+    });
 
     try {
       // Get applicable add-ons based on configuration
@@ -81,9 +99,12 @@ export class DealAddonsService {
       // Sort by priority (lower number = higher priority)
       const sortedAddons = this.sortAddonsByPriority(applicableAddons);
 
-      this.logger.debug(
-        `Executing ${sortedAddons.length} add-ons in order: ${sortedAddons.map((a) => a.name).join(" → ")}`,
-      );
+      this.logger.debug({
+        event: "deal_preprocessing_pipeline",
+        message: "Executing add-ons",
+        count: sortedAddons.length,
+        order: sortedAddons.map((a) => a.name),
+      });
 
       // Execute preprocessing pipeline
       const pipelineResult = await this.executePreprocessingPipeline(sortedAddons, config, signal);
@@ -92,10 +113,12 @@ export class DealAddonsService {
       const synapseConfig = this.mergeSynapseConfigs(sortedAddons, pipelineResult.aggregatedMetadata);
 
       const duration = Date.now() - startTime;
-      this.logger.log(
-        `Deal preprocessing completed in ${duration}ms. ` +
-          `Applied add-ons: ${pipelineResult.appliedAddons.join(", ")}`,
-      );
+      this.logger.log({
+        event: "deal_preprocessing_completed",
+        message: "Deal preprocessing completed",
+        durationMs: duration,
+        appliedAddons: pipelineResult.appliedAddons,
+      });
 
       return {
         processedData: {
@@ -131,8 +154,6 @@ export class DealAddonsService {
     signal?: AbortSignal,
     logContext?: Partial<DealLogContext>,
   ): Promise<void> {
-    this.logger.debug(`Running onUploadComplete handlers for deal ${deal.id}`);
-
     signal?.throwIfAborted();
 
     const dealLogContext: DealLogContext = {
@@ -144,6 +165,12 @@ export class DealAddonsService {
       ipfsRootCID: deal.metadata?.[ServiceType.IPFS_PIN]?.rootCID,
     };
 
+    this.logger.debug({
+      ...dealLogContext,
+      event: "addon_on_upload_complete_started",
+      message: "Running onUploadComplete handlers",
+    });
+
     const uploadCompletePromises = appliedAddons
       .map((addonName) => this.addons.get(addonName))
       .filter((addon) => addon?.onUploadComplete)
@@ -151,13 +178,17 @@ export class DealAddonsService {
 
     try {
       await awaitWithAbort(Promise.all(uploadCompletePromises), signal);
-      this.logger.debug(`onUploadComplete handlers completed for deal ${deal.id}`);
+      this.logger.debug({
+        ...dealLogContext,
+        event: "addon_on_upload_complete_completed",
+        message: "onUploadComplete handlers completed",
+      });
     } catch (error) {
       signal?.throwIfAborted();
       this.logger.warn({
         ...dealLogContext,
         event: "addon_on_upload_complete_failed",
-        message: `onUploadComplete handler failed for deal ${deal.id}`,
+        message: "onUploadComplete handler failed",
         error: toStructuredError(error),
       });
       throw error;
@@ -172,8 +203,6 @@ export class DealAddonsService {
    * @param appliedAddons - Names of add-ons that were applied during preprocessing
    */
   async postProcessDeal(deal: Deal, appliedAddons: string[], logContext?: Partial<DealLogContext>): Promise<void> {
-    this.logger.debug(`Running post-processing for deal ${deal.id}`);
-
     const dealLogContext: DealLogContext = {
       ...logContext,
       dealId: deal.id,
@@ -183,6 +212,12 @@ export class DealAddonsService {
       ipfsRootCID: deal.metadata?.[ServiceType.IPFS_PIN]?.rootCID,
     };
 
+    this.logger.debug({
+      ...dealLogContext,
+      event: "addon_post_process_started",
+      message: "Running post-processing",
+    });
+
     const postProcessPromises = appliedAddons
       .map((addonName) => this.addons.get(addonName))
       .filter((addon) => addon?.postProcess)
@@ -190,12 +225,16 @@ export class DealAddonsService {
 
     try {
       await Promise.all(postProcessPromises);
-      this.logger.debug(`Post-processing completed for deal ${deal.id}`);
+      this.logger.debug({
+        ...dealLogContext,
+        event: "addon_post_process_completed",
+        message: "Post-processing completed",
+      });
     } catch (error) {
       this.logger.warn({
         ...dealLogContext,
         event: "addon_post_process_failed",
-        message: `Post-processing failed for deal ${deal.id}`,
+        message: "Post-processing failed",
         error: toStructuredError(error),
       });
       // Don't throw - post-processing failures shouldn't break the deal
@@ -214,7 +253,11 @@ export class DealAddonsService {
     for (const addon of this.addons.values()) {
       if (addon.isApplicable(config)) {
         applicable.push(addon);
-        this.logger.debug(`Add-on ${addon.name} is applicable`);
+        this.logger.debug({
+          event: "deal_addon_applicable",
+          message: "Add-on is applicable",
+          addon: addon.name,
+        });
       }
     }
 
@@ -263,7 +306,11 @@ export class DealAddonsService {
     // Execute each add-on in sequence
     for (const addon of addons) {
       try {
-        this.logger.debug(`Executing add-on: ${addon.name}`);
+        this.logger.debug({
+          event: "deal_addon_executing",
+          message: "Executing add-on",
+          addon: addon.name,
+        });
 
         // Execute preprocessing
         const result = await addon.preprocessData(context, signal);
@@ -285,10 +332,13 @@ export class DealAddonsService {
 
         appliedAddons.push(addon.name);
 
-        this.logger.debug(
-          `Add-on ${addon.name} completed: ${result.size} bytes, ` +
-            `metadata keys: ${Object.keys(result.metadata).join(", ")}`,
-        );
+        this.logger.debug({
+          event: "deal_addon_completed",
+          message: "Add-on completed",
+          addon: addon.name,
+          sizeBytes: result.size,
+          metadataKeys: Object.keys(result.metadata),
+        });
       } catch (error) {
         this.logger.error({
           event: "deal_addon_failed",
@@ -345,7 +395,12 @@ export class DealAddonsService {
 
     const dataSetKeys = Object.keys(merged.dataSetMetadata);
     const pieceKeys = Object.keys(merged.pieceMetadata);
-    this.logger.debug(`Merged Synapse config - dataSet: [${dataSetKeys.join(", ")}], piece: [${pieceKeys.join(", ")}]`);
+    this.logger.debug({
+      event: "synapse_config_merged",
+      message: "Merged Synapse config",
+      dataSetKeys,
+      pieceKeys,
+    });
 
     return merged satisfies SynapseConfig;
   }

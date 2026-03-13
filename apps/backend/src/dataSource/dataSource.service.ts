@@ -17,7 +17,12 @@ export class DataSourceService {
   }
 
   async generateRandomDataset(minSize: number, maxSize: number): Promise<DataFile> {
-    this.logger.log(`Generating random dataset with min size ${minSize} and max size ${maxSize}`);
+    this.logger.log({
+      event: "random_dataset_generating",
+      message: "Generating random dataset",
+      minSize,
+      maxSize,
+    });
 
     try {
       // Get configured dataset sizes from config
@@ -63,7 +68,12 @@ export class DataSourceService {
       // Read the file back (this is necessary for the DataFile interface)
       const fileData = await fs.promises.readFile(filePath);
 
-      this.logger.log(`Generated random dataset: ${fileName} (${fileData.length} bytes)`);
+      this.logger.log({
+        event: "random_dataset_generated",
+        message: "Generated random dataset",
+        fileName,
+        sizeBytes: fileData.length,
+      });
 
       return {
         name: fileName,
@@ -135,7 +145,11 @@ export class DataSourceService {
    */
   async cleanupRandomDataset(fileName: string): Promise<void> {
     if (!this.isRandomDataset(fileName)) {
-      this.logger.debug(`Skipping cleanup for non-random file: ${fileName}`);
+      this.logger.debug({
+        event: "cleanup_skipped",
+        message: "Skipping cleanup for non-random file",
+        fileName,
+      });
       return;
     }
 
@@ -144,10 +158,18 @@ export class DataSourceService {
       const filePath = path.join(datasetsPath, fileName);
 
       await fs.promises.unlink(filePath);
-      this.logger.log(`Cleaned up random dataset: ${fileName}`);
+      this.logger.log({
+        event: "random_dataset_cleaned_up",
+        message: "Cleaned up random dataset",
+        fileName,
+      });
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-        this.logger.debug(`Random dataset file not found for cleanup: ${fileName}`);
+        this.logger.debug({
+          event: "cleanup_file_not_found",
+          message: "Random dataset file not found for cleanup",
+          fileName,
+        });
       } else {
         this.logger.warn({
           event: "cleanup_random_dataset_failed",

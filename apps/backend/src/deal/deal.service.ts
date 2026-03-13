@@ -80,7 +80,11 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
   async createDealsForAllProviders(): Promise<Deal[]> {
     const totalProviders = this.walletSdkService.getTestingProvidersCount();
 
-    this.logger.log(`Starting deal creation for ${totalProviders} providers`);
+    this.logger.log({
+      event: "deal_creation_batch_started",
+      message: "Starting deal creation for all providers",
+      totalProviders,
+    });
 
     const { preprocessed, cleanup } = await this.prepareDealInput();
 
@@ -101,7 +105,12 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
 
       const successfulDeals = results.filter((result) => result.success).map((result) => result.deal!);
 
-      this.logger.log(`Deal creation completed: ${successfulDeals.length}/${totalProviders} successful`);
+      this.logger.log({
+        event: "deal_creation_batch_completed",
+        message: "Deal creation completed",
+        successfulDeals: successfulDeals.length,
+        totalProviders,
+      });
 
       return successfulDeals;
     } finally {
@@ -216,7 +225,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
           providerId: providerInfo.id ?? logContext?.providerId,
           ipfsRootCID: uploadPayload.rootCid.toString(),
           event: "deal_creation_failed",
-          message: `Deal creation failed for ${providerAddress}`,
+          message: "Deal creation failed",
           error: toStructuredError(error),
         });
         throw error;
@@ -326,7 +335,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
                 this.logger.warn({
                   ...dealLogContext,
                   event: "ingest_throughput_skipped",
-                  message: `Skipping ingest throughput: invalid ingest latency (${deal.ingestLatencyMs}ms) for deal ${deal.id}`,
+                  message: "Skipping ingest throughput: invalid ingest latency",
                   ingestLatencyMs: deal.ingestLatencyMs,
                 });
               }
@@ -336,7 +345,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
               this.logger.log({
                 ...dealLogContext,
                 event: "piece_added",
-                message: `Piece added event, txHash: ${event.data.txHash}`,
+                message: "Piece added",
                 txHash: event.data.txHash,
               });
               deal.pieceAddedTime = new Date();
@@ -346,7 +355,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
                 this.logger.warn({
                   ...dealLogContext,
                   event: "piece_added_no_tx_hash",
-                  message: `No transaction hash found for piece added event: ${deal.pieceCid}`,
+                  message: "No transaction hash found for piece added event",
                 });
               }
               deal.status = DealStatus.PIECE_ADDED;
@@ -359,7 +368,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
               this.logger.log({
                 ...dealLogContext,
                 event: "piece_confirmed",
-                message: `Piece confirmed event, pieceIds: ${event.data.pieceIds.join(", ")}`,
+                message: "Piece confirmed",
                 pieceIds: event.data.pieceIds,
               });
               deal.pieceConfirmedTime = new Date();
@@ -389,7 +398,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
         this.logger.error({
           ...dealLogContext,
           event: "deal_transaction_hash_missing",
-          message: `No transaction hash found for deal: ${deal.pieceCid}`,
+          message: "No transaction hash found for deal",
         });
       }
 
@@ -446,7 +455,8 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
         this.logger.log({
           ...dealLogContext,
           event: "deal_creation_retrieval_test_completed",
-          message: `Retrieval test completed in ${retrievalTest.testedAt.getTime() - retrievalStartTime}ms`,
+          message: "Retrieval test completed",
+          durationMs: retrievalTest.testedAt.getTime() - retrievalStartTime,
           totalMethods: retrievalTest.summary.totalMethods,
           successfulMethods: retrievalTest.summary.successfulMethods,
         });
@@ -462,7 +472,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       this.logger.log({
         ...dealLogContext,
         event: "deal_creation_completed",
-        message: `Deal ${deal.id} created: ${deal.pieceCid} (sp: ${providerAddress})`,
+        message: "Deal created",
       });
 
       await this.dealAddonsService.postProcessDeal(deal, dealInput.appliedAddons, dealLogContext);
@@ -778,7 +788,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       this.logger.warn({
         ...dealLogContext,
         event: "save_deal_failed",
-        message: `Failed to save deal ${deal.pieceCid}`,
+        message: "Failed to save deal",
         error: toStructuredError(error),
       });
     }

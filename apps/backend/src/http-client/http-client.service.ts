@@ -71,7 +71,11 @@ export class HttpClientService {
     const { method, data, headers } = options;
 
     try {
-      this.logger.debug(`Requesting ${url} via HTTP/2`);
+      this.logger.debug({
+        event: "http2_request_started",
+        message: "Requesting via HTTP/2",
+        url,
+      });
 
       const startTime = performance.now();
       let ttfbTime = 0;
@@ -110,8 +114,6 @@ export class HttpClientService {
       ttfbTime = performance.now() - startTime;
       statusCode = response.statusCode;
 
-      this.logger.debug(`TTFB (HTTP/2): ${ttfbTime.toFixed(2)}ms`);
-
       const chunks: Buffer[] = [];
       for await (const chunk of response.body) {
         chunks.push(Buffer.from(chunk));
@@ -130,12 +132,6 @@ export class HttpClientService {
         timestamp: new Date(),
         httpVersion: "2",
       };
-
-      this.logger.log(
-        `HTTP/2 Request successful - TTFB: ${metrics.ttfb}ms, Total: ${
-          metrics.totalTime
-        }ms, Size: ${this.formatBytes(dataBuffer.length)}`,
-      );
 
       return {
         data: dataBuffer as T,
@@ -167,12 +163,15 @@ export class HttpClientService {
     const { method, data, headers, signal } = options;
 
     try {
-      this.logger.debug(`Requesting ${url} via HTTP/1.1`);
+      this.logger.debug({
+        event: "http1_request_started",
+        message: "Requesting via HTTP/1.1",
+        url,
+      });
 
       const startTime = performance.now();
       let ttfbTime = 0;
       let firstByteReceived = false;
-      let _responseSize = 0;
       let statusCode = 0;
 
       const config: AxiosRequestConfig = {
@@ -187,13 +186,11 @@ export class HttpClientService {
         signal,
         maxRedirects: 5,
         responseType: "arraybuffer",
-        onDownloadProgress: (progressEvent) => {
+        onDownloadProgress: () => {
           if (!firstByteReceived) {
             ttfbTime = performance.now() - startTime;
             firstByteReceived = true;
-            this.logger.debug(`TTFB: ${ttfbTime.toFixed(2)}ms`);
           }
-          _responseSize = progressEvent.loaded;
         },
       };
 
@@ -204,7 +201,10 @@ export class HttpClientService {
       statusCode = response.status;
 
       if (!firstByteReceived) {
-        this.logger.debug(`TTFB not captured, estimating`);
+        this.logger.debug({
+          event: "http1_ttfb_estimated",
+          message: "TTFB not captured, estimating",
+        });
         ttfbTime = totalTime * 0.8;
       }
 
@@ -219,12 +219,6 @@ export class HttpClientService {
         timestamp: new Date(),
         httpVersion: "1.1",
       };
-
-      this.logger.log(
-        `Request successful - TTFB: ${metrics.ttfb}ms, Total: ${metrics.totalTime}ms, Size: ${this.formatBytes(
-          dataBuffer.length,
-        )}`,
-      );
 
       return {
         data: dataBuffer as T,
@@ -260,17 +254,6 @@ export class HttpClientService {
 
     // Fallback for objects/arrays
     return Buffer.from(JSON.stringify(data));
-  }
-
-  /**
-   * Format bytes to human readable format
-   */
-  private formatBytes(bytes: number): string {
-    if (bytes === 0) return "0 Bytes";
-    const k = 1024;
-    const sizes = ["Bytes", "KB", "MB", "GB"];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return `${Math.round((bytes / k ** i) * 100) / 100} ${sizes[i]}`;
   }
 
   private buildHttp2Signals(parentSignal?: AbortSignal): {

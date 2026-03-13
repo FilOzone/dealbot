@@ -850,14 +850,18 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     if (providerAddresses.length > 0) {
       const deletedAddresses = await this.jobScheduleRepository.deleteSchedulesForInactiveProviders(providerAddresses);
       if (deletedAddresses.length > 0) {
-        this.logger.warn(
-          `Deleted job schedules for ${deletedAddresses.length} providers no longer in active list: [${deletedAddresses.join(", ")}]`,
-        );
+        this.logger.warn({
+          event: "job_schedules_deleted",
+          message: "Deleted job schedules for providers no longer in active list",
+          deletedCount: deletedAddresses.length,
+          deletedAddresses,
+        });
       }
     } else {
-      this.logger.warn(
-        "No active providers found in database; skipping job schedule deletion to prevent accidental mass-deletion.",
-      );
+      this.logger.warn({
+        event: "job_schedule_deletion_skipped",
+        message: "No active providers found; skipping job schedule deletion to prevent accidental mass-deletion",
+      });
     }
 
     // Global job schedules (sp_address = '')
