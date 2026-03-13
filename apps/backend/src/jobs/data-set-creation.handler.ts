@@ -9,7 +9,10 @@ export interface DataSetCreationDeps {
 
 /**
  * Ensures all required data-sets exist for a provider by deterministically
- * looping through indices 0..minDataSets-1 and creating any that are missing.
+ * looping through indices 0..minDataSets-1 and creating the first missing one.
+ *
+ * Only one data-set is created per invocation to avoid timeouts. The scheduler
+ * will fire subsequent jobs to create the remaining data-sets incrementally.
  *
  * Index 0 is the initial data-set (no dealbotDS metadata).
  * Indices 1+ are tagged with { dealbotDS: String(i) }.
@@ -27,7 +30,7 @@ export async function provisionDataSets(
 ): Promise<void> {
   const { dealService, logger } = deps;
 
-  let createdCount = 0;
+  let existingCount = 0;
   for (let i = 0; i < minDataSets; i++) {
     signal?.throwIfAborted();
 
@@ -46,6 +49,7 @@ export async function provisionDataSets(
     const exists = await dealService.checkDataSetExists(spAddress, metadata, signal);
 
     if (exists) {
+      existingCount++;
       continue;
     }
 
@@ -60,15 +64,25 @@ export async function provisionDataSets(
       event: "created_provisioned_data_set",
       message: "Created provisioned data-set",
     });
-    createdCount++;
+
+    logger.log({
+      ...dataSetLogContext,
+      event: "data_sets_provisioning_completed",
+      message: "Data-set provisioning completed for provider (created 1, deferring any remaining)",
+      createdCount: 1,
+      minDataSets,
+      existingCount,
+      remainingCount: minDataSets - existingCount - 1,
+    });
+    return;
   }
 
   logger.log({
     ...dataSetLogContext,
     event: "data_sets_provisioning_completed",
     message: "Data-set provisioning completed for provider",
-    createdCount,
+    createdCount: 0,
     minDataSets,
-    existingCount: minDataSets - createdCount,
+    existingCount,
   });
 }

@@ -1225,7 +1225,7 @@ describe("JobsService schedule rows", () => {
     );
   });
 
-  it("data_set_creation job creates all missing data sets deterministically", async () => {
+  it("data_set_creation job creates only the first missing data set", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2024-01-01T12:00:00Z"));
     baseConfigValues = {
@@ -1257,20 +1257,53 @@ describe("JobsService schedule rows", () => {
       data: { jobType: "data_set_creation", spAddress: "0xaaa", intervalSeconds: 3600 },
     });
 
-    expect(dealService.createDataSetWithPiece).toHaveBeenCalledTimes(3);
+    // Only the first missing data set (index 0) should be created
+    expect(dealService.createDataSetWithPiece).toHaveBeenCalledTimes(1);
     expect(dealService.createDataSetWithPiece).toHaveBeenCalledWith(
       "0xaaa",
       { dealbotDataSetVersion: "v1" },
       expect.any(AbortSignal),
     );
+  });
+
+  it("data_set_creation job skips existing and creates next missing data set", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2024-01-01T12:00:00Z"));
+    baseConfigValues = {
+      ...baseConfigValues,
+      blockchain: { ...baseConfigValues.blockchain, minNumDataSetsForChecks: 3 } as IConfig["blockchain"],
+    };
+    configService = {
+      get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
+    } as unknown as JobsServiceDeps[0];
+
+    const dealService = {
+      getBaseDataSetMetadata: vi.fn(() => ({ dealbotDataSetVersion: "v1" })),
+      // Index 0 exists, index 1 does not
+      checkDataSetExists: vi.fn(async (_sp: string, metadata: Record<string, string>) => !metadata.dealbotDS),
+      createDataSetWithPiece: vi.fn(async () => {}),
+    };
+
+    const walletSdkService = {
+      getProviderInfo: vi.fn(() => ({ id: 1, name: "test-provider" })),
+    };
+
+    service = buildService({
+      configService,
+      dealService: dealService as unknown as ConstructorParameters<typeof JobsService>[3],
+      walletSdkService: walletSdkService as unknown as ConstructorParameters<typeof JobsService>[6],
+    });
+
+    await callPrivate(service, "handleDataSetCreationJob", {
+      id: "job-ds-3b",
+      data: { jobType: "data_set_creation", spAddress: "0xaaa", intervalSeconds: 3600 },
+    });
+
+    // Should skip index 0 (exists) and create only index 1
+    expect(dealService.createDataSetWithPiece).toHaveBeenCalledTimes(1);
     expect(dealService.createDataSetWithPiece).toHaveBeenCalledWith(
       "0xaaa",
       { dealbotDataSetVersion: "v1", dealbotDS: "1" },
-      expect.any(AbortSignal),
-    );
-    expect(dealService.createDataSetWithPiece).toHaveBeenCalledWith(
-      "0xaaa",
-      { dealbotDataSetVersion: "v1", dealbotDS: "2" },
       expect.any(AbortSignal),
     );
   });
