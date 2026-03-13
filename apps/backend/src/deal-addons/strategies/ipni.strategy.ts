@@ -562,6 +562,7 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
             ...logContext,
             event: "piece_status_request_failed",
             message: "Failed to get piece status",
+            pieceCid,
             statusCode: errorResponse.status,
             detail: message,
             error: toStructuredError(error),
