@@ -18,6 +18,7 @@ import { RemoveCdnServiceType1760600000000 } from "../src/database/migrations/17
 import { RemoveSpReceivedRetrieveRequest1761500000000 } from "../src/database/migrations/1761500000000-RemoveSpReceivedRetrieveRequest.js";
 import { RemoveIpniRetrievedColumns1761500000001 } from "../src/database/migrations/1761500000001-RemoveIpniRetrievedColumns.js";
 import { RenameEvents1761500000003 } from "../src/database/migrations/1761500000003-RenameEvents.js";
+import { RenameRegionToLocation1761500000004 } from "src/database/migrations/1761500000004-RenameRegionToLocation.js";
 
 const execFileAsync = promisify(execFile);
 const dockerCheck = spawnSync("docker", ["info"], { stdio: "ignore" });
@@ -47,6 +48,7 @@ const ALL_MIGRATIONS: Array<new () => MigrationInterface> = [
   RemoveSpReceivedRetrieveRequest1761500000000,
   RemoveIpniRetrievedColumns1761500000001,
   RenameEvents1761500000003,
+  RenameRegionToLocation1761500000004,
 ];
 
 type DatabaseConfig = {

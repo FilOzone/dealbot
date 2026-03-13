@@ -35,7 +35,7 @@ describe("IpniAddonStrategy getPieceStatus", () => {
       name: "SP",
       description: "SP",
       isActive: true,
-      region: "test",
+      location: "test",
       metadata: {},
       ...overrides,
     });

@@ -25,7 +25,7 @@ export class Provider {
   @ApiProperty({ description: "Is storage provider approved by fwss" })
   isApproved: boolean;
 
-  @ApiProperty({ description: "Region" })
+  @ApiProperty({ description: "Location" })
   location: string;
 
   @ApiProperty({ description: "Metadata" })
