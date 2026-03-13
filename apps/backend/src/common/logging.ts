@@ -71,6 +71,7 @@ export type BaseDealRetrievalLogContext = {
   dealId?: string;
   providerAddress?: string;
   providerId?: number;
+  providerName?: string;
   pieceCid?: string;
   ipfsRootCID?: string;
 };
@@ -92,6 +93,7 @@ export type ProviderJobContext = {
   jobId: string;
   providerAddress: string;
   providerId: number;
+  providerName: string;
 };
 
 /**
@@ -101,6 +103,7 @@ export type DataSetLogContext = {
   jobId?: string;
   providerAddress: string;
   providerId?: number;
+  providerName?: string;
   dataSetId?: number;
   dataSetIndex?: number;
   metadata?: Record<string, string>;
@@ -113,4 +116,5 @@ export type JobLogContext = {
   jobId?: string;
   providerAddress: string;
   providerId?: number;
+  providerName?: string;
 };

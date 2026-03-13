@@ -63,6 +63,7 @@ export class IpfsBlockRetrievalStrategy implements IRetrievalAddon {
       this.logger.debug({
         dealId: config.deal.id,
         providerId: config.deal.storageProvider?.providerId,
+        providerName: config.deal.storageProvider?.name,
         providerAddress: config.storageProvider,
         event: "ipfs_block_retrieval_skipped",
         message: "IPNI not enabled during creation",
@@ -76,6 +77,7 @@ export class IpfsBlockRetrievalStrategy implements IRetrievalAddon {
       this.logger.warn({
         dealId: config.deal.id,
         providerId: config.deal.storageProvider?.providerId,
+        providerName: config.deal.storageProvider?.name,
         providerAddress: config.storageProvider,
         event: "ipfs_block_retrieval_skipped",
         message: "Missing root CID",
@@ -117,6 +119,7 @@ export class IpfsBlockRetrievalStrategy implements IRetrievalAddon {
     this.logger.debug({
       dealId: config.deal.id,
       providerId: config.deal.storageProvider?.providerId,
+      providerName: config.deal.storageProvider?.name,
       providerAddress: config.storageProvider,
       event: "sp_endpoint_url_constructed",
       message: "Constructed SP endpoint URL",
@@ -143,6 +146,7 @@ export class IpfsBlockRetrievalStrategy implements IRetrievalAddon {
     const logContext = {
       dealId: config.deal.id,
       providerId: config.deal.storageProvider?.providerId,
+      providerName: config.deal.storageProvider?.name,
       providerAddress: config.storageProvider,
       pieceCid: config.deal.pieceCid,
       ipfsRootCID: rootCIDStr,

@@ -380,6 +380,7 @@ describe("JobsService schedule rows", () => {
       jobId: "job-retrieval-provider-fallback",
       providerAddress: "0xaaa",
       providerId: 42,
+      providerName: "unknown",
     });
   });
 
@@ -1290,7 +1291,7 @@ describe("JobsService schedule rows", () => {
         "0xaaa",
         5,
         {},
-        { providerAddress: "0xaaa", jobId: "job-ds-4", providerId: 1 },
+        { providerAddress: "0xaaa", jobId: "job-ds-4", providerId: 1, providerName: "test-provider" },
         controller.signal,
       ),
     ).rejects.toThrow("Job timed out");

@@ -166,6 +166,7 @@ export class WalletSdkService implements OnModuleInit {
             event: "provider_missing_ipni_support",
             message: "Active PDP provider does not support ipniIpfs and will be excluded from deals",
             providerId: info.id,
+            providerName: info.name,
             providerAddress: info.serviceProvider,
           });
         }

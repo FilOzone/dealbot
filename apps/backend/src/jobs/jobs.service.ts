@@ -290,6 +290,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
             jobType: job.data.jobType,
             providerAddress: job.data.spAddress,
             providerId: this.walletSdkService.getProviderInfo(job.data.spAddress)?.id,
+            providerName: this.walletSdkService.getProviderInfo(job.data.spAddress)?.name,
           });
         },
       )
@@ -363,19 +364,23 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
   }
 
   private async resolveProviderJobContext(spAddress: string, jobId: string): Promise<ProviderJobContext> {
-    let providerId = this.walletSdkService.getProviderInfo(spAddress)?.id;
+    let providerInfo = this.walletSdkService.getProviderInfo(spAddress);
 
-    if (providerId == null && process.env.DEALBOT_DISABLE_CHAIN !== "true") {
+    if (providerInfo == null && process.env.DEALBOT_DISABLE_CHAIN !== "true") {
       await this.walletSdkService.loadProviders();
-      providerId = this.walletSdkService.getProviderInfo(spAddress)?.id;
+      providerInfo = this.walletSdkService.getProviderInfo(spAddress);
     }
+
+    let providerId = providerInfo?.id;
+    let providerName = providerInfo?.name;
 
     if (providerId == null) {
       const provider = await this.storageProviderRepository.findOne({
         where: { address: spAddress },
-        select: { providerId: true },
+        select: { providerId: true, name: true },
       });
       providerId = provider?.providerId;
+      providerName = providerName ?? provider?.name;
     }
 
     if (providerId == null) {
@@ -386,6 +391,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       jobId,
       providerAddress: spAddress,
       providerId,
+      providerName: providerName ?? "unknown",
     };
   }
 
@@ -409,6 +415,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         jobId: job.id,
         providerAddress: spAddress,
         providerId: this.walletSdkService.getProviderInfo(spAddress)?.id,
+        providerName: this.walletSdkService.getProviderInfo(spAddress)?.name,
       });
       await this.deferJobForMaintenance("deal", data, maintenance, now);
       return;
@@ -494,6 +501,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
             jobId: logContext.jobId,
             providerAddress: logContext.providerAddress,
             providerId: provider.id ?? logContext.providerId,
+            providerName: provider.name ?? logContext.providerName,
           },
         });
         return "success";
@@ -534,6 +542,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         jobId: job.id,
         providerAddress: spAddress,
         providerId: this.walletSdkService.getProviderInfo(spAddress)?.id,
+        providerName: this.walletSdkService.getProviderInfo(spAddress)?.name,
       });
       await this.deferJobForMaintenance("retrieval", data, maintenance, now);
       return;
@@ -632,6 +641,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         jobId: job.id,
         providerAddress: spAddress,
         providerId: this.walletSdkService.getProviderInfo(spAddress)?.id,
+        providerName: this.walletSdkService.getProviderInfo(spAddress)?.name,
       });
       await this.deferJobForMaintenance("data_set_creation", data, maintenance, now);
       return;
