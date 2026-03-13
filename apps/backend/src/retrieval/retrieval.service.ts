@@ -88,7 +88,7 @@ export class RetrievalService {
       this.logger.warn({
         ...logContext,
         event: "retrieval_job_skipped",
-        message: `No successful deals available for ${spAddress}, skipping retrieval`,
+        message: "No successful deals available, skipping retrieval",
       });
       return [];
     }
@@ -96,7 +96,7 @@ export class RetrievalService {
     this.logger.log({
       ...logContext,
       event: "retrieval_job_started",
-      message: `Starting retrieval test for ${spAddress}`,
+      message: "Starting retrieval test",
     });
 
     return this.performAllRetrievals(deal, signal, logContext);
@@ -146,7 +146,7 @@ export class RetrievalService {
             const errorReason = result.reason;
             this.logger.error({
               event: "batch_retrieval_failed",
-              message: `Batch retrieval failed for deal ${deal?.id || "unknown"}`,
+              message: "Batch retrieval failed",
               dealId: deal?.id ?? "unknown",
               providerId: deal?.storageProvider?.providerId,
               providerAddress: deal?.spAddress,
@@ -211,7 +211,7 @@ export class RetrievalService {
       this.logger.warn({
         ...retrievalLogContext,
         event: "retrieval_job_skipped_no_strategies",
-        message: `Retrieval skipped for ${deal.pieceCid ?? deal.id}: no applicable retrieval strategies (likely missing IPNI metadata).`,
+        message: "Retrieval skipped: no applicable retrieval strategies (likely missing IPNI metadata).",
       });
       return [];
     }
@@ -255,7 +255,9 @@ export class RetrievalService {
         this.logger.log({
           ...retrievalLogContext,
           event: "retrievals_completed",
-          message: `Retrievals for ${deal.pieceCid}: ${successCount}/${retrievals.length} successful`,
+          message: "Retrievals successful",
+          successCount,
+          totalCount: retrievals.length,
         });
 
         if (testResult.aborted || signal?.aborted) {
@@ -264,7 +266,7 @@ export class RetrievalService {
           this.logger.warn({
             ...retrievalLogContext,
             event: "retrieval_job_aborted",
-            message: `Retrieval job aborted after testing for ${deal.pieceCid}; recorded partial results.`,
+            message: "Retrieval job aborted; recorded partial results.",
             reason: abortMessage || "Unknown",
             error: toStructuredError(abortReason),
           });
@@ -283,7 +285,7 @@ export class RetrievalService {
         this.logger.warn({
           ...retrievalLogContext,
           event: "retrievals_aborted",
-          message: `Retrievals aborted for ${deal.pieceCid}`,
+          message: "Retrievals aborted",
           reason: abortMessage || errorMessage,
           error: toStructuredError(error),
         });
@@ -292,7 +294,7 @@ export class RetrievalService {
         this.logger.error({
           ...retrievalLogContext,
           event: "all_retrievals_failed",
-          message: `All retrievals failed for ${deal.pieceCid}`,
+          message: "All retrievals failed",
           error: toStructuredError(error),
         });
         terminalStatus = classifyFailureStatus(error);
@@ -587,7 +589,7 @@ export class RetrievalService {
       const failureStatus = classifyFailureStatus(error);
       this.logger.warn({
         event: "retrieval_ipni_verification_failed",
-        message: `Retrieval IPNI verification failed for deal ${dealId}`,
+        message: "Retrieval IPNI verification failed",
         dealId,
         providerId: provider.providerId,
         providerAddress: provider.address,

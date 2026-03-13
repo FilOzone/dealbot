@@ -121,7 +121,7 @@ export class DevToolsService {
       this.logger.error({
         ...dealLogContext,
         event: "background_deal_processing_failed",
-        message: `Background deal processing failed for ${dealId}`,
+        message: "Background deal processing failed",
         error: toStructuredError(err),
       });
     });
@@ -170,7 +170,7 @@ export class DevToolsService {
       this.logger.error({
         ...dealLogContext,
         event: "background_deal_failed",
-        message: `Background deal ${dealId} failed`,
+        message: "Background deal processing failed",
         error: toStructuredError(error),
       });
 

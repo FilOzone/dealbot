@@ -40,7 +40,7 @@ export class IpniVerificationService {
 
     this.logger.log({
       event: "ipni_verification_started",
-      message: `IPNI verification started for root CID ${rootCid.toString()}`,
+      message: "IPNI verification started",
       rootCID: rootCid.toString(),
       providerAddress: storageProvider.address,
       providerId: storageProvider.providerId,
@@ -105,7 +105,7 @@ export class IpniVerificationService {
     if (ipniValidated) {
       this.logger.log({
         event: "ipni_verification_succeeded",
-        message: `IPNI verification succeeded for root CID ${rootCid.toString()}`,
+        message: "IPNI verification succeeded",
         rootCID: rootCid.toString(),
         providerAddress: storageProvider.address,
         providerId: storageProvider.providerId,

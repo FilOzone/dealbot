@@ -342,7 +342,7 @@ export class DealAddonsService {
       } catch (error) {
         this.logger.error({
           event: "deal_addon_failed",
-          message: "Add-on failed to per-process data",
+          message: "Add-on failed to pre-process data",
           addon: addon.name,
           error: toStructuredError(error),
         });

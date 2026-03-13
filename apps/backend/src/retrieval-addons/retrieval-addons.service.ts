@@ -163,7 +163,7 @@ export class RetrievalAddonsService {
       } catch (error) {
         this.logger.error({
           event: "construct_retrieval_url_failed",
-          message: `Failed to construct URL with strategy ${strategy.name}`,
+          message: "Failed to construct URL for a strategy",
           strategy: strategy.name,
           dealId: config.deal.id,
           error: toStructuredError(error),
@@ -198,7 +198,7 @@ export class RetrievalAddonsService {
     this.logger.log({
       ...retrievalLogContext,
       event: "retrieval_started",
-      message: `Performing retrieval for deal ${config.deal.id}`,
+      message: "Performing retrieval for deal",
       method: urlResult.method,
       url: this.sanitizeUrlForLog(urlResult.url),
     });
@@ -229,7 +229,8 @@ export class RetrievalAddonsService {
     this.logger.log({
       ...logContext,
       event: "retrieval_test_started",
-      message: `Testing ${urlResults.length} retrieval methods for deal ${config.deal.id}`,
+      message: "Testing retrieval methods for deal",
+      retrievalCount: urlResults.length,
       urls: urlResults.map((r) => this.sanitizeUrlForLog(r.url)),
     });
 
@@ -283,7 +284,7 @@ export class RetrievalAddonsService {
     this.logger.log({
       ...logContext,
       event: "retrieval_test_completed",
-      message: `Retrieval test completed in ${duration}ms`,
+      message: "Retrieval test completed",
       durationMs: duration,
       successfulRetrievals: successfulResults.length,
       totalRetrievals: executionResults.length,
@@ -384,7 +385,7 @@ export class RetrievalAddonsService {
         this.logger.warn({
           ...retrievalLogContext,
           event: "retrieval_attempt_failed",
-          message: `${strategy.name} attempt ${attempt}/${attempts} failed`,
+          message: "Retrieval attempt failed",
           strategy: strategy.name,
           attempt,
           attempts,
@@ -455,7 +456,8 @@ export class RetrievalAddonsService {
           this.logger.warn({
             ...retrievalLogContext,
             event: "retrieval_block_fetch_validation_error",
-            message: `Block-fetch validation error for ${urlResult.method} retrieval of deal ${config.deal.id}: ${errorMessage}`,
+            message: "Block-fetch validation failed for retrieval",
+            reason: errorMessage,
             method: urlResult.method,
             error: toStructuredError(error),
           });
@@ -531,7 +533,7 @@ export class RetrievalAddonsService {
             this.logger.warn({
               ...retrievalLogContext,
               event: "retrieval_validation_failed",
-              message: `Validation failed for ${urlResult.method} retrieval of deal ${config.deal.id}`,
+              message: "Retrieval validation failed",
               url: this.sanitizeUrlForLog(urlResult.url),
               statusCode: result.metrics.statusCode,
               responseSize: result.metrics.responseSize,
@@ -542,7 +544,7 @@ export class RetrievalAddonsService {
           this.logger.warn({
             ...retrievalLogContext,
             event: "retrieval_validation_error",
-            message: `Validation error for ${urlResult.method} retrieval of deal ${config.deal.id}`,
+            message: "Validation error for retrieval",
             method: urlResult.method,
             url: this.sanitizeUrlForLog(urlResult.url),
             error: toStructuredError(error),
@@ -578,7 +580,7 @@ export class RetrievalAddonsService {
         this.logger.warn({
           ...retrievalLogContext,
           event: "retrieval_aborted",
-          message: `Retrieval aborted for ${urlResult.method}. Failure details below`,
+          message: "Retrieval aborted",
         });
       }
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -589,7 +591,7 @@ export class RetrievalAddonsService {
       this.logger.error({
         ...retrievalLogContext,
         event: "retrieval_failed",
-        message: `Retrieval failed for ${urlResult.method}`,
+        message: "Retrieval failed",
         context,
         error: toStructuredError(error),
       });

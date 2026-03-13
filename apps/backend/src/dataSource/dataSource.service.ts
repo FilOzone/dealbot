@@ -173,7 +173,7 @@ export class DataSourceService {
       } else {
         this.logger.warn({
           event: "cleanup_random_dataset_failed",
-          message: `Failed to cleanup random dataset ${fileName}`,
+          message: "Failed to cleanup random dataset",
           fileName,
           error: toStructuredError(error),
         });
