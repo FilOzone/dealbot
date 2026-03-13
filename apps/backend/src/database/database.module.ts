@@ -7,6 +7,7 @@ import { fileURLToPath } from "url";
 import { NEST_STARTUP_LOG_LEVELS } from "../common/log-levels.js";
 import { toStructuredError } from "../common/logging.js";
 import type { IAppConfig, IConfig, IDatabaseConfig } from "../config/app.config.js";
+import { DataRetentionBaseline } from "./entities/data-retention-baseline.entity.js";
 import { Deal } from "./entities/deal.entity.js";
 import { JobScheduleState } from "./entities/job-schedule-state.entity.js";
 import { MetricsDaily } from "./entities/metrics-daily.entity.js";
@@ -56,6 +57,7 @@ function toSafeDataSourceContext(options: DataSourceOptions): Record<string, unk
           database: dbConfig.database,
           poolSize: dbConfig.poolMax,
           entities: [
+            DataRetentionBaseline,
             Deal,
             StorageProvider,
             Retrieval,

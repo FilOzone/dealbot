@@ -94,6 +94,7 @@ export function parseDuration(preset: string): ParsedDuration {
  * @returns TimeWindow object with start/end dates
  */
 export function calculateTimeWindow(preset: string, referenceDate: Date = new Date()): TimeWindow {
+  const HOUR_IN_MS = 60 * 60 * 1000;
   const normalized = preset.trim().toLowerCase();
 
   // Handle "all" time special case
@@ -110,9 +111,9 @@ export function calculateTimeWindow(preset: string, referenceDate: Date = new Da
   // Parse duration
   const duration = parseDuration(preset);
 
-  // Calculate start date by subtracting hours
-  const startDate = new Date(referenceDate);
-  startDate.setHours(startDate.getHours() - duration.hours);
+  // Calculate start date using epoch milliseconds for timezone/DST-stable duration windows
+  const durationMs = Math.round(duration.hours * HOUR_IN_MS);
+  const startDate = new Date(referenceDate.getTime() - durationMs);
 
   // Calculate days (for display purposes)
   const days = Math.round((duration.hours / 24) * 10) / 10; // Round to 1 decimal
@@ -178,8 +179,19 @@ export function validateDateRange(startDate: Date, endDate: Date): void {
  * @param endDateStr - End date string (YYYY-MM-DD)
  * @returns TimeWindow object
  */
-export function parseCustomDateRange(startDateStr: string, endDateStr: string): TimeWindow {
-  // Parse dates
+export type DateString = `${number}-${number}-${number}`;
+
+export function parseCustomDateRange(startDateStr: DateString, endDateStr: DateString): TimeWindow {
+  // Validate YYYY-MM-DD format (date-only strings are parsed as UTC per spec)
+  const datePattern = /^\d{4}-\d{2}-\d{2}$/;
+  if (!datePattern.test(startDateStr)) {
+    throw new Error("Invalid start date format. Expected YYYY-MM-DD.");
+  }
+  if (!datePattern.test(endDateStr)) {
+    throw new Error("Invalid end date format. Expected YYYY-MM-DD.");
+  }
+
+  // Parse dates (date-only strings are always parsed as UTC midnight)
   const startDate = new Date(startDateStr);
   const endDate = new Date(endDateStr);
 

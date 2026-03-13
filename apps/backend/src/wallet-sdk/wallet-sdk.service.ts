@@ -154,7 +154,19 @@ export class WalletSdkService implements OnModuleInit {
       this.activeProviderAddresses.clear();
       this.approvedProviderAddresses.clear();
       const extendedProviders = validProviders.map((info) => {
+        // In order to support ipniIpfs, the provider must have PDP product
+        const supportsIpniIpfs = !!info.pdp.ipniIpfs;
         const isApproved = approvedIds.includes(info.id);
+
+        // Log providers that are otherwise active but don't support IPNI
+        if (!supportsIpniIpfs) {
+          this.logger.warn({
+            event: "provider_missing_ipni_support",
+            message: `Active PDP provider ${info.id} does not support ipniIpfs and will be excluded from deals`,
+            providerId: info.id,
+            providerAddress: info.serviceProvider,
+          });
+        }
 
         // select approved providers which are not dev tagged
         if (info.isActive) this.activeProviderAddresses.add(info.serviceProvider);
@@ -204,7 +216,7 @@ export class WalletSdkService implements OnModuleInit {
   }
 
   /**
-   * Get count of all providers
+   * Get count of all active providers supporting ipniIpfs
    */
   getAllActiveProvidersCount(): number {
     return this.activeProviderAddresses.size;

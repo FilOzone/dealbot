@@ -6,6 +6,7 @@ import { Counter } from "prom-client";
 import { Raw, Repository } from "typeorm";
 import { toStructuredError } from "../common/logging.js";
 import { IConfig } from "../config/app.config.js";
+import { DataRetentionBaseline } from "../database/entities/data-retention-baseline.entity.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
 import { buildCheckMetricLabels, CheckMetricLabels } from "../metrics/utils/check-metric-labels.js";
 import { PDPSubgraphService } from "../pdp-subgraph/pdp-subgraph.service.js";
@@ -22,6 +23,7 @@ export class DataRetentionService {
   /**
    * Tracks cumulative faulted/success period totals per provider address.
    * Used to compute deltas between consecutive polls for Prometheus counter increments.
+   * Populated from the database on first poll, then kept in sync.
    */
   private readonly providerCumulativeTotals: Map<
     string,
@@ -31,10 +33,15 @@ export class DataRetentionService {
     }
   >;
 
+  /** Whether baselines have been loaded from the database */
+  private baselinesLoaded = false;
+
   constructor(
     private readonly configService: ConfigService<IConfig, true>,
     private readonly walletSdkService: WalletSdkService,
     private readonly pdpSubgraphService: PDPSubgraphService,
+    @InjectRepository(DataRetentionBaseline)
+    private readonly baselineRepository: Repository<DataRetentionBaseline>,
     @InjectRepository(StorageProvider)
     private readonly storageProviderRepository: Repository<StorageProvider>,
     @InjectMetric("dataSetChallengeStatus")
@@ -55,6 +62,13 @@ export class DataRetentionService {
         event: "pdp_subgraph_endpoint_not_configured",
         message: "No PDP subgraph endpoint configured",
       });
+      return;
+    }
+
+    await this.loadBaselinesFromDb();
+
+    if (!this.baselinesLoaded) {
+      // Cannot safely compute deltas without baselines — would emit full cumulative history
       return;
     }
 
@@ -106,7 +120,8 @@ export class DataRetentionService {
             }),
           );
 
-          // Log any processing failures
+          // Log any processing failures and persist successful baselines
+          const upsertPromises: Promise<void>[] = [];
           processingResults.forEach((result, index) => {
             if (result.status === "rejected") {
               hasProcessingErrors = true;
@@ -119,8 +134,23 @@ export class DataRetentionService {
                 providerId: providerInfo?.id,
                 error: toStructuredError(result.reason),
               });
+            } else {
+              const addr = providersFromSubgraph[index].address.toLowerCase();
+              upsertPromises.push(this.persistBaseline(addr, result.value, blockNumberBigInt));
             }
           });
+
+          // Persist baselines to DB (non-blocking for the main flow, but we await to catch errors)
+          const upsertResults = await Promise.allSettled(upsertPromises);
+          for (const result of upsertResults) {
+            if (result.status === "rejected") {
+              this.logger.warn({
+                event: "baseline_persist_failed",
+                message: "Failed to persist baseline to database",
+                error: toStructuredError(result.reason),
+              });
+            }
+          }
         } catch (error) {
           hasProcessingErrors = true;
           this.logger.error({
@@ -224,6 +254,16 @@ export class DataRetentionService {
           // Only delete local memory if Prometheus removal succeeded without throwing
           this.providerCumulativeTotals.delete(address);
 
+          // Also remove persisted baseline from DB
+          this.baselineRepository.delete({ providerAddress: address }).catch((err) => {
+            this.logger.warn({
+              event: "baseline_db_delete_failed",
+              message: `Failed to delete persisted baseline for stale provider: ${address}`,
+              providerAddress: address,
+              error: toStructuredError(err),
+            });
+          });
+
           this.logger.debug({
             event: "stale_provider_metrics_removed",
             message: `Removed baseline and metrics for stale provider: ${address}`,
@@ -257,13 +297,14 @@ export class DataRetentionService {
   }
 
   /**
-   * Process a single provider's data retention metrics
+   * Process a single provider's data retention metrics.
+   * Returns the computed cumulative totals for DB persistence.
    */
   private async processProvider(
     provider: ProviderDataSetResponse["providers"][number],
     blockNumberBigInt: bigint,
     pdpProvider: PDPProviderEx,
-  ): Promise<void> {
+  ): Promise<{ faultedPeriods: bigint; successPeriods: bigint }> {
     const { address, totalFaultedPeriods, totalProvingPeriods, proofSets } = provider;
     // Note: Query filters proofSets with nextDeadline_lt: $blockNumber, so all deadlines are in the past
     const estimatedOverduePeriods = proofSets.reduce((acc, proofSet) => {
@@ -279,8 +320,29 @@ export class DataRetentionService {
 
     const normalizedAddress = address.toLowerCase();
     const previous = this.providerCumulativeTotals.get(normalizedAddress);
-    const faultedDelta = estimatedTotalFaulted - (previous?.faultedPeriods ?? 0n);
-    const successDelta = estimatedTotalSuccess - (previous?.successPeriods ?? 0n);
+
+    const newBaseline = {
+      faultedPeriods: estimatedTotalFaulted,
+      successPeriods: estimatedTotalSuccess,
+    };
+
+    // First time seeing this provider (fresh deploy or newly added provider).
+    // Set baseline without emitting counters to avoid dumping full cumulative history.
+    if (previous === undefined) {
+      this.logger.log({
+        event: "baseline_initialized",
+        message: `Initialized baseline for provider ${address} (no prior baseline)`,
+        providerAddress: address,
+        providerId: pdpProvider.id,
+        faultedPeriods: estimatedTotalFaulted.toString(),
+        successPeriods: estimatedTotalSuccess.toString(),
+      });
+      this.providerCumulativeTotals.set(normalizedAddress, newBaseline);
+      return newBaseline;
+    }
+
+    const faultedDelta = estimatedTotalFaulted - previous.faultedPeriods;
+    const successDelta = estimatedTotalSuccess - previous.successPeriods;
 
     // Handle negative deltas: can occur due to chain reorgs, subgraph corrections, or data inconsistencies
     // Reset baseline to current values to prevent stalled metrics
@@ -294,11 +356,8 @@ export class DataRetentionService {
         successDelta: successDelta.toString(),
       });
       // Reset baseline without incrementing counters
-      this.providerCumulativeTotals.set(normalizedAddress, {
-        faultedPeriods: estimatedTotalFaulted,
-        successPeriods: estimatedTotalSuccess,
-      });
-      return;
+      this.providerCumulativeTotals.set(normalizedAddress, newBaseline);
+      return newBaseline;
     }
 
     const providerLabels = buildCheckMetricLabels({
@@ -315,10 +374,59 @@ export class DataRetentionService {
       this.safeIncrementCounter(this.dataSetChallengeStatusCounter, providerLabels, "success", successDelta);
     }
 
-    this.providerCumulativeTotals.set(normalizedAddress, {
-      faultedPeriods: estimatedTotalFaulted,
-      successPeriods: estimatedTotalSuccess,
-    });
+    this.providerCumulativeTotals.set(normalizedAddress, newBaseline);
+    return newBaseline;
+  }
+
+  /**
+   * Loads persisted baselines from the database into the in-memory map.
+   * Only runs once; if the DB read fails, retries on the next poll.
+   */
+  private async loadBaselinesFromDb(): Promise<void> {
+    if (this.baselinesLoaded) {
+      return;
+    }
+
+    try {
+      const rows = await this.baselineRepository.find();
+      for (const row of rows) {
+        this.providerCumulativeTotals.set(row.providerAddress, {
+          faultedPeriods: BigInt(row.faultedPeriods),
+          successPeriods: BigInt(row.successPeriods),
+        });
+      }
+      this.baselinesLoaded = true;
+      this.logger.log({
+        event: "baselines_loaded_from_db",
+        message: `Loaded ${rows.length} baseline(s) from database`,
+        baselineCount: rows.length,
+      });
+    } catch (error) {
+      this.logger.error({
+        event: "baseline_load_failed",
+        message: "Failed to load baselines from database. Will retry on next poll.",
+        error: toStructuredError(error),
+      });
+    }
+  }
+
+  /**
+   * Persists a provider's baseline to the database.
+   */
+  private async persistBaseline(
+    providerAddress: string,
+    baseline: { faultedPeriods: bigint; successPeriods: bigint },
+    blockNumber: bigint,
+  ): Promise<void> {
+    await this.baselineRepository.upsert(
+      {
+        providerAddress,
+        faultedPeriods: baseline.faultedPeriods.toString(),
+        successPeriods: baseline.successPeriods.toString(),
+        lastBlockNumber: blockNumber.toString(),
+      },
+      ["providerAddress"],
+    );
   }
 
   /**

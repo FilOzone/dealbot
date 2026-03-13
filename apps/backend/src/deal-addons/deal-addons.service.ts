@@ -1,11 +1,10 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { awaitWithAbort } from "../common/abort-utils.js";
-import { type DealLogContext, toStructuredError } from "../common/logging.js";
+import { type DealLogContext, ProviderJobContext, toStructuredError } from "../common/logging.js";
 import type { Deal } from "../database/entities/deal.entity.js";
 import type { DealMetadata } from "../database/types.js";
 import { ServiceType } from "../database/types.js";
 import type { IDealAddon } from "./interfaces/deal-addon.interface.js";
-import { DirectAddonStrategy } from "./strategies/direct.strategy.js";
 import { IpniAddonStrategy } from "./strategies/ipni.strategy.js";
 import type { AddonExecutionContext, DealConfiguration, DealPreprocessingResult, SynapseConfig } from "./types.js";
 
@@ -19,10 +18,7 @@ export class DealAddonsService {
   private readonly logger = new Logger(DealAddonsService.name);
   private readonly addons: Map<string, IDealAddon> = new Map();
 
-  constructor(
-    private readonly directAddon: DirectAddonStrategy,
-    private readonly ipniAddon: IpniAddonStrategy,
-  ) {
+  constructor(private readonly ipniAddon: IpniAddonStrategy) {
     this.registerAddons();
   }
 
@@ -32,7 +28,6 @@ export class DealAddonsService {
    * @private
    */
   private registerAddons(): void {
-    this.registerAddon(this.directAddon);
     this.registerAddon(this.ipniAddon);
 
     this.logger.log(`Registered ${this.addons.size} deal add-ons: ${Array.from(this.addons.keys()).join(", ")}`);
@@ -61,7 +56,11 @@ export class DealAddonsService {
    * @returns Complete preprocessing result with processed data and metadata
    * @throws Error if preprocessing fails
    */
-  async preprocessDeal(config: DealConfiguration, signal?: AbortSignal): Promise<DealPreprocessingResult> {
+  async preprocessDeal(
+    config: DealConfiguration,
+    signal?: AbortSignal,
+    logContext?: ProviderJobContext,
+  ): Promise<DealPreprocessingResult> {
     const startTime = Date.now();
     this.logger.log(`Starting deal preprocessing for file: ${config.dataFile.name}`);
 
@@ -70,8 +69,13 @@ export class DealAddonsService {
       const applicableAddons = this.getApplicableAddons(config);
 
       if (applicableAddons.length === 0) {
-        this.logger.warn("No applicable add-ons found, using direct storage");
-        applicableAddons.push(this.directAddon);
+        this.logger.error({
+          ...logContext,
+          event: "no_deal_preprocessing_addons",
+          enableIpni: config.enableIpni,
+        });
+
+        throw new Error("No deal preprocessing addons found");
       }
 
       // Sort by priority (lower number = higher priority)

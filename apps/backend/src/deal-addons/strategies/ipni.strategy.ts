@@ -45,7 +45,6 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
   readonly priority = AddonPriority.HIGH; // Run first to transform data
   readonly POLLING_INTERVAL_MS = 2500;
   readonly POLLING_TIMEOUT_MS = 2 * 60 * 1000; // 2 minutes - max time to wait for SP to advertise piece
-  readonly IPNI_LOOKUP_TIMEOUT_MS = 3 * 60 * 1000; // 3 minutes - max time to wait for IPNI propagation
 
   /**
    * Check if IPNI is enabled in the deal configuration
@@ -211,8 +210,8 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       const rootCID = deal.metadata[this.name]?.rootCID ?? "";
       const blockCIDs = deal.metadata[this.name]?.blockCIDs ?? [];
       const timeouts = this.configService.get("timeouts");
-      const ipniTimeoutMs = timeouts?.ipniVerificationTimeoutMs ?? this.IPNI_LOOKUP_TIMEOUT_MS;
-      const ipniPollIntervalMs = timeouts?.ipniVerificationPollingMs ?? this.POLLING_INTERVAL_MS;
+      const ipniTimeoutMs = timeouts.ipniVerificationTimeoutMs;
+      const ipniPollIntervalMs = timeouts.ipniVerificationPollingMs;
 
       const result = await this.monitorAndVerifyIPNI(
         serviceUrl,
@@ -377,6 +376,8 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       message: `Verifying rootCID in IPNI: ${rootCID}`,
       rootCID,
       blockCIDCount: blockCIDs.length,
+      ipniVerificationTimeoutMs: ipniTimeoutMs,
+      ipniVerificationPollingMs: ipniPollIntervalMs,
     });
     // NOTE: filecoin-pin does not currently validate that all blocks are advertised on IPNI.
     const ipniResult = await this.ipniVerificationService.verify({
@@ -408,6 +409,8 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
         message: `IPNI verification failed for rootCID: ${rootCID}`,
         rootCID,
         verifyDurationMs: ipniResult.durationMs,
+        failureReason: ipniResult.failedCIDs[0]?.reason,
+        failedCIDs: ipniResult.failedCIDs,
       });
     }
 

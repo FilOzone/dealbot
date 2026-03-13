@@ -16,7 +16,6 @@ const baseConfig: IBlockchainConfig = {
   walletPrivateKey: "0xtest",
   checkDatasetCreationFees: false,
   useOnlyApprovedProviders: false,
-  enableIpniTesting: "always",
   minNumDataSetsForChecks: 1,
   pdpSubgraphEndpoint: "https://api.thegraph.com/subgraphs/filecoin/pdp",
 };
