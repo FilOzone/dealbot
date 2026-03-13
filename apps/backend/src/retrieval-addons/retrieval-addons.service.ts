@@ -70,7 +70,14 @@ export class RetrievalAddonsService {
     for (const addon of this.addons.values()) {
       if (addon.canHandle(config)) {
         applicable.push(addon);
-        this.logger.debug(`Retrieval strategy ${addon.name} is applicable for deal ${config.deal.id}`);
+        this.logger.debug({
+          dealId: config.deal.id,
+          providerId: config.deal.storageProvider?.providerId,
+          providerAddress: config.storageProvider,
+          event: "retrieval_strategy_applicable",
+          message: "Retrieval strategy is applicable",
+          strategy: addon.name,
+        });
       }
     }
 
@@ -103,7 +110,14 @@ export class RetrievalAddonsService {
       throw new Error(`No applicable retrieval strategy found for deal ${config.deal.id}`);
     }
 
-    this.logger.debug(`Using preferred strategy ${strategy.name} for deal ${config.deal.id}`);
+    this.logger.debug({
+      dealId: config.deal.id,
+      providerId: config.deal.storageProvider?.providerId,
+      providerAddress: config.storageProvider,
+      event: "retrieval_strategy_selected",
+      message: "Using preferred retrieval strategy",
+      strategy: strategy.name,
+    });
 
     return strategy.constructUrl(config);
   }
@@ -119,7 +133,13 @@ export class RetrievalAddonsService {
     const strategies = this.getApplicableStrategies(config);
 
     if (strategies.length === 0) {
-      this.logger.warn(`No applicable retrieval strategies found for deal ${config.deal.id}`);
+      this.logger.warn({
+        dealId: config.deal.id,
+        providerId: config.deal.storageProvider?.providerId,
+        providerAddress: config.storageProvider,
+        event: "no_retrieval_strategies",
+        message: "No applicable retrieval strategies found",
+      });
       return [];
     }
 
@@ -132,6 +152,8 @@ export class RetrievalAddonsService {
           message: `Failed to construct URL with strategy ${strategy.name}`,
           strategy: strategy.name,
           dealId: config.deal.id,
+          providerId: config.deal.storageProvider?.providerId,
+          providerAddress: config.storageProvider,
           error: toStructuredError(error),
         });
         throw error;
@@ -308,7 +330,14 @@ export class RetrievalAddonsService {
     const { attempts, delayMs } = retryConfig;
 
     if (attempts > 1) {
-      this.logger.debug(`${strategy.name}: performing ${attempts} attempts with ${delayMs}ms delay`);
+      this.logger.debug({
+        ...retrievalLogContext,
+        event: "retrieval_retry_config",
+        message: "Performing multiple retrieval attempts",
+        strategy: strategy.name,
+        attempts,
+        delayMs,
+      });
     }
 
     const results: Array<RetrievalExecutionResult & { attemptNumber: number }> = [];
@@ -321,11 +350,16 @@ export class RetrievalAddonsService {
         results.push({ ...result, attemptNumber: attempt });
 
         if (attempts > 1 && result.success) {
-          const attemptType = attempt === 1 ? "initial" : "retry";
-          this.logger.log(
-            `${strategy.name} attempt ${attempt}/${attempts} (${attemptType}): ` +
-              `${result.metrics.latency}ms latency, ${result.metrics.ttfb}ms TTFB`,
-          );
+          this.logger.log({
+            ...retrievalLogContext,
+            event: "retrieval_attempt_succeeded",
+            message: "Retrieval attempt succeeded",
+            strategy: strategy.name,
+            attempt,
+            attempts,
+            latencyMs: result.metrics.latency,
+            ttfbMs: result.metrics.ttfb,
+          });
         }
 
         // Add delay between attempts if configured
@@ -365,10 +399,16 @@ export class RetrievalAddonsService {
     );
 
     if (attempts > 1) {
-      this.logger.log(
-        `${strategy.name} best result: ${bestResult.metrics.latency}ms latency ` +
-          `(from ${successfulResults.length}/${attempts} successful attempts, attempt #${bestResult.attemptNumber})`,
-      );
+      this.logger.log({
+        ...retrievalLogContext,
+        event: "retrieval_best_result",
+        message: "Best retrieval result selected",
+        strategy: strategy.name,
+        latencyMs: bestResult.metrics.latency,
+        successfulAttempts: successfulResults.length,
+        totalAttempts: attempts,
+        bestAttemptNumber: bestResult.attemptNumber,
+      });
     }
 
     // Add retry count (0 = first attempt, 1+ = retries needed)
