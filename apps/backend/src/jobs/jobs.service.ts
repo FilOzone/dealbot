@@ -374,24 +374,29 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     let providerId = providerInfo?.id;
     let providerName = providerInfo?.name;
 
-    if (providerId == null) {
+    // Fall back to DB if either providerId or providerName is missing
+    if (providerId == null || !providerName) {
       const provider = await this.storageProviderRepository.findOne({
         where: { address: spAddress },
         select: { providerId: true, name: true },
       });
-      providerId = provider?.providerId;
-      providerName = providerName ?? provider?.name;
+      providerId = providerId ?? provider?.providerId;
+      providerName = providerName || provider?.name;
     }
 
     if (providerId == null) {
       throw new Error(`providerId is required for job execution but missing for provider ${spAddress}`);
     }
 
+    if (!providerName) {
+      throw new Error(`providerName is required for job execution but missing for provider ${spAddress}`);
+    }
+
     return {
       jobId,
       providerAddress: spAddress,
       providerId,
-      ...(providerName ? { providerName } : {}),
+      providerName,
     };
   }
 
