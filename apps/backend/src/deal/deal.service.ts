@@ -79,7 +79,6 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
 
   async createDealsForAllProviders(): Promise<Deal[]> {
     const totalProviders = this.walletSdkService.getTestingProvidersCount();
-    const { enableIpni } = this.getTestingDealOptions();
 
     this.logger.log({
       event: "deal_creation_batch_started",
@@ -87,7 +86,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       totalProviders,
     });
 
-    const { preprocessed, cleanup } = await this.prepareDealInput(enableIpni);
+    const { preprocessed, cleanup } = await this.prepareDealInput();
 
     try {
       const synapse = this.sharedSynapse ?? (await this.createSynapseInstance());
@@ -123,7 +122,6 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
   async createDealForProvider(
     providerInfo: ProviderInfoEx,
     options: {
-      enableIpni: boolean;
       existingDealId?: string;
       signal?: AbortSignal;
       extraDataSetMetadata?: Record<string, string>;
@@ -131,7 +129,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     },
   ): Promise<Deal> {
     options.signal?.throwIfAborted();
-    const { preprocessed, cleanup } = await this.prepareDealInput(options.enableIpni, options.signal);
+    const { preprocessed, cleanup } = await this.prepareDealInput(options.signal, options.logContext);
 
     try {
       const synapse = this.sharedSynapse ?? (await this.createSynapseInstance());
@@ -153,19 +151,21 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
 
   /**
    * Prepare a deal payload using the same data-source and preprocessing logic as normal deal creation.
+   * IPNI is always enabled for all deals.
    */
   async prepareDealInput(
-    enableIpni: boolean,
     signal?: AbortSignal,
+    logContext?: ProviderJobContext,
   ): Promise<{ preprocessed: DealPreprocessingResult; cleanup: () => Promise<void> }> {
     const dataFile = await this.fetchDataFile(SIZE_CONSTANTS.MIN_UPLOAD_SIZE, SIZE_CONSTANTS.MAX_UPLOAD_SIZE);
 
     const preprocessed = await this.dealAddonsService.preprocessDeal(
       {
-        enableIpni,
+        enableIpni: true,
         dataFile,
       },
       signal,
+      logContext,
     );
 
     const cleanup = async () => this.dataSourceService.cleanupRandomDataset(dataFile.name);
@@ -173,17 +173,11 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     return { preprocessed, cleanup };
   }
 
-  getTestingDealOptions(): { enableIpni: boolean } {
-    const enableIpni = this.getIpniEnabled(this.blockchainConfig.enableIpniTesting);
-
-    return { enableIpni };
-  }
-
-  getBaseDataSetMetadata(enableIpni: boolean): Record<string, string> {
-    const metadata: Record<string, string> = {};
-    if (enableIpni) {
-      metadata[METADATA_KEYS.WITH_IPFS_INDEXING] = "";
-    }
+  getBaseDataSetMetadata(): Record<string, string> {
+    // IPNI is always enabled for all deals
+    const metadata: Record<string, string> = {
+      [METADATA_KEYS.WITH_IPFS_INDEXING]: "",
+    };
     if (this.blockchainConfig.dealbotDataSetVersion) {
       metadata.dealbotDataSetVersion = this.blockchainConfig.dealbotDataSetVersion;
     }
@@ -851,16 +845,5 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
 
   private async fetchDataFile(minSize: number, maxSize: number): Promise<DataFile> {
     return await this.dataSourceService.generateRandomDataset(minSize, maxSize);
-  }
-
-  private getIpniEnabled(mode: IBlockchainConfig["enableIpniTesting"]): boolean {
-    switch (mode) {
-      case "disabled":
-        return false;
-      case "random":
-        return Math.random() > 0.5;
-      default:
-        return true;
-    }
   }
 }

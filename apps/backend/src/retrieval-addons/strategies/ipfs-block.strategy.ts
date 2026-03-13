@@ -5,6 +5,7 @@ import { create as createBlock } from "multiformats/block";
 import { CID } from "multiformats/cid";
 import * as raw from "multiformats/codecs/raw";
 import { sha256 } from "multiformats/hashes/sha2";
+import { toStructuredError } from "../../common/logging.js";
 import type { IConfig } from "../../config/app.config.js";
 import { ServiceType } from "../../database/types.js";
 import { HttpClientService } from "../../http-client/http-client.service.js";
@@ -119,6 +120,8 @@ export class IpfsBlockRetrievalStrategy implements IRetrievalAddon {
       providerAddress: config.storageProvider,
       event: "sp_endpoint_url_constructed",
       message: "Constructed SP endpoint URL",
+      spEndpoint,
+      rootCID,
     });
 
     return {
@@ -241,14 +244,13 @@ export class IpfsBlockRetrievalStrategy implements IRetrievalAddon {
         const cidStr = queue.shift()!;
         const p = processCid(cidStr)
           .catch((err) => {
-            const msg = err instanceof Error ? err.message : String(err);
             failed += 1;
             this.logger.warn({
               ...logContext,
               event: "block_fetch_validation_error",
               message: "Block fetch failed for CID",
               cid: cidStr,
-              error: msg,
+              error: toStructuredError(err),
             });
           })
           .finally(() => active.delete(p));
