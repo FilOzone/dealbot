@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.0.1](https://github.com/FilOzone/dealbot/compare/backend-v1.0.0...backend-v1.0.1) (2026-03-12)
+
+
+### Bug Fixes
+
+* **backend:** single-flight global jobs with maintenance window support ([#331](https://github.com/FilOzone/dealbot/issues/331)) ([d031262](https://github.com/FilOzone/dealbot/commit/d031262b247e9bc0e68bcb7cde245352217f6872))
+* data-retention-check counter survives restarts ([#339](https://github.com/FilOzone/dealbot/issues/339)) ([c0335bb](https://github.com/FilOzone/dealbot/commit/c0335bb675273b21ea0ffafa146563d65b6b30cf))
+* destructure query result array ([#351](https://github.com/FilOzone/dealbot/issues/351)) ([c07c9ce](https://github.com/FilOzone/dealbot/commit/c07c9ce23bfa7c6de5279ce4c1880940a5f2587a))
+* do not create an empty data-set ([#330](https://github.com/FilOzone/dealbot/issues/330)) ([e7dba9a](https://github.com/FilOzone/dealbot/commit/e7dba9a6f63b8715fd1ca409db1658a0642f94aa))
+* ensure prometheus metrics emit chain network ([#338](https://github.com/FilOzone/dealbot/issues/338)) ([2e845b7](https://github.com/FilOzone/dealbot/commit/2e845b7bd09c0fe4a82abaee0afe7f650a7d5100))
+* ipni verification polls for at least 60 seconds ([#344](https://github.com/FilOzone/dealbot/issues/344)) ([24d8585](https://github.com/FilOzone/dealbot/commit/24d858579a42e9d3dc6ef2fabd190de38b0a3276))
+* make time window parsing DST/timezone-stable ([#347](https://github.com/FilOzone/dealbot/issues/347)) ([e865c52](https://github.com/FilOzone/dealbot/commit/e865c5259d4f520392234e9a11d112373fa63400))
+
 ## [1.0.0](https://github.com/FilOzone/dealbot/compare/backend-v0.4.0...backend-v1.0.0) (2026-03-03)
 
 

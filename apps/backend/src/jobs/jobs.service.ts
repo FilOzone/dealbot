@@ -422,11 +422,9 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
           }
         }
 
-        const dealOptions = this.dealService.getTestingDealOptions();
-
         // Data-set-aware deal creation
         const minDataSets = this.configService.get("blockchain").minNumDataSetsForChecks;
-        const baseDataSetMetadata = this.dealService.getBaseDataSetMetadata(dealOptions.enableIpni);
+        const baseDataSetMetadata = this.dealService.getBaseDataSetMetadata();
         let extraDataSetMetadata: Record<string, string> | undefined;
 
         if (minDataSets > 1) {
@@ -467,7 +465,6 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
 
         abortController.signal.throwIfAborted();
         await this.dealService.createDealForProvider(provider, {
-          ...dealOptions,
           signal: abortController.signal,
           extraDataSetMetadata,
           logContext: {
@@ -616,8 +613,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     }
 
     const minDataSets = this.configService.get("blockchain").minNumDataSetsForChecks;
-    const dealOptions = this.dealService.getTestingDealOptions();
-    const baseDataSetMetadata = this.dealService.getBaseDataSetMetadata(dealOptions.enableIpni);
+    const baseDataSetMetadata = this.dealService.getBaseDataSetMetadata();
 
     // Create AbortController for job timeout enforcement
     const abortController = new AbortController();
@@ -821,6 +817,8 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     } = this.getIntervalSecondsForRates();
 
     const useOnlyApprovedProviders = this.configService.get("blockchain").useOnlyApprovedProviders;
+    // Active providers are guaranteed to support ipniIpfs
+    // as validated by WalletSdkService.loadProvidersInternal()
     const providers = await this.storageProviderRepository.find({
       select: { address: true },
       where: useOnlyApprovedProviders ? { isActive: true, isApproved: true } : { isActive: true },
