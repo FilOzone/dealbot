@@ -291,6 +291,10 @@ describeWithDocker("Migrations (integration)", () => {
 
     await dataSource.undoLastMigration();
     await dataSource.undoLastMigration();
+    await dataSource.undoLastMigration();
+    await dataSource.undoLastMigration();
+    await dataSource.undoLastMigration();
+    await dataSource.undoLastMigration();
 
     expect(await enumValues(dataSource, "deals_ipni_status_enum")).toContain("sp_received_retrieve_request");
     expect(await dealIpniStatus(dataSource, dealId)).toBe("sp_received_retrieve_request");
