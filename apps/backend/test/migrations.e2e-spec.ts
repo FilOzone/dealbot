@@ -222,6 +222,10 @@ describeWithDocker("Migrations (integration)", () => {
 
     await dataSource.undoLastMigration();
     await dataSource.undoLastMigration();
+    await dataSource.undoLastMigration();
+    await dataSource.undoLastMigration();
+    await dataSource.undoLastMigration();
+    await dataSource.undoLastMigration();
 
     expect(await enumValues(dataSource, "deals_ipni_status_enum")).toContain("sp_received_retrieve_request");
     expect(await columnExists(dataSource, "metrics_daily", "ipni_retrieved_deals")).toBe(true);
