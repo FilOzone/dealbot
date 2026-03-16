@@ -1,9 +1,6 @@
 import { execFile, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { promisify } from "node:util";
-import { RenameRegionToLocation1761500000004 } from "../src/database/migrations/1761500000004-RenameRegionToLocation.js";
-import { ProviderIdBigInt1761500000005 } from "../src/database/migrations/1761500000005-ProviderIdBigInt.js";
-import { DataSetIdBigInt1761500000006 } from "../src/database/migrations/1761500000006-DataSetIdBigInt.js";
 import { DataSource, type MigrationInterface } from "typeorm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { CreateInitialTables1720000000000 } from "../src/database/migrations/1720000000000-CreateInitialTables.js";
@@ -21,6 +18,9 @@ import { RemoveCdnServiceType1760600000000 } from "../src/database/migrations/17
 import { RemoveSpReceivedRetrieveRequest1761500000000 } from "../src/database/migrations/1761500000000-RemoveSpReceivedRetrieveRequest.js";
 import { RemoveIpniRetrievedColumns1761500000001 } from "../src/database/migrations/1761500000001-RemoveIpniRetrievedColumns.js";
 import { RenameEvents1761500000003 } from "../src/database/migrations/1761500000003-RenameEvents.js";
+import { RenameRegionToLocation1761500000004 } from "../src/database/migrations/1761500000004-RenameRegionToLocation.js";
+import { ProviderIdBigInt1761500000005 } from "../src/database/migrations/1761500000005-ProviderIdBigInt.js";
+import { DataSetIdBigInt1761500000006 } from "../src/database/migrations/1761500000006-DataSetIdBigInt.js";
 
 const execFileAsync = promisify(execFile);
 const dockerCheck = spawnSync("docker", ["info"], { stdio: "ignore" });
