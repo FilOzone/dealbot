@@ -39,7 +39,12 @@ export class RetrievalAddonsService {
   private registerAddons(): void {
     this.registerAddon(this.ipfsBlockRetrieval);
 
-    this.logger.log(`Registered ${this.addons.size} retrieval add-ons: ${Array.from(this.addons.keys()).join(", ")}`);
+    this.logger.log({
+      event: "retrieval_addons_registered",
+      message: "Retrieval add-ons registered",
+      count: this.addons.size,
+      addons: Array.from(this.addons.keys()),
+    });
   }
 
   /**
@@ -49,12 +54,21 @@ export class RetrievalAddonsService {
    */
   private registerAddon(addon: IRetrievalAddon): void {
     if (this.addons.has(addon.name)) {
-      this.logger.warn(`Retrieval add-on ${addon.name} is already registered, skipping`);
+      this.logger.warn({
+        event: "retrieval_addon_duplicate",
+        message: "Retrieval add-on already registered, skipping",
+        addon: addon.name,
+      });
       return;
     }
 
     this.addons.set(addon.name, addon);
-    this.logger.debug(`Registered retrieval add-on: ${addon.name} (priority: ${addon.priority})`);
+    this.logger.debug({
+      event: "retrieval_addon_registered",
+      message: "Registered retrieval add-on",
+      addon: addon.name,
+      priority: addon.priority,
+    });
   }
 
   /**
@@ -70,7 +84,15 @@ export class RetrievalAddonsService {
     for (const addon of this.addons.values()) {
       if (addon.canHandle(config)) {
         applicable.push(addon);
-        this.logger.debug(`Retrieval strategy ${addon.name} is applicable for deal ${config.deal.id}`);
+        this.logger.debug({
+          dealId: config.deal.id,
+          providerId: config.deal.storageProvider?.providerId,
+          providerName: config.deal.storageProvider?.name,
+          providerAddress: config.storageProvider,
+          event: "retrieval_strategy_applicable",
+          message: "Retrieval strategy is applicable",
+          strategy: addon.name,
+        });
       }
     }
 
@@ -103,7 +125,15 @@ export class RetrievalAddonsService {
       throw new Error(`No applicable retrieval strategy found for deal ${config.deal.id}`);
     }
 
-    this.logger.debug(`Using preferred strategy ${strategy.name} for deal ${config.deal.id}`);
+    this.logger.debug({
+      dealId: config.deal.id,
+      providerId: config.deal.storageProvider?.providerId,
+      providerName: config.deal.storageProvider?.name,
+      providerAddress: config.storageProvider,
+      event: "retrieval_strategy_selected",
+      message: "Using preferred retrieval strategy",
+      strategy: strategy.name,
+    });
 
     return strategy.constructUrl(config);
   }
@@ -119,7 +149,14 @@ export class RetrievalAddonsService {
     const strategies = this.getApplicableStrategies(config);
 
     if (strategies.length === 0) {
-      this.logger.warn(`No applicable retrieval strategies found for deal ${config.deal.id}`);
+      this.logger.warn({
+        dealId: config.deal.id,
+        providerId: config.deal.storageProvider?.providerId,
+        providerName: config.deal.storageProvider?.name,
+        providerAddress: config.storageProvider,
+        event: "no_retrieval_strategies",
+        message: "No applicable retrieval strategies found",
+      });
       return [];
     }
 
@@ -129,9 +166,12 @@ export class RetrievalAddonsService {
       } catch (error) {
         this.logger.error({
           event: "construct_retrieval_url_failed",
-          message: `Failed to construct URL with strategy ${strategy.name}`,
+          message: "Failed to construct URL for a strategy",
           strategy: strategy.name,
           dealId: config.deal.id,
+          providerId: config.deal.storageProvider?.providerId,
+          providerName: config.deal.storageProvider?.name,
+          providerAddress: config.storageProvider,
           error: toStructuredError(error),
         });
         throw error;
@@ -158,13 +198,14 @@ export class RetrievalAddonsService {
       dealId: config.deal.id,
       providerAddress: config.storageProvider,
       providerId: config.deal.storageProvider?.providerId ?? logContext?.providerId,
+      providerName: config.deal.storageProvider?.name ?? logContext?.providerName,
       pieceCid: config.deal.pieceCid,
       ipfsRootCID: config.deal.metadata?.[ServiceType.IPFS_PIN]?.rootCID,
     };
     this.logger.log({
       ...retrievalLogContext,
       event: "retrieval_started",
-      message: `Performing retrieval for deal ${config.deal.id}`,
+      message: "Performing retrieval for deal",
       method: urlResult.method,
       url: this.sanitizeUrlForLog(urlResult.url),
     });
@@ -195,7 +236,8 @@ export class RetrievalAddonsService {
     this.logger.log({
       ...logContext,
       event: "retrieval_test_started",
-      message: `Testing ${urlResults.length} retrieval methods for deal ${config.deal.id}`,
+      message: "Testing retrieval methods for deal",
+      retrievalCount: urlResults.length,
       urls: urlResults.map((r) => this.sanitizeUrlForLog(r.url)),
     });
 
@@ -249,7 +291,7 @@ export class RetrievalAddonsService {
     this.logger.log({
       ...logContext,
       event: "retrieval_test_completed",
-      message: `Retrieval test completed in ${duration}ms`,
+      message: "Retrieval test completed",
       durationMs: duration,
       successfulRetrievals: successfulResults.length,
       totalRetrievals: executionResults.length,
@@ -290,6 +332,7 @@ export class RetrievalAddonsService {
       jobId: logContext?.jobId,
       dealId: config.deal.id,
       providerId: config.deal.storageProvider?.providerId ?? logContext?.providerId,
+      providerName: config.deal.storageProvider?.name ?? logContext?.providerName,
       providerAddress: config.storageProvider,
       pieceCid: config.deal.pieceCid,
       ipfsRootCID: config.deal.metadata?.[ServiceType.IPFS_PIN]?.rootCID,
@@ -308,7 +351,14 @@ export class RetrievalAddonsService {
     const { attempts, delayMs } = retryConfig;
 
     if (attempts > 1) {
-      this.logger.debug(`${strategy.name}: performing ${attempts} attempts with ${delayMs}ms delay`);
+      this.logger.debug({
+        ...retrievalLogContext,
+        event: "retrieval_retry_config",
+        message: "Performing multiple retrieval attempts",
+        strategy: strategy.name,
+        attempts,
+        delayMs,
+      });
     }
 
     const results: Array<RetrievalExecutionResult & { attemptNumber: number }> = [];
@@ -321,11 +371,16 @@ export class RetrievalAddonsService {
         results.push({ ...result, attemptNumber: attempt });
 
         if (attempts > 1 && result.success) {
-          const attemptType = attempt === 1 ? "initial" : "retry";
-          this.logger.log(
-            `${strategy.name} attempt ${attempt}/${attempts} (${attemptType}): ` +
-              `${result.metrics.latency}ms latency, ${result.metrics.ttfb}ms TTFB`,
-          );
+          this.logger.log({
+            ...retrievalLogContext,
+            event: "retrieval_attempt_succeeded",
+            message: "Retrieval attempt succeeded",
+            strategy: strategy.name,
+            attempt,
+            attempts,
+            latencyMs: result.metrics.latency,
+            ttfbMs: result.metrics.ttfb,
+          });
         }
 
         // Add delay between attempts if configured
@@ -338,7 +393,7 @@ export class RetrievalAddonsService {
         this.logger.warn({
           ...retrievalLogContext,
           event: "retrieval_attempt_failed",
-          message: `${strategy.name} attempt ${attempt}/${attempts} failed`,
+          message: "Retrieval attempt failed",
           strategy: strategy.name,
           attempt,
           attempts,
@@ -365,10 +420,16 @@ export class RetrievalAddonsService {
     );
 
     if (attempts > 1) {
-      this.logger.log(
-        `${strategy.name} best result: ${bestResult.metrics.latency}ms latency ` +
-          `(from ${successfulResults.length}/${attempts} successful attempts, attempt #${bestResult.attemptNumber})`,
-      );
+      this.logger.log({
+        ...retrievalLogContext,
+        event: "retrieval_best_result",
+        message: "Best retrieval result selected",
+        strategy: strategy.name,
+        latencyMs: bestResult.metrics.latency,
+        successfulAttempts: successfulResults.length,
+        totalAttempts: attempts,
+        bestAttemptNumber: bestResult.attemptNumber,
+      });
     }
 
     // Add retry count (0 = first attempt, 1+ = retries needed)
@@ -403,7 +464,8 @@ export class RetrievalAddonsService {
           this.logger.warn({
             ...retrievalLogContext,
             event: "retrieval_block_fetch_validation_error",
-            message: `Block-fetch validation error for ${urlResult.method} retrieval of deal ${config.deal.id}: ${errorMessage}`,
+            message: "Block-fetch validation failed for retrieval",
+            reason: errorMessage,
             method: urlResult.method,
             error: toStructuredError(error),
           });
@@ -479,7 +541,7 @@ export class RetrievalAddonsService {
             this.logger.warn({
               ...retrievalLogContext,
               event: "retrieval_validation_failed",
-              message: `Validation failed for ${urlResult.method} retrieval of deal ${config.deal.id}`,
+              message: "Retrieval validation failed",
               url: this.sanitizeUrlForLog(urlResult.url),
               statusCode: result.metrics.statusCode,
               responseSize: result.metrics.responseSize,
@@ -490,7 +552,7 @@ export class RetrievalAddonsService {
           this.logger.warn({
             ...retrievalLogContext,
             event: "retrieval_validation_error",
-            message: `Validation error for ${urlResult.method} retrieval of deal ${config.deal.id}`,
+            message: "Validation error for retrieval",
             method: urlResult.method,
             url: this.sanitizeUrlForLog(urlResult.url),
             error: toStructuredError(error),
@@ -526,7 +588,7 @@ export class RetrievalAddonsService {
         this.logger.warn({
           ...retrievalLogContext,
           event: "retrieval_aborted",
-          message: `Retrieval aborted for ${urlResult.method}. Failure details below`,
+          message: "Retrieval aborted",
         });
       }
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -537,7 +599,7 @@ export class RetrievalAddonsService {
       this.logger.error({
         ...retrievalLogContext,
         event: "retrieval_failed",
-        message: `Retrieval failed for ${urlResult.method}`,
+        message: "Retrieval failed",
         context,
         error: toStructuredError(error),
       });

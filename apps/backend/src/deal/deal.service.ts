@@ -67,7 +67,10 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
   }
 
   async onModuleInit(): Promise<void> {
-    this.logger.log("Initializing shared Synapse instance for deal creation.");
+    this.logger.log({
+      event: "synapse_initialization",
+      message: "Creating shared Synapse instance",
+    });
     this.sharedSynapse = await this.createSynapseInstance();
   }
 
@@ -80,7 +83,11 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
   async createDealsForAllProviders(): Promise<Deal[]> {
     const totalProviders = this.walletSdkService.getTestingProvidersCount();
 
-    this.logger.log(`Starting deal creation for ${totalProviders} providers`);
+    this.logger.log({
+      event: "deal_creation_batch_started",
+      message: "Starting deal creation for all providers",
+      totalProviders,
+    });
 
     const { preprocessed, cleanup } = await this.prepareDealInput();
 
@@ -101,7 +108,12 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
 
       const successfulDeals = results.filter((result) => result.success).map((result) => result.deal!);
 
-      this.logger.log(`Deal creation completed: ${successfulDeals.length}/${totalProviders} successful`);
+      this.logger.log({
+        event: "deal_creation_batch_completed",
+        message: "Deal creation completed",
+        successfulDeals: successfulDeals.length,
+        totalProviders,
+      });
 
       return successfulDeals;
     } finally {
@@ -193,7 +205,8 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     const checkType = "dataStorage" as const;
     let providerLabels = buildCheckMetricLabels({
       checkType,
-      providerId: undefined,
+      providerId: pdpProvider.id,
+      providerName: pdpProvider.name,
       providerIsApproved: pdpProvider.isApproved,
     });
     let uploadSucceeded = false;
@@ -216,7 +229,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
           providerId: pdpProvider.id ?? logContext?.providerId,
           ipfsRootCID: uploadPayload.rootCid.toString(),
           event: "deal_creation_failed",
-          message: `Deal creation failed for ${providerAddress}`,
+          message: "Deal creation failed",
           error: toStructuredError(error),
         });
         throw error;
@@ -241,6 +254,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       dealId: existingDealId ?? deal.id,
       providerAddress,
       providerId: pdpProvider.id ?? logContext?.providerId,
+      providerName: pdpProvider.name ?? logContext?.providerName,
       ipfsRootCID: uploadPayload.rootCid.toString(),
     };
 
@@ -253,6 +267,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       providerLabels = buildCheckMetricLabels({
         checkType,
         providerId: deal.storageProvider?.providerId,
+        providerName: pdpProvider.name ?? deal.storageProvider?.name,
         providerIsApproved: pdpProvider.isApproved ?? deal.storageProvider?.isApproved,
       });
       this.dataStorageMetrics.recordUploadStatus(providerLabels, "pending");
@@ -289,7 +304,12 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
          */
         ipniValidation: { enabled: false },
         onProgress: async (event) => {
-          this.logger.debug(`Upload progress event: ${event.type}`);
+          this.logger.debug({
+            ...dealLogContext,
+            event: "upload_progress",
+            message: "Upload in progress",
+            filecoinPinEventType: event.type,
+          });
           switch (event.type) {
             case "onStored": {
               deal.uploadEndTime = new Date();
@@ -300,7 +320,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
               this.logger.log({
                 ...dealLogContext,
                 event: "stored",
-                message: `Stored event`,
+                message: `Store completed`,
               });
               uploadSucceeded = true;
               this.dataStorageMetrics.observeIngestMs(providerLabels, deal.ingestLatencyMs);
@@ -322,7 +342,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
                 this.logger.warn({
                   ...dealLogContext,
                   event: "ingest_throughput_skipped",
-                  message: `Skipping ingest throughput: invalid ingest latency (${deal.ingestLatencyMs}ms) for deal ${deal.id}`,
+                  message: "Skipping ingest throughput: invalid ingest latency",
                   ingestLatencyMs: deal.ingestLatencyMs,
                 });
               }
@@ -331,8 +351,8 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
             case "onPiecesAdded":
               this.logger.log({
                 ...dealLogContext,
-                event: "piece_added",
-                message: `Pieces added event, txHash: ${event.data.txHash}`,
+                event: "pieces_added",
+                message: "Pieces added",
                 txHash: event.data.txHash,
               });
               deal.piecesAddedTime = new Date();
@@ -342,7 +362,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
                 this.logger.warn({
                   ...dealLogContext,
                   event: "pieces_added_no_tx_hash",
-                  message: `No transaction hash found for pieces added event: ${deal.pieceCid}`,
+                  message: "No transaction hash found for pieces added event",
                 });
               }
               deal.status = DealStatus.PIECE_ADDED;
@@ -355,7 +375,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
               this.logger.log({
                 ...dealLogContext,
                 event: "pieces_confirmed",
-                message: `Pieces confirmed event, pieceIds: ${event.data.pieceIds.join(", ")}`,
+                message: "Pieces confirmed",
                 pieceIds: event.data.pieceIds,
               });
               deal.piecesConfirmedTime = new Date();
@@ -381,7 +401,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
         this.logger.error({
           ...dealLogContext,
           event: "deal_transaction_hash_missing",
-          message: `No transaction hash found for deal: ${deal.pieceCid}`,
+          message: "No transaction hash found for deal",
         });
       }
 
@@ -435,16 +455,11 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       } else if (retrievalTest.summary.totalMethods === 0) {
         throw new Error("No retrieval methods to test");
       } else {
-        // dataStorageCheckDuration = retrievalTest.testedAt - deal.uploadEndTime
-        // retrievals were successful.. lets log some stats
-        this.logger.log(
-          `Retrieval test completed in ${retrievalTest.testedAt.getTime() - retrievalStartTime}ms: ` +
-            `${retrievalTest.summary.successfulMethods}/${retrievalTest.summary.totalMethods} successful`,
-        );
         this.logger.log({
           ...dealLogContext,
           event: "deal_creation_retrieval_test_completed",
-          message: `Retrieval test completed in ${retrievalTest.testedAt.getTime() - retrievalStartTime}ms`,
+          message: "Retrieval test completed",
+          durationMs: retrievalTest.testedAt.getTime() - retrievalStartTime,
           totalMethods: retrievalTest.summary.totalMethods,
           successfulMethods: retrievalTest.summary.successfulMethods,
         });
@@ -460,7 +475,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       this.logger.log({
         ...dealLogContext,
         event: "deal_creation_completed",
-        message: `Deal ${deal.id} created: ${deal.pieceCid} (sp: ${providerAddress})`,
+        message: "Deal created",
       });
 
       await this.dealAddonsService.postProcessDeal(deal, dealInput.appliedAddons, dealLogContext);
@@ -471,7 +486,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       this.logger.error({
         ...dealLogContext,
         event: "deal_creation_failed",
-        message: `Deal creation failed for ${providerAddress}`,
+        message: "Deal creation failed",
         error: toStructuredError(error),
       });
       const failureStatus = classifyFailureStatus(error);
@@ -543,6 +558,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     const labels = buildCheckMetricLabels({
       checkType: "dataSetCreation",
       providerId: providerInfo.id,
+      providerName: providerInfo.name,
       providerIsApproved: providerInfo.isApproved,
     });
 
@@ -553,6 +569,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       message: "Starting data-set creation with piece",
       providerAddress,
       providerId: providerInfo.id,
+      providerName: providerInfo.name,
       metadata,
     });
 
@@ -604,6 +621,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
                   message: "Data-set creation stored",
                   providerAddress,
                   providerId: providerInfo.id,
+                  providerName: providerInfo.name,
                   pieceCid,
                 });
                 break;
@@ -614,6 +632,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
                   message: "Data-set creation piecesadded",
                   providerAddress,
                   providerId: providerInfo.id,
+                  providerName: providerInfo.name,
                   txHash: event.data.txHash ?? "unknown",
                 });
                 break;
@@ -624,6 +643,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
                   message: "Data-set creation pieces confirmed",
                   providerAddress,
                   providerId: providerInfo.id,
+                  providerName: providerInfo.name,
                   pieceIds: event.data.pieceIds,
                 });
                 break;
@@ -653,6 +673,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
           message: "Data-set creation succeeded without full on-chain progress events",
           providerAddress,
           providerId: providerInfo.id,
+          providerName: providerInfo.name,
           pieceAdded,
           piecesConfirmed,
         });
@@ -663,6 +684,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
         message: "Data-set created with piece",
         providerAddress,
         providerId: providerInfo.id,
+        providerName: providerInfo.name,
         durationMs,
         dataSetId: storage.dataSetId ?? "unknown",
         pieceCid: pieceCid ?? "unknown",
@@ -680,6 +702,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
         message: "Data-set creation with piece failed",
         providerAddress,
         providerId: providerInfo.id,
+        providerName: providerInfo.name,
         durationMs,
         pieceAdded,
         piecesConfirmed,
@@ -758,7 +781,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       this.logger.warn({
         ...dealLogContext,
         event: "save_deal_failed",
-        message: `Failed to save deal ${deal.pieceCid}`,
+        message: "Failed to save deal",
         error: toStructuredError(error),
       });
     }

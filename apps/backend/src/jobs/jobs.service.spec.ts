@@ -261,7 +261,7 @@ describe("JobsService schedule rows", () => {
       getTestingProviders: vi.fn(() => [{ serviceProvider: "0xaaa" }]),
       ensureWalletAllowances: vi.fn(),
       loadProviders: vi.fn(),
-      getProviderInfo: vi.fn(() => ({ id: 1 })),
+      getProviderInfo: vi.fn(() => ({ id: 1, name: "test-provider" })),
     };
 
     service = buildService({
@@ -320,7 +320,7 @@ describe("JobsService schedule rows", () => {
     };
 
     const walletSdkService = {
-      getProviderInfo: vi.fn(() => ({ id: 2 })),
+      getProviderInfo: vi.fn(() => ({ id: 2, name: "test-provider-2" })),
     };
 
     service = buildService({
@@ -360,6 +360,7 @@ describe("JobsService schedule rows", () => {
     };
     storageProviderRepositoryMock.findOne.mockResolvedValue({
       providerId: 42,
+      name: "db-provider",
     });
 
     service = buildService({
@@ -376,11 +377,15 @@ describe("JobsService schedule rows", () => {
       },
     });
 
-    expect(retrievalService.performRandomRetrievalForProvider).toHaveBeenCalledWith("0xaaa", expect.any(AbortSignal), {
-      jobId: "job-retrieval-provider-fallback",
-      providerAddress: "0xaaa",
-      providerId: 42,
-    });
+    expect(retrievalService.performRandomRetrievalForProvider).toHaveBeenCalledWith(
+      "0xaaa",
+      expect.any(AbortSignal),
+      expect.objectContaining({
+        jobId: "job-retrieval-provider-fallback",
+        providerAddress: "0xaaa",
+        providerId: 42,
+      }),
+    );
   });
 
   it("retrieval job fails fast when providerId cannot be resolved", async () => {
@@ -923,7 +928,7 @@ describe("JobsService schedule rows", () => {
       getTestingProviders: vi.fn(() => [{ serviceProvider: "0xaaa" }]),
       ensureWalletAllowances: vi.fn(),
       loadProviders: vi.fn(),
-      getProviderInfo: vi.fn(() => ({ id: 1 })),
+      getProviderInfo: vi.fn(() => ({ id: 1, name: "test-provider" })),
     };
 
     service = buildService({
@@ -964,7 +969,7 @@ describe("JobsService schedule rows", () => {
       getTestingProviders: vi.fn(() => [{ serviceProvider: "0xaaa" }]),
       ensureWalletAllowances: vi.fn(),
       loadProviders: vi.fn(),
-      getProviderInfo: vi.fn(() => ({ id: 1 })),
+      getProviderInfo: vi.fn(() => ({ id: 1, name: "test-provider" })),
     };
 
     vi.spyOn(Math, "random").mockReturnValue(0.5);
@@ -1017,7 +1022,7 @@ describe("JobsService schedule rows", () => {
       getTestingProviders: vi.fn(() => [{ serviceProvider: "0xaaa" }]),
       ensureWalletAllowances: vi.fn(),
       loadProviders: vi.fn(),
-      getProviderInfo: vi.fn(() => ({ id: 1 })),
+      getProviderInfo: vi.fn(() => ({ id: 1, name: "test-provider" })),
     };
 
     vi.spyOn(Math, "random").mockReturnValue(0.8);
@@ -1070,7 +1075,7 @@ describe("JobsService schedule rows", () => {
       getTestingProviders: vi.fn(() => [{ serviceProvider: "0xaaa" }]),
       ensureWalletAllowances: vi.fn(),
       loadProviders: vi.fn(),
-      getProviderInfo: vi.fn(() => ({ id: 1 })),
+      getProviderInfo: vi.fn(() => ({ id: 1, name: "test-provider" })),
     };
 
     vi.spyOn(Math, "random").mockReturnValue(0.5);
@@ -1123,7 +1128,7 @@ describe("JobsService schedule rows", () => {
       getTestingProviders: vi.fn(() => [{ serviceProvider: "0xaaa" }]),
       ensureWalletAllowances: vi.fn(),
       loadProviders: vi.fn(),
-      getProviderInfo: vi.fn(() => ({ id: 1 })),
+      getProviderInfo: vi.fn(() => ({ id: 1, name: "test-provider" })),
     };
 
     vi.spyOn(Math, "random").mockReturnValue(0.8);
@@ -1158,7 +1163,7 @@ describe("JobsService schedule rows", () => {
     };
 
     const walletSdkService = {
-      getProviderInfo: vi.fn(() => ({ id: 1 })),
+      getProviderInfo: vi.fn(() => ({ id: 1, name: "test-provider" })),
     };
 
     service = buildService({
@@ -1198,7 +1203,7 @@ describe("JobsService schedule rows", () => {
     };
 
     const walletSdkService = {
-      getProviderInfo: vi.fn(() => ({ id: 1 })),
+      getProviderInfo: vi.fn(() => ({ id: 1, name: "test-provider" })),
     };
 
     service = buildService({
@@ -1238,7 +1243,7 @@ describe("JobsService schedule rows", () => {
     };
 
     const walletSdkService = {
-      getProviderInfo: vi.fn(() => ({ id: 1 })),
+      getProviderInfo: vi.fn(() => ({ id: 1, name: "test-provider" })),
     };
 
     service = buildService({
@@ -1290,7 +1295,7 @@ describe("JobsService schedule rows", () => {
         "0xaaa",
         5,
         {},
-        { providerAddress: "0xaaa", jobId: "job-ds-4", providerId: 1 },
+        { providerAddress: "0xaaa", jobId: "job-ds-4", providerId: 1, providerName: "test-provider" },
         controller.signal,
       ),
     ).rejects.toThrow("Job timed out");

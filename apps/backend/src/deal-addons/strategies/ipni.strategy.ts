@@ -62,7 +62,13 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       signal?.throwIfAborted();
       const carResult = await buildUnixfsCar(context.currentData, { signal });
 
-      this.logger.log(`CAR conversion: ${carResult.blockCount} blocks, ${(carResult.carSize / 1024).toFixed(1)}KB`);
+      this.logger.log({
+        event: "ipni_car_conversion_completed",
+        message: "CAR conversion completed",
+        blockCount: carResult.blockCount,
+        carSizeKB: Math.round((carResult.carSize / 1024) * 10) / 10,
+        carSizeBytes: carResult.carSize,
+      });
 
       const metadata: IpniMetadata = {
         enabled: true,
@@ -122,7 +128,7 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       this.logger.warn({
         ...logContext,
         event: "ipni_no_storage_provider",
-        message: `No storage provider for deal ${deal.id}`,
+        message: "No storage provider for deal",
       });
       return;
     }
@@ -137,7 +143,7 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
     this.logger.log({
       ...logContext,
       event: "ipni_tracking_started",
-      message: `IPNI tracking started: ${deal.pieceCid}`,
+      message: "IPNI tracking started",
     });
 
     await this.startIpniMonitoring(deal, signal, logContext);
@@ -187,7 +193,7 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       this.logger.warn({
         ...logContext,
         event: "ipni_no_storage_provider",
-        message: `No storage provider for deal ${deal.id}`,
+        message: "No storage provider for deal",
       });
       return;
     }
@@ -198,6 +204,7 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       dealId: deal.id,
       providerAddress: deal.spAddress,
       providerId: typeof deal.storageProvider?.providerId === 'number' ? BigInt(deal.storageProvider.providerId) : logContext?.providerId,
+      providerName: deal.storageProvider?.name ?? logContext?.providerName,
       pieceCid: deal.pieceCid,
       ipfsRootCID: deal.metadata[this.name]?.rootCID,
     };
@@ -247,7 +254,7 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
         this.logger.warn({
           ...dealLogContext,
           event: "ipni_tracking_failed",
-          message: `IPNI failed for ${deal.pieceCid}`,
+          message: "IPNI tracking failed",
           error: toStructuredError(error),
         });
       } catch (saveError) {
@@ -321,7 +328,7 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       this.logger.warn({
         ...dealLogContext,
         event: "ipni_verification_input_missing",
-        message: `No rootCID or blockCIDs for deal ${deal.id}`,
+        message: "No rootCID or blockCIDs for deal",
         hasRootCID: Boolean(rootCID),
         blockCIDCount: blockCIDs.length,
       });
@@ -349,7 +356,7 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       this.logger.warn({
         ...dealLogContext,
         event: "ipni_verification_input_invalid",
-        message: `Invalid rootCID for deal ${deal.id}`,
+        message: "Invalid rootCID for deal",
         rootCID,
         error: toStructuredError(error),
       });
@@ -373,7 +380,7 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
     this.logger.log({
       ...dealLogContext,
       event: "ipni_root_cid_verification_started",
-      message: `Verifying rootCID in IPNI: ${rootCID}`,
+      message: "Verifying rootCID in IPNI",
       rootCID,
       blockCIDCount: blockCIDs.length,
       ipniVerificationTimeoutMs: ipniTimeoutMs,
@@ -398,7 +405,7 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       this.logger.log({
         ...dealLogContext,
         event: "ipni_root_cid_verified",
-        message: `IPNI verified: rootCID ${rootCID} (${(ipniResult.durationMs / 1000).toFixed(1)}s)`,
+        message: "IPNI rootCID verified",
         rootCID,
         verifyDurationMs: ipniResult.durationMs,
       });
@@ -406,7 +413,7 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       this.logger.warn({
         ...dealLogContext,
         event: "ipni_root_cid_verification_failed",
-        message: `IPNI verification failed for rootCID: ${rootCID}`,
+        message: "IPNI rootCID verification failed",
         rootCID,
         verifyDurationMs: ipniResult.durationMs,
         failureReason: ipniResult.failedCIDs[0]?.reason,
@@ -443,7 +450,7 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       checkCount++;
 
       try {
-        const sdkStatus = await this.getPieceStatus(serviceURL, pieceCid, signal);
+        const sdkStatus = await this.getPieceStatus(serviceURL, pieceCid, signal, dealLogContext);
         signal?.throwIfAborted();
 
         const currentStatus: PieceStatus = {
@@ -461,8 +468,9 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
           if (!lastStatus.indexed) {
             this.logger.log({
               ...dealLogContext,
+              pieceCid,
               event: "piece_status_indexed",
-              message: `Piece indexed: ${pieceCid}`,
+              message: "Piece indexed",
             });
           }
         }
@@ -473,8 +481,9 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
           if (!lastStatus.advertised) {
             this.logger.log({
               ...dealLogContext,
+              pieceCid,
               event: "piece_status_advertised",
-              message: `Piece advertised: ${pieceCid}`,
+              message: "Piece advertised",
             });
           }
           return {
@@ -505,8 +514,9 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
     const durationSec = ((Date.now() - startTime) / 1000).toFixed(1);
     this.logger.warn({
       ...dealLogContext,
+      pieceCid,
       event: "piece_status_timeout",
-      message: `Piece retrieval timeout: ${pieceCid} (${durationSec}s)`,
+      message: "Piece retrieval timeout",
       durationSec: Number(durationSec),
     });
     throw new Error(`Timeout waiting for piece retrieval after ${durationSec}s`);
@@ -519,13 +529,19 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
     serviceURL: string,
     pieceCid: string,
     signal?: AbortSignal,
+    logContext?: DealLogContext,
   ): Promise<PieceStatusResponse> {
     if (!pieceCid || typeof pieceCid !== "string") {
       throw new Error(`Invalid PieceCID: ${String(pieceCid)}`);
     }
 
     const url = `${serviceURL}/pdp/piece/${pieceCid}/status`;
-    this.logger.debug(`Getting piece status from ${url}`);
+    this.logger.debug({
+      ...logContext,
+      event: "piece_status_request",
+      message: "Getting piece status",
+      serviceURL,
+    });
 
     try {
       const { data } = await this.httpClientService.requestWithMetrics<Buffer>(url, {
@@ -544,29 +560,33 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
         if (errorResponse.status === 404) {
           const message = `Piece not found or does not belong to service: ${errorText}`;
           this.logger.warn({
+            ...logContext,
             event: "piece_status_request_failed",
-            message: `Failed to get piece status for ${pieceCid}`,
+            message: "Failed to get piece status",
             pieceCid,
             statusCode: errorResponse.status,
             detail: message,
+            error: toStructuredError(error),
           });
           throw new Error(message);
         }
         const statusText = errorResponse.statusText ?? "";
         const message = `Failed to get piece status: ${errorResponse.status} ${statusText} - ${errorText}`;
         this.logger.warn({
+          ...logContext,
           event: "piece_status_request_failed",
-          message: `Failed to get piece status for ${pieceCid}`,
-          pieceCid,
+          message: "Failed to get piece status",
           statusCode: errorResponse.status,
           detail: message,
+          error: toStructuredError(error),
         });
         throw new Error(message);
       }
 
       this.logger.warn({
+        ...logContext,
         event: "piece_status_request_failed",
-        message: `Failed to get piece status for ${pieceCid}`,
+        message: "Failed to get piece status",
         pieceCid,
         error: toStructuredError(error),
       });
@@ -646,9 +666,15 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       const duration = Math.round(eventTime.getTime() - uploadEndTime.getTime());
 
       if (duration <= 0) {
-        this.logger.warn(
-          `Invalid duration for ${eventName}: ${duration}ms (eventTime: ${eventTime.toISOString()}, uploadEndTime: ${uploadEndTime.toISOString()})`,
-        );
+        this.logger.warn({
+          ...dealLogContext,
+          event: "ipni_invalid_duration",
+          message: "Invalid duration calculated",
+          eventName,
+          durationMs: duration,
+          eventTime: eventTime.toISOString(),
+          uploadEndTime: uploadEndTime.toISOString(),
+        });
         return null;
       }
 
@@ -705,11 +731,16 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
     deal.ipniVerifiedCidsCount = ipniResult.verified;
     deal.ipniUnverifiedCidsCount = ipniResult.unverified;
 
-    const timeToVerifySec = deal.ipniTimeToVerifyMs ? (deal.ipniTimeToVerifyMs / 1000).toFixed(1) : "N/A";
-    this.logger.log(
-      `IPNI ${deal.ipniStatus}: ${deal.pieceCid} ` +
-        `(${timeToVerifySec}s, ${deal.ipniVerifiedCidsCount}/${ipniResult.total} CIDs verified, ${deal.ipniUnverifiedCidsCount} unverified)`,
-    );
+    this.logger.log({
+      ...dealLogContext,
+      event: "ipni_status_updated",
+      message: "IPNI status updated",
+      ipniStatus: deal.ipniStatus,
+      verifiedCids: deal.ipniVerifiedCidsCount,
+      totalCids: ipniResult.total,
+      unverifiedCids: deal.ipniUnverifiedCidsCount,
+      timeToVerifyMs: deal.ipniTimeToVerifyMs ?? null,
+    });
 
     let finalDiscoverabilityStatus = "failure.other";
     if (ipniResult.rootCIDVerified) {

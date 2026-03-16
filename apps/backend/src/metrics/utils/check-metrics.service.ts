@@ -9,7 +9,12 @@ const metricsLogger = new Logger("CheckMetrics");
 
 function observePositive(metric: Histogram, labels: CheckMetricLabels, value: number | null | undefined): void {
   if (value == null || !Number.isFinite(value) || value <= 0) {
-    metricsLogger.warn(`Dropping non-finite or non-positive metric value: ${value}`, "observePositive");
+    metricsLogger.warn({
+      event: "metric_value_dropped",
+      message: "Dropping non-finite or non-positive metric value",
+      value,
+      context: "observePositive",
+    });
     return;
   }
   metric.observe({ ...labels }, value);
@@ -168,7 +173,11 @@ export class DiscoverabilityCheckMetrics {
 
   observeSpIndexLocallyMs(labels: CheckMetricLabels | null, value: number | null | undefined): void {
     if (!labels) {
-      this.logger.warn("[metrics] Cannot emit spIndexLocallyMs: no provider labels");
+      this.logger.warn({
+        event: "metric_emit_failed",
+        message: "Cannot emit spIndexLocallyMs: no provider labels",
+        metric: "spIndexLocallyMs",
+      });
       return;
     }
     observePositive(this.spIndexLocallyMs, labels, value);
@@ -176,7 +185,11 @@ export class DiscoverabilityCheckMetrics {
 
   observeSpAnnounceAdvertisementMs(labels: CheckMetricLabels | null, value: number | null | undefined): void {
     if (!labels) {
-      this.logger.warn("[metrics] Cannot emit spAnnounceAdvertisementMs: no provider labels");
+      this.logger.warn({
+        event: "metric_emit_failed",
+        message: "Cannot emit spAnnounceAdvertisementMs: no provider labels",
+        metric: "spAnnounceAdvertisementMs",
+      });
       return;
     }
     observePositive(this.spAnnounceAdvertisementMs, labels, value);
@@ -184,7 +197,11 @@ export class DiscoverabilityCheckMetrics {
 
   observeIpniVerifyMs(labels: CheckMetricLabels | null, value: number | null | undefined): void {
     if (!labels) {
-      this.logger.warn("[metrics] Cannot emit ipniVerifyMs: no provider labels");
+      this.logger.warn({
+        event: "metric_emit_failed",
+        message: "Cannot emit ipniVerifyMs: no provider labels",
+        metric: "ipniVerifyMs",
+      });
       return;
     }
     observePositive(this.ipniVerifyMs, labels, value);
@@ -192,7 +209,12 @@ export class DiscoverabilityCheckMetrics {
 
   recordStatus(labels: CheckMetricLabels | null, value: string): void {
     if (!labels) {
-      this.logger.warn(`[metrics] Cannot emit discoverabilityStatus (${value}): no provider labels`);
+      this.logger.warn({
+        event: "metric_emit_failed",
+        message: "Cannot emit discoverabilityStatus: no provider labels",
+        metric: "discoverabilityStatus",
+        value,
+      });
       return;
     }
     this.discoverabilityStatusCounter.inc({ ...labels, value });
@@ -203,6 +225,7 @@ export class DiscoverabilityCheckMetrics {
     return buildCheckMetricLabels({
       checkType: "dataStorage",
       providerId: deal.storageProvider?.providerId,
+      providerName: deal.storageProvider?.name,
       providerIsApproved: deal.storageProvider?.isApproved,
     });
   }

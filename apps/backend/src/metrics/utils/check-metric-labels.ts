@@ -4,18 +4,21 @@ export type ProviderStatus = "approved" | "unapproved";
 export type CheckMetricLabels = {
   checkType: CheckType;
   providerId: string;
+  providerName: string;
   providerStatus: ProviderStatus;
 };
 
 export type CheckMetricLabelInput = {
   checkType: CheckType;
   providerId?: bigint | null;
+  providerName?: string | null;
   providerIsApproved?: boolean | null;
 };
 
 export const buildCheckMetricLabels = ({
   checkType,
   providerId,
+  providerName,
   providerIsApproved,
 }: CheckMetricLabelInput): CheckMetricLabels => {
   const normalizedProviderId = providerId != null ? String(providerId) : "unknown";
@@ -24,6 +27,7 @@ export const buildCheckMetricLabels = ({
   return {
     checkType,
     providerId: normalizedProviderId,
+    providerName: providerName ?? "unknown",
     providerStatus,
   };
 };
