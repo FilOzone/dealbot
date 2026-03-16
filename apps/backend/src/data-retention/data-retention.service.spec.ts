@@ -70,11 +70,13 @@ describe("DataRetentionService", () => {
         {
           id: 1,
           serviceProvider: PROVIDER_A,
+          name: "Provider A",
           isApproved: true,
         },
         {
           id: 2,
           serviceProvider: PROVIDER_B,
+          name: "Provider B",
           isApproved: false,
         },
       ]),
@@ -263,12 +265,14 @@ describe("DataRetentionService", () => {
     expect(counterMock.labels).toHaveBeenCalledWith({
       checkType: "dataRetention",
       providerId: "1",
+      providerName: "Provider A",
       providerStatus: "approved",
       value: "failure",
     });
     expect(counterMock.labels).toHaveBeenCalledWith({
       checkType: "dataRetention",
       providerId: "1",
+      providerName: "Provider A",
       providerStatus: "approved",
       value: "success",
     });
@@ -300,12 +304,14 @@ describe("DataRetentionService", () => {
     expect(counterMock.labels).toHaveBeenCalledWith({
       checkType: "dataRetention",
       providerId: "1",
+      providerName: "Provider A",
       providerStatus: "approved",
       value: "failure",
     });
     expect(counterMock.labels).toHaveBeenCalledWith({
       checkType: "dataRetention",
       providerId: "1",
+      providerName: "Provider A",
       providerStatus: "approved",
       value: "success",
     });
@@ -427,12 +433,14 @@ describe("DataRetentionService", () => {
     expect(counterMock.labels).toHaveBeenCalledWith({
       checkType: "dataRetention",
       providerId: "1",
+      providerName: "Provider A",
       providerStatus: "approved",
       value: "failure",
     });
     expect(counterMock.labels).toHaveBeenCalledWith({
       checkType: "dataRetention",
       providerId: "1",
+      providerName: "Provider A",
       providerStatus: "approved",
       value: "success",
     });
@@ -443,6 +451,7 @@ describe("DataRetentionService", () => {
     const manyProviders = Array.from({ length: 75 }, (_, i) => ({
       id: i + 1,
       serviceProvider: `0x${i.toString().padStart(40, "0")}`,
+      name: `Provider ${i + 1}`,
       isApproved: true,
     }));
     walletSdkServiceMock.getTestingProviders.mockReturnValueOnce(manyProviders);
@@ -465,6 +474,7 @@ describe("DataRetentionService", () => {
     const manyProviders = Array.from({ length: 75 }, (_, i) => ({
       id: i + 1,
       serviceProvider: `0x${i.toString().padStart(40, "0")}`,
+      name: `Provider ${i + 1}`,
       isApproved: true,
     }));
     walletSdkServiceMock.getTestingProviders.mockReturnValueOnce(manyProviders);
@@ -515,6 +525,7 @@ describe("DataRetentionService", () => {
         {
           id: 2,
           serviceProvider: PROVIDER_B,
+          name: "Provider B",
           isApproved: false,
         },
       ]);
@@ -522,6 +533,7 @@ describe("DataRetentionService", () => {
       mockSPRepository.find.mockResolvedValueOnce([
         {
           address: PROVIDER_A,
+          name: "Provider A",
           providerId: 1,
           isApproved: true,
         },
@@ -534,18 +546,20 @@ describe("DataRetentionService", () => {
       // Should fetch stale provider info from database
       expect(mockSPRepository.find).toHaveBeenCalledWith({
         where: { address: expect.anything() },
-        select: ["address", "providerId", "isApproved"],
+        select: ["address", "providerId", "name", "isApproved"],
       });
 
       // Should remove all counter label combinations
       const approvedLabels = buildCheckMetricLabels({
         checkType: "dataRetention",
         providerId: 1,
+        providerName: "Provider A",
         providerIsApproved: true,
       });
       const unapprovedLabels = buildCheckMetricLabels({
         checkType: "dataRetention",
         providerId: 1,
+        providerName: "Provider A",
         providerIsApproved: false,
       });
       expect(counterMock.remove).toHaveBeenCalledWith({ ...approvedLabels, value: "success" });
@@ -564,6 +578,7 @@ describe("DataRetentionService", () => {
         {
           id: 2,
           serviceProvider: PROVIDER_B,
+          name: "Provider B",
           isApproved: false,
         },
       ]);
@@ -585,6 +600,7 @@ describe("DataRetentionService", () => {
         {
           id: 1,
           serviceProvider: PROVIDER_A,
+          name: "Provider A",
           isApproved: true,
         },
       ]);
@@ -610,6 +626,7 @@ describe("DataRetentionService", () => {
         {
           id: 2,
           serviceProvider: PROVIDER_B,
+          name: "Provider B",
           isApproved: false,
         },
       ]);
@@ -629,6 +646,7 @@ describe("DataRetentionService", () => {
         {
           id: 1,
           serviceProvider: PROVIDER_A,
+          name: "Provider A",
           isApproved: true,
         },
       ]);
@@ -654,6 +672,7 @@ describe("DataRetentionService", () => {
         {
           id: 2,
           serviceProvider: PROVIDER_B,
+          name: "Provider B",
           isApproved: false,
         },
       ]);
@@ -662,6 +681,7 @@ describe("DataRetentionService", () => {
       mockSPRepository.find.mockResolvedValueOnce([
         {
           address: PROVIDER_A,
+          name: "Provider A",
           providerId: null,
           isApproved: true,
         },
@@ -685,6 +705,7 @@ describe("DataRetentionService", () => {
         {
           id: 2,
           serviceProvider: PROVIDER_B,
+          name: "Provider B",
           isApproved: false,
         },
       ]);
@@ -692,6 +713,7 @@ describe("DataRetentionService", () => {
       mockSPRepository.find.mockResolvedValueOnce([
         {
           address: PROVIDER_A,
+          name: "Provider A",
           providerId: 1,
           isApproved: true,
         },
@@ -714,6 +736,7 @@ describe("DataRetentionService", () => {
         {
           id: 1,
           serviceProvider: PROVIDER_A,
+          name: "Provider A",
           isApproved: true,
         },
       ]);
@@ -734,9 +757,9 @@ describe("DataRetentionService", () => {
 
       // First poll: establish baselines for A, B, C
       walletSdkServiceMock.getTestingProviders.mockReturnValueOnce([
-        { id: 1, serviceProvider: PROVIDER_A, isApproved: true },
-        { id: 2, serviceProvider: PROVIDER_B, isApproved: false },
-        { id: 3, serviceProvider: PROVIDER_C, isApproved: true },
+        { id: 1, serviceProvider: PROVIDER_A, name: "Provider A", isApproved: true },
+        { id: 2, serviceProvider: PROVIDER_B, name: "Provider B", isApproved: false },
+        { id: 3, serviceProvider: PROVIDER_C, name: "Provider C", isApproved: true },
       ]);
 
       pdpSubgraphServiceMock.fetchProvidersWithDatasets.mockResolvedValueOnce([
@@ -749,12 +772,12 @@ describe("DataRetentionService", () => {
 
       // Second poll: only PROVIDER_A remains active
       walletSdkServiceMock.getTestingProviders.mockReturnValueOnce([
-        { id: 1, serviceProvider: PROVIDER_A, isApproved: true },
+        { id: 1, serviceProvider: PROVIDER_A, name: "Provider A", isApproved: true },
       ]);
 
       mockSPRepository.find.mockResolvedValueOnce([
-        { address: PROVIDER_B, providerId: 2, isApproved: false },
-        { address: PROVIDER_C, providerId: 3, isApproved: true },
+        { address: PROVIDER_B, name: "Provider B", providerId: 2, isApproved: false },
+        { address: PROVIDER_C, name: "Provider C", providerId: 3, isApproved: true },
       ]);
 
       pdpSubgraphServiceMock.fetchProvidersWithDatasets.mockResolvedValueOnce([makeProvider({ address: PROVIDER_A })]);
@@ -764,7 +787,7 @@ describe("DataRetentionService", () => {
       // Should fetch both stale providers in one query
       expect(mockSPRepository.find).toHaveBeenCalledWith({
         where: { address: expect.anything() },
-        select: ["address", "providerId", "isApproved"],
+        select: ["address", "providerId", "name", "isApproved"],
       });
 
       // Should remove counters for both providers (8 total: 2 providers × 4 values)
@@ -778,7 +801,7 @@ describe("DataRetentionService", () => {
 
       // Second poll: provider removed, but processing has errors
       walletSdkServiceMock.getTestingProviders.mockReturnValueOnce([
-        { id: 2, serviceProvider: PROVIDER_B, isApproved: false },
+        { id: 2, serviceProvider: PROVIDER_B, name: "Provider B", isApproved: false },
       ]);
 
       // Simulate processing error
@@ -796,7 +819,7 @@ describe("DataRetentionService", () => {
 
       // First poll with mixed case address
       walletSdkServiceMock.getTestingProviders.mockReturnValueOnce([
-        { id: 1, serviceProvider: PROVIDER_MIXED_CASE, isApproved: true },
+        { id: 1, serviceProvider: PROVIDER_MIXED_CASE, name: "Provider A", isApproved: true },
       ]);
 
       pdpSubgraphServiceMock.fetchProvidersWithDatasets.mockResolvedValueOnce([
@@ -807,12 +830,13 @@ describe("DataRetentionService", () => {
 
       // Second poll: provider removed
       walletSdkServiceMock.getTestingProviders.mockReturnValueOnce([
-        { id: 2, serviceProvider: PROVIDER_B, isApproved: false },
+        { id: 2, serviceProvider: PROVIDER_B, name: "Provider B", isApproved: false },
       ]);
 
       mockSPRepository.find.mockResolvedValueOnce([
         {
           address: PROVIDER_MIXED_CASE,
+          name: "Provider A",
           providerId: 1,
           isApproved: true,
         },
@@ -951,10 +975,12 @@ describe("DataRetentionService", () => {
 
       // Second poll: PROVIDER_A removed from active list
       walletSdkServiceMock.getTestingProviders.mockReturnValueOnce([
-        { id: 2, serviceProvider: PROVIDER_B, isApproved: false },
+        { id: 2, serviceProvider: PROVIDER_B, name: "Provider B", isApproved: false },
       ]);
 
-      mockSPRepository.find.mockResolvedValueOnce([{ address: PROVIDER_A, providerId: 1, isApproved: true }]);
+      mockSPRepository.find.mockResolvedValueOnce([
+        { address: PROVIDER_A, name: "Provider A", providerId: 1, isApproved: true },
+      ]);
 
       pdpSubgraphServiceMock.fetchProvidersWithDatasets.mockResolvedValueOnce([makeProvider({ address: PROVIDER_B })]);
 

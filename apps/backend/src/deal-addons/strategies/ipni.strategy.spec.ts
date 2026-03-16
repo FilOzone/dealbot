@@ -14,6 +14,7 @@ describe("IpniAddonStrategy getPieceStatus", () => {
     spAddress?: string;
     storageProvider?: {
       providerId?: number;
+      name?: string;
       isApproved?: boolean;
     } | null;
   } | null;
@@ -68,6 +69,7 @@ describe("IpniAddonStrategy getPieceStatus", () => {
         return buildCheckMetricLabels({
           checkType: "dataStorage",
           providerId: deal.storageProvider?.providerId,
+          providerName: deal.storageProvider?.name,
           providerIsApproved: deal.storageProvider?.isApproved,
         });
       }),
@@ -253,6 +255,7 @@ describe("IpniAddonStrategy getPieceStatus", () => {
       const labels = {
         checkType: "dataStorage",
         providerId: "9",
+        providerName: "SP",
         providerStatus: "approved",
       };
 
@@ -341,6 +344,7 @@ describe("IpniAddonStrategy getPieceStatus", () => {
       const labels = {
         checkType: "dataStorage",
         providerId: "9",
+        providerName: "SP",
         providerStatus: "approved",
       };
 
@@ -382,6 +386,7 @@ describe("IpniAddonStrategy getPieceStatus", () => {
     const labels = {
       checkType: "dataStorage",
       providerId: "9",
+      providerName: "SP",
       providerStatus: "approved",
     };
 
@@ -420,6 +425,7 @@ describe("IpniAddonStrategy getPieceStatus", () => {
     const labels = {
       checkType: "dataStorage",
       providerId: "9",
+      providerName: "SP",
       providerStatus: "approved",
     };
 

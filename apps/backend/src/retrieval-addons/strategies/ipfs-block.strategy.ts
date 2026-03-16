@@ -5,6 +5,7 @@ import { create as createBlock } from "multiformats/block";
 import { CID } from "multiformats/cid";
 import * as raw from "multiformats/codecs/raw";
 import { sha256 } from "multiformats/hashes/sha2";
+import { toStructuredError } from "../../common/logging.js";
 import type { IConfig } from "../../config/app.config.js";
 import { ServiceType } from "../../database/types.js";
 import { HttpClientService } from "../../http-client/http-client.service.js";
@@ -59,16 +60,28 @@ export class IpfsBlockRetrievalStrategy implements IRetrievalAddon {
     const ipniEnabled = config.deal.metadata?.[this.name]?.enabled === true;
 
     if (!ipniEnabled) {
-      this.logger.debug(
-        `IPFS block retrieval not available for deal ${config.deal.id}: IPNI not enabled during creation`,
-      );
+      this.logger.debug({
+        dealId: config.deal.id,
+        providerId: config.deal.storageProvider?.providerId,
+        providerName: config.deal.storageProvider?.name,
+        providerAddress: config.storageProvider,
+        event: "ipfs_block_retrieval_skipped",
+        message: "IPNI not enabled during creation",
+      });
       return false;
     }
 
     // Verify we have the root CID
     const rootCID = config.deal.metadata?.[this.name]?.rootCID;
     if (!rootCID) {
-      this.logger.warn(`IPFS block retrieval not available for deal ${config.deal.id}: missing root CID`);
+      this.logger.warn({
+        dealId: config.deal.id,
+        providerId: config.deal.storageProvider?.providerId,
+        providerName: config.deal.storageProvider?.name,
+        providerAddress: config.storageProvider,
+        event: "ipfs_block_retrieval_skipped",
+        message: "Missing root CID",
+      });
       return false;
     }
 
@@ -103,7 +116,16 @@ export class IpfsBlockRetrievalStrategy implements IRetrievalAddon {
     const spEndpoint = this.getSpEndpoint(config);
     const url = `${spEndpoint}/ipfs/${rootCID}?format=raw`;
 
-    this.logger.debug(`Constructed SP endpoint URL (root): ${url}`);
+    this.logger.debug({
+      dealId: config.deal.id,
+      providerId: config.deal.storageProvider?.providerId,
+      providerName: config.deal.storageProvider?.name,
+      providerAddress: config.storageProvider,
+      event: "sp_endpoint_url_constructed",
+      message: "Constructed SP endpoint URL",
+      spEndpoint,
+      rootCID,
+    });
 
     return {
       url,
@@ -121,9 +143,21 @@ export class IpfsBlockRetrievalStrategy implements IRetrievalAddon {
   async validateByBlockFetch(config: RetrievalConfiguration, signal?: AbortSignal): Promise<ValidationResult> {
     const dealMetadata = config.deal.metadata?.[this.name];
     const rootCIDStr = dealMetadata?.rootCID;
+    const logContext = {
+      dealId: config.deal.id,
+      providerId: config.deal.storageProvider?.providerId,
+      providerName: config.deal.storageProvider?.name,
+      providerAddress: config.storageProvider,
+      pieceCid: config.deal.pieceCid,
+      ipfsRootCID: rootCIDStr,
+    };
 
     if (!rootCIDStr) {
-      this.logger.warn(`IPFS block-fetch validation failed for deal ${config.deal.id}: rootCID metadata is missing.`);
+      this.logger.warn({
+        ...logContext,
+        event: "block_fetch_validation_failed",
+        message: "rootCID metadata is missing",
+      });
       return {
         isValid: false,
         method: this.validationMethods.metadataMissing,
@@ -214,9 +248,14 @@ export class IpfsBlockRetrievalStrategy implements IRetrievalAddon {
         const cidStr = queue.shift()!;
         const p = processCid(cidStr)
           .catch((err) => {
-            const msg = err instanceof Error ? err.message : String(err);
             failed += 1;
-            this.logger.warn(`IPFS block-fetch validation error for deal ${config.deal.id}: cid ${cidStr} - ${msg}`);
+            this.logger.warn({
+              ...logContext,
+              event: "block_fetch_validation_error",
+              message: "Block fetch failed for CID",
+              cid: cidStr,
+              error: toStructuredError(err),
+            });
           })
           .finally(() => active.delete(p));
         active.add(p);
@@ -234,7 +273,13 @@ export class IpfsBlockRetrievalStrategy implements IRetrievalAddon {
         `See logs for detailed block errors.`;
 
     if (!isValid) {
-      this.logger.warn(`IPFS block-fetch validation failed for deal ${config.deal.id}: ${details}`);
+      this.logger.warn({
+        ...logContext,
+        event: "block_fetch_validation_failed",
+        message: "Block-fetch validation failed",
+        failedBlocks: failed,
+        totalBlocks: total,
+      });
     }
 
     return {

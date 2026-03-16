@@ -99,7 +99,7 @@ export class PDPSubgraphService {
         const delay = PDPSubgraphService.INITIAL_RETRY_DELAY_MS * (1 << (attempt - 1));
         this.logger.warn({
           event: "subgraph_meta_request_retry",
-          message: `Subgraph meta request failed (attempt ${attempt}/${PDPSubgraphService.MAX_RETRIES}). Retrying in ${delay}ms...`,
+          message: "Subgraph meta request failed. Retrying...",
           attempt,
           maxRetries: PDPSubgraphService.MAX_RETRIES,
           retryDelayMs: delay,
@@ -111,7 +111,7 @@ export class PDPSubgraphService {
 
       this.logger.error({
         event: "subgraph_meta_request_failed",
-        message: `Subgraph meta request failed after ${PDPSubgraphService.MAX_RETRIES} attempts`,
+        message: "Subgraph meta request failed after maximum retries",
         maxRetries: PDPSubgraphService.MAX_RETRIES,
         error: toStructuredError(error),
       });
@@ -239,7 +239,7 @@ export class PDPSubgraphService {
         const delay = PDPSubgraphService.INITIAL_RETRY_DELAY_MS * (1 << (attempt - 1));
         this.logger.warn({
           event: "subgraph_provider_request_retry",
-          message: `Subgraph request failed (attempt ${attempt}/${PDPSubgraphService.MAX_RETRIES}). Retrying in ${delay}ms...`,
+          message: "Subgraph provider request failed. Retrying...",
           attempt,
           maxRetries: PDPSubgraphService.MAX_RETRIES,
           retryDelayMs: delay,
@@ -253,7 +253,7 @@ export class PDPSubgraphService {
 
       this.logger.error({
         event: "subgraph_provider_request_failed",
-        message: `Subgraph request failed after ${PDPSubgraphService.MAX_RETRIES} attempts`,
+        message: "Subgraph provider request failed after maximum retries",
         maxRetries: PDPSubgraphService.MAX_RETRIES,
         blockNumber,
         addressCount: addresses.length,

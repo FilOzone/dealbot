@@ -82,8 +82,22 @@ describe("WalletSdkService", () => {
 
     await service.syncProvidersToDatabase([inactive, active, other]);
 
-    expect(loggerMock.warn).toHaveBeenCalledWith(expect.stringContaining("Duplicate provider address 0xdup"));
-    expect(loggerMock.warn).toHaveBeenCalledWith(expect.stringContaining("replaced inactive entries with active ones"));
+    expect(loggerMock.warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        address: "0xdup",
+        event: "duplicate_provider_address",
+        existingProviderId: 20,
+        message: "Duplicate provider address detected",
+        newProviderId: 21,
+      }),
+    );
+    expect(loggerMock.warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        details: ["0xdup (providerIds: 20, 21)"],
+        event: "duplicate_provider_addresses_resolved",
+        message: "Duplicate provider addresses detected; replaced inactive entries with active ones",
+      }),
+    );
     expect(loggerMock.error).not.toHaveBeenCalled();
 
     const [entities, options] = repoMock.upsert.mock.calls[0];
@@ -112,7 +126,15 @@ describe("WalletSdkService", () => {
 
     await service.syncProvidersToDatabase([active, inactive]);
 
-    expect(loggerMock.warn).toHaveBeenCalledWith(expect.stringContaining("Duplicate provider address 0xdup2"));
+    expect(loggerMock.warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        address: "0xdup2",
+        event: "duplicate_provider_address",
+        existingProviderId: 30,
+        message: "Duplicate provider address detected",
+        newProviderId: 31,
+      }),
+    );
     expect(loggerMock.error).not.toHaveBeenCalled();
 
     const [entities] = repoMock.upsert.mock.calls[0];
