@@ -1,14 +1,22 @@
-import { Clock, Database, Network } from "lucide-react";
 import type { DealbotConfigDto } from "@/types/config";
-import { formatMilliseconds } from "@/utils/formatter";
+import { Clock, Database, Network } from "lucide-react";
 
 interface InfrastructureInfoProps {
   config: DealbotConfigDto;
 }
 
 function InfrastructureInfo({ config }: InfrastructureInfoProps) {
-  const dealInterval = formatMilliseconds(config.scheduling.dealIntervalSeconds * 1000);
-  const retrievalInterval = formatMilliseconds(config.scheduling.retrievalIntervalSeconds * 1000);
+  const formatRate = (perHour: number): string => {
+    if (perHour >= 1) {
+      return `${perHour}/hour`;
+    }
+    const perDay = perHour * 24;
+    if (perDay >= 1) {
+      return `${perDay.toFixed(1)}/day`;
+    }
+    const perWeek = perDay * 7;
+    return `${perWeek.toFixed(1)}/week`;
+  };
 
   return (
     <div className="grid gap-4 md:grid-cols-3">
@@ -30,7 +38,7 @@ function InfrastructureInfo({ config }: InfrastructureInfoProps) {
         </div>
         <div className="flex-1 min-w-0">
           <p className="text-sm font-medium text-muted-foreground">Deal Creation</p>
-          <p className="text-lg font-semibold mt-1">Every {dealInterval}</p>
+          <p className="text-lg font-semibold mt-1">{formatRate(config.jobs.dealsPerSpPerHour)} per SP</p>
         </div>
       </div>
 
@@ -41,7 +49,7 @@ function InfrastructureInfo({ config }: InfrastructureInfoProps) {
         </div>
         <div className="flex-1 min-w-0">
           <p className="text-sm font-medium text-muted-foreground">Retrieval Tests</p>
-          <p className="text-lg font-semibold mt-1">Every {retrievalInterval}</p>
+          <p className="text-lg font-semibold mt-1">{formatRate(config.jobs.retrievalsPerSpPerHour)} per SP</p>
         </div>
       </div>
     </div>

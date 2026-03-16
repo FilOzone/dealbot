@@ -1,6 +1,6 @@
 import { Controller, Get } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import type { IBlockchainConfig, IConfig } from "./config/app.config.js";
+import { IJobsConfig, type IBlockchainConfig, type IConfig } from "./config/app.config.js";
 
 @Controller("api")
 export class AppController {
@@ -22,13 +22,14 @@ export class AppController {
   @Get("config")
   getConfig() {
     const blockchain = this.configService.get<IBlockchainConfig>("blockchain");
+    const jobs = this.configService.get<IJobsConfig>("jobs");
 
     return {
       network: blockchain.network,
-      scheduling: {
-        dealIntervalSeconds: 0,
-        retrievalIntervalSeconds: 0,
-        message: "Cron scheduling has been deprecated!",
+      jobs: {
+        dealsPerSpPerHour: jobs.dealsPerSpPerHour,
+        dataSetCreationsPerSpPerHour: jobs.dataSetCreationsPerSpPerHour,
+        retrievalsPerSpPerHour: jobs.retrievalsPerSpPerHour,
       },
     };
   }
