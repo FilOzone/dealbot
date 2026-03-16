@@ -5,13 +5,13 @@ export class ProviderIdBigInt1761500000005 implements MigrationInterface {
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(
-      `ALTER TABLE storage_providers ALTER COLUMN "providerId" TYPE TEXT USING storage_providers.providerId`,
+      `ALTER TABLE storage_providers ALTER COLUMN "providerId" TYPE TEXT`,
     );
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(
-      `ALTER TABLE storage_providers ALTER COLUMN "providerId" TYPE INTEGER USING storage_providers.providerId`,
+      `ALTER TABLE storage_providers ALTER COLUMN "providerId" TYPE INTEGER`,
     );
   }
 }
