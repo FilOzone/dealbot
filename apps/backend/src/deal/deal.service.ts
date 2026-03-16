@@ -273,7 +273,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       });
       signal?.throwIfAborted();
 
-      deal.dataSetId = storage.dataSetId ? Number(storage.dataSetId) : undefined;
+      deal.dataSetId = storage.dataSetId;
       deal.uploadStartTime = new Date();
       let onUploadCompleteAddonsPromise: Promise<boolean> | null = null;
       let uploadCompleteError: Error | undefined;

@@ -26,10 +26,10 @@ export class FailedDealDto {
 
   @ApiProperty({
     description: "Dataset identifier",
-    example: 12345,
+    example: 12345n,
     nullable: true,
   })
-  dataSetId?: number;
+  dataSetId?: bigint;
 
   @ApiProperty({
     description: "Piece CID",

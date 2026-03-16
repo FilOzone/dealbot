@@ -20,6 +20,7 @@ import { RemoveIpniRetrievedColumns1761500000001 } from "../src/database/migrati
 import { RenameEvents1761500000003 } from "../src/database/migrations/1761500000003-RenameEvents.js";
 import { RenameRegionToLocation1761500000004 } from "src/database/migrations/1761500000004-RenameRegionToLocation.js";
 import { ProviderIdBigInt1761500000005 } from "src/database/migrations/1761500000005-ProviderIdBigInt.js";
+import { DataSetIdBigInt1761500000006 } from "src/database/migrations/1761500000006-DataSetIdBigInt.js";
 
 const execFileAsync = promisify(execFile);
 const dockerCheck = spawnSync("docker", ["info"], { stdio: "ignore" });
@@ -51,6 +52,7 @@ const ALL_MIGRATIONS: Array<new () => MigrationInterface> = [
   RenameEvents1761500000003,
   RenameRegionToLocation1761500000004,
   ProviderIdBigInt1761500000005,
+  DataSetIdBigInt1761500000006,
 ];
 
 type DatabaseConfig = {

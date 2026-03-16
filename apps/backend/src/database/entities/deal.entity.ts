@@ -33,7 +33,7 @@ export class Deal {
   pieceCid: string;
 
   @Column({ name: "data_set_id", nullable: true })
-  dataSetId?: number;
+  dataSetId?: bigint;
 
   @Column({ name: "piece_id", nullable: true })
   pieceId?: number;
