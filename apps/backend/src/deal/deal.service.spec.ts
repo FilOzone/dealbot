@@ -884,7 +884,7 @@ describe("DealService", () => {
 
     it("orchestrates deal creation for multiple providers", async () => {
       const synapseInstance = {};
-      (Synapse.create as Mock).mockResolvedValue(synapseInstance);
+      (Synapse.create as Mock).mockImplementation(() => synapseInstance);
       const providers = [{ serviceProvider: "0x1" }, { serviceProvider: "0x2" }];
       const dataFile = { name: "test", size: 100, data: Buffer.from("test") };
       const preprocessed = {
@@ -1010,7 +1010,7 @@ describe("DealService", () => {
         },
       };
 
-      vi.spyOn(service as any, "createSynapseInstance").mockResolvedValue(synapseMock as unknown as Synapse);
+      vi.spyOn(service as any, "createSynapseInstance").mockImplementation(() => synapseMock as unknown as Synapse);
 
       const result = await service.checkDataSetExists("0xprovider", { dealbotDS: "1" });
 
@@ -1028,7 +1028,7 @@ describe("DealService", () => {
           createContext: vi.fn().mockResolvedValue({ dataSetId: undefined }),
         },
       };
-      vi.spyOn(service as any, "createSynapseInstance").mockResolvedValue(synapseMock as unknown as Synapse);
+      vi.spyOn(service as any, "createSynapseInstance").mockImplementation(() => synapseMock as unknown as Synapse);
 
       const result = await service.checkDataSetExists("0xprovider", { dealbotDS: "1" });
 
@@ -1091,7 +1091,7 @@ describe("DealService", () => {
       const synapseMock = {
         storage: { createContext: createContextMock },
       } as unknown as Synapse;
-      vi.spyOn(service as any, "createSynapseInstance").mockResolvedValue(synapseMock);
+      vi.spyOn(service as any, "createSynapseInstance").mockImplementation(() => synapseMock);
 
       (executeUpload as Mock).mockImplementation(async (_service, _data, _rootCid, options) => {
         await triggerUploadProgress(options?.onProgress);
@@ -1129,9 +1129,12 @@ describe("DealService", () => {
     it("does not invoke data-storage-check metrics or Deal persistence", async () => {
       vi.spyOn(mockWalletSdkService, "getProviderInfo").mockReturnValue(mockProviderInfo);
       const createContextMock = vi.fn().mockResolvedValue({ dataSetId: 1 });
-      vi.spyOn(service as any, "createSynapseInstance").mockResolvedValue({
-        storage: { createContext: createContextMock },
-      } as unknown as Synapse);
+      vi.spyOn(service as any, "createSynapseInstance").mockImplementation(
+        () =>
+          ({
+            storage: { createContext: createContextMock },
+          }) as unknown as Synapse,
+      );
       (executeUpload as Mock).mockImplementation(async (_s, _d, _r, opts) => {
         await triggerUploadProgress(opts?.onProgress);
         return { pieceCid: "bafk-seed" };
@@ -1148,9 +1151,12 @@ describe("DealService", () => {
 
     it("fails when upload completes without a pieceCid", async () => {
       vi.spyOn(mockWalletSdkService, "getProviderInfo").mockReturnValue(mockProviderInfo);
-      vi.spyOn(service as any, "createSynapseInstance").mockResolvedValue({
-        storage: { createContext: vi.fn().mockResolvedValue({ dataSetId: 1 }) },
-      } as unknown as Synapse);
+      vi.spyOn(service as any, "createSynapseInstance").mockImplementation(
+        () =>
+          ({
+            storage: { createContext: vi.fn().mockResolvedValue({ dataSetId: 1 }) },
+          }) as unknown as Synapse,
+      );
 
       (executeUpload as Mock).mockResolvedValue({});
 
@@ -1169,9 +1175,12 @@ describe("DealService", () => {
 
     it("succeeds when upload finishes without both onPiecesAdded and onPiecesConfirmed", async () => {
       vi.spyOn(mockWalletSdkService, "getProviderInfo").mockReturnValue(mockProviderInfo);
-      vi.spyOn(service as any, "createSynapseInstance").mockResolvedValue({
-        storage: { createContext: vi.fn().mockResolvedValue({ dataSetId: 1 }) },
-      } as unknown as Synapse);
+      vi.spyOn(service as any, "createSynapseInstance").mockImplementation(
+        () =>
+          ({
+            storage: { createContext: vi.fn().mockResolvedValue({ dataSetId: 1 }) },
+          }) as unknown as Synapse,
+      );
 
       (executeUpload as Mock).mockImplementation(async (_s, _d, _r, opts) => {
         await opts?.onProgress?.({ type: "onStored", data: { pieceCid: "bafk" } });
@@ -1186,9 +1195,12 @@ describe("DealService", () => {
 
     it("aborts when signal is aborted during upload", async () => {
       vi.spyOn(mockWalletSdkService, "getProviderInfo").mockReturnValue(mockProviderInfo);
-      vi.spyOn(service as any, "createSynapseInstance").mockResolvedValue({
-        storage: { createContext: vi.fn().mockResolvedValue({ dataSetId: 1 }) },
-      } as unknown as Synapse);
+      vi.spyOn(service as any, "createSynapseInstance").mockImplementation(
+        () =>
+          ({
+            storage: { createContext: vi.fn().mockResolvedValue({ dataSetId: 1 }) },
+          }) as unknown as Synapse,
+      );
 
       (executeUpload as Mock).mockImplementation(async () => {
         await new Promise(() => {});

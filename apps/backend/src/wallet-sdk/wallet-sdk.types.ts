@@ -25,7 +25,6 @@ export interface StorageCheck {
   depositNeeded: bigint;
   needsFwssMaxApproval: boolean;
   ready: boolean;
-  [key: string]: any;
 }
 
 export interface ServiceApprovals {

@@ -327,8 +327,8 @@ export class WalletSdkService implements OnModuleInit {
     return {
       accountInfo,
       providerCount,
-      storageCheck,
       serviceApprovals,
+      storageCheck,
       datasetCreationFees,
       totalRequiredFunds: storageCheck.depositNeeded,
       approvalDuration: BigInt(TIME_CONSTANTS.EPOCHS_PER_MONTH * APPROVAL_DURATION_MONTHS), // 6 months in epochs
@@ -350,7 +350,7 @@ export class WalletSdkService implements OnModuleInit {
   logWalletStatus(requirements: StorageRequirements): void {
     const logData: WalletStatusLog = {
       availableFunds: requirements.accountInfo.funds.toString(),
-      requiredMonthlyFunds: requirements.storageCheck.costs.perMonth.toString(),
+      requiredMonthlyFunds: requirements.storageCheck.rate.perMonth.toString(),
       datasetCreationFees: requirements.datasetCreationFees.toString(),
       totalRequired: requirements.totalRequiredFunds.toString(),
       providerCount: requirements.providerCount,
@@ -373,11 +373,7 @@ export class WalletSdkService implements OnModuleInit {
    * Check if wallet requires service approval
    */
   requiresApproval(requirements: StorageRequirements): boolean {
-    return (
-      requirements.serviceApprovals.rateAllowance < requirements.storageCheck.rateAllowanceNeeded ||
-      requirements.serviceApprovals.lockupAllowance <
-        requirements.storageCheck.lockupAllowanceNeeded + requirements.datasetCreationFees
-    );
+    return requirements.storageCheck.depositNeeded > 0n;
   }
 
   /**
