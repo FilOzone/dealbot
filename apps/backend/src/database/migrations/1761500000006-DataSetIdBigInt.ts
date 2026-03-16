@@ -8,6 +8,6 @@ export class DataSetIdBigInt1761500000006 implements MigrationInterface {
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
-    await queryRunner.query(`ALTER TABLE deals ALTER COLUMN data_set_id TYPE INTEGER USING deals.data_set_id::integer`);
+    await queryRunner.query(`ALTER TABLE deals ALTER COLUMN data_set_id TYPE INTEGER USING data_set_id::integer`);
   }
 }

@@ -8,6 +8,8 @@ export class ProviderIdBigInt1761500000005 implements MigrationInterface {
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
-    await queryRunner.query(`ALTER TABLE storage_providers ALTER COLUMN "providerId" TYPE INTEGER`);
+    await queryRunner.query(
+      `ALTER TABLE storage_providers ALTER COLUMN "providerId" TYPE INTEGER USING "providerId"::integer`,
+    );
   }
 }
