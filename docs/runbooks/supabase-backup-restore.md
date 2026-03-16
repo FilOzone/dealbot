@@ -1,132 +1,80 @@
 # Supabase Backup and Restore Runbook
 
-Operational procedures for backing up and restoring the Supabase database.
+Operational procedures for restoring the Supabase database from automated backups.
 
-**Official Documentation:**
-- [Supabase Backups](https://supabase.com/docs/guides/platform/backups) - PITR, automated backups, retention policies
-- [Backup & Restore Guide](https://supabase.com/docs/guides/platform/migrating-within-supabase/backup-restore) - CLI-based backup and restore
+## Overview
 
-## Prerequisites
+Supabase provides automated backups with 7-day retention and Point-in-Time Recovery (PITR) for all production databases.
 
-Requires Supabase CLI and PostgreSQL client. See official installation guides:
-- [Supabase CLI Installation](https://supabase.com/docs/guides/local-development)
-- [PostgreSQL Client Installation](https://www.postgresql.org/download)
+**Key Points:**
+- Automated daily backups are enabled (7-day retention)
+- Point-in-Time Recovery (PITR) allows restoration to any point within the retention window
+- Backups cannot be downloaded; restores must be performed via the Supabase dashboard
 
-```bash
-# macOS
-brew install supabase/tap/supabase postgresql
+## Automated Backups
 
-# Linux
-curl -fsSL https://supabase.com/install.sh | sh
-sudo apt-get install postgresql-client
-```
+Supabase automatically creates daily backups of your database. These backups:
+- Run daily without manual intervention
+- Retain data for 7 days
+- Include the entire database (schema, data, roles)
+- Cannot be downloaded or accessed directly
 
-Get database connection string from Supabase Dashboard → Settings → Database (use Session pooler mode):
+## Point-in-Time Recovery (PITR)
 
-```bash
-export SUPABASE_DB_URL="postgresql://postgres.[PROJECT-REF]:[PASSWORD]@aws-0-[REGION].pooler.supabase.com:5432/postgres"
-```
+PITR enables restoration to any specific moment within the retention window:
+- Restore to any timestamp within the last 7 days
+- Useful for recovering from accidental data deletion or corruption
+- More granular than daily backups alone
 
-## Script Usage
+## Restoring from Backup
 
-```bash
-# Create backup
-./scripts/supabase-backup-restore.sh backup --db-url "$SUPABASE_DB_URL"
+All restores must be performed through the Supabase dashboard.
 
-# Restore from backup
-./scripts/supabase-backup-restore.sh restore --db-url "$SUPABASE_DB_URL" --backup-dir ./backups/1234567890
+### Access the Restore Interface
 
-# Test backup + restore (creates temporary database)
-./scripts/supabase-backup-restore.sh test --db-url "$SUPABASE_DB_URL"
+1. Navigate to your project in the Supabase dashboard
+2. Go to **Database** → **Backups**
+3. View available backups and PITR timeline
 
-# Show help
-./scripts/supabase-backup-restore.sh backup --help
-```
+### Restore Options
 
-Backup directory contains: `roles.sql`, `schema.sql`, `data.sql`, `metadata.json`
+**Option 1: Restore from Daily Backup**
+1. Select a daily backup from the list
+2. Click **Restore**
+3. Confirm the restoration
 
-## Creating Backups
+**Option 2: Restore to Specific Time (PITR)**
+1. Click **Point-in-Time Recovery**
+2. Select the desired date and time
+3. Confirm the restoration
 
-Create backups before schema migrations, major updates, or production releases:
+### Post-Restore Verification
 
-```bash
-export SUPABASE_DB_URL="postgresql://..."
-./scripts/supabase-backup-restore.sh backup --db-url "$SUPABASE_DB_URL"
-```
-
-Custom backup location:
-
-```bash
-./scripts/supabase-backup-restore.sh backup --db-url "$SUPABASE_DB_URL" --backup-dir ./my-backups/pre-migration
-```
-
-## Restoring Backups
-
-Restore to staging:
-
-```bash
-export SUPABASE_STAGING_DB_URL="postgresql://..."
-./scripts/supabase-backup-restore.sh restore --db-url "$SUPABASE_STAGING_DB_URL" --backup-dir ./backups/1234567890
-```
-
-Verify restoration:
+After restoration, verify data integrity:
 
 ```sql
+-- Check record counts
 SELECT COUNT(*) FROM deals;
 SELECT COUNT(*) FROM retrievals;
 SELECT COUNT(*) FROM storage_providers;
+
+-- Verify recent data
+SELECT * FROM deals ORDER BY created_at DESC LIMIT 10;
 ```
 
-Restore to production:
+## When to Restore
 
-```bash
-# 1. Create pre-restore backup
-./scripts/supabase-backup-restore.sh backup --db-url "$SUPABASE_DB_URL" --backup-dir ./backups/pre-restore-$(date +%Y%m%d-%H%M%S)
+Common scenarios requiring restoration:
+- Accidental data deletion
+- Schema migration rollback
+- Data corruption recovery
+- Testing disaster recovery procedures
 
-# 2. Restore
-./scripts/supabase-backup-restore.sh restore --db-url "$SUPABASE_DB_URL" --backup-dir ./backups/1234567890
-```
+## Manual CLI-Based Backups
 
-Restore to different database:
+If you need to create manual backups for migration or testing purposes, refer to the Supabase CLI documentation for current best practices.
 
-```bash
-./scripts/supabase-backup-restore.sh restore --backup-dir ./backups/1234567890 --target-db "postgresql://..."
-```
+## Further Reading
 
-## Testing Backups
-
-Run weekly or after creating important backups:
-
-```bash
-./scripts/supabase-backup-restore.sh test --db-url "$SUPABASE_DB_URL"
-```
-
-The test creates a backup, restores it to a temporary database, validates tables, and cleans up.
-
-## Troubleshooting
-
-Connection failed:
-
-```bash
-# Test connection
-psql "$SUPABASE_DB_URL" -c "SELECT version();"
-
-# Check IP allowlist in Supabase dashboard
-# Verify connection string format and password
-# Use the Session pooler connection string if only ipv4 is supported by ISP
-```
-
-Permission denied to create database (affects `test` action only):
-
-```sql
-ALTER USER postgres CREATEDB;
-```
-
-Restore fails with 'role does not exist':
-
-```bash
-# Script auto-scrubs supabase_admin references
-# If it fails, manually scrub:
-cd backups/1234567890
-perl -pi -e 's/supabase_admin/postgres/g' schema.sql
-```
+- [Supabase Backups Documentation](https://supabase.com/docs/guides/platform/backups)
+- [Backup & Restore using the CLI](https://supabase.com/docs/guides/platform/migrating-within-supabase/backup-restore)
