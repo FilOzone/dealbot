@@ -1,11 +1,12 @@
 import { randomUUID } from "node:crypto";
-import { METADATA_KEYS, SIZE_CONSTANTS, Synapse, mainnet, calibration } from "@filoz/synapse-sdk";
+import { calibration, METADATA_KEYS, mainnet, SIZE_CONSTANTS, Synapse } from "@filoz/synapse-sdk";
 import { Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
 import { executeUpload } from "filecoin-pin";
 import { CID } from "multiformats/cid";
 import type { Repository } from "typeorm";
+import { privateKeyToAccount } from "viem/accounts";
 import { awaitWithAbort } from "../common/abort-utils.js";
 import { buildUnixfsCar } from "../common/car-utils.js";
 import { createFilecoinPinLogger } from "../common/filecoin-pin-logger.js";
@@ -28,7 +29,6 @@ import { RetrievalAddonsService } from "../retrieval-addons/retrieval-addons.ser
 import type { RetrievalConfiguration } from "../retrieval-addons/types.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
 import type { PDPProviderEx } from "../wallet-sdk/wallet-sdk.types.js";
-import { privateKeyToAccount } from "viem/accounts";
 
 type UploadPayload = {
   carData: Uint8Array;

@@ -1,12 +1,14 @@
-import { mainnet, calibration, Synapse, TIME_CONSTANTS, PDPProvider } from "@filoz/synapse-sdk";
+import { calibration, mainnet, PDPProvider, Synapse, TIME_CONSTANTS } from "@filoz/synapse-sdk";
 import type { PaymentsService } from "@filoz/synapse-sdk/payments";
-import { WarmStorageService } from "@filoz/synapse-sdk/warm-storage";
 import { SPRegistryService } from "@filoz/synapse-sdk/sp-registry";
+import { WarmStorageService } from "@filoz/synapse-sdk/warm-storage";
 import { Injectable, Logger, type OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
 import type { Repository } from "typeorm";
-import type { Hex } from "viem";
+import type { Client, Hex } from "viem";
+import { privateKeyToAccount } from "viem/accounts";
+import { waitForTransactionReceipt } from "viem/actions";
 import { toStructuredError } from "../common/logging.js";
 import type { IBlockchainConfig, IConfig } from "../config/app.config.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
@@ -19,9 +21,6 @@ import type {
   WalletServices,
   WalletStatusLog,
 } from "./wallet-sdk.types.js";
-import { waitForTransactionReceipt } from "viem/actions";
-import { privateKeyToAccount } from "viem/accounts";
-import type { Client } from "viem";
 
 @Injectable()
 export class WalletSdkService implements OnModuleInit {

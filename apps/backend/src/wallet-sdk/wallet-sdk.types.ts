@@ -1,6 +1,6 @@
-import type { PDPProvider } from "filecoin-pin";
 import type { PaymentsService } from "@filoz/synapse-sdk/payments";
 import type { WarmStorageService } from "@filoz/synapse-sdk/warm-storage";
+import type { PDPProvider } from "filecoin-pin";
 
 export interface WalletServices {
   paymentsService: PaymentsService;

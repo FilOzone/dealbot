@@ -1,9 +1,9 @@
 import { Injectable, Logger } from "@nestjs/common";
+import { PDPProvider } from "filecoin-pin";
 import { serviceURLToMultiaddr, waitForIpniProviderResults } from "filecoin-pin/core/utils";
 import { CID } from "multiformats/cid";
 import type { StorageProvider } from "../database/entities/storage-provider.entity.js";
 import type { IPNIVerificationResult } from "../deal-addons/strategies/ipni.types.js";
-import { PDPProvider } from "filecoin-pin";
 
 export type IpniVerificationInput = {
   rootCid: CID;
