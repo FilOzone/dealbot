@@ -20,7 +20,7 @@ import { RetrievalAddonsService } from "../retrieval-addons/retrieval-addons.ser
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
 import type { PDPProviderEx } from "../wallet-sdk/wallet-sdk.types.js";
 import { DealService } from "./deal.service.js";
-import { privateKeyToAccount, generatePrivateKey } from "viem/accounts";
+import { generatePrivateKey } from "viem/accounts";
 
 vi.mock("@filoz/synapse-sdk", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@filoz/synapse-sdk")>();

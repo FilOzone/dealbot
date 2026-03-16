@@ -1,6 +1,5 @@
 import { mainnet, calibration, Synapse, TIME_CONSTANTS, PDPProvider } from "@filoz/synapse-sdk";
 import type { PaymentsService } from "@filoz/synapse-sdk/payments";
-import type { ProviderInfo } from "@filoz/synapse-sdk/sp-registry";
 import { WarmStorageService } from "@filoz/synapse-sdk/warm-storage";
 import { SPRegistryService } from "@filoz/synapse-sdk/sp-registry";
 import { Injectable, Logger, type OnModuleInit } from "@nestjs/common";
@@ -8,7 +7,6 @@ import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
 import type { Repository } from "typeorm";
 import type { Hex } from "viem";
-import { DEV_TAG } from "../common/constants.js";
 import { toStructuredError } from "../common/logging.js";
 import type { IBlockchainConfig, IConfig } from "../config/app.config.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
