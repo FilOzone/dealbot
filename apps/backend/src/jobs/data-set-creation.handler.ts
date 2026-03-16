@@ -81,7 +81,7 @@ export async function provisionNextMissingDataSet(
   logger.log({
     ...dataSetLogContext,
     event: "data_sets_provisioning_completed",
-    message: "Data-set provisioning completed for provider",
+    message: "All required data-sets exist for provider",
     createdCount: 0,
     minDataSets,
     existingCount,
