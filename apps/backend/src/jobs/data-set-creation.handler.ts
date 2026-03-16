@@ -74,6 +74,13 @@ export async function provisionNextMissingDataSet(
       minDataSets,
       checkedExistingCount: existingCount,
       uncheckedCount: minDataSets - existingCount - 1,
+    logger.log({
+      ...logContext,
+      event: "data_set_provisioning_progress",
+      message: "Created 1 data-set, deferring remaining to next run",
+      minDataSets,
+      skippedExistingCount: existingCount,
+      uncheckedCount: minDataSets - i - 1,
     });
     return;
   }
