@@ -203,7 +203,10 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       jobId: logContext?.jobId,
       dealId: deal.id,
       providerAddress: deal.spAddress,
-      providerId: typeof deal.storageProvider?.providerId === 'number' ? BigInt(deal.storageProvider.providerId) : logContext?.providerId,
+      providerId:
+        typeof deal.storageProvider?.providerId === "number"
+          ? BigInt(deal.storageProvider.providerId)
+          : logContext?.providerId,
       providerName: deal.storageProvider?.name ?? logContext?.providerName,
       pieceCid: deal.pieceCid,
       ipfsRootCID: deal.metadata[this.name]?.rootCID,

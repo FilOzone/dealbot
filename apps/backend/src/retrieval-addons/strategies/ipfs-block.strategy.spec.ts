@@ -117,11 +117,11 @@ describe("IpfsBlockRetrievalStrategy", () => {
 
       expect(result).toMatchObject({
         isValid: true,
-        method: 'block-fetch',
+        method: "block-fetch",
         bytesRead: root.bytes.length + leaf1.bytes.length + leaf2.bytes.length,
         ttfb: 10,
         blockTtfbMs: expect.any(Array),
-      })
+      });
 
       expect(result.blockTtfbMs).toHaveLength(3);
       expect(result.blockTtfbMs?.every((value) => value === 10)).toBe(true);

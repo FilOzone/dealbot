@@ -723,7 +723,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     try {
       return await Synapse.create({
         account: privateKeyToAccount(this.blockchainConfig.walletPrivateKey),
-        chain: this.blockchainConfig.network === 'mainnet' ? mainnet : calibration,
+        chain: this.blockchainConfig.network === "mainnet" ? mainnet : calibration,
       });
     } catch (error) {
       this.logger.error({

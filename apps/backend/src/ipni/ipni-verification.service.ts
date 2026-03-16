@@ -144,14 +144,15 @@ export class IpniVerificationService {
       name: storageProvider.name,
       description: storageProvider.description,
       isActive: storageProvider.isActive,
-      pdp: { // TODO
+      pdp: {
+        // TODO
         serviceURL: storageProvider.serviceUrl,
         minPieceSizeInBytes: 0n,
         maxPieceSizeInBytes: 0n,
         storagePricePerTibPerDay: 0n,
         minProvingPeriodInEpochs: 0n,
-        location: 'todo',
-        paymentTokenAddress: '0x',
+        location: "todo",
+        paymentTokenAddress: "0x",
         ipniPiece: true,
         ipniIpfs: true,
       },

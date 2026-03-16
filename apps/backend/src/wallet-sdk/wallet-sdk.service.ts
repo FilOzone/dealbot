@@ -1,10 +1,4 @@
-import {
-  mainnet,
-  calibration,
-  Synapse,
-  TIME_CONSTANTS,
-  PDPProvider,
-} from "@filoz/synapse-sdk";
+import { mainnet, calibration, Synapse, TIME_CONSTANTS, PDPProvider } from "@filoz/synapse-sdk";
 import type { PaymentsService } from "@filoz/synapse-sdk/payments";
 import type { ProviderInfo } from "@filoz/synapse-sdk/sp-registry";
 import { WarmStorageService } from "@filoz/synapse-sdk/warm-storage";
@@ -70,18 +64,18 @@ export class WalletSdkService implements OnModuleInit {
    * Initialize wallet services with provider and signer
    */
   private async initializeServices(): Promise<void> {
-    const account = privateKeyToAccount(this.blockchainConfig.walletPrivateKey)
+    const account = privateKeyToAccount(this.blockchainConfig.walletPrivateKey);
     const synapse = await Synapse.create({
       account,
-      chain: this.blockchainConfig.network === 'mainnet' ? mainnet : calibration,
+      chain: this.blockchainConfig.network === "mainnet" ? mainnet : calibration,
     });
 
     this.warmStorageService = await WarmStorageService.create({
       account,
-    })
+    });
     // this.rpcProvider, warmStorageAddress);
     this.spRegistry = new SPRegistryService({
-      client: synapse.client
+      client: synapse.client,
     });
     this.paymentsService = synapse.payments;
     this.synapseClient = synapse.client;
@@ -147,9 +141,11 @@ export class WalletSdkService implements OnModuleInit {
             providerInfos.push(...providerBatch);
           }
         } else {
-          providerInfos.push(...(await this.spRegistry.getProviders({
-            providerIds: inactiveProviderIds,
-          })));
+          providerInfos.push(
+            ...(await this.spRegistry.getProviders({
+              providerIds: inactiveProviderIds,
+            })),
+          );
         }
       }
 
@@ -403,7 +399,7 @@ export class WalletSdkService implements OnModuleInit {
     const hash = await this.paymentsService.deposit({
       amount: depositAmount,
     });
-    await waitForTransactionReceipt(this.synapseClient!, { hash })
+    await waitForTransactionReceipt(this.synapseClient!, { hash });
 
     const successLog: TransactionLog = {
       transactionHash: hash,
@@ -433,8 +429,8 @@ export class WalletSdkService implements OnModuleInit {
 
     const hash = await this.paymentsService.approveService({
       maxLockupPeriod: requirements.approvalDuration,
-    })
-    await waitForTransactionReceipt(this.synapseClient!, { hash })
+    });
+    await waitForTransactionReceipt(this.synapseClient!, { hash });
 
     const successLog: TransactionLog = {
       transactionHash: hash,

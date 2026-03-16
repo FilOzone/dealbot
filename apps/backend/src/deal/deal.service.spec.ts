@@ -212,13 +212,13 @@ describe("DealService", () => {
         isActive: true,
         isApproved: true,
         pdp: {
-          serviceURL: 'todo',
+          serviceURL: "todo",
           minPieceSizeInBytes: 0n,
           maxPieceSizeInBytes: 100n,
           storagePricePerTibPerDay: 1n,
           minProvingPeriodInEpochs: 1n,
-          location: 'todo',
-          paymentTokenAddress: '0xtodo',
+          location: "todo",
+          paymentTokenAddress: "0xtodo",
           ipniPiece: true,
           ipniIpfs: true,
         },
@@ -267,9 +267,11 @@ describe("DealService", () => {
 
       const deal = await service.createDeal(mockSynapseInstance, mockProviderInfo, mockDealInput, uploadPayload);
 
-      expect(createContextMock).toHaveBeenCalledWith(expect.objectContaining({
-        providerId: 101n,
-      }));
+      expect(createContextMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          providerId: 101n,
+        }),
+      );
       expect(dealRepoMock.create).toHaveBeenCalled();
 
       // Verify deal updates
@@ -988,13 +990,13 @@ describe("DealService", () => {
       isActive: true,
       isApproved: true,
       pdp: {
-        serviceURL: 'todo',
+        serviceURL: "todo",
         minPieceSizeInBytes: 0n,
         maxPieceSizeInBytes: 100n,
         storagePricePerTibPerDay: 1n,
         minProvingPeriodInEpochs: 1n,
-        location: 'todo',
-        paymentTokenAddress: '0xtodo',
+        location: "todo",
+        paymentTokenAddress: "0xtodo",
         ipniPiece: true,
         ipniIpfs: true,
       },
@@ -1062,13 +1064,13 @@ describe("DealService", () => {
       isActive: true,
       isApproved: true,
       pdp: {
-        serviceURL: 'todo',
+        serviceURL: "todo",
         minPieceSizeInBytes: 0n,
         maxPieceSizeInBytes: 100n,
         storagePricePerTibPerDay: 1n,
         minProvingPeriodInEpochs: 1n,
-        location: 'todo',
-        paymentTokenAddress: '0xtodo',
+        location: "todo",
+        paymentTokenAddress: "0xtodo",
         ipniPiece: true,
         ipniIpfs: true,
       },
