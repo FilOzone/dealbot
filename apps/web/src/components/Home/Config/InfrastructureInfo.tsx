@@ -1,5 +1,5 @@
-import type { DealbotConfigDto } from "@/types/config";
 import { Clock, Database, Network } from "lucide-react";
+import type { DealbotConfigDto } from "@/types/config";
 
 interface InfrastructureInfoProps {
   config: DealbotConfigDto;
