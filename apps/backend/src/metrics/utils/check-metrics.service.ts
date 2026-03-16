@@ -167,6 +167,8 @@ export class DiscoverabilityCheckMetrics {
     private readonly spAnnounceAdvertisementMs: Histogram,
     @InjectMetric("ipniVerifyMs")
     private readonly ipniVerifyMs: Histogram,
+    @InjectMetric("ipniAdvertisedToVerifiedMs")
+    private readonly ipniAdvertisedToVerifiedMs: Histogram,
     @InjectMetric("discoverabilityStatus")
     private readonly discoverabilityStatusCounter: Counter,
   ) {}
@@ -205,6 +207,18 @@ export class DiscoverabilityCheckMetrics {
       return;
     }
     observePositive(this.ipniVerifyMs, labels, value);
+  }
+
+  observeIpniAdvertisedToVerifiedMs(labels: CheckMetricLabels | null, value: number | null | undefined): void {
+    if (!labels) {
+      this.logger.warn({
+        event: "metric_emit_failed",
+        message: "Cannot emit ipniAdvertisedToVerifiedMs: no provider labels",
+        metric: "ipniAdvertisedToVerifiedMs",
+      });
+      return;
+    }
+    observePositive(this.ipniAdvertisedToVerifiedMs, labels, value);
   }
 
   recordStatus(labels: CheckMetricLabels | null, value: string): void {

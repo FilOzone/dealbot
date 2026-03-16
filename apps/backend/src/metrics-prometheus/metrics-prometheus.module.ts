@@ -103,6 +103,13 @@ const metricProviders = [
     buckets: [10, 50, 100, 500, 1000, 2000, 5000, 10000, 30000, 60000, 120000, 300000],
   }),
   makeHistogramProvider({
+    // docs/checks/events-and-metrics.md#ipniAdvertisedToVerifiedMs
+    name: "ipniAdvertisedToVerifiedMs",
+    help: "Time from SP advertisement to IPNI verification on success (ms)",
+    labelNames: ["checkType", "providerId", "providerName", "providerStatus"] as const,
+    buckets: [10, 50, 100, 500, 1000, 2000, 5000, 10000, 30000, 60000, 120000, 300000],
+  }),
+  makeHistogramProvider({
     // docs/checks/events-and-metrics.md#ipfsRetrievalFirstByteMs
     name: "ipfsRetrievalFirstByteMs",
     help: "Time to first byte for IPFS retrievals (ms)",

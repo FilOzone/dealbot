@@ -726,6 +726,32 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       if (timeToVerifyMs) {
         deal.ipniTimeToVerifyMs = timeToVerifyMs;
       }
+
+      // Emit advertised-to-verified duration (success only)
+      if (deal.ipniAdvertisedAt) {
+        const advertisedToVerifiedMs = verifiedTimestamp.getTime() - deal.ipniAdvertisedAt.getTime();
+        if (advertisedToVerifiedMs > 0) {
+          this.discoverabilityMetrics.observeIpniAdvertisedToVerifiedMs(labels, advertisedToVerifiedMs);
+
+          if (advertisedToVerifiedMs > 5000) {
+            this.logger.warn({
+              ...dealLogContext,
+              event: "ipni_slow_advertised_to_verified",
+              message: "IPNI advertised-to-verified time exceeded 5s threshold",
+              advertisedToVerifiedMs,
+              ipniAdvertisedAt: deal.ipniAdvertisedAt.toISOString(),
+              ipniVerifiedAt: verifiedTimestamp.toISOString(),
+              pieceCid: deal.pieceCid,
+              ipfsRootCID: deal.metadata[ServiceType.IPFS_PIN]?.rootCID,
+              providerId: deal.storageProvider?.providerId,
+              providerAddress: deal.spAddress,
+              providerName: deal.storageProvider?.name,
+              verifiedCids: ipniResult.verified,
+              unverifiedCids: ipniResult.unverified,
+            });
+          }
+        }
+      }
     }
 
     deal.ipniVerifiedCidsCount = ipniResult.verified;
