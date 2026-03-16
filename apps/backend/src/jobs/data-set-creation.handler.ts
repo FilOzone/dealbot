@@ -82,7 +82,6 @@ export async function provisionNextMissingDataSet(
     ...dataSetLogContext,
     event: "data_sets_provisioning_completed",
     message: "All required data-sets exist for provider",
-    createdCount: 0,
     minDataSets,
     existingCount,
   });
