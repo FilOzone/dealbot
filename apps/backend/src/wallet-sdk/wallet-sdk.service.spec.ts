@@ -81,9 +81,9 @@ describe("WalletSdkService", () => {
       expect.objectContaining({
         address: "0xdup",
         event: "duplicate_provider_address",
-        existingProviderId: 20,
+        existingProviderId: 20n,
         message: "Duplicate provider address detected",
-        newProviderId: 21,
+        newProviderId: 21n,
       }),
     );
     expect(loggerMock.warn).toHaveBeenCalledWith(
@@ -125,9 +125,9 @@ describe("WalletSdkService", () => {
       expect.objectContaining({
         address: "0xdup2",
         event: "duplicate_provider_address",
-        existingProviderId: 30,
+        existingProviderId: 30n,
         message: "Duplicate provider address detected",
-        newProviderId: 31,
+        newProviderId: 31n,
       }),
     );
     expect(loggerMock.error).not.toHaveBeenCalled();
