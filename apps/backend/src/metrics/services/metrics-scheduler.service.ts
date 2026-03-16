@@ -355,7 +355,7 @@ export class MetricsSchedulerService {
    * Archives or deletes metrics older than retention period (default: 90 days)
    */
   async cleanupOldMetrics({ allowWhenPgBoss = false }: { allowWhenPgBoss?: boolean } = {}): Promise<void> {
-    if (process.env.DEALBOT_JOBS_MODE === "pgboss" && !allowWhenPgBoss) {
+    if (!allowWhenPgBoss) {
       return;
     }
     const startTime = Date.now();
