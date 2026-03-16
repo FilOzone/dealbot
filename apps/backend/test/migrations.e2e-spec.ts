@@ -1,9 +1,9 @@
 import { execFile, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { promisify } from "node:util";
-import { RenameRegionToLocation1761500000004 } from "src/database/migrations/1761500000004-RenameRegionToLocation.js";
-import { ProviderIdBigInt1761500000005 } from "src/database/migrations/1761500000005-ProviderIdBigInt.js";
-import { DataSetIdBigInt1761500000006 } from "src/database/migrations/1761500000006-DataSetIdBigInt.js";
+import { RenameRegionToLocation1761500000004 } from "../src/database/migrations/1761500000004-RenameRegionToLocation.js";
+import { ProviderIdBigInt1761500000005 } from "../src/database/migrations/1761500000005-ProviderIdBigInt.js";
+import { DataSetIdBigInt1761500000006 } from "../src/database/migrations/1761500000006-DataSetIdBigInt.js";
 import { DataSource, type MigrationInterface } from "typeorm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { CreateInitialTables1720000000000 } from "../src/database/migrations/1720000000000-CreateInitialTables.js";
