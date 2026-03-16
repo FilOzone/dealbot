@@ -562,8 +562,8 @@ rate-based (per hour) and persisted in Postgres so restarts do not reset timing.
 ### `DEALS_PER_SP_PER_HOUR`
 
 - **Type**: `number`
-- **Required**: Yes
-- **Recommended**: `4`
+- **Required**: No
+- **Default**: `4`
 
 **Role**: Target deal creation rate per storage provider.
 
@@ -576,8 +576,8 @@ rate-based (per hour) and persisted in Postgres so restarts do not reset timing.
 ### `RETRIEVALS_PER_SP_PER_HOUR`
 
 - **Type**: `number`
-- **Required**: Yes
-- **Recommended**: `2`
+- **Required**: No  
+- **Default**: `2`
 
 **Role**: Target retrieval test rate per storage provider.
 
@@ -590,8 +590,8 @@ rate-based (per hour) and persisted in Postgres so restarts do not reset timing.
 ### `DATASET_CREATIONS_PER_SP_PER_HOUR`
 
 - **Type**: `number`
-- **Required**: Yes
-- **Recommended**: `1`
+- **Required**: No
+- **Default**: `1`
 
 **Role**: Target dataset creation rate per storage provider.
 
@@ -604,8 +604,8 @@ rate-based (per hour) and persisted in Postgres so restarts do not reset timing.
 ### `METRICS_PER_HOUR`
 
 - **Type**: `number`
-- **Required**: Yes
-- **Recommended**: `2`
+- **Required**: No
+- **Default**: `2`
 
 **Role**: How often metrics aggregation runs per hour.
 

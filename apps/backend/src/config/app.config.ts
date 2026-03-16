@@ -50,10 +50,10 @@ export const configValidationSchema = Joi.object({
 
   // Jobs
   // Per-hour limits are guardrails to avoid excessive background load.
-  METRICS_PER_HOUR: Joi.number().min(0.001).max(3).required(),
-  DEALS_PER_SP_PER_HOUR: Joi.number().min(0.001).max(20).required(),
-  DATASET_CREATIONS_PER_SP_PER_HOUR: Joi.number().min(0.001).max(20).required(),
-  RETRIEVALS_PER_SP_PER_HOUR: Joi.number().min(0.001).max(20).required(),
+  METRICS_PER_HOUR: Joi.number().min(0.001).max(3).default(2),
+  DEALS_PER_SP_PER_HOUR: Joi.number().min(0.001).max(20).default(4),
+  DATASET_CREATIONS_PER_SP_PER_HOUR: Joi.number().min(0.001).max(20).default(1),
+  RETRIEVALS_PER_SP_PER_HOUR: Joi.number().min(0.001).max(20).default(2),
   // Polling interval for pg-boss scheduler (lower = more responsive, higher = less DB chatter).
   JOB_SCHEDULER_POLL_SECONDS: Joi.number().min(60).default(300),
   JOB_WORKER_POLL_SECONDS: Joi.number().min(5).default(60),
