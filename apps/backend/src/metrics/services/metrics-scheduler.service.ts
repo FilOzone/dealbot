@@ -12,16 +12,13 @@ import { WalletSdkService } from "../../wallet-sdk/wallet-sdk.service.js";
 
 /**
  * Service responsible for refreshing materialized views and aggregating metrics
- * Uses staggered cron jobs to prevent concurrent execution with deal/retrieval jobs
- *
- * Staggered Schedule (with default offsets):
- * - Deal creation: offset 0s (00:00, 00:30, 01:00...)
- * - Retrieval tests: offset 600s/10min (00:10, 00:40, 01:10...)
- * - Daily metrics: offset 900s/15min (00:15, 00:45, 01:15...)
- * - Weekly/All-time performance: offset 1200s/20min (00:20, 00:50, 01:20...)
- * - Cleanup: Weekly on Sunday at 02:00
- *
- * This prevents database contention and resource conflicts by spacing jobs 5 minutes apart
+ * 
+ * Metrics jobs are scheduled and executed via pg-boss (see JobsService).
+ * The service provides methods for:
+ * - Refreshing materialized views (daily, weekly, all-time performance)
+ * - Aggregating metrics data
+ * - Cleaning up old metrics data
+ * - Updating wallet balance and storage provider metrics
  */
 @Injectable()
 export class MetricsSchedulerService {

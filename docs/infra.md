@@ -57,6 +57,7 @@ follow-on step; initial rollout keeps a single backend Deployment.
 - Dealbot uses pg-boss for all job scheduling with rate-based configuration:
   - `METRICS_PER_HOUR`
   - `DEALS_PER_SP_PER_HOUR`
+  - `DATASET_CREATIONS_PER_SP_PER_HOUR`
   - `RETRIEVALS_PER_SP_PER_HOUR`
 - Deals and retrievals run per storage provider; metrics remain global.
 - Scheduling is rate-based (per-hour), with catch-up after downtime.
@@ -79,7 +80,7 @@ Phase 2 (optional, later): add three worker Deployments (same backend image):
 - Add env overrides per worker:
   - API: `DEALBOT_RUN_MODE=api`, `DEALBOT_PGBOSS_SCHEDULER_ENABLED=true`
   - Workers: `DEALBOT_RUN_MODE=worker`, `DEALBOT_PGBOSS_SCHEDULER_ENABLED=false`
-  - rate vars: `METRICS_PER_HOUR`, `DEALS_PER_SP_PER_HOUR`, `RETRIEVALS_PER_SP_PER_HOUR`
+  - rate vars: `METRICS_PER_HOUR`, `DEALS_PER_SP_PER_HOUR`, `DATASET_CREATIONS_PER_SP_PER_HOUR`, `RETRIEVALS_PER_SP_PER_HOUR`
 - Keep a single ConfigMap (`dealbot-env`) and override worker-specific env in patches.
 - Ensure `/datasets` volume mount remains on deal/retrieval workers.
 - Confirm ServiceMonitor continues to scrape only the API pods.

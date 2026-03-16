@@ -17,7 +17,7 @@ export class AppController {
 
   /**
    * Get dealbot infrastructure configuration
-   * Returns network, scheduling frequencies, and other infrastructure details
+   * Returns network, job rates (per-hour), and other infrastructure details
    */
   @Get("config")
   getConfig() {

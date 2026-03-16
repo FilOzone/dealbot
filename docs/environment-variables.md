@@ -11,7 +11,7 @@ This document provides a comprehensive guide to all environment variables used b
 | [Blockchain](#blockchain-configuration)   | `NETWORK`, `WALLET_ADDRESS`, `WALLET_PRIVATE_KEY`, `CHECK_DATASET_CREATION_FEES`, `USE_ONLY_APPROVED_PROVIDERS`, `PDP_SUBGRAPH_ENDPOINT` |
 | [Dataset Versioning](#dataset-versioning) | `DEALBOT_DATASET_VERSION`                                                                                                                                    |
 | [Scheduling](#scheduling-configuration)   | `PROVIDERS_REFRESH_INTERVAL_SECONDS`, `DATA_RETENTION_POLL_INTERVAL_SECONDS`, `DEALBOT_MAINTENANCE_WINDOWS_UTC`, `DEALBOT_MAINTENANCE_WINDOW_MINUTES`                                                                                                                                 |
-| [Jobs (pg-boss)](#jobs-pg-boss)           | `DEALBOT_PGBOSS_SCHEDULER_ENABLED`, `DEALBOT_PGBOSS_POOL_MAX`, `DEALS_PER_SP_PER_HOUR`, `RETRIEVALS_PER_SP_PER_HOUR`, `METRICS_PER_HOUR`, `JOB_SCHEDULER_POLL_SECONDS`, `JOB_WORKER_POLL_SECONDS`, `PG_BOSS_LOCAL_CONCURRENCY`, `JOB_CATCHUP_MAX_ENQUEUE`, `JOB_SCHEDULE_PHASE_SECONDS`, `JOB_ENQUEUE_JITTER_SECONDS`, `DEAL_JOB_TIMEOUT_SECONDS`, `RETRIEVAL_JOB_TIMEOUT_SECONDS`, `IPFS_BLOCK_FETCH_CONCURRENCY` |
+| [Jobs (pg-boss)](#jobs-pg-boss)           | `DEALBOT_PGBOSS_SCHEDULER_ENABLED`, `DEALBOT_PGBOSS_POOL_MAX`, `DEALS_PER_SP_PER_HOUR`, `DATASET_CREATIONS_PER_SP_PER_HOUR`, `RETRIEVALS_PER_SP_PER_HOUR`, `METRICS_PER_HOUR`, `JOB_SCHEDULER_POLL_SECONDS`, `JOB_WORKER_POLL_SECONDS`, `PG_BOSS_LOCAL_CONCURRENCY`, `JOB_CATCHUP_MAX_ENQUEUE`, `JOB_SCHEDULE_PHASE_SECONDS`, `JOB_ENQUEUE_JITTER_SECONDS`, `DEAL_JOB_TIMEOUT_SECONDS`, `RETRIEVAL_JOB_TIMEOUT_SECONDS`, `IPFS_BLOCK_FETCH_CONCURRENCY` |
 | [Dataset](#dataset-configuration)         | `DEALBOT_LOCAL_DATASETS_PATH`, `RANDOM_PIECE_SIZES`                                                                                                          |
 | [Timeouts](#timeout-configuration)        | `CONNECT_TIMEOUT_MS`, `HTTP_REQUEST_TIMEOUT_MS`, `HTTP2_REQUEST_TIMEOUT_MS`, `IPNI_VERIFICATION_TIMEOUT_MS`, `IPNI_VERIFICATION_POLLING_MS`                   |
 | [Web Frontend](#web-frontend)             | `VITE_API_BASE_URL`, `VITE_PLAUSIBLE_DATA_DOMAIN`, `DEALBOT_API_BASE_URL`                                                                                    |
@@ -441,7 +441,7 @@ These variables control when and how often the Dealbot runs its automated jobs.
 - Increase for less frequent providers refresh (reduces costs, slower testing)
 - Decrease for more aggressive testing (higher costs, faster feedback)
 
-**Example scenario**: Running providers refresh every hour instead of every 30 minutes:
+**Example scenario**: Running providers refresh every 4 hours (default):
 
 ```bash
 PROVIDERS_REFRESH_INTERVAL_SECONDS=14400
@@ -563,7 +563,7 @@ rate-based (per hour) and persisted in Postgres so restarts do not reset timing.
 
 - **Type**: `number`
 - **Required**: Yes
-- **Default**: `4`
+- **Recommended**: `4`
 
 **Role**: Target deal creation rate per storage provider.
 
@@ -577,7 +577,7 @@ rate-based (per hour) and persisted in Postgres so restarts do not reset timing.
 
 - **Type**: `number`
 - **Required**: Yes
-- **Default**: `2`
+- **Recommended**: `2`
 
 **Role**: Target retrieval test rate per storage provider.
 
@@ -587,11 +587,25 @@ rate-based (per hour) and persisted in Postgres so restarts do not reset timing.
 
 ---
 
+### `DATASET_CREATIONS_PER_SP_PER_HOUR`
+
+- **Type**: `number`
+- **Required**: Yes
+- **Recommended**: `1`
+
+**Role**: Target dataset creation rate per storage provider.
+
+**Limits**: Config schema caps this at 20 to avoid excessive dataset generation.
+
+**Notes**: Fractional values are supported. For example, `0.5` means one dataset creation every 2 hours per storage provider.
+
+---
+
 ### `METRICS_PER_HOUR`
 
 - **Type**: `number`
 - **Required**: Yes
-- **Default**: `2`
+- **Recommended**: `2`
 
 **Role**: How often metrics aggregation runs per hour.
 
