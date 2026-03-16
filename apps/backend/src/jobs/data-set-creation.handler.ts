@@ -61,21 +61,6 @@ export async function provisionNextMissingDataSet(
     await dealService.createDataSetWithPiece(spAddress, metadata, signal);
     logger.log({
       ...logContext,
-      event: "created_provisioned_data_set",
-      message: "Created provisioned data-set",
-    });
-
-    logger.log({
-      ...dataSetLogContext,
-      event: "data_set_provisioning_progress",
-      message: "Created 1 data-set, deferring remaining to next run",
-      createdCount: 1,
-      createdIndex: i,
-      minDataSets,
-      checkedExistingCount: existingCount,
-      uncheckedCount: minDataSets - existingCount - 1,
-    logger.log({
-      ...logContext,
       event: "data_set_provisioning_progress",
       message: "Created 1 data-set, deferring remaining to next run",
       minDataSets,
