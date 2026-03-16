@@ -28,7 +28,7 @@
     "typecheck": "tsc --noEmit --incremental false"
   },
   "dependencies": {
-    "@filoz/synapse-sdk": "0.38.0",
+    "@filoz/synapse-sdk": "0.39.0",
     "@ipld/car": "^5.4.2",
     "@ipld/dag-pb": "^4.1.4",
     "@nestjs/axios": "^4.0.1",

@@ -66,12 +66,12 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     this.blockchainConfig = this.configService.get("blockchain");
   }
 
-  async onModuleInit(): Promise<void> {
+  onModuleInit() {
     this.logger.log({
       event: "synapse_initialization",
       message: "Creating shared Synapse instance",
     });
-    this.sharedSynapse = await this.createSynapseInstance();
+    this.sharedSynapse = this.createSynapseInstance();
   }
 
   async onModuleDestroy(): Promise<void> {
@@ -92,7 +92,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     const { preprocessed, cleanup } = await this.prepareDealInput();
 
     try {
-      const synapse = this.sharedSynapse ?? (await this.createSynapseInstance());
+      const synapse = this.sharedSynapse ?? this.createSynapseInstance();
       const uploadPayload = await this.prepareUploadPayload(preprocessed);
       const providers = this.walletSdkService.getTestingProviders();
 
@@ -135,7 +135,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     const { preprocessed, cleanup } = await this.prepareDealInput(options.signal, options.logContext);
 
     try {
-      const synapse = this.sharedSynapse ?? (await this.createSynapseInstance());
+      const synapse = this.sharedSynapse ?? this.createSynapseInstance();
       const uploadPayload = await this.prepareUploadPayload(preprocessed, options.signal);
       return await this.createDeal(
         synapse,
@@ -521,7 +521,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     signal?: AbortSignal,
   ): Promise<boolean> {
     signal?.throwIfAborted();
-    const synapse = this.sharedSynapse ?? (await this.createSynapseInstance());
+    const synapse = this.sharedSynapse ?? this.createSynapseInstance();
     const providerInfo = this.walletSdkService.getProviderInfo(providerAddress);
     if (!providerInfo) {
       throw new Error(`Provider ${providerAddress} not found in registry`);
@@ -580,7 +580,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     let transactionHash: string | undefined;
 
     try {
-      const synapse = this.sharedSynapse ?? (await this.createSynapseInstance());
+      const synapse = this.sharedSynapse ?? this.createSynapseInstance();
       signal?.throwIfAborted();
 
       const DATA_SET_CREATION_PIECE_SIZE = 200 * 1024; // 200 KiB
@@ -719,11 +719,12 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
   // Deal Creation Helpers
   // ============================================================================
 
-  private async createSynapseInstance(): Promise<Synapse> {
+  private createSynapseInstance(): Synapse {
     try {
-      return await Synapse.create({
+      return Synapse.create({
         account: privateKeyToAccount(this.blockchainConfig.walletPrivateKey),
         chain: this.blockchainConfig.network === "mainnet" ? mainnet : calibration,
+        source: "dealbot",
       });
     } catch (error) {
       this.logger.error({

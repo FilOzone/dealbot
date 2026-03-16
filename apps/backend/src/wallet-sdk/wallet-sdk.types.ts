@@ -17,12 +17,14 @@ export interface AccountInfo {
 }
 
 export interface StorageCheck {
-  costs: {
+  rate: {
+    perEpoch: bigint;
     perMonth: bigint;
     [key: string]: any;
   };
-  rateAllowanceNeeded: bigint;
-  lockupAllowanceNeeded: bigint;
+  depositNeeded: bigint;
+  needsFwssMaxApproval: boolean;
+  ready: boolean;
   [key: string]: any;
 }
 

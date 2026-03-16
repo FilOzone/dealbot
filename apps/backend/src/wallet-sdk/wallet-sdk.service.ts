@@ -1,6 +1,7 @@
 import { calibration, mainnet, PDPProvider, Synapse, TIME_CONSTANTS } from "@filoz/synapse-sdk";
 import type { PaymentsService } from "@filoz/synapse-sdk/payments";
 import { SPRegistryService } from "@filoz/synapse-sdk/sp-registry";
+import { StorageManager } from "@filoz/synapse-sdk/storage";
 import { WarmStorageService } from "@filoz/synapse-sdk/warm-storage";
 import { Injectable, Logger, type OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
@@ -29,6 +30,7 @@ export class WalletSdkService implements OnModuleInit {
   private paymentsService: PaymentsService;
   private warmStorageService: WarmStorageService;
   private spRegistry: SPRegistryService;
+  private storageManager: StorageManager;
   private providerCache: Map<string, PDPProviderEx> = new Map();
   private activeProviderAddresses: Set<string> = new Set();
   private approvedProviderAddresses: Set<string> = new Set();
@@ -65,6 +67,7 @@ export class WalletSdkService implements OnModuleInit {
     const synapse = await Synapse.create({
       account,
       chain: this.blockchainConfig.network === "mainnet" ? mainnet : calibration,
+      source: "dealbot",
     });
 
     this.warmStorageService = await WarmStorageService.create({
@@ -76,6 +79,7 @@ export class WalletSdkService implements OnModuleInit {
     });
     this.paymentsService = synapse.payments;
     this.synapseClient = synapse.client;
+    this.storageManager = synapse.storage;
   }
 
   /**
@@ -313,8 +317,8 @@ export class WalletSdkService implements OnModuleInit {
 
     const [accountInfo, storageCheck, serviceApprovals] = await Promise.all([
       this.paymentsService.accountInfo(),
-      this.warmStorageService.checkAllowanceForStorage({
-        sizeInBytes: STORAGE_SIZE_GB * 1024n * 1024n * 1024n,
+      this.storageManager.getUploadCosts({
+        dataSize: STORAGE_SIZE_GB * 1024n * 1024n * 1024n,
         withCDN: true,
       }),
       this.paymentsService.serviceApproval(),
@@ -326,7 +330,7 @@ export class WalletSdkService implements OnModuleInit {
       storageCheck,
       serviceApprovals,
       datasetCreationFees,
-      totalRequiredFunds: storageCheck.costs.perMonth * APPROVAL_DURATION_MONTHS + datasetCreationFees,
+      totalRequiredFunds: storageCheck.depositNeeded,
       approvalDuration: BigInt(TIME_CONSTANTS.EPOCHS_PER_MONTH * APPROVAL_DURATION_MONTHS), // 6 months in epochs
     };
   }
