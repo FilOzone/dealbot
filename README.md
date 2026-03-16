@@ -49,6 +49,8 @@ Frontend docs: [apps/web/README.md](apps/web/README.md)
 - [docs/environment-variables.md](docs/environment-variables.md) - Comprehensive environment variables reference
 - [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) - Local Kubernetes development (Kind + Kustomize)
 - [docs/infra.md](docs/infra.md) - Integration with FilOzone/infra
+- [docs/architecture.md](docs/architecture.md) - System architecture, component responsibilities, and data stores
+- [docs/production-operations.md](docs/production-operations.md) - Links to operational docs (infra runbook, Notion tracker)
 - [docs/release-process.md](docs/release-process.md) - Release pipeline overview
 - [docs/release-please-flow.md](docs/release-please-flow.md) - release-please details
 
