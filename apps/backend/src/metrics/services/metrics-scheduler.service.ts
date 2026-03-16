@@ -12,7 +12,7 @@ import { WalletSdkService } from "../../wallet-sdk/wallet-sdk.service.js";
 
 /**
  * Service responsible for refreshing materialized views and aggregating metrics
- * 
+ *
  * Metrics jobs are scheduled and executed via pg-boss (see JobsService).
  * The service provides methods for:
  * - Refreshing materialized views (daily, weekly, all-time performance)
