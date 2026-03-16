@@ -108,16 +108,17 @@ All configuration is done via environment variables in `.env`.
 
 ### Scheduling Configuration (pg-boss)
 
-These settings apply when `DEALBOT_JOBS_MODE=pgboss` (recommended). See
+Dealbot uses pg-boss for all job scheduling. See
 [`docs/jobs.md`](../../docs/jobs.md) for scheduling behavior and
 [`docs/environment-variables.md`](../../docs/environment-variables.md) for defaults and full definitions.
 
 | Variable                         | Description                              | Recommended |
 | -------------------------------- | ---------------------------------------- | ------------------------------ |
-| `DEALBOT_JOBS_MODE`              | Enable pg-boss scheduling                 | `pgboss`                       |
+| `PROVIDERS_REFRESH_INTERVAL_SECONDS` | Providers refresh interval (seconds)   | `14400` (4 hours)        |
 | `DATA_RETENTION_POLL_INTERVAL_SECONDS` | Data retention polling interval (seconds)   | `3600` (1 hour)        |
-| `DEALS_PER_SP_PER_HOUR`          | Deal checks per SP per hour               | `1`                            |
-| `RETRIEVALS_PER_SP_PER_HOUR`     | Retrieval checks per SP per hour          | `1`                            |
+| `DEALS_PER_SP_PER_HOUR`          | Deal checks per SP per hour               | `4`                            |
+| `RETRIEVALS_PER_SP_PER_HOUR`     | Retrieval checks per SP per hour          | `2`                            |
+| `DATASET_CREATIONS_PER_SP_PER_HOUR` | Dataset creation checks per SP per hour | `1`                            |
 | `METRICS_PER_HOUR`               | Metrics runs per hour                     | `2`                            |
 | `PG_BOSS_LOCAL_CONCURRENCY`      | Per-process `sp.work` concurrency         | `20`                           |
 | `JOB_SCHEDULER_POLL_SECONDS`     | Scheduler poll interval                   | `300`                          |

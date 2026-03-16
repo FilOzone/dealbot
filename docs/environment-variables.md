@@ -426,8 +426,7 @@ DEALBOT_DATASET_VERSION=dealbot-v2
 
 These variables control when and how often the Dealbot runs its automated jobs.
 
-**Note**: When `DEALBOT_JOBS_MODE=pgboss`, the offsets below are not used; pg-boss uses
-rate-based scheduling instead (see [Jobs (pg-boss)](#jobs-pg-boss)).
+**Note**: Dealbot uses pg-boss for rate-based scheduling (see [Jobs (pg-boss)](#jobs-pg-boss)).
 
 ### `PROVIDERS_REFRESH_INTERVAL_SECONDS`
 

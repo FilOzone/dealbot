@@ -52,10 +52,9 @@ For required keys and optional variables, see [apps/backend/.env.example](../app
 Goal: replace in-process cron with pg-boss. Splitting workers into separate Deployments is a
 follow-on step; initial rollout keeps a single backend Deployment.
 
-### Planned application behavior (for infra planning)
+### Application behavior
 
-- New env vars when pg-boss is enabled:
-  - `DEALBOT_JOBS_MODE=pgboss`
+- Dealbot uses pg-boss for all job scheduling with rate-based configuration:
   - `METRICS_PER_HOUR`
   - `DEALS_PER_SP_PER_HOUR`
   - `RETRIEVALS_PER_SP_PER_HOUR`
@@ -78,10 +77,8 @@ Phase 2 (optional, later): add three worker Deployments (same backend image):
   - keep API label as `app.kubernetes.io/name: dealbot`
   - use a different label for workers (e.g., `dealbot-worker`)
 - Add env overrides per worker:
-  - API: `DEALBOT_JOBS_MODE=pgboss`, `DEALBOT_DISABLE_JOBS=true`
-  - Deal worker: `DEALBOT_JOBS_MODE=pgboss`, `DEALBOT_JOB_TYPES=deal`
-  - Retrieval worker: `DEALBOT_JOBS_MODE=pgboss`, `DEALBOT_JOB_TYPES=retrieval`
-  - Metrics worker: `DEALBOT_JOBS_MODE=pgboss`, `DEALBOT_JOB_TYPES=metrics`
+  - API: `DEALBOT_RUN_MODE=api`, `DEALBOT_PGBOSS_SCHEDULER_ENABLED=true`
+  - Workers: `DEALBOT_RUN_MODE=worker`, `DEALBOT_PGBOSS_SCHEDULER_ENABLED=false`
   - rate vars: `METRICS_PER_HOUR`, `DEALS_PER_SP_PER_HOUR`, `RETRIEVALS_PER_SP_PER_HOUR`
 - Keep a single ConfigMap (`dealbot-env`) and override worker-specific env in patches.
 - Ensure `/datasets` volume mount remains on deal/retrieval workers.
