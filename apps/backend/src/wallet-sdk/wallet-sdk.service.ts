@@ -17,7 +17,6 @@ import type {
   FundDepositLog,
   PDPProviderEx,
   ServiceApprovalLog,
-  StorageRequirements,
   TransactionLog,
   WalletServices,
   WalletStatusLog,
@@ -302,155 +301,40 @@ export class WalletSdkService implements OnModuleInit {
   }
 
   /**
-   * Calculate storage requirements including costs and allowances
-   */
-  async calculateStorageRequirements(): Promise<StorageRequirements> {
-    const providerCount = this.getTestingProvidersCount();
-
-    const STORAGE_SIZE_GB = 100n;
-    const APPROVAL_DURATION_MONTHS = 6n;
-    const datasetCreationFees = this.blockchainConfig.checkDatasetCreationFees
-      ? this.calculateDatasetCreationFees(providerCount)
-      : 0n;
-
-    const [accountInfo, storageCheck, serviceApprovals] = await Promise.all([
-      this.paymentsService.accountInfo(),
-      this.storageManager.getUploadCosts({
-        dataSize: STORAGE_SIZE_GB * 1024n * 1024n * 1024n,
-        withCDN: true,
-      }),
-      this.paymentsService.serviceApproval(),
-    ]);
-
-    return {
-      accountInfo,
-      providerCount,
-      serviceApprovals,
-      storageCheck,
-      datasetCreationFees,
-      totalRequiredFunds: storageCheck.depositNeeded,
-      approvalDuration: BigInt(TIME_CONSTANTS.EPOCHS_PER_MONTH * APPROVAL_DURATION_MONTHS), // 6 months in epochs
-    };
-  }
-
-  /**
-   * Calculate fees required for dataset creation across all providers
-   */
-  private calculateDatasetCreationFees(providerCount: number): bigint {
-    const minDataSetPerSP = 1n; // single dataset per storage provider
-    const datasetCreationFees = 1n * 10n ** 17n; // 0.1 USDFC
-    return minDataSetPerSP * datasetCreationFees * BigInt(providerCount);
-  }
-
-  /**
-   * Log current wallet status and requirements
-   */
-  logWalletStatus(requirements: StorageRequirements): void {
-    const logData: WalletStatusLog = {
-      availableFunds: requirements.accountInfo.funds.toString(),
-      requiredMonthlyFunds: requirements.storageCheck.rate.perMonth.toString(),
-      datasetCreationFees: requirements.datasetCreationFees.toString(),
-      totalRequired: requirements.totalRequiredFunds.toString(),
-      providerCount: requirements.providerCount,
-    };
-
-    this.logger.log({
-      event: "wallet_status_check_completed",
-      ...logData,
-    });
-  }
-
-  /**
-   * Check if wallet requires additional funds
-   */
-  requiresTopUp(requirements: StorageRequirements): boolean {
-    return requirements.accountInfo.funds < requirements.totalRequiredFunds;
-  }
-
-  /**
-   * Check if wallet requires service approval
-   */
-  requiresApproval(requirements: StorageRequirements): boolean {
-    return requirements.storageCheck.depositNeeded > 0n;
-  }
-
-  /**
-   * Handle insufficient funds by depositing required amount
-   */
-  async handleInsufficientFunds(requirements: StorageRequirements): Promise<void> {
-    const depositAmount = requirements.totalRequiredFunds - requirements.accountInfo.funds;
-
-    const depositLog: FundDepositLog = {
-      currentFunds: requirements.accountInfo.funds.toString(),
-      requiredFunds: requirements.totalRequiredFunds.toString(),
-      depositAmount: depositAmount.toString(),
-    };
-
-    this.logger.log({
-      event: "wallet_deposit_started",
-      ...depositLog,
-    });
-
-    const hash = await this.paymentsService.deposit({
-      amount: depositAmount,
-    });
-    await waitForTransactionReceipt(this.synapseClient!, { hash });
-
-    const successLog: TransactionLog = {
-      transactionHash: hash,
-      depositAmount: depositAmount.toString(),
-    };
-
-    this.logger.log({
-      event: "wallet_deposit_succeeded",
-      ...successLog,
-    });
-  }
-
-  /**
-   * Approve storage service with required allowances
-   */
-  async approveStorageService(requirements: StorageRequirements): Promise<void> {
-    const approvalLog: ServiceApprovalLog = {
-      rateAllowance: "Maximum of uint256",
-      lockupAllowance: "Maximum of uint256",
-      durationMonths: Number(requirements.approvalDuration / TIME_CONSTANTS.EPOCHS_PER_MONTH),
-    };
-
-    this.logger.log({
-      event: "storage_service_approval_started",
-      ...approvalLog,
-    });
-
-    const hash = await this.paymentsService.approveService({
-      maxLockupPeriod: requirements.approvalDuration,
-    });
-    await waitForTransactionReceipt(this.synapseClient!, { hash });
-
-    const successLog: TransactionLog = {
-      transactionHash: hash,
-    };
-
-    this.logger.log({
-      event: "storage_service_approval_succeeded",
-      ...successLog,
-    });
-  }
-
-  /**
    * Ensure wallet has sufficient allowances for operations
    */
   async ensureWalletAllowances(): Promise<void> {
-    const requirements = await this.calculateStorageRequirements();
+    const STORAGE_SIZE_GB = 100n;
+    const { costs, transaction } = await this.storageManager.prepare({
+      dataSize: STORAGE_SIZE_GB * 1024n * 1024n * 1024n,
+      // TODO: Currently not supported
+      // withCDN: true,
+    });
 
-    this.logWalletStatus(requirements);
+    this.logger.log({
+      event: "wallet_status_check_completed",
+      depositAmount: transaction?.depositAmount,
+      includesApproval: transaction?.includesApproval,
+      costs,
+    });
 
-    if (this.requiresTopUp(requirements)) {
-      await this.handleInsufficientFunds(requirements);
-    }
+    if (transaction) {
+      this.logger.log({
+        event: "wallet_deposit_started",
+        depositAmount: transaction.depositAmount.toString(),
+        includesApproval: transaction?.includesApproval,
+        costs,
+      });
 
-    if (this.requiresApproval(requirements)) {
-      await this.approveStorageService(requirements);
+      const { hash } = await transaction.execute();
+
+      this.logger.log({
+        event: "wallet_deposit_succeeded",
+        transactionHash: hash,
+        depositAmount: transaction.depositAmount.toString(),
+        includesApproval: transaction.includesApproval,
+        costs,
+      });
     }
   }
 

@@ -33,16 +33,6 @@ export interface ServiceApprovals {
   [key: string]: any;
 }
 
-export interface StorageRequirements {
-  accountInfo: AccountInfo;
-  providerCount: number;
-  storageCheck: StorageCheck;
-  serviceApprovals: ServiceApprovals;
-  datasetCreationFees: bigint;
-  totalRequiredFunds: bigint;
-  approvalDuration: bigint;
-}
-
 export interface WalletStatusLog {
   availableFunds: string;
   requiredMonthlyFunds: string;
