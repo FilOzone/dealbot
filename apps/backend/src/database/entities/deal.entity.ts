@@ -11,6 +11,7 @@ import {
 import { type DealMetadata, DealStatus, IpniStatus, type ServiceType } from "../types.js";
 import type { Retrieval } from "./retrieval.entity.js";
 import { StorageProvider } from "./storage-provider.entity.js";
+import { BigIntColumn } from "../helpers/bigint-column.js";
 
 @Entity("deals")
 export class Deal {
@@ -32,8 +33,8 @@ export class Deal {
   @Column({ name: "piece_cid", nullable: true })
   pieceCid: string;
 
-  @Column({ name: "data_set_id", nullable: true })
-  dataSetId?: number;
+  @BigIntColumn({ name: "data_set_id", nullable: true })
+  dataSetId?: bigint;
 
   @Column({ name: "piece_id", nullable: true })
   pieceId?: number;

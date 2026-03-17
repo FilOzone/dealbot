@@ -1,5 +1,6 @@
 import { Column, CreateDateColumn, Entity, Index, OneToMany, PrimaryColumn, UpdateDateColumn } from "typeorm";
 import { Deal } from "./deal.entity.js";
+import { BigIntColumn } from "../helpers/bigint-column.js";
 
 @Entity("storage_providers")
 @Index(["region", "isActive"])
@@ -7,8 +8,8 @@ export class StorageProvider {
   @PrimaryColumn()
   address!: string;
 
-  @Column({ nullable: true })
-  providerId?: number;
+  @BigIntColumn({ nullable: true })
+  providerId?: bigint;
 
   @Column()
   name!: string;
