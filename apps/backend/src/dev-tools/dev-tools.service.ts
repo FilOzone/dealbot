@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import type { Repository } from "typeorm";
 import { type DealLogContext, toStructuredError } from "../common/logging.js";
@@ -13,7 +13,6 @@ import type { RetrievalMethodResultDto, TriggerRetrievalResponseDto } from "./dt
 @Injectable()
 export class DevToolsService {
   private readonly logger = new Logger(DevToolsService.name);
-  private isRunningCreateAll = false;
 
   constructor(
     private readonly walletSdkService: WalletSdkService,
@@ -181,37 +180,6 @@ export class DevToolsService {
         status: DealStatus.FAILED,
         errorMessage,
       });
-    }
-  }
-
-  /**
-   * Trigger deal creation for all providers (same flow as scheduler).
-   * Loads providers, then calls createDealsForAllProviders.
-   */
-  async triggerDealsForAllProviders(): Promise<{ deals: TriggerDealResponseDto[]; total: number }> {
-    if (this.isRunningCreateAll) {
-      throw new ConflictException("Deal creation for all providers is already in progress");
-    }
-
-    this.isRunningCreateAll = true;
-    this.logger.log({
-      event: "deals_for_all_providers_started",
-      message: "Starting deal creation for all providers (dev-tools)",
-    });
-
-    try {
-      const deals = await this.dealService.createDealsForAllProviders();
-      const dtos = deals.map((d) => this.dealToResponseDto(d));
-
-      this.logger.log({
-        event: "deals_for_all_providers_completed",
-        message: "Deal creation for all providers completed",
-        count: deals.length,
-      });
-
-      return { deals: dtos, total: dtos.length };
-    } finally {
-      this.isRunningCreateAll = false;
     }
   }
 

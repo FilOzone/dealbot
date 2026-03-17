@@ -42,42 +42,6 @@ export class RetrievalService {
     private readonly configService: ConfigService<IConfig, true>,
   ) {}
 
-  async performRandomBatchRetrievals(count: number, signal?: AbortSignal): Promise<Retrieval[]> {
-    const deals = await this.selectRandomDealsForRetrieval(count);
-    const totalDeals = deals.length;
-
-    if (totalDeals === 0) {
-      this.logger.warn({
-        event: "retrieval_batch_skipped",
-        message: "No deals available for retrieval testing",
-      });
-      return [];
-    }
-
-    this.logger.log({
-      event: "retrieval_batch_started",
-      message: "Starting retrieval tests for deals",
-      count: totalDeals,
-    });
-
-    const results = await this.processRetrievalsInParallel(deals, {
-      maxConcurrency: 10,
-      signal,
-    });
-
-    const allRetrievals = results.flat();
-    const successfulRetrievals = allRetrievals.filter((r) => r.status === RetrievalStatus.SUCCESS);
-
-    this.logger.log({
-      event: "retrieval_batch_completed",
-      message: "Retrieval tests completed",
-      successfulRetrievals: successfulRetrievals.length,
-      totalRetrievals: allRetrievals.length,
-    });
-
-    return allRetrievals;
-  }
-
   async performRandomRetrievalForProvider(
     spAddress: string,
     signal?: AbortSignal,
@@ -104,71 +68,6 @@ export class RetrievalService {
 
   async performRetrievalsForDeal(deal: Deal, signal?: AbortSignal): Promise<Retrieval[]> {
     return this.performAllRetrievals(deal, signal);
-  }
-
-  // ============================================================================
-  // Parallel Processing
-  // ============================================================================
-
-  private async processRetrievalsInParallel(
-    deals: Deal[],
-    {
-      maxConcurrency = 10,
-      signal,
-    }: {
-      maxConcurrency?: number;
-      signal?: AbortSignal;
-    },
-  ): Promise<Retrieval[][]> {
-    const results: Retrieval[][] = [];
-    for (let i = 0; i < deals.length; i += maxConcurrency) {
-      if (signal?.aborted) {
-        this.logger.warn({
-          event: "retrieval_batch_aborted",
-          message: "Retrieval job aborted. Skipping remaining deals.",
-        });
-        break;
-      }
-
-      const batch = deals.slice(i, i + maxConcurrency);
-      const batchPromises = batch.map((deal) => this.performAllRetrievals(deal, signal));
-
-      const batchResults = await Promise.allSettled(batchPromises);
-
-      // Process results
-      for (let index = 0; index < batchResults.length; index++) {
-        const result = batchResults[index];
-        const deal = batch[index];
-        if (result.status === "fulfilled") {
-          results.push(result.value);
-        } else {
-          if (!signal?.aborted) {
-            const errorReason = result.reason;
-            this.logger.error({
-              event: "batch_retrieval_failed",
-              message: "Batch retrieval failed",
-              dealId: deal.id,
-              providerId: deal.storageProvider?.providerId,
-              providerName: deal.storageProvider?.name,
-              providerAddress: deal.spAddress,
-              pieceCid: deal.pieceCid,
-              ipfsRootCID: deal.metadata?.[ServiceType.IPFS_PIN]?.rootCID,
-              error: toStructuredError(errorReason),
-            });
-          }
-        }
-      }
-
-      if (signal?.aborted) {
-        this.logger.warn({
-          event: "retrieval_batch_aborted_after_completion",
-          message: "Retrieval job aborted after batch completion. Skipping remaining deals.",
-        });
-        break;
-      }
-    }
-
-    return results;
   }
 
   // ============================================================================
@@ -410,39 +309,6 @@ export class RetrievalService {
     return this.spRepository.findOne({ where: { address } });
   }
 
-  // ============================================================================
-  // Deal Selection
-  // ============================================================================
-
-  private async selectRandomDealsForRetrieval(count: number): Promise<Deal[]> {
-    const useOnlyApproved = this.configService.get("blockchain").useOnlyApprovedProviders;
-    const query = this.dealRepository
-      .createQueryBuilder("deal")
-      .innerJoin("deal.storageProvider", "sp", "sp.isActive = :isActive", { isActive: true })
-      .where("deal.status IN (:...statuses)", {
-        statuses: [DealStatus.DEAL_CREATED, DealStatus.PIECE_ADDED],
-      })
-      .orderBy("deal.createdAt", "DESC")
-      .take(Math.max(count * 2, 100));
-    if (useOnlyApproved) {
-      query.andWhere("sp.isApproved = :isApproved", { isApproved: true });
-    }
-    const allDeals = await query.getMany();
-
-    if (allDeals.length === 0) {
-      this.logger.warn({
-        event: "retrieval_selection_empty",
-        message: "No deals available for retrieval testing",
-      });
-      return [];
-    }
-
-    const dealsByProvider = this.groupDealsByProvider(allDeals);
-    const selectedDeals = this.selectBalancedDeals(dealsByProvider, count);
-
-    return selectedDeals;
-  }
-
   /**
    * We select a random successful deal (DEAL_CREATED only) for a given provider.
    * Uses Postgres ORDER BY RANDOM() since Dealbot is Postgres-only.
@@ -466,61 +332,9 @@ export class RetrievalService {
     return query.orderBy("RANDOM()").limit(1).getOne();
   }
 
-  private groupDealsByProvider(deals: Deal[]): Map<string, Deal[]> {
-    const dealsByProvider = new Map<string, Deal[]>();
-
-    for (const deal of deals) {
-      if (!dealsByProvider.has(deal.spAddress)) {
-        dealsByProvider.set(deal.spAddress, []);
-      }
-      dealsByProvider.get(deal.spAddress)!.push(deal);
-    }
-
-    // Shuffle deals within each provider
-    for (const deals of dealsByProvider.values()) {
-      this.shuffleArray(deals);
-    }
-
-    return dealsByProvider;
-  }
-
-  private selectBalancedDeals(dealsByProvider: Map<string, Deal[]>, count: number): Deal[] {
-    const selectedDeals: Deal[] = [];
-    const providers = Array.from(dealsByProvider.keys());
-    const dealsPerProvider = Math.ceil(count / providers.length);
-
-    for (const provider of providers) {
-      const providerDeals = dealsByProvider.get(provider)!;
-      const dealsToTake = Math.min(dealsPerProvider, providerDeals.length, count - selectedDeals.length);
-
-      selectedDeals.push(...providerDeals.slice(0, dealsToTake));
-
-      if (selectedDeals.length >= count) break;
-    }
-
-    // Fill remaining slots if needed
-    if (selectedDeals.length < count) {
-      const remainingDeals = Array.from(dealsByProvider.values())
-        .flat()
-        .filter((deal) => !selectedDeals.includes(deal));
-
-      this.shuffleArray(remainingDeals);
-      selectedDeals.push(...remainingDeals.slice(0, count - selectedDeals.length));
-    }
-
-    return selectedDeals;
-  }
-
   // ============================================================================
   // Utility Methods
   // ============================================================================
-
-  private shuffleArray<T>(array: T[]): void {
-    for (let i = array.length - 1; i > 0; i -= 1) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [array[i], array[j]] = [array[j], array[i]];
-    }
-  }
 
   private isPgBossMode(): boolean {
     return (this.configService.get("jobs")?.mode ?? "cron") === "pgboss";
