@@ -1,6 +1,6 @@
 import { Controller, Get } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import type { IBlockchainConfig, IConfig, ISchedulingConfig } from "./config/app.config.js";
+import { type IBlockchainConfig, type IConfig, IJobsConfig } from "./config/app.config.js";
 
 @Controller("api")
 export class AppController {
@@ -17,18 +17,19 @@ export class AppController {
 
   /**
    * Get dealbot infrastructure configuration
-   * Returns network, scheduling frequencies, and other infrastructure details
+   * Returns network, job rates (per-hour), and other infrastructure details
    */
   @Get("config")
   getConfig() {
-    const scheduling = this.configService.get<ISchedulingConfig>("scheduling");
     const blockchain = this.configService.get<IBlockchainConfig>("blockchain");
+    const jobs = this.configService.get<IJobsConfig>("jobs");
 
     return {
       network: blockchain.network,
-      scheduling: {
-        dealIntervalSeconds: scheduling.dealIntervalSeconds,
-        retrievalIntervalSeconds: scheduling.retrievalIntervalSeconds,
+      jobs: {
+        dealsPerSpPerHour: jobs.dealsPerSpPerHour,
+        dataSetCreationsPerSpPerHour: jobs.dataSetCreationsPerSpPerHour,
+        retrievalsPerSpPerHour: jobs.retrievalsPerSpPerHour,
       },
     };
   }

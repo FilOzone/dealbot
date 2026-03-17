@@ -1,6 +1,6 @@
 # Jobs (pg-boss)
 
-This doc explains what a "job" is in dealbot when `DEALBOT_JOBS_MODE=pgboss`, how jobs are defined, how they're scheduled, and how they're executed. For operational steps (pausing/resuming/triggering jobs), see the runbook in [`docs/runbooks/jobs.md`](./runbooks/jobs.md).
+This doc explains what a "job" is in dealbot, how jobs are defined, how they're scheduled, and how they're executed. For operational steps (pausing/resuming/triggering jobs), see the runbook in [`docs/runbooks/jobs.md`](./runbooks/jobs.md).
 
 ## Summary
 
@@ -27,7 +27,6 @@ This doc explains what a "job" is in dealbot when `DEALBOT_JOBS_MODE=pgboss`, ho
 - pg-boss provides durable queues and worker execution.
 - Dealbot owns schedule state and timing via `job_schedule_state` and does not use pg-boss cron scheduling (`boss.schedule(...)`).
 - This custom scheduler exists because we need per-SP rate schedules, controlled backfill with caps, maintenance-window rules, and per-SP singleton execution across deal + retrieval.
-- `cron` mode is still supported for external users, but pg-boss is the recommended and default operational mode for dealbot-managed deployments.
 
 ## Job Types, Queues, and Handlers
 
@@ -189,7 +188,6 @@ This staggers schedules by 20 minutes.
 
 See the "Jobs (pg-boss)" section in `docs/environment-variables.md` for full definitions. The most important knobs are:
 
-- [`DEALBOT_JOBS_MODE`](./environment-variables.md#dealbot_jobs_mode)
 - [`DEALBOT_PGBOSS_SCHEDULER_ENABLED`](./environment-variables.md#dealbot_pgboss_scheduler_enabled)
 - [`DEALBOT_RUN_MODE`](./environment-variables.md#dealbot_run_mode)
 - [`DEALS_PER_SP_PER_HOUR`](./environment-variables.md#deals_per_sp_per_hour), [`RETRIEVALS_PER_SP_PER_HOUR`](./environment-variables.md#retrievals_per_sp_per_hour), [`METRICS_PER_HOUR`](./environment-variables.md#metrics_per_hour)
