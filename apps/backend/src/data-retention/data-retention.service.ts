@@ -101,7 +101,6 @@ export class DataRetentionService {
 
         try {
           const providersFromSubgraph = await this.pdpSubgraphService.fetchProvidersWithDatasets({
-            blockNumber,
             addresses: batchAddresses,
           });
 
@@ -116,7 +115,7 @@ export class DataRetentionService {
                   ),
                 );
               }
-              return this.processProvider(provider, blockNumberBigInt, providerInfo);
+              return this.processProvider(provider, providerInfo);
             }),
           );
 
@@ -307,28 +306,21 @@ export class DataRetentionService {
    */
   private async processProvider(
     provider: ProviderDataSetResponse["providers"][number],
-    blockNumberBigInt: bigint,
     providerInfo: ProviderInfoEx,
   ): Promise<{ faultedPeriods: bigint; successPeriods: bigint }> {
-    const { address, totalFaultedPeriods, totalProvingPeriods, proofSets } = provider;
-    // Note: Query filters proofSets with nextDeadline_lt: $blockNumber, so all deadlines are in the past
-    const estimatedOverduePeriods = proofSets.reduce((acc, proofSet) => {
-      if (proofSet.maxProvingPeriod === 0n) {
-        return acc;
-      }
-      return acc + (blockNumberBigInt - (proofSet.nextDeadline + 1n)) / proofSet.maxProvingPeriod;
-    }, 0n);
-
-    const estimatedTotalFaulted = totalFaultedPeriods + estimatedOverduePeriods;
-    const estimatedTotalPeriods = totalProvingPeriods + estimatedOverduePeriods;
-    const estimatedTotalSuccess = estimatedTotalPeriods - estimatedTotalFaulted;
+    const { address, totalFaultedPeriods, totalProvingPeriods } = provider;
+    // Use only subgraph-confirmed totals. Speculative overdue estimation was removed
+    // because it systematically inflated fault counts: overdue periods were pessimistically
+    // counted as faults, but when the subgraph later confirmed them as successes, the
+    // negative delta guard silently discarded the correction.
+    const confirmedTotalSuccess = totalProvingPeriods - totalFaultedPeriods;
 
     const normalizedAddress = address.toLowerCase();
     const previous = this.providerCumulativeTotals.get(normalizedAddress);
 
     const newBaseline = {
-      faultedPeriods: estimatedTotalFaulted,
-      successPeriods: estimatedTotalSuccess,
+      faultedPeriods: totalFaultedPeriods,
+      successPeriods: confirmedTotalSuccess,
     };
 
     // First time seeing this provider (fresh deploy or newly added provider).
@@ -340,15 +332,15 @@ export class DataRetentionService {
         providerAddress: address,
         providerId: providerInfo.id,
         providerName: providerInfo.name,
-        faultedPeriods: estimatedTotalFaulted.toString(),
-        successPeriods: estimatedTotalSuccess.toString(),
+        faultedPeriods: totalFaultedPeriods.toString(),
+        successPeriods: confirmedTotalSuccess.toString(),
       });
       this.providerCumulativeTotals.set(normalizedAddress, newBaseline);
       return newBaseline;
     }
 
-    const faultedDelta = estimatedTotalFaulted - previous.faultedPeriods;
-    const successDelta = estimatedTotalSuccess - previous.successPeriods;
+    const faultedDelta = totalFaultedPeriods - previous.faultedPeriods;
+    const successDelta = confirmedTotalSuccess - previous.successPeriods;
 
     // Handle negative deltas: can occur due to chain reorgs, subgraph corrections, or data inconsistencies
     // Reset baseline to current values to prevent stalled metrics
