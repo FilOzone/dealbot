@@ -73,7 +73,6 @@ export class WalletSdkService implements OnModuleInit {
     this.warmStorageService = await WarmStorageService.create({
       account,
     });
-    // this.rpcProvider, warmStorageAddress);
     this.spRegistry = new SPRegistryService({
       client: synapse.client,
     });
