@@ -12,8 +12,8 @@ The Data Retention check monitors storage providers' ability to retain data over
 
 Every data retention check cycle, dealbot:
 
-1. Queries the [PDP subgraph](https://docs.filecoin.io/smart-contracts/advanced/proof-of-data-possession) for current challenge statistics
-2. Computes estimated faulted and successful proving periods for each provider
+1. Queries the [PDP subgraph](https://docs.filecoin.io/smart-contracts/advanced/proof-of-data-possession) for provider-level challenge statistics
+2. Computes confirmed successful proving periods from the subgraph totals
 3. Calculates deltas since the last poll
 4. Records metrics to track provider reliability over time
 
@@ -33,20 +33,13 @@ Dealbot polls The Graph API endpoint for PDP (Proof of Data Possession) data at 
 
 From `GET_SUBGRAPH_META` query:
 
-- `_meta.block.number` - Current block number (used as `currentBlock` in formulas for consistent snapshots)
+- `_meta.block.number` - Current indexed block number (recorded in baseline persistence for debugging)
 
 From `GET_PROVIDERS_WITH_DATASETS` query for each provider:
 
 - `address` - Provider address
-- `totalFaultedPeriods` - Cumulative count of faulted proving periods across all data sets
+- `totalFaultedPeriods` - Cumulative count of faulted proving periods across all data sets (maintained by the subgraph's `NextProvingPeriod` event handler)
 - `totalProvingPeriods` - Cumulative count of all proving periods (successful + faulted) across all data sets
-- For each `proofSets` where `nextDeadline < currentBlock`:
-  - `nextDeadline` - The most recent proving deadline (used as `lastDeadline` in formulas)
-  - `maxProvingPeriod` - Maximum number of epochs between two consecutive proofs (used in overdue period calculation)
-  - `totalFaultedPeriods` - Faulted periods for this specific data set
-  - `currentDeadlineCount` - Number of deadlines that have passed for this data set
-
-> **Note**: The subgraph query uses the field name `proofSets`, but this refers to "dataSets" in the current codebase. The terminology was updated from "proof set" to "data set" but the subgraph schema retains the old naming.
 
 Source: [`pdp-subgraph.service.ts` (`fetchSubgraphMeta`, `fetchProvidersWithDatasets`)](../../apps/backend/src/pdp-subgraph/pdp-subgraph.service.ts)
 
@@ -77,7 +70,7 @@ successDelta = confirmedTotalSuccess - previousTotalSuccess
 
 Source: [`data-retention.service.ts` (`processProvider`)](../../apps/backend/src/data-retention/data-retention.service.ts#L209)
 
-### 5. Record Metrics
+### 4. Record Metrics
 
 Only positive deltas increment Prometheus counters. This ensures metrics accurately reflect new challenges without duplication.
 
@@ -144,13 +137,6 @@ The data retention check processes all providers in a single scheduled poll rath
    - **Per-provider approach** (100 providers): 100 × (1 metadata + 1 provider request) = 200 total requests
 
    The batched approach stays well within rate limits and reduces infrastructure load.
-
-2. **Block consistency**: Batching ensures all providers are evaluated against the same `currentBlock` (indexed block height). Per-provider polling would read different block heights, leading to inconsistencies in:
-   - Cumulative total calculations
-   - Proving and faulted period computations
-   - Delta calculations across providers
-
-   This consistency is critical for accurate metrics and fair provider comparisons.
 
 Source: [`data-retention.service.ts` (MAX_PROVIDER_BATCH_LENGTH)](../../apps/backend/src/data-retention/data-retention.service.ts#L19)
 
@@ -223,10 +209,9 @@ flowchart TD
     CheckProviders -->|No| Skip
     CheckProviders -->|Yes| BatchLoop[Process Providers in Batches of 50]
 
-    BatchLoop --> FetchData[Fetch Provider Datasets from Subgraph]
+    BatchLoop --> FetchData[Fetch Provider Totals from Subgraph]
     FetchData --> ProcessParallel[Process Providers in Parallel]
-    ProcessParallel --> CalcOverdue[Calculate Overdue Periods]
-    CalcOverdue --> CalcTotals[Calculate Total Faulted/Success]
+    ProcessParallel --> CalcTotals[Compute Success from Confirmed Totals]
     CalcTotals --> CheckBaseline{Has Prior<br/>Baseline?}
     CheckBaseline -->|No| InitBaseline[Initialize Baseline. No Metric Emission]
     InitBaseline --> PersistBaseline
