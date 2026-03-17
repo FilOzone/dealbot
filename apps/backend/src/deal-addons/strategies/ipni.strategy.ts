@@ -123,7 +123,7 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
    * Handler triggered when upload is complete
    * Runs IPNI tracking and verification before continuing
    */
-  async onUploadComplete(deal: Deal, signal?: AbortSignal, logContext?: Partial<DealLogContext>): Promise<void> {
+  async onStored(deal: Deal, signal?: AbortSignal, logContext?: Partial<DealLogContext>): Promise<void> {
     if (!deal.storageProvider) {
       this.logger.warn({
         ...logContext,
@@ -271,7 +271,7 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
         this.discoverabilityMetrics.recordStatus(this.discoverabilityMetrics.buildLabelsForDeal(deal), failureStatus);
       }
 
-      // Re-throw to be caught by onUploadComplete handler
+      // Re-throw to be caught by onStored handler
       throw error;
     }
   }

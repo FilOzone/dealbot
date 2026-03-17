@@ -306,7 +306,7 @@ export class WalletSdkService implements OnModuleInit {
   async ensureWalletAllowances(): Promise<void> {
     const STORAGE_SIZE_GB = 100n;
     const { costs, transaction } = await this.storageManager.prepare({
-      dataSize: STORAGE_SIZE_GB * 1024n * 1024n * 1024n
+      dataSize: STORAGE_SIZE_GB * 1024n * 1024n * 1024n,
     });
 
     this.logger.log({

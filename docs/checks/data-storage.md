@@ -75,7 +75,7 @@ Source: [`ipni.strategy.ts` (`convertToCar`)](../../apps/backend/src/deal-addons
 
 1. Select a previously created dataset for this data storage check.
 2. **Uploads the CAR file** to the SP (adding a piece to the selected dataset). Callbacks track progress:
-   - `onUploadComplete` — SP confirms receipt (HTTP 2xx). Records the piece CID.
+   - `onStored` — SP confirms receipt (HTTP 2xx). Records the piece CID.
 
 Source: [`deal.service.ts` (`createDeal`)](../../apps/backend/src/deal/deal.service.ts#L100)
 

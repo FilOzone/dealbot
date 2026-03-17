@@ -290,8 +290,8 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
 
       deal.dataSetId = storage.dataSetId;
       deal.uploadStartTime = new Date();
-      let onUploadCompleteAddonsPromise: Promise<boolean> | null = null;
-      let uploadCompleteError: Error | undefined;
+      let onStoredAddonsPromise: Promise<boolean> | null = null;
+      let storedError: Error | undefined;
 
       const synapseService = { synapse, storage, pdpProvider } as unknown as SynapseServiceArg;
       const uploadResult = await executeUpload(synapseService, uploadPayload.carData, uploadPayload.rootCid, {
@@ -300,7 +300,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
         pieceMetadata: dealInput.synapseConfig.pieceMetadata,
         /**
          * do not do IPNI validation here, we need to call /pdp/piece/<pieceCid>/status to get other metrics.
-         * See `onUploadComplete` handler in deal-addons/strategies/ipni.strategy.ts for implementation.
+         * See `onStored` handler in deal-addons/strategies/ipni.strategy.ts for implementation.
          */
         ipniValidation: { enabled: false },
         onProgress: async (event) => {
@@ -326,11 +326,11 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
               this.dataStorageMetrics.observeIngestMs(providerLabels, deal.ingestLatencyMs);
               this.dataStorageMetrics.recordUploadStatus(providerLabels, "success");
               this.dataStorageMetrics.recordOnchainStatus(providerLabels, "pending");
-              onUploadCompleteAddonsPromise = this.dealAddonsService
-                .handleUploadComplete(deal, dealInput.appliedAddons, signal, dealLogContext)
+              onStoredAddonsPromise = this.dealAddonsService
+                .handleStored(deal, dealInput.appliedAddons, signal, dealLogContext)
                 .then(() => true)
                 .catch((error) => {
-                  uploadCompleteError = error;
+                  storedError = error;
                   return false;
                 });
               const ingestSeconds = deal.ingestLatencyMs / 1000;
@@ -407,12 +407,12 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
 
       this.updateDealWithUploadResult(deal, uploadResult, uploadPayload.carData.length);
 
-      // wait for onUploadComplete handlers to complete
-      if (onUploadCompleteAddonsPromise != null) {
-        const uploadCompleteOk = await onUploadCompleteAddonsPromise;
-        onUploadCompleteAddonsPromise = null;
-        if (!uploadCompleteOk) {
-          throw uploadCompleteError ?? new Error("Upload completion handlers failed");
+      // wait for onStored handlers to complete
+      if (onStoredAddonsPromise != null) {
+        const storedOk = await onStoredAddonsPromise;
+        onStoredAddonsPromise = null;
+        if (!storedOk) {
+          throw storedError ?? new Error("Upload completion handlers failed");
         }
         deal.dealConfirmedTime = new Date();
         if (deal.ipniVerifiedAt) {

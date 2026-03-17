@@ -123,7 +123,7 @@ describe("DealService", () => {
   const mockDealAddonsService = {
     preprocessDeal: vi.fn(),
     postProcessDeal: vi.fn(),
-    handleUploadComplete: vi.fn(),
+    handleStored: vi.fn(),
   };
   const mockRetrievalAddonsService = {
     testAllRetrievalMethods: vi.fn(),
@@ -178,7 +178,7 @@ describe("DealService", () => {
     walletSdkMock = mockWalletSdkService;
     dealAddonsMock = mockDealAddonsService;
     retrievalAddonsMock = mockRetrievalAddonsService;
-    dealAddonsMock.handleUploadComplete.mockImplementation(async (deal: Deal) => {
+    dealAddonsMock.handleStored.mockImplementation(async (deal: Deal) => {
       deal.ipniVerifiedAt = new Date();
     });
   });
@@ -540,7 +540,7 @@ describe("DealService", () => {
       });
 
       const ipniError = new Error("IPNI verification failed");
-      dealAddonsMock.handleUploadComplete.mockRejectedValueOnce(ipniError);
+      dealAddonsMock.handleStored.mockRejectedValueOnce(ipniError);
 
       await expect(
         service.createDeal(mockSynapseInstance, mockProviderInfo, mockDealInput, uploadPayload),
@@ -681,7 +681,7 @@ describe("DealService", () => {
     });
 
     it("sets dealLatencyMs even when IPNI verification is not enabled", async () => {
-      dealAddonsMock.handleUploadComplete.mockResolvedValueOnce(undefined);
+      dealAddonsMock.handleStored.mockResolvedValueOnce(undefined);
 
       const uploadPayload = {
         carData: Uint8Array.from([1, 2, 3]),
