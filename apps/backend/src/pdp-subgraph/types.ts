@@ -14,7 +14,7 @@ export type GraphQLResponse = {
 };
 
 /**
- * Options for fetching providers with datasets
+ * Options for fetching provider-level totals from the PDP subgraph
  */
 export type ProvidersWithDataSetsOptions = {
   addresses: string[];

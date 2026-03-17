@@ -68,7 +68,7 @@ successDelta = confirmedTotalSuccess - previousTotalSuccess
 
 **Baseline persistence**: Baselines are persisted to the `data_retention_baselines` database table after each successful poll. On service restart, baselines are reloaded from the database to prevent metric inflation.
 
-Source: [`data-retention.service.ts` (`processProvider`)](../../apps/backend/src/data-retention/data-retention.service.ts#L209)
+Source: [`data-retention.service.ts` (`processProvider`)](../../apps/backend/src/data-retention/data-retention.service.ts)
 
 ### 4. Record Metrics
 
@@ -76,7 +76,7 @@ Only positive deltas increment Prometheus counters. This ensures metrics accurat
 
 For very large deltas (exceeding `Number.MAX_SAFE_INTEGER`), increments are chunked to prevent precision loss.
 
-Source: [`data-retention.service.ts` (`safeIncrementCounter`)](../../apps/backend/src/data-retention/data-retention.service.ts#L267)
+Source: [`data-retention.service.ts` (`safeIncrementCounter`)](../../apps/backend/src/data-retention/data-retention.service.ts)
 
 ## Baseline Persistence
 
@@ -120,7 +120,7 @@ To prevent unbounded memory growth, dealbot periodically removes baseline data f
 
 This prevents metric inflation (double-counting) if a provider temporarily goes offline and returns later.
 
-Source: [`data-retention.service.ts` (`cleanupStaleProviders`)](../../apps/backend/src/data-retention/data-retention.service.ts#L140)
+Source: [`data-retention.service.ts` (`cleanupStaleProviders`)](../../apps/backend/src/data-retention/data-retention.service.ts)
 
 ## Batching and Rate Limiting
 
@@ -138,7 +138,7 @@ The data retention check processes all providers in a single scheduled poll rath
 
    The batched approach stays well within rate limits and reduces infrastructure load.
 
-Source: [`data-retention.service.ts` (MAX_PROVIDER_BATCH_LENGTH)](../../apps/backend/src/data-retention/data-retention.service.ts#L19)
+Source: [`data-retention.service.ts` (`MAX_PROVIDER_BATCH_LENGTH`)](../../apps/backend/src/data-retention/data-retention.service.ts)
 
 ### Subgraph Rate Limiting
 
@@ -150,7 +150,7 @@ The PDP subgraph service enforces Goldsky's public endpoint rate limits:
 
 Rate limiting is enforced client-side to prevent 429 errors.
 
-Source: [`pdp-subgraph.service.ts` (`enforceRateLimit`)](../../apps/backend/src/pdp-subgraph/pdp-subgraph.service.ts#L242)
+Source: [`pdp-subgraph.service.ts` (`enforceRateLimit`)](../../apps/backend/src/pdp-subgraph/pdp-subgraph.service.ts)
 
 ## Metrics Recorded
 
