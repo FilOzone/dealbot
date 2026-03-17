@@ -101,7 +101,6 @@ export class DataRetentionService {
 
         try {
           const providersFromSubgraph = await this.pdpSubgraphService.fetchProvidersWithDatasets({
-            blockNumber,
             addresses: batchAddresses,
           });
 

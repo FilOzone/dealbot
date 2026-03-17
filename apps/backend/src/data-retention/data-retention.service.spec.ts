@@ -20,14 +20,6 @@ const makeProvider = (overrides: Partial<ProviderEntry> = {}): ProviderEntry => 
   address: PROVIDER_A,
   totalFaultedPeriods: 10n,
   totalProvingPeriods: 100n,
-  proofSets: [
-    {
-      totalFaultedPeriods: 2n,
-      currentDeadlineCount: 5n,
-      nextDeadline: 900n,
-      maxProvingPeriod: 100n,
-    },
-  ],
   ...overrides,
 });
 
@@ -151,7 +143,6 @@ describe("DataRetentionService", () => {
 
     expect(pdpSubgraphServiceMock.fetchSubgraphMeta).toHaveBeenCalled();
     expect(pdpSubgraphServiceMock.fetchProvidersWithDatasets).toHaveBeenCalledWith({
-      blockNumber: 1200,
       addresses: [PROVIDER_A, PROVIDER_B],
     });
 
@@ -244,7 +235,6 @@ describe("DataRetentionService", () => {
       { providerAddress: PROVIDER_A, faultedPeriods: "0", successPeriods: "0", lastBlockNumber: "1000" },
     ]);
 
-    // proofSets content is irrelevant — overdue estimation was removed
     const provider = makeProvider();
     pdpSubgraphServiceMock.fetchProvidersWithDatasets.mockResolvedValueOnce([provider]);
 
@@ -276,13 +266,13 @@ describe("DataRetentionService", () => {
     expect(counterMock.labels).not.toHaveBeenCalled();
   });
 
-  it("handles provider with empty proofSets", async () => {
+  it("emits both faulted and success counters from subgraph totals", async () => {
     // Seed baseline so we can verify the computed values via deltas
     mockBaselineRepository.find.mockResolvedValueOnce([
       { providerAddress: PROVIDER_A, faultedPeriods: "0", successPeriods: "0", lastBlockNumber: "1000" },
     ]);
 
-    const provider = makeProvider({ proofSets: [] });
+    const provider = makeProvider();
     pdpSubgraphServiceMock.fetchProvidersWithDatasets.mockResolvedValueOnce([provider]);
 
     await service.pollDataRetention();
@@ -382,7 +372,7 @@ describe("DataRetentionService", () => {
     expect(counterMock.inc).toHaveBeenCalled();
   });
 
-  it("ignores proofSets and uses only subgraph-confirmed totals", async () => {
+  it("uses only subgraph-confirmed provider-level totals", async () => {
     // Seed baseline at zero so subgraph totals are visible as delta
     mockBaselineRepository.find.mockResolvedValueOnce([
       { providerAddress: PROVIDER_A, faultedPeriods: "0", successPeriods: "0", lastBlockNumber: "1000" },
@@ -391,27 +381,12 @@ describe("DataRetentionService", () => {
     const provider = makeProvider({
       totalFaultedPeriods: 5n,
       totalProvingPeriods: 50n,
-      proofSets: [
-        {
-          totalFaultedPeriods: 0n,
-          currentDeadlineCount: 1n,
-          nextDeadline: 1000n,
-          maxProvingPeriod: 100n,
-        },
-        {
-          totalFaultedPeriods: 0n,
-          currentDeadlineCount: 1n,
-          nextDeadline: 800n,
-          maxProvingPeriod: 200n,
-        },
-      ],
     });
     pdpSubgraphServiceMock.fetchProvidersWithDatasets.mockResolvedValueOnce([provider]);
 
     await service.pollDataRetention();
 
     // Uses subgraph totals directly: faulted=5, success=50-5=45
-    // proofSets are not used for overdue estimation
     const incCalls = counterMock.inc.mock.calls;
     expect(incCalls).toEqual(expect.arrayContaining([[5], [45]]));
   });
@@ -433,7 +408,6 @@ describe("DataRetentionService", () => {
     // Should be called twice: once for first 50, once for remaining 25
     expect(pdpSubgraphServiceMock.fetchProvidersWithDatasets).toHaveBeenCalledTimes(2);
     expect(pdpSubgraphServiceMock.fetchProvidersWithDatasets).toHaveBeenNthCalledWith(1, {
-      blockNumber: 1200,
       addresses: expect.arrayContaining([expect.any(String)]),
     });
     expect(pdpSubgraphServiceMock.fetchProvidersWithDatasets.mock.calls[0][0].addresses).toHaveLength(50);
