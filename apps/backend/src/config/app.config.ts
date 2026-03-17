@@ -50,7 +50,7 @@ export const configValidationSchema = Joi.object({
 
   // Jobs
   // Per-hour limits are guardrails to avoid excessive background load.
-  METRICS_PER_HOUR: Joi.number().min(0.001).max(3).default(2),
+  METRICS_PER_HOUR: Joi.number().min(0.001).max(3).default(0.1),
   DEALS_PER_SP_PER_HOUR: Joi.number().min(0.001).max(20).default(4),
   DATASET_CREATIONS_PER_SP_PER_HOUR: Joi.number().min(0.001).max(20).default(1),
   RETRIEVALS_PER_SP_PER_HOUR: Joi.number().min(0.001).max(20).default(2),
@@ -278,7 +278,7 @@ export function loadConfig(): IConfig {
       maintenanceWindowMinutes: Number.parseInt(process.env.DEALBOT_MAINTENANCE_WINDOW_MINUTES || "20", 10),
     },
     jobs: {
-      metricsPerHour: Number.parseFloat(process.env.METRICS_PER_HOUR || "2"),
+      metricsPerHour: Number.parseFloat(process.env.METRICS_PER_HOUR || "0.1"),
       dealsPerSpPerHour: Number.parseFloat(process.env.DEALS_PER_SP_PER_HOUR || "4"),
       retrievalsPerSpPerHour: Number.parseFloat(process.env.RETRIEVALS_PER_SP_PER_HOUR || "2"),
       dataSetCreationsPerSpPerHour: Number.parseFloat(process.env.DATASET_CREATIONS_PER_SP_PER_HOUR || "1"),

@@ -94,6 +94,10 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
    * starts pg-boss, registers workers, and starts the scheduler polling loop.
    */
   async onModuleInit(): Promise<void> {
+    if (!this.isPgbossEnabled()) {
+      return;
+    }
+
     this.logger.log({
       event: "pgboss_initialization",
       message: "Starting pg-boss initialization",
@@ -178,6 +182,16 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       await this.boss.stop();
       this.boss = null;
     }
+  }
+
+  private isPgbossEnabled(): boolean {
+    const runMode = this.configService.get("app")?.runMode ?? "both";
+    const pgbossSchedulerEnabled = this.configService.get("jobs")?.pgbossSchedulerEnabled ?? true;
+
+    const workersEnabled = runMode === "worker" || runMode === "both";
+    const schedulerEnabled = (runMode === "api" || runMode === "both") && pgbossSchedulerEnabled;
+
+    return workersEnabled || schedulerEnabled;
   }
 
   private schedulerPollMs(): number {
