@@ -735,11 +735,6 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
           message: "IPNI verification time exceeded 5s threshold",
           ipniVerifyMs: ipniResult.durationMs,
           ipniVerifiedAt: verifiedTimestamp.toISOString(),
-          pieceCid: deal.pieceCid,
-          ipfsRootCID: deal.metadata[ServiceType.IPFS_PIN]?.rootCID,
-          providerId: deal.storageProvider?.providerId,
-          providerAddress: deal.spAddress,
-          providerName: deal.storageProvider?.name,
           verifiedCids: ipniResult.verified,
           unverifiedCids: ipniResult.unverified,
         });
