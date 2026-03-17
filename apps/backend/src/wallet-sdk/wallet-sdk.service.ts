@@ -155,7 +155,6 @@ export class WalletSdkService implements OnModuleInit {
       this.activeProviderAddresses.clear();
       this.approvedProviderAddresses.clear();
       const extendedProviders = validProviders.map((info) => {
-        // In order to support ipniIpfs, the provider must have PDP product
         const supportsIpniIpfs = !!info.pdp.ipniIpfs;
         const isApproved = approvedIds.includes(info.id);
 
