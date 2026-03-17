@@ -50,35 +50,23 @@ From `GET_PROVIDERS_WITH_DATASETS` query for each provider:
 
 Source: [`pdp-subgraph.service.ts` (`fetchSubgraphMeta`, `fetchProvidersWithDatasets`)](../../apps/backend/src/pdp-subgraph/pdp-subgraph.service.ts)
 
-### 2. Estimate Overdue Periods
+### 2. Compute Challenge Totals
 
-For each provider's data sets, dealbot estimates how many proving periods have elapsed since the last deadline:
-
-```
-estimatedOverduePeriods = (currentBlock - (lastDeadline + 1)) / maxProvingPeriod
-```
-
-This calculation accounts for challenges that may have been missed between the last recorded deadline and the current block.
-
-Source: [`data-retention.service.ts` (`processProvider`)](../../apps/backend/src/data-retention/data-retention.service.ts#L209)
-
-### 3. Compute Challenge Totals
-
-Dealbot combines on-chain recorded totals with estimated overdue periods:
+Dealbot uses the subgraph-confirmed totals directly:
 
 ```
-estimatedTotalFaulted = totalFaultedPeriods + estimatedOverduePeriods
-estimatedTotalPeriods = totalProvingPeriods + estimatedOverduePeriods
-estimatedTotalSuccess = estimatedTotalPeriods - estimatedTotalFaulted
+confirmedTotalSuccess = totalProvingPeriods - totalFaultedPeriods
 ```
 
-### 4. Calculate Deltas
+> **Note:** An earlier implementation estimated overdue periods (periods elapsed since the last recorded deadline) and pessimistically counted them as faults. This was removed because the speculative estimation systematically inflated fault rates — overdue periods were counted as faults immediately, but when the subgraph later confirmed them as successes, the correction was discarded by the negative-delta guard.
+
+### 3. Calculate Deltas
 
 To avoid double-counting, dealbot maintains a baseline of cumulative totals for each provider. On each poll, it computes the delta (change) since the last poll:
 
 ```
-faultedDelta = currentTotalFaulted - previousTotalFaulted
-successDelta = currentTotalSuccess - previousTotalSuccess
+faultedDelta = totalFaultedPeriods - previousTotalFaulted
+successDelta = confirmedTotalSuccess - previousTotalSuccess
 ```
 
 **First-seen provider handling**: When a provider has no prior baseline (fresh deploy or newly added provider), dealbot initializes the baseline to the current cumulative totals **without emitting any counters**. This prevents dumping the provider's full cumulative history as a single metric spike. Metrics for that provider will begin accumulating from the next poll onward.
