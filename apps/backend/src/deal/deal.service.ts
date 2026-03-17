@@ -298,6 +298,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
         logger: filecoinPinLogger,
         contextId: providerAddress,
         pieceMetadata: dealInput.synapseConfig.pieceMetadata,
+        count: 1,
         /**
          * do not do IPNI validation here, we need to call /pdp/piece/<pieceCid>/status to get other metrics.
          * See `onStored` handler in deal-addons/strategies/ipni.strategy.ts for implementation.
@@ -610,6 +611,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
         executeUpload(synapseService, carResult.carData, carResult.rootCID, {
           logger: filecoinPinLogger,
           contextId: providerAddress,
+          count: 1,
           pieceMetadata: {},
           ipniValidation: { enabled: false },
           onProgress: async (event) => {
