@@ -30,7 +30,8 @@ describe("RetrievalService timeouts", () => {
   };
   const mockConfigService = {
     get: vi.fn((key: string) => {
-      if (key === "jobs") return { mode: "cron" };
+      if (key === "app") return { runMode: "api" };
+      if (key === "jobs") return { pgbossSchedulerEnabled: false };
       if (key === "dataset") return { randomDatasetSizes: [10] };
       if (key === "timeouts") return { ipniVerificationTimeoutMs: 10_000, ipniVerificationPollingMs: 2_000 };
       return undefined;

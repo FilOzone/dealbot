@@ -337,7 +337,13 @@ export class RetrievalService {
   // ============================================================================
 
   private isPgBossMode(): boolean {
-    return (this.configService.get("jobs")?.mode ?? "cron") === "pgboss";
+    const runMode = this.configService.get("app", { infer: true }).runMode;
+    const pgbossSchedulerEnabled = this.configService.get("jobs", { infer: true }).pgbossSchedulerEnabled;
+
+    const workersEnabled = runMode === "worker" || runMode === "both";
+    const schedulerEnabled = (runMode === "api" || runMode === "both") && pgbossSchedulerEnabled;
+
+    return workersEnabled || schedulerEnabled;
   }
 
   private getRandomDatasetSizes(): number[] {
