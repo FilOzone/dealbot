@@ -15,7 +15,7 @@ import { DealService } from "../deal/deal.service.js";
 import { MetricsSchedulerService } from "../metrics/services/metrics-scheduler.service.js";
 import { RetrievalService } from "../retrieval/retrieval.service.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
-import { provisionDataSets } from "./data-set-creation.handler.js";
+import { provisionNextMissingDataSet } from "./data-set-creation.handler.js";
 import {
   DATA_RETENTION_POLL_QUEUE,
   METRICS_CLEANUP_QUEUE,
@@ -94,7 +94,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
    * starts pg-boss, registers workers, and starts the scheduler polling loop.
    */
   async onModuleInit(): Promise<void> {
-    if (!this.isPgBossEnabled()) {
+    if (!this.isPgbossEnabled()) {
       return;
     }
 
@@ -184,8 +184,14 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     }
   }
 
-  private isPgBossEnabled(): boolean {
-    return (this.configService.get("jobs")?.mode ?? "cron") === "pgboss";
+  private isPgbossEnabled(): boolean {
+    const runMode = this.configService.get("app")?.runMode ?? "both";
+    const pgbossSchedulerEnabled = this.configService.get("jobs")?.pgbossSchedulerEnabled ?? true;
+
+    const workersEnabled = runMode === "worker" || runMode === "both";
+    const schedulerEnabled = (runMode === "api" || runMode === "both") && pgbossSchedulerEnabled;
+
+    return workersEnabled || schedulerEnabled;
   }
 
   private schedulerPollMs(): number {
@@ -668,7 +674,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     await this.recordJobExecution("data_set_creation", async () => {
       const dataSetLogContext = await this.resolveProviderJobContext(spAddress, job.id);
       try {
-        await provisionDataSets(
+        await provisionNextMissingDataSet(
           { dealService: this.dealService, logger: this.logger },
           spAddress,
           minDataSets,
@@ -798,27 +804,16 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     dataRetentionPollIntervalSeconds: number;
     providersRefreshIntervalSeconds: number;
   } {
-    const scheduling = this.configService.get("scheduling");
-    const jobsConfig = this.configService.get("jobs");
+    const jobsConfig = this.configService.get("jobs", { infer: true });
+    const scheduling = this.configService.get("scheduling", { infer: true });
 
-    const defaultDealsPerHour = 3600 / scheduling.dealIntervalSeconds;
-    const defaultRetrievalsPerHour = 3600 / scheduling.retrievalIntervalSeconds;
-    const defaultMetricsPerHour = 2;
-    const defaultDataSetCreationsPerHour = 1;
     // Keep cleanup weekly to match legacy cron schedule unless explicitly changed in code.
     const defaultMetricsCleanupIntervalSeconds = 7 * 24 * 3600;
-    const providersRefreshIntervalSeconds = 4 * 3600;
 
-    const dealsPerHourRaw = jobsConfig?.dealsPerSpPerHour ?? defaultDealsPerHour;
-    const retrievalsPerHourRaw = jobsConfig?.retrievalsPerSpPerHour ?? defaultRetrievalsPerHour;
-    const metricsPerHourRaw = jobsConfig?.metricsPerHour ?? defaultMetricsPerHour;
-    const dataSetCreationsPerHourRaw = jobsConfig?.dataSetCreationsPerSpPerHour ?? defaultDataSetCreationsPerHour;
-
-    const dealsPerHour = dealsPerHourRaw > 0 ? dealsPerHourRaw : defaultDealsPerHour;
-    const retrievalsPerHour = retrievalsPerHourRaw > 0 ? retrievalsPerHourRaw : defaultRetrievalsPerHour;
-    const metricsPerHour = metricsPerHourRaw > 0 ? metricsPerHourRaw : defaultMetricsPerHour;
-    const dataSetCreationsPerHour =
-      dataSetCreationsPerHourRaw > 0 ? dataSetCreationsPerHourRaw : defaultDataSetCreationsPerHour;
+    const dealsPerHour = jobsConfig.dealsPerSpPerHour;
+    const retrievalsPerHour = jobsConfig.retrievalsPerSpPerHour;
+    const metricsPerHour = jobsConfig.metricsPerHour;
+    const dataSetCreationsPerHour = jobsConfig.dataSetCreationsPerSpPerHour;
 
     const dealIntervalSeconds = Math.max(1, Math.round(3600 / dealsPerHour));
     const retrievalIntervalSeconds = Math.max(1, Math.round(3600 / retrievalsPerHour));
@@ -826,6 +821,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     const dataSetCreationIntervalSeconds = Math.max(1, Math.round(3600 / dataSetCreationsPerHour));
     const metricsCleanupIntervalSeconds = defaultMetricsCleanupIntervalSeconds;
     const dataRetentionPollIntervalSeconds = scheduling.dataRetentionPollIntervalSeconds;
+    const providersRefreshIntervalSeconds = scheduling.providersRefreshIntervalSeconds;
 
     return {
       dealIntervalSeconds,

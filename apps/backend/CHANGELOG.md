@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.0.2](https://github.com/FilOzone/dealbot/compare/backend-v1.0.1...backend-v1.0.2) (2026-03-13)
+
+
+### Bug Fixes
+
+* convert all logs to structured format ([#354](https://github.com/FilOzone/dealbot/issues/354)) ([da2c4ff](https://github.com/FilOzone/dealbot/commit/da2c4ffd269ddfc2b8a224a96d632d35d20071fe))
+* emit provider name prom labels ([#359](https://github.com/FilOzone/dealbot/issues/359)) ([f5ba632](https://github.com/FilOzone/dealbot/commit/f5ba632852a20848a2e445164c2467a9a93464c9))
+* log provider name alongside id ([#358](https://github.com/FilOzone/dealbot/issues/358)) ([4ec58c4](https://github.com/FilOzone/dealbot/commit/4ec58c45458b47a717ef34fabccdb7d74ee0bf7c))
+* more structured logs ([#352](https://github.com/FilOzone/dealbot/issues/352)) ([ac1bdaf](https://github.com/FilOzone/dealbot/commit/ac1bdafef28f88fb48fa463f6cc7f082b4695efd))
+* more structured logs, more details ([#353](https://github.com/FilOzone/dealbot/issues/353)) ([9f74574](https://github.com/FilOzone/dealbot/commit/9f74574ffbd441022380d1716001dde2aef4c717))
+* skip retrieval checks for inactive providers ([#356](https://github.com/FilOzone/dealbot/issues/356)) ([1d51d0a](https://github.com/FilOzone/dealbot/commit/1d51d0ad067b2d8a7965762fa7b5f90ebd51e192))
+
 ## [1.0.1](https://github.com/FilOzone/dealbot/compare/backend-v1.0.0...backend-v1.0.1) (2026-03-12)
 
 

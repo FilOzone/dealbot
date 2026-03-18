@@ -10,7 +10,6 @@ import { JobsModule } from "./jobs/jobs.module.js";
 import { MetricsModule } from "./metrics/metrics.module.js";
 import { MetricsPrometheusModule } from "./metrics-prometheus/metrics-prometheus.module.js";
 import { RetrievalModule } from "./retrieval/retrieval.module.js";
-import { SchedulerModule } from "./scheduler/scheduler.module.js";
 
 @Module({
   imports: [
@@ -22,7 +21,6 @@ import { SchedulerModule } from "./scheduler/scheduler.module.js";
     DatabaseModule,
     MetricsPrometheusModule,
     JobsModule,
-    SchedulerModule,
     DealModule,
     RetrievalModule,
     DataSourceModule,

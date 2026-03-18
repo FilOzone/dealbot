@@ -12,7 +12,6 @@ export const configValidationSchema = Joi.object({
   DEALBOT_METRICS_PORT: Joi.number().default(9090),
   DEALBOT_METRICS_HOST: Joi.string().default("0.0.0.0"),
   ENABLE_DEV_MODE: Joi.boolean().default(false),
-  DEALBOT_JOBS_MODE: Joi.string().valid("cron", "pgboss").default("cron"),
 
   // Database
   DATABASE_HOST: Joi.string().required(),
@@ -33,12 +32,8 @@ export const configValidationSchema = Joi.object({
   PDP_SUBGRAPH_ENDPOINT: Joi.string().uri().optional().allow(""),
 
   // Scheduling
-  DEAL_INTERVAL_SECONDS: Joi.number().default(30),
-  RETRIEVAL_INTERVAL_SECONDS: Joi.number().min(60).default(60),
+  PROVIDERS_REFRESH_INTERVAL_SECONDS: Joi.number().default(4 * 3600),
   DATA_RETENTION_POLL_INTERVAL_SECONDS: Joi.number().default(3600),
-  DEAL_START_OFFSET_SECONDS: Joi.number().default(0),
-  RETRIEVAL_START_OFFSET_SECONDS: Joi.number().default(600),
-  METRICS_START_OFFSET_SECONDS: Joi.number().default(900),
   DEALBOT_MAINTENANCE_WINDOWS_UTC: Joi.string()
     .default("07:00,22:00")
     .custom((value, helpers) => {
@@ -52,11 +47,13 @@ export const configValidationSchema = Joi.object({
       return value;
     }),
   DEALBOT_MAINTENANCE_WINDOW_MINUTES: Joi.number().min(20).max(360).default(20),
+
+  // Jobs
   // Per-hour limits are guardrails to avoid excessive background load.
-  METRICS_PER_HOUR: Joi.number().min(0.001).max(3).optional(),
-  DEALS_PER_SP_PER_HOUR: Joi.number().min(0.001).max(20).optional(),
+  METRICS_PER_HOUR: Joi.number().min(0.001).max(3).default(0.1),
+  DEALS_PER_SP_PER_HOUR: Joi.number().min(0.001).max(20).default(4),
   DATASET_CREATIONS_PER_SP_PER_HOUR: Joi.number().min(0.001).max(20).default(1),
-  RETRIEVALS_PER_SP_PER_HOUR: Joi.number().min(0.001).max(20).optional(),
+  RETRIEVALS_PER_SP_PER_HOUR: Joi.number().min(0.001).max(20).default(2),
   // Polling interval for pg-boss scheduler (lower = more responsive, higher = less DB chatter).
   JOB_SCHEDULER_POLL_SECONDS: Joi.number().min(60).default(300),
   JOB_WORKER_POLL_SECONDS: Joi.number().min(5).default(60),
@@ -114,99 +111,73 @@ export interface IBlockchainConfig {
 }
 
 export interface ISchedulingConfig {
-  dealIntervalSeconds: number;
-  retrievalIntervalSeconds: number;
+  providersRefreshIntervalSeconds: number;
   dataRetentionPollIntervalSeconds: number;
-  dealStartOffsetSeconds: number;
-  retrievalStartOffsetSeconds: number;
-  metricsStartOffsetSeconds: number;
   maintenanceWindowsUtc: string[];
   maintenanceWindowMinutes: number;
 }
 
 export interface IJobsConfig {
   /**
-   * Selects the job execution engine.
-   *
-   * - `cron`: legacy in-process scheduler (default).
-   * - `pgboss`: DB-backed scheduler with durable queues and catch-up behavior.
-   *
-   * Only used when `DEALBOT_JOBS_MODE=pgboss`.
-   */
-  mode: "cron" | "pgboss";
-  /**
    * Target number of metrics runs per hour.
    *
    * Increasing this raises DB load due to more frequent materialized view refreshes.
-   * Only used when `DEALBOT_JOBS_MODE=pgboss`.
    */
-  metricsPerHour?: number;
+  metricsPerHour: number;
   /**
    * Target number of deal creations per storage provider per hour.
    *
    * Increasing this increases on-chain activity and dataset uploads.
-   * Only used when `DEALBOT_JOBS_MODE=pgboss`.
    */
-  dealsPerSpPerHour?: number;
+  dealsPerSpPerHour: number;
   /**
    * Target number of retrieval tests per storage provider per hour.
    *
    * Increasing this increases retrieval load against providers and DB writes.
-   * Only used when `DEALBOT_JOBS_MODE=pgboss`.
    */
-  retrievalsPerSpPerHour?: number;
+  retrievalsPerSpPerHour: number;
   /**
    * Target number of dataset creation runs per storage provider per hour.
-   *
-   * Only used when `DEALBOT_JOBS_MODE=pgboss`.
    */
-  dataSetCreationsPerSpPerHour?: number;
+  dataSetCreationsPerSpPerHour: number;
   /**
    * How often the scheduler polls Postgres for due jobs (seconds).
    *
    * Lower values reduce scheduling latency but increase DB chatter.
-   * Only used when `DEALBOT_JOBS_MODE=pgboss`.
    */
   schedulerPollSeconds: number;
   /**
    * How often workers check for new jobs (seconds).
    *
    * Lower values reduce job pickup latency but increase DB chatter.
-   * Only used when `DEALBOT_JOBS_MODE=pgboss`.
    */
   workerPollSeconds: number;
   /**
    * Per-instance pg-boss worker concurrency for the `sp.work` queue.
-   *
-   * Only used when `DEALBOT_JOBS_MODE=pgboss`.
    */
   pgbossLocalConcurrency: number;
   /**
    * Enables the pg-boss scheduler loop (enqueueing due jobs).
    *
    * Set to false to run "worker-only" pods that only process existing jobs.
-   * Only used when `DEALBOT_JOBS_MODE=pgboss`.
    */
   pgbossSchedulerEnabled: boolean;
   /**
    * Maximum number of pg-boss connections per instance.
    *
    * Helpful when using a session-mode pooler with a low pool_size (e.g. Supabase).
-   * Only used when `DEALBOT_JOBS_MODE=pgboss`.
    */
   pgbossPoolMax: number;
   /**
    * Maximum number of jobs to enqueue per schedule row per poll.
    *
    * Prevents large backlogs from flooding workers after downtime.
-   * Only used when `DEALBOT_JOBS_MODE=pgboss`.
    */
   catchupMaxEnqueue: number;
   /**
    * Per-instance phase offset (seconds) applied when initializing schedules.
    *
    * Use this to stagger multiple dealbot deployments that are not sharing a DB.
-   * Only used when `DEALBOT_JOBS_MODE=pgboss`.
    */
   schedulePhaseSeconds: number;
   /**
@@ -219,21 +190,18 @@ export interface IJobsConfig {
    * Maximum runtime (seconds) for deal jobs before forced abort.
    *
    * Uses AbortController to actively cancel job execution.
-   * Only used when `DEALBOT_JOBS_MODE=pgboss`.
    */
   dealJobTimeoutSeconds: number;
   /**
    * Maximum runtime (seconds) for data-set creation jobs before forced abort.
    *
    * Uses AbortController to actively cancel job execution.
-   * Only used when `DEALBOT_JOBS_MODE=pgboss`.
    */
   dataSetCreationJobTimeoutSeconds: number;
   /**
    * Maximum runtime (seconds) for retrieval jobs before forced abort.
    *
    * Uses AbortController to actively cancel job execution.
-   * Only used when `DEALBOT_JOBS_MODE=pgboss`.
    */
   retrievalJobTimeoutSeconds: number;
 }
@@ -301,12 +269,8 @@ export function loadConfig(): IConfig {
       pdpSubgraphEndpoint: process.env.PDP_SUBGRAPH_ENDPOINT || "",
     },
     scheduling: {
-      dealIntervalSeconds: Number.parseInt(process.env.DEAL_INTERVAL_SECONDS || "30", 10),
-      retrievalIntervalSeconds: Number.parseInt(process.env.RETRIEVAL_INTERVAL_SECONDS || "60", 10),
+      providersRefreshIntervalSeconds: Number.parseInt(process.env.PROVIDERS_REFRESH_INTERVAL_SECONDS || "14400", 10),
       dataRetentionPollIntervalSeconds: Number.parseInt(process.env.DATA_RETENTION_POLL_INTERVAL_SECONDS || "3600", 10),
-      dealStartOffsetSeconds: Number.parseInt(process.env.DEAL_START_OFFSET_SECONDS || "0", 10),
-      retrievalStartOffsetSeconds: Number.parseInt(process.env.RETRIEVAL_START_OFFSET_SECONDS || "600", 10),
-      metricsStartOffsetSeconds: Number.parseInt(process.env.METRICS_START_OFFSET_SECONDS || "900", 10),
       maintenanceWindowsUtc: (process.env.DEALBOT_MAINTENANCE_WINDOWS_UTC || "07:00,22:00")
         .split(",")
         .map((value) => value.trim())
@@ -314,14 +278,9 @@ export function loadConfig(): IConfig {
       maintenanceWindowMinutes: Number.parseInt(process.env.DEALBOT_MAINTENANCE_WINDOW_MINUTES || "20", 10),
     },
     jobs: {
-      mode: (process.env.DEALBOT_JOBS_MODE || "cron") as "cron" | "pgboss",
-      metricsPerHour: process.env.METRICS_PER_HOUR ? Number.parseFloat(process.env.METRICS_PER_HOUR) : undefined,
-      dealsPerSpPerHour: process.env.DEALS_PER_SP_PER_HOUR
-        ? Number.parseFloat(process.env.DEALS_PER_SP_PER_HOUR)
-        : undefined,
-      retrievalsPerSpPerHour: process.env.RETRIEVALS_PER_SP_PER_HOUR
-        ? Number.parseFloat(process.env.RETRIEVALS_PER_SP_PER_HOUR)
-        : undefined,
+      metricsPerHour: Number.parseFloat(process.env.METRICS_PER_HOUR || "0.1"),
+      dealsPerSpPerHour: Number.parseFloat(process.env.DEALS_PER_SP_PER_HOUR || "4"),
+      retrievalsPerSpPerHour: Number.parseFloat(process.env.RETRIEVALS_PER_SP_PER_HOUR || "2"),
       dataSetCreationsPerSpPerHour: Number.parseFloat(process.env.DATASET_CREATIONS_PER_SP_PER_HOUR || "1"),
       schedulerPollSeconds: Number.parseInt(process.env.JOB_SCHEDULER_POLL_SECONDS || "300", 10),
       workerPollSeconds: Number.parseInt(process.env.JOB_WORKER_POLL_SECONDS || "60", 10),

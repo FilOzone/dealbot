@@ -12,8 +12,8 @@ The Data Retention check monitors storage providers' ability to retain data over
 
 Every data retention check cycle, dealbot:
 
-1. Queries the [PDP subgraph](https://docs.filecoin.io/smart-contracts/advanced/proof-of-data-possession) for current challenge statistics
-2. Computes estimated faulted and successful proving periods for each provider
+1. Queries the [PDP subgraph](https://docs.filecoin.io/smart-contracts/advanced/proof-of-data-possession) for provider-level challenge statistics
+2. Computes confirmed successful proving periods from the subgraph totals
 3. Calculates deltas since the last poll
 4. Records metrics to track provider reliability over time
 
@@ -33,52 +33,33 @@ Dealbot polls The Graph API endpoint for PDP (Proof of Data Possession) data at 
 
 From `GET_SUBGRAPH_META` query:
 
-- `_meta.block.number` - Current block number (used as `currentBlock` in formulas for consistent snapshots)
+- `_meta.block.number` - Current indexed block number (recorded in baseline persistence for debugging)
 
 From `GET_PROVIDERS_WITH_DATASETS` query for each provider:
 
 - `address` - Provider address
-- `totalFaultedPeriods` - Cumulative count of faulted proving periods across all data sets
+- `totalFaultedPeriods` - Cumulative count of faulted proving periods across all data sets (maintained by the subgraph's `NextProvingPeriod` event handler)
 - `totalProvingPeriods` - Cumulative count of all proving periods (successful + faulted) across all data sets
-- For each `proofSets` where `nextDeadline < currentBlock`:
-  - `nextDeadline` - The most recent proving deadline (used as `lastDeadline` in formulas)
-  - `maxProvingPeriod` - Maximum number of epochs between two consecutive proofs (used in overdue period calculation)
-  - `totalFaultedPeriods` - Faulted periods for this specific data set
-  - `currentDeadlineCount` - Number of deadlines that have passed for this data set
-
-> **Note**: The subgraph query uses the field name `proofSets`, but this refers to "dataSets" in the current codebase. The terminology was updated from "proof set" to "data set" but the subgraph schema retains the old naming.
 
 Source: [`pdp-subgraph.service.ts` (`fetchSubgraphMeta`, `fetchProvidersWithDatasets`)](../../apps/backend/src/pdp-subgraph/pdp-subgraph.service.ts)
 
-### 2. Estimate Overdue Periods
+### 2. Compute Challenge Totals
 
-For each provider's data sets, dealbot estimates how many proving periods have elapsed since the last deadline:
-
-```
-estimatedOverduePeriods = (currentBlock - (lastDeadline + 1)) / maxProvingPeriod
-```
-
-This calculation accounts for challenges that may have been missed between the last recorded deadline and the current block.
-
-Source: [`data-retention.service.ts` (`processProvider`)](../../apps/backend/src/data-retention/data-retention.service.ts#L209)
-
-### 3. Compute Challenge Totals
-
-Dealbot combines on-chain recorded totals with estimated overdue periods:
+Dealbot uses the subgraph-confirmed totals directly:
 
 ```
-estimatedTotalFaulted = totalFaultedPeriods + estimatedOverduePeriods
-estimatedTotalPeriods = totalProvingPeriods + estimatedOverduePeriods
-estimatedTotalSuccess = estimatedTotalPeriods - estimatedTotalFaulted
+confirmedTotalSuccess = totalProvingPeriods - totalFaultedPeriods
 ```
 
-### 4. Calculate Deltas
+> **Note:** An earlier implementation estimated overdue periods (periods elapsed since the last recorded deadline) and pessimistically counted them as faults. This was removed because the speculative estimation systematically inflated fault rates — overdue periods were counted as faults immediately, but when the subgraph later confirmed them as successes, the correction was discarded by the negative-delta guard.
+
+### 3. Calculate Deltas
 
 To avoid double-counting, dealbot maintains a baseline of cumulative totals for each provider. On each poll, it computes the delta (change) since the last poll:
 
 ```
-faultedDelta = currentTotalFaulted - previousTotalFaulted
-successDelta = currentTotalSuccess - previousTotalSuccess
+faultedDelta = totalFaultedPeriods - previousTotalFaulted
+successDelta = confirmedTotalSuccess - previousTotalSuccess
 ```
 
 **First-seen provider handling**: When a provider has no prior baseline (fresh deploy or newly added provider), dealbot initializes the baseline to the current cumulative totals **without emitting any counters**. This prevents dumping the provider's full cumulative history as a single metric spike. Metrics for that provider will begin accumulating from the next poll onward.
@@ -87,15 +68,15 @@ successDelta = currentTotalSuccess - previousTotalSuccess
 
 **Baseline persistence**: Baselines are persisted to the `data_retention_baselines` database table after each successful poll. On service restart, baselines are reloaded from the database to prevent metric inflation.
 
-Source: [`data-retention.service.ts` (`processProvider`)](../../apps/backend/src/data-retention/data-retention.service.ts#L209)
+Source: [`data-retention.service.ts` (`processProvider`)](../../apps/backend/src/data-retention/data-retention.service.ts)
 
-### 5. Record Metrics
+### 4. Record Metrics
 
 Only positive deltas increment Prometheus counters. This ensures metrics accurately reflect new challenges without duplication.
 
 For very large deltas (exceeding `Number.MAX_SAFE_INTEGER`), increments are chunked to prevent precision loss.
 
-Source: [`data-retention.service.ts` (`safeIncrementCounter`)](../../apps/backend/src/data-retention/data-retention.service.ts#L267)
+Source: [`data-retention.service.ts` (`safeIncrementCounter`)](../../apps/backend/src/data-retention/data-retention.service.ts)
 
 ## Baseline Persistence
 
@@ -139,7 +120,7 @@ To prevent unbounded memory growth, dealbot periodically removes baseline data f
 
 This prevents metric inflation (double-counting) if a provider temporarily goes offline and returns later.
 
-Source: [`data-retention.service.ts` (`cleanupStaleProviders`)](../../apps/backend/src/data-retention/data-retention.service.ts#L140)
+Source: [`data-retention.service.ts` (`cleanupStaleProviders`)](../../apps/backend/src/data-retention/data-retention.service.ts)
 
 ## Batching and Rate Limiting
 
@@ -157,14 +138,7 @@ The data retention check processes all providers in a single scheduled poll rath
 
    The batched approach stays well within rate limits and reduces infrastructure load.
 
-2. **Block consistency**: Batching ensures all providers are evaluated against the same `currentBlock` (indexed block height). Per-provider polling would read different block heights, leading to inconsistencies in:
-   - Cumulative total calculations
-   - Proving and faulted period computations
-   - Delta calculations across providers
-
-   This consistency is critical for accurate metrics and fair provider comparisons.
-
-Source: [`data-retention.service.ts` (MAX_PROVIDER_BATCH_LENGTH)](../../apps/backend/src/data-retention/data-retention.service.ts#L19)
+Source: [`data-retention.service.ts` (`MAX_PROVIDER_BATCH_LENGTH`)](../../apps/backend/src/data-retention/data-retention.service.ts)
 
 ### Subgraph Rate Limiting
 
@@ -176,7 +150,7 @@ The PDP subgraph service enforces Goldsky's public endpoint rate limits:
 
 Rate limiting is enforced client-side to prevent 429 errors.
 
-Source: [`pdp-subgraph.service.ts` (`enforceRateLimit`)](../../apps/backend/src/pdp-subgraph/pdp-subgraph.service.ts#L242)
+Source: [`pdp-subgraph.service.ts` (`enforceRateLimit`)](../../apps/backend/src/pdp-subgraph/pdp-subgraph.service.ts)
 
 ## Metrics Recorded
 
@@ -235,10 +209,9 @@ flowchart TD
     CheckProviders -->|No| Skip
     CheckProviders -->|Yes| BatchLoop[Process Providers in Batches of 50]
 
-    BatchLoop --> FetchData[Fetch Provider Datasets from Subgraph]
+    BatchLoop --> FetchData[Fetch Provider Totals from Subgraph]
     FetchData --> ProcessParallel[Process Providers in Parallel]
-    ProcessParallel --> CalcOverdue[Calculate Overdue Periods]
-    CalcOverdue --> CalcTotals[Calculate Total Faulted/Success]
+    ProcessParallel --> CalcTotals[Compute Success from Confirmed Totals]
     CalcTotals --> CheckBaseline{Has Prior<br/>Baseline?}
     CheckBaseline -->|No| InitBaseline[Initialize Baseline. No Metric Emission]
     InitBaseline --> PersistBaseline

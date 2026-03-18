@@ -10,8 +10,8 @@ This document provides a comprehensive guide to all environment variables used b
 | [Database](#database-configuration)       | `DATABASE_HOST`, `DATABASE_PORT`, `DATABASE_POOL_MAX`, `DATABASE_USER`, `DATABASE_PASSWORD`, `DATABASE_NAME`                                                 |
 | [Blockchain](#blockchain-configuration)   | `NETWORK`, `WALLET_ADDRESS`, `WALLET_PRIVATE_KEY`, `CHECK_DATASET_CREATION_FEES`, `USE_ONLY_APPROVED_PROVIDERS`, `PDP_SUBGRAPH_ENDPOINT` |
 | [Dataset Versioning](#dataset-versioning) | `DEALBOT_DATASET_VERSION`                                                                                                                                    |
-| [Scheduling](#scheduling-configuration)   | `DEAL_INTERVAL_SECONDS`, `RETRIEVAL_INTERVAL_SECONDS`, `DATA_RETENTION_POLL_INTERVAL_SECONDS`, `DEAL_START_OFFSET_SECONDS`, `RETRIEVAL_START_OFFSET_SECONDS`, `METRICS_START_OFFSET_SECONDS`, `DEALBOT_MAINTENANCE_WINDOWS_UTC`, `DEALBOT_MAINTENANCE_WINDOW_MINUTES`                                                                                                                                 |
-| [Jobs (pg-boss)](#jobs-pg-boss)           | `DEALBOT_JOBS_MODE`, `DEALBOT_PGBOSS_SCHEDULER_ENABLED`, `DEALBOT_PGBOSS_POOL_MAX`, `DEALS_PER_SP_PER_HOUR`, `RETRIEVALS_PER_SP_PER_HOUR`, `METRICS_PER_HOUR`, `JOB_SCHEDULER_POLL_SECONDS`, `JOB_WORKER_POLL_SECONDS`, `PG_BOSS_LOCAL_CONCURRENCY`, `JOB_CATCHUP_MAX_ENQUEUE`, `JOB_SCHEDULE_PHASE_SECONDS`, `JOB_ENQUEUE_JITTER_SECONDS`, `DEAL_JOB_TIMEOUT_SECONDS`, `RETRIEVAL_JOB_TIMEOUT_SECONDS`, `IPFS_BLOCK_FETCH_CONCURRENCY` |
+| [Scheduling](#scheduling-configuration)   | `PROVIDERS_REFRESH_INTERVAL_SECONDS`, `DATA_RETENTION_POLL_INTERVAL_SECONDS`, `DEALBOT_MAINTENANCE_WINDOWS_UTC`, `DEALBOT_MAINTENANCE_WINDOW_MINUTES`                                                                                                                                 |
+| [Jobs (pg-boss)](#jobs-pg-boss)           | `DEALBOT_PGBOSS_SCHEDULER_ENABLED`, `DEALBOT_PGBOSS_POOL_MAX`, `DEALS_PER_SP_PER_HOUR`, `DATASET_CREATIONS_PER_SP_PER_HOUR`, `RETRIEVALS_PER_SP_PER_HOUR`, `METRICS_PER_HOUR`, `JOB_SCHEDULER_POLL_SECONDS`, `JOB_WORKER_POLL_SECONDS`, `PG_BOSS_LOCAL_CONCURRENCY`, `JOB_CATCHUP_MAX_ENQUEUE`, `JOB_SCHEDULE_PHASE_SECONDS`, `JOB_ENQUEUE_JITTER_SECONDS`, `DEAL_JOB_TIMEOUT_SECONDS`, `RETRIEVAL_JOB_TIMEOUT_SECONDS`, `IPFS_BLOCK_FETCH_CONCURRENCY` |
 | [Dataset](#dataset-configuration)         | `DEALBOT_LOCAL_DATASETS_PATH`, `RANDOM_PIECE_SIZES`                                                                                                          |
 | [Timeouts](#timeout-configuration)        | `CONNECT_TIMEOUT_MS`, `HTTP_REQUEST_TIMEOUT_MS`, `HTTP2_REQUEST_TIMEOUT_MS`, `IPNI_VERIFICATION_TIMEOUT_MS`, `IPNI_VERIFICATION_POLLING_MS`                   |
 | [Web Frontend](#web-frontend)             | `VITE_API_BASE_URL`, `VITE_PLAUSIBLE_DATA_DOMAIN`, `DEALBOT_API_BASE_URL`                                                                                    |
@@ -426,44 +426,26 @@ DEALBOT_DATASET_VERSION=dealbot-v2
 
 These variables control when and how often the Dealbot runs its automated jobs.
 
-**Note**: When `DEALBOT_JOBS_MODE=pgboss`, the offsets below are not used; pg-boss uses
-rate-based scheduling instead (see [Jobs (pg-boss)](#jobs-pg-boss)).
+**Note**: Dealbot uses pg-boss for rate-based scheduling (see [Jobs (pg-boss)](#jobs-pg-boss)).
 
-### `DEAL_INTERVAL_SECONDS`
+### `PROVIDERS_REFRESH_INTERVAL_SECONDS`
 
 - **Type**: `number`
 - **Required**: No
-- **Default**: `30` (config) / `1800` (30 minutes, recommended)
+- **Default**: `14400` (4 hours, recommended)
 
-**Role**: How often the deal creation job runs, in seconds.
+**Role**: How often the providers refresh job runs, in seconds.
 
 **When to update**:
 
-- Increase for less frequent deal creation (reduces costs, slower testing)
+- Increase for less frequent providers refresh (reduces costs, slower testing)
 - Decrease for more aggressive testing (higher costs, faster feedback)
 
-**Example scenario**: Running deals every hour instead of every 30 minutes:
+**Example scenario**: Running providers refresh every 4 hours (default):
 
 ```bash
-DEAL_INTERVAL_SECONDS=3600
+PROVIDERS_REFRESH_INTERVAL_SECONDS=14400
 ```
-
----
-
-
-
-### `RETRIEVAL_INTERVAL_SECONDS`
-
-- **Type**: `number`
-- **Required**: No
-- **Default**: `60` (config) / `3600` (1 hour, recommended)
-
-**Role**: How often retrieval tests run, in seconds.
-
-**When to update**:
-
-- Increase for less frequent retrieval testing
-- Decrease for more frequent monitoring (may increase load on providers)
 
 ---
 
@@ -573,27 +555,15 @@ DEALBOT_MAINTENANCE_WINDOW_MINUTES=30
 
 ## Jobs (pg-boss)
 
-These variables are only used when `DEALBOT_JOBS_MODE=pgboss`. In this mode, scheduling is
+In this mode, scheduling is
 rate-based (per hour) and persisted in Postgres so restarts do not reset timing.
 
-### `DEALBOT_JOBS_MODE`
-
-- **Type**: `string`
-- **Required**: No
-- **Default**: `cron`
-- **Valid values**: `cron`, `pgboss`
-
-**Role**: Switches between the legacy in-process cron scheduler and pg-boss.
-
-**Runbook**: See `docs/runbooks/jobs.md` for pg-boss operational guidance (pausing, resuming, maintenance).
-
----
 
 ### `DEALS_PER_SP_PER_HOUR`
 
 - **Type**: `number`
 - **Required**: No
-- **Default**: Derived from `DEAL_INTERVAL_SECONDS` (1 per interval per SP)
+- **Default**: `4`
 
 **Role**: Target deal creation rate per storage provider.
 
@@ -606,14 +576,28 @@ rate-based (per hour) and persisted in Postgres so restarts do not reset timing.
 ### `RETRIEVALS_PER_SP_PER_HOUR`
 
 - **Type**: `number`
-- **Required**: No
-- **Default**: Derived from `RETRIEVAL_INTERVAL_SECONDS` (1 per interval per SP)
+- **Required**: No  
+- **Default**: `2`
 
 **Role**: Target retrieval test rate per storage provider.
 
 **Limits**: Config schema caps this at 20 to avoid overloading providers.
 
 **Notes**: Fractional values are supported. For example, `0.25` means one retrieval every 4 hours per storage provider.
+
+---
+
+### `DATASET_CREATIONS_PER_SP_PER_HOUR`
+
+- **Type**: `number`
+- **Required**: No
+- **Default**: `1`
+
+**Role**: Target dataset creation rate per storage provider.
+
+**Limits**: Config schema caps this at 20 to avoid excessive dataset generation.
+
+**Notes**: Fractional values are supported. For example, `0.5` means one dataset creation every 2 hours per storage provider.
 
 ---
 
