@@ -31,16 +31,16 @@ describe("JobsService schedule rows", () => {
   };
   let dataRetentionServiceMock: { pollDataRetention: ReturnType<typeof vi.fn> };
   let metricsMocks: {
-    jobsQueuedGauge: JobsServiceDeps[8];
-    jobsRetryScheduledGauge: JobsServiceDeps[9];
-    oldestQueuedAgeGauge: JobsServiceDeps[10];
-    oldestInFlightAgeGauge: JobsServiceDeps[11];
-    jobsInFlightGauge: JobsServiceDeps[12];
-    jobsEnqueueAttemptsCounter: JobsServiceDeps[13];
-    jobsStartedCounter: JobsServiceDeps[14];
-    jobsCompletedCounter: JobsServiceDeps[15];
-    jobsPausedGauge: JobsServiceDeps[16];
-    jobDuration: JobsServiceDeps[17];
+    jobsQueuedGauge: JobsServiceDeps[9];
+    jobsRetryScheduledGauge: JobsServiceDeps[10];
+    oldestQueuedAgeGauge: JobsServiceDeps[11];
+    oldestInFlightAgeGauge: JobsServiceDeps[12];
+    jobsInFlightGauge: JobsServiceDeps[13];
+    jobsEnqueueAttemptsCounter: JobsServiceDeps[14];
+    jobsStartedCounter: JobsServiceDeps[15];
+    jobsCompletedCounter: JobsServiceDeps[16];
+    jobsPausedGauge: JobsServiceDeps[17];
+    jobDuration: JobsServiceDeps[18];
   };
   let baseConfigValues: Partial<IConfig>;
   let configService: JobsServiceDeps[0];
@@ -54,16 +54,17 @@ describe("JobsService schedule rows", () => {
       metricsSchedulerService: JobsServiceDeps[5];
       walletSdkService: JobsServiceDeps[6];
       dataRetentionService: JobsServiceDeps[7];
-      jobsQueuedGauge: JobsServiceDeps[8];
-      jobsRetryScheduledGauge: JobsServiceDeps[9];
-      oldestQueuedAgeGauge: JobsServiceDeps[10];
-      oldestInFlightAgeGauge: JobsServiceDeps[11];
-      jobsInFlightGauge: JobsServiceDeps[12];
-      jobsEnqueueAttemptsCounter: JobsServiceDeps[13];
-      jobsStartedCounter: JobsServiceDeps[14];
-      jobsCompletedCounter: JobsServiceDeps[15];
-      jobsPausedGauge: JobsServiceDeps[16];
-      jobDuration: JobsServiceDeps[17];
+      pieceCleanupService: JobsServiceDeps[8];
+      jobsQueuedGauge: JobsServiceDeps[9];
+      jobsRetryScheduledGauge: JobsServiceDeps[10];
+      oldestQueuedAgeGauge: JobsServiceDeps[11];
+      oldestInFlightAgeGauge: JobsServiceDeps[12];
+      jobsInFlightGauge: JobsServiceDeps[13];
+      jobsEnqueueAttemptsCounter: JobsServiceDeps[14];
+      jobsStartedCounter: JobsServiceDeps[15];
+      jobsCompletedCounter: JobsServiceDeps[16];
+      jobsPausedGauge: JobsServiceDeps[17];
+      jobDuration: JobsServiceDeps[18];
     }>,
   ) => JobsService;
 
@@ -92,16 +93,16 @@ describe("JobsService schedule rows", () => {
     };
 
     metricsMocks = {
-      jobsQueuedGauge: { set: vi.fn() } as unknown as JobsServiceDeps[8],
-      jobsRetryScheduledGauge: { set: vi.fn() } as unknown as JobsServiceDeps[9],
-      oldestQueuedAgeGauge: { set: vi.fn() } as unknown as JobsServiceDeps[10],
-      oldestInFlightAgeGauge: { set: vi.fn() } as unknown as JobsServiceDeps[11],
-      jobsInFlightGauge: { set: vi.fn() } as unknown as JobsServiceDeps[12],
-      jobsEnqueueAttemptsCounter: { inc: vi.fn() } as unknown as JobsServiceDeps[13],
-      jobsStartedCounter: { inc: vi.fn() } as unknown as JobsServiceDeps[14],
-      jobsCompletedCounter: { inc: vi.fn() } as unknown as JobsServiceDeps[15],
-      jobsPausedGauge: { set: vi.fn() } as unknown as JobsServiceDeps[16],
-      jobDuration: { observe: vi.fn() } as unknown as JobsServiceDeps[17],
+      jobsQueuedGauge: { set: vi.fn() } as unknown as JobsServiceDeps[9],
+      jobsRetryScheduledGauge: { set: vi.fn() } as unknown as JobsServiceDeps[10],
+      oldestQueuedAgeGauge: { set: vi.fn() } as unknown as JobsServiceDeps[11],
+      oldestInFlightAgeGauge: { set: vi.fn() } as unknown as JobsServiceDeps[12],
+      jobsInFlightGauge: { set: vi.fn() } as unknown as JobsServiceDeps[13],
+      jobsEnqueueAttemptsCounter: { inc: vi.fn() } as unknown as JobsServiceDeps[14],
+      jobsStartedCounter: { inc: vi.fn() } as unknown as JobsServiceDeps[15],
+      jobsCompletedCounter: { inc: vi.fn() } as unknown as JobsServiceDeps[16],
+      jobsPausedGauge: { set: vi.fn() } as unknown as JobsServiceDeps[17],
+      jobDuration: { observe: vi.fn() } as unknown as JobsServiceDeps[18],
     };
 
     baseConfigValues = {
@@ -120,6 +121,8 @@ describe("JobsService schedule rows", () => {
         pgbossSchedulerEnabled: true,
         workerPollSeconds: 60,
         dataSetCreationJobTimeoutSeconds: 300,
+        pieceCleanupPerSpPerHour: 1,
+        maxPieceCleanupRuntimeSeconds: 300,
       } as IConfig["jobs"],
       database: {
         host: "localhost",
@@ -128,6 +131,9 @@ describe("JobsService schedule rows", () => {
         password: "pass",
         database: "dealbot",
       } as IConfig["database"],
+      pieceCleanup: {
+        maxDatasetStorageSizeBytes: 24 * 1024 * 1024 * 1024,
+      } as IConfig["pieceCleanup"],
     };
 
     configService = {
@@ -144,6 +150,8 @@ describe("JobsService schedule rows", () => {
         overrides.metricsSchedulerService ?? ({} as JobsServiceDeps[5]),
         overrides.walletSdkService ?? ({} as JobsServiceDeps[6]),
         overrides.dataRetentionService ?? (dataRetentionServiceMock as unknown as JobsServiceDeps[7]),
+        overrides.pieceCleanupService ??
+          ({ isProviderOverQuota: vi.fn().mockResolvedValue(false) } as unknown as JobsServiceDeps[8]),
         overrides.jobsQueuedGauge ?? metricsMocks.jobsQueuedGauge,
         overrides.jobsRetryScheduledGauge ?? metricsMocks.jobsRetryScheduledGauge,
         overrides.oldestQueuedAgeGauge ?? metricsMocks.oldestQueuedAgeGauge,
@@ -613,8 +621,13 @@ describe("JobsService schedule rows", () => {
     // Check upserts for providerB
     const upsertCalls = jobScheduleRepositoryMock.upsertSchedule.mock.calls;
     const upsertsForB = upsertCalls.filter((call) => call[1] === providerB.address);
-    expect(upsertsForB).toHaveLength(3);
-    expect(upsertsForB.map((call) => call[0]).sort()).toEqual(["data_set_creation", "deal", "retrieval"]);
+    expect(upsertsForB).toHaveLength(4);
+    expect(upsertsForB.map((call) => call[0]).sort()).toEqual([
+      "data_set_creation",
+      "deal",
+      "piece_cleanup",
+      "retrieval",
+    ]);
   });
 
   it("deletes schedule rows for providers no longer present", async () => {
@@ -911,6 +924,120 @@ describe("JobsService schedule rows", () => {
       { jobType: "retrieval", spAddress: "0xbbb", intervalSeconds: 60 },
       { startAfter: expectedResumeAt },
     );
+  });
+
+  it("deal job skips deal creation when SP is over storage quota", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2024-01-01T12:00:00Z"));
+
+    const dealService = {
+      createDealForProvider: vi.fn(),
+      getTestingDealOptions: vi.fn(() => ({ enableIpni: false })),
+      getBaseDataSetMetadata: vi.fn(() => ({})),
+      checkDataSetExists: vi.fn(async () => false),
+    };
+
+    const walletSdkService = {
+      getTestingProviders: vi.fn(() => [{ serviceProvider: "0xaaa" }]),
+      ensureWalletAllowances: vi.fn(),
+      loadProviders: vi.fn(),
+      getProviderInfo: vi.fn(() => ({ id: 1 })),
+    };
+
+    const pieceCleanupService = {
+      isProviderOverQuota: vi.fn().mockResolvedValue(true),
+    };
+
+    service = buildService({
+      dealService: dealService as unknown as ConstructorParameters<typeof JobsService>[3],
+      walletSdkService: walletSdkService as unknown as ConstructorParameters<typeof JobsService>[6],
+      pieceCleanupService: pieceCleanupService as unknown as JobsServiceDeps[8],
+    });
+
+    await callPrivate(service, "handleDealJob", {
+      id: "job-over-quota",
+      data: { jobType: "deal", spAddress: "0xaaa", intervalSeconds: 60 },
+    });
+
+    expect(pieceCleanupService.isProviderOverQuota).toHaveBeenCalledWith("0xaaa");
+    expect(dealService.createDealForProvider).not.toHaveBeenCalled();
+  });
+
+  it("deal job proceeds with deal creation when quota check throws (fail-open)", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2024-01-01T12:00:00Z"));
+
+    const dealService = {
+      createDealForProvider: vi.fn(async () => ({})),
+      getTestingDealOptions: vi.fn(() => ({ enableIpni: false })),
+      getBaseDataSetMetadata: vi.fn(() => ({})),
+      checkDataSetExists: vi.fn(async () => false),
+    };
+
+    const walletSdkService = {
+      getTestingProviders: vi.fn(() => [{ serviceProvider: "0xaaa" }]),
+      ensureWalletAllowances: vi.fn(),
+      loadProviders: vi.fn(),
+      getProviderInfo: vi.fn(() => ({ id: 1, name: "test-provider" })),
+    };
+
+    const pieceCleanupService = {
+      isProviderOverQuota: vi.fn().mockRejectedValue(new Error("DB connection failed")),
+    };
+
+    service = buildService({
+      dealService: dealService as unknown as ConstructorParameters<typeof JobsService>[3],
+      walletSdkService: walletSdkService as unknown as ConstructorParameters<typeof JobsService>[6],
+      pieceCleanupService: pieceCleanupService as unknown as JobsServiceDeps[8],
+    });
+
+    await callPrivate(service, "handleDealJob", {
+      id: "job-quota-error",
+      data: { jobType: "deal", spAddress: "0xaaa", intervalSeconds: 60 },
+    });
+
+    expect(pieceCleanupService.isProviderOverQuota).toHaveBeenCalledWith("0xaaa");
+    // Should proceed despite the quota check failure (fail-open)
+    expect(dealService.createDealForProvider).toHaveBeenCalledTimes(1);
+  });
+
+  it("deal job uses live provider data for quota (DB/provider drift: live says OK → deal proceeds)", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2024-01-01T12:00:00Z"));
+
+    const dealService = {
+      createDealForProvider: vi.fn(async () => ({})),
+      getTestingDealOptions: vi.fn(() => ({ enableIpni: false })),
+      getBaseDataSetMetadata: vi.fn(() => ({})),
+      checkDataSetExists: vi.fn(async () => false),
+    };
+
+    const walletSdkService = {
+      getTestingProviders: vi.fn(() => [{ serviceProvider: "0xaaa" }]),
+      ensureWalletAllowances: vi.fn(),
+      loadProviders: vi.fn(),
+      getProviderInfo: vi.fn(() => ({ id: 1, name: "test-provider" })),
+    };
+
+    // Live provider data says NOT over quota (even if DB SUM disagrees)
+    const pieceCleanupService = {
+      isProviderOverQuota: vi.fn().mockResolvedValue(false),
+    };
+
+    service = buildService({
+      dealService: dealService as unknown as ConstructorParameters<typeof JobsService>[3],
+      walletSdkService: walletSdkService as unknown as ConstructorParameters<typeof JobsService>[6],
+      pieceCleanupService: pieceCleanupService as unknown as JobsServiceDeps[8],
+    });
+
+    await callPrivate(service, "handleDealJob", {
+      id: "job-drift-ok",
+      data: { jobType: "deal", spAddress: "0xaaa", intervalSeconds: 60 },
+    });
+
+    expect(pieceCleanupService.isProviderOverQuota).toHaveBeenCalledWith("0xaaa");
+    // Live data says under quota, so deal creation should proceed
+    expect(dealService.createDealForProvider).toHaveBeenCalledTimes(1);
   });
 
   it("deal job creates deal without metadata when minNumDataSetsForChecks is 1", async () => {

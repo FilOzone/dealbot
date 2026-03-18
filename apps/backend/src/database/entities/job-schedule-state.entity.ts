@@ -7,7 +7,8 @@ export type JobType =
   | "metrics"
   | "metrics_cleanup"
   | "providers_refresh"
-  | "data_retention_poll";
+  | "data_retention_poll"
+  | "piece_cleanup";
 
 @Entity("job_schedule_state")
 @Index("job_schedule_state_job_type_sp_unique", ["jobType", "spAddress"], { unique: true })
