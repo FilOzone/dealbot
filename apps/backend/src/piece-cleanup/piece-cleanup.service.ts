@@ -2,6 +2,7 @@ import { RPC_URLS, StorageContext, Synapse } from "@filoz/synapse-sdk";
 import { Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
+import { calculateActualStorage, listDataSets } from "filecoin-pin/core/data-set";
 import { IsNull, Not, Repository } from "typeorm";
 import { toStructuredError } from "../common/logging.js";
 import type { IBlockchainConfig, IConfig } from "../config/app.config.js";
@@ -92,26 +93,51 @@ export class PieceCleanupService implements OnModuleInit, OnModuleDestroy {
 
   /**
    * Check whether a provider is over the configured storage quota.
+   * Uses live data from the provider with DB fallback.
    * Used by the deal handler to gate new deal creation.
    */
   async isProviderOverQuota(spAddress: string): Promise<boolean> {
     const thresholdBytes = this.configService.get("pieceCleanup").maxDatasetStorageSizeBytes;
-    const storedBytes = await this.getStoredBytesForProvider(spAddress);
-    return storedBytes > thresholdBytes;
+    try {
+      const liveBytes = await this.getLiveStoredBytesForProvider(spAddress);
+      return liveBytes > thresholdBytes;
+    } catch (error) {
+      this.logger.warn({
+        event: "piece_cleanup_live_query_failed",
+        message: `Failed to query live storage for SP ${spAddress}; falling back to DB`,
+        spAddress,
+        error: toStructuredError(error),
+      });
+      const storedBytes = await this.getStoredBytesForProvider(spAddress);
+      return storedBytes > thresholdBytes;
+    }
   }
 
   /**
    * Run cleanup for a single SP.
-   * 1. Query deals table for total stored piece sizes for this SP
-   * 2. If total > threshold, select oldest completed pieces to remove
-   * 3. For each piece, call deletePiece() via Synapse SDK
-   * 4. Mark the deal record as cleaned up
-   * 5. Repeat until back under quota or runtime cap is reached
+   * 1. Query live storage (falls back to DB if unavailable)
+   * 2. If live usage > MAX threshold, start cleanup
+   * 3. Select oldest completed pieces from DB as deletion candidates
+   * 4. For each piece, call deletePiece() via Synapse SDK
+   * 5. Mark the deal record as cleaned up
+   * 6. Repeat until usage drops below TARGET or runtime cap is reached
    */
   async cleanupPiecesForProvider(spAddress: string, signal?: AbortSignal): Promise<CleanupResult> {
-    const thresholdBytes = this.configService.get("pieceCleanup").maxDatasetStorageSizeBytes;
+    const { maxDatasetStorageSizeBytes: thresholdBytes, targetDatasetStorageSizeBytes: targetBytes } =
+      this.configService.get("pieceCleanup");
 
-    const storedBytes = await this.getStoredBytesForProvider(spAddress);
+    let storedBytes: number;
+    try {
+      storedBytes = await this.getLiveStoredBytesForProvider(spAddress);
+    } catch (error) {
+      this.logger.warn({
+        event: "piece_cleanup_live_query_failed",
+        message: `Failed to query live storage for SP ${spAddress}; falling back to DB`,
+        spAddress,
+        error: toStructuredError(error),
+      });
+      storedBytes = await this.getStoredBytesForProvider(spAddress);
+    }
 
     if (storedBytes <= thresholdBytes) {
       this.logger.debug({
@@ -124,7 +150,7 @@ export class PieceCleanupService implements OnModuleInit, OnModuleDestroy {
       return { deleted: 0, failed: 0, skipped: true, storedBytes, thresholdBytes };
     }
 
-    const excessBytes = storedBytes - thresholdBytes;
+    const excessBytes = storedBytes - targetBytes;
     this.logger.log({
       event: "piece_cleanup_started",
       message: `SP ${spAddress}: ${this.formatBytes(storedBytes)} stored exceeds threshold ${this.formatBytes(thresholdBytes)} by ${this.formatBytes(excessBytes)}; starting cleanup`,
@@ -228,6 +254,40 @@ export class PieceCleanupService implements OnModuleInit, OnModuleDestroy {
     });
 
     return { deleted, failed, skipped: false, storedBytes, thresholdBytes };
+  }
+
+  /**
+   * Query the provider's actual live storage via filecoin-pin.
+   */
+  async getLiveStoredBytesForProvider(spAddress: string, signal?: AbortSignal): Promise<number> {
+    const synapse = this.sharedSynapse ?? (await this.createSynapseInstance());
+
+    const datasets = await listDataSets(synapse, {
+      filter: (ds) => ds.serviceProvider === spAddress,
+    });
+
+    if (datasets.length === 0) {
+      this.logger.debug({
+        event: "piece_cleanup_no_live_datasets",
+        message: `SP ${spAddress}: no live datasets found on provider`,
+        spAddress,
+      });
+      return 0;
+    }
+
+    const result = await calculateActualStorage(synapse, datasets, { signal });
+
+    this.logger.debug({
+      event: "piece_cleanup_live_storage_queried",
+      message: `SP ${spAddress}: live storage = ${this.formatBytes(Number(result.totalBytes))} across ${result.dataSetCount} datasets (${result.pieceCount} pieces)`,
+      spAddress,
+      totalBytes: Number(result.totalBytes),
+      dataSetCount: result.dataSetCount,
+      pieceCount: result.pieceCount,
+      timedOut: result.timedOut,
+    });
+
+    return Number(result.totalBytes);
   }
 
   /**

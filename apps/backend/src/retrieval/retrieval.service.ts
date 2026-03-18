@@ -422,6 +422,7 @@ export class RetrievalService {
       .where("deal.status IN (:...statuses)", {
         statuses: [DealStatus.DEAL_CREATED, DealStatus.PIECE_ADDED],
       })
+      .andWhere("deal.cleaned_up = :cleanedUp", { cleanedUp: false })
       .orderBy("deal.createdAt", "DESC")
       .take(Math.max(count * 2, 100));
     if (useOnlyApproved) {
@@ -457,7 +458,8 @@ export class RetrievalService {
         statuses: [DealStatus.DEAL_CREATED],
       })
       .andWhere("deal.metadata -> 'ipfs_pin' ->> 'enabled' = 'true'")
-      .andWhere("deal.metadata -> 'ipfs_pin' ->> 'rootCID' IS NOT NULL");
+      .andWhere("deal.metadata -> 'ipfs_pin' ->> 'rootCID' IS NOT NULL")
+      .andWhere("deal.cleaned_up = :cleanedUp", { cleanedUp: false });
     if (randomDatasetSizes.length > 0) {
       query.andWhere("(deal.metadata -> 'ipfs_pin' ->> 'originalSize')::bigint IN (:...sizes)", {
         sizes: randomDatasetSizes,
