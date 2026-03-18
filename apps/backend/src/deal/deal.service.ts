@@ -632,7 +632,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
                 pieceAdded = true;
                 this.logger.debug({
                   event: "dataset_creation_pieces_added",
-                  message: "Data-set creation piecesadded",
+                  message: "Data-set creation pieces added",
                   providerAddress,
                   providerId: providerInfo.id,
                   providerName: providerInfo.name,
