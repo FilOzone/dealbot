@@ -8,6 +8,7 @@
  *
  * Usage:  node scripts/postbuild-checks.mjs
  */
+import "reflect-metadata";
 import { existsSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -93,7 +94,8 @@ for (const check of checks) {
     console.log(`  ✓ ${check.name}`);
   } catch (err) {
     failed++;
-    console.error(`  ✗ ${check.name}: ${err.message}`);
+    const detail = err instanceof Error ? (err.stack ?? err.message) : String(err);
+    console.error(`  ✗ ${check.name}: ${detail}`);
   }
 }
 
