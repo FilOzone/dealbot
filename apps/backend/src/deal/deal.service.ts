@@ -76,6 +76,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
 
   async onModuleDestroy(): Promise<void> {
     if (this.sharedSynapse) {
+      await this.cleanupSynapseInstance(this.sharedSynapse);
       this.sharedSynapse = undefined;
     }
   }
@@ -735,6 +736,19 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
         error: toStructuredError(error),
       });
       throw error;
+    }
+  }
+
+  private async cleanupSynapseInstance(synapse: Synapse): Promise<void> {
+    try {
+      const socket = await synapse.client.transport.getSocket();
+      if (socket) await socket.close();
+    } catch (error) {
+      this.logger.warn({
+        event: "synapse_service_cleanup_failed",
+        message: "Failed to cleanup Synapse service",
+        error: toStructuredError(error),
+      });
     }
   }
 
