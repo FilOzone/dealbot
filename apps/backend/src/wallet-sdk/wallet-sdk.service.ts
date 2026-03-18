@@ -1,4 +1,4 @@
-import { calibration, mainnet, PDPProvider, Synapse, TIME_CONSTANTS } from "@filoz/synapse-sdk";
+import { calibration, mainnet, PDPProvider, Synapse } from "@filoz/synapse-sdk";
 import type { PaymentsService } from "@filoz/synapse-sdk/payments";
 import { SPRegistryService } from "@filoz/synapse-sdk/sp-registry";
 import { StorageManager } from "@filoz/synapse-sdk/storage";
@@ -9,18 +9,10 @@ import { InjectRepository } from "@nestjs/typeorm";
 import type { Repository } from "typeorm";
 import type { Client, Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
-import { waitForTransactionReceipt } from "viem/actions";
 import { toStructuredError } from "../common/logging.js";
 import type { IBlockchainConfig, IConfig } from "../config/app.config.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
-import type {
-  FundDepositLog,
-  PDPProviderEx,
-  ServiceApprovalLog,
-  TransactionLog,
-  WalletServices,
-  WalletStatusLog,
-} from "./wallet-sdk.types.js";
+import type { PDPProviderEx, WalletServices } from "./wallet-sdk.types.js";
 
 @Injectable()
 export class WalletSdkService implements OnModuleInit {
@@ -35,7 +27,6 @@ export class WalletSdkService implements OnModuleInit {
   private approvedProviderAddresses: Set<string> = new Set();
   private providersLoadPromise: Promise<boolean> | null = null;
   private providersLoadedOnce = false;
-  private synapseClient: Client | null = null;
 
   constructor(
     private readonly configService: ConfigService<IConfig, true>,
@@ -76,7 +67,6 @@ export class WalletSdkService implements OnModuleInit {
       client: synapse.client,
     });
     this.paymentsService = synapse.payments;
-    this.synapseClient = synapse.client;
     this.storageManager = synapse.storage;
   }
 

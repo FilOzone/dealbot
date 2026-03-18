@@ -32,29 +32,3 @@ export interface ServiceApprovals {
   lockupAllowance: bigint;
   [key: string]: any;
 }
-
-export interface WalletStatusLog {
-  availableFunds: string;
-  requiredMonthlyFunds: string;
-  datasetCreationFees: string;
-  totalRequired: string;
-  providerCount: number;
-}
-
-export interface FundDepositLog {
-  currentFunds: string;
-  requiredFunds: string;
-  depositAmount: string;
-}
-
-export interface TransactionLog {
-  transactionHash: string;
-  depositAmount?: string;
-  serviceAddress?: string;
-}
-
-export interface ServiceApprovalLog {
-  rateAllowance: string;
-  lockupAllowance: string;
-  durationMonths: number;
-}
