@@ -997,7 +997,7 @@ describe("JobsService schedule rows", () => {
       getTestingProviders: vi.fn(() => [{ serviceProvider: "0xaaa" }]),
       ensureWalletAllowances: vi.fn(),
       loadProviders: vi.fn(),
-      getProviderInfo: vi.fn(() => ({ id: 1 })),
+      getProviderInfo: vi.fn(() => ({ id: 1, name: "test-provider" })),
     };
 
     const pieceCleanupService = {
@@ -1017,6 +1017,45 @@ describe("JobsService schedule rows", () => {
 
     expect(pieceCleanupService.isProviderOverQuota).toHaveBeenCalledWith("0xaaa");
     // Should proceed despite the quota check failure (fail-open)
+    expect(dealService.createDealForProvider).toHaveBeenCalledTimes(1);
+  });
+
+  it("deal job uses live provider data for quota (DB/provider drift: live says OK → deal proceeds)", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2024-01-01T12:00:00Z"));
+
+    const dealService = {
+      createDealForProvider: vi.fn(async () => ({})),
+      getTestingDealOptions: vi.fn(() => ({ enableIpni: false })),
+      getBaseDataSetMetadata: vi.fn(() => ({})),
+      checkDataSetExists: vi.fn(async () => false),
+    };
+
+    const walletSdkService = {
+      getTestingProviders: vi.fn(() => [{ serviceProvider: "0xaaa" }]),
+      ensureWalletAllowances: vi.fn(),
+      loadProviders: vi.fn(),
+      getProviderInfo: vi.fn(() => ({ id: 1, name: "test-provider" })),
+    };
+
+    // Live provider data says NOT over quota (even if DB SUM disagrees)
+    const pieceCleanupService = {
+      isProviderOverQuota: vi.fn().mockResolvedValue(false),
+    };
+
+    service = buildService({
+      dealService: dealService as unknown as ConstructorParameters<typeof JobsService>[3],
+      walletSdkService: walletSdkService as unknown as ConstructorParameters<typeof JobsService>[6],
+      pieceCleanupService: pieceCleanupService as unknown as JobsServiceDeps[8],
+    });
+
+    await callPrivate(service, "handleDealJob", {
+      id: "job-drift-ok",
+      data: { jobType: "deal", spAddress: "0xaaa", intervalSeconds: 60 },
+    });
+
+    expect(pieceCleanupService.isProviderOverQuota).toHaveBeenCalledWith("0xaaa");
+    // Live data says under quota, so deal creation should proceed
     expect(dealService.createDealForProvider).toHaveBeenCalledTimes(1);
   });
 

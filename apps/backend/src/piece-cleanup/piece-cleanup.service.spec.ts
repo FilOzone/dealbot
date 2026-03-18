@@ -28,6 +28,17 @@ vi.mock("@filoz/synapse-sdk", async (importOriginal) => {
   };
 });
 
+vi.mock("filecoin-pin/core/data-set", () => ({
+  listDataSets: vi.fn().mockResolvedValue([]),
+  calculateActualStorage: vi.fn().mockResolvedValue({
+    totalBytes: 0n,
+    dataSetCount: 0,
+    dataSetsProcessed: 0,
+    pieceCount: 0,
+    warnings: [],
+  }),
+}));
+
 describe("PieceCleanupService", () => {
   let service: PieceCleanupService;
   let dealRepoMock: ReturnType<typeof createDealRepoMock>;
@@ -50,12 +61,15 @@ describe("PieceCleanupService", () => {
     };
   }
 
+  const TARGET_BYTES = 80 * MiB; // 80 MiB low-water mark for tests
+
   function createConfigMock() {
     return {
       get: vi.fn((key: keyof IConfig) => {
         if (key === "pieceCleanup") {
           return {
             maxDatasetStorageSizeBytes: THRESHOLD_BYTES,
+            targetDatasetStorageSizeBytes: TARGET_BYTES,
           };
         }
         if (key === "blockchain") {
@@ -152,28 +166,37 @@ describe("PieceCleanupService", () => {
   });
 
   describe("isProviderOverQuota", () => {
-    it("returns true when stored bytes exceed threshold", async () => {
-      mockQueryBuilder(THRESHOLD_BYTES + 1);
+    it("returns true when live stored bytes exceed threshold", async () => {
+      vi.spyOn(service, "getLiveStoredBytesForProvider").mockResolvedValue(THRESHOLD_BYTES + 1);
 
       const result = await service.isProviderOverQuota("0xProvider");
 
       expect(result).toBe(true);
     });
 
-    it("returns false when stored bytes are at threshold", async () => {
-      mockQueryBuilder(THRESHOLD_BYTES);
+    it("returns false when live stored bytes are at threshold", async () => {
+      vi.spyOn(service, "getLiveStoredBytesForProvider").mockResolvedValue(THRESHOLD_BYTES);
 
       const result = await service.isProviderOverQuota("0xProvider");
 
       expect(result).toBe(false);
     });
 
-    it("returns false when stored bytes are below threshold", async () => {
-      mockQueryBuilder(THRESHOLD_BYTES - 1);
+    it("returns false when live stored bytes are below threshold", async () => {
+      vi.spyOn(service, "getLiveStoredBytesForProvider").mockResolvedValue(THRESHOLD_BYTES - 1);
 
       const result = await service.isProviderOverQuota("0xProvider");
 
       expect(result).toBe(false);
+    });
+
+    it("falls back to DB when live query fails", async () => {
+      vi.spyOn(service, "getLiveStoredBytesForProvider").mockRejectedValue(new Error("network error"));
+      mockQueryBuilder(THRESHOLD_BYTES + 1);
+
+      const result = await service.isProviderOverQuota("0xProvider");
+
+      expect(result).toBe(true);
     });
   });
 
@@ -213,7 +236,7 @@ describe("PieceCleanupService", () => {
 
   describe("cleanupPiecesForProvider", () => {
     it("skips cleanup when stored bytes are below threshold", async () => {
-      mockQueryBuilder(50 * MiB); // 50 MiB < 100 MiB threshold
+      vi.spyOn(service, "getLiveStoredBytesForProvider").mockResolvedValue(50 * MiB); // 50 MiB < 100 MiB threshold
 
       const result = await service.cleanupPiecesForProvider("0xProvider");
 
@@ -225,7 +248,7 @@ describe("PieceCleanupService", () => {
     });
 
     it("skips cleanup when stored bytes equal threshold", async () => {
-      mockQueryBuilder(THRESHOLD_BYTES); // exactly at threshold
+      vi.spyOn(service, "getLiveStoredBytesForProvider").mockResolvedValue(THRESHOLD_BYTES); // exactly at threshold
 
       const result = await service.cleanupPiecesForProvider("0xProvider");
 
@@ -234,7 +257,7 @@ describe("PieceCleanupService", () => {
     });
 
     it("returns cleanup result with no candidates when above threshold but no eligible deals", async () => {
-      mockQueryBuilder(200 * MiB); // above threshold
+      vi.spyOn(service, "getLiveStoredBytesForProvider").mockResolvedValue(200 * MiB); // above threshold
       dealRepoMock.find.mockResolvedValue([]); // no candidates
 
       const result = await service.cleanupPiecesForProvider("0xProvider");
@@ -244,29 +267,30 @@ describe("PieceCleanupService", () => {
       expect(result.failed).toBe(0);
     });
 
-    it("deletes pieces until excess is cleared", async () => {
-      const excessBytes = 30 * MiB;
-      mockQueryBuilder(THRESHOLD_BYTES + excessBytes);
+    it("deletes pieces until excess is cleared (down to low-water mark)", async () => {
+      // storedBytes = 130 MiB, target = 80 MiB, so excess = 50 MiB to delete
+      vi.spyOn(service, "getLiveStoredBytesForProvider").mockResolvedValue(130 * MiB);
 
       const deal1 = makeDeal({ id: "deal-1", pieceId: 1, pieceSize: 10 * MiB });
       const deal2 = makeDeal({ id: "deal-2", pieceId: 2, pieceSize: 10 * MiB });
       const deal3 = makeDeal({ id: "deal-3", pieceId: 3, pieceSize: 10 * MiB });
-      const deal4 = makeDeal({ id: "deal-4", pieceId: 4, pieceSize: 10 * MiB }); // won't be reached
-      dealRepoMock.find.mockResolvedValue([deal1, deal2, deal3, deal4]);
+      const deal4 = makeDeal({ id: "deal-4", pieceId: 4, pieceSize: 10 * MiB });
+      const deal5 = makeDeal({ id: "deal-5", pieceId: 5, pieceSize: 10 * MiB });
+      const deal6 = makeDeal({ id: "deal-6", pieceId: 6, pieceSize: 10 * MiB });
+      dealRepoMock.find.mockResolvedValue([deal1, deal2, deal3, deal4, deal5, deal6]);
 
       const deletePieceSpy = vi.spyOn(service, "deletePiece").mockResolvedValue(undefined);
 
       const result = await service.cleanupPiecesForProvider("0xProvider");
 
-      expect(result.deleted).toBe(3);
+      expect(result.deleted).toBe(5); // 50 MiB = 5 × 10 MiB
       expect(result.failed).toBe(0);
       expect(result.skipped).toBe(false);
-      // Should not delete the 4th piece since excess is already cleared
-      expect(deletePieceSpy).toHaveBeenCalledTimes(3);
+      expect(deletePieceSpy).toHaveBeenCalledTimes(5);
     });
 
     it("continues deleting after individual piece failure", async () => {
-      mockQueryBuilder(200 * MiB);
+      vi.spyOn(service, "getLiveStoredBytesForProvider").mockResolvedValue(200 * MiB);
 
       const deal1 = makeDeal({ id: "deal-1", pieceId: 1, pieceSize: 10 * MiB });
       const deal2 = makeDeal({ id: "deal-2", pieceId: 2, pieceSize: 10 * MiB });
@@ -282,7 +306,7 @@ describe("PieceCleanupService", () => {
     });
 
     it("respects abort signal", async () => {
-      mockQueryBuilder(200 * MiB);
+      vi.spyOn(service, "getLiveStoredBytesForProvider").mockResolvedValue(200 * MiB);
 
       const deal1 = makeDeal({ id: "deal-1", pieceId: 1, pieceSize: 10 * MiB });
       dealRepoMock.find.mockResolvedValue([deal1]);
@@ -294,7 +318,7 @@ describe("PieceCleanupService", () => {
     });
 
     it("bails out when all deletions in a batch fail", async () => {
-      mockQueryBuilder(200 * MiB);
+      vi.spyOn(service, "getLiveStoredBytesForProvider").mockResolvedValue(200 * MiB);
 
       const deal1 = makeDeal({ id: "deal-1", pieceId: 1, pieceSize: 10 * MiB });
       const deal2 = makeDeal({ id: "deal-2", pieceId: 2, pieceSize: 10 * MiB });
@@ -310,8 +334,8 @@ describe("PieceCleanupService", () => {
     });
 
     it("credits 0 bytes and bails out when pieceSize is 0", async () => {
-      const excessBytes = 10 * MiB;
-      mockQueryBuilder(THRESHOLD_BYTES + excessBytes);
+      // storedBytes = 110 MiB, target = 80 MiB, excess = 30 MiB to delete
+      vi.spyOn(service, "getLiveStoredBytesForProvider").mockResolvedValue(THRESHOLD_BYTES + 10 * MiB);
 
       const deal1 = makeDeal({ id: "deal-1", pieceId: 1, pieceSize: 0, fileSize: 10 * MiB });
       // First batch returns the deal, second batch returns []
@@ -329,21 +353,23 @@ describe("PieceCleanupService", () => {
     });
 
     it("loops through multiple batches when excess spans batches", async () => {
-      const excessBytes = 20 * MiB;
-      mockQueryBuilder(THRESHOLD_BYTES + excessBytes);
+      // storedBytes = 100 MiB + 20 MiB = 120 MiB, target = 80 MiB, excess = 40 MiB to delete
+      vi.spyOn(service, "getLiveStoredBytesForProvider").mockResolvedValue(120 * MiB);
 
-      // First batch returns 1 deal (10 MiB freed, still 10 MiB excess)
+      // First batch returns 1 deal (10 MiB freed, still 30 MiB excess)
       const deal1 = makeDeal({ id: "deal-1", pieceId: 1, pieceSize: 10 * MiB });
-      // Second batch returns 1 more deal (10 MiB freed, excess cleared)
+      // Second batch returns 3 more deals (30 MiB freed, excess cleared)
       const deal2 = makeDeal({ id: "deal-2", pieceId: 2, pieceSize: 10 * MiB });
-      dealRepoMock.find.mockResolvedValueOnce([deal1]).mockResolvedValueOnce([deal2]);
+      const deal3 = makeDeal({ id: "deal-3", pieceId: 3, pieceSize: 10 * MiB });
+      const deal4 = makeDeal({ id: "deal-4", pieceId: 4, pieceSize: 10 * MiB });
+      dealRepoMock.find.mockResolvedValueOnce([deal1]).mockResolvedValueOnce([deal2, deal3, deal4]);
 
       const deletePieceSpy = vi.spyOn(service, "deletePiece").mockResolvedValue(undefined);
 
       const result = await service.cleanupPiecesForProvider("0xProvider");
 
-      expect(result.deleted).toBe(2);
-      expect(deletePieceSpy).toHaveBeenCalledTimes(2);
+      expect(result.deleted).toBe(4);
+      expect(deletePieceSpy).toHaveBeenCalledTimes(4);
       // find should have been called twice (two batches)
       expect(dealRepoMock.find).toHaveBeenCalledTimes(2);
     });
