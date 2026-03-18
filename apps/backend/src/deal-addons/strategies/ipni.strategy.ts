@@ -726,6 +726,19 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       if (timeToVerifyMs) {
         deal.ipniTimeToVerifyMs = timeToVerifyMs;
       }
+
+      // Warn when IPNI verification takes too long
+      if (ipniResult.durationMs > 5000) {
+        this.logger.warn({
+          ...dealLogContext,
+          event: "ipni_slow_verification",
+          message: "IPNI verification time exceeded 5s threshold",
+          ipniVerifyMs: ipniResult.durationMs,
+          ipniVerifiedAt: verifiedTimestamp.toISOString(),
+          verifiedCids: ipniResult.verified,
+          unverifiedCids: ipniResult.unverified,
+        });
+      }
     }
 
     deal.ipniVerifiedCidsCount = ipniResult.verified;
