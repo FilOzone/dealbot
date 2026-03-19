@@ -40,8 +40,11 @@ type UploadResultSummary = {
   pieceId?: number;
   transactionHash?: string;
 };
-
-type SynapseServiceArg = Parameters<typeof executeUpload>[0];
+// filecoin-pin depends on synapse-sdk@0.38.0 while dealbot uses 0.39.0.
+// The Synapse class has incompatible private properties between versions,
+// so we need a type cast when passing to executeUpload.
+// TODO: fix when https://github.com/filecoin-project/filecoin-pin/pull/369 is resolved
+type FilecoinPinSynapse = Parameters<typeof executeUpload>[0];
 
 @Injectable()
 export class DealService implements OnModuleInit, OnModuleDestroy {
@@ -251,12 +254,12 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       let onStoredAddonsPromise: Promise<boolean> | null = null;
       let storedError: Error | undefined;
 
-      const synapseService = { synapse, storage, pdpProvider } as unknown as SynapseServiceArg;
-      const uploadResult = await executeUpload(synapseService, uploadPayload.carData, uploadPayload.rootCid, {
+      const uploadResult = await executeUpload(synapse as unknown as FilecoinPinSynapse, uploadPayload.carData, uploadPayload.rootCid, {
         logger: filecoinPinLogger,
         contextId: providerAddress,
         pieceMetadata: dealInput.synapseConfig.pieceMetadata,
         count: 1,
+        dataSetIds: storage.dataSetId != null ? [storage.dataSetId] : undefined,
         /**
          * do not do IPNI validation here, we need to call /pdp/piece/<pieceCid>/status to get other metrics.
          * See `onStored` handler in deal-addons/strategies/ipni.strategy.ts for implementation.
@@ -563,13 +566,13 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       signal?.throwIfAborted();
 
       const filecoinPinLogger = createFilecoinPinLogger(this.logger);
-      const synapseService = { synapse, storage, providerInfo } as unknown as SynapseServiceArg;
 
       const uploadResult = (await awaitWithAbort(
-        executeUpload(synapseService, carResult.carData, carResult.rootCID, {
+        executeUpload(synapse as unknown as FilecoinPinSynapse, carResult.carData, carResult.rootCID, {
           logger: filecoinPinLogger,
           contextId: providerAddress,
           count: 1,
+          dataSetIds: storage.dataSetId != null ? [storage.dataSetId] : undefined,
           pieceMetadata: {},
           ipniValidation: { enabled: false },
           onProgress: async (event) => {

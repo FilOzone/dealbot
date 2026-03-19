@@ -117,24 +117,21 @@ export class WalletSdkService implements OnModuleInit {
 
       const providerInfos: PDPProvider[] = [...activeProviders];
       if (inactiveProviderIds.length > 0) {
-        if (inactiveProviderIds.length > 50) {
-          // batch get remaining providers if we have more than 50 inactive providers. This is not currently happening, but may in the future.
-          const batchSize = 50;
-          const batches = Math.ceil(inactiveProviderIds.length / batchSize);
-          for (let i = 0; i < batches; i++) {
-            const start = i * batchSize;
-            const batch = inactiveProviderIds.slice(start, start + batchSize);
-            const providerBatch = await this.spRegistry.getProviders({
-              providerIds: batch,
+        // Fetch inactive providers individually — some may lack a PDP product
+        // (empty capabilities), which causes getPDPProvidersByIds to throw.
+        for (const id of inactiveProviderIds) {
+          try {
+            const provider = await this.spRegistry.getProvider({ providerId: id });
+            if (provider) {
+              providerInfos.push(provider);
+            }
+          } catch {
+            this.logger.warn({
+              event: "inactive_provider_skip",
+              message: `Skipping inactive provider ${id} — no PDP product or invalid data`,
+              providerId: id,
             });
-            providerInfos.push(...providerBatch);
           }
-        } else {
-          providerInfos.push(
-            ...(await this.spRegistry.getProviders({
-              providerIds: inactiveProviderIds,
-            })),
-          );
         }
       }
 
