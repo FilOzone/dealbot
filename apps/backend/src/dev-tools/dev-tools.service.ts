@@ -259,6 +259,10 @@ export class DevToolsService {
 
     // Find the deal
     const deal = await this.findDeal(dealId, spAddress);
+    const pieceCid = deal.pieceCid;
+    if (!pieceCid) {
+      throw new BadRequestException(`Deal ${deal.id} has no piece CID - cannot perform data fetch`);
+    }
 
     this.logger.log({
       event: "retrieval_trigger_requested",
@@ -307,7 +311,7 @@ export class DevToolsService {
 
     return {
       dealId: deal.id,
-      pieceCid: deal.pieceCid ?? "",
+      pieceCid,
       spAddress: deal.spAddress,
       results,
       summary: {

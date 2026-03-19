@@ -413,7 +413,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
               deal.pieceConfirmedTime = new Date();
               deal.status = DealStatus.PIECE_CONFIRMED;
               deal.chainLatencyMs =
-                deal.pieceAddedTime !== null ? deal.pieceConfirmedTime.getTime() - deal.pieceAddedTime.getTime() : null;
+                deal.pieceAddedTime != null ? deal.pieceConfirmedTime.getTime() - deal.pieceAddedTime.getTime() : null;
               onchainSucceeded = true;
               if (deal.chainLatencyMs !== null) {
                 this.dataStorageMetrics.observePieceConfirmedOnChainMs(providerLabels, deal.chainLatencyMs);
@@ -465,7 +465,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
           throw uploadCompleteError ?? new Error("Upload completion handlers failed");
         }
         deal.dealConfirmedTime = new Date();
-        if (deal.ipniVerifiedAt !== null && deal.uploadStartTime !== null) {
+        if (deal.ipniVerifiedAt != null && deal.uploadStartTime != null) {
           // pieceUploadToRetrievableDuration (IPNI verified)
           deal.dealLatencyWithIpniMs = deal.ipniVerifiedAt.getTime() - deal.uploadStartTime.getTime();
         }

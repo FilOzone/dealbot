@@ -21,6 +21,7 @@ export class StorageProviderDto {
   @ApiProperty({
     description: "Storage provider ID",
     example: 1,
+    nullable: true,
   })
   providerId: number | null;
 }

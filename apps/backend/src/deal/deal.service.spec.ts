@@ -340,7 +340,7 @@ describe("DealService", () => {
           };
         });
 
-        await service.createDeal(mockSynapseInstance, providerInfo, mockDealInput, uploadPayload);
+        const deal = await service.createDeal(mockSynapseInstance, providerInfo, mockDealInput, uploadPayload);
 
         const labels = {
           checkType: "dataStorage",
@@ -359,15 +359,150 @@ describe("DealService", () => {
         expect(mockRetrievalMetrics.recordStatus).toHaveBeenCalledWith(labels, "success");
 
         expect(mockDataStorageMetrics.observeIngestMs).toHaveBeenCalledWith(labels, 1500);
+        expect(mockDataStorageMetrics.observeIngestThroughput).toHaveBeenCalledWith(labels, 1365);
         expect(mockDataStorageMetrics.observePieceAddedOnChainMs).toHaveBeenCalledWith(labels, 2000);
         expect(mockDataStorageMetrics.observePieceConfirmedOnChainMs).toHaveBeenCalledWith(labels, 3000);
         expect(mockDataStorageMetrics.observeCheckDuration).toHaveBeenCalledWith(labels, 10_500);
+        expect(deal.ingestLatencyMs).toBe(1500);
+        expect(deal.ingestThroughputBps).toBe(1365);
         expect(mockRetrievalMetrics.recordResultMetrics).toHaveBeenCalledWith(
           expect.arrayContaining([
             expect.objectContaining({ success: true, metrics: expect.objectContaining({ ttfb: 120 }) }),
           ]),
           labels,
         );
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("skips ingest metrics when uploadStartTime is missing", async () => {
+      const uploadPayload = {
+        carData: Uint8Array.from([1, 2, 3]),
+        rootCid: CID.parse(mockRootCid),
+      };
+
+      createContextMock.mockResolvedValue({
+        dataSetId: "dataset-123",
+      });
+
+      (executeUpload as Mock).mockImplementation(async (_service, _data, _rootCid, options) => {
+        mockDeal.uploadStartTime = null;
+        await triggerUploadProgress(options?.onProgress);
+        return {
+          pieceCid: "bafk-uploaded",
+          pieceId: 123,
+          transactionHash: "0xhash",
+          ipniValidated: true,
+        };
+      });
+
+      retrievalAddonsMock.testAllRetrievalMethods.mockResolvedValue({
+        dealId: "deal-1",
+        results: [],
+        summary: { totalMethods: 1, successfulMethods: 1, failedMethods: 0 },
+        testedAt: new Date(),
+      });
+
+      await expect(
+        service.createDeal(mockSynapseInstance, mockProviderInfo, mockDealInput, uploadPayload),
+      ).rejects.toThrow("Dealbot did not receive onProgress events during upload");
+
+      expect(mockDataStorageMetrics.observeIngestMs).not.toHaveBeenCalled();
+      expect(mockDataStorageMetrics.observeIngestThroughput).not.toHaveBeenCalled();
+    });
+
+    it("skips ingest metrics when computed latency is non-positive", async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
+
+      try {
+        const uploadPayload = {
+          carData: Uint8Array.from([1, 2, 3]),
+          rootCid: CID.parse(mockRootCid),
+        };
+
+        createContextMock.mockResolvedValue({
+          dataSetId: "dataset-123",
+        });
+
+        (executeUpload as Mock).mockImplementation(async (_service, _data, _rootCid, options) => {
+          await triggerUploadProgress(async (event) => {
+            await options?.onProgress?.(event);
+          });
+          return {
+            pieceCid: "bafk-uploaded",
+            pieceId: 123,
+            transactionHash: "0xhash",
+            ipniValidated: true,
+          };
+        });
+
+        retrievalAddonsMock.testAllRetrievalMethods.mockResolvedValue({
+          dealId: "deal-1",
+          results: [],
+          summary: { totalMethods: 1, successfulMethods: 1, failedMethods: 0 },
+          testedAt: new Date(),
+        });
+
+        const deal = await service.createDeal(mockSynapseInstance, mockProviderInfo, mockDealInput, uploadPayload);
+
+        expect(deal.ingestLatencyMs).toBeNull();
+        expect(deal.ingestThroughputBps).toBeNull();
+        expect(mockDataStorageMetrics.observeIngestMs).not.toHaveBeenCalled();
+        expect(mockDataStorageMetrics.observeIngestThroughput).not.toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("skips ingest throughput when computed throughput is non-positive", async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
+
+      try {
+        const uploadPayload = {
+          carData: Uint8Array.from([1, 2, 3]),
+          rootCid: CID.parse(mockRootCid),
+        };
+        const zeroSizeDealInput: DealPreprocessingResult = {
+          ...mockDealInput,
+          processedData: {
+            ...mockDealInput.processedData,
+            size: 0,
+          },
+        };
+
+        createContextMock.mockResolvedValue({
+          dataSetId: "dataset-123",
+        });
+
+        (executeUpload as Mock).mockImplementation(async (_service, _data, _rootCid, options) => {
+          vi.advanceTimersByTime(1000);
+          await triggerUploadProgress(async (event) => {
+            await options?.onProgress?.(event);
+          });
+          return {
+            pieceCid: "bafk-uploaded",
+            pieceId: 123,
+            transactionHash: "0xhash",
+            ipniValidated: true,
+          };
+        });
+
+        retrievalAddonsMock.testAllRetrievalMethods.mockResolvedValue({
+          dealId: "deal-1",
+          results: [],
+          summary: { totalMethods: 1, successfulMethods: 1, failedMethods: 0 },
+          testedAt: new Date(),
+        });
+
+        const deal = await service.createDeal(mockSynapseInstance, mockProviderInfo, zeroSizeDealInput, uploadPayload);
+
+        expect(deal.ingestLatencyMs).toBe(1000);
+        expect(deal.ingestThroughputBps).toBeNull();
+        expect(mockDataStorageMetrics.observeIngestMs).toHaveBeenCalledWith(expect.any(Object), 1000);
+        expect(mockDataStorageMetrics.observeIngestThroughput).not.toHaveBeenCalled();
       } finally {
         vi.useRealTimers();
       }
