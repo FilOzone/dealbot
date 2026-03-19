@@ -57,6 +57,9 @@ async function loadEntities() {
 // Checks
 // ---------------------------------------------------------------------------
 
+/** @type {Array<{ name: string; fn: () => Promise<void> }>} */
+const checks = [];
+
 /**
  * Validates that every entity's column types are supported by the target
  * database driver.  This catches e.g. using a bare `bigint` TS type on a
@@ -79,13 +82,11 @@ async function checkEntityMetadata() {
   // requiring a live database connection.
   await ds.buildMetadatas();
 }
+check.push({ name: "entity-metadata", fn: checkEntityMetadata })
 
 // ---------------------------------------------------------------------------
 // Runner
 // ---------------------------------------------------------------------------
-
-/** @type {Array<{ name: string; fn: () => Promise<void> }>} */
-const checks = [{ name: "entity-metadata", fn: checkEntityMetadata }];
 
 let failed = 0;
 for (const check of checks) {
