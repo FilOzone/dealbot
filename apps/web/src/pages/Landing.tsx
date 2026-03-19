@@ -153,6 +153,7 @@ export default function Landing() {
                       <tr className="border-b">
                         <th className="text-left py-2 pr-4 font-medium">SP name</th>
                         <th className="text-left py-2 pr-4 font-medium">ID</th>
+                        <th className="text-left py-2 pr-4 font-medium">Approved</th>
                         <th className="text-left py-2 pr-4 font-medium">Metrics dashboard</th>
                         <th className="text-left py-2 font-medium">Logs</th>
                       </tr>
@@ -172,6 +173,7 @@ export default function Landing() {
                           <tr key={provider.address} className="border-b last:border-b-0">
                             <td className="py-2 pr-4">{provider.name || provider.address}</td>
                             <td className="py-2 pr-4">{typeof providerId === "number" ? providerId : "—"}</td>
+                            <td className="py-2 pr-4">{provider.isApproved ? "Approved" : "Unapproved"}</td>
                             <td className="py-2 pr-4">
                               {metricsHref ? (
                                 <a

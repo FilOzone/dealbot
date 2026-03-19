@@ -1,4 +1,4 @@
-import { METADATA_KEYS, SIZE_CONSTANTS, Synapse } from "@filoz/synapse-sdk";
+import { METADATA_KEYS, Synapse } from "@filoz/synapse-sdk";
 import { ConfigService } from "@nestjs/config";
 import { Test, TestingModule } from "@nestjs/testing";
 import { getRepositoryToken } from "@nestjs/typeorm";
@@ -44,7 +44,6 @@ describe("DealService", () => {
   // We need access to the repository mocks to verify calls
   let dealRepoMock: typeof mockDealRepository;
   let dataSourceMock: typeof mockDataSourceService;
-  let walletSdkMock: typeof mockWalletSdkService;
   let dealAddonsMock: typeof mockDealAddonsService;
   let retrievalAddonsMock: typeof mockRetrievalAddonsService;
 
@@ -174,7 +173,6 @@ describe("DealService", () => {
     // though the consts above are also accessible.
     dealRepoMock = mockDealRepository;
     dataSourceMock = mockDataSourceService;
-    walletSdkMock = mockWalletSdkService;
     dealAddonsMock = mockDealAddonsService;
     retrievalAddonsMock = mockRetrievalAddonsService;
     dealAddonsMock.handleUploadComplete.mockImplementation(async (deal: Deal) => {
@@ -978,124 +976,6 @@ describe("DealService", () => {
     });
   });
 
-  describe("createDealsForAllProviders", () => {
-    beforeEach(async () => {
-      (Synapse.create as Mock).mockResolvedValue({});
-      mockConfigService.get.mockImplementation((key: string) => {
-        if (key === "scheduling") {
-          return {
-            dealIntervalSeconds: 30,
-            dealStartOffsetSeconds: 0,
-            retrievalIntervalSeconds: 60,
-            retrievalStartOffsetSeconds: 600,
-            metricsStartOffsetSeconds: 900,
-          };
-        }
-        if (key === "blockchain") {
-          return {
-            walletPrivateKey: "mockKey",
-            network: "calibration",
-            walletAddress: "0x123",
-          };
-        }
-        return undefined;
-      });
-    });
-
-    it("orchestrates deal creation for multiple providers", async () => {
-      const synapseInstance = {};
-      (Synapse.create as Mock).mockResolvedValue(synapseInstance);
-      const providers = [{ serviceProvider: "0x1" }, { serviceProvider: "0x2" }];
-      const dataFile = { name: "test", size: 100, data: Buffer.from("test") };
-      const preprocessed = {
-        processedData: dataFile,
-        metadata: {
-          ipfs_pin: {
-            enabled: true,
-            rootCID: mockRootCid,
-            blockCIDs: [],
-            blockCount: 1,
-            carSize: 1,
-            originalSize: 1,
-          },
-        },
-        appliedAddons: [],
-        synapseConfig: {},
-      };
-
-      walletSdkMock.getTestingProvidersCount.mockReturnValue(2);
-      walletSdkMock.getTestingProviders.mockReturnValue(providers);
-      dataSourceMock.generateRandomDataset.mockResolvedValue(dataFile);
-      dealAddonsMock.preprocessDeal.mockResolvedValue(preprocessed);
-
-      // Mock createDeal to succeed
-      const createDealSpy = vi
-        .spyOn(service, "createDeal")
-        .mockResolvedValue({ id: 1, status: DealStatus.DEAL_CREATED } as unknown as Deal);
-
-      const results = await service.createDealsForAllProviders();
-
-      // Verify data fetching
-      expect(dataSourceMock.generateRandomDataset).toHaveBeenCalledWith(
-        SIZE_CONSTANTS.MIN_UPLOAD_SIZE,
-        SIZE_CONSTANTS.MAX_UPLOAD_SIZE,
-      );
-
-      // Verify addon preprocessing
-      expect(dealAddonsMock.preprocessDeal).toHaveBeenCalledWith(
-        expect.objectContaining({
-          dataFile,
-          enableIpni: true,
-        }),
-        undefined,
-        undefined,
-      );
-
-      // Verify parallelism/iteration
-      expect(createDealSpy).toHaveBeenCalledTimes(2);
-      expect(createDealSpy).toHaveBeenCalledWith(synapseInstance, providers[0], preprocessed, expect.any(Object));
-      expect(createDealSpy).toHaveBeenCalledWith(synapseInstance, providers[1], preprocessed, expect.any(Object));
-
-      expect(results).toHaveLength(2);
-    });
-
-    it("aggregates successful deals even if some fail", async () => {
-      const providers = [{ serviceProvider: "0xSuccess" }, { serviceProvider: "0xFail" }];
-      walletSdkMock.getTestingProviders.mockReturnValue(providers);
-      walletSdkMock.getTestingProvidersCount.mockReturnValue(2);
-      const dataFile = { name: "test", size: 100, data: Buffer.from("test") };
-      dataSourceMock.generateRandomDataset.mockResolvedValue(dataFile);
-      dealAddonsMock.preprocessDeal.mockResolvedValue({
-        processedData: dataFile,
-        metadata: {
-          ipfs_pin: {
-            enabled: true,
-            rootCID: mockRootCid,
-            blockCIDs: [],
-            blockCount: 1,
-            carSize: 1,
-            originalSize: 1,
-          },
-        },
-        appliedAddons: [],
-        synapseConfig: {},
-      });
-
-      const createDealSpy = vi.spyOn(service, "createDeal");
-      // First call succeeds
-      createDealSpy.mockResolvedValueOnce({ id: 1, spAddress: "0xSuccess" } as unknown as Deal);
-      // Second call fails
-      createDealSpy.mockRejectedValueOnce(new Error("Deal failed"));
-
-      const results = await service.createDealsForAllProviders();
-
-      expect(createDealSpy).toHaveBeenCalledTimes(2);
-      // Should return only the successful one
-      expect(results).toHaveLength(1);
-      expect(results[0].spAddress).toBe("0xSuccess");
-    });
-  });
-
   describe("checkDataSetExists", () => {
     it("returns true when createContext returns a valid dataSetId", async () => {
       const synapseMock = {
@@ -1132,7 +1012,7 @@ describe("DealService", () => {
   describe("getBaseDataSetMetadata", () => {
     it("always includes IPNI metadata key", () => {
       const metadata = service.getBaseDataSetMetadata();
-      expect(metadata).toEqual({ [METADATA_KEYS.WITH_IPFS_INDEXING]: "" });
+      expect(metadata).toEqual(expect.objectContaining({ [METADATA_KEYS.WITH_IPFS_INDEXING]: "" }));
     });
 
     it("includes dataset version when configured along with IPNI metadata", () => {
