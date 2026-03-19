@@ -3,7 +3,7 @@ import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
 import { CID } from "multiformats/cid";
-import { StorageProvider } from "src/database/entities/storage-provider.entity.js";
+import type { StorageProvider } from "src/database/entities/storage-provider.entity.js";
 import type { Repository } from "typeorm";
 import { delay } from "../../common/abort-utils.js";
 import { buildUnixfsCar } from "../../common/car-utils.js";
@@ -213,6 +213,9 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
     try {
       signal?.throwIfAborted();
       const serviceUrl = deal.storageProvider.serviceUrl;
+      if (!serviceUrl) {
+        throw new Error(`IPNI monitoring failed: missing service URL for provider ${deal.storageProvider.address}`);
+      }
 
       const rootCID = deal.metadata[this.name]?.rootCID ?? "";
       const blockCIDs = deal.metadata[this.name]?.blockCIDs ?? [];
@@ -290,6 +293,10 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
     signal?: AbortSignal,
   ): Promise<MonitorAndVerifyResult> {
     const pieceCid = deal.pieceCid;
+    if (!pieceCid) {
+      throw new Error(`IPNI monitoring failed: missing piece CID for deal ${deal.id}`);
+    }
+
     let monitoringResult: PieceMonitoringResult;
     try {
       // we monitor the piece status by calling the SP directly to get piece status. as soon as it's advertised, we can move on to verifying the IPNI advertisement.

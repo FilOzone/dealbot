@@ -246,7 +246,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       });
       signal?.throwIfAborted();
 
-      deal.dataSetId = storage.dataSetId;
+      deal.dataSetId = storage.dataSetId ?? null;
       deal.uploadStartTime = new Date();
       let onUploadCompleteAddonsPromise: Promise<boolean> | null = null;
       let uploadCompleteError: Error | undefined;
@@ -272,7 +272,51 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
             case "onUploadComplete": {
               deal.uploadEndTime = new Date();
               deal.status = DealStatus.UPLOADED;
-              deal.ingestLatencyMs = deal.uploadEndTime.getTime() - deal.uploadStartTime.getTime();
+              deal.ingestLatencyMs = null;
+              deal.ingestThroughputBps = null;
+
+              const uploadStartTime = deal.uploadStartTime;
+              const uploadEndTime = deal.uploadEndTime;
+              if (uploadStartTime == null) {
+                this.logger.warn({
+                  ...dealLogContext,
+                  event: "ingest_metrics_skipped_missing_upload_start_time",
+                  message: "Skipping ingest metrics: uploadStartTime is missing",
+                  uploadEndTime,
+                });
+              } else {
+                const ingestLatencyMs = uploadEndTime.getTime() - uploadStartTime.getTime();
+                if (!Number.isFinite(ingestLatencyMs) || ingestLatencyMs <= 0) {
+                  this.logger.warn({
+                    ...dealLogContext,
+                    event: "ingest_metrics_skipped_invalid_latency",
+                    message: "Skipping ingest metrics: invalid ingest latency",
+                    uploadStartTime,
+                    uploadEndTime,
+                    ingestLatencyMs,
+                  });
+                } else {
+                  deal.ingestLatencyMs = ingestLatencyMs;
+                  this.dataStorageMetrics.observeIngestMs(providerLabels, ingestLatencyMs);
+
+                  const ingestSeconds = ingestLatencyMs / 1000;
+                  const ingestThroughputBps = Math.round(deal.fileSize / ingestSeconds);
+                  if (!Number.isFinite(ingestThroughputBps) || ingestThroughputBps <= 0) {
+                    this.logger.warn({
+                      ...dealLogContext,
+                      event: "ingest_throughput_skipped_invalid_value",
+                      message: "Skipping ingest throughput metric: invalid throughput value",
+                      ingestLatencyMs,
+                      fileSize: deal.fileSize,
+                      ingestThroughputBps,
+                    });
+                  } else {
+                    deal.ingestThroughputBps = ingestThroughputBps;
+                    this.dataStorageMetrics.observeIngestThroughput(providerLabels, ingestThroughputBps);
+                  }
+                }
+              }
+
               deal.pieceCid = event.data.pieceCid.toString();
               dealLogContext.pieceCid = event.data.pieceCid.toString();
               this.logger.log({
@@ -281,7 +325,6 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
                 message: "Piece upload completed",
               });
               uploadSucceeded = true;
-              this.dataStorageMetrics.observeIngestMs(providerLabels, deal.ingestLatencyMs);
               this.dataStorageMetrics.recordUploadStatus(providerLabels, "success");
               this.dataStorageMetrics.recordOnchainStatus(providerLabels, "pending");
               onUploadCompleteAddonsPromise = this.dealAddonsService
@@ -291,19 +334,6 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
                   uploadCompleteError = error;
                   return false;
                 });
-              const ingestSeconds = deal.ingestLatencyMs / 1000;
-              if (ingestSeconds > 0 && Number.isFinite(ingestSeconds)) {
-                deal.ingestThroughputBps = Math.round(deal.fileSize / ingestSeconds);
-                this.dataStorageMetrics.observeIngestThroughput(providerLabels, deal.ingestThroughputBps);
-              } else {
-                deal.ingestThroughputBps = 0;
-                this.logger.warn({
-                  ...dealLogContext,
-                  event: "ingest_throughput_skipped",
-                  message: "Skipping ingest throughput: invalid ingest latency",
-                  ingestLatencyMs: deal.ingestLatencyMs,
-                });
-              }
               break;
             }
             case "onPieceAdded":
@@ -324,10 +354,12 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
                 });
               }
               deal.status = DealStatus.PIECE_ADDED;
-              this.dataStorageMetrics.observePieceAddedOnChainMs(
-                providerLabels,
-                deal.pieceAddedTime.getTime() - deal.uploadEndTime.getTime(),
-              );
+              if (deal.uploadEndTime) {
+                this.dataStorageMetrics.observePieceAddedOnChainMs(
+                  providerLabels,
+                  deal.pieceAddedTime.getTime() - deal.uploadEndTime.getTime(),
+                );
+              }
               break;
             case "onPieceConfirmed":
               this.logger.log({
@@ -338,9 +370,12 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
               });
               deal.pieceConfirmedTime = new Date();
               deal.status = DealStatus.PIECE_CONFIRMED;
-              deal.chainLatencyMs = deal.pieceConfirmedTime.getTime() - deal.pieceAddedTime.getTime();
+              deal.chainLatencyMs =
+                deal.pieceAddedTime != null ? deal.pieceConfirmedTime.getTime() - deal.pieceAddedTime.getTime() : null;
               onchainSucceeded = true;
-              this.dataStorageMetrics.observePieceConfirmedOnChainMs(providerLabels, deal.chainLatencyMs);
+              if (deal.chainLatencyMs !== null) {
+                this.dataStorageMetrics.observePieceConfirmedOnChainMs(providerLabels, deal.chainLatencyMs);
+              }
               this.dataStorageMetrics.recordOnchainStatus(providerLabels, "success");
               break;
           }
@@ -349,11 +384,22 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
         },
       });
       signal?.throwIfAborted();
-      if (deal.pieceCid == null || deal.pieceAddedTime == null || deal.pieceConfirmedTime == null) {
+      const pieceCid = deal.pieceCid;
+      const uploadStartTime = deal.uploadStartTime;
+      const uploadEndTime = deal.uploadEndTime;
+      const pieceAddedTime = deal.pieceAddedTime;
+      const pieceConfirmedTime = deal.pieceConfirmedTime;
+      if (
+        pieceCid === null ||
+        uploadStartTime === null ||
+        uploadEndTime === null ||
+        pieceAddedTime === null ||
+        pieceConfirmedTime === null
+      ) {
         throw new Error("Dealbot did not receive onProgress events during upload");
       }
 
-      deal.dealLatencyMs = deal.pieceConfirmedTime.getTime() - deal.uploadStartTime.getTime();
+      deal.dealLatencyMs = pieceConfirmedTime.getTime() - uploadStartTime.getTime();
 
       if (!deal.transactionHash && uploadResult.transactionHash) {
         deal.transactionHash = uploadResult.transactionHash as Hex;
@@ -377,7 +423,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
           throw uploadCompleteError ?? new Error("Upload completion handlers failed");
         }
         deal.dealConfirmedTime = new Date();
-        if (deal.ipniVerifiedAt) {
+        if (deal.ipniVerifiedAt != null && deal.uploadStartTime != null) {
           // pieceUploadToRetrievableDuration (IPNI verified)
           deal.dealLatencyWithIpniMs = deal.ipniVerifiedAt.getTime() - deal.uploadStartTime.getTime();
         }
@@ -751,7 +797,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     // Only set pieceSize here if it hasn't been set earlier in the deal flow.
     deal.pieceSize = pieceSize;
 
-    deal.pieceId = uploadResult.pieceId;
+    deal.pieceId = uploadResult.pieceId ?? null;
   }
 
   private async saveDeal(deal: Deal, dealLogContext: DealLogContext): Promise<void> {

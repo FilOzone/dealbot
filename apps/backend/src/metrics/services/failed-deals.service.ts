@@ -157,7 +157,7 @@ export class FailedDealsService {
       id: deal.id,
       fileName: deal.fileName,
       fileSize: Number(deal.fileSize),
-      dataSetId: deal.dataSetId,
+      dataSetId: deal.dataSetId ?? undefined,
       pieceCid: deal.pieceCid || undefined,
       spAddress: deal.spAddress,
       status: deal.status,

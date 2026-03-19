@@ -29,17 +29,17 @@ export class Deal {
   @Column({ name: "file_size", type: "bigint" })
   fileSize: number;
 
-  @Column({ name: "piece_cid", nullable: true })
-  pieceCid: string;
+  @Column({ name: "piece_cid", type: "varchar", nullable: true })
+  pieceCid: string | null;
 
-  @Column({ name: "data_set_id", nullable: true })
-  dataSetId?: number;
+  @Column({ name: "data_set_id", type: "int", nullable: true })
+  dataSetId: number | null;
 
-  @Column({ name: "piece_id", nullable: true })
-  pieceId?: number;
+  @Column({ name: "piece_id", type: "int", nullable: true })
+  pieceId: number | null;
 
   @Column({ name: "piece_size", nullable: true, type: "bigint" })
-  pieceSize: number;
+  pieceSize: number | null;
 
   @Column({
     type: "enum",
@@ -48,44 +48,44 @@ export class Deal {
   })
   status: DealStatus;
 
-  @Column({ name: "transaction_hash", nullable: true })
-  transactionHash: `0x${string}`;
+  @Column({ name: "transaction_hash", type: "varchar", nullable: true })
+  transactionHash: `0x${string}` | null;
 
   @Column({ type: "jsonb", default: {} })
   metadata: DealMetadata;
 
   @Column({ name: "service_types", type: "simple-array", nullable: true })
-  serviceTypes: ServiceType[];
+  serviceTypes: ServiceType[] | null;
 
   // Metrics
   @Column({ name: "upload_start_time", type: "timestamp", nullable: true })
-  uploadStartTime: Date;
+  uploadStartTime: Date | null;
 
   @Column({ name: "upload_end_time", type: "timestamp", nullable: true })
-  uploadEndTime: Date;
+  uploadEndTime: Date | null;
 
   @Column({ name: "piece_added_time", type: "timestamp", nullable: true })
-  pieceAddedTime: Date;
+  pieceAddedTime: Date | null;
   @Column({ name: "piece_confirmed_time", type: "timestamp", nullable: true })
-  pieceConfirmedTime: Date;
+  pieceConfirmedTime: Date | null;
 
   @Column({ name: "deal_confirmed_time", type: "timestamp", nullable: true })
-  dealConfirmedTime: Date;
+  dealConfirmedTime: Date | null;
 
   @Column({ name: "ingest_latency_ms", nullable: true, type: "int" })
-  ingestLatencyMs: number;
+  ingestLatencyMs: number | null;
 
   @Column({ name: "chain_latency_ms", nullable: true, type: "int" })
-  chainLatencyMs: number;
+  chainLatencyMs: number | null;
 
   @Column({ name: "deal_latency_ms", nullable: true, type: "int" })
-  dealLatencyMs: number;
+  dealLatencyMs: number | null;
 
   @Column({ name: "deal_latency_with_ipni_ms", nullable: true, type: "int" })
-  dealLatencyWithIpniMs: number;
+  dealLatencyWithIpniMs: number | null;
 
   @Column({ name: "ingest_throughput_bps", nullable: true, type: "int" })
-  ingestThroughputBps: number;
+  ingestThroughputBps: number | null;
 
   // IPNI tracking metrics
   @Column({
@@ -94,39 +94,39 @@ export class Deal {
     enum: IpniStatus,
     nullable: true,
   })
-  ipniStatus: IpniStatus;
+  ipniStatus: IpniStatus | null;
 
   @Column({ name: "ipni_indexed_at", type: "timestamp", nullable: true })
-  ipniIndexedAt: Date;
+  ipniIndexedAt: Date | null;
 
   @Column({ name: "ipni_advertised_at", type: "timestamp", nullable: true })
-  ipniAdvertisedAt: Date;
+  ipniAdvertisedAt: Date | null;
 
   @Column({ name: "ipni_verified_at", type: "timestamp", nullable: true })
-  ipniVerifiedAt: Date;
+  ipniVerifiedAt: Date | null;
 
   // Time from upload complete to each IPNI stage (in milliseconds)
   @Column({ name: "ipni_time_to_index_ms", nullable: true, type: "int" })
-  ipniTimeToIndexMs: number;
+  ipniTimeToIndexMs: number | null;
 
   @Column({ name: "ipni_time_to_advertise_ms", nullable: true, type: "int" })
-  ipniTimeToAdvertiseMs: number;
+  ipniTimeToAdvertiseMs: number | null;
 
   @Column({ name: "ipni_time_to_verify_ms", nullable: true, type: "int" })
-  ipniTimeToVerifyMs: number;
+  ipniTimeToVerifyMs: number | null;
 
   @Column({ name: "ipni_verified_cids_count", nullable: true, type: "int" })
-  ipniVerifiedCidsCount: number;
+  ipniVerifiedCidsCount: number | null;
 
   @Column({ name: "ipni_unverified_cids_count", nullable: true, type: "int" })
-  ipniUnverifiedCidsCount: number;
+  ipniUnverifiedCidsCount: number | null;
 
   // Error tracking
   @Column({ name: "error_message", nullable: true, type: "text" })
-  errorMessage: string;
+  errorMessage: string | null;
 
-  @Column({ name: "error_code", nullable: true })
-  errorCode: string;
+  @Column({ name: "error_code", type: "varchar", nullable: true })
+  errorCode: string | null;
 
   @Column({ name: "retry_count", default: 0 })
   retryCount: number;

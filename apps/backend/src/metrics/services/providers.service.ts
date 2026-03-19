@@ -668,7 +668,7 @@ export class ProvidersService {
         if (deal.ingestLatencyMs) ingestLatencySum += deal.ingestLatencyMs;
         if (deal.chainLatencyMs) chainLatencySum += deal.chainLatencyMs;
         if (deal.ingestThroughputBps) ingestThroughputSum += deal.ingestThroughputBps;
-        if (deal.serviceTypes.includes(ServiceType.IPFS_PIN)) {
+        if (deal.serviceTypes?.includes(ServiceType.IPFS_PIN)) {
           totalIpniDeals++;
           // IPNI status is incremental: PENDING -> SP_INDEXED -> SP_ADVERTISED -> VERIFIED
           if (deal.ipniStatus === IpniStatus.VERIFIED) {
