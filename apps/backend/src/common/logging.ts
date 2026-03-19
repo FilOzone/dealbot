@@ -72,7 +72,7 @@ export type BaseDealRetrievalLogContext = {
   providerAddress?: string;
   providerId?: number;
   providerName?: string;
-  pieceCid?: string;
+  pieceCid?: string | null;
   ipfsRootCID?: string;
 };
 

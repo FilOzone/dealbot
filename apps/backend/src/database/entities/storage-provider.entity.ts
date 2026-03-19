@@ -8,7 +8,7 @@ export class StorageProvider {
   address!: string;
 
   @Column({ nullable: true })
-  providerId?: number;
+  providerId: number | null;
 
   @Column()
   name!: string;
@@ -20,7 +20,7 @@ export class StorageProvider {
   payee!: string;
 
   @Column({ name: "service_url", nullable: true })
-  serviceUrl!: string;
+  serviceUrl: string | null;
 
   @Column({ name: "is_active", default: true })
   isActive!: boolean;

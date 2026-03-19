@@ -222,15 +222,15 @@ export class DevToolsService {
       status: deal.status,
       fileName: deal.fileName,
       fileSize: deal.fileSize,
-      dealLatencyMs: deal.dealLatencyMs,
-      dealLatencyWithIpniMs: deal.dealLatencyWithIpniMs,
-      ingestLatencyMs: deal.ingestLatencyMs,
-      ipniTimeToIndexMs: deal.ipniTimeToIndexMs,
-      ipniTimeToAdvertiseMs: deal.ipniTimeToAdvertiseMs,
-      ipniTimeToVerifyMs: deal.ipniTimeToVerifyMs,
-      serviceTypes: deal.serviceTypes || [],
+      dealLatencyMs: deal.dealLatencyMs ?? undefined,
+      dealLatencyWithIpniMs: deal.dealLatencyWithIpniMs ?? undefined,
+      ingestLatencyMs: deal.ingestLatencyMs ?? undefined,
+      ipniTimeToIndexMs: deal.ipniTimeToIndexMs ?? undefined,
+      ipniTimeToAdvertiseMs: deal.ipniTimeToAdvertiseMs ?? undefined,
+      ipniTimeToVerifyMs: deal.ipniTimeToVerifyMs ?? undefined,
+      serviceTypes: deal.serviceTypes ?? [],
       spAddress: deal.spAddress,
-      errorMessage: deal.errorMessage,
+      errorMessage: deal.errorMessage ?? undefined,
     };
   }
 
@@ -307,7 +307,7 @@ export class DevToolsService {
 
     return {
       dealId: deal.id,
-      pieceCid: deal.pieceCid,
+      pieceCid: deal.pieceCid ?? "",
       spAddress: deal.spAddress,
       results,
       summary: {

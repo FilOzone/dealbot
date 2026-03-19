@@ -16,8 +16,8 @@ export class Provider {
   @ApiProperty({ description: "Payee address to receive funds" })
   payee: string;
 
-  @ApiProperty({ description: "Service Url" })
-  serviceUrl: string;
+  @ApiProperty({ description: "Service Url", nullable: true })
+  serviceUrl: string | null;
 
   @ApiProperty({ description: "Is storage provider active" })
   isActive: boolean;

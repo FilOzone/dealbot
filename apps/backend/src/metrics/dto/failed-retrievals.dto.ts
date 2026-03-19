@@ -22,7 +22,7 @@ export class StorageProviderDto {
     description: "Storage provider ID",
     example: 1,
   })
-  providerId?: number;
+  providerId: number | null;
 }
 
 export class FailedRetrievalDto {

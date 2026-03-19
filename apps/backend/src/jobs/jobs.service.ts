@@ -386,7 +386,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         where: { address: spAddress },
         select: { providerId: true, name: true },
       });
-      providerId = providerId ?? provider?.providerId;
+      providerId = providerId ?? provider?.providerId ?? undefined;
       providerName = providerName || provider?.name;
     }
 
