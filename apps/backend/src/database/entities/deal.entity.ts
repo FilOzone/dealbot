@@ -8,10 +8,10 @@ import {
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from "typeorm";
+import { BigIntColumn } from "../helpers/bigint-column.js";
 import { type DealMetadata, DealStatus, IpniStatus, type ServiceType } from "../types.js";
 import type { Retrieval } from "./retrieval.entity.js";
 import { StorageProvider } from "./storage-provider.entity.js";
-import { BigIntColumn } from "../helpers/bigint-column.js";
 
 @Entity("deals")
 export class Deal {

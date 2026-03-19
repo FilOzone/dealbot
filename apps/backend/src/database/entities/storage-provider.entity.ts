@@ -1,6 +1,6 @@
 import { Column, CreateDateColumn, Entity, Index, OneToMany, PrimaryColumn, UpdateDateColumn } from "typeorm";
-import { Deal } from "./deal.entity.js";
 import { BigIntColumn } from "../helpers/bigint-column.js";
+import { Deal } from "./deal.entity.js";
 
 @Entity("storage_providers")
 @Index(["location", "isActive"])
