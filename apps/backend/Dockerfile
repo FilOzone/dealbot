@@ -20,8 +20,9 @@ COPY apps/backend/nest-cli.json ./apps/backend/
 # Install dependencies (this will install for the entire workspace)
 RUN pnpm install --frozen-lockfile
 
-# Copy backend source code
+# Copy backend source code and build scripts
 COPY apps/backend/src/ ./apps/backend/src/
+COPY apps/backend/scripts/ ./apps/backend/scripts/
 
 # Build the backend application
 RUN pnpm --filter dealbot-backend run build

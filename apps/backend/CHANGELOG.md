@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.0.3](https://github.com/FilOzone/dealbot/compare/backend-v1.0.2...backend-v1.0.3) (2026-03-17)
+
+
+### Bug Fixes
+
+* create data set job only creates 1 per run ([#360](https://github.com/FilOzone/dealbot/issues/360)) ([9a6b70f](https://github.com/FilOzone/dealbot/commit/9a6b70fbf3a4690a583ca4dd732631ac98ea2ba0))
+* data-retention metrics use exact subgraph values ([#365](https://github.com/FilOzone/dealbot/issues/365)) ([3682ecb](https://github.com/FilOzone/dealbot/commit/3682ecb8f5a9354b3165db0e8b41dcaed6008d28))
+
 ## [1.0.2](https://github.com/FilOzone/dealbot/compare/backend-v1.0.1...backend-v1.0.2) (2026-03-13)
 
 

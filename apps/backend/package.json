@@ -1,6 +1,6 @@
 {
   "name": "dealbot-backend",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "A simple deal bot for Synapse storage providers",
   "private": true,
   "author": "",
@@ -9,6 +9,7 @@
   "scripts": {
     "setup": "pnpm install && pnpm -C web install",
     "build": "nest build",
+    "postbuild": "node scripts/postbuild-checks.mjs",
     "start": "nest start",
     "start:dev": "nest start --watch",
     "start:debug": "nest start --debug --watch",

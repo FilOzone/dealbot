@@ -80,48 +80,6 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  async createDealsForAllProviders(): Promise<Deal[]> {
-    const totalProviders = this.walletSdkService.getTestingProvidersCount();
-
-    this.logger.log({
-      event: "deal_creation_batch_started",
-      message: "Starting deal creation for all providers",
-      totalProviders,
-    });
-
-    const { preprocessed, cleanup } = await this.prepareDealInput();
-
-    try {
-      const synapse = this.sharedSynapse ?? this.createSynapseInstance();
-      const uploadPayload = await this.prepareUploadPayload(preprocessed);
-      const providers = this.walletSdkService.getTestingProviders();
-
-      // Legacy cron-only path: keep fixed concurrency until cron mode is removed.
-      const maxConcurrency = 10;
-      const results = await this.processProvidersInParallel(
-        synapse,
-        providers,
-        preprocessed,
-        uploadPayload,
-        maxConcurrency,
-      );
-
-      const successfulDeals = results.filter((result) => result.success).map((result) => result.deal!);
-
-      this.logger.log({
-        event: "deal_creation_batch_completed",
-        message: "Deal creation completed",
-        successfulDeals: successfulDeals.length,
-        totalProviders,
-      });
-
-      return successfulDeals;
-    } finally {
-      // Cleanup random dataset file after all uploads complete (success or failure)
-      await cleanup();
-    }
-  }
-
   async createDealForProvider(
     pdpProvider: PDPProviderEx,
     options: {
@@ -788,51 +746,6 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
         error: toStructuredError(error),
       });
     }
-  }
-
-  // ============================================================================
-  // Parallel Processing
-  // ============================================================================
-
-  private async processProvidersInParallel(
-    synapse: Synapse,
-    providers: PDPProviderEx[],
-    dealInput: DealPreprocessingResult,
-    uploadPayload: UploadPayload,
-    maxConcurrency: number,
-  ): Promise<Array<{ success: boolean; deal?: Deal; error?: string; provider: string }>> {
-    const results: Array<{
-      success: boolean;
-      deal?: Deal;
-      error?: string;
-      provider: string;
-    }> = [];
-
-    for (let i = 0; i < providers.length; i += maxConcurrency) {
-      const batch = providers.slice(i, i + maxConcurrency);
-      const batchPromises = batch.map((provider) => this.createDeal(synapse, provider, dealInput, uploadPayload));
-      const batchResults = await Promise.allSettled(batchPromises);
-
-      batchResults.forEach((result, index) => {
-        const provider = batch[index];
-
-        if (result.status === "fulfilled") {
-          results.push({
-            success: true,
-            deal: result.value,
-            provider: provider.serviceProvider,
-          });
-        } else {
-          results.push({
-            success: false,
-            error: result.reason?.message || "Unknown error",
-            provider: provider.serviceProvider,
-          });
-        }
-      });
-    }
-
-    return results;
   }
 
   // ============================================================================

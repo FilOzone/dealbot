@@ -1,9 +1,4 @@
 /**
- * Provider performance type definitions
- * Maps to the refactored API endpoints for provider data
- */
-
-/**
  * Decoded provider info
  */
 export interface ServiceProduct {
@@ -47,64 +42,6 @@ export interface Provider {
 }
 
 /**
- * Provider performance metrics (unified for weekly/all-time/window)
- */
-export interface ProviderPerformanceDto {
-  spAddress: string;
-  totalDeals: number;
-  successfulDeals: number;
-  failedDeals: number;
-  dealSuccessRate: number;
-  avgIngestLatencyMs: number;
-  avgChainLatencyMs: number;
-  avgDealLatencyMs: number;
-  avgIngestThroughputBps: number;
-  totalDataStoredBytes: string;
-  totalRetrievals: number;
-  successfulRetrievals: number;
-  failedRetrievals: number;
-  retrievalSuccessRate: number;
-  avgRetrievalLatencyMs: number;
-  avgRetrievalTtfbMs: number;
-  avgRetrievalThroughputBps: number;
-  totalDataRetrievedBytes: string;
-
-  // ipni metrics
-  totalIpniDeals: number;
-  ipniIndexedDeals: number;
-  ipniAdvertisedDeals: number;
-  ipniVerifiedDeals: number;
-  ipniFailedDeals: number;
-  ipniSuccessRate: number;
-  avgIpniTimeToIndexMs: number;
-  avgIpniTimeToAdvertiseMs: number;
-  avgIpniTimeToVerifyMs: number;
-
-  totalIpfsRetrievals: number;
-  successfulIpfsRetrievals: number;
-  failedIpfsRetrievals: number;
-  ipfsRetrievalSuccessRate: number;
-  avgIpfsRetrievalLatencyMs: number;
-  avgIpfsRetrievalTtfbMs: number;
-  avgIpfsRetrievalThroughputBps: number;
-
-  healthScore: number;
-  avgDealSize?: number;
-  lastDealAt: Date;
-  lastRetrievalAt: Date;
-  refreshedAt: Date;
-}
-
-/**
- * Combined provider performance (weekly + all-time)
- */
-export interface ProviderCombinedPerformance {
-  provider: Provider;
-  weekly: ProviderPerformanceDto | null;
-  allTime: ProviderPerformanceDto | null;
-}
-
-/**
  * Provider list response with pagination without metrics
  */
 export interface ProvidersListResponseWithoutMetrics {
@@ -113,77 +50,4 @@ export interface ProvidersListResponseWithoutMetrics {
   offset: number;
   count: number;
   limit: number;
-}
-
-/**
- * Provider list response with pagination
- */
-export interface ProvidersListResponse {
-  providers: ProviderCombinedPerformance[];
-  total: number;
-  offset: number;
-  count: number;
-  limit: number;
-}
-
-/**
- * Provider detail response (single provider)
- */
-export interface ProviderDetailResponse {
-  provider: Provider;
-  weekly: ProviderPerformanceDto;
-  allTime: ProviderPerformanceDto;
-}
-
-/**
- * Query options for listing providers
- */
-export interface ProvidersQueryOptions {
-  offset?: number;
-  limit?: number;
-  activeOnly?: boolean;
-  approvedOnly?: boolean;
-  sortBy?: "healthScore" | "totalDeals" | "totalRetrievals" | "dealSuccessRate" | "retrievalSuccessRate";
-  sortOrder?: "asc" | "desc";
-}
-
-/**
- * Provider health status
- */
-export type ProviderHealthStatus = "excellent" | "good" | "fair" | "poor" | "inactive";
-
-/**
- * Provider health calculation result
- */
-export interface ProviderHealth {
-  status: ProviderHealthStatus;
-  score: number; // 0-100
-  dealScore: number;
-  retrievalScore: number;
-  isActive: boolean;
-}
-
-/**
- * Time window metadata
- */
-export interface WindowDto {
-  startDate: string;
-  endDate: string;
-  days: number;
-  preset: string | null;
-}
-
-/**
- * Provider window performance response
- */
-export interface ProviderWindowPerformanceDto {
-  provider: Provider;
-  window: WindowDto;
-  metrics: ProviderPerformanceDto;
-}
-
-export interface ProviderWindowQueryOptions {
-  startDate?: string;
-  endDate?: string;
-  preset?: string;
 }

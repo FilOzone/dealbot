@@ -7,8 +7,9 @@ on:
       - pre-release
 
 concurrency:
-  group: docker-build-${{ github.ref }}
-  cancel-in-progress: true
+  # Release-please merges must complete so later retagging can find the sha image.
+  group: "${{ github.ref_name == 'main' && startsWith(github.event.head_commit.message, 'chore: release to production') && format('docker-build-release-{0}', github.sha) || format('docker-build-{0}', github.ref) }}"
+  cancel-in-progress: "${{ !(github.ref_name == 'main' && startsWith(github.event.head_commit.message, 'chore: release to production')) }}"
 
 env:
   REGISTRY: ghcr.io

@@ -23,7 +23,6 @@ describe("RetrievalService timeouts", () => {
   };
 
   let service: RetrievalServicePrivate;
-  let performAllRetrievalsSpy: ReturnType<typeof vi.spyOn>;
 
   const mockRetrievalAddonsService = {
     testAllRetrievalMethods: vi.fn(),
@@ -31,7 +30,8 @@ describe("RetrievalService timeouts", () => {
   };
   const mockConfigService = {
     get: vi.fn((key: string) => {
-      if (key === "jobs") return { mode: "cron" };
+      if (key === "app") return { runMode: "api" };
+      if (key === "jobs") return { pgbossSchedulerEnabled: false };
       if (key === "dataset") return { randomDatasetSizes: [10] };
       if (key === "timeouts") return { ipniVerificationTimeoutMs: 10_000, ipniVerificationPollingMs: 2_000 };
       return undefined;
@@ -98,74 +98,6 @@ describe("RetrievalService timeouts", () => {
 
     return module.get<RetrievalService>(RetrievalService) as unknown as RetrievalServicePrivate;
   };
-
-  it("processes all deals when no abort signal is triggered", async () => {
-    service = await createService();
-    performAllRetrievalsSpy = vi.spyOn(service, "performAllRetrievals").mockResolvedValue([]);
-
-    const results = await service.processRetrievalsInParallel([buildDeal()], {
-      maxConcurrency: 1,
-    });
-
-    expect(performAllRetrievalsSpy).toHaveBeenCalledTimes(1);
-    expect(results).toHaveLength(1);
-  });
-
-  it("aborts processing remaining deals when signal is aborted", async () => {
-    service = await createService();
-    const abortController = new AbortController();
-
-    performAllRetrievalsSpy = vi.spyOn(service, "performAllRetrievals").mockImplementation(async () => {
-      abortController.abort();
-      return [];
-    });
-
-    // 2 deals, maxConcurrency 1. First deal aborts, second should be skipped.
-    const results = await service.processRetrievalsInParallel(
-      [buildDeal({ id: "deal-1" }), buildDeal({ id: "deal-2" })],
-      {
-        maxConcurrency: 1,
-        signal: abortController.signal,
-      },
-    );
-
-    expect(performAllRetrievalsSpy).toHaveBeenCalledTimes(1);
-    expect(results).toHaveLength(1); // Only the first batch (of 1) should return results
-  });
-
-  it("passes abort signal to performAllRetrievals", async () => {
-    service = await createService();
-    const abortController = new AbortController();
-    performAllRetrievalsSpy = vi.spyOn(service, "performAllRetrievals").mockResolvedValue([]);
-
-    await service.processRetrievalsInParallel([buildDeal()], {
-      maxConcurrency: 1,
-      signal: abortController.signal,
-    });
-
-    expect(performAllRetrievalsSpy).toHaveBeenCalledWith(expect.anything(), abortController.signal);
-  });
-
-  it("returns partial results when aborted between batches", async () => {
-    service = await createService();
-    const abortController = new AbortController();
-
-    performAllRetrievalsSpy = vi.spyOn(service, "performAllRetrievals").mockImplementationOnce(async () => {
-      abortController.abort();
-      return [];
-    });
-
-    const results = await service.processRetrievalsInParallel(
-      [buildDeal({ id: "deal-1" }), buildDeal({ id: "deal-2" })],
-      {
-        maxConcurrency: 1,
-        signal: abortController.signal,
-      },
-    );
-
-    expect(performAllRetrievalsSpy).toHaveBeenCalledTimes(1);
-    expect(results).toHaveLength(1);
-  });
 
   it("records a failed retrieval when an execution result fails", async () => {
     service = await createService();
