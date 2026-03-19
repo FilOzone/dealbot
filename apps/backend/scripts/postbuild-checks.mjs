@@ -82,7 +82,7 @@ async function checkEntityMetadata() {
   // requiring a live database connection.
   await ds.buildMetadatas();
 }
-check.push({ name: "entity-metadata", fn: checkEntityMetadata })
+checks.push({ name: "entity-metadata", fn: checkEntityMetadata });
 
 // ---------------------------------------------------------------------------
 // Runner
