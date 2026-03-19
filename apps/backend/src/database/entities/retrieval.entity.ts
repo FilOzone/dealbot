@@ -42,22 +42,22 @@ export class Retrieval {
   @Column({ name: "completed_at", type: "timestamptz", nullable: true })
   completedAt: Date | null;
 
-  @Column({ name: "latency_ms", nullable: true })
+  @Column({ name: "latency_ms", type: "int", nullable: true })
   latencyMs: number | null;
 
-  @Column({ name: "throughput_bps", nullable: true })
+  @Column({ name: "throughput_bps", type: "int", nullable: true })
   throughputBps: number | null;
 
-  @Column({ name: "bytes_retrieved", nullable: true })
+  @Column({ name: "bytes_retrieved", type: "int", nullable: true })
   bytesRetrieved: number | null;
 
-  @Column({ name: "ttfb_ms", nullable: true })
+  @Column({ name: "ttfb_ms", type: "int", nullable: true })
   ttfbMs: number | null;
 
-  @Column({ name: "response_code", nullable: true })
+  @Column({ name: "response_code", type: "int", nullable: true })
   responseCode: number | null;
 
-  @Column({ name: "error_message", nullable: true })
+  @Column({ name: "error_message", type: "varchar", nullable: true })
   errorMessage: string | null;
 
   @Column({ name: "retry_count", default: 0 })

@@ -29,13 +29,13 @@ export class Deal {
   @Column({ name: "file_size", type: "bigint" })
   fileSize: number;
 
-  @Column({ name: "piece_cid", nullable: true })
+  @Column({ name: "piece_cid", type: "varchar", nullable: true })
   pieceCid: string | null;
 
-  @Column({ name: "data_set_id", nullable: true })
+  @Column({ name: "data_set_id", type: "int", nullable: true })
   dataSetId: number | null;
 
-  @Column({ name: "piece_id", nullable: true })
+  @Column({ name: "piece_id", type: "int", nullable: true })
   pieceId: number | null;
 
   @Column({ name: "piece_size", nullable: true, type: "bigint" })
@@ -48,7 +48,7 @@ export class Deal {
   })
   status: DealStatus;
 
-  @Column({ name: "transaction_hash", nullable: true })
+  @Column({ name: "transaction_hash", type: "varchar", nullable: true })
   transactionHash: `0x${string}` | null;
 
   @Column({ type: "jsonb", default: {} })
@@ -125,7 +125,7 @@ export class Deal {
   @Column({ name: "error_message", nullable: true, type: "text" })
   errorMessage: string | null;
 
-  @Column({ name: "error_code", nullable: true })
+  @Column({ name: "error_code", type: "varchar", nullable: true })
   errorCode: string | null;
 
   @Column({ name: "retry_count", default: 0 })
