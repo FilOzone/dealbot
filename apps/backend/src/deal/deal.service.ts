@@ -426,17 +426,22 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
         },
       });
       signal?.throwIfAborted();
+      const pieceCid = deal.pieceCid;
+      const uploadStartTime = deal.uploadStartTime;
+      const uploadEndTime = deal.uploadEndTime;
+      const pieceAddedTime = deal.pieceAddedTime;
+      const pieceConfirmedTime = deal.pieceConfirmedTime;
       if (
-        deal.pieceCid == null ||
-        deal.uploadStartTime == null ||
-        deal.uploadEndTime == null ||
-        deal.pieceAddedTime == null ||
-        deal.pieceConfirmedTime == null
+        pieceCid === null ||
+        uploadStartTime === null ||
+        uploadEndTime === null ||
+        pieceAddedTime === null ||
+        pieceConfirmedTime === null
       ) {
         throw new Error("Dealbot did not receive onProgress events during upload");
       }
 
-      deal.dealLatencyMs = deal.pieceConfirmedTime.getTime() - deal.uploadStartTime.getTime();
+      deal.dealLatencyMs = pieceConfirmedTime.getTime() - uploadStartTime.getTime();
 
       if (!deal.transactionHash && uploadResult.transactionHash) {
         deal.transactionHash = uploadResult.transactionHash as Hex;
@@ -460,7 +465,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
           throw uploadCompleteError ?? new Error("Upload completion handlers failed");
         }
         deal.dealConfirmedTime = new Date();
-        if (deal.ipniVerifiedAt) {
+        if (deal.ipniVerifiedAt !== null && deal.uploadStartTime !== null) {
           // pieceUploadToRetrievableDuration (IPNI verified)
           deal.dealLatencyWithIpniMs = deal.ipniVerifiedAt.getTime() - deal.uploadStartTime.getTime();
         }
