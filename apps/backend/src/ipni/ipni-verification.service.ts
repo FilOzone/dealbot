@@ -1,6 +1,6 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { PDPProvider } from "filecoin-pin";
-import { serviceURLToMultiaddr, waitForIpniProviderResults } from "filecoin-pin/core/utils";
+import { waitForIpniProviderResults } from "filecoin-pin/core/utils";
 import { CID } from "multiformats/cid";
 import type { StorageProvider } from "../database/entities/storage-provider.entity.js";
 import type { IPNIVerificationResult } from "../deal-addons/strategies/ipni.types.js";
@@ -33,7 +33,6 @@ export class IpniVerificationService {
     // the full timeout window rather than falling short by up to one delayMs interval.
     const maxAttempts = Math.max(1, Math.ceil(timeoutMs / delayMs) + 1);
     const expectedProviders = [this.buildExpectedProviderInfo(storageProvider)];
-    const expectedMultiaddr = serviceURLToMultiaddr(storageProvider.serviceUrl);
     const timeoutSignal = AbortSignal.timeout(timeoutMs);
     const verificationSignal = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
     let failureReason = "IPNI did not return expected provider results via filecoin-pin";
@@ -46,7 +45,6 @@ export class IpniVerificationService {
       providerId: storageProvider.providerId,
       providerName: storageProvider.name,
       serviceUrl: storageProvider.serviceUrl,
-      expectedMultiaddr,
       blockCIDCount: blockCids.length,
       timeoutMs,
       pollIntervalMs: delayMs,
@@ -75,7 +73,6 @@ export class IpniVerificationService {
           providerId: storageProvider.providerId,
           providerName: storageProvider.name,
           serviceUrl: storageProvider.serviceUrl,
-          expectedMultiaddr,
           blockCIDCount: blockCids.length,
           timeoutMs,
           pollIntervalMs: delayMs,
@@ -93,7 +90,6 @@ export class IpniVerificationService {
         providerId: storageProvider.providerId,
         providerName: storageProvider.name,
         serviceUrl: storageProvider.serviceUrl,
-        expectedMultiaddr,
         blockCIDCount: blockCids.length,
         timeoutMs,
         pollIntervalMs: delayMs,

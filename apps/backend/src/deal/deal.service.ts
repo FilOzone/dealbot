@@ -40,11 +40,6 @@ type UploadResultSummary = {
   pieceId?: number;
   transactionHash?: string;
 };
-// filecoin-pin depends on synapse-sdk@0.38.0 while dealbot uses 0.39.0.
-// The Synapse class has incompatible private properties between versions,
-// so we need a type cast when passing to executeUpload.
-// TODO: fix when https://github.com/filecoin-project/filecoin-pin/pull/369 is resolved
-type FilecoinPinSynapse = Parameters<typeof executeUpload>[0];
 
 @Injectable()
 export class DealService implements OnModuleInit, OnModuleDestroy {
@@ -254,109 +249,105 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       let onStoredAddonsPromise: Promise<boolean> | null = null;
       let storedError: Error | undefined;
 
-      const uploadResult = await executeUpload(
-        synapse as unknown as FilecoinPinSynapse,
-        uploadPayload.carData,
-        uploadPayload.rootCid,
-        {
-          logger: filecoinPinLogger,
-          contextId: providerAddress,
-          pieceMetadata: dealInput.synapseConfig.pieceMetadata,
-          count: 1,
-          dataSetIds: storage.dataSetId != null ? [storage.dataSetId] : undefined,
-          /**
-           * do not do IPNI validation here, we need to call /pdp/piece/<pieceCid>/status to get other metrics.
-           * See `onStored` handler in deal-addons/strategies/ipni.strategy.ts for implementation.
-           */
-          ipniValidation: { enabled: false },
-          onProgress: async (event) => {
-            this.logger.debug({
-              ...dealLogContext,
-              event: "upload_progress",
-              message: "Upload in progress",
-              filecoinPinEventType: event.type,
-            });
-            switch (event.type) {
-              case "onStored": {
-                deal.uploadEndTime = new Date();
-                deal.status = DealStatus.UPLOADED;
-                deal.ingestLatencyMs = deal.uploadEndTime.getTime() - deal.uploadStartTime.getTime();
-                deal.pieceCid = event.data.pieceCid.toString();
-                dealLogContext.pieceCid = event.data.pieceCid.toString();
-                this.logger.log({
-                  ...dealLogContext,
-                  event: "stored",
-                  message: `Store completed`,
+      const uploadResult = await executeUpload(synapse, uploadPayload.carData, uploadPayload.rootCid, {
+        logger: filecoinPinLogger,
+        contextId: providerAddress,
+        pieceMetadata: dealInput.synapseConfig.pieceMetadata,
+        copies: 1,
+        providerIds: dealLogContext.providerId != null ? [dealLogContext.providerId] : undefined,
+        dataSetIds: storage.dataSetId != null ? [storage.dataSetId] : undefined,
+        /**
+         * do not do IPNI validation here, we need to call /pdp/piece/<pieceCid>/status to get other metrics.
+         * See `onStored` handler in deal-addons/strategies/ipni.strategy.ts for implementation.
+         */
+        ipniValidation: { enabled: false },
+        onProgress: async (event) => {
+          this.logger.debug({
+            ...dealLogContext,
+            event: "upload_progress",
+            message: "Upload in progress",
+            filecoinPinEventType: event.type,
+          });
+          switch (event.type) {
+            case "onStored": {
+              deal.uploadEndTime = new Date();
+              deal.status = DealStatus.UPLOADED;
+              deal.ingestLatencyMs = deal.uploadEndTime.getTime() - deal.uploadStartTime.getTime();
+              deal.pieceCid = event.data.pieceCid.toString();
+              dealLogContext.pieceCid = event.data.pieceCid.toString();
+              this.logger.log({
+                ...dealLogContext,
+                event: "stored",
+                message: `Store completed`,
+              });
+              uploadSucceeded = true;
+              this.dataStorageMetrics.observeIngestMs(providerLabels, deal.ingestLatencyMs);
+              this.dataStorageMetrics.recordUploadStatus(providerLabels, "success");
+              this.dataStorageMetrics.recordOnchainStatus(providerLabels, "pending");
+              onStoredAddonsPromise = this.dealAddonsService
+                .handleStored(deal, dealInput.appliedAddons, signal, dealLogContext)
+                .then(() => true)
+                .catch((error) => {
+                  storedError = error;
+                  return false;
                 });
-                uploadSucceeded = true;
-                this.dataStorageMetrics.observeIngestMs(providerLabels, deal.ingestLatencyMs);
-                this.dataStorageMetrics.recordUploadStatus(providerLabels, "success");
-                this.dataStorageMetrics.recordOnchainStatus(providerLabels, "pending");
-                onStoredAddonsPromise = this.dealAddonsService
-                  .handleStored(deal, dealInput.appliedAddons, signal, dealLogContext)
-                  .then(() => true)
-                  .catch((error) => {
-                    storedError = error;
-                    return false;
-                  });
-                const ingestSeconds = deal.ingestLatencyMs / 1000;
-                if (ingestSeconds > 0 && Number.isFinite(ingestSeconds)) {
-                  deal.ingestThroughputBps = Math.round(deal.fileSize / ingestSeconds);
-                  this.dataStorageMetrics.observeIngestThroughput(providerLabels, deal.ingestThroughputBps);
-                } else {
-                  deal.ingestThroughputBps = 0;
-                  this.logger.warn({
-                    ...dealLogContext,
-                    event: "ingest_throughput_skipped",
-                    message: "Skipping ingest throughput: invalid ingest latency",
-                    ingestLatencyMs: deal.ingestLatencyMs,
-                  });
-                }
-                break;
+              const ingestSeconds = deal.ingestLatencyMs / 1000;
+              if (ingestSeconds > 0 && Number.isFinite(ingestSeconds)) {
+                deal.ingestThroughputBps = Math.round(deal.fileSize / ingestSeconds);
+                this.dataStorageMetrics.observeIngestThroughput(providerLabels, deal.ingestThroughputBps);
+              } else {
+                deal.ingestThroughputBps = 0;
+                this.logger.warn({
+                  ...dealLogContext,
+                  event: "ingest_throughput_skipped",
+                  message: "Skipping ingest throughput: invalid ingest latency",
+                  ingestLatencyMs: deal.ingestLatencyMs,
+                });
               }
-              case "onPiecesAdded":
-                this.logger.log({
-                  ...dealLogContext,
-                  event: "pieces_added",
-                  message: "Pieces added",
-                  txHash: event.data.txHash,
-                });
-                deal.piecesAddedTime = new Date();
-                if (event.data.txHash != null) {
-                  deal.transactionHash = event.data.txHash as Hex;
-                } else {
-                  this.logger.warn({
-                    ...dealLogContext,
-                    event: "pieces_added_no_tx_hash",
-                    message: "No transaction hash found for pieces added event",
-                  });
-                }
-                deal.status = DealStatus.PIECE_ADDED;
-                this.dataStorageMetrics.observePieceAddedOnChainMs(
-                  providerLabels,
-                  deal.piecesAddedTime.getTime() - deal.uploadEndTime.getTime(),
-                );
-                break;
-              case "onPiecesConfirmed":
-                this.logger.log({
-                  ...dealLogContext,
-                  event: "pieces_confirmed",
-                  message: "Pieces confirmed",
-                  pieceIds: event.data.pieceIds,
-                });
-                deal.piecesConfirmedTime = new Date();
-                deal.status = DealStatus.PIECE_CONFIRMED;
-                deal.chainLatencyMs = deal.piecesConfirmedTime.getTime() - deal.piecesAddedTime.getTime();
-                onchainSucceeded = true;
-                this.dataStorageMetrics.observePieceConfirmedOnChainMs(providerLabels, deal.chainLatencyMs);
-                this.dataStorageMetrics.recordOnchainStatus(providerLabels, "success");
-                break;
+              break;
             }
-            // throw if aborted, AFTER adding data to the `deal` object. Everything in this `onProgress` callback is synchronous.
-            signal?.throwIfAborted();
-          },
+            case "onPiecesAdded":
+              this.logger.log({
+                ...dealLogContext,
+                event: "pieces_added",
+                message: "Pieces added",
+                txHash: event.data.txHash,
+              });
+              deal.piecesAddedTime = new Date();
+              if (event.data.txHash != null) {
+                deal.transactionHash = event.data.txHash as Hex;
+              } else {
+                this.logger.warn({
+                  ...dealLogContext,
+                  event: "pieces_added_no_tx_hash",
+                  message: "No transaction hash found for pieces added event",
+                });
+              }
+              deal.status = DealStatus.PIECE_ADDED;
+              this.dataStorageMetrics.observePieceAddedOnChainMs(
+                providerLabels,
+                deal.piecesAddedTime.getTime() - deal.uploadEndTime.getTime(),
+              );
+              break;
+            case "onPiecesConfirmed":
+              this.logger.log({
+                ...dealLogContext,
+                event: "pieces_confirmed",
+                message: "Pieces confirmed",
+                pieceIds: event.data.pieceIds,
+              });
+              deal.piecesConfirmedTime = new Date();
+              deal.status = DealStatus.PIECE_CONFIRMED;
+              deal.chainLatencyMs = deal.piecesConfirmedTime.getTime() - deal.piecesAddedTime.getTime();
+              onchainSucceeded = true;
+              this.dataStorageMetrics.observePieceConfirmedOnChainMs(providerLabels, deal.chainLatencyMs);
+              this.dataStorageMetrics.recordOnchainStatus(providerLabels, "success");
+              break;
+          }
+          // throw if aborted, AFTER adding data to the `deal` object. Everything in this `onProgress` callback is synchronous.
+          signal?.throwIfAborted();
         },
-      );
+      });
       signal?.throwIfAborted();
       if (deal.pieceCid == null || deal.piecesAddedTime == null || deal.piecesConfirmedTime == null) {
         throw new Error("Dealbot did not receive onProgress events during upload");
@@ -573,10 +564,11 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       const filecoinPinLogger = createFilecoinPinLogger(this.logger);
 
       const uploadResult = (await awaitWithAbort(
-        executeUpload(synapse as unknown as FilecoinPinSynapse, carResult.carData, carResult.rootCID, {
+        executeUpload(synapse, carResult.carData, carResult.rootCID, {
           logger: filecoinPinLogger,
           contextId: providerAddress,
-          count: 1,
+          copies: 1,
+          providerIds: [providerInfo.id],
           dataSetIds: storage.dataSetId != null ? [storage.dataSetId] : undefined,
           pieceMetadata: {},
           ipniValidation: { enabled: false },

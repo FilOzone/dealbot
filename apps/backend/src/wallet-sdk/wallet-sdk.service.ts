@@ -54,13 +54,13 @@ export class WalletSdkService implements OnModuleInit {
    */
   private async initializeServices(): Promise<void> {
     const account = privateKeyToAccount(this.blockchainConfig.walletPrivateKey);
-    const synapse = await Synapse.create({
+    const synapse = Synapse.create({
       account,
       chain: this.blockchainConfig.network === "mainnet" ? mainnet : calibration,
       source: "dealbot",
     });
 
-    this.warmStorageService = await WarmStorageService.create({
+    this.warmStorageService = WarmStorageService.create({
       account,
     });
     this.spRegistry = new SPRegistryService({
@@ -73,7 +73,7 @@ export class WalletSdkService implements OnModuleInit {
   /**
    * Load ALL registered service providers from on-chain (not just approved)
    * This allows dealbot to test all FWSS SPs, even those not yet approved
-   * Only loads active providers that support the PDP product and excludes dev-tagged providers
+   * Only loads active, approved providers that support the PDP product
    */
   async loadProviders(): Promise<void> {
     if (this.providersLoadPromise) {
@@ -155,7 +155,7 @@ export class WalletSdkService implements OnModuleInit {
           });
         }
 
-        // select approved providers which are not dev tagged
+        // select approved, active providers
         if (info.isActive) this.activeProviderAddresses.add(info.serviceProvider);
         if (isApproved && info.isActive) this.approvedProviderAddresses.add(info.serviceProvider);
         this.providerCache.set(info.serviceProvider, {
