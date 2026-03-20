@@ -254,8 +254,12 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
         contextId: providerAddress,
         pieceMetadata: dealInput.synapseConfig.pieceMetadata,
         copies: 1,
-        providerIds: dealLogContext.providerId != null ? [dealLogContext.providerId] : undefined,
-        dataSetIds: storage.dataSetId != null ? [storage.dataSetId] : undefined,
+        // SDK forbids specifying both dataSetIds and providerIds — use one or the other
+        ...(storage.dataSetId != null
+          ? { dataSetIds: [storage.dataSetId] }
+          : dealLogContext.providerId != null
+            ? { providerIds: [dealLogContext.providerId] }
+            : {}),
         /**
          * do not do IPNI validation here, we need to call /pdp/piece/<pieceCid>/status to get other metrics.
          * See `onStored` handler in deal-addons/strategies/ipni.strategy.ts for implementation.
@@ -568,8 +572,8 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
           logger: filecoinPinLogger,
           contextId: providerAddress,
           copies: 1,
-          providerIds: [providerInfo.id],
-          dataSetIds: storage.dataSetId != null ? [storage.dataSetId] : undefined,
+          // SDK forbids specifying both dataSetIds and providerIds — use one or the other
+          ...(storage.dataSetId != null ? { dataSetIds: [storage.dataSetId] } : { providerIds: [providerInfo.id] }),
           pieceMetadata: {},
           ipniValidation: { enabled: false },
           onProgress: async (event) => {
