@@ -40,7 +40,7 @@ jobs:
         with:
           # PAT so release PRs trigger other workflows (auto-label, add-issues-and-prs-to-fs-project-board).
           # This PAT has the permissions outlined in https://github.com/googleapis/release-please-action?tab=readme-ov-file#workflow-permissions.
-          # Using GITHUB_TOKEN suppresses follow-on workflow runs, which would mean release please PRs wouldn't get properly labeled and added to the project board.
+          # Using GITHUB_TOKEN suppresses follow-on workflow runs, which would mean release-please PRs wouldn't get properly labeled and added to the project board.
           token: ${{ secrets.FILOZZY_RELEASE_PLEASE_PAT }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
