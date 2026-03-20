@@ -12,7 +12,7 @@ import { buildCheckMetricLabels, CheckMetricLabels } from "../metrics/utils/chec
 import { PDPSubgraphService } from "../pdp-subgraph/pdp-subgraph.service.js";
 import { type ProviderDataSetResponse } from "../pdp-subgraph/types.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
-import { type ProviderInfoEx } from "../wallet-sdk/wallet-sdk.types.js";
+import { type PDPProviderEx } from "../wallet-sdk/wallet-sdk.types.js";
 
 @Injectable()
 export class DataRetentionService {
@@ -306,7 +306,7 @@ export class DataRetentionService {
    */
   private async processProvider(
     provider: ProviderDataSetResponse["providers"][number],
-    providerInfo: ProviderInfoEx,
+    pdpProvider: PDPProviderEx,
   ): Promise<{ faultedPeriods: bigint; successPeriods: bigint }> {
     const { address, totalFaultedPeriods, totalProvingPeriods } = provider;
     // Use only subgraph-confirmed totals. Speculative overdue estimation was removed
@@ -330,8 +330,8 @@ export class DataRetentionService {
         event: "baseline_initialized",
         message: "Initialized baseline for provider (no prior baseline)",
         providerAddress: address,
-        providerId: providerInfo.id,
-        providerName: providerInfo.name,
+        providerId: pdpProvider.id,
+        providerName: pdpProvider.name,
         faultedPeriods: totalFaultedPeriods.toString(),
         successPeriods: confirmedTotalSuccess.toString(),
       });
@@ -349,8 +349,8 @@ export class DataRetentionService {
         event: "negative_delta_detected",
         message: "Negative delta detected for provider",
         providerAddress: address,
-        providerId: providerInfo.id,
-        providerName: providerInfo.name,
+        providerId: pdpProvider.id,
+        providerName: pdpProvider.name,
         faultedDelta: faultedDelta.toString(),
         successDelta: successDelta.toString(),
       });
@@ -361,9 +361,9 @@ export class DataRetentionService {
 
     const providerLabels = buildCheckMetricLabels({
       checkType: "dataRetention",
-      providerId: providerInfo.id,
-      providerName: providerInfo.name,
-      providerIsApproved: providerInfo.isApproved,
+      providerId: pdpProvider.id,
+      providerName: pdpProvider.name,
+      providerIsApproved: pdpProvider.isApproved,
     });
 
     if (faultedDelta > 0n) {

@@ -26,7 +26,7 @@ GRAFANA_VALUES ?= $(MONITORING_OVERLAY)/grafana-values.yaml
 .PHONY: backend-image-build backend-kind-load backend-logs
 .PHONY: web-image-build web-kind-load web-logs
 .PHONY: image-build kind-load deploy undeploy render logs
-.PHONY: redeploy restart restart-backend restart-web
+.PHONY: redeploy restart restart-backend restart-web restart-worker
 .PHONY: monitoring-install monitoring-apply monitoring-up monitoring-down
 .PHONY: local-up up down
 
@@ -105,7 +105,11 @@ restart-web:
 	kubectl -n $(NAMESPACE) rollout restart deploy/dealbot-web
 	kubectl -n $(NAMESPACE) rollout status deploy/dealbot-web
 
-restart: restart-backend restart-web
+restart-worker:
+	kubectl -n $(NAMESPACE) rollout restart deploy/dealbot-worker
+	kubectl -n $(NAMESPACE) rollout status deploy/dealbot-worker
+
+restart: restart-backend restart-web restart-worker
 
 # Dev convenience: rebuild images, load into Kind, apply manifests, and restart pods.
 # This avoids stale `:dev` images when imagePullPolicy is IfNotPresent.

@@ -1,14 +1,15 @@
 import { Column, CreateDateColumn, Entity, Index, OneToMany, PrimaryColumn, UpdateDateColumn } from "typeorm";
+import { BigIntColumn } from "../helpers/bigint-column.js";
 import { Deal } from "./deal.entity.js";
 
 @Entity("storage_providers")
-@Index(["region", "isActive"])
+@Index(["location", "isActive"])
 export class StorageProvider {
   @PrimaryColumn()
   address!: string;
 
-  @Column({ nullable: true })
-  providerId?: number;
+  @BigIntColumn({ nullable: true })
+  providerId?: bigint;
 
   @Column()
   name!: string;
@@ -29,7 +30,7 @@ export class StorageProvider {
   isApproved!: boolean;
 
   @Column()
-  region!: string;
+  location!: string;
 
   @Column({ type: "jsonb" })
   @Index("idx_sp_metadata", { synchronize: false })

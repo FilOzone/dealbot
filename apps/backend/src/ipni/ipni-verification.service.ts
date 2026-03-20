@@ -1,6 +1,6 @@
-import type { ProviderInfo } from "@filoz/synapse-sdk";
 import { Injectable, Logger } from "@nestjs/common";
-import { serviceURLToMultiaddr, waitForIpniProviderResults } from "filecoin-pin/core/utils";
+import { PDPProvider } from "filecoin-pin";
+import { waitForIpniProviderResults } from "filecoin-pin/core/utils";
 import { CID } from "multiformats/cid";
 import type { StorageProvider } from "../database/entities/storage-provider.entity.js";
 import type { IPNIVerificationResult } from "../deal-addons/strategies/ipni.types.js";
@@ -33,7 +33,6 @@ export class IpniVerificationService {
     // the full timeout window rather than falling short by up to one delayMs interval.
     const maxAttempts = Math.max(1, Math.ceil(timeoutMs / delayMs) + 1);
     const expectedProviders = [this.buildExpectedProviderInfo(storageProvider)];
-    const expectedMultiaddr = serviceURLToMultiaddr(storageProvider.serviceUrl);
     const timeoutSignal = AbortSignal.timeout(timeoutMs);
     const verificationSignal = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
     let failureReason = "IPNI did not return expected provider results via filecoin-pin";
@@ -46,7 +45,6 @@ export class IpniVerificationService {
       providerId: storageProvider.providerId,
       providerName: storageProvider.name,
       serviceUrl: storageProvider.serviceUrl,
-      expectedMultiaddr,
       blockCIDCount: blockCids.length,
       timeoutMs,
       pollIntervalMs: delayMs,
@@ -75,7 +73,6 @@ export class IpniVerificationService {
           providerId: storageProvider.providerId,
           providerName: storageProvider.name,
           serviceUrl: storageProvider.serviceUrl,
-          expectedMultiaddr,
           blockCIDCount: blockCids.length,
           timeoutMs,
           pollIntervalMs: delayMs,
@@ -93,7 +90,6 @@ export class IpniVerificationService {
         providerId: storageProvider.providerId,
         providerName: storageProvider.name,
         serviceUrl: storageProvider.serviceUrl,
-        expectedMultiaddr,
         blockCIDCount: blockCids.length,
         timeoutMs,
         pollIntervalMs: delayMs,
@@ -136,23 +132,25 @@ export class IpniVerificationService {
     };
   }
 
-  private buildExpectedProviderInfo(storageProvider: StorageProvider): ProviderInfo {
+  private buildExpectedProviderInfo(storageProvider: StorageProvider): PDPProvider {
     return {
-      id: storageProvider.providerId ?? (0 as number),
-      serviceProvider: storageProvider.address,
-      payee: storageProvider.payee,
+      id: storageProvider.providerId ?? 0n,
+      serviceProvider: storageProvider.address as `0x${string}`,
+      payee: storageProvider.payee as `0x${string}`,
       name: storageProvider.name,
       description: storageProvider.description,
-      active: storageProvider.isActive,
-      products: {
-        PDP: {
-          type: "PDP",
-          isActive: true,
-          capabilities: {},
-          data: {
-            serviceURL: storageProvider.serviceUrl,
-          } as any,
-        },
+      isActive: storageProvider.isActive,
+      pdp: {
+        // TODO
+        serviceURL: storageProvider.serviceUrl,
+        minPieceSizeInBytes: 0n,
+        maxPieceSizeInBytes: 0n,
+        storagePricePerTibPerDay: 0n,
+        minProvingPeriodInEpochs: 0n,
+        location: "todo",
+        paymentTokenAddress: "0x",
+        ipniPiece: true,
+        ipniIpfs: true,
       },
     };
   }

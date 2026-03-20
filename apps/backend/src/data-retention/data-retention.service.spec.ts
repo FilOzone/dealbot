@@ -496,13 +496,13 @@ describe("DataRetentionService", () => {
       // Should remove all counter label combinations
       const approvedLabels = buildCheckMetricLabels({
         checkType: "dataRetention",
-        providerId: 1,
+        providerId: 1n,
         providerName: "Provider A",
         providerIsApproved: true,
       });
       const unapprovedLabels = buildCheckMetricLabels({
         checkType: "dataRetention",
-        providerId: 1,
+        providerId: 1n,
         providerName: "Provider A",
         providerIsApproved: false,
       });
