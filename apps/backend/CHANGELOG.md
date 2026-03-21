@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.4](https://github.com/FilOzone/dealbot/compare/backend-v1.0.3...backend-v1.0.4) (2026-03-21)
+
+
+### Bug Fixes
+
+* **backend:** include synapse 0.40.0 upgrade in release notes ([#388](https://github.com/FilOzone/dealbot/issues/388)) ([e38e186](https://github.com/FilOzone/dealbot/commit/e38e186af8f8ba1b8947641f1da024998529a735))
+
 ## [1.0.3](https://github.com/FilOzone/dealbot/compare/backend-v1.0.2...backend-v1.0.3) (2026-03-17)
 
 
