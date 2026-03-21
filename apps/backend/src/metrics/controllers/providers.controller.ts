@@ -75,7 +75,10 @@ export class ProvidersController {
     });
 
     return {
-      providers,
+      providers: providers.map((p) => ({
+        ...p,
+        ...(p.providerId != null ? { providerId: p.providerId.toString() } : {}),
+      })),
       total,
       count: providers.length,
       offset: offset || 0,

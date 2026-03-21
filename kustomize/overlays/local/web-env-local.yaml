@@ -1,0 +1,14 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dealbot-web
+spec:
+  template:
+    spec:
+      containers:
+        - name: dealbot-web
+          env:
+            - name: DASHBOARD_URL
+              value: https://telemetry.betterstack.com/dashboards/Zz8k7L
+            - name: LOGS_URL
+              value: https://telemetry.betterstack.com/dashboards/DcQ0In
