@@ -53,7 +53,6 @@ describe("ProvidersController", () => {
     const json = JSON.stringify(result);
 
     // undefined fields are omitted by JSON.stringify — no crash, no providerId key
-    expect(() => JSON.stringify(result)).not.toThrow();
     expect(json).not.toContain('"providerId"');
   });
 });
