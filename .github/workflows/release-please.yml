@@ -24,6 +24,11 @@ jobs:
     runs-on: ubuntu-latest
     # Only run automatically if the image build workflow succeeded; manual runs skip this gate.
     if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    # Serialize release-please runs so concurrent Docker-build completions
+    # don't race each other and hit "tag already_exists" errors.
+    concurrency:
+      group: release-please
+      cancel-in-progress: false
     outputs:
       releases_created: ${{ steps.release.outputs.releases_created }}
       backend_release_created: ${{ steps.release.outputs['apps/backend--release_created'] }}
