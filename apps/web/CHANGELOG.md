@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.1](https://github.com/FilOzone/dealbot/compare/web-v1.1.0...web-v1.1.1) (2026-03-22)
+
+
+### Bug Fixes
+
+* landing page renders providers ([#391](https://github.com/FilOzone/dealbot/issues/391)) ([c6ffa51](https://github.com/FilOzone/dealbot/commit/c6ffa51ef51f0aa7967767cc9d034cc2f72d5ef9))
+
 ## [1.1.0](https://github.com/FilOzone/dealbot/compare/web-v1.0.1...web-v1.1.0) (2026-03-21)
 
 
