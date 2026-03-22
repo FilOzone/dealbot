@@ -28,7 +28,7 @@ export interface PDPOffering {
  */
 export interface Provider {
   address: string;
-  providerId?: number | null;
+  providerId?: string | null;
   name: string;
   description: string;
   payee: string;
