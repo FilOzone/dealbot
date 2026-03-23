@@ -1,14 +1,17 @@
-import { RPC_URLS, StorageContext, Synapse } from "@filoz/synapse-sdk";
+import { calibration, mainnet, Synapse } from "@filoz/synapse-sdk";
 import { Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
 import { calculateActualStorage, listDataSets } from "filecoin-pin/core/data-set";
 import { IsNull, Not, Repository } from "typeorm";
+import { privateKeyToAccount } from "viem/accounts";
 import { toStructuredError } from "../common/logging.js";
 import type { IBlockchainConfig, IConfig } from "../config/app.config.js";
 import { Deal } from "../database/entities/deal.entity.js";
 import { DealStatus } from "../database/types.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
+
+export type StorageContext = Awaited<ReturnType<Synapse["storage"]["createContext"]>>;
 
 export interface CleanupResult {
   /** Number of pieces successfully deleted. */
@@ -45,7 +48,7 @@ export class PieceCleanupService implements OnModuleInit, OnModuleDestroy {
     }
     try {
       this.logger.log("Initializing shared Synapse instance for piece cleanup.");
-      this.sharedSynapse = await this.createSynapseInstance();
+      this.sharedSynapse = this.createSynapseInstance();
     } catch (error) {
       this.logger.error({
         event: "piece_cleanup_synapse_init_failed",
@@ -57,17 +60,16 @@ export class PieceCleanupService implements OnModuleInit, OnModuleDestroy {
 
   async onModuleDestroy(): Promise<void> {
     if (this.sharedSynapse) {
-      await this.cleanupSynapseInstance(this.sharedSynapse);
       this.sharedSynapse = undefined;
     }
   }
 
-  private async createSynapseInstance(): Promise<Synapse> {
+  private createSynapseInstance(): Synapse {
     try {
-      return await Synapse.create({
-        privateKey: this.blockchainConfig.walletPrivateKey,
-        rpcURL: RPC_URLS[this.blockchainConfig.network].http,
-        warmStorageAddress: this.walletSdkService.getFWSSAddress(),
+      return Synapse.create({
+        account: privateKeyToAccount(this.blockchainConfig.walletPrivateKey),
+        chain: this.blockchainConfig.network === "mainnet" ? mainnet : calibration,
+        source: "dealbot",
       });
     } catch (error) {
       this.logger.error({
@@ -76,18 +78,6 @@ export class PieceCleanupService implements OnModuleInit, OnModuleDestroy {
         error: toStructuredError(error),
       });
       throw error;
-    }
-  }
-
-  private async cleanupSynapseInstance(synapse: Synapse): Promise<void> {
-    try {
-      await synapse.telemetry?.sentry?.close?.();
-    } catch (error) {
-      this.logger.warn({
-        event: "synapse_telemetry_cleanup_failed",
-        message: "Failed to cleanup Synapse telemetry for piece cleanup",
-        error: toStructuredError(error),
-      });
     }
   }
 
@@ -164,9 +154,13 @@ export class PieceCleanupService implements OnModuleInit, OnModuleDestroy {
     let failed = 0;
     let bytesRemoved = 0;
 
-    const synapse = this.sharedSynapse ?? (await this.createSynapseInstance());
+    const synapse = this.sharedSynapse ?? this.createSynapseInstance();
+    const providerId = this.walletSdkService.getProviderInfo(spAddress)?.id;
+    if (providerId === undefined) {
+      throw new Error(`Provider ID not found for SP address ${spAddress}`);
+    }
     const storage = await synapse.storage.createContext({
-      providerAddress: spAddress,
+      providerId,
     });
 
     // Fetch candidates in batches. Keep deleting until back under quota or runtime cap.
@@ -260,7 +254,7 @@ export class PieceCleanupService implements OnModuleInit, OnModuleDestroy {
    * Query the provider's actual live storage via filecoin-pin.
    */
   async getLiveStoredBytesForProvider(spAddress: string, signal?: AbortSignal): Promise<number> {
-    const synapse = this.sharedSynapse ?? (await this.createSynapseInstance());
+    const synapse = this.sharedSynapse ?? this.createSynapseInstance();
 
     const datasets = await listDataSets(synapse, {
       filter: (ds) => ds.serviceProvider === spAddress,
@@ -335,14 +329,18 @@ export class PieceCleanupService implements OnModuleInit, OnModuleDestroy {
 
     signal?.throwIfAborted();
 
+    const providerId = this.walletSdkService.getProviderInfo(deal.spAddress)?.id;
+    if (providerId === undefined) {
+      throw new Error(`Provider ID not found for SP address ${deal.spAddress}`);
+    }
     const storage =
       existingStorage ??
-      (await (this.sharedSynapse ?? (await this.createSynapseInstance())).storage.createContext({
-        providerAddress: deal.spAddress,
+      (await (this.sharedSynapse ?? this.createSynapseInstance()).storage.createContext({
+        providerId,
       }));
 
     try {
-      await storage.deletePiece(deal.pieceId);
+      await storage.deletePiece({ piece: BigInt(deal.pieceId) });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       // Idempotent: treat "piece already gone" contract reverts as success.

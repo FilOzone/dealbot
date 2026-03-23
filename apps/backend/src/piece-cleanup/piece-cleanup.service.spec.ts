@@ -1,4 +1,3 @@
-import type { StorageContext } from "@filoz/synapse-sdk";
 import { ConfigService } from "@nestjs/config";
 import { Test, TestingModule } from "@nestjs/testing";
 import { getRepositoryToken } from "@nestjs/typeorm";
@@ -7,7 +6,7 @@ import type { IConfig } from "../config/app.config.js";
 import { Deal } from "../database/entities/deal.entity.js";
 import { DealStatus } from "../database/types.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
-import { PieceCleanupService } from "./piece-cleanup.service.js";
+import { PieceCleanupService, type StorageContext } from "./piece-cleanup.service.js";
 
 vi.mock("@filoz/synapse-sdk", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@filoz/synapse-sdk")>();
@@ -17,7 +16,7 @@ vi.mock("@filoz/synapse-sdk", async (importOriginal) => {
       calibration: { http: "http://localhost:1234" },
     },
     Synapse: {
-      create: vi.fn().mockResolvedValue({
+      create: vi.fn().mockReturnValue({
         storage: {
           createContext: vi.fn().mockResolvedValue({
             deletePiece: vi.fn(),
@@ -57,7 +56,7 @@ describe("PieceCleanupService", () => {
 
   function createWalletSdkMock() {
     return {
-      getFWSSAddress: vi.fn().mockReturnValue("0xFWSS"),
+      getProviderInfo: vi.fn().mockReturnValue({ id: 9, name: "Test SP" }),
     };
   }
 
@@ -74,7 +73,7 @@ describe("PieceCleanupService", () => {
         }
         if (key === "blockchain") {
           return {
-            walletPrivateKey: "mockPrivateKey",
+            walletPrivateKey: "0x1234567890123456789012345678901234567890123456789012345678901234",
             network: "calibration",
             walletAddress: "0x123",
           };
@@ -90,7 +89,7 @@ describe("PieceCleanupService", () => {
     deal.spAddress = overrides.spAddress ?? "0xProvider";
     deal.status = overrides.status ?? DealStatus.DEAL_CREATED;
     deal.pieceId = Object.hasOwn(overrides, "pieceId") ? (overrides.pieceId as number) : 42;
-    deal.dataSetId = Object.hasOwn(overrides, "dataSetId") ? (overrides.dataSetId as number) : 1;
+    deal.dataSetId = Object.hasOwn(overrides, "dataSetId") ? (overrides.dataSetId as bigint) : 1n;
     deal.pieceCid = overrides.pieceCid ?? "bafk-piece";
     deal.pieceSize = overrides.pieceSize ?? 10 * MiB;
     deal.fileSize = overrides.fileSize ?? 10 * MiB;
@@ -388,21 +387,21 @@ describe("PieceCleanupService", () => {
       const createContextMock = vi.fn().mockResolvedValue({
         deletePiece: deletePieceMock,
       });
-      (Synapse.create as ReturnType<typeof vi.fn>).mockResolvedValue({
+      (Synapse.create as ReturnType<typeof vi.fn>).mockReturnValue({
         storage: {
           createContext: createContextMock,
         },
       });
 
-      const deal = makeDeal({ pieceId: 42, dataSetId: 1, spAddress: "0xProvider" });
+      const deal = makeDeal({ pieceId: 42, dataSetId: 1n, spAddress: "0xProvider" });
       dealRepoMock.save.mockResolvedValue(deal);
 
       await service.deletePiece(deal);
 
       expect(createContextMock).toHaveBeenCalledWith({
-        providerAddress: "0xProvider",
+        providerId: 9,
       });
-      expect(deletePieceMock).toHaveBeenCalledWith(42);
+      expect(deletePieceMock).toHaveBeenCalledWith({ piece: 42n });
       expect(deal.cleanedUp).toBe(true);
       expect(deal.cleanedUpAt).toBeInstanceOf(Date);
       expect(dealRepoMock.save).toHaveBeenCalledWith(deal);
@@ -414,13 +413,13 @@ describe("PieceCleanupService", () => {
       const createContextMock = vi.fn().mockResolvedValue({
         deletePiece: deletePieceMock,
       });
-      (Synapse.create as ReturnType<typeof vi.fn>).mockResolvedValue({
+      (Synapse.create as ReturnType<typeof vi.fn>).mockReturnValue({
         storage: {
           createContext: createContextMock,
         },
       });
 
-      const deal = makeDeal({ pieceId: 42, dataSetId: 1, spAddress: "0xProvider" });
+      const deal = makeDeal({ pieceId: 42, dataSetId: 1n, spAddress: "0xProvider" });
       dealRepoMock.save.mockResolvedValue(deal);
 
       await service.deletePiece(deal);
@@ -436,13 +435,13 @@ describe("PieceCleanupService", () => {
       const createContextMock = vi.fn().mockResolvedValue({
         deletePiece: deletePieceMock,
       });
-      (Synapse.create as ReturnType<typeof vi.fn>).mockResolvedValue({
+      (Synapse.create as ReturnType<typeof vi.fn>).mockReturnValue({
         storage: {
           createContext: createContextMock,
         },
       });
 
-      const deal = makeDeal({ pieceId: 42, dataSetId: 1, spAddress: "0xProvider" });
+      const deal = makeDeal({ pieceId: 42, dataSetId: 1n, spAddress: "0xProvider" });
       dealRepoMock.save.mockResolvedValue(deal);
 
       await service.deletePiece(deal);
@@ -457,13 +456,13 @@ describe("PieceCleanupService", () => {
       const createContextMock = vi.fn().mockResolvedValue({
         deletePiece: deletePieceMock,
       });
-      (Synapse.create as ReturnType<typeof vi.fn>).mockResolvedValue({
+      (Synapse.create as ReturnType<typeof vi.fn>).mockReturnValue({
         storage: {
           createContext: createContextMock,
         },
       });
 
-      const deal = makeDeal({ pieceId: 42, dataSetId: 1, spAddress: "0xProvider" });
+      const deal = makeDeal({ pieceId: 42, dataSetId: 1n, spAddress: "0xProvider" });
 
       await expect(service.deletePiece(deal)).rejects.toThrow("network timeout");
     });
