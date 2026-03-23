@@ -11,4 +11,5 @@ data:
   DATABASE_USER: "dealbot"
   DEALBOT_HOST: "0.0.0.0"
   DEALBOT_PORT: "3130"
+  NETWORK: "mainnet"
   NODE_ENV: "production"
