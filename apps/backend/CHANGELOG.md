@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.6](https://github.com/FilOzone/dealbot/compare/backend-v1.0.5...backend-v1.0.6) (2026-03-23)
+
+
+### Bug Fixes
+
+* align approved provider lookups with the configured network ([#394](https://github.com/FilOzone/dealbot/issues/394)) ([23a759f](https://github.com/FilOzone/dealbot/commit/23a759f121c5f80bcc1725fd062e449f227dd3cd))
+
 ## [1.0.5](https://github.com/FilOzone/dealbot/compare/backend-v1.0.4...backend-v1.0.5) (2026-03-22)
 
 
