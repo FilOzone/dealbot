@@ -54,20 +54,28 @@ export class WalletSdkService implements OnModuleInit {
    */
   private async initializeServices(): Promise<void> {
     const account = privateKeyToAccount(this.blockchainConfig.walletPrivateKey);
+    const chain = this.blockchainConfig.network === "mainnet" ? mainnet : calibration;
     const synapse = Synapse.create({
       account,
-      chain: this.blockchainConfig.network === "mainnet" ? mainnet : calibration,
+      chain,
       source: "dealbot",
     });
 
-    this.warmStorageService = WarmStorageService.create({
-      account,
+    this.warmStorageService = new WarmStorageService({
+      client: synapse.client,
     });
     this.spRegistry = new SPRegistryService({
       client: synapse.client,
     });
     this.paymentsService = synapse.payments;
     this.storageManager = synapse.storage;
+
+    this.logger.log({
+      event: "wallet_sdk_initialized",
+      message: "Initialized wallet SDK services",
+      network: this.blockchainConfig.network,
+      chainId: chain.id,
+    });
   }
 
   /**
