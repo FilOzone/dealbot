@@ -9,6 +9,7 @@ import { DevToolsModule } from "./dev-tools/dev-tools.module.js";
 import { JobsModule } from "./jobs/jobs.module.js";
 import { MetricsModule } from "./metrics/metrics.module.js";
 import { MetricsPrometheusModule } from "./metrics-prometheus/metrics-prometheus.module.js";
+import { ProvidersModule } from "./providers/providers.module.js";
 import { RetrievalModule } from "./retrieval/retrieval.module.js";
 
 @Module({
@@ -25,6 +26,7 @@ import { RetrievalModule } from "./retrieval/retrieval.module.js";
     RetrievalModule,
     DataSourceModule,
     MetricsModule,
+    ProvidersModule,
     ...(process.env.ENABLE_DEV_MODE === "true" ? [DevToolsModule] : []),
   ],
   controllers: [AppController],

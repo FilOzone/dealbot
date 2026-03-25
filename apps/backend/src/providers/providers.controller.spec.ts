@@ -1,7 +1,7 @@
 import { Test } from "@nestjs/testing";
 import { describe, expect, it, vi } from "vitest";
-import type { StorageProvider } from "../../database/entities/storage-provider.entity.js";
-import { ProvidersService } from "../services/providers.service.js";
+import type { StorageProvider } from "../database/entities/storage-provider.entity.js";
+import { ProvidersService } from "./providers.service.js";
 import { ProvidersController } from "./providers.controller.js";
 
 function makeProvider(overrides: Partial<StorageProvider> = {}): StorageProvider {
