@@ -15,8 +15,8 @@ import {
   buildCheckMetricLabels,
   type CheckMetricLabels,
   classifyFailureStatus,
-} from "../metrics/utils/check-metric-labels.js";
-import { DiscoverabilityCheckMetrics, RetrievalCheckMetrics } from "../metrics/utils/check-metrics.service.js";
+} from "../metrics-prometheus/check-metric-labels.js";
+import { DiscoverabilityCheckMetrics, RetrievalCheckMetrics } from "../metrics-prometheus/check-metrics.service.js";
 import { RetrievalAddonsService } from "../retrieval-addons/retrieval-addons.service.js";
 import type {
   RetrievalConfiguration,

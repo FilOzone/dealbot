@@ -14,8 +14,8 @@ import type { DealMetadata, IpniMetadata } from "../../database/types.js";
 import { IpniStatus, ServiceType } from "../../database/types.js";
 import { HttpClientService } from "../../http-client/http-client.service.js";
 import { IpniVerificationService } from "../../ipni/ipni-verification.service.js";
-import { classifyFailureStatus } from "../../metrics/utils/check-metric-labels.js";
-import { DiscoverabilityCheckMetrics } from "../../metrics/utils/check-metrics.service.js";
+import { classifyFailureStatus } from "../../metrics-prometheus/check-metric-labels.js";
+import { DiscoverabilityCheckMetrics } from "../../metrics-prometheus/check-metrics.service.js";
 
 import type { IDealAddon } from "../interfaces/deal-addon.interface.js";
 import type { AddonExecutionContext, DealConfiguration, IpniPreprocessingResult, SynapseConfig } from "../types.js";

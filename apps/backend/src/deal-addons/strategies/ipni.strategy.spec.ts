@@ -5,8 +5,8 @@ import { Deal } from "../../database/entities/deal.entity.js";
 import { StorageProvider } from "../../database/entities/storage-provider.entity.js";
 import { IpniStatus, ServiceType } from "../../database/types.js";
 import { IpniVerificationService } from "../../ipni/ipni-verification.service.js";
-import { buildCheckMetricLabels } from "../../metrics/utils/check-metric-labels.js";
-import { DiscoverabilityCheckMetrics } from "../../metrics/utils/check-metrics.service.js";
+import { buildCheckMetricLabels } from "../../metrics-prometheus/check-metric-labels.js";
+import { DiscoverabilityCheckMetrics } from "../../metrics-prometheus/check-metrics.service.js";
 import { IpniAddonStrategy } from "./ipni.strategy.js";
 
 describe("IpniAddonStrategy getPieceStatus", () => {

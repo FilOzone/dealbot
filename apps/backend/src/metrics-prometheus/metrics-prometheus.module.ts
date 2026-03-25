@@ -11,7 +11,7 @@ import {
   DataStorageCheckMetrics,
   DiscoverabilityCheckMetrics,
   RetrievalCheckMetrics,
-} from "../metrics/utils/check-metrics.service.js";
+} from "./check-metrics.service.js";
 import { MetricsPrometheusInterceptor } from "./metrics-prometheus.interceptor.js";
 
 const KiB = 1 << 10;

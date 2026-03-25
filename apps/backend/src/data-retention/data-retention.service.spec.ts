@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { IConfig } from "../config/app.config.js";
 import type { DataRetentionBaseline } from "../database/entities/data-retention-baseline.entity.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
-import { buildCheckMetricLabels } from "../metrics/utils/check-metric-labels.js";
+import { buildCheckMetricLabels } from "../metrics-prometheus/check-metric-labels.js";
 import type { PDPSubgraphService } from "../pdp-subgraph/pdp-subgraph.service.js";
 import type { ProviderDataSetResponse } from "../pdp-subgraph/types.js";
 import type { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
