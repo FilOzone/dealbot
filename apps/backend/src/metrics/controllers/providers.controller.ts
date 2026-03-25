@@ -252,5 +252,4 @@ export class ProvidersController {
 
     return (providers as any[]).map((p) => this.providersService.mapEntityToPerformanceDto(p));
   }
-
 }
