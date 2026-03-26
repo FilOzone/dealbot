@@ -37,8 +37,6 @@ export type SubgraphMeta = {
  * All numeric fields are bigints converted from the subgraph string representation.
  */
 export type DataSet = {
-  totalFaultedPeriods: bigint;
-  currentDeadlineCount: bigint;
   nextDeadline: bigint;
   maxProvingPeriod: bigint;
 };
@@ -100,8 +98,6 @@ const metaSchema = Joi.object({
   .required();
 
 const dataSetSchema = Joi.object({
-  totalFaultedPeriods: Joi.string().pattern(/^\d+$/).required().custom(toBigInt),
-  currentDeadlineCount: Joi.string().pattern(/^\d+$/).required().custom(toBigInt),
   nextDeadline: Joi.string().pattern(/^\d+$/).required().custom(toBigInt),
   maxProvingPeriod: Joi.string().pattern(/^\d+$/).required().custom(toBigInt),
 }).unknown(true);

@@ -6,8 +6,6 @@ export const Queries = {
           totalFaultedPeriods
           totalProvingPeriods
           proofSets (where: {nextDeadline_lt: $blockNumber}) {
-            totalFaultedPeriods
-            currentDeadlineCount
             nextDeadline
             maxProvingPeriod
           }

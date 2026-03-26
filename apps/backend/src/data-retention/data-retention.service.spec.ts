@@ -22,8 +22,6 @@ const makeProvider = (overrides: Partial<ProviderEntry> = {}): ProviderEntry => 
   totalProvingPeriods: 100n,
   proofSets: [
     {
-      totalFaultedPeriods: 2n,
-      currentDeadlineCount: 5n,
       nextDeadline: 900n,
       maxProvingPeriod: 100n,
     },
@@ -1078,8 +1076,6 @@ describe("DataRetentionService", () => {
         makeProvider({
           proofSets: [
             {
-              totalFaultedPeriods: 0n,
-              currentDeadlineCount: 0n,
               nextDeadline: 0n,
               maxProvingPeriod: 1n,
             },

@@ -41,8 +41,6 @@ From `GET_PROVIDERS_WITH_DATASETS` query for each provider:
 - `totalFaultedPeriods` - Cumulative count of faulted proving periods across all data sets (maintained by the subgraph's `NextProvingPeriod` event handler)
 - `totalProvingPeriods` - Cumulative count of all proving periods (successful + faulted) across all data sets
 - `proofSets` - Array of proof sets where `nextDeadline < currentBlock` (overdue deadlines), each containing:
-  - `totalFaultedPeriods` - Faulted periods for this proof set
-  - `currentDeadlineCount` - Current deadline count
   - `nextDeadline` - Next deadline block number
   - `maxProvingPeriod` - Maximum proving period duration
 

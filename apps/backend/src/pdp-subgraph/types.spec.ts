@@ -10,8 +10,6 @@ const makeValidProvider = (overrides: Record<string, unknown> = {}) => ({
   totalProvingPeriods: "100",
   proofSets: [
     {
-      totalFaultedPeriods: "2",
-      currentDeadlineCount: "5",
       nextDeadline: "1000",
       maxProvingPeriod: "100",
     },
@@ -34,8 +32,6 @@ describe("validateProviderDataSetResponse", () => {
     expect(provider.totalProvingPeriods).toBe(100n);
 
     const proofSet = provider.proofSets[0];
-    expect(proofSet.totalFaultedPeriods).toBe(2n);
-    expect(proofSet.currentDeadlineCount).toBe(5n);
     expect(proofSet.nextDeadline).toBe(1000n);
     expect(proofSet.maxProvingPeriod).toBe(100n);
   });
@@ -138,8 +134,6 @@ describe("validateProviderDataSetResponse", () => {
           totalProvingPeriods: "0",
           proofSets: [
             {
-              totalFaultedPeriods: "0",
-              currentDeadlineCount: "0",
               nextDeadline: "0",
               maxProvingPeriod: "0",
             },
