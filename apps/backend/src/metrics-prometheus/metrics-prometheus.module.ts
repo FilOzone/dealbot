@@ -13,6 +13,7 @@ import {
   RetrievalCheckMetrics,
 } from "./check-metrics.service.js";
 import { MetricsPrometheusInterceptor } from "./metrics-prometheus.interceptor.js";
+import { WalletBalanceCollector } from "./wallet-balance.collector.js";
 
 const KiB = 1 << 10;
 const MiB = 1 << 20;
@@ -325,6 +326,7 @@ const metricProviders = [
     RetrievalCheckMetrics,
     DiscoverabilityCheckMetrics,
     DataSetCreationCheckMetrics,
+    WalletBalanceCollector,
     // HTTP metrics interceptor
     {
       provide: APP_INTERCEPTOR,
@@ -338,6 +340,7 @@ const metricProviders = [
     RetrievalCheckMetrics,
     DiscoverabilityCheckMetrics,
     DataSetCreationCheckMetrics,
+    WalletBalanceCollector,
   ],
 })
 export class MetricsPrometheusModule {}
