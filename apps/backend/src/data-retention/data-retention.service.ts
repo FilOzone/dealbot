@@ -186,9 +186,9 @@ export class DataRetentionService {
 
   /**
    * Removes stale provider entries from the cumulative totals map and their associated
-   * Prometheus counter metrics.
+   * Prometheus counter and gauge metrics.
    *
-   * CRITICAL: Local baselines are ONLY deleted if the Prometheus metric is successfully
+   * CRITICAL: Local baselines are ONLY deleted if the Prometheus metrics are successfully
    * removed. This prevents massive metric inflation (double-counting) if a provider
    * temporarily drops offline and returns later.
    *

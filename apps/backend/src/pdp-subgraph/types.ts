@@ -33,7 +33,7 @@ export type SubgraphMeta = {
 };
 
 /**
- * A single proof set within a provider, representing deadline and fault data.
+ * A single proof set within a provider, representing deadline-related proving data.
  * All numeric fields are bigints converted from the subgraph string representation.
  */
 export type DataSet = {
