@@ -2,7 +2,7 @@ import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
 import { InjectMetric } from "@willsoto/nestjs-prometheus";
-import { Counter } from "prom-client";
+import { Counter, Gauge } from "prom-client";
 import { Raw, Repository } from "typeorm";
 import { toStructuredError } from "../common/logging.js";
 import { IConfig } from "../config/app.config.js";
@@ -46,6 +46,8 @@ export class DataRetentionService {
     private readonly storageProviderRepository: Repository<StorageProvider>,
     @InjectMetric("dataSetChallengeStatus")
     private readonly dataSetChallengeStatusCounter: Counter,
+    @InjectMetric("pdp_provider_overdue_periods")
+    private readonly overduePeriodsGauge: Gauge,
   ) {
     this.providerCumulativeTotals = new Map();
   }
@@ -101,6 +103,7 @@ export class DataRetentionService {
 
         try {
           const providersFromSubgraph = await this.pdpSubgraphService.fetchProvidersWithDatasets({
+            blockNumber,
             addresses: batchAddresses,
           });
 
@@ -115,7 +118,7 @@ export class DataRetentionService {
                   ),
                 );
               }
-              return this.processProvider(provider, providerInfo);
+              return this.processProvider(provider, providerInfo, blockNumberBigInt);
             }),
           );
 
@@ -252,6 +255,8 @@ export class DataRetentionService {
           this.dataSetChallengeStatusCounter.remove({ ...approvedLabels, value: "failure" });
           this.dataSetChallengeStatusCounter.remove({ ...unapprovedLabels, value: "success" });
           this.dataSetChallengeStatusCounter.remove({ ...unapprovedLabels, value: "failure" });
+          this.overduePeriodsGauge.remove(approvedLabels);
+          this.overduePeriodsGauge.remove(unapprovedLabels);
 
           // Only delete local memory if Prometheus removal succeeded without throwing
           this.providerCumulativeTotals.delete(address);
@@ -307,12 +312,17 @@ export class DataRetentionService {
   private async processProvider(
     provider: ProviderDataSetResponse["providers"][number],
     pdpProvider: PDPProviderEx,
+    currentBlock: bigint,
   ): Promise<{ faultedPeriods: bigint; successPeriods: bigint }> {
-    const { address, totalFaultedPeriods, totalProvingPeriods } = provider;
-    // Use only subgraph-confirmed totals. Speculative overdue estimation was removed
-    // because it systematically inflated fault counts: overdue periods were pessimistically
-    // counted as faults, but when the subgraph later confirmed them as successes, the
-    // negative delta guard silently discarded the correction.
+    const { address, totalFaultedPeriods, totalProvingPeriods, proofSets } = provider;
+    // Note: Query filters proofSets with nextDeadline_lt: $blockNumber, so all deadlines are in the past
+    const estimatedOverduePeriods = proofSets.reduce((acc, proofSet) => {
+      if (proofSet.maxProvingPeriod === 0n) {
+        return acc;
+      }
+      return acc + (currentBlock - (proofSet.nextDeadline + 1n)) / proofSet.maxProvingPeriod;
+    }, 0n);
+
     const confirmedTotalSuccess = totalProvingPeriods - totalFaultedPeriods;
 
     const normalizedAddress = address.toLowerCase();
@@ -323,8 +333,18 @@ export class DataRetentionService {
       successPeriods: confirmedTotalSuccess,
     };
 
-    // First time seeing this provider (fresh deploy or newly added provider).
-    // Set baseline without emitting counters to avoid dumping full cumulative history.
+    const providerLabels = buildCheckMetricLabels({
+      checkType: "dataRetention",
+      providerId: pdpProvider.id,
+      providerName: pdpProvider.name,
+      providerIsApproved: pdpProvider.isApproved,
+    });
+
+    // Emit overdue periods gauge on every poll — this is a separate signal from the
+    // confirmed counters. It reflects estimated unrecorded faults in real time and
+    // naturally resets to 0 when NextProvingPeriod fires and the subgraph catches up.
+    this.safeSetGauge(this.overduePeriodsGauge, providerLabels, estimatedOverduePeriods);
+
     if (previous === undefined) {
       this.logger.log({
         event: "baseline_initialized",
@@ -359,13 +379,6 @@ export class DataRetentionService {
       return newBaseline;
     }
 
-    const providerLabels = buildCheckMetricLabels({
-      checkType: "dataRetention",
-      providerId: pdpProvider.id,
-      providerName: pdpProvider.name,
-      providerIsApproved: pdpProvider.isApproved,
-    });
-
     if (faultedDelta > 0n) {
       this.safeIncrementCounter(this.dataSetChallengeStatusCounter, providerLabels, "failure", faultedDelta);
     }
@@ -375,6 +388,7 @@ export class DataRetentionService {
     }
 
     this.providerCumulativeTotals.set(normalizedAddress, newBaseline);
+
     return newBaseline;
   }
 
@@ -427,6 +441,41 @@ export class DataRetentionService {
       },
       ["providerAddress"],
     );
+  }
+
+  /**
+   * Safely sets a Prometheus gauge with a BigInt value.
+   * If the value exceeds Number.MAX_SAFE_INTEGER, sets to 0 first then increments in chunks.
+   *
+   * @param gauge - The Prometheus gauge to set
+   * @param labels - The label set for the gauge
+   * @param value - The BigInt value to set
+   */
+  private safeSetGauge(gauge: Gauge, labels: CheckMetricLabels, value: bigint): void {
+    const MAX_SAFE_INTEGER_BIGINT = BigInt(Number.MAX_SAFE_INTEGER);
+    const gaugeWithLabels = gauge.labels({ ...labels });
+
+    if (value <= MAX_SAFE_INTEGER_BIGINT) {
+      // Safe to convert and set directly
+      gaugeWithLabels.set(Number(value));
+      return;
+    }
+
+    // Value exceeds safe integer range - reset to 0 then increment in chunks
+    this.logger.warn({
+      event: "large_gauge_value_detected",
+      message: "Large gauge value detected. Setting via chunked increments to prevent precision loss.",
+      value: value.toString(),
+    });
+
+    gaugeWithLabels.set(0);
+
+    let remaining = value;
+    while (remaining > 0n) {
+      const chunk = remaining > MAX_SAFE_INTEGER_BIGINT ? MAX_SAFE_INTEGER_BIGINT : remaining;
+      gaugeWithLabels.inc(Number(chunk));
+      remaining -= chunk;
+    }
   }
 
   /**

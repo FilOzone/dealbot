@@ -8,6 +8,14 @@ const makeValidProvider = (overrides: Record<string, unknown> = {}) => ({
   address: VALID_ADDRESS,
   totalFaultedPeriods: "10",
   totalProvingPeriods: "100",
+  proofSets: [
+    {
+      totalFaultedPeriods: "2",
+      currentDeadlineCount: "5",
+      nextDeadline: "1000",
+      maxProvingPeriod: "100",
+    },
+  ],
   ...overrides,
 });
 
@@ -24,6 +32,12 @@ describe("validateProviderDataSetResponse", () => {
     expect(provider.address).toBe(VALID_ADDRESS);
     expect(provider.totalFaultedPeriods).toBe(10n);
     expect(provider.totalProvingPeriods).toBe(100n);
+
+    const proofSet = provider.proofSets[0];
+    expect(proofSet.totalFaultedPeriods).toBe(2n);
+    expect(proofSet.currentDeadlineCount).toBe(5n);
+    expect(proofSet.nextDeadline).toBe(1000n);
+    expect(proofSet.maxProvingPeriod).toBe(100n);
   });
 
   it("converts string numbers to bigint", () => {
@@ -44,6 +58,11 @@ describe("validateProviderDataSetResponse", () => {
   it("accepts an empty providers array", () => {
     const result = validateProviderDataSetResponse({ providers: [] });
     expect(result.providers).toEqual([]);
+  });
+
+  it("accepts a provider with empty proofSets", () => {
+    const result = validateProviderDataSetResponse(makeValidResponse([makeValidProvider({ proofSets: [] })]));
+    expect(result.providers[0].proofSets).toEqual([]);
   });
 
   it("preserves unknown fields (schema uses .unknown(true))", () => {
@@ -85,6 +104,18 @@ describe("validateProviderDataSetResponse", () => {
     ).toThrow("Invalid provider dataset response format");
   });
 
+  it("throws on missing proofSet fields", () => {
+    expect(() =>
+      validateProviderDataSetResponse(
+        makeValidResponse([
+          makeValidProvider({
+            proofSets: [{ totalFaultedPeriods: "1" }],
+          }),
+        ]),
+      ),
+    ).toThrow("Invalid provider dataset response format");
+  });
+
   it("validates multiple providers in a single response", () => {
     const provider1 = makeValidProvider({ address: VALID_ADDRESS, totalFaultedPeriods: "5" });
     const provider2 = makeValidProvider({
@@ -105,12 +136,21 @@ describe("validateProviderDataSetResponse", () => {
         makeValidProvider({
           totalFaultedPeriods: "0",
           totalProvingPeriods: "0",
+          proofSets: [
+            {
+              totalFaultedPeriods: "0",
+              currentDeadlineCount: "0",
+              nextDeadline: "0",
+              maxProvingPeriod: "0",
+            },
+          ],
         }),
       ]),
     );
 
     expect(result.providers[0].totalFaultedPeriods).toBe(0n);
     expect(result.providers[0].totalProvingPeriods).toBe(0n);
+    expect(result.providers[0].proofSets[0].maxProvingPeriod).toBe(0n);
   });
 });
 

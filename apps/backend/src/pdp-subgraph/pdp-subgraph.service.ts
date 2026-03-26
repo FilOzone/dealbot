@@ -124,29 +124,32 @@ export class PDPSubgraphService {
   /**
    * Fetch provider-level totals from subgraph with batching, pagination, and rate limiting
    *
-   * @param options - Options containing provider addresses to query
-   * @returns Array of providers with their cumulative proving period totals
+   * @param options - Options containing block number and provider addresses
+   * @returns Array of providers with their datasets
    */
   async fetchProvidersWithDatasets(
     options: ProvidersWithDataSetsOptions,
   ): Promise<ProviderDataSetResponse["providers"]> {
-    const { addresses } = options;
+    const { blockNumber, addresses } = options;
 
     if (addresses.length === 0) {
       return [];
     }
 
     if (addresses.length <= PDPSubgraphService.MAX_PROVIDERS_PER_QUERY) {
-      return this.fetchWithRetry(addresses);
+      return this.fetchWithRetry(blockNumber, addresses);
     }
 
-    return this.fetchMultipleBatchesWithRateLimit(addresses);
+    return this.fetchMultipleBatchesWithRateLimit(blockNumber, addresses);
   }
 
   /**
    * Fetch multiple batches with rate limiting and concurrency control
    */
-  private async fetchMultipleBatchesWithRateLimit(addresses: string[]): Promise<ProviderDataSetResponse["providers"]> {
+  private async fetchMultipleBatchesWithRateLimit(
+    blockNumber: number,
+    addresses: string[],
+  ): Promise<ProviderDataSetResponse["providers"]> {
     const batches: string[][] = [];
     for (let i = 0; i < addresses.length; i += PDPSubgraphService.MAX_PROVIDERS_PER_QUERY) {
       const addressesLimit = Math.min(addresses.length, i + PDPSubgraphService.MAX_PROVIDERS_PER_QUERY);
@@ -158,7 +161,7 @@ export class PDPSubgraphService {
     for (let i = 0; i < batches.length; i += PDPSubgraphService.MAX_CONCURRENT_REQUESTS) {
       const batchGroup = batches.slice(i, i + PDPSubgraphService.MAX_CONCURRENT_REQUESTS);
 
-      const results = await Promise.all(batchGroup.map((batch) => this.fetchWithRetry(batch)));
+      const results = await Promise.all(batchGroup.map((batch) => this.fetchWithRetry(blockNumber, batch)));
 
       allProviders.push(...results.flat());
     }
@@ -171,6 +174,7 @@ export class PDPSubgraphService {
    * Assuming initial request to be first attempt
    */
   private async fetchWithRetry(
+    blockNumber: number,
     addresses: string[],
     attempt: number = 1,
   ): Promise<ProviderDataSetResponse["providers"]> {
@@ -179,6 +183,7 @@ export class PDPSubgraphService {
     }
 
     const variables = {
+      blockNumber: blockNumber.toString(),
       addresses,
     };
 
@@ -242,13 +247,14 @@ export class PDPSubgraphService {
           error: toStructuredError(error),
         });
         await new Promise((resolve) => setTimeout(resolve, delay));
-        return this.fetchWithRetry(addresses, attempt + 1);
+        return this.fetchWithRetry(blockNumber, addresses, attempt + 1);
       }
 
       this.logger.error({
         event: "subgraph_provider_request_failed",
         message: "Subgraph provider request failed after maximum retries",
         maxRetries: PDPSubgraphService.MAX_RETRIES,
+        blockNumber,
         addressCount: addresses.length,
         error: toStructuredError(error),
       });
