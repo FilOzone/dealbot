@@ -35,10 +35,10 @@ export class ProvidersService {
 
     const total = await query.getCount();
 
-    if (options?.limit) {
+    if (options?.limit != null) {
       query.limit(options.limit);
     }
-    if (options?.offset) {
+    if (options?.offset != null) {
       query.offset(options.offset);
     }
 

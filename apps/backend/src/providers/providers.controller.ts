@@ -54,8 +54,8 @@ export class ProvidersController {
       })),
       total,
       count: providers.length,
-      offset: offset || 0,
-      limit: limit || 20,
+      offset: offset ?? 0,
+      limit: limit ?? 20,
     };
   }
 }
