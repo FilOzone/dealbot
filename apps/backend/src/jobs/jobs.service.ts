@@ -639,9 +639,9 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
           event: "chain_integration_disabled",
           message: "Chain integration disabled; skipping provider refresh job.",
         });
-        return "success";
+      } else {
+        await this.walletSdkService.loadProviders();
       }
-      await this.walletSdkService.loadProviders();
       await this.updateStorageProviderGauges();
       return "success";
     });

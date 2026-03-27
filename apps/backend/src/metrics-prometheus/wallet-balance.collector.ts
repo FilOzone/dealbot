@@ -13,6 +13,9 @@ export class WalletBalanceCollector implements OnModuleInit {
   private readonly logger = new Logger(WalletBalanceCollector.name);
   private cachedAt = 0;
 
+  private refreshPromise: Promise<void> | null = null;
+  private errorCooldownMs = 60 * 1000;
+
   constructor(
     private readonly configService: ConfigService<IConfig, true>,
     private readonly walletSdkService: WalletSdkService,
@@ -30,19 +33,32 @@ export class WalletBalanceCollector implements OnModuleInit {
       if (now - this.cachedAt < CACHE_TTL_MS) {
         return;
       }
-      try {
-        const { usdfc, fil } = await this.walletSdkService.getWalletBalances();
-        const walletShort = this.configService.get("blockchain").walletAddress.slice(0, 8);
-        this.walletBalanceGauge.set({ currency: "USDFC", wallet: walletShort }, Number(usdfc));
-        this.walletBalanceGauge.set({ currency: "FIL", wallet: walletShort }, Number(fil));
-        this.cachedAt = now;
-      } catch (error) {
-        this.logger.warn({
-          event: "wallet_balance_collect_failed",
-          message: "Failed to fetch wallet balances during scrape",
-          error: toStructuredError(error),
-        });
+
+      if (this.refreshPromise) {
+        await this.refreshPromise;
+        return;
       }
+
+      this.refreshPromise = (async () => {
+        try {
+          const { usdfc, fil } = await this.walletSdkService.getWalletBalances();
+          const walletShort = this.configService.get("blockchain").walletAddress.slice(0, 8);
+          this.walletBalanceGauge.set({ currency: "USDFC", wallet: walletShort }, Number(usdfc));
+          this.walletBalanceGauge.set({ currency: "FIL", wallet: walletShort }, Number(fil));
+          this.cachedAt = Date.now();
+        } catch (error) {
+          this.logger.warn({
+            event: "wallet_balance_collect_failed",
+            message: "Failed to fetch wallet balances during scrape",
+            error: toStructuredError(error),
+          });
+          this.cachedAt = Date.now() - CACHE_TTL_MS + this.errorCooldownMs;
+        } finally {
+          this.refreshPromise = null;
+        }
+      })();
+
+      await this.refreshPromise;
     };
   }
 }

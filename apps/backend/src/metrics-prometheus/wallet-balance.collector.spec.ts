@@ -74,9 +74,35 @@ describe("WalletBalanceCollector", () => {
     expect(gaugeMock.set).not.toHaveBeenCalled();
   });
 
-  it("catches fetch errors without rethrowing", async () => {
+  it("prevents concurrent fetches when multiple scrapes happen simultaneously", async () => {
+    walletSdkMock.getWalletBalances.mockImplementationOnce(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      return { usdfc: 50_000_000n, fil: 1_000_000_000n };
+    });
+
+    // Fire two scrapes concurrently
+    await Promise.all([collectFn(), collectFn()]);
+
+    // Should only have fetched once due to the in-flight promise lock
+    expect(walletSdkMock.getWalletBalances).toHaveBeenCalledOnce();
+  });
+
+  it("prevents endless retries by applying a 1-minute error cooldown on fetch failures", async () => {
     walletSdkMock.getWalletBalances.mockRejectedValueOnce(new Error("rpc timeout"));
     await expect(collectFn()).resolves.toBeUndefined();
     expect(gaugeMock.set).not.toHaveBeenCalled();
+
+    walletSdkMock.getWalletBalances.mockResolvedValueOnce({ usdfc: 10n, fil: 20n });
+
+    // Calling immediately should be blocked by cooldown
+    await collectFn();
+    expect(walletSdkMock.getWalletBalances).toHaveBeenCalledTimes(1);
+
+    // Advance 61 seconds
+    vi.spyOn(Date, "now").mockReturnValue(Date.now() + 61_000);
+
+    await collectFn();
+    expect(walletSdkMock.getWalletBalances).toHaveBeenCalledTimes(2);
+    expect(gaugeMock.set).toHaveBeenCalledTimes(2);
   });
 });
