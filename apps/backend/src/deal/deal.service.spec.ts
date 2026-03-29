@@ -963,7 +963,7 @@ describe("DealService", () => {
     it("creates dataset with piece via createContext + executeUpload", async () => {
       vi.spyOn(mockWalletSdkService, "getProviderInfo").mockReturnValue(mockProviderInfo);
 
-      const createContextMock = vi.fn().mockResolvedValue({ dataSetId: 42 });
+      const createContextMock = vi.fn().mockResolvedValue({ dataSetId: undefined });
       const synapseMock = {
         storage: { createContext: createContextMock },
       } as unknown as Synapse;
@@ -985,6 +985,7 @@ describe("DealService", () => {
         expect.any(Uint8Array),
         expect.any(Object),
         expect.objectContaining({
+          providerIds: [101n],
           pieceMetadata: {},
           ipniValidation: { enabled: false },
         }),
@@ -1004,7 +1005,7 @@ describe("DealService", () => {
 
     it("does not invoke data-storage-check metrics or Deal persistence", async () => {
       vi.spyOn(mockWalletSdkService, "getProviderInfo").mockReturnValue(mockProviderInfo);
-      const createContextMock = vi.fn().mockResolvedValue({ dataSetId: 1 });
+      const createContextMock = vi.fn().mockResolvedValue({ dataSetId: undefined });
       vi.spyOn(service as any, "createSynapseInstance").mockImplementation(
         () =>
           ({
@@ -1025,12 +1026,30 @@ describe("DealService", () => {
       expect(dataSourceMock.generateRandomDataset).not.toHaveBeenCalled();
     });
 
+    it("returns success without uploading when the data set already exists", async () => {
+      vi.spyOn(mockWalletSdkService, "getProviderInfo").mockReturnValue(mockProviderInfo);
+      vi.spyOn(service as any, "createSynapseInstance").mockImplementation(
+        () =>
+          ({
+            storage: { createContext: vi.fn().mockResolvedValue({ dataSetId: 42 }) },
+          }) as unknown as Synapse,
+      );
+
+      await expect(service.createDataSetWithPiece("0xprovider", {})).resolves.toBeUndefined();
+
+      expect(executeUpload).not.toHaveBeenCalled();
+      expect(mockDataSetCreationMetrics.recordStatus).toHaveBeenCalledWith(
+        expect.objectContaining({ checkType: "dataSetCreation" }),
+        "success",
+      );
+    });
+
     it("fails when upload completes without a pieceCid", async () => {
       vi.spyOn(mockWalletSdkService, "getProviderInfo").mockReturnValue(mockProviderInfo);
       vi.spyOn(service as any, "createSynapseInstance").mockImplementation(
         () =>
           ({
-            storage: { createContext: vi.fn().mockResolvedValue({ dataSetId: 1 }) },
+            storage: { createContext: vi.fn().mockResolvedValue({ dataSetId: undefined }) },
           }) as unknown as Synapse,
       );
 
@@ -1054,7 +1073,7 @@ describe("DealService", () => {
       vi.spyOn(service as any, "createSynapseInstance").mockImplementation(
         () =>
           ({
-            storage: { createContext: vi.fn().mockResolvedValue({ dataSetId: 1 }) },
+            storage: { createContext: vi.fn().mockResolvedValue({ dataSetId: undefined }) },
           }) as unknown as Synapse,
       );
 
@@ -1069,12 +1088,39 @@ describe("DealService", () => {
       );
     });
 
+    it("treats upload failure as success when reconciliation finds the data set", async () => {
+      vi.spyOn(mockWalletSdkService, "getProviderInfo").mockReturnValue(mockProviderInfo);
+      const createContextMock = vi
+        .fn()
+        .mockResolvedValueOnce({ dataSetId: undefined })
+        .mockResolvedValueOnce({ dataSetId: 42 });
+      vi.spyOn(service as any, "createSynapseInstance").mockImplementation(
+        () =>
+          ({
+            storage: { createContext: createContextMock },
+          }) as unknown as Synapse,
+      );
+      (executeUpload as Mock).mockRejectedValue(new Error("HTTP 429"));
+
+      await expect(service.createDataSetWithPiece("0xprovider", {})).resolves.toBeUndefined();
+
+      expect(createContextMock).toHaveBeenCalledTimes(2);
+      expect(mockDataSetCreationMetrics.recordStatus).toHaveBeenCalledWith(
+        expect.objectContaining({ checkType: "dataSetCreation" }),
+        "success",
+      );
+      expect(mockDataSetCreationMetrics.recordStatus).not.toHaveBeenCalledWith(
+        expect.objectContaining({ checkType: "dataSetCreation" }),
+        "failure.other",
+      );
+    });
+
     it("aborts when signal is aborted during upload", async () => {
       vi.spyOn(mockWalletSdkService, "getProviderInfo").mockReturnValue(mockProviderInfo);
       vi.spyOn(service as any, "createSynapseInstance").mockImplementation(
         () =>
           ({
-            storage: { createContext: vi.fn().mockResolvedValue({ dataSetId: 1 }) },
+            storage: { createContext: vi.fn().mockResolvedValue({ dataSetId: undefined }) },
           }) as unknown as Synapse,
       );
 

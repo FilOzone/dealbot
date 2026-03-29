@@ -496,7 +496,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       signal,
     );
     signal?.throwIfAborted();
-    return context.dataSetId !== undefined;
+    return context.dataSetId != null;
   }
 
   /**
@@ -535,14 +535,15 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       metadata,
     });
 
+    const synapse = this.sharedSynapse ?? this.createSynapseInstance();
     let pieceAdded = false;
     let piecesConfirmed = false;
     let pieceCid: string | undefined;
     let pieceId: number | undefined;
     let transactionHash: string | undefined;
+    let dataSetId: bigint | number | string | undefined;
 
     try {
-      const synapse = this.sharedSynapse ?? this.createSynapseInstance();
       signal?.throwIfAborted();
 
       const DATA_SET_CREATION_PIECE_SIZE = 200 * 1024; // 200 KiB
@@ -564,6 +565,23 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
         signal,
       );
       signal?.throwIfAborted();
+      dataSetId = storage.dataSetId ?? undefined;
+
+      if (dataSetId != null) {
+        const durationMs = Date.now() - startedAt;
+        this.dataSetCreationMetrics.observeCheckDuration(labels, durationMs);
+        this.dataSetCreationMetrics.recordStatus(labels, "success");
+        this.logger.log({
+          event: "dataset_creation_already_exists",
+          message: "Data-set already exists; skipping seed piece upload",
+          providerAddress,
+          providerId: providerInfo.id,
+          providerName: providerInfo.name,
+          durationMs,
+          dataSetId,
+        });
+        return;
+      }
 
       const filecoinPinLogger = createFilecoinPinLogger(this.logger);
 
@@ -572,8 +590,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
           logger: filecoinPinLogger,
           contextId: providerAddress,
           copies: 1,
-          // SDK forbids specifying both dataSetIds and providerIds — use one or the other
-          ...(storage.dataSetId != null ? { dataSetIds: [storage.dataSetId] } : { providerIds: [providerInfo.id] }),
+          providerIds: [providerInfo.id],
           pieceMetadata: {},
           ipniValidation: { enabled: false },
           onProgress: async (event) => {
@@ -650,7 +667,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
         providerId: providerInfo.id,
         providerName: providerInfo.name,
         durationMs,
-        dataSetId: storage.dataSetId ?? "unknown",
+        dataSetId: dataSetId ?? "unknown",
         pieceCid: pieceCid ?? "unknown",
         pieceId: pieceId ?? "unknown",
         txHash: transactionHash ?? "unknown",
@@ -658,8 +675,38 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
         piecesConfirmed,
       });
     } catch (error) {
+      dataSetId = await this.recoverProvisionedDataSetId(synapse, providerInfo, metadata, {
+        providerAddress,
+        pieceAdded,
+        piecesConfirmed,
+        pieceCid,
+        pieceId,
+        transactionHash,
+      });
+
       const durationMs = Date.now() - startedAt;
       this.dataSetCreationMetrics.observeCheckDuration(labels, durationMs);
+
+      if (dataSetId != null) {
+        this.dataSetCreationMetrics.recordStatus(labels, "success");
+        this.logger.warn({
+          event: "dataset_creation_reconciled_after_failure",
+          message: "Data-set creation failed locally but data-set now exists; treating as success",
+          providerAddress,
+          providerId: providerInfo.id,
+          providerName: providerInfo.name,
+          durationMs,
+          dataSetId,
+          pieceAdded,
+          piecesConfirmed,
+          pieceCid,
+          pieceId,
+          transactionHash,
+          error: toStructuredError(error),
+        });
+        return;
+      }
+
       this.dataSetCreationMetrics.recordStatus(labels, classifyFailureStatus(error));
       this.logger.error({
         event: "dataset_creation_with_piece_failed",
@@ -668,6 +715,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
         providerId: providerInfo.id,
         providerName: providerInfo.name,
         durationMs,
+        dataSetId,
         pieceAdded,
         piecesConfirmed,
         pieceCid,
@@ -676,6 +724,43 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
         error: toStructuredError(error),
       });
       throw error;
+    }
+  }
+
+  private async recoverProvisionedDataSetId(
+    synapse: Synapse,
+    providerInfo: PDPProviderEx,
+    metadata: Record<string, string>,
+    context: {
+      providerAddress: string;
+      pieceAdded: boolean;
+      piecesConfirmed: boolean;
+      pieceCid?: string;
+      pieceId?: number;
+      transactionHash?: string;
+    },
+  ): Promise<bigint | number | string | undefined> {
+    try {
+      const recovered = await synapse.storage.createContext({
+        providerId: providerInfo.id,
+        metadata,
+      });
+      return recovered.dataSetId ?? undefined;
+    } catch (recoveryError) {
+      this.logger.warn({
+        event: "dataset_creation_reconciliation_failed",
+        message: "Unable to reconcile data-set existence after failed seed upload",
+        providerAddress: context.providerAddress,
+        providerId: providerInfo.id,
+        providerName: providerInfo.name,
+        pieceAdded: context.pieceAdded,
+        piecesConfirmed: context.piecesConfirmed,
+        pieceCid: context.pieceCid,
+        pieceId: context.pieceId,
+        transactionHash: context.transactionHash,
+        error: toStructuredError(recoveryError),
+      });
+      return undefined;
     }
   }
 
