@@ -230,7 +230,9 @@ For urgent fixes, still use conventional commits:
 ```bash
 git commit -m "fix!: critical security patch
 
-BREAKING CHANGE: describe the incompatible change"
+BREAKING CHANGE: describe the incompatible change
+
+SECURITY: Fixes CVE-2024-xxxxx"
 ```
 
 `fix!` / `BREAKING CHANGE` triggers a **major** bump with default versioning. For a **patch-only** hotfix, use `fix:` (no `!`) and no breaking footer. Label the PR for faster review as needed.
