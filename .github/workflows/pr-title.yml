@@ -12,6 +12,10 @@ permissions:
   pull-requests: read
 
 jobs:
+  # Note that this is important for helping ensure squash commits follow conventional commit conventions,
+  # which in turn is needed so release please creates a release.
+  # See ../../docs/release-please-flow.md.
+  # We are using the default conventional commit types as specified in https://github.com/amannn/action-semantic-pull-request → https://github.com/commitizen/conventional-commit-types
   validate-title:
     name: Validate PR title follows conventional commits
     runs-on: ubuntu-latest
