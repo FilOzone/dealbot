@@ -6,22 +6,23 @@ import { toStructuredError } from "../common/logging.js";
 import type { IConfig } from "../config/app.config.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
 
-const CACHE_TTL_MS = 60 * 60 * 1000;
-
 @Injectable()
 export class WalletBalanceCollector implements OnModuleInit {
   private readonly logger = new Logger(WalletBalanceCollector.name);
   private cachedAt = 0;
-
   private refreshPromise: Promise<void> | null = null;
-  private errorCooldownMs = 60 * 1000;
+  private readonly cacheTtlMs: number;
+  private readonly errorCooldownMs: number;
 
   constructor(
     private readonly configService: ConfigService<IConfig, true>,
     private readonly walletSdkService: WalletSdkService,
     @InjectMetric("wallet_balance")
     private readonly walletBalanceGauge: Gauge,
-  ) {}
+  ) {
+    this.cacheTtlMs = this.configService.get("app").prometheusWalletBalanceTtlMs;
+    this.errorCooldownMs = this.configService.get("app").prometheusWalletBalanceErrorCooldownMs;
+  }
 
   onModuleInit(): void {
     const gauge = this.walletBalanceGauge as Gauge & { collect: () => Promise<void> };
@@ -30,7 +31,7 @@ export class WalletBalanceCollector implements OnModuleInit {
         return;
       }
       const now = Date.now();
-      if (now - this.cachedAt < CACHE_TTL_MS) {
+      if (now - this.cachedAt < this.cacheTtlMs) {
         return;
       }
 
@@ -52,7 +53,7 @@ export class WalletBalanceCollector implements OnModuleInit {
             message: "Failed to fetch wallet balances during scrape",
             error: toStructuredError(error),
           });
-          this.cachedAt = Date.now() - CACHE_TTL_MS + this.errorCooldownMs;
+          this.cachedAt = Date.now() - this.cacheTtlMs + this.errorCooldownMs;
         } finally {
           this.refreshPromise = null;
         }

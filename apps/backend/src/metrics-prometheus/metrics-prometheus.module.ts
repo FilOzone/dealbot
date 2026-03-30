@@ -6,6 +6,7 @@ import {
   makeHistogramProvider,
   PrometheusModule,
 } from "@willsoto/nestjs-prometheus";
+import { WalletSdkModule } from "../wallet-sdk/wallet-sdk.module.js";
 import {
   DataSetCreationCheckMetrics,
   DataStorageCheckMetrics,
@@ -309,6 +310,7 @@ const metricProviders = [
 @Global()
 @Module({
   imports: [
+    WalletSdkModule,
     PrometheusModule.register({
       defaultMetrics: {
         enabled: true,

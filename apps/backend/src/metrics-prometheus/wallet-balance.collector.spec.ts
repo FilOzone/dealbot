@@ -18,7 +18,18 @@ describe("WalletBalanceCollector", () => {
       getWalletBalances: vi.fn(async () => ({ usdfc: 50_000_000n, fil: 1_000_000_000n })),
     };
     configMock = {
-      get: vi.fn(() => ({ walletAddress: "0xABCDEF1234567890" })),
+      get: vi.fn((key: string) => {
+        if (key === "app") {
+          return {
+            prometheusWalletBalanceTtlMs: 60 * 60 * 1000,
+            prometheusWalletBalanceErrorCooldownMs: 60 * 1000,
+          };
+        }
+        if (key === "blockchain") {
+          return { walletAddress: "0xABCDEF1234567890" };
+        }
+        return {};
+      }),
     };
 
     collector = new WalletBalanceCollector(
