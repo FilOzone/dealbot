@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.7](https://github.com/FilOzone/dealbot/compare/backend-v1.0.6...backend-v1.0.7) (2026-03-30)
+
+
+### Miscellaneous
+
+* **deps:** upgrade @filoz/synapse-sdk to v0.40.1 ([#404](https://github.com/FilOzone/dealbot/issues/404)) ([1f80657](https://github.com/FilOzone/dealbot/commit/1f80657dd64060abb06d968fca5e86e01489ba8f))
+
 ## [1.0.6](https://github.com/FilOzone/dealbot/compare/backend-v1.0.5...backend-v1.0.6) (2026-03-23)
 
 
