@@ -14,6 +14,7 @@ This document provides a comprehensive guide to all environment variables used b
 | [Jobs (pg-boss)](#jobs-pg-boss)           | `DEALBOT_PGBOSS_SCHEDULER_ENABLED`, `DEALBOT_PGBOSS_POOL_MAX`, `DEALS_PER_SP_PER_HOUR`, `DATASET_CREATIONS_PER_SP_PER_HOUR`, `RETRIEVALS_PER_SP_PER_HOUR`, `METRICS_PER_HOUR`, `JOB_SCHEDULER_POLL_SECONDS`, `JOB_WORKER_POLL_SECONDS`, `PG_BOSS_LOCAL_CONCURRENCY`, `JOB_CATCHUP_MAX_ENQUEUE`, `JOB_SCHEDULE_PHASE_SECONDS`, `JOB_ENQUEUE_JITTER_SECONDS`, `DEAL_JOB_TIMEOUT_SECONDS`, `RETRIEVAL_JOB_TIMEOUT_SECONDS`, `IPFS_BLOCK_FETCH_CONCURRENCY` |
 | [Dataset](#dataset-configuration)         | `DEALBOT_LOCAL_DATASETS_PATH`, `RANDOM_PIECE_SIZES`                                                                                                          |
 | [Timeouts](#timeout-configuration)        | `CONNECT_TIMEOUT_MS`, `HTTP_REQUEST_TIMEOUT_MS`, `HTTP2_REQUEST_TIMEOUT_MS`, `IPNI_VERIFICATION_TIMEOUT_MS`, `IPNI_VERIFICATION_POLLING_MS`                   |
+| [Prometheus Metrics](#prometheus-metrics-configuration) | `PROMETHEUS_WALLET_BALANCE_TTL_SECONDS`, `PROMETHEUS_WALLET_BALANCE_ERROR_COOLDOWN_SECONDS`                   |
 | [Web Frontend](#web-frontend)             | `VITE_API_BASE_URL`, `VITE_PLAUSIBLE_DATA_DOMAIN`, `DEALBOT_API_BASE_URL`                                                                                    |
 
 ---
@@ -901,6 +902,50 @@ RANDOM_PIECE_SIZES=1024,10240,102400
 
 - Increase to reduce IPNI query load
 - Decrease to detect results faster
+
+---
+
+## Prometheus Metrics Configuration
+
+### `PROMETHEUS_WALLET_BALANCE_TTL_SECONDS`
+
+- **Type**: `number` (seconds)
+- **Required**: No
+- **Default**: `3600` (1 hour)
+
+**Role**: Cache time-to-live for wallet balance collection. Wallet balances are cached and only refreshed when this TTL expires, even when Prometheus scrapes the `/metrics` endpoint.
+
+**When to update**:
+
+- Increase to reduce blockchain RPC calls (slower balance updates, lower load)
+- Decrease for more frequent balance updates (higher RPC load, faster visibility)
+
+**Example scenario**: Increasing cache TTL to 2 hours:
+
+```bash
+PROMETHEUS_WALLET_BALANCE_TTL_SECONDS=7200
+```
+
+---
+
+### `PROMETHEUS_WALLET_BALANCE_ERROR_COOLDOWN_SECONDS`
+
+- **Type**: `number` (seconds)
+- **Required**: No
+- **Default**: `60` (1 minute)
+
+**Role**: Cooldown period after a failed wallet balance fetch before retrying. After an error, the cache is considered expired but a new fetch will only be attempted after this cooldown.
+
+**When to update**:
+
+- Increase to reduce retry pressure on failing RPC endpoints
+- Decrease to recover from transient errors faster
+
+**Example scenario**: Increasing cooldown to 5 minutes:
+
+```bash
+PROMETHEUS_WALLET_BALANCE_ERROR_COOLDOWN_SECONDS=300
+```
 
 ---
 

@@ -20,8 +20,8 @@ export class WalletBalanceCollector implements OnModuleInit {
     @InjectMetric("wallet_balance")
     private readonly walletBalanceGauge: Gauge,
   ) {
-    this.cacheTtlMs = this.configService.get("app").prometheusWalletBalanceTtlMs;
-    this.errorCooldownMs = this.configService.get("app").prometheusWalletBalanceErrorCooldownMs;
+    this.cacheTtlMs = this.configService.get("app").prometheusWalletBalanceTtlSeconds * 1000;
+    this.errorCooldownMs = this.configService.get("app").prometheusWalletBalanceErrorCooldownSeconds * 1000;
   }
 
   onModuleInit(): void {

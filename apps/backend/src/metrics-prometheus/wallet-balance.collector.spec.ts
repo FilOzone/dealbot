@@ -21,8 +21,8 @@ describe("WalletBalanceCollector", () => {
       get: vi.fn((key: string) => {
         if (key === "app") {
           return {
-            prometheusWalletBalanceTtlMs: 60 * 60 * 1000,
-            prometheusWalletBalanceErrorCooldownMs: 60 * 1000,
+            prometheusWalletBalanceTtlSeconds: 60 * 60,
+            prometheusWalletBalanceErrorCooldownSeconds: 60,
           };
         }
         if (key === "blockchain") {

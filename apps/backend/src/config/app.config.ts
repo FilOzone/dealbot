@@ -12,8 +12,8 @@ export const configValidationSchema = Joi.object({
   DEALBOT_METRICS_PORT: Joi.number().default(9090),
   DEALBOT_METRICS_HOST: Joi.string().default("0.0.0.0"),
   ENABLE_DEV_MODE: Joi.boolean().default(false),
-  PROMETHEUS_WALLET_BALANCE_TTL_MS: Joi.number().min(60000).default(3600000),
-  PROMETHEUS_WALLET_BALANCE_ERROR_COOLDOWN_MS: Joi.number().min(1000).default(60000),
+  PROMETHEUS_WALLET_BALANCE_TTL_SECONDS: Joi.number().min(60).default(3600),
+  PROMETHEUS_WALLET_BALANCE_ERROR_COOLDOWN_SECONDS: Joi.number().min(1).default(60),
 
   // Database
   DATABASE_HOST: Joi.string().required(),
@@ -90,8 +90,8 @@ export interface IAppConfig {
   metricsPort: number;
   metricsHost: string;
   enableDevMode: boolean;
-  prometheusWalletBalanceTtlMs: number;
-  prometheusWalletBalanceErrorCooldownMs: number;
+  prometheusWalletBalanceTtlSeconds: number;
+  prometheusWalletBalanceErrorCooldownSeconds: number;
 }
 
 export interface IDatabaseConfig {
@@ -253,9 +253,12 @@ export function loadConfig(): IConfig {
       metricsPort: Number.parseInt(process.env.DEALBOT_METRICS_PORT || "9090", 10),
       metricsHost: process.env.DEALBOT_METRICS_HOST || "0.0.0.0",
       enableDevMode: process.env.ENABLE_DEV_MODE === "true",
-      prometheusWalletBalanceTtlMs: Number.parseInt(process.env.PROMETHEUS_WALLET_BALANCE_TTL_MS || "3600000", 10),
-      prometheusWalletBalanceErrorCooldownMs: Number.parseInt(
-        process.env.PROMETHEUS_WALLET_BALANCE_ERROR_COOLDOWN_MS || "60000",
+      prometheusWalletBalanceTtlSeconds: Number.parseInt(
+        process.env.PROMETHEUS_WALLET_BALANCE_TTL_SECONDS || "3600",
+        10,
+      ),
+      prometheusWalletBalanceErrorCooldownSeconds: Number.parseInt(
+        process.env.PROMETHEUS_WALLET_BALANCE_ERROR_COOLDOWN_SECONDS || "60",
         10,
       ),
     },
