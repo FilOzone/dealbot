@@ -8,7 +8,7 @@ This document provides a comprehensive guide to all environment variables used b
 | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | [Application](#application-configuration) | `NODE_ENV`, `DEALBOT_PORT`, `DEALBOT_HOST`, `DEALBOT_RUN_MODE`, `DEALBOT_METRICS_PORT`, `DEALBOT_METRICS_HOST`, `DEALBOT_ALLOWED_ORIGINS`, `ENABLE_DEV_MODE` |
 | [Database](#database-configuration)       | `DATABASE_HOST`, `DATABASE_PORT`, `DATABASE_POOL_MAX`, `DATABASE_USER`, `DATABASE_PASSWORD`, `DATABASE_NAME`                                                 |
-| [Blockchain](#blockchain-configuration)   | `NETWORK`, `WALLET_ADDRESS`, `WALLET_PRIVATE_KEY`, `CHECK_DATASET_CREATION_FEES`, `USE_ONLY_APPROVED_PROVIDERS`, `PDP_SUBGRAPH_ENDPOINT` |
+| [Blockchain](#blockchain-configuration)   | `NETWORK`, `RPC_URL`, `WALLET_ADDRESS`, `WALLET_PRIVATE_KEY`, `CHECK_DATASET_CREATION_FEES`, `USE_ONLY_APPROVED_PROVIDERS`, `PDP_SUBGRAPH_ENDPOINT` |
 | [Dataset Versioning](#dataset-versioning) | `DEALBOT_DATASET_VERSION`                                                                                                                                    |
 | [Scheduling](#scheduling-configuration)   | `PROVIDERS_REFRESH_INTERVAL_SECONDS`, `DATA_RETENTION_POLL_INTERVAL_SECONDS`, `DEALBOT_MAINTENANCE_WINDOWS_UTC`, `DEALBOT_MAINTENANCE_WINDOW_MINUTES`                                                                                                                                 |
 | [Jobs (pg-boss)](#jobs-pg-boss)           | `DEALBOT_PGBOSS_SCHEDULER_ENABLED`, `DEALBOT_PGBOSS_POOL_MAX`, `DEALS_PER_SP_PER_HOUR`, `DATASET_CREATIONS_PER_SP_PER_HOUR`, `RETRIEVALS_PER_SP_PER_HOUR`, `METRICS_PER_HOUR`, `JOB_SCHEDULER_POLL_SECONDS`, `JOB_WORKER_POLL_SECONDS`, `PG_BOSS_LOCAL_CONCURRENCY`, `JOB_CATCHUP_MAX_ENQUEUE`, `JOB_SCHEDULE_PHASE_SECONDS`, `JOB_ENQUEUE_JITTER_SECONDS`, `DEAL_JOB_TIMEOUT_SECONDS`, `RETRIEVAL_JOB_TIMEOUT_SECONDS`, `IPFS_BLOCK_FETCH_CONCURRENCY` |
@@ -305,6 +305,30 @@ DATABASE_POOL_MAX=1
 - Set to `mainnet` for production deployments with real FIL/USDFC
 
 **⚠️ Warning**: Switching to `mainnet` will use real FIL/USDFC tokens. Ensure your wallet is funded and you understand the costs involved.
+
+---
+
+### `RPC_URL`
+
+- **Type**: `string` (HTTP/HTTPS URL)
+- **Required**: No
+- **Default**: Uses the default public RPC for the configured network
+
+**Role**: Custom Filecoin RPC endpoint URL. When set, all on-chain calls (Synapse SDK, viem) use this endpoint instead of the default public RPC. Use an authenticated endpoint to avoid rate limiting on shared public infrastructure.
+
+Providers like Glif/Chain.Love support passing the API key as a query parameter:
+
+```bash
+RPC_URL=https://filecoin.chain.love/rpc/v1?token=YOUR_API_KEY
+```
+
+**When to update**:
+
+- When DealBot is hitting 429 rate limits on the default public RPC
+- When switching RPC providers
+- When rotating API keys
+
+**Security**: Treat as a secret if the URL contains an API key.
 
 ---
 
