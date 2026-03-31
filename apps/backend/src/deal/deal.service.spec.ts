@@ -985,6 +985,7 @@ describe("DealService", () => {
         expect.any(Uint8Array),
         expect.any(Object),
         expect.objectContaining({
+          contexts: [expect.objectContaining({ dataSetId: 42 })],
           pieceMetadata: {},
           ipniValidation: { enabled: false },
         }),
