@@ -25,7 +25,10 @@ export const configValidationSchema = Joi.object({
   NETWORK: Joi.string().valid("mainnet", "calibration").default("calibration"),
   WALLET_ADDRESS: Joi.string().required(),
   WALLET_PRIVATE_KEY: Joi.string().required(),
-  RPC_URL: Joi.string().uri({ scheme: ["http", "https"] }).optional().allow(""),
+  RPC_URL: Joi.string()
+    .uri({ scheme: ["http", "https"] })
+    .optional()
+    .allow(""),
   CHECK_DATASET_CREATION_FEES: Joi.boolean().default(true),
   USE_ONLY_APPROVED_PROVIDERS: Joi.boolean().default(true),
   DEALBOT_DATASET_VERSION: Joi.string().optional(),
