@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.0](https://github.com/FilOzone/dealbot/compare/backend-v1.0.7...backend-v1.1.0) (2026-03-31)
+
+
+### Features
+
+* support custom RPC endpoint via RPC_URL ([#409](https://github.com/FilOzone/dealbot/issues/409)) ([59e5c93](https://github.com/FilOzone/dealbot/commit/59e5c93a40e21d6a8535cf18abdba75744186fa2))
+
 ## [1.0.7](https://github.com/FilOzone/dealbot/compare/backend-v1.0.6...backend-v1.0.7) (2026-03-30)
 
 
