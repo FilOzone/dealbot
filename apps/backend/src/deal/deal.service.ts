@@ -6,6 +6,7 @@ import { InjectRepository } from "@nestjs/typeorm";
 import { executeUpload } from "filecoin-pin";
 import { CID } from "multiformats/cid";
 import type { Repository } from "typeorm";
+import { http } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { awaitWithAbort } from "../common/abort-utils.js";
 import { buildUnixfsCar } from "../common/car-utils.js";
@@ -689,6 +690,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
         account: privateKeyToAccount(this.blockchainConfig.walletPrivateKey),
         chain: this.blockchainConfig.network === "mainnet" ? mainnet : calibration,
         source: "dealbot",
+        ...(this.blockchainConfig.rpcUrl ? { transport: http(this.blockchainConfig.rpcUrl) } : {}),
       });
     } catch (error) {
       this.logger.error({

@@ -25,6 +25,7 @@ export const configValidationSchema = Joi.object({
   NETWORK: Joi.string().valid("mainnet", "calibration").default("calibration"),
   WALLET_ADDRESS: Joi.string().required(),
   WALLET_PRIVATE_KEY: Joi.string().required(),
+  RPC_URL: Joi.string().uri().optional().allow(""),
   CHECK_DATASET_CREATION_FEES: Joi.boolean().default(true),
   USE_ONLY_APPROVED_PROVIDERS: Joi.boolean().default(true),
   DEALBOT_DATASET_VERSION: Joi.string().optional(),
@@ -101,6 +102,7 @@ export interface IDatabaseConfig {
 
 export interface IBlockchainConfig {
   network: Network;
+  rpcUrl?: string;
   walletAddress: string;
   walletPrivateKey: `0x${string}`;
   checkDatasetCreationFees: boolean;
@@ -260,6 +262,7 @@ export function loadConfig(): IConfig {
     },
     blockchain: {
       network: (process.env.NETWORK || "calibration") as Network,
+      rpcUrl: process.env.RPC_URL || undefined,
       walletAddress: process.env.WALLET_ADDRESS || "0x0000000000000000000000000000000000000000",
       walletPrivateKey: process.env.WALLET_PRIVATE_KEY as "0x${string}",
       checkDatasetCreationFees: process.env.CHECK_DATASET_CREATION_FEES !== "false",

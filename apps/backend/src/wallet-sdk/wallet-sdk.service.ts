@@ -7,7 +7,7 @@ import { Injectable, Logger, type OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
 import type { Repository } from "typeorm";
-import type { Hex } from "viem";
+import { type Hex, http } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { toStructuredError } from "../common/logging.js";
 import type { IBlockchainConfig, IConfig } from "../config/app.config.js";
@@ -59,6 +59,7 @@ export class WalletSdkService implements OnModuleInit {
       account,
       chain,
       source: "dealbot",
+      ...(this.blockchainConfig.rpcUrl ? { transport: http(this.blockchainConfig.rpcUrl) } : {}),
     });
 
     this.warmStorageService = new WarmStorageService({
