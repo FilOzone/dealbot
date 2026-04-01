@@ -41,6 +41,9 @@ importers:
 
   apps/backend:
     dependencies:
+      '@filoz/synapse-core':
+        specifier: 0.3.3
+        version: 0.3.3(typescript@5.9.3)(viem@2.47.5(typescript@5.9.3)(zod@4.3.6))
       '@filoz/synapse-sdk':
         specifier: 0.40.2
         version: 0.40.2(typescript@5.9.3)(viem@2.47.5(typescript@5.9.3)(zod@4.3.6))
