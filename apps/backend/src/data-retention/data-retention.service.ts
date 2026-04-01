@@ -46,8 +46,8 @@ export class DataRetentionService {
     private readonly storageProviderRepository: Repository<StorageProvider>,
     @InjectMetric("dataSetChallengeStatus")
     private readonly dataSetChallengeStatusCounter: Counter,
-    @InjectMetric("pdp_provider_overdue_periods")
-    private readonly overduePeriodsGauge: Gauge,
+    @InjectMetric("pdp_provider_estimated_overdue_periods")
+    private readonly estimatedOverduePeriodsGauge: Gauge,
   ) {
     this.providerCumulativeTotals = new Map();
   }
@@ -255,8 +255,8 @@ export class DataRetentionService {
           this.dataSetChallengeStatusCounter.remove({ ...approvedLabels, value: "failure" });
           this.dataSetChallengeStatusCounter.remove({ ...unapprovedLabels, value: "success" });
           this.dataSetChallengeStatusCounter.remove({ ...unapprovedLabels, value: "failure" });
-          this.overduePeriodsGauge.remove(approvedLabels);
-          this.overduePeriodsGauge.remove(unapprovedLabels);
+          this.estimatedOverduePeriodsGauge.remove(approvedLabels);
+          this.estimatedOverduePeriodsGauge.remove(unapprovedLabels);
 
           // Only delete local memory if Prometheus removal succeeded without throwing
           this.providerCumulativeTotals.delete(address);
@@ -343,7 +343,9 @@ export class DataRetentionService {
     // Emit overdue periods gauge on every poll — this is a separate signal from the
     // confirmed counters. It reflects estimated unrecorded faults in real time and
     // naturally resets to 0 when NextProvingPeriod fires and the subgraph catches up.
-    this.safeSetGauge(this.overduePeriodsGauge, providerLabels, estimatedOverduePeriods);
+    // Note: Safe to cast: 1 period = 240 blocks. Even summing millions of datasets
+    // across decades stays well under the JS safe integer limit.
+    this.estimatedOverduePeriodsGauge.labels({ ...providerLabels }).set(Number(estimatedOverduePeriods));
 
     if (previous === undefined) {
       this.logger.log({
@@ -441,41 +443,6 @@ export class DataRetentionService {
       },
       ["providerAddress"],
     );
-  }
-
-  /**
-   * Safely sets a Prometheus gauge with a BigInt value.
-   * If the value exceeds Number.MAX_SAFE_INTEGER, sets to 0 first then increments in chunks.
-   *
-   * @param gauge - The Prometheus gauge to set
-   * @param labels - The label set for the gauge
-   * @param value - The BigInt value to set
-   */
-  private safeSetGauge(gauge: Gauge, labels: CheckMetricLabels, value: bigint): void {
-    const MAX_SAFE_INTEGER_BIGINT = BigInt(Number.MAX_SAFE_INTEGER);
-    const gaugeWithLabels = gauge.labels({ ...labels });
-
-    if (value <= MAX_SAFE_INTEGER_BIGINT) {
-      // Safe to convert and set directly
-      gaugeWithLabels.set(Number(value));
-      return;
-    }
-
-    // Value exceeds safe integer range - reset to 0 then increment in chunks
-    this.logger.warn({
-      event: "large_gauge_value_detected",
-      message: "Large gauge value detected. Setting via chunked increments to prevent precision loss.",
-      value: value.toString(),
-    });
-
-    gaugeWithLabels.set(0);
-
-    let remaining = value;
-    while (remaining > 0n) {
-      const chunk = remaining > MAX_SAFE_INTEGER_BIGINT ? MAX_SAFE_INTEGER_BIGINT : remaining;
-      gaugeWithLabels.inc(Number(chunk));
-      remaining -= chunk;
-    }
   }
 
   /**

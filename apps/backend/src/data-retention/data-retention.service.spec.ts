@@ -1058,45 +1058,5 @@ describe("DataRetentionService", () => {
       expect(gaugeMock.remove).toHaveBeenCalledWith(approvedLabels);
       expect(gaugeMock.remove).toHaveBeenCalledWith(unapprovedLabels);
     });
-
-    it("sets gauge via chunked increments when overdue periods exceed safe range", async () => {
-      // Create a scenario where overdue periods would exceed MAX_SAFE_INTEGER
-      // Use a safe block number and a single proof set with small maxProvingPeriod
-      // Formula: (currentBlock - (nextDeadline + 1)) / maxProvingPeriod
-      // We want: (currentBlock - 1) / maxProvingPeriod = MAX_SAFE_INTEGER + 999
-      // So: currentBlock = (MAX_SAFE_INTEGER + 999) * maxProvingPeriod + 1
-      // Using maxProvingPeriod = 1: currentBlock = MAX_SAFE_INTEGER + 1000
-      // But we need to keep currentBlock safe, so we use maxProvingPeriod to scale down
-      const currentBlock = 1000000;
-      const maxProvingPeriod = 1;
-      const nextDeadline = BigInt(currentBlock) - BigInt(Number.MAX_SAFE_INTEGER) - 1000n;
-
-      pdpSubgraphServiceMock.fetchSubgraphMeta.mockResolvedValueOnce({
-        _meta: { block: { number: currentBlock } },
-      });
-
-      const gaugeIncMock = vi.fn();
-      const gaugeSetMock = vi.fn();
-      gaugeMock.labels = vi.fn().mockReturnValue({ set: gaugeSetMock, inc: gaugeIncMock });
-
-      pdpSubgraphServiceMock.fetchProvidersWithDatasets.mockResolvedValueOnce([
-        makeProvider({
-          proofSets: [
-            {
-              nextDeadline,
-              maxProvingPeriod: BigInt(maxProvingPeriod),
-            },
-          ],
-        }),
-      ]);
-
-      await service.pollDataRetention();
-
-      // Should reset to 0 first, then increment in chunks
-      // Total value = MAX_SAFE_INTEGER + 999, split into MAX_SAFE_INTEGER and 999
-      expect(gaugeSetMock).toHaveBeenCalledWith(0);
-      expect(gaugeIncMock).toHaveBeenNthCalledWith(1, Number.MAX_SAFE_INTEGER);
-      expect(gaugeIncMock).toHaveBeenNthCalledWith(2, 999);
-    });
   });
 });
