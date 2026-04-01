@@ -61,6 +61,7 @@
     "viem": "^2.47.5"
   },
   "devDependencies": {
+    "@filoz/synapse-core": "0.3.3",
     "@biomejs/biome": "catalog:",
     "@nestjs/cli": "^11.0.16",
     "@nestjs/schematics": "^11.0.9",
