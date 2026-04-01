@@ -24,12 +24,12 @@ export const configValidationSchema = Joi.object({
   // Blockchain
   NETWORK: Joi.string().valid("mainnet", "calibration").default("calibration"),
   WALLET_ADDRESS: Joi.string().required(),
-  WALLET_PRIVATE_KEY: Joi.string().optional().allow(""),
+  WALLET_PRIVATE_KEY: Joi.string().optional().empty(""),
   RPC_URL: Joi.string()
     .uri({ scheme: ["http", "https"] })
     .optional()
     .allow(""),
-  SESSION_KEY_PRIVATE_KEY: Joi.string().optional().allow(""),
+  SESSION_KEY_PRIVATE_KEY: Joi.string().optional().empty(""),
   CHECK_DATASET_CREATION_FEES: Joi.boolean().default(true),
   USE_ONLY_APPROVED_PROVIDERS: Joi.boolean().default(true),
   DEALBOT_DATASET_VERSION: Joi.string().optional(),
@@ -268,9 +268,9 @@ export function loadConfig(): IConfig {
     blockchain: {
       network: (process.env.NETWORK || "calibration") as Network,
       rpcUrl: process.env.RPC_URL || undefined,
-      sessionKeyPrivateKey: process.env.SESSION_KEY_PRIVATE_KEY as `0x${string}` | undefined,
+      sessionKeyPrivateKey: (process.env.SESSION_KEY_PRIVATE_KEY || undefined) as `0x${string}` | undefined,
       walletAddress: process.env.WALLET_ADDRESS || "0x0000000000000000000000000000000000000000",
-      walletPrivateKey: process.env.WALLET_PRIVATE_KEY as "0x${string}",
+      walletPrivateKey: (process.env.WALLET_PRIVATE_KEY || undefined) as `0x${string}`,
       checkDatasetCreationFees: process.env.CHECK_DATASET_CREATION_FEES !== "false",
       useOnlyApprovedProviders: process.env.USE_ONLY_APPROVED_PROVIDERS !== "false",
       dealbotDataSetVersion: process.env.DEALBOT_DATASET_VERSION,

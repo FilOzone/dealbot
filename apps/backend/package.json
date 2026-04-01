@@ -29,6 +29,7 @@
     "typecheck": "tsc --noEmit --incremental false"
   },
   "dependencies": {
+    "@filoz/synapse-core": "0.3.3",
     "@filoz/synapse-sdk": "0.40.2",
     "@ipld/car": "^5.4.2",
     "@ipld/dag-pb": "^4.1.4",
@@ -61,7 +62,6 @@
     "viem": "^2.47.5"
   },
   "devDependencies": {
-    "@filoz/synapse-core": "0.3.3",
     "@biomejs/biome": "catalog:",
     "@nestjs/cli": "^11.0.16",
     "@nestjs/schematics": "^11.0.9",

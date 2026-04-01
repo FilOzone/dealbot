@@ -365,6 +365,9 @@ export class WalletSdkService implements OnModuleInit {
           needsApproval: costs.needsFwssMaxApproval,
           costs: this.serializeBigInt(costs),
         });
+        throw new Error(
+          `Session key mode: wallet not ready (depositNeeded=${costs.depositNeeded.toString()}, needsFwssMaxApproval=${costs.needsFwssMaxApproval})`,
+        );
       }
       return;
     }

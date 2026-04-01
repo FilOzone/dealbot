@@ -43,8 +43,8 @@ See [environment-variables.md](../environment-variables.md) for full documentati
 
 ### Prerequisites
 
-- Node.js 24+
-- Access to the `synapse-sdk` repository (for the generation script)
+- Node.js 22+
+- This repository checked out (`apps/backend/scripts/create-session-key-safe.mjs` is the generation script)
 - Being a signer on the DealBot Safe multisig
 
 ### Step 1: Generate the session key and Safe calldata

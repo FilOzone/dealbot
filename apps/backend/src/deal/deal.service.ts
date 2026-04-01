@@ -686,7 +686,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
 
       if (sessionKeyPK) {
         // Session key mode: walletAddress is the multisig (payer),
-        // walletPrivateKey is the session key's private key
+        // sessionKeyPrivateKey provides the delegated signing key
         const walletAddress = this.blockchainConfig.walletAddress as `0x${string}`;
         const sessionKey = SessionKey.fromSecp256k1({
           privateKey: sessionKeyPK,

@@ -59,9 +59,27 @@ describe("config validation", () => {
     expect(error).toBeUndefined();
   });
 
-  it("accepts both WALLET_PRIVATE_KEY and SESSION_KEY_PRIVATE_KEY", () => {
+  it("accepts both WALLET_PRIVATE_KEY and SESSION_KEY_PRIVATE_KEY (session key takes precedence)", () => {
     const { error } = configValidationSchema.validate(
       { ...requiredEnv, WALLET_PRIVATE_KEY: "0xkey", SESSION_KEY_PRIVATE_KEY: "0xsession" },
+      { allowUnknown: true },
+    );
+    expect(error).toBeUndefined();
+  });
+
+  it("treats empty string WALLET_PRIVATE_KEY as absent", () => {
+    const { error } = configValidationSchema.validate(
+      { ...requiredEnv, WALLET_PRIVATE_KEY: "" },
+      { allowUnknown: true },
+    );
+    // Empty string is normalized to undefined by .empty(""), so .or() treats it as absent
+    expect(error).toBeDefined();
+    expect(error?.message).toMatch(/WALLET_PRIVATE_KEY|SESSION_KEY_PRIVATE_KEY/);
+  });
+
+  it("treats empty string SESSION_KEY_PRIVATE_KEY as absent", () => {
+    const { error } = configValidationSchema.validate(
+      { ...requiredEnv, WALLET_PRIVATE_KEY: "0xkey", SESSION_KEY_PRIVATE_KEY: "" },
       { allowUnknown: true },
     );
     expect(error).toBeUndefined();

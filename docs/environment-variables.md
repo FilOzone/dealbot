@@ -360,7 +360,7 @@ WALLET_ADDRESS=0x1234567890abcdef1234567890abcdef12345678
 - **Required**: Yes
 - **Security**: **HIGHLY SENSITIVE** - Never commit to version control, use secrets management
 
-**Role**: Private key for signing blockchain transactions. Required in direct key mode. Not needed when `SESSION_KEY_PRIVATE_KEY` is set (session key mode), since the session key handles all signing.
+**Role**: Private key for signing blockchain transactions. Required in direct key mode. Not needed when `SESSION_KEY_PRIVATE_KEY` is set (session key mode), since the session key handles all signing. If both are set, `SESSION_KEY_PRIVATE_KEY` takes precedence and `WALLET_PRIVATE_KEY` is ignored.
 
 **When to update**:
 

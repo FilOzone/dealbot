@@ -15,7 +15,7 @@
  */
 
 import { calibration, mainnet } from "@filoz/synapse-core/chains";
-import { encodeFunctionData } from "viem";
+import { encodeFunctionData, parseUnits } from "viem";
 
 const args = process.argv.slice(2);
 function getArg(name) {
@@ -37,7 +37,7 @@ if (!walletAddress) {
 }
 
 const chain = networkName === "mainnet" ? mainnet : calibration;
-const amount = BigInt(Math.round(Number.parseFloat(amountStr) * 1e18));
+const amount = parseUnits(amountStr, 18);
 const maxUint256 = 2n ** 256n - 1n;
 
 const usdfcAddress = chain.contracts.usdfc.address;

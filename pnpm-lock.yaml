@@ -41,6 +41,9 @@ importers:
 
   apps/backend:
     dependencies:
+      '@filoz/synapse-core':
+        specifier: 0.3.3
+        version: 0.3.3(typescript@5.9.3)(viem@2.47.5(typescript@5.9.3)(zod@4.3.6))
       '@filoz/synapse-sdk':
         specifier: 0.40.2
         version: 0.40.2(typescript@5.9.3)(viem@2.47.5(typescript@5.9.3)(zod@4.3.6))
@@ -135,9 +138,6 @@ importers:
       '@biomejs/biome':
         specifier: 'catalog:'
         version: 2.3.14
-      '@filoz/synapse-core':
-        specifier: 0.3.3
-        version: 0.3.3(typescript@5.9.3)(viem@2.47.5(typescript@5.9.3)(zod@4.3.6))
       '@nestjs/cli':
         specifier: ^11.0.16
         version: 11.0.16(@swc/core@1.15.11)(@types/node@25.2.3)
