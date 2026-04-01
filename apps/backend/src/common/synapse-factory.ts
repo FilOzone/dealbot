@@ -52,6 +52,15 @@ export async function createSynapseFromConfig(config: IBlockchainConfig): Promis
     });
     await sessionKey.syncExpirations();
 
+    // Replicate the permission check from Synapse.create() since we use
+    // new Synapse() directly to control the transport.
+    if (!sessionKey.hasPermissions(SessionKey.DefaultFwssPermissions)) {
+      throw new Error(
+        "Session key does not have the required FWSS permissions. " +
+          "Register the session key from the owner wallet with all required permissions.",
+      );
+    }
+
     const sessionKeyAccount = privateKeyToAccount(sessionKeyPK);
     const resolved = transport({ chain, retryCount: 0 });
     const safeReadTransport = custom({
