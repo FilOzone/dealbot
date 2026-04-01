@@ -3,9 +3,25 @@
  *
  * Handles two modes:
  *   - Direct key: standard Synapse.create with privateKeyToAccount
- *   - Session key: custom transport that strips `from` on eth_call to work
- *     around Lotus rejecting reads from contract addresses (Safe multisig).
- *     See https://github.com/filecoin-project/lotus/pull/13470
+ *   - Session key: uses a two-client pattern where the read client reports
+ *     the multisig address as its account (so the SDK looks up datasets and
+ *     balances for the right payer) while the session key client handles
+ *     EIP-712 signing for write operations.
+ *
+ * The read client uses a custom transport that strips the `from` field on
+ * eth_call and eth_estimateGas. This is necessary because:
+ *   1. The SDK's Synapse client needs `client.account.address` set to the
+ *      multisig so it can find datasets, check balances, and verify approvals
+ *      for the correct payer.
+ *   2. viem automatically includes `client.account.address` as the `from`
+ *      field in eth_call RPC requests.
+ *   3. Lotus currently rejects eth_call when `from` is a contract address
+ *      (like a Safe multisig) with SysErrSenderInvalid.
+ *
+ * Stripping `from` makes the call anonymous, which Lotus accepts. The `from`
+ * field is optional in eth_call and has no effect on the result for view
+ * functions. See https://github.com/filecoin-project/lotus/pull/13470 for
+ * the upstream fix that will make this workaround unnecessary.
  */
 
 import * as SessionKey from "@filoz/synapse-core/session-key";
@@ -19,14 +35,7 @@ export interface SynapseInstanceResult {
   isSessionKeyMode: boolean;
 }
 
-/**
- * Create a Synapse instance from blockchain config.
- *
- * In session key mode, builds a read client with the multisig address as
- * account.address (so the SDK uses it for payer lookups) but strips `from`
- * on eth_call/eth_estimateGas (so Lotus accepts reads from a contract
- * address). Write operations go through the session key's client.
- */
+/** Create a Synapse instance from blockchain config. See file-level docs. */
 export async function createSynapseFromConfig(config: IBlockchainConfig): Promise<SynapseInstanceResult> {
   const chain = config.network === "mainnet" ? mainnet : calibration;
   const rpcUrl = config.rpcUrl;
