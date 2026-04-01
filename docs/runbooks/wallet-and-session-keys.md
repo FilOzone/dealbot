@@ -98,6 +98,14 @@ The script outputs:
 
 The multisig requires 2-of-N signatures. After you sign, another signer must also approve and execute the transaction via the Safe UI.
 
+### Step 3.5: Initialize the session key actor on-chain
+
+Lotus currently rejects `eth_call` when the `from` address is a contract (like a Safe multisig). DealBot works around this by using the session key EOA as the `from` for read-only calls while keeping the multisig as the payer address. However, Lotus also rejects `eth_call` from addresses that don't have an on-chain actor.
+
+Send any amount of FIL (even the smallest unit) to the session key address shown in the script output. This creates the actor on-chain. Without it, read operations will fail with `SysErrSenderInvalid`.
+
+See [lotus#13470](https://github.com/filecoin-project/lotus/pull/13470) for context, once that fix ships, this step will no longer be necessary.
+
 ### Step 4: Deploy the session key to DealBot
 
 Update the SOPS-encrypted secrets in [FilOzone/infra](https://github.com/FilOzone/infra) for the target environment. See the [infra dealbot runbook](https://github.com/FilOzone/infra/blob/main/docs/runbooks/dealbot.md#8-secrets-management) for SOPS editing instructions.
@@ -173,9 +181,9 @@ node scripts/fund-safe.mjs \
 ```
 
 This outputs a 3-transaction batch:
-1. **USDFC.approve** -- allow FilecoinPay to pull tokens
-2. **FilecoinPay.deposit** -- move tokens into the Filecoin Pay account
-3. **FilecoinPay.setOperatorApproval** -- approve FWSS with maxUint256 allowances
+1. **USDFC.approve**: allow FilecoinPay to pull tokens
+2. **FilecoinPay.deposit**: move tokens into the Filecoin Pay account
+3. **FilecoinPay.setOperatorApproval**: approve FWSS with maxUint256 allowances
 
 Submit all three as a batch in the Safe Transaction Builder at [safe.filecoin.io](https://safe.filecoin.io/), then collect the required signatures.
 

@@ -1,5 +1,4 @@
-import * as SessionKey from "@filoz/synapse-core/session-key";
-import { calibration, mainnet, PDPProvider, Synapse } from "@filoz/synapse-sdk";
+import { PDPProvider, Synapse } from "@filoz/synapse-sdk";
 import type { PaymentsService } from "@filoz/synapse-sdk/payments";
 import { SPRegistryService } from "@filoz/synapse-sdk/sp-registry";
 import { StorageManager } from "@filoz/synapse-sdk/storage";
@@ -8,9 +7,9 @@ import { Injectable, Logger, type OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
 import type { Repository } from "typeorm";
-import { custom, type Hex, http } from "viem";
-import { privateKeyToAccount } from "viem/accounts";
+import type { Hex } from "viem";
 import { toStructuredError } from "../common/logging.js";
+import { createSynapseFromConfig } from "../common/synapse-factory.js";
 import type { IBlockchainConfig, IConfig } from "../config/app.config.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
 import type { PDPProviderEx, WalletServices } from "./wallet-sdk.types.js";
@@ -56,57 +55,16 @@ export class WalletSdkService implements OnModuleInit {
    * Initialize wallet services with provider and signer
    */
   private async initializeServices(): Promise<void> {
-    const chain = this.blockchainConfig.network === "mainnet" ? mainnet : calibration;
-    const rpcUrl = this.blockchainConfig.rpcUrl;
-    const transport = rpcUrl ? http(rpcUrl) : http();
-    const sessionKeyPK = this.blockchainConfig.sessionKeyPrivateKey;
+    const { synapse, isSessionKeyMode } = await createSynapseFromConfig(this.blockchainConfig);
 
-    let synapse: Synapse;
-
-    if (sessionKeyPK) {
-      const walletAddress = this.blockchainConfig.walletAddress as `0x${string}`;
-      const sessionKey = SessionKey.fromSecp256k1({
-        privateKey: sessionKeyPK,
-        root: walletAddress,
-        chain,
-        transport,
-      });
-      await sessionKey.syncExpirations();
-
-      const resolved = transport({ chain, retryCount: 0 });
-
-      synapse = Synapse.create({
-        account: walletAddress,
-        chain,
-        source: "dealbot",
-        transport: custom({ request: resolved.request }),
-        sessionKey,
-      });
-
-      this.logger.log({
-        event: "wallet_sdk_initialized",
-        message: "Initialized wallet SDK services (session key mode)",
-        network: this.blockchainConfig.network,
-        chainId: chain.id,
-        walletAddress,
-        sessionKeyAddress: sessionKey.address,
-      });
-    } else {
-      const account = privateKeyToAccount(this.blockchainConfig.walletPrivateKey);
-      synapse = Synapse.create({
-        account,
-        chain,
-        source: "dealbot",
-        ...(rpcUrl ? { transport } : {}),
-      });
-
-      this.logger.log({
-        event: "wallet_sdk_initialized",
-        message: "Initialized wallet SDK services",
-        network: this.blockchainConfig.network,
-        chainId: chain.id,
-      });
-    }
+    this.logger.log({
+      event: "wallet_sdk_initialized",
+      message: isSessionKeyMode
+        ? "Initialized wallet SDK services (session key mode)"
+        : "Initialized wallet SDK services",
+      network: this.blockchainConfig.network,
+      walletAddress: this.blockchainConfig.walletAddress,
+    });
 
     this.warmStorageService = new WarmStorageService({
       client: synapse.client,
@@ -117,7 +75,7 @@ export class WalletSdkService implements OnModuleInit {
     this.paymentsService = synapse.payments;
     this.storageManager = synapse.storage;
     this._synapseClient = synapse.client;
-    this._isSessionKeyMode = sessionKeyPK != null;
+    this._isSessionKeyMode = isSessionKeyMode;
   }
 
   /**
