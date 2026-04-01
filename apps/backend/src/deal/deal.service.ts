@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import * as SessionKey from "@filoz/synapse-core/session-key";
 import { calibration, METADATA_KEYS, mainnet, SIZE_CONSTANTS, Synapse } from "@filoz/synapse-sdk";
 import { Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
@@ -7,12 +6,11 @@ import { InjectRepository } from "@nestjs/typeorm";
 import { executeUpload } from "filecoin-pin";
 import { CID } from "multiformats/cid";
 import type { Repository } from "typeorm";
-import { custom, http } from "viem";
-import { privateKeyToAccount } from "viem/accounts";
 import { awaitWithAbort } from "../common/abort-utils.js";
 import { buildUnixfsCar } from "../common/car-utils.js";
 import { createFilecoinPinLogger } from "../common/filecoin-pin-logger.js";
 import { type DealLogContext, type ProviderJobContext, toStructuredError } from "../common/logging.js";
+import { createSynapseFromConfig } from "../common/synapse-factory.js";
 import type { DataFile, Hex } from "../common/types.js";
 import type { IBlockchainConfig, IConfig } from "../config/app.config.js";
 import { Deal } from "../database/entities/deal.entity.js";
@@ -679,48 +677,15 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
 
   private async createSynapseInstance(): Promise<Synapse> {
     try {
-      const chain = this.blockchainConfig.network === "mainnet" ? mainnet : calibration;
-      const rpcUrl = this.blockchainConfig.rpcUrl;
-      const transport = rpcUrl ? http(rpcUrl) : http();
-      const sessionKeyPK = this.blockchainConfig.sessionKeyPrivateKey;
-
-      if (sessionKeyPK) {
-        // Session key mode: walletAddress is the multisig (payer),
-        // sessionKeyPrivateKey provides the delegated signing key
-        const walletAddress = this.blockchainConfig.walletAddress as `0x${string}`;
-        const sessionKey = SessionKey.fromSecp256k1({
-          privateKey: sessionKeyPK,
-          root: walletAddress,
-          chain,
-          transport,
-        });
-        await sessionKey.syncExpirations();
-
-        // Synapse requires a custom transport for address-only (json-rpc) accounts
-        const resolved = transport({ chain, retryCount: 0 });
-
+      const { synapse, isSessionKeyMode } = await createSynapseFromConfig(this.blockchainConfig);
+      if (isSessionKeyMode) {
         this.logger.log({
           event: "synapse_session_key_init",
           message: "Initializing Synapse with session key",
-          walletAddress,
-          sessionKeyAddress: sessionKey.address,
-        });
-
-        return Synapse.create({
-          account: walletAddress,
-          chain,
-          source: "dealbot",
-          transport: custom({ request: resolved.request }),
-          sessionKey,
+          walletAddress: this.blockchainConfig.walletAddress,
         });
       }
-
-      return Synapse.create({
-        account: privateKeyToAccount(this.blockchainConfig.walletPrivateKey),
-        chain,
-        source: "dealbot",
-        ...(rpcUrl ? { transport } : {}),
-      });
+      return synapse;
     } catch (error) {
       this.logger.error({
         event: "synapse_init_failed",

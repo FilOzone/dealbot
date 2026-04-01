@@ -173,9 +173,9 @@ node scripts/fund-safe.mjs \
 ```
 
 This outputs a 3-transaction batch:
-1. **USDFC.approve** -- allow FilecoinPay to pull tokens
-2. **FilecoinPay.deposit** -- move tokens into the Filecoin Pay account
-3. **FilecoinPay.setOperatorApproval** -- approve FWSS with maxUint256 allowances
+1. **USDFC.approve**: allow FilecoinPay to pull tokens
+2. **FilecoinPay.deposit**: move tokens into the Filecoin Pay account
+3. **FilecoinPay.setOperatorApproval**: approve FWSS with maxUint256 allowances
 
 Submit all three as a batch in the Safe Transaction Builder at [safe.filecoin.io](https://safe.filecoin.io/), then collect the required signatures.
 
