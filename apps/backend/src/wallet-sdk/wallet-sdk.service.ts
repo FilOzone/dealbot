@@ -1,4 +1,4 @@
-import { PDPProvider, Synapse } from "@filoz/synapse-sdk";
+import { PDPProvider } from "@filoz/synapse-sdk";
 import type { PaymentsService } from "@filoz/synapse-sdk/payments";
 import { SPRegistryService } from "@filoz/synapse-sdk/sp-registry";
 import { StorageManager } from "@filoz/synapse-sdk/storage";
