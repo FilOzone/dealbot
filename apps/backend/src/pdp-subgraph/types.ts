@@ -14,7 +14,7 @@ export type GraphQLResponse = {
 };
 
 /**
- * Options for fetching providers with datasets
+ * Options for fetching providers with data sets
  */
 export type ProvidersWithDataSetsOptions = {
   addresses: string[];

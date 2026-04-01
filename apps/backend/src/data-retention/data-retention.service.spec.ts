@@ -999,7 +999,7 @@ describe("DataRetentionService", () => {
       expect(gaugeMock.set).toHaveBeenCalled();
     });
 
-    it("gauge naturally resets to 0 when subgraph catches up", async () => {
+    it("naturally resets gauge to 0 when subgraph catches up", async () => {
       // First poll: provider is overdue (currentBlock=1200, nextDeadline=1000)
       pdpSubgraphServiceMock.fetchProvidersWithDatasets.mockResolvedValueOnce([makeProvider()]);
       await service.pollDataRetention();
