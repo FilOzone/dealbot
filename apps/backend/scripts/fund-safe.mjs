@@ -14,7 +14,7 @@
  * Filecoin Pay balance). Transfer USDFC to the multisig first if needed.
  */
 
-import { writeFileSync } from "fs";
+import { writeFileSync } from "node:fs";
 import { calibration, mainnet } from "@filoz/synapse-core/chains";
 import { encodeFunctionData, keccak256, parseUnits, stringToBytes } from "viem";
 
