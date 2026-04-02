@@ -343,9 +343,16 @@ export class DataRetentionService {
     // Emit overdue periods gauge on every poll — this is a separate signal from the
     // confirmed counters. It reflects estimated unrecorded faults in real time and
     // naturally resets to 0 when NextProvingPeriod fires and the subgraph catches up.
-    // Note: Safe to cast: 1 period = 240 blocks. Even summing millions of datasets
-    // across decades stays well under the JS safe integer limit.
-    this.estimatedOverduePeriodsGauge.labels({ ...providerLabels }).set(Number(estimatedOverduePeriods));
+    // Note: Safe to cast under normal conditions (1 period = 240 blocks). However, we
+    // check for overflow to handle edge cases like proving period changes or fast finality.
+    this.safeSetGauge(
+      this.estimatedOverduePeriodsGauge,
+      providerLabels,
+      estimatedOverduePeriods,
+      address,
+      pdpProvider.id,
+      pdpProvider.name,
+    );
 
     if (previous === undefined) {
       this.logger.log({
@@ -483,6 +490,42 @@ export class DataRetentionService {
       const chunk = remaining > MAX_SAFE_INTEGER_BIGINT ? MAX_SAFE_INTEGER_BIGINT : remaining;
       counter.labels({ ...labels, value }).inc(Number(chunk));
       remaining -= chunk;
+    }
+  }
+
+  /**
+   * Safely sets a Prometheus gauge with a BigInt value.
+   * If the value exceeds Number.MAX_SAFE_INTEGER, clamps to MAX_SAFE_INTEGER and logs a warning.
+   *
+   * @param gauge - The Prometheus gauge to set
+   * @param labels - The label set for the gauge
+   * @param value - The BigInt value to set
+   * @param providerAddress - Provider address for logging
+   * @param providerId - Provider ID for logging
+   * @param providerName - Provider name for logging
+   */
+  private safeSetGauge(
+    gauge: Gauge,
+    labels: CheckMetricLabels,
+    value: bigint,
+    providerAddress: string,
+    providerId: bigint,
+    providerName: string,
+  ): void {
+    const MAX_SAFE_INTEGER_BIGINT = BigInt(Number.MAX_SAFE_INTEGER);
+
+    if (value > MAX_SAFE_INTEGER_BIGINT) {
+      this.logger.warn({
+        event: "overdue_periods_overflow",
+        message: "Estimated overdue periods exceeds safe integer range. Clamping to MAX_SAFE_INTEGER.",
+        providerAddress,
+        providerId,
+        providerName,
+        estimatedOverduePeriods: value.toString(),
+      });
+      gauge.labels(labels).set(Number.MAX_SAFE_INTEGER);
+    } else {
+      gauge.labels(labels).set(Number(value));
     }
   }
 }
