@@ -1,14 +1,8 @@
 import { Injectable, Logger } from "@nestjs/common";
-import { ConfigService } from "@nestjs/config";
-import { InjectDataSource, InjectRepository } from "@nestjs/typeorm";
-import { InjectMetric } from "@willsoto/nestjs-prometheus";
-import type { Gauge } from "prom-client";
-import type { DataSource, Repository } from "typeorm";
+import { InjectDataSource } from "@nestjs/typeorm";
+import type { DataSource } from "typeorm";
 import { toStructuredError } from "../../common/logging.js";
-import type { IConfig } from "../../config/app.config.js";
-import { StorageProvider } from "../../database/entities/storage-provider.entity.js";
 import { IpniStatus } from "../../database/types.js";
-import { WalletSdkService } from "../../wallet-sdk/wallet-sdk.service.js";
 
 /**
  * Service responsible for refreshing materialized views and aggregating metrics
@@ -27,16 +21,6 @@ export class MetricsSchedulerService {
   constructor(
     @InjectDataSource()
     private readonly dataSource: DataSource,
-    private readonly configService: ConfigService<IConfig, true>,
-    private readonly walletSdkService: WalletSdkService,
-    @InjectRepository(StorageProvider)
-    private readonly spRepository: Repository<StorageProvider>,
-    @InjectMetric("wallet_balance")
-    private readonly walletBalanceGauge: Gauge,
-    @InjectMetric("storage_providers_active")
-    private readonly storageProvidersActive: Gauge,
-    @InjectMetric("storage_providers_tested")
-    private readonly storageProvidersTested: Gauge,
   ) {}
 
   /**
@@ -109,8 +93,6 @@ export class MetricsSchedulerService {
     );
 
     try {
-      await this.updateWalletBalances();
-      await this.updateStorageProviderMetrics();
       // Aggregate deal metrics by storage provider (metric_type='deal', service_type=NULL)
       const dealMetrics = await this.dataSource.query(
         `
@@ -295,55 +277,6 @@ export class MetricsSchedulerService {
         error: toStructuredError(error),
       });
       throw error;
-    }
-  }
-
-  private async updateWalletBalances(): Promise<void> {
-    if (process.env.DEALBOT_DISABLE_CHAIN === "true") {
-      this.logger.warn("Chain integration disabled; skipping wallet balance metrics.");
-      return;
-    }
-
-    try {
-      const { usdfc, fil } = await this.walletSdkService.getWalletBalances();
-      const walletShort = this.configService.get("blockchain").walletAddress.slice(0, 8);
-
-      // Note: USDFC is the available balance in the Filecoin Pay contract (funds minus lockups),
-      // not the raw wallet balance. Converting bigint to Number provides ~15-16 significant
-      // figures of precision. For a 50 token balance, precision is lost after ~14 decimal
-      // places (e.g., 0.00000000000001 USDFC). This is negligible for runway monitoring.
-      this.walletBalanceGauge.set({ currency: "USDFC", wallet: walletShort }, Number(usdfc));
-      this.walletBalanceGauge.set({ currency: "FIL", wallet: walletShort }, Number(fil));
-    } catch (error) {
-      this.logger.warn({
-        event: "update_wallet_balance_metrics_failed",
-        message: "Failed to update wallet balance metrics",
-        error: toStructuredError(error),
-      });
-    }
-  }
-
-  private async updateStorageProviderMetrics(): Promise<void> {
-    try {
-      const totalProviders = await this.spRepository.count();
-      const activeCount = await this.spRepository.count({ where: { isActive: true } });
-      const inactiveCount = Math.max(0, totalProviders - activeCount);
-
-      this.storageProvidersActive.set({ status: "active" }, activeCount);
-      this.storageProvidersActive.set({ status: "inactive" }, inactiveCount);
-
-      const useOnlyApprovedProviders = this.configService.get("blockchain").useOnlyApprovedProviders;
-      // Providers considered "tested" depend on USE_ONLY_APPROVED_PROVIDERS config.
-      const testedCount = await this.spRepository.count({
-        where: useOnlyApprovedProviders ? { isActive: true, isApproved: true } : { isActive: true },
-      });
-      this.storageProvidersTested.set(testedCount);
-    } catch (error) {
-      this.logger.warn({
-        event: "update_storage_provider_metrics_failed",
-        message: "Failed to update storage provider metrics",
-        error: toStructuredError(error),
-      });
     }
   }
 
