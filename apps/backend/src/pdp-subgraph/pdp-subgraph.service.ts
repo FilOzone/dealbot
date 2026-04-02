@@ -125,7 +125,7 @@ export class PDPSubgraphService {
    * Fetch provider-level totals from subgraph with batching, pagination, and rate limiting
    *
    * @param options - Options containing block number and provider addresses
-   * @returns Array of providers with their data sets
+   * @returns Array of providers with their data sets currently proving
    */
   async fetchProvidersWithDatasets(
     options: ProvidersWithDataSetsOptions,

@@ -5,7 +5,7 @@ export const Queries = {
           address
           totalFaultedPeriods
           totalProvingPeriods
-          proofSets (where: {nextDeadline_lt: $blockNumber}) {
+          proofSets (where: {nextDeadline_lt: $blockNumber, status: PROVING}) {
             nextDeadline
             maxProvingPeriod
           }
