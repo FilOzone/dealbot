@@ -55,9 +55,9 @@ export class DataRetentionService {
   }
 
   /**
-   * Polls the PDP subgraph for provider proof-set data, computes estimated
-   * faulted and successful proving periods (challenges), and increments Prometheus counters
-   * with the delta since the last poll.
+   * Polls the PDP subgraph for provider proof-set data, computes proving period deltas,
+   * converts them to challenge counts, and increments Prometheus counters with the
+   * challenge delta since the last poll.
    */
   async pollDataRetention(): Promise<void> {
     const pdpSubgraphEndpoint = this.configService.get("blockchain").pdpSubgraphEndpoint;
