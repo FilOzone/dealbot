@@ -19,11 +19,15 @@ export class DataRetentionService {
   private readonly logger = new Logger(DataRetentionService.name);
 
   private static readonly MAX_PROVIDER_BATCH_LENGTH = 50;
+  // NOTE: taken from https://github.com/FilOzone/filecoin-services/blob/c04be93aa680082e359481f0776e41ed157a2ac2/service_contracts/src/FilecoinWarmStorageService.sol#L26
+  private static readonly CHALLENGES_PER_PROVING_PERIOD = 5n;
 
   /**
    * Tracks cumulative faulted/success period totals per provider address.
    * Used to compute deltas between consecutive polls for Prometheus counter increments.
    * Populated from the database on first poll, then kept in sync.
+   * Note: Baselines are stored in periods, but emitted metrics are converted to challenges
+   * by multiplying period deltas by CHALLENGES_PER_PROVING_PERIOD.
    */
   private readonly providerCumulativeTotals: Map<
     string,
@@ -339,20 +343,22 @@ export class DataRetentionService {
       return newBaseline;
     }
 
-    const faultedDelta = totalFaultedPeriods - previous.faultedPeriods;
-    const successDelta = confirmedTotalSuccess - previous.successPeriods;
+    const faultedChallengesDelta =
+      (totalFaultedPeriods - previous.faultedPeriods) * DataRetentionService.CHALLENGES_PER_PROVING_PERIOD;
+    const successChallengesDelta =
+      (confirmedTotalSuccess - previous.successPeriods) * DataRetentionService.CHALLENGES_PER_PROVING_PERIOD;
 
     // Handle negative deltas: can occur due to chain reorgs, subgraph corrections, or data inconsistencies
     // Reset baseline to current values to prevent stalled metrics
-    if (faultedDelta < 0n || successDelta < 0n) {
+    if (faultedChallengesDelta < 0n || successChallengesDelta < 0n) {
       this.logger.warn({
         event: "negative_delta_detected",
         message: "Negative delta detected for provider",
         providerAddress: address,
         providerId: pdpProvider.id,
         providerName: pdpProvider.name,
-        faultedDelta: faultedDelta.toString(),
-        successDelta: successDelta.toString(),
+        faultedChallengesDelta: faultedChallengesDelta.toString(),
+        successChallengesDelta: successChallengesDelta.toString(),
       });
       // Reset baseline without incrementing counters
       this.providerCumulativeTotals.set(normalizedAddress, newBaseline);
@@ -366,12 +372,12 @@ export class DataRetentionService {
       providerIsApproved: pdpProvider.isApproved,
     });
 
-    if (faultedDelta > 0n) {
-      this.safeIncrementCounter(this.dataSetChallengeStatusCounter, providerLabels, "failure", faultedDelta);
+    if (faultedChallengesDelta > 0n) {
+      this.safeIncrementCounter(this.dataSetChallengeStatusCounter, providerLabels, "failure", faultedChallengesDelta);
     }
 
-    if (successDelta > 0n) {
-      this.safeIncrementCounter(this.dataSetChallengeStatusCounter, providerLabels, "success", successDelta);
+    if (successChallengesDelta > 0n) {
+      this.safeIncrementCounter(this.dataSetChallengeStatusCounter, providerLabels, "success", successChallengesDelta);
     }
 
     this.providerCumulativeTotals.set(normalizedAddress, newBaseline);
