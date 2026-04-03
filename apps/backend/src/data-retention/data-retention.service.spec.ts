@@ -386,9 +386,9 @@ describe("DataRetentionService", () => {
 
     await service.pollDataRetention();
 
-    // Uses subgraph totals directly: faulted=5, success=50-5=45
+    // Uses subgraph totals directly: faulted=5*5=25, success=45*5=225
     const incCalls = counterMock.inc.mock.calls;
-    expect(incCalls).toEqual(expect.arrayContaining([[5], [45]]));
+    expect(incCalls).toEqual(expect.arrayContaining([[25], [225]]));
   });
 
   it("processes providers in batches of MAX_PROVIDER_BATCH_LENGTH", async () => {
@@ -842,8 +842,8 @@ describe("DataRetentionService", () => {
 
       // Verify the actual increment values
       const incCalls = counterMock.inc.mock.calls;
-      // faultedDelta=2, successDelta=5
-      expect(incCalls).toEqual(expect.arrayContaining([[2], [5]]));
+      // faultedDelta=2*5=10, successDelta=5*5=25
+      expect(incCalls).toEqual(expect.arrayContaining([[10], [25]]));
     });
 
     it("only loads baselines from DB once across multiple polls", async () => {
@@ -900,10 +900,10 @@ describe("DataRetentionService", () => {
 
       await service.pollDataRetention();
 
-      // faultedDelta = 12 - 10 = 2, successDelta = (105 - 12) - 90 = 3
+      // faultedDelta = (12 - 10) * 5 = 10, successDelta = ((105 - 12) - 90) * 5 = 15
       expect(counterMock.labels).toHaveBeenCalled();
       const incCalls = counterMock.inc.mock.calls;
-      expect(incCalls).toEqual(expect.arrayContaining([[2], [3]]));
+      expect(incCalls).toEqual(expect.arrayContaining([[10], [15]]));
     });
 
     it("deletes baseline from DB when stale provider is cleaned up", async () => {
