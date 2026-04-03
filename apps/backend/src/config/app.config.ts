@@ -12,6 +12,8 @@ export const configValidationSchema = Joi.object({
   DEALBOT_METRICS_PORT: Joi.number().default(9090),
   DEALBOT_METRICS_HOST: Joi.string().default("0.0.0.0"),
   ENABLE_DEV_MODE: Joi.boolean().default(false),
+  PROMETHEUS_WALLET_BALANCE_TTL_SECONDS: Joi.number().min(60).default(3600),
+  PROMETHEUS_WALLET_BALANCE_ERROR_COOLDOWN_SECONDS: Joi.number().min(1).default(60),
 
   // Database
   DATABASE_HOST: Joi.string().required(),
@@ -24,7 +26,12 @@ export const configValidationSchema = Joi.object({
   // Blockchain
   NETWORK: Joi.string().valid("mainnet", "calibration").default("calibration"),
   WALLET_ADDRESS: Joi.string().required(),
-  WALLET_PRIVATE_KEY: Joi.string().required(),
+  WALLET_PRIVATE_KEY: Joi.string().optional().empty(""),
+  RPC_URL: Joi.string()
+    .uri({ scheme: ["http", "https"] })
+    .optional()
+    .allow(""),
+  SESSION_KEY_PRIVATE_KEY: Joi.string().optional().empty(""),
   CHECK_DATASET_CREATION_FEES: Joi.boolean().default(true),
   USE_ONLY_APPROVED_PROVIDERS: Joi.boolean().default(true),
   DEALBOT_DATASET_VERSION: Joi.string().optional(),
@@ -78,7 +85,7 @@ export const configValidationSchema = Joi.object({
   HTTP2_REQUEST_TIMEOUT_MS: Joi.number().min(1000).default(240000), // 4 minutes total for HTTP/2 requests (10MiB @ 170KB/s + overhead)
   IPNI_VERIFICATION_TIMEOUT_MS: Joi.number().min(1000).default(60000), // 60 seconds max time to wait for IPNI verification
   IPNI_VERIFICATION_POLLING_MS: Joi.number().min(250).default(2000), // 2 seconds between IPNI verification polls
-});
+}).or("WALLET_PRIVATE_KEY", "SESSION_KEY_PRIVATE_KEY");
 
 export interface IAppConfig {
   env: string;
@@ -88,6 +95,8 @@ export interface IAppConfig {
   metricsPort: number;
   metricsHost: string;
   enableDevMode: boolean;
+  prometheusWalletBalanceTtlSeconds: number;
+  prometheusWalletBalanceErrorCooldownSeconds: number;
 }
 
 export interface IDatabaseConfig {
@@ -101,6 +110,8 @@ export interface IDatabaseConfig {
 
 export interface IBlockchainConfig {
   network: Network;
+  rpcUrl?: string;
+  sessionKeyPrivateKey?: `0x${string}`;
   walletAddress: string;
   walletPrivateKey: `0x${string}`;
   checkDatasetCreationFees: boolean;
@@ -249,6 +260,14 @@ export function loadConfig(): IConfig {
       metricsPort: Number.parseInt(process.env.DEALBOT_METRICS_PORT || "9090", 10),
       metricsHost: process.env.DEALBOT_METRICS_HOST || "0.0.0.0",
       enableDevMode: process.env.ENABLE_DEV_MODE === "true",
+      prometheusWalletBalanceTtlSeconds: Number.parseInt(
+        process.env.PROMETHEUS_WALLET_BALANCE_TTL_SECONDS || "3600",
+        10,
+      ),
+      prometheusWalletBalanceErrorCooldownSeconds: Number.parseInt(
+        process.env.PROMETHEUS_WALLET_BALANCE_ERROR_COOLDOWN_SECONDS || "60",
+        10,
+      ),
     },
     database: {
       host: process.env.DATABASE_HOST || "localhost",
@@ -260,8 +279,10 @@ export function loadConfig(): IConfig {
     },
     blockchain: {
       network: (process.env.NETWORK || "calibration") as Network,
+      rpcUrl: process.env.RPC_URL || undefined,
+      sessionKeyPrivateKey: (process.env.SESSION_KEY_PRIVATE_KEY || undefined) as `0x${string}` | undefined,
       walletAddress: process.env.WALLET_ADDRESS || "0x0000000000000000000000000000000000000000",
-      walletPrivateKey: process.env.WALLET_PRIVATE_KEY as "0x${string}",
+      walletPrivateKey: (process.env.WALLET_PRIVATE_KEY || undefined) as `0x${string}`,
       checkDatasetCreationFees: process.env.CHECK_DATASET_CREATION_FEES !== "false",
       useOnlyApprovedProviders: process.env.USE_ONLY_APPROVED_PROVIDERS !== "false",
       dealbotDataSetVersion: process.env.DEALBOT_DATASET_VERSION,

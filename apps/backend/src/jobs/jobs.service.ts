@@ -86,6 +86,10 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     private readonly jobsPausedGauge: Gauge,
     @InjectMetric("job_duration_seconds")
     private readonly jobDuration: Histogram,
+    @InjectMetric("storage_providers_active")
+    private readonly storageProvidersActive: Gauge,
+    @InjectMetric("storage_providers_tested")
+    private readonly storageProvidersTested: Gauge,
   ) {}
 
   /**
@@ -635,11 +639,35 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
           event: "chain_integration_disabled",
           message: "Chain integration disabled; skipping provider refresh job.",
         });
-        return "success";
+      } else {
+        await this.walletSdkService.loadProviders();
       }
-      await this.walletSdkService.loadProviders();
+      await this.updateStorageProviderGauges();
       return "success";
     });
+  }
+
+  private async updateStorageProviderGauges(): Promise<void> {
+    try {
+      const totalProviders = await this.storageProviderRepository.count();
+      const activeCount = await this.storageProviderRepository.count({ where: { isActive: true } });
+      const inactiveCount = Math.max(0, totalProviders - activeCount);
+
+      this.storageProvidersActive.set({ status: "active" }, activeCount);
+      this.storageProvidersActive.set({ status: "inactive" }, inactiveCount);
+
+      const useOnlyApprovedProviders = this.configService.get("blockchain").useOnlyApprovedProviders;
+      const testedCount = await this.storageProviderRepository.count({
+        where: useOnlyApprovedProviders ? { isActive: true, isApproved: true } : { isActive: true },
+      });
+      this.storageProvidersTested.set(testedCount);
+    } catch (error) {
+      this.logger.warn({
+        event: "update_storage_provider_metrics_failed",
+        message: "Failed to update storage provider metrics",
+        error: toStructuredError(error),
+      });
+    }
   }
 
   private async handleDataSetCreationJob(job: SpJob): Promise<void> {

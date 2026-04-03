@@ -1,16 +1,16 @@
 import { randomUUID } from "node:crypto";
-import { calibration, METADATA_KEYS, mainnet, SIZE_CONSTANTS, Synapse } from "@filoz/synapse-sdk";
+import { METADATA_KEYS, SIZE_CONSTANTS, Synapse } from "@filoz/synapse-sdk";
 import { Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
 import { executeUpload } from "filecoin-pin";
 import { CID } from "multiformats/cid";
 import type { Repository } from "typeorm";
-import { privateKeyToAccount } from "viem/accounts";
 import { awaitWithAbort } from "../common/abort-utils.js";
 import { buildUnixfsCar } from "../common/car-utils.js";
 import { createFilecoinPinLogger } from "../common/filecoin-pin-logger.js";
 import { type DealLogContext, type ProviderJobContext, toStructuredError } from "../common/logging.js";
+import { createSynapseFromConfig } from "../common/synapse-factory.js";
 import type { DataFile, Hex } from "../common/types.js";
 import type { IBlockchainConfig, IConfig } from "../config/app.config.js";
 import { Deal } from "../database/entities/deal.entity.js";
@@ -19,12 +19,12 @@ import { DealStatus, ServiceType } from "../database/types.js";
 import { DataSourceService } from "../dataSource/dataSource.service.js";
 import { DealAddonsService } from "../deal-addons/deal-addons.service.js";
 import type { DealPreprocessingResult } from "../deal-addons/types.js";
-import { buildCheckMetricLabels, classifyFailureStatus } from "../metrics/utils/check-metric-labels.js";
+import { buildCheckMetricLabels, classifyFailureStatus } from "../metrics-prometheus/check-metric-labels.js";
 import {
   DataSetCreationCheckMetrics,
   DataStorageCheckMetrics,
   RetrievalCheckMetrics,
-} from "../metrics/utils/check-metrics.service.js";
+} from "../metrics-prometheus/check-metrics.service.js";
 import { RetrievalAddonsService } from "../retrieval-addons/retrieval-addons.service.js";
 import type { RetrievalConfiguration } from "../retrieval-addons/types.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
@@ -64,12 +64,12 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     this.blockchainConfig = this.configService.get("blockchain");
   }
 
-  onModuleInit() {
+  async onModuleInit() {
     this.logger.log({
       event: "synapse_initialization",
       message: "Creating shared Synapse instance",
     });
-    this.sharedSynapse = this.createSynapseInstance();
+    this.sharedSynapse = await this.createSynapseInstance();
   }
 
   async onModuleDestroy(): Promise<void> {
@@ -91,7 +91,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     const { preprocessed, cleanup } = await this.prepareDealInput(options.signal, options.logContext);
 
     try {
-      const synapse = this.sharedSynapse ?? this.createSynapseInstance();
+      const synapse = this.sharedSynapse ?? (await this.createSynapseInstance());
       const uploadPayload = await this.prepareUploadPayload(preprocessed, options.signal);
       return await this.createDeal(
         synapse,
@@ -253,13 +253,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
         logger: filecoinPinLogger,
         contextId: providerAddress,
         pieceMetadata: dealInput.synapseConfig.pieceMetadata,
-        copies: 1,
-        // SDK forbids specifying both dataSetIds and providerIds — use one or the other
-        ...(storage.dataSetId != null
-          ? { dataSetIds: [storage.dataSetId] }
-          : dealLogContext.providerId != null
-            ? { providerIds: [dealLogContext.providerId] }
-            : {}),
+        contexts: [storage],
         /**
          * do not do IPNI validation here, we need to call /pdp/piece/<pieceCid>/status to get other metrics.
          * See `onStored` handler in deal-addons/strategies/ipni.strategy.ts for implementation.
@@ -483,7 +477,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     signal?: AbortSignal,
   ): Promise<boolean> {
     signal?.throwIfAborted();
-    const synapse = this.sharedSynapse ?? this.createSynapseInstance();
+    const synapse = this.sharedSynapse ?? (await this.createSynapseInstance());
     const providerInfo = this.walletSdkService.getProviderInfo(providerAddress);
     if (!providerInfo) {
       throw new Error(`Provider ${providerAddress} not found in registry`);
@@ -542,7 +536,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     let transactionHash: string | undefined;
 
     try {
-      const synapse = this.sharedSynapse ?? this.createSynapseInstance();
+      const synapse = this.sharedSynapse ?? (await this.createSynapseInstance());
       signal?.throwIfAborted();
 
       const DATA_SET_CREATION_PIECE_SIZE = 200 * 1024; // 200 KiB
@@ -571,9 +565,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
         executeUpload(synapse, carResult.carData, carResult.rootCID, {
           logger: filecoinPinLogger,
           contextId: providerAddress,
-          copies: 1,
-          // SDK forbids specifying both dataSetIds and providerIds — use one or the other
-          ...(storage.dataSetId != null ? { dataSetIds: [storage.dataSetId] } : { providerIds: [providerInfo.id] }),
+          contexts: [storage],
           pieceMetadata: {},
           ipniValidation: { enabled: false },
           onProgress: async (event) => {
@@ -683,13 +675,17 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
   // Deal Creation Helpers
   // ============================================================================
 
-  private createSynapseInstance(): Synapse {
+  private async createSynapseInstance(): Promise<Synapse> {
     try {
-      return Synapse.create({
-        account: privateKeyToAccount(this.blockchainConfig.walletPrivateKey),
-        chain: this.blockchainConfig.network === "mainnet" ? mainnet : calibration,
-        source: "dealbot",
-      });
+      const { synapse, isSessionKeyMode } = await createSynapseFromConfig(this.blockchainConfig);
+      if (isSessionKeyMode) {
+        this.logger.log({
+          event: "synapse_session_key_init",
+          message: "Initializing Synapse with session key",
+          walletAddress: this.blockchainConfig.walletAddress,
+        });
+      }
+      return synapse;
     } catch (error) {
       this.logger.error({
         event: "synapse_init_failed",

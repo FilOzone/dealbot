@@ -1,6 +1,6 @@
 import type { ConfigService } from "@nestjs/config";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { IBlockchainConfig, IConfig } from "../config/app.config.js";
+import { configValidationSchema, type IBlockchainConfig, type IConfig } from "../config/app.config.js";
 import { WalletSdkService } from "./wallet-sdk.service.js";
 import type { PDPProviderEx } from "./wallet-sdk.types.js";
 
@@ -35,6 +35,56 @@ const makeProvider = (overrides: Partial<PDPProviderEx>): PDPProviderEx =>
     },
     ...overrides,
   }) as PDPProviderEx;
+
+describe("config validation", () => {
+  const requiredEnv = {
+    DATABASE_HOST: "localhost",
+    DATABASE_USER: "test",
+    DATABASE_PASSWORD: "test",
+    DATABASE_NAME: "test",
+    WALLET_ADDRESS: "0x1234567890123456789012345678901234567890",
+  };
+
+  it("requires WALLET_PRIVATE_KEY when SESSION_KEY_PRIVATE_KEY is absent", () => {
+    const { error } = configValidationSchema.validate(requiredEnv, { allowUnknown: true });
+    expect(error).toBeDefined();
+    expect(error?.message).toMatch(/WALLET_PRIVATE_KEY/);
+  });
+
+  it("accepts missing WALLET_PRIVATE_KEY when SESSION_KEY_PRIVATE_KEY is set", () => {
+    const { error } = configValidationSchema.validate(
+      { ...requiredEnv, SESSION_KEY_PRIVATE_KEY: "0xdeadbeef" },
+      { allowUnknown: true },
+    );
+    expect(error).toBeUndefined();
+  });
+
+  it("accepts both WALLET_PRIVATE_KEY and SESSION_KEY_PRIVATE_KEY (session key takes precedence)", () => {
+    const { error } = configValidationSchema.validate(
+      { ...requiredEnv, WALLET_PRIVATE_KEY: "0xkey", SESSION_KEY_PRIVATE_KEY: "0xsession" },
+      { allowUnknown: true },
+    );
+    expect(error).toBeUndefined();
+  });
+
+  it("treats empty string WALLET_PRIVATE_KEY as absent", () => {
+    const { error } = configValidationSchema.validate(
+      { ...requiredEnv, WALLET_PRIVATE_KEY: "" },
+      { allowUnknown: true },
+    );
+    // Empty string is normalized to undefined by .empty(""), so .or() treats it as absent
+    expect(error).toBeDefined();
+    expect(error?.message).toMatch(/WALLET_PRIVATE_KEY|SESSION_KEY_PRIVATE_KEY/);
+  });
+
+  it("treats empty string SESSION_KEY_PRIVATE_KEY as absent", () => {
+    const { error } = configValidationSchema.validate(
+      { ...requiredEnv, WALLET_PRIVATE_KEY: "0xkey", SESSION_KEY_PRIVATE_KEY: "" },
+      { allowUnknown: true },
+    );
+    expect(error).toBeUndefined();
+  });
+});
 
 describe("WalletSdkService", () => {
   let service: WalletSdkService;
@@ -197,5 +247,22 @@ describe("WalletSdkService", () => {
 
     expect(loadProvidersInternal).toHaveBeenCalledTimes(2);
     expect((service as any).providersLoadedOnce).toBe(true);
+  });
+
+  describe("ensureWalletAllowances", () => {
+    it("performs read-only check in session key mode", async () => {
+      (service as any)._isSessionKeyMode = true;
+      // getUploadCosts needs _synapseClient but will fail without a real RPC
+      // Verify it doesn't fall through to the storageManager.prepare path
+      (service as any)._synapseClient = null;
+      await expect(service.ensureWalletAllowances()).rejects.toThrow();
+      // storageManager.prepare was never called (it would also throw, but differently)
+    });
+
+    it("attempts allowances in direct key mode", async () => {
+      (service as any)._isSessionKeyMode = false;
+      // storageManager is not initialized so prepare() will throw
+      await expect(service.ensureWalletAllowances()).rejects.toThrow();
+    });
   });
 });

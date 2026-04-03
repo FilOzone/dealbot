@@ -1,5 +1,42 @@
 # Changelog
 
+## [1.2.0](https://github.com/FilOzone/dealbot/compare/backend-v1.1.0...backend-v1.2.0) (2026-04-02)
+
+
+### Features
+
+* session key support and Safe multisig tooling ([#416](https://github.com/FilOzone/dealbot/issues/416)) ([8d089a2](https://github.com/FilOzone/dealbot/commit/8d089a205b62b2d79a51e11c2ac89bb77090cebc))
+
+
+### Bug Fixes
+
+* pass contexts to executeUpload to avoid redundant dataset resolution ([#412](https://github.com/FilOzone/dealbot/issues/412)) ([866e664](https://github.com/FilOzone/dealbot/commit/866e6647fd83966b418c1329842b8928dea3e7fe))
+* work around Lotus eth_call rejection for multisig accounts ([#419](https://github.com/FilOzone/dealbot/issues/419)) ([a66fb76](https://github.com/FilOzone/dealbot/commit/a66fb76e9cd09c472c1f0d7520a1d3b09b9f6d9d))
+
+
+### Miscellaneous
+
+* extract providers API into standalone module ([#399](https://github.com/FilOzone/dealbot/issues/399)) ([980f94f](https://github.com/FilOzone/dealbot/commit/980f94f9e89916ffe230eddf0ee1fc54f9997ff2))
+* fix lint ([#430](https://github.com/FilOzone/dealbot/issues/430)) ([290d39c](https://github.com/FilOzone/dealbot/commit/290d39c0a655cb8f9cd426245a13222746a0ebeb))
+* lint ([290d39c](https://github.com/FilOzone/dealbot/commit/290d39c0a655cb8f9cd426245a13222746a0ebeb))
+* move `check-metric` helpers from `metrics/` to `metrics-prometheus/` ([#398](https://github.com/FilOzone/dealbot/issues/398)) ([544de7c](https://github.com/FilOzone/dealbot/commit/544de7cdc0857aa423b3b4ea9b24505dbf364b97))
+* move check-metric helpers from metrics/utils to metrics-prometheus ([544de7c](https://github.com/FilOzone/dealbot/commit/544de7cdc0857aa423b3b4ea9b24505dbf364b97))
+* rehome prometheus operational gauges ([#401](https://github.com/FilOzone/dealbot/issues/401)) ([58ee84f](https://github.com/FilOzone/dealbot/commit/58ee84f0f6d404ff789bcdd3dffa4fe5433f78b3))
+
+## [1.1.0](https://github.com/FilOzone/dealbot/compare/backend-v1.0.7...backend-v1.1.0) (2026-03-31)
+
+
+### Features
+
+* support custom RPC endpoint via RPC_URL ([#409](https://github.com/FilOzone/dealbot/issues/409)) ([59e5c93](https://github.com/FilOzone/dealbot/commit/59e5c93a40e21d6a8535cf18abdba75744186fa2))
+
+## [1.0.7](https://github.com/FilOzone/dealbot/compare/backend-v1.0.6...backend-v1.0.7) (2026-03-30)
+
+
+### Miscellaneous
+
+* **deps:** upgrade @filoz/synapse-sdk to v0.40.1 ([#404](https://github.com/FilOzone/dealbot/issues/404)) ([1f80657](https://github.com/FilOzone/dealbot/commit/1f80657dd64060abb06d968fca5e86e01489ba8f))
+
 ## [1.0.6](https://github.com/FilOzone/dealbot/compare/backend-v1.0.5...backend-v1.0.6) (2026-03-23)
 
 

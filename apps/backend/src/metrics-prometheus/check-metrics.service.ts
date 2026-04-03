@@ -1,8 +1,8 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { InjectMetric } from "@willsoto/nestjs-prometheus";
 import type { Counter, Histogram } from "prom-client";
-import type { Deal } from "../../database/entities/deal.entity.js";
-import type { RetrievalExecutionResult } from "../../retrieval-addons/types.js";
+import type { Deal } from "../database/entities/deal.entity.js";
+import type { RetrievalExecutionResult } from "../retrieval-addons/types.js";
 import { buildCheckMetricLabels, type CheckMetricLabels } from "./check-metric-labels.js";
 
 const metricsLogger = new Logger("CheckMetrics");

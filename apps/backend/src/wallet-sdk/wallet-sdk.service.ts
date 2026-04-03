@@ -1,4 +1,4 @@
-import { calibration, mainnet, PDPProvider, Synapse } from "@filoz/synapse-sdk";
+import { PDPProvider } from "@filoz/synapse-sdk";
 import type { PaymentsService } from "@filoz/synapse-sdk/payments";
 import { SPRegistryService } from "@filoz/synapse-sdk/sp-registry";
 import { StorageManager } from "@filoz/synapse-sdk/storage";
@@ -8,8 +8,8 @@ import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
 import type { Repository } from "typeorm";
 import type { Hex } from "viem";
-import { privateKeyToAccount } from "viem/accounts";
 import { toStructuredError } from "../common/logging.js";
+import { createSynapseFromConfig } from "../common/synapse-factory.js";
 import type { IBlockchainConfig, IConfig } from "../config/app.config.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
 import type { PDPProviderEx, WalletServices } from "./wallet-sdk.types.js";
@@ -27,6 +27,8 @@ export class WalletSdkService implements OnModuleInit {
   private approvedProviderAddresses: Set<string> = new Set();
   private providersLoadPromise: Promise<boolean> | null = null;
   private providersLoadedOnce = false;
+  private _isSessionKeyMode = false;
+  private _synapseClient: any;
 
   constructor(
     private readonly configService: ConfigService<IConfig, true>,
@@ -53,12 +55,15 @@ export class WalletSdkService implements OnModuleInit {
    * Initialize wallet services with provider and signer
    */
   private async initializeServices(): Promise<void> {
-    const account = privateKeyToAccount(this.blockchainConfig.walletPrivateKey);
-    const chain = this.blockchainConfig.network === "mainnet" ? mainnet : calibration;
-    const synapse = Synapse.create({
-      account,
-      chain,
-      source: "dealbot",
+    const { synapse, isSessionKeyMode } = await createSynapseFromConfig(this.blockchainConfig);
+
+    this.logger.log({
+      event: "wallet_sdk_initialized",
+      message: isSessionKeyMode
+        ? "Initialized wallet SDK services (session key mode)"
+        : "Initialized wallet SDK services",
+      network: this.blockchainConfig.network,
+      walletAddress: this.blockchainConfig.walletAddress,
     });
 
     this.warmStorageService = new WarmStorageService({
@@ -69,13 +74,8 @@ export class WalletSdkService implements OnModuleInit {
     });
     this.paymentsService = synapse.payments;
     this.storageManager = synapse.storage;
-
-    this.logger.log({
-      event: "wallet_sdk_initialized",
-      message: "Initialized wallet SDK services",
-      network: this.blockchainConfig.network,
-      chainId: chain.id,
-    });
+    this._synapseClient = synapse.client;
+    this._isSessionKeyMode = isSessionKeyMode;
   }
 
   /**
@@ -296,9 +296,39 @@ export class WalletSdkService implements OnModuleInit {
   }
 
   /**
-   * Ensure wallet has sufficient allowances for operations
+   * Ensure wallet has sufficient allowances for operations.
+   * Skipped in session key mode, deposits and operator approvals must be
+   * done separately via the Safe multisig UI.
    */
   async ensureWalletAllowances(): Promise<void> {
+    if (this._isSessionKeyMode) {
+      const { getUploadCosts } = await import("@filoz/synapse-core/warm-storage");
+      const costs = await getUploadCosts(this._synapseClient, {
+        clientAddress: this.blockchainConfig.walletAddress as `0x${string}`,
+        dataSize: 100n * 1024n * 1024n * 1024n,
+      });
+
+      if (costs.ready) {
+        this.logger.log({
+          event: "wallet_status_check_completed",
+          message: "Session key mode: account is funded and approved",
+          costs: this.serializeBigInt(costs),
+        });
+      } else {
+        this.logger.error({
+          event: "wallet_not_ready",
+          message:
+            "Session key mode: account is NOT ready. Deposit USDFC and/or approve FWSS operator via the Safe multisig.",
+          depositNeeded: costs.depositNeeded.toString(),
+          needsApproval: costs.needsFwssMaxApproval,
+          costs: this.serializeBigInt(costs),
+        });
+        throw new Error(
+          `Session key mode: wallet not ready (depositNeeded=${costs.depositNeeded.toString()}, needsFwssMaxApproval=${costs.needsFwssMaxApproval})`,
+        );
+      }
+      return;
+    }
     const STORAGE_SIZE_GB = 100n;
     const { costs, transaction } = await this.storageManager.prepare({
       dataSize: STORAGE_SIZE_GB * 1024n * 1024n * 1024n,
