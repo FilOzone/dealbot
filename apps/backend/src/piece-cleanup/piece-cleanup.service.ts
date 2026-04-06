@@ -1,5 +1,4 @@
 import { Synapse } from "@filoz/synapse-sdk";
-import type { StorageContext } from "@filoz/synapse-sdk/storage";
 import { Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
@@ -11,7 +10,6 @@ import type { IBlockchainConfig, IConfig } from "../config/app.config.js";
 import { Deal } from "../database/entities/deal.entity.js";
 import { DealStatus } from "../database/types.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
-
 
 export interface CleanupResult {
   /** Number of pieces successfully deleted. */
@@ -358,12 +356,5 @@ export class PieceCleanupService implements OnModuleInit, OnModuleDestroy {
     deal.cleanedUp = true;
     deal.cleanedUpAt = new Date();
     await this.dealRepository.save(deal);
-  }
-
-  private formatBytes(bytes: number): string {
-    if (bytes >= 1024 * 1024 * 1024) {
-      return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GiB`;
-    }
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
   }
 }

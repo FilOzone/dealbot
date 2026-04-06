@@ -6,7 +6,6 @@ import type { IConfig } from "../config/app.config.js";
 import { Deal } from "../database/entities/deal.entity.js";
 import { DealStatus } from "../database/types.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
-import type { StorageContext } from "@filoz/synapse-sdk/storage";
 import { PieceCleanupService } from "./piece-cleanup.service.js";
 
 vi.mock("@filoz/synapse-sdk", async (importOriginal) => {
@@ -21,7 +20,7 @@ vi.mock("@filoz/synapse-sdk", async (importOriginal) => {
         storage: {
           createContext: vi.fn().mockResolvedValue({
             deletePiece: vi.fn(),
-          } as unknown as StorageContext),
+          }),
         },
       }),
     },
@@ -34,7 +33,7 @@ vi.mock("../common/synapse-factory.js", () => ({
       storage: {
         createContext: vi.fn().mockResolvedValue({
           deletePiece: vi.fn(),
-        } as unknown as StorageContext),
+        }),
       },
     },
     isSessionKeyMode: false,
