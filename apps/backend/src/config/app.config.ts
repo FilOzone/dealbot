@@ -103,7 +103,16 @@ export const configValidationSchema = Joi.object({
   TARGET_DATASET_STORAGE_SIZE_BYTES: Joi.number()
     .integer()
     .min(1)
-    .default(20 * 1024 * 1024 * 1024), // 20 GiB per SP
+    .default(20 * 1024 * 1024 * 1024) // 20 GiB per SP
+    .custom((value, helpers) => {
+      const max = helpers.state.ancestors?.[0]?.MAX_DATASET_STORAGE_SIZE_BYTES;
+      if (max != null && value >= max) {
+        return helpers.error("any.invalid", {
+          message: `TARGET_DATASET_STORAGE_SIZE_BYTES (${value}) must be less than MAX_DATASET_STORAGE_SIZE_BYTES (${max})`,
+        });
+      }
+      return value;
+    }, "target < max validation"),
   JOB_PIECE_CLEANUP_PER_SP_PER_HOUR: Joi.number()
     .min(0.001)
     .max(20)
@@ -381,7 +390,7 @@ export function loadConfig(): IConfig {
       dealJobTimeoutSeconds: Number.parseInt(process.env.DEAL_JOB_TIMEOUT_SECONDS || "360", 10),
       retrievalJobTimeoutSeconds: Number.parseInt(process.env.RETRIEVAL_JOB_TIMEOUT_SECONDS || "60", 10),
       dataSetCreationJobTimeoutSeconds: Number.parseInt(process.env.DATA_SET_CREATION_JOB_TIMEOUT_SECONDS || "300", 10),
-      pieceCleanupPerSpPerHour: Number.parseFloat(process.env.JOB_PIECE_CLEANUP_PER_SP_PER_HOUR || "1"),
+      pieceCleanupPerSpPerHour: Number.parseFloat(process.env.JOB_PIECE_CLEANUP_PER_SP_PER_HOUR || String(1 / 24)),
       maxPieceCleanupRuntimeSeconds: Number.parseInt(process.env.MAX_PIECE_CLEANUP_RUNTIME_SECONDS || "300", 10),
     },
     dataset: {

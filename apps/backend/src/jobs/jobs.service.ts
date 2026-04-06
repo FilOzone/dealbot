@@ -479,16 +479,16 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       if (overQuota) {
         this.logger.warn({
           event: "deal_job_over_quota",
-          message: `Deal job skipped: SP ${spAddress} is over the storage quota; cleanup must run first`,
-          spAddress,
+          message: "Deal job skipped: SP is over the storage quota; cleanup must run first",
+          providerAddress: spAddress,
         });
         return;
       }
     } catch (error) {
       this.logger.warn({
         event: "deal_job_quota_check_failed",
-        message: `Failed to check storage quota for ${spAddress}; proceeding with deal creation`,
-        spAddress,
+        message: "Failed to check storage quota for SP; proceeding with deal creation",
+        providerAddress: spAddress,
         error: toStructuredError(error),
       });
     }
@@ -757,9 +757,8 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
           const reasonMessage = reason instanceof Error ? reason.message : String(reason ?? "");
           this.logger.warn({
             event: "piece_cleanup_job_aborted",
-            message:
-              reasonMessage || `Piece cleanup job aborted after timeout (${effectiveTimeoutSeconds}s) for ${spAddress}`,
-            spAddress,
+            message: reasonMessage || "Piece cleanup job aborted",
+            providerAddress: spAddress,
             timeoutSeconds: effectiveTimeoutSeconds,
             error: toStructuredError(reason ?? error),
           });
@@ -767,8 +766,8 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         }
         this.logger.error({
           event: "piece_cleanup_job_failed",
-          message: `Piece cleanup job failed for ${spAddress}`,
-          spAddress,
+          message: "Piece cleanup job failed",
+          providerAddress: spAddress,
           error: toStructuredError(error),
         });
         throw error;

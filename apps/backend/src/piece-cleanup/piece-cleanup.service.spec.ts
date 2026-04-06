@@ -6,7 +6,8 @@ import type { IConfig } from "../config/app.config.js";
 import { Deal } from "../database/entities/deal.entity.js";
 import { DealStatus } from "../database/types.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
-import { PieceCleanupService, type StorageContext } from "./piece-cleanup.service.js";
+import type { StorageContext } from "@filoz/synapse-sdk/storage";
+import { PieceCleanupService } from "./piece-cleanup.service.js";
 
 vi.mock("@filoz/synapse-sdk", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@filoz/synapse-sdk")>();
@@ -26,6 +27,19 @@ vi.mock("@filoz/synapse-sdk", async (importOriginal) => {
     },
   };
 });
+
+vi.mock("../common/synapse-factory.js", () => ({
+  createSynapseFromConfig: vi.fn().mockResolvedValue({
+    synapse: {
+      storage: {
+        createContext: vi.fn().mockResolvedValue({
+          deletePiece: vi.fn(),
+        } as unknown as StorageContext),
+      },
+    },
+    isSessionKeyMode: false,
+  }),
+}));
 
 vi.mock("filecoin-pin/core/data-set", () => ({
   listDataSets: vi.fn().mockResolvedValue([]),
@@ -381,16 +395,25 @@ describe("PieceCleanupService", () => {
       await expect(service.deletePiece(deal)).rejects.toThrow("missing pieceId");
     });
 
+    it("throws when deal is missing dataSetId", async () => {
+      const deal = makeDeal({ dataSetId: undefined });
+
+      await expect(service.deletePiece(deal)).rejects.toThrow("missing dataSetId");
+    });
+
     it("calls Synapse SDK to delete piece and marks deal as cleaned up", async () => {
-      const { Synapse } = await import("@filoz/synapse-sdk");
+      const { createSynapseFromConfig } = await import("../common/synapse-factory.js");
       const deletePieceMock = vi.fn().mockResolvedValue(undefined);
       const createContextMock = vi.fn().mockResolvedValue({
         deletePiece: deletePieceMock,
       });
-      (Synapse.create as ReturnType<typeof vi.fn>).mockReturnValue({
-        storage: {
-          createContext: createContextMock,
+      (createSynapseFromConfig as ReturnType<typeof vi.fn>).mockResolvedValue({
+        synapse: {
+          storage: {
+            createContext: createContextMock,
+          },
         },
+        isSessionKeyMode: false,
       });
 
       const deal = makeDeal({ pieceId: 42, dataSetId: 1n, spAddress: "0xProvider" });
@@ -400,6 +423,7 @@ describe("PieceCleanupService", () => {
 
       expect(createContextMock).toHaveBeenCalledWith({
         providerId: 9,
+        dataSetId: 1n,
       });
       expect(deletePieceMock).toHaveBeenCalledWith({ piece: 42n });
       expect(deal.cleanedUp).toBe(true);
@@ -408,15 +432,18 @@ describe("PieceCleanupService", () => {
     });
 
     it("treats 'Can only schedule removal of live pieces' revert as idempotent success", async () => {
-      const { Synapse } = await import("@filoz/synapse-sdk");
+      const { createSynapseFromConfig } = await import("../common/synapse-factory.js");
       const deletePieceMock = vi.fn().mockRejectedValue(new Error("Can only schedule removal of live pieces"));
       const createContextMock = vi.fn().mockResolvedValue({
         deletePiece: deletePieceMock,
       });
-      (Synapse.create as ReturnType<typeof vi.fn>).mockReturnValue({
-        storage: {
-          createContext: createContextMock,
+      (createSynapseFromConfig as ReturnType<typeof vi.fn>).mockResolvedValue({
+        synapse: {
+          storage: {
+            createContext: createContextMock,
+          },
         },
+        isSessionKeyMode: false,
       });
 
       const deal = makeDeal({ pieceId: 42, dataSetId: 1n, spAddress: "0xProvider" });
@@ -430,15 +457,18 @@ describe("PieceCleanupService", () => {
     });
 
     it("treats 'Piece ID already scheduled for removal' revert as idempotent success", async () => {
-      const { Synapse } = await import("@filoz/synapse-sdk");
+      const { createSynapseFromConfig } = await import("../common/synapse-factory.js");
       const deletePieceMock = vi.fn().mockRejectedValue(new Error("Piece ID already scheduled for removal"));
       const createContextMock = vi.fn().mockResolvedValue({
         deletePiece: deletePieceMock,
       });
-      (Synapse.create as ReturnType<typeof vi.fn>).mockReturnValue({
-        storage: {
-          createContext: createContextMock,
+      (createSynapseFromConfig as ReturnType<typeof vi.fn>).mockResolvedValue({
+        synapse: {
+          storage: {
+            createContext: createContextMock,
+          },
         },
+        isSessionKeyMode: false,
       });
 
       const deal = makeDeal({ pieceId: 42, dataSetId: 1n, spAddress: "0xProvider" });
@@ -451,15 +481,18 @@ describe("PieceCleanupService", () => {
     });
 
     it("rethrows non-idempotent errors", async () => {
-      const { Synapse } = await import("@filoz/synapse-sdk");
+      const { createSynapseFromConfig } = await import("../common/synapse-factory.js");
       const deletePieceMock = vi.fn().mockRejectedValue(new Error("network timeout"));
       const createContextMock = vi.fn().mockResolvedValue({
         deletePiece: deletePieceMock,
       });
-      (Synapse.create as ReturnType<typeof vi.fn>).mockReturnValue({
-        storage: {
-          createContext: createContextMock,
+      (createSynapseFromConfig as ReturnType<typeof vi.fn>).mockResolvedValue({
+        synapse: {
+          storage: {
+            createContext: createContextMock,
+          },
         },
+        isSessionKeyMode: false,
       });
 
       const deal = makeDeal({ pieceId: 42, dataSetId: 1n, spAddress: "0xProvider" });

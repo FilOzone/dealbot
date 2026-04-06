@@ -137,7 +137,7 @@ export class Deal {
   cleanedUp: boolean;
 
   @Column({ name: "cleaned_up_at", type: "timestamptz", nullable: true })
-  cleanedUpAt: Date;
+  cleanedUpAt: Date | null;
 
   @CreateDateColumn({ name: "created_at", type: "timestamptz" })
   createdAt: Date;

@@ -1,17 +1,17 @@
-import { calibration, mainnet, Synapse } from "@filoz/synapse-sdk";
+import { Synapse } from "@filoz/synapse-sdk";
+import type { StorageContext } from "@filoz/synapse-sdk/storage";
 import { Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
 import { calculateActualStorage, listDataSets } from "filecoin-pin/core/data-set";
 import { IsNull, Not, Repository } from "typeorm";
-import { privateKeyToAccount } from "viem/accounts";
 import { toStructuredError } from "../common/logging.js";
+import { createSynapseFromConfig } from "../common/synapse-factory.js";
 import type { IBlockchainConfig, IConfig } from "../config/app.config.js";
 import { Deal } from "../database/entities/deal.entity.js";
 import { DealStatus } from "../database/types.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
 
-export type StorageContext = Awaited<ReturnType<Synapse["storage"]["createContext"]>>;
 
 export interface CleanupResult {
   /** Number of pieces successfully deleted. */
@@ -48,7 +48,8 @@ export class PieceCleanupService implements OnModuleInit, OnModuleDestroy {
     }
     try {
       this.logger.log("Initializing shared Synapse instance for piece cleanup.");
-      this.sharedSynapse = this.createSynapseInstance();
+      const { synapse } = await createSynapseFromConfig(this.blockchainConfig);
+      this.sharedSynapse = synapse;
     } catch (error) {
       this.logger.error({
         event: "piece_cleanup_synapse_init_failed",
@@ -64,13 +65,10 @@ export class PieceCleanupService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  private createSynapseInstance(): Synapse {
+  private async createSynapseInstance(): Promise<Synapse> {
     try {
-      return Synapse.create({
-        account: privateKeyToAccount(this.blockchainConfig.walletPrivateKey),
-        chain: this.blockchainConfig.network === "mainnet" ? mainnet : calibration,
-        source: "dealbot",
-      });
+      const { synapse } = await createSynapseFromConfig(this.blockchainConfig);
+      return synapse;
     } catch (error) {
       this.logger.error({
         event: "synapse_init_failed",
@@ -94,8 +92,8 @@ export class PieceCleanupService implements OnModuleInit, OnModuleDestroy {
     } catch (error) {
       this.logger.warn({
         event: "piece_cleanup_live_query_failed",
-        message: `Failed to query live storage for SP ${spAddress}; falling back to DB`,
-        spAddress,
+        message: "Failed to query live storage for SP; falling back to DB",
+        providerAddress: spAddress,
         error: toStructuredError(error),
       });
       const storedBytes = await this.getStoredBytesForProvider(spAddress);
@@ -122,8 +120,8 @@ export class PieceCleanupService implements OnModuleInit, OnModuleDestroy {
     } catch (error) {
       this.logger.warn({
         event: "piece_cleanup_live_query_failed",
-        message: `Failed to query live storage for SP ${spAddress}; falling back to DB`,
-        spAddress,
+        message: "Failed to query live storage for SP; falling back to DB",
+        providerAddress: spAddress,
         error: toStructuredError(error),
       });
       storedBytes = await this.getStoredBytesForProvider(spAddress);
@@ -132,8 +130,8 @@ export class PieceCleanupService implements OnModuleInit, OnModuleDestroy {
     if (storedBytes <= thresholdBytes) {
       this.logger.debug({
         event: "piece_cleanup_below_threshold",
-        message: `SP ${spAddress}: ${this.formatBytes(storedBytes)} stored, threshold ${this.formatBytes(thresholdBytes)}; skipping cleanup`,
-        spAddress,
+        message: "Storage below threshold; skipping cleanup",
+        providerAddress: spAddress,
         storedBytes,
         thresholdBytes,
       });
@@ -143,8 +141,8 @@ export class PieceCleanupService implements OnModuleInit, OnModuleDestroy {
     const excessBytes = storedBytes - targetBytes;
     this.logger.log({
       event: "piece_cleanup_started",
-      message: `SP ${spAddress}: ${this.formatBytes(storedBytes)} stored exceeds threshold ${this.formatBytes(thresholdBytes)} by ${this.formatBytes(excessBytes)}; starting cleanup`,
-      spAddress,
+      message: "Storage exceeds threshold; starting cleanup",
+      providerAddress: spAddress,
       storedBytes,
       thresholdBytes,
       excessBytes,
@@ -154,14 +152,7 @@ export class PieceCleanupService implements OnModuleInit, OnModuleDestroy {
     let failed = 0;
     let bytesRemoved = 0;
 
-    const synapse = this.sharedSynapse ?? this.createSynapseInstance();
-    const providerId = this.walletSdkService.getProviderInfo(spAddress)?.id;
-    if (providerId === undefined) {
-      throw new Error(`Provider ID not found for SP address ${spAddress}`);
-    }
-    const storage = await synapse.storage.createContext({
-      providerId,
-    });
+    const synapse = this.sharedSynapse ?? (await this.createSynapseInstance());
 
     // Fetch candidates in batches. Keep deleting until back under quota or runtime cap.
     while (bytesRemoved < excessBytes) {
@@ -195,7 +186,7 @@ export class PieceCleanupService implements OnModuleInit, OnModuleDestroy {
         }
 
         try {
-          await this.deletePiece(deal, signal, storage);
+          await this.deletePiece(deal, signal, synapse);
           deleted++;
           batchDeletedCount++;
           bytesRemoved += Number(deal.pieceSize || 0);
@@ -254,17 +245,17 @@ export class PieceCleanupService implements OnModuleInit, OnModuleDestroy {
    * Query the provider's actual live storage via filecoin-pin.
    */
   async getLiveStoredBytesForProvider(spAddress: string, signal?: AbortSignal): Promise<number> {
-    const synapse = this.sharedSynapse ?? this.createSynapseInstance();
+    const synapse = this.sharedSynapse ?? (await this.createSynapseInstance());
 
     const datasets = await listDataSets(synapse, {
-      filter: (ds) => ds.serviceProvider === spAddress,
+      filter: (ds) => ds.serviceProvider.toLowerCase() === spAddress.toLowerCase(),
     });
 
     if (datasets.length === 0) {
       this.logger.debug({
         event: "piece_cleanup_no_live_datasets",
-        message: `SP ${spAddress}: no live datasets found on provider`,
-        spAddress,
+        message: "SP has no live datasets",
+        providerAddress: spAddress,
       });
       return 0;
     }
@@ -273,8 +264,7 @@ export class PieceCleanupService implements OnModuleInit, OnModuleDestroy {
 
     this.logger.debug({
       event: "piece_cleanup_live_storage_queried",
-      message: `SP ${spAddress}: live storage = ${this.formatBytes(Number(result.totalBytes))} across ${result.dataSetCount} datasets (${result.pieceCount} pieces)`,
-      spAddress,
+      providerAddress: spAddress,
       totalBytes: Number(result.totalBytes),
       dataSetCount: result.dataSetCount,
       pieceCount: result.pieceCount,
@@ -322,9 +312,12 @@ export class PieceCleanupService implements OnModuleInit, OnModuleDestroy {
   /**
    * Delete a single piece via Synapse SDK and mark the deal as cleaned up.
    */
-  async deletePiece(deal: Deal, signal?: AbortSignal, existingStorage?: StorageContext): Promise<void> {
+  async deletePiece(deal: Deal, signal?: AbortSignal, existingSynapse?: Synapse): Promise<void> {
     if (deal.pieceId == null) {
       throw new Error(`Deal ${deal.id} is missing pieceId`);
+    }
+    if (deal.dataSetId == null) {
+      throw new Error(`Deal ${deal.id} is missing dataSetId`);
     }
 
     signal?.throwIfAborted();
@@ -333,11 +326,11 @@ export class PieceCleanupService implements OnModuleInit, OnModuleDestroy {
     if (providerId === undefined) {
       throw new Error(`Provider ID not found for SP address ${deal.spAddress}`);
     }
-    const storage =
-      existingStorage ??
-      (await (this.sharedSynapse ?? this.createSynapseInstance()).storage.createContext({
-        providerId,
-      }));
+    const synapse = existingSynapse ?? this.sharedSynapse ?? (await this.createSynapseInstance());
+    const storage = await synapse.storage.createContext({
+      providerId,
+      dataSetId: deal.dataSetId,
+    });
 
     try {
       await storage.deletePiece({ piece: BigInt(deal.pieceId) });
