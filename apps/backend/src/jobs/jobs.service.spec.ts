@@ -45,8 +45,8 @@ describe("JobsService schedule rows", () => {
     jobsCompletedCounter: JobsServiceDeps[16];
     jobsPausedGauge: JobsServiceDeps[17];
     jobDuration: JobsServiceDeps[18];
-    storageProvidersActive: JobsServiceDeps[18];
-    storageProvidersTested: JobsServiceDeps[19];
+    storageProvidersActive: JobsServiceDeps[19];
+    storageProvidersTested: JobsServiceDeps[20];
   };
   let baseConfigValues: Partial<IConfig>;
   let configService: JobsServiceDeps[0];
@@ -71,8 +71,8 @@ describe("JobsService schedule rows", () => {
       jobsCompletedCounter: JobsServiceDeps[16];
       jobsPausedGauge: JobsServiceDeps[17];
       jobDuration: JobsServiceDeps[18];
-      storageProvidersActive: JobsServiceDeps[18];
-      storageProvidersTested: JobsServiceDeps[19];
+      storageProvidersActive: JobsServiceDeps[19];
+      storageProvidersTested: JobsServiceDeps[20];
     }>,
   ) => JobsService;
 
@@ -112,8 +112,8 @@ describe("JobsService schedule rows", () => {
       jobsCompletedCounter: { inc: vi.fn() } as unknown as JobsServiceDeps[16],
       jobsPausedGauge: { set: vi.fn() } as unknown as JobsServiceDeps[17],
       jobDuration: { observe: vi.fn() } as unknown as JobsServiceDeps[18],
-      storageProvidersActive: { set: vi.fn() } as unknown as JobsServiceDeps[18],
-      storageProvidersTested: { set: vi.fn() } as unknown as JobsServiceDeps[19],
+      storageProvidersActive: { set: vi.fn() } as unknown as JobsServiceDeps[19],
+      storageProvidersTested: { set: vi.fn() } as unknown as JobsServiceDeps[20],
     };
 
     const emptySpBlocklists: ISpBlocklistConfig = {
