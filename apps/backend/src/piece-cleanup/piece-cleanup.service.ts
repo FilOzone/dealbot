@@ -163,8 +163,8 @@ export class PieceCleanupService implements OnModuleInit, OnModuleDestroy {
       if (candidates.length === 0) {
         this.logger.warn({
           event: "piece_cleanup_no_candidates",
-          message: `SP ${spAddress}: above threshold but no more cleanup candidates found`,
-          spAddress,
+          message: "Above threshold but no more cleanup candidates found",
+          providerAddress: spAddress,
         });
         break;
       }
@@ -177,8 +177,8 @@ export class PieceCleanupService implements OnModuleInit, OnModuleDestroy {
         if (bytesRemoved >= excessBytes) {
           this.logger.debug({
             event: "piece_cleanup_excess_cleared",
-            message: `SP ${spAddress}: removed ${this.formatBytes(bytesRemoved)} which clears the excess; stopping`,
-            spAddress,
+            message: "Excess cleared; stopping",
+            providerAddress: spAddress,
             bytesRemoved,
             excessBytes,
           });
@@ -192,8 +192,8 @@ export class PieceCleanupService implements OnModuleInit, OnModuleDestroy {
           bytesRemoved += Number(deal.pieceSize || 0);
           this.logger.log({
             event: "piece_cleanup_piece_deleted",
-            message: `Deleted piece ${deal.pieceId} (pieceCid: ${deal.pieceCid}) from SP ${spAddress}`,
-            spAddress,
+            message: "Piece deleted",
+            providerAddress: spAddress,
             dealId: deal.id,
             pieceId: deal.pieceId,
             pieceCid: deal.pieceCid,
@@ -204,8 +204,8 @@ export class PieceCleanupService implements OnModuleInit, OnModuleDestroy {
           failed++;
           this.logger.error({
             event: "piece_cleanup_piece_delete_failed",
-            message: `Failed to delete piece ${deal.pieceId} from SP ${spAddress}`,
-            spAddress,
+            message: "Failed to delete piece",
+            providerAddress: spAddress,
             dealId: deal.id,
             pieceId: deal.pieceId,
             pieceCid: deal.pieceCid,
@@ -219,8 +219,8 @@ export class PieceCleanupService implements OnModuleInit, OnModuleDestroy {
       if (batchDeletedCount === 0) {
         this.logger.warn({
           event: "piece_cleanup_no_progress",
-          message: `SP ${spAddress}: no pieces were deleted in the last batch; stopping to avoid infinite loop`,
-          spAddress,
+          message: "No pieces deleted in last batch; stopping to avoid infinite loop",
+          providerAddress: spAddress,
           failed,
         });
         break;
@@ -229,8 +229,8 @@ export class PieceCleanupService implements OnModuleInit, OnModuleDestroy {
 
     this.logger.log({
       event: "piece_cleanup_completed",
-      message: `SP ${spAddress}: cleanup completed — ${deleted} deleted, ${failed} failed, ${this.formatBytes(bytesRemoved)} freed`,
-      spAddress,
+      message: "Cleanup completed",
+      providerAddress: spAddress,
       deleted,
       failed,
       bytesRemoved,
@@ -344,10 +344,10 @@ export class PieceCleanupService implements OnModuleInit, OnModuleDestroy {
       if (isAlreadyDeleted) {
         this.logger.debug({
           event: "piece_cleanup_already_deleted",
-          message: `Piece ${deal.pieceId} on SP ${deal.spAddress} already deleted; treating as success`,
+          message: "Piece already deleted; treating as success",
           dealId: deal.id,
           pieceId: deal.pieceId,
-          spAddress: deal.spAddress,
+          providerAddress: deal.spAddress,
         });
       } else {
         throw error;
