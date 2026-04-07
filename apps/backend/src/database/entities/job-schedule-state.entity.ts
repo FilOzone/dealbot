@@ -1,13 +1,6 @@
 import { Column, CreateDateColumn, Entity, Index, PrimaryGeneratedColumn, UpdateDateColumn } from "typeorm";
 
-export type JobType =
-  | "deal"
-  | "retrieval"
-  | "data_set_creation"
-  | "metrics"
-  | "metrics_cleanup"
-  | "providers_refresh"
-  | "data_retention_poll";
+export type JobType = "deal" | "retrieval" | "data_set_creation" | "providers_refresh" | "data_retention_poll";
 
 @Entity("job_schedule_state")
 @Index("job_schedule_state_job_type_sp_unique", ["jobType", "spAddress"], { unique: true })

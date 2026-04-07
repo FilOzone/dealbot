@@ -281,44 +281,6 @@ export class MetricsSchedulerService {
   }
 
   /**
-   * Cleanup old metrics data
-   * Archives or deletes metrics older than retention period (default: 90 days)
-   */
-  async cleanupOldMetrics({ allowWhenPgBoss = false }: { allowWhenPgBoss?: boolean } = {}): Promise<void> {
-    if (!allowWhenPgBoss) {
-      return;
-    }
-    const startTime = Date.now();
-    const retentionDays = 90;
-    const cutoffDate = new Date();
-    cutoffDate.setDate(cutoffDate.getDate() - retentionDays);
-
-    this.logger.log(`Starting cleanup of metrics older than ${cutoffDate.toISOString()}`);
-
-    try {
-      // Delete old daily metrics
-      const result = await this.dataSource.query(
-        `
-        DELETE FROM metrics_daily
-        WHERE daily_bucket < $1::date
-        RETURNING daily_bucket
-        `,
-        [cutoffDate],
-      );
-
-      const duration = Date.now() - startTime;
-      this.logger.log(`Successfully cleaned up ${result.length} old daily metrics records in ${duration}ms`);
-    } catch (error) {
-      this.logger.error({
-        event: "cleanup_old_metrics_failed",
-        message: "Failed to cleanup old metrics",
-        error: toStructuredError(error),
-      });
-      throw error;
-    }
-  }
-
-  /**
    * Manual refresh of all materialized views
    * Useful for testing or emergency updates
    */

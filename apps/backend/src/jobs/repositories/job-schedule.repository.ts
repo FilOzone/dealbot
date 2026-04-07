@@ -7,8 +7,6 @@ import {
   DATA_RETENTION_POLL_QUEUE,
   LEGACY_DEAL_QUEUE,
   LEGACY_RETRIEVAL_QUEUE,
-  METRICS_CLEANUP_QUEUE,
-  METRICS_QUEUE,
   PROVIDERS_REFRESH_QUEUE,
   SP_WORK_QUEUE,
 } from "../job-queues.js";
@@ -211,12 +209,10 @@ export class JobScheduleRepository {
       SELECT
         CASE
           WHEN name = $2 THEN COALESCE(data->>'jobType', 'unknown')
-          WHEN name = $3 THEN 'metrics'
-          WHEN name = $4 THEN 'metrics_cleanup'
-          WHEN name = $5 THEN 'deal'
-          WHEN name = $6 THEN 'retrieval'
-          WHEN name = $7 THEN 'data_retention_poll'
-          WHEN name = $8 THEN 'providers_refresh'
+          WHEN name = $3 THEN 'deal'
+          WHEN name = $4 THEN 'retrieval'
+          WHEN name = $5 THEN 'data_retention_poll'
+          WHEN name = $6 THEN 'providers_refresh'
           ELSE name
         END AS job_type,
         state::text AS state,
@@ -228,8 +224,6 @@ export class JobScheduleRepository {
       [
         states,
         SP_WORK_QUEUE,
-        METRICS_QUEUE,
-        METRICS_CLEANUP_QUEUE,
         LEGACY_DEAL_QUEUE,
         LEGACY_RETRIEVAL_QUEUE,
         DATA_RETENTION_POLL_QUEUE,
@@ -251,12 +245,10 @@ export class JobScheduleRepository {
       SELECT
         CASE
           WHEN name = $3 THEN COALESCE(data->>'jobType', 'unknown')
-          WHEN name = $4 THEN 'metrics'
-          WHEN name = $5 THEN 'metrics_cleanup'
-          WHEN name = $6 THEN 'deal'
-          WHEN name = $7 THEN 'retrieval'
-          WHEN name = $8 THEN 'data_retention_poll'
-          WHEN name = $9 THEN 'providers_refresh'
+          WHEN name = $4 THEN 'deal'
+          WHEN name = $5 THEN 'retrieval'
+          WHEN name = $6 THEN 'data_retention_poll'
+          WHEN name = $7 THEN 'providers_refresh'
           ELSE name
         END AS job_type,
         MIN(
@@ -277,8 +269,6 @@ export class JobScheduleRepository {
         now,
         state,
         SP_WORK_QUEUE,
-        METRICS_QUEUE,
-        METRICS_CLEANUP_QUEUE,
         LEGACY_DEAL_QUEUE,
         LEGACY_RETRIEVAL_QUEUE,
         DATA_RETENTION_POLL_QUEUE,
