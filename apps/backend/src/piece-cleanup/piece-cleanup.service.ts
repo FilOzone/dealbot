@@ -78,15 +78,15 @@ export class PieceCleanupService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Check whether a provider is over the configured storage quota.
-   * Uses live data from the provider with DB fallback.
-   * Used by the deal handler to gate new deal creation.
+   * Shared quota check: queries live storage (with DB fallback) and compares to threshold.
    */
-  async isProviderOverQuota(spAddress: string): Promise<boolean> {
+  private async checkProviderQuota(
+    spAddress: string,
+  ): Promise<{ isOverQuota: boolean; storedBytes: number; thresholdBytes: number }> {
     const thresholdBytes = this.configService.get("pieceCleanup").maxDatasetStorageSizeBytes;
+    let storedBytes: number;
     try {
-      const liveBytes = await this.getLiveStoredBytesForProvider(spAddress);
-      return liveBytes > thresholdBytes;
+      storedBytes = await this.getLiveStoredBytesForProvider(spAddress);
     } catch (error) {
       this.logger.warn({
         event: "piece_cleanup_live_query_failed",
@@ -94,9 +94,19 @@ export class PieceCleanupService implements OnModuleInit, OnModuleDestroy {
         providerAddress: spAddress,
         error: toStructuredError(error),
       });
-      const storedBytes = await this.getStoredBytesForProvider(spAddress);
-      return storedBytes > thresholdBytes;
+      storedBytes = await this.getStoredBytesForProvider(spAddress);
     }
+    return { isOverQuota: storedBytes > thresholdBytes, storedBytes, thresholdBytes };
+  }
+
+  /**
+   * Check whether a provider is over the configured storage quota.
+   * Uses live data from the provider with DB fallback.
+   * Used by the deal handler to gate new deal creation.
+   */
+  async isProviderOverQuota(spAddress: string): Promise<boolean> {
+    const { isOverQuota } = await this.checkProviderQuota(spAddress);
+    return isOverQuota;
   }
 
   /**
@@ -112,20 +122,9 @@ export class PieceCleanupService implements OnModuleInit, OnModuleDestroy {
     const { maxDatasetStorageSizeBytes: thresholdBytes, targetDatasetStorageSizeBytes: targetBytes } =
       this.configService.get("pieceCleanup");
 
-    let storedBytes: number;
-    try {
-      storedBytes = await this.getLiveStoredBytesForProvider(spAddress);
-    } catch (error) {
-      this.logger.warn({
-        event: "piece_cleanup_live_query_failed",
-        message: "Failed to query live storage for SP; falling back to DB",
-        providerAddress: spAddress,
-        error: toStructuredError(error),
-      });
-      storedBytes = await this.getStoredBytesForProvider(spAddress);
-    }
+    const { storedBytes, isOverQuota } = await this.checkProviderQuota(spAddress);
 
-    if (storedBytes <= thresholdBytes) {
+    if (!isOverQuota) {
       this.logger.debug({
         event: "piece_cleanup_below_threshold",
         message: "Storage below threshold; skipping cleanup",
@@ -277,10 +276,12 @@ export class PieceCleanupService implements OnModuleInit, OnModuleDestroy {
    * Only counts completed deals that have not already been cleaned up.
    */
   async getStoredBytesForProvider(spAddress: string): Promise<number> {
+    const walletAddress = this.blockchainConfig.walletAddress;
     const result = await this.dealRepository
       .createQueryBuilder("deal")
       .select("COALESCE(SUM(deal.piece_size), 0)", "totalBytes")
       .where("deal.sp_address = :spAddress", { spAddress })
+      .andWhere("deal.wallet_address = :walletAddress", { walletAddress })
       .andWhere("deal.status = :status", { status: DealStatus.DEAL_CREATED })
       .andWhere("deal.piece_id IS NOT NULL")
       .andWhere("deal.data_set_id IS NOT NULL")
@@ -294,9 +295,11 @@ export class PieceCleanupService implements OnModuleInit, OnModuleDestroy {
    * Get the oldest completed deals (candidates for cleanup).
    */
   async getCleanupCandidates(spAddress: string, limit: number): Promise<Deal[]> {
+    const walletAddress = this.blockchainConfig.walletAddress;
     return this.dealRepository.find({
       where: {
         spAddress,
+        walletAddress,
         status: DealStatus.DEAL_CREATED,
         pieceId: Not(IsNull()),
         dataSetId: Not(IsNull()),
