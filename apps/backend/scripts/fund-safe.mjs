@@ -3,7 +3,7 @@
  * and approving FWSS as an operator.
  *
  * Usage:
- *   node scripts/fund-safe.mjs --network mainnet|calibration --amount 50 --wallet-address 0x...
+ *   node scripts/fund-safe.mjs --network mainnet|calibration --amount 50 --wallet-address 0x... [--output batch.json]
  *
  * Outputs a 3-transaction batch for the Safe Transaction Builder:
  *   1. USDFC.approve(FilecoinPay, amount)
@@ -14,8 +14,9 @@
  * Filecoin Pay balance). Transfer USDFC to the multisig first if needed.
  */
 
+import { writeFileSync } from "node:fs";
 import { calibration, mainnet } from "@filoz/synapse-core/chains";
-import { encodeFunctionData, parseUnits } from "viem";
+import { encodeFunctionData, keccak256, parseUnits, stringToBytes } from "viem";
 
 const args = process.argv.slice(2);
 function getArg(name) {
@@ -26,6 +27,7 @@ function getArg(name) {
 const networkName = getArg("--network") || "calibration";
 const amountStr = getArg("--amount");
 const walletAddress = getArg("--wallet-address");
+const outputFile = getArg("--output");
 
 if (!amountStr) {
   console.error("--amount is required (e.g. --amount 50 for 50 USDFC)");
@@ -76,6 +78,44 @@ const approveOperatorCalldata = encodeFunctionData({
   args: [usdfcAddress, fwssAddress, true, maxUint256, maxUint256, maxUint256],
 });
 
+const batch = {
+  version: "1.0",
+  chainId: String(chain.id),
+  createdAt: Date.now(),
+  meta: {
+    name: "Transactions Batch",
+    description: "",
+    txBuilderVersion: "1.16.5",
+    createdFromSafeAddress: walletAddress,
+    createdFromOwnerAddress: "",
+  },
+  transactions: [
+    {
+      to: usdfcAddress,
+      value: "0",
+      data: approveCalldata,
+      contractMethod: null,
+      contractInputsValues: null,
+    },
+    {
+      to: filecoinPayAddress,
+      value: "0",
+      data: depositCalldata,
+      contractMethod: null,
+      contractInputsValues: null,
+    },
+    {
+      to: filecoinPayAddress,
+      value: "0",
+      data: approveOperatorCalldata,
+      contractMethod: null,
+      contractInputsValues: null,
+    },
+  ],
+};
+
+batch.meta.checksum = keccak256(stringToBytes(JSON.stringify(batch)));
+
 console.log("=== Payment Setup for Safe Multisig ===");
 console.log();
 console.log(`Network:      ${networkName} (chain ${chain.id})`);
@@ -100,10 +140,21 @@ console.log(`Target: ${filecoinPayAddress}`);
 console.log(`Value:  0`);
 console.log(`Data:   ${approveOperatorCalldata}`);
 console.log();
+console.log("--- Safe Transaction Builder JSON ---");
+if (outputFile) {
+  writeFileSync(outputFile, JSON.stringify(batch, null, 3));
+  console.log(`Saved to ${outputFile} — drag-and-drop into the Safe Transaction Builder.`);
+} else {
+  console.log("Save the following to a .json file and drag-and-drop into the Safe Transaction Builder.");
+  console.log("Tip: use --output batch.json to write directly to a file and avoid copy-paste issues.");
+  console.log();
+  console.log(JSON.stringify(batch, null, 3));
+}
+console.log();
 console.log("--- Safe UI Steps ---");
 console.log("1. Go to safe.filecoin.io and open the multisig");
 console.log("2. New Transaction > Transaction Builder");
-console.log("3. Add all 3 transactions above (target + calldata for each)");
+console.log("3. Drag-and-drop the JSON file into the Transaction Builder (or create the transactions manually)");
 console.log("4. Send Batch, review, sign, and collect required signatures");
 console.log();
 console.log("Note: The multisig must hold USDFC tokens before executing.");
