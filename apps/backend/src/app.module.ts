@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 import { ConfigModule } from "@nestjs/config";
 import { AppController } from "./app.controller.js";
+import { ClickhouseModule } from "./clickhouse/clickhouse.module.js";
 import { configValidationSchema, loadConfig } from "./config/app.config.js";
 import { DatabaseModule } from "./database/database.module.js";
 import { DataSourceModule } from "./dataSource/dataSource.module.js";
@@ -21,6 +22,7 @@ import { RetrievalModule } from "./retrieval/retrieval.module.js";
     }),
     DatabaseModule,
     MetricsPrometheusModule,
+    ClickhouseModule,
     JobsModule,
     DealModule,
     RetrievalModule,

@@ -99,6 +99,13 @@ export const configValidationSchema = Joi.object({
   DEALBOT_LOCAL_DATASETS_PATH: Joi.string().default(DEFAULT_LOCAL_DATASETS_PATH),
   RANDOM_PIECE_SIZES: Joi.string().default("10485760"), // 10 MiB
 
+  // ClickHouse
+  CLICKHOUSE_URL: Joi.string().uri().optional(),
+  CLICKHOUSE_DATABASE: Joi.string().default("dealbot"),
+  CLICKHOUSE_BATCH_SIZE: Joi.number().integer().min(1).default(500),
+  CLICKHOUSE_FLUSH_INTERVAL_MS: Joi.number().integer().min(100).default(5000),
+  DEALBOT_PROBE_LOCATION: Joi.string().default("unknown"),
+
   // Timeouts (in milliseconds)
   CONNECT_TIMEOUT_MS: Joi.number().min(1000).default(10000), // 10 seconds to establish connection/receive headers
   HTTP_REQUEST_TIMEOUT_MS: Joi.number().min(1000).default(240000), // 4 minutes total for HTTP requests (10MiB @ 170KB/s + overhead)
