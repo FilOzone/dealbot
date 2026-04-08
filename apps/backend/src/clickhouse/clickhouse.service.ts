@@ -3,6 +3,7 @@ import { createClient, type ClickHouseClient } from "@clickhouse/client";
 import { InjectMetric } from "@willsoto/nestjs-prometheus";
 import { Counter, Gauge, Histogram } from "prom-client";
 import { loadClickhouseConfig, type IClickhouseConfig } from "./clickhouse.config.js";
+import { buildMigrations } from "./clickhouse.schema.js";
 
 interface BufferedRow {
   table: string;
@@ -26,7 +27,7 @@ export class ClickhouseService implements OnModuleInit, OnApplicationShutdown {
     this.config = loadClickhouseConfig();
   }
 
-  onModuleInit() {
+  async onModuleInit() {
     if (!this.config.url) {
       this.logger.log("CLICKHOUSE_URL not set, writes to ClickHouse disabled");
       return;
@@ -34,8 +35,10 @@ export class ClickhouseService implements OnModuleInit, OnApplicationShutdown {
 
     this.client = createClient({
       url: this.config.url,
-      database: this.config.database,
     });
+
+    const parsedUrl = new URL(this.config.url!);
+    await this.migrate(parsedUrl.pathname.replace(/^\//, ""));
 
     this.flushTimer = setInterval(() => {
       this.flush().catch((err) => {
@@ -45,12 +48,20 @@ export class ClickhouseService implements OnModuleInit, OnApplicationShutdown {
 
     this.logger.log({
       event: "clickhouse_initialized",
-      url: this.config.url,
-      database: this.config.database,
+      host: parsedUrl.host,
+      database: parsedUrl.pathname.replace(/^\//, ""),
       batchSize: this.config.batchSize,
       flushIntervalMs: this.config.flushIntervalMs,
       probeLocation: this.config.probeLocation,
     });
+  }
+
+  private async migrate(database: string): Promise<void> {
+    const migrations = buildMigrations(database);
+    for (const sql of migrations) {
+      await this.client!.command({ query: sql });
+    }
+    this.logger.log({ event: "clickhouse_migrated", database });
   }
 
   async onApplicationShutdown() {

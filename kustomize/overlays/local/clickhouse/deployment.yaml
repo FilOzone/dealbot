@@ -50,7 +50,12 @@ spec:
           volumeMounts:
             - name: clickhouse-storage
               mountPath: /var/lib/clickhouse
+            - name: initdb
+              mountPath: /docker-entrypoint-initdb.d
       volumes:
         - name: clickhouse-storage
           persistentVolumeClaim:
             claimName: dealbot-clickhouse
+        - name: initdb
+          configMap:
+            name: dealbot-clickhouse-initdb

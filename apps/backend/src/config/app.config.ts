@@ -101,7 +101,6 @@ export const configValidationSchema = Joi.object({
 
   // ClickHouse
   CLICKHOUSE_URL: Joi.string().uri().optional(),
-  CLICKHOUSE_DATABASE: Joi.string().default("dealbot"),
   CLICKHOUSE_BATCH_SIZE: Joi.number().integer().min(1).default(500),
   CLICKHOUSE_FLUSH_INTERVAL_MS: Joi.number().integer().min(100).default(5000),
   DEALBOT_PROBE_LOCATION: Joi.string().default("unknown"),
