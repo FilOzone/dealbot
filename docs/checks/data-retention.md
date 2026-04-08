@@ -13,7 +13,7 @@ The Data Retention check monitors storage providers' ability to retain data over
 Every data retention check cycle, dealbot:
 
 1. Queries the [PDP subgraph](https://docs.filecoin.io/smart-contracts/advanced/proof-of-data-possession) for provider-level challenge statistics
-2. Computes confirmed successful proving periods from the subgraph totals
+2. Computes confirmed successful proving periods from the subgraph totals with estimated overdue periods for real-time monitoring
 3. Calculates deltas since the last poll
 4. Records metrics to track provider reliability over time
 
@@ -40,18 +40,31 @@ From `GET_PROVIDERS_WITH_DATASETS` query for each provider:
 - `address` - Provider address
 - `totalFaultedPeriods` - Cumulative count of faulted proving periods across all data sets (maintained by the subgraph's `NextProvingPeriod` event handler)
 - `totalProvingPeriods` - Cumulative count of all proving periods (successful + faulted) across all data sets
+- `proofSets` - Array of proof sets where `nextDeadline < currentBlock` (overdue deadlines), each containing:
+  - `nextDeadline` - Next deadline block number
+  - `maxProvingPeriod` - Maximum proving period duration
+
+> **Note**: The subgraph query uses the field name `proofSets`, but this refers to "dataSets" in the current codebase. The terminology was updated from "proof set" to "data set" but the subgraph schema retains the old naming.
 
 Source: [`pdp-subgraph.service.ts` (`fetchSubgraphMeta`, `fetchProvidersWithDatasets`)](../../apps/backend/src/pdp-subgraph/pdp-subgraph.service.ts)
 
-### 2. Compute Challenge Totals
+### 2. Compute Challenge Totals and Overdue Estimates
 
-Dealbot uses the subgraph-confirmed totals directly:
+Dealbot uses the subgraph-confirmed totals directly for cumulative counters:
 
 ```
 confirmedTotalSuccess = totalProvingPeriods - totalFaultedPeriods
 ```
 
-> **Note:** An earlier implementation estimated overdue periods (periods elapsed since the last recorded deadline) and pessimistically counted them as faults. This was removed because the speculative estimation systematically inflated fault rates — overdue periods were counted as faults immediately, but when the subgraph later confirmed them as successes, the correction was discarded by the negative-delta guard.
+Additionally, dealbot calculates **estimated overdue periods** for real-time monitoring via a separate gauge metric. For each proof set where the deadline has passed (`nextDeadline < currentBlock`):
+
+```
+estimatedOverduePeriods = (currentBlock - (nextDeadline + 1)) / maxProvingPeriod
+```
+
+This gauge provides immediate visibility into providers that are behind on submitting proofs, even before the subgraph confirms the faults. The gauge naturally resets to 0 when providers submit their proofs and the subgraph catches up.
+
+**Key distinction**: The overdue gauge is independent of the cumulative counter baselines. It reflects the current state on every poll, while counters track confirmed changes over time.
 
 ### 3. Calculate Deltas
 
@@ -108,8 +121,9 @@ To prevent unbounded memory growth, dealbot periodically removes baseline data f
 1. Identify providers in the baseline map but not in the current active list
 2. Fetch provider info from the database
 3. Remove Prometheus counter metrics for both success and fault labels
-4. Delete baseline entry from memory **only if** counter removal succeeds
-5. Delete baseline entry from database (non-blocking, logged on failure)
+4. Remove Prometheus gauge metric for overdue periods
+5. Delete baseline entry from memory **only if** metric removal succeeds
+6. Delete baseline entry from database (non-blocking, logged on failure)
 
 **Critical safeguard**: Baselines are retained if:
 
@@ -154,6 +168,8 @@ Source: [`pdp-subgraph.service.ts` (`enforceRateLimit`)](../../apps/backend/src/
 
 ## Metrics Recorded
 
+### Counter: `dataSetChallengeStatus`
+
 See [`dataSetChallengeStatus`](./events-and-metrics.md#dataSetChallengeStatus) for more info.
 
 **Increment behavior**:
@@ -161,6 +177,17 @@ See [`dataSetChallengeStatus`](./events-and-metrics.md#dataSetChallengeStatus) f
 - Only increments when positive deltas are detected
 - Increments by the delta amount (not always 1)
 - Handles large values (>MAX_SAFE_INTEGER) via chunked increments
+
+### Gauge: `pdp_provider_overdue_periods`
+
+See [`pdp_provider_overdue_periods`](./events-and-metrics.md#pdp_provider_overdue_periods) for more info.
+
+**Emission behavior**:
+
+- Emitted on every poll, independent of counter deltas
+- Reflects estimated unrecorded overdue proving periods in real-time
+- Naturally resets to 0 when providers submit proofs and the subgraph catches up
+- Handles large values (>MAX_SAFE_INTEGER) via chunked `.inc()` calls
 
 ## Configuration
 
@@ -212,7 +239,8 @@ flowchart TD
     BatchLoop --> FetchData[Fetch Provider Totals from Subgraph]
     FetchData --> ProcessParallel[Process Providers in Parallel]
     ProcessParallel --> CalcTotals[Compute Success from Confirmed Totals]
-    CalcTotals --> CheckBaseline{Has Prior<br/>Baseline?}
+    CalcTotals --> EmitGauge[Emit Overdue Periods Gauge]
+    EmitGauge --> CheckBaseline{Has Prior<br/>Baseline?}
     CheckBaseline -->|No| InitBaseline[Initialize Baseline. No Metric Emission]
     InitBaseline --> PersistBaseline
     CheckBaseline -->|Yes| CalcDeltas[Calculate Deltas from Baseline]

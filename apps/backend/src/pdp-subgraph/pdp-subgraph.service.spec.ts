@@ -14,6 +14,14 @@ const makeValidProvider = (overrides: Record<string, unknown> = {}) => ({
   address: VALID_ADDRESS,
   totalFaultedPeriods: "10",
   totalProvingPeriods: "100",
+  proofSets: [
+    {
+      totalFaultedPeriods: "2",
+      currentDeadlineCount: "5",
+      nextDeadline: "1000",
+      maxProvingPeriod: "100",
+    },
+  ],
   ...overrides,
 });
 
@@ -62,6 +70,7 @@ describe("PDPSubgraphService", () => {
       });
 
       const providers = await service.fetchProvidersWithDatasets({
+        blockNumber: 5000,
         addresses: [VALID_ADDRESS],
       });
 
@@ -75,6 +84,7 @@ describe("PDPSubgraphService", () => {
       expect(providers[0].address).toBe(VALID_ADDRESS);
       expect(providers[0].totalFaultedPeriods).toBe(10n);
       expect(providers[0].totalProvingPeriods).toBe(100n);
+      expect(providers[0].proofSets[0].maxProvingPeriod).toBe(100n);
     });
 
     it("returns empty array when no providers exist", async () => {
@@ -84,6 +94,7 @@ describe("PDPSubgraphService", () => {
       });
 
       const providers = await service.fetchProvidersWithDatasets({
+        blockNumber: 5000,
         addresses: [VALID_ADDRESS],
       });
       expect(providers).toEqual([]);
@@ -91,6 +102,7 @@ describe("PDPSubgraphService", () => {
 
     it("returns empty array when addresses array is empty", async () => {
       const providers = await service.fetchProvidersWithDatasets({
+        blockNumber: 5000,
         addresses: [],
       });
 
@@ -105,6 +117,7 @@ describe("PDPSubgraphService", () => {
       });
 
       const promise = service.fetchProvidersWithDatasets({
+        blockNumber: 5000,
         addresses: [VALID_ADDRESS],
       });
 
@@ -127,6 +140,7 @@ describe("PDPSubgraphService", () => {
       });
 
       const promise = service.fetchProvidersWithDatasets({
+        blockNumber: 5000,
         addresses: [VALID_ADDRESS],
       });
       promise.catch(() => {});
@@ -142,6 +156,7 @@ describe("PDPSubgraphService", () => {
       fetchMock.mockRejectedValueOnce(new Error("Network error"));
 
       const promise = service.fetchProvidersWithDatasets({
+        blockNumber: 5000,
         addresses: [VALID_ADDRESS],
       });
       promise.catch(() => {});
@@ -163,6 +178,7 @@ describe("PDPSubgraphService", () => {
 
       await expect(
         service.fetchProvidersWithDatasets({
+          blockNumber: 5000,
           addresses: [VALID_ADDRESS],
         }),
       ).rejects.toThrow("Data validation failed");
@@ -181,12 +197,28 @@ describe("PDPSubgraphService", () => {
 
       await expect(
         service.fetchProvidersWithDatasets({
+          blockNumber: 5000,
           addresses: [VALID_ADDRESS],
         }),
       ).rejects.toThrow("Data validation failed");
 
       // Should only be called once - no retries for validation errors
       expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("sends blockNumber as string in the GraphQL variables", async () => {
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        json: async () => makeSubgraphResponse([makeValidProvider()]),
+      });
+
+      await service.fetchProvidersWithDatasets({
+        blockNumber: 12345,
+        addresses: [VALID_ADDRESS],
+      });
+
+      const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+      expect(body.variables.blockNumber).toBe("12345");
     });
 
     it("retries network errors but not validation errors", async () => {
@@ -202,6 +234,7 @@ describe("PDPSubgraphService", () => {
       });
 
       const promise = service.fetchProvidersWithDatasets({
+        blockNumber: 5000,
         addresses: [VALID_ADDRESS],
       });
       promise.catch(() => {});
@@ -223,6 +256,7 @@ describe("PDPSubgraphService", () => {
 
       const addresses = [VALID_ADDRESS, "0xAb5801a7D398351b8bE11C439e05C5B3259aeC9B"];
       await service.fetchProvidersWithDatasets({
+        blockNumber: 5000,
         addresses,
       });
 
@@ -240,6 +274,7 @@ describe("PDPSubgraphService", () => {
       });
 
       await service.fetchProvidersWithDatasets({
+        blockNumber: 5000,
         addresses,
       });
 
@@ -255,6 +290,7 @@ describe("PDPSubgraphService", () => {
       });
 
       const promise = service.fetchProvidersWithDatasets({
+        blockNumber: 5000,
         addresses: [VALID_ADDRESS],
       });
 
@@ -286,6 +322,7 @@ describe("PDPSubgraphService", () => {
       });
 
       const fetchPromise = service.fetchProvidersWithDatasets({
+        blockNumber: 5000,
         addresses,
       });
 
