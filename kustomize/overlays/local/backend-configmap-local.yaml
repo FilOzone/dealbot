@@ -29,3 +29,6 @@ data:
   RANDOM_PIECE_SIZES: "10485760"
   PDP_SUBGRAPH_ENDPOINT: "https://api.goldsky.com/api/public/project_cmdfaaxeuz6us01u359yjdctw/subgraphs/pdp-explorer/calibration311a/gn"
   JOB_SCHEDULER_POLL_SECONDS: "60"
+  CLICKHOUSE_URL: "http://default:@dealbot-clickhouse:8123/dealbot"
+  CLICKHOUSE_DATABASE: "dealbot"
+  DEALBOT_PROBE_LOCATION: "local"
