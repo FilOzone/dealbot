@@ -168,7 +168,7 @@ export class FailedDealsService {
       updatedAt: deal.updatedAt,
       uploadStartTime: deal.uploadStartTime || undefined,
       uploadEndTime: deal.uploadEndTime || undefined,
-      pieceAddedTime: deal.pieceAddedTime || undefined,
+      piecesAddedTime: deal.piecesAddedTime || undefined,
       dealConfirmedTime: deal.dealConfirmedTime || undefined,
       storageProvider: deal.storageProvider || undefined,
     }));

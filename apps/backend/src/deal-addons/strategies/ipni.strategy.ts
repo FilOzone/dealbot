@@ -14,8 +14,8 @@ import type { DealMetadata, IpniMetadata } from "../../database/types.js";
 import { IpniStatus, ServiceType } from "../../database/types.js";
 import { HttpClientService } from "../../http-client/http-client.service.js";
 import { IpniVerificationService } from "../../ipni/ipni-verification.service.js";
-import { classifyFailureStatus } from "../../metrics/utils/check-metric-labels.js";
-import { DiscoverabilityCheckMetrics } from "../../metrics/utils/check-metrics.service.js";
+import { classifyFailureStatus } from "../../metrics-prometheus/check-metric-labels.js";
+import { DiscoverabilityCheckMetrics } from "../../metrics-prometheus/check-metrics.service.js";
 
 import type { IDealAddon } from "../interfaces/deal-addon.interface.js";
 import type { AddonExecutionContext, DealConfiguration, IpniPreprocessingResult, SynapseConfig } from "../types.js";
@@ -123,7 +123,7 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
    * Handler triggered when upload is complete
    * Runs IPNI tracking and verification before continuing
    */
-  async onUploadComplete(deal: Deal, signal?: AbortSignal, logContext?: Partial<DealLogContext>): Promise<void> {
+  async onStored(deal: Deal, signal?: AbortSignal, logContext?: Partial<DealLogContext>): Promise<void> {
     if (!deal.storageProvider) {
       this.logger.warn({
         ...logContext,
@@ -274,7 +274,7 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
         this.discoverabilityMetrics.recordStatus(this.discoverabilityMetrics.buildLabelsForDeal(deal), failureStatus);
       }
 
-      // Re-throw to be caught by onUploadComplete handler
+      // Re-throw to be caught by onStored handler
       throw error;
     }
   }

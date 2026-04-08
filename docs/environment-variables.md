@@ -8,12 +8,13 @@ This document provides a comprehensive guide to all environment variables used b
 | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | [Application](#application-configuration) | `NODE_ENV`, `DEALBOT_PORT`, `DEALBOT_HOST`, `DEALBOT_RUN_MODE`, `DEALBOT_METRICS_PORT`, `DEALBOT_METRICS_HOST`, `DEALBOT_ALLOWED_ORIGINS`, `ENABLE_DEV_MODE` |
 | [Database](#database-configuration)       | `DATABASE_HOST`, `DATABASE_PORT`, `DATABASE_POOL_MAX`, `DATABASE_USER`, `DATABASE_PASSWORD`, `DATABASE_NAME`                                                 |
-| [Blockchain](#blockchain-configuration)   | `NETWORK`, `WALLET_ADDRESS`, `WALLET_PRIVATE_KEY`, `CHECK_DATASET_CREATION_FEES`, `USE_ONLY_APPROVED_PROVIDERS`, `PDP_SUBGRAPH_ENDPOINT` |
+| [Blockchain](#blockchain-configuration)   | `NETWORK`, `RPC_URL`, `WALLET_ADDRESS`, `WALLET_PRIVATE_KEY`, `SESSION_KEY_PRIVATE_KEY`, `CHECK_DATASET_CREATION_FEES`, `USE_ONLY_APPROVED_PROVIDERS`, `PDP_SUBGRAPH_ENDPOINT` |
 | [Dataset Versioning](#dataset-versioning) | `DEALBOT_DATASET_VERSION`                                                                                                                                    |
 | [Scheduling](#scheduling-configuration)   | `PROVIDERS_REFRESH_INTERVAL_SECONDS`, `DATA_RETENTION_POLL_INTERVAL_SECONDS`, `DEALBOT_MAINTENANCE_WINDOWS_UTC`, `DEALBOT_MAINTENANCE_WINDOW_MINUTES`                                                                                                                                 |
 | [Jobs (pg-boss)](#jobs-pg-boss)           | `DEALBOT_PGBOSS_SCHEDULER_ENABLED`, `DEALBOT_PGBOSS_POOL_MAX`, `DEALS_PER_SP_PER_HOUR`, `DATASET_CREATIONS_PER_SP_PER_HOUR`, `RETRIEVALS_PER_SP_PER_HOUR`, `METRICS_PER_HOUR`, `JOB_SCHEDULER_POLL_SECONDS`, `JOB_WORKER_POLL_SECONDS`, `PG_BOSS_LOCAL_CONCURRENCY`, `JOB_CATCHUP_MAX_ENQUEUE`, `JOB_SCHEDULE_PHASE_SECONDS`, `JOB_ENQUEUE_JITTER_SECONDS`, `DEAL_JOB_TIMEOUT_SECONDS`, `RETRIEVAL_JOB_TIMEOUT_SECONDS`, `IPFS_BLOCK_FETCH_CONCURRENCY` |
 | [Dataset](#dataset-configuration)         | `DEALBOT_LOCAL_DATASETS_PATH`, `RANDOM_PIECE_SIZES`                                                                                                          |
 | [Timeouts](#timeout-configuration)        | `CONNECT_TIMEOUT_MS`, `HTTP_REQUEST_TIMEOUT_MS`, `HTTP2_REQUEST_TIMEOUT_MS`, `IPNI_VERIFICATION_TIMEOUT_MS`, `IPNI_VERIFICATION_POLLING_MS`                   |
+| [Prometheus Metrics](#prometheus-metrics-configuration) | `PROMETHEUS_WALLET_BALANCE_TTL_SECONDS`, `PROMETHEUS_WALLET_BALANCE_ERROR_COOLDOWN_SECONDS`                   |
 | [Web Frontend](#web-frontend)             | `VITE_API_BASE_URL`, `VITE_PLAUSIBLE_DATA_DOMAIN`, `DEALBOT_API_BASE_URL`                                                                                    |
 
 ---
@@ -308,6 +309,30 @@ DATABASE_POOL_MAX=1
 
 ---
 
+### `RPC_URL`
+
+- **Type**: `string` (HTTP/HTTPS URL)
+- **Required**: No
+- **Default**: Uses the default public RPC for the configured network
+
+**Role**: Custom Filecoin RPC endpoint URL. When set, all on-chain calls (Synapse SDK, viem) use this endpoint instead of the default public RPC. Use an authenticated endpoint to avoid rate limiting on shared public infrastructure.
+
+Providers like Glif/Chain.Love support passing the API key as a query parameter:
+
+```bash
+RPC_URL=https://filecoin.chain.love/rpc/v1?token=YOUR_API_KEY
+```
+
+**When to update**:
+
+- When DealBot is hitting 429 rate limits on the default public RPC
+- When switching RPC providers
+- When rotating API keys
+
+**Security**: Treat as a secret if the URL contains an API key.
+
+---
+
 ### `WALLET_ADDRESS`
 
 - **Type**: `string` (Ethereum-style address)
@@ -336,7 +361,7 @@ WALLET_ADDRESS=0x1234567890abcdef1234567890abcdef12345678
 - **Required**: Yes
 - **Security**: **HIGHLY SENSITIVE** - Never commit to version control, use secrets management
 
-**Role**: Private key for the wallet, used to sign blockchain transactions for creating storage deals.
+**Role**: Private key for signing blockchain transactions. Required in direct key mode. Not needed when `SESSION_KEY_PRIVATE_KEY` is set (session key mode), since the session key handles all signing. If both are set, `SESSION_KEY_PRIVATE_KEY` takes precedence and `WALLET_PRIVATE_KEY` is ignored.
 
 **When to update**:
 
@@ -348,6 +373,24 @@ WALLET_ADDRESS=0x1234567890abcdef1234567890abcdef12345678
 
 - Use Kubernetes Secrets or a secrets manager (Vault, AWS Secrets Manager)
 - Never log or expose this value
+
+---
+
+### `SESSION_KEY_PRIVATE_KEY`
+
+- **Type**: `string` (0x-prefixed hex private key)
+- **Required**: No
+- **Security**: **HIGHLY SENSITIVE** - Treat like `WALLET_PRIVATE_KEY`
+
+**Role**: When set, DealBot uses session key authentication. The session key must be registered on the SessionKeyRegistry contract from the `WALLET_ADDRESS` (typically a Safe multisig). Storage operations (create dataset, add pieces) are signed with this key instead of `WALLET_PRIVATE_KEY`.
+
+Session keys are scoped (only storage operations, not deposits or withdrawals) and time-limited (expiry set during registration). See [runbooks/wallet-and-session-keys.md](runbooks/wallet-and-session-keys.md) for the full setup process.
+
+**When to update**:
+
+- When rotating session keys
+- When switching to session key mode from direct key mode
+- When the session key has been compromised
 
 ---
 
@@ -901,6 +944,50 @@ RANDOM_PIECE_SIZES=1024,10240,102400
 
 - Increase to reduce IPNI query load
 - Decrease to detect results faster
+
+---
+
+## Prometheus Metrics Configuration
+
+### `PROMETHEUS_WALLET_BALANCE_TTL_SECONDS`
+
+- **Type**: `number` (seconds)
+- **Required**: No
+- **Default**: `3600` (1 hour)
+
+**Role**: Cache time-to-live for wallet balance collection. Wallet balances are cached and only refreshed when this TTL expires, even when Prometheus scrapes the `/metrics` endpoint.
+
+**When to update**:
+
+- Increase to reduce blockchain RPC calls (slower balance updates, lower load)
+- Decrease for more frequent balance updates (higher RPC load, faster visibility)
+
+**Example scenario**: Increasing cache TTL to 2 hours:
+
+```bash
+PROMETHEUS_WALLET_BALANCE_TTL_SECONDS=7200
+```
+
+---
+
+### `PROMETHEUS_WALLET_BALANCE_ERROR_COOLDOWN_SECONDS`
+
+- **Type**: `number` (seconds)
+- **Required**: No
+- **Default**: `60` (1 minute)
+
+**Role**: Cooldown period after a failed wallet balance fetch before retrying. After an error, the cache is considered expired but a new fetch will only be attempted after this cooldown.
+
+**When to update**:
+
+- Increase to reduce retry pressure on failing RPC endpoints
+- Decrease to recover from transient errors faster
+
+**Example scenario**: Increasing cooldown to 5 minutes:
+
+```bash
+PROMETHEUS_WALLET_BALANCE_ERROR_COOLDOWN_SECONDS=300
+```
 
 ---
 

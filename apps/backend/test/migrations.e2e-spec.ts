@@ -17,6 +17,10 @@ import { EnsurePgBossSchema1760550000000 } from "../src/database/migrations/1760
 import { RemoveCdnServiceType1760600000000 } from "../src/database/migrations/1760600000000-RemoveCdnServiceType.js";
 import { RemoveSpReceivedRetrieveRequest1761500000000 } from "../src/database/migrations/1761500000000-RemoveSpReceivedRetrieveRequest.js";
 import { RemoveIpniRetrievedColumns1761500000001 } from "../src/database/migrations/1761500000001-RemoveIpniRetrievedColumns.js";
+import { RenameEvents1761500000003 } from "../src/database/migrations/1761500000003-RenameEvents.js";
+import { RenameRegionToLocation1761500000004 } from "../src/database/migrations/1761500000004-RenameRegionToLocation.js";
+import { ProviderIdBigInt1761500000005 } from "../src/database/migrations/1761500000005-ProviderIdBigInt.js";
+import { DataSetIdBigInt1761500000006 } from "../src/database/migrations/1761500000006-DataSetIdBigInt.js";
 
 const execFileAsync = promisify(execFile);
 const dockerCheck = spawnSync("docker", ["info"], { stdio: "ignore" });
@@ -45,6 +49,10 @@ const ALL_MIGRATIONS: Array<new () => MigrationInterface> = [
   RemoveCdnServiceType1760600000000,
   RemoveSpReceivedRetrieveRequest1761500000000,
   RemoveIpniRetrievedColumns1761500000001,
+  RenameEvents1761500000003,
+  RenameRegionToLocation1761500000004,
+  ProviderIdBigInt1761500000005,
+  DataSetIdBigInt1761500000006,
 ];
 
 type DatabaseConfig = {
@@ -214,6 +222,10 @@ describeWithDocker("Migrations (integration)", () => {
 
     await dataSource.undoLastMigration();
     await dataSource.undoLastMigration();
+    await dataSource.undoLastMigration();
+    await dataSource.undoLastMigration();
+    await dataSource.undoLastMigration();
+    await dataSource.undoLastMigration();
 
     expect(await enumValues(dataSource, "deals_ipni_status_enum")).toContain("sp_received_retrieve_request");
     expect(await columnExists(dataSource, "metrics_daily", "ipni_retrieved_deals")).toBe(true);
@@ -277,6 +289,10 @@ describeWithDocker("Migrations (integration)", () => {
     expect(await columnExists(dataSource, "deals", "ipni_time_to_retrieve_ms")).toBe(false);
     expect(await columnExists(dataSource, "metrics_daily", "avg_ipni_time_to_retrieve_ms")).toBe(false);
 
+    await dataSource.undoLastMigration();
+    await dataSource.undoLastMigration();
+    await dataSource.undoLastMigration();
+    await dataSource.undoLastMigration();
     await dataSource.undoLastMigration();
     await dataSource.undoLastMigration();
 

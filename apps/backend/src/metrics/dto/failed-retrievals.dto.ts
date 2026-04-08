@@ -23,7 +23,7 @@ export class StorageProviderDto {
     example: 1,
     nullable: true,
   })
-  providerId: number | null;
+  providerId: bigint | null;
 }
 
 export class FailedRetrievalDto {

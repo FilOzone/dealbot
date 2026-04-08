@@ -9,7 +9,7 @@ import { useProvidersList } from "@/hooks/useProvidersList";
  */
 function buildBetterStackUrlWithProvider(
   baseUrl: string,
-  providerId: number,
+  providerId: string,
   paramKey: "vs[provider_id]" | "vs[providerId]" = "vs[provider_id]",
 ): string {
   if (!baseUrl) return "";
@@ -17,7 +17,7 @@ function buildBetterStackUrlWithProvider(
     const url = new URL(baseUrl);
     url.searchParams.set("rf", "now-72h");
     url.searchParams.set("rt", "now");
-    url.searchParams.set(paramKey, String(providerId));
+    url.searchParams.set(paramKey, providerId);
     return url.toString();
   } catch {
     return "";
@@ -143,7 +143,12 @@ export default function Landing() {
             (() => {
               const activeProviders = providersResponse.providers
                 .filter((p) => p.isActive)
-                .sort((a, b) => (a.providerId ?? Number.MAX_SAFE_INTEGER) - (b.providerId ?? Number.MAX_SAFE_INTEGER));
+                .sort((a, b) => {
+                  if (a.providerId == null && b.providerId == null) return 0;
+                  if (a.providerId == null) return 1;
+                  if (b.providerId == null) return -1;
+                  return a.providerId.localeCompare(b.providerId, undefined, { numeric: true });
+                });
               return activeProviders.length === 0 ? (
                 <p className="text-sm text-muted-foreground">No providers found.</p>
               ) : (
@@ -162,17 +167,17 @@ export default function Landing() {
                       {activeProviders.map((provider) => {
                         const providerId = provider.providerId;
                         const metricsHref =
-                          dashboardUrl && typeof providerId === "number"
+                          dashboardUrl && providerId != null
                             ? buildBetterStackUrlWithProvider(dashboardUrl, providerId, "vs[provider_id]")
                             : "";
                         const logsHref =
-                          logsUrl && typeof providerId === "number"
+                          logsUrl && providerId != null
                             ? buildBetterStackUrlWithProvider(logsUrl, providerId, "vs[providerId]")
                             : "";
                         return (
                           <tr key={provider.address} className="border-b last:border-b-0">
                             <td className="py-2 pr-4">{provider.name || provider.address}</td>
-                            <td className="py-2 pr-4">{typeof providerId === "number" ? providerId : "—"}</td>
+                            <td className="py-2 pr-4">{providerId != null ? providerId : "—"}</td>
                             <td className="py-2 pr-4">{provider.isApproved ? "Approved" : "Unapproved"}</td>
                             <td className="py-2 pr-4">
                               {metricsHref ? (

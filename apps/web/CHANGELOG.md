@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.1.1](https://github.com/FilOzone/dealbot/compare/web-v1.1.0...web-v1.1.1) (2026-03-22)
+
+
+### Bug Fixes
+
+* landing page renders providers ([#391](https://github.com/FilOzone/dealbot/issues/391)) ([c6ffa51](https://github.com/FilOzone/dealbot/commit/c6ffa51ef51f0aa7967767cc9d034cc2f72d5ef9))
+
+## [1.1.0](https://github.com/FilOzone/dealbot/compare/web-v1.0.1...web-v1.1.0) (2026-03-21)
+
+
+### Features
+
+* **web:** add approved status column to landing provider table ([#378](https://github.com/FilOzone/dealbot/issues/378)) ([5f6eb8b](https://github.com/FilOzone/dealbot/commit/5f6eb8bf437faf9d8b786e94f0a8a8ef54863823))
+
+
+### Bug Fixes
+
+* **backend:** include synapse 0.40.0 upgrade in release notes ([#388](https://github.com/FilOzone/dealbot/issues/388)) ([e38e186](https://github.com/FilOzone/dealbot/commit/e38e186af8f8ba1b8947641f1da024998529a735))
+
 ## [1.0.1](https://github.com/FilOzone/dealbot/compare/web-v1.0.0...web-v1.0.1) (2026-03-12)
 
 

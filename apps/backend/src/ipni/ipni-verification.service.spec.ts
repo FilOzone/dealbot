@@ -27,7 +27,7 @@ describe("IpniVerificationService", () => {
       description: "SP",
       isActive: true,
       serviceUrl: "https://sp.example.com",
-      region: "test",
+      location: "test",
       metadata: {},
       ...overrides,
     });

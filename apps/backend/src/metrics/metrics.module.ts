@@ -13,13 +13,11 @@ import { FailedDealsController } from "./controllers/failed-deals.controller.js"
 import { FailedRetrievalsController } from "./controllers/failed-retrievals.controller.js";
 import { NetworkStatsController } from "./controllers/network-stats.controller.js";
 
-import { ProvidersController } from "./controllers/providers.controller.js";
 import { DailyMetricsService } from "./services/daily-metrics.service.js";
 import { FailedDealsService } from "./services/failed-deals.service.js";
 import { FailedRetrievalsService } from "./services/failed-retrievals.service.js";
 import { MetricsSchedulerService } from "./services/metrics-scheduler.service.js";
 import { NetworkStatsService } from "./services/network-stats.service.js";
-import { ProvidersService } from "./services/providers.service.js";
 
 /**
  * Metrics Module
@@ -49,16 +47,9 @@ import { ProvidersService } from "./services/providers.service.js";
       StorageProvider,
     ]),
   ],
-  controllers: [
-    ProvidersController,
-    DailyMetricsController,
-    FailedDealsController,
-    FailedRetrievalsController,
-    NetworkStatsController,
-  ],
+  controllers: [DailyMetricsController, FailedDealsController, FailedRetrievalsController, NetworkStatsController],
   providers: [
     MetricsSchedulerService,
-    ProvidersService,
     DailyMetricsService,
     FailedDealsService,
     FailedRetrievalsService,
@@ -66,7 +57,6 @@ import { ProvidersService } from "./services/providers.service.js";
   ],
   exports: [
     MetricsSchedulerService,
-    ProvidersService,
     DailyMetricsService,
     FailedDealsService,
     FailedRetrievalsService,

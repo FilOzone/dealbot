@@ -17,7 +17,11 @@ const callPrivate = <T>(target: T, key: string, ...args: unknown[]) => {
 
 describe("JobsService schedule rows", () => {
   let service: JobsService;
-  let storageProviderRepositoryMock: { find: ReturnType<typeof vi.fn>; findOne: ReturnType<typeof vi.fn> };
+  let storageProviderRepositoryMock: {
+    find: ReturnType<typeof vi.fn>;
+    findOne: ReturnType<typeof vi.fn>;
+    count: ReturnType<typeof vi.fn>;
+  };
   let jobScheduleRepositoryMock: {
     upsertSchedule: ReturnType<typeof vi.fn>;
     deleteSchedulesForInactiveProviders: ReturnType<typeof vi.fn>;
@@ -41,6 +45,8 @@ describe("JobsService schedule rows", () => {
     jobsCompletedCounter: JobsServiceDeps[15];
     jobsPausedGauge: JobsServiceDeps[16];
     jobDuration: JobsServiceDeps[17];
+    storageProvidersActive: JobsServiceDeps[18];
+    storageProvidersTested: JobsServiceDeps[19];
   };
   let baseConfigValues: Partial<IConfig>;
   let configService: JobsServiceDeps[0];
@@ -64,6 +70,8 @@ describe("JobsService schedule rows", () => {
       jobsCompletedCounter: JobsServiceDeps[15];
       jobsPausedGauge: JobsServiceDeps[16];
       jobDuration: JobsServiceDeps[17];
+      storageProvidersActive: JobsServiceDeps[18];
+      storageProvidersTested: JobsServiceDeps[19];
     }>,
   ) => JobsService;
 
@@ -71,6 +79,7 @@ describe("JobsService schedule rows", () => {
     storageProviderRepositoryMock = {
       find: vi.fn(),
       findOne: vi.fn(),
+      count: vi.fn(),
     };
 
     jobScheduleRepositoryMock = {
@@ -102,6 +111,8 @@ describe("JobsService schedule rows", () => {
       jobsCompletedCounter: { inc: vi.fn() } as unknown as JobsServiceDeps[15],
       jobsPausedGauge: { set: vi.fn() } as unknown as JobsServiceDeps[16],
       jobDuration: { observe: vi.fn() } as unknown as JobsServiceDeps[17],
+      storageProvidersActive: { set: vi.fn() } as unknown as JobsServiceDeps[18],
+      storageProvidersTested: { set: vi.fn() } as unknown as JobsServiceDeps[19],
     };
 
     baseConfigValues = {
@@ -154,6 +165,8 @@ describe("JobsService schedule rows", () => {
         overrides.jobsCompletedCounter ?? metricsMocks.jobsCompletedCounter,
         overrides.jobsPausedGauge ?? metricsMocks.jobsPausedGauge,
         overrides.jobDuration ?? metricsMocks.jobDuration,
+        overrides.storageProvidersActive ?? metricsMocks.storageProvidersActive,
+        overrides.storageProvidersTested ?? metricsMocks.storageProvidersTested,
       );
 
     service = buildService();
@@ -1326,12 +1339,49 @@ describe("JobsService schedule rows", () => {
         "0xaaa",
         5,
         {},
-        { providerAddress: "0xaaa", jobId: "job-ds-4", providerId: 1, providerName: "test-provider" },
+        { providerAddress: "0xaaa", jobId: "job-ds-4", providerId: 1n, providerName: "test-provider" },
         controller.signal,
       ),
     ).rejects.toThrow("Job timed out");
 
     // No datasets should have been created since abort was already signaled
     expect(dealService.createDataSetWithPiece).not.toHaveBeenCalled();
+  });
+
+  it("sets active, inactive, and tested provider gauge values after refresh", async () => {
+    storageProviderRepositoryMock.count
+      .mockResolvedValueOnce(10) // totalProviders
+      .mockResolvedValueOnce(7) // activeCount
+      .mockResolvedValueOnce(7); // testedCount (useOnlyApprovedProviders=false)
+
+    const activeGauge = metricsMocks.storageProvidersActive as unknown as { set: ReturnType<typeof vi.fn> };
+    const testedGauge = metricsMocks.storageProvidersTested as unknown as { set: ReturnType<typeof vi.fn> };
+
+    await callPrivate(service, "updateStorageProviderGauges");
+
+    expect(activeGauge.set).toHaveBeenCalledWith({ status: "active" }, 7);
+    expect(activeGauge.set).toHaveBeenCalledWith({ status: "inactive" }, 3);
+    expect(testedGauge.set).toHaveBeenCalledWith(7);
+  });
+
+  it("filters tested providers by isApproved when useOnlyApprovedProviders is enabled", async () => {
+    baseConfigValues.blockchain = {
+      useOnlyApprovedProviders: true,
+      minNumDataSetsForChecks: 1,
+    } as IConfig["blockchain"];
+    service = buildService();
+
+    storageProviderRepositoryMock.count.mockResolvedValueOnce(10).mockResolvedValueOnce(7).mockResolvedValueOnce(5); // testedCount (only approved)
+
+    await callPrivate(service, "updateStorageProviderGauges");
+
+    expect(storageProviderRepositoryMock.count).toHaveBeenNthCalledWith(3, {
+      where: { isActive: true, isApproved: true },
+    });
+  });
+
+  it("catches storage provider gauge errors without rethrowing", async () => {
+    storageProviderRepositoryMock.count.mockRejectedValueOnce(new Error("db error"));
+    await expect(callPrivate(service, "updateStorageProviderGauges")).resolves.toBeUndefined();
   });
 });

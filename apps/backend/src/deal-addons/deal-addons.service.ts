@@ -147,13 +147,13 @@ export class DealAddonsService {
   }
 
   /**
-   * Execute onUploadComplete handlers for all applicable add-ons
+   * Execute onStored handlers for all applicable add-ons
    * Called when upload is complete to trigger tracking and monitoring
    *
    * @param deal - Deal entity with upload information
    * @param appliedAddons - Names of add-ons that were applied during preprocessing
    */
-  async handleUploadComplete(
+  async handleStored(
     deal: Deal,
     appliedAddons: ServiceType[],
     signal?: AbortSignal,
@@ -173,28 +173,28 @@ export class DealAddonsService {
 
     this.logger.debug({
       ...dealLogContext,
-      event: "addon_on_upload_complete_started",
-      message: "Running onUploadComplete handlers",
+      event: "addon_on_stored_started",
+      message: "Running onStored handlers",
     });
 
-    const uploadCompletePromises = appliedAddons
+    const storedPromises = appliedAddons
       .map((addonName) => this.addons.get(addonName))
-      .filter((addon) => addon?.onUploadComplete)
-      .map((addon) => addon!.onUploadComplete!(deal, signal, dealLogContext));
+      .filter((addon) => addon?.onStored)
+      .map((addon) => addon!.onStored!(deal, signal, dealLogContext));
 
     try {
-      await awaitWithAbort(Promise.all(uploadCompletePromises), signal);
+      await awaitWithAbort(Promise.all(storedPromises), signal);
       this.logger.debug({
         ...dealLogContext,
-        event: "addon_on_upload_complete_completed",
-        message: "onUploadComplete handlers completed",
+        event: "addon_on_stored_completed",
+        message: "onStored handlers completed",
       });
     } catch (error) {
       signal?.throwIfAborted();
       this.logger.warn({
         ...dealLogContext,
-        event: "addon_on_upload_complete_failed",
-        message: "onUploadComplete handler failed",
+        event: "addon_on_stored_failed",
+        message: "onStored handler failed",
         error: toStructuredError(error),
       });
       throw error;

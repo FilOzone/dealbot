@@ -8,6 +8,7 @@ import {
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from "typeorm";
+import { BigIntColumn } from "../helpers/bigint-column.js";
 import { type DealMetadata, DealStatus, IpniStatus, type ServiceType } from "../types.js";
 import type { Retrieval } from "./retrieval.entity.js";
 import { StorageProvider } from "./storage-provider.entity.js";
@@ -32,8 +33,8 @@ export class Deal {
   @Column({ name: "piece_cid", type: "varchar", nullable: true })
   pieceCid: string | null;
 
-  @Column({ name: "data_set_id", type: "int", nullable: true })
-  dataSetId: number | null;
+  @BigIntColumn({ name: "data_set_id", nullable: true })
+  dataSetId: bigint | null;
 
   @Column({ name: "piece_id", type: "int", nullable: true })
   pieceId: number | null;
@@ -64,10 +65,10 @@ export class Deal {
   @Column({ name: "upload_end_time", type: "timestamp", nullable: true })
   uploadEndTime: Date | null;
 
-  @Column({ name: "piece_added_time", type: "timestamp", nullable: true })
-  pieceAddedTime: Date | null;
-  @Column({ name: "piece_confirmed_time", type: "timestamp", nullable: true })
-  pieceConfirmedTime: Date | null;
+  @Column({ name: "pieces_added_time", type: "timestamp", nullable: true })
+  piecesAddedTime: Date | null;
+  @Column({ name: "pieces_confirmed_time", type: "timestamp", nullable: true })
+  piecesConfirmedTime: Date | null;
 
   @Column({ name: "deal_confirmed_time", type: "timestamp", nullable: true })
   dealConfirmedTime: Date | null;

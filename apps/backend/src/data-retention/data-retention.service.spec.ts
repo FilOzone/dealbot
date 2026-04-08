@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { IConfig } from "../config/app.config.js";
 import type { DataRetentionBaseline } from "../database/entities/data-retention-baseline.entity.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
-import { buildCheckMetricLabels } from "../metrics/utils/check-metric-labels.js";
+import { buildCheckMetricLabels } from "../metrics-prometheus/check-metric-labels.js";
 import type { PDPSubgraphService } from "../pdp-subgraph/pdp-subgraph.service.js";
 import type { ProviderDataSetResponse } from "../pdp-subgraph/types.js";
 import type { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
@@ -386,9 +386,9 @@ describe("DataRetentionService", () => {
 
     await service.pollDataRetention();
 
-    // Uses subgraph totals directly: faulted=5, success=50-5=45
+    // Uses subgraph totals directly: faulted=5*5=25, success=45*5=225
     const incCalls = counterMock.inc.mock.calls;
-    expect(incCalls).toEqual(expect.arrayContaining([[5], [45]]));
+    expect(incCalls).toEqual(expect.arrayContaining([[25], [225]]));
   });
 
   it("processes providers in batches of MAX_PROVIDER_BATCH_LENGTH", async () => {
@@ -496,13 +496,13 @@ describe("DataRetentionService", () => {
       // Should remove all counter label combinations
       const approvedLabels = buildCheckMetricLabels({
         checkType: "dataRetention",
-        providerId: 1,
+        providerId: 1n,
         providerName: "Provider A",
         providerIsApproved: true,
       });
       const unapprovedLabels = buildCheckMetricLabels({
         checkType: "dataRetention",
-        providerId: 1,
+        providerId: 1n,
         providerName: "Provider A",
         providerIsApproved: false,
       });
@@ -842,8 +842,8 @@ describe("DataRetentionService", () => {
 
       // Verify the actual increment values
       const incCalls = counterMock.inc.mock.calls;
-      // faultedDelta=2, successDelta=5
-      expect(incCalls).toEqual(expect.arrayContaining([[2], [5]]));
+      // faultedDelta=2*5=10, successDelta=5*5=25
+      expect(incCalls).toEqual(expect.arrayContaining([[10], [25]]));
     });
 
     it("only loads baselines from DB once across multiple polls", async () => {
@@ -900,10 +900,10 @@ describe("DataRetentionService", () => {
 
       await service.pollDataRetention();
 
-      // faultedDelta = 12 - 10 = 2, successDelta = (105 - 12) - 90 = 3
+      // faultedDelta = (12 - 10) * 5 = 10, successDelta = ((105 - 12) - 90) * 5 = 15
       expect(counterMock.labels).toHaveBeenCalled();
       const incCalls = counterMock.inc.mock.calls;
-      expect(incCalls).toEqual(expect.arrayContaining([[2], [3]]));
+      expect(incCalls).toEqual(expect.arrayContaining([[10], [15]]));
     });
 
     it("deletes baseline from DB when stale provider is cleaned up", async () => {

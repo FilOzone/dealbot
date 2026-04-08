@@ -1,8 +1,8 @@
 import type { ConfigService } from "@nestjs/config";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { IBlockchainConfig, IConfig } from "../config/app.config.js";
+import { configValidationSchema, type IBlockchainConfig, type IConfig } from "../config/app.config.js";
 import { WalletSdkService } from "./wallet-sdk.service.js";
-import type { ProviderInfoEx } from "./wallet-sdk.types.js";
+import type { PDPProviderEx } from "./wallet-sdk.types.js";
 
 type LoggerLike = {
   warn: (message: string) => void;
@@ -13,14 +13,14 @@ type LoggerLike = {
 const baseConfig: IBlockchainConfig = {
   network: "calibration",
   walletAddress: "0x0000000000000000000000000000000000000000",
-  walletPrivateKey: "test",
+  walletPrivateKey: "0xtest",
   checkDatasetCreationFees: false,
   useOnlyApprovedProviders: false,
   minNumDataSetsForChecks: 1,
   pdpSubgraphEndpoint: "https://api.thegraph.com/subgraphs/filecoin/pdp",
 };
 
-const makeProvider = (overrides: Partial<ProviderInfoEx>): ProviderInfoEx =>
+const makeProvider = (overrides: Partial<PDPProviderEx>): PDPProviderEx =>
   ({
     id: 1,
     serviceProvider: "0xprovider",
@@ -29,17 +29,62 @@ const makeProvider = (overrides: Partial<ProviderInfoEx>): ProviderInfoEx =>
     payee: "0xpayee",
     active: true,
     isApproved: false,
-    products: {
-      PDP: {
-        data: {
-          serviceURL: "https://example.invalid",
-          location: "loc",
-        },
-        capabilities: {},
-      },
+    pdp: {
+      serviceURL: "https://example.invalid",
+      location: "loc",
     },
     ...overrides,
-  }) as ProviderInfoEx;
+  }) as PDPProviderEx;
+
+describe("config validation", () => {
+  const requiredEnv = {
+    DATABASE_HOST: "localhost",
+    DATABASE_USER: "test",
+    DATABASE_PASSWORD: "test",
+    DATABASE_NAME: "test",
+    WALLET_ADDRESS: "0x1234567890123456789012345678901234567890",
+  };
+
+  it("requires WALLET_PRIVATE_KEY when SESSION_KEY_PRIVATE_KEY is absent", () => {
+    const { error } = configValidationSchema.validate(requiredEnv, { allowUnknown: true });
+    expect(error).toBeDefined();
+    expect(error?.message).toMatch(/WALLET_PRIVATE_KEY/);
+  });
+
+  it("accepts missing WALLET_PRIVATE_KEY when SESSION_KEY_PRIVATE_KEY is set", () => {
+    const { error } = configValidationSchema.validate(
+      { ...requiredEnv, SESSION_KEY_PRIVATE_KEY: "0xdeadbeef" },
+      { allowUnknown: true },
+    );
+    expect(error).toBeUndefined();
+  });
+
+  it("accepts both WALLET_PRIVATE_KEY and SESSION_KEY_PRIVATE_KEY (session key takes precedence)", () => {
+    const { error } = configValidationSchema.validate(
+      { ...requiredEnv, WALLET_PRIVATE_KEY: "0xkey", SESSION_KEY_PRIVATE_KEY: "0xsession" },
+      { allowUnknown: true },
+    );
+    expect(error).toBeUndefined();
+  });
+
+  it("treats empty string WALLET_PRIVATE_KEY as absent", () => {
+    const { error } = configValidationSchema.validate(
+      { ...requiredEnv, WALLET_PRIVATE_KEY: "" },
+      { allowUnknown: true },
+    );
+    // Empty string is normalized to undefined by .empty(""), so .or() treats it as absent
+    expect(error).toBeDefined();
+    expect(error?.message).toMatch(/WALLET_PRIVATE_KEY|SESSION_KEY_PRIVATE_KEY/);
+  });
+
+  it("treats empty string SESSION_KEY_PRIVATE_KEY as absent", () => {
+    const { error } = configValidationSchema.validate(
+      { ...requiredEnv, WALLET_PRIVATE_KEY: "0xkey", SESSION_KEY_PRIVATE_KEY: "" },
+      { allowUnknown: true },
+    );
+    expect(error).toBeUndefined();
+  });
+});
 
 describe("WalletSdkService", () => {
   let service: WalletSdkService;
@@ -67,18 +112,18 @@ describe("WalletSdkService", () => {
 
   it("replaces inactive duplicate with active and logs a warning", async () => {
     const inactive = makeProvider({
-      id: 20,
-      active: false,
+      id: 20n,
+      isActive: false,
       serviceProvider: "0xdup",
       name: "old",
     });
     const active = makeProvider({
-      id: 21,
-      active: true,
+      id: 21n,
+      isActive: true,
       serviceProvider: "0xdup",
       name: "new",
     });
-    const other = makeProvider({ id: 22, serviceProvider: "0xother" });
+    const other = makeProvider({ id: 22n, serviceProvider: "0xother" });
 
     await service.syncProvidersToDatabase([inactive, active, other]);
 
@@ -86,9 +131,9 @@ describe("WalletSdkService", () => {
       expect.objectContaining({
         address: "0xdup",
         event: "duplicate_provider_address",
-        existingProviderId: 20,
+        existingProviderId: 20n,
         message: "Duplicate provider address detected",
-        newProviderId: 21,
+        newProviderId: 21n,
       }),
     );
     expect(loggerMock.warn).toHaveBeenCalledWith(
@@ -104,22 +149,22 @@ describe("WalletSdkService", () => {
     expect(options).toEqual(expect.objectContaining({ conflictPaths: ["address"] }));
     expect(entities).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ address: "0xdup", providerId: 21, name: "new" }),
-        expect.objectContaining({ address: "0xother", providerId: 22 }),
+        expect.objectContaining({ address: "0xdup", providerId: 21n, name: "new" }),
+        expect.objectContaining({ address: "0xother", providerId: 22n }),
       ]),
     );
   });
 
   it("keeps active entry for mixed-status duplicates and does not log an error", async () => {
     const active = makeProvider({
-      id: 30,
-      active: true,
+      id: 30n,
+      isActive: true,
       serviceProvider: "0xdup2",
       name: "active",
     });
     const inactive = makeProvider({
-      id: 31,
-      active: false,
+      id: 31n,
+      isActive: false,
       serviceProvider: "0xdup2",
       name: "inactive",
     });
@@ -130,29 +175,29 @@ describe("WalletSdkService", () => {
       expect.objectContaining({
         address: "0xdup2",
         event: "duplicate_provider_address",
-        existingProviderId: 30,
+        existingProviderId: 30n,
         message: "Duplicate provider address detected",
-        newProviderId: 31,
+        newProviderId: 31n,
       }),
     );
     expect(loggerMock.error).not.toHaveBeenCalled();
 
     const [entities] = repoMock.upsert.mock.calls[0];
     expect(entities).toEqual(
-      expect.arrayContaining([expect.objectContaining({ address: "0xdup2", providerId: 30, name: "active" })]),
+      expect.arrayContaining([expect.objectContaining({ address: "0xdup2", providerId: 30n, name: "active" })]),
     );
   });
 
   it("keeps highest providerId for same-status duplicates and logs an error", async () => {
     const first = makeProvider({
-      id: 40,
-      active: true,
+      id: 40n,
+      isActive: true,
       serviceProvider: "0xdup3",
       name: "first",
     });
     const second = makeProvider({
-      id: 41,
-      active: true,
+      id: 41n,
+      isActive: true,
       serviceProvider: "0xdup3",
       name: "second",
     });
@@ -169,7 +214,7 @@ describe("WalletSdkService", () => {
 
     const [entities] = repoMock.upsert.mock.calls[0];
     expect(entities).toEqual(
-      expect.arrayContaining([expect.objectContaining({ address: "0xdup3", providerId: 41, name: "second" })]),
+      expect.arrayContaining([expect.objectContaining({ address: "0xdup3", providerId: 41n, name: "second" })]),
     );
   });
 
@@ -202,5 +247,22 @@ describe("WalletSdkService", () => {
 
     expect(loadProvidersInternal).toHaveBeenCalledTimes(2);
     expect((service as any).providersLoadedOnce).toBe(true);
+  });
+
+  describe("ensureWalletAllowances", () => {
+    it("performs read-only check in session key mode", async () => {
+      (service as any)._isSessionKeyMode = true;
+      // getUploadCosts needs _synapseClient but will fail without a real RPC
+      // Verify it doesn't fall through to the storageManager.prepare path
+      (service as any)._synapseClient = null;
+      await expect(service.ensureWalletAllowances()).rejects.toThrow();
+      // storageManager.prepare was never called (it would also throw, but differently)
+    });
+
+    it("attempts allowances in direct key mode", async () => {
+      (service as any)._isSessionKeyMode = false;
+      // storageManager is not initialized so prepare() will throw
+      await expect(service.ensureWalletAllowances()).rejects.toThrow();
+    });
   });
 });

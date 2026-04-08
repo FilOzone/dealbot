@@ -7,6 +7,9 @@ export class Provider {
   @ApiProperty({ description: "Storage provider address" })
   address: string;
 
+  @ApiPropertyOptional({ description: "On-chain provider ID", type: String, nullable: true })
+  providerId?: string | bigint | null;
+
   @ApiProperty({ description: "Storage provider name" })
   name: string;
 
@@ -25,8 +28,8 @@ export class Provider {
   @ApiProperty({ description: "Is storage provider approved by fwss" })
   isApproved: boolean;
 
-  @ApiProperty({ description: "Region" })
-  region: string;
+  @ApiProperty({ description: "Location" })
+  location: string;
 
   @ApiProperty({ description: "Metadata" })
   metadata: Record<string, any>;
