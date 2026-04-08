@@ -1,6 +1,16 @@
 import { Column, CreateDateColumn, Entity, Index, PrimaryGeneratedColumn, UpdateDateColumn } from "typeorm";
 
-export type JobType = "deal" | "retrieval" | "data_set_creation" | "providers_refresh" | "data_retention_poll";
+// `job_type` is stored as TEXT in Postgres, so legacy rows may still contain
+// values that are no longer scheduled for new work. Keep them in the entity
+// type until a DB cleanup/migration removes or rewrites existing rows.
+export type JobType =
+  | "deal"
+  | "retrieval"
+  | "data_set_creation"
+  | "providers_refresh"
+  | "data_retention_poll"
+  | "metrics"
+  | "metrics_cleanup";
 
 @Entity("job_schedule_state")
 @Index("job_schedule_state_job_type_sp_unique", ["jobType", "spAddress"], { unique: true })

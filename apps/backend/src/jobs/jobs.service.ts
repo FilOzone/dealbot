@@ -825,6 +825,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     const dealStartAt = new Date(now.getTime() + phaseMs);
     const retrievalStartAt = new Date(now.getTime() + phaseMs);
     const dataSetCreationStartAt = new Date(now.getTime() + phaseMs);
+    const dataRetentionPollStartAt = new Date(now.getTime() + phaseMs);
     const providersRefreshStartAt = new Date(now.getTime() + phaseMs);
 
     const minDataSets = this.configService.get("blockchain").minNumDataSetsForChecks;
@@ -864,7 +865,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       "data_retention_poll",
       "",
       dataRetentionPollIntervalSeconds,
-      providersRefreshStartAt,
+      dataRetentionPollStartAt,
     );
     await this.jobScheduleRepository.upsertSchedule(
       "providers_refresh",
@@ -915,6 +916,17 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       const rows = await this.jobScheduleRepository.findDueSchedulesWithManager(manager, now);
 
       for (const row of rows) {
+        // Skip legacy job types that are no longer supported
+        if (row.job_type === "metrics" || row.job_type === "metrics_cleanup") {
+          this.logger.warn({
+            event: "legacy_job_type_skipped",
+            message: "Skipping legacy job type - please remove from job_schedule_state table",
+            jobType: row.job_type,
+            scheduleId: row.id,
+          });
+          continue;
+        }
+
         const timing = this.getScheduleTiming(row, now);
         if (!timing) continue;
         const { intervalMs, nextRunAt, runsDue } = timing;
@@ -968,6 +980,10 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         return DATA_RETENTION_POLL_QUEUE;
       case "providers_refresh":
         return PROVIDERS_REFRESH_QUEUE;
+      case "metrics":
+      case "metrics_cleanup":
+        // These legacy job types should be filtered out before reaching this method
+        throw new Error(`Legacy job type ${jobType} should not be processed - remove from job_schedule_state table`);
       default: {
         const exhaustiveCheck: never = jobType;
         throw new Error(`Unhandled job type: ${exhaustiveCheck}`);

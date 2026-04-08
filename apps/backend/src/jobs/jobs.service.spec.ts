@@ -706,6 +706,39 @@ describe("JobsService schedule rows", () => {
     expect(jobScheduleRepositoryMock.updateScheduleAfterRun).toHaveBeenCalled();
   });
 
+  it("global jobs only enqueue once after downtime and skip to next future run", async () => {
+    service = buildService({});
+
+    const send = vi.fn();
+    (service as unknown as { boss: { send: typeof send } }).boss = { send };
+
+    const now = new Date("2024-01-01T04:00:00Z");
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
+
+    // providers_refresh was due 8 intervals ago (4 hours / 30 min intervals = 8)
+    jobScheduleRepositoryMock.findDueSchedulesWithManager.mockResolvedValueOnce([
+      {
+        id: 10,
+        job_type: "providers_refresh",
+        sp_address: "",
+        interval_seconds: 1800,
+        next_run_at: "2024-01-01T00:00:00Z",
+      },
+    ]);
+
+    await callPrivate(service, "enqueueDueJobs");
+
+    // Should only enqueue once despite being 8 intervals overdue
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send.mock.calls[0][0]).toBe("providers.refresh");
+
+    // next_run_at should jump to future (now + interval), not replay missed runs
+    const updateCall = jobScheduleRepositoryMock.updateScheduleAfterRun.mock.calls[0];
+    const newNextRunAt = updateCall[2] as Date;
+    expect(newNextRunAt.getTime()).toBe(now.getTime() + 1800 * 1000);
+  });
+
   it("global jobs get singletonKey set to job type", async () => {
     service = buildService({});
 
@@ -760,7 +793,7 @@ describe("JobsService schedule rows", () => {
     jobScheduleRepositoryMock.findDueSchedulesWithManager.mockResolvedValueOnce([
       {
         id: 20,
-        job_type: "metrics",
+        job_type: "providers_refresh",
         sp_address: "",
         interval_seconds: 1800,
         next_run_at: "2024-01-01T03:00:00Z",

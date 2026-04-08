@@ -190,7 +190,7 @@ See the "Jobs (pg-boss)" section in `docs/environment-variables.md` for full def
 
 - [`DEALBOT_PGBOSS_SCHEDULER_ENABLED`](./environment-variables.md#dealbot_pgboss_scheduler_enabled)
 - [`DEALBOT_RUN_MODE`](./environment-variables.md#dealbot_run_mode)
-- [`DEALS_PER_SP_PER_HOUR`](./environment-variables.md#deals_per_sp_per_hour), [`RETRIEVALS_PER_SP_PER_HOUR`](./environment-variables.md#retrievals_per_sp_per_hour), [`METRICS_PER_HOUR`](./environment-variables.md#metrics_per_hour)
+- [`DEALS_PER_SP_PER_HOUR`](./environment-variables.md#deals_per_sp_per_hour), [`RETRIEVALS_PER_SP_PER_HOUR`](./environment-variables.md#retrievals_per_sp_per_hour)
 - [`JOB_SCHEDULER_POLL_SECONDS`](./environment-variables.md#job_scheduler_poll_seconds), [`JOB_WORKER_POLL_SECONDS`](./environment-variables.md#job_worker_poll_seconds)
 - [`JOB_CATCHUP_MAX_ENQUEUE`](./environment-variables.md#job_catchup_max_enqueue)
 - [`JOB_SCHEDULE_PHASE_SECONDS`](./environment-variables.md#job_schedule_phase_seconds)
