@@ -4,7 +4,7 @@ import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
 import { calculateActualStorage, listDataSets } from "filecoin-pin/core/data-set";
 import { IsNull, Not, Repository } from "typeorm";
-import { toStructuredError } from "../common/logging.js";
+import { type PieceCleanupLogContext, toStructuredError } from "../common/logging.js";
 import { createSynapseFromConfig } from "../common/synapse-factory.js";
 import type { IBlockchainConfig, IConfig } from "../config/app.config.js";
 import { Deal } from "../database/entities/deal.entity.js";
@@ -82,6 +82,7 @@ export class PieceCleanupService implements OnModuleInit, OnModuleDestroy {
    */
   private async checkProviderQuota(
     spAddress: string,
+    logContext?: PieceCleanupLogContext,
   ): Promise<{ isOverQuota: boolean; storedBytes: number; thresholdBytes: number }> {
     const thresholdBytes = this.configService.get("pieceCleanup").maxDatasetStorageSizeBytes;
     let storedBytes: number;
@@ -89,6 +90,7 @@ export class PieceCleanupService implements OnModuleInit, OnModuleDestroy {
       storedBytes = await this.getLiveStoredBytesForProvider(spAddress);
     } catch (error) {
       this.logger.warn({
+        ...logContext,
         event: "piece_cleanup_live_query_failed",
         message: "Failed to query live storage for SP; falling back to DB",
         providerAddress: spAddress,
@@ -118,30 +120,38 @@ export class PieceCleanupService implements OnModuleInit, OnModuleDestroy {
    * 5. Mark the deal record as cleaned up
    * 6. Repeat until usage drops below TARGET or runtime cap is reached
    */
-  async cleanupPiecesForProvider(spAddress: string, signal?: AbortSignal): Promise<CleanupResult> {
+  async cleanupPiecesForProvider(
+    spAddress: string,
+    signal?: AbortSignal,
+    logContext?: PieceCleanupLogContext,
+  ): Promise<CleanupResult> {
     const { maxDatasetStorageSizeBytes: thresholdBytes, targetDatasetStorageSizeBytes: targetBytes } =
       this.configService.get("pieceCleanup");
 
-    const { storedBytes, isOverQuota } = await this.checkProviderQuota(spAddress);
+    const { storedBytes, isOverQuota } = await this.checkProviderQuota(spAddress, logContext);
+
+    const cleanupLogContext: PieceCleanupLogContext = {
+      ...logContext,
+      providerAddress: spAddress,
+      storedBytes,
+      thresholdBytes,
+      targetBytes,
+    };
 
     if (!isOverQuota) {
       this.logger.debug({
+        ...cleanupLogContext,
         event: "piece_cleanup_below_threshold",
         message: "Storage below threshold; skipping cleanup",
-        providerAddress: spAddress,
-        storedBytes,
-        thresholdBytes,
       });
       return { deleted: 0, failed: 0, skipped: true, storedBytes, thresholdBytes };
     }
 
     const excessBytes = storedBytes - targetBytes;
     this.logger.log({
+      ...cleanupLogContext,
       event: "piece_cleanup_started",
       message: "Storage exceeds threshold; starting cleanup",
-      providerAddress: spAddress,
-      storedBytes,
-      thresholdBytes,
       excessBytes,
     });
 
@@ -159,9 +169,9 @@ export class PieceCleanupService implements OnModuleInit, OnModuleDestroy {
 
       if (candidates.length === 0) {
         this.logger.warn({
+          ...cleanupLogContext,
           event: "piece_cleanup_no_candidates",
           message: "Above threshold but no more cleanup candidates found",
-          providerAddress: spAddress,
         });
         break;
       }
@@ -173,9 +183,9 @@ export class PieceCleanupService implements OnModuleInit, OnModuleDestroy {
 
         if (bytesRemoved >= excessBytes) {
           this.logger.debug({
+            ...cleanupLogContext,
             event: "piece_cleanup_excess_cleared",
             message: "Excess cleared; stopping",
-            providerAddress: spAddress,
             bytesRemoved,
             excessBytes,
           });
@@ -183,14 +193,14 @@ export class PieceCleanupService implements OnModuleInit, OnModuleDestroy {
         }
 
         try {
-          await this.deletePiece(deal, signal, synapse);
+          await this.deletePiece(deal, signal, synapse, cleanupLogContext);
           deleted++;
           batchDeletedCount++;
           bytesRemoved += Number(deal.pieceSize || 0);
           this.logger.log({
+            ...cleanupLogContext,
             event: "piece_cleanup_piece_deleted",
             message: "Piece deleted",
-            providerAddress: spAddress,
             dealId: deal.id,
             pieceId: deal.pieceId,
             pieceCid: deal.pieceCid,
@@ -200,9 +210,9 @@ export class PieceCleanupService implements OnModuleInit, OnModuleDestroy {
         } catch (error) {
           failed++;
           this.logger.error({
+            ...cleanupLogContext,
             event: "piece_cleanup_piece_delete_failed",
             message: "Failed to delete piece",
-            providerAddress: spAddress,
             dealId: deal.id,
             pieceId: deal.pieceId,
             pieceCid: deal.pieceCid,
@@ -215,9 +225,9 @@ export class PieceCleanupService implements OnModuleInit, OnModuleDestroy {
 
       if (batchDeletedCount === 0) {
         this.logger.warn({
+          ...cleanupLogContext,
           event: "piece_cleanup_no_progress",
           message: "No pieces deleted in last batch; stopping to avoid infinite loop",
-          providerAddress: spAddress,
           failed,
         });
         break;
@@ -225,14 +235,12 @@ export class PieceCleanupService implements OnModuleInit, OnModuleDestroy {
     }
 
     this.logger.log({
+      ...cleanupLogContext,
       event: "piece_cleanup_completed",
       message: "Cleanup completed",
-      providerAddress: spAddress,
       deleted,
       failed,
       bytesRemoved,
-      storedBytes,
-      thresholdBytes,
     });
 
     return { deleted, failed, skipped: false, storedBytes, thresholdBytes };
@@ -313,7 +321,12 @@ export class PieceCleanupService implements OnModuleInit, OnModuleDestroy {
   /**
    * Delete a single piece via Synapse SDK and mark the deal as cleaned up.
    */
-  async deletePiece(deal: Deal, signal?: AbortSignal, existingSynapse?: Synapse): Promise<void> {
+  async deletePiece(
+    deal: Deal,
+    signal?: AbortSignal,
+    existingSynapse?: Synapse,
+    logContext?: PieceCleanupLogContext,
+  ): Promise<void> {
     if (deal.pieceId == null) {
       throw new Error(`Deal ${deal.id} is missing pieceId`);
     }
@@ -344,6 +357,7 @@ export class PieceCleanupService implements OnModuleInit, OnModuleDestroy {
 
       if (isAlreadyDeleted) {
         this.logger.debug({
+          ...logContext,
           event: "piece_cleanup_already_deleted",
           message: "Piece already deleted; treating as success",
           dealId: deal.id,

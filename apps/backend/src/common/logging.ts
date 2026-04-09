@@ -168,3 +168,16 @@ export type JobLogContext = {
   providerId?: bigint;
   providerName?: string;
 };
+
+/**
+ * Structured logging context for piece cleanup operations
+ */
+export type PieceCleanupLogContext = {
+  jobId?: string;
+  providerAddress: string;
+  providerId?: bigint;
+  providerName?: string;
+  storedBytes?: number;
+  thresholdBytes?: number;
+  targetBytes?: number;
+};

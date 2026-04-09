@@ -748,26 +748,27 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     }, timeoutMs);
 
     await this.recordJobExecution("piece_cleanup", async () => {
+      const logContext = await this.resolveProviderJobContext(spAddress, job.id);
       try {
-        await this.pieceCleanupService.cleanupPiecesForProvider(spAddress, abortController.signal);
+        await this.pieceCleanupService.cleanupPiecesForProvider(spAddress, abortController.signal, logContext);
         return "success";
       } catch (error) {
         if (abortController.signal.aborted) {
           const reason = abortController.signal.reason;
           const reasonMessage = reason instanceof Error ? reason.message : String(reason ?? "");
           this.logger.warn({
+            ...logContext,
             event: "piece_cleanup_job_aborted",
             message: reasonMessage || "Piece cleanup job aborted",
-            providerAddress: spAddress,
             timeoutSeconds: effectiveTimeoutSeconds,
             error: toStructuredError(reason ?? error),
           });
           return "aborted";
         }
         this.logger.error({
+          ...logContext,
           event: "piece_cleanup_job_failed",
           message: "Piece cleanup job failed",
-          providerAddress: spAddress,
           error: toStructuredError(error),
         });
         throw error;
