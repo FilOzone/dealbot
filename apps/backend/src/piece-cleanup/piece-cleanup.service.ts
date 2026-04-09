@@ -4,7 +4,7 @@ import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
 import { calculateActualStorage, listDataSets } from "filecoin-pin/core/data-set";
 import { IsNull, Not, Repository } from "typeorm";
-import { type PieceCleanupLogContext, toStructuredError } from "../common/logging.js";
+import { type PieceCleanupLogContext, type ProviderJobContext, toStructuredError } from "../common/logging.js";
 import { createSynapseFromConfig } from "../common/synapse-factory.js";
 import type { IBlockchainConfig, IConfig } from "../config/app.config.js";
 import { Deal } from "../database/entities/deal.entity.js";
@@ -82,7 +82,7 @@ export class PieceCleanupService implements OnModuleInit, OnModuleDestroy {
    */
   private async checkProviderQuota(
     spAddress: string,
-    logContext?: PieceCleanupLogContext,
+    logContext?: ProviderJobContext,
   ): Promise<{ isOverQuota: boolean; storedBytes: number; thresholdBytes: number }> {
     const thresholdBytes = this.configService.get("pieceCleanup").maxDatasetStorageSizeBytes;
     let storedBytes: number;
@@ -123,7 +123,7 @@ export class PieceCleanupService implements OnModuleInit, OnModuleDestroy {
   async cleanupPiecesForProvider(
     spAddress: string,
     signal?: AbortSignal,
-    logContext?: PieceCleanupLogContext,
+    logContext?: ProviderJobContext,
   ): Promise<CleanupResult> {
     const { maxDatasetStorageSizeBytes: thresholdBytes, targetDatasetStorageSizeBytes: targetBytes } =
       this.configService.get("pieceCleanup");
