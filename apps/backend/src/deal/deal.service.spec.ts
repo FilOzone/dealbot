@@ -6,6 +6,7 @@ import { executeUpload } from "filecoin-pin";
 import { CID } from "multiformats/cid";
 import { generatePrivateKey } from "viem/accounts";
 import { afterEach, beforeEach, describe, expect, it, Mock, vi } from "vitest";
+import { ClickhouseService } from "../clickhouse/clickhouse.service.js";
 import { Deal } from "../database/entities/deal.entity.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
 import { DealStatus } from "../database/types.js";
@@ -165,6 +166,7 @@ describe("DealService", () => {
         { provide: DataStorageCheckMetrics, useValue: mockDataStorageMetrics },
         { provide: RetrievalCheckMetrics, useValue: mockRetrievalMetrics },
         { provide: DataSetCreationCheckMetrics, useValue: mockDataSetCreationMetrics },
+        { provide: ClickhouseService, useValue: { insert: vi.fn(), probeLocation: "test" } },
       ],
     }).compile();
 
@@ -843,6 +845,7 @@ describe("DealService", () => {
             { provide: DataStorageCheckMetrics, useValue: mockDataStorageMetrics },
             { provide: RetrievalCheckMetrics, useValue: mockRetrievalMetrics },
             { provide: DataSetCreationCheckMetrics, useValue: mockDataSetCreationMetrics },
+            { provide: ClickhouseService, useValue: { insert: vi.fn(), probeLocation: "test" } },
           ],
         }).compile();
 

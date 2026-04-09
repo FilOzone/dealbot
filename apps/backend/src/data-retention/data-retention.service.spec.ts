@@ -2,6 +2,7 @@ import type { ConfigService } from "@nestjs/config";
 import type { Counter, Gauge } from "prom-client";
 import { Repository } from "typeorm";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { ClickhouseService } from "../clickhouse/clickhouse.service.js";
 import type { IConfig } from "../config/app.config.js";
 import type { DataRetentionBaseline } from "../database/entities/data-retention-baseline.entity.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
@@ -121,6 +122,7 @@ describe("DataRetentionService", () => {
       delete: vi.fn().mockResolvedValue(undefined),
     };
     mockSPRepository = { find: vi.fn() };
+    const clickhouseServiceMock = { insert: vi.fn(), probeLocation: "test" } as unknown as ClickhouseService;
     service = new DataRetentionService(
       configServiceMock,
       walletSdkServiceMock as unknown as WalletSdkService,
@@ -129,6 +131,7 @@ describe("DataRetentionService", () => {
       mockSPRepository as unknown as Repository<StorageProvider>,
       counterMock as unknown as Counter,
       gaugeMock as unknown as Gauge,
+      clickhouseServiceMock,
     );
   });
 

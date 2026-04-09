@@ -1,8 +1,8 @@
+import { type ClickHouseClient, createClient } from "@clickhouse/client";
 import { Injectable, Logger, OnApplicationShutdown, OnModuleInit } from "@nestjs/common";
-import { createClient, type ClickHouseClient } from "@clickhouse/client";
 import { InjectMetric } from "@willsoto/nestjs-prometheus";
 import { Counter, Gauge, Histogram } from "prom-client";
-import { loadClickhouseConfig, type IClickhouseConfig } from "./clickhouse.config.js";
+import { type IClickhouseConfig, loadClickhouseConfig } from "./clickhouse.config.js";
 import { buildMigrations } from "./clickhouse.schema.js";
 
 interface BufferedRow {
