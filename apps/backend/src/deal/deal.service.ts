@@ -743,7 +743,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async saveDeal(deal: Deal, dealLogContext: DealLogContext): Promise<void> {
-    this.clickhouseService.insert("deal_checks", {
+    this.clickhouseService.insert("data_storage_checks", {
       timestamp: Date.now(),
       network: this.blockchainConfig.network,
       probe_location: this.clickhouseService.probeLocation,

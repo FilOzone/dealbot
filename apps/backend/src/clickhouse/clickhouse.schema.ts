@@ -4,7 +4,7 @@
  */
 export function buildMigrations(database: string): string[] {
   return [
-    `CREATE TABLE IF NOT EXISTS ${database}.deal_checks
+    `CREATE TABLE IF NOT EXISTS ${database}.data_storage_checks
 (
     timestamp                   DateTime64(3, 'UTC'),
     network                     LowCardinality(String),
