@@ -334,6 +334,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
                 message: "Pieces confirmed",
                 pieceIds: event.data.pieceIds,
               });
+              deal.pieceId = event.data.pieceIds.length > 0 ? Number(event.data.pieceIds[0]) : undefined;
               deal.piecesConfirmedTime = new Date();
               deal.status = DealStatus.PIECE_CONFIRMED;
               deal.chainLatencyMs = deal.piecesConfirmedTime.getTime() - deal.piecesAddedTime.getTime();
@@ -732,7 +733,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     // Only set pieceSize here if it hasn't been set earlier in the deal flow.
     deal.pieceSize = pieceSize;
 
-    deal.pieceId = uploadResult.pieceId;
+    deal.pieceId = uploadResult.pieceId ?? deal.pieceId;
   }
 
   private async saveDeal(deal: Deal, dealLogContext: DealLogContext): Promise<void> {

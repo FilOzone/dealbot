@@ -52,7 +52,7 @@ describe("DealService", () => {
   type UploadProgressEvent =
     | { type: "onStored"; data: { pieceCid: string } }
     | { type: "onPiecesAdded"; data: { txHash: string } }
-    | { type: "onPiecesConfirmed"; data: { pieceIds: number[] } };
+    | { type: "onPiecesConfirmed"; data: { pieceIds: bigint[] } };
   type ExecuteUploadOptions = {
     onProgress?: (event: UploadProgressEvent) => Promise<void> | void;
   };
@@ -72,7 +72,7 @@ describe("DealService", () => {
     advanceTimersIfFake(2000);
     await onProgress({ type: "onPiecesAdded", data: { txHash: "0xhash" } });
     advanceTimersIfFake(3000);
-    await onProgress({ type: "onPiecesConfirmed", data: { pieceIds: [123] } });
+    await onProgress({ type: "onPiecesConfirmed", data: { pieceIds: [123n] } });
   };
 
   const mockDealRepository = {
