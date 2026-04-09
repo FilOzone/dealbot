@@ -1,7 +1,9 @@
 import { type ClickHouseClient, createClient } from "@clickhouse/client";
 import { Injectable, Logger, OnApplicationShutdown, OnModuleInit } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
 import { InjectMetric } from "@willsoto/nestjs-prometheus";
 import { Counter, Gauge, Histogram } from "prom-client";
+import type { IConfig } from "../config/app.config.js";
 import { type IClickhouseConfig, loadClickhouseConfig } from "./clickhouse.config.js";
 import { buildMigrations } from "./clickhouse.schema.js";
 
@@ -23,6 +25,7 @@ export class ClickhouseService implements OnModuleInit, OnApplicationShutdown {
     @InjectMetric("clickhouseFlushErrorsTotal") private readonly flushErrors: Counter,
     @InjectMetric("clickhouseBufferRows") private readonly bufferRows: Gauge,
     @InjectMetric("clickhouseRowsInsertedTotal") private readonly rowsInserted: Counter,
+    private readonly configService: ConfigService<IConfig, true>,
   ) {
     this.config = loadClickhouseConfig();
   }
@@ -52,7 +55,7 @@ export class ClickhouseService implements OnModuleInit, OnApplicationShutdown {
       database: parsedUrl.pathname.replace(/^\//, ""),
       batchSize: this.config.batchSize,
       flushIntervalMs: this.config.flushIntervalMs,
-      probeLocation: this.config.probeLocation,
+      probeLocation: this.configService.get("app").probeLocation,
     });
   }
 
@@ -132,7 +135,7 @@ export class ClickhouseService implements OnModuleInit, OnApplicationShutdown {
   }
 
   get probeLocation(): string {
-    return this.config.probeLocation;
+    return this.configService.get("app").probeLocation;
   }
 
   get enabled(): boolean {
