@@ -259,10 +259,8 @@ export class RetrievalService {
 
     const saved = await this.saveRetrieval(retrieval);
 
-    const network = this.configService.get("blockchain").network;
     this.clickhouseService.insert("retrieval_checks", {
       timestamp: Date.now(),
-      network,
       probe_location: this.clickhouseService.probeLocation,
       sp_address: deal.spAddress,
       sp_name: providerLabels.providerName !== "unknown" ? providerLabels.providerName : null,

@@ -7,7 +7,7 @@ export function buildMigrations(database: string): string[] {
     `CREATE TABLE IF NOT EXISTS ${database}.data_storage_checks
 (
     timestamp                   DateTime64(3, 'UTC'),
-    network                     LowCardinality(String),
+
     probe_location              LowCardinality(String),
     sp_address                  String,
     sp_name                     Nullable(String),
@@ -35,14 +35,13 @@ export function buildMigrations(database: string): string[] {
     ipni_verified_cids_count    Nullable(UInt32),
     ipni_unverified_cids_count  Nullable(UInt32)
 ) ENGINE MergeTree()
-  PRIMARY KEY (network, probe_location, sp_address, timestamp)
+  PRIMARY KEY (probe_location, sp_address, timestamp)
   PARTITION BY toStartOfMonth(timestamp)
   TTL toDateTime(timestamp) + INTERVAL 1 YEAR`,
 
     `CREATE TABLE IF NOT EXISTS ${database}.retrieval_checks
 (
     timestamp               DateTime64(3, 'UTC'),
-    network                 LowCardinality(String),
     probe_location          LowCardinality(String),
     sp_address              String,
     sp_name                 Nullable(String),
@@ -59,14 +58,13 @@ export function buildMigrations(database: string): string[] {
     last_byte_ms            Nullable(Float64),
     bytes_retrieved         Nullable(UInt64)
 ) ENGINE MergeTree()
-  PRIMARY KEY (network, probe_location, sp_address, timestamp)
+  PRIMARY KEY (probe_location, sp_address, timestamp)
   PARTITION BY toStartOfMonth(timestamp)
   TTL toDateTime(timestamp) + INTERVAL 1 YEAR`,
 
     `CREATE TABLE IF NOT EXISTS ${database}.data_retention_challenges
 (
     timestamp               DateTime64(3, 'UTC'),
-    network                 LowCardinality(String),
     probe_location          LowCardinality(String),
     sp_address              String,
     sp_name                 Nullable(String),
@@ -74,7 +72,7 @@ export function buildMigrations(database: string): string[] {
     total_proving_periods   UInt32,
     total_faulted_periods   UInt32
 ) ENGINE MergeTree()
-  PRIMARY KEY (network, probe_location, sp_address, timestamp)
+  PRIMARY KEY (probe_location, sp_address, timestamp)
   PARTITION BY toStartOfMonth(timestamp)
   TTL toDateTime(timestamp) + INTERVAL 1 YEAR`,
   ];

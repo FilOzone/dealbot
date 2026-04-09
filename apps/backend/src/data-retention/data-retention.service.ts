@@ -336,7 +336,6 @@ export class DataRetentionService {
 
     this.clickhouseService.insert("data_retention_challenges", {
       timestamp: Date.now(),
-      network: this.configService.get("blockchain").network,
       probe_location: this.clickhouseService.probeLocation,
       sp_address: address,
       sp_name: pdpProvider.name ?? null,

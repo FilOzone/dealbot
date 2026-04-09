@@ -127,6 +127,7 @@ export interface IAppConfig {
   enableDevMode: boolean;
   prometheusWalletBalanceTtlSeconds: number;
   prometheusWalletBalanceErrorCooldownSeconds: number;
+  probeLocation: string;
 }
 
 export interface IDatabaseConfig {
@@ -306,6 +307,7 @@ export function loadConfig(): IConfig {
         process.env.PROMETHEUS_WALLET_BALANCE_ERROR_COOLDOWN_SECONDS || "60",
         10,
       ),
+      probeLocation: process.env.DEALBOT_PROBE_LOCATION || "unknown",
     },
     database: {
       host: process.env.DATABASE_HOST || "localhost",
