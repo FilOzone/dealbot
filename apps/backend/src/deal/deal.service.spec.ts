@@ -854,6 +854,40 @@ describe("DealService", () => {
         });
       });
     });
+
+    it("preserves pieceId from onPiecesConfirmed when uploadResult.pieceId is missing", async () => {
+      const uploadPayload = {
+        carData: Uint8Array.from([1, 2, 3]),
+        rootCid: CID.parse(mockRootCid),
+      };
+
+      createContextMock.mockResolvedValue({
+        dataSetId: "dataset-123",
+      });
+
+      // Mock executeUpload to return without pieceId but trigger onPiecesConfirmed with pieceIds
+      (executeUpload as Mock).mockImplementation(async (_service, _data, _rootCid, options) => {
+        await triggerUploadProgress(options?.onProgress);
+        return {
+          pieceCid: "bafk-uploaded",
+          pieceId: undefined, // uploadResult does not include pieceId
+          transactionHash: "0xhash",
+        };
+      });
+
+      retrievalAddonsMock.testAllRetrievalMethods.mockResolvedValue({
+        dealId: "deal-1",
+        results: [],
+        summary: { totalMethods: 1, successfulMethods: 1, failedMethods: 0 },
+        testedAt: new Date(),
+      });
+
+      const deal = await service.createDeal(mockSynapseInstance, mockProviderInfo, mockDealInput, uploadPayload);
+
+      // Verify that pieceId from onPiecesConfirmed (123) is preserved and not overwritten by undefined
+      expect(deal.pieceId).toBe(123);
+      expect(deal.status).toBe(DealStatus.DEAL_CREATED);
+    });
   });
 
   describe("checkDataSetExists", () => {
