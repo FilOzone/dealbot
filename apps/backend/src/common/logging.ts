@@ -8,6 +8,7 @@ export type StructuredError = {
   code?: string;
   stack?: string;
   details?: unknown;
+  cause?: StructuredError;
 };
 
 export function toJsonSafe(value: unknown): unknown {
@@ -29,14 +30,20 @@ function truncateErrorStack(stack: string | undefined): string | undefined {
   return `${stack.slice(0, MAX_ERROR_STACK_LENGTH)}... [truncated ${omittedChars} chars]`;
 }
 
+const MAX_CAUSE_DEPTH = 5;
+
 /**
  * Serializes unknown error values into structured JSON-friendly fields.
+ * Recursively serializes error.cause chains up to MAX_CAUSE_DEPTH levels.
  */
-export function toStructuredError(error: unknown): StructuredError {
+export function toStructuredError(error: unknown, depth: number = 0): StructuredError {
   if (error instanceof Error) {
     const typedError = error as ErrorWithCode;
     const rawCode = typedError.code;
     const stringCode = rawCode === null || rawCode === undefined ? undefined : String(rawCode);
+
+    const cause =
+      error.cause !== undefined && depth < MAX_CAUSE_DEPTH ? toStructuredError(error.cause, depth + 1) : undefined;
 
     return {
       type: "error",
@@ -44,6 +51,7 @@ export function toStructuredError(error: unknown): StructuredError {
       message: error.message,
       code: stringCode && stringCode.length > 0 ? stringCode : undefined,
       stack: truncateErrorStack(error.stack),
+      cause,
     };
   }
 
