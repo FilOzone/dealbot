@@ -43,9 +43,7 @@ export function toStructuredError(error: unknown, depth: number = 0): Structured
     const stringCode = rawCode === null || rawCode === undefined ? undefined : String(rawCode);
 
     const cause =
-      error.cause instanceof Error && depth < MAX_CAUSE_DEPTH
-        ? toStructuredError(error.cause, depth + 1)
-        : undefined;
+      error.cause instanceof Error && depth < MAX_CAUSE_DEPTH ? toStructuredError(error.cause, depth + 1) : undefined;
 
     return {
       type: "error",
