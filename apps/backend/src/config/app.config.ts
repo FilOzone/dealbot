@@ -272,6 +272,17 @@ export interface ISpBlocklistConfig {
   addresses: Set<string>;
 }
 
+export interface IClickhouseConfig {
+  /**
+   * ClickHouse connection URL. Must include the database in the path.
+   * Example: http://default:password@host:8123/dealbot
+   * If unset, ClickHouse emission is disabled.
+   */
+  url: string | undefined;
+  batchSize: number;
+  flushIntervalMs: number;
+}
+
 export interface IConfig {
   app: IAppConfig;
   database: IDatabaseConfig;
@@ -281,6 +292,7 @@ export interface IConfig {
   dataset: IDatasetConfig;
   timeouts: ITimeoutConfig;
   retrieval: IRetrievalConfig;
+  clickhouse: IClickhouseConfig;
   spBlocklists: ISpBlocklistConfig;
 }
 
@@ -382,6 +394,11 @@ export function loadConfig(): IConfig {
     },
     retrieval: {
       ipfsBlockFetchConcurrency: Number.parseInt(process.env.IPFS_BLOCK_FETCH_CONCURRENCY || "6", 10),
+    },
+    clickhouse: {
+      url: process.env.CLICKHOUSE_URL || undefined,
+      batchSize: Number.parseInt(process.env.CLICKHOUSE_BATCH_SIZE || "500", 10),
+      flushIntervalMs: Number.parseInt(process.env.CLICKHOUSE_FLUSH_INTERVAL_MS || "5000", 10),
     },
     spBlocklists: {
       ids: parseIdList(process.env.BLOCKED_SP_IDS),

@@ -3,8 +3,7 @@ import { Injectable, Logger, OnApplicationShutdown, OnModuleInit } from "@nestjs
 import { ConfigService } from "@nestjs/config";
 import { InjectMetric } from "@willsoto/nestjs-prometheus";
 import { Counter, Gauge, Histogram } from "prom-client";
-import type { IConfig } from "../config/app.config.js";
-import { type IClickhouseConfig, loadClickhouseConfig } from "./clickhouse.config.js";
+import type { IClickhouseConfig, IConfig } from "../config/app.config.js";
 import { buildMigrations } from "./clickhouse.schema.js";
 
 interface BufferedRow {
@@ -27,7 +26,7 @@ export class ClickhouseService implements OnModuleInit, OnApplicationShutdown {
     @InjectMetric("clickhouseRowsInsertedTotal") private readonly rowsInserted: Counter,
     private readonly configService: ConfigService<IConfig, true>,
   ) {
-    this.config = loadClickhouseConfig();
+    this.config = this.configService.get("clickhouse", { infer: true });
   }
 
   async onModuleInit() {
