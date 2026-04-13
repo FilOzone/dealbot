@@ -40,7 +40,13 @@ export class ClickhouseService implements OnModuleInit, OnApplicationShutdown {
     });
 
     const parsedUrl = new URL(this.config.url);
-    await this.migrate(parsedUrl.pathname.replace(/^\//, ""));
+    const database = parsedUrl.pathname.replace(/^\//, "");
+    try {
+      await this.migrate(database);
+    } catch (err) {
+      this.logger.error({ event: "clickhouse_migration_failed", database, error: String(err) });
+      throw err;
+    }
 
     this.flushTimer = setInterval(() => {
       this.flush().catch((err) => {
@@ -51,7 +57,7 @@ export class ClickhouseService implements OnModuleInit, OnApplicationShutdown {
     this.logger.log({
       event: "clickhouse_initialized",
       host: parsedUrl.host,
-      database: parsedUrl.pathname.replace(/^\//, ""),
+      database,
       batchSize: this.config.batchSize,
       flushIntervalMs: this.config.flushIntervalMs,
       probeLocation: this.configService.get("app").probeLocation,
