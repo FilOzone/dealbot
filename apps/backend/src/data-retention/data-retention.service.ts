@@ -338,6 +338,7 @@ export class DataRetentionService {
       timestamp: Date.now(),
       probe_location: this.clickhouseService.probeLocation,
       sp_address: address,
+      sp_id: pdpProvider.id != null ? String(pdpProvider.id) : null, // pdpProvider.id is a BigInt
       sp_name: pdpProvider.name ?? null,
       total_proving_periods: Number(totalProvingPeriods),
       total_faulted_periods: Number(totalFaultedPeriods),

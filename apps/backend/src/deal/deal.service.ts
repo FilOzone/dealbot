@@ -747,6 +747,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       timestamp: Date.now(),
       probe_location: this.clickhouseService.probeLocation,
       sp_address: deal.spAddress,
+      sp_id: deal.storageProvider?.providerId != null ? String(deal.storageProvider.providerId) : null, // providerId is a BigInt
       sp_name: deal.storageProvider?.name ?? null,
       deal_id: deal.id,
       piece_cid: deal.pieceCid ?? null,

@@ -263,6 +263,7 @@ export class RetrievalService {
       timestamp: Date.now(),
       probe_location: this.clickhouseService.probeLocation,
       sp_address: deal.spAddress,
+      sp_id: providerLabels.providerId !== "unknown" ? providerLabels.providerId : null,
       sp_name: providerLabels.providerName !== "unknown" ? providerLabels.providerName : null,
       deal_id: deal.id,
       retrieval_id: saved.id,

@@ -10,6 +10,7 @@ export function buildMigrations(database: string): string[] {
 
     probe_location              LowCardinality(String),  -- dealbot location
     sp_address                  String,                  -- storage provider address
+    sp_id                       Nullable(UInt64),        -- storage provider numeric id
     sp_name                     Nullable(String),        -- storage provider name
 
     deal_id                     UUID,                    -- id assigned by dealbot
@@ -44,6 +45,7 @@ export function buildMigrations(database: string): string[] {
     timestamp               DateTime64(3, 'UTC'),    -- when retrieval entity was saved
     probe_location          LowCardinality(String),  -- dealbot location
     sp_address              String,                  -- storage provider address
+    sp_id                   Nullable(UInt64),        -- storage provider numeric id
     sp_name                 Nullable(String),        -- storage provider name
 
     deal_id                 Nullable(UUID),          -- id of deal assigned by dealbot
@@ -67,6 +69,7 @@ export function buildMigrations(database: string): string[] {
     timestamp               DateTime64(3, 'UTC'),   -- when the poll ran and detected these periods
     probe_location          LowCardinality(String), -- dealbot location
     sp_address              String,                 -- storage provider address
+    sp_id                   Nullable(UInt64),       -- storage provider numeric id
     sp_name                 Nullable(String),       -- storage provider name
 
     total_proving_periods   UInt32,                 -- cumulative total proving periods from subgraph at poll time
