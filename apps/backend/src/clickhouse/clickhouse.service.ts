@@ -40,7 +40,7 @@ export class ClickhouseService implements OnModuleInit, OnApplicationShutdown {
       url: this.config.url,
     });
 
-    const parsedUrl = new URL(this.config.url!);
+    const parsedUrl = new URL(this.config.url);
     await this.migrate(parsedUrl.pathname.replace(/^\//, ""));
 
     this.flushTimer = setInterval(() => {
@@ -60,9 +60,10 @@ export class ClickhouseService implements OnModuleInit, OnApplicationShutdown {
   }
 
   private async migrate(database: string): Promise<void> {
+    if (!this.client) return;
     const migrations = buildMigrations(database);
     for (const sql of migrations) {
-      await this.client!.command({ query: sql });
+      await this.client.command({ query: sql });
     }
     this.logger.log({ event: "clickhouse_migrated", database });
   }
@@ -78,7 +79,7 @@ export class ClickhouseService implements OnModuleInit, OnApplicationShutdown {
 
   /**
    * Queue a row for insertion. Returns immediately; the flush happens in the background.
-   * Safe to call when ClickHouse is disable: rows are silently dropped.
+   * Safe to call when ClickHouse is disabled: rows are silently dropped.
    */
   insert(table: string, row: Record<string, unknown>): void {
     if (!this.client) return;
