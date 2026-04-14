@@ -924,6 +924,11 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
             jobType: row.job_type,
             scheduleId: row.id,
           });
+          // Advance next_run_at so this row is not re-selected on every tick in
+          // environments where the RemoveMetricsJobScheduleRows migration has not run.
+          const legacyIntervalMs = row.interval_seconds * 1000;
+          const newNextRunAt = new Date(now.getTime() + (legacyIntervalMs > 0 ? legacyIntervalMs : 86_400_000));
+          await this.jobScheduleRepository.advanceScheduleNextRun(manager, row.id, newNextRunAt);
           continue;
         }
 

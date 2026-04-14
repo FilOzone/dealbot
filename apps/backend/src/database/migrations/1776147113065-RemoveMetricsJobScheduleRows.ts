@@ -11,6 +11,7 @@ export class RemoveMetricsJobScheduleRows1776147113065 implements MigrationInter
   }
 
   public async down(_queryRunner: QueryRunner): Promise<void> {
-    // Irreversible: rows were created by legacy MetricsSchedulerService which no longer exists.
+    // Irreversible: the deleted legacy metrics job types are no longer scheduled or handled,
+    // so there is no safe way to reconstruct the removed job_schedule_state rows.
   }
 }
