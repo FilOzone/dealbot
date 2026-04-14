@@ -16,16 +16,34 @@ export function resolvePinoLevel(level: string | undefined): string {
   return PINO_LEVEL_MAP[level.toLowerCase().trim()] ?? "info";
 }
 
+function buildSharedPinoOptions(): pino.LoggerOptions {
+  const options: pino.LoggerOptions = {
+    level: resolvePinoLevel(process.env.LOG_LEVEL),
+    timestamp: () => `,"timestamp":"${new Date().toISOString()}"`,
+    base: { pid: process.pid },
+  };
+
+  if ("formatters" in nativeLoggerOptions && nativeLoggerOptions.formatters) {
+    options.formatters = nativeLoggerOptions.formatters;
+  }
+
+  if ("messageKey" in nativeLoggerOptions && nativeLoggerOptions.messageKey) {
+    options.messageKey = nativeLoggerOptions.messageKey;
+  }
+
+  return options;
+}
+
 export function buildLoggerModuleParams() {
   return {
     pinoHttp: {
       ...nativeLoggerOptions,
-      level: resolvePinoLevel(process.env.LOG_LEVEL),
-      timestamp: () => `,"timestamp":"${new Date().toISOString()}"`,
+      ...buildSharedPinoOptions(),
+      autoLogging: false,
     },
   };
 }
 
 export function createPinoExitLogger() {
-  return pino({ ...buildLoggerModuleParams().pinoHttp });
+  return pino(buildSharedPinoOptions(), pino.destination({ sync: true }));
 }

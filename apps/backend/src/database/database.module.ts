@@ -20,7 +20,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 // Keep startup diagnostics visible regardless of runtime LOG_LEVEL configuration.
-const startupLogger = createPinoExitLogger();
+const startupLogger = createPinoExitLogger().child({ context: "DatabaseModule" });
 
 function toSafeDataSourceContext(options: DataSourceOptions): Record<string, unknown> {
   const sourceOptions = options as unknown as Record<string, unknown>;

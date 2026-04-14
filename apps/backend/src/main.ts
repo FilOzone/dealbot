@@ -1,3 +1,4 @@
+import { Logger } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
 import cors from "cors";
@@ -7,7 +8,7 @@ import { toStructuredError } from "./common/logging.js";
 import { createPinoExitLogger } from "./common/pino.config.js";
 
 /** Standalone pino logger used for pre-bootstrap and process-level error paths. */
-const exitLogger = createPinoExitLogger();
+const exitLogger = createPinoExitLogger().child({ context: "Main" });
 
 let isExiting = false;
 
@@ -92,7 +93,7 @@ async function bootstrap() {
     throw new Error(`Invalid ${name}: ${portEnvValue ?? ""}`);
   }
   const host = isWorkerOnly ? process.env.DEALBOT_METRICS_HOST || "0.0.0.0" : process.env.DEALBOT_HOST || "127.0.0.1";
-  const logger = app.get(NativeLogger);
+  const logger = new Logger("Main");
   logger.log({
     event: "bootstrap_listen_start",
     message: "Starting HTTP listener",
