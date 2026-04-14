@@ -473,14 +473,9 @@ describe("DealService", () => {
         createContextMock.mockResolvedValue({ dataSetId: "dataset-123" });
 
         (executeUpload as Mock).mockImplementation(async (_s, _d, _c, options) => {
-          // Trigger the abort BEFORE the callback runs, so the inner
-          // `signal?.throwIfAborted()` trips on first invocation.
+          // Abort first, then invoke without awaiting — mirrors safeInvoke's no-await semantics.
           abortController.abort(abortReason);
-          // Mirror safeInvoke: invoke without awaiting. The returned Promise
-          // is intentionally discarded — exactly what the SDK does.
           void options?.onProgress?.({ type: "onStored", data: { pieceCid: "bafk-uploaded" } });
-          // Upload itself still resolves; the abort is only observed
-          // downstream via `signal?.throwIfAborted()` at the main awaited path.
           return {
             pieceCid: "bafk-uploaded",
             pieceId: 123,
