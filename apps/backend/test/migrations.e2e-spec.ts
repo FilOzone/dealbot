@@ -343,7 +343,7 @@ describeWithDocker("Migrations (integration)", () => {
     );
 
     // Mark our migration as not yet run so TypeORM re-applies it against the inserted rows.
-    await dataSource.query(`DELETE FROM typeorm_migrations WHERE name = 'RemoveMetricsJobScheduleRows1776147113065'`);
+    await dataSource.query(`DELETE FROM migrations WHERE name = 'RemoveMetricsJobScheduleRows1776147113065'`);
     await dataSource.runMigrations();
 
     expect(await jobScheduleRowCount(dataSource, "metrics")).toBe(0);
