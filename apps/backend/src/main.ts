@@ -1,17 +1,13 @@
-import { ConsoleLogger } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
 import cors from "cors";
 import helmet from "helmet";
-import { resolveLogLevels } from "./common/log-levels.js";
+import { NativeLogger } from "nestjs-pino";
 import { toStructuredError } from "./common/logging.js";
+import { createPinoExitLogger } from "./common/pino.config.js";
 
-/** Logger used for bootstrap/exit paths before Nest app is created or on unhandled rejection. */
-const exitLogger = new ConsoleLogger("Main", {
-  json: true,
-  colors: false,
-  logLevels: resolveLogLevels(process.env.LOG_LEVEL),
-});
+/** Standalone pino logger used for pre-bootstrap and process-level error paths. */
+const exitLogger = createPinoExitLogger();
 
 let isExiting = false;
 
@@ -33,13 +29,6 @@ function logErrorAndExit(event: string, message: string, error: unknown): void {
 }
 
 async function bootstrap() {
-  const logLevels = resolveLogLevels(process.env.LOG_LEVEL);
-  const logger = new ConsoleLogger("Main", {
-    json: true,
-    colors: false,
-    logLevels,
-  });
-
   const runMode = (process.env.DEALBOT_RUN_MODE || "both").toLowerCase();
   const isWorkerOnly = runMode === "worker";
   const rootModule = isWorkerOnly
@@ -48,8 +37,11 @@ async function bootstrap() {
   const app = await NestFactory.create(rootModule, {
     // Allow bootstrap errors to propagate so our catch path can emit structured fatal logs.
     abortOnError: false,
-    logger,
+    // Buffer framework logs during startup; flushed once pino logger is activated below.
+    bufferLogs: true,
   });
+  app.useLogger(app.get(NativeLogger));
+  app.flushLogs();
 
   // Ensure Nest calls lifecycle shutdown hooks (OnApplicationShutdown / BeforeApplicationShutdown)
   // so resources (DB pools, schedulers, etc.) can be released on SIGINT/SIGTERM.
@@ -100,7 +92,7 @@ async function bootstrap() {
     throw new Error(`Invalid ${name}: ${portEnvValue ?? ""}`);
   }
   const host = isWorkerOnly ? process.env.DEALBOT_METRICS_HOST || "0.0.0.0" : process.env.DEALBOT_HOST || "127.0.0.1";
-  logger.log({
+  exitLogger.log({
     event: "bootstrap_listen_start",
     message: "Starting HTTP listener",
     host,
@@ -108,7 +100,7 @@ async function bootstrap() {
     runMode,
   });
   await app.listen(port, host);
-  logger.log({
+  exitLogger.log({
     event: "bootstrap_listen_complete",
     message: isWorkerOnly
       ? `Dealbot worker is running; metrics available on ${host}:${port}/metrics`
