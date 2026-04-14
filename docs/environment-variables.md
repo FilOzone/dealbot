@@ -543,20 +543,6 @@ DATA_RETENTION_POLL_INTERVAL_SECONDS=7200
 
 ---
 
-### `METRICS_START_OFFSET_SECONDS`
-
-- **Type**: `number`
-- **Required**: No
-- **Default**: `900` (15 minutes) / `600` (10 minutes in .env.example)
-
-**Role**: Delay before metrics collection jobs start after startup.
-
-**When to update**:
-
-- Adjust to ensure metrics collection doesn't overlap with other jobs
-
----
-
 ### `DEALBOT_MAINTENANCE_WINDOWS_UTC`
 
 - **Type**: `string` (comma-separated HH:MM times in UTC)

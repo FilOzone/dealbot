@@ -800,7 +800,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
    * - Inserts new rows for new providers.
    * - Updates intervals if config changed.
    * - Pauses rows for providers that are no longer active.
-   * - Ensures global metrics and provider refresh jobs exist.
+   * - Ensures global data_retention_poll and providers_refresh jobs exist.
    */
   private async ensureScheduleRows(): Promise<void> {
     const now = new Date();

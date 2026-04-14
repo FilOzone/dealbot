@@ -642,7 +642,7 @@ describe("JobsService schedule rows", () => {
     });
   });
 
-  it("always inserts global metrics and providers refresh schedules", async () => {
+  it("always inserts global data_retention_poll and providers_refresh schedules", async () => {
     storageProviderRepositoryMock.find.mockResolvedValueOnce([]);
 
     await callPrivate(service, "ensureScheduleRows");
