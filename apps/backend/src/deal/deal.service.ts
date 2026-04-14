@@ -259,7 +259,8 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
          * See `onStored` handler in deal-addons/strategies/ipni.strategy.ts for implementation.
          */
         ipniValidation: { enabled: false },
-        onProgress: async (event) => {
+        // Must stay synchronous — Synapse SDK's safeInvoke discards the returned promise. See issue #446.
+        onProgress: (event) => {
           this.logger.debug({
             ...dealLogContext,
             event: "upload_progress",
@@ -342,8 +343,6 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
               this.dataStorageMetrics.recordOnchainStatus(providerLabels, "success");
               break;
           }
-          // throw if aborted, AFTER adding data to the `deal` object. Everything in this `onProgress` callback is synchronous.
-          signal?.throwIfAborted();
         },
       });
       signal?.throwIfAborted();
@@ -568,7 +567,8 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
           contexts: [storage],
           pieceMetadata: {},
           ipniValidation: { enabled: false },
-          onProgress: async (event) => {
+          // Must stay synchronous — see issue #446.
+          onProgress: (event) => {
             switch (event.type) {
               case "onStored":
                 pieceCid = event.data.pieceCid.toString();
@@ -604,7 +604,6 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
                 });
                 break;
             }
-            signal?.throwIfAborted();
           },
         }),
         signal,
