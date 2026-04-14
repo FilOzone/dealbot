@@ -21,6 +21,7 @@ import { RenameEvents1761500000003 } from "../src/database/migrations/1761500000
 import { RenameRegionToLocation1761500000004 } from "../src/database/migrations/1761500000004-RenameRegionToLocation.js";
 import { ProviderIdBigInt1761500000005 } from "../src/database/migrations/1761500000005-ProviderIdBigInt.js";
 import { DataSetIdBigInt1761500000006 } from "../src/database/migrations/1761500000006-DataSetIdBigInt.js";
+import { RemoveMetricsJobScheduleRows1776147113065 } from "../src/database/migrations/1776147113065-RemoveMetricsJobScheduleRows.js";
 
 const execFileAsync = promisify(execFile);
 const dockerCheck = spawnSync("docker", ["info"], { stdio: "ignore" });
@@ -53,6 +54,7 @@ const ALL_MIGRATIONS: Array<new () => MigrationInterface> = [
   RenameRegionToLocation1761500000004,
   ProviderIdBigInt1761500000005,
   DataSetIdBigInt1761500000006,
+  RemoveMetricsJobScheduleRows1776147113065,
 ];
 
 type DatabaseConfig = {
@@ -158,6 +160,13 @@ async function indexDefinition(dataSource: DataSource, indexName: string): Promi
   return rows[0]?.indexdef ?? null;
 }
 
+async function jobScheduleRowCount(dataSource: DataSource, jobType: string): Promise<number> {
+  const rows = await dataSource.query(`SELECT COUNT(*)::int AS count FROM job_schedule_state WHERE job_type = $1`, [
+    jobType,
+  ]);
+  return rows[0].count;
+}
+
 async function dealIpniStatus(dataSource: DataSource, dealId: string): Promise<string | null> {
   const rows = await dataSource.query(`SELECT ipni_status FROM deals WHERE id = $1`, [dealId]);
   return rows[0]?.ipni_status ?? null;
@@ -220,6 +229,7 @@ describeWithDocker("Migrations (integration)", () => {
     const initialRun = await dataSource.runMigrations();
     expect(initialRun.length).toBeGreaterThan(0);
 
+    await dataSource.undoLastMigration();
     await dataSource.undoLastMigration();
     await dataSource.undoLastMigration();
     await dataSource.undoLastMigration();
@@ -295,6 +305,7 @@ describeWithDocker("Migrations (integration)", () => {
     await dataSource.undoLastMigration();
     await dataSource.undoLastMigration();
     await dataSource.undoLastMigration();
+    await dataSource.undoLastMigration();
 
     expect(await enumValues(dataSource, "deals_ipni_status_enum")).toContain("sp_received_retrieve_request");
     expect(await dealIpniStatus(dataSource, dealId)).toBe("sp_received_retrieve_request");
@@ -311,4 +322,32 @@ describeWithDocker("Migrations (integration)", () => {
     expect(finalRun.map((migration) => migration.name)).toEqual(expect.arrayContaining(TARGET_MIGRATION_NAMES));
     expect(await dealIpniStatus(dataSource, dealId)).toBe("sp_advertised");
   }, 180_000);
+
+  it("RemoveMetricsJobScheduleRows deletes legacy job schedule rows and preserves valid ones", async () => {
+    const dataSource = migrationDataSource;
+    if (!dataSource) {
+      throw new Error("migration data source is not initialized");
+    }
+
+    const nextRunAt = new Date().toISOString();
+    await dataSource.query(
+      `
+        INSERT INTO job_schedule_state (job_type, sp_address, interval_seconds, next_run_at, paused)
+        VALUES
+          ('metrics',         '',        1800,   $1, false),
+          ('metrics_cleanup', '',        604800, $1, false),
+          ('deal',            '0xkeep',  3600,   $1, false)
+        ON CONFLICT (job_type, sp_address) DO NOTHING
+      `,
+      [nextRunAt],
+    );
+
+    // Mark our migration as not yet run so TypeORM re-applies it against the inserted rows.
+    await dataSource.query(`DELETE FROM typeorm_migrations WHERE name = 'RemoveMetricsJobScheduleRows1776147113065'`);
+    await dataSource.runMigrations();
+
+    expect(await jobScheduleRowCount(dataSource, "metrics")).toBe(0);
+    expect(await jobScheduleRowCount(dataSource, "metrics_cleanup")).toBe(0);
+    expect(await jobScheduleRowCount(dataSource, "deal")).toBeGreaterThan(0);
+  }, 60_000);
 });
