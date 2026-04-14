@@ -453,6 +453,68 @@ describe("DealService", () => {
       expect(mockDataStorageMetrics.recordDataStorageStatus).toHaveBeenCalledWith(labels, "failure.other");
     });
 
+    // Regression test for https://github.com/FilOzone/dealbot/issues/446 — mirrors safeInvoke's no-await invocation.
+    it("createDeal does not leak an unhandled rejection when onProgress is invoked without await after abort", async () => {
+      const unhandled: unknown[] = [];
+      const captureUnhandled = (reason: unknown) => {
+        unhandled.push(reason);
+      };
+      process.on("unhandledRejection", captureUnhandled);
+
+      try {
+        const uploadPayload = {
+          carData: Uint8Array.from([1, 2, 3]),
+          rootCid: CID.parse(mockRootCid),
+        };
+
+        const abortController = new AbortController();
+        const abortReason = new Error("Deal job timeout (120s) for 0xProvider");
+
+        createContextMock.mockResolvedValue({ dataSetId: "dataset-123" });
+
+        (executeUpload as Mock).mockImplementation(async (_s, _d, _c, options) => {
+          // Trigger the abort BEFORE the callback runs, so the inner
+          // `signal?.throwIfAborted()` trips on first invocation.
+          abortController.abort(abortReason);
+          // Mirror safeInvoke: invoke without awaiting. The returned Promise
+          // is intentionally discarded — exactly what the SDK does.
+          void options?.onProgress?.({ type: "onStored", data: { pieceCid: "bafk-uploaded" } });
+          // Upload itself still resolves; the abort is only observed
+          // downstream via `signal?.throwIfAborted()` at the main awaited path.
+          return {
+            pieceCid: "bafk-uploaded",
+            pieceId: 123,
+            transactionHash: "0xhash",
+            ipniValidated: true,
+          };
+        });
+
+        // The awaited main path should observe the abort and throw out of
+        // createDeal. That's the caller-visible behavior we keep.
+        await expect(
+          service.createDeal(
+            mockSynapseInstance,
+            mockProviderInfo,
+            mockDealInput,
+            uploadPayload,
+            undefined,
+            abortController.signal,
+          ),
+        ).rejects.toThrow(/Deal job timeout/);
+
+        // Drain microtasks + one macrotask so any stray unhandled rejection
+        // from the discarded onProgress Promise has a chance to surface.
+        for (let i = 0; i < 20; i += 1) await Promise.resolve();
+        await new Promise<void>((resolve) => {
+          setImmediate(resolve);
+        });
+
+        expect(unhandled).toEqual([]);
+      } finally {
+        process.off("unhandledRejection", captureUnhandled);
+      }
+    });
+
     it("handles upload failures correctly by marking deal as FAILED", async () => {
       const error = new Error("Upload failed");
       const uploadPayload = {
