@@ -1,4 +1,4 @@
-import { NativeLogger, nativeLoggerOptions, type Params, PinoLogger } from "nestjs-pino";
+import { nativeLoggerOptions } from "nestjs-pino";
 import pino from "pino";
 
 const PINO_LEVEL_MAP: Record<string, string> = {
@@ -16,21 +16,16 @@ export function resolvePinoLevel(level: string | undefined): string {
   return PINO_LEVEL_MAP[level.toLowerCase().trim()] ?? "info";
 }
 
-export function buildLoggerModuleParams(): Params {
+export function buildLoggerModuleParams() {
   return {
     pinoHttp: {
       ...nativeLoggerOptions,
       level: resolvePinoLevel(process.env.LOG_LEVEL),
-      timestamp: pino.stdTimeFunctions.isoTime,
+      timestamp: () => `,"timestamp":"${new Date().toISOString()}"`,
     },
   };
 }
 
 export function createPinoExitLogger() {
-  return new NativeLogger(
-    new PinoLogger({
-      ...buildLoggerModuleParams(),
-    }),
-    {},
-  );
+  return pino({ ...buildLoggerModuleParams().pinoHttp });
 }
