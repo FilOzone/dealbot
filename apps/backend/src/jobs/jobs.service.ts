@@ -7,7 +7,8 @@ import type { Counter, Gauge, Histogram } from "prom-client";
 import type { Repository } from "typeorm";
 import { type JobLogContext, type ProviderJobContext, toStructuredError } from "../common/logging.js";
 import { getMaintenanceWindowStatus } from "../common/maintenance-window.js";
-import type { IConfig } from "../config/app.config.js";
+import { isSpBlocked } from "../common/sp-blocklist.js";
+import type { IConfig, ISpBlocklistConfig } from "../config/app.config.js";
 import { DataRetentionService } from "../data-retention/data-retention.service.js";
 import type { JobType } from "../database/entities/job-schedule-state.entity.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
@@ -465,6 +466,15 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
           }
         }
 
+        if (isSpBlocked(this.configService.get("spBlocklists"), provider.serviceProvider, provider.id)) {
+          this.logger.log({
+            ...logContext,
+            event: "deal_job_blocked",
+            message: "Deal job skipped: provider is blocked for scheduled data-storage checks",
+          });
+          return "success";
+        }
+
         // Data-set-aware deal creation
         const minDataSets = this.configService.get("blockchain").minNumDataSetsForChecks;
         const baseDataSetMetadata = this.dealService.getBaseDataSetMetadata();
@@ -576,6 +586,15 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     await this.recordJobExecution("retrieval", async () => {
       const logContext = await this.resolveProviderJobContext(spAddress, job.id);
       try {
+        const retrievalProviderInfo = this.walletSdkService.getProviderInfo(spAddress);
+        if (isSpBlocked(this.configService.get("spBlocklists"), spAddress, retrievalProviderInfo?.id)) {
+          this.logger.log({
+            ...logContext,
+            event: "retrieval_job_blocked",
+            message: "Retrieval job skipped: provider is blocked for scheduled retrieval checks",
+          });
+          return "success";
+        }
         await this.retrievalService.performRandomRetrievalForProvider(spAddress, abortController.signal, logContext);
         return "success";
       } catch (error) {
@@ -657,9 +676,19 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       this.storageProvidersActive.set({ status: "inactive" }, inactiveCount);
 
       const useOnlyApprovedProviders = this.configService.get("blockchain").useOnlyApprovedProviders;
-      const testedCount = await this.storageProviderRepository.count({
-        where: useOnlyApprovedProviders ? { isActive: true, isApproved: true } : { isActive: true },
-      });
+      const testedWhere = useOnlyApprovedProviders ? { isActive: true, isApproved: true } : { isActive: true };
+      const spBlocklists = this.configService.get<ISpBlocklistConfig>("spBlocklists");
+      const hasGlobalBlocklist = spBlocklists.addresses.size > 0 || spBlocklists.ids.size > 0;
+      let testedCount: number;
+      if (hasGlobalBlocklist) {
+        const testedProviders = await this.storageProviderRepository.find({
+          select: { address: true, providerId: true },
+          where: testedWhere,
+        });
+        testedCount = testedProviders.filter((p) => !isSpBlocked(spBlocklists, p.address, p.providerId)).length;
+      } else {
+        testedCount = await this.storageProviderRepository.count({ where: testedWhere });
+      }
       this.storageProvidersTested.set(testedCount);
     } catch (error) {
       this.logger.warn({
@@ -702,6 +731,14 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     await this.recordJobExecution("data_set_creation", async () => {
       const dataSetLogContext = await this.resolveProviderJobContext(spAddress, job.id);
       try {
+        if (isSpBlocked(this.configService.get("spBlocklists"), spAddress, dataSetLogContext.providerId)) {
+          this.logger.log({
+            ...dataSetLogContext,
+            event: "data_set_creation_job_blocked",
+            message: "Data set creation job skipped: provider is blocked for scheduled data-storage checks",
+          });
+          return "success";
+        }
         await provisionNextMissingDataSet(
           { dealService: this.dealService, logger: this.logger },
           spAddress,
@@ -899,16 +936,24 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
 
     const minDataSets = this.configService.get("blockchain").minNumDataSetsForChecks;
 
+    const spBlocklistsCfg = this.configService.get<ISpBlocklistConfig>("spBlocklists");
     for (const address of providerAddresses) {
-      await this.jobScheduleRepository.upsertSchedule("deal", address, dealIntervalSeconds, dealStartAt);
-      await this.jobScheduleRepository.upsertSchedule("retrieval", address, retrievalIntervalSeconds, retrievalStartAt);
-      if (minDataSets >= 1) {
+      if (!isSpBlocked(spBlocklistsCfg, address)) {
+        await this.jobScheduleRepository.upsertSchedule("deal", address, dealIntervalSeconds, dealStartAt);
         await this.jobScheduleRepository.upsertSchedule(
-          "data_set_creation",
+          "retrieval",
           address,
-          dataSetCreationIntervalSeconds,
-          dataSetCreationStartAt,
+          retrievalIntervalSeconds,
+          retrievalStartAt,
         );
+        if (minDataSets >= 1) {
+          await this.jobScheduleRepository.upsertSchedule(
+            "data_set_creation",
+            address,
+            dataSetCreationIntervalSeconds,
+            dataSetCreationStartAt,
+          );
+        }
       }
     }
 

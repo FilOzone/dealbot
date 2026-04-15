@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { IConfig } from "../config/app.config.js";
+import type { IConfig, ISpBlocklistConfig } from "../config/app.config.js";
 import {
   DATA_RETENTION_POLL_QUEUE,
   METRICS_CLEANUP_QUEUE,
@@ -115,6 +115,11 @@ describe("JobsService schedule rows", () => {
       storageProvidersTested: { set: vi.fn() } as unknown as JobsServiceDeps[19],
     };
 
+    const emptySpBlocklists: ISpBlocklistConfig = {
+      ids: new Set(),
+      addresses: new Set(),
+    };
+
     baseConfigValues = {
       app: { runMode: "both" } as IConfig["app"],
       blockchain: { useOnlyApprovedProviders: false, minNumDataSetsForChecks: 1 } as IConfig["blockchain"],
@@ -139,6 +144,7 @@ describe("JobsService schedule rows", () => {
         password: "pass",
         database: "dealbot",
       } as IConfig["database"],
+      spBlocklists: emptySpBlocklists,
     };
 
     configService = {
@@ -1352,7 +1358,7 @@ describe("JobsService schedule rows", () => {
     storageProviderRepositoryMock.count
       .mockResolvedValueOnce(10) // totalProviders
       .mockResolvedValueOnce(7) // activeCount
-      .mockResolvedValueOnce(7); // testedCount (useOnlyApprovedProviders=false)
+      .mockResolvedValueOnce(7); // testedCount (useOnlyApprovedProviders=false, no global blocklist)
 
     const activeGauge = metricsMocks.storageProvidersActive as unknown as { set: ReturnType<typeof vi.fn> };
     const testedGauge = metricsMocks.storageProvidersTested as unknown as { set: ReturnType<typeof vi.fn> };
@@ -1380,8 +1386,133 @@ describe("JobsService schedule rows", () => {
     });
   });
 
+  it("subtracts globally blocked providers from tested gauge when global blocklist is non-empty", async () => {
+    baseConfigValues.spBlocklists = {
+      ids: new Set<string>(),
+      addresses: new Set(["0xblocked"]),
+    };
+    configService = {
+      get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
+    } as unknown as JobsServiceDeps[0];
+
+    service = buildService({ configService });
+
+    storageProviderRepositoryMock.count
+      .mockResolvedValueOnce(3) // totalProviders
+      .mockResolvedValueOnce(3); // activeCount
+    // find() for tested providers when global blocklist is non-empty
+    storageProviderRepositoryMock.find.mockResolvedValueOnce([
+      { address: "0xactive" },
+      { address: "0xblocked" },
+      { address: "0xother" },
+    ]);
+
+    const testedGauge = metricsMocks.storageProvidersTested as unknown as { set: ReturnType<typeof vi.fn> };
+
+    await callPrivate(service, "updateStorageProviderGauges");
+
+    expect(testedGauge.set).toHaveBeenCalledWith(2); // 3 providers minus 1 globally blocked
+  });
+
   it("catches storage provider gauge errors without rethrowing", async () => {
     storageProviderRepositoryMock.count.mockRejectedValueOnce(new Error("db error"));
     await expect(callPrivate(service, "updateStorageProviderGauges")).resolves.toBeUndefined();
+  });
+
+  it("skips schedule upsert for blocked provider", async () => {
+    const providerA = { address: "0xaaa" };
+    storageProviderRepositoryMock.find.mockResolvedValueOnce([providerA]);
+
+    baseConfigValues.spBlocklists = { ids: new Set(), addresses: new Set(["0xaaa"]) };
+    service = buildService();
+
+    await callPrivate(service, "ensureScheduleRows");
+
+    const upsertCalls = jobScheduleRepositoryMock.upsertSchedule.mock.calls;
+    const jobTypes = upsertCalls.filter((c) => c[1] === providerA.address).map((c) => c[0]);
+    expect(jobTypes).not.toContain("deal");
+    expect(jobTypes).not.toContain("data_set_creation");
+    expect(jobTypes).not.toContain("retrieval");
+  });
+
+  it("deal job is skipped at runtime when provider is blocked", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2024-01-01T12:00:00Z"));
+
+    baseConfigValues.spBlocklists = { ids: new Set(), addresses: new Set(["0xaaa"]) };
+
+    const dealService = {
+      createDealForProvider: vi.fn(),
+      getBaseDataSetMetadata: vi.fn(() => ({})),
+    };
+    const walletSdkService = {
+      getTestingProviders: vi.fn(() => [{ serviceProvider: "0xaaa", id: 1n }]),
+      loadProviders: vi.fn(),
+      getProviderInfo: vi.fn(() => ({ id: 1n, name: "sp" })),
+    };
+
+    service = buildService({
+      dealService: dealService as unknown as JobsServiceDeps[3],
+      walletSdkService: walletSdkService as unknown as JobsServiceDeps[6],
+    });
+
+    await callPrivate(service, "handleDealJob", {
+      id: "job-blocked-deal",
+      data: { jobType: "deal", spAddress: "0xaaa", intervalSeconds: 60 },
+    });
+
+    expect(dealService.createDealForProvider).not.toHaveBeenCalled();
+  });
+
+  it("retrieval job is skipped at runtime when provider is blocked", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2024-01-01T12:00:00Z"));
+
+    baseConfigValues.spBlocklists = { ids: new Set(), addresses: new Set(["0xaaa"]) };
+
+    const retrievalService = { performRandomRetrievalForProvider: vi.fn() };
+    const walletSdkService = {
+      getProviderInfo: vi.fn(() => ({ id: 2n, name: "sp" })),
+    };
+
+    service = buildService({
+      retrievalService: retrievalService as unknown as JobsServiceDeps[4],
+      walletSdkService: walletSdkService as unknown as JobsServiceDeps[6],
+    });
+
+    await callPrivate(service, "handleRetrievalJob", {
+      id: "job-blocked-retrieval",
+      data: { jobType: "retrieval", spAddress: "0xaaa", intervalSeconds: 60 },
+    });
+
+    expect(retrievalService.performRandomRetrievalForProvider).not.toHaveBeenCalled();
+  });
+
+  it("data_set_creation job is skipped at runtime when provider is blocked", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2024-01-01T12:00:00Z"));
+
+    baseConfigValues.spBlocklists = { ids: new Set(), addresses: new Set(["0xaaa"]) };
+
+    const dealService = {
+      getBaseDataSetMetadata: vi.fn(() => ({})),
+      checkDataSetExists: vi.fn(async () => false),
+      createDataSetWithPiece: vi.fn(async () => {}),
+    };
+    const walletSdkService = {
+      getProviderInfo: vi.fn(() => ({ id: 3n, name: "sp" })),
+    };
+
+    service = buildService({
+      dealService: dealService as unknown as JobsServiceDeps[3],
+      walletSdkService: walletSdkService as unknown as JobsServiceDeps[6],
+    });
+
+    await callPrivate(service, "handleDataSetCreationJob", {
+      id: "job-blocked-ds",
+      data: { jobType: "data_set_creation", spAddress: "0xaaa", intervalSeconds: 3600 },
+    });
+
+    expect(dealService.createDataSetWithPiece).not.toHaveBeenCalled();
   });
 });
