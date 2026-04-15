@@ -668,7 +668,7 @@ describe("JobsService schedule rows", () => {
     await callPrivate(service, "ensureScheduleRows");
 
     expect(storageProviderRepositoryMock.find).toHaveBeenCalledWith({
-      select: { address: true },
+      select: { address: true, providerId: true },
       where: { isActive: true, isApproved: true },
     });
   });
@@ -1419,11 +1419,11 @@ describe("JobsService schedule rows", () => {
     await expect(callPrivate(service, "updateStorageProviderGauges")).resolves.toBeUndefined();
   });
 
-  it("skips schedule upsert for blocked provider", async () => {
-    const providerA = { address: "0xaaa" };
+  it("skips schedule upsert for blocked provider and excludes it from cleanup active-list", async () => {
+    const providerA = { address: "0xaaa", providerId: 1n };
     storageProviderRepositoryMock.find.mockResolvedValueOnce([providerA]);
 
-    baseConfigValues.spBlocklists = { ids: new Set(), addresses: new Set(["0xaaa"]) };
+    baseConfigValues.spBlocklists = { ids: new Set(["1"]), addresses: new Set() };
     service = buildService();
 
     await callPrivate(service, "ensureScheduleRows");
@@ -1433,13 +1433,16 @@ describe("JobsService schedule rows", () => {
     expect(jobTypes).not.toContain("deal");
     expect(jobTypes).not.toContain("data_set_creation");
     expect(jobTypes).not.toContain("retrieval");
+    // Blocked provider is excluded from the active-address list passed to cleanup,
+    // so its existing schedule rows will be deleted.
+    expect(jobScheduleRepositoryMock.deleteSchedulesForInactiveProviders).toHaveBeenCalledWith([]);
   });
 
   it("deal job is skipped at runtime when provider is blocked", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2024-01-01T12:00:00Z"));
 
-    baseConfigValues.spBlocklists = { ids: new Set(), addresses: new Set(["0xaaa"]) };
+    baseConfigValues.spBlocklists = { ids: new Set(["1"]), addresses: new Set() };
 
     const dealService = {
       createDealForProvider: vi.fn(),
@@ -1468,7 +1471,7 @@ describe("JobsService schedule rows", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2024-01-01T12:00:00Z"));
 
-    baseConfigValues.spBlocklists = { ids: new Set(), addresses: new Set(["0xaaa"]) };
+    baseConfigValues.spBlocklists = { ids: new Set(["2"]), addresses: new Set() };
 
     const retrievalService = { performRandomRetrievalForProvider: vi.fn() };
     const walletSdkService = {
@@ -1492,7 +1495,7 @@ describe("JobsService schedule rows", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2024-01-01T12:00:00Z"));
 
-    baseConfigValues.spBlocklists = { ids: new Set(), addresses: new Set(["0xaaa"]) };
+    baseConfigValues.spBlocklists = { ids: new Set(["3"]), addresses: new Set() };
 
     const dealService = {
       getBaseDataSetMetadata: vi.fn(() => ({})),

@@ -466,7 +466,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
           }
         }
 
-        if (isSpBlocked(this.configService.get("spBlocklists"), provider.serviceProvider, provider.id)) {
+        if (isSpBlocked(this.configService.get("spBlocklists"), provider.serviceProvider, logContext.providerId)) {
           this.logger.log({
             ...logContext,
             event: "deal_job_blocked",
@@ -586,8 +586,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     await this.recordJobExecution("retrieval", async () => {
       const logContext = await this.resolveProviderJobContext(spAddress, job.id);
       try {
-        const retrievalProviderInfo = this.walletSdkService.getProviderInfo(spAddress);
-        if (isSpBlocked(this.configService.get("spBlocklists"), spAddress, retrievalProviderInfo?.id)) {
+        if (isSpBlocked(this.configService.get("spBlocklists"), spAddress, logContext.providerId)) {
           this.logger.log({
             ...logContext,
             event: "retrieval_job_blocked",
@@ -922,10 +921,9 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     // Active providers are guaranteed to support ipniIpfs
     // as validated by WalletSdkService.loadProvidersInternal()
     const providers = await this.storageProviderRepository.find({
-      select: { address: true },
+      select: { address: true, providerId: true },
       where: useOnlyApprovedProviders ? { isActive: true, isApproved: true } : { isActive: true },
     });
-    const providerAddresses = providers.map((provider) => provider.address);
 
     const phaseMs = this.schedulePhaseSeconds() * 1000;
     const dealStartAt = new Date(now.getTime() + phaseMs);
@@ -937,28 +935,33 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     const minDataSets = this.configService.get("blockchain").minNumDataSetsForChecks;
 
     const spBlocklistsCfg = this.configService.get<ISpBlocklistConfig>("spBlocklists");
-    for (const address of providerAddresses) {
-      if (!isSpBlocked(spBlocklistsCfg, address)) {
-        await this.jobScheduleRepository.upsertSchedule("deal", address, dealIntervalSeconds, dealStartAt);
+    const unblockedAddresses = providers
+      .filter(({ address, providerId }) => !isSpBlocked(spBlocklistsCfg, address, providerId))
+      .map(({ address }) => address);
+    const blockedCount = providers.length - unblockedAddresses.length;
+    if (blockedCount > 0) {
+      this.logger.warn({
+        event: "job_schedules_skipped_blocked",
+        message: "Skipping job schedule upsert for blocked providers",
+        blockedCount,
+      });
+    }
+
+    for (const address of unblockedAddresses) {
+      await this.jobScheduleRepository.upsertSchedule("deal", address, dealIntervalSeconds, dealStartAt);
+      await this.jobScheduleRepository.upsertSchedule("retrieval", address, retrievalIntervalSeconds, retrievalStartAt);
+      if (minDataSets >= 1) {
         await this.jobScheduleRepository.upsertSchedule(
-          "retrieval",
+          "data_set_creation",
           address,
-          retrievalIntervalSeconds,
-          retrievalStartAt,
+          dataSetCreationIntervalSeconds,
+          dataSetCreationStartAt,
         );
-        if (minDataSets >= 1) {
-          await this.jobScheduleRepository.upsertSchedule(
-            "data_set_creation",
-            address,
-            dataSetCreationIntervalSeconds,
-            dataSetCreationStartAt,
-          );
-        }
       }
     }
 
-    if (providerAddresses.length > 0) {
-      const deletedAddresses = await this.jobScheduleRepository.deleteSchedulesForInactiveProviders(providerAddresses);
+    if (providers.length > 0) {
+      const deletedAddresses = await this.jobScheduleRepository.deleteSchedulesForInactiveProviders(unblockedAddresses);
       if (deletedAddresses.length > 0) {
         this.logger.warn({
           event: "job_schedules_deleted",
