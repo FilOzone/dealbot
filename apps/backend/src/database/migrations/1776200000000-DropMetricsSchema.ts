@@ -1,7 +1,7 @@
 import type { MigrationInterface, QueryRunner } from "typeorm";
 
-export class DropMetricsSchema1762000000000 implements MigrationInterface {
-  name = "DropMetricsSchema1762000000000";
+export class DropMetricsSchema1776200000000 implements MigrationInterface {
+  name = "DropMetricsSchema1776200000000";
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     // Drop refresh functions first (they reference the materialized views)

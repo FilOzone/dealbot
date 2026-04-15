@@ -22,6 +22,7 @@ import { RenameRegionToLocation1761500000004 } from "../src/database/migrations/
 import { ProviderIdBigInt1761500000005 } from "../src/database/migrations/1761500000005-ProviderIdBigInt.js";
 import { DataSetIdBigInt1761500000006 } from "../src/database/migrations/1761500000006-DataSetIdBigInt.js";
 import { RemoveMetricsJobScheduleRows1776147113065 } from "../src/database/migrations/1776147113065-RemoveMetricsJobScheduleRows.js";
+import { DropMetricsSchema1776200000000 } from "../src/database/migrations/1776200000000-DropMetricsSchema.js";
 
 const execFileAsync = promisify(execFile);
 const dockerCheck = spawnSync("docker", ["info"], { stdio: "ignore" });
@@ -55,6 +56,7 @@ const ALL_MIGRATIONS: Array<new () => MigrationInterface> = [
   ProviderIdBigInt1761500000005,
   DataSetIdBigInt1761500000006,
   RemoveMetricsJobScheduleRows1776147113065,
+  DropMetricsSchema1776200000000,
 ];
 
 type DatabaseConfig = {
@@ -170,6 +172,64 @@ async function jobScheduleRowCount(dataSource: DataSource, jobType: string): Pro
 async function dealIpniStatus(dataSource: DataSource, dealId: string): Promise<string | null> {
   const rows = await dataSource.query(`SELECT ipni_status FROM deals WHERE id = $1`, [dealId]);
   return rows[0]?.ipni_status ?? null;
+}
+
+async function tableExists(dataSource: DataSource, tableName: string): Promise<boolean> {
+  const rows = await dataSource.query(
+    `
+      SELECT 1
+      FROM information_schema.tables
+      WHERE table_schema = 'public'
+        AND table_name = $1
+      LIMIT 1
+    `,
+    [tableName],
+  );
+  return rows.length > 0;
+}
+
+async function materializedViewExists(dataSource: DataSource, viewName: string): Promise<boolean> {
+  const rows = await dataSource.query(
+    `
+      SELECT 1
+      FROM pg_matviews
+      WHERE schemaname = 'public'
+        AND matviewname = $1
+      LIMIT 1
+    `,
+    [viewName],
+  );
+  return rows.length > 0;
+}
+
+async function functionExists(dataSource: DataSource, functionName: string): Promise<boolean> {
+  const rows = await dataSource.query(
+    `
+      SELECT 1
+      FROM pg_proc p
+      JOIN pg_namespace n ON n.oid = p.pronamespace
+      WHERE n.nspname = 'public'
+        AND p.proname = $1
+      LIMIT 1
+    `,
+    [functionName],
+  );
+  return rows.length > 0;
+}
+
+async function typeExists(dataSource: DataSource, typeName: string): Promise<boolean> {
+  const rows = await dataSource.query(
+    `
+      SELECT 1
+      FROM pg_type t
+      JOIN pg_namespace n ON n.oid = t.typnamespace
+      WHERE n.nspname = 'public'
+        AND t.typname = $1
+      LIMIT 1
+    `,
+    [typeName],
+  );
+  return rows.length > 0;
 }
 
 describeWithDocker("Migrations (integration)", () => {
@@ -349,5 +409,21 @@ describeWithDocker("Migrations (integration)", () => {
     expect(await jobScheduleRowCount(dataSource, "metrics")).toBe(0);
     expect(await jobScheduleRowCount(dataSource, "metrics_cleanup")).toBe(0);
     expect(await jobScheduleRowCount(dataSource, "deal")).toBeGreaterThan(0);
+  }, 60_000);
+
+  it("DropMetricsSchema drops legacy metrics schema objects", async () => {
+    const dataSource = migrationDataSource;
+    if (!dataSource) {
+      throw new Error("migration data source is not initialized");
+    }
+
+    // Verify all metrics schema objects are dropped after migration
+    expect(await tableExists(dataSource, "metrics_daily")).toBe(false);
+    expect(await materializedViewExists(dataSource, "sp_performance_last_week")).toBe(false);
+    expect(await materializedViewExists(dataSource, "sp_performance_all_time")).toBe(false);
+    expect(await functionExists(dataSource, "refresh_sp_performance_last_week")).toBe(false);
+    expect(await functionExists(dataSource, "refresh_sp_performance_all_time")).toBe(false);
+    expect(await typeExists(dataSource, "metrics_daily_metric_type_enum")).toBe(false);
+    expect(await typeExists(dataSource, "metrics_daily_service_type_enum")).toBe(false);
   }, 60_000);
 });
