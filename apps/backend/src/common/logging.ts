@@ -1,5 +1,15 @@
 type ErrorWithCode = Error & { code?: unknown };
 const MAX_ERROR_STACK_LENGTH = 4 * 1024;
+const MAX_CAUSE_DEPTH = 5;
+const URL_PATTERN = /\bhttps?:\/\/[^\s<>"')\]}]+/gi;
+const REDACTED_VALUE = "REDACTED";
+const SENSITIVE_QUERY_PARAMETER_NAMES = new Set([
+  "token",
+  "api_key",
+  "apikey",
+  "access_token",
+  "authorization",
+]);
 
 export type StructuredError = {
   type: "error" | "non_error";
@@ -21,6 +31,31 @@ export function toJsonSafe(value: unknown): unknown {
   }
 }
 
+function redactSensitiveUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+
+    if (parsed.username || parsed.password) {
+      parsed.username = REDACTED_VALUE;
+      parsed.password = REDACTED_VALUE;
+    }
+
+    for (const key of parsed.searchParams.keys()) {
+      if (SENSITIVE_QUERY_PARAMETER_NAMES.has(key.toLowerCase())) {
+        parsed.searchParams.set(key, REDACTED_VALUE);
+      }
+    }
+
+    return parsed.toString();
+  } catch {
+    return url;
+  }
+}
+
+export function redactSensitiveText(text: string): string {
+  return text.replace(URL_PATTERN, redactSensitiveUrl);
+}
+
 function truncateErrorStack(stack: string | undefined): string | undefined {
   if (!stack || stack.length <= MAX_ERROR_STACK_LENGTH) {
     return stack;
@@ -29,8 +64,6 @@ function truncateErrorStack(stack: string | undefined): string | undefined {
   const omittedChars = stack.length - MAX_ERROR_STACK_LENGTH;
   return `${stack.slice(0, MAX_ERROR_STACK_LENGTH)}... [truncated ${omittedChars} chars]`;
 }
-
-const MAX_CAUSE_DEPTH = 5;
 
 /**
  * Serializes unknown error values into structured JSON-friendly fields.
@@ -48,9 +81,9 @@ export function toStructuredError(error: unknown, depth: number = 0): Structured
     return {
       type: "error",
       name: error.name,
-      message: error.message,
+      message: redactSensitiveText(error.message),
       code: stringCode && stringCode.length > 0 ? stringCode : undefined,
-      stack: truncateErrorStack(error.stack),
+      stack: truncateErrorStack(error.stack ? redactSensitiveText(error.stack) : undefined),
       cause,
     };
   }
@@ -58,7 +91,7 @@ export function toStructuredError(error: unknown, depth: number = 0): Structured
   if (typeof error === "string") {
     return {
       type: "non_error",
-      message: error,
+      message: redactSensitiveText(error),
     };
   }
 

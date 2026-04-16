@@ -9,7 +9,7 @@ import type { Repository } from "typeorm";
 import { awaitWithAbort } from "../common/abort-utils.js";
 import { buildUnixfsCar } from "../common/car-utils.js";
 import { createFilecoinPinLogger } from "../common/filecoin-pin-logger.js";
-import { type DealLogContext, type ProviderJobContext, toStructuredError } from "../common/logging.js";
+import { redactSensitiveText, type DealLogContext, type ProviderJobContext, toStructuredError } from "../common/logging.js";
 import { createSynapseFromConfig } from "../common/synapse-factory.js";
 import type { DataFile, Hex } from "../common/types.js";
 import type { IBlockchainConfig, IConfig } from "../config/app.config.js";
@@ -437,7 +437,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
 
       return deal;
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorMessage = redactSensitiveText(error instanceof Error ? error.message : String(error));
       this.logger.error({
         ...dealLogContext,
         event: "deal_creation_failed",

@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { toStructuredError } from "./logging.js";
+import { redactSensitiveText, toStructuredError } from "./logging.js";
 
 describe("toStructuredError", () => {
+  it("redacts sensitive credentials from URLs in plain text", () => {
+    expect(
+      redactSensitiveText("URL: https://user:pass@example.com/rpc/v1?token=secret&api_key=another&ok=1"),
+    ).toBe("URL: https://REDACTED:REDACTED@example.com/rpc/v1?token=REDACTED&api_key=REDACTED&ok=1");
+  });
+
   it("serializes Error instances into structured fields", () => {
     const error = Object.assign(new Error("boom"), { code: "E_BOOM" });
 
@@ -23,6 +29,28 @@ describe("toStructuredError", () => {
       type: "non_error",
       message: "failure",
     });
+  });
+
+  it("redacts sensitive URLs from error messages, stacks, and causes", () => {
+    const cause = new Error("URL: https://example.com/rpc?access_token=cause-secret");
+    const error = new Error("URL: https://example.com/rpc?token=top-secret&ok=1", { cause });
+    error.stack = `Error: request failed\nURL: https://example.com/rpc?apikey=stack-secret`;
+
+    const result = toStructuredError(error);
+
+    expect(result.message).toContain("token=REDACTED");
+    expect(result.message).toContain("ok=1");
+    expect(result.message).not.toContain("top-secret");
+    expect(result.stack).toContain("apikey=REDACTED");
+    expect(result.stack).not.toContain("stack-secret");
+    expect(result.cause?.message).toContain("access_token=REDACTED");
+    expect(result.cause?.message).not.toContain("cause-secret");
+  });
+
+  it("redacts sensitive URLs from thrown strings", () => {
+    expect(toStructuredError("URL: https://example.com/rpc?authorization=secret").message).toContain(
+      "authorization=REDACTED",
+    );
   });
 
   it("normalizes non-string error codes to strings", () => {
