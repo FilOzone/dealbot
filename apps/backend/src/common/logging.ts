@@ -1,5 +1,6 @@
 type ErrorWithCode = Error & { code?: unknown };
 const MAX_ERROR_STACK_LENGTH = 4 * 1024;
+const ERROR_STACK_REDACTION_BUFFER_LENGTH = 512;
 const MAX_CAUSE_DEPTH = 5;
 const URL_PATTERN = /\bhttps?:\/\/[^\s<>"')\]}]+/gi;
 const REDACTED_VALUE = "REDACTED";
@@ -29,8 +30,11 @@ function redactSensitiveUrl(url: string): string {
   try {
     const parsed = new URL(url);
 
-    if (parsed.username || parsed.password) {
+    if (parsed.username) {
       parsed.username = REDACTED_VALUE;
+    }
+
+    if (parsed.password) {
       parsed.password = REDACTED_VALUE;
     }
 
@@ -50,13 +54,24 @@ export function redactSensitiveText(text: string): string {
   return text.replaceAll(URL_PATTERN, redactSensitiveUrl);
 }
 
-function truncateErrorStack(stack: string | undefined): string | undefined {
+function truncateErrorStack(stack: string): string {
   if (!stack || stack.length <= MAX_ERROR_STACK_LENGTH) {
     return stack;
   }
 
   const omittedChars = stack.length - MAX_ERROR_STACK_LENGTH;
   return `${stack.slice(0, MAX_ERROR_STACK_LENGTH)}... [truncated ${omittedChars} chars]`;
+}
+
+function redactErrorStack(stack: string | undefined): string | undefined {
+  if (!stack) {
+    return stack;
+  }
+
+  const redactionWindow = MAX_ERROR_STACK_LENGTH + ERROR_STACK_REDACTION_BUFFER_LENGTH;
+  const boundedStack = stack.length > redactionWindow ? stack.slice(0, redactionWindow) : stack;
+
+  return truncateErrorStack(redactSensitiveText(boundedStack));
 }
 
 /**
@@ -77,7 +92,7 @@ export function toStructuredError(error: unknown, depth: number = 0): Structured
       name: error.name,
       message: redactSensitiveText(error.message),
       code: stringCode && stringCode.length > 0 ? stringCode : undefined,
-      stack: truncateErrorStack(error.stack ? redactSensitiveText(error.stack) : undefined),
+      stack: redactErrorStack(error.stack),
       cause,
     };
   }

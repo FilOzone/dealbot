@@ -8,6 +8,12 @@ describe("toStructuredError", () => {
     );
   });
 
+  it("preserves username-only URL shape when redacting credentials", () => {
+    expect(redactSensitiveText("URL: https://user@example.com/rpc/v1?token=secret")).toBe(
+      "URL: https://REDACTED@example.com/rpc/v1?token=REDACTED",
+    );
+  });
+
   it("serializes Error instances into structured fields", () => {
     const error = Object.assign(new Error("boom"), { code: "E_BOOM" });
 
@@ -76,6 +82,17 @@ describe("toStructuredError", () => {
     expect(result.stack).toContain("Error: boom");
     expect(result.stack).toContain("[truncated ");
     expect(result.stack!.length).toBeLessThan(longStack.length);
+  });
+
+  it("redacts sensitive URLs near the stack truncation boundary", () => {
+    const error = new Error("boom");
+    error.stack = `${"x".repeat(4020)} https://example.com/rpc?token=stack-secret ${"y".repeat(200)}`;
+
+    const result = toStructuredError(error);
+
+    expect(result.stack).toContain("token=REDACTED");
+    expect(result.stack).not.toContain("stack-secret");
+    expect(result.stack).toContain("[truncated ");
   });
 
   it("serializes error cause chains", () => {
