@@ -47,7 +47,7 @@ function redactSensitiveUrl(url: string): string {
 }
 
 export function redactSensitiveText(text: string): string {
-  return text.replace(URL_PATTERN, redactSensitiveUrl);
+  return text.replaceAll(URL_PATTERN, redactSensitiveUrl);
 }
 
 function truncateErrorStack(stack: string | undefined): string | undefined {
