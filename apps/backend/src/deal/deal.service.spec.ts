@@ -550,6 +550,26 @@ describe("DealService", () => {
       expect(dealRepoMock.save).toHaveBeenCalledWith(mockDeal);
     });
 
+    it("redacts sensitive RPC credentials before persisting deal failures", async () => {
+      const error = new Error("HTTP request failed.\nURL: https://filecoin.chain.love/rpc/v1?token=secret-token&ok=1");
+      const uploadPayload = {
+        carData: Uint8Array.from([1, 2, 3]),
+        rootCid: CID.parse(mockRootCid),
+      };
+
+      createContextMock.mockRejectedValue(error);
+
+      await expect(
+        service.createDeal(mockSynapseInstance, mockProviderInfo, mockDealInput, uploadPayload),
+      ).rejects.toThrow("secret-token");
+
+      expect(mockDeal.status).toBe(DealStatus.FAILED);
+      expect(mockDeal.errorMessage).toContain("token=REDACTED");
+      expect(mockDeal.errorMessage).toContain("ok=1");
+      expect(mockDeal.errorMessage).not.toContain("secret-token");
+      expect(dealRepoMock.save).toHaveBeenCalledWith(mockDeal);
+    });
+
     it("records abort reasons when signal aborts with a non-Error value", async () => {
       const uploadPayload = {
         carData: Uint8Array.from([1, 2, 3]),
