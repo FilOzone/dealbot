@@ -3,9 +3,9 @@ import { redactSensitiveText, toStructuredError } from "./logging.js";
 
 describe("toStructuredError", () => {
   it("redacts sensitive credentials from URLs in plain text", () => {
-    expect(
-      redactSensitiveText("URL: https://user:pass@example.com/rpc/v1?token=secret&api_key=another&ok=1"),
-    ).toBe("URL: https://REDACTED:REDACTED@example.com/rpc/v1?token=REDACTED&api_key=REDACTED&ok=1");
+    expect(redactSensitiveText("URL: https://user:pass@example.com/rpc/v1?token=secret&api_key=another&ok=1")).toBe(
+      "URL: https://REDACTED:REDACTED@example.com/rpc/v1?token=REDACTED&api_key=REDACTED&ok=1",
+    );
   });
 
   it("serializes Error instances into structured fields", () => {

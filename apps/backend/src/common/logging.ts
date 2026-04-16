@@ -3,13 +3,7 @@ const MAX_ERROR_STACK_LENGTH = 4 * 1024;
 const MAX_CAUSE_DEPTH = 5;
 const URL_PATTERN = /\bhttps?:\/\/[^\s<>"')\]}]+/gi;
 const REDACTED_VALUE = "REDACTED";
-const SENSITIVE_QUERY_PARAMETER_NAMES = new Set([
-  "token",
-  "api_key",
-  "apikey",
-  "access_token",
-  "authorization",
-]);
+const SENSITIVE_QUERY_PARAMETER_NAMES = new Set(["token", "api_key", "apikey", "access_token", "authorization"]);
 
 export type StructuredError = {
   type: "error" | "non_error";

@@ -9,7 +9,12 @@ import type { Repository } from "typeorm";
 import { awaitWithAbort } from "../common/abort-utils.js";
 import { buildUnixfsCar } from "../common/car-utils.js";
 import { createFilecoinPinLogger } from "../common/filecoin-pin-logger.js";
-import { redactSensitiveText, type DealLogContext, type ProviderJobContext, toStructuredError } from "../common/logging.js";
+import {
+  type DealLogContext,
+  type ProviderJobContext,
+  redactSensitiveText,
+  toStructuredError,
+} from "../common/logging.js";
 import { createSynapseFromConfig } from "../common/synapse-factory.js";
 import type { DataFile, Hex } from "../common/types.js";
 import type { IBlockchainConfig, IConfig } from "../config/app.config.js";
