@@ -411,6 +411,36 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     };
   }
 
+  private async resolveRunnableProviderJobContext(
+    jobType: SpJobType,
+    spAddress: string,
+    jobId: string,
+    message: string,
+  ): Promise<ProviderJobContext | null> {
+    const spBlocklists = this.configService.get<ISpBlocklistConfig>("spBlocklists");
+    if (isSpBlocked(spBlocklists, spAddress)) {
+      this.logger.log({
+        jobId,
+        providerAddress: spAddress,
+        event: `${jobType}_job_blocked`,
+        message,
+      });
+      return null;
+    }
+
+    const logContext = await this.resolveProviderJobContext(spAddress, jobId);
+    if (isSpBlocked(spBlocklists, spAddress, logContext.providerId)) {
+      this.logger.log({
+        ...logContext,
+        event: `${jobType}_job_blocked`,
+        message,
+      });
+      return null;
+    }
+
+    return logContext;
+  }
+
   private logMaintenanceSkip(taskLabel: string, windowLabel?: string, logContext?: Partial<JobLogContext>) {
     const scheduling = this.configService.get("scheduling");
     const label = windowLabel ?? "unknown";
@@ -448,7 +478,13 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     }, timeoutMs);
 
     await this.recordJobExecution("deal", async () => {
-      const logContext = await this.resolveProviderJobContext(spAddress, job.id);
+      const logContext = await this.resolveRunnableProviderJobContext(
+        "deal",
+        spAddress,
+        job.id,
+        "Deal job skipped: provider is blocked for scheduled data-storage checks",
+      );
+      if (logContext == null) return "success";
       try {
         let provider = this.walletSdkService.getTestingProviders().find((p) => p.serviceProvider === spAddress);
         if (!provider) {
@@ -464,15 +500,6 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
             });
             return "success";
           }
-        }
-
-        if (isSpBlocked(this.configService.get("spBlocklists"), provider.serviceProvider, logContext.providerId)) {
-          this.logger.log({
-            ...logContext,
-            event: "deal_job_blocked",
-            message: "Deal job skipped: provider is blocked for scheduled data-storage checks",
-          });
-          return "success";
         }
 
         // Data-set-aware deal creation
@@ -584,16 +611,14 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     }, timeoutMs);
 
     await this.recordJobExecution("retrieval", async () => {
-      const logContext = await this.resolveProviderJobContext(spAddress, job.id);
+      const logContext = await this.resolveRunnableProviderJobContext(
+        "retrieval",
+        spAddress,
+        job.id,
+        "Retrieval job skipped: provider is blocked for scheduled retrieval checks",
+      );
+      if (logContext == null) return "success";
       try {
-        if (isSpBlocked(this.configService.get("spBlocklists"), spAddress, logContext.providerId)) {
-          this.logger.log({
-            ...logContext,
-            event: "retrieval_job_blocked",
-            message: "Retrieval job skipped: provider is blocked for scheduled retrieval checks",
-          });
-          return "success";
-        }
         await this.retrievalService.performRandomRetrievalForProvider(spAddress, abortController.signal, logContext);
         return "success";
       } catch (error) {
@@ -728,16 +753,14 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     }, timeoutMs);
 
     await this.recordJobExecution("data_set_creation", async () => {
-      const dataSetLogContext = await this.resolveProviderJobContext(spAddress, job.id);
+      const dataSetLogContext = await this.resolveRunnableProviderJobContext(
+        "data_set_creation",
+        spAddress,
+        job.id,
+        "Data set creation job skipped: provider is blocked for scheduled data-storage checks",
+      );
+      if (dataSetLogContext == null) return "success";
       try {
-        if (isSpBlocked(this.configService.get("spBlocklists"), spAddress, dataSetLogContext.providerId)) {
-          this.logger.log({
-            ...dataSetLogContext,
-            event: "data_set_creation_job_blocked",
-            message: "Data set creation job skipped: provider is blocked for scheduled data-storage checks",
-          });
-          return "success";
-        }
         await provisionNextMissingDataSet(
           { dealService: this.dealService, logger: this.logger },
           spAddress,
