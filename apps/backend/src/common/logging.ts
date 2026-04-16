@@ -42,7 +42,7 @@ function redactSensitiveUrl(url: string): string {
 
     return parsed.toString();
   } catch {
-    return url;
+    return `INVALID_URL[${url}]`;
   }
 }
 
