@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.4.0](https://github.com/FilOzone/dealbot/compare/backend-v1.3.0...backend-v1.4.0) (2026-04-17)
+
+
+### Features
+
+* add sp blocklist to skip checks for specific providers ([#452](https://github.com/FilOzone/dealbot/issues/452)) ([2c43d4d](https://github.com/FilOzone/dealbot/commit/2c43d4de2e28f5235df5f79e2e77466812aac708))
+
+
+### Bug Fixes
+
+* make onProgress callbacks synchronous ([#447](https://github.com/FilOzone/dealbot/issues/447)) ([a0f6ebf](https://github.com/FilOzone/dealbot/commit/a0f6ebf900acbb9648df1fde32525e92c1ac558c))
+* redact RPC tokens from logged deal errors ([#453](https://github.com/FilOzone/dealbot/issues/453)) ([77cac85](https://github.com/FilOzone/dealbot/commit/77cac857173c94cb5918b09a87cba9ddb5dbf22e))
+
 ## [1.3.0](https://github.com/FilOzone/dealbot/compare/backend-v1.2.0...backend-v1.3.0) (2026-04-10)
 
 
