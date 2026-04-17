@@ -7,7 +7,8 @@ import type { Counter, Gauge, Histogram } from "prom-client";
 import type { Repository } from "typeorm";
 import { type JobLogContext, type ProviderJobContext, toStructuredError } from "../common/logging.js";
 import { getMaintenanceWindowStatus } from "../common/maintenance-window.js";
-import type { IConfig } from "../config/app.config.js";
+import { isSpBlocked } from "../common/sp-blocklist.js";
+import type { IConfig, ISpBlocklistConfig } from "../config/app.config.js";
 import { DataRetentionService } from "../data-retention/data-retention.service.js";
 import type { JobType } from "../database/entities/job-schedule-state.entity.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
@@ -410,6 +411,36 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     };
   }
 
+  private async resolveRunnableProviderJobContext(
+    jobType: SpJobType,
+    spAddress: string,
+    jobId: string,
+    message: string,
+  ): Promise<ProviderJobContext | null> {
+    const spBlocklists = this.configService.get<ISpBlocklistConfig>("spBlocklists");
+    if (isSpBlocked(spBlocklists, spAddress)) {
+      this.logger.log({
+        jobId,
+        providerAddress: spAddress,
+        event: `${jobType}_job_blocked`,
+        message,
+      });
+      return null;
+    }
+
+    const logContext = await this.resolveProviderJobContext(spAddress, jobId);
+    if (isSpBlocked(spBlocklists, spAddress, logContext.providerId)) {
+      this.logger.log({
+        ...logContext,
+        event: `${jobType}_job_blocked`,
+        message,
+      });
+      return null;
+    }
+
+    return logContext;
+  }
+
   private logMaintenanceSkip(taskLabel: string, windowLabel?: string, logContext?: Partial<JobLogContext>) {
     const scheduling = this.configService.get("scheduling");
     const label = windowLabel ?? "unknown";
@@ -447,7 +478,16 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     }, timeoutMs);
 
     await this.recordJobExecution("deal", async () => {
-      const logContext = await this.resolveProviderJobContext(spAddress, job.id);
+      const logContext = await this.resolveRunnableProviderJobContext(
+        "deal",
+        spAddress,
+        job.id,
+        "Deal job skipped: provider is blocked for scheduled data-storage checks",
+      );
+      if (logContext == null) {
+        clearTimeout(timeoutId);
+        return "success";
+      }
       try {
         let provider = this.walletSdkService.getTestingProviders().find((p) => p.serviceProvider === spAddress);
         if (!provider) {
@@ -574,7 +614,16 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     }, timeoutMs);
 
     await this.recordJobExecution("retrieval", async () => {
-      const logContext = await this.resolveProviderJobContext(spAddress, job.id);
+      const logContext = await this.resolveRunnableProviderJobContext(
+        "retrieval",
+        spAddress,
+        job.id,
+        "Retrieval job skipped: provider is blocked for scheduled retrieval checks",
+      );
+      if (logContext == null) {
+        clearTimeout(timeoutId);
+        return "success";
+      }
       try {
         await this.retrievalService.performRandomRetrievalForProvider(spAddress, abortController.signal, logContext);
         return "success";
@@ -657,9 +706,19 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       this.storageProvidersActive.set({ status: "inactive" }, inactiveCount);
 
       const useOnlyApprovedProviders = this.configService.get("blockchain").useOnlyApprovedProviders;
-      const testedCount = await this.storageProviderRepository.count({
-        where: useOnlyApprovedProviders ? { isActive: true, isApproved: true } : { isActive: true },
-      });
+      const testedWhere = useOnlyApprovedProviders ? { isActive: true, isApproved: true } : { isActive: true };
+      const spBlocklists = this.configService.get<ISpBlocklistConfig>("spBlocklists");
+      const hasGlobalBlocklist = spBlocklists.addresses.size > 0 || spBlocklists.ids.size > 0;
+      let testedCount: number;
+      if (hasGlobalBlocklist) {
+        const testedProviders = await this.storageProviderRepository.find({
+          select: { address: true, providerId: true },
+          where: testedWhere,
+        });
+        testedCount = testedProviders.filter((p) => !isSpBlocked(spBlocklists, p.address, p.providerId)).length;
+      } else {
+        testedCount = await this.storageProviderRepository.count({ where: testedWhere });
+      }
       this.storageProvidersTested.set(testedCount);
     } catch (error) {
       this.logger.warn({
@@ -700,7 +759,16 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     }, timeoutMs);
 
     await this.recordJobExecution("data_set_creation", async () => {
-      const dataSetLogContext = await this.resolveProviderJobContext(spAddress, job.id);
+      const dataSetLogContext = await this.resolveRunnableProviderJobContext(
+        "data_set_creation",
+        spAddress,
+        job.id,
+        "Data set creation job skipped: provider is blocked for scheduled data-storage checks",
+      );
+      if (dataSetLogContext == null) {
+        clearTimeout(timeoutId);
+        return "success";
+      }
       try {
         await provisionNextMissingDataSet(
           { dealService: this.dealService, logger: this.logger },
@@ -885,10 +953,9 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     // Active providers are guaranteed to support ipniIpfs
     // as validated by WalletSdkService.loadProvidersInternal()
     const providers = await this.storageProviderRepository.find({
-      select: { address: true },
+      select: { address: true, providerId: true },
       where: useOnlyApprovedProviders ? { isActive: true, isApproved: true } : { isActive: true },
     });
-    const providerAddresses = providers.map((provider) => provider.address);
 
     const phaseMs = this.schedulePhaseSeconds() * 1000;
     const dealStartAt = new Date(now.getTime() + phaseMs);
@@ -899,7 +966,20 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
 
     const minDataSets = this.configService.get("blockchain").minNumDataSetsForChecks;
 
-    for (const address of providerAddresses) {
+    const spBlocklistsCfg = this.configService.get<ISpBlocklistConfig>("spBlocklists");
+    const unblockedAddresses = providers
+      .filter(({ address, providerId }) => !isSpBlocked(spBlocklistsCfg, address, providerId))
+      .map(({ address }) => address);
+    const blockedCount = providers.length - unblockedAddresses.length;
+    if (blockedCount > 0) {
+      this.logger.warn({
+        event: "job_schedules_skipped_blocked",
+        message: "Skipping job schedule upsert for blocked providers",
+        blockedCount,
+      });
+    }
+
+    for (const address of unblockedAddresses) {
       await this.jobScheduleRepository.upsertSchedule("deal", address, dealIntervalSeconds, dealStartAt);
       await this.jobScheduleRepository.upsertSchedule("retrieval", address, retrievalIntervalSeconds, retrievalStartAt);
       if (minDataSets >= 1) {
@@ -912,8 +992,8 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       }
     }
 
-    if (providerAddresses.length > 0) {
-      const deletedAddresses = await this.jobScheduleRepository.deleteSchedulesForInactiveProviders(providerAddresses);
+    if (providers.length > 0) {
+      const deletedAddresses = await this.jobScheduleRepository.deleteSchedulesForInactiveProviders(unblockedAddresses);
       if (deletedAddresses.length > 0) {
         this.logger.warn({
           event: "job_schedules_deleted",

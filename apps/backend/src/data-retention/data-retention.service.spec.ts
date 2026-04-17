@@ -64,6 +64,9 @@ describe("DataRetentionService", () => {
         if (key === "blockchain") {
           return { pdpSubgraphEndpoint: "https://example.com/subgraph" };
         }
+        if (key === "spBlocklists") {
+          return { ids: new Set(), addresses: new Set() };
+        }
         return undefined;
       }),
     } as unknown as ConfigService<IConfig, true>;
@@ -146,6 +149,33 @@ describe("DataRetentionService", () => {
     await service.pollDataRetention();
 
     expect(pdpSubgraphServiceMock.fetchProvidersWithDatasets).not.toHaveBeenCalled();
+  });
+
+  it("returns early when all providers are blocked for data-retention", async () => {
+    (configServiceMock.get as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
+      if (key === "blockchain") return { pdpSubgraphEndpoint: "https://example.com/subgraph" };
+      if (key === "spBlocklists") return { ids: new Set(), addresses: new Set([PROVIDER_A, PROVIDER_B]) };
+    });
+
+    await service.pollDataRetention();
+
+    expect(pdpSubgraphServiceMock.fetchProvidersWithDatasets).not.toHaveBeenCalled();
+  });
+
+  it("excludes blocked providers from data-retention polling while retaining unblocked ones", async () => {
+    (configServiceMock.get as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
+      if (key === "blockchain") return { pdpSubgraphEndpoint: "https://example.com/subgraph" };
+      if (key === "spBlocklists") return { ids: new Set(), addresses: new Set([PROVIDER_A]) };
+    });
+    pdpSubgraphServiceMock.fetchProvidersWithDatasets.mockResolvedValueOnce([makeProvider({ address: PROVIDER_B })]);
+
+    await service.pollDataRetention();
+
+    const allAddressesPolled: string[] = (
+      pdpSubgraphServiceMock.fetchProvidersWithDatasets.mock.calls as [{ addresses: string[] }][]
+    ).flatMap(([{ addresses }]) => addresses);
+    expect(allAddressesPolled).toContain(PROVIDER_B.toLowerCase());
+    expect(allAddressesPolled).not.toContain(PROVIDER_A.toLowerCase());
   });
 
   it("returns early when testing providers array is empty", async () => {

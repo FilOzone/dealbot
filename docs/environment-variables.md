@@ -14,6 +14,7 @@ This document provides a comprehensive guide to all environment variables used b
 | [Jobs (pg-boss)](#jobs-pg-boss)           | `DEALBOT_PGBOSS_SCHEDULER_ENABLED`, `DEALBOT_PGBOSS_POOL_MAX`, `DEALS_PER_SP_PER_HOUR`, `DATASET_CREATIONS_PER_SP_PER_HOUR`, `RETRIEVALS_PER_SP_PER_HOUR`, `METRICS_PER_HOUR`, `JOB_SCHEDULER_POLL_SECONDS`, `JOB_WORKER_POLL_SECONDS`, `PG_BOSS_LOCAL_CONCURRENCY`, `JOB_CATCHUP_MAX_ENQUEUE`, `JOB_SCHEDULE_PHASE_SECONDS`, `JOB_ENQUEUE_JITTER_SECONDS`, `DEAL_JOB_TIMEOUT_SECONDS`, `RETRIEVAL_JOB_TIMEOUT_SECONDS`, `IPFS_BLOCK_FETCH_CONCURRENCY` |
 | [Dataset](#dataset-configuration)         | `DEALBOT_LOCAL_DATASETS_PATH`, `RANDOM_PIECE_SIZES`                                                                                                          |
 | [Timeouts](#timeout-configuration)        | `CONNECT_TIMEOUT_MS`, `HTTP_REQUEST_TIMEOUT_MS`, `HTTP2_REQUEST_TIMEOUT_MS`, `IPNI_VERIFICATION_TIMEOUT_MS`, `IPNI_VERIFICATION_POLLING_MS`                   |
+| [SP Blocklist](#sp-blocklist-configuration) | `BLOCKED_SP_IDS`, `BLOCKED_SP_ADDRESSES` |
 | [Prometheus Metrics](#prometheus-metrics-configuration) | `PROMETHEUS_WALLET_BALANCE_TTL_SECONDS`, `PROMETHEUS_WALLET_BALANCE_ERROR_COOLDOWN_SECONDS`                   |
 | [Web Frontend](#web-frontend)             | `VITE_API_BASE_URL`, `VITE_PLAUSIBLE_DATA_DOMAIN`, `DEALBOT_API_BASE_URL`                                                                                    |
 
@@ -944,6 +945,43 @@ RANDOM_PIECE_SIZES=1024,10240,102400
 
 - Increase to reduce IPNI query load
 - Decrease to detect results faster
+
+---
+
+## SP Blocklist Configuration
+
+Both variables are **optional** and default to an empty list (no providers blocked). Values are
+comma-separated lists of provider IDs or addresses. Addresses are matched case-insensitively.
+
+A blocked provider is excluded from **all** scheduled check types: data-storage, retrieval, and
+data-retention. Blocking applies to **scheduled automation only** — manual/dev-triggered checks
+(via dev-tools endpoints) are not affected.
+
+---
+
+### `BLOCKED_SP_IDS`
+
+- **Type**: `string` (comma-separated provider IDs)
+- **Required**: No
+- **Default**: `""` (empty — no providers blocked)
+
+**Role**: Global blocklist by provider numeric ID. Providers listed here are excluded from **all** scheduled
+check types (data-storage, retrieval, and data-retention).
+
+**Example**: `BLOCKED_SP_IDS=1234,5678`
+
+---
+
+### `BLOCKED_SP_ADDRESSES`
+
+- **Type**: `string` (comma-separated provider Ethereum addresses)
+- **Required**: No
+- **Default**: `""` (empty — no providers blocked)
+
+**Role**: Global blocklist by provider address. Providers listed here are excluded from **all** scheduled
+check types (data-storage, retrieval, and data-retention). Matching is case-insensitive.
+
+**Example**: `BLOCKED_SP_ADDRESSES=0xAbCd...,0x1234...`
 
 ---
 

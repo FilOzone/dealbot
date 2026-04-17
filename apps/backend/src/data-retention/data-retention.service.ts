@@ -5,6 +5,7 @@ import { InjectMetric } from "@willsoto/nestjs-prometheus";
 import { Counter, Gauge } from "prom-client";
 import { Raw, Repository } from "typeorm";
 import { toStructuredError } from "../common/logging.js";
+import { isSpBlocked } from "../common/sp-blocklist.js";
 import { IConfig } from "../config/app.config.js";
 import { DataRetentionBaseline } from "../database/entities/data-retention-baseline.entity.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
@@ -80,7 +81,9 @@ export class DataRetentionService {
 
     try {
       const subgraphMeta = await this.pdpSubgraphService.fetchSubgraphMeta();
-      const providerInfos = this.walletSdkService.getTestingProviders();
+      const allProviderInfos = this.walletSdkService.getTestingProviders();
+      const spBlocklists = this.configService.get("spBlocklists");
+      const providerInfos = allProviderInfos?.filter((p) => !isSpBlocked(spBlocklists, p.serviceProvider, p.id));
 
       if (!providerInfos || providerInfos.length === 0) {
         this.logger.warn({
