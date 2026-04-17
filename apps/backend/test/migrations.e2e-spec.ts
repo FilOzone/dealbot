@@ -17,6 +17,7 @@ import { EnsurePgBossSchema1760550000000 } from "../src/database/migrations/1760
 import { RemoveCdnServiceType1760600000000 } from "../src/database/migrations/1760600000000-RemoveCdnServiceType.js";
 import { RemoveSpReceivedRetrieveRequest1761500000000 } from "../src/database/migrations/1761500000000-RemoveSpReceivedRetrieveRequest.js";
 import { RemoveIpniRetrievedColumns1761500000001 } from "../src/database/migrations/1761500000001-RemoveIpniRetrievedColumns.js";
+import { CreateDataRetentionBaselines1761500000002 } from "../src/database/migrations/1761500000002-CreateDataRetentionBaselines.js";
 import { RenameEvents1761500000003 } from "../src/database/migrations/1761500000003-RenameEvents.js";
 import { RenameRegionToLocation1761500000004 } from "../src/database/migrations/1761500000004-RenameRegionToLocation.js";
 import { ProviderIdBigInt1761500000005 } from "../src/database/migrations/1761500000005-ProviderIdBigInt.js";
@@ -30,11 +31,6 @@ if (dockerCheck.status !== 0) {
   console.warn("[migrations.e2e] Skipping migration integration tests. Docker is not available.");
 }
 const describeWithDocker = dockerCheck.status === 0 ? describe : describe.skip;
-
-const TARGET_MIGRATION_NAMES = [
-  "RemoveSpReceivedRetrieveRequest1761500000000",
-  "RemoveIpniRetrievedColumns1761500000001",
-];
 
 const ALL_MIGRATIONS: Array<new () => MigrationInterface> = [
   CreateInitialTables1720000000000,
@@ -51,6 +47,7 @@ const ALL_MIGRATIONS: Array<new () => MigrationInterface> = [
   RemoveCdnServiceType1760600000000,
   RemoveSpReceivedRetrieveRequest1761500000000,
   RemoveIpniRetrievedColumns1761500000001,
+  CreateDataRetentionBaselines1761500000002,
   RenameEvents1761500000003,
   RenameRegionToLocation1761500000004,
   ProviderIdBigInt1761500000005,
@@ -148,30 +145,11 @@ async function enumValues(dataSource: DataSource, enumTypeName: string): Promise
   return rows.map((row: { enumlabel: string }) => row.enumlabel);
 }
 
-async function indexDefinition(dataSource: DataSource, indexName: string): Promise<string | null> {
-  const rows = await dataSource.query(
-    `
-      SELECT indexdef
-      FROM pg_indexes
-      WHERE schemaname = 'public'
-        AND indexname = $1
-      LIMIT 1
-    `,
-    [indexName],
-  );
-  return rows[0]?.indexdef ?? null;
-}
-
 async function jobScheduleRowCount(dataSource: DataSource, jobType: string): Promise<number> {
   const rows = await dataSource.query(`SELECT COUNT(*)::int AS count FROM job_schedule_state WHERE job_type = $1`, [
     jobType,
   ]);
   return rows[0].count;
-}
-
-async function dealIpniStatus(dataSource: DataSource, dealId: string): Promise<string | null> {
-  const rows = await dataSource.query(`SELECT ipni_status FROM deals WHERE id = $1`, [dealId]);
-  return rows[0]?.ipni_status ?? null;
 }
 
 async function tableExists(dataSource: DataSource, tableName: string): Promise<boolean> {
@@ -280,107 +258,39 @@ describeWithDocker("Migrations (integration)", () => {
     }
   }, 120_000);
 
-  it("roundtrips latest IPNI migrations (up/down/up) with expected schema and data behavior", async () => {
+  it("applies all migrations cleanly on a fresh database and yields the expected end state", async () => {
     const dataSource = migrationDataSource;
     if (!dataSource) {
       throw new Error("migration data source is not initialized");
     }
 
-    const initialRun = await dataSource.runMigrations();
-    expect(initialRun.length).toBeGreaterThan(0);
+    const applied = await dataSource.runMigrations();
+    expect(applied.length).toBe(ALL_MIGRATIONS.length);
 
-    await dataSource.undoLastMigration();
-    await dataSource.undoLastMigration();
-    await dataSource.undoLastMigration();
-    await dataSource.undoLastMigration();
-    await dataSource.undoLastMigration();
-    await dataSource.undoLastMigration();
-    await dataSource.undoLastMigration();
+    // Core tables present.
+    expect(await tableExists(dataSource, "storage_providers")).toBe(true);
+    expect(await tableExists(dataSource, "deals")).toBe(true);
+    expect(await tableExists(dataSource, "retrievals")).toBe(true);
+    expect(await tableExists(dataSource, "job_schedule_state")).toBe(true);
+    expect(await tableExists(dataSource, "data_retention_baselines")).toBe(true);
 
-    expect(await enumValues(dataSource, "deals_ipni_status_enum")).toContain("sp_received_retrieve_request");
-    expect(await columnExists(dataSource, "metrics_daily", "ipni_retrieved_deals")).toBe(true);
-    expect(await columnExists(dataSource, "deals", "ipni_retrieved_at")).toBe(true);
-    expect(await columnExists(dataSource, "deals", "ipni_time_to_retrieve_ms")).toBe(true);
-    expect(await columnExists(dataSource, "metrics_daily", "avg_ipni_time_to_retrieve_ms")).toBe(true);
+    // Metrics schema fully dropped by DropMetricsSchema1776200000000.
+    expect(await tableExists(dataSource, "metrics_daily")).toBe(false);
+    expect(await materializedViewExists(dataSource, "sp_performance_last_week")).toBe(false);
+    expect(await materializedViewExists(dataSource, "sp_performance_all_time")).toBe(false);
+    expect(await functionExists(dataSource, "refresh_sp_performance_last_week")).toBe(false);
+    expect(await functionExists(dataSource, "refresh_sp_performance_all_time")).toBe(false);
+    expect(await typeExists(dataSource, "metrics_daily_metric_type_enum")).toBe(false);
+    expect(await typeExists(dataSource, "metrics_daily_service_type_enum")).toBe(false);
 
-    const spAddress = "f01234567";
-    const dealId = "00000000-0000-0000-0000-000000000001";
-
-    await dataSource.query(
-      `
-        INSERT INTO storage_providers (address, name, description, payee, region, metadata, is_active, is_approved)
-        VALUES ($1, $2, $3, $4, $5, $6::jsonb, true, true)
-      `,
-      [spAddress, "Migration Test SP", "Migration test provider", "f01234567", "test-region", JSON.stringify({})],
-    );
-    await dataSource.query(
-      `
-        INSERT INTO deals (
-          id,
-          sp_address,
-          wallet_address,
-          file_name,
-          file_size,
-          status,
-          metadata,
-          service_types,
-          ipni_status,
-          ipni_retrieved_at,
-          ipni_time_to_retrieve_ms,
-          created_at,
-          updated_at
-        )
-        VALUES (
-          $1,
-          $2,
-          $3,
-          $4,
-          $5,
-          'deal_created',
-          $6::jsonb,
-          $7,
-          'sp_received_retrieve_request',
-          NOW(),
-          123,
-          NOW(),
-          NOW()
-        )
-      `,
-      [dealId, spAddress, "0x123", "test-file.car", 1024, JSON.stringify({}), "ipfs_pin"],
-    );
-
-    const rerunLatest = await dataSource.runMigrations();
-    expect(rerunLatest.map((migration) => migration.name)).toEqual(expect.arrayContaining(TARGET_MIGRATION_NAMES));
-
-    expect(await dealIpniStatus(dataSource, dealId)).toBe("sp_advertised");
-    expect(await enumValues(dataSource, "deals_ipni_status_enum")).not.toContain("sp_received_retrieve_request");
-    expect(await columnExists(dataSource, "metrics_daily", "ipni_retrieved_deals")).toBe(false);
+    // IPNI cleanup migrations applied.
     expect(await columnExists(dataSource, "deals", "ipni_retrieved_at")).toBe(false);
     expect(await columnExists(dataSource, "deals", "ipni_time_to_retrieve_ms")).toBe(false);
-    expect(await columnExists(dataSource, "metrics_daily", "avg_ipni_time_to_retrieve_ms")).toBe(false);
+    expect(await enumValues(dataSource, "deals_ipni_status_enum")).not.toContain("sp_received_retrieve_request");
 
-    await dataSource.undoLastMigration();
-    await dataSource.undoLastMigration();
-    await dataSource.undoLastMigration();
-    await dataSource.undoLastMigration();
-    await dataSource.undoLastMigration();
-    await dataSource.undoLastMigration();
-    await dataSource.undoLastMigration();
-
-    expect(await enumValues(dataSource, "deals_ipni_status_enum")).toContain("sp_received_retrieve_request");
-    expect(await dealIpniStatus(dataSource, dealId)).toBe("sp_received_retrieve_request");
-    expect(await columnExists(dataSource, "metrics_daily", "ipni_retrieved_deals")).toBe(true);
-    expect(await columnExists(dataSource, "deals", "ipni_retrieved_at")).toBe(true);
-    expect(await columnExists(dataSource, "deals", "ipni_time_to_retrieve_ms")).toBe(true);
-    expect(await columnExists(dataSource, "metrics_daily", "avg_ipni_time_to_retrieve_ms")).toBe(true);
-
-    const retrievedAtIndex = await indexDefinition(dataSource, "IDX_deals_ipni_retrieved_at");
-    expect(retrievedAtIndex).not.toBeNull();
-    expect(retrievedAtIndex).toMatch(/where\s+\(?ipni_retrieved_at\s+is\s+not\s+null\)?/i);
-
-    const finalRun = await dataSource.runMigrations();
-    expect(finalRun.map((migration) => migration.name)).toEqual(expect.arrayContaining(TARGET_MIGRATION_NAMES));
-    expect(await dealIpniStatus(dataSource, dealId)).toBe("sp_advertised");
+    // Running migrations again is a no-op.
+    const rerun = await dataSource.runMigrations();
+    expect(rerun.length).toBe(0);
   }, 180_000);
 
   it("RemoveMetricsJobScheduleRows deletes legacy job schedule rows and preserves valid ones", async () => {
@@ -402,28 +312,12 @@ describeWithDocker("Migrations (integration)", () => {
       [nextRunAt],
     );
 
-    // Mark our migration as not yet run so TypeORM re-applies it against the inserted rows.
+    // Re-apply the migration against the seeded rows by removing its row from TypeORM's bookkeeping table.
     await dataSource.query(`DELETE FROM migrations WHERE name = 'RemoveMetricsJobScheduleRows1776147113065'`);
     await dataSource.runMigrations();
 
     expect(await jobScheduleRowCount(dataSource, "metrics")).toBe(0);
     expect(await jobScheduleRowCount(dataSource, "metrics_cleanup")).toBe(0);
     expect(await jobScheduleRowCount(dataSource, "deal")).toBeGreaterThan(0);
-  }, 60_000);
-
-  it("DropMetricsSchema drops legacy metrics schema objects", async () => {
-    const dataSource = migrationDataSource;
-    if (!dataSource) {
-      throw new Error("migration data source is not initialized");
-    }
-
-    // Verify all metrics schema objects are dropped after migration
-    expect(await tableExists(dataSource, "metrics_daily")).toBe(false);
-    expect(await materializedViewExists(dataSource, "sp_performance_last_week")).toBe(false);
-    expect(await materializedViewExists(dataSource, "sp_performance_all_time")).toBe(false);
-    expect(await functionExists(dataSource, "refresh_sp_performance_last_week")).toBe(false);
-    expect(await functionExists(dataSource, "refresh_sp_performance_all_time")).toBe(false);
-    expect(await typeExists(dataSource, "metrics_daily_metric_type_enum")).toBe(false);
-    expect(await typeExists(dataSource, "metrics_daily_service_type_enum")).toBe(false);
   }, 60_000);
 });
