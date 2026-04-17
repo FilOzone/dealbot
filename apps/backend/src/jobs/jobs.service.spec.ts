@@ -1518,4 +1518,73 @@ describe("JobsService schedule rows", () => {
 
     expect(dealService.createDataSetWithPiece).not.toHaveBeenCalled();
   });
+
+  it("SP jobs skip address-blocked providers before resolving missing provider context", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2024-01-01T12:00:00Z"));
+
+    baseConfigValues.spBlocklists = { ids: new Set(), addresses: new Set(["0xaaa"]) };
+
+    const completedCounter = metricsMocks.jobsCompletedCounter as unknown as { inc: ReturnType<typeof vi.fn> };
+    const dealService = {
+      createDealForProvider: vi.fn(),
+      getBaseDataSetMetadata: vi.fn(() => ({})),
+    };
+    const retrievalService = { performRandomRetrievalForProvider: vi.fn() };
+    const dataSetDealService = {
+      getBaseDataSetMetadata: vi.fn(() => ({})),
+      checkDataSetExists: vi.fn(async () => false),
+      createDataSetWithPiece: vi.fn(async () => {}),
+    };
+    const walletSdkService = {
+      getTestingProviders: vi.fn(() => []),
+      getProviderInfo: vi.fn(() => undefined),
+      loadProviders: vi.fn(),
+    };
+
+    const cases = [
+      {
+        handler: "handleDealJob",
+        jobType: "deal",
+        intervalSeconds: 60,
+        service: buildService({
+          dealService: dealService as unknown as JobsServiceDeps[3],
+          walletSdkService: walletSdkService as unknown as JobsServiceDeps[6],
+        }),
+        expectCheckNotRun: () => expect(dealService.createDealForProvider).not.toHaveBeenCalled(),
+      },
+      {
+        handler: "handleRetrievalJob",
+        jobType: "retrieval",
+        intervalSeconds: 60,
+        service: buildService({
+          retrievalService: retrievalService as unknown as JobsServiceDeps[4],
+          walletSdkService: walletSdkService as unknown as JobsServiceDeps[6],
+        }),
+        expectCheckNotRun: () => expect(retrievalService.performRandomRetrievalForProvider).not.toHaveBeenCalled(),
+      },
+      {
+        handler: "handleDataSetCreationJob",
+        jobType: "data_set_creation",
+        intervalSeconds: 3600,
+        service: buildService({
+          dealService: dataSetDealService as unknown as JobsServiceDeps[3],
+          walletSdkService: walletSdkService as unknown as JobsServiceDeps[6],
+        }),
+        expectCheckNotRun: () => expect(dataSetDealService.createDataSetWithPiece).not.toHaveBeenCalled(),
+      },
+    ];
+
+    for (const testCase of cases) {
+      await callPrivate(testCase.service, testCase.handler, {
+        id: `job-address-blocked-${testCase.jobType}`,
+        data: { jobType: testCase.jobType, spAddress: "0xaaa", intervalSeconds: testCase.intervalSeconds },
+      });
+
+      testCase.expectCheckNotRun();
+      expect(completedCounter.inc).toHaveBeenCalledWith({ job_type: testCase.jobType, handler_result: "success" });
+    }
+
+    expect(storageProviderRepositoryMock.findOne).not.toHaveBeenCalled();
+  });
 });
