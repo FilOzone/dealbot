@@ -484,7 +484,10 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         job.id,
         "Deal job skipped: provider is blocked for scheduled data-storage checks",
       );
-      if (logContext == null) return "success";
+      if (logContext == null) {
+        clearTimeout(timeoutId);
+        return "success";
+      }
       try {
         let provider = this.walletSdkService.getTestingProviders().find((p) => p.serviceProvider === spAddress);
         if (!provider) {
@@ -617,7 +620,10 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         job.id,
         "Retrieval job skipped: provider is blocked for scheduled retrieval checks",
       );
-      if (logContext == null) return "success";
+      if (logContext == null) {
+        clearTimeout(timeoutId);
+        return "success";
+      }
       try {
         await this.retrievalService.performRandomRetrievalForProvider(spAddress, abortController.signal, logContext);
         return "success";
@@ -759,7 +765,10 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         job.id,
         "Data set creation job skipped: provider is blocked for scheduled data-storage checks",
       );
-      if (dataSetLogContext == null) return "success";
+      if (dataSetLogContext == null) {
+        clearTimeout(timeoutId);
+        return "success";
+      }
       try {
         await provisionNextMissingDataSet(
           { dealService: this.dealService, logger: this.logger },
