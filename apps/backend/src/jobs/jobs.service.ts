@@ -996,7 +996,8 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       const rows = await this.jobScheduleRepository.findDueSchedulesWithManager(manager, now);
 
       for (const row of rows) {
-        // Skip legacy job types that are no longer supported
+        // Skip legacy job types that are no longer supported.
+        // TODO(#457): remove once RemoveMetricsJobScheduleRows has run everywhere and no such rows remain.
         if (row.job_type === "metrics" || row.job_type === "metrics_cleanup") {
           this.logger.warn({
             event: "legacy_job_type_skipped",
