@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.3.0](https://github.com/FilOzone/dealbot/compare/backend-v1.2.0...backend-v1.3.0) (2026-04-10)
+
+
+### Features
+
+* add overdue periods gauge ([#400](https://github.com/FilOzone/dealbot/issues/400)) ([d7c3d80](https://github.com/FilOzone/dealbot/commit/d7c3d8047c9b404c0df4f799e033cf46d442efb0))
+* **scripts:** add Safe Transaction Builder JSON output to fund-safe ([#431](https://github.com/FilOzone/dealbot/issues/431)) ([aa31eb9](https://github.com/FilOzone/dealbot/commit/aa31eb900b153421e05b5c4275599707faf73317))
+
+
+### Bug Fixes
+
+* capture full error cause stacks ([#444](https://github.com/FilOzone/dealbot/issues/444)) ([a43610f](https://github.com/FilOzone/dealbot/commit/a43610fb87c734119d750eabba56200cea6580be))
+* convert data retention period deltas to challenges ([#429](https://github.com/FilOzone/dealbot/issues/429)) ([a79eecc](https://github.com/FilOzone/dealbot/commit/a79eecc7c06bf9553fac5de3a130c507f7b627e9))
+
 ## [1.2.0](https://github.com/FilOzone/dealbot/compare/backend-v1.1.0...backend-v1.2.0) (2026-04-02)
 
 
