@@ -334,6 +334,14 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
                 message: "Pieces confirmed",
                 pieceIds: event.data.pieceIds,
               });
+              if (event.data.pieceIds.length > 1) {
+                this.logger.warn({
+                  ...dealLogContext,
+                  event: "pieces_confirmed_multiple_piece_ids",
+                  message: "Expected at most one pieceId for dealbot content, received multiple",
+                  pieceIds: event.data.pieceIds,
+                });
+              }
               if (event.data.pieceIds.length > 0) {
                 deal.pieceId = Number(event.data.pieceIds[0]);
               }
