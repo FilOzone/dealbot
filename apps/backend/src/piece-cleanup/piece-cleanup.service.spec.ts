@@ -306,11 +306,46 @@ describe("PieceCleanupService", () => {
       expect(result.deleted).toBe(0);
     });
 
-    it("does not select deletion candidates when the live quota query fails", async () => {
+    it("falls back to DB accounting when the live quota query fails", async () => {
       vi.spyOn(service, "getLiveStoredBytesForProvider").mockRejectedValue(new Error("network error"));
+      mockQueryBuilder(50 * MiB);
+
+      const result = await service.cleanupPiecesForProvider("0xProvider");
+
+      expect(result.skipped).toBe(true);
+      expect(result.storedBytes).toBe(50 * MiB);
+      expect(dealRepoMock.find).not.toHaveBeenCalled();
+      expect(dealRepoMock.createQueryBuilder).toHaveBeenCalled();
+    });
+
+    it("uses DB fallback to select cleanup candidates when live query fails above threshold", async () => {
+      vi.spyOn(service, "getLiveStoredBytesForProvider").mockRejectedValue(new Error("network error"));
+      mockQueryBuilder(130 * MiB);
+      const deal1 = makeDeal({ id: "deal-1", pieceId: 1, pieceSize: 10 * MiB });
+      const deal2 = makeDeal({ id: "deal-2", pieceId: 2, pieceSize: 10 * MiB });
+      const deal3 = makeDeal({ id: "deal-3", pieceId: 3, pieceSize: 10 * MiB });
+      const deal4 = makeDeal({ id: "deal-4", pieceId: 4, pieceSize: 10 * MiB });
+      const deal5 = makeDeal({ id: "deal-5", pieceId: 5, pieceSize: 10 * MiB });
+      dealRepoMock.find.mockResolvedValue([deal1, deal2, deal3, deal4, deal5]);
+      const deletePieceSpy = vi.spyOn(service, "deletePiece").mockResolvedValue(undefined);
+
+      const result = await service.cleanupPiecesForProvider("0xProvider");
+
+      expect(result.skipped).toBe(false);
+      expect(result.deleted).toBe(5);
+      expect(result.storedBytes).toBe(130 * MiB);
+      expect(deletePieceSpy).toHaveBeenCalledTimes(5);
+    });
+
+    it("does not fall back to DB accounting after cleanup is aborted", async () => {
+      const abortController = new AbortController();
+      abortController.abort(new Error("cleanup timeout"));
+      vi.spyOn(service, "getLiveStoredBytesForProvider").mockRejectedValue(new Error("cleanup timeout"));
       mockQueryBuilder(THRESHOLD_BYTES + 1);
 
-      await expect(service.cleanupPiecesForProvider("0xProvider")).rejects.toThrow("network error");
+      await expect(service.cleanupPiecesForProvider("0xProvider", abortController.signal)).rejects.toThrow(
+        "cleanup timeout",
+      );
 
       expect(dealRepoMock.find).not.toHaveBeenCalled();
       expect(dealRepoMock.createQueryBuilder).not.toHaveBeenCalled();

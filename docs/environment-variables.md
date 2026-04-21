@@ -808,9 +808,9 @@ Use this to stagger multiple dealbot deployments that are not sharing a database
 These variables control the automatic cleanup of old pieces from storage providers to prevent
 unbounded data growth. Cleanup runs as a periodic pg-boss job per SP.
 
-The cleanup flow uses **live provider data** (via `filecoin-pin`'s `calculateActualStorage()`) as the source of truth for how much data an SP is storing. When live usage exceeds the high-water mark (`MAX_DATASET_STORAGE_SIZE_BYTES`), the cleanup job deletes the oldest pieces until usage drops below the low-water mark (`TARGET_DATASET_STORAGE_SIZE_BYTES`). This high-water/low-water approach prevents thrashing near the threshold.
+The cleanup flow checks **live provider data** first (via `filecoin-pin`'s `calculateActualStorage()`) to determine how much data an SP is storing. When usage exceeds the high-water mark (`MAX_DATASET_STORAGE_SIZE_BYTES`), the cleanup job deletes the oldest pieces until usage drops below the low-water mark (`TARGET_DATASET_STORAGE_SIZE_BYTES`). This high-water/low-water approach prevents thrashing near the threshold.
 
-If the live query fails, cleanup does not delete pieces during that run. Deal creation continues regardless of cleanup state.
+If the live query fails, cleanup falls back to DB-based `SUM(piece_size)` for the quota decision. Deal creation continues regardless of cleanup state.
 
 ### `MAX_DATASET_STORAGE_SIZE_BYTES`
 

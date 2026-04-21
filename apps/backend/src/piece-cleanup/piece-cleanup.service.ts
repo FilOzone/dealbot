@@ -106,21 +106,38 @@ export class PieceCleanupService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Shared quota check: queries provider-reported storage and compares to threshold.
+   * Shared quota check: queries provider-reported storage, falls back to DB accounting on live-query failure,
+   * and compares to the threshold.
    */
   private async checkProviderQuota(
     spAddress: string,
     signal?: AbortSignal,
+    logContext?: ProviderJobContext,
   ): Promise<{ isOverQuota: boolean; storedBytes: number; thresholdBytes: number }> {
     const thresholdBytes = this.configService.get("pieceCleanup").maxDatasetStorageSizeBytes;
-    const storedBytes = await this.getLiveStoredBytesForProvider(spAddress, signal);
+    let storedBytes: number;
+    try {
+      storedBytes = await this.getLiveStoredBytesForProvider(spAddress, signal);
+    } catch (error) {
+      if (signal?.aborted) {
+        throw error;
+      }
+      this.logger.warn({
+        ...logContext,
+        event: "piece_cleanup_live_query_failed",
+        message: "Failed to query live storage for SP; falling back to DB",
+        providerAddress: spAddress,
+        error: toStructuredError(error),
+      });
+      storedBytes = await this.getStoredBytesForProvider(spAddress);
+    }
     return { isOverQuota: storedBytes > thresholdBytes, storedBytes, thresholdBytes };
   }
 
   /**
    * Run cleanup for a single SP.
-   * 1. Query provider-reported storage
-   * 2. If provider-reported usage > MAX threshold, start cleanup
+   * 1. Query provider-reported storage, falling back to DB accounting if the live query fails
+   * 2. If usage > MAX threshold, start cleanup
    * 3. Select oldest completed pieces from DB as deletion candidates
    * 4. For each piece, call deletePiece() via Synapse SDK
    * 5. Mark the deal record as cleaned up
@@ -134,7 +151,7 @@ export class PieceCleanupService implements OnModuleInit, OnModuleDestroy {
     const { maxDatasetStorageSizeBytes: thresholdBytes, targetDatasetStorageSizeBytes: targetBytes } =
       this.configService.get("pieceCleanup");
 
-    const { storedBytes, isOverQuota } = await this.checkProviderQuota(spAddress, signal);
+    const { storedBytes, isOverQuota } = await this.checkProviderQuota(spAddress, signal, logContext);
 
     const cleanupLogContext: PieceCleanupLogContext = {
       ...logContext,
