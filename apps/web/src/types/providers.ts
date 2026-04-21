@@ -12,7 +12,7 @@ export interface ServiceProduct {
  * PDP offering details (decoded from capability k/v pairs)
  */
 export interface PDPOffering {
-  serviceURL: string;
+  serviceURL: string | null;
   minPieceSizeInBytes: bigint;
   maxPieceSizeInBytes: bigint;
   ipniPiece: boolean;
@@ -32,7 +32,7 @@ export interface Provider {
   name: string;
   description: string;
   payee: string;
-  serviceUrl: string;
+  serviceUrl: string | null;
   isActive: boolean;
   isApproved: boolean;
   region: string;

@@ -3,6 +3,26 @@ import { DEFAULT_LOCAL_DATASETS_PATH } from "../common/constants.js";
 import { parseMaintenanceWindowTimes } from "../common/maintenance-window.js";
 import type { Network } from "../common/types.js";
 
+function parseIdList(value: string | undefined): Set<string> {
+  if (!value || value.trim().length === 0) return new Set();
+  return new Set(
+    value
+      .split(",")
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0),
+  );
+}
+
+function parseAddressList(value: string | undefined): Set<string> {
+  if (!value || value.trim().length === 0) return new Set();
+  return new Set(
+    value
+      .split(",")
+      .map((s) => s.trim().toLowerCase())
+      .filter((s) => s.length > 0),
+  );
+}
+
 export const configValidationSchema = Joi.object({
   // Application
   NODE_ENV: Joi.string().valid("development", "production", "test").default("development"),
@@ -57,7 +77,6 @@ export const configValidationSchema = Joi.object({
 
   // Jobs
   // Per-hour limits are guardrails to avoid excessive background load.
-  METRICS_PER_HOUR: Joi.number().min(0.001).max(3).default(0.1),
   DEALS_PER_SP_PER_HOUR: Joi.number().min(0.001).max(20).default(4),
   DATASET_CREATIONS_PER_SP_PER_HOUR: Joi.number().min(0.001).max(20).default(1),
   RETRIEVALS_PER_SP_PER_HOUR: Joi.number().min(0.001).max(20).default(2),
@@ -85,6 +104,10 @@ export const configValidationSchema = Joi.object({
   HTTP2_REQUEST_TIMEOUT_MS: Joi.number().min(1000).default(240000), // 4 minutes total for HTTP/2 requests (10MiB @ 170KB/s + overhead)
   IPNI_VERIFICATION_TIMEOUT_MS: Joi.number().min(1000).default(60000), // 60 seconds max time to wait for IPNI verification
   IPNI_VERIFICATION_POLLING_MS: Joi.number().min(250).default(2000), // 2 seconds between IPNI verification polls
+
+  // SP Blocklists (comma-separated provider IDs or addresses)
+  BLOCKED_SP_IDS: Joi.string().optional().allow(""),
+  BLOCKED_SP_ADDRESSES: Joi.string().optional().allow(""),
 }).or("WALLET_PRIVATE_KEY", "SESSION_KEY_PRIVATE_KEY");
 
 export interface IAppConfig {
@@ -129,12 +152,6 @@ export interface ISchedulingConfig {
 }
 
 export interface IJobsConfig {
-  /**
-   * Target number of metrics runs per hour.
-   *
-   * Increasing this raises DB load due to more frequent materialized view refreshes.
-   */
-  metricsPerHour: number;
   /**
    * Target number of deal creations per storage provider per hour.
    *
@@ -234,6 +251,13 @@ export interface IRetrievalConfig {
   ipfsBlockFetchConcurrency: number;
 }
 
+export interface ISpBlocklistConfig {
+  /** Provider numeric IDs to block from all scheduled checks. */
+  ids: Set<string>;
+  /** Provider addresses to block from all scheduled checks (stored lowercase). */
+  addresses: Set<string>;
+}
+
 export interface IConfig {
   app: IAppConfig;
   database: IDatabaseConfig;
@@ -243,6 +267,7 @@ export interface IConfig {
   dataset: IDatasetConfig;
   timeouts: ITimeoutConfig;
   retrieval: IRetrievalConfig;
+  spBlocklists: ISpBlocklistConfig;
 }
 
 export function loadConfig(): IConfig {
@@ -299,7 +324,6 @@ export function loadConfig(): IConfig {
       maintenanceWindowMinutes: Number.parseInt(process.env.DEALBOT_MAINTENANCE_WINDOW_MINUTES || "20", 10),
     },
     jobs: {
-      metricsPerHour: Number.parseFloat(process.env.METRICS_PER_HOUR || "0.1"),
       dealsPerSpPerHour: Number.parseFloat(process.env.DEALS_PER_SP_PER_HOUR || "4"),
       retrievalsPerSpPerHour: Number.parseFloat(process.env.RETRIEVALS_PER_SP_PER_HOUR || "2"),
       dataSetCreationsPerSpPerHour: Number.parseFloat(process.env.DATASET_CREATIONS_PER_SP_PER_HOUR || "1"),
@@ -342,6 +366,10 @@ export function loadConfig(): IConfig {
     },
     retrieval: {
       ipfsBlockFetchConcurrency: Number.parseInt(process.env.IPFS_BLOCK_FETCH_CONCURRENCY || "6", 10),
+    },
+    spBlocklists: {
+      ids: parseIdList(process.env.BLOCKED_SP_IDS),
+      addresses: parseAddressList(process.env.BLOCKED_SP_ADDRESSES),
     },
   };
 }

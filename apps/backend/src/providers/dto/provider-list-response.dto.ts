@@ -17,7 +17,7 @@ export class StorageProviderDto {
   payee!: string;
 
   @ApiProperty({ description: "Service URL" })
-  serviceUrl!: string;
+  serviceUrl: string | null;
 
   @ApiProperty({ description: "Whether the provider is currently active" })
   isActive!: boolean;

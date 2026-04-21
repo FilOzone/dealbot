@@ -432,4 +432,85 @@ describe("IpniAddonStrategy getPieceStatus", () => {
     expect(discoverabilityMetrics.recordStatus).toHaveBeenCalledWith(labels, "failure.other");
     expect(mockRepo.save).toHaveBeenCalled();
   });
+
+  it("throws when startIpniMonitoring has no provider service URL", async () => {
+    const { strategy, discoverabilityMetrics, mockRepo } = createStrategy();
+
+    const deal = buildDeal({
+      id: "deal-5",
+      spAddress: "0xsp",
+      uploadEndTime: new Date("2026-01-01T00:00:00Z"),
+      pieceCid: "bafk-piece-no-service-url",
+      ipniStatus: IpniStatus.PENDING,
+      metadata: {
+        [ServiceType.IPFS_PIN]: {
+          enabled: true,
+          rootCID: "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi",
+          blockCIDs: ["bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi"],
+          blockCount: 1,
+          carSize: 1,
+          originalSize: 1,
+        },
+      },
+      storageProvider: buildStorageProvider({ serviceUrl: null }),
+    });
+
+    const strategyForTest = asStrategyPrivates(strategy);
+    const monitorAndVerifySpy = vi.spyOn(strategyForTest, "monitorAndVerifyIPNI");
+
+    await expect(strategyForTest.startIpniMonitoring(deal)).rejects.toThrow(
+      "IPNI monitoring failed: missing service URL for provider 0xsp",
+    );
+
+    const labels = {
+      checkType: "dataStorage",
+      providerId: "9",
+      providerName: "SP",
+      providerStatus: "approved",
+    };
+
+    expect(monitorAndVerifySpy).not.toHaveBeenCalled();
+    expect(discoverabilityMetrics.recordStatus).toHaveBeenCalledWith(labels, "failure.other");
+    expect(mockRepo.save).toHaveBeenCalled();
+  });
+
+  it("throws when monitorAndVerifyIPNI is called without piece CID", async () => {
+    const { strategy, ipniVerificationService } = createStrategy();
+
+    const deal = buildDeal({
+      id: "deal-6",
+      spAddress: "0xsp",
+      uploadEndTime: new Date("2026-01-01T00:00:00Z"),
+      pieceCid: null,
+      metadata: {
+        [ServiceType.IPFS_PIN]: {
+          enabled: true,
+          rootCID: "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi",
+          blockCIDs: ["bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi"],
+          blockCount: 1,
+          carSize: 1,
+          originalSize: 1,
+        },
+      },
+      storageProvider: buildStorageProvider(),
+    });
+
+    const strategyForTest = asStrategyPrivates(strategy);
+
+    await expect(
+      strategyForTest.monitorAndVerifyIPNI(
+        "http://sp.example.com",
+        deal,
+        [CID.parse("bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi")],
+        "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi",
+        deal.storageProvider,
+        10_000,
+        10_000,
+        1000,
+        2000,
+      ),
+    ).rejects.toThrow("IPNI monitoring failed: missing piece CID for deal deal-6");
+
+    expect(ipniVerificationService.verify).not.toHaveBeenCalled();
+  });
 });

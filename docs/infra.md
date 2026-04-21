@@ -55,11 +55,10 @@ follow-on step; initial rollout keeps a single backend Deployment.
 ### Application behavior
 
 - Dealbot uses pg-boss for all job scheduling with rate-based configuration:
-  - `METRICS_PER_HOUR`
   - `DEALS_PER_SP_PER_HOUR`
   - `DATASET_CREATIONS_PER_SP_PER_HOUR`
   - `RETRIEVALS_PER_SP_PER_HOUR`
-- Deals and retrievals run per storage provider; metrics remain global.
+- Deals and retrievals run per storage provider.
 - Scheduling is rate-based (per-hour), with catch-up after downtime.
 
 ### Required infra changes in FilOzone/infra
@@ -69,10 +68,9 @@ Phase 1 (pg-boss only, single Deployment):
 - Keep the existing API deployment as the only backend pod.
  - Ensure `pgcrypto` extension is enabled in Postgres (pg-boss dependency).
 
-Phase 2 (optional, later): add three worker Deployments (same backend image):
+Phase 2 (optional, later): add worker Deployments (same backend image):
   - `dealbot-deal-worker`
   - `dealbot-retrieval-worker`
-  - `dealbot-metrics-worker`
 - Keep existing API Deployment and disable job execution there.
 - Ensure worker pods do not match the API Service selector:
   - keep API label as `app.kubernetes.io/name: dealbot`
@@ -80,7 +78,7 @@ Phase 2 (optional, later): add three worker Deployments (same backend image):
 - Add env overrides per worker:
   - API: `DEALBOT_RUN_MODE=api`, `DEALBOT_PGBOSS_SCHEDULER_ENABLED=true`
   - Workers: `DEALBOT_RUN_MODE=worker`, `DEALBOT_PGBOSS_SCHEDULER_ENABLED=false`
-  - rate vars: `METRICS_PER_HOUR`, `DEALS_PER_SP_PER_HOUR`, `DATASET_CREATIONS_PER_SP_PER_HOUR`, `RETRIEVALS_PER_SP_PER_HOUR`
+  - rate vars: `DEALS_PER_SP_PER_HOUR`, `DATASET_CREATIONS_PER_SP_PER_HOUR`, `RETRIEVALS_PER_SP_PER_HOUR`
 - Keep a single ConfigMap (`dealbot-env`) and override worker-specific env in patches.
 - Ensure `/datasets` volume mount remains on deal/retrieval workers.
 - Confirm ServiceMonitor continues to scrape only the API pods.

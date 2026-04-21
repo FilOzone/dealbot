@@ -10,10 +10,7 @@ import type { IAppConfig, IConfig, IDatabaseConfig } from "../config/app.config.
 import { DataRetentionBaseline } from "./entities/data-retention-baseline.entity.js";
 import { Deal } from "./entities/deal.entity.js";
 import { JobScheduleState } from "./entities/job-schedule-state.entity.js";
-import { MetricsDaily } from "./entities/metrics-daily.entity.js";
 import { Retrieval } from "./entities/retrieval.entity.js";
-import { SpPerformanceAllTime } from "./entities/sp-performance-all-time.entity.js";
-import { SpPerformanceLastWeek } from "./entities/sp-performance-last-week.entity.js";
 import { StorageProvider } from "./entities/storage-provider.entity.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -56,16 +53,7 @@ function toSafeDataSourceContext(options: DataSourceOptions): Record<string, unk
           password: dbConfig.password,
           database: dbConfig.database,
           poolSize: dbConfig.poolMax,
-          entities: [
-            DataRetentionBaseline,
-            Deal,
-            StorageProvider,
-            Retrieval,
-            MetricsDaily,
-            SpPerformanceAllTime,
-            SpPerformanceLastWeek,
-            JobScheduleState,
-          ],
+          entities: [DataRetentionBaseline, Deal, StorageProvider, Retrieval, JobScheduleState],
           migrations: [join(__dirname, "migrations", "*.{js,ts}")],
           migrationsRun: runMigrations,
           migrationsTransactionMode: "each",
@@ -97,9 +85,9 @@ function toSafeDataSourceContext(options: DataSourceOptions): Record<string, unk
         }
       },
     }),
-    TypeOrmModule.forFeature([Deal, StorageProvider, Retrieval, MetricsDaily, JobScheduleState]),
+    TypeOrmModule.forFeature([Deal, StorageProvider, Retrieval, JobScheduleState]),
   ],
-  providers: [Deal, StorageProvider, Retrieval, MetricsDaily, JobScheduleState],
-  exports: [Deal, StorageProvider, Retrieval, MetricsDaily, JobScheduleState],
+  providers: [Deal, StorageProvider, Retrieval, JobScheduleState],
+  exports: [Deal, StorageProvider, Retrieval, JobScheduleState],
 })
 export class DatabaseModule {}
