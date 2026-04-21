@@ -351,6 +351,40 @@ describe("PieceCleanupService", () => {
       expect(dealRepoMock.createQueryBuilder).not.toHaveBeenCalled();
     });
 
+    it("does not fall back to DB accounting when live storage calculation times out", async () => {
+      vi.mocked(listDataSets).mockResolvedValueOnce([
+        {
+          dataSetId: 1n,
+          providerId: 9,
+          serviceProvider: "0xProvider",
+          payee: "0xProvider",
+          payer: "0x123",
+          commissionBps: 0n,
+          pdpRailId: 1n,
+          cacheMissRailId: 0n,
+          cdnRailId: 0n,
+          withCDN: false,
+          isLive: true,
+          pdpEndEpoch: 0n,
+          metadata: {},
+        },
+      ] as any);
+      vi.mocked(calculateActualStorage).mockResolvedValueOnce({
+        totalBytes: 10n,
+        dataSetCount: 1,
+        dataSetsProcessed: 0,
+        pieceCount: 0,
+        warnings: [],
+        timedOut: true,
+      });
+      mockQueryBuilder(THRESHOLD_BYTES + 1);
+
+      await expect(service.cleanupPiecesForProvider("0xProvider")).rejects.toThrow("Live storage query timed out");
+
+      expect(dealRepoMock.find).not.toHaveBeenCalled();
+      expect(dealRepoMock.createQueryBuilder).not.toHaveBeenCalled();
+    });
+
     it("returns cleanup result with no candidates when above threshold but no eligible deals", async () => {
       vi.spyOn(service, "getLiveStoredBytesForProvider").mockResolvedValue(200 * MiB); // above threshold
       dealRepoMock.find.mockResolvedValue([]); // no candidates

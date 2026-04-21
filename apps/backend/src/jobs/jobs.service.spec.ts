@@ -957,8 +957,8 @@ describe("JobsService schedule rows", () => {
     };
 
     const pieceCleanupService = {
-      isProviderOverQuota: vi.fn(() => {
-        throw new Error("deal job must not query cleanup quota");
+      cleanupPiecesForProvider: vi.fn(() => {
+        throw new Error("deal job must not run cleanup");
       }),
     };
 
@@ -973,7 +973,7 @@ describe("JobsService schedule rows", () => {
       data: { jobType: "deal", spAddress: "0xaaa", intervalSeconds: 60 },
     });
 
-    expect(pieceCleanupService.isProviderOverQuota).not.toHaveBeenCalled();
+    expect(pieceCleanupService.cleanupPiecesForProvider).not.toHaveBeenCalled();
     expect(dealService.createDealForProvider).toHaveBeenCalledTimes(1);
   });
 

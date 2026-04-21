@@ -24,6 +24,8 @@ export interface CleanupResult {
   thresholdBytes: number;
 }
 
+class LiveStorageQueryTimedOutError extends Error {}
+
 @Injectable()
 export class PieceCleanupService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(PieceCleanupService.name);
@@ -119,7 +121,7 @@ export class PieceCleanupService implements OnModuleInit, OnModuleDestroy {
     try {
       storedBytes = await this.getLiveStoredBytesForProvider(spAddress, signal);
     } catch (error) {
-      if (signal?.aborted) {
+      if (signal?.aborted || error instanceof LiveStorageQueryTimedOutError) {
         throw error;
       }
       this.logger.warn({
@@ -298,7 +300,7 @@ export class PieceCleanupService implements OnModuleInit, OnModuleDestroy {
       if (reason instanceof Error) {
         throw reason;
       }
-      throw new Error(`Live storage query timed out for provider ${spAddress}`);
+      throw new LiveStorageQueryTimedOutError(`Live storage query timed out for provider ${spAddress}`);
     }
 
     this.logger.debug({
