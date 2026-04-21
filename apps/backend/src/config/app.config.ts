@@ -80,6 +80,7 @@ export const configValidationSchema = Joi.object({
   DEALS_PER_SP_PER_HOUR: Joi.number().min(0.001).max(20).default(4),
   DATASET_CREATIONS_PER_SP_PER_HOUR: Joi.number().min(0.001).max(20).default(1),
   RETRIEVALS_PER_SP_PER_HOUR: Joi.number().min(0.001).max(20).default(2),
+  RETRIEVALS_ANON_PER_SP_PER_HOUR: Joi.number().min(0.001).max(20).optional(),
   // Polling interval for pg-boss scheduler (lower = more responsive, higher = less DB chatter).
   JOB_SCHEDULER_POLL_SECONDS: Joi.number().min(60).default(300),
   JOB_WORKER_POLL_SECONDS: Joi.number().min(5).default(60),
@@ -93,6 +94,7 @@ export const configValidationSchema = Joi.object({
   RETRIEVAL_JOB_TIMEOUT_SECONDS: Joi.number().min(60).default(60), // 1 minute max runtime for retrieval jobs (TODO: reduce default to 30 seconds)
   DATA_SET_CREATION_JOB_TIMEOUT_SECONDS: Joi.number().min(60).default(300), // 5 minutes max runtime for dataset creation jobs
   IPFS_BLOCK_FETCH_CONCURRENCY: Joi.number().integer().min(1).max(32).default(6),
+  ANON_RETRIEVAL_BLOCK_SAMPLE_COUNT: Joi.number().integer().min(1).max(50).default(5),
 
   // Piece Cleanup
   MAX_DATASET_STORAGE_SIZE_BYTES: Joi.number()
@@ -270,6 +272,12 @@ export interface IJobsConfig {
    * Only used when `DEALBOT_JOBS_MODE=pgboss`.
    */
   maxPieceCleanupRuntimeSeconds: number;
+
+  /**
+   * Target number of anonymous retrieval tests per storage provider per hour.
+   * Defaults to retrievalsPerSpPerHour when not set.
+   */
+  retrievalsAnonPerSpPerHour: number;
 }
 
 export interface IDatasetConfig {
@@ -287,6 +295,10 @@ export interface ITimeoutConfig {
 
 export interface IRetrievalConfig {
   ipfsBlockFetchConcurrency: number;
+  /**
+   * Number of CAR blocks to sample for IPNI + block-fetch validation.
+   */
+  anonBlockSampleCount: number;
 }
 
 export interface IPieceCleanupConfig {
@@ -381,6 +393,9 @@ export function loadConfig(): IConfig {
       enqueueJitterSeconds: Number.parseInt(process.env.JOB_ENQUEUE_JITTER_SECONDS || "0", 10),
       dealJobTimeoutSeconds: Number.parseInt(process.env.DEAL_JOB_TIMEOUT_SECONDS || "360", 10),
       retrievalJobTimeoutSeconds: Number.parseInt(process.env.RETRIEVAL_JOB_TIMEOUT_SECONDS || "60", 10),
+      retrievalsAnonPerSpPerHour: Number.parseFloat(
+        process.env.RETRIEVALS_ANON_PER_SP_PER_HOUR || process.env.RETRIEVALS_PER_SP_PER_HOUR || "2",
+      ),
       dataSetCreationJobTimeoutSeconds: Number.parseInt(process.env.DATA_SET_CREATION_JOB_TIMEOUT_SECONDS || "300", 10),
       pieceCleanupPerSpPerHour: Number.parseFloat(process.env.JOB_PIECE_CLEANUP_PER_SP_PER_HOUR || String(1 / 24)),
       maxPieceCleanupRuntimeSeconds: Number.parseInt(process.env.MAX_PIECE_CLEANUP_RUNTIME_SECONDS || "300", 10),
@@ -412,6 +427,7 @@ export function loadConfig(): IConfig {
     },
     retrieval: {
       ipfsBlockFetchConcurrency: Number.parseInt(process.env.IPFS_BLOCK_FETCH_CONCURRENCY || "6", 10),
+      anonBlockSampleCount: Number.parseInt(process.env.ANON_RETRIEVAL_BLOCK_SAMPLE_COUNT || "5", 10),
     },
     pieceCleanup: {
       maxDatasetStorageSizeBytes: Number.parseInt(

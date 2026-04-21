@@ -15,18 +15,22 @@ import { StorageProvider } from "../database/entities/storage-provider.entity.js
 import { DealService } from "../deal/deal.service.js";
 import { PieceCleanupService } from "../piece-cleanup/piece-cleanup.service.js";
 import { RetrievalService } from "../retrieval/retrieval.service.js";
+import { AnonRetrievalService } from "../retrieval-anon/anon-retrieval.service.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
 import { provisionNextMissingDataSet } from "./data-set-creation.handler.js";
-import { DATA_RETENTION_POLL_QUEUE, PROVIDERS_REFRESH_QUEUE, SP_WORK_QUEUE } from "./job-queues.js";
+import { DATA_RETENTION_POLL_QUEUE, PROVIDERS_REFRESH_QUEUE, RETRIEVAL_ANON_QUEUE,SP_WORK_QUEUE } from "./job-queues.js";
 import { JobScheduleRepository } from "./repositories/job-schedule.repository.js";
 
-type SpJobType = "deal" | "retrieval" | "data_set_creation" | "piece_cleanup";
-const SP_JOB_TYPES: ReadonlySet<string> = new Set<string>(["deal", "retrieval", "data_set_creation", "piece_cleanup"]);
+type SpJobType = "deal" | "retrieval" | "data_set_creation" | "retrieval_anon" | "piece_cleanup";
+const SP_JOB_TYPES: ReadonlySet<string> = new Set<string>(["deal", "retrieval", "retrieval_anon", "data_set_creation", "piece_cleanup"]);
+
 function isSpJobType(jobType: string): jobType is SpJobType {
   return SP_JOB_TYPES.has(jobType);
 }
 
 type SpJobData = { jobType: SpJobType; spAddress: string; intervalSeconds: number };
+type AnonRetrievalJobData = { spAddress: string; intervalSeconds: number };
+type MetricsJobData = { intervalSeconds: number };
 type ProvidersRefreshJobData = { intervalSeconds: number };
 type SpJob = Job<SpJobData>;
 type DataRetentionJobData = { intervalSeconds: number };
@@ -57,6 +61,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     private readonly jobScheduleRepository: JobScheduleRepository,
     private readonly dealService: DealService,
     private readonly retrievalService: RetrievalService,
+    private readonly anonRetrievalService: AnonRetrievalService,
     private readonly walletSdkService: WalletSdkService,
     private readonly dataRetentionService: DataRetentionService,
     private readonly pieceCleanupService: PieceCleanupService,
@@ -257,6 +262,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     await boss.createQueue(SP_WORK_QUEUE, { policy: "singleton" });
     await boss.createQueue(PROVIDERS_REFRESH_QUEUE);
     await boss.createQueue(DATA_RETENTION_POLL_QUEUE);
+    await boss.createQueue(RETRIEVAL_ANON_QUEUE);
   }
 
   private registerWorkers(): void {
@@ -331,6 +337,23 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
           event: "worker_register_failed",
           message: "Failed to register worker",
           queue: PROVIDERS_REFRESH_QUEUE,
+          error: toStructuredError(error),
+        }),
+      );
+    void this.boss
+      .work<AnonRetrievalJobData, void>(
+        RETRIEVAL_ANON_QUEUE,
+        { batchSize: 1, localConcurrency: spConcurrency, pollingIntervalSeconds: workerPollSeconds },
+        async ([job]) => {
+          if (!job) return;
+          await this.handleAnonRetrievalJob(job);
+        },
+      )
+      .catch((error) =>
+        this.logger.error({
+          event: "worker_register_failed",
+          message: "Failed to register worker",
+          queue: RETRIEVAL_ANON_QUEUE,
           error: toStructuredError(error),
         }),
       );
@@ -621,6 +644,51 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     });
   }
 
+  private async handleAnonRetrievalJob(job: Job<AnonRetrievalJobData>): Promise<void> {
+    const data = job.data;
+    const spAddress = data.spAddress;
+
+    // Create AbortController for job timeout enforcement
+    const abortController = new AbortController();
+    const timeoutSeconds = this.configService.get("jobs").retrievalJobTimeoutSeconds;
+    const timeoutMs = Math.max(60000, timeoutSeconds * 1000);
+    const effectiveTimeoutSeconds = Math.round(timeoutMs / 1000);
+    const abortReason = new Error(`Anon retrieval job timeout (${effectiveTimeoutSeconds}s) for ${spAddress}`);
+    const timeoutId = setTimeout(() => {
+      abortController.abort(abortReason);
+    }, timeoutMs);
+
+    await this.recordJobExecution("retrieval_anon", async () => {
+      const logContext = await this.resolveProviderJobContext(spAddress, job.id);
+      try {
+        await this.anonRetrievalService.performForProvider(spAddress, abortController.signal, logContext);
+        return "success";
+      } catch (error) {
+        if (abortController.signal.aborted) {
+          const reason = abortController.signal.reason;
+          const reasonMessage = reason instanceof Error ? reason.message : String(reason ?? "");
+          this.logger.error({
+            ...logContext,
+            event: "anon_retrieval_job_aborted",
+            message: reasonMessage || "Anon retrieval job aborted after timeout",
+            timeoutSeconds: effectiveTimeoutSeconds,
+            error: toStructuredError(reason ?? error),
+          });
+          return "aborted";
+        }
+        this.logger.error({
+          ...logContext,
+          event: "anon_retrieval_job_failed",
+          message: "Anon retrieval job failed",
+          error: toStructuredError(error),
+        });
+        throw error;
+      } finally {
+        clearTimeout(timeoutId);
+      }
+    });
+  }
+
   private async handleDataRetentionJob(data: DataRetentionJobData): Promise<void> {
     void data;
     await this.recordJobExecution("data_retention_poll", async () => {
@@ -838,7 +906,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
 
   private async deferJobForMaintenance(
     jobType: SpJobType,
-    data: SpJobData,
+    data: SpJobData | AnonRetrievalJobData,
     maintenance: ReturnType<typeof getMaintenanceWindowStatus>,
     now: Date,
   ): Promise<void> {
@@ -846,7 +914,8 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     if (resumeAt == null) {
       return;
     }
-    await this.safeSend(jobType, SP_WORK_QUEUE, data, { startAfter: resumeAt });
+    const queueName = jobType === "retrieval_anon" ? RETRIEVAL_ANON_QUEUE : SP_WORK_QUEUE;
+    await this.safeSend(jobType, queueName, data, { startAfter: resumeAt });
   }
 
   /**
@@ -899,6 +968,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
   private getIntervalSecondsForRates(): {
     dealIntervalSeconds: number;
     retrievalIntervalSeconds: number;
+    retrievalAnonIntervalSeconds: number;
     dataSetCreationIntervalSeconds: number;
     dataRetentionPollIntervalSeconds: number;
     providersRefreshIntervalSeconds: number;
@@ -919,9 +989,13 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     const dataRetentionPollIntervalSeconds = scheduling.dataRetentionPollIntervalSeconds;
     const providersRefreshIntervalSeconds = scheduling.providersRefreshIntervalSeconds;
 
+    const retrievalsAnonPerHour = jobsConfig.retrievalsAnonPerSpPerHour;
+    const retrievalAnonIntervalSeconds = Math.max(1, Math.round(3600 / retrievalsAnonPerHour));
+
     return {
       dealIntervalSeconds,
       retrievalIntervalSeconds,
+      retrievalAnonIntervalSeconds,
       dataSetCreationIntervalSeconds,
       dataRetentionPollIntervalSeconds,
       providersRefreshIntervalSeconds,
@@ -941,6 +1015,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     const {
       dealIntervalSeconds,
       retrievalIntervalSeconds,
+      retrievalAnonIntervalSeconds,
       dataSetCreationIntervalSeconds,
       dataRetentionPollIntervalSeconds,
       providersRefreshIntervalSeconds,
@@ -958,6 +1033,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     const phaseMs = this.schedulePhaseSeconds() * 1000;
     const dealStartAt = new Date(now.getTime() + phaseMs);
     const retrievalStartAt = new Date(now.getTime() + phaseMs);
+    const retrievalAnonStartAt = new Date(now.getTime() + phaseMs);
     const dataSetCreationStartAt = new Date(now.getTime() + phaseMs);
     const dataRetentionPollStartAt = new Date(now.getTime() + phaseMs);
     const providersRefreshStartAt = new Date(now.getTime() + phaseMs);
@@ -981,6 +1057,12 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     for (const address of unblockedAddresses) {
       await this.jobScheduleRepository.upsertSchedule("deal", address, dealIntervalSeconds, dealStartAt);
       await this.jobScheduleRepository.upsertSchedule("retrieval", address, retrievalIntervalSeconds, retrievalStartAt);
+      await this.jobScheduleRepository.upsertSchedule(
+        "retrieval_anon",
+        address,
+        retrievalAnonIntervalSeconds,
+        retrievalAnonStartAt,
+      );
       if (minDataSets >= 1) {
         await this.jobScheduleRepository.upsertSchedule(
           "data_set_creation",
@@ -1138,6 +1220,8 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         return SP_WORK_QUEUE;
       case "piece_cleanup":
         return SP_WORK_QUEUE;
+      case "retrieval_anon":
+        return RETRIEVAL_ANON_QUEUE;
       case "data_retention_poll":
         return DATA_RETENTION_POLL_QUEUE;
       case "providers_refresh":
@@ -1154,13 +1238,11 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
   }
 
   private mapJobPayload(row: ScheduleRow): SpJobData | ProvidersRefreshJobData | DataRetentionJobData {
-    if (
-      row.job_type === "deal" ||
-      row.job_type === "retrieval" ||
-      row.job_type === "data_set_creation" ||
-      row.job_type === "piece_cleanup"
-    ) {
+    if (row.job_type === "deal" || row.job_type === "retrieval" || row.job_type === "data_set_creation" || row.job_type === "piece_cleanup") {
       return { jobType: row.job_type, spAddress: row.sp_address, intervalSeconds: row.interval_seconds };
+    }
+    if (row.job_type === "retrieval_anon") {
+      return { spAddress: row.sp_address, intervalSeconds: row.interval_seconds };
     }
     return { intervalSeconds: row.interval_seconds };
   }
@@ -1179,7 +1261,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       // Disable retries so "attempted" jobs don't rerun; failures are handled by the next schedule tick.
       const finalOptions: SendOptions = { retryLimit: 0, ...options };
       if (isSpJobType(jobType)) {
-        const spData = data as SpJobData;
+        const spData = data as { spAddress: string };
         if (!finalOptions.singletonKey) {
           finalOptions.singletonKey = spData.spAddress;
         }
@@ -1229,6 +1311,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     const jobTypes: JobType[] = [
       "deal",
       "retrieval",
+      "retrieval_anon",
       "data_set_creation",
       "piece_cleanup",
       "data_retention_poll",

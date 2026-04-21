@@ -1,4 +1,5 @@
 import Joi from "joi";
+import { CID } from "multiformats/cid";
 import { Hex, isAddress } from "viem";
 
 // -----------------------------------------
@@ -53,6 +54,53 @@ export type ProviderDataSetResponse = {
     proofSets: DataSet[];
   }[];
 };
+
+/** A piece eligible for anonymous retrieval. */
+export type FwssCandidatePiece = {
+  /** Decoded piece CID string (e.g. "bafk..."). */
+  pieceCid: string;
+  /** On-chain piece ID (rootId) as a decimal string. */
+  pieceId: string;
+  /** On-chain dataset ID (setId) as a decimal string. */
+  dataSetId: string;
+  /** Raw piece size in bytes, as a decimal string. */
+  rawSize: string;
+  /** True iff the parent dataset declared withIPFSIndexing metadata. */
+  withIPFSIndexing: boolean;
+  /** IPFS root CID declared by the client when uploading, or null. */
+  ipfsRootCid: string | null;
+};
+
+/**
+ * Validated raw shape of the FWSS candidate-pieces subgraph response.
+ * Consumers should prefer the parsed FwssCandidatePiece[] output.
+ */
+export type RawCandidatePiecesResponse = {
+  _meta: { block: { number: number } };
+  dataSets: Array<{
+    setId: string;
+    withIPFSIndexing: boolean;
+    pdpPaymentEndEpoch: string | null;
+    roots: Array<{
+      rootId: string;
+      cid: string;
+      rawSize: string;
+      ipfsRootCID: string | null;
+    }>;
+  }>;
+};
+
+// -----------------------------------------
+// Helpers
+// -----------------------------------------
+
+/**
+ * Decodes a hex-encoded CID (0x...) into its string representation.
+ */
+export function decodePieceCid(hexData: string): string {
+  const bytes = Buffer.from(hexData.slice(2), "hex");
+  return CID.decode(new Uint8Array(bytes)).toString();
+}
 
 // -----------------------------------------
 // Joi Custom Schema Converters
@@ -117,6 +165,37 @@ const providerDataSetResponseSchema = Joi.object({
   .unknown(true)
   .required();
 
+const candidateRootSchema = Joi.object({
+  rootId: Joi.string().pattern(/^\d+$/).required(),
+  cid: Joi.string()
+    .pattern(/^0x[0-9a-fA-F]+$/)
+    .required(),
+  rawSize: Joi.string().pattern(/^\d+$/).required(),
+  ipfsRootCID: Joi.string().allow(null).optional(),
+}).unknown(true);
+
+const candidateDataSetSchema = Joi.object({
+  setId: Joi.string().pattern(/^\d+$/).required(),
+  withIPFSIndexing: Joi.boolean().required(),
+  pdpPaymentEndEpoch: Joi.string().pattern(/^\d+$/).allow(null).optional(),
+  roots: Joi.array().items(candidateRootSchema).required(),
+}).unknown(true);
+
+const candidatePiecesResponseSchema = Joi.object({
+  _meta: Joi.object({
+    block: Joi.object({
+      number: Joi.number().integer().positive().required(),
+    })
+      .unknown(true)
+      .required(),
+  })
+    .unknown(true)
+    .required(),
+  dataSets: Joi.array().items(candidateDataSetSchema).required(),
+})
+  .unknown(true)
+  .required();
+
 // -----------------------------------------
 // Validator Functions
 // -----------------------------------------
@@ -148,4 +227,17 @@ export function validateProviderDataSetResponse(value: unknown): ProviderDataSet
     throw new Error(`Invalid provider dataset response format: ${error.message}`);
   }
   return validated as ProviderDataSetResponse;
+}
+
+/**
+ * Validates the raw FWSS candidate-pieces response from the subgraph.
+ *
+ * @throws Error if validation fails
+ */
+export function validateCandidatePiecesResponse(value: unknown): RawCandidatePiecesResponse {
+  const { error, value: validated } = candidatePiecesResponseSchema.validate(value, { abortEarly: false });
+  if (error) {
+    throw new Error(`Invalid candidate pieces response format: ${error.message}`);
+  }
+  return validated as RawCandidatePiecesResponse;
 }

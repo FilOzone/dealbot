@@ -1,4 +1,5 @@
 import type { ConfigService } from "@nestjs/config";
+import { CID } from "multiformats/cid";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { IConfig } from "../config/app.config.js";
 import { PDPSubgraphService } from "./pdp-subgraph.service.js";
@@ -33,6 +34,33 @@ const makeSubgraphMetaResponse = (blockNumber = 12345) => ({
       },
     },
   },
+});
+
+const FWSS_SP_ADDRESS = "0xAaaaAAaaaaAAaaaAaAaAaaAaaaAaAaAaaAaaa111";
+const FWSS_PAYER = "0xBBbbBBbbBBbBBbBbbBBbbBBbbbbBbBBbbBBbb222";
+const EXAMPLE_PIECE_CID = "baga6ea4seaqpzwrimvoc4jp4l7mk6knsknf6owsc2ev4krrs2peenl5qelh6u4y";
+const pieceCidHex = `0x${Buffer.from(CID.parse(EXAMPLE_PIECE_CID).bytes).toString("hex")}`;
+
+const makeCandidateResponse = (dataSets: Record<string, unknown>[] = [], blockNumber = 12345) => ({
+  data: {
+    _meta: { block: { number: blockNumber } },
+    dataSets,
+  },
+});
+
+const makeFwssDataSet = (overrides: Record<string, unknown> = {}) => ({
+  setId: "42",
+  withIPFSIndexing: true,
+  pdpPaymentEndEpoch: null,
+  roots: [
+    {
+      rootId: "1",
+      cid: pieceCidHex,
+      rawSize: "1048576",
+      ipfsRootCID: "bafyroot",
+    },
+  ],
+  ...overrides,
 });
 
 describe("PDPSubgraphService", () => {
@@ -689,6 +717,129 @@ describe("PDPSubgraphService", () => {
       const timestamps = (service as any).requestTimestamps;
       // Should only have 1 timestamp (the new one), old ones filtered out
       expect(timestamps.length).toBe(1);
+    });
+  });
+
+  describe("listFwssCandidatePieces", () => {
+    it("returns empty array when endpoint is not configured", async () => {
+      const noEndpointConfig = {
+        get: vi.fn(() => ({ pdpSubgraphEndpoint: "" })),
+      } as unknown as ConfigService<IConfig, true>;
+      const noEndpointService = new PDPSubgraphService(noEndpointConfig);
+
+      const pieces = await noEndpointService.listFwssCandidatePieces(FWSS_SP_ADDRESS, FWSS_PAYER);
+      expect(pieces).toEqual([]);
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it("parses datasets and returns decoded candidate pieces", async () => {
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        json: async () => makeCandidateResponse([makeFwssDataSet()]),
+      });
+
+      const pieces = await service.listFwssCandidatePieces(FWSS_SP_ADDRESS, FWSS_PAYER);
+
+      expect(pieces).toHaveLength(1);
+      expect(pieces[0]).toMatchObject({
+        pieceCid: EXAMPLE_PIECE_CID,
+        pieceId: "1",
+        dataSetId: "42",
+        rawSize: "1048576",
+        withIPFSIndexing: true,
+        ipfsRootCid: "bafyroot",
+      });
+    });
+
+    it("lowercases SP and payer addresses before querying", async () => {
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        json: async () => makeCandidateResponse([]),
+      });
+
+      await service.listFwssCandidatePieces(FWSS_SP_ADDRESS, FWSS_PAYER);
+
+      const [, opts] = fetchMock.mock.calls[0];
+      const body = JSON.parse(opts.body as string);
+      expect(body.variables.serviceProvider).toBe(FWSS_SP_ADDRESS.toLowerCase());
+      expect(body.variables.payer).toBe(FWSS_PAYER.toLowerCase());
+    });
+
+    it("filters out datasets whose pdpPaymentEndEpoch has already passed", async () => {
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        json: async () =>
+          makeCandidateResponse(
+            [
+              makeFwssDataSet({ setId: "10", pdpPaymentEndEpoch: "5000" }),
+              makeFwssDataSet({ setId: "11", pdpPaymentEndEpoch: "20000" }),
+              makeFwssDataSet({ setId: "12", pdpPaymentEndEpoch: null }),
+            ],
+            10_000,
+          ),
+      });
+
+      const pieces = await service.listFwssCandidatePieces(FWSS_SP_ADDRESS, FWSS_PAYER);
+
+      const dataSetIds = pieces.map((p) => p.dataSetId).sort();
+      expect(dataSetIds).toEqual(["11", "12"]);
+    });
+
+    it("skips pieces whose CID fails to decode but keeps valid ones", async () => {
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        json: async () =>
+          makeCandidateResponse([
+            makeFwssDataSet({
+              roots: [
+                { rootId: "1", cid: pieceCidHex, rawSize: "1024", ipfsRootCID: null },
+                { rootId: "2", cid: "0xdeadbeef", rawSize: "2048", ipfsRootCID: null },
+              ],
+            }),
+          ]),
+      });
+
+      const pieces = await service.listFwssCandidatePieces(FWSS_SP_ADDRESS, FWSS_PAYER);
+      expect(pieces).toHaveLength(1);
+      expect(pieces[0].pieceId).toBe("1");
+    });
+
+    it("propagates null ipfsRootCID through to the candidate piece", async () => {
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        json: async () =>
+          makeCandidateResponse([
+            makeFwssDataSet({
+              withIPFSIndexing: false,
+              roots: [{ rootId: "1", cid: pieceCidHex, rawSize: "1024", ipfsRootCID: null }],
+            }),
+          ]),
+      });
+
+      const pieces = await service.listFwssCandidatePieces(FWSS_SP_ADDRESS, FWSS_PAYER);
+      expect(pieces[0].ipfsRootCid).toBeNull();
+      expect(pieces[0].withIPFSIndexing).toBe(false);
+    });
+
+    it("throws after max retries on repeated HTTP errors", async () => {
+      fetchMock.mockResolvedValue({ ok: false, status: 500, statusText: "Internal Server Error" });
+
+      const promise = service.listFwssCandidatePieces(FWSS_SP_ADDRESS, FWSS_PAYER);
+      promise.catch(() => {});
+      await vi.runAllTimersAsync();
+
+      await expect(promise).rejects.toThrow("Failed to fetch subgraph fwss_candidate_pieces after 3 attempts");
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+    });
+
+    it("does not retry on schema validation failure", async () => {
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ data: { _meta: { block: { number: 1 } } } }), // missing dataSets
+      });
+
+      await expect(service.listFwssCandidatePieces(FWSS_SP_ADDRESS, FWSS_PAYER)).rejects.toThrow(/validation failed/i);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
     });
   });
 });

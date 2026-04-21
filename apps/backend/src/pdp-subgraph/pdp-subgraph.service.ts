@@ -3,8 +3,20 @@ import { ConfigService } from "@nestjs/config";
 import { toStructuredError } from "../common/logging.js";
 import type { IBlockchainConfig, IConfig } from "../config/app.config.js";
 import { Queries } from "./queries.js";
-import type { GraphQLResponse, ProviderDataSetResponse, ProvidersWithDataSetsOptions, SubgraphMeta } from "./types.js";
-import { validateProviderDataSetResponse, validateSubgraphMetaResponse } from "./types.js";
+import type {
+  FwssCandidatePiece,
+  GraphQLResponse,
+  ProviderDataSetResponse,
+  ProvidersWithDataSetsOptions,
+  RawCandidatePiecesResponse,
+  SubgraphMeta,
+} from "./types.js";
+import {
+  decodePieceCid,
+  validateCandidatePiecesResponse,
+  validateProviderDataSetResponse,
+  validateSubgraphMetaResponse,
+} from "./types.js";
 
 /**
  * Error thrown when data validation fails.
@@ -30,6 +42,11 @@ export class PDPSubgraphService {
   private static readonly RATE_LIMIT_WINDOW_MS = 10000;
   private static readonly MAX_RETRIES = 3;
   private static readonly INITIAL_RETRY_DELAY_MS = 1000;
+
+  /** Max active FWSS datasets fetched per SP per candidate-pieces query. */
+  private static readonly FWSS_DATASET_LIMIT = 100;
+  /** Max pieces fetched per dataset in the candidate-pieces query. */
+  private static readonly FWSS_PIECE_LIMIT = 50;
 
   private requestTimestamps: number[] = [];
 
@@ -141,6 +158,151 @@ export class PDPSubgraphService {
     }
 
     return this.fetchMultipleBatchesWithRateLimit(blockNumber, addresses);
+  }
+
+  /**
+   * List FWSS candidate pieces for anonymous retrieval testing against the given SP.
+   *
+   * Queries for active FWSS datasets owned by `spAddress`, excluding those paid for
+   * by `dealbotPayer` (the dealbot's own datasets). Datasets whose `pdpPaymentEndEpoch`
+   * has already passed the latest indexed block are filtered out client-side — the
+   * subgraph does not flip `isActive` for payment termination.
+   *
+   * Returns an empty array if the subgraph endpoint is not configured.
+   */
+  async listFwssCandidatePieces(spAddress: string, dealbotPayer: string): Promise<FwssCandidatePiece[]> {
+    if (!this.blockchainConfig.pdpSubgraphEndpoint) {
+      return [];
+    }
+
+    const variables = {
+      serviceProvider: spAddress.toLowerCase(),
+      payer: dealbotPayer.toLowerCase(),
+      datasetLimit: PDPSubgraphService.FWSS_DATASET_LIMIT,
+      pieceLimit: PDPSubgraphService.FWSS_PIECE_LIMIT,
+    };
+
+    const validated = await this.executeQuery<RawCandidatePiecesResponse>(
+      "fwss_candidate_pieces",
+      Queries.GET_FWSS_CANDIDATE_PIECES,
+      variables,
+      validateCandidatePiecesResponse,
+    );
+
+    return this.toCandidatePieces(validated);
+  }
+
+  private toCandidatePieces(response: RawCandidatePiecesResponse): FwssCandidatePiece[] {
+    const currentEpoch = BigInt(response._meta.block.number);
+    const pieces: FwssCandidatePiece[] = [];
+
+    for (const ds of response.dataSets) {
+      if (ds.pdpPaymentEndEpoch != null && BigInt(ds.pdpPaymentEndEpoch) <= currentEpoch) {
+        continue;
+      }
+
+      for (const r of ds.roots) {
+        try {
+          pieces.push({
+            pieceCid: decodePieceCid(r.cid),
+            pieceId: r.rootId,
+            dataSetId: ds.setId,
+            rawSize: r.rawSize,
+            withIPFSIndexing: ds.withIPFSIndexing,
+            ipfsRootCid: r.ipfsRootCID ?? null,
+          });
+        } catch (error) {
+          this.logger.warn({
+            event: "fwss_piece_cid_decode_failed",
+            message: "Failed to decode piece CID from subgraph data",
+            dataSetId: ds.setId,
+            pieceId: r.rootId,
+            error: toStructuredError(error),
+          });
+        }
+      }
+    }
+
+    return pieces;
+  }
+
+  /**
+   * Generic single-query helper with retry and rate limiting. Used by queries that
+   * don't fit the batched provider-fetch shape.
+   */
+  private async executeQuery<T>(
+    operationName: string,
+    query: string,
+    variables: Record<string, unknown>,
+    transform: (data: unknown) => T,
+    attempt: number = 1,
+  ): Promise<T> {
+    if (!this.blockchainConfig.pdpSubgraphEndpoint) {
+      throw new Error("No PDP subgraph endpoint configured");
+    }
+
+    try {
+      await this.enforceRateLimit();
+
+      const response = await fetch(this.blockchainConfig.pdpSubgraphEndpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query, variables }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const result = (await response.json()) as GraphQLResponse;
+
+      if (result.errors) {
+        const errorMessage = result.errors?.[0]?.message || "Unknown GraphQL error";
+        throw new Error(`GraphQL error: ${errorMessage}`);
+      }
+
+      try {
+        return transform(result.data);
+      } catch (validationError) {
+        const errorMessage = validationError instanceof Error ? validationError.message : "Unknown validation error";
+        throw new ValidationError(`Data validation failed: ${errorMessage}`);
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "Unknown error";
+
+      if (error instanceof ValidationError) {
+        this.logger.error({
+          event: `subgraph_${operationName}_validation_failed`,
+          message: `Subgraph ${operationName} validation failed`,
+          error: toStructuredError(error),
+        });
+        throw error;
+      }
+
+      if (attempt < PDPSubgraphService.MAX_RETRIES) {
+        const delay = PDPSubgraphService.INITIAL_RETRY_DELAY_MS * (1 << (attempt - 1));
+        this.logger.warn({
+          event: `subgraph_${operationName}_request_retry`,
+          message: `Subgraph ${operationName} request failed. Retrying...`,
+          attempt,
+          maxRetries: PDPSubgraphService.MAX_RETRIES,
+          retryDelayMs: delay,
+          error: toStructuredError(error),
+        });
+        await new Promise((resolve) => setTimeout(resolve, delay));
+        return this.executeQuery(operationName, query, variables, transform, attempt + 1);
+      }
+
+      this.logger.error({
+        event: `subgraph_${operationName}_request_failed`,
+        message: `Subgraph ${operationName} request failed after maximum retries`,
+        maxRetries: PDPSubgraphService.MAX_RETRIES,
+        error: toStructuredError(error),
+      });
+      throw new Error(
+        `Failed to fetch subgraph ${operationName} after ${PDPSubgraphService.MAX_RETRIES} attempts: ${errorMessage}`,
+      );
+    }
   }
 
   /**
