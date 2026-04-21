@@ -1,11 +1,11 @@
-import { ConsoleLogger, Module } from "@nestjs/common";
+import { Module } from "@nestjs/common";
 import { ConfigModule, ConfigService } from "@nestjs/config";
 import { TypeOrmModule } from "@nestjs/typeorm";
 import { dirname, join } from "path";
 import { DataSource, type DataSourceOptions } from "typeorm";
 import { fileURLToPath } from "url";
-import { NEST_STARTUP_LOG_LEVELS } from "../common/log-levels.js";
 import { toStructuredError } from "../common/logging.js";
+import { createPinoExitLogger } from "../common/pino.config.js";
 import type { IAppConfig, IConfig, IDatabaseConfig } from "../config/app.config.js";
 import { DataRetentionBaseline } from "./entities/data-retention-baseline.entity.js";
 import { Deal } from "./entities/deal.entity.js";
@@ -17,11 +17,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 // Keep startup diagnostics visible regardless of runtime LOG_LEVEL configuration.
-const startupLogger = new ConsoleLogger("DatabaseModule", {
-  json: true,
-  colors: false,
-  logLevels: [...NEST_STARTUP_LOG_LEVELS],
-});
+const startupLogger = createPinoExitLogger().child({ context: "DatabaseModule" });
 
 function toSafeDataSourceContext(options: DataSourceOptions): Record<string, unknown> {
   const sourceOptions = options as unknown as Record<string, unknown>;
