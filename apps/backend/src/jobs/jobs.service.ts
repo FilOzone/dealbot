@@ -13,17 +13,10 @@ import { DataRetentionService } from "../data-retention/data-retention.service.j
 import type { JobType } from "../database/entities/job-schedule-state.entity.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
 import { DealService } from "../deal/deal.service.js";
-import { MetricsSchedulerService } from "../metrics/services/metrics-scheduler.service.js";
 import { RetrievalService } from "../retrieval/retrieval.service.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
 import { provisionNextMissingDataSet } from "./data-set-creation.handler.js";
-import {
-  DATA_RETENTION_POLL_QUEUE,
-  METRICS_CLEANUP_QUEUE,
-  METRICS_QUEUE,
-  PROVIDERS_REFRESH_QUEUE,
-  SP_WORK_QUEUE,
-} from "./job-queues.js";
+import { DATA_RETENTION_POLL_QUEUE, PROVIDERS_REFRESH_QUEUE, SP_WORK_QUEUE } from "./job-queues.js";
 import { JobScheduleRepository } from "./repositories/job-schedule.repository.js";
 
 type SpJobType = "deal" | "retrieval" | "data_set_creation";
@@ -33,7 +26,6 @@ function isSpJobType(jobType: string): jobType is SpJobType {
 }
 
 type SpJobData = { jobType: SpJobType; spAddress: string; intervalSeconds: number };
-type MetricsJobData = { intervalSeconds: number };
 type ProvidersRefreshJobData = { intervalSeconds: number };
 type SpJob = Job<SpJobData>;
 type DataRetentionJobData = { intervalSeconds: number };
@@ -64,7 +56,6 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     private readonly jobScheduleRepository: JobScheduleRepository,
     private readonly dealService: DealService,
     private readonly retrievalService: RetrievalService,
-    private readonly metricsSchedulerService: MetricsSchedulerService,
     private readonly walletSdkService: WalletSdkService,
     private readonly dataRetentionService: DataRetentionService,
     @InjectMetric("jobs_queued")
@@ -262,8 +253,6 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
 
   private async ensureWorkerQueues(boss: Pick<PgBoss, "createQueue">): Promise<void> {
     await boss.createQueue(SP_WORK_QUEUE, { policy: "singleton" });
-    await boss.createQueue(METRICS_QUEUE);
-    await boss.createQueue(METRICS_CLEANUP_QUEUE);
     await boss.createQueue(PROVIDERS_REFRESH_QUEUE);
     await boss.createQueue(DATA_RETENTION_POLL_QUEUE);
   }
@@ -310,34 +299,6 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
           event: "worker_register_failed",
           message: "Failed to register worker",
           queue: SP_WORK_QUEUE,
-          error: toStructuredError(error),
-        }),
-      );
-    void this.boss
-      .work<MetricsJobData, void>(
-        METRICS_QUEUE,
-        { batchSize: 1, pollingIntervalSeconds: workerPollSeconds },
-        async ([job]) => this.handleMetricsJob(job.data),
-      )
-      .catch((error) =>
-        this.logger.error({
-          event: "worker_register_failed",
-          message: "Failed to register worker",
-          queue: METRICS_QUEUE,
-          error: toStructuredError(error),
-        }),
-      );
-    void this.boss
-      .work<MetricsJobData, void>(
-        METRICS_CLEANUP_QUEUE,
-        { batchSize: 1, pollingIntervalSeconds: workerPollSeconds },
-        async ([job]) => this.handleMetricsCleanupJob(job.data),
-      )
-      .catch((error) =>
-        this.logger.error({
-          event: "worker_register_failed",
-          message: "Failed to register worker",
-          queue: METRICS_CLEANUP_QUEUE,
           error: toStructuredError(error),
         }),
       );
@@ -654,24 +615,6 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     });
   }
 
-  private async handleMetricsJob(data: MetricsJobData): Promise<void> {
-    void data;
-    await this.recordJobExecution("metrics", async () => {
-      await this.metricsSchedulerService.aggregateDailyMetrics();
-      await this.metricsSchedulerService.refreshWeeklyPerformance();
-      await this.metricsSchedulerService.refreshAllTimePerformance();
-      return "success";
-    });
-  }
-
-  private async handleMetricsCleanupJob(data: MetricsJobData): Promise<void> {
-    void data;
-    await this.recordJobExecution("metrics_cleanup", async () => {
-      await this.metricsSchedulerService.cleanupOldMetrics({ allowWhenPgBoss: true });
-      return "success";
-    });
-  }
-
   private async handleDataRetentionJob(data: DataRetentionJobData): Promise<void> {
     void data;
     await this.recordJobExecution("data_retention_poll", async () => {
@@ -895,27 +838,19 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     dealIntervalSeconds: number;
     retrievalIntervalSeconds: number;
     dataSetCreationIntervalSeconds: number;
-    metricsIntervalSeconds: number;
-    metricsCleanupIntervalSeconds: number;
     dataRetentionPollIntervalSeconds: number;
     providersRefreshIntervalSeconds: number;
   } {
     const jobsConfig = this.configService.get("jobs", { infer: true });
     const scheduling = this.configService.get("scheduling", { infer: true });
 
-    // Keep cleanup weekly to match legacy cron schedule unless explicitly changed in code.
-    const defaultMetricsCleanupIntervalSeconds = 7 * 24 * 3600;
-
     const dealsPerHour = jobsConfig.dealsPerSpPerHour;
     const retrievalsPerHour = jobsConfig.retrievalsPerSpPerHour;
-    const metricsPerHour = jobsConfig.metricsPerHour;
     const dataSetCreationsPerHour = jobsConfig.dataSetCreationsPerSpPerHour;
 
     const dealIntervalSeconds = Math.max(1, Math.round(3600 / dealsPerHour));
     const retrievalIntervalSeconds = Math.max(1, Math.round(3600 / retrievalsPerHour));
-    const metricsIntervalSeconds = Math.max(1, Math.round(3600 / metricsPerHour));
     const dataSetCreationIntervalSeconds = Math.max(1, Math.round(3600 / dataSetCreationsPerHour));
-    const metricsCleanupIntervalSeconds = defaultMetricsCleanupIntervalSeconds;
     const dataRetentionPollIntervalSeconds = scheduling.dataRetentionPollIntervalSeconds;
     const providersRefreshIntervalSeconds = scheduling.providersRefreshIntervalSeconds;
 
@@ -923,8 +858,6 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       dealIntervalSeconds,
       retrievalIntervalSeconds,
       dataSetCreationIntervalSeconds,
-      metricsIntervalSeconds,
-      metricsCleanupIntervalSeconds,
       dataRetentionPollIntervalSeconds,
       providersRefreshIntervalSeconds,
     };
@@ -935,7 +868,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
    * - Inserts new rows for new providers.
    * - Updates intervals if config changed.
    * - Pauses rows for providers that are no longer active.
-   * - Ensures global metrics and provider refresh jobs exist.
+   * - Ensures global data_retention_poll and providers_refresh jobs exist.
    */
   private async ensureScheduleRows(): Promise<void> {
     const now = new Date();
@@ -943,8 +876,6 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       dealIntervalSeconds,
       retrievalIntervalSeconds,
       dataSetCreationIntervalSeconds,
-      metricsIntervalSeconds,
-      metricsCleanupIntervalSeconds,
       dataRetentionPollIntervalSeconds,
       providersRefreshIntervalSeconds,
     } = this.getIntervalSecondsForRates();
@@ -961,7 +892,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     const dealStartAt = new Date(now.getTime() + phaseMs);
     const retrievalStartAt = new Date(now.getTime() + phaseMs);
     const dataSetCreationStartAt = new Date(now.getTime() + phaseMs);
-    const metricsStartAt = new Date(now.getTime() + phaseMs);
+    const dataRetentionPollStartAt = new Date(now.getTime() + phaseMs);
     const providersRefreshStartAt = new Date(now.getTime() + phaseMs);
 
     const minDataSets = this.configService.get("blockchain").minNumDataSetsForChecks;
@@ -1010,18 +941,11 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     }
 
     // Global job schedules (sp_address = '')
-    await this.jobScheduleRepository.upsertSchedule("metrics", "", metricsIntervalSeconds, metricsStartAt);
-    await this.jobScheduleRepository.upsertSchedule(
-      "metrics_cleanup",
-      "",
-      metricsCleanupIntervalSeconds,
-      metricsStartAt,
-    );
     await this.jobScheduleRepository.upsertSchedule(
       "data_retention_poll",
       "",
       dataRetentionPollIntervalSeconds,
-      metricsStartAt,
+      dataRetentionPollStartAt,
     );
     await this.jobScheduleRepository.upsertSchedule(
       "providers_refresh",
@@ -1072,6 +996,23 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       const rows = await this.jobScheduleRepository.findDueSchedulesWithManager(manager, now);
 
       for (const row of rows) {
+        // Skip legacy job types that are no longer supported.
+        // TODO(#457): remove once RemoveMetricsJobScheduleRows has run everywhere and no such rows remain.
+        if (row.job_type === "metrics" || row.job_type === "metrics_cleanup") {
+          this.logger.warn({
+            event: "legacy_job_type_skipped",
+            message: "Skipping legacy job type - please remove from job_schedule_state table",
+            jobType: row.job_type,
+            scheduleId: row.id,
+          });
+          // Advance next_run_at so this row is not re-selected on every tick in
+          // environments where the RemoveMetricsJobScheduleRows migration has not run.
+          const legacyIntervalMs = row.interval_seconds * 1000;
+          const newNextRunAt = new Date(now.getTime() + (legacyIntervalMs > 0 ? legacyIntervalMs : 86_400_000));
+          await this.jobScheduleRepository.advanceScheduleNextRun(manager, row.id, newNextRunAt);
+          continue;
+        }
+
         const timing = this.getScheduleTiming(row, now);
         if (!timing) continue;
         const { intervalMs, nextRunAt, runsDue } = timing;
@@ -1121,14 +1062,14 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         return SP_WORK_QUEUE;
       case "data_set_creation":
         return SP_WORK_QUEUE;
-      case "metrics":
-        return METRICS_QUEUE;
-      case "metrics_cleanup":
-        return METRICS_CLEANUP_QUEUE;
       case "data_retention_poll":
         return DATA_RETENTION_POLL_QUEUE;
       case "providers_refresh":
         return PROVIDERS_REFRESH_QUEUE;
+      case "metrics":
+      case "metrics_cleanup":
+        // These legacy job types should be filtered out before reaching this method
+        throw new Error(`Legacy job type ${jobType} should not be processed - remove from job_schedule_state table`);
       default: {
         const exhaustiveCheck: never = jobType;
         throw new Error(`Unhandled job type: ${exhaustiveCheck}`);
@@ -1136,7 +1077,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     }
   }
 
-  private mapJobPayload(row: ScheduleRow): SpJobData | MetricsJobData | ProvidersRefreshJobData {
+  private mapJobPayload(row: ScheduleRow): SpJobData | ProvidersRefreshJobData | DataRetentionJobData {
     if (row.job_type === "deal" || row.job_type === "retrieval" || row.job_type === "data_set_creation") {
       return { jobType: row.job_type, spAddress: row.sp_address, intervalSeconds: row.interval_seconds };
     }
@@ -1149,7 +1090,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
   private async safeSend(
     jobType: JobType,
     name: string,
-    data: SpJobData | MetricsJobData | ProvidersRefreshJobData,
+    data: SpJobData | ProvidersRefreshJobData | DataRetentionJobData,
     options?: SendOptions,
   ) {
     if (!this.boss) return false;
@@ -1204,15 +1145,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
    * Refreshes queue depth and age gauges from pg-boss tables.
    */
   private async updateQueueMetrics(): Promise<void> {
-    const jobTypes: JobType[] = [
-      "deal",
-      "retrieval",
-      "data_set_creation",
-      "metrics",
-      "metrics_cleanup",
-      "data_retention_poll",
-      "providers_refresh",
-    ];
+    const jobTypes: JobType[] = ["deal", "retrieval", "data_set_creation", "data_retention_poll", "providers_refresh"];
     for (const jobType of jobTypes) {
       this.jobsQueuedGauge.set({ job_type: jobType }, 0);
       this.jobsRetryScheduledGauge.set({ job_type: jobType }, 0);
