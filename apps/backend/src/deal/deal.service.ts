@@ -249,7 +249,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       });
       signal?.throwIfAborted();
 
-      deal.dataSetId = storage.dataSetId;
+      deal.dataSetId = storage.dataSetId ?? null;
       deal.uploadStartTime = new Date();
       let onStoredAddonsPromise: Promise<boolean> | null = null;
       let storedError: Error | undefined;
@@ -276,7 +276,51 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
             case "onStored": {
               deal.uploadEndTime = new Date();
               deal.status = DealStatus.UPLOADED;
-              deal.ingestLatencyMs = deal.uploadEndTime.getTime() - deal.uploadStartTime.getTime();
+              deal.ingestLatencyMs = null;
+              deal.ingestThroughputBps = null;
+
+              const uploadStartTime = deal.uploadStartTime;
+              const uploadEndTime = deal.uploadEndTime;
+              if (uploadStartTime == null) {
+                this.logger.warn({
+                  ...dealLogContext,
+                  event: "ingest_metrics_skipped_missing_upload_start_time",
+                  message: "Skipping ingest metrics: uploadStartTime is missing",
+                  uploadEndTime,
+                });
+              } else {
+                const ingestLatencyMs = uploadEndTime.getTime() - uploadStartTime.getTime();
+                if (!Number.isFinite(ingestLatencyMs) || ingestLatencyMs <= 0) {
+                  this.logger.warn({
+                    ...dealLogContext,
+                    event: "ingest_metrics_skipped_invalid_latency",
+                    message: "Skipping ingest metrics: invalid ingest latency",
+                    uploadStartTime,
+                    uploadEndTime,
+                    ingestLatencyMs,
+                  });
+                } else {
+                  deal.ingestLatencyMs = ingestLatencyMs;
+                  this.dataStorageMetrics.observeIngestMs(providerLabels, ingestLatencyMs);
+
+                  const ingestSeconds = ingestLatencyMs / 1000;
+                  const ingestThroughputBps = Math.round(deal.fileSize / ingestSeconds);
+                  if (!Number.isFinite(ingestThroughputBps) || ingestThroughputBps <= 0) {
+                    this.logger.warn({
+                      ...dealLogContext,
+                      event: "ingest_throughput_skipped_invalid_value",
+                      message: "Skipping ingest throughput metric: invalid throughput value",
+                      ingestLatencyMs,
+                      fileSize: deal.fileSize,
+                      ingestThroughputBps,
+                    });
+                  } else {
+                    deal.ingestThroughputBps = ingestThroughputBps;
+                    this.dataStorageMetrics.observeIngestThroughput(providerLabels, ingestThroughputBps);
+                  }
+                }
+              }
+
               deal.pieceCid = event.data.pieceCid.toString();
               dealLogContext.pieceCid = event.data.pieceCid.toString();
               this.logger.log({
@@ -285,7 +329,6 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
                 message: `Store completed`,
               });
               uploadSucceeded = true;
-              this.dataStorageMetrics.observeIngestMs(providerLabels, deal.ingestLatencyMs);
               this.dataStorageMetrics.recordUploadStatus(providerLabels, "success");
               this.dataStorageMetrics.recordOnchainStatus(providerLabels, "pending");
               onStoredAddonsPromise = this.dealAddonsService
@@ -295,19 +338,6 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
                   storedError = error;
                   return false;
                 });
-              const ingestSeconds = deal.ingestLatencyMs / 1000;
-              if (ingestSeconds > 0 && Number.isFinite(ingestSeconds)) {
-                deal.ingestThroughputBps = Math.round(deal.fileSize / ingestSeconds);
-                this.dataStorageMetrics.observeIngestThroughput(providerLabels, deal.ingestThroughputBps);
-              } else {
-                deal.ingestThroughputBps = 0;
-                this.logger.warn({
-                  ...dealLogContext,
-                  event: "ingest_throughput_skipped",
-                  message: "Skipping ingest throughput: invalid ingest latency",
-                  ingestLatencyMs: deal.ingestLatencyMs,
-                });
-              }
               break;
             }
             case "onPiecesAdded":
@@ -328,10 +358,12 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
                 });
               }
               deal.status = DealStatus.PIECE_ADDED;
-              this.dataStorageMetrics.observePieceAddedOnChainMs(
-                providerLabels,
-                deal.piecesAddedTime.getTime() - deal.uploadEndTime.getTime(),
-              );
+              if (deal.uploadEndTime) {
+                this.dataStorageMetrics.observePieceAddedOnChainMs(
+                  providerLabels,
+                  deal.piecesAddedTime.getTime() - deal.uploadEndTime.getTime(),
+                );
+              }
               break;
             case "onPiecesConfirmed":
               this.logger.log({
@@ -340,22 +372,49 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
                 message: "Pieces confirmed",
                 pieceIds: event.data.pieceIds,
               });
+              if (event.data.pieceIds.length > 1) {
+                this.logger.warn({
+                  ...dealLogContext,
+                  event: "pieces_confirmed_multiple_piece_ids",
+                  message: "Expected at most one pieceId for dealbot content, received multiple",
+                  pieceIds: event.data.pieceIds,
+                });
+              }
+              if (event.data.pieceIds.length > 0) {
+                deal.pieceId = Number(event.data.pieceIds[0]);
+              }
               deal.piecesConfirmedTime = new Date();
               deal.status = DealStatus.PIECE_CONFIRMED;
-              deal.chainLatencyMs = deal.piecesConfirmedTime.getTime() - deal.piecesAddedTime.getTime();
+              deal.chainLatencyMs =
+                deal.piecesAddedTime != null
+                  ? deal.piecesConfirmedTime.getTime() - deal.piecesAddedTime.getTime()
+                  : null;
               onchainSucceeded = true;
-              this.dataStorageMetrics.observePieceConfirmedOnChainMs(providerLabels, deal.chainLatencyMs);
+              if (deal.chainLatencyMs !== null) {
+                this.dataStorageMetrics.observePieceConfirmedOnChainMs(providerLabels, deal.chainLatencyMs);
+              }
               this.dataStorageMetrics.recordOnchainStatus(providerLabels, "success");
               break;
           }
         },
       });
       signal?.throwIfAborted();
-      if (deal.pieceCid == null || deal.piecesAddedTime == null || deal.piecesConfirmedTime == null) {
+      const pieceCid = deal.pieceCid;
+      const uploadStartTime = deal.uploadStartTime;
+      const uploadEndTime = deal.uploadEndTime;
+      const pieceAddedTime = deal.piecesAddedTime;
+      const pieceConfirmedTime = deal.piecesConfirmedTime;
+      if (
+        pieceCid === null ||
+        uploadStartTime === null ||
+        uploadEndTime === null ||
+        pieceAddedTime === null ||
+        pieceConfirmedTime === null
+      ) {
         throw new Error("Dealbot did not receive onProgress events during upload");
       }
 
-      deal.dealLatencyMs = deal.piecesConfirmedTime.getTime() - deal.uploadStartTime.getTime();
+      deal.dealLatencyMs = pieceConfirmedTime.getTime() - uploadStartTime.getTime();
 
       if (!deal.transactionHash) {
         this.logger.error({
@@ -375,7 +434,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
           throw storedError ?? new Error("Upload completion handlers failed");
         }
         deal.dealConfirmedTime = new Date();
-        if (deal.ipniVerifiedAt) {
+        if (deal.ipniVerifiedAt != null && deal.uploadStartTime != null) {
           // pieceUploadToRetrievableDuration (IPNI verified)
           deal.dealLatencyWithIpniMs = deal.ipniVerifiedAt.getTime() - deal.uploadStartTime.getTime();
         }
@@ -736,7 +795,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     // Only set pieceSize here if it hasn't been set earlier in the deal flow.
     deal.pieceSize = pieceSize;
 
-    deal.pieceId = uploadResult.pieceId;
+    deal.pieceId = uploadResult.pieceId ?? deal.pieceId;
   }
 
   private async saveDeal(deal: Deal, dealLogContext: DealLogContext): Promise<void> {
