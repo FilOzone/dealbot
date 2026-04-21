@@ -52,7 +52,7 @@ describe("DealService", () => {
   type UploadProgressEvent =
     | { type: "onStored"; data: { pieceCid: string } }
     | { type: "onPiecesAdded"; data: { txHash: string } }
-    | { type: "onPiecesConfirmed"; data: { pieceIds: number[] } };
+    | { type: "onPiecesConfirmed"; data: { pieceIds: bigint[] } };
   type ExecuteUploadOptions = {
     onProgress?: (event: UploadProgressEvent) => Promise<void> | void;
   };
@@ -72,7 +72,7 @@ describe("DealService", () => {
     advanceTimersIfFake(2000);
     await onProgress({ type: "onPiecesAdded", data: { txHash: "0xhash" } });
     advanceTimersIfFake(3000);
-    await onProgress({ type: "onPiecesConfirmed", data: { pieceIds: [123] } });
+    await onProgress({ type: "onPiecesConfirmed", data: { pieceIds: [123n] } });
   };
 
   const mockDealRepository = {
@@ -1065,6 +1065,40 @@ describe("DealService", () => {
           },
         });
       });
+    });
+
+    it("preserves pieceId from onPiecesConfirmed when uploadResult.pieceId is missing", async () => {
+      const uploadPayload = {
+        carData: Uint8Array.from([1, 2, 3]),
+        rootCid: CID.parse(mockRootCid),
+      };
+
+      createContextMock.mockResolvedValue({
+        dataSetId: "dataset-123",
+      });
+
+      // Mock executeUpload to return without pieceId but trigger onPiecesConfirmed with pieceIds
+      (executeUpload as Mock).mockImplementation(async (_service, _data, _rootCid, options) => {
+        await triggerUploadProgress(options?.onProgress);
+        return {
+          pieceCid: "bafk-uploaded",
+          pieceId: undefined, // uploadResult does not include pieceId
+          transactionHash: "0xhash",
+        };
+      });
+
+      retrievalAddonsMock.testAllRetrievalMethods.mockResolvedValue({
+        dealId: "deal-1",
+        results: [],
+        summary: { totalMethods: 1, successfulMethods: 1, failedMethods: 0 },
+        testedAt: new Date(),
+      });
+
+      const deal = await service.createDeal(mockSynapseInstance, mockProviderInfo, mockDealInput, uploadPayload);
+
+      // Verify that pieceId from onPiecesConfirmed (123) is preserved and not overwritten by undefined
+      expect(deal.pieceId).toBe(123);
+      expect(deal.status).toBe(DealStatus.DEAL_CREATED);
     });
   });
 
