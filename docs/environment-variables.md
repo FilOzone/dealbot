@@ -810,9 +810,7 @@ unbounded data growth. Cleanup runs as a periodic pg-boss job per SP.
 
 The cleanup flow uses **live provider data** (via `filecoin-pin`'s `calculateActualStorage()`) as the source of truth for how much data an SP is storing. When live usage exceeds the high-water mark (`MAX_DATASET_STORAGE_SIZE_BYTES`), the cleanup job deletes the oldest pieces until usage drops below the low-water mark (`TARGET_DATASET_STORAGE_SIZE_BYTES`). This high-water/low-water approach prevents thrashing near the threshold.
 
-If the live query fails, cleanup falls back to DB-based `SUM(piece_size)` for the quota decision.
-
-SPs that are over quota will also have new deal creation skipped until cleanup runs.
+If the live query fails, cleanup does not delete pieces during that run. Deal creation continues regardless of cleanup state.
 
 ### `MAX_DATASET_STORAGE_SIZE_BYTES`
 

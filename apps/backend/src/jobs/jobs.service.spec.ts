@@ -159,8 +159,7 @@ describe("JobsService schedule rows", () => {
         overrides.retrievalService ?? ({} as JobsServiceDeps[4]),
         overrides.walletSdkService ?? ({} as JobsServiceDeps[5]),
         overrides.dataRetentionService ?? (dataRetentionServiceMock as unknown as JobsServiceDeps[6]),
-        overrides.pieceCleanupService ??
-          ({ isProviderOverQuota: vi.fn().mockResolvedValue(false) } as unknown as JobsServiceDeps[7]),
+        overrides.pieceCleanupService ?? ({} as JobsServiceDeps[7]),
         overrides.jobsQueuedGauge ?? metricsMocks.jobsQueuedGauge,
         overrides.jobsRetryScheduledGauge ?? metricsMocks.jobsRetryScheduledGauge,
         overrides.oldestQueuedAgeGauge ?? metricsMocks.oldestQueuedAgeGauge,
@@ -908,120 +907,6 @@ describe("JobsService schedule rows", () => {
     );
   });
 
-  it("deal job skips deal creation when SP is over storage quota", async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date("2024-01-01T12:00:00Z"));
-
-    const dealService = {
-      createDealForProvider: vi.fn(),
-      getTestingDealOptions: vi.fn(() => ({ enableIpni: false })),
-      getBaseDataSetMetadata: vi.fn(() => ({})),
-      checkDataSetExists: vi.fn(async () => false),
-    };
-
-    const walletSdkService = {
-      getTestingProviders: vi.fn(() => [{ serviceProvider: "0xaaa" }]),
-      ensureWalletAllowances: vi.fn(),
-      loadProviders: vi.fn(),
-      getProviderInfo: vi.fn(() => ({ id: 1 })),
-    };
-
-    const pieceCleanupService = {
-      isProviderOverQuota: vi.fn().mockResolvedValue(true),
-    };
-
-    service = buildService({
-      dealService: dealService as unknown as ConstructorParameters<typeof JobsService>[3],
-      walletSdkService: walletSdkService as unknown as JobsServiceDeps[5],
-      pieceCleanupService: pieceCleanupService as unknown as JobsServiceDeps[7],
-    });
-
-    await callPrivate(service, "handleDealJob", {
-      id: "job-over-quota",
-      data: { jobType: "deal", spAddress: "0xaaa", intervalSeconds: 60 },
-    });
-
-    expect(pieceCleanupService.isProviderOverQuota).toHaveBeenCalledWith("0xaaa");
-    expect(dealService.createDealForProvider).not.toHaveBeenCalled();
-  });
-
-  it("deal job proceeds with deal creation when quota check throws (fail-open)", async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date("2024-01-01T12:00:00Z"));
-
-    const dealService = {
-      createDealForProvider: vi.fn(async () => ({})),
-      getTestingDealOptions: vi.fn(() => ({ enableIpni: false })),
-      getBaseDataSetMetadata: vi.fn(() => ({})),
-      checkDataSetExists: vi.fn(async () => false),
-    };
-
-    const walletSdkService = {
-      getTestingProviders: vi.fn(() => [{ serviceProvider: "0xaaa" }]),
-      ensureWalletAllowances: vi.fn(),
-      loadProviders: vi.fn(),
-      getProviderInfo: vi.fn(() => ({ id: 1, name: "test-provider" })),
-    };
-
-    const pieceCleanupService = {
-      isProviderOverQuota: vi.fn().mockRejectedValue(new Error("DB connection failed")),
-    };
-
-    service = buildService({
-      dealService: dealService as unknown as ConstructorParameters<typeof JobsService>[3],
-      walletSdkService: walletSdkService as unknown as JobsServiceDeps[5],
-      pieceCleanupService: pieceCleanupService as unknown as JobsServiceDeps[7],
-    });
-
-    await callPrivate(service, "handleDealJob", {
-      id: "job-quota-error",
-      data: { jobType: "deal", spAddress: "0xaaa", intervalSeconds: 60 },
-    });
-
-    expect(pieceCleanupService.isProviderOverQuota).toHaveBeenCalledWith("0xaaa");
-    // Should proceed despite the quota check failure (fail-open)
-    expect(dealService.createDealForProvider).toHaveBeenCalledTimes(1);
-  });
-
-  it("deal job uses live provider data for quota (DB/provider drift: live says OK → deal proceeds)", async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date("2024-01-01T12:00:00Z"));
-
-    const dealService = {
-      createDealForProvider: vi.fn(async () => ({})),
-      getTestingDealOptions: vi.fn(() => ({ enableIpni: false })),
-      getBaseDataSetMetadata: vi.fn(() => ({})),
-      checkDataSetExists: vi.fn(async () => false),
-    };
-
-    const walletSdkService = {
-      getTestingProviders: vi.fn(() => [{ serviceProvider: "0xaaa" }]),
-      ensureWalletAllowances: vi.fn(),
-      loadProviders: vi.fn(),
-      getProviderInfo: vi.fn(() => ({ id: 1, name: "test-provider" })),
-    };
-
-    // Live provider data says NOT over quota (even if DB SUM disagrees)
-    const pieceCleanupService = {
-      isProviderOverQuota: vi.fn().mockResolvedValue(false),
-    };
-
-    service = buildService({
-      dealService: dealService as unknown as ConstructorParameters<typeof JobsService>[3],
-      walletSdkService: walletSdkService as unknown as JobsServiceDeps[5],
-      pieceCleanupService: pieceCleanupService as unknown as JobsServiceDeps[7],
-    });
-
-    await callPrivate(service, "handleDealJob", {
-      id: "job-drift-ok",
-      data: { jobType: "deal", spAddress: "0xaaa", intervalSeconds: 60 },
-    });
-
-    expect(pieceCleanupService.isProviderOverQuota).toHaveBeenCalledWith("0xaaa");
-    // Live data says under quota, so deal creation should proceed
-    expect(dealService.createDealForProvider).toHaveBeenCalledTimes(1);
-  });
-
   it("deal job creates deal without metadata when minNumDataSetsForChecks is 1", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2024-01-01T12:00:00Z"));
@@ -1053,6 +938,43 @@ describe("JobsService schedule rows", () => {
       expect.objectContaining({ serviceProvider: "0xaaa" }),
       expect.objectContaining({ extraDataSetMetadata: undefined }),
     );
+  });
+
+  it("deal job does not consult piece cleanup quota before creating deals", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2024-01-01T12:00:00Z"));
+    const dealService = {
+      createDealForProvider: vi.fn(async () => ({})),
+      getBaseDataSetMetadata: vi.fn(() => ({ withIpniIndexing: "" })),
+      checkDataSetExists: vi.fn(async () => false),
+    };
+
+    const walletSdkService = {
+      getTestingProviders: vi.fn(() => [{ serviceProvider: "0xaaa" }]),
+      ensureWalletAllowances: vi.fn(),
+      loadProviders: vi.fn(),
+      getProviderInfo: vi.fn(() => ({ id: 1, name: "test-provider" })),
+    };
+
+    const pieceCleanupService = {
+      isProviderOverQuota: vi.fn(() => {
+        throw new Error("deal job must not query cleanup quota");
+      }),
+    };
+
+    service = buildService({
+      dealService: dealService as unknown as ConstructorParameters<typeof JobsService>[3],
+      walletSdkService: walletSdkService as unknown as ConstructorParameters<typeof JobsService>[5],
+      pieceCleanupService: pieceCleanupService as unknown as JobsServiceDeps[7],
+    });
+
+    await callPrivate(service, "handleDealJob", {
+      id: "job-deal-no-quota-gate",
+      data: { jobType: "deal", spAddress: "0xaaa", intervalSeconds: 60 },
+    });
+
+    expect(pieceCleanupService.isProviderOverQuota).not.toHaveBeenCalled();
+    expect(dealService.createDealForProvider).toHaveBeenCalledTimes(1);
   });
 
   it("deal job passes dealbotDS metadata when selecting a provisioned data set index", async () => {

@@ -77,6 +77,34 @@ export class PieceCleanupService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  private async awaitWithAbort<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
+    if (!signal) {
+      return promise;
+    }
+    signal.throwIfAborted();
+
+    return new Promise<T>((resolve, reject) => {
+      const cleanup = () => signal.removeEventListener("abort", onAbort);
+      const onAbort = () => {
+        cleanup();
+        const reason = signal.reason;
+        reject(reason instanceof Error ? reason : new Error("Operation aborted"));
+      };
+
+      signal.addEventListener("abort", onAbort, { once: true });
+      promise.then(
+        (value) => {
+          cleanup();
+          resolve(value);
+        },
+        (error) => {
+          cleanup();
+          reject(error);
+        },
+      );
+    });
+  }
+
   /**
    * Shared quota check: queries provider-reported storage and compares to threshold.
    */
@@ -87,16 +115,6 @@ export class PieceCleanupService implements OnModuleInit, OnModuleDestroy {
     const thresholdBytes = this.configService.get("pieceCleanup").maxDatasetStorageSizeBytes;
     const storedBytes = await this.getLiveStoredBytesForProvider(spAddress, signal);
     return { isOverQuota: storedBytes > thresholdBytes, storedBytes, thresholdBytes };
-  }
-
-  /**
-   * Check whether a provider is over the configured storage quota.
-   * Uses provider-reported data so stale DB rows cannot block deal creation.
-   * Used by the deal handler to gate new deal creation.
-   */
-  async isProviderOverQuota(spAddress: string): Promise<boolean> {
-    const { isOverQuota } = await this.checkProviderQuota(spAddress);
-    return isOverQuota;
   }
 
   /**
@@ -240,9 +258,12 @@ export class PieceCleanupService implements OnModuleInit, OnModuleDestroy {
   async getLiveStoredBytesForProvider(spAddress: string, signal?: AbortSignal): Promise<number> {
     const synapse = this.sharedSynapse ?? (await this.createSynapseInstance());
 
-    const datasets = await listDataSets(synapse, {
-      filter: (ds) => ds.serviceProvider.toLowerCase() === spAddress.toLowerCase(),
-    });
+    const datasets = await this.awaitWithAbort(
+      listDataSets(synapse, {
+        filter: (ds) => ds.serviceProvider.toLowerCase() === spAddress.toLowerCase(),
+      }),
+      signal,
+    );
 
     if (datasets.length === 0) {
       this.logger.debug({

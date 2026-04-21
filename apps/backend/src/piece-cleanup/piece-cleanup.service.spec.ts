@@ -178,42 +178,18 @@ describe("PieceCleanupService", () => {
     });
   });
 
-  describe("isProviderOverQuota", () => {
-    it("returns true when live stored bytes exceed threshold", async () => {
-      vi.spyOn(service, "getLiveStoredBytesForProvider").mockResolvedValue(THRESHOLD_BYTES + 1);
-
-      const result = await service.isProviderOverQuota("0xProvider");
-
-      expect(result).toBe(true);
-    });
-
-    it("returns false when live stored bytes are at threshold", async () => {
-      vi.spyOn(service, "getLiveStoredBytesForProvider").mockResolvedValue(THRESHOLD_BYTES);
-
-      const result = await service.isProviderOverQuota("0xProvider");
-
-      expect(result).toBe(false);
-    });
-
-    it("returns false when live stored bytes are below threshold", async () => {
-      vi.spyOn(service, "getLiveStoredBytesForProvider").mockResolvedValue(THRESHOLD_BYTES - 1);
-
-      const result = await service.isProviderOverQuota("0xProvider");
-
-      expect(result).toBe(false);
-    });
-
-    it("does not fall back to DB when the live quota query fails", async () => {
-      vi.spyOn(service, "getLiveStoredBytesForProvider").mockRejectedValue(new Error("network error"));
-      mockQueryBuilder(THRESHOLD_BYTES + 1);
-
-      await expect(service.isProviderOverQuota("0xProvider")).rejects.toThrow("network error");
-
-      expect(dealRepoMock.createQueryBuilder).not.toHaveBeenCalled();
-    });
-  });
-
   describe("getLiveStoredBytesForProvider", () => {
+    it("returns when aborted while listing datasets", async () => {
+      const abortController = new AbortController();
+      vi.mocked(listDataSets).mockReturnValueOnce(new Promise(() => {}) as any);
+
+      const result = service.getLiveStoredBytesForProvider("0xProvider", abortController.signal);
+      abortController.abort(new Error("listing timed out"));
+
+      await expect(result).rejects.toThrow("listing timed out");
+      expect(calculateActualStorage).not.toHaveBeenCalled();
+    });
+
     it("passes the abort signal through to actual storage calculation", async () => {
       const signal = new AbortController().signal;
       vi.mocked(listDataSets).mockResolvedValueOnce([

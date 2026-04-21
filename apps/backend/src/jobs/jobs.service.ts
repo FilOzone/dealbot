@@ -434,26 +434,6 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       return;
     }
 
-    // Over-quota gating: avoid adding more pieces while already above quota
-    try {
-      const overQuota = await this.pieceCleanupService.isProviderOverQuota(spAddress);
-      if (overQuota) {
-        this.logger.warn({
-          event: "deal_job_over_quota",
-          message: "Deal job skipped: SP is over the storage quota; cleanup must run first",
-          providerAddress: spAddress,
-        });
-        return;
-      }
-    } catch (error) {
-      this.logger.warn({
-        event: "deal_job_quota_check_failed",
-        message: "Failed to check storage quota for SP; proceeding with deal creation",
-        providerAddress: spAddress,
-        error: toStructuredError(error),
-      });
-    }
-
     // Create AbortController for job timeout enforcement
     const abortController = new AbortController();
     const timeoutSeconds = this.configService.get("jobs").dealJobTimeoutSeconds;
