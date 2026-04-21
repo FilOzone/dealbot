@@ -40,25 +40,25 @@ export class Retrieval {
   startedAt!: Date;
 
   @Column({ name: "completed_at", type: "timestamptz", nullable: true })
-  completedAt!: Date;
+  completedAt: Date | null;
 
-  @Column({ name: "latency_ms", nullable: true })
-  latencyMs!: number;
+  @Column({ name: "latency_ms", type: "int", nullable: true })
+  latencyMs: number | null;
 
-  @Column({ name: "throughput_bps", nullable: true })
-  throughputBps!: number;
+  @Column({ name: "throughput_bps", type: "int", nullable: true })
+  throughputBps: number | null;
 
-  @Column({ name: "bytes_retrieved", nullable: true })
-  bytesRetrieved!: number;
+  @Column({ name: "bytes_retrieved", type: "int", nullable: true })
+  bytesRetrieved: number | null;
 
-  @Column({ name: "ttfb_ms", nullable: true })
-  ttfbMs!: number;
+  @Column({ name: "ttfb_ms", type: "int", nullable: true })
+  ttfbMs: number | null;
 
-  @Column({ name: "response_code", nullable: true })
-  responseCode!: number;
+  @Column({ name: "response_code", type: "int", nullable: true })
+  responseCode: number | null;
 
-  @Column({ name: "error_message", nullable: true })
-  errorMessage!: string;
+  @Column({ name: "error_message", type: "varchar", nullable: true })
+  errorMessage: string | null;
 
   @Column({ name: "retry_count", default: 0 })
   retryCount!: number;

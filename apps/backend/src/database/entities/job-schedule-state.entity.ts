@@ -32,7 +32,7 @@ export class JobScheduleState {
   nextRunAt!: Date;
 
   @Column({ name: "last_run_at", type: "timestamptz", nullable: true })
-  lastRunAt?: Date | null;
+  lastRunAt: Date | null;
 
   @Column({ default: false })
   paused!: boolean;
