@@ -7,6 +7,7 @@ import { StorageProvider } from "../database/entities/storage-provider.entity.js
 import { DealModule } from "../deal/deal.module.js";
 import { PieceCleanupModule } from "../piece-cleanup/piece-cleanup.module.js";
 import { RetrievalModule } from "../retrieval/retrieval.module.js";
+import { RetrievalAnonModule } from "../retrieval-anon/retrieval-anon.module.js";
 import { WalletSdkModule } from "../wallet-sdk/wallet-sdk.module.js";
 import { JobsService } from "./jobs.service.js";
 import { JobScheduleRepository } from "./repositories/job-schedule.repository.js";
@@ -17,6 +18,7 @@ import { JobScheduleRepository } from "./repositories/job-schedule.repository.js
     TypeOrmModule.forFeature([StorageProvider, JobScheduleState]),
     DealModule,
     RetrievalModule,
+    RetrievalAnonModule,
     WalletSdkModule,
     DataRetentionModule,
     PieceCleanupModule,
