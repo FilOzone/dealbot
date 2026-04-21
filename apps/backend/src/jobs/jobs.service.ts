@@ -93,7 +93,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     private readonly storageProvidersActive: Gauge,
     @InjectMetric("storage_providers_tested")
     private readonly storageProvidersTested: Gauge,
-  ) { }
+  ) {}
 
   /**
    * Initializes the scheduler.
@@ -1052,7 +1052,6 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     const providersRefreshStartAt = new Date(now.getTime() + phaseMs);
 
     const minDataSets = this.configService.get("blockchain").minNumDataSetsForChecks;
-    
     const cleanupStartAt = new Date(now.getTime() + phaseMs);
 
     const spBlocklistsCfg = this.configService.get<ISpBlocklistConfig>("spBlocklists");
