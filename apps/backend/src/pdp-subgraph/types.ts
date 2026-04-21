@@ -14,10 +14,11 @@ export type GraphQLResponse = {
 };
 
 /**
- * Options for fetching provider-level totals from the PDP subgraph
+ * Options for fetching providers with data sets
  */
 export type ProvidersWithDataSetsOptions = {
   addresses: string[];
+  blockNumber: number;
 };
 
 /**
@@ -32,6 +33,15 @@ export type SubgraphMeta = {
 };
 
 /**
+ * A single proof set within a provider, representing deadline-related proving data.
+ * All numeric fields are bigints converted from the subgraph string representation.
+ */
+export type DataSet = {
+  nextDeadline: bigint;
+  maxProvingPeriod: bigint;
+};
+
+/**
  * Validated and transformed response from the PDP subgraph providers query.
  * Numeric fields are converted from subgraph string representation to bigint.
  */
@@ -40,6 +50,7 @@ export type ProviderDataSetResponse = {
     address: Hex;
     totalFaultedPeriods: bigint;
     totalProvingPeriods: bigint;
+    proofSets: DataSet[];
   }[];
 };
 
@@ -86,6 +97,11 @@ const metaSchema = Joi.object({
   .unknown(true)
   .required();
 
+const dataSetSchema = Joi.object({
+  nextDeadline: Joi.string().pattern(/^\d+$/).required().custom(toBigInt),
+  maxProvingPeriod: Joi.string().pattern(/^\d+$/).required().custom(toBigInt),
+}).unknown(true);
+
 const providerDataSetResponseSchema = Joi.object({
   providers: Joi.array()
     .items(
@@ -93,6 +109,7 @@ const providerDataSetResponseSchema = Joi.object({
         address: Joi.string().required().custom(toEthereumAddress),
         totalFaultedPeriods: Joi.string().pattern(/^\d+$/).required().custom(toBigInt),
         totalProvingPeriods: Joi.string().pattern(/^\d+$/).required().custom(toBigInt),
+        proofSets: Joi.array().items(dataSetSchema).required(),
       }).unknown(true),
     )
     .required(),

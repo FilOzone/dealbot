@@ -202,6 +202,11 @@ const metricProviders = [
     help: "Provider dataset challenge status",
     labelNames: ["checkType", "providerId", "providerName", "providerStatus", "value"] as const,
   }),
+  makeGaugeProvider({
+    name: "pdp_provider_estimated_overdue_periods",
+    help: "Estimated number of unrecorded overdue proving periods per provider. Resets to 0 when the subgraph catches up.",
+    labelNames: ["checkType", "providerId", "providerName", "providerStatus"] as const,
+  }),
   // Storage provider metrics: absolute counts, independent of query filters.
   makeGaugeProvider({
     name: "storage_providers_active",

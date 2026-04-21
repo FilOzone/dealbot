@@ -7,7 +7,6 @@ import { DataSourceModule } from "./dataSource/dataSource.module.js";
 import { DealModule } from "./deal/deal.module.js";
 import { DevToolsModule } from "./dev-tools/dev-tools.module.js";
 import { JobsModule } from "./jobs/jobs.module.js";
-import { MetricsModule } from "./metrics/metrics.module.js";
 import { MetricsPrometheusModule } from "./metrics-prometheus/metrics-prometheus.module.js";
 import { ProvidersModule } from "./providers/providers.module.js";
 import { RetrievalModule } from "./retrieval/retrieval.module.js";
@@ -25,7 +24,6 @@ import { RetrievalModule } from "./retrieval/retrieval.module.js";
     DealModule,
     RetrievalModule,
     DataSourceModule,
-    MetricsModule,
     ProvidersModule,
     ...(process.env.ENABLE_DEV_MODE === "true" ? [DevToolsModule] : []),
   ],

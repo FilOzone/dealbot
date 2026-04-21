@@ -588,6 +588,63 @@ describe("DealService", () => {
       expect(mockDataStorageMetrics.recordDataStorageStatus).toHaveBeenCalledWith(labels, "failure.other");
     });
 
+    // Regression test for https://github.com/FilOzone/dealbot/issues/446 — mirrors safeInvoke's no-await invocation.
+    it("createDeal does not leak an unhandled rejection when onProgress is invoked without await after abort", async () => {
+      const unhandled: unknown[] = [];
+      const captureUnhandled = (reason: unknown) => {
+        unhandled.push(reason);
+      };
+      process.on("unhandledRejection", captureUnhandled);
+
+      try {
+        const uploadPayload = {
+          carData: Uint8Array.from([1, 2, 3]),
+          rootCid: CID.parse(mockRootCid),
+        };
+
+        const abortController = new AbortController();
+        const abortReason = new Error("Deal job timeout (120s) for 0xProvider");
+
+        createContextMock.mockResolvedValue({ dataSetId: "dataset-123" });
+
+        (executeUpload as Mock).mockImplementation(async (_s, _d, _c, options) => {
+          // Abort first, then invoke without awaiting — mirrors safeInvoke's no-await semantics.
+          abortController.abort(abortReason);
+          void options?.onProgress?.({ type: "onStored", data: { pieceCid: "bafk-uploaded" } });
+          return {
+            pieceCid: "bafk-uploaded",
+            pieceId: 123,
+            transactionHash: "0xhash",
+            ipniValidated: true,
+          };
+        });
+
+        // The awaited main path should observe the abort and throw out of
+        // createDeal. That's the caller-visible behavior we keep.
+        await expect(
+          service.createDeal(
+            mockSynapseInstance,
+            mockProviderInfo,
+            mockDealInput,
+            uploadPayload,
+            undefined,
+            abortController.signal,
+          ),
+        ).rejects.toThrow(/Deal job timeout/);
+
+        // Drain microtasks + one macrotask so any stray unhandled rejection
+        // from the discarded onProgress Promise has a chance to surface.
+        for (let i = 0; i < 20; i += 1) await Promise.resolve();
+        await new Promise<void>((resolve) => {
+          setImmediate(resolve);
+        });
+
+        expect(unhandled).toEqual([]);
+      } finally {
+        process.off("unhandledRejection", captureUnhandled);
+      }
+    });
+
     it("handles upload failures correctly by marking deal as FAILED", async () => {
       const error = new Error("Upload failed");
       const uploadPayload = {
@@ -625,6 +682,26 @@ describe("DealService", () => {
 
       expect(mockDeal.status).toBe(DealStatus.FAILED);
       expect(mockDeal.errorMessage).toBe("Storage creation failed");
+      expect(dealRepoMock.save).toHaveBeenCalledWith(mockDeal);
+    });
+
+    it("redacts sensitive RPC credentials before persisting deal failures", async () => {
+      const error = new Error("HTTP request failed.\nURL: https://filecoin.chain.love/rpc/v1?token=secret-token&ok=1");
+      const uploadPayload = {
+        carData: Uint8Array.from([1, 2, 3]),
+        rootCid: CID.parse(mockRootCid),
+      };
+
+      createContextMock.mockRejectedValue(error);
+
+      await expect(
+        service.createDeal(mockSynapseInstance, mockProviderInfo, mockDealInput, uploadPayload),
+      ).rejects.toThrow("secret-token");
+
+      expect(mockDeal.status).toBe(DealStatus.FAILED);
+      expect(mockDeal.errorMessage).toContain("token=REDACTED");
+      expect(mockDeal.errorMessage).toContain("ok=1");
+      expect(mockDeal.errorMessage).not.toContain("secret-token");
       expect(dealRepoMock.save).toHaveBeenCalledWith(mockDeal);
     });
 

@@ -1,5 +1,5 @@
 import type { ConfigService } from "@nestjs/config";
-import type { Counter } from "prom-client";
+import type { Counter, Gauge } from "prom-client";
 import { Repository } from "typeorm";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { IConfig } from "../config/app.config.js";
@@ -20,6 +20,12 @@ const makeProvider = (overrides: Partial<ProviderEntry> = {}): ProviderEntry => 
   address: PROVIDER_A,
   totalFaultedPeriods: 10n,
   totalProvingPeriods: 100n,
+  proofSets: [
+    {
+      nextDeadline: 900n,
+      maxProvingPeriod: 100n,
+    },
+  ],
   ...overrides,
 });
 
@@ -38,6 +44,11 @@ describe("DataRetentionService", () => {
     inc: ReturnType<typeof vi.fn>;
     remove: ReturnType<typeof vi.fn>;
   };
+  let gaugeMock: {
+    labels: ReturnType<typeof vi.fn>;
+    set: ReturnType<typeof vi.fn>;
+    remove: ReturnType<typeof vi.fn>;
+  };
   let mockBaselineRepository: {
     find: ReturnType<typeof vi.fn>;
     upsert: ReturnType<typeof vi.fn>;
@@ -52,6 +63,9 @@ describe("DataRetentionService", () => {
       get: vi.fn((key: keyof IConfig) => {
         if (key === "blockchain") {
           return { pdpSubgraphEndpoint: "https://example.com/subgraph" };
+        }
+        if (key === "spBlocklists") {
+          return { ids: new Set(), addresses: new Set() };
         }
         return undefined;
       }),
@@ -85,12 +99,20 @@ describe("DataRetentionService", () => {
       fetchProvidersWithDatasets: vi.fn().mockResolvedValue([]),
     };
 
-    const incMock = vi.fn();
+    const counterIncMock = vi.fn();
     const removeMock = vi.fn();
     counterMock = {
-      labels: vi.fn().mockReturnValue({ inc: incMock }),
-      inc: incMock,
+      labels: vi.fn().mockReturnValue({ inc: counterIncMock }),
+      inc: counterIncMock,
       remove: removeMock,
+    };
+
+    const setMock = vi.fn();
+    const gaugeIncMock = vi.fn();
+    gaugeMock = {
+      labels: vi.fn().mockReturnValue({ set: setMock, inc: gaugeIncMock }),
+      set: setMock,
+      remove: vi.fn(),
     };
 
     mockBaselineRepository = {
@@ -106,6 +128,7 @@ describe("DataRetentionService", () => {
       mockBaselineRepository as unknown as Repository<DataRetentionBaseline>,
       mockSPRepository as unknown as Repository<StorageProvider>,
       counterMock as unknown as Counter,
+      gaugeMock as unknown as Gauge,
     );
   });
 
@@ -128,6 +151,33 @@ describe("DataRetentionService", () => {
     expect(pdpSubgraphServiceMock.fetchProvidersWithDatasets).not.toHaveBeenCalled();
   });
 
+  it("returns early when all providers are blocked for data-retention", async () => {
+    (configServiceMock.get as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
+      if (key === "blockchain") return { pdpSubgraphEndpoint: "https://example.com/subgraph" };
+      if (key === "spBlocklists") return { ids: new Set(), addresses: new Set([PROVIDER_A, PROVIDER_B]) };
+    });
+
+    await service.pollDataRetention();
+
+    expect(pdpSubgraphServiceMock.fetchProvidersWithDatasets).not.toHaveBeenCalled();
+  });
+
+  it("excludes blocked providers from data-retention polling while retaining unblocked ones", async () => {
+    (configServiceMock.get as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
+      if (key === "blockchain") return { pdpSubgraphEndpoint: "https://example.com/subgraph" };
+      if (key === "spBlocklists") return { ids: new Set(), addresses: new Set([PROVIDER_A]) };
+    });
+    pdpSubgraphServiceMock.fetchProvidersWithDatasets.mockResolvedValueOnce([makeProvider({ address: PROVIDER_B })]);
+
+    await service.pollDataRetention();
+
+    const allAddressesPolled: string[] = (
+      pdpSubgraphServiceMock.fetchProvidersWithDatasets.mock.calls as [{ addresses: string[] }][]
+    ).flatMap(([{ addresses }]) => addresses);
+    expect(allAddressesPolled).toContain(PROVIDER_B.toLowerCase());
+    expect(allAddressesPolled).not.toContain(PROVIDER_A.toLowerCase());
+  });
+
   it("returns early when testing providers array is empty", async () => {
     walletSdkServiceMock.getTestingProviders.mockReturnValueOnce([]);
 
@@ -143,6 +193,7 @@ describe("DataRetentionService", () => {
 
     expect(pdpSubgraphServiceMock.fetchSubgraphMeta).toHaveBeenCalled();
     expect(pdpSubgraphServiceMock.fetchProvidersWithDatasets).toHaveBeenCalledWith({
+      blockNumber: 1200,
       addresses: [PROVIDER_A, PROVIDER_B],
     });
 
@@ -409,6 +460,7 @@ describe("DataRetentionService", () => {
     expect(pdpSubgraphServiceMock.fetchProvidersWithDatasets).toHaveBeenCalledTimes(2);
     expect(pdpSubgraphServiceMock.fetchProvidersWithDatasets).toHaveBeenNthCalledWith(1, {
       addresses: expect.arrayContaining([expect.any(String)]),
+      blockNumber: 1200,
     });
     expect(pdpSubgraphServiceMock.fetchProvidersWithDatasets.mock.calls[0][0].addresses).toHaveLength(50);
     expect(pdpSubgraphServiceMock.fetchProvidersWithDatasets.mock.calls[1][0].addresses).toHaveLength(25);
@@ -926,6 +978,115 @@ describe("DataRetentionService", () => {
 
       // Should delete the baseline from DB
       expect(mockBaselineRepository.delete).toHaveBeenCalledWith({ providerAddress: PROVIDER_A });
+    });
+  });
+
+  describe("overdue periods gauge", () => {
+    it("emits overdue gauge on first poll (baseline-only)", async () => {
+      // Provider is overdue: currentBlock=1200,
+      // estimatedOverduePeriods = (1200 - 901) / 100 = 2.99 -> 2
+      pdpSubgraphServiceMock.fetchProvidersWithDatasets.mockResolvedValueOnce([makeProvider()]);
+
+      await service.pollDataRetention();
+
+      expect(gaugeMock.labels).toHaveBeenCalledWith(
+        expect.objectContaining({
+          checkType: "dataRetention",
+          providerId: "1",
+          providerName: "Provider A",
+          providerStatus: "approved",
+        }),
+      );
+      expect(gaugeMock.set).toHaveBeenCalledWith(2);
+    });
+
+    it("emits overdue gauge = 0 when provider is not overdue", async () => {
+      // nextDeadline=2000 > currentBlock=1200
+      pdpSubgraphServiceMock.fetchProvidersWithDatasets.mockResolvedValueOnce([makeProvider({ proofSets: [] })]);
+
+      await service.pollDataRetention();
+
+      expect(gaugeMock.set).toHaveBeenCalledWith(0);
+    });
+
+    it("emits overdue gauge even on negative delta (baseline reset)", async () => {
+      // First poll: high values
+      pdpSubgraphServiceMock.fetchProvidersWithDatasets.mockResolvedValueOnce([
+        makeProvider({ totalFaultedPeriods: 100n, totalProvingPeriods: 200n }),
+      ]);
+      await service.pollDataRetention();
+      gaugeMock.labels.mockClear();
+      gaugeMock.set.mockClear();
+
+      // Second poll: lower values (negative delta) but still overdue
+      pdpSubgraphServiceMock.fetchProvidersWithDatasets.mockResolvedValueOnce([
+        makeProvider({ totalFaultedPeriods: 50n, totalProvingPeriods: 100n }),
+      ]);
+      await service.pollDataRetention();
+
+      // Gauge should still be emitted despite negative deltas on counters
+      expect(gaugeMock.labels).toHaveBeenCalled();
+      expect(gaugeMock.set).toHaveBeenCalled();
+    });
+
+    it("naturally resets gauge to 0 when subgraph catches up", async () => {
+      // First poll: provider is overdue (currentBlock=1200, nextDeadline=1000)
+      pdpSubgraphServiceMock.fetchProvidersWithDatasets.mockResolvedValueOnce([makeProvider()]);
+      await service.pollDataRetention();
+
+      expect(gaugeMock.set).toHaveBeenCalledWith(2);
+
+      gaugeMock.labels.mockClear();
+      gaugeMock.set.mockClear();
+
+      // Second poll: subgraph caught up, nextDeadline advanced past currentBlock
+      pdpSubgraphServiceMock.fetchProvidersWithDatasets.mockResolvedValueOnce([
+        makeProvider({
+          totalFaultedPeriods: 12n,
+          totalProvingPeriods: 102n,
+          proofSets: [],
+        }),
+      ]);
+
+      await service.pollDataRetention();
+
+      // Gauge should reset to 0 because nextDeadline (1300) > currentBlock (1200)
+      expect(gaugeMock.set).toHaveBeenCalledWith(0);
+    });
+
+    it("removes overdue gauge when stale provider is cleaned up", async () => {
+      // First poll: establish baseline for PROVIDER_A
+      pdpSubgraphServiceMock.fetchProvidersWithDatasets.mockResolvedValueOnce([makeProvider({ address: PROVIDER_A })]);
+      await service.pollDataRetention();
+
+      // Second poll: PROVIDER_A removed from active list
+      walletSdkServiceMock.getTestingProviders.mockReturnValueOnce([
+        { id: 2, serviceProvider: PROVIDER_B, name: "Provider B", isApproved: false },
+      ]);
+
+      mockSPRepository.find.mockResolvedValueOnce([
+        { address: PROVIDER_A, name: "Provider A", providerId: 1, isApproved: true },
+      ]);
+
+      pdpSubgraphServiceMock.fetchProvidersWithDatasets.mockResolvedValueOnce([makeProvider({ address: PROVIDER_B })]);
+
+      await service.pollDataRetention();
+
+      // Should remove overdue gauge for stale provider (both approved and unapproved labels)
+      const approvedLabels = buildCheckMetricLabels({
+        checkType: "dataRetention",
+        providerId: 1n,
+        providerName: "Provider A",
+        providerIsApproved: true,
+      });
+      const unapprovedLabels = buildCheckMetricLabels({
+        checkType: "dataRetention",
+        providerId: 1n,
+        providerName: "Provider A",
+        providerIsApproved: false,
+      });
+      expect(gaugeMock.remove).toHaveBeenCalledWith(approvedLabels);
+      expect(gaugeMock.remove).toHaveBeenCalledWith(unapprovedLabels);
     });
   });
 });
