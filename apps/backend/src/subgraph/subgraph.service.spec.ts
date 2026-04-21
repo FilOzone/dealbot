@@ -1,7 +1,8 @@
 import type { ConfigService } from "@nestjs/config";
+import { CID } from "multiformats/cid";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { IConfig } from "../config/app.config.js";
-import { PDPSubgraphService } from "./pdp-subgraph.service.js";
+import { SubgraphService } from "./subgraph.service.js";
 
 const VALID_ADDRESS = "0xd8da6bf26964af9d7eed9e03e53415d37aa96045" as const;
 const SUBGRAPH_ENDPOINT = "https://api.thegraph.com/subgraphs/filecoin/pdp" as const;
@@ -35,21 +36,57 @@ const makeSubgraphMetaResponse = (blockNumber = 12345) => ({
   },
 });
 
-describe("PDPSubgraphService", () => {
-  let service: PDPSubgraphService;
+const FWSS_SP_ADDRESS = "0xAaaaAAaaaaAAaaaAaAaAaaAaaaAaAaAaaAaaa111";
+const FWSS_PAYER = "0xBBbbBBbbBBbBBbBbbBBbbBBbbbbBbBBbbBBbb222";
+const EXAMPLE_PIECE_CID = "baga6ea4seaqpzwrimvoc4jp4l7mk6knsknf6owsc2ev4krrs2peenl5qelh6u4y";
+const pieceCidHex = `0x${Buffer.from(CID.parse(EXAMPLE_PIECE_CID).bytes).toString("hex")}`;
+
+const makeSampleRoot = (overrides: Record<string, unknown> = {}) => ({
+  rootId: "1",
+  cid: pieceCidHex,
+  rawSize: "1048576",
+  ipfsRootCID: "bafyroot",
+  proofSet: {
+    setId: "42",
+    withIPFSIndexing: true,
+    fwssPayer: FWSS_PAYER.toLowerCase(),
+    pdpPaymentEndEpoch: null,
+  },
+  ...overrides,
+});
+
+const makeSampleResponse = (roots: Record<string, unknown>[] = [], blockNumber = 12345) => ({
+  data: {
+    _meta: { block: { number: blockNumber } },
+    roots,
+  },
+});
+
+const SAMPLE_KEY = "0x0000000000000000000000000000000000000000000000000000000000000001";
+const defaultSampleParams = {
+  serviceProvider: FWSS_SP_ADDRESS,
+  payer: FWSS_PAYER,
+  sampleKey: SAMPLE_KEY,
+  minSize: "0",
+  maxSize: "1000000000000",
+  pool: "indexed" as const,
+};
+
+describe("SubgraphService", () => {
+  let service: SubgraphService;
   let fetchMock: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     const configService = {
       get: vi.fn((key: keyof IConfig) => {
         if (key === "blockchain") {
-          return { pdpSubgraphEndpoint: SUBGRAPH_ENDPOINT };
+          return { subgraphEndpoint: SUBGRAPH_ENDPOINT };
         }
         return undefined;
       }),
     } as unknown as ConfigService<IConfig, true>;
 
-    service = new PDPSubgraphService(configService);
+    service = new SubgraphService(configService);
 
     fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
@@ -362,10 +399,10 @@ describe("PDPSubgraphService", () => {
 
     it("throws when PDP subgraph endpoint is not configured", async () => {
       const configService = {
-        get: vi.fn(() => ({ pdpSubgraphEndpoint: "" })),
+        get: vi.fn(() => ({ subgraphEndpoint: "" })),
       } as unknown as ConfigService<IConfig, true>;
 
-      const serviceWithoutEndpoint = new PDPSubgraphService(configService);
+      const serviceWithoutEndpoint = new SubgraphService(configService);
 
       await expect(serviceWithoutEndpoint.fetchSubgraphMeta()).rejects.toThrow("No PDP subgraph endpoint configured");
     });
@@ -689,6 +726,122 @@ describe("PDPSubgraphService", () => {
       const timestamps = (service as any).requestTimestamps;
       // Should only have 1 timestamp (the new one), old ones filtered out
       expect(timestamps.length).toBe(1);
+    });
+  });
+
+  describe("sampleAnonPiece", () => {
+    it("returns null when endpoint is not configured", async () => {
+      const noEndpointConfig = {
+        get: vi.fn(() => ({ subgraphEndpoint: "" })),
+      } as unknown as ConfigService<IConfig, true>;
+      const noEndpointService = new SubgraphService(noEndpointConfig);
+
+      const piece = await noEndpointService.sampleAnonPiece(defaultSampleParams);
+      expect(piece).toBeNull();
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it("returns null when the subgraph yields no matching root", async () => {
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        json: async () => makeSampleResponse([]),
+      });
+
+      const piece = await service.sampleAnonPiece(defaultSampleParams);
+      expect(piece).toBeNull();
+    });
+
+    it("parses the sampled root into a decoded candidate piece", async () => {
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        json: async () => makeSampleResponse([makeSampleRoot()]),
+      });
+
+      const piece = await service.sampleAnonPiece(defaultSampleParams);
+
+      expect(piece).toMatchObject({
+        pieceCid: EXAMPLE_PIECE_CID,
+        pieceId: "1",
+        dataSetId: "42",
+        rawSize: "1048576",
+        withIPFSIndexing: true,
+        ipfsRootCid: "bafyroot",
+        pdpPaymentEndEpoch: null,
+        indexedAtBlock: 12345,
+      });
+    });
+
+    it("returns pdpPaymentEndEpoch as bigint when the dataset is terminating", async () => {
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        json: async () =>
+          makeSampleResponse([
+            makeSampleRoot({
+              proofSet: {
+                setId: "42",
+                withIPFSIndexing: true,
+                fwssPayer: FWSS_PAYER.toLowerCase(),
+                pdpPaymentEndEpoch: "5000",
+              },
+            }),
+          ]),
+      });
+
+      const piece = await service.sampleAnonPiece(defaultSampleParams);
+      expect(piece?.pdpPaymentEndEpoch).toBe(5000n);
+    });
+
+    it("lowercases SP and payer addresses before querying", async () => {
+      fetchMock.mockResolvedValueOnce({ ok: true, json: async () => makeSampleResponse([]) });
+
+      await service.sampleAnonPiece(defaultSampleParams);
+
+      const [, opts] = fetchMock.mock.calls[0];
+      const body = JSON.parse(opts.body as string);
+      expect(body.variables.serviceProvider).toBe(FWSS_SP_ADDRESS.toLowerCase());
+      expect(body.variables.payer).toBe(FWSS_PAYER.toLowerCase());
+      expect(body.query).toContain("withIPFSIndexing: true");
+    });
+
+    it("uses the any-pool query when pool is 'any'", async () => {
+      fetchMock.mockResolvedValueOnce({ ok: true, json: async () => makeSampleResponse([]) });
+
+      await service.sampleAnonPiece({ ...defaultSampleParams, pool: "any" });
+
+      const [, opts] = fetchMock.mock.calls[0];
+      const body = JSON.parse(opts.body as string);
+      expect(body.query).not.toContain("withIPFSIndexing: true");
+    });
+
+    it("returns null when the sampled root has an undecodable CID", async () => {
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        json: async () => makeSampleResponse([makeSampleRoot({ cid: "0xdeadbeef" })]),
+      });
+
+      const piece = await service.sampleAnonPiece(defaultSampleParams);
+      expect(piece).toBeNull();
+    });
+
+    it("throws after max retries on repeated HTTP errors", async () => {
+      fetchMock.mockResolvedValue({ ok: false, status: 500, statusText: "Internal Server Error" });
+
+      const promise = service.sampleAnonPiece(defaultSampleParams);
+      promise.catch(() => {});
+      await vi.runAllTimersAsync();
+
+      await expect(promise).rejects.toThrow("Failed to fetch subgraph sample_anon_piece_indexed after 3 attempts");
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+    });
+
+    it("does not retry on schema validation failure", async () => {
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ data: { _meta: { block: { number: 1 } } } }), // missing roots
+      });
+
+      await expect(service.sampleAnonPiece(defaultSampleParams)).rejects.toThrow(/validation failed/i);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
     });
   });
 });

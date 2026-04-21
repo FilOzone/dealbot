@@ -1,4 +1,5 @@
 import Joi from "joi";
+import { CID } from "multiformats/cid";
 import { Hex, isAddress } from "viem";
 
 // -----------------------------------------
@@ -53,6 +54,58 @@ export type ProviderDataSetResponse = {
     proofSets: DataSet[];
   }[];
 };
+
+/** A piece eligible for anonymous retrieval. */
+export type AnonCandidatePiece = {
+  /** Decoded piece CID string (e.g. "bafk..."). */
+  pieceCid: string;
+  /** On-chain piece ID (rootId) as a decimal string. */
+  pieceId: string;
+  /** On-chain dataset ID (setId) as a decimal string. */
+  dataSetId: string;
+  /** Raw piece size in bytes, as a decimal string. */
+  rawSize: string;
+  /** True iff the parent dataset declared withIPFSIndexing metadata. */
+  withIPFSIndexing: boolean;
+  /** IPFS root CID declared by the client when uploading, or null. */
+  ipfsRootCid: string | null;
+  /** Subgraph-indexed block number at query time. */
+  indexedAtBlock: number;
+  /** pdpPaymentEndEpoch from the parent dataset, or null. */
+  pdpPaymentEndEpoch: bigint | null;
+};
+
+/**
+ * Validated raw shape of the anonymous piece sampling subgraph response.
+ * At most one root is returned (`first: 1`).
+ */
+export type RawSampleAnonPieceResponse = {
+  _meta: { block: { number: number } };
+  roots: Array<{
+    rootId: string;
+    cid: string;
+    rawSize: string;
+    ipfsRootCID: string | null;
+    proofSet: {
+      setId: string;
+      withIPFSIndexing: boolean;
+      fwssPayer: string | null;
+      pdpPaymentEndEpoch: string | null;
+    };
+  }>;
+};
+
+// -----------------------------------------
+// Helpers
+// -----------------------------------------
+
+/**
+ * Decodes a hex-encoded CID (0x...) into its string representation.
+ */
+export function decodePieceCid(hexData: string): string {
+  const bytes = Buffer.from(hexData.slice(2), "hex");
+  return CID.decode(new Uint8Array(bytes)).toString();
+}
 
 // -----------------------------------------
 // Joi Custom Schema Converters
@@ -117,6 +170,41 @@ const providerDataSetResponseSchema = Joi.object({
   .unknown(true)
   .required();
 
+const sampleRootProofSetSchema = Joi.object({
+  setId: Joi.string().pattern(/^\d+$/).required(),
+  withIPFSIndexing: Joi.boolean().required(),
+  fwssPayer: Joi.string()
+    .pattern(/^0x[0-9a-fA-F]{40}$/)
+    .allow(null)
+    .optional(),
+  pdpPaymentEndEpoch: Joi.string().pattern(/^\d+$/).allow(null).optional(),
+}).unknown(true);
+
+const sampleRootSchema = Joi.object({
+  rootId: Joi.string().pattern(/^\d+$/).required(),
+  cid: Joi.string()
+    .pattern(/^0x[0-9a-fA-F]+$/)
+    .required(),
+  rawSize: Joi.string().pattern(/^\d+$/).required(),
+  ipfsRootCID: Joi.string().allow(null).optional(),
+  proofSet: sampleRootProofSetSchema.required(),
+}).unknown(true);
+
+const sampleAnonPieceResponseSchema = Joi.object({
+  _meta: Joi.object({
+    block: Joi.object({
+      number: Joi.number().integer().positive().required(),
+    })
+      .unknown(true)
+      .required(),
+  })
+    .unknown(true)
+    .required(),
+  roots: Joi.array().items(sampleRootSchema).max(1).required(),
+})
+  .unknown(true)
+  .required();
+
 // -----------------------------------------
 // Validator Functions
 // -----------------------------------------
@@ -148,4 +236,17 @@ export function validateProviderDataSetResponse(value: unknown): ProviderDataSet
     throw new Error(`Invalid provider dataset response format: ${error.message}`);
   }
   return validated as ProviderDataSetResponse;
+}
+
+/**
+ * Validates the raw sampleAnonPiece response from the subgraph.
+ *
+ * @throws Error if validation fails
+ */
+export function validateSampleAnonPieceResponse(value: unknown): RawSampleAnonPieceResponse {
+  const { error, value: validated } = sampleAnonPieceResponseSchema.validate(value, { abortEarly: false });
+  if (error) {
+    throw new Error(`Invalid sampleAnonPiece response format: ${error.message}`);
+  }
+  return validated as RawSampleAnonPieceResponse;
 }
