@@ -1,6 +1,7 @@
 import { ConfigService } from "@nestjs/config";
 import { Test, TestingModule } from "@nestjs/testing";
 import { getRepositoryToken } from "@nestjs/typeorm";
+import { calculateActualStorage, listDataSets } from "filecoin-pin/core/data-set";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { IConfig } from "../config/app.config.js";
 import { Deal } from "../database/entities/deal.entity.js";
@@ -202,13 +203,74 @@ describe("PieceCleanupService", () => {
       expect(result).toBe(false);
     });
 
-    it("falls back to DB when live query fails", async () => {
+    it("does not fall back to DB when the live quota query fails", async () => {
       vi.spyOn(service, "getLiveStoredBytesForProvider").mockRejectedValue(new Error("network error"));
       mockQueryBuilder(THRESHOLD_BYTES + 1);
 
-      const result = await service.isProviderOverQuota("0xProvider");
+      await expect(service.isProviderOverQuota("0xProvider")).rejects.toThrow("network error");
 
-      expect(result).toBe(true);
+      expect(dealRepoMock.createQueryBuilder).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("getLiveStoredBytesForProvider", () => {
+    it("passes the abort signal through to actual storage calculation", async () => {
+      const signal = new AbortController().signal;
+      vi.mocked(listDataSets).mockResolvedValueOnce([
+        {
+          dataSetId: 1n,
+          providerId: 9,
+          serviceProvider: "0xProvider",
+          payee: "0xProvider",
+          payer: "0x123",
+          commissionBps: 0n,
+          pdpRailId: 1n,
+          cacheMissRailId: 0n,
+          cdnRailId: 0n,
+          withCDN: false,
+          isLive: true,
+          pdpEndEpoch: 0n,
+          metadata: {},
+        },
+      ] as any);
+
+      await service.getLiveStoredBytesForProvider("0xProvider", signal);
+
+      expect(calculateActualStorage).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.any(Array),
+        expect.objectContaining({ signal }),
+      );
+    });
+
+    it("throws when actual storage calculation times out", async () => {
+      vi.mocked(listDataSets).mockResolvedValueOnce([
+        {
+          dataSetId: 1n,
+          providerId: 9,
+          serviceProvider: "0xProvider",
+          payee: "0xProvider",
+          payer: "0x123",
+          commissionBps: 0n,
+          pdpRailId: 1n,
+          cacheMissRailId: 0n,
+          cdnRailId: 0n,
+          withCDN: false,
+          isLive: true,
+          pdpEndEpoch: 0n,
+          metadata: {},
+        },
+      ] as any);
+      vi.mocked(calculateActualStorage).mockResolvedValueOnce({
+        totalBytes: 10n,
+        dataSetCount: 1,
+        dataSetsProcessed: 0,
+        pieceCount: 0,
+        warnings: [],
+        timedOut: true,
+      });
+
+      await expect(service.getLiveStoredBytesForProvider("0xProvider")).rejects.toThrow("Live storage query timed out");
     });
   });
 
@@ -266,6 +328,16 @@ describe("PieceCleanupService", () => {
 
       expect(result.skipped).toBe(true);
       expect(result.deleted).toBe(0);
+    });
+
+    it("does not select deletion candidates when the live quota query fails", async () => {
+      vi.spyOn(service, "getLiveStoredBytesForProvider").mockRejectedValue(new Error("network error"));
+      mockQueryBuilder(THRESHOLD_BYTES + 1);
+
+      await expect(service.cleanupPiecesForProvider("0xProvider")).rejects.toThrow("network error");
+
+      expect(dealRepoMock.find).not.toHaveBeenCalled();
+      expect(dealRepoMock.createQueryBuilder).not.toHaveBeenCalled();
     });
 
     it("returns cleanup result with no candidates when above threshold but no eligible deals", async () => {

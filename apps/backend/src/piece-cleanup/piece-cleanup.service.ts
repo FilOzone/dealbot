@@ -78,32 +78,20 @@ export class PieceCleanupService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Shared quota check: queries live storage (with DB fallback) and compares to threshold.
+   * Shared quota check: queries provider-reported storage and compares to threshold.
    */
   private async checkProviderQuota(
     spAddress: string,
-    logContext?: ProviderJobContext,
+    signal?: AbortSignal,
   ): Promise<{ isOverQuota: boolean; storedBytes: number; thresholdBytes: number }> {
     const thresholdBytes = this.configService.get("pieceCleanup").maxDatasetStorageSizeBytes;
-    let storedBytes: number;
-    try {
-      storedBytes = await this.getLiveStoredBytesForProvider(spAddress);
-    } catch (error) {
-      this.logger.warn({
-        ...logContext,
-        event: "piece_cleanup_live_query_failed",
-        message: "Failed to query live storage for SP; falling back to DB",
-        providerAddress: spAddress,
-        error: toStructuredError(error),
-      });
-      storedBytes = await this.getStoredBytesForProvider(spAddress);
-    }
+    const storedBytes = await this.getLiveStoredBytesForProvider(spAddress, signal);
     return { isOverQuota: storedBytes > thresholdBytes, storedBytes, thresholdBytes };
   }
 
   /**
    * Check whether a provider is over the configured storage quota.
-   * Uses live data from the provider with DB fallback.
+   * Uses provider-reported data so stale DB rows cannot block deal creation.
    * Used by the deal handler to gate new deal creation.
    */
   async isProviderOverQuota(spAddress: string): Promise<boolean> {
@@ -113,8 +101,8 @@ export class PieceCleanupService implements OnModuleInit, OnModuleDestroy {
 
   /**
    * Run cleanup for a single SP.
-   * 1. Query live storage (falls back to DB if unavailable)
-   * 2. If live usage > MAX threshold, start cleanup
+   * 1. Query provider-reported storage
+   * 2. If provider-reported usage > MAX threshold, start cleanup
    * 3. Select oldest completed pieces from DB as deletion candidates
    * 4. For each piece, call deletePiece() via Synapse SDK
    * 5. Mark the deal record as cleaned up
@@ -128,7 +116,7 @@ export class PieceCleanupService implements OnModuleInit, OnModuleDestroy {
     const { maxDatasetStorageSizeBytes: thresholdBytes, targetDatasetStorageSizeBytes: targetBytes } =
       this.configService.get("pieceCleanup");
 
-    const { storedBytes, isOverQuota } = await this.checkProviderQuota(spAddress, logContext);
+    const { storedBytes, isOverQuota } = await this.checkProviderQuota(spAddress, signal);
 
     const cleanupLogContext: PieceCleanupLogContext = {
       ...logContext,
@@ -247,7 +235,7 @@ export class PieceCleanupService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Query the provider's actual live storage via filecoin-pin.
+   * Query the provider's actual storage via filecoin-pin.
    */
   async getLiveStoredBytesForProvider(spAddress: string, signal?: AbortSignal): Promise<number> {
     const synapse = this.sharedSynapse ?? (await this.createSynapseInstance());
@@ -258,8 +246,8 @@ export class PieceCleanupService implements OnModuleInit, OnModuleDestroy {
 
     if (datasets.length === 0) {
       this.logger.debug({
-        event: "piece_cleanup_no_live_datasets",
-        message: "SP has no live datasets",
+        event: "piece_cleanup_no_datasets",
+        message: "SP has no datasets",
         providerAddress: spAddress,
       });
       return 0;
@@ -267,8 +255,16 @@ export class PieceCleanupService implements OnModuleInit, OnModuleDestroy {
 
     const result = await calculateActualStorage(synapse, datasets, { signal });
 
+    if (result.timedOut) {
+      const reason = signal?.reason;
+      if (reason instanceof Error) {
+        throw reason;
+      }
+      throw new Error(`Live storage query timed out for provider ${spAddress}`);
+    }
+
     this.logger.debug({
-      event: "piece_cleanup_live_storage_queried",
+      event: "piece_cleanup_storage_queried",
       providerAddress: spAddress,
       totalBytes: Number(result.totalBytes),
       dataSetCount: result.dataSetCount,

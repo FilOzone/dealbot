@@ -932,8 +932,8 @@ describe("JobsService schedule rows", () => {
 
     service = buildService({
       dealService: dealService as unknown as ConstructorParameters<typeof JobsService>[3],
-      walletSdkService: walletSdkService as unknown as ConstructorParameters<typeof JobsService>[6],
-      pieceCleanupService: pieceCleanupService as unknown as JobsServiceDeps[8],
+      walletSdkService: walletSdkService as unknown as JobsServiceDeps[5],
+      pieceCleanupService: pieceCleanupService as unknown as JobsServiceDeps[7],
     });
 
     await callPrivate(service, "handleDealJob", {
@@ -969,8 +969,8 @@ describe("JobsService schedule rows", () => {
 
     service = buildService({
       dealService: dealService as unknown as ConstructorParameters<typeof JobsService>[3],
-      walletSdkService: walletSdkService as unknown as ConstructorParameters<typeof JobsService>[6],
-      pieceCleanupService: pieceCleanupService as unknown as JobsServiceDeps[8],
+      walletSdkService: walletSdkService as unknown as JobsServiceDeps[5],
+      pieceCleanupService: pieceCleanupService as unknown as JobsServiceDeps[7],
     });
 
     await callPrivate(service, "handleDealJob", {
@@ -1008,8 +1008,8 @@ describe("JobsService schedule rows", () => {
 
     service = buildService({
       dealService: dealService as unknown as ConstructorParameters<typeof JobsService>[3],
-      walletSdkService: walletSdkService as unknown as ConstructorParameters<typeof JobsService>[6],
-      pieceCleanupService: pieceCleanupService as unknown as JobsServiceDeps[8],
+      walletSdkService: walletSdkService as unknown as JobsServiceDeps[5],
+      pieceCleanupService: pieceCleanupService as unknown as JobsServiceDeps[7],
     });
 
     await callPrivate(service, "handleDealJob", {
