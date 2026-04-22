@@ -430,16 +430,19 @@ Session keys are scoped (only storage operations, not deposits or withdrawals) a
 - **Required**: No
 - **Default**: Empty string (feature disabled)
 
-**Role**: The Graph API endpoint for querying PDP (Proof of Data Possession) subgraph data. This endpoint is used to retrieve data retention info for provider data.
+**Role**: The Graph API endpoint for querying PDP (Proof of Data Possession) subgraph data. Drives the overdue-periods metric and the anonymous-retrieval candidate-piece query.
+
+The dealbot-owned subgraph lives at `apps/subgraph/` (package `@dealbot/subgraph`) and is deployed to Goldsky. Point this variable at one of those slots; the exact slugs are documented in `apps/subgraph/README.md`.
 
 **When to update**:
 
-- When switching between different Graph API endpoints
+- When swapping between the dealbot-owned subgraph slots on Goldsky (mainnet vs calibnet).
+- When deploying a new subgraph version.
 
 **Example**:
 
 ```bash
-PDP_SUBGRAPH_ENDPOINT=https://api.thegraph.com/subgraphs/filecoin/pdp
+PDP_SUBGRAPH_ENDPOINT=https://api.goldsky.com/api/public/<project>/subgraphs/dealbot-subgraph/<version>/gn
 ```
 
 ---

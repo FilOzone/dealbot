@@ -1,0 +1,47 @@
+name: Subgraph
+
+on:
+  pull_request:
+    paths:
+      - 'apps/subgraph/**'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - '.github/workflows/subgraph.yml'
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 'lts/*'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build subgraph (mainnet)
+        run: pnpm --filter @dealbot/subgraph build:mainnet
+
+      - name: Build subgraph (calibnet)
+        run: pnpm --filter @dealbot/subgraph build:calibnet
+
+      - name: Restore mainnet manifest
+        # graph build --network X rewrites subgraph.yaml in place. Re-run the
+        # mainnet build to leave the checked-in file with mainnet defaults.
+        run: pnpm --filter @dealbot/subgraph build:mainnet
+
+      - name: Run matchstick tests
+        run: pnpm --filter @dealbot/subgraph test

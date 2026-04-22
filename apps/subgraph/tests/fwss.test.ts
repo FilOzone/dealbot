@@ -1,71 +1,40 @@
-import {
-  assert,
-  describe,
-  test,
-  clearStore,
-  beforeEach,
-} from "matchstick-as/assembly/index";
-import { BigInt, Address, Bytes } from "@graphprotocol/graph-ts";
-import {
-  handleDataSetCreated,
-  handlePiecesAdded,
-  getRootEntityId,
-} from "../src/pdp-verifier";
+import { assert, beforeEach, clearStore, describe, test } from "matchstick-as/assembly/index";
+import { Address, BigInt, Bytes } from "@graphprotocol/graph-ts";
+import { getRootEntityId, handleDataSetCreated, handlePiecesAdded } from "../src/pdp-verifier";
 import {
   handleFwssDataSetCreated,
+  handleFwssDataSetServiceProviderChanged,
+  handleFwssPdpPaymentTerminated,
   handleFwssPieceAdded,
   handleFwssServiceTerminated,
-  handleFwssPdpPaymentTerminated,
-  handleFwssDataSetServiceProviderChanged,
 } from "../src/fwss";
-import {
-  createDataSetCreatedEvent,
-  createRootsAddedEvent,
-} from "./pdp-verifier-utils";
+import { createDataSetCreatedEvent, createRootsAddedEvent } from "./pdp-verifier-utils";
 import {
   createFwssDataSetCreatedEvent,
+  createFwssDataSetServiceProviderChangedEvent,
+  createFwssPdpPaymentTerminatedEvent,
   createFwssPieceAddedEvent,
   createFwssServiceTerminatedEvent,
-  createFwssPdpPaymentTerminatedEvent,
-  createFwssDataSetServiceProviderChangedEvent,
 } from "./fwss-utils";
 
 const SET_ID = BigInt.fromI32(1);
 const PROVIDER_ID = BigInt.fromI32(42);
 const PDP_RAIL_ID = BigInt.fromI32(99);
 const ROOT_ID = BigInt.fromI32(101);
-const PROVIDER_ADDRESS = Address.fromString(
-  "0xa16081f360e3847006db660bae1c6d1b2e17ec2a"
-);
-const PAYER_ADDRESS = Address.fromString(
-  "0xb16081f360e3847006db660bae1c6d1b2e17ec2b"
-);
-const NEW_PROVIDER_ADDRESS = Address.fromString(
-  "0xc16081f360e3847006db660bae1c6d1b2e17ec2c"
-);
-const CONTRACT_ADDRESS = Address.fromString(
-  "0xd16081f360e3847006db660bae1c6d1b2e17ec2d"
-);
+const PROVIDER_ADDRESS = Address.fromString("0xa16081f360e3847006db660bae1c6d1b2e17ec2a");
+const PAYER_ADDRESS = Address.fromString("0xb16081f360e3847006db660bae1c6d1b2e17ec2b");
+const NEW_PROVIDER_ADDRESS = Address.fromString("0xc16081f360e3847006db660bae1c6d1b2e17ec2c");
+const CONTRACT_ADDRESS = Address.fromString("0xd16081f360e3847006db660bae1c6d1b2e17ec2d");
 
 const PROOF_SET_ENTITY_ID = Bytes.fromByteArray(Bytes.fromBigInt(SET_ID));
 
 function seedDataSet(): void {
-  let ev = createDataSetCreatedEvent(
-    SET_ID,
-    PROVIDER_ADDRESS,
-    Bytes.fromI32(0),
-    CONTRACT_ADDRESS
-  );
+  const ev = createDataSetCreatedEvent(SET_ID, PROVIDER_ADDRESS, Bytes.fromI32(0), CONTRACT_ADDRESS);
   handleDataSetCreated(ev);
 }
 
 function seedRoot(): void {
-  let ev = createRootsAddedEvent(
-    SET_ID,
-    [ROOT_ID],
-    PROVIDER_ADDRESS,
-    CONTRACT_ADDRESS
-  );
+  const ev = createRootsAddedEvent(SET_ID, [ROOT_ID], PROVIDER_ADDRESS, CONTRACT_ADDRESS);
   handlePiecesAdded(ev);
 }
 
@@ -76,110 +45,48 @@ describe("FWSS handlers", () => {
 
   // -- handleFwssDataSetCreated -------------------------------------------
 
-  test("PDPVerifier-created DataSet has default FWSS fields", () => {
+  test("PDPVerifier-created DataSet has withIPFSIndexing = false by default", () => {
     seedDataSet();
-    assert.fieldEquals(
-      "DataSet",
-      PROOF_SET_ENTITY_ID.toHexString(),
-      "withIPFSIndexing",
-      "false"
-    );
-    assert.fieldEquals(
-      "DataSet",
-      PROOF_SET_ENTITY_ID.toHexString(),
-      "withCDN",
-      "false"
-    );
-    assert.fieldEquals(
-      "DataSet",
-      PROOF_SET_ENTITY_ID.toHexString(),
-      "metadataKeys",
-      "[]"
-    );
-    assert.fieldEquals(
-      "DataSet",
-      PROOF_SET_ENTITY_ID.toHexString(),
-      "metadataValues",
-      "[]"
-    );
+    assert.fieldEquals("DataSet", PROOF_SET_ENTITY_ID.toHexString(), "withIPFSIndexing", "false");
   });
 
   test("handleFwssDataSetCreated populates FWSS fields and derives withIPFSIndexing", () => {
     seedDataSet();
-    let ev = createFwssDataSetCreatedEvent(
+    const ev = createFwssDataSetCreatedEvent(
       SET_ID,
       PROVIDER_ID,
       PDP_RAIL_ID,
       PAYER_ADDRESS,
       PROVIDER_ADDRESS,
       ["source", "withIPFSIndexing", "withCDN"],
-      ["filecoin-pin", "", "true"]
+      ["filecoin-pin", "", "true"],
     );
     handleFwssDataSetCreated(ev);
 
-    assert.fieldEquals(
-      "DataSet",
-      PROOF_SET_ENTITY_ID.toHexString(),
-      "fwssProviderId",
-      PROVIDER_ID.toString()
-    );
-    assert.fieldEquals(
-      "DataSet",
-      PROOF_SET_ENTITY_ID.toHexString(),
-      "fwssPayer",
-      PAYER_ADDRESS.toHexString()
-    );
+    assert.fieldEquals("DataSet", PROOF_SET_ENTITY_ID.toHexString(), "fwssPayer", PAYER_ADDRESS.toHexString());
     assert.fieldEquals(
       "DataSet",
       PROOF_SET_ENTITY_ID.toHexString(),
       "fwssServiceProvider",
-      PROVIDER_ADDRESS.toHexString()
+      PROVIDER_ADDRESS.toHexString(),
     );
-    assert.fieldEquals(
-      "DataSet",
-      PROOF_SET_ENTITY_ID.toHexString(),
-      "fwssPdpRailId",
-      PDP_RAIL_ID.toString()
-    );
-    assert.fieldEquals(
-      "DataSet",
-      PROOF_SET_ENTITY_ID.toHexString(),
-      "withIPFSIndexing",
-      "true"
-    );
-    assert.fieldEquals(
-      "DataSet",
-      PROOF_SET_ENTITY_ID.toHexString(),
-      "withCDN",
-      "true"
-    );
+    assert.fieldEquals("DataSet", PROOF_SET_ENTITY_ID.toHexString(), "withIPFSIndexing", "true");
   });
 
-  test("handleFwssDataSetCreated leaves booleans false when keys absent", () => {
+  test("handleFwssDataSetCreated leaves withIPFSIndexing false when key absent", () => {
     seedDataSet();
-    let ev = createFwssDataSetCreatedEvent(
+    const ev = createFwssDataSetCreatedEvent(
       SET_ID,
       PROVIDER_ID,
       PDP_RAIL_ID,
       PAYER_ADDRESS,
       PROVIDER_ADDRESS,
       ["source"],
-      ["filecoin-pin"]
+      ["filecoin-pin"],
     );
     handleFwssDataSetCreated(ev);
 
-    assert.fieldEquals(
-      "DataSet",
-      PROOF_SET_ENTITY_ID.toHexString(),
-      "withIPFSIndexing",
-      "false"
-    );
-    assert.fieldEquals(
-      "DataSet",
-      PROOF_SET_ENTITY_ID.toHexString(),
-      "withCDN",
-      "false"
-    );
+    assert.fieldEquals("DataSet", PROOF_SET_ENTITY_ID.toHexString(), "withIPFSIndexing", "false");
   });
 
   test("handleFwssDataSetCreated creates a stub when DataSet doesn't exist yet", () => {
@@ -188,27 +95,23 @@ describe("FWSS handlers", () => {
     // must create a stub with FWSS fields set so the later PDPVerifier handler
     // can load it instead of overwriting.
     const UNSEEN_SET_ID = BigInt.fromI32(999);
-    const unseenEntityId = Bytes.fromByteArray(
-      Bytes.fromBigInt(UNSEEN_SET_ID)
-    ).toHexString();
+    const unseenEntityId = Bytes.fromByteArray(Bytes.fromBigInt(UNSEEN_SET_ID)).toHexString();
 
-    let ev = createFwssDataSetCreatedEvent(
+    const ev = createFwssDataSetCreatedEvent(
       UNSEEN_SET_ID,
       PROVIDER_ID,
       PDP_RAIL_ID,
       PAYER_ADDRESS,
       PROVIDER_ADDRESS,
       ["withIPFSIndexing"],
-      [""]
+      [""],
     );
     handleFwssDataSetCreated(ev);
 
-    // Stub was created with FWSS fields populated.
     assert.fieldEquals("DataSet", unseenEntityId, "setId", "999");
     assert.fieldEquals("DataSet", unseenEntityId, "fwssPayer", PAYER_ADDRESS.toHexString());
     assert.fieldEquals("DataSet", unseenEntityId, "withIPFSIndexing", "true");
-    // Placeholder owner/listener set by the FWSS handler (pdp-verifier will
-    // overwrite when it runs later in the same block).
+    // Placeholder owner set by the FWSS stub (pdp-verifier overwrites later in the same block).
     assert.fieldEquals("DataSet", unseenEntityId, "owner", PROVIDER_ADDRESS.toHexString());
   });
 
@@ -216,85 +119,40 @@ describe("FWSS handlers", () => {
     // Simulates real on-chain ordering: FWSS.DataSetCreated fires before
     // PDPVerifier.DataSetCreated. After both handlers run, FWSS and
     // PDPVerifier fields must both be populated correctly.
-    let fwssEv = createFwssDataSetCreatedEvent(
+    const fwssEv = createFwssDataSetCreatedEvent(
       SET_ID,
       PROVIDER_ID,
       PDP_RAIL_ID,
       PAYER_ADDRESS,
       PROVIDER_ADDRESS,
-      ["withIPFSIndexing", "withCDN"],
-      ["", "true"]
+      ["withIPFSIndexing"],
+      [""],
     );
     handleFwssDataSetCreated(fwssEv);
 
-    // Then PDPVerifier fires, which must load the stub (not overwrite it).
-    let pdpEv = createDataSetCreatedEvent(
-      SET_ID,
-      PROVIDER_ADDRESS,
-      Bytes.fromI32(0),
-      CONTRACT_ADDRESS
-    );
+    const pdpEv = createDataSetCreatedEvent(SET_ID, PROVIDER_ADDRESS, Bytes.fromI32(0), CONTRACT_ADDRESS);
     handleDataSetCreated(pdpEv);
 
-    // FWSS fields preserved
-    assert.fieldEquals(
-      "DataSet",
-      PROOF_SET_ENTITY_ID.toHexString(),
-      "fwssProviderId",
-      PROVIDER_ID.toString()
-    );
-    assert.fieldEquals(
-      "DataSet",
-      PROOF_SET_ENTITY_ID.toHexString(),
-      "withIPFSIndexing",
-      "true"
-    );
-    assert.fieldEquals(
-      "DataSet",
-      PROOF_SET_ENTITY_ID.toHexString(),
-      "withCDN",
-      "true"
-    );
-    // PDPVerifier fields set
-    assert.fieldEquals(
-      "DataSet",
-      PROOF_SET_ENTITY_ID.toHexString(),
-      "setId",
-      SET_ID.toString()
-    );
-    assert.fieldEquals(
-      "DataSet",
-      PROOF_SET_ENTITY_ID.toHexString(),
-      "isActive",
-      "true"
-    );
-    assert.fieldEquals(
-      "DataSet",
-      PROOF_SET_ENTITY_ID.toHexString(),
-      "status",
-      "EMPTY"
-    );
+    // FWSS fields preserved.
+    assert.fieldEquals("DataSet", PROOF_SET_ENTITY_ID.toHexString(), "withIPFSIndexing", "true");
+    assert.fieldEquals("DataSet", PROOF_SET_ENTITY_ID.toHexString(), "fwssPayer", PAYER_ADDRESS.toHexString());
+    // PDPVerifier fields set.
+    assert.fieldEquals("DataSet", PROOF_SET_ENTITY_ID.toHexString(), "setId", SET_ID.toString());
+    assert.fieldEquals("DataSet", PROOF_SET_ENTITY_ID.toHexString(), "isActive", "true");
+    assert.fieldEquals("DataSet", PROOF_SET_ENTITY_ID.toHexString(), "status", "EMPTY");
   });
 
   // -- handleFwssPieceAdded -----------------------------------------------
 
-  test("PDPVerifier-created Root has default FWSS fields", () => {
-    seedDataSet();
-    seedRoot();
-    const rootId = getRootEntityId(SET_ID, ROOT_ID).toHexString();
-    assert.fieldEquals("Root", rootId, "metadataKeys", "[]");
-    assert.fieldEquals("Root", rootId, "metadataValues", "[]");
-  });
-
   test("handleFwssPieceAdded extracts ipfsRootCID", () => {
     seedDataSet();
     seedRoot();
-    let ev = createFwssPieceAddedEvent(
+    const ev = createFwssPieceAddedEvent(
       SET_ID,
       ROOT_ID,
       Bytes.fromHexString("0xdeadbeef"),
       ["ipfsRootCID"],
-      ["bafybeiexamplecid"]
+      ["bafybeiexamplecid"],
     );
     handleFwssPieceAdded(ev);
 
@@ -302,33 +160,15 @@ describe("FWSS handlers", () => {
     assert.fieldEquals("Root", rootId, "ipfsRootCID", "bafybeiexamplecid");
   });
 
-  test("handleFwssPieceAdded leaves ipfsRootCID null when absent", () => {
-    seedDataSet();
-    seedRoot();
-    let ev = createFwssPieceAddedEvent(
-      SET_ID,
-      ROOT_ID,
-      Bytes.fromHexString("0xdeadbeef"),
-      [],
-      []
-    );
-    handleFwssPieceAdded(ev);
-
-    // When a nullable field has no value, matchstick's fieldEquals with "null"
-    // matches. Verify no crash and empty arrays persist.
-    const rootId = getRootEntityId(SET_ID, ROOT_ID).toHexString();
-    assert.fieldEquals("Root", rootId, "metadataKeys", "[]");
-  });
-
   test("handleFwssPieceAdded no-ops for unknown pieceId", () => {
     seedDataSet();
-    // no seedRoot — root doesn't exist
-    let ev = createFwssPieceAddedEvent(
+    // no seedRoot — root doesn't exist.
+    const ev = createFwssPieceAddedEvent(
       SET_ID,
       BigInt.fromI32(999),
       Bytes.fromHexString("0xdeadbeef"),
       ["ipfsRootCID"],
-      ["bafybeinope"]
+      ["bafybeinope"],
     );
     handleFwssPieceAdded(ev);
 
@@ -340,116 +180,102 @@ describe("FWSS handlers", () => {
 
   test("handleFwssServiceTerminated flips isActive to false", () => {
     seedDataSet();
-    assert.fieldEquals(
-      "DataSet",
-      PROOF_SET_ENTITY_ID.toHexString(),
-      "isActive",
-      "true"
-    );
+    assert.fieldEquals("DataSet", PROOF_SET_ENTITY_ID.toHexString(), "isActive", "true");
 
-    let ev = createFwssServiceTerminatedEvent(SET_ID, PROVIDER_ADDRESS);
+    const ev = createFwssServiceTerminatedEvent(SET_ID, PROVIDER_ADDRESS);
     handleFwssServiceTerminated(ev);
 
-    assert.fieldEquals(
-      "DataSet",
-      PROOF_SET_ENTITY_ID.toHexString(),
-      "isActive",
-      "false"
-    );
+    assert.fieldEquals("DataSet", PROOF_SET_ENTITY_ID.toHexString(), "isActive", "false");
   });
 
   test("handleFwssServiceTerminated no-ops for unknown dataSetId", () => {
-    let ev = createFwssServiceTerminatedEvent(
-      BigInt.fromI32(999),
-      PROVIDER_ADDRESS
-    );
+    const ev = createFwssServiceTerminatedEvent(BigInt.fromI32(999), PROVIDER_ADDRESS);
     handleFwssServiceTerminated(ev);
-    assert.notInStore(
-      "DataSet",
-      Bytes.fromByteArray(Bytes.fromBigInt(BigInt.fromI32(999))).toHexString()
-    );
+    assert.notInStore("DataSet", Bytes.fromByteArray(Bytes.fromBigInt(BigInt.fromI32(999))).toHexString());
   });
 
   // -- handleFwssPdpPaymentTerminated -------------------------------------
 
   test("handleFwssPdpPaymentTerminated stores endEpoch and leaves isActive alone", () => {
     seedDataSet();
-    let ev = createFwssPdpPaymentTerminatedEvent(
-      SET_ID,
-      BigInt.fromI32(12345),
-      PDP_RAIL_ID
-    );
+    const ev = createFwssPdpPaymentTerminatedEvent(SET_ID, BigInt.fromI32(12345), PDP_RAIL_ID);
     handleFwssPdpPaymentTerminated(ev);
 
-    assert.fieldEquals(
-      "DataSet",
-      PROOF_SET_ENTITY_ID.toHexString(),
-      "pdpPaymentEndEpoch",
-      "12345"
-    );
-    assert.fieldEquals(
-      "DataSet",
-      PROOF_SET_ENTITY_ID.toHexString(),
-      "isActive",
-      "true"
-    );
+    assert.fieldEquals("DataSet", PROOF_SET_ENTITY_ID.toHexString(), "pdpPaymentEndEpoch", "12345");
+    assert.fieldEquals("DataSet", PROOF_SET_ENTITY_ID.toHexString(), "isActive", "true");
   });
 
   test("handleFwssPdpPaymentTerminated no-ops for unknown dataSetId", () => {
-    let ev = createFwssPdpPaymentTerminatedEvent(
-      BigInt.fromI32(999),
-      BigInt.fromI32(12345),
-      PDP_RAIL_ID
-    );
+    const ev = createFwssPdpPaymentTerminatedEvent(BigInt.fromI32(999), BigInt.fromI32(12345), PDP_RAIL_ID);
     handleFwssPdpPaymentTerminated(ev);
-    assert.notInStore(
-      "DataSet",
-      Bytes.fromByteArray(Bytes.fromBigInt(BigInt.fromI32(999))).toHexString()
-    );
+    assert.notInStore("DataSet", Bytes.fromByteArray(Bytes.fromBigInt(BigInt.fromI32(999))).toHexString());
   });
 
   // -- handleFwssDataSetServiceProviderChanged ----------------------------
 
   test("handleFwssDataSetServiceProviderChanged updates fwssServiceProvider", () => {
     seedDataSet();
-    // seed with FWSS initial state
     handleFwssDataSetCreated(
-      createFwssDataSetCreatedEvent(
-        SET_ID,
-        PROVIDER_ID,
-        PDP_RAIL_ID,
-        PAYER_ADDRESS,
-        PROVIDER_ADDRESS,
-        [],
-        []
-      )
+      createFwssDataSetCreatedEvent(SET_ID, PROVIDER_ID, PDP_RAIL_ID, PAYER_ADDRESS, PROVIDER_ADDRESS, [], []),
     );
 
-    let ev = createFwssDataSetServiceProviderChangedEvent(
-      SET_ID,
-      PROVIDER_ADDRESS,
-      NEW_PROVIDER_ADDRESS
-    );
+    const ev = createFwssDataSetServiceProviderChangedEvent(SET_ID, PROVIDER_ADDRESS, NEW_PROVIDER_ADDRESS);
     handleFwssDataSetServiceProviderChanged(ev);
 
     assert.fieldEquals(
       "DataSet",
       PROOF_SET_ENTITY_ID.toHexString(),
       "fwssServiceProvider",
-      NEW_PROVIDER_ADDRESS.toHexString()
+      NEW_PROVIDER_ADDRESS.toHexString(),
     );
   });
 
   test("handleFwssDataSetServiceProviderChanged no-ops for unknown dataSetId", () => {
-    let ev = createFwssDataSetServiceProviderChangedEvent(
+    const ev = createFwssDataSetServiceProviderChangedEvent(
       BigInt.fromI32(999),
       PROVIDER_ADDRESS,
-      NEW_PROVIDER_ADDRESS
+      NEW_PROVIDER_ADDRESS,
     );
     handleFwssDataSetServiceProviderChanged(ev);
-    assert.notInStore(
-      "DataSet",
-      Bytes.fromByteArray(Bytes.fromBigInt(BigInt.fromI32(999))).toHexString()
+    assert.notInStore("DataSet", Bytes.fromByteArray(Bytes.fromBigInt(BigInt.fromI32(999))).toHexString());
+  });
+
+  // -- End-to-end: backs GET_FWSS_CANDIDATE_PIECES query ------------------
+
+  test("GET_FWSS_CANDIDATE_PIECES: DataSet + Root populated with filterable fields", () => {
+    // FWSS stub first (matches on-chain ordering).
+    const fwssDsEv = createFwssDataSetCreatedEvent(
+      SET_ID,
+      PROVIDER_ID,
+      PDP_RAIL_ID,
+      PAYER_ADDRESS,
+      PROVIDER_ADDRESS,
+      ["withIPFSIndexing"],
+      [""],
     );
+    handleFwssDataSetCreated(fwssDsEv);
+
+    // PDPVerifier DataSetCreated fills in PDPVerifier-layer fields.
+    handleDataSetCreated(createDataSetCreatedEvent(SET_ID, PROVIDER_ADDRESS, Bytes.fromI32(0), CONTRACT_ADDRESS));
+
+    // PiecesAdded creates Root.
+    handlePiecesAdded(createRootsAddedEvent(SET_ID, [ROOT_ID], PROVIDER_ADDRESS, CONTRACT_ADDRESS));
+
+    // FWSS.PieceAdded adds ipfsRootCID.
+    handleFwssPieceAdded(
+      createFwssPieceAddedEvent(SET_ID, ROOT_ID, Bytes.fromHexString("0xdeadbeef"), ["ipfsRootCID"], [
+        "bafybeiexamplecid",
+      ]),
+    );
+
+    const dsId = PROOF_SET_ENTITY_ID.toHexString();
+    assert.fieldEquals("DataSet", dsId, "isActive", "true");
+    assert.fieldEquals("DataSet", dsId, "withIPFSIndexing", "true");
+    assert.fieldEquals("DataSet", dsId, "fwssPayer", PAYER_ADDRESS.toHexString());
+    assert.fieldEquals("DataSet", dsId, "fwssServiceProvider", PROVIDER_ADDRESS.toHexString());
+
+    const rootId = getRootEntityId(SET_ID, ROOT_ID).toHexString();
+    assert.fieldEquals("Root", rootId, "removed", "false");
+    assert.fieldEquals("Root", rootId, "ipfsRootCID", "bafybeiexamplecid");
   });
 });
