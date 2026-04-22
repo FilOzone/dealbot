@@ -5,11 +5,12 @@ import { Deal } from "./deal.entity.js";
 
 @Entity("storage_providers")
 @Index(["location", "isActive"])
+@Index(["network", "isActive"])
 export class StorageProvider {
   @PrimaryColumn()
   address!: string;
 
-  @PrimaryColumn({ name: "network", type: "text", default: "calibration" })
+  @PrimaryColumn({ name: "network", type: "text" })
   network!: Network;
 
   @BigIntColumn({ nullable: true })

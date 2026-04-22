@@ -2,6 +2,7 @@ import {
   Column,
   CreateDateColumn,
   Entity,
+  Index,
   JoinColumn,
   ManyToOne,
   OneToMany,
@@ -15,6 +16,7 @@ import type { Retrieval } from "./retrieval.entity.js";
 import { StorageProvider } from "./storage-provider.entity.js";
 
 @Entity("deals")
+@Index(["network", "spAddress"])
 export class Deal {
   @PrimaryGeneratedColumn("uuid")
   id: string;
@@ -22,7 +24,7 @@ export class Deal {
   @Column({ name: "sp_address" })
   spAddress: string;
 
-  @Column({ name: "network", type: "text", default: "calibration" })
+  @Column({ name: "network", type: "text" })
   network: Network;
 
   @Column({ name: "wallet_address" })
