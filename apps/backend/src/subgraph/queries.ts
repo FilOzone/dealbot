@@ -21,42 +21,89 @@ export const Queries = {
       }
     }
   `,
-  GET_FWSS_CANDIDATE_PIECES: `
-    query GetFwssCandidatePieces(
+  SAMPLE_ANON_PIECE_INDEXED: `
+    query SampleAnonPieceIndexed(
       $serviceProvider: Bytes!
       $payer: Bytes!
-      $datasetLimit: Int!
-      $pieceLimit: Int!
+      $sampleKey: Bytes!
+      $minSize: BigInt!
+      $maxSize: BigInt!
     ) {
       _meta {
         block {
           number
         }
       }
-      dataSets(
+      roots(
+        first: 1
+        orderBy: sampleKey
+        orderDirection: asc
         where: {
-          fwssServiceProvider: $serviceProvider
-          fwssPayer_not: $payer
-          isActive: true
+          sampleKey_gte: $sampleKey
+          removed: false
+          rawSize_gte: $minSize
+          rawSize_lte: $maxSize
+          proofSet_: {
+            fwssServiceProvider: $serviceProvider
+            fwssPayer_not: $payer
+            isActive: true
+            withIPFSIndexing: true
+          }
         }
-        first: $datasetLimit
-        orderBy: createdAt
-        orderDirection: desc
         subgraphError: allow
       ) {
-        setId
-        withIPFSIndexing
-        pdpPaymentEndEpoch
-        roots(
-          where: { removed: false }
-          first: $pieceLimit
-          orderBy: createdAt
-          orderDirection: desc
-        ) {
-          rootId
-          cid
-          rawSize
-          ipfsRootCID
+        rootId
+        cid
+        rawSize
+        ipfsRootCID
+        proofSet {
+          setId
+          withIPFSIndexing
+          fwssPayer
+          pdpPaymentEndEpoch
+        }
+      }
+    }
+  `,
+  SAMPLE_ANON_PIECE_ANY: `
+    query SampleAnonPieceAny(
+      $serviceProvider: Bytes!
+      $payer: Bytes!
+      $sampleKey: Bytes!
+      $minSize: BigInt!
+      $maxSize: BigInt!
+    ) {
+      _meta {
+        block {
+          number
+        }
+      }
+      roots(
+        first: 1
+        orderBy: sampleKey
+        orderDirection: asc
+        where: {
+          sampleKey_gte: $sampleKey
+          removed: false
+          rawSize_gte: $minSize
+          rawSize_lte: $maxSize
+          proofSet_: {
+            fwssServiceProvider: $serviceProvider
+            fwssPayer_not: $payer
+            isActive: true
+          }
+        }
+        subgraphError: allow
+      ) {
+        rootId
+        cid
+        rawSize
+        ipfsRootCID
+        proofSet {
+          setId
+          withIPFSIndexing
+          fwssPayer
+          pdpPaymentEndEpoch
         }
       }
     }

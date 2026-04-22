@@ -56,7 +56,7 @@ export type ProviderDataSetResponse = {
 };
 
 /** A piece eligible for anonymous retrieval. */
-export type FwssCandidatePiece = {
+export type AnonCandidatePiece = {
   /** Decoded piece CID string (e.g. "bafk..."). */
   pieceCid: string;
   /** On-chain piece ID (rootId) as a decimal string. */
@@ -69,24 +69,29 @@ export type FwssCandidatePiece = {
   withIPFSIndexing: boolean;
   /** IPFS root CID declared by the client when uploading, or null. */
   ipfsRootCid: string | null;
+  /** Subgraph-indexed block number at query time. */
+  indexedAtBlock: number;
+  /** pdpPaymentEndEpoch from the parent dataset, or null. */
+  pdpPaymentEndEpoch: bigint | null;
 };
 
 /**
- * Validated raw shape of the FWSS candidate-pieces subgraph response.
- * Consumers should prefer the parsed FwssCandidatePiece[] output.
+ * Validated raw shape of the anonymous piece sampling subgraph response.
+ * At most one root is returned (`first: 1`).
  */
-export type RawCandidatePiecesResponse = {
+export type RawSampleAnonPieceResponse = {
   _meta: { block: { number: number } };
-  dataSets: Array<{
-    setId: string;
-    withIPFSIndexing: boolean;
-    pdpPaymentEndEpoch: string | null;
-    roots: Array<{
-      rootId: string;
-      cid: string;
-      rawSize: string;
-      ipfsRootCID: string | null;
-    }>;
+  roots: Array<{
+    rootId: string;
+    cid: string;
+    rawSize: string;
+    ipfsRootCID: string | null;
+    proofSet: {
+      setId: string;
+      withIPFSIndexing: boolean;
+      fwssPayer: string | null;
+      pdpPaymentEndEpoch: string | null;
+    };
   }>;
 };
 
@@ -165,23 +170,27 @@ const providerDataSetResponseSchema = Joi.object({
   .unknown(true)
   .required();
 
-const candidateRootSchema = Joi.object({
+const sampleRootProofSetSchema = Joi.object({
+  setId: Joi.string().pattern(/^\d+$/).required(),
+  withIPFSIndexing: Joi.boolean().required(),
+  fwssPayer: Joi.string()
+    .pattern(/^0x[0-9a-fA-F]{40}$/)
+    .allow(null)
+    .optional(),
+  pdpPaymentEndEpoch: Joi.string().pattern(/^\d+$/).allow(null).optional(),
+}).unknown(true);
+
+const sampleRootSchema = Joi.object({
   rootId: Joi.string().pattern(/^\d+$/).required(),
   cid: Joi.string()
     .pattern(/^0x[0-9a-fA-F]+$/)
     .required(),
   rawSize: Joi.string().pattern(/^\d+$/).required(),
   ipfsRootCID: Joi.string().allow(null).optional(),
+  proofSet: sampleRootProofSetSchema.required(),
 }).unknown(true);
 
-const candidateDataSetSchema = Joi.object({
-  setId: Joi.string().pattern(/^\d+$/).required(),
-  withIPFSIndexing: Joi.boolean().required(),
-  pdpPaymentEndEpoch: Joi.string().pattern(/^\d+$/).allow(null).optional(),
-  roots: Joi.array().items(candidateRootSchema).required(),
-}).unknown(true);
-
-const candidatePiecesResponseSchema = Joi.object({
+const sampleAnonPieceResponseSchema = Joi.object({
   _meta: Joi.object({
     block: Joi.object({
       number: Joi.number().integer().positive().required(),
@@ -191,7 +200,7 @@ const candidatePiecesResponseSchema = Joi.object({
   })
     .unknown(true)
     .required(),
-  dataSets: Joi.array().items(candidateDataSetSchema).required(),
+  roots: Joi.array().items(sampleRootSchema).max(1).required(),
 })
   .unknown(true)
   .required();
@@ -230,14 +239,14 @@ export function validateProviderDataSetResponse(value: unknown): ProviderDataSet
 }
 
 /**
- * Validates the raw FWSS candidate-pieces response from the subgraph.
+ * Validates the raw sampleAnonPiece response from the subgraph.
  *
  * @throws Error if validation fails
  */
-export function validateCandidatePiecesResponse(value: unknown): RawCandidatePiecesResponse {
-  const { error, value: validated } = candidatePiecesResponseSchema.validate(value, { abortEarly: false });
+export function validateSampleAnonPieceResponse(value: unknown): RawSampleAnonPieceResponse {
+  const { error, value: validated } = sampleAnonPieceResponseSchema.validate(value, { abortEarly: false });
   if (error) {
-    throw new Error(`Invalid candidate pieces response format: ${error.message}`);
+    throw new Error(`Invalid sampleAnonPiece response format: ${error.message}`);
   }
-  return validated as RawCandidatePiecesResponse;
+  return validated as RawSampleAnonPieceResponse;
 }

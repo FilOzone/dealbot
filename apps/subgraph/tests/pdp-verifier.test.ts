@@ -1,6 +1,6 @@
 import { afterAll, assert, beforeAll, clearStore, describe, test } from "matchstick-as/assembly/index";
 import { Address, BigInt, Bytes } from "@graphprotocol/graph-ts";
-import { getRootEntityId } from "../src/helpers";
+import { getRootEntityId, getRootSampleKey } from "../src/helpers";
 import { handleDataSetCreated, handlePiecesAdded } from "../src/pdp-verifier";
 import { createDataSetCreatedEvent, createRootsAddedEvent } from "./pdp-verifier-utils";
 
@@ -49,12 +49,14 @@ describe("handlePiecesAdded Tests", () => {
     assert.fieldEquals("DataSet", dataSetId, "isActive", "true");
     assert.fieldEquals("DataSet", dataSetId, "owner", SENDER_ADDRESS.toHex());
 
-    const rootEntityId = getRootEntityId(SET_ID, ROOT_ID_1).toHex();
+    const rootEntityIdBytes = getRootEntityId(SET_ID, ROOT_ID_1);
+    const rootEntityId = rootEntityIdBytes.toHex();
     assert.fieldEquals("Root", rootEntityId, "rootId", ROOT_ID_1.toString());
     assert.fieldEquals("Root", rootEntityId, "setId", SET_ID.toString());
     assert.fieldEquals("Root", rootEntityId, "cid", ROOT_CID_1_STR);
     assert.fieldEquals("Root", rootEntityId, "rawSize", RAW_SIZE_1.toString());
     assert.fieldEquals("Root", rootEntityId, "removed", "false");
+    assert.fieldEquals("Root", rootEntityId, "sampleKey", getRootSampleKey(rootEntityIdBytes).toHex());
 
     const providerId = SENDER_ADDRESS.toHex();
     assert.fieldEquals("Provider", providerId, "address", providerId);

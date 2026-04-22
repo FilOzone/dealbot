@@ -72,5 +72,11 @@ type Root @entity(immutable: false) {
   # Set once on creation and never updated.
   createdAt: BigInt!
 
+  # keccak256(id) computed once at insert time. Used by dealbot's anonymous
+  # retrieval check to draw a uniform-random piece via
+  # `orderBy: sampleKey, where: { sampleKey_gte: <random> }, first: 1`
+  # — independent of creation order, dataset age, and corpus size.
+  sampleKey: Bytes!
+
   proofSet: DataSet!
 }

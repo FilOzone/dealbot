@@ -1,4 +1,4 @@
-import { Address, BigInt, Bytes } from "@graphprotocol/graph-ts";
+import { Address, BigInt, Bytes, crypto } from "@graphprotocol/graph-ts";
 
 // ---- Entity ID helpers ----------------------------------------------------
 
@@ -8,6 +8,13 @@ export function getProofSetEntityId(setId: BigInt): Bytes {
 
 export function getRootEntityId(setId: BigInt, rootId: BigInt): Bytes {
   return Bytes.fromUTF8(setId.toString() + "-" + rootId.toString());
+}
+
+// Uniform pseudorandom sort key for Root entities. Used by dealbot to draw
+// random pieces fairly via `orderBy: sampleKey, where: { sampleKey_gte: X }`,
+// which needs a key distributed independently of setId/rootId.
+export function getRootSampleKey(rootEntityId: Bytes): Bytes {
+  return Bytes.fromByteArray(crypto.keccak256(rootEntityId));
 }
 
 // ---- FWSS metadata helpers ------------------------------------------------

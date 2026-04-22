@@ -4,19 +4,38 @@ import { toStructuredError } from "../common/logging.js";
 import type { IBlockchainConfig, IConfig } from "../config/app.config.js";
 import { Queries } from "./queries.js";
 import type {
-  FwssCandidatePiece,
+  AnonCandidatePiece,
   GraphQLResponse,
   ProviderDataSetResponse,
   ProvidersWithDataSetsOptions,
-  RawCandidatePiecesResponse,
+  RawSampleAnonPieceResponse,
   SubgraphMeta,
 } from "./types.js";
 import {
   decodePieceCid,
-  validateCandidatePiecesResponse,
   validateProviderDataSetResponse,
+  validateSampleAnonPieceResponse,
   validateSubgraphMetaResponse,
 } from "./types.js";
+
+/** Pool of pieces to sample from. */
+export type AnonPiecePool = "indexed" | "any";
+
+/** Inputs for a single anonymous piece sample query. */
+export type SampleAnonPieceParams = {
+  /** Service provider address (lowercase hex). */
+  serviceProvider: string;
+  /** Dealbot's own payer address (excluded to keep the sample non-dealbot). */
+  payer: string;
+  /** Uniform-random 32-byte sort key as `0x`-prefixed hex. */
+  sampleKey: string;
+  /** Inclusive lower bound on raw piece size in bytes (decimal string). */
+  minSize: string;
+  /** Inclusive upper bound on raw piece size in bytes (decimal string). */
+  maxSize: string;
+  /** Which pool to sample from. */
+  pool: AnonPiecePool;
+};
 
 /**
  * Error thrown when data validation fails.
@@ -42,11 +61,6 @@ export class SubgraphService {
   private static readonly RATE_LIMIT_WINDOW_MS = 10000;
   private static readonly MAX_RETRIES = 3;
   private static readonly INITIAL_RETRY_DELAY_MS = 1000;
-
-  /** Max active FWSS datasets fetched per SP per candidate-pieces query. */
-  private static readonly FWSS_DATASET_LIMIT = 100;
-  /** Max pieces fetched per dataset in the candidate-pieces query. */
-  private static readonly FWSS_PIECE_LIMIT = 50;
 
   private requestTimestamps: number[] = [];
 
@@ -161,69 +175,65 @@ export class SubgraphService {
   }
 
   /**
-   * List FWSS candidate pieces for anonymous retrieval testing against the given SP.
+   * Draw a single random anonymous piece for retrieval testing.
    *
-   * Queries for active FWSS datasets owned by `spAddress`, excluding those paid for
-   * by `dealbotPayer` (the dealbot's own datasets). Datasets whose `pdpPaymentEndEpoch`
-   * has already passed the latest indexed block are filtered out client-side — the
-   * subgraph does not flip `isActive` for payment termination.
+   * Uses the Root.sampleKey (keccak256 of the entity id) to pick the
+   * smallest key ≥ `params.sampleKey` that matches the filters — a uniform
+   * random pick when `sampleKey` is generated uniformly. Server-side filters
+   * cover SP, payer-exclusion, active status, size range, and optionally
+   * `withIPFSIndexing`. Returns null when no piece matches (callers should
+   * retry with a fresh sampleKey or relax the pool/bucket).
    *
-   * Returns an empty array if the subgraph endpoint is not configured.
+   * `pdpPaymentEndEpoch` is returned to the caller for a cheap client-side
+   * epoch comparison — GraphQL filters on nullable BigInts are awkward.
    */
-  async listFwssCandidatePieces(spAddress: string, dealbotPayer: string): Promise<FwssCandidatePiece[]> {
+  async sampleAnonPiece(params: SampleAnonPieceParams): Promise<AnonCandidatePiece | null> {
     if (!this.blockchainConfig.subgraphEndpoint) {
-      return [];
+      return null;
     }
 
+    const query = params.pool === "indexed" ? Queries.SAMPLE_ANON_PIECE_INDEXED : Queries.SAMPLE_ANON_PIECE_ANY;
     const variables = {
-      serviceProvider: spAddress.toLowerCase(),
-      payer: dealbotPayer.toLowerCase(),
-      datasetLimit: SubgraphService.FWSS_DATASET_LIMIT,
-      pieceLimit: SubgraphService.FWSS_PIECE_LIMIT,
+      serviceProvider: params.serviceProvider.toLowerCase(),
+      payer: params.payer.toLowerCase(),
+      sampleKey: params.sampleKey,
+      minSize: params.minSize,
+      maxSize: params.maxSize,
     };
 
-    const validated = await this.executeQuery<RawCandidatePiecesResponse>(
-      "fwss_candidate_pieces",
-      Queries.GET_FWSS_CANDIDATE_PIECES,
+    const validated = await this.executeQuery<RawSampleAnonPieceResponse>(
+      `sample_anon_piece_${params.pool}`,
+      query,
       variables,
-      validateCandidatePiecesResponse,
+      validateSampleAnonPieceResponse,
     );
 
-    return this.toCandidatePieces(validated);
-  }
-
-  private toCandidatePieces(response: RawCandidatePiecesResponse): FwssCandidatePiece[] {
-    const currentEpoch = BigInt(response._meta.block.number);
-    const pieces: FwssCandidatePiece[] = [];
-
-    for (const ds of response.dataSets) {
-      if (ds.pdpPaymentEndEpoch != null && BigInt(ds.pdpPaymentEndEpoch) <= currentEpoch) {
-        continue;
-      }
-
-      for (const r of ds.roots) {
-        try {
-          pieces.push({
-            pieceCid: decodePieceCid(r.cid),
-            pieceId: r.rootId,
-            dataSetId: ds.setId,
-            rawSize: r.rawSize,
-            withIPFSIndexing: ds.withIPFSIndexing,
-            ipfsRootCid: r.ipfsRootCID ?? null,
-          });
-        } catch (error) {
-          this.logger.warn({
-            event: "fwss_piece_cid_decode_failed",
-            message: "Failed to decode piece CID from subgraph data",
-            dataSetId: ds.setId,
-            pieceId: r.rootId,
-            error: toStructuredError(error),
-          });
-        }
-      }
+    const root = validated.roots[0];
+    if (!root) {
+      return null;
     }
 
-    return pieces;
+    try {
+      return {
+        pieceCid: decodePieceCid(root.cid),
+        pieceId: root.rootId,
+        dataSetId: root.proofSet.setId,
+        rawSize: root.rawSize,
+        withIPFSIndexing: root.proofSet.withIPFSIndexing,
+        ipfsRootCid: root.ipfsRootCID ?? null,
+        indexedAtBlock: validated._meta.block.number,
+        pdpPaymentEndEpoch: root.proofSet.pdpPaymentEndEpoch != null ? BigInt(root.proofSet.pdpPaymentEndEpoch) : null,
+      };
+    } catch (error) {
+      this.logger.warn({
+        event: "anon_piece_cid_decode_failed",
+        message: "Failed to decode piece CID from subgraph data",
+        dataSetId: root.proofSet.setId,
+        pieceId: root.rootId,
+        error: toStructuredError(error),
+      });
+      return null;
+    }
   }
 
   /**
@@ -420,9 +430,7 @@ export class SubgraphService {
         addressCount: addresses.length,
         error: toStructuredError(error),
       });
-      throw new Error(
-        `Failed to fetch provider data after ${SubgraphService.MAX_RETRIES} attempts: ${errorMessage}`,
-      );
+      throw new Error(`Failed to fetch provider data after ${SubgraphService.MAX_RETRIES} attempts: ${errorMessage}`);
     }
   }
 

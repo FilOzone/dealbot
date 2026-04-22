@@ -3,20 +3,22 @@ import type { Repository } from "typeorm";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { IConfig } from "../config/app.config.js";
 import type { Retrieval } from "../database/entities/retrieval.entity.js";
-import type { SubgraphService } from "../subgraph/subgraph.service.js";
-import type { FwssCandidatePiece } from "../subgraph/types.js";
+import type { SampleAnonPieceParams, SubgraphService } from "../subgraph/subgraph.service.js";
+import type { AnonCandidatePiece } from "../subgraph/types.js";
 import { AnonPieceSelectorService } from "./anon-piece-selector.service.js";
 
 const SP_ADDRESS = "0xAaAaAAaAaaaAaAAAAaaaaAAaaAaaaAAaaaaa1111";
 const DEALBOT_PAYER = "0xBbBBBbBBbbbBbBBBBBbbbbbBBbbBbbbBBbbbb2222";
 
-const makePiece = (overrides: Partial<FwssCandidatePiece> = {}): FwssCandidatePiece => ({
+const makePiece = (overrides: Partial<AnonCandidatePiece> = {}): AnonCandidatePiece => ({
   pieceCid: `baga6ea4seaqpiece${Math.random().toString(36).slice(2, 10)}`,
   pieceId: "1",
   dataSetId: "42",
   rawSize: "1048576",
   withIPFSIndexing: true,
   ipfsRootCid: "bafyroot",
+  indexedAtBlock: 12345,
+  pdpPaymentEndEpoch: null,
   ...overrides,
 });
 
@@ -46,91 +48,123 @@ const makeConfigService = (): ConfigService<IConfig, true> =>
 
 describe("AnonPieceSelectorService", () => {
   let subgraphService: SubgraphService;
-  let listFwssCandidatePieces: ReturnType<typeof vi.fn>;
+  let sampleAnonPiece: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
-    listFwssCandidatePieces = vi.fn();
-    subgraphService = { listFwssCandidatePieces } as unknown as SubgraphService;
+    sampleAnonPiece = vi.fn();
+    subgraphService = { sampleAnonPiece } as unknown as SubgraphService;
   });
 
-  it("returns null when the subgraph yields no candidates", async () => {
-    listFwssCandidatePieces.mockResolvedValue([]);
+  it("returns null when every fallback attempt yields no piece", async () => {
+    sampleAnonPiece.mockResolvedValue(null);
     const service = new AnonPieceSelectorService(subgraphService, makeConfigService(), makeRetrievalRepository([]));
 
     const result = await service.selectPieceForProvider(SP_ADDRESS);
 
     expect(result).toBeNull();
-    expect(listFwssCandidatePieces).toHaveBeenCalledWith(SP_ADDRESS, DEALBOT_PAYER);
+    expect(sampleAnonPiece).toHaveBeenCalled();
   });
 
-  it("filters out pieces tested in the recent retrieval window", async () => {
-    const freshCid = "baga6ea4seaqfresh";
-    const staleCid = "baga6ea4seaqstale";
-    listFwssCandidatePieces.mockResolvedValue([
-      makePiece({ pieceCid: staleCid, pieceId: "1" }),
-      makePiece({ pieceCid: freshCid, pieceId: "2" }),
-    ]);
+  it("returns the sampled piece with SP address lowercased", async () => {
+    sampleAnonPiece.mockResolvedValueOnce(makePiece({ pieceCid: "baga-the-one" }));
+    const service = new AnonPieceSelectorService(subgraphService, makeConfigService(), makeRetrievalRepository([]));
+
+    const result = await service.selectPieceForProvider(SP_ADDRESS);
+
+    expect(result).not.toBeNull();
+    expect(result?.pieceCid).toBe("baga-the-one");
+    expect(result?.serviceProvider).toBe(SP_ADDRESS.toLowerCase());
+  });
+
+  it("passes the dealbot payer address to sampleAnonPiece for exclusion", async () => {
+    sampleAnonPiece.mockResolvedValueOnce(makePiece());
+    const service = new AnonPieceSelectorService(subgraphService, makeConfigService(), makeRetrievalRepository([]));
+
+    await service.selectPieceForProvider(SP_ADDRESS);
+
+    const call = sampleAnonPiece.mock.calls[0][0] as SampleAnonPieceParams;
+    expect(call.payer).toBe(DEALBOT_PAYER);
+    expect(call.serviceProvider).toBe(SP_ADDRESS);
+  });
+
+  it("redraws when the first sampled piece's payment has already terminated", async () => {
+    const staleCid = "baga-terminated";
+    const freshCid = "baga-live";
+    sampleAnonPiece
+      .mockResolvedValueOnce(makePiece({ pieceCid: staleCid, pdpPaymentEndEpoch: 100n, indexedAtBlock: 200 }))
+      .mockResolvedValueOnce(makePiece({ pieceCid: freshCid, pdpPaymentEndEpoch: null }));
+
+    const service = new AnonPieceSelectorService(subgraphService, makeConfigService(), makeRetrievalRepository([]));
+    const result = await service.selectPieceForProvider(SP_ADDRESS);
+
+    expect(result?.pieceCid).toBe(freshCid);
+  });
+
+  it("redraws when the first sampled piece was recently tested", async () => {
+    const staleCid = "baga-stale";
+    const freshCid = "baga-fresh";
+    sampleAnonPiece
+      .mockResolvedValueOnce(makePiece({ pieceCid: staleCid }))
+      .mockResolvedValueOnce(makePiece({ pieceCid: freshCid }));
+
     const service = new AnonPieceSelectorService(
       subgraphService,
       makeConfigService(),
       makeRetrievalRepository([staleCid]),
     );
-
     const result = await service.selectPieceForProvider(SP_ADDRESS);
 
-    expect(result).not.toBeNull();
     expect(result?.pieceCid).toBe(freshCid);
   });
 
-  it("falls back to the full candidate pool when every piece has been tested recently", async () => {
-    const cid = "baga6ea4seaqonly";
-    listFwssCandidatePieces.mockResolvedValue([makePiece({ pieceCid: cid })]);
-    const service = new AnonPieceSelectorService(subgraphService, makeConfigService(), makeRetrievalRepository([cid]));
+  it("falls back to the opposite pool when the preferred one is empty", async () => {
+    // First pool call returns nothing twice (both attempts), second pool succeeds.
+    const fresh = makePiece({ pieceCid: "baga-other-pool" });
+    sampleAnonPiece.mockResolvedValueOnce(null).mockResolvedValueOnce(null).mockResolvedValueOnce(fresh);
 
+    const service = new AnonPieceSelectorService(subgraphService, makeConfigService(), makeRetrievalRepository([]));
     const result = await service.selectPieceForProvider(SP_ADDRESS);
 
-    expect(result?.pieceCid).toBe(cid);
+    expect(result?.pieceCid).toBe("baga-other-pool");
+
+    // The second (fallback) call should target the opposite pool.
+    const firstCall = sampleAnonPiece.mock.calls[0][0] as SampleAnonPieceParams;
+    const fallbackCall = sampleAnonPiece.mock.calls[2][0] as SampleAnonPieceParams;
+    expect(fallbackCall.pool).not.toBe(firstCall.pool);
   });
 
-  it("prefers IPFS-indexed pieces with an ipfsRootCid when selecting", async () => {
-    const pieces = [
-      makePiece({ pieceCid: "baga-plain-1", withIPFSIndexing: false, ipfsRootCid: null }),
-      makePiece({ pieceCid: "baga-indexed-1", withIPFSIndexing: true, ipfsRootCid: "bafy1" }),
-      makePiece({ pieceCid: "baga-plain-2", withIPFSIndexing: false, ipfsRootCid: null }),
-      makePiece({ pieceCid: "baga-indexed-2", withIPFSIndexing: true, ipfsRootCid: "bafy2" }),
-    ];
-    listFwssCandidatePieces.mockResolvedValue(pieces);
+  it("widens size bucket to 'any' after both pools fail in the primary bucket", async () => {
+    // 4 empty attempts across (bucket × both pools × 2 draws each) then
+    // succeed on the first `any` bucket call.
+    sampleAnonPiece
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(makePiece({ pieceCid: "baga-any-bucket" }));
+
     const service = new AnonPieceSelectorService(subgraphService, makeConfigService(), makeRetrievalRepository([]));
-
-    const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0);
-
     const result = await service.selectPieceForProvider(SP_ADDRESS);
 
-    expect(result?.pieceCid).toBe("baga-indexed-1");
-    randomSpy.mockRestore();
+    expect(result?.pieceCid).toBe("baga-any-bucket");
+
+    // The 5th call (index 4) should be the widened-bucket attempt; its size
+    // range covers at least the 32 GiB ceiling of the "large" bucket.
+    const widened = sampleAnonPiece.mock.calls[4][0] as SampleAnonPieceParams;
+    expect(BigInt(widened.maxSize)).toBeGreaterThanOrEqual(32n * 1024n * 1024n * 1024n);
+    expect(widened.minSize).toBe("0");
   });
 
-  it("falls back to all pieces when none are IPFS-indexed", async () => {
-    const pieces = [
-      makePiece({ pieceCid: "baga-plain-1", withIPFSIndexing: false, ipfsRootCid: null }),
-      makePiece({ pieceCid: "baga-plain-2", withIPFSIndexing: true, ipfsRootCid: null }),
-    ];
-    listFwssCandidatePieces.mockResolvedValue(pieces);
+  it("draws a fresh sampleKey for each subgraph call", async () => {
+    sampleAnonPiece.mockResolvedValueOnce(null).mockResolvedValueOnce(makePiece());
+
     const service = new AnonPieceSelectorService(subgraphService, makeConfigService(), makeRetrievalRepository([]));
+    await service.selectPieceForProvider(SP_ADDRESS);
 
-    const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0);
-    const result = await service.selectPieceForProvider(SP_ADDRESS);
-
-    expect(["baga-plain-1", "baga-plain-2"]).toContain(result?.pieceCid);
-    randomSpy.mockRestore();
-  });
-
-  it("returns lowercase SP address on the selected piece", async () => {
-    listFwssCandidatePieces.mockResolvedValue([makePiece()]);
-    const service = new AnonPieceSelectorService(subgraphService, makeConfigService(), makeRetrievalRepository([]));
-
-    const result = await service.selectPieceForProvider(SP_ADDRESS);
-
-    expect(result?.serviceProvider).toBe(SP_ADDRESS.toLowerCase());
+    const call1 = sampleAnonPiece.mock.calls[0][0] as SampleAnonPieceParams;
+    const call2 = sampleAnonPiece.mock.calls[1][0] as SampleAnonPieceParams;
+    expect(call1.sampleKey).toMatch(/^0x[0-9a-f]{64}$/);
+    expect(call2.sampleKey).toMatch(/^0x[0-9a-f]{64}$/);
+    expect(call1.sampleKey).not.toBe(call2.sampleKey);
   });
 });

@@ -13,6 +13,7 @@ import { DataSet, Provider, Root } from "../generated/schema";
 import {
   getProofSetEntityId,
   getRootEntityId,
+  getRootSampleKey,
   maxProvingPeriodFor,
   unpaddedSize,
   validateCommPv2,
@@ -200,6 +201,7 @@ export function handlePiecesAdded(event: PiecesAddedEvent): void {
     root.removed = false;
     root.createdAt = event.block.timestamp;
     root.proofSet = getProofSetEntityId(setId);
+    root.sampleKey = getRootSampleKey(rootEntityId);
     // ipfsRootCID: patched in FWSS handler if applicable.
     root.save();
 

@@ -41,27 +41,36 @@ const FWSS_PAYER = "0xBBbbBBbbBBbBBbBbbBBbbBBbbbbBbBBbbBBbb222";
 const EXAMPLE_PIECE_CID = "baga6ea4seaqpzwrimvoc4jp4l7mk6knsknf6owsc2ev4krrs2peenl5qelh6u4y";
 const pieceCidHex = `0x${Buffer.from(CID.parse(EXAMPLE_PIECE_CID).bytes).toString("hex")}`;
 
-const makeCandidateResponse = (dataSets: Record<string, unknown>[] = [], blockNumber = 12345) => ({
+const makeSampleRoot = (overrides: Record<string, unknown> = {}) => ({
+  rootId: "1",
+  cid: pieceCidHex,
+  rawSize: "1048576",
+  ipfsRootCID: "bafyroot",
+  proofSet: {
+    setId: "42",
+    withIPFSIndexing: true,
+    fwssPayer: FWSS_PAYER.toLowerCase(),
+    pdpPaymentEndEpoch: null,
+  },
+  ...overrides,
+});
+
+const makeSampleResponse = (roots: Record<string, unknown>[] = [], blockNumber = 12345) => ({
   data: {
     _meta: { block: { number: blockNumber } },
-    dataSets,
+    roots,
   },
 });
 
-const makeFwssDataSet = (overrides: Record<string, unknown> = {}) => ({
-  setId: "42",
-  withIPFSIndexing: true,
-  pdpPaymentEndEpoch: null,
-  roots: [
-    {
-      rootId: "1",
-      cid: pieceCidHex,
-      rawSize: "1048576",
-      ipfsRootCID: "bafyroot",
-    },
-  ],
-  ...overrides,
-});
+const SAMPLE_KEY = "0x0000000000000000000000000000000000000000000000000000000000000001";
+const defaultSampleParams = {
+  serviceProvider: FWSS_SP_ADDRESS,
+  payer: FWSS_PAYER,
+  sampleKey: SAMPLE_KEY,
+  minSize: "0",
+  maxSize: "1000000000000",
+  pool: "indexed" as const,
+};
 
 describe("SubgraphService", () => {
   let service: SubgraphService;
@@ -720,125 +729,118 @@ describe("SubgraphService", () => {
     });
   });
 
-  describe("listFwssCandidatePieces", () => {
-    it("returns empty array when endpoint is not configured", async () => {
+  describe("sampleAnonPiece", () => {
+    it("returns null when endpoint is not configured", async () => {
       const noEndpointConfig = {
         get: vi.fn(() => ({ subgraphEndpoint: "" })),
       } as unknown as ConfigService<IConfig, true>;
       const noEndpointService = new SubgraphService(noEndpointConfig);
 
-      const pieces = await noEndpointService.listFwssCandidatePieces(FWSS_SP_ADDRESS, FWSS_PAYER);
-      expect(pieces).toEqual([]);
+      const piece = await noEndpointService.sampleAnonPiece(defaultSampleParams);
+      expect(piece).toBeNull();
       expect(fetchMock).not.toHaveBeenCalled();
     });
 
-    it("parses datasets and returns decoded candidate pieces", async () => {
+    it("returns null when the subgraph yields no matching root", async () => {
       fetchMock.mockResolvedValueOnce({
         ok: true,
-        json: async () => makeCandidateResponse([makeFwssDataSet()]),
+        json: async () => makeSampleResponse([]),
       });
 
-      const pieces = await service.listFwssCandidatePieces(FWSS_SP_ADDRESS, FWSS_PAYER);
+      const piece = await service.sampleAnonPiece(defaultSampleParams);
+      expect(piece).toBeNull();
+    });
 
-      expect(pieces).toHaveLength(1);
-      expect(pieces[0]).toMatchObject({
+    it("parses the sampled root into a decoded candidate piece", async () => {
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        json: async () => makeSampleResponse([makeSampleRoot()]),
+      });
+
+      const piece = await service.sampleAnonPiece(defaultSampleParams);
+
+      expect(piece).toMatchObject({
         pieceCid: EXAMPLE_PIECE_CID,
         pieceId: "1",
         dataSetId: "42",
         rawSize: "1048576",
         withIPFSIndexing: true,
         ipfsRootCid: "bafyroot",
+        pdpPaymentEndEpoch: null,
+        indexedAtBlock: 12345,
       });
     });
 
-    it("lowercases SP and payer addresses before querying", async () => {
+    it("returns pdpPaymentEndEpoch as bigint when the dataset is terminating", async () => {
       fetchMock.mockResolvedValueOnce({
         ok: true,
-        json: async () => makeCandidateResponse([]),
+        json: async () =>
+          makeSampleResponse([
+            makeSampleRoot({
+              proofSet: {
+                setId: "42",
+                withIPFSIndexing: true,
+                fwssPayer: FWSS_PAYER.toLowerCase(),
+                pdpPaymentEndEpoch: "5000",
+              },
+            }),
+          ]),
       });
 
-      await service.listFwssCandidatePieces(FWSS_SP_ADDRESS, FWSS_PAYER);
+      const piece = await service.sampleAnonPiece(defaultSampleParams);
+      expect(piece?.pdpPaymentEndEpoch).toBe(5000n);
+    });
+
+    it("lowercases SP and payer addresses before querying", async () => {
+      fetchMock.mockResolvedValueOnce({ ok: true, json: async () => makeSampleResponse([]) });
+
+      await service.sampleAnonPiece(defaultSampleParams);
 
       const [, opts] = fetchMock.mock.calls[0];
       const body = JSON.parse(opts.body as string);
       expect(body.variables.serviceProvider).toBe(FWSS_SP_ADDRESS.toLowerCase());
       expect(body.variables.payer).toBe(FWSS_PAYER.toLowerCase());
+      expect(body.query).toContain("withIPFSIndexing: true");
     });
 
-    it("filters out datasets whose pdpPaymentEndEpoch has already passed", async () => {
-      fetchMock.mockResolvedValueOnce({
-        ok: true,
-        json: async () =>
-          makeCandidateResponse(
-            [
-              makeFwssDataSet({ setId: "10", pdpPaymentEndEpoch: "5000" }),
-              makeFwssDataSet({ setId: "11", pdpPaymentEndEpoch: "20000" }),
-              makeFwssDataSet({ setId: "12", pdpPaymentEndEpoch: null }),
-            ],
-            10_000,
-          ),
-      });
+    it("uses the any-pool query when pool is 'any'", async () => {
+      fetchMock.mockResolvedValueOnce({ ok: true, json: async () => makeSampleResponse([]) });
 
-      const pieces = await service.listFwssCandidatePieces(FWSS_SP_ADDRESS, FWSS_PAYER);
+      await service.sampleAnonPiece({ ...defaultSampleParams, pool: "any" });
 
-      const dataSetIds = pieces.map((p) => p.dataSetId).sort();
-      expect(dataSetIds).toEqual(["11", "12"]);
+      const [, opts] = fetchMock.mock.calls[0];
+      const body = JSON.parse(opts.body as string);
+      expect(body.query).not.toContain("withIPFSIndexing: true");
     });
 
-    it("skips pieces whose CID fails to decode but keeps valid ones", async () => {
+    it("returns null when the sampled root has an undecodable CID", async () => {
       fetchMock.mockResolvedValueOnce({
         ok: true,
-        json: async () =>
-          makeCandidateResponse([
-            makeFwssDataSet({
-              roots: [
-                { rootId: "1", cid: pieceCidHex, rawSize: "1024", ipfsRootCID: null },
-                { rootId: "2", cid: "0xdeadbeef", rawSize: "2048", ipfsRootCID: null },
-              ],
-            }),
-          ]),
+        json: async () => makeSampleResponse([makeSampleRoot({ cid: "0xdeadbeef" })]),
       });
 
-      const pieces = await service.listFwssCandidatePieces(FWSS_SP_ADDRESS, FWSS_PAYER);
-      expect(pieces).toHaveLength(1);
-      expect(pieces[0].pieceId).toBe("1");
-    });
-
-    it("propagates null ipfsRootCID through to the candidate piece", async () => {
-      fetchMock.mockResolvedValueOnce({
-        ok: true,
-        json: async () =>
-          makeCandidateResponse([
-            makeFwssDataSet({
-              withIPFSIndexing: false,
-              roots: [{ rootId: "1", cid: pieceCidHex, rawSize: "1024", ipfsRootCID: null }],
-            }),
-          ]),
-      });
-
-      const pieces = await service.listFwssCandidatePieces(FWSS_SP_ADDRESS, FWSS_PAYER);
-      expect(pieces[0].ipfsRootCid).toBeNull();
-      expect(pieces[0].withIPFSIndexing).toBe(false);
+      const piece = await service.sampleAnonPiece(defaultSampleParams);
+      expect(piece).toBeNull();
     });
 
     it("throws after max retries on repeated HTTP errors", async () => {
       fetchMock.mockResolvedValue({ ok: false, status: 500, statusText: "Internal Server Error" });
 
-      const promise = service.listFwssCandidatePieces(FWSS_SP_ADDRESS, FWSS_PAYER);
+      const promise = service.sampleAnonPiece(defaultSampleParams);
       promise.catch(() => {});
       await vi.runAllTimersAsync();
 
-      await expect(promise).rejects.toThrow("Failed to fetch subgraph fwss_candidate_pieces after 3 attempts");
+      await expect(promise).rejects.toThrow("Failed to fetch subgraph sample_anon_piece_indexed after 3 attempts");
       expect(fetchMock).toHaveBeenCalledTimes(3);
     });
 
     it("does not retry on schema validation failure", async () => {
       fetchMock.mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ data: { _meta: { block: { number: 1 } } } }), // missing dataSets
+        json: async () => ({ data: { _meta: { block: { number: 1 } } } }), // missing roots
       });
 
-      await expect(service.listFwssCandidatePieces(FWSS_SP_ADDRESS, FWSS_PAYER)).rejects.toThrow(/validation failed/i);
+      await expect(service.sampleAnonPiece(defaultSampleParams)).rejects.toThrow(/validation failed/i);
       expect(fetchMock).toHaveBeenCalledTimes(1);
     });
   });
