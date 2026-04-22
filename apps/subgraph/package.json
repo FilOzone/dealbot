@@ -5,9 +5,9 @@
   "scripts": {
     "codegen": "graph codegen",
     "build:mainnet": "graph codegen && graph build --network filecoin",
-    "build:calibnet": "graph codegen && graph build --network filecoin-testnet",
-    "deploy:mainnet": "goldsky subgraph deploy dealbot-subgraph/$VERSION --path ./build",
-    "deploy:calibnet": "goldsky subgraph deploy dealbot-subgraph-calibnet/$VERSION --path ./build",
+    "build:calibration": "graph codegen && graph build --network filecoin-testnet",
+    "deploy:mainnet": "goldsky subgraph deploy dealbot-mainnet/$VERSION --path ./build",
+    "deploy:calibration": "goldsky subgraph deploy dealbot-calibration/$VERSION --path ./build",
     "test": "graph test"
   },
   "dependencies": {

@@ -15,6 +15,7 @@ dataSources:
       kind: ethereum/events
       apiVersion: 0.0.9
       language: wasm/assemblyscript
+      file: ./src/pdp-verifier.ts
       entities:
         - DataSet
         - Provider
@@ -39,7 +40,6 @@ dataSources:
           handler: handlePossessionProven
         - event: NextProvingPeriod(indexed uint256,uint256,uint256)
           handler: handleNextProvingPeriod
-      file: ./src/pdp-verifier.ts
   - kind: ethereum
     name: FilecoinWarmStorageService
     network: filecoin
@@ -51,6 +51,7 @@ dataSources:
       kind: ethereum/events
       apiVersion: 0.0.9
       language: wasm/assemblyscript
+      file: ./src/fwss.ts
       entities:
         - DataSet
         - Root
@@ -58,17 +59,13 @@ dataSources:
         - name: FilecoinWarmStorageService
           file: ./abis/FilecoinWarmStorageService.json
       eventHandlers:
-        - event: DataSetCreated(indexed uint256,indexed
-            uint256,uint256,uint256,uint256,address,address,address,string[],string[])
+        - event: DataSetCreated(indexed uint256,indexed uint256,uint256,uint256,uint256,address,address,address,string[],string[])
           handler: handleFwssDataSetCreated
         - event: PieceAdded(indexed uint256,indexed uint256,(bytes),string[],string[])
           handler: handleFwssPieceAdded
-        - event: ServiceTerminated(indexed address,indexed
-            uint256,uint256,uint256,uint256)
+        - event: ServiceTerminated(indexed address,indexed  uint256,uint256,uint256,uint256)
           handler: handleFwssServiceTerminated
         - event: PDPPaymentTerminated(indexed uint256,uint256,uint256)
           handler: handleFwssPdpPaymentTerminated
-        - event: DataSetServiceProviderChanged(indexed uint256,indexed address,indexed
-            address)
+        - event: DataSetServiceProviderChanged(indexed uint256,indexed address,indexed address)
           handler: handleFwssDataSetServiceProviderChanged
-      file: ./src/fwss.ts

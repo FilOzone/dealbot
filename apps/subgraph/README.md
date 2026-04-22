@@ -37,9 +37,9 @@ The package is intentionally isolated from the root `pnpm test` / `pnpm build` s
 | calibration (`filecoin-testnet`) | PDPVerifier | `0x85e366Cf9DD2c0aE37E963d9556F5f4718d6417C` | 3140755 |
 | calibration (`filecoin-testnet`) | FilecoinWarmStorageService | `0x02925630df557F957f70E112bA06e50965417CA0` | 3141276 |
 
-Maintained in `networks.json`. Editing `subgraph.yaml` manually is usually wrong — run `pnpm build:mainnet` or `pnpm build:calibnet` which applies `networks.json` via `graph build --network <name>`.
+Maintained in `networks.json`. Editing `subgraph.yaml` manually is usually wrong — run `pnpm build:mainnet` or `pnpm build:calibration` which applies `networks.json` via `graph build --network <name>`.
 
-Note: `graph build --network X` rewrites `subgraph.yaml` **in place** with the chosen network's values. The committed version is mainnet-default — after a `build:calibnet`, re-run `build:mainnet` before committing to avoid leaking calibnet values into the mainnet manifest.
+Note: `graph build --network X` rewrites `subgraph.yaml` **in place** with the chosen network's values. The committed version is mainnet-default — after a `build:calibration`, re-run `build:mainnet` before committing to avoid leaking calibration values into the mainnet manifest.
 
 ## Local commands
 
@@ -49,7 +49,7 @@ pnpm --filter @dealbot/subgraph codegen
 
 # Full build for one network
 pnpm --filter @dealbot/subgraph build:mainnet
-pnpm --filter @dealbot/subgraph build:calibnet
+pnpm --filter @dealbot/subgraph build:calibration
 
 # Run matchstick tests
 pnpm --filter @dealbot/subgraph test
@@ -61,8 +61,8 @@ Requires `goldsky` CLI authenticated via `GOLDSKY_API_KEY`.
 
 ```bash
 export VERSION=0.1.0
-pnpm --filter @dealbot/subgraph build:calibnet
-pnpm --filter @dealbot/subgraph deploy:calibnet
+pnpm --filter @dealbot/subgraph build:calibration
+pnpm --filter @dealbot/subgraph deploy:calibration
 
 pnpm --filter @dealbot/subgraph build:mainnet
 pnpm --filter @dealbot/subgraph deploy:mainnet
@@ -70,7 +70,7 @@ pnpm --filter @dealbot/subgraph deploy:mainnet
 
 Goldsky slots (slugs TBD):
 
-- `dealbot-subgraph/<version>` — mainnet
-- `dealbot-subgraph-calibnet/<version>` — calibration
+- `dealbot-mainnet/<version>` — mainnet
+- `dealbot-calibration/<version>` — calibration
 
 After deploy, update `PDP_SUBGRAPH_ENDPOINT` in the backend env to the new `/gn` URL.
