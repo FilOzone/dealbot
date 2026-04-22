@@ -968,8 +968,8 @@ describe("JobsService schedule rows", () => {
 
     service = buildService({
       dealService: dealService as unknown as ConstructorParameters<typeof JobsService>[3],
-      walletSdkService: walletSdkService as unknown as ConstructorParameters<typeof JobsService>[5],
-      pieceCleanupService: pieceCleanupService as unknown as JobsServiceDeps[7],
+      walletSdkService: walletSdkService as unknown as ConstructorParameters<typeof JobsService>[6],
+      pieceCleanupService: pieceCleanupService as unknown as JobsServiceDeps[8],
     });
 
     await callPrivate(service, "handleDealJob", {
@@ -1472,7 +1472,7 @@ describe("JobsService schedule rows", () => {
 
     service = buildService({
       dealService: dealService as unknown as JobsServiceDeps[3],
-      walletSdkService: walletSdkService as unknown as JobsServiceDeps[5],
+      walletSdkService: walletSdkService as unknown as JobsServiceDeps[6],
     });
 
     await callPrivate(service, "handleDealJob", {
@@ -1496,7 +1496,7 @@ describe("JobsService schedule rows", () => {
 
     service = buildService({
       retrievalService: retrievalService as unknown as JobsServiceDeps[4],
-      walletSdkService: walletSdkService as unknown as JobsServiceDeps[5],
+      walletSdkService: walletSdkService as unknown as JobsServiceDeps[6],
     });
 
     await callPrivate(service, "handleRetrievalJob", {
@@ -1524,7 +1524,7 @@ describe("JobsService schedule rows", () => {
 
     service = buildService({
       dealService: dealService as unknown as JobsServiceDeps[3],
-      walletSdkService: walletSdkService as unknown as JobsServiceDeps[5],
+      walletSdkService: walletSdkService as unknown as JobsServiceDeps[6],
     });
 
     await callPrivate(service, "handleDataSetCreationJob", {
@@ -1565,7 +1565,7 @@ describe("JobsService schedule rows", () => {
         intervalSeconds: 60,
         service: buildService({
           dealService: dealService as unknown as JobsServiceDeps[3],
-          walletSdkService: walletSdkService as unknown as JobsServiceDeps[5],
+          walletSdkService: walletSdkService as unknown as JobsServiceDeps[6],
         }),
         expectCheckNotRun: () => expect(dealService.createDealForProvider).not.toHaveBeenCalled(),
       },
@@ -1575,7 +1575,7 @@ describe("JobsService schedule rows", () => {
         intervalSeconds: 60,
         service: buildService({
           retrievalService: retrievalService as unknown as JobsServiceDeps[4],
-          walletSdkService: walletSdkService as unknown as JobsServiceDeps[5],
+          walletSdkService: walletSdkService as unknown as JobsServiceDeps[6],
         }),
         expectCheckNotRun: () => expect(retrievalService.performRandomRetrievalForProvider).not.toHaveBeenCalled(),
       },
@@ -1585,7 +1585,7 @@ describe("JobsService schedule rows", () => {
         intervalSeconds: 3600,
         service: buildService({
           dealService: dataSetDealService as unknown as JobsServiceDeps[3],
-          walletSdkService: walletSdkService as unknown as JobsServiceDeps[5],
+          walletSdkService: walletSdkService as unknown as JobsServiceDeps[6],
         }),
         expectCheckNotRun: () => expect(dataSetDealService.createDataSetWithPiece).not.toHaveBeenCalled(),
       },
