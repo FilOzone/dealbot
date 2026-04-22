@@ -19,14 +19,6 @@ dataSources:
         - DataSet
         - Provider
         - Root
-        - SumTreeCount
-        - Service
-        - ServiceProviderLink
-        - EventLog
-        - Transaction
-        - Proof
-        - ProofFee
-        - FaultRecord
       abis:
         - name: PDPVerifier
           file: ./abis/PDPVerifier.json
@@ -41,8 +33,6 @@ dataSources:
           handler: handlePiecesAdded
         - event: PiecesRemoved(indexed uint256,uint256[])
           handler: handlePiecesRemoved
-        - event: ProofFeePaid(indexed uint256,uint256)
-          handler: handleProofFeePaid
         - event: DataSetEmpty(indexed uint256)
           handler: handleDataSetEmpty
         - event: PossessionProven(indexed uint256,(uint256,uint256)[])

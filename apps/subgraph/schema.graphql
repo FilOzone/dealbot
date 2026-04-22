@@ -30,6 +30,10 @@ type DataSet @entity(immutable: false) {
   nextDeadline: BigInt!
   # Multiplier for proving period frequency, 0 if not set.
   maxProvingPeriod: BigInt!
+  # Internal: flipped true by PossessionProven, reset false on each
+  # NextProvingPeriod. Drives the faultedPeriods counter on Provider;
+  # not directly queried by dealbot.
+  provenThisPeriod: Boolean!
 
   # ---- FWSS fields (null / false for non-FWSS datasets) ----
   # Populated by FWSS.DataSetCreated handler.
