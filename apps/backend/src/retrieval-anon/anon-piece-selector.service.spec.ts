@@ -3,8 +3,8 @@ import type { Repository } from "typeorm";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { IConfig } from "../config/app.config.js";
 import type { Retrieval } from "../database/entities/retrieval.entity.js";
-import type { PDPSubgraphService } from "../pdp-subgraph/pdp-subgraph.service.js";
-import type { FwssCandidatePiece } from "../pdp-subgraph/types.js";
+import type { SubgraphService } from "../subgraph/subgraph.service.js";
+import type { FwssCandidatePiece } from "../subgraph/types.js";
 import { AnonPieceSelectorService } from "./anon-piece-selector.service.js";
 
 const SP_ADDRESS = "0xAaAaAAaAaaaAaAAAAaaaaAAaaAaaaAAaaaaa1111";
@@ -45,12 +45,12 @@ const makeConfigService = (): ConfigService<IConfig, true> =>
   }) as unknown as ConfigService<IConfig, true>;
 
 describe("AnonPieceSelectorService", () => {
-  let subgraphService: PDPSubgraphService;
+  let subgraphService: SubgraphService;
   let listFwssCandidatePieces: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     listFwssCandidatePieces = vi.fn();
-    subgraphService = { listFwssCandidatePieces } as unknown as PDPSubgraphService;
+    subgraphService = { listFwssCandidatePieces } as unknown as SubgraphService;
   });
 
   it("returns null when the subgraph yields no candidates", async () => {

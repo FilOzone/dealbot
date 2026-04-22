@@ -1,6 +1,6 @@
 # @dealbot/subgraph
 
-A dealbot-owned Graph Protocol subgraph indexing the Filecoin PDP contracts. Deployed to Goldsky and consumed exclusively by `apps/backend` via the `PDP_SUBGRAPH_ENDPOINT` env var.
+A dealbot-owned Graph Protocol subgraph indexing the Filecoin PDP contracts. Deployed to Goldsky and consumed exclusively by `apps/backend` via the `SUBGRAPH_ENDPOINT` env var.
 
 ## What it indexes
 
@@ -9,7 +9,7 @@ A dealbot-owned Graph Protocol subgraph indexing the Filecoin PDP contracts. Dep
 
 ## Why it exists
 
-The dealbot backend needs three queries (see `apps/backend/src/pdp-subgraph/queries.ts`):
+The dealbot backend needs three queries (see `apps/backend/src/subgraph/queries.ts`):
 
 1. `GET_SUBGRAPH_META` — latest indexed block.
 2. `GET_PROVIDERS_WITH_DATASETS` — overdue proving-period detection.
@@ -73,4 +73,4 @@ Goldsky slots (slugs TBD):
 - `dealbot-mainnet/<version>` — mainnet
 - `dealbot-calibration/<version>` — calibration
 
-After deploy, update `PDP_SUBGRAPH_ENDPOINT` in the backend env to the new `/gn` URL.
+After deploy, update `SUBGRAPH_ENDPOINT` in the backend env to the new `/gn` URL.

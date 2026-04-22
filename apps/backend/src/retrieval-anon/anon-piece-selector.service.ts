@@ -4,8 +4,8 @@ import { InjectRepository } from "@nestjs/typeorm";
 import type { Repository } from "typeorm";
 import type { IConfig } from "../config/app.config.js";
 import { Retrieval } from "../database/entities/retrieval.entity.js";
-import { PDPSubgraphService } from "../pdp-subgraph/pdp-subgraph.service.js";
-import type { FwssCandidatePiece } from "../pdp-subgraph/types.js";
+import { SubgraphService } from "../subgraph/subgraph.service.js";
+import type { FwssCandidatePiece } from "../subgraph/types.js";
 import type { AnonPiece } from "./types.js";
 
 /**
@@ -21,7 +21,7 @@ export class AnonPieceSelectorService {
   private readonly logger = new Logger(AnonPieceSelectorService.name);
 
   constructor(
-    private readonly pdpSubgraphService: PDPSubgraphService,
+    private readonly subgraphService: SubgraphService,
     private readonly configService: ConfigService<IConfig, true>,
     @InjectRepository(Retrieval)
     private readonly retrievalRepository: Repository<Retrieval>,
@@ -37,7 +37,7 @@ export class AnonPieceSelectorService {
    */
   async selectPieceForProvider(spAddress: string): Promise<AnonPiece | null> {
     const dealbotPayer = this.configService.get("blockchain", { infer: true }).walletAddress;
-    const candidates = await this.pdpSubgraphService.listFwssCandidatePieces(spAddress, dealbotPayer);
+    const candidates = await this.subgraphService.listFwssCandidatePieces(spAddress, dealbotPayer);
 
     if (candidates.length === 0) {
       this.logger.warn({

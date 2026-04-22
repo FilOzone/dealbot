@@ -5,7 +5,7 @@ import { Retrieval } from "../database/entities/retrieval.entity.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
 import { HttpClientModule } from "../http-client/http-client.module.js";
 import { IpniModule } from "../ipni/ipni.module.js";
-import { PdpSubgraphModule } from "../pdp-subgraph/pdp-subgraph.module.js";
+import { SubgraphModule } from "../subgraph/subgraph.module.js";
 import { WalletSdkModule } from "../wallet-sdk/wallet-sdk.module.js";
 import { AnonPieceSelectorService } from "./anon-piece-selector.service.js";
 import { AnonRetrievalService } from "./anon-retrieval.service.js";
@@ -16,7 +16,7 @@ import { PieceRetrievalService } from "./piece-retrieval.service.js";
   imports: [
     ConfigModule,
     TypeOrmModule.forFeature([Retrieval, StorageProvider]),
-    PdpSubgraphModule,
+    SubgraphModule,
     WalletSdkModule,
     HttpClientModule,
     IpniModule,

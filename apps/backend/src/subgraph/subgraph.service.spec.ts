@@ -2,7 +2,7 @@ import type { ConfigService } from "@nestjs/config";
 import { CID } from "multiformats/cid";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { IConfig } from "../config/app.config.js";
-import { PDPSubgraphService } from "./pdp-subgraph.service.js";
+import { SubgraphService } from "./subgraph.service.js";
 
 const VALID_ADDRESS = "0xd8da6bf26964af9d7eed9e03e53415d37aa96045" as const;
 const SUBGRAPH_ENDPOINT = "https://api.thegraph.com/subgraphs/filecoin/pdp" as const;
@@ -63,21 +63,21 @@ const makeFwssDataSet = (overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 });
 
-describe("PDPSubgraphService", () => {
-  let service: PDPSubgraphService;
+describe("SubgraphService", () => {
+  let service: SubgraphService;
   let fetchMock: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     const configService = {
       get: vi.fn((key: keyof IConfig) => {
         if (key === "blockchain") {
-          return { pdpSubgraphEndpoint: SUBGRAPH_ENDPOINT };
+          return { subgraphEndpoint: SUBGRAPH_ENDPOINT };
         }
         return undefined;
       }),
     } as unknown as ConfigService<IConfig, true>;
 
-    service = new PDPSubgraphService(configService);
+    service = new SubgraphService(configService);
 
     fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
@@ -390,10 +390,10 @@ describe("PDPSubgraphService", () => {
 
     it("throws when PDP subgraph endpoint is not configured", async () => {
       const configService = {
-        get: vi.fn(() => ({ pdpSubgraphEndpoint: "" })),
+        get: vi.fn(() => ({ subgraphEndpoint: "" })),
       } as unknown as ConfigService<IConfig, true>;
 
-      const serviceWithoutEndpoint = new PDPSubgraphService(configService);
+      const serviceWithoutEndpoint = new SubgraphService(configService);
 
       await expect(serviceWithoutEndpoint.fetchSubgraphMeta()).rejects.toThrow("No PDP subgraph endpoint configured");
     });
@@ -723,9 +723,9 @@ describe("PDPSubgraphService", () => {
   describe("listFwssCandidatePieces", () => {
     it("returns empty array when endpoint is not configured", async () => {
       const noEndpointConfig = {
-        get: vi.fn(() => ({ pdpSubgraphEndpoint: "" })),
+        get: vi.fn(() => ({ subgraphEndpoint: "" })),
       } as unknown as ConfigService<IConfig, true>;
-      const noEndpointService = new PDPSubgraphService(noEndpointConfig);
+      const noEndpointService = new SubgraphService(noEndpointConfig);
 
       const pieces = await noEndpointService.listFwssCandidatePieces(FWSS_SP_ADDRESS, FWSS_PAYER);
       expect(pieces).toEqual([]);

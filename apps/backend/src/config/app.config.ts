@@ -56,7 +56,7 @@ export const configValidationSchema = Joi.object({
   USE_ONLY_APPROVED_PROVIDERS: Joi.boolean().default(true),
   DEALBOT_DATASET_VERSION: Joi.string().optional(),
   MIN_NUM_DATASETS_FOR_CHECKS: Joi.number().integer().min(1).default(1),
-  PDP_SUBGRAPH_ENDPOINT: Joi.string().uri().optional().allow(""),
+  SUBGRAPH_ENDPOINT: Joi.string().uri().optional().allow(""),
 
   // Scheduling
   PROVIDERS_REFRESH_INTERVAL_SECONDS: Joi.number().default(4 * 3600),
@@ -167,7 +167,7 @@ export interface IBlockchainConfig {
   useOnlyApprovedProviders: boolean;
   dealbotDataSetVersion?: string;
   minNumDataSetsForChecks: number;
-  pdpSubgraphEndpoint?: string;
+  subgraphEndpoint?: string;
 }
 
 export interface ISchedulingConfig {
@@ -368,7 +368,7 @@ export function loadConfig(): IConfig {
       useOnlyApprovedProviders: process.env.USE_ONLY_APPROVED_PROVIDERS !== "false",
       dealbotDataSetVersion: process.env.DEALBOT_DATASET_VERSION,
       minNumDataSetsForChecks: Number.parseInt(process.env.MIN_NUM_DATASETS_FOR_CHECKS || "1", 10),
-      pdpSubgraphEndpoint: process.env.PDP_SUBGRAPH_ENDPOINT || "",
+      subgraphEndpoint: process.env.SUBGRAPH_ENDPOINT || "",
     },
     scheduling: {
       providersRefreshIntervalSeconds: Number.parseInt(process.env.PROVIDERS_REFRESH_INTERVAL_SECONDS || "14400", 10),
