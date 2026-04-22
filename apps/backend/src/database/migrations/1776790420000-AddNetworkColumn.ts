@@ -130,6 +130,26 @@ export class AddNetworkColumn1776790420000 implements MigrationInterface {
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
+    // Reverting to a single-network schema is destructive when rows for multiple
+    // networks exist: collapsing storage_providers' PK back to (address) would
+    // fail on duplicate addresses that live under different networks. The
+    // operator must declare which network's data to keep; rows belonging to any
+    // other network are deleted before the schema is collapsed.
+    const keepNetwork = (process.env.DEALBOT_LEGACY_NETWORK_BACKFILL ?? process.env.NETWORK ?? "").trim();
+    if (!SUPPORTED_NETWORKS.includes(keepNetwork as Network)) {
+      throw new Error(
+        `AddNetworkColumn.down migration requires DEALBOT_LEGACY_NETWORK_BACKFILL (or legacy NETWORK) ` +
+          `to declare which network's rows to preserve. Got: "${keepNetwork}". Allowed: ${SUPPORTED_NETWORKS.join(", ")}`,
+      );
+    }
+
+    // Delete non-kept-network rows. The composite FK on deals has ON DELETE
+    // CASCADE, so removing storage_providers rows also removes their deals.
+    await queryRunner.query(`DELETE FROM data_retention_baselines WHERE network <> $1`, [keepNetwork]);
+    await queryRunner.query(`DELETE FROM job_schedule_state WHERE network <> $1`, [keepNetwork]);
+    await queryRunner.query(`DELETE FROM deals WHERE network <> $1`, [keepNetwork]);
+    await queryRunner.query(`DELETE FROM storage_providers WHERE network <> $1`, [keepNetwork]);
+
     // data_retention_baselines
     await queryRunner.query(`
       ALTER TABLE data_retention_baselines DROP CONSTRAINT IF EXISTS data_retention_baselines_pkey
@@ -155,10 +175,21 @@ export class AddNetworkColumn1776790420000 implements MigrationInterface {
       ALTER TABLE job_schedule_state DROP COLUMN IF EXISTS network
     `);
 
-    // deals
+    // Drop composite FK on deals before altering the PK it depends on.
     await queryRunner.query(`
       ALTER TABLE deals DROP CONSTRAINT IF EXISTS "FK_deals_storage_providers"
     `);
+
+    // Restore single-column PK on storage_providers so (address) is unique again
+    // before any FK targeting it is recreated.
+    await queryRunner.query(`
+      ALTER TABLE storage_providers DROP CONSTRAINT IF EXISTS storage_providers_pkey
+    `);
+    await queryRunner.query(`
+      ALTER TABLE storage_providers ADD PRIMARY KEY (address)
+    `);
+
+    // Recreate the original single-column FK on deals.
     await queryRunner.query(`
       ALTER TABLE deals
         ADD CONSTRAINT "FK_deals_storage_providers"
@@ -166,18 +197,23 @@ export class AddNetworkColumn1776790420000 implements MigrationInterface {
         REFERENCES storage_providers(address)
         ON DELETE CASCADE
     `);
-    await queryRunner.query(`DROP INDEX IF EXISTS "IDX_deals_network_sp_address"`);
-    await queryRunner.query(`ALTER TABLE deals DROP COLUMN IF EXISTS network`);
 
-    // storage_providers
-    await queryRunner.query(`
-      ALTER TABLE storage_providers DROP CONSTRAINT IF EXISTS storage_providers_pkey
-    `);
-    await queryRunner.query(`
-      ALTER TABLE storage_providers ADD PRIMARY KEY (address)
-    `);
+    // Drop indexes that referenced the network column.
+    await queryRunner.query(`DROP INDEX IF EXISTS "IDX_deals_network_sp_address"`);
     await queryRunner.query(`DROP INDEX IF EXISTS "IDX_storage_providers_network_is_active"`);
+
+    // Restore the pre-migration index name on storage_providers. The column is
+    // still named `location` here; migration 1761500000004 (rename region -> location)
+    // runs its own down() later in the revert chain and will rename this index's
+    // underlying column back to `region` transparently.
     await queryRunner.query(`DROP INDEX IF EXISTS "IDX_storage_providers_location_is_active"`);
+    await queryRunner.query(`
+      CREATE INDEX IF NOT EXISTS "IDX_storage_providers_region_is_active"
+      ON storage_providers (location, is_active)
+    `);
+
+    // Finally, drop the network columns now that no constraint or index depends on them.
+    await queryRunner.query(`ALTER TABLE deals DROP COLUMN IF EXISTS network`);
     await queryRunner.query(`ALTER TABLE storage_providers DROP COLUMN IF EXISTS network`);
   }
 }
