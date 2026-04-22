@@ -6,11 +6,13 @@ import { Network } from "../../common/types.js";
  * Add a `network` column to runtime tables so records from mainnet and calibration
  * are isolated correctly when a single dealbot instance operates on both networks.
  *
- * Backfill strategy: existing rows are assigned 'calibration' because all
- * currently running dealbot deployments target calibration. Operators switching a
- * previously single-network deployment to mainnet must ensure their NETWORKS env
- * var reflects the correct value and re-run a providers_refresh to populate the
- * correct network-scoped rows.
+ * Backfill strategy: existing rows are assigned the network declared by the
+ * operator via `DEALBOT_LEGACY_NETWORK_BACKFILL` (preferred) or the legacy
+ * `NETWORK` env var. The migration fails fast if neither is set to a supported
+ * network, so backfill is never silently wrong. Operators later expanding a
+ * single-network deployment to an additional network must update their
+ * `NETWORKS` config and re-run a providers_refresh to populate the
+ * network-scoped rows for the newly added network.
  */
 export class AddNetworkColumn1776790420000 implements MigrationInterface {
   name = "AddNetworkColumn1776790420000";
