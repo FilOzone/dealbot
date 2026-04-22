@@ -1,6 +1,7 @@
 import { afterAll, assert, beforeAll, clearStore, describe, test } from "matchstick-as/assembly/index";
 import { Address, BigInt, Bytes } from "@graphprotocol/graph-ts";
-import { getRootEntityId, handleDataSetCreated, handlePiecesAdded } from "../src/pdp-verifier";
+import { getRootEntityId } from "../src/helpers";
+import { handleDataSetCreated, handlePiecesAdded } from "../src/pdp-verifier";
 import { createDataSetCreatedEvent, createRootsAddedEvent } from "./pdp-verifier-utils";
 
 const SET_ID = BigInt.fromI32(1);

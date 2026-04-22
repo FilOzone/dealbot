@@ -1,4 +1,54 @@
-import { Bytes, BigInt } from "@graphprotocol/graph-ts";
+import { Address, BigInt, Bytes } from "@graphprotocol/graph-ts";
+
+// ---- Entity ID helpers ----------------------------------------------------
+
+export function getProofSetEntityId(setId: BigInt): Bytes {
+  return Bytes.fromByteArray(Bytes.fromBigInt(setId));
+}
+
+export function getRootEntityId(setId: BigInt, rootId: BigInt): Bytes {
+  return Bytes.fromUTF8(setId.toString() + "-" + rootId.toString());
+}
+
+// ---- FWSS metadata helpers ------------------------------------------------
+
+export function arrayContains(arr: string[], needle: string): boolean {
+  for (let i = 0; i < arr.length; i++) {
+    if (arr[i] == needle) return true;
+  }
+  return false;
+}
+
+export function extractMetadataValue(keys: string[], values: string[], needle: string): string | null {
+  for (let i = 0; i < keys.length; i++) {
+    if (keys[i] == needle) {
+      return i < values.length ? values[i] : null;
+    }
+  }
+  return null;
+}
+
+// ---- Per-network proving period ------------------------------------------
+//
+// NextProvingPeriod is emitted by the PDPVerifier, so event.address on that
+// handler is the PDPVerifier contract. Each subgraph build targets a single
+// network, so only the matching branch is live for a given deployment — the
+// others are dead code on that build, kept explicit here so the mapping is
+// discoverable in one place rather than hidden behind a build-time constant.
+//   mainnet:     MaxProvingPeriod = 2880
+//   calibration: MaxProvingPeriod = 240
+
+const MAINNET_PDP_VERIFIER = Address.fromString("0xBADd0B92C1c71d02E7d520f64c0876538fa2557F");
+const CALIBRATION_PDP_VERIFIER = Address.fromString("0x85e366Cf9DD2c0aE37E963d9556F5f4718d6417C");
+
+export function maxProvingPeriodFor(pdpVerifier: Address): i32 {
+  if (pdpVerifier.equals(MAINNET_PDP_VERIFIER)) return 2880;
+  if (pdpVerifier.equals(CALIBRATION_PDP_VERIFIER)) return 240;
+  // Conservative fallback for unknown deployments (matches calibration).
+  return 240;
+}
+
+// ---- CommP v2 CID decoding ------------------------------------------------
 
 export const COMMP_V2_PREFIX: u8[] = [0x01, 0x55, 0x91, 0x20];
 

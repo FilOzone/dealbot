@@ -1,6 +1,5 @@
 import { assert, beforeEach, clearStore, describe, test } from "matchstick-as/assembly/index";
 import { Address, BigInt, Bytes } from "@graphprotocol/graph-ts";
-import { getRootEntityId, handleDataSetCreated, handlePiecesAdded } from "../src/pdp-verifier";
 import {
   handleFwssDataSetCreated,
   handleFwssDataSetServiceProviderChanged,
@@ -8,6 +7,8 @@ import {
   handleFwssPieceAdded,
   handleFwssServiceTerminated,
 } from "../src/fwss";
+import { getRootEntityId } from "../src/helpers";
+import { handleDataSetCreated, handlePiecesAdded } from "../src/pdp-verifier";
 import { createDataSetCreatedEvent, createRootsAddedEvent } from "./pdp-verifier-utils";
 import {
   createFwssDataSetCreatedEvent,

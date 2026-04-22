@@ -1,4 +1,4 @@
-import { BigInt, Bytes, log } from "@graphprotocol/graph-ts";
+import { BigInt, log } from "@graphprotocol/graph-ts";
 import {
   DataSetCreated as DataSetCreatedEvent,
   DataSetDeleted as DataSetDeletedEvent,
@@ -10,19 +10,14 @@ import {
   StorageProviderChanged as StorageProviderChangedEvent,
 } from "../generated/PDPVerifier/PDPVerifier";
 import { DataSet, Provider, Root } from "../generated/schema";
+import {
+  getProofSetEntityId,
+  getRootEntityId,
+  maxProvingPeriodFor,
+  unpaddedSize,
+  validateCommPv2,
+} from "./helpers";
 import { DataSetStatus } from "./types";
-import { MaxProvingPeriod } from "../utils";
-import { unpaddedSize, validateCommPv2 } from "../utils/cid";
-
-// ---- Entity ID helpers ----------------------------------------------------
-
-function getProofSetEntityId(setId: BigInt): Bytes {
-  return Bytes.fromByteArray(Bytes.fromBigInt(setId));
-}
-
-export function getRootEntityId(setId: BigInt, rootId: BigInt): Bytes {
-  return Bytes.fromUTF8(setId.toString() + "-" + rootId.toString());
-}
 
 // ---- Handlers -------------------------------------------------------------
 
@@ -39,6 +34,7 @@ export function handleDataSetCreated(event: DataSetCreatedEvent): void {
   if (proofSet == null) {
     proofSet = new DataSet(proofSetEntityId);
     proofSet.withIPFSIndexing = false;
+    proofSet.createdAt = event.block.timestamp;
     // fwssPayer, fwssServiceProvider, pdpPaymentEndEpoch are nullable.
   }
   proofSet.setId = event.params.setId;
@@ -140,7 +136,7 @@ export function handleNextProvingPeriod(event: NextProvingPeriodEvent): void {
   if (proofSet.nextDeadline.equals(BigInt.zero())) {
     // First-init: promote to PROVING, seed maxProvingPeriod.
     proofSet.status = DataSetStatus.PROVING;
-    proofSet.maxProvingPeriod = BigInt.fromI32(MaxProvingPeriod);
+    proofSet.maxProvingPeriod = BigInt.fromI32(maxProvingPeriodFor(event.address));
     nextDeadline = currentBlockNumber.plus(proofSet.maxProvingPeriod);
   } else {
     if (currentBlockNumber.gt(proofSet.nextDeadline)) {
@@ -202,6 +198,7 @@ export function handlePiecesAdded(event: PiecesAddedEvent): void {
     root.rawSize = rawSize;
     root.cid = pieceBytes;
     root.removed = false;
+    root.createdAt = event.block.timestamp;
     root.proofSet = getProofSetEntityId(setId);
     // ipfsRootCID: patched in FWSS handler if applicable.
     root.save();

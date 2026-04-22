@@ -1,4 +1,4 @@
-import { BigInt, Bytes, log } from "@graphprotocol/graph-ts";
+import { BigInt, log } from "@graphprotocol/graph-ts";
 import {
   DataSetCreated as DataSetCreatedEvent,
   DataSetServiceProviderChanged as DataSetServiceProviderChangedEvent,
@@ -7,30 +7,8 @@ import {
   ServiceTerminated as ServiceTerminatedEvent,
 } from "../generated/FilecoinWarmStorageService/FilecoinWarmStorageService";
 import { DataSet, Root } from "../generated/schema";
-import { getRootEntityId } from "./pdp-verifier";
+import { arrayContains, extractMetadataValue, getProofSetEntityId, getRootEntityId } from "./helpers";
 import { DataSetStatus } from "./types";
-
-// ---- Helpers --------------------------------------------------------------
-
-function getProofSetEntityId(setId: BigInt): Bytes {
-  return Bytes.fromByteArray(Bytes.fromBigInt(setId));
-}
-
-function arrayContains(arr: string[], needle: string): boolean {
-  for (let i = 0; i < arr.length; i++) {
-    if (arr[i] == needle) return true;
-  }
-  return false;
-}
-
-function extractMetadataValue(keys: string[], values: string[], needle: string): string | null {
-  for (let i = 0; i < keys.length; i++) {
-    if (keys[i] == needle) {
-      return i < values.length ? values[i] : null;
-    }
-  }
-  return null;
-}
 
 // ---- Handlers -------------------------------------------------------------
 
@@ -54,6 +32,7 @@ export function handleFwssDataSetCreated(event: DataSetCreatedEvent): void {
     ds.nextDeadline = BigInt.zero();
     ds.maxProvingPeriod = BigInt.zero();
     ds.provenThisPeriod = false;
+    ds.createdAt = event.block.timestamp;
   }
 
   ds.fwssPayer = event.params.payer;

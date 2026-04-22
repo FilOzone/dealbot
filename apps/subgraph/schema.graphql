@@ -48,6 +48,11 @@ type DataSet @entity(immutable: false) {
   # Does NOT flip isActive — clients compare to current epoch.
   pdpPaymentEndEpoch: BigInt
 
+  # Block timestamp at which this DataSet was first created. Set once on
+  # the creating event (whichever of FWSS.DataSetCreated or
+  # PDPVerifier.DataSetCreated fires first) and never updated.
+  createdAt: BigInt!
+
   # Derived relationship
   roots: [Root!]! @derivedFrom(field: "proofSet")
 }
@@ -62,6 +67,10 @@ type Root @entity(immutable: false) {
 
   # Populated by FWSS.PieceAdded handler (null for non-FWSS pieces).
   ipfsRootCID: String
+
+  # Block timestamp at which this Root was first added via PiecesAdded.
+  # Set once on creation and never updated.
+  createdAt: BigInt!
 
   proofSet: DataSet!
 }
