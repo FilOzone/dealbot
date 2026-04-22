@@ -457,7 +457,7 @@ export class DataRetentionService {
         successPeriods: baseline.successPeriods.toString(),
         lastBlockNumber: blockNumber.toString(),
       },
-      ["providerAddress"],
+      ["providerAddress", "network"],
     );
   }
 

@@ -1,4 +1,5 @@
 import { Column, CreateDateColumn, Entity, Index, PrimaryGeneratedColumn, UpdateDateColumn } from "typeorm";
+import type { Network } from "../../common/types.js";
 
 // `job_type` is stored as TEXT in Postgres, so legacy rows may still contain
 // values that are no longer scheduled for new work. Keep them in the entity
@@ -25,6 +26,9 @@ export class JobScheduleState {
 
   @Column({ name: "sp_address", type: "text", default: "" })
   spAddress!: string;
+
+  @Column({ name: "network", type: "text", default: "calibration" })
+  network!: Network;
 
   @Column({ name: "interval_seconds" })
   intervalSeconds!: number;

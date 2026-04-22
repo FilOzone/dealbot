@@ -8,6 +8,7 @@ import {
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from "typeorm";
+import type { Network } from "../../common/types.js";
 import { BigIntColumn } from "../helpers/bigint-column.js";
 import { type DealMetadata, DealStatus, IpniStatus, type ServiceType } from "../types.js";
 import type { Retrieval } from "./retrieval.entity.js";
@@ -20,6 +21,9 @@ export class Deal {
 
   @Column({ name: "sp_address" })
   spAddress: string;
+
+  @Column({ name: "network", type: "text", default: "calibration" })
+  network: Network;
 
   @Column({ name: "wallet_address" })
   walletAddress: string;
@@ -151,7 +155,10 @@ export class Deal {
     (sp) => sp.deals,
     { onDelete: "CASCADE" },
   )
-  @JoinColumn({ name: "sp_address" })
+  @JoinColumn([
+    { name: "sp_address", referencedColumnName: "address" },
+    { name: "network", referencedColumnName: "network" },
+  ])
   storageProvider: StorageProvider | null;
 
   @OneToMany("Retrieval", "deal")

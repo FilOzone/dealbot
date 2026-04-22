@@ -1,9 +1,13 @@
 import { Column, Entity, PrimaryColumn, UpdateDateColumn } from "typeorm";
+import type { Network } from "../../common/types.js";
 
 @Entity("data_retention_baselines")
 export class DataRetentionBaseline {
   @PrimaryColumn({ name: "provider_address", type: "text" })
   providerAddress!: string;
+
+  @PrimaryColumn({ name: "network", type: "text", default: "calibration" })
+  network!: Network;
 
   @Column({ name: "faulted_periods", type: "bigint" })
   faultedPeriods!: string; // bigint stored as string

@@ -146,7 +146,7 @@ describe("WalletSdkService", () => {
     expect(loggerMock.error).not.toHaveBeenCalled();
 
     const [entities, options] = repoMock.upsert.mock.calls[0];
-    expect(options).toEqual(expect.objectContaining({ conflictPaths: ["address"] }));
+    expect(options).toEqual(expect.objectContaining({ conflictPaths: ["address", "network"] }));
     expect(entities).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ address: "0xdup", providerId: 21n, name: "new" }),

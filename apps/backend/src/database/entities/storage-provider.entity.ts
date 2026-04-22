@@ -1,4 +1,5 @@
 import { Column, CreateDateColumn, Entity, Index, OneToMany, PrimaryColumn, UpdateDateColumn } from "typeorm";
+import type { Network } from "../../common/types.js";
 import { BigIntColumn } from "../helpers/bigint-column.js";
 import { Deal } from "./deal.entity.js";
 
@@ -7,6 +8,9 @@ import { Deal } from "./deal.entity.js";
 export class StorageProvider {
   @PrimaryColumn()
   address!: string;
+
+  @PrimaryColumn({ name: "network", type: "text", default: "calibration" })
+  network!: Network;
 
   @BigIntColumn({ nullable: true })
   providerId: bigint | null;

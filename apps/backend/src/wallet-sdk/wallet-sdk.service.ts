@@ -488,7 +488,7 @@ export class WalletSdkService implements OnModuleInit {
       );
 
       await this.spRepository.upsert(entities, {
-        conflictPaths: ["address"],
+        conflictPaths: ["address", "network"],
         skipUpdateIfNoValuesChanged: true,
       });
     } catch (error) {

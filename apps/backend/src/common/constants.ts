@@ -7,3 +7,6 @@ export const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 export const MAX_BLOCK_SIZE = 5 * 1024 * 1024;
 
 export const DEV_TAG = stringToHex("dev");
+
+// First network will be used as default in absence of NETWORKS config
+export const SUPPORTED_NETWORKS = ["calibration", "mainnet"] as const;
