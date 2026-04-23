@@ -27,12 +27,12 @@ type SizeBucket = "small" | "medium" | "large";
 type SizeRange = { min: bigint; max: bigint };
 
 const MIB = 1024n * 1024n;
-const GIB = 1024n * MIB;
 
+// All downloads are buffered in-memory, so we need to keep piece sizes reasonable
 const SIZE_BUCKETS: Record<SizeBucket, SizeRange> = {
-  small: { min: 1n, max: 64n * MIB - 1n },
-  medium: { min: 64n * MIB, max: 1n * GIB - 1n },
-  large: { min: 1n * GIB, max: 32n * GIB },
+  small: { min: 1n * MIB, max: 20n * MIB - 1n },
+  medium: { min: 20n * MIB, max: 100n * MIB - 1n },
+  large: { min: 100n * MIB, max: 500n * MIB - 1n },
 };
 
 /** Weights for choosing a bucket per selection. Must sum to 1. */
