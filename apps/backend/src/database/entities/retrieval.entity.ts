@@ -15,7 +15,7 @@ export class Retrieval {
   @PrimaryGeneratedColumn("uuid")
   id!: string;
 
-  @Column({ name: "deal_id", type: "uuid", nullable: true })
+  @Column({ name: "deal_id", type: "uuid" })
   dealId!: string;
 
   @Column({
@@ -63,24 +63,6 @@ export class Retrieval {
   @Column({ name: "retry_count", default: 0 })
   retryCount!: number;
 
-  @Column({ name: "is_anonymous", type: "boolean", default: false })
-  isAnonymous!: boolean;
-
-  @Column({ name: "anon_piece_cid", nullable: true })
-  anonPieceCid!: string;
-
-  @Column({ name: "anon_data_set_id", nullable: true })
-  anonDataSetId!: string;
-
-  @Column({ name: "anon_piece_id", nullable: true })
-  anonPieceId!: string;
-
-  @Column({ name: "commp_valid", nullable: true })
-  commPValid!: boolean;
-
-  @Column({ name: "car_valid", nullable: true })
-  carValid!: boolean;
-
   @CreateDateColumn({ name: "created_at", type: "timestamptz" })
   createdAt!: Date;
 
@@ -88,7 +70,7 @@ export class Retrieval {
   updatedAt!: Date;
 
   // Relations
-  @ManyToOne("Deal", "retrievals", { onDelete: "CASCADE", nullable: true })
+  @ManyToOne("Deal", "retrievals", { onDelete: "CASCADE" })
   @JoinColumn({ name: "deal_id" })
-  deal: Deal | null;
+  deal: Deal;
 }

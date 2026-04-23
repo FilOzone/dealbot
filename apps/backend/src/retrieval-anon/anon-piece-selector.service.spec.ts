@@ -2,7 +2,7 @@ import type { ConfigService } from "@nestjs/config";
 import type { Repository } from "typeorm";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { IConfig } from "../config/app.config.js";
-import type { Retrieval } from "../database/entities/retrieval.entity.js";
+import type { AnonRetrieval } from "../database/entities/anon-retrieval.entity.js";
 import type { SampleAnonPieceParams, SubgraphService } from "../subgraph/subgraph.service.js";
 import type { AnonCandidatePiece } from "../subgraph/types.js";
 import { AnonPieceSelectorService } from "./anon-piece-selector.service.js";
@@ -22,18 +22,16 @@ const makePiece = (overrides: Partial<AnonCandidatePiece> = {}): AnonCandidatePi
   ...overrides,
 });
 
-const makeRetrievalRepository = (recentPieceCids: string[]): Repository<Retrieval> => {
+const makeRetrievalRepository = (recentPieceCids: string[]): Repository<AnonRetrieval> => {
   const queryBuilder = {
     select: vi.fn().mockReturnThis(),
-    where: vi.fn().mockReturnThis(),
-    andWhere: vi.fn().mockReturnThis(),
     orderBy: vi.fn().mockReturnThis(),
     limit: vi.fn().mockReturnThis(),
-    getRawMany: vi.fn().mockResolvedValue(recentPieceCids.map((c) => ({ anonPieceCid: c }))),
+    getRawMany: vi.fn().mockResolvedValue(recentPieceCids.map((c) => ({ pieceCid: c }))),
   };
   return {
     createQueryBuilder: vi.fn().mockReturnValue(queryBuilder),
-  } as unknown as Repository<Retrieval>;
+  } as unknown as Repository<AnonRetrieval>;
 };
 
 const makeConfigService = (): ConfigService<IConfig, true> =>

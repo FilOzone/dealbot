@@ -4,7 +4,7 @@ import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
 import type { Repository } from "typeorm";
 import type { IConfig } from "../config/app.config.js";
-import { Retrieval } from "../database/entities/retrieval.entity.js";
+import { AnonRetrieval } from "../database/entities/anon-retrieval.entity.js";
 import type { AnonPiecePool, SampleAnonPieceParams } from "../subgraph/subgraph.service.js";
 import { SubgraphService } from "../subgraph/subgraph.service.js";
 import type { AnonCandidatePiece } from "../subgraph/types.js";
@@ -56,8 +56,8 @@ export class AnonPieceSelectorService {
   constructor(
     private readonly subgraphService: SubgraphService,
     private readonly configService: ConfigService<IConfig, true>,
-    @InjectRepository(Retrieval)
-    private readonly retrievalRepository: Repository<Retrieval>,
+    @InjectRepository(AnonRetrieval)
+    private readonly anonRetrievalRepository: Repository<AnonRetrieval>,
   ) {}
 
   /**
@@ -185,16 +185,14 @@ export class AnonPieceSelectorService {
    * anonymous retrievals across all SPs.
    */
   private async loadRecentlyTestedPieceCids(): Promise<Set<string>> {
-    const rows = await this.retrievalRepository
+    const rows = await this.anonRetrievalRepository
       .createQueryBuilder("r")
-      .select("r.anon_piece_cid", "anonPieceCid")
-      .where("r.is_anonymous = true")
-      .andWhere("r.anon_piece_cid IS NOT NULL")
+      .select("r.piece_cid", "pieceCid")
       .orderBy("r.created_at", "DESC")
       .limit(RECENT_DEDUP_WINDOW)
-      .getRawMany<{ anonPieceCid: string }>();
+      .getRawMany<{ pieceCid: string }>();
 
-    return new Set(rows.map((row) => row.anonPieceCid));
+    return new Set(rows.map((row) => row.pieceCid));
   }
 }
 

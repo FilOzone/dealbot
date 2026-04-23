@@ -2,7 +2,7 @@ import { Injectable, Logger } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import type { Repository } from "typeorm";
 import { type ProviderJobContext, toStructuredError } from "../common/logging.js";
-import { Retrieval } from "../database/entities/retrieval.entity.js";
+import { AnonRetrieval } from "../database/entities/anon-retrieval.entity.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
 import { RetrievalStatus, ServiceType } from "../database/types.js";
 import { buildCheckMetricLabels } from "../metrics-prometheus/check-metric-labels.js";
@@ -23,8 +23,8 @@ export class AnonRetrievalService {
     private readonly carValidationService: CarValidationService,
     private readonly walletSdkService: WalletSdkService,
     private readonly metrics: AnonRetrievalCheckMetrics,
-    @InjectRepository(Retrieval)
-    private readonly retrievalRepository: Repository<Retrieval>,
+    @InjectRepository(AnonRetrieval)
+    private readonly anonRetrievalRepository: Repository<AnonRetrieval>,
     @InjectRepository(StorageProvider)
     private readonly spRepository: Repository<StorageProvider>,
   ) {}
@@ -33,7 +33,7 @@ export class AnonRetrievalService {
     spAddress: string,
     signal?: AbortSignal,
     logContext?: ProviderJobContext,
-  ): Promise<Retrieval | null> {
+  ): Promise<AnonRetrieval | null> {
     // Build metric labels
     const provider = await this.spRepository.findOne({ where: { address: spAddress } });
     const labels = buildCheckMetricLabels({
@@ -129,11 +129,13 @@ export class AnonRetrievalService {
     const spBaseUrl = providerInfo?.pdp.serviceURL.replace(/\/$/, "") ?? spAddress;
 
     // 5. Save retrieval record
-    const retrieval = this.retrievalRepository.create({
-      isAnonymous: true,
-      anonPieceCid: piece.pieceCid,
-      anonDataSetId: piece.dataSetId,
-      anonPieceId: piece.pieceId,
+    const retrieval = this.anonRetrievalRepository.create({
+      spAddress,
+      pieceCid: piece.pieceCid,
+      dataSetId: BigInt(piece.dataSetId),
+      pieceId: BigInt(piece.pieceId),
+      withIpfsIndexing: piece.withIPFSIndexing,
+      ipfsRootCid: piece.ipfsRootCid,
       serviceType: ServiceType.DIRECT_SP,
       retrievalEndpoint: `${spBaseUrl}/piece/${piece.pieceCid}`,
       status: pieceResult.success ? RetrievalStatus.SUCCESS : RetrievalStatus.FAILED,
@@ -145,12 +147,12 @@ export class AnonRetrievalService {
       bytesRetrieved: pieceResult.bytesReceived,
       responseCode: pieceResult.statusCode,
       errorMessage: pieceResult.errorMessage,
-      commPValid: pieceResult.success ? pieceResult.commPValid : undefined,
-      carValid: carResult ? carResult.ipniValid !== false && carResult.blockFetchValid !== false : undefined,
+      commpValid: pieceResult.success ? pieceResult.commPValid : null,
+      carValid: carResult ? carResult.ipniValid !== false && carResult.blockFetchValid !== false : null,
     });
 
     try {
-      await this.retrievalRepository.save(retrieval);
+      await this.anonRetrievalRepository.save(retrieval);
     } catch (error) {
       this.logger.warn({
         ...logContext,
