@@ -26,8 +26,8 @@
  * and this shim is no longer needed, delete this file and its two call sites.
  */
 
-import { createPinoExitLogger } from "src/common/pino.config.js";
 import { SUPPORTED_NETWORKS } from "../common/constants.js";
+import { createPinoExitLogger } from "../common/pino.config.js";
 import type { Network } from "../common/types.js";
 
 /**

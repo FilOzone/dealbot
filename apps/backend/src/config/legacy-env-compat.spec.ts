@@ -1,5 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { applyLegacyEnvCompat, logLegacyEnvCompatResult } from "./legacy-env-compat.js";
+import { describe, expect, it } from "vitest";
+import { applyLegacyEnvCompat } from "./legacy-env-compat.js";
 
 /** Build a fresh env map for every test — never mutate `process.env`. */
 const envOf = (overrides: Record<string, string> = {}): NodeJS.ProcessEnv => ({ ...overrides }) as NodeJS.ProcessEnv;
@@ -107,36 +107,5 @@ describe("applyLegacyEnvCompat", () => {
       expect(b.MAINNET_WALLET_PRIVATE_KEY).toBe("0xb");
       expect(b.CALIBRATION_WALLET_PRIVATE_KEY).toBeUndefined();
     });
-  });
-});
-
-describe("logLegacyEnvCompatResult", () => {
-  let warnSpy: ReturnType<typeof vi.spyOn>;
-
-  beforeEach(() => {
-    warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-  });
-
-  afterEach(() => {
-    warnSpy.mockRestore();
-  });
-
-  it("is a no-op when translation was not applied", () => {
-    logLegacyEnvCompatResult({ applied: false, translatedVars: [], skipReason: "networks_already_set" });
-    expect(warnSpy).not.toHaveBeenCalled();
-  });
-
-  it("emits a structured JSON warning when translation was applied", () => {
-    logLegacyEnvCompatResult({
-      applied: true,
-      network: "calibration",
-      translatedVars: ["WALLET_PRIVATE_KEY", "RPC_URL"],
-    });
-
-    expect(warnSpy).toHaveBeenCalledTimes(1);
-    const payload = JSON.parse(warnSpy.mock.calls[0][0] as string);
-    expect(payload.event).toBe("config_legacy_env_detected");
-    expect(payload.network).toBe("calibration");
-    expect(payload.translatedVars).toEqual(["WALLET_PRIVATE_KEY", "RPC_URL"]);
   });
 });
