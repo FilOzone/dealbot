@@ -28,7 +28,7 @@ import * as SessionKey from "@filoz/synapse-core/session-key";
 import { calibration, mainnet, Synapse } from "@filoz/synapse-sdk";
 import { createClient, custom, http } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
-import type { IBlockchainConfig } from "../config/app.config.js";
+import type { INetworkConfig } from "../config/types.js";
 
 export interface SynapseInstanceResult {
   synapse: Synapse;
@@ -36,13 +36,13 @@ export interface SynapseInstanceResult {
 }
 
 /** Create a Synapse instance from blockchain config. See file-level docs. */
-export async function createSynapseFromConfig(config: IBlockchainConfig): Promise<SynapseInstanceResult> {
+export async function createSynapseFromConfig(config: INetworkConfig): Promise<SynapseInstanceResult> {
   const chain = config.network === "mainnet" ? mainnet : calibration;
   const rpcUrl = config.rpcUrl;
   const transport = rpcUrl ? http(rpcUrl) : http();
-  const sessionKeyPK = config.sessionKeyPrivateKey;
 
-  if (sessionKeyPK) {
+  if ("sessionKeyPrivateKey" in config) {
+    const sessionKeyPK = config.sessionKeyPrivateKey;
     const walletAddress = config.walletAddress as `0x${string}`;
     const sessionKey = SessionKey.fromSecp256k1({
       privateKey: sessionKeyPK,

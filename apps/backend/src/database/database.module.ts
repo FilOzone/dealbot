@@ -6,7 +6,7 @@ import { DataSource, type DataSourceOptions } from "typeorm";
 import { fileURLToPath } from "url";
 import { toStructuredError } from "../common/logging.js";
 import { createPinoExitLogger } from "../common/pino.config.js";
-import type { IAppConfig, IConfig, IDatabaseConfig } from "../config/app.config.js";
+import type { IAppConfig, IConfig, IDatabaseConfig } from "../config/types.js";
 import { DataRetentionBaseline } from "./entities/data-retention-baseline.entity.js";
 import { Deal } from "./entities/deal.entity.js";
 import { JobScheduleState } from "./entities/job-schedule-state.entity.js";

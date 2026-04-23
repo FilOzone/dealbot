@@ -3,7 +3,7 @@ import { Test, TestingModule } from "@nestjs/testing";
 import { getRepositoryToken } from "@nestjs/typeorm";
 import { calculateActualStorage, listDataSets } from "filecoin-pin/core/data-set";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { IConfig } from "../config/app.config.js";
+import type { IConfig } from "../config/types.js";
 import { Deal } from "../database/entities/deal.entity.js";
 import { DealStatus } from "../database/types.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
@@ -79,17 +79,15 @@ describe("PieceCleanupService", () => {
   function createConfigMock() {
     return {
       get: vi.fn((key: keyof IConfig) => {
-        if (key === "pieceCleanup") {
+        if (key === "networks") {
           return {
-            maxDatasetStorageSizeBytes: THRESHOLD_BYTES,
-            targetDatasetStorageSizeBytes: TARGET_BYTES,
-          };
-        }
-        if (key === "blockchain") {
-          return {
-            walletPrivateKey: "0x1234567890123456789012345678901234567890123456789012345678901234",
-            network: "calibration",
-            walletAddress: "0x123",
+            calibration: {
+              walletPrivateKey: "0x1234567890123456789012345678901234567890123456789012345678901234",
+              network: "calibration",
+              walletAddress: "0x123",
+              maxDatasetStorageSizeBytes: THRESHOLD_BYTES,
+              targetDatasetStorageSizeBytes: TARGET_BYTES,
+            },
           };
         }
         return undefined;
@@ -149,7 +147,7 @@ describe("PieceCleanupService", () => {
     it("returns total bytes from the query builder", async () => {
       mockQueryBuilder(50 * MiB);
 
-      const result = await service.getStoredBytesForProvider("0xProvider");
+      const result = await service.getStoredBytesForProvider("0xProvider", "calibration");
 
       expect(result).toBe(50 * MiB);
       expect(dealRepoMock.createQueryBuilder).toHaveBeenCalledWith("deal");
@@ -158,7 +156,7 @@ describe("PieceCleanupService", () => {
     it("returns 0 when no deals exist", async () => {
       mockQueryBuilder(0);
 
-      const result = await service.getStoredBytesForProvider("0xProvider");
+      const result = await service.getStoredBytesForProvider("0xProvider", "calibration");
 
       expect(result).toBe(0);
     });
@@ -172,7 +170,7 @@ describe("PieceCleanupService", () => {
       };
       dealRepoMock.createQueryBuilder.mockReturnValue(qb);
 
-      const result = await service.getStoredBytesForProvider("0xProvider");
+      const result = await service.getStoredBytesForProvider("0xProvider", "calibration");
 
       expect(result).toBe(0);
     });
@@ -183,7 +181,7 @@ describe("PieceCleanupService", () => {
       const abortController = new AbortController();
       vi.mocked(listDataSets).mockReturnValueOnce(new Promise(() => {}) as any);
 
-      const result = service.getLiveStoredBytesForProvider("0xProvider", abortController.signal);
+      const result = service.getLiveStoredBytesForProvider("0xProvider", "calibration", abortController.signal);
       abortController.abort(new Error("listing timed out"));
 
       await expect(result).rejects.toThrow("listing timed out");
@@ -210,7 +208,7 @@ describe("PieceCleanupService", () => {
         },
       ] as any);
 
-      await service.getLiveStoredBytesForProvider("0xProvider", signal);
+      await service.getLiveStoredBytesForProvider("0xProvider", "calibration", signal);
 
       expect(calculateActualStorage).toHaveBeenCalledWith(
         expect.anything(),
@@ -246,7 +244,9 @@ describe("PieceCleanupService", () => {
         timedOut: true,
       });
 
-      await expect(service.getLiveStoredBytesForProvider("0xProvider")).rejects.toThrow("Live storage query timed out");
+      await expect(service.getLiveStoredBytesForProvider("0xProvider", "calibration")).rejects.toThrow(
+        "Live storage query timed out",
+      );
     });
   });
 
@@ -255,7 +255,7 @@ describe("PieceCleanupService", () => {
       const deals = [makeDeal({ createdAt: new Date("2024-01-01") }), makeDeal({ createdAt: new Date("2024-01-02") })];
       dealRepoMock.find.mockResolvedValue(deals);
 
-      const result = await service.getCleanupCandidates("0xProvider", 10);
+      const result = await service.getCleanupCandidates("0xProvider", "calibration", 10);
 
       expect(result).toEqual(deals);
       expect(dealRepoMock.find).toHaveBeenCalledWith(
@@ -274,7 +274,7 @@ describe("PieceCleanupService", () => {
     it("respects the limit parameter", async () => {
       dealRepoMock.find.mockResolvedValue([]);
 
-      await service.getCleanupCandidates("0xProvider", 5);
+      await service.getCleanupCandidates("0xProvider", "calibration", 5);
 
       expect(dealRepoMock.find).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -288,7 +288,7 @@ describe("PieceCleanupService", () => {
     it("skips cleanup when stored bytes are below threshold", async () => {
       vi.spyOn(service, "getLiveStoredBytesForProvider").mockResolvedValue(50 * MiB); // 50 MiB < 100 MiB threshold
 
-      const result = await service.cleanupPiecesForProvider("0xProvider");
+      const result = await service.cleanupPiecesForProvider("0xProvider", "calibration");
 
       expect(result.skipped).toBe(true);
       expect(result.deleted).toBe(0);
@@ -300,7 +300,7 @@ describe("PieceCleanupService", () => {
     it("skips cleanup when stored bytes equal threshold", async () => {
       vi.spyOn(service, "getLiveStoredBytesForProvider").mockResolvedValue(THRESHOLD_BYTES); // exactly at threshold
 
-      const result = await service.cleanupPiecesForProvider("0xProvider");
+      const result = await service.cleanupPiecesForProvider("0xProvider", "calibration");
 
       expect(result.skipped).toBe(true);
       expect(result.deleted).toBe(0);
@@ -310,7 +310,7 @@ describe("PieceCleanupService", () => {
       vi.spyOn(service, "getLiveStoredBytesForProvider").mockRejectedValue(new Error("network error"));
       mockQueryBuilder(50 * MiB);
 
-      const result = await service.cleanupPiecesForProvider("0xProvider");
+      const result = await service.cleanupPiecesForProvider("0xProvider", "calibration");
 
       expect(result.skipped).toBe(true);
       expect(result.storedBytes).toBe(50 * MiB);
@@ -329,7 +329,7 @@ describe("PieceCleanupService", () => {
       dealRepoMock.find.mockResolvedValue([deal1, deal2, deal3, deal4, deal5]);
       const deletePieceSpy = vi.spyOn(service, "deletePiece").mockResolvedValue(undefined);
 
-      const result = await service.cleanupPiecesForProvider("0xProvider");
+      const result = await service.cleanupPiecesForProvider("0xProvider", "calibration");
 
       expect(result.skipped).toBe(false);
       expect(result.deleted).toBe(5);
@@ -343,9 +343,9 @@ describe("PieceCleanupService", () => {
       vi.spyOn(service, "getLiveStoredBytesForProvider").mockRejectedValue(new Error("cleanup timeout"));
       mockQueryBuilder(THRESHOLD_BYTES + 1);
 
-      await expect(service.cleanupPiecesForProvider("0xProvider", abortController.signal)).rejects.toThrow(
-        "cleanup timeout",
-      );
+      await expect(
+        service.cleanupPiecesForProvider("0xProvider", "calibration", abortController.signal),
+      ).rejects.toThrow("cleanup timeout");
 
       expect(dealRepoMock.find).not.toHaveBeenCalled();
       expect(dealRepoMock.createQueryBuilder).not.toHaveBeenCalled();
@@ -379,7 +379,9 @@ describe("PieceCleanupService", () => {
       });
       mockQueryBuilder(THRESHOLD_BYTES + 1);
 
-      await expect(service.cleanupPiecesForProvider("0xProvider")).rejects.toThrow("Live storage query timed out");
+      await expect(service.cleanupPiecesForProvider("0xProvider", "calibration")).rejects.toThrow(
+        "Live storage query timed out",
+      );
 
       expect(dealRepoMock.find).not.toHaveBeenCalled();
       expect(dealRepoMock.createQueryBuilder).not.toHaveBeenCalled();
@@ -389,7 +391,7 @@ describe("PieceCleanupService", () => {
       vi.spyOn(service, "getLiveStoredBytesForProvider").mockResolvedValue(200 * MiB); // above threshold
       dealRepoMock.find.mockResolvedValue([]); // no candidates
 
-      const result = await service.cleanupPiecesForProvider("0xProvider");
+      const result = await service.cleanupPiecesForProvider("0xProvider", "calibration");
 
       expect(result.skipped).toBe(false);
       expect(result.deleted).toBe(0);
@@ -410,7 +412,7 @@ describe("PieceCleanupService", () => {
 
       const deletePieceSpy = vi.spyOn(service, "deletePiece").mockResolvedValue(undefined);
 
-      const result = await service.cleanupPiecesForProvider("0xProvider");
+      const result = await service.cleanupPiecesForProvider("0xProvider", "calibration");
 
       expect(result.deleted).toBe(5); // 50 MiB = 5 × 10 MiB
       expect(result.failed).toBe(0);
@@ -428,7 +430,7 @@ describe("PieceCleanupService", () => {
 
       vi.spyOn(service, "deletePiece").mockRejectedValueOnce(new Error("SDK error")).mockResolvedValueOnce(undefined);
 
-      const result = await service.cleanupPiecesForProvider("0xProvider");
+      const result = await service.cleanupPiecesForProvider("0xProvider", "calibration");
 
       expect(result.deleted).toBe(1);
       expect(result.failed).toBe(1);
@@ -443,7 +445,9 @@ describe("PieceCleanupService", () => {
       const abortController = new AbortController();
       abortController.abort(new Error("aborted"));
 
-      await expect(service.cleanupPiecesForProvider("0xProvider", abortController.signal)).rejects.toThrow("aborted");
+      await expect(
+        service.cleanupPiecesForProvider("0xProvider", "calibration", abortController.signal),
+      ).rejects.toThrow("aborted");
     });
 
     it("bails out when all deletions in a batch fail", async () => {
@@ -455,7 +459,7 @@ describe("PieceCleanupService", () => {
 
       vi.spyOn(service, "deletePiece").mockRejectedValue(new Error("persistent failure"));
 
-      const result = await service.cleanupPiecesForProvider("0xProvider");
+      const result = await service.cleanupPiecesForProvider("0xProvider", "calibration");
 
       expect(result.deleted).toBe(0);
       expect(result.failed).toBe(2);
@@ -472,7 +476,7 @@ describe("PieceCleanupService", () => {
 
       const deletePieceSpy = vi.spyOn(service, "deletePiece").mockResolvedValue(undefined);
 
-      const result = await service.cleanupPiecesForProvider("0xProvider");
+      const result = await service.cleanupPiecesForProvider("0xProvider", "calibration");
 
       // Piece is still deleted
       expect(result.deleted).toBe(1);
@@ -495,7 +499,7 @@ describe("PieceCleanupService", () => {
 
       const deletePieceSpy = vi.spyOn(service, "deletePiece").mockResolvedValue(undefined);
 
-      const result = await service.cleanupPiecesForProvider("0xProvider");
+      const result = await service.cleanupPiecesForProvider("0xProvider", "calibration");
 
       expect(result.deleted).toBe(4);
       expect(deletePieceSpy).toHaveBeenCalledTimes(4);
@@ -508,13 +512,13 @@ describe("PieceCleanupService", () => {
     it("throws when deal is missing pieceId", async () => {
       const deal = makeDeal({ pieceId: undefined });
 
-      await expect(service.deletePiece(deal)).rejects.toThrow("missing pieceId");
+      await expect(service.deletePiece(deal, "calibration")).rejects.toThrow("missing pieceId");
     });
 
     it("throws when deal is missing dataSetId", async () => {
       const deal = makeDeal({ dataSetId: undefined });
 
-      await expect(service.deletePiece(deal)).rejects.toThrow("missing dataSetId");
+      await expect(service.deletePiece(deal, "calibration")).rejects.toThrow("missing dataSetId");
     });
 
     it("calls Synapse SDK to delete piece and marks deal as cleaned up", async () => {
@@ -535,7 +539,7 @@ describe("PieceCleanupService", () => {
       const deal = makeDeal({ pieceId: 42, dataSetId: 1n, spAddress: "0xProvider" });
       dealRepoMock.save.mockResolvedValue(deal);
 
-      await service.deletePiece(deal);
+      await service.deletePiece(deal, "calibration");
 
       expect(createContextMock).toHaveBeenCalledWith({
         providerId: 9,
@@ -565,7 +569,7 @@ describe("PieceCleanupService", () => {
       const deal = makeDeal({ pieceId: 42, dataSetId: 1n, spAddress: "0xProvider" });
       dealRepoMock.save.mockResolvedValue(deal);
 
-      await service.deletePiece(deal);
+      await service.deletePiece(deal, "calibration");
 
       expect(deal.cleanedUp).toBe(true);
       expect(deal.cleanedUpAt).toBeInstanceOf(Date);
@@ -590,7 +594,7 @@ describe("PieceCleanupService", () => {
       const deal = makeDeal({ pieceId: 42, dataSetId: 1n, spAddress: "0xProvider" });
       dealRepoMock.save.mockResolvedValue(deal);
 
-      await service.deletePiece(deal);
+      await service.deletePiece(deal, "calibration");
 
       expect(deal.cleanedUp).toBe(true);
       expect(dealRepoMock.save).toHaveBeenCalledWith(deal);
@@ -613,7 +617,7 @@ describe("PieceCleanupService", () => {
 
       const deal = makeDeal({ pieceId: 42, dataSetId: 1n, spAddress: "0xProvider" });
 
-      await expect(service.deletePiece(deal)).rejects.toThrow("network timeout");
+      await expect(service.deletePiece(deal, "calibration")).rejects.toThrow("network timeout");
     });
 
     it("respects abort signal before SDK call", async () => {
@@ -621,7 +625,7 @@ describe("PieceCleanupService", () => {
       const abortController = new AbortController();
       abortController.abort(new Error("cancelled"));
 
-      await expect(service.deletePiece(deal, abortController.signal)).rejects.toThrow("cancelled");
+      await expect(service.deletePiece(deal, "calibration", abortController.signal)).rejects.toThrow("cancelled");
     });
   });
 });

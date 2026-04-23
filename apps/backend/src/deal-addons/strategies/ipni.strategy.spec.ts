@@ -1,6 +1,7 @@
 import { CID } from "multiformats/cid";
 import type { Mock } from "vitest";
 import { describe, expect, it, vi } from "vitest";
+import { Network } from "../../common/types.js";
 import { Deal } from "../../database/entities/deal.entity.js";
 import { StorageProvider } from "../../database/entities/storage-provider.entity.js";
 import { IpniStatus, ServiceType } from "../../database/types.js";
@@ -12,6 +13,7 @@ import { IpniAddonStrategy } from "./ipni.strategy.js";
 describe("IpniAddonStrategy getPieceStatus", () => {
   type DealForMetrics = {
     spAddress?: string;
+    network: Network;
     storageProvider?: {
       providerId?: bigint;
       name?: string;
@@ -44,6 +46,7 @@ describe("IpniAddonStrategy getPieceStatus", () => {
     Object.assign(new Deal(), {
       id: "deal-1",
       spAddress: "0xsp",
+      network: "calibration",
       fileName: "file",
       fileSize: 1,
       walletAddress: "0xwallet",
@@ -67,6 +70,7 @@ describe("IpniAddonStrategy getPieceStatus", () => {
       buildLabelsForDeal: vi.fn().mockImplementation((deal: DealForMetrics) => {
         if (!deal?.spAddress) return null;
         return buildCheckMetricLabels({
+          network: deal.network,
           checkType: "dataStorage",
           providerId: deal.storageProvider?.providerId,
           providerName: deal.storageProvider?.name,
@@ -254,6 +258,7 @@ describe("IpniAddonStrategy getPieceStatus", () => {
 
       const labels = {
         checkType: "dataStorage",
+        network: "calibration",
         providerId: "9",
         providerName: "SP",
         providerStatus: "approved",
@@ -343,6 +348,7 @@ describe("IpniAddonStrategy getPieceStatus", () => {
 
       const labels = {
         checkType: "dataStorage",
+        network: "calibration",
         providerId: "9",
         providerName: "SP",
         providerStatus: "approved",
@@ -385,6 +391,7 @@ describe("IpniAddonStrategy getPieceStatus", () => {
 
     const labels = {
       checkType: "dataStorage",
+      network: "calibration",
       providerId: "9",
       providerName: "SP",
       providerStatus: "approved",
@@ -424,6 +431,7 @@ describe("IpniAddonStrategy getPieceStatus", () => {
 
     const labels = {
       checkType: "dataStorage",
+      network: "calibration",
       providerId: "9",
       providerName: "SP",
       providerStatus: "approved",
@@ -464,6 +472,7 @@ describe("IpniAddonStrategy getPieceStatus", () => {
 
     const labels = {
       checkType: "dataStorage",
+      network: "calibration",
       providerId: "9",
       providerName: "SP",
       providerStatus: "approved",

@@ -6,7 +6,8 @@ import { Counter, Gauge } from "prom-client";
 import { Raw, Repository } from "typeorm";
 import { toStructuredError } from "../common/logging.js";
 import { isSpBlocked } from "../common/sp-blocklist.js";
-import { IConfig } from "../config/app.config.js";
+import type { Network } from "../common/types.js";
+import type { IConfig, INetworkConfig, INetworksConfig } from "../config/types.js";
 import { DataRetentionBaseline } from "../database/entities/data-retention-baseline.entity.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
 import { buildCheckMetricLabels, CheckMetricLabels } from "../metrics-prometheus/check-metric-labels.js";
@@ -24,7 +25,7 @@ export class DataRetentionService {
   private static readonly CHALLENGES_PER_PROVING_PERIOD = 5n;
 
   /**
-   * Tracks cumulative faulted/success period totals per provider address.
+   * Tracks cumulative faulted/success period totals keyed by "network:providerAddress".
    * Used to compute deltas between consecutive polls for Prometheus counter increments.
    * Populated from the database on first poll, then kept in sync.
    * Note: Baselines are stored in periods, but emitted metrics are converted to challenges
@@ -38,8 +39,8 @@ export class DataRetentionService {
     }
   >;
 
-  /** Whether baselines have been loaded from the database */
-  private baselinesLoaded = false;
+  /** Per-network baseline load flags */
+  private readonly baselinesLoadedByNetwork: Map<Network, boolean> = new Map();
 
   constructor(
     private readonly configService: ConfigService<IConfig, true>,
@@ -57,32 +58,41 @@ export class DataRetentionService {
     this.providerCumulativeTotals = new Map();
   }
 
+  private cumulativeTotalsKey(network: Network, address: string): string {
+    return `${network}:${address}`;
+  }
+
   /**
    * Polls the PDP subgraph for provider proof-set data, computes proving period deltas,
    * converts them to challenge counts, and increments Prometheus counters with the
    * challenge delta since the last poll.
    */
-  async pollDataRetention(): Promise<void> {
-    const pdpSubgraphEndpoint = this.configService.get("blockchain").pdpSubgraphEndpoint;
+  async pollDataRetention(network: Network): Promise<void> {
+    const networkConfig = this.configService.get<INetworkConfig>("networks")[network];
+    const pdpSubgraphEndpoint = networkConfig.pdpSubgraphEndpoint;
     if (!pdpSubgraphEndpoint) {
       this.logger.warn({
         event: "pdp_subgraph_endpoint_not_configured",
         message: "No PDP subgraph endpoint configured",
+        network,
       });
       return;
     }
 
-    await this.loadBaselinesFromDb();
+    await this.loadBaselinesFromDb(network);
 
-    if (!this.baselinesLoaded) {
+    if (!this.baselinesLoadedByNetwork.get(network)) {
       // Cannot safely compute deltas without baselines — would emit full cumulative history
+      this.logger.log({
+        event: "failed_to_load_baselines_by_network",
+      });
       return;
     }
 
     try {
-      const subgraphMeta = await this.pdpSubgraphService.fetchSubgraphMeta();
-      const allProviderInfos = this.walletSdkService.getTestingProviders();
-      const spBlocklists = this.configService.get("spBlocklists");
+      const subgraphMeta = await this.pdpSubgraphService.fetchSubgraphMeta(pdpSubgraphEndpoint);
+      const allProviderInfos = this.walletSdkService.getTestingProviders(network);
+      const spBlocklists = this.configService.get<INetworksConfig>("networks")[network];
       const providerInfos = allProviderInfos?.filter((p) => !isSpBlocked(spBlocklists, p.serviceProvider, p.id));
 
       if (!providerInfos || providerInfos.length === 0) {
@@ -109,7 +119,7 @@ export class DataRetentionService {
         );
 
         try {
-          const providersFromSubgraph = await this.pdpSubgraphService.fetchProvidersWithDatasets({
+          const providersFromSubgraph = await this.pdpSubgraphService.fetchProvidersWithDatasets(pdpSubgraphEndpoint, {
             blockNumber,
             addresses: batchAddresses,
           });
@@ -125,7 +135,7 @@ export class DataRetentionService {
                   ),
                 );
               }
-              return this.processProvider(provider, providerInfo, blockNumberBigInt);
+              return this.processProvider(provider, providerInfo, blockNumberBigInt, network);
             }),
           );
 
@@ -142,11 +152,12 @@ export class DataRetentionService {
                 providerAddress: addr,
                 providerId: providerInfo?.id,
                 providerName: providerInfo?.name,
+                network,
                 error: toStructuredError(result.reason),
               });
             } else {
               const addr = providersFromSubgraph[index].address.toLowerCase();
-              upsertPromises.push(this.persistBaseline(addr, result.value, blockNumberBigInt));
+              upsertPromises.push(this.persistBaseline(addr, result.value, blockNumberBigInt, network));
             }
           });
 
@@ -175,17 +186,19 @@ export class DataRetentionService {
 
       // Only cleanup stale providers after successful poll to preserve baselines during transient failures
       if (!hasProcessingErrors) {
-        await this.cleanupStaleProviders(providerAddresses);
+        await this.cleanupStaleProviders(providerAddresses, network);
       } else {
         this.logger.warn({
           event: "stale_provider_cleanup_skipped",
           message: "Skipping stale provider cleanup due to processing errors",
+          network,
         });
       }
     } catch (error) {
       this.logger.error({
         event: "data_retention_poll_failed",
         message: "Failed to poll data retention",
+        network,
         error: toStructuredError(error),
       });
     }
@@ -201,12 +214,13 @@ export class DataRetentionService {
    *
    * @param activeProviderAddresses - Array of currently active provider addresses (normalized to lowercase)
    */
-  private async cleanupStaleProviders(activeProviderAddresses: string[]): Promise<void> {
+  private async cleanupStaleProviders(activeProviderAddresses: string[], network: Network): Promise<void> {
     const activeAddressSet = new Set(activeProviderAddresses);
     const staleAddresses: string[] = [];
 
-    for (const [address] of this.providerCumulativeTotals) {
-      if (!activeAddressSet.has(address)) {
+    for (const [key] of this.providerCumulativeTotals) {
+      const [keyNetwork, address] = key.split(":", 2);
+      if (keyNetwork === network && address && !activeAddressSet.has(address)) {
         staleAddresses.push(address);
       }
     }
@@ -224,7 +238,10 @@ export class DataRetentionService {
     let staleProviders: StorageProvider[] = [];
     try {
       staleProviders = await this.storageProviderRepository.find({
-        where: { address: Raw((alias) => `LOWER(${alias}) IN (:...addresses)`, { addresses: staleAddresses }) },
+        where: {
+          network,
+          address: Raw((alias) => `LOWER(${alias}) IN (:...addresses)`, { addresses: staleAddresses }),
+        },
         select: ["address", "providerId", "name", "isApproved"],
       });
     } catch (error) {
@@ -240,17 +257,20 @@ export class DataRetentionService {
     const providerLookup = new Map(staleProviders.map((p) => [p.address.toLowerCase(), p]));
 
     for (const address of staleAddresses) {
+      const totalsKey = this.cumulativeTotalsKey(network, address);
       try {
         const provider = providerLookup.get(address);
 
         if (provider && provider.providerId != null) {
           const approvedLabels = buildCheckMetricLabels({
+            network,
             checkType: "dataRetention",
             providerId: provider.providerId,
             providerName: provider.name,
             providerIsApproved: true,
           });
           const unapprovedLabels = buildCheckMetricLabels({
+            network,
             checkType: "dataRetention",
             providerId: provider.providerId,
             providerName: provider.name,
@@ -266,14 +286,15 @@ export class DataRetentionService {
           this.estimatedOverduePeriodsGauge.remove(unapprovedLabels);
 
           // Only delete local memory if Prometheus removal succeeded without throwing
-          this.providerCumulativeTotals.delete(address);
+          this.providerCumulativeTotals.delete(totalsKey);
 
           // Also remove persisted baseline from DB
-          this.baselineRepository.delete({ providerAddress: address }).catch((err) => {
+          this.baselineRepository.delete({ providerAddress: address, network }).catch((err) => {
             this.logger.warn({
               event: "baseline_db_delete_failed",
               message: "Failed to delete persisted baseline for stale provider",
               providerAddress: address,
+              network,
               error: toStructuredError(err),
             });
           });
@@ -320,6 +341,7 @@ export class DataRetentionService {
     provider: ProviderDataSetResponse["providers"][number],
     pdpProvider: PDPProviderEx,
     currentBlock: bigint,
+    network: Network,
   ): Promise<{ faultedPeriods: bigint; successPeriods: bigint }> {
     const { address, totalFaultedPeriods, totalProvingPeriods, proofSets } = provider;
     // Note: Query filters proofSets with nextDeadline_lt: $blockNumber, so all deadlines are in the past
@@ -333,7 +355,8 @@ export class DataRetentionService {
     const confirmedTotalSuccess = totalProvingPeriods - totalFaultedPeriods;
 
     const normalizedAddress = address.toLowerCase();
-    const previous = this.providerCumulativeTotals.get(normalizedAddress);
+    const totalsKey = this.cumulativeTotalsKey(network, normalizedAddress);
+    const previous = this.providerCumulativeTotals.get(totalsKey);
 
     const newBaseline = {
       faultedPeriods: totalFaultedPeriods,
@@ -341,6 +364,7 @@ export class DataRetentionService {
     };
 
     const providerLabels = buildCheckMetricLabels({
+      network,
       checkType: "dataRetention",
       providerId: pdpProvider.id,
       providerName: pdpProvider.name,
@@ -371,7 +395,7 @@ export class DataRetentionService {
         faultedPeriods: totalFaultedPeriods.toString(),
         successPeriods: confirmedTotalSuccess.toString(),
       });
-      this.providerCumulativeTotals.set(normalizedAddress, newBaseline);
+      this.providerCumulativeTotals.set(totalsKey, newBaseline);
       return newBaseline;
     }
 
@@ -393,7 +417,7 @@ export class DataRetentionService {
         successChallengesDelta: successChallengesDelta.toString(),
       });
       // Reset baseline without incrementing counters
-      this.providerCumulativeTotals.set(normalizedAddress, newBaseline);
+      this.providerCumulativeTotals.set(totalsKey, newBaseline);
       return newBaseline;
     }
 
@@ -405,38 +429,40 @@ export class DataRetentionService {
       this.safeIncrementCounter(this.dataSetChallengeStatusCounter, providerLabels, "success", successChallengesDelta);
     }
 
-    this.providerCumulativeTotals.set(normalizedAddress, newBaseline);
+    this.providerCumulativeTotals.set(totalsKey, newBaseline);
 
     return newBaseline;
   }
 
   /**
    * Loads persisted baselines from the database into the in-memory map.
-   * Only runs once; if the DB read fails, retries on the next poll.
+   * Only runs once per network; if the DB read fails, retries on the next poll.
    */
-  private async loadBaselinesFromDb(): Promise<void> {
-    if (this.baselinesLoaded) {
+  private async loadBaselinesFromDb(network: Network): Promise<void> {
+    if (this.baselinesLoadedByNetwork.get(network)) {
       return;
     }
 
     try {
-      const rows = await this.baselineRepository.find();
+      const rows = await this.baselineRepository.find({ where: { network } });
       for (const row of rows) {
-        this.providerCumulativeTotals.set(row.providerAddress, {
+        this.providerCumulativeTotals.set(this.cumulativeTotalsKey(network, row.providerAddress), {
           faultedPeriods: BigInt(row.faultedPeriods),
           successPeriods: BigInt(row.successPeriods),
         });
       }
-      this.baselinesLoaded = true;
+      this.baselinesLoadedByNetwork.set(network, true);
       this.logger.log({
         event: "baselines_loaded_from_db",
         message: "Loaded baseline(s) from database",
+        network,
         baselineCount: rows.length,
       });
     } catch (error) {
       this.logger.error({
         event: "baseline_load_failed",
         message: "Failed to load baselines from database. Will retry on next poll.",
+        network,
         error: toStructuredError(error),
       });
     }
@@ -449,10 +475,12 @@ export class DataRetentionService {
     providerAddress: string,
     baseline: { faultedPeriods: bigint; successPeriods: bigint },
     blockNumber: bigint,
+    network: Network,
   ): Promise<void> {
     await this.baselineRepository.upsert(
       {
         providerAddress,
+        network,
         faultedPeriods: baseline.faultedPeriods.toString(),
         successPeriods: baseline.successPeriods.toString(),
         lastBlockNumber: blockNumber.toString(),

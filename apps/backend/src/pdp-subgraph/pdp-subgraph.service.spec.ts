@@ -1,6 +1,4 @@
-import type { ConfigService } from "@nestjs/config";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { IConfig } from "../config/app.config.js";
 import { PDPSubgraphService } from "./pdp-subgraph.service.js";
 
 const VALID_ADDRESS = "0xd8da6bf26964af9d7eed9e03e53415d37aa96045" as const;
@@ -40,16 +38,7 @@ describe("PDPSubgraphService", () => {
   let fetchMock: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
-    const configService = {
-      get: vi.fn((key: keyof IConfig) => {
-        if (key === "blockchain") {
-          return { pdpSubgraphEndpoint: SUBGRAPH_ENDPOINT };
-        }
-        return undefined;
-      }),
-    } as unknown as ConfigService<IConfig, true>;
-
-    service = new PDPSubgraphService(configService);
+    service = new PDPSubgraphService();
 
     fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
@@ -69,7 +58,7 @@ describe("PDPSubgraphService", () => {
         json: async () => makeSubgraphResponse([makeValidProvider()]),
       });
 
-      const providers = await service.fetchProvidersWithDatasets({
+      const providers = await service.fetchProvidersWithDatasets(SUBGRAPH_ENDPOINT, {
         blockNumber: 5000,
         addresses: [VALID_ADDRESS],
       });
@@ -93,7 +82,7 @@ describe("PDPSubgraphService", () => {
         json: async () => makeSubgraphResponse([]),
       });
 
-      const providers = await service.fetchProvidersWithDatasets({
+      const providers = await service.fetchProvidersWithDatasets(SUBGRAPH_ENDPOINT, {
         blockNumber: 5000,
         addresses: [VALID_ADDRESS],
       });
@@ -101,7 +90,7 @@ describe("PDPSubgraphService", () => {
     });
 
     it("returns empty array when addresses array is empty", async () => {
-      const providers = await service.fetchProvidersWithDatasets({
+      const providers = await service.fetchProvidersWithDatasets(SUBGRAPH_ENDPOINT, {
         blockNumber: 5000,
         addresses: [],
       });
@@ -116,7 +105,7 @@ describe("PDPSubgraphService", () => {
         status: 500,
       });
 
-      const promise = service.fetchProvidersWithDatasets({
+      const promise = service.fetchProvidersWithDatasets(SUBGRAPH_ENDPOINT, {
         blockNumber: 5000,
         addresses: [VALID_ADDRESS],
       });
@@ -139,7 +128,7 @@ describe("PDPSubgraphService", () => {
         }),
       });
 
-      const promise = service.fetchProvidersWithDatasets({
+      const promise = service.fetchProvidersWithDatasets(SUBGRAPH_ENDPOINT, {
         blockNumber: 5000,
         addresses: [VALID_ADDRESS],
       });
@@ -155,7 +144,7 @@ describe("PDPSubgraphService", () => {
     it("throws on network failure", async () => {
       fetchMock.mockRejectedValueOnce(new Error("Network error"));
 
-      const promise = service.fetchProvidersWithDatasets({
+      const promise = service.fetchProvidersWithDatasets(SUBGRAPH_ENDPOINT, {
         blockNumber: 5000,
         addresses: [VALID_ADDRESS],
       });
@@ -177,10 +166,7 @@ describe("PDPSubgraphService", () => {
       });
 
       await expect(
-        service.fetchProvidersWithDatasets({
-          blockNumber: 5000,
-          addresses: [VALID_ADDRESS],
-        }),
+        service.fetchProvidersWithDatasets(SUBGRAPH_ENDPOINT, { blockNumber: 5000, addresses: [VALID_ADDRESS] }),
       ).rejects.toThrow("Data validation failed");
 
       // Should only be called once - no retries for validation errors
@@ -196,10 +182,7 @@ describe("PDPSubgraphService", () => {
       });
 
       await expect(
-        service.fetchProvidersWithDatasets({
-          blockNumber: 5000,
-          addresses: [VALID_ADDRESS],
-        }),
+        service.fetchProvidersWithDatasets(SUBGRAPH_ENDPOINT, { blockNumber: 5000, addresses: [VALID_ADDRESS] }),
       ).rejects.toThrow("Data validation failed");
 
       // Should only be called once - no retries for validation errors
@@ -212,10 +195,7 @@ describe("PDPSubgraphService", () => {
         json: async () => makeSubgraphResponse([makeValidProvider()]),
       });
 
-      await service.fetchProvidersWithDatasets({
-        blockNumber: 12345,
-        addresses: [VALID_ADDRESS],
-      });
+      await service.fetchProvidersWithDatasets(SUBGRAPH_ENDPOINT, { blockNumber: 12345, addresses: [VALID_ADDRESS] });
 
       const body = JSON.parse(fetchMock.mock.calls[0][1].body);
       expect(body.variables.blockNumber).toBe("12345");
@@ -233,7 +213,7 @@ describe("PDPSubgraphService", () => {
         }),
       });
 
-      const promise = service.fetchProvidersWithDatasets({
+      const promise = service.fetchProvidersWithDatasets(SUBGRAPH_ENDPOINT, {
         blockNumber: 5000,
         addresses: [VALID_ADDRESS],
       });
@@ -255,10 +235,7 @@ describe("PDPSubgraphService", () => {
       });
 
       const addresses = [VALID_ADDRESS, "0xAb5801a7D398351b8bE11C439e05C5B3259aeC9B"];
-      await service.fetchProvidersWithDatasets({
-        blockNumber: 5000,
-        addresses,
-      });
+      await service.fetchProvidersWithDatasets(SUBGRAPH_ENDPOINT, { blockNumber: 5000, addresses });
 
       const body = JSON.parse(fetchMock.mock.calls[0][1].body);
       expect(body.variables.addresses).toEqual(addresses);
@@ -273,10 +250,7 @@ describe("PDPSubgraphService", () => {
         json: async () => makeSubgraphResponse([]),
       });
 
-      await service.fetchProvidersWithDatasets({
-        blockNumber: 5000,
-        addresses,
-      });
+      await service.fetchProvidersWithDatasets(SUBGRAPH_ENDPOINT, { blockNumber: 5000, addresses });
 
       // Should make 2 requests
       expect(fetchMock).toHaveBeenCalledTimes(2);
@@ -289,7 +263,7 @@ describe("PDPSubgraphService", () => {
         json: async () => makeSubgraphResponse([makeValidProvider()]),
       });
 
-      const promise = service.fetchProvidersWithDatasets({
+      const promise = service.fetchProvidersWithDatasets(SUBGRAPH_ENDPOINT, {
         blockNumber: 5000,
         addresses: [VALID_ADDRESS],
       });
@@ -321,10 +295,7 @@ describe("PDPSubgraphService", () => {
         };
       });
 
-      const fetchPromise = service.fetchProvidersWithDatasets({
-        blockNumber: 5000,
-        addresses,
-      });
+      const fetchPromise = service.fetchProvidersWithDatasets(SUBGRAPH_ENDPOINT, { blockNumber: 5000, addresses });
 
       await vi.runAllTimersAsync();
 
@@ -343,7 +314,7 @@ describe("PDPSubgraphService", () => {
         json: async () => makeSubgraphMetaResponse(12345),
       });
 
-      const meta = await service.fetchSubgraphMeta();
+      const meta = await service.fetchSubgraphMeta(SUBGRAPH_ENDPOINT);
 
       expect(fetchMock).toHaveBeenCalledWith(SUBGRAPH_ENDPOINT, {
         method: "POST",
@@ -361,13 +332,9 @@ describe("PDPSubgraphService", () => {
     });
 
     it("throws when PDP subgraph endpoint is not configured", async () => {
-      const configService = {
-        get: vi.fn(() => ({ pdpSubgraphEndpoint: "" })),
-      } as unknown as ConfigService<IConfig, true>;
+      const serviceWithoutEndpoint = new PDPSubgraphService();
 
-      const serviceWithoutEndpoint = new PDPSubgraphService(configService);
-
-      await expect(serviceWithoutEndpoint.fetchSubgraphMeta()).rejects.toThrow("No PDP subgraph endpoint configured");
+      await expect(serviceWithoutEndpoint.fetchSubgraphMeta("")).rejects.toThrow("No PDP subgraph endpoint configured");
     });
 
     it("throws on HTTP error response", async () => {
@@ -377,7 +344,7 @@ describe("PDPSubgraphService", () => {
         statusText: "Internal Server Error",
       });
 
-      const promise = service.fetchSubgraphMeta();
+      const promise = service.fetchSubgraphMeta(SUBGRAPH_ENDPOINT);
       promise.catch(() => {});
 
       await vi.runAllTimersAsync();
@@ -394,7 +361,7 @@ describe("PDPSubgraphService", () => {
         }),
       });
 
-      const promise = service.fetchSubgraphMeta();
+      const promise = service.fetchSubgraphMeta(SUBGRAPH_ENDPOINT);
       promise.catch(() => {});
 
       await vi.runAllTimersAsync();
@@ -417,7 +384,7 @@ describe("PDPSubgraphService", () => {
         }),
       });
 
-      await expect(service.fetchSubgraphMeta()).rejects.toThrow("Data validation failed");
+      await expect(service.fetchSubgraphMeta(SUBGRAPH_ENDPOINT)).rejects.toThrow("Data validation failed");
       expect(fetchMock).toHaveBeenCalledTimes(1); // Should not retry validation errors
     });
 
@@ -435,7 +402,7 @@ describe("PDPSubgraphService", () => {
         }),
       });
 
-      await expect(service.fetchSubgraphMeta()).rejects.toThrow("Data validation failed");
+      await expect(service.fetchSubgraphMeta(SUBGRAPH_ENDPOINT)).rejects.toThrow("Data validation failed");
       expect(fetchMock).toHaveBeenCalledTimes(1);
     });
 
@@ -445,7 +412,7 @@ describe("PDPSubgraphService", () => {
         json: async () => makeSubgraphMetaResponse(12345),
       });
 
-      const promise = service.fetchSubgraphMeta();
+      const promise = service.fetchSubgraphMeta(SUBGRAPH_ENDPOINT);
 
       await vi.runAllTimersAsync();
 
@@ -459,7 +426,7 @@ describe("PDPSubgraphService", () => {
     it("throws after MAX_RETRIES attempts on persistent network errors", async () => {
       fetchMock.mockRejectedValue(new Error("Network timeout"));
 
-      const promise = service.fetchSubgraphMeta();
+      const promise = service.fetchSubgraphMeta(SUBGRAPH_ENDPOINT);
       promise.catch(() => {});
 
       await vi.runAllTimersAsync();
@@ -480,7 +447,7 @@ describe("PDPSubgraphService", () => {
       const startTime = Date.now();
 
       // Make 5 requests - should all go through immediately
-      const promises = Array.from({ length: 5 }, () => service.fetchSubgraphMeta());
+      const promises = Array.from({ length: 5 }, () => service.fetchSubgraphMeta(SUBGRAPH_ENDPOINT));
 
       await Promise.all(promises);
 
@@ -499,13 +466,13 @@ describe("PDPSubgraphService", () => {
       });
 
       // Fill up the rate limit window with 50 requests
-      const initialPromises = Array.from({ length: 50 }, () => service.fetchSubgraphMeta());
+      const initialPromises = Array.from({ length: 50 }, () => service.fetchSubgraphMeta(SUBGRAPH_ENDPOINT));
       await Promise.all(initialPromises);
 
       fetchMock.mockClear();
 
       // Try to make one more request - should wait for oldest to expire
-      const promise = service.fetchSubgraphMeta();
+      const promise = service.fetchSubgraphMeta(SUBGRAPH_ENDPOINT);
 
       // Advance past the 10 second window + buffer
       await vi.advanceTimersByTimeAsync(10010);
@@ -528,7 +495,7 @@ describe("PDPSubgraphService", () => {
       });
 
       // Fill 48 slots
-      const initialPromises = Array.from({ length: 48 }, () => service.fetchSubgraphMeta());
+      const initialPromises = Array.from({ length: 48 }, () => service.fetchSubgraphMeta(SUBGRAPH_ENDPOINT));
       await vi.runAllTimersAsync();
       await Promise.all(initialPromises);
 
@@ -556,7 +523,7 @@ describe("PDPSubgraphService", () => {
       });
 
       // Make 30 requests at t=0
-      const batch1 = Array.from({ length: 30 }, () => service.fetchSubgraphMeta());
+      const batch1 = Array.from({ length: 30 }, () => service.fetchSubgraphMeta(SUBGRAPH_ENDPOINT));
       await vi.runAllTimersAsync();
       await Promise.all(batch1);
 
@@ -564,7 +531,7 @@ describe("PDPSubgraphService", () => {
       await vi.advanceTimersByTimeAsync(5000);
 
       // Make 20 more requests at t=5000
-      const batch2 = Array.from({ length: 20 }, () => service.fetchSubgraphMeta());
+      const batch2 = Array.from({ length: 20 }, () => service.fetchSubgraphMeta(SUBGRAPH_ENDPOINT));
       await vi.runAllTimersAsync();
       await Promise.all(batch2);
 
@@ -575,7 +542,7 @@ describe("PDPSubgraphService", () => {
       fetchMock.mockClear();
 
       // Should be able to make 30 more requests immediately
-      const batch3 = Array.from({ length: 30 }, () => service.fetchSubgraphMeta());
+      const batch3 = Array.from({ length: 30 }, () => service.fetchSubgraphMeta(SUBGRAPH_ENDPOINT));
       await vi.runAllTimersAsync();
       await Promise.all(batch3);
 
@@ -589,13 +556,13 @@ describe("PDPSubgraphService", () => {
       });
 
       // Fill the window
-      const initialPromises = Array.from({ length: 50 }, () => service.fetchSubgraphMeta());
+      const initialPromises = Array.from({ length: 50 }, () => service.fetchSubgraphMeta(SUBGRAPH_ENDPOINT));
       await vi.runAllTimersAsync();
       await Promise.all(initialPromises);
 
       fetchMock.mockClear();
 
-      const promise = service.fetchSubgraphMeta();
+      const promise = service.fetchSubgraphMeta(SUBGRAPH_ENDPOINT);
 
       // Advance past the window + buffer
       await vi.advanceTimersByTimeAsync(10010);
@@ -611,7 +578,7 @@ describe("PDPSubgraphService", () => {
       });
 
       // Fill window with 50 requests
-      const batch1 = Array.from({ length: 50 }, () => service.fetchSubgraphMeta());
+      const batch1 = Array.from({ length: 50 }, () => service.fetchSubgraphMeta(SUBGRAPH_ENDPOINT));
       await vi.runAllTimersAsync();
       await Promise.all(batch1);
 
@@ -642,7 +609,7 @@ describe("PDPSubgraphService", () => {
       });
 
       // Fill 47 slots
-      const initial = Array.from({ length: 47 }, () => service.fetchSubgraphMeta());
+      const initial = Array.from({ length: 47 }, () => service.fetchSubgraphMeta(SUBGRAPH_ENDPOINT));
       await vi.runAllTimersAsync();
       await Promise.all(initial);
 
@@ -674,7 +641,7 @@ describe("PDPSubgraphService", () => {
       });
 
       // Make 20 requests
-      const batch1 = Array.from({ length: 20 }, () => service.fetchSubgraphMeta());
+      const batch1 = Array.from({ length: 20 }, () => service.fetchSubgraphMeta(SUBGRAPH_ENDPOINT));
       await vi.runAllTimersAsync();
       await Promise.all(batch1);
 
@@ -684,7 +651,7 @@ describe("PDPSubgraphService", () => {
       fetchMock.mockClear();
 
       // Make another request - should have full window available
-      await service.fetchSubgraphMeta();
+      await service.fetchSubgraphMeta(SUBGRAPH_ENDPOINT);
 
       const timestamps = (service as any).requestTimestamps;
       // Should only have 1 timestamp (the new one), old ones filtered out

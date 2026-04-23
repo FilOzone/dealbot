@@ -6,7 +6,7 @@ import { CID } from "multiformats/cid";
 import * as raw from "multiformats/codecs/raw";
 import { sha256 } from "multiformats/hashes/sha2";
 import { toStructuredError } from "../../common/logging.js";
-import type { IConfig } from "../../config/app.config.js";
+import type { IConfig } from "../../config/types.js";
 import { ServiceType } from "../../database/types.js";
 import { HttpClientService } from "../../http-client/http-client.service.js";
 import { WalletSdkService } from "../../wallet-sdk/wallet-sdk.service.js";
@@ -89,7 +89,7 @@ export class IpfsBlockRetrievalStrategy implements IRetrievalAddon {
   }
 
   private getSpEndpoint(config: RetrievalConfiguration): string {
-    const providerInfo = this.walletSdkService.getProviderInfo(config.storageProvider);
+    const providerInfo = this.walletSdkService.getProviderInfo(config.storageProvider, config.deal.network);
 
     if (!providerInfo) {
       throw new Error(`Provider ${config.storageProvider} not found in approved providers`);

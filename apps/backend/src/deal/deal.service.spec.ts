@@ -101,11 +101,24 @@ describe("DealService", () => {
           metricsStartOffsetSeconds: 900,
         };
       }
-      if (key === "blockchain") {
+      if (key === "activeNetworks") {
+        return ["calibration"];
+      }
+      if (key === "networks") {
         return {
-          walletPrivateKey: generatePrivateKey(),
-          network: "calibration",
-          walletAddress: "0x123",
+          calibration: {
+            walletPrivateKey: generatePrivateKey(),
+            network: "calibration",
+            walletAddress: "0x123",
+            checkDatasetCreationFees: false,
+            useOnlyApprovedProviders: false,
+            minNumDataSetsForChecks: 1,
+            dealsPerSpPerHour: 4,
+            retrievalsPerSpPerHour: 2,
+            dataSetCreationsPerSpPerHour: 1,
+            dataRetentionPollIntervalSeconds: 3600,
+            providersRefreshIntervalSeconds: 14400,
+          },
         };
       }
       return undefined;
@@ -263,7 +276,13 @@ describe("DealService", () => {
         testedAt: new Date(),
       });
 
-      const deal = await service.createDeal(mockSynapseInstance, mockProviderInfo, mockDealInput, uploadPayload);
+      const deal = await service.createDeal(
+        mockSynapseInstance,
+        mockProviderInfo,
+        mockDealInput,
+        uploadPayload,
+        "calibration",
+      );
 
       expect(createContextMock).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -353,10 +372,17 @@ describe("DealService", () => {
           };
         });
 
-        const deal = await service.createDeal(mockSynapseInstance, providerInfo, mockDealInput, uploadPayload);
+        const deal = await service.createDeal(
+          mockSynapseInstance,
+          providerInfo,
+          mockDealInput,
+          uploadPayload,
+          "calibration",
+        );
 
         const labels = {
           checkType: "dataStorage",
+          network: "calibration",
           providerId: "42",
           providerName: "Test Provider",
           providerStatus: "approved",
@@ -418,7 +444,7 @@ describe("DealService", () => {
       });
 
       await expect(
-        service.createDeal(mockSynapseInstance, mockProviderInfo, mockDealInput, uploadPayload),
+        service.createDeal(mockSynapseInstance, mockProviderInfo, mockDealInput, uploadPayload, "calibration"),
       ).rejects.toThrow("Dealbot did not receive onProgress events during upload");
 
       expect(mockDataStorageMetrics.observeIngestMs).not.toHaveBeenCalled();
@@ -458,7 +484,13 @@ describe("DealService", () => {
           testedAt: new Date(),
         });
 
-        const deal = await service.createDeal(mockSynapseInstance, mockProviderInfo, mockDealInput, uploadPayload);
+        const deal = await service.createDeal(
+          mockSynapseInstance,
+          mockProviderInfo,
+          mockDealInput,
+          uploadPayload,
+          "calibration",
+        );
 
         expect(deal.ingestLatencyMs).toBeNull();
         expect(deal.ingestThroughputBps).toBeNull();
@@ -510,7 +542,13 @@ describe("DealService", () => {
           testedAt: new Date(),
         });
 
-        const deal = await service.createDeal(mockSynapseInstance, mockProviderInfo, zeroSizeDealInput, uploadPayload);
+        const deal = await service.createDeal(
+          mockSynapseInstance,
+          mockProviderInfo,
+          zeroSizeDealInput,
+          uploadPayload,
+          "calibration",
+        );
 
         expect(deal.ingestLatencyMs).toBe(1000);
         expect(deal.ingestThroughputBps).toBeNull();
@@ -537,12 +575,13 @@ describe("DealService", () => {
 
       (executeUpload as Mock).mockRejectedValue(new Error("timed out waiting for upload"));
 
-      await expect(service.createDeal(mockSynapseInstance, providerInfo, mockDealInput, uploadPayload)).rejects.toThrow(
-        "timed out",
-      );
+      await expect(
+        service.createDeal(mockSynapseInstance, providerInfo, mockDealInput, uploadPayload, "calibration"),
+      ).rejects.toThrow("timed out");
 
       const labels = {
         checkType: "dataStorage",
+        network: "calibration",
         providerId: "7",
         providerName: "Test Provider",
         providerStatus: "unapproved",
@@ -571,12 +610,13 @@ describe("DealService", () => {
 
       (executeUpload as Mock).mockRejectedValue(new Error("connection refused"));
 
-      await expect(service.createDeal(mockSynapseInstance, providerInfo, mockDealInput, uploadPayload)).rejects.toThrow(
-        "connection refused",
-      );
+      await expect(
+        service.createDeal(mockSynapseInstance, providerInfo, mockDealInput, uploadPayload, "calibration"),
+      ).rejects.toThrow("connection refused");
 
       const labels = {
         checkType: "dataStorage",
+        network: "calibration",
         providerId: "7",
         providerName: "Test Provider",
         providerStatus: "unapproved",
@@ -627,6 +667,7 @@ describe("DealService", () => {
             mockProviderInfo,
             mockDealInput,
             uploadPayload,
+            "calibration",
             undefined,
             abortController.signal,
           ),
@@ -659,7 +700,7 @@ describe("DealService", () => {
       (executeUpload as Mock).mockRejectedValue(error);
 
       await expect(
-        service.createDeal(mockSynapseInstance, mockProviderInfo, mockDealInput, uploadPayload),
+        service.createDeal(mockSynapseInstance, mockProviderInfo, mockDealInput, uploadPayload, "calibration"),
       ).rejects.toThrow("Upload failed");
 
       expect(mockDeal.status).toBe(DealStatus.FAILED);
@@ -677,7 +718,7 @@ describe("DealService", () => {
       createContextMock.mockRejectedValue(error);
 
       await expect(
-        service.createDeal(mockSynapseInstance, mockProviderInfo, mockDealInput, uploadPayload),
+        service.createDeal(mockSynapseInstance, mockProviderInfo, mockDealInput, uploadPayload, "calibration"),
       ).rejects.toThrow("Storage creation failed");
 
       expect(mockDeal.status).toBe(DealStatus.FAILED);
@@ -695,7 +736,7 @@ describe("DealService", () => {
       createContextMock.mockRejectedValue(error);
 
       await expect(
-        service.createDeal(mockSynapseInstance, mockProviderInfo, mockDealInput, uploadPayload),
+        service.createDeal(mockSynapseInstance, mockProviderInfo, mockDealInput, uploadPayload, "calibration"),
       ).rejects.toThrow("secret-token");
 
       expect(mockDeal.status).toBe(DealStatus.FAILED);
@@ -719,6 +760,7 @@ describe("DealService", () => {
           mockProviderInfo,
           mockDealInput,
           uploadPayload,
+          "calibration",
           undefined,
           abortController.signal,
         ),
@@ -753,7 +795,7 @@ describe("DealService", () => {
       dealAddonsMock.handleStored.mockRejectedValueOnce(ipniError);
 
       await expect(
-        service.createDeal(mockSynapseInstance, mockProviderInfo, mockDealInput, uploadPayload),
+        service.createDeal(mockSynapseInstance, mockProviderInfo, mockDealInput, uploadPayload, "calibration"),
       ).rejects.toThrow("IPNI verification failed");
 
       expect(mockDeal.status).toBe(DealStatus.FAILED);
@@ -789,7 +831,7 @@ describe("DealService", () => {
       });
 
       await expect(
-        service.createDeal(mockSynapseInstance, mockProviderInfo, mockDealInput, uploadPayload),
+        service.createDeal(mockSynapseInstance, mockProviderInfo, mockDealInput, uploadPayload, "calibration"),
       ).rejects.toThrow("Retrieval gate failed");
 
       expect(mockDeal.status).toBe(DealStatus.FAILED);
@@ -821,11 +863,12 @@ describe("DealService", () => {
       );
 
       await expect(
-        service.createDeal(mockSynapseInstance, mockProviderInfo, mockDealInput, uploadPayload),
+        service.createDeal(mockSynapseInstance, mockProviderInfo, mockDealInput, uploadPayload, "calibration"),
       ).rejects.toThrow("timed out");
 
       const labels = {
         checkType: "dataStorage",
+        network: "calibration",
         providerId: "42",
         providerName: "Test Provider",
         providerStatus: "approved",
@@ -870,11 +913,12 @@ describe("DealService", () => {
       retrievalAddonsMock.testAllRetrievalMethods.mockRejectedValue(new Error("retrieval timed out"));
 
       await expect(
-        service.createDeal(mockSynapseInstance, mockProviderInfo, mockDealInput, uploadPayload),
+        service.createDeal(mockSynapseInstance, mockProviderInfo, mockDealInput, uploadPayload, "calibration"),
       ).rejects.toThrow("retrieval timed out");
 
       const labels = {
         checkType: "dataStorage",
+        network: "calibration",
         providerId: "42",
         providerName: "Test Provider",
         providerStatus: "approved",
@@ -918,7 +962,13 @@ describe("DealService", () => {
         testedAt: new Date(),
       });
 
-      const deal = await service.createDeal(mockSynapseInstance, mockProviderInfo, mockDealInput, uploadPayload);
+      const deal = await service.createDeal(
+        mockSynapseInstance,
+        mockProviderInfo,
+        mockDealInput,
+        uploadPayload,
+        "calibration",
+      );
 
       expect(deal.dealLatencyMs).toBeGreaterThanOrEqual(0);
       expect(deal.dealLatencyWithIpniMs).toBeUndefined();
@@ -958,11 +1008,24 @@ describe("DealService", () => {
       });
 
       const createServiceWithVersion = async (dealbotDataSetVersion: string | undefined) => {
-        mockConfigService.get.mockReturnValue({
+        const versionNetworkConfig = {
           walletPrivateKey: generatePrivateKey(),
           network: "calibration",
           walletAddress: "0x123",
+          checkDatasetCreationFees: false,
+          useOnlyApprovedProviders: false,
+          minNumDataSetsForChecks: 1,
+          dealsPerSpPerHour: 4,
+          retrievalsPerSpPerHour: 2,
+          dataSetCreationsPerSpPerHour: 1,
+          dataRetentionPollIntervalSeconds: 3600,
+          providersRefreshIntervalSeconds: 14400,
           dealbotDataSetVersion,
+        };
+        mockConfigService.get.mockImplementation((key: string) => {
+          if (key === "activeNetworks") return ["calibration"];
+          if (key === "networks") return { calibration: versionNetworkConfig };
+          return undefined;
         });
 
         const module: TestingModule = await Test.createTestingModule({
@@ -992,7 +1055,13 @@ describe("DealService", () => {
           carData: Uint8Array.from([1, 2, 3]),
           rootCid: CID.parse(mockRootCid),
         };
-        await testService.createDeal(mockSynapseInstance, mockProviderInfo, dealInputWithMetadata, uploadPayload);
+        await testService.createDeal(
+          mockSynapseInstance,
+          mockProviderInfo,
+          dealInputWithMetadata,
+          uploadPayload,
+          "calibration",
+        );
 
         expect(createContextMock).toHaveBeenCalledWith({
           providerId: 101n,
@@ -1009,7 +1078,13 @@ describe("DealService", () => {
           carData: Uint8Array.from([1, 2, 3]),
           rootCid: CID.parse(mockRootCid),
         };
-        await testService.createDeal(mockSynapseInstance, mockProviderInfo, dealInputWithMetadata, uploadPayload);
+        await testService.createDeal(
+          mockSynapseInstance,
+          mockProviderInfo,
+          dealInputWithMetadata,
+          uploadPayload,
+          "calibration",
+        );
 
         expect(createContextMock).toHaveBeenCalledWith({
           providerId: 101n,
@@ -1025,7 +1100,13 @@ describe("DealService", () => {
           carData: Uint8Array.from([1, 2, 3]),
           rootCid: CID.parse(mockRootCid),
         };
-        await testService.createDeal(mockSynapseInstance, mockProviderInfo, dealInputWithMetadata, uploadPayload);
+        await testService.createDeal(
+          mockSynapseInstance,
+          mockProviderInfo,
+          dealInputWithMetadata,
+          uploadPayload,
+          "calibration",
+        );
 
         expect(createContextMock).toHaveBeenCalledWith({
           providerId: 101n,
@@ -1054,7 +1135,13 @@ describe("DealService", () => {
           },
         };
 
-        await testService.createDeal(mockSynapseInstance, mockProviderInfo, dealInputWithConflict, uploadPayload);
+        await testService.createDeal(
+          mockSynapseInstance,
+          mockProviderInfo,
+          dealInputWithConflict,
+          uploadPayload,
+          "calibration",
+        );
 
         // Verify config value overwrites dealInput value
         expect(createContextMock).toHaveBeenCalledWith({
@@ -1094,7 +1181,13 @@ describe("DealService", () => {
         testedAt: new Date(),
       });
 
-      const deal = await service.createDeal(mockSynapseInstance, mockProviderInfo, mockDealInput, uploadPayload);
+      const deal = await service.createDeal(
+        mockSynapseInstance,
+        mockProviderInfo,
+        mockDealInput,
+        uploadPayload,
+        "calibration",
+      );
 
       // Verify that pieceId from onPiecesConfirmed (123) is preserved and not overwritten by undefined
       expect(deal.pieceId).toBe(123);
@@ -1134,7 +1227,7 @@ describe("DealService", () => {
 
       vi.spyOn(service as any, "createSynapseInstance").mockImplementation(() => synapseMock as unknown as Synapse);
 
-      const result = await service.checkDataSetExists("0xprovider", { dealbotDS: "1" });
+      const result = await service.checkDataSetExists("0xprovider", { dealbotDS: "1" }, "calibration");
 
       expect(result).toBe(true);
       expect(synapseMock.storage.createContext).toHaveBeenCalledWith({
@@ -1152,7 +1245,7 @@ describe("DealService", () => {
       };
       vi.spyOn(service as any, "createSynapseInstance").mockImplementation(() => synapseMock as unknown as Synapse);
 
-      const result = await service.checkDataSetExists("0xprovider", { dealbotDS: "1" });
+      const result = await service.checkDataSetExists("0xprovider", { dealbotDS: "1" }, "calibration");
 
       expect(result).toBe(false);
     });
@@ -1160,14 +1253,15 @@ describe("DealService", () => {
 
   describe("getBaseDataSetMetadata", () => {
     it("always includes IPNI metadata key", () => {
-      const metadata = service.getBaseDataSetMetadata();
+      const metadata = service.getBaseDataSetMetadata("calibration");
       expect(metadata).toEqual(expect.objectContaining({ [METADATA_KEYS.WITH_IPFS_INDEXING]: "" }));
     });
 
     it("includes dataset version when configured along with IPNI metadata", () => {
-      (service as any).blockchainConfig.dealbotDataSetVersion = "v1";
+      const networks = mockConfigService.get("networks") as any;
+      networks.calibration.dealbotDataSetVersion = "v1";
 
-      const metadata = service.getBaseDataSetMetadata();
+      const metadata = service.getBaseDataSetMetadata("calibration");
 
       expect(metadata).toEqual({
         [METADATA_KEYS.WITH_IPFS_INDEXING]: "",
@@ -1201,7 +1295,7 @@ describe("DealService", () => {
     it("throws when provider is not found in registry", async () => {
       vi.spyOn(mockWalletSdkService, "getProviderInfo").mockReturnValue(undefined);
 
-      await expect(service.createDataSetWithPiece("0xunknown", { dealbotDS: "1" })).rejects.toThrow(
+      await expect(service.createDataSetWithPiece("0xunknown", { dealbotDS: "1" }, "calibration")).rejects.toThrow(
         "Provider 0xunknown not found in registry",
       );
     });
@@ -1220,7 +1314,7 @@ describe("DealService", () => {
         return { pieceCid: "bafk-seed", pieceId: 1, transactionHash: "0xhash" };
       });
 
-      await service.createDataSetWithPiece("0xprovider", { dealbotDS: "1" });
+      await service.createDataSetWithPiece("0xprovider", { dealbotDS: "1" }, "calibration");
 
       expect(createContextMock).toHaveBeenCalledWith({
         providerId: 101n,
@@ -1263,7 +1357,7 @@ describe("DealService", () => {
         return { pieceCid: "bafk-seed" };
       });
 
-      await service.createDataSetWithPiece("0xprovider", {});
+      await service.createDataSetWithPiece("0xprovider", {}, "calibration");
 
       expect(mockDataStorageMetrics.observeIngestMs).not.toHaveBeenCalled();
       expect(mockDataStorageMetrics.recordUploadStatus).not.toHaveBeenCalled();
@@ -1283,7 +1377,7 @@ describe("DealService", () => {
 
       (executeUpload as Mock).mockResolvedValue({});
 
-      await expect(service.createDataSetWithPiece("0xprovider", {})).rejects.toThrow(
+      await expect(service.createDataSetWithPiece("0xprovider", {}, "calibration")).rejects.toThrow(
         "Data-set creation upload completed without producing a pieceCid",
       );
       expect(mockDataSetCreationMetrics.recordStatus).not.toHaveBeenCalledWith(
@@ -1309,7 +1403,7 @@ describe("DealService", () => {
         await opts?.onProgress?.({ type: "onStored", data: { pieceCid: "bafk" } });
       });
 
-      await expect(service.createDataSetWithPiece("0xprovider", {})).resolves.toBeUndefined();
+      await expect(service.createDataSetWithPiece("0xprovider", {}, "calibration")).resolves.toBeUndefined();
       expect(mockDataSetCreationMetrics.recordStatus).toHaveBeenCalledWith(
         expect.objectContaining({ checkType: "dataSetCreation" }),
         "success",
@@ -1330,7 +1424,7 @@ describe("DealService", () => {
       });
 
       const controller = new AbortController();
-      const resultPromise = service.createDataSetWithPiece("0xprovider", {}, controller.signal);
+      const resultPromise = service.createDataSetWithPiece("0xprovider", {}, "calibration", controller.signal);
       controller.abort(new Error("Job aborted"));
 
       await expect(resultPromise).rejects.toThrow("Job aborted");

@@ -3,7 +3,8 @@ import { ConfigModule } from "@nestjs/config";
 import { LoggerModule } from "nestjs-pino";
 import { AppController } from "./app.controller.js";
 import { buildLoggerModuleParams } from "./common/pino.config.js";
-import { configValidationSchema, loadConfig } from "./config/app.config.js";
+import { validateConfig } from "./config/env.schema.js";
+import { loadConfig } from "./config/loader.js";
 import { DatabaseModule } from "./database/database.module.js";
 import { DataSourceModule } from "./dataSource/dataSource.module.js";
 import { DealModule } from "./deal/deal.module.js";
@@ -18,7 +19,7 @@ import { RetrievalModule } from "./retrieval/retrieval.module.js";
     LoggerModule.forRoot(buildLoggerModuleParams()),
     ConfigModule.forRoot({
       load: [loadConfig],
-      validationSchema: configValidationSchema,
+      validate: validateConfig,
       isGlobal: true,
     }),
     DatabaseModule,
