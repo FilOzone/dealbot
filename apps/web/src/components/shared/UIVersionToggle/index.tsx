@@ -17,7 +17,7 @@ export default function UIVersionToggle() {
 
   return (
     <div className="flex items-center gap-2">
-      <span className="text-sm text-muted-foreground">New UI</span>
+      <span className="hidden sm:inline text-sm text-muted-foreground">New UI</span>
       <Switch id="ui-toggle" className="cursor-pointer" checked={isNewUI} onCheckedChange={handleToggle} />
     </div>
   );

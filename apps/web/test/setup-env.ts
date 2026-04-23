@@ -22,4 +22,18 @@ if (!globalWithAct.IS_REACT_ACT_ENVIRONMENT) {
   globalWithAct.IS_REACT_ACT_ENVIRONMENT = true;
 }
 
+if (typeof window !== "undefined") {
+  window.__DEALBOT_CONFIG__ = {
+    API_BASE_URL: "",
+  };
+}
+
+Object.defineProperty(import.meta, "env", {
+  value: {
+    VITE_API_BASE_URL: "",
+  },
+  writable: true,
+  configurable: true,
+});
+
 export {};
