@@ -63,7 +63,7 @@ export class AnonPieceSelectorService {
   /**
    * Select an anonymous piece to test against the given SP.
    *
-   * Strategy (see README.md for the full rationale):
+   * Strategy:
    * 1. Pick a size bucket by weighted random.
    * 2. Pick a pool (`indexed` 80% / `any` 20%).
    * 3. Generate a uniform-random sampleKey and query the subgraph for the
@@ -114,6 +114,7 @@ export class AnonPieceSelectorService {
           serviceProvider: spAddress.toLowerCase(),
           withIPFSIndexing: piece.withIPFSIndexing,
           ipfsRootCid: piece.ipfsRootCid,
+          rawSize: piece.rawSize,
         };
       }
     }

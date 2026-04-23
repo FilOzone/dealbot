@@ -17,6 +17,7 @@ export class CreateAnonRetrievals1762000000000 implements MigrationInterface {
         piece_cid            VARCHAR      NOT NULL,
         data_set_id          BIGINT       NOT NULL,
         piece_id             BIGINT       NOT NULL,
+        raw_size             BIGINT       NOT NULL,
         with_ipfs_indexing   BOOLEAN      NOT NULL,
         ipfs_root_cid        VARCHAR      NULL,
         service_type         VARCHAR      NOT NULL DEFAULT 'direct_sp',

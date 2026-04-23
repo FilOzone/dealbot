@@ -72,5 +72,5 @@ export class Retrieval {
   // Relations
   @ManyToOne("Deal", "retrievals", { onDelete: "CASCADE" })
   @JoinColumn({ name: "deal_id" })
-  deal: Deal;
+  deal: Deal | null;
 }

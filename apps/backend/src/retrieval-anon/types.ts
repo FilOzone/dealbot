@@ -6,6 +6,7 @@ export type AnonPiece = {
   serviceProvider: string;
   withIPFSIndexing: boolean;
   ipfsRootCid: string | null;
+  rawSize: string;
 };
 
 /** Result of piece retrieval. */

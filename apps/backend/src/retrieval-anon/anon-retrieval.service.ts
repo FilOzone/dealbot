@@ -134,6 +134,7 @@ export class AnonRetrievalService {
       pieceCid: piece.pieceCid,
       dataSetId: BigInt(piece.dataSetId),
       pieceId: BigInt(piece.pieceId),
+      rawSize: BigInt(piece.rawSize),
       withIpfsIndexing: piece.withIPFSIndexing,
       ipfsRootCid: piece.ipfsRootCid,
       serviceType: ServiceType.DIRECT_SP,

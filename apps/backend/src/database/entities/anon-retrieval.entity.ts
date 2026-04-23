@@ -1,6 +1,6 @@
 import { Column, CreateDateColumn, Entity, Index, PrimaryGeneratedColumn, UpdateDateColumn } from "typeorm";
-import { RetrievalStatus, ServiceType } from "../types.js";
 import { BigIntColumn } from "../helpers/bigint-column.js";
+import { RetrievalStatus, ServiceType } from "../types.js";
 
 /**
  * Anonymous retrieval check records — pieces the dealbot did NOT upload,
@@ -30,6 +30,10 @@ export class AnonRetrieval {
 
   @BigIntColumn({ name: "piece_id" })
   pieceId!: bigint;
+
+  /** Raw (unpadded) piece size in bytes, as reported by the subgraph at selection time. */
+  @BigIntColumn({ name: "raw_size" })
+  rawSize!: bigint;
 
   @Column({ name: "with_ipfs_indexing", type: "boolean" })
   withIpfsIndexing!: boolean;
