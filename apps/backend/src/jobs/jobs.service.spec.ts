@@ -1437,7 +1437,13 @@ describe("JobsService schedule rows", () => {
         "calibration",
         5,
         {},
-        { providerAddress: "0xaaa", jobId: "job-ds-4", providerId: 1n, providerName: "test-provider" },
+        {
+          network: "calibration",
+          providerAddress: "0xaaa",
+          jobId: "job-ds-4",
+          providerId: 1n,
+          providerName: "test-provider",
+        },
         controller.signal,
       ),
     ).rejects.toThrow("Job timed out");
