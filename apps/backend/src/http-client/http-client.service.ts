@@ -6,7 +6,7 @@ import type { AxiosRequestConfig } from "axios";
 import { firstValueFrom } from "rxjs";
 import { request as undiciRequest } from "undici";
 import { toStructuredError } from "../common/logging.js";
-import type { IConfig } from "../config/app.config.js";
+import type { IConfig } from "../config/types.js";
 import type { HttpVersion, RequestMetrics, RequestWithMetrics } from "./types.js";
 
 @Injectable()

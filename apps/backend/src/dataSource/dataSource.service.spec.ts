@@ -1,7 +1,7 @@
 import { ConfigService } from "@nestjs/config";
 import * as fs from "fs";
 import * as path from "path";
-import { IConfig } from "src/config/app.config.js";
+import type { IConfig } from "src/config/types.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DataSourceService } from "./dataSource.service.js";
 

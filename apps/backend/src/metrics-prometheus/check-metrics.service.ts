@@ -223,6 +223,7 @@ export class DiscoverabilityCheckMetrics {
   buildLabelsForDeal(deal: Deal): CheckMetricLabels | null {
     if (!deal.spAddress) return null;
     return buildCheckMetricLabels({
+      network: deal.network,
       checkType: "dataStorage",
       providerId: deal.storageProvider?.providerId,
       providerName: deal.storageProvider?.name,

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { IConfig, ISpBlocklistConfig } from "../config/app.config.js";
+import { Network } from "../common/types.js";
+import type { IConfig, INetworkConfig, INetworksConfig } from "../config/types.js";
 import { DATA_RETENTION_POLL_QUEUE, PROVIDERS_REFRESH_QUEUE, SP_WORK_QUEUE } from "./job-queues.js";
 import { JobsService } from "./jobs.service.js";
 
@@ -109,20 +110,32 @@ describe("JobsService schedule rows", () => {
       storageProvidersTested: { set: vi.fn() } as unknown as JobsServiceDeps[19],
     };
 
-    const emptySpBlocklists: ISpBlocklistConfig = {
-      ids: new Set(),
-      addresses: new Set(),
-    };
+    const baseNetworkConfig = {
+      walletPrivateKey: "0x",
+      network: "calibration" as const,
+      useOnlyApprovedProviders: false,
+      minNumDataSetsForChecks: 1,
+      dealsPerSpPerHour: 4,
+      retrievalsPerSpPerHour: 2,
+      dataSetCreationsPerSpPerHour: 1,
+      dataRetentionPollIntervalSeconds: 3600,
+      providersRefreshIntervalSeconds: 14400,
+      walletAddress: "0x0000000000000000000000000000000000000000",
+      checkDatasetCreationFees: true,
+      maintenanceWindowsUtc: ["07:00", "22:00"],
+      maintenanceWindowMinutes: 20,
+      blockedSpIds: new Set(),
+      blockedSpAddresses: new Set(),
+      pieceCleanupPerSpPerHour: 1,
+      maxPieceCleanupRuntimeSeconds: 300,
+      maxDatasetStorageSizeBytes: 24 * 1024 * 1024 * 1024,
+      targetDatasetStorageSizeBytes: 20 * 1024 * 1024 * 1024,
+    } satisfies IConfig["networks"]["calibration"];
 
     baseConfigValues = {
       app: { runMode: "both" } as IConfig["app"],
-      blockchain: { useOnlyApprovedProviders: false, minNumDataSetsForChecks: 1 } as IConfig["blockchain"],
-      scheduling: {
-        providersRefreshIntervalSeconds: 4 * 3600,
-        dataRetentionPollIntervalSeconds: 3600,
-        maintenanceWindowsUtc: ["07:00", "22:00"],
-        maintenanceWindowMinutes: 20,
-      } as IConfig["scheduling"],
+      activeNetworks: ["calibration"] as IConfig["activeNetworks"],
+      networks: { calibration: baseNetworkConfig } as unknown as IConfig["networks"],
       jobs: {
         schedulePhaseSeconds: 0,
         catchupMaxEnqueue: 10,
@@ -130,8 +143,6 @@ describe("JobsService schedule rows", () => {
         pgbossSchedulerEnabled: true,
         workerPollSeconds: 60,
         dataSetCreationJobTimeoutSeconds: 300,
-        pieceCleanupPerSpPerHour: 1,
-        maxPieceCleanupRuntimeSeconds: 300,
       } as IConfig["jobs"],
       database: {
         host: "localhost",
@@ -140,10 +151,6 @@ describe("JobsService schedule rows", () => {
         password: "pass",
         database: "dealbot",
       } as IConfig["database"],
-      pieceCleanup: {
-        maxDatasetStorageSizeBytes: 24 * 1024 * 1024 * 1024,
-      } as IConfig["pieceCleanup"],
-      spBlocklists: emptySpBlocklists,
     };
 
     configService = {
@@ -197,12 +204,16 @@ describe("JobsService schedule rows", () => {
       return "success";
     });
 
-    await callPrivate(service, "recordJobExecution", "deal", run);
+    await callPrivate(service, "recordJobExecution", "deal", "calibration", run);
 
     expect(run).toHaveBeenCalled();
-    expect(startedCounter.inc).toHaveBeenCalledWith({ job_type: "deal" });
-    expect(completedCounter.inc).toHaveBeenCalledWith({ job_type: "deal", handler_result: "success" });
-    expect(durationHistogram.observe).toHaveBeenCalledWith({ job_type: "deal" }, 5);
+    expect(startedCounter.inc).toHaveBeenCalledWith({ job_type: "deal", network: "calibration" });
+    expect(completedCounter.inc).toHaveBeenCalledWith({
+      job_type: "deal",
+      network: "calibration",
+      handler_result: "success",
+    });
+    expect(durationHistogram.observe).toHaveBeenCalledWith({ job_type: "deal", network: "calibration" }, 5);
   });
 
   it("records metrics for failed job execution", async () => {
@@ -219,11 +230,15 @@ describe("JobsService schedule rows", () => {
       throw new Error("boom");
     });
 
-    await expect(callPrivate(service, "recordJobExecution", "deal", run)).rejects.toThrow("boom");
+    await expect(callPrivate(service, "recordJobExecution", "deal", "calibration", run)).rejects.toThrow("boom");
 
-    expect(startedCounter.inc).toHaveBeenCalledWith({ job_type: "deal" });
-    expect(completedCounter.inc).toHaveBeenCalledWith({ job_type: "deal", handler_result: "error" });
-    expect(durationHistogram.observe).toHaveBeenCalledWith({ job_type: "deal" }, 2);
+    expect(startedCounter.inc).toHaveBeenCalledWith({ job_type: "deal", network: "calibration" });
+    expect(completedCounter.inc).toHaveBeenCalledWith({
+      job_type: "deal",
+      network: "calibration",
+      handler_result: "error",
+    });
+    expect(durationHistogram.observe).toHaveBeenCalledWith({ job_type: "deal", network: "calibration" }, 2);
   });
 
   it("records metrics for aborted job execution", async () => {
@@ -240,11 +255,15 @@ describe("JobsService schedule rows", () => {
       return "aborted" as const;
     });
 
-    await callPrivate(service, "recordJobExecution", "deal", run);
+    await callPrivate(service, "recordJobExecution", "deal", "calibration", run);
 
-    expect(startedCounter.inc).toHaveBeenCalledWith({ job_type: "deal" });
-    expect(completedCounter.inc).toHaveBeenCalledWith({ job_type: "deal", handler_result: "aborted" });
-    expect(durationHistogram.observe).toHaveBeenCalledWith({ job_type: "deal" }, 3);
+    expect(startedCounter.inc).toHaveBeenCalledWith({ job_type: "deal", network: "calibration" });
+    expect(completedCounter.inc).toHaveBeenCalledWith({
+      job_type: "deal",
+      network: "calibration",
+      handler_result: "aborted",
+    });
+    expect(durationHistogram.observe).toHaveBeenCalledWith({ job_type: "deal", network: "calibration" }, 3);
   });
 
   it("deal job records aborted when abort signal fires", async () => {
@@ -297,6 +316,7 @@ describe("JobsService schedule rows", () => {
         jobType: "deal",
         spAddress: "0xaaa",
         intervalSeconds: 60,
+        network: "calibration",
       },
     });
 
@@ -304,7 +324,11 @@ describe("JobsService schedule rows", () => {
     await vi.advanceTimersByTimeAsync(120_000);
     await jobPromise;
 
-    expect(completedCounter.inc).toHaveBeenCalledWith({ job_type: "deal", handler_result: "aborted" });
+    expect(completedCounter.inc).toHaveBeenCalledWith({
+      job_type: "deal",
+      network: "calibration",
+      handler_result: "aborted",
+    });
   });
 
   it("retrieval job records aborted when abort signal fires", async () => {
@@ -326,7 +350,7 @@ describe("JobsService schedule rows", () => {
     } as unknown as JobsServiceDeps[0];
 
     const retrievalService = {
-      performRandomRetrievalForProvider: vi.fn(async (_sp: string, signal: AbortSignal) => {
+      performRandomRetrievalForProvider: vi.fn(async (_sp: string, _network: Network, signal: AbortSignal) => {
         await new Promise<void>((resolve) => {
           if (signal.aborted) return resolve();
           signal.addEventListener("abort", () => resolve(), { once: true });
@@ -355,13 +379,18 @@ describe("JobsService schedule rows", () => {
         jobType: "retrieval",
         spAddress: "0xaaa",
         intervalSeconds: 60,
+        network: "calibration",
       },
     });
 
     await vi.advanceTimersByTimeAsync(60_000);
     await jobPromise;
 
-    expect(completedCounter.inc).toHaveBeenCalledWith({ job_type: "retrieval", handler_result: "aborted" });
+    expect(completedCounter.inc).toHaveBeenCalledWith({
+      job_type: "retrieval",
+      network: "calibration",
+      handler_result: "aborted",
+    });
   });
 
   it("retrieval job resolves providerId from storage_providers when wallet cache misses", async () => {
@@ -387,6 +416,7 @@ describe("JobsService schedule rows", () => {
     await callPrivate(service, "handleRetrievalJob", {
       id: "job-retrieval-provider-fallback",
       data: {
+        network: "calibration",
         jobType: "retrieval",
         spAddress: "0xaaa",
         intervalSeconds: 60,
@@ -395,6 +425,7 @@ describe("JobsService schedule rows", () => {
 
     expect(retrievalService.performRandomRetrievalForProvider).toHaveBeenCalledWith(
       "0xaaa",
+      "calibration",
       expect.any(AbortSignal),
       expect.objectContaining({
         jobId: "job-retrieval-provider-fallback",
@@ -431,12 +462,17 @@ describe("JobsService schedule rows", () => {
           jobType: "retrieval",
           spAddress: "0xaaa",
           intervalSeconds: 60,
+          network: "calibration",
         },
       }),
     ).rejects.toThrow("providerId is required for job execution");
 
     expect(retrievalService.performRandomRetrievalForProvider).not.toHaveBeenCalled();
-    expect(completedCounter.inc).toHaveBeenCalledWith({ job_type: "retrieval", handler_result: "error" });
+    expect(completedCounter.inc).toHaveBeenCalledWith({
+      job_type: "retrieval",
+      network: "calibration",
+      handler_result: "error",
+    });
   });
 
   it("updates queue metrics from pg-boss state and age queries", async () => {
@@ -595,7 +631,9 @@ describe("JobsService schedule rows", () => {
   it("adds schedule rows for newly seen providers", async () => {
     baseConfigValues = {
       ...baseConfigValues,
-      blockchain: { ...baseConfigValues.blockchain, minNumDataSetsForChecks: 3 } as IConfig["blockchain"],
+      networks: {
+        calibration: { ...(baseConfigValues.networks as any).calibration, minNumDataSetsForChecks: 3 },
+      } as unknown as IConfig["networks"],
     };
     configService = {
       get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
@@ -608,8 +646,8 @@ describe("JobsService schedule rows", () => {
 
     storageProviderRepositoryMock.find.mockResolvedValueOnce([providerA]).mockResolvedValueOnce([providerA, providerB]);
 
-    await callPrivate(service, "ensureScheduleRows");
-    await callPrivate(service, "ensureScheduleRows");
+    await callPrivate(service, "ensureScheduleRows", "calibration");
+    await callPrivate(service, "ensureScheduleRows", "calibration");
 
     // Check upserts for providerB
     const upsertCalls = jobScheduleRepositoryMock.upsertSchedule.mock.calls;
@@ -627,15 +665,18 @@ describe("JobsService schedule rows", () => {
     const providerA = { address: "0xaaa" };
     storageProviderRepositoryMock.find.mockResolvedValueOnce([providerA]);
 
-    await callPrivate(service, "ensureScheduleRows");
+    await callPrivate(service, "ensureScheduleRows", "calibration");
 
-    expect(jobScheduleRepositoryMock.deleteSchedulesForInactiveProviders).toHaveBeenCalledWith([providerA.address]);
+    expect(jobScheduleRepositoryMock.deleteSchedulesForInactiveProviders).toHaveBeenCalledWith(
+      [providerA.address],
+      "calibration",
+    );
   });
 
   it("does not delete schedule rows when no active providers exist", async () => {
     storageProviderRepositoryMock.find.mockResolvedValueOnce([]);
 
-    await callPrivate(service, "ensureScheduleRows");
+    await callPrivate(service, "ensureScheduleRows", "calibration");
 
     expect(jobScheduleRepositoryMock.deleteSchedulesForInactiveProviders).not.toHaveBeenCalled();
   });
@@ -643,7 +684,9 @@ describe("JobsService schedule rows", () => {
   it("uses approved-only filter when configured", async () => {
     baseConfigValues = {
       ...baseConfigValues,
-      blockchain: { useOnlyApprovedProviders: true } as IConfig["blockchain"],
+      networks: {
+        calibration: { ...(baseConfigValues.networks as any).calibration, useOnlyApprovedProviders: true },
+      } as unknown as IConfig["networks"],
     };
     configService = {
       get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
@@ -652,30 +695,32 @@ describe("JobsService schedule rows", () => {
     service = buildService({ configService });
 
     storageProviderRepositoryMock.find.mockResolvedValueOnce([]);
-    await callPrivate(service, "ensureScheduleRows");
+    await callPrivate(service, "ensureScheduleRows", "calibration");
 
     expect(storageProviderRepositoryMock.find).toHaveBeenCalledWith({
       select: { address: true, providerId: true },
-      where: { isActive: true, isApproved: true },
+      where: { network: "calibration", isActive: true, isApproved: true },
     });
   });
 
   it("always inserts global data_retention_poll and providers_refresh schedules", async () => {
     storageProviderRepositoryMock.find.mockResolvedValueOnce([]);
 
-    await callPrivate(service, "ensureScheduleRows");
+    await callPrivate(service, "ensureScheduleRows", "calibration");
 
     expect(jobScheduleRepositoryMock.upsertSchedule).toHaveBeenCalledWith(
       "providers_refresh",
       "",
       expect.any(Number),
       expect.any(Date),
+      "calibration",
     );
     expect(jobScheduleRepositoryMock.upsertSchedule).toHaveBeenCalledWith(
       "data_retention_poll",
       "",
       expect.any(Number),
       expect.any(Date),
+      "calibration",
     );
   });
 
@@ -705,18 +750,19 @@ describe("JobsService schedule rows", () => {
         id: 1,
         job_type: "deal",
         sp_address: "0xaaa",
+        network: "calibration",
         interval_seconds: 1,
         next_run_at: "2024-01-01T00:00:00Z",
       },
     ]);
 
-    await callPrivate(service, "enqueueDueJobs");
+    await callPrivate(service, "enqueueDueJobs", "calibration");
 
     expect(send).toHaveBeenCalledTimes(3);
     for (const call of send.mock.calls) {
       expect(call[0]).toBe("sp.work");
-      expect(call[1]).toMatchObject({ jobType: "deal", spAddress: "0xaaa" });
-      expect(call[2]).toMatchObject({ singletonKey: "0xaaa", retryLimit: 0 });
+      expect(call[1]).toMatchObject({ jobType: "deal", spAddress: "0xaaa", network: "calibration" });
+      expect(call[2]).toMatchObject({ singletonKey: "calibration:0xaaa", retryLimit: 0 });
       expect(call[2]?.startAfter).toBeUndefined();
     }
 
@@ -740,12 +786,13 @@ describe("JobsService schedule rows", () => {
         id: 10,
         job_type: "providers_refresh",
         sp_address: "",
+        network: "calibration",
         interval_seconds: 1800,
         next_run_at: "2024-01-01T00:00:00Z",
       },
     ]);
 
-    await callPrivate(service, "enqueueDueJobs");
+    await callPrivate(service, "enqueueDueJobs", "calibration");
 
     // Should only enqueue once despite being 8 intervals overdue
     expect(send).toHaveBeenCalledTimes(1);
@@ -772,16 +819,17 @@ describe("JobsService schedule rows", () => {
         id: 11,
         job_type: "providers_refresh",
         sp_address: "",
+        network: "calibration",
         interval_seconds: 14400,
         next_run_at: "2024-01-01T00:00:00Z",
       },
     ]);
 
-    await callPrivate(service, "enqueueDueJobs");
+    await callPrivate(service, "enqueueDueJobs", "calibration");
 
     expect(send).toHaveBeenCalledTimes(1);
     expect(send.mock.calls[0][2]).toMatchObject({
-      singletonKey: "providers_refresh",
+      singletonKey: "calibration:providers_refresh",
       retryLimit: 0,
     });
   });
@@ -789,11 +837,13 @@ describe("JobsService schedule rows", () => {
   it("global jobs are skipped during maintenance windows", async () => {
     baseConfigValues = {
       ...baseConfigValues,
-      scheduling: {
-        ...baseConfigValues.scheduling,
-        maintenanceWindowsUtc: ["03:00"],
-        maintenanceWindowMinutes: 60,
-      } as IConfig["scheduling"],
+      networks: {
+        calibration: {
+          ...baseConfigValues.networks?.calibration,
+          maintenanceWindowsUtc: ["03:00"],
+          maintenanceWindowMinutes: 60,
+        } as INetworkConfig,
+      } as INetworksConfig,
     };
     configService = {
       get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
@@ -818,7 +868,7 @@ describe("JobsService schedule rows", () => {
       },
     ]);
 
-    await callPrivate(service, "enqueueDueJobs");
+    await callPrivate(service, "enqueueDueJobs", "calibration");
 
     // Global job should not be enqueued during maintenance
     expect(send).not.toHaveBeenCalled();
@@ -832,11 +882,13 @@ describe("JobsService schedule rows", () => {
   it("defers jobs until maintenance window ends (same-day)", async () => {
     baseConfigValues = {
       ...baseConfigValues,
-      scheduling: {
-        ...baseConfigValues.scheduling,
-        maintenanceWindowsUtc: ["07:00"],
-        maintenanceWindowMinutes: 20,
-      } as IConfig["scheduling"],
+      networks: {
+        calibration: {
+          ...baseConfigValues.networks?.calibration,
+          maintenanceWindowsUtc: ["07:00"],
+          maintenanceWindowMinutes: 20,
+        } as INetworkConfig,
+      } as INetworksConfig,
     };
     configService = {
       get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
@@ -848,13 +900,13 @@ describe("JobsService schedule rows", () => {
     (service as unknown as { safeSend: typeof safeSend }).safeSend = safeSend;
 
     const now = new Date("2024-01-01T07:05:00Z");
-    const maintenance = callPrivate(service, "getMaintenanceWindowStatus", now) as any;
+    const maintenance = callPrivate(service, "getMaintenanceWindowStatus", now, "calibration") as any;
 
     await callPrivate(
       service,
       "deferJobForMaintenance",
       "deal",
-      { jobType: "deal", spAddress: "0xaaa", intervalSeconds: 60 },
+      { jobType: "deal", spAddress: "0xaaa", network: "calibration", intervalSeconds: 60 },
       maintenance,
       now,
     );
@@ -863,7 +915,7 @@ describe("JobsService schedule rows", () => {
     expect(safeSend).toHaveBeenCalledWith(
       "deal",
       "sp.work",
-      { jobType: "deal", spAddress: "0xaaa", intervalSeconds: 60 },
+      { jobType: "deal", spAddress: "0xaaa", network: "calibration", intervalSeconds: 60 },
       { startAfter: expectedResumeAt },
     );
   });
@@ -871,11 +923,13 @@ describe("JobsService schedule rows", () => {
   it("defers jobs until maintenance window ends (wraps midnight)", async () => {
     baseConfigValues = {
       ...baseConfigValues,
-      scheduling: {
-        ...baseConfigValues.scheduling,
-        maintenanceWindowsUtc: ["23:50"],
-        maintenanceWindowMinutes: 20,
-      } as IConfig["scheduling"],
+      networks: {
+        calibration: {
+          ...baseConfigValues.networks?.calibration,
+          maintenanceWindowsUtc: ["23:50"],
+          maintenanceWindowMinutes: 20,
+        } as INetworkConfig,
+      } as INetworksConfig,
     };
     configService = {
       get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
@@ -887,13 +941,13 @@ describe("JobsService schedule rows", () => {
     (service as unknown as { safeSend: typeof safeSend }).safeSend = safeSend;
 
     const now = new Date("2024-01-01T23:55:00Z");
-    const maintenance = callPrivate(service, "getMaintenanceWindowStatus", now) as any;
+    const maintenance = callPrivate(service, "getMaintenanceWindowStatus", now, "calibration") as any;
 
     await callPrivate(
       service,
       "deferJobForMaintenance",
       "retrieval",
-      { jobType: "retrieval", spAddress: "0xbbb", intervalSeconds: 60 },
+      { jobType: "retrieval", spAddress: "0xbbb", network: "calibration", intervalSeconds: 60 },
       maintenance,
       now,
     );
@@ -902,7 +956,7 @@ describe("JobsService schedule rows", () => {
     expect(safeSend).toHaveBeenCalledWith(
       "retrieval",
       "sp.work",
-      { jobType: "retrieval", spAddress: "0xbbb", intervalSeconds: 60 },
+      { jobType: "retrieval", spAddress: "0xbbb", network: "calibration", intervalSeconds: 60 },
       { startAfter: expectedResumeAt },
     );
   });
@@ -930,7 +984,7 @@ describe("JobsService schedule rows", () => {
 
     await callPrivate(service, "handleDealJob", {
       id: "job-deal-1",
-      data: { jobType: "deal", spAddress: "0xaaa", intervalSeconds: 60 },
+      data: { jobType: "deal", spAddress: "0xaaa", intervalSeconds: 60, network: "calibration" },
     });
 
     expect(dealService.createDealForProvider).toHaveBeenCalledTimes(1);
@@ -970,7 +1024,7 @@ describe("JobsService schedule rows", () => {
 
     await callPrivate(service, "handleDealJob", {
       id: "job-deal-no-quota-gate",
-      data: { jobType: "deal", spAddress: "0xaaa", intervalSeconds: 60 },
+      data: { jobType: "deal", network: "calibration", spAddress: "0xaaa", intervalSeconds: 60 },
     });
 
     expect(pieceCleanupService.cleanupPiecesForProvider).not.toHaveBeenCalled();
@@ -982,7 +1036,9 @@ describe("JobsService schedule rows", () => {
     vi.setSystemTime(new Date("2024-01-01T12:00:00Z"));
     baseConfigValues = {
       ...baseConfigValues,
-      blockchain: { ...baseConfigValues.blockchain, minNumDataSetsForChecks: 3 } as IConfig["blockchain"],
+      networks: {
+        calibration: { ...(baseConfigValues.networks as any).calibration, minNumDataSetsForChecks: 3 },
+      } as unknown as IConfig["networks"],
     };
     configService = {
       get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
@@ -1011,12 +1067,13 @@ describe("JobsService schedule rows", () => {
 
     await callPrivate(service, "handleDealJob", {
       id: "job-deal-2",
-      data: { jobType: "deal", spAddress: "0xaaa", intervalSeconds: 60 },
+      data: { jobType: "deal", spAddress: "0xaaa", intervalSeconds: 60, network: "calibration" },
     });
 
     expect(dealService.checkDataSetExists).toHaveBeenCalledWith(
       "0xaaa",
       { dealbotDataSetVersion: "v1", withIpniIndexing: "", dealbotDS: "1" },
+      "calibration",
       expect.any(AbortSignal),
     );
     expect(dealService.createDealForProvider).toHaveBeenCalledTimes(1);
@@ -1024,6 +1081,7 @@ describe("JobsService schedule rows", () => {
       expect.objectContaining({ serviceProvider: "0xaaa" }),
       expect.objectContaining({
         extraDataSetMetadata: { dealbotDS: "1" },
+        network: "calibration",
       }),
     );
 
@@ -1035,7 +1093,9 @@ describe("JobsService schedule rows", () => {
     vi.setSystemTime(new Date("2024-01-01T12:00:00Z"));
     baseConfigValues = {
       ...baseConfigValues,
-      blockchain: { ...baseConfigValues.blockchain, minNumDataSetsForChecks: 3 } as IConfig["blockchain"],
+      networks: {
+        calibration: { ...(baseConfigValues.networks as any).calibration, minNumDataSetsForChecks: 3 },
+      } as unknown as IConfig["networks"],
     };
     configService = {
       get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
@@ -1064,18 +1124,19 @@ describe("JobsService schedule rows", () => {
 
     await callPrivate(service, "handleDealJob", {
       id: "job-deal-3",
-      data: { jobType: "deal", spAddress: "0xaaa", intervalSeconds: 60 },
+      data: { jobType: "deal", spAddress: "0xaaa", intervalSeconds: 60, network: "calibration" },
     });
 
     expect(dealService.checkDataSetExists).toHaveBeenCalledWith(
       "0xaaa",
       { dealbotDataSetVersion: "v1", dealbotDS: "2" },
+      "calibration",
       expect.any(AbortSignal),
     );
     expect(dealService.createDealForProvider).toHaveBeenCalledTimes(1);
     expect(dealService.createDealForProvider).toHaveBeenCalledWith(
       expect.objectContaining({ serviceProvider: "0xaaa" }),
-      expect.objectContaining({ extraDataSetMetadata: undefined }),
+      expect.objectContaining({ extraDataSetMetadata: undefined, network: "calibration" }),
     );
 
     vi.spyOn(Math, "random").mockRestore();
@@ -1086,7 +1147,9 @@ describe("JobsService schedule rows", () => {
     vi.setSystemTime(new Date("2024-01-01T12:00:00Z"));
     baseConfigValues = {
       ...baseConfigValues,
-      blockchain: { ...baseConfigValues.blockchain, minNumDataSetsForChecks: 3 } as IConfig["blockchain"],
+      networks: {
+        calibration: { ...(baseConfigValues.networks as any).calibration, minNumDataSetsForChecks: 3 },
+      } as unknown as IConfig["networks"],
     };
     configService = {
       get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
@@ -1117,7 +1180,7 @@ describe("JobsService schedule rows", () => {
 
     await callPrivate(service, "handleDealJob", {
       id: "job-deal-4",
-      data: { jobType: "deal", spAddress: "0xaaa", intervalSeconds: 60 },
+      data: { jobType: "deal", spAddress: "0xaaa", intervalSeconds: 60, network: "calibration" },
     });
 
     expect(dealService.createDealForProvider).toHaveBeenCalledWith(
@@ -1133,7 +1196,9 @@ describe("JobsService schedule rows", () => {
 
     baseConfigValues = {
       ...baseConfigValues,
-      blockchain: { ...baseConfigValues.blockchain, minNumDataSetsForChecks: 3 } as IConfig["blockchain"],
+      networks: {
+        calibration: { ...(baseConfigValues.networks as any).calibration, minNumDataSetsForChecks: 3 },
+      } as unknown as IConfig["networks"],
       jobs: {
         ...baseConfigValues.jobs,
         dealJobTimeoutSeconds: 1,
@@ -1172,11 +1237,15 @@ describe("JobsService schedule rows", () => {
 
     await callPrivate(service, "handleDealJob", {
       id: "job-deal-selection-abort",
-      data: { jobType: "deal", spAddress: "0xaaa", intervalSeconds: 60 },
+      data: { jobType: "deal", spAddress: "0xaaa", intervalSeconds: 60, network: "calibration" },
     });
 
     expect(dealService.createDealForProvider).not.toHaveBeenCalled();
-    expect(completedCounter.inc).toHaveBeenCalledWith({ job_type: "deal", handler_result: "aborted" });
+    expect(completedCounter.inc).toHaveBeenCalledWith({
+      job_type: "deal",
+      network: "calibration",
+      handler_result: "aborted",
+    });
 
     vi.spyOn(Math, "random").mockRestore();
   });
@@ -1202,13 +1271,14 @@ describe("JobsService schedule rows", () => {
 
     await callPrivate(service, "handleDataSetCreationJob", {
       id: "job-ds-1",
-      data: { jobType: "data_set_creation", spAddress: "0xaaa", intervalSeconds: 3600 },
+      data: { jobType: "data_set_creation", spAddress: "0xaaa", intervalSeconds: 3600, network: "calibration" },
     });
 
     expect(dealService.createDataSetWithPiece).toHaveBeenCalledTimes(1);
     expect(dealService.createDataSetWithPiece).toHaveBeenCalledWith(
       "0xaaa",
       { withIpniIndexing: "" },
+      "calibration",
       expect.any(AbortSignal),
     );
   });
@@ -1219,7 +1289,9 @@ describe("JobsService schedule rows", () => {
 
     baseConfigValues = {
       ...baseConfigValues,
-      blockchain: { ...baseConfigValues.blockchain, minNumDataSetsForChecks: 3 } as IConfig["blockchain"],
+      networks: {
+        calibration: { ...(baseConfigValues.networks as any).calibration, minNumDataSetsForChecks: 3 },
+      } as unknown as IConfig["networks"],
     };
     configService = {
       get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
@@ -1243,13 +1315,14 @@ describe("JobsService schedule rows", () => {
 
     await callPrivate(service, "handleDataSetCreationJob", {
       id: "job-ds-2",
-      data: { jobType: "data_set_creation", spAddress: "0xaaa", intervalSeconds: 3600 },
+      data: { jobType: "data_set_creation", spAddress: "0xaaa", intervalSeconds: 3600, network: "calibration" },
     });
 
     expect(dealService.createDataSetWithPiece).not.toHaveBeenCalled();
     expect(dealService.checkDataSetExists).toHaveBeenCalledWith(
       "0xaaa",
       { dealbotDataSetVersion: "v1" },
+      "calibration",
       expect.any(AbortSignal),
     );
   });
@@ -1259,7 +1332,9 @@ describe("JobsService schedule rows", () => {
     vi.setSystemTime(new Date("2024-01-01T12:00:00Z"));
     baseConfigValues = {
       ...baseConfigValues,
-      blockchain: { ...baseConfigValues.blockchain, minNumDataSetsForChecks: 3 } as IConfig["blockchain"],
+      networks: {
+        calibration: { ...(baseConfigValues.networks as any).calibration, minNumDataSetsForChecks: 3 },
+      } as unknown as IConfig["networks"],
     };
     configService = {
       get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
@@ -1283,7 +1358,7 @@ describe("JobsService schedule rows", () => {
 
     await callPrivate(service, "handleDataSetCreationJob", {
       id: "job-ds-3",
-      data: { jobType: "data_set_creation", spAddress: "0xaaa", intervalSeconds: 3600 },
+      data: { jobType: "data_set_creation", spAddress: "0xaaa", intervalSeconds: 3600, network: "calibration" },
     });
 
     // Only the first missing data set (index 0) should be created
@@ -1291,6 +1366,7 @@ describe("JobsService schedule rows", () => {
     expect(dealService.createDataSetWithPiece).toHaveBeenCalledWith(
       "0xaaa",
       { dealbotDataSetVersion: "v1" },
+      "calibration",
       expect.any(AbortSignal),
     );
   });
@@ -1300,7 +1376,9 @@ describe("JobsService schedule rows", () => {
     vi.setSystemTime(new Date("2024-01-01T12:00:00Z"));
     baseConfigValues = {
       ...baseConfigValues,
-      blockchain: { ...baseConfigValues.blockchain, minNumDataSetsForChecks: 3 } as IConfig["blockchain"],
+      networks: {
+        calibration: { ...(baseConfigValues.networks as any).calibration, minNumDataSetsForChecks: 3 },
+      } as unknown as IConfig["networks"],
     };
     configService = {
       get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
@@ -1325,7 +1403,7 @@ describe("JobsService schedule rows", () => {
 
     await callPrivate(service, "handleDataSetCreationJob", {
       id: "job-ds-3b",
-      data: { jobType: "data_set_creation", spAddress: "0xaaa", intervalSeconds: 3600 },
+      data: { jobType: "data_set_creation", spAddress: "0xaaa", intervalSeconds: 3600, network: "calibration" },
     });
 
     // Should skip index 0 (exists) and create only index 1
@@ -1333,6 +1411,7 @@ describe("JobsService schedule rows", () => {
     expect(dealService.createDataSetWithPiece).toHaveBeenCalledWith(
       "0xaaa",
       { dealbotDataSetVersion: "v1", dealbotDS: "1" },
+      "calibration",
       expect.any(AbortSignal),
     );
   });
@@ -1355,6 +1434,7 @@ describe("JobsService schedule rows", () => {
       provisionNextMissingDataSet(
         { dealService, logger },
         "0xaaa",
+        "calibration",
         5,
         {},
         { providerAddress: "0xaaa", jobId: "job-ds-4", providerId: 1n, providerName: "test-provider" },
@@ -1375,34 +1455,36 @@ describe("JobsService schedule rows", () => {
     const activeGauge = metricsMocks.storageProvidersActive as unknown as { set: ReturnType<typeof vi.fn> };
     const testedGauge = metricsMocks.storageProvidersTested as unknown as { set: ReturnType<typeof vi.fn> };
 
-    await callPrivate(service, "updateStorageProviderGauges");
+    await callPrivate(service, "updateStorageProviderGauges", "calibration");
 
-    expect(activeGauge.set).toHaveBeenCalledWith({ status: "active" }, 7);
-    expect(activeGauge.set).toHaveBeenCalledWith({ status: "inactive" }, 3);
-    expect(testedGauge.set).toHaveBeenCalledWith(7);
+    expect(activeGauge.set).toHaveBeenCalledWith({ network: "calibration", status: "active" }, 7);
+    expect(activeGauge.set).toHaveBeenCalledWith({ network: "calibration", status: "inactive" }, 3);
+    expect(testedGauge.set).toHaveBeenCalledWith({ network: "calibration" }, 7);
   });
 
   it("filters tested providers by isApproved when useOnlyApprovedProviders is enabled", async () => {
-    baseConfigValues.blockchain = {
-      useOnlyApprovedProviders: true,
-      minNumDataSetsForChecks: 1,
-    } as IConfig["blockchain"];
-    service = buildService();
+    baseConfigValues = {
+      ...baseConfigValues,
+      networks: {
+        calibration: { ...(baseConfigValues.networks as any).calibration, useOnlyApprovedProviders: true },
+      } as unknown as IConfig["networks"],
+    };
+    service = buildService({
+      configService: { get: vi.fn((key: keyof IConfig) => baseConfigValues[key]) } as unknown as JobsServiceDeps[0],
+    });
 
     storageProviderRepositoryMock.count.mockResolvedValueOnce(10).mockResolvedValueOnce(7).mockResolvedValueOnce(5); // testedCount (only approved)
 
     await callPrivate(service, "updateStorageProviderGauges");
 
     expect(storageProviderRepositoryMock.count).toHaveBeenNthCalledWith(3, {
-      where: { isActive: true, isApproved: true },
+      where: { network: "calibration", isActive: true, isApproved: true },
     });
   });
 
   it("subtracts globally blocked providers from tested gauge when global blocklist is non-empty", async () => {
-    baseConfigValues.spBlocklists = {
-      ids: new Set<string>(),
-      addresses: new Set(["0xblocked"]),
-    };
+    if (baseConfigValues.networks?.calibration)
+      baseConfigValues.networks.calibration.blockedSpAddresses = new Set(["0xblocked"]);
     configService = {
       get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
     } as unknown as JobsServiceDeps[0];
@@ -1421,9 +1503,9 @@ describe("JobsService schedule rows", () => {
 
     const testedGauge = metricsMocks.storageProvidersTested as unknown as { set: ReturnType<typeof vi.fn> };
 
-    await callPrivate(service, "updateStorageProviderGauges");
+    await callPrivate(service, "updateStorageProviderGauges", "calibration");
 
-    expect(testedGauge.set).toHaveBeenCalledWith(2); // 3 providers minus 1 globally blocked
+    expect(testedGauge.set).toHaveBeenCalledWith({ network: "calibration" }, 2); // 3 providers minus 1 globally blocked
   });
 
   it("catches storage provider gauge errors without rethrowing", async () => {
@@ -1435,10 +1517,10 @@ describe("JobsService schedule rows", () => {
     const providerA = { address: "0xaaa", providerId: 1n };
     storageProviderRepositoryMock.find.mockResolvedValueOnce([providerA]);
 
-    baseConfigValues.spBlocklists = { ids: new Set(["1"]), addresses: new Set() };
+    if (baseConfigValues.networks?.calibration) baseConfigValues.networks.calibration.blockedSpIds = new Set(["1"]);
     service = buildService();
 
-    await callPrivate(service, "ensureScheduleRows");
+    await callPrivate(service, "ensureScheduleRows", "calibration");
 
     const upsertCalls = jobScheduleRepositoryMock.upsertSchedule.mock.calls;
     const jobTypes = upsertCalls.filter((c) => c[1] === providerA.address).map((c) => c[0]);
@@ -1447,14 +1529,14 @@ describe("JobsService schedule rows", () => {
     expect(jobTypes).not.toContain("retrieval");
     // Blocked provider is excluded from the active-address list passed to cleanup,
     // so its existing schedule rows will be deleted.
-    expect(jobScheduleRepositoryMock.deleteSchedulesForInactiveProviders).toHaveBeenCalledWith([]);
+    expect(jobScheduleRepositoryMock.deleteSchedulesForInactiveProviders).toHaveBeenCalledWith([], "calibration");
   });
 
   it("deal job is skipped at runtime when provider is blocked", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2024-01-01T12:00:00Z"));
 
-    baseConfigValues.spBlocklists = { ids: new Set(["1"]), addresses: new Set() };
+    if (baseConfigValues.networks?.calibration) baseConfigValues.networks.calibration.blockedSpIds = new Set(["1"]);
 
     const dealService = {
       createDealForProvider: vi.fn(),
@@ -1473,7 +1555,7 @@ describe("JobsService schedule rows", () => {
 
     await callPrivate(service, "handleDealJob", {
       id: "job-blocked-deal",
-      data: { jobType: "deal", spAddress: "0xaaa", intervalSeconds: 60 },
+      data: { jobType: "deal", network: "calibration", spAddress: "0xaaa", intervalSeconds: 60 },
     });
 
     expect(dealService.createDealForProvider).not.toHaveBeenCalled();
@@ -1483,7 +1565,7 @@ describe("JobsService schedule rows", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2024-01-01T12:00:00Z"));
 
-    baseConfigValues.spBlocklists = { ids: new Set(["2"]), addresses: new Set() };
+    if (baseConfigValues.networks?.calibration) baseConfigValues.networks.calibration.blockedSpIds = new Set(["2"]);
 
     const retrievalService = { performRandomRetrievalForProvider: vi.fn() };
     const walletSdkService = {
@@ -1497,7 +1579,7 @@ describe("JobsService schedule rows", () => {
 
     await callPrivate(service, "handleRetrievalJob", {
       id: "job-blocked-retrieval",
-      data: { jobType: "retrieval", spAddress: "0xaaa", intervalSeconds: 60 },
+      data: { jobType: "retrieval", network: "calibration", spAddress: "0xaaa", intervalSeconds: 60 },
     });
 
     expect(retrievalService.performRandomRetrievalForProvider).not.toHaveBeenCalled();
@@ -1507,7 +1589,7 @@ describe("JobsService schedule rows", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2024-01-01T12:00:00Z"));
 
-    baseConfigValues.spBlocklists = { ids: new Set(["3"]), addresses: new Set() };
+    if (baseConfigValues.networks?.calibration) baseConfigValues.networks.calibration.blockedSpIds = new Set(["3"]);
 
     const dealService = {
       getBaseDataSetMetadata: vi.fn(() => ({})),
@@ -1525,7 +1607,7 @@ describe("JobsService schedule rows", () => {
 
     await callPrivate(service, "handleDataSetCreationJob", {
       id: "job-blocked-ds",
-      data: { jobType: "data_set_creation", spAddress: "0xaaa", intervalSeconds: 3600 },
+      data: { jobType: "data_set_creation", network: "calibration", spAddress: "0xaaa", intervalSeconds: 3600 },
     });
 
     expect(dealService.createDataSetWithPiece).not.toHaveBeenCalled();
@@ -1535,7 +1617,8 @@ describe("JobsService schedule rows", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2024-01-01T12:00:00Z"));
 
-    baseConfigValues.spBlocklists = { ids: new Set(), addresses: new Set(["0xaaa"]) };
+    if (baseConfigValues.networks?.calibration)
+      baseConfigValues.networks.calibration.blockedSpAddresses = new Set(["0xaaa"]);
 
     const completedCounter = metricsMocks.jobsCompletedCounter as unknown as { inc: ReturnType<typeof vi.fn> };
     const dealService = {
@@ -1590,11 +1673,20 @@ describe("JobsService schedule rows", () => {
     for (const testCase of cases) {
       await callPrivate(testCase.service, testCase.handler, {
         id: `job-address-blocked-${testCase.jobType}`,
-        data: { jobType: testCase.jobType, spAddress: "0xaaa", intervalSeconds: testCase.intervalSeconds },
+        data: {
+          jobType: testCase.jobType,
+          network: "calibration",
+          spAddress: "0xaaa",
+          intervalSeconds: testCase.intervalSeconds,
+        },
       });
 
       testCase.expectCheckNotRun();
-      expect(completedCounter.inc).toHaveBeenCalledWith({ job_type: testCase.jobType, handler_result: "success" });
+      expect(completedCounter.inc).toHaveBeenCalledWith({
+        job_type: testCase.jobType,
+        network: "calibration",
+        handler_result: "success",
+      });
     }
 
     expect(storageProviderRepositoryMock.findOne).not.toHaveBeenCalled();

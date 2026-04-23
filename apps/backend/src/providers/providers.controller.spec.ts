@@ -6,9 +6,9 @@ import { ProvidersService } from "./providers.service.js";
 
 function makeProvider(overrides: Partial<StorageProvider> = {}): StorageProvider {
   return {
-    network: "calibration",
     address: "f01234",
     providerId: 99n,
+    network: "calibration",
     name: "Test SP",
     description: "desc",
     payee: "0xabc",

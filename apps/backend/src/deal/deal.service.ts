@@ -16,8 +16,8 @@ import {
   toStructuredError,
 } from "../common/logging.js";
 import { createSynapseFromConfig } from "../common/synapse-factory.js";
-import type { DataFile, Hex } from "../common/types.js";
-import type { IBlockchainConfig, IConfig } from "../config/app.config.js";
+import type { DataFile, Hex, Network } from "../common/types.js";
+import type { IConfig, INetworkConfig } from "../config/types.js";
 import { Deal } from "../database/entities/deal.entity.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
 import { DealStatus, ServiceType } from "../database/types.js";
@@ -49,8 +49,7 @@ type UploadResultSummary = {
 @Injectable()
 export class DealService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(DealService.name);
-  private readonly blockchainConfig: IBlockchainConfig;
-  private sharedSynapse?: Synapse;
+  private readonly sharedSynapseByNetwork: Map<Network, Synapse> = new Map();
 
   constructor(
     private readonly dataSourceService: DataSourceService,
@@ -65,27 +64,33 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     private readonly dataStorageMetrics: DataStorageCheckMetrics,
     private readonly retrievalMetrics: RetrievalCheckMetrics,
     private readonly dataSetCreationMetrics: DataSetCreationCheckMetrics,
-  ) {
-    this.blockchainConfig = this.configService.get("blockchain");
-  }
+  ) {}
 
   async onModuleInit() {
-    this.logger.log({
-      event: "synapse_initialization",
-      message: "Creating shared Synapse instance",
-    });
-    this.sharedSynapse = await this.createSynapseInstance();
+    const activeNetworks = this.configService.get("activeNetworks");
+    for (const network of activeNetworks) {
+      this.logger.log({
+        event: "synapse_initialization",
+        message: "Creating shared Synapse instance",
+        network,
+      });
+      const synapse = await this.createSynapseInstance(network);
+      this.sharedSynapseByNetwork.set(network, synapse);
+    }
   }
 
   async onModuleDestroy(): Promise<void> {
-    if (this.sharedSynapse) {
-      this.sharedSynapse = undefined;
-    }
+    this.sharedSynapseByNetwork.clear();
+  }
+
+  private getNetworkConfig(network: Network): INetworkConfig {
+    return this.configService.get("networks")[network];
   }
 
   async createDealForProvider(
     pdpProvider: PDPProviderEx,
     options: {
+      network: Network;
       existingDealId?: string;
       signal?: AbortSignal;
       extraDataSetMetadata?: Record<string, string>;
@@ -96,13 +101,15 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     const { preprocessed, cleanup } = await this.prepareDealInput(options.signal, options.logContext);
 
     try {
-      const synapse = this.sharedSynapse ?? (await this.createSynapseInstance());
+      const synapse =
+        this.sharedSynapseByNetwork.get(options.network) ?? (await this.createSynapseInstance(options.network));
       const uploadPayload = await this.prepareUploadPayload(preprocessed, options.signal);
       return await this.createDeal(
         synapse,
         pdpProvider,
         preprocessed,
         uploadPayload,
+        options.network,
         options.existingDealId,
         options.signal,
         options.extraDataSetMetadata,
@@ -137,19 +144,20 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     return { preprocessed, cleanup };
   }
 
-  getBaseDataSetMetadata(): Record<string, string> {
+  getBaseDataSetMetadata(network: Network): Record<string, string> {
     // IPNI is always enabled for all deals
     const metadata: Record<string, string> = {
       [METADATA_KEYS.WITH_IPFS_INDEXING]: "",
     };
-    if (this.blockchainConfig.dealbotDataSetVersion) {
-      metadata.dealbotDataSetVersion = this.blockchainConfig.dealbotDataSetVersion;
+    const networkConfig = this.getNetworkConfig(network);
+    if (networkConfig.dealbotDataSetVersion) {
+      metadata.dealbotDataSetVersion = networkConfig.dealbotDataSetVersion;
     }
     return metadata;
   }
 
-  getWalletAddress(): string {
-    return this.blockchainConfig.walletAddress;
+  getWalletAddress(network: Network): string {
+    return this.getNetworkConfig(network).walletAddress;
   }
 
   async createDeal(
@@ -157,6 +165,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     pdpProvider: PDPProviderEx,
     dealInput: DealPreprocessingResult,
     uploadPayload: UploadPayload,
+    network: Network,
     existingDealId?: string,
     signal?: AbortSignal,
     extraDataSetMetadata?: Record<string, string>,
@@ -165,6 +174,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     const providerAddress = pdpProvider.serviceProvider;
     const checkType = "dataStorage" as const;
     let providerLabels = buildCheckMetricLabels({
+      network,
       checkType,
       providerId: pdpProvider.id,
       providerName: pdpProvider.name,
@@ -202,11 +212,13 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       deal.id = randomUUID();
     }
 
+    const networkCfg = this.getNetworkConfig(network);
     deal.fileName = dealInput.processedData.name;
     deal.fileSize = dealInput.processedData.size;
     deal.spAddress = providerAddress;
+    deal.network = network;
     deal.status = DealStatus.PENDING;
-    deal.walletAddress = this.blockchainConfig.walletAddress;
+    deal.walletAddress = networkCfg.walletAddress;
     deal.metadata = dealInput.metadata;
     deal.serviceTypes = dealInput.appliedAddons;
 
@@ -222,10 +234,11 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     try {
       // Load storageProvider relation
       deal.storageProvider = await this.storageProviderRepository.findOne({
-        where: { address: deal.spAddress },
+        where: { address: deal.spAddress, network },
       });
       dealLogContext.providerId = deal.storageProvider?.providerId ?? dealLogContext.providerId;
       providerLabels = buildCheckMetricLabels({
+        network,
         checkType,
         providerId: deal.storageProvider?.providerId,
         providerName: pdpProvider.name ?? deal.storageProvider?.name,
@@ -236,8 +249,8 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
 
       const dataSetMetadata = { ...dealInput.synapseConfig.dataSetMetadata, ...extraDataSetMetadata };
 
-      if (this.blockchainConfig.dealbotDataSetVersion) {
-        dataSetMetadata.dealbotDataSetVersion = this.blockchainConfig.dealbotDataSetVersion;
+      if (networkCfg.dealbotDataSetVersion) {
+        dataSetMetadata.dealbotDataSetVersion = networkCfg.dealbotDataSetVersion;
       }
       const filecoinPinLogger = createFilecoinPinLogger(this.logger, dealLogContext);
 
@@ -537,13 +550,14 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
   async checkDataSetExists(
     providerAddress: string,
     metadata: Record<string, string>,
+    network: Network,
     signal?: AbortSignal,
   ): Promise<boolean> {
     signal?.throwIfAborted();
-    const synapse = this.sharedSynapse ?? (await this.createSynapseInstance());
-    const providerInfo = this.walletSdkService.getProviderInfo(providerAddress);
+    const synapse = this.sharedSynapseByNetwork.get(network) ?? (await this.createSynapseInstance(network));
+    const providerInfo = this.walletSdkService.getProviderInfo(providerAddress, network);
     if (!providerInfo) {
-      throw new Error(`Provider ${providerAddress} not found in registry`);
+      throw new Error(`Provider ${providerAddress} not found in registry for network ${network}`);
     }
     const context = await awaitWithAbort(
       synapse.storage.createContext({
@@ -567,14 +581,16 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
   async createDataSetWithPiece(
     providerAddress: string,
     metadata: Record<string, string>,
+    network: Network,
     signal?: AbortSignal,
   ): Promise<void> {
     signal?.throwIfAborted();
-    const providerInfo = this.walletSdkService.getProviderInfo(providerAddress);
+    const providerInfo = this.walletSdkService.getProviderInfo(providerAddress, network);
     if (!providerInfo) {
-      throw new Error(`Provider ${providerAddress} not found in registry`);
+      throw new Error(`Provider ${providerAddress} not found in registry for network ${network}`);
     }
     const labels = buildCheckMetricLabels({
+      network,
       checkType: "dataSetCreation",
       providerId: providerInfo.id,
       providerName: providerInfo.name,
@@ -599,7 +615,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     let transactionHash: string | undefined;
 
     try {
-      const synapse = this.sharedSynapse ?? (await this.createSynapseInstance());
+      const synapse = this.sharedSynapseByNetwork.get(network) ?? (await this.createSynapseInstance(network));
       signal?.throwIfAborted();
 
       const DATA_SET_CREATION_PIECE_SIZE = 200 * 1024; // 200 KiB
@@ -738,14 +754,16 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
   // Deal Creation Helpers
   // ============================================================================
 
-  private async createSynapseInstance(): Promise<Synapse> {
+  private async createSynapseInstance(network: Network): Promise<Synapse> {
+    const networkConfig = this.getNetworkConfig(network);
     try {
-      const { synapse, isSessionKeyMode } = await createSynapseFromConfig(this.blockchainConfig);
+      const { synapse, isSessionKeyMode } = await createSynapseFromConfig(networkConfig);
       if (isSessionKeyMode) {
         this.logger.log({
           event: "synapse_session_key_init",
           message: "Initializing Synapse with session key",
-          walletAddress: this.blockchainConfig.walletAddress,
+          network,
+          walletAddress: networkConfig.walletAddress,
         });
       }
       return synapse;
@@ -753,6 +771,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       this.logger.error({
         event: "synapse_init_failed",
         message: "Failed to initialize Synapse for deal job",
+        network,
         error: toStructuredError(error),
       });
       throw error;

@@ -59,98 +59,98 @@ const metricProviders = [
     // docs/checks/events-and-metrics.md#ingestMs
     name: "ingestMs",
     help: "Time to upload a piece to a storage provider (ms)",
-    labelNames: ["checkType", "providerId", "providerName", "providerStatus"] as const,
+    labelNames: ["checkType", "providerId", "providerName", "providerStatus", "network"] as const,
     buckets: [10, 50, 100, 500, 1000, 2000, 5000, 10000, 30000, 60000, 120000, 300000],
   }),
   makeHistogramProvider({
     // docs/checks/events-and-metrics.md#ingestThroughputBps
     name: "ingestThroughputBps",
     help: "Ingest throughput in bytes per second",
-    labelNames: ["checkType", "providerId", "providerName", "providerStatus"] as const,
+    labelNames: ["checkType", "providerId", "providerName", "providerStatus", "network"] as const,
     buckets: throughputBuckets,
   }),
   makeHistogramProvider({
     // docs/checks/events-and-metrics.md#pieceAddedOnChainMs
     name: "pieceAddedOnChainMs",
     help: "Time from upload end to piece added on-chain (ms)",
-    labelNames: ["checkType", "providerId", "providerName", "providerStatus"] as const,
+    labelNames: ["checkType", "providerId", "providerName", "providerStatus", "network"] as const,
     buckets: [10, 50, 100, 500, 1000, 2000, 5000, 10000, 30000, 60000, 120000, 300000],
   }),
   makeHistogramProvider({
     // docs/checks/events-and-metrics.md#pieceConfirmedOnChainMs
     name: "pieceConfirmedOnChainMs",
     help: "Time from piece added to piece confirmed on-chain (ms)",
-    labelNames: ["checkType", "providerId", "providerName", "providerStatus"] as const,
+    labelNames: ["checkType", "providerId", "providerName", "providerStatus", "network"] as const,
     buckets: [10, 50, 100, 500, 1000, 2000, 5000, 10000, 30000, 60000, 120000, 300000],
   }),
   makeHistogramProvider({
     // docs/checks/events-and-metrics.md#spIndexLocallyMs
     name: "spIndexLocallyMs",
     help: "Time from upload end to SP indexing locally (ms)",
-    labelNames: ["checkType", "providerId", "providerName", "providerStatus"] as const,
+    labelNames: ["checkType", "providerId", "providerName", "providerStatus", "network"] as const,
     buckets: [10, 50, 100, 500, 1000, 2000, 5000, 10000, 30000, 60000, 120000, 300000],
   }),
   makeHistogramProvider({
     // docs/checks/events-and-metrics.md#spAnnounceAdvertisementMs
     name: "spAnnounceAdvertisementMs",
     help: "Time from upload end to SP advertisement to IPNI (ms)",
-    labelNames: ["checkType", "providerId", "providerName", "providerStatus"] as const,
+    labelNames: ["checkType", "providerId", "providerName", "providerStatus", "network"] as const,
     buckets: [10, 50, 100, 500, 1000, 2000, 5000, 10000, 30000, 60000, 120000, 300000],
   }),
   makeHistogramProvider({
     // docs/checks/events-and-metrics.md#ipniVerifyMs
     name: "ipniVerifyMs",
     help: "IPNI verification duration (ms)",
-    labelNames: ["checkType", "providerId", "providerName", "providerStatus"] as const,
+    labelNames: ["checkType", "providerId", "providerName", "providerStatus", "network"] as const,
     buckets: [10, 50, 100, 500, 1000, 2000, 5000, 10000, 30000, 60000, 120000, 300000],
   }),
   makeHistogramProvider({
     // docs/checks/events-and-metrics.md#ipfsRetrievalFirstByteMs
     name: "ipfsRetrievalFirstByteMs",
     help: "Time to first byte for IPFS retrievals (ms)",
-    labelNames: ["checkType", "providerId", "providerName", "providerStatus"] as const,
+    labelNames: ["checkType", "providerId", "providerName", "providerStatus", "network"] as const,
     buckets: [1, 5, 10, 50, 100, 250, 500, 1000, 2000, 5000, 10000, 30000],
   }),
   makeHistogramProvider({
     // docs/checks/events-and-metrics.md#ipfsRetrievalBlockFirstByteMs
     name: "ipfsRetrievalBlockFirstByteMs",
     help: "Time to first byte for individual IPFS block fetches (ms)",
-    labelNames: ["checkType", "providerId", "providerName", "providerStatus"] as const,
+    labelNames: ["checkType", "providerId", "providerName", "providerStatus", "network"] as const,
     buckets: [1, 5, 10, 50, 100, 250, 500, 1000, 2000, 5000, 10000, 30000],
   }),
   makeHistogramProvider({
     // docs/checks/events-and-metrics.md#ipfsRetrievalLastByteMs
     name: "ipfsRetrievalLastByteMs",
     help: "Time to last byte for IPFS retrievals (ms)",
-    labelNames: ["checkType", "providerId", "providerName", "providerStatus"] as const,
+    labelNames: ["checkType", "providerId", "providerName", "providerStatus", "network"] as const,
     buckets: [1, 5, 10, 50, 100, 250, 500, 1000, 2000, 5000, 10000, 30000],
   }),
   makeHistogramProvider({
     // docs/checks/events-and-metrics.md#ipfsRetrievalThroughputBps
     name: "ipfsRetrievalThroughputBps",
     help: "IPFS retrieval throughput in bytes per second",
-    labelNames: ["checkType", "providerId", "providerName", "providerStatus"] as const,
+    labelNames: ["checkType", "providerId", "providerName", "providerStatus", "network"] as const,
     buckets: throughputBuckets,
   }),
   makeHistogramProvider({
     // docs/checks/events-and-metrics.md#dataStorageCheckMs
     name: "dataStorageCheckMs",
     help: "End-to-end data storage check duration (ms)",
-    labelNames: ["checkType", "providerId", "providerName", "providerStatus"] as const,
+    labelNames: ["checkType", "providerId", "providerName", "providerStatus", "network"] as const,
     buckets: [100, 500, 1000, 2000, 5000, 10000, 30000, 60000, 120000, 300000, 600000],
   }),
   makeHistogramProvider({
     // docs/checks/events-and-metrics.md#retrievalCheckMs
     name: "retrievalCheckMs",
     help: "End-to-end retrieval check duration (ms)",
-    labelNames: ["checkType", "providerId", "providerName", "providerStatus"] as const,
+    labelNames: ["checkType", "providerId", "providerName", "providerStatus", "network"] as const,
     buckets: [100, 500, 1000, 2000, 5000, 10000, 30000, 60000, 120000, 300000, 600000],
   }),
   makeHistogramProvider({
     // docs/checks/events-and-metrics.md#dataSetCreationMs
     name: "dataSetCreationMs",
     help: "End-to-end data-set creation upload duration (ms)",
-    labelNames: ["checkType", "providerId", "providerName", "providerStatus"] as const,
+    labelNames: ["checkType", "providerId", "providerName", "providerStatus", "network"] as const,
     buckets: [100, 500, 1000, 2000, 5000, 10000, 30000, 60000, 120000, 300000, 600000],
   }),
   // Sub-status metrics (docs/checks/data-storage.md)
@@ -158,70 +158,71 @@ const metricProviders = [
     // docs/checks/data-storage.md#sub-status-meanings (Upload Status)
     name: "dataStorageUploadStatus",
     help: "Data storage upload sub-status counts",
-    labelNames: ["checkType", "providerId", "providerName", "providerStatus", "value"] as const,
+    labelNames: ["checkType", "providerId", "providerName", "providerStatus", "value", "network"] as const,
   }),
   makeCounterProvider({
     // docs/checks/data-storage.md#sub-status-meanings (Onchain Status)
     name: "dataStorageOnchainStatus",
     help: "Data storage onchain sub-status counts",
-    labelNames: ["checkType", "providerId", "providerName", "providerStatus", "value"] as const,
+    labelNames: ["checkType", "providerId", "providerName", "providerStatus", "value", "network"] as const,
   }),
   makeCounterProvider({
     // docs/checks/data-storage.md#deal-status-progression (Overall Status)
     name: "dataStorageStatus",
     help: "Data storage check overall status counts (success when all sub-statuses succeed, failure.timedout/failure.other otherwise)",
-    labelNames: ["checkType", "providerId", "providerName", "providerStatus", "value"] as const,
+    labelNames: ["checkType", "providerId", "providerName", "providerStatus", "value", "network"] as const,
   }),
   makeCounterProvider({
     // docs/checks/data-storage.md#sub-status-meanings (Discoverability Status)
     name: "discoverabilityStatus",
     help: "Discoverability sub-status counts",
-    labelNames: ["checkType", "providerId", "providerName", "providerStatus", "value"] as const,
+    labelNames: ["checkType", "providerId", "providerName", "providerStatus", "value", "network"] as const,
   }),
   makeCounterProvider({
     // docs/checks/data-storage.md#sub-status-meanings (Retrieval Status)
     name: "retrievalStatus",
     help: "Retrieval sub-status counts",
-    labelNames: ["checkType", "providerId", "providerName", "providerStatus", "value"] as const,
+    labelNames: ["checkType", "providerId", "providerName", "providerStatus", "value", "network"] as const,
   }),
   makeCounterProvider({
     // docs/checks/events-and-metrics.md#ipfsRetrievalHttpResponseCode
     name: "ipfsRetrievalHttpResponseCode",
     help: "HTTP response codes for IPFS retrievals",
-    labelNames: ["checkType", "providerId", "providerName", "providerStatus", "value"] as const,
+    labelNames: ["checkType", "providerId", "providerName", "providerStatus", "value", "network"] as const,
   }),
   makeCounterProvider({
     // docs/checks/events-and-metrics.md#dataSetCreationStatus
     name: "dataSetCreationStatus",
     help: "Data-set creation status counts",
-    labelNames: ["checkType", "providerId", "providerName", "providerStatus", "value"] as const,
+    labelNames: ["checkType", "providerId", "providerName", "providerStatus", "value", "network"] as const,
   }),
   // Data Retention Metrics
   makeCounterProvider({
     name: "dataSetChallengeStatus",
     help: "Provider dataset challenge status",
-    labelNames: ["checkType", "providerId", "providerName", "providerStatus", "value"] as const,
+    labelNames: ["checkType", "providerId", "providerName", "providerStatus", "value", "network"] as const,
   }),
   makeGaugeProvider({
     name: "pdp_provider_estimated_overdue_periods",
     help: "Estimated number of unrecorded overdue proving periods per provider. Resets to 0 when the subgraph catches up.",
-    labelNames: ["checkType", "providerId", "providerName", "providerStatus"] as const,
+    labelNames: ["checkType", "providerId", "providerName", "providerStatus", "network"] as const,
   }),
   // Storage provider metrics: absolute counts, independent of query filters.
   makeGaugeProvider({
     name: "storage_providers_active",
     help: "Number of active storage providers",
-    labelNames: ["status"] as const,
+    labelNames: ["status", "network"] as const,
   }),
   makeGaugeProvider({
     name: "storage_providers_tested",
     help: "Number of storage providers being tested",
+    labelNames: ["network"] as const,
   }),
   // Wallet metrics: balances in base units as returned by chain services.
   makeGaugeProvider({
     name: "wallet_balance",
     help: "Wallet balance in base units (per currency)",
-    labelNames: ["currency", "wallet"] as const,
+    labelNames: ["currency", "wallet", "network"] as const,
   }),
   // Job scheduler metrics (pg-boss)
   /**
@@ -230,7 +231,7 @@ const metricProviders = [
   makeGaugeProvider({
     name: "jobs_queued",
     help: "Number of queued jobs (pg-boss state: created)",
-    labelNames: ["job_type"] as const,
+    labelNames: ["job_type", "network"] as const,
   }),
   /**
    * Jobs scheduled for retry per type (pg-boss state: retry).
@@ -238,7 +239,7 @@ const metricProviders = [
   makeGaugeProvider({
     name: "jobs_retry_scheduled",
     help: "Number of jobs in retry state (pg-boss state: retry)",
-    labelNames: ["job_type"] as const,
+    labelNames: ["job_type", "network"] as const,
   }),
   /**
    * Oldest queued job age per type (seconds).
@@ -246,7 +247,7 @@ const metricProviders = [
   makeGaugeProvider({
     name: "oldest_queued_age_seconds",
     help: "Age in seconds of the oldest queued job (pg-boss state: created)",
-    labelNames: ["job_type"] as const,
+    labelNames: ["job_type", "network"] as const,
   }),
   /**
    * Oldest in-flight job age per type (seconds).
@@ -254,7 +255,7 @@ const metricProviders = [
   makeGaugeProvider({
     name: "oldest_in_flight_age_seconds",
     help: "Age in seconds of the oldest active job (pg-boss state: active)",
-    labelNames: ["job_type"] as const,
+    labelNames: ["job_type", "network"] as const,
   }),
   /**
    * Currently executing jobs per type (pg-boss state: active).
@@ -262,7 +263,7 @@ const metricProviders = [
   makeGaugeProvider({
     name: "jobs_in_flight",
     help: "Number of active jobs currently executing",
-    labelNames: ["job_type"] as const,
+    labelNames: ["job_type", "network"] as const,
   }),
   /**
    * Manually paused jobs per type (paused = true in job_schedule_state).
@@ -270,7 +271,7 @@ const metricProviders = [
   makeGaugeProvider({
     name: "jobs_paused",
     help: "Number of manually paused jobs in job_schedule_state",
-    labelNames: ["job_type"] as const,
+    labelNames: ["job_type", "network"] as const,
   }),
   /**
    * Enqueue attempts per type (success/error).
@@ -278,7 +279,7 @@ const metricProviders = [
   makeCounterProvider({
     name: "jobs_enqueue_attempts_total",
     help: "Total number of enqueue attempts",
-    labelNames: ["job_type", "outcome"] as const,
+    labelNames: ["job_type", "outcome", "network"] as const,
   }),
   /**
    * Jobs started by handlers per type.
@@ -286,7 +287,7 @@ const metricProviders = [
   makeCounterProvider({
     name: "jobs_started_total",
     help: "Total number of jobs started",
-    labelNames: ["job_type"] as const,
+    labelNames: ["job_type", "network"] as const,
   }),
   /**
    * Handler completion results per type.
@@ -299,7 +300,7 @@ const metricProviders = [
   makeCounterProvider({
     name: "jobs_completed_total",
     help: "Total number of jobs completed",
-    labelNames: ["job_type", "handler_result"] as const,
+    labelNames: ["job_type", "handler_result", "network"] as const,
   }),
   /**
    * Handler execution duration per type (seconds).
@@ -307,7 +308,7 @@ const metricProviders = [
   makeHistogramProvider({
     name: "job_duration_seconds",
     help: "Job execution duration in seconds",
-    labelNames: ["job_type"] as const,
+    labelNames: ["job_type", "network"] as const,
     buckets: [0.1, 0.5, 1, 2, 3, 4, 5, 10, 15, 20, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330, 360, 420, 600],
   }),
 ];

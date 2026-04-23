@@ -8,7 +8,7 @@ import type { Repository } from "typeorm";
 import { delay } from "../../common/abort-utils.js";
 import { buildUnixfsCar } from "../../common/car-utils.js";
 import { type DealLogContext, toStructuredError } from "../../common/logging.js";
-import type { IConfig } from "../../config/app.config.js";
+import type { IConfig } from "../../config/types.js";
 import { Deal } from "../../database/entities/deal.entity.js";
 import type { DealMetadata, IpniMetadata } from "../../database/types.js";
 import { IpniStatus, ServiceType } from "../../database/types.js";

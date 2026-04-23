@@ -1,5 +1,6 @@
 import { ApiProperty } from "@nestjs/swagger";
-import { IsNotEmpty, IsString } from "class-validator";
+import { IsIn, IsNotEmpty, IsOptional, IsString } from "class-validator";
+import type { Network } from "../../common/types.js";
 
 export class TriggerDealQueryDto {
   @ApiProperty({
@@ -9,6 +10,18 @@ export class TriggerDealQueryDto {
   @IsString()
   @IsNotEmpty()
   spAddress: string;
+
+  @ApiProperty({
+    description: "Network to use",
+    example: "calibration",
+    required: false,
+    enum: ["mainnet", "calibration"],
+    default: "calibration",
+  })
+  @IsString()
+  @IsIn(["mainnet", "calibration"])
+  @IsOptional()
+  network?: Network;
 }
 
 export class TriggerDealResponseDto {

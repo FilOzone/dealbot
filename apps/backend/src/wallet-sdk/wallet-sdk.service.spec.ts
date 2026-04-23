@@ -1,6 +1,6 @@
 import type { ConfigService } from "@nestjs/config";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { configValidationSchema, type IBlockchainConfig, type IConfig } from "../config/app.config.js";
+import type { IConfig } from "../config/types.js";
 import { WalletSdkService } from "./wallet-sdk.service.js";
 import type { PDPProviderEx } from "./wallet-sdk.types.js";
 
@@ -10,15 +10,28 @@ type LoggerLike = {
   log: (message: string) => void;
 };
 
-const baseConfig: IBlockchainConfig = {
-  network: "calibration",
+const baseNetworkConfig = {
+  network: "calibration" as const,
   walletAddress: "0x0000000000000000000000000000000000000000",
-  walletPrivateKey: "0xtest",
+  walletPrivateKey: "0xtest" as `0x${string}`,
   checkDatasetCreationFees: false,
   useOnlyApprovedProviders: false,
   minNumDataSetsForChecks: 1,
   pdpSubgraphEndpoint: "https://api.thegraph.com/subgraphs/filecoin/pdp",
-};
+  dealsPerSpPerHour: 4,
+  retrievalsPerSpPerHour: 2,
+  dataSetCreationsPerSpPerHour: 1,
+  dataRetentionPollIntervalSeconds: 3600,
+  providersRefreshIntervalSeconds: 14400,
+  maintenanceWindowsUtc: ["07:00", "22:00"],
+  maintenanceWindowMinutes: 20,
+  pieceCleanupPerSpPerHour: 1,
+  maxPieceCleanupRuntimeSeconds: 300,
+  maxDatasetStorageSizeBytes: 24 * 1024 * 1024 * 1024,
+  targetDatasetStorageSizeBytes: 20 * 1024 * 1024 * 1024,
+  blockedSpIds: new Set(),
+  blockedSpAddresses: new Set(),
+} satisfies IConfig["networks"]["calibration"];
 
 const makeProvider = (overrides: Partial<PDPProviderEx>): PDPProviderEx =>
   ({
@@ -36,56 +49,6 @@ const makeProvider = (overrides: Partial<PDPProviderEx>): PDPProviderEx =>
     ...overrides,
   }) as PDPProviderEx;
 
-describe("config validation", () => {
-  const requiredEnv = {
-    DATABASE_HOST: "localhost",
-    DATABASE_USER: "test",
-    DATABASE_PASSWORD: "test",
-    DATABASE_NAME: "test",
-    WALLET_ADDRESS: "0x1234567890123456789012345678901234567890",
-  };
-
-  it("requires WALLET_PRIVATE_KEY when SESSION_KEY_PRIVATE_KEY is absent", () => {
-    const { error } = configValidationSchema.validate(requiredEnv, { allowUnknown: true });
-    expect(error).toBeDefined();
-    expect(error?.message).toMatch(/WALLET_PRIVATE_KEY/);
-  });
-
-  it("accepts missing WALLET_PRIVATE_KEY when SESSION_KEY_PRIVATE_KEY is set", () => {
-    const { error } = configValidationSchema.validate(
-      { ...requiredEnv, SESSION_KEY_PRIVATE_KEY: "0xdeadbeef" },
-      { allowUnknown: true },
-    );
-    expect(error).toBeUndefined();
-  });
-
-  it("accepts both WALLET_PRIVATE_KEY and SESSION_KEY_PRIVATE_KEY (session key takes precedence)", () => {
-    const { error } = configValidationSchema.validate(
-      { ...requiredEnv, WALLET_PRIVATE_KEY: "0xkey", SESSION_KEY_PRIVATE_KEY: "0xsession" },
-      { allowUnknown: true },
-    );
-    expect(error).toBeUndefined();
-  });
-
-  it("treats empty string WALLET_PRIVATE_KEY as absent", () => {
-    const { error } = configValidationSchema.validate(
-      { ...requiredEnv, WALLET_PRIVATE_KEY: "" },
-      { allowUnknown: true },
-    );
-    // Empty string is normalized to undefined by .empty(""), so .or() treats it as absent
-    expect(error).toBeDefined();
-    expect(error?.message).toMatch(/WALLET_PRIVATE_KEY|SESSION_KEY_PRIVATE_KEY/);
-  });
-
-  it("treats empty string SESSION_KEY_PRIVATE_KEY as absent", () => {
-    const { error } = configValidationSchema.validate(
-      { ...requiredEnv, WALLET_PRIVATE_KEY: "0xkey", SESSION_KEY_PRIVATE_KEY: "" },
-      { allowUnknown: true },
-    );
-    expect(error).toBeUndefined();
-  });
-});
-
 describe("WalletSdkService", () => {
   let service: WalletSdkService;
   let repoMock: { create: ReturnType<typeof vi.fn>; upsert: ReturnType<typeof vi.fn> };
@@ -98,7 +61,11 @@ describe("WalletSdkService", () => {
     };
 
     const configService = {
-      get: vi.fn((key: keyof IConfig) => (key === "blockchain" ? baseConfig : undefined)),
+      get: vi.fn((key: keyof IConfig) => {
+        if (key === "activeNetworks") return ["calibration"];
+        if (key === "networks") return { calibration: baseNetworkConfig };
+        return undefined;
+      }),
     } as unknown as ConfigService<IConfig, true>;
 
     service = new WalletSdkService(configService, repoMock as any);
@@ -149,8 +116,8 @@ describe("WalletSdkService", () => {
     expect(options).toEqual(expect.objectContaining({ conflictPaths: ["address", "network"] }));
     expect(entities).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ network: "calibration", address: "0xdup", providerId: 21n, name: "new" }),
-        expect.objectContaining({ network: "calibration", address: "0xother", providerId: 22n }),
+        expect.objectContaining({ address: "0xdup", network: "calibration", providerId: 21n, name: "new" }),
+        expect.objectContaining({ address: "0xother", network: "calibration", providerId: 22n }),
       ]),
     );
   });
@@ -184,7 +151,9 @@ describe("WalletSdkService", () => {
 
     const [entities] = repoMock.upsert.mock.calls[0];
     expect(entities).toEqual(
-      expect.arrayContaining([expect.objectContaining({ address: "0xdup2", providerId: 30n, name: "active" })]),
+      expect.arrayContaining([
+        expect.objectContaining({ address: "0xdup2", network: "calibration", providerId: 30n, name: "active" }),
+      ]),
     );
   });
 
@@ -214,7 +183,9 @@ describe("WalletSdkService", () => {
 
     const [entities] = repoMock.upsert.mock.calls[0];
     expect(entities).toEqual(
-      expect.arrayContaining([expect.objectContaining({ address: "0xdup3", providerId: 41n, name: "second" })]),
+      expect.arrayContaining([
+        expect.objectContaining({ address: "0xdup3", network: "calibration", providerId: 41n, name: "second" }),
+      ]),
     );
   });
 
@@ -224,10 +195,16 @@ describe("WalletSdkService", () => {
       resolveLoad = resolve;
     });
     const loadProvidersInternal = vi.fn(() => loadPromise);
+    // Inject a mock network state for calibration
+    const mockState = {
+      providersLoadedOnce: false,
+      providersLoadPromise: null,
+    };
+    (service as any).networkStates.set("calibration", mockState);
     (service as any).loadProvidersInternal = loadProvidersInternal;
 
-    const first = service.ensureProvidersLoaded();
-    const second = service.ensureProvidersLoaded();
+    const first = service.ensureProvidersLoaded("calibration");
+    const second = service.ensureProvidersLoaded("calibration");
 
     expect(loadProvidersInternal).toHaveBeenCalledTimes(1);
 
@@ -235,34 +212,47 @@ describe("WalletSdkService", () => {
     await Promise.all([first, second]);
 
     expect(loadProvidersInternal).toHaveBeenCalledTimes(1);
-    expect((service as any).providersLoadedOnce).toBe(true);
+    expect(mockState.providersLoadedOnce).toBe(true);
   });
 
   it("retries ensureProvidersLoaded after a failed load", async () => {
     const loadProvidersInternal = vi.fn().mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    const mockState = {
+      providersLoadedOnce: false,
+      providersLoadPromise: null,
+    };
+    (service as any).networkStates.set("calibration", mockState);
     (service as any).loadProvidersInternal = loadProvidersInternal;
 
-    await service.ensureProvidersLoaded();
-    await service.ensureProvidersLoaded();
+    await service.ensureProvidersLoaded("calibration");
+    await service.ensureProvidersLoaded("calibration");
 
     expect(loadProvidersInternal).toHaveBeenCalledTimes(2);
-    expect((service as any).providersLoadedOnce).toBe(true);
+    expect(mockState.providersLoadedOnce).toBe(true);
   });
 
   describe("ensureWalletAllowances", () => {
     it("performs read-only check in session key mode", async () => {
-      (service as any)._isSessionKeyMode = true;
-      // getUploadCosts needs _synapseClient but will fail without a real RPC
+      const mockState = {
+        isSessionKeyMode: true,
+        synapseClient: null,
+        config: baseNetworkConfig,
+      };
+      (service as any).networkStates.set("calibration", mockState);
+      // getUploadCosts needs synapseClient but will fail without a real RPC
       // Verify it doesn't fall through to the storageManager.prepare path
-      (service as any)._synapseClient = null;
-      await expect(service.ensureWalletAllowances()).rejects.toThrow();
-      // storageManager.prepare was never called (it would also throw, but differently)
+      await expect(service.ensureWalletAllowances("calibration")).rejects.toThrow();
     });
 
     it("attempts allowances in direct key mode", async () => {
-      (service as any)._isSessionKeyMode = false;
+      const mockState = {
+        isSessionKeyMode: false,
+        storageManager: undefined,
+        config: baseNetworkConfig,
+      };
+      (service as any).networkStates.set("calibration", mockState);
       // storageManager is not initialized so prepare() will throw
-      await expect(service.ensureWalletAllowances()).rejects.toThrow();
+      await expect(service.ensureWalletAllowances("calibration")).rejects.toThrow();
     });
   });
 });

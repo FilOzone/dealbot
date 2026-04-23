@@ -1,7 +1,9 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import type { Repository } from "typeorm";
+import { SUPPORTED_NETWORKS } from "../common/constants.js";
 import { type DealLogContext, toStructuredError } from "../common/logging.js";
+import type { Network } from "../common/types.js";
 import { Deal } from "../database/entities/deal.entity.js";
 import { DealStatus, RetrievalStatus } from "../database/types.js";
 import { DealService } from "../deal/deal.service.js";
@@ -9,6 +11,8 @@ import { RetrievalService } from "../retrieval/retrieval.service.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
 import type { TriggerDealResponseDto } from "./dto/trigger-deal.dto.js";
 import type { RetrievalMethodResultDto, TriggerRetrievalResponseDto } from "./dto/trigger-retrieval.dto.js";
+
+export const DEFAULT_NETWORK: Network = SUPPORTED_NETWORKS[0];
 
 @Injectable()
 export class DevToolsService {
@@ -25,11 +29,12 @@ export class DevToolsService {
   /**
    * List all available storage providers for testing
    */
-  listProviders(): unknown[] {
-    const providers = this.walletSdkService.getTestingProviders();
+  listProviders(network: Network = DEFAULT_NETWORK): unknown[] {
+    const providers = this.walletSdkService.getTestingProviders(network);
     this.logger.log({
       event: "providers_listed",
       message: "Listing available providers",
+      network,
       count: providers.length,
     });
     // Serialize BigInt values to strings for JSON response
@@ -69,15 +74,16 @@ export class DevToolsService {
    * Trigger a deal for a specific storage provider.
    * Returns immediately with deal ID - processing happens in background.
    */
-  async triggerDeal(spAddress: string): Promise<TriggerDealResponseDto> {
+  async triggerDeal(spAddress: string, network: Network = DEFAULT_NETWORK): Promise<TriggerDealResponseDto> {
     this.logger.log({
       event: "deal_trigger_requested",
       message: "Triggering deal for storage provider",
       spAddress,
+      network,
     });
 
     // Validate SP exists
-    const providerInfo = this.walletSdkService.getProviderInfo(spAddress);
+    const providerInfo = this.walletSdkService.getProviderInfo(spAddress, network);
     if (!providerInfo) {
       throw new NotFoundException(`Storage provider not found: ${spAddress}`);
     }
@@ -92,7 +98,8 @@ export class DevToolsService {
     // Create a pending deal record first so we can return the ID immediately
     const pendingDeal = this.dealRepository.create({
       spAddress,
-      walletAddress: this.dealService.getWalletAddress(),
+      network,
+      walletAddress: this.dealService.getWalletAddress(network),
       fileName: "pending",
       fileSize: 0,
       status: DealStatus.PENDING,
@@ -117,7 +124,7 @@ export class DevToolsService {
     });
 
     // Fire off the deal creation in the background (don't await)
-    this.processDealInBackground(dealId, providerInfo, dealLogContext).catch((err) => {
+    this.processDealInBackground(dealId, providerInfo, network, dealLogContext).catch((err) => {
       this.logger.error({
         ...dealLogContext,
         event: "background_deal_processing_failed",
@@ -144,6 +151,7 @@ export class DevToolsService {
   private async processDealInBackground(
     dealId: string,
     providerInfo: ReturnType<typeof this.walletSdkService.getProviderInfo>,
+    network: Network,
     dealLogContext: DealLogContext,
   ): Promise<void> {
     if (!providerInfo || providerInfo.id == null) {
@@ -151,8 +159,10 @@ export class DevToolsService {
     }
     try {
       const deal = await this.dealService.createDealForProvider(providerInfo, {
+        network,
         existingDealId: dealId,
         logContext: {
+          network,
           jobId: "dev_tools_manual_deal",
           providerAddress: providerInfo.serviceProvider,
           providerId: providerInfo.id,
@@ -220,13 +230,17 @@ export class DevToolsService {
   /**
    * Trigger data fetch for a deal by ID or most recent deal for an SP
    */
-  async triggerRetrieval(dealId?: string, spAddress?: string): Promise<TriggerRetrievalResponseDto> {
+  async triggerRetrieval(
+    dealId?: string,
+    spAddress?: string,
+    network: Network = DEFAULT_NETWORK,
+  ): Promise<TriggerRetrievalResponseDto> {
     if (!dealId && !spAddress) {
       throw new BadRequestException("Either dealId or spAddress must be provided");
     }
 
     // Find the deal
-    const deal = await this.findDeal(dealId, spAddress);
+    const deal = await this.findDeal(dealId, spAddress, network);
     const pieceCid = deal.pieceCid;
     if (!pieceCid) {
       throw new BadRequestException(`Deal ${deal.id} has no piece CID - cannot perform data fetch`);
@@ -296,7 +310,7 @@ export class DevToolsService {
   /**
    * Find a deal by ID or most recent deal for an SP
    */
-  private async findDeal(dealId?: string, spAddress?: string): Promise<Deal> {
+  private async findDeal(dealId?: string, spAddress?: string, network: Network = DEFAULT_NETWORK): Promise<Deal> {
     let deal: Deal | null = null;
 
     if (dealId) {
@@ -308,17 +322,17 @@ export class DevToolsService {
         throw new NotFoundException(`Deal not found: ${dealId}`);
       }
     } else if (spAddress) {
-      // Find most recent successful deal for this SP
+      // Find most recent successful deal for this SP on the given network
       deal = await this.dealRepository.findOne({
         where: [
-          { spAddress, status: DealStatus.DEAL_CREATED },
-          { spAddress, status: DealStatus.PIECE_ADDED },
+          { spAddress, network, status: DealStatus.DEAL_CREATED },
+          { spAddress, network, status: DealStatus.PIECE_ADDED },
         ],
         order: { createdAt: "DESC" },
       });
 
       if (!deal) {
-        throw new NotFoundException(`No successful deals found for SP: ${spAddress}`);
+        throw new NotFoundException(`No successful deals found for SP: ${spAddress} on network: ${network}`);
       }
     }
 

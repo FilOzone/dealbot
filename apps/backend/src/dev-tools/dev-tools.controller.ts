@@ -1,6 +1,6 @@
 import { Controller, Get, Logger, Param, Query, UsePipes, ValidationPipe } from "@nestjs/common";
 import { ApiOperation, ApiQuery, ApiResponse, ApiTags } from "@nestjs/swagger";
-import { DevToolsService } from "./dev-tools.service.js";
+import { DEFAULT_NETWORK, DevToolsService } from "./dev-tools.service.js";
 import { TriggerDealQueryDto, TriggerDealResponseDto } from "./dto/trigger-deal.dto.js";
 import { TriggerRetrievalQueryDto, TriggerRetrievalResponseDto } from "./dto/trigger-retrieval.dto.js";
 
@@ -13,18 +13,28 @@ export class DevToolsController {
 
   @Get("providers")
   @ApiOperation({ summary: "List available storage providers" })
+  @ApiQuery({
+    name: "network",
+    default: DEFAULT_NETWORK,
+    required: false,
+    description: "Network to query (mainnet or calibration, default: calibration)",
+    example: "calibration",
+    enum: ["mainnet", "calibration"],
+  })
   @ApiResponse({
     status: 200,
     description: "List of available storage providers for testing",
   })
-  listProviders() {
+  @UsePipes(new ValidationPipe({ transform: true }))
+  listProviders(@Query("network") network?: "mainnet" | "calibration") {
     this.logger.log({
       event: "api_request",
       message: "GET /api/dev/providers",
       endpoint: "/api/dev/providers",
       method: "GET",
+      network,
     });
-    return this.devToolsService.listProviders();
+    return this.devToolsService.listProviders(network);
   }
 
   @Get("deal")
@@ -34,6 +44,14 @@ export class DevToolsController {
     required: true,
     description: "Storage provider address",
     example: "0x1234567890abcdef1234567890abcdef12345678",
+  })
+  @ApiQuery({
+    name: "network",
+    default: DEFAULT_NETWORK,
+    required: false,
+    description: "Network to use (mainnet or calibration, default: calibration)",
+    example: "calibration",
+    enum: ["mainnet", "calibration"],
   })
   @ApiResponse({
     status: 200,
@@ -56,8 +74,9 @@ export class DevToolsController {
       endpoint: "/api/dev/deal",
       method: "GET",
       spAddress: query.spAddress,
+      network: query.network,
     });
-    return this.devToolsService.triggerDeal(query.spAddress);
+    return this.devToolsService.triggerDeal(query.spAddress, query.network);
   }
 
   @Get("deals/:dealId")
@@ -96,6 +115,14 @@ export class DevToolsController {
     description: "Storage provider address (uses most recent deal for this SP)",
     example: "0x1234567890abcdef1234567890abcdef12345678",
   })
+  @ApiQuery({
+    name: "network",
+    default: DEFAULT_NETWORK,
+    required: false,
+    description: "Network to query (mainnet or calibration, default: calibration)",
+    example: "calibration",
+    enum: ["mainnet", "calibration"],
+  })
   @ApiResponse({
     status: 200,
     description: "Test results",
@@ -118,7 +145,8 @@ export class DevToolsController {
       method: "GET",
       dealId: query.dealId,
       spAddress: query.spAddress,
+      network: query.network,
     });
-    return this.devToolsService.triggerRetrieval(query.dealId, query.spAddress);
+    return this.devToolsService.triggerRetrieval(query.dealId, query.spAddress, query.network);
   }
 }

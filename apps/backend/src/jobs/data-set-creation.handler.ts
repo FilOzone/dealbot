@@ -1,5 +1,6 @@
 import type { Logger } from "@nestjs/common";
 import type { DataSetLogContext, ProviderJobContext } from "../common/logging.js";
+import type { Network } from "../common/types.js";
 import type { DealService } from "../deal/deal.service.js";
 
 export interface DataSetCreationDeps {
@@ -23,6 +24,7 @@ export interface DataSetCreationDeps {
 export async function provisionNextMissingDataSet(
   deps: DataSetCreationDeps,
   spAddress: string,
+  network: Network,
   minDataSets: number,
   baseDataSetMetadata: Record<string, string>,
   dataSetLogContext: ProviderJobContext,
@@ -46,7 +48,7 @@ export async function provisionNextMissingDataSet(
     };
 
     // Check if data-set already exists by attempting to resolve its context
-    const exists = await dealService.checkDataSetExists(spAddress, metadata, signal);
+    const exists = await dealService.checkDataSetExists(spAddress, metadata, network, signal);
 
     if (exists) {
       existingCount++;
@@ -58,7 +60,7 @@ export async function provisionNextMissingDataSet(
       event: "creating_provisioned_data_set",
       message: "Creating provisioned data-set",
     });
-    await dealService.createDataSetWithPiece(spAddress, metadata, signal);
+    await dealService.createDataSetWithPiece(spAddress, metadata, network, signal);
     logger.log({
       ...logContext,
       event: "data_set_provisioning_progress",

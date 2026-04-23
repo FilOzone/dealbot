@@ -6,7 +6,7 @@ import * as path from "path";
 import { toStructuredError } from "../common/logging.js";
 import { writeWithBackpressure } from "../common/stream-utils.js";
 import type { DataFile } from "../common/types.js";
-import type { IConfig, IDatasetConfig } from "../config/app.config.js";
+import type { IConfig, IDatasetConfig } from "../config/types.js";
 
 @Injectable()
 export class DataSourceService {
