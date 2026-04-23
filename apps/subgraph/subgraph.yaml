@@ -6,11 +6,11 @@ schema:
 dataSources:
   - kind: ethereum
     name: PDPVerifier
-    network: filecoin-testnet
+    network: filecoin
     source:
       abi: PDPVerifier
-      address: "0x85e366Cf9DD2c0aE37E963d9556F5f4718d6417C"
-      startBlock: 3140755
+      address: "0xBADd0B92C1c71d02E7d520f64c0876538fa2557F"
+      startBlock: 5441432
     mapping:
       kind: ethereum/events
       apiVersion: 0.0.9
@@ -42,11 +42,11 @@ dataSources:
           handler: handleNextProvingPeriod
   - kind: ethereum
     name: FilecoinWarmStorageService
-    network: filecoin-testnet
+    network: filecoin
     source:
       abi: FilecoinWarmStorageService
-      address: "0x02925630df557F957f70E112bA06e50965417CA0"
-      startBlock: 3141276
+      address: "0x8408502033C418E1bbC97cE9ac48E5528F371A9f"
+      startBlock: 5459617
     mapping:
       kind: ethereum/events
       apiVersion: 0.0.9

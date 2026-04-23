@@ -4,6 +4,7 @@
   "license": "(MIT OR Apache-2.0)",
   "scripts": {
     "codegen": "graph codegen",
+    "build": "pnpm run build:mainnet",
     "build:mainnet": "graph codegen && graph build --network filecoin",
     "build:calibration": "graph codegen && graph build --network filecoin-testnet",
     "deploy:mainnet": "goldsky subgraph deploy dealbot-mainnet/$VERSION --path ./build",
