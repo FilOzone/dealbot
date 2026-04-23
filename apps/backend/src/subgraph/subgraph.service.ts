@@ -2,7 +2,7 @@ import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { toStructuredError } from "../common/logging.js";
 import type { IBlockchainConfig, IConfig } from "../config/app.config.js";
-import { Queries } from "./queries.js";
+import { buildSampleAnonPieceQuery, Queries } from "./queries.js";
 import type {
   AnonCandidatePiece,
   GraphQLResponse,
@@ -192,7 +192,7 @@ export class SubgraphService {
       return null;
     }
 
-    const query = params.pool === "indexed" ? Queries.SAMPLE_ANON_PIECE_INDEXED : Queries.SAMPLE_ANON_PIECE_ANY;
+    const query = buildSampleAnonPieceQuery(params.pool);
     const variables = {
       serviceProvider: params.serviceProvider.toLowerCase(),
       payer: params.payer.toLowerCase(),
