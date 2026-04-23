@@ -18,11 +18,22 @@ import { RetrievalService } from "../retrieval/retrieval.service.js";
 import { AnonRetrievalService } from "../retrieval-anon/anon-retrieval.service.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
 import { provisionNextMissingDataSet } from "./data-set-creation.handler.js";
-import { DATA_RETENTION_POLL_QUEUE, PROVIDERS_REFRESH_QUEUE, RETRIEVAL_ANON_QUEUE,SP_WORK_QUEUE } from "./job-queues.js";
+import {
+  DATA_RETENTION_POLL_QUEUE,
+  PROVIDERS_REFRESH_QUEUE,
+  RETRIEVAL_ANON_QUEUE,
+  SP_WORK_QUEUE,
+} from "./job-queues.js";
 import { JobScheduleRepository } from "./repositories/job-schedule.repository.js";
 
 type SpJobType = "deal" | "retrieval" | "data_set_creation" | "retrieval_anon" | "piece_cleanup";
-const SP_JOB_TYPES: ReadonlySet<string> = new Set<string>(["deal", "retrieval", "retrieval_anon", "data_set_creation", "piece_cleanup"]);
+const SP_JOB_TYPES: ReadonlySet<string> = new Set<string>([
+  "deal",
+  "retrieval",
+  "retrieval_anon",
+  "data_set_creation",
+  "piece_cleanup",
+]);
 
 function isSpJobType(jobType: string): jobType is SpJobType {
   return SP_JOB_TYPES.has(jobType);
@@ -30,7 +41,6 @@ function isSpJobType(jobType: string): jobType is SpJobType {
 
 type SpJobData = { jobType: SpJobType; spAddress: string; intervalSeconds: number };
 type AnonRetrievalJobData = { spAddress: string; intervalSeconds: number };
-type MetricsJobData = { intervalSeconds: number };
 type ProvidersRefreshJobData = { intervalSeconds: number };
 type SpJob = Job<SpJobData>;
 type DataRetentionJobData = { intervalSeconds: number };
@@ -906,7 +916,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
 
   private async deferJobForMaintenance(
     jobType: SpJobType,
-    data: SpJobData | AnonRetrievalJobData,
+    data: SpJobData,
     maintenance: ReturnType<typeof getMaintenanceWindowStatus>,
     now: Date,
   ): Promise<void> {
@@ -914,8 +924,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     if (resumeAt == null) {
       return;
     }
-    const queueName = jobType === "retrieval_anon" ? RETRIEVAL_ANON_QUEUE : SP_WORK_QUEUE;
-    await this.safeSend(jobType, queueName, data, { startAfter: resumeAt });
+    await this.safeSend(jobType, SP_WORK_QUEUE, data, { startAfter: resumeAt });
   }
 
   /**
@@ -1238,11 +1247,14 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
   }
 
   private mapJobPayload(row: ScheduleRow): SpJobData | ProvidersRefreshJobData | DataRetentionJobData {
-    if (row.job_type === "deal" || row.job_type === "retrieval" || row.job_type === "data_set_creation" || row.job_type === "piece_cleanup") {
+    if (
+      row.job_type === "deal" ||
+      row.job_type === "retrieval" ||
+      row.job_type === "retrieval_anon" ||
+      row.job_type === "data_set_creation" ||
+      row.job_type === "piece_cleanup"
+    ) {
       return { jobType: row.job_type, spAddress: row.sp_address, intervalSeconds: row.interval_seconds };
-    }
-    if (row.job_type === "retrieval_anon") {
-      return { spAddress: row.sp_address, intervalSeconds: row.interval_seconds };
     }
     return { intervalSeconds: row.interval_seconds };
   }
@@ -1261,7 +1273,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       // Disable retries so "attempted" jobs don't rerun; failures are handled by the next schedule tick.
       const finalOptions: SendOptions = { retryLimit: 0, ...options };
       if (isSpJobType(jobType)) {
-        const spData = data as { spAddress: string };
+        const spData = data as SpJobData;
         if (!finalOptions.singletonKey) {
           finalOptions.singletonKey = spData.spAddress;
         }
