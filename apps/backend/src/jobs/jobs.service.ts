@@ -660,7 +660,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
 
     // Create AbortController for job timeout enforcement
     const abortController = new AbortController();
-    const timeoutSeconds = this.configService.get("jobs").retrievalJobTimeoutSeconds;
+    const timeoutSeconds = this.configService.get("jobs").anonRetrievalJobTimeoutSeconds;
     const timeoutMs = Math.max(60000, timeoutSeconds * 1000);
     const effectiveTimeoutSeconds = Math.round(timeoutMs / 1000);
     const abortReason = new Error(`Anon retrieval job timeout (${effectiveTimeoutSeconds}s) for ${spAddress}`);
