@@ -42,9 +42,29 @@ describe("ProvidersService", () => {
 
     await service.getProvidersList();
 
-    expect(queryBuilder.andWhere).toHaveBeenCalledWith("sp.providerId NOT IN (:...blockedIds)", { blockedIds: [123n] });
-    expect(queryBuilder.andWhere).toHaveBeenCalledWith("sp.address NOT IN (:...blockedAddresses)", {
+    expect(queryBuilder.andWhere).toHaveBeenCalledWith(
+      '("sp"."providerId" IS NULL OR "sp"."providerId" NOT IN (:...blockedIds))',
+      { blockedIds: [123n] },
+    );
+    expect(queryBuilder.andWhere).toHaveBeenCalledWith('LOWER("sp"."address") NOT IN (:...blockedAddresses)', {
       blockedAddresses: ["f0123"],
     });
+  });
+
+  it("getProvidersList preserves providers with null providerId when applying blocklist filters", async () => {
+    const queryBuilder = repo.createQueryBuilder();
+    repo.createQueryBuilder.mockReturnValue(queryBuilder);
+
+    await service.getProvidersList();
+
+    const providerIdFilterCall = queryBuilder.andWhere.mock.calls.find(
+      ([clause]: [string, { blockedIds?: bigint[] }]) =>
+        typeof clause === "string" && clause.includes('"sp"."providerId"'),
+    );
+
+    expect(providerIdFilterCall).toBeDefined();
+    expect(providerIdFilterCall?.[0]).toContain('("sp"."providerId" IS NULL');
+    expect(providerIdFilterCall?.[0]).toContain('"sp"."providerId" NOT IN');
+    expect(providerIdFilterCall?.[1]).toEqual({ blockedIds: [123n] });
   });
 });

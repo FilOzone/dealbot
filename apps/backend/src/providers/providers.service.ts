@@ -51,12 +51,14 @@ export class ProvidersService {
         .filter((id): id is bigint => id !== null);
 
       if (blockedIds.length > 0) {
-        query.andWhere("sp.providerId NOT IN (:...blockedIds)", { blockedIds });
+        query.andWhere('("sp"."providerId" IS NULL OR "sp"."providerId" NOT IN (:...blockedIds))', {
+          blockedIds,
+        });
       }
     }
 
     if (blocklists.addresses.size > 0) {
-      query.andWhere("sp.address NOT IN (:...blockedAddresses)", {
+      query.andWhere('LOWER("sp"."address") NOT IN (:...blockedAddresses)', {
         blockedAddresses: Array.from(blocklists.addresses),
       });
     }
