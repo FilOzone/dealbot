@@ -1,7 +1,7 @@
 import { ConfigService } from "@nestjs/config";
 import { Test } from "@nestjs/testing";
 import { getRepositoryToken } from "@nestjs/typeorm";
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
 import { ProvidersService } from "./providers.service.js";
 
@@ -42,13 +42,9 @@ describe("ProvidersService", () => {
 
     await service.getProvidersList();
 
-    expect(queryBuilder.andWhere).toHaveBeenCalledWith(
-      "sp.providerId NOT IN (:...blockedIds)",
-      { blockedIds: [123n] }
-    );
-    expect(queryBuilder.andWhere).toHaveBeenCalledWith(
-      "sp.address NOT IN (:...blockedAddresses)",
-      { blockedAddresses: ["f0123"] }
-    );
+    expect(queryBuilder.andWhere).toHaveBeenCalledWith("sp.providerId NOT IN (:...blockedIds)", { blockedIds: [123n] });
+    expect(queryBuilder.andWhere).toHaveBeenCalledWith("sp.address NOT IN (:...blockedAddresses)", {
+      blockedAddresses: ["f0123"],
+    });
   });
 });
