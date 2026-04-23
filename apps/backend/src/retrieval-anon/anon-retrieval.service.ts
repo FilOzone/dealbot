@@ -11,7 +11,7 @@ import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
 import { AnonPieceSelectorService } from "./anon-piece-selector.service.js";
 import { CarValidationService } from "./car-validation.service.js";
 import { PieceRetrievalService } from "./piece-retrieval.service.js";
-import type { CarValidationResult } from "./types.js";
+import type { CarValidationResult, PieceRetrievalResult } from "./types.js";
 
 @Injectable()
 export class AnonRetrievalService {
@@ -70,65 +70,104 @@ export class AnonRetrievalService {
     const checkStart = Date.now();
     const startedAt = new Date();
 
-    // 2. Fetch the piece
-    signal?.throwIfAborted();
-    const pieceResult = await this.pieceRetrievalService.fetchPiece(spAddress, piece.pieceCid, signal);
-
-    // Emit piece retrieval metrics
-    this.metrics.observeFirstByteMs(labels, pieceResult.ttfbMs);
-    this.metrics.observeLastByteMs(labels, pieceResult.latencyMs);
-    this.metrics.observeThroughput(labels, pieceResult.throughputBps);
-    this.metrics.recordHttpResponseCode(labels, pieceResult.statusCode);
-
-    // 3. CAR validation (only if piece was successfully retrieved and has IPFS indexing)
+    let pieceResult: PieceRetrievalResult | null = null;
     let carResult: CarValidationResult | null = null;
-    if (pieceResult.success && piece.withIPFSIndexing && piece.ipfsRootCid && pieceResult.pieceBytes && provider) {
-      signal?.throwIfAborted();
-      try {
-        carResult = await this.carValidationService.validateCarPiece(
-          pieceResult.pieceBytes,
-          provider,
-          piece.ipfsRootCid,
-          signal,
-        );
-      } catch (error) {
-        this.logger.warn({
-          ...logContext,
-          event: "anon_retrieval_car_validation_failed",
-          message: "CAR validation threw an error",
-          pieceCid: piece.pieceCid,
-          spAddress,
-          error: toStructuredError(error),
-        });
+    let saved: AnonRetrieval | null = null;
+
+    try {
+      // 2. Fetch the piece. fetchPiece never throws on abort — it returns a
+      // result with partial metrics so we can persist what we have.
+      if (signal?.aborted) {
+        pieceResult = buildAbortedPlaceholder(piece.pieceCid, signal.reason);
+      } else {
+        pieceResult = await this.pieceRetrievalService.fetchPiece(spAddress, piece.pieceCid, signal);
       }
+
+      // Emit piece retrieval metrics
+      this.metrics.observeFirstByteMs(labels, pieceResult.ttfbMs);
+      this.metrics.observeLastByteMs(labels, pieceResult.latencyMs);
+      this.metrics.observeThroughput(labels, pieceResult.throughputBps);
+      this.metrics.recordHttpResponseCode(labels, pieceResult.statusCode);
+
+      // 3. CAR validation (only if piece was successfully retrieved and has IPFS indexing)
+      if (
+        pieceResult.success &&
+        piece.withIPFSIndexing &&
+        piece.ipfsRootCid &&
+        pieceResult.pieceBytes &&
+        provider &&
+        !signal?.aborted
+      ) {
+        try {
+          carResult = await this.carValidationService.validateCarPiece(
+            pieceResult.pieceBytes,
+            provider,
+            piece.ipfsRootCid,
+            signal,
+          );
+        } catch (error) {
+          this.logger.warn({
+            ...logContext,
+            event: "anon_retrieval_car_validation_failed",
+            message: "CAR validation threw an error",
+            pieceCid: piece.pieceCid,
+            spAddress,
+            error: toStructuredError(error),
+          });
+        }
+      }
+
+      // Emit CAR validation metrics
+      if (carResult) {
+        this.metrics.recordCarParseStatus(labels, carResult.carParseable);
+        this.metrics.recordIpniStatus(
+          labels,
+          carResult.ipniValid === null ? "skipped" : carResult.ipniValid ? "valid" : "invalid",
+        );
+        this.metrics.recordBlockFetchStatus(
+          labels,
+          carResult.blockFetchValid === null ? "skipped" : carResult.blockFetchValid ? "valid" : "invalid",
+        );
+      } else if (!pieceResult.success) {
+        // Piece retrieval failed — IPNI and block fetch were skipped
+        this.metrics.recordIpniStatus(labels, "skipped");
+        this.metrics.recordBlockFetchStatus(labels, "skipped");
+      }
+
+      // Overall check duration and status
+      this.metrics.observeCheckDuration(labels, Date.now() - checkStart);
+      this.metrics.recordStatus(
+        labels,
+        pieceResult.success ? "success" : pieceResult.aborted ? "failure.aborted" : "failure.http",
+      );
+    } finally {
+      // Always save a record — even on abort or unexpected error — so we never
+      // lose the evidence (ttfb, bytes, response code) we already collected.
+      pieceResult ??= buildAbortedPlaceholder(piece.pieceCid, signal?.reason);
+      saved = await this.saveRetrievalRecord(spAddress, piece, pieceResult, carResult, startedAt, logContext);
     }
 
-    // Emit CAR validation metrics
-    if (carResult) {
-      this.metrics.recordCarParseStatus(labels, carResult.carParseable);
-      this.metrics.recordIpniStatus(
-        labels,
-        carResult.ipniValid === null ? "skipped" : carResult.ipniValid ? "valid" : "invalid",
-      );
-      this.metrics.recordBlockFetchStatus(
-        labels,
-        carResult.blockFetchValid === null ? "skipped" : carResult.blockFetchValid ? "valid" : "invalid",
-      );
-    } else if (!pieceResult.success) {
-      // Piece retrieval failed — IPNI and block fetch were skipped
-      this.metrics.recordIpniStatus(labels, "skipped");
-      this.metrics.recordBlockFetchStatus(labels, "skipped");
-    }
+    return saved;
+  }
 
-    // Overall check duration and status
-    this.metrics.observeCheckDuration(labels, Date.now() - checkStart);
-    this.metrics.recordStatus(labels, pieceResult.success ? "success" : "failure.http");
-
-    // 4. Build the SP base URL for the retrieval endpoint
+  private async saveRetrievalRecord(
+    spAddress: string,
+    piece: {
+      pieceCid: string;
+      dataSetId: string;
+      pieceId: string;
+      rawSize: string;
+      withIPFSIndexing: boolean;
+      ipfsRootCid: string | null;
+    },
+    pieceResult: PieceRetrievalResult,
+    carResult: CarValidationResult | null,
+    startedAt: Date,
+    logContext?: ProviderJobContext,
+  ): Promise<AnonRetrieval | null> {
     const providerInfo = this.walletSdkService.getProviderInfo(spAddress);
     const spBaseUrl = providerInfo?.pdp.serviceURL.replace(/\/$/, "") ?? spAddress;
 
-    // 5. Save retrieval record
     const retrieval = this.anonRetrievalRepository.create({
       spAddress,
       pieceCid: piece.pieceCid,
@@ -142,12 +181,12 @@ export class AnonRetrievalService {
       status: pieceResult.success ? RetrievalStatus.SUCCESS : RetrievalStatus.FAILED,
       startedAt,
       completedAt: new Date(),
-      latencyMs: Math.round(pieceResult.latencyMs),
-      ttfbMs: Math.round(pieceResult.ttfbMs),
-      throughputBps: Math.round(pieceResult.throughputBps),
-      bytesRetrieved: pieceResult.bytesReceived,
-      responseCode: pieceResult.statusCode,
-      errorMessage: pieceResult.errorMessage,
+      latencyMs: pieceResult.latencyMs > 0 ? Math.round(pieceResult.latencyMs) : null,
+      ttfbMs: pieceResult.ttfbMs > 0 ? Math.round(pieceResult.ttfbMs) : null,
+      throughputBps: pieceResult.throughputBps > 0 ? Math.round(pieceResult.throughputBps) : null,
+      bytesRetrieved: pieceResult.bytesReceived > 0 ? pieceResult.bytesReceived : null,
+      responseCode: pieceResult.statusCode > 0 ? pieceResult.statusCode : null,
+      errorMessage: pieceResult.errorMessage ?? null,
       commpValid: pieceResult.success ? pieceResult.commPValid : null,
       carValid: carResult ? carResult.ipniValid !== false && carResult.blockFetchValid !== false : null,
     });
@@ -163,6 +202,7 @@ export class AnonRetrievalService {
         spAddress,
         error: toStructuredError(error),
       });
+      return null;
     }
 
     this.logger.log({
@@ -172,7 +212,10 @@ export class AnonRetrievalService {
       pieceCid: piece.pieceCid,
       spAddress,
       success: pieceResult.success,
+      aborted: pieceResult.aborted === true,
       latencyMs: pieceResult.latencyMs,
+      ttfbMs: pieceResult.ttfbMs,
+      bytesRetrieved: pieceResult.bytesReceived,
       carParseable: carResult?.carParseable,
       ipniValid: carResult?.ipniValid,
       blockFetchValid: carResult?.blockFetchValid,
@@ -180,4 +223,22 @@ export class AnonRetrievalService {
 
     return retrieval;
   }
+}
+
+function buildAbortedPlaceholder(pieceCid: string, reason: unknown): PieceRetrievalResult {
+  const message =
+    reason instanceof Error && reason.message ? reason.message : typeof reason === "string" ? reason : "aborted";
+  return {
+    success: false,
+    pieceCid,
+    bytesReceived: 0,
+    pieceBytes: null,
+    latencyMs: 0,
+    ttfbMs: 0,
+    throughputBps: 0,
+    statusCode: 0,
+    commPValid: false,
+    errorMessage: message,
+    aborted: true,
+  };
 }

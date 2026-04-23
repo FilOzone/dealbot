@@ -127,8 +127,9 @@ export const configValidationSchema = Joi.object({
 
   // Timeouts (in milliseconds)
   CONNECT_TIMEOUT_MS: Joi.number().min(1000).default(10000), // 10 seconds to establish connection/receive headers
-  HTTP_REQUEST_TIMEOUT_MS: Joi.number().min(1000).default(240000), // 4 minutes total for HTTP requests (10MiB @ 170KB/s + overhead)
-  HTTP2_REQUEST_TIMEOUT_MS: Joi.number().min(1000).default(240000), // 4 minutes total for HTTP/2 requests (10MiB @ 170KB/s + overhead)
+  // Defaults intentionally omitted so loadConfig can derive them from the longest job timeout.
+  HTTP_REQUEST_TIMEOUT_MS: Joi.number().min(1000).optional(),
+  HTTP2_REQUEST_TIMEOUT_MS: Joi.number().min(1000).optional(),
   IPNI_VERIFICATION_TIMEOUT_MS: Joi.number().min(1000).default(60000), // 60 seconds max time to wait for IPNI verification
   IPNI_VERIFICATION_POLLING_MS: Joi.number().min(250).default(2000), // 2 seconds between IPNI verification polls
 
@@ -336,6 +337,43 @@ export interface IConfig {
 }
 
 export function loadConfig(): IConfig {
+  const jobTimeoutSeconds = {
+    deal: Number.parseInt(process.env.DEAL_JOB_TIMEOUT_SECONDS || "360", 10),
+    retrieval: Number.parseInt(process.env.RETRIEVAL_JOB_TIMEOUT_SECONDS || "60", 10),
+    anonRetrieval: Number.parseInt(process.env.ANON_RETRIEVAL_JOB_TIMEOUT_SECONDS || "360", 10),
+    dataSetCreation: Number.parseInt(process.env.DATA_SET_CREATION_JOB_TIMEOUT_SECONDS || "300", 10),
+    pieceCleanup: Number.parseInt(process.env.MAX_PIECE_CLEANUP_RUNTIME_SECONDS || "300", 10),
+  };
+
+  // HTTP-level request timeouts default to the longest job timeout so the
+  // per-request ceiling never caps below the per-job budget. Any job-scoped
+  // AbortSignal fires first and is authoritative; the HTTP timer only kicks
+  // in for callers that do not pass a parent signal.
+  const longestJobTimeoutMs = Math.max(...Object.values(jobTimeoutSeconds)) * 1000;
+
+  const httpRequestTimeoutMs = Number.parseInt(process.env.HTTP_REQUEST_TIMEOUT_MS || String(longestJobTimeoutMs), 10);
+  const http2RequestTimeoutMs = Number.parseInt(
+    process.env.HTTP2_REQUEST_TIMEOUT_MS || String(longestJobTimeoutMs),
+    10,
+  );
+
+  // Misconfiguration guard: if someone explicitly sets an HTTP timeout below
+  // the longest job timeout, the HTTP-level timer will abort in-flight work
+  // before the job signal has a chance to report it. Warn loudly so this is
+  // caught at boot rather than inferred from short-timeout incidents later.
+  for (const [name, value] of [
+    ["HTTP_REQUEST_TIMEOUT_MS", httpRequestTimeoutMs],
+    ["HTTP2_REQUEST_TIMEOUT_MS", http2RequestTimeoutMs],
+  ] as const) {
+    if (value < longestJobTimeoutMs) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[config] ${name}=${value}ms is lower than the longest job timeout (${longestJobTimeoutMs}ms). ` +
+          `HTTP requests may abort before the job signal fires, producing short, unexplained timeouts.`,
+      );
+    }
+  }
+
   return {
     app: {
       env: process.env.NODE_ENV || "development",
@@ -400,15 +438,15 @@ export function loadConfig(): IConfig {
       catchupMaxEnqueue: Number.parseInt(process.env.JOB_CATCHUP_MAX_ENQUEUE || "10", 10),
       schedulePhaseSeconds: Number.parseInt(process.env.JOB_SCHEDULE_PHASE_SECONDS || "0", 10),
       enqueueJitterSeconds: Number.parseInt(process.env.JOB_ENQUEUE_JITTER_SECONDS || "0", 10),
-      dealJobTimeoutSeconds: Number.parseInt(process.env.DEAL_JOB_TIMEOUT_SECONDS || "360", 10),
-      retrievalJobTimeoutSeconds: Number.parseInt(process.env.RETRIEVAL_JOB_TIMEOUT_SECONDS || "60", 10),
-      anonRetrievalJobTimeoutSeconds: Number.parseInt(process.env.ANON_RETRIEVAL_JOB_TIMEOUT_SECONDS || "360", 10),
+      dealJobTimeoutSeconds: jobTimeoutSeconds.deal,
+      retrievalJobTimeoutSeconds: jobTimeoutSeconds.retrieval,
+      anonRetrievalJobTimeoutSeconds: jobTimeoutSeconds.anonRetrieval,
       retrievalsAnonPerSpPerHour: Number.parseFloat(
         process.env.RETRIEVALS_ANON_PER_SP_PER_HOUR || process.env.RETRIEVALS_PER_SP_PER_HOUR || "2",
       ),
-      dataSetCreationJobTimeoutSeconds: Number.parseInt(process.env.DATA_SET_CREATION_JOB_TIMEOUT_SECONDS || "300", 10),
+      dataSetCreationJobTimeoutSeconds: jobTimeoutSeconds.dataSetCreation,
       pieceCleanupPerSpPerHour: Number.parseFloat(process.env.JOB_PIECE_CLEANUP_PER_SP_PER_HOUR || String(1 / 24)),
-      maxPieceCleanupRuntimeSeconds: Number.parseInt(process.env.MAX_PIECE_CLEANUP_RUNTIME_SECONDS || "300", 10),
+      maxPieceCleanupRuntimeSeconds: jobTimeoutSeconds.pieceCleanup,
     },
     dataset: {
       localDatasetsPath: process.env.DEALBOT_LOCAL_DATASETS_PATH || DEFAULT_LOCAL_DATASETS_PATH,
@@ -430,8 +468,8 @@ export function loadConfig(): IConfig {
     },
     timeouts: {
       connectTimeoutMs: Number.parseInt(process.env.CONNECT_TIMEOUT_MS || "10000", 10),
-      httpRequestTimeoutMs: Number.parseInt(process.env.HTTP_REQUEST_TIMEOUT_MS || "240000", 10),
-      http2RequestTimeoutMs: Number.parseInt(process.env.HTTP2_REQUEST_TIMEOUT_MS || "240000", 10),
+      httpRequestTimeoutMs,
+      http2RequestTimeoutMs,
       ipniVerificationTimeoutMs: Number.parseInt(process.env.IPNI_VERIFICATION_TIMEOUT_MS || "60000", 10),
       ipniVerificationPollingMs: Number.parseInt(process.env.IPNI_VERIFICATION_POLLING_MS || "2000", 10),
     },

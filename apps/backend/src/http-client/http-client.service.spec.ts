@@ -85,4 +85,52 @@ describe("HttpClientService", () => {
 
     await assertion;
   });
+
+  it("returns partial bytes and metrics when HTTP/2 download is aborted after headers", async () => {
+    const service = await createService();
+
+    const parentAbort = new AbortController();
+
+    async function* abortingBody() {
+      yield Buffer.from("hello");
+      yield Buffer.from(" world");
+      // Simulate an abort mid-stream after two chunks.
+      parentAbort.abort(new Error("Anon retrieval job timeout (60s) for sp1"));
+      throw new Error("aborted");
+    }
+
+    undiciRequestMock.mockImplementationOnce(async () => ({
+      statusCode: 200,
+      body: abortingBody(),
+    }));
+
+    const result = await service.requestWithMetrics<Buffer>("http://example.com/piece", {
+      httpVersion: "2",
+      signal: parentAbort.signal,
+    });
+
+    expect(result.aborted).toBe(true);
+    expect(result.abortReason).toContain("timeout");
+    expect(result.metrics.statusCode).toBe(200);
+    expect(result.metrics.responseSize).toBe(11);
+    expect(Buffer.isBuffer(result.data) ? result.data.toString() : "").toBe("hello world");
+  });
+
+  it("rethrows non-abort download errors on HTTP/2", async () => {
+    const service = await createService();
+
+    async function* brokenBody() {
+      yield Buffer.from("partial");
+      throw new Error("network reset");
+    }
+
+    undiciRequestMock.mockImplementationOnce(async () => ({
+      statusCode: 200,
+      body: brokenBody(),
+    }));
+
+    await expect(service.requestWithMetrics<Buffer>("http://example.com/piece", { httpVersion: "2" })).rejects.toThrow(
+      "network reset",
+    );
+  });
 });

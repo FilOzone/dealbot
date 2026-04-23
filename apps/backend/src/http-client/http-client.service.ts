@@ -115,8 +115,15 @@ export class HttpClientService {
       statusCode = response.statusCode;
 
       const chunks: Buffer[] = [];
-      for await (const chunk of response.body) {
-        chunks.push(Buffer.from(chunk));
+      let downloadError: unknown;
+      try {
+        for await (const chunk of response.body) {
+          chunks.push(Buffer.from(chunk));
+        }
+      } catch (error) {
+        // Download-phase failures (e.g. abort signal) fall through so we can
+        // return the partial buffer + metrics collected so far.
+        downloadError = error;
       }
       const dataBuffer = Buffer.concat(chunks);
 
@@ -132,6 +139,29 @@ export class HttpClientService {
         timestamp: new Date(),
         httpVersion: "2",
       };
+
+      if (downloadError !== undefined) {
+        const aborted = options.signal?.aborted === true || isAbortLikeError(downloadError);
+        if (!aborted) {
+          throw downloadError;
+        }
+        const abortReason = describeAbortReason(options.signal, downloadError);
+        this.logger.warn({
+          event: "http2_download_aborted",
+          message: "HTTP/2 download aborted after headers; returning partial data",
+          url,
+          bytesReceived: dataBuffer.length,
+          totalTime: metrics.totalTime,
+          ttfb: metrics.ttfb,
+          abortReason,
+        });
+        return {
+          data: dataBuffer as T,
+          metrics,
+          aborted: true,
+          abortReason,
+        };
+      }
 
       return {
         data: dataBuffer as T,
@@ -275,4 +305,19 @@ export class HttpClientService {
       connectTimeoutSignal,
     };
   }
+}
+
+function isAbortLikeError(error: unknown): boolean {
+  if (error instanceof Error) {
+    return error.name === "AbortError" || error.name === "TimeoutError" || /abort/i.test(error.message);
+  }
+  return false;
+}
+
+function describeAbortReason(signal: AbortSignal | undefined, fallback: unknown): string {
+  const reason = signal?.reason;
+  if (reason instanceof Error && reason.message) return reason.message;
+  if (typeof reason === "string" && reason.length > 0) return reason;
+  if (fallback instanceof Error && fallback.message) return fallback.message;
+  return "aborted";
 }

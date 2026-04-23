@@ -21,6 +21,7 @@ export type PieceRetrievalResult = {
   statusCode: number;
   commPValid: boolean;
   errorMessage?: string;
+  aborted?: boolean;
 };
 
 /** Result of CAR validation. */

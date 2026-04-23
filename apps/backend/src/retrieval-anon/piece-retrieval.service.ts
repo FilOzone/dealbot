@@ -50,6 +50,34 @@ export class PieceRetrievalService {
 
       const { metrics } = result;
       const isSuccess = metrics.statusCode >= 200 && metrics.statusCode < 300;
+      const throughputBps = metrics.totalTime > 0 ? metrics.responseSize / (metrics.totalTime / 1000) : 0;
+
+      if (result.aborted) {
+        this.logger.warn({
+          event: "piece_fetch_aborted",
+          message: "Piece fetch aborted mid-download; returning partial metrics",
+          url,
+          pieceCid,
+          spAddress,
+          bytesReceived: metrics.responseSize,
+          ttfbMs: metrics.ttfb,
+          abortReason: result.abortReason,
+        });
+
+        return {
+          success: false,
+          pieceCid,
+          bytesReceived: metrics.responseSize,
+          pieceBytes: null,
+          latencyMs: metrics.totalTime,
+          ttfbMs: metrics.ttfb,
+          throughputBps,
+          statusCode: metrics.statusCode,
+          commPValid: false,
+          errorMessage: result.abortReason ?? "aborted",
+          aborted: true,
+        };
+      }
 
       if (!isSuccess) {
         this.logger.warn({
@@ -68,7 +96,7 @@ export class PieceRetrievalService {
           pieceBytes: null,
           latencyMs: metrics.totalTime,
           ttfbMs: metrics.ttfb,
-          throughputBps: metrics.totalTime > 0 ? metrics.responseSize / (metrics.totalTime / 1000) : 0,
+          throughputBps,
           statusCode: metrics.statusCode,
           commPValid: false,
           errorMessage: `HTTP ${metrics.statusCode}`,
@@ -77,7 +105,6 @@ export class PieceRetrievalService {
 
       const pieceBytes = Buffer.isBuffer(result.data) ? result.data : Buffer.from(result.data);
       const commPValid = await this.validateCommP(pieceBytes, pieceCid);
-      const throughputBps = metrics.totalTime > 0 ? metrics.responseSize / (metrics.totalTime / 1000) : 0;
 
       this.logger.debug({
         event: "piece_fetch_success",
@@ -101,12 +128,14 @@ export class PieceRetrievalService {
         commPValid,
       };
     } catch (error) {
+      const aborted = signal?.aborted === true;
       this.logger.warn({
         event: "piece_fetch_failed",
         message: "Piece fetch threw an error",
         url,
         pieceCid,
         spAddress,
+        aborted,
         error: toStructuredError(error),
       });
 
@@ -121,6 +150,7 @@ export class PieceRetrievalService {
         statusCode: 0,
         commPValid: false,
         errorMessage: error instanceof Error ? error.message : String(error),
+        aborted,
       };
     }
   }
