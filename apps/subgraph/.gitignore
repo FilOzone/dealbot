@@ -1,0 +1,17 @@
+# graph-cli outputs
+build/
+generated/
+
+# Node dependencies
+node_modules/
+
+# Goldsky deploy artifacts
+.goldsky/
+
+# Test outputs
+coverage/
+tests/.bin/
+tests/.latest.json
+
+# Editor / OS
+.DS_Store
