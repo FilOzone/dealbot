@@ -28,12 +28,4 @@ if (typeof window !== "undefined") {
   };
 }
 
-Object.defineProperty(import.meta, "env", {
-  value: {
-    VITE_API_BASE_URL: "",
-  },
-  writable: true,
-  configurable: true,
-});
-
 export {};

@@ -13,6 +13,7 @@ describe("NetworkSwitcher", () => {
       http.get(configUrl, () =>
         HttpResponse.json({
           network: "mainnet",
+          jobs: {},
         }),
       ),
     );
@@ -32,6 +33,7 @@ describe("NetworkSwitcher", () => {
       http.get(configUrl, () =>
         HttpResponse.json({
           network: "calibration",
+          jobs: {},
         }),
       ),
     );
@@ -83,6 +85,7 @@ describe("NetworkSwitcher", () => {
       http.get(configUrl, () =>
         HttpResponse.json({
           network: "mainnet",
+          jobs: {},
         }),
       ),
     );
@@ -103,6 +106,7 @@ describe("NetworkSwitcher", () => {
       http.get(configUrl, () =>
         HttpResponse.json({
           network: "calibration",
+          jobs: {},
         }),
       ),
     );
@@ -124,6 +128,7 @@ describe("NetworkSwitcher", () => {
       http.get(configUrl, () =>
         HttpResponse.json({
           network: "mainnet",
+          jobs: {},
         }),
       ),
     );
