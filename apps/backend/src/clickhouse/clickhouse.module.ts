@@ -6,13 +6,18 @@ import { ClickhouseService } from "./clickhouse.service.js";
 @Module({
   providers: [
     makeHistogramProvider({
-      name: "clickhouseFlushDurationMs",
-      help: "Round-trip time of each ClickHouse flush call in milliseconds",
-      buckets: [1, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000],
+      name: "clickhouseFlushDurationSeconds",
+      help: "Round-trip time of each ClickHouse flush call in seconds",
+      buckets: [0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5],
     }),
     makeCounterProvider({
       name: "clickhouseFlushErrorsTotal",
       help: "Number of failed ClickHouse flush attempts; non-zero means rows were dropped",
+    }),
+    makeCounterProvider({
+      name: "clickhouseDroppedRowsTotal",
+      help: "Rows silently dropped due to flush failure or buffer overflow, by reason",
+      labelNames: ["reason"] as const,
     }),
     makeGaugeProvider({
       name: "clickhouseBufferRows",

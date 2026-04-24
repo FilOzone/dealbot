@@ -20,10 +20,11 @@ export class ClickhouseService implements OnModuleInit, OnApplicationShutdown {
   private flushTimer: NodeJS.Timeout | null = null;
 
   constructor(
-    @InjectMetric("clickhouseFlushDurationMs") private readonly flushDuration: Histogram,
+    @InjectMetric("clickhouseFlushDurationSeconds") private readonly flushDuration: Histogram,
     @InjectMetric("clickhouseFlushErrorsTotal") private readonly flushErrors: Counter,
     @InjectMetric("clickhouseBufferRows") private readonly bufferRows: Gauge,
     @InjectMetric("clickhouseRowsInsertedTotal") private readonly rowsInserted: Counter,
+    @InjectMetric("clickhouseDroppedRowsTotal") private readonly droppedRows: Counter,
     private readonly configService: ConfigService<IConfig, true>,
   ) {
     this.config = this.configService.get("clickhouse", { infer: true });
@@ -89,6 +90,11 @@ export class ClickhouseService implements OnModuleInit, OnApplicationShutdown {
   insert(table: string, row: Record<string, unknown>): void {
     if (!this.client) return;
 
+    if (this.buffer.length >= this.config.maxBufferSize) {
+      this.buffer.shift();
+      this.droppedRows.inc({ reason: "buffer_full" });
+    }
+
     this.buffer.push({ table, row });
     this.bufferRows.set(this.buffer.length);
 
@@ -102,8 +108,8 @@ export class ClickhouseService implements OnModuleInit, OnApplicationShutdown {
   private async flush(): Promise<void> {
     if (!this.client || this.buffer.length === 0) return;
 
-    const batch = this.buffer.splice(0, this.buffer.length);
-    this.bufferRows.set(0);
+    const n = this.buffer.length;
+    const batch = this.buffer.slice(0, n);
 
     // Group by table so we can do one insert call per table
     const byTable = new Map<string, Record<string, unknown>[]>();
@@ -128,15 +134,17 @@ export class ClickhouseService implements OnModuleInit, OnApplicationShutdown {
           this.rowsInserted.inc({ table }, rows.length);
         }),
       );
-      end();
+      this.buffer.splice(0, n);
+      this.bufferRows.set(this.buffer.length);
     } catch (err) {
-      end();
       this.flushErrors.inc();
       this.logger.error({
         event: "flush_failed",
         error: String(err),
-        droppedRows: batch.length,
+        pendingRows: n,
       });
+    } finally {
+      end();
     }
   }
 

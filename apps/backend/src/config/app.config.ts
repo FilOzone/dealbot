@@ -103,6 +103,7 @@ export const configValidationSchema = Joi.object({
   CLICKHOUSE_URL: Joi.string().uri().optional(),
   CLICKHOUSE_BATCH_SIZE: Joi.number().integer().min(1).default(500),
   CLICKHOUSE_FLUSH_INTERVAL_MS: Joi.number().integer().min(100).default(5000),
+  CLICKHOUSE_MAX_BUFFER_SIZE: Joi.number().integer().min(1).default(5000),
   DEALBOT_PROBE_LOCATION: Joi.string().default("unknown"),
 
   // Timeouts (in milliseconds)
@@ -281,6 +282,7 @@ export interface IClickhouseConfig {
   url: string | undefined;
   batchSize: number;
   flushIntervalMs: number;
+  maxBufferSize: number;
 }
 
 export interface IConfig {
@@ -399,6 +401,7 @@ export function loadConfig(): IConfig {
       url: process.env.CLICKHOUSE_URL || undefined,
       batchSize: Number.parseInt(process.env.CLICKHOUSE_BATCH_SIZE || "500", 10),
       flushIntervalMs: Number.parseInt(process.env.CLICKHOUSE_FLUSH_INTERVAL_MS || "5000", 10),
+      maxBufferSize: Number.parseInt(process.env.CLICKHOUSE_MAX_BUFFER_SIZE || "5000", 10),
     },
     spBlocklists: {
       ids: parseIdList(process.env.BLOCKED_SP_IDS),
