@@ -70,8 +70,10 @@ export function buildMigrations(database: string): string[] {
     sp_id                   Nullable(UInt64),       -- storage provider numeric id
     sp_name                 Nullable(String),       -- storage provider name
 
-    total_proving_periods   UInt32,                 -- cumulative total proving periods from subgraph at poll time
-    total_faulted_periods   UInt32                  -- cumulative total faulted periods from subgraph at poll time
+    total_periods_due         UInt32,  -- cumulative proving periods due (confirmed by subgraph)
+    total_faulted_periods     UInt32,  -- cumulative periods where proof was not submitted
+    total_success_periods     UInt32,  -- cumulative periods where proof was submitted (= due - faulted)
+    estimated_overdue_periods UInt32   -- estimated periods not yet recorded on-chain but past deadline
 ) ENGINE MergeTree()
   PRIMARY KEY (probe_location, sp_address, timestamp)
   PARTITION BY toStartOfMonth(timestamp)

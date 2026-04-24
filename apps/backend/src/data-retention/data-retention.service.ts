@@ -340,8 +340,10 @@ export class DataRetentionService {
       sp_address: address,
       sp_id: pdpProvider.id != null ? String(pdpProvider.id) : null, // pdpProvider.id is a BigInt
       sp_name: pdpProvider.name ?? null,
-      total_proving_periods: Number(totalProvingPeriods),
+      total_periods_due: Number(totalProvingPeriods),
       total_faulted_periods: Number(totalFaultedPeriods),
+      total_success_periods: Number(confirmedTotalSuccess),
+      estimated_overdue_periods: Number(estimatedOverduePeriods),
     });
 
     const normalizedAddress = address.toLowerCase();
