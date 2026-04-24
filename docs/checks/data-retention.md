@@ -25,7 +25,7 @@ Dealbot polls The Graph API endpoint for PDP (Proof of Data Possession) data at 
 
 **Subgraph repository**: [FilOzone/pdp-explorer](https://github.com/FilOzone/pdp-explorer/blob/main/subgraph/src/pdp-verifier.ts)
 
-**Subgraph endpoint**: Configured via `PDP_SUBGRAPH_ENDPOINT` environment variable (see [environment-variables.md](../environment-variables.md#pdp_subgraph_endpoint))
+**Subgraph endpoint**: Configured via `SUBGRAPH_ENDPOINT` environment variable (see [environment-variables.md](../environment-variables.md#subgraph_endpoint))
 
 > **Note**: The production subgraph URL is currently being finalized [here](https://github.com/FilOzone/pdp-explorer/pull/86).
 
@@ -46,7 +46,7 @@ From `GET_PROVIDERS_WITH_DATASETS` query for each provider:
 
 > **Note**: The subgraph query uses the field name `proofSets`, but this refers to "dataSets" in the current codebase. The terminology was updated from "proof set" to "data set" but the subgraph schema retains the old naming.
 
-Source: [`pdp-subgraph.service.ts` (`fetchSubgraphMeta`, `fetchProvidersWithDatasets`)](../../apps/backend/src/pdp-subgraph/pdp-subgraph.service.ts)
+Source: [`subgraph.service.ts` (`fetchSubgraphMeta`, `fetchProvidersWithDatasets`)](../../apps/backend/src/subgraph/subgraph.service.ts)
 
 ### 2. Compute Challenge Totals and Overdue Estimates
 
@@ -164,7 +164,7 @@ The PDP subgraph service enforces Goldsky's public endpoint rate limits:
 
 Rate limiting is enforced client-side to prevent 429 errors.
 
-Source: [`pdp-subgraph.service.ts` (`enforceRateLimit`)](../../apps/backend/src/pdp-subgraph/pdp-subgraph.service.ts)
+Source: [`subgraph.service.ts` (`enforceRateLimit`)](../../apps/backend/src/subgraph/subgraph.service.ts)
 
 ## Metrics Recorded
 
@@ -195,11 +195,11 @@ Key environment variables that control data retention check behavior:
 
 | Variable                | Required | Default      | Description                                                                                      |
 | ----------------------- | -------- | ------------ | ------------------------------------------------------------------------------------------------ |
-| `PDP_SUBGRAPH_ENDPOINT` | No       | Empty string | The Graph API endpoint for PDP subgraph queries. When empty, data retention checks are disabled. |
+| `SUBGRAPH_ENDPOINT` | No       | Empty string | The Graph API endpoint for PDP subgraph queries. When empty, data retention checks are disabled. |
 
 Source: [`app.config.ts`](../../apps/backend/src/config/app.config.ts)
 
-See also: [`environment-variables.md`](../environment-variables.md#pdp_subgraph_endpoint) for the full configuration reference.
+See also: [`environment-variables.md`](../environment-variables.md#subgraph_endpoint) for the full configuration reference.
 
 ## Error Handling
 

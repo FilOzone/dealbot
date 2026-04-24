@@ -79,6 +79,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Codegen subgraph
+        run: pnpm --filter @dealbot/subgraph codegen
+
       - name: Run unit tests
         run: pnpm test
 

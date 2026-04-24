@@ -8,10 +8,10 @@ This document provides a comprehensive guide to all environment variables used b
 | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | [Application](#application-configuration) | `NODE_ENV`, `DEALBOT_PORT`, `DEALBOT_HOST`, `DEALBOT_RUN_MODE`, `DEALBOT_METRICS_PORT`, `DEALBOT_METRICS_HOST`, `DEALBOT_ALLOWED_ORIGINS`, `ENABLE_DEV_MODE` |
 | [Database](#database-configuration)       | `DATABASE_HOST`, `DATABASE_PORT`, `DATABASE_POOL_MAX`, `DATABASE_USER`, `DATABASE_PASSWORD`, `DATABASE_NAME`                                                 |
-| [Blockchain](#blockchain-configuration)   | `NETWORK`, `RPC_URL`, `WALLET_ADDRESS`, `WALLET_PRIVATE_KEY`, `SESSION_KEY_PRIVATE_KEY`, `CHECK_DATASET_CREATION_FEES`, `USE_ONLY_APPROVED_PROVIDERS`, `PDP_SUBGRAPH_ENDPOINT` |
+| [Blockchain](#blockchain-configuration)   | `NETWORK`, `RPC_URL`, `WALLET_ADDRESS`, `WALLET_PRIVATE_KEY`, `SESSION_KEY_PRIVATE_KEY`, `CHECK_DATASET_CREATION_FEES`, `USE_ONLY_APPROVED_PROVIDERS`, `SUBGRAPH_ENDPOINT` |
 | [Dataset Versioning](#dataset-versioning) | `DEALBOT_DATASET_VERSION`                                                                                                                                    |
 | [Scheduling](#scheduling-configuration)   | `PROVIDERS_REFRESH_INTERVAL_SECONDS`, `DATA_RETENTION_POLL_INTERVAL_SECONDS`, `DEALBOT_MAINTENANCE_WINDOWS_UTC`, `DEALBOT_MAINTENANCE_WINDOW_MINUTES`                                                                                                                                 |
-| [Jobs (pg-boss)](#jobs-pg-boss)           | `DEALBOT_PGBOSS_SCHEDULER_ENABLED`, `DEALBOT_PGBOSS_POOL_MAX`, `DEALS_PER_SP_PER_HOUR`, `DATASET_CREATIONS_PER_SP_PER_HOUR`, `RETRIEVALS_PER_SP_PER_HOUR`,  `JOB_SCHEDULER_POLL_SECONDS`, `JOB_WORKER_POLL_SECONDS`, `PG_BOSS_LOCAL_CONCURRENCY`, `JOB_CATCHUP_MAX_ENQUEUE`, `JOB_SCHEDULE_PHASE_SECONDS`, `JOB_ENQUEUE_JITTER_SECONDS`, `DEAL_JOB_TIMEOUT_SECONDS`, `RETRIEVAL_JOB_TIMEOUT_SECONDS`, `IPFS_BLOCK_FETCH_CONCURRENCY` |
+| [Jobs (pg-boss)](#jobs-pg-boss)           | `DEALBOT_PGBOSS_SCHEDULER_ENABLED`, `DEALBOT_PGBOSS_POOL_MAX`, `DEALS_PER_SP_PER_HOUR`, `DATASET_CREATIONS_PER_SP_PER_HOUR`, `RETRIEVALS_PER_SP_PER_HOUR`,  `JOB_SCHEDULER_POLL_SECONDS`, `JOB_WORKER_POLL_SECONDS`, `PG_BOSS_LOCAL_CONCURRENCY`, `JOB_CATCHUP_MAX_ENQUEUE`, `JOB_SCHEDULE_PHASE_SECONDS`, `JOB_ENQUEUE_JITTER_SECONDS`, `DEAL_JOB_TIMEOUT_SECONDS`, `RETRIEVAL_JOB_TIMEOUT_SECONDS`, `ANON_RETRIEVAL_JOB_TIMEOUT_SECONDS`, `IPFS_BLOCK_FETCH_CONCURRENCY` |
 | [Dataset](#dataset-configuration)         | `DEALBOT_LOCAL_DATASETS_PATH`, `RANDOM_PIECE_SIZES`                                                                                                          |
 | [Timeouts](#timeout-configuration)        | `CONNECT_TIMEOUT_MS`, `HTTP_REQUEST_TIMEOUT_MS`, `HTTP2_REQUEST_TIMEOUT_MS`, `IPNI_VERIFICATION_TIMEOUT_MS`, `IPNI_VERIFICATION_POLLING_MS`                   |
 | [Piece Cleanup](#piece-cleanup)           | `MAX_DATASET_STORAGE_SIZE_BYTES`, `TARGET_DATASET_STORAGE_SIZE_BYTES`, `JOB_PIECE_CLEANUP_PER_SP_PER_HOUR`, `MAX_PIECE_CLEANUP_RUNTIME_SECONDS`       |
@@ -424,22 +424,25 @@ Session keys are scoped (only storage operations, not deposits or withdrawals) a
 
 ---
 
-### `PDP_SUBGRAPH_ENDPOINT`
+### `SUBGRAPH_ENDPOINT`
 
 - **Type**: `string` (URL)
 - **Required**: No
 - **Default**: Empty string (feature disabled)
 
-**Role**: The Graph API endpoint for querying PDP (Proof of Data Possession) subgraph data. This endpoint is used to retrieve data retention info for provider data.
+**Role**: The Graph API endpoint for querying PDP (Proof of Data Possession) subgraph data. Drives the overdue-periods metric and the anonymous-retrieval candidate-piece query.
+
+The dealbot-owned subgraph lives at `apps/subgraph/` (package `@dealbot/subgraph`) and is deployed to Goldsky. Point this variable at one of those slots; the exact slugs are documented in `apps/subgraph/README.md`.
 
 **When to update**:
 
-- When switching between different Graph API endpoints
+- When swapping between the dealbot-owned subgraph slots on Goldsky (mainnet vs calibnet).
+- When deploying a new subgraph version.
 
 **Example**:
 
 ```bash
-PDP_SUBGRAPH_ENDPOINT=https://api.thegraph.com/subgraphs/filecoin/pdp
+SUBGRAPH_ENDPOINT=https://api.goldsky.com/api/public/<project>/subgraphs/dealbot-subgraph/<version>/gn
 ```
 
 ---
@@ -782,6 +785,25 @@ Use this to stagger multiple dealbot deployments that are not sharing a database
 - Decrease to detect and fail stuck retrievals faster
 
 **Note**: This is independent of HTTP-level timeouts. The job timeout enforces end-to-end execution time of a Retrieval Check job.
+
+---
+
+### `ANON_RETRIEVAL_JOB_TIMEOUT_SECONDS`
+
+- **Type**: `number`
+- **Required**: No
+- **Default**: `360` (6 minutes)
+- **Minimum**: `60`
+- **Enforced**: Yes (config validation)
+
+**Role**: Maximum runtime for anonymous retrieval jobs before forced abort. Anonymous retrievals fetch arbitrary pieces (up to ~70 MiB) that were not produced by the dealbot, so this is typically larger than `RETRIEVAL_JOB_TIMEOUT_SECONDS`. When the timeout trips, partial metrics (`ttfb_ms`, `bytes_retrieved`, `response_code`) are still persisted so the abort is not silently lost.
+
+**When to update**:
+
+- Increase if large pieces are consistently being cut off mid-download
+- Decrease to detect and fail stuck retrievals faster
+
+**Note**: This is independent of HTTP-level timeouts (`CONNECT_TIMEOUT_MS`, `HTTP2_REQUEST_TIMEOUT_MS`). The job timeout covers the end-to-end execution of an Anon Retrieval Check (piece selection, download, CommP validation, CAR/IPNI validation).
 
 ---
 ### `IPFS_BLOCK_FETCH_CONCURRENCY`

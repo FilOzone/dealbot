@@ -10,8 +10,8 @@ import { IConfig } from "../config/app.config.js";
 import { DataRetentionBaseline } from "../database/entities/data-retention-baseline.entity.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
 import { buildCheckMetricLabels, CheckMetricLabels } from "../metrics-prometheus/check-metric-labels.js";
-import { PDPSubgraphService } from "../pdp-subgraph/pdp-subgraph.service.js";
-import { type ProviderDataSetResponse } from "../pdp-subgraph/types.js";
+import { SubgraphService } from "../subgraph/subgraph.service.js";
+import { type ProviderDataSetResponse } from "../subgraph/types.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
 import { type PDPProviderEx } from "../wallet-sdk/wallet-sdk.types.js";
 
@@ -44,7 +44,7 @@ export class DataRetentionService {
   constructor(
     private readonly configService: ConfigService<IConfig, true>,
     private readonly walletSdkService: WalletSdkService,
-    private readonly pdpSubgraphService: PDPSubgraphService,
+    private readonly subgraphService: SubgraphService,
     @InjectRepository(DataRetentionBaseline)
     private readonly baselineRepository: Repository<DataRetentionBaseline>,
     @InjectRepository(StorageProvider)
@@ -63,10 +63,10 @@ export class DataRetentionService {
    * challenge delta since the last poll.
    */
   async pollDataRetention(): Promise<void> {
-    const pdpSubgraphEndpoint = this.configService.get("blockchain").pdpSubgraphEndpoint;
-    if (!pdpSubgraphEndpoint) {
+    const subgraphEndpoint = this.configService.get("blockchain").subgraphEndpoint;
+    if (!subgraphEndpoint) {
       this.logger.warn({
-        event: "pdp_subgraph_endpoint_not_configured",
+        event: "subgraph_endpoint_not_configured",
         message: "No PDP subgraph endpoint configured",
       });
       return;
@@ -80,7 +80,7 @@ export class DataRetentionService {
     }
 
     try {
-      const subgraphMeta = await this.pdpSubgraphService.fetchSubgraphMeta();
+      const subgraphMeta = await this.subgraphService.fetchSubgraphMeta();
       const allProviderInfos = this.walletSdkService.getTestingProviders();
       const spBlocklists = this.configService.get("spBlocklists");
       const providerInfos = allProviderInfos?.filter((p) => !isSpBlocked(spBlocklists, p.serviceProvider, p.id));
@@ -109,7 +109,7 @@ export class DataRetentionService {
         );
 
         try {
-          const providersFromSubgraph = await this.pdpSubgraphService.fetchProvidersWithDatasets({
+          const providersFromSubgraph = await this.subgraphService.fetchProvidersWithDatasets({
             blockNumber,
             addresses: batchAddresses,
           });

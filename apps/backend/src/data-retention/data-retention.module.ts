@@ -2,12 +2,12 @@ import { Module } from "@nestjs/common";
 import { TypeOrmModule } from "@nestjs/typeorm";
 import { DataRetentionBaseline } from "../database/entities/data-retention-baseline.entity.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
-import { PdpSubgraphModule } from "../pdp-subgraph/pdp-subgraph.module.js";
+import { SubgraphModule } from "../subgraph/subgraph.module.js";
 import { WalletSdkModule } from "../wallet-sdk/wallet-sdk.module.js";
 import { DataRetentionService } from "./data-retention.service.js";
 
 @Module({
-  imports: [WalletSdkModule, PdpSubgraphModule, TypeOrmModule.forFeature([DataRetentionBaseline, StorageProvider])],
+  imports: [WalletSdkModule, SubgraphModule, TypeOrmModule.forFeature([DataRetentionBaseline, StorageProvider])],
   providers: [DataRetentionService],
   exports: [DataRetentionService],
 })
