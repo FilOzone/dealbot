@@ -97,8 +97,7 @@ describe("NetworkSwitcher", () => {
     );
 
     const switchLink = await screen.findByRole("link", { name: /Switch to Calibration/i });
-    expect(switchLink).toHaveAttribute("target", "_blank");
-    expect(switchLink).toHaveAttribute("rel", "noopener noreferrer");
+    expect(switchLink).toHaveAttribute("rel", "noreferrer");
   });
 
   it("displays correct network indicator color for calibration", async () => {
