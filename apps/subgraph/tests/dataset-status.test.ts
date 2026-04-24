@@ -45,10 +45,10 @@ function addRoots(txId: i32, blockNumber: i32): void {
   handlePiecesAdded(rootsEvent);
 }
 
-function nextProvingPeriod(txId: i32, blockNumber: i32): void {
+function nextProvingPeriod(txId: i32, blockNumber: i32, challengeEpoch: i32): void {
   const event = createNextProvingPeriodEvent(
     SET_ID,
-    BigInt.fromI32(blockNumber),
+    BigInt.fromI32(challengeEpoch),
     BigInt.fromI32(32),
     CONTRACT_ADDRESS,
     BigInt.fromI32(blockNumber),
@@ -85,13 +85,15 @@ describe("DataSetStatus Lifecycle Tests", () => {
   test("handleNextProvingPeriod transitions status from READY to PROVING", () => {
     createAndSubmitDataSet(20);
     addRoots(21, 150);
-    nextProvingPeriod(22, 200);
+    // challengeEpoch (440) is the contract's scheduled proof deadline, not
+    // tx block + maxProvingPeriod. Store it verbatim.
+    nextProvingPeriod(22, 200, 440);
 
     const dataSetId = PROOF_SET_ID_BYTES.toHex();
     assert.fieldEquals("DataSet", dataSetId, "status", "PROVING");
     assert.fieldEquals("DataSet", dataSetId, "isActive", "true");
     assert.fieldEquals("DataSet", dataSetId, "maxProvingPeriod", "240");
-    assert.fieldEquals("DataSet", dataSetId, "nextDeadline", "440"); // 200 + 240
+    assert.fieldEquals("DataSet", dataSetId, "nextDeadline", "440");
   });
 
   test("handleDataSetDeleted transitions status to DELETED", () => {
@@ -138,7 +140,7 @@ describe("DataSetStatus Lifecycle Tests", () => {
   test("handleDataSetDeleted from PROVING status transitions to DELETED", () => {
     createAndSubmitDataSet(50);
     addRoots(51, 150);
-    nextProvingPeriod(52, 200);
+    nextProvingPeriod(52, 200, 440);
 
     const dataSetId = PROOF_SET_ID_BYTES.toHex();
     assert.fieldEquals("DataSet", dataSetId, "status", "PROVING");
@@ -170,7 +172,7 @@ describe("DataSetStatus Lifecycle Tests", () => {
     assert.fieldEquals("DataSet", dataSetId, "status", "READY");
 
     // 3. NextProvingPeriod (PROVING)
-    nextProvingPeriod(92, 200);
+    nextProvingPeriod(92, 200, 440);
     assert.fieldEquals("DataSet", dataSetId, "status", "PROVING");
     assert.fieldEquals("DataSet", dataSetId, "nextDeadline", "440");
 
@@ -196,9 +198,9 @@ describe("DataSetStatus Lifecycle Tests", () => {
     assert.fieldEquals("DataSet", dataSetId, "status", "READY");
 
     // 6. NextProvingPeriod (PROVING) — first-init branch runs again since nextDeadline was zeroed.
-    nextProvingPeriod(95, 350);
+    nextProvingPeriod(95, 350, 590);
     assert.fieldEquals("DataSet", dataSetId, "status", "PROVING");
-    assert.fieldEquals("DataSet", dataSetId, "nextDeadline", "590"); // 350 + 240
+    assert.fieldEquals("DataSet", dataSetId, "nextDeadline", "590");
     assert.fieldEquals("DataSet", dataSetId, "maxProvingPeriod", "240");
   });
 });

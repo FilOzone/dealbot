@@ -132,26 +132,26 @@ export function handleNextProvingPeriod(event: NextProvingPeriodEvent): void {
 
   let periodsSkipped: BigInt = BigInt.zero();
   let faultedPeriods: BigInt = BigInt.zero();
-  let nextDeadline: BigInt;
 
   if (proofSet.nextDeadline.equals(BigInt.zero())) {
     // First-init: promote to PROVING, seed maxProvingPeriod.
     proofSet.status = DataSetStatus.PROVING;
     proofSet.maxProvingPeriod = BigInt.fromI32(maxProvingPeriodFor(event.address));
-    nextDeadline = currentBlockNumber.plus(proofSet.maxProvingPeriod);
   } else {
     if (currentBlockNumber.gt(proofSet.nextDeadline)) {
       periodsSkipped = currentBlockNumber
         .minus(proofSet.nextDeadline.plus(BigInt.fromI32(1)))
         .div(proofSet.maxProvingPeriod);
     }
-    nextDeadline = proofSet.nextDeadline.plus(
-      proofSet.maxProvingPeriod.times(periodsSkipped.plus(BigInt.fromI32(1))),
-    );
     faultedPeriods = proofSet.provenThisPeriod ? periodsSkipped : periodsSkipped.plus(BigInt.fromI32(1));
   }
 
-  proofSet.nextDeadline = nextDeadline;
+  // Anchor nextDeadline to the contract's scheduled challengeEpoch rather
+  // than deriving it from event.block.number. A late-mined nextProvingPeriod
+  // tx would otherwise shift the stored deadline forward relative to the
+  // on-chain schedule, hiding overdue sets from dealbot's nextDeadline_lt
+  // query until the synthetic deadline caught up.
+  proofSet.nextDeadline = event.params.challengeEpoch;
   proofSet.provenThisPeriod = false;
   proofSet.save();
 
