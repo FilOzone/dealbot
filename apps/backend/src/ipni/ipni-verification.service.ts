@@ -14,6 +14,10 @@ export type IpniVerificationInput = {
   signal?: AbortSignal;
 };
 
+type StorageProviderWithUrl = Omit<StorageProvider, "serviceUrl"> & {
+  serviceUrl: string;
+};
+
 @Injectable()
 export class IpniVerificationService {
   private readonly logger = new Logger(IpniVerificationService.name);
@@ -27,12 +31,17 @@ export class IpniVerificationService {
     signal,
   }: IpniVerificationInput): Promise<IPNIVerificationResult> {
     const delayMs = Math.max(100, pollIntervalMs);
+    const serviceUrl = storageProvider.serviceUrl;
+    if (!serviceUrl) {
+      throw new Error(`IPNI verification failed: missing service URL for provider ${storageProvider.address}`);
+    }
+
     // Keep retrying at the configured polling cadence until timeout or outer job cancellation.
     // waitForIpniProviderResults uses attempt-then-delay: the first attempt is immediate,
     // so N attempts span only (N-1) delays. Adding 1 ensures the attempt budget covers
     // the full timeout window rather than falling short by up to one delayMs interval.
     const maxAttempts = Math.max(1, Math.ceil(timeoutMs / delayMs) + 1);
-    const expectedProviders = [this.buildExpectedProviderInfo(storageProvider)];
+    const expectedProviders = [this.buildExpectedProviderInfo(storageProvider as StorageProviderWithUrl)];
     const timeoutSignal = AbortSignal.timeout(timeoutMs);
     const verificationSignal = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
     let failureReason = "IPNI did not return expected provider results via filecoin-pin";
@@ -132,7 +141,7 @@ export class IpniVerificationService {
     };
   }
 
-  private buildExpectedProviderInfo(storageProvider: StorageProvider): PDPProvider {
+  private buildExpectedProviderInfo(storageProvider: StorageProviderWithUrl): PDPProvider {
     return {
       id: storageProvider.providerId ?? 0n,
       serviceProvider: storageProvider.address as `0x${string}`,

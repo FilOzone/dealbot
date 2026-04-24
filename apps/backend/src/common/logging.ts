@@ -122,7 +122,7 @@ export type BaseDealRetrievalLogContext = {
   providerAddress?: string;
   providerId?: bigint;
   providerName?: string;
-  pieceCid?: string;
+  pieceCid?: string | null;
   ipfsRootCID?: string;
 };
 
@@ -167,4 +167,17 @@ export type JobLogContext = {
   providerAddress: string;
   providerId?: bigint;
   providerName?: string;
+};
+
+/**
+ * Structured logging context for piece cleanup operations
+ */
+export type PieceCleanupLogContext = {
+  jobId?: string;
+  providerAddress: string;
+  providerId?: bigint;
+  providerName?: string;
+  storedBytes?: number;
+  thresholdBytes?: number;
+  targetBytes?: number;
 };

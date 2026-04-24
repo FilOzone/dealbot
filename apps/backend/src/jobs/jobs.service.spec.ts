@@ -1,12 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { IConfig, ISpBlocklistConfig } from "../config/app.config.js";
-import {
-  DATA_RETENTION_POLL_QUEUE,
-  METRICS_CLEANUP_QUEUE,
-  METRICS_QUEUE,
-  PROVIDERS_REFRESH_QUEUE,
-  SP_WORK_QUEUE,
-} from "./job-queues.js";
+import { DATA_RETENTION_POLL_QUEUE, PROVIDERS_REFRESH_QUEUE, SP_WORK_QUEUE } from "./job-queues.js";
 import { JobsService } from "./jobs.service.js";
 
 type JobsServiceDeps = ConstructorParameters<typeof JobsService>;
@@ -57,9 +51,9 @@ describe("JobsService schedule rows", () => {
       jobScheduleRepository: JobsServiceDeps[2];
       dealService: JobsServiceDeps[3];
       retrievalService: JobsServiceDeps[4];
-      metricsSchedulerService: JobsServiceDeps[5];
-      walletSdkService: JobsServiceDeps[6];
-      dataRetentionService: JobsServiceDeps[7];
+      walletSdkService: JobsServiceDeps[5];
+      dataRetentionService: JobsServiceDeps[6];
+      pieceCleanupService: JobsServiceDeps[7];
       jobsQueuedGauge: JobsServiceDeps[8];
       jobsRetryScheduledGauge: JobsServiceDeps[9];
       oldestQueuedAgeGauge: JobsServiceDeps[10];
@@ -136,6 +130,8 @@ describe("JobsService schedule rows", () => {
         pgbossSchedulerEnabled: true,
         workerPollSeconds: 60,
         dataSetCreationJobTimeoutSeconds: 300,
+        pieceCleanupPerSpPerHour: 1,
+        maxPieceCleanupRuntimeSeconds: 300,
       } as IConfig["jobs"],
       database: {
         host: "localhost",
@@ -144,6 +140,9 @@ describe("JobsService schedule rows", () => {
         password: "pass",
         database: "dealbot",
       } as IConfig["database"],
+      pieceCleanup: {
+        maxDatasetStorageSizeBytes: 24 * 1024 * 1024 * 1024,
+      } as IConfig["pieceCleanup"],
       spBlocklists: emptySpBlocklists,
     };
 
@@ -158,9 +157,9 @@ describe("JobsService schedule rows", () => {
         overrides.jobScheduleRepository ?? (jobScheduleRepositoryMock as unknown as JobsServiceDeps[2]),
         overrides.dealService ?? ({} as JobsServiceDeps[3]),
         overrides.retrievalService ?? ({} as JobsServiceDeps[4]),
-        overrides.metricsSchedulerService ?? ({} as JobsServiceDeps[5]),
-        overrides.walletSdkService ?? ({} as JobsServiceDeps[6]),
-        overrides.dataRetentionService ?? (dataRetentionServiceMock as unknown as JobsServiceDeps[7]),
+        overrides.walletSdkService ?? ({} as JobsServiceDeps[5]),
+        overrides.dataRetentionService ?? (dataRetentionServiceMock as unknown as JobsServiceDeps[6]),
+        overrides.pieceCleanupService ?? ({} as JobsServiceDeps[7]),
         overrides.jobsQueuedGauge ?? metricsMocks.jobsQueuedGauge,
         overrides.jobsRetryScheduledGauge ?? metricsMocks.jobsRetryScheduledGauge,
         overrides.oldestQueuedAgeGauge ?? metricsMocks.oldestQueuedAgeGauge,
@@ -284,7 +283,7 @@ describe("JobsService schedule rows", () => {
     service = buildService({
       configService,
       dealService: dealService as unknown as ConstructorParameters<typeof JobsService>[3],
-      walletSdkService: walletSdkService as unknown as ConstructorParameters<typeof JobsService>[6],
+      walletSdkService: walletSdkService as unknown as ConstructorParameters<typeof JobsService>[5],
     });
 
     // Trigger the timeout immediately by using fake timers
@@ -343,7 +342,7 @@ describe("JobsService schedule rows", () => {
     service = buildService({
       configService,
       retrievalService: retrievalService as unknown as ConstructorParameters<typeof JobsService>[4],
-      walletSdkService: walletSdkService as unknown as ConstructorParameters<typeof JobsService>[6],
+      walletSdkService: walletSdkService as unknown as ConstructorParameters<typeof JobsService>[5],
     });
 
     vi.useFakeTimers();
@@ -382,7 +381,7 @@ describe("JobsService schedule rows", () => {
 
     service = buildService({
       retrievalService: retrievalService as unknown as ConstructorParameters<typeof JobsService>[4],
-      walletSdkService: walletSdkService as unknown as ConstructorParameters<typeof JobsService>[6],
+      walletSdkService: walletSdkService as unknown as ConstructorParameters<typeof JobsService>[5],
     });
 
     await callPrivate(service, "handleRetrievalJob", {
@@ -422,7 +421,7 @@ describe("JobsService schedule rows", () => {
 
     service = buildService({
       retrievalService: retrievalService as unknown as ConstructorParameters<typeof JobsService>[4],
-      walletSdkService: walletSdkService as unknown as ConstructorParameters<typeof JobsService>[6],
+      walletSdkService: walletSdkService as unknown as ConstructorParameters<typeof JobsService>[5],
     });
 
     await expect(
@@ -442,7 +441,6 @@ describe("JobsService schedule rows", () => {
 
   it("updates queue metrics from pg-boss state and age queries", async () => {
     const jobsQueuedGauge = metricsMocks.jobsQueuedGauge as unknown as { set: ReturnType<typeof vi.fn> };
-    const jobsRetryGauge = metricsMocks.jobsRetryScheduledGauge as unknown as { set: ReturnType<typeof vi.fn> };
     const jobsInFlightGauge = metricsMocks.jobsInFlightGauge as unknown as { set: ReturnType<typeof vi.fn> };
     const oldestQueuedGauge = metricsMocks.oldestQueuedAgeGauge as unknown as { set: ReturnType<typeof vi.fn> };
     const oldestInFlightGauge = metricsMocks.oldestInFlightAgeGauge as unknown as { set: ReturnType<typeof vi.fn> };
@@ -451,7 +449,6 @@ describe("JobsService schedule rows", () => {
     jobScheduleRepositoryMock.countBossJobStates.mockResolvedValueOnce([
       { job_type: "deal", state: "created", count: 2 },
       { job_type: "retrieval", state: "active", count: 1 },
-      { job_type: "metrics", state: "retry", count: 3 },
       { job_type: "unknown", state: "created", count: 99 },
     ]);
     jobScheduleRepositoryMock.minBossJobAgeSecondsByState
@@ -462,11 +459,7 @@ describe("JobsService schedule rows", () => {
 
     expect(jobsQueuedGauge.set).toHaveBeenCalledWith({ job_type: "deal" }, 0);
     expect(jobsQueuedGauge.set).toHaveBeenCalledWith({ job_type: "retrieval" }, 0);
-    expect(jobsQueuedGauge.set).toHaveBeenCalledWith({ job_type: "metrics" }, 0);
-    expect(jobsQueuedGauge.set).toHaveBeenCalledWith({ job_type: "metrics_cleanup" }, 0);
     expect(jobsQueuedGauge.set).toHaveBeenCalledWith({ job_type: "data_retention_poll" }, 0);
-
-    expect(jobsRetryGauge.set).toHaveBeenCalledWith({ job_type: "metrics" }, 3);
     expect(jobsInFlightGauge.set).toHaveBeenCalledWith({ job_type: "retrieval" }, 1);
     expect(jobsQueuedGauge.set).toHaveBeenCalledWith({ job_type: "deal" }, 2);
 
@@ -487,16 +480,6 @@ describe("JobsService schedule rows", () => {
       expect.any(Function),
     );
     expect(work).toHaveBeenCalledWith(
-      METRICS_QUEUE,
-      { batchSize: 1, pollingIntervalSeconds: 60 },
-      expect.any(Function),
-    );
-    expect(work).toHaveBeenCalledWith(
-      METRICS_CLEANUP_QUEUE,
-      { batchSize: 1, pollingIntervalSeconds: 60 },
-      expect.any(Function),
-    );
-    expect(work).toHaveBeenCalledWith(
       DATA_RETENTION_POLL_QUEUE,
       { batchSize: 1, pollingIntervalSeconds: 60 },
       expect.any(Function),
@@ -514,9 +497,8 @@ describe("JobsService schedule rows", () => {
     await callPrivate(service, "ensureWorkerQueues", { createQueue });
 
     expect(createQueue).toHaveBeenCalledWith(SP_WORK_QUEUE, { policy: "singleton" });
-    expect(createQueue).toHaveBeenCalledWith(METRICS_QUEUE);
-    expect(createQueue).toHaveBeenCalledWith(METRICS_CLEANUP_QUEUE);
     expect(createQueue).toHaveBeenCalledWith(PROVIDERS_REFRESH_QUEUE);
+    expect(createQueue).toHaveBeenCalledWith(DATA_RETENTION_POLL_QUEUE);
   });
 
   it("skips registering workers in api mode", async () => {
@@ -632,8 +614,13 @@ describe("JobsService schedule rows", () => {
     // Check upserts for providerB
     const upsertCalls = jobScheduleRepositoryMock.upsertSchedule.mock.calls;
     const upsertsForB = upsertCalls.filter((call) => call[1] === providerB.address);
-    expect(upsertsForB).toHaveLength(3);
-    expect(upsertsForB.map((call) => call[0]).sort()).toEqual(["data_set_creation", "deal", "retrieval"]);
+    expect(upsertsForB).toHaveLength(4);
+    expect(upsertsForB.map((call) => call[0]).sort()).toEqual([
+      "data_set_creation",
+      "deal",
+      "piece_cleanup",
+      "retrieval",
+    ]);
   });
 
   it("deletes schedule rows for providers no longer present", async () => {
@@ -673,23 +660,11 @@ describe("JobsService schedule rows", () => {
     });
   });
 
-  it("always inserts global metrics and providers refresh schedules", async () => {
+  it("always inserts global data_retention_poll and providers_refresh schedules", async () => {
     storageProviderRepositoryMock.find.mockResolvedValueOnce([]);
 
     await callPrivate(service, "ensureScheduleRows");
 
-    expect(jobScheduleRepositoryMock.upsertSchedule).toHaveBeenCalledWith(
-      "metrics",
-      "",
-      expect.any(Number),
-      expect.any(Date),
-    );
-    expect(jobScheduleRepositoryMock.upsertSchedule).toHaveBeenCalledWith(
-      "metrics_cleanup",
-      "",
-      expect.any(Number),
-      expect.any(Date),
-    );
     expect(jobScheduleRepositoryMock.upsertSchedule).toHaveBeenCalledWith(
       "providers_refresh",
       "",
@@ -759,11 +734,11 @@ describe("JobsService schedule rows", () => {
     vi.useFakeTimers();
     vi.setSystemTime(now);
 
-    // metrics was due 8 intervals
+    // providers_refresh was due 8 intervals ago (4 hours / 30 min intervals = 8)
     jobScheduleRepositoryMock.findDueSchedulesWithManager.mockResolvedValueOnce([
       {
         id: 10,
-        job_type: "metrics",
+        job_type: "providers_refresh",
         sp_address: "",
         interval_seconds: 1800,
         next_run_at: "2024-01-01T00:00:00Z",
@@ -772,11 +747,11 @@ describe("JobsService schedule rows", () => {
 
     await callPrivate(service, "enqueueDueJobs");
 
-    // Should only enqueue once
+    // Should only enqueue once despite being 8 intervals overdue
     expect(send).toHaveBeenCalledTimes(1);
-    expect(send.mock.calls[0][0]).toBe("metrics.run");
+    expect(send.mock.calls[0][0]).toBe("providers.refresh");
 
-    // next_run_at should jump to future
+    // next_run_at should jump to future (now + interval), not replay missed runs
     const updateCall = jobScheduleRepositoryMock.updateScheduleAfterRun.mock.calls[0];
     const newNextRunAt = updateCall[2] as Date;
     expect(newNextRunAt.getTime()).toBe(now.getTime() + 1800 * 1000);
@@ -836,7 +811,7 @@ describe("JobsService schedule rows", () => {
     jobScheduleRepositoryMock.findDueSchedulesWithManager.mockResolvedValueOnce([
       {
         id: 20,
-        job_type: "metrics",
+        job_type: "providers_refresh",
         sp_address: "",
         interval_seconds: 1800,
         next_run_at: "2024-01-01T03:00:00Z",
@@ -950,7 +925,7 @@ describe("JobsService schedule rows", () => {
 
     service = buildService({
       dealService: dealService as unknown as ConstructorParameters<typeof JobsService>[3],
-      walletSdkService: walletSdkService as unknown as ConstructorParameters<typeof JobsService>[6],
+      walletSdkService: walletSdkService as unknown as ConstructorParameters<typeof JobsService>[5],
     });
 
     await callPrivate(service, "handleDealJob", {
@@ -963,6 +938,43 @@ describe("JobsService schedule rows", () => {
       expect.objectContaining({ serviceProvider: "0xaaa" }),
       expect.objectContaining({ extraDataSetMetadata: undefined }),
     );
+  });
+
+  it("deal job does not consult piece cleanup quota before creating deals", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2024-01-01T12:00:00Z"));
+    const dealService = {
+      createDealForProvider: vi.fn(async () => ({})),
+      getBaseDataSetMetadata: vi.fn(() => ({ withIpniIndexing: "" })),
+      checkDataSetExists: vi.fn(async () => false),
+    };
+
+    const walletSdkService = {
+      getTestingProviders: vi.fn(() => [{ serviceProvider: "0xaaa" }]),
+      ensureWalletAllowances: vi.fn(),
+      loadProviders: vi.fn(),
+      getProviderInfo: vi.fn(() => ({ id: 1, name: "test-provider" })),
+    };
+
+    const pieceCleanupService = {
+      cleanupPiecesForProvider: vi.fn(() => {
+        throw new Error("deal job must not run cleanup");
+      }),
+    };
+
+    service = buildService({
+      dealService: dealService as unknown as ConstructorParameters<typeof JobsService>[3],
+      walletSdkService: walletSdkService as unknown as ConstructorParameters<typeof JobsService>[5],
+      pieceCleanupService: pieceCleanupService as unknown as JobsServiceDeps[7],
+    });
+
+    await callPrivate(service, "handleDealJob", {
+      id: "job-deal-no-quota-gate",
+      data: { jobType: "deal", spAddress: "0xaaa", intervalSeconds: 60 },
+    });
+
+    expect(pieceCleanupService.cleanupPiecesForProvider).not.toHaveBeenCalled();
+    expect(dealService.createDealForProvider).toHaveBeenCalledTimes(1);
   });
 
   it("deal job passes dealbotDS metadata when selecting a provisioned data set index", async () => {
@@ -994,7 +1006,7 @@ describe("JobsService schedule rows", () => {
     service = buildService({
       configService,
       dealService: dealService as unknown as ConstructorParameters<typeof JobsService>[3],
-      walletSdkService: walletSdkService as unknown as ConstructorParameters<typeof JobsService>[6],
+      walletSdkService: walletSdkService as unknown as ConstructorParameters<typeof JobsService>[5],
     });
 
     await callPrivate(service, "handleDealJob", {
@@ -1047,7 +1059,7 @@ describe("JobsService schedule rows", () => {
     service = buildService({
       configService,
       dealService: dealService as unknown as ConstructorParameters<typeof JobsService>[3],
-      walletSdkService: walletSdkService as unknown as ConstructorParameters<typeof JobsService>[6],
+      walletSdkService: walletSdkService as unknown as ConstructorParameters<typeof JobsService>[5],
     });
 
     await callPrivate(service, "handleDealJob", {
@@ -1100,7 +1112,7 @@ describe("JobsService schedule rows", () => {
     service = buildService({
       configService,
       dealService: dealService as unknown as ConstructorParameters<typeof JobsService>[3],
-      walletSdkService: walletSdkService as unknown as ConstructorParameters<typeof JobsService>[6],
+      walletSdkService: walletSdkService as unknown as ConstructorParameters<typeof JobsService>[5],
     });
 
     await callPrivate(service, "handleDealJob", {
@@ -1155,7 +1167,7 @@ describe("JobsService schedule rows", () => {
     service = buildService({
       configService,
       dealService: dealService as unknown as ConstructorParameters<typeof JobsService>[3],
-      walletSdkService: walletSdkService as unknown as ConstructorParameters<typeof JobsService>[6],
+      walletSdkService: walletSdkService as unknown as ConstructorParameters<typeof JobsService>[5],
     });
 
     await callPrivate(service, "handleDealJob", {
@@ -1185,7 +1197,7 @@ describe("JobsService schedule rows", () => {
 
     service = buildService({
       dealService: dealService as unknown as ConstructorParameters<typeof JobsService>[3],
-      walletSdkService: walletSdkService as unknown as ConstructorParameters<typeof JobsService>[6],
+      walletSdkService: walletSdkService as unknown as ConstructorParameters<typeof JobsService>[5],
     });
 
     await callPrivate(service, "handleDataSetCreationJob", {
@@ -1226,7 +1238,7 @@ describe("JobsService schedule rows", () => {
     service = buildService({
       configService,
       dealService: dealService as unknown as ConstructorParameters<typeof JobsService>[3],
-      walletSdkService: walletSdkService as unknown as ConstructorParameters<typeof JobsService>[6],
+      walletSdkService: walletSdkService as unknown as ConstructorParameters<typeof JobsService>[5],
     });
 
     await callPrivate(service, "handleDataSetCreationJob", {
@@ -1266,7 +1278,7 @@ describe("JobsService schedule rows", () => {
     service = buildService({
       configService,
       dealService: dealService as unknown as ConstructorParameters<typeof JobsService>[3],
-      walletSdkService: walletSdkService as unknown as ConstructorParameters<typeof JobsService>[6],
+      walletSdkService: walletSdkService as unknown as ConstructorParameters<typeof JobsService>[5],
     });
 
     await callPrivate(service, "handleDataSetCreationJob", {
@@ -1308,7 +1320,7 @@ describe("JobsService schedule rows", () => {
     service = buildService({
       configService,
       dealService: dealService as unknown as ConstructorParameters<typeof JobsService>[3],
-      walletSdkService: walletSdkService as unknown as ConstructorParameters<typeof JobsService>[6],
+      walletSdkService: walletSdkService as unknown as ConstructorParameters<typeof JobsService>[5],
     });
 
     await callPrivate(service, "handleDataSetCreationJob", {
@@ -1456,7 +1468,7 @@ describe("JobsService schedule rows", () => {
 
     service = buildService({
       dealService: dealService as unknown as JobsServiceDeps[3],
-      walletSdkService: walletSdkService as unknown as JobsServiceDeps[6],
+      walletSdkService: walletSdkService as unknown as JobsServiceDeps[5],
     });
 
     await callPrivate(service, "handleDealJob", {
@@ -1480,7 +1492,7 @@ describe("JobsService schedule rows", () => {
 
     service = buildService({
       retrievalService: retrievalService as unknown as JobsServiceDeps[4],
-      walletSdkService: walletSdkService as unknown as JobsServiceDeps[6],
+      walletSdkService: walletSdkService as unknown as JobsServiceDeps[5],
     });
 
     await callPrivate(service, "handleRetrievalJob", {
@@ -1508,7 +1520,7 @@ describe("JobsService schedule rows", () => {
 
     service = buildService({
       dealService: dealService as unknown as JobsServiceDeps[3],
-      walletSdkService: walletSdkService as unknown as JobsServiceDeps[6],
+      walletSdkService: walletSdkService as unknown as JobsServiceDeps[5],
     });
 
     await callPrivate(service, "handleDataSetCreationJob", {
@@ -1549,7 +1561,7 @@ describe("JobsService schedule rows", () => {
         intervalSeconds: 60,
         service: buildService({
           dealService: dealService as unknown as JobsServiceDeps[3],
-          walletSdkService: walletSdkService as unknown as JobsServiceDeps[6],
+          walletSdkService: walletSdkService as unknown as JobsServiceDeps[5],
         }),
         expectCheckNotRun: () => expect(dealService.createDealForProvider).not.toHaveBeenCalled(),
       },
@@ -1559,7 +1571,7 @@ describe("JobsService schedule rows", () => {
         intervalSeconds: 60,
         service: buildService({
           retrievalService: retrievalService as unknown as JobsServiceDeps[4],
-          walletSdkService: walletSdkService as unknown as JobsServiceDeps[6],
+          walletSdkService: walletSdkService as unknown as JobsServiceDeps[5],
         }),
         expectCheckNotRun: () => expect(retrievalService.performRandomRetrievalForProvider).not.toHaveBeenCalled(),
       },
@@ -1569,7 +1581,7 @@ describe("JobsService schedule rows", () => {
         intervalSeconds: 3600,
         service: buildService({
           dealService: dataSetDealService as unknown as JobsServiceDeps[3],
-          walletSdkService: walletSdkService as unknown as JobsServiceDeps[6],
+          walletSdkService: walletSdkService as unknown as JobsServiceDeps[5],
         }),
         expectCheckNotRun: () => expect(dataSetDealService.createDataSetWithPiece).not.toHaveBeenCalled(),
       },

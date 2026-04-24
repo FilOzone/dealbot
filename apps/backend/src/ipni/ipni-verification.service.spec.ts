@@ -37,6 +37,21 @@ describe("IpniVerificationService", () => {
     waitForIpniProviderResultsMock.mockReset();
   });
 
+  it("throws when storage provider service URL is missing", async () => {
+    const service = new IpniVerificationService();
+
+    await expect(
+      service.verify({
+        rootCid,
+        storageProvider: buildStorageProvider({ serviceUrl: null }),
+        timeoutMs: 10_000,
+        pollIntervalMs: 2_000,
+      }),
+    ).rejects.toThrow("IPNI verification failed: missing service URL for provider 0xsp");
+
+    expect(waitForIpniProviderResultsMock).not.toHaveBeenCalled();
+  });
+
   it("uses timeout/polling to compute full attempt budget", async () => {
     const service = new IpniVerificationService();
     waitForIpniProviderResultsMock.mockResolvedValue(true);

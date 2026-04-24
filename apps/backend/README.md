@@ -119,7 +119,6 @@ Dealbot uses pg-boss for all job scheduling. See
 | `DEALS_PER_SP_PER_HOUR`          | Deal checks per SP per hour               | `4`                            |
 | `RETRIEVALS_PER_SP_PER_HOUR`     | Retrieval checks per SP per hour          | `2`                            |
 | `DATASET_CREATIONS_PER_SP_PER_HOUR` | Dataset creation checks per SP per hour | `1`                            |
-| `METRICS_PER_HOUR`               | Metrics runs per hour                     | `2`                            |
 | `PG_BOSS_LOCAL_CONCURRENCY`      | Per-process `sp.work` concurrency         | `20`                           |
 | `JOB_SCHEDULER_POLL_SECONDS`     | Scheduler poll interval                   | `300`                          |
 | `JOB_WORKER_POLL_SECONDS`        | Worker poll interval                      | `60`                           |

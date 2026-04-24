@@ -14,12 +14,7 @@ For routine daily maintenance windows, prefer `DEALBOT_MAINTENANCE_WINDOWS_UTC` 
 -- Pause all deal and retrieval jobs
 UPDATE job_schedule_state
 SET paused = true, updated_at = NOW()
-WHERE job_type IN ('deal', 'retrieval');
-
--- Pause metrics jobs
-UPDATE job_schedule_state
-SET paused = true, updated_at = NOW()
-WHERE job_type IN ('metrics', 'metrics_cleanup');
+WHERE job_type IN ('deal', 'retrieval', 'piece_cleanup');
 ```
 
 To pause a single provider:
@@ -27,7 +22,7 @@ To pause a single provider:
 ```sql
 UPDATE job_schedule_state
 SET paused = true, updated_at = NOW()
-WHERE job_type IN ('deal', 'retrieval')
+WHERE job_type IN ('deal', 'retrieval', 'piece_cleanup')
   AND sp_address = '<sp-address>';
 ```
 
@@ -36,7 +31,7 @@ WHERE job_type IN ('deal', 'retrieval')
 ```sql
 UPDATE job_schedule_state
 SET paused = false, next_run_at = NOW(), updated_at = NOW()
-WHERE job_type IN ('deal', 'retrieval', 'metrics', 'metrics_cleanup');
+WHERE job_type IN ('deal', 'retrieval', 'piece_cleanup');
 ```
 
 To resume a single provider:
@@ -44,7 +39,7 @@ To resume a single provider:
 ```sql
 UPDATE job_schedule_state
 SET paused = false, next_run_at = NOW(), updated_at = NOW()
-WHERE job_type IN ('deal', 'retrieval')
+WHERE job_type IN ('deal', 'retrieval', 'piece_cleanup')
   AND sp_address = '<sp-address>';
 ```
 
@@ -52,14 +47,6 @@ WHERE job_type IN ('deal', 'retrieval')
 
 You can force schedules to be due immediately by setting `next_run_at = NOW()`.
 The scheduler will enqueue jobs on the next poll.
-
-Kick off a metrics run now:
-
-```sql
-UPDATE job_schedule_state
-SET paused = false, next_run_at = NOW(), updated_at = NOW()
-WHERE job_type = 'metrics';
-```
 
 Run all deal schedules now:
 
@@ -88,6 +75,15 @@ WHERE job_type = 'deal'
 UPDATE job_schedule_state
 SET paused = false, next_run_at = NOW(), updated_at = NOW()
 WHERE job_type = 'retrieval'
+  AND sp_address = '<sp-address>';
+```
+
+Run piece cleanup for a specific SP:
+
+```sql
+UPDATE job_schedule_state
+SET paused = false, next_run_at = NOW(), updated_at = NOW()
+WHERE job_type = 'piece_cleanup'
   AND sp_address = '<sp-address>';
 ```
 
@@ -190,8 +186,8 @@ FROM pgboss.job;
 
 ```sql
 SELECT pgboss_new.create_queue('sp.work', '{"policy":"singleton"}'::jsonb);
-SELECT pgboss_new.create_queue('metrics.run', '{"policy":"standard"}'::jsonb);
-SELECT pgboss_new.create_queue('metrics.cleanup', '{"policy":"standard"}'::jsonb);
+SELECT pgboss_new.create_queue('providers.refresh', '{"policy":"standard"}'::jsonb);
+SELECT pgboss_new.create_queue('data.retention.poll', '{"policy":"standard"}'::jsonb);
 ```
 
 ### 4) Deploy

@@ -6,9 +6,9 @@ import type { JobType } from "../../database/entities/job-schedule-state.entity.
 import {
   DATA_RETENTION_POLL_QUEUE,
   LEGACY_DEAL_QUEUE,
+  LEGACY_METRICS_CLEANUP_QUEUE,
+  LEGACY_METRICS_QUEUE,
   LEGACY_RETRIEVAL_QUEUE,
-  METRICS_CLEANUP_QUEUE,
-  METRICS_QUEUE,
   PROVIDERS_REFRESH_QUEUE,
   SP_WORK_QUEUE,
 } from "../job-queues.js";
@@ -74,7 +74,7 @@ export class JobScheduleRepository {
         const [rows] = (await this.dataSource.query(
           `
           DELETE FROM job_schedule_state
-          WHERE job_type IN ('deal', 'retrieval', 'data_set_creation')
+          WHERE job_type IN ('deal', 'retrieval', 'data_set_creation', 'piece_cleanup')
             AND sp_address <> ''
           RETURNING sp_address
           `,
@@ -85,7 +85,7 @@ export class JobScheduleRepository {
       const [rows] = (await this.dataSource.query(
         `
         DELETE FROM job_schedule_state
-        WHERE job_type IN ('deal', 'retrieval', 'data_set_creation')
+        WHERE job_type IN ('deal', 'retrieval', 'data_set_creation', 'piece_cleanup')
           AND sp_address <> ''
           AND sp_address <> ALL($1::text[])
         RETURNING sp_address
@@ -228,8 +228,8 @@ export class JobScheduleRepository {
       [
         states,
         SP_WORK_QUEUE,
-        METRICS_QUEUE,
-        METRICS_CLEANUP_QUEUE,
+        LEGACY_METRICS_QUEUE,
+        LEGACY_METRICS_CLEANUP_QUEUE,
         LEGACY_DEAL_QUEUE,
         LEGACY_RETRIEVAL_QUEUE,
         DATA_RETENTION_POLL_QUEUE,
@@ -277,8 +277,8 @@ export class JobScheduleRepository {
         now,
         state,
         SP_WORK_QUEUE,
-        METRICS_QUEUE,
-        METRICS_CLEANUP_QUEUE,
+        LEGACY_METRICS_QUEUE,
+        LEGACY_METRICS_CLEANUP_QUEUE,
         LEGACY_DEAL_QUEUE,
         LEGACY_RETRIEVAL_QUEUE,
         DATA_RETENTION_POLL_QUEUE,

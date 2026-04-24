@@ -11,10 +11,11 @@ This document provides a comprehensive guide to all environment variables used b
 | [Blockchain](#blockchain-configuration)   | `NETWORK`, `RPC_URL`, `WALLET_ADDRESS`, `WALLET_PRIVATE_KEY`, `SESSION_KEY_PRIVATE_KEY`, `CHECK_DATASET_CREATION_FEES`, `USE_ONLY_APPROVED_PROVIDERS`, `PDP_SUBGRAPH_ENDPOINT` |
 | [Dataset Versioning](#dataset-versioning) | `DEALBOT_DATASET_VERSION`                                                                                                                                    |
 | [Scheduling](#scheduling-configuration)   | `PROVIDERS_REFRESH_INTERVAL_SECONDS`, `DATA_RETENTION_POLL_INTERVAL_SECONDS`, `DEALBOT_MAINTENANCE_WINDOWS_UTC`, `DEALBOT_MAINTENANCE_WINDOW_MINUTES`                                                                                                                                 |
-| [Jobs (pg-boss)](#jobs-pg-boss)           | `DEALBOT_PGBOSS_SCHEDULER_ENABLED`, `DEALBOT_PGBOSS_POOL_MAX`, `DEALS_PER_SP_PER_HOUR`, `DATASET_CREATIONS_PER_SP_PER_HOUR`, `RETRIEVALS_PER_SP_PER_HOUR`, `METRICS_PER_HOUR`, `JOB_SCHEDULER_POLL_SECONDS`, `JOB_WORKER_POLL_SECONDS`, `PG_BOSS_LOCAL_CONCURRENCY`, `JOB_CATCHUP_MAX_ENQUEUE`, `JOB_SCHEDULE_PHASE_SECONDS`, `JOB_ENQUEUE_JITTER_SECONDS`, `DEAL_JOB_TIMEOUT_SECONDS`, `RETRIEVAL_JOB_TIMEOUT_SECONDS`, `IPFS_BLOCK_FETCH_CONCURRENCY` |
+| [Jobs (pg-boss)](#jobs-pg-boss)           | `DEALBOT_PGBOSS_SCHEDULER_ENABLED`, `DEALBOT_PGBOSS_POOL_MAX`, `DEALS_PER_SP_PER_HOUR`, `DATASET_CREATIONS_PER_SP_PER_HOUR`, `RETRIEVALS_PER_SP_PER_HOUR`,  `JOB_SCHEDULER_POLL_SECONDS`, `JOB_WORKER_POLL_SECONDS`, `PG_BOSS_LOCAL_CONCURRENCY`, `JOB_CATCHUP_MAX_ENQUEUE`, `JOB_SCHEDULE_PHASE_SECONDS`, `JOB_ENQUEUE_JITTER_SECONDS`, `DEAL_JOB_TIMEOUT_SECONDS`, `RETRIEVAL_JOB_TIMEOUT_SECONDS`, `IPFS_BLOCK_FETCH_CONCURRENCY` |
 | [Dataset](#dataset-configuration)         | `DEALBOT_LOCAL_DATASETS_PATH`, `RANDOM_PIECE_SIZES`                                                                                                          |
 | [ClickHouse](#clickhouse-configuration)   | `CLICKHOUSE_URL`, `CLICKHOUSE_BATCH_SIZE`, `CLICKHOUSE_FLUSH_INTERVAL_MS`, `DEALBOT_PROBE_LOCATION`          |
 | [Timeouts](#timeout-configuration)        | `CONNECT_TIMEOUT_MS`, `HTTP_REQUEST_TIMEOUT_MS`, `HTTP2_REQUEST_TIMEOUT_MS`, `IPNI_VERIFICATION_TIMEOUT_MS`, `IPNI_VERIFICATION_POLLING_MS`                   |
+| [Piece Cleanup](#piece-cleanup)           | `MAX_DATASET_STORAGE_SIZE_BYTES`, `TARGET_DATASET_STORAGE_SIZE_BYTES`, `JOB_PIECE_CLEANUP_PER_SP_PER_HOUR`, `MAX_PIECE_CLEANUP_RUNTIME_SECONDS`       |
 | [SP Blocklist](#sp-blocklist-configuration) | `BLOCKED_SP_IDS`, `BLOCKED_SP_ADDRESSES` |
 | [Prometheus Metrics](#prometheus-metrics-configuration) | `PROMETHEUS_WALLET_BALANCE_TTL_SECONDS`, `PROMETHEUS_WALLET_BALANCE_ERROR_COOLDOWN_SECONDS`                   |
 | [Web Frontend](#web-frontend)             | `VITE_API_BASE_URL`, `VITE_PLAUSIBLE_DATA_DOMAIN`, `DEALBOT_API_BASE_URL`                                                                                    |
@@ -545,20 +546,6 @@ DATA_RETENTION_POLL_INTERVAL_SECONDS=7200
 
 ---
 
-### `METRICS_START_OFFSET_SECONDS`
-
-- **Type**: `number`
-- **Required**: No
-- **Default**: `900` (15 minutes) / `600` (10 minutes in .env.example)
-
-**Role**: Delay before metrics collection jobs start after startup.
-
-**When to update**:
-
-- Adjust to ensure metrics collection doesn't overlap with other jobs
-
----
-
 ### `DEALBOT_MAINTENANCE_WINDOWS_UTC`
 
 - **Type**: `string` (comma-separated HH:MM times in UTC)
@@ -643,18 +630,6 @@ rate-based (per hour) and persisted in Postgres so restarts do not reset timing.
 **Limits**: Config schema caps this at 20 to avoid excessive dataset generation.
 
 **Notes**: Fractional values are supported. For example, `0.5` means one dataset creation every 2 hours per storage provider.
-
----
-
-### `METRICS_PER_HOUR`
-
-- **Type**: `number`
-- **Required**: No
-- **Default**: `2`
-
-**Role**: How often metrics aggregation runs per hour.
-
-**Limits**: Config schema caps this at 3 to limit database load.
 
 ---
 
@@ -828,6 +803,110 @@ Use this to stagger multiple dealbot deployments that are not sharing a database
 **Note**: This affects the number of concurrent `/ipfs/<cid>` requests per retrieval.
 
 ---
+
+## Piece Cleanup
+
+These variables control the automatic cleanup of old pieces from storage providers to prevent
+unbounded data growth. Cleanup runs as a periodic pg-boss job per SP.
+
+The cleanup flow checks **live provider data** first (via `filecoin-pin`'s `calculateActualStorage()`) to determine how much data an SP is storing. When usage exceeds the high-water mark (`MAX_DATASET_STORAGE_SIZE_BYTES`), the cleanup job deletes the oldest pieces until usage drops below the low-water mark (`TARGET_DATASET_STORAGE_SIZE_BYTES`). This high-water/low-water approach prevents thrashing near the threshold.
+
+If the live query fails, cleanup falls back to DB-based `SUM(piece_size)` for the quota decision. Deal creation continues regardless of cleanup state.
+
+### `MAX_DATASET_STORAGE_SIZE_BYTES`
+
+- **Type**: `number` (integer, bytes)
+- **Required**: No
+- **Default**: `25769803776` (24 GiB)
+- **Minimum**: `1`
+
+**Role**: **High-water mark.** Maximum total stored data per SP (in bytes) before cleanup kicks in. When live storage for a provider exceeds this value, the cleanup job triggers and deletes the oldest pieces until usage drops below `TARGET_DATASET_STORAGE_SIZE_BYTES` (the low-water mark).
+
+**When to update**:
+
+- Increase for longer runway before cleanup kicks in (e.g. months vs weeks)
+- Decrease if SP storage is constrained or costs are a concern
+
+**Example**:
+
+```bash
+MAX_DATASET_STORAGE_SIZE_BYTES=12884901888  # 12 GiB per SP
+```
+
+---
+
+### `TARGET_DATASET_STORAGE_SIZE_BYTES`
+
+- **Type**: `number` (integer, bytes)
+- **Required**: No
+- **Default**: `21474836480` (20 GiB)
+- **Minimum**: `1`
+
+**Role**: **Low-water mark.** When cleanup triggers (live usage exceeds `MAX_DATASET_STORAGE_SIZE_BYTES`), pieces are deleted until usage drops below this target. The gap between MAX and TARGET creates headroom so cleanup doesn't re-trigger immediately.
+
+**Headroom math**: At 4 deals/SP/hour × 10 MiB = ~960 MiB/day growth. With 4 GiB headroom (24 GiB MAX − 20 GiB TARGET), cleanup provides ~4 days of breathing room per run, which aligns with the daily default cadence.
+
+**When to update**:
+
+- Decrease for more aggressive cleanup (larger gap = more headroom)
+- Increase toward MAX for minimal cleanup (smaller gap = less headroom)
+- Must be less than `MAX_DATASET_STORAGE_SIZE_BYTES` for cleanup to have effect
+
+**Example**:
+
+```bash
+TARGET_DATASET_STORAGE_SIZE_BYTES=16106127360  # 15 GiB per SP (9 GiB headroom)
+```
+
+---
+
+### `JOB_PIECE_CLEANUP_PER_SP_PER_HOUR`
+
+- **Type**: `number`
+- **Required**: No
+- **Default**: `0.0417` (~1/24, approximately once per day)
+- **Minimum**: `0.001`
+- **Maximum**: `20`
+
+**Role**: Target number of piece cleanup runs per storage provider per hour. Controls how frequently the cleanup job runs for each SP. The rate is converted to an interval internally (e.g. 1/hr = every 3600s, 1/24/hr ≈ every 86400s = once per day).
+
+Only used when `DEALBOT_JOBS_MODE=pgboss`.
+
+**When to update**:
+
+- Increase to run cleanup more frequently when SPs are frequently over quota
+- Decrease to reduce scheduling overhead
+
+**Example**:
+
+```bash
+# Once per hour (more aggressive)
+JOB_PIECE_CLEANUP_PER_SP_PER_HOUR=1
+
+# Once per week (very conservative)
+JOB_PIECE_CLEANUP_PER_SP_PER_HOUR=0.006
+```
+
+---
+
+### `MAX_PIECE_CLEANUP_RUNTIME_SECONDS`
+
+- **Type**: `number`
+- **Required**: No
+- **Default**: `300` (5 minutes)
+- **Minimum**: `60`
+
+**Role**: Maximum runtime for a cleanup job before forced abort via `AbortController`. Prevents stuck cleanup jobs from blocking the SP work queue.
+
+Only used when `DEALBOT_JOBS_MODE=pgboss`.
+
+**When to update**:
+
+- Increase if piece deletion calls to the Synapse SDK are known to be slow
+- Decrease for faster abort detection on stuck jobs
+
+---
+
 ## Dataset Configuration
 
 ### `DEALBOT_LOCAL_DATASETS_PATH`
