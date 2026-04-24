@@ -364,6 +364,7 @@ describe("RetrievalService DB/provider drift", () => {
         { provide: DiscoverabilityCheckMetrics, useValue: {} },
         { provide: IpniVerificationService, useValue: {} },
         { provide: ConfigService, useValue: mockConfigService },
+        { provide: ClickhouseService, useValue: { insert: vi.fn(), probeLocation: "test" } },
       ],
     }).compile();
     return module.get<RetrievalService>(RetrievalService);
