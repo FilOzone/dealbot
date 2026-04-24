@@ -21,7 +21,6 @@ export function buildMigrations(database: string): string[] {
 
     status                      LowCardinality(String),  -- DealStatus: 'pending' | 'uploaded' | 'piece_added' | 'piece_confirmed' | 'deal_created' | 'failed'
     error_code                  LowCardinality(Nullable(String)),
-    retry_count                 UInt8 DEFAULT 0,         -- number of attempts made to store
 
     upload_started_at           Nullable(DateTime64(3, 'UTC')),  -- when executeUpload() was called
     upload_ended_at             Nullable(DateTime64(3, 'UTC')),  -- when onStored event fired
@@ -54,7 +53,6 @@ export function buildMigrations(database: string): string[] {
 
     status                  LowCardinality(String),  -- RetrievalStatus: 'pending' | 'in_progress' | 'success' | 'failed' | 'timeout'
     http_response_code      Nullable(UInt16),        -- raw HTTP status; null on transport failure
-    retry_count             UInt8 DEFAULT 0,         -- number of attempts made to retrieve
 
     first_byte_ms           Nullable(Float64),       -- time from request start to first response byte
     last_byte_ms            Nullable(Float64),       -- time from request start to last response byte

@@ -814,7 +814,6 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       piece_size_bytes: deal.pieceSize ?? null,
       status: deal.status,
       error_code: deal.errorCode ?? null,
-      retry_count: deal.retryCount,
       upload_started_at: deal.uploadStartTime?.getTime() ?? null,
       upload_ended_at: deal.uploadEndTime?.getTime() ?? null,
       pieces_added_at: deal.piecesAddedTime?.getTime() ?? null,

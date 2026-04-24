@@ -270,7 +270,6 @@ export class RetrievalService {
       service_type: saved.serviceType,
       status: saved.status,
       http_response_code: executionResult.metrics.statusCode || null,
-      retry_count: saved.retryCount,
       first_byte_ms: executionResult.success ? executionResult.metrics.ttfb : null,
       last_byte_ms: executionResult.success ? executionResult.metrics.latency : null,
       bytes_retrieved: executionResult.success ? executionResult.metrics.responseSize : null,
