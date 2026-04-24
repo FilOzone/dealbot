@@ -2,6 +2,10 @@
 build/
 generated/
 
+# Derived from @filoz/synapse-core/abis by scripts/sync-abis.mjs.
+# Regenerated on every `pnpm run codegen`.
+abis/
+
 # Node dependencies
 node_modules/
 
