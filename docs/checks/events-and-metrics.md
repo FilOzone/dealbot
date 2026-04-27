@@ -2,7 +2,7 @@
 
 This document is the intended **source of truth** for the events emitted by dealbot [checks](./README.md#check) and the metrics computed from them. It is intended for dealbot dashboard consumers and maintainers who need to understand what each metric means and where it comes from.
 
-This document describes the expected flow and metrics. Items marked **TBD** are not yet implemented but will get reviewed and cleaned up as part of https://github.com/FilOzone/dealbot/issues/280.
+> **Note on "events":** the entries in the [Event List](#event-list) are named **timing markers** used to define metric Timer Starts/Ends — they are not all emitted as discrete Prometheus events or log lines. The "Implemented" column reflects whether the marker is tracked in code (e.g. as a timestamp variable used to compute a histogram), not whether dealbot emits a same-named event. Where there is no underlying anchor in code at all, the row is marked **TBD**. Cleanup tracked under https://github.com/FilOzone/dealbot/issues/280.
 
 ## Data Storage Event Model
 
@@ -29,31 +29,31 @@ sequenceDiagram
     SP-->>Dealbot: spAnnouncedAdvertisementToIpni
   end
 
-  Dealbot->>IPNI: ipniVerificationStart (TBD)
+  Dealbot->>IPNI: ipniVerificationStart
   IPNI-->>Dealbot: ipniVerificationComplete
-  Dealbot-->>SP: ipfsRetrievalStart (TBD)
-  SP-->>Dealbot: ipfsRetrievalFirstByteReceived (Partial: histogram only)
-  SP-->>Dealbot: ipfsRetrievalLastByteReceived (Partial: histogram only)
-  Dealbot-->>Dealbot: ipfsRetrievalIntegrityChecked (Partial: inline check, no event)
+  Dealbot-->>SP: ipfsRetrievalStart
+  SP-->>Dealbot: ipfsRetrievalFirstByteReceived
+  SP-->>Dealbot: ipfsRetrievalLastByteReceived
+  Dealbot-->>Dealbot: ipfsRetrievalIntegrityChecked
 ```
 
 ### Event List
 
 | Event | Definition | Relevant Checks | Implemented | Source of truth |
 |------|------------|:------:|:------:|-----------------|
-| <a id="uploadToSpStart"></a>`uploadToSpStart` | Dealbot is about to start an upload attempt for a piece to an SP. | Data Storage | **TBD** | [`deal.service.ts`](../../apps/backend/src/deal/deal.service.ts) |
+| <a id="uploadToSpStart"></a>`uploadToSpStart` | Dealbot is about to start an upload attempt for a piece to an SP. | Data Storage | Yes — anchor tracked as `deal.uploadStartTime`. | [`deal.service.ts`](../../apps/backend/src/deal/deal.service.ts) |
 | <a id="uploadToSpEnd"></a>`uploadToSpEnd` | Upload finished (success with HTTP 2xx, failure). | Data Storage | Yes | [`deal.service.ts`](../../apps/backend/src/deal/deal.service.ts) (`handleStored`) |
 | <a id="dealCreated"></a>`dealCreated` | Deal reaches `DealStatus.DEAL_CREATED` after **all** sub-checks (upload, onchain, IPNI, retrieval) succeed. Upload completion alone sets `DealStatus.UPLOADED`, not `DEAL_CREATED`. | Data Storage | Yes | [`deal.service.ts`](../../apps/backend/src/deal/deal.service.ts) |
 | <a id="pieceAdded"></a>`pieceAdded` | Piece submission is recorded on-chain. Driven by Synapse `onPiecesAdded` progress event; transaction hash is known. | Data Storage | Yes | [`deal.service.ts`](../../apps/backend/src/deal/deal.service.ts) |
 | <a id="pieceConfirmed"></a>`pieceConfirmed` | Piece is confirmed on-chain. Driven by Synapse `onPiecesConfirmed` progress event. | Data Storage | Yes | [`deal.service.ts`](../../apps/backend/src/deal/deal.service.ts) (sets `piecesConfirmedTime`, observes `pieceConfirmedOnChainMs` histogram) |
 | <a id="spIndexingComplete"></a>`spIndexingComplete` | By polling SP, dealbot learned SP has indexed the piece locally (`indexed=true`). | Data Storage | Yes | [`ipni.strategy.ts`](../../apps/backend/src/deal-addons/strategies/ipni.strategy.ts) |
 | <a id="spAnnouncedAdvertisementToIpni"></a>`spAnnouncedAdvertisementToIpni` | By polling SP, dealbot learned SP has announced the advertisement to IPNI (`advertised=true`). | Data Storage | Yes | [`ipni.strategy.ts`](../../apps/backend/src/deal-addons/strategies/ipni.strategy.ts) |
-| <a id="ipniVerificationStart"></a>`ipniVerificationStart` | Dealbot begins polling filecoinpin.contact for <IpfsRootCid,SP> provider record. | Data Storage, Retrieval | **TBD** | [`ipni.strategy.ts`](../../apps/backend/src/deal-addons/strategies/ipni.strategy.ts) |
+| <a id="ipniVerificationStart"></a>`ipniVerificationStart` | Dealbot begins polling filecoinpin.contact for <IpfsRootCid,SP> provider record. | Data Storage, Retrieval | Yes — anchor tracked as `ipniVerificationStartTime` (used to compute `ipniVerifyMs`). | [`ipni-verification.service.ts`](../../apps/backend/src/ipni/ipni-verification.service.ts) |
 | <a id="ipniVerificationComplete"></a>`ipniVerificationComplete` | IPNI verification completes (pass or timeout). | Data Storage, Retrieval | Yes | [`ipni.strategy.ts`](../../apps/backend/src/deal-addons/strategies/ipni.strategy.ts) |
-| <a id="ipfsRetrievalStart"></a>`ipfsRetrievalStart` | Dealbot to SP `/ipfs/` retrieval begins. | Data Storage, Retrieval | **TBD** | [`retrieval.service.ts`](../../apps/backend/src/retrieval/retrieval.service.ts) |
-| <a id="ipfsRetrievalFirstByteReceived"></a>`ipfsRetrievalFirstByteReceived` | First byte received from `/ipfs/{rootCid}`. | Data Storage, Retrieval | Partial — `ipfsRetrievalFirstByteMs` histogram emitted; no discrete event. | [`retrieval.service.ts`](../../apps/backend/src/retrieval/retrieval.service.ts) |
-| <a id="ipfsRetrievalLastByteReceived"></a>`ipfsRetrievalLastByteReceived` | Last byte received from `/ipfs/{rootCid}`. | Data Storage, Retrieval | Partial — `ipfsRetrievalLastByteMs` histogram emitted; no discrete event. | [`retrieval.service.ts`](../../apps/backend/src/retrieval/retrieval.service.ts) |
-| <a id="ipfsRetrievalIntegrityChecked"></a>`ipfsRetrievalIntegrityChecked` | Retrieved content matches expected CID (per-block sha256 hash verification via `createBlock`). | Data Storage, Retrieval | Partial — inline check implemented; no discrete event emission. | [`ipfs-block.strategy.ts`](../../apps/backend/src/retrieval-addons/strategies/ipfs-block.strategy.ts) |
+| <a id="ipfsRetrievalStart"></a>`ipfsRetrievalStart` | Dealbot to SP `/ipfs/` retrieval begins. | Data Storage, Retrieval | Yes — anchor tracked as retrieval `startTime`; logs `retrieval_started`. | [`retrieval-addons.service.ts`](../../apps/backend/src/retrieval-addons/retrieval-addons.service.ts) |
+| <a id="ipfsRetrievalFirstByteReceived"></a>`ipfsRetrievalFirstByteReceived` | First byte received from `/ipfs/{rootCid}`. | Data Storage, Retrieval | Yes — anchor used to compute `ipfsRetrievalFirstByteMs` histogram. | [`retrieval-addons.service.ts`](../../apps/backend/src/retrieval-addons/retrieval-addons.service.ts) |
+| <a id="ipfsRetrievalLastByteReceived"></a>`ipfsRetrievalLastByteReceived` | Last byte received from `/ipfs/{rootCid}`. | Data Storage, Retrieval | Yes — anchor used to compute `ipfsRetrievalLastByteMs` histogram. | [`retrieval-addons.service.ts`](../../apps/backend/src/retrieval-addons/retrieval-addons.service.ts) |
+| <a id="ipfsRetrievalIntegrityChecked"></a>`ipfsRetrievalIntegrityChecked` | Retrieved content matches expected CID (per-block sha256 hash verification via `createBlock`). | Data Storage, Retrieval | Yes — inline check at end of DAG traversal; no discrete event emission. | [`ipfs-block.strategy.ts`](../../apps/backend/src/retrieval-addons/strategies/ipfs-block.strategy.ts) |
 
 ## Metrics
 
