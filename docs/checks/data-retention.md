@@ -14,8 +14,10 @@ Every data retention check cycle, dealbot:
 
 1. Queries the [PDP subgraph](https://docs.filecoin.io/smart-contracts/advanced/proof-of-data-possession) for provider-level challenge statistics
 2. Computes confirmed successful proving periods from the subgraph totals with estimated overdue periods for real-time monitoring
-3. Calculates deltas since the last poll
+3. Calculates proving-period deltas since the last poll and converts them to challenge counts
 4. Records metrics to track provider reliability over time
+
+**Provider selection**: Only providers returned by `WalletSdkService.getTestingProviders()` are polled, minus any matching the `spBlocklists` configuration (via `isSpBlocked`).
 
 ## How It Works
 
@@ -56,10 +58,11 @@ Dealbot uses the subgraph-confirmed totals directly for cumulative counters:
 confirmedTotalSuccess = totalProvingPeriods - totalFaultedPeriods
 ```
 
-Additionally, dealbot calculates **estimated overdue periods** for real-time monitoring via a separate gauge metric. For each proof set where the deadline has passed (`nextDeadline < currentBlock`):
+Additionally, dealbot calculates **estimated overdue periods** for real-time monitoring via a separate gauge metric. The value is the **sum across all of the provider's overdue proof sets** (those where `nextDeadline < currentBlock`); proof sets with `maxProvingPeriod === 0` are skipped:
 
 ```
-estimatedOverduePeriods = (currentBlock - (nextDeadline + 1)) / maxProvingPeriod
+estimatedOverduePeriods = sum over overdue proofSets of:
+    (currentBlock - (nextDeadline + 1)) / maxProvingPeriod
 ```
 
 This gauge provides immediate visibility into providers that are behind on submitting proofs, even before the subgraph confirms the faults. The gauge naturally resets to 0 when providers submit their proofs and the subgraph catches up.
@@ -68,16 +71,18 @@ This gauge provides immediate visibility into providers that are behind on submi
 
 ### 3. Calculate Deltas
 
-To avoid double-counting, dealbot maintains a baseline of cumulative totals for each provider. On each poll, it computes the delta (change) since the last poll:
+To avoid double-counting, dealbot maintains a baseline of cumulative **proving-period** totals for each provider. On each poll, it computes the period delta since the last poll and converts it to a challenge count using a fixed multiplier (`CHALLENGES_PER_PROVING_PERIOD = 5`, sourced from the `FilecoinWarmStorageService` contract):
 
 ```
-faultedDelta = totalFaultedPeriods - previousTotalFaulted
-successDelta = confirmedTotalSuccess - previousTotalSuccess
+faultedChallengesDelta = (totalFaultedPeriods    - previousTotalFaulted) * 5
+successChallengesDelta = (confirmedTotalSuccess - previousTotalSuccess) * 5
 ```
+
+Baselines are stored and compared in **periods**; the `dataSetChallengeStatus` counter is incremented in **challenges**.
 
 **First-seen provider handling**: When a provider has no prior baseline (fresh deploy or newly added provider), dealbot initializes the baseline to the current cumulative totals **without emitting any counters**. This prevents dumping the provider's full cumulative history as a single metric spike. Metrics for that provider will begin accumulating from the next poll onward.
 
-**Negative delta handling**: If deltas are negative (due to chain reorgs, subgraph corrections, or data inconsistencies), the baseline is reset to current values without incrementing counters. This prevents stalled metrics.
+**Negative delta handling**: If either challenge delta is negative (due to chain reorgs, subgraph corrections, or data inconsistencies), the baseline is reset to current values without incrementing counters. This prevents stalled metrics.
 
 **Baseline persistence**: Baselines are persisted to the `data_retention_baselines` database table after each successful poll. On service restart, baselines are reloaded from the database to prevent metric inflation.
 
@@ -172,22 +177,31 @@ Source: [`pdp-subgraph.service.ts` (`enforceRateLimit`)](../../apps/backend/src/
 
 See [`dataSetChallengeStatus`](./events-and-metrics.md#dataSetChallengeStatus) for more info.
 
+**Unit**: challenges (period delta × `CHALLENGES_PER_PROVING_PERIOD = 5`).
+
+**`value` label**:
+
+- `success` — challenges in successfully-proven periods (`totalProvingPeriods - totalFaultedPeriods`)
+- `failure` — challenges in faulted periods (`totalFaultedPeriods`)
+
 **Increment behavior**:
 
-- Only increments when positive deltas are detected
-- Increments by the delta amount (not always 1)
-- Handles large values (>MAX_SAFE_INTEGER) via chunked increments
+- Only increments when the challenge delta is strictly positive
+- Increments by the full challenge delta (not always 1)
+- For deltas exceeding `Number.MAX_SAFE_INTEGER`, `safeIncrementCounter` splits the increment into `MAX_SAFE_INTEGER`-sized chunks to preserve precision
 
-### Gauge: `pdp_provider_overdue_periods`
+### Gauge: `pdp_provider_estimated_overdue_periods`
 
-See [`pdp_provider_overdue_periods`](./events-and-metrics.md#pdp_provider_overdue_periods) for more info.
+See [`pdp_provider_estimated_overdue_periods`](./events-and-metrics.md#pdp_provider_estimated_overdue_periods) for more info.
+
+**Unit**: proving periods (sum across the provider's overdue proof sets).
 
 **Emission behavior**:
 
-- Emitted on every poll, independent of counter deltas
+- Emitted on every poll for every processed provider, independent of counter deltas and independent of baseline state (emitted even on first-seen providers)
 - Reflects estimated unrecorded overdue proving periods in real-time
 - Naturally resets to 0 when providers submit proofs and the subgraph catches up
-- Handles large values (>MAX_SAFE_INTEGER) via chunked `.inc()` calls
+- For values exceeding `Number.MAX_SAFE_INTEGER`, `safeSetGauge` **clamps** the gauge to `Number.MAX_SAFE_INTEGER` and logs an `overdue_periods_overflow` warning (it does **not** chunk)
 
 ## Configuration
 
@@ -300,20 +314,20 @@ Poll 1 (fresh start, no DB baseline):
 
 Poll 2:
   Subgraph: faulted=1005, success=9005
-  Memory baseline: 1000, 9000 → Delta: 5, 5
-  Emit: +5 faulted, +5 success
+  Memory baseline: 1000, 9000 → Period delta: 5, 5 (× 5 challenges/period)
+  Emit: +25 faulted challenges, +25 success challenges
 
 --- SERVICE RESTARTS ---
 
 Poll 3 (after restart):
   Subgraph: faulted=1005, success=9005
-  DB baseline: 1005, 9005 (loaded) → Delta: 0, 0
+  DB baseline: 1005, 9005 (loaded) → Period delta: 0, 0
   Emit: nothing (no new challenges)
 
 Poll 4:
   Subgraph: faulted=1008, success=9012
-  Memory baseline: 1005, 9005 → Delta: 3, 7
-  Emit: +3 faulted, +7 success
+  Memory baseline: 1005, 9005 → Period delta: 3, 7
+  Emit: +15 faulted challenges, +35 success challenges
 ```
 
 If the database is unavailable on startup, the poll is aborted to prevent emitting inflated values. The service will retry on the next scheduled poll.
