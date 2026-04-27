@@ -1,0 +1,24 @@
+{
+  "name": "@dealbot/subgraph",
+  "private": true,
+  "license": "(MIT OR Apache-2.0)",
+  "scripts": {
+    "sync-abis": "node scripts/sync-abis.mjs",
+    "codegen": "pnpm run sync-abis && graph codegen",
+    "build": "pnpm run build:mainnet",
+    "build:mainnet": "pnpm run codegen && graph build --network filecoin",
+    "build:calibration": "pnpm run codegen && graph build --network filecoin-testnet",
+    "deploy:mainnet": "goldsky subgraph deploy dealbot-mainnet/$VERSION --path ./build",
+    "deploy:calibration": "goldsky subgraph deploy dealbot-calibration/$VERSION --path ./build",
+    "test": "graph test"
+  },
+  "dependencies": {
+    "@filoz/synapse-core": "0.3.3",
+    "@graphprotocol/graph-cli": "0.98.1",
+    "@graphprotocol/graph-ts": "0.38.2"
+  },
+  "devDependencies": {
+    "assemblyscript": "0.19.23",
+    "matchstick-as": "0.6.0"
+  }
+}

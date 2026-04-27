@@ -9,7 +9,7 @@ export class StorageProvider {
   address!: string;
 
   @BigIntColumn({ nullable: true })
-  providerId?: bigint;
+  providerId: bigint | null;
 
   @Column()
   name!: string;
@@ -20,8 +20,8 @@ export class StorageProvider {
   @Column()
   payee!: string;
 
-  @Column({ name: "service_url", nullable: true })
-  serviceUrl!: string;
+  @Column({ name: "service_url", type: "varchar", nullable: true })
+  serviceUrl: string | null;
 
   @Column({ name: "is_active", default: true })
   isActive!: boolean;

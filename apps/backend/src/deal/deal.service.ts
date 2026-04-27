@@ -6,10 +6,16 @@ import { InjectRepository } from "@nestjs/typeorm";
 import { executeUpload } from "filecoin-pin";
 import { CID } from "multiformats/cid";
 import type { Repository } from "typeorm";
+import { ClickhouseService } from "../clickhouse/clickhouse.service.js";
 import { awaitWithAbort } from "../common/abort-utils.js";
 import { buildUnixfsCar } from "../common/car-utils.js";
 import { createFilecoinPinLogger } from "../common/filecoin-pin-logger.js";
-import { type DealLogContext, type ProviderJobContext, toStructuredError } from "../common/logging.js";
+import {
+  type DealLogContext,
+  type ProviderJobContext,
+  redactSensitiveText,
+  toStructuredError,
+} from "../common/logging.js";
 import { createSynapseFromConfig } from "../common/synapse-factory.js";
 import type { DataFile, Hex } from "../common/types.js";
 import type { IBlockchainConfig, IConfig } from "../config/app.config.js";
@@ -60,6 +66,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     private readonly dataStorageMetrics: DataStorageCheckMetrics,
     private readonly retrievalMetrics: RetrievalCheckMetrics,
     private readonly dataSetCreationMetrics: DataSetCreationCheckMetrics,
+    private readonly clickhouseService: ClickhouseService,
   ) {
     this.blockchainConfig = this.configService.get("blockchain");
   }
@@ -244,7 +251,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       });
       signal?.throwIfAborted();
 
-      deal.dataSetId = storage.dataSetId;
+      deal.dataSetId = storage.dataSetId ?? null;
       deal.uploadStartTime = new Date();
       let onStoredAddonsPromise: Promise<boolean> | null = null;
       let storedError: Error | undefined;
@@ -259,7 +266,8 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
          * See `onStored` handler in deal-addons/strategies/ipni.strategy.ts for implementation.
          */
         ipniValidation: { enabled: false },
-        onProgress: async (event) => {
+        // Must stay synchronous — Synapse SDK's safeInvoke discards the returned promise. See issue #446.
+        onProgress: (event) => {
           this.logger.debug({
             ...dealLogContext,
             event: "upload_progress",
@@ -270,7 +278,51 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
             case "onStored": {
               deal.uploadEndTime = new Date();
               deal.status = DealStatus.UPLOADED;
-              deal.ingestLatencyMs = deal.uploadEndTime.getTime() - deal.uploadStartTime.getTime();
+              deal.ingestLatencyMs = null;
+              deal.ingestThroughputBps = null;
+
+              const uploadStartTime = deal.uploadStartTime;
+              const uploadEndTime = deal.uploadEndTime;
+              if (uploadStartTime == null) {
+                this.logger.warn({
+                  ...dealLogContext,
+                  event: "ingest_metrics_skipped_missing_upload_start_time",
+                  message: "Skipping ingest metrics: uploadStartTime is missing",
+                  uploadEndTime,
+                });
+              } else {
+                const ingestLatencyMs = uploadEndTime.getTime() - uploadStartTime.getTime();
+                if (!Number.isFinite(ingestLatencyMs) || ingestLatencyMs <= 0) {
+                  this.logger.warn({
+                    ...dealLogContext,
+                    event: "ingest_metrics_skipped_invalid_latency",
+                    message: "Skipping ingest metrics: invalid ingest latency",
+                    uploadStartTime,
+                    uploadEndTime,
+                    ingestLatencyMs,
+                  });
+                } else {
+                  deal.ingestLatencyMs = ingestLatencyMs;
+                  this.dataStorageMetrics.observeIngestMs(providerLabels, ingestLatencyMs);
+
+                  const ingestSeconds = ingestLatencyMs / 1000;
+                  const ingestThroughputBps = Math.round(deal.fileSize / ingestSeconds);
+                  if (!Number.isFinite(ingestThroughputBps) || ingestThroughputBps <= 0) {
+                    this.logger.warn({
+                      ...dealLogContext,
+                      event: "ingest_throughput_skipped_invalid_value",
+                      message: "Skipping ingest throughput metric: invalid throughput value",
+                      ingestLatencyMs,
+                      fileSize: deal.fileSize,
+                      ingestThroughputBps,
+                    });
+                  } else {
+                    deal.ingestThroughputBps = ingestThroughputBps;
+                    this.dataStorageMetrics.observeIngestThroughput(providerLabels, ingestThroughputBps);
+                  }
+                }
+              }
+
               deal.pieceCid = event.data.pieceCid.toString();
               dealLogContext.pieceCid = event.data.pieceCid.toString();
               this.logger.log({
@@ -279,7 +331,6 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
                 message: `Store completed`,
               });
               uploadSucceeded = true;
-              this.dataStorageMetrics.observeIngestMs(providerLabels, deal.ingestLatencyMs);
               this.dataStorageMetrics.recordUploadStatus(providerLabels, "success");
               this.dataStorageMetrics.recordOnchainStatus(providerLabels, "pending");
               onStoredAddonsPromise = this.dealAddonsService
@@ -289,19 +340,6 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
                   storedError = error;
                   return false;
                 });
-              const ingestSeconds = deal.ingestLatencyMs / 1000;
-              if (ingestSeconds > 0 && Number.isFinite(ingestSeconds)) {
-                deal.ingestThroughputBps = Math.round(deal.fileSize / ingestSeconds);
-                this.dataStorageMetrics.observeIngestThroughput(providerLabels, deal.ingestThroughputBps);
-              } else {
-                deal.ingestThroughputBps = 0;
-                this.logger.warn({
-                  ...dealLogContext,
-                  event: "ingest_throughput_skipped",
-                  message: "Skipping ingest throughput: invalid ingest latency",
-                  ingestLatencyMs: deal.ingestLatencyMs,
-                });
-              }
               break;
             }
             case "onPiecesAdded":
@@ -322,10 +360,12 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
                 });
               }
               deal.status = DealStatus.PIECE_ADDED;
-              this.dataStorageMetrics.observePieceAddedOnChainMs(
-                providerLabels,
-                deal.piecesAddedTime.getTime() - deal.uploadEndTime.getTime(),
-              );
+              if (deal.uploadEndTime) {
+                this.dataStorageMetrics.observePieceAddedOnChainMs(
+                  providerLabels,
+                  deal.piecesAddedTime.getTime() - deal.uploadEndTime.getTime(),
+                );
+              }
               break;
             case "onPiecesConfirmed":
               this.logger.log({
@@ -334,24 +374,49 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
                 message: "Pieces confirmed",
                 pieceIds: event.data.pieceIds,
               });
+              if (event.data.pieceIds.length > 1) {
+                this.logger.warn({
+                  ...dealLogContext,
+                  event: "pieces_confirmed_multiple_piece_ids",
+                  message: "Expected at most one pieceId for dealbot content, received multiple",
+                  pieceIds: event.data.pieceIds,
+                });
+              }
+              if (event.data.pieceIds.length > 0) {
+                deal.pieceId = Number(event.data.pieceIds[0]);
+              }
               deal.piecesConfirmedTime = new Date();
               deal.status = DealStatus.PIECE_CONFIRMED;
-              deal.chainLatencyMs = deal.piecesConfirmedTime.getTime() - deal.piecesAddedTime.getTime();
+              deal.chainLatencyMs =
+                deal.piecesAddedTime != null
+                  ? deal.piecesConfirmedTime.getTime() - deal.piecesAddedTime.getTime()
+                  : null;
               onchainSucceeded = true;
-              this.dataStorageMetrics.observePieceConfirmedOnChainMs(providerLabels, deal.chainLatencyMs);
+              if (deal.chainLatencyMs !== null) {
+                this.dataStorageMetrics.observePieceConfirmedOnChainMs(providerLabels, deal.chainLatencyMs);
+              }
               this.dataStorageMetrics.recordOnchainStatus(providerLabels, "success");
               break;
           }
-          // throw if aborted, AFTER adding data to the `deal` object. Everything in this `onProgress` callback is synchronous.
-          signal?.throwIfAborted();
         },
       });
       signal?.throwIfAborted();
-      if (deal.pieceCid == null || deal.piecesAddedTime == null || deal.piecesConfirmedTime == null) {
+      const pieceCid = deal.pieceCid;
+      const uploadStartTime = deal.uploadStartTime;
+      const uploadEndTime = deal.uploadEndTime;
+      const pieceAddedTime = deal.piecesAddedTime;
+      const pieceConfirmedTime = deal.piecesConfirmedTime;
+      if (
+        pieceCid === null ||
+        uploadStartTime === null ||
+        uploadEndTime === null ||
+        pieceAddedTime === null ||
+        pieceConfirmedTime === null
+      ) {
         throw new Error("Dealbot did not receive onProgress events during upload");
       }
 
-      deal.dealLatencyMs = deal.piecesConfirmedTime.getTime() - deal.uploadStartTime.getTime();
+      deal.dealLatencyMs = pieceConfirmedTime.getTime() - uploadStartTime.getTime();
 
       if (!deal.transactionHash) {
         this.logger.error({
@@ -371,7 +436,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
           throw storedError ?? new Error("Upload completion handlers failed");
         }
         deal.dealConfirmedTime = new Date();
-        if (deal.ipniVerifiedAt) {
+        if (deal.ipniVerifiedAt != null && deal.uploadStartTime != null) {
           // pieceUploadToRetrievableDuration (IPNI verified)
           deal.dealLatencyWithIpniMs = deal.ipniVerifiedAt.getTime() - deal.uploadStartTime.getTime();
         }
@@ -438,7 +503,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
 
       return deal;
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorMessage = redactSensitiveText(error instanceof Error ? error.message : String(error));
       this.logger.error({
         ...dealLogContext,
         event: "deal_creation_failed",
@@ -568,7 +633,8 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
           contexts: [storage],
           pieceMetadata: {},
           ipniValidation: { enabled: false },
-          onProgress: async (event) => {
+          // Must stay synchronous — see issue #446.
+          onProgress: (event) => {
             switch (event.type) {
               case "onStored":
                 pieceCid = event.data.pieceCid.toString();
@@ -604,7 +670,6 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
                 });
                 break;
             }
-            signal?.throwIfAborted();
           },
         }),
         signal,
@@ -732,10 +797,35 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     // Only set pieceSize here if it hasn't been set earlier in the deal flow.
     deal.pieceSize = pieceSize;
 
-    deal.pieceId = uploadResult.pieceId;
+    deal.pieceId = uploadResult.pieceId ?? deal.pieceId;
   }
 
   private async saveDeal(deal: Deal, dealLogContext: DealLogContext): Promise<void> {
+    this.clickhouseService.insert("data_storage_checks", {
+      timestamp: Date.now(),
+      probe_location: this.clickhouseService.probeLocation,
+      sp_address: deal.spAddress,
+      sp_id: deal.storageProvider?.providerId != null ? String(deal.storageProvider.providerId) : null, // providerId is a BigInt
+      sp_name: deal.storageProvider?.name ?? null,
+      deal_id: deal.id,
+      piece_cid: deal.pieceCid ?? null,
+      piece_id: deal.pieceId ?? null,
+      file_size_bytes: deal.fileSize ?? null,
+      piece_size_bytes: deal.pieceSize ?? null,
+      status: deal.status,
+      error_code: deal.errorCode ?? null,
+      upload_started_at: deal.uploadStartTime?.getTime() ?? null,
+      upload_ended_at: deal.uploadEndTime?.getTime() ?? null,
+      pieces_added_at: deal.piecesAddedTime?.getTime() ?? null,
+      pieces_confirmed_at: deal.piecesConfirmedTime?.getTime() ?? null,
+      ipni_status: deal.ipniStatus ?? null,
+      ipni_indexed_at: deal.ipniIndexedAt?.getTime() ?? null,
+      ipni_advertised_at: deal.ipniAdvertisedAt?.getTime() ?? null,
+      ipni_verified_at: deal.ipniVerifiedAt?.getTime() ?? null,
+      ipni_verified_cids_count: deal.ipniVerifiedCidsCount ?? null,
+      ipni_unverified_cids_count: deal.ipniUnverifiedCidsCount ?? null,
+    });
+
     try {
       await this.dealRepository.save(deal);
     } catch (error) {

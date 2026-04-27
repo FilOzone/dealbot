@@ -2,6 +2,7 @@ import { ConfigService } from "@nestjs/config";
 import { Test, TestingModule } from "@nestjs/testing";
 import { getRepositoryToken } from "@nestjs/typeorm";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { ClickhouseService } from "../clickhouse/clickhouse.service.js";
 import { Deal } from "../database/entities/deal.entity.js";
 import { Retrieval } from "../database/entities/retrieval.entity.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
@@ -32,6 +33,7 @@ describe("RetrievalService timeouts", () => {
     get: vi.fn((key: string) => {
       if (key === "app") return { runMode: "api" };
       if (key === "jobs") return { pgbossSchedulerEnabled: false };
+      if (key === "blockchain") return { network: "calibration" };
       if (key === "dataset") return { randomDatasetSizes: [10] };
       if (key === "timeouts") return { ipniVerificationTimeoutMs: 10_000, ipniVerificationPollingMs: 2_000 };
       return undefined;
@@ -93,6 +95,7 @@ describe("RetrievalService timeouts", () => {
         { provide: DiscoverabilityCheckMetrics, useValue: mockDiscoverabilityMetrics },
         { provide: IpniVerificationService, useValue: mockIpniVerificationService },
         { provide: ConfigService, useValue: mockConfigService },
+        { provide: ClickhouseService, useValue: { insert: vi.fn(), probeLocation: "test" } },
       ],
     }).compile();
 
@@ -317,5 +320,66 @@ describe("RetrievalService timeouts", () => {
     expect(mockRetrievalMetrics.recordStatus).toHaveBeenCalledWith(labels, "pending");
     expect(mockRetrievalMetrics.recordStatus).toHaveBeenCalledWith(labels, "failure.timedout");
     expect(mockRetrievalMetrics.observeCheckDuration).toHaveBeenCalledWith(labels, 900);
+  });
+});
+
+describe("RetrievalService DB/provider drift", () => {
+  const mockConfigService = {
+    get: vi.fn((key: string) => {
+      if (key === "jobs") return { mode: "cron" };
+      if (key === "blockchain") return { useOnlyApprovedProviders: false };
+      if (key === "dataset") return { randomDatasetSizes: [10] };
+      if (key === "timeouts") return { ipniVerificationTimeoutMs: 10_000, ipniVerificationPollingMs: 2_000 };
+      return undefined;
+    }),
+  };
+
+  function createMockQueryBuilder() {
+    const calls: Array<{ clause: string; params?: Record<string, unknown> }> = [];
+    const qb = {
+      innerJoin: vi.fn().mockReturnThis(),
+      where: vi.fn().mockReturnThis(),
+      andWhere: vi.fn((clause: string, params?: Record<string, unknown>) => {
+        calls.push({ clause, params });
+        return qb;
+      }),
+      orderBy: vi.fn().mockReturnThis(),
+      take: vi.fn().mockReturnThis(),
+      limit: vi.fn().mockReturnThis(),
+      getMany: vi.fn().mockResolvedValue([]),
+      getOne: vi.fn().mockResolvedValue(null),
+    };
+    return { qb, calls };
+  }
+
+  async function createServiceWithQb(mockQb: ReturnType<typeof createMockQueryBuilder>["qb"]) {
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        RetrievalService,
+        { provide: RetrievalAddonsService, useValue: {} },
+        { provide: getRepositoryToken(Deal), useValue: { createQueryBuilder: vi.fn().mockReturnValue(mockQb) } },
+        { provide: getRepositoryToken(Retrieval), useValue: {} },
+        { provide: getRepositoryToken(StorageProvider), useValue: {} },
+        { provide: RetrievalCheckMetrics, useValue: {} },
+        { provide: DiscoverabilityCheckMetrics, useValue: {} },
+        { provide: IpniVerificationService, useValue: {} },
+        { provide: ConfigService, useValue: mockConfigService },
+        { provide: ClickhouseService, useValue: { insert: vi.fn(), probeLocation: "test" } },
+      ],
+    }).compile();
+    return module.get<RetrievalService>(RetrievalService);
+  }
+
+  it("selectRandomSuccessfulDealForProvider excludes cleaned-up deals", async () => {
+    const { qb, calls } = createMockQueryBuilder();
+    const svc = (await createServiceWithQb(qb)) as unknown as {
+      selectRandomSuccessfulDealForProvider: (spAddress: string) => Promise<Deal | null>;
+    };
+
+    await svc.selectRandomSuccessfulDealForProvider("0xSP");
+
+    const cleanedUpCall = calls.find((c) => c.clause.includes("cleaned_up"));
+    expect(cleanedUpCall).toBeDefined();
+    expect(cleanedUpCall?.params).toEqual({ cleanedUp: false });
   });
 });

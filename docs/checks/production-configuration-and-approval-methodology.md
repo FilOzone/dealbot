@@ -82,7 +82,7 @@ With the current configuration, Dealbot will add this much synthetic load on SPs
 Over the course of a day this means:
 * 75 proof challenges
 * 960 MB of SP download bandwidth in support of adding new pieces
-* 960 MB of disk space for the pieces.
+* 960 MB of disk space for the pieces.  Piece cleanup removes the oldest pieces once total stored data per SP exceeds a configurable threshold (see [`MAX_DATASET_STORAGE_SIZE_BYTES`](../environment-variables.md#max_dataset_storage_size_bytes)).
 * 1,920 MB of SP upload bandwidth in support of retrievals
 
 ## Appendix
@@ -97,7 +97,7 @@ This is in a private repo because it includes other infrastructure configuration
 
 ### Does dealbot cleanup old pieces?
 
-No, not currently.  See issue [#284](https://github.com/FilOzone/dealbot/issues/284) for more details.
+Yes. Dealbot runs a periodic piece cleanup job per SP that monitors total stored data and removes the oldest pieces when a configurable threshold is exceeded. This produces headroom so new pieces can continue to be added. See the [Piece Cleanup](../environment-variables.md#piece-cleanup) environment variables for configuration details.
 
 ## How are data storage and retrieval check statistics/thresholds calculated?
 

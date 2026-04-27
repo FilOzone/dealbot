@@ -4,7 +4,9 @@ import { InjectRepository } from "@nestjs/typeorm";
 import { InjectMetric } from "@willsoto/nestjs-prometheus";
 import { Counter, Gauge } from "prom-client";
 import { Raw, Repository } from "typeorm";
+import { ClickhouseService } from "../clickhouse/clickhouse.service.js";
 import { toStructuredError } from "../common/logging.js";
+import { isSpBlocked } from "../common/sp-blocklist.js";
 import { IConfig } from "../config/app.config.js";
 import { DataRetentionBaseline } from "../database/entities/data-retention-baseline.entity.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
@@ -52,6 +54,7 @@ export class DataRetentionService {
     private readonly dataSetChallengeStatusCounter: Counter,
     @InjectMetric("pdp_provider_estimated_overdue_periods")
     private readonly estimatedOverduePeriodsGauge: Gauge,
+    private readonly clickhouseService: ClickhouseService,
   ) {
     this.providerCumulativeTotals = new Map();
   }
@@ -80,7 +83,9 @@ export class DataRetentionService {
 
     try {
       const subgraphMeta = await this.pdpSubgraphService.fetchSubgraphMeta();
-      const providerInfos = this.walletSdkService.getTestingProviders();
+      const allProviderInfos = this.walletSdkService.getTestingProviders();
+      const spBlocklists = this.configService.get("spBlocklists");
+      const providerInfos = allProviderInfos?.filter((p) => !isSpBlocked(spBlocklists, p.serviceProvider, p.id));
 
       if (!providerInfos || providerInfos.length === 0) {
         this.logger.warn({
@@ -328,6 +333,18 @@ export class DataRetentionService {
     }, 0n);
 
     const confirmedTotalSuccess = totalProvingPeriods - totalFaultedPeriods;
+
+    this.clickhouseService.insert("data_retention_challenges", {
+      timestamp: Date.now(),
+      probe_location: this.clickhouseService.probeLocation,
+      sp_address: address,
+      sp_id: pdpProvider.id != null ? String(pdpProvider.id) : null, // pdpProvider.id is a BigInt
+      sp_name: pdpProvider.name ?? null,
+      total_periods_due: Number(totalProvingPeriods),
+      total_faulted_periods: Number(totalFaultedPeriods),
+      total_success_periods: Number(confirmedTotalSuccess),
+      estimated_overdue_periods: Number(estimatedOverduePeriods),
+    });
 
     const normalizedAddress = address.toLowerCase();
     const previous = this.providerCumulativeTotals.get(normalizedAddress);

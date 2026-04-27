@@ -1,5 +1,10 @@
 type ErrorWithCode = Error & { code?: unknown };
 const MAX_ERROR_STACK_LENGTH = 4 * 1024;
+const ERROR_STACK_REDACTION_BUFFER_LENGTH = 512;
+const MAX_CAUSE_DEPTH = 5;
+const URL_PATTERN = /\bhttps?:\/\/[^\s<>"')\]}]+/gi;
+const REDACTED_VALUE = "REDACTED";
+const SENSITIVE_QUERY_PARAMETER_NAMES = new Set(["token", "api_key", "apikey", "access_token", "authorization"]);
 
 export type StructuredError = {
   type: "error" | "non_error";
@@ -8,6 +13,7 @@ export type StructuredError = {
   code?: string;
   stack?: string;
   details?: unknown;
+  cause?: StructuredError;
 };
 
 export function toJsonSafe(value: unknown): unknown {
@@ -20,7 +26,35 @@ export function toJsonSafe(value: unknown): unknown {
   }
 }
 
-function truncateErrorStack(stack: string | undefined): string | undefined {
+function redactSensitiveUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+
+    if (parsed.username) {
+      parsed.username = REDACTED_VALUE;
+    }
+
+    if (parsed.password) {
+      parsed.password = REDACTED_VALUE;
+    }
+
+    for (const key of parsed.searchParams.keys()) {
+      if (SENSITIVE_QUERY_PARAMETER_NAMES.has(key.toLowerCase())) {
+        parsed.searchParams.set(key, REDACTED_VALUE);
+      }
+    }
+
+    return parsed.toString();
+  } catch {
+    return `INVALID_URL[${url}]`;
+  }
+}
+
+export function redactSensitiveText(text: string): string {
+  return text.replaceAll(URL_PATTERN, redactSensitiveUrl);
+}
+
+function truncateErrorStack(stack: string): string {
   if (!stack || stack.length <= MAX_ERROR_STACK_LENGTH) {
     return stack;
   }
@@ -29,28 +63,44 @@ function truncateErrorStack(stack: string | undefined): string | undefined {
   return `${stack.slice(0, MAX_ERROR_STACK_LENGTH)}... [truncated ${omittedChars} chars]`;
 }
 
+function redactErrorStack(stack: string | undefined): string | undefined {
+  if (!stack) {
+    return stack;
+  }
+
+  const redactionWindow = MAX_ERROR_STACK_LENGTH + ERROR_STACK_REDACTION_BUFFER_LENGTH;
+  const boundedStack = stack.length > redactionWindow ? stack.slice(0, redactionWindow) : stack;
+
+  return truncateErrorStack(redactSensitiveText(boundedStack));
+}
+
 /**
  * Serializes unknown error values into structured JSON-friendly fields.
+ * Recursively serializes error.cause chains up to MAX_CAUSE_DEPTH levels.
  */
-export function toStructuredError(error: unknown): StructuredError {
+export function toStructuredError(error: unknown, depth: number = 0): StructuredError {
   if (error instanceof Error) {
     const typedError = error as ErrorWithCode;
     const rawCode = typedError.code;
     const stringCode = rawCode === null || rawCode === undefined ? undefined : String(rawCode);
 
+    const cause =
+      error.cause !== undefined && depth < MAX_CAUSE_DEPTH ? toStructuredError(error.cause, depth + 1) : undefined;
+
     return {
       type: "error",
       name: error.name,
-      message: error.message,
+      message: redactSensitiveText(error.message),
       code: stringCode && stringCode.length > 0 ? stringCode : undefined,
-      stack: truncateErrorStack(error.stack),
+      stack: redactErrorStack(error.stack),
+      cause,
     };
   }
 
   if (typeof error === "string") {
     return {
       type: "non_error",
-      message: error,
+      message: redactSensitiveText(error),
     };
   }
 
@@ -72,7 +122,7 @@ export type BaseDealRetrievalLogContext = {
   providerAddress?: string;
   providerId?: bigint;
   providerName?: string;
-  pieceCid?: string;
+  pieceCid?: string | null;
   ipfsRootCID?: string;
 };
 
@@ -117,4 +167,17 @@ export type JobLogContext = {
   providerAddress: string;
   providerId?: bigint;
   providerName?: string;
+};
+
+/**
+ * Structured logging context for piece cleanup operations
+ */
+export type PieceCleanupLogContext = {
+  jobId?: string;
+  providerAddress: string;
+  providerId?: bigint;
+  providerName?: string;
+  storedBytes?: number;
+  thresholdBytes?: number;
+  targetBytes?: number;
 };

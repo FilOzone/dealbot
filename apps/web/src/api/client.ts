@@ -1,3 +1,4 @@
+import type { AppConfigResponse } from "@/types/config";
 import type { PaginationOptions } from "@/types/pagination";
 import type { ProvidersListResponseWithoutMetrics } from "@/types/providers";
 
@@ -41,4 +42,14 @@ export async function fetchProvidersList(options?: PaginationOptions): Promise<P
   if (!res.ok) throw new Error(`Failed to fetch providers list: HTTP ${res.status}`);
 
   return (await res.json()) as ProvidersListResponseWithoutMetrics;
+}
+
+/**
+ * Fetch dealbot app configuration (networks this instance is monitoring, job rates, etc).
+ */
+export async function fetchAppConfig(signal?: AbortSignal): Promise<AppConfigResponse> {
+  const url = `${getBaseUrl()}/api/config`;
+  const res = await fetch(url, { headers: JSON_HEADERS, signal });
+  if (!res.ok) throw new Error(`Failed to fetch app config: HTTP ${res.status}`);
+  return (await res.json()) as AppConfigResponse;
 }
