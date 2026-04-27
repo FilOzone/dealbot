@@ -3,6 +3,7 @@ import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
 import { CID } from "multiformats/cid";
 import type { Repository } from "typeorm";
+import { ClickhouseService } from "../clickhouse/clickhouse.service.js";
 import { type ProviderJobContext, type RetrievalLogContext, toStructuredError } from "../common/logging.js";
 import type { Hex } from "../common/types.js";
 import type { IConfig } from "../config/app.config.js";
@@ -40,6 +41,7 @@ export class RetrievalService {
     private readonly discoverabilityMetrics: DiscoverabilityCheckMetrics,
     private readonly ipniVerificationService: IpniVerificationService,
     private readonly configService: ConfigService<IConfig, true>,
+    private readonly clickhouseService: ClickhouseService,
   ) {}
 
   async performRandomRetrievalForProvider(
@@ -255,7 +257,25 @@ export class RetrievalService {
       this.retrievalMetrics.recordHttpResponseCode(providerLabels, executionResult.metrics.statusCode);
     }
 
-    return this.saveRetrieval(retrieval);
+    const saved = await this.saveRetrieval(retrieval);
+
+    this.clickhouseService.insert("retrieval_checks", {
+      timestamp: Date.now(),
+      probe_location: this.clickhouseService.probeLocation,
+      sp_address: deal.spAddress,
+      sp_id: providerLabels.providerId !== "unknown" ? providerLabels.providerId : null,
+      sp_name: providerLabels.providerName !== "unknown" ? providerLabels.providerName : null,
+      deal_id: deal.id,
+      retrieval_id: saved.id,
+      service_type: saved.serviceType,
+      status: saved.status,
+      http_response_code: executionResult.metrics.statusCode || null,
+      first_byte_ms: executionResult.success ? executionResult.metrics.ttfb : null,
+      last_byte_ms: executionResult.success ? executionResult.metrics.latency : null,
+      bytes_retrieved: executionResult.success ? executionResult.metrics.responseSize : null,
+    });
+
+    return saved;
   }
 
   private recordRetrievalEventMetrics(

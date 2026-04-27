@@ -41,6 +41,9 @@ importers:
 
   apps/backend:
     dependencies:
+      '@clickhouse/client':
+        specifier: ^1.11.0
+        version: 1.18.2
       '@filoz/synapse-core':
         specifier: 0.3.3
         version: 0.3.3(typescript@5.9.3)(viem@2.47.5(typescript@5.9.3)(zod@4.3.6))
@@ -619,6 +622,13 @@ packages:
 
   '@clack/prompts@1.1.0':
     resolution: {integrity: sha512-pkqbPGtohJAvm4Dphs2M8xE29ggupihHdy1x84HNojZuMtFsHiUlRvqD24tM2+XmI+61LlfNceM3Wr7U5QES5g==}
+
+  '@clickhouse/client-common@1.18.2':
+    resolution: {integrity: sha512-J0SG6q9V31ydxonglpj9xhNRsUxCsF71iEZ784yldqMYwsHixj/9xHFDgBDX3DuMiDx/kPDfXnf+pimp08wIBA==}
+
+  '@clickhouse/client@1.18.2':
+    resolution: {integrity: sha512-fuquQswRSHWM6D079ZeuGqkMOsqtcUPL06UdTnowmoeeYjVrqisfVmvnw8pc3OeKS4kVb91oygb/MfLDiMs0TQ==}
+    engines: {node: '>=16'}
 
   '@colors/colors@1.5.0':
     resolution: {integrity: sha512-ooWCrlZP11i8GImSjTHYHLkvFDP48nS4+204nGb1RiX/WXYHmJA2III9/e2DWVabCESdW7hBAEzHRqUn9OUVvQ==}
@@ -7266,6 +7276,12 @@ snapshots:
     dependencies:
       '@clack/core': 1.1.0
       sisteransi: 1.0.5
+
+  '@clickhouse/client-common@1.18.2': {}
+
+  '@clickhouse/client@1.18.2':
+    dependencies:
+      '@clickhouse/client-common': 1.18.2
 
   '@colors/colors@1.5.0':
     optional: true
