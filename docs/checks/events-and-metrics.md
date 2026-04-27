@@ -18,7 +18,7 @@ sequenceDiagram
   participant RPC as Chain RPC Provider
   participant IPNI as filecoinpin.contact IPNI Instance
 
-  rect rgb(50, 50, 50)
+  rect rgba(120, 120, 200, 0.15)
     %% Data Storage Only
     Dealbot->>SP: uploadToSpStart
     SP-->>Dealbot: uploadToSpEnd (2xx, piece CID)
