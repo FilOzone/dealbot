@@ -1,6 +1,6 @@
 # Data Storage Check
 
-This document is the **source of truth** for how dealbot's Data Storage check works. (Items marked **TBD** are not yet implemented; code changes will follow.)
+This document is the **source of truth** for how dealbot's Data Storage check works.
 
 Source code links throughout this document point to the current implementation.
 
@@ -32,11 +32,11 @@ Each deal asserts the following for every SP:
 |---|-----------|-----------------|:---:|:---:|-----------------------------------|:---:|
 | 1 | SP accepts piece upload | Upload completes without error (HTTP 200); piece CID is returned | Upload | 1 | [`ingestMs`](./events-and-metrics.md#ingestMs) | Yes |
 | 2 | Piece submission recorded on-chain | Synapse `onPieceAdded` callback fires with a transaction hash | Onchain | n/a | [`pieceAddedOnChainMs`](./events-and-metrics.md#pieceAddedOnChainMs) | Yes |
-| 3 | Piece is confirmed on-chain | Synapse `onPieceConfirmed` callback fires | Onchain | n/a | [`pieceConfirmedOnChainMs`](./events-and-metrics.md#pieceConfirmedOnChainMs) | **TBD** |
+| 3 | Piece is confirmed on-chain | Synapse `onPieceConfirmed` callback fires | Onchain | n/a | [`pieceConfirmedOnChainMs`](./events-and-metrics.md#pieceConfirmedOnChainMs) | Yes |
 | 4 | SP indexes piece locally | PDP server reports `indexed: true` | Discoverability | n/a | [`spIndexLocallyMs`](./events-and-metrics.md#spIndexLocallyMs) | Yes |
-| 5 | Content is discoverable on filecoinpin.contact | IPNI index returns a <IpfsRootCid,SP> provider record | Discoverability | Polling with delay until timeout | [`ipniVerifyMs`](./events-and-metrics.md#ipniVerifyMs) | **TBD** |
-| 6 | Content is retrievable | See [Retrieval Check](./retrievals.md#what-gets-asserted) for specific assertions | Retrieval | 0 | [`ipfsRetrievalLastByteMs`](./events-and-metrics.md#ipfsRetrievalLastByteMs) | **TBD** |
-| 7 | All checks pass | Deal is not marked successful until all assertions pass within window | All four | n/a | [`dataStorageCheckMs`](./events-and-metrics.md#dataStorageCheckMs) | **TBD** |
+| 5 | Content is discoverable on filecoinpin.contact | IPNI index returns a <IpfsRootCid,SP> provider record | Discoverability | Polling with delay until timeout | [`ipniVerifyMs`](./events-and-metrics.md#ipniVerifyMs) | Yes |
+| 6 | Content is retrievable | See [Retrieval Check](./retrievals.md#what-gets-asserted) for specific assertions | Retrieval | 0 | [`ipfsRetrievalLastByteMs`](./events-and-metrics.md#ipfsRetrievalLastByteMs) | Yes |
+| 7 | All checks pass | Deal is not marked successful until all assertions pass within window | All four | n/a | [`dataStorageCheckMs`](./events-and-metrics.md#dataStorageCheckMs) | Yes |
 
 ## Deal Lifecycle
 
@@ -90,7 +90,7 @@ After upload completes, dealbot waits for the piece to be confirmed onchain.  Th
 After upload completes, dealbot polls the SP's PDP server to track the piece through its indexing lifecycle:
 - **`sp_indexed`**: SP has indexed the piece locally. Any CID in the CAR is now retrievable with `/ipfs/$CID` retrieval, but it may not be discoverable by the rest of the network. Direct SP [retrieval checking](#8-retrieve-and-verify-content) can commence.
 - **`sp_advertised`**: SP has announced the piece index to IPNI. (In IPNI terminology this is "advertisement announcement" (see [docs](https://docs.cid.contact/filecoin-network-indexer/technical-walkthrough))). [IPNI indexing verification](#7-verify-ipni-indexing) can commence.
-- **Poll interval**: 2.5 seconds (see `TBD_VARIABLE`)
+- **Poll interval**: 2.5 seconds (hardcoded `POLLING_INTERVAL_MS` in [`ipni.strategy.ts`](../../apps/backend/src/deal-addons/strategies/ipni.strategy.ts))
 
 Source: [`ipni.strategy.ts` (`monitorPieceStatus`)](../../apps/backend/src/deal-addons/strategies/ipni.strategy.ts#L343)
 
@@ -100,11 +100,11 @@ After the SP announces the piece index to IPNI, dealbot ensures the uploaded pie
 
 This uses the `waitForIpniProviderResults` function from the `filecoin-pin` library.
 
-- **Polling interval:** 5 seconds (see `TBD_VARIABLE`)
+- **Polling interval:** 2 seconds (configurable via [`IPNI_VERIFICATION_POLLING_MS`](../environment-variables.md#ipni_verification_polling_ms), default `2000`)
 
 Source: [`ipni.strategy.ts` (`monitorAndVerifyIPNI`)](../../apps/backend/src/deal-addons/strategies/ipni.strategy.ts#L239)
 
-### 7. Retrieve and Verify Content — **TBD**
+### 7. Retrieve and Verify Content
 
 See [Retrieval Check](./retrievals.md) for the specifics of retrieving and verifying the returned bytes match the CID.
 
@@ -210,17 +210,17 @@ See also: [`docs/environment-variables.md`](../environment-variables.md) for the
 
 See https://github.com/filecoin-project/filecoin-pin/blob/master/documentation/content-routing-faq.md#why-is-there-filecoinpincontact-and-cidcontact
 
-## TBD Summary
+## Implementation History
 
-The following items are **TBD**.  This set will get reviewed and cleaned up as part of https://github.com/FilOzone/dealbot/issues/280.
+The items below were previously TBD and are now implemented. Tracking issue: https://github.com/FilOzone/dealbot/issues/280.
 
-| Item | Description |
-|------|-------------|
-| Inline retrieval verification | After SP indexes, immediately retrieve and verify content as part of the deal flow — deal must not be marked successful until retrieval passes (separate scheduled job until inline verification lands) |
-| CID-based content verification | Verify retrieved content by re-computing CID and comparing to upload-time CID (size-check only until CID verification lands) |
-| Per-deal max time limit | If the entire deal (all steps) does not complete within a configurable max time, mark the deal as failed. Operational timeouts prevent infinite runs but are not treated as a quality assertion that fails the deal. |
-| Deal gated on all checks | Deal should not be marked successful until retrieval and IPNI verification pass (IPNI runs async until gating is implemented) |
-| Status model update | Deal statuses may need new states to reflect retrieval and IPNI verification gates |
-| `onPieceConfirmed` callback tracking | Track `onPieceConfirmed` callback as a distinct step — piece confirmed on-chain (only `onPieceAdded` is tracked as a deal status gate until this lands) |
-| IPFS gateway retrieval verification | After SP indexes, retrieve content via the SP IPFS gateway (`/ipfs/{rootCid}`) and verify it before the deal can pass |
-| `filecoin-pin` CAR conversion | CAR conversion should use the `filecoin-pin` library integration (local implementation in `ipni.strategy.ts` until this lands) |
+| Item | Status |
+|------|--------|
+| Inline retrieval verification | Done — `deal.service.ts` runs `testAllRetrievalMethods` inline; deal throws on failure. |
+| CID-based content verification | Done — `ipfs-block.strategy.ts` traverses the DAG and uses `createBlock({ bytes, cid, hasher: sha256 })` which throws on hash mismatch (per-block CID integrity). |
+| Per-deal max time limit | Done — `DEAL_JOB_TIMEOUT_SECONDS` triggers an `AbortController` in `jobs.service.ts`; on abort the deal is set to `DealStatus.FAILED` with failure-status metrics emitted. |
+| Deal gated on all checks | Done — deal only reaches `DealStatus.DEAL_CREATED` after upload, onchain, IPNI, and retrieval all succeed. |
+| Status model update | Done — `DealStatus` includes `PIECE_CONFIRMED`, `DEAL_CREATED`, `FAILED`; `IpniStatus` includes `SP_INDEXED`, `SP_ADVERTISED`, `VERIFIED`, `FAILED`; `RetrievalStatus` enum exists. |
+| `onPieceConfirmed` callback tracking | Done — `piecesConfirmedTime` recorded, `pieceConfirmedOnChainMs` histogram emitted, `DealStatus.PIECE_CONFIRMED` state exists. |
+| IPFS gateway retrieval verification | Done — inline retrieval runs after `sp_indexed`. |
+| `filecoin-pin` CAR conversion | Done — `car-utils.ts` uses `createCarFromPath` from `filecoin-pin/core/unixfs`; `deal.service.ts` imports `executeUpload` from `filecoin-pin`. |
