@@ -31,8 +31,8 @@ Each deal asserts the following for every SP:
 | # | Assertion | How It's Checked | [Sub Status Affected](#sub-status-meanings) | Retries | Relevant Metric for Setting a Max Duration | Implemented? |
 |---|-----------|-----------------|:---:|:---:|-----------------------------------|:---:|
 | 1 | SP accepts piece upload | Upload completes without error (HTTP 200); piece CID is returned | Upload | 1 | [`ingestMs`](./events-and-metrics.md#ingestMs) | Yes |
-| 2 | Piece submission recorded on-chain | Synapse `onPieceAdded` callback fires with a transaction hash | Onchain | n/a | [`pieceAddedOnChainMs`](./events-and-metrics.md#pieceAddedOnChainMs) | Yes |
-| 3 | Piece is confirmed on-chain | Synapse `onPieceConfirmed` callback fires | Onchain | n/a | [`pieceConfirmedOnChainMs`](./events-and-metrics.md#pieceConfirmedOnChainMs) | Yes |
+| 2 | Piece submission recorded on-chain | Synapse `onPiecesAdded` progress event fires with a transaction hash | Onchain | n/a | [`pieceAddedOnChainMs`](./events-and-metrics.md#pieceAddedOnChainMs) | Yes |
+| 3 | Piece is confirmed on-chain | Synapse `onPiecesConfirmed` progress event fires | Onchain | n/a | [`pieceConfirmedOnChainMs`](./events-and-metrics.md#pieceConfirmedOnChainMs) | Yes |
 | 4 | SP indexes piece locally | PDP server reports `indexed: true` | Discoverability | n/a | [`spIndexLocallyMs`](./events-and-metrics.md#spIndexLocallyMs) | Yes |
 | 5 | Content is discoverable on filecoinpin.contact | IPNI index returns a <IpfsRootCid,SP> provider record | Discoverability | Polling with delay until timeout | [`ipniVerifyMs`](./events-and-metrics.md#ipniVerifyMs) | Yes |
 | 6 | Content is retrievable | See [Retrieval Check](./retrievals.md#what-gets-asserted) for specific assertions | Retrieval | 0 | [`ipfsRetrievalLastByteMs`](./events-and-metrics.md#ipfsRetrievalLastByteMs) | Yes |
@@ -81,9 +81,9 @@ Source: [`deal.service.ts` (`createDeal`)](../../apps/backend/src/deal/deal.serv
 
 ### 4. Wait for Onchain Confirmation
 
-After upload completes, dealbot waits for the piece to be confirmed onchain.  The following callbacks are tracked:
-   - `onPieceAdded` — piece submission is recorded as reported by the SP on-chain (transaction hash available).
-   - `onPieceConfirmed` — confirm the piece is onchain by querying the chain RPC endpoint. filecoin-pin and synapse-sdk are doing this work under the hood
+After upload completes, dealbot waits for the piece to be confirmed onchain via Synapse `executeUpload(...).onProgress` events:
+   - `onPiecesAdded` — piece submission is recorded as reported by the SP on-chain (transaction hash available).
+   - `onPiecesConfirmed` — confirm the piece is onchain by querying the chain RPC endpoint. filecoin-pin and synapse-sdk are doing this work under the hood.
 
 ### 5. Wait for SP to Index and Announce Index to IPNI
 

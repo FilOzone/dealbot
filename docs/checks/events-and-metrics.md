@@ -32,9 +32,9 @@ sequenceDiagram
   Dealbot->>IPNI: ipniVerificationStart (TBD)
   IPNI-->>Dealbot: ipniVerificationComplete
   Dealbot-->>SP: ipfsRetrievalStart (TBD)
-  SP-->>Dealbot: ipfsRetrievalFirstByteReceived (TBD)
-  SP-->>Dealbot: ipfsRetrievalLastByteReceived (TBD)
-  Dealbot-->>Dealbot: ipfsRetrievalIntegrityChecked
+  SP-->>Dealbot: ipfsRetrievalFirstByteReceived (Partial: histogram only)
+  SP-->>Dealbot: ipfsRetrievalLastByteReceived (Partial: histogram only)
+  Dealbot-->>Dealbot: ipfsRetrievalIntegrityChecked (Partial: inline check, no event)
 ```
 
 ### Event List
@@ -43,9 +43,9 @@ sequenceDiagram
 |------|------------|:------:|:------:|-----------------|
 | <a id="uploadToSpStart"></a>`uploadToSpStart` | Dealbot is about to start an upload attempt for a piece to an SP. | Data Storage | **TBD** | [`deal.service.ts`](../../apps/backend/src/deal/deal.service.ts) |
 | <a id="uploadToSpEnd"></a>`uploadToSpEnd` | Upload finished (success with HTTP 2xx, failure). | Data Storage | Yes | [`deal.service.ts`](../../apps/backend/src/deal/deal.service.ts) (`handleStored`) |
-| <a id="dealCreated"></a>`dealCreated` | Deal is marked `DEAL_CREATED` if the upload result is successful. | Data Storage | Yes | [`deal.service.ts`](../../apps/backend/src/deal/deal.service.ts) (`updateDealWithUploadResult`) |
-| <a id="pieceAdded"></a>`pieceAdded` | Piece submission is recorded on-chain by polling the PDP SP; transaction hash is known. | Data Storage | Yes | [`deal.service.ts`](../../apps/backend/src/deal/deal.service.ts) (`handleRootAdded`) |
-| <a id="pieceConfirmed"></a>`pieceConfirmed` | Piece is confirmed on-chain by polling a chain RPC endpoint. | Data Storage | Yes | [`deal.service.ts`](../../apps/backend/src/deal/deal.service.ts) (Synapse `onPieceConfirmed` → `piecesConfirmedTime`, `pieceConfirmedOnChainMs` histogram) |
+| <a id="dealCreated"></a>`dealCreated` | Deal reaches `DealStatus.DEAL_CREATED` after **all** sub-checks (upload, onchain, IPNI, retrieval) succeed. Upload completion alone sets `DealStatus.UPLOADED`, not `DEAL_CREATED`. | Data Storage | Yes | [`deal.service.ts`](../../apps/backend/src/deal/deal.service.ts) |
+| <a id="pieceAdded"></a>`pieceAdded` | Piece submission is recorded on-chain. Driven by Synapse `onPiecesAdded` progress event; transaction hash is known. | Data Storage | Yes | [`deal.service.ts`](../../apps/backend/src/deal/deal.service.ts) |
+| <a id="pieceConfirmed"></a>`pieceConfirmed` | Piece is confirmed on-chain. Driven by Synapse `onPiecesConfirmed` progress event. | Data Storage | Yes | [`deal.service.ts`](../../apps/backend/src/deal/deal.service.ts) (sets `piecesConfirmedTime`, observes `pieceConfirmedOnChainMs` histogram) |
 | <a id="spIndexingComplete"></a>`spIndexingComplete` | By polling SP, dealbot learned SP has indexed the piece locally (`indexed=true`). | Data Storage | Yes | [`ipni.strategy.ts`](../../apps/backend/src/deal-addons/strategies/ipni.strategy.ts) |
 | <a id="spAnnouncedAdvertisementToIpni"></a>`spAnnouncedAdvertisementToIpni` | By polling SP, dealbot learned SP has announced the advertisement to IPNI (`advertised=true`). | Data Storage | Yes | [`ipni.strategy.ts`](../../apps/backend/src/deal-addons/strategies/ipni.strategy.ts) |
 | <a id="ipniVerificationStart"></a>`ipniVerificationStart` | Dealbot begins polling filecoinpin.contact for <IpfsRootCid,SP> provider record. | Data Storage, Retrieval | **TBD** | [`ipni.strategy.ts`](../../apps/backend/src/deal-addons/strategies/ipni.strategy.ts) |
@@ -53,7 +53,7 @@ sequenceDiagram
 | <a id="ipfsRetrievalStart"></a>`ipfsRetrievalStart` | Dealbot to SP `/ipfs/` retrieval begins. | Data Storage, Retrieval | **TBD** | [`retrieval.service.ts`](../../apps/backend/src/retrieval/retrieval.service.ts) |
 | <a id="ipfsRetrievalFirstByteReceived"></a>`ipfsRetrievalFirstByteReceived` | First byte received from `/ipfs/{rootCid}`. | Data Storage, Retrieval | Partial — `ipfsRetrievalFirstByteMs` histogram emitted; no discrete event. | [`retrieval.service.ts`](../../apps/backend/src/retrieval/retrieval.service.ts) |
 | <a id="ipfsRetrievalLastByteReceived"></a>`ipfsRetrievalLastByteReceived` | Last byte received from `/ipfs/{rootCid}`. | Data Storage, Retrieval | Partial — `ipfsRetrievalLastByteMs` histogram emitted; no discrete event. | [`retrieval.service.ts`](../../apps/backend/src/retrieval/retrieval.service.ts) |
-| <a id="ipfsRetrievalIntegrityChecked"></a>`ipfsRetrievalIntegrityChecked` | Retrieved content matches expected CID (per-block sha256 hash verification via `createBlock`). | Data Storage, Retrieval | Yes (inline check; no discrete event emission) | [`ipfs-block.strategy.ts`](../../apps/backend/src/retrieval-addons/strategies/ipfs-block.strategy.ts) |
+| <a id="ipfsRetrievalIntegrityChecked"></a>`ipfsRetrievalIntegrityChecked` | Retrieved content matches expected CID (per-block sha256 hash verification via `createBlock`). | Data Storage, Retrieval | Partial — inline check implemented; no discrete event emission. | [`ipfs-block.strategy.ts`](../../apps/backend/src/retrieval-addons/strategies/ipfs-block.strategy.ts) |
 
 ## Metrics
 

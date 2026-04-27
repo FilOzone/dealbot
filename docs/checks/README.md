@@ -30,7 +30,7 @@ The dealbot scheduler schedules "* check jobs" for the set of SPs that have been
 
 ## Datasets for Checks
 
-Dealbot manages a set of datasets to use for its checks.  Creating these datasets is a precondition before the "data storage" check can run.  This is handled by the `data-set-creation` job (see [`jobs.md`](../jobs.md), [tracking issue](https://github.com/FilOzone/dealbot/issues/284)) when it discovers a new SP to measure from the registry. Configured by `DATASET_CREATIONS_PER_SP_PER_HOUR` and `DATA_SET_CREATION_JOB_TIMEOUT_SECONDS`.
+Dealbot manages a set of datasets to use for its checks.  Creating these datasets is a precondition before the "data storage" check can run.  This is handled by the canonical `data_set_creation` job type (see [`jobs.md`](../jobs.md), [tracking issue](https://github.com/FilOzone/dealbot/issues/284)) when it discovers a new SP to measure from the registry. Configured by `DATASET_CREATIONS_PER_SP_PER_HOUR` and `DATA_SET_CREATION_JOB_TIMEOUT_SECONDS`.
  - This is done via the Synapse SDK (`synapse.createStorage(...)`).
  - Dataset creation is idempotent.
  - The quantity per SP is controlled by [`MIN_NUM_DATASETS_FOR_CHECKS`](#MIN_NUM_DATASETS_FOR_CHECKS).  The usecase for setting this greater than one is if you want an SP to have more non-empty datasets.  This is most relevant for calculating data retention, which is a function of the number of onchain proofs, which scales with the number of datasets.
