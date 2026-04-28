@@ -258,6 +258,12 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
           ...dealLogContext,
           event: "ipni_tracking_failed",
           message: "IPNI tracking failed",
+          failureReason:
+            error instanceof Error
+              ? error.cause instanceof Error
+                ? error.cause.message
+                : error.message
+              : String(error),
           error: toStructuredError(error),
         });
       } catch (saveError) {
