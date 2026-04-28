@@ -16,8 +16,8 @@ Review for material correctness, security, state-consistency, compatibility, or 
 ## Dealbot Context
 
 - TypeScript monorepo: NestJS backend (`apps/backend`), React/Vite frontend (`apps/web`), subgraph (`apps/subgraph`).
-- Postgres is the source of truth for operational state.
-- ClickHouse stores telemetry events. The cluster, schema, and migrations are owned by an external team. Review ClickHouse-touching code for dealbot impact (event payload shape, producer-side correctness, regressions to dealbot operations); do not propose ClickHouse schema, retention, or operational tuning changes.
+- Sources of truth: Postgres (operational state) and Prometheus (metrics). Discourage adding new persisted DB state; prefer events/metrics or reusing existing columns. Flag PRs that store data the system does not need.
+- ClickHouse: the DDL (`apps/backend/src/clickhouse/clickhouse.schema.ts`) and event payloads are owned in-repo and in-scope for review (schema, column types, payload shape, producer correctness). Cluster ops, retention, and infra tuning are owned by an external team — do not propose changes there.
 - A "check" is a task type (data storage, retrieval, data retention). A "job" is one execution of a check against one SP.
 
 ## Core Invariants
@@ -41,7 +41,6 @@ Review for material correctness, security, state-consistency, compatibility, or 
 - Tests, mocks, or fixtures that no longer match the real runtime or API contract.
 - SQL issues involving quoted identifiers, nullability, conflict keys, cross-network collisions, or behavior differences between databases.
 - Error handling or observability gaps that would make failures hard to diagnose, mitigate, or roll back.
-- Performance or resource issues likely to matter in normal production use, not hypothetical micro-optimizations.
 
 ## Repository-Specific Focus
 
@@ -58,7 +57,7 @@ Review for material correctness, security, state-consistency, compatibility, or 
 
 Use one issue per comment:
 
-- `Severity: short title`
+- `Blocker: short title` or `Important: short title`
 - what is wrong and where it appears
 - why it matters
 - minimal fix or concrete next step
