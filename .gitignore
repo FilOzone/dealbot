@@ -17,3 +17,5 @@ coverage/
 *.sln
 *.sw?
 .env
+
+.tool-versions
