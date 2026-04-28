@@ -4,7 +4,7 @@ import { ConfigService } from "@nestjs/config";
 import { InjectMetric } from "@willsoto/nestjs-prometheus";
 import { Counter, Gauge, Histogram } from "prom-client";
 import type { IClickhouseConfig, IConfig } from "../config/app.config.js";
-import { buildMigrations } from "./clickhouse.schema.js";
+import { getMigrations } from "./clickhouse.migrations.js";
 
 interface BufferedRow {
   table: string;
@@ -16,6 +16,7 @@ export class ClickhouseService implements OnModuleInit, OnApplicationShutdown {
   private readonly logger = new Logger(ClickhouseService.name);
   private readonly config: IClickhouseConfig;
   private client: ClickHouseClient | null = null;
+  private database = "";
   private buffer: BufferedRow[] = [];
   private flushTimer: NodeJS.Timeout | null = null;
 
@@ -41,11 +42,11 @@ export class ClickhouseService implements OnModuleInit, OnApplicationShutdown {
     });
 
     const parsedUrl = new URL(this.config.url);
-    const database = parsedUrl.pathname.replace(/^\//, "");
+    this.database = parsedUrl.pathname.replace(/^\//, "");
     try {
-      await this.migrate(database);
+      await this.migrate(this.database);
     } catch (err) {
-      this.logger.error({ event: "clickhouse_migration_failed", database, error: String(err) });
+      this.logger.error({ event: "clickhouse_migration_failed", database: this.database, error: String(err) });
       throw err;
     }
 
@@ -58,7 +59,7 @@ export class ClickhouseService implements OnModuleInit, OnApplicationShutdown {
     this.logger.log({
       event: "clickhouse_initialized",
       host: parsedUrl.host,
-      database,
+      database: this.database,
       batchSize: this.config.batchSize,
       flushIntervalMs: this.config.flushIntervalMs,
       probeLocation: this.configService.get("app").probeLocation,
@@ -67,11 +68,57 @@ export class ClickhouseService implements OnModuleInit, OnApplicationShutdown {
 
   private async migrate(database: string): Promise<void> {
     if (!this.client) return;
-    const migrations = buildMigrations(database);
-    for (const sql of migrations) {
+
+    await this.client.command({
+      query: `CREATE TABLE IF NOT EXISTS ${database}.schema_migrations
+(
+    version    UInt32,
+    name       String,
+    applied_at DateTime64(3, 'UTC') DEFAULT now64()
+)
+ENGINE = MergeTree()
+ORDER BY version`,
+    });
+
+    const result = await this.client.query({
+      query: `SELECT version FROM ${database}.schema_migrations ORDER BY version`,
+      format: "JSONEachRow",
+    });
+    const rows = (await result.json()) as { version: number }[];
+    const applied = new Set(rows.map((r) => r.version));
+
+    const migrations = getMigrations(database);
+    let count = 0;
+    for (const m of migrations) {
+      if (applied.has(m.version)) continue;
+      for (const sql of m.up) {
+        await this.client.command({ query: sql });
+      }
+      await this.client.insert({
+        table: `${database}.schema_migrations`,
+        values: [{ version: m.version, name: m.name }],
+        format: "JSONEachRow",
+      });
+      this.logger.log({ event: "migration_applied", version: m.version, name: m.name });
+      count++;
+    }
+
+    this.logger.log({ event: "clickhouse_migrated", database, appliedCount: count });
+  }
+
+  async migrateDown(version: number): Promise<void> {
+    if (!this.client) throw new Error("ClickHouse not connected");
+    const migrations = getMigrations(this.database);
+    const migration = migrations.find((m) => m.version === version);
+    if (!migration) throw new Error(`Migration version ${version} not found`);
+
+    for (const sql of migration.down) {
       await this.client.command({ query: sql });
     }
-    this.logger.log({ event: "clickhouse_migrated", database });
+    await this.client.command({
+      query: `ALTER TABLE ${this.database}.schema_migrations DELETE WHERE version = ${version}`,
+    });
+    this.logger.log({ event: "migration_rolled_back", version, name: migration.name });
   }
 
   async onApplicationShutdown() {
