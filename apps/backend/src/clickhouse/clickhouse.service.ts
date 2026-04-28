@@ -42,7 +42,13 @@ export class ClickhouseService implements OnModuleInit, OnApplicationShutdown {
     });
 
     const parsedUrl = new URL(this.config.url);
-    this.database = parsedUrl.pathname.replace(/^\//, "");
+    const dbName = parsedUrl.pathname.replace(/^\/+|\/+$/g, "").split("/")[0];
+    if (!dbName || !/^[a-zA-Z][a-zA-Z0-9_]*$/.test(dbName)) {
+      throw new Error(
+        `CLICKHOUSE_URL database name "${dbName}" is invalid - must start with a letter and contain only letters, digits, and underscores, e.g. http://host:8123/dealbot`,
+      );
+    }
+    this.database = dbName;
     try {
       await this.migrate(this.database);
     } catch (err) {
@@ -80,30 +86,73 @@ ENGINE = MergeTree()
 ORDER BY version`,
     });
 
-    const result = await this.client.query({
-      query: `SELECT version FROM ${database}.schema_migrations ORDER BY version`,
-      format: "JSONEachRow",
-    });
-    const rows = (await result.json()) as { version: number }[];
-    const applied = new Set(rows.map((r) => r.version));
-
-    const migrations = getMigrations(database);
-    let count = 0;
-    for (const m of migrations) {
-      if (applied.has(m.version)) continue;
-      for (const sql of m.up) {
-        await this.client.command({ query: sql });
-      }
-      await this.client.insert({
-        table: `${database}.schema_migrations`,
-        values: [{ version: m.version, name: m.name }],
-        format: "JSONEachRow",
-      });
-      this.logger.log({ event: "migration_applied", version: m.version, name: m.name });
-      count++;
+    const lockAcquired = await this.tryAcquireMigrationLock(database);
+    if (!lockAcquired) {
+      this.logger.error({ event: "migration_locked", message: "Another instance is running migrations" });
+      throw new Error("Migration lock is held by another instance");
     }
 
-    this.logger.log({ event: "clickhouse_migrated", database, appliedCount: count });
+    try {
+      const result = await this.client.query({
+        query: `SELECT version FROM ${database}.schema_migrations ORDER BY version`,
+        format: "JSONEachRow",
+      });
+      const rows = (await result.json()) as { version: number }[];
+      const applied = new Set(rows.map((r) => r.version));
+
+      const migrations = getMigrations(database);
+      let count = 0;
+      let schemaVersion = applied.size > 0 ? Math.max(...applied) : 0;
+      for (const m of migrations) {
+        if (applied.has(m.version)) continue;
+        for (const sql of m.up) {
+          await this.client.command({ query: sql });
+        }
+        await this.client.insert({
+          table: `${database}.schema_migrations`,
+          values: [{ version: m.version, name: m.name }],
+          format: "JSONEachRow",
+        });
+        this.logger.log({ event: "migration_applied", version: m.version, name: m.name });
+        schemaVersion = m.version;
+        count++;
+      }
+
+      this.logger.log({ event: "clickhouse_migrated", database, schemaVersion, appliedCount: count });
+    } finally {
+      await this.releaseMigrationLock(database);
+    }
+  }
+
+  private migrationLockTable(database: string): string {
+    return `${database}.schema_migration_lock`;
+  }
+
+  // The lock table is normally dropped in the finally block after migrations complete.
+  // If the process crashes while holding the lock the table is left behind, and all
+  // subsequent startups will fail with "Migration lock is held by another instance".
+  // To recover, drop the table manually:
+  //   DROP TABLE <database>.schema_migration_lock
+  private async tryAcquireMigrationLock(database: string): Promise<boolean> {
+    if (!this.client) throw new Error("ClickHouse not connected");
+    try {
+      await this.client.command({
+        query: `CREATE TABLE ${this.migrationLockTable(database)} (locked UInt8) ENGINE = TinyLog`,
+      });
+      return true;
+    } catch (error) {
+      if (error instanceof Error && /already exists/i.test(error.message)) {
+        return false;
+      }
+      throw error;
+    }
+  }
+
+  private async releaseMigrationLock(database: string): Promise<void> {
+    if (!this.client) throw new Error("ClickHouse not connected");
+    await this.client.command({
+      query: `DROP TABLE IF EXISTS ${this.migrationLockTable(database)}`,
+    });
   }
 
   async migrateDown(version: number): Promise<void> {
@@ -116,7 +165,8 @@ ORDER BY version`,
       await this.client.command({ query: sql });
     }
     await this.client.command({
-      query: `ALTER TABLE ${this.database}.schema_migrations DELETE WHERE version = ${version}`,
+      query: `DELETE FROM ${this.database}.schema_migrations WHERE version = {version:UInt32}`,
+      query_params: { version },
     });
     this.logger.log({ event: "migration_rolled_back", version, name: migration.name });
   }
