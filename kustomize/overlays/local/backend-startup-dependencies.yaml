@@ -17,7 +17,7 @@ spec:
                 echo "waiting for Postgres"
                 sleep 2
               done
-              until wget -qO- http://dealbot-clickhouse:8123/ping | grep -qx "Ok."; do
+              until wget -T 5 -qO- http://dealbot-clickhouse:8123/ping | grep -qxF "Ok."; do
                 echo "waiting for ClickHouse"
                 sleep 2
               done
