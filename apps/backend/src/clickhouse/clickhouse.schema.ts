@@ -1,6 +1,11 @@
 /**
- * ClickHouse DDL statements executed on startup via CREATE DATABASE/TABLE IF NOT EXISTS.
- * Order matters: database must be created before tables.
+ * ClickHouse DDL statements executed on startup.
+ *
+ * Each statement must be idempotent:
+ * - CREATE TABLE uses IF NOT EXISTS for the initial schema
+ * - ALTER TABLE ADD COLUMN uses IF NOT EXISTS for incremental schema changes
+ *
+ * Order matters: tables must exist before their ALTER TABLE statements run.
  */
 export function buildMigrations(database: string): string[] {
   return [
@@ -78,5 +83,10 @@ export function buildMigrations(database: string): string[] {
   PRIMARY KEY (probe_location, sp_address, timestamp)
   PARTITION BY toStartOfMonth(timestamp)
   TTL toDateTime(timestamp) + INTERVAL 1 YEAR`,
+
+    // Schema migrations - each must be idempotent.
+    // Existing rows get the column's default value (empty string for LowCardinality(String)).
+
+    `ALTER TABLE ${database}.retrieval_checks ADD COLUMN IF NOT EXISTS retrieval_type LowCardinality(String)`,
   ];
 }

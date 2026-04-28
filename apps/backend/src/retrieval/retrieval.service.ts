@@ -268,6 +268,7 @@ export class RetrievalService {
       deal_id: deal.id,
       retrieval_id: saved.id,
       service_type: saved.serviceType,
+      retrieval_type: "deal",
       status: saved.status,
       http_response_code: executionResult.metrics.statusCode || null,
       first_byte_ms: executionResult.success ? executionResult.metrics.ttfb : null,
