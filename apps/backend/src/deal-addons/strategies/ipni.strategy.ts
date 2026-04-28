@@ -245,8 +245,11 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       signal?.throwIfAborted();
 
       if (!result.ipniResult.rootCIDVerified) {
-        const reason = result.ipniResult.failedCIDs[0]?.reason ?? "root CID not verified";
-        throw new Error(`IPNI verification failed for deal ${deal.id}: ${reason}`);
+        const reason = result.ipniResult.failedCIDs[0]?.reason;
+        throw new Error(
+          `IPNI verification failed for deal ${deal.id}: root CID not verified`,
+          reason ? { cause: new Error(reason) } : undefined,
+        );
       }
     } catch (error) {
       signal?.throwIfAborted();
