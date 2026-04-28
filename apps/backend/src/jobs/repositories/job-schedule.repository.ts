@@ -44,7 +44,7 @@ export class JobScheduleRepository {
       `
       INSERT INTO job_schedule_state (job_type, sp_address, interval_seconds, next_run_at)
       VALUES ($1, $2, $3, $4)
-      ON CONFLICT (job_type, sp_address) DO UPDATE
+      ON CONFLICT (job_type, sp_address, network) DO UPDATE
       SET interval_seconds = EXCLUDED.interval_seconds,
           paused = job_schedule_state.paused,
           updated_at = NOW()

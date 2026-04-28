@@ -213,7 +213,7 @@ describe("DataRetentionService", () => {
         successPeriods: "90",
         lastBlockNumber: "1200",
       },
-      ["providerAddress"],
+      ["providerAddress", "network"],
     );
   });
 
