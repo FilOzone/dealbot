@@ -163,14 +163,24 @@ ORDER BY version`,
     const migration = migrations.find((m) => m.version === version);
     if (!migration) throw new Error(`Migration version ${version} not found`);
 
-    for (const sql of migration.down) {
-      await this.client.command({ query: sql });
+    const lockAcquired = await this.tryAcquireMigrationLock(this.database);
+    if (!lockAcquired) {
+      const lockTable = this.migrationLockTable(this.database);
+      throw new Error(`Could not acquire migration lock on ${lockTable}. Another migration operation is in progress.`);
     }
-    await this.client.command({
-      query: `DELETE FROM ${this.database}.schema_migrations WHERE version = {version:UInt32}`,
-      query_params: { version },
-    });
-    this.logger.log({ event: "migration_rolled_back", version, name: migration.name });
+
+    try {
+      for (const sql of migration.down) {
+        await this.client.command({ query: sql });
+      }
+      await this.client.command({
+        query: `DELETE FROM ${this.database}.schema_migrations WHERE version = {version:UInt32}`,
+        query_params: { version },
+      });
+      this.logger.log({ event: "migration_rolled_back", version, name: migration.name });
+    } finally {
+      await this.releaseMigrationLock(this.database);
+    }
   }
 
   async onApplicationShutdown() {
