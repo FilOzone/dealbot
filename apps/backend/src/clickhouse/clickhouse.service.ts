@@ -88,8 +88,10 @@ ORDER BY version`,
 
     const lockAcquired = await this.tryAcquireMigrationLock(database);
     if (!lockAcquired) {
-      this.logger.error({ event: "migration_locked", message: "Another instance is running migrations" });
-      throw new Error("Migration lock is held by another instance");
+      const lockTable = this.migrationLockTable(database);
+      const message = `Could not acquire migration lock on ${lockTable}. Another instance may be running migrations, or a previous migration process may have crashed and left a stale lock. If no migrations are currently running, drop the lock table and restart: DROP TABLE ${lockTable}`;
+      this.logger.error({ event: "migration_locked", message, lockTable });
+      throw new Error(message);
     }
 
     try {
@@ -100,7 +102,7 @@ ORDER BY version`,
       const rows = (await result.json()) as { version: number }[];
       const applied = new Set(rows.map((r) => r.version));
 
-      const migrations = getMigrations(database);
+      const migrations = getMigrations(database).sort((a, b) => a.version - b.version);
       let count = 0;
       let schemaVersion = applied.size > 0 ? Math.max(...applied) : 0;
       for (const m of migrations) {
