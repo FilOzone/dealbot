@@ -6,6 +6,7 @@ import { InjectRepository } from "@nestjs/typeorm";
 import { executeUpload } from "filecoin-pin";
 import { CID } from "multiformats/cid";
 import type { Repository } from "typeorm";
+import { ClickhouseService } from "../clickhouse/clickhouse.service.js";
 import { awaitWithAbort } from "../common/abort-utils.js";
 import { buildUnixfsCar } from "../common/car-utils.js";
 import { createFilecoinPinLogger } from "../common/filecoin-pin-logger.js";
@@ -65,6 +66,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     private readonly dataStorageMetrics: DataStorageCheckMetrics,
     private readonly retrievalMetrics: RetrievalCheckMetrics,
     private readonly dataSetCreationMetrics: DataSetCreationCheckMetrics,
+    private readonly clickhouseService: ClickhouseService,
   ) {
     this.blockchainConfig = this.configService.get("blockchain");
   }
@@ -799,6 +801,31 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async saveDeal(deal: Deal, dealLogContext: DealLogContext): Promise<void> {
+    this.clickhouseService.insert("data_storage_checks", {
+      timestamp: Date.now(),
+      probe_location: this.clickhouseService.probeLocation,
+      sp_address: deal.spAddress,
+      sp_id: deal.storageProvider?.providerId != null ? String(deal.storageProvider.providerId) : null, // providerId is a BigInt
+      sp_name: deal.storageProvider?.name ?? null,
+      deal_id: deal.id,
+      piece_cid: deal.pieceCid ?? null,
+      piece_id: deal.pieceId ?? null,
+      file_size_bytes: deal.fileSize ?? null,
+      piece_size_bytes: deal.pieceSize ?? null,
+      status: deal.status,
+      error_code: deal.errorCode ?? null,
+      upload_started_at: deal.uploadStartTime?.getTime() ?? null,
+      upload_ended_at: deal.uploadEndTime?.getTime() ?? null,
+      pieces_added_at: deal.piecesAddedTime?.getTime() ?? null,
+      pieces_confirmed_at: deal.piecesConfirmedTime?.getTime() ?? null,
+      ipni_status: deal.ipniStatus ?? null,
+      ipni_indexed_at: deal.ipniIndexedAt?.getTime() ?? null,
+      ipni_advertised_at: deal.ipniAdvertisedAt?.getTime() ?? null,
+      ipni_verified_at: deal.ipniVerifiedAt?.getTime() ?? null,
+      ipni_verified_cids_count: deal.ipniVerifiedCidsCount ?? null,
+      ipni_unverified_cids_count: deal.ipniUnverifiedCidsCount ?? null,
+    });
+
     try {
       await this.dealRepository.save(deal);
     } catch (error) {

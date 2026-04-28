@@ -1,0 +1,82 @@
+enum DataSetStatus {
+  EMPTY # Newly created dataset, no roots yet
+  READY # Dataset has roots and is ready for proving
+  PROVING # Proofs are currently expected for this dataset
+  DELETED # Dataset has been deleted on-chain
+}
+
+type Provider @entity(immutable: false) {
+  id: Bytes! # address
+  address: Bytes!
+  # Proving-period tracking is strictly bound to the FWSS contract.
+  totalFaultedPeriods: BigInt!
+  totalProvingPeriods: BigInt!
+  # Derived relationship
+  proofSets: [DataSet!]! @derivedFrom(field: "owner")
+}
+
+type DataSet @entity(immutable: false) {
+  id: Bytes! # setId
+  setId: BigInt!
+  owner: Provider!
+  # True iff the dataset has not been deleted (PDPVerifier.DataSetDeleted)
+  # and the FWSS service has not been terminated (FWSS.ServiceTerminated).
+  # Note: PDPPaymentTerminated does NOT affect this flag; clients compare
+  # pdpPaymentEndEpoch to current epoch themselves.
+  isActive: Boolean!
+  status: DataSetStatus!
+  # Block number of next deadline, 0 if not set. Dealbot filters on this
+  # to detect overdue proving periods.
+  nextDeadline: BigInt!
+  # Multiplier for proving period frequency, 0 if not set.
+  maxProvingPeriod: BigInt!
+  # Internal: flipped true by PossessionProven, reset false on each
+  # NextProvingPeriod. Drives the faultedPeriods counter on Provider;
+  # not directly queried by dealbot.
+  provenThisPeriod: Boolean!
+
+  # ---- FWSS fields (null / false for non-FWSS datasets) ----
+  # Populated by FWSS.DataSetCreated handler.
+  fwssPayer: Bytes # address of the payer
+  fwssServiceProvider: Bytes # address — may diverge from owner after transfers
+
+  # Derived from FWSS.DataSetCreated metadataKeys.
+  withIPFSIndexing: Boolean!
+
+  # Populated by FWSS.PDPPaymentTerminated handler.
+  # May be in the past (already terminated) or future (terminating).
+  # Does NOT flip isActive — clients compare to current epoch.
+  pdpPaymentEndEpoch: BigInt
+
+  # Block timestamp at which this DataSet was first created. Set once on
+  # the creating event (whichever of FWSS.DataSetCreated or
+  # PDPVerifier.DataSetCreated fires first) and never updated.
+  createdAt: BigInt!
+
+  # Derived relationship
+  roots: [Root!]! @derivedFrom(field: "proofSet")
+}
+
+type Root @entity(immutable: false) {
+  id: Bytes! # setId-rootId
+  setId: BigInt!
+  rootId: BigInt!
+  rawSize: BigInt!
+  cid: Bytes!
+  removed: Boolean!
+
+  # Populated by FWSS.PieceAdded handler (null for non-FWSS pieces).
+  ipfsRootCID: String
+
+  # Block timestamp at which this Root was first added via PiecesAdded.
+  # Set once on creation and never updated.
+  createdAt: BigInt!
+
+  # keccak256(id) computed once at insert time. Used by dealbot's anonymous
+  # retrieval check to draw a uniform-random piece via
+  # `orderBy: sampleKey, where: { sampleKey_gte: <random> }, first: 1`
+  # — independent of creation order, dataset age, and corpus size.
+  sampleKey: Bytes!
+
+  proofSet: DataSet!
+}

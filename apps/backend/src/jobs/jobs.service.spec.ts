@@ -29,18 +29,18 @@ describe("JobsService schedule rows", () => {
   };
   let dataRetentionServiceMock: { pollDataRetention: ReturnType<typeof vi.fn> };
   let metricsMocks: {
-    jobsQueuedGauge: JobsServiceDeps[7];
-    jobsRetryScheduledGauge: JobsServiceDeps[8];
-    oldestQueuedAgeGauge: JobsServiceDeps[9];
-    oldestInFlightAgeGauge: JobsServiceDeps[10];
-    jobsInFlightGauge: JobsServiceDeps[11];
-    jobsEnqueueAttemptsCounter: JobsServiceDeps[12];
-    jobsStartedCounter: JobsServiceDeps[13];
-    jobsCompletedCounter: JobsServiceDeps[14];
-    jobsPausedGauge: JobsServiceDeps[15];
-    jobDuration: JobsServiceDeps[16];
-    storageProvidersActive: JobsServiceDeps[17];
-    storageProvidersTested: JobsServiceDeps[18];
+    jobsQueuedGauge: JobsServiceDeps[8];
+    jobsRetryScheduledGauge: JobsServiceDeps[9];
+    oldestQueuedAgeGauge: JobsServiceDeps[10];
+    oldestInFlightAgeGauge: JobsServiceDeps[11];
+    jobsInFlightGauge: JobsServiceDeps[12];
+    jobsEnqueueAttemptsCounter: JobsServiceDeps[13];
+    jobsStartedCounter: JobsServiceDeps[14];
+    jobsCompletedCounter: JobsServiceDeps[15];
+    jobsPausedGauge: JobsServiceDeps[16];
+    jobDuration: JobsServiceDeps[17];
+    storageProvidersActive: JobsServiceDeps[18];
+    storageProvidersTested: JobsServiceDeps[19];
   };
   let baseConfigValues: Partial<IConfig>;
   let configService: JobsServiceDeps[0];
@@ -53,18 +53,19 @@ describe("JobsService schedule rows", () => {
       retrievalService: JobsServiceDeps[4];
       walletSdkService: JobsServiceDeps[5];
       dataRetentionService: JobsServiceDeps[6];
-      jobsQueuedGauge: JobsServiceDeps[7];
-      jobsRetryScheduledGauge: JobsServiceDeps[8];
-      oldestQueuedAgeGauge: JobsServiceDeps[9];
-      oldestInFlightAgeGauge: JobsServiceDeps[10];
-      jobsInFlightGauge: JobsServiceDeps[11];
-      jobsEnqueueAttemptsCounter: JobsServiceDeps[12];
-      jobsStartedCounter: JobsServiceDeps[13];
-      jobsCompletedCounter: JobsServiceDeps[14];
-      jobsPausedGauge: JobsServiceDeps[15];
-      jobDuration: JobsServiceDeps[16];
-      storageProvidersActive: JobsServiceDeps[17];
-      storageProvidersTested: JobsServiceDeps[18];
+      pieceCleanupService: JobsServiceDeps[7];
+      jobsQueuedGauge: JobsServiceDeps[8];
+      jobsRetryScheduledGauge: JobsServiceDeps[9];
+      oldestQueuedAgeGauge: JobsServiceDeps[10];
+      oldestInFlightAgeGauge: JobsServiceDeps[11];
+      jobsInFlightGauge: JobsServiceDeps[12];
+      jobsEnqueueAttemptsCounter: JobsServiceDeps[13];
+      jobsStartedCounter: JobsServiceDeps[14];
+      jobsCompletedCounter: JobsServiceDeps[15];
+      jobsPausedGauge: JobsServiceDeps[16];
+      jobDuration: JobsServiceDeps[17];
+      storageProvidersActive: JobsServiceDeps[18];
+      storageProvidersTested: JobsServiceDeps[19];
     }>,
   ) => JobsService;
 
@@ -94,18 +95,18 @@ describe("JobsService schedule rows", () => {
     };
 
     metricsMocks = {
-      jobsQueuedGauge: { set: vi.fn() } as unknown as JobsServiceDeps[7],
-      jobsRetryScheduledGauge: { set: vi.fn() } as unknown as JobsServiceDeps[8],
-      oldestQueuedAgeGauge: { set: vi.fn() } as unknown as JobsServiceDeps[9],
-      oldestInFlightAgeGauge: { set: vi.fn() } as unknown as JobsServiceDeps[10],
-      jobsInFlightGauge: { set: vi.fn() } as unknown as JobsServiceDeps[11],
-      jobsEnqueueAttemptsCounter: { inc: vi.fn() } as unknown as JobsServiceDeps[12],
-      jobsStartedCounter: { inc: vi.fn() } as unknown as JobsServiceDeps[13],
-      jobsCompletedCounter: { inc: vi.fn() } as unknown as JobsServiceDeps[14],
-      jobsPausedGauge: { set: vi.fn() } as unknown as JobsServiceDeps[15],
-      jobDuration: { observe: vi.fn() } as unknown as JobsServiceDeps[16],
-      storageProvidersActive: { set: vi.fn() } as unknown as JobsServiceDeps[17],
-      storageProvidersTested: { set: vi.fn() } as unknown as JobsServiceDeps[18],
+      jobsQueuedGauge: { set: vi.fn() } as unknown as JobsServiceDeps[8],
+      jobsRetryScheduledGauge: { set: vi.fn() } as unknown as JobsServiceDeps[9],
+      oldestQueuedAgeGauge: { set: vi.fn() } as unknown as JobsServiceDeps[10],
+      oldestInFlightAgeGauge: { set: vi.fn() } as unknown as JobsServiceDeps[11],
+      jobsInFlightGauge: { set: vi.fn() } as unknown as JobsServiceDeps[12],
+      jobsEnqueueAttemptsCounter: { inc: vi.fn() } as unknown as JobsServiceDeps[13],
+      jobsStartedCounter: { inc: vi.fn() } as unknown as JobsServiceDeps[14],
+      jobsCompletedCounter: { inc: vi.fn() } as unknown as JobsServiceDeps[15],
+      jobsPausedGauge: { set: vi.fn() } as unknown as JobsServiceDeps[16],
+      jobDuration: { observe: vi.fn() } as unknown as JobsServiceDeps[17],
+      storageProvidersActive: { set: vi.fn() } as unknown as JobsServiceDeps[18],
+      storageProvidersTested: { set: vi.fn() } as unknown as JobsServiceDeps[19],
     };
 
     const emptySpBlocklists: ISpBlocklistConfig = {
@@ -129,6 +130,8 @@ describe("JobsService schedule rows", () => {
         pgbossSchedulerEnabled: true,
         workerPollSeconds: 60,
         dataSetCreationJobTimeoutSeconds: 300,
+        pieceCleanupPerSpPerHour: 1,
+        maxPieceCleanupRuntimeSeconds: 300,
       } as IConfig["jobs"],
       database: {
         host: "localhost",
@@ -137,6 +140,9 @@ describe("JobsService schedule rows", () => {
         password: "pass",
         database: "dealbot",
       } as IConfig["database"],
+      pieceCleanup: {
+        maxDatasetStorageSizeBytes: 24 * 1024 * 1024 * 1024,
+      } as IConfig["pieceCleanup"],
       spBlocklists: emptySpBlocklists,
     };
 
@@ -153,6 +159,7 @@ describe("JobsService schedule rows", () => {
         overrides.retrievalService ?? ({} as JobsServiceDeps[4]),
         overrides.walletSdkService ?? ({} as JobsServiceDeps[5]),
         overrides.dataRetentionService ?? (dataRetentionServiceMock as unknown as JobsServiceDeps[6]),
+        overrides.pieceCleanupService ?? ({} as JobsServiceDeps[7]),
         overrides.jobsQueuedGauge ?? metricsMocks.jobsQueuedGauge,
         overrides.jobsRetryScheduledGauge ?? metricsMocks.jobsRetryScheduledGauge,
         overrides.oldestQueuedAgeGauge ?? metricsMocks.oldestQueuedAgeGauge,
@@ -607,8 +614,13 @@ describe("JobsService schedule rows", () => {
     // Check upserts for providerB
     const upsertCalls = jobScheduleRepositoryMock.upsertSchedule.mock.calls;
     const upsertsForB = upsertCalls.filter((call) => call[1] === providerB.address);
-    expect(upsertsForB).toHaveLength(3);
-    expect(upsertsForB.map((call) => call[0]).sort()).toEqual(["data_set_creation", "deal", "retrieval"]);
+    expect(upsertsForB).toHaveLength(4);
+    expect(upsertsForB.map((call) => call[0]).sort()).toEqual([
+      "data_set_creation",
+      "deal",
+      "piece_cleanup",
+      "retrieval",
+    ]);
   });
 
   it("deletes schedule rows for providers no longer present", async () => {
@@ -926,6 +938,43 @@ describe("JobsService schedule rows", () => {
       expect.objectContaining({ serviceProvider: "0xaaa" }),
       expect.objectContaining({ extraDataSetMetadata: undefined }),
     );
+  });
+
+  it("deal job does not consult piece cleanup quota before creating deals", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2024-01-01T12:00:00Z"));
+    const dealService = {
+      createDealForProvider: vi.fn(async () => ({})),
+      getBaseDataSetMetadata: vi.fn(() => ({ withIpniIndexing: "" })),
+      checkDataSetExists: vi.fn(async () => false),
+    };
+
+    const walletSdkService = {
+      getTestingProviders: vi.fn(() => [{ serviceProvider: "0xaaa" }]),
+      ensureWalletAllowances: vi.fn(),
+      loadProviders: vi.fn(),
+      getProviderInfo: vi.fn(() => ({ id: 1, name: "test-provider" })),
+    };
+
+    const pieceCleanupService = {
+      cleanupPiecesForProvider: vi.fn(() => {
+        throw new Error("deal job must not run cleanup");
+      }),
+    };
+
+    service = buildService({
+      dealService: dealService as unknown as ConstructorParameters<typeof JobsService>[3],
+      walletSdkService: walletSdkService as unknown as ConstructorParameters<typeof JobsService>[5],
+      pieceCleanupService: pieceCleanupService as unknown as JobsServiceDeps[7],
+    });
+
+    await callPrivate(service, "handleDealJob", {
+      id: "job-deal-no-quota-gate",
+      data: { jobType: "deal", spAddress: "0xaaa", intervalSeconds: 60 },
+    });
+
+    expect(pieceCleanupService.cleanupPiecesForProvider).not.toHaveBeenCalled();
+    expect(dealService.createDealForProvider).toHaveBeenCalledTimes(1);
   });
 
   it("deal job passes dealbotDS metadata when selecting a provisioned data set index", async () => {

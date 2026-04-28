@@ -94,9 +94,40 @@ export const configValidationSchema = Joi.object({
   DATA_SET_CREATION_JOB_TIMEOUT_SECONDS: Joi.number().min(60).default(300), // 5 minutes max runtime for dataset creation jobs
   IPFS_BLOCK_FETCH_CONCURRENCY: Joi.number().integer().min(1).max(32).default(6),
 
+  // Piece Cleanup
+  MAX_DATASET_STORAGE_SIZE_BYTES: Joi.number()
+    .integer()
+    .min(1)
+    .default(24 * 1024 * 1024 * 1024), // 24 GiB per SP
+  TARGET_DATASET_STORAGE_SIZE_BYTES: Joi.number()
+    .integer()
+    .min(1)
+    .default(20 * 1024 * 1024 * 1024) // 20 GiB per SP
+    .custom((value, helpers) => {
+      const max = helpers.state.ancestors?.[0]?.MAX_DATASET_STORAGE_SIZE_BYTES;
+      if (max != null && value >= max) {
+        return helpers.error("any.invalid", {
+          message: `TARGET_DATASET_STORAGE_SIZE_BYTES (${value}) must be less than MAX_DATASET_STORAGE_SIZE_BYTES (${max})`,
+        });
+      }
+      return value;
+    }, "target < max validation"),
+  JOB_PIECE_CLEANUP_PER_SP_PER_HOUR: Joi.number()
+    .min(0.001)
+    .max(20)
+    .default(1 / 24), // ~once per day
+  MAX_PIECE_CLEANUP_RUNTIME_SECONDS: Joi.number().min(60).default(300), // 5 minutes max runtime for cleanup jobs
+
   // Dataset
   DEALBOT_LOCAL_DATASETS_PATH: Joi.string().default(DEFAULT_LOCAL_DATASETS_PATH),
   RANDOM_PIECE_SIZES: Joi.string().default("10485760"), // 10 MiB
+
+  // ClickHouse
+  CLICKHOUSE_URL: Joi.string().uri().optional(),
+  CLICKHOUSE_BATCH_SIZE: Joi.number().integer().min(1).default(500),
+  CLICKHOUSE_FLUSH_INTERVAL_MS: Joi.number().integer().min(100).default(5000),
+  CLICKHOUSE_MAX_BUFFER_SIZE: Joi.number().integer().min(1).default(5000),
+  DEALBOT_PROBE_LOCATION: Joi.string().default("unknown"),
 
   // Timeouts (in milliseconds)
   CONNECT_TIMEOUT_MS: Joi.number().min(1000).default(10000), // 10 seconds to establish connection/receive headers
@@ -120,6 +151,7 @@ export interface IAppConfig {
   enableDevMode: boolean;
   prometheusWalletBalanceTtlSeconds: number;
   prometheusWalletBalanceErrorCooldownSeconds: number;
+  probeLocation: string;
 }
 
 export interface IDatabaseConfig {
@@ -232,6 +264,20 @@ export interface IJobsConfig {
    * Uses AbortController to actively cancel job execution.
    */
   retrievalJobTimeoutSeconds: number;
+  /**
+   * Target number of piece cleanup runs per storage provider per hour.
+   *
+   * Increasing this makes cleanup more aggressive at the cost of more SP API calls.
+   * Only used when `DEALBOT_JOBS_MODE=pgboss`.
+   */
+  pieceCleanupPerSpPerHour: number;
+  /**
+   * Maximum runtime (seconds) for piece cleanup jobs before forced abort.
+   *
+   * Uses AbortController to actively cancel job execution.
+   * Only used when `DEALBOT_JOBS_MODE=pgboss`.
+   */
+  maxPieceCleanupRuntimeSeconds: number;
 }
 
 export interface IDatasetConfig {
@@ -251,11 +297,28 @@ export interface IRetrievalConfig {
   ipfsBlockFetchConcurrency: number;
 }
 
+export interface IPieceCleanupConfig {
+  maxDatasetStorageSizeBytes: number;
+  targetDatasetStorageSizeBytes: number;
+}
+
 export interface ISpBlocklistConfig {
   /** Provider numeric IDs to block from all scheduled checks. */
   ids: Set<string>;
   /** Provider addresses to block from all scheduled checks (stored lowercase). */
   addresses: Set<string>;
+}
+
+export interface IClickhouseConfig {
+  /**
+   * ClickHouse connection URL. Must include the database in the path.
+   * Example: http://default:password@host:8123/dealbot
+   * If unset, ClickHouse emission is disabled.
+   */
+  url: string | undefined;
+  batchSize: number;
+  flushIntervalMs: number;
+  maxBufferSize: number;
 }
 
 export interface IConfig {
@@ -267,6 +330,8 @@ export interface IConfig {
   dataset: IDatasetConfig;
   timeouts: ITimeoutConfig;
   retrieval: IRetrievalConfig;
+  clickhouse: IClickhouseConfig;
+  pieceCleanup: IPieceCleanupConfig;
   spBlocklists: ISpBlocklistConfig;
 }
 
@@ -293,6 +358,7 @@ export function loadConfig(): IConfig {
         process.env.PROMETHEUS_WALLET_BALANCE_ERROR_COOLDOWN_SECONDS || "60",
         10,
       ),
+      probeLocation: process.env.DEALBOT_PROBE_LOCATION || "unknown",
     },
     database: {
       host: process.env.DATABASE_HOST || "localhost",
@@ -338,6 +404,8 @@ export function loadConfig(): IConfig {
       dealJobTimeoutSeconds: Number.parseInt(process.env.DEAL_JOB_TIMEOUT_SECONDS || "360", 10),
       retrievalJobTimeoutSeconds: Number.parseInt(process.env.RETRIEVAL_JOB_TIMEOUT_SECONDS || "60", 10),
       dataSetCreationJobTimeoutSeconds: Number.parseInt(process.env.DATA_SET_CREATION_JOB_TIMEOUT_SECONDS || "300", 10),
+      pieceCleanupPerSpPerHour: Number.parseFloat(process.env.JOB_PIECE_CLEANUP_PER_SP_PER_HOUR || String(1 / 24)),
+      maxPieceCleanupRuntimeSeconds: Number.parseInt(process.env.MAX_PIECE_CLEANUP_RUNTIME_SECONDS || "300", 10),
     },
     dataset: {
       localDatasetsPath: process.env.DEALBOT_LOCAL_DATASETS_PATH || DEFAULT_LOCAL_DATASETS_PATH,
@@ -366,6 +434,22 @@ export function loadConfig(): IConfig {
     },
     retrieval: {
       ipfsBlockFetchConcurrency: Number.parseInt(process.env.IPFS_BLOCK_FETCH_CONCURRENCY || "6", 10),
+    },
+    clickhouse: {
+      url: process.env.CLICKHOUSE_URL || undefined,
+      batchSize: Number.parseInt(process.env.CLICKHOUSE_BATCH_SIZE || "500", 10),
+      flushIntervalMs: Number.parseInt(process.env.CLICKHOUSE_FLUSH_INTERVAL_MS || "5000", 10),
+      maxBufferSize: Number.parseInt(process.env.CLICKHOUSE_MAX_BUFFER_SIZE || "5000", 10),
+    },
+    pieceCleanup: {
+      maxDatasetStorageSizeBytes: Number.parseInt(
+        process.env.MAX_DATASET_STORAGE_SIZE_BYTES || String(24 * 1024 * 1024 * 1024),
+        10,
+      ),
+      targetDatasetStorageSizeBytes: Number.parseInt(
+        process.env.TARGET_DATASET_STORAGE_SIZE_BYTES || String(20 * 1024 * 1024 * 1024),
+        10,
+      ),
     },
     spBlocklists: {
       ids: parseIdList(process.env.BLOCKED_SP_IDS),

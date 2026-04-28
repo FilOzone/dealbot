@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 import { ConfigModule } from "@nestjs/config";
 import { LoggerModule } from "nestjs-pino";
+import { ClickhouseModule } from "./clickhouse/clickhouse.module.js";
 import { buildLoggerModuleParams } from "./common/pino.config.js";
 import { configValidationSchema, loadConfig } from "./config/app.config.js";
 import { DatabaseModule } from "./database/database.module.js";
@@ -17,6 +18,7 @@ import { MetricsPrometheusModule } from "./metrics-prometheus/metrics-prometheus
     }),
     DatabaseModule,
     MetricsPrometheusModule,
+    ClickhouseModule,
     JobsModule,
   ],
 })
