@@ -1,10 +1,19 @@
-/**
- * ClickHouse DDL statements executed on startup via CREATE DATABASE/TABLE IF NOT EXISTS.
- * Order matters: database must be created before tables.
- */
-export function buildMigrations(database: string): string[] {
+export interface Migration {
+  version: number;
+  name: string;
+  up: string[];
+  down: string[];
+}
+
+export function getMigrations(database: string): Migration[] {
   return [
-    `CREATE TABLE IF NOT EXISTS ${database}.data_storage_checks
+    {
+      version: 1,
+      name: "initial_schema",
+      // IF NOT EXISTS guards allow this to be re-run against a database that was created
+      // before the migration system was introduced.
+      up: [
+        `CREATE TABLE IF NOT EXISTS ${database}.data_storage_checks
 (
     timestamp                   DateTime64(3, 'UTC'),    -- when deal entity was saved
 
@@ -39,7 +48,7 @@ export function buildMigrations(database: string): string[] {
   PARTITION BY toStartOfMonth(timestamp)
   TTL toDateTime(timestamp) + INTERVAL 1 YEAR`,
 
-    `CREATE TABLE IF NOT EXISTS ${database}.retrieval_checks
+        `CREATE TABLE IF NOT EXISTS ${database}.retrieval_checks
 (
     timestamp               DateTime64(3, 'UTC'),    -- when retrieval entity was saved
     probe_location          LowCardinality(String),  -- dealbot location
@@ -62,7 +71,7 @@ export function buildMigrations(database: string): string[] {
   PARTITION BY toStartOfMonth(timestamp)
   TTL toDateTime(timestamp) + INTERVAL 1 YEAR`,
 
-    `CREATE TABLE IF NOT EXISTS ${database}.data_retention_challenges
+        `CREATE TABLE IF NOT EXISTS ${database}.data_retention_challenges
 (
     timestamp               DateTime64(3, 'UTC'),   -- when the poll ran and detected these periods
     probe_location          LowCardinality(String), -- dealbot location
@@ -78,5 +87,18 @@ export function buildMigrations(database: string): string[] {
   PRIMARY KEY (probe_location, sp_address, timestamp)
   PARTITION BY toStartOfMonth(timestamp)
   TTL toDateTime(timestamp) + INTERVAL 1 YEAR`,
+      ],
+      down: [
+        `DROP TABLE IF EXISTS ${database}.data_retention_challenges`,
+        `DROP TABLE IF EXISTS ${database}.retrieval_checks`,
+        `DROP TABLE IF EXISTS ${database}.data_storage_checks`,
+      ],
+    },
+    {
+      version: 2,
+      name: "add_retrieval_type_to_retrieval_checks",
+      up: [`ALTER TABLE ${database}.retrieval_checks ADD COLUMN IF NOT EXISTS retrieval_type LowCardinality(String)`],
+      down: [`ALTER TABLE ${database}.retrieval_checks DROP COLUMN IF EXISTS retrieval_type`],
+    },
   ];
 }
