@@ -1,5 +1,27 @@
 # Changelog
 
+## [1.5.0](https://github.com/FilOzone/dealbot/compare/backend-v1.4.0...backend-v1.5.0) (2026-04-28)
+
+
+### Features
+
+* add per-SP piece cleanup job to bound storage growth ([#346](https://github.com/FilOzone/dealbot/issues/346)) ([c9c50b2](https://github.com/FilOzone/dealbot/commit/c9c50b298c572830ffde6acc278b5c6b04486383))
+* write event data to clickhouse ([#438](https://github.com/FilOzone/dealbot/issues/438)) ([6edbc88](https://github.com/FilOzone/dealbot/commit/6edbc88775c1f5a6e30c72183b6b6d600df8f675))
+
+
+### Bug Fixes
+
+* **ipni:** preserve failure reason in deal-flow rethrow ([#490](https://github.com/FilOzone/dealbot/issues/490)) ([fe53f35](https://github.com/FilOzone/dealbot/commit/fe53f353efa8a7e8eecef8ae27c03b3abf43a417))
+* landing page doesn't show blocked SPs ([#471](https://github.com/FilOzone/dealbot/issues/471)) ([0c8e58e](https://github.com/FilOzone/dealbot/commit/0c8e58e9385dd37cf0a788c7a7ccb1e9c4a10df0))
+* make nullable entity fields explicitly typed ([#380](https://github.com/FilOzone/dealbot/issues/380)) ([872d444](https://github.com/FilOzone/dealbot/commit/872d4440102b5dcb85b1c5e02f5c84ea5aa23350))
+* preserve pieceId during deal creation ([#439](https://github.com/FilOzone/dealbot/issues/439)) ([814a23b](https://github.com/FilOzone/dealbot/commit/814a23b78fb48660b2fc2e4a2b48fb294055c953))
+
+
+### Miscellaneous
+
+* remove metrics job scheduler ([#436](https://github.com/FilOzone/dealbot/issues/436)) ([430fb09](https://github.com/FilOzone/dealbot/commit/430fb09458749525373eba5163f1d2221a4747c0))
+* replace ConsoleLogger with nestjs-pino for ISO 8601 timestamps ([#445](https://github.com/FilOzone/dealbot/issues/445)) ([58ba4c2](https://github.com/FilOzone/dealbot/commit/58ba4c2ce44c536188718a9130f0d15cf1167321))
+
 ## [1.4.0](https://github.com/FilOzone/dealbot/compare/backend-v1.3.0...backend-v1.4.0) (2026-04-17)
 
 
