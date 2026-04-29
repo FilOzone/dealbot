@@ -1,10 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import { InjectRepository } from "@nestjs/typeorm";
-import type { Repository } from "typeorm";
 import type { IConfig } from "../config/app.config.js";
-import { AnonRetrieval } from "../database/entities/anon-retrieval.entity.js";
 import type { AnonPiecePool, SampleAnonPieceParams } from "../subgraph/subgraph.service.js";
 import { SubgraphService } from "../subgraph/subgraph.service.js";
 import type { AnonCandidatePiece } from "../subgraph/types.js";
@@ -15,6 +12,9 @@ import type { AnonPiece } from "./types.js";
  * to avoid immediately retesting the same piece. Piece CIDs are globally
  * unique and each one lives on a single SP's dataset, so scoping by CID
  * is equivalent to scoping by (SP, CID) for this workload.
+ *
+ * The buffer is process-local: a duplicate piece that gets retested shortly
+ * after a restart is harmless (still a valid measurement, just less diverse).
  */
 const RECENT_DEDUP_WINDOW = 500;
 
@@ -44,7 +44,7 @@ const BUCKET_WEIGHTS: Record<SizeBucket, number> = {
 
 /**
  * Probability the primary draw targets the withIPFSIndexing pool.
- * The rest of the time we sample across all FWSS pieces so SPs can't
+ * The rest of the time we sample across all FWSS pieces, so SPs can't
  * optimise only their CAR corpus.
  */
 const IPFS_INDEXED_SAMPLE_RATE = 0.8;
@@ -53,11 +53,13 @@ const IPFS_INDEXED_SAMPLE_RATE = 0.8;
 export class AnonPieceSelectorService {
   private readonly logger = new Logger(AnonPieceSelectorService.name);
 
+  /** Bounded FIFO of recently-selected piece CIDs. Process-local; lost on restart. */
+  private readonly recentlyTested = new Set<string>();
+  private readonly recentlyTestedQueue: string[] = [];
+
   constructor(
     private readonly subgraphService: SubgraphService,
     private readonly configService: ConfigService<IConfig, true>,
-    @InjectRepository(AnonRetrieval)
-    private readonly anonRetrievalRepository: Repository<AnonRetrieval>,
   ) {}
 
   /**
@@ -75,14 +77,13 @@ export class AnonPieceSelectorService {
    */
   async selectPieceForProvider(spAddress: string): Promise<AnonPiece | null> {
     const dealbotPayer = this.configService.get("blockchain", { infer: true }).walletAddress;
-    const recentlyTested = await this.loadRecentlyTestedPieceCids();
 
     const bucket = this.pickBucket();
     const pool: AnonPiecePool = Math.random() < IPFS_INDEXED_SAMPLE_RATE ? "indexed" : "any";
 
     const attempts: Array<{ bucket: SizeBucket | "any"; pool: AnonPiecePool }> = [
-      { bucket, pool },
-      { bucket, pool: pool === "indexed" ? "any" : "indexed" },
+      { bucket: bucket, pool: pool },
+      { bucket: bucket, pool: pool === "indexed" ? "any" : "indexed" },
       { bucket: "any", pool: "indexed" },
       { bucket: "any", pool: "any" },
     ];
@@ -93,10 +94,10 @@ export class AnonPieceSelectorService {
         dealbotPayer,
         bucket: attempt.bucket,
         pool: attempt.pool,
-        recentlyTested,
       });
 
       if (piece) {
+        this.rememberRecent(piece.pieceCid);
         this.logger.log({
           event: "anon_piece_selected",
           message: "Selected anonymous piece for retrieval test",
@@ -107,6 +108,7 @@ export class AnonPieceSelectorService {
           bucket: attempt.bucket,
           pool: attempt.pool,
         });
+
         return {
           pieceCid: piece.pieceCid,
           dataSetId: piece.dataSetId,
@@ -124,6 +126,7 @@ export class AnonPieceSelectorService {
       message: "No anonymous piece found after all fallbacks",
       spAddress,
     });
+
     return null;
   }
 
@@ -136,7 +139,6 @@ export class AnonPieceSelectorService {
     dealbotPayer: string;
     bucket: SizeBucket | "any";
     pool: AnonPiecePool;
-    recentlyTested: Set<string>;
   }): Promise<AnonCandidatePiece | null> {
     const range = args.bucket === "any" ? fullRange() : SIZE_BUCKETS[args.bucket];
 
@@ -159,7 +161,7 @@ export class AnonPieceSelectorService {
         continue;
       }
 
-      if (args.recentlyTested.has(piece.pieceCid)) {
+      if (this.recentlyTested.has(piece.pieceCid)) {
         continue;
       }
 
@@ -181,19 +183,21 @@ export class AnonPieceSelectorService {
     return "medium";
   }
 
-  /**
-   * Return the set of piece CIDs tested in the last RECENT_DEDUP_WINDOW
-   * anonymous retrievals across all SPs.
-   */
-  private async loadRecentlyTestedPieceCids(): Promise<Set<string>> {
-    const rows = await this.anonRetrievalRepository
-      .createQueryBuilder("r")
-      .select("r.piece_cid", "pieceCid")
-      .orderBy("r.created_at", "DESC")
-      .limit(RECENT_DEDUP_WINDOW)
-      .getRawMany<{ pieceCid: string }>();
+  /** Push a CID into the bounded FIFO; evict the oldest when at capacity. */
+  private rememberRecent(pieceCid: string): void {
+    if (this.recentlyTested.has(pieceCid)) {
+      return;
+    }
 
-    return new Set(rows.map((row) => row.pieceCid));
+    this.recentlyTested.add(pieceCid);
+    this.recentlyTestedQueue.push(pieceCid);
+
+    while (this.recentlyTestedQueue.length > RECENT_DEDUP_WINDOW) {
+      const evicted = this.recentlyTestedQueue.shift();
+      if (evicted !== undefined) {
+        this.recentlyTested.delete(evicted);
+      }
+    }
   }
 }
 

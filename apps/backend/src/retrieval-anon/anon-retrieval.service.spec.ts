@@ -1,6 +1,6 @@
 import type { Repository } from "typeorm";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { AnonRetrieval } from "../database/entities/anon-retrieval.entity.js";
+import type { ClickhouseService } from "../clickhouse/clickhouse.service.js";
 import type { StorageProvider } from "../database/entities/storage-provider.entity.js";
 import { RetrievalStatus } from "../database/types.js";
 import type { AnonRetrievalCheckMetrics } from "../metrics-prometheus/check-metrics.service.js";
@@ -35,20 +35,18 @@ function makeProvider(): StorageProvider {
 function makeService(opts: {
   pieceResult: PieceRetrievalResult;
   fetchPieceImpl?: (signal?: AbortSignal) => Promise<PieceRetrievalResult>;
+  clickhouseEnabled?: boolean;
 }): {
   service: AnonRetrievalService;
-  saveSpy: ReturnType<typeof vi.fn>;
+  insertSpy: ReturnType<typeof vi.fn>;
   fetchSpy: ReturnType<typeof vi.fn>;
 } {
-  const saveSpy = vi.fn(async (entity: AnonRetrieval) => entity);
-  const createdEntities: Partial<AnonRetrieval>[] = [];
-  const anonRetrievalRepository = {
-    create: vi.fn((data: Partial<AnonRetrieval>) => {
-      createdEntities.push(data);
-      return data;
-    }),
-    save: saveSpy,
-  } as unknown as Repository<AnonRetrieval>;
+  const insertSpy = vi.fn();
+  const clickhouseService = {
+    insert: insertSpy,
+    enabled: opts.clickhouseEnabled ?? true,
+    probeLocation: "test-location",
+  } as unknown as ClickhouseService;
 
   const spRepository = {
     findOne: vi.fn(async () => makeProvider()),
@@ -89,11 +87,11 @@ function makeService(opts: {
     carValidationService,
     walletSdkService,
     metrics,
-    anonRetrievalRepository,
+    clickhouseService,
     spRepository,
   );
 
-  return { service, saveSpy, fetchSpy };
+  return { service, insertSpy, fetchSpy };
 }
 
 describe("AnonRetrievalService", () => {
@@ -101,7 +99,7 @@ describe("AnonRetrievalService", () => {
     vi.clearAllMocks();
   });
 
-  it("persists partial metrics when fetchPiece returns aborted=true", async () => {
+  it("emits a ClickHouse row with partial metrics when fetchPiece returns aborted=true", async () => {
     const partial: PieceRetrievalResult = {
       success: false,
       pieceCid: PIECE.pieceCid,
@@ -116,22 +114,28 @@ describe("AnonRetrievalService", () => {
       aborted: true,
     };
 
-    const { service, saveSpy } = makeService({ pieceResult: partial });
+    const { service, insertSpy } = makeService({ pieceResult: partial });
 
     await service.performForProvider(SP_ADDRESS);
 
-    expect(saveSpy).toHaveBeenCalledTimes(1);
-    const saved = saveSpy.mock.calls[0][0] as Partial<AnonRetrieval>;
-    expect(saved.status).toBe(RetrievalStatus.FAILED);
-    expect(saved.bytesRetrieved).toBe(524288);
-    expect(saved.ttfbMs).toBe(150);
-    expect(saved.latencyMs).toBe(42000);
-    expect(saved.throughputBps).toBe(12500);
-    expect(saved.responseCode).toBe(200);
-    expect(saved.errorMessage).toContain("Anon retrieval job timeout");
+    expect(insertSpy).toHaveBeenCalledTimes(1);
+    const [table, row] = insertSpy.mock.calls[0] as [string, Record<string, unknown>];
+    expect(table).toBe("anon_retrieval_checks");
+    expect(row.status).toBe(RetrievalStatus.FAILED);
+    expect(row.bytes_retrieved).toBe(524288);
+    expect(row.first_byte_ms).toBe(150);
+    expect(row.last_byte_ms).toBe(42000);
+    expect(row.throughput_bps).toBe(12500);
+    expect(row.http_response_code).toBe(200);
+    expect(row.error_message).toContain("Anon retrieval job timeout");
+    expect(row.piece_cid).toBe(PIECE.pieceCid);
+    expect(row.sp_address).toBe(SP_ADDRESS);
+    expect(row.sp_id).toBe(7);
+    expect(row.probe_location).toBe("test-location");
+    expect(typeof row.retrieval_id).toBe("string");
   });
 
-  it("still saves a row when the signal aborts before fetchPiece runs", async () => {
+  it("still emits a row when the signal aborts before fetchPiece runs", async () => {
     const ac = new AbortController();
     ac.abort(new Error("Anon retrieval job timeout (60s) for sp1"));
 
@@ -147,20 +151,20 @@ describe("AnonRetrievalService", () => {
       commPValid: false,
     };
 
-    const { service, saveSpy, fetchSpy } = makeService({ pieceResult: never });
+    const { service, insertSpy, fetchSpy } = makeService({ pieceResult: never });
 
     await service.performForProvider(SP_ADDRESS, ac.signal);
 
     expect(fetchSpy).not.toHaveBeenCalled();
-    expect(saveSpy).toHaveBeenCalledTimes(1);
-    const saved = saveSpy.mock.calls[0][0] as Partial<AnonRetrieval>;
-    expect(saved.status).toBe(RetrievalStatus.FAILED);
-    expect(saved.errorMessage).toContain("Anon retrieval job timeout");
-    expect(saved.bytesRetrieved).toBeNull();
-    expect(saved.ttfbMs).toBeNull();
+    expect(insertSpy).toHaveBeenCalledTimes(1);
+    const [, row] = insertSpy.mock.calls[0] as [string, Record<string, unknown>];
+    expect(row.status).toBe(RetrievalStatus.FAILED);
+    expect(row.error_message).toContain("Anon retrieval job timeout");
+    expect(row.bytes_retrieved).toBeNull();
+    expect(row.first_byte_ms).toBeNull();
   });
 
-  it("still saves a row when fetchPiece throws unexpectedly", async () => {
+  it("still emits a row when fetchPiece throws unexpectedly", async () => {
     const never: PieceRetrievalResult = {
       success: false,
       pieceCid: PIECE.pieceCid,
@@ -173,7 +177,7 @@ describe("AnonRetrievalService", () => {
       commPValid: false,
     };
 
-    const { service, saveSpy } = makeService({
+    const { service, insertSpy } = makeService({
       pieceResult: never,
       fetchPieceImpl: async () => {
         throw new Error("network down");
@@ -182,8 +186,28 @@ describe("AnonRetrievalService", () => {
 
     await expect(service.performForProvider(SP_ADDRESS)).rejects.toThrow("network down");
 
-    expect(saveSpy).toHaveBeenCalledTimes(1);
-    const saved = saveSpy.mock.calls[0][0] as Partial<AnonRetrieval>;
-    expect(saved.status).toBe(RetrievalStatus.FAILED);
+    expect(insertSpy).toHaveBeenCalledTimes(1);
+    const [, row] = insertSpy.mock.calls[0] as [string, Record<string, unknown>];
+    expect(row.status).toBe(RetrievalStatus.FAILED);
+  });
+
+  it("skips ClickHouse insert when ClickHouse is disabled", async () => {
+    const ok: PieceRetrievalResult = {
+      success: true,
+      pieceCid: PIECE.pieceCid,
+      bytesReceived: 1024,
+      pieceBytes: null,
+      latencyMs: 100,
+      ttfbMs: 10,
+      throughputBps: 10240,
+      statusCode: 200,
+      commPValid: true,
+    };
+
+    const { service, insertSpy } = makeService({ pieceResult: ok, clickhouseEnabled: false });
+
+    await service.performForProvider(SP_ADDRESS);
+
+    expect(insertSpy).not.toHaveBeenCalled();
   });
 });
