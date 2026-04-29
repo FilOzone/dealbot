@@ -48,7 +48,18 @@ export class CarValidationService {
   ): Promise<CarValidationResult> {
     const blocks = await this.parseCar(pieceBytes, provider.address, ipfsRootCid);
     if (blocks === null) {
-      return { carParseable: false, blockCount: 0, sampledCidCount: 0, ipniValid: null, blockFetchValid: null };
+      return {
+        carParseable: false,
+        blockCount: 0,
+        sampledCidCount: 0,
+        ipniValid: null,
+        ipniVerifyMs: null,
+        ipniVerifiedCidsCount: null,
+        ipniUnverifiedCidsCount: null,
+        blockFetchValid: null,
+        blockFetchFailedCount: null,
+        blockFetchEndpoint: null,
+      };
     }
     if (blocks.length === 0) {
       return {
@@ -56,7 +67,12 @@ export class CarValidationService {
         blockCount: 0,
         sampledCidCount: 0,
         ipniValid: null,
+        ipniVerifyMs: null,
+        ipniVerifiedCidsCount: null,
+        ipniUnverifiedCidsCount: null,
         blockFetchValid: null,
+        blockFetchFailedCount: null,
+        blockFetchEndpoint: null,
         errorMessage: "CAR contained no blocks",
       };
     }
@@ -65,15 +81,20 @@ export class CarValidationService {
     const shuffled = [...blocks].sort(() => Math.random() - 0.5);
     const sampledBlocks = shuffled.slice(0, sampleCount);
 
-    const ipniValid = await this.checkIpni(provider, ipfsRootCid, sampledBlocks, signal);
+    const ipni = await this.checkIpni(provider, ipfsRootCid, sampledBlocks, signal);
     const blockFetchResult = await this.checkBlockFetch(sampledBlocks, provider.address, signal);
 
     return {
       carParseable: true,
       blockCount: blocks.length,
       sampledCidCount: sampledBlocks.length,
-      ipniValid,
+      ipniValid: ipni.valid,
+      ipniVerifyMs: ipni.durationMs,
+      ipniVerifiedCidsCount: ipni.verifiedCount,
+      ipniUnverifiedCidsCount: ipni.unverifiedCount,
       blockFetchValid: blockFetchResult.valid,
+      blockFetchFailedCount: blockFetchResult.failedCount,
+      blockFetchEndpoint: blockFetchResult.endpoint,
       errorMessage: blockFetchResult.errorMessage,
     };
   }
@@ -111,7 +132,12 @@ export class CarValidationService {
     ipfsRootCid: string,
     sampledBlocks: ReadonlyArray<{ cid: CID }>,
     signal?: AbortSignal,
-  ): Promise<boolean> {
+  ): Promise<{
+    valid: boolean;
+    durationMs: number | null;
+    verifiedCount: number | null;
+    unverifiedCount: number | null;
+  }> {
     const timeouts = this.configService.get("timeouts", { infer: true });
     let rootCid: CID;
     try {
@@ -124,7 +150,7 @@ export class CarValidationService {
         providerAddress: provider.address,
         error: toStructuredError(error),
       });
-      return false;
+      return { valid: false, durationMs: null, verifiedCount: null, unverifiedCount: null };
     }
 
     const result = await this.ipniVerificationService.verify({
@@ -136,7 +162,12 @@ export class CarValidationService {
       signal,
     });
 
-    return result.rootCIDVerified;
+    return {
+      valid: result.rootCIDVerified,
+      durationMs: result.durationMs,
+      verifiedCount: result.verified,
+      unverifiedCount: result.unverified,
+    };
   }
 
   /**
@@ -148,14 +179,20 @@ export class CarValidationService {
     sampledBlocks: ReadonlyArray<{ cid: CID; bytes: Uint8Array }>,
     spAddress: string,
     signal?: AbortSignal,
-  ): Promise<{ valid: boolean | null; errorMessage?: string }> {
+  ): Promise<{ valid: boolean | null; failedCount: number | null; endpoint: string | null; errorMessage?: string }> {
     const providerInfo = this.walletSdkService.getProviderInfo(spAddress);
     if (!providerInfo) {
-      return { valid: null, errorMessage: `Provider info not found for ${spAddress}` };
+      return {
+        valid: null,
+        failedCount: null,
+        endpoint: null,
+        errorMessage: `Provider info not found for ${spAddress}`,
+      };
     }
 
     const spBaseUrl = providerInfo.pdp.serviceURL.replace(/\/$/, "");
-    let allValid = true;
+    const endpoint = `${spBaseUrl}/ipfs/`;
+    let failedCount = 0;
 
     for (const block of sampledBlocks) {
       signal?.throwIfAborted();
@@ -170,7 +207,7 @@ export class CarValidationService {
         });
 
         if (resp.metrics.statusCode < 200 || resp.metrics.statusCode >= 300) {
-          allValid = false;
+          failedCount += 1;
           this.logger.warn({
             event: "block_fetch_non_2xx",
             message: "Block fetch returned non-2xx status",
@@ -188,7 +225,7 @@ export class CarValidationService {
             cid: cidStr,
             spAddress,
           });
-          allValid = false;
+          failedCount += 1;
           continue;
         }
 
@@ -200,14 +237,14 @@ export class CarValidationService {
             cid: cidStr,
             spAddress,
           });
-          allValid = false;
+          failedCount += 1;
           continue;
         }
 
         // Hash-verifies and decodes; throws on mismatch
         await createBlock({ bytes: resp.data, cid: block.cid, hasher: sha256, codec });
       } catch (error) {
-        allValid = false;
+        failedCount += 1;
         this.logger.warn({
           event: "block_fetch_failed",
           message: "Block fetch or hash verification failed",
@@ -218,6 +255,6 @@ export class CarValidationService {
       }
     }
 
-    return { valid: allValid };
+    return { valid: failedCount === 0, failedCount, endpoint };
   }
 }

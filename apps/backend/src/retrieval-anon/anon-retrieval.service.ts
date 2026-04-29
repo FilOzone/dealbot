@@ -175,8 +175,9 @@ export class AnonRetrievalService {
 
     const providerInfo = this.walletSdkService.getProviderInfo(spAddress);
     const spBaseUrl = providerInfo?.pdp.serviceURL.replace(/\/$/, "") ?? spAddress;
-    const status = pieceResult.success ? RetrievalStatus.SUCCESS : RetrievalStatus.FAILED;
-    const carValid = carResult ? carResult.ipniValid !== false && carResult.blockFetchValid !== false : null;
+    const pieceFetchStatus = pieceResult.success ? RetrievalStatus.SUCCESS : RetrievalStatus.FAILED;
+    const ipniStatus =
+      carResult == null || carResult.ipniValid === null ? "skipped" : carResult.ipniValid ? "valid" : "invalid";
     const retrievalId = randomUUID();
 
     try {
@@ -195,14 +196,23 @@ export class AnonRetrievalService {
         ipfs_root_cid: piece.ipfsRootCid,
         service_type: ServiceType.DIRECT_SP,
         retrieval_endpoint: `${spBaseUrl}/piece/${piece.pieceCid}`,
-        status,
+        piece_fetch_status: pieceFetchStatus,
         http_response_code: pieceResult.statusCode > 0 ? pieceResult.statusCode : null,
         first_byte_ms: pieceResult.ttfbMs > 0 ? pieceResult.ttfbMs : null,
         last_byte_ms: pieceResult.latencyMs > 0 ? pieceResult.latencyMs : null,
         bytes_retrieved: pieceResult.bytesReceived > 0 ? pieceResult.bytesReceived : null,
         throughput_bps: pieceResult.throughputBps > 0 ? Math.round(pieceResult.throughputBps) : null,
         commp_valid: pieceResult.success ? pieceResult.commPValid : null,
-        car_valid: carValid,
+        car_parseable: carResult ? carResult.carParseable : null,
+        car_block_count: carResult?.carParseable ? carResult.blockCount : null,
+        block_fetch_endpoint: carResult?.blockFetchEndpoint ?? null,
+        block_fetch_valid: carResult ? carResult.blockFetchValid : null,
+        block_fetch_sampled_count: carResult?.carParseable ? carResult.sampledCidCount : null,
+        block_fetch_failed_count: carResult?.blockFetchFailedCount ?? null,
+        ipni_status: ipniStatus,
+        ipni_verify_ms: carResult?.ipniVerifyMs ?? null,
+        ipni_verified_cids_count: carResult?.ipniVerifiedCidsCount ?? null,
+        ipni_unverified_cids_count: carResult?.ipniUnverifiedCidsCount ?? null,
         error_message: pieceResult.errorMessage ?? null,
       });
     } catch (error) {
