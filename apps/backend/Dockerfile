@@ -49,7 +49,6 @@ COPY --chown=nestjs:nodejs package.json ./
 
 # Copy backend package files
 COPY --chown=nestjs:nodejs apps/backend/package.json ./apps/backend/
-COPY --chown=nestjs:nodejs apps/backend/pnpm-lock.yaml ./apps/backend/
 
 # Install production dependencies only
 RUN pnpm install --prod --frozen-lockfile --filter dealbot-backend && pnpm store prune
