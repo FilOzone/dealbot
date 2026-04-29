@@ -141,109 +141,90 @@ export class AnonRetrievalService {
       // Always emit a ClickHouse row — even on abort or unexpected error — so
       // we never lose the evidence (ttfb, bytes, response code) we already
       // collected.
-      pieceResult ??= buildAbortedPlaceholder(piece.pieceCid, signal?.reason);
-      this.emitClickhouseRow(spAddress, piece, pieceResult, carResult, startedAt, provider, logContext);
-    }
-  }
+      const finalPieceResult = pieceResult ?? buildAbortedPlaceholder(piece.pieceCid, signal?.reason);
+      const retrievalId = randomUUID();
 
-  private emitClickhouseRow(
-    spAddress: string,
-    piece: {
-      pieceCid: string;
-      dataSetId: string;
-      pieceId: string;
-      rawSize: string;
-      withIPFSIndexing: boolean;
-      ipfsRootCid: string | null;
-    },
-    pieceResult: PieceRetrievalResult,
-    carResult: CarValidationResult | null,
-    startedAt: Date,
-    provider: StorageProvider | null,
-    logContext?: ProviderJobContext,
-  ): void {
-    if (!this.clickhouseService.enabled) {
-      this.logger.debug({
+      if (this.clickhouseService.enabled) {
+        const providerInfo = this.walletSdkService.getProviderInfo(spAddress);
+        const spBaseUrl = providerInfo?.pdp.serviceURL.replace(/\/$/, "") ?? spAddress;
+        const pieceFetchStatus = finalPieceResult.success ? RetrievalStatus.SUCCESS : RetrievalStatus.FAILED;
+        const ipniStatus =
+          carResult == null || carResult.ipniValid === null ? "skipped" : carResult.ipniValid ? "valid" : "invalid";
+
+        try {
+          this.clickhouseService.insert(ANON_RETRIEVAL_CHECKS_TABLE, {
+            timestamp: startedAt.getTime(),
+            probe_location: this.clickhouseService.probeLocation,
+            sp_address: spAddress,
+            sp_id: provider?.providerId != null ? Number(provider.providerId) : null,
+            sp_name: provider?.name ?? null,
+            retrieval_id: retrievalId,
+            piece_cid: piece.pieceCid,
+            data_set_id: piece.dataSetId,
+            piece_id: piece.pieceId,
+            raw_size: piece.rawSize,
+            with_ipfs_indexing: piece.withIPFSIndexing,
+            ipfs_root_cid: piece.ipfsRootCid,
+            service_type: ServiceType.DIRECT_SP,
+            retrieval_endpoint: `${spBaseUrl}/piece/${piece.pieceCid}`,
+            piece_fetch_status: pieceFetchStatus,
+            http_response_code: finalPieceResult.statusCode > 0 ? finalPieceResult.statusCode : null,
+            first_byte_ms: finalPieceResult.ttfbMs > 0 ? finalPieceResult.ttfbMs : null,
+            last_byte_ms: finalPieceResult.latencyMs > 0 ? finalPieceResult.latencyMs : null,
+            bytes_retrieved: finalPieceResult.bytesReceived > 0 ? finalPieceResult.bytesReceived : null,
+            throughput_bps: finalPieceResult.throughputBps > 0 ? Math.round(finalPieceResult.throughputBps) : null,
+            commp_valid: finalPieceResult.success ? finalPieceResult.commPValid : null,
+            car_parseable: carResult ? carResult.carParseable : null,
+            car_block_count: carResult != null && carResult.carParseable ? carResult.blockCount : null,
+            block_fetch_endpoint: carResult?.blockFetchEndpoint ?? null,
+            block_fetch_valid: carResult ? carResult.blockFetchValid : null,
+            block_fetch_sampled_count: carResult != null && carResult.carParseable ? carResult.sampledCidCount : null,
+            block_fetch_failed_count: carResult?.blockFetchFailedCount ?? null,
+            ipni_status: ipniStatus,
+            ipni_verify_ms: carResult?.ipniVerifyMs ?? null,
+            ipni_verified_cids_count: carResult?.ipniVerifiedCidsCount ?? null,
+            ipni_unverified_cids_count: carResult?.ipniUnverifiedCidsCount ?? null,
+            error_message: finalPieceResult.errorMessage ?? null,
+          });
+        } catch (error) {
+          // ClickhouseService.insert is buffered/non-throwing in normal operation, but
+          // guard against unexpected runtime errors so we don't break the probe cycle.
+          this.logger.warn({
+            ...logContext,
+            event: "anon_retrieval_clickhouse_insert_failed",
+            message: "Failed to enqueue anonymous retrieval row to ClickHouse",
+            pieceCid: piece.pieceCid,
+            spAddress,
+            error: toStructuredError(error),
+          });
+        }
+      } else {
+        this.logger.debug({
+          ...logContext,
+          event: "anon_retrieval_clickhouse_disabled",
+          message: "ClickHouse disabled — anon retrieval row not emitted",
+          pieceCid: piece.pieceCid,
+          spAddress,
+        });
+      }
+
+      this.logger.log({
         ...logContext,
-        event: "anon_retrieval_clickhouse_disabled",
-        message: "ClickHouse disabled — anon retrieval row not emitted",
+        event: "anon_retrieval_completed",
+        message: "Anonymous retrieval test completed",
+        retrievalId,
         pieceCid: piece.pieceCid,
         spAddress,
-      });
-      return;
-    }
-
-    const providerInfo = this.walletSdkService.getProviderInfo(spAddress);
-    const spBaseUrl = providerInfo?.pdp.serviceURL.replace(/\/$/, "") ?? spAddress;
-    const pieceFetchStatus = pieceResult.success ? RetrievalStatus.SUCCESS : RetrievalStatus.FAILED;
-    const ipniStatus =
-      carResult == null || carResult.ipniValid === null ? "skipped" : carResult.ipniValid ? "valid" : "invalid";
-    const retrievalId = randomUUID();
-
-    try {
-      this.clickhouseService.insert(ANON_RETRIEVAL_CHECKS_TABLE, {
-        timestamp: startedAt.getTime(),
-        probe_location: this.clickhouseService.probeLocation,
-        sp_address: spAddress,
-        sp_id: provider?.providerId != null ? Number(provider.providerId) : null,
-        sp_name: provider?.name ?? null,
-        retrieval_id: retrievalId,
-        piece_cid: piece.pieceCid,
-        data_set_id: piece.dataSetId,
-        piece_id: piece.pieceId,
-        raw_size: piece.rawSize,
-        with_ipfs_indexing: piece.withIPFSIndexing,
-        ipfs_root_cid: piece.ipfsRootCid,
-        service_type: ServiceType.DIRECT_SP,
-        retrieval_endpoint: `${spBaseUrl}/piece/${piece.pieceCid}`,
-        piece_fetch_status: pieceFetchStatus,
-        http_response_code: pieceResult.statusCode > 0 ? pieceResult.statusCode : null,
-        first_byte_ms: pieceResult.ttfbMs > 0 ? pieceResult.ttfbMs : null,
-        last_byte_ms: pieceResult.latencyMs > 0 ? pieceResult.latencyMs : null,
-        bytes_retrieved: pieceResult.bytesReceived > 0 ? pieceResult.bytesReceived : null,
-        throughput_bps: pieceResult.throughputBps > 0 ? Math.round(pieceResult.throughputBps) : null,
-        commp_valid: pieceResult.success ? pieceResult.commPValid : null,
-        car_parseable: carResult ? carResult.carParseable : null,
-        car_block_count: carResult?.carParseable ? carResult.blockCount : null,
-        block_fetch_endpoint: carResult?.blockFetchEndpoint ?? null,
-        block_fetch_valid: carResult ? carResult.blockFetchValid : null,
-        block_fetch_sampled_count: carResult?.carParseable ? carResult.sampledCidCount : null,
-        block_fetch_failed_count: carResult?.blockFetchFailedCount ?? null,
-        ipni_status: ipniStatus,
-        ipni_verify_ms: carResult?.ipniVerifyMs ?? null,
-        ipni_verified_cids_count: carResult?.ipniVerifiedCidsCount ?? null,
-        ipni_unverified_cids_count: carResult?.ipniUnverifiedCidsCount ?? null,
-        error_message: pieceResult.errorMessage ?? null,
-      });
-    } catch (error) {
-      // ClickhouseService.insert is buffered/non-throwing in normal operation, but
-      // guard against unexpected runtime errors so we don't break the probe cycle.
-      this.logger.warn({
-        ...logContext,
-        event: "anon_retrieval_clickhouse_insert_failed",
-        message: "Failed to enqueue anonymous retrieval row to ClickHouse",
-        pieceCid: piece.pieceCid,
-        spAddress,
-        error: toStructuredError(error),
+        success: finalPieceResult.success,
+        aborted: finalPieceResult.aborted === true,
+        latencyMs: finalPieceResult.latencyMs,
+        ttfbMs: finalPieceResult.ttfbMs,
+        bytesRetrieved: finalPieceResult.bytesReceived,
+        carParseable: carResult?.carParseable,
+        ipniValid: carResult?.ipniValid,
+        blockFetchValid: carResult?.blockFetchValid,
       });
     }
-
-    this.logger.log({
-      ...logContext,
-      event: "anon_retrieval_completed",
-      message: "Anonymous retrieval test completed",
-      retrievalId,
-      pieceCid: piece.pieceCid,
-      spAddress,
-      success: pieceResult.success,
-      aborted: pieceResult.aborted === true,
-      latencyMs: pieceResult.latencyMs,
-      ttfbMs: pieceResult.ttfbMs,
-      bytesRetrieved: pieceResult.bytesReceived,
-      carParseable: carResult?.carParseable,
-      ipniValid: carResult?.ipniValid,
-      blockFetchValid: carResult?.blockFetchValid,
-    });
   }
 }
 

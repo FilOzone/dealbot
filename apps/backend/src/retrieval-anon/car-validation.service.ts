@@ -46,8 +46,17 @@ export class CarValidationService {
     ipfsRootCid: string,
     signal?: AbortSignal,
   ): Promise<CarValidationResult> {
-    const blocks = await this.parseCar(pieceBytes, provider.address, ipfsRootCid);
-    if (blocks === null) {
+    let blocks: { cid: CID; bytes: Uint8Array }[];
+    try {
+      blocks = await this.parseCar(pieceBytes);
+    } catch (error) {
+      this.logger.debug({
+        event: "car_parse_failed",
+        message: "Failed to parse piece bytes as CAR - client fault, not SP",
+        spAddress: provider.address,
+        ipfsRootCid,
+        error: toStructuredError(error),
+      });
       return {
         carParseable: false,
         blockCount: 0,
@@ -99,28 +108,13 @@ export class CarValidationService {
     };
   }
 
-  private async parseCar(
-    pieceBytes: Buffer,
-    spAddress: string,
-    ipfsRootCid: string,
-  ): Promise<{ cid: CID; bytes: Uint8Array }[] | null> {
-    try {
-      const reader = await CarReader.fromBytes(new Uint8Array(pieceBytes));
-      const blocks: { cid: CID; bytes: Uint8Array }[] = [];
-      for await (const block of reader.blocks()) {
-        blocks.push({ cid: block.cid, bytes: block.bytes });
-      }
-      return blocks;
-    } catch (error) {
-      this.logger.debug({
-        event: "car_parse_failed",
-        message: "Failed to parse piece bytes as CAR - client fault, not SP",
-        spAddress,
-        ipfsRootCid,
-        error: toStructuredError(error),
-      });
-      return null;
+  private async parseCar(pieceBytes: Buffer): Promise<{ cid: CID; bytes: Uint8Array }[]> {
+    const reader = await CarReader.fromBytes(new Uint8Array(pieceBytes));
+    const blocks: { cid: CID; bytes: Uint8Array }[] = [];
+    for await (const block of reader.blocks()) {
+      blocks.push({ cid: block.cid, bytes: block.bytes });
     }
+    return blocks;
   }
 
   /**
