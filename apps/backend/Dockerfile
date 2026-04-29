@@ -13,7 +13,6 @@ COPY package.json ./
 
 # Copy backend app files
 COPY apps/backend/package.json ./apps/backend/
-COPY apps/backend/pnpm-lock.yaml ./apps/backend/
 COPY apps/backend/tsconfig*.json ./apps/backend/
 COPY apps/backend/nest-cli.json ./apps/backend/
 
