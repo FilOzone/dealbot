@@ -121,7 +121,7 @@ describe("AnonRetrievalService", () => {
     expect(insertSpy).toHaveBeenCalledTimes(1);
     const [table, row] = insertSpy.mock.calls[0] as [string, Record<string, unknown>];
     expect(table).toBe("anon_retrieval_checks");
-    expect(row.status).toBe(RetrievalStatus.FAILED);
+    expect(row.piece_fetch_status).toBe(RetrievalStatus.FAILED);
     expect(row.bytes_retrieved).toBe(524288);
     expect(row.first_byte_ms).toBe(150);
     expect(row.last_byte_ms).toBe(42000);
@@ -158,7 +158,7 @@ describe("AnonRetrievalService", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(insertSpy).toHaveBeenCalledTimes(1);
     const [, row] = insertSpy.mock.calls[0] as [string, Record<string, unknown>];
-    expect(row.status).toBe(RetrievalStatus.FAILED);
+    expect(row.piece_fetch_status).toBe(RetrievalStatus.FAILED);
     expect(row.error_message).toContain("Anon retrieval job timeout");
     expect(row.bytes_retrieved).toBeNull();
     expect(row.first_byte_ms).toBeNull();
@@ -188,7 +188,7 @@ describe("AnonRetrievalService", () => {
 
     expect(insertSpy).toHaveBeenCalledTimes(1);
     const [, row] = insertSpy.mock.calls[0] as [string, Record<string, unknown>];
-    expect(row.status).toBe(RetrievalStatus.FAILED);
+    expect(row.piece_fetch_status).toBe(RetrievalStatus.FAILED);
   });
 
   it("skips ClickHouse insert when ClickHouse is disabled", async () => {
