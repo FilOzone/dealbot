@@ -1,8 +1,6 @@
 import type { ConfigService } from "@nestjs/config";
-import type { Repository } from "typeorm";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { IConfig } from "../config/app.config.js";
-import type { AnonRetrieval } from "../database/entities/anon-retrieval.entity.js";
 import type { SampleAnonPieceParams, SubgraphService } from "../subgraph/subgraph.service.js";
 import type { AnonCandidatePiece } from "../subgraph/types.js";
 import { AnonPieceSelectorService } from "./anon-piece-selector.service.js";
@@ -21,18 +19,6 @@ const makePiece = (overrides: Partial<AnonCandidatePiece> = {}): AnonCandidatePi
   pdpPaymentEndEpoch: null,
   ...overrides,
 });
-
-const makeRetrievalRepository = (recentPieceCids: string[]): Repository<AnonRetrieval> => {
-  const queryBuilder = {
-    select: vi.fn().mockReturnThis(),
-    orderBy: vi.fn().mockReturnThis(),
-    limit: vi.fn().mockReturnThis(),
-    getRawMany: vi.fn().mockResolvedValue(recentPieceCids.map((c) => ({ pieceCid: c }))),
-  };
-  return {
-    createQueryBuilder: vi.fn().mockReturnValue(queryBuilder),
-  } as unknown as Repository<AnonRetrieval>;
-};
 
 const makeConfigService = (): ConfigService<IConfig, true> =>
   ({
@@ -55,7 +41,7 @@ describe("AnonPieceSelectorService", () => {
 
   it("returns null when every fallback attempt yields no piece", async () => {
     sampleAnonPiece.mockResolvedValue(null);
-    const service = new AnonPieceSelectorService(subgraphService, makeConfigService(), makeRetrievalRepository([]));
+    const service = new AnonPieceSelectorService(subgraphService, makeConfigService());
 
     const result = await service.selectPieceForProvider(SP_ADDRESS);
 
@@ -65,7 +51,7 @@ describe("AnonPieceSelectorService", () => {
 
   it("returns the sampled piece with SP address lowercased", async () => {
     sampleAnonPiece.mockResolvedValueOnce(makePiece({ pieceCid: "baga-the-one" }));
-    const service = new AnonPieceSelectorService(subgraphService, makeConfigService(), makeRetrievalRepository([]));
+    const service = new AnonPieceSelectorService(subgraphService, makeConfigService());
 
     const result = await service.selectPieceForProvider(SP_ADDRESS);
 
@@ -76,7 +62,7 @@ describe("AnonPieceSelectorService", () => {
 
   it("passes the dealbot payer address to sampleAnonPiece for exclusion", async () => {
     sampleAnonPiece.mockResolvedValueOnce(makePiece());
-    const service = new AnonPieceSelectorService(subgraphService, makeConfigService(), makeRetrievalRepository([]));
+    const service = new AnonPieceSelectorService(subgraphService, makeConfigService());
 
     await service.selectPieceForProvider(SP_ADDRESS);
 
@@ -92,27 +78,30 @@ describe("AnonPieceSelectorService", () => {
       .mockResolvedValueOnce(makePiece({ pieceCid: staleCid, pdpPaymentEndEpoch: 100n, indexedAtBlock: 200 }))
       .mockResolvedValueOnce(makePiece({ pieceCid: freshCid, pdpPaymentEndEpoch: null }));
 
-    const service = new AnonPieceSelectorService(subgraphService, makeConfigService(), makeRetrievalRepository([]));
+    const service = new AnonPieceSelectorService(subgraphService, makeConfigService());
     const result = await service.selectPieceForProvider(SP_ADDRESS);
 
     expect(result?.pieceCid).toBe(freshCid);
   });
 
-  it("redraws when the first sampled piece was recently tested", async () => {
+  it("redraws when the first sampled piece was recently selected by this process", async () => {
     const staleCid = "baga-stale";
     const freshCid = "baga-fresh";
+
+    const service = new AnonPieceSelectorService(subgraphService, makeConfigService());
+
+    // Prime the in-memory ring buffer by first selecting `staleCid`.
+    sampleAnonPiece.mockResolvedValueOnce(makePiece({ pieceCid: staleCid }));
+    const first = await service.selectPieceForProvider(SP_ADDRESS);
+    expect(first?.pieceCid).toBe(staleCid);
+
+    // Now the second selection should skip `staleCid` and use `freshCid`.
     sampleAnonPiece
       .mockResolvedValueOnce(makePiece({ pieceCid: staleCid }))
       .mockResolvedValueOnce(makePiece({ pieceCid: freshCid }));
+    const second = await service.selectPieceForProvider(SP_ADDRESS);
 
-    const service = new AnonPieceSelectorService(
-      subgraphService,
-      makeConfigService(),
-      makeRetrievalRepository([staleCid]),
-    );
-    const result = await service.selectPieceForProvider(SP_ADDRESS);
-
-    expect(result?.pieceCid).toBe(freshCid);
+    expect(second?.pieceCid).toBe(freshCid);
   });
 
   it("falls back to the opposite pool when the preferred one is empty", async () => {
@@ -120,7 +109,7 @@ describe("AnonPieceSelectorService", () => {
     const fresh = makePiece({ pieceCid: "baga-other-pool" });
     sampleAnonPiece.mockResolvedValueOnce(null).mockResolvedValueOnce(null).mockResolvedValueOnce(fresh);
 
-    const service = new AnonPieceSelectorService(subgraphService, makeConfigService(), makeRetrievalRepository([]));
+    const service = new AnonPieceSelectorService(subgraphService, makeConfigService());
     const result = await service.selectPieceForProvider(SP_ADDRESS);
 
     expect(result?.pieceCid).toBe("baga-other-pool");
@@ -141,7 +130,7 @@ describe("AnonPieceSelectorService", () => {
       .mockResolvedValueOnce(null)
       .mockResolvedValueOnce(makePiece({ pieceCid: "baga-any-bucket" }));
 
-    const service = new AnonPieceSelectorService(subgraphService, makeConfigService(), makeRetrievalRepository([]));
+    const service = new AnonPieceSelectorService(subgraphService, makeConfigService());
     const result = await service.selectPieceForProvider(SP_ADDRESS);
 
     expect(result?.pieceCid).toBe("baga-any-bucket");
@@ -156,7 +145,7 @@ describe("AnonPieceSelectorService", () => {
   it("draws a fresh sampleKey for each subgraph call", async () => {
     sampleAnonPiece.mockResolvedValueOnce(null).mockResolvedValueOnce(makePiece());
 
-    const service = new AnonPieceSelectorService(subgraphService, makeConfigService(), makeRetrievalRepository([]));
+    const service = new AnonPieceSelectorService(subgraphService, makeConfigService());
     await service.selectPieceForProvider(SP_ADDRESS);
 
     const call1 = sampleAnonPiece.mock.calls[0][0] as SampleAnonPieceParams;
