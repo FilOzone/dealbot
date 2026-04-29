@@ -9,7 +9,7 @@ import type { AnonPieceSelectorService } from "./anon-piece-selector.service.js"
 import { AnonRetrievalService } from "./anon-retrieval.service.js";
 import type { CarValidationService } from "./car-validation.service.js";
 import type { PieceRetrievalService } from "./piece-retrieval.service.js";
-import type { PieceRetrievalResult } from "./types.js";
+import type { AnonPiece, CarValidationResult, PieceRetrievalResult } from "./types.js";
 
 const SP_ADDRESS = "0xaaaa0000000000000000000000000000000000aa";
 
@@ -36,10 +36,13 @@ function makeService(opts: {
   pieceResult: PieceRetrievalResult;
   fetchPieceImpl?: (signal?: AbortSignal) => Promise<PieceRetrievalResult>;
   clickhouseEnabled?: boolean;
+  piece?: AnonPiece;
+  carResult?: CarValidationResult;
 }): {
   service: AnonRetrievalService;
   insertSpy: ReturnType<typeof vi.fn>;
   fetchSpy: ReturnType<typeof vi.fn>;
+  validateCarSpy: ReturnType<typeof vi.fn>;
 } {
   const insertSpy = vi.fn();
   const clickhouseService = {
@@ -53,7 +56,7 @@ function makeService(opts: {
   } as unknown as Repository<StorageProvider>;
 
   const anonPieceSelector = {
-    selectPieceForProvider: vi.fn(async () => PIECE),
+    selectPieceForProvider: vi.fn(async () => opts.piece ?? PIECE),
   } as unknown as AnonPieceSelectorService;
 
   const fetchSpy = vi.fn(opts.fetchPieceImpl ?? (async () => opts.pieceResult));
@@ -61,8 +64,9 @@ function makeService(opts: {
     fetchPiece: fetchSpy,
   } as unknown as PieceRetrievalService;
 
+  const validateCarSpy = vi.fn(async () => opts.carResult);
   const carValidationService = {
-    validateCarPiece: vi.fn(),
+    validateCarPiece: validateCarSpy,
   } as unknown as CarValidationService;
 
   const walletSdkService = {
@@ -91,7 +95,7 @@ function makeService(opts: {
     spRepository,
   );
 
-  return { service, insertSpy, fetchSpy };
+  return { service, insertSpy, fetchSpy, validateCarSpy };
 }
 
 describe("AnonRetrievalService", () => {
@@ -133,6 +137,19 @@ describe("AnonRetrievalService", () => {
     expect(row.sp_id).toBe(7);
     expect(row.probe_location).toBe("test-location");
     expect(typeof row.retrieval_id).toBe("string");
+
+    // CAR/IPNI/block-fetch were never run on a non-IPFS-indexed piece — every
+    // dimension column should explicitly say "skipped" (ipni_status) or null.
+    expect(row.car_parseable).toBeNull();
+    expect(row.car_block_count).toBeNull();
+    expect(row.block_fetch_endpoint).toBeNull();
+    expect(row.block_fetch_valid).toBeNull();
+    expect(row.block_fetch_sampled_count).toBeNull();
+    expect(row.block_fetch_failed_count).toBeNull();
+    expect(row.ipni_status).toBe("skipped");
+    expect(row.ipni_verify_ms).toBeNull();
+    expect(row.ipni_verified_cids_count).toBeNull();
+    expect(row.ipni_unverified_cids_count).toBeNull();
   });
 
   it("still emits a row when the signal aborts before fetchPiece runs", async () => {
@@ -209,5 +226,137 @@ describe("AnonRetrievalService", () => {
     await service.performForProvider(SP_ADDRESS);
 
     expect(insertSpy).not.toHaveBeenCalled();
+  });
+
+  describe("with IPFS indexing", () => {
+    const INDEXED_PIECE: AnonPiece = {
+      ...PIECE,
+      withIPFSIndexing: true,
+      ipfsRootCid: "bafyrootcid",
+    };
+
+    function okPiece(bytes: Buffer): PieceRetrievalResult {
+      return {
+        success: true,
+        pieceCid: INDEXED_PIECE.pieceCid,
+        bytesReceived: bytes.length,
+        pieceBytes: bytes,
+        latencyMs: 200,
+        ttfbMs: 20,
+        throughputBps: 51200,
+        statusCode: 200,
+        commPValid: true,
+      };
+    }
+
+    it("emits populated CAR/IPNI/block-fetch columns when validation fully succeeds", async () => {
+      const carResult: CarValidationResult = {
+        carParseable: true,
+        blockCount: 42,
+        sampledCidCount: 5,
+        ipniValid: true,
+        ipniVerifyMs: 137,
+        ipniVerifiedCidsCount: 6,
+        ipniUnverifiedCidsCount: 0,
+        blockFetchValid: true,
+        blockFetchFailedCount: 0,
+        blockFetchEndpoint: "https://sp.test/ipfs/",
+      };
+
+      const { service, insertSpy, validateCarSpy } = makeService({
+        pieceResult: okPiece(Buffer.from("car-bytes")),
+        piece: INDEXED_PIECE,
+        carResult,
+      });
+
+      await service.performForProvider(SP_ADDRESS);
+
+      expect(validateCarSpy).toHaveBeenCalledTimes(1);
+      const [, row] = insertSpy.mock.calls[0] as [string, Record<string, unknown>];
+      expect(row.piece_fetch_status).toBe(RetrievalStatus.SUCCESS);
+      expect(row.commp_valid).toBe(true);
+      expect(row.car_parseable).toBe(true);
+      expect(row.car_block_count).toBe(42);
+      expect(row.block_fetch_endpoint).toBe("https://sp.test/ipfs/");
+      expect(row.block_fetch_valid).toBe(true);
+      expect(row.block_fetch_sampled_count).toBe(5);
+      expect(row.block_fetch_failed_count).toBe(0);
+      expect(row.ipni_status).toBe("valid");
+      expect(row.ipni_verify_ms).toBe(137);
+      expect(row.ipni_verified_cids_count).toBe(6);
+      expect(row.ipni_unverified_cids_count).toBe(0);
+    });
+
+    it("distinguishes IPNI invalid from block-fetch failures with explicit counts", async () => {
+      const carResult: CarValidationResult = {
+        carParseable: true,
+        blockCount: 100,
+        sampledCidCount: 5,
+        ipniValid: false,
+        ipniVerifyMs: 250,
+        ipniVerifiedCidsCount: 0,
+        ipniUnverifiedCidsCount: 6,
+        blockFetchValid: false,
+        blockFetchFailedCount: 2,
+        blockFetchEndpoint: "https://sp.test/ipfs/",
+      };
+
+      const { service, insertSpy } = makeService({
+        pieceResult: okPiece(Buffer.from("car-bytes")),
+        piece: INDEXED_PIECE,
+        carResult,
+      });
+
+      await service.performForProvider(SP_ADDRESS);
+
+      const [, row] = insertSpy.mock.calls[0] as [string, Record<string, unknown>];
+      // The piece-fetch path still succeeded — failures are surfaced as
+      // independent dimensions, not folded into piece_fetch_status.
+      expect(row.piece_fetch_status).toBe(RetrievalStatus.SUCCESS);
+      expect(row.car_parseable).toBe(true);
+      expect(row.ipni_status).toBe("invalid");
+      expect(row.ipni_verified_cids_count).toBe(0);
+      expect(row.ipni_unverified_cids_count).toBe(6);
+      expect(row.block_fetch_valid).toBe(false);
+      expect(row.block_fetch_sampled_count).toBe(5);
+      expect(row.block_fetch_failed_count).toBe(2);
+    });
+
+    it("emits car_parseable=false with skipped IPNI/block-fetch when bytes don't parse as CAR", async () => {
+      const carResult: CarValidationResult = {
+        carParseable: false,
+        blockCount: 0,
+        sampledCidCount: 0,
+        ipniValid: null,
+        ipniVerifyMs: null,
+        ipniVerifiedCidsCount: null,
+        ipniUnverifiedCidsCount: null,
+        blockFetchValid: null,
+        blockFetchFailedCount: null,
+        blockFetchEndpoint: null,
+      };
+
+      const { service, insertSpy } = makeService({
+        pieceResult: okPiece(Buffer.from("not-a-car")),
+        piece: INDEXED_PIECE,
+        carResult,
+      });
+
+      await service.performForProvider(SP_ADDRESS);
+
+      const [, row] = insertSpy.mock.calls[0] as [string, Record<string, unknown>];
+      expect(row.car_parseable).toBe(false);
+      // car_block_count and block_fetch_sampled_count are gated on carParseable
+      // so an unparseable CAR doesn't emit a misleading 0.
+      expect(row.car_block_count).toBeNull();
+      expect(row.block_fetch_sampled_count).toBeNull();
+      expect(row.block_fetch_endpoint).toBeNull();
+      expect(row.block_fetch_valid).toBeNull();
+      expect(row.block_fetch_failed_count).toBeNull();
+      expect(row.ipni_status).toBe("skipped");
+      expect(row.ipni_verify_ms).toBeNull();
+      expect(row.ipni_verified_cids_count).toBeNull();
+      expect(row.ipni_unverified_cids_count).toBeNull();
+    });
   });
 });
