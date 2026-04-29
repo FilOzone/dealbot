@@ -107,8 +107,8 @@ export class AnonRetrievalService {
           this.metrics.recordCarParseStatus(labels, carResult.carParseable);
           this.metrics.recordIpniStatus(labels, ipniStatusFromResult(carResult));
           this.metrics.recordBlockFetchStatus(
-              labels,
-              carResult.blockFetchValid === null ? "skipped" : carResult.blockFetchValid ? "valid" : "invalid",
+            labels,
+            carResult.blockFetchValid === null ? "skipped" : carResult.blockFetchValid ? "valid" : "invalid",
           );
         } catch (error) {
           // Validation was attempted on a successful piece retrieval but threw.
