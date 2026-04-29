@@ -189,7 +189,6 @@ export class CarValidationService {
     let failedCount = 0;
 
     for (const block of sampledBlocks) {
-      signal?.throwIfAborted();
       const cidStr = block.cid.toString();
       const blockUrl = `${spBaseUrl}/ipfs/${cidStr}?format=raw`;
 

@@ -730,14 +730,18 @@ describe("SubgraphService", () => {
   });
 
   describe("sampleAnonPiece", () => {
-    it("returns null when endpoint is not configured", async () => {
+    it("throws when endpoint is not configured (distinct from empty result)", async () => {
+      // Returning null here would make a misconfigured deployment indistinguishable
+      // from a genuinely empty candidate pool — every anon job would silently
+      // no-op forever. Fail loudly instead.
       const noEndpointConfig = {
         get: vi.fn(() => ({ subgraphEndpoint: "" })),
       } as unknown as ConfigService<IConfig, true>;
       const noEndpointService = new SubgraphService(noEndpointConfig);
 
-      const piece = await noEndpointService.sampleAnonPiece(defaultSampleParams);
-      expect(piece).toBeNull();
+      await expect(noEndpointService.sampleAnonPiece(defaultSampleParams)).rejects.toThrow(
+        "No PDP subgraph endpoint configured",
+      );
       expect(fetchMock).not.toHaveBeenCalled();
     });
 

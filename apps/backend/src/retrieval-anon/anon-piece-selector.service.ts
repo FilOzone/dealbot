@@ -8,13 +8,7 @@ import type { AnonCandidatePiece } from "../subgraph/types.js";
 import type { AnonPiece } from "./types.js";
 
 /**
- * Number of most-recently-tested anonymous pieces to exclude from selection
- * to avoid immediately retesting the same piece. Piece CIDs are globally
- * unique and each one lives on a single SP's dataset, so scoping by CID
- * is equivalent to scoping by (SP, CID) for this workload.
- *
- * The buffer is process-local: a duplicate piece that gets retested shortly
- * after a restart is harmless (still a valid measurement, just less diverse).
+ * Number of most-recently-tested piece CIDs to exclude from re-selection.
  */
 const RECENT_DEDUP_WINDOW = 500;
 
@@ -157,6 +151,9 @@ export class AnonPieceSelectorService {
         continue;
       }
 
+      // On Filecoin FEVM the EVM block number IS the chain epoch (one block per
+      // epoch), so the subgraph's indexedAtBlock is a safe proxy for "now" when
+      // checking if PDP payment for this piece has already terminated.
       if (piece.pdpPaymentEndEpoch != null && piece.pdpPaymentEndEpoch <= BigInt(piece.indexedAtBlock)) {
         continue;
       }

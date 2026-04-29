@@ -84,6 +84,22 @@ describe("AnonPieceSelectorService", () => {
     expect(result?.pieceCid).toBe(freshCid);
   });
 
+  it("treats payment-end exactly equal to current epoch as terminated (boundary)", async () => {
+    // pdpPaymentEndEpoch === indexedAtBlock should be rejected (<=, not <).
+    // This guards against an off-by-one regression where pieces in the final
+    // payment epoch silently slip through.
+    const boundaryCid = "baga-boundary";
+    const liveCid = "baga-still-live";
+    sampleAnonPiece
+      .mockResolvedValueOnce(makePiece({ pieceCid: boundaryCid, pdpPaymentEndEpoch: 200n, indexedAtBlock: 200 }))
+      .mockResolvedValueOnce(makePiece({ pieceCid: liveCid, pdpPaymentEndEpoch: 201n, indexedAtBlock: 200 }));
+
+    const service = new AnonPieceSelectorService(subgraphService, makeConfigService());
+    const result = await service.selectPieceForProvider(SP_ADDRESS);
+
+    expect(result?.pieceCid).toBe(liveCid);
+  });
+
   it("redraws when the first sampled piece was recently selected by this process", async () => {
     const staleCid = "baga-stale";
     const freshCid = "baga-fresh";
