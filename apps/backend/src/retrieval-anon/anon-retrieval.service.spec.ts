@@ -36,13 +36,17 @@ function makeService(opts: {
   pieceResult: PieceRetrievalResult;
   fetchPieceImpl?: (signal?: AbortSignal) => Promise<PieceRetrievalResult>;
   clickhouseEnabled?: boolean;
-  piece?: AnonPiece;
+  piece?: AnonPiece | null;
   carResult?: CarValidationResult;
+  validateCarImpl?: () => Promise<CarValidationResult>;
 }): {
   service: AnonRetrievalService;
   insertSpy: ReturnType<typeof vi.fn>;
   fetchSpy: ReturnType<typeof vi.fn>;
   validateCarSpy: ReturnType<typeof vi.fn>;
+  metricsRecordStatusSpy: ReturnType<typeof vi.fn>;
+  metricsRecordIpniSpy: ReturnType<typeof vi.fn>;
+  metricsRecordBlockFetchSpy: ReturnType<typeof vi.fn>;
 } {
   const insertSpy = vi.fn();
   const clickhouseService = {
@@ -56,7 +60,7 @@ function makeService(opts: {
   } as unknown as Repository<StorageProvider>;
 
   const anonPieceSelector = {
-    selectPieceForProvider: vi.fn(async () => opts.piece ?? PIECE),
+    selectPieceForProvider: vi.fn(async () => (opts.piece === null ? null : (opts.piece ?? PIECE))),
   } as unknown as AnonPieceSelectorService;
 
   const fetchSpy = vi.fn(opts.fetchPieceImpl ?? (async () => opts.pieceResult));
@@ -64,7 +68,7 @@ function makeService(opts: {
     fetchPiece: fetchSpy,
   } as unknown as PieceRetrievalService;
 
-  const validateCarSpy = vi.fn(async () => opts.carResult);
+  const validateCarSpy = vi.fn(opts.validateCarImpl ?? (async () => opts.carResult));
   const carValidationService = {
     validateCarPiece: validateCarSpy,
   } as unknown as CarValidationService;
@@ -73,16 +77,19 @@ function makeService(opts: {
     getProviderInfo: vi.fn(() => ({ pdp: { serviceURL: "https://sp.test/" } })),
   } as unknown as WalletSdkService;
 
+  const metricsRecordStatusSpy = vi.fn();
+  const metricsRecordIpniSpy = vi.fn();
+  const metricsRecordBlockFetchSpy = vi.fn();
   const metrics = {
     observeFirstByteMs: vi.fn(),
     observeLastByteMs: vi.fn(),
     observeThroughput: vi.fn(),
     observeCheckDuration: vi.fn(),
-    recordStatus: vi.fn(),
+    recordStatus: metricsRecordStatusSpy,
     recordHttpResponseCode: vi.fn(),
     recordCarParseStatus: vi.fn(),
-    recordIpniStatus: vi.fn(),
-    recordBlockFetchStatus: vi.fn(),
+    recordIpniStatus: metricsRecordIpniSpy,
+    recordBlockFetchStatus: metricsRecordBlockFetchSpy,
   } as unknown as AnonRetrievalCheckMetrics;
 
   const service = new AnonRetrievalService(
@@ -95,7 +102,15 @@ function makeService(opts: {
     spRepository,
   );
 
-  return { service, insertSpy, fetchSpy, validateCarSpy };
+  return {
+    service,
+    insertSpy,
+    fetchSpy,
+    validateCarSpy,
+    metricsRecordStatusSpy,
+    metricsRecordIpniSpy,
+    metricsRecordBlockFetchSpy,
+  };
 }
 
 describe("AnonRetrievalService", () => {
@@ -320,6 +335,30 @@ describe("AnonRetrievalService", () => {
       expect(row.block_fetch_valid).toBe(false);
       expect(row.block_fetch_sampled_count).toBe(5);
       expect(row.block_fetch_failed_count).toBe(2);
+    });
+
+    it("emits ipni_status='error' (not 'skipped') when CAR validation throws on a successful piece", async () => {
+      // Distinguishes a real infra outage (e.g. IpniVerificationService down)
+      // from a piece that legitimately had no IPFS indexing. Without the
+      // distinction, an outage looks like normal non-IPFS volume in dashboards.
+      const { service, insertSpy, metricsRecordIpniSpy, metricsRecordBlockFetchSpy } = makeService({
+        pieceResult: okPiece(Buffer.from("car-bytes")),
+        piece: INDEXED_PIECE,
+        validateCarImpl: async () => {
+          throw new Error("IpniVerificationService down");
+        },
+      });
+
+      await service.performForProvider(SP_ADDRESS);
+
+      expect(metricsRecordIpniSpy).toHaveBeenCalledWith(expect.anything(), "error");
+      expect(metricsRecordBlockFetchSpy).toHaveBeenCalledWith(expect.anything(), "error");
+
+      const [, row] = insertSpy.mock.calls[0] as [string, Record<string, unknown>];
+      expect(row.ipni_status).toBe("error");
+      // Piece-fetch path itself succeeded — only the validation pipeline failed.
+      expect(row.commp_valid).toBe(true);
+      expect(row.car_parseable).toBeNull();
     });
 
     it("emits car_parseable=false with skipped IPNI/block-fetch when bytes don't parse as CAR", async () => {

@@ -303,11 +303,11 @@ export class AnonRetrievalCheckMetrics {
     this.carParseCounter.inc({ ...labels, value: parseable ? "parseable" : "not_parseable" });
   }
 
-  recordIpniStatus(labels: CheckMetricLabels, value: "valid" | "invalid" | "skipped"): void {
+  recordIpniStatus(labels: CheckMetricLabels, value: "valid" | "invalid" | "skipped" | "error"): void {
     this.ipniCounter.inc({ ...labels, value });
   }
 
-  recordBlockFetchStatus(labels: CheckMetricLabels, value: "valid" | "invalid" | "skipped"): void {
+  recordBlockFetchStatus(labels: CheckMetricLabels, value: "valid" | "invalid" | "skipped" | "error"): void {
     this.blockFetchCounter.inc({ ...labels, value });
   }
 }

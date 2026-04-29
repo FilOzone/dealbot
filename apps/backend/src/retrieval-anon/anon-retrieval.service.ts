@@ -70,6 +70,7 @@ export class AnonRetrievalService {
 
     let pieceResult: PieceRetrievalResult | null = null;
     let carResult: CarValidationResult | null = null;
+    let validatedCarPiece: boolean = false;
 
     try {
       // 2. Fetch the piece. fetchPiece never throws on abort — it returns a
@@ -96,13 +97,24 @@ export class AnonRetrievalService {
         !signal?.aborted
       ) {
         try {
+          validatedCarPiece = true;
           carResult = await this.carValidationService.validateCarPiece(
             pieceResult.pieceBytes,
             provider,
             piece.ipfsRootCid,
             signal,
           );
+          this.metrics.recordCarParseStatus(labels, carResult.carParseable);
+          this.metrics.recordIpniStatus(labels, ipniStatusFromResult(carResult));
+          this.metrics.recordBlockFetchStatus(
+              labels,
+              carResult.blockFetchValid === null ? "skipped" : carResult.blockFetchValid ? "valid" : "invalid",
+          );
         } catch (error) {
+          // Validation was attempted on a successful piece retrieval but threw.
+          this.metrics.recordCarParseStatus(labels, false);
+          this.metrics.recordIpniStatus(labels, "error");
+          this.metrics.recordBlockFetchStatus(labels, "error");
           this.logger.warn({
             ...logContext,
             event: "anon_retrieval_car_validation_failed",
@@ -112,19 +124,6 @@ export class AnonRetrievalService {
             error: toStructuredError(error),
           });
         }
-      }
-
-      // Emit CAR validation metrics
-      if (carResult) {
-        this.metrics.recordCarParseStatus(labels, carResult.carParseable);
-        this.metrics.recordIpniStatus(
-          labels,
-          carResult.ipniValid === null ? "skipped" : carResult.ipniValid ? "valid" : "invalid",
-        );
-        this.metrics.recordBlockFetchStatus(
-          labels,
-          carResult.blockFetchValid === null ? "skipped" : carResult.blockFetchValid ? "valid" : "invalid",
-        );
       } else if (!pieceResult.success) {
         // Piece retrieval failed — IPNI and block fetch were skipped
         this.metrics.recordIpniStatus(labels, "skipped");
@@ -148,8 +147,7 @@ export class AnonRetrievalService {
         const providerInfo = this.walletSdkService.getProviderInfo(spAddress);
         const spBaseUrl = providerInfo?.pdp.serviceURL.replace(/\/$/, "") ?? spAddress;
         const pieceFetchStatus = finalPieceResult.success ? RetrievalStatus.SUCCESS : RetrievalStatus.FAILED;
-        const ipniStatus =
-          carResult == null || carResult.ipniValid === null ? "skipped" : carResult.ipniValid ? "valid" : "invalid";
+        const ipniStatus = !validatedCarPiece ? "skipped" : carResult ? ipniStatusFromResult(carResult) : "error";
 
         try {
           this.clickhouseService.insert(ANON_RETRIEVAL_CHECKS_TABLE, {
@@ -226,6 +224,11 @@ export class AnonRetrievalService {
       });
     }
   }
+}
+
+function ipniStatusFromResult(result: CarValidationResult): "valid" | "invalid" | "skipped" {
+  if (result.ipniValid === null) return "skipped";
+  return result.ipniValid ? "valid" : "invalid";
 }
 
 function buildAbortedPlaceholder(pieceCid: string, reason: unknown): PieceRetrievalResult {
