@@ -17,7 +17,6 @@ COPY package.json ./
 
 # Copy web app files
 COPY apps/web/package.json ./apps/web/
-COPY apps/web/pnpm-lock.yaml ./apps/web/
 COPY apps/web/tsconfig*.json ./apps/web/
 COPY apps/web/vite.config.ts ./apps/web/
 COPY apps/web/components.json ./apps/web/
