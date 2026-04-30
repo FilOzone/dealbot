@@ -1,0 +1,21 @@
+# graph-cli outputs
+build/
+generated/
+
+# Derived from @filoz/synapse-core/abis by scripts/sync-abis.mjs.
+# Regenerated on every `pnpm run codegen`.
+abis/
+
+# Node dependencies
+node_modules/
+
+# Goldsky deploy artifacts
+.goldsky/
+
+# Test outputs
+coverage/
+tests/.bin/
+tests/.latest.json
+
+# Editor / OS
+.DS_Store

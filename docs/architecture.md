@@ -37,6 +37,12 @@ Postgres is the system-of-record for Dealbot state:
 - Retrieval lifecycle records in `retrievals`.
 - Scheduler state in `job_schedule_state` and queue execution state in `pgboss.job`.
 
+ClickHouse is for long-term check result storage and analysis, it's optional:
+
+- Each completed check writes one row to the relevant table: `data_storage_checks`, `retrieval_checks`, or `data_retention_challenges`.
+- Rows are buffered in memory and flushed in batches; failed flushes are logged and the batch is dropped (ClickHouse is a metrics sink, not a source of truth).
+- ClickHouse is not a dependency for normal operation. The service starts and runs without it.
+
 Prometheus is for runtime observability, not durable state:
 
 - Job health/performance metrics (for example `jobs_started_total`, `jobs_completed_total`, `jobs_queued`) are emitted at runtime on `/metrics`.

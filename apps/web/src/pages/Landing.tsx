@@ -1,4 +1,5 @@
 import { Activity, ExternalLink } from "lucide-react";
+import { NetworkBadge } from "@/components/shared";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useProvidersList } from "@/hooks/useProvidersList";
 
@@ -70,6 +71,10 @@ export default function Landing() {
         <div className="flex items-center justify-center gap-2 text-primary">
           <Activity className="h-8 w-8" />
           <h1 className="text-3xl font-bold">DealBot</h1>
+        </div>
+
+        <div className="flex justify-center">
+          <NetworkBadge />
         </div>
 
         <p className="text-muted-foreground text-lg">

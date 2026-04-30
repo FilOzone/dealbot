@@ -13,6 +13,7 @@ This document provides a comprehensive guide to all environment variables used b
 | [Scheduling](#scheduling-configuration)   | `PROVIDERS_REFRESH_INTERVAL_SECONDS`, `DATA_RETENTION_POLL_INTERVAL_SECONDS`, `DEALBOT_MAINTENANCE_WINDOWS_UTC`, `DEALBOT_MAINTENANCE_WINDOW_MINUTES`                                                                                                                                 |
 | [Jobs (pg-boss)](#jobs-pg-boss)           | `DEALBOT_PGBOSS_SCHEDULER_ENABLED`, `DEALBOT_PGBOSS_POOL_MAX`, `DEALS_PER_SP_PER_HOUR`, `DATASET_CREATIONS_PER_SP_PER_HOUR`, `RETRIEVALS_PER_SP_PER_HOUR`,  `JOB_SCHEDULER_POLL_SECONDS`, `JOB_WORKER_POLL_SECONDS`, `PG_BOSS_LOCAL_CONCURRENCY`, `JOB_CATCHUP_MAX_ENQUEUE`, `JOB_SCHEDULE_PHASE_SECONDS`, `JOB_ENQUEUE_JITTER_SECONDS`, `DEAL_JOB_TIMEOUT_SECONDS`, `RETRIEVAL_JOB_TIMEOUT_SECONDS`, `IPFS_BLOCK_FETCH_CONCURRENCY` |
 | [Dataset](#dataset-configuration)         | `DEALBOT_LOCAL_DATASETS_PATH`, `RANDOM_PIECE_SIZES`                                                                                                          |
+| [ClickHouse](#clickhouse-configuration)   | `CLICKHOUSE_URL`, `CLICKHOUSE_BATCH_SIZE`, `CLICKHOUSE_FLUSH_INTERVAL_MS`, `DEALBOT_PROBE_LOCATION`          |
 | [Timeouts](#timeout-configuration)        | `CONNECT_TIMEOUT_MS`, `HTTP_REQUEST_TIMEOUT_MS`, `HTTP2_REQUEST_TIMEOUT_MS`, `IPNI_VERIFICATION_TIMEOUT_MS`, `IPNI_VERIFICATION_POLLING_MS`                   |
 | [Piece Cleanup](#piece-cleanup)           | `MAX_DATASET_STORAGE_SIZE_BYTES`, `TARGET_DATASET_STORAGE_SIZE_BYTES`, `JOB_PIECE_CLEANUP_PER_SP_PER_HOUR`, `MAX_PIECE_CLEANUP_RUNTIME_SECONDS`       |
 | [SP Blocklist](#sp-blocklist-configuration) | `BLOCKED_SP_IDS`, `BLOCKED_SP_ADDRESSES` |
@@ -942,6 +943,78 @@ Only used when `DEALBOT_JOBS_MODE=pgboss`.
 
 ```bash
 RANDOM_PIECE_SIZES=1024,10240,102400
+```
+
+---
+
+## ClickHouse Configuration
+
+Dealbot optionally writes check results to ClickHouse for long-term storage and analysis. All ClickHouse writes are disabled when `CLICKHOUSE_URL` is unset.
+
+### `CLICKHOUSE_URL`
+
+- **Type**: `string` (HTTP/HTTPS URL)
+- **Required**: No
+- **Default**: Not set (ClickHouse writes disabled)
+
+**Role**: ClickHouse connection URL. Must include the database name in the path. When unset, all ClickHouse inserts are silently dropped and no connection is made.
+
+**Example**:
+
+```bash
+CLICKHOUSE_URL=http://default:password@clickhouse-host:8123/dealbot
+```
+
+---
+
+### `CLICKHOUSE_BATCH_SIZE`
+
+- **Type**: `number`
+- **Required**: No
+- **Default**: `500`
+- **Minimum**: `1`
+
+**Role**: Maximum number of rows to accumulate in the in-memory buffer before triggering a flush to ClickHouse. Rows are also flushed on the interval defined by `CLICKHOUSE_FLUSH_INTERVAL_MS`.
+
+**When to update**:
+
+- Decrease for lower-throughput deployments where you want more frequent writes
+- Increase to reduce write frequency under high load
+
+---
+
+### `CLICKHOUSE_FLUSH_INTERVAL_MS`
+
+- **Type**: `number` (milliseconds)
+- **Required**: No
+- **Default**: `5000` (5 seconds)
+- **Minimum**: `100`
+
+**Role**: How often the ClickHouse buffer is flushed, regardless of batch size.
+
+**When to update**:
+
+- Decrease for more real-time data visibility
+- Increase to reduce write pressure on the ClickHouse server
+
+---
+
+### `DEALBOT_PROBE_LOCATION`
+
+- **Type**: `string`
+- **Required**: No
+- **Default**: `unknown`
+
+**Role**: A label identifying where this dealbot instance is running (e.g. `aws-us-east-1`, `local`). Written to ClickHouse as `probe_location` on every row, allowing multi-region deployments to be distinguished in queries.
+
+**When to update**:
+
+- Set to a meaningful geographic or deployment identifier for each dealbot instance
+
+**Example**:
+
+```bash
+DEALBOT_PROBE_LOCATION=aws-us-east-1
 ```
 
 ---
