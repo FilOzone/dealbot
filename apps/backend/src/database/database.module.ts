@@ -10,6 +10,7 @@ import type { IAppConfig, IConfig, IDatabaseConfig } from "../config/app.config.
 import { DataRetentionBaseline } from "./entities/data-retention-baseline.entity.js";
 import { Deal } from "./entities/deal.entity.js";
 import { JobScheduleState } from "./entities/job-schedule-state.entity.js";
+import { PullCheck } from "./entities/pull-check.entity.js";
 import { Retrieval } from "./entities/retrieval.entity.js";
 import { StorageProvider } from "./entities/storage-provider.entity.js";
 
@@ -49,7 +50,7 @@ function toSafeDataSourceContext(options: DataSourceOptions): Record<string, unk
           password: dbConfig.password,
           database: dbConfig.database,
           poolSize: dbConfig.poolMax,
-          entities: [DataRetentionBaseline, Deal, StorageProvider, Retrieval, JobScheduleState],
+          entities: [DataRetentionBaseline, Deal, StorageProvider, Retrieval, JobScheduleState, PullCheck],
           migrations: [join(__dirname, "migrations", "*.{js,ts}")],
           migrationsRun: runMigrations,
           migrationsTransactionMode: "each",
@@ -81,9 +82,9 @@ function toSafeDataSourceContext(options: DataSourceOptions): Record<string, unk
         }
       },
     }),
-    TypeOrmModule.forFeature([Deal, StorageProvider, Retrieval, JobScheduleState]),
+    TypeOrmModule.forFeature([Deal, StorageProvider, Retrieval, JobScheduleState, PullCheck]),
   ],
-  providers: [Deal, StorageProvider, Retrieval, JobScheduleState],
-  exports: [Deal, StorageProvider, Retrieval, JobScheduleState],
+  providers: [Deal, StorageProvider, Retrieval, JobScheduleState, PullCheck],
+  exports: [Deal, StorageProvider, Retrieval, JobScheduleState, PullCheck],
 })
 export class DatabaseModule {}

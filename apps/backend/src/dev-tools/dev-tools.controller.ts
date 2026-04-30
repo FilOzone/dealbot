@@ -2,6 +2,11 @@ import { Controller, Get, Logger, Param, Query, UsePipes, ValidationPipe } from 
 import { ApiOperation, ApiQuery, ApiResponse, ApiTags } from "@nestjs/swagger";
 import { DevToolsService } from "./dev-tools.service.js";
 import { TriggerDealQueryDto, TriggerDealResponseDto } from "./dto/trigger-deal.dto.js";
+import {
+  PullCheckStatusResponseDto,
+  TriggerPullCheckQueryDto,
+  TriggerPullCheckResponseDto,
+} from "./dto/trigger-pull-check.dto.js";
 import { TriggerRetrievalQueryDto, TriggerRetrievalResponseDto } from "./dto/trigger-retrieval.dto.js";
 
 @ApiTags("Dev Tools")
@@ -120,5 +125,53 @@ export class DevToolsController {
       spAddress: query.spAddress,
     });
     return this.devToolsService.triggerRetrieval(query.dealId, query.spAddress);
+  }
+
+  @Get("pull")
+  @ApiOperation({
+    summary: "Trigger a manual SP pull check (returns immediately, processing in background)",
+  })
+  @ApiQuery({
+    name: "spAddress",
+    required: true,
+    description: "Storage provider address",
+    example: "0x1234567890abcdef1234567890abcdef12345678",
+  })
+  @ApiResponse({
+    status: 200,
+    description: "Pull check accepted - use /api/dev/pulls/:pullCheckId to check progress",
+    type: TriggerPullCheckResponseDto,
+  })
+  @ApiResponse({ status: 400, description: "Storage provider is not eligible for pull checks" })
+  @ApiResponse({ status: 404, description: "Storage provider not found" })
+  @UsePipes(new ValidationPipe({ transform: true }))
+  async triggerPullCheck(@Query() query: TriggerPullCheckQueryDto): Promise<TriggerPullCheckResponseDto> {
+    this.logger.log({
+      event: "api_request",
+      message: "GET /api/dev/pull",
+      endpoint: "/api/dev/pull",
+      method: "GET",
+      spAddress: query.spAddress,
+    });
+    return this.devToolsService.triggerPullCheck(query.spAddress);
+  }
+
+  @Get("pulls/:pullCheckId")
+  @ApiOperation({ summary: "Get pull-check status by ID" })
+  @ApiResponse({
+    status: 200,
+    description: "Pull check status",
+    type: PullCheckStatusResponseDto,
+  })
+  @ApiResponse({ status: 404, description: "Pull check not found" })
+  async getPullCheck(@Param("pullCheckId") pullCheckId: string): Promise<PullCheckStatusResponseDto> {
+    this.logger.log({
+      event: "api_request",
+      message: "GET /api/dev/pulls/:pullCheckId",
+      endpoint: "/api/dev/pulls/:pullCheckId",
+      method: "GET",
+      pullCheckId,
+    });
+    return this.devToolsService.getPullCheck(pullCheckId);
   }
 }

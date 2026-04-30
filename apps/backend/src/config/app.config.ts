@@ -29,6 +29,7 @@ export const configValidationSchema = Joi.object({
   DEALBOT_RUN_MODE: Joi.string().lowercase().valid("api", "worker", "both").default("both"),
   DEALBOT_PORT: Joi.number().default(3000),
   DEALBOT_HOST: Joi.string().default("127.0.0.1"),
+  DEALBOT_API_PUBLIC_URL: Joi.string().uri().optional().allow(""),
   DEALBOT_METRICS_PORT: Joi.number().default(9090),
   DEALBOT_METRICS_HOST: Joi.string().default("0.0.0.0"),
   ENABLE_DEV_MODE: Joi.boolean().default(false),
@@ -94,6 +95,16 @@ export const configValidationSchema = Joi.object({
   DATA_SET_CREATION_JOB_TIMEOUT_SECONDS: Joi.number().min(60).default(300), // 5 minutes max runtime for dataset creation jobs
   IPFS_BLOCK_FETCH_CONCURRENCY: Joi.number().integer().min(1).max(32).default(6),
 
+  // Pull Check
+  PULL_CHECKS_PER_SP_PER_HOUR: Joi.number().min(0.001).max(20).default(1),
+  PULL_CHECK_JOB_TIMEOUT_SECONDS: Joi.number().min(60).default(360), // 6m max runtime for pull check jobs
+  PULL_CHECK_HOSTED_PIECE_TTL_SECONDS: Joi.number().min(60).default(900), // 15m hosted piece TTL
+  PULL_CHECK_POLL_INTERVAL_SECONDS: Joi.number().min(1).default(10),
+  PULL_CHECK_PIECE_SIZE_BYTES: Joi.number()
+    .integer()
+    .min(1024)
+    .default(10 * 1024 * 1024), // 10 MiB
+
   // Piece Cleanup
   MAX_DATASET_STORAGE_SIZE_BYTES: Joi.number()
     .integer()
@@ -146,6 +157,12 @@ export interface IAppConfig {
   runMode: "api" | "worker" | "both";
   port: number;
   host: string;
+  /**
+   * Optional publicly reachable DealBot API base URL (e.g. `https://dealbot.example.com`).
+   * Used to construct hosted-piece source URLs that SPs can fetch during pull checks.
+   * When unset, falls back to `http://${host}:${port}`.
+   */
+  apiPublicUrl: string | null;
   metricsPort: number;
   metricsHost: string;
   enableDevMode: boolean;
@@ -278,6 +295,32 @@ export interface IJobsConfig {
    * Only used when `DEALBOT_JOBS_MODE=pgboss`.
    */
   maxPieceCleanupRuntimeSeconds: number;
+  /**
+   * Target number of pull checks per storage provider per hour.
+   *
+   * Pull checks validate the SP pull-to-park pathway by serving a temporary piece URL
+   * from DealBot and asking the SP to pull and park it. Independent of `deal` and `retrieval`.
+   */
+  pullChecksPerSpPerHour: number;
+  /**
+   * Maximum runtime (seconds) for pull-check jobs before forced abort.
+   *
+   * Bounds the polling window for terminal SP pull status.
+   */
+  pullCheckJobTimeoutSeconds: number;
+  /**
+   * Time-to-live (seconds) for the temporary hosted piece source served at
+   * `/api/piece/:pieceCid` while a pull check is in flight.
+   */
+  pullCheckHostedPieceTtlSeconds: number;
+  /**
+   * Polling interval (seconds) used while waiting for a terminal SP pull status.
+   */
+  pullCheckPollIntervalSeconds: number;
+  /**
+   * Size (bytes) of the synthetic test piece DealBot generates per pull check.
+   */
+  pullCheckPieceSizeBytes: number;
 }
 
 export interface IDatasetConfig {
@@ -347,6 +390,11 @@ export function loadConfig(): IConfig {
       })(),
       port: Number.parseInt(process.env.DEALBOT_PORT || "3000", 10),
       host: process.env.DEALBOT_HOST || "127.0.0.1",
+      apiPublicUrl: (() => {
+        const raw = process.env.DEALBOT_API_PUBLIC_URL;
+        if (raw == null || raw.trim().length === 0) return null;
+        return raw.trim().replace(/\/+$/, "");
+      })(),
       metricsPort: Number.parseInt(process.env.DEALBOT_METRICS_PORT || "9090", 10),
       metricsHost: process.env.DEALBOT_METRICS_HOST || "0.0.0.0",
       enableDevMode: process.env.ENABLE_DEV_MODE === "true",
@@ -406,6 +454,11 @@ export function loadConfig(): IConfig {
       dataSetCreationJobTimeoutSeconds: Number.parseInt(process.env.DATA_SET_CREATION_JOB_TIMEOUT_SECONDS || "300", 10),
       pieceCleanupPerSpPerHour: Number.parseFloat(process.env.JOB_PIECE_CLEANUP_PER_SP_PER_HOUR || String(1 / 24)),
       maxPieceCleanupRuntimeSeconds: Number.parseInt(process.env.MAX_PIECE_CLEANUP_RUNTIME_SECONDS || "300", 10),
+      pullChecksPerSpPerHour: Number.parseFloat(process.env.PULL_CHECKS_PER_SP_PER_HOUR || "1"),
+      pullCheckJobTimeoutSeconds: Number.parseInt(process.env.PULL_CHECK_JOB_TIMEOUT_SECONDS || "360", 10),
+      pullCheckHostedPieceTtlSeconds: Number.parseInt(process.env.PULL_CHECK_HOSTED_PIECE_TTL_SECONDS || "900", 10),
+      pullCheckPollIntervalSeconds: Number.parseInt(process.env.PULL_CHECK_POLL_INTERVAL_SECONDS || "10", 10),
+      pullCheckPieceSizeBytes: Number.parseInt(process.env.PULL_CHECK_PIECE_SIZE_BYTES || String(10 * 1024 * 1024), 10),
     },
     dataset: {
       localDatasetsPath: process.env.DEALBOT_LOCAL_DATASETS_PATH || DEFAULT_LOCAL_DATASETS_PATH,

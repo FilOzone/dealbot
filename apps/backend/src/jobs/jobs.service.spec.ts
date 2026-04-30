@@ -29,18 +29,18 @@ describe("JobsService schedule rows", () => {
   };
   let dataRetentionServiceMock: { pollDataRetention: ReturnType<typeof vi.fn> };
   let metricsMocks: {
-    jobsQueuedGauge: JobsServiceDeps[8];
-    jobsRetryScheduledGauge: JobsServiceDeps[9];
-    oldestQueuedAgeGauge: JobsServiceDeps[10];
-    oldestInFlightAgeGauge: JobsServiceDeps[11];
-    jobsInFlightGauge: JobsServiceDeps[12];
-    jobsEnqueueAttemptsCounter: JobsServiceDeps[13];
-    jobsStartedCounter: JobsServiceDeps[14];
-    jobsCompletedCounter: JobsServiceDeps[15];
-    jobsPausedGauge: JobsServiceDeps[16];
-    jobDuration: JobsServiceDeps[17];
-    storageProvidersActive: JobsServiceDeps[18];
-    storageProvidersTested: JobsServiceDeps[19];
+    jobsQueuedGauge: JobsServiceDeps[9];
+    jobsRetryScheduledGauge: JobsServiceDeps[10];
+    oldestQueuedAgeGauge: JobsServiceDeps[11];
+    oldestInFlightAgeGauge: JobsServiceDeps[12];
+    jobsInFlightGauge: JobsServiceDeps[13];
+    jobsEnqueueAttemptsCounter: JobsServiceDeps[14];
+    jobsStartedCounter: JobsServiceDeps[15];
+    jobsCompletedCounter: JobsServiceDeps[16];
+    jobsPausedGauge: JobsServiceDeps[17];
+    jobDuration: JobsServiceDeps[18];
+    storageProvidersActive: JobsServiceDeps[19];
+    storageProvidersTested: JobsServiceDeps[20];
   };
   let baseConfigValues: Partial<IConfig>;
   let configService: JobsServiceDeps[0];
@@ -54,18 +54,19 @@ describe("JobsService schedule rows", () => {
       walletSdkService: JobsServiceDeps[5];
       dataRetentionService: JobsServiceDeps[6];
       pieceCleanupService: JobsServiceDeps[7];
-      jobsQueuedGauge: JobsServiceDeps[8];
-      jobsRetryScheduledGauge: JobsServiceDeps[9];
-      oldestQueuedAgeGauge: JobsServiceDeps[10];
-      oldestInFlightAgeGauge: JobsServiceDeps[11];
-      jobsInFlightGauge: JobsServiceDeps[12];
-      jobsEnqueueAttemptsCounter: JobsServiceDeps[13];
-      jobsStartedCounter: JobsServiceDeps[14];
-      jobsCompletedCounter: JobsServiceDeps[15];
-      jobsPausedGauge: JobsServiceDeps[16];
-      jobDuration: JobsServiceDeps[17];
-      storageProvidersActive: JobsServiceDeps[18];
-      storageProvidersTested: JobsServiceDeps[19];
+      pullCheckService: JobsServiceDeps[8];
+      jobsQueuedGauge: JobsServiceDeps[9];
+      jobsRetryScheduledGauge: JobsServiceDeps[10];
+      oldestQueuedAgeGauge: JobsServiceDeps[11];
+      oldestInFlightAgeGauge: JobsServiceDeps[12];
+      jobsInFlightGauge: JobsServiceDeps[13];
+      jobsEnqueueAttemptsCounter: JobsServiceDeps[14];
+      jobsStartedCounter: JobsServiceDeps[15];
+      jobsCompletedCounter: JobsServiceDeps[16];
+      jobsPausedGauge: JobsServiceDeps[17];
+      jobDuration: JobsServiceDeps[18];
+      storageProvidersActive: JobsServiceDeps[19];
+      storageProvidersTested: JobsServiceDeps[20];
     }>,
   ) => JobsService;
 
@@ -95,18 +96,18 @@ describe("JobsService schedule rows", () => {
     };
 
     metricsMocks = {
-      jobsQueuedGauge: { set: vi.fn() } as unknown as JobsServiceDeps[8],
-      jobsRetryScheduledGauge: { set: vi.fn() } as unknown as JobsServiceDeps[9],
-      oldestQueuedAgeGauge: { set: vi.fn() } as unknown as JobsServiceDeps[10],
-      oldestInFlightAgeGauge: { set: vi.fn() } as unknown as JobsServiceDeps[11],
-      jobsInFlightGauge: { set: vi.fn() } as unknown as JobsServiceDeps[12],
-      jobsEnqueueAttemptsCounter: { inc: vi.fn() } as unknown as JobsServiceDeps[13],
-      jobsStartedCounter: { inc: vi.fn() } as unknown as JobsServiceDeps[14],
-      jobsCompletedCounter: { inc: vi.fn() } as unknown as JobsServiceDeps[15],
-      jobsPausedGauge: { set: vi.fn() } as unknown as JobsServiceDeps[16],
-      jobDuration: { observe: vi.fn() } as unknown as JobsServiceDeps[17],
-      storageProvidersActive: { set: vi.fn() } as unknown as JobsServiceDeps[18],
-      storageProvidersTested: { set: vi.fn() } as unknown as JobsServiceDeps[19],
+      jobsQueuedGauge: { set: vi.fn() } as unknown as JobsServiceDeps[9],
+      jobsRetryScheduledGauge: { set: vi.fn() } as unknown as JobsServiceDeps[10],
+      oldestQueuedAgeGauge: { set: vi.fn() } as unknown as JobsServiceDeps[11],
+      oldestInFlightAgeGauge: { set: vi.fn() } as unknown as JobsServiceDeps[12],
+      jobsInFlightGauge: { set: vi.fn() } as unknown as JobsServiceDeps[13],
+      jobsEnqueueAttemptsCounter: { inc: vi.fn() } as unknown as JobsServiceDeps[14],
+      jobsStartedCounter: { inc: vi.fn() } as unknown as JobsServiceDeps[15],
+      jobsCompletedCounter: { inc: vi.fn() } as unknown as JobsServiceDeps[16],
+      jobsPausedGauge: { set: vi.fn() } as unknown as JobsServiceDeps[17],
+      jobDuration: { observe: vi.fn() } as unknown as JobsServiceDeps[18],
+      storageProvidersActive: { set: vi.fn() } as unknown as JobsServiceDeps[19],
+      storageProvidersTested: { set: vi.fn() } as unknown as JobsServiceDeps[20],
     };
 
     const emptySpBlocklists: ISpBlocklistConfig = {
@@ -160,6 +161,7 @@ describe("JobsService schedule rows", () => {
         overrides.walletSdkService ?? ({} as JobsServiceDeps[5]),
         overrides.dataRetentionService ?? (dataRetentionServiceMock as unknown as JobsServiceDeps[6]),
         overrides.pieceCleanupService ?? ({} as JobsServiceDeps[7]),
+        overrides.pullCheckService ?? ({} as JobsServiceDeps[8]),
         overrides.jobsQueuedGauge ?? metricsMocks.jobsQueuedGauge,
         overrides.jobsRetryScheduledGauge ?? metricsMocks.jobsRetryScheduledGauge,
         overrides.oldestQueuedAgeGauge ?? metricsMocks.oldestQueuedAgeGauge,
@@ -614,11 +616,12 @@ describe("JobsService schedule rows", () => {
     // Check upserts for providerB
     const upsertCalls = jobScheduleRepositoryMock.upsertSchedule.mock.calls;
     const upsertsForB = upsertCalls.filter((call) => call[1] === providerB.address);
-    expect(upsertsForB).toHaveLength(4);
+    expect(upsertsForB).toHaveLength(5);
     expect(upsertsForB.map((call) => call[0]).sort()).toEqual([
       "data_set_creation",
       "deal",
       "piece_cleanup",
+      "pull_check",
       "retrieval",
     ]);
   });

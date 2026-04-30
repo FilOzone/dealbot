@@ -11,6 +11,7 @@ import {
   DataSetCreationCheckMetrics,
   DataStorageCheckMetrics,
   DiscoverabilityCheckMetrics,
+  PullCheckCheckMetrics,
   RetrievalCheckMetrics,
 } from "./check-metrics.service.js";
 import { MetricsPrometheusInterceptor } from "./metrics-prometheus.interceptor.js";
@@ -196,6 +197,29 @@ const metricProviders = [
     help: "Data-set creation status counts",
     labelNames: ["checkType", "providerId", "providerName", "providerStatus", "value"] as const,
   }),
+  // Pull check metrics (docs/checks/pull-check.md)
+  makeHistogramProvider({
+    name: "pullCheckRequestLatencyMs",
+    help: "Time from pull request submission to SP request acknowledgement (ms)",
+    labelNames: ["checkType", "providerId", "providerName", "providerStatus"] as const,
+    buckets: [10, 50, 100, 500, 1000, 2000, 5000, 10000, 30000, 60000, 120000, 300000],
+  }),
+  makeHistogramProvider({
+    name: "pullCheckCompletionLatencyMs",
+    help: "Time from pull request submission to terminal SP pull status (ms)",
+    labelNames: ["checkType", "providerId", "providerName", "providerStatus"] as const,
+    buckets: [100, 500, 1000, 2000, 5000, 10000, 30000, 60000, 120000, 300000, 600000],
+  }),
+  makeCounterProvider({
+    name: "pullCheckStatus",
+    help: "Pull-check terminal status counts (success | failure.timedout | failure.other | pending)",
+    labelNames: ["checkType", "providerId", "providerName", "providerStatus", "value"] as const,
+  }),
+  makeCounterProvider({
+    name: "pullCheckProviderStatus",
+    help: "Raw SP-reported pull statuses observed by DealBot during polling",
+    labelNames: ["checkType", "providerId", "providerName", "providerStatus", "value"] as const,
+  }),
   // Data Retention Metrics
   makeCounterProvider({
     name: "dataSetChallengeStatus",
@@ -333,6 +357,7 @@ const metricProviders = [
     RetrievalCheckMetrics,
     DiscoverabilityCheckMetrics,
     DataSetCreationCheckMetrics,
+    PullCheckCheckMetrics,
     WalletBalanceCollector,
     // HTTP metrics interceptor
     {
@@ -347,6 +372,7 @@ const metricProviders = [
     RetrievalCheckMetrics,
     DiscoverabilityCheckMetrics,
     DataSetCreationCheckMetrics,
+    PullCheckCheckMetrics,
     WalletBalanceCollector,
   ],
 })
