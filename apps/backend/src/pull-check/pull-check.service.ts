@@ -62,11 +62,9 @@ export class PullCheckService {
   }
 
   /**
-   * Trigger a manual pull check for one provider. Returns immediately with the
-   * pull-check identifier; the actual pull request and polling run in the
-   * background. Used by `/api/dev/pull`.
+   * Create a pending pull-check record after validating provider eligibility.
    */
-  async triggerManualPullCheck(spAddress: string): Promise<PullCheck> {
+  async createPullCheckRecord(spAddress: string): Promise<PullCheck> {
     const providerInfo = this.walletSdkService.getProviderInfo(spAddress);
     if (!providerInfo) {
       throw new NotFoundException(`Storage provider not found: ${spAddress}`);
@@ -89,7 +87,21 @@ export class PullCheckService {
       status: PullCheckStatus.PENDING,
       hostedPieceExpiresAt: new Date(Date.now() + ttlSeconds * 1000),
     });
-    const saved = await this.pullCheckRepository.save(pending);
+    return this.pullCheckRepository.save(pending);
+  }
+
+  /**
+   * Trigger a manual pull check for one provider. Returns immediately with the
+   * pull-check identifier; the actual pull request and polling run in the
+   * background. Used by `/api/dev/pull`.
+   */
+  async triggerManualPullCheck(spAddress: string): Promise<PullCheck> {
+    const saved = await this.createPullCheckRecord(spAddress);
+    // createPullCheckRecord already validated that providerInfo is non-null with an id.
+    const providerInfo = this.walletSdkService.getProviderInfo(spAddress);
+    if (!providerInfo || providerInfo.id == null) {
+      throw new NotFoundException(`Storage provider disappeared during pull-check setup: ${spAddress}`);
+    }
 
     this.logger.log({
       event: "pull_check_manual_triggered",
