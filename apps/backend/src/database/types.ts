@@ -28,23 +28,6 @@ export enum IpniStatus {
   FAILED = "failed",
 }
 
-export enum PullCheckStatus {
-  PENDING = "pending",
-  REQUESTING = "requesting",
-  POLLING = "polling",
-  VERIFYING = "verifying",
-  SUCCESS = "success",
-  FAILED = "failed",
-  TIMED_OUT = "timed_out",
-}
-
-export enum PullVerificationStatus {
-  PENDING = "pending",
-  PASSED = "passed",
-  FAILED = "failed",
-  SKIPPED = "skipped",
-}
-
 /**
  * Metadata schema for deal storage and retrieval
  */

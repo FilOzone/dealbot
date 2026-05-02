@@ -19,7 +19,6 @@ export class HostedPieceRegistry {
       event: "hosted_piece_registered",
       message: "Registered hosted piece source",
       pieceCid: registration.pieceCid,
-      pullCheckId: registration.pullCheckId,
       expiresAt: registration.expiresAt.toISOString(),
       byteLength: registration.byteLength,
     });

@@ -8,7 +8,6 @@ export type HostedPieceRegistration = {
   fileName: string;
   byteLength: number;
   contentType: string;
-  pullCheckId: string;
   expiresAt: Date;
   cleanedUp: boolean;
 };
