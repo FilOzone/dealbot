@@ -15,7 +15,7 @@ export class HostedPieceRegistry {
 
   register(registration: HostedPieceRegistration): void {
     this.entries.set(registration.pieceCid, registration);
-    this.logger.log({
+    this.logger.debug({
       event: "hosted_piece_registered",
       message: "Registered hosted piece source",
       pieceCid: registration.pieceCid,
@@ -48,7 +48,7 @@ export class HostedPieceRegistry {
     const entry = this.entries.get(pieceCid);
     if (!entry) return;
     entry.cleanedUp = true;
-    this.logger.log({
+    this.logger.debug({
       event: "hosted_piece_cleaned_up",
       message: "Marked hosted piece source as cleaned up",
       pieceCid,
