@@ -3,14 +3,11 @@ import { InjectRepository } from "@nestjs/typeorm";
 import type { Repository } from "typeorm";
 import { type DealLogContext, toStructuredError } from "../common/logging.js";
 import { Deal } from "../database/entities/deal.entity.js";
-import type { PullCheck } from "../database/entities/pull-check.entity.js";
 import { DealStatus, RetrievalStatus } from "../database/types.js";
 import { DealService } from "../deal/deal.service.js";
-import { PullCheckService } from "../pull-check/pull-check.service.js";
 import { RetrievalService } from "../retrieval/retrieval.service.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
 import type { TriggerDealResponseDto } from "./dto/trigger-deal.dto.js";
-import type { PullCheckStatusResponseDto, TriggerPullCheckResponseDto } from "./dto/trigger-pull-check.dto.js";
 import type { RetrievalMethodResultDto, TriggerRetrievalResponseDto } from "./dto/trigger-retrieval.dto.js";
 
 @Injectable()
@@ -21,7 +18,6 @@ export class DevToolsService {
     private readonly walletSdkService: WalletSdkService,
     private readonly dealService: DealService,
     private readonly retrievalService: RetrievalService,
-    private readonly pullCheckService: PullCheckService,
     @InjectRepository(Deal)
     private readonly dealRepository: Repository<Deal>,
   ) {}
@@ -294,73 +290,6 @@ export class DevToolsService {
         fastestLatency: fastest.latency,
       },
       testedAt: testedAt ?? new Date(),
-    };
-  }
-
-  /**
-   * Trigger a manual SP pull check. Returns immediately with the pull-check ID;
-   * the actual pull request and polling run in the background, isolated from
-   * the existing direct-upload data-storage check.
-   */
-  async triggerPullCheck(spAddress: string): Promise<TriggerPullCheckResponseDto> {
-    this.logger.log({
-      event: "pull_check_trigger_requested",
-      message: "Triggering manual pull check for storage provider",
-      spAddress,
-    });
-
-    const record = await this.pullCheckService.triggerManualPullCheck(spAddress);
-    return this.pullCheckToTriggerDto(record);
-  }
-
-  /**
-   * Get current pull-check state by id. Surfaces SP-reported pull status,
-   * verification status, and computed latencies so operators can review
-   * outcomes without inspecting database rows directly.
-   */
-  async getPullCheck(pullCheckId: string): Promise<PullCheckStatusResponseDto> {
-    const record = await this.pullCheckService.getPullCheck(pullCheckId);
-    return this.pullCheckToStatusDto(record);
-  }
-
-  private pullCheckToTriggerDto(record: PullCheck): TriggerPullCheckResponseDto {
-    return {
-      id: record.id,
-      spAddress: record.spAddress,
-      pieceCid: record.pieceCid,
-      status: record.status,
-      sourceUrl: record.sourceUrl,
-      createdAt: record.createdAt,
-    };
-  }
-
-  private pullCheckToStatusDto(record: PullCheck): PullCheckStatusResponseDto {
-    const requestStartedAt = record.requestStartedAt ?? undefined;
-    const completedAt = record.completedAt ?? undefined;
-    const requestCompletedAt = record.requestCompletedAt ?? undefined;
-    const requestLatencyMs =
-      record.requestStartedAt && record.requestCompletedAt
-        ? record.requestCompletedAt.getTime() - record.requestStartedAt.getTime()
-        : undefined;
-    const completionLatencyMs =
-      record.requestStartedAt && record.completedAt
-        ? record.completedAt.getTime() - record.requestStartedAt.getTime()
-        : undefined;
-    void requestCompletedAt;
-    return {
-      id: record.id,
-      spAddress: record.spAddress,
-      pieceCid: record.pieceCid,
-      status: record.status,
-      providerStatus: record.providerStatus ?? undefined,
-      verificationStatus: record.verificationStatus ?? undefined,
-      requestLatencyMs,
-      completionLatencyMs,
-      failureReason: record.failureReason ?? undefined,
-      errorMessage: record.errorMessage ?? undefined,
-      sourceUrl: record.sourceUrl,
-      requestStartedAt,
-      completedAt,
     };
   }
 
