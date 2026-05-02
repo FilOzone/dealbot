@@ -42,7 +42,7 @@ export class PullCheckService {
 
   async onModuleInit() {
     this.sharedSynapse = await this.createSynapseInstance();
-    this.logger.debug({
+    this.logger.log({
       event: "pull_check_synapse_ready",
       message: "Pull-check Synapse instance initialized",
     });
@@ -138,13 +138,15 @@ export class PullCheckService {
       requestSubmittedAt = new Date();
       const pullResponse = await pullPieces(synapseClient, pullPiecesOptions);
       signal?.throwIfAborted();
-      this.pullCheckMetrics.observeRequestLatencyMs(labels, Date.now() - requestSubmittedAt.getTime());
-      this.logger.debug({
+      const requestLatencyMs = Date.now() - requestSubmittedAt.getTime();
+      this.pullCheckMetrics.observeRequestLatencyMs(labels, requestLatencyMs);
+      this.logger.log({
         ...logContext,
-        event: "pull_check_request_submitted",
+        event: "pull_request_submitted",
         message: "Pull request submitted to provider",
         pieceCid: pieceCidStr,
         providerStatus: pullResponse.status,
+        requestLatencyMs,
       });
 
       const jobsConfig = this.getJobsConfig();
@@ -159,7 +161,8 @@ export class PullCheckService {
         pollInterval: jobsConfig.pullCheckPollIntervalSeconds * 1000,
       });
       signal?.throwIfAborted();
-      this.pullCheckMetrics.observeCompletionLatencyMs(labels, Date.now() - requestSubmittedAt.getTime());
+      const completionLatencyMs = Date.now() - requestSubmittedAt.getTime();
+      this.pullCheckMetrics.observeCompletionLatencyMs(labels, completionLatencyMs);
       // Record the SP-reported terminal pull status (one increment per check)
       // regardless of outcome so both `complete` and `failed` are observable.
       this.pullCheckMetrics.recordProviderStatus(labels, finalResponse.status);
@@ -177,15 +180,6 @@ export class PullCheckService {
         pieces: pullPiecesOptions.pieces.map((p) => ({ pieceCid: p.pieceCid })),
       });
       signal?.throwIfAborted();
-      this.logger.debug({
-        ...logContext,
-        event: "pull_check_committed",
-        message: "Pull-check piece committed to dataset",
-        pieceCid: pieceCidStr,
-        dataSetId: commitResult.dataSetId.toString(),
-        pieceIds: commitResult.pieceIds.map((id) => id.toString()),
-        txHash: commitResult.txHash,
-      });
 
       const pieceValidated = await this.validateByDirectPieceFetch(providerInfo, pieceCidStr, logContext, signal);
       signal?.throwIfAborted();
@@ -194,6 +188,17 @@ export class PullCheckService {
       }
 
       this.pullCheckMetrics.recordStatus(labels, "success");
+      this.logger.log({
+        ...logContext,
+        event: "pull_check_completed",
+        message: "Pull check completed",
+        pieceCid: pieceCidStr,
+        dataSetId: commitResult.dataSetId.toString(),
+        pieceIds: commitResult.pieceIds.map((id) => id.toString()),
+        txHash: commitResult.txHash,
+        requestLatencyMs,
+        completionLatencyMs,
+      });
     } catch (error) {
       this.pullCheckMetrics.recordStatus(labels, classifyFailureStatus(error));
       if (requestSubmittedAt) {
@@ -323,7 +328,7 @@ export class PullCheckService {
     try {
       const { synapse, isSessionKeyMode } = await createSynapseFromConfig(this.blockchainConfig);
       if (isSessionKeyMode) {
-        this.logger.debug({
+        this.logger.log({
           event: "pull_check_synapse_session_key_init",
           message: "Pull-check Synapse initialized with session key",
           walletAddress: this.blockchainConfig.walletAddress,
