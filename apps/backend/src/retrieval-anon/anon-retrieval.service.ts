@@ -136,9 +136,16 @@ export class AnonRetrievalService {
 
       // Overall check duration and status
       this.metrics.observeCheckDuration(labels, Date.now() - checkStart);
+      const pieceServedCorrectly = pieceResult.success && pieceResult.commPValid;
       this.metrics.recordStatus(
         labels,
-        pieceResult.success ? "success" : pieceResult.aborted ? "failure.aborted" : "failure.http",
+        pieceServedCorrectly
+          ? "success"
+          : pieceResult.aborted
+            ? "failure.aborted"
+            : pieceResult.success
+              ? "failure.commp"
+              : "failure.http",
       );
     } finally {
       // Always emit a ClickHouse row — even on abort or unexpected error — so
