@@ -102,7 +102,6 @@ export class PullCheckService {
       providerName: providerInfo.name,
       providerIsApproved: providerInfo.isApproved,
     });
-    this.pullCheckMetrics.recordStatus(labels, "pending");
 
     let prepared: HostedPiecePrepared | null = null;
     let requestSubmittedAt: Date | null = null;
@@ -145,7 +144,7 @@ export class PullCheckService {
         event: "pull_request_submitted",
         message: "Pull request submitted to provider",
         pieceCid: pieceCidStr,
-        providerStatus: pullResponse.status,
+        pullProviderStatus: pullResponse.status,
         requestLatencyMs,
       });
 
