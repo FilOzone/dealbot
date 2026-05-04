@@ -4,6 +4,7 @@ The files are:
 - [production-configuration-and-approval-methodology.md](./production-configuration-and-approval-methodology.md): Defines the production configuration and approval methodology.
 - [data-storage.md](./data-storage.md): Defines the "data storage check" and how it is calculated.
 - [retrievals.md](./retrievals.md): Defines the "retrieval check" and how it is calculated.
+- [anon-retrievals.md](./anon-retrievals.md): Defines the "anonymous retrieval check" (sampled public pieces, not dealbot-uploaded) and how it is calculated.
 - [data-retention.md](./data-retention.md): Defines the "data retention check" and how it is calculated.
 - [events-and-metrics.md](./events-and-metrics.md): Defines the events and metrics that are used to assess SP performance.
 
@@ -14,7 +15,7 @@ DealBot creates synthetic traffic for SPs in the onchain SP registry and monitor
 
 ## Terminology
 ### Check
-A "check" refers to a task type that dealbot performs on a SP.  We currently have [Data Storage](./data-storage.md) and [Retrieval](./retrievals.md) checks.
+A "check" refers to a task type that dealbot performs on an SP. We currently have [Data Storage](./data-storage.md), [Retrieval](./retrievals.md), [Anonymous Retrieval](./anon-retrievals.md), and [Data Retention](./data-retention.md) checks.
 
 ### Deal
 This is synonym for "Data Storage Check".  This is covered in the [data-storage.md](./data-storage.md).
