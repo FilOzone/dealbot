@@ -223,9 +223,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
 
     /** Cancels detached onStored addons when executeUpload fails. See #503. */
     const addonAbortCtrl = new AbortController();
-    const addonSignal: AbortSignal = signal
-      ? AbortSignal.any([signal, addonAbortCtrl.signal])
-      : addonAbortCtrl.signal;
+    const addonSignal: AbortSignal = signal ? AbortSignal.any([signal, addonAbortCtrl.signal]) : addonAbortCtrl.signal;
     /** Wrapper object so TS preserves the union type across closure mutation. */
     const onStoredAddons: { promise: Promise<boolean> | null } = { promise: null };
     let storedError: Error | undefined;

@@ -774,19 +774,17 @@ describe("DealService", () => {
 
       let capturedAddonSignal: AbortSignal | undefined;
       let addonSettled = false;
-      dealAddonsMock.handleStored.mockImplementation(
-        (deal: Deal, _addons: unknown, sig: AbortSignal) => {
-          /** Mirror IpniAddonStrategy.onStored which sets PENDING before awaiting. */
-          deal.ipniStatus = IpniStatus.PENDING;
-          return new Promise<void>((_, reject) => {
-            capturedAddonSignal = sig;
-            sig.addEventListener("abort", () => {
-              addonSettled = true;
-              reject(sig.reason);
-            });
+      dealAddonsMock.handleStored.mockImplementation((deal: Deal, _addons: unknown, sig: AbortSignal) => {
+        /** Mirror IpniAddonStrategy.onStored which sets PENDING before awaiting. */
+        deal.ipniStatus = IpniStatus.PENDING;
+        return new Promise<void>((_, reject) => {
+          capturedAddonSignal = sig;
+          sig.addEventListener("abort", () => {
+            addonSettled = true;
+            reject(sig.reason);
           });
-        },
-      );
+        });
+      });
 
       const commitError = new Error("StorageContext commit: 409 Conflict");
       (executeUpload as Mock).mockImplementation(async (_s, _d, _c, options) => {
