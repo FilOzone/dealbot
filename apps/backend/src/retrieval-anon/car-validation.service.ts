@@ -63,8 +63,6 @@ export class CarValidationService {
         sampledCidCount: 0,
         ipniValid: null,
         ipniVerifyMs: null,
-        ipniVerifiedCidsCount: null,
-        ipniUnverifiedCidsCount: null,
         blockFetchValid: null,
         blockFetchFailedCount: null,
         blockFetchEndpoint: null,
@@ -77,8 +75,6 @@ export class CarValidationService {
         sampledCidCount: 0,
         ipniValid: null,
         ipniVerifyMs: null,
-        ipniVerifiedCidsCount: null,
-        ipniUnverifiedCidsCount: null,
         blockFetchValid: null,
         blockFetchFailedCount: null,
         blockFetchEndpoint: null,
@@ -99,8 +95,6 @@ export class CarValidationService {
       sampledCidCount: sampledBlocks.length,
       ipniValid: ipni.valid,
       ipniVerifyMs: ipni.durationMs,
-      ipniVerifiedCidsCount: ipni.verifiedCount,
-      ipniUnverifiedCidsCount: ipni.unverifiedCount,
       blockFetchValid: blockFetchResult.valid,
       blockFetchFailedCount: blockFetchResult.failedCount,
       blockFetchEndpoint: blockFetchResult.endpoint,
@@ -129,8 +123,6 @@ export class CarValidationService {
   ): Promise<{
     valid: boolean;
     durationMs: number | null;
-    verifiedCount: number | null;
-    unverifiedCount: number | null;
   }> {
     const timeouts = this.configService.get("timeouts", { infer: true });
     let rootCid: CID;
@@ -144,7 +136,7 @@ export class CarValidationService {
         providerAddress: provider.address,
         error: toStructuredError(error),
       });
-      return { valid: false, durationMs: null, verifiedCount: null, unverifiedCount: null };
+      return { valid: false, durationMs: null };
     }
 
     const result = await this.ipniVerificationService.verify({
@@ -159,8 +151,6 @@ export class CarValidationService {
     return {
       valid: result.rootCIDVerified,
       durationMs: result.durationMs,
-      verifiedCount: result.verified,
-      unverifiedCount: result.unverified,
     };
   }
 

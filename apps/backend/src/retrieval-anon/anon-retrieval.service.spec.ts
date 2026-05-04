@@ -162,8 +162,6 @@ describe("AnonRetrievalService", () => {
     expect(row.block_fetch_failed_count).toBeNull();
     expect(row.ipni_status).toBe("skipped");
     expect(row.ipni_verify_ms).toBeNull();
-    expect(row.ipni_verified_cids_count).toBeNull();
-    expect(row.ipni_unverified_cids_count).toBeNull();
   });
 
   it("still emits a row when the signal aborts before fetchPiece runs", async () => {
@@ -250,8 +248,6 @@ describe("AnonRetrievalService", () => {
         sampledCidCount: 5,
         ipniValid: true,
         ipniVerifyMs: 137,
-        ipniVerifiedCidsCount: 6,
-        ipniUnverifiedCidsCount: 0,
         blockFetchValid: true,
         blockFetchFailedCount: 0,
         blockFetchEndpoint: "https://sp.test/ipfs/",
@@ -277,19 +273,15 @@ describe("AnonRetrievalService", () => {
       expect(row.block_fetch_failed_count).toBe(0);
       expect(row.ipni_status).toBe("valid");
       expect(row.ipni_verify_ms).toBe(137);
-      expect(row.ipni_verified_cids_count).toBe(6);
-      expect(row.ipni_unverified_cids_count).toBe(0);
     });
 
-    it("distinguishes IPNI invalid from block-fetch failures with explicit counts", async () => {
+    it("distinguishes IPNI invalid from block-fetch failures", async () => {
       const carResult: CarValidationResult = {
         carParseable: true,
         blockCount: 100,
         sampledCidCount: 5,
         ipniValid: false,
         ipniVerifyMs: 250,
-        ipniVerifiedCidsCount: 0,
-        ipniUnverifiedCidsCount: 6,
         blockFetchValid: false,
         blockFetchFailedCount: 2,
         blockFetchEndpoint: "https://sp.test/ipfs/",
@@ -309,8 +301,6 @@ describe("AnonRetrievalService", () => {
       expect(row.piece_fetch_status).toBe(RetrievalStatus.SUCCESS);
       expect(row.car_parseable).toBe(true);
       expect(row.ipni_status).toBe("invalid");
-      expect(row.ipni_verified_cids_count).toBe(0);
-      expect(row.ipni_unverified_cids_count).toBe(6);
       expect(row.block_fetch_valid).toBe(false);
       expect(row.block_fetch_sampled_count).toBe(5);
       expect(row.block_fetch_failed_count).toBe(2);
@@ -347,8 +337,6 @@ describe("AnonRetrievalService", () => {
         sampledCidCount: 0,
         ipniValid: null,
         ipniVerifyMs: null,
-        ipniVerifiedCidsCount: null,
-        ipniUnverifiedCidsCount: null,
         blockFetchValid: null,
         blockFetchFailedCount: null,
         blockFetchEndpoint: null,
@@ -373,8 +361,6 @@ describe("AnonRetrievalService", () => {
       expect(row.block_fetch_failed_count).toBeNull();
       expect(row.ipni_status).toBe("skipped");
       expect(row.ipni_verify_ms).toBeNull();
-      expect(row.ipni_verified_cids_count).toBeNull();
-      expect(row.ipni_unverified_cids_count).toBeNull();
     });
   });
 });

@@ -186,8 +186,6 @@ export class AnonRetrievalService {
           block_fetch_failed_count: carResult?.blockFetchFailedCount ?? null,
           ipni_status: ipniStatus,
           ipni_verify_ms: carResult?.ipniVerifyMs ?? null,
-          ipni_verified_cids_count: carResult?.ipniVerifiedCidsCount ?? null,
-          ipni_unverified_cids_count: carResult?.ipniUnverifiedCidsCount ?? null,
           error_message: finalPieceResult.errorMessage ?? null,
         });
       } catch (error) {
