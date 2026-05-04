@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, Mock, vi } from "vitest";
 import { ClickhouseService } from "../clickhouse/clickhouse.service.js";
 import { Deal } from "../database/entities/deal.entity.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
-import { DealStatus } from "../database/types.js";
+import { DealStatus, IpniStatus } from "../database/types.js";
 import { DataSourceService } from "../dataSource/dataSource.service.js";
 import { DealAddonsService } from "../deal-addons/deal-addons.service.js";
 import { DealPreprocessingResult } from "../deal-addons/types.js";
@@ -775,14 +775,17 @@ describe("DealService", () => {
       let capturedAddonSignal: AbortSignal | undefined;
       let addonSettled = false;
       dealAddonsMock.handleStored.mockImplementation(
-        (_deal: Deal, _addons: unknown, sig: AbortSignal) =>
-          new Promise<void>((_, reject) => {
+        (deal: Deal, _addons: unknown, sig: AbortSignal) => {
+          /** Mirror IpniAddonStrategy.onStored which sets PENDING before awaiting. */
+          deal.ipniStatus = IpniStatus.PENDING;
+          return new Promise<void>((_, reject) => {
             capturedAddonSignal = sig;
             sig.addEventListener("abort", () => {
               addonSettled = true;
               reject(sig.reason);
             });
-          }),
+          });
+        },
       );
 
       const commitError = new Error("StorageContext commit: 409 Conflict");
@@ -798,6 +801,8 @@ describe("DealService", () => {
       expect(capturedAddonSignal?.aborted).toBe(true);
       expect(addonSettled).toBe(true);
       expect(mockDeal.status).toBe(DealStatus.FAILED);
+      /** Aborted runs must not leave ipniStatus = PENDING — would depress sp_performance.ipni_success_rate. */
+      expect(mockDeal.ipniStatus).toBeNull();
     });
 
     it("fails deal creation when retrievals do not all succeed", async () => {

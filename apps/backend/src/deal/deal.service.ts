@@ -226,7 +226,8 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     const addonSignal: AbortSignal = signal
       ? AbortSignal.any([signal, addonAbortCtrl.signal])
       : addonAbortCtrl.signal;
-    let onStoredAddonsPromise: Promise<boolean> | null = null;
+    /** Wrapper object so TS preserves the union type across closure mutation. */
+    const onStoredAddons: { promise: Promise<boolean> | null } = { promise: null };
     let storedError: Error | undefined;
 
     try {
@@ -339,7 +340,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
               uploadSucceeded = true;
               this.dataStorageMetrics.recordUploadStatus(providerLabels, "success");
               this.dataStorageMetrics.recordOnchainStatus(providerLabels, "pending");
-              onStoredAddonsPromise = this.dealAddonsService
+              onStoredAddons.promise = this.dealAddonsService
                 .handleStored(deal, dealInput.appliedAddons, addonSignal, dealLogContext)
                 .then(() => true)
                 .catch((error) => {
@@ -435,9 +436,8 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       this.updateDealWithUploadResult(deal, uploadResult, uploadPayload.carData.length);
 
       // wait for onStored handlers to complete
-      if (onStoredAddonsPromise != null) {
-        const storedOk = await onStoredAddonsPromise;
-        onStoredAddonsPromise = null;
+      if (onStoredAddons.promise != null) {
+        const storedOk = await onStoredAddons.promise;
         if (!storedOk) {
           throw storedError ?? new Error("Upload completion handlers failed");
         }
@@ -535,9 +535,14 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
 
       throw error;
     } finally {
-      if (onStoredAddonsPromise != null) {
+      if (onStoredAddons.promise != null) {
+        const pending = onStoredAddons.promise;
         addonAbortCtrl.abort();
-        await onStoredAddonsPromise.catch(() => {});
+        await pending.catch(() => {});
+        if (deal.status === DealStatus.FAILED) {
+          /** Clear PENDING ipniStatus left by IpniAddonStrategy.onStored so aborted runs don't depress sp_performance.ipni_success_rate. See #503. */
+          deal.ipniStatus = null;
+        }
       }
       await this.saveDeal(deal, dealLogContext);
     }
