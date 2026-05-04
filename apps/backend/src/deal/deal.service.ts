@@ -21,7 +21,7 @@ import type { DataFile, Hex } from "../common/types.js";
 import type { IBlockchainConfig, IConfig } from "../config/app.config.js";
 import { Deal } from "../database/entities/deal.entity.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
-import { DealStatus, ServiceType } from "../database/types.js";
+import { DealStatus, IpniStatus, ServiceType } from "../database/types.js";
 import { DataSourceService } from "../dataSource/dataSource.service.js";
 import { DealAddonsService } from "../deal-addons/deal-addons.service.js";
 import type { DealPreprocessingResult } from "../deal-addons/types.js";
@@ -539,8 +539,8 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
         const pending = onStoredAddons.promise;
         addonAbortCtrl.abort();
         await pending.catch(() => {});
-        if (deal.status === DealStatus.FAILED) {
-          /** Clear PENDING ipniStatus left by IpniAddonStrategy.onStored so aborted runs don't depress sp_performance.ipni_success_rate. See #503. */
+        if (deal.ipniStatus === IpniStatus.PENDING) {
+          /** Addon aborted before reaching terminal IpniStatus. Clear so this run doesn't depress sp_performance.ipni_success_rate. Leaves real FAILED/VERIFIED untouched. See #503. */
           deal.ipniStatus = null;
         }
       }
