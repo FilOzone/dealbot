@@ -221,6 +221,14 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       ipfsRootCID: uploadPayload.rootCid.toString(),
     };
 
+    /** Cancels detached onStored addons when executeUpload fails. See #503. */
+    const addonAbortCtrl = new AbortController();
+    const addonSignal: AbortSignal = signal
+      ? AbortSignal.any([signal, addonAbortCtrl.signal])
+      : addonAbortCtrl.signal;
+    let onStoredAddonsPromise: Promise<boolean> | null = null;
+    let storedError: Error | undefined;
+
     try {
       // Load storageProvider relation
       deal.storageProvider = await this.storageProviderRepository.findOne({
@@ -253,8 +261,6 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
 
       deal.dataSetId = storage.dataSetId ?? null;
       deal.uploadStartTime = new Date();
-      let onStoredAddonsPromise: Promise<boolean> | null = null;
-      let storedError: Error | undefined;
 
       const uploadResult = await executeUpload(synapse, uploadPayload.carData, uploadPayload.rootCid, {
         logger: filecoinPinLogger,
@@ -334,7 +340,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
               this.dataStorageMetrics.recordUploadStatus(providerLabels, "success");
               this.dataStorageMetrics.recordOnchainStatus(providerLabels, "pending");
               onStoredAddonsPromise = this.dealAddonsService
-                .handleStored(deal, dealInput.appliedAddons, signal, dealLogContext)
+                .handleStored(deal, dealInput.appliedAddons, addonSignal, dealLogContext)
                 .then(() => true)
                 .catch((error) => {
                   storedError = error;
@@ -529,6 +535,10 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
 
       throw error;
     } finally {
+      if (onStoredAddonsPromise != null) {
+        addonAbortCtrl.abort();
+        await onStoredAddonsPromise.catch(() => {});
+      }
       await this.saveDeal(deal, dealLogContext);
     }
   }

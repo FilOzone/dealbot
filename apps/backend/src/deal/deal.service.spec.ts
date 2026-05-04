@@ -763,6 +763,43 @@ describe("DealService", () => {
       expect(retrievalAddonsMock.testAllRetrievalMethods).not.toHaveBeenCalled();
     });
 
+    /** Regression for #503: detached onStored addons must be aborted when executeUpload throws. */
+    it("aborts in-flight onStored addons when executeUpload fails after onStored fires", async () => {
+      const uploadPayload = {
+        carData: Uint8Array.from([1, 2, 3]),
+        rootCid: CID.parse(mockRootCid),
+      };
+
+      createContextMock.mockResolvedValue({ dataSetId: "dataset-123" });
+
+      let capturedAddonSignal: AbortSignal | undefined;
+      let addonSettled = false;
+      dealAddonsMock.handleStored.mockImplementation(
+        (_deal: Deal, _addons: unknown, sig: AbortSignal) =>
+          new Promise<void>((_, reject) => {
+            capturedAddonSignal = sig;
+            sig.addEventListener("abort", () => {
+              addonSettled = true;
+              reject(sig.reason);
+            });
+          }),
+      );
+
+      const commitError = new Error("StorageContext commit: 409 Conflict");
+      (executeUpload as Mock).mockImplementation(async (_s, _d, _c, options) => {
+        await options?.onProgress?.({ type: "onStored", data: { pieceCid: "bafk-uploaded" } });
+        throw commitError;
+      });
+
+      await expect(
+        service.createDeal(mockSynapseInstance, mockProviderInfo, mockDealInput, uploadPayload),
+      ).rejects.toBe(commitError);
+
+      expect(capturedAddonSignal?.aborted).toBe(true);
+      expect(addonSettled).toBe(true);
+      expect(mockDeal.status).toBe(DealStatus.FAILED);
+    });
+
     it("fails deal creation when retrievals do not all succeed", async () => {
       const uploadPayload = {
         carData: Uint8Array.from([1, 2, 3]),
