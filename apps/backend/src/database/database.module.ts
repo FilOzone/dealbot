@@ -7,7 +7,6 @@ import { fileURLToPath } from "url";
 import { toStructuredError } from "../common/logging.js";
 import { createPinoExitLogger } from "../common/pino.config.js";
 import type { IAppConfig, IConfig, IDatabaseConfig } from "../config/app.config.js";
-import { AnonRetrieval } from "./entities/anon-retrieval.entity.js";
 import { DataRetentionBaseline } from "./entities/data-retention-baseline.entity.js";
 import { Deal } from "./entities/deal.entity.js";
 import { JobScheduleState } from "./entities/job-schedule-state.entity.js";
@@ -50,7 +49,7 @@ function toSafeDataSourceContext(options: DataSourceOptions): Record<string, unk
           password: dbConfig.password,
           database: dbConfig.database,
           poolSize: dbConfig.poolMax,
-          entities: [AnonRetrieval, DataRetentionBaseline, Deal, StorageProvider, Retrieval, JobScheduleState],
+          entities: [DataRetentionBaseline, Deal, StorageProvider, Retrieval, JobScheduleState],
           migrations: [join(__dirname, "migrations", "*.{js,ts}")],
           migrationsRun: runMigrations,
           migrationsTransactionMode: "each",
@@ -82,9 +81,9 @@ function toSafeDataSourceContext(options: DataSourceOptions): Record<string, unk
         }
       },
     }),
-    TypeOrmModule.forFeature([AnonRetrieval, Deal, StorageProvider, Retrieval, JobScheduleState]),
+    TypeOrmModule.forFeature([Deal, StorageProvider, Retrieval, JobScheduleState]),
   ],
-  providers: [AnonRetrieval, Deal, StorageProvider, Retrieval, JobScheduleState],
-  exports: [AnonRetrieval, Deal, StorageProvider, Retrieval, JobScheduleState],
+  providers: [Deal, StorageProvider, Retrieval, JobScheduleState],
+  exports: [Deal, StorageProvider, Retrieval, JobScheduleState],
 })
 export class DatabaseModule {}
