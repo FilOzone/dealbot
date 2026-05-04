@@ -82,7 +82,7 @@ export function buildMigrations(database: string): string[] {
     service_type               LowCardinality(String),            -- 'direct_sp' (only mode for anon retrievals today)
     retrieval_endpoint         String,                            -- URL probed (e.g. {spBaseUrl}/piece/{pieceCid})
 
-    piece_fetch_status         LowCardinality(String),            -- 'success' | 'failed' — outcome of GET /piece/<pieceCid> (HTTP 2xx AND CommP match). CAR/IPNI/block-fetch outcomes live in their own columns.
+    piece_fetch_status         LowCardinality(String),            -- 'success' | 'failed' — HTTP transport outcome of GET /piece/<pieceCid> (HTTP 2xx). CommP validity, CAR/IPNI/block-fetch outcomes live in their own columns.
     http_response_code         Nullable(UInt16),                  -- raw HTTP status; null on transport failure
     first_byte_ms              Nullable(Float64),                 -- time to first response byte
     last_byte_ms               Nullable(Float64),                 -- time to last response byte
