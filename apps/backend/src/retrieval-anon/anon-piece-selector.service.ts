@@ -18,13 +18,15 @@ type SizeRange = { min: bigint; max: bigint };
 const MIB = 1024n * 1024n;
 
 // All downloads are buffered in-memory, so we need to keep piece sizes reasonable
+// When changing these values, also update ./docs/checks/anon-retrievals.md#piece-selection
 const SIZE_BUCKETS: Record<SizeBucket, SizeRange> = {
   small: { min: 1n * MIB, max: 20n * MIB - 1n },
   medium: { min: 20n * MIB, max: 100n * MIB - 1n },
   large: { min: 100n * MIB, max: 500n * MIB - 1n },
 };
 
-/** Weights for choosing a bucket per selection. Must sum to 1. */
+// Weights for choosing a bucket per selection. Must sum to 1.
+// When changing these values, also update ./docs/checks/anon-retrievals.md#piece-selection
 const BUCKET_WEIGHTS: Record<SizeBucket, number> = {
   small: 0.2,
   medium: 0.5,
@@ -35,6 +37,8 @@ const BUCKET_WEIGHTS: Record<SizeBucket, number> = {
  * Probability the primary draw targets the withIPFSIndexing pool.
  * The rest of the time we sample across all FWSS pieces, so SPs can't
  * optimise only their CAR corpus.
+ *
+ * When changing this value, also update ./docs/checks/anon-retrievals.md#piece-selection
  */
 const IPFS_INDEXED_SAMPLE_RATE = 0.8;
 
