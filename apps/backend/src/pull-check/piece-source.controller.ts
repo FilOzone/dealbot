@@ -74,6 +74,10 @@ export class PieceSourceController {
       }
       res.destroy(error);
     });
+    // Capture the first-byte timestamp before piping
+    stream.once("data", () => {
+      this.hostedPieceRegistry.markFirstByte(pieceCid, new Date());
+    });
     stream.pipe(res);
   }
 }

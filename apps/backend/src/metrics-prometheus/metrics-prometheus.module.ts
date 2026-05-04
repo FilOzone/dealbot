@@ -212,13 +212,25 @@ const metricProviders = [
   }),
   makeCounterProvider({
     name: "pullCheckStatus",
-    help: "Pull-check terminal status counts (success | failure.timedout | failure.other | pending)",
+    help: "Pull-check terminal status counts (success | failure.timedout | failure.other)",
     labelNames: ["checkType", "providerId", "providerName", "providerStatus", "value"] as const,
   }),
   makeCounterProvider({
     name: "pullCheckProviderStatus",
     help: "Raw SP-reported pull statuses observed by DealBot during polling",
     labelNames: ["checkType", "providerId", "providerName", "providerStatus", "value"] as const,
+  }),
+  makeHistogramProvider({
+    name: "pullCheckFirstByteMs",
+    help: "Time from pullPieces submission to the SP reading the first byte of the hosted-piece stream (ms)",
+    labelNames: ["checkType", "providerId", "providerName", "providerStatus"] as const,
+    buckets: [10, 50, 100, 250, 500, 1000, 2000, 5000, 10000, 30000, 60000, 120000],
+  }),
+  makeHistogramProvider({
+    name: "pullCheckThroughputBps",
+    help: "Pull-check throughput approximated as pieceSize / completionLatency in bytes per second",
+    labelNames: ["checkType", "providerId", "providerName", "providerStatus"] as const,
+    buckets: throughputBuckets,
   }),
   // Data Retention Metrics
   makeCounterProvider({

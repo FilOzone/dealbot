@@ -82,10 +82,6 @@ export class PullCheckService {
    *   prepare hosted piece -> submit pull -> poll terminal SP status
    *     -> commit on dataset -> direct `/piece/:cid` validation -> cleanup.
    *
-   * Failure metric + cleanup are owned here; failure logging is owned by the
-   * caller (jobs handler) so we do not double-log. Errors are re-thrown so the
-   * scheduler can distinguish `aborted` vs `failed` job outcomes.
-   *
    * NOTE: Pull-check committed pieces are not tracked in the `deal` table, so
    * `piece_cleanup` will not garbage-collect them. They will accrue on the SP
    * unless explicitly removed.
@@ -135,6 +131,7 @@ export class PullCheckService {
       };
 
       requestSubmittedAt = new Date();
+      this.hostedPieceRegistry.markPullSubmitted(pieceCidStr, requestSubmittedAt);
       const pullResponse = await pullPieces(synapseClient, pullPiecesOptions);
       signal?.throwIfAborted();
       const requestLatencyMs = Date.now() - requestSubmittedAt.getTime();
@@ -149,11 +146,7 @@ export class PullCheckService {
       });
 
       const jobsConfig = this.getJobsConfig();
-      // `waitForPullPieces` polls the SP repeatedly until a terminal status is
-      // reported. Intentionally no `onStatus` hook: `pullCheckProviderStatus`
-      // is a counter and we only want to increment it once per check, at the
-      // terminal SP status (below). Per-poll increments would inflate the
-      // counter by the number of polls and break its rate-based semantics.
+      // `waitForPullPieces` polls the SP repeatedly until a terminal pull status is reported
       const finalResponse = await waitForPullPieces(synapseClient, {
         ...pullPiecesOptions,
         timeout: jobsConfig.pullCheckJobTimeoutSeconds * 1000,
@@ -163,18 +156,14 @@ export class PullCheckService {
       const completionLatencyMs = Date.now() - requestSubmittedAt.getTime();
       this.pullCheckMetrics.observeCompletionLatencyMs(labels, completionLatencyMs);
       // Record the SP-reported terminal pull status (one increment per check)
-      // regardless of outcome so both `complete` and `failed` are observable.
       this.pullCheckMetrics.recordProviderStatus(labels, finalResponse.status);
 
       if (finalResponse.status !== "complete") {
         throw new Error(`Storage provider failed to pull piece: status=${finalResponse.status}`);
       }
 
-      // `pullPieces` already signed AddPieces / CreateDataSetAndAddPieces, but
-      // SDK convention is to also call `storage.commit` so the on-chain add is
-      // confirmed and the dataset state is observable to the client. We omit
-      // pieceMetadata: `IPFS_ROOT_CID` is meaningless for synthetic pull-check
-      // pieces and would corrupt downstream IPNI advertising.
+      // We omit pieceMetadata: `IPFS_ROOT_CID` is meaningless for synthetic
+      // pull-check pieces and would corrupt downstream IPNI advertising.
       const commitResult = await storage.commit({
         pieces: pullPiecesOptions.pieces.map((p) => ({ pieceCid: p.pieceCid })),
       });
@@ -185,6 +174,20 @@ export class PullCheckService {
       if (!pieceValidated) {
         throw new Error("Pull-check piece validation failed: SP did not serve the expected bytes");
       }
+
+      const firstByteEntry = this.hostedPieceRegistry.resolveAny(pieceCidStr);
+      const firstByteMs =
+        firstByteEntry?.firstByteAt && firstByteEntry?.pullSubmittedAt
+          ? firstByteEntry.firstByteAt.getTime() - firstByteEntry.pullSubmittedAt.getTime()
+          : null;
+      if (firstByteMs != null) {
+        this.pullCheckMetrics.observeFirstByteMs(labels, firstByteMs);
+      }
+      // Throughput approximated as pieceSize / completionLatency. This is an
+      // upper-bound on actual transfer time because completionLatency includes
+      // SP-side scheduling/queuing and our polling cadence.
+      const throughputBps = Math.round((prepared.registration.byteLength * 1000) / Math.max(completionLatencyMs, 1));
+      this.pullCheckMetrics.observeThroughputBps(labels, throughputBps);
 
       this.pullCheckMetrics.recordStatus(labels, "success");
       this.logger.log({
@@ -197,6 +200,9 @@ export class PullCheckService {
         txHash: commitResult.txHash,
         requestLatencyMs,
         completionLatencyMs,
+        firstByteMs,
+        throughputBps,
+        pieceSizeBytes: prepared.registration.byteLength,
       });
     } catch (error) {
       this.pullCheckMetrics.recordStatus(labels, classifyFailureStatus(error));

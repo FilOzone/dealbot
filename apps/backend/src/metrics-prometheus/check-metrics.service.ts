@@ -260,6 +260,10 @@ export class PullCheckCheckMetrics {
     private readonly pullCheckStatusCounter: Counter,
     @InjectMetric("pullCheckProviderStatus")
     private readonly pullCheckProviderStatusCounter: Counter,
+    @InjectMetric("pullCheckFirstByteMs")
+    private readonly pullCheckFirstByteMs: Histogram,
+    @InjectMetric("pullCheckThroughputBps")
+    private readonly pullCheckThroughputBps: Histogram,
   ) {}
 
   observeRequestLatencyMs(labels: CheckMetricLabels, value: number | null | undefined): void {
@@ -276,5 +280,13 @@ export class PullCheckCheckMetrics {
 
   recordProviderStatus(labels: CheckMetricLabels, value: string): void {
     this.pullCheckProviderStatusCounter.inc({ ...labels, value });
+  }
+
+  observeFirstByteMs(labels: CheckMetricLabels, value: number | null | undefined): void {
+    observePositive(this.pullCheckFirstByteMs, labels, value);
+  }
+
+  observeThroughputBps(labels: CheckMetricLabels, value: number | null | undefined): void {
+    observePositive(this.pullCheckThroughputBps, labels, value);
   }
 }

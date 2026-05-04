@@ -55,6 +55,28 @@ export class HostedPieceRegistry {
     });
   }
 
+  /**
+   * Record the wall-clock time at which the `pullPieces` request was sent to
+   * the SP. Idempotent: only the first call wins so that retried checks against
+   * the same hosted piece do not skew first-byte measurements.
+   */
+  markPullSubmitted(pieceCid: string, at: Date): void {
+    const entry = this.entries.get(pieceCid);
+    if (!entry || entry.pullSubmittedAt) return;
+    entry.pullSubmittedAt = at;
+  }
+
+  /**
+   * Record the wall-clock time at which the SP read the first byte of the
+   * hosted-piece stream. Idempotent: only the first read wins so that an SP
+   * issuing retries after a failed connection does not overwrite the timestamp.
+   */
+  markFirstByte(pieceCid: string, at: Date): void {
+    const entry = this.entries.get(pieceCid);
+    if (!entry || entry.firstByteAt) return;
+    entry.firstByteAt = at;
+  }
+
   forget(pieceCid: string): void {
     this.entries.delete(pieceCid);
   }

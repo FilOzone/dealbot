@@ -10,6 +10,8 @@ export type HostedPieceRegistration = {
   contentType: string;
   expiresAt: Date;
   cleanedUp: boolean;
+  pullSubmittedAt?: Date;
+  firstByteAt?: Date;
 };
 
 /**
