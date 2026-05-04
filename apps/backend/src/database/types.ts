@@ -28,6 +28,13 @@ export enum IpniStatus {
   FAILED = "failed",
 }
 
+export enum IpniCheckStatus {
+  VALID = "valid",
+  INVALID = "invalid",
+  SKIPPED = "skipped",
+  ERROR = "error",
+}
+
 /**
  * Metadata schema for deal storage and retrieval
  */
