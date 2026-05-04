@@ -100,26 +100,6 @@ describe("AnonPieceSelectorService", () => {
     expect(result?.pieceCid).toBe(liveCid);
   });
 
-  it("redraws when the first sampled piece was recently selected by this process", async () => {
-    const staleCid = "baga-stale";
-    const freshCid = "baga-fresh";
-
-    const service = new AnonPieceSelectorService(subgraphService, makeConfigService());
-
-    // Prime the in-memory ring buffer by first selecting `staleCid`.
-    sampleAnonPiece.mockResolvedValueOnce(makePiece({ pieceCid: staleCid }));
-    const first = await service.selectPieceForProvider(SP_ADDRESS);
-    expect(first?.pieceCid).toBe(staleCid);
-
-    // Now the second selection should skip `staleCid` and use `freshCid`.
-    sampleAnonPiece
-      .mockResolvedValueOnce(makePiece({ pieceCid: staleCid }))
-      .mockResolvedValueOnce(makePiece({ pieceCid: freshCid }));
-    const second = await service.selectPieceForProvider(SP_ADDRESS);
-
-    expect(second?.pieceCid).toBe(freshCid);
-  });
-
   it("falls back to the opposite pool when the preferred one is empty", async () => {
     // First pool call returns nothing twice (both attempts), second pool succeeds.
     const fresh = makePiece({ pieceCid: "baga-other-pool" });

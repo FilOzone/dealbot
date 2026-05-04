@@ -8,11 +8,6 @@ import type { AnonCandidatePiece } from "../subgraph/types.js";
 import type { AnonPiece } from "./types.js";
 
 /**
- * Number of most-recently-tested piece CIDs to exclude from re-selection.
- */
-const RECENT_DEDUP_WINDOW = 500;
-
-/**
  * Piece size buckets, in raw (unpadded) bytes. Weighted sampling across
  * these buckets keeps tests meaningful for bandwidth measurement without
  * locking out SPs whose corpus skews small or large.
@@ -46,10 +41,6 @@ const IPFS_INDEXED_SAMPLE_RATE = 0.8;
 @Injectable()
 export class AnonPieceSelectorService {
   private readonly logger = new Logger(AnonPieceSelectorService.name);
-
-  /** Bounded FIFO of recently-selected piece CIDs. Process-local; lost on restart. */
-  private readonly recentlyTested = new Set<string>();
-  private readonly recentlyTestedQueue: string[] = [];
 
   constructor(
     private readonly subgraphService: SubgraphService,
@@ -91,7 +82,6 @@ export class AnonPieceSelectorService {
       });
 
       if (piece) {
-        this.rememberRecent(piece.pieceCid);
         this.logger.log({
           event: "anon_piece_selected",
           message: "Selected anonymous piece for retrieval test",
@@ -158,10 +148,6 @@ export class AnonPieceSelectorService {
         continue;
       }
 
-      if (this.recentlyTested.has(piece.pieceCid)) {
-        continue;
-      }
-
       return piece;
     }
 
@@ -178,23 +164,6 @@ export class AnonPieceSelectorService {
       }
     }
     return "medium";
-  }
-
-  /** Push a CID into the bounded FIFO; evict the oldest when at capacity. */
-  private rememberRecent(pieceCid: string): void {
-    if (this.recentlyTested.has(pieceCid)) {
-      return;
-    }
-
-    this.recentlyTested.add(pieceCid);
-    this.recentlyTestedQueue.push(pieceCid);
-
-    while (this.recentlyTestedQueue.length > RECENT_DEDUP_WINDOW) {
-      const evicted = this.recentlyTestedQueue.shift();
-      if (evicted !== undefined) {
-        this.recentlyTested.delete(evicted);
-      }
-    }
   }
 }
 
