@@ -31,8 +31,6 @@ export type CarValidationResult = {
   sampledCidCount: number;
   ipniValid: boolean | null;
   ipniVerifyMs: number | null;
-  ipniVerifiedCidsCount: number | null;
-  ipniUnverifiedCidsCount: number | null;
   blockFetchValid: boolean | null;
   blockFetchFailedCount: number | null;
   blockFetchEndpoint: string | null;
