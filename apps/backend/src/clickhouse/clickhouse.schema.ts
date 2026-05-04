@@ -97,7 +97,7 @@ export function buildMigrations(database: string): string[] {
     block_fetch_sampled_count  Nullable(UInt32),                  -- number of blocks sampled and probed via /ipfs/<cid>?format=raw
     block_fetch_failed_count   Nullable(UInt32),                  -- number of sampled blocks that failed (non-2xx, hash mismatch, unsupported codec, or transport error)
 
-    ipni_status                LowCardinality(String),            -- 'valid' | 'invalid' | 'skipped' (mirrors data_storage_checks naming)
+    ipni_status                LowCardinality(String),            -- 'valid' | 'invalid' | 'skipped' | 'error'
     ipni_verify_ms             Nullable(Float64),                 -- IPNI verification duration; null when skipped
     ipni_verified_cids_count   Nullable(UInt32),                  -- CIDs confirmed findable via IPNI
     ipni_unverified_cids_count Nullable(UInt32),                  -- CIDs checked but not findable

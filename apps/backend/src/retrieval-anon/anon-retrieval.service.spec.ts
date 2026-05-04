@@ -35,7 +35,6 @@ function makeProvider(): StorageProvider {
 function makeService(opts: {
   pieceResult: PieceRetrievalResult;
   fetchPieceImpl?: (signal?: AbortSignal) => Promise<PieceRetrievalResult>;
-  clickhouseEnabled?: boolean;
   piece?: AnonPiece | null;
   carResult?: CarValidationResult;
   validateCarImpl?: () => Promise<CarValidationResult>;
@@ -51,7 +50,7 @@ function makeService(opts: {
   const insertSpy = vi.fn();
   const clickhouseService = {
     insert: insertSpy,
-    enabled: opts.clickhouseEnabled ?? true,
+    enabled: true,
     probeLocation: "test-location",
   } as unknown as ClickhouseService;
 
@@ -221,26 +220,6 @@ describe("AnonRetrievalService", () => {
     expect(insertSpy).toHaveBeenCalledTimes(1);
     const [, row] = insertSpy.mock.calls[0] as [string, Record<string, unknown>];
     expect(row.piece_fetch_status).toBe(RetrievalStatus.FAILED);
-  });
-
-  it("skips ClickHouse insert when ClickHouse is disabled", async () => {
-    const ok: PieceRetrievalResult = {
-      success: true,
-      pieceCid: PIECE.pieceCid,
-      bytesReceived: 1024,
-      pieceBytes: null,
-      latencyMs: 100,
-      ttfbMs: 10,
-      throughputBps: 10240,
-      statusCode: 200,
-      commPValid: true,
-    };
-
-    const { service, insertSpy } = makeService({ pieceResult: ok, clickhouseEnabled: false });
-
-    await service.performForProvider(SP_ADDRESS);
-
-    expect(insertSpy).not.toHaveBeenCalled();
   });
 
   describe("with IPFS indexing", () => {

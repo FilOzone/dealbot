@@ -5,7 +5,7 @@ import type { Repository } from "typeorm";
 import { ClickhouseService } from "../clickhouse/clickhouse.service.js";
 import { type ProviderJobContext, toStructuredError } from "../common/logging.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
-import { RetrievalStatus, ServiceType } from "../database/types.js";
+import { IpniCheckStatus, RetrievalStatus, ServiceType } from "../database/types.js";
 import { buildCheckMetricLabels } from "../metrics-prometheus/check-metric-labels.js";
 import { AnonRetrievalCheckMetrics } from "../metrics-prometheus/check-metrics.service.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
@@ -108,13 +108,17 @@ export class AnonRetrievalService {
           this.metrics.recordIpniStatus(labels, ipniStatusFromResult(carResult));
           this.metrics.recordBlockFetchStatus(
             labels,
-            carResult.blockFetchValid === null ? "skipped" : carResult.blockFetchValid ? "valid" : "invalid",
+            carResult.blockFetchValid === null
+              ? IpniCheckStatus.SKIPPED
+              : carResult.blockFetchValid
+                ? IpniCheckStatus.VALID
+                : IpniCheckStatus.INVALID,
           );
         } catch (error) {
           // Validation was attempted on a successful piece retrieval but threw.
           this.metrics.recordCarParseStatus(labels, false);
-          this.metrics.recordIpniStatus(labels, "error");
-          this.metrics.recordBlockFetchStatus(labels, "error");
+          this.metrics.recordIpniStatus(labels, IpniCheckStatus.ERROR);
+          this.metrics.recordBlockFetchStatus(labels, IpniCheckStatus.ERROR);
           this.logger.warn({
             ...logContext,
             event: "anon_retrieval_car_validation_failed",
@@ -126,8 +130,8 @@ export class AnonRetrievalService {
         }
       } else if (!pieceResult.success) {
         // Piece retrieval failed — IPNI and block fetch were skipped
-        this.metrics.recordIpniStatus(labels, "skipped");
-        this.metrics.recordBlockFetchStatus(labels, "skipped");
+        this.metrics.recordIpniStatus(labels, IpniCheckStatus.SKIPPED);
+        this.metrics.recordBlockFetchStatus(labels, IpniCheckStatus.SKIPPED);
       }
 
       // Overall check duration and status
@@ -139,70 +143,63 @@ export class AnonRetrievalService {
     } finally {
       // Always emit a ClickHouse row — even on abort or unexpected error — so
       // we never lose the evidence (ttfb, bytes, response code) we already
-      // collected.
+      // collected. ClickhouseService.insert is a no-op when disabled.
       const finalPieceResult = pieceResult ?? buildAbortedPlaceholder(piece.pieceCid, signal?.reason);
       const retrievalId = randomUUID();
+      const providerInfo = this.walletSdkService.getProviderInfo(spAddress);
+      const spBaseUrl = providerInfo?.pdp.serviceURL.replace(/\/$/, "") ?? spAddress;
+      const pieceFetchStatus = finalPieceResult.success ? RetrievalStatus.SUCCESS : RetrievalStatus.FAILED;
+      const ipniStatus: IpniCheckStatus = !validatedCarPiece
+        ? IpniCheckStatus.SKIPPED
+        : carResult
+          ? ipniStatusFromResult(carResult)
+          : IpniCheckStatus.ERROR;
 
-      if (this.clickhouseService.enabled) {
-        const providerInfo = this.walletSdkService.getProviderInfo(spAddress);
-        const spBaseUrl = providerInfo?.pdp.serviceURL.replace(/\/$/, "") ?? spAddress;
-        const pieceFetchStatus = finalPieceResult.success ? RetrievalStatus.SUCCESS : RetrievalStatus.FAILED;
-        const ipniStatus = !validatedCarPiece ? "skipped" : carResult ? ipniStatusFromResult(carResult) : "error";
-
-        try {
-          this.clickhouseService.insert(ANON_RETRIEVAL_CHECKS_TABLE, {
-            timestamp: startedAt.getTime(),
-            probe_location: this.clickhouseService.probeLocation,
-            sp_address: spAddress,
-            sp_id: provider?.providerId != null ? Number(provider.providerId) : null,
-            sp_name: provider?.name ?? null,
-            retrieval_id: retrievalId,
-            piece_cid: piece.pieceCid,
-            data_set_id: piece.dataSetId,
-            piece_id: piece.pieceId,
-            raw_size: piece.rawSize,
-            with_ipfs_indexing: piece.withIPFSIndexing,
-            ipfs_root_cid: piece.ipfsRootCid,
-            service_type: ServiceType.DIRECT_SP,
-            retrieval_endpoint: `${spBaseUrl}/piece/${piece.pieceCid}`,
-            piece_fetch_status: pieceFetchStatus,
-            http_response_code: finalPieceResult.statusCode > 0 ? finalPieceResult.statusCode : null,
-            first_byte_ms: finalPieceResult.ttfbMs > 0 ? finalPieceResult.ttfbMs : null,
-            last_byte_ms: finalPieceResult.latencyMs > 0 ? finalPieceResult.latencyMs : null,
-            bytes_retrieved: finalPieceResult.bytesReceived > 0 ? finalPieceResult.bytesReceived : null,
-            throughput_bps: finalPieceResult.throughputBps > 0 ? Math.round(finalPieceResult.throughputBps) : null,
-            commp_valid: finalPieceResult.success ? finalPieceResult.commPValid : null,
-            car_parseable: carResult ? carResult.carParseable : null,
-            car_block_count: carResult?.carParseable ? carResult?.blockCount : null,
-            block_fetch_endpoint: carResult?.blockFetchEndpoint ?? null,
-            block_fetch_valid: carResult ? carResult.blockFetchValid : null,
-            block_fetch_sampled_count: carResult?.carParseable ? carResult?.sampledCidCount : null,
-            block_fetch_failed_count: carResult?.blockFetchFailedCount ?? null,
-            ipni_status: ipniStatus,
-            ipni_verify_ms: carResult?.ipniVerifyMs ?? null,
-            ipni_verified_cids_count: carResult?.ipniVerifiedCidsCount ?? null,
-            ipni_unverified_cids_count: carResult?.ipniUnverifiedCidsCount ?? null,
-            error_message: finalPieceResult.errorMessage ?? null,
-          });
-        } catch (error) {
-          // ClickhouseService.insert is buffered/non-throwing in normal operation, but
-          // guard against unexpected runtime errors so we don't break the probe cycle.
-          this.logger.warn({
-            ...logContext,
-            event: "anon_retrieval_clickhouse_insert_failed",
-            message: "Failed to enqueue anonymous retrieval row to ClickHouse",
-            pieceCid: piece.pieceCid,
-            spAddress,
-            error: toStructuredError(error),
-          });
-        }
-      } else {
-        this.logger.debug({
+      try {
+        this.clickhouseService.insert(ANON_RETRIEVAL_CHECKS_TABLE, {
+          timestamp: startedAt.getTime(),
+          probe_location: this.clickhouseService.probeLocation,
+          sp_address: spAddress,
+          sp_id: provider?.providerId != null ? Number(provider.providerId) : null,
+          sp_name: provider?.name ?? null,
+          retrieval_id: retrievalId,
+          piece_cid: piece.pieceCid,
+          data_set_id: piece.dataSetId,
+          piece_id: piece.pieceId,
+          raw_size: piece.rawSize,
+          with_ipfs_indexing: piece.withIPFSIndexing,
+          ipfs_root_cid: piece.ipfsRootCid,
+          service_type: ServiceType.DIRECT_SP,
+          retrieval_endpoint: `${spBaseUrl}/piece/${piece.pieceCid}`,
+          piece_fetch_status: pieceFetchStatus,
+          http_response_code: finalPieceResult.statusCode > 0 ? finalPieceResult.statusCode : null,
+          first_byte_ms: finalPieceResult.ttfbMs > 0 ? finalPieceResult.ttfbMs : null,
+          last_byte_ms: finalPieceResult.latencyMs > 0 ? finalPieceResult.latencyMs : null,
+          bytes_retrieved: finalPieceResult.bytesReceived > 0 ? finalPieceResult.bytesReceived : null,
+          throughput_bps: finalPieceResult.throughputBps > 0 ? Math.round(finalPieceResult.throughputBps) : null,
+          commp_valid: finalPieceResult.success ? finalPieceResult.commPValid : null,
+          car_parseable: carResult ? carResult.carParseable : null,
+          car_block_count: carResult?.carParseable ? carResult?.blockCount : null,
+          block_fetch_endpoint: carResult?.blockFetchEndpoint ?? null,
+          block_fetch_valid: carResult ? carResult.blockFetchValid : null,
+          block_fetch_sampled_count: carResult?.carParseable ? carResult?.sampledCidCount : null,
+          block_fetch_failed_count: carResult?.blockFetchFailedCount ?? null,
+          ipni_status: ipniStatus,
+          ipni_verify_ms: carResult?.ipniVerifyMs ?? null,
+          ipni_verified_cids_count: carResult?.ipniVerifiedCidsCount ?? null,
+          ipni_unverified_cids_count: carResult?.ipniUnverifiedCidsCount ?? null,
+          error_message: finalPieceResult.errorMessage ?? null,
+        });
+      } catch (error) {
+        // ClickhouseService.insert is buffered/non-throwing in normal operation, but
+        // guard against unexpected runtime errors so we don't break the probe cycle.
+        this.logger.warn({
           ...logContext,
-          event: "anon_retrieval_clickhouse_disabled",
-          message: "ClickHouse disabled — anon retrieval row not emitted",
+          event: "anon_retrieval_clickhouse_insert_failed",
+          message: "Failed to enqueue anonymous retrieval row to ClickHouse",
           pieceCid: piece.pieceCid,
           spAddress,
+          error: toStructuredError(error),
         });
       }
 
@@ -226,9 +223,9 @@ export class AnonRetrievalService {
   }
 }
 
-function ipniStatusFromResult(result: CarValidationResult): "valid" | "invalid" | "skipped" {
-  if (result.ipniValid === null) return "skipped";
-  return result.ipniValid ? "valid" : "invalid";
+function ipniStatusFromResult(result: CarValidationResult): IpniCheckStatus {
+  if (result.ipniValid === null) return IpniCheckStatus.SKIPPED;
+  return result.ipniValid ? IpniCheckStatus.VALID : IpniCheckStatus.INVALID;
 }
 
 function buildAbortedPlaceholder(pieceCid: string, reason: unknown): PieceRetrievalResult {
