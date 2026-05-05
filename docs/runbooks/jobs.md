@@ -11,10 +11,10 @@ For routine daily maintenance windows, prefer `DEALBOT_MAINTENANCE_WINDOWS_UTC` 
 `DEALBOT_MAINTENANCE_WINDOW_MINUTES`, which skip deal/retrieval checks automatically in both cron and pg-boss modes.
 
 ```sql
--- Pause all deal and retrieval jobs
+-- Pause all per-SP jobs
 UPDATE job_schedule_state
 SET paused = true, updated_at = NOW()
-WHERE job_type IN ('deal', 'retrieval', 'piece_cleanup');
+WHERE job_type IN ('deal', 'retrieval', 'piece_cleanup', 'pull_check');
 ```
 
 To pause a single provider:
@@ -22,7 +22,7 @@ To pause a single provider:
 ```sql
 UPDATE job_schedule_state
 SET paused = true, updated_at = NOW()
-WHERE job_type IN ('deal', 'retrieval', 'piece_cleanup')
+WHERE job_type IN ('deal', 'retrieval', 'piece_cleanup', 'pull_check')
   AND sp_address = '<sp-address>';
 ```
 
@@ -31,7 +31,7 @@ WHERE job_type IN ('deal', 'retrieval', 'piece_cleanup')
 ```sql
 UPDATE job_schedule_state
 SET paused = false, next_run_at = NOW(), updated_at = NOW()
-WHERE job_type IN ('deal', 'retrieval', 'piece_cleanup');
+WHERE job_type IN ('deal', 'retrieval', 'piece_cleanup', 'pull_check');
 ```
 
 To resume a single provider:
@@ -39,7 +39,7 @@ To resume a single provider:
 ```sql
 UPDATE job_schedule_state
 SET paused = false, next_run_at = NOW(), updated_at = NOW()
-WHERE job_type IN ('deal', 'retrieval', 'piece_cleanup')
+WHERE job_type IN ('deal', 'retrieval', 'piece_cleanup', 'pull_check')
   AND sp_address = '<sp-address>';
 ```
 
@@ -84,6 +84,15 @@ Run piece cleanup for a specific SP:
 UPDATE job_schedule_state
 SET paused = false, next_run_at = NOW(), updated_at = NOW()
 WHERE job_type = 'piece_cleanup'
+  AND sp_address = '<sp-address>';
+```
+
+Run a pull check for a specific SP:
+
+```sql
+UPDATE job_schedule_state
+SET paused = false, next_run_at = NOW(), updated_at = NOW()
+WHERE job_type = 'pull_check'
   AND sp_address = '<sp-address>';
 ```
 

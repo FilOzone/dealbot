@@ -6,7 +6,7 @@ This doc explains what a "job" is in dealbot, how jobs are defined, how they're 
 
 - `job_schedule_state` is the primary schedule entity with one row per `<job_type, sp_address>` plus global rows with an empty `sp_address`.
 - The dealbot scheduler loop polls for due `job_schedule_state` rows, enqueues corresponding pg-boss jobs, and advances `job_schedule_state.next_run_at`.
-- Deal/retrieval jobs share the `sp.work` queue with `policy=singleton` and `singletonKey=spAddress` to enforce one active job per SP while allowing backlog.
+- All per-SP jobs (`deal`, `retrieval`, `piece_cleanup`, `pull_check`) share the `sp.work` queue with `policy=singleton` and `singletonKey=spAddress` to enforce one active job per SP while allowing backlog.
 - Dealbot workers poll pg-boss queues via [`boss.work()`](https://github.com/timgit/pg-boss/blob/master/docs/api/workers.md) and run the corresponding handlers.
 
 ## Entities and Terminology
@@ -15,7 +15,7 @@ This doc explains what a "job" is in dealbot, how jobs are defined, how they're 
 | --- | --- | --- |
 | `job_schedule_state` | One per `<sp, job_type>` plus global rows | Schedule state owned by dealbot. |
 | Storage provider (SP) | One per SP in registry | Filtered by `USE_ONLY_APPROVED_PROVIDERS` when enabled. |
-| Job type | `deal`, `retrieval`, `data_set_creation`, `piece_cleanup`, `providers_refresh`, `data_retention_poll` | `deal` corresponds to "data storage check" externally; we keep `deal` in code/DB for compatibility. |
+| Job type | `deal`, `retrieval`, `data_set_creation`, `piece_cleanup`, `pull_check`, `providers_refresh`, `data_retention_poll` | `deal` corresponds to "data storage check" externally; we keep `deal` in code/DB for compatibility. |
 | pg-boss queue | `sp.work`, `providers.refresh`, `data.retention.poll` | `sp.work` is a singleton queue. |
 | Dealbot scheduler | One per process (when enabled) | Runs the scheduling loop. |
 | Dealbot worker process | One Node.js process with `DEALBOT_RUN_MODE=worker` or `both` | Hosts pg-boss workers. |
@@ -35,6 +35,7 @@ This doc explains what a "job" is in dealbot, how jobs are defined, how they're 
 | `deal` | `sp.work` | [`JobsService.handleDealJob`](../apps/backend/src/jobs/jobs.service.ts) | `{ jobType: 'deal', spAddress, intervalSeconds }` |
 | `retrieval` | `sp.work` | [`JobsService.handleRetrievalJob`](../apps/backend/src/jobs/jobs.service.ts) | `{ jobType: 'retrieval', spAddress, intervalSeconds }` |
 | `piece_cleanup` | `sp.work` | [`JobsService.handlePieceCleanupJob`](../apps/backend/src/jobs/jobs.service.ts) | `{ jobType: 'piece_cleanup', spAddress, intervalSeconds }` |
+| `pull_check` | `sp.work` | [`JobsService.handlePullCheckJob`](../apps/backend/src/jobs/jobs.service.ts) | `{ jobType: 'pull_check', spAddress, intervalSeconds }` |
 
 `sp.work` is created with `policy=singleton`, and jobs set `singletonKey=spAddress` so only one active job per SP can run at a time.
 
@@ -136,7 +137,7 @@ Use these formulas to reason about whether the system can keep up and how much b
 
 Per-SP capacity (one job per SP at a time):
 
-- Per-SP execution-minutes per hour = `(deals_per_sp_per_hour * deal_max_minutes) + (retrievals_per_sp_per_hour * retrieval_max_minutes) + (piece_cleanup_per_sp_per_hour * cleanup_max_minutes)`
+- Per-SP execution-minutes per hour = `(deals_per_sp_per_hour * deal_max_minutes) + (retrievals_per_sp_per_hour * retrieval_max_minutes) + (piece_cleanup_per_sp_per_hour * cleanup_max_minutes) + (pull_checks_per_sp_per_hour * pull_check_max_minutes)`
 - If per-SP execution-minutes per hour > 60, that SP can never catch up (backlog grows), even if we had infinite dealbot workers.  
 - If per-SP execution-minutes per hour <= 60, backlog should eventually drain, assuming there are enough dealbot workers (headroom = `60 - per-SP execution-minutes per hour`).
 
@@ -189,7 +190,7 @@ See the "Jobs (pg-boss)" section in `docs/environment-variables.md` for full def
 
 - [`DEALBOT_PGBOSS_SCHEDULER_ENABLED`](./environment-variables.md#dealbot_pgboss_scheduler_enabled)
 - [`DEALBOT_RUN_MODE`](./environment-variables.md#dealbot_run_mode)
-- [`DEALS_PER_SP_PER_HOUR`](./environment-variables.md#deals_per_sp_per_hour), [`RETRIEVALS_PER_SP_PER_HOUR`](./environment-variables.md#retrievals_per_sp_per_hour), [`JOB_PIECE_CLEANUP_PER_SP_PER_HOUR`](./environment-variables.md#job_piece_cleanup_per_sp_per_hour)
+- [`DEALS_PER_SP_PER_HOUR`](./environment-variables.md#deals_per_sp_per_hour), [`RETRIEVALS_PER_SP_PER_HOUR`](./environment-variables.md#retrievals_per_sp_per_hour), [`JOB_PIECE_CLEANUP_PER_SP_PER_HOUR`](./environment-variables.md#job_piece_cleanup_per_sp_per_hour), [`PULL_CHECKS_PER_SP_PER_HOUR`](./environment-variables.md#pull_checks_per_sp_per_hour)
 - [`JOB_SCHEDULER_POLL_SECONDS`](./environment-variables.md#job_scheduler_poll_seconds), [`JOB_WORKER_POLL_SECONDS`](./environment-variables.md#job_worker_poll_seconds)
 - [`JOB_CATCHUP_MAX_ENQUEUE`](./environment-variables.md#job_catchup_max_enqueue)
 - [`JOB_SCHEDULE_PHASE_SECONDS`](./environment-variables.md#job_schedule_phase_seconds)

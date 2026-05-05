@@ -6,7 +6,7 @@ This document provides a comprehensive guide to all environment variables used b
 
 | Category                                  | Variables                                                                                                                                                    |
 | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| [Application](#application-configuration) | `NODE_ENV`, `DEALBOT_PORT`, `DEALBOT_HOST`, `DEALBOT_RUN_MODE`, `DEALBOT_METRICS_PORT`, `DEALBOT_METRICS_HOST`, `DEALBOT_ALLOWED_ORIGINS`, `ENABLE_DEV_MODE` |
+| [Application](#application-configuration) | `NODE_ENV`, `DEALBOT_PORT`, `DEALBOT_HOST`, `DEALBOT_API_PUBLIC_URL`, `DEALBOT_RUN_MODE`, `DEALBOT_METRICS_PORT`, `DEALBOT_METRICS_HOST`, `DEALBOT_ALLOWED_ORIGINS`, `ENABLE_DEV_MODE` |
 | [Database](#database-configuration)       | `DATABASE_HOST`, `DATABASE_PORT`, `DATABASE_POOL_MAX`, `DATABASE_USER`, `DATABASE_PASSWORD`, `DATABASE_NAME`                                                 |
 | [Blockchain](#blockchain-configuration)   | `NETWORK`, `RPC_URL`, `WALLET_ADDRESS`, `WALLET_PRIVATE_KEY`, `SESSION_KEY_PRIVATE_KEY`, `CHECK_DATASET_CREATION_FEES`, `USE_ONLY_APPROVED_PROVIDERS`, `PDP_SUBGRAPH_ENDPOINT` |
 | [Dataset Versioning](#dataset-versioning) | `DEALBOT_DATASET_VERSION`                                                                                                                                    |
@@ -16,6 +16,7 @@ This document provides a comprehensive guide to all environment variables used b
 | [ClickHouse](#clickhouse-configuration)   | `CLICKHOUSE_URL`, `CLICKHOUSE_BATCH_SIZE`, `CLICKHOUSE_FLUSH_INTERVAL_MS`, `DEALBOT_PROBE_LOCATION`          |
 | [Timeouts](#timeout-configuration)        | `CONNECT_TIMEOUT_MS`, `HTTP_REQUEST_TIMEOUT_MS`, `HTTP2_REQUEST_TIMEOUT_MS`, `IPNI_VERIFICATION_TIMEOUT_MS`, `IPNI_VERIFICATION_POLLING_MS`                   |
 | [Piece Cleanup](#piece-cleanup)           | `MAX_DATASET_STORAGE_SIZE_BYTES`, `TARGET_DATASET_STORAGE_SIZE_BYTES`, `JOB_PIECE_CLEANUP_PER_SP_PER_HOUR`, `MAX_PIECE_CLEANUP_RUNTIME_SECONDS`       |
+| [Pull Check](#pull-check)                 | `PULL_CHECKS_PER_SP_PER_HOUR`, `PULL_CHECK_JOB_TIMEOUT_SECONDS`, `PULL_CHECK_HOSTED_PIECE_TTL_SECONDS`, `PULL_CHECK_POLL_INTERVAL_SECONDS`, `PULL_CHECK_PIECE_SIZE_BYTES` |
 | [SP Blocklist](#sp-blocklist-configuration) | `BLOCKED_SP_IDS`, `BLOCKED_SP_ADDRESSES` |
 | [Prometheus Metrics](#prometheus-metrics-configuration) | `PROMETHEUS_WALLET_BALANCE_TTL_SECONDS`, `PROMETHEUS_WALLET_BALANCE_ERROR_COOLDOWN_SECONDS`                   |
 | [Web Frontend](#web-frontend)             | `VITE_API_BASE_URL`, `VITE_PLAUSIBLE_DATA_DOMAIN`, `DEALBOT_API_BASE_URL`                                                                                    |
@@ -137,6 +138,29 @@ DEALBOT_METRICS_HOST=0.0.0.0
 ```bash
 DEALBOT_HOST=0.0.0.0
 ```
+
+---
+
+### `DEALBOT_API_PUBLIC_URL`
+
+- **Type**: `string` (URL)
+- **Required**: No (but required for [Pull Check](./checks/pull-check.md) when SPs cannot reach `DEALBOT_HOST:DEALBOT_PORT` directly)
+- **Default**: Empty (falls back to `http://${DEALBOT_HOST}:${DEALBOT_PORT}`)
+
+**Role**: Public base URL for the Dealbot HTTP API. Used to construct the hosted-piece source URL handed to a storage provider during a pull check (`{DEALBOT_API_PUBLIC_URL}/api/piece/{pieceCid}`).
+
+**When to update**:
+
+- Set to the public URL of your Dealbot deployment whenever pull checks are enabled and SPs cannot reach the bind address directly (the typical production case)
+- Leave unset for local development where SPs reach Dealbot on `localhost`
+
+**Example**:
+
+```bash
+DEALBOT_API_PUBLIC_URL=https://dealbot.filoz.org
+```
+
+**Notes**: Trailing slashes are stripped at load time. The value is also trimmed and treated as empty when blank.
 
 ---
 
@@ -904,6 +928,98 @@ Only used when `DEALBOT_JOBS_MODE=pgboss`.
 
 - Increase if piece deletion calls to the Synapse SDK are known to be slow
 - Decrease for faster abort detection on stuck jobs
+
+---
+
+## Pull Check
+
+These variables control the [Pull Check](./checks/pull-check.md), which validates the SP pull-to-park pathway. Pull checks are scheduled per SP and exercised through the `sp.work` queue alongside deal, retrieval, and piece-cleanup jobs.
+
+### `PULL_CHECKS_PER_SP_PER_HOUR`
+
+- **Type**: `number`
+- **Required**: No
+- **Default**: `1`
+- **Minimum**: `0.001`
+- **Maximum**: `20`
+
+**Role**: Target number of pull checks per storage provider per hour. The rate is converted to an interval internally (for example `1` = every 3600s, `0.5` = every 7200s).
+
+**Notes**: Fractional values are supported. Pull checks are independent of `DEALS_PER_SP_PER_HOUR` and `RETRIEVALS_PER_SP_PER_HOUR`.
+
+**Example**:
+
+```bash
+# Twice per day
+PULL_CHECKS_PER_SP_PER_HOUR=0.083
+```
+
+---
+
+### `PULL_CHECK_JOB_TIMEOUT_SECONDS`
+
+- **Type**: `number` (seconds)
+- **Required**: No
+- **Default**: `360` (6 minutes)
+- **Minimum**: `60`
+- **Enforced**: Yes (config validation)
+
+**Role**: Maximum runtime for a pull-check job before forced abort via `AbortController`. Bounds the polling window for terminal SP pull status, the on-chain commit, and the direct `/piece/{pieceCid}` re-fetch combined.
+
+**When to update**:
+
+- Increase if SPs are slow to reach a terminal pull status (large piece sizes or busy SPs)
+- Decrease to fail-fast on stuck jobs
+
+---
+
+### `PULL_CHECK_HOSTED_PIECE_TTL_SECONDS`
+
+- **Type**: `number` (seconds)
+- **Required**: No
+- **Default**: `900` (15 minutes)
+- **Minimum**: `60`
+
+**Role**: Time-to-live for the temporary hosted piece source served at `/api/piece/{pieceCid}` during an in-flight pull check. After the TTL elapses or the job calls cleanup, the controller responds with HTTP `410 Gone` for that pieceCid.
+
+**When to update**:
+
+- Should be at least `PULL_CHECK_JOB_TIMEOUT_SECONDS` plus generous margin for the SP to make its first read; the default 15 minutes provides ~9 minutes of headroom over the 6-minute job timeout default
+- Increase only when intentionally allowing SPs to retry pulls long after the dealbot job has aborted
+
+---
+
+### `PULL_CHECK_POLL_INTERVAL_SECONDS`
+
+- **Type**: `number` (seconds)
+- **Required**: No
+- **Default**: `10`
+- **Minimum**: `1`
+
+**Role**: Polling interval used by `waitForPullPieces` while waiting for the SP to report a terminal pull status (`complete` or `failed`).
+
+**When to update**:
+
+- Decrease for faster terminal-status detection at the cost of more SP-side load
+- Increase to be gentler on SPs at the cost of slower pull-check throughput
+
+---
+
+### `PULL_CHECK_PIECE_SIZE_BYTES`
+
+- **Type**: `number` (integer, bytes)
+- **Required**: No
+- **Default**: `10485760` (10 MiB)
+- **Minimum**: `1024`
+
+**Role**: Size of the synthetic random piece dealbot generates per pull check. The same byte length is used to compute [`pullCheckThroughputBps`](./checks/events-and-metrics.md#pullCheckThroughputBps).
+
+**When to update**:
+
+- Decrease for quicker, lower-bandwidth pull tests
+- Increase to stress-test the SP's outbound fetch throughput
+
+**Note**: Pull-check pieces are committed on-chain but **not** tracked in the `deals` table, so they are not garbage-collected by [Piece Cleanup](#piece-cleanup). Larger pieces accrue on the SP unless removed manually.
 
 ---
 

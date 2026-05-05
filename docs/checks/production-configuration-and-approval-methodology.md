@@ -1,6 +1,6 @@
 ## Purpose
 
-This document outlines how dealbot is configured for production by the Filecoin Onchain Cloud working group, particularly for determining which SPs to approve for the "official" Filecoin Warm Storage Service contracts on calibration and mainnet.  A reader, especially an SP seeking to be approved for paid FOC storage deals by default, should be able to read this document and understand how they are evaluated.  While [data-storage.md](./data-storage.md), [retrievals.md](./retrievals.md), and [events-and-metrics.md](./events-and-metrics.md) discuss the dealbot checks and metrics in general, this document provides the context and background for how they are configured and used in production.
+This document outlines how dealbot is configured for production by the Filecoin Onchain Cloud working group, particularly for determining which SPs to approve for the "official" Filecoin Warm Storage Service contracts on calibration and mainnet.  A reader, especially an SP seeking to be approved for paid FOC storage deals by default, should be able to read this document and understand how they are evaluated.  While [data-storage.md](./data-storage.md), [retrievals.md](./retrievals.md), [pull-check.md](./pull-check.md), and [events-and-metrics.md](./events-and-metrics.md) discuss the dealbot checks and metrics in general, this document provides the context and background for how they are configured and used in production.
 
 ## Approval Acceptance Criteria
 
@@ -60,6 +60,18 @@ Relevant parameters include:
 
 This minimum observed success rate threshold count is for having 95% confidence that the success rate is greater than 95%.  See [How are data storage and retrieval check statistics/thresholds calculated?](#how-are-data-storage-and-retrieval-check-statisticsthresholds-calculated) for more details.
 
+### Pull Check
+
+The [Pull Check](./pull-check.md) is **not** currently an approval criterion. It runs in production to collect operational data on the SP pull-to-park pathway (`pullPieces` request latency, terminal status mix, first-byte latency, throughput) but the resulting Prometheus metrics are not yet folded into an approval threshold. They may inform a future criterion once enough baseline data has accumulated.
+
+Pull check is enabled with the following parameters in production:
+
+| Parameter | Value | Notes |
+|-----------|-------|-------|
+| [`PULL_CHECKS_PER_SP_PER_HOUR`](../environment-variables.md#pull_checks_per_sp_per_hour) | 1 | 24 per day |
+| [`PULL_CHECK_PIECE_SIZE_BYTES`](../environment-variables.md#pull_check_piece_size_bytes) | 10485760 | 10 MiB synthetic test piece per check |
+| [`PULL_CHECK_JOB_TIMEOUT_SECONDS`](../environment-variables.md#pull_check_job_timeout_seconds) | 360 | 6 minute end-to-end ceiling |
+
 ## SP Maintenance Window
 
 Dealbot provides two 20 minute windows per day where it doesn't run "checks" so that SPs can plan their maintenance activities without having their dealbot scores impacted:
@@ -78,12 +90,15 @@ With the current configuration, Dealbot will add this much synthetic load on SPs
 - 15 datasets, requiring 5 challenges per day per dataset.  The dataset floor price that is paid by Dealbot to the SP covers the cost of the challenges.
 - 4x10MB pieces being uploaded per hour.  
 - 8x10MB pieces being downloaded per hour (the newly created pieces as part of the Data Storage checks and random existing pieces as part of the Retrieval checks)
+- 1x10MB piece being pulled by the SP per hour as part of the [Pull Check](./pull-check.md), plus a 10MB direct piece-fetch from the SP for validation.
 
 Over the course of a day this means:
 * 75 proof challenges
 * 960 MB of SP download bandwidth in support of adding new pieces
 * 960 MB of disk space for the pieces.  Piece cleanup removes the oldest pieces once total stored data per SP exceeds a configurable threshold (see [`MAX_DATASET_STORAGE_SIZE_BYTES`](../environment-variables.md#max_dataset_storage_size_bytes)).
 * 1,920 MB of SP upload bandwidth in support of retrievals
+* 240 MB of additional SP download bandwidth for pull-check pulls and 240 MB of additional SP upload bandwidth for pull-check validation re-fetches
+* 240 MB of additional SP disk space for committed pull-check pieces. **Pull-check pieces are not garbage-collected by [piece cleanup](../environment-variables.md#piece-cleanup)** (they are not tracked in the `deals` table); they accrue on the SP unless removed manually.
 
 ## Appendix
 
