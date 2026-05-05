@@ -1,5 +1,31 @@
 # Changelog
 
+## [1.5.0](https://github.com/FilOzone/dealbot/compare/backend-v1.4.0...backend-v1.5.0) (2026-05-05)
+
+
+### Features
+
+* add per-SP piece cleanup job to bound storage growth ([#346](https://github.com/FilOzone/dealbot/issues/346)) ([c9c50b2](https://github.com/FilOzone/dealbot/commit/c9c50b298c572830ffde6acc278b5c6b04486383))
+* **ipni:** expose failureReason as top-level field on ipni_tracking_failed ([#491](https://github.com/FilOzone/dealbot/issues/491)) ([dcda80e](https://github.com/FilOzone/dealbot/commit/dcda80ef8ade2ede98126850db784372748fd1a4))
+* write event data to clickhouse ([#438](https://github.com/FilOzone/dealbot/issues/438)) ([6edbc88](https://github.com/FilOzone/dealbot/commit/6edbc88775c1f5a6e30c72183b6b6d600df8f675))
+
+
+### Bug Fixes
+
+* **deal:** cancel onStored addons when upload fails ([#505](https://github.com/FilOzone/dealbot/issues/505)) ([126b2d8](https://github.com/FilOzone/dealbot/commit/126b2d8de7f9ee1490cc78ce473d4d8d759c4f10))
+* **ipni:** preserve failure reason in deal-flow rethrow ([#490](https://github.com/FilOzone/dealbot/issues/490)) ([fe53f35](https://github.com/FilOzone/dealbot/commit/fe53f353efa8a7e8eecef8ae27c03b3abf43a417))
+* landing page doesn't show blocked SPs ([#471](https://github.com/FilOzone/dealbot/issues/471)) ([0c8e58e](https://github.com/FilOzone/dealbot/commit/0c8e58e9385dd37cf0a788c7a7ccb1e9c4a10df0))
+* make nullable entity fields explicitly typed ([#380](https://github.com/FilOzone/dealbot/issues/380)) ([872d444](https://github.com/FilOzone/dealbot/commit/872d4440102b5dcb85b1c5e02f5c84ea5aa23350))
+* preserve pieceId during deal creation ([#439](https://github.com/FilOzone/dealbot/issues/439)) ([814a23b](https://github.com/FilOzone/dealbot/commit/814a23b78fb48660b2fc2e4a2b48fb294055c953))
+
+
+### Miscellaneous
+
+* remove metrics job scheduler ([#436](https://github.com/FilOzone/dealbot/issues/436)) ([430fb09](https://github.com/FilOzone/dealbot/commit/430fb09458749525373eba5163f1d2221a4747c0))
+* remove per-package pnpm-lock.yaml ([#499](https://github.com/FilOzone/dealbot/issues/499)) ([63a37be](https://github.com/FilOzone/dealbot/commit/63a37be0e85f360996296d7575ceecbcd96df2cc))
+* replace ConsoleLogger with nestjs-pino for ISO 8601 timestamps ([#445](https://github.com/FilOzone/dealbot/issues/445)) ([58ba4c2](https://github.com/FilOzone/dealbot/commit/58ba4c2ce44c536188718a9130f0d15cf1167321))
+* upgrade synapse to latest ([#497](https://github.com/FilOzone/dealbot/issues/497)) ([24ede5d](https://github.com/FilOzone/dealbot/commit/24ede5d6f0007a27a45f08873c8ac26ae77b524e))
+
 ## [1.4.0](https://github.com/FilOzone/dealbot/compare/backend-v1.3.0...backend-v1.4.0) (2026-04-17)
 
 
