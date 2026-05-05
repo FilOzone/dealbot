@@ -397,14 +397,14 @@ describe("SubgraphService", () => {
       });
     });
 
-    it("throws when PDP subgraph endpoint is not configured", async () => {
+    it("throws when subgraph endpoint is not configured", async () => {
       const configService = {
         get: vi.fn(() => ({ subgraphEndpoint: "" })),
       } as unknown as ConfigService<IConfig, true>;
 
       const serviceWithoutEndpoint = new SubgraphService(configService);
 
-      await expect(serviceWithoutEndpoint.fetchSubgraphMeta()).rejects.toThrow("No PDP subgraph endpoint configured");
+      await expect(serviceWithoutEndpoint.fetchSubgraphMeta()).rejects.toThrow("No subgraph endpoint configured");
     });
 
     it("throws on HTTP error response", async () => {
@@ -740,7 +740,7 @@ describe("SubgraphService", () => {
       const noEndpointService = new SubgraphService(noEndpointConfig);
 
       await expect(noEndpointService.sampleAnonPiece(defaultSampleParams)).rejects.toThrow(
-        "No PDP subgraph endpoint configured",
+        "No subgraph endpoint configured",
       );
       expect(fetchMock).not.toHaveBeenCalled();
     });
