@@ -18,10 +18,10 @@ import { JobScheduleRepository } from "./repositories/job-schedule.repository.js
     TypeOrmModule.forFeature([StorageProvider, JobScheduleState]),
     DealModule,
     RetrievalModule,
-    RetrievalAnonModule,
     WalletSdkModule,
     DataRetentionModule,
     PieceCleanupModule,
+    RetrievalAnonModule,
   ],
   providers: [JobsService, JobScheduleRepository],
 })
