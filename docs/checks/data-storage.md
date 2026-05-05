@@ -221,6 +221,6 @@ The items below were previously TBD and are now implemented. Tracking issue: htt
 | Per-deal max time limit | Done — `DEAL_JOB_TIMEOUT_SECONDS` triggers an `AbortController` in `jobs.service.ts`; on abort the deal is set to `DealStatus.FAILED` with failure-status metrics emitted. |
 | Deal gated on all checks | Done — deal only reaches `DealStatus.DEAL_CREATED` after upload, onchain, IPNI, and retrieval all succeed. |
 | Status model update | Done — `DealStatus` includes `PIECE_CONFIRMED`, `DEAL_CREATED`, `FAILED`; `IpniStatus` includes `SP_INDEXED`, `SP_ADVERTISED`, `VERIFIED`, `FAILED`; `RetrievalStatus` enum exists. |
-| `onPieceConfirmed` callback tracking | Done — `piecesConfirmedTime` recorded, `pieceConfirmedOnChainMs` histogram emitted, `DealStatus.PIECE_CONFIRMED` state exists. |
+| `onPiecesConfirmed` progress event tracking | Done — `piecesConfirmedTime` recorded, `pieceConfirmedOnChainMs` histogram emitted, `DealStatus.PIECE_CONFIRMED` state exists. |
 | IPFS gateway retrieval verification | Done — inline retrieval runs after `sp_indexed`. |
 | `filecoin-pin` CAR conversion | Done — `car-utils.ts` uses `createCarFromPath` from `filecoin-pin/core/unixfs`; `deal.service.ts` imports `executeUpload` from `filecoin-pin`. |
