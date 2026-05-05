@@ -104,7 +104,8 @@ All configuration is done via environment variables in `.env`.
 | `CHECK_DATASET_CREATION_FEES` | Check fees before dataset creation     | `true`                     |
 | `ENABLE_IPNI_TESTING`         | IPNI testing mode (`disabled`/`random`/`always`) | `always`          |
 | `USE_ONLY_APPROVED_PROVIDERS` | Only use approved storage providers    | `true`                     |
-| `SUBGRAPH_ENDPOINT`           | Subgraph GraphQL endpoint for PDP proof-set/data-retention and anon-retrieval queries | `https://api.goldsky.com/api/public/<project>/subgraphs/dealbot-subgraph/<version>/gn` |
+| `PDP_SUBGRAPH_ENDPOINT`       | PDP subgraph API endpoint for PDP proof-set/data-retention | `https://api.thegraph.com/subgraphs/filecoin/pdp` |
+| `SUBGRAPH_ENDPOINT`           | Subgraph GraphQL endpoint for anon-retrieval queries | `https://api.goldsky.com/api/public/<project>/subgraphs/dealbot-subgraph/<version>/gn` |
 
 ### Scheduling Configuration (pg-boss)
 

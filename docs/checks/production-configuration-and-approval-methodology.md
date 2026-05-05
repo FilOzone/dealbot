@@ -40,7 +40,7 @@ Relevant parameters include:
 
 | Parameter | Value | Notes |
 |-----------|-------|-------|
-| [`SUBGRAPH_ENDPOINT`](../environment-variables.md#subgraph_endpoint) | -     | Points at a Goldsky deployment of the dealbot-owned subgraph in [`apps/subgraph/`](../../apps/subgraph/) (package `@dealbot/subgraph`). |
+| [`PDP_SUBGRAPH_ENDPOINT`](../environment-variables.md#pdp_subgraph_endpoint) | TODO: fill this in | Uses the subgraph from [pdp-explorer](https://github.com/FilOzone/pdp-explorer). |
 | [`MIN_NUM_DATASETS_FOR_CHECKS`](../environment-variables.md#dataset-configuration) | 15    | Ensure there are enough datasets with pieces being added so that statistical significance for [Data Retention Fault Rate](#data-retention-fault-rate) can be achieved quicker. Note that on mainnet each dataset incurs 5 challenges[^1] per daily proof[^2]. With this many datasets, an SP can be approved for data retention after a faultless ~7 days even if the SP doesn't have other datasets. |
 
 See [How are data retention statistics/thresholds calculated?](#how-are-data-retention-statisticsthresholds-calculated) for more details.
