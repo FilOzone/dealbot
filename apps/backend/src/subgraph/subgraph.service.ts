@@ -133,9 +133,9 @@ export class SubgraphService {
       // candidate pool (which silently no-ops every anon retrieval job).
       this.logger.error({
         event: "subgraph_endpoint_not_configured",
-        message: "Cannot sample anonymous piece — no PDP subgraph endpoint configured",
+        message: "Cannot sample anonymous piece — no subgraph endpoint configured",
       });
-      throw new Error("No PDP subgraph endpoint configured");
+      throw new Error("No subgraph endpoint configured");
     }
 
     const query = buildSampleAnonPieceQuery(params.pool);
@@ -194,7 +194,7 @@ export class SubgraphService {
     attempt: number = 1,
   ): Promise<T> {
     if (!this.blockchainConfig.subgraphEndpoint) {
-      throw new Error("No PDP subgraph endpoint configured");
+      throw new Error("No subgraph endpoint configured");
     }
 
     try {
@@ -297,7 +297,7 @@ export class SubgraphService {
     attempt: number = 1,
   ): Promise<ProviderDataSetResponse["providers"]> {
     if (!this.blockchainConfig.subgraphEndpoint) {
-      throw new Error("No PDP subgraph endpoint configured");
+      throw new Error("No subgraph endpoint configured");
     }
 
     const variables = {
