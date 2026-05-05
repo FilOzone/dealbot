@@ -1,0 +1,23 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dealbot
+spec:
+  template:
+    spec:
+      initContainers:
+        - name: wait-for-dependencies
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              set -eu
+              until nc -z dealbot-postgres 5432; do
+                echo "waiting for Postgres"
+                sleep 2
+              done
+              until wget -T 5 -qO- http://dealbot-clickhouse:8123/ping | grep -qxF "Ok."; do
+                echo "waiting for ClickHouse"
+                sleep 2
+              done

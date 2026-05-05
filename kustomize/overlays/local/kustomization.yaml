@@ -17,6 +17,7 @@ patches:
   - path: web-service-nodeport.yaml
   - path: backend-configmap-local.yaml
   - path: backend-resources-local.yaml
+  - path: backend-startup-dependencies.yaml
   - path: web-env-local.yaml
 
 # Override images to use local tags
