@@ -4,6 +4,16 @@ This document is the intended **source of truth** for the events emitted by deal
 
 This document describes the expected flow and metrics. Items marked **TBD** are not yet implemented but will get reviewed and cleaned up as part of https://github.com/FilOzone/dealbot/issues/280.
 
+## Anonymous Retrieval Event Model
+
+The [Anonymous Retrieval check](./anon-retrievals.md) is a single-shot flow per piece: select → fetch piece → (optional) parse CAR + IPNI + block fetch → write one ClickHouse row.
+
+It is not modeled as a sequence of named lifecycle events. Instead it emits:
+
+- **Outcome metrics** when each step completes — see the [time](#time-related-metrics) and [status](#status-count-related-metrics) metric tables for `anonPieceRetrievalFirstByteMs`, `anonRetrievalCheckMs`, `anonRetrievalStatus`, `anonCarParseStatus`, `anonIpniStatus`, `anonBlockFetchStatus`, and friends.
+- **One row per attempt** in the `anon_retrieval_checks` [ClickHouse table](#clickhouse-tables), emitted even on abort or unexpected error.
+- **Structured log lines** (`anon_retrieval_started`, `anon_retrieval_completed`, `anon_retrieval_no_piece`, `anon_retrieval_car_validation_failed`, `anon_retrieval_clickhouse_insert_failed`) carrying a `retrievalId` so each row can be joined back to log evidence.
+
 ## Data Storage Event Model
 
 Below are the sequence of events for a [Data Storage check](./data-storage.md).  The Data Storage flow is used because it encapsulates a [Retrieval check](./retrievals.md) as well.
@@ -87,6 +97,10 @@ sequenceDiagram
 | <a id="dataStorageCheckMs"></a>`dataStorageCheckMs` | Data Storage | [`uploadToSpStart`](#uploadToSpStart) | [`ipfsRetrievalIntegrityChecked`](#ipfsRetrievalIntegrityChecked) | Duration of a Data Storage check | |
 | <a id="retrievalCheckMs"></a>`retrievalCheckMs` | Retrieval | Retrieval check start | [`ipfsRetrievalIntegrityChecked`](#ipfsRetrievalIntegrityChecked) | Duration of a Retrieval check | |
 | <a id="dataSetCreationMs"></a>`dataSetCreationMs` | Data-Set Creation | Data-set creation uploadToSpStart | Data-set creation pieceConfirmed | Duration of one data-set creation with confirmed piece (all using `createDataSetWithPiece`) | [`deal.service.ts`](../../apps/backend/src/deal/deal.service.ts) |
+| <a id="anonPieceRetrievalFirstByteMs"></a>`anonPieceRetrievalFirstByteMs` | Anonymous Retrieval | Piece fetch start | First byte received from `/piece/{pieceCid}` | Time to first byte for anonymous piece retrievals | [`anon-retrieval.service.ts`](../../apps/backend/src/retrieval-anon/anon-retrieval.service.ts) |
+| <a id="anonPieceRetrievalLastByteMs"></a>`anonPieceRetrievalLastByteMs` | Anonymous Retrieval | Piece fetch start | Last byte received from `/piece/{pieceCid}` | Total time to retrieve an anonymous piece | [`anon-retrieval.service.ts`](../../apps/backend/src/retrieval-anon/anon-retrieval.service.ts) |
+| <a id="anonPieceRetrievalThroughputBps"></a>`anonPieceRetrievalThroughputBps` | Anonymous Retrieval | n/a | n/a | `(bytesRetrieved / anonPieceRetrievalLastByteMs) * 1000` | [`anon-retrieval.service.ts`](../../apps/backend/src/retrieval-anon/anon-retrieval.service.ts) |
+| <a id="anonRetrievalCheckMs"></a>`anonRetrievalCheckMs` | Anonymous Retrieval | Anon retrieval check start | After CAR/IPNI/block-fetch validation completes (or on abort) | End-to-end anonymous retrieval check duration | [`anon-retrieval.service.ts`](../../apps/backend/src/retrieval-anon/anon-retrieval.service.ts) |
 
 
 ### Status Count Related Metrics
@@ -104,8 +118,13 @@ sequenceDiagram
 | <a id="ipfsRetrievalHttpResponseCode"></a>`ipfsRetrievalHttpResponseCode` | Data Storage, Retrieval | [`ipfsRetrievalLastByteReceived`](#ipfsRetrievalLastByteReceived) | `200`, `500`, `2xxSuccess`, `4xxClientError`, `5xxServerError`, `otherHttpStatusCodes`, `failure` | [`retrieval.service.ts`](../../apps/backend/src/retrieval/retrieval.service.ts) |
 | <a id="retrievalStatus"></a>`retrievalStatus` | Data Storage, Retrieval | [`ipfsRetrievalIntegrityChecked`](#ipfsRetrievalIntegrityChecked) | `success`, `failure.timedout`, `failure.other` from [Data Storage Sub-status meanings](./data-storage.md#sub-status-meanings). |  |
 | <a id="dataSetCreationStatus"></a>`dataSetCreationStatus` | Data-Set Creation | Not tied to an [event above](#event-list) but rather to data-set creation start (`pending`) and completion (`success`/`failure.*`) | `pending`, `success`, `failure.timedout`, `failure.other` | [`deal.service.ts`](../../apps/backend/src/deal/deal.service.ts) |
-| <a id="dataSetChallengeStatus"></a>`dataSetChallengeStatus` | Data Retention | Emitted on each [Data Retention Check](./data-retention.md) poll when a provider's confirmed proving-period totals advance (strictly positive deltas). Unit: **challenges** (period delta × `CHALLENGES_PER_PROVING_PERIOD = 5`). | `success` (challenges in successfully-proven periods), `failure` (challenges in faulted periods) | [`data-retention.service.ts`](../../apps/backend/src/data-retention/data-retention.service.ts) |
-| <a id="pdp_provider_estimated_overdue_periods"></a>`pdp_provider_estimated_overdue_periods` | Data Retention | Emitted on every [Data Retention Check](./data-retention.md) poll for every successfully processed provider. | Gauge value in proving periods (non-negative integer) | [`data-retention.service.ts`](../../apps/backend/src/data-retention/data-retention.service.ts) |
+| <a id="dataSetChallengeStatus"></a>`dataSetChallengeStatus` | Data Retention | Not tied to an [event above](#event-list) but rather to the periodic chain-checking done in the [Data Retention Check](./data-retention.md) | `success`, `failure` | [`data-retention.service.ts`](../../apps/backend/src/data-retention/data-retention.service.ts) |
+| <a id="pdp_provider_overdue_periods"></a>`pdp_provider_overdue_periods` | Data Retention | Emitted on every poll | Gauge value (estimated overdue periods) | [`data-retention.service.ts`](../../apps/backend/src/data-retention/data-retention.service.ts) |
+| <a id="anonRetrievalStatus"></a>`anonRetrievalStatus` | Anonymous Retrieval | After piece fetch completes (or on abort) | `success` (HTTP 2xx **and** CommP matches), `failure.http`, `failure.commp` (HTTP 2xx but bytes hashed to a different CID), `failure.aborted`, `failure.no_piece`. | [`anon-retrieval.service.ts`](../../apps/backend/src/retrieval-anon/anon-retrieval.service.ts) |
+| <a id="anonPieceHttpResponseCode"></a>`anonPieceHttpResponseCode` | Anonymous Retrieval | After piece fetch completes | `200`, `500`, `2xxSuccess`, `4xxClientError`, `5xxServerError`, `otherHttpStatusCodes`, `failure` (same classifier as [`ipfsRetrievalHttpResponseCode`](#ipfsRetrievalHttpResponseCode)) | [`anon-retrieval.service.ts`](../../apps/backend/src/retrieval-anon/anon-retrieval.service.ts) |
+| <a id="anonCarParseStatus"></a>`anonCarParseStatus` | Anonymous Retrieval | After CAR validation runs (skipped when piece fetch failed or piece is not IPFS-indexed) | `parseable`, `not_parseable` | [`anon-retrieval.service.ts`](../../apps/backend/src/retrieval-anon/anon-retrieval.service.ts) |
+| <a id="anonIpniStatus"></a>`anonIpniStatus` | Anonymous Retrieval | After CAR validation runs, **or** when piece fetch failed (records `skipped`) | `valid`, `invalid`, `skipped`, `error` | [`anon-retrieval.service.ts`](../../apps/backend/src/retrieval-anon/anon-retrieval.service.ts) |
+| <a id="anonBlockFetchStatus"></a>`anonBlockFetchStatus` | Anonymous Retrieval | After block-fetch sampling runs, **or** when piece fetch failed (records `skipped`) | `valid`, `invalid`, `skipped`, `error` | [`anon-retrieval.service.ts`](../../apps/backend/src/retrieval-anon/anon-retrieval.service.ts) |
 
 ## ClickHouse Tables
 
@@ -115,6 +134,7 @@ When `CLICKHOUSE_URL` is configured, dealbot writes one row per check result to 
 
 - **`data_storage_checks`** — one row written each time a deal is saved (on every status transition). Populated by [`deal.service.ts`](../../apps/backend/src/deal/deal.service.ts).
 - **`retrieval_checks`** — one row per retrieval attempt. Populated by [`retrieval.service.ts`](../../apps/backend/src/retrieval/retrieval.service.ts).
+- **`anon_retrieval_checks`** — one row per [Anonymous Retrieval check](./anon-retrievals.md) attempt; emitted even on abort or unexpected error. Populated by [`anon-retrieval.service.ts`](../../apps/backend/src/retrieval-anon/anon-retrieval.service.ts). See [Anonymous Retrieval § Result Recording](./anon-retrievals.md#result-recording) for column-level meanings.
 - **`data_retention_challenges`** — one row per provider per poll cycle. Populated by [`data-retention.service.ts`](../../apps/backend/src/data-retention/data-retention.service.ts).
 
 All tables share the primary key `(probe_location, sp_address, timestamp)`:

@@ -21,3 +21,5 @@ coverage/
 # per-package lockfiles are stray
 apps/*/pnpm-lock.yaml
 !pnpm-lock.yaml
+
+.tool-versions

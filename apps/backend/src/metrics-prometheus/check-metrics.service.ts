@@ -248,3 +248,66 @@ export class DataSetCreationCheckMetrics {
     this.dataSetCreationStatusCounter.inc({ ...labels, value });
   }
 }
+
+@Injectable()
+export class AnonRetrievalCheckMetrics {
+  constructor(
+    @InjectMetric("anonPieceRetrievalFirstByteMs")
+    private readonly firstByteMs: Histogram,
+    @InjectMetric("anonPieceRetrievalLastByteMs")
+    private readonly lastByteMs: Histogram,
+    @InjectMetric("anonPieceRetrievalThroughputBps")
+    private readonly throughputBps: Histogram,
+    @InjectMetric("anonRetrievalCheckMs")
+    private readonly checkMs: Histogram,
+    @InjectMetric("anonRetrievalStatus")
+    private readonly statusCounter: Counter,
+    @InjectMetric("anonPieceHttpResponseCode")
+    private readonly httpResponseCounter: Counter,
+    @InjectMetric("anonCarParseStatus")
+    private readonly carParseCounter: Counter,
+    @InjectMetric("anonIpniStatus")
+    private readonly ipniCounter: Counter,
+    @InjectMetric("anonBlockFetchStatus")
+    private readonly blockFetchCounter: Counter,
+  ) {}
+
+  observeFirstByteMs(labels: CheckMetricLabels, value: number | null | undefined): void {
+    observePositive(this.firstByteMs, labels, value);
+  }
+
+  observeLastByteMs(labels: CheckMetricLabels, value: number | null | undefined): void {
+    observePositive(this.lastByteMs, labels, value);
+  }
+
+  observeThroughput(labels: CheckMetricLabels, value: number | null | undefined): void {
+    observePositive(this.throughputBps, labels, value);
+  }
+
+  observeCheckDuration(labels: CheckMetricLabels, value: number | null | undefined): void {
+    observePositive(this.checkMs, labels, value);
+  }
+
+  recordStatus(labels: CheckMetricLabels, value: string): void {
+    this.statusCounter.inc({ ...labels, value });
+  }
+
+  recordHttpResponseCode(labels: CheckMetricLabels, statusCode: number): void {
+    this.httpResponseCounter.inc({
+      ...labels,
+      value: classifyHttpResponseCode(statusCode),
+    });
+  }
+
+  recordCarParseStatus(labels: CheckMetricLabels, parseable: boolean): void {
+    this.carParseCounter.inc({ ...labels, value: parseable ? "parseable" : "not_parseable" });
+  }
+
+  recordIpniStatus(labels: CheckMetricLabels, value: "valid" | "invalid" | "skipped" | "error"): void {
+    this.ipniCounter.inc({ ...labels, value });
+  }
+
+  recordBlockFetchStatus(labels: CheckMetricLabels, value: "valid" | "invalid" | "skipped" | "error"): void {
+    this.blockFetchCounter.inc({ ...labels, value });
+  }
+}
