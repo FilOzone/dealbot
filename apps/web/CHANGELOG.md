@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.2.0](https://github.com/FilOzone/dealbot/compare/web-v1.1.1...web-v1.2.0) (2026-05-05)
+
+
+### Features
+
+* **web:** add network switcher ([#472](https://github.com/FilOzone/dealbot/issues/472)) ([742c951](https://github.com/FilOzone/dealbot/commit/742c95136e1bf4def4f649413e6d05565ec03423))
+
+
+### Bug Fixes
+
+* make nullable entity fields explicitly typed ([#380](https://github.com/FilOzone/dealbot/issues/380)) ([872d444](https://github.com/FilOzone/dealbot/commit/872d4440102b5dcb85b1c5e02f5c84ea5aa23350))
+
+
+### Miscellaneous
+
+* **deps:** bump the npm-dependencies group across 1 directory with 7 updates ([#448](https://github.com/FilOzone/dealbot/issues/448)) ([7336ea2](https://github.com/FilOzone/dealbot/commit/7336ea2967b1e38937f373fc31847cbd4354d7e5))
+* remove per-package pnpm-lock.yaml ([#499](https://github.com/FilOzone/dealbot/issues/499)) ([63a37be](https://github.com/FilOzone/dealbot/commit/63a37be0e85f360996296d7575ceecbcd96df2cc))
+
 ## [1.1.1](https://github.com/FilOzone/dealbot/compare/web-v1.1.0...web-v1.1.1) (2026-03-22)
 
 
