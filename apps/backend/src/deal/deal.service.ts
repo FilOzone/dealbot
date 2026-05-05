@@ -226,6 +226,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     const addonSignal: AbortSignal = signal ? AbortSignal.any([signal, addonAbortCtrl.signal]) : addonAbortCtrl.signal;
     /** Wrapper object so TS preserves the union type across closure mutation. */
     const onStoredAddons: { promise: Promise<boolean> | null } = { promise: null };
+    let addonsAwaited = false;
     let storedError: Error | undefined;
 
     try {
@@ -436,6 +437,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       // wait for onStored handlers to complete
       if (onStoredAddons.promise != null) {
         const storedOk = await onStoredAddons.promise;
+        addonsAwaited = true;
         if (!storedOk) {
           throw storedError ?? new Error("Upload completion handlers failed");
         }
@@ -533,7 +535,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
 
       throw error;
     } finally {
-      if (onStoredAddons.promise != null) {
+      if (!addonsAwaited && onStoredAddons.promise != null) {
         const pending = onStoredAddons.promise;
         addonAbortCtrl.abort();
         await pending.catch(() => {});
