@@ -51,6 +51,21 @@ class ValidationError extends Error {
   }
 }
 
+/**
+ * Client for the dealbot-owned subgraph (driven by `SUBGRAPH_ENDPOINT`).
+ *
+ * Functionally a superset of `PDPSubgraphService`: it exposes the same
+ * `fetchSubgraphMeta` / `fetchProvidersWithDatasets` surface plus the new
+ * `sampleAnonPiece` query used by anonymous retrievals.
+ *
+ * The two services intentionally coexist while we migrate off the upstream
+ * pdp-explorer subgraph: `PDPSubgraphService` continues to drive the
+ * established data-retention path against `PDP_SUBGRAPH_ENDPOINT`, and
+ * `SubgraphService` is scoped to the new anonymous-retrieval flow only.
+ * Once the dealbot-owned subgraph has soaked in production, this service
+ * should become the single drop-in replacement for `PDPSubgraphService`
+ * and `PDP_SUBGRAPH_ENDPOINT` can be retired.
+ */
 @Injectable()
 export class SubgraphService {
   private readonly logger: Logger = new Logger(SubgraphService.name);

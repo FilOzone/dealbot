@@ -56,6 +56,15 @@ export const configValidationSchema = Joi.object({
   USE_ONLY_APPROVED_PROVIDERS: Joi.boolean().default(true),
   DEALBOT_DATASET_VERSION: Joi.string().optional(),
   MIN_NUM_DATASETS_FOR_CHECKS: Joi.number().integer().min(1).default(1),
+  // Two subgraph endpoints coexist intentionally to limit blast radius while we
+  // migrate off the upstream pdp-explorer subgraph:
+  //   - PDP_SUBGRAPH_ENDPOINT drives the established overdue-periods / data
+  //     retention path against the existing pdp-explorer subgraph.
+  //   - SUBGRAPH_ENDPOINT drives only the new anonymous-retrieval candidate
+  //     piece query against the dealbot-owned subgraph.
+  // Once the dealbot-owned subgraph has soaked in production we can drop
+  // PDP_SUBGRAPH_ENDPOINT and route everything through SUBGRAPH_ENDPOINT.
+  PDP_SUBGRAPH_ENDPOINT: Joi.string().uri().optional().allow(""),
   SUBGRAPH_ENDPOINT: Joi.string().uri().optional().allow(""),
 
   // Scheduling
@@ -177,7 +186,8 @@ export interface IBlockchainConfig {
   useOnlyApprovedProviders: boolean;
   dealbotDataSetVersion?: string;
   minNumDataSetsForChecks: number;
-  subgraphEndpoint?: string;
+  pdpSubgraphEndpoint?: string;
+  subgraphEndpoint?: string; // Endpoint of the dealbot-owned subgraph. Eventually replaces `pdpSubgraphEndpoint`
 }
 
 export interface ISchedulingConfig {
@@ -437,6 +447,7 @@ export function loadConfig(): IConfig {
       useOnlyApprovedProviders: process.env.USE_ONLY_APPROVED_PROVIDERS !== "false",
       dealbotDataSetVersion: process.env.DEALBOT_DATASET_VERSION,
       minNumDataSetsForChecks: Number.parseInt(process.env.MIN_NUM_DATASETS_FOR_CHECKS || "1", 10),
+      pdpSubgraphEndpoint: process.env.PDP_SUBGRAPH_ENDPOINT || "",
       subgraphEndpoint: process.env.SUBGRAPH_ENDPOINT || "",
     },
     scheduling: {
