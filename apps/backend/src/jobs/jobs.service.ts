@@ -71,10 +71,11 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     private readonly jobScheduleRepository: JobScheduleRepository,
     private readonly dealService: DealService,
     private readonly retrievalService: RetrievalService,
-    private readonly anonRetrievalService: AnonRetrievalService,
     private readonly walletSdkService: WalletSdkService,
     private readonly dataRetentionService: DataRetentionService,
     private readonly pieceCleanupService: PieceCleanupService,
+    private readonly anonRetrievalService: AnonRetrievalService,
+
     @InjectMetric("jobs_queued")
     private readonly jobsQueuedGauge: Gauge,
     @InjectMetric("jobs_retry_scheduled")
