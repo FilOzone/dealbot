@@ -1,7 +1,5 @@
 import { Injectable, Logger } from "@nestjs/common";
-import { ConfigService } from "@nestjs/config";
 import { toStructuredError } from "../common/logging.js";
-import type { IBlockchainConfig, IConfig } from "../config/app.config.js";
 import { Queries } from "./queries.js";
 import type { GraphQLResponse, ProviderDataSetResponse, ProvidersWithDataSetsOptions, SubgraphMeta } from "./types.js";
 import { validateProviderDataSetResponse, validateSubgraphMetaResponse } from "./types.js";
@@ -23,7 +21,6 @@ class ValidationError extends Error {
 @Injectable()
 export class PDPSubgraphService {
   private readonly logger: Logger = new Logger(PDPSubgraphService.name);
-  private readonly blockchainConfig: IBlockchainConfig;
 
   private static readonly MAX_PROVIDERS_PER_QUERY = 100;
   private static readonly MAX_CONCURRENT_REQUESTS = 50;
@@ -33,10 +30,6 @@ export class PDPSubgraphService {
 
   private requestTimestamps: number[] = [];
 
-  constructor(private readonly configService: ConfigService<IConfig, true>) {
-    this.blockchainConfig = this.configService.get<IBlockchainConfig>("blockchain");
-  }
-
   /**
    * Fetch subgraph metadata including the latest indexed block number
    *
@@ -44,15 +37,15 @@ export class PDPSubgraphService {
    * @returns Subgraph metadata with block number
    * @throws Error if endpoint is not configured or after MAX_RETRIES attempts
    */
-  async fetchSubgraphMeta(attempt: number = 1): Promise<SubgraphMeta> {
-    if (!this.blockchainConfig.pdpSubgraphEndpoint) {
+  async fetchSubgraphMeta(endpoint: string, attempt: number = 1): Promise<SubgraphMeta> {
+    if (!endpoint) {
       throw new Error("No PDP subgraph endpoint configured");
     }
 
     try {
       await this.enforceRateLimit();
 
-      const response = await fetch(this.blockchainConfig.pdpSubgraphEndpoint, {
+      const response = await fetch(endpoint, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -106,7 +99,7 @@ export class PDPSubgraphService {
           error: toStructuredError(error),
         });
         await new Promise((resolve) => setTimeout(resolve, delay));
-        return this.fetchSubgraphMeta(attempt + 1);
+        return this.fetchSubgraphMeta(endpoint, attempt + 1);
       }
 
       this.logger.error({
@@ -128,6 +121,7 @@ export class PDPSubgraphService {
    * @returns Array of providers with their data sets currently proving
    */
   async fetchProvidersWithDatasets(
+    endpoint: string,
     options: ProvidersWithDataSetsOptions,
   ): Promise<ProviderDataSetResponse["providers"]> {
     const { blockNumber, addresses } = options;
@@ -137,16 +131,17 @@ export class PDPSubgraphService {
     }
 
     if (addresses.length <= PDPSubgraphService.MAX_PROVIDERS_PER_QUERY) {
-      return this.fetchWithRetry(blockNumber, addresses);
+      return this.fetchWithRetry(endpoint, blockNumber, addresses);
     }
 
-    return this.fetchMultipleBatchesWithRateLimit(blockNumber, addresses);
+    return this.fetchMultipleBatchesWithRateLimit(endpoint, blockNumber, addresses);
   }
 
   /**
    * Fetch multiple batches with rate limiting and concurrency control
    */
   private async fetchMultipleBatchesWithRateLimit(
+    endpoint: string,
     blockNumber: number,
     addresses: string[],
   ): Promise<ProviderDataSetResponse["providers"]> {
@@ -161,7 +156,7 @@ export class PDPSubgraphService {
     for (let i = 0; i < batches.length; i += PDPSubgraphService.MAX_CONCURRENT_REQUESTS) {
       const batchGroup = batches.slice(i, i + PDPSubgraphService.MAX_CONCURRENT_REQUESTS);
 
-      const results = await Promise.all(batchGroup.map((batch) => this.fetchWithRetry(blockNumber, batch)));
+      const results = await Promise.all(batchGroup.map((batch) => this.fetchWithRetry(endpoint, blockNumber, batch)));
 
       allProviders.push(...results.flat());
     }
@@ -174,11 +169,12 @@ export class PDPSubgraphService {
    * Assuming initial request to be first attempt
    */
   private async fetchWithRetry(
+    endpoint: string,
     blockNumber: number,
     addresses: string[],
     attempt: number = 1,
   ): Promise<ProviderDataSetResponse["providers"]> {
-    if (!this.blockchainConfig.pdpSubgraphEndpoint) {
+    if (!endpoint) {
       throw new Error("No PDP subgraph endpoint configured");
     }
 
@@ -190,7 +186,7 @@ export class PDPSubgraphService {
     try {
       await this.enforceRateLimit();
 
-      const response = await fetch(this.blockchainConfig.pdpSubgraphEndpoint, {
+      const response = await fetch(endpoint, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -247,7 +243,7 @@ export class PDPSubgraphService {
           error: toStructuredError(error),
         });
         await new Promise((resolve) => setTimeout(resolve, delay));
-        return this.fetchWithRetry(blockNumber, addresses, attempt + 1);
+        return this.fetchWithRetry(endpoint, blockNumber, addresses, attempt + 1);
       }
 
       this.logger.error({

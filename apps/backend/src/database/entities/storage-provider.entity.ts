@@ -1,12 +1,23 @@
 import { Column, CreateDateColumn, Entity, Index, OneToMany, PrimaryColumn, UpdateDateColumn } from "typeorm";
+import { SUPPORTED_NETWORKS } from "../../common/constants.js";
+import type { Network } from "../../common/types.js";
 import { BigIntColumn } from "../helpers/bigint-column.js";
 import { Deal } from "./deal.entity.js";
 
 @Entity("storage_providers")
 @Index(["location", "isActive"])
+@Index(["network", "isActive"])
 export class StorageProvider {
   @PrimaryColumn()
   address!: string;
+
+  @PrimaryColumn({
+    name: "network",
+    type: "enum",
+    enum: [...SUPPORTED_NETWORKS],
+    enumName: "network_enum",
+  })
+  network!: Network;
 
   @BigIntColumn({ nullable: true })
   providerId: bigint | null;

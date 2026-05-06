@@ -1,4 +1,6 @@
 import { Column, CreateDateColumn, Entity, Index, PrimaryGeneratedColumn, UpdateDateColumn } from "typeorm";
+import { SUPPORTED_NETWORKS } from "../../common/constants.js";
+import type { Network } from "../../common/types.js";
 
 // `job_type` is stored as TEXT in Postgres, so legacy rows may still contain
 // values that are no longer scheduled for new work. Keep them in the entity
@@ -14,7 +16,7 @@ export type JobType =
   | "piece_cleanup";
 
 @Entity("job_schedule_state")
-@Index("job_schedule_state_job_type_sp_unique", ["jobType", "spAddress"], { unique: true })
+@Index("job_schedule_state_job_type_sp_network_unique", ["jobType", "spAddress", "network"], { unique: true })
 @Index("idx_job_schedule_state_next_run", ["nextRunAt"])
 export class JobScheduleState {
   @PrimaryGeneratedColumn("increment", { type: "bigint" })
@@ -25,6 +27,14 @@ export class JobScheduleState {
 
   @Column({ name: "sp_address", type: "text", default: "" })
   spAddress!: string;
+
+  @Column({
+    name: "network",
+    type: "enum",
+    enum: [...SUPPORTED_NETWORKS],
+    enumName: "network_enum",
+  })
+  network!: Network;
 
   @Column({ name: "interval_seconds" })
   intervalSeconds!: number;

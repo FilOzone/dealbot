@@ -125,7 +125,7 @@ describe("WalletSdkService", () => {
     });
     const other = makeProvider({ id: 22n, serviceProvider: "0xother" });
 
-    await service.syncProvidersToDatabase([inactive, active, other]);
+    await service.syncProvidersToDatabase([inactive, active, other], "calibration");
 
     expect(loggerMock.warn).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -146,11 +146,11 @@ describe("WalletSdkService", () => {
     expect(loggerMock.error).not.toHaveBeenCalled();
 
     const [entities, options] = repoMock.upsert.mock.calls[0];
-    expect(options).toEqual(expect.objectContaining({ conflictPaths: ["address"] }));
+    expect(options).toEqual(expect.objectContaining({ conflictPaths: ["address", "network"] }));
     expect(entities).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ address: "0xdup", providerId: 21n, name: "new" }),
-        expect.objectContaining({ address: "0xother", providerId: 22n }),
+        expect.objectContaining({ network: "calibration", address: "0xdup", providerId: 21n, name: "new" }),
+        expect.objectContaining({ network: "calibration", address: "0xother", providerId: 22n }),
       ]),
     );
   });
@@ -169,7 +169,7 @@ describe("WalletSdkService", () => {
       name: "inactive",
     });
 
-    await service.syncProvidersToDatabase([active, inactive]);
+    await service.syncProvidersToDatabase([active, inactive], "calibration");
 
     expect(loggerMock.warn).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -202,7 +202,7 @@ describe("WalletSdkService", () => {
       name: "second",
     });
 
-    await service.syncProvidersToDatabase([first, second]);
+    await service.syncProvidersToDatabase([first, second], "calibration");
 
     expect(loggerMock.error).toHaveBeenCalledWith(
       expect.objectContaining({
