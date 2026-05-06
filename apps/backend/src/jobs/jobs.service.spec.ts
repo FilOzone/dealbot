@@ -116,7 +116,11 @@ describe("JobsService schedule rows", () => {
 
     baseConfigValues = {
       app: { runMode: "both" } as IConfig["app"],
-      blockchain: { useOnlyApprovedProviders: false, minNumDataSetsForChecks: 1 } as IConfig["blockchain"],
+      blockchain: {
+        useOnlyApprovedProviders: false,
+        minNumDataSetsForChecks: 1,
+        network: "calibration",
+      } as IConfig["blockchain"],
       scheduling: {
         providersRefreshIntervalSeconds: 4 * 3600,
         dataRetentionPollIntervalSeconds: 3600,
@@ -643,7 +647,7 @@ describe("JobsService schedule rows", () => {
   it("uses approved-only filter when configured", async () => {
     baseConfigValues = {
       ...baseConfigValues,
-      blockchain: { useOnlyApprovedProviders: true } as IConfig["blockchain"],
+      blockchain: { useOnlyApprovedProviders: true, network: "calibration" } as IConfig["blockchain"],
     };
     configService = {
       get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
@@ -668,12 +672,14 @@ describe("JobsService schedule rows", () => {
     expect(jobScheduleRepositoryMock.upsertSchedule).toHaveBeenCalledWith(
       "providers_refresh",
       "",
+      "calibration",
       expect.any(Number),
       expect.any(Date),
     );
     expect(jobScheduleRepositoryMock.upsertSchedule).toHaveBeenCalledWith(
       "data_retention_poll",
       "",
+      "calibration",
       expect.any(Number),
       expect.any(Date),
     );

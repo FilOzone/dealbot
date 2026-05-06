@@ -9,6 +9,7 @@ import {
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from "typeorm";
+import { SUPPORTED_NETWORKS } from "../../common/constants.js";
 import type { Network } from "../../common/types.js";
 import { BigIntColumn } from "../helpers/bigint-column.js";
 import { type DealMetadata, DealStatus, IpniStatus, type ServiceType } from "../types.js";
@@ -24,7 +25,12 @@ export class Deal {
   @Column({ name: "sp_address" })
   spAddress: string;
 
-  @Column({ name: "network", type: "text" })
+  @Column({
+    name: "network",
+    type: "enum",
+    enum: [...SUPPORTED_NETWORKS],
+    enumName: "network_enum",
+  })
   network: Network;
 
   @Column({ name: "wallet_address" })

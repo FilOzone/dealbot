@@ -13,6 +13,11 @@ import { Network } from "../../common/types.js";
  * single-network deployment to an additional network must update their
  * `NETWORKS` config and re-run a providers_refresh to populate the
  * network-scoped rows for the newly added network.
+ *
+ * Operator runbook: `docs/runbooks/multi-network-migration.md` covers the
+ * pre-migration checklist (backup, env vars, stopping writers), running the
+ * migration, post-migration verification, expanding to a second network, and
+ * rollback semantics.
  */
 export class AddNetworkColumn1776790420000 implements MigrationInterface {
   name = "AddNetworkColumn1776790420000";
@@ -27,16 +32,31 @@ export class AddNetworkColumn1776790420000 implements MigrationInterface {
     }
 
     // -------------------------------------------------------------------------
+    // Create the shared Postgres enum type for network values. All four
+    // network-bearing tables reference this single type (mirrors TypeORM's
+    // `enumName: "network_enum"` on the entities), so adding/removing
+    // supported networks happens in one place.
+    // -------------------------------------------------------------------------
+    await queryRunner.query(`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'network_enum') THEN
+          CREATE TYPE network_enum AS ENUM (${SUPPORTED_NETWORKS.map((n) => `'${n}'`).join(", ")});
+        END IF;
+      END$$;
+    `);
+
+    // -------------------------------------------------------------------------
     // Add `network` columns first so composite PK/FK can reference them.
     // -------------------------------------------------------------------------
     await queryRunner.query(`
       ALTER TABLE storage_providers
-        ADD COLUMN IF NOT EXISTS network TEXT NOT NULL DEFAULT '${backfillNetwork}'
+        ADD COLUMN IF NOT EXISTS network network_enum NOT NULL DEFAULT '${backfillNetwork}'
     `);
 
     await queryRunner.query(`
       ALTER TABLE deals
-        ADD COLUMN IF NOT EXISTS network TEXT NOT NULL DEFAULT '${backfillNetwork}'
+        ADD COLUMN IF NOT EXISTS network network_enum NOT NULL DEFAULT '${backfillNetwork}'
     `);
 
     // -------------------------------------------------------------------------
@@ -98,7 +118,7 @@ export class AddNetworkColumn1776790420000 implements MigrationInterface {
     // -------------------------------------------------------------------------
     await queryRunner.query(`
       ALTER TABLE job_schedule_state
-        ADD COLUMN IF NOT EXISTS network TEXT NOT NULL DEFAULT '${backfillNetwork}'
+        ADD COLUMN IF NOT EXISTS network network_enum NOT NULL DEFAULT '${backfillNetwork}'
     `);
 
     await queryRunner.query(`
@@ -117,7 +137,7 @@ export class AddNetworkColumn1776790420000 implements MigrationInterface {
     // -------------------------------------------------------------------------
     await queryRunner.query(`
       ALTER TABLE data_retention_baselines
-        ADD COLUMN IF NOT EXISTS network TEXT NOT NULL DEFAULT '${backfillNetwork}'
+        ADD COLUMN IF NOT EXISTS network network_enum NOT NULL DEFAULT '${backfillNetwork}'
     `);
 
     await queryRunner.query(`
@@ -217,5 +237,9 @@ export class AddNetworkColumn1776790420000 implements MigrationInterface {
     // Finally, drop the network columns now that no constraint or index depends on them.
     await queryRunner.query(`ALTER TABLE deals DROP COLUMN IF EXISTS network`);
     await queryRunner.query(`ALTER TABLE storage_providers DROP COLUMN IF EXISTS network`);
+
+    // Drop the shared enum type once no column references it. We guard with
+    // IF EXISTS so a partial revert is idempotent.
+    await queryRunner.query(`DROP TYPE IF EXISTS network_enum`);
   }
 }

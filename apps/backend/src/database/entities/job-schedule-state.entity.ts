@@ -1,4 +1,5 @@
 import { Column, CreateDateColumn, Entity, Index, PrimaryGeneratedColumn, UpdateDateColumn } from "typeorm";
+import { SUPPORTED_NETWORKS } from "../../common/constants.js";
 import type { Network } from "../../common/types.js";
 
 // `job_type` is stored as TEXT in Postgres, so legacy rows may still contain
@@ -27,7 +28,12 @@ export class JobScheduleState {
   @Column({ name: "sp_address", type: "text", default: "" })
   spAddress!: string;
 
-  @Column({ name: "network", type: "text" })
+  @Column({
+    name: "network",
+    type: "enum",
+    enum: [...SUPPORTED_NETWORKS],
+    enumName: "network_enum",
+  })
   network!: Network;
 
   @Column({ name: "interval_seconds" })
