@@ -217,7 +217,7 @@ const metricProviders = [
   }),
   makeCounterProvider({
     name: "pullCheckProviderStatus",
-    help: "Raw SP-reported pull statuses observed by DealBot during polling",
+    help: "Terminal SP-reported pull status recorded once per check (intermediate polling statuses are not counted)",
     labelNames: ["checkType", "providerId", "providerName", "providerStatus", "value"] as const,
   }),
   makeHistogramProvider({
