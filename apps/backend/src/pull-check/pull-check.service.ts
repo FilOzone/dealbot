@@ -166,9 +166,6 @@ export class PullCheckService {
       });
     } catch (error) {
       this.pullCheckMetrics.recordStatus(labels, classifyFailureStatus(error));
-      if (requestSubmittedAt) {
-        this.pullCheckMetrics.observeCompletionLatencyMs(labels, Date.now() - requestSubmittedAt.getTime());
-      }
       throw error;
     } finally {
       if (prepared) {
