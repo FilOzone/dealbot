@@ -248,3 +248,45 @@ export class DataSetCreationCheckMetrics {
     this.dataSetCreationStatusCounter.inc({ ...labels, value });
   }
 }
+
+@Injectable()
+export class PullCheckCheckMetrics {
+  constructor(
+    @InjectMetric("pullCheckRequestLatencyMs")
+    private readonly pullCheckRequestLatencyMs: Histogram,
+    @InjectMetric("pullCheckCompletionLatencyMs")
+    private readonly pullCheckCompletionLatencyMs: Histogram,
+    @InjectMetric("pullCheckStatus")
+    private readonly pullCheckStatusCounter: Counter,
+    @InjectMetric("pullCheckProviderStatus")
+    private readonly pullCheckProviderStatusCounter: Counter,
+    @InjectMetric("pullCheckFirstByteMs")
+    private readonly pullCheckFirstByteMs: Histogram,
+    @InjectMetric("pullCheckThroughputBps")
+    private readonly pullCheckThroughputBps: Histogram,
+  ) {}
+
+  observeRequestLatencyMs(labels: CheckMetricLabels, value: number | null | undefined): void {
+    observePositive(this.pullCheckRequestLatencyMs, labels, value);
+  }
+
+  observeCompletionLatencyMs(labels: CheckMetricLabels, value: number | null | undefined): void {
+    observePositive(this.pullCheckCompletionLatencyMs, labels, value);
+  }
+
+  recordStatus(labels: CheckMetricLabels, value: string): void {
+    this.pullCheckStatusCounter.inc({ ...labels, value });
+  }
+
+  recordProviderStatus(labels: CheckMetricLabels, value: string): void {
+    this.pullCheckProviderStatusCounter.inc({ ...labels, value });
+  }
+
+  observeFirstByteMs(labels: CheckMetricLabels, value: number | null | undefined): void {
+    observePositive(this.pullCheckFirstByteMs, labels, value);
+  }
+
+  observeThroughputBps(labels: CheckMetricLabels, value: number | null | undefined): void {
+    observePositive(this.pullCheckThroughputBps, labels, value);
+  }
+}

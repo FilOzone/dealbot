@@ -296,6 +296,18 @@ export class WalletSdkService implements OnModuleInit {
   }
 
   /**
+   * Get the underlying Synapse-SDK viem client.
+   *
+   * Used by features that need to call low-level Synapse helpers (e.g. `pullPieces`
+   * from `@filoz/synapse-core/sp`) which require a viem `Client<Transport, Chain, Account>`.
+   * Returns `null` when chain integration is disabled or the client has not been
+   * initialized yet.
+   */
+  getSynapseClient(): unknown {
+    return this._synapseClient ?? null;
+  }
+
+  /**
    * Ensure wallet has sufficient allowances for operations.
    * Skipped in session key mode, deposits and operator approvals must be
    * done separately via the Safe multisig UI.

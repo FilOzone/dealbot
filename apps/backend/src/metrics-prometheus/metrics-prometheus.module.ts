@@ -11,6 +11,7 @@ import {
   DataSetCreationCheckMetrics,
   DataStorageCheckMetrics,
   DiscoverabilityCheckMetrics,
+  PullCheckCheckMetrics,
   RetrievalCheckMetrics,
 } from "./check-metrics.service.js";
 import { MetricsPrometheusInterceptor } from "./metrics-prometheus.interceptor.js";
@@ -196,6 +197,41 @@ const metricProviders = [
     help: "Data-set creation status counts",
     labelNames: ["checkType", "providerId", "providerName", "providerStatus", "value"] as const,
   }),
+  // Pull check metrics (docs/checks/pull-check.md)
+  makeHistogramProvider({
+    name: "pullCheckRequestLatencyMs",
+    help: "Time from pull request submission to SP request acknowledgement (ms)",
+    labelNames: ["checkType", "providerId", "providerName", "providerStatus"] as const,
+    buckets: [10, 50, 100, 500, 1000, 2000, 5000, 10000, 30000, 60000, 120000, 300000],
+  }),
+  makeHistogramProvider({
+    name: "pullCheckCompletionLatencyMs",
+    help: "Time from pull request submission to terminal SP pull status (ms)",
+    labelNames: ["checkType", "providerId", "providerName", "providerStatus"] as const,
+    buckets: [100, 500, 1000, 2000, 5000, 10000, 30000, 60000, 120000, 300000, 600000],
+  }),
+  makeCounterProvider({
+    name: "pullCheckStatus",
+    help: "Pull-check terminal status counts (success | failure.timedout | failure.other)",
+    labelNames: ["checkType", "providerId", "providerName", "providerStatus", "value"] as const,
+  }),
+  makeCounterProvider({
+    name: "pullCheckProviderStatus",
+    help: "Terminal SP-reported pull status recorded once per check (intermediate polling statuses are not counted)",
+    labelNames: ["checkType", "providerId", "providerName", "providerStatus", "value"] as const,
+  }),
+  makeHistogramProvider({
+    name: "pullCheckFirstByteMs",
+    help: "Time from pullPieces submission to the SP reading the first byte of the hosted-piece stream (ms)",
+    labelNames: ["checkType", "providerId", "providerName", "providerStatus"] as const,
+    buckets: [10, 50, 100, 250, 500, 1000, 2000, 5000, 10000, 30000, 60000, 120000],
+  }),
+  makeHistogramProvider({
+    name: "pullCheckThroughputBps",
+    help: "Pull-check throughput approximated as pieceSize / completionLatency in bytes per second",
+    labelNames: ["checkType", "providerId", "providerName", "providerStatus"] as const,
+    buckets: throughputBuckets,
+  }),
   // Data Retention Metrics
   makeCounterProvider({
     name: "dataSetChallengeStatus",
@@ -333,6 +369,7 @@ const metricProviders = [
     RetrievalCheckMetrics,
     DiscoverabilityCheckMetrics,
     DataSetCreationCheckMetrics,
+    PullCheckCheckMetrics,
     WalletBalanceCollector,
     // HTTP metrics interceptor
     {
@@ -347,6 +384,7 @@ const metricProviders = [
     RetrievalCheckMetrics,
     DiscoverabilityCheckMetrics,
     DataSetCreationCheckMetrics,
+    PullCheckCheckMetrics,
     WalletBalanceCollector,
   ],
 })

@@ -55,13 +55,47 @@ sequenceDiagram
 | <a id="ipfsRetrievalLastByteReceived"></a>`ipfsRetrievalLastByteReceived` | Last byte received from `/ipfs/{rootCid}`. | Data Storage, Retrieval | [`retrieval-addons.service.ts`](../../apps/backend/src/retrieval-addons/retrieval-addons.service.ts) (drives `ipfsRetrievalLastByteMs`) |
 | <a id="ipfsRetrievalIntegrityChecked"></a>`ipfsRetrievalIntegrityChecked` | Retrieved content matches expected CID (per-block sha256 hash verification via `createBlock`). Inline check at end of DAG traversal; no discrete event emission. | Data Storage, Retrieval | [`ipfs-block.strategy.ts`](../../apps/backend/src/retrieval-addons/strategies/ipfs-block.strategy.ts) |
 
+## Pull Check Event Model
+
+Below are the events for a [Pull Check](./pull-check.md). Pull checks reverse the data flow of the [Data Storage check](./data-storage.md): instead of dealbot uploading bytes, it asks the SP to pull bytes from a temporary `/api/piece/{pieceCid}` URL.
+
+### Pull Check Event Timeline
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant Dealbot
+  participant SP as PDP Storage Provider
+  participant RPC as Chain RPC Provider
+
+  Dealbot->>Dealbot: hostedPieceRegistered
+  Dealbot->>SP: pullRequestSubmitted (pullPieces)
+  SP-->>Dealbot: pullRequestAcknowledged
+  SP-->>Dealbot: hostedPieceFirstByteRead
+  Dealbot->>SP: pullStatusPolled (waitForPullPieces, repeated)
+  SP-->>Dealbot: pullTerminalStatusReported
+  Dealbot->>SP: directPieceFetchStarted (/piece/{cid})
+  SP-->>Dealbot: directPieceFetchCompleted
+  Dealbot-->>Dealbot: pullCheckIntegrityChecked
+```
+
+### Pull Check Event List
+
+| Event | Definition | Implemented | Source of truth |
+|------|------------|:------:|-----------------|
+| <a id="pullRequestSubmitted"></a>`pullRequestSubmitted` | Dealbot calls `pullPieces` against the SP for the registered piece CID. | Yes | [`pull-check.service.ts`](../../apps/backend/src/pull-check/pull-check.service.ts) |
+| <a id="pullRequestAcknowledged"></a>`pullRequestAcknowledged` | SP returns from `pullPieces` (success or non-terminal-failure). | Yes | [`pull-check.service.ts`](../../apps/backend/src/pull-check/pull-check.service.ts) |
+| <a id="hostedPieceFirstByteRead"></a>`hostedPieceFirstByteRead` | SP reads the first byte of `/api/piece/{pieceCid}` from dealbot. Recorded once per registration. | Yes | [`piece-source.controller.ts`](../../apps/backend/src/pull-check/piece-source.controller.ts) |
+| <a id="pullTerminalStatusReported"></a>`pullTerminalStatusReported` | SP reports a terminal pull status (`complete`, `failed`, ...) via `waitForPullPieces`. Intermediate poll statuses are not counted. | Yes | [`pull-check.service.ts`](../../apps/backend/src/pull-check/pull-check.service.ts) |
+| <a id="pullCheckIntegrityChecked"></a>`pullCheckIntegrityChecked` | Direct `/piece/{pieceCid}` fetch from the SP returns bytes whose recomputed pieceCid matches the expected CID. | Yes | [`pull-check.service.ts`](../../apps/backend/src/pull-check/pull-check.service.ts) |
+
 ## Metrics
 
 * Many of the metrics below are derived from the [events above](#event-list).
 * They are exported via Prometheus.
 * All Prometheus/OpenTelemetry metrics have label/attributes for:
    - `network=calibration|mainnet`
-   - `checkType=dataStorage|retrieval|dataRetention|dataSetCreation` — attribute metrics to a particular check/job
+   - `checkType=dataStorage|retrieval|dataRetention|dataSetCreation|pullCheck` — attribute metrics to a particular check/job
    - `providerId` — attribute metrics to a particular SP
    - `providerName` — human-readable name of the SP (defaults to `"unknown"` when not available)
    - `providerStatus=approved|unapproved` — attribute metrics to only approved SPs for example
@@ -87,6 +121,10 @@ sequenceDiagram
 | <a id="dataStorageCheckMs"></a>`dataStorageCheckMs` | Data Storage | [`uploadToSpStart`](#uploadToSpStart) | [`ipfsRetrievalIntegrityChecked`](#ipfsRetrievalIntegrityChecked) | Duration of a Data Storage check | |
 | <a id="retrievalCheckMs"></a>`retrievalCheckMs` | Retrieval | Retrieval check start | [`ipfsRetrievalIntegrityChecked`](#ipfsRetrievalIntegrityChecked) | Duration of a Retrieval check | |
 | <a id="dataSetCreationMs"></a>`dataSetCreationMs` | Data-Set Creation | Data-set creation uploadToSpStart | Data-set creation pieceConfirmed | Duration of one data-set creation with confirmed piece (all using `createDataSetWithPiece`) | [`deal.service.ts`](../../apps/backend/src/deal/deal.service.ts) |
+| <a id="pullCheckRequestLatencyMs"></a>`pullCheckRequestLatencyMs` | Pull | [`pullRequestSubmitted`](#pullRequestSubmitted) | [`pullRequestAcknowledged`](#pullRequestAcknowledged) | Time from `pullPieces` submission to SP request acknowledgement. | [`pull-check.service.ts`](../../apps/backend/src/pull-check/pull-check.service.ts) |
+| <a id="pullCheckCompletionLatencyMs"></a>`pullCheckCompletionLatencyMs` | Pull | [`pullRequestSubmitted`](#pullRequestSubmitted) | [`pullTerminalStatusReported`](#pullTerminalStatusReported) | Time from `pullPieces` submission to terminal SP pull status. Observed once on success and once on failure. | [`pull-check.service.ts`](../../apps/backend/src/pull-check/pull-check.service.ts) |
+| <a id="pullCheckFirstByteMs"></a>`pullCheckFirstByteMs` | Pull | [`pullRequestSubmitted`](#pullRequestSubmitted) | [`hostedPieceFirstByteRead`](#hostedPieceFirstByteRead) | Time from `pullPieces` submission to the SP reading the first byte of `/api/piece/{pieceCid}`. Skipped (no observation) when the SP serves the pull from a local cache and never fetches from dealbot. | [`pull-check.service.ts`](../../apps/backend/src/pull-check/pull-check.service.ts), [`piece-source.controller.ts`](../../apps/backend/src/pull-check/piece-source.controller.ts) |
+| <a id="pullCheckThroughputBps"></a>`pullCheckThroughputBps` | Pull | n/a | n/a | `(pieceSizeBytes / pullCheckCompletionLatencyMs) * 1000`. Upper-bound on actual transfer rate because `pullCheckCompletionLatencyMs` includes SP-side scheduling and dealbot's polling cadence. | [`pull-check.service.ts`](../../apps/backend/src/pull-check/pull-check.service.ts) |
 
 
 ### Status Count Related Metrics
@@ -106,6 +144,8 @@ sequenceDiagram
 | <a id="dataSetCreationStatus"></a>`dataSetCreationStatus` | Data-Set Creation | Not tied to an [event above](#event-list) but rather to data-set creation start (`pending`) and completion (`success`/`failure.*`) | `pending`, `success`, `failure.timedout`, `failure.other` | [`deal.service.ts`](../../apps/backend/src/deal/deal.service.ts) |
 | <a id="dataSetChallengeStatus"></a>`dataSetChallengeStatus` | Data Retention | Emitted on each [Data Retention Check](./data-retention.md) poll when a provider's confirmed proving-period totals advance (strictly positive deltas). Unit: **challenges** (period delta × `CHALLENGES_PER_PROVING_PERIOD = 5`). | `success` (challenges in successfully-proven periods), `failure` (challenges in faulted periods) | [`data-retention.service.ts`](../../apps/backend/src/data-retention/data-retention.service.ts) |
 | <a id="pdp_provider_estimated_overdue_periods"></a>`pdp_provider_estimated_overdue_periods` | Data Retention | Emitted on every [Data Retention Check](./data-retention.md) poll for every successfully processed provider. | Gauge value in proving periods (non-negative integer) | [`data-retention.service.ts`](../../apps/backend/src/data-retention/data-retention.service.ts) |
+| <a id="pullCheckStatus"></a>`pullCheckStatus` | Pull | When the [Pull Check](./pull-check.md) terminates (success after direct piece validation, or any failure). Recorded exactly once per check. | `success`, `failure.timedout`, `failure.other`. Failure classification follows [`classifyFailureStatus`](../../apps/backend/src/metrics-prometheus/check-metric-labels.ts) (timeout-keyed errors → `failure.timedout`, everything else → `failure.other`). | [`pull-check.service.ts`](../../apps/backend/src/pull-check/pull-check.service.ts) |
+| <a id="pullCheckProviderStatus"></a>`pullCheckProviderStatus` | Pull | When the SP reports a terminal pull status via `waitForPullPieces`. Recorded exactly once per check (intermediate poll statuses are not counted). | Raw SP-reported pull status, for example `complete`, `failed`, `not_found`. Use this to separate SP-side pull failures from dealbot-side validation failures. | [`pull-check.service.ts`](../../apps/backend/src/pull-check/pull-check.service.ts) |
 
 ## ClickHouse Tables
 
