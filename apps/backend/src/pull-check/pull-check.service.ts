@@ -2,16 +2,12 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { calculate, parse as parsePieceCid } from "@filoz/synapse-core/piece";
 import { pullPieces, waitForPullPieces } from "@filoz/synapse-core/sp";
-import { getDataSet } from "@filoz/synapse-core/warm-storage";
-import { Synapse } from "@filoz/synapse-sdk";
 import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import type { Account, Address, Chain, Client, Transport } from "viem";
 import { type ProviderJobContext, toStructuredError } from "../common/logging.js";
-import { createSynapseFromConfig } from "../common/synapse-factory.js";
-import type { IAppConfig, IBlockchainConfig, IConfig, IDatasetConfig, IJobsConfig } from "../config/app.config.js";
+import type { IAppConfig, IConfig, IDatasetConfig, IJobsConfig } from "../config/app.config.js";
 import { DataSourceService } from "../dataSource/dataSource.service.js";
-import { DealService } from "../deal/deal.service.js";
 import { HttpClientService } from "../http-client/http-client.service.js";
 import { buildCheckMetricLabels, classifyFailureStatus } from "../metrics-prometheus/check-metric-labels.js";
 import { PullCheckCheckMetrics } from "../metrics-prometheus/check-metrics.service.js";
@@ -25,8 +21,6 @@ type SynapseViemClient = Client<Transport, Chain, Account>;
 @Injectable()
 export class PullCheckService {
   private readonly logger = new Logger(PullCheckService.name);
-  private readonly blockchainConfig: IBlockchainConfig;
-  private sharedSynapse?: Synapse;
 
   constructor(
     private readonly configService: ConfigService<IConfig, true>,
@@ -34,25 +28,8 @@ export class PullCheckService {
     private readonly dataSourceService: DataSourceService,
     private readonly hostedPieceRegistry: HostedPieceRegistry,
     private readonly pullCheckMetrics: PullCheckCheckMetrics,
-    private readonly dealService: DealService,
     private readonly httpClientService: HttpClientService,
-  ) {
-    this.blockchainConfig = this.configService.get("blockchain", { infer: true });
-  }
-
-  async onModuleInit() {
-    this.sharedSynapse = await this.createSynapseInstance();
-    this.logger.log({
-      event: "pull_check_synapse_ready",
-      message: "Pull-check Synapse instance initialized",
-    });
-  }
-
-  async onModuleDestroy(): Promise<void> {
-    if (this.sharedSynapse) {
-      this.sharedSynapse = undefined;
-    }
-  }
+  ) {}
 
   /**
    * Resolve and validate provider eligibility for a pull check. Throws when
@@ -109,24 +86,17 @@ export class PullCheckService {
       const pieceCidParsed = parsePieceCid(pieceCidStr);
 
       const synapseClient = this.requireSynapseClient();
-      const synapse = this.sharedSynapse ?? (await this.createSynapseInstance());
-      const storage = await synapse.storage.createContext({
-        providerId: providerInfo.id,
-        metadata: this.dealService.getBaseDataSetMetadata(),
-      });
 
       // Resolve pull options for either the existing-dataset or new-dataset SP
       // pull pathway. `pullPieces` requires both dataSetId and clientDataSetId
       // when targeting an existing dataset; if either is unavailable we treat
       // the request as new-dataset and rely on the signed CreateDataSetAndAddPieces.
-      const dataSetId = storage.dataSetId;
-      const clientDataSetId = dataSetId ? (await getDataSet(synapseClient, { dataSetId }))?.clientDataSetId : undefined;
       const payee = providerInfo.payee as Address;
       const serviceURL = providerInfo.pdp.serviceURL;
       const pullPiecesOptions = {
         serviceURL,
         pieces: [{ pieceCid: pieceCidParsed, sourceUrl: prepared.sourceUrl }],
-        ...(dataSetId && clientDataSetId ? { dataSetId, clientDataSetId } : { payee }),
+        payee,
         signal,
       };
 
@@ -162,13 +132,6 @@ export class PullCheckService {
         throw new Error(`Storage provider failed to pull piece: status=${finalResponse.status}`);
       }
 
-      // We omit pieceMetadata: `IPFS_ROOT_CID` is meaningless for synthetic
-      // pull-check pieces and would corrupt downstream IPNI advertising.
-      const commitResult = await storage.commit({
-        pieces: pullPiecesOptions.pieces.map((p) => ({ pieceCid: p.pieceCid })),
-      });
-      signal?.throwIfAborted();
-
       const pieceValidated = await this.validateByDirectPieceFetch(providerInfo, pieceCidStr, logContext, signal);
       signal?.throwIfAborted();
       if (!pieceValidated) {
@@ -195,9 +158,6 @@ export class PullCheckService {
         event: "pull_check_completed",
         message: "Pull check completed",
         pieceCid: pieceCidStr,
-        dataSetId: commitResult.dataSetId.toString(),
-        pieceIds: commitResult.pieceIds.map((id) => id.toString()),
-        txHash: commitResult.txHash,
         requestLatencyMs,
         completionLatencyMs,
         firstByteMs,
@@ -327,27 +287,6 @@ export class PullCheckService {
       throw new Error("Synapse client unavailable: chain integration must be enabled for pull checks");
     }
     return client as SynapseViemClient;
-  }
-
-  private async createSynapseInstance(): Promise<Synapse> {
-    try {
-      const { synapse, isSessionKeyMode } = await createSynapseFromConfig(this.blockchainConfig);
-      if (isSessionKeyMode) {
-        this.logger.log({
-          event: "pull_check_synapse_session_key_init",
-          message: "Pull-check Synapse initialized with session key",
-          walletAddress: this.blockchainConfig.walletAddress,
-        });
-      }
-      return synapse;
-    } catch (error) {
-      this.logger.error({
-        event: "pull_check_synapse_init_failed",
-        message: "Failed to initialize Synapse for pull-check service",
-        error: toStructuredError(error),
-      });
-      throw error;
-    }
   }
 
   /**

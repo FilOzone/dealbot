@@ -8,13 +8,13 @@ For event and metric definitions used by the dashboard, see [Dealbot Events & Me
 
 ## Overview
 
-A "pull check" exercises the **storage provider pull-to-park pathway**: dealbot publishes a temporary piece at `/api/piece/{pieceCid}`, asks the SP to fetch (pull) and park it via the Synapse `pullPieces` API, waits for a terminal SP pull status, commits the pulled piece on-chain, and finally re-fetches the piece from the SP to verify byte-for-byte integrity.
+A "pull check" exercises the **storage provider pull-to-park pathway**: dealbot publishes a temporary piece at `/api/piece/{pieceCid}`, asks the SP to fetch (pull) and park it via the Synapse `pullPieces` API, waits for a terminal SP pull status, and finally re-fetches the piece from the SP to verify byte-for-byte integrity.
 
-The pull check answers a different question than the [Data Storage check](./data-storage.md): instead of *uploading* bytes to the SP, it asks the SP to *pull* bytes from a public URL. This validates an SP's outbound HTTP fetcher, the pull request lifecycle, and the resulting on-chain commit and retrieval surface.
+The pull check answers a different question than the [Data Storage check](./data-storage.md): instead of *uploading* bytes to the SP, it asks the SP to *pull* bytes from a public URL. This validates an SP's outbound HTTP fetcher, the pull request lifecycle, and retrieval surface.
 
 A successful pull check requires all [assertions in the table below](#what-gets-asserted) to pass. Failure occurs if any step fails or the job exceeds its max allowed time. Operational timeouts exist to prevent jobs from running indefinitely, but they are not quality assertions.
 
-> **Where results live:** Pull check results are exported to Prometheus and structured logs only. They are **not** persisted in Postgres or written to ClickHouse. Committed pull-check pieces are also **not** tracked in the `deals` table, so the [Piece Cleanup](../environment-variables.md#piece-cleanup) job will not garbage-collect them; they will accrue on the SP unless explicitly removed.
+> **Where results live:** Pull check results are exported to Prometheus and structured logs only. They are **not** persisted in Postgres or written to ClickHouse.
 
 ## What Gets Asserted
 
@@ -24,7 +24,6 @@ Each pull check asserts the following for every SP:
 |---|-----------|------------------|:---:|--------------------------------------------|:---:|
 | 1 | SP accepts the pull request | `pullPieces` returns without error and reports a non-terminal-failure status | 0 | [`pullCheckRequestLatencyMs`](./events-and-metrics.md#pullCheckRequestLatencyMs) | Yes |
 | 2 | SP reaches a terminal `complete` pull status | `waitForPullPieces` polls the SP until a terminal status is reported | Polling with delay until [`PULL_CHECK_JOB_TIMEOUT_SECONDS`](../environment-variables.md#pull_check_job_timeout_seconds) | [`pullCheckCompletionLatencyMs`](./events-and-metrics.md#pullCheckCompletionLatencyMs) | Yes |
-| 3 | SP records the piece on-chain | Synapse `storage.commit()` succeeds for the pulled piece | n/a | n/a (bounded by job timeout) | Yes |
 | 4 | SP serves the pulled piece via `/piece/{pieceCid}` | Re-fetch the bytes from the SP's PDP service URL and re-compute the piece CID | 0 | n/a (bounded by job timeout) | Yes |
 | 5 | All checks pass | Pull check is not marked successful until all assertions pass within the job timeout | n/a | [`pullCheckCompletionLatencyMs`](./events-and-metrics.md#pullCheckCompletionLatencyMs) | Yes |
 
@@ -37,9 +36,8 @@ flowchart TD
   Generate["Generate random piece + register hosted source<br/>at /api/piece/{pieceCid}"]
   Generate --> Submit["Submit pullPieces request to SP"]
   Submit --> Poll["Poll SP via waitForPullPieces<br/>until terminal pull status"]
-  Poll -->|complete| Commit["Synapse storage.commit() the pulled piece"]
+  Poll -->|complete| Validate["Direct /piece/{pieceCid} fetch from SP<br/>+ recompute pieceCid"]
   Poll -->|other terminal status| Fail["Mark pull check failed"]
-  Commit --> Validate["Direct /piece/{pieceCid} fetch from SP<br/>+ recompute pieceCid"]
   Validate -->|matches| Success["Mark pull check successful"]
   Validate -->|mismatch or fetch error| Fail
   Success --> Cleanup
@@ -72,13 +70,7 @@ When the SP fetches `/api/piece/{pieceCid}` for the first time, the controller s
 
 Source: [`piece-source.controller.ts`](../../apps/backend/src/pull-check/piece-source.controller.ts)
 
-### 4. Commit the piece on-chain
-
-When the terminal pull status is `complete`, dealbot calls `synapse.storage.commit({ pieces: [{ pieceCid }] })`. Pull-check pieces are committed without `pieceMetadata` because the synthetic content has no meaningful IPFS root CID and including a synthetic one would corrupt downstream IPNI advertising.
-
-A failure here marks the pull check as `failure.other` and aborts before validation.
-
-### 5. Direct piece-fetch validation
+### 4. Direct piece-fetch validation
 
 After commit, dealbot fetches `{serviceURL}/piece/{pieceCid}` from the SP, re-computes the piece CID over the response body, and compares it against the expected CID. A mismatch fails the pull check with `failure.other`. A network or HTTP error during validation also fails the check (transport errors are intentionally not retried).
 
@@ -86,7 +78,7 @@ Aborts (job timeout) propagate as throws and are classified as `failure.timedout
 
 Source: [`pull-check.service.ts` (`validateByDirectPieceFetch`)](../../apps/backend/src/pull-check/pull-check.service.ts)
 
-### 6. Cleanup
+### 5. Cleanup
 
 Whether the pull check succeeds or fails, the `finally` block:
 
@@ -104,11 +96,11 @@ A pull check has a single terminal status, recorded once per check via [`pullChe
 |--------|---------|
 | `success` | All five [assertions](#what-gets-asserted) passed within the job timeout. |
 | `failure.timedout` | The job was aborted because it exceeded `PULL_CHECK_JOB_TIMEOUT_SECONDS`, or the underlying error message indicates a timeout. |
-| `failure.other` | Any other failure: SP rejected the pull request, SP reached a non-`complete` terminal status, commit failed, or direct piece validation failed. |
+| `failure.other` | Any other failure: SP rejected the pull request, SP reached a non-`complete` terminal status, or direct piece validation failed. |
 
 Failures are classified by inspecting the error message; see [`classifyFailureStatus`](../../apps/backend/src/metrics-prometheus/check-metric-labels.ts) for the exact rule.
 
-In addition to the overall status, dealbot records the **raw SP-reported terminal pull status** via [`pullCheckProviderStatus`](./events-and-metrics.md#pullCheckProviderStatus) (for example `complete`, `failed`, `not_found`). This separates "SP said it failed" from "dealbot's downstream commit/validation failed" in dashboards.
+In addition to the overall status, dealbot records the **raw SP-reported terminal pull status** via [`pullCheckProviderStatus`](./events-and-metrics.md#pullCheckProviderStatus) (for example `complete`, `failed`, `not_found`). This separates "SP said it failed" from "dealbot's downstream validation failed" in dashboards.
 
 ## HTTP API
 
@@ -154,12 +146,9 @@ See also: [`docs/environment-variables.md`](../environment-variables.md) for the
 
 ### Why isn't the pull-check piece tracked in the `deals` table?
 
-Pull checks are intentionally isolated from the data-storage flow: they don't pass through `DealService.createDeal`, don't allocate a `Deal` entity. This keeps the pull-check signal independent of the data-storage success rate. The trade-off is that the [Piece Cleanup](../environment-variables.md#piece-cleanup) job will not garbage-collect committed pull-check pieces, so SPs accumulate them over time until removed manually.
+Pull checks are intentionally isolated from the data-storage flow: they don't pass through `DealService.createDeal`, don't allocate a `Deal` entity. This keeps the pull-check signal independent of the data-storage success rate.
 
 ### Why does a "cached pull" not record `pullCheckFirstByteMs`?
 
 If an SP previously pulled the same piece CID and serves the new pull request from a local cache, it will never fetch `/api/piece/{pieceCid}`, so dealbot has no first-byte timestamp to subtract. In that case dealbot skips the histogram observation rather than emit a misleading zero. Cached pulls are uncommon today because each pull check generates a fresh random piece, but the registry's first-byte capture is **idempotent** so retried pulls during a single check do not skew measurements either.
 
-### Why don't we set `pieceMetadata` on the commit?
-
-`IPFS_ROOT_CID` is meaningless for synthetic pull-check pieces; setting it would announce a fake provider record to IPNI and corrupt downstream discoverability for unrelated content. We pass only `{ pieceCid }` to `storage.commit()`.

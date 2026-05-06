@@ -74,7 +74,6 @@ sequenceDiagram
   SP-->>Dealbot: hostedPieceFirstByteRead
   Dealbot->>SP: pullStatusPolled (waitForPullPieces, repeated)
   SP-->>Dealbot: pullTerminalStatusReported
-  Dealbot->>RPC: pullCheckCommitted (storage.commit)
   Dealbot->>SP: directPieceFetchStarted (/piece/{cid})
   SP-->>Dealbot: directPieceFetchCompleted
   Dealbot-->>Dealbot: pullCheckIntegrityChecked
@@ -88,7 +87,6 @@ sequenceDiagram
 | <a id="pullRequestAcknowledged"></a>`pullRequestAcknowledged` | SP returns from `pullPieces` (success or non-terminal-failure). | Yes | [`pull-check.service.ts`](../../apps/backend/src/pull-check/pull-check.service.ts) |
 | <a id="hostedPieceFirstByteRead"></a>`hostedPieceFirstByteRead` | SP reads the first byte of `/api/piece/{pieceCid}` from dealbot. Recorded once per registration. | Yes | [`piece-source.controller.ts`](../../apps/backend/src/pull-check/piece-source.controller.ts) |
 | <a id="pullTerminalStatusReported"></a>`pullTerminalStatusReported` | SP reports a terminal pull status (`complete`, `failed`, ...) via `waitForPullPieces`. Intermediate poll statuses are not counted. | Yes | [`pull-check.service.ts`](../../apps/backend/src/pull-check/pull-check.service.ts) |
-| <a id="pullCheckCommitted"></a>`pullCheckCommitted` | Synapse `storage.commit()` succeeds for the pulled piece. | Yes | [`pull-check.service.ts`](../../apps/backend/src/pull-check/pull-check.service.ts) |
 | <a id="pullCheckIntegrityChecked"></a>`pullCheckIntegrityChecked` | Direct `/piece/{pieceCid}` fetch from the SP returns bytes whose recomputed pieceCid matches the expected CID. | Yes | [`pull-check.service.ts`](../../apps/backend/src/pull-check/pull-check.service.ts) |
 
 ## Metrics
@@ -146,8 +144,8 @@ sequenceDiagram
 | <a id="dataSetCreationStatus"></a>`dataSetCreationStatus` | Data-Set Creation | Not tied to an [event above](#event-list) but rather to data-set creation start (`pending`) and completion (`success`/`failure.*`) | `pending`, `success`, `failure.timedout`, `failure.other` | [`deal.service.ts`](../../apps/backend/src/deal/deal.service.ts) |
 | <a id="dataSetChallengeStatus"></a>`dataSetChallengeStatus` | Data Retention | Emitted on each [Data Retention Check](./data-retention.md) poll when a provider's confirmed proving-period totals advance (strictly positive deltas). Unit: **challenges** (period delta × `CHALLENGES_PER_PROVING_PERIOD = 5`). | `success` (challenges in successfully-proven periods), `failure` (challenges in faulted periods) | [`data-retention.service.ts`](../../apps/backend/src/data-retention/data-retention.service.ts) |
 | <a id="pdp_provider_estimated_overdue_periods"></a>`pdp_provider_estimated_overdue_periods` | Data Retention | Emitted on every [Data Retention Check](./data-retention.md) poll for every successfully processed provider. | Gauge value in proving periods (non-negative integer) | [`data-retention.service.ts`](../../apps/backend/src/data-retention/data-retention.service.ts) |
-| <a id="pullCheckStatus"></a>`pullCheckStatus` | Pull | When the [Pull Check](./pull-check.md) terminates (success after commit + direct piece validation, or any failure). Recorded exactly once per check. | `success`, `failure.timedout`, `failure.other`. Failure classification follows [`classifyFailureStatus`](../../apps/backend/src/metrics-prometheus/check-metric-labels.ts) (timeout-keyed errors → `failure.timedout`, everything else → `failure.other`). | [`pull-check.service.ts`](../../apps/backend/src/pull-check/pull-check.service.ts) |
-| <a id="pullCheckProviderStatus"></a>`pullCheckProviderStatus` | Pull | When the SP reports a terminal pull status via `waitForPullPieces`. Recorded exactly once per check (intermediate poll statuses are not counted). | Raw SP-reported pull status, for example `complete`, `failed`, `not_found`. Use this to separate SP-side pull failures from dealbot-side commit/validation failures. | [`pull-check.service.ts`](../../apps/backend/src/pull-check/pull-check.service.ts) |
+| <a id="pullCheckStatus"></a>`pullCheckStatus` | Pull | When the [Pull Check](./pull-check.md) terminates (success after direct piece validation, or any failure). Recorded exactly once per check. | `success`, `failure.timedout`, `failure.other`. Failure classification follows [`classifyFailureStatus`](../../apps/backend/src/metrics-prometheus/check-metric-labels.ts) (timeout-keyed errors → `failure.timedout`, everything else → `failure.other`). | [`pull-check.service.ts`](../../apps/backend/src/pull-check/pull-check.service.ts) |
+| <a id="pullCheckProviderStatus"></a>`pullCheckProviderStatus` | Pull | When the SP reports a terminal pull status via `waitForPullPieces`. Recorded exactly once per check (intermediate poll statuses are not counted). | Raw SP-reported pull status, for example `complete`, `failed`, `not_found`. Use this to separate SP-side pull failures from dealbot-side validation failures. | [`pull-check.service.ts`](../../apps/backend/src/pull-check/pull-check.service.ts) |
 
 ## ClickHouse Tables
 

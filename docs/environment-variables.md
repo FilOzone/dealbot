@@ -964,7 +964,7 @@ PULL_CHECKS_PER_SP_PER_HOUR=0.083
 - **Minimum**: `60`
 - **Enforced**: Yes (config validation)
 
-**Role**: Maximum runtime for a pull-check job before forced abort via `AbortController`. Bounds the polling window for terminal SP pull status, the on-chain commit, and the direct `/piece/{pieceCid}` re-fetch combined.
+**Role**: Maximum runtime for a pull-check job before forced abort via `AbortController`. Bounds the polling window for terminal SP pull status and the direct `/piece/{pieceCid}` re-fetch combined.
 
 **When to update**:
 
