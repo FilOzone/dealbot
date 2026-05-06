@@ -960,7 +960,7 @@ PULL_CHECKS_PER_SP_PER_HOUR=0.083
 
 - **Type**: `number` (seconds)
 - **Required**: No
-- **Default**: `360` (6 minutes)
+- **Default**: `300` (5 minutes)
 - **Minimum**: `60`
 - **Enforced**: Yes (config validation)
 

@@ -148,11 +148,11 @@ Cluster capacity (worker pool bound):
 - Worker concurrency (jobs at once) = `dealbot_worker_processes * PG_BOSS_LOCAL_CONCURRENCY`
 - Max sustainable SP count ≈ `(dealbot_worker_processes * PG_BOSS_LOCAL_CONCURRENCY * 60) / per_sp_execution_minutes_per_hour`
 
-Example (18 SPs, 4 deals/hr @ 5m, 6 retrievals/hr @ 2m, 5 dealbot workers, `PG_BOSS_LOCAL_CONCURRENCY=20`):
+Example (18 SPs, 4 deals/hr @ 5m, 6 retrievals/hr @ 2m, 1 / 24 piece cleanup/hr @ 5m, 1 pull check/hr @ 5m, 5 dealbot workers, `PG_BOSS_LOCAL_CONCURRENCY=20`):
 
-- Per-SP execution-minutes per hour = `4*5m + 6*2m = 32 execution-min/hr` (OK; 28 execution-min/hr headroom)
+- Per-SP execution-minutes per hour = `4*5m + 6*2m + 1/24*5m + 1*5m = 38 execution-min/hr` (OK; 22 execution-min/hr headroom)
 - Worker capacity minutes per hour = `5 * 20 * 60 = 6000 execution-min/hr`
-- Max sustainable SP count ≈ `6000 / 32 = 187 SPs`
+- Max sustainable SP count ≈ `6000 / 38 = 157 SPs`
 
 ## Staggering Multiple Deployments
 

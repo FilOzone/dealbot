@@ -97,7 +97,7 @@ export const configValidationSchema = Joi.object({
 
   // Pull Check
   PULL_CHECKS_PER_SP_PER_HOUR: Joi.number().min(0.001).max(20).default(1),
-  PULL_CHECK_JOB_TIMEOUT_SECONDS: Joi.number().min(60).default(360), // 6m max runtime for pull check jobs
+  PULL_CHECK_JOB_TIMEOUT_SECONDS: Joi.number().min(60).default(300), // 5m max runtime for pull check jobs
   PULL_CHECK_HOSTED_PIECE_TTL_SECONDS: Joi.number().min(60).default(900), // 15m hosted piece TTL
   PULL_CHECK_POLL_INTERVAL_SECONDS: Joi.number().min(1).default(10),
   PULL_CHECK_PIECE_SIZE_BYTES: Joi.number()
