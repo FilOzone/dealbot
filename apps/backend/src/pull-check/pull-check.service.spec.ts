@@ -1,4 +1,3 @@
-import type { Synapse } from "@filoz/synapse-sdk";
 import { ConfigService } from "@nestjs/config";
 import { Test, type TestingModule } from "@nestjs/testing";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -37,7 +36,6 @@ vi.mock("../common/synapse-factory.js", () => ({
 
 import { calculate } from "@filoz/synapse-core/piece";
 import { pullPieces, waitForPullPieces } from "@filoz/synapse-core/sp";
-import { getDataSet } from "@filoz/synapse-core/warm-storage";
 
 function makeProvider(overrides: Partial<PDPProviderEx> = {}): PDPProviderEx {
   return {
@@ -344,25 +342,6 @@ describe("PullCheckService", () => {
       // run reads it once to compute first-byte latency. Same shape suffices.
       registryMock.resolveAny.mockReturnValue(registration);
 
-      // Mock the synapse storage context returned by `synapse.storage.createContext`.
-      const commitResult = {
-        dataSetId: 7n,
-        pieceIds: [11n, 12n],
-        txHash: "0xtx",
-      };
-      const storage = {
-        dataSetId: 7n,
-        commit: vi.fn().mockResolvedValue(commitResult),
-      };
-      const sharedSynapse = {
-        storage: { createContext: vi.fn().mockResolvedValue(storage) },
-      } as unknown as Synapse;
-      // The service caches sharedSynapse in onModuleInit; emulate that here.
-      (service as unknown as { sharedSynapse: Synapse }).sharedSynapse = sharedSynapse;
-
-      vi.mocked(getDataSet).mockResolvedValue({ clientDataSetId: 99n } as unknown as Awaited<
-        ReturnType<typeof getDataSet>
-      >);
       vi.mocked(pullPieces).mockResolvedValue({ status: "pending" } as unknown as Awaited<
         ReturnType<typeof pullPieces>
       >);
@@ -375,11 +354,11 @@ describe("PullCheckService", () => {
       httpClientServiceMock.requestWithMetrics.mockResolvedValue({ data: Buffer.from("payload") });
       vi.mocked(calculate).mockReturnValue({ toString: () => "bafk-test-piece" } as ReturnType<typeof calculate>);
 
-      return { registration, storage, commitResult };
+      return { registration };
     }
 
     it("runs the full lifecycle, observes all metrics, and records success", async () => {
-      const { registration, storage } = arrangeHappyPath();
+      const { registration } = arrangeHappyPath();
 
       await service.runPullCheck("0xsp", undefined, logContext);
 
@@ -391,10 +370,6 @@ describe("PullCheckService", () => {
       // Terminal SP status recorded exactly once.
       expect(metricsMock.recordProviderStatus).toHaveBeenCalledTimes(1);
       expect(metricsMock.recordProviderStatus).toHaveBeenCalledWith(expect.any(Object), "complete");
-      // Commit was invoked with no per-piece metadata.
-      expect(storage.commit).toHaveBeenCalledWith({
-        pieces: [{ pieceCid: expect.any(Object) }],
-      });
       // First-byte and throughput observed since the registration carries
       // pullSubmittedAt + firstByteAt and the path completed.
       expect(metricsMock.observeFirstByteMs).toHaveBeenCalledTimes(1);
