@@ -8,6 +8,7 @@ import type { Repository } from "typeorm";
 import { type JobLogContext, type ProviderJobContext, toStructuredError } from "../common/logging.js";
 import { getMaintenanceWindowStatus } from "../common/maintenance-window.js";
 import { isSpBlocked } from "../common/sp-blocklist.js";
+import type { Network } from "../common/types.js";
 import type { IConfig, ISpBlocklistConfig } from "../config/app.config.js";
 import { DataRetentionService } from "../data-retention/data-retention.service.js";
 import type { JobType } from "../database/entities/job-schedule-state.entity.js";
@@ -26,15 +27,16 @@ function isSpJobType(jobType: string): jobType is SpJobType {
   return SP_JOB_TYPES.has(jobType);
 }
 
-type SpJobData = { jobType: SpJobType; spAddress: string; intervalSeconds: number };
-type ProvidersRefreshJobData = { intervalSeconds: number };
+type SpJobData = { jobType: SpJobType; spAddress: string; network: Network; intervalSeconds: number };
+type ProvidersRefreshJobData = { network: Network; intervalSeconds: number };
 type SpJob = Job<SpJobData>;
-type DataRetentionJobData = { intervalSeconds: number };
+type DataRetentionJobData = { network: Network; intervalSeconds: number };
 
 type ScheduleRow = {
   id: number;
   job_type: JobType;
   sp_address: string;
+  network: Network;
   interval_seconds: number;
   next_run_at: string;
 };
@@ -1171,9 +1173,14 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       row.job_type === "data_set_creation" ||
       row.job_type === "piece_cleanup"
     ) {
-      return { jobType: row.job_type, spAddress: row.sp_address, intervalSeconds: row.interval_seconds };
+      return {
+        jobType: row.job_type,
+        spAddress: row.sp_address,
+        network: row.network,
+        intervalSeconds: row.interval_seconds,
+      };
     }
-    return { intervalSeconds: row.interval_seconds };
+    return { network: row.network, intervalSeconds: row.interval_seconds };
   }
 
   /**

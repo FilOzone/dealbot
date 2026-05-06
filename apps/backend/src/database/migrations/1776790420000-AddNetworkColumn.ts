@@ -149,6 +149,18 @@ export class AddNetworkColumn1776790420000 implements MigrationInterface {
       ALTER TABLE data_retention_baselines
         ADD PRIMARY KEY (provider_address, network)
     `);
+
+    // -------------------------------------------------------------------------
+    // Drop DEFAULT clauses now that backfill is complete. Future writes must
+    // set `network` explicitly so a missing app code path fails loudly with a
+    // NOT NULL violation instead of silently inheriting the migration-time
+    // default (which is frozen at the legacy backfill network and would
+    // mislabel rows after the deployment expands to a second network).
+    // -------------------------------------------------------------------------
+    await queryRunner.query(`ALTER TABLE storage_providers ALTER COLUMN network DROP DEFAULT`);
+    await queryRunner.query(`ALTER TABLE deals ALTER COLUMN network DROP DEFAULT`);
+    await queryRunner.query(`ALTER TABLE job_schedule_state ALTER COLUMN network DROP DEFAULT`);
+    await queryRunner.query(`ALTER TABLE data_retention_baselines ALTER COLUMN network DROP DEFAULT`);
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {

@@ -300,6 +300,7 @@ describe("JobsService schedule rows", () => {
       data: {
         jobType: "deal",
         spAddress: "0xaaa",
+        network: "calibration",
         intervalSeconds: 60,
       },
     });
@@ -358,6 +359,7 @@ describe("JobsService schedule rows", () => {
       data: {
         jobType: "retrieval",
         spAddress: "0xaaa",
+        network: "calibration",
         intervalSeconds: 60,
       },
     });
@@ -393,6 +395,7 @@ describe("JobsService schedule rows", () => {
       data: {
         jobType: "retrieval",
         spAddress: "0xaaa",
+        network: "calibration",
         intervalSeconds: 60,
       },
     });
@@ -434,6 +437,7 @@ describe("JobsService schedule rows", () => {
         data: {
           jobType: "retrieval",
           spAddress: "0xaaa",
+          network: "calibration",
           intervalSeconds: 60,
         },
       }),
@@ -860,7 +864,7 @@ describe("JobsService schedule rows", () => {
       service,
       "deferJobForMaintenance",
       "deal",
-      { jobType: "deal", spAddress: "0xaaa", intervalSeconds: 60 },
+      { jobType: "deal", spAddress: "0xaaa", network: "calibration", intervalSeconds: 60 },
       maintenance,
       now,
     );
@@ -869,7 +873,7 @@ describe("JobsService schedule rows", () => {
     expect(safeSend).toHaveBeenCalledWith(
       "deal",
       "sp.work",
-      { jobType: "deal", spAddress: "0xaaa", intervalSeconds: 60 },
+      { jobType: "deal", spAddress: "0xaaa", network: "calibration", intervalSeconds: 60 },
       { startAfter: expectedResumeAt },
     );
   });
@@ -899,7 +903,7 @@ describe("JobsService schedule rows", () => {
       service,
       "deferJobForMaintenance",
       "retrieval",
-      { jobType: "retrieval", spAddress: "0xbbb", intervalSeconds: 60 },
+      { jobType: "retrieval", spAddress: "0xbbb", network: "calibration", intervalSeconds: 60 },
       maintenance,
       now,
     );
@@ -908,7 +912,7 @@ describe("JobsService schedule rows", () => {
     expect(safeSend).toHaveBeenCalledWith(
       "retrieval",
       "sp.work",
-      { jobType: "retrieval", spAddress: "0xbbb", intervalSeconds: 60 },
+      { jobType: "retrieval", spAddress: "0xbbb", network: "calibration", intervalSeconds: 60 },
       { startAfter: expectedResumeAt },
     );
   });
@@ -936,7 +940,7 @@ describe("JobsService schedule rows", () => {
 
     await callPrivate(service, "handleDealJob", {
       id: "job-deal-1",
-      data: { jobType: "deal", spAddress: "0xaaa", intervalSeconds: 60 },
+      data: { jobType: "deal", spAddress: "0xaaa", network: "calibration", intervalSeconds: 60 },
     });
 
     expect(dealService.createDealForProvider).toHaveBeenCalledTimes(1);
@@ -976,7 +980,7 @@ describe("JobsService schedule rows", () => {
 
     await callPrivate(service, "handleDealJob", {
       id: "job-deal-no-quota-gate",
-      data: { jobType: "deal", spAddress: "0xaaa", intervalSeconds: 60 },
+      data: { jobType: "deal", spAddress: "0xaaa", network: "calibration", intervalSeconds: 60 },
     });
 
     expect(pieceCleanupService.cleanupPiecesForProvider).not.toHaveBeenCalled();
@@ -1017,7 +1021,7 @@ describe("JobsService schedule rows", () => {
 
     await callPrivate(service, "handleDealJob", {
       id: "job-deal-2",
-      data: { jobType: "deal", spAddress: "0xaaa", intervalSeconds: 60 },
+      data: { jobType: "deal", spAddress: "0xaaa", network: "calibration", intervalSeconds: 60 },
     });
 
     expect(dealService.checkDataSetExists).toHaveBeenCalledWith(
@@ -1070,7 +1074,7 @@ describe("JobsService schedule rows", () => {
 
     await callPrivate(service, "handleDealJob", {
       id: "job-deal-3",
-      data: { jobType: "deal", spAddress: "0xaaa", intervalSeconds: 60 },
+      data: { jobType: "deal", spAddress: "0xaaa", network: "calibration", intervalSeconds: 60 },
     });
 
     expect(dealService.checkDataSetExists).toHaveBeenCalledWith(
@@ -1123,7 +1127,7 @@ describe("JobsService schedule rows", () => {
 
     await callPrivate(service, "handleDealJob", {
       id: "job-deal-4",
-      data: { jobType: "deal", spAddress: "0xaaa", intervalSeconds: 60 },
+      data: { jobType: "deal", spAddress: "0xaaa", network: "calibration", intervalSeconds: 60 },
     });
 
     expect(dealService.createDealForProvider).toHaveBeenCalledWith(
@@ -1178,7 +1182,7 @@ describe("JobsService schedule rows", () => {
 
     await callPrivate(service, "handleDealJob", {
       id: "job-deal-selection-abort",
-      data: { jobType: "deal", spAddress: "0xaaa", intervalSeconds: 60 },
+      data: { jobType: "deal", spAddress: "0xaaa", network: "calibration", intervalSeconds: 60 },
     });
 
     expect(dealService.createDealForProvider).not.toHaveBeenCalled();
@@ -1208,7 +1212,7 @@ describe("JobsService schedule rows", () => {
 
     await callPrivate(service, "handleDataSetCreationJob", {
       id: "job-ds-1",
-      data: { jobType: "data_set_creation", spAddress: "0xaaa", intervalSeconds: 3600 },
+      data: { jobType: "data_set_creation", spAddress: "0xaaa", network: "calibration", intervalSeconds: 3600 },
     });
 
     expect(dealService.createDataSetWithPiece).toHaveBeenCalledTimes(1);
@@ -1249,7 +1253,7 @@ describe("JobsService schedule rows", () => {
 
     await callPrivate(service, "handleDataSetCreationJob", {
       id: "job-ds-2",
-      data: { jobType: "data_set_creation", spAddress: "0xaaa", intervalSeconds: 3600 },
+      data: { jobType: "data_set_creation", spAddress: "0xaaa", network: "calibration", intervalSeconds: 3600 },
     });
 
     expect(dealService.createDataSetWithPiece).not.toHaveBeenCalled();
@@ -1289,7 +1293,7 @@ describe("JobsService schedule rows", () => {
 
     await callPrivate(service, "handleDataSetCreationJob", {
       id: "job-ds-3",
-      data: { jobType: "data_set_creation", spAddress: "0xaaa", intervalSeconds: 3600 },
+      data: { jobType: "data_set_creation", spAddress: "0xaaa", network: "calibration", intervalSeconds: 3600 },
     });
 
     // Only the first missing data set (index 0) should be created
@@ -1331,7 +1335,7 @@ describe("JobsService schedule rows", () => {
 
     await callPrivate(service, "handleDataSetCreationJob", {
       id: "job-ds-3b",
-      data: { jobType: "data_set_creation", spAddress: "0xaaa", intervalSeconds: 3600 },
+      data: { jobType: "data_set_creation", spAddress: "0xaaa", network: "calibration", intervalSeconds: 3600 },
     });
 
     // Should skip index 0 (exists) and create only index 1
@@ -1479,7 +1483,7 @@ describe("JobsService schedule rows", () => {
 
     await callPrivate(service, "handleDealJob", {
       id: "job-blocked-deal",
-      data: { jobType: "deal", spAddress: "0xaaa", intervalSeconds: 60 },
+      data: { jobType: "deal", spAddress: "0xaaa", network: "calibration", intervalSeconds: 60 },
     });
 
     expect(dealService.createDealForProvider).not.toHaveBeenCalled();
@@ -1503,7 +1507,7 @@ describe("JobsService schedule rows", () => {
 
     await callPrivate(service, "handleRetrievalJob", {
       id: "job-blocked-retrieval",
-      data: { jobType: "retrieval", spAddress: "0xaaa", intervalSeconds: 60 },
+      data: { jobType: "retrieval", spAddress: "0xaaa", network: "calibration", intervalSeconds: 60 },
     });
 
     expect(retrievalService.performRandomRetrievalForProvider).not.toHaveBeenCalled();
@@ -1531,7 +1535,7 @@ describe("JobsService schedule rows", () => {
 
     await callPrivate(service, "handleDataSetCreationJob", {
       id: "job-blocked-ds",
-      data: { jobType: "data_set_creation", spAddress: "0xaaa", intervalSeconds: 3600 },
+      data: { jobType: "data_set_creation", spAddress: "0xaaa", network: "calibration", intervalSeconds: 3600 },
     });
 
     expect(dealService.createDataSetWithPiece).not.toHaveBeenCalled();
@@ -1596,7 +1600,12 @@ describe("JobsService schedule rows", () => {
     for (const testCase of cases) {
       await callPrivate(testCase.service, testCase.handler, {
         id: `job-address-blocked-${testCase.jobType}`,
-        data: { jobType: testCase.jobType, spAddress: "0xaaa", intervalSeconds: testCase.intervalSeconds },
+        data: {
+          jobType: testCase.jobType,
+          spAddress: "0xaaa",
+          network: "calibration",
+          intervalSeconds: testCase.intervalSeconds,
+        },
       });
 
       testCase.expectCheckNotRun();
