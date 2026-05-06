@@ -24,16 +24,6 @@ vi.mock("@filoz/synapse-core/sp", () => ({
   waitForPullPieces: vi.fn(),
 }));
 
-vi.mock("@filoz/synapse-core/warm-storage", () => ({
-  getDataSet: vi.fn(),
-}));
-
-// `createSynapseFromConfig` is invoked from `onModuleInit`; the tests do not
-// run module init, but the import must resolve.
-vi.mock("../common/synapse-factory.js", () => ({
-  createSynapseFromConfig: vi.fn(),
-}));
-
 import { calculate } from "@filoz/synapse-core/piece";
 import { pullPieces, waitForPullPieces } from "@filoz/synapse-core/sp";
 
