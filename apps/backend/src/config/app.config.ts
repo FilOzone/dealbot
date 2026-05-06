@@ -44,7 +44,7 @@ export const configValidationSchema = Joi.object({
   DATABASE_NAME: Joi.string().required(),
 
   // Blockchain
-  NETWORK: Joi.string().valid("mainnet", "calibration").default("calibration"),
+  NETWORK: Joi.string().valid("mainnet", "calibration").required(),
   WALLET_ADDRESS: Joi.string().required(),
   WALLET_PRIVATE_KEY: Joi.string().optional().empty(""),
   RPC_URL: Joi.string()
@@ -347,7 +347,7 @@ export function loadConfig(): IConfig {
       database: process.env.DATABASE_NAME || "filecoin_dealbot",
     },
     blockchain: {
-      network: (process.env.NETWORK || "calibration") as Network,
+      network: process.env.NETWORK as Network,
       rpcUrl: process.env.RPC_URL || undefined,
       sessionKeyPrivateKey: (process.env.SESSION_KEY_PRIVATE_KEY || undefined) as `0x${string}` | undefined,
       walletAddress: process.env.WALLET_ADDRESS || "0x0000000000000000000000000000000000000000",

@@ -18,6 +18,7 @@ export type ScheduleRow = {
   id: number;
   job_type: JobType;
   sp_address: string;
+  network: Network;
   interval_seconds: number;
   next_run_at: string;
 };
@@ -142,7 +143,7 @@ export class JobScheduleRepository {
   ): Promise<ScheduleRow[]> {
     return manager.query(
       `
-      SELECT id, job_type, sp_address, interval_seconds, next_run_at
+      SELECT id, job_type, sp_address, network, interval_seconds, next_run_at
       FROM job_schedule_state
       WHERE paused = false
         AND next_run_at <= $1
