@@ -23,7 +23,7 @@ Each pull check asserts the following for every SP:
 | # | Assertion | How It's Checked | Retries | Relevant Metric for Setting a Max Duration | Implemented? |
 |---|-----------|------------------|:---:|--------------------------------------------|:---:|
 | 1 | SP accepts the pull request | `pullPieces` returns without error and reports a non-terminal-failure status | 0 | [`pullCheckRequestLatencyMs`](./events-and-metrics.md#pullCheckRequestLatencyMs) | Yes |
-| 2 | SP reaches a terminal `complete` pull status | `waitForPullPieces` polls the SP until a terminal status is reported | Polling with delay until [`PULL_CHECK_JOB_TIMEOUT_SECONDS`](../environment-variables.md#pull_check_job_timeout_seconds) | [`pullCheckCompletionLatencyMs`](./events-and-metrics.md#pullCheckCompletionLatencyMs) | Yes |
+| 2 | SP reaches a terminal `complete` pull status | `waitForPullStatus` polls the SP until a terminal status is reported | Polling with delay until [`PULL_CHECK_JOB_TIMEOUT_SECONDS`](../environment-variables.md#pull_check_job_timeout_seconds) | [`pullCheckCompletionLatencyMs`](./events-and-metrics.md#pullCheckCompletionLatencyMs) | Yes |
 | 4 | SP serves the pulled piece via `/piece/{pieceCid}` | Re-fetch the bytes from the SP's PDP service URL and re-compute the piece CID | 0 | n/a (bounded by job timeout) | Yes |
 | 5 | All checks pass | Pull check is not marked successful until all assertions pass within the job timeout | n/a | [`pullCheckCompletionLatencyMs`](./events-and-metrics.md#pullCheckCompletionLatencyMs) | Yes |
 
@@ -35,7 +35,7 @@ The dealbot scheduler triggers pull check jobs at a configurable rate (`PULL_CHE
 flowchart TD
   Generate["Generate random piece + register hosted source<br/>at /api/piece/{pieceCid}"]
   Generate --> Submit["Submit pullPieces request to SP"]
-  Submit --> Poll["Poll SP via waitForPullPieces<br/>until terminal pull status"]
+  Submit --> Poll["Poll SP via waitForPullStatus<br/>until terminal pull status"]
   Poll -->|complete| Validate["Direct /piece/{pieceCid} fetch from SP<br/>+ recompute pieceCid"]
   Poll -->|other terminal status| Fail["Mark pull check failed"]
   Validate -->|matches| Success["Mark pull check successful"]
@@ -64,7 +64,7 @@ Source: [`pull-check.service.ts` (`runPullCheck`)](../../apps/backend/src/pull-c
 
 ### 3. Wait for terminal SP pull status
 
-`waitForPullPieces` polls the SP at `PULL_CHECK_POLL_INTERVAL_SECONDS` until the SP reports a terminal status (`complete` or `failed`) or the job timeout fires. Dealbot increments the [`pullCheckProviderStatus`](./events-and-metrics.md#pullCheckProviderStatus) counter exactly once with the **terminal** status; intermediate poll statuses are not counted.
+`waitForPullStatus` polls the SP at `PULL_CHECK_POLL_INTERVAL_SECONDS` until the SP reports a terminal status (`complete` or `failed`) or the job timeout fires. Dealbot increments the [`pullCheckProviderStatus`](./events-and-metrics.md#pullCheckProviderStatus) counter exactly once with the **terminal** status; intermediate poll statuses are not counted.
 
 When the SP fetches `/api/piece/{pieceCid}` for the first time, the controller stamps a first-byte timestamp on the registration. This is the basis for [`pullCheckFirstByteMs`](./events-and-metrics.md#pullCheckFirstByteMs).
 

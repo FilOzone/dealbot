@@ -1,9 +1,9 @@
-import * as fs from "node:fs";
-import * as path from "node:path";
 import { calculate, parse as parsePieceCid } from "@filoz/synapse-core/piece";
-import { pullPieces, waitForPullPieces } from "@filoz/synapse-core/sp";
+import { pullPieces, waitForPullStatus } from "@filoz/synapse-core/sp";
 import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
+import * as fs from "node:fs";
+import * as path from "node:path";
 import type { Account, Address, Chain, Client, Transport } from "viem";
 import { type ProviderJobContext, toStructuredError } from "../common/logging.js";
 import type { IAppConfig, IConfig, IDatasetConfig, IJobsConfig } from "../config/app.config.js";
@@ -116,8 +116,8 @@ export class PullCheckService {
       });
 
       const jobsConfig = this.getJobsConfig();
-      // `waitForPullPieces` polls the SP repeatedly until a terminal pull status is reported
-      const finalResponse = await waitForPullPieces(synapseClient, {
+      // `waitForPullStatus` polls the SP repeatedly until a terminal pull status is reported
+      const finalResponse = await waitForPullStatus(synapseClient, {
         ...pullPiecesOptions,
         timeout: jobsConfig.pullCheckJobTimeoutSeconds * 1000,
         pollInterval: jobsConfig.pullCheckPollIntervalSeconds * 1000,
