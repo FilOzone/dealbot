@@ -21,7 +21,7 @@ import type { DataFile, Hex } from "../common/types.js";
 import type { IBlockchainConfig, IConfig } from "../config/app.config.js";
 import { Deal } from "../database/entities/deal.entity.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
-import { DealStatus, ServiceType } from "../database/types.js";
+import { DealStatus, IpniStatus, ServiceType } from "../database/types.js";
 import { DataSourceService } from "../dataSource/dataSource.service.js";
 import { DealAddonsService } from "../deal-addons/deal-addons.service.js";
 import type { DealPreprocessingResult } from "../deal-addons/types.js";
@@ -221,6 +221,14 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       ipfsRootCID: uploadPayload.rootCid.toString(),
     };
 
+    /** Cancels detached onStored addons when executeUpload fails. See #503. */
+    const addonAbortCtrl = new AbortController();
+    const addonSignal: AbortSignal = signal ? AbortSignal.any([signal, addonAbortCtrl.signal]) : addonAbortCtrl.signal;
+    /** Wrapper object so TS preserves the union type across closure mutation. */
+    const onStoredAddons: { promise: Promise<boolean> | null } = { promise: null };
+    let addonsAwaited = false;
+    let storedError: Error | undefined;
+
     try {
       // Load storageProvider relation
       deal.storageProvider = await this.storageProviderRepository.findOne({
@@ -253,8 +261,6 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
 
       deal.dataSetId = storage.dataSetId ?? null;
       deal.uploadStartTime = new Date();
-      let onStoredAddonsPromise: Promise<boolean> | null = null;
-      let storedError: Error | undefined;
 
       const uploadResult = await executeUpload(synapse, uploadPayload.carData, uploadPayload.rootCid, {
         logger: filecoinPinLogger,
@@ -333,8 +339,8 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
               uploadSucceeded = true;
               this.dataStorageMetrics.recordUploadStatus(providerLabels, "success");
               this.dataStorageMetrics.recordOnchainStatus(providerLabels, "pending");
-              onStoredAddonsPromise = this.dealAddonsService
-                .handleStored(deal, dealInput.appliedAddons, signal, dealLogContext)
+              onStoredAddons.promise = this.dealAddonsService
+                .handleStored(deal, dealInput.appliedAddons, addonSignal, dealLogContext)
                 .then(() => true)
                 .catch((error) => {
                   storedError = error;
@@ -429,9 +435,9 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       this.updateDealWithUploadResult(deal, uploadResult, uploadPayload.carData.length);
 
       // wait for onStored handlers to complete
-      if (onStoredAddonsPromise != null) {
-        const storedOk = await onStoredAddonsPromise;
-        onStoredAddonsPromise = null;
+      if (onStoredAddons.promise != null) {
+        const storedOk = await onStoredAddons.promise;
+        addonsAwaited = true;
         if (!storedOk) {
           throw storedError ?? new Error("Upload completion handlers failed");
         }
@@ -529,6 +535,15 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
 
       throw error;
     } finally {
+      if (!addonsAwaited && onStoredAddons.promise != null) {
+        const pending = onStoredAddons.promise;
+        addonAbortCtrl.abort();
+        await pending.catch(() => {});
+        if (deal.ipniStatus === IpniStatus.PENDING) {
+          /** Addon aborted before reaching terminal IpniStatus. Clear so this run doesn't depress sp_performance.ipni_success_rate. Leaves real FAILED/VERIFIED untouched. See #503. */
+          deal.ipniStatus = null;
+        }
+      }
       await this.saveDeal(deal, dealLogContext);
     }
   }
