@@ -1,9 +1,9 @@
+import * as fs from "node:fs";
+import * as path from "node:path";
 import { calculate, parse as parsePieceCid } from "@filoz/synapse-core/piece";
 import { pullPieces, waitForPullStatus } from "@filoz/synapse-core/sp";
 import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import * as fs from "node:fs";
-import * as path from "node:path";
 import type { Account, Address, Chain, Client, Transport } from "viem";
 import { type ProviderJobContext, toStructuredError } from "../common/logging.js";
 import type { IAppConfig, IConfig, IDatasetConfig, IJobsConfig } from "../config/app.config.js";
