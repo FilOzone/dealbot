@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.5.1](https://github.com/FilOzone/dealbot/compare/backend-v1.5.0...backend-v1.5.1) (2026-05-07)
+
+
+### Bug Fixes
+
+* revert back to old synapse version ([#512](https://github.com/FilOzone/dealbot/issues/512)) ([9ef0235](https://github.com/FilOzone/dealbot/commit/9ef0235cb437466e36e4e0493242e3c899b3ee33))
+
 ## [1.5.0](https://github.com/FilOzone/dealbot/compare/backend-v1.4.0...backend-v1.5.0) (2026-05-05)
 
 
