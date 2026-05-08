@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { setTimeout as setTimeoutAsync } from "node:timers/promises";
 import { METADATA_KEYS, SIZE_CONSTANTS, Synapse } from "@filoz/synapse-sdk";
 import { Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
@@ -763,14 +764,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       const remaining = timeoutMs - (Date.now() - start);
       if (remaining <= 0) break;
       const wait = Math.min(delay, remaining);
-      await new Promise<void>((resolve, reject) => {
-        const timer = setTimeout(resolve, wait);
-        const onAbort = () => {
-          clearTimeout(timer);
-          reject(signal?.reason ?? new Error("aborted"));
-        };
-        signal?.addEventListener("abort", onAbort, { once: true });
-      });
+      await setTimeoutAsync(wait, undefined, { signal });
       delay = Math.min(delay * 2, 8_000);
     }
     throw new Error(`Timeout waiting for FWSS pdpEndEpoch != 0 on dataSetId ${dataSetId.toString()}`);

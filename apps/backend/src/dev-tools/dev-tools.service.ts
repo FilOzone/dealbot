@@ -160,13 +160,20 @@ export class DevToolsService {
         },
       });
 
-      this.logger.log({
-        ...dealLogContext,
-        event: "background_deal_completed",
-        message: "Background deal completed successfully",
-        pieceCid: deal?.pieceCid,
-        skipped: deal === null,
-      });
+      if (deal === null) {
+        this.logger.log({
+          ...dealLogContext,
+          event: "background_deal_skipped",
+          message: "Background deal skipped (dataset unhealthy or repair pending)",
+        });
+      } else {
+        this.logger.log({
+          ...dealLogContext,
+          event: "background_deal_completed",
+          message: "Background deal completed successfully",
+          pieceCid: deal.pieceCid,
+        });
+      }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       this.logger.error({
