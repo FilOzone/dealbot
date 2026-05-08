@@ -1312,10 +1312,12 @@ describe("DealService", () => {
       vi.spyOn(mockWalletSdkService, "getProviderInfo").mockReturnValue({ id: 1n, name: "sp" } as any);
     });
 
-    it("terminates, polls pdpEndEpoch, and marks affected deals cleaned up in one transaction", async () => {
+    it("terminates, awaits receipt, polls pdpEndEpoch, and marks affected deals cleaned up in one transaction", async () => {
       const terminateMock = vi.fn().mockResolvedValue("0xhash");
+      const waitForReceiptMock = vi.fn().mockResolvedValue({ status: "success" });
       const synapseMock = {
         storage: { terminateDataSet: terminateMock },
+        client: { waitForTransactionReceipt: waitForReceiptMock },
       };
       vi.spyOn(service as any, "createSynapseInstance").mockImplementation(() => synapseMock as unknown as Synapse);
 
@@ -1332,12 +1334,76 @@ describe("DealService", () => {
       const result = await service.repairTerminatedDataSet("0xaaa", 9n, undefined, 5_000);
 
       expect(terminateMock).toHaveBeenCalledWith({ dataSetId: 9n });
+      expect(waitForReceiptMock).toHaveBeenCalledWith({ hash: "0xhash" });
       expect(updateFn).toHaveBeenCalledWith(
         { dataSetId: 9n, cleanedUp: false },
         expect.objectContaining({ cleanedUp: true, cleanedUpAt: expect.any(Date) }),
       );
       expect(result.dealsAffected).toBe(2);
       expect(result.pdpEndEpoch).toBe(12345n);
+    });
+
+    it("skips terminateDataSet when FWSS pdpEndEpoch is already non-zero (idempotent)", async () => {
+      const terminateMock = vi.fn();
+      const synapseMock = {
+        storage: { terminateDataSet: terminateMock },
+        client: { waitForTransactionReceipt: vi.fn() },
+      };
+      vi.spyOn(service as any, "createSynapseInstance").mockImplementation(() => synapseMock as unknown as Synapse);
+
+      mockWarmStorageService.getDataSet.mockResolvedValueOnce({ pdpEndEpoch: 999n });
+
+      const updateFn = vi.fn().mockResolvedValue({ affected: 1 });
+      const transactionMock = vi.fn(async (cb: any) => cb({ getRepository: () => ({ update: updateFn }) }));
+      Object.defineProperty(dealRepoMock, "manager", {
+        configurable: true,
+        value: { transaction: transactionMock },
+      });
+
+      const result = await service.repairTerminatedDataSet("0xaaa", 9n, undefined, 5_000);
+
+      expect(terminateMock).not.toHaveBeenCalled();
+      expect(updateFn).toHaveBeenCalled();
+      expect(result.pdpEndEpoch).toBe(999n);
+    });
+
+    it("treats already-terminated revert as a no-op and continues to cleanup", async () => {
+      const terminateMock = vi.fn().mockRejectedValue(new Error("Service already terminated"));
+      const synapseMock = {
+        storage: { terminateDataSet: terminateMock },
+        client: { waitForTransactionReceipt: vi.fn() },
+      };
+      vi.spyOn(service as any, "createSynapseInstance").mockImplementation(() => synapseMock as unknown as Synapse);
+
+      mockWarmStorageService.getDataSet.mockResolvedValueOnce({ pdpEndEpoch: 0n });
+      mockWarmStorageService.getDataSet.mockResolvedValueOnce({ pdpEndEpoch: 7n });
+
+      const updateFn = vi.fn().mockResolvedValue({ affected: 0 });
+      const transactionMock = vi.fn(async (cb: any) => cb({ getRepository: () => ({ update: updateFn }) }));
+      Object.defineProperty(dealRepoMock, "manager", {
+        configurable: true,
+        value: { transaction: transactionMock },
+      });
+
+      const result = await service.repairTerminatedDataSet("0xaaa", 9n, undefined, 5_000);
+
+      expect(terminateMock).toHaveBeenCalled();
+      expect(updateFn).toHaveBeenCalled();
+      expect(result.pdpEndEpoch).toBe(7n);
+    });
+  });
+
+  describe("isDataSetLive", () => {
+    it("rethrows non-terminal probe errors instead of classifying as terminated", async () => {
+      mockWarmStorageService.validateDataSet.mockRejectedValueOnce(new Error("ECONNREFUSED 127.0.0.1:8545"));
+      await expect(service.isDataSetLive(1n)).rejects.toThrow("ECONNREFUSED");
+    });
+
+    it("returns false only on the known not-live error message", async () => {
+      mockWarmStorageService.validateDataSet.mockRejectedValueOnce(
+        new Error("Data set 1 does not exist or is not live"),
+      );
+      await expect(service.isDataSetLive(1n)).resolves.toBe(false);
     });
   });
 

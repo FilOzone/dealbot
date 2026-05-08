@@ -633,7 +633,11 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
 
   /**
    * PDP-liveness probe via WarmStorage.validateDataSet.
-   * Returns false on either "not live" or "not managed" (treat as unhealthy).
+   *
+   * Returns true if PDP reports the dataset live and FWSS-managed.
+   * Returns false ONLY for the known terminal error string ("does not exist or is not live").
+   * Re-throws any other error (RPC failure, "not managed", unknown) so callers do not
+   * misclassify a transient probe failure as a terminated dataset.
    */
   async isDataSetLive(dataSetId: bigint, signal?: AbortSignal): Promise<boolean> {
     signal?.throwIfAborted();
@@ -643,18 +647,25 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       return true;
     } catch (error) {
       if (signal?.aborted) throw error;
-      return false;
+      const message = error instanceof Error ? error.message : String(error);
+      if (/does not exist or is not live/i.test(message)) {
+        return false;
+      }
+      throw error;
     }
   }
 
   /**
-   * Repair a PDP-terminated dataset (FWSS still has pdpEndEpoch=0).
+   * Repair a PDP-terminated dataset (FWSS may or may not have flipped pdpEndEpoch).
    *
-   * Sequence: terminateDataSet -> bounded poll for FWSS pdpEndEpoch != 0 ->
-   * mark every Deal row with this dataSetId as cleaned up in a single
-   * transaction. Idempotent on re-run: terminate may revert / no-op if FWSS
-   * has already flipped, and the cleanup update is filtered on
-   * cleaned_up=false.
+   * Idempotent sequence:
+   *   1. Read FWSS pdpEndEpoch. If already non-zero, skip the on-chain call.
+   *   2. Otherwise call terminateDataSet, wait for the tx receipt, then poll
+   *      FWSS pdpEndEpoch until non-zero. A revert that matches a known
+   *      already-terminated message is treated as a no-op and falls through
+   *      to the poll, so a partially-completed prior run can complete.
+   *   3. Mark every Deal row with this dataSetId as cleaned up in a single
+   *      transaction (filtered on cleaned_up=false, so re-runs do not double-write).
    */
   async repairTerminatedDataSet(
     providerAddress: string,
@@ -665,11 +676,55 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     signal?.throwIfAborted();
     const synapse = this.sharedSynapse ?? (await this.createSynapseInstance());
     const providerInfo = this.walletSdkService.getProviderInfo(providerAddress);
+    const { warmStorageService } = this.walletSdkService.getWalletServices();
 
-    await awaitWithAbort(synapse.storage.terminateDataSet({ dataSetId }), signal);
-    signal?.throwIfAborted();
-
-    const pdpEndEpoch = await this.waitForPdpEndEpoch(dataSetId, pollTimeoutMs, signal);
+    let pdpEndEpoch: bigint;
+    const existing = await awaitWithAbort(warmStorageService.getDataSet({ dataSetId }), signal);
+    if (existing != null && existing.pdpEndEpoch !== 0n) {
+      pdpEndEpoch = existing.pdpEndEpoch;
+      this.logger.log({
+        event: "dataset_already_terminated",
+        message: "FWSS pdpEndEpoch already set; skipping terminateDataSet",
+        providerAddress,
+        dataSetId: dataSetId.toString(),
+        pdpEndEpoch: pdpEndEpoch.toString(),
+      });
+    } else {
+      let txHash: `0x${string}` | undefined;
+      try {
+        txHash = await awaitWithAbort(synapse.storage.terminateDataSet({ dataSetId }), signal);
+      } catch (error) {
+        if (signal?.aborted) throw error;
+        const message = error instanceof Error ? error.message : String(error);
+        if (!/already.*terminat|service.*terminated|pdpEndEpoch.*set/i.test(message)) {
+          throw error;
+        }
+        this.logger.warn({
+          event: "dataset_terminate_already_handled",
+          message: "terminateDataSet reverted as already-terminated; continuing to poll",
+          providerAddress,
+          dataSetId: dataSetId.toString(),
+          revert: message,
+        });
+      }
+      signal?.throwIfAborted();
+      if (txHash != null) {
+        try {
+          await awaitWithAbort(synapse.client.waitForTransactionReceipt({ hash: txHash }), signal);
+        } catch (error) {
+          if (signal?.aborted) throw error;
+          this.logger.warn({
+            event: "dataset_terminate_receipt_wait_failed",
+            message: "Receipt wait failed; falling back to FWSS state poll",
+            providerAddress,
+            dataSetId: dataSetId.toString(),
+            txHash,
+            error: toStructuredError(error),
+          });
+        }
+      }
+      pdpEndEpoch = await this.waitForPdpEndEpoch(dataSetId, pollTimeoutMs, signal);
+    }
 
     const result = await this.dealRepository.manager.transaction(async (manager) => {
       const update = await manager
