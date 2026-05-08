@@ -23,7 +23,6 @@ export interface DeterministicBytesOptions {
 const AES_KEY_LENGTH = 32; // AES-256
 const AES_IV_LENGTH = 16; // AES-CTR IV
 const UINT64_BUFFER_LENGTH = 8;
-const MAX_BYTES = 10 * 1024 * 1024; // 10 MiB — default pull-check piece size
 
 @Injectable()
 export class DataSourceService {
@@ -265,7 +264,7 @@ export class DataSourceService {
   }
 
   private validateOptions(options: DeterministicBytesOptions): void {
-    const { key, bytesNeeded } = options;
+    const { key, bytesNeeded, size = bytesNeeded } = options;
 
     if (!key || typeof key !== "string" || key.trim().length === 0) {
       throw new Error("DeterministicRandom: `key` must be a non-empty string.");
@@ -275,14 +274,6 @@ export class DataSourceService {
       throw new Error("DeterministicRandom: `bytesNeeded` must be a positive integer.");
     }
 
-    if (bytesNeeded > MAX_BYTES) {
-      throw new Error(
-        `DeterministicRandom: \`bytesNeeded\` exceeds maximum allowed size of ${MAX_BYTES} bytes. ` +
-          `Split large requests into chunks.`,
-      );
-    }
-
-    const { size = 0 } = options;
     if (!Number.isInteger(size) || size < 0) {
       throw new Error("DeterministicRandom: `size` must be a non-negative integer.");
     }
