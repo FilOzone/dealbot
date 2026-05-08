@@ -84,7 +84,7 @@ Baselines are stored and compared in **periods**; the `dataSetChallengeStatus` c
 
 **Negative delta handling**: If either challenge delta is negative (due to chain reorgs, subgraph corrections, or data inconsistencies), the baseline is reset to current values without incrementing counters. This prevents stalled metrics.
 
-**Baseline persistence**: Baselines are persisted to the `data_retention_baselines` database table after each successful poll. On service restart, baselines are reloaded from the database to prevent metric inflation.
+**Baseline persistence**: Baselines are persisted to the `data_retention_baselines` database table after each successful provider update. Each poll reloads persisted baselines before computing deltas, so any worker pod that runs the poll uses the latest shared baseline.
 
 Source: [`data-retention.service.ts` (`processProvider`)](../../apps/backend/src/data-retention/data-retention.service.ts)
 
@@ -98,21 +98,22 @@ Source: [`data-retention.service.ts` (`safeIncrementCounter`)](../../apps/backen
 
 ## Baseline Persistence
 
-To prevent metric inflation across service restarts, dealbot persists provider baselines to the database.
+To prevent metric inflation across service restarts and worker-pod handoffs, dealbot persists provider baselines to the database.
 
 **Storage**: Baselines are stored in the `data_retention_baselines` table with columns for `provider_address`, `faulted_periods`, `success_periods`, `last_block_number`, and `updated_at`.
 
 **Lifecycle**:
 
-1. **On first poll**: Load all baselines from database into memory. If load fails, abort poll to prevent emitting inflated values.
+1. **At poll start**: Load all baselines from database into memory. If load fails, abort poll to prevent emitting inflated values.
 2. **First-seen provider**: If a provider has no prior baseline (not in memory or database), initialize its baseline to the current cumulative totals without emitting counters. This avoids a metric spike from the provider's full history.
-3. **On each poll**: After processing providers, persist updated baselines to database.
-4. **On restart**: Reload baselines from database. Delta computation resumes from last persisted state, preventing double-counting.
+3. **Per provider**: Compute the new baseline and any positive counter deltas.
+4. **Before counter emission**: Persist the new baseline to database. Only after the write succeeds does dealbot update the local map and increment `dataSetChallengeStatus`.
+5. **On restart or worker-pod handoff**: Reload baselines from database. Delta computation resumes from the last persisted state, preventing double-counting.
 
 **Error handling**:
 
 - **DB load failure**: Poll aborted, retry on next cycle
-- **DB persist failure**: Warning logged, in-memory state remains consistent
+- **DB persist failure**: Warning logged, counter increment skipped, in-memory baseline not advanced
 - **Stale provider cleanup**: Baselines deleted from both memory and database when providers are removed from active list
 
 Source: [`data-retention.service.ts` (`loadBaselinesFromDb`, `persistBaseline`)](../../apps/backend/src/data-retention/data-retention.service.ts), [`CreateDataRetentionBaselines` migration](../../apps/backend/src/database/migrations/1761500000002-CreateDataRetentionBaselines.ts)
@@ -258,14 +259,19 @@ flowchart TD
     CheckBaseline -->|No| InitBaseline[Initialize Baseline. No Metric Emission]
     InitBaseline --> PersistBaseline
     CheckBaseline -->|Yes| CalcDeltas[Calculate Deltas from Baseline]
-    CalcDeltas --> CheckDeltas{Deltas<br/>Positive?}
+    CalcDeltas --> CheckDeltas{Any Negative<br/>Delta?}
 
-    CheckDeltas -->|Negative| ResetBaseline[Reset Baseline. No Metric Update]
-    CheckDeltas -->|Positive| IncrementMetrics[Increment Prometheus Counters]
-    IncrementMetrics --> UpdateBaseline[Update Baseline in Memory]
+    CheckDeltas -->|Yes| ResetBaseline[Reset Baseline. No Metric Update]
+    CheckDeltas -->|No| PersistBaseline
     ResetBaseline --> PersistBaseline[Persist Baseline to DB]
-    UpdateBaseline --> PersistBaseline
-    PersistBaseline --> MoreBatches{More<br/>Batches?}
+    PersistBaseline --> CheckPersist{Persist<br/>Success?}
+    CheckPersist -->|Yes| UpdateBaseline[Update Baseline in Memory]
+    UpdateBaseline --> CheckEmit{Positive<br/>Deltas?}
+    CheckEmit -->|Yes| IncrementMetrics[Increment Prometheus Counters]
+    CheckEmit -->|No| MoreBatches
+    CheckPersist -->|No| MarkError[Mark Processing Error]
+    IncrementMetrics --> MoreBatches{More<br/>Batches?}
+    MarkError --> MoreBatches
 
     MoreBatches -->|Yes| BatchLoop
     MoreBatches -->|No| CheckErrors{Processing<br/>Errors?}
@@ -302,7 +308,7 @@ Providers may temporarily drop from the active list due to configuration changes
 
 ### What happens if the service restarts?
 
-Baselines are persisted to the database after each successful poll. On restart, the service loads all baselines from the database on the first poll, and delta computation resumes from the last persisted state. This prevents metric inflation (double-counting).
+Baselines are persisted to the database after each successful provider update. At the start of every poll, the service loads all baselines from the database, and delta computation resumes from the last persisted state. This prevents metric inflation when a process restarts or a different worker pod runs the next poll.
 
 **Example scenario:**
 
