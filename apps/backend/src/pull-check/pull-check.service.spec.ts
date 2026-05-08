@@ -1,15 +1,15 @@
+import { Readable } from "node:stream";
 import { ConfigService } from "@nestjs/config";
 import { Test, type TestingModule } from "@nestjs/testing";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { IConfig } from "../config/app.config.js";
 import { DataSourceService } from "../dataSource/dataSource.service.js";
-import { DealService } from "../deal/deal.service.js";
 import { HttpClientService } from "../http-client/http-client.service.js";
 import { PullCheckCheckMetrics } from "../metrics-prometheus/check-metrics.service.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
 import type { PDPProviderEx } from "../wallet-sdk/wallet-sdk.types.js";
-import { HostedPieceRegistry } from "./hosted-piece.registry.js";
 import { PullCheckService } from "./pull-check.service.js";
+import { PullPieceRepository } from "./pull-piece.repository.js";
 
 // `@filoz/synapse-core/piece` is mocked so that piece CIDs are deterministic
 // strings rather than real CID objects, keeping the tests fast and isolated
@@ -17,6 +17,7 @@ import { PullCheckService } from "./pull-check.service.js";
 vi.mock("@filoz/synapse-core/piece", () => ({
   parse: vi.fn((s: string) => ({ __parsed: s, toString: () => s })),
   calculate: vi.fn(() => ({ toString: () => "bafk-test-piece" })),
+  calculateFromIterable: vi.fn().mockResolvedValue("bafk-test-piece"),
 }));
 
 vi.mock("@filoz/synapse-core/sp", () => ({
@@ -48,6 +49,8 @@ describe("PullCheckService", () => {
   let dataSourceServiceMock: {
     generateRandomDataset: ReturnType<typeof vi.fn>;
     cleanupRandomDataset: ReturnType<typeof vi.fn>;
+    generateBytes: ReturnType<typeof vi.fn>;
+    generateBytesStream: ReturnType<typeof vi.fn>;
   };
   let registryMock: {
     register: ReturnType<typeof vi.fn>;
@@ -58,7 +61,6 @@ describe("PullCheckService", () => {
     markFirstByte: ReturnType<typeof vi.fn>;
     forget: ReturnType<typeof vi.fn>;
   };
-  let dealServiceMock: { getBaseDataSetMetadata: ReturnType<typeof vi.fn> };
   let httpClientServiceMock: { requestWithMetrics: ReturnType<typeof vi.fn> };
   let metricsMock: {
     observeRequestLatencyMs: ReturnType<typeof vi.fn>;
@@ -78,18 +80,17 @@ describe("PullCheckService", () => {
     dataSourceServiceMock = {
       generateRandomDataset: vi.fn(),
       cleanupRandomDataset: vi.fn(),
+      generateBytes: vi.fn().mockReturnValue(Buffer.alloc(10)),
+      generateBytesStream: vi.fn().mockReturnValue(Readable.from([Buffer.alloc(10)])),
     };
     registryMock = {
-      register: vi.fn(),
-      resolveAny: vi.fn().mockReturnValue(null),
-      resolveActive: vi.fn().mockReturnValue(null),
-      markCleanedUp: vi.fn(),
-      markPullSubmitted: vi.fn(),
-      markFirstByte: vi.fn(),
-      forget: vi.fn(),
-    };
-    dealServiceMock = {
-      getBaseDataSetMetadata: vi.fn().mockReturnValue({}),
+      register: vi.fn().mockResolvedValue(undefined),
+      resolveAny: vi.fn().mockResolvedValue(null),
+      resolveActive: vi.fn().mockResolvedValue(null),
+      markCleanedUp: vi.fn().mockResolvedValue(undefined),
+      markPullSubmitted: vi.fn().mockResolvedValue(undefined),
+      markFirstByte: vi.fn().mockResolvedValue(undefined),
+      forget: vi.fn().mockResolvedValue(undefined),
     };
     httpClientServiceMock = {
       requestWithMetrics: vi.fn(),
@@ -125,9 +126,8 @@ describe("PullCheckService", () => {
         { provide: ConfigService, useValue: configServiceMock },
         { provide: WalletSdkService, useValue: walletSdkServiceMock },
         { provide: DataSourceService, useValue: dataSourceServiceMock },
-        { provide: HostedPieceRegistry, useValue: registryMock },
+        { provide: PullPieceRepository, useValue: registryMock },
         { provide: PullCheckCheckMetrics, useValue: metricsMock },
-        { provide: DealService, useValue: dealServiceMock },
         { provide: HttpClientService, useValue: httpClientServiceMock },
       ],
     }).compile();
@@ -170,85 +170,26 @@ describe("PullCheckService", () => {
     });
   });
 
-  describe("prepareHostedPiece", () => {
-    it("generates a dataset, computes the piece CID, and registers the hosted piece", async () => {
-      dataSourceServiceMock.generateRandomDataset.mockResolvedValue({
-        name: "test.bin",
-        data: Buffer.from("hello"),
-        size: 5,
+  describe("preparePullPiece", () => {
+    it("generates deterministic bytes, computes the piece CID, and registers the pull piece", async () => {
+      const prepared = await service.preparePullPiece("0xsp");
+
+      expect(dataSourceServiceMock.generateBytesStream).toHaveBeenCalledWith({
+        providerAddress: "0xsp",
+        key: expect.any(String),
+        bytesNeeded: 1024,
       });
-
-      const prepared = await service.prepareHostedPiece();
-
-      expect(dataSourceServiceMock.generateRandomDataset).toHaveBeenCalledWith(1024, 1024);
-      expect(calculate).toHaveBeenCalledTimes(1);
       expect(prepared.registration.pieceCid).toBe("bafk-test-piece");
-      expect(prepared.registration.fileName).toBe("test.bin");
-      expect(prepared.registration.byteLength).toBe(5);
+      expect(prepared.registration.size).toBe(1024);
       expect(prepared.sourceUrl).toBe("https://dealbot.example/api/piece/bafk-test-piece");
       expect(registryMock.register).toHaveBeenCalledWith(prepared.registration);
     });
 
     it("falls back to host:port when apiPublicUrl is not configured", async () => {
       configValues.app = { host: "localhost", port: 3000 } as IConfig["app"];
-      dataSourceServiceMock.generateRandomDataset.mockResolvedValue({
-        name: "test.bin",
-        data: Buffer.from("hello"),
-        size: 5,
-      });
 
-      const prepared = await service.prepareHostedPiece();
+      const prepared = await service.preparePullPiece("0xsp");
       expect(prepared.sourceUrl).toBe("http://localhost:3000/api/piece/bafk-test-piece");
-    });
-  });
-
-  describe("cleanupHostedPiece", () => {
-    const baseEntry = {
-      pieceCid: "bafk-test-piece",
-      filePath: "/tmp/datasets/test.bin",
-      fileName: "test.bin",
-      byteLength: 5,
-      contentType: "application/octet-stream",
-      expiresAt: new Date(Date.now() + 60_000),
-      cleanedUp: false,
-    };
-
-    it("marks the registration cleaned up and removes the file", async () => {
-      registryMock.resolveAny.mockReturnValue({ ...baseEntry });
-
-      await service.cleanupHostedPiece(baseEntry.pieceCid);
-
-      expect(registryMock.markCleanedUp).toHaveBeenCalledWith(baseEntry.pieceCid);
-      expect(dataSourceServiceMock.cleanupRandomDataset).toHaveBeenCalledWith(baseEntry.fileName);
-      expect(registryMock.forget).toHaveBeenCalledWith(baseEntry.pieceCid);
-    });
-
-    it("skips file cleanup when the registration is already cleaned up", async () => {
-      registryMock.resolveAny.mockReturnValue({ ...baseEntry, cleanedUp: true });
-
-      await service.cleanupHostedPiece(baseEntry.pieceCid);
-
-      expect(registryMock.markCleanedUp).not.toHaveBeenCalled();
-      expect(dataSourceServiceMock.cleanupRandomDataset).not.toHaveBeenCalled();
-      expect(registryMock.forget).toHaveBeenCalledWith(baseEntry.pieceCid);
-    });
-
-    it("forgets the entry even when no registration exists", async () => {
-      registryMock.resolveAny.mockReturnValue(null);
-
-      await service.cleanupHostedPiece("missing");
-
-      expect(registryMock.markCleanedUp).not.toHaveBeenCalled();
-      expect(dataSourceServiceMock.cleanupRandomDataset).not.toHaveBeenCalled();
-      expect(registryMock.forget).toHaveBeenCalledWith("missing");
-    });
-
-    it("does not propagate cleanup errors so callers can rely on it in finally", async () => {
-      registryMock.resolveAny.mockReturnValue({ ...baseEntry });
-      dataSourceServiceMock.cleanupRandomDataset.mockRejectedValue(new Error("disk full"));
-
-      await expect(service.cleanupHostedPiece(baseEntry.pieceCid)).resolves.toBeUndefined();
-      expect(registryMock.forget).toHaveBeenCalledWith(baseEntry.pieceCid);
     });
   });
 
@@ -311,26 +252,21 @@ describe("PullCheckService", () => {
     const logContext = { jobId: "job-1", providerAddress: "0xsp", providerId: 42n, providerName: "test-sp" };
 
     function arrangeHappyPath() {
-      // Pre-stage a registration that prepareHostedPiece will install.
+      // Pre-stage a registration that preparePullPiece will install.
       const registration = {
         pieceCid: "bafk-test-piece",
-        filePath: "/tmp/datasets/test.bin",
-        fileName: "test.bin",
-        byteLength: 1024,
-        contentType: "application/octet-stream",
+        providerAddress: "0xsp",
+        key: "test-key",
+        size: 1024,
         expiresAt: new Date(Date.now() + 60_000),
         cleanedUp: false,
         pullSubmittedAt: new Date("2030-01-01T00:00:00Z"),
         firstByteAt: new Date("2030-01-01T00:00:00.250Z"),
       };
-      dataSourceServiceMock.generateRandomDataset.mockResolvedValue({
-        name: registration.fileName,
-        data: Buffer.alloc(registration.byteLength),
-        size: registration.byteLength,
-      });
+
       // After cleanup the resolveAny call returns the entry; before that the
       // run reads it once to compute first-byte latency. Same shape suffices.
-      registryMock.resolveAny.mockReturnValue(registration);
+      registryMock.resolveAny.mockResolvedValue(registration);
 
       vi.mocked(pullPieces).mockResolvedValue({ status: "pending" } as unknown as Awaited<
         ReturnType<typeof pullPieces>
@@ -368,15 +304,15 @@ describe("PullCheckService", () => {
       expect(metricsMock.observeThroughputBps).toHaveBeenCalledTimes(1);
       // Terminal aggregate status is success.
       expect(metricsMock.recordStatus).toHaveBeenCalledWith(expect.any(Object), "success");
-      // Cleanup ran exactly once.
-      expect(registryMock.markCleanedUp).toHaveBeenCalledWith(registration.pieceCid);
+
+      // Cleanup ran (forget called)
       expect(registryMock.forget).toHaveBeenCalledWith(registration.pieceCid);
     });
 
     it("does not observe firstByte when the SP never read from /api/piece (cached pull)", async () => {
       const { registration } = arrangeHappyPath();
       // Simulate a cached pull: SP never fetched from us.
-      registryMock.resolveAny.mockReturnValue({ ...registration, firstByteAt: undefined });
+      registryMock.resolveAny.mockResolvedValue({ ...registration, firstByteAt: undefined });
 
       await service.runPullCheck("0xsp", undefined, logContext);
 
@@ -413,9 +349,9 @@ describe("PullCheckService", () => {
     it("re-throws and runs cleanup when the validation step fails", async () => {
       arrangeHappyPath();
       // Force validation mismatch by returning a different recomputed CID.
-      vi.mocked(calculate)
-        .mockReturnValueOnce({ toString: () => "bafk-test-piece" } as ReturnType<typeof calculate>) // prepareHostedPiece
-        .mockReturnValueOnce({ toString: () => "bafk-mismatch" } as ReturnType<typeof calculate>); // validateByDirectPieceFetch
+      // preparePullPiece no longer calls calculate, it uses createPieceCIDStream.
+      // So the first call to calculate will be from validateByDirectPieceFetch.
+      vi.mocked(calculate).mockReturnValueOnce({ toString: () => "bafk-mismatch" } as ReturnType<typeof calculate>);
 
       await expect(service.runPullCheck("0xsp", undefined, logContext)).rejects.toThrow(/validation failed/);
       expect(metricsMock.recordStatus).toHaveBeenLastCalledWith(expect.any(Object), "failure.other");
@@ -444,10 +380,32 @@ describe("PullCheckService", () => {
     });
   });
 
-  describe("openHostedPieceStream", () => {
-    it("returns null when no active registration exists", () => {
-      registryMock.resolveActive.mockReturnValue(null);
-      expect(service.openHostedPieceStream("missing")).toBeNull();
+  describe("openPullPieceStream", () => {
+    it("returns null when no active registration exists", async () => {
+      registryMock.resolveActive.mockResolvedValue(null);
+      expect(await service.openPullPieceStream("missing")).toBeNull();
+    });
+
+    it("returns a stream when active registration exists", async () => {
+      const registration = {
+        pieceCid: "bafk-test-piece",
+        providerAddress: "0xsp",
+        key: "test-key",
+        size: 1024,
+        expiresAt: new Date(Date.now() + 60_000),
+        cleanedUp: false,
+      };
+      registryMock.resolveActive.mockResolvedValue(registration);
+
+      const result = await service.openPullPieceStream("bafk-test-piece");
+      expect(result).not.toBeNull();
+      expect(result?.registration).toEqual(registration);
+      expect(result?.stream).toBeDefined();
+      expect(dataSourceServiceMock.generateBytesStream).toHaveBeenCalledWith({
+        providerAddress: "0xsp",
+        key: "test-key",
+        bytesNeeded: 1024,
+      });
     });
   });
 });

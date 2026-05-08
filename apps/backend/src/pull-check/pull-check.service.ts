@@ -1,20 +1,20 @@
-import * as fs from "node:fs";
-import * as path from "node:path";
-import { calculate, parse as parsePieceCid } from "@filoz/synapse-core/piece";
+import * as crypto from "node:crypto";
+import { Readable } from "node:stream";
+import { calculate, calculateFromIterable, parse as parsePieceCid } from "@filoz/synapse-core/piece";
 import { pullPieces, waitForPullStatus } from "@filoz/synapse-core/sp";
 import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import type { Account, Address, Chain, Client, Transport } from "viem";
 import { type ProviderJobContext, toStructuredError } from "../common/logging.js";
-import type { IAppConfig, IConfig, IDatasetConfig, IJobsConfig } from "../config/app.config.js";
+import type { IAppConfig, IConfig, IJobsConfig } from "../config/app.config.js";
 import { DataSourceService } from "../dataSource/dataSource.service.js";
 import { HttpClientService } from "../http-client/http-client.service.js";
 import { buildCheckMetricLabels, classifyFailureStatus } from "../metrics-prometheus/check-metric-labels.js";
 import { PullCheckCheckMetrics } from "../metrics-prometheus/check-metrics.service.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
 import { PDPProviderEx } from "../wallet-sdk/wallet-sdk.types.js";
-import { HostedPieceRegistry } from "./hosted-piece.registry.js";
-import type { HostedPiecePrepared } from "./pull-check.types.js";
+import type { PullPiecePrepared, PullPieceRegistration } from "./pull-check.types.js";
+import { PullPieceRepository } from "./pull-piece.repository.js";
 
 type SynapseViemClient = Client<Transport, Chain, Account>;
 
@@ -26,7 +26,7 @@ export class PullCheckService {
     private readonly configService: ConfigService<IConfig, true>,
     private readonly walletSdkService: WalletSdkService,
     private readonly dataSourceService: DataSourceService,
-    private readonly hostedPieceRegistry: HostedPieceRegistry,
+    private readonly pullPieceRepository: PullPieceRepository,
     private readonly pullCheckMetrics: PullCheckCheckMetrics,
     private readonly httpClientService: HttpClientService,
   ) {}
@@ -56,7 +56,7 @@ export class PullCheckService {
 
   /**
    * Drive one pull check through its full lifecycle:
-   *   prepare hosted piece -> submit pull -> poll terminal SP status
+   *   prepare pull piece -> submit pull -> poll terminal SP status
    *     -> commit on dataset -> direct `/piece/:cid` validation -> cleanup.
    *
    * NOTE: Pull-check committed pieces are not tracked in the `deal` table, so
@@ -76,12 +76,12 @@ export class PullCheckService {
       providerIsApproved: providerInfo.isApproved,
     });
 
-    let prepared: HostedPiecePrepared | null = null;
+    let prepared: PullPiecePrepared | null = null;
     let requestSubmittedAt: Date | null = null;
 
     try {
       signal?.throwIfAborted();
-      prepared = await this.prepareHostedPiece();
+      prepared = await this.preparePullPiece(spAddress);
       const pieceCidStr = prepared.registration.pieceCid;
       const pieceCidParsed = parsePieceCid(pieceCidStr);
 
@@ -101,7 +101,7 @@ export class PullCheckService {
       };
 
       requestSubmittedAt = new Date();
-      this.hostedPieceRegistry.markPullSubmitted(pieceCidStr, requestSubmittedAt);
+      await this.pullPieceRepository.markPullSubmitted(pieceCidStr, requestSubmittedAt);
       const pullResponse = await pullPieces(synapseClient, pullPiecesOptions);
       signal?.throwIfAborted();
       const requestLatencyMs = Date.now() - requestSubmittedAt.getTime();
@@ -138,7 +138,7 @@ export class PullCheckService {
         throw new Error("Pull-check piece validation failed: SP did not serve the expected bytes");
       }
 
-      const firstByteEntry = this.hostedPieceRegistry.resolveAny(pieceCidStr);
+      const firstByteEntry = await this.pullPieceRepository.resolveAny(pieceCidStr);
       const firstByteMs =
         firstByteEntry?.firstByteAt && firstByteEntry?.pullSubmittedAt
           ? firstByteEntry.firstByteAt.getTime() - firstByteEntry.pullSubmittedAt.getTime()
@@ -149,7 +149,7 @@ export class PullCheckService {
       // Throughput approximated as pieceSize / completionLatency. This is an
       // upper-bound on actual transfer time because completionLatency includes
       // SP-side scheduling/queuing and our polling cadence.
-      const throughputBps = Math.round((prepared.registration.byteLength * 1000) / Math.max(completionLatencyMs, 1));
+      const throughputBps = Math.round((prepared.registration.size * 1000) / Math.max(completionLatencyMs, 1));
       this.pullCheckMetrics.observeThroughputBps(labels, throughputBps);
 
       this.pullCheckMetrics.recordStatus(labels, "success");
@@ -162,14 +162,14 @@ export class PullCheckService {
         completionLatencyMs,
         firstByteMs,
         throughputBps,
-        pieceSizeBytes: prepared.registration.byteLength,
+        pieceSizeBytes: prepared.registration.size,
       });
     } catch (error) {
       this.pullCheckMetrics.recordStatus(labels, classifyFailureStatus(error));
       throw error;
     } finally {
       if (prepared) {
-        await this.cleanupHostedPiece(prepared.registration.pieceCid);
+        await this.pullPieceRepository.forget(prepared.registration.pieceCid);
       }
     }
   }
@@ -217,16 +217,18 @@ export class PullCheckService {
    * Generate a synthetic test piece, compute its piece CID, register it for
    * `/api/piece/:pieceCid` serving, and return the source URL plus registration.
    */
-  async prepareHostedPiece(): Promise<HostedPiecePrepared> {
+  async preparePullPiece(providerAddress: string): Promise<PullPiecePrepared> {
     const jobsConfig = this.getJobsConfig();
-    const datasetConfig = this.configService.get<IDatasetConfig>("dataset");
     const targetSize = jobsConfig.pullCheckPieceSizeBytes;
+    const key = crypto.randomBytes(16).toString("hex");
 
-    const dataFile = await this.dataSourceService.generateRandomDataset(targetSize, targetSize);
-    const filePath = path.join(datasetConfig.localDatasetsPath, dataFile.name);
-    const dataBytes =
-      dataFile.data instanceof Uint8Array ? dataFile.data : new Uint8Array(dataFile.data as ArrayBufferLike);
-    const pieceCid = calculate(dataBytes);
+    const dataStream = this.dataSourceService.generateBytesStream({
+      providerAddress,
+      key,
+      bytesNeeded: targetSize,
+    });
+
+    const pieceCid = await calculateFromIterable(dataStream);
     const pieceCidStr = pieceCid.toString();
     const baseUrl = this.resolvePublicBaseUrl();
     const sourceUrl = `${baseUrl}/api/piece/${pieceCidStr}`;
@@ -234,38 +236,15 @@ export class PullCheckService {
 
     const registration = {
       pieceCid: pieceCidStr,
-      filePath,
-      fileName: dataFile.name,
-      byteLength: dataFile.size,
-      contentType: "application/octet-stream",
+      providerAddress,
+      key,
+      size: targetSize,
       expiresAt,
       cleanedUp: false,
     };
-    this.hostedPieceRegistry.register(registration);
+    await this.pullPieceRepository.register(registration);
 
     return { registration, sourceUrl };
-  }
-
-  /**
-   * Mark the hosted piece as cleaned up and remove the on-disk artifact. Safe
-   * to call multiple times.
-   */
-  async cleanupHostedPiece(pieceCid: string): Promise<void> {
-    const entry = this.hostedPieceRegistry.resolveAny(pieceCid);
-    if (entry && !entry.cleanedUp) {
-      this.hostedPieceRegistry.markCleanedUp(pieceCid);
-      try {
-        await this.dataSourceService.cleanupRandomDataset(entry.fileName);
-      } catch (error) {
-        this.logger.warn({
-          event: "pull_check_cleanup_warn",
-          message: "Failed to cleanup hosted piece artifact",
-          pieceCid,
-          error: toStructuredError(error),
-        });
-      }
-    }
-    this.hostedPieceRegistry.forget(pieceCid);
   }
 
   private getJobsConfig(): IJobsConfig {
@@ -287,17 +266,23 @@ export class PullCheckService {
   }
 
   /**
-   * Stream the hosted piece bytes for an active registration. Used by the
+   * Stream the pull piece bytes for an active registration. Used by the
    * `/api/piece/:pieceCid` controller. Returns null when no active registration
    * exists; callers must distinguish 404 from 410 using the registry directly.
    */
-  openHostedPieceStream(
+  async openPullPieceStream(
     pieceCid: string,
     now: Date = new Date(),
-  ): { registration: NonNullable<ReturnType<HostedPieceRegistry["resolveActive"]>>; stream: fs.ReadStream } | null {
-    const registration = this.hostedPieceRegistry.resolveActive(pieceCid, now);
+  ): Promise<{ registration: PullPieceRegistration; stream: Readable } | null> {
+    const registration = await this.pullPieceRepository.resolveActive(pieceCid, now);
     if (!registration) return null;
-    const stream = fs.createReadStream(registration.filePath);
+
+    const stream = this.dataSourceService.generateBytesStream({
+      providerAddress: registration.providerAddress,
+      key: registration.key,
+      bytesNeeded: registration.size,
+    });
+
     return { registration, stream };
   }
 }

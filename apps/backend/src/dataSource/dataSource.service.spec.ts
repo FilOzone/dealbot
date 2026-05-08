@@ -206,4 +206,69 @@ describe("DataSourceService", () => {
       await expect(fs.promises.access(regularFilePath).then(() => true)).resolves.toBe(true);
     });
   });
+
+  describe("Deterministic Generation", () => {
+    const providerAddress = "0x1234567890123456789012345678901234567890";
+    const key = "test-key";
+    const bytesNeeded = 1024;
+
+    describe("generateBytes", () => {
+      it("should generate deterministic bytes", () => {
+        const bytes1 = service.generateBytes({ providerAddress, key, bytesNeeded });
+        const bytes2 = service.generateBytes({ providerAddress, key, bytesNeeded });
+
+        expect(bytes1).toHaveLength(bytesNeeded);
+        expect(bytes1).toEqual(bytes2);
+      });
+
+      it("should generate different bytes for different keys", () => {
+        const bytes1 = service.generateBytes({ providerAddress, key: "key1", bytesNeeded });
+        const bytes2 = service.generateBytes({ providerAddress, key: "key2", bytesNeeded });
+
+        expect(bytes1).not.toEqual(bytes2);
+      });
+
+      it("should generate different bytes for different provider addresses", () => {
+        const bytes1 = service.generateBytes({ providerAddress: "0x1", key, bytesNeeded });
+        const bytes2 = service.generateBytes({ providerAddress: "0x2", key, bytesNeeded });
+
+        expect(bytes1).not.toEqual(bytes2);
+      });
+
+      it("should generate same prefix for different bytesNeeded if size is fixed", () => {
+        const bytes1 = service.generateBytes({ providerAddress, key, bytesNeeded: 512, size: 1024 });
+        const bytes2 = service.generateBytes({ providerAddress, key, bytesNeeded: 1024, size: 1024 });
+
+        expect(bytes1).toEqual(bytes2.subarray(0, 512));
+      });
+    });
+
+    describe("generateBytesStream", () => {
+      it("should generate same bytes as generateBytes", async () => {
+        const expected = service.generateBytes({ providerAddress, key, bytesNeeded });
+        const stream = service.generateBytesStream({ providerAddress, key, bytesNeeded });
+
+        const chunks: Buffer[] = [];
+        for await (const chunk of stream) {
+          chunks.push(chunk);
+        }
+        const result = Buffer.concat(chunks);
+
+        expect(result).toHaveLength(bytesNeeded);
+        expect(result).toEqual(expected);
+      });
+
+      it("should handle larger streams", async () => {
+        const largeSize = 128 * 1024; // 128 KB
+        const stream = service.generateBytesStream({ providerAddress, key, bytesNeeded: largeSize });
+
+        let totalLength = 0;
+        for await (const chunk of stream) {
+          totalLength += chunk.length;
+        }
+
+        expect(totalLength).toBe(largeSize);
+      });
+    });
+  });
 });
