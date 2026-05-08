@@ -20,11 +20,6 @@ export interface DeterministicBytesOptions {
   size?: number;
 }
 
-export interface DeterministicBytesResult {
-  bytes: Buffer;
-  derivedKey: Buffer;
-}
-
 const AES_KEY_LENGTH = 32; // AES-256
 const AES_IV_LENGTH = 16; // AES-CTR IV
 const UINT64_BUFFER_LENGTH = 8;
@@ -203,7 +198,6 @@ export class DataSourceService {
     }
   }
 
-  // Deterministic Random data generation
   /**
    * Generates a deterministic pseudo-random byte buffer from the provided seeds.
    *
