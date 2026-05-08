@@ -1,6 +1,7 @@
 import { Controller, Get, Logger, NotFoundException, Param, Res } from "@nestjs/common";
 import { ApiOperation, ApiResponse, ApiTags } from "@nestjs/swagger";
 import type { Response } from "express";
+import { PassThrough } from "node:stream";
 import { PullCheckService } from "./pull-check.service.js";
 import { PullPieceRepository } from "./pull-piece.repository.js";
 
@@ -21,12 +22,8 @@ export class PieceSourceController {
   ) {}
 
   @Get("piece/:pieceCid")
-  @ApiOperation({
-    summary: "Stream a temporary pull piece for an in-flight SP pull check",
-  })
   @ApiResponse({ status: 200, description: "Raw piece bytes streamed to the caller" })
   @ApiResponse({ status: 404, description: "No active pull piece exists for this pieceCid" })
-  @ApiResponse({ status: 410, description: "Pull piece existed but has expired or been cleaned up" })
   async servePiece(@Param("pieceCid") pieceCid: string, @Res() res: Response): Promise<void> {
     if (!pieceCid || pieceCid.trim().length === 0) {
       throw new NotFoundException("pieceCid is required");
@@ -34,17 +31,6 @@ export class PieceSourceController {
 
     const opened = await this.pullCheckService.openPullPieceStream(pieceCid);
     if (!opened) {
-      const known = await this.pullPieceRepository.resolveAny(pieceCid);
-      if (known) {
-        this.logger.warn({
-          event: "pull_check_piece_gone",
-          message: "Pull piece source no longer active",
-          pieceCid,
-          expiresAt: known.expiresAt.toISOString(),
-        });
-        res.status(410).send("Pull piece source has expired or been cleaned up");
-        return;
-      }
       this.logger.warn({
         event: "pull_check_piece_unknown",
         message: "Pull piece source not found",
@@ -73,10 +59,13 @@ export class PieceSourceController {
       }
       res.destroy(error);
     });
+
+    const pt = new PassThrough();
     // Capture the first-byte timestamp before piping (fire-and-forget DB write)
-    stream.once("data", () => {
+    pt.once("data", () => {
       void this.pullPieceRepository.markFirstByte(pieceCid, new Date());
     });
-    stream.pipe(res);
+
+    stream.pipe(pt).pipe(res);
   }
 }

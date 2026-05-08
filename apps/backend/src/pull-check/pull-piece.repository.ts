@@ -7,7 +7,7 @@ import type { PullPieceRegistration } from "./pull-check.types.js";
 /**
  * Postgres-backed registry of hosted piece sources backing pull-check requests.
  *
- * Persisting to the `hosted_pieces` table allows the API pod(s) to resolve
+ * Persisting to the `pull_pieces` table allows the API pod(s) to resolve
  * registrations created by a separate worker pod in split-process deployments.
  */
 @Injectable()
@@ -26,7 +26,6 @@ export class PullPieceRepository {
         providerAddress: registration.providerAddress,
         key: registration.key,
         size: registration.size,
-        expiresAt: registration.expiresAt,
         pullSubmittedAt: null,
         firstByteAt: null,
       },
@@ -36,27 +35,14 @@ export class PullPieceRepository {
       event: "hosted_piece_registered",
       message: "Registered hosted piece source",
       pieceCid: registration.pieceCid,
-      expiresAt: registration.expiresAt.toISOString(),
       size: `${registration.size} bytes`,
     });
   }
 
   /**
-   * Resolve a hosted piece by CID. Returns null when the entry is missing,
-   * already cleaned up, or has expired.
+   * Resolve a hosted piece by CID.
    */
-  async resolveActive(pieceCid: string, now: Date = new Date()): Promise<PullPieceRegistration | null> {
-    const row = await this.repo.findOneBy({ pieceCid });
-    if (!row) return null;
-    if (row.expiresAt.getTime() <= now.getTime()) return null;
-    return this.toRegistration(row);
-  }
-
-  /**
-   * Resolve a hosted piece by CID even when expired/cleaned-up. Used by the
-   * controller to differentiate a 410 Gone from a 404 Not Found.
-   */
-  async resolveAny(pieceCid: string): Promise<PullPieceRegistration | null> {
+  async resolve(pieceCid: string): Promise<PullPieceRegistration | null> {
     const row = await this.repo.findOneBy({ pieceCid });
     return row ? this.toRegistration(row) : null;
   }
@@ -100,7 +86,6 @@ export class PullPieceRepository {
       providerAddress: row.providerAddress,
       key: row.key,
       size: row.size,
-      expiresAt: row.expiresAt,
       pullSubmittedAt: row.pullSubmittedAt ?? undefined,
       firstByteAt: row.firstByteAt ?? undefined,
     };

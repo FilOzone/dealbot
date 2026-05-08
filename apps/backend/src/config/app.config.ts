@@ -98,7 +98,6 @@ export const configValidationSchema = Joi.object({
   // Pull Check
   PULL_CHECKS_PER_SP_PER_HOUR: Joi.number().min(0.001).max(20).default(1),
   PULL_CHECK_JOB_TIMEOUT_SECONDS: Joi.number().min(60).default(300), // 5m max runtime for pull check jobs
-  PULL_CHECK_HOSTED_PIECE_TTL_SECONDS: Joi.number().min(60).default(900), // 15m hosted piece TTL
   PULL_CHECK_POLL_INTERVAL_SECONDS: Joi.number().min(1).default(10),
   PULL_CHECK_PIECE_SIZE_BYTES: Joi.number()
     .integer()
@@ -309,11 +308,6 @@ export interface IJobsConfig {
    */
   pullCheckJobTimeoutSeconds: number;
   /**
-   * Time-to-live (seconds) for the temporary hosted piece source served at
-   * `/api/piece/:pieceCid` while a pull check is in flight.
-   */
-  pullCheckHostedPieceTtlSeconds: number;
-  /**
    * Polling interval (seconds) used while waiting for a terminal SP pull status.
    */
   pullCheckPollIntervalSeconds: number;
@@ -455,8 +449,7 @@ export function loadConfig(): IConfig {
       pieceCleanupPerSpPerHour: Number.parseFloat(process.env.JOB_PIECE_CLEANUP_PER_SP_PER_HOUR || String(1 / 24)),
       maxPieceCleanupRuntimeSeconds: Number.parseInt(process.env.MAX_PIECE_CLEANUP_RUNTIME_SECONDS || "300", 10),
       pullChecksPerSpPerHour: Number.parseFloat(process.env.PULL_CHECKS_PER_SP_PER_HOUR || "1"),
-      pullCheckJobTimeoutSeconds: Number.parseInt(process.env.PULL_CHECK_JOB_TIMEOUT_SECONDS || "360", 10),
-      pullCheckHostedPieceTtlSeconds: Number.parseInt(process.env.PULL_CHECK_HOSTED_PIECE_TTL_SECONDS || "900", 10),
+      pullCheckJobTimeoutSeconds: Number.parseInt(process.env.PULL_CHECK_JOB_TIMEOUT_SECONDS || "300", 10),
       pullCheckPollIntervalSeconds: Number.parseInt(process.env.PULL_CHECK_POLL_INTERVAL_SECONDS || "10", 10),
       pullCheckPieceSizeBytes: Number.parseInt(process.env.PULL_CHECK_PIECE_SIZE_BYTES || String(10 * 1024 * 1024), 10),
     },

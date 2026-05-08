@@ -51,8 +51,7 @@ describe("PullCheckService", () => {
   };
   let registryMock: {
     register: ReturnType<typeof vi.fn>;
-    resolveAny: ReturnType<typeof vi.fn>;
-    resolveActive: ReturnType<typeof vi.fn>;
+    resolve: ReturnType<typeof vi.fn>;
     markPullSubmitted: ReturnType<typeof vi.fn>;
     markFirstByte: ReturnType<typeof vi.fn>;
     forget: ReturnType<typeof vi.fn>;
@@ -78,8 +77,7 @@ describe("PullCheckService", () => {
     };
     registryMock = {
       register: vi.fn().mockResolvedValue(undefined),
-      resolveAny: vi.fn().mockResolvedValue(null),
-      resolveActive: vi.fn().mockResolvedValue(null),
+      resolve: vi.fn().mockResolvedValue(null),
       markPullSubmitted: vi.fn().mockResolvedValue(undefined),
       markFirstByte: vi.fn().mockResolvedValue(undefined),
       forget: vi.fn().mockResolvedValue(undefined),
@@ -103,7 +101,6 @@ describe("PullCheckService", () => {
         pullCheckJobTimeoutSeconds: 300,
         pullCheckPollIntervalSeconds: 5,
         pullCheckPieceSizeBytes: 1024,
-        pullCheckHostedPieceTtlSeconds: 600,
       } as IConfig["jobs"],
       dataset: { localDatasetsPath: "/tmp/datasets" } as IConfig["dataset"],
     };
@@ -258,7 +255,7 @@ describe("PullCheckService", () => {
 
       // After cleanup the resolveAny call returns the entry; before that the
       // run reads it once to compute first-byte latency. Same shape suffices.
-      registryMock.resolveAny.mockResolvedValue(registration);
+      registryMock.resolve.mockResolvedValue(registration);
 
       vi.mocked(pullPieces).mockResolvedValue({ status: "pending" } as unknown as Awaited<
         ReturnType<typeof pullPieces>
@@ -304,7 +301,7 @@ describe("PullCheckService", () => {
     it("does not observe firstByte when the SP never read from /api/piece (cached pull)", async () => {
       const { registration } = arrangeHappyPath();
       // Simulate a cached pull: SP never fetched from us.
-      registryMock.resolveAny.mockResolvedValue({ ...registration, firstByteAt: undefined });
+      registryMock.resolve.mockResolvedValue({ ...registration, firstByteAt: undefined });
 
       await service.runPullCheck("0xsp", undefined, logContext);
 
@@ -373,8 +370,8 @@ describe("PullCheckService", () => {
   });
 
   describe("openPullPieceStream", () => {
-    it("returns null when no active registration exists", async () => {
-      registryMock.resolveActive.mockResolvedValue(null);
+    it("returns null when no registration exists", async () => {
+      registryMock.resolve.mockResolvedValue(null);
       expect(await service.openPullPieceStream("missing")).toBeNull();
     });
 
@@ -387,7 +384,7 @@ describe("PullCheckService", () => {
         expiresAt: new Date(Date.now() + 60_000),
         cleanedUp: false,
       };
-      registryMock.resolveActive.mockResolvedValue(registration);
+      registryMock.resolve.mockResolvedValue(registration);
 
       const result = await service.openPullPieceStream("bafk-test-piece");
       expect(result).not.toBeNull();

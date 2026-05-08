@@ -229,7 +229,7 @@ export class DataSourceService {
   generateBytesStream(options: DeterministicBytesOptions): Readable {
     const { key, bytesNeeded, providerAddress = "", size = bytesNeeded } = options;
 
-    this.validateOptions({ ...options, bytesNeeded: 1 }); // Just validate basic options
+    this.validateOptions(options);
 
     const derivedKey = this.deriveKey(providerAddress, size, key);
     const staticIV = Buffer.alloc(AES_IV_LENGTH, 0);

@@ -7,7 +7,6 @@ export type PullPieceRegistration = {
   providerAddress: string;
   key: string;
   size: number;
-  expiresAt: Date;
   pullSubmittedAt?: Date;
   firstByteAt?: Date;
 };

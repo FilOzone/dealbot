@@ -1,4 +1,4 @@
-import { Column, CreateDateColumn, Entity, Index, PrimaryColumn } from "typeorm";
+import { Column, CreateDateColumn, Entity, PrimaryColumn } from "typeorm";
 
 /**
  * Persisted registration of a temporary pull piece served at
@@ -8,7 +8,6 @@ import { Column, CreateDateColumn, Entity, Index, PrimaryColumn } from "typeorm"
  * resolve registrations created by a separate worker pod.
  */
 @Entity("pull_pieces")
-@Index("idx_pull_pieces_expires_at", ["expiresAt"])
 export class PullPiece {
   @PrimaryColumn({ name: "piece_cid", type: "text" })
   pieceCid!: string;
@@ -21,9 +20,6 @@ export class PullPiece {
 
   @Column({ name: "size", type: "int" })
   size!: number;
-
-  @Column({ name: "expires_at", type: "timestamptz" })
-  expiresAt!: Date;
 
   @Column({ name: "pull_submitted_at", type: "timestamptz", nullable: true })
   pullSubmittedAt: Date | null;

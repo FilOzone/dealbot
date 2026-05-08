@@ -16,7 +16,7 @@ This document provides a comprehensive guide to all environment variables used b
 | [ClickHouse](#clickhouse-configuration)   | `CLICKHOUSE_URL`, `CLICKHOUSE_BATCH_SIZE`, `CLICKHOUSE_FLUSH_INTERVAL_MS`, `DEALBOT_PROBE_LOCATION`          |
 | [Timeouts](#timeout-configuration)        | `CONNECT_TIMEOUT_MS`, `HTTP_REQUEST_TIMEOUT_MS`, `HTTP2_REQUEST_TIMEOUT_MS`, `IPNI_VERIFICATION_TIMEOUT_MS`, `IPNI_VERIFICATION_POLLING_MS`                   |
 | [Piece Cleanup](#piece-cleanup)           | `MAX_DATASET_STORAGE_SIZE_BYTES`, `TARGET_DATASET_STORAGE_SIZE_BYTES`, `JOB_PIECE_CLEANUP_PER_SP_PER_HOUR`, `MAX_PIECE_CLEANUP_RUNTIME_SECONDS`       |
-| [Pull Check](#pull-check)                 | `PULL_CHECKS_PER_SP_PER_HOUR`, `PULL_CHECK_JOB_TIMEOUT_SECONDS`, `PULL_CHECK_HOSTED_PIECE_TTL_SECONDS`, `PULL_CHECK_POLL_INTERVAL_SECONDS`, `PULL_CHECK_PIECE_SIZE_BYTES` |
+| [Pull Check](#pull-check)                 | `PULL_CHECKS_PER_SP_PER_HOUR`, `PULL_CHECK_JOB_TIMEOUT_SECONDS`, `PULL_CHECK_POLL_INTERVAL_SECONDS`, `PULL_CHECK_PIECE_SIZE_BYTES` |
 | [SP Blocklist](#sp-blocklist-configuration) | `BLOCKED_SP_IDS`, `BLOCKED_SP_ADDRESSES` |
 | [Prometheus Metrics](#prometheus-metrics-configuration) | `PROMETHEUS_WALLET_BALANCE_TTL_SECONDS`, `PROMETHEUS_WALLET_BALANCE_ERROR_COOLDOWN_SECONDS`                   |
 | [Web Frontend](#web-frontend)             | `VITE_API_BASE_URL`, `VITE_PLAUSIBLE_DATA_DOMAIN`, `DEALBOT_API_BASE_URL`                                                                                    |
@@ -970,22 +970,6 @@ PULL_CHECKS_PER_SP_PER_HOUR=0.083
 
 - Increase if SPs are slow to reach a terminal pull status (large piece sizes or busy SPs)
 - Decrease to fail-fast on stuck jobs
-
----
-
-### `PULL_CHECK_HOSTED_PIECE_TTL_SECONDS`
-
-- **Type**: `number` (seconds)
-- **Required**: No
-- **Default**: `900` (15 minutes)
-- **Minimum**: `60`
-
-**Role**: Time-to-live for the temporary hosted piece source served at `/api/piece/{pieceCid}` during an in-flight pull check. After the TTL elapses or the job calls cleanup, the controller responds with HTTP `410 Gone` for that pieceCid.
-
-**When to update**:
-
-- Should be at least `PULL_CHECK_JOB_TIMEOUT_SECONDS` plus generous margin for the SP to make its first read; the default 15 minutes provides ~9 minutes of headroom over the 6-minute job timeout default
-- Increase only when intentionally allowing SPs to retry pulls long after the dealbot job has aborted
 
 ---
 

@@ -138,7 +138,7 @@ export class PullCheckService {
         throw new Error("Pull-check piece validation failed: SP did not serve the expected bytes");
       }
 
-      const firstByteEntry = await this.pullPieceRepository.resolveAny(pieceCidStr);
+      const firstByteEntry = await this.pullPieceRepository.resolve(pieceCidStr);
       const firstByteMs =
         firstByteEntry?.firstByteAt && firstByteEntry?.pullSubmittedAt
           ? firstByteEntry.firstByteAt.getTime() - firstByteEntry.pullSubmittedAt.getTime()
@@ -232,14 +232,12 @@ export class PullCheckService {
     const pieceCidStr = pieceCid.toString();
     const baseUrl = this.resolvePublicBaseUrl();
     const sourceUrl = `${baseUrl}/api/piece/${pieceCidStr}`;
-    const expiresAt = new Date(Date.now() + jobsConfig.pullCheckHostedPieceTtlSeconds * 1000);
 
     const registration = {
       pieceCid: pieceCidStr,
       providerAddress,
       key,
       size: targetSize,
-      expiresAt,
     };
     await this.pullPieceRepository.register(registration);
 
@@ -271,9 +269,8 @@ export class PullCheckService {
    */
   async openPullPieceStream(
     pieceCid: string,
-    now: Date = new Date(),
   ): Promise<{ registration: PullPieceRegistration; stream: Readable } | null> {
-    const registration = await this.pullPieceRepository.resolveActive(pieceCid, now);
+    const registration = await this.pullPieceRepository.resolve(pieceCid);
     if (!registration) return null;
 
     const stream = this.dataSourceService.generateBytesStream({

@@ -10,14 +10,10 @@ export class CreatePullPieces1776300000000 implements MigrationInterface {
         provider_address TEXT NOT NULL,
         key TEXT NOT NULL,
         size INT NOT NULL,
-        expires_at TIMESTAMPTZ NOT NULL,
         pull_submitted_at TIMESTAMPTZ,
         first_byte_at TIMESTAMPTZ,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )
-    `);
-    await queryRunner.query(`
-      CREATE INDEX IF NOT EXISTS idx_pull_pieces_expires_at ON pull_pieces (expires_at)
     `);
   }
 
