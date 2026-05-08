@@ -1187,8 +1187,9 @@ describe("JobsService schedule rows", () => {
 
     const dealService = {
       getBaseDataSetMetadata: vi.fn(() => ({ withIpniIndexing: "" })),
-      checkDataSetExists: vi.fn(async () => false),
+      getDataSetProvisioningStatus: vi.fn(async () => ({ status: "missing" as const })),
       createDataSetWithPiece: vi.fn(async () => {}),
+      repairTerminatedDataSet: vi.fn(),
     };
 
     const walletSdkService = {
@@ -1227,8 +1228,9 @@ describe("JobsService schedule rows", () => {
 
     const dealService = {
       getBaseDataSetMetadata: vi.fn(() => ({ dealbotDataSetVersion: "v1" })),
-      checkDataSetExists: vi.fn(async () => true),
+      getDataSetProvisioningStatus: vi.fn(async () => ({ status: "live" as const, dataSetId: 42n })),
       createDataSetWithPiece: vi.fn(async () => {}),
+      repairTerminatedDataSet: vi.fn(),
     };
 
     const walletSdkService = {
@@ -1247,7 +1249,7 @@ describe("JobsService schedule rows", () => {
     });
 
     expect(dealService.createDataSetWithPiece).not.toHaveBeenCalled();
-    expect(dealService.checkDataSetExists).toHaveBeenCalledWith(
+    expect(dealService.getDataSetProvisioningStatus).toHaveBeenCalledWith(
       "0xaaa",
       { dealbotDataSetVersion: "v1" },
       expect.any(AbortSignal),
@@ -1267,8 +1269,9 @@ describe("JobsService schedule rows", () => {
 
     const dealService = {
       getBaseDataSetMetadata: vi.fn(() => ({ dealbotDataSetVersion: "v1" })),
-      checkDataSetExists: vi.fn(async () => false),
+      getDataSetProvisioningStatus: vi.fn(async () => ({ status: "missing" as const })),
       createDataSetWithPiece: vi.fn(async () => {}),
+      repairTerminatedDataSet: vi.fn(),
     };
 
     const walletSdkService = {
@@ -1309,8 +1312,11 @@ describe("JobsService schedule rows", () => {
     const dealService = {
       getBaseDataSetMetadata: vi.fn(() => ({ dealbotDataSetVersion: "v1" })),
       // Index 0 exists, index 1 does not
-      checkDataSetExists: vi.fn(async (_sp: string, metadata: Record<string, string>) => !metadata.dealbotDS),
+      getDataSetProvisioningStatus: vi.fn(async (_sp: string, metadata: Record<string, string>) =>
+        metadata.dealbotDS ? { status: "missing" as const } : { status: "live" as const, dataSetId: 1n },
+      ),
       createDataSetWithPiece: vi.fn(async () => {}),
+      repairTerminatedDataSet: vi.fn(),
     };
 
     const walletSdkService = {
@@ -1339,8 +1345,9 @@ describe("JobsService schedule rows", () => {
 
   it("data_set_creation job stops provisioning when abort signal fires", async () => {
     const dealService = {
-      checkDataSetExists: vi.fn(async () => false),
+      getDataSetProvisioningStatus: vi.fn(async () => ({ status: "missing" as const })),
       createDataSetWithPiece: vi.fn(async () => {}),
+      repairTerminatedDataSet: vi.fn(),
     };
 
     const logger = { log: vi.fn() } as any;
@@ -1363,6 +1370,34 @@ describe("JobsService schedule rows", () => {
     ).rejects.toThrow("Job timed out");
 
     // No datasets should have been created since abort was already signaled
+    expect(dealService.createDataSetWithPiece).not.toHaveBeenCalled();
+  });
+
+  it("data_set_creation handler runs repair on terminated dataset and skips provisioning this tick", async () => {
+    const dealService = {
+      getDataSetProvisioningStatus: vi.fn(async () => ({
+        status: "terminated" as const,
+        dataSetId: 7n,
+      })),
+      createDataSetWithPiece: vi.fn(async () => {}),
+      repairTerminatedDataSet: vi.fn(async () => ({ dealsAffected: 3, pdpEndEpoch: 1n })),
+    };
+    const logger = { log: vi.fn(), warn: vi.fn() } as any;
+    const { provisionNextMissingDataSet } = await import("./data-set-creation.handler.js");
+
+    await provisionNextMissingDataSet(
+      { dealService, logger },
+      "0xaaa",
+      3,
+      {},
+      { providerAddress: "0xaaa", jobId: "job-ds-term", providerId: 1n, providerName: "sp" },
+    );
+
+    expect(dealService.repairTerminatedDataSet).toHaveBeenCalledWith(
+      "0xaaa",
+      7n,
+      undefined,
+    );
     expect(dealService.createDataSetWithPiece).not.toHaveBeenCalled();
   });
 
@@ -1511,8 +1546,9 @@ describe("JobsService schedule rows", () => {
 
     const dealService = {
       getBaseDataSetMetadata: vi.fn(() => ({})),
-      checkDataSetExists: vi.fn(async () => false),
+      getDataSetProvisioningStatus: vi.fn(async () => ({ status: "missing" as const })),
       createDataSetWithPiece: vi.fn(async () => {}),
+      repairTerminatedDataSet: vi.fn(),
     };
     const walletSdkService = {
       getProviderInfo: vi.fn(() => ({ id: 3n, name: "sp" })),
@@ -1545,8 +1581,9 @@ describe("JobsService schedule rows", () => {
     const retrievalService = { performRandomRetrievalForProvider: vi.fn() };
     const dataSetDealService = {
       getBaseDataSetMetadata: vi.fn(() => ({})),
-      checkDataSetExists: vi.fn(async () => false),
+      getDataSetProvisioningStatus: vi.fn(async () => ({ status: "missing" as const })),
       createDataSetWithPiece: vi.fn(async () => {}),
+      repairTerminatedDataSet: vi.fn(),
     };
     const walletSdkService = {
       getTestingProviders: vi.fn(() => []),

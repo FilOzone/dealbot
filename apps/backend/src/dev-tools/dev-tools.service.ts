@@ -164,7 +164,8 @@ export class DevToolsService {
         ...dealLogContext,
         event: "background_deal_completed",
         message: "Background deal completed successfully",
-        pieceCid: deal.pieceCid,
+        pieceCid: deal?.pieceCid,
+        skipped: deal === null,
       });
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);

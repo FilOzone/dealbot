@@ -113,11 +113,20 @@ describe("DealService", () => {
     }),
   };
 
+  const mockWarmStorageService = {
+    validateDataSet: vi.fn().mockResolvedValue(undefined),
+    getDataSet: vi.fn().mockResolvedValue({ pdpEndEpoch: 0n }),
+    terminateDataSet: vi.fn().mockResolvedValue("0xhash"),
+  };
   const mockWalletSdkService = {
     getFWSSAddress: vi.fn().mockReturnValue("0xFWSS"),
     getTestingProvidersCount: vi.fn(),
     getTestingProviders: vi.fn(),
     getProviderInfo: vi.fn().mockReturnValue(undefined),
+    getWalletServices: vi.fn().mockReturnValue({
+      paymentsService: {},
+      warmStorageService: mockWarmStorageService,
+    }),
   };
 
   const mockDealAddonsService = {
@@ -265,7 +274,7 @@ describe("DealService", () => {
         testedAt: new Date(),
       });
 
-      const deal = await service.createDeal(mockSynapseInstance, mockProviderInfo, mockDealInput, uploadPayload);
+      const deal = (await service.createDeal(mockSynapseInstance, mockProviderInfo, mockDealInput, uploadPayload)) as Deal;
 
       expect(createContextMock).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -355,7 +364,7 @@ describe("DealService", () => {
           };
         });
 
-        const deal = await service.createDeal(mockSynapseInstance, providerInfo, mockDealInput, uploadPayload);
+        const deal = (await service.createDeal(mockSynapseInstance, providerInfo, mockDealInput, uploadPayload)) as Deal;
 
         const labels = {
           checkType: "dataStorage",
@@ -460,7 +469,7 @@ describe("DealService", () => {
           testedAt: new Date(),
         });
 
-        const deal = await service.createDeal(mockSynapseInstance, mockProviderInfo, mockDealInput, uploadPayload);
+        const deal = (await service.createDeal(mockSynapseInstance, mockProviderInfo, mockDealInput, uploadPayload)) as Deal;
 
         expect(deal.ingestLatencyMs).toBeNull();
         expect(deal.ingestThroughputBps).toBeNull();
@@ -512,7 +521,7 @@ describe("DealService", () => {
           testedAt: new Date(),
         });
 
-        const deal = await service.createDeal(mockSynapseInstance, mockProviderInfo, zeroSizeDealInput, uploadPayload);
+        const deal = (await service.createDeal(mockSynapseInstance, mockProviderInfo, zeroSizeDealInput, uploadPayload)) as Deal;
 
         expect(deal.ingestLatencyMs).toBe(1000);
         expect(deal.ingestThroughputBps).toBeNull();
@@ -960,7 +969,7 @@ describe("DealService", () => {
         testedAt: new Date(),
       });
 
-      const deal = await service.createDeal(mockSynapseInstance, mockProviderInfo, mockDealInput, uploadPayload);
+      const deal = (await service.createDeal(mockSynapseInstance, mockProviderInfo, mockDealInput, uploadPayload)) as Deal;
 
       expect(deal.dealLatencyMs).toBeGreaterThanOrEqual(0);
       expect(deal.dealLatencyWithIpniMs).toBeUndefined();
@@ -1137,7 +1146,7 @@ describe("DealService", () => {
         testedAt: new Date(),
       });
 
-      const deal = await service.createDeal(mockSynapseInstance, mockProviderInfo, mockDealInput, uploadPayload);
+      const deal = (await service.createDeal(mockSynapseInstance, mockProviderInfo, mockDealInput, uploadPayload)) as Deal;
 
       // Verify that pieceId from onPiecesConfirmed (123) is preserved and not overwritten by undefined
       expect(deal.pieceId).toBe(123);
@@ -1198,6 +1207,154 @@ describe("DealService", () => {
       const result = await service.checkDataSetExists("0xprovider", { dealbotDS: "1" });
 
       expect(result).toBe(false);
+    });
+  });
+
+  describe("getDataSetProvisioningStatus", () => {
+    const providerInfo: PDPProviderEx = {
+      id: 101n,
+      serviceProvider: "0xprovider",
+      payee: "0x100",
+      name: "Test Provider",
+      description: "Test Provider",
+      isActive: true,
+      isApproved: true,
+      pdp: {
+        serviceURL: "service url",
+        minPieceSizeInBytes: 0n,
+        maxPieceSizeInBytes: 100n,
+        storagePricePerTibPerDay: 1n,
+        minProvingPeriodInEpochs: 1n,
+        location: "location",
+        paymentTokenAddress: "0x100",
+        ipniPiece: true,
+        ipniIpfs: true,
+      },
+    };
+
+    beforeEach(() => {
+      vi.spyOn(mockWalletSdkService, "getProviderInfo").mockReturnValue(providerInfo);
+    });
+
+    it("returns missing when createContext yields no dataSetId", async () => {
+      const synapseMock = {
+        storage: {
+          createContext: vi.fn().mockResolvedValue({ dataSetId: undefined }),
+        },
+      };
+      vi.spyOn(service as any, "createSynapseInstance").mockImplementation(() => synapseMock as unknown as Synapse);
+
+      const result = await service.getDataSetProvisioningStatus("0xprovider", { dealbotDS: "1" });
+      expect(result).toEqual({ status: "missing" });
+    });
+
+    it("returns live when validateDataSet succeeds", async () => {
+      const synapseMock = {
+        storage: {
+          createContext: vi.fn().mockResolvedValue({ dataSetId: 7n }),
+        },
+      };
+      vi.spyOn(service as any, "createSynapseInstance").mockImplementation(() => synapseMock as unknown as Synapse);
+      mockWarmStorageService.validateDataSet.mockResolvedValueOnce(undefined);
+
+      const result = await service.getDataSetProvisioningStatus("0xprovider", { dealbotDS: "1" });
+      expect(result).toEqual({ status: "live", dataSetId: 7n });
+    });
+
+    it("returns terminated when validateDataSet throws", async () => {
+      const synapseMock = {
+        storage: {
+          createContext: vi.fn().mockResolvedValue({ dataSetId: 9n }),
+        },
+      };
+      vi.spyOn(service as any, "createSynapseInstance").mockImplementation(() => synapseMock as unknown as Synapse);
+      mockWarmStorageService.validateDataSet.mockRejectedValueOnce(new Error("Data set 9 does not exist or is not live"));
+
+      const result = await service.getDataSetProvisioningStatus("0xprovider", { dealbotDS: "1" });
+      expect(result).toEqual({ status: "terminated", dataSetId: 9n });
+    });
+  });
+
+  describe("repairTerminatedDataSet", () => {
+    beforeEach(() => {
+      vi.spyOn(mockWalletSdkService, "getProviderInfo").mockReturnValue({ id: 1n, name: "sp" } as any);
+    });
+
+    it("terminates, polls pdpEndEpoch, and marks affected deals cleaned up in one transaction", async () => {
+      const terminateMock = vi.fn().mockResolvedValue("0xhash");
+      const synapseMock = {
+        storage: { terminateDataSet: terminateMock },
+      };
+      vi.spyOn(service as any, "createSynapseInstance").mockImplementation(() => synapseMock as unknown as Synapse);
+
+      mockWarmStorageService.getDataSet.mockResolvedValueOnce({ pdpEndEpoch: 0n });
+      mockWarmStorageService.getDataSet.mockResolvedValueOnce({ pdpEndEpoch: 12345n });
+
+      const updateFn = vi.fn().mockResolvedValue({ affected: 2 });
+      const transactionMock = vi.fn(async (cb: any) => cb({ getRepository: () => ({ update: updateFn }) }));
+      Object.defineProperty(dealRepoMock, "manager", {
+        configurable: true,
+        value: { transaction: transactionMock },
+      });
+
+      const result = await service.repairTerminatedDataSet("0xaaa", 9n, undefined, 5_000);
+
+      expect(terminateMock).toHaveBeenCalledWith({ dataSetId: 9n });
+      expect(updateFn).toHaveBeenCalledWith(
+        { dataSetId: 9n, cleanedUp: false },
+        expect.objectContaining({ cleanedUp: true, cleanedUpAt: expect.any(Date) }),
+      );
+      expect(result.dealsAffected).toBe(2);
+      expect(result.pdpEndEpoch).toBe(12345n);
+    });
+  });
+
+  describe("createDeal isLive guard", () => {
+    it("skips deal creation when dataset is PDP-terminated, no metrics or save", async () => {
+      const providerInfo: PDPProviderEx = {
+        id: 101n,
+        serviceProvider: "0xProvider",
+        payee: "0x100",
+        name: "Test Provider",
+        description: "Test Provider",
+        isActive: true,
+        isApproved: true,
+        pdp: {
+          serviceURL: "u",
+          minPieceSizeInBytes: 0n,
+          maxPieceSizeInBytes: 100n,
+          storagePricePerTibPerDay: 1n,
+          minProvingPeriodInEpochs: 1n,
+          location: "l",
+          paymentTokenAddress: "0x100",
+          ipniPiece: true,
+          ipniIpfs: true,
+        },
+      };
+      const dealInput = {
+        processedData: { name: "f", size: 2048, data: Buffer.from("x") },
+        metadata: {},
+        appliedAddons: [],
+        synapseConfig: { dataSetMetadata: {}, pieceMetadata: {} },
+      } as any;
+      const uploadPayload = { carData: Uint8Array.from([1]), rootCid: CID.parse(mockRootCid) };
+      const synapseMock = {
+        storage: {
+          createContext: vi.fn().mockResolvedValue({ dataSetId: 9n }),
+        },
+      } as unknown as Synapse;
+      const deal = Object.assign(new Deal(), { id: "deal-skip", spAddress: "0xProvider" });
+      dealRepoMock.create.mockReturnValue(deal);
+      mockStorageProviderRepository.findOne.mockResolvedValue({ providerId: 1, isApproved: true });
+      mockWarmStorageService.validateDataSet.mockRejectedValueOnce(new Error("Data set 9 does not exist or is not live"));
+
+      const result = await service.createDeal(synapseMock, providerInfo, dealInput, uploadPayload);
+
+      expect(result).toBeNull();
+      expect(executeUpload as Mock).not.toHaveBeenCalled();
+      expect(mockDataStorageMetrics.recordUploadStatus).not.toHaveBeenCalled();
+      expect(mockDataStorageMetrics.recordDataStorageStatus).not.toHaveBeenCalled();
+      expect(dealRepoMock.save).not.toHaveBeenCalled();
     });
   });
 

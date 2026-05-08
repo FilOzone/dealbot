@@ -93,7 +93,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       extraDataSetMetadata?: Record<string, string>;
       logContext?: ProviderJobContext;
     },
-  ): Promise<Deal> {
+  ): Promise<Deal | null> {
     options.signal?.throwIfAborted();
     const { preprocessed, cleanup } = await this.prepareDealInput(options.signal, options.logContext);
 
@@ -163,7 +163,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     signal?: AbortSignal,
     extraDataSetMetadata?: Record<string, string>,
     logContext?: ProviderJobContext,
-  ): Promise<Deal> {
+  ): Promise<Deal | null> {
     const providerAddress = pdpProvider.serviceProvider;
     const checkType = "dataStorage" as const;
     let providerLabels = buildCheckMetricLabels({
@@ -228,6 +228,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     const onStoredAddons: { promise: Promise<boolean> | null } = { promise: null };
     let addonsAwaited = false;
     let storedError: Error | undefined;
+    let skipped = false;
 
     try {
       // Load storageProvider relation
@@ -241,8 +242,6 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
         providerName: pdpProvider.name ?? deal.storageProvider?.name,
         providerIsApproved: pdpProvider.isApproved ?? deal.storageProvider?.isApproved,
       });
-      this.dataStorageMetrics.recordUploadStatus(providerLabels, "pending");
-      this.dataStorageMetrics.recordDataStorageStatus(providerLabels, "pending");
 
       const dataSetMetadata = { ...dealInput.synapseConfig.dataSetMetadata, ...extraDataSetMetadata };
 
@@ -258,6 +257,26 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
         metadata: dataSetMetadata,
       });
       signal?.throwIfAborted();
+
+      // Pre-metric liveness guard. PDP can mark a dataset terminated while FWSS
+      // still has pdpEndEpoch=0; createContext returns it and the next add-pieces
+      // path would fail. Skip the run; data_set_creation handler owns repair (#379).
+      if (storage.dataSetId !== undefined) {
+        const live = await this.isDataSetLive(storage.dataSetId, signal);
+        if (!live) {
+          skipped = true;
+          this.logger.log({
+            ...dealLogContext,
+            event: "dataset_unhealthy_waiting_for_data_set_creation",
+            message: "Dataset is PDP-terminated; deferring deal job to data_set_creation repair",
+            dataSetId: storage.dataSetId.toString(),
+          });
+          return null;
+        }
+      }
+
+      this.dataStorageMetrics.recordUploadStatus(providerLabels, "pending");
+      this.dataStorageMetrics.recordDataStorageStatus(providerLabels, "pending");
 
       deal.dataSetId = storage.dataSetId ?? null;
       deal.uploadStartTime = new Date();
@@ -544,7 +563,9 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
           deal.ipniStatus = null;
         }
       }
-      await this.saveDeal(deal, dealLogContext);
+      if (!skipped) {
+        await this.saveDeal(deal, dealLogContext);
+      }
     }
   }
 
@@ -571,6 +592,136 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     );
     signal?.throwIfAborted();
     return context.dataSetId !== undefined;
+  }
+
+  /**
+   * Determines whether a provider's dataset slot is `missing`, `live`, or
+   * `terminated`. Resolves the dataset via createContext (FWSS pdpEndEpoch=0
+   * filter) and then probes PDP liveness via WarmStorage.validateDataSet.
+   *
+   * `terminated` means FWSS still considers the set provisionable but PDP has
+   * marked it dead (e.g. unrecoverable proving failure). See #379.
+   */
+  async getDataSetProvisioningStatus(
+    providerAddress: string,
+    metadata: Record<string, string>,
+    signal?: AbortSignal,
+  ): Promise<
+    | { status: "missing" }
+    | { status: "live"; dataSetId: bigint }
+    | { status: "terminated"; dataSetId: bigint }
+  > {
+    signal?.throwIfAborted();
+    const synapse = this.sharedSynapse ?? (await this.createSynapseInstance());
+    const providerInfo = this.walletSdkService.getProviderInfo(providerAddress);
+    if (!providerInfo) {
+      throw new Error(`Provider ${providerAddress} not found in registry`);
+    }
+    const context = await awaitWithAbort(
+      synapse.storage.createContext({
+        providerId: providerInfo.id,
+        metadata,
+      }),
+      signal,
+    );
+    signal?.throwIfAborted();
+    if (context.dataSetId === undefined) {
+      return { status: "missing" };
+    }
+    const dataSetId = context.dataSetId;
+    const isLive = await this.isDataSetLive(dataSetId, signal);
+    return isLive ? { status: "live", dataSetId } : { status: "terminated", dataSetId };
+  }
+
+  /**
+   * PDP-liveness probe via WarmStorage.validateDataSet.
+   * Returns false on either "not live" or "not managed" (treat as unhealthy).
+   */
+  async isDataSetLive(dataSetId: bigint, signal?: AbortSignal): Promise<boolean> {
+    signal?.throwIfAborted();
+    const { warmStorageService } = this.walletSdkService.getWalletServices();
+    try {
+      await awaitWithAbort(warmStorageService.validateDataSet({ dataSetId }), signal);
+      return true;
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      return false;
+    }
+  }
+
+  /**
+   * Repair a PDP-terminated dataset (FWSS still has pdpEndEpoch=0).
+   *
+   * Sequence: terminateDataSet -> bounded poll for FWSS pdpEndEpoch != 0 ->
+   * mark every Deal row with this dataSetId as cleaned up in a single
+   * transaction. Idempotent on re-run: terminate may revert / no-op if FWSS
+   * has already flipped, and the cleanup update is filtered on
+   * cleaned_up=false.
+   */
+  async repairTerminatedDataSet(
+    providerAddress: string,
+    dataSetId: bigint,
+    signal?: AbortSignal,
+    pollTimeoutMs = 60_000,
+  ): Promise<{ dealsAffected: number; pdpEndEpoch: bigint }> {
+    signal?.throwIfAborted();
+    const synapse = this.sharedSynapse ?? (await this.createSynapseInstance());
+    const providerInfo = this.walletSdkService.getProviderInfo(providerAddress);
+
+    await awaitWithAbort(synapse.storage.terminateDataSet({ dataSetId }), signal);
+    signal?.throwIfAborted();
+
+    const pdpEndEpoch = await this.waitForPdpEndEpoch(dataSetId, pollTimeoutMs, signal);
+
+    const result = await this.dealRepository.manager.transaction(async (manager) => {
+      const update = await manager.getRepository(Deal).update(
+        { dataSetId, cleanedUp: false },
+        { cleanedUp: true, cleanedUpAt: new Date() },
+      );
+      return update.affected ?? 0;
+    });
+
+    this.logger.log({
+      event: "dataset_terminated_repaired",
+      message: "Repaired PDP-terminated dataset",
+      providerAddress,
+      providerId: providerInfo?.id,
+      dataSetId: dataSetId.toString(),
+      pdpEndEpoch: pdpEndEpoch.toString(),
+      dealsAffected: result,
+    });
+
+    return { dealsAffected: result, pdpEndEpoch };
+  }
+
+  /**
+   * Poll FWSS getDataSet({dataSetId}).pdpEndEpoch until non-zero. Exponential
+   * backoff capped at 8s. Throws on timeout.
+   */
+  private async waitForPdpEndEpoch(dataSetId: bigint, timeoutMs: number, signal?: AbortSignal): Promise<bigint> {
+    const { warmStorageService } = this.walletSdkService.getWalletServices();
+    const start = Date.now();
+    let delay = 1_000;
+    while (Date.now() - start < timeoutMs) {
+      signal?.throwIfAborted();
+      const info = await warmStorageService.getDataSet({ dataSetId });
+      if (info != null && info.pdpEndEpoch !== 0n) {
+        return info.pdpEndEpoch;
+      }
+      const remaining = timeoutMs - (Date.now() - start);
+      if (remaining <= 0) break;
+      const wait = Math.min(delay, remaining);
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(resolve, wait);
+        const onAbort = () => {
+          clearTimeout(timer);
+          reject(signal?.reason ?? new Error("aborted"));
+        };
+        signal?.addEventListener("abort", onAbort, { once: true });
+      });
+      delay = Math.min(delay * 2, 8_000);
+    }
+    throw new Error(`Timeout waiting for FWSS pdpEndEpoch != 0 on dataSetId ${dataSetId.toString()}`);
   }
 
   /**
