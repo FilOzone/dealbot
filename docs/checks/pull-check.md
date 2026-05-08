@@ -84,10 +84,8 @@ Source: [`pull-check.service.ts` (`validateByDirectPieceFetch`)](../../apps/back
 
 ### 5. Cleanup
 
-Whether the pull check succeeds or fails, the `finally` block:
-
-1. Marks the registration as cleaned up (so subsequent `/api/piece/{pieceCid}` requests return HTTP 410 Gone instead of 200).
-2. Forgets the registration entry so the controller returns HTTP 404 Not Found for any later requests.
+Whether the pull check succeeds or fails, the `finally` block removes the registration entry.
+After cleanup, subsequent `/api/piece/{pieceCid}` requests return HTTP 404 Not Found.
 
 Source: [`pull-check.service.ts`](../../apps/backend/src/pull-check/pull-check.service.ts)
 
