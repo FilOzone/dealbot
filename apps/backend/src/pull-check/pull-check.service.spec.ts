@@ -47,16 +47,12 @@ describe("PullCheckService", () => {
   let service: PullCheckService;
   let walletSdkServiceMock: { getProviderInfo: ReturnType<typeof vi.fn>; getSynapseClient: ReturnType<typeof vi.fn> };
   let dataSourceServiceMock: {
-    generateRandomDataset: ReturnType<typeof vi.fn>;
-    cleanupRandomDataset: ReturnType<typeof vi.fn>;
-    generateBytes: ReturnType<typeof vi.fn>;
     generateBytesStream: ReturnType<typeof vi.fn>;
   };
   let registryMock: {
     register: ReturnType<typeof vi.fn>;
     resolveAny: ReturnType<typeof vi.fn>;
     resolveActive: ReturnType<typeof vi.fn>;
-    markCleanedUp: ReturnType<typeof vi.fn>;
     markPullSubmitted: ReturnType<typeof vi.fn>;
     markFirstByte: ReturnType<typeof vi.fn>;
     forget: ReturnType<typeof vi.fn>;
@@ -78,16 +74,12 @@ describe("PullCheckService", () => {
       getSynapseClient: vi.fn().mockReturnValue({}),
     };
     dataSourceServiceMock = {
-      generateRandomDataset: vi.fn(),
-      cleanupRandomDataset: vi.fn(),
-      generateBytes: vi.fn().mockReturnValue(Buffer.alloc(10)),
       generateBytesStream: vi.fn().mockReturnValue(Readable.from([Buffer.alloc(10)])),
     };
     registryMock = {
       register: vi.fn().mockResolvedValue(undefined),
       resolveAny: vi.fn().mockResolvedValue(null),
       resolveActive: vi.fn().mockResolvedValue(null),
-      markCleanedUp: vi.fn().mockResolvedValue(undefined),
       markPullSubmitted: vi.fn().mockResolvedValue(undefined),
       markFirstByte: vi.fn().mockResolvedValue(undefined),
       forget: vi.fn().mockResolvedValue(undefined),

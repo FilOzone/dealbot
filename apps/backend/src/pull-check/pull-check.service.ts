@@ -240,7 +240,6 @@ export class PullCheckService {
       key,
       size: targetSize,
       expiresAt,
-      cleanedUp: false,
     };
     await this.pullPieceRepository.register(registration);
 

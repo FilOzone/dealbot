@@ -40,7 +40,6 @@ export class PieceSourceController {
           event: "pull_check_piece_gone",
           message: "Pull piece source no longer active",
           pieceCid,
-          cleanedUp: known.cleanedUp,
           expiresAt: known.expiresAt.toISOString(),
         });
         res.status(410).send("Pull piece source has expired or been cleaned up");

@@ -25,9 +25,6 @@ export class PullPiece {
   @Column({ name: "expires_at", type: "timestamptz" })
   expiresAt!: Date;
 
-  @Column({ name: "cleaned_up", type: "boolean", default: false })
-  cleanedUp!: boolean;
-
   @Column({ name: "pull_submitted_at", type: "timestamptz", nullable: true })
   pullSubmittedAt: Date | null;
 

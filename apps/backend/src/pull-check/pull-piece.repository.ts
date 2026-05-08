@@ -27,7 +27,6 @@ export class PullPieceRepository {
         key: registration.key,
         size: registration.size,
         expiresAt: registration.expiresAt,
-        cleanedUp: false,
         pullSubmittedAt: null,
         firstByteAt: null,
       },
@@ -49,7 +48,6 @@ export class PullPieceRepository {
   async resolveActive(pieceCid: string, now: Date = new Date()): Promise<PullPieceRegistration | null> {
     const row = await this.repo.findOneBy({ pieceCid });
     if (!row) return null;
-    if (row.cleanedUp) return null;
     if (row.expiresAt.getTime() <= now.getTime()) return null;
     return this.toRegistration(row);
   }
@@ -61,17 +59,6 @@ export class PullPieceRepository {
   async resolveAny(pieceCid: string): Promise<PullPieceRegistration | null> {
     const row = await this.repo.findOneBy({ pieceCid });
     return row ? this.toRegistration(row) : null;
-  }
-
-  async markCleanedUp(pieceCid: string): Promise<void> {
-    const result = await this.repo.update({ pieceCid, cleanedUp: false }, { cleanedUp: true });
-    if (result.affected && result.affected > 0) {
-      this.logger.debug({
-        event: "hosted_piece_cleaned_up",
-        message: "Marked hosted piece source as cleaned up",
-        pieceCid,
-      });
-    }
   }
 
   /**
@@ -114,7 +101,6 @@ export class PullPieceRepository {
       key: row.key,
       size: row.size,
       expiresAt: row.expiresAt,
-      cleanedUp: row.cleanedUp,
       pullSubmittedAt: row.pullSubmittedAt ?? undefined,
       firstByteAt: row.firstByteAt ?? undefined,
     };
