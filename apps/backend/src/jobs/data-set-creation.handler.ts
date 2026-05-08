@@ -3,10 +3,7 @@ import type { DataSetLogContext, ProviderJobContext } from "../common/logging.js
 import type { DealService } from "../deal/deal.service.js";
 
 export interface DataSetCreationDeps {
-  dealService: Pick<
-    DealService,
-    "getDataSetProvisioningStatus" | "createDataSetWithPiece" | "repairTerminatedDataSet"
-  >;
+  dealService: Pick<DealService, "getDataSetProvisioningStatus" | "createDataSetWithPiece" | "repairTerminatedDataSet">;
   logger: Logger;
 }
 

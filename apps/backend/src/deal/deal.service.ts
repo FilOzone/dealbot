@@ -607,9 +607,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     metadata: Record<string, string>,
     signal?: AbortSignal,
   ): Promise<
-    | { status: "missing" }
-    | { status: "live"; dataSetId: bigint }
-    | { status: "terminated"; dataSetId: bigint }
+    { status: "missing" } | { status: "live"; dataSetId: bigint } | { status: "terminated"; dataSetId: bigint }
   > {
     signal?.throwIfAborted();
     const synapse = this.sharedSynapse ?? (await this.createSynapseInstance());
@@ -674,10 +672,9 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     const pdpEndEpoch = await this.waitForPdpEndEpoch(dataSetId, pollTimeoutMs, signal);
 
     const result = await this.dealRepository.manager.transaction(async (manager) => {
-      const update = await manager.getRepository(Deal).update(
-        { dataSetId, cleanedUp: false },
-        { cleanedUp: true, cleanedUpAt: new Date() },
-      );
+      const update = await manager
+        .getRepository(Deal)
+        .update({ dataSetId, cleanedUp: false }, { cleanedUp: true, cleanedUpAt: new Date() });
       return update.affected ?? 0;
     });
 

@@ -16,9 +16,9 @@ import { Logger } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { DataSource } from "typeorm";
 import { AppModule } from "../app.module.js";
+import { toStructuredError } from "../common/logging.js";
 import { Deal } from "../database/entities/deal.entity.js";
 import { DealService } from "../deal/deal.service.js";
-import { toStructuredError } from "../common/logging.js";
 
 interface DataSetGroup {
   dataSetId: bigint;

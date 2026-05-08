@@ -274,7 +274,12 @@ describe("DealService", () => {
         testedAt: new Date(),
       });
 
-      const deal = (await service.createDeal(mockSynapseInstance, mockProviderInfo, mockDealInput, uploadPayload)) as Deal;
+      const deal = (await service.createDeal(
+        mockSynapseInstance,
+        mockProviderInfo,
+        mockDealInput,
+        uploadPayload,
+      )) as Deal;
 
       expect(createContextMock).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -364,7 +369,12 @@ describe("DealService", () => {
           };
         });
 
-        const deal = (await service.createDeal(mockSynapseInstance, providerInfo, mockDealInput, uploadPayload)) as Deal;
+        const deal = (await service.createDeal(
+          mockSynapseInstance,
+          providerInfo,
+          mockDealInput,
+          uploadPayload,
+        )) as Deal;
 
         const labels = {
           checkType: "dataStorage",
@@ -469,7 +479,12 @@ describe("DealService", () => {
           testedAt: new Date(),
         });
 
-        const deal = (await service.createDeal(mockSynapseInstance, mockProviderInfo, mockDealInput, uploadPayload)) as Deal;
+        const deal = (await service.createDeal(
+          mockSynapseInstance,
+          mockProviderInfo,
+          mockDealInput,
+          uploadPayload,
+        )) as Deal;
 
         expect(deal.ingestLatencyMs).toBeNull();
         expect(deal.ingestThroughputBps).toBeNull();
@@ -521,7 +536,12 @@ describe("DealService", () => {
           testedAt: new Date(),
         });
 
-        const deal = (await service.createDeal(mockSynapseInstance, mockProviderInfo, zeroSizeDealInput, uploadPayload)) as Deal;
+        const deal = (await service.createDeal(
+          mockSynapseInstance,
+          mockProviderInfo,
+          zeroSizeDealInput,
+          uploadPayload,
+        )) as Deal;
 
         expect(deal.ingestLatencyMs).toBe(1000);
         expect(deal.ingestThroughputBps).toBeNull();
@@ -969,7 +989,12 @@ describe("DealService", () => {
         testedAt: new Date(),
       });
 
-      const deal = (await service.createDeal(mockSynapseInstance, mockProviderInfo, mockDealInput, uploadPayload)) as Deal;
+      const deal = (await service.createDeal(
+        mockSynapseInstance,
+        mockProviderInfo,
+        mockDealInput,
+        uploadPayload,
+      )) as Deal;
 
       expect(deal.dealLatencyMs).toBeGreaterThanOrEqual(0);
       expect(deal.dealLatencyWithIpniMs).toBeUndefined();
@@ -1146,7 +1171,12 @@ describe("DealService", () => {
         testedAt: new Date(),
       });
 
-      const deal = (await service.createDeal(mockSynapseInstance, mockProviderInfo, mockDealInput, uploadPayload)) as Deal;
+      const deal = (await service.createDeal(
+        mockSynapseInstance,
+        mockProviderInfo,
+        mockDealInput,
+        uploadPayload,
+      )) as Deal;
 
       // Verify that pieceId from onPiecesConfirmed (123) is preserved and not overwritten by undefined
       expect(deal.pieceId).toBe(123);
@@ -1268,7 +1298,9 @@ describe("DealService", () => {
         },
       };
       vi.spyOn(service as any, "createSynapseInstance").mockImplementation(() => synapseMock as unknown as Synapse);
-      mockWarmStorageService.validateDataSet.mockRejectedValueOnce(new Error("Data set 9 does not exist or is not live"));
+      mockWarmStorageService.validateDataSet.mockRejectedValueOnce(
+        new Error("Data set 9 does not exist or is not live"),
+      );
 
       const result = await service.getDataSetProvisioningStatus("0xprovider", { dealbotDS: "1" });
       expect(result).toEqual({ status: "terminated", dataSetId: 9n });
@@ -1346,7 +1378,9 @@ describe("DealService", () => {
       const deal = Object.assign(new Deal(), { id: "deal-skip", spAddress: "0xProvider" });
       dealRepoMock.create.mockReturnValue(deal);
       mockStorageProviderRepository.findOne.mockResolvedValue({ providerId: 1, isApproved: true });
-      mockWarmStorageService.validateDataSet.mockRejectedValueOnce(new Error("Data set 9 does not exist or is not live"));
+      mockWarmStorageService.validateDataSet.mockRejectedValueOnce(
+        new Error("Data set 9 does not exist or is not live"),
+      );
 
       const result = await service.createDeal(synapseMock, providerInfo, dealInput, uploadPayload);
 

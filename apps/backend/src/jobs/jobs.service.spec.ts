@@ -1393,11 +1393,7 @@ describe("JobsService schedule rows", () => {
       { providerAddress: "0xaaa", jobId: "job-ds-term", providerId: 1n, providerName: "sp" },
     );
 
-    expect(dealService.repairTerminatedDataSet).toHaveBeenCalledWith(
-      "0xaaa",
-      7n,
-      undefined,
-    );
+    expect(dealService.repairTerminatedDataSet).toHaveBeenCalledWith("0xaaa", 7n, undefined);
     expect(dealService.createDataSetWithPiece).not.toHaveBeenCalled();
   });
 
