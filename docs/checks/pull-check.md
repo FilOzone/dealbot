@@ -33,7 +33,7 @@ The dealbot scheduler triggers pull check jobs at a configurable rate (`PULL_CHE
 
 ```mermaid
 flowchart TD
-  Generate["Generate random piece + register hosted source<br/>at /api/piece/{pieceCid}"]
+  Generate["Compute PieceCID + register hosted source in Postgres<br/>at /api/piece/{pieceCid}"]
   Generate --> Submit["Submit pullPieces request to SP"]
   Submit --> Poll["Poll SP via waitForPullStatus<br/>until terminal pull status"]
   Poll -->|complete| Validate["Direct /piece/{pieceCid} fetch from SP<br/>+ recompute pieceCid"]
@@ -41,20 +41,24 @@ flowchart TD
   Validate -->|matches| Success["Mark pull check successful"]
   Validate -->|mismatch or fetch error| Fail
   Success --> Cleanup
-  Fail --> Cleanup["Forget hosted piece + delete local artifact"]
+  Fail --> Cleanup["Forget hosted piece registration"]
 ```
 
 ### 1. Prepare the hosted piece
 
-Dealbot generates a random binary file, computes its piece CID, and registers it in an in-memory `HostedPieceRegistry`. The registration carries a TTL controlled by `PULL_CHECK_HOSTED_PIECE_TTL_SECONDS` so the source remains available for the entire pull window.
+Dealbot computes a deterministic PieceCID for a synthetic test piece and registers it in the Postgres `pull_pieces` table. The registration carries a TTL controlled by `PULL_CHECK_HOSTED_PIECE_TTL_SECONDS` so the source remains available for the entire pull window.
+
+By persisting registrations to Postgres instead of in-memory, the hosted source can be resolved by any API pod in a multi-pod deployment, even if the pull check was initiated by a different worker pod.
+
+The synthetic data is **not** stored on disk. Instead, dealbot uses a deterministic pseudo-random generator (AES-256-CTR) to stream the same bytes whenever the SP fetches the piece or dealbot needs to re-compute the CID for validation.
 
 The source URL handed to the SP is built from the dealbot `app.apiPublicUrl` config (set via `DEALBOT_API_PUBLIC_URL`). When `DEALBOT_API_PUBLIC_URL` is unset, dealbot falls back to `http://{DEALBOT_HOST}:{DEALBOT_PORT}`, which is only reachable in single-host or `localhost` setups.
 
-- **File format:** `random-{timestamp}-{uniqueId}.bin`
+- **Data format:** Deterministic pseudo-random bytes
 - **Default size:** `PULL_CHECK_PIECE_SIZE_BYTES` (default 10 MiB)
 - **Source URL:** `{apiPublicUrl}/api/piece/{pieceCid}`
 
-Source: [`pull-check.service.ts` (`prepareHostedPiece`)](../../apps/backend/src/pull-check/pull-check.service.ts), [`hosted-piece.registry.ts`](../../apps/backend/src/pull-check/hosted-piece.registry.ts)
+Source: [`pull-check.service.ts` (`preparePullPiece`)](../../apps/backend/src/pull-check/pull-check.service.ts), [`pull-piece.repository.ts`](../../apps/backend/src/pull-check/pull-piece.repository.ts)
 
 ### 2. Submit the pull request
 
@@ -68,7 +72,7 @@ Source: [`pull-check.service.ts` (`runPullCheck`)](../../apps/backend/src/pull-c
 
 When the SP fetches `/api/piece/{pieceCid}` for the first time, the controller stamps a first-byte timestamp on the registration. This is the basis for [`pullCheckFirstByteMs`](./events-and-metrics.md#pullCheckFirstByteMs).
 
-Source: [`piece-source.controller.ts`](../../apps/backend/src/pull-check/piece-source.controller.ts)
+Source: [`pull-piece.controller.ts`](../../apps/backend/src/pull-check/pull-piece.controller.ts)
 
 ### 4. Direct piece-fetch validation
 
@@ -83,10 +87,9 @@ Source: [`pull-check.service.ts` (`validateByDirectPieceFetch`)](../../apps/back
 Whether the pull check succeeds or fails, the `finally` block:
 
 1. Marks the registration as cleaned up (so subsequent `/api/piece/{pieceCid}` requests return HTTP 410 Gone instead of 200).
-2. Removes the on-disk dataset artifact via `DataSourceService.cleanupRandomDataset`.
-3. Forgets the registration entry so the controller returns HTTP 404 Not Found for any later requests.
+2. Forgets the registration entry so the controller returns HTTP 404 Not Found for any later requests.
 
-Cleanup errors are logged at WARN level but do not propagate, so a transient cleanup failure cannot mask a successful pull check.
+Source: [`pull-check.service.ts`](../../apps/backend/src/pull-check/pull-check.service.ts)
 
 ## Pull Check Status Progression
 
@@ -112,7 +115,7 @@ The dealbot API exposes one endpoint dedicated to pull checks:
 
 The endpoint is registered on the same `/api` prefix as the other dealbot HTTP endpoints. It is intentionally unauthenticated because SPs must be able to pull from it during a check; access is bounded by the per-piece TTL.
 
-Source: [`piece-source.controller.ts`](../../apps/backend/src/pull-check/piece-source.controller.ts)
+Source: [`pull-piece.controller.ts`](../../apps/backend/src/pull-check/pull-piece.controller.ts)
 
 ## Metrics Recorded
 
