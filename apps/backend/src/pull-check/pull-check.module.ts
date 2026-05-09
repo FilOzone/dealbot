@@ -9,9 +9,12 @@ import { PullCheckService } from "./pull-check.service.js";
 import { PieceSourceController } from "./pull-piece.controller.js";
 import { PullPieceRepository } from "./pull-piece.repository.js";
 
+const runMode = process.env.DEALBOT_RUN_MODE?.toLowerCase() || "both";
+const isWorkerOnly = runMode === "worker";
+
 @Module({
   imports: [DatabaseModule, TypeOrmModule.forFeature([PullPiece]), WalletSdkModule, DataSourceModule, HttpClientModule],
-  controllers: [PieceSourceController],
+  controllers: isWorkerOnly ? [] : [PieceSourceController],
   providers: [PullCheckService, PullPieceRepository],
   exports: [PullCheckService, PullPieceRepository],
 })
