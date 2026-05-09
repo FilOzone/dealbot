@@ -46,7 +46,7 @@ flowchart TD
 
 ### 1. Prepare the hosted piece
 
-Dealbot computes a deterministic PieceCID for a synthetic test piece and registers it in the Postgres `pull_pieces` table. The registration carries a TTL controlled by `PULL_CHECK_HOSTED_PIECE_TTL_SECONDS` so the source remains available for the entire pull window.
+Dealbot computes a deterministic PieceCID for a synthetic test piece and registers it in the Postgres `pull_pieces` table. 
 
 By persisting registrations to Postgres instead of in-memory, the hosted source can be resolved by any API pod in a multi-pod deployment, even if the pull check was initiated by a different worker pod.
 
@@ -109,9 +109,9 @@ The dealbot API exposes one endpoint dedicated to pull checks:
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/api/piece/{pieceCid}` | Streams the temporary hosted piece bytes for an in-flight pull check. Returns `200` with the bytes when an active registration exists, `410 Gone` when the registration has been cleaned up or expired, and `404 Not Found` when no registration exists. |
+| `GET` | `/api/piece/{pieceCid}` | Streams the temporary hosted piece bytes for an in-flight pull check. Returns `200` with the bytes when an active registration exists, and `404 Not Found` when no registration exists. |
 
-The endpoint is registered on the same `/api` prefix as the other dealbot HTTP endpoints. It is intentionally unauthenticated because SPs must be able to pull from it during a check; access is bounded by the per-piece TTL.
+The endpoint is registered on the same `/api` prefix as the other dealbot HTTP endpoints. It is intentionally unauthenticated because SPs must be able to pull from it during a check; access is bounded by the job lifecycle.
 
 Source: [`pull-piece.controller.ts`](../../apps/backend/src/pull-check/pull-piece.controller.ts)
 
@@ -135,7 +135,6 @@ Key environment variables that control pull check behavior:
 | `DEALBOT_API_PUBLIC_URL` | Public base URL used to construct the hosted-piece source URL handed to SPs. Required for any deployment where SPs cannot reach `DEALBOT_HOST:DEALBOT_PORT` directly. |
 | `PULL_CHECKS_PER_SP_PER_HOUR` | Per-SP pull check rate. |
 | `PULL_CHECK_JOB_TIMEOUT_SECONDS` | Max end-to-end pull check job runtime before forced abort. |
-| `PULL_CHECK_HOSTED_PIECE_TTL_SECONDS` | TTL of the temporary hosted piece source served at `/api/piece/{pieceCid}`. |
 | `PULL_CHECK_POLL_INTERVAL_SECONDS` | Polling interval used while waiting for a terminal SP pull status. |
 | `PULL_CHECK_PIECE_SIZE_BYTES` | Size of the synthetic test piece dealbot generates per pull check. |
 
