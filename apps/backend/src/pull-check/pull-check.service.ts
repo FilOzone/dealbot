@@ -169,7 +169,16 @@ export class PullCheckService {
       throw error;
     } finally {
       if (prepared) {
-        await this.pullPieceRepository.forget(prepared.registration.pieceCid);
+        const pieceCid = prepared.registration.pieceCid;
+        this.pullPieceRepository.forget(pieceCid).catch((error) => {
+          this.logger.warn({
+            ...logContext,
+            event: "pull_check_piece_forget_failed",
+            message: "Failed to delete pull piece after job completion",
+            pieceCid,
+            error: toStructuredError(error),
+          });
+        });
       }
     }
   }
