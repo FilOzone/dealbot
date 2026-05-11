@@ -2,6 +2,7 @@ import { Readable } from "node:stream";
 import { ConfigService } from "@nestjs/config";
 import { Test, type TestingModule } from "@nestjs/testing";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { ClickhouseService } from "../clickhouse/clickhouse.service.js";
 import type { IConfig } from "../config/app.config.js";
 import { DataSourceService } from "../dataSource/dataSource.service.js";
 import { HttpClientService } from "../http-client/http-client.service.js";
@@ -65,6 +66,7 @@ describe("PullCheckService", () => {
     observeThroughputBps: ReturnType<typeof vi.fn>;
     recordStatus: ReturnType<typeof vi.fn>;
   };
+  let clickhouseServiceMock: { insert: ReturnType<typeof vi.fn>; probeLocation: string };
   let configValues: Partial<IConfig>;
 
   beforeEach(async () => {
@@ -93,6 +95,7 @@ describe("PullCheckService", () => {
       observeThroughputBps: vi.fn(),
       recordStatus: vi.fn(),
     };
+    clickhouseServiceMock = { insert: vi.fn(), probeLocation: "test" };
 
     configValues = {
       app: { host: "localhost", port: 3000, apiPublicUrl: "https://dealbot.example" } as IConfig["app"],
@@ -121,6 +124,7 @@ describe("PullCheckService", () => {
         { provide: PullPieceRepository, useValue: registryMock },
         { provide: PullCheckCheckMetrics, useValue: metricsMock },
         { provide: HttpClientService, useValue: httpClientServiceMock },
+        { provide: ClickhouseService, useValue: clickhouseServiceMock },
       ],
     }).compile();
 
@@ -299,6 +303,18 @@ describe("PullCheckService", () => {
 
       // Cleanup ran (forget called)
       expect(registryMock.forget).toHaveBeenCalledWith(registration.pieceCid);
+      // ClickHouse row written with the check result.
+      expect(clickhouseServiceMock.insert).toHaveBeenCalledWith(
+        "pull_checks",
+        expect.objectContaining({
+          probe_location: "test",
+          sp_address: "0xsp",
+          piece_cid: "bafk-test-piece",
+          piece_size_bytes: 1024,
+          status: "success",
+          provider_status: "complete",
+        }),
+      );
     });
 
     it("does not observe firstByte when the SP never read from /api/piece (cached pull)", async () => {
