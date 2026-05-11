@@ -1003,8 +1003,6 @@ PULL_CHECKS_PER_SP_PER_HOUR=0.083
 - Decrease for quicker, lower-bandwidth pull tests
 - Increase to stress-test the SP's outbound fetch throughput
 
-**Note**: Pull-check pieces are committed on-chain but **not** tracked in the `deals` table, so they are not garbage-collected by [Piece Cleanup](#piece-cleanup). Larger pieces accrue on the SP unless removed manually.
-
 ---
 
 ## Dataset Configuration

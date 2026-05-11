@@ -45,6 +45,7 @@ export class PieceSourceController {
     res.setHeader("Content-Length", registration.size.toString());
     res.setHeader("Cache-Control", "no-store");
     res.setHeader("X-Pull-Check-Piece-CID", registration.pieceCid);
+    res.setHeader("Accept-ranges", "none");
 
     stream.on("error", (error) => {
       this.logger.error({

@@ -95,7 +95,7 @@ A pull check has a single terminal status, recorded once per check via [`pullChe
 
 | Overall Status | Meaning |
 |--------|---------|
-| `success` | All five [assertions](#what-gets-asserted) passed within the job timeout. |
+| `success` | All [assertions](#what-gets-asserted) passed within the job timeout. |
 | `failure.timedout` | The job was aborted because it exceeded `PULL_CHECK_JOB_TIMEOUT_SECONDS`, or the underlying error message indicates a timeout. |
 | `failure.other` | Any other failure: SP rejected the pull request, SP reached a non-`complete` terminal status, or direct piece validation failed. |
 
