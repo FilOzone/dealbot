@@ -151,7 +151,6 @@ See also: [`docs/environment-variables.md`](../environment-variables.md) for the
 
 Pull checks are intentionally isolated from the data-storage flow: they don't pass through `DealService.createDeal`, don't allocate a `Deal` entity. This keeps the pull-check signal independent of the data-storage success rate.
 
-### Why does a "cached pull" not record `pullCheckFirstByteMs`?
+### Do pull checks verify IPNI indexing and IPFS retrieval?
 
-If an SP previously pulled the same piece CID and serves the new pull request from a local cache, it will never fetch `/api/piece/{pieceCid}`, so dealbot has no first-byte timestamp to subtract. In that case dealbot skips the histogram observation rather than emit a misleading zero. Cached pulls are uncommon today because each pull check generates a fresh random piece, but the registry's first-byte capture is **idempotent** so retried pulls during a single check do not skew measurements either.
-
+No, not currently. We are assuming that if an SP does IPNI indexing and IPFS retrieval with data storage checks that it also happens when a piece is pulled.
