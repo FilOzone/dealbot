@@ -58,12 +58,12 @@ describe("PullCheckService", () => {
   };
   let httpClientServiceMock: { requestWithMetrics: ReturnType<typeof vi.fn> };
   let metricsMock: {
-    observeRequestLatencyMs: ReturnType<typeof vi.fn>;
+    observeAcknowledgementLatencyMs: ReturnType<typeof vi.fn>;
+    observeStartedMs: ReturnType<typeof vi.fn>;
     observeCompletionLatencyMs: ReturnType<typeof vi.fn>;
-    recordStatus: ReturnType<typeof vi.fn>;
     recordProviderStatus: ReturnType<typeof vi.fn>;
-    observeFirstByteMs: ReturnType<typeof vi.fn>;
     observeThroughputBps: ReturnType<typeof vi.fn>;
+    recordStatus: ReturnType<typeof vi.fn>;
   };
   let configValues: Partial<IConfig>;
 
@@ -86,12 +86,12 @@ describe("PullCheckService", () => {
       requestWithMetrics: vi.fn(),
     };
     metricsMock = {
-      observeRequestLatencyMs: vi.fn(),
+      observeAcknowledgementLatencyMs: vi.fn(),
+      observeStartedMs: vi.fn(),
       observeCompletionLatencyMs: vi.fn(),
-      recordStatus: vi.fn(),
       recordProviderStatus: vi.fn(),
-      observeFirstByteMs: vi.fn(),
       observeThroughputBps: vi.fn(),
+      recordStatus: vi.fn(),
     };
 
     configValues = {
@@ -283,15 +283,15 @@ describe("PullCheckService", () => {
       // Submit timestamp is stamped on the registration.
       expect(registryMock.markPullSubmitted).toHaveBeenCalledWith(registration.pieceCid, expect.any(Date));
       // Latency histograms observed at least once each.
-      expect(metricsMock.observeRequestLatencyMs).toHaveBeenCalledTimes(1);
+      expect(metricsMock.observeAcknowledgementLatencyMs).toHaveBeenCalledTimes(1);
       expect(metricsMock.observeCompletionLatencyMs).toHaveBeenCalledTimes(1);
       // Terminal SP status recorded exactly once.
       expect(metricsMock.recordProviderStatus).toHaveBeenCalledTimes(1);
       expect(metricsMock.recordProviderStatus).toHaveBeenCalledWith(expect.any(Object), "complete");
       // First-byte and throughput observed since the registration carries
       // pullSubmittedAt + firstByteAt and the path completed.
-      expect(metricsMock.observeFirstByteMs).toHaveBeenCalledTimes(1);
-      const firstByteMs = metricsMock.observeFirstByteMs.mock.calls[0][1] as number;
+      expect(metricsMock.observeStartedMs).toHaveBeenCalledTimes(1);
+      const firstByteMs = metricsMock.observeStartedMs.mock.calls[0][1] as number;
       expect(firstByteMs).toBe(250);
       expect(metricsMock.observeThroughputBps).toHaveBeenCalledTimes(1);
       // Terminal aggregate status is success.
@@ -308,7 +308,7 @@ describe("PullCheckService", () => {
 
       await service.runPullCheck("0xsp", undefined, logContext);
 
-      expect(metricsMock.observeFirstByteMs).not.toHaveBeenCalled();
+      expect(metricsMock.observeStartedMs).not.toHaveBeenCalled();
       expect(metricsMock.observeThroughputBps).toHaveBeenCalledTimes(1);
       expect(metricsMock.recordStatus).toHaveBeenCalledWith(expect.any(Object), "success");
     });

@@ -22,10 +22,10 @@ Each pull check asserts the following for every SP:
 
 | # | Assertion | How It's Checked | Retries | Relevant Metric for Setting a Max Duration | Implemented? |
 |---|-----------|------------------|:---:|--------------------------------------------|:---:|
-| 1 | SP accepts the pull request | Synapse `pullPieces` (i.e., initial call to SP `POST /pdp/piece/pull`) returns without error and reports a non-terminal-failure status | 0 | [`pullCheckRequestLatencyMs`](./events-and-metrics.md#pullCheckRequestLatencyMs) | Yes |
-| 2 | SP reaches a terminal `complete` pull status | Synapse `waitForPullStatus` polls the SP (using `POST /pdp/piece/pull`) until a terminal status is reported | Polling will continue until [`PULL_CHECK_JOB_TIMEOUT_SECONDS`](../environment-variables.md#pull_check_job_timeout_seconds) is reached | [`pullCheckCompletionLatencyMs`](./events-and-metrics.md#pullCheckCompletionLatencyMs) | Yes |
+| 1 | SP accepts the pull request | Synapse `pullPieces` (i.e., initial call to SP `POST /pdp/piece/pull`) returns without error and reports a non-terminal-failure status | 0 | [`pullRequestAcknowledgementLatencyMs`](./events-and-metrics.md#pullRequestAcknowledgementLatencyMs) | Yes |
+| 2 | SP reaches a terminal `complete` pull status | Synapse `waitForPullStatus` polls the SP (using `POST /pdp/piece/pull`) until a terminal status is reported | Polling will continue until [`PULL_CHECK_JOB_TIMEOUT_SECONDS`](../environment-variables.md#pull_check_job_timeout_seconds) is reached | [`pullRequestCompletionLatencyMs`](./events-and-metrics.md#pullRequestCompletionLatencyMs) | Yes |
 | 3 | SP serves the pulled piece via `/piece/{pieceCid}` | Re-fetch the bytes from the SP's PDP service URL and re-compute the piece CID | 0 | n/a (bounded by job timeout) | Yes |
-| 4 | All checks pass | Pull check is not marked successful until all assertions pass within the job timeout | n/a | [`pullCheckCompletionLatencyMs`](./events-and-metrics.md#pullCheckCompletionLatencyMs) | Yes |
+| 4 | All checks pass | Pull check is not marked successful until all assertions pass within the job timeout | n/a | [`pullRequestCompletionLatencyMs`](./events-and-metrics.md#pullRequestCompletionLatencyMs) | Yes |
 
 ## Pull Check Lifecycle
 
@@ -69,9 +69,9 @@ Source: [`pull-check.service.ts` (`runPullCheck`)](../../apps/backend/src/pull-c
 
 ### 3. Wait for terminal SP pull status
 
-When dealbot receives the SP request for `/api/piece/{pieceCid}` for the first time, dealbot stamps a first-byte timestamp on the registration. This is the basis for [`pullCheckFirstByteMs`](./events-and-metrics.md#pullCheckFirstByteMs).
+When dealbot receives the SP request for `/api/piece/{pieceCid}` for the first time, dealbot stamps a first-byte timestamp on the registration. This is the basis for [`pullRequestStartedMs`](./events-and-metrics.md#pullRequestStartedMs).
 
-In parallel, dealbot`waitForPullStatus` polls the SP at `PULL_CHECK_POLL_INTERVAL_SECONDS` until the SP reports a terminal status (`complete` or `failed`) or the job timeout fires. Dealbot increments the [`pullCheckProviderStatus`](./events-and-metrics.md#pullCheckProviderStatus) counter exactly once with the **terminal** status; intermediate poll statuses are not counted.
+In parallel, dealbot`waitForPullStatus` polls the SP at `PULL_CHECK_POLL_INTERVAL_SECONDS` until the SP reports a terminal status (`complete` or `failed`) or the job timeout fires. Dealbot increments the [`pullRequestProviderStatus`](./events-and-metrics.md#pullRequestProviderStatus) counter exactly once with the **terminal** status; intermediate poll statuses are not counted.
 
 Source: [`pull-piece.controller.ts`](../../apps/backend/src/pull-check/pull-piece.controller.ts)
 
@@ -102,7 +102,7 @@ A pull check has a single terminal status, recorded once per check via [`pullChe
 
 Failures are classified by inspecting the error message; see [`classifyFailureStatus`](../../apps/backend/src/metrics-prometheus/check-metric-labels.ts) for the exact rule.
 
-In addition to the overall status, dealbot records the **raw SP-reported terminal pull status** via [`pullCheckProviderStatus`](./events-and-metrics.md#pullCheckProviderStatus) (for example `complete`, `failed`, `not_found`). This separates "SP said it failed" from "dealbot's downstream validation failed" in dashboards.
+In addition to the overall status, dealbot records the **raw SP-reported terminal pull status** via [`pullRequestProviderStatus`](./events-and-metrics.md#pullRequestProviderStatus) (for example `complete`, `failed`, `not_found`). This separates "SP said it failed" from "dealbot's downstream validation failed" in dashboards.
 
 ## HTTP API
 
@@ -120,12 +120,12 @@ Source: [`pull-piece.controller.ts`](../../apps/backend/src/pull-check/pull-piec
 
 Metric definitions (including Prometheus metrics) live in [Dealbot Events & Metrics](./events-and-metrics.md). The metrics emitted by a pull check are:
 
-- [`pullCheckRequestLatencyMs`](./events-and-metrics.md#pullCheckRequestLatencyMs)
-- [`pullCheckFirstByteMs`](./events-and-metrics.md#pullCheckFirstByteMs) (only when the SP actually pulled from `/api/piece/{pieceCid}`)
-- [`pullCheckCompletionLatencyMs`](./events-and-metrics.md#pullCheckCompletionLatencyMs)
-- [`pullCheckThroughputBps`](./events-and-metrics.md#pullCheckThroughputBps)
+- [`pullRequestAcknowledgementLatencyMs`](./events-and-metrics.md#pullRequestAcknowledgementLatencyMs)
+- [`pullRequestStartedMs`](./events-and-metrics.md#pullRequestStartedMs) (only when the SP actually pulled from `/api/piece/{pieceCid}`)
+- [`pullRequestCompletionLatencyMs`](./events-and-metrics.md#pullRequestCompletionLatencyMs)
+- [`pullRequestProviderStatus`](./events-and-metrics.md#pullRequestProviderStatus)
+- [`pullRequestThroughputBps`](./events-and-metrics.md#pullRequestThroughputBps)
 - [`pullCheckStatus`](./events-and-metrics.md#pullCheckStatus)
-- [`pullCheckProviderStatus`](./events-and-metrics.md#pullCheckProviderStatus)
 
 ## Configuration
 

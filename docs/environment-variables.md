@@ -996,7 +996,7 @@ PULL_CHECKS_PER_SP_PER_HOUR=0.083
 - **Default**: `10485760` (10 MiB)
 - **Minimum**: `1024`
 
-**Role**: Size of the synthetic random piece dealbot generates per pull check. The same byte length is used to compute [`pullCheckThroughputBps`](./checks/events-and-metrics.md#pullCheckThroughputBps).
+**Role**: Size of the synthetic random piece dealbot generates per pull check. The same byte length is used to compute [`pullRequestThroughputBps`](./checks/events-and-metrics.md#pullRequestThroughputBps).
 
 **When to update**:
 

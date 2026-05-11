@@ -105,11 +105,11 @@ export class PullCheckService {
       const pullResponse = await pullPieces(synapseClient, pullPiecesOptions);
       signal?.throwIfAborted();
       const requestLatencyMs = Date.now() - requestSubmittedAt.getTime();
-      this.pullCheckMetrics.observeRequestLatencyMs(labels, requestLatencyMs);
+      this.pullCheckMetrics.observeAcknowledgementLatencyMs(labels, requestLatencyMs);
       this.logger.log({
         ...logContext,
-        event: "pull_request_submitted",
-        message: "Pull request submitted to provider",
+        event: "pull_request_acknowledged",
+        message: "Pull request acknowledged by provider",
         pieceCid: pieceCidStr,
         pullProviderStatus: pullResponse.status,
         requestLatencyMs,
@@ -144,7 +144,7 @@ export class PullCheckService {
           ? firstByteEntry.firstByteAt.getTime() - firstByteEntry.pullSubmittedAt.getTime()
           : null;
       if (firstByteMs != null) {
-        this.pullCheckMetrics.observeFirstByteMs(labels, firstByteMs);
+        this.pullCheckMetrics.observeStartedMs(labels, firstByteMs);
       }
       // Throughput approximated as pieceSize / completionLatency. This is an
       // upper-bound on actual transfer time because completionLatency includes
