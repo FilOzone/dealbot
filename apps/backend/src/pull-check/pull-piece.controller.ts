@@ -2,11 +2,11 @@ import { PassThrough } from "node:stream";
 import { asPieceCID } from "@filoz/synapse-core/piece";
 import { Controller, Get, Logger, NotFoundException, Param, Res, UseGuards } from "@nestjs/common";
 import { ApiResponse, ApiTags } from "@nestjs/swagger";
+import { ThrottlerGuard } from "@nestjs/throttler";
 import type { Response } from "express";
 import { PullCheckService } from "./pull-check.service.js";
 import { PullPieceRepository } from "./pull-piece.repository.js";
 import { PullPieceStreamTracker } from "./pull-piece-stream-tracker.service.js";
-import { PullPieceThrottlerGuard } from "./pull-piece-throttler.guard.js";
 
 /**
  * Serves the temporary pull-piece bytes that a storage provider must fetch
@@ -26,7 +26,7 @@ export class PieceSourceController {
   ) {}
 
   @Get("piece/:pieceCid")
-  @UseGuards(PullPieceThrottlerGuard)
+  @UseGuards(ThrottlerGuard)
   @ApiResponse({ status: 200, description: "Raw piece bytes streamed to the caller" })
   @ApiResponse({ status: 404, description: "No active pull piece exists for this pieceCid" })
   @ApiResponse({ status: 503, description: "Server is at capacity or too many concurrent requests for this piece" })
