@@ -10,7 +10,7 @@ For event and metric definitions used by the dashboard, see [Dealbot Events & Me
 
 A "pull check" exercises the **storage provider pull-to-park pathway**: dealbot publishes a temporary piece at `/api/piece/{pieceCid}`, asks the SP to fetch (pull) and park it via the Synapse `pullPieces` API, waits for a terminal SP pull status, and finally re-fetches the piece from the SP to verify byte-for-byte integrity.
 
-The pull check answers a different question than the [Data Storage check](./data-storage.md): instead of *uploading* bytes to the SP, it asks the SP to *pull* bytes from a public URL. This validates an SP's outbound HTTP fetcher, the pull request lifecycle, and retrieval surface.
+The pull check answers a different question than the [Data Storage check](./data-storage.md): instead of *uploading* bytes to the SP, it asks the SP to *pull* bytes from a public URL. This validates an SP's outbound HTTP fetcher, the pull request lifecycle, and `/piece` retrieval surface. (`/piece` retrieval is not covered by the [Data Storage check](./data-storage.md).)
 
 A successful pull check requires all [assertions in the table below](#what-gets-asserted) to pass. Failure occurs if any step fails or the job exceeds its max allowed time. Operational timeouts exist to prevent jobs from running indefinitely, but they are not quality assertions.
 
@@ -22,8 +22,8 @@ Each pull check asserts the following for every SP:
 
 | # | Assertion | How It's Checked | Retries | Relevant Metric for Setting a Max Duration | Implemented? |
 |---|-----------|------------------|:---:|--------------------------------------------|:---:|
-| 1 | SP accepts the pull request | `pullPieces` returns without error and reports a non-terminal-failure status | 0 | [`pullCheckRequestLatencyMs`](./events-and-metrics.md#pullCheckRequestLatencyMs) | Yes |
-| 2 | SP reaches a terminal `complete` pull status | `waitForPullStatus` polls the SP until a terminal status is reported | Polling with delay until [`PULL_CHECK_JOB_TIMEOUT_SECONDS`](../environment-variables.md#pull_check_job_timeout_seconds) | [`pullCheckCompletionLatencyMs`](./events-and-metrics.md#pullCheckCompletionLatencyMs) | Yes |
+| 1 | SP accepts the pull request | Synapse `pullPieces` (i.e., initial call to SP `POST /pdp/piece/pull`) returns without error and reports a non-terminal-failure status | 0 | [`pullCheckRequestLatencyMs`](./events-and-metrics.md#pullCheckRequestLatencyMs) | Yes |
+| 2 | SP reaches a terminal `complete` pull status | Synapse `waitForPullStatus` polls the SP (using `POST /pdp/piece/pull`) until a terminal status is reported | Polling will continue until [`PULL_CHECK_JOB_TIMEOUT_SECONDS`](../environment-variables.md#pull_check_job_timeout_seconds) is reached | [`pullCheckCompletionLatencyMs`](./events-and-metrics.md#pullCheckCompletionLatencyMs) | Yes |
 | 3 | SP serves the pulled piece via `/piece/{pieceCid}` | Re-fetch the bytes from the SP's PDP service URL and re-compute the piece CID | 0 | n/a (bounded by job timeout) | Yes |
 | 4 | All checks pass | Pull check is not marked successful until all assertions pass within the job timeout | n/a | [`pullCheckCompletionLatencyMs`](./events-and-metrics.md#pullCheckCompletionLatencyMs) | Yes |
 
@@ -35,9 +35,10 @@ The dealbot scheduler triggers pull check jobs at a configurable rate (`PULL_CHE
 flowchart TD
   Generate["Compute PieceCID + register hosted source in Postgres<br/>at /api/piece/{pieceCid}"]
   Generate --> Submit["Submit pullPieces request to SP"]
-  Submit --> Poll["Poll SP via waitForPullStatus<br/>until terminal pull status"]
+  Submit --> |SP responds with HTTP 200|Poll["Poll SP via waitForPullStatus<br/>until terminal pull status"]
+  Submit --> |SP doesn't respond with HTTP 200| Fail["Mark pull check failed"]
   Poll -->|complete| Validate["Direct /piece/{pieceCid} fetch from SP<br/>+ recompute pieceCid"]
-  Poll -->|other terminal status| Fail["Mark pull check failed"]
+  Poll -->|other terminal status| Fail
   Validate -->|matches| Success["Mark pull check successful"]
   Validate -->|mismatch or fetch error| Fail
   Success --> Cleanup
@@ -46,11 +47,11 @@ flowchart TD
 
 ### 1. Prepare the hosted piece
 
-Dealbot computes a deterministic PieceCID for a synthetic test piece and registers it in the Postgres `pull_pieces` table. 
+Dealbot computes a deterministic PieceCID for a synthetic test piece. The synthetic data is **not** stored on disk. Instead, dealbot uses a deterministic pseudo-random generator (AES-256-CTR) to generate it as needed.
 
-By persisting registrations to Postgres instead of in-memory, the hosted source can be resolved by any API pod in a multi-pod deployment, even if the pull check was initiated by a different worker pod.
+The pieceCid and synthetic piece's random seed are registered it in the Postgres `pull_pieces` table. The registration persists for the duration of the pull check job.
 
-The synthetic data is **not** stored on disk. Instead, dealbot uses a deterministic pseudo-random generator (AES-256-CTR) to stream the same bytes whenever the SP fetches the piece or dealbot needs to re-compute the CID for validation.
+By persisting registrations to Postgres instead of in-memory, the hosted source can be resolved by any API pod in a multi-pod deployment, even if the pull check was initiated by a different worker pod. It generates the same piece and streams the whenever the SP fetches the piece or dealbot needs to re-compute the CID for validation.
 
 The source URL handed to the SP is built from the dealbot `app.apiPublicUrl` config (set via `DEALBOT_API_PUBLIC_URL`). When `DEALBOT_API_PUBLIC_URL` is unset, dealbot falls back to `http://{DEALBOT_HOST}:{DEALBOT_PORT}`, which is only reachable in single-host or `localhost` setups.
 
@@ -62,21 +63,21 @@ Source: [`pull-check.service.ts` (`preparePullPiece`)](../../apps/backend/src/pu
 
 ### 2. Submit the pull request
 
-Dealbot calls `pullPieces` from `@filoz/synapse-core/sp` with the pieceCid, the source URL, and either the SP's existing `dataSetId`/`clientDataSetId` or the SP `payee` for new-dataset flows. The submission timestamp is stamped on the registration so it can later be subtracted from the first-byte event.
+Dealbot calls `pullPieces` from `@filoz/synapse-core/sp` with the pieceCid, the source URL, and the SP `payee`. The submission timestamp is stamped on the registration so it can later be subtracted from the first-byte event.
 
 Source: [`pull-check.service.ts` (`runPullCheck`)](../../apps/backend/src/pull-check/pull-check.service.ts)
 
 ### 3. Wait for terminal SP pull status
 
-`waitForPullStatus` polls the SP at `PULL_CHECK_POLL_INTERVAL_SECONDS` until the SP reports a terminal status (`complete` or `failed`) or the job timeout fires. Dealbot increments the [`pullCheckProviderStatus`](./events-and-metrics.md#pullCheckProviderStatus) counter exactly once with the **terminal** status; intermediate poll statuses are not counted.
+When dealbot receives the SP request for `/api/piece/{pieceCid}` for the first time, dealbot stamps a first-byte timestamp on the registration. This is the basis for [`pullCheckFirstByteMs`](./events-and-metrics.md#pullCheckFirstByteMs).
 
-When the SP fetches `/api/piece/{pieceCid}` for the first time, the controller stamps a first-byte timestamp on the registration. This is the basis for [`pullCheckFirstByteMs`](./events-and-metrics.md#pullCheckFirstByteMs).
+In parallel, dealbot`waitForPullStatus` polls the SP at `PULL_CHECK_POLL_INTERVAL_SECONDS` until the SP reports a terminal status (`complete` or `failed`) or the job timeout fires. Dealbot increments the [`pullCheckProviderStatus`](./events-and-metrics.md#pullCheckProviderStatus) counter exactly once with the **terminal** status; intermediate poll statuses are not counted.
 
 Source: [`pull-piece.controller.ts`](../../apps/backend/src/pull-check/pull-piece.controller.ts)
 
 ### 4. Direct piece-fetch validation
 
-After commit, dealbot fetches `{serviceURL}/piece/{pieceCid}` from the SP, re-computes the piece CID over the response body, and compares it against the expected CID. A mismatch fails the pull check with `failure.other`. A network or HTTP error during validation also fails the check (transport errors are intentionally not retried).
+After `waitForPullStatus`, dealbot fetches `{serviceURL}/piece/{pieceCid}` from the SP, re-computes the piece CID over the response body, and compares it against the expected CID. A mismatch fails the pull check with `failure.other`. A network or HTTP error during validation also fails the check (transport errors are intentionally not retried).
 
 Aborts (job timeout) propagate as throws and are classified as `failure.timedout` rather than as a validation failure.
 
@@ -84,7 +85,7 @@ Source: [`pull-check.service.ts` (`validateByDirectPieceFetch`)](../../apps/back
 
 ### 5. Cleanup
 
-Whether the pull check succeeds or fails, the `finally` block removes the registration entry.
+Whether the pull check succeeds or fails, the `finally` block removes the registration entry from postgres database.
 After cleanup, subsequent `/api/piece/{pieceCid}` requests return HTTP 404 Not Found.
 
 Source: [`pull-check.service.ts`](../../apps/backend/src/pull-check/pull-check.service.ts)
@@ -120,8 +121,8 @@ Source: [`pull-piece.controller.ts`](../../apps/backend/src/pull-check/pull-piec
 Metric definitions (including Prometheus metrics) live in [Dealbot Events & Metrics](./events-and-metrics.md). The metrics emitted by a pull check are:
 
 - [`pullCheckRequestLatencyMs`](./events-and-metrics.md#pullCheckRequestLatencyMs)
-- [`pullCheckCompletionLatencyMs`](./events-and-metrics.md#pullCheckCompletionLatencyMs)
 - [`pullCheckFirstByteMs`](./events-and-metrics.md#pullCheckFirstByteMs) (only when the SP actually pulled from `/api/piece/{pieceCid}`)
+- [`pullCheckCompletionLatencyMs`](./events-and-metrics.md#pullCheckCompletionLatencyMs)
 - [`pullCheckThroughputBps`](./events-and-metrics.md#pullCheckThroughputBps)
 - [`pullCheckStatus`](./events-and-metrics.md#pullCheckStatus)
 - [`pullCheckProviderStatus`](./events-and-metrics.md#pullCheckProviderStatus)
@@ -137,6 +138,8 @@ Key environment variables that control pull check behavior:
 | `PULL_CHECK_JOB_TIMEOUT_SECONDS` | Max end-to-end pull check job runtime before forced abort. |
 | `PULL_CHECK_POLL_INTERVAL_SECONDS` | Polling interval used while waiting for a terminal SP pull status. |
 | `PULL_CHECK_PIECE_SIZE_BYTES` | Size of the synthetic test piece dealbot generates per pull check. |
+| `PULL_PIECE_MAX_CONCURRENT_STREAMS` | Process-wide cap on concurrent `/api/piece/{pieceCid}` streams across all pieces. |
+| `PULL_PIECE_MAX_STREAMS_PER_CID` | Per-pieceCid cap on concurrent streams; prevents a single piece from exhausting the global budget. |
 
 Source: [`apps/backend/src/config/app.config.ts`](../../apps/backend/src/config/app.config.ts)
 

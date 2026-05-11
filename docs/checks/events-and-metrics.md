@@ -69,25 +69,25 @@ sequenceDiagram
   participant RPC as Chain RPC Provider
 
   Dealbot->>Dealbot: hostedPieceRegistered
-  Dealbot->>SP: pullRequestSubmitted (pullPieces)
-  SP-->>Dealbot: pullRequestAcknowledged
-  SP-->>Dealbot: hostedPieceFirstByteRead
+  Dealbot->>SP: pullRequestSubmittedToSp (pullPieces)
+  SP-->>Dealbot: pullRequestAcknowledgedBySp
+  SP-->>Dealbot: pullRequestStartedBySp
   Dealbot->>SP: pullStatusPolled (waitForPullStatus, repeated)
-  SP-->>Dealbot: pullTerminalStatusReported
+  SP-->>Dealbot: pullRequestIsTerminal
   Dealbot->>SP: directPieceFetchStarted (/piece/{cid})
   SP-->>Dealbot: directPieceFetchCompleted
-  Dealbot-->>Dealbot: pullCheckIntegrityChecked
+  Dealbot-->>Dealbot: pullRequestIntegrityChecked
 ```
 
 ### Pull Check Event List
 
 | Event | Definition | Implemented | Source of truth |
 |------|------------|:------:|-----------------|
-| <a id="pullRequestSubmitted"></a>`pullRequestSubmitted` | Dealbot calls `pullPieces` against the SP for the registered piece CID. | Yes | [`pull-check.service.ts`](../../apps/backend/src/pull-check/pull-check.service.ts) |
-| <a id="pullRequestAcknowledged"></a>`pullRequestAcknowledged` | SP returns from `pullPieces` (success or non-terminal-failure). | Yes | [`pull-check.service.ts`](../../apps/backend/src/pull-check/pull-check.service.ts) |
-| <a id="hostedPieceFirstByteRead"></a>`hostedPieceFirstByteRead` | SP reads the first byte of `/api/piece/{pieceCid}` from dealbot. Recorded once per registration. | Yes | [`pull-piece.controller.ts`](../../apps/backend/src/pull-check/pull-piece.controller.ts) |
-| <a id="pullTerminalStatusReported"></a>`pullTerminalStatusReported` | SP reports a terminal pull status (`complete`, `failed`, ...) via `waitForPullStatus`. Intermediate poll statuses are not counted. | Yes | [`pull-check.service.ts`](../../apps/backend/src/pull-check/pull-check.service.ts) |
-| <a id="pullCheckIntegrityChecked"></a>`pullCheckIntegrityChecked` | Direct `/piece/{pieceCid}` fetch from the SP returns bytes whose recomputed pieceCid matches the expected CID. | Yes | [`pull-check.service.ts`](../../apps/backend/src/pull-check/pull-check.service.ts) |
+| <a id="pullRequestSubmittedToSp"></a>`pullRequestSubmittedToSp` | Dealbot calls Synapse pullPiece (`POST /pdp/piece/pull`) against the SP for the registered piece CID. | Yes | [`pull-check.service.ts`](../../apps/backend/src/pull-check/pull-check.service.ts) |
+| <a id="pullRequestAcknowledgedBySp"></a>`pullRequestAcknowledgedBySp` | SP returns from `pullPieces` (success or non-terminal-failure). | Yes | [`pull-check.service.ts`](../../apps/backend/src/pull-check/pull-check.service.ts) |
+| <a id="pullRequestStartedBySp"></a>`pullRequestStartedBySp` | Dealbot receives SP request for `/api/piece/{pieceCid}` from dealbot. Recorded once per registration. | Yes | [`pull-piece.controller.ts`](../../apps/backend/src/pull-check/pull-piece.controller.ts) |
+| <a id="pullRequestIsTerminal"></a>`pullRequestIsTerminal` | Dealbot determines the pull request is in terminal pull status (`complete`, `failed`, ...) via `waitForPullStatus` or the polling operation has timed out. Intermediate poll statuses are not counted. | Yes | [`pull-check.service.ts`](../../apps/backend/src/pull-check/pull-check.service.ts) |
+| <a id="pullRequestIntegrityChecked"></a>`pullRequestIntegrityChecked` | Dealbot performs direct `/piece/{pieceCid}` retrieval from the SP and confirms the bytes match the pieceCid. | Yes | [`pull-check.service.ts`](../../apps/backend/src/pull-check/pull-check.service.ts) |
 
 ## Metrics
 
@@ -121,9 +121,9 @@ sequenceDiagram
 | <a id="dataStorageCheckMs"></a>`dataStorageCheckMs` | Data Storage | [`uploadToSpStart`](#uploadToSpStart) | [`ipfsRetrievalIntegrityChecked`](#ipfsRetrievalIntegrityChecked) | Duration of a Data Storage check | |
 | <a id="retrievalCheckMs"></a>`retrievalCheckMs` | Retrieval | Retrieval check start | [`ipfsRetrievalIntegrityChecked`](#ipfsRetrievalIntegrityChecked) | Duration of a Retrieval check | |
 | <a id="dataSetCreationMs"></a>`dataSetCreationMs` | Data-Set Creation | Data-set creation uploadToSpStart | Data-set creation pieceConfirmed | Duration of one data-set creation with confirmed piece (all using `createDataSetWithPiece`) | [`deal.service.ts`](../../apps/backend/src/deal/deal.service.ts) |
-| <a id="pullCheckRequestLatencyMs"></a>`pullCheckRequestLatencyMs` | Pull | [`pullRequestSubmitted`](#pullRequestSubmitted) | [`pullRequestAcknowledged`](#pullRequestAcknowledged) | Time from `pullPieces` submission to SP request acknowledgement. | [`pull-check.service.ts`](../../apps/backend/src/pull-check/pull-check.service.ts) |
-| <a id="pullCheckCompletionLatencyMs"></a>`pullCheckCompletionLatencyMs` | Pull | [`pullRequestSubmitted`](#pullRequestSubmitted) | [`pullTerminalStatusReported`](#pullTerminalStatusReported) | Time from `pullPieces` submission to terminal SP pull status. Observed once on success and once on failure. | [`pull-check.service.ts`](../../apps/backend/src/pull-check/pull-check.service.ts) |
-| <a id="pullCheckFirstByteMs"></a>`pullCheckFirstByteMs` | Pull | [`pullRequestSubmitted`](#pullRequestSubmitted) | [`hostedPieceFirstByteRead`](#hostedPieceFirstByteRead) | Time from `pullPieces` submission to the SP reading the first byte of `/api/piece/{pieceCid}`. Skipped (no observation) when the SP serves the pull from a local cache and never fetches from dealbot. | [`pull-check.service.ts`](../../apps/backend/src/pull-check/pull-check.service.ts), [`pull-piece.controller.ts`](../../apps/backend/src/pull-check/pull-piece.controller.ts) |
+| <a id="pullCheckRequestLatencyMs"></a>`pullCheckRequestLatencyMs` | Pull | [`pullRequestSubmittedToSp`](#pullRequestSubmittedToSp) | [`pullRequestAcknowledgedBySp`](#pullRequestAcknowledgedBySp) | Time from `pullPieces` submission to SP request acknowledgement. | [`pull-check.service.ts`](../../apps/backend/src/pull-check/pull-check.service.ts) |
+| <a id="pullCheckCompletionLatencyMs"></a>`pullCheckCompletionLatencyMs` | Pull | [`pullRequestSubmittedToSp`](#pullRequestSubmittedToSp) | [`pullRequestIsTerminal`](#pullRequestIsTerminal) | Time from `pullPieces` submission to terminal SP pull status. Observed once on success and once on failure. | [`pull-check.service.ts`](../../apps/backend/src/pull-check/pull-check.service.ts) |
+| <a id="pullCheckFirstByteMs"></a>`pullCheckFirstByteMs` | Pull | [`pullRequestSubmittedToSp`](#pullRequestSubmittedToSp) | [`pullRequestStartedBySp`](#pullRequestStartedBySp) | Time from `pullPieces` submission to the SP reading the first byte of `/api/piece/{pieceCid}`. Skipped (no observation) when the SP serves the pull from a local cache and never fetches from dealbot. | [`pull-check.service.ts`](../../apps/backend/src/pull-check/pull-check.service.ts), [`pull-piece.controller.ts`](../../apps/backend/src/pull-check/pull-piece.controller.ts) |
 | <a id="pullCheckThroughputBps"></a>`pullCheckThroughputBps` | Pull | n/a | n/a | `(pieceSizeBytes / pullCheckCompletionLatencyMs) * 1000`. Upper-bound on actual transfer rate because `pullCheckCompletionLatencyMs` includes SP-side scheduling and dealbot's polling cadence. | [`pull-check.service.ts`](../../apps/backend/src/pull-check/pull-check.service.ts) |
 
 
