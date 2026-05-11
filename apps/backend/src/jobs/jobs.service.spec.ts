@@ -134,7 +134,14 @@ describe("JobsService schedule rows", () => {
         pieceCleanupPerSpPerHour: 1,
         maxPieceCleanupRuntimeSeconds: 300,
       } as IConfig["jobs"],
-      pullPiece: { pullChecksPerSpPerHour: 1, pullCheckJobTimeoutSeconds: 300 } as IConfig["pullPiece"],
+      pullPiece: {
+        pullChecksPerSpPerHour: 1,
+        pullCheckJobTimeoutSeconds: 300,
+        pullCheckPollIntervalSeconds: 2,
+        pullCheckPieceSizeBytes: 10 * 1024 * 1024,
+        maxConcurrentStreams: 50,
+        maxStreamsPerCid: 3,
+      },
       database: {
         host: "localhost",
         port: 5432,

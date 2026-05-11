@@ -98,10 +98,13 @@ describe("PullCheckService", () => {
       app: { host: "localhost", port: 3000, apiPublicUrl: "https://dealbot.example" } as IConfig["app"],
       blockchain: { network: "calibration", walletAddress: "0xwallet" } as IConfig["blockchain"],
       pullPiece: {
+        pullChecksPerSpPerHour: 1,
         pullCheckJobTimeoutSeconds: 300,
         pullCheckPollIntervalSeconds: 5,
         pullCheckPieceSizeBytes: 1024,
-      } as IConfig["pullPiece"],
+        maxConcurrentStreams: 50,
+        maxStreamsPerCid: 3,
+      },
       dataset: { localDatasetsPath: "/tmp/datasets" } as IConfig["dataset"],
     };
 
