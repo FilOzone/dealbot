@@ -104,17 +104,17 @@ To prevent metric inflation across service restarts and worker-pod handoffs, dea
 
 **Lifecycle**:
 
-1. **At poll start**: Load all baselines from database into memory. If load fails, abort poll to prevent emitting inflated values.
-2. **First-seen provider**: If a provider has no prior baseline (not in memory or database), initialize its baseline to the current cumulative totals without emitting counters. This avoids a metric spike from the provider's full history.
+1. **At poll start**: Load all baselines from the database into a fresh poll-local map. If load fails, abort poll to prevent emitting inflated values.
+2. **First-seen provider**: If a provider has no persisted baseline, initialize its baseline to the current cumulative totals without emitting counters. This avoids a metric spike from the provider's full history.
 3. **Per provider**: Compute the new baseline and any positive counter deltas.
-4. **Before counter emission**: Persist the new baseline to database. Only after the write succeeds does dealbot update the local map and increment `dataSetChallengeStatus`.
-5. **On restart or worker-pod handoff**: Reload baselines from database. Delta computation resumes from the last persisted state, preventing double-counting.
+4. **Before counter emission**: Persist the new baseline to the database. Only after the write succeeds does dealbot update the poll-local map and increment `dataSetChallengeStatus`.
+5. **On restart or worker-pod handoff**: Every poll reloads baselines from the database, so delta computation resumes from the last persisted state regardless of which pod runs.
 
 **Error handling**:
 
 - **DB load failure**: Poll aborted, retry on next cycle
-- **DB persist failure**: Warning logged, counter increment skipped, in-memory baseline not advanced
-- **Stale provider cleanup**: Baselines deleted from both memory and database when providers are removed from active list
+- **DB persist failure**: Warning logged, counter increment skipped, poll-local baseline not advanced
+- **Stale provider cleanup**: Baselines deleted from both the poll-local map and the database when providers are removed from the active list
 
 Source: [`data-retention.service.ts` (`loadBaselinesFromDb`, `persistBaseline`)](../../apps/backend/src/data-retention/data-retention.service.ts), [`CreateDataRetentionBaselines` migration](../../apps/backend/src/database/migrations/1761500000002-CreateDataRetentionBaselines.ts)
 
@@ -124,12 +124,12 @@ To prevent unbounded memory growth, dealbot periodically removes baseline data f
 
 **Cleanup strategy**:
 
-1. Identify providers in the baseline map but not in the current active list
+1. Identify providers in the poll-local baseline map but not in the current active list
 2. Fetch provider info from the database
 3. Remove Prometheus counter metrics for both success and fault labels
 4. Remove Prometheus gauge metric for overdue periods
-5. Delete baseline entry from memory **only if** metric removal succeeds
-6. Delete baseline entry from database (non-blocking, logged on failure)
+5. Delete baseline entry from the poll-local map **only if** metric removal succeeds
+6. Delete baseline entry from the database (non-blocking, logged on failure)
 
 **Critical safeguard**: Baselines are retained if:
 
@@ -234,7 +234,7 @@ Validation errors (schema mismatches, type errors) are **not retried** as they i
 
 If stale provider cleanup encounters errors (database failures, missing provider info), the cleanup is skipped entirely to preserve metric baselines and prevent double-counting.
 
-Source: [`data-retention.service.ts` (`pollDataRetention`)](../../apps/backend/src/data-retention/data-retention.service.ts#L50)
+Source: [`data-retention.service.ts` (`pollDataRetention`)](../../apps/backend/src/data-retention/data-retention.service.ts)
 
 ## Architecture Diagram
 
@@ -265,7 +265,7 @@ flowchart TD
     CheckDeltas -->|No| PersistBaseline
     ResetBaseline --> PersistBaseline[Persist Baseline to DB]
     PersistBaseline --> CheckPersist{Persist<br/>Success?}
-    CheckPersist -->|Yes| UpdateBaseline[Update Baseline in Memory]
+    CheckPersist -->|Yes| UpdateBaseline[Update Poll-Local Baseline]
     UpdateBaseline --> CheckEmit{Positive<br/>Deltas?}
     CheckEmit -->|Yes| IncrementMetrics[Increment Prometheus Counters]
     CheckEmit -->|No| MoreBatches
@@ -280,7 +280,7 @@ flowchart TD
 
     Cleanup --> FetchStale[Fetch Stale Provider Info from DB]
     FetchStale --> RemoveMetrics[Remove Prometheus Metrics]
-    RemoveMetrics --> DeleteMemory[Delete Baseline from Memory]
+    RemoveMetrics --> DeleteMemory[Delete Baseline from Poll-Local Map]
     DeleteMemory --> DeleteDB[Delete Baseline from DB]
 
     SkipCleanup --> End[Complete]
@@ -320,7 +320,7 @@ Poll 1 (fresh start, no DB baseline):
 
 Poll 2:
   Subgraph: faulted=1005, success=9005
-  Memory baseline: 1000, 9000 → Period delta: 5, 5 (× 5 challenges/period)
+  Loaded baseline: 1000, 9000 → Period delta: 5, 5 (× 5 challenges/period)
   Emit: +25 faulted challenges, +25 success challenges
 
 --- SERVICE RESTARTS ---
@@ -332,7 +332,7 @@ Poll 3 (after restart):
 
 Poll 4:
   Subgraph: faulted=1008, success=9012
-  Memory baseline: 1005, 9005 → Period delta: 3, 7
+  Loaded baseline: 1005, 9005 → Period delta: 3, 7
   Emit: +15 faulted challenges, +35 success challenges
 ```
 

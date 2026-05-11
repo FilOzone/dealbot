@@ -202,7 +202,7 @@ export class DataRetentionService {
    * Removes stale provider entries from the per-poll baselines map, the persisted baseline
    * table, and their associated Prometheus counter/gauge metrics.
    *
-   * CRITICAL: Persisted/in-memory baselines are ONLY deleted if Prometheus removal succeeds.
+   * CRITICAL: Persisted and poll-local baselines are ONLY deleted if Prometheus removal succeeds.
    * Prevents massive metric inflation (double-counting) if a provider temporarily drops
    * offline and returns later.
    */
