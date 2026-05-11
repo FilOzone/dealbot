@@ -95,7 +95,7 @@ export function buildMigrations(database: string): string[] {
 
     acknowledgement_latency_ms  Nullable(Float64),              -- time from pullPieces submission to SP acknowledgement (ms)
     completion_latency_ms       Nullable(Float64),              -- time from pullPieces submission to terminal SP pull status (ms)
-    first_byte_ms               Nullable(Float64),              -- time from pullPieces submission to SP reading first byte of hosted piece (ms); null when SP served from cache or check failed before first byte
+    first_byte_ms               Nullable(Float64),              -- time from pullPieces submission to SP reading first byte of hosted piece (ms); null when check failed before first byte
     throughput_bps              Nullable(Float64)               -- approx bytes/sec = piece_size_bytes / completion_latency_ms * 1000; null on failure
 ) ENGINE MergeTree()
   PRIMARY KEY (probe_location, sp_address, timestamp)
