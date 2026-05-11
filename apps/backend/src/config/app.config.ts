@@ -98,11 +98,13 @@ export const configValidationSchema = Joi.object({
   // Pull Check
   PULL_CHECKS_PER_SP_PER_HOUR: Joi.number().min(0.001).max(20).default(1),
   PULL_CHECK_JOB_TIMEOUT_SECONDS: Joi.number().min(60).default(300), // 5m max runtime for pull check jobs
-  PULL_CHECK_POLL_INTERVAL_SECONDS: Joi.number().min(1).default(10),
+  PULL_CHECK_POLL_INTERVAL_SECONDS: Joi.number().min(1).default(2),
   PULL_CHECK_PIECE_SIZE_BYTES: Joi.number()
     .integer()
     .min(1024)
     .default(10 * 1024 * 1024), // 10 MiB
+  PULL_PIECE_MAX_CONCURRENT_STREAMS: Joi.number().integer().min(1).default(50), // Max concurrent streams across all pieces
+  PULL_PIECE_MAX_STREAMS_PER_CID: Joi.number().integer().min(1).default(3), // Max concurrent streams per pieceCid
 
   // Piece Cleanup
   MAX_DATASET_STORAGE_SIZE_BYTES: Joi.number()
@@ -294,27 +296,6 @@ export interface IJobsConfig {
    * Only used when `DEALBOT_JOBS_MODE=pgboss`.
    */
   maxPieceCleanupRuntimeSeconds: number;
-  /**
-   * Target number of pull checks per storage provider per hour.
-   *
-   * Pull checks validate the SP pull-to-park pathway by serving a temporary piece URL
-   * from DealBot and asking the SP to pull and park it. Independent of `deal` and `retrieval`.
-   */
-  pullChecksPerSpPerHour: number;
-  /**
-   * Maximum runtime (seconds) for pull-check jobs before forced abort.
-   *
-   * Bounds the polling window for terminal SP pull status.
-   */
-  pullCheckJobTimeoutSeconds: number;
-  /**
-   * Polling interval (seconds) used while waiting for a terminal SP pull status.
-   */
-  pullCheckPollIntervalSeconds: number;
-  /**
-   * Size (bytes) of the synthetic test piece DealBot generates per pull check.
-   */
-  pullCheckPieceSizeBytes: number;
 }
 
 export interface IDatasetConfig {
@@ -358,6 +339,42 @@ export interface IClickhouseConfig {
   maxBufferSize: number;
 }
 
+export interface IPullPieceConfig {
+  /**
+   * Target number of pull checks per storage provider per hour.
+   *
+   * Pull checks validate the SP pull-to-park pathway by serving a temporary piece URL
+   * from DealBot and asking the SP to pull and park it. Independent of `deal` and `retrieval`.
+   */
+  pullChecksPerSpPerHour: number;
+  /**
+   * Maximum runtime (seconds) for pull-check jobs before forced abort.
+   *
+   * Bounds the polling window for terminal SP pull status.
+   */
+  pullCheckJobTimeoutSeconds: number;
+  /**
+   * Polling interval (seconds) used while waiting for a terminal SP pull status.
+   */
+  pullCheckPollIntervalSeconds: number;
+  /**
+   * Size (bytes) of the synthetic test piece DealBot generates per pull check.
+   */
+  pullCheckPieceSizeBytes: number;
+  /**
+   * Maximum number of concurrent piece streams across all pieceCids.
+   *
+   * Prevents DoS by limiting total server-wide streaming load.
+   */
+  maxConcurrentStreams: number;
+  /**
+   * Maximum number of concurrent streams per pieceCid.
+   *
+   * Prevents attackers from opening many connections to the same piece.
+   */
+  maxStreamsPerCid: number;
+}
+
 export interface IConfig {
   app: IAppConfig;
   database: IDatabaseConfig;
@@ -370,6 +387,7 @@ export interface IConfig {
   clickhouse: IClickhouseConfig;
   pieceCleanup: IPieceCleanupConfig;
   spBlocklists: ISpBlocklistConfig;
+  pullPiece: IPullPieceConfig;
 }
 
 export function loadConfig(): IConfig {
@@ -448,10 +466,6 @@ export function loadConfig(): IConfig {
       dataSetCreationJobTimeoutSeconds: Number.parseInt(process.env.DATA_SET_CREATION_JOB_TIMEOUT_SECONDS || "300", 10),
       pieceCleanupPerSpPerHour: Number.parseFloat(process.env.JOB_PIECE_CLEANUP_PER_SP_PER_HOUR || String(1 / 24)),
       maxPieceCleanupRuntimeSeconds: Number.parseInt(process.env.MAX_PIECE_CLEANUP_RUNTIME_SECONDS || "300", 10),
-      pullChecksPerSpPerHour: Number.parseFloat(process.env.PULL_CHECKS_PER_SP_PER_HOUR || "1"),
-      pullCheckJobTimeoutSeconds: Number.parseInt(process.env.PULL_CHECK_JOB_TIMEOUT_SECONDS || "300", 10),
-      pullCheckPollIntervalSeconds: Number.parseInt(process.env.PULL_CHECK_POLL_INTERVAL_SECONDS || "10", 10),
-      pullCheckPieceSizeBytes: Number.parseInt(process.env.PULL_CHECK_PIECE_SIZE_BYTES || String(10 * 1024 * 1024), 10),
     },
     dataset: {
       localDatasetsPath: process.env.DEALBOT_LOCAL_DATASETS_PATH || DEFAULT_LOCAL_DATASETS_PATH,
@@ -500,6 +514,14 @@ export function loadConfig(): IConfig {
     spBlocklists: {
       ids: parseIdList(process.env.BLOCKED_SP_IDS),
       addresses: parseAddressList(process.env.BLOCKED_SP_ADDRESSES),
+    },
+    pullPiece: {
+      pullChecksPerSpPerHour: Number.parseFloat(process.env.PULL_CHECKS_PER_SP_PER_HOUR || "1"),
+      pullCheckJobTimeoutSeconds: Number.parseInt(process.env.PULL_CHECK_JOB_TIMEOUT_SECONDS || "300", 10),
+      pullCheckPollIntervalSeconds: Number.parseInt(process.env.PULL_CHECK_POLL_INTERVAL_SECONDS || "2", 10),
+      pullCheckPieceSizeBytes: Number.parseInt(process.env.PULL_CHECK_PIECE_SIZE_BYTES || String(10 * 1024 * 1024), 10),
+      maxConcurrentStreams: Number.parseInt(process.env.PULL_PIECE_MAX_CONCURRENT_STREAMS || "50", 10),
+      maxStreamsPerCid: Number.parseInt(process.env.PULL_PIECE_MAX_STREAMS_PER_CID || "3", 10),
     },
   };
 }

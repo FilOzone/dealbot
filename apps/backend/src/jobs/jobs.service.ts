@@ -674,7 +674,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     }
 
     const abortController = new AbortController();
-    const timeoutSeconds = this.configService.get("jobs").pullCheckJobTimeoutSeconds;
+    const timeoutSeconds = this.configService.get("pullPiece", { infer: true }).pullCheckJobTimeoutSeconds;
     const timeoutMs = Math.max(60000, timeoutSeconds * 1000);
     const effectiveTimeoutSeconds = Math.round(timeoutMs / 1000);
     const abortReason = new Error(`Pull check job timeout (${effectiveTimeoutSeconds}s) for ${spAddress}`);
@@ -985,12 +985,13 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
   } {
     const jobsConfig = this.configService.get("jobs", { infer: true });
     const scheduling = this.configService.get("scheduling", { infer: true });
+    const pullPieceConfig = this.configService.get("pullPiece", { infer: true });
 
     const dealsPerHour = jobsConfig.dealsPerSpPerHour;
     const retrievalsPerHour = jobsConfig.retrievalsPerSpPerHour;
     const dataSetCreationsPerHour = jobsConfig.dataSetCreationsPerSpPerHour;
     const pieceCleanupPerHour = jobsConfig.pieceCleanupPerSpPerHour;
-    const pullChecksPerHour = jobsConfig.pullChecksPerSpPerHour;
+    const pullChecksPerHour = pullPieceConfig.pullChecksPerSpPerHour;
 
     const dealIntervalSeconds = Math.max(1, Math.round(3600 / dealsPerHour));
     const retrievalIntervalSeconds = Math.max(1, Math.round(3600 / retrievalsPerHour));

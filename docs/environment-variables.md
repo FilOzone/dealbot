@@ -16,7 +16,7 @@ This document provides a comprehensive guide to all environment variables used b
 | [ClickHouse](#clickhouse-configuration)   | `CLICKHOUSE_URL`, `CLICKHOUSE_BATCH_SIZE`, `CLICKHOUSE_FLUSH_INTERVAL_MS`, `DEALBOT_PROBE_LOCATION`          |
 | [Timeouts](#timeout-configuration)        | `CONNECT_TIMEOUT_MS`, `HTTP_REQUEST_TIMEOUT_MS`, `HTTP2_REQUEST_TIMEOUT_MS`, `IPNI_VERIFICATION_TIMEOUT_MS`, `IPNI_VERIFICATION_POLLING_MS`                   |
 | [Piece Cleanup](#piece-cleanup)           | `MAX_DATASET_STORAGE_SIZE_BYTES`, `TARGET_DATASET_STORAGE_SIZE_BYTES`, `JOB_PIECE_CLEANUP_PER_SP_PER_HOUR`, `MAX_PIECE_CLEANUP_RUNTIME_SECONDS`       |
-| [Pull Check](#pull-check)                 | `PULL_CHECKS_PER_SP_PER_HOUR`, `PULL_CHECK_JOB_TIMEOUT_SECONDS`, `PULL_CHECK_POLL_INTERVAL_SECONDS`, `PULL_CHECK_PIECE_SIZE_BYTES` |
+| [Pull Check](#pull-check)                 | `PULL_CHECKS_PER_SP_PER_HOUR`, `PULL_CHECK_JOB_TIMEOUT_SECONDS`, `PULL_CHECK_POLL_INTERVAL_SECONDS`, `PULL_CHECK_PIECE_SIZE_BYTES`, `PULL_PIECE_MAX_CONCURRENT_STREAMS`, `PULL_PIECE_MAX_STREAMS_PER_CID` |
 | [SP Blocklist](#sp-blocklist-configuration) | `BLOCKED_SP_IDS`, `BLOCKED_SP_ADDRESSES` |
 | [Prometheus Metrics](#prometheus-metrics-configuration) | `PROMETHEUS_WALLET_BALANCE_TTL_SECONDS`, `PROMETHEUS_WALLET_BALANCE_ERROR_COOLDOWN_SECONDS`                   |
 | [Web Frontend](#web-frontend)             | `VITE_API_BASE_URL`, `VITE_PLAUSIBLE_DATA_DOMAIN`, `DEALBOT_API_BASE_URL`                                                                                    |
@@ -977,7 +977,7 @@ PULL_CHECKS_PER_SP_PER_HOUR=0.083
 
 - **Type**: `number` (seconds)
 - **Required**: No
-- **Default**: `10`
+- **Default**: `2`
 - **Minimum**: `1`
 
 **Role**: Polling interval used by `waitForPullStatus` while waiting for the SP to report a terminal pull status (`complete` or `failed`).
@@ -1002,6 +1002,50 @@ PULL_CHECKS_PER_SP_PER_HOUR=0.083
 
 - Decrease for quicker, lower-bandwidth pull tests
 - Increase to stress-test the SP's outbound fetch throughput
+
+---
+
+### `PULL_PIECE_MAX_CONCURRENT_STREAMS`
+
+- **Type**: `number` (integer)
+- **Required**: No
+- **Default**: `50`
+- **Minimum**: `1`
+
+**Role**: Maximum number of concurrent HTTP/2 streams allowed across all pieces being served at any given time. This is a process-wide cap shared by all in-flight piece requests.
+
+**When to update**:
+
+- Decrease to reduce load on the Dealbot HTTP server under heavy SP demand
+- Increase if many SPs are simultaneously fetching pieces and stream exhaustion is observed
+
+**Example**:
+
+```bash
+PULL_PIECE_MAX_CONCURRENT_STREAMS=50
+```
+
+---
+
+### `PULL_PIECE_MAX_STREAMS_PER_CID`
+
+- **Type**: `number` (integer)
+- **Required**: No
+- **Default**: `3`
+- **Minimum**: `1`
+
+**Role**: Maximum number of concurrent HTTP/2 streams allowed per individual `pieceCid`. Prevents a single piece from consuming the entire `PULL_PIECE_MAX_CONCURRENT_STREAMS` budget.
+
+**When to update**:
+
+- Decrease to spread stream capacity more evenly across pieces
+- Increase if a single large piece must be fetched concurrently by multiple SPs
+
+**Example**:
+
+```bash
+PULL_PIECE_MAX_STREAMS_PER_CID=3
+```
 
 ---
 

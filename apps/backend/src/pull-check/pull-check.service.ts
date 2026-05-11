@@ -6,7 +6,7 @@ import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import type { Account, Address, Chain, Client, Transport } from "viem";
 import { type ProviderJobContext, toStructuredError } from "../common/logging.js";
-import type { IAppConfig, IConfig, IJobsConfig } from "../config/app.config.js";
+import type { IAppConfig, IConfig, IPullPieceConfig } from "../config/app.config.js";
 import { DataSourceService } from "../dataSource/dataSource.service.js";
 import { HttpClientService } from "../http-client/http-client.service.js";
 import { buildCheckMetricLabels, classifyFailureStatus } from "../metrics-prometheus/check-metric-labels.js";
@@ -115,12 +115,12 @@ export class PullCheckService {
         requestLatencyMs,
       });
 
-      const jobsConfig = this.getJobsConfig();
+      const pullPieceConfig = this.getPullPieceConfig();
       // `waitForPullStatus` polls the SP repeatedly until a terminal pull status is reported
       const finalResponse = await waitForPullStatus(synapseClient, {
         ...pullPiecesOptions,
-        timeout: jobsConfig.pullCheckJobTimeoutSeconds * 1000,
-        pollInterval: jobsConfig.pullCheckPollIntervalSeconds * 1000,
+        timeout: pullPieceConfig.pullCheckJobTimeoutSeconds * 1000,
+        pollInterval: pullPieceConfig.pullCheckPollIntervalSeconds * 1000,
       });
       signal?.throwIfAborted();
       const completionLatencyMs = Date.now() - requestSubmittedAt.getTime();
@@ -227,8 +227,7 @@ export class PullCheckService {
    * `/api/piece/:pieceCid` serving, and return the source URL plus registration.
    */
   async preparePullPiece(providerAddress: string): Promise<PullPiecePrepared> {
-    const jobsConfig = this.getJobsConfig();
-    const targetSize = jobsConfig.pullCheckPieceSizeBytes;
+    const targetSize = this.getPullPieceConfig().pullCheckPieceSizeBytes;
     const key = crypto.randomBytes(16).toString("hex");
 
     const dataStream = this.dataSourceService.generateBytesStream({
@@ -253,8 +252,8 @@ export class PullCheckService {
     return { registration, sourceUrl };
   }
 
-  private getJobsConfig(): IJobsConfig {
-    return this.configService.get<IJobsConfig>("jobs", { infer: true });
+  private getPullPieceConfig(): IPullPieceConfig {
+    return this.configService.get<IPullPieceConfig>("pullPiece", { infer: true });
   }
 
   private resolvePublicBaseUrl(): string {

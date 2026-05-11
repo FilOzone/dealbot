@@ -97,11 +97,11 @@ describe("PullCheckService", () => {
     configValues = {
       app: { host: "localhost", port: 3000, apiPublicUrl: "https://dealbot.example" } as IConfig["app"],
       blockchain: { network: "calibration", walletAddress: "0xwallet" } as IConfig["blockchain"],
-      jobs: {
+      pullPiece: {
         pullCheckJobTimeoutSeconds: 300,
         pullCheckPollIntervalSeconds: 5,
         pullCheckPieceSizeBytes: 1024,
-      } as IConfig["jobs"],
+      } as IConfig["pullPiece"],
       dataset: { localDatasetsPath: "/tmp/datasets" } as IConfig["dataset"],
     };
 
