@@ -37,17 +37,6 @@ export class DataRetentionService {
   private static readonly MAX_PROVIDER_BATCH_LENGTH = 50;
   // NOTE: taken from https://github.com/FilOzone/filecoin-services/blob/c04be93aa680082e359481f0776e41ed157a2ac2/service_contracts/src/FilecoinWarmStorageService.sol#L26
   private static readonly CHALLENGES_PER_PROVING_PERIOD = 5n;
-  private pollInProgress = false;
-
-  /**
-   * Tracks cumulative faulted/success period totals per provider address.
-   * Used to compute deltas between consecutive polls for Prometheus counter increments.
-   * Reloaded from the database at the start of every poll, then updated after
-   * baseline persistence succeeds.
-   * Note: Baselines are stored in periods, but emitted metrics are converted to challenges
-   * by multiplying period deltas by CHALLENGES_PER_PROVING_PERIOD.
-   */
-  private readonly providerCumulativeTotals: Map<string, ProviderBaseline>;
 
   constructor(
     private readonly configService: ConfigService<IConfig, true>,
@@ -62,9 +51,7 @@ export class DataRetentionService {
     @InjectMetric("pdp_provider_estimated_overdue_periods")
     private readonly estimatedOverduePeriodsGauge: Gauge,
     private readonly clickhouseService: ClickhouseService,
-  ) {
-    this.providerCumulativeTotals = new Map();
-  }
+  ) {}
 
   /**
    * Polls the PDP subgraph for provider proof-set data, computes proving period deltas,
@@ -81,22 +68,13 @@ export class DataRetentionService {
       return;
     }
 
-    if (this.pollInProgress) {
-      this.logger.warn({
-        event: "data_retention_poll_already_running",
-        message: "Skipping data retention poll because a previous poll is still running",
-      });
+    const baselines = await this.loadBaselinesFromDb();
+    if (baselines === null) {
+      // Cannot safely compute deltas without persisted baselines.
       return;
     }
 
-    this.pollInProgress = true;
-
     try {
-      if (!(await this.loadBaselinesFromDb())) {
-        // Cannot safely compute deltas without persisted baselines.
-        return;
-      }
-
       const subgraphMeta = await this.pdpSubgraphService.fetchSubgraphMeta();
       const allProviderInfos = this.walletSdkService.getTestingProviders();
       const spBlocklists = this.configService.get("spBlocklists");
@@ -142,7 +120,7 @@ export class DataRetentionService {
                   ),
                 );
               }
-              return this.processProvider(provider, providerInfo, blockNumberBigInt);
+              return this.processProvider(provider, providerInfo, blockNumberBigInt, baselines);
             }),
           );
 
@@ -178,7 +156,7 @@ export class DataRetentionService {
               }
 
               try {
-                this.applyPersistedProviderResult(result.value);
+                this.applyPersistedProviderResult(result.value, baselines);
               } catch (error) {
                 hasProcessingErrors = true;
                 this.logger.error({
@@ -204,7 +182,7 @@ export class DataRetentionService {
 
       // Only cleanup stale providers after successful poll to preserve baselines during transient failures
       if (!hasProcessingErrors) {
-        await this.cleanupStaleProviders(providerAddresses);
+        await this.cleanupStaleProviders(providerAddresses, baselines);
       } else {
         this.logger.warn({
           event: "stale_provider_cleanup_skipped",
@@ -217,26 +195,25 @@ export class DataRetentionService {
         message: "Failed to poll data retention",
         error: toStructuredError(error),
       });
-    } finally {
-      this.pollInProgress = false;
     }
   }
 
   /**
-   * Removes stale provider entries from the cumulative totals map and their associated
-   * Prometheus counter and gauge metrics.
+   * Removes stale provider entries from the per-poll baselines map, the persisted baseline
+   * table, and their associated Prometheus counter/gauge metrics.
    *
-   * CRITICAL: Local baselines are ONLY deleted if the Prometheus metrics are successfully
-   * removed. This prevents massive metric inflation (double-counting) if a provider
-   * temporarily drops offline and returns later.
-   *
-   * @param activeProviderAddresses - Array of currently active provider addresses (normalized to lowercase)
+   * CRITICAL: Persisted/in-memory baselines are ONLY deleted if Prometheus removal succeeds.
+   * Prevents massive metric inflation (double-counting) if a provider temporarily drops
+   * offline and returns later.
    */
-  private async cleanupStaleProviders(activeProviderAddresses: string[]): Promise<void> {
+  private async cleanupStaleProviders(
+    activeProviderAddresses: string[],
+    baselines: Map<string, ProviderBaseline>,
+  ): Promise<void> {
     const activeAddressSet = new Set(activeProviderAddresses);
     const staleAddresses: string[] = [];
 
-    for (const [address] of this.providerCumulativeTotals) {
+    for (const [address] of baselines) {
       if (!activeAddressSet.has(address)) {
         staleAddresses.push(address);
       }
@@ -297,7 +274,7 @@ export class DataRetentionService {
           this.estimatedOverduePeriodsGauge.remove(unapprovedLabels);
 
           // Only delete local memory if Prometheus removal succeeded without throwing
-          this.providerCumulativeTotals.delete(address);
+          baselines.delete(address);
 
           // Also remove persisted baseline from DB
           this.baselineRepository.delete({ providerAddress: address }).catch((err) => {
@@ -351,6 +328,7 @@ export class DataRetentionService {
     provider: ProviderDataSetResponse["providers"][number],
     pdpProvider: PDPProviderEx,
     currentBlock: bigint,
+    baselines: Map<string, ProviderBaseline>,
   ): Promise<ProcessedProviderResult> {
     const { address, totalFaultedPeriods, totalProvingPeriods, proofSets } = provider;
     // Note: Query filters proofSets with nextDeadline_lt: $blockNumber, so all deadlines are in the past
@@ -376,7 +354,7 @@ export class DataRetentionService {
     });
 
     const normalizedAddress = address.toLowerCase();
-    const previous = this.providerCumulativeTotals.get(normalizedAddress);
+    const previous = baselines.get(normalizedAddress);
 
     const newBaseline = {
       faultedPeriods: totalFaultedPeriods,
@@ -461,8 +439,11 @@ export class DataRetentionService {
     };
   }
 
-  private applyPersistedProviderResult(result: ProcessedProviderResult): void {
-    this.providerCumulativeTotals.set(result.providerAddress, result.baseline);
+  private applyPersistedProviderResult(
+    result: ProcessedProviderResult,
+    baselines: Map<string, ProviderBaseline>,
+  ): void {
+    baselines.set(result.providerAddress, result.baseline);
 
     if (result.negativeDelta) {
       return;
@@ -488,15 +469,14 @@ export class DataRetentionService {
   }
 
   /**
-   * Loads persisted baselines from the database into the in-memory map.
+   * Loads persisted baselines from the database into a fresh map.
    * Runs at the start of every poll so whichever worker pod wins the job computes
-   * deltas from the latest persisted cross-pod baseline.
+   * deltas from the latest persisted cross-pod baseline. Returns null on DB failure
+   * so the caller can abort the poll.
    */
-  private async loadBaselinesFromDb(): Promise<boolean> {
+  private async loadBaselinesFromDb(): Promise<Map<string, ProviderBaseline> | null> {
     try {
       const rows = await this.baselineRepository.find();
-      // Build a replacement map before clearing the current one so a malformed
-      // persisted row does not erase the last usable in-memory baselines.
       const baselines = new Map<string, ProviderBaseline>();
       for (const row of rows) {
         baselines.set(row.providerAddress.toLowerCase(), {
@@ -504,23 +484,19 @@ export class DataRetentionService {
           successPeriods: BigInt(row.successPeriods),
         });
       }
-      this.providerCumulativeTotals.clear();
-      for (const [address, baseline] of baselines) {
-        this.providerCumulativeTotals.set(address, baseline);
-      }
       this.logger.log({
         event: "baselines_loaded_from_db",
         message: "Loaded baseline(s) from database",
         baselineCount: rows.length,
       });
-      return true;
+      return baselines;
     } catch (error) {
       this.logger.error({
         event: "baseline_load_failed",
         message: "Failed to load baselines from database. Aborting poll and will retry on next poll.",
         error: toStructuredError(error),
       });
-      return false;
+      return null;
     }
   }
 
