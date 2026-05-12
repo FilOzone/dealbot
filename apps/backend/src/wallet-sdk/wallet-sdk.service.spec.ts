@@ -338,6 +338,17 @@ describe("WalletSdkService", () => {
       expect((service as any).isDevProvider(info)).toBe(true);
     });
 
+    it("returns true for 'service_status' key (snake_case)", () => {
+      const info = makeProvider({
+        pdp: {
+          serviceURL: "https://example.invalid",
+          location: "loc",
+          extraCapabilities: { service_status: stringToHex("dev") },
+        } as any,
+      });
+      expect((service as any).isDevProvider(info)).toBe(true);
+    });
+
     it("returns false for a non-dev hex-encoded value", () => {
       const info = makeProvider({
         pdp: {

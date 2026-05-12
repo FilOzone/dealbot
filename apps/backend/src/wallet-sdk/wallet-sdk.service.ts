@@ -410,7 +410,10 @@ export class WalletSdkService implements OnModuleInit {
   private isDevProvider(info: PDPProvider): boolean {
     const extraCaps = info.pdp.extraCapabilities;
     if (extraCaps === undefined) return false;
-    const key = Object.keys(extraCaps).find((k) => k.toLowerCase() === "servicestatus");
+    const key = Object.keys(extraCaps).find((k) => {
+      const lower = k.toLowerCase();
+      return lower === "servicestatus" || lower === "service_status";
+    });
     if (key === undefined) return false;
     try {
       return hexToString(extraCaps[key]).toLowerCase() === "dev";
