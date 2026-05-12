@@ -80,8 +80,14 @@ const getConfig = (network: Network | null) => {
 
 export default function Landing() {
   const { network } = useNetworkConfig();
-  const { dashboardUrl, dashboardUrlInvalid, approvedSpDashboardUrl, approvedSpDashboardUrlInvalid, logsUrl, logsUrlInvalid } =
-    getConfig(network);
+  const {
+    dashboardUrl,
+    dashboardUrlInvalid,
+    approvedSpDashboardUrl,
+    approvedSpDashboardUrlInvalid,
+    logsUrl,
+    logsUrlInvalid,
+  } = getConfig(network);
   const { providers: providersResponse, loading: providersLoading, error: providersError } = useProvidersList(0, 500);
 
   return (
@@ -126,7 +132,8 @@ export default function Landing() {
         {approvedSpDashboardUrlInvalid && network && (
           <p className="text-sm text-yellow-600">
             Warning: <code>APPROVED_SP_DASHBOARD_URL_{network.toUpperCase()}</code> (or{" "}
-            <code>VITE_APPROVED_SP_DASHBOARD_URL_{network.toUpperCase()}</code>) configured but invalid. Link unavailable.
+            <code>VITE_APPROVED_SP_DASHBOARD_URL_{network.toUpperCase()}</code>) configured but invalid. Link
+            unavailable.
           </p>
         )}
         <p className="text-sm text-muted-foreground">
