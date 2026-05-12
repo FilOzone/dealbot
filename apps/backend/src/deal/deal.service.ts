@@ -10,6 +10,7 @@ import type { Repository } from "typeorm";
 import { ClickhouseService } from "../clickhouse/clickhouse.service.js";
 import { awaitWithAbort } from "../common/abort-utils.js";
 import { buildUnixfsCar } from "../common/car-utils.js";
+import { DealJobTerminatedDataSetError } from "../common/errors.js";
 import { createFilecoinPinLogger } from "../common/filecoin-pin-logger.js";
 import {
   type DealLogContext,
@@ -94,7 +95,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       extraDataSetMetadata?: Record<string, string>;
       logContext?: ProviderJobContext;
     },
-  ): Promise<Deal | null> {
+  ): Promise<Deal> {
     options.signal?.throwIfAborted();
     const { preprocessed, cleanup } = await this.prepareDealInput(options.signal, options.logContext);
 
@@ -164,7 +165,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     signal?: AbortSignal,
     extraDataSetMetadata?: Record<string, string>,
     logContext?: ProviderJobContext,
-  ): Promise<Deal | null> {
+  ): Promise<Deal> {
     const providerAddress = pdpProvider.serviceProvider;
     const checkType = "dataStorage" as const;
     let providerLabels = buildCheckMetricLabels({
@@ -177,6 +178,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     let onchainSucceeded = false;
     let retrievalStarted = false;
     let retrievalStatusEmitted = false;
+    let preUploadTerminated = false;
 
     let deal: Deal;
     if (existingDealId) {
@@ -229,7 +231,6 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     const onStoredAddons: { promise: Promise<boolean> | null } = { promise: null };
     let addonsAwaited = false;
     let storedError: Error | undefined;
-    let skipped = false;
 
     try {
       // Load storageProvider relation
@@ -259,20 +260,15 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       });
       signal?.throwIfAborted();
 
-      // Pre-metric liveness guard. PDP can mark a dataset terminated while FWSS
-      // still has pdpEndEpoch=0; createContext returns it and the next add-pieces
-      // path would fail. Skip the run; data_set_creation handler owns repair (#379).
+      // Pre-metric liveness guard. PDP can mark a data set terminated while
+      // FWSS still has pdpEndEpoch=0; createContext returns it and the next
+      // add-pieces path would fail. Throw so callers map to FAILED and defer
+      // to the data_set_creation repair handler (#379).
       if (storage.dataSetId !== undefined) {
         const live = await this.isDataSetLive(storage.dataSetId, signal);
         if (!live) {
-          skipped = true;
-          this.logger.log({
-            ...dealLogContext,
-            event: "dataset_unhealthy_waiting_for_data_set_creation",
-            message: "Dataset is PDP-terminated; deferring deal job to data_set_creation repair",
-            dataSetId: storage.dataSetId.toString(),
-          });
-          return null;
+          preUploadTerminated = true;
+          throw new DealJobTerminatedDataSetError(storage.dataSetId);
         }
       }
 
@@ -529,6 +525,16 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
 
       return deal;
     } catch (error) {
+      if (preUploadTerminated && error instanceof DealJobTerminatedDataSetError) {
+        this.logger.warn({
+          ...dealLogContext,
+          event: "dataset_unhealthy_waiting_for_data_set_creation",
+          message: "Data set is PDP-terminated; deferring deal job to data_set_creation repair",
+          dataSetId: error.dataSetId.toString(),
+        });
+        throw error;
+      }
+
       const errorMessage = redactSensitiveText(error instanceof Error ? error.message : String(error));
       this.logger.error({
         ...dealLogContext,
@@ -564,7 +570,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
           deal.ipniStatus = null;
         }
       }
-      if (!skipped) {
+      if (!preUploadTerminated) {
         await this.saveDeal(deal, dealLogContext);
       }
     }
@@ -732,7 +738,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     let delay = 1_000;
     while (Date.now() - start < timeoutMs) {
       signal?.throwIfAborted();
-      const info = await warmStorageService.getDataSet({ dataSetId });
+      const info = await awaitWithAbort(warmStorageService.getDataSet({ dataSetId }), signal);
       if (info != null && info.pdpEndEpoch !== 0n) {
         return info.pdpEndEpoch;
       }

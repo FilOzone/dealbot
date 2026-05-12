@@ -5,6 +5,7 @@ import { InjectMetric } from "@willsoto/nestjs-prometheus";
 import { type Job, PgBoss, type SendOptions } from "pg-boss";
 import type { Counter, Gauge, Histogram } from "prom-client";
 import type { Repository } from "typeorm";
+import { DealJobTerminatedDataSetError } from "../common/errors.js";
 import { type JobLogContext, type ProviderJobContext, toStructuredError } from "../common/logging.js";
 import { getMaintenanceWindowStatus } from "../common/maintenance-window.js";
 import { isSpBlocked } from "../common/sp-blocklist.js";
@@ -486,17 +487,14 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
             abortController.signal,
           );
           if (baselineStatus.status === "terminated") {
-            this.logger.error({
-              ...logContext,
-              event: "deal_job_failed_terminated_dataset",
-              message: "Deal job failed: baseline dataset is PDP-terminated; awaiting data_set_creation repair",
-              dataSetId: baselineStatus.dataSetId.toString(),
-            });
-            return "error";
+            throw new DealJobTerminatedDataSetError(baselineStatus.dataSetId);
           }
         } catch (error) {
           if (abortController.signal.aborted) {
             throw abortController.signal.reason;
+          }
+          if (error instanceof DealJobTerminatedDataSetError) {
+            throw error;
           }
           this.logger.warn({
             ...logContext,
@@ -521,14 +519,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
               if (status.status === "live") {
                 extraDataSetMetadata = dsIndexMetadata;
               } else if (status.status === "terminated") {
-                this.logger.error({
-                  ...logContext,
-                  event: "deal_job_failed_terminated_dataset",
-                  message: "Deal job failed: selected dataset is PDP-terminated; awaiting data_set_creation repair",
-                  dataSetIndex: dsIndex,
-                  dataSetId: status.dataSetId.toString(),
-                });
-                return "error";
+                throw new DealJobTerminatedDataSetError(status.dataSetId);
               } else {
                 this.logger.log({
                   ...logContext,
@@ -540,6 +531,16 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
             } catch (error) {
               if (abortController.signal.aborted) {
                 throw abortController.signal.reason;
+              }
+              if (error instanceof DealJobTerminatedDataSetError) {
+                this.logger.warn({
+                  ...logContext,
+                  event: "deal_job_dataset_index_terminated",
+                  message: "Selected data set index is PDP-terminated",
+                  dataSetIndex: dsIndex,
+                  dataSetId: error.dataSetId.toString(),
+                });
+                throw error;
               }
               this.logger.warn({
                 ...logContext,
@@ -577,6 +578,15 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
             error: toStructuredError(reason ?? error),
           });
           return "aborted";
+        }
+        if (error instanceof DealJobTerminatedDataSetError) {
+          this.logger.error({
+            ...logContext,
+            event: "deal_job_failed_terminated_dataset",
+            message: "Deal job failed: data set is PDP-terminated; awaiting data_set_creation repair",
+            dataSetId: error.dataSetId.toString(),
+          });
+          return "error";
         }
         this.logger.error({
           ...logContext,

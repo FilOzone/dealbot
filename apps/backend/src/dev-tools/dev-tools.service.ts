@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import type { Repository } from "typeorm";
+import { DealJobTerminatedDataSetError } from "../common/errors.js";
 import { type DealLogContext, toStructuredError } from "../common/logging.js";
 import { Deal } from "../database/entities/deal.entity.js";
 import { DealStatus, RetrievalStatus } from "../database/types.js";
@@ -160,37 +161,23 @@ export class DevToolsService {
         },
       });
 
-      if (deal === null) {
-        // Dataset was PDP-terminated; no deal could be made. Mark the
-        // PENDING placeholder as FAILED so it doesn't linger as orphaned state.
-        const errorMessage = "Dataset PDP-terminated; awaiting data_set_creation repair";
-        await this.dealRepository.update(dealId, {
-          status: DealStatus.FAILED,
-          errorMessage,
-        });
-        this.logger.error({
-          ...dealLogContext,
-          event: "background_deal_failed_terminated_dataset",
-          message: "Background deal failed: dataset PDP-terminated; awaiting data_set_creation repair",
-        });
-      } else {
-        this.logger.log({
-          ...dealLogContext,
-          event: "background_deal_completed",
-          message: "Background deal completed successfully",
-          pieceCid: deal.pieceCid,
-        });
-      }
+      this.logger.log({
+        ...dealLogContext,
+        event: "background_deal_completed",
+        message: "Background deal completed successfully",
+        pieceCid: deal.pieceCid,
+      });
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
+      const event =
+        error instanceof DealJobTerminatedDataSetError ? "background_deal_failed_terminated_dataset" : "background_deal_failed";
       this.logger.error({
         ...dealLogContext,
-        event: "background_deal_failed",
+        event,
         message: "Background deal processing failed",
         error: toStructuredError(error),
       });
 
-      // Update deal with error status
       await this.dealRepository.update(dealId, {
         status: DealStatus.FAILED,
         errorMessage,

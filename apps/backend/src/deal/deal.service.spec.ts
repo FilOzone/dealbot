@@ -7,6 +7,7 @@ import { CID } from "multiformats/cid";
 import { generatePrivateKey } from "viem/accounts";
 import { afterEach, beforeEach, describe, expect, it, Mock, vi } from "vitest";
 import { ClickhouseService } from "../clickhouse/clickhouse.service.js";
+import { DealJobTerminatedDataSetError } from "../common/errors.js";
 import { Deal } from "../database/entities/deal.entity.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
 import { DealStatus, IpniStatus } from "../database/types.js";
@@ -1352,7 +1353,7 @@ describe("DealService", () => {
   });
 
   describe("createDeal isLive guard", () => {
-    it("skips deal creation when dataset is PDP-terminated, no metrics or save", async () => {
+    it("throws DealJobTerminatedDataSetError when data set is PDP-terminated; no metrics or save", async () => {
       const providerInfo: PDPProviderEx = {
         id: 101n,
         serviceProvider: "0xProvider",
@@ -1392,9 +1393,9 @@ describe("DealService", () => {
         new Error("Data set 9 does not exist or is not live"),
       );
 
-      const result = await service.createDeal(synapseMock, providerInfo, dealInput, uploadPayload);
-
-      expect(result).toBeNull();
+      await expect(service.createDeal(synapseMock, providerInfo, dealInput, uploadPayload)).rejects.toBeInstanceOf(
+        DealJobTerminatedDataSetError,
+      );
       expect(executeUpload as Mock).not.toHaveBeenCalled();
       expect(mockDataStorageMetrics.recordUploadStatus).not.toHaveBeenCalled();
       expect(mockDataStorageMetrics.recordDataStorageStatus).not.toHaveBeenCalled();
