@@ -963,6 +963,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     const providersRefreshStartAt = new Date(now.getTime() + phaseMs);
 
     const minDataSets = this.configService.get("blockchain").minNumDataSetsForChecks;
+    const network = this.configService.get("blockchain").network;
     const cleanupStartAt = new Date(now.getTime() + phaseMs);
 
     const spBlocklistsCfg = this.configService.get<ISpBlocklistConfig>("spBlocklists");
@@ -979,12 +980,19 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     }
 
     for (const address of unblockedAddresses) {
-      await this.jobScheduleRepository.upsertSchedule("deal", address, dealIntervalSeconds, dealStartAt);
-      await this.jobScheduleRepository.upsertSchedule("retrieval", address, retrievalIntervalSeconds, retrievalStartAt);
+      await this.jobScheduleRepository.upsertSchedule("deal", address, network, dealIntervalSeconds, dealStartAt);
+      await this.jobScheduleRepository.upsertSchedule(
+        "retrieval",
+        address,
+        network,
+        retrievalIntervalSeconds,
+        retrievalStartAt,
+      );
       if (minDataSets >= 1) {
         await this.jobScheduleRepository.upsertSchedule(
           "data_set_creation",
           address,
+          network,
           dataSetCreationIntervalSeconds,
           dataSetCreationStartAt,
         );
@@ -992,6 +1000,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       await this.jobScheduleRepository.upsertSchedule(
         "piece_cleanup",
         address,
+        network,
         pieceCleanupIntervalSeconds,
         cleanupStartAt,
       );
@@ -1018,12 +1027,14 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     await this.jobScheduleRepository.upsertSchedule(
       "data_retention_poll",
       "",
+      network,
       dataRetentionPollIntervalSeconds,
       dataRetentionPollStartAt,
     );
     await this.jobScheduleRepository.upsertSchedule(
       "providers_refresh",
       "",
+      network,
       providersRefreshIntervalSeconds,
       providersRefreshStartAt,
     );

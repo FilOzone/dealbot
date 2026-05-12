@@ -2,6 +2,7 @@ import { Injectable, Logger } from "@nestjs/common";
 import { InjectDataSource } from "@nestjs/typeorm";
 import type { DataSource } from "typeorm";
 import { toStructuredError } from "../../common/logging.js";
+import type { Network } from "../../common/types.js";
 import type { JobType } from "../../database/entities/job-schedule-state.entity.js";
 import {
   DATA_RETENTION_POLL_QUEUE,
@@ -31,25 +32,36 @@ export class JobScheduleRepository {
   ) {}
 
   /**
-   * Inserts or updates a schedule row for a specific job type and provider.
-   * If the row exists, it updates the interval and ensures the job is not paused.
+   * Inserts or updates a schedule row for a specific job type, provider, and
+   * network. If the row exists, it updates the interval and ensures the job
+   * is not paused.
+   *
+   * Schedules are scoped per network so the same provider running on multiple
+   * networks (e.g. mainnet + calibration) gets independent cadence rows.
    *
    * @param jobType - The type of job (deal, retrieval, metrics, etc.)
    * @param spAddress - The storage provider address (or empty string for global jobs)
+   * @param network - The blockchain network this schedule belongs to
    * @param intervalSeconds - The frequency of the job in seconds
    * @param nextRunAt - The scheduled time for the next run
    */
-  async upsertSchedule(jobType: JobType, spAddress: string, intervalSeconds: number, nextRunAt: Date): Promise<void> {
+  async upsertSchedule(
+    jobType: JobType,
+    spAddress: string,
+    network: Network,
+    intervalSeconds: number,
+    nextRunAt: Date,
+  ): Promise<void> {
     await this.dataSource.query(
       `
-      INSERT INTO job_schedule_state (job_type, sp_address, interval_seconds, next_run_at)
-      VALUES ($1, $2, $3, $4)
-      ON CONFLICT (job_type, sp_address) DO UPDATE
+      INSERT INTO job_schedule_state (job_type, sp_address, network, interval_seconds, next_run_at)
+      VALUES ($1, $2, $3, $4, $5)
+      ON CONFLICT (job_type, sp_address, network) DO UPDATE
       SET interval_seconds = EXCLUDED.interval_seconds,
           paused = job_schedule_state.paused,
           updated_at = NOW()
       `,
-      [jobType, spAddress, intervalSeconds, nextRunAt],
+      [jobType, spAddress, network, intervalSeconds, nextRunAt],
     );
   }
 
