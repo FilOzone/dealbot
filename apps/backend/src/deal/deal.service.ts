@@ -571,31 +571,6 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Checks if an on-chain data set exists for a provider with specific metadata.
-   */
-  async checkDataSetExists(
-    providerAddress: string,
-    metadata: Record<string, string>,
-    signal?: AbortSignal,
-  ): Promise<boolean> {
-    signal?.throwIfAborted();
-    const synapse = this.sharedSynapse ?? (await this.createSynapseInstance());
-    const providerInfo = this.walletSdkService.getProviderInfo(providerAddress);
-    if (!providerInfo) {
-      throw new Error(`Provider ${providerAddress} not found in registry`);
-    }
-    const context = await awaitWithAbort(
-      synapse.storage.createContext({
-        providerId: providerInfo.id,
-        metadata,
-      }),
-      signal,
-    );
-    signal?.throwIfAborted();
-    return context.dataSetId !== undefined;
-  }
-
-  /**
    * Determines whether a provider's dataset slot is `missing`, `live`, or
    * `terminated`. Resolves the dataset via createContext (FWSS pdpEndEpoch=0
    * filter) and then probes PDP liveness via WarmStorage.validateDataSet.

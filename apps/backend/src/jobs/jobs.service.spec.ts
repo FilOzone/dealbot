@@ -913,7 +913,7 @@ describe("JobsService schedule rows", () => {
     const dealService = {
       createDealForProvider: vi.fn(async () => ({})),
       getBaseDataSetMetadata: vi.fn(() => ({ withIpniIndexing: "" })),
-      checkDataSetExists: vi.fn(async () => false),
+      getDataSetProvisioningStatus: vi.fn(async () => ({ status: "live" as const, dataSetId: 1n })),
     };
 
     const walletSdkService = {
@@ -946,7 +946,7 @@ describe("JobsService schedule rows", () => {
     const dealService = {
       createDealForProvider: vi.fn(async () => ({})),
       getBaseDataSetMetadata: vi.fn(() => ({ withIpniIndexing: "" })),
-      checkDataSetExists: vi.fn(async () => false),
+      getDataSetProvisioningStatus: vi.fn(async () => ({ status: "live" as const, dataSetId: 1n })),
     };
 
     const walletSdkService = {
@@ -991,7 +991,7 @@ describe("JobsService schedule rows", () => {
     const dealService = {
       createDealForProvider: vi.fn(async () => ({})),
       getBaseDataSetMetadata: vi.fn(() => ({ dealbotDataSetVersion: "v1", withIpniIndexing: "" })),
-      checkDataSetExists: vi.fn(async () => true),
+      getDataSetProvisioningStatus: vi.fn(async () => ({ status: "live" as const, dataSetId: 7n })),
     };
 
     const walletSdkService = {
@@ -1014,7 +1014,7 @@ describe("JobsService schedule rows", () => {
       data: { jobType: "deal", spAddress: "0xaaa", intervalSeconds: 60 },
     });
 
-    expect(dealService.checkDataSetExists).toHaveBeenCalledWith(
+    expect(dealService.getDataSetProvisioningStatus).toHaveBeenCalledWith(
       "0xaaa",
       { dealbotDataSetVersion: "v1", withIpniIndexing: "", dealbotDS: "1" },
       expect.any(AbortSignal),
@@ -1044,7 +1044,7 @@ describe("JobsService schedule rows", () => {
     const dealService = {
       createDealForProvider: vi.fn(async () => ({})),
       getBaseDataSetMetadata: vi.fn(() => ({ dealbotDataSetVersion: "v1" })),
-      checkDataSetExists: vi.fn(async () => false),
+      getDataSetProvisioningStatus: vi.fn(async () => ({ status: "missing" as const })),
     };
 
     const walletSdkService = {
@@ -1067,7 +1067,7 @@ describe("JobsService schedule rows", () => {
       data: { jobType: "deal", spAddress: "0xaaa", intervalSeconds: 60 },
     });
 
-    expect(dealService.checkDataSetExists).toHaveBeenCalledWith(
+    expect(dealService.getDataSetProvisioningStatus).toHaveBeenCalledWith(
       "0xaaa",
       { dealbotDataSetVersion: "v1", dealbotDS: "2" },
       expect.any(AbortSignal),
@@ -1077,6 +1077,86 @@ describe("JobsService schedule rows", () => {
       expect.objectContaining({ serviceProvider: "0xaaa" }),
       expect.objectContaining({ extraDataSetMetadata: undefined }),
     );
+
+    vi.spyOn(Math, "random").mockRestore();
+  });
+
+  it("deal job fails with handler_result=error when baseline data set is PDP-terminated", async () => {
+    const completedCounter = metricsMocks.jobsCompletedCounter as unknown as { inc: ReturnType<typeof vi.fn> };
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2024-01-01T12:00:00Z"));
+
+    const dealService = {
+      createDealForProvider: vi.fn(async () => ({})),
+      getBaseDataSetMetadata: vi.fn(() => ({ withIpniIndexing: "" })),
+      getDataSetProvisioningStatus: vi.fn(async () => ({ status: "terminated" as const, dataSetId: 42n })),
+    };
+
+    const walletSdkService = {
+      getTestingProviders: vi.fn(() => [{ serviceProvider: "0xaaa" }]),
+      ensureWalletAllowances: vi.fn(),
+      loadProviders: vi.fn(),
+      getProviderInfo: vi.fn(() => ({ id: 1, name: "test-provider" })),
+    };
+
+    service = buildService({
+      dealService: dealService as unknown as ConstructorParameters<typeof JobsService>[3],
+      walletSdkService: walletSdkService as unknown as ConstructorParameters<typeof JobsService>[5],
+    });
+
+    await callPrivate(service, "handleDealJob", {
+      id: "job-deal-terminated-baseline",
+      data: { jobType: "deal", spAddress: "0xaaa", intervalSeconds: 60 },
+    });
+
+    expect(dealService.createDealForProvider).not.toHaveBeenCalled();
+    expect(completedCounter.inc).toHaveBeenCalledWith({ job_type: "deal", handler_result: "error" });
+  });
+
+  it("deal job fails with handler_result=error when selected data set index is PDP-terminated", async () => {
+    const completedCounter = metricsMocks.jobsCompletedCounter as unknown as { inc: ReturnType<typeof vi.fn> };
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2024-01-01T12:00:00Z"));
+    baseConfigValues = {
+      ...baseConfigValues,
+      blockchain: { ...baseConfigValues.blockchain, minNumDataSetsForChecks: 3 } as IConfig["blockchain"],
+    };
+    configService = {
+      get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
+    } as unknown as JobsServiceDeps[0];
+
+    const dealService = {
+      createDealForProvider: vi.fn(async () => ({})),
+      getBaseDataSetMetadata: vi.fn(() => ({ dealbotDataSetVersion: "v1" })),
+      // First call (baseline) → live; second call (dsIndex) → terminated.
+      getDataSetProvisioningStatus: vi
+        .fn()
+        .mockResolvedValueOnce({ status: "live" as const, dataSetId: 1n })
+        .mockResolvedValueOnce({ status: "terminated" as const, dataSetId: 42n }),
+    };
+
+    const walletSdkService = {
+      getTestingProviders: vi.fn(() => [{ serviceProvider: "0xaaa" }]),
+      ensureWalletAllowances: vi.fn(),
+      loadProviders: vi.fn(),
+      getProviderInfo: vi.fn(() => ({ id: 1, name: "test-provider" })),
+    };
+
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+
+    service = buildService({
+      configService,
+      dealService: dealService as unknown as ConstructorParameters<typeof JobsService>[3],
+      walletSdkService: walletSdkService as unknown as ConstructorParameters<typeof JobsService>[5],
+    });
+
+    await callPrivate(service, "handleDealJob", {
+      id: "job-deal-terminated",
+      data: { jobType: "deal", spAddress: "0xaaa", intervalSeconds: 60 },
+    });
+
+    expect(dealService.createDealForProvider).not.toHaveBeenCalled();
+    expect(completedCounter.inc).toHaveBeenCalledWith({ job_type: "deal", handler_result: "error" });
 
     vi.spyOn(Math, "random").mockRestore();
   });
@@ -1095,7 +1175,7 @@ describe("JobsService schedule rows", () => {
     const dealService = {
       createDealForProvider: vi.fn(async () => ({})),
       getBaseDataSetMetadata: vi.fn(() => ({ withIpniIndexing: "" })),
-      checkDataSetExists: vi.fn(async () => {
+      getDataSetProvisioningStatus: vi.fn(async () => {
         throw new Error("lookup failed");
       }),
     };
@@ -1146,11 +1226,13 @@ describe("JobsService schedule rows", () => {
     const dealService = {
       createDealForProvider: vi.fn(async () => ({})),
       getBaseDataSetMetadata: vi.fn(() => ({ dealbotDataSetVersion: "v1" })),
-      checkDataSetExists: vi.fn(async (_sp: string, _metadata: Record<string, string>, signal?: AbortSignal) => {
-        vi.advanceTimersByTime(120_000);
-        signal?.throwIfAborted();
-        return false;
-      }),
+      getDataSetProvisioningStatus: vi.fn(
+        async (_sp: string, _metadata: Record<string, string>, signal?: AbortSignal) => {
+          vi.advanceTimersByTime(120_000);
+          signal?.throwIfAborted();
+          return { status: "missing" as const };
+        },
+      ),
     };
 
     const walletSdkService = {

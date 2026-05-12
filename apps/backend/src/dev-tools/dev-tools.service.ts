@@ -161,10 +161,17 @@ export class DevToolsService {
       });
 
       if (deal === null) {
-        this.logger.log({
+        // Dataset was PDP-terminated; no deal could be made. Mark the
+        // PENDING placeholder as FAILED so it doesn't linger as orphaned state.
+        const errorMessage = "Dataset PDP-terminated; awaiting data_set_creation repair";
+        await this.dealRepository.update(dealId, {
+          status: DealStatus.FAILED,
+          errorMessage,
+        });
+        this.logger.error({
           ...dealLogContext,
-          event: "background_deal_skipped",
-          message: "Background deal skipped (dataset unhealthy or repair pending)",
+          event: "background_deal_failed_terminated_dataset",
+          message: "Background deal failed: dataset PDP-terminated; awaiting data_set_creation repair",
         });
       } else {
         this.logger.log({

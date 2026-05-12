@@ -472,10 +472,39 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
           }
         }
 
-        // Data-set-aware deal creation
+        // Data-set-aware deal creation. Validate up front (unified status check)
+        // so we never feed a deal job into a PDP-terminated dataset and never
+        // pay for upload prep before the slot is known good.
         const minDataSets = this.configService.get("blockchain").minNumDataSetsForChecks;
         const baseDataSetMetadata = this.dealService.getBaseDataSetMetadata();
         let extraDataSetMetadata: Record<string, string> | undefined;
+
+        try {
+          const baselineStatus = await this.dealService.getDataSetProvisioningStatus(
+            spAddress,
+            baseDataSetMetadata,
+            abortController.signal,
+          );
+          if (baselineStatus.status === "terminated") {
+            this.logger.error({
+              ...logContext,
+              event: "deal_job_failed_terminated_dataset",
+              message: "Deal job failed: baseline dataset is PDP-terminated; awaiting data_set_creation repair",
+              dataSetId: baselineStatus.dataSetId.toString(),
+            });
+            return "error";
+          }
+        } catch (error) {
+          if (abortController.signal.aborted) {
+            throw abortController.signal.reason;
+          }
+          this.logger.warn({
+            ...logContext,
+            event: "deal_job_dataset_check_failed",
+            message: "Failed to verify baseline data set; proceeding to attempt deal",
+            error: toStructuredError(error),
+          });
+        }
 
         if (minDataSets > 1) {
           const dsIndex = Math.floor(Math.random() * minDataSets);
@@ -483,14 +512,23 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
             const dsIndexMetadata = { dealbotDS: String(dsIndex) };
             const expectedMetadata = { ...baseDataSetMetadata, ...dsIndexMetadata };
             try {
-              const exists = await this.dealService.checkDataSetExists(
+              const status = await this.dealService.getDataSetProvisioningStatus(
                 spAddress,
                 expectedMetadata,
                 abortController.signal,
               );
 
-              if (exists) {
+              if (status.status === "live") {
                 extraDataSetMetadata = dsIndexMetadata;
+              } else if (status.status === "terminated") {
+                this.logger.error({
+                  ...logContext,
+                  event: "deal_job_failed_terminated_dataset",
+                  message: "Deal job failed: selected dataset is PDP-terminated; awaiting data_set_creation repair",
+                  dataSetIndex: dsIndex,
+                  dataSetId: status.dataSetId.toString(),
+                });
+                return "error";
               } else {
                 this.logger.log({
                   ...logContext,

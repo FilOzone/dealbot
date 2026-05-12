@@ -1184,62 +1184,6 @@ describe("DealService", () => {
     });
   });
 
-  describe("checkDataSetExists", () => {
-    const mockProviderInfo: PDPProviderEx = {
-      id: 101n,
-      serviceProvider: "0xprovider",
-      payee: "0x100",
-      name: "Test Provider",
-      description: "Test Provider",
-      isActive: true,
-      isApproved: true,
-      pdp: {
-        serviceURL: "service url",
-        minPieceSizeInBytes: 0n,
-        maxPieceSizeInBytes: 100n,
-        storagePricePerTibPerDay: 1n,
-        minProvingPeriodInEpochs: 1n,
-        location: "location",
-        paymentTokenAddress: "0x100",
-        ipniPiece: true,
-        ipniIpfs: true,
-      },
-    };
-
-    it("returns true when createContext returns a valid dataSetId", async () => {
-      vi.spyOn(mockWalletSdkService, "getProviderInfo").mockReturnValue(mockProviderInfo);
-      const synapseMock = {
-        storage: {
-          createContext: vi.fn().mockResolvedValue({ dataSetId: 1n }),
-        },
-      };
-
-      vi.spyOn(service as any, "createSynapseInstance").mockImplementation(() => synapseMock as unknown as Synapse);
-
-      const result = await service.checkDataSetExists("0xprovider", { dealbotDS: "1" });
-
-      expect(result).toBe(true);
-      expect(synapseMock.storage.createContext).toHaveBeenCalledWith({
-        providerId: 101n,
-        metadata: { dealbotDS: "1" },
-      });
-    });
-
-    it("returns false when createContext returns undefined dataSetId", async () => {
-      vi.spyOn(mockWalletSdkService, "getProviderInfo").mockReturnValue(mockProviderInfo);
-      const synapseMock = {
-        storage: {
-          createContext: vi.fn().mockResolvedValue({ dataSetId: undefined }),
-        },
-      };
-      vi.spyOn(service as any, "createSynapseInstance").mockImplementation(() => synapseMock as unknown as Synapse);
-
-      const result = await service.checkDataSetExists("0xprovider", { dealbotDS: "1" });
-
-      expect(result).toBe(false);
-    });
-  });
-
   describe("getDataSetProvisioningStatus", () => {
     const providerInfo: PDPProviderEx = {
       id: 101n,
