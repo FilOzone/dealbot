@@ -86,7 +86,7 @@ export class PullPieceRepository {
    * Returns the number of rows removed.
    */
   async deleteExpired(): Promise<number> {
-    const result = await this.repo.createQueryBuilder().delete().from(PullPiece).where("expires_at < NOW()").execute();
+    const result = await this.repo.createQueryBuilder().delete().from(PullPiece).where("expires_at <= NOW()").execute();
     return result.affected ?? 0;
   }
 
