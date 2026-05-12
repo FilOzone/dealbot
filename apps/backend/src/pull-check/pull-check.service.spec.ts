@@ -25,7 +25,7 @@ vi.mock("@filoz/synapse-core/sp", () => ({
   waitForPullStatus: vi.fn(),
 }));
 
-import { calculate } from "@filoz/synapse-core/piece";
+import { calculateFromIterable } from "@filoz/synapse-core/piece";
 import { pullPieces, waitForPullStatus } from "@filoz/synapse-core/sp";
 
 function makeProvider(overrides: Partial<PDPProviderEx> = {}): PDPProviderEx {
@@ -56,7 +56,7 @@ describe("PullCheckService", () => {
     markFirstByte: ReturnType<typeof vi.fn>;
     forget: ReturnType<typeof vi.fn>;
   };
-  let httpClientServiceMock: { requestWithMetrics: ReturnType<typeof vi.fn> };
+  let httpClientServiceMock: { requestWithMetrics: ReturnType<typeof vi.fn>; requestStream: ReturnType<typeof vi.fn> };
   let metricsMock: {
     observeAcknowledgementLatencyMs: ReturnType<typeof vi.fn>;
     observeStartedMs: ReturnType<typeof vi.fn>;
@@ -84,6 +84,7 @@ describe("PullCheckService", () => {
     };
     httpClientServiceMock = {
       requestWithMetrics: vi.fn(),
+      requestStream: vi.fn(),
     };
     metricsMock = {
       observeAcknowledgementLatencyMs: vi.fn(),
@@ -190,51 +191,76 @@ describe("PullCheckService", () => {
     const provider = makeProvider();
     const logContext = { jobId: "job-1", providerAddress: "0xsp", providerId: 42n, providerName: "test-sp" };
 
-    it("returns true when the recomputed CID matches", async () => {
-      httpClientServiceMock.requestWithMetrics.mockResolvedValue({ data: Buffer.from("payload") });
-      vi.mocked(calculate).mockReturnValueOnce({ toString: () => "bafk-test-piece" } as ReturnType<typeof calculate>);
+    function makeStreamResponse(
+      overrides: { statusCode?: number; headers?: Record<string, string>; cidResult?: string } = {},
+    ) {
+      const { statusCode = 200, headers = {}, cidResult = "bafk-test-piece" } = overrides;
+      httpClientServiceMock.requestStream.mockResolvedValue({
+        statusCode,
+        headers: { "content-length": "1024", ...headers },
+        body: Readable.from([Buffer.from("payload")]),
+      });
+      if (cidResult !== "bafk-test-piece") {
+        vi.mocked(calculateFromIterable).mockResolvedValueOnce(cidResult as any);
+      }
+    }
 
-      const ok = await service.validateByDirectPieceFetch(provider, "bafk-test-piece", logContext);
+    it("returns true when the recomputed CID matches", async () => {
+      makeStreamResponse();
+
+      const ok = await service.validateByDirectPieceFetch(provider, "bafk-test-piece", 1024, logContext);
       expect(ok).toBe(true);
-      expect(httpClientServiceMock.requestWithMetrics).toHaveBeenCalledWith(
+      expect(httpClientServiceMock.requestStream).toHaveBeenCalledWith(
         "https://sp.example/piece/bafk-test-piece",
         expect.any(Object),
       );
     });
 
     it("returns false when the recomputed CID does not match", async () => {
-      httpClientServiceMock.requestWithMetrics.mockResolvedValue({ data: Buffer.from("payload") });
-      vi.mocked(calculate).mockReturnValueOnce({ toString: () => "bafk-different" } as ReturnType<typeof calculate>);
+      makeStreamResponse({ cidResult: "bafk-different" });
 
-      const ok = await service.validateByDirectPieceFetch(provider, "bafk-test-piece", logContext);
+      const ok = await service.validateByDirectPieceFetch(provider, "bafk-test-piece", 1024, logContext);
+      expect(ok).toBe(false);
+    });
+
+    it("returns false when the SP returns a non-2xx status", async () => {
+      makeStreamResponse({ statusCode: 404 });
+
+      const ok = await service.validateByDirectPieceFetch(provider, "bafk-test-piece", 1024, logContext);
+      expect(ok).toBe(false);
+    });
+
+    it("returns false when Content-Length does not match expected piece size", async () => {
+      makeStreamResponse({ headers: { "content-length": "9999" } });
+
+      const ok = await service.validateByDirectPieceFetch(provider, "bafk-test-piece", 1024, logContext);
       expect(ok).toBe(false);
     });
 
     it("returns false on transport errors (caller branches on the boolean to record a domain failure)", async () => {
-      httpClientServiceMock.requestWithMetrics.mockRejectedValue(new Error("ECONNRESET"));
+      httpClientServiceMock.requestStream.mockRejectedValue(new Error("ECONNRESET"));
 
-      const ok = await service.validateByDirectPieceFetch(provider, "bafk-test-piece", logContext);
+      const ok = await service.validateByDirectPieceFetch(provider, "bafk-test-piece", 1024, logContext);
       expect(ok).toBe(false);
     });
 
     it("re-throws when the abort signal fires so cancellation is not masked as validation failure", async () => {
       const abort = new AbortController();
-      httpClientServiceMock.requestWithMetrics.mockImplementation(async () => {
+      httpClientServiceMock.requestStream.mockImplementation(async () => {
         abort.abort();
         throw new Error("aborted");
       });
 
       await expect(
-        service.validateByDirectPieceFetch(provider, "bafk-test-piece", logContext, abort.signal),
+        service.validateByDirectPieceFetch(provider, "bafk-test-piece", 1024, logContext, abort.signal),
       ).rejects.toThrow();
     });
 
     it("strips a trailing slash from the SP serviceURL when constructing the fetch URL", async () => {
-      httpClientServiceMock.requestWithMetrics.mockResolvedValue({ data: Buffer.from("payload") });
-      vi.mocked(calculate).mockReturnValueOnce({ toString: () => "bafk-test-piece" } as ReturnType<typeof calculate>);
+      makeStreamResponse();
 
-      await service.validateByDirectPieceFetch(provider, "bafk-test-piece", logContext);
-      expect(httpClientServiceMock.requestWithMetrics).toHaveBeenCalledWith(
+      await service.validateByDirectPieceFetch(provider, "bafk-test-piece", 1024, logContext);
+      expect(httpClientServiceMock.requestStream).toHaveBeenCalledWith(
         "https://sp.example/piece/bafk-test-piece",
         expect.any(Object),
       );
@@ -270,8 +296,11 @@ describe("PullCheckService", () => {
       } as unknown as Awaited<ReturnType<typeof waitForPullStatus>>);
 
       // Direct-fetch validation succeeds.
-      httpClientServiceMock.requestWithMetrics.mockResolvedValue({ data: Buffer.from("payload") });
-      vi.mocked(calculate).mockReturnValue({ toString: () => "bafk-test-piece" } as ReturnType<typeof calculate>);
+      httpClientServiceMock.requestStream.mockResolvedValue({
+        statusCode: 200,
+        headers: { "content-length": "1024" },
+        body: Readable.from([Buffer.from("payload")]),
+      });
 
       return { registration };
     }
@@ -341,10 +370,13 @@ describe("PullCheckService", () => {
 
     it("re-throws and runs cleanup when the validation step fails", async () => {
       arrangeHappyPath();
-      // Force validation mismatch by returning a different recomputed CID.
-      // preparePullPiece no longer calls calculate, it uses createPieceCIDStream.
-      // So the first call to calculate will be from validateByDirectPieceFetch.
-      vi.mocked(calculate).mockReturnValueOnce({ toString: () => "bafk-mismatch" } as ReturnType<typeof calculate>);
+      // Force validation mismatch. Both `preparePullPiece` and
+      // `validateByDirectPieceFetch` call `calculateFromIterable`, so chain
+      // two one-shot mocks: the first satisfies prepare with the canonical
+      // CID, the second makes the direct-fetch recompute disagree.
+      vi.mocked(calculateFromIterable)
+        .mockResolvedValueOnce("bafk-test-piece" as any)
+        .mockResolvedValueOnce("bafk-mismatch" as any);
 
       await expect(service.runPullCheck("0xsp", undefined, logContext)).rejects.toThrow(/validation failed/);
       expect(metricsMock.recordStatus).toHaveBeenLastCalledWith(expect.any(Object), "failure.other");
