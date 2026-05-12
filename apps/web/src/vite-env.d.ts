@@ -8,6 +8,7 @@ interface ImportMeta {
     readonly VITE_PLAUSIBLE_DATA_DOMAIN?: string;
     readonly VITE_DASHBOARD_URL?: string;
     readonly VITE_DASHBOARD_EMBED_URL?: string;
+    readonly VITE_APPROVED_SP_DASHBOARD_URL?: string;
     readonly VITE_LOGS_URL?: string;
   };
 }
@@ -18,6 +19,7 @@ interface Window {
     PLAUSIBLE_DATA_DOMAIN?: string;
     DASHBOARD_URL?: string;
     DASHBOARD_EMBED_URL?: string;
+    APPROVED_SP_DASHBOARD_URL?: string;
     LOGS_URL?: string;
   };
 }

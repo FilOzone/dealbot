@@ -50,18 +50,25 @@ const getConfig = () => {
   const runtimeConfig = typeof window === "undefined" ? undefined : window.__DEALBOT_CONFIG__;
 
   const dashboardUrl = getConfigUrl(runtimeConfig?.DASHBOARD_URL, import.meta.env.VITE_DASHBOARD_URL);
+  const approvedSpDashboardUrl = getConfigUrl(
+    runtimeConfig?.APPROVED_SP_DASHBOARD_URL,
+    import.meta.env.VITE_APPROVED_SP_DASHBOARD_URL,
+  );
   const logsUrl = getConfigUrl(runtimeConfig?.LOGS_URL, import.meta.env.VITE_LOGS_URL);
 
   return {
     dashboardUrl: dashboardUrl.safe,
     dashboardUrlInvalid: dashboardUrl.isInvalid,
+    approvedSpDashboardUrl: approvedSpDashboardUrl.safe,
+    approvedSpDashboardUrlInvalid: approvedSpDashboardUrl.isInvalid,
     logsUrl: logsUrl.safe,
     logsUrlInvalid: logsUrl.isInvalid,
   };
 };
 
 export default function Landing() {
-  const { dashboardUrl, dashboardUrlInvalid, logsUrl, logsUrlInvalid } = getConfig();
+  const { dashboardUrl, dashboardUrlInvalid, approvedSpDashboardUrl, approvedSpDashboardUrlInvalid, logsUrl, logsUrlInvalid } =
+    getConfig();
   const { providers: providersResponse, loading: providersLoading, error: providersError } = useProvidersList(0, 500);
 
   return (
@@ -103,6 +110,24 @@ export default function Landing() {
             See the approval methodology ↗
           </a>
         </p>
+        {approvedSpDashboardUrl && (
+          <p className="text-sm">
+            <a
+              href={approvedSpDashboardUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-primary underline-offset-4 hover:underline font-medium"
+            >
+              View combined approved-SP performance dashboard
+              <ExternalLink className="h-3 w-3" />
+            </a>
+          </p>
+        )}
+        {approvedSpDashboardUrlInvalid && (
+          <p className="text-sm text-yellow-600">
+            Warning: APPROVED_SP_DASHBOARD_URL configured but invalid — link unavailable.
+          </p>
+        )}
         <p className="text-sm text-muted-foreground">
           We currently link to BetterStack public dashboards.{" "}
           <a

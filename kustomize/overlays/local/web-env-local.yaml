@@ -10,5 +10,7 @@ spec:
           env:
             - name: DASHBOARD_URL
               value: https://telemetry.betterstack.com/dashboards/Zz8k7L
+            - name: APPROVED_SP_DASHBOARD_URL
+              value: https://telemetry.betterstack.com/dashboards/Zz8k7L?rf=now-72h&rt=now
             - name: LOGS_URL
               value: https://telemetry.betterstack.com/dashboards/DcQ0In
