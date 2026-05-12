@@ -170,7 +170,9 @@ export class DevToolsService {
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       const event =
-        error instanceof DealJobTerminatedDataSetError ? "background_deal_failed_terminated_dataset" : "background_deal_failed";
+        error instanceof DealJobTerminatedDataSetError
+          ? "background_deal_failed_terminated_dataset"
+          : "background_deal_failed";
       this.logger.error({
         ...dealLogContext,
         event,
