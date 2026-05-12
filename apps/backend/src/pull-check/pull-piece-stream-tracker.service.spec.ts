@@ -1,6 +1,6 @@
-import { PassThrough } from "node:stream";
 import { ServiceUnavailableException } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
+import { PassThrough } from "node:stream";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { IConfig, IPullPieceConfig } from "../config/app.config.js";
 import { PullPieceStreamTracker } from "./pull-piece-stream-tracker.service.js";
@@ -24,6 +24,7 @@ describe("PullPieceStreamTracker", () => {
     pullCheckPieceSizeBytes: 10 * 1024 * 1024, // 10 MB
     maxConcurrentStreams: 50,
     maxStreamsPerCid: 3,
+    pullPieceCleanupIntervalSeconds: 7 * 24 * 3600, // 7 days
   };
 
   beforeEach(() => {
