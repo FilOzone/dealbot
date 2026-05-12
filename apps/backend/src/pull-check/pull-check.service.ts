@@ -326,7 +326,7 @@ export class PullCheckService {
     pieceCid: string,
   ): Promise<{ registration: PullPieceRegistration; stream: Readable } | null> {
     const registration = await this.pullPieceRepository.resolve(pieceCid);
-    if (!registration) return null;
+    if (!registration || registration.expiresAt <= new Date()) return null;
 
     const stream = this.dataSourceService.generateBytesStream({
       providerAddress: registration.providerAddress,
