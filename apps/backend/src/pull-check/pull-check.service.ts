@@ -227,7 +227,8 @@ export class PullCheckService {
    * `/api/piece/:pieceCid` serving, and return the source URL plus registration.
    */
   async preparePullPiece(providerAddress: string): Promise<PullPiecePrepared> {
-    const targetSize = this.getPullPieceConfig().pullCheckPieceSizeBytes;
+    const pullPieceConfig = this.getPullPieceConfig();
+    const targetSize = pullPieceConfig.pullCheckPieceSizeBytes;
     const key = crypto.randomBytes(16).toString("hex");
 
     const dataStream = this.dataSourceService.generateBytesStream({
@@ -246,6 +247,7 @@ export class PullCheckService {
       providerAddress,
       key,
       size: targetSize,
+      expiresAt: new Date(Date.now() + pullPieceConfig.pullCheckJobTimeoutSeconds * 2 * 1000),
     };
     await this.pullPieceRepository.register(registration);
 

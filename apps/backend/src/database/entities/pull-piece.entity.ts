@@ -1,4 +1,4 @@
-import { Column, CreateDateColumn, Entity, PrimaryColumn } from "typeorm";
+import { Column, CreateDateColumn, Entity, Index, PrimaryColumn } from "typeorm";
 
 /**
  * Persisted registration of a temporary pull piece served at
@@ -26,6 +26,10 @@ export class PullPiece {
 
   @Column({ name: "first_byte_at", type: "timestamptz", nullable: true })
   firstByteAt: Date | null;
+
+  @Index()
+  @Column({ name: "expires_at", type: "timestamptz" })
+  expiresAt!: Date;
 
   @CreateDateColumn({ name: "created_at", type: "timestamptz" })
   createdAt!: Date;

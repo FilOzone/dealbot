@@ -173,6 +173,7 @@ describe("PullCheckService", () => {
       });
       expect(prepared.registration.pieceCid).toBe("bafk-test-piece");
       expect(prepared.registration.size).toBe(1024);
+      expect(prepared.registration.expiresAt).toBeInstanceOf(Date);
       expect(prepared.sourceUrl).toBe("https://dealbot.example/api/piece/bafk-test-piece");
       expect(registryMock.register).toHaveBeenCalledWith(prepared.registration);
     });

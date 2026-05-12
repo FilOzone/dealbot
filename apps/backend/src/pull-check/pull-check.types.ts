@@ -9,6 +9,7 @@ export type PullPieceRegistration = {
   size: number;
   pullSubmittedAt?: Date;
   firstByteAt?: Date;
+  expiresAt: Date;
 };
 
 /**
