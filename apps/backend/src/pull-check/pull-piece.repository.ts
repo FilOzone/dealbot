@@ -81,6 +81,15 @@ export class PullPieceRepository {
     await this.repo.delete({ pieceCid });
   }
 
+  /**
+   * Delete all rows whose `expires_at` is in the past.
+   * Returns the number of rows removed.
+   */
+  async deleteExpired(): Promise<number> {
+    const result = await this.repo.createQueryBuilder().delete().from(PullPiece).where("expires_at < NOW()").execute();
+    return result.affected ?? 0;
+  }
+
   private toRegistration(row: PullPiece): PullPieceRegistration {
     return {
       pieceCid: row.pieceCid,

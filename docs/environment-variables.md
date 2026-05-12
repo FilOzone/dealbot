@@ -16,7 +16,7 @@ This document provides a comprehensive guide to all environment variables used b
 | [ClickHouse](#clickhouse-configuration)   | `CLICKHOUSE_URL`, `CLICKHOUSE_BATCH_SIZE`, `CLICKHOUSE_FLUSH_INTERVAL_MS`, `DEALBOT_PROBE_LOCATION`          |
 | [Timeouts](#timeout-configuration)        | `CONNECT_TIMEOUT_MS`, `HTTP_REQUEST_TIMEOUT_MS`, `HTTP2_REQUEST_TIMEOUT_MS`, `IPNI_VERIFICATION_TIMEOUT_MS`, `IPNI_VERIFICATION_POLLING_MS`                   |
 | [Piece Cleanup](#piece-cleanup)           | `MAX_DATASET_STORAGE_SIZE_BYTES`, `TARGET_DATASET_STORAGE_SIZE_BYTES`, `JOB_PIECE_CLEANUP_PER_SP_PER_HOUR`, `MAX_PIECE_CLEANUP_RUNTIME_SECONDS`       |
-| [Pull Check](#pull-check)                 | `PULL_CHECKS_PER_SP_PER_HOUR`, `PULL_CHECK_JOB_TIMEOUT_SECONDS`, `PULL_CHECK_POLL_INTERVAL_SECONDS`, `PULL_CHECK_PIECE_SIZE_BYTES`, `PULL_PIECE_MAX_CONCURRENT_STREAMS`, `PULL_PIECE_MAX_STREAMS_PER_CID` |
+| [Pull Check](#pull-check)                 | `PULL_CHECKS_PER_SP_PER_HOUR`, `PULL_CHECK_JOB_TIMEOUT_SECONDS`, `PULL_CHECK_POLL_INTERVAL_SECONDS`, `PULL_CHECK_PIECE_SIZE_BYTES`, `PULL_PIECE_MAX_CONCURRENT_STREAMS`, `PULL_PIECE_MAX_STREAMS_PER_CID`, `PULL_PIECE_CLEANUP_INTERVAL_SECONDS` |
 | [SP Blocklist](#sp-blocklist-configuration) | `BLOCKED_SP_IDS`, `BLOCKED_SP_ADDRESSES` |
 | [Prometheus Metrics](#prometheus-metrics-configuration) | `PROMETHEUS_WALLET_BALANCE_TTL_SECONDS`, `PROMETHEUS_WALLET_BALANCE_ERROR_COOLDOWN_SECONDS`                   |
 | [Web Frontend](#web-frontend)             | `VITE_API_BASE_URL`, `VITE_PLAUSIBLE_DATA_DOMAIN`, `DEALBOT_API_BASE_URL`                                                                                    |
@@ -1045,6 +1045,30 @@ PULL_PIECE_MAX_CONCURRENT_STREAMS=50
 
 ```bash
 PULL_PIECE_MAX_STREAMS_PER_CID=3
+```
+
+---
+
+### `PULL_PIECE_CLEANUP_INTERVAL_SECONDS`
+
+- **Type**: `number` (integer, seconds)
+- **Required**: No
+- **Default**: `604800` (7 days)
+- **Minimum**: `3600` (1 hour)
+- **Enforced**: Yes (config validation)
+
+**Role**: How often the global `pull_piece_cleanup` scheduled job runs to delete `pull_pieces` rows whose `expires_at` timestamp has passed. These rows are temporary registrations created per pull check and are automatically expired after `2 × PULL_CHECK_JOB_TIMEOUT_SECONDS`.
+
+**When to update**:
+
+- Decrease if you want expired rows cleaned up more aggressively (e.g. high-volume deployments with many pull checks per hour)
+- Increase if the default churn rate is acceptable and you want to reduce scheduler overhead
+
+**Example**:
+
+```bash
+# Run every 24 hours instead of the default 7 days
+PULL_PIECE_CLEANUP_INTERVAL_SECONDS=86400
 ```
 
 ---

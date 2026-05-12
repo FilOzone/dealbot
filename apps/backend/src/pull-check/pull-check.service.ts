@@ -318,6 +318,14 @@ export class PullCheckService {
   }
 
   /**
+   * Delete all `pull_pieces` rows whose `expires_at` has passed.
+   * Called by the scheduled `pull_piece_cleanup` global job.
+   */
+  async deleteExpiredPullPieces(): Promise<number> {
+    return this.pullPieceRepository.deleteExpired();
+  }
+
+  /**
    * Stream the pull piece bytes for an active registration. Used by the
    * `/api/piece/:pieceCid` controller. Returns null when no active registration
    * exists; callers must distinguish 404 from 410 using the registry directly.

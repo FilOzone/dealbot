@@ -105,6 +105,10 @@ export const configValidationSchema = Joi.object({
     .default(10 * 1024 * 1024), // 10 MiB
   PULL_PIECE_MAX_CONCURRENT_STREAMS: Joi.number().integer().min(1).default(50), // Max concurrent streams across all pieces
   PULL_PIECE_MAX_STREAMS_PER_CID: Joi.number().integer().min(1).default(3), // Max concurrent streams per pieceCid
+  PULL_PIECE_CLEANUP_INTERVAL_SECONDS: Joi.number()
+    .integer()
+    .min(3600)
+    .default(7 * 24 * 3600), // 7 days
 
   // Piece Cleanup
   MAX_DATASET_STORAGE_SIZE_BYTES: Joi.number()
@@ -373,6 +377,13 @@ export interface IPullPieceConfig {
    * Prevents attackers from opening many connections to the same piece.
    */
   maxStreamsPerCid: number;
+  /**
+   * How often (seconds) the global `pull_piece_cleanup` job runs to delete
+   * expired `pull_pieces` rows (those whose `expires_at` is in the past).
+   *
+   * Defaults to 7 days (604800 s). Minimum 1 hour enforced by Joi.
+   */
+  pullPieceCleanupIntervalSeconds: number;
 }
 
 export interface IConfig {
@@ -522,6 +533,10 @@ export function loadConfig(): IConfig {
       pullCheckPieceSizeBytes: Number.parseInt(process.env.PULL_CHECK_PIECE_SIZE_BYTES || String(10 * 1024 * 1024), 10),
       maxConcurrentStreams: Number.parseInt(process.env.PULL_PIECE_MAX_CONCURRENT_STREAMS || "50", 10),
       maxStreamsPerCid: Number.parseInt(process.env.PULL_PIECE_MAX_STREAMS_PER_CID || "3", 10),
+      pullPieceCleanupIntervalSeconds: Number.parseInt(
+        process.env.PULL_PIECE_CLEANUP_INTERVAL_SECONDS || String(7 * 24 * 3600),
+        10,
+      ),
     },
   };
 }

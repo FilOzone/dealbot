@@ -105,6 +105,7 @@ describe("PullCheckService", () => {
         pullCheckPieceSizeBytes: 1024,
         maxConcurrentStreams: 50,
         maxStreamsPerCid: 3,
+        pullPieceCleanupIntervalSeconds: 7 * 24 * 3600,
       },
       dataset: { localDatasetsPath: "/tmp/datasets" } as IConfig["dataset"],
     };

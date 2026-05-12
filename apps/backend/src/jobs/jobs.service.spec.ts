@@ -1,6 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { IConfig, ISpBlocklistConfig } from "../config/app.config.js";
-import { DATA_RETENTION_POLL_QUEUE, PROVIDERS_REFRESH_QUEUE, SP_WORK_QUEUE } from "./job-queues.js";
+import {
+  DATA_RETENTION_POLL_QUEUE,
+  PROVIDERS_REFRESH_QUEUE,
+  PULL_PIECE_CLEANUP_QUEUE,
+  SP_WORK_QUEUE,
+} from "./job-queues.js";
 import { JobsService } from "./jobs.service.js";
 
 type JobsServiceDeps = ConstructorParameters<typeof JobsService>;
@@ -141,6 +146,7 @@ describe("JobsService schedule rows", () => {
         pullCheckPieceSizeBytes: 10 * 1024 * 1024,
         maxConcurrentStreams: 50,
         maxStreamsPerCid: 3,
+        pullPieceCleanupIntervalSeconds: 7 * 24 * 3600,
       },
       database: {
         host: "localhost",
@@ -499,6 +505,11 @@ describe("JobsService schedule rows", () => {
       { batchSize: 1, pollingIntervalSeconds: 60 },
       expect.any(Function),
     );
+    expect(work).toHaveBeenCalledWith(
+      PULL_PIECE_CLEANUP_QUEUE,
+      { batchSize: 1, pollingIntervalSeconds: 60 },
+      expect.any(Function),
+    );
   });
 
   it("creates all worker queues when starting pg-boss", async () => {
@@ -509,6 +520,7 @@ describe("JobsService schedule rows", () => {
     expect(createQueue).toHaveBeenCalledWith(SP_WORK_QUEUE, { policy: "singleton" });
     expect(createQueue).toHaveBeenCalledWith(PROVIDERS_REFRESH_QUEUE);
     expect(createQueue).toHaveBeenCalledWith(DATA_RETENTION_POLL_QUEUE);
+    expect(createQueue).toHaveBeenCalledWith(PULL_PIECE_CLEANUP_QUEUE);
   });
 
   it("skips registering workers in api mode", async () => {

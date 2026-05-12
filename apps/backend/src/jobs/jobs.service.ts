@@ -18,7 +18,12 @@ import { PullCheckService } from "../pull-check/pull-check.service.js";
 import { RetrievalService } from "../retrieval/retrieval.service.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
 import { provisionNextMissingDataSet } from "./data-set-creation.handler.js";
-import { DATA_RETENTION_POLL_QUEUE, PROVIDERS_REFRESH_QUEUE, SP_WORK_QUEUE } from "./job-queues.js";
+import {
+  DATA_RETENTION_POLL_QUEUE,
+  PROVIDERS_REFRESH_QUEUE,
+  PULL_PIECE_CLEANUP_QUEUE,
+  SP_WORK_QUEUE,
+} from "./job-queues.js";
 import { JobScheduleRepository } from "./repositories/job-schedule.repository.js";
 
 type SpJobType = "deal" | "retrieval" | "data_set_creation" | "piece_cleanup" | "pull_check";
@@ -37,6 +42,7 @@ type SpJobData = { jobType: SpJobType; spAddress: string; intervalSeconds: numbe
 type ProvidersRefreshJobData = { intervalSeconds: number };
 type SpJob = Job<SpJobData>;
 type DataRetentionJobData = { intervalSeconds: number };
+type PullPieceCleanupJobData = { intervalSeconds: number };
 
 type ScheduleRow = {
   id: number;
@@ -265,6 +271,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     await boss.createQueue(SP_WORK_QUEUE, { policy: "singleton" });
     await boss.createQueue(PROVIDERS_REFRESH_QUEUE);
     await boss.createQueue(DATA_RETENTION_POLL_QUEUE);
+    await boss.createQueue(PULL_PIECE_CLEANUP_QUEUE);
   }
 
   private registerWorkers(): void {
@@ -343,6 +350,20 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
           event: "worker_register_failed",
           message: "Failed to register worker",
           queue: PROVIDERS_REFRESH_QUEUE,
+          error: toStructuredError(error),
+        }),
+      );
+    void this.boss
+      .work<PullPieceCleanupJobData, void>(
+        PULL_PIECE_CLEANUP_QUEUE,
+        { batchSize: 1, pollingIntervalSeconds: workerPollSeconds },
+        async ([job]) => this.handlePullPieceCleanupJob(job.data),
+      )
+      .catch((error) =>
+        this.logger.error({
+          event: "worker_register_failed",
+          message: "Failed to register worker",
+          queue: PULL_PIECE_CLEANUP_QUEUE,
           error: toStructuredError(error),
         }),
       );
@@ -653,6 +674,19 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         await this.walletSdkService.loadProviders();
       }
       await this.updateStorageProviderGauges();
+      return "success";
+    });
+  }
+
+  private async handlePullPieceCleanupJob(data: PullPieceCleanupJobData): Promise<void> {
+    void data;
+    await this.recordJobExecution("pull_piece_cleanup", async () => {
+      const deletedCount = await this.pullCheckService.deleteExpiredPullPieces();
+      this.logger.log({
+        event: "pull_piece_cleanup_completed",
+        message: "Deleted expired pull piece registrations",
+        deletedCount,
+      });
       return "success";
     });
   }
@@ -982,6 +1016,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     providersRefreshIntervalSeconds: number;
     pieceCleanupIntervalSeconds: number;
     pullCheckIntervalSeconds: number;
+    pullPieceCleanupIntervalSeconds: number;
   } {
     const jobsConfig = this.configService.get("jobs", { infer: true });
     const scheduling = this.configService.get("scheduling", { infer: true });
@@ -1000,6 +1035,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     const pullCheckIntervalSeconds = Math.max(1, Math.round(3600 / pullChecksPerHour));
     const dataRetentionPollIntervalSeconds = scheduling.dataRetentionPollIntervalSeconds;
     const providersRefreshIntervalSeconds = scheduling.providersRefreshIntervalSeconds;
+    const pullPieceCleanupIntervalSeconds = pullPieceConfig.pullPieceCleanupIntervalSeconds;
 
     return {
       dealIntervalSeconds,
@@ -1009,6 +1045,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       providersRefreshIntervalSeconds,
       pieceCleanupIntervalSeconds,
       pullCheckIntervalSeconds,
+      pullPieceCleanupIntervalSeconds,
     };
   }
 
@@ -1017,7 +1054,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
    * - Inserts new rows for new providers.
    * - Updates intervals if config changed.
    * - Pauses rows for providers that are no longer active.
-   * - Ensures global data_retention_poll and providers_refresh jobs exist.
+   * - Ensures global data_retention_poll, providers_refresh, and pull_piece_cleanup jobs exist.
    */
   private async ensureScheduleRows(): Promise<void> {
     const now = new Date();
@@ -1029,6 +1066,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       providersRefreshIntervalSeconds,
       pieceCleanupIntervalSeconds,
       pullCheckIntervalSeconds,
+      pullPieceCleanupIntervalSeconds,
     } = this.getIntervalSecondsForRates();
 
     const useOnlyApprovedProviders = this.configService.get("blockchain").useOnlyApprovedProviders;
@@ -1117,6 +1155,12 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       "",
       providersRefreshIntervalSeconds,
       providersRefreshStartAt,
+    );
+    await this.jobScheduleRepository.upsertSchedule(
+      "pull_piece_cleanup",
+      "",
+      pullPieceCleanupIntervalSeconds,
+      new Date(now.getTime() + phaseMs),
     );
   }
 
@@ -1235,6 +1279,8 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         return DATA_RETENTION_POLL_QUEUE;
       case "providers_refresh":
         return PROVIDERS_REFRESH_QUEUE;
+      case "pull_piece_cleanup":
+        return PULL_PIECE_CLEANUP_QUEUE;
       case "metrics":
       case "metrics_cleanup":
         // These legacy job types should be filtered out before reaching this method
@@ -1328,6 +1374,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       "pull_check",
       "data_retention_poll",
       "providers_refresh",
+      "pull_piece_cleanup",
     ];
     for (const jobType of jobTypes) {
       this.jobsQueuedGauge.set({ job_type: jobType }, 0);
