@@ -473,9 +473,8 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
           }
         }
 
-        // Data-set-aware deal creation. Validate up front (unified status check)
-        // so we never feed a deal job into a PDP-terminated dataset and never
-        // pay for upload prep before the slot is known good.
+        // Probe data set status up front so upload prep is not spent on a
+        // PDP-terminated slot.
         const minDataSets = this.configService.get("blockchain").minNumDataSetsForChecks;
         const baseDataSetMetadata = this.dealService.getBaseDataSetMetadata();
         let extraDataSetMetadata: Record<string, string> | undefined;
@@ -551,7 +550,6 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
               });
             }
           }
-          // dsIndex === 0 → baseline data set, no `dealbotDS` metadata key needed
         }
 
         abortController.signal.throwIfAborted();

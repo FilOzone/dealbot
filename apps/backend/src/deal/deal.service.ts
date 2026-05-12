@@ -260,10 +260,9 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       });
       signal?.throwIfAborted();
 
-      // Pre-metric liveness guard. PDP can mark a data set terminated while
-      // FWSS still has pdpEndEpoch=0; createContext returns it and the next
-      // add-pieces path would fail. Throw so callers map to FAILED and defer
-      // to the data_set_creation repair handler (#379).
+      // PDP can mark a data set terminated while FWSS still has
+      // pdpEndEpoch=0; createContext returns it and the next add-pieces path
+      // would fail. See #379.
       if (storage.dataSetId !== undefined) {
         const live = await this.isDataSetLive(storage.dataSetId, signal);
         if (!live) {
@@ -737,7 +736,6 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     const start = Date.now();
     let delay = 1_000;
     while (Date.now() - start < timeoutMs) {
-      signal?.throwIfAborted();
       const info = await awaitWithAbort(warmStorageService.getDataSet({ dataSetId }), signal);
       if (info != null && info.pdpEndEpoch !== 0n) {
         return info.pdpEndEpoch;
