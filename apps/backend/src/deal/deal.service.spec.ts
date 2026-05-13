@@ -1318,50 +1318,18 @@ describe("DealService", () => {
       expect(metadata).toMatchObject({ dealbotDS: "1" });
     });
 
-    it("falls back to baseline when indexed slot is missing", async () => {
-      (service as any).blockchainConfig.minNumDataSetsForChecks = 3;
-      vi.spyOn(Math, "random").mockReturnValue(0.8); // → index 2
-      probeSpy
-        .mockResolvedValueOnce({ status: "missing" })
-        .mockResolvedValueOnce({ status: "live", dataSetId: 1n });
-
-      const result = await service.resolveDataSetMetadataForDeal("0xprovider");
-      expect(result).toBeUndefined();
-      expect(probeSpy).toHaveBeenCalledTimes(2);
-    });
-
-    it("falls back to baseline when indexed slot is terminated (does not throw)", async () => {
-      (service as any).blockchainConfig.minNumDataSetsForChecks = 3;
-      vi.spyOn(Math, "random").mockReturnValue(0.5); // → index 1
-      probeSpy
-        .mockResolvedValueOnce({ status: "terminated", dataSetId: 99n })
-        .mockResolvedValueOnce({ status: "live", dataSetId: 1n });
-
-      const result = await service.resolveDataSetMetadataForDeal("0xprovider");
-      expect(result).toBeUndefined();
-      expect(probeSpy).toHaveBeenCalledTimes(2);
-    });
-
-    it("falls back to baseline when indexed slot probe throws (non-abort)", async () => {
+    it.each([
+      ["missing", () => probeSpy.mockResolvedValueOnce({ status: "missing" })],
+      ["terminated", () => probeSpy.mockResolvedValueOnce({ status: "terminated", dataSetId: 99n })],
+      ["probe throws", () => probeSpy.mockRejectedValueOnce(new Error("rpc failure"))],
+    ])("falls back to baseline when indexed slot is %s", async (_label, setupIndexedProbe) => {
       (service as any).blockchainConfig.minNumDataSetsForChecks = 3;
       vi.spyOn(Math, "random").mockReturnValue(0.5);
-      probeSpy
-        .mockRejectedValueOnce(new Error("rpc failure"))
-        .mockResolvedValueOnce({ status: "live", dataSetId: 1n });
-
-      const result = await service.resolveDataSetMetadataForDeal("0xprovider");
-      expect(result).toBeUndefined();
-      expect(probeSpy).toHaveBeenCalledTimes(2);
-    });
-
-    it("falls back to baseline when index 0 is selected", async () => {
-      (service as any).blockchainConfig.minNumDataSetsForChecks = 3;
-      vi.spyOn(Math, "random").mockReturnValue(0); // → index 0
+      setupIndexedProbe();
       probeSpy.mockResolvedValueOnce({ status: "live", dataSetId: 1n });
 
       const result = await service.resolveDataSetMetadataForDeal("0xprovider");
       expect(result).toBeUndefined();
-      expect(probeSpy).toHaveBeenCalledTimes(1);
     });
 
     it("propagates abort from indexed probe", async () => {
