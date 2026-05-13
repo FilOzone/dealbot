@@ -92,11 +92,17 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     options: {
       existingDealId?: string;
       signal?: AbortSignal;
-      extraDataSetMetadata?: Record<string, string>;
       logContext?: ProviderJobContext;
     },
   ): Promise<Deal> {
     options.signal?.throwIfAborted();
+
+    const extraDataSetMetadata = await this.resolveDataSetMetadataForDeal(
+      pdpProvider.serviceProvider,
+      options.signal,
+      options.logContext,
+    );
+
     const { preprocessed, cleanup } = await this.prepareDealInput(options.signal, options.logContext);
 
     try {
@@ -109,12 +115,104 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
         uploadPayload,
         options.existingDealId,
         options.signal,
-        options.extraDataSetMetadata,
+        extraDataSetMetadata,
         options.logContext,
       );
     } finally {
       await cleanup();
     }
+  }
+
+  /**
+   * Pick which data-set slot this deal will target.
+   *
+   * Policy:
+   *   - If `minNumDataSetsForChecks > 1` and a random index > 0 is selected,
+   *     probe that slot first. If live, use it. If missing or terminated,
+   *     fall through to baseline (data_set_creation owns repair/provisioning).
+   *   - Probe baseline. If terminated, throw `DealJobTerminatedDataSetError`
+   *     (baseline is the fallback target; nothing else to try).
+   *   - Live or missing baseline → return `undefined` (use baseline slot).
+   *
+   * The post-`createContext` `isDataSetLive` guard inside `createDeal` covers
+   * the TOCTOU window between this probe and the upload's own `createContext`.
+   */
+  async resolveDataSetMetadataForDeal(
+    providerAddress: string,
+    signal?: AbortSignal,
+    logContext?: ProviderJobContext,
+  ): Promise<Record<string, string> | undefined> {
+    signal?.throwIfAborted();
+    const baseDataSetMetadata = this.getBaseDataSetMetadata();
+
+    const indexedMetadata = await this.tryIndexedDataSetSlot(providerAddress, baseDataSetMetadata, signal, logContext);
+    if (indexedMetadata !== undefined) return indexedMetadata;
+
+    try {
+      const baselineStatus = await this.getDataSetProvisioningStatus(providerAddress, baseDataSetMetadata, signal);
+      if (baselineStatus.status === "terminated") {
+        throw new DealJobTerminatedDataSetError(baselineStatus.dataSetId);
+      }
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      if (error instanceof DealJobTerminatedDataSetError) throw error;
+      this.logger.warn({
+        ...logContext,
+        event: "deal_job_dataset_check_failed",
+        message: "Failed to verify baseline data set; proceeding to attempt deal",
+        error: toStructuredError(error),
+      });
+    }
+
+    return undefined;
+  }
+
+  private async tryIndexedDataSetSlot(
+    providerAddress: string,
+    baseDataSetMetadata: Record<string, string>,
+    signal: AbortSignal | undefined,
+    logContext: ProviderJobContext | undefined,
+  ): Promise<Record<string, string> | undefined> {
+    const minDataSets = this.blockchainConfig.minNumDataSetsForChecks;
+    if (minDataSets <= 1) return undefined;
+    const dsIndex = Math.floor(Math.random() * minDataSets);
+    if (dsIndex === 0) return undefined;
+
+    const dsIndexMetadata = { dealbotDS: String(dsIndex) };
+    try {
+      const status = await this.getDataSetProvisioningStatus(
+        providerAddress,
+        { ...baseDataSetMetadata, ...dsIndexMetadata },
+        signal,
+      );
+      if (status.status === "live") return dsIndexMetadata;
+      if (status.status === "terminated") {
+        this.logger.warn({
+          ...logContext,
+          event: "deal_job_dataset_index_terminated",
+          message: "Selected data set index is PDP-terminated; falling back to baseline",
+          dataSetIndex: dsIndex,
+          dataSetId: status.dataSetId.toString(),
+        });
+      } else {
+        this.logger.log({
+          ...logContext,
+          event: "deal_job_dataset_fallback",
+          message: "Data set not yet provisioned; falling back to default data set",
+          dataSetIndex: dsIndex,
+        });
+      }
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      this.logger.warn({
+        ...logContext,
+        event: "deal_job_dataset_check_failed",
+        message: "Failed to verify data set: falling back to default data set",
+        dataSetIndex: dsIndex,
+        error: toStructuredError(error),
+      });
+    }
+    return undefined;
   }
 
   /**

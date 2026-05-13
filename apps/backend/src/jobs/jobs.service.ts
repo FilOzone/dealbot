@@ -473,89 +473,9 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
           }
         }
 
-        // Probe data set status up front so upload prep is not spent on a
-        // PDP-terminated slot.
-        const minDataSets = this.configService.get("blockchain").minNumDataSetsForChecks;
-        const baseDataSetMetadata = this.dealService.getBaseDataSetMetadata();
-        let extraDataSetMetadata: Record<string, string> | undefined;
-
-        try {
-          const baselineStatus = await this.dealService.getDataSetProvisioningStatus(
-            spAddress,
-            baseDataSetMetadata,
-            abortController.signal,
-          );
-          if (baselineStatus.status === "terminated") {
-            throw new DealJobTerminatedDataSetError(baselineStatus.dataSetId);
-          }
-        } catch (error) {
-          if (abortController.signal.aborted) {
-            throw abortController.signal.reason;
-          }
-          if (error instanceof DealJobTerminatedDataSetError) {
-            throw error;
-          }
-          this.logger.warn({
-            ...logContext,
-            event: "deal_job_dataset_check_failed",
-            message: "Failed to verify baseline data set; proceeding to attempt deal",
-            error: toStructuredError(error),
-          });
-        }
-
-        if (minDataSets > 1) {
-          const dsIndex = Math.floor(Math.random() * minDataSets);
-          if (dsIndex > 0) {
-            const dsIndexMetadata = { dealbotDS: String(dsIndex) };
-            const expectedMetadata = { ...baseDataSetMetadata, ...dsIndexMetadata };
-            try {
-              const status = await this.dealService.getDataSetProvisioningStatus(
-                spAddress,
-                expectedMetadata,
-                abortController.signal,
-              );
-
-              if (status.status === "live") {
-                extraDataSetMetadata = dsIndexMetadata;
-              } else if (status.status === "terminated") {
-                throw new DealJobTerminatedDataSetError(status.dataSetId);
-              } else {
-                this.logger.log({
-                  ...logContext,
-                  event: "deal_job_dataset_fallback",
-                  message: "Data set not yet provisioned; falling back to default data set",
-                  dataSetIndex: dsIndex,
-                });
-              }
-            } catch (error) {
-              if (abortController.signal.aborted) {
-                throw abortController.signal.reason;
-              }
-              if (error instanceof DealJobTerminatedDataSetError) {
-                this.logger.warn({
-                  ...logContext,
-                  event: "deal_job_dataset_index_terminated",
-                  message: "Selected data set index is PDP-terminated",
-                  dataSetIndex: dsIndex,
-                  dataSetId: error.dataSetId.toString(),
-                });
-                throw error;
-              }
-              this.logger.warn({
-                ...logContext,
-                event: "deal_job_dataset_check_failed",
-                message: "Failed to verify data set: falling back to default data set",
-                dataSetIndex: dsIndex,
-                error: toStructuredError(error),
-              });
-            }
-          }
-        }
-
         abortController.signal.throwIfAborted();
         await this.dealService.createDealForProvider(provider, {
           signal: abortController.signal,
-          extraDataSetMetadata,
           logContext: {
             jobId: logContext.jobId,
             providerAddress: logContext.providerAddress,
