@@ -281,7 +281,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
             filecoinPinEventType: event.type,
           });
           switch (event.type) {
-            case "onStored": {
+            case "stored": {
               deal.uploadEndTime = new Date();
               deal.status = DealStatus.UPLOADED;
               deal.ingestLatencyMs = null;
@@ -348,7 +348,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
                 });
               break;
             }
-            case "onPiecesAdded":
+            case "piecesAdded":
               this.logger.log({
                 ...dealLogContext,
                 event: "pieces_added",
@@ -373,7 +373,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
                 );
               }
               break;
-            case "onPiecesConfirmed":
+            case "piecesConfirmed":
               this.logger.log({
                 ...dealLogContext,
                 event: "pieces_confirmed",
@@ -651,7 +651,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
           // Must stay synchronous — see issue #446.
           onProgress: (event) => {
             switch (event.type) {
-              case "onStored":
+              case "stored":
                 pieceCid = event.data.pieceCid.toString();
                 this.logger.debug({
                   event: "dataset_creation_stored",
@@ -662,7 +662,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
                   pieceCid,
                 });
                 break;
-              case "onPiecesAdded":
+              case "piecesAdded":
                 pieceAdded = true;
                 this.logger.debug({
                   event: "dataset_creation_pieces_added",
@@ -673,7 +673,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
                   txHash: event.data.txHash ?? "unknown",
                 });
                 break;
-              case "onPiecesConfirmed":
+              case "piecesConfirmed":
                 piecesConfirmed = true;
                 this.logger.debug({
                   event: "dataset_creation_pieces_confirmed",
