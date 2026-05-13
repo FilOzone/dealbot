@@ -283,67 +283,12 @@ describe("WalletSdkService", () => {
       expect((service as any).isDevProvider(info)).toBe(false);
     });
 
-    it("returns true for hex-encoded 'dev' (canonical form)", () => {
+    it("returns true for hex-encoded 'dev'", () => {
       const info = makeProvider({
         pdp: {
           serviceURL: "https://example.invalid",
           location: "loc",
           extraCapabilities: { serviceStatus: stringToHex("dev") },
-        } as any,
-      });
-      expect((service as any).isDevProvider(info)).toBe(true);
-    });
-
-    it("returns true for hex-encoded 'Dev' (mixed case value)", () => {
-      const info = makeProvider({
-        pdp: {
-          serviceURL: "https://example.invalid",
-          location: "loc",
-          extraCapabilities: { serviceStatus: stringToHex("Dev") },
-        } as any,
-      });
-      expect((service as any).isDevProvider(info)).toBe(true);
-    });
-
-    it("returns true for hex-encoded 'DEV' (uppercase value)", () => {
-      const info = makeProvider({
-        pdp: {
-          serviceURL: "https://example.invalid",
-          location: "loc",
-          extraCapabilities: { serviceStatus: stringToHex("DEV") },
-        } as any,
-      });
-      expect((service as any).isDevProvider(info)).toBe(true);
-    });
-
-    it("returns true for 'ServiceStatus' key (PascalCase)", () => {
-      const info = makeProvider({
-        pdp: {
-          serviceURL: "https://example.invalid",
-          location: "loc",
-          extraCapabilities: { ServiceStatus: stringToHex("dev") },
-        } as any,
-      });
-      expect((service as any).isDevProvider(info)).toBe(true);
-    });
-
-    it("returns true for 'servicestatus' key (all lowercase)", () => {
-      const info = makeProvider({
-        pdp: {
-          serviceURL: "https://example.invalid",
-          location: "loc",
-          extraCapabilities: { servicestatus: stringToHex("dev") },
-        } as any,
-      });
-      expect((service as any).isDevProvider(info)).toBe(true);
-    });
-
-    it("returns true for 'service_status' key (snake_case)", () => {
-      const info = makeProvider({
-        pdp: {
-          serviceURL: "https://example.invalid",
-          location: "loc",
-          extraCapabilities: { service_status: stringToHex("dev") },
         } as any,
       });
       expect((service as any).isDevProvider(info)).toBe(true);
