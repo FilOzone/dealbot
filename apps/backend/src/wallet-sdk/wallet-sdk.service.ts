@@ -407,6 +407,7 @@ export class WalletSdkService implements OnModuleInit {
     return obj;
   }
 
+  // See docs/checks/production-configuration-and-approval-methodology.md#sps-in-scope-for-testing
   private isDevProvider(info: PDPProvider): boolean {
     const extraCaps = info.pdp.extraCapabilities;
     if (extraCaps === undefined) return false;
