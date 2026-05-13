@@ -70,13 +70,8 @@ export class PullCheckService {
     signal: AbortSignal | undefined,
     logContext: ProviderJobContext,
   ): Promise<void> {
-    const providerInfo = this.validateProviderInfo(spAddress);
-    const labels = buildCheckMetricLabels({
-      checkType: "pullCheck",
-      providerId: providerInfo.id,
-      providerName: providerInfo.name,
-      providerIsApproved: providerInfo.isApproved,
-    });
+    let providerInfo: PDPProviderEx | null = null;
+    let labels: ReturnType<typeof buildCheckMetricLabels> | null = null;
 
     let prepared: PullPiecePrepared | null = null;
     let requestSubmittedAt: Date | null = null;
@@ -88,6 +83,13 @@ export class PullCheckService {
     let checkStatus: string | null = null;
 
     try {
+      providerInfo = this.validateProviderInfo(spAddress);
+      labels = buildCheckMetricLabels({
+        checkType: "pullCheck",
+        providerId: providerInfo.id,
+        providerName: providerInfo.name,
+        providerIsApproved: providerInfo.isApproved,
+      });
       signal?.throwIfAborted();
       prepared = await this.preparePullPiece(spAddress);
       const pieceCidStr = prepared.registration.pieceCid;
@@ -182,7 +184,7 @@ export class PullCheckService {
       });
     } catch (error) {
       checkStatus = classifyFailureStatus(error);
-      this.pullCheckMetrics.recordStatus(labels, checkStatus);
+      if (labels !== null) this.pullCheckMetrics.recordStatus(labels, checkStatus);
       throw error;
     } finally {
       if (prepared) {
@@ -202,8 +204,8 @@ export class PullCheckService {
           timestamp: Date.now(),
           probe_location: this.clickhouseService.probeLocation,
           sp_address: spAddress,
-          sp_id: providerInfo.id != null ? String(providerInfo.id) : null,
-          sp_name: providerInfo.name ?? null,
+          sp_id: providerInfo?.id != null ? String(providerInfo.id) : null,
+          sp_name: providerInfo?.name ?? null,
           piece_cid: prepared?.registration.pieceCid ?? null,
           piece_size_bytes: prepared?.registration.size ?? null,
           status: checkStatus,

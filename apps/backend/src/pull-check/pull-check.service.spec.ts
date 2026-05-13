@@ -374,6 +374,15 @@ describe("PullCheckService", () => {
       expect(metricsMock.recordStatus).toHaveBeenLastCalledWith(expect.any(Object), "failure.other");
       // Cleanup still runs in the finally block.
       expect(registryMock.forget).toHaveBeenCalled();
+      // ClickHouse row written with the failure outcome.
+      expect(clickhouseServiceMock.insert).toHaveBeenCalledWith(
+        "pull_checks",
+        expect.objectContaining({
+          sp_address: "0xsp",
+          status: "failure.other",
+          provider_status: "failed",
+        }),
+      );
     });
 
     it("classifies timeouts as failure.timedout", async () => {
@@ -382,6 +391,13 @@ describe("PullCheckService", () => {
 
       await expect(service.runPullCheck("0xsp", undefined, logContext)).rejects.toThrow();
       expect(metricsMock.recordStatus).toHaveBeenLastCalledWith(expect.any(Object), "failure.timedout");
+      expect(clickhouseServiceMock.insert).toHaveBeenCalledWith(
+        "pull_checks",
+        expect.objectContaining({
+          sp_address: "0xsp",
+          status: "failure.timedout",
+        }),
+      );
     });
 
     it("re-throws and runs cleanup when the validation step fails", async () => {
@@ -418,6 +434,26 @@ describe("PullCheckService", () => {
 
       await expect(service.runPullCheck("0xsp", undefined, logContext)).rejects.toThrow(/Synapse client unavailable/);
       expect(metricsMock.recordStatus).toHaveBeenLastCalledWith(expect.any(Object), "failure.other");
+    });
+
+    it("writes a ClickHouse row with null sp fields when the provider is unknown", async () => {
+      walletSdkServiceMock.getProviderInfo.mockReturnValue(undefined);
+
+      await expect(service.runPullCheck("0xsp", undefined, logContext)).rejects.toThrow(/not found/);
+      // No metrics recorded (labels could not be built).
+      expect(metricsMock.recordStatus).not.toHaveBeenCalled();
+      // ClickHouse row still written: sp_address is always available,
+      // sp_id and sp_name are null since providerInfo was never resolved.
+      expect(clickhouseServiceMock.insert).toHaveBeenCalledWith(
+        "pull_checks",
+        expect.objectContaining({
+          sp_address: "0xsp",
+          sp_id: null,
+          sp_name: null,
+          piece_cid: null,
+          status: "failure.other",
+        }),
+      );
     });
   });
 

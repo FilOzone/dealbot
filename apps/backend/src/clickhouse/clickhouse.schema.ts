@@ -91,7 +91,7 @@ export function buildMigrations(database: string): string[] {
     piece_size_bytes            Nullable(UInt64),               -- size of the synthetic piece in bytes; null if preparation failed
 
     status                      LowCardinality(String),         -- 'success' | 'failure.timedout' | 'failure.other'
-    provider_status             LowCardinality(Nullable(String)), -- raw SP-reported terminal pull status (e.g. 'complete', 'failed'); null if the request was never acknowledged
+    provider_status             LowCardinality(Nullable(String)), -- raw SP-reported terminal pull status (e.g. 'complete', 'failed'); null if the request was never acknowledged or if waiting for pull status errored or timed out
 
     acknowledgement_latency_ms  Nullable(Float64),              -- time from pullPieces submission to SP acknowledgement (ms)
     completion_latency_ms       Nullable(Float64),              -- time from pullPieces submission to terminal SP pull status (ms)
