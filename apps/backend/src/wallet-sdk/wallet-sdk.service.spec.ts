@@ -272,7 +272,7 @@ describe("WalletSdkService", () => {
       expect((service as any).isDevProvider(makeProvider({}))).toBe(false);
     });
 
-    it("returns false when no serviceStatus-like key exists", () => {
+    it("returns false when serviceStatus key is absent", () => {
       const info = makeProvider({
         pdp: {
           serviceURL: "https://example.invalid",

@@ -7,7 +7,8 @@ import { Injectable, Logger, type OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
 import type { Repository } from "typeorm";
-import { type Hex, hexToString } from "viem";
+import { type Hex } from "viem";
+import { DEV_TAG } from "../common/constants.js";
 import { toStructuredError } from "../common/logging.js";
 import { createSynapseFromConfig } from "../common/synapse-factory.js";
 import type { IBlockchainConfig, IConfig } from "../config/app.config.js";
@@ -409,18 +410,7 @@ export class WalletSdkService implements OnModuleInit {
 
   // See docs/checks/production-configuration-and-approval-methodology.md#sps-in-scope-for-testing
   private isDevProvider(info: PDPProvider): boolean {
-    const extraCaps = info.pdp.extraCapabilities;
-    if (extraCaps === undefined) return false;
-    const key = Object.keys(extraCaps).find((k) => {
-      const lower = k.toLowerCase();
-      return lower === "servicestatus" || lower === "service_status";
-    });
-    if (key === undefined) return false;
-    try {
-      return hexToString(extraCaps[key]).toLowerCase() === "dev";
-    } catch {
-      return false;
-    }
+    return info.pdp.extraCapabilities?.serviceStatus === DEV_TAG;
   }
 
   /**
