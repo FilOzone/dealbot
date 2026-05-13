@@ -22,11 +22,11 @@ vi.mock("@filoz/synapse-core/piece", () => ({
 
 vi.mock("@filoz/synapse-core/sp", () => ({
   pullPieces: vi.fn(),
-  waitForPullStatus: vi.fn(),
+  waitForPullPieces: vi.fn(),
 }));
 
 import { calculateFromIterable } from "@filoz/synapse-core/piece";
-import { pullPieces, waitForPullStatus } from "@filoz/synapse-core/sp";
+import { pullPieces, waitForPullPieces } from "@filoz/synapse-core/sp";
 
 function makeProvider(overrides: Partial<PDPProviderEx> = {}): PDPProviderEx {
   return {
@@ -293,10 +293,10 @@ describe("PullCheckService", () => {
       vi.mocked(pullPieces).mockResolvedValue({ status: "pending" } as unknown as Awaited<
         ReturnType<typeof pullPieces>
       >);
-      vi.mocked(waitForPullStatus).mockResolvedValue({
+      vi.mocked(waitForPullPieces).mockResolvedValue({
         status: "complete",
         pieces: [{ pieceCid: "bafk-test-piece", status: "complete" }],
-      } as unknown as Awaited<ReturnType<typeof waitForPullStatus>>);
+      } as unknown as Awaited<ReturnType<typeof waitForPullPieces>>);
 
       // Direct-fetch validation succeeds.
       httpClientServiceMock.requestStream.mockResolvedValue({
@@ -348,10 +348,10 @@ describe("PullCheckService", () => {
 
     it("re-throws and records failure.other when the SP terminal status is not 'complete'", async () => {
       arrangeHappyPath();
-      vi.mocked(waitForPullStatus).mockResolvedValue({
+      vi.mocked(waitForPullPieces).mockResolvedValue({
         status: "failed",
         pieces: [],
-      } as unknown as Awaited<ReturnType<typeof waitForPullStatus>>);
+      } as unknown as Awaited<ReturnType<typeof waitForPullPieces>>);
 
       await expect(service.runPullCheck("0xsp", undefined, logContext)).rejects.toThrow(
         /Storage provider failed to pull piece/,
@@ -365,7 +365,7 @@ describe("PullCheckService", () => {
 
     it("classifies timeouts as failure.timedout", async () => {
       arrangeHappyPath();
-      vi.mocked(waitForPullStatus).mockRejectedValue(new Error("polling timed out after 300s"));
+      vi.mocked(waitForPullPieces).mockRejectedValue(new Error("polling timed out after 300s"));
 
       await expect(service.runPullCheck("0xsp", undefined, logContext)).rejects.toThrow();
       expect(metricsMock.recordStatus).toHaveBeenLastCalledWith(expect.any(Object), "failure.timedout");
@@ -394,7 +394,7 @@ describe("PullCheckService", () => {
       await expect(service.runPullCheck("0xsp", controller.signal, logContext)).rejects.toThrow();
       // No SP-side calls were issued.
       expect(pullPieces).not.toHaveBeenCalled();
-      expect(waitForPullStatus).not.toHaveBeenCalled();
+      expect(waitForPullPieces).not.toHaveBeenCalled();
       // Failure is classified as timed out (abort message contains "timeout").
       expect(metricsMock.recordStatus).toHaveBeenLastCalledWith(expect.any(Object), "failure.timedout");
     });

@@ -51,9 +51,9 @@ describe("DealService", () => {
 
   const mockRootCid = "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi";
   type UploadProgressEvent =
-    | { type: "onStored"; data: { pieceCid: string } }
-    | { type: "onPiecesAdded"; data: { txHash: string } }
-    | { type: "onPiecesConfirmed"; data: { pieceIds: bigint[] } };
+    | { type: "stored"; data: { pieceCid: string } }
+    | { type: "piecesAdded"; data: { txHash: string } }
+    | { type: "piecesConfirmed"; data: { pieceIds: bigint[] } };
   type ExecuteUploadOptions = {
     onProgress?: (event: UploadProgressEvent) => Promise<void> | void;
   };
@@ -69,11 +69,11 @@ describe("DealService", () => {
       return;
     }
 
-    await onProgress({ type: "onStored", data: { pieceCid: "bafk-uploaded" } });
+    await onProgress({ type: "stored", data: { pieceCid: "bafk-uploaded" } });
     advanceTimersIfFake(2000);
-    await onProgress({ type: "onPiecesAdded", data: { txHash: "0xhash" } });
+    await onProgress({ type: "piecesAdded", data: { txHash: "0xhash" } });
     advanceTimersIfFake(3000);
-    await onProgress({ type: "onPiecesConfirmed", data: { pieceIds: [123n] } });
+    await onProgress({ type: "piecesConfirmed", data: { pieceIds: [123n] } });
   };
 
   const mockDealRepository = {
@@ -612,7 +612,7 @@ describe("DealService", () => {
         (executeUpload as Mock).mockImplementation(async (_s, _d, _c, options) => {
           // Abort first, then invoke without awaiting — mirrors safeInvoke's no-await semantics.
           abortController.abort(abortReason);
-          void options?.onProgress?.({ type: "onStored", data: { pieceCid: "bafk-uploaded" } });
+          void options?.onProgress?.({ type: "stored", data: { pieceCid: "bafk-uploaded" } });
           return {
             pieceCid: "bafk-uploaded",
             pieceId: 123,
@@ -764,7 +764,7 @@ describe("DealService", () => {
     });
 
     /** Regression for #503: detached onStored addons must be aborted when executeUpload throws. */
-    it("aborts in-flight onStored addons when executeUpload fails after onStored fires", async () => {
+    it("aborts in-flight onStored addons when executeUpload fails after the stored event fires", async () => {
       const uploadPayload = {
         carData: Uint8Array.from([1, 2, 3]),
         rootCid: CID.parse(mockRootCid),
@@ -788,7 +788,7 @@ describe("DealService", () => {
 
       const commitError = new Error("StorageContext commit: 409 Conflict");
       (executeUpload as Mock).mockImplementation(async (_s, _d, _c, options) => {
-        await options?.onProgress?.({ type: "onStored", data: { pieceCid: "bafk-uploaded" } });
+        await options?.onProgress?.({ type: "stored", data: { pieceCid: "bafk-uploaded" } });
         throw commitError;
       });
 
@@ -853,11 +853,11 @@ describe("DealService", () => {
         dataSetId: "dataset-123",
       });
 
-      // Upload fires onStored and onPiecesAdded, but rejects before onPiecesConfirmed
+      // Upload fires stored and piecesAdded, but rejects before piecesConfirmed
       (executeUpload as Mock).mockImplementation(
         async (_service: unknown, _data: unknown, _rootCid: unknown, options?: ExecuteUploadOptions) => {
-          await options?.onProgress?.({ type: "onStored", data: { pieceCid: "bafk-uploaded" } });
-          await options?.onProgress?.({ type: "onPiecesAdded", data: { txHash: "0xhash" } });
+          await options?.onProgress?.({ type: "stored", data: { pieceCid: "bafk-uploaded" } });
+          await options?.onProgress?.({ type: "piecesAdded", data: { txHash: "0xhash" } });
           throw new Error("timed out waiting for piece confirmation");
         },
       );
@@ -1110,7 +1110,7 @@ describe("DealService", () => {
       });
     });
 
-    it("preserves pieceId from onPiecesConfirmed when uploadResult.pieceId is missing", async () => {
+    it("preserves pieceId from piecesConfirmed when uploadResult.pieceId is missing", async () => {
       const uploadPayload = {
         carData: Uint8Array.from([1, 2, 3]),
         rootCid: CID.parse(mockRootCid),
@@ -1120,7 +1120,7 @@ describe("DealService", () => {
         dataSetId: "dataset-123",
       });
 
-      // Mock executeUpload to return without pieceId but trigger onPiecesConfirmed with pieceIds
+      // Mock executeUpload to return without pieceId but trigger piecesConfirmed with pieceIds
       (executeUpload as Mock).mockImplementation(async (_service, _data, _rootCid, options) => {
         await triggerUploadProgress(options?.onProgress);
         return {
@@ -1139,7 +1139,7 @@ describe("DealService", () => {
 
       const deal = await service.createDeal(mockSynapseInstance, mockProviderInfo, mockDealInput, uploadPayload);
 
-      // Verify that pieceId from onPiecesConfirmed (123) is preserved and not overwritten by undefined
+      // Verify that pieceId from piecesConfirmed (123) is preserved and not overwritten by undefined
       expect(deal.pieceId).toBe(123);
       expect(deal.status).toBe(DealStatus.DEAL_CREATED);
     });
@@ -1339,7 +1339,7 @@ describe("DealService", () => {
       );
     });
 
-    it("succeeds when upload finishes without both onPiecesAdded and onPiecesConfirmed", async () => {
+    it("succeeds when upload finishes without both piecesAdded and piecesConfirmed", async () => {
       vi.spyOn(mockWalletSdkService, "getProviderInfo").mockReturnValue(mockProviderInfo);
       vi.spyOn(service as any, "createSynapseInstance").mockImplementation(
         () =>
@@ -1349,7 +1349,7 @@ describe("DealService", () => {
       );
 
       (executeUpload as Mock).mockImplementation(async (_s, _d, _r, opts) => {
-        await opts?.onProgress?.({ type: "onStored", data: { pieceCid: "bafk" } });
+        await opts?.onProgress?.({ type: "stored", data: { pieceCid: "bafk" } });
       });
 
       await expect(service.createDataSetWithPiece("0xprovider", {})).resolves.toBeUndefined();

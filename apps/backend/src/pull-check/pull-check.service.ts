@@ -1,7 +1,7 @@
 import * as crypto from "node:crypto";
 import { Readable } from "node:stream";
 import { calculateFromIterable, parse as parsePieceCid } from "@filoz/synapse-core/piece";
-import { pullPieces, waitForPullStatus } from "@filoz/synapse-core/sp";
+import { pullPieces, waitForPullPieces } from "@filoz/synapse-core/sp";
 import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import type { Account, Address, Chain, Client, Transport } from "viem";
@@ -116,8 +116,8 @@ export class PullCheckService {
       });
 
       const pullPieceConfig = this.getPullPieceConfig();
-      // `waitForPullStatus` polls the SP repeatedly until a terminal pull status is reported
-      const finalResponse = await waitForPullStatus(synapseClient, {
+      // `waitForPullPieces` polls the SP repeatedly until a terminal pull status is reported
+      const finalResponse = await waitForPullPieces(synapseClient, {
         ...pullPiecesOptions,
         timeout: pullPieceConfig.pullCheckJobTimeoutSeconds * 1000,
         pollInterval: pullPieceConfig.pullCheckPollIntervalSeconds * 1000,
@@ -334,7 +334,7 @@ export class PullCheckService {
     pieceCid: string,
   ): Promise<{ registration: PullPieceRegistration; stream: Readable } | null> {
     const registration = await this.pullPieceRepository.resolve(pieceCid);
-    if (!registration) return null;
+    if (!registration || registration.expiresAt <= new Date()) return null;
 
     const stream = this.dataSourceService.generateBytesStream({
       providerAddress: registration.providerAddress,
