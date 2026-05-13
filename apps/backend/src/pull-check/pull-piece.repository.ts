@@ -79,6 +79,11 @@ export class PullPieceRepository {
 
   async forget(pieceCid: string): Promise<void> {
     await this.repo.delete({ pieceCid });
+    this.logger.log({
+      event: "pull_piece_forgotten",
+      message: "Forgotten pull piece",
+      pieceCid,
+    });
   }
 
   /**
@@ -87,6 +92,11 @@ export class PullPieceRepository {
    */
   async deleteExpired(): Promise<number> {
     const result = await this.repo.createQueryBuilder().delete().from(PullPiece).where("expires_at <= NOW()").execute();
+    this.logger.log({
+      event: "pull_piece_expired_deleted",
+      message: "Deleted expired pull pieces",
+      count: result.affected ?? 0,
+    });
     return result.affected ?? 0;
   }
 
