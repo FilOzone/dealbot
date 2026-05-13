@@ -134,8 +134,9 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
    *     (baseline is the fallback target; nothing else to try).
    *   - Live or missing baseline → return `undefined` (use baseline slot).
    *
-   * The post-`createContext` `isDataSetLive` guard inside `createDeal` covers
-   * the TOCTOU window between this probe and the upload's own `createContext`.
+   * The post-`createContext` `isDataSetLive` guard inside `createDeal` runs on
+   * the exact `dataSetId` the upload will use, and is the safety net for any
+   * caller of `createDealForProvider` that did not run this probe first.
    */
   async resolveDataSetMetadataForDeal(
     providerAddress: string,
