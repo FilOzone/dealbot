@@ -1070,23 +1070,6 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       const rows = await this.jobScheduleRepository.findDueSchedulesWithManager(manager, now);
 
       for (const row of rows) {
-        // Skip legacy job types that are no longer supported.
-        // TODO(#457): remove once RemoveMetricsJobScheduleRows has run everywhere and no such rows remain.
-        if (row.job_type === "metrics" || row.job_type === "metrics_cleanup") {
-          this.logger.warn({
-            event: "legacy_job_type_skipped",
-            message: "Skipping legacy job type - please remove from job_schedule_state table",
-            jobType: row.job_type,
-            scheduleId: row.id,
-          });
-          // Advance next_run_at so this row is not re-selected on every tick in
-          // environments where the RemoveMetricsJobScheduleRows migration has not run.
-          const legacyIntervalMs = row.interval_seconds * 1000;
-          const newNextRunAt = new Date(now.getTime() + (legacyIntervalMs > 0 ? legacyIntervalMs : 86_400_000));
-          await this.jobScheduleRepository.advanceScheduleNextRun(manager, row.id, newNextRunAt);
-          continue;
-        }
-
         const timing = this.getScheduleTiming(row, now);
         if (!timing) continue;
         const { intervalMs, nextRunAt, runsDue } = timing;
@@ -1142,10 +1125,6 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         return DATA_RETENTION_POLL_QUEUE;
       case "providers_refresh":
         return PROVIDERS_REFRESH_QUEUE;
-      case "metrics":
-      case "metrics_cleanup":
-        // These legacy job types should be filtered out before reaching this method
-        throw new Error(`Legacy job type ${jobType} should not be processed - remove from job_schedule_state table`);
       default: {
         const exhaustiveCheck: never = jobType;
         throw new Error(`Unhandled job type: ${exhaustiveCheck}`);

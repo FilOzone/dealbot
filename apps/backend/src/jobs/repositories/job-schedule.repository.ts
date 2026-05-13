@@ -3,15 +3,7 @@ import { InjectDataSource } from "@nestjs/typeorm";
 import type { DataSource } from "typeorm";
 import { toStructuredError } from "../../common/logging.js";
 import type { JobType } from "../../database/entities/job-schedule-state.entity.js";
-import {
-  DATA_RETENTION_POLL_QUEUE,
-  LEGACY_DEAL_QUEUE,
-  LEGACY_METRICS_CLEANUP_QUEUE,
-  LEGACY_METRICS_QUEUE,
-  LEGACY_RETRIEVAL_QUEUE,
-  PROVIDERS_REFRESH_QUEUE,
-  SP_WORK_QUEUE,
-} from "../job-queues.js";
+import { DATA_RETENTION_POLL_QUEUE, PROVIDERS_REFRESH_QUEUE, SP_WORK_QUEUE } from "../job-queues.js";
 
 export type ScheduleRow = {
   id: number;
@@ -202,7 +194,7 @@ export class JobScheduleRepository {
 
   /**
    * Counts pg-boss jobs by dealbot job type and state for the requested states.
-   * Uses `data->>'jobType'` for the shared sp.work queue and maps legacy queue names.
+   * Uses `data->>'jobType'` for the shared sp.work queue.
    * Casts state to text so drivers always return a string (pg-boss uses job_state enum).
    */
   async countBossJobStates(states: string[]): Promise<{ job_type: string; state: string; count: number }[]> {
@@ -211,12 +203,8 @@ export class JobScheduleRepository {
       SELECT
         CASE
           WHEN name = $2 THEN COALESCE(data->>'jobType', 'unknown')
-          WHEN name = $3 THEN 'metrics'
-          WHEN name = $4 THEN 'metrics_cleanup'
-          WHEN name = $5 THEN 'deal'
-          WHEN name = $6 THEN 'retrieval'
-          WHEN name = $7 THEN 'data_retention_poll'
-          WHEN name = $8 THEN 'providers_refresh'
+          WHEN name = $3 THEN 'data_retention_poll'
+          WHEN name = $4 THEN 'providers_refresh'
           ELSE name
         END AS job_type,
         state::text AS state,
@@ -225,16 +213,7 @@ export class JobScheduleRepository {
       WHERE state::text = ANY($1::text[])
       GROUP BY 1, 2
       `,
-      [
-        states,
-        SP_WORK_QUEUE,
-        LEGACY_METRICS_QUEUE,
-        LEGACY_METRICS_CLEANUP_QUEUE,
-        LEGACY_DEAL_QUEUE,
-        LEGACY_RETRIEVAL_QUEUE,
-        DATA_RETENTION_POLL_QUEUE,
-        PROVIDERS_REFRESH_QUEUE,
-      ],
+      [states, SP_WORK_QUEUE, DATA_RETENTION_POLL_QUEUE, PROVIDERS_REFRESH_QUEUE],
     );
   }
 
@@ -251,12 +230,8 @@ export class JobScheduleRepository {
       SELECT
         CASE
           WHEN name = $3 THEN COALESCE(data->>'jobType', 'unknown')
-          WHEN name = $4 THEN 'metrics'
-          WHEN name = $5 THEN 'metrics_cleanup'
-          WHEN name = $6 THEN 'deal'
-          WHEN name = $7 THEN 'retrieval'
-          WHEN name = $8 THEN 'data_retention_poll'
-          WHEN name = $9 THEN 'providers_refresh'
+          WHEN name = $4 THEN 'data_retention_poll'
+          WHEN name = $5 THEN 'providers_refresh'
           ELSE name
         END AS job_type,
         MIN(
@@ -273,17 +248,7 @@ export class JobScheduleRepository {
       WHERE state::text = $2
       GROUP BY 1
       `,
-      [
-        now,
-        state,
-        SP_WORK_QUEUE,
-        LEGACY_METRICS_QUEUE,
-        LEGACY_METRICS_CLEANUP_QUEUE,
-        LEGACY_DEAL_QUEUE,
-        LEGACY_RETRIEVAL_QUEUE,
-        DATA_RETENTION_POLL_QUEUE,
-        PROVIDERS_REFRESH_QUEUE,
-      ],
+      [now, state, SP_WORK_QUEUE, DATA_RETENTION_POLL_QUEUE, PROVIDERS_REFRESH_QUEUE],
     );
   }
 }

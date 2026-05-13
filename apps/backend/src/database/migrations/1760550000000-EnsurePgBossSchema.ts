@@ -16,10 +16,9 @@ export class EnsurePgBossSchema1760550000000 implements MigrationInterface {
       const newSchemaExists = await this.schemaExists(queryRunner, newSchema);
 
       if (!schemaExists && !legacyExists && !newSchemaExists) {
-        // Fresh database: install and seed required queues.
+        // Fresh database: install pg-boss schema.
         await this.installSchema(queryRunner, schema);
         await this.ensureCompatColumns(queryRunner, schema);
-        await this.ensureQueues(queryRunner, schema);
         return;
       }
 
@@ -32,7 +31,6 @@ export class EnsurePgBossSchema1760550000000 implements MigrationInterface {
           await queryRunner.query(`DROP SCHEMA ${schema} CASCADE`);
           await this.installSchema(queryRunner, schema);
           await this.ensureCompatColumns(queryRunner, schema);
-          await this.ensureQueues(queryRunner, schema);
           return;
         }
       }
@@ -40,9 +38,8 @@ export class EnsurePgBossSchema1760550000000 implements MigrationInterface {
       if (schemaExists) {
         const queueExists = await this.relationExists(queryRunner, `${schema}.queue`);
         if (queueExists) {
-          // Already on v12+ schema; keep in place and ensure compat/queues.
+          // Already on v12+ schema; keep in place and ensure compat columns.
           await this.ensureCompatColumns(queryRunner, schema);
-          await this.ensureQueues(queryRunner, schema);
           return;
         }
       }
@@ -78,7 +75,6 @@ export class EnsurePgBossSchema1760550000000 implements MigrationInterface {
       await this.copySchedules(queryRunner, sourceSchema, schema);
       await this.copyJobs(queryRunner, sourceSchema, schema);
       await this.ensureCompatColumns(queryRunner, schema);
-      await this.ensureQueues(queryRunner, schema);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       throw new Error(`pg-boss migration failed: ${message}. See docs/runbooks/jobs.md for manual migration steps.`);
@@ -109,13 +105,6 @@ export class EnsurePgBossSchema1760550000000 implements MigrationInterface {
     await queryRunner.query(
       `ALTER TABLE ${name}.job ADD COLUMN IF NOT EXISTS startedon timestamptz GENERATED ALWAYS AS (started_on) STORED`,
     );
-  }
-
-  private async ensureQueues(queryRunner: QueryRunner, name: string): Promise<void> {
-    const queues = ["deal.run", "retrieval.run", "metrics.run", "metrics.cleanup"];
-    for (const queueName of queues) {
-      await queryRunner.query(`SELECT ${name}.create_queue($1, '{"policy":"standard"}'::jsonb)`, [queueName]);
-    }
   }
 
   private async copyQueues(queryRunner: QueryRunner, source: string, target: string): Promise<void> {
