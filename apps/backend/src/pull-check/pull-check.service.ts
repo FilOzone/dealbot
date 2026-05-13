@@ -1,7 +1,7 @@
 import * as crypto from "node:crypto";
 import { Readable } from "node:stream";
-import { calculate, calculateFromIterable, parse as parsePieceCid } from "@filoz/synapse-core/piece";
-import { pullPieces, waitForPullStatus } from "@filoz/synapse-core/sp";
+import { calculateFromIterable, parse as parsePieceCid } from "@filoz/synapse-core/piece";
+import { pullPieces, waitForPullPieces } from "@filoz/synapse-core/sp";
 import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import type { Account, Address, Chain, Client, Transport } from "viem";
@@ -124,8 +124,8 @@ export class PullCheckService {
       });
 
       const pullPieceConfig = this.getPullPieceConfig();
-      // `waitForPullStatus` polls the SP repeatedly until a terminal pull status is reported
-      const finalResponse = await waitForPullStatus(synapseClient, {
+      // `waitForPullPieces` polls the SP repeatedly until a terminal pull status is reported
+      const finalResponse = await waitForPullPieces(synapseClient, {
         ...pullPiecesOptions,
         timeout: pullPieceConfig.pullCheckJobTimeoutSeconds * 1000,
         pollInterval: pullPieceConfig.pullCheckPollIntervalSeconds * 1000,
@@ -141,7 +141,13 @@ export class PullCheckService {
         throw new Error(`Storage provider failed to pull piece: status=${finalResponse.status}`);
       }
 
-      const pieceValidated = await this.validateByDirectPieceFetch(providerInfo, pieceCidStr, logContext, signal);
+      const pieceValidated = await this.validateByDirectPieceFetch(
+        providerInfo,
+        pieceCidStr,
+        prepared.registration.size,
+        logContext,
+        signal,
+      );
       signal?.throwIfAborted();
       if (!pieceValidated) {
         throw new Error("Pull-check piece validation failed: SP did not serve the expected bytes");
@@ -221,15 +227,54 @@ export class PullCheckService {
   async validateByDirectPieceFetch(
     providerInfo: PDPProviderEx,
     pieceCid: string,
+    expectedSize: number,
     logContext: ProviderJobContext,
     signal?: AbortSignal,
   ): Promise<boolean> {
     signal?.throwIfAborted();
     const pieceFetchUrl = this.constructPieceFetchUrl(providerInfo.pdp.serviceURL, pieceCid);
     try {
-      const response = await this.httpClientService.requestWithMetrics<Buffer>(pieceFetchUrl, { signal });
-      const calculatedPieceCid = calculate(response.data);
-      return calculatedPieceCid.toString() === pieceCid;
+      const response = await this.httpClientService.requestStream(pieceFetchUrl, { signal });
+
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        response.body.destroy();
+        this.logger.warn({
+          ...logContext,
+          event: "pull_check_direct_piece_fetch_failed",
+          message: "Direct piece fetch returned non-2xx status",
+          pieceCid,
+          pieceFetchUrl,
+          statusCode: response.statusCode,
+        });
+        return false;
+      }
+
+      const rawContentLength = response.headers["content-length"];
+      const contentLengthHeader = Array.isArray(rawContentLength) ? rawContentLength[0] : rawContentLength;
+      if (contentLengthHeader !== undefined) {
+        const reportedSize = parseInt(contentLengthHeader, 10);
+        if (!Number.isNaN(reportedSize) && reportedSize !== expectedSize) {
+          response.body.destroy();
+          this.logger.warn({
+            ...logContext,
+            event: "pull_check_direct_piece_size_mismatch",
+            message: "Content-Length header does not match expected piece size",
+            pieceCid,
+            expectedSize,
+            reportedSize,
+          });
+          return false;
+        }
+      }
+
+      try {
+        const calculatedPieceCid = await calculateFromIterable(response.body);
+        return calculatedPieceCid.toString() === pieceCid;
+      } finally {
+        // Guarantee the underlying socket is released if `calculateFromIterable`
+        // throws partway (e.g. invalid framing) without fully draining the body.
+        if (!response.body.destroyed) response.body.destroy();
+      }
     } catch (error) {
       // Re-throw aborts so the caller's lifecycle handles cancellation rather
       // than treating it as a validation failure.
@@ -255,7 +300,8 @@ export class PullCheckService {
    * `/api/piece/:pieceCid` serving, and return the source URL plus registration.
    */
   async preparePullPiece(providerAddress: string): Promise<PullPiecePrepared> {
-    const targetSize = this.getPullPieceConfig().pullCheckPieceSizeBytes;
+    const pullPieceConfig = this.getPullPieceConfig();
+    const targetSize = pullPieceConfig.pullCheckPieceSizeBytes;
     const key = crypto.randomBytes(16).toString("hex");
 
     const dataStream = this.dataSourceService.generateBytesStream({
@@ -274,6 +320,7 @@ export class PullCheckService {
       providerAddress,
       key,
       size: targetSize,
+      expiresAt: new Date(Date.now() + pullPieceConfig.pullCheckJobTimeoutSeconds * 2 * 1000),
     };
     await this.pullPieceRepository.register(registration);
 
@@ -307,7 +354,7 @@ export class PullCheckService {
     pieceCid: string,
   ): Promise<{ registration: PullPieceRegistration; stream: Readable } | null> {
     const registration = await this.pullPieceRepository.resolve(pieceCid);
-    if (!registration) return null;
+    if (!registration || registration.expiresAt <= new Date()) return null;
 
     const stream = this.dataSourceService.generateBytesStream({
       providerAddress: registration.providerAddress,

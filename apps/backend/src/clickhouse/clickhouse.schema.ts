@@ -23,10 +23,10 @@ export function buildMigrations(database: string): string[] {
     error_code                  LowCardinality(Nullable(String)),
 
     upload_started_at           Nullable(DateTime64(3, 'UTC')),  -- when executeUpload() was called
-    upload_ended_at             Nullable(DateTime64(3, 'UTC')),  -- when onStored event fired
+    upload_ended_at             Nullable(DateTime64(3, 'UTC')),  -- when stored event fired
 
-    pieces_added_at             Nullable(DateTime64(3, 'UTC')),  -- when onPiecesAdded event fired
-    pieces_confirmed_at         Nullable(DateTime64(3, 'UTC')),  -- when onPiecesConfirmed event fired
+    pieces_added_at             Nullable(DateTime64(3, 'UTC')),  -- when piecesAdded event fired
+    pieces_confirmed_at         Nullable(DateTime64(3, 'UTC')),  -- when piecesConfirmed event fired
 
     ipni_status                 LowCardinality(Nullable(String)), -- 'pending' | 'sp_indexed' | 'sp_advertised' | 'verified' | 'failed'
     ipni_indexed_at             Nullable(DateTime64(3, 'UTC')),   -- when dealbot first observed SP_INDEXED (accuracy limited to poll interval)

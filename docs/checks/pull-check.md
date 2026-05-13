@@ -21,7 +21,7 @@ Each pull check asserts the following for every SP:
 | # | Assertion | How It's Checked | Retries | Relevant Metric for Setting a Max Duration | Implemented? |
 |---|-----------|------------------|:---:|--------------------------------------------|:---:|
 | 1 | SP accepts the pull request | Synapse `pullPieces` (i.e., initial call to SP `POST /pdp/piece/pull`) returns without error and reports a non-terminal-failure status | 0 | [`pullRequestAcknowledgementLatencyMs`](./events-and-metrics.md#pullRequestAcknowledgementLatencyMs) | Yes |
-| 2 | SP reaches a terminal `complete` pull status | Synapse `waitForPullStatus` polls the SP (using `POST /pdp/piece/pull`) until a terminal status is reported | Polling will continue until [`PULL_CHECK_JOB_TIMEOUT_SECONDS`](../environment-variables.md#pull_check_job_timeout_seconds) is reached | [`pullRequestCompletionLatencyMs`](./events-and-metrics.md#pullRequestCompletionLatencyMs) | Yes |
+| 2 | SP reaches a terminal `complete` pull status | Synapse `waitForPullPieces` polls the SP (using `POST /pdp/piece/pull`) until a terminal status is reported | Polling will continue until [`PULL_CHECK_JOB_TIMEOUT_SECONDS`](../environment-variables.md#pull_check_job_timeout_seconds) is reached | [`pullRequestCompletionLatencyMs`](./events-and-metrics.md#pullRequestCompletionLatencyMs) | Yes |
 | 3 | SP serves the pulled piece via `/piece/{pieceCid}` | Re-fetch the bytes from the SP's PDP service URL and re-compute the piece CID | 0 | n/a (bounded by job timeout) | Yes |
 | 4 | All checks pass | Pull check is not marked successful until all assertions pass within the job timeout | n/a | [`pullRequestCompletionLatencyMs`](./events-and-metrics.md#pullRequestCompletionLatencyMs) | Yes |
 
@@ -33,7 +33,7 @@ The dealbot scheduler triggers pull check jobs at a configurable rate (`PULL_CHE
 flowchart TD
   Generate["Compute PieceCID + register hosted source in Postgres<br/>at /api/piece/{pieceCid}"]
   Generate --> Submit["Submit pullPieces request to SP"]
-  Submit --> |SP responds with HTTP 200|Poll["Poll SP via waitForPullStatus<br/>until terminal pull status"]
+  Submit --> |SP responds with HTTP 200|Poll["Poll SP via waitForPullPieces<br/>until terminal pull status"]
   Submit --> |SP doesn't respond with HTTP 200| Fail["Mark pull check failed"]
   Poll -->|complete| Validate["Direct /piece/{pieceCid} fetch from SP<br/>+ recompute pieceCid"]
   Poll -->|other terminal status| Fail
@@ -69,13 +69,13 @@ Source: [`pull-check.service.ts` (`runPullCheck`)](../../apps/backend/src/pull-c
 
 When dealbot receives the SP request for `/api/piece/{pieceCid}` for the first time, dealbot stamps a first-byte timestamp on the registration. This is the basis for [`pullRequestStartedMs`](./events-and-metrics.md#pullRequestStartedMs).
 
-In parallel, dealbot`waitForPullStatus` polls the SP at `PULL_CHECK_POLL_INTERVAL_SECONDS` until the SP reports a terminal status (`complete` or `failed`) or the job timeout fires. Dealbot increments the [`pullRequestProviderStatus`](./events-and-metrics.md#pullRequestProviderStatus) counter exactly once with the **terminal** status; intermediate poll statuses are not counted.
+In parallel, dealbot`waitForPullPieces` polls the SP at `PULL_CHECK_POLL_INTERVAL_SECONDS` until the SP reports a terminal status (`complete` or `failed`) or the job timeout fires. Dealbot increments the [`pullRequestProviderStatus`](./events-and-metrics.md#pullRequestProviderStatus) counter exactly once with the **terminal** status; intermediate poll statuses are not counted.
 
 Source: [`pull-piece.controller.ts`](../../apps/backend/src/pull-check/pull-piece.controller.ts)
 
 ### 4. Direct piece-fetch validation
 
-After `waitForPullStatus`, dealbot fetches `{serviceURL}/piece/{pieceCid}` from the SP, re-computes the piece CID over the response body, and compares it against the expected CID. A mismatch fails the pull check with `failure.other`. A network or HTTP error during validation also fails the check (transport errors are intentionally not retried).
+After `waitForPullPieces`, dealbot fetches `{serviceURL}/piece/{pieceCid}` from the SP, re-computes the piece CID over the response body, and compares it against the expected CID. A mismatch fails the pull check with `failure.other`. A network or HTTP error during validation also fails the check (transport errors are intentionally not retried).
 
 Aborts (job timeout) propagate as throws and are classified as `failure.timedout` rather than as a validation failure.
 

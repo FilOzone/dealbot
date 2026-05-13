@@ -980,7 +980,7 @@ PULL_CHECKS_PER_SP_PER_HOUR=0.083
 - **Default**: `2`
 - **Minimum**: `1`
 
-**Role**: Polling interval used by `waitForPullStatus` while waiting for the SP to report a terminal pull status (`complete` or `failed`).
+**Role**: Polling interval used by `waitForPullPieces` while waiting for the SP to report a terminal pull status (`complete` or `failed`).
 
 **When to update**:
 

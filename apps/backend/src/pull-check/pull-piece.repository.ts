@@ -28,6 +28,7 @@ export class PullPieceRepository {
         size: registration.size,
         pullSubmittedAt: null,
         firstByteAt: null,
+        expiresAt: registration.expiresAt,
       },
       ["pieceCid"],
     );
@@ -88,6 +89,7 @@ export class PullPieceRepository {
       size: row.size,
       pullSubmittedAt: row.pullSubmittedAt ?? undefined,
       firstByteAt: row.firstByteAt ?? undefined,
+      expiresAt: row.expiresAt,
     };
   }
 }

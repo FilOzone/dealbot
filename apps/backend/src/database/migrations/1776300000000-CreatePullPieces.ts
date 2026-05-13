@@ -12,7 +12,8 @@ export class CreatePullPieces1776300000000 implements MigrationInterface {
         size INT NOT NULL,
         pull_submitted_at TIMESTAMPTZ,
         first_byte_at TIMESTAMPTZ,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        expires_at TIMESTAMPTZ NOT NULL
       )
     `);
   }
