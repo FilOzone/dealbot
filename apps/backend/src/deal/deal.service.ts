@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { setTimeout as setTimeoutAsync } from "node:timers/promises";
 import { METADATA_KEYS, SIZE_CONSTANTS, Synapse } from "@filoz/synapse-sdk";
 import { Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
@@ -9,6 +10,7 @@ import type { Repository } from "typeorm";
 import { ClickhouseService } from "../clickhouse/clickhouse.service.js";
 import { awaitWithAbort } from "../common/abort-utils.js";
 import { buildUnixfsCar } from "../common/car-utils.js";
+import { DealJobTerminatedDataSetError } from "../common/errors.js";
 import { createFilecoinPinLogger } from "../common/filecoin-pin-logger.js";
 import {
   type DealLogContext,
@@ -90,11 +92,17 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     options: {
       existingDealId?: string;
       signal?: AbortSignal;
-      extraDataSetMetadata?: Record<string, string>;
       logContext?: ProviderJobContext;
     },
   ): Promise<Deal> {
     options.signal?.throwIfAborted();
+
+    const extraDataSetMetadata = await this.resolveDataSetMetadataForDeal(
+      pdpProvider.serviceProvider,
+      options.signal,
+      options.logContext,
+    );
+
     const { preprocessed, cleanup } = await this.prepareDealInput(options.signal, options.logContext);
 
     try {
@@ -107,12 +115,105 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
         uploadPayload,
         options.existingDealId,
         options.signal,
-        options.extraDataSetMetadata,
+        extraDataSetMetadata,
         options.logContext,
       );
     } finally {
       await cleanup();
     }
+  }
+
+  /**
+   * Pick which data-set slot this deal will target.
+   *
+   * Policy:
+   *   - If `minNumDataSetsForChecks > 1` and a random index > 0 is selected,
+   *     probe that slot first. If live, use it. If missing or terminated,
+   *     fall through to baseline (data_set_creation owns repair/provisioning).
+   *   - Probe baseline. If terminated, throw `DealJobTerminatedDataSetError`
+   *     (baseline is the fallback target; nothing else to try).
+   *   - Live or missing baseline → return `undefined` (use baseline slot).
+   *
+   * The post-`createContext` `isDataSetLive` guard inside `createDeal` runs on
+   * the exact `dataSetId` the upload will use, and is the safety net for any
+   * caller of `createDealForProvider` that did not run this probe first.
+   */
+  async resolveDataSetMetadataForDeal(
+    providerAddress: string,
+    signal?: AbortSignal,
+    logContext?: ProviderJobContext,
+  ): Promise<Record<string, string> | undefined> {
+    signal?.throwIfAborted();
+    const baseDataSetMetadata = this.getBaseDataSetMetadata();
+
+    const indexedMetadata = await this.tryIndexedDataSetSlot(providerAddress, baseDataSetMetadata, signal, logContext);
+    if (indexedMetadata !== undefined) return indexedMetadata;
+
+    try {
+      const baselineStatus = await this.getDataSetProvisioningStatus(providerAddress, baseDataSetMetadata, signal);
+      if (baselineStatus.status === "terminated") {
+        throw new DealJobTerminatedDataSetError(baselineStatus.dataSetId);
+      }
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      if (error instanceof DealJobTerminatedDataSetError) throw error;
+      this.logger.warn({
+        ...logContext,
+        event: "deal_job_dataset_check_failed",
+        message: "Failed to verify baseline data set; proceeding to attempt deal",
+        error: toStructuredError(error),
+      });
+    }
+
+    return undefined;
+  }
+
+  private async tryIndexedDataSetSlot(
+    providerAddress: string,
+    baseDataSetMetadata: Record<string, string>,
+    signal: AbortSignal | undefined,
+    logContext: ProviderJobContext | undefined,
+  ): Promise<Record<string, string> | undefined> {
+    const minDataSets = this.blockchainConfig.minNumDataSetsForChecks;
+    if (minDataSets <= 1) return undefined;
+    const dsIndex = Math.floor(Math.random() * minDataSets);
+    if (dsIndex === 0) return undefined;
+
+    const dsIndexMetadata = { dealbotDS: String(dsIndex) };
+    try {
+      const status = await this.getDataSetProvisioningStatus(
+        providerAddress,
+        { ...baseDataSetMetadata, ...dsIndexMetadata },
+        signal,
+      );
+      if (status.status === "live") return dsIndexMetadata;
+      if (status.status === "terminated") {
+        this.logger.warn({
+          ...logContext,
+          event: "deal_job_dataset_index_terminated",
+          message: "Selected data set index is PDP-terminated; falling back to baseline",
+          dataSetIndex: dsIndex,
+          dataSetId: status.dataSetId.toString(),
+        });
+      } else {
+        this.logger.log({
+          ...logContext,
+          event: "deal_job_dataset_fallback",
+          message: "Data set not yet provisioned; falling back to default data set",
+          dataSetIndex: dsIndex,
+        });
+      }
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      this.logger.warn({
+        ...logContext,
+        event: "deal_job_dataset_check_failed",
+        message: "Failed to verify data set: falling back to default data set",
+        dataSetIndex: dsIndex,
+        error: toStructuredError(error),
+      });
+    }
+    return undefined;
   }
 
   /**
@@ -176,6 +277,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     let onchainSucceeded = false;
     let retrievalStarted = false;
     let retrievalStatusEmitted = false;
+    let preUploadTerminated = false;
 
     let deal: Deal;
     if (existingDealId) {
@@ -241,8 +343,6 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
         providerName: pdpProvider.name ?? deal.storageProvider?.name,
         providerIsApproved: pdpProvider.isApproved ?? deal.storageProvider?.isApproved,
       });
-      this.dataStorageMetrics.recordUploadStatus(providerLabels, "pending");
-      this.dataStorageMetrics.recordDataStorageStatus(providerLabels, "pending");
 
       const dataSetMetadata = { ...dealInput.synapseConfig.dataSetMetadata, ...extraDataSetMetadata };
 
@@ -258,6 +358,20 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
         metadata: dataSetMetadata,
       });
       signal?.throwIfAborted();
+
+      // PDP can mark a data set terminated while FWSS still has
+      // pdpEndEpoch=0; createContext returns it and the next add-pieces path
+      // would fail. See #379.
+      if (storage.dataSetId !== undefined) {
+        const live = await this.isDataSetLive(storage.dataSetId, signal);
+        if (!live) {
+          preUploadTerminated = true;
+          throw new DealJobTerminatedDataSetError(storage.dataSetId);
+        }
+      }
+
+      this.dataStorageMetrics.recordUploadStatus(providerLabels, "pending");
+      this.dataStorageMetrics.recordDataStorageStatus(providerLabels, "pending");
 
       deal.dataSetId = storage.dataSetId ?? null;
       deal.uploadStartTime = new Date();
@@ -509,6 +623,16 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
 
       return deal;
     } catch (error) {
+      if (preUploadTerminated && error instanceof DealJobTerminatedDataSetError) {
+        this.logger.warn({
+          ...dealLogContext,
+          event: "dataset_unhealthy_waiting_for_data_set_creation",
+          message: "Data set is PDP-terminated; deferring deal job to data_set_creation repair",
+          dataSetId: error.dataSetId.toString(),
+        });
+        throw error;
+      }
+
       const errorMessage = redactSensitiveText(error instanceof Error ? error.message : String(error));
       this.logger.error({
         ...dealLogContext,
@@ -544,18 +668,27 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
           deal.ipniStatus = null;
         }
       }
-      await this.saveDeal(deal, dealLogContext);
+      if (!preUploadTerminated) {
+        await this.saveDeal(deal, dealLogContext);
+      }
     }
   }
 
   /**
-   * Checks if an on-chain data set exists for a provider with specific metadata.
+   * Determines whether a provider's dataset slot is `missing`, `live`, or
+   * `terminated`. Resolves the dataset via createContext (FWSS pdpEndEpoch=0
+   * filter) and then probes PDP liveness via WarmStorage.validateDataSet.
+   *
+   * `terminated` means FWSS still considers the set provisionable but PDP has
+   * marked it dead (e.g. unrecoverable proving failure). See #379.
    */
-  async checkDataSetExists(
+  async getDataSetProvisioningStatus(
     providerAddress: string,
     metadata: Record<string, string>,
     signal?: AbortSignal,
-  ): Promise<boolean> {
+  ): Promise<
+    { status: "missing" } | { status: "live"; dataSetId: bigint } | { status: "terminated"; dataSetId: bigint }
+  > {
     signal?.throwIfAborted();
     const synapse = this.sharedSynapse ?? (await this.createSynapseInstance());
     const providerInfo = this.walletSdkService.getProviderInfo(providerAddress);
@@ -570,7 +703,149 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       signal,
     );
     signal?.throwIfAborted();
-    return context.dataSetId !== undefined;
+    if (context.dataSetId === undefined) {
+      return { status: "missing" };
+    }
+    const dataSetId = context.dataSetId;
+    const isLive = await this.isDataSetLive(dataSetId, signal);
+    return isLive ? { status: "live", dataSetId } : { status: "terminated", dataSetId };
+  }
+
+  /**
+   * PDP-liveness probe via WarmStorage.validateDataSet.
+   *
+   * Returns true if PDP reports the dataset live and FWSS-managed.
+   * Returns false ONLY for the known terminal error string ("does not exist or is not live").
+   * Re-throws any other error (RPC failure, "not managed", unknown) so callers do not
+   * misclassify a transient probe failure as a terminated dataset.
+   */
+  async isDataSetLive(dataSetId: bigint, signal?: AbortSignal): Promise<boolean> {
+    signal?.throwIfAborted();
+    const { warmStorageService } = this.walletSdkService.getWalletServices();
+    try {
+      await awaitWithAbort(warmStorageService.validateDataSet({ dataSetId }), signal);
+      return true;
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      const message = error instanceof Error ? error.message : String(error);
+      if (/does not exist or is not live/i.test(message)) {
+        return false;
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Repair a PDP-terminated dataset (FWSS may or may not have flipped pdpEndEpoch).
+   *
+   * Idempotent sequence:
+   *   1. Read FWSS pdpEndEpoch. If already non-zero, skip the on-chain call.
+   *   2. Otherwise call terminateDataSet, wait for the tx receipt, then poll
+   *      FWSS pdpEndEpoch until non-zero. A revert that matches a known
+   *      already-terminated message is treated as a no-op and falls through
+   *      to the poll, so a partially-completed prior run can complete.
+   *   3. Mark every Deal row with this dataSetId as cleaned up in a single
+   *      transaction (filtered on cleaned_up=false, so re-runs do not double-write).
+   */
+  async repairTerminatedDataSet(
+    providerAddress: string,
+    dataSetId: bigint,
+    signal?: AbortSignal,
+    pollTimeoutMs = 60_000,
+  ): Promise<{ dealsAffected: number; pdpEndEpoch: bigint }> {
+    signal?.throwIfAborted();
+    const synapse = this.sharedSynapse ?? (await this.createSynapseInstance());
+    const providerInfo = this.walletSdkService.getProviderInfo(providerAddress);
+    const { warmStorageService } = this.walletSdkService.getWalletServices();
+
+    let pdpEndEpoch: bigint;
+    const existing = await awaitWithAbort(warmStorageService.getDataSet({ dataSetId }), signal);
+    if (existing != null && existing.pdpEndEpoch !== 0n) {
+      pdpEndEpoch = existing.pdpEndEpoch;
+      this.logger.log({
+        event: "dataset_already_terminated",
+        message: "FWSS pdpEndEpoch already set; skipping terminateDataSet",
+        providerAddress,
+        dataSetId: dataSetId.toString(),
+        pdpEndEpoch: pdpEndEpoch.toString(),
+      });
+    } else {
+      let txHash: `0x${string}` | undefined;
+      try {
+        txHash = await awaitWithAbort(synapse.storage.terminateDataSet({ dataSetId }), signal);
+      } catch (error) {
+        if (signal?.aborted) throw error;
+        const message = error instanceof Error ? error.message : String(error);
+        if (!/already.*terminat|service.*terminated|pdpEndEpoch.*set/i.test(message)) {
+          throw error;
+        }
+        this.logger.warn({
+          event: "dataset_terminate_already_handled",
+          message: "terminateDataSet reverted as already-terminated; continuing to poll",
+          providerAddress,
+          dataSetId: dataSetId.toString(),
+          revert: message,
+        });
+      }
+      signal?.throwIfAborted();
+      if (txHash != null) {
+        try {
+          await awaitWithAbort(synapse.client.waitForTransactionReceipt({ hash: txHash }), signal);
+        } catch (error) {
+          if (signal?.aborted) throw error;
+          this.logger.warn({
+            event: "dataset_terminate_receipt_wait_failed",
+            message: "Receipt wait failed; falling back to FWSS state poll",
+            providerAddress,
+            dataSetId: dataSetId.toString(),
+            txHash,
+            error: toStructuredError(error),
+          });
+        }
+      }
+      pdpEndEpoch = await this.waitForPdpEndEpoch(dataSetId, pollTimeoutMs, signal);
+    }
+
+    const result = await this.dealRepository.manager.transaction(async (manager) => {
+      const update = await manager
+        .getRepository(Deal)
+        .update({ dataSetId, cleanedUp: false }, { cleanedUp: true, cleanedUpAt: new Date() });
+      return update.affected ?? 0;
+    });
+
+    this.logger.log({
+      event: "dataset_terminated_repaired",
+      message: "Repaired PDP-terminated dataset",
+      providerAddress,
+      providerId: providerInfo?.id,
+      dataSetId: dataSetId.toString(),
+      pdpEndEpoch: pdpEndEpoch.toString(),
+      dealsAffected: result,
+    });
+
+    return { dealsAffected: result, pdpEndEpoch };
+  }
+
+  /**
+   * Poll FWSS getDataSet({dataSetId}).pdpEndEpoch until non-zero. Exponential
+   * backoff capped at 8s. Throws on timeout.
+   */
+  private async waitForPdpEndEpoch(dataSetId: bigint, timeoutMs: number, signal?: AbortSignal): Promise<bigint> {
+    const { warmStorageService } = this.walletSdkService.getWalletServices();
+    const start = Date.now();
+    let delay = 1_000;
+    while (Date.now() - start < timeoutMs) {
+      const info = await awaitWithAbort(warmStorageService.getDataSet({ dataSetId }), signal);
+      if (info != null && info.pdpEndEpoch !== 0n) {
+        return info.pdpEndEpoch;
+      }
+      const remaining = timeoutMs - (Date.now() - start);
+      if (remaining <= 0) break;
+      const wait = Math.min(delay, remaining);
+      await setTimeoutAsync(wait, undefined, { signal });
+      delay = Math.min(delay * 2, 8_000);
+    }
+    throw new Error(`Timeout waiting for FWSS pdpEndEpoch != 0 on dataSetId ${dataSetId.toString()}`);
   }
 
   /**

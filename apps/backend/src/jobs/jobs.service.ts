@@ -5,6 +5,7 @@ import { InjectMetric } from "@willsoto/nestjs-prometheus";
 import { type Job, PgBoss, type SendOptions } from "pg-boss";
 import type { Counter, Gauge, Histogram } from "prom-client";
 import type { Repository } from "typeorm";
+import { DealJobTerminatedDataSetError } from "../common/errors.js";
 import { type JobLogContext, type ProviderJobContext, toStructuredError } from "../common/logging.js";
 import { getMaintenanceWindowStatus } from "../common/maintenance-window.js";
 import { isSpBlocked } from "../common/sp-blocklist.js";
@@ -472,53 +473,9 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
           }
         }
 
-        // Data-set-aware deal creation
-        const minDataSets = this.configService.get("blockchain").minNumDataSetsForChecks;
-        const baseDataSetMetadata = this.dealService.getBaseDataSetMetadata();
-        let extraDataSetMetadata: Record<string, string> | undefined;
-
-        if (minDataSets > 1) {
-          const dsIndex = Math.floor(Math.random() * minDataSets);
-          if (dsIndex > 0) {
-            const dsIndexMetadata = { dealbotDS: String(dsIndex) };
-            const expectedMetadata = { ...baseDataSetMetadata, ...dsIndexMetadata };
-            try {
-              const exists = await this.dealService.checkDataSetExists(
-                spAddress,
-                expectedMetadata,
-                abortController.signal,
-              );
-
-              if (exists) {
-                extraDataSetMetadata = dsIndexMetadata;
-              } else {
-                this.logger.log({
-                  ...logContext,
-                  event: "deal_job_dataset_fallback",
-                  message: "Data set not yet provisioned; falling back to default data set",
-                  dataSetIndex: dsIndex,
-                });
-              }
-            } catch (error) {
-              if (abortController.signal.aborted) {
-                throw abortController.signal.reason;
-              }
-              this.logger.warn({
-                ...logContext,
-                event: "deal_job_dataset_check_failed",
-                message: "Failed to verify data set: falling back to default data set",
-                dataSetIndex: dsIndex,
-                error: toStructuredError(error),
-              });
-            }
-          }
-          // dsIndex === 0 → baseline data set, no `dealbotDS` metadata key needed
-        }
-
         abortController.signal.throwIfAborted();
         await this.dealService.createDealForProvider(provider, {
           signal: abortController.signal,
-          extraDataSetMetadata,
           logContext: {
             jobId: logContext.jobId,
             providerAddress: logContext.providerAddress,
@@ -539,6 +496,15 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
             error: toStructuredError(reason ?? error),
           });
           return "aborted";
+        }
+        if (error instanceof DealJobTerminatedDataSetError) {
+          this.logger.error({
+            ...logContext,
+            event: "deal_job_failed_terminated_dataset",
+            message: "Deal job failed: data set is PDP-terminated; awaiting data_set_creation repair",
+            dataSetId: error.dataSetId.toString(),
+          });
+          return "error";
         }
         this.logger.error({
           ...logContext,

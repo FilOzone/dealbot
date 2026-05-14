@@ -7,6 +7,22 @@ export interface RetrievalErrorResponseInfo {
 }
 
 /**
+ * Thrown when a deal cannot be made because the targeted data set is
+ * PDP-terminated. Callers map this to a FAILED outcome and defer to
+ * `data_set_creation` for repair. See #379.
+ */
+export class DealJobTerminatedDataSetError extends Error {
+  readonly name = "DealJobTerminatedDataSetError";
+
+  constructor(public readonly dataSetId: bigint) {
+    super(`Data set ${dataSetId.toString()} is PDP-terminated; awaiting data_set_creation repair`);
+    if (Error.captureStackTrace) {
+      Error.captureStackTrace(this, DealJobTerminatedDataSetError);
+    }
+  }
+}
+
+/**
  * Custom error class for retrieval failures with HTTP context
  * Provides structured information about failed HTTP requests
  */
