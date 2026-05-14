@@ -185,6 +185,12 @@ const metricProviders = [
     labelNames: ["checkType", "providerId", "providerName", "providerStatus", "value"] as const,
   }),
   makeCounterProvider({
+    // docs/checks/events-and-metrics.md#retrievalTransportStatus
+    name: "retrievalTransportStatus",
+    help: "Retrieval transport (/ipfs) sub-status counts, scoped to the transport stage only",
+    labelNames: ["checkType", "providerId", "providerName", "providerStatus", "value"] as const,
+  }),
+  makeCounterProvider({
     // docs/checks/events-and-metrics.md#ipfsRetrievalHttpResponseCode
     name: "ipfsRetrievalHttpResponseCode",
     help: "HTTP response codes for IPFS retrievals",

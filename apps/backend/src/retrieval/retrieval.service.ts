@@ -120,7 +120,8 @@ export class RetrievalService {
       return [];
     }
 
-    let terminalStatus: "success" | "failure.timedout" | "failure.other" | null = null;
+    type SubStatus = "success" | "failure.timedout" | "failure.other";
+    let terminalStatus: SubStatus | null = null;
     let retrievals: Retrieval[] = [];
     let caughtError: unknown = null;
     const retrievalCheckStartTime = Date.now();
@@ -130,86 +131,31 @@ export class RetrievalService {
     this.retrievalMetrics.recordStatus(providerLabels, "pending");
 
     try {
-      if (this.isPgBossMode()) {
-        const ipniCheck = await this.verifyIpniForRetrieval(
-          ipniContext as { rootCid: CID; blockCids: CID[] },
-          deal.id,
-          provider,
-          providerLabels,
-          signal,
-        );
-        if (!ipniCheck.ok) {
-          terminalStatus = ipniCheck.failureStatus ?? "failure.other";
-        }
-      }
+      const transportPromise = this.runTransport(deal, config, providerLabels, retrievalLogContext, signal);
+      const ipniPromise = this.isPgBossMode()
+        ? this.verifyIpniForRetrieval(
+            ipniContext as { rootCid: CID; blockCids: CID[] },
+            deal.id,
+            provider,
+            providerLabels,
+            signal,
+          )
+        : Promise.resolve({ ok: true as const });
 
-      if (!terminalStatus) {
-        const testResult: RetrievalTestResult = await this.retrievalAddonsService.testAllRetrievalMethods(
-          config,
-          signal,
-          retrievalLogContext,
-        );
-        retrievals = await Promise.all(
-          testResult.results.map((executionResult) =>
-            this.createRetrievalFromResult(deal, executionResult, providerLabels),
-          ),
-        );
+      const [transportSettled, ipniSettled] = await Promise.allSettled([transportPromise, ipniPromise]);
 
-        const successCount = retrievals.filter((r) => r.status === RetrievalStatus.SUCCESS).length;
-        this.logger.log({
-          ...retrievalLogContext,
-          event: "retrievals_completed",
-          message: "Retrievals successful",
-          successCount,
-          totalCount: retrievals.length,
-        });
-
-        if (testResult.aborted || signal?.aborted) {
-          const abortReason = signal?.reason;
-          const abortMessage = abortReason instanceof Error ? abortReason.message : String(abortReason ?? "");
-          this.logger.warn({
-            ...retrievalLogContext,
-            event: "retrieval_job_aborted",
-            message: "Retrieval job aborted; recorded partial results.",
-            reason: abortMessage || "Unknown",
-            error: toStructuredError(abortReason),
-          });
-          terminalStatus = signal?.aborted ? "failure.timedout" : "failure.other";
-        } else {
-          terminalStatus = retrievals.every((retrieval) => retrieval.status === RetrievalStatus.SUCCESS)
-            ? "success"
-            : "failure.other";
-        }
-      }
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      if (signal?.aborted) {
-        const abortReason = signal.reason;
-        const abortMessage = abortReason instanceof Error ? abortReason.message : String(abortReason ?? "");
-        this.logger.warn({
-          ...retrievalLogContext,
-          event: "retrievals_aborted",
-          message: "Retrievals aborted",
-          reason: abortMessage || errorMessage,
-          error: toStructuredError(error),
-        });
-        terminalStatus = "failure.timedout";
+      if (transportSettled.status === "fulfilled") {
+        retrievals = transportSettled.value.retrievals;
       } else {
-        this.logger.error({
-          ...retrievalLogContext,
-          event: "all_retrievals_failed",
-          message: "All retrievals failed",
-          error: toStructuredError(error),
-        });
-        terminalStatus = classifyFailureStatus(error);
+        caughtError = transportSettled.reason;
       }
 
-      // If this catch block fires, it's either:
-      // 1. The job timeout fired (signal aborted) - record failure.timedout once
-      // 2. A catastrophic error occurred (provider not found, etc.) - re-throw for logging
-      // 3. Individual HTTP timeouts are captured by Promise.allSettled in testAllRetrievalMethods
-      //    and converted to FAILED records through the normal flow
-      caughtError = error;
+      const transportStatus = this.classifyTransportOutcome(transportSettled, signal);
+      this.retrievalMetrics.recordTransportStatus(providerLabels, transportStatus);
+
+      const ipniStatus = this.classifyIpniOutcome(ipniSettled, signal);
+
+      terminalStatus = this.composeRetrievalStatus(ipniStatus, transportStatus);
     } finally {
       const retrievalCheckDurationMs = Date.now() - retrievalCheckStartTime;
       this.retrievalMetrics.observeCheckDuration(providerLabels, retrievalCheckDurationMs);
@@ -233,6 +179,107 @@ export class RetrievalService {
     }
 
     return retrievals;
+  }
+
+  private async runTransport(
+    deal: Deal,
+    config: RetrievalConfiguration,
+    providerLabels: CheckMetricLabels,
+    retrievalLogContext: RetrievalLogContext,
+    signal?: AbortSignal,
+  ): Promise<{ retrievals: Retrieval[]; aborted: boolean; allSuccess: boolean }> {
+    try {
+      const testResult: RetrievalTestResult = await this.retrievalAddonsService.testAllRetrievalMethods(
+        config,
+        signal,
+        retrievalLogContext,
+      );
+      const retrievals = await Promise.all(
+        testResult.results.map((executionResult) =>
+          this.createRetrievalFromResult(deal, executionResult, providerLabels),
+        ),
+      );
+
+      const successCount = retrievals.filter((r) => r.status === RetrievalStatus.SUCCESS).length;
+      this.logger.log({
+        ...retrievalLogContext,
+        event: "retrievals_completed",
+        message: "Retrievals successful",
+        successCount,
+        totalCount: retrievals.length,
+      });
+
+      const aborted = Boolean(testResult.aborted) || Boolean(signal?.aborted);
+      if (aborted) {
+        const abortReason = signal?.reason;
+        const abortMessage = abortReason instanceof Error ? abortReason.message : String(abortReason ?? "");
+        this.logger.warn({
+          ...retrievalLogContext,
+          event: "retrieval_job_aborted",
+          message: "Retrieval job aborted; recorded partial results.",
+          reason: abortMessage || "Unknown",
+          error: toStructuredError(abortReason),
+        });
+      }
+
+      return {
+        retrievals,
+        aborted,
+        allSuccess: retrievals.every((r) => r.status === RetrievalStatus.SUCCESS),
+      };
+    } catch (error) {
+      if (signal?.aborted) {
+        const abortReason = signal.reason;
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        const abortMessage = abortReason instanceof Error ? abortReason.message : String(abortReason ?? "");
+        this.logger.warn({
+          ...retrievalLogContext,
+          event: "retrievals_aborted",
+          message: "Retrievals aborted",
+          reason: abortMessage || errorMessage,
+          error: toStructuredError(error),
+        });
+      } else {
+        this.logger.error({
+          ...retrievalLogContext,
+          event: "all_retrievals_failed",
+          message: "All retrievals failed",
+          error: toStructuredError(error),
+        });
+      }
+      throw error;
+    }
+  }
+
+  private classifyTransportOutcome(
+    settled: PromiseSettledResult<{ retrievals: Retrieval[]; aborted: boolean; allSuccess: boolean }>,
+    signal?: AbortSignal,
+  ): "success" | "failure.timedout" | "failure.other" {
+    if (settled.status === "rejected") {
+      return signal?.aborted ? "failure.timedout" : classifyFailureStatus(settled.reason);
+    }
+    if (settled.value.aborted) return "failure.timedout";
+    return settled.value.allSuccess ? "success" : "failure.other";
+  }
+
+  private classifyIpniOutcome(
+    settled: PromiseSettledResult<{ ok: boolean; failureStatus?: "failure.timedout" | "failure.other" }>,
+    signal?: AbortSignal,
+  ): "success" | "failure.timedout" | "failure.other" {
+    if (settled.status === "rejected") {
+      return signal?.aborted ? "failure.timedout" : classifyFailureStatus(settled.reason);
+    }
+    if (settled.value.ok) return "success";
+    return settled.value.failureStatus ?? "failure.other";
+  }
+
+  private composeRetrievalStatus(
+    ipni: "success" | "failure.timedout" | "failure.other",
+    transport: "success" | "failure.timedout" | "failure.other",
+  ): "success" | "failure.timedout" | "failure.other" {
+    if (ipni === "success" && transport === "success") return "success";
+    if (ipni === "failure.timedout" || transport === "failure.timedout") return "failure.timedout";
+    return "failure.other";
   }
 
   private async createRetrievalFromResult(

@@ -65,6 +65,7 @@ describe("RetrievalService timeouts", () => {
     observeThroughput: vi.fn(),
     observeCheckDuration: vi.fn(),
     recordStatus: vi.fn(),
+    recordTransportStatus: vi.fn(),
     recordHttpResponseCode: vi.fn(),
     recordResultMetrics: vi.fn(),
   };
@@ -320,6 +321,223 @@ describe("RetrievalService timeouts", () => {
     expect(mockRetrievalMetrics.recordStatus).toHaveBeenCalledWith(labels, "pending");
     expect(mockRetrievalMetrics.recordStatus).toHaveBeenCalledWith(labels, "failure.timedout");
     expect(mockRetrievalMetrics.observeCheckDuration).toHaveBeenCalledWith(labels, 900);
+  });
+});
+
+describe("RetrievalService parallel IPNI + transport (pgBoss mode)", () => {
+  type PublicInterface<T> = { [K in keyof T]: T[K] };
+  type RetrievalServicePrivate = PublicInterface<RetrievalService> & {
+    performAllRetrievals: (deal: Deal, signal?: AbortSignal) => Promise<Retrieval[]>;
+  };
+
+  let service: RetrievalServicePrivate;
+
+  const mockRetrievalAddonsService = {
+    testAllRetrievalMethods: vi.fn(),
+    getApplicableStrategies: vi.fn().mockReturnValue([{}]),
+  };
+  const mockConfigService = {
+    get: vi.fn((key: string) => {
+      if (key === "app") return { runMode: "worker" };
+      if (key === "jobs") return { pgbossSchedulerEnabled: true };
+      if (key === "blockchain") return { network: "calibration" };
+      if (key === "dataset") return { randomDatasetSizes: [10] };
+      if (key === "timeouts") return { ipniVerificationTimeoutMs: 10_000, ipniVerificationPollingMs: 2_000 };
+      return undefined;
+    }),
+  };
+  const mockIpniVerificationService = { verify: vi.fn() };
+  const mockDiscoverabilityMetrics = { recordStatus: vi.fn(), observeIpniVerifyMs: vi.fn() };
+  const mockDealRepository = { find: vi.fn() };
+  const mockRetrievalRepository = { create: vi.fn(), save: vi.fn() };
+  const mockSpRepository = { findOne: vi.fn() };
+  const mockRetrievalMetrics = {
+    observeFirstByteMs: vi.fn(),
+    observeLastByteMs: vi.fn(),
+    observeThroughput: vi.fn(),
+    observeCheckDuration: vi.fn(),
+    recordStatus: vi.fn(),
+    recordTransportStatus: vi.fn(),
+    recordHttpResponseCode: vi.fn(),
+    recordResultMetrics: vi.fn(),
+  };
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  const buildDealWithIpni = (): Deal =>
+    ({
+      id: "deal-1",
+      spAddress: "0xsp",
+      walletAddress: "0xwallet",
+      pieceCid: "bafy-piece",
+      metadata: {
+        ipfs_pin: {
+          rootCID: "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi",
+          blockCIDs: ["bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi"],
+        },
+      },
+    }) as unknown as Deal;
+
+  const labels = {
+    checkType: "retrieval",
+    providerId: "7",
+    providerName: "Test SP",
+    providerStatus: "unapproved",
+  };
+
+  const successfulTransport = {
+    dealId: "deal-1",
+    results: [
+      {
+        url: "http://example.com",
+        method: "direct",
+        data: Buffer.alloc(0),
+        metrics: {
+          latency: 100,
+          ttfb: 50,
+          throughput: 5000,
+          statusCode: 200,
+          timestamp: new Date(),
+          responseSize: 0,
+        },
+        success: true,
+        retryCount: 0,
+      },
+    ],
+    summary: {
+      totalMethods: 1,
+      successfulMethods: 1,
+      failedMethods: 0,
+      fastestMethod: "direct",
+      fastestLatency: 100,
+    },
+    testedAt: new Date(),
+  };
+
+  const createService = async (): Promise<RetrievalServicePrivate> => {
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        RetrievalService,
+        { provide: RetrievalAddonsService, useValue: mockRetrievalAddonsService },
+        { provide: getRepositoryToken(Deal), useValue: mockDealRepository },
+        { provide: getRepositoryToken(Retrieval), useValue: mockRetrievalRepository },
+        { provide: getRepositoryToken(StorageProvider), useValue: mockSpRepository },
+        { provide: RetrievalCheckMetrics, useValue: mockRetrievalMetrics },
+        { provide: DiscoverabilityCheckMetrics, useValue: mockDiscoverabilityMetrics },
+        { provide: IpniVerificationService, useValue: mockIpniVerificationService },
+        { provide: ConfigService, useValue: mockConfigService },
+        { provide: ClickhouseService, useValue: { insert: vi.fn(), probeLocation: "test" } },
+      ],
+    }).compile();
+    return module.get<RetrievalService>(RetrievalService) as unknown as RetrievalServicePrivate;
+  };
+
+  const setupCommonMocks = (): void => {
+    mockSpRepository.findOne.mockResolvedValue({
+      address: "0xsp",
+      providerId: 7,
+      isApproved: false,
+      name: "Test SP",
+    });
+    mockRetrievalRepository.create.mockImplementation((d) => d);
+    mockRetrievalRepository.save.mockImplementation(async (d) => d);
+  };
+
+  it("emits success on retrievalStatus + retrievalTransportStatus when IPNI and transport both succeed", async () => {
+    service = await createService();
+    setupCommonMocks();
+    mockIpniVerificationService.verify.mockResolvedValue({
+      verified: 1,
+      unverified: 0,
+      total: 1,
+      rootCIDVerified: true,
+      durationMs: 1000,
+      failedCIDs: [],
+      verifiedAt: new Date().toISOString(),
+    });
+    mockRetrievalAddonsService.testAllRetrievalMethods.mockResolvedValue(successfulTransport);
+
+    await service.performAllRetrievals(buildDealWithIpni());
+
+    expect(mockRetrievalMetrics.recordStatus).toHaveBeenCalledWith(labels, "pending");
+    expect(mockRetrievalMetrics.recordStatus).toHaveBeenCalledWith(labels, "success");
+    expect(mockRetrievalMetrics.recordTransportStatus).toHaveBeenCalledWith(labels, "success");
+    expect(mockDiscoverabilityMetrics.recordStatus).toHaveBeenCalledWith(labels, "success");
+  });
+
+  it("records failure.other on retrievalStatus when IPNI fails but transport succeeds", async () => {
+    service = await createService();
+    setupCommonMocks();
+    mockIpniVerificationService.verify.mockResolvedValue({
+      verified: 0,
+      unverified: 1,
+      total: 1,
+      rootCIDVerified: false,
+      durationMs: 500,
+      failedCIDs: [{ cid: "x", reason: "missing" }],
+      verifiedAt: new Date().toISOString(),
+    });
+    mockRetrievalAddonsService.testAllRetrievalMethods.mockResolvedValue(successfulTransport);
+
+    await service.performAllRetrievals(buildDealWithIpni());
+
+    expect(mockRetrievalMetrics.recordTransportStatus).toHaveBeenCalledWith(labels, "success");
+    expect(mockRetrievalMetrics.recordStatus).toHaveBeenCalledWith(labels, "failure.other");
+    expect(mockDiscoverabilityMetrics.recordStatus).toHaveBeenCalledWith(labels, "failure.other");
+  });
+
+  it("records failure.timedout on retrievalStatus when IPNI times out but transport succeeds", async () => {
+    service = await createService();
+    setupCommonMocks();
+    mockIpniVerificationService.verify.mockResolvedValue({
+      verified: 0,
+      unverified: 1,
+      total: 1,
+      rootCIDVerified: false,
+      durationMs: 10_000,
+      failedCIDs: [{ cid: "x", reason: "timeout" }],
+      verifiedAt: new Date().toISOString(),
+    });
+    mockRetrievalAddonsService.testAllRetrievalMethods.mockResolvedValue(successfulTransport);
+
+    await service.performAllRetrievals(buildDealWithIpni());
+
+    expect(mockRetrievalMetrics.recordTransportStatus).toHaveBeenCalledWith(labels, "success");
+    expect(mockRetrievalMetrics.recordStatus).toHaveBeenCalledWith(labels, "failure.timedout");
+  });
+
+  it("runs IPNI and transport concurrently", async () => {
+    service = await createService();
+    setupCommonMocks();
+    const order: string[] = [];
+    mockIpniVerificationService.verify.mockImplementation(async () => {
+      order.push("ipni-start");
+      await new Promise((r) => setTimeout(r, 20));
+      order.push("ipni-end");
+      return {
+        verified: 1,
+        unverified: 0,
+        total: 1,
+        rootCIDVerified: true,
+        durationMs: 20,
+        failedCIDs: [],
+        verifiedAt: new Date().toISOString(),
+      };
+    });
+    mockRetrievalAddonsService.testAllRetrievalMethods.mockImplementation(async () => {
+      order.push("transport-start");
+      await new Promise((r) => setTimeout(r, 10));
+      order.push("transport-end");
+      return successfulTransport;
+    });
+
+    await service.performAllRetrievals(buildDealWithIpni());
+
+    expect(order.indexOf("transport-start")).toBeLessThan(order.indexOf("ipni-end"));
+    expect(order.indexOf("ipni-start")).toBeLessThan(order.indexOf("transport-end"));
   });
 });
 
