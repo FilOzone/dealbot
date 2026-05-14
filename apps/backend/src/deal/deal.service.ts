@@ -715,8 +715,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Composite PDP-liveness check. Runs three independent probes and returns
-   * true only when all agree the dataset is live.
+   * Composite PDP-liveness check. Runs three independent probes:
    *
    *   - FWSS `validateDataSet` (chain): catches FWSS-side termination.
    *   - PDPVerifier `dataSetLive` (chain): catches PDPVerifier-side termination.
@@ -725,19 +724,27 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
    *     propagation and is the only signal observable when the SP refuses
    *     addPieces but chain still reports the set as live.
    *
-   * Chain probes rethrow on transient errors so callers do not misclassify a
-   * probe outage as termination. The SP HTTP probe treats any non-409 response
-   * (including network errors and auth failures) as live, since 409 is the
-   * sole positive-terminated signal Curio emits on this endpoint.
+   * A positive-terminated signal from any probe wins: if any settled result is
+   * `false`, returns `false` even when another probe threw a transient error.
+   * Otherwise rethrows the first rejection so a probe outage is not silently
+   * misclassified as live. The SP HTTP probe never throws on transient errors
+   * (returns `true` on non-409 responses, including network errors and auth
+   * failures), since HTTP 409 with Curio's terminated body is the only signal
+   * that endpoint emits.
    */
   async isDataSetLive(providerAddress: string, dataSetId: bigint, signal?: AbortSignal): Promise<boolean> {
     signal?.throwIfAborted();
-    const [fwssLive, pdpLive, spLive] = await Promise.all([
+    const settled = await Promise.allSettled([
       this.probeFwssDataSetLive(dataSetId, signal),
       this.probePdpVerifierDataSetLive(dataSetId, signal),
       this.probeSpHttpDataSetLive(providerAddress, dataSetId, signal),
     ]);
-    return fwssLive && pdpLive && spLive;
+    if (settled.some((r) => r.status === "fulfilled" && r.value === false)) {
+      return false;
+    }
+    const rejection = settled.find((r): r is PromiseRejectedResult => r.status === "rejected");
+    if (rejection) throw rejection.reason;
+    return true;
   }
 
   protected async probeFwssDataSetLive(dataSetId: bigint, signal?: AbortSignal): Promise<boolean> {
@@ -765,9 +772,15 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
   /**
    * Probes the SP's Curio addPieces endpoint with an empty body. Curio's
    * handler checks `unrecoverable_proving_failure_epoch` before body
-   * validation and returns HTTP 409 when the dataset is marked terminated.
-   * Any other response (400 for empty pieces, 404, 5xx, network error) is
-   * treated as live, since none signal positive termination.
+   * validation and returns HTTP 409 with "Data set has been terminated due to
+   * unrecoverable proving failure" when the dataset is marked terminated.
+   *
+   * Returns `false` only on `409` paired with that body text. The body
+   * substring is a guard against blast radius: if a future Curio reuses `409`
+   * for a non-terminal conflict, the probe stays conservative rather than
+   * triggering destructive repair. Any other response (including a `409` with
+   * a different body, `400` for empty pieces, `404`, `5xx`, and network
+   * errors) is treated as live.
    */
   protected async probeSpHttpDataSetLive(
     providerAddress: string,
@@ -793,7 +806,9 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
         body: "{}",
         signal: probeSignal,
       });
-      return res.status !== 409;
+      if (res.status !== 409) return true;
+      const body = await res.text();
+      return !/unrecoverable proving failure/i.test(body);
     } catch (error) {
       if (signal?.aborted) throw error;
       this.logger.warn({

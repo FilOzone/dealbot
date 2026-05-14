@@ -1490,9 +1490,16 @@ describe("DealService", () => {
       await expect(service.isDataSetLive("0xprovider", 1n)).resolves.toBe(false);
     });
 
-    it("returns false when SP HTTP probe returns 409", async () => {
-      fetchMock.mockResolvedValueOnce(new Response("terminated", { status: 409 }));
+    it("returns false when SP HTTP probe returns 409 with the terminated body", async () => {
+      fetchMock.mockResolvedValueOnce(
+        new Response("Data set has been terminated due to unrecoverable proving failure", { status: 409 }),
+      );
       await expect(service.isDataSetLive("0xprovider", 1n)).resolves.toBe(false);
+    });
+
+    it("treats SP HTTP 409 with a different body as live", async () => {
+      fetchMock.mockResolvedValueOnce(new Response("piece already exists", { status: 409 }));
+      await expect(service.isDataSetLive("0xprovider", 1n)).resolves.toBe(true);
     });
 
     it("treats SP HTTP non-409 responses as live", async () => {
@@ -1508,6 +1515,19 @@ describe("DealService", () => {
     it("rethrows FWSS validateDataSet errors that do not match the terminal message", async () => {
       mockWarmStorageService.validateDataSet.mockRejectedValueOnce(new Error("ECONNREFUSED 127.0.0.1:8545"));
       await expect(service.isDataSetLive("0xprovider", 1n)).rejects.toThrow("ECONNREFUSED");
+    });
+
+    it("rethrows PDPVerifier dataSetLive errors when no probe reports terminated", async () => {
+      pdpVerifierDataSetLiveMock.mockRejectedValueOnce(new Error("rpc timeout"));
+      await expect(service.isDataSetLive("0xprovider", 1n)).rejects.toThrow("rpc timeout");
+    });
+
+    it("returns false when SP reports terminated even if PDPVerifier RPC throws", async () => {
+      pdpVerifierDataSetLiveMock.mockRejectedValueOnce(new Error("rpc timeout"));
+      fetchMock.mockResolvedValueOnce(
+        new Response("Data set has been terminated due to unrecoverable proving failure", { status: 409 }),
+      );
+      await expect(service.isDataSetLive("0xprovider", 1n)).resolves.toBe(false);
     });
 
     it("posts an empty JSON body to the SP addPieces endpoint", async () => {
