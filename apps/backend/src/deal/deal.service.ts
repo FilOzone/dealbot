@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { setTimeout as setTimeoutAsync } from "node:timers/promises";
+import { dataSetLive as pdpVerifierDataSetLive } from "@filoz/synapse-core/pdp-verifier";
 import { METADATA_KEYS, SIZE_CONSTANTS, Synapse } from "@filoz/synapse-sdk";
 import { Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
@@ -42,6 +43,8 @@ type UploadPayload = {
   carData: Uint8Array;
   rootCid: CID;
 };
+
+const PDP_LIVENESS_PROBE_TIMEOUT_MS = 10_000;
 
 type UploadResultSummary = {
   pieceCid: string;
@@ -363,7 +366,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       // pdpEndEpoch=0; createContext returns it and the next add-pieces path
       // would fail. See #379.
       if (storage.dataSetId !== undefined) {
-        const live = await this.isDataSetLive(storage.dataSetId, signal);
+        const live = await this.isDataSetLive(providerAddress, storage.dataSetId, signal);
         if (!live) {
           preUploadTerminated = true;
           throw new DealJobTerminatedDataSetError(storage.dataSetId);
@@ -675,12 +678,12 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Determines whether a provider's dataset slot is `missing`, `live`, or
-   * `terminated`. Resolves the dataset via createContext (FWSS pdpEndEpoch=0
-   * filter) and then probes PDP liveness via WarmStorage.validateDataSet.
+   * Classifies a provider's dataset slot as `missing`, `live`, or `terminated`.
+   * Resolves the dataset via createContext, then composes the three liveness
+   * probes documented on `isDataSetLive`.
    *
-   * `terminated` means FWSS still considers the set provisionable but PDP has
-   * marked it dead (e.g. unrecoverable proving failure). See #379.
+   * `terminated` means at least one of FWSS / PDPVerifier / Curio reports the
+   * set as dead. See #379 and the SP-HTTP probe rationale in `isDataSetLive`.
    */
   async getDataSetProvisioningStatus(
     providerAddress: string,
@@ -707,19 +710,37 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       return { status: "missing" };
     }
     const dataSetId = context.dataSetId;
-    const isLive = await this.isDataSetLive(dataSetId, signal);
+    const isLive = await this.isDataSetLive(providerAddress, dataSetId, signal);
     return isLive ? { status: "live", dataSetId } : { status: "terminated", dataSetId };
   }
 
   /**
-   * PDP-liveness probe via WarmStorage.validateDataSet.
+   * Composite PDP-liveness check. Runs three independent probes and returns
+   * true only when all agree the dataset is live.
    *
-   * Returns true if PDP reports the dataset live and FWSS-managed.
-   * Returns false ONLY for the known terminal error string ("does not exist or is not live").
-   * Re-throws any other error (RPC failure, "not managed", unknown) so callers do not
-   * misclassify a transient probe failure as a terminated dataset.
+   *   - FWSS `validateDataSet` (chain): catches FWSS-side termination.
+   *   - PDPVerifier `dataSetLive` (chain): catches PDPVerifier-side termination.
+   *   - SP HTTP `POST /pdp/data-sets/{id}/pieces` (off-chain): catches Curio's
+   *     `unrecoverable_proving_failure_epoch` state, which precedes chain
+   *     propagation and is the only signal observable when the SP refuses
+   *     addPieces but chain still reports the set as live.
+   *
+   * Chain probes rethrow on transient errors so callers do not misclassify a
+   * probe outage as termination. The SP HTTP probe treats any non-409 response
+   * (including network errors and auth failures) as live, since 409 is the
+   * sole positive-terminated signal Curio emits on this endpoint.
    */
-  async isDataSetLive(dataSetId: bigint, signal?: AbortSignal): Promise<boolean> {
+  async isDataSetLive(providerAddress: string, dataSetId: bigint, signal?: AbortSignal): Promise<boolean> {
+    signal?.throwIfAborted();
+    const [fwssLive, pdpLive, spLive] = await Promise.all([
+      this.probeFwssDataSetLive(dataSetId, signal),
+      this.probePdpVerifierDataSetLive(dataSetId, signal),
+      this.probeSpHttpDataSetLive(providerAddress, dataSetId, signal),
+    ]);
+    return fwssLive && pdpLive && spLive;
+  }
+
+  protected async probeFwssDataSetLive(dataSetId: bigint, signal?: AbortSignal): Promise<boolean> {
     signal?.throwIfAborted();
     const { warmStorageService } = this.walletSdkService.getWalletServices();
     try {
@@ -732,6 +753,59 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
         return false;
       }
       throw error;
+    }
+  }
+
+  protected async probePdpVerifierDataSetLive(dataSetId: bigint, signal?: AbortSignal): Promise<boolean> {
+    signal?.throwIfAborted();
+    const synapse = this.sharedSynapse ?? (await this.createSynapseInstance());
+    return awaitWithAbort(pdpVerifierDataSetLive(synapse.client, { dataSetId }), signal);
+  }
+
+  /**
+   * Probes the SP's Curio addPieces endpoint with an empty body. Curio's
+   * handler checks `unrecoverable_proving_failure_epoch` before body
+   * validation and returns HTTP 409 when the dataset is marked terminated.
+   * Any other response (400 for empty pieces, 404, 5xx, network error) is
+   * treated as live, since none signal positive termination.
+   */
+  protected async probeSpHttpDataSetLive(
+    providerAddress: string,
+    dataSetId: bigint,
+    signal?: AbortSignal,
+  ): Promise<boolean> {
+    signal?.throwIfAborted();
+    const providerInfo = this.walletSdkService.getProviderInfo(providerAddress);
+    if (!providerInfo) {
+      throw new Error(`Provider ${providerAddress} not found in registry`);
+    }
+    const serviceURL = providerInfo.pdp?.serviceURL;
+    if (!serviceURL) {
+      throw new Error(`Provider ${providerAddress} has no PDP serviceURL`);
+    }
+    const url = new URL(`pdp/data-sets/${dataSetId.toString()}/pieces`, serviceURL);
+    const timeoutSignal = AbortSignal.timeout(PDP_LIVENESS_PROBE_TIMEOUT_MS);
+    const probeSignal = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+        signal: probeSignal,
+      });
+      return res.status !== 409;
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      this.logger.warn({
+        event: "dataset_sp_liveness_probe_failed",
+        message: "SP HTTP liveness probe failed; treating dataset as live",
+        providerAddress,
+        providerId: providerInfo.id,
+        dataSetId: dataSetId.toString(),
+        serviceURL,
+        error: toStructuredError(error),
+      });
+      return true;
     }
   }
 
