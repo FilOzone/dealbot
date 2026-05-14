@@ -505,6 +505,25 @@ describe("RetrievalService parallel IPNI + transport", () => {
     expect(mockDiscoverabilityMetrics.recordStatus).toHaveBeenCalledWith(labels, "failure.timedout");
   });
 
+  it("logs retrieval_ipni_verification_timed_out when outer signal aborts and IPNI verify throws", async () => {
+    service = await createService();
+    setupCommonMocks();
+    const loggerWarn = vi.spyOn((service as unknown as { logger: { warn: (m: object) => void } }).logger, "warn");
+    const abortController = new AbortController();
+    mockIpniVerificationService.verify.mockImplementation(async () => {
+      abortController.abort(new Error("outer timeout"));
+      throw new Error("ipni aborted");
+    });
+    mockRetrievalAddonsService.testAllRetrievalMethods.mockResolvedValue(successfulTransport);
+
+    await service.performAllRetrievals(buildDealWithIpni(), abortController.signal);
+
+    expect(loggerWarn).toHaveBeenCalledWith(
+      expect.objectContaining({ event: "retrieval_ipni_verification_timed_out" }),
+    );
+    expect(mockRetrievalMetrics.recordStatus).toHaveBeenCalledWith(labels, "failure.timedout");
+  });
+
   it("runs IPNI and transport concurrently", async () => {
     service = await createService();
     setupCommonMocks();
