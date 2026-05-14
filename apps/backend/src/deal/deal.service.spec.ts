@@ -1533,7 +1533,7 @@ describe("DealService", () => {
     it("posts an empty JSON body to the SP addPieces endpoint", async () => {
       await service.isDataSetLive("0xprovider", 42n);
       expect(fetchMock).toHaveBeenCalledTimes(1);
-      const [calledUrl, init] = fetchMock.mock.calls[0] as [URL, RequestInit];
+      const [calledUrl, init] = fetchMock.mock.calls[0] as unknown as [URL, RequestInit];
       expect(String(calledUrl)).toBe("https://sp.example/pdp/data-sets/42/pieces");
       expect(init.method).toBe("POST");
       expect(init.body).toBe("{}");
