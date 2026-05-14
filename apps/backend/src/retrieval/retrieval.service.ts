@@ -201,12 +201,14 @@ export class RetrievalService {
       );
 
       const successCount = retrievals.filter((r) => r.status === RetrievalStatus.SUCCESS).length;
+      const allSuccess = successCount === retrievals.length;
       this.logger.log({
         ...retrievalLogContext,
         event: "retrievals_completed",
-        message: "Retrievals successful",
+        message: allSuccess ? "All retrievals succeeded" : "Retrievals completed with failures",
         successCount,
         totalCount: retrievals.length,
+        allSuccess,
       });
 
       const aborted = Boolean(testResult.aborted) || Boolean(signal?.aborted);

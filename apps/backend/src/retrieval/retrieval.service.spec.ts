@@ -324,7 +324,7 @@ describe("RetrievalService timeouts", () => {
   });
 });
 
-describe("RetrievalService parallel IPNI + transport (pgBoss mode)", () => {
+describe("RetrievalService parallel IPNI + transport", () => {
   type PublicInterface<T> = { [K in keyof T]: T[K] };
   type RetrievalServicePrivate = PublicInterface<RetrievalService> & {
     performAllRetrievals: (deal: Deal, signal?: AbortSignal) => Promise<Retrieval[]>;
@@ -512,32 +512,46 @@ describe("RetrievalService parallel IPNI + transport (pgBoss mode)", () => {
   it("runs IPNI and transport concurrently", async () => {
     service = await createService();
     setupCommonMocks();
-    const order: string[] = [];
+
+    const deferred = <T>(): { promise: Promise<T>; resolve: (value: T) => void } => {
+      let resolve!: (value: T) => void;
+      const promise = new Promise<T>((r) => {
+        resolve = r;
+      });
+      return { promise, resolve };
+    };
+
+    // Each side signals when it has been entered, then awaits a shared release barrier.
+    // If execution were sequential, the second `started` would never resolve before the
+    // first call returned — so awaiting both starts proves both ran concurrently.
+    const ipniStarted = deferred<void>();
+    const transportStarted = deferred<void>();
+    const release = deferred<void>();
+
     mockIpniVerificationService.verify.mockImplementation(async () => {
-      order.push("ipni-start");
-      await new Promise((r) => setTimeout(r, 20));
-      order.push("ipni-end");
+      ipniStarted.resolve();
+      await release.promise;
       return {
         verified: 1,
         unverified: 0,
         total: 1,
         rootCIDVerified: true,
-        durationMs: 20,
+        durationMs: 0,
         failedCIDs: [],
         verifiedAt: new Date().toISOString(),
       };
     });
     mockRetrievalAddonsService.testAllRetrievalMethods.mockImplementation(async () => {
-      order.push("transport-start");
-      await new Promise((r) => setTimeout(r, 10));
-      order.push("transport-end");
+      transportStarted.resolve();
+      await release.promise;
       return successfulTransport;
     });
 
-    await service.performAllRetrievals(buildDealWithIpni());
+    const runPromise = service.performAllRetrievals(buildDealWithIpni());
 
-    expect(order.indexOf("transport-start")).toBeLessThan(order.indexOf("ipni-end"));
-    expect(order.indexOf("ipni-start")).toBeLessThan(order.indexOf("transport-end"));
+    await Promise.all([ipniStarted.promise, transportStarted.promise]);
+    release.resolve();
+    await runPromise;
   });
 });
 
