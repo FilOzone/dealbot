@@ -142,7 +142,7 @@ export class AnonRetrievalService {
         pieceServedCorrectly
           ? "success"
           : pieceResult.aborted
-            ? "failure.aborted"
+            ? "failure.timedout"
             : pieceResult.success
               ? "failure.commp"
               : "failure.http",
