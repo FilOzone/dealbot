@@ -40,20 +40,7 @@ pnpm build:calibration
 pnpm test
 ```
 
-## Deploy
+## Release and Deployment
 
-Requires `goldsky` CLI authenticated via `GOLDSKY_API_KEY`.
+The subgraph is versioned and released independently of `apps/backend` and `apps/web`. The end-to-end checklist lives in [`docs/release-subgraph.md`](../../docs/release-subgraph.md).
 
-```bash
-export VERSION=0.1.0
-pnpm build:calibration
-pnpm deploy:calibration
-
-pnpm build:mainnet
-pnpm deploy:mainnet
-```
-
-Goldsky slots (slugs TBD):
-
-- `dealbot-mainnet/<version>` — mainnet
-- `dealbot-calibration/<version>` — calibration
