@@ -2,9 +2,12 @@
 
 This repository uses an automated GitOps release workflow to promote changes from staging to production.
 
+**Scope:** this document covers `apps/backend` and `apps/web`. The subgraph (`apps/subgraph/`) is not part of this flow but a separately versioned component released to Goldsky on an independent cadence. Its end-to-end release checklist lives in [release-subgraph.md](release-subgraph.md).
+
 Related docs:
 - [release-please-flow.md](release-please-flow.md) for release-please details and troubleshooting
 - [infra.md](infra.md) for ArgoCD/Kustomize integration in FilOzone/infra
+- [release-subgraph.md](release-subgraph.md) for the subgraph release checklist
 
 ## Overview
 
@@ -124,5 +127,6 @@ git push
 
 - [release-please-flow.md](release-please-flow.md) - release-please behavior and troubleshooting
 - [infra.md](infra.md) - infra integration and where ArgoCD/Image Updater config lives
+- [release-subgraph.md](release-subgraph.md) - subgraph release checklist (separate flow)
 - [.github/workflows/docker-build.yml](../.github/workflows/docker-build.yml)
 - [.github/workflows/release-please.yml](../.github/workflows/release-please.yml)
