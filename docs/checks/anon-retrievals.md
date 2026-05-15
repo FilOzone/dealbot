@@ -91,7 +91,7 @@ Source: [`car-validation.service.ts`](../../apps/backend/src/retrieval-anon/car-
 | # | Assertion | How It's Checked | Retries | Relevant Metric | Implemented? |
 |---|-----------|------------------|:---:|------------------|:---:|
 | 1 | SP serves the piece | `GET /piece/{pieceCid}` returns HTTP 2xx | 0 | [`anonPieceRetrievalLastByteMs`](./events-and-metrics.md#anonPieceRetrievalLastByteMs) | Yes |
-| 2 | Bytes match the declared CommP | Hash of response bytes equals `pieceCid` | 0 | [`anonRetrievalStatus`](./events-and-metrics.md#anonRetrievalStatus) | Yes |
+| 2 | Bytes match the declared CommP | Hash of response bytes equals `pieceCid` | 0 | [`anonPieceRetrievalStatus`](./events-and-metrics.md#anonPieceRetrievalStatus) | Yes |
 | 3 | Bytes parse as a CAR (IPFS-indexed pieces only) | `@ipld/car` parses the response | 0 | [`anonCarParseStatus`](./events-and-metrics.md#anonCarParseStatus) | Yes |
 | 4 | SP is advertised on IPNI for root + sampled CIDs | filecoinpin.contact returns provider records | polling until timeout | [`anonIpniStatus`](./events-and-metrics.md#anonIpniStatus) | Yes |
 | 5 | Sampled blocks fetch + hash-verify | `/ipfs/{cid}?format=raw` for each sample | 0 | [`anonBlockFetchStatus`](./events-and-metrics.md#anonBlockFetchStatus) | Yes |

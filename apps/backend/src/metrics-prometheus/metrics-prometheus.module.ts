@@ -234,8 +234,8 @@ const metricProviders = [
     buckets: [100, 500, 1000, 2000, 5000, 10000, 30000, 60000, 120000, 300000, 600000],
   }),
   makeCounterProvider({
-    name: "anonRetrievalStatus",
-    help: "Anonymous retrieval overall outcome",
+    name: "anonPieceRetrievalStatus",
+    help: "Anonymous piece retrieval overall outcome",
     labelNames: ["checkType", "providerId", "providerName", "providerStatus", "value"] as const,
   }),
   makeCounterProvider({

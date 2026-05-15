@@ -260,7 +260,7 @@ export class AnonRetrievalCheckMetrics {
     private readonly throughputBps: Histogram,
     @InjectMetric("anonRetrievalCheckMs")
     private readonly checkMs: Histogram,
-    @InjectMetric("anonRetrievalStatus")
+    @InjectMetric("anonPieceRetrievalStatus")
     private readonly statusCounter: Counter,
     @InjectMetric("anonPieceHttpResponseCode")
     private readonly httpResponseCounter: Counter,
