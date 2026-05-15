@@ -832,7 +832,7 @@ Use this to stagger multiple dealbot deployments that are not sharing a database
 - **Minimum**: `60`
 - **Enforced**: Yes (config validation)
 
-**Role**: Maximum runtime for anonymous retrieval jobs before forced abort. Anonymous retrievals fetch arbitrary pieces (up to ~70 MiB) that were not produced by the dealbot, so this is typically larger than `RETRIEVAL_JOB_TIMEOUT_SECONDS`. When the timeout trips, partial metrics (`ttfb_ms`, `bytes_retrieved`, `response_code`) are still persisted so the abort is not silently lost.
+**Role**: Maximum runtime for anonymous retrieval jobs before forced abort. Anonymous retrievals fetch arbitrary pieces (up to ~500 MiB) that were not produced by the dealbot, so this is typically larger than `RETRIEVAL_JOB_TIMEOUT_SECONDS`. When the timeout trips, partial metrics (`ttfb_ms`, `bytes_retrieved`, `response_code`) are still persisted so the abort is not silently lost.
 
 **When to update**:
 

@@ -101,7 +101,7 @@ export const configValidationSchema = Joi.object({
   JOB_ENQUEUE_JITTER_SECONDS: Joi.number().min(0).default(0),
   DEAL_JOB_TIMEOUT_SECONDS: Joi.number().min(120).default(360), // 6 minutes max runtime for data storage jobs (TODO: reduce default to 3 minutes)
   RETRIEVAL_JOB_TIMEOUT_SECONDS: Joi.number().min(60).default(60), // 1 minute max runtime for retrieval jobs (TODO: reduce default to 30 seconds)
-  ANON_RETRIEVAL_JOB_TIMEOUT_SECONDS: Joi.number().min(60).default(360), // 6 minutes max runtime for anon retrieval jobs (pieces can be up to ~70 MiB)
+  ANON_RETRIEVAL_JOB_TIMEOUT_SECONDS: Joi.number().min(60).default(360), // 6 minutes max runtime for anon retrieval jobs (pieces can be up to 500 MiB)
   DATA_SET_CREATION_JOB_TIMEOUT_SECONDS: Joi.number().min(60).default(300), // 5 minutes max runtime for dataset creation jobs
   IPFS_BLOCK_FETCH_CONCURRENCY: Joi.number().integer().min(1).max(32).default(6),
   ANON_RETRIEVAL_BLOCK_SAMPLE_COUNT: Joi.number().integer().min(1).max(50).default(5),
@@ -281,7 +281,7 @@ export interface IJobsConfig {
   /**
    * Maximum runtime (seconds) for anonymous retrieval jobs before forced abort.
    *
-   * Anonymous retrievals fetch arbitrary pieces (up to ~70 MiB), so this is
+   * Anonymous retrievals fetch arbitrary pieces (up to ~500 MiB), so this is
    * typically larger than `retrievalJobTimeoutSeconds`. Uses AbortController
    * to actively cancel job execution while still persisting partial metrics.
    */
