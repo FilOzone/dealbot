@@ -30,7 +30,7 @@ Operational timeouts exist to prevent jobs from running indefinitely. If the job
 
 ## Piece Selection
 
-Unlike the [Retrieval check](./retrievals.md#piece-selection), dealbot does not retrieve from its own deals. Pieces are sampled from the on-chain subgraph of all FWSS-served pieces for the SP under test.
+Unlike the [Retrieval check](./retrievals.md#piece-selection), dealbot does not retrieve from its own deals. Pieces are sampled from the [on-chain subgraph](../../src/subgraph) of all FWSS-served pieces for the SP under test.
 
 Selection strategy (per scheduled job, per SP):
 
@@ -59,7 +59,7 @@ flowchart TD
   Select["Sample anonymous piece for SP from subgraph"] --> Fetch["GET /piece/{pieceCid}"]
   Fetch --> CommP["Hash bytes → verify CommP"]
   CommP --> HasIpfs{"piece.withIPFSIndexing<br/>and ipfsRootCid?"}
-  HasIpfs -- "no" --> Record["Persist row + metrics"]
+  HasIpfs -- "no" --> Record["Persist Clickhosue row + emit Prometheus metrics"]
   HasIpfs -- "yes" --> ParseCar["Parse bytes as CAR"]
   ParseCar --> SampleBlocks["Pick N random CIDs<br/>(ANON_RETRIEVAL_BLOCK_SAMPLE_COUNT)"]
   SampleBlocks --> Ipni["IPNI: verify SP advertises root + sampled CIDs"]
