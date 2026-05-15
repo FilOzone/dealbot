@@ -431,9 +431,9 @@ Session keys are scoped (only storage operations, not deposits or withdrawals) a
 - **Required**: No
 - **Default**: Empty string (feature disabled)
 
-**Role**: The Graph API endpoint for the upstream pdp-explorer subgraph. Drives the data-retention overdue-periods metric.
+**Role**: The Graph API endpoint for querying PDP (Proof of Data Possession) subgraph data. This endpoint is used to retrieve data retention info for provider data.
 
-This variable is kept distinct from [`SUBGRAPH_ENDPOINT`](#subgraph_endpoint) so the dealbot-owned subgraph can be rolled out incrementally — only the new anonymous-retrieval flow points at the new endpoint while the established data-retention path stays on the upstream subgraph.
+This variable is kept distinct from [`SUBGRAPH_ENDPOINT`](#subgraph_endpoint) so the [dealbot-owned subgraph](../../src/subgraph) can be rolled out incrementally. Only the newer [anonymous-retrieval check](./checks/anon-retrievals.md) points at the new endpoint while the established [data-retention check](./checks/data-retention.md) stays on the upstream subgraph.
 
 **When to update**:
 
@@ -455,7 +455,7 @@ PDP_SUBGRAPH_ENDPOINT=https://api.thegraph.com/subgraphs/filecoin/pdp
 
 **Role**: The Graph API endpoint for the dealbot-owned subgraph. Currently drives only the [anonymous-retrieval](./checks/anon-retrievals.md) candidate-piece query. Once the dealbot-owned subgraph has soaked in production it is intended to replace [`PDP_SUBGRAPH_ENDPOINT`](#pdp_subgraph_endpoint).
 
-The dealbot-owned subgraph lives at `apps/subgraph/` (package `@dealbot/subgraph`) and is deployed to Goldsky. Point this variable at one of those slots; the exact slugs are documented in `apps/subgraph/README.md`.
+The dealbot-owned subgraph lives at [`apps/subgraph/`](../apps/subgraph) (package `@dealbot/subgraph`) and is deployed to [Goldsky](https://goldsky.com).
 
 **When to update**:
 

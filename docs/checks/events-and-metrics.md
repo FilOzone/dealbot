@@ -4,7 +4,7 @@ This document is the intended **source of truth** for the events emitted by deal
 
 > **Note on "events":** the entries in the [Event List](#event-list) are named **timing markers** used to define metric Timer Starts/Ends — they are not all emitted as discrete Prometheus events or log lines. Each marker is anchored in code (as a timestamp variable, log line, or status transition) and used to compute the metrics in the [Metrics](#metrics) section.
 
-## Anonymous Retrieval Event Model
+## Data Storage Event Model
 
 The [Anonymous Retrieval check](./anon-retrievals.md) is a single-shot flow per piece: select → fetch piece → (optional) parse CAR + IPNI + block fetch → write one ClickHouse row.
 
