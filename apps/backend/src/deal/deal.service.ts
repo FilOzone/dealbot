@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
 import { setTimeout as setTimeoutAsync } from "node:timers/promises";
-import { dataSetLive as pdpVerifierDataSetLive } from "@filoz/synapse-core/pdp-verifier";
 import { METADATA_KEYS, SIZE_CONSTANTS, Synapse } from "@filoz/synapse-sdk";
 import { Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
@@ -679,11 +678,11 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
 
   /**
    * Classifies a provider's dataset slot as `missing`, `live`, or `terminated`.
-   * Resolves the dataset via createContext, then composes the three liveness
-   * probes documented on `isDataSetLive`.
+   * Resolves the dataset via createContext, then composes the liveness probes
+   * documented on `isDataSetLive`.
    *
-   * `terminated` means at least one of FWSS / PDPVerifier / Curio reports the
-   * set as dead. See #379 and the SP-HTTP probe rationale in `isDataSetLive`.
+   * `terminated` means either FWSS or Curio reports the set as dead. See #379
+   * and the SP-HTTP probe rationale in `isDataSetLive`.
    */
   async getDataSetProvisioningStatus(
     providerAddress: string,
@@ -715,28 +714,28 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Composite PDP-liveness check. Runs three independent probes:
+   * Composite PDP-liveness check. Runs two independent probes:
    *
-   *   - FWSS `validateDataSet` (chain): catches FWSS-side termination.
-   *   - PDPVerifier `dataSetLive` (chain): catches PDPVerifier-side termination.
+   *   - FWSS `validateDataSet` (chain): wraps `PDPVerifier.dataSetLive` via
+   *     multicall and additionally verifies the listener is this WarmStorage
+   *     contract, so it covers chain-side liveness fully.
    *   - SP HTTP `POST /pdp/data-sets/{id}/pieces` (off-chain): catches Curio's
    *     `unrecoverable_proving_failure_epoch` state, which precedes chain
    *     propagation and is the only signal observable when the SP refuses
    *     addPieces but chain still reports the set as live.
    *
-   * A positive-terminated signal from any probe wins: if any settled result is
-   * `false`, returns `false` even when another probe threw a transient error.
-   * Otherwise rethrows the first rejection so a probe outage is not silently
-   * misclassified as live. The SP HTTP probe never throws on transient errors
-   * (returns `true` on non-409 responses, including network errors and auth
-   * failures), since HTTP 409 with Curio's terminated body is the only signal
-   * that endpoint emits.
+   * A positive-terminated signal from either probe wins: if any settled result
+   * is `false`, returns `false` even when the other probe threw a transient
+   * error. Otherwise rethrows the first rejection so a probe outage is not
+   * silently misclassified as live. The SP HTTP probe never throws on
+   * transient errors (returns `true` on non-409 responses, including network
+   * errors and auth failures), since HTTP 409 with Curio's terminated body is
+   * the only signal that endpoint emits.
    */
   async isDataSetLive(providerAddress: string, dataSetId: bigint, signal?: AbortSignal): Promise<boolean> {
     signal?.throwIfAborted();
     const settled = await Promise.allSettled([
       this.probeFwssDataSetLive(dataSetId, signal),
-      this.probePdpVerifierDataSetLive(dataSetId, signal),
       this.probeSpHttpDataSetLive(providerAddress, dataSetId, signal),
     ]);
     if (settled.some((r) => r.status === "fulfilled" && r.value === false)) {
@@ -761,12 +760,6 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       }
       throw error;
     }
-  }
-
-  protected async probePdpVerifierDataSetLive(dataSetId: bigint, signal?: AbortSignal): Promise<boolean> {
-    signal?.throwIfAborted();
-    const synapse = this.sharedSynapse ?? (await this.createSynapseInstance());
-    return awaitWithAbort(pdpVerifierDataSetLive(synapse.client, { dataSetId }), signal);
   }
 
   /**

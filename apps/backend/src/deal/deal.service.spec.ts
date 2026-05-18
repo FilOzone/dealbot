@@ -37,11 +37,6 @@ vi.mock("@filoz/synapse-sdk", async (importOriginal) => {
   };
 });
 
-const pdpVerifierDataSetLiveMock = vi.fn().mockResolvedValue(true);
-vi.mock("@filoz/synapse-core/pdp-verifier", () => ({
-  dataSetLive: (...args: unknown[]) => pdpVerifierDataSetLiveMock(...args),
-}));
-
 const fetchMock = vi.fn(async () => new Response(null, { status: 200 }));
 vi.stubGlobal("fetch", fetchMock);
 
@@ -203,7 +198,6 @@ describe("DealService", () => {
 
   afterEach(() => {
     vi.clearAllMocks();
-    pdpVerifierDataSetLiveMock.mockResolvedValue(true);
     fetchMock.mockImplementation(async () => new Response(null, { status: 200 }));
   });
 
@@ -1474,7 +1468,7 @@ describe("DealService", () => {
       vi.spyOn(service as any, "createSynapseInstance").mockResolvedValue(synapseMock);
     });
 
-    it("returns true when all three probes report live", async () => {
+    it("returns true when both probes report live", async () => {
       await expect(service.isDataSetLive("0xprovider", 1n)).resolves.toBe(true);
     });
 
@@ -1482,11 +1476,6 @@ describe("DealService", () => {
       mockWarmStorageService.validateDataSet.mockRejectedValueOnce(
         new Error("Data set 1 does not exist or is not live"),
       );
-      await expect(service.isDataSetLive("0xprovider", 1n)).resolves.toBe(false);
-    });
-
-    it("returns false when PDPVerifier reports not live", async () => {
-      pdpVerifierDataSetLiveMock.mockResolvedValueOnce(false);
       await expect(service.isDataSetLive("0xprovider", 1n)).resolves.toBe(false);
     });
 
@@ -1517,13 +1506,8 @@ describe("DealService", () => {
       await expect(service.isDataSetLive("0xprovider", 1n)).rejects.toThrow("ECONNREFUSED");
     });
 
-    it("rethrows PDPVerifier dataSetLive errors when no probe reports terminated", async () => {
-      pdpVerifierDataSetLiveMock.mockRejectedValueOnce(new Error("rpc timeout"));
-      await expect(service.isDataSetLive("0xprovider", 1n)).rejects.toThrow("rpc timeout");
-    });
-
-    it("returns false when SP reports terminated even if PDPVerifier RPC throws", async () => {
-      pdpVerifierDataSetLiveMock.mockRejectedValueOnce(new Error("rpc timeout"));
+    it("returns false when SP reports terminated even if FWSS RPC throws transiently", async () => {
+      mockWarmStorageService.validateDataSet.mockRejectedValueOnce(new Error("ECONNREFUSED 127.0.0.1:8545"));
       fetchMock.mockResolvedValueOnce(
         new Response("Data set has been terminated due to unrecoverable proving failure", { status: 409 }),
       );
