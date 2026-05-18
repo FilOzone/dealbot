@@ -83,8 +83,6 @@ For each retrieval attempt:
 | 3 | Content integrity via CID | Each fetched block is hash-verified against its CID during DAG traversal | Retrieval ([`retrievalStatus`](./events-and-metrics.md#retrievalStatus)) | none - if we receive non-matching bytes it's a failure | n/a (client-side) | Yes |
 | 4 | All checks pass | Check is not marked successful until all assertions pass within window | All sub-statuses above feed [`dataStorageStatus`](./events-and-metrics.md#dataStorageStatus) | n/a | [`retrievalCheckMs`](./events-and-metrics.md#retrievalCheckMs) | Yes |
 
-> `retrievalStatus` is the sub-status counter for the `/ipfs` transport stage only (assertions 2 and 3). The IPNI assertion (1) is recorded on `discoverabilityStatus`. There is no composite "retrieval check" counter; overall success comes from `dataStorageStatus`, which is `success` only when all four sub-statuses succeed. See [Deal Status Progression](./data-storage.md#deal-status-progression).
-
 ## Retrieval Result Recording
 
 Each retrieval step (post IPNI validation) creates a `Retrieval` entity in the database:
@@ -112,6 +110,8 @@ Source: [`apps/backend/src/config/app.config.ts`](../../apps/backend/src/config/
 ## Metrics Recorded
 
 Metric definitions (including Prometheus metrics) live in [Dealbot Events & Metrics](./events-and-metrics.md).
+
+`retrievalStatus` counts the `/ipfs` transport stage only (assertions 2 and 3). The IPNI assertion (1) is counted on `discoverabilityStatus`. There is no composite "retrieval check" counter; overall success comes from `dataStorageStatus`, which is `success` only when all sub-statuses succeed. See [Deal Status Progression](./data-storage.md#deal-status-progression).
 
 ## Configuration
 
