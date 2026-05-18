@@ -54,18 +54,19 @@ const getConfig = (network: Network | null) => {
   const runtimeConfig = typeof window === "undefined" ? undefined : window.__DEALBOT_CONFIG__;
 
   const dashboardUrl = getConfigUrl(runtimeConfig?.DASHBOARD_URL, import.meta.env.VITE_DASHBOARD_URL);
-  const approvedSpDashboardUrl =
-    network === "mainnet"
-      ? getConfigUrl(
-          runtimeConfig?.APPROVED_SP_DASHBOARD_URL_MAINNET,
-          import.meta.env.VITE_APPROVED_SP_DASHBOARD_URL_MAINNET,
-        )
-      : network === "calibration"
-        ? getConfigUrl(
-            runtimeConfig?.APPROVED_SP_DASHBOARD_URL_CALIBRATION,
-            import.meta.env.VITE_APPROVED_SP_DASHBOARD_URL_CALIBRATION,
-          )
-        : { safe: "", isInvalid: false };
+  const approvedSpSources: Record<Network, { runtime?: string; build?: string }> = {
+    mainnet: {
+      runtime: runtimeConfig?.APPROVED_SP_DASHBOARD_URL_MAINNET,
+      build: import.meta.env.VITE_APPROVED_SP_DASHBOARD_URL_MAINNET,
+    },
+    calibration: {
+      runtime: runtimeConfig?.APPROVED_SP_DASHBOARD_URL_CALIBRATION,
+      build: import.meta.env.VITE_APPROVED_SP_DASHBOARD_URL_CALIBRATION,
+    },
+  };
+  const approvedSpDashboardUrl = network
+    ? getConfigUrl(approvedSpSources[network].runtime, approvedSpSources[network].build)
+    : { safe: "", isInvalid: false };
   const logsUrl = getConfigUrl(runtimeConfig?.LOGS_URL, import.meta.env.VITE_LOGS_URL);
 
   return {
