@@ -1,5 +1,4 @@
 import { Injectable, Logger } from "@nestjs/common";
-import { awaitWithAbort } from "../common/abort-utils.js";
 import { type DealLogContext, ProviderJobContext, toStructuredError } from "../common/logging.js";
 import type { Deal } from "../database/entities/deal.entity.js";
 import type { DealMetadata } from "../database/types.js";
@@ -183,7 +182,7 @@ export class DealAddonsService {
       .map((addon) => addon!.onStored!(deal, signal, dealLogContext));
 
     try {
-      await awaitWithAbort(Promise.all(storedPromises), signal);
+      await Promise.all(storedPromises);
       this.logger.debug({
         ...dealLogContext,
         event: "addon_on_stored_completed",
