@@ -54,7 +54,7 @@ Source: [`retrieval.service.ts` (`selectRandomDealsForRetrieval`)](../../apps/ba
 
 ### Retrieval Checks
 
-For each selected piece, dealbot performs the following in parallel. Each stage emits its own sub-status counter ([`discoverabilityStatus`](./events-and-metrics.md#discoverabilityStatus) for IPNI, [`retrievalTransportStatus`](./events-and-metrics.md#retrievalTransportStatus) for `/ipfs`). The composite [`retrievalStatus`](./events-and-metrics.md#retrievalStatus) records `success` only when both sub-statuses succeed.
+For each selected piece, dealbot performs the following in parallel:
 
 #### IPNI Verification
 

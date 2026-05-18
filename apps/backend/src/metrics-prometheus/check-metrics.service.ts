@@ -104,8 +104,6 @@ export class RetrievalCheckMetrics {
     private readonly retrievalCheckMs: Histogram,
     @InjectMetric("retrievalStatus")
     private readonly retrievalStatusCounter: Counter,
-    @InjectMetric("retrievalTransportStatus")
-    private readonly retrievalTransportStatusCounter: Counter,
     @InjectMetric("ipfsRetrievalHttpResponseCode")
     private readonly retrievalHttpResponseCounter: Counter,
   ) {}
@@ -132,10 +130,6 @@ export class RetrievalCheckMetrics {
 
   recordStatus(labels: CheckMetricLabels, value: string): void {
     this.retrievalStatusCounter.inc({ ...labels, value });
-  }
-
-  recordTransportStatus(labels: CheckMetricLabels, value: string): void {
-    this.retrievalTransportStatusCounter.inc({ ...labels, value });
   }
 
   recordHttpResponseCode(labels: CheckMetricLabels, statusCode: number): void {

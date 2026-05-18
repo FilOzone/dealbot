@@ -150,12 +150,20 @@ export class RetrievalService {
         caughtError = transportSettled.reason;
       }
 
-      const transportStatus = this.classifyTransportOutcome(transportSettled, signal);
-      this.retrievalMetrics.recordTransportStatus(providerLabels, transportStatus);
+      if (ipniSettled.status === "rejected") {
+        // verifyIpniForRetrieval already catches and records discoverabilityStatus.
+        // A rejection here is unexpected; log but do not affect retrievalStatus.
+        this.logger.warn({
+          ...retrievalLogContext,
+          event: "retrieval_ipni_unexpected_rejection",
+          message: "IPNI verification promise rejected unexpectedly",
+          error: toStructuredError(ipniSettled.reason),
+        });
+      }
 
-      const ipniStatus = this.classifyIpniOutcome(ipniSettled, signal);
-
-      terminalStatus = this.composeRetrievalStatus(ipniStatus, transportStatus);
+      // retrievalStatus is scoped to the transport stage (ipfsRetrievalIntegrityChecked).
+      // IPNI outcomes are recorded independently via discoverabilityStatus.
+      terminalStatus = this.classifyTransportOutcome(transportSettled, signal);
     } finally {
       const retrievalCheckDurationMs = Date.now() - retrievalCheckStartTime;
       this.retrievalMetrics.observeCheckDuration(providerLabels, retrievalCheckDurationMs);
@@ -262,26 +270,6 @@ export class RetrievalService {
     }
     if (settled.value.aborted) return "failure.timedout";
     return settled.value.allSuccess ? "success" : "failure.other";
-  }
-
-  private classifyIpniOutcome(
-    settled: PromiseSettledResult<{ ok: boolean; failureStatus?: "failure.timedout" | "failure.other" }>,
-    signal?: AbortSignal,
-  ): "success" | "failure.timedout" | "failure.other" {
-    if (settled.status === "rejected") {
-      return signal?.aborted ? "failure.timedout" : classifyFailureStatus(settled.reason);
-    }
-    if (settled.value.ok) return "success";
-    return settled.value.failureStatus ?? "failure.other";
-  }
-
-  private composeRetrievalStatus(
-    ipni: "success" | "failure.timedout" | "failure.other",
-    transport: "success" | "failure.timedout" | "failure.other",
-  ): "success" | "failure.timedout" | "failure.other" {
-    if (ipni === "success" && transport === "success") return "success";
-    if (ipni === "failure.timedout" || transport === "failure.timedout") return "failure.timedout";
-    return "failure.other";
   }
 
   private async createRetrievalFromResult(

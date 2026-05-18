@@ -65,7 +65,6 @@ describe("RetrievalService timeouts", () => {
     observeThroughput: vi.fn(),
     observeCheckDuration: vi.fn(),
     recordStatus: vi.fn(),
-    recordTransportStatus: vi.fn(),
     recordHttpResponseCode: vi.fn(),
     recordResultMetrics: vi.fn(),
   };
@@ -357,7 +356,6 @@ describe("RetrievalService parallel IPNI + transport", () => {
     observeThroughput: vi.fn(),
     observeCheckDuration: vi.fn(),
     recordStatus: vi.fn(),
-    recordTransportStatus: vi.fn(),
     recordHttpResponseCode: vi.fn(),
     recordResultMetrics: vi.fn(),
   };
@@ -446,7 +444,7 @@ describe("RetrievalService parallel IPNI + transport", () => {
     mockRetrievalRepository.save.mockImplementation(async (d) => d);
   };
 
-  it("emits success on retrievalStatus + retrievalTransportStatus when IPNI and transport both succeed", async () => {
+  it("emits success on retrievalStatus and discoverabilityStatus when IPNI and transport both succeed", async () => {
     service = await createService();
     setupCommonMocks();
     mockIpniVerificationService.verify.mockResolvedValue({
@@ -464,11 +462,10 @@ describe("RetrievalService parallel IPNI + transport", () => {
 
     expect(mockRetrievalMetrics.recordStatus).toHaveBeenCalledWith(labels, "pending");
     expect(mockRetrievalMetrics.recordStatus).toHaveBeenCalledWith(labels, "success");
-    expect(mockRetrievalMetrics.recordTransportStatus).toHaveBeenCalledWith(labels, "success");
     expect(mockDiscoverabilityMetrics.recordStatus).toHaveBeenCalledWith(labels, "success");
   });
 
-  it("records failure.other on retrievalStatus when IPNI fails but transport succeeds", async () => {
+  it("keeps retrievalStatus=success when IPNI fails but transport succeeds (IPNI outcome recorded on discoverabilityStatus)", async () => {
     service = await createService();
     setupCommonMocks();
     mockIpniVerificationService.verify.mockResolvedValue({
@@ -484,12 +481,11 @@ describe("RetrievalService parallel IPNI + transport", () => {
 
     await service.performAllRetrievals(buildDealWithIpni());
 
-    expect(mockRetrievalMetrics.recordTransportStatus).toHaveBeenCalledWith(labels, "success");
-    expect(mockRetrievalMetrics.recordStatus).toHaveBeenCalledWith(labels, "failure.other");
+    expect(mockRetrievalMetrics.recordStatus).toHaveBeenCalledWith(labels, "success");
     expect(mockDiscoverabilityMetrics.recordStatus).toHaveBeenCalledWith(labels, "failure.other");
   });
 
-  it("records failure.timedout on retrievalStatus when IPNI times out but transport succeeds", async () => {
+  it("keeps retrievalStatus=success when IPNI times out but transport succeeds (timeout recorded on discoverabilityStatus)", async () => {
     service = await createService();
     setupCommonMocks();
     mockIpniVerificationService.verify.mockResolvedValue({
@@ -505,8 +501,8 @@ describe("RetrievalService parallel IPNI + transport", () => {
 
     await service.performAllRetrievals(buildDealWithIpni());
 
-    expect(mockRetrievalMetrics.recordTransportStatus).toHaveBeenCalledWith(labels, "success");
-    expect(mockRetrievalMetrics.recordStatus).toHaveBeenCalledWith(labels, "failure.timedout");
+    expect(mockRetrievalMetrics.recordStatus).toHaveBeenCalledWith(labels, "success");
+    expect(mockDiscoverabilityMetrics.recordStatus).toHaveBeenCalledWith(labels, "failure.timedout");
   });
 
   it("runs IPNI and transport concurrently", async () => {
