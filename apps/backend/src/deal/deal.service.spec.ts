@@ -37,6 +37,9 @@ vi.mock("@filoz/synapse-sdk", async (importOriginal) => {
   };
 });
 
+const fetchMock = vi.fn(async () => new Response(null, { status: 200 }));
+vi.stubGlobal("fetch", fetchMock);
+
 vi.mock("filecoin-pin", () => ({
   executeUpload: vi.fn(),
   cleanupSynapseService: vi.fn(),
@@ -195,6 +198,7 @@ describe("DealService", () => {
 
   afterEach(() => {
     vi.clearAllMocks();
+    fetchMock.mockImplementation(async () => new Response(null, { status: 200 }));
   });
 
   describe("createDeal", () => {
@@ -222,7 +226,7 @@ describe("DealService", () => {
         isActive: true,
         isApproved: true,
         pdp: {
-          serviceURL: "service url",
+          serviceURL: "https://sp.example",
           minPieceSizeInBytes: 0n,
           maxPieceSizeInBytes: 100n,
           storagePricePerTibPerDay: 1n,
@@ -247,6 +251,9 @@ describe("DealService", () => {
 
       dealRepoMock.create.mockReturnValue(mockDeal);
       mockStorageProviderRepository.findOne.mockResolvedValue({});
+      mockSynapseInstance = { ...mockSynapseInstance, client: {} } as unknown as Synapse;
+      vi.spyOn(mockWalletSdkService, "getProviderInfo").mockReturnValue(mockProviderInfo);
+      vi.spyOn(service as any, "createSynapseInstance").mockResolvedValue(mockSynapseInstance);
     });
 
     it("processes the full deal lifecycle successfully", async () => {
@@ -1060,6 +1067,7 @@ describe("DealService", () => {
         }).compile();
 
         const testService = module.get<DealService>(DealService);
+        vi.spyOn(testService as any, "createSynapseInstance").mockResolvedValue(mockSynapseInstance);
 
         return testService;
       };
@@ -1195,7 +1203,7 @@ describe("DealService", () => {
       isActive: true,
       isApproved: true,
       pdp: {
-        serviceURL: "service url",
+        serviceURL: "https://sp.example",
         minPieceSizeInBytes: 0n,
         maxPieceSizeInBytes: 100n,
         storagePricePerTibPerDay: 1n,
@@ -1262,7 +1270,7 @@ describe("DealService", () => {
       isActive: true,
       isApproved: true,
       pdp: {
-        serviceURL: "service url",
+        serviceURL: "https://sp.example",
         minPieceSizeInBytes: 0n,
         maxPieceSizeInBytes: 100n,
         storagePricePerTibPerDay: 1n,
@@ -1433,16 +1441,86 @@ describe("DealService", () => {
   });
 
   describe("isDataSetLive", () => {
-    it("rethrows non-terminal probe errors instead of classifying as terminated", async () => {
-      mockWarmStorageService.validateDataSet.mockRejectedValueOnce(new Error("ECONNREFUSED 127.0.0.1:8545"));
-      await expect(service.isDataSetLive(1n)).rejects.toThrow("ECONNREFUSED");
+    const providerInfo: PDPProviderEx = {
+      id: 101n,
+      serviceProvider: "0xprovider",
+      payee: "0x100",
+      name: "Test Provider",
+      description: "Test Provider",
+      isActive: true,
+      isApproved: true,
+      pdp: {
+        serviceURL: "https://sp.example",
+        minPieceSizeInBytes: 0n,
+        maxPieceSizeInBytes: 100n,
+        storagePricePerTibPerDay: 1n,
+        minProvingPeriodInEpochs: 1n,
+        location: "location",
+        paymentTokenAddress: "0x100",
+        ipniPiece: true,
+        ipniIpfs: true,
+      },
+    };
+
+    beforeEach(() => {
+      vi.spyOn(mockWalletSdkService, "getProviderInfo").mockReturnValue(providerInfo);
+      const synapseMock = { client: {} } as unknown as Synapse;
+      vi.spyOn(service as any, "createSynapseInstance").mockResolvedValue(synapseMock);
     });
 
-    it("returns false only on the known not-live error message", async () => {
+    it("returns true when both probes report live", async () => {
+      await expect(service.isDataSetLive("0xprovider", 1n)).resolves.toBe(true);
+    });
+
+    it("returns false when FWSS validateDataSet reports not live", async () => {
       mockWarmStorageService.validateDataSet.mockRejectedValueOnce(
         new Error("Data set 1 does not exist or is not live"),
       );
-      await expect(service.isDataSetLive(1n)).resolves.toBe(false);
+      await expect(service.isDataSetLive("0xprovider", 1n)).resolves.toBe(false);
+    });
+
+    it("returns false when SP HTTP probe returns 409 with the terminated body", async () => {
+      fetchMock.mockResolvedValueOnce(
+        new Response("Data set has been terminated due to unrecoverable proving failure", { status: 409 }),
+      );
+      await expect(service.isDataSetLive("0xprovider", 1n)).resolves.toBe(false);
+    });
+
+    it("treats SP HTTP 409 with a different body as live", async () => {
+      fetchMock.mockResolvedValueOnce(new Response("piece already exists", { status: 409 }));
+      await expect(service.isDataSetLive("0xprovider", 1n)).resolves.toBe(true);
+    });
+
+    it("treats SP HTTP non-409 responses as live", async () => {
+      fetchMock.mockResolvedValueOnce(new Response("At least one piece must be provided", { status: 400 }));
+      await expect(service.isDataSetLive("0xprovider", 1n)).resolves.toBe(true);
+    });
+
+    it("treats SP HTTP network errors as live", async () => {
+      fetchMock.mockRejectedValueOnce(new Error("ECONNREFUSED"));
+      await expect(service.isDataSetLive("0xprovider", 1n)).resolves.toBe(true);
+    });
+
+    it("rethrows FWSS validateDataSet errors that do not match the terminal message", async () => {
+      mockWarmStorageService.validateDataSet.mockRejectedValueOnce(new Error("ECONNREFUSED 127.0.0.1:8545"));
+      await expect(service.isDataSetLive("0xprovider", 1n)).rejects.toThrow("ECONNREFUSED");
+    });
+
+    it("returns false when SP reports terminated even if FWSS RPC throws transiently", async () => {
+      mockWarmStorageService.validateDataSet.mockRejectedValueOnce(new Error("ECONNREFUSED 127.0.0.1:8545"));
+      fetchMock.mockResolvedValueOnce(
+        new Response("Data set has been terminated due to unrecoverable proving failure", { status: 409 }),
+      );
+      await expect(service.isDataSetLive("0xprovider", 1n)).resolves.toBe(false);
+    });
+
+    it("posts an empty JSON body to the SP addPieces endpoint", async () => {
+      await service.isDataSetLive("0xprovider", 42n);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      const [calledUrl, init] = fetchMock.mock.calls[0] as unknown as [URL, RequestInit];
+      expect(String(calledUrl)).toBe("https://sp.example/pdp/data-sets/42/pieces");
+      expect(init.method).toBe("POST");
+      expect(init.body).toBe("{}");
     });
   });
 
@@ -1457,7 +1535,7 @@ describe("DealService", () => {
         isActive: true,
         isApproved: true,
         pdp: {
-          serviceURL: "u",
+          serviceURL: "https://sp.example",
           minPieceSizeInBytes: 0n,
           maxPieceSizeInBytes: 100n,
           storagePricePerTibPerDay: 1n,
@@ -1476,6 +1554,7 @@ describe("DealService", () => {
       } as any;
       const uploadPayload = { carData: Uint8Array.from([1]), rootCid: CID.parse(mockRootCid) };
       const synapseMock = {
+        client: {},
         storage: {
           createContext: vi.fn().mockResolvedValue({ dataSetId: 9n }),
         },
@@ -1483,6 +1562,8 @@ describe("DealService", () => {
       const deal = Object.assign(new Deal(), { id: "deal-skip", spAddress: "0xProvider" });
       dealRepoMock.create.mockReturnValue(deal);
       mockStorageProviderRepository.findOne.mockResolvedValue({ providerId: 1, isApproved: true });
+      vi.spyOn(mockWalletSdkService, "getProviderInfo").mockReturnValue(providerInfo);
+      vi.spyOn(service as any, "createSynapseInstance").mockResolvedValue(synapseMock);
       mockWarmStorageService.validateDataSet.mockRejectedValueOnce(
         new Error("Data set 9 does not exist or is not live"),
       );
@@ -1525,7 +1606,7 @@ describe("DealService", () => {
       isActive: true,
       isApproved: true,
       pdp: {
-        serviceURL: "service url",
+        serviceURL: "https://sp.example",
         minPieceSizeInBytes: 0n,
         maxPieceSizeInBytes: 100n,
         storagePricePerTibPerDay: 1n,
