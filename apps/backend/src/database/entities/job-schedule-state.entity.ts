@@ -12,7 +12,8 @@ export type JobType =
   | "metrics_cleanup" // legacy: no longer scheduled; see RemoveMetricsJobScheduleRows migration. TODO(#457): remove.
   | "providers_refresh"
   | "data_retention_poll"
-  | "piece_cleanup";
+  | "piece_cleanup"
+  | "pull_piece_cleanup";
 
 @Entity("job_schedule_state")
 @Index("job_schedule_state_job_type_sp_unique", ["jobType", "spAddress"], { unique: true })

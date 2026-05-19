@@ -55,6 +55,7 @@ describe("PullCheckService", () => {
     markPullSubmitted: ReturnType<typeof vi.fn>;
     markFirstByte: ReturnType<typeof vi.fn>;
     forget: ReturnType<typeof vi.fn>;
+    deleteExpired: ReturnType<typeof vi.fn>;
   };
   let httpClientServiceMock: { requestWithMetrics: ReturnType<typeof vi.fn>; requestStream: ReturnType<typeof vi.fn> };
   let metricsMock: {
@@ -81,6 +82,7 @@ describe("PullCheckService", () => {
       markPullSubmitted: vi.fn().mockResolvedValue(undefined),
       markFirstByte: vi.fn().mockResolvedValue(undefined),
       forget: vi.fn().mockResolvedValue(undefined),
+      deleteExpired: vi.fn().mockResolvedValue(0),
     };
     httpClientServiceMock = {
       requestWithMetrics: vi.fn(),
@@ -105,6 +107,7 @@ describe("PullCheckService", () => {
         pullCheckPieceSizeBytes: 1024,
         maxConcurrentStreams: 50,
         maxStreamsPerCid: 3,
+        pullPieceCleanupIntervalSeconds: 7 * 24 * 3600,
       },
       dataset: { localDatasetsPath: "/tmp/datasets" } as IConfig["dataset"],
     };
@@ -402,6 +405,25 @@ describe("PullCheckService", () => {
 
       await expect(service.runPullCheck("0xsp", undefined, logContext)).rejects.toThrow(/Synapse client unavailable/);
       expect(metricsMock.recordStatus).toHaveBeenLastCalledWith(expect.any(Object), "failure.other");
+    });
+  });
+
+  describe("deleteExpiredPullPieces", () => {
+    it("delegates to the repository and returns the deleted count", async () => {
+      registryMock.deleteExpired.mockResolvedValue(7);
+
+      const count = await service.deleteExpiredPullPieces();
+
+      expect(registryMock.deleteExpired).toHaveBeenCalledOnce();
+      expect(count).toBe(7);
+    });
+
+    it("returns 0 when no rows were expired", async () => {
+      registryMock.deleteExpired.mockResolvedValue(0);
+
+      const count = await service.deleteExpiredPullPieces();
+
+      expect(count).toBe(0);
     });
   });
 

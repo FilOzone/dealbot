@@ -145,6 +145,7 @@ Key environment variables that control pull check behavior:
 | `PULL_CHECK_PIECE_SIZE_BYTES` | Size of the synthetic test piece dealbot generates per pull check. |
 | `PULL_PIECE_MAX_CONCURRENT_STREAMS` | Process-wide cap on concurrent `/api/piece/{pieceCid}` streams across all pieces. |
 | `PULL_PIECE_MAX_STREAMS_PER_CID` | Per-pieceCid cap on concurrent streams; prevents a single piece from exhausting the global budget. |
+| `PULL_PIECE_CLEANUP_INTERVAL_SECONDS` | How often the global `pull_piece_cleanup` job runs to delete expired `pull_pieces` rows. Defaults to 7 days (604800 s). Minimum 1 hour. |
 
 Source: [`apps/backend/src/config/app.config.ts`](../../apps/backend/src/config/app.config.ts)
 
