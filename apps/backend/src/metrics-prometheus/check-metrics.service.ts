@@ -248,3 +248,45 @@ export class DataSetCreationCheckMetrics {
     this.dataSetCreationStatusCounter.inc({ ...labels, value });
   }
 }
+
+@Injectable()
+export class PullCheckCheckMetrics {
+  constructor(
+    @InjectMetric("pullRequestAcknowledgementLatencyMs")
+    private readonly pullRequestAcknowledgementLatencyMs: Histogram,
+    @InjectMetric("pullRequestStartedMs")
+    private readonly pullRequestStartedMs: Histogram,
+    @InjectMetric("pullRequestCompletionLatencyMs")
+    private readonly pullRequestCompletionLatencyMs: Histogram,
+    @InjectMetric("pullRequestProviderStatus")
+    private readonly pullRequestProviderStatusCounter: Counter,
+    @InjectMetric("pullRequestThroughputBps")
+    private readonly pullRequestThroughputBps: Histogram,
+    @InjectMetric("pullCheckStatus")
+    private readonly pullCheckStatusCounter: Counter,
+  ) {}
+
+  observeAcknowledgementLatencyMs(labels: CheckMetricLabels, value: number | null | undefined): void {
+    observePositive(this.pullRequestAcknowledgementLatencyMs, labels, value);
+  }
+
+  observeStartedMs(labels: CheckMetricLabels, value: number | null | undefined): void {
+    observePositive(this.pullRequestStartedMs, labels, value);
+  }
+
+  observeCompletionLatencyMs(labels: CheckMetricLabels, value: number | null | undefined): void {
+    observePositive(this.pullRequestCompletionLatencyMs, labels, value);
+  }
+
+  recordProviderStatus(labels: CheckMetricLabels, value: string): void {
+    this.pullRequestProviderStatusCounter.inc({ ...labels, value });
+  }
+
+  observeThroughputBps(labels: CheckMetricLabels, value: number | null | undefined): void {
+    observePositive(this.pullRequestThroughputBps, labels, value);
+  }
+
+  recordStatus(labels: CheckMetricLabels, value: string): void {
+    this.pullCheckStatusCounter.inc({ ...labels, value });
+  }
+}

@@ -1,4 +1,5 @@
 import * as crypto from "node:crypto";
+import { Readable } from "node:stream";
 import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import * as fs from "fs";
@@ -7,6 +8,21 @@ import { toStructuredError } from "../common/logging.js";
 import { writeWithBackpressure } from "../common/stream-utils.js";
 import type { DataFile } from "../common/types.js";
 import type { IConfig, IDatasetConfig } from "../config/app.config.js";
+
+export interface DeterministicBytesOptions {
+  /** Arbitrary namespace/key to scope the output (e.g. "nonce", "seed:round-1") */
+  key: string;
+  /** Number of pseudo-random bytes to generate */
+  bytesNeeded: number;
+  /** Optional: provider address or any additional entropy source */
+  providerAddress?: string;
+  /** Optional: total size of the piece (used for key derivation to ensure same CID) */
+  size?: number;
+}
+
+const AES_KEY_LENGTH = 32; // AES-256
+const AES_IV_LENGTH = 16; // AES-CTR IV
+const UINT64_BUFFER_LENGTH = 8;
 
 @Injectable()
 export class DataSourceService {
@@ -179,5 +195,114 @@ export class DataSourceService {
         });
       }
     }
+  }
+
+  /**
+   * Generates a deterministic pseudo-random byte buffer from the provided seeds.
+   *
+   * Algorithm:
+   *   1. Serialize all seed components to binary (BigUInt64BE for numeric values).
+   *   2. SHA-256 hash the combined seed → 32-byte AES key.
+   *   3. AES-256-CTR encrypt a zero-filled buffer with a static IV.
+   *      The keystream itself is the pseudo-random output.
+   *
+   * Properties:
+   *   - Deterministic: same inputs always produce the same output.
+   *   - Non-invertible: output does not reveal the key or seeds (SHA-256 pre-image resistance).
+   *   - Streamable: AES-CTR is block-aligned; different `bytesNeeded` values
+   *     produce prefixes of the same infinite stream for the same seeds.
+   */
+  generateBytes(options: DeterministicBytesOptions): Buffer {
+    const { key, bytesNeeded, providerAddress = "", size = bytesNeeded } = options;
+
+    this.validateOptions(options);
+
+    const derivedKey = this.deriveKey(providerAddress, size, key);
+    const bytes = this.extractKeystream(derivedKey, bytesNeeded);
+
+    return bytes;
+  }
+
+  /**
+   * Returns a Readable stream of deterministic pseudo-random bytes.
+   */
+  generateBytesStream(options: DeterministicBytesOptions): Readable {
+    const { key, bytesNeeded, providerAddress = "", size = bytesNeeded } = options;
+
+    this.validateOptions(options);
+
+    const derivedKey = this.deriveKey(providerAddress, size, key);
+    const staticIV = Buffer.alloc(AES_IV_LENGTH, 0);
+    const cipher = crypto.createCipheriv("aes-256-ctr", derivedKey, staticIV);
+
+    let remaining = bytesNeeded;
+    const CHUNK_SIZE = 64 * 1024; // 64 KB chunks
+
+    return new Readable({
+      read() {
+        if (remaining <= 0) {
+          this.push(null);
+          return;
+        }
+
+        const toRead = Math.min(remaining, CHUNK_SIZE);
+        const zeroes = Buffer.alloc(toRead, 0);
+        const chunk = cipher.update(zeroes);
+        remaining -= toRead;
+
+        this.push(chunk);
+
+        if (remaining <= 0) {
+          const final = cipher.final();
+          if (final.length > 0) {
+            this.push(final);
+          }
+          this.push(null);
+        }
+      },
+    });
+  }
+
+  private validateOptions(options: DeterministicBytesOptions): void {
+    const { key, bytesNeeded, size = bytesNeeded } = options;
+
+    if (!key || typeof key !== "string" || key.trim().length === 0) {
+      throw new Error("DeterministicRandom: `key` must be a non-empty string.");
+    }
+
+    if (!Number.isInteger(bytesNeeded) || bytesNeeded <= 0) {
+      throw new Error("DeterministicRandom: `bytesNeeded` must be a positive integer.");
+    }
+
+    if (!Number.isInteger(size) || size < 0) {
+      throw new Error("DeterministicRandom: `size` must be a non-negative integer.");
+    }
+  }
+
+  private deriveKey(providerAddress: string, size: number, key: string): Buffer {
+    // Encode `size` as a fixed-width big-endian uint64 so that
+    // size=1 and size=10 produce distinct keys (no string-concat ambiguity).
+    const sizeBuffer = Buffer.alloc(UINT64_BUFFER_LENGTH);
+    sizeBuffer.writeBigUInt64BE(BigInt(size));
+
+    const seedPayload = Buffer.concat([Buffer.from(providerAddress, "utf8"), sizeBuffer, Buffer.from(key, "utf8")]);
+
+    return crypto.createHash("sha256").update(seedPayload).digest();
+  }
+
+  private extractKeystream(derivedKey: Buffer, bytesNeeded: number): Buffer {
+    if (derivedKey.length !== AES_KEY_LENGTH) {
+      // Defensive — SHA-256 always returns 32 bytes; guard against future refactors.
+      throw new Error(`DeterministicRandom: derived key must be ${AES_KEY_LENGTH} bytes.`);
+    }
+
+    // Static IV is intentional here: the key is freshly derived per input set,
+    // so IV reuse across different calls does not compromise security.
+    const staticIV = Buffer.alloc(AES_IV_LENGTH, 0);
+    const cipher = crypto.createCipheriv("aes-256-ctr", derivedKey, staticIV);
+
+    // Encrypting zeroes extracts the raw AES-CTR keystream — our random output.
+    const zeroes = Buffer.alloc(bytesNeeded, 0);
+    return cipher.update(zeroes);
   }
 }

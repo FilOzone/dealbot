@@ -7,6 +7,7 @@ import { configValidationSchema, loadConfig } from "./config/app.config.js";
 import { DatabaseModule } from "./database/database.module.js";
 import { JobsModule } from "./jobs/jobs.module.js";
 import { MetricsPrometheusModule } from "./metrics-prometheus/metrics-prometheus.module.js";
+import { PullCheckModule } from "./pull-check/pull-check.module.js";
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { MetricsPrometheusModule } from "./metrics-prometheus/metrics-prometheus
     MetricsPrometheusModule,
     ClickhouseModule,
     JobsModule,
+    PullCheckModule,
   ],
 })
 export class WorkerModule {}

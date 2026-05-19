@@ -1,5 +1,31 @@
 # Changelog
 
+## [1.6.0](https://github.com/FilOzone/dealbot/compare/backend-v1.5.1...backend-v1.6.0) (2026-05-19)
+
+
+### Features
+
+* filter out sps with dev tags ([#526](https://github.com/FilOzone/dealbot/issues/526)) ([008f0d8](https://github.com/FilOzone/dealbot/commit/008f0d84be0ea9d51c45d4f0f882fdbae9945662))
+* **retrieval:** parallel IPNI + transport with retrievalTransportStatus counter ([#538](https://github.com/FilOzone/dealbot/issues/538)) ([cbdc2c7](https://github.com/FilOzone/dealbot/commit/cbdc2c7e67bfb47d459151c4185db1ca50a620ce))
+* update Synapse stack for filecoin-pin 0.21 ([008f0d8](https://github.com/FilOzone/dealbot/commit/008f0d84be0ea9d51c45d4f0f882fdbae9945662))
+* update Synapse stack for filecoin-pin 0.21 ([c9ad711](https://github.com/FilOzone/dealbot/commit/c9ad711251d9d5d124aeb1841ce2464abcdbcf06))
+
+
+### Bug Fixes
+
+* **deal:** combine FWSS, PDPVerifier, and SP-HTTP probes for dataset liveness ([#537](https://github.com/FilOzone/dealbot/issues/537)) ([c7472aa](https://github.com/FilOzone/dealbot/commit/c7472aab0c86c0f8efc2fa31921119d54dbbd9c4))
+* handle PDP-terminated datasets via data_set_creation repair ([#518](https://github.com/FilOzone/dealbot/issues/518)) ([7aa2f8a](https://github.com/FilOzone/dealbot/commit/7aa2f8a9671b673811a4800d79ee458076a9eaae))
+* prevent concurrent insert race ([#543](https://github.com/FilOzone/dealbot/issues/543)) ([ca60378](https://github.com/FilOzone/dealbot/commit/ca603788b393626c8412e9da68b864919a6e8944))
+* **retrieval:** surface silent IPNI timeouts in logs ([#539](https://github.com/FilOzone/dealbot/issues/539)) ([1ec72a2](https://github.com/FilOzone/dealbot/commit/1ec72a22a65da2362c1b0bb2b1ba43ec5822093d))
+* stop retention counter double-counts ([#519](https://github.com/FilOzone/dealbot/issues/519)) ([0bb5217](https://github.com/FilOzone/dealbot/commit/0bb52177dc0bc88f108fe5a2865a9452581c0bc6))
+
+
+### Miscellaneous
+
+* ban nested ternaries via biome ([#544](https://github.com/FilOzone/dealbot/issues/544)) ([3986d52](https://github.com/FilOzone/dealbot/commit/3986d5263fac130eeddfef068d9df8265f6fd521))
+* **deps:** bump node from 24-alpine to 26-alpine in /apps/backend ([#529](https://github.com/FilOzone/dealbot/issues/529)) ([a6b4c1c](https://github.com/FilOzone/dealbot/commit/a6b4c1cda5aa280c8c676c4b8369999e4f5450d5))
+* update Synapse stack for filecoin-pin 0.21 ([#521](https://github.com/FilOzone/dealbot/issues/521)) ([c9ad711](https://github.com/FilOzone/dealbot/commit/c9ad711251d9d5d124aeb1841ce2464abcdbcf06))
+
 ## [1.5.1](https://github.com/FilOzone/dealbot/compare/backend-v1.5.0...backend-v1.5.1) (2026-05-07)
 
 

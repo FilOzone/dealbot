@@ -29,6 +29,7 @@ export const configValidationSchema = Joi.object({
   DEALBOT_RUN_MODE: Joi.string().lowercase().valid("api", "worker", "both").default("both"),
   DEALBOT_PORT: Joi.number().default(3000),
   DEALBOT_HOST: Joi.string().default("127.0.0.1"),
+  DEALBOT_API_PUBLIC_URL: Joi.string().uri().optional().allow(""),
   DEALBOT_METRICS_PORT: Joi.number().default(9090),
   DEALBOT_METRICS_HOST: Joi.string().default("0.0.0.0"),
   ENABLE_DEV_MODE: Joi.boolean().default(false),
@@ -94,6 +95,17 @@ export const configValidationSchema = Joi.object({
   DATA_SET_CREATION_JOB_TIMEOUT_SECONDS: Joi.number().min(60).default(300), // 5 minutes max runtime for dataset creation jobs
   IPFS_BLOCK_FETCH_CONCURRENCY: Joi.number().integer().min(1).max(32).default(6),
 
+  // Pull Check
+  PULL_CHECKS_PER_SP_PER_HOUR: Joi.number().min(0.001).max(20).default(1),
+  PULL_CHECK_JOB_TIMEOUT_SECONDS: Joi.number().min(60).default(300), // 5m max runtime for pull check jobs
+  PULL_CHECK_POLL_INTERVAL_SECONDS: Joi.number().min(1).default(2),
+  PULL_CHECK_PIECE_SIZE_BYTES: Joi.number()
+    .integer()
+    .min(1024)
+    .default(10 * 1024 * 1024), // 10 MiB
+  PULL_PIECE_MAX_CONCURRENT_STREAMS: Joi.number().integer().min(1).default(50), // Max concurrent streams across all pieces
+  PULL_PIECE_MAX_STREAMS_PER_CID: Joi.number().integer().min(1).default(3), // Max concurrent streams per pieceCid
+
   // Piece Cleanup
   MAX_DATASET_STORAGE_SIZE_BYTES: Joi.number()
     .integer()
@@ -146,6 +158,12 @@ export interface IAppConfig {
   runMode: "api" | "worker" | "both";
   port: number;
   host: string;
+  /**
+   * Optional publicly reachable DealBot API base URL (e.g. `https://dealbot.example.com`).
+   * Used to construct hosted-piece source URLs that SPs can fetch during pull checks.
+   * When unset, falls back to `http://${host}:${port}`.
+   */
+  apiPublicUrl: string | null;
   metricsPort: number;
   metricsHost: string;
   enableDevMode: boolean;
@@ -321,6 +339,42 @@ export interface IClickhouseConfig {
   maxBufferSize: number;
 }
 
+export interface IPullPieceConfig {
+  /**
+   * Target number of pull checks per storage provider per hour.
+   *
+   * Pull checks validate the SP pull-to-park pathway by serving a temporary piece URL
+   * from DealBot and asking the SP to pull and park it. Independent of `deal` and `retrieval`.
+   */
+  pullChecksPerSpPerHour: number;
+  /**
+   * Maximum runtime (seconds) for pull-check jobs before forced abort.
+   *
+   * Bounds the polling window for terminal SP pull status.
+   */
+  pullCheckJobTimeoutSeconds: number;
+  /**
+   * Polling interval (seconds) used while waiting for a terminal SP pull status.
+   */
+  pullCheckPollIntervalSeconds: number;
+  /**
+   * Size (bytes) of the synthetic test piece DealBot generates per pull check.
+   */
+  pullCheckPieceSizeBytes: number;
+  /**
+   * Maximum number of concurrent piece streams across all pieceCids.
+   *
+   * Prevents DoS by limiting total server-wide streaming load.
+   */
+  maxConcurrentStreams: number;
+  /**
+   * Maximum number of concurrent streams per pieceCid.
+   *
+   * Prevents attackers from opening many connections to the same piece.
+   */
+  maxStreamsPerCid: number;
+}
+
 export interface IConfig {
   app: IAppConfig;
   database: IDatabaseConfig;
@@ -333,6 +387,7 @@ export interface IConfig {
   clickhouse: IClickhouseConfig;
   pieceCleanup: IPieceCleanupConfig;
   spBlocklists: ISpBlocklistConfig;
+  pullPiece: IPullPieceConfig;
 }
 
 export function loadConfig(): IConfig {
@@ -347,6 +402,11 @@ export function loadConfig(): IConfig {
       })(),
       port: Number.parseInt(process.env.DEALBOT_PORT || "3000", 10),
       host: process.env.DEALBOT_HOST || "127.0.0.1",
+      apiPublicUrl: (() => {
+        const raw = process.env.DEALBOT_API_PUBLIC_URL;
+        if (raw == null || raw.trim().length === 0) return null;
+        return raw.trim().replace(/\/+$/, "");
+      })(),
       metricsPort: Number.parseInt(process.env.DEALBOT_METRICS_PORT || "9090", 10),
       metricsHost: process.env.DEALBOT_METRICS_HOST || "0.0.0.0",
       enableDevMode: process.env.ENABLE_DEV_MODE === "true",
@@ -454,6 +514,14 @@ export function loadConfig(): IConfig {
     spBlocklists: {
       ids: parseIdList(process.env.BLOCKED_SP_IDS),
       addresses: parseAddressList(process.env.BLOCKED_SP_ADDRESSES),
+    },
+    pullPiece: {
+      pullChecksPerSpPerHour: Number.parseFloat(process.env.PULL_CHECKS_PER_SP_PER_HOUR || "1"),
+      pullCheckJobTimeoutSeconds: Number.parseInt(process.env.PULL_CHECK_JOB_TIMEOUT_SECONDS || "300", 10),
+      pullCheckPollIntervalSeconds: Number.parseInt(process.env.PULL_CHECK_POLL_INTERVAL_SECONDS || "2", 10),
+      pullCheckPieceSizeBytes: Number.parseInt(process.env.PULL_CHECK_PIECE_SIZE_BYTES || String(10 * 1024 * 1024), 10),
+      maxConcurrentStreams: Number.parseInt(process.env.PULL_PIECE_MAX_CONCURRENT_STREAMS || "50", 10),
+      maxStreamsPerCid: Number.parseInt(process.env.PULL_PIECE_MAX_STREAMS_PER_CID || "3", 10),
     },
   };
 }

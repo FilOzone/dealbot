@@ -16,6 +16,22 @@ export type StructuredError = {
   cause?: StructuredError;
 };
 
+/**
+ * Redacted flat message from an unknown error. Prefers the immediate
+ * `cause.message` over the outer `message` when a cause is present, because
+ * outer wrappers in this codebase tend to carry high-cardinality context (e.g.
+ * deal IDs) that defeats group-by aggregation in BetterStack/Grafana
+ * dashboards. See PR #491 / issue #473 for the original rationale.
+ *
+ * Pair with `toStructuredError` in the same log line so the full chain remains
+ * available for deep debugging while this flat field stays aggregable.
+ */
+export function getErrorMessage(error: unknown): string {
+  const structured = toStructuredError(error);
+  const cause = structured.cause;
+  return cause?.type === "error" && cause.message ? cause.message : structured.message;
+}
+
 export function toJsonSafe(value: unknown): unknown {
   try {
     return JSON.parse(

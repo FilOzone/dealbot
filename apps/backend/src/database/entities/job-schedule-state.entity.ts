@@ -4,6 +4,7 @@ export type JobType =
   | "deal"
   | "retrieval"
   | "data_set_creation"
+  | "pull_check"
   | "providers_refresh"
   | "data_retention_poll"
   | "piece_cleanup";

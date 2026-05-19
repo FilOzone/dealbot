@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import type { Repository } from "typeorm";
+import { DealJobTerminatedDataSetError } from "../common/errors.js";
 import { type DealLogContext, toStructuredError } from "../common/logging.js";
 import { Deal } from "../database/entities/deal.entity.js";
 import { DealStatus, RetrievalStatus } from "../database/types.js";
@@ -168,14 +169,17 @@ export class DevToolsService {
       });
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
+      const event =
+        error instanceof DealJobTerminatedDataSetError
+          ? "background_deal_failed_terminated_dataset"
+          : "background_deal_failed";
       this.logger.error({
         ...dealLogContext,
-        event: "background_deal_failed",
+        event,
         message: "Background deal processing failed",
         error: toStructuredError(error),
       });
 
-      // Update deal with error status
       await this.dealRepository.update(dealId, {
         status: DealStatus.FAILED,
         errorMessage,
