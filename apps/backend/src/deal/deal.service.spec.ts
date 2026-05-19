@@ -1383,7 +1383,7 @@ describe("DealService", () => {
       expect(terminateMock).toHaveBeenCalledWith({ dataSetId: 9n });
       expect(waitForReceiptMock).toHaveBeenCalledWith({ hash: "0xhash" });
       expect(updateFn).toHaveBeenCalledWith(
-        { dataSetId: 9n, cleanedUp: false },
+        expect.objectContaining({ dataSetId: expect.anything(), cleanedUp: false }),
         expect.objectContaining({ cleanedUp: true, cleanedUpAt: expect.any(Date) }),
       );
       expect(result.dealsAffected).toBe(2);

@@ -9,7 +9,7 @@ import { DealJobTerminatedDataSetError } from "../common/errors.js";
 import { type JobLogContext, type ProviderJobContext, toStructuredError } from "../common/logging.js";
 import { getMaintenanceWindowStatus } from "../common/maintenance-window.js";
 import { isSpBlocked } from "../common/sp-blocklist.js";
-import type { IConfig, ISpBlocklistConfig } from "../config/app.config.js";
+import type { IConfig, ISchedulingConfig, ISpBlocklistConfig } from "../config/app.config.js";
 import { DataRetentionService } from "../data-retention/data-retention.service.js";
 import type { JobType } from "../database/entities/job-schedule-state.entity.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
@@ -18,7 +18,13 @@ import { PieceCleanupService } from "../piece-cleanup/piece-cleanup.service.js";
 import { RetrievalService } from "../retrieval/retrieval.service.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
 import { provisionNextMissingDataSet } from "./data-set-creation.handler.js";
-import { DATA_RETENTION_POLL_QUEUE, PROVIDERS_REFRESH_QUEUE, SP_WORK_QUEUE } from "./job-queues.js";
+import { runDatasetCleanupSweep } from "./dataset-cleanup-sweep.handler.js";
+import {
+  DATA_RETENTION_POLL_QUEUE,
+  DATASET_CLEANUP_SWEEP_QUEUE,
+  PROVIDERS_REFRESH_QUEUE,
+  SP_WORK_QUEUE,
+} from "./job-queues.js";
 import { JobScheduleRepository } from "./repositories/job-schedule.repository.js";
 
 type SpJobType = "deal" | "retrieval" | "data_set_creation" | "piece_cleanup";
@@ -31,6 +37,7 @@ type SpJobData = { jobType: SpJobType; spAddress: string; intervalSeconds: numbe
 type ProvidersRefreshJobData = { intervalSeconds: number };
 type SpJob = Job<SpJobData>;
 type DataRetentionJobData = { intervalSeconds: number };
+type DatasetCleanupSweepJobData = { intervalSeconds: number };
 
 type ScheduleRow = {
   id: number;
@@ -258,6 +265,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     await boss.createQueue(SP_WORK_QUEUE, { policy: "singleton" });
     await boss.createQueue(PROVIDERS_REFRESH_QUEUE);
     await boss.createQueue(DATA_RETENTION_POLL_QUEUE);
+    await boss.createQueue(DATASET_CLEANUP_SWEEP_QUEUE);
   }
 
   private registerWorkers(): void {
@@ -320,6 +328,20 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
           event: "worker_register_failed",
           message: "Failed to register worker",
           queue: DATA_RETENTION_POLL_QUEUE,
+          error: toStructuredError(error),
+        }),
+      );
+    void this.boss
+      .work<DatasetCleanupSweepJobData, void>(
+        DATASET_CLEANUP_SWEEP_QUEUE,
+        { batchSize: 1, pollingIntervalSeconds: workerPollSeconds },
+        async ([job]) => this.handleDatasetCleanupSweepJob(job.data),
+      )
+      .catch((error) =>
+        this.logger.error({
+          event: "worker_register_failed",
+          message: "Failed to register worker",
+          queue: DATASET_CLEANUP_SWEEP_QUEUE,
           error: toStructuredError(error),
         }),
       );
@@ -591,6 +613,19 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     void data;
     await this.recordJobExecution("data_retention_poll", async () => {
       await this.dataRetentionService.pollDataRetention();
+      return "success";
+    });
+  }
+
+  private async handleDatasetCleanupSweepJob(data: DatasetCleanupSweepJobData): Promise<void> {
+    void data;
+    await this.recordJobExecution("dataset_cleanup_sweep", async () => {
+      const batchSize = this.configService.get<ISchedulingConfig>("scheduling").datasetCleanupSweepBatchSize;
+      await runDatasetCleanupSweep({
+        dealService: this.dealService,
+        logger: this.logger,
+        batchSize,
+      });
       return "success";
     });
   }
@@ -869,6 +904,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     dataRetentionPollIntervalSeconds: number;
     providersRefreshIntervalSeconds: number;
     pieceCleanupIntervalSeconds: number;
+    datasetCleanupSweepIntervalSeconds: number;
   } {
     const jobsConfig = this.configService.get("jobs", { infer: true });
     const scheduling = this.configService.get("scheduling", { infer: true });
@@ -884,6 +920,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     const pieceCleanupIntervalSeconds = Math.max(1, Math.round(3600 / pieceCleanupPerHour));
     const dataRetentionPollIntervalSeconds = scheduling.dataRetentionPollIntervalSeconds;
     const providersRefreshIntervalSeconds = scheduling.providersRefreshIntervalSeconds;
+    const datasetCleanupSweepIntervalSeconds = scheduling.datasetCleanupSweepIntervalSeconds;
 
     return {
       dealIntervalSeconds,
@@ -892,6 +929,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       dataRetentionPollIntervalSeconds,
       providersRefreshIntervalSeconds,
       pieceCleanupIntervalSeconds,
+      datasetCleanupSweepIntervalSeconds,
     };
   }
 
@@ -911,6 +949,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       dataRetentionPollIntervalSeconds,
       providersRefreshIntervalSeconds,
       pieceCleanupIntervalSeconds,
+      datasetCleanupSweepIntervalSeconds,
     } = this.getIntervalSecondsForRates();
 
     const useOnlyApprovedProviders = this.configService.get("blockchain").useOnlyApprovedProviders;
@@ -981,6 +1020,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     }
 
     // Global job schedules (sp_address = '')
+    const datasetCleanupSweepStartAt = new Date(now.getTime() + phaseMs);
     await this.jobScheduleRepository.upsertSchedule(
       "data_retention_poll",
       "",
@@ -992,6 +1032,12 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       "",
       providersRefreshIntervalSeconds,
       providersRefreshStartAt,
+    );
+    await this.jobScheduleRepository.upsertSchedule(
+      "dataset_cleanup_sweep",
+      "",
+      datasetCleanupSweepIntervalSeconds,
+      datasetCleanupSweepStartAt,
     );
   }
 
@@ -1108,6 +1154,8 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         return DATA_RETENTION_POLL_QUEUE;
       case "providers_refresh":
         return PROVIDERS_REFRESH_QUEUE;
+      case "dataset_cleanup_sweep":
+        return DATASET_CLEANUP_SWEEP_QUEUE;
       case "metrics":
       case "metrics_cleanup":
         // These legacy job types should be filtered out before reaching this method
@@ -1119,7 +1167,9 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     }
   }
 
-  private mapJobPayload(row: ScheduleRow): SpJobData | ProvidersRefreshJobData | DataRetentionJobData {
+  private mapJobPayload(
+    row: ScheduleRow,
+  ): SpJobData | ProvidersRefreshJobData | DataRetentionJobData | DatasetCleanupSweepJobData {
     if (
       row.job_type === "deal" ||
       row.job_type === "retrieval" ||
@@ -1137,7 +1187,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
   private async safeSend(
     jobType: JobType,
     name: string,
-    data: SpJobData | ProvidersRefreshJobData | DataRetentionJobData,
+    data: SpJobData | ProvidersRefreshJobData | DataRetentionJobData | DatasetCleanupSweepJobData,
     options?: SendOptions,
   ) {
     if (!this.boss) return false;
@@ -1199,6 +1249,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       "piece_cleanup",
       "data_retention_poll",
       "providers_refresh",
+      "dataset_cleanup_sweep",
     ];
     for (const jobType of jobTypes) {
       this.jobsQueuedGauge.set({ job_type: jobType }, 0);
