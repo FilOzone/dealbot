@@ -8,7 +8,7 @@ For event and metric definitions used by the dashboard, see [Dealbot Events & Me
 
 ## Overview
 
-A "pull check" exercises the **storage provider pull-to-park pathway**: dealbot publishes a temporary piece at `/api/piece/{pieceCid}`, asks the SP to fetch (pull) and park it via the Synapse `pullPieces` API, waits for a terminal SP pull status, and finally re-fetches the piece from the SP to verify byte-for-byte integrity.
+A "pull check" exercises the **[storage provider pull-to-park pathway](https://docs.filecoin.cloud/developer-guides/storage/upload-pipeline/#pull-phase-sp-to-sp-transfer)**: dealbot publishes a temporary piece at `/api/piece/{pieceCid}`, asks the SP to fetch (pull) and park it via the Synapse `pullPieces` API, waits for a terminal SP pull status, and finally re-fetches the piece from the SP to verify byte-for-byte integrity.
 
 The pull check answers a different question than the [Data Storage check](./data-storage.md): instead of *uploading* bytes to the SP, it asks the SP to *pull* bytes from a public URL. This validates an SP's outbound HTTP fetcher, the pull request lifecycle, and `/piece` retrieval surface. (`/piece` retrieval is not covered by the [Data Storage check](./data-storage.md).)
 
@@ -64,6 +64,11 @@ Source: [`pull-check.service.ts` (`preparePullPiece`)](../../apps/backend/src/pu
 ### 2. Submit the pull request
 
 Dealbot calls `pullPieces` from `@filoz/synapse-core/sp` with the pieceCid, the source URL, and the SP `payee`. The submission timestamp is stamped on the registration so it can later be subtracted from the first-byte event.
+
+Because Dealbot uses the **create-new-dataset** path (`dataSetId = 0`), it must include an authorization payload as `extraData` (signed by `synapse-core`). On the SP side, Curio uses `extraData` for two purposes:
+
+1. To make an on-chain `eth_call` to `PDPVerifier.addPieces`, which forwards to the FWSS contract for validation.
+2. To derive an idempotency key (the sha256 hash of `extraData` + service/dataSet/recordKeeper(FWSS)), so that retries/polling with the same `extraData` return the existing pull status.
 
 Source: [`pull-check.service.ts` (`runPullCheck`)](../../apps/backend/src/pull-check/pull-check.service.ts)
 
