@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.7.0](https://github.com/FilOzone/dealbot/compare/backend-v1.6.0...backend-v1.7.0) (2026-05-19)
+
+
+### Features
+
+* add pull flow testing ([#504](https://github.com/FilOzone/dealbot/issues/504)) ([53faa58](https://github.com/FilOzone/dealbot/commit/53faa5819ef4d1431f8005dbf5a91bb82370e6df))
+* add pull piece cleanup job for expired pieces ([#523](https://github.com/FilOzone/dealbot/issues/523)) ([321d2da](https://github.com/FilOzone/dealbot/commit/321d2daa7ef87e971c97e208d9fa71c28aa0055b))
+
+
+### Miscellaneous
+
+* remove legacy metrics job type references ([#536](https://github.com/FilOzone/dealbot/issues/536)) ([efae46b](https://github.com/FilOzone/dealbot/commit/efae46b59c0992466093a00fcc8a262fb579f0be))
+
 ## [1.6.0](https://github.com/FilOzone/dealbot/compare/backend-v1.5.1...backend-v1.6.0) (2026-05-19)
 
 
