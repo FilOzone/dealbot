@@ -23,6 +23,35 @@ export class DealJobTerminatedDataSetError extends Error {
 }
 
 /**
+ * Thrown by repairTerminatedDataSet when the dealbot wallet is a contract
+ * (Safe multisig) and the dataset still needs to be terminated on-chain.
+ * Dealbot's session-key signer is neither payer nor payee, so any direct
+ * terminateService call reverts with CallerNotPayerOrPayee. An operator
+ * must submit the termination via Safe (see https://github.com/FilOzone/dealbot/issues/545
+ * for the pattern). Once pdpEndEpoch is set on FWSS, the existing
+ * already-terminated branch in repairTerminatedDataSet runs the DB cleanup
+ * automatically.
+ *
+ * Tracking: https://github.com/FilOzone/dealbot/issues/546
+ */
+export class DataSetTerminateRequiresOperatorError extends Error {
+  readonly name = "DataSetTerminateRequiresOperatorError";
+
+  constructor(
+    public readonly dataSetId: bigint,
+    public readonly providerAddress: string,
+    public readonly payerAddress: string,
+  ) {
+    super(
+      `Data set ${dataSetId.toString()} on provider ${providerAddress} cannot be auto-terminated; payer ${payerAddress} is a contract. Operator must submit terminateService via Safe.`,
+    );
+    if (Error.captureStackTrace) {
+      Error.captureStackTrace(this, DataSetTerminateRequiresOperatorError);
+    }
+  }
+}
+
+/**
  * Custom error class for retrieval failures with HTTP context
  * Provides structured information about failed HTTP requests
  */

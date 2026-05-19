@@ -1,4 +1,5 @@
 import type { Logger } from "@nestjs/common";
+import { DataSetTerminateRequiresOperatorError } from "../common/errors.js";
 import type { DataSetLogContext, ProviderJobContext } from "../common/logging.js";
 import type { DealService } from "../deal/deal.service.js";
 
@@ -59,14 +60,32 @@ export async function provisionNextMissingDataSet(
         message: "Detected PDP-terminated dataset; running repair",
         dataSetId: status.dataSetId.toString(),
       });
-      const result = await dealService.repairTerminatedDataSet(spAddress, status.dataSetId, signal);
-      logger.log({
-        ...logContext,
-        event: "data_set_repair_completed",
-        message: "Repaired terminated dataset; deferring replacement to next tick",
-        dataSetId: status.dataSetId.toString(),
-        dealsAffected: result.dealsAffected,
-      });
+      try {
+        const result = await dealService.repairTerminatedDataSet(spAddress, status.dataSetId, signal);
+        logger.log({
+          ...logContext,
+          event: "data_set_repair_completed",
+          message: "Repaired terminated dataset; deferring replacement to next tick",
+          dataSetId: status.dataSetId.toString(),
+          dealsAffected: result.dealsAffected,
+        });
+      } catch (error) {
+        if (error instanceof DataSetTerminateRequiresOperatorError) {
+          // Multisig payer cannot be auto-terminated; surface for operator
+          // action via Safe Transaction Builder.
+          // Tracking: https://github.com/FilOzone/dealbot/issues/546
+          logger.warn({
+            ...logContext,
+            event: "dataset_terminate_operator_action_required",
+            message:
+              "Dataset is PDP-terminated and the payer is a Safe multisig; operator must submit terminateService via Safe (see https://github.com/FilOzone/dealbot/issues/546)",
+            dataSetId: error.dataSetId.toString(),
+            payerAddress: error.payerAddress,
+          });
+          return;
+        }
+        throw error;
+      }
       return;
     }
 
