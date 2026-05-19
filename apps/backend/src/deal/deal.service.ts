@@ -6,7 +6,7 @@ import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
 import { executeUpload } from "filecoin-pin";
 import { CID } from "multiformats/cid";
-import type { Repository } from "typeorm";
+import { In, type Repository } from "typeorm";
 import { ClickhouseService } from "../clickhouse/clickhouse.service.js";
 import { awaitWithAbort } from "../common/abort-utils.js";
 import { buildUnixfsCar } from "../common/car-utils.js";
@@ -888,12 +888,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       pdpEndEpoch = await this.waitForPdpEndEpoch(dataSetId, pollTimeoutMs, signal);
     }
 
-    const result = await this.dealRepository.manager.transaction(async (manager) => {
-      const update = await manager
-        .getRepository(Deal)
-        .update({ dataSetId, cleanedUp: false }, { cleanedUp: true, cleanedUpAt: new Date() });
-      return update.affected ?? 0;
-    });
+    const result = await this.markDealsCleanedUpForDataSets([dataSetId]);
 
     this.logger.log({
       event: "dataset_terminated_repaired",
@@ -906,6 +901,118 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     });
 
     return { dealsAffected: result, pdpEndEpoch };
+  }
+
+  /**
+   * Flip `cleaned_up=true` for every Deal row whose `data_set_id` is in
+   * `dataSetIds` and is still `cleaned_up=false`. Idempotent. Returns the
+   * total affected row count.
+   *
+   * Shared between `repairTerminatedDataSet` (single dataset, post-terminate)
+   * and `sweepDatasetCleanup` (batched, sweep handler). Internal callers
+   * should already be holding the FWSS termination evidence; this method
+   * does no chain check.
+   */
+  async markDealsCleanedUpForDataSets(dataSetIds: bigint[]): Promise<number> {
+    if (dataSetIds.length === 0) return 0;
+    return this.dealRepository.manager.transaction(async (manager) => {
+      const update = await manager
+        .getRepository(Deal)
+        .update({ dataSetId: In(dataSetIds), cleanedUp: false }, { cleanedUp: true, cleanedUpAt: new Date() });
+      return update.affected ?? 0;
+    });
+  }
+
+  /**
+   * Scan all uncleaned Deal rows with a non-null `data_set_id`, probe each
+   * dataset on FWSS, and flip `cleaned_up=true` for any dataset whose
+   * `pdpEndEpoch != 0n` (terminated) or for which `getDataSet` returns null
+   * (removed). Returns aggregated counts.
+   *
+   * Closes the gap from #546: operator-initiated terminations bypass the
+   * `repairTerminatedDataSet` path because synapse-sdk's `createContext`
+   * filters out terminated datasets before the slot lookup classifies them.
+   */
+  async sweepDatasetCleanup(batchSize: number): Promise<{
+    datasetsChecked: number;
+    datasetsTerminated: number;
+    datasetsDne: number;
+    datasetsLive: number;
+    probeErrors: number;
+    dealsAffected: number;
+  }> {
+    const rows = await this.dealRepository
+      .createQueryBuilder("deal")
+      .select("DISTINCT deal.data_set_id", "data_set_id")
+      .where("deal.cleaned_up = false")
+      .andWhere("deal.data_set_id IS NOT NULL")
+      .getRawMany<{ data_set_id: string }>();
+    const ids = rows.map((r) => BigInt(r.data_set_id));
+    if (ids.length === 0) {
+      return {
+        datasetsChecked: 0,
+        datasetsTerminated: 0,
+        datasetsDne: 0,
+        datasetsLive: 0,
+        probeErrors: 0,
+        dealsAffected: 0,
+      };
+    }
+
+    const { warmStorageService } = this.walletSdkService.getWalletServices();
+    const terminated: bigint[] = [];
+    const dne: bigint[] = [];
+    let live = 0;
+    let errors = 0;
+
+    const cap = Math.max(1, batchSize);
+    for (let i = 0; i < ids.length; i += cap) {
+      const chunk = ids.slice(i, i + cap);
+      const settled = await Promise.allSettled(
+        chunk.map(async (dataSetId) => ({
+          dataSetId,
+          info: await warmStorageService.getDataSet({ dataSetId }),
+        })),
+      );
+      for (let j = 0; j < settled.length; j++) {
+        const result = settled[j];
+        if (result.status === "rejected") {
+          errors++;
+          this.logger.warn({
+            event: "dataset_cleanup_sweep_probe_failed",
+            message: "FWSS getDataSet probe failed; skipping dataset this tick",
+            dataSetId: chunk[j].toString(),
+            error: toStructuredError(result.reason),
+          });
+          continue;
+        }
+        const { dataSetId, info } = result.value;
+        if (info == null) {
+          dne.push(dataSetId);
+        } else if (info.pdpEndEpoch !== 0n) {
+          terminated.push(dataSetId);
+        } else {
+          live++;
+        }
+      }
+    }
+
+    let dealsAffected = 0;
+    if (terminated.length > 0) {
+      dealsAffected += await this.markDealsCleanedUpForDataSets(terminated);
+    }
+    if (dne.length > 0) {
+      dealsAffected += await this.markDealsCleanedUpForDataSets(dne);
+    }
+
+    return {
+      datasetsChecked: ids.length,
+      datasetsTerminated: terminated.length,
+      datasetsDne: dne.length,
+      datasetsLive: live,
+      probeErrors: errors,
+      dealsAffected,
+    };
   }
 
   /**

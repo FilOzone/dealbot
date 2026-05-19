@@ -179,6 +179,8 @@ export interface IBlockchainConfig {
 export interface ISchedulingConfig {
   providersRefreshIntervalSeconds: number;
   dataRetentionPollIntervalSeconds: number;
+  datasetCleanupSweepIntervalSeconds: number;
+  datasetCleanupSweepBatchSize: number;
   maintenanceWindowsUtc: string[];
   maintenanceWindowMinutes: number;
 }
@@ -383,6 +385,11 @@ export function loadConfig(): IConfig {
     scheduling: {
       providersRefreshIntervalSeconds: Number.parseInt(process.env.PROVIDERS_REFRESH_INTERVAL_SECONDS || "14400", 10),
       dataRetentionPollIntervalSeconds: Number.parseInt(process.env.DATA_RETENTION_POLL_INTERVAL_SECONDS || "3600", 10),
+      datasetCleanupSweepIntervalSeconds: Number.parseInt(
+        process.env.DATASET_CLEANUP_SWEEP_INTERVAL_SECONDS || "86400",
+        10,
+      ),
+      datasetCleanupSweepBatchSize: Number.parseInt(process.env.DATASET_CLEANUP_SWEEP_BATCH_SIZE || "50", 10),
       maintenanceWindowsUtc: (process.env.DEALBOT_MAINTENANCE_WINDOWS_UTC || "07:00,22:00")
         .split(",")
         .map((value) => value.trim())
