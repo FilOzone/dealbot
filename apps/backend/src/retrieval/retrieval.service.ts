@@ -473,6 +473,16 @@ export class RetrievalService {
     } catch (error) {
       if (signal?.aborted) {
         const failureStatus = "failure.timedout";
+        this.logger.warn({
+          event: "retrieval_ipni_verification_timed_out",
+          message: "Retrieval IPNI verification aborted by outer job timeout",
+          dealId,
+          providerId: provider.providerId,
+          providerName: provider.name,
+          providerAddress: provider.address,
+          ipfsRootCID: ipniContext.rootCid.toString(),
+          error: toStructuredError(error),
+        });
         this.discoverabilityMetrics.recordStatus(providerLabels, failureStatus);
         return { ok: false, failureStatus };
       }

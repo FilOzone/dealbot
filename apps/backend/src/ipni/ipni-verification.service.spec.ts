@@ -117,6 +117,37 @@ describe("IpniVerificationService", () => {
     expect(result.rootCIDVerified).toBe(false);
   });
 
+  it("logs ipni_verification_timed_out even when external signal also aborted in the same tick", async () => {
+    const service = new IpniVerificationService();
+    const loggerError = vi.spyOn((service as unknown as { logger: { error: (m: object) => void } }).logger, "error");
+    const abortController = new AbortController();
+    waitForIpniProviderResultsMock.mockImplementation(
+      async (_cid: CID, options: { signal?: AbortSignal } | undefined) =>
+        await new Promise<boolean>((_resolve, reject) => {
+          options?.signal?.addEventListener(
+            "abort",
+            () => {
+              // Race: outer signal aborts before the catch handler runs.
+              abortController.abort(new Error("outer aborted in same tick"));
+              reject(new Error("inner aborted"));
+            },
+            { once: true },
+          );
+        }),
+    );
+
+    const result = await service.verify({
+      rootCid,
+      storageProvider: buildStorageProvider(),
+      timeoutMs: 20,
+      pollIntervalMs: 2_000,
+      signal: abortController.signal,
+    });
+
+    expect(result.rootCIDVerified).toBe(false);
+    expect(loggerError).toHaveBeenCalledWith(expect.objectContaining({ event: "ipni_verification_timed_out" }));
+  });
+
   it("is capped by the external deal signal", async () => {
     const service = new IpniVerificationService();
     const abortController = new AbortController();
