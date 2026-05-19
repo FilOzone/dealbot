@@ -10,7 +10,7 @@
     "build:calibration": "pnpm run codegen && graph build --network filecoin-testnet",
     "deploy:mainnet": "goldsky subgraph deploy dealbot-mainnet/$VERSION --path ./build",
     "deploy:calibration": "goldsky subgraph deploy dealbot-calibration/$VERSION --path ./build",
-    "test": "graph test"
+    "test": "graph test && node --test scripts/check-networks.test.mjs"
   },
   "dependencies": {
     "@filoz/synapse-core": "0.3.3",
