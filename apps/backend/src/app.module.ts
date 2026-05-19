@@ -13,6 +13,7 @@ import { JobsModule } from "./jobs/jobs.module.js";
 import { MetricsPrometheusModule } from "./metrics-prometheus/metrics-prometheus.module.js";
 import { ProvidersModule } from "./providers/providers.module.js";
 import { RetrievalModule } from "./retrieval/retrieval.module.js";
+import { RetrievalAnonModule } from "./retrieval-anon/retrieval-anon.module.js";
 
 @Module({
   imports: [
@@ -28,6 +29,7 @@ import { RetrievalModule } from "./retrieval/retrieval.module.js";
     JobsModule,
     DealModule,
     RetrievalModule,
+    RetrievalAnonModule,
     DataSourceModule,
     ProvidersModule,
     ...(process.env.ENABLE_DEV_MODE === "true" ? [DevToolsModule] : []),
