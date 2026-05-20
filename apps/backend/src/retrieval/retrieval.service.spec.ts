@@ -804,14 +804,14 @@ describe("RetrievalService SP piece status pre-flight", () => {
     expect(mockRetrievalAddonsService.testAllRetrievalMethods).not.toHaveBeenCalled();
   });
 
-  it("URL-encodes the pieceCid in the probe URL", async () => {
+  it("strips trailing slash from serviceUrl and URL-encodes the pieceCid", async () => {
     const service = await createService();
     mockSpRepository.findOne.mockResolvedValue({
       address: "0xsp",
       providerId: 5,
       isApproved: true,
       name: "Test SP",
-      serviceUrl: "https://sp.example.com/base/",
+      serviceUrl: "https://sp.example.com/",
     });
     const fetchMock = vi.fn().mockResolvedValue({ status: 200, ok: true } as Response);
     vi.stubGlobal("fetch", fetchMock);

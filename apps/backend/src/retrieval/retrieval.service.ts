@@ -409,7 +409,7 @@ export class RetrievalService {
     pieceCid: string,
     outerSignal?: AbortSignal,
   ): Promise<{ result: "missing" | "exists" | "unknown"; url: string; statusCode: number | null; durationMs: number }> {
-    const url = new URL(`/pdp/piece/${encodeURIComponent(pieceCid)}/status`, serviceUrl).toString();
+    const url = `${serviceUrl.replace(/\/$/, "")}/pdp/piece/${encodeURIComponent(pieceCid)}/status`;
     const timeoutSignal = AbortSignal.timeout(SP_PIECE_STATUS_PROBE_TIMEOUT_MS);
     const signal = outerSignal ? AbortSignal.any([outerSignal, timeoutSignal]) : timeoutSignal;
     const start = Date.now();
