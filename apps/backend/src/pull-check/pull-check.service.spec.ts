@@ -330,7 +330,7 @@ describe("PullCheckService", () => {
       // Terminal aggregate status is success.
       expect(metricsMock.recordStatus).toHaveBeenCalledWith(expect.any(Object), "success");
 
-      // Eager forget removed; pieces expire via TTL rather than being deleted at job end.
+      // Pieces expire via TTL rather than being deleted at job end.
       expect(registryMock.forget).not.toHaveBeenCalled();
     });
 
