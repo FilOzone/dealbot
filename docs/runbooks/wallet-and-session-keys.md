@@ -22,7 +22,7 @@ DealBot uses a Safe multisig wallet with a session key for delegated signing. Th
 ## Overview
 
 - **Multisig wallet**: A Safe (safe.filecoin.io) 2-of-N multisig that owns the funds and datasets. Requires multiple signers for any direct wallet operation (deposits, operator approvals, etc.).
-- **Session key**: A regular Ethereum keypair registered on the SessionKeyRegistry contract with scoped permissions. DealBot uses this key for day-to-day operations (creating datasets, adding pieces) without needing multisig approval for each transaction.
+- **Session key**: A regular Ethereum keypair registered on the SessionKeyRegistry contract with scoped permissions. DealBot uses this key for day-to-day storage operations without needing multisig approval for each transaction.
 
 Multisig addresses and signers are documented in the [FOC Operational Excellence](https://www.notion.so/filecoindev/FOC-Operational-Excellence-2b7dc41950c1802aa432fff8ecb801cc#2fddc41950c180749b96e4ddc0fb6aaf) Notion page. The Safe UI is at [safe.filecoin.io](https://safe.filecoin.io/).
 
@@ -76,7 +76,7 @@ node scripts/create-session-key-safe.mjs \
 
 The script outputs:
 1. The session key address and private key
-2. Permission hashes being registered (CreateDataSet, AddPieces, SchedulePieceRemovals, DeleteDataSet)
+2. Permission hashes being registered (CreateDataSet, AddPieces, SchedulePieceRemovals, TerminateService)
 3. Safe transaction details: target contract address and ABI-encoded calldata
 4. Verification: the decoded calldata for human review before submission
 5. The `SESSION_KEY_PRIVATE_KEY` env var value for deployment
@@ -136,7 +136,7 @@ Monitor expiry dates. A session key that expires while DealBot is running will c
 
 ## Payment Setup
 
-Session keys can only perform scoped storage operations (create datasets, add pieces, schedule removals). They cannot:
+Session keys can only perform scoped storage operations (create datasets, add pieces, schedule removals, terminate service). They cannot:
 
 - Deposit USDFC into Filecoin Pay
 - Approve FWSS as an operator
