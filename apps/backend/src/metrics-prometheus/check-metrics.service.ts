@@ -2,6 +2,7 @@ import { Injectable, Logger } from "@nestjs/common";
 import { InjectMetric } from "@willsoto/nestjs-prometheus";
 import type { Counter, Histogram } from "prom-client";
 import type { Deal } from "../database/entities/deal.entity.js";
+import { IpniCheckStatus } from "../database/types.js";
 import type { RetrievalExecutionResult } from "../retrieval-addons/types.js";
 import { buildCheckMetricLabels, type CheckMetricLabels } from "./check-metric-labels.js";
 
@@ -303,7 +304,7 @@ export class AnonRetrievalCheckMetrics {
     this.carParseCounter.inc({ ...labels, value: parseable ? "parseable" : "not_parseable" });
   }
 
-  recordIpniStatus(labels: CheckMetricLabels, value: "valid" | "invalid" | "skipped" | "error"): void {
+  recordIpniStatus(labels: CheckMetricLabels, value: IpniCheckStatus): void {
     this.ipniCounter.inc({ ...labels, value });
   }
 
