@@ -34,6 +34,7 @@ export class PieceRetrievalService {
         ttfbMs: 0,
         throughputBps: 0,
         statusCode: 0,
+        httpSuccess: false,
         commPValid: false,
         errorMessage: `Provider info not found for ${spAddress}`,
       };
@@ -49,7 +50,7 @@ export class PieceRetrievalService {
       });
 
       const { metrics } = result;
-      const isSuccess = metrics.statusCode >= 200 && metrics.statusCode < 300;
+      const isHttpSuccess = metrics.statusCode >= 200 && metrics.statusCode < 300;
       const throughputBps = metrics.totalTime > 0 ? metrics.responseSize / (metrics.totalTime / 1000) : 0;
 
       if (result.aborted) {
@@ -73,13 +74,14 @@ export class PieceRetrievalService {
           ttfbMs: metrics.ttfb,
           throughputBps,
           statusCode: metrics.statusCode,
+          httpSuccess: false,
           commPValid: false,
           errorMessage: result.abortReason ?? "aborted",
           aborted: true,
         };
       }
 
-      if (!isSuccess) {
+      if (!isHttpSuccess) {
         this.logger.warn({
           event: "piece_fetch_non_2xx",
           message: "Piece fetch returned non-2xx status",
@@ -98,6 +100,7 @@ export class PieceRetrievalService {
           ttfbMs: metrics.ttfb,
           throughputBps,
           statusCode: metrics.statusCode,
+          httpSuccess: false,
           commPValid: false,
           errorMessage: `HTTP ${metrics.statusCode}`,
         };
@@ -105,6 +108,36 @@ export class PieceRetrievalService {
 
       const pieceBytes = Buffer.isBuffer(result.data) ? result.data : Buffer.from(result.data);
       const commPValid = await this.validateCommP(pieceBytes, pieceCid);
+
+      if (!commPValid) {
+        // A 2xx response with bytes that don't hash to the requested piece CID
+        // is a retrieval failure, not a success — downstream consumers must not
+        // treat it as a successfully-served piece. Don't propagate the wrong
+        // bytes either, so a misbehaving SP can't drag CAR parsing into the
+        // failure mode.
+        this.logger.warn({
+          event: "piece_fetch_commp_mismatch",
+          message: "Piece fetched but bytes do not match requested piece CID",
+          url,
+          pieceCid,
+          spAddress,
+          bytesReceived: metrics.responseSize,
+        });
+
+        return {
+          success: false,
+          pieceCid,
+          bytesReceived: metrics.responseSize,
+          pieceBytes: null,
+          latencyMs: metrics.totalTime,
+          ttfbMs: metrics.ttfb,
+          throughputBps,
+          statusCode: metrics.statusCode,
+          httpSuccess: isHttpSuccess,
+          commPValid: false,
+          errorMessage: `CommP mismatch: bytes do not match ${pieceCid}`,
+        };
+      }
 
       this.logger.debug({
         event: "piece_fetch_success",
@@ -125,6 +158,7 @@ export class PieceRetrievalService {
         ttfbMs: metrics.ttfb,
         throughputBps,
         statusCode: metrics.statusCode,
+        httpSuccess: isHttpSuccess,
         commPValid,
       };
     } catch (error) {
@@ -148,6 +182,7 @@ export class PieceRetrievalService {
         ttfbMs: 0,
         throughputBps: 0,
         statusCode: 0,
+        httpSuccess: false,
         commPValid: false,
         errorMessage: error instanceof Error ? error.message : String(error),
         aborted,

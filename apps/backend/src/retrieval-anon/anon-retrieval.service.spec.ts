@@ -127,6 +127,7 @@ describe("AnonRetrievalService", () => {
       ttfbMs: 150,
       throughputBps: 12500,
       statusCode: 200,
+      httpSuccess: false,
       commPValid: false,
       errorMessage: "Anon retrieval job timeout (60s) for sp1",
       aborted: true,
@@ -177,6 +178,7 @@ describe("AnonRetrievalService", () => {
       ttfbMs: 0,
       throughputBps: 0,
       statusCode: 0,
+      httpSuccess: false,
       commPValid: false,
     };
 
@@ -203,6 +205,7 @@ describe("AnonRetrievalService", () => {
       ttfbMs: 0,
       throughputBps: 0,
       statusCode: 0,
+      httpSuccess: false,
       commPValid: false,
     };
 
@@ -237,6 +240,7 @@ describe("AnonRetrievalService", () => {
         ttfbMs: 20,
         throughputBps: 51200,
         statusCode: 200,
+        httpSuccess: true,
         commPValid: true,
       };
     }
@@ -331,11 +335,13 @@ describe("AnonRetrievalService", () => {
     });
 
     it("skips CAR/IPNI/block-fetch when SP returns 2xx with wrong bytes (commPValid=false)", async () => {
-      // If commP doesn't match, downstream parsing/IPNI/block-fetch would be
-      // checking unrelated data and record meaningless failures under the wrong
-      // dimension. The overall status must surface as failure.commp.
+      // fetchPiece flips success=false on a commP mismatch (a 2xx response with
+      // the wrong bytes is a retrieval failure, not a success). Downstream
+      // parsing/IPNI/block-fetch must therefore be skipped, and the overall
+      // status must surface as failure.commp — distinguished from failure.http
+      // by the still-2xx statusCode.
       const wrongBytes: PieceRetrievalResult = {
-        success: true,
+        success: false,
         pieceCid: INDEXED_PIECE.pieceCid,
         bytesReceived: 1024,
         pieceBytes: Buffer.from("garbage-bytes"),
@@ -343,7 +349,9 @@ describe("AnonRetrievalService", () => {
         ttfbMs: 20,
         throughputBps: 51200,
         statusCode: 200,
+        httpSuccess: true,
         commPValid: false,
+        errorMessage: `CommP mismatch: bytes do not match ${INDEXED_PIECE.pieceCid}`,
       };
 
       const {
@@ -366,7 +374,7 @@ describe("AnonRetrievalService", () => {
       expect(metricsRecordStatusSpy).toHaveBeenCalledWith(expect.anything(), "failure.commp");
 
       const [, row] = insertSpy.mock.calls[0] as [string, Record<string, unknown>];
-      expect(row.piece_fetch_status).toBe(RetrievalStatus.SUCCESS);
+      expect(row.piece_fetch_status).toBe(RetrievalStatus.FAILED);
       expect(row.commp_valid).toBe(false);
       expect(row.car_parseable).toBeNull();
       expect(row.ipni_status).toBe("skipped");

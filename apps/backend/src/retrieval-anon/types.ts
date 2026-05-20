@@ -19,6 +19,7 @@ export type PieceRetrievalResult = {
   ttfbMs: number;
   throughputBps: number;
   statusCode: number;
+  httpSuccess: boolean;
   commPValid: boolean;
   errorMessage?: string;
   aborted?: boolean;

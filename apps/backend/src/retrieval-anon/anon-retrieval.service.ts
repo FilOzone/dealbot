@@ -87,10 +87,11 @@ export class AnonRetrievalService {
       this.metrics.observeThroughput(labels, pieceResult.throughputBps);
       this.metrics.recordHttpResponseCode(labels, pieceResult.statusCode);
 
-      // 3. CAR validation (only if piece was successfully retrieved with matching commp and has IPFS indexing).
+      // 3. CAR validation (only if piece was successfully retrieved and has IPFS indexing).
+      // `pieceResult.success` already encodes "HTTP 2xx AND commP matches" — fetchPiece
+      // flips success=false on a commP mismatch so we never parse mismatched bytes.
       if (
         pieceResult.success &&
-        pieceResult.commPValid &&
         piece.withIPFSIndexing &&
         piece.ipfsRootCid &&
         pieceResult.pieceBytes &&
@@ -129,10 +130,9 @@ export class AnonRetrievalService {
             error: toStructuredError(error),
           });
         }
-      } else if (!pieceResult.success || !pieceResult.commPValid) {
-        // Piece retrieval failed or SP returned bytes that don't match the requested
-        // commP — downstream validation was skipped because there is nothing
-        // trustworthy to validate.
+      } else if (!pieceResult.success) {
+        // Piece retrieval failed (HTTP error or commP mismatch) — downstream
+        // validation was skipped because there is nothing trustworthy to validate.
         this.metrics.recordIpniStatus(labels, IpniCheckStatus.SKIPPED);
         this.metrics.recordBlockFetchStatus(labels, IpniCheckStatus.SKIPPED);
       }
@@ -177,7 +177,7 @@ export class AnonRetrievalService {
           last_byte_ms: finalPieceResult.latencyMs > 0 ? finalPieceResult.latencyMs : null,
           bytes_retrieved: finalPieceResult.bytesReceived > 0 ? finalPieceResult.bytesReceived : null,
           throughput_bps: finalPieceResult.throughputBps > 0 ? Math.round(finalPieceResult.throughputBps) : null,
-          commp_valid: finalPieceResult.success ? finalPieceResult.commPValid : null,
+          commp_valid: !finalPieceResult.aborted && finalPieceResult.httpSuccess ? finalPieceResult.commPValid : null,
           car_parseable: carResult ? carResult.carParseable : null,
           car_block_count: carResult?.carParseable ? carResult?.blockCount : null,
           block_fetch_endpoint: carResult?.blockFetchEndpoint ?? null,
@@ -227,10 +227,11 @@ function ipniStatusFromResult(result: CarValidationResult): IpniCheckStatus {
 }
 
 function anonPieceRetrievalStatus(pieceResult: PieceRetrievalResult): string {
-  if (pieceResult.success && pieceResult.commPValid) return "success";
+  if (pieceResult.success) return "success";
   if (pieceResult.aborted) return "failure.timedout";
-  if (pieceResult.success) return "failure.commp";
-  return "failure.http";
+  if (!pieceResult.httpSuccess) return "failure.http";
+  if (!pieceResult.commPValid) return "failure.commp";
+  return "failure.other";
 }
 
 function buildAbortedPlaceholder(pieceCid: string, reason: unknown): PieceRetrievalResult {
@@ -245,6 +246,7 @@ function buildAbortedPlaceholder(pieceCid: string, reason: unknown): PieceRetrie
     ttfbMs: 0,
     throughputBps: 0,
     statusCode: 0,
+    httpSuccess: false,
     commPValid: false,
     errorMessage: message,
     aborted: true,
