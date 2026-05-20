@@ -60,6 +60,19 @@ describe("AnonPieceSelectorService", () => {
     expect(result?.serviceProvider).toBe(SP_ADDRESS.toLowerCase());
   });
 
+  it("returns null without sampling when the signal is already aborted", async () => {
+    sampleAnonPiece.mockResolvedValue(makePiece());
+    const service = new AnonPieceSelectorService(subgraphService, makeConfigService());
+
+    const ac = new AbortController();
+    ac.abort(new Error("Anon retrieval job timeout"));
+
+    const result = await service.selectPieceForProvider(SP_ADDRESS, ac.signal);
+
+    expect(result).toBeNull();
+    expect(sampleAnonPiece).not.toHaveBeenCalled();
+  });
+
   it("passes the dealbot payer address to sampleAnonPiece for exclusion", async () => {
     sampleAnonPiece.mockResolvedValueOnce(makePiece());
     const service = new AnonPieceSelectorService(subgraphService, makeConfigService());

@@ -1,5 +1,6 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
+import { delay } from "../common/abort-utils.js";
 import { toStructuredError } from "../common/logging.js";
 import type { IBlockchainConfig, IConfig } from "../config/app.config.js";
 import { buildSampleAnonPieceQuery, Queries } from "./queries.js";
@@ -127,7 +128,7 @@ export class SubgraphService {
    * `pdpPaymentEndEpoch` is returned to the caller for a cheap client-side
    * epoch comparison — GraphQL filters on nullable BigInts are awkward.
    */
-  async sampleAnonPiece(params: SampleAnonPieceParams): Promise<AnonCandidatePiece | null> {
+  async sampleAnonPiece(params: SampleAnonPieceParams, signal?: AbortSignal): Promise<AnonCandidatePiece | null> {
     if (!this.blockchainConfig.subgraphEndpoint) {
       // Surface misconfiguration distinctly so it does not look like an empty
       // candidate pool (which silently no-ops every anon retrieval job).
@@ -152,6 +153,7 @@ export class SubgraphService {
       query,
       variables,
       validateSampleAnonPieceResponse,
+      signal,
     );
 
     const root = validated.roots[0];
@@ -191,6 +193,7 @@ export class SubgraphService {
     query: string,
     variables: Record<string, unknown>,
     transform: (data: unknown) => T,
+    signal?: AbortSignal,
     attempt: number = 1,
   ): Promise<T> {
     if (!this.blockchainConfig.subgraphEndpoint) {
@@ -198,12 +201,13 @@ export class SubgraphService {
     }
 
     try {
-      await this.enforceRateLimit();
+      await this.enforceRateLimit(1, signal);
 
       const response = await fetch(this.blockchainConfig.subgraphEndpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ query, variables }),
+        signal,
       });
 
       if (!response.ok) {
@@ -235,18 +239,24 @@ export class SubgraphService {
         throw error;
       }
 
+      // Aborted requests should surface immediately — retrying after the job
+      // budget has been spent only wastes the remaining MAX_RETRIES slots.
+      if (signal?.aborted || (error instanceof Error && error.name === "AbortError")) {
+        throw error;
+      }
+
       if (attempt < SubgraphService.MAX_RETRIES) {
-        const delay = SubgraphService.INITIAL_RETRY_DELAY_MS * (1 << (attempt - 1));
+        const delayMs = SubgraphService.INITIAL_RETRY_DELAY_MS * (1 << (attempt - 1));
         this.logger.warn({
           event: `subgraph_${operationName}_request_retry`,
           message: `Subgraph ${operationName} request failed. Retrying...`,
           attempt,
           maxRetries: SubgraphService.MAX_RETRIES,
-          retryDelayMs: delay,
+          retryDelayMs: delayMs,
           error: toStructuredError(error),
         });
-        await new Promise((resolve) => setTimeout(resolve, delay));
-        return this.executeQuery(operationName, query, variables, transform, attempt + 1);
+        await delay(delayMs, signal);
+        return this.executeQuery(operationName, query, variables, transform, signal, attempt + 1);
       }
 
       this.logger.error({
@@ -385,7 +395,7 @@ export class SubgraphService {
    * This rate limit is applied by Goldsky on their public endpoints
    * Read more here: https://docs.goldsky.com/subgraphs/graphql-endpoints#public-endpoints
    */
-  private async enforceRateLimit(requestCount: number = 1): Promise<void> {
+  private async enforceRateLimit(requestCount: number = 1, signal?: AbortSignal): Promise<void> {
     if (requestCount > SubgraphService.MAX_CONCURRENT_REQUESTS) {
       throw new Error(
         `Cannot request ${requestCount} items; exceeds rate limit window of ${SubgraphService.MAX_CONCURRENT_REQUESTS}`,
@@ -409,8 +419,8 @@ export class SubgraphService {
       const waitTime = oldestTimestamp + SubgraphService.RATE_LIMIT_WINDOW_MS - now + 10;
 
       if (waitTime > 0) {
-        await new Promise((resolve) => setTimeout(resolve, waitTime));
-        return this.enforceRateLimit(requestCount);
+        await delay(waitTime, signal);
+        return this.enforceRateLimit(requestCount, signal);
       }
     }
 

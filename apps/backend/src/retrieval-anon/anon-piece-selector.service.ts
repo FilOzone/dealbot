@@ -64,7 +64,7 @@ export class AnonPieceSelectorService {
    * 5. If still empty, fall back through: (same bucket, opposite pool) →
    *    (any bucket, indexed) → (any bucket, any).
    */
-  async selectPieceForProvider(spAddress: string): Promise<AnonPiece | null> {
+  async selectPieceForProvider(spAddress: string, signal?: AbortSignal): Promise<AnonPiece | null> {
     const dealbotPayer = this.configService.get("blockchain", { infer: true }).walletAddress;
 
     const bucket = this.pickBucket();
@@ -78,11 +78,15 @@ export class AnonPieceSelectorService {
     ];
 
     for (const attempt of attempts) {
+      if (signal?.aborted) {
+        return null;
+      }
       const piece = await this.drawPiece({
         spAddress,
         dealbotPayer,
         bucket: attempt.bucket,
         pool: attempt.pool,
+        signal,
       });
 
       if (piece) {
@@ -127,10 +131,14 @@ export class AnonPieceSelectorService {
     dealbotPayer: string;
     bucket: SizeBucket | "any";
     pool: AnonPiecePool;
+    signal?: AbortSignal;
   }): Promise<AnonCandidatePiece | null> {
     const range = args.bucket === "any" ? fullRange() : SIZE_BUCKETS[args.bucket];
 
     for (let attempt = 0; attempt < 2; attempt++) {
+      if (args.signal?.aborted) {
+        return null;
+      }
       const params: SampleAnonPieceParams = {
         serviceProvider: args.spAddress,
         payer: args.dealbotPayer,
@@ -140,7 +148,7 @@ export class AnonPieceSelectorService {
         pool: args.pool,
       };
 
-      const piece = await this.subgraphService.sampleAnonPiece(params);
+      const piece = await this.subgraphService.sampleAnonPiece(params, args.signal);
       if (!piece) {
         continue;
       }

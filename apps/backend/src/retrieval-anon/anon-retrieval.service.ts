@@ -42,7 +42,7 @@ export class AnonRetrievalService {
     });
 
     // 1. Select an anonymous piece
-    const piece = await this.anonPieceSelectorService.selectPieceForProvider(spAddress);
+    const piece = await this.anonPieceSelectorService.selectPieceForProvider(spAddress, signal);
     if (!piece) {
       this.logger.warn({
         ...logContext,
