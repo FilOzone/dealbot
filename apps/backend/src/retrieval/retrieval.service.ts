@@ -136,19 +136,15 @@ export class RetrievalService {
           { id: deal.id, cleanedUp: false },
           { cleanedUp: true, cleanedUpAt: new Date() },
         );
-        const affected = updateResult.affected ?? 0;
         this.retrievalMetrics.recordStatus(providerLabels, "skipped.piece_missing");
         this.logger.warn({
           ...retrievalLogContext,
           event: "retrieval_skipped_piece_missing",
-          message:
-            affected > 0
-              ? "SP reports piece missing; marked deal cleaned_up and skipped retrieval"
-              : "SP reports piece missing; deal already cleaned_up (concurrent writer)",
+          message: "SP reports piece missing; marked deal cleaned_up and skipped retrieval",
           statusUrl: probe.url,
           statusCode: probe.statusCode,
           probeDurationMs: probe.durationMs,
-          affected,
+          affected: updateResult.affected ?? 0,
         });
         return [];
       }
