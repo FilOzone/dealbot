@@ -22,6 +22,8 @@ import { calibration, mainnet } from "@filoz/synapse-core/chains";
 import {
   AddPiecesPermission,
   CreateDataSetPermission,
+  DefaultFwssPermissions,
+  DeleteDataSetPermission,
   loginCall,
   SchedulePieceRemovalsPermission,
 } from "@filoz/synapse-core/session-key";
@@ -43,14 +45,11 @@ const chain = networkName === "mainnet" ? mainnet : calibration;
 const sessionAccount = privateKeyToAccount(sessionPrivateKey);
 const expiresAt = BigInt(Math.floor(Date.now() / 1000) + expiryDays * 24 * 60 * 60);
 const expiryDate = new Date(Number(expiresAt) * 1000);
-// TODO: Import TerminateServicePermission and DefaultFwssPermissions after DealBot upgrades to a Synapse SDK release that includes them.
+// TODO: import TerminateServicePermission from @filoz/synapse-core/session-key once it is exported there.
 const TerminateServicePermission = keccak256(stringToHex("TerminateService(uint256 dataSetId)"));
-const DealBotFwssPermissions = [
-  CreateDataSetPermission,
-  AddPiecesPermission,
-  SchedulePieceRemovalsPermission,
-  TerminateServicePermission,
-];
+// Backend rejects session keys missing any permission in SessionKey.DefaultFwssPermissions, so register
+// a superset: the defaults plus TerminateService. Extra permissions on the registry are accepted.
+const DealBotFwssPermissions = Array.from(new Set([...DefaultFwssPermissions, TerminateServicePermission]));
 
 // Use the SDK's loginCall to get the exact ABI and args
 const call = loginCall({
@@ -79,6 +78,7 @@ const permissionLabels = {
   [CreateDataSetPermission]: "CreateDataSet",
   [AddPiecesPermission]: "AddPieces",
   [SchedulePieceRemovalsPermission]: "SchedulePieceRemovals",
+  [DeleteDataSetPermission]: "DeleteDataSet",
   [TerminateServicePermission]: "TerminateService",
 };
 
