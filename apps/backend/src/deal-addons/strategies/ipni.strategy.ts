@@ -15,7 +15,10 @@ import { IpniStatus, ServiceType } from "../../database/types.js";
 import { HttpClientService } from "../../http-client/http-client.service.js";
 import { IpniVerificationService } from "../../ipni/ipni-verification.service.js";
 import { classifyFailureStatus } from "../../metrics-prometheus/check-metric-labels.js";
-import { DiscoverabilityCheckMetrics } from "../../metrics-prometheus/check-metrics.service.js";
+import {
+  classifyIpniVerifyOutcome,
+  DiscoverabilityCheckMetrics,
+} from "../../metrics-prometheus/check-metrics.service.js";
 
 import type { IDealAddon } from "../interfaces/deal-addon.interface.js";
 import type { AddonExecutionContext, DealConfiguration, IpniPreprocessingResult, SynapseConfig } from "../types.js";
@@ -344,6 +347,7 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
         hasRootCID: Boolean(rootCID),
         blockCIDCount: blockCIDs.length,
       });
+      this.discoverabilityMetrics.incrementIpniVerifySkipped(this.discoverabilityMetrics.buildLabelsForDeal(deal));
       return {
         monitoringResult,
         ipniResult: {
@@ -372,6 +376,7 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
         rootCID,
         error: toStructuredError(error),
       });
+      this.discoverabilityMetrics.incrementIpniVerifySkipped(this.discoverabilityMetrics.buildLabelsForDeal(deal));
       return {
         monitoringResult,
         ipniResult: {
@@ -399,18 +404,31 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       ipniVerificationPollingMs: ipniPollIntervalMs,
     });
     // NOTE: filecoin-pin does not currently validate that all blocks are advertised on IPNI.
-    const ipniResult = await this.ipniVerificationService.verify({
-      rootCid: rootCidObj,
-      blockCids: blockCIDs,
-      storageProvider,
-      timeoutMs: ipniTimeoutMs,
-      pollIntervalMs: ipniPollIntervalMs,
-      signal,
-    });
+    const ipniVerifyStartMs = Date.now();
+    let ipniResult: Awaited<ReturnType<typeof this.ipniVerificationService.verify>>;
+    try {
+      ipniResult = await this.ipniVerificationService.verify({
+        rootCid: rootCidObj,
+        blockCids: blockCIDs,
+        storageProvider,
+        timeoutMs: ipniTimeoutMs,
+        pollIntervalMs: ipniPollIntervalMs,
+        signal,
+      });
+    } catch (error) {
+      const durationMs = Date.now() - ipniVerifyStartMs;
+      this.discoverabilityMetrics.observeIpniVerifyMs(
+        this.discoverabilityMetrics.buildLabelsForDeal(deal),
+        durationMs,
+        signal?.aborted ? "timeout" : "error",
+      );
+      throw error;
+    }
 
     this.discoverabilityMetrics.observeIpniVerifyMs(
       this.discoverabilityMetrics.buildLabelsForDeal(deal),
       ipniResult.durationMs,
+      classifyIpniVerifyOutcome(ipniResult, ipniTimeoutMs),
     );
 
     if (ipniResult.rootCIDVerified) {
