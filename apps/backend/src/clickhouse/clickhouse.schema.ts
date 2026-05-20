@@ -78,5 +78,28 @@ export function buildMigrations(database: string): string[] {
   PRIMARY KEY (probe_location, sp_address, timestamp)
   PARTITION BY toStartOfMonth(timestamp)
   TTL toDateTime(timestamp) + INTERVAL 1 YEAR`,
+
+    `CREATE TABLE IF NOT EXISTS ${database}.pull_checks
+(
+    timestamp                   DateTime64(3, 'UTC'),           -- when the pull check terminated
+    probe_location              LowCardinality(String),         -- dealbot location
+    sp_address                  String,                         -- storage provider address
+    sp_id                       Nullable(UInt64),               -- storage provider numeric id
+    sp_name                     Nullable(String),               -- storage provider name
+
+    piece_cid                   Nullable(String),               -- piece CID of the synthetic test piece; null if preparation failed
+    piece_size_bytes            Nullable(UInt64),               -- size of the synthetic piece in bytes; null if preparation failed
+
+    status                      LowCardinality(String),         -- 'success' | 'failure.timedout' | 'failure.other'
+    provider_status             LowCardinality(Nullable(String)), -- raw SP-reported terminal pull status (e.g. 'complete', 'failed'); null if the request was never acknowledged or if waiting for pull status errored or timed out
+
+    acknowledgement_latency_ms  Nullable(Float64),              -- time from pullPieces submission to SP acknowledgement (ms)
+    completion_latency_ms       Nullable(Float64),              -- time from pullPieces submission to terminal SP pull status (ms)
+    first_byte_ms               Nullable(Float64),              -- time from pullPieces submission to SP reading first byte of hosted piece (ms); null when check failed before first byte
+    throughput_bps              Nullable(Float64)               -- approx bytes/sec = piece_size_bytes / completion_latency_ms * 1000; null on failure
+) ENGINE MergeTree()
+  PRIMARY KEY (probe_location, sp_address, timestamp)
+  PARTITION BY toStartOfMonth(timestamp)
+  TTL toDateTime(timestamp) + INTERVAL 1 YEAR`,
   ];
 }

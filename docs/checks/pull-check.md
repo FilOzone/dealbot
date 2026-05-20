@@ -14,8 +14,6 @@ The pull check answers a different question than the [Data Storage check](./data
 
 A successful pull check requires all [assertions in the table below](#what-gets-asserted) to pass. Failure occurs if any step fails or the job exceeds its max allowed time. Operational timeouts exist to prevent jobs from running indefinitely, but they are not quality assertions.
 
-> **Where results live:** Pull check results are exported to Prometheus and structured logs only. They are **not** persisted in Postgres or written to ClickHouse.
-
 ## What Gets Asserted
 
 Each pull check asserts the following for every SP:

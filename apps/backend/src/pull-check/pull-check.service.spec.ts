@@ -2,6 +2,7 @@ import { Readable } from "node:stream";
 import { ConfigService } from "@nestjs/config";
 import { Test, type TestingModule } from "@nestjs/testing";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { ClickhouseService } from "../clickhouse/clickhouse.service.js";
 import type { IConfig } from "../config/app.config.js";
 import { DataSourceService } from "../dataSource/dataSource.service.js";
 import { HttpClientService } from "../http-client/http-client.service.js";
@@ -66,6 +67,7 @@ describe("PullCheckService", () => {
     observeThroughputBps: ReturnType<typeof vi.fn>;
     recordStatus: ReturnType<typeof vi.fn>;
   };
+  let clickhouseServiceMock: { insert: ReturnType<typeof vi.fn>; probeLocation: string };
   let configValues: Partial<IConfig>;
 
   beforeEach(async () => {
@@ -96,6 +98,7 @@ describe("PullCheckService", () => {
       observeThroughputBps: vi.fn(),
       recordStatus: vi.fn(),
     };
+    clickhouseServiceMock = { insert: vi.fn(), probeLocation: "test" };
 
     configValues = {
       app: { host: "localhost", port: 3000, apiPublicUrl: "https://dealbot.example" } as IConfig["app"],
@@ -125,6 +128,7 @@ describe("PullCheckService", () => {
         { provide: PullPieceRepository, useValue: registryMock },
         { provide: PullCheckCheckMetrics, useValue: metricsMock },
         { provide: HttpClientService, useValue: httpClientServiceMock },
+        { provide: ClickhouseService, useValue: clickhouseServiceMock },
       ],
     }).compile();
 
@@ -332,6 +336,18 @@ describe("PullCheckService", () => {
 
       // Cleanup ran (forget called)
       expect(registryMock.forget).toHaveBeenCalledWith(registration.pieceCid);
+      // ClickHouse row written with the check result.
+      expect(clickhouseServiceMock.insert).toHaveBeenCalledWith(
+        "pull_checks",
+        expect.objectContaining({
+          probe_location: "test",
+          sp_address: "0xsp",
+          piece_cid: "bafk-test-piece",
+          piece_size_bytes: 1024,
+          status: "success",
+          provider_status: "complete",
+        }),
+      );
     });
 
     it("does not observe firstByte when the SP never read from /api/piece (cached pull)", async () => {
@@ -361,6 +377,15 @@ describe("PullCheckService", () => {
       expect(metricsMock.recordStatus).toHaveBeenLastCalledWith(expect.any(Object), "failure.other");
       // Cleanup still runs in the finally block.
       expect(registryMock.forget).toHaveBeenCalled();
+      // ClickHouse row written with the failure outcome.
+      expect(clickhouseServiceMock.insert).toHaveBeenCalledWith(
+        "pull_checks",
+        expect.objectContaining({
+          sp_address: "0xsp",
+          status: "failure.other",
+          provider_status: "failed",
+        }),
+      );
     });
 
     it("classifies timeouts as failure.timedout", async () => {
@@ -369,6 +394,13 @@ describe("PullCheckService", () => {
 
       await expect(service.runPullCheck("0xsp", undefined, logContext)).rejects.toThrow();
       expect(metricsMock.recordStatus).toHaveBeenLastCalledWith(expect.any(Object), "failure.timedout");
+      expect(clickhouseServiceMock.insert).toHaveBeenCalledWith(
+        "pull_checks",
+        expect.objectContaining({
+          sp_address: "0xsp",
+          status: "failure.timedout",
+        }),
+      );
     });
 
     it("re-throws and runs cleanup when the validation step fails", async () => {
@@ -405,6 +437,26 @@ describe("PullCheckService", () => {
 
       await expect(service.runPullCheck("0xsp", undefined, logContext)).rejects.toThrow(/Synapse client unavailable/);
       expect(metricsMock.recordStatus).toHaveBeenLastCalledWith(expect.any(Object), "failure.other");
+    });
+
+    it("writes a ClickHouse row with null sp fields when the provider is unknown", async () => {
+      walletSdkServiceMock.getProviderInfo.mockReturnValue(undefined);
+
+      await expect(service.runPullCheck("0xsp", undefined, logContext)).rejects.toThrow(/not found/);
+      // No metrics recorded (labels could not be built).
+      expect(metricsMock.recordStatus).not.toHaveBeenCalled();
+      // ClickHouse row still written: sp_address is always available,
+      // sp_id and sp_name are null since providerInfo was never resolved.
+      expect(clickhouseServiceMock.insert).toHaveBeenCalledWith(
+        "pull_checks",
+        expect.objectContaining({
+          sp_address: "0xsp",
+          sp_id: null,
+          sp_name: null,
+          piece_cid: null,
+          status: "failure.other",
+        }),
+      );
     });
   });
 
