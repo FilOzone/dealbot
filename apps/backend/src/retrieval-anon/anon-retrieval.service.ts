@@ -87,9 +87,10 @@ export class AnonRetrievalService {
       this.metrics.observeThroughput(labels, pieceResult.throughputBps);
       this.metrics.recordHttpResponseCode(labels, pieceResult.statusCode);
 
-      // 3. CAR validation (only if piece was successfully retrieved and has IPFS indexing)
+      // 3. CAR validation (only if piece was successfully retrieved with matching commp and has IPFS indexing).
       if (
         pieceResult.success &&
+        pieceResult.commPValid &&
         piece.withIPFSIndexing &&
         piece.ipfsRootCid &&
         pieceResult.pieceBytes &&
@@ -128,8 +129,10 @@ export class AnonRetrievalService {
             error: toStructuredError(error),
           });
         }
-      } else if (!pieceResult.success) {
-        // Piece retrieval failed — IPNI and block fetch were skipped
+      } else if (!pieceResult.success || !pieceResult.commPValid) {
+        // Piece retrieval failed or SP returned bytes that don't match the requested
+        // commP — downstream validation was skipped because there is nothing
+        // trustworthy to validate.
         this.metrics.recordIpniStatus(labels, IpniCheckStatus.SKIPPED);
         this.metrics.recordBlockFetchStatus(labels, IpniCheckStatus.SKIPPED);
       }

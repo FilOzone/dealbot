@@ -330,6 +330,49 @@ describe("AnonRetrievalService", () => {
       expect(row.car_parseable).toBeNull();
     });
 
+    it("skips CAR/IPNI/block-fetch when SP returns 2xx with wrong bytes (commPValid=false)", async () => {
+      // If commP doesn't match, downstream parsing/IPNI/block-fetch would be
+      // checking unrelated data and record meaningless failures under the wrong
+      // dimension. The overall status must surface as failure.commp.
+      const wrongBytes: PieceRetrievalResult = {
+        success: true,
+        pieceCid: INDEXED_PIECE.pieceCid,
+        bytesReceived: 1024,
+        pieceBytes: Buffer.from("garbage-bytes"),
+        latencyMs: 200,
+        ttfbMs: 20,
+        throughputBps: 51200,
+        statusCode: 200,
+        commPValid: false,
+      };
+
+      const {
+        service,
+        insertSpy,
+        validateCarSpy,
+        metricsRecordStatusSpy,
+        metricsRecordIpniSpy,
+        metricsRecordBlockFetchSpy,
+      } = makeService({
+        pieceResult: wrongBytes,
+        piece: INDEXED_PIECE,
+      });
+
+      await service.performForProvider(SP_ADDRESS);
+
+      expect(validateCarSpy).not.toHaveBeenCalled();
+      expect(metricsRecordIpniSpy).toHaveBeenCalledWith(expect.anything(), "skipped");
+      expect(metricsRecordBlockFetchSpy).toHaveBeenCalledWith(expect.anything(), "skipped");
+      expect(metricsRecordStatusSpy).toHaveBeenCalledWith(expect.anything(), "failure.commp");
+
+      const [, row] = insertSpy.mock.calls[0] as [string, Record<string, unknown>];
+      expect(row.piece_fetch_status).toBe(RetrievalStatus.SUCCESS);
+      expect(row.commp_valid).toBe(false);
+      expect(row.car_parseable).toBeNull();
+      expect(row.ipni_status).toBe("skipped");
+      expect(row.block_fetch_valid).toBeNull();
+    });
+
     it("emits car_parseable=false with skipped IPNI/block-fetch when bytes don't parse as CAR", async () => {
       const carResult: CarValidationResult = {
         carParseable: false,
