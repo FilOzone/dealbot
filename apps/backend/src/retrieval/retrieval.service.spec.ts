@@ -724,10 +724,7 @@ describe("RetrievalService SP piece status pre-flight", () => {
       expect.objectContaining({ cleanedUp: true, cleanedUpAt: expect.any(Date) }),
     );
     expect(mockRetrievalAddonsService.testAllRetrievalMethods).not.toHaveBeenCalled();
-    expect(mockRetrievalMetrics.recordStatus).toHaveBeenCalledWith(
-      expect.any(Object),
-      "skipped.piece_missing",
-    );
+    expect(mockRetrievalMetrics.recordStatus).toHaveBeenCalledWith(expect.any(Object), "skipped.piece_missing");
     expect(fetchMock).toHaveBeenCalledWith(
       "https://sp.example.com/pdp/piece/bafy-piece/status",
       expect.objectContaining({ method: "GET" }),
@@ -743,10 +740,7 @@ describe("RetrievalService SP piece status pre-flight", () => {
       name: "Test SP",
       serviceUrl: "https://sp.example.com",
     });
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({ status: 200, ok: true } as Response),
-    );
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ status: 200, ok: true } as Response));
 
     await service.performAllRetrievals(buildDeal()).catch(() => undefined);
 
@@ -763,10 +757,7 @@ describe("RetrievalService SP piece status pre-flight", () => {
       name: "Test SP",
       serviceUrl: "https://sp.example.com",
     });
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockRejectedValue(new Error("network unreachable")),
-    );
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("network unreachable")));
 
     await service.performAllRetrievals(buildDeal()).catch(() => undefined);
 
