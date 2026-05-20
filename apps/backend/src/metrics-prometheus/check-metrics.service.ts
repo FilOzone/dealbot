@@ -156,6 +156,8 @@ export class RetrievalCheckMetrics {
   }
 }
 
+export type IpniVerifyOutcome = "verified" | "timeout" | "error";
+
 @Injectable()
 export class DiscoverabilityCheckMetrics {
   private readonly logger = new Logger(DiscoverabilityCheckMetrics.name);
@@ -167,6 +169,8 @@ export class DiscoverabilityCheckMetrics {
     private readonly spAnnounceAdvertisementMs: Histogram,
     @InjectMetric("ipniVerifyMs")
     private readonly ipniVerifyMs: Histogram,
+    @InjectMetric("ipniVerifySkippedTotal")
+    private readonly ipniVerifySkippedTotal: Counter,
     @InjectMetric("discoverabilityStatus")
     private readonly discoverabilityStatusCounter: Counter,
   ) {}
@@ -195,7 +199,11 @@ export class DiscoverabilityCheckMetrics {
     observePositive(this.spAnnounceAdvertisementMs, labels, value);
   }
 
-  observeIpniVerifyMs(labels: CheckMetricLabels | null, value: number | null | undefined): void {
+  observeIpniVerifyMs(
+    labels: CheckMetricLabels | null,
+    value: number | null | undefined,
+    outcome: IpniVerifyOutcome,
+  ): void {
     if (!labels) {
       this.logger.warn({
         event: "metric_emit_failed",
@@ -204,7 +212,28 @@ export class DiscoverabilityCheckMetrics {
       });
       return;
     }
-    observePositive(this.ipniVerifyMs, labels, value);
+    if (value == null || !Number.isFinite(value) || value <= 0) {
+      metricsLogger.warn({
+        event: "metric_value_dropped",
+        message: "Dropping non-finite or non-positive metric value",
+        value,
+        context: "observePositive",
+      });
+      return;
+    }
+    this.ipniVerifyMs.observe({ ...labels, outcome }, value);
+  }
+
+  incrementIpniVerifySkipped(labels: CheckMetricLabels | null): void {
+    if (!labels) {
+      this.logger.warn({
+        event: "metric_emit_failed",
+        message: "Cannot emit ipniVerifySkippedTotal: no provider labels",
+        metric: "ipniVerifySkippedTotal",
+      });
+      return;
+    }
+    this.ipniVerifySkippedTotal.inc(labels);
   }
 
   recordStatus(labels: CheckMetricLabels | null, value: string): void {

@@ -17,7 +17,11 @@ import {
   type CheckMetricLabels,
   classifyFailureStatus,
 } from "../metrics-prometheus/check-metric-labels.js";
-import { DiscoverabilityCheckMetrics, RetrievalCheckMetrics } from "../metrics-prometheus/check-metrics.service.js";
+import {
+  DiscoverabilityCheckMetrics,
+  type IpniVerifyOutcome,
+  RetrievalCheckMetrics,
+} from "../metrics-prometheus/check-metrics.service.js";
 import { RetrievalAddonsService } from "../retrieval-addons/retrieval-addons.service.js";
 import type {
   RetrievalConfiguration,
@@ -461,7 +465,15 @@ export class RetrievalService {
         signal,
       });
 
-      this.discoverabilityMetrics.observeIpniVerifyMs(providerLabels, ipniResult.durationMs);
+      let ipniVerifyOutcome: IpniVerifyOutcome;
+      if (ipniResult.rootCIDVerified) {
+        ipniVerifyOutcome = "verified";
+      } else if (ipniResult.durationMs >= timeoutMs) {
+        ipniVerifyOutcome = "timeout";
+      } else {
+        ipniVerifyOutcome = "error";
+      }
+      this.discoverabilityMetrics.observeIpniVerifyMs(providerLabels, ipniResult.durationMs, ipniVerifyOutcome);
 
       if (ipniResult.rootCIDVerified) {
         this.discoverabilityMetrics.recordStatus(providerLabels, "success");

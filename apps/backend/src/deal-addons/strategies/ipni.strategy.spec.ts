@@ -261,7 +261,7 @@ describe("IpniAddonStrategy getPieceStatus", () => {
 
       expect(discoverabilityMetrics.observeSpIndexLocallyMs).toHaveBeenCalledWith(labels, 1000);
       expect(discoverabilityMetrics.observeSpAnnounceAdvertisementMs).toHaveBeenCalledWith(labels, 2000);
-      expect(discoverabilityMetrics.observeIpniVerifyMs).toHaveBeenCalledWith(labels, 1500);
+      expect(discoverabilityMetrics.observeIpniVerifyMs).toHaveBeenCalledWith(labels, 1500, "verified");
       expect(discoverabilityMetrics.recordStatus).toHaveBeenCalledWith(labels, "sp_indexed");
       expect(discoverabilityMetrics.recordStatus).toHaveBeenCalledWith(labels, "sp_announced_advertisement");
       expect(discoverabilityMetrics.recordStatus).toHaveBeenCalledWith(labels, "success");
