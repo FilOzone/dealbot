@@ -41,8 +41,9 @@ flowchart TD
   Poll -->|other terminal status| Fail
   Validate -->|matches| Success["Mark pull check successful"]
   Validate -->|mismatch or fetch error| Fail
-  Success --> Cleanup
-  Fail --> Cleanup["Forget hosted piece registration"]
+  Success --> Done["Job ends; registration stays active until TTL"]
+  Fail --> Done
+  Done --> Cleanup["pull_piece_cleanup job hard-deletes after expiresAt"]
 ```
 
 ### 1. Prepare the hosted piece
@@ -90,8 +91,7 @@ Source: [`pull-check.service.ts` (`validateByDirectPieceFetch`)](../../apps/back
 
 ### 5. Cleanup
 
-Whether the pull check succeeds or fails, the `finally` block removes the registration entry from postgres database.
-After cleanup, subsequent `/api/piece/{pieceCid}` requests return HTTP 404 Not Found.
+The `pull_pieces` registration expires at `2 × PULL_CHECK_JOB_TIMEOUT_SECONDS` after creation. Until then, `/api/piece/{pieceCid}` keeps returning `200` regardless of whether the job has finished. Once `expires_at` passes, the endpoint returns `410 Gone`. The periodic `pull_piece_cleanup` job then hard-deletes the row, after which the endpoint returns `404 Not Found`.
 
 Source: [`pull-check.service.ts`](../../apps/backend/src/pull-check/pull-check.service.ts)
 
@@ -115,7 +115,7 @@ The dealbot API exposes one endpoint dedicated to pull checks:
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/api/piece/{pieceCid}` | Streams the temporary hosted piece bytes for an in-flight pull check. Returns `200` with the bytes when an active registration exists, and `404 Not Found` when no registration exists. |
+| `GET` | `/api/piece/{pieceCid}` | Streams the temporary hosted piece bytes for an in-flight pull check. Returns `200` with the bytes when an active registration exists (within TTL), `410 Gone` when the row exists but its TTL has expired, and `404 Not Found` when no row exists (piece was never registered or has been hard-deleted by the cleanup job). |
 
 The endpoint is registered on the same `/api` prefix as the other dealbot HTTP endpoints. It is intentionally unauthenticated because SPs must be able to pull from it during a check; access is bounded by the job lifecycle.
 
