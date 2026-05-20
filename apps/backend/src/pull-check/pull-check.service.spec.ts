@@ -330,8 +330,8 @@ describe("PullCheckService", () => {
       // Terminal aggregate status is success.
       expect(metricsMock.recordStatus).toHaveBeenCalledWith(expect.any(Object), "success");
 
-      // Cleanup ran (forget called)
-      expect(registryMock.forget).toHaveBeenCalledWith(registration.pieceCid);
+      // Eager forget removed; pieces expire via TTL rather than being deleted at job end.
+      expect(registryMock.forget).not.toHaveBeenCalled();
     });
 
     it("does not observe firstByte when the SP never read from /api/piece (cached pull)", async () => {
@@ -359,8 +359,7 @@ describe("PullCheckService", () => {
 
       expect(metricsMock.recordProviderStatus).toHaveBeenCalledWith(expect.any(Object), "failed");
       expect(metricsMock.recordStatus).toHaveBeenLastCalledWith(expect.any(Object), "failure.other");
-      // Cleanup still runs in the finally block.
-      expect(registryMock.forget).toHaveBeenCalled();
+      expect(registryMock.forget).not.toHaveBeenCalled();
     });
 
     it("classifies timeouts as failure.timedout", async () => {
@@ -383,7 +382,7 @@ describe("PullCheckService", () => {
 
       await expect(service.runPullCheck("0xsp", undefined, logContext)).rejects.toThrow(/validation failed/);
       expect(metricsMock.recordStatus).toHaveBeenLastCalledWith(expect.any(Object), "failure.other");
-      expect(registryMock.forget).toHaveBeenCalled();
+      expect(registryMock.forget).not.toHaveBeenCalled();
     });
 
     it("re-throws when the abort signal fires before any work runs", async () => {
@@ -433,26 +432,39 @@ describe("PullCheckService", () => {
       expect(await service.openPullPieceStream("missing")).toBeNull();
     });
 
-    it("returns a stream when active registration exists", async () => {
+    it("returns active when the registration is within its TTL", async () => {
       const registration = {
         pieceCid: "bafk-test-piece",
         providerAddress: "0xsp",
         key: "test-key",
         size: 1024,
         expiresAt: new Date(Date.now() + 60_000),
-        cleanedUp: false,
       };
       registryMock.resolve.mockResolvedValue(registration);
 
       const result = await service.openPullPieceStream("bafk-test-piece");
-      expect(result).not.toBeNull();
-      expect(result?.registration).toEqual(registration);
-      expect(result?.stream).toBeDefined();
+      expect(result?.status).toBe("active");
+      expect((result as Extract<typeof result, { status: "active" }>)?.registration).toEqual(registration);
+      expect((result as Extract<typeof result, { status: "active" }>)?.stream).toBeDefined();
       expect(dataSourceServiceMock.generateBytesStream).toHaveBeenCalledWith({
         providerAddress: "0xsp",
         key: "test-key",
         bytesNeeded: 1024,
       });
+    });
+
+    it("returns gone when the registration TTL has passed", async () => {
+      registryMock.resolve.mockResolvedValue({
+        pieceCid: "bafk-test-piece",
+        providerAddress: "0xsp",
+        key: "test-key",
+        size: 1024,
+        expiresAt: new Date(Date.now() - 1_000),
+      });
+
+      const result = await service.openPullPieceStream("bafk-test-piece");
+      expect(result?.status).toBe("gone");
+      expect(dataSourceServiceMock.generateBytesStream).not.toHaveBeenCalled();
     });
   });
 });
