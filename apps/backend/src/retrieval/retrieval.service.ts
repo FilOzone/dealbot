@@ -120,6 +120,25 @@ export class RetrievalService {
       return [];
     }
 
+    // Pre-flight: if the SP itself reports it no longer has this piece, mark the deal
+    // cleaned_up so it stops polluting future retrieval candidates and skip the check.
+    // Saves the 30s IPNI verify timeout + downstream block-fetch 404 noise per stale deal.
+    if (provider.serviceUrl && deal.pieceCid) {
+      const presence = await this.probeSpPieceStatus(provider.serviceUrl, deal.pieceCid, signal);
+      if (presence === "missing") {
+        await this.dealRepository.update(
+          { id: deal.id, cleanedUp: false },
+          { cleanedUp: true, cleanedUpAt: new Date() },
+        );
+        this.logger.warn({
+          ...retrievalLogContext,
+          event: "retrieval_skipped_piece_missing",
+          message: "SP reports piece missing; marked deal cleaned_up and skipped retrieval",
+        });
+        return [];
+      }
+    }
+
     type SubStatus = "success" | "failure.timedout" | "failure.other";
     let terminalStatus: SubStatus | null = null;
     let retrievals: Retrieval[] = [];
@@ -364,6 +383,31 @@ export class RetrievalService {
 
   private async findStorageProvider(address: string): Promise<StorageProvider | null> {
     return this.spRepository.findOne({ where: { address } });
+  }
+
+  /**
+   * Probe `${serviceUrl}/pdp/piece/:pieceCid/status` to determine whether the SP
+   * currently has the piece. Returns:
+   *   - "missing": SP responded 404 (authoritative — SP does not have the piece)
+   *   - "exists": SP responded 2xx (piece is held)
+   *   - "unknown": network error, timeout, or other status (don't act on it)
+   */
+  private async probeSpPieceStatus(
+    serviceUrl: string,
+    pieceCid: string,
+    outerSignal?: AbortSignal,
+  ): Promise<"missing" | "exists" | "unknown"> {
+    const url = `${serviceUrl.replace(/\/$/, "")}/pdp/piece/${pieceCid}/status`;
+    const timeoutSignal = AbortSignal.timeout(10_000);
+    const signal = outerSignal ? AbortSignal.any([outerSignal, timeoutSignal]) : timeoutSignal;
+    try {
+      const res = await fetch(url, { method: "GET", signal });
+      if (res.status === 404) return "missing";
+      if (res.ok) return "exists";
+      return "unknown";
+    } catch {
+      return "unknown";
+    }
   }
 
   /**

@@ -630,3 +630,156 @@ describe("RetrievalService DB/provider drift", () => {
     expect(cleanedUpCall?.params).toEqual({ cleanedUp: false });
   });
 });
+
+describe("RetrievalService SP piece status pre-flight", () => {
+  type RetrievalServicePrivate = RetrievalService & {
+    performAllRetrievals: (deal: Deal, signal?: AbortSignal) => Promise<Retrieval[]>;
+  };
+
+  const mockRetrievalAddonsService = {
+    testAllRetrievalMethods: vi.fn().mockResolvedValue({
+      dealId: "deal-1",
+      results: [],
+      summary: { totalMethods: 0, successfulMethods: 0, failedMethods: 0 },
+      testedAt: new Date(),
+    }),
+    getApplicableStrategies: vi.fn().mockReturnValue([{}]),
+  };
+  const mockConfigService = {
+    get: vi.fn((key: string) => {
+      if (key === "app") return { runMode: "api" };
+      if (key === "jobs") return { pgbossSchedulerEnabled: false };
+      if (key === "blockchain") return { network: "calibration" };
+      if (key === "dataset") return { randomDatasetSizes: [] };
+      return undefined;
+    }),
+  };
+  const mockDealRepository = {
+    update: vi.fn().mockResolvedValue({ affected: 1 }),
+  };
+  const mockSpRepository = { findOne: vi.fn() };
+  const mockRetrievalMetrics = {
+    observeCheckDuration: vi.fn(),
+    recordStatus: vi.fn(),
+    observeFirstByteMs: vi.fn(),
+    observeLastByteMs: vi.fn(),
+    observeThroughput: vi.fn(),
+    recordHttpResponseCode: vi.fn(),
+    recordResultMetrics: vi.fn(),
+  };
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    mockDealRepository.update.mockClear();
+    mockRetrievalAddonsService.testAllRetrievalMethods.mockClear();
+  });
+
+  const buildDeal = (overrides: Partial<Deal> = {}): Deal =>
+    ({
+      id: "deal-1",
+      spAddress: "0xsp",
+      walletAddress: "0xwallet",
+      pieceCid: "bafy-piece",
+      ...overrides,
+    }) as Deal;
+
+  const createService = async (): Promise<RetrievalServicePrivate> => {
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        RetrievalService,
+        { provide: RetrievalAddonsService, useValue: mockRetrievalAddonsService },
+        { provide: getRepositoryToken(Deal), useValue: mockDealRepository },
+        { provide: getRepositoryToken(Retrieval), useValue: { create: vi.fn(), save: vi.fn() } },
+        { provide: getRepositoryToken(StorageProvider), useValue: mockSpRepository },
+        { provide: RetrievalCheckMetrics, useValue: mockRetrievalMetrics },
+        { provide: DiscoverabilityCheckMetrics, useValue: { recordStatus: vi.fn(), observeIpniVerifyMs: vi.fn() } },
+        { provide: IpniVerificationService, useValue: { verify: vi.fn() } },
+        { provide: ConfigService, useValue: mockConfigService },
+        { provide: ClickhouseService, useValue: { insert: vi.fn(), probeLocation: "test" } },
+      ],
+    }).compile();
+    return module.get<RetrievalService>(RetrievalService) as unknown as RetrievalServicePrivate;
+  };
+
+  it("marks deal cleaned_up and skips retrieval when SP returns 404 for piece status", async () => {
+    const service = await createService();
+    mockSpRepository.findOne.mockResolvedValue({
+      address: "0xsp",
+      providerId: 5,
+      isApproved: true,
+      name: "Test SP",
+      serviceUrl: "https://sp.example.com",
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({ status: 404, ok: false } as Response),
+    );
+
+    const result = await service.performAllRetrievals(buildDeal());
+
+    expect(result).toEqual([]);
+    expect(mockDealRepository.update).toHaveBeenCalledWith(
+      { id: "deal-1", cleanedUp: false },
+      expect.objectContaining({ cleanedUp: true, cleanedUpAt: expect.any(Date) }),
+    );
+    expect(mockRetrievalAddonsService.testAllRetrievalMethods).not.toHaveBeenCalled();
+  });
+
+  it("proceeds with retrieval when SP confirms piece exists", async () => {
+    const service = await createService();
+    mockSpRepository.findOne.mockResolvedValue({
+      address: "0xsp",
+      providerId: 5,
+      isApproved: true,
+      name: "Test SP",
+      serviceUrl: "https://sp.example.com",
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({ status: 200, ok: true } as Response),
+    );
+
+    await service.performAllRetrievals(buildDeal()).catch(() => undefined);
+
+    expect(mockDealRepository.update).not.toHaveBeenCalled();
+    expect(mockRetrievalAddonsService.testAllRetrievalMethods).toHaveBeenCalled();
+  });
+
+  it("proceeds with retrieval when SP probe fails with a network error (unknown)", async () => {
+    const service = await createService();
+    mockSpRepository.findOne.mockResolvedValue({
+      address: "0xsp",
+      providerId: 5,
+      isApproved: true,
+      name: "Test SP",
+      serviceUrl: "https://sp.example.com",
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockRejectedValue(new Error("network unreachable")),
+    );
+
+    await service.performAllRetrievals(buildDeal()).catch(() => undefined);
+
+    expect(mockDealRepository.update).not.toHaveBeenCalled();
+    expect(mockRetrievalAddonsService.testAllRetrievalMethods).toHaveBeenCalled();
+  });
+
+  it("skips probe and proceeds when provider has no serviceUrl", async () => {
+    const service = await createService();
+    mockSpRepository.findOne.mockResolvedValue({
+      address: "0xsp",
+      providerId: 5,
+      isApproved: true,
+      name: "Test SP",
+      serviceUrl: null,
+    });
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await service.performAllRetrievals(buildDeal()).catch(() => undefined);
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(mockDealRepository.update).not.toHaveBeenCalled();
+  });
+});
