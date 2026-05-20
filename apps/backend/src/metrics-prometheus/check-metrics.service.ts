@@ -7,7 +7,11 @@ import { buildCheckMetricLabels, type CheckMetricLabels } from "./check-metric-l
 
 const metricsLogger = new Logger("CheckMetrics");
 
-function observePositive(metric: Histogram, labels: CheckMetricLabels, value: number | null | undefined): void {
+function observePositive<T extends CheckMetricLabels>(
+  metric: Histogram,
+  labels: T,
+  value: number | null | undefined,
+): void {
   if (value == null || !Number.isFinite(value) || value <= 0) {
     metricsLogger.warn({
       event: "metric_value_dropped",
@@ -17,7 +21,7 @@ function observePositive(metric: Histogram, labels: CheckMetricLabels, value: nu
     });
     return;
   }
-  metric.observe({ ...labels }, value);
+  metric.observe(labels, value);
 }
 
 function classifyHttpResponseCode(statusCode: number): string {
@@ -158,6 +162,15 @@ export class RetrievalCheckMetrics {
 
 export type IpniVerifyOutcome = "verified" | "timeout" | "error";
 
+export function classifyIpniVerifyOutcome(
+  ipniResult: { rootCIDVerified: boolean; durationMs: number },
+  timeoutMs: number,
+): IpniVerifyOutcome {
+  if (ipniResult.rootCIDVerified) return "verified";
+  if (ipniResult.durationMs >= timeoutMs) return "timeout";
+  return "error";
+}
+
 @Injectable()
 export class DiscoverabilityCheckMetrics {
   private readonly logger = new Logger(DiscoverabilityCheckMetrics.name);
@@ -212,16 +225,7 @@ export class DiscoverabilityCheckMetrics {
       });
       return;
     }
-    if (value == null || !Number.isFinite(value) || value <= 0) {
-      metricsLogger.warn({
-        event: "metric_value_dropped",
-        message: "Dropping non-finite or non-positive metric value",
-        value,
-        context: "observeIpniVerifyMs",
-      });
-      return;
-    }
-    this.ipniVerifyMs.observe({ ...labels, outcome }, value);
+    observePositive(this.ipniVerifyMs, { ...labels, outcome }, value);
   }
 
   incrementIpniVerifySkipped(labels: CheckMetricLabels | null): void {

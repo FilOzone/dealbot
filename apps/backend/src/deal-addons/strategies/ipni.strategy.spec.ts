@@ -374,7 +374,9 @@ describe("IpniAddonStrategy getPieceStatus", () => {
       total: 1,
       rootCIDVerified: false,
       durationMs: 500,
-      failedCIDs: [{ cid: "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi", reason: "connection refused" }],
+      failedCIDs: [
+        { cid: "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi", reason: "connection refused" },
+      ],
       verifiedAt: new Date().toISOString(),
     });
 
@@ -469,7 +471,16 @@ describe("IpniAddonStrategy getPieceStatus", () => {
     const deal = buildDeal({
       spAddress: "0xsp",
       pieceCid: "bafk-piece",
-      metadata: { [ServiceType.IPFS_PIN]: { enabled: true, rootCID: "", blockCIDs: [], blockCount: 0, carSize: 1, originalSize: 1 } },
+      metadata: {
+        [ServiceType.IPFS_PIN]: {
+          enabled: true,
+          rootCID: "",
+          blockCIDs: [],
+          blockCount: 0,
+          carSize: 1,
+          originalSize: 1,
+        },
+      },
       storageProvider: buildStorageProvider(),
     });
 

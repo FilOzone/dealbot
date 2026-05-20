@@ -15,7 +15,10 @@ import { IpniStatus, ServiceType } from "../../database/types.js";
 import { HttpClientService } from "../../http-client/http-client.service.js";
 import { IpniVerificationService } from "../../ipni/ipni-verification.service.js";
 import { classifyFailureStatus } from "../../metrics-prometheus/check-metric-labels.js";
-import { DiscoverabilityCheckMetrics, type IpniVerifyOutcome } from "../../metrics-prometheus/check-metrics.service.js";
+import {
+  classifyIpniVerifyOutcome,
+  DiscoverabilityCheckMetrics,
+} from "../../metrics-prometheus/check-metrics.service.js";
 
 import type { IDealAddon } from "../interfaces/deal-addon.interface.js";
 import type { AddonExecutionContext, DealConfiguration, IpniPreprocessingResult, SynapseConfig } from "../types.js";
@@ -422,18 +425,10 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       throw error;
     }
 
-    let ipniVerifyOutcome: IpniVerifyOutcome;
-    if (ipniResult.rootCIDVerified) {
-      ipniVerifyOutcome = "verified";
-    } else if (ipniResult.durationMs >= ipniTimeoutMs) {
-      ipniVerifyOutcome = "timeout";
-    } else {
-      ipniVerifyOutcome = "error";
-    }
     this.discoverabilityMetrics.observeIpniVerifyMs(
       this.discoverabilityMetrics.buildLabelsForDeal(deal),
       ipniResult.durationMs,
-      ipniVerifyOutcome,
+      classifyIpniVerifyOutcome(ipniResult, ipniTimeoutMs),
     );
 
     if (ipniResult.rootCIDVerified) {
