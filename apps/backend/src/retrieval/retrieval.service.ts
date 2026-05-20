@@ -25,6 +25,11 @@ import type {
   RetrievalTestResult,
 } from "../retrieval-addons/types.js";
 
+/** Timeout for the pre-flight SP piece-status probe. Short enough that an unresponsive
+ *  SP still beats falling through to the 30s IPNI verify path; on timeout we treat
+ *  the result as "unknown" and proceed with the normal retrieval. */
+const SP_PIECE_STATUS_PROBE_TIMEOUT_MS = 5_000;
+
 @Injectable()
 export class RetrievalService {
   private readonly logger = new Logger(RetrievalService.name);
@@ -124,16 +129,21 @@ export class RetrievalService {
     // cleaned_up so it stops polluting future retrieval candidates and skip the check.
     // Saves the 30s IPNI verify timeout + downstream block-fetch 404 noise per stale deal.
     if (provider.serviceUrl && deal.pieceCid) {
-      const presence = await this.probeSpPieceStatus(provider.serviceUrl, deal.pieceCid, signal);
-      if (presence === "missing") {
+      const probe = await this.probeSpPieceStatus(provider.serviceUrl, deal.pieceCid, signal);
+      signal?.throwIfAborted();
+      if (probe.result === "missing") {
         await this.dealRepository.update(
           { id: deal.id, cleanedUp: false },
           { cleanedUp: true, cleanedUpAt: new Date() },
         );
+        this.retrievalMetrics.recordStatus(providerLabels, "skipped.piece_missing");
         this.logger.warn({
           ...retrievalLogContext,
           event: "retrieval_skipped_piece_missing",
           message: "SP reports piece missing; marked deal cleaned_up and skipped retrieval",
+          statusUrl: probe.url,
+          statusCode: probe.statusCode,
+          probeDurationMs: probe.durationMs,
         });
         return [];
       }
@@ -390,23 +400,36 @@ export class RetrievalService {
    * currently has the piece. Returns:
    *   - "missing": SP responded 404 (authoritative — SP does not have the piece)
    *   - "exists": SP responded 2xx (piece is held)
-   *   - "unknown": network error, timeout, or other status (don't act on it)
+   *   - "unknown": network error, probe timeout, or other status (don't act on it)
+   * An outer-signal abort during the probe is re-thrown so the caller can stop.
    */
   private async probeSpPieceStatus(
     serviceUrl: string,
     pieceCid: string,
     outerSignal?: AbortSignal,
-  ): Promise<"missing" | "exists" | "unknown"> {
-    const url = `${serviceUrl.replace(/\/$/, "")}/pdp/piece/${pieceCid}/status`;
-    const timeoutSignal = AbortSignal.timeout(10_000);
+  ): Promise<{ result: "missing" | "exists" | "unknown"; url: string; statusCode: number | null; durationMs: number }> {
+    const url = new URL(`/pdp/piece/${encodeURIComponent(pieceCid)}/status`, serviceUrl).toString();
+    const timeoutSignal = AbortSignal.timeout(SP_PIECE_STATUS_PROBE_TIMEOUT_MS);
     const signal = outerSignal ? AbortSignal.any([outerSignal, timeoutSignal]) : timeoutSignal;
+    const start = Date.now();
     try {
-      const res = await fetch(url, { method: "GET", signal });
-      if (res.status === 404) return "missing";
-      if (res.ok) return "exists";
-      return "unknown";
-    } catch {
-      return "unknown";
+      const res = await fetch(url, {
+        method: "GET",
+        signal,
+        headers: { "User-Agent": "dealbot/probe" },
+      });
+      const durationMs = Date.now() - start;
+      if (res.status === 404) return { result: "missing", url, statusCode: 404, durationMs };
+      if (res.ok) return { result: "exists", url, statusCode: res.status, durationMs };
+      return { result: "unknown", url, statusCode: res.status, durationMs };
+    } catch (error) {
+      // Re-throw caller-initiated aborts so retrieval stops promptly. Probe-timeout
+      // and network errors fall through as "unknown" — we don't want to mark deals
+      // cleaned_up on flaky infra.
+      if (outerSignal?.aborted) {
+        throw error;
+      }
+      return { result: "unknown", url, statusCode: null, durationMs: Date.now() - start };
     }
   }
 

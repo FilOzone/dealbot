@@ -632,7 +632,8 @@ describe("RetrievalService DB/provider drift", () => {
 });
 
 describe("RetrievalService SP piece status pre-flight", () => {
-  type RetrievalServicePrivate = RetrievalService & {
+  type PublicInterface<T> = { [K in keyof T]: T[K] };
+  type RetrievalServicePrivate = PublicInterface<RetrievalService> & {
     performAllRetrievals: (deal: Deal, signal?: AbortSignal) => Promise<Retrieval[]>;
   };
 
@@ -669,9 +670,11 @@ describe("RetrievalService SP piece status pre-flight", () => {
   };
 
   afterEach(() => {
+    vi.unstubAllGlobals();
     vi.restoreAllMocks();
     mockDealRepository.update.mockClear();
     mockRetrievalAddonsService.testAllRetrievalMethods.mockClear();
+    mockRetrievalMetrics.recordStatus.mockClear();
   });
 
   const buildDeal = (overrides: Partial<Deal> = {}): Deal =>
@@ -710,10 +713,8 @@ describe("RetrievalService SP piece status pre-flight", () => {
       name: "Test SP",
       serviceUrl: "https://sp.example.com",
     });
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({ status: 404, ok: false } as Response),
-    );
+    const fetchMock = vi.fn().mockResolvedValue({ status: 404, ok: false } as Response);
+    vi.stubGlobal("fetch", fetchMock);
 
     const result = await service.performAllRetrievals(buildDeal());
 
@@ -723,6 +724,14 @@ describe("RetrievalService SP piece status pre-flight", () => {
       expect.objectContaining({ cleanedUp: true, cleanedUpAt: expect.any(Date) }),
     );
     expect(mockRetrievalAddonsService.testAllRetrievalMethods).not.toHaveBeenCalled();
+    expect(mockRetrievalMetrics.recordStatus).toHaveBeenCalledWith(
+      expect.any(Object),
+      "skipped.piece_missing",
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://sp.example.com/pdp/piece/bafy-piece/status",
+      expect.objectContaining({ method: "GET" }),
+    );
   });
 
   it("proceeds with retrieval when SP confirms piece exists", async () => {
@@ -781,5 +790,46 @@ describe("RetrievalService SP piece status pre-flight", () => {
 
     expect(fetchMock).not.toHaveBeenCalled();
     expect(mockDealRepository.update).not.toHaveBeenCalled();
+  });
+
+  it("re-throws when the outer signal aborts during the probe", async () => {
+    const service = await createService();
+    mockSpRepository.findOne.mockResolvedValue({
+      address: "0xsp",
+      providerId: 5,
+      isApproved: true,
+      name: "Test SP",
+      serviceUrl: "https://sp.example.com",
+    });
+    const ac = new AbortController();
+    const fetchMock = vi.fn().mockImplementation(() => {
+      ac.abort(new Error("cancelled by job"));
+      return Promise.reject(new DOMException("aborted", "AbortError"));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(service.performAllRetrievals(buildDeal(), ac.signal)).rejects.toThrow();
+    expect(mockDealRepository.update).not.toHaveBeenCalled();
+    expect(mockRetrievalAddonsService.testAllRetrievalMethods).not.toHaveBeenCalled();
+  });
+
+  it("URL-encodes the pieceCid in the probe URL", async () => {
+    const service = await createService();
+    mockSpRepository.findOne.mockResolvedValue({
+      address: "0xsp",
+      providerId: 5,
+      isApproved: true,
+      name: "Test SP",
+      serviceUrl: "https://sp.example.com/base/",
+    });
+    const fetchMock = vi.fn().mockResolvedValue({ status: 200, ok: true } as Response);
+    vi.stubGlobal("fetch", fetchMock);
+
+    await service.performAllRetrievals(buildDeal({ pieceCid: "bafy/with/slashes" })).catch(() => undefined);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://sp.example.com/pdp/piece/bafy%2Fwith%2Fslashes/status",
+      expect.any(Object),
+    );
   });
 });
