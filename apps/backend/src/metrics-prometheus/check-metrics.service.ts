@@ -217,7 +217,7 @@ export class DiscoverabilityCheckMetrics {
         event: "metric_value_dropped",
         message: "Dropping non-finite or non-positive metric value",
         value,
-        context: "observePositive",
+        context: "observeIpniVerifyMs",
       });
       return;
     }

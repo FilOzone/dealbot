@@ -401,14 +401,26 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       ipniVerificationPollingMs: ipniPollIntervalMs,
     });
     // NOTE: filecoin-pin does not currently validate that all blocks are advertised on IPNI.
-    const ipniResult = await this.ipniVerificationService.verify({
-      rootCid: rootCidObj,
-      blockCids: blockCIDs,
-      storageProvider,
-      timeoutMs: ipniTimeoutMs,
-      pollIntervalMs: ipniPollIntervalMs,
-      signal,
-    });
+    const ipniVerifyStartMs = Date.now();
+    let ipniResult: Awaited<ReturnType<typeof this.ipniVerificationService.verify>>;
+    try {
+      ipniResult = await this.ipniVerificationService.verify({
+        rootCid: rootCidObj,
+        blockCids: blockCIDs,
+        storageProvider,
+        timeoutMs: ipniTimeoutMs,
+        pollIntervalMs: ipniPollIntervalMs,
+        signal,
+      });
+    } catch (error) {
+      const durationMs = Date.now() - ipniVerifyStartMs;
+      this.discoverabilityMetrics.observeIpniVerifyMs(
+        this.discoverabilityMetrics.buildLabelsForDeal(deal),
+        durationMs,
+        signal?.aborted ? "timeout" : "error",
+      );
+      throw error;
+    }
 
     let ipniVerifyOutcome: IpniVerifyOutcome;
     if (ipniResult.rootCIDVerified) {
