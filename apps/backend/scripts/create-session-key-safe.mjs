@@ -22,12 +22,10 @@ import { calibration, mainnet } from "@filoz/synapse-core/chains";
 import {
   AddPiecesPermission,
   CreateDataSetPermission,
-  DefaultFwssPermissions,
-  DeleteDataSetPermission,
   loginCall,
   SchedulePieceRemovalsPermission,
 } from "@filoz/synapse-core/session-key";
-import { decodeFunctionData, encodeFunctionData } from "viem";
+import { decodeFunctionData, encodeFunctionData, keccak256, stringToHex } from "viem";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 
 // Parse CLI args
@@ -45,12 +43,20 @@ const chain = networkName === "mainnet" ? mainnet : calibration;
 const sessionAccount = privateKeyToAccount(sessionPrivateKey);
 const expiresAt = BigInt(Math.floor(Date.now() / 1000) + expiryDays * 24 * 60 * 60);
 const expiryDate = new Date(Number(expiresAt) * 1000);
+// TODO: Import TerminateServicePermission and DefaultFwssPermissions after DealBot upgrades to a Synapse SDK release that includes them.
+const TerminateServicePermission = keccak256(stringToHex("TerminateService(uint256 dataSetId)"));
+const DealBotFwssPermissions = [
+  CreateDataSetPermission,
+  AddPiecesPermission,
+  SchedulePieceRemovalsPermission,
+  TerminateServicePermission,
+];
 
 // Use the SDK's loginCall to get the exact ABI and args
 const call = loginCall({
   chain,
   address: sessionAccount.address,
-  permissions: DefaultFwssPermissions,
+  permissions: DealBotFwssPermissions,
   expiresAt,
   origin: "dealbot",
 });
@@ -73,7 +79,7 @@ const permissionLabels = {
   [CreateDataSetPermission]: "CreateDataSet",
   [AddPiecesPermission]: "AddPieces",
   [SchedulePieceRemovalsPermission]: "SchedulePieceRemovals",
-  [DeleteDataSetPermission]: "DeleteDataSet",
+  [TerminateServicePermission]: "TerminateService",
 };
 
 // Output
@@ -85,7 +91,7 @@ console.log(`Expiry:             ${expiryDate.toISOString()} (${expiryDays} days
 console.log(`Origin:             dealbot`);
 console.log();
 console.log("--- Permissions ---");
-for (const hash of DefaultFwssPermissions) {
+for (const hash of DealBotFwssPermissions) {
   console.log(`  ${permissionLabels[hash] || "Unknown"}: ${hash}`);
 }
 console.log();

@@ -409,7 +409,7 @@ WALLET_ADDRESS=0x1234567890abcdef1234567890abcdef12345678
 - **Required**: No
 - **Security**: **HIGHLY SENSITIVE** - Treat like `WALLET_PRIVATE_KEY`
 
-**Role**: When set, DealBot uses session key authentication. The session key must be registered on the SessionKeyRegistry contract from the `WALLET_ADDRESS` (typically a Safe multisig). Storage operations (create dataset, add pieces) are signed with this key instead of `WALLET_PRIVATE_KEY`.
+**Role**: When set, DealBot uses session key authentication. The session key must be registered on the SessionKeyRegistry contract from the `WALLET_ADDRESS` (typically a Safe multisig). Scoped storage operations are signed with this key instead of `WALLET_PRIVATE_KEY`.
 
 Session keys are scoped (only storage operations, not deposits or withdrawals) and time-limited (expiry set during registration). See [runbooks/wallet-and-session-keys.md](runbooks/wallet-and-session-keys.md) for the full setup process.
 
