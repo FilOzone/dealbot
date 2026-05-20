@@ -1,7 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DealJobTerminatedDataSetError } from "../common/errors.js";
 import type { IConfig, ISpBlocklistConfig } from "../config/app.config.js";
-import { DATA_RETENTION_POLL_QUEUE, PROVIDERS_REFRESH_QUEUE, SP_WORK_QUEUE } from "./job-queues.js";
+import {
+  DATA_RETENTION_POLL_QUEUE,
+  PROVIDERS_REFRESH_QUEUE,
+  RETRIEVAL_ANON_QUEUE,
+  SP_WORK_QUEUE,
+} from "./job-queues.js";
 import { JobsService } from "./jobs.service.js";
 
 type JobsServiceDeps = ConstructorParameters<typeof JobsService>;
@@ -908,6 +913,51 @@ describe("JobsService schedule rows", () => {
       "retrieval",
       "sp.work",
       { jobType: "retrieval", spAddress: "0xbbb", intervalSeconds: 60 },
+      { startAfter: expectedResumeAt },
+    );
+  });
+
+  it("anon retrieval job defers to RETRIEVAL_ANON_QUEUE during maintenance window", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2024-01-01T07:05:00Z"));
+
+    baseConfigValues = {
+      ...baseConfigValues,
+      scheduling: {
+        ...baseConfigValues.scheduling,
+        maintenanceWindowsUtc: ["07:00"],
+        maintenanceWindowMinutes: 20,
+      } as IConfig["scheduling"],
+    };
+    configService = {
+      get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
+    } as unknown as JobsServiceDeps[0];
+
+    const anonRetrievalService = { performForProvider: vi.fn() };
+    const walletSdkService = {
+      getProviderInfo: vi.fn(() => ({ id: 1n, name: "sp" })),
+    };
+
+    service = buildService({
+      configService,
+      anonRetrievalService: anonRetrievalService as unknown as JobsServiceDeps[8],
+      walletSdkService: walletSdkService as unknown as JobsServiceDeps[5],
+    });
+
+    const safeSend = vi.fn().mockResolvedValue(true);
+    (service as unknown as { safeSend: typeof safeSend }).safeSend = safeSend;
+
+    await callPrivate(service, "handleAnonRetrievalJob", {
+      id: "job-anon-maintenance",
+      data: { spAddress: "0xaaa", intervalSeconds: 60 },
+    });
+
+    const expectedResumeAt = new Date("2024-01-01T07:20:00Z");
+    expect(anonRetrievalService.performForProvider).not.toHaveBeenCalled();
+    expect(safeSend).toHaveBeenCalledWith(
+      "retrieval_anon",
+      RETRIEVAL_ANON_QUEUE,
+      { jobType: "retrieval_anon", spAddress: "0xaaa", intervalSeconds: 60 },
       { startAfter: expectedResumeAt },
     );
   });

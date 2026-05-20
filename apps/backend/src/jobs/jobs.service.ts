@@ -624,6 +624,23 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
   private async handleAnonRetrievalJob(job: Job<AnonRetrievalJobData>): Promise<void> {
     const data = job.data;
     const spAddress = data.spAddress;
+    const now = new Date();
+    const maintenance = this.getMaintenanceWindowStatus(now);
+    if (maintenance.active) {
+      this.logMaintenanceSkip(`retrieval_anon job for ${spAddress}`, maintenance.window?.label, {
+        jobId: job.id,
+        providerAddress: spAddress,
+        providerId: this.walletSdkService.getProviderInfo(spAddress)?.id,
+        providerName: this.walletSdkService.getProviderInfo(spAddress)?.name,
+      });
+      await this.deferJobForMaintenance(
+        "retrieval_anon",
+        { jobType: "retrieval_anon", spAddress, intervalSeconds: data.intervalSeconds },
+        maintenance,
+        now,
+      );
+      return;
+    }
 
     // Create AbortController for job timeout enforcement
     const abortController = new AbortController();
@@ -891,7 +908,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     if (resumeAt == null) {
       return;
     }
-    await this.safeSend(jobType, SP_WORK_QUEUE, data, { startAfter: resumeAt });
+    await this.safeSend(jobType, this.mapJobName(jobType), data, { startAfter: resumeAt });
   }
 
   /**
