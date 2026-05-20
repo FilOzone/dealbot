@@ -139,17 +139,7 @@ export class AnonRetrievalService {
 
       // Overall check duration and status
       this.metrics.observeCheckDuration(labels, Date.now() - checkStart);
-      const pieceServedCorrectly = pieceResult.success && pieceResult.commPValid;
-      this.metrics.recordStatus(
-        labels,
-        pieceServedCorrectly
-          ? "success"
-          : pieceResult.aborted
-            ? "failure.timedout"
-            : pieceResult.success
-              ? "failure.commp"
-              : "failure.http",
-      );
+      this.metrics.recordStatus(labels, anonPieceRetrievalStatus(pieceResult));
     } finally {
       // Always emit a ClickHouse row — even on abort or unexpected error — so
       // we never lose the evidence (ttfb, bytes, response code) we already
@@ -234,6 +224,13 @@ export class AnonRetrievalService {
 function ipniStatusFromResult(result: CarValidationResult): IpniCheckStatus {
   if (result.ipniValid === null) return IpniCheckStatus.SKIPPED;
   return result.ipniValid ? IpniCheckStatus.VALID : IpniCheckStatus.INVALID;
+}
+
+function anonPieceRetrievalStatus(pieceResult: PieceRetrievalResult): string {
+  if (pieceResult.success && pieceResult.commPValid) return "success";
+  if (pieceResult.aborted) return "failure.timedout";
+  if (pieceResult.success) return "failure.commp";
+  return "failure.http";
 }
 
 function buildAbortedPlaceholder(pieceCid: string, reason: unknown): PieceRetrievalResult {
