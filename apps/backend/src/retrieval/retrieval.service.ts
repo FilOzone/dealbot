@@ -17,7 +17,11 @@ import {
   type CheckMetricLabels,
   classifyFailureStatus,
 } from "../metrics-prometheus/check-metric-labels.js";
-import { DiscoverabilityCheckMetrics, RetrievalCheckMetrics } from "../metrics-prometheus/check-metrics.service.js";
+import {
+  classifyIpniVerifyOutcome,
+  DiscoverabilityCheckMetrics,
+  RetrievalCheckMetrics,
+} from "../metrics-prometheus/check-metrics.service.js";
 import { RetrievalAddonsService } from "../retrieval-addons/retrieval-addons.service.js";
 import type {
   RetrievalConfiguration,
@@ -522,6 +526,7 @@ export class RetrievalService {
     const pollIntervalMs = timeouts.ipniVerificationPollingMs;
     this.discoverabilityMetrics.recordStatus(providerLabels, "pending");
 
+    const ipniVerifyStartMs = Date.now();
     try {
       const ipniResult = await this.ipniVerificationService.verify({
         rootCid,
@@ -532,7 +537,11 @@ export class RetrievalService {
         signal,
       });
 
-      this.discoverabilityMetrics.observeIpniVerifyMs(providerLabels, ipniResult.durationMs);
+      this.discoverabilityMetrics.observeIpniVerifyMs(
+        providerLabels,
+        ipniResult.durationMs,
+        classifyIpniVerifyOutcome(ipniResult, timeoutMs),
+      );
 
       if (ipniResult.rootCIDVerified) {
         this.discoverabilityMetrics.recordStatus(providerLabels, "success");
@@ -542,6 +551,7 @@ export class RetrievalService {
       this.discoverabilityMetrics.recordStatus(providerLabels, failureStatus);
       return { ok: false, failureStatus };
     } catch (error) {
+      const durationMs = Date.now() - ipniVerifyStartMs;
       if (signal?.aborted) {
         const failureStatus = "failure.timedout";
         this.logger.warn({
@@ -554,6 +564,7 @@ export class RetrievalService {
           ipfsRootCID: ipniContext.rootCid.toString(),
           error: toStructuredError(error),
         });
+        this.discoverabilityMetrics.observeIpniVerifyMs(providerLabels, durationMs, "timeout");
         this.discoverabilityMetrics.recordStatus(providerLabels, failureStatus);
         return { ok: false, failureStatus };
       }
@@ -568,6 +579,7 @@ export class RetrievalService {
         ipfsRootCID: ipniContext.rootCid.toString(),
         error: toStructuredError(error),
       });
+      this.discoverabilityMetrics.observeIpniVerifyMs(providerLabels, durationMs, "error");
       this.discoverabilityMetrics.recordStatus(providerLabels, failureStatus);
       return { ok: false, failureStatus };
     }
