@@ -3,22 +3,22 @@ import type { DataSetLogContext, ProviderJobContext } from "../common/logging.js
 import type { DealService } from "../deal/deal.service.js";
 
 export interface DataSetCreationDeps {
-  dealService: Pick<DealService, "checkDataSetExists" | "createDataSetWithPiece">;
+  dealService: Pick<DealService, "getDataSetProvisioningStatus" | "createDataSetWithPiece" | "repairTerminatedDataSet">;
   logger: Logger;
 }
 
 /**
  * Creates at most one missing data-set per invocation for incremental provisioning.
  *
- * Loops through indices 0..minDataSets-1, skips existing data-sets, and creates
- * the first missing one then returns. The scheduler fires subsequent jobs to
- * converge on the full set over multiple runs.
+ * Loops through indices 0..minDataSets-1, classifies each slot as
+ * `missing | live | terminated`, and acts on the first non-live slot:
+ *   - terminated: terminate + wait for FWSS pdpEndEpoch != 0 + mark deals
+ *     cleaned up. Returns without provisioning a replacement this tick — the
+ *     next tick will see the slot as `missing`.
+ *   - missing: provision a replacement via createDataSetWithPiece.
  *
  * Index 0 is the initial data-set (no dealbotDS metadata).
  * Indices 1+ are tagged with { dealbotDS: String(i) }.
- *
- * Uses createContext + executeUpload with a 200 KiB piece for on-chain data-set creation
- * (empty datasets are being removed from curio and synapse-sdk).
  */
 export async function provisionNextMissingDataSet(
   deps: DataSetCreationDeps,
@@ -45,12 +45,29 @@ export async function provisionNextMissingDataSet(
       dataSetIndex: i,
     };
 
-    // Check if data-set already exists by attempting to resolve its context
-    const exists = await dealService.checkDataSetExists(spAddress, metadata, signal);
+    const status = await dealService.getDataSetProvisioningStatus(spAddress, metadata, signal);
 
-    if (exists) {
+    if (status.status === "live") {
       existingCount++;
       continue;
+    }
+
+    if (status.status === "terminated") {
+      logger.warn({
+        ...logContext,
+        event: "dataset_terminated_detected",
+        message: "Detected PDP-terminated dataset; running repair",
+        dataSetId: status.dataSetId.toString(),
+      });
+      const result = await dealService.repairTerminatedDataSet(spAddress, status.dataSetId, signal);
+      logger.log({
+        ...logContext,
+        event: "data_set_repair_completed",
+        message: "Repaired terminated dataset; deferring replacement to next tick",
+        dataSetId: status.dataSetId.toString(),
+        dealsAffected: result.dealsAffected,
+      });
+      return;
     }
 
     logger.log({

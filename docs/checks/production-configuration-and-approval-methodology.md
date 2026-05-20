@@ -82,7 +82,15 @@ These times are on the end of the "global trough" and "early morning lull" respe
 
 ## SPs in Scope for Testing
 
-The "production dealbot" has [`USE_ONLY_APPROVED_PROVIDERS`](../environment-variables.md#use_only_approved_providers)=false so non-approved SPs are included for evaluation. This means approved and non-approved SPs are both included for evaluation.  Only "dev" or "inactive" SPs in the SP Registry are excluded from testing.
+The "production dealbot" has [`USE_ONLY_APPROVED_PROVIDERS`](../environment-variables.md#use_only_approved_providers)=false so non-approved SPs are included for evaluation. This means approved and non-approved SPs are both included for evaluation. Inactive SPs in the SP Registry are excluded automatically.
+
+SPs can also opt themselves out of dealbot testing and approval-status eligibility by setting the following capability in their PDP product registration in the SP Registry:
+
+| Capability key | Required value |
+|----------------|----------------|
+| `serviceStatus` | `dev` (registered on-chain as hex `0x646576`) |
+
+Setting this flag does not affect the SP's on-chain registration in any other way; it only controls whether dealbot includes the node in testing and approval evaluation.
 
 ## SP Resource Consumption for Dealbot Checks
 

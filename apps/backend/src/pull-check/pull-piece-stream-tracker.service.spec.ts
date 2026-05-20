@@ -24,6 +24,7 @@ describe("PullPieceStreamTracker", () => {
     pullCheckPieceSizeBytes: 10 * 1024 * 1024, // 10 MB
     maxConcurrentStreams: 50,
     maxStreamsPerCid: 3,
+    pullPieceCleanupIntervalSeconds: 7 * 24 * 3600, // 7 days
   };
 
   beforeEach(() => {

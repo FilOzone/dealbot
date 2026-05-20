@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.3.0](https://github.com/FilOzone/dealbot/compare/web-v1.2.0...web-v1.3.0) (2026-05-19)
+
+
+### Features
+
+* **web:** link to combined approved-SP dashboard on landing ([#525](https://github.com/FilOzone/dealbot/issues/525)) ([d2f21ce](https://github.com/FilOzone/dealbot/commit/d2f21ce3bd86a21c81450df1e1cf8e239a9412e1))
+
+
+### Miscellaneous
+
+* ban nested ternaries via biome ([#544](https://github.com/FilOzone/dealbot/issues/544)) ([3986d52](https://github.com/FilOzone/dealbot/commit/3986d5263fac130eeddfef068d9df8265f6fd521))
+* **deps:** bump node from 24-alpine to 26-alpine in /apps/web ([#528](https://github.com/FilOzone/dealbot/issues/528)) ([e7ea2e0](https://github.com/FilOzone/dealbot/commit/e7ea2e0d40791483580425c7617cf2123e28031d))
+
 ## [1.2.0](https://github.com/FilOzone/dealbot/compare/web-v1.1.1...web-v1.2.0) (2026-05-05)
 
 

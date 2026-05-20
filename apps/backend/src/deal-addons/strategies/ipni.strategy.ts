@@ -7,7 +7,7 @@ import type { StorageProvider } from "src/database/entities/storage-provider.ent
 import type { Repository } from "typeorm";
 import { delay } from "../../common/abort-utils.js";
 import { buildUnixfsCar } from "../../common/car-utils.js";
-import { type DealLogContext, toStructuredError } from "../../common/logging.js";
+import { type DealLogContext, getErrorMessage, toStructuredError } from "../../common/logging.js";
 import type { IConfig } from "../../config/app.config.js";
 import { Deal } from "../../database/entities/deal.entity.js";
 import type { DealMetadata, IpniMetadata } from "../../database/types.js";
@@ -262,12 +262,7 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
           ...dealLogContext,
           event: "ipni_tracking_failed",
           message: "IPNI tracking failed",
-          failureReason:
-            error instanceof Error
-              ? error.cause instanceof Error
-                ? error.cause.message
-                : error.message
-              : String(error),
+          failureReason: getErrorMessage(error),
           error: toStructuredError(error),
         });
       } catch (saveError) {
