@@ -25,6 +25,11 @@ import type {
   RetrievalTestResult,
 } from "../retrieval-addons/types.js";
 
+/** Timeout for the pre-flight SP piece-status probe. Short enough that an unresponsive
+ *  SP still beats falling through to the 30s IPNI verify path; on timeout we treat
+ *  the result as "unknown" and proceed with the normal retrieval. */
+const SP_PIECE_STATUS_PROBE_TIMEOUT_MS = 5_000;
+
 @Injectable()
 export class RetrievalService {
   private readonly logger = new Logger(RetrievalService.name);
@@ -118,6 +123,31 @@ export class RetrievalService {
         message: "Retrieval skipped: no applicable retrieval strategies (likely missing IPNI metadata).",
       });
       return [];
+    }
+
+    // Pre-flight: if the SP itself reports it no longer has this piece, mark the deal
+    // cleaned_up so it stops polluting future retrieval candidates and skip the check.
+    // Saves the 30s IPNI verify timeout + downstream block-fetch 404 noise per stale deal.
+    if (provider.serviceUrl && deal.pieceCid) {
+      const probe = await this.probeSpPieceStatus(provider.serviceUrl, deal.pieceCid, signal);
+      signal?.throwIfAborted();
+      if (probe.result === "missing") {
+        const updateResult = await this.dealRepository.update(
+          { id: deal.id, cleanedUp: false },
+          { cleanedUp: true, cleanedUpAt: new Date() },
+        );
+        this.retrievalMetrics.recordStatus(providerLabels, "skipped.piece_missing");
+        this.logger.warn({
+          ...retrievalLogContext,
+          event: "retrieval_skipped_piece_missing",
+          message: "SP reports piece missing; marked deal cleaned_up and skipped retrieval",
+          statusUrl: probe.url,
+          statusCode: probe.statusCode,
+          probeDurationMs: probe.durationMs,
+          affected: updateResult.affected ?? 0,
+        });
+        return [];
+      }
     }
 
     type SubStatus = "success" | "failure.timedout" | "failure.other";
@@ -364,6 +394,47 @@ export class RetrievalService {
 
   private async findStorageProvider(address: string): Promise<StorageProvider | null> {
     return this.spRepository.findOne({ where: { address } });
+  }
+
+  /**
+   * Probe `${serviceUrl}/pdp/piece/:pieceCid/status` to determine whether the SP
+   * currently has the piece. Returns:
+   *   - "missing": SP responded 404 (authoritative — SP does not have the piece)
+   *   - "exists": SP responded 2xx (piece is held)
+   *   - "unknown": network error, probe timeout, or other status (don't act on it)
+   * An outer-signal abort during the probe is re-thrown so the caller can stop.
+   */
+  private async probeSpPieceStatus(
+    serviceUrl: string,
+    pieceCid: string,
+    outerSignal?: AbortSignal,
+  ): Promise<{ result: "missing" | "exists" | "unknown"; url: string; statusCode: number | null; durationMs: number }> {
+    const url = `${serviceUrl.replace(/\/$/, "")}/pdp/piece/${encodeURIComponent(pieceCid)}/status`;
+    const timeoutSignal = AbortSignal.timeout(SP_PIECE_STATUS_PROBE_TIMEOUT_MS);
+    const signal = outerSignal ? AbortSignal.any([outerSignal, timeoutSignal]) : timeoutSignal;
+    const start = Date.now();
+    try {
+      const res = await fetch(url, {
+        method: "GET",
+        signal,
+        headers: { "User-Agent": "dealbot/probe" },
+      });
+      // Drain/cancel the body so undici returns the socket to the pool instead of
+      // keeping it pinned to an unread response. Body content is irrelevant here.
+      await res.body?.cancel().catch(() => undefined);
+      const durationMs = Date.now() - start;
+      if (res.status === 404) return { result: "missing", url, statusCode: 404, durationMs };
+      if (res.ok) return { result: "exists", url, statusCode: res.status, durationMs };
+      return { result: "unknown", url, statusCode: res.status, durationMs };
+    } catch (error) {
+      // Re-throw caller-initiated aborts so retrieval stops promptly. Probe-timeout
+      // and network errors fall through as "unknown" — we don't want to mark deals
+      // cleaned_up on flaky infra.
+      if (outerSignal?.aborted) {
+        throw error;
+      }
+      return { result: "unknown", url, statusCode: null, durationMs: Date.now() - start };
+    }
   }
 
   /**

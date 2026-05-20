@@ -113,6 +113,10 @@ Metric definitions (including Prometheus metrics) live in [Dealbot Events & Metr
 
 `retrievalStatus` counts the `/ipfs` transport stage only (assertions 2 and 3). The IPNI assertion (1) is counted on `discoverabilityStatus`. There is no composite "retrieval check" counter; overall success comes from `dataStorageStatus`, which is `success` only when all sub-statuses succeed. See [Deal Status Progression](./data-storage.md#deal-status-progression).
 
+### `skipped.piece_missing`
+
+Emitted when a retrieval pre-flight probe to `${serviceUrl}/pdp/piece/:pieceCid/status` returns `404`. The deal is marked `cleaned_up=true` and removed from future retrieval candidate selection. This is not a failure of the SP's transport surface, but a signal that the piece no longer exists on the SP while the dataset is still live (for example, the SP scheduled a piece removal via PDP, or the piece dropped without an on-chain notification). The probe runs before IPNI verification and transport, so a 30s IPNI timeout is avoided on stale candidates. Search logs for `retrieval_skipped_piece_missing` to correlate.
+
 ## Configuration
 
 Key environment variables that control retrieval testing:
