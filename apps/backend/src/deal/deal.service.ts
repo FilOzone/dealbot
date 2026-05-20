@@ -10,7 +10,7 @@ import type { Repository } from "typeorm";
 import { ClickhouseService } from "../clickhouse/clickhouse.service.js";
 import { awaitWithAbort } from "../common/abort-utils.js";
 import { buildUnixfsCar } from "../common/car-utils.js";
-import { DealJobTerminatedDataSetError } from "../common/errors.js";
+import { DataSetTerminateRequiresOperatorError, DealJobTerminatedDataSetError } from "../common/errors.js";
 import { createFilecoinPinLogger } from "../common/filecoin-pin-logger.js";
 import {
   type DealLogContext,
@@ -852,6 +852,14 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
         pdpEndEpoch: pdpEndEpoch.toString(),
       });
     } else {
+      // Session-key + contract-payer (Safe multisig) mode cannot auto-terminate.
+      // FWSS.terminateService gates on msg.sender ∈ {payer, payee}, and our
+      // signer is the session-key EOA — not the payer.
+      // See https://github.com/FilOzone/dealbot/issues/546
+      if (this.blockchainConfig.sessionKeyPrivateKey) {
+        const payerAddress = existing?.payer ?? this.blockchainConfig.walletAddress ?? "";
+        throw new DataSetTerminateRequiresOperatorError(dataSetId, providerAddress, payerAddress);
+      }
       let txHash: `0x${string}` | undefined;
       try {
         txHash = await awaitWithAbort(synapse.storage.terminateDataSet({ dataSetId }), signal);
