@@ -123,7 +123,11 @@ describe("JobsService schedule rows", () => {
 
     baseConfigValues = {
       app: { runMode: "both" } as IConfig["app"],
-      blockchain: { useOnlyApprovedProviders: false, minNumDataSetsForChecks: 1 } as IConfig["blockchain"],
+      blockchain: {
+        useOnlyApprovedProviders: false,
+        minNumDataSetsForChecks: 1,
+        subgraphEndpoint: "https://example.com/subgraph",
+      } as IConfig["blockchain"],
       scheduling: {
         providersRefreshIntervalSeconds: 4 * 3600,
         dataRetentionPollIntervalSeconds: 3600,
@@ -630,6 +634,33 @@ describe("JobsService schedule rows", () => {
       "piece_cleanup",
       "retrieval",
       "retrieval_anon",
+    ]);
+  });
+
+  it("skips retrieval_anon schedule when subgraph endpoint is not configured", async () => {
+    baseConfigValues = {
+      ...baseConfigValues,
+      blockchain: { ...baseConfigValues.blockchain, subgraphEndpoint: "" } as IConfig["blockchain"],
+    };
+    configService = {
+      get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
+    } as unknown as JobsServiceDeps[0];
+
+    service = buildService({ configService });
+
+    const providerA = { address: "0xaaa" };
+    storageProviderRepositoryMock.find.mockResolvedValueOnce([providerA]);
+
+    await callPrivate(service, "ensureScheduleRows");
+
+    const upsertsForA = jobScheduleRepositoryMock.upsertSchedule.mock.calls.filter(
+      (call) => call[1] === providerA.address,
+    );
+    expect(upsertsForA.map((call) => call[0]).sort()).toEqual([
+      "data_set_creation",
+      "deal",
+      "piece_cleanup",
+      "retrieval",
     ]);
   });
 

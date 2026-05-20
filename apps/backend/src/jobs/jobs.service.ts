@@ -1043,6 +1043,10 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     const minDataSets = this.configService.get("blockchain").minNumDataSetsForChecks;
     const cleanupStartAt = new Date(now.getTime() + phaseMs);
 
+    // Anon retrieval depends on the dealbot-owned subgraph. Without SUBGRAPH_ENDPOINT every
+    // job would fail in SubgraphService.sampleAnonPiece(), so gate schedule creation on it.
+    const anonRetrievalEnabled = Boolean(this.configService.get("blockchain").subgraphEndpoint);
+
     const spBlocklistsCfg = this.configService.get<ISpBlocklistConfig>("spBlocklists");
     const unblockedAddresses = providers
       .filter(({ address, providerId }) => !isSpBlocked(spBlocklistsCfg, address, providerId))
@@ -1059,12 +1063,14 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     for (const address of unblockedAddresses) {
       await this.jobScheduleRepository.upsertSchedule("deal", address, dealIntervalSeconds, dealStartAt);
       await this.jobScheduleRepository.upsertSchedule("retrieval", address, retrievalIntervalSeconds, retrievalStartAt);
-      await this.jobScheduleRepository.upsertSchedule(
-        "retrieval_anon",
-        address,
-        retrievalAnonIntervalSeconds,
-        retrievalAnonStartAt,
-      );
+      if (anonRetrievalEnabled) {
+        await this.jobScheduleRepository.upsertSchedule(
+          "retrieval_anon",
+          address,
+          retrievalAnonIntervalSeconds,
+          retrievalAnonStartAt,
+        );
+      }
       if (minDataSets >= 1) {
         await this.jobScheduleRepository.upsertSchedule(
           "data_set_creation",
