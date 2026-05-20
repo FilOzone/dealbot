@@ -48,8 +48,11 @@ export class CarValidationService {
   ): Promise<CarValidationResult> {
     let blocks: { cid: CID; bytes: Uint8Array }[];
     try {
-      blocks = await this.parseCar(pieceBytes);
+      blocks = await this.parseCar(pieceBytes, signal);
     } catch (error) {
+      if (signal?.aborted || (error instanceof Error && error.name === "AbortError")) {
+        throw error;
+      }
       this.logger.debug({
         event: "car_parse_failed",
         message: "Failed to parse piece bytes as CAR - client fault, not SP",
@@ -102,10 +105,11 @@ export class CarValidationService {
     };
   }
 
-  private async parseCar(pieceBytes: Buffer): Promise<{ cid: CID; bytes: Uint8Array }[]> {
+  private async parseCar(pieceBytes: Buffer, signal?: AbortSignal): Promise<{ cid: CID; bytes: Uint8Array }[]> {
     const reader = await CarReader.fromBytes(new Uint8Array(pieceBytes));
     const blocks: { cid: CID; bytes: Uint8Array }[] = [];
     for await (const block of reader.blocks()) {
+      signal?.throwIfAborted();
       blocks.push({ cid: block.cid, bytes: block.bytes });
     }
     return blocks;
