@@ -132,18 +132,23 @@ export class RetrievalService {
       const probe = await this.probeSpPieceStatus(provider.serviceUrl, deal.pieceCid, signal);
       signal?.throwIfAborted();
       if (probe.result === "missing") {
-        await this.dealRepository.update(
+        const updateResult = await this.dealRepository.update(
           { id: deal.id, cleanedUp: false },
           { cleanedUp: true, cleanedUpAt: new Date() },
         );
+        const affected = updateResult.affected ?? 0;
         this.retrievalMetrics.recordStatus(providerLabels, "skipped.piece_missing");
         this.logger.warn({
           ...retrievalLogContext,
           event: "retrieval_skipped_piece_missing",
-          message: "SP reports piece missing; marked deal cleaned_up and skipped retrieval",
+          message:
+            affected > 0
+              ? "SP reports piece missing; marked deal cleaned_up and skipped retrieval"
+              : "SP reports piece missing; deal already cleaned_up (concurrent writer)",
           statusUrl: probe.url,
           statusCode: probe.statusCode,
           probeDurationMs: probe.durationMs,
+          affected,
         });
         return [];
       }
@@ -418,6 +423,9 @@ export class RetrievalService {
         signal,
         headers: { "User-Agent": "dealbot/probe" },
       });
+      // Drain/cancel the body so undici returns the socket to the pool instead of
+      // keeping it pinned to an unread response. Body content is irrelevant here.
+      await res.body?.cancel().catch(() => undefined);
       const durationMs = Date.now() - start;
       if (res.status === 404) return { result: "missing", url, statusCode: 404, durationMs };
       if (res.ok) return { result: "exists", url, statusCode: res.status, durationMs };
