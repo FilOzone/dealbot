@@ -180,12 +180,6 @@ const metricProviders = [
     labelNames: ["checkType", "providerId", "providerName", "providerStatus", "value"] as const,
   }),
   makeCounterProvider({
-    // docs/checks/events-and-metrics.md#ipniVerifySkippedTotal
-    name: "ipniVerifySkippedTotal",
-    help: "Number of IPNI verify attempts skipped (no candidates to verify)",
-    labelNames: ["checkType", "providerId", "providerName", "providerStatus"] as const,
-  }),
-  makeCounterProvider({
     // docs/checks/data-storage.md#sub-status-meanings (Retrieval Status)
     name: "retrievalStatus",
     help: "Retrieval sub-status counts",

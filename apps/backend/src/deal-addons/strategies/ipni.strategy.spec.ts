@@ -63,7 +63,6 @@ describe("IpniAddonStrategy getPieceStatus", () => {
       observeSpIndexLocallyMs: vi.fn(),
       observeSpAnnounceAdvertisementMs: vi.fn(),
       observeIpniVerifyMs: vi.fn(),
-      incrementIpniVerifySkipped: vi.fn(),
       recordStatus: vi.fn(),
       buildLabelsForDeal: vi.fn().mockImplementation((deal: DealForMetrics) => {
         if (!deal?.spAddress) return null;
@@ -413,7 +412,7 @@ describe("IpniAddonStrategy getPieceStatus", () => {
     expect(discoverabilityMetrics.observeIpniVerifyMs).toHaveBeenCalledWith(labels, 500, "error");
   });
 
-  it("increments ipniVerifySkippedTotal when rootCID and blockCIDs are missing", async () => {
+  it("records discoverabilityStatus=skipped when rootCID and blockCIDs are missing", async () => {
     const { strategy, discoverabilityMetrics, ipniVerificationService } = createStrategy();
 
     const strategyForTest = asStrategyPrivates(strategy);
@@ -453,11 +452,11 @@ describe("IpniAddonStrategy getPieceStatus", () => {
     );
 
     const labels = { checkType: "dataStorage", providerId: "9", providerName: "SP", providerStatus: "approved" };
-    expect(discoverabilityMetrics.incrementIpniVerifySkipped).toHaveBeenCalledWith(labels);
+    expect(discoverabilityMetrics.recordStatus).toHaveBeenCalledWith(labels, "skipped");
     expect(ipniVerificationService.verify).not.toHaveBeenCalled();
   });
 
-  it("increments ipniVerifySkippedTotal when rootCID cannot be parsed", async () => {
+  it("records discoverabilityStatus=skipped when rootCID cannot be parsed", async () => {
     const { strategy, discoverabilityMetrics, ipniVerificationService } = createStrategy();
 
     const strategyForTest = asStrategyPrivates(strategy);
@@ -497,7 +496,7 @@ describe("IpniAddonStrategy getPieceStatus", () => {
     );
 
     const labels = { checkType: "dataStorage", providerId: "9", providerName: "SP", providerStatus: "approved" };
-    expect(discoverabilityMetrics.incrementIpniVerifySkipped).toHaveBeenCalledWith(labels);
+    expect(discoverabilityMetrics.recordStatus).toHaveBeenCalledWith(labels, "skipped");
     expect(ipniVerificationService.verify).not.toHaveBeenCalled();
   });
 

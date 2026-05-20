@@ -182,8 +182,6 @@ export class DiscoverabilityCheckMetrics {
     private readonly spAnnounceAdvertisementMs: Histogram,
     @InjectMetric("ipniVerifyMs")
     private readonly ipniVerifyMs: Histogram,
-    @InjectMetric("ipniVerifySkippedTotal")
-    private readonly ipniVerifySkippedTotal: Counter,
     @InjectMetric("discoverabilityStatus")
     private readonly discoverabilityStatusCounter: Counter,
   ) {}
@@ -226,18 +224,6 @@ export class DiscoverabilityCheckMetrics {
       return;
     }
     observePositive(this.ipniVerifyMs, { ...labels, outcome }, value);
-  }
-
-  incrementIpniVerifySkipped(labels: CheckMetricLabels | null): void {
-    if (!labels) {
-      this.logger.warn({
-        event: "metric_emit_failed",
-        message: "Cannot emit ipniVerifySkippedTotal: no provider labels",
-        metric: "ipniVerifySkippedTotal",
-      });
-      return;
-    }
-    this.ipniVerifySkippedTotal.inc(labels);
   }
 
   recordStatus(labels: CheckMetricLabels | null, value: string): void {

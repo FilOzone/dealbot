@@ -347,7 +347,7 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
         hasRootCID: Boolean(rootCID),
         blockCIDCount: blockCIDs.length,
       });
-      this.discoverabilityMetrics.incrementIpniVerifySkipped(this.discoverabilityMetrics.buildLabelsForDeal(deal));
+      this.discoverabilityMetrics.recordStatus(this.discoverabilityMetrics.buildLabelsForDeal(deal), "skipped");
       return {
         monitoringResult,
         ipniResult: {
@@ -376,7 +376,7 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
         rootCID,
         error: toStructuredError(error),
       });
-      this.discoverabilityMetrics.incrementIpniVerifySkipped(this.discoverabilityMetrics.buildLabelsForDeal(deal));
+      this.discoverabilityMetrics.recordStatus(this.discoverabilityMetrics.buildLabelsForDeal(deal), "skipped");
       return {
         monitoringResult,
         ipniResult: {
