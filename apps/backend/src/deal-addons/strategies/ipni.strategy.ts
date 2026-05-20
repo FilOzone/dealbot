@@ -408,11 +408,6 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       signal,
     });
 
-    this.discoverabilityMetrics.observeIpniVerifyMs(
-      this.discoverabilityMetrics.buildLabelsForDeal(deal),
-      ipniResult.durationMs,
-    );
-
     if (ipniResult.rootCIDVerified) {
       this.logger.log({
         ...dealLogContext,
@@ -462,40 +457,53 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       checkCount++;
 
       try {
-        const sdkStatus = await this.getPieceStatus(serviceURL, pieceCid, signal, dealLogContext);
+        const providerStatus = await this.getPieceStatus(serviceURL, pieceCid, signal, dealLogContext);
         signal?.throwIfAborted();
+        const observedAt = new Date().toISOString();
 
         const currentStatus: PieceStatus = {
-          status: sdkStatus.status,
-          indexed: sdkStatus.indexed,
-          advertised: sdkStatus.advertised,
-          // sdkStatus does not provide these fields, so we use the last known values
-          indexedAt: lastStatus.indexedAt,
-          advertisedAt: lastStatus.advertisedAt,
+          status: providerStatus.status,
+          indexed: providerStatus.indexed,
+          advertised: providerStatus.advertised,
+          // Newer SP piece-status responses include provider-side timestamps. Older SPs do not,
+          // so retain the last locally observed timestamp as the compatibility path.
+          indexedAt: providerStatus.indexedAt ?? lastStatus.indexedAt,
+          advertisedAt: providerStatus.advertisedAt ?? lastStatus.advertisedAt,
+          indexedObservedAt: lastStatus.indexedObservedAt,
+          advertisedObservedAt: lastStatus.advertisedObservedAt,
         };
 
         // Update indexedAt and advertisedAt if they have changed
-        if (currentStatus.indexed && !currentStatus.indexedAt) {
-          currentStatus.indexedAt = new Date().toISOString();
+        if (currentStatus.indexed) {
+          currentStatus.indexedObservedAt ??= observedAt;
+          if (!currentStatus.indexedAt) {
+            currentStatus.indexedAt = currentStatus.indexedObservedAt;
+          }
           if (!lastStatus.indexed) {
             this.logger.log({
               ...dealLogContext,
               pieceCid,
               event: "piece_status_indexed",
               message: "Piece indexed",
+              indexedAt: currentStatus.indexedAt,
             });
           }
         }
 
         // Return as soon as status has changed to advertised
-        if (currentStatus.advertised && !currentStatus.advertisedAt) {
-          currentStatus.advertisedAt = new Date().toISOString();
+        if (currentStatus.advertised) {
+          currentStatus.advertisedObservedAt ??= observedAt;
+          if (!currentStatus.advertisedAt) {
+            currentStatus.advertisedAt = currentStatus.advertisedObservedAt;
+          }
           if (!lastStatus.advertised) {
             this.logger.log({
               ...dealLogContext,
               pieceCid,
               event: "piece_status_advertised",
               message: "Piece advertised",
+              advertisedAt: currentStatus.advertisedAt,
+              providerStatus: currentStatus.status,
             });
           }
           return {
@@ -656,6 +664,7 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
     const now = new Date();
     const uploadEndTime = deal.uploadEndTime;
     const labels = this.discoverabilityMetrics.buildLabelsForDeal(deal);
+    const maxFutureSkewMs = 60_000;
 
     // Determine IPNI status based on progression
     // Terminal state is VERIFIED when rootCID (minimum) is verified via filecoinpin.contact
@@ -673,19 +682,25 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
     // Helper function to calculate duration in milliseconds
     // return null if uploadEndTime is missing ( metrics are meaningless when start time is missing )
     // log warning for unexpected case where end time is before start time
-    const calculateDuration = (eventTime: Date, eventName: string): number | null => {
-      if (!uploadEndTime) return null;
-      const duration = Math.round(eventTime.getTime() - uploadEndTime.getTime());
+    const calculateDuration = (
+      eventTime: Date,
+      eventName: string,
+      startTime: Date | null | undefined,
+    ): number | null => {
+      if (!startTime) return null;
+      const duration = Math.round(eventTime.getTime() - startTime.getTime());
+      const eventTimeMs = eventTime.getTime();
+      const eventTimeIso = Number.isFinite(eventTimeMs) ? eventTime.toISOString() : String(eventTime);
 
-      if (duration <= 0) {
+      if (!Number.isFinite(eventTimeMs) || duration <= 0 || eventTimeMs > now.getTime() + maxFutureSkewMs) {
         this.logger.warn({
           ...dealLogContext,
           event: "ipni_invalid_duration",
           message: "Invalid duration calculated",
           eventName,
           durationMs: duration,
-          eventTime: eventTime.toISOString(),
-          uploadEndTime: uploadEndTime.toISOString(),
+          eventTime: eventTimeIso,
+          startTime: startTime.toISOString(),
         });
         return null;
       }
@@ -693,14 +708,54 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       return duration;
     };
 
+    const parseStatusTimestamp = (
+      timestamp: string | null,
+      observedTimestamp: string | null | undefined,
+      eventName: string,
+    ): Date | null => {
+      const observedAt = observedTimestamp ? new Date(observedTimestamp) : null;
+      const observedAtMs = observedAt ? observedAt.getTime() : Number.NaN;
+      const fallback =
+        observedAt && Number.isFinite(observedAtMs) && observedAtMs <= now.getTime() + maxFutureSkewMs
+          ? observedAt
+          : null;
+      if (!timestamp) return fallback;
+
+      const parsed = new Date(timestamp);
+      const parsedMs = parsed.getTime();
+      const hasObviousSkew =
+        !Number.isFinite(parsedMs) ||
+        parsedMs > now.getTime() + maxFutureSkewMs ||
+        (uploadEndTime ? parsedMs <= uploadEndTime.getTime() : false);
+
+      if (hasObviousSkew) {
+        this.logger.warn({
+          ...dealLogContext,
+          event: "ipni_provider_timestamp_ignored",
+          message: "Ignoring invalid or skewed provider timestamp",
+          eventName,
+          providerTimestamp: timestamp,
+          fallbackTimestamp: fallback?.toISOString(),
+          uploadEndTime: uploadEndTime?.toISOString(),
+          observedTimestamp,
+          updateTime: now.toISOString(),
+        });
+        return fallback;
+      }
+
+      return parsed;
+    };
+
     // Update timestamps and calculate time-to-stage metrics
     if (finalStatus.indexed && !deal.ipniIndexedAt) {
-      const indexedTimestamp = finalStatus.indexedAt ? new Date(finalStatus.indexedAt) : now;
-      deal.ipniIndexedAt = indexedTimestamp;
-
       this.discoverabilityMetrics.recordStatus(labels, "sp_indexed");
+      const indexedTimestamp = parseStatusTimestamp(finalStatus.indexedAt, finalStatus.indexedObservedAt, "indexed");
 
-      const timeToIndexMs = calculateDuration(indexedTimestamp, "indexed");
+      if (indexedTimestamp) {
+        deal.ipniIndexedAt = indexedTimestamp;
+      }
+
+      const timeToIndexMs = indexedTimestamp ? calculateDuration(indexedTimestamp, "indexed", uploadEndTime) : null;
       if (timeToIndexMs) {
         /**
          * Time taken for the SP to index the piece after upload:
@@ -712,12 +767,20 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
     }
 
     if (finalStatus.advertised && !deal.ipniAdvertisedAt) {
-      const advertisedTimestamp = finalStatus.advertisedAt ? new Date(finalStatus.advertisedAt) : now;
-      deal.ipniAdvertisedAt = advertisedTimestamp;
-
       this.discoverabilityMetrics.recordStatus(labels, "sp_announced_advertisement");
+      const advertisedTimestamp = parseStatusTimestamp(
+        finalStatus.advertisedAt,
+        finalStatus.advertisedObservedAt,
+        "advertised",
+      );
 
-      const timeToAdvertiseMs = calculateDuration(advertisedTimestamp, "advertised");
+      if (advertisedTimestamp) {
+        deal.ipniAdvertisedAt = advertisedTimestamp;
+      }
+
+      const timeToAdvertiseMs = advertisedTimestamp
+        ? calculateDuration(advertisedTimestamp, "advertised", uploadEndTime)
+        : null;
       if (timeToAdvertiseMs) {
         /**
          * Time taken for the SP to advertise the piece to IPNI after upload:
@@ -728,24 +791,31 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       }
     }
 
+    const verificationEndTimestamp = new Date(ipniResult.verifiedAt);
+    const ipniVerifyMs = deal.ipniAdvertisedAt
+      ? (calculateDuration(verificationEndTimestamp, "ipniVerify", deal.ipniAdvertisedAt) ?? ipniResult.durationMs)
+      : ipniResult.durationMs;
+    this.discoverabilityMetrics.observeIpniVerifyMs(labels, ipniVerifyMs);
+
     // Update verification metrics and timestamp
     // Only set verified timestamp if rootCID was successfully verified
     if (ipniResult.rootCIDVerified && !deal.ipniVerifiedAt) {
-      const verifiedTimestamp = new Date(ipniResult.verifiedAt);
+      const verifiedTimestamp = verificationEndTimestamp;
       deal.ipniVerifiedAt = verifiedTimestamp;
 
-      const timeToVerifyMs = calculateDuration(verifiedTimestamp, "verified");
+      const timeToVerifyMs = calculateDuration(verifiedTimestamp, "verified", uploadEndTime);
       if (timeToVerifyMs) {
         deal.ipniTimeToVerifyMs = timeToVerifyMs;
       }
 
       // Warn when IPNI verification takes too long
-      if (ipniResult.durationMs > 5000) {
+      if (ipniVerifyMs > 5000) {
         this.logger.warn({
           ...dealLogContext,
           event: "ipni_slow_verification",
           message: "IPNI verification time exceeded 5s threshold",
-          ipniVerifyMs: ipniResult.durationMs,
+          ipniVerifyMs,
+          ipniPollingDurationMs: ipniResult.durationMs,
           ipniVerifiedAt: verifiedTimestamp.toISOString(),
           verifiedCids: ipniResult.verified,
           unverifiedCids: ipniResult.unverified,

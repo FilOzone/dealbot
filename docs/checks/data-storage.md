@@ -92,7 +92,9 @@ After upload completes, dealbot polls the SP's PDP server to track the piece thr
 - **`sp_advertised`**: SP has announced the piece index to IPNI. (In IPNI terminology this is "advertisement announcement" (see [docs](https://docs.cid.contact/filecoin-network-indexer/technical-walkthrough))). [IPNI indexing verification](#7-verify-ipni-indexing) can commence.
 - **Poll interval**: 2.5 seconds (hardcoded `POLLING_INTERVAL_MS` in [`ipni.strategy.ts`](../../apps/backend/src/deal-addons/strategies/ipni.strategy.ts))
 
-Source: [`ipni.strategy.ts` (`monitorPieceStatus`)](../../apps/backend/src/deal-addons/strategies/ipni.strategy.ts#L343)
+When the SP returns `indexedAt` or `advertisedAt`, dealbot uses those provider-side timestamps for `spIndexLocallyMs`, `spAnnounceAdvertisementMs`, and data-storage `ipniVerifyMs`. If those fields are absent or unusable, dealbot falls back to the time it observed the status while polling.
+
+Source: [`ipni.strategy.ts` (`monitorPieceStatus`)](../../apps/backend/src/deal-addons/strategies/ipni.strategy.ts)
 
 ### 6. Verify IPNI indexing
 
@@ -102,7 +104,9 @@ This uses the `waitForIpniProviderResults` function from the `filecoin-pin` libr
 
 - **Polling interval:** 2 seconds (configurable via [`IPNI_VERIFICATION_POLLING_MS`](../environment-variables.md#ipni_verification_polling_ms), default `2000`)
 
-Source: [`ipni.strategy.ts` (`monitorAndVerifyIPNI`)](../../apps/backend/src/deal-addons/strategies/ipni.strategy.ts#L239)
+For data-storage checks, [`ipniVerifyMs`](./events-and-metrics.md#ipniVerifyMs) is measured from the SP's `advertisedAt` timestamp to the end of filecoinpin.contact verification when the SP provides a sane timestamp. This attributes the full "announced to visible on filecoinpin.contact" window instead of only dealbot's local polling window.
+
+Source: [`ipni.strategy.ts` (`monitorAndVerifyIPNI`)](../../apps/backend/src/deal-addons/strategies/ipni.strategy.ts)
 
 ### 7. Retrieve and Verify Content
 
