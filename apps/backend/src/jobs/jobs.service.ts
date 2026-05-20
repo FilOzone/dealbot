@@ -653,7 +653,16 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     }, timeoutMs);
 
     await this.recordJobExecution("retrieval_anon", async () => {
-      const logContext = await this.resolveProviderJobContext(spAddress, job.id);
+      const logContext = await this.resolveRunnableProviderJobContext(
+        "retrieval_anon",
+        spAddress,
+        job.id,
+        "Anon retrieval job skipped: provider is blocked for scheduled retrieval checks",
+      );
+      if (logContext == null) {
+        clearTimeout(timeoutId);
+        return "success";
+      }
       try {
         await this.anonRetrievalService.performForProvider(spAddress, abortController.signal, logContext);
         return "success";

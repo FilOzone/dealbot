@@ -1444,6 +1444,30 @@ describe("JobsService schedule rows", () => {
     expect(dealService.createDataSetWithPiece).not.toHaveBeenCalled();
   });
 
+  it("anon retrieval job is skipped at runtime when provider is blocked", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2024-01-01T12:00:00Z"));
+
+    baseConfigValues.spBlocklists = { ids: new Set(["4"]), addresses: new Set() };
+
+    const anonRetrievalService = { performForProvider: vi.fn() };
+    const walletSdkService = {
+      getProviderInfo: vi.fn(() => ({ id: 4n, name: "sp" })),
+    };
+
+    service = buildService({
+      anonRetrievalService: anonRetrievalService as unknown as JobsServiceDeps[8],
+      walletSdkService: walletSdkService as unknown as JobsServiceDeps[5],
+    });
+
+    await callPrivate(service, "handleAnonRetrievalJob", {
+      id: "job-blocked-anon",
+      data: { spAddress: "0xaaa", intervalSeconds: 60 },
+    });
+
+    expect(anonRetrievalService.performForProvider).not.toHaveBeenCalled();
+  });
+
   it("SP jobs skip address-blocked providers before resolving missing provider context", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2024-01-01T12:00:00Z"));
