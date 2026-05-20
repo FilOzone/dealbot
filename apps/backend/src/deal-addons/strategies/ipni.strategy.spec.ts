@@ -412,7 +412,7 @@ describe("IpniAddonStrategy getPieceStatus", () => {
     expect(discoverabilityMetrics.observeIpniVerifyMs).toHaveBeenCalledWith(labels, 500, "error");
   });
 
-  it("records discoverabilityStatus=skipped when rootCID and blockCIDs are missing", async () => {
+  it("skips IPNI verification when rootCID and blockCIDs are missing", async () => {
     const { strategy, discoverabilityMetrics, ipniVerificationService } = createStrategy();
 
     const strategyForTest = asStrategyPrivates(strategy);
@@ -439,7 +439,7 @@ describe("IpniAddonStrategy getPieceStatus", () => {
       storageProvider: buildStorageProvider(),
     });
 
-    await strategyForTest.monitorAndVerifyIPNI(
+    const result = await strategyForTest.monitorAndVerifyIPNI(
       "http://sp.example.com",
       deal,
       [],
@@ -451,12 +451,12 @@ describe("IpniAddonStrategy getPieceStatus", () => {
       2000,
     );
 
-    const labels = { checkType: "dataStorage", providerId: "9", providerName: "SP", providerStatus: "approved" };
-    expect(discoverabilityMetrics.recordStatus).toHaveBeenCalledWith(labels, "skipped");
+    expect((result as { skipped?: boolean }).skipped).toBe(true);
     expect(ipniVerificationService.verify).not.toHaveBeenCalled();
+    expect(discoverabilityMetrics.recordStatus).not.toHaveBeenCalled();
   });
 
-  it("records discoverabilityStatus=skipped when rootCID cannot be parsed", async () => {
+  it("skips IPNI verification when rootCID cannot be parsed", async () => {
     const { strategy, discoverabilityMetrics, ipniVerificationService } = createStrategy();
 
     const strategyForTest = asStrategyPrivates(strategy);
@@ -483,7 +483,7 @@ describe("IpniAddonStrategy getPieceStatus", () => {
       storageProvider: buildStorageProvider(),
     });
 
-    await strategyForTest.monitorAndVerifyIPNI(
+    const result = await strategyForTest.monitorAndVerifyIPNI(
       "http://sp.example.com",
       deal,
       [CID.parse("bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi")],
@@ -495,9 +495,50 @@ describe("IpniAddonStrategy getPieceStatus", () => {
       2000,
     );
 
-    const labels = { checkType: "dataStorage", providerId: "9", providerName: "SP", providerStatus: "approved" };
-    expect(discoverabilityMetrics.recordStatus).toHaveBeenCalledWith(labels, "skipped");
+    expect((result as { skipped?: boolean }).skipped).toBe(true);
     expect(ipniVerificationService.verify).not.toHaveBeenCalled();
+    expect(discoverabilityMetrics.recordStatus).not.toHaveBeenCalled();
+  });
+
+  it("records discoverabilityStatus=skipped once when IPNI inputs are missing", async () => {
+    const { strategy, discoverabilityMetrics, mockRepo, ipniVerificationService } = createStrategy();
+
+    const strategyForTest = asStrategyPrivates(strategy);
+    vi.spyOn(strategyForTest, "monitorPieceStatus").mockResolvedValue({
+      success: true,
+      finalStatus: { status: "ok", indexed: true, advertised: true, indexedAt: null, advertisedAt: null },
+      checks: 1,
+      durationMs: 100,
+    });
+
+    const deal = buildDeal({
+      id: "deal-skipped",
+      spAddress: "0xsp",
+      uploadEndTime: new Date("2026-01-01T00:00:00Z"),
+      pieceCid: "bafk-piece",
+      ipniStatus: IpniStatus.PENDING,
+      metadata: {
+        [ServiceType.IPFS_PIN]: {
+          enabled: true,
+          rootCID: "",
+          blockCIDs: [],
+          blockCount: 0,
+          carSize: 1,
+          originalSize: 1,
+        },
+      },
+      storageProvider: buildStorageProvider(),
+    });
+
+    await expect(strategyForTest.startIpniMonitoring(deal)).resolves.toBeUndefined();
+
+    const labels = { checkType: "dataStorage", providerId: "9", providerName: "SP", providerStatus: "approved" };
+    const statusCalls = (discoverabilityMetrics.recordStatus as Mock).mock.calls.filter(
+      ([, value]: [unknown, string]) => value.startsWith("failure.") || value === "skipped" || value === "success",
+    );
+    expect(statusCalls).toEqual([[labels, "skipped"]]);
+    expect(ipniVerificationService.verify).not.toHaveBeenCalled();
+    expect(mockRepo.save).toHaveBeenCalled();
   });
 
   it("emits failure status via startIpniMonitoring catch block when monitorAndVerifyIPNI throws", async () => {
