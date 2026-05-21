@@ -1096,6 +1096,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       await this.jobScheduleRepository.upsertSchedule(
         "pull_check",
         address,
+        network,
         pullCheckIntervalSeconds,
         pullCheckStartAt,
       );
@@ -1136,6 +1137,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     await this.jobScheduleRepository.upsertSchedule(
       "pull_piece_cleanup",
       "",
+      network,
       pullPieceCleanupIntervalSeconds,
       new Date(now.getTime() + phaseMs),
     );
