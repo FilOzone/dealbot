@@ -666,7 +666,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
         addonAbortCtrl.abort();
         await pending.catch(() => {});
         if (deal.ipniStatus === IpniStatus.PENDING) {
-          /** Addon aborted before reaching terminal IpniStatus. Clear so this run doesn't depress sp_performance.ipni_success_rate. Leaves real FAILED/VERIFIED untouched. See #503. */
+          /** Addon aborted before reaching terminal IpniStatus. Clear so ClickHouse/Postgres analytics don't count a transient PENDING as a non-null outcome and depress IPNI success rates. Leaves real FAILED/VERIFIED untouched. See #503. */
           deal.ipniStatus = null;
         }
       }
