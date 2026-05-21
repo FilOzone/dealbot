@@ -35,7 +35,7 @@ Dealbot opens outbound connections to:
 - **PDP Verifier contract** and **FWSS**: reached via `RPC_URL`.
 - **PDP subgraph** (`PDP_SUBGRAPH_ENDPOINT`): GraphQL.
 - **Storage provider HTTP endpoints**: per-provider URLs discovered from chain state. Used for deal creation, retrieval probes, pull-check kickoff, and piece status. Hostnames are not known in advance.
-- **IPNI / filecoinpin lookup**: used during deal verification and retrieval.
+- **IPNI indexer (`filecoinpin.contact`)**: looked up during deal verification and retrieval to confirm SPs are advertising the content.
 - **ClickHouse** (optional, `CLICKHOUSE_URL`).
 
 Firewall and proxy rules need to allow outbound network access to arbitrary SP hostnames discovered at runtime.
