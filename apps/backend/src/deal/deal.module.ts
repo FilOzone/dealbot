@@ -4,6 +4,7 @@ import { DatabaseModule } from "../database/database.module.js";
 import { Deal } from "../database/entities/deal.entity.js";
 import { Retrieval } from "../database/entities/retrieval.entity.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
+import { DatasetLivenessModule } from "../dataset-liveness/dataset-liveness.module.js";
 import { DataSourceModule } from "../dataSource/dataSource.module.js";
 import { DealAddonsModule } from "../deal-addons/deal-addons.module.js";
 import { RetrievalAddonsModule } from "../retrieval-addons/retrieval-addons.module.js";
@@ -18,6 +19,7 @@ import { DealService } from "./deal.service.js";
     WalletSdkModule,
     DealAddonsModule,
     RetrievalAddonsModule,
+    DatasetLivenessModule,
   ],
   providers: [DealService],
   exports: [DealService],

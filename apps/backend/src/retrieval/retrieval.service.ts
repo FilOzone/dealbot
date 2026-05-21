@@ -11,6 +11,7 @@ import { Deal } from "../database/entities/deal.entity.js";
 import { Retrieval } from "../database/entities/retrieval.entity.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
 import { DealStatus, RetrievalStatus, ServiceType } from "../database/types.js";
+import { DatasetLivenessService } from "../dataset-liveness/dataset-liveness.service.js";
 import { IpniVerificationService } from "../ipni/ipni-verification.service.js";
 import {
   buildCheckMetricLabels,
@@ -51,6 +52,7 @@ export class RetrievalService {
     private readonly ipniVerificationService: IpniVerificationService,
     private readonly configService: ConfigService<IConfig, true>,
     private readonly clickhouseService: ClickhouseService,
+    private readonly datasetLivenessService: DatasetLivenessService,
   ) {}
 
   async performRandomRetrievalForProvider(
@@ -129,13 +131,26 @@ export class RetrievalService {
       return [];
     }
 
-    // Pre-flight: if the SP itself reports it no longer has this piece, mark the deal
-    // cleaned_up so it stops polluting future retrieval candidates and skip the check.
-    // Saves the 30s IPNI verify timeout + downstream block-fetch 404 noise per stale deal.
-    if (provider.serviceUrl && deal.pieceCid) {
-      const probe = await this.probeSpPieceStatus(provider.serviceUrl, deal.pieceCid, signal);
+    // Pre-check pipeline before any retrieval work:
+    //
+    //   1. Chain `pieceLive(dataSetId, pieceId)`: source of truth for whether
+    //      the SP is still expected to retain this piece. If false (dataset
+    //      terminated, piece never created, or piece hard-removed), mark the
+    //      deal cleaned_up + skip. No SP probe needed in this case.
+    //   2. SP HTTP HEAD `/pdp/piece/:pieceCid/status`: cheap health-check that
+    //      the SP can actually serve. 404 here when chain says the piece
+    //      should be live = real SP-side failure. Recorded as a failed
+    //      retrieval row (deal stays in the candidate pool so the scheduler
+    //      re-probes; persistent failures become observable on dashboards).
+    if (deal.dataSetId != null && deal.pieceId != null) {
+      const pieceLive = await this.checkPieceLive(
+        BigInt(deal.dataSetId.toString()),
+        BigInt(deal.pieceId),
+        signal,
+        retrievalLogContext,
+      );
       signal?.throwIfAborted();
-      if (probe.result === "missing") {
+      if (!pieceLive) {
         const updateResult = await this.dealRepository.update(
           { id: deal.id, cleanedUp: false },
           { cleanedUp: true, cleanedUpAt: new Date() },
@@ -144,13 +159,47 @@ export class RetrievalService {
         this.logger.warn({
           ...retrievalLogContext,
           event: "retrieval_skipped_piece_missing",
-          message: "SP reports piece missing; marked deal cleaned_up and skipped retrieval",
-          statusUrl: probe.url,
-          statusCode: probe.statusCode,
-          probeDurationMs: probe.durationMs,
+          message: "PDP pieceLive=false; marked deal cleaned_up and skipped retrieval",
+          dataSetId: deal.dataSetId.toString(),
+          pieceId: deal.pieceId,
           affected: updateResult.affected ?? 0,
         });
         return [];
+      }
+    }
+
+    if (provider.serviceUrl && deal.pieceCid) {
+      const probe = await this.probeSpPieceStatus(provider.serviceUrl, deal.pieceCid, signal);
+      signal?.throwIfAborted();
+      if (probe.result === "missing") {
+        // Chain pre-check above already confirmed the piece SHOULD be retrievable
+        // (or we lacked dataSetId/pieceId to check). SP 404 here is an SP-side
+        // failure to honor its storage commitment.
+        this.retrievalMetrics.recordStatus(providerLabels, "failure.other");
+        const now = new Date();
+        const startedAt = new Date(now.getTime() - probe.durationMs);
+        const failed = this.retrievalRepository.create({
+          deal,
+          serviceType: ServiceType.IPFS_PIN,
+          retrievalEndpoint: probe.url,
+          status: RetrievalStatus.FAILED,
+          startedAt,
+          completedAt: now,
+          latencyMs: probe.durationMs,
+          responseCode: probe.statusCode ?? null,
+          errorMessage: "SP reports piece missing but PDP pieceLive=true",
+          retryCount: 0,
+        } as Partial<Retrieval>);
+        const saved = await this.retrievalRepository.save(failed);
+        this.logger.warn({
+          ...retrievalLogContext,
+          event: "retrieval_failed_piece_missing_live",
+          message: "SP reports piece missing while chain reports pieceLive=true; recorded failed retrieval",
+          statusUrl: probe.url,
+          statusCode: probe.statusCode,
+          probeDurationMs: probe.durationMs,
+        });
+        return [saved];
       }
     }
 
@@ -418,14 +467,22 @@ export class RetrievalService {
     const signal = outerSignal ? AbortSignal.any([outerSignal, timeoutSignal]) : timeoutSignal;
     const start = Date.now();
     try {
-      const res = await fetch(url, {
-        method: "GET",
+      // HEAD avoids transferring the status JSON body. Status code is all we need.
+      // If the SP responds 405 (Method Not Allowed), fall back to GET.
+      let res = await fetch(url, {
+        method: "HEAD",
         signal,
         headers: { "User-Agent": "dealbot/probe" },
       });
-      // Drain/cancel the body so undici returns the socket to the pool instead of
-      // keeping it pinned to an unread response. Body content is irrelevant here.
-      await res.body?.cancel().catch(() => undefined);
+      if (res.status === 405) {
+        res = await fetch(url, {
+          method: "GET",
+          signal,
+          headers: { "User-Agent": "dealbot/probe" },
+        });
+        // Drain the body since GET responses include one. Body content is irrelevant.
+        await res.body?.cancel().catch(() => undefined);
+      }
       const durationMs = Date.now() - start;
       if (res.status === 404) return { result: "missing", url, statusCode: 404, durationMs };
       if (res.ok) return { result: "exists", url, statusCode: res.status, durationMs };
@@ -582,6 +639,34 @@ export class RetrievalService {
       this.discoverabilityMetrics.observeIpniVerifyMs(providerLabels, durationMs, "error");
       this.discoverabilityMetrics.recordStatus(providerLabels, failureStatus);
       return { ok: false, failureStatus };
+    }
+  }
+
+  /**
+   * Defensive wrapper around `DatasetLivenessService.isPieceLive` used by the
+   * retrieval pre-check. On RPC failure, return `true` (treat as live) so a
+   * transient chain outage does NOT cascade into bulk cleanups. The downstream
+   * SP probe + retrieval fetch will surface the real outcome instead.
+   */
+  private async checkPieceLive(
+    dataSetId: bigint,
+    pieceId: bigint,
+    signal: AbortSignal | undefined,
+    logContext: RetrievalLogContext,
+  ): Promise<boolean> {
+    try {
+      return await this.datasetLivenessService.isPieceLive(dataSetId, pieceId, signal);
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      this.logger.warn({
+        ...logContext,
+        event: "retrieval_piece_liveness_probe_failed",
+        message: "PDP pieceLive probe failed; treating piece as live to avoid spurious cleanup",
+        dataSetId: dataSetId.toString(),
+        pieceId: pieceId.toString(),
+        error: toStructuredError(error),
+      });
+      return true;
     }
   }
 }
