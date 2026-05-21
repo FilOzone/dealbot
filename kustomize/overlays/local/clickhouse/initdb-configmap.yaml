@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dealbot-clickhouse-initdb
+data:
+  00-create-database.sql: |
+    CREATE DATABASE IF NOT EXISTS dealbot;

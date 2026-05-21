@@ -27,6 +27,7 @@ GRAFANA_VALUES ?= $(MONITORING_OVERLAY)/grafana-values.yaml
 .PHONY: web-image-build web-kind-load web-logs
 .PHONY: image-build kind-load deploy undeploy render logs
 .PHONY: redeploy restart restart-backend restart-web restart-worker
+.PHONY: clickhouse-reset clickhouse-shell
 .PHONY: monitoring-install monitoring-apply monitoring-up monitoring-down
 .PHONY: local-up up down
 
@@ -118,6 +119,15 @@ redeploy:
 	$(MAKE) kind-load
 	$(MAKE) deploy
 	$(MAKE) restart
+
+# Delete the ClickHouse PVC so initdb scripts run again on next deploy.
+# Use this when the ClickHouse schema has changed and you need a clean state.
+clickhouse-reset:
+	-kubectl delete pvc -n $(NAMESPACE) dealbot-clickhouse
+	-kubectl delete pod -n $(NAMESPACE) -l app.kubernetes.io/name=dealbot-clickhouse
+
+clickhouse-shell:
+	kubectl exec -it -n $(NAMESPACE) deployment/dealbot-clickhouse -- clickhouse-client --database dealbot
 
 secret: namespace
 	@if [ ! -f "$(SECRET_ENV_FILE)" ]; then echo "SECRET_ENV_FILE $(SECRET_ENV_FILE) not found"; exit 1; fi

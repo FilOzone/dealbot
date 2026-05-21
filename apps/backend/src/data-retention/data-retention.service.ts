@@ -4,6 +4,7 @@ import { InjectRepository } from "@nestjs/typeorm";
 import { InjectMetric } from "@willsoto/nestjs-prometheus";
 import { Counter, Gauge } from "prom-client";
 import { Raw, Repository } from "typeorm";
+import { ClickhouseService } from "../clickhouse/clickhouse.service.js";
 import { toStructuredError } from "../common/logging.js";
 import { isSpBlocked } from "../common/sp-blocklist.js";
 import type { Network } from "../common/types.js";
@@ -16,6 +17,20 @@ import { type ProviderDataSetResponse } from "../pdp-subgraph/types.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
 import { type PDPProviderEx } from "../wallet-sdk/wallet-sdk.types.js";
 
+type ProviderBaseline = {
+  faultedPeriods: bigint;
+  successPeriods: bigint;
+};
+
+type ProcessedProviderResult = {
+  providerAddress: string;
+  providerLabels: CheckMetricLabels;
+  baseline: ProviderBaseline;
+  faultedChallengesDelta: bigint;
+  successChallengesDelta: bigint;
+  negativeDelta: boolean;
+};
+
 @Injectable()
 export class DataRetentionService {
   private readonly logger = new Logger(DataRetentionService.name);
@@ -23,24 +38,6 @@ export class DataRetentionService {
   private static readonly MAX_PROVIDER_BATCH_LENGTH = 50;
   // NOTE: taken from https://github.com/FilOzone/filecoin-services/blob/c04be93aa680082e359481f0776e41ed157a2ac2/service_contracts/src/FilecoinWarmStorageService.sol#L26
   private static readonly CHALLENGES_PER_PROVING_PERIOD = 5n;
-
-  /**
-   * Tracks cumulative faulted/success period totals keyed by "network:providerAddress".
-   * Used to compute deltas between consecutive polls for Prometheus counter increments.
-   * Populated from the database on first poll, then kept in sync.
-   * Note: Baselines are stored in periods, but emitted metrics are converted to challenges
-   * by multiplying period deltas by CHALLENGES_PER_PROVING_PERIOD.
-   */
-  private readonly providerCumulativeTotals: Map<
-    string,
-    {
-      faultedPeriods: bigint;
-      successPeriods: bigint;
-    }
-  >;
-
-  /** Per-network baseline load flags */
-  private readonly baselinesLoadedByNetwork: Map<Network, boolean> = new Map();
 
   constructor(
     private readonly configService: ConfigService<IConfig, true>,
@@ -54,13 +51,8 @@ export class DataRetentionService {
     private readonly dataSetChallengeStatusCounter: Counter,
     @InjectMetric("pdp_provider_estimated_overdue_periods")
     private readonly estimatedOverduePeriodsGauge: Gauge,
-  ) {
-    this.providerCumulativeTotals = new Map();
-  }
-
-  private cumulativeTotalsKey(network: Network, address: string): string {
-    return `${network}:${address}`;
-  }
+    private readonly clickhouseService: ClickhouseService,
+  ) {}
 
   /**
    * Polls the PDP subgraph for provider proof-set data, computes proving period deltas,
@@ -79,13 +71,9 @@ export class DataRetentionService {
       return;
     }
 
-    await this.loadBaselinesFromDb(network);
-
-    if (!this.baselinesLoadedByNetwork.get(network)) {
-      // Cannot safely compute deltas without baselines — would emit full cumulative history
-      this.logger.log({
-        event: "failed_to_load_baselines_by_network",
-      });
+    const baselines = await this.loadBaselinesFromDb(network);
+    if (baselines === null) {
+      // Cannot safely compute deltas without persisted baselines.
       return;
     }
 
@@ -135,43 +123,59 @@ export class DataRetentionService {
                   ),
                 );
               }
-              return this.processProvider(provider, providerInfo, blockNumberBigInt, network);
+              return this.processProvider(provider, providerInfo, blockNumberBigInt, baselines);
             }),
           );
 
-          // Log any processing failures and persist successful baselines
-          const upsertPromises: Promise<void>[] = [];
-          processingResults.forEach((result, index) => {
-            if (result.status === "rejected") {
-              hasProcessingErrors = true;
-              const addr = providersFromSubgraph[index].address;
-              const providerInfo = providerInfoMap.get(addr.toLowerCase());
-              this.logger.error({
-                event: "provider_processing_failed",
-                message: "Failed to process provider",
-                providerAddress: addr,
-                providerId: providerInfo?.id,
-                providerName: providerInfo?.name,
-                network,
-                error: toStructuredError(result.reason),
-              });
-            } else {
-              const addr = providersFromSubgraph[index].address.toLowerCase();
-              upsertPromises.push(this.persistBaseline(addr, result.value, blockNumberBigInt, network));
-            }
-          });
+          await Promise.all(
+            processingResults.map(async (result, index) => {
+              if (result.status === "rejected") {
+                hasProcessingErrors = true;
+                const addr = providersFromSubgraph[index].address;
+                const providerInfo = providerInfoMap.get(addr.toLowerCase());
+                this.logger.error({
+                  event: "provider_processing_failed",
+                  message: "Failed to process provider",
+                  providerAddress: addr,
+                  providerId: providerInfo?.id,
+                  providerName: providerInfo?.name,
+                  error: toStructuredError(result.reason),
+                });
+                return;
+              }
 
-          // Persist baselines to DB (non-blocking for the main flow, but we await to catch errors)
-          const upsertResults = await Promise.allSettled(upsertPromises);
-          for (const result of upsertResults) {
-            if (result.status === "rejected") {
-              this.logger.warn({
-                event: "baseline_persist_failed",
-                message: "Failed to persist baseline to database",
-                error: toStructuredError(result.reason),
-              });
-            }
-          }
+              try {
+                await this.persistBaseline(
+                  result.value.providerAddress,
+                  result.value.baseline,
+                  blockNumberBigInt,
+                  network,
+                );
+              } catch (error) {
+                hasProcessingErrors = true;
+                // Leave stale cleanup for a later poll so DB-backed baselines and local state do not diverge further.
+                this.logger.warn({
+                  event: "baseline_persist_failed",
+                  message: "Failed to persist baseline to database",
+                  providerAddress: result.value.providerAddress,
+                  error: toStructuredError(error),
+                });
+                return;
+              }
+
+              try {
+                this.applyPersistedProviderResult(result.value, baselines);
+              } catch (error) {
+                hasProcessingErrors = true;
+                this.logger.error({
+                  event: "provider_result_apply_failed",
+                  message: "Failed to apply persisted provider result",
+                  providerAddress: result.value.providerAddress,
+                  error: toStructuredError(error),
+                });
+              }
+            }),
+          );
         } catch (error) {
           hasProcessingErrors = true;
           this.logger.error({
@@ -185,8 +189,7 @@ export class DataRetentionService {
       }
 
       if (!hasProcessingErrors) {
-        // Only cleanup stale providers after successful poll to preserve baselines during transient failures
-        await this.cleanupStaleProviders(providerAddresses, network);
+        await this.cleanupStaleProviders(providerAddresses, baselines, network);
       } else {
         this.logger.warn({
           event: "stale_provider_cleanup_skipped",
@@ -205,22 +208,23 @@ export class DataRetentionService {
   }
 
   /**
-   * Removes stale provider entries from the cumulative totals map and their associated
-   * Prometheus counter and gauge metrics.
+   * Removes stale provider entries from the per-poll baselines map, the persisted baseline
+   * table, and their associated Prometheus counter/gauge metrics.
    *
-   * CRITICAL: Local baselines are ONLY deleted if the Prometheus metrics are successfully
-   * removed. This prevents massive metric inflation (double-counting) if a provider
-   * temporarily drops offline and returns later.
-   *
-   * @param activeProviderAddresses - Array of currently active provider addresses (normalized to lowercase)
+   * CRITICAL: Persisted and poll-local baselines are ONLY deleted if Prometheus removal succeeds.
+   * Prevents massive metric inflation (double-counting) if a provider temporarily drops
+   * offline and returns later.
    */
-  private async cleanupStaleProviders(activeProviderAddresses: string[], network: Network): Promise<void> {
+  private async cleanupStaleProviders(
+    activeProviderAddresses: string[],
+    baselines: Map<string, ProviderBaseline>,
+    network: Network,
+  ): Promise<void> {
     const activeAddressSet = new Set(activeProviderAddresses);
     const staleAddresses: string[] = [];
 
-    for (const [key] of this.providerCumulativeTotals) {
-      const [keyNetwork, address] = key.split(":", 2);
-      if (keyNetwork === network && address && !activeAddressSet.has(address)) {
+    for (const [address] of baselines) {
+      if (!activeAddressSet.has(address)) {
         staleAddresses.push(address);
       }
     }
@@ -257,7 +261,6 @@ export class DataRetentionService {
     const providerLookup = new Map(staleProviders.map((p) => [p.address.toLowerCase(), p]));
 
     for (const address of staleAddresses) {
-      const totalsKey = this.cumulativeTotalsKey(network, address);
       try {
         const provider = providerLookup.get(address);
 
@@ -284,7 +287,7 @@ export class DataRetentionService {
           this.estimatedOverduePeriodsGauge.remove(unapprovedLabels);
 
           // Only delete local memory if Prometheus removal succeeded without throwing
-          this.providerCumulativeTotals.delete(totalsKey);
+          baselines.delete(address);
 
           // Also remove persisted baseline from DB
           this.baselineRepository.delete({ providerAddress: address, network }).catch((err) => {
@@ -339,8 +342,8 @@ export class DataRetentionService {
     provider: ProviderDataSetResponse["providers"][number],
     pdpProvider: PDPProviderEx,
     currentBlock: bigint,
-    network: Network,
-  ): Promise<{ faultedPeriods: bigint; successPeriods: bigint }> {
+    baselines: Map<string, ProviderBaseline>,
+  ): Promise<ProcessedProviderResult> {
     const { address, totalFaultedPeriods, totalProvingPeriods, proofSets } = provider;
     // Note: Query filters proofSets with nextDeadline_lt: $blockNumber, so all deadlines are in the past
     const estimatedOverduePeriods = proofSets.reduce((acc, proofSet) => {
@@ -352,9 +355,20 @@ export class DataRetentionService {
 
     const confirmedTotalSuccess = totalProvingPeriods - totalFaultedPeriods;
 
+    this.clickhouseService.insert("data_retention_challenges", {
+      timestamp: Date.now(),
+      probe_location: this.clickhouseService.probeLocation,
+      sp_address: address,
+      sp_id: pdpProvider.id != null ? String(pdpProvider.id) : null, // pdpProvider.id is a BigInt
+      sp_name: pdpProvider.name ?? null,
+      total_periods_due: Number(totalProvingPeriods),
+      total_faulted_periods: Number(totalFaultedPeriods),
+      total_success_periods: Number(confirmedTotalSuccess),
+      estimated_overdue_periods: Number(estimatedOverduePeriods),
+    });
+
     const normalizedAddress = address.toLowerCase();
-    const totalsKey = this.cumulativeTotalsKey(network, normalizedAddress);
-    const previous = this.providerCumulativeTotals.get(totalsKey);
+    const previous = baselines.get(normalizedAddress);
 
     const newBaseline = {
       faultedPeriods: totalFaultedPeriods,
@@ -392,8 +406,14 @@ export class DataRetentionService {
         faultedPeriods: totalFaultedPeriods.toString(),
         successPeriods: confirmedTotalSuccess.toString(),
       });
-      this.providerCumulativeTotals.set(totalsKey, newBaseline);
-      return newBaseline;
+      return {
+        providerAddress: normalizedAddress,
+        providerLabels,
+        baseline: newBaseline,
+        faultedChallengesDelta: 0n,
+        successChallengesDelta: 0n,
+        negativeDelta: false,
+      };
     }
 
     const faultedChallengesDelta =
@@ -413,55 +433,85 @@ export class DataRetentionService {
         faultedChallengesDelta: faultedChallengesDelta.toString(),
         successChallengesDelta: successChallengesDelta.toString(),
       });
-      // Reset baseline without incrementing counters
-      this.providerCumulativeTotals.set(totalsKey, newBaseline);
-      return newBaseline;
+      return {
+        providerAddress: normalizedAddress,
+        providerLabels,
+        baseline: newBaseline,
+        faultedChallengesDelta,
+        successChallengesDelta,
+        negativeDelta: true,
+      };
     }
 
-    if (faultedChallengesDelta > 0n) {
-      this.safeIncrementCounter(this.dataSetChallengeStatusCounter, providerLabels, "failure", faultedChallengesDelta);
-    }
-
-    if (successChallengesDelta > 0n) {
-      this.safeIncrementCounter(this.dataSetChallengeStatusCounter, providerLabels, "success", successChallengesDelta);
-    }
-
-    this.providerCumulativeTotals.set(totalsKey, newBaseline);
-
-    return newBaseline;
+    return {
+      providerAddress: normalizedAddress,
+      providerLabels,
+      baseline: newBaseline,
+      faultedChallengesDelta,
+      successChallengesDelta,
+      negativeDelta: false,
+    };
   }
 
-  /**
-   * Loads persisted baselines from the database into the in-memory map.
-   * Only runs once per network; if the DB read fails, retries on the next poll.
-   */
-  private async loadBaselinesFromDb(network: Network): Promise<void> {
-    if (this.baselinesLoadedByNetwork.get(network)) {
+  private applyPersistedProviderResult(
+    result: ProcessedProviderResult,
+    baselines: Map<string, ProviderBaseline>,
+  ): void {
+    baselines.set(result.providerAddress, result.baseline);
+
+    if (result.negativeDelta) {
       return;
     }
 
+    if (result.faultedChallengesDelta > 0n) {
+      this.safeIncrementCounter(
+        this.dataSetChallengeStatusCounter,
+        result.providerLabels,
+        "failure",
+        result.faultedChallengesDelta,
+      );
+    }
+
+    if (result.successChallengesDelta > 0n) {
+      this.safeIncrementCounter(
+        this.dataSetChallengeStatusCounter,
+        result.providerLabels,
+        "success",
+        result.successChallengesDelta,
+      );
+    }
+  }
+
+  /**
+   * Loads persisted baselines from the database into a fresh map.
+   * Runs at the start of every poll so whichever worker pod wins the job computes
+   * deltas from the latest persisted cross-pod baseline. Returns null on DB failure
+   * so the caller can abort the poll.
+   */
+  private async loadBaselinesFromDb(network: Network): Promise<Map<string, ProviderBaseline> | null> {
     try {
       const rows = await this.baselineRepository.find({ where: { network } });
+      const baselines = new Map<string, ProviderBaseline>();
       for (const row of rows) {
-        this.providerCumulativeTotals.set(this.cumulativeTotalsKey(network, row.providerAddress), {
+        baselines.set(row.providerAddress.toLowerCase(), {
           faultedPeriods: BigInt(row.faultedPeriods),
           successPeriods: BigInt(row.successPeriods),
         });
       }
-      this.baselinesLoadedByNetwork.set(network, true);
       this.logger.log({
         event: "baselines_loaded_from_db",
         message: "Loaded baseline(s) from database",
         network,
         baselineCount: rows.length,
       });
+      return baselines;
     } catch (error) {
       this.logger.error({
         event: "baseline_load_failed",
-        message: "Failed to load baselines from database. Will retry on next poll.",
-        network,
+        message: "Failed to load baselines from database. Aborting poll and will retry on next poll.",
         error: toStructuredError(error),
       });
+      return null;
     }
   }
 
@@ -470,7 +520,7 @@ export class DataRetentionService {
    */
   private async persistBaseline(
     providerAddress: string,
-    baseline: { faultedPeriods: bigint; successPeriods: bigint },
+    baseline: ProviderBaseline,
     blockNumber: bigint,
     network: Network,
   ): Promise<void> {

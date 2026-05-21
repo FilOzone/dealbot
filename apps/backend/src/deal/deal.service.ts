@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { setTimeout as setTimeoutAsync } from "node:timers/promises";
 import { METADATA_KEYS, SIZE_CONSTANTS, Synapse } from "@filoz/synapse-sdk";
 import { Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
@@ -6,8 +7,10 @@ import { InjectRepository } from "@nestjs/typeorm";
 import { executeUpload } from "filecoin-pin";
 import { CID } from "multiformats/cid";
 import type { Repository } from "typeorm";
+import { ClickhouseService } from "../clickhouse/clickhouse.service.js";
 import { awaitWithAbort } from "../common/abort-utils.js";
 import { buildUnixfsCar } from "../common/car-utils.js";
+import { DealJobTerminatedDataSetError } from "../common/errors.js";
 import { createFilecoinPinLogger } from "../common/filecoin-pin-logger.js";
 import {
   type DealLogContext,
@@ -20,7 +23,7 @@ import type { DataFile, Hex } from "../common/types.js";
 import type { IBlockchainConfig, IConfig } from "../config/app.config.js";
 import { Deal } from "../database/entities/deal.entity.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
-import { DealStatus, ServiceType } from "../database/types.js";
+import { DealStatus, IpniStatus, ServiceType } from "../database/types.js";
 import { DataSourceService } from "../dataSource/dataSource.service.js";
 import { DealAddonsService } from "../deal-addons/deal-addons.service.js";
 import type { DealPreprocessingResult } from "../deal-addons/types.js";
@@ -39,6 +42,8 @@ type UploadPayload = {
   carData: Uint8Array;
   rootCid: CID;
 };
+
+const PDP_LIVENESS_PROBE_TIMEOUT_MS = 10_000;
 
 type UploadResultSummary = {
   pieceCid: string;
@@ -65,6 +70,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     private readonly dataStorageMetrics: DataStorageCheckMetrics,
     private readonly retrievalMetrics: RetrievalCheckMetrics,
     private readonly dataSetCreationMetrics: DataSetCreationCheckMetrics,
+    private readonly clickhouseService: ClickhouseService,
   ) {
     this.blockchainConfig = this.configService.get("blockchain");
   }
@@ -88,11 +94,17 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     options: {
       existingDealId?: string;
       signal?: AbortSignal;
-      extraDataSetMetadata?: Record<string, string>;
       logContext?: ProviderJobContext;
     },
   ): Promise<Deal> {
     options.signal?.throwIfAborted();
+
+    const extraDataSetMetadata = await this.resolveDataSetMetadataForDeal(
+      pdpProvider.serviceProvider,
+      options.signal,
+      options.logContext,
+    );
+
     const { preprocessed, cleanup } = await this.prepareDealInput(options.signal, options.logContext);
 
     try {
@@ -105,12 +117,105 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
         uploadPayload,
         options.existingDealId,
         options.signal,
-        options.extraDataSetMetadata,
+        extraDataSetMetadata,
         options.logContext,
       );
     } finally {
       await cleanup();
     }
+  }
+
+  /**
+   * Pick which data-set slot this deal will target.
+   *
+   * Policy:
+   *   - If `minNumDataSetsForChecks > 1` and a random index > 0 is selected,
+   *     probe that slot first. If live, use it. If missing or terminated,
+   *     fall through to baseline (data_set_creation owns repair/provisioning).
+   *   - Probe baseline. If terminated, throw `DealJobTerminatedDataSetError`
+   *     (baseline is the fallback target; nothing else to try).
+   *   - Live or missing baseline → return `undefined` (use baseline slot).
+   *
+   * The post-`createContext` `isDataSetLive` guard inside `createDeal` runs on
+   * the exact `dataSetId` the upload will use, and is the safety net for any
+   * caller of `createDealForProvider` that did not run this probe first.
+   */
+  async resolveDataSetMetadataForDeal(
+    providerAddress: string,
+    signal?: AbortSignal,
+    logContext?: ProviderJobContext,
+  ): Promise<Record<string, string> | undefined> {
+    signal?.throwIfAborted();
+    const baseDataSetMetadata = this.getBaseDataSetMetadata();
+
+    const indexedMetadata = await this.tryIndexedDataSetSlot(providerAddress, baseDataSetMetadata, signal, logContext);
+    if (indexedMetadata !== undefined) return indexedMetadata;
+
+    try {
+      const baselineStatus = await this.getDataSetProvisioningStatus(providerAddress, baseDataSetMetadata, signal);
+      if (baselineStatus.status === "terminated") {
+        throw new DealJobTerminatedDataSetError(baselineStatus.dataSetId);
+      }
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      if (error instanceof DealJobTerminatedDataSetError) throw error;
+      this.logger.warn({
+        ...logContext,
+        event: "deal_job_dataset_check_failed",
+        message: "Failed to verify baseline data set; proceeding to attempt deal",
+        error: toStructuredError(error),
+      });
+    }
+
+    return undefined;
+  }
+
+  private async tryIndexedDataSetSlot(
+    providerAddress: string,
+    baseDataSetMetadata: Record<string, string>,
+    signal: AbortSignal | undefined,
+    logContext: ProviderJobContext | undefined,
+  ): Promise<Record<string, string> | undefined> {
+    const minDataSets = this.blockchainConfig.minNumDataSetsForChecks;
+    if (minDataSets <= 1) return undefined;
+    const dsIndex = Math.floor(Math.random() * minDataSets);
+    if (dsIndex === 0) return undefined;
+
+    const dsIndexMetadata = { dealbotDS: String(dsIndex) };
+    try {
+      const status = await this.getDataSetProvisioningStatus(
+        providerAddress,
+        { ...baseDataSetMetadata, ...dsIndexMetadata },
+        signal,
+      );
+      if (status.status === "live") return dsIndexMetadata;
+      if (status.status === "terminated") {
+        this.logger.warn({
+          ...logContext,
+          event: "deal_job_dataset_index_terminated",
+          message: "Selected data set index is PDP-terminated; falling back to baseline",
+          dataSetIndex: dsIndex,
+          dataSetId: status.dataSetId.toString(),
+        });
+      } else {
+        this.logger.log({
+          ...logContext,
+          event: "deal_job_dataset_fallback",
+          message: "Data set not yet provisioned; falling back to default data set",
+          dataSetIndex: dsIndex,
+        });
+      }
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      this.logger.warn({
+        ...logContext,
+        event: "deal_job_dataset_check_failed",
+        message: "Failed to verify data set: falling back to default data set",
+        dataSetIndex: dsIndex,
+        error: toStructuredError(error),
+      });
+    }
+    return undefined;
   }
 
   /**
@@ -174,6 +279,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     let onchainSucceeded = false;
     let retrievalStarted = false;
     let retrievalStatusEmitted = false;
+    let preUploadTerminated = false;
 
     let deal: Deal;
     if (existingDealId) {
@@ -219,6 +325,14 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       ipfsRootCID: uploadPayload.rootCid.toString(),
     };
 
+    /** Cancels detached onStored addons when executeUpload fails. See #503. */
+    const addonAbortCtrl = new AbortController();
+    const addonSignal: AbortSignal = signal ? AbortSignal.any([signal, addonAbortCtrl.signal]) : addonAbortCtrl.signal;
+    /** Wrapper object so TS preserves the union type across closure mutation. */
+    const onStoredAddons: { promise: Promise<boolean> | null } = { promise: null };
+    let addonsAwaited = false;
+    let storedError: Error | undefined;
+
     try {
       // Load storageProvider relation
       deal.storageProvider = await this.storageProviderRepository.findOne({
@@ -231,8 +345,6 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
         providerName: pdpProvider.name ?? deal.storageProvider?.name,
         providerIsApproved: pdpProvider.isApproved ?? deal.storageProvider?.isApproved,
       });
-      this.dataStorageMetrics.recordUploadStatus(providerLabels, "pending");
-      this.dataStorageMetrics.recordDataStorageStatus(providerLabels, "pending");
 
       const dataSetMetadata = { ...dealInput.synapseConfig.dataSetMetadata, ...extraDataSetMetadata };
 
@@ -249,10 +361,22 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       });
       signal?.throwIfAborted();
 
+      // PDP can mark a data set terminated while FWSS still has
+      // pdpEndEpoch=0; createContext returns it and the next add-pieces path
+      // would fail. See #379.
+      if (storage.dataSetId !== undefined) {
+        const live = await this.isDataSetLive(providerAddress, storage.dataSetId, signal);
+        if (!live) {
+          preUploadTerminated = true;
+          throw new DealJobTerminatedDataSetError(storage.dataSetId);
+        }
+      }
+
+      this.dataStorageMetrics.recordUploadStatus(providerLabels, "pending");
+      this.dataStorageMetrics.recordDataStorageStatus(providerLabels, "pending");
+
       deal.dataSetId = storage.dataSetId ?? null;
       deal.uploadStartTime = new Date();
-      let onStoredAddonsPromise: Promise<boolean> | null = null;
-      let storedError: Error | undefined;
 
       const uploadResult = await executeUpload(synapse, uploadPayload.carData, uploadPayload.rootCid, {
         logger: filecoinPinLogger,
@@ -273,7 +397,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
             filecoinPinEventType: event.type,
           });
           switch (event.type) {
-            case "onStored": {
+            case "stored": {
               deal.uploadEndTime = new Date();
               deal.status = DealStatus.UPLOADED;
               deal.ingestLatencyMs = null;
@@ -331,8 +455,8 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
               uploadSucceeded = true;
               this.dataStorageMetrics.recordUploadStatus(providerLabels, "success");
               this.dataStorageMetrics.recordOnchainStatus(providerLabels, "pending");
-              onStoredAddonsPromise = this.dealAddonsService
-                .handleStored(deal, dealInput.appliedAddons, signal, dealLogContext)
+              onStoredAddons.promise = this.dealAddonsService
+                .handleStored(deal, dealInput.appliedAddons, addonSignal, dealLogContext)
                 .then(() => true)
                 .catch((error) => {
                   storedError = error;
@@ -340,7 +464,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
                 });
               break;
             }
-            case "onPiecesAdded":
+            case "piecesAdded":
               this.logger.log({
                 ...dealLogContext,
                 event: "pieces_added",
@@ -365,7 +489,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
                 );
               }
               break;
-            case "onPiecesConfirmed":
+            case "piecesConfirmed":
               this.logger.log({
                 ...dealLogContext,
                 event: "pieces_confirmed",
@@ -427,9 +551,9 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       this.updateDealWithUploadResult(deal, uploadResult, uploadPayload.carData.length);
 
       // wait for onStored handlers to complete
-      if (onStoredAddonsPromise != null) {
-        const storedOk = await onStoredAddonsPromise;
-        onStoredAddonsPromise = null;
+      if (onStoredAddons.promise != null) {
+        const storedOk = await onStoredAddons.promise;
+        addonsAwaited = true;
         if (!storedOk) {
           throw storedError ?? new Error("Upload completion handlers failed");
         }
@@ -501,6 +625,16 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
 
       return deal;
     } catch (error) {
+      if (preUploadTerminated && error instanceof DealJobTerminatedDataSetError) {
+        this.logger.warn({
+          ...dealLogContext,
+          event: "dataset_unhealthy_waiting_for_data_set_creation",
+          message: "Data set is PDP-terminated; deferring deal job to data_set_creation repair",
+          dataSetId: error.dataSetId.toString(),
+        });
+        throw error;
+      }
+
       const errorMessage = redactSensitiveText(error instanceof Error ? error.message : String(error));
       this.logger.error({
         ...dealLogContext,
@@ -527,18 +661,36 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
 
       throw error;
     } finally {
-      await this.saveDeal(deal, dealLogContext);
+      if (!addonsAwaited && onStoredAddons.promise != null) {
+        const pending = onStoredAddons.promise;
+        addonAbortCtrl.abort();
+        await pending.catch(() => {});
+        if (deal.ipniStatus === IpniStatus.PENDING) {
+          /** Addon aborted before reaching terminal IpniStatus. Clear so this run doesn't depress sp_performance.ipni_success_rate. Leaves real FAILED/VERIFIED untouched. See #503. */
+          deal.ipniStatus = null;
+        }
+      }
+      if (!preUploadTerminated) {
+        await this.saveDeal(deal, dealLogContext);
+      }
     }
   }
 
   /**
-   * Checks if an on-chain data set exists for a provider with specific metadata.
+   * Classifies a provider's dataset slot as `missing`, `live`, or `terminated`.
+   * Resolves the dataset via createContext, then composes the liveness probes
+   * documented on `isDataSetLive`.
+   *
+   * `terminated` means either FWSS or Curio reports the set as dead. See #379
+   * and the SP-HTTP probe rationale in `isDataSetLive`.
    */
-  async checkDataSetExists(
+  async getDataSetProvisioningStatus(
     providerAddress: string,
     metadata: Record<string, string>,
     signal?: AbortSignal,
-  ): Promise<boolean> {
+  ): Promise<
+    { status: "missing" } | { status: "live"; dataSetId: bigint } | { status: "terminated"; dataSetId: bigint }
+  > {
     signal?.throwIfAborted();
     const synapse = this.sharedSynapse ?? (await this.createSynapseInstance());
     const providerInfo = this.walletSdkService.getProviderInfo(providerAddress);
@@ -553,7 +705,229 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       signal,
     );
     signal?.throwIfAborted();
-    return context.dataSetId !== undefined;
+    if (context.dataSetId === undefined) {
+      return { status: "missing" };
+    }
+    const dataSetId = context.dataSetId;
+    const isLive = await this.isDataSetLive(providerAddress, dataSetId, signal);
+    return isLive ? { status: "live", dataSetId } : { status: "terminated", dataSetId };
+  }
+
+  /**
+   * Composite PDP-liveness check. Runs two independent probes:
+   *
+   *   - FWSS `validateDataSet` (chain): wraps `PDPVerifier.dataSetLive` via
+   *     multicall and additionally verifies the listener is this WarmStorage
+   *     contract, so it covers chain-side liveness fully.
+   *   - SP HTTP `POST /pdp/data-sets/{id}/pieces` (off-chain): catches Curio's
+   *     `unrecoverable_proving_failure_epoch` state, which precedes chain
+   *     propagation and is the only signal observable when the SP refuses
+   *     addPieces but chain still reports the set as live.
+   *
+   * A positive-terminated signal from either probe wins: if any settled result
+   * is `false`, returns `false` even when the other probe threw a transient
+   * error. Otherwise rethrows the first rejection so a probe outage is not
+   * silently misclassified as live. The SP HTTP probe never throws on
+   * transient errors (returns `true` on non-409 responses, including network
+   * errors and auth failures), since HTTP 409 with Curio's terminated body is
+   * the only signal that endpoint emits.
+   */
+  async isDataSetLive(providerAddress: string, dataSetId: bigint, signal?: AbortSignal): Promise<boolean> {
+    signal?.throwIfAborted();
+    const settled = await Promise.allSettled([
+      this.probeFwssDataSetLive(dataSetId, signal),
+      this.probeSpHttpDataSetLive(providerAddress, dataSetId, signal),
+    ]);
+    if (settled.some((r) => r.status === "fulfilled" && r.value === false)) {
+      return false;
+    }
+    const rejection = settled.find((r): r is PromiseRejectedResult => r.status === "rejected");
+    if (rejection) throw rejection.reason;
+    return true;
+  }
+
+  protected async probeFwssDataSetLive(dataSetId: bigint, signal?: AbortSignal): Promise<boolean> {
+    signal?.throwIfAborted();
+    const { warmStorageService } = this.walletSdkService.getWalletServices();
+    try {
+      await awaitWithAbort(warmStorageService.validateDataSet({ dataSetId }), signal);
+      return true;
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      const message = error instanceof Error ? error.message : String(error);
+      if (/does not exist or is not live/i.test(message)) {
+        return false;
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Probes the SP's Curio addPieces endpoint with an empty body. Curio's
+   * handler checks `unrecoverable_proving_failure_epoch` before body
+   * validation and returns HTTP 409 with "Data set has been terminated due to
+   * unrecoverable proving failure" when the dataset is marked terminated.
+   *
+   * Returns `false` only on `409` paired with that body text. The body
+   * substring is a guard against blast radius: if a future Curio reuses `409`
+   * for a non-terminal conflict, the probe stays conservative rather than
+   * triggering destructive repair. Any other response (including a `409` with
+   * a different body, `400` for empty pieces, `404`, `5xx`, and network
+   * errors) is treated as live.
+   */
+  protected async probeSpHttpDataSetLive(
+    providerAddress: string,
+    dataSetId: bigint,
+    signal?: AbortSignal,
+  ): Promise<boolean> {
+    signal?.throwIfAborted();
+    const providerInfo = this.walletSdkService.getProviderInfo(providerAddress);
+    if (!providerInfo) {
+      throw new Error(`Provider ${providerAddress} not found in registry`);
+    }
+    const serviceURL = providerInfo.pdp?.serviceURL;
+    if (!serviceURL) {
+      throw new Error(`Provider ${providerAddress} has no PDP serviceURL`);
+    }
+    const url = new URL(`pdp/data-sets/${dataSetId.toString()}/pieces`, serviceURL);
+    const timeoutSignal = AbortSignal.timeout(PDP_LIVENESS_PROBE_TIMEOUT_MS);
+    const probeSignal = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+        signal: probeSignal,
+      });
+      if (res.status !== 409) return true;
+      const body = await res.text();
+      return !/unrecoverable proving failure/i.test(body);
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      this.logger.warn({
+        event: "dataset_sp_liveness_probe_failed",
+        message: "SP HTTP liveness probe failed; treating dataset as live",
+        providerAddress,
+        providerId: providerInfo.id,
+        dataSetId: dataSetId.toString(),
+        serviceURL,
+        error: toStructuredError(error),
+      });
+      return true;
+    }
+  }
+
+  /**
+   * Repair a PDP-terminated dataset (FWSS may or may not have flipped pdpEndEpoch).
+   *
+   * Idempotent sequence:
+   *   1. Read FWSS pdpEndEpoch. If already non-zero, skip the on-chain call.
+   *   2. Otherwise call terminateDataSet, wait for the tx receipt, then poll
+   *      FWSS pdpEndEpoch until non-zero. A revert that matches a known
+   *      already-terminated message is treated as a no-op and falls through
+   *      to the poll, so a partially-completed prior run can complete.
+   *   3. Mark every Deal row with this dataSetId as cleaned up in a single
+   *      transaction (filtered on cleaned_up=false, so re-runs do not double-write).
+   */
+  async repairTerminatedDataSet(
+    providerAddress: string,
+    dataSetId: bigint,
+    signal?: AbortSignal,
+    pollTimeoutMs = 60_000,
+  ): Promise<{ dealsAffected: number; pdpEndEpoch: bigint }> {
+    signal?.throwIfAborted();
+    const synapse = this.sharedSynapse ?? (await this.createSynapseInstance());
+    const providerInfo = this.walletSdkService.getProviderInfo(providerAddress);
+    const { warmStorageService } = this.walletSdkService.getWalletServices();
+
+    let pdpEndEpoch: bigint;
+    const existing = await awaitWithAbort(warmStorageService.getDataSet({ dataSetId }), signal);
+    if (existing != null && existing.pdpEndEpoch !== 0n) {
+      pdpEndEpoch = existing.pdpEndEpoch;
+      this.logger.log({
+        event: "dataset_already_terminated",
+        message: "FWSS pdpEndEpoch already set; skipping terminateDataSet",
+        providerAddress,
+        dataSetId: dataSetId.toString(),
+        pdpEndEpoch: pdpEndEpoch.toString(),
+      });
+    } else {
+      let txHash: `0x${string}` | undefined;
+      try {
+        txHash = await awaitWithAbort(synapse.storage.terminateDataSet({ dataSetId }), signal);
+      } catch (error) {
+        if (signal?.aborted) throw error;
+        const message = error instanceof Error ? error.message : String(error);
+        if (!/already.*terminat|service.*terminated|pdpEndEpoch.*set/i.test(message)) {
+          throw error;
+        }
+        this.logger.warn({
+          event: "dataset_terminate_already_handled",
+          message: "terminateDataSet reverted as already-terminated; continuing to poll",
+          providerAddress,
+          dataSetId: dataSetId.toString(),
+          revert: message,
+        });
+      }
+      signal?.throwIfAborted();
+      if (txHash != null) {
+        try {
+          await awaitWithAbort(synapse.client.waitForTransactionReceipt({ hash: txHash }), signal);
+        } catch (error) {
+          if (signal?.aborted) throw error;
+          this.logger.warn({
+            event: "dataset_terminate_receipt_wait_failed",
+            message: "Receipt wait failed; falling back to FWSS state poll",
+            providerAddress,
+            dataSetId: dataSetId.toString(),
+            txHash,
+            error: toStructuredError(error),
+          });
+        }
+      }
+      pdpEndEpoch = await this.waitForPdpEndEpoch(dataSetId, pollTimeoutMs, signal);
+    }
+
+    const result = await this.dealRepository.manager.transaction(async (manager) => {
+      const update = await manager
+        .getRepository(Deal)
+        .update({ dataSetId, cleanedUp: false }, { cleanedUp: true, cleanedUpAt: new Date() });
+      return update.affected ?? 0;
+    });
+
+    this.logger.log({
+      event: "dataset_terminated_repaired",
+      message: "Repaired PDP-terminated dataset",
+      providerAddress,
+      providerId: providerInfo?.id,
+      dataSetId: dataSetId.toString(),
+      pdpEndEpoch: pdpEndEpoch.toString(),
+      dealsAffected: result,
+    });
+
+    return { dealsAffected: result, pdpEndEpoch };
+  }
+
+  /**
+   * Poll FWSS getDataSet({dataSetId}).pdpEndEpoch until non-zero. Exponential
+   * backoff capped at 8s. Throws on timeout.
+   */
+  private async waitForPdpEndEpoch(dataSetId: bigint, timeoutMs: number, signal?: AbortSignal): Promise<bigint> {
+    const { warmStorageService } = this.walletSdkService.getWalletServices();
+    const start = Date.now();
+    let delay = 1_000;
+    while (Date.now() - start < timeoutMs) {
+      const info = await awaitWithAbort(warmStorageService.getDataSet({ dataSetId }), signal);
+      if (info != null && info.pdpEndEpoch !== 0n) {
+        return info.pdpEndEpoch;
+      }
+      const remaining = timeoutMs - (Date.now() - start);
+      if (remaining <= 0) break;
+      const wait = Math.min(delay, remaining);
+      await setTimeoutAsync(wait, undefined, { signal });
+      delay = Math.min(delay * 2, 8_000);
+    }
+    throw new Error(`Timeout waiting for FWSS pdpEndEpoch != 0 on dataSetId ${dataSetId.toString()}`);
   }
 
   /**
@@ -634,7 +1008,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
           // Must stay synchronous — see issue #446.
           onProgress: (event) => {
             switch (event.type) {
-              case "onStored":
+              case "stored":
                 pieceCid = event.data.pieceCid.toString();
                 this.logger.debug({
                   event: "dataset_creation_stored",
@@ -645,7 +1019,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
                   pieceCid,
                 });
                 break;
-              case "onPiecesAdded":
+              case "piecesAdded":
                 pieceAdded = true;
                 this.logger.debug({
                   event: "dataset_creation_pieces_added",
@@ -656,7 +1030,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
                   txHash: event.data.txHash ?? "unknown",
                 });
                 break;
-              case "onPiecesConfirmed":
+              case "piecesConfirmed":
                 piecesConfirmed = true;
                 this.logger.debug({
                   event: "dataset_creation_pieces_confirmed",
@@ -799,6 +1173,31 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async saveDeal(deal: Deal, dealLogContext: DealLogContext): Promise<void> {
+    this.clickhouseService.insert("data_storage_checks", {
+      timestamp: Date.now(),
+      probe_location: this.clickhouseService.probeLocation,
+      sp_address: deal.spAddress,
+      sp_id: deal.storageProvider?.providerId != null ? String(deal.storageProvider.providerId) : null, // providerId is a BigInt
+      sp_name: deal.storageProvider?.name ?? null,
+      deal_id: deal.id,
+      piece_cid: deal.pieceCid ?? null,
+      piece_id: deal.pieceId ?? null,
+      file_size_bytes: deal.fileSize ?? null,
+      piece_size_bytes: deal.pieceSize ?? null,
+      status: deal.status,
+      error_code: deal.errorCode ?? null,
+      upload_started_at: deal.uploadStartTime?.getTime() ?? null,
+      upload_ended_at: deal.uploadEndTime?.getTime() ?? null,
+      pieces_added_at: deal.piecesAddedTime?.getTime() ?? null,
+      pieces_confirmed_at: deal.piecesConfirmedTime?.getTime() ?? null,
+      ipni_status: deal.ipniStatus ?? null,
+      ipni_indexed_at: deal.ipniIndexedAt?.getTime() ?? null,
+      ipni_advertised_at: deal.ipniAdvertisedAt?.getTime() ?? null,
+      ipni_verified_at: deal.ipniVerifiedAt?.getTime() ?? null,
+      ipni_verified_cids_count: deal.ipniVerifiedCidsCount ?? null,
+      ipni_unverified_cids_count: deal.ipniUnverifiedCidsCount ?? null,
+    });
+
     try {
       await this.dealRepository.save(deal);
     } catch (error) {

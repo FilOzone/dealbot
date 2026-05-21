@@ -1,5 +1,64 @@
 # Changelog
 
+## [1.6.0](https://github.com/FilOzone/dealbot/compare/backend-v1.5.1...backend-v1.6.0) (2026-05-19)
+
+
+### Features
+
+* filter out sps with dev tags ([#526](https://github.com/FilOzone/dealbot/issues/526)) ([008f0d8](https://github.com/FilOzone/dealbot/commit/008f0d84be0ea9d51c45d4f0f882fdbae9945662))
+* **retrieval:** parallel IPNI + transport with retrievalTransportStatus counter ([#538](https://github.com/FilOzone/dealbot/issues/538)) ([cbdc2c7](https://github.com/FilOzone/dealbot/commit/cbdc2c7e67bfb47d459151c4185db1ca50a620ce))
+* update Synapse stack for filecoin-pin 0.21 ([008f0d8](https://github.com/FilOzone/dealbot/commit/008f0d84be0ea9d51c45d4f0f882fdbae9945662))
+* update Synapse stack for filecoin-pin 0.21 ([c9ad711](https://github.com/FilOzone/dealbot/commit/c9ad711251d9d5d124aeb1841ce2464abcdbcf06))
+
+
+### Bug Fixes
+
+* **deal:** combine FWSS, PDPVerifier, and SP-HTTP probes for dataset liveness ([#537](https://github.com/FilOzone/dealbot/issues/537)) ([c7472aa](https://github.com/FilOzone/dealbot/commit/c7472aab0c86c0f8efc2fa31921119d54dbbd9c4))
+* handle PDP-terminated datasets via data_set_creation repair ([#518](https://github.com/FilOzone/dealbot/issues/518)) ([7aa2f8a](https://github.com/FilOzone/dealbot/commit/7aa2f8a9671b673811a4800d79ee458076a9eaae))
+* prevent concurrent insert race ([#543](https://github.com/FilOzone/dealbot/issues/543)) ([ca60378](https://github.com/FilOzone/dealbot/commit/ca603788b393626c8412e9da68b864919a6e8944))
+* **retrieval:** surface silent IPNI timeouts in logs ([#539](https://github.com/FilOzone/dealbot/issues/539)) ([1ec72a2](https://github.com/FilOzone/dealbot/commit/1ec72a22a65da2362c1b0bb2b1ba43ec5822093d))
+* stop retention counter double-counts ([#519](https://github.com/FilOzone/dealbot/issues/519)) ([0bb5217](https://github.com/FilOzone/dealbot/commit/0bb52177dc0bc88f108fe5a2865a9452581c0bc6))
+
+
+### Miscellaneous
+
+* ban nested ternaries via biome ([#544](https://github.com/FilOzone/dealbot/issues/544)) ([3986d52](https://github.com/FilOzone/dealbot/commit/3986d5263fac130eeddfef068d9df8265f6fd521))
+* **deps:** bump node from 24-alpine to 26-alpine in /apps/backend ([#529](https://github.com/FilOzone/dealbot/issues/529)) ([a6b4c1c](https://github.com/FilOzone/dealbot/commit/a6b4c1cda5aa280c8c676c4b8369999e4f5450d5))
+* update Synapse stack for filecoin-pin 0.21 ([#521](https://github.com/FilOzone/dealbot/issues/521)) ([c9ad711](https://github.com/FilOzone/dealbot/commit/c9ad711251d9d5d124aeb1841ce2464abcdbcf06))
+
+## [1.5.1](https://github.com/FilOzone/dealbot/compare/backend-v1.5.0...backend-v1.5.1) (2026-05-07)
+
+
+### Bug Fixes
+
+* revert back to old synapse version ([#512](https://github.com/FilOzone/dealbot/issues/512)) ([9ef0235](https://github.com/FilOzone/dealbot/commit/9ef0235cb437466e36e4e0493242e3c899b3ee33))
+
+## [1.5.0](https://github.com/FilOzone/dealbot/compare/backend-v1.4.0...backend-v1.5.0) (2026-05-05)
+
+
+### Features
+
+* add per-SP piece cleanup job to bound storage growth ([#346](https://github.com/FilOzone/dealbot/issues/346)) ([c9c50b2](https://github.com/FilOzone/dealbot/commit/c9c50b298c572830ffde6acc278b5c6b04486383))
+* **ipni:** expose failureReason as top-level field on ipni_tracking_failed ([#491](https://github.com/FilOzone/dealbot/issues/491)) ([dcda80e](https://github.com/FilOzone/dealbot/commit/dcda80ef8ade2ede98126850db784372748fd1a4))
+* write event data to clickhouse ([#438](https://github.com/FilOzone/dealbot/issues/438)) ([6edbc88](https://github.com/FilOzone/dealbot/commit/6edbc88775c1f5a6e30c72183b6b6d600df8f675))
+
+
+### Bug Fixes
+
+* **deal:** cancel onStored addons when upload fails ([#505](https://github.com/FilOzone/dealbot/issues/505)) ([126b2d8](https://github.com/FilOzone/dealbot/commit/126b2d8de7f9ee1490cc78ce473d4d8d759c4f10))
+* **ipni:** preserve failure reason in deal-flow rethrow ([#490](https://github.com/FilOzone/dealbot/issues/490)) ([fe53f35](https://github.com/FilOzone/dealbot/commit/fe53f353efa8a7e8eecef8ae27c03b3abf43a417))
+* landing page doesn't show blocked SPs ([#471](https://github.com/FilOzone/dealbot/issues/471)) ([0c8e58e](https://github.com/FilOzone/dealbot/commit/0c8e58e9385dd37cf0a788c7a7ccb1e9c4a10df0))
+* make nullable entity fields explicitly typed ([#380](https://github.com/FilOzone/dealbot/issues/380)) ([872d444](https://github.com/FilOzone/dealbot/commit/872d4440102b5dcb85b1c5e02f5c84ea5aa23350))
+* preserve pieceId during deal creation ([#439](https://github.com/FilOzone/dealbot/issues/439)) ([814a23b](https://github.com/FilOzone/dealbot/commit/814a23b78fb48660b2fc2e4a2b48fb294055c953))
+
+
+### Miscellaneous
+
+* remove metrics job scheduler ([#436](https://github.com/FilOzone/dealbot/issues/436)) ([430fb09](https://github.com/FilOzone/dealbot/commit/430fb09458749525373eba5163f1d2221a4747c0))
+* remove per-package pnpm-lock.yaml ([#499](https://github.com/FilOzone/dealbot/issues/499)) ([63a37be](https://github.com/FilOzone/dealbot/commit/63a37be0e85f360996296d7575ceecbcd96df2cc))
+* replace ConsoleLogger with nestjs-pino for ISO 8601 timestamps ([#445](https://github.com/FilOzone/dealbot/issues/445)) ([58ba4c2](https://github.com/FilOzone/dealbot/commit/58ba4c2ce44c536188718a9130f0d15cf1167321))
+* upgrade synapse to latest ([#497](https://github.com/FilOzone/dealbot/issues/497)) ([24ede5d](https://github.com/FilOzone/dealbot/commit/24ede5d6f0007a27a45f08873c8ac26ae77b524e))
+
 ## [1.4.0](https://github.com/FilOzone/dealbot/compare/backend-v1.3.0...backend-v1.4.0) (2026-04-17)
 
 

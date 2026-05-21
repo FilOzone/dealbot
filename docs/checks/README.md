@@ -5,6 +5,7 @@ The files are:
 - [data-storage.md](./data-storage.md): Defines the "data storage check" and how it is calculated.
 - [retrievals.md](./retrievals.md): Defines the "retrieval check" and how it is calculated.
 - [data-retention.md](./data-retention.md): Defines the "data retention check" and how it is calculated.
+- [pull-check.md](./pull-check.md): Defines the "pull check" and how it is calculated.
 - [events-and-metrics.md](./events-and-metrics.md): Defines the events and metrics that are used to assess SP performance.
 
 
@@ -14,7 +15,7 @@ DealBot creates synthetic traffic for SPs in the onchain SP registry and monitor
 
 ## Terminology
 ### Check
-A "check" refers to a task type that dealbot performs on a SP.  We currently have [Data Storage](./data-storage.md) and [Retrieval](./retrievals.md) checks.
+A "check" refers to a task type that dealbot performs on a SP.  We currently have [Data Storage](./data-storage.md), [Retrieval](./retrievals.md), [Data Retention](./data-retention.md), and [Pull](./pull-check.md) checks.
 
 ### Deal
 This is synonym for "Data Storage Check".  This is covered in the [data-storage.md](./data-storage.md).
@@ -30,7 +31,7 @@ The dealbot scheduler schedules "* check jobs" for the set of SPs that have been
 
 ## Datasets for Checks
 
-Dealbot manages a set of datasets to use for its checks.  Creating these datasets is a precondition before the "data storage" check can run.  This is handled by **TBD** job ([tracking issue](https://github.com/FilOzone/dealbot/issues/284)) when it discovers a new SP to measure from the registry.
+Dealbot manages a set of datasets to use for its checks.  Creating these datasets is a precondition before the "data storage" check can run.  This is handled by the canonical `data_set_creation` job type (see [`jobs.md`](../jobs.md) when it discovers a new SP to measure from the registry. Configured by `DATASET_CREATIONS_PER_SP_PER_HOUR` and `DATA_SET_CREATION_JOB_TIMEOUT_SECONDS`.
  - This is done via the Synapse SDK (`synapse.createStorage(...)`).
  - Dataset creation is idempotent.
  - The quantity per SP is controlled by [`MIN_NUM_DATASETS_FOR_CHECKS`](#MIN_NUM_DATASETS_FOR_CHECKS).  The usecase for setting this greater than one is if you want an SP to have more non-empty datasets.  This is most relevant for calculating data retention, which is a function of the number of onchain proofs, which scales with the number of datasets.

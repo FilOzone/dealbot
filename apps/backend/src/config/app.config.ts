@@ -29,6 +29,7 @@ export const configValidationSchema = Joi.object({
   DEALBOT_RUN_MODE: Joi.string().lowercase().valid("api", "worker", "both").default("both"),
   DEALBOT_PORT: Joi.number().default(3000),
   DEALBOT_HOST: Joi.string().default("127.0.0.1"),
+  DEALBOT_API_PUBLIC_URL: Joi.string().uri().optional().allow(""),
   DEALBOT_METRICS_PORT: Joi.number().default(9090),
   DEALBOT_METRICS_HOST: Joi.string().default("0.0.0.0"),
   ENABLE_DEV_MODE: Joi.boolean().default(false),
@@ -94,6 +95,21 @@ export const configValidationSchema = Joi.object({
   DATA_SET_CREATION_JOB_TIMEOUT_SECONDS: Joi.number().min(60).default(300), // 5 minutes max runtime for dataset creation jobs
   IPFS_BLOCK_FETCH_CONCURRENCY: Joi.number().integer().min(1).max(32).default(6),
 
+  // Pull Check
+  PULL_CHECKS_PER_SP_PER_HOUR: Joi.number().min(0.001).max(20).default(1),
+  PULL_CHECK_JOB_TIMEOUT_SECONDS: Joi.number().min(60).default(300), // 5m max runtime for pull check jobs
+  PULL_CHECK_POLL_INTERVAL_SECONDS: Joi.number().min(1).default(2),
+  PULL_CHECK_PIECE_SIZE_BYTES: Joi.number()
+    .integer()
+    .min(1024)
+    .default(10 * 1024 * 1024), // 10 MiB
+  PULL_PIECE_MAX_CONCURRENT_STREAMS: Joi.number().integer().min(1).default(50), // Max concurrent streams across all pieces
+  PULL_PIECE_MAX_STREAMS_PER_CID: Joi.number().integer().min(1).default(3), // Max concurrent streams per pieceCid
+  PULL_PIECE_CLEANUP_INTERVAL_SECONDS: Joi.number()
+    .integer()
+    .min(3600)
+    .default(7 * 24 * 3600), // 7 days
+
   // Piece Cleanup
   MAX_DATASET_STORAGE_SIZE_BYTES: Joi.number()
     .integer()
@@ -122,6 +138,13 @@ export const configValidationSchema = Joi.object({
   DEALBOT_LOCAL_DATASETS_PATH: Joi.string().default(DEFAULT_LOCAL_DATASETS_PATH),
   RANDOM_PIECE_SIZES: Joi.string().default("10485760"), // 10 MiB
 
+  // ClickHouse
+  CLICKHOUSE_URL: Joi.string().uri().optional(),
+  CLICKHOUSE_BATCH_SIZE: Joi.number().integer().min(1).default(500),
+  CLICKHOUSE_FLUSH_INTERVAL_MS: Joi.number().integer().min(100).default(5000),
+  CLICKHOUSE_MAX_BUFFER_SIZE: Joi.number().integer().min(1).default(5000),
+  DEALBOT_PROBE_LOCATION: Joi.string().default("unknown"),
+
   // Timeouts (in milliseconds)
   CONNECT_TIMEOUT_MS: Joi.number().min(1000).default(10000), // 10 seconds to establish connection/receive headers
   HTTP_REQUEST_TIMEOUT_MS: Joi.number().min(1000).default(240000), // 4 minutes total for HTTP requests (10MiB @ 170KB/s + overhead)
@@ -139,11 +162,18 @@ export interface IAppConfig {
   runMode: "api" | "worker" | "both";
   port: number;
   host: string;
+  /**
+   * Optional publicly reachable DealBot API base URL (e.g. `https://dealbot.example.com`).
+   * Used to construct hosted-piece source URLs that SPs can fetch during pull checks.
+   * When unset, falls back to `http://${host}:${port}`.
+   */
+  apiPublicUrl: string | null;
   metricsPort: number;
   metricsHost: string;
   enableDevMode: boolean;
   prometheusWalletBalanceTtlSeconds: number;
   prometheusWalletBalanceErrorCooldownSeconds: number;
+  probeLocation: string;
 }
 
 export interface IDatabaseConfig {
@@ -301,6 +331,61 @@ export interface ISpBlocklistConfig {
   addresses: Set<string>;
 }
 
+export interface IClickhouseConfig {
+  /**
+   * ClickHouse connection URL. Must include the database in the path.
+   * Example: http://default:password@host:8123/dealbot
+   * If unset, ClickHouse emission is disabled.
+   */
+  url: string | undefined;
+  batchSize: number;
+  flushIntervalMs: number;
+  maxBufferSize: number;
+}
+
+export interface IPullPieceConfig {
+  /**
+   * Target number of pull checks per storage provider per hour.
+   *
+   * Pull checks validate the SP pull-to-park pathway by serving a temporary piece URL
+   * from DealBot and asking the SP to pull and park it. Independent of `deal` and `retrieval`.
+   */
+  pullChecksPerSpPerHour: number;
+  /**
+   * Maximum runtime (seconds) for pull-check jobs before forced abort.
+   *
+   * Bounds the polling window for terminal SP pull status.
+   */
+  pullCheckJobTimeoutSeconds: number;
+  /**
+   * Polling interval (seconds) used while waiting for a terminal SP pull status.
+   */
+  pullCheckPollIntervalSeconds: number;
+  /**
+   * Size (bytes) of the synthetic test piece DealBot generates per pull check.
+   */
+  pullCheckPieceSizeBytes: number;
+  /**
+   * Maximum number of concurrent piece streams across all pieceCids.
+   *
+   * Prevents DoS by limiting total server-wide streaming load.
+   */
+  maxConcurrentStreams: number;
+  /**
+   * Maximum number of concurrent streams per pieceCid.
+   *
+   * Prevents attackers from opening many connections to the same piece.
+   */
+  maxStreamsPerCid: number;
+  /**
+   * How often (seconds) the global `pull_piece_cleanup` job runs to delete
+   * expired `pull_pieces` rows (those whose `expires_at` is in the past).
+   *
+   * Defaults to 7 days (604800 s). Minimum 1 hour enforced by Joi.
+   */
+  pullPieceCleanupIntervalSeconds: number;
+}
+
 export interface IConfig {
   app: IAppConfig;
   database: IDatabaseConfig;
@@ -310,8 +395,10 @@ export interface IConfig {
   dataset: IDatasetConfig;
   timeouts: ITimeoutConfig;
   retrieval: IRetrievalConfig;
+  clickhouse: IClickhouseConfig;
   pieceCleanup: IPieceCleanupConfig;
   spBlocklists: ISpBlocklistConfig;
+  pullPiece: IPullPieceConfig;
 }
 
 export function loadConfig(): IConfig {
@@ -326,6 +413,11 @@ export function loadConfig(): IConfig {
       })(),
       port: Number.parseInt(process.env.DEALBOT_PORT || "3000", 10),
       host: process.env.DEALBOT_HOST || "127.0.0.1",
+      apiPublicUrl: (() => {
+        const raw = process.env.DEALBOT_API_PUBLIC_URL;
+        if (raw == null || raw.trim().length === 0) return null;
+        return raw.trim().replace(/\/+$/, "");
+      })(),
       metricsPort: Number.parseInt(process.env.DEALBOT_METRICS_PORT || "9090", 10),
       metricsHost: process.env.DEALBOT_METRICS_HOST || "0.0.0.0",
       enableDevMode: process.env.ENABLE_DEV_MODE === "true",
@@ -337,6 +429,7 @@ export function loadConfig(): IConfig {
         process.env.PROMETHEUS_WALLET_BALANCE_ERROR_COOLDOWN_SECONDS || "60",
         10,
       ),
+      probeLocation: process.env.DEALBOT_PROBE_LOCATION || "unknown",
     },
     database: {
       host: process.env.DATABASE_HOST || "localhost",
@@ -413,6 +506,12 @@ export function loadConfig(): IConfig {
     retrieval: {
       ipfsBlockFetchConcurrency: Number.parseInt(process.env.IPFS_BLOCK_FETCH_CONCURRENCY || "6", 10),
     },
+    clickhouse: {
+      url: process.env.CLICKHOUSE_URL || undefined,
+      batchSize: Number.parseInt(process.env.CLICKHOUSE_BATCH_SIZE || "500", 10),
+      flushIntervalMs: Number.parseInt(process.env.CLICKHOUSE_FLUSH_INTERVAL_MS || "5000", 10),
+      maxBufferSize: Number.parseInt(process.env.CLICKHOUSE_MAX_BUFFER_SIZE || "5000", 10),
+    },
     pieceCleanup: {
       maxDatasetStorageSizeBytes: Number.parseInt(
         process.env.MAX_DATASET_STORAGE_SIZE_BYTES || String(24 * 1024 * 1024 * 1024),
@@ -426,6 +525,18 @@ export function loadConfig(): IConfig {
     spBlocklists: {
       ids: parseIdList(process.env.BLOCKED_SP_IDS),
       addresses: parseAddressList(process.env.BLOCKED_SP_ADDRESSES),
+    },
+    pullPiece: {
+      pullChecksPerSpPerHour: Number.parseFloat(process.env.PULL_CHECKS_PER_SP_PER_HOUR || "1"),
+      pullCheckJobTimeoutSeconds: Number.parseInt(process.env.PULL_CHECK_JOB_TIMEOUT_SECONDS || "300", 10),
+      pullCheckPollIntervalSeconds: Number.parseInt(process.env.PULL_CHECK_POLL_INTERVAL_SECONDS || "2", 10),
+      pullCheckPieceSizeBytes: Number.parseInt(process.env.PULL_CHECK_PIECE_SIZE_BYTES || String(10 * 1024 * 1024), 10),
+      maxConcurrentStreams: Number.parseInt(process.env.PULL_PIECE_MAX_CONCURRENT_STREAMS || "50", 10),
+      maxStreamsPerCid: Number.parseInt(process.env.PULL_PIECE_MAX_STREAMS_PER_CID || "3", 10),
+      pullPieceCleanupIntervalSeconds: Number.parseInt(
+        process.env.PULL_PIECE_CLEANUP_INTERVAL_SECONDS || String(7 * 24 * 3600),
+        10,
+      ),
     },
   };
 }

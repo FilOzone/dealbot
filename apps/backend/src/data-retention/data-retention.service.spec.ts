@@ -2,6 +2,7 @@ import type { ConfigService } from "@nestjs/config";
 import type { Counter, Gauge } from "prom-client";
 import { Repository } from "typeorm";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { ClickhouseService } from "../clickhouse/clickhouse.service.js";
 import type { IConfig } from "../config/app.config.js";
 import type { DataRetentionBaseline } from "../database/entities/data-retention-baseline.entity.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
@@ -31,6 +32,12 @@ const makeProvider = (overrides: Partial<ProviderEntry> = {}): ProviderEntry => 
 
 describe("DataRetentionService", () => {
   let service: DataRetentionService;
+  let baselineRows: Array<{
+    providerAddress: string;
+    faultedPeriods: string;
+    successPeriods: string;
+    lastBlockNumber: string;
+  }>;
   let configServiceMock: ConfigService<IConfig, true>;
   let walletSdkServiceMock: {
     getTestingProviders: ReturnType<typeof vi.fn>;
@@ -115,12 +122,27 @@ describe("DataRetentionService", () => {
       remove: vi.fn(),
     };
 
+    baselineRows = [];
     mockBaselineRepository = {
-      find: vi.fn().mockResolvedValue([]),
-      upsert: vi.fn().mockResolvedValue(undefined),
-      delete: vi.fn().mockResolvedValue(undefined),
+      find: vi.fn().mockImplementation(async () => baselineRows.map((row) => ({ ...row }))),
+      upsert: vi.fn().mockImplementation(async (row: (typeof baselineRows)[number]) => {
+        const index = baselineRows.findIndex(
+          (existing) => existing.providerAddress.toLowerCase() === row.providerAddress.toLowerCase(),
+        );
+        if (index >= 0) {
+          baselineRows[index] = { ...baselineRows[index], ...row };
+        } else {
+          baselineRows.push({ ...row });
+        }
+      }),
+      delete: vi.fn().mockImplementation(async ({ providerAddress }: { providerAddress: string }) => {
+        baselineRows = baselineRows.filter(
+          (row) => row.providerAddress.toLowerCase() !== providerAddress.toLowerCase(),
+        );
+      }),
     };
-    mockSPRepository = { find: vi.fn() };
+    mockSPRepository = { find: vi.fn().mockResolvedValue([]) };
+    const clickhouseServiceMock = { insert: vi.fn(), probeLocation: "test" } as unknown as ClickhouseService;
     service = new DataRetentionService(
       configServiceMock,
       walletSdkServiceMock as unknown as WalletSdkService,
@@ -129,6 +151,7 @@ describe("DataRetentionService", () => {
       mockSPRepository as unknown as Repository<StorageProvider>,
       counterMock as unknown as Counter,
       gaugeMock as unknown as Gauge,
+      clickhouseServiceMock,
     );
   });
 
@@ -947,15 +970,76 @@ describe("DataRetentionService", () => {
       expect(incCalls).toEqual(expect.arrayContaining([[10], [25]]));
     });
 
-    it("only loads baselines from DB once across multiple polls", async () => {
+    it("reloads baselines from DB on every poll", async () => {
       pdpSubgraphServiceMock.fetchProvidersWithDatasets.mockResolvedValue([makeProvider()]);
 
       await service.pollDataRetention();
       await service.pollDataRetention();
       await service.pollDataRetention();
 
-      // DB find should only be called once (lazy init)
-      expect(mockBaselineRepository.find).toHaveBeenCalledTimes(1);
+      expect(mockBaselineRepository.find).toHaveBeenCalledTimes(3);
+    });
+
+    it("does not double-count when poll ownership alternates across worker pods", async () => {
+      pdpSubgraphServiceMock.fetchProvidersWithDatasets.mockResolvedValueOnce([makeProvider()]);
+      await service.pollDataRetention();
+
+      const secondPod = new DataRetentionService(
+        configServiceMock,
+        walletSdkServiceMock as unknown as WalletSdkService,
+        pdpSubgraphServiceMock as unknown as PDPSubgraphService,
+        mockBaselineRepository as unknown as Repository<DataRetentionBaseline>,
+        mockSPRepository as unknown as Repository<StorageProvider>,
+        counterMock as unknown as Counter,
+        gaugeMock as unknown as Gauge,
+        { insert: vi.fn(), probeLocation: "test" } as unknown as ClickhouseService,
+      );
+
+      pdpSubgraphServiceMock.fetchSubgraphMeta.mockResolvedValueOnce({ _meta: { block: { number: 1300 } } });
+      pdpSubgraphServiceMock.fetchProvidersWithDatasets.mockResolvedValueOnce([
+        makeProvider({ totalFaultedPeriods: 11n, totalProvingPeriods: 102n }),
+      ]);
+      await secondPod.pollDataRetention();
+
+      counterMock.labels.mockClear();
+      counterMock.inc.mockClear();
+
+      pdpSubgraphServiceMock.fetchSubgraphMeta.mockResolvedValueOnce({ _meta: { block: { number: 1400 } } });
+      pdpSubgraphServiceMock.fetchProvidersWithDatasets.mockResolvedValueOnce([
+        makeProvider({ totalFaultedPeriods: 12n, totalProvingPeriods: 104n }),
+      ]);
+      await service.pollDataRetention();
+
+      // Third poll must use the second pod's persisted baseline: failure +5, success +5.
+      // A stale first-pod baseline would emit +10 and +10 here.
+      expect(counterMock.inc.mock.calls).toEqual([[5], [5]]);
+    });
+
+    it("does not update counters or local baseline when baseline persistence fails", async () => {
+      baselineRows = [
+        { providerAddress: PROVIDER_A, faultedPeriods: "10", successPeriods: "90", lastBlockNumber: "1200" },
+      ];
+      mockBaselineRepository.upsert.mockRejectedValueOnce(new Error("DB write failed"));
+
+      pdpSubgraphServiceMock.fetchSubgraphMeta.mockResolvedValueOnce({ _meta: { block: { number: 1300 } } });
+      pdpSubgraphServiceMock.fetchProvidersWithDatasets.mockResolvedValueOnce([
+        makeProvider({ totalFaultedPeriods: 12n, totalProvingPeriods: 105n }),
+      ]);
+
+      await service.pollDataRetention();
+
+      expect(counterMock.labels).not.toHaveBeenCalled();
+
+      pdpSubgraphServiceMock.fetchSubgraphMeta.mockResolvedValueOnce({ _meta: { block: { number: 1400 } } });
+      pdpSubgraphServiceMock.fetchProvidersWithDatasets.mockResolvedValueOnce([
+        makeProvider({ totalFaultedPeriods: 12n, totalProvingPeriods: 105n }),
+      ]);
+
+      await service.pollDataRetention();
+
+      // Since the failed write did not advance the DB or local baseline, the next
+      // successful poll emits the original persisted-baseline delta once.
+      expect(counterMock.inc.mock.calls).toEqual([[10], [15]]);
     });
 
     it("retries DB load on next poll if first load fails", async () => {

@@ -1,5 +1,5 @@
 # Build stage
-FROM node:24-alpine AS builder
+FROM node:26-alpine AS builder
 
 WORKDIR /app
 
@@ -17,7 +17,6 @@ COPY package.json ./
 
 # Copy web app files
 COPY apps/web/package.json ./apps/web/
-COPY apps/web/pnpm-lock.yaml ./apps/web/
 COPY apps/web/tsconfig*.json ./apps/web/
 COPY apps/web/vite.config.ts ./apps/web/
 COPY apps/web/components.json ./apps/web/

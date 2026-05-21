@@ -6,15 +6,17 @@ This document provides a comprehensive guide to all environment variables used b
 
 | Category                                  | Variables                                                                                                                                                    |
 | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| [Application](#application-configuration) | `NODE_ENV`, `DEALBOT_PORT`, `DEALBOT_HOST`, `DEALBOT_RUN_MODE`, `DEALBOT_METRICS_PORT`, `DEALBOT_METRICS_HOST`, `DEALBOT_ALLOWED_ORIGINS`, `ENABLE_DEV_MODE` |
+| [Application](#application-configuration) | `NODE_ENV`, `DEALBOT_PORT`, `DEALBOT_HOST`, `DEALBOT_API_PUBLIC_URL`, `DEALBOT_RUN_MODE`, `DEALBOT_METRICS_PORT`, `DEALBOT_METRICS_HOST`, `DEALBOT_ALLOWED_ORIGINS`, `ENABLE_DEV_MODE` |
 | [Database](#database-configuration)       | `DATABASE_HOST`, `DATABASE_PORT`, `DATABASE_POOL_MAX`, `DATABASE_USER`, `DATABASE_PASSWORD`, `DATABASE_NAME`                                                 |
 | [Blockchain](#blockchain-configuration)   | `NETWORK`, `RPC_URL`, `WALLET_ADDRESS`, `WALLET_PRIVATE_KEY`, `SESSION_KEY_PRIVATE_KEY`, `CHECK_DATASET_CREATION_FEES`, `USE_ONLY_APPROVED_PROVIDERS`, `PDP_SUBGRAPH_ENDPOINT` |
 | [Dataset Versioning](#dataset-versioning) | `DEALBOT_DATASET_VERSION`                                                                                                                                    |
 | [Scheduling](#scheduling-configuration)   | `PROVIDERS_REFRESH_INTERVAL_SECONDS`, `DATA_RETENTION_POLL_INTERVAL_SECONDS`, `DEALBOT_MAINTENANCE_WINDOWS_UTC`, `DEALBOT_MAINTENANCE_WINDOW_MINUTES`                                                                                                                                 |
 | [Jobs (pg-boss)](#jobs-pg-boss)           | `DEALBOT_PGBOSS_SCHEDULER_ENABLED`, `DEALBOT_PGBOSS_POOL_MAX`, `DEALS_PER_SP_PER_HOUR`, `DATASET_CREATIONS_PER_SP_PER_HOUR`, `RETRIEVALS_PER_SP_PER_HOUR`,  `JOB_SCHEDULER_POLL_SECONDS`, `JOB_WORKER_POLL_SECONDS`, `PG_BOSS_LOCAL_CONCURRENCY`, `JOB_CATCHUP_MAX_ENQUEUE`, `JOB_SCHEDULE_PHASE_SECONDS`, `JOB_ENQUEUE_JITTER_SECONDS`, `DEAL_JOB_TIMEOUT_SECONDS`, `RETRIEVAL_JOB_TIMEOUT_SECONDS`, `IPFS_BLOCK_FETCH_CONCURRENCY` |
 | [Dataset](#dataset-configuration)         | `DEALBOT_LOCAL_DATASETS_PATH`, `RANDOM_PIECE_SIZES`                                                                                                          |
+| [ClickHouse](#clickhouse-configuration)   | `CLICKHOUSE_URL`, `CLICKHOUSE_BATCH_SIZE`, `CLICKHOUSE_FLUSH_INTERVAL_MS`, `DEALBOT_PROBE_LOCATION`          |
 | [Timeouts](#timeout-configuration)        | `CONNECT_TIMEOUT_MS`, `HTTP_REQUEST_TIMEOUT_MS`, `HTTP2_REQUEST_TIMEOUT_MS`, `IPNI_VERIFICATION_TIMEOUT_MS`, `IPNI_VERIFICATION_POLLING_MS`                   |
 | [Piece Cleanup](#piece-cleanup)           | `MAX_DATASET_STORAGE_SIZE_BYTES`, `TARGET_DATASET_STORAGE_SIZE_BYTES`, `JOB_PIECE_CLEANUP_PER_SP_PER_HOUR`, `MAX_PIECE_CLEANUP_RUNTIME_SECONDS`       |
+| [Pull Check](#pull-check)                 | `PULL_CHECKS_PER_SP_PER_HOUR`, `PULL_CHECK_JOB_TIMEOUT_SECONDS`, `PULL_CHECK_POLL_INTERVAL_SECONDS`, `PULL_CHECK_PIECE_SIZE_BYTES`, `PULL_PIECE_MAX_CONCURRENT_STREAMS`, `PULL_PIECE_MAX_STREAMS_PER_CID`, `PULL_PIECE_CLEANUP_INTERVAL_SECONDS` |
 | [SP Blocklist](#sp-blocklist-configuration) | `BLOCKED_SP_IDS`, `BLOCKED_SP_ADDRESSES` |
 | [Prometheus Metrics](#prometheus-metrics-configuration) | `PROMETHEUS_WALLET_BALANCE_TTL_SECONDS`, `PROMETHEUS_WALLET_BALANCE_ERROR_COOLDOWN_SECONDS`                   |
 | [Web Frontend](#web-frontend)             | `VITE_API_BASE_URL`, `VITE_PLAUSIBLE_DATA_DOMAIN`, `DEALBOT_API_BASE_URL`                                                                                    |
@@ -136,6 +138,29 @@ DEALBOT_METRICS_HOST=0.0.0.0
 ```bash
 DEALBOT_HOST=0.0.0.0
 ```
+
+---
+
+### `DEALBOT_API_PUBLIC_URL`
+
+- **Type**: `string` (URL)
+- **Required**: No (but required for [Pull Check](./checks/pull-check.md) when SPs cannot reach `DEALBOT_HOST:DEALBOT_PORT` directly)
+- **Default**: Empty (falls back to `http://${DEALBOT_HOST}:${DEALBOT_PORT}`)
+
+**Role**: Public base URL for the Dealbot HTTP API. Used to construct the hosted-piece source URL handed to a storage provider during a pull check (`{DEALBOT_API_PUBLIC_URL}/api/piece/{pieceCid}`).
+
+**When to update**:
+
+- Set to the public URL of your Dealbot deployment whenever pull checks are enabled and SPs cannot reach the bind address directly (the typical production case)
+- Leave unset for local development where SPs reach Dealbot on `localhost`
+
+**Example**:
+
+```bash
+DEALBOT_API_PUBLIC_URL=https://dealbot.filoz.org
+```
+
+**Notes**: Trailing slashes are stripped at load time. The value is also trimmed and treated as empty when blank.
 
 ---
 
@@ -384,7 +409,7 @@ WALLET_ADDRESS=0x1234567890abcdef1234567890abcdef12345678
 - **Required**: No
 - **Security**: **HIGHLY SENSITIVE** - Treat like `WALLET_PRIVATE_KEY`
 
-**Role**: When set, DealBot uses session key authentication. The session key must be registered on the SessionKeyRegistry contract from the `WALLET_ADDRESS` (typically a Safe multisig). Storage operations (create dataset, add pieces) are signed with this key instead of `WALLET_PRIVATE_KEY`.
+**Role**: When set, DealBot uses session key authentication. The session key must be registered on the SessionKeyRegistry contract from the `WALLET_ADDRESS` (typically a Safe multisig). Scoped storage operations are signed with this key instead of `WALLET_PRIVATE_KEY`.
 
 Session keys are scoped (only storage operations, not deposits or withdrawals) and time-limited (expiry set during registration). See [runbooks/wallet-and-session-keys.md](runbooks/wallet-and-session-keys.md) for the full setup process.
 
@@ -906,6 +931,148 @@ Only used when `DEALBOT_JOBS_MODE=pgboss`.
 
 ---
 
+## Pull Check
+
+These variables control the [Pull Check](./checks/pull-check.md), which validates the SP pull-to-park pathway. Pull checks are scheduled per SP and exercised through the `sp.work` queue alongside deal, retrieval, and piece-cleanup jobs.
+
+### `PULL_CHECKS_PER_SP_PER_HOUR`
+
+- **Type**: `number`
+- **Required**: No
+- **Default**: `1`
+- **Minimum**: `0.001`
+- **Maximum**: `20`
+
+**Role**: Target number of pull checks per storage provider per hour. The rate is converted to an interval internally (for example `1` = every 3600s, `0.5` = every 7200s).
+
+**Notes**: Fractional values are supported. Pull checks are independent of `DEALS_PER_SP_PER_HOUR` and `RETRIEVALS_PER_SP_PER_HOUR`.
+
+**Example**:
+
+```bash
+# Twice per day
+PULL_CHECKS_PER_SP_PER_HOUR=0.083
+```
+
+---
+
+### `PULL_CHECK_JOB_TIMEOUT_SECONDS`
+
+- **Type**: `number` (seconds)
+- **Required**: No
+- **Default**: `300` (5 minutes)
+- **Minimum**: `60`
+- **Enforced**: Yes (config validation)
+
+**Role**: Maximum runtime for a pull-check job before forced abort via `AbortController`. Bounds the polling window for terminal SP pull status and the direct `/piece/{pieceCid}` re-fetch combined.
+
+**When to update**:
+
+- Increase if SPs are slow to reach a terminal pull status (large piece sizes or busy SPs)
+- Decrease to fail-fast on stuck jobs
+
+---
+
+### `PULL_CHECK_POLL_INTERVAL_SECONDS`
+
+- **Type**: `number` (seconds)
+- **Required**: No
+- **Default**: `2`
+- **Minimum**: `1`
+
+**Role**: Polling interval used by `waitForPullPieces` while waiting for the SP to report a terminal pull status (`complete` or `failed`).
+
+**When to update**:
+
+- Decrease for faster terminal-status detection at the cost of more SP-side load
+- Increase to be gentler on SPs at the cost of slower pull-check throughput
+
+---
+
+### `PULL_CHECK_PIECE_SIZE_BYTES`
+
+- **Type**: `number` (integer, bytes)
+- **Required**: No
+- **Default**: `10485760` (10 MiB)
+- **Minimum**: `1024`
+
+**Role**: Size of the synthetic random piece dealbot generates per pull check. The same byte length is used to compute [`pullRequestThroughputBps`](./checks/events-and-metrics.md#pullRequestThroughputBps).
+
+**When to update**:
+
+- Decrease for quicker, lower-bandwidth pull tests
+- Increase to stress-test the SP's outbound fetch throughput
+
+---
+
+### `PULL_PIECE_MAX_CONCURRENT_STREAMS`
+
+- **Type**: `number` (integer)
+- **Required**: No
+- **Default**: `50`
+- **Minimum**: `1`
+
+**Role**: Maximum number of concurrent HTTP/2 streams allowed across all pieces being served at any given time. This is a process-wide cap shared by all in-flight piece requests.
+
+**When to update**:
+
+- Decrease to reduce load on the Dealbot HTTP server under heavy SP demand
+- Increase if many SPs are simultaneously fetching pieces and stream exhaustion is observed
+
+**Example**:
+
+```bash
+PULL_PIECE_MAX_CONCURRENT_STREAMS=50
+```
+
+---
+
+### `PULL_PIECE_MAX_STREAMS_PER_CID`
+
+- **Type**: `number` (integer)
+- **Required**: No
+- **Default**: `3`
+- **Minimum**: `1`
+
+**Role**: Maximum number of concurrent HTTP/2 streams allowed per individual `pieceCid`. Prevents a single piece from consuming the entire `PULL_PIECE_MAX_CONCURRENT_STREAMS` budget.
+
+**When to update**:
+
+- Decrease to spread stream capacity more evenly across pieces
+- Increase if a single large piece must be fetched concurrently by multiple SPs
+
+**Example**:
+
+```bash
+PULL_PIECE_MAX_STREAMS_PER_CID=3
+```
+
+---
+
+### `PULL_PIECE_CLEANUP_INTERVAL_SECONDS`
+
+- **Type**: `number` (integer, seconds)
+- **Required**: No
+- **Default**: `604800` (7 days)
+- **Minimum**: `3600` (1 hour)
+- **Enforced**: Yes (config validation)
+
+**Role**: How often the global `pull_piece_cleanup` scheduled job runs to delete `pull_pieces` rows whose `expires_at` timestamp has passed. These rows are temporary registrations created per pull check and are automatically expired after `2 × PULL_CHECK_JOB_TIMEOUT_SECONDS`.
+
+**When to update**:
+
+- Decrease if you want expired rows cleaned up more aggressively (e.g. high-volume deployments with many pull checks per hour)
+- Increase if the default churn rate is acceptable and you want to reduce scheduler overhead
+
+**Example**:
+
+```bash
+# Run every 24 hours instead of the default 7 days
+PULL_PIECE_CLEANUP_INTERVAL_SECONDS=86400
+```
+
+---
+
 ## Dataset Configuration
 
 ### `DEALBOT_LOCAL_DATASETS_PATH`
@@ -942,6 +1109,78 @@ Only used when `DEALBOT_JOBS_MODE=pgboss`.
 
 ```bash
 RANDOM_PIECE_SIZES=1024,10240,102400
+```
+
+---
+
+## ClickHouse Configuration
+
+Dealbot optionally writes check results to ClickHouse for long-term storage and analysis. All ClickHouse writes are disabled when `CLICKHOUSE_URL` is unset.
+
+### `CLICKHOUSE_URL`
+
+- **Type**: `string` (HTTP/HTTPS URL)
+- **Required**: No
+- **Default**: Not set (ClickHouse writes disabled)
+
+**Role**: ClickHouse connection URL. Must include the database name in the path. When unset, all ClickHouse inserts are silently dropped and no connection is made.
+
+**Example**:
+
+```bash
+CLICKHOUSE_URL=http://default:password@clickhouse-host:8123/dealbot
+```
+
+---
+
+### `CLICKHOUSE_BATCH_SIZE`
+
+- **Type**: `number`
+- **Required**: No
+- **Default**: `500`
+- **Minimum**: `1`
+
+**Role**: Maximum number of rows to accumulate in the in-memory buffer before triggering a flush to ClickHouse. Rows are also flushed on the interval defined by `CLICKHOUSE_FLUSH_INTERVAL_MS`.
+
+**When to update**:
+
+- Decrease for lower-throughput deployments where you want more frequent writes
+- Increase to reduce write frequency under high load
+
+---
+
+### `CLICKHOUSE_FLUSH_INTERVAL_MS`
+
+- **Type**: `number` (milliseconds)
+- **Required**: No
+- **Default**: `5000` (5 seconds)
+- **Minimum**: `100`
+
+**Role**: How often the ClickHouse buffer is flushed, regardless of batch size.
+
+**When to update**:
+
+- Decrease for more real-time data visibility
+- Increase to reduce write pressure on the ClickHouse server
+
+---
+
+### `DEALBOT_PROBE_LOCATION`
+
+- **Type**: `string`
+- **Required**: No
+- **Default**: `unknown`
+
+**Role**: A label identifying where this dealbot instance is running (e.g. `aws-us-east-1`, `local`). Written to ClickHouse as `probe_location` on every row, allowing multi-region deployments to be distinguished in queries.
+
+**When to update**:
+
+- Set to a meaningful geographic or deployment identifier for each dealbot instance
+
+**Example**:
+
+```bash
+DEALBOT_PROBE_LOCATION=aws-us-east-1
 ```
 
 ---

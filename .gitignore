@@ -17,3 +17,7 @@ coverage/
 *.sln
 *.sw?
 .env
+
+# per-package lockfiles are stray
+apps/*/pnpm-lock.yaml
+!pnpm-lock.yaml

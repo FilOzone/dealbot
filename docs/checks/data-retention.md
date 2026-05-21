@@ -14,8 +14,10 @@ Every data retention check cycle, dealbot:
 
 1. Queries the [PDP subgraph](https://docs.filecoin.io/smart-contracts/advanced/proof-of-data-possession) for provider-level challenge statistics
 2. Computes confirmed successful proving periods from the subgraph totals with estimated overdue periods for real-time monitoring
-3. Calculates deltas since the last poll
+3. Calculates proving-period deltas since the last poll and converts them to challenge counts
 4. Records metrics to track provider reliability over time
+
+**Provider selection**: Only providers returned by `WalletSdkService.getTestingProviders()` are polled, minus any matching the `spBlocklists` configuration (via `isSpBlocked`).
 
 ## How It Works
 
@@ -56,10 +58,11 @@ Dealbot uses the subgraph-confirmed totals directly for cumulative counters:
 confirmedTotalSuccess = totalProvingPeriods - totalFaultedPeriods
 ```
 
-Additionally, dealbot calculates **estimated overdue periods** for real-time monitoring via a separate gauge metric. For each proof set where the deadline has passed (`nextDeadline < currentBlock`):
+Additionally, dealbot calculates **estimated overdue periods** for real-time monitoring via a separate gauge metric. The value is the **sum across all of the provider's overdue proof sets** (those where `nextDeadline < currentBlock`); proof sets with `maxProvingPeriod === 0` are skipped:
 
 ```
-estimatedOverduePeriods = (currentBlock - (nextDeadline + 1)) / maxProvingPeriod
+estimatedOverduePeriods = sum over overdue proofSets of:
+    (currentBlock - (nextDeadline + 1)) / maxProvingPeriod
 ```
 
 This gauge provides immediate visibility into providers that are behind on submitting proofs, even before the subgraph confirms the faults. The gauge naturally resets to 0 when providers submit their proofs and the subgraph catches up.
@@ -68,18 +71,20 @@ This gauge provides immediate visibility into providers that are behind on submi
 
 ### 3. Calculate Deltas
 
-To avoid double-counting, dealbot maintains a baseline of cumulative totals for each provider. On each poll, it computes the delta (change) since the last poll:
+To avoid double-counting, dealbot maintains a baseline of cumulative **proving-period** totals for each provider. On each poll, it computes the period delta since the last poll and converts it to a challenge count using a fixed multiplier (`CHALLENGES_PER_PROVING_PERIOD = 5`, sourced from the `FilecoinWarmStorageService` contract):
 
 ```
-faultedDelta = totalFaultedPeriods - previousTotalFaulted
-successDelta = confirmedTotalSuccess - previousTotalSuccess
+faultedChallengesDelta = (totalFaultedPeriods    - previousTotalFaulted) * 5
+successChallengesDelta = (confirmedTotalSuccess - previousTotalSuccess) * 5
 ```
+
+Baselines are stored and compared in **periods**; the `dataSetChallengeStatus` counter is incremented in **challenges**.
 
 **First-seen provider handling**: When a provider has no prior baseline (fresh deploy or newly added provider), dealbot initializes the baseline to the current cumulative totals **without emitting any counters**. This prevents dumping the provider's full cumulative history as a single metric spike. Metrics for that provider will begin accumulating from the next poll onward.
 
-**Negative delta handling**: If deltas are negative (due to chain reorgs, subgraph corrections, or data inconsistencies), the baseline is reset to current values without incrementing counters. This prevents stalled metrics.
+**Negative delta handling**: If either challenge delta is negative (due to chain reorgs, subgraph corrections, or data inconsistencies), the baseline is reset to current values without incrementing counters. This prevents stalled metrics.
 
-**Baseline persistence**: Baselines are persisted to the `data_retention_baselines` database table after each successful poll. On service restart, baselines are reloaded from the database to prevent metric inflation.
+**Baseline persistence**: Baselines are persisted to the `data_retention_baselines` database table after each successful provider update. Each poll reloads persisted baselines before computing deltas, so any worker pod that runs the poll uses the latest shared baseline.
 
 Source: [`data-retention.service.ts` (`processProvider`)](../../apps/backend/src/data-retention/data-retention.service.ts)
 
@@ -93,22 +98,23 @@ Source: [`data-retention.service.ts` (`safeIncrementCounter`)](../../apps/backen
 
 ## Baseline Persistence
 
-To prevent metric inflation across service restarts, dealbot persists provider baselines to the database.
+To prevent metric inflation across service restarts and worker-pod handoffs, dealbot persists provider baselines to the database.
 
 **Storage**: Baselines are stored in the `data_retention_baselines` table with columns for `provider_address`, `faulted_periods`, `success_periods`, `last_block_number`, and `updated_at`.
 
 **Lifecycle**:
 
-1. **On first poll**: Load all baselines from database into memory. If load fails, abort poll to prevent emitting inflated values.
-2. **First-seen provider**: If a provider has no prior baseline (not in memory or database), initialize its baseline to the current cumulative totals without emitting counters. This avoids a metric spike from the provider's full history.
-3. **On each poll**: After processing providers, persist updated baselines to database.
-4. **On restart**: Reload baselines from database. Delta computation resumes from last persisted state, preventing double-counting.
+1. **At poll start**: Load all baselines from the database into a fresh poll-local map. If load fails, abort poll to prevent emitting inflated values.
+2. **First-seen provider**: If a provider has no persisted baseline, initialize its baseline to the current cumulative totals without emitting counters. This avoids a metric spike from the provider's full history.
+3. **Per provider**: Compute the new baseline and any positive counter deltas.
+4. **Before counter emission**: Persist the new baseline to the database. Only after the write succeeds does dealbot update the poll-local map and increment `dataSetChallengeStatus`.
+5. **On restart or worker-pod handoff**: Every poll reloads baselines from the database, so delta computation resumes from the last persisted state regardless of which pod runs.
 
 **Error handling**:
 
 - **DB load failure**: Poll aborted, retry on next cycle
-- **DB persist failure**: Warning logged, in-memory state remains consistent
-- **Stale provider cleanup**: Baselines deleted from both memory and database when providers are removed from active list
+- **DB persist failure**: Warning logged, counter increment skipped, poll-local baseline not advanced
+- **Stale provider cleanup**: Baselines deleted from both the poll-local map and the database when providers are removed from the active list
 
 Source: [`data-retention.service.ts` (`loadBaselinesFromDb`, `persistBaseline`)](../../apps/backend/src/data-retention/data-retention.service.ts), [`CreateDataRetentionBaselines` migration](../../apps/backend/src/database/migrations/1761500000002-CreateDataRetentionBaselines.ts)
 
@@ -118,12 +124,12 @@ To prevent unbounded memory growth, dealbot periodically removes baseline data f
 
 **Cleanup strategy**:
 
-1. Identify providers in the baseline map but not in the current active list
+1. Identify providers in the poll-local baseline map but not in the current active list
 2. Fetch provider info from the database
 3. Remove Prometheus counter metrics for both success and fault labels
 4. Remove Prometheus gauge metric for overdue periods
-5. Delete baseline entry from memory **only if** metric removal succeeds
-6. Delete baseline entry from database (non-blocking, logged on failure)
+5. Delete baseline entry from the poll-local map **only if** metric removal succeeds
+6. Delete baseline entry from the database (non-blocking, logged on failure)
 
 **Critical safeguard**: Baselines are retained if:
 
@@ -172,22 +178,31 @@ Source: [`pdp-subgraph.service.ts` (`enforceRateLimit`)](../../apps/backend/src/
 
 See [`dataSetChallengeStatus`](./events-and-metrics.md#dataSetChallengeStatus) for more info.
 
+**Unit**: challenges (period delta × `CHALLENGES_PER_PROVING_PERIOD = 5`).
+
+**`value` label**:
+
+- `success` — challenges in successfully-proven periods (`totalProvingPeriods - totalFaultedPeriods`)
+- `failure` — challenges in faulted periods (`totalFaultedPeriods`)
+
 **Increment behavior**:
 
-- Only increments when positive deltas are detected
-- Increments by the delta amount (not always 1)
-- Handles large values (>MAX_SAFE_INTEGER) via chunked increments
+- Only increments when the challenge delta is strictly positive
+- Increments by the full challenge delta (not always 1)
+- For deltas exceeding `Number.MAX_SAFE_INTEGER`, `safeIncrementCounter` splits the increment into `MAX_SAFE_INTEGER`-sized chunks to preserve precision
 
-### Gauge: `pdp_provider_overdue_periods`
+### Gauge: `pdp_provider_estimated_overdue_periods`
 
-See [`pdp_provider_overdue_periods`](./events-and-metrics.md#pdp_provider_overdue_periods) for more info.
+See [`pdp_provider_estimated_overdue_periods`](./events-and-metrics.md#pdp_provider_estimated_overdue_periods) for more info.
+
+**Unit**: proving periods (sum across the provider's overdue proof sets).
 
 **Emission behavior**:
 
-- Emitted on every poll, independent of counter deltas
+- Emitted on every poll for every processed provider, independent of counter deltas and independent of baseline state (emitted even on first-seen providers)
 - Reflects estimated unrecorded overdue proving periods in real-time
 - Naturally resets to 0 when providers submit proofs and the subgraph catches up
-- Handles large values (>MAX_SAFE_INTEGER) via chunked `.inc()` calls
+- For values exceeding `Number.MAX_SAFE_INTEGER`, `safeSetGauge` **clamps** the gauge to `Number.MAX_SAFE_INTEGER` and logs an `overdue_periods_overflow` warning (it does **not** chunk)
 
 ## Configuration
 
@@ -219,7 +234,7 @@ Validation errors (schema mismatches, type errors) are **not retried** as they i
 
 If stale provider cleanup encounters errors (database failures, missing provider info), the cleanup is skipped entirely to preserve metric baselines and prevent double-counting.
 
-Source: [`data-retention.service.ts` (`pollDataRetention`)](../../apps/backend/src/data-retention/data-retention.service.ts#L50)
+Source: [`data-retention.service.ts` (`pollDataRetention`)](../../apps/backend/src/data-retention/data-retention.service.ts)
 
 ## Architecture Diagram
 
@@ -244,14 +259,19 @@ flowchart TD
     CheckBaseline -->|No| InitBaseline[Initialize Baseline. No Metric Emission]
     InitBaseline --> PersistBaseline
     CheckBaseline -->|Yes| CalcDeltas[Calculate Deltas from Baseline]
-    CalcDeltas --> CheckDeltas{Deltas<br/>Positive?}
+    CalcDeltas --> CheckDeltas{Any Negative<br/>Delta?}
 
-    CheckDeltas -->|Negative| ResetBaseline[Reset Baseline. No Metric Update]
-    CheckDeltas -->|Positive| IncrementMetrics[Increment Prometheus Counters]
-    IncrementMetrics --> UpdateBaseline[Update Baseline in Memory]
+    CheckDeltas -->|Yes| ResetBaseline[Reset Baseline. No Metric Update]
+    CheckDeltas -->|No| PersistBaseline
     ResetBaseline --> PersistBaseline[Persist Baseline to DB]
-    UpdateBaseline --> PersistBaseline
-    PersistBaseline --> MoreBatches{More<br/>Batches?}
+    PersistBaseline --> CheckPersist{Persist<br/>Success?}
+    CheckPersist -->|Yes| UpdateBaseline[Update Poll-Local Baseline]
+    UpdateBaseline --> CheckEmit{Positive<br/>Deltas?}
+    CheckEmit -->|Yes| IncrementMetrics[Increment Prometheus Counters]
+    CheckEmit -->|No| MoreBatches
+    CheckPersist -->|No| MarkError[Mark Processing Error]
+    IncrementMetrics --> MoreBatches{More<br/>Batches?}
+    MarkError --> MoreBatches
 
     MoreBatches -->|Yes| BatchLoop
     MoreBatches -->|No| CheckErrors{Processing<br/>Errors?}
@@ -260,7 +280,7 @@ flowchart TD
 
     Cleanup --> FetchStale[Fetch Stale Provider Info from DB]
     FetchStale --> RemoveMetrics[Remove Prometheus Metrics]
-    RemoveMetrics --> DeleteMemory[Delete Baseline from Memory]
+    RemoveMetrics --> DeleteMemory[Delete Baseline from Poll-Local Map]
     DeleteMemory --> DeleteDB[Delete Baseline from DB]
 
     SkipCleanup --> End[Complete]
@@ -288,7 +308,7 @@ Providers may temporarily drop from the active list due to configuration changes
 
 ### What happens if the service restarts?
 
-Baselines are persisted to the database after each successful poll. On restart, the service loads all baselines from the database on the first poll, and delta computation resumes from the last persisted state. This prevents metric inflation (double-counting).
+Baselines are persisted to the database after each successful provider update. At the start of every poll, the service loads all baselines from the database, and delta computation resumes from the last persisted state. This prevents metric inflation when a process restarts or a different worker pod runs the next poll.
 
 **Example scenario:**
 
@@ -300,20 +320,20 @@ Poll 1 (fresh start, no DB baseline):
 
 Poll 2:
   Subgraph: faulted=1005, success=9005
-  Memory baseline: 1000, 9000 → Delta: 5, 5
-  Emit: +5 faulted, +5 success
+  Loaded baseline: 1000, 9000 → Period delta: 5, 5 (× 5 challenges/period)
+  Emit: +25 faulted challenges, +25 success challenges
 
 --- SERVICE RESTARTS ---
 
 Poll 3 (after restart):
   Subgraph: faulted=1005, success=9005
-  DB baseline: 1005, 9005 (loaded) → Delta: 0, 0
+  DB baseline: 1005, 9005 (loaded) → Period delta: 0, 0
   Emit: nothing (no new challenges)
 
 Poll 4:
   Subgraph: faulted=1008, success=9012
-  Memory baseline: 1005, 9005 → Delta: 3, 7
-  Emit: +3 faulted, +7 success
+  Loaded baseline: 1005, 9005 → Period delta: 3, 7
+  Emit: +15 faulted challenges, +35 success challenges
 ```
 
 If the database is unavailable on startup, the poll is aborted to prevent emitting inflated values. The service will retry on the next scheduled poll.

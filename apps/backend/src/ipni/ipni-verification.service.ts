@@ -69,10 +69,10 @@ export class IpniVerificationService {
       expectedProviders,
       signal: verificationSignal,
     }).catch((error) => {
-      if (signal?.aborted) {
-        signal.throwIfAborted();
-      }
-      if (verificationSignal.aborted) {
+      // Inner-timeout check runs first so the `ipni_verification_timed_out` event
+      // fires even when the outer job signal aborts in the same tick. Otherwise
+      // the inner-timeout log path is unreachable whenever outer < inner.
+      if (timeoutSignal.aborted) {
         failureReason = `IPNI verification timed out after ${timeoutMs}ms`;
         this.logger.error({
           event: "ipni_verification_timed_out",
@@ -88,6 +88,9 @@ export class IpniVerificationService {
           maxAttempts,
         });
         return false;
+      }
+      if (signal?.aborted) {
+        signal.throwIfAborted();
       }
       const errorMessage = error instanceof Error ? error.message : String(error);
       failureReason = errorMessage;
