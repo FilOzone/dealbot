@@ -27,7 +27,7 @@ import {
   loginCall,
   SchedulePieceRemovalsPermission,
 } from "@filoz/synapse-core/session-key";
-import { decodeFunctionData, encodeFunctionData } from "viem";
+import { decodeFunctionData, encodeFunctionData, keccak256, stringToHex } from "viem";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 
 // Parse CLI args
@@ -45,12 +45,17 @@ const chain = networkName === "mainnet" ? mainnet : calibration;
 const sessionAccount = privateKeyToAccount(sessionPrivateKey);
 const expiresAt = BigInt(Math.floor(Date.now() / 1000) + expiryDays * 24 * 60 * 60);
 const expiryDate = new Date(Number(expiresAt) * 1000);
+// TODO: import TerminateServicePermission from @filoz/synapse-core/session-key once it is exported there.
+const TerminateServicePermission = keccak256(stringToHex("TerminateService(uint256 dataSetId)"));
+// Backend rejects session keys missing any permission in SessionKey.DefaultFwssPermissions, so register
+// a superset: the defaults plus TerminateService. Extra permissions on the registry are accepted.
+const DealBotFwssPermissions = Array.from(new Set([...DefaultFwssPermissions, TerminateServicePermission]));
 
 // Use the SDK's loginCall to get the exact ABI and args
 const call = loginCall({
   chain,
   address: sessionAccount.address,
-  permissions: DefaultFwssPermissions,
+  permissions: DealBotFwssPermissions,
   expiresAt,
   origin: "dealbot",
 });
@@ -74,6 +79,7 @@ const permissionLabels = {
   [AddPiecesPermission]: "AddPieces",
   [SchedulePieceRemovalsPermission]: "SchedulePieceRemovals",
   [DeleteDataSetPermission]: "DeleteDataSet",
+  [TerminateServicePermission]: "TerminateService",
 };
 
 // Output
@@ -85,7 +91,7 @@ console.log(`Expiry:             ${expiryDate.toISOString()} (${expiryDays} days
 console.log(`Origin:             dealbot`);
 console.log();
 console.log("--- Permissions ---");
-for (const hash of DefaultFwssPermissions) {
+for (const hash of DealBotFwssPermissions) {
   console.log(`  ${permissionLabels[hash] || "Unknown"}: ${hash}`);
 }
 console.log();

@@ -2,6 +2,7 @@ import { Module } from "@nestjs/common";
 import { ConfigModule } from "@nestjs/config";
 import { LoggerModule } from "nestjs-pino";
 import { AppController } from "./app.controller.js";
+import { ClickhouseModule } from "./clickhouse/clickhouse.module.js";
 import { buildLoggerModuleParams } from "./common/pino.config.js";
 import { configValidationSchema, loadConfig } from "./config/app.config.js";
 import { DatabaseModule } from "./database/database.module.js";
@@ -11,6 +12,7 @@ import { DevToolsModule } from "./dev-tools/dev-tools.module.js";
 import { JobsModule } from "./jobs/jobs.module.js";
 import { MetricsPrometheusModule } from "./metrics-prometheus/metrics-prometheus.module.js";
 import { ProvidersModule } from "./providers/providers.module.js";
+import { PullCheckModule } from "./pull-check/pull-check.module.js";
 import { RetrievalModule } from "./retrieval/retrieval.module.js";
 
 @Module({
@@ -23,11 +25,13 @@ import { RetrievalModule } from "./retrieval/retrieval.module.js";
     }),
     DatabaseModule,
     MetricsPrometheusModule,
+    ClickhouseModule,
     JobsModule,
     DealModule,
     RetrievalModule,
     DataSourceModule,
     ProvidersModule,
+    PullCheckModule,
     ...(process.env.ENABLE_DEV_MODE === "true" ? [DevToolsModule] : []),
   ],
   controllers: [AppController],

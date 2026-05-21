@@ -1,5 +1,5 @@
 # Build stage
-FROM node:24-alpine AS builder
+FROM node:26-alpine AS builder
 
 WORKDIR /app
 
@@ -13,7 +13,6 @@ COPY package.json ./
 
 # Copy backend app files
 COPY apps/backend/package.json ./apps/backend/
-COPY apps/backend/pnpm-lock.yaml ./apps/backend/
 COPY apps/backend/tsconfig*.json ./apps/backend/
 COPY apps/backend/nest-cli.json ./apps/backend/
 
@@ -28,7 +27,7 @@ COPY apps/backend/scripts/ ./apps/backend/scripts/
 RUN pnpm --filter dealbot-backend run build
 
 # Runtime stage
-FROM node:24-alpine AS runner
+FROM node:26-alpine AS runner
 
 # Install required packages for health checks
 RUN apk add --no-cache curl wget
@@ -50,7 +49,6 @@ COPY --chown=nestjs:nodejs package.json ./
 
 # Copy backend package files
 COPY --chown=nestjs:nodejs apps/backend/package.json ./apps/backend/
-COPY --chown=nestjs:nodejs apps/backend/pnpm-lock.yaml ./apps/backend/
 
 # Install production dependencies only
 RUN pnpm install --prod --frozen-lockfile --filter dealbot-backend && pnpm store prune

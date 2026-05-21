@@ -1,6 +1,11 @@
-import { Activity, ExternalLink } from "lucide-react";
+import { Activity, ExternalLink, LineChart } from "lucide-react";
+import { NetworkBadge } from "@/components/shared";
+import { NETWORK_LABEL } from "@/components/shared/Network/constants";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useNetworkConfig } from "@/hooks/useNetworkConfig";
 import { useProvidersList } from "@/hooks/useProvidersList";
+import type { Network } from "@/types/config";
 
 /**
  * Builds a BetterStack dashboard or logs URL scoped to a single provider.
@@ -45,22 +50,45 @@ const getConfigUrl = (runtimeValue?: string, buildValue?: string) => {
   return { safe, isInvalid: Boolean(raw) && !safe };
 };
 
-const getConfig = () => {
+const getConfig = (network: Network | null) => {
   const runtimeConfig = typeof window === "undefined" ? undefined : window.__DEALBOT_CONFIG__;
 
   const dashboardUrl = getConfigUrl(runtimeConfig?.DASHBOARD_URL, import.meta.env.VITE_DASHBOARD_URL);
+  const approvedSpSources: Record<Network, { runtime?: string; build?: string }> = {
+    mainnet: {
+      runtime: runtimeConfig?.APPROVED_SP_DASHBOARD_URL_MAINNET,
+      build: import.meta.env.VITE_APPROVED_SP_DASHBOARD_URL_MAINNET,
+    },
+    calibration: {
+      runtime: runtimeConfig?.APPROVED_SP_DASHBOARD_URL_CALIBRATION,
+      build: import.meta.env.VITE_APPROVED_SP_DASHBOARD_URL_CALIBRATION,
+    },
+  };
+  const approvedSpDashboardUrl = network
+    ? getConfigUrl(approvedSpSources[network].runtime, approvedSpSources[network].build)
+    : { safe: "", isInvalid: false };
   const logsUrl = getConfigUrl(runtimeConfig?.LOGS_URL, import.meta.env.VITE_LOGS_URL);
 
   return {
     dashboardUrl: dashboardUrl.safe,
     dashboardUrlInvalid: dashboardUrl.isInvalid,
+    approvedSpDashboardUrl: approvedSpDashboardUrl.safe,
+    approvedSpDashboardUrlInvalid: approvedSpDashboardUrl.isInvalid,
     logsUrl: logsUrl.safe,
     logsUrlInvalid: logsUrl.isInvalid,
   };
 };
 
 export default function Landing() {
-  const { dashboardUrl, dashboardUrlInvalid, logsUrl, logsUrlInvalid } = getConfig();
+  const { network } = useNetworkConfig();
+  const {
+    dashboardUrl,
+    dashboardUrlInvalid,
+    approvedSpDashboardUrl,
+    approvedSpDashboardUrlInvalid,
+    logsUrl,
+    logsUrlInvalid,
+  } = getConfig(network);
   const { providers: providersResponse, loading: providersLoading, error: providersError } = useProvidersList(0, 500);
 
   return (
@@ -70,6 +98,10 @@ export default function Landing() {
         <div className="flex items-center justify-center gap-2 text-primary">
           <Activity className="h-8 w-8" />
           <h1 className="text-3xl font-bold">DealBot</h1>
+        </div>
+
+        <div className="flex justify-center">
+          <NetworkBadge />
         </div>
 
         <p className="text-muted-foreground text-lg">
@@ -98,6 +130,13 @@ export default function Landing() {
             See the approval methodology ↗
           </a>
         </p>
+        {approvedSpDashboardUrlInvalid && network && (
+          <p className="text-sm text-yellow-600">
+            Warning: <code>APPROVED_SP_DASHBOARD_URL_{network.toUpperCase()}</code> (or{" "}
+            <code>VITE_APPROVED_SP_DASHBOARD_URL_{network.toUpperCase()}</code>) configured but invalid. Link
+            unavailable.
+          </p>
+        )}
         <p className="text-sm text-muted-foreground">
           We currently link to BetterStack public dashboards.{" "}
           <a
@@ -110,6 +149,29 @@ export default function Landing() {
           </a>
         </p>
       </div>
+
+      {/* Combined approved-SP dashboard CTA */}
+      {approvedSpDashboardUrl && network && (
+        <Card className="w-full border-primary/40 bg-primary/5">
+          <CardContent className="flex flex-col items-start gap-3 py-5 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-start gap-3">
+              <LineChart className="mt-0.5 h-5 w-5 text-primary" aria-hidden="true" />
+              <div>
+                <p className="font-medium">Filecoin Onchain Cloud: approved SP performance</p>
+                <p className="text-sm text-muted-foreground">
+                  Aggregated metrics across all SPs approved for FOC storage on {NETWORK_LABEL[network]}.
+                </p>
+              </div>
+            </div>
+            <Button asChild variant="default" size="sm">
+              <a href={approvedSpDashboardUrl} target="_blank" rel="noopener noreferrer">
+                View dashboard
+                <ExternalLink className="ml-1 h-3.5 w-3.5" aria-hidden="true" />
+              </a>
+            </Button>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Storage providers – metrics & logs */}
       <Card className="w-full">
@@ -188,7 +250,7 @@ export default function Landing() {
                                   className="text-primary underline-offset-4 hover:underline"
                                 >
                                   Metrics
-                                  <ExternalLink className="ml-1 inline h-3 w-3" />
+                                  <ExternalLink className="ml-1 inline h-3 w-3" aria-hidden="true" />
                                 </a>
                               ) : (
                                 "—"
@@ -203,7 +265,7 @@ export default function Landing() {
                                   className="text-primary underline-offset-4 hover:underline"
                                 >
                                   Logs
-                                  <ExternalLink className="ml-1 inline h-3 w-3" />
+                                  <ExternalLink className="ml-1 inline h-3 w-3" aria-hidden="true" />
                                 </a>
                               ) : (
                                 "—"

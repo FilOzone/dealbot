@@ -1,4 +1,5 @@
 import type { ConfigService } from "@nestjs/config";
+import { stringToHex } from "viem";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { configValidationSchema, type IBlockchainConfig, type IConfig } from "../config/app.config.js";
 import { WalletSdkService } from "./wallet-sdk.service.js";
@@ -264,6 +265,45 @@ describe("WalletSdkService", () => {
       (service as any)._isSessionKeyMode = false;
       // storageManager is not initialized so prepare() will throw
       await expect(service.ensureWalletAllowances()).rejects.toThrow();
+    });
+  });
+
+  describe("isDevProvider", () => {
+    it("returns false when extraCapabilities is absent", () => {
+      expect((service as any).isDevProvider(makeProvider({}))).toBe(false);
+    });
+
+    it("returns false when serviceStatus key is absent", () => {
+      const info = makeProvider({
+        pdp: {
+          serviceURL: "https://example.invalid",
+          location: "loc",
+          extraCapabilities: { someKey: stringToHex("dev") },
+        } as any,
+      });
+      expect((service as any).isDevProvider(info)).toBe(false);
+    });
+
+    it("returns true for hex-encoded 'dev'", () => {
+      const info = makeProvider({
+        pdp: {
+          serviceURL: "https://example.invalid",
+          location: "loc",
+          extraCapabilities: { serviceStatus: stringToHex("dev") },
+        } as any,
+      });
+      expect((service as any).isDevProvider(info)).toBe(true);
+    });
+
+    it("returns false for a non-dev hex-encoded value", () => {
+      const info = makeProvider({
+        pdp: {
+          serviceURL: "https://example.invalid",
+          location: "loc",
+          extraCapabilities: { serviceStatus: stringToHex("prod") },
+        } as any,
+      });
+      expect((service as any).isDevProvider(info)).toBe(false);
     });
   });
 });

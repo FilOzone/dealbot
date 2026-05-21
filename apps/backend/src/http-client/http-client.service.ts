@@ -1,3 +1,4 @@
+import { Readable } from "node:stream";
 import { HttpService } from "@nestjs/axios";
 import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
@@ -254,6 +255,52 @@ export class HttpClientService {
 
     // Fallback for objects/arrays
     return Buffer.from(JSON.stringify(data));
+  }
+
+  /**
+   * Make a streaming GET request via undici and return the response without
+   * buffering the body. The caller is responsible for consuming or destroying
+   * the returned `body` stream to free the underlying connection.
+   *
+   * Timeouts are decoupled across phases: `headersTimeout` bounds the
+   * connect/headers phase (short), while `bodyTimeout` bounds inactivity on
+   * the body stream (longer).
+   */
+  async requestStream(
+    url: string,
+    options: { signal?: AbortSignal } = {},
+  ): Promise<{ statusCode: number; headers: Record<string, string | string[] | undefined>; body: Readable }> {
+    try {
+      const response = await undiciRequest(url, {
+        method: "GET",
+        headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" },
+        signal: options.signal,
+        headersTimeout: this.connectTimeoutMs,
+        bodyTimeout: this.http1TimeoutMs,
+      });
+      return {
+        statusCode: response.statusCode,
+        headers: response.headers as Record<string, string | string[] | undefined>,
+        body: response.body,
+      };
+    } catch (error) {
+      // Translate undici phase-specific timeouts into descriptive errors so
+      // callers can distinguish them from caller-initiated aborts in logs.
+      const code = (error as { code?: string } | null)?.code;
+      let normalized: unknown = error;
+      if (code === "UND_ERR_HEADERS_TIMEOUT") {
+        normalized = new Error(`Streaming request headers timed out after ${this.connectTimeoutMs}ms: ${url}`);
+      } else if (code === "UND_ERR_BODY_TIMEOUT") {
+        normalized = new Error(`Streaming request body timed out after ${this.http1TimeoutMs}ms: ${url}`);
+      }
+      this.logger.warn({
+        event: "stream_request_failed",
+        message: "Streaming request failed",
+        url,
+        error: toStructuredError(normalized),
+      });
+      throw normalized;
+    }
   }
 
   private buildHttp2Signals(parentSignal?: AbortSignal): {

@@ -7,7 +7,8 @@ import { Injectable, Logger, type OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
 import type { Repository } from "typeorm";
-import type { Hex } from "viem";
+import { type Hex } from "viem";
+import { DEV_TAG } from "../common/constants.js";
 import { toStructuredError } from "../common/logging.js";
 import { createSynapseFromConfig } from "../common/synapse-factory.js";
 import { Network } from "../common/types.js";
@@ -144,7 +145,19 @@ export class WalletSdkService implements OnModuleInit {
         }
       }
 
-      const validProviders = providerInfos.filter((info) => !!info);
+      const validProviders = providerInfos.filter((info) => {
+        if (!info) return false;
+        if (this.isDevProvider(info)) {
+          this.logger.log({
+            event: "provider_skipped_dev",
+            message: "Skipping dev provider",
+            providerId: info.id,
+            providerName: info.name,
+          });
+          return false;
+        }
+        return true;
+      });
 
       this.providerCache.clear();
       this.activeProviderAddresses.clear();
@@ -297,6 +310,18 @@ export class WalletSdkService implements OnModuleInit {
   }
 
   /**
+   * Get the underlying Synapse-SDK viem client.
+   *
+   * Used by features that need to call low-level Synapse helpers (e.g. `pullPieces`
+   * from `@filoz/synapse-core/sp`) which require a viem `Client<Transport, Chain, Account>`.
+   * Returns `null` when chain integration is disabled or the client has not been
+   * initialized yet.
+   */
+  getSynapseClient(): unknown {
+    return this._synapseClient ?? null;
+  }
+
+  /**
    * Ensure wallet has sufficient allowances for operations.
    * Skipped in session key mode, deposits and operator approvals must be
    * done separately via the Safe multisig UI.
@@ -394,6 +419,11 @@ export class WalletSdkService implements OnModuleInit {
     }
 
     return obj;
+  }
+
+  // See docs/checks/production-configuration-and-approval-methodology.md#sps-in-scope-for-testing
+  private isDevProvider(info: PDPProvider): boolean {
+    return info.pdp.extraCapabilities?.serviceStatus === DEV_TAG;
   }
 
   /**

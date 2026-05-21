@@ -7,7 +7,7 @@ import type { StorageProvider } from "src/database/entities/storage-provider.ent
 import type { Repository } from "typeorm";
 import { delay } from "../../common/abort-utils.js";
 import { buildUnixfsCar } from "../../common/car-utils.js";
-import { type DealLogContext, toStructuredError } from "../../common/logging.js";
+import { type DealLogContext, getErrorMessage, toStructuredError } from "../../common/logging.js";
 import type { IConfig } from "../../config/app.config.js";
 import { Deal } from "../../database/entities/deal.entity.js";
 import type { DealMetadata, IpniMetadata } from "../../database/types.js";
@@ -15,7 +15,10 @@ import { IpniStatus, ServiceType } from "../../database/types.js";
 import { HttpClientService } from "../../http-client/http-client.service.js";
 import { IpniVerificationService } from "../../ipni/ipni-verification.service.js";
 import { classifyFailureStatus } from "../../metrics-prometheus/check-metric-labels.js";
-import { DiscoverabilityCheckMetrics } from "../../metrics-prometheus/check-metrics.service.js";
+import {
+  classifyIpniVerifyOutcome,
+  DiscoverabilityCheckMetrics,
+} from "../../metrics-prometheus/check-metrics.service.js";
 
 import type { IDealAddon } from "../interfaces/deal-addon.interface.js";
 import type { AddonExecutionContext, DealConfiguration, IpniPreprocessingResult, SynapseConfig } from "../types.js";
@@ -244,8 +247,16 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
 
       signal?.throwIfAborted();
 
+      if (result.skipped) {
+        return;
+      }
+
       if (!result.ipniResult.rootCIDVerified) {
-        throw new Error(`IPNI verification failed for deal ${deal.id}: root CID not verified`);
+        const reason = result.ipniResult.failedCIDs[0]?.reason;
+        throw new Error(
+          `IPNI verification failed for deal ${deal.id}: root CID not verified`,
+          reason ? { cause: new Error(reason) } : undefined,
+        );
       }
     } catch (error) {
       signal?.throwIfAborted();
@@ -258,6 +269,7 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
           ...dealLogContext,
           event: "ipni_tracking_failed",
           message: "IPNI tracking failed",
+          failureReason: getErrorMessage(error),
           error: toStructuredError(error),
         });
       } catch (saveError) {
@@ -341,6 +353,7 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       });
       return {
         monitoringResult,
+        skipped: true,
         ipniResult: {
           verified: 0,
           unverified: totalCandidates,
@@ -369,6 +382,7 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       });
       return {
         monitoringResult,
+        skipped: true,
         ipniResult: {
           verified: 0,
           unverified: blockCIDs.length + 1,
@@ -394,18 +408,31 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       ipniVerificationPollingMs: ipniPollIntervalMs,
     });
     // NOTE: filecoin-pin does not currently validate that all blocks are advertised on IPNI.
-    const ipniResult = await this.ipniVerificationService.verify({
-      rootCid: rootCidObj,
-      blockCids: blockCIDs,
-      storageProvider,
-      timeoutMs: ipniTimeoutMs,
-      pollIntervalMs: ipniPollIntervalMs,
-      signal,
-    });
+    const ipniVerifyStartMs = Date.now();
+    let ipniResult: Awaited<ReturnType<typeof this.ipniVerificationService.verify>>;
+    try {
+      ipniResult = await this.ipniVerificationService.verify({
+        rootCid: rootCidObj,
+        blockCids: blockCIDs,
+        storageProvider,
+        timeoutMs: ipniTimeoutMs,
+        pollIntervalMs: ipniPollIntervalMs,
+        signal,
+      });
+    } catch (error) {
+      const durationMs = Date.now() - ipniVerifyStartMs;
+      this.discoverabilityMetrics.observeIpniVerifyMs(
+        this.discoverabilityMetrics.buildLabelsForDeal(deal),
+        durationMs,
+        signal?.aborted ? "timeout" : "error",
+      );
+      throw error;
+    }
 
     this.discoverabilityMetrics.observeIpniVerifyMs(
       this.discoverabilityMetrics.buildLabelsForDeal(deal),
       ipniResult.durationMs,
+      classifyIpniVerifyOutcome(ipniResult, ipniTimeoutMs),
     );
 
     if (ipniResult.rootCIDVerified) {
@@ -763,7 +790,9 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
     });
 
     let finalDiscoverabilityStatus = "failure.other";
-    if (ipniResult.rootCIDVerified) {
+    if (result.skipped) {
+      finalDiscoverabilityStatus = "skipped";
+    } else if (ipniResult.rootCIDVerified) {
       finalDiscoverabilityStatus = "success";
     } else if (!monitoringResult.success && finalStatus.status === "timeout") {
       finalDiscoverabilityStatus = "failure.timedout";

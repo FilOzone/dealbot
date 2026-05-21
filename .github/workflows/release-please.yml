@@ -40,7 +40,7 @@ jobs:
       web_version: ${{ steps.release.outputs['apps/web--version'] }}
       web_sha: ${{ steps.release.outputs['apps/web--sha'] }}
     steps:
-      - uses: googleapis/release-please-action@v4
+      - uses: googleapis/release-please-action@v5
         id: release
         with:
           # PAT so release PRs trigger other workflows (auto-label, add-issues-and-prs-to-fs-project-board).

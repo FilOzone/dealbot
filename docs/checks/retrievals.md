@@ -76,12 +76,12 @@ Source: [`apps/backend/src/retrieval-addons/strategies/ipfs-block.strategy.ts`](
 
 For each retrieval attempt:
 
-| # | Assertion | How It's Checked | Retries | Relevant Metric for Setting a Max Duration | Implemented? |
-|---|-----------|-----------------|:---:|-------------------------------------------|:---:|
-| 1 | Valid <IpfsRootCid,SP> provider record from filecoinpin.contact | IPNI query for root CID returns a result that includes the SP as a provider | unlimited polling with delay until timeout | [`ipniVerifyMs`](./events-and-metrics.md#ipniVerifyMs) | Yes |
-| 2 | IPFS content is retrievable | All DAG block requests return 2xx status | 0. Failure to establish a connection or getting a 5xx response marks the retrieval as failed. There is no retry. | [`ipfsRetrievalLastByteMs`](./events-and-metrics.md#ipfsRetrievalLastByteMs) | Yes |
-| 3 | Content integrity via CID | Each fetched block is hash-verified against its CID during DAG traversal | none - if we receive non-matching bytes it's a failure | n/a (client-side) | Yes |
-| 4 | All checks pass | Check is not marked successful until all assertions pass within window | n/a | [`retrievalCheckMs`](./events-and-metrics.md#retrievalCheckMs) | Yes |
+| # | Assertion | How It's Checked | [Sub Status Affected](./data-storage.md#sub-status-meanings) | Retries | Relevant Metric for Setting a Max Duration | Implemented? |
+|---|-----------|-----------------|:---:|:---:|-------------------------------------------|:---:|
+| 1 | Valid <IpfsRootCid,SP> provider record from filecoinpin.contact | IPNI query for root CID returns a result that includes the SP as a provider | Discoverability ([`discoverabilityStatus`](./events-and-metrics.md#discoverabilityStatus)) | unlimited polling with delay until timeout | [`ipniVerifyMs`](./events-and-metrics.md#ipniVerifyMs) | Yes |
+| 2 | IPFS content is retrievable | All DAG block requests return 2xx status | Retrieval ([`retrievalStatus`](./events-and-metrics.md#retrievalStatus)) | 0. Failure to establish a connection or getting a 5xx response marks the retrieval as failed. There is no retry. | [`ipfsRetrievalLastByteMs`](./events-and-metrics.md#ipfsRetrievalLastByteMs) | Yes |
+| 3 | Content integrity via CID | Each fetched block is hash-verified against its CID during DAG traversal | Retrieval ([`retrievalStatus`](./events-and-metrics.md#retrievalStatus)) | none - if we receive non-matching bytes it's a failure | n/a (client-side) | Yes |
+| 4 | All checks pass | Check is not marked successful until all assertions pass within window | All sub-statuses above feed [`dataStorageStatus`](./events-and-metrics.md#dataStorageStatus) | n/a | [`retrievalCheckMs`](./events-and-metrics.md#retrievalCheckMs) | Yes |
 
 ## Retrieval Result Recording
 
@@ -110,6 +110,12 @@ Source: [`apps/backend/src/config/app.config.ts`](../../apps/backend/src/config/
 ## Metrics Recorded
 
 Metric definitions (including Prometheus metrics) live in [Dealbot Events & Metrics](./events-and-metrics.md).
+
+`retrievalStatus` counts the `/ipfs` transport stage only (assertions 2 and 3). The IPNI assertion (1) is counted on `discoverabilityStatus`. There is no composite "retrieval check" counter; overall success comes from `dataStorageStatus`, which is `success` only when all sub-statuses succeed. See [Deal Status Progression](./data-storage.md#deal-status-progression).
+
+### `skipped.piece_missing`
+
+Emitted when a retrieval pre-flight probe to `${serviceUrl}/pdp/piece/:pieceCid/status` returns `404`. The deal is marked `cleaned_up=true` and removed from future retrieval candidate selection. This is not a failure of the SP's transport surface, but a signal that the piece no longer exists on the SP while the dataset is still live (for example, the SP scheduled a piece removal via PDP, or the piece dropped without an on-chain notification). The probe runs before IPNI verification and transport, so a 30s IPNI timeout is avoided on stale candidates. Search logs for `retrieval_skipped_piece_missing` to correlate.
 
 ## Configuration
 
