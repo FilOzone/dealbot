@@ -836,7 +836,7 @@ describe("DealService", () => {
       expect(capturedAddonSignal?.aborted).toBe(true);
       expect(addonSettled).toBe(true);
       expect(mockDeal.status).toBe(DealStatus.FAILED);
-      /** Aborted runs must not leave ipniStatus = PENDING — would depress sp_performance.ipni_success_rate. */
+      /** Aborted runs must not leave ipniStatus = PENDING — transient state must not appear as a non-null outcome in ClickHouse/Postgres analytics. */
       expect(mockDeal.ipniStatus).toBeNull();
     });
 
