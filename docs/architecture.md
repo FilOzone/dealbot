@@ -13,20 +13,17 @@ graph TD
     ApiServices --> Wallet["Filecoin RPC / Contracts"]
     Jobs["Jobs Module (pg-boss scheduler + workers)"] --> ApiServices
     Jobs --> Db
-    ApiServices --> Metrics["Prometheus /metrics"]
-    Jobs --> Metrics
 ```
 
 ## Component Responsibilities
 
-- [Web UI](../apps/web): React/Vite dashboard served by a Caddy wrapper (static hosting plus `/api` and `/metrics` reverse proxy).
+- [Web UI](../apps/web): React/Vite dashboard served by a Caddy wrapper (static hosting plus `/api` reverse proxy).
 - [Backend API](../apps/backend/src): controllers and services for endpoints and business logic.
 - [Deal add-ons](../apps/backend/src/deal-addons) and [Retrieval add-ons](../apps/backend/src/retrieval-addons): deal/retrieval check integrations.
 - [Job execution](../apps/backend/src/jobs): pg-boss scheduler + workers for deal/retrieval jobs.
 - [Wallet + chain integration](../apps/backend/src/wallet-sdk): provider discovery and on-chain operations.
 - [Persistence](../apps/backend/src/database): deal/retrieval state plus pg-boss queue/schedule state in Postgres.
-- [Metrics](../apps/backend/src/metrics-prometheus): Prometheus instrumentation and `/metrics` exposure.
-- Metrics retention/alerting lives in external monitoring (Prometheus/Grafana/BetterStack); those systems are observability surfaces, not Dealbot source-of-truth state.
+- [Metrics](../apps/backend/src/metrics-prometheus): Prometheus instrumentation. Scrape surface and observability expectations live in [infra.md](infra.md).
 
 ## Data Stores and Ownership
 
@@ -37,13 +34,6 @@ Postgres is the system-of-record for Dealbot state:
 - Retrieval lifecycle records in `retrievals`.
 - Scheduler state in `job_schedule_state` and queue execution state in `pgboss.job`.
 
-ClickHouse is for long-term check result storage and analysis, it's optional:
+ClickHouse is an optional sink for long-term check result analysis. Each completed check writes one row to `data_storage_checks`, `retrieval_checks`, or `data_retention_challenges`. Rows are buffered and flushed in batches; failed flushes are logged and dropped. The service starts and runs without ClickHouse. Operator wiring is described in [infra.md](infra.md).
 
-- Each completed check writes one row to the relevant table: `data_storage_checks`, `retrieval_checks`, or `data_retention_challenges`.
-- Rows are buffered in memory and flushed in batches; failed flushes are logged and the batch is dropped (ClickHouse is a metrics sink, not a source of truth).
-- ClickHouse is not a dependency for normal operation. The service starts and runs without it.
-
-Prometheus is for runtime observability, not durable state:
-
-- Job health/performance metrics (for example `jobs_started_total`, `jobs_completed_total`, `jobs_queued`) are emitted at runtime on `/metrics`.
-- Grafana/BetterStack visualize scraped metrics and logs; these are monitoring surfaces and not canonical Dealbot state.
+Prometheus metrics are runtime observability, not durable state. Job health and per-check timing metrics are emitted at runtime; metric semantics live in [docs/checks/events-and-metrics.md](checks/events-and-metrics.md). External monitoring (Grafana, BetterStack, or other) is an observability surface, not canonical state.

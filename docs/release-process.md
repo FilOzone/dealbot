@@ -1,6 +1,6 @@
 # Release Process
 
-Dealbot uses [release-please](https://github.com/googleapis/release-please) to drive semver releases from [Conventional Commits](https://www.conventionalcommits.org/), and ArgoCD Image Updater to promote those releases into Kubernetes. For release-please mechanics (commit parsing, version bumps, troubleshooting) see [release-please-flow.md](release-please-flow.md); for deployment surface and overlay expectations see [infra.md](infra.md).
+Dealbot uses [release-please](https://github.com/googleapis/release-please) to drive semver releases from [Conventional Commits](https://www.conventionalcommits.org/), and ArgoCD Image Updater to promote those releases into Kubernetes. For release-please mechanics (commit parsing, version bumps, troubleshooting) see [release-please-flow.md](release-please-flow.md). For container images, manifests, and runtime topology see [deployment.md](deployment.md). For ingress, egress, persistence, secrets, and observability expectations see [infra.md](infra.md).
 
 ## Flow
 
