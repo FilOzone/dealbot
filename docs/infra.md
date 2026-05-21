@@ -66,7 +66,7 @@ Dealbot emits:
 - Structured logs to stdout (JSON, NestJS Logger format).
 - Prometheus-style metrics. Names, labels, and per-check timing markers are documented in [docs/checks/events-and-metrics.md](checks/events-and-metrics.md).
 
-Set `DEALBOT_PROBE_LOCATION` to a stable string identifying the cluster or region; it is attached to outbound check metrics so SP-side reports can be correlated.
+Set `DEALBOT_PROBE_LOCATION` to a stable string identifying the cluster or region. When `CLICKHOUSE_URL` is configured, it is written as the `probe_location` column on every check row, which lets multi-region deployments be partitioned and compared.
 
 The metrics surface is under active rework. For a current example of how the local stack scrapes and visualizes metrics, see [local-monitoring.md](local-monitoring.md). Operators should expect the production wiring to follow the same shape but should not assume a specific endpoint path or port.
 

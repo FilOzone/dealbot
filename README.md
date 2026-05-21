@@ -29,12 +29,11 @@ dealbot/
 ├── apps/
 │   ├── backend/      # NestJS API server (Port 8080)
 │   │   ├── src/
-│   │   │   ├── deal/            # Deal creation and management
-│   │   │   ├── retrieval/       # Storage retrieval testing
-│   │   │   ├── metrics/         # Performance metrics and analytics
-│   │   │   ├── jobs/            # pg-boss scheduling + workers
-│   │   │   ├── scheduler/       # Automated task scheduling
-│   │   │   └── wallet-sdk/      # Wallet and contract operations
+│   │   │   ├── deal/                # Deal creation and management
+│   │   │   ├── retrieval/           # Storage retrieval testing
+│   │   │   ├── metrics-prometheus/  # Prometheus instrumentation
+│   │   │   ├── jobs/                # pg-boss scheduler + workers
+│   │   │   └── wallet-sdk/          # Wallet and contract operations
 │   │   └── README.md     # Backend-specific documentation
 │   └── web/          # React + Vite dashboard (Port 5173)
 │       ├── src/

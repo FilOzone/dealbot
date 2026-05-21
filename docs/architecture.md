@@ -34,6 +34,6 @@ Postgres is the system-of-record for Dealbot state:
 - Retrieval lifecycle records in `retrievals`.
 - Scheduler state in `job_schedule_state` and queue execution state in `pgboss.job`.
 
-ClickHouse is an optional append-only sink for long-term check result analysis. Rows are buffered and flushed in batches; failed flushes are logged and dropped. The service starts and runs without ClickHouse. Table layout and write cadence are documented in [docs/checks/events-and-metrics.md](checks/events-and-metrics.md); operator wiring is described in [infra.md](infra.md).
+ClickHouse is an optional append-only sink for long-term check result analysis. Rows are buffered and flushed in batches; failed flushes are logged and retried on the next flush, with the oldest rows dropped only if the buffer reaches `CLICKHOUSE_MAX_BUFFER_SIZE`. The service starts and runs without ClickHouse. Table layout is documented in [docs/checks/events-and-metrics.md](checks/events-and-metrics.md); operator wiring is described in [infra.md](infra.md).
 
 Prometheus metrics are runtime observability, not durable state. Job health and per-check timing metrics are emitted at runtime; metric semantics live in [docs/checks/events-and-metrics.md](checks/events-and-metrics.md). External monitoring (Grafana, BetterStack, or other) is an observability surface, not canonical state.
