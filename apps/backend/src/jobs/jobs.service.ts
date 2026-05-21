@@ -1052,8 +1052,9 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     const dataRetentionPollStartAt = new Date(now.getTime() + phaseMs);
     const providersRefreshStartAt = new Date(now.getTime() + phaseMs);
 
-    const minDataSets = this.configService.get("blockchain").minNumDataSetsForChecks;
-    const network = this.configService.get("blockchain").network;
+    const blockchainCfg = this.configService.get("blockchain", { infer: true });
+    const minDataSets = blockchainCfg.minNumDataSetsForChecks;
+    const network = blockchainCfg.network;
     const cleanupStartAt = new Date(now.getTime() + phaseMs);
     const pullCheckStartAt = new Date(now.getTime() + phaseMs);
 
@@ -1105,7 +1106,10 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     }
 
     if (providers.length > 0) {
-      const deletedAddresses = await this.jobScheduleRepository.deleteSchedulesForInactiveProviders(unblockedAddresses);
+      const deletedAddresses = await this.jobScheduleRepository.deleteSchedulesForInactiveProviders(
+        unblockedAddresses,
+        network,
+      );
       if (deletedAddresses.length > 0) {
         this.logger.warn({
           event: "job_schedules_deleted",
@@ -1173,6 +1177,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
 
   private async enqueueDueJobs(): Promise<void> {
     if (!this.boss) return;
+    const network = this.configService.get("blockchain", { infer: true }).network;
 
     const now = new Date();
     const maintenance = this.getMaintenanceWindowStatus(now);
@@ -1183,7 +1188,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     }
 
     await this.jobScheduleRepository.runTransaction(async (manager) => {
-      const rows = await this.jobScheduleRepository.findDueSchedulesWithManager(manager, now);
+      const rows = await this.jobScheduleRepository.findDueSchedulesWithManager(manager, now, network);
 
       for (const row of rows) {
         const timing = this.getScheduleTiming(row, now);
@@ -1331,6 +1336,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
    * Refreshes queue depth and age gauges from pg-boss tables.
    */
   private async updateQueueMetrics(): Promise<void> {
+    const network = this.configService.get("blockchain", { infer: true }).network;
     const jobTypes: JobType[] = [
       "deal",
       "retrieval",
@@ -1350,7 +1356,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       this.oldestInFlightAgeGauge.set({ job_type: jobType }, 0);
     }
 
-    const rows = await this.jobScheduleRepository.countBossJobStates(["created", "retry", "active"]);
+    const rows = await this.jobScheduleRepository.countBossJobStates(["created", "retry", "active"], network);
     if (rows.length > 0) {
       for (const row of rows) {
         const jobType = row.job_type as JobType;
@@ -1372,20 +1378,20 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       });
     }
 
-    const pausedSchedules = await this.jobScheduleRepository.countPausedSchedules();
+    const pausedSchedules = await this.jobScheduleRepository.countPausedSchedules(network);
     for (const row of pausedSchedules) {
       this.jobsPausedGauge.set({ job_type: row.job_type }, row.count);
     }
 
     const now = new Date();
-    const queuedAges = await this.jobScheduleRepository.minBossJobAgeSecondsByState("created", now);
+    const queuedAges = await this.jobScheduleRepository.minBossJobAgeSecondsByState("created", now, network);
     for (const row of queuedAges) {
       const jobType = row.job_type as JobType;
       if (!jobTypes.includes(jobType)) continue;
       this.oldestQueuedAgeGauge.set({ job_type: jobType }, Math.max(0, row.min_age_seconds ?? 0));
     }
 
-    const activeAges = await this.jobScheduleRepository.minBossJobAgeSecondsByState("active", now);
+    const activeAges = await this.jobScheduleRepository.minBossJobAgeSecondsByState("active", now, network);
     for (const row of activeAges) {
       const jobType = row.job_type as JobType;
       if (!jobTypes.includes(jobType)) continue;

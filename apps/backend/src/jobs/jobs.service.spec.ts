@@ -661,7 +661,10 @@ describe("JobsService schedule rows", () => {
 
     await callPrivate(service, "ensureScheduleRows");
 
-    expect(jobScheduleRepositoryMock.deleteSchedulesForInactiveProviders).toHaveBeenCalledWith([providerA.address]);
+    expect(jobScheduleRepositoryMock.deleteSchedulesForInactiveProviders).toHaveBeenCalledWith(
+      [providerA.address],
+      "calibration",
+    );
   });
 
   it("does not delete schedule rows when no active providers exist", async () => {
@@ -1338,7 +1341,7 @@ describe("JobsService schedule rows", () => {
     expect(jobTypes).not.toContain("retrieval");
     // Blocked provider is excluded from the active-address list passed to cleanup,
     // so its existing schedule rows will be deleted.
-    expect(jobScheduleRepositoryMock.deleteSchedulesForInactiveProviders).toHaveBeenCalledWith([]);
+    expect(jobScheduleRepositoryMock.deleteSchedulesForInactiveProviders).toHaveBeenCalledWith([], "calibration");
   });
 
   it("deal job is skipped at runtime when provider is blocked", async () => {
