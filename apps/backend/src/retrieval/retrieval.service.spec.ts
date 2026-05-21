@@ -767,29 +767,6 @@ describe("RetrievalService SP piece status pre-flight", () => {
     expect(mockRetrievalMetrics.recordStatus).toHaveBeenCalledWith(expect.any(Object), "failure.other");
   });
 
-  it("falls back to HEAD then GET when SP returns 405 Method Not Allowed", async () => {
-    const service = await createService();
-    mockSpRepository.findOne.mockResolvedValue({
-      address: "0xsp",
-      providerId: 5,
-      isApproved: true,
-      name: "Test SP",
-      serviceUrl: "https://sp.example.com",
-    });
-    mockDatasetLivenessService.isPieceLive.mockResolvedValueOnce(true);
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce({ status: 405, ok: false } as Response)
-      .mockResolvedValueOnce({ status: 200, ok: true, body: null } as unknown as Response);
-    vi.stubGlobal("fetch", fetchMock);
-
-    await service.performAllRetrievals(buildDeal()).catch(() => undefined);
-
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({ method: "HEAD" });
-    expect(fetchMock.mock.calls[1]?.[1]).toMatchObject({ method: "GET" });
-  });
-
   it("marks deal cleaned_up and skips retrieval when PDP pieceLive=false (no SP probe)", async () => {
     const service = await createService();
     mockSpRepository.findOne.mockResolvedValue({
@@ -844,7 +821,7 @@ describe("RetrievalService SP piece status pre-flight", () => {
     );
     expect(fetchMock).toHaveBeenCalledWith(
       "https://sp.example.com/pdp/piece/bafy-piece/status",
-      expect.objectContaining({ method: "HEAD" }),
+      expect.objectContaining({ method: "GET" }),
     );
   });
 

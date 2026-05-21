@@ -139,7 +139,7 @@ export class RetrievalService {
     //      the SP is still expected to retain this piece. If false (dataset
     //      terminated, piece never created, or piece hard-removed), mark the
     //      deal cleaned_up + skip. No SP probe needed in this case.
-    //   2. SP HTTP HEAD `/pdp/piece/:pieceCid/status`: cheap health-check that
+    //   2. SP HTTP GET `/pdp/piece/:pieceCid/status`: cheap health-check that
     //      the SP can actually serve. 404 here when chain says the piece
     //      should be live = real SP-side failure. Recorded as a failed
     //      retrieval row (deal stays in the candidate pool so the scheduler
@@ -479,22 +479,15 @@ export class RetrievalService {
     const signal = outerSignal ? AbortSignal.any([outerSignal, timeoutSignal]) : timeoutSignal;
     const start = Date.now();
     try {
-      // HEAD avoids transferring the status JSON body. Status code is all we need.
-      // If the SP responds 405 (Method Not Allowed), fall back to GET.
-      let res = await fetch(url, {
-        method: "HEAD",
+      // Curio chi router does not register HEAD for /pdp/piece/{cid}/status (returns 405)
+      // and ignores Range headers. Body is a small JSON status payload (<500B), so just
+      // GET and drop the body without reading it.
+      const res = await fetch(url, {
+        method: "GET",
         signal,
         headers: { "User-Agent": "dealbot/probe" },
       });
-      if (res.status === 405) {
-        res = await fetch(url, {
-          method: "GET",
-          signal,
-          headers: { "User-Agent": "dealbot/probe" },
-        });
-        // Drain the body since GET responses include one. Body content is irrelevant.
-        await res.body?.cancel().catch(() => undefined);
-      }
+      await res.body?.cancel().catch(() => undefined);
       const durationMs = Date.now() - start;
       if (res.status === 404) return { result: "missing", url, statusCode: 404, durationMs };
       if (res.ok) return { result: "exists", url, statusCode: res.status, durationMs };
