@@ -1,91 +1,42 @@
-# Integration with FilOzone/infra
+# Deployment Surface
 
-This repo uses Kustomize for local and production deployments. The base manifests in `kustomize/base/` are intended to be reusable by FilOzone/infra, with overlays providing environment-specific changes.
+Dealbot drives automated storage and retrieval traffic against Filecoin storage providers (SPs): it submits deals, runs retrieval probes, and records the outcomes. It ships as two container images (`dealbot-backend`, `dealbot-web`) plus a set of Kustomize manifests that any Kubernetes environment can consume.
 
-## Where things live in this repo
+## What this repo provides
 
 - Base manifests: `kustomize/base/backend/`, `kustomize/base/web/`
-- Local overlay: `kustomize/overlays/local/`
+- Local overlay: `kustomize/overlays/local/` (NodePort services, bundled Postgres, split API/worker pods; suitable for `kind`/`minikube`)
+- Container images at `ghcr.io/filozone/dealbot-backend` and `ghcr.io/filozone/dealbot-web` with SHA and semver tags ([release-process.md](release-process.md))
 
-## What infra can customize
+The base manifests are intentionally minimal. Anything environment-specific (ingress, TLS, secret backend, replica counts, resource limits, image tags, split-pod topology) is supplied by an overlay.
 
-FilOzone/infra can override base manifests via overlays and patches. Common changes include:
+## Runtime topology
 
-- Namespace and naming conventions
-- Image registry/repository and tags
-- Service types, ports, and ingress configuration
-- Environment variables and config maps
-- Secrets management (SOPS/External Secrets)
-- Resource requests/limits and replica counts
-- Removing or replacing base resources (for example, replacing ingress)
+Backend pods select a role via `DEALBOT_RUN_MODE`:
 
-## Ingress boundaries
+- `api`: serves HTTP. Does not consume pg-boss jobs.
+- `worker`: consumes pg-boss jobs. Job set: deal checks, retrieval checks, pull checks, dataset creation, piece cleanup (per provider), pull piece cleanup (global), provider refresh, data retention.
+- `both` (default): API listener and worker loop in one pod. Used by the base manifests when `DEALBOT_RUN_MODE` is unset. The local overlay overrides backend to `api` and adds a dedicated worker Deployment.
 
-The base Ingress manifests are intentionally minimal and meant to be patched or replaced by infra based on the target environment.
+The pg-boss scheduler that enqueues recurring jobs is gated independently by `DEALBOT_PGBOSS_SCHEDULER_ENABLED` (default `true`). Exactly one pod across the deployment should run the scheduler; on pods that should not, set the flag to `false` explicitly. The local overlay leaves it `true` on the `api` pod and sets `false` on workers.
 
-- [kustomize/base/backend/ingress.yaml](../kustomize/base/backend/ingress.yaml)
-- [kustomize/base/web/ingress.yaml](../kustomize/base/web/ingress.yaml)
+Per-storage-provider exclusion is enforced inside pg-boss via a singleton queue keyed on SP address, so multiple worker replicas are safe. Job rates are configured via env:
 
-If the environment uses a different ingress controller or routing model, infra can patch or replace these resources.
+- `DEALS_PER_SP_PER_HOUR`
+- `DATASET_CREATIONS_PER_SP_PER_HOUR`
+- `RETRIEVALS_PER_SP_PER_HOUR`
 
-## Secrets expectations
+Full env contract: [apps/backend/README.md](../apps/backend/README.md#scheduling-configuration-pg-boss) and [docs/environment-variables.md](environment-variables.md). Secret keys (chain endpoints, wallet, database credentials) are listed in [apps/backend/.env.example](../apps/backend/.env.example).
 
-The backend deployment expects a Secret named `dealbot-secrets`. Infra can supply it via any secret management method (SOPS, External Secrets, or another controller).
+## Operating requirements
 
-For required keys and optional variables, see [apps/backend/.env.example](../apps/backend/.env.example).
+- Postgres reachable from the cluster, with the `pgcrypto` extension enabled (pg-boss dependency). The local overlay bundles a Postgres pod; other environments bring their own.
+- A Secret named `dealbot-secrets` populated with the keys from `.env.example`. Any mechanism that materializes a Kubernetes Secret with those keys works.
 
-## Image tags and promotion
+## Image tags
 
-- Main branch builds produce `sha-<sha>` and `sha-<run>-<sha>` tags for staging-style promotion.
-- Release builds produce semver tags (`vX.Y.Z`) for production promotion.
-- Infra can track SHA tags, semver tags, or pin a specific tag based on environment needs.
-- ArgoCD Image Updater is optional; its configuration lives in FilOzone/infra.
+- `sha-<git-sha>` and `sha-<run>-<sha>`: produced for backend or web when a merge to `main` matches the [docker-build](../.github/workflows/docker-build.yml) path filters (the app's directory, or shared workspace files like `pnpm-lock.yaml` / `pnpm-workspace.yaml`). Suitable for staging or preview environments.
+- `pre-release-<git-sha>`: produced for merges to the `pre-release` branch. Suitable for opt-in canary environments.
+- `vX.Y.Z`: produced by the release workflow when a Release PR merges. Suitable for production.
 
-## Local vs production notes
-
-- Local overlay uses NodePort services and bundled Postgres for fast iteration.
-- Bundled Postgres manifests live in `kustomize/overlays/local/postgres/`.
-- Infra typically switches services to ClusterIP, uses managed databases, and injects ingress/TLS settings.
-
-## Planned infra changes: pg-boss job runners
-
-Goal: replace in-process cron with pg-boss. Splitting workers into separate Deployments is a
-follow-on step; initial rollout keeps a single backend Deployment.
-
-### Application behavior
-
-- Dealbot uses pg-boss for all job scheduling with rate-based configuration:
-  - `DEALS_PER_SP_PER_HOUR`
-  - `DATASET_CREATIONS_PER_SP_PER_HOUR`
-  - `RETRIEVALS_PER_SP_PER_HOUR`
-- Deals and retrievals run per storage provider.
-- Scheduling is rate-based (per-hour), with catch-up after downtime.
-
-### Required infra changes in FilOzone/infra
-
-Phase 1 (pg-boss only, single Deployment):
-- No infra changes required beyond env vars and database extension enablement.
-- Keep the existing API deployment as the only backend pod.
- - Ensure `pgcrypto` extension is enabled in Postgres (pg-boss dependency).
-
-Phase 2 (optional, later): add worker Deployments (same backend image):
-  - `dealbot-deal-worker`
-  - `dealbot-retrieval-worker`
-- Keep existing API Deployment and disable job execution there.
-- Ensure worker pods do not match the API Service selector:
-  - keep API label as `app.kubernetes.io/name: dealbot`
-  - use a different label for workers (e.g., `dealbot-worker`)
-- Add env overrides per worker:
-  - API: `DEALBOT_RUN_MODE=api`, `DEALBOT_PGBOSS_SCHEDULER_ENABLED=true`
-  - Workers: `DEALBOT_RUN_MODE=worker`, `DEALBOT_PGBOSS_SCHEDULER_ENABLED=false`
-  - rate vars: `DEALS_PER_SP_PER_HOUR`, `DATASET_CREATIONS_PER_SP_PER_HOUR`, `RETRIEVALS_PER_SP_PER_HOUR`
-- Keep a single ConfigMap (`dealbot-env`) and override worker-specific env in patches.
-- Ensure `/datasets` volume mount remains on deal/retrieval workers.
-- Confirm ServiceMonitor continues to scrape only the API pods.
-
-### Notes / risks
-
-- Multiple replicas per worker type are allowed; per-SP exclusion is enforced by
-  the pg-boss `sp.work` singleton queue (`singletonKey=spAddress`), and per-job
-  concurrency limits must be set in the worker config.
-- Supabase is on Postgres 17 (per `select version()`); infra should align DB versions.
+Overlays can pin a specific tag, track SHA tags via ArgoCD Image Updater, or follow semver. See [release-process.md](release-process.md) for the promotion flow.
