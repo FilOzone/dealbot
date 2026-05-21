@@ -1037,12 +1037,15 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       pullPieceCleanupIntervalSeconds,
     } = this.getIntervalSecondsForRates();
 
-    const useOnlyApprovedProviders = this.configService.get("blockchain").useOnlyApprovedProviders;
+    const blockchainCfg = this.configService.get("blockchain", { infer: true });
+    const network = blockchainCfg.network;
+
+    const useOnlyApprovedProviders = blockchainCfg.useOnlyApprovedProviders;
     // Active providers are guaranteed to support ipniIpfs
     // as validated by WalletSdkService.loadProvidersInternal()
     const providers = await this.storageProviderRepository.find({
       select: { address: true, providerId: true },
-      where: useOnlyApprovedProviders ? { isActive: true, isApproved: true } : { isActive: true },
+      where: { network, isActive: true, ...(useOnlyApprovedProviders && { isApproved: true }) },
     });
 
     const phaseMs = this.schedulePhaseSeconds() * 1000;
@@ -1052,9 +1055,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     const dataRetentionPollStartAt = new Date(now.getTime() + phaseMs);
     const providersRefreshStartAt = new Date(now.getTime() + phaseMs);
 
-    const blockchainCfg = this.configService.get("blockchain", { infer: true });
     const minDataSets = blockchainCfg.minNumDataSetsForChecks;
-    const network = blockchainCfg.network;
     const cleanupStartAt = new Date(now.getTime() + phaseMs);
     const pullCheckStartAt = new Date(now.getTime() + phaseMs);
 

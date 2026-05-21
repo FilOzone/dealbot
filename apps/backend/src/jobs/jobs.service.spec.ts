@@ -691,7 +691,7 @@ describe("JobsService schedule rows", () => {
 
     expect(storageProviderRepositoryMock.find).toHaveBeenCalledWith({
       select: { address: true, providerId: true },
-      where: { isActive: true, isApproved: true },
+      where: { isActive: true, isApproved: true, network: "calibration" },
     });
   });
 
