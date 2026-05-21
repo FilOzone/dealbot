@@ -11,10 +11,7 @@ type SynapseViemClient = Client<Transport, Chain, Account>;
 const PDP_LIVENESS_PROBE_TIMEOUT_MS = 10_000;
 
 /**
- * Composite PDP-liveness probe extracted from DealService so other services
- * (e.g. RetrievalService) can reuse it without depending on DealService.
- *
- * Two independent probes:
+ * Composite PDP-liveness probe. Two independent probes:
  *
  *   - FWSS `validateDataSet` (chain): wraps `PDPVerifier.dataSetLive` via
  *     multicall and additionally verifies the listener is this WarmStorage
@@ -24,10 +21,9 @@ const PDP_LIVENESS_PROBE_TIMEOUT_MS = 10_000;
  *     propagation and is the only signal observable when the SP refuses
  *     addPieces but chain still reports the set as live.
  *
- * A positive-terminated signal from either probe wins: if any settled result
- * is `false`, returns `false` even when the other probe threw a transient
- * error. Otherwise rethrows the first rejection so a probe outage is not
- * silently misclassified as live.
+ * If any settled result is `false`, returns `false` even when the other
+ * probe threw a transient error. Otherwise rethrows the first rejection so
+ * a probe outage is not silently misclassified as live.
  */
 @Injectable()
 export class DatasetLivenessService {

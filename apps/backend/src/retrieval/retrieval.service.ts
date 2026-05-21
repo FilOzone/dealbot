@@ -131,9 +131,9 @@ export class RetrievalService {
       return [];
     }
 
-    // Pre-check pipeline before any retrieval work. Assumes `deal.dataSetId`
-    // and `deal.pieceId` are populated (backfilled for legacy rows; new deals
-    // populate them in the upload event handler at deal.service.ts).
+    // Pre-check pipeline before any retrieval work. Requires `deal.dataSetId`
+    // and `deal.pieceId` to be populated (DealService writes them in the
+    // upload event handler).
     //
     //   1. Chain `pieceLive(dataSetId, pieceId)`: source of truth for whether
     //      the SP is still expected to retain this piece. If false (dataset
@@ -145,8 +145,7 @@ export class RetrievalService {
     //      retrieval row (deal stays in the candidate pool so the scheduler
     //      re-probes; persistent failures become observable on dashboards).
     if (deal.dataSetId == null || deal.pieceId == null) {
-      // Unexpected post-backfill. Emit a loud signal and bail out so the row
-      // is fixed before it pollutes downstream metrics.
+      // Bail loudly so the row is fixed before it pollutes downstream metrics.
       this.retrievalMetrics.recordStatus(providerLabels, "failure.other");
       this.logger.error({
         ...retrievalLogContext,
