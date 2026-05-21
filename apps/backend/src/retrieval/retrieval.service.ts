@@ -131,7 +131,9 @@ export class RetrievalService {
       return [];
     }
 
-    // Pre-check pipeline before any retrieval work:
+    // Pre-check pipeline before any retrieval work. Assumes `deal.dataSetId`
+    // and `deal.pieceId` are populated (backfilled for legacy rows; new deals
+    // populate them in the upload event handler at deal.service.ts).
     //
     //   1. Chain `pieceLive(dataSetId, pieceId)`: source of truth for whether
     //      the SP is still expected to retain this piece. If false (dataset
@@ -142,39 +144,50 @@ export class RetrievalService {
     //      should be live = real SP-side failure. Recorded as a failed
     //      retrieval row (deal stays in the candidate pool so the scheduler
     //      re-probes; persistent failures become observable on dashboards).
-    if (deal.dataSetId != null && deal.pieceId != null) {
-      const pieceLive = await this.checkPieceLive(
-        BigInt(deal.dataSetId.toString()),
-        BigInt(deal.pieceId),
-        signal,
-        retrievalLogContext,
+    if (deal.dataSetId == null || deal.pieceId == null) {
+      // Unexpected post-backfill. Emit a loud signal and bail out so the row
+      // is fixed before it pollutes downstream metrics.
+      this.retrievalMetrics.recordStatus(providerLabels, "failure.other");
+      this.logger.error({
+        ...retrievalLogContext,
+        event: "retrieval_missing_chain_ids",
+        message: "Deal is missing dataSetId or pieceId; cannot run chain pre-check. Backfill required.",
+        dataSetId: deal.dataSetId?.toString() ?? null,
+        pieceId: deal.pieceId ?? null,
+      });
+      return [];
+    }
+
+    const pieceLive = await this.checkPieceLive(
+      BigInt(deal.dataSetId.toString()),
+      BigInt(deal.pieceId),
+      signal,
+      retrievalLogContext,
+    );
+    signal?.throwIfAborted();
+    if (!pieceLive) {
+      const updateResult = await this.dealRepository.update(
+        { id: deal.id, cleanedUp: false },
+        { cleanedUp: true, cleanedUpAt: new Date() },
       );
-      signal?.throwIfAborted();
-      if (!pieceLive) {
-        const updateResult = await this.dealRepository.update(
-          { id: deal.id, cleanedUp: false },
-          { cleanedUp: true, cleanedUpAt: new Date() },
-        );
-        this.retrievalMetrics.recordStatus(providerLabels, "skipped.piece_missing");
-        this.logger.warn({
-          ...retrievalLogContext,
-          event: "retrieval_skipped_piece_missing",
-          message: "PDP pieceLive=false; marked deal cleaned_up and skipped retrieval",
-          dataSetId: deal.dataSetId.toString(),
-          pieceId: deal.pieceId,
-          affected: updateResult.affected ?? 0,
-        });
-        return [];
-      }
+      this.retrievalMetrics.recordStatus(providerLabels, "skipped.piece_missing");
+      this.logger.warn({
+        ...retrievalLogContext,
+        event: "retrieval_skipped_piece_missing",
+        message: "PDP pieceLive=false; marked deal cleaned_up and skipped retrieval",
+        dataSetId: deal.dataSetId.toString(),
+        pieceId: deal.pieceId,
+        affected: updateResult.affected ?? 0,
+      });
+      return [];
     }
 
     if (provider.serviceUrl && deal.pieceCid) {
       const probe = await this.probeSpPieceStatus(provider.serviceUrl, deal.pieceCid, signal);
       signal?.throwIfAborted();
       if (probe.result === "missing") {
-        // Chain pre-check above already confirmed the piece SHOULD be retrievable
-        // (or we lacked dataSetId/pieceId to check). SP 404 here is an SP-side
-        // failure to honor its storage commitment.
+        // Chain pre-check above confirmed the piece SHOULD be retrievable.
+        // SP 404 here is an SP-side failure to honor its storage commitment.
         this.retrievalMetrics.recordStatus(providerLabels, "failure.other");
         const now = new Date();
         const startedAt = new Date(now.getTime() - probe.durationMs);

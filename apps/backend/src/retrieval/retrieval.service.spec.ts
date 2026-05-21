@@ -81,6 +81,8 @@ describe("RetrievalService timeouts", () => {
       spAddress: "0xsp",
       walletAddress: "0xwallet",
       pieceCid: "bafy-piece",
+      dataSetId: "13006",
+      pieceId: 42,
       ...overrides,
     }) as Deal;
 
@@ -379,6 +381,8 @@ describe("RetrievalService parallel IPNI + transport", () => {
       spAddress: "0xsp",
       walletAddress: "0xwallet",
       pieceCid: "bafy-piece",
+      dataSetId: "13006",
+      pieceId: 42,
       metadata: {
         ipfs_pin: {
           rootCID: "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi",
@@ -740,6 +744,51 @@ describe("RetrievalService SP piece status pre-flight", () => {
     }).compile();
     return module.get<RetrievalService>(RetrievalService) as unknown as RetrievalServicePrivate;
   };
+
+  it("emits failure.other and bails when deal has null dataSetId or pieceId (backfill required)", async () => {
+    const service = await createService();
+    mockSpRepository.findOne.mockResolvedValue({
+      address: "0xsp",
+      providerId: 5,
+      isApproved: true,
+      name: "Test SP",
+      serviceUrl: "https://sp.example.com",
+    });
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await service.performAllRetrievals(buildDeal({ pieceId: null as unknown as number }));
+
+    expect(result).toEqual([]);
+    expect(mockDealRepository.update).not.toHaveBeenCalled();
+    expect(mockDatasetLivenessService.isPieceLive).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(mockRetrievalAddonsService.testAllRetrievalMethods).not.toHaveBeenCalled();
+    expect(mockRetrievalMetrics.recordStatus).toHaveBeenCalledWith(expect.any(Object), "failure.other");
+  });
+
+  it("falls back to HEAD then GET when SP returns 405 Method Not Allowed", async () => {
+    const service = await createService();
+    mockSpRepository.findOne.mockResolvedValue({
+      address: "0xsp",
+      providerId: 5,
+      isApproved: true,
+      name: "Test SP",
+      serviceUrl: "https://sp.example.com",
+    });
+    mockDatasetLivenessService.isPieceLive.mockResolvedValueOnce(true);
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({ status: 405, ok: false } as Response)
+      .mockResolvedValueOnce({ status: 200, ok: true, body: null } as unknown as Response);
+    vi.stubGlobal("fetch", fetchMock);
+
+    await service.performAllRetrievals(buildDeal()).catch(() => undefined);
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({ method: "HEAD" });
+    expect(fetchMock.mock.calls[1]?.[1]).toMatchObject({ method: "GET" });
+  });
 
   it("marks deal cleaned_up and skips retrieval when PDP pieceLive=false (no SP probe)", async () => {
     const service = await createService();
