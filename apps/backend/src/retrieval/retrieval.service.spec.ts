@@ -842,6 +842,25 @@ describe("RetrievalService SP piece status pre-flight", () => {
     expect(mockRetrievalAddonsService.testAllRetrievalMethods).toHaveBeenCalled();
   });
 
+  it("treats piece as live and proceeds when isPieceLive RPC throws (no cleanup)", async () => {
+    const service = await createService();
+    mockSpRepository.findOne.mockResolvedValue({
+      address: "0xsp",
+      providerId: 5,
+      isApproved: true,
+      name: "Test SP",
+      serviceUrl: "https://sp.example.com",
+    });
+    mockDatasetLivenessService.isPieceLive.mockRejectedValueOnce(new Error("rpc down"));
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ status: 200, ok: true } as Response));
+
+    await service.performAllRetrievals(buildDeal()).catch(() => undefined);
+
+    expect(mockDealRepository.update).not.toHaveBeenCalled();
+    expect(mockRetrievalMetrics.recordStatus).not.toHaveBeenCalledWith(expect.any(Object), "skipped.piece_missing");
+    expect(mockRetrievalAddonsService.testAllRetrievalMethods).toHaveBeenCalled();
+  });
+
   it("proceeds with retrieval when SP probe fails with a network error (unknown)", async () => {
     const service = await createService();
     mockSpRepository.findOne.mockResolvedValue({
