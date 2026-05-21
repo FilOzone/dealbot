@@ -745,7 +745,7 @@ describe("RetrievalService SP piece status pre-flight", () => {
     return module.get<RetrievalService>(RetrievalService) as unknown as RetrievalServicePrivate;
   };
 
-  it("emits failure.other and bails when deal has null dataSetId or pieceId (backfill required)", async () => {
+  it("emits failure.other and bails when deal has null dataSetId or pieceId", async () => {
     const service = await createService();
     mockSpRepository.findOne.mockResolvedValue({
       address: "0xsp",
