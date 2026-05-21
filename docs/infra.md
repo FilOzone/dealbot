@@ -1,78 +1,83 @@
 # Infra Integration
 
-What an operator wiring dealbot into their own cluster needs from the surrounding infrastructure. For the application images and Kubernetes manifests dealbot ships, see [deployment.md](deployment.md).
+What an operator wiring dealbot into their own cluster needs from the surrounding infrastructure. For the application images and Kubernetes manifests dealbot ships, see [deployment.md](deployment.md). For the authoritative env variable reference, see [environment-variables.md](environment-variables.md).
 
 ## System boundary
 
 A running dealbot needs:
 
-- Backend pods (API and worker, see [deployment.md](deployment.md))
+- Backend pods (API and worker; see [deployment.md](deployment.md))
 - Web pod
 - Postgres (required)
-- ClickHouse (optional, append-only long-term store)
-- A Prometheus scrape path or equivalent for observability
+- ClickHouse (optional, append-only sink)
+- A way to scrape or ship the metrics dealbot emits (see [Observability](#observability))
 
 Everything else (ingress controller, secret manager, TLS automation, log shipper, alerting backend, backup tooling) is the operator's choice and is intentionally not prescribed here.
 
-## Ingress
+## Network
 
-Two public surfaces:
+### Ingress
 
-- **Backend API**: HTTP. Used by the web UI and by any external automation. Set `DEALBOT_API_PUBLIC_URL` to the URL the API is reachable at; the web UI reads this to call back. CORS allow-list is driven by `ALLOWED_ORIGINS` (empty disables CORS).
-- **Web UI**: static assets served behind a reverse proxy.
+Two public surfaces dealbot itself listens on:
+
+- **Backend API** (`apps/backend`): served on `DEALBOT_PORT`. Used by the web UI and any external automation. CORS allow-list is `DEALBOT_ALLOWED_ORIGINS` (comma-separated; empty disables CORS entirely).
+- **Web UI** (`apps/web`): static assets served behind a reverse proxy. The web UI reaches the backend at the URL baked in via `VITE_API_BASE_URL` (build-time) or supplied at runtime.
+
+Pull checks require **inbound reachability from storage providers**: during a pull check dealbot hands the SP a source URL of the form `<DEALBOT_API_PUBLIC_URL>/api/piece/<pieceCid>` and the SP fetches that endpoint. `DEALBOT_API_PUBLIC_URL` must therefore be a URL routable from SP networks, not just from inside the cluster.
 
 TLS termination, ingress controller choice, hostname assignment, and rate limiting are the operator's responsibility.
 
-## Egress
+### Egress
 
-Dealbot dials out; nothing dials into dealbot from SP infrastructure. Egress targets:
+Dealbot opens outbound connections to:
 
-- **Chain RPC** (`RPC_URL`): Filecoin EVM RPC. Read and write.
-- **PDP Verifier contract** and **FWSS** (on-chain): reached via `RPC_URL`.
+- **Chain RPC** (`RPC_URL`): Filecoin EVM RPC for reads and writes.
+- **PDP Verifier contract** and **FWSS**: reached via `RPC_URL`.
 - **PDP subgraph** (`PDP_SUBGRAPH_ENDPOINT`): GraphQL.
-- **SP HTTP endpoints**: per provider, discovered from chain state. Used for deal creation, retrieval probes, pull checks, piece status.
-- **IPNI indexer** (`filecoinpin` / IPNI lookup): used during deal verification and retrieval.
+- **Storage provider HTTP endpoints**: per-provider URLs discovered from chain state. Used for deal creation, retrieval probes, pull-check kickoff, and piece status. Hostnames are not known in advance.
+- **IPNI / filecoinpin lookup**: used during deal verification and retrieval.
+- **ClickHouse** (optional, `CLICKHOUSE_URL`).
 
-Firewall and proxy rules need to allow outbound HTTPS to arbitrary SP hostnames discovered at runtime.
+Firewall and proxy rules need to allow outbound network access to arbitrary SP hostnames discovered at runtime.
 
 ## Persistence
 
 Postgres is required.
 
-- Enable the `pgcrypto` extension (pg-boss dependency).
-- Migrations run on backend startup; the schema is owned by the configured `DATABASE_USER`.
-- pg-boss creates its own `pgboss` schema for queue state. Expect steady write churn proportional to job rates.
-- Backup posture, HA topology, and DR strategy are operator choice. Dealbot is the only writer in normal operation, so a standard logical backup is sufficient for restore.
+- Required extension: `pgcrypto`.
+- Schema migrations are run by the backend on startup in production from non-worker pods (`runMode != worker`). Worker pods assume migrations have already run and the `pgboss` schema exists.
+- pg-boss owns its own schema for queue state. Expect steady write churn proportional to job rates.
+- Backup, HA topology, and DR strategy are operator choice. Dealbot is the only writer in normal operation, so a standard logical backup is sufficient for restore.
 
 ClickHouse is optional and append-only. If `CLICKHOUSE_URL` is unset, ClickHouse writes are disabled and nothing else changes.
 
 ## Secrets
 
-The backend Deployment expects a Kubernetes Secret named `dealbot-secrets` populated with the keys in [`apps/backend/.env.example`](../apps/backend/.env.example). Categories:
+[environment-variables.md](environment-variables.md) is the authoritative env contract; [apps/backend/.env.example](../apps/backend/.env.example) is a starting set.
 
-- **Chain access**: `RPC_URL`, optional API token.
-- **Wallet**: `WALLET_PRIVATE_KEY` and/or `SESSION_KEY_PRIVATE_KEY`. See [runbooks/wallet-and-session-keys.md](runbooks/wallet-and-session-keys.md) for lifecycle and rotation.
-- **Database**: `DATABASE_HOST`, `DATABASE_USER`, `DATABASE_PASSWORD`, `DATABASE_NAME`.
-- **Optional sinks**: `CLICKHOUSE_URL`.
+The backend Deployment expects a Kubernetes Secret named `dealbot-secrets`. Populate it with the sensitive values: `DATABASE_PASSWORD`, one of `WALLET_PRIVATE_KEY` or `SESSION_KEY_PRIVATE_KEY`, and any credentials embedded in `RPC_URL` or `CLICKHOUSE_URL`. Non-sensitive config (`DATABASE_HOST`, `NETWORK`, etc.) can live in a ConfigMap or plain env.
 
-Rotation cadence, encryption-at-rest mechanism (SOPS, External Secrets, sealed-secrets, manual), and audit trail are operator choice.
+Rotation cadence, encryption-at-rest mechanism (SOPS, External Secrets, sealed-secrets, manual), and audit trail are operator choice. Wallet and session-key lifecycle is in [runbooks/wallet-and-session-keys.md](runbooks/wallet-and-session-keys.md).
 
 ## Observability
 
-Dealbot emits structured logs to stdout (JSON, NestJS Logger format) and Prometheus-style metrics. Metric semantics, label conventions, and per-check timing markers are documented in [docs/checks/events-and-metrics.md](checks/events-and-metrics.md).
+Dealbot emits:
 
-Set `DEALBOT_PROBE_LOCATION` to a stable string identifying the cluster or region; it is attached to outbound check metrics and helps correlate SP-side reports.
+- Structured logs to stdout (JSON, NestJS Logger format).
+- Prometheus-style metrics. Names, labels, and per-check timing markers are documented in [docs/checks/events-and-metrics.md](checks/events-and-metrics.md).
 
-The Prometheus scrape endpoint shape and stability are in flux. For the current scrape target and any temporary deprecation, check this file's revision history and the worker Deployment manifest in the operating environment.
+Set `DEALBOT_PROBE_LOCATION` to a stable string identifying the cluster or region; it is attached to outbound check metrics so SP-side reports can be correlated.
+
+The metrics surface is under active rework. For a current example of how the local stack scrapes and visualizes metrics, see [local-monitoring.md](local-monitoring.md). Operators should expect the production wiring to follow the same shape but should not assume a specific endpoint path or port.
 
 ## Monitoring expectations
 
 At minimum, alert on:
 
-- Job backlog growth in pg-boss (queue depth, oldest queued age)
+- pg-boss backlog growth (queue depth, oldest queued age)
 - Sustained failure rate per check type
 - Wallet or session-key readiness (insufficient balance, missing FWSS operator approval)
-- Postgres connection or replication lag
+- Postgres connection or replication health
 
 Thresholds and alert routing are operator choice.
 
@@ -85,13 +90,15 @@ To restore service after total cluster loss:
 3. Re-populate `dealbot-secrets`.
 4. Workers resume consuming pg-boss queues from restored state.
 
-ClickHouse and any external log/metric sinks are downstream observers, not sources of truth.
+ClickHouse and any external log or metric sinks are downstream observers, not sources of truth.
 
 ## See also
+
+For related context:
 
 - [deployment.md](deployment.md): container images, Kustomize manifests, run-mode topology, image tag shapes.
 - [docs/jobs.md](jobs.md): pg-boss job set and scheduling behavior.
 - [docs/environment-variables.md](environment-variables.md): authoritative env variable reference.
-- [docs/architecture.md](architecture.md): component graph.
+- [docs/architecture.md](architecture.md): component graph and data-store ownership.
 - [docs/checks/](checks/): per-check semantics and metric definitions.
-- [docs/local-monitoring.md](local-monitoring.md): local observability testing.
+- [docs/local-monitoring.md](local-monitoring.md): example metrics scrape and dashboards for the local overlay.

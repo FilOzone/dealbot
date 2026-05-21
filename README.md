@@ -7,7 +7,7 @@
 [![NestJS](https://img.shields.io/badge/nestjs-11.x-red.svg)](https://nestjs.com)
 [![React](https://img.shields.io/badge/react-19.x-blue.svg)](https://react.dev)
 
-An intelligent automation system for creating and monitoring PDP deals on the Filecoin network. Features automated deal creation, retrieval performance testing, comprehensive metrics tracking, and a modern web dashboard.
+An intelligent automation system for creating and monitoring PDP deals on the Filecoin network. Features automated deal creation, retrieval performance testing, detailed metrics tracking, and a modern web dashboard.
 
 ## Features
 
@@ -46,7 +46,7 @@ Frontend docs: [apps/web/README.md](apps/web/README.md)
 
 ## Developer Docs
 
-- [docs/environment-variables.md](docs/environment-variables.md) - Comprehensive environment variables reference
+- [docs/environment-variables.md](docs/environment-variables.md) - Full environment variables reference
 - [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) - Local Kubernetes development (Kind + Kustomize)
 - [docs/deployment.md](docs/deployment.md) - Container images, Kustomize manifests, runtime topology
 - [docs/infra.md](docs/infra.md) - Ingress, egress, persistence, secrets, observability expectations
