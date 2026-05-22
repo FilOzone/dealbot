@@ -15,6 +15,7 @@ export type ScheduleRow = {
   id: number;
   job_type: JobType;
   sp_address: string;
+  network: Network;
   interval_seconds: number;
   next_run_at: string;
 };
@@ -72,21 +73,24 @@ export class JobScheduleRepository {
    * @param activeAddresses - List of currently active provider addresses to keep.
    * @returns Array of storage provider addresses whose schedules were deleted.
    */
-  async deleteSchedulesForInactiveProviders(activeAddresses: string[]): Promise<string[]> {
+  async deleteSchedulesForInactiveProviders(activeAddresses: string[], network: Network): Promise<string[]> {
     try {
       if (activeAddresses.length === 0) {
         this.logger.warn({
           event: "delete_all_provider_schedules_warning",
           message:
             "Deleting all provider schedules because activeAddresses is empty. Ensure this is intended to avoid mass deletion.",
+          network,
         });
         const [rows] = (await this.dataSource.query(
           `
           DELETE FROM job_schedule_state
           WHERE job_type IN ('deal', 'retrieval', 'data_set_creation', 'piece_cleanup', 'pull_check')
             AND sp_address <> ''
+            AND network = $1
           RETURNING sp_address
           `,
+          [network],
         )) || [[]];
         return rows.map((row: { sp_address: string }) => row.sp_address);
       }
@@ -96,10 +100,11 @@ export class JobScheduleRepository {
         DELETE FROM job_schedule_state
         WHERE job_type IN ('deal', 'retrieval', 'data_set_creation', 'piece_cleanup', 'pull_check')
           AND sp_address <> ''
-          AND sp_address <> ALL($1::text[])
+          AND network = $1
+          AND sp_address <> ALL($2::text[])
         RETURNING sp_address
         `,
-        [activeAddresses],
+        [network, activeAddresses],
       )) || [[]];
       return rows.map((row: { sp_address: string }) => row.sp_address);
     } catch (error) {
@@ -107,6 +112,7 @@ export class JobScheduleRepository {
         event: "delete_inactive_provider_schedules_failed",
         message: "Failed to delete schedules for inactive providers",
         error: toStructuredError(error),
+        network,
       });
       throw error;
     }
@@ -115,14 +121,16 @@ export class JobScheduleRepository {
   /**
    * Counts manually paused jobs by type.
    */
-  async countPausedSchedules(): Promise<{ job_type: string; count: number }[]> {
+  async countPausedSchedules(network?: Network): Promise<{ job_type: string; count: number }[]> {
     return this.dataSource.query(
       `
       SELECT job_type, COUNT(*)::int AS count
       FROM job_schedule_state
       WHERE paused = true
+        AND ($1::text IS NULL OR network = $1)
       GROUP BY job_type
       `,
+      [network ?? null],
     );
   }
 
@@ -136,17 +144,19 @@ export class JobScheduleRepository {
   async findDueSchedulesWithManager(
     manager: { query: (sql: string, params?: any[]) => Promise<any> },
     now: Date,
+    network?: Network,
   ): Promise<ScheduleRow[]> {
     return manager.query(
       `
-      SELECT id, job_type, sp_address, interval_seconds, next_run_at
+      SELECT id, job_type, sp_address, network, interval_seconds, next_run_at
       FROM job_schedule_state
       WHERE paused = false
         AND next_run_at <= $1
+        AND ($2::text IS NULL OR network = $2)
       ORDER BY next_run_at ASC
       FOR UPDATE SKIP LOCKED
       `,
-      [now],
+      [now, network ?? null],
     );
   }
 
@@ -214,7 +224,10 @@ export class JobScheduleRepository {
    * Uses `data->>'jobType'` for the shared sp.work queue.
    * Casts state to text so drivers always return a string (pg-boss uses job_state enum).
    */
-  async countBossJobStates(states: string[]): Promise<{ job_type: string; state: string; count: number }[]> {
+  async countBossJobStates(
+    states: string[],
+    network?: Network,
+  ): Promise<{ job_type: string; state: string; count: number }[]> {
     return this.dataSource.query(
       `
       SELECT
@@ -229,9 +242,17 @@ export class JobScheduleRepository {
         COUNT(*)::int AS count
       FROM pgboss.job
       WHERE state::text = ANY($1::text[])
+        AND ($6::text IS NULL OR data->>'network' = $6)
       GROUP BY 1, 2
       `,
-      [states, SP_WORK_QUEUE, DATA_RETENTION_POLL_QUEUE, PROVIDERS_REFRESH_QUEUE, PULL_PIECE_CLEANUP_QUEUE],
+      [
+        states,
+        SP_WORK_QUEUE,
+        DATA_RETENTION_POLL_QUEUE,
+        PROVIDERS_REFRESH_QUEUE,
+        PULL_PIECE_CLEANUP_QUEUE,
+        network ?? null,
+      ],
     );
   }
 
@@ -242,6 +263,7 @@ export class JobScheduleRepository {
   async minBossJobAgeSecondsByState(
     state: "created" | "active",
     now: Date,
+    network?: Network,
   ): Promise<{ job_type: string; min_age_seconds: number | null }[]> {
     return this.dataSource.query(
       `
@@ -265,9 +287,18 @@ export class JobScheduleRepository {
         ) AS min_age_seconds
       FROM pgboss.job
       WHERE state::text = $2
+        AND ($7::text IS NULL OR data->>'network' = $7)
       GROUP BY 1
       `,
-      [now, state, SP_WORK_QUEUE, DATA_RETENTION_POLL_QUEUE, PROVIDERS_REFRESH_QUEUE, PULL_PIECE_CLEANUP_QUEUE],
+      [
+        now,
+        state,
+        SP_WORK_QUEUE,
+        DATA_RETENTION_POLL_QUEUE,
+        PROVIDERS_REFRESH_QUEUE,
+        PULL_PIECE_CLEANUP_QUEUE,
+        network ?? null,
+      ],
     );
   }
 }

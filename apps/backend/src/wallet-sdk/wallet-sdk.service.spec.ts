@@ -44,6 +44,7 @@ describe("config validation", () => {
     DATABASE_PASSWORD: "test",
     DATABASE_NAME: "test",
     WALLET_ADDRESS: "0x1234567890123456789012345678901234567890",
+    NETWORK: "calibration",
   };
 
   it("requires WALLET_PRIVATE_KEY when SESSION_KEY_PRIVATE_KEY is absent", () => {

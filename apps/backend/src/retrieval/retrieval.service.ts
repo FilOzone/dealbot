@@ -5,8 +5,8 @@ import { CID } from "multiformats/cid";
 import type { Repository } from "typeorm";
 import { ClickhouseService } from "../clickhouse/clickhouse.service.js";
 import { type ProviderJobContext, type RetrievalLogContext, toStructuredError } from "../common/logging.js";
-import type { Hex } from "../common/types.js";
-import type { IConfig } from "../config/app.config.js";
+import type { Hex, Network } from "../common/types.js";
+import type { IBlockchainConfig, IConfig } from "../config/app.config.js";
 import { Deal } from "../database/entities/deal.entity.js";
 import { Retrieval } from "../database/entities/retrieval.entity.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
@@ -58,7 +58,8 @@ export class RetrievalService {
     signal?: AbortSignal,
     logContext?: ProviderJobContext,
   ): Promise<Retrieval[]> {
-    const deal = await this.selectRandomSuccessfulDealForProvider(spAddress);
+    const blockchainCfg = this.configService.get<IBlockchainConfig>("blockchain");
+    const deal = await this.selectRandomSuccessfulDealForProvider(spAddress, blockchainCfg.network);
     if (!deal) {
       this.logger.warn({
         ...logContext,
@@ -445,12 +446,13 @@ export class RetrievalService {
    * We select a random successful deal (DEAL_CREATED only) for a given provider.
    * Uses Postgres ORDER BY RANDOM() since Dealbot is Postgres-only.
    */
-  private async selectRandomSuccessfulDealForProvider(spAddress: string): Promise<Deal | null> {
+  private async selectRandomSuccessfulDealForProvider(spAddress: string, network: Network): Promise<Deal | null> {
     const randomDatasetSizes = this.getRandomDatasetSizes();
     const query = this.dealRepository
       .createQueryBuilder("deal")
       .innerJoin("deal.storageProvider", "sp", "sp.isActive = :isActive", { isActive: true })
       .where("deal.sp_address = :spAddress", { spAddress })
+      .andWhere("deal.network = :network", { network })
       .andWhere("deal.status IN (:...statuses)", {
         statuses: [DealStatus.DEAL_CREATED],
       })
