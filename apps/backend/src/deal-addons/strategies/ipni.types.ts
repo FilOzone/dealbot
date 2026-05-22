@@ -69,6 +69,8 @@ export interface PieceStatus {
   advertised: boolean;
   indexedAt: string | null;
   advertisedAt: string | null;
+  indexedAtProvider?: string | null;
+  advertisedAtProvider?: string | null;
   indexedObservedAt?: string | null;
   advertisedObservedAt?: string | null;
 }

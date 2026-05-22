@@ -494,6 +494,8 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
           advertised: providerStatus.advertised,
           // Newer SP piece-status responses include provider-side timestamps. Older SPs do not,
           // so retain the last locally observed timestamp as the compatibility path.
+          indexedAtProvider: providerStatus.indexedAt ?? lastStatus.indexedAtProvider ?? null,
+          advertisedAtProvider: providerStatus.advertisedAt ?? lastStatus.advertisedAtProvider ?? null,
           indexedAt: providerStatus.indexedAt ?? lastStatus.indexedAt,
           advertisedAt: providerStatus.advertisedAt ?? lastStatus.advertisedAt,
           indexedObservedAt: lastStatus.indexedObservedAt,
@@ -513,6 +515,9 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
               event: "piece_status_indexed",
               message: "Piece indexed",
               indexedAt: currentStatus.indexedAt,
+              indexedAtProvider: currentStatus.indexedAtProvider,
+              indexedAtObserved: currentStatus.indexedObservedAt,
+              indexedAtSource: currentStatus.indexedAtProvider ? "provider" : "observed",
             });
           }
         }
@@ -530,6 +535,9 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
               event: "piece_status_advertised",
               message: "Piece advertised",
               advertisedAt: currentStatus.advertisedAt,
+              advertisedAtProvider: currentStatus.advertisedAtProvider,
+              advertisedAtObserved: currentStatus.advertisedObservedAt,
+              advertisedAtSource: currentStatus.advertisedAtProvider ? "provider" : "observed",
               providerStatus: currentStatus.status,
             });
           }
