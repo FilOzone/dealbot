@@ -21,7 +21,7 @@ Everything else (ingress controller, secret manager, TLS automation, log shipper
 Two public surfaces dealbot itself listens on:
 
 - **Backend API** (`apps/backend`): served on `DEALBOT_PORT`. Used by the web UI and any external automation. CORS allow-list is `DEALBOT_ALLOWED_ORIGINS` (comma-separated; empty disables CORS entirely).
-- **Web UI** (`apps/web`): static assets served behind a reverse proxy. The web UI reaches the backend at the URL baked in via `VITE_API_BASE_URL` (build-time) or supplied at runtime.
+- **Web UI** (`apps/web`): static assets served behind a reverse proxy. The web UI reaches the "backend API" above at the URL baked in via `VITE_API_BASE_URL` (build-time) or supplied at runtime.
 
 Pull checks require **inbound reachability from storage providers**: during a pull check dealbot hands the SP a source URL of the form `<DEALBOT_API_PUBLIC_URL>/api/piece/<pieceCid>` and the SP fetches that endpoint. `DEALBOT_API_PUBLIC_URL` must therefore be a URL routable from SP networks, not just from inside the cluster.
 
