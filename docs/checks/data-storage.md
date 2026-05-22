@@ -178,6 +178,7 @@ It's expected that a Data Storage check will still store an overall status for e
 | `sp_indexed` | SP indexed the piece locally |
 | `sp_announced_advertisement` | SP announced the local index to IPNI so IPNI can pull it from the SP. |
 | `success` | Root CID is discoverable via IPNI and the SP is listed as a provider in the IPNI response. |
+| `skipped` | IPNI verification was not attempted because `rootCID`/`blockCIDs` are absent from deal metadata or `rootCID` cannot be parsed as a valid CID. |
 | `failure.timedout` | Dealbot failed to confirm <IPFSRootCid,SP> provider record within the allotted time |
 | `failure.other` | Dealbot failed to confirm <IPFSRootCid,SP> provider record for other reasons. |
 

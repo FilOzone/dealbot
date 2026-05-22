@@ -136,4 +136,5 @@ export interface SingleCIDVerificationResult {
 export interface MonitorAndVerifyResult {
   monitoringResult: PieceMonitoringResult;
   ipniResult: IPNIVerificationResult;
+  skipped?: boolean;
 }

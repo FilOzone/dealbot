@@ -15,7 +15,10 @@ import { IpniStatus, ServiceType } from "../../database/types.js";
 import { HttpClientService } from "../../http-client/http-client.service.js";
 import { IpniVerificationService } from "../../ipni/ipni-verification.service.js";
 import { classifyFailureStatus } from "../../metrics-prometheus/check-metric-labels.js";
-import { DiscoverabilityCheckMetrics } from "../../metrics-prometheus/check-metrics.service.js";
+import {
+  classifyIpniVerifyOutcome,
+  DiscoverabilityCheckMetrics,
+} from "../../metrics-prometheus/check-metrics.service.js";
 
 import type { IDealAddon } from "../interfaces/deal-addon.interface.js";
 import type { AddonExecutionContext, DealConfiguration, IpniPreprocessingResult, SynapseConfig } from "../types.js";
@@ -240,9 +243,13 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       signal?.throwIfAborted();
 
       // Update deal entity with tracking metrics
-      finalDiscoverabilityStatus = await this.updateDealWithIpniMetrics(deal, result, dealLogContext);
+      finalDiscoverabilityStatus = await this.updateDealWithIpniMetrics(deal, result, ipniTimeoutMs, dealLogContext);
 
       signal?.throwIfAborted();
+
+      if (result.skipped) {
+        return;
+      }
 
       if (!result.ipniResult.rootCIDVerified) {
         const reason = result.ipniResult.failedCIDs[0]?.reason;
@@ -346,6 +353,7 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       });
       return {
         monitoringResult,
+        skipped: true,
         ipniResult: {
           verified: 0,
           unverified: totalCandidates,
@@ -374,6 +382,7 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       });
       return {
         monitoringResult,
+        skipped: true,
         ipniResult: {
           verified: 0,
           unverified: blockCIDs.length + 1,
@@ -399,14 +408,26 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       ipniVerificationPollingMs: ipniPollIntervalMs,
     });
     // NOTE: filecoin-pin does not currently validate that all blocks are advertised on IPNI.
-    const ipniResult = await this.ipniVerificationService.verify({
-      rootCid: rootCidObj,
-      blockCids: blockCIDs,
-      storageProvider,
-      timeoutMs: ipniTimeoutMs,
-      pollIntervalMs: ipniPollIntervalMs,
-      signal,
-    });
+    const ipniVerifyStartMs = Date.now();
+    let ipniResult: Awaited<ReturnType<typeof this.ipniVerificationService.verify>>;
+    try {
+      ipniResult = await this.ipniVerificationService.verify({
+        rootCid: rootCidObj,
+        blockCids: blockCIDs,
+        storageProvider,
+        timeoutMs: ipniTimeoutMs,
+        pollIntervalMs: ipniPollIntervalMs,
+        signal,
+      });
+    } catch (error) {
+      const durationMs = Date.now() - ipniVerifyStartMs;
+      this.discoverabilityMetrics.observeIpniVerifyMs(
+        this.discoverabilityMetrics.buildLabelsForDeal(deal),
+        durationMs,
+        signal?.aborted ? "timeout" : "error",
+      );
+      throw error;
+    }
 
     if (ipniResult.rootCIDVerified) {
       this.logger.log({
@@ -657,6 +678,7 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
   private async updateDealWithIpniMetrics(
     deal: Deal,
     result: MonitorAndVerifyResult,
+    ipniTimeoutMs: number,
     dealLogContext: DealLogContext,
   ): Promise<string> {
     const { monitoringResult, ipniResult } = result;
@@ -795,7 +817,13 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
     const ipniVerifyMs = deal.ipniAdvertisedAt
       ? (calculateDuration(verificationEndTimestamp, "ipniVerify", deal.ipniAdvertisedAt) ?? ipniResult.durationMs)
       : ipniResult.durationMs;
-    this.discoverabilityMetrics.observeIpniVerifyMs(labels, ipniVerifyMs);
+    if (!result.skipped) {
+      this.discoverabilityMetrics.observeIpniVerifyMs(
+        labels,
+        ipniVerifyMs,
+        classifyIpniVerifyOutcome(ipniResult, ipniTimeoutMs),
+      );
+    }
 
     // Update verification metrics and timestamp
     // Only set verified timestamp if rootCID was successfully verified
@@ -838,7 +866,9 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
     });
 
     let finalDiscoverabilityStatus = "failure.other";
-    if (ipniResult.rootCIDVerified) {
+    if (result.skipped) {
+      finalDiscoverabilityStatus = "skipped";
+    } else if (ipniResult.rootCIDVerified) {
       finalDiscoverabilityStatus = "success";
     } else if (!monitoringResult.success && finalStatus.status === "timeout") {
       finalDiscoverabilityStatus = "failure.timedout";
