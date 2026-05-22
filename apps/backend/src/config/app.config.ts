@@ -96,7 +96,7 @@ export const configValidationSchema = Joi.object({
   // Seconds to hold the process alive after pg-boss drain completes, so Prometheus
   // captures at least one scrape of the terminal counter increments emitted during
   // shutdown. Default 35 covers the 30s ServiceMonitor interval plus a 5s buffer.
-  SHUTDOWN_FINAL_SCRAPE_DELAY_SECONDS: Joi.number().min(0).default(35),
+  SHUTDOWN_FINAL_SCRAPE_DELAY_SECONDS: Joi.number().min(0).max(300).default(35),
   IPFS_BLOCK_FETCH_CONCURRENCY: Joi.number().integer().min(1).max(32).default(6),
 
   // Pull Check
