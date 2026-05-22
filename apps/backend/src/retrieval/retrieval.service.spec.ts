@@ -574,7 +574,7 @@ describe("RetrievalService DB/provider drift", () => {
   const mockConfigService = {
     get: vi.fn((key: string) => {
       if (key === "jobs") return { mode: "cron" };
-      if (key === "blockchain") return { useOnlyApprovedProviders: false };
+      if (key === "blockchain") return { useOnlyApprovedProviders: false, walletAddress: "0x123" };
       if (key === "dataset") return { randomDatasetSizes: [10] };
       if (key === "timeouts") return { ipniVerificationTimeoutMs: 10_000, ipniVerificationPollingMs: 2_000 };
       return undefined;
@@ -628,6 +628,10 @@ describe("RetrievalService DB/provider drift", () => {
     const cleanedUpCall = calls.find((c) => c.clause.includes("cleaned_up"));
     expect(cleanedUpCall).toBeDefined();
     expect(cleanedUpCall?.params).toEqual({ cleanedUp: false });
+
+    const walletAddressCall = calls.find((c) => c.clause.includes("wallet_address"));
+    expect(walletAddressCall).toBeDefined();
+    expect(walletAddressCall?.params).toEqual({ walletAddress: "0x123" });
   });
 });
 
