@@ -223,7 +223,7 @@ export class DiscoverabilityCheckMetrics {
       });
       return;
     }
-    observePositive(this.ipniVerifyMs, { ...labels, outcome }, value);
+    observePositive(this.ipniVerifyMs, { ...labels, value: outcome }, value);
   }
 
   recordStatus(labels: CheckMetricLabels | null, value: string): void {

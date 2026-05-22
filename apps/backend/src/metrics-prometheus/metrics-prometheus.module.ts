@@ -102,7 +102,7 @@ const metricProviders = [
     // docs/checks/events-and-metrics.md#ipniVerifyMs
     name: "ipniVerifyMs",
     help: "IPNI verification duration (ms)",
-    labelNames: ["checkType", "providerId", "providerName", "providerStatus", "outcome"] as const,
+    labelNames: ["checkType", "providerId", "providerName", "providerStatus", "value"] as const,
     buckets: [10, 50, 100, 500, 1000, 2000, 5000, 10000, 30000, 60000, 90000, 120000, 180000, 240000, 300000],
   }),
   makeHistogramProvider({
