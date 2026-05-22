@@ -329,7 +329,17 @@ export class WalletSdkService implements OnModuleInit {
    */
   async ensureWalletAllowances(): Promise<void> {
     if (!this._synapseClient) {
-      throw new Error("Synapse client not initialized. Enable chain integration via DEALBOT_DISABLE_CHAIN=false");
+      const reason =
+        process.env.DEALBOT_DISABLE_CHAIN === "true"
+          ? "Chain integration is disabled (DEALBOT_DISABLE_CHAIN=true)"
+          : "WalletSdkService may not be initialized or initialization failed";
+      this.logger.error({
+        event: "synapse_client_unavailable",
+        message: "Synapse client not available for wallet allowances check",
+        chainDisabled: process.env.DEALBOT_DISABLE_CHAIN === "true",
+        isSessionKeyMode: this._isSessionKeyMode,
+      });
+      throw new Error(`Synapse client not available. ${reason}`);
     }
 
     if (this._isSessionKeyMode) {
