@@ -17,7 +17,7 @@ The base manifests are intentionally minimal. Anything environment-specific (ing
 Backend pods select a role via `DEALBOT_RUN_MODE`:
 
 - `api`: serves HTTP. Does not consume pg-boss jobs.
-- `worker`: consumes pg-boss jobs. Job set: deal checks, retrieval checks, pull checks, dataset creation, piece cleanup (per provider), pull piece cleanup (global), provider refresh, data retention.
+- `worker`: consumes pg-boss jobs.
 - `both` (default): API listener and worker loop in one pod. Used by the base manifests when `DEALBOT_RUN_MODE` is unset. The local overlay overrides backend to `api` and adds a dedicated worker Deployment.
 
 The pg-boss scheduler that enqueues recurring jobs is gated independently by `DEALBOT_PGBOSS_SCHEDULER_ENABLED` (default `true`). Exactly one pod across the deployment should run the scheduler; on pods that should not, set the flag to `false` explicitly. The local overlay leaves it `true` on the `api` pod and sets `false` on workers.

@@ -23,7 +23,7 @@ Two public surfaces dealbot itself listens on:
 - **Backend API** (`apps/backend`): served on `DEALBOT_PORT`. Used by the web UI and any external automation. CORS allow-list is `DEALBOT_ALLOWED_ORIGINS` (comma-separated; empty disables CORS entirely).
 - **Web UI** (`apps/web`): static assets served behind a reverse proxy. The web UI reaches the "backend API" above at the URL baked in via `VITE_API_BASE_URL` (build-time) or supplied at runtime.
 
-Pull checks require **inbound reachability from storage providers**: during a pull check dealbot hands the SP a source URL of the form `<DEALBOT_API_PUBLIC_URL>/api/piece/<pieceCid>` and the SP fetches that endpoint. `DEALBOT_API_PUBLIC_URL` must therefore be a URL routable from SP networks, not just from inside the cluster.
+[Pull checks](checks/pull-check.md) require **inbound reachability from storage providers**: during a pull check dealbot hands the SP a source URL of the form `<DEALBOT_API_PUBLIC_URL>/api/piece/<pieceCid>` and the SP fetches that endpoint. `DEALBOT_API_PUBLIC_URL` must therefore be a URL routable from SP networks, not just from inside the cluster.
 
 TLS termination, ingress controller choice, hostname assignment, and rate limiting are the operator's responsibility.
 
@@ -31,14 +31,11 @@ TLS termination, ingress controller choice, hostname assignment, and rate limiti
 
 Dealbot opens outbound connections to:
 
-- **Chain RPC** (`RPC_URL`): Filecoin EVM RPC for reads and writes.
-- **PDP Verifier contract** and **FWSS**: reached via `RPC_URL`.
+- **Chain RPC** (`RPC_URL`): Filecoin EVM RPC for reads and writes. Reaches the **PDP Verifier contract** and **FWSS**.
 - **PDP subgraph** (`PDP_SUBGRAPH_ENDPOINT`): GraphQL.
-- **Storage provider HTTP endpoints**: per-provider URLs discovered from chain state. Used for deal creation, retrieval probes, pull-check kickoff, and piece status. Hostnames are not known in advance.
+- **Storage provider HTTP endpoints**: per-provider URLs discovered from chain state. Used for deal creation, retrieval probes, pull-check kickoff, and piece status. Hostnames are not known in advance, so firewall and proxy rules need to allow outbound network access to arbitrary SP hostnames discovered at runtime.
 - **IPNI indexer (`filecoinpin.contact`)**: looked up during deal verification and retrieval to confirm SPs are advertising the content.
 - **ClickHouse** (optional, `CLICKHOUSE_URL`).
-
-Firewall and proxy rules need to allow outbound network access to arbitrary SP hostnames discovered at runtime.
 
 ## Persistence
 
@@ -47,7 +44,7 @@ Postgres is required.
 - Required extension: `pgcrypto`.
 - Schema migrations are run by the backend on startup in production from non-worker pods (`runMode != worker`). Worker pods assume migrations have already run and the `pgboss` schema exists.
 - pg-boss owns its own schema for queue state. Expect steady write churn proportional to job rates.
-- Backup, HA topology, and DR strategy are operator choice. Dealbot is the only writer in normal operation, so a standard logical backup is sufficient for restore.
+- Backup, high-availability topology, and disaster-recovery strategy are operator choice. Dealbot is the only writer in normal operation, so a standard logical backup is sufficient for restore.
 
 ClickHouse is optional and append-only. If `CLICKHOUSE_URL` is unset, ClickHouse writes are disabled and nothing else changes.
 
@@ -81,7 +78,7 @@ At minimum, alert on:
 
 Thresholds and alert routing are operator choice.
 
-## DR posture
+## Disaster Recovery posture
 
 To restore service after total cluster loss:
 

@@ -6,9 +6,9 @@
 
 | Commit shape                                       | Default bump |
 |----------------------------------------------------|--------------|
+| any type with `!` or a `BREAKING CHANGE:` footer   | major        |
 | `feat:`                                            | minor        |
 | `fix:` or any other configured `changelog-sections` type touching an app path | patch |
-| any type with `!` or a `BREAKING CHANGE:` footer   | major        |
 
 A configured non-`feat`, non-breaking commit (e.g. `chore`, `docs`, `perf`, `refactor`, `build`, `ci`, `test`, `style`, `revert`) on an app path resolves to a patch when it triggers a release. For edge cases, defer to the [release-please versioning docs](https://github.com/googleapis/release-please/blob/main/docs/customizing.md#versioning-strategies).
 
