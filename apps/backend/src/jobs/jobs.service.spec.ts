@@ -742,6 +742,7 @@ describe("JobsService schedule rows", () => {
         id: 1,
         job_type: "deal",
         sp_address: "0xaaa",
+        network: "calibration",
         interval_seconds: 1,
         next_run_at: "2024-01-01T00:00:00Z",
       },
@@ -752,8 +753,8 @@ describe("JobsService schedule rows", () => {
     expect(send).toHaveBeenCalledTimes(3);
     for (const call of send.mock.calls) {
       expect(call[0]).toBe("sp.work");
-      expect(call[1]).toMatchObject({ jobType: "deal", spAddress: "0xaaa" });
-      expect(call[2]).toMatchObject({ singletonKey: "0xaaa", retryLimit: 0 });
+      expect(call[1]).toMatchObject({ jobType: "deal", spAddress: "0xaaa", network: "calibration" });
+      expect(call[2]).toMatchObject({ singletonKey: "calibration:0xaaa", retryLimit: 0 });
       expect(call[2]?.startAfter).toBeUndefined();
     }
 
@@ -809,6 +810,7 @@ describe("JobsService schedule rows", () => {
         id: 11,
         job_type: "providers_refresh",
         sp_address: "",
+        network: "calibration",
         interval_seconds: 14400,
         next_run_at: "2024-01-01T00:00:00Z",
       },
@@ -818,7 +820,7 @@ describe("JobsService schedule rows", () => {
 
     expect(send).toHaveBeenCalledTimes(1);
     expect(send.mock.calls[0][2]).toMatchObject({
-      singletonKey: "providers_refresh",
+      singletonKey: "calibration:providers_refresh",
       retryLimit: 0,
     });
   });
