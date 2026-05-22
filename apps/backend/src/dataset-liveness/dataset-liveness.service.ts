@@ -1,12 +1,9 @@
 import { asChain } from "@filoz/synapse-core/chains";
 import { Injectable, Logger } from "@nestjs/common";
-import type { Account, Chain, Client, Transport } from "viem";
 import { readContract } from "viem/actions";
 import { awaitWithAbort } from "../common/abort-utils.js";
 import { toStructuredError } from "../common/logging.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
-
-type SynapseViemClient = Client<Transport, Chain, Account>;
 
 const PDP_LIVENESS_PROBE_TIMEOUT_MS = 10_000;
 
@@ -65,7 +62,7 @@ export class DatasetLivenessService {
    */
   async isPieceLive(dataSetId: bigint, pieceId: bigint, signal?: AbortSignal): Promise<boolean> {
     signal?.throwIfAborted();
-    const client = this.walletSdkService.getSynapseClient() as SynapseViemClient | null;
+    const client = this.walletSdkService.getSynapseClient();
     if (!client) {
       throw new Error("Synapse client not available for pieceLive read");
     }

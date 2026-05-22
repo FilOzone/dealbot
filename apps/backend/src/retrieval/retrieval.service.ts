@@ -157,12 +157,7 @@ export class RetrievalService {
       return [];
     }
 
-    const pieceLive = await this.checkPieceLive(
-      BigInt(deal.dataSetId.toString()),
-      BigInt(deal.pieceId),
-      signal,
-      retrievalLogContext,
-    );
+    const pieceLive = await this.checkPieceLive(deal.dataSetId, BigInt(deal.pieceId), signal, retrievalLogContext);
     signal?.throwIfAborted();
     if (!pieceLive) {
       const updateResult = await this.dealRepository.update(
