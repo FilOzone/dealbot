@@ -7,13 +7,15 @@ import { Injectable, Logger, type OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
 import type { Repository } from "typeorm";
-import { type Hex } from "viem";
+import type { Account, Chain, Client, Hex, Transport } from "viem";
 import { DEV_TAG } from "../common/constants.js";
 import { toStructuredError } from "../common/logging.js";
 import { createSynapseFromConfig } from "../common/synapse-factory.js";
 import type { IBlockchainConfig, IConfig } from "../config/app.config.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
 import type { PDPProviderEx, WalletServices } from "./wallet-sdk.types.js";
+
+type SynapseViemClient = Client<Transport, Chain, Account>;
 
 @Injectable()
 export class WalletSdkService implements OnModuleInit {
@@ -29,7 +31,7 @@ export class WalletSdkService implements OnModuleInit {
   private providersLoadPromise: Promise<boolean> | null = null;
   private providersLoadedOnce = false;
   private _isSessionKeyMode = false;
-  private _synapseClient: any;
+  private _synapseClient: SynapseViemClient | null = null;
 
   constructor(
     private readonly configService: ConfigService<IConfig, true>,
@@ -316,8 +318,8 @@ export class WalletSdkService implements OnModuleInit {
    * Returns `null` when chain integration is disabled or the client has not been
    * initialized yet.
    */
-  getSynapseClient(): unknown {
-    return this._synapseClient ?? null;
+  getSynapseClient(): SynapseViemClient | null {
+    return this._synapseClient;
   }
 
   /**
@@ -326,6 +328,10 @@ export class WalletSdkService implements OnModuleInit {
    * done separately via the Safe multisig UI.
    */
   async ensureWalletAllowances(): Promise<void> {
+    if (!this._synapseClient) {
+      throw new Error("Synapse client not initialized. Enable chain integration via DEALBOT_DISABLE_CHAIN=false");
+    }
+
     if (this._isSessionKeyMode) {
       const { getUploadCosts } = await import("@filoz/synapse-core/warm-storage");
       const costs = await getUploadCosts(this._synapseClient, {
