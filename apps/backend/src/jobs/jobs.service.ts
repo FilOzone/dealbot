@@ -1292,11 +1292,12 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       if (isSpJobType(jobType)) {
         const spData = data as SpJobData;
         if (!finalOptions.singletonKey) {
-          finalOptions.singletonKey = spData.spAddress;
+          // Include network in singleton key to prevent cross-network deduplication collisions
+          finalOptions.singletonKey = `${spData.network}:${spData.spAddress}`;
         }
       } else {
-        // Global jobs: use job type as singleton key.
-        finalOptions.singletonKey = jobType;
+        // Global jobs: include network in singleton key for per-network isolation
+        finalOptions.singletonKey = `${data.network}:${jobType}`;
       }
       await this.boss.send(name, data, finalOptions);
       this.jobsEnqueueAttemptsCounter.inc({ job_type: jobType, outcome: "success" });
