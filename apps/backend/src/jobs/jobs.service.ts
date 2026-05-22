@@ -199,11 +199,12 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
        * them via `failWip()`.
        */
       const jobs = this.configService.get("jobs");
+      const pullPiece = this.configService.get("pullPiece");
       const longestJobTimeoutSec = Math.max(
         jobs.dealJobTimeoutSeconds,
         jobs.retrievalJobTimeoutSeconds,
         jobs.dataSetCreationJobTimeoutSeconds,
-        jobs.pullCheckJobTimeoutSeconds,
+        pullPiece.pullCheckJobTimeoutSeconds,
       );
       const stopTimeoutMs = (longestJobTimeoutSec + 60) * 1000;
       await this.boss.stop({ graceful: true, timeout: stopTimeoutMs });
