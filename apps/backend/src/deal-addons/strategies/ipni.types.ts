@@ -81,6 +81,7 @@ export interface PieceMonitoringResult {
   finalStatus: PieceStatus;
   checks: number;
   durationMs: number;
+  lastProviderResponse: PieceStatusResponse | null;
 }
 
 /**

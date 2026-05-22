@@ -324,6 +324,7 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       signal?.throwIfAborted();
       this.logger.warn({
         ...dealLogContext,
+        pieceCid,
         event: "ipni_piece_status_monitoring_incomplete",
         message: "Piece status monitoring incomplete",
         error: toStructuredError(error),
@@ -339,6 +340,7 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
         },
         checks: 0,
         durationMs: statusTimeoutMs,
+        lastProviderResponse: null,
       };
     }
 
@@ -446,6 +448,8 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
         verifyDurationMs: ipniResult.durationMs,
         failureReason: ipniResult.failedCIDs[0]?.reason,
         failedCIDs: ipniResult.failedCIDs,
+        finalStatus: monitoringResult.finalStatus,
+        lastProviderResponse: monitoringResult.lastProviderResponse,
       });
     }
 
@@ -472,6 +476,7 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       advertisedAt: null,
     };
     let checkCount = 0;
+    let lastProviderResponse: PieceStatusResponse | null = null;
 
     while (Date.now() - startTime < maxDurationMs) {
       signal?.throwIfAborted();
@@ -480,6 +485,7 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       try {
         const providerStatus = await this.getPieceStatus(serviceURL, pieceCid, signal, dealLogContext);
         signal?.throwIfAborted();
+        lastProviderResponse = providerStatus;
         const observedAt = new Date().toISOString();
 
         const currentStatus: PieceStatus = {
@@ -532,6 +538,7 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
             finalStatus: currentStatus,
             checks: checkCount,
             durationMs: Date.now() - startTime,
+            lastProviderResponse,
           };
         }
 
@@ -559,6 +566,9 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       event: "piece_status_timeout",
       message: "Piece retrieval timeout",
       durationSec: Number(durationSec),
+      checks: checkCount,
+      lastStatus,
+      lastProviderResponse,
     });
     throw new Error(`Timeout waiting for piece retrieval after ${durationSec}s`);
   }
@@ -847,6 +857,8 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
           ipniVerifiedAt: verifiedTimestamp.toISOString(),
           verifiedCids: ipniResult.verified,
           unverifiedCids: ipniResult.unverified,
+          finalStatus,
+          lastProviderResponse: monitoringResult.lastProviderResponse,
         });
       }
     }

@@ -249,6 +249,7 @@ describe("IpniAddonStrategy getPieceStatus", () => {
         },
         checks: 1,
         durationMs: 2000,
+        lastProviderResponse: null,
       });
 
       ipniVerificationService.verify.mockImplementation(async () => {
@@ -350,6 +351,7 @@ describe("IpniAddonStrategy getPieceStatus", () => {
             },
             checks: 1,
             durationMs: 1000,
+            lastProviderResponse: null,
           },
           ipniResult: {
             verified: 1,
@@ -404,6 +406,7 @@ describe("IpniAddonStrategy getPieceStatus", () => {
         },
         checks: 5,
         durationMs: 10_000,
+        lastProviderResponse: null,
       });
 
       ipniVerificationService.verify.mockImplementation(async () => {
@@ -476,6 +479,7 @@ describe("IpniAddonStrategy getPieceStatus", () => {
       finalStatus: { status: "timeout", indexed: false, advertised: false, indexedAt: null, advertisedAt: null },
       checks: 1,
       durationMs: 500,
+      lastProviderResponse: null,
     });
 
     ipniVerificationService.verify.mockResolvedValue({
@@ -534,6 +538,7 @@ describe("IpniAddonStrategy getPieceStatus", () => {
       finalStatus: { status: "ok", indexed: true, advertised: true, indexedAt: null, advertisedAt: null },
       checks: 1,
       durationMs: 100,
+      lastProviderResponse: null,
     });
 
     const deal = buildDeal({
@@ -578,6 +583,7 @@ describe("IpniAddonStrategy getPieceStatus", () => {
       finalStatus: { status: "ok", indexed: true, advertised: true, indexedAt: null, advertisedAt: null },
       checks: 1,
       durationMs: 100,
+      lastProviderResponse: null,
     });
 
     const deal = buildDeal({
@@ -622,6 +628,7 @@ describe("IpniAddonStrategy getPieceStatus", () => {
       finalStatus: { status: "ok", indexed: true, advertised: true, indexedAt: null, advertisedAt: null },
       checks: 1,
       durationMs: 100,
+      lastProviderResponse: null,
     });
 
     const deal = buildDeal({
