@@ -3,19 +3,17 @@ import { calculateFromIterable, parse as parsePieceCid } from "@filoz/synapse-co
 import { pullPieces, waitForPullPieces } from "@filoz/synapse-core/sp";
 import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import type { Account, Address, Chain, Client, Transport } from "viem";
+import type { Address } from "viem";
 import { type ProviderJobContext, toStructuredError } from "../common/logging.js";
 import type { IAppConfig, IConfig, IPullPieceConfig } from "../config/app.config.js";
 import { DataSourceService } from "../dataSource/dataSource.service.js";
 import { HttpClientService } from "../http-client/http-client.service.js";
 import { buildCheckMetricLabels, classifyFailureStatus } from "../metrics-prometheus/check-metric-labels.js";
 import { PullCheckCheckMetrics } from "../metrics-prometheus/check-metrics.service.js";
-import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
+import { type SynapseViemClient, WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
 import { PDPProviderEx } from "../wallet-sdk/wallet-sdk.types.js";
 import type { PullPiecePrepared, PullPieceStreamResult } from "./pull-check.types.js";
 import { PullPieceRepository } from "./pull-piece.repository.js";
-
-type SynapseViemClient = Client<Transport, Chain, Account>;
 
 @Injectable()
 export class PullCheckService {
