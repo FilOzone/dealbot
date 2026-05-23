@@ -1,7 +1,7 @@
 import { CID } from "multiformats/cid";
 import type { Mock } from "vitest";
 import { describe, expect, it, vi } from "vitest";
-import { Network } from "../../common/types.js";
+import type { Network } from "../../common/types.js";
 import { Deal } from "../../database/entities/deal.entity.js";
 import { StorageProvider } from "../../database/entities/storage-provider.entity.js";
 import { IpniStatus, ServiceType } from "../../database/types.js";

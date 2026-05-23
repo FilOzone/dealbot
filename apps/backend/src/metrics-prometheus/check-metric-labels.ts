@@ -1,4 +1,4 @@
-import { Network } from "../common/types.js";
+import type { Network } from "../common/types.js";
 
 export type CheckType = "dataStorage" | "retrieval" | "dataRetention" | "dataSetCreation" | "pullCheck";
 export type ProviderStatus = "approved" | "unapproved";
