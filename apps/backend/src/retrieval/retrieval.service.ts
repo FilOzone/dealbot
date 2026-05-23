@@ -503,8 +503,7 @@ export class RetrievalService {
    * Uses Postgres ORDER BY RANDOM() since Dealbot is Postgres-only.
    */
   private async selectRandomSuccessfulDealForProvider(spAddress: string): Promise<Deal | null> {
-    const network = this.configService.get("blockchain.network", { infer: true });
-    const walletAddress = this.configService.get("blockchain.walletAddress", { infer: true });
+    const { network, walletAddress } = this.configService.get("blockchain", { infer: true });
 
     const randomDatasetSizes = this.getRandomDatasetSizes();
     const query = this.dealRepository
