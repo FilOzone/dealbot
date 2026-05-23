@@ -1351,7 +1351,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
    * Records handler start/end metrics around a job execution.
    */
   private async recordJobExecution(jobType: JobType, run: () => Promise<JobRunStatus>): Promise<void> {
-    const network = this.configService.get("blockchain.network", { infer: true });
+    const network = this.configService.get("blockchain", { infer: true }).network;
     const startedAt = Date.now();
     this.jobsStartedCounter.inc({ job_type: jobType, network });
     try {
@@ -1371,7 +1371,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
    * Refreshes queue depth and age gauges from pg-boss tables.
    */
   private async updateQueueMetrics(): Promise<void> {
-    const network = this.configService.get("blockchain.network", { infer: true });
+    const network = this.configService.get("blockchain", { infer: true }).network;
     const jobTypes: JobType[] = [
       "deal",
       "retrieval",
