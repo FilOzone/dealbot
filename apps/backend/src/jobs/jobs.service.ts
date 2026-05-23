@@ -194,8 +194,39 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         this.boss.off("error", this.bossErrorHandler);
         this.bossErrorHandler = undefined;
       }
-      await this.boss.stop();
+      /**
+       * pg-boss `stop()` default timeout is 30s, shorter than any of our per-job timeouts.
+       * Pass an explicit timeout that exceeds the longest job timeout so active handlers
+       * can finish (or hit their per-job AbortController) before pg-boss force-fails
+       * them via `failWip()`.
+       */
+      const jobs = this.configService.get("jobs");
+      const pullPiece = this.configService.get("pullPiece");
+      const longestJobTimeoutSec = Math.max(
+        jobs.dealJobTimeoutSeconds,
+        jobs.retrievalJobTimeoutSeconds,
+        jobs.dataSetCreationJobTimeoutSeconds,
+        pullPiece.pullCheckJobTimeoutSeconds,
+      );
+      const stopTimeoutMs = (longestJobTimeoutSec + 60) * 1000;
+      await this.boss.stop({ graceful: true, timeout: stopTimeoutMs });
       this.boss = null;
+
+      /**
+       * Hold the process alive past one ServiceMonitor scrape interval so
+       * Prometheus captures the terminal counter increments emitted during drain.
+       * Without this delay, the pod exits before its next scrape and the in-memory
+       * counter deltas die with it, leaving `pending` rows without matching terminals.
+       */
+      const finalScrapeDelayMs = jobs.shutdownFinalScrapeDelaySeconds * 1000;
+      if (finalScrapeDelayMs > 0) {
+        this.logger.log({
+          event: "pgboss_post_drain_scrape_hold",
+          message: "Holding process for final Prometheus scrape after drain",
+          delaySeconds: jobs.shutdownFinalScrapeDelaySeconds,
+        });
+        await new Promise((resolve) => setTimeout(resolve, finalScrapeDelayMs));
+      }
     }
   }
 

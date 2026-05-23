@@ -140,7 +140,10 @@ describe("JobsService schedule rows", () => {
         pgbossLocalConcurrency: 9,
         pgbossSchedulerEnabled: true,
         workerPollSeconds: 60,
+        dealJobTimeoutSeconds: 360,
+        retrievalJobTimeoutSeconds: 60,
         dataSetCreationJobTimeoutSeconds: 300,
+        shutdownFinalScrapeDelaySeconds: 35,
         pieceCleanupPerSpPerHour: 1,
         maxPieceCleanupRuntimeSeconds: 300,
       } as IConfig["jobs"],
@@ -1501,5 +1504,109 @@ describe("JobsService schedule rows", () => {
     }
 
     expect(storageProviderRepositoryMock.findOne).not.toHaveBeenCalled();
+  });
+
+  describe("onApplicationShutdown drain", () => {
+    type BossMock = {
+      stop: ReturnType<typeof vi.fn>;
+      off: ReturnType<typeof vi.fn>;
+    };
+
+    const attachMockBoss = (): BossMock => {
+      const bossMock: BossMock = {
+        stop: vi.fn(async () => undefined),
+        off: vi.fn(),
+      };
+      (service as unknown as { boss: BossMock | null }).boss = bossMock;
+      return bossMock;
+    };
+
+    it("calls boss.stop with explicit graceful timeout derived from the longest job timeout", async () => {
+      vi.useFakeTimers();
+      const bossMock = attachMockBoss();
+
+      const shutdownPromise = service.onApplicationShutdown();
+      await vi.advanceTimersByTimeAsync(35_001);
+      await shutdownPromise;
+
+      // Defaults: deal=360, retrieval=60, dataSetCreation=300, pullCheck=300 → max=360 → +60s buffer
+      expect(bossMock.stop).toHaveBeenCalledTimes(1);
+      expect(bossMock.stop).toHaveBeenCalledWith({ graceful: true, timeout: 420_000 });
+    });
+
+    it("picks the longest timeout across all job types, including pullCheck under pullPiece", async () => {
+      vi.useFakeTimers();
+      const overriddenJobs = {
+        ...baseConfigValues.jobs,
+        dealJobTimeoutSeconds: 120,
+        retrievalJobTimeoutSeconds: 60,
+        dataSetCreationJobTimeoutSeconds: 120,
+      } as IConfig["jobs"];
+      const overriddenPullPiece = {
+        ...baseConfigValues.pullPiece,
+        pullCheckJobTimeoutSeconds: 600,
+      } as IConfig["pullPiece"];
+      baseConfigValues = {
+        ...baseConfigValues,
+        jobs: overriddenJobs,
+        pullPiece: overriddenPullPiece,
+      };
+      configService = {
+        get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
+      } as unknown as JobsServiceDeps[0];
+      service = buildService({ configService });
+      const bossMock = attachMockBoss();
+
+      const shutdownPromise = service.onApplicationShutdown();
+      await vi.advanceTimersByTimeAsync(35_001);
+      await shutdownPromise;
+
+      // pullCheck wins at 600s, plus 60s buffer
+      expect(bossMock.stop).toHaveBeenCalledWith({ graceful: true, timeout: 660_000 });
+    });
+
+    it("holds the process for SHUTDOWN_FINAL_SCRAPE_DELAY_SECONDS after drain", async () => {
+      vi.useFakeTimers();
+      const bossMock = attachMockBoss();
+
+      const shutdownPromise = service.onApplicationShutdown();
+
+      // boss.stop is awaited before the sleep, so let it resolve first.
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(bossMock.stop).toHaveBeenCalledTimes(1);
+
+      // Now the sleep is pending. Advance just under the configured delay (35_000ms).
+      await vi.advanceTimersByTimeAsync(34_999);
+      // Race the promise against a microtask to confirm it hasn't resolved yet.
+      const settled = await Promise.race([shutdownPromise.then(() => "done"), Promise.resolve("pending")]);
+      expect(settled).toBe("pending");
+
+      await vi.advanceTimersByTimeAsync(2);
+      await shutdownPromise;
+    });
+
+    it("skips the post-drain sleep when shutdownFinalScrapeDelaySeconds is 0", async () => {
+      vi.useFakeTimers();
+      const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout");
+      baseConfigValues = {
+        ...baseConfigValues,
+        jobs: {
+          ...baseConfigValues.jobs,
+          shutdownFinalScrapeDelaySeconds: 0,
+        } as IConfig["jobs"],
+      };
+      configService = {
+        get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
+      } as unknown as JobsServiceDeps[0];
+      service = buildService({ configService });
+      const setTimeoutCallsBefore = setTimeoutSpy.mock.calls.length;
+      attachMockBoss();
+
+      await service.onApplicationShutdown();
+
+      // No additional setTimeout calls from the post-drain hold.
+      expect(setTimeoutSpy.mock.calls.length).toBe(setTimeoutCallsBefore);
+    });
   });
 });

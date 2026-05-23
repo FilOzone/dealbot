@@ -25,6 +25,7 @@ import { Deal } from "../database/entities/deal.entity.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
 import { DealStatus, IpniStatus, ServiceType } from "../database/types.js";
 import { DataSourceService } from "../dataSource/dataSource.service.js";
+import { DatasetLivenessService } from "../dataset-liveness/dataset-liveness.service.js";
 import { DealAddonsService } from "../deal-addons/deal-addons.service.js";
 import type { DealPreprocessingResult } from "../deal-addons/types.js";
 import { buildCheckMetricLabels, classifyFailureStatus } from "../metrics-prometheus/check-metric-labels.js";
@@ -42,8 +43,6 @@ type UploadPayload = {
   carData: Uint8Array;
   rootCid: CID;
 };
-
-const PDP_LIVENESS_PROBE_TIMEOUT_MS = 10_000;
 
 type UploadResultSummary = {
   pieceCid: string;
@@ -71,6 +70,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     private readonly retrievalMetrics: RetrievalCheckMetrics,
     private readonly dataSetCreationMetrics: DataSetCreationCheckMetrics,
     private readonly clickhouseService: ClickhouseService,
+    private readonly datasetLivenessService: DatasetLivenessService,
   ) {
     this.blockchainConfig = this.configService.get("blockchain");
   }
@@ -280,6 +280,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     let retrievalStarted = false;
     let retrievalStatusEmitted = false;
     let preUploadTerminated = false;
+    let dataStorageStatusEmitted = false;
 
     let deal: Deal;
     if (existingDealId) {
@@ -379,150 +380,154 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       deal.dataSetId = storage.dataSetId ?? null;
       deal.uploadStartTime = new Date();
 
-      const uploadResult = await executeUpload(synapse, uploadPayload.carData, uploadPayload.rootCid, {
-        logger: filecoinPinLogger,
-        contextId: providerAddress,
-        pieceMetadata: dealInput.synapseConfig.pieceMetadata,
-        contexts: [storage],
-        /**
-         * do not do IPNI validation here, we need to call /pdp/piece/<pieceCid>/status to get other metrics.
-         * See `onStored` handler in deal-addons/strategies/ipni.strategy.ts for implementation.
-         */
-        ipniValidation: { enabled: false },
-        // Must stay synchronous — Synapse SDK's safeInvoke discards the returned promise. See issue #446.
-        onProgress: (event) => {
-          this.logger.debug({
-            ...dealLogContext,
-            event: "upload_progress",
-            message: "Upload in progress",
-            filecoinPinEventType: event.type,
-          });
-          switch (event.type) {
-            case "stored": {
-              deal.uploadEndTime = new Date();
-              deal.status = DealStatus.UPLOADED;
-              deal.ingestLatencyMs = null;
-              deal.ingestThroughputBps = null;
+      const uploadResult = await awaitWithAbort(
+        executeUpload(synapse, uploadPayload.carData, uploadPayload.rootCid, {
+          logger: filecoinPinLogger,
+          contextId: providerAddress,
+          pieceMetadata: dealInput.synapseConfig.pieceMetadata,
+          contexts: [storage],
+          signal,
+          /**
+           * do not do IPNI validation here, we need to call /pdp/piece/<pieceCid>/status to get other metrics.
+           * See `onStored` handler in deal-addons/strategies/ipni.strategy.ts for implementation.
+           */
+          ipniValidation: { enabled: false },
+          // Must stay synchronous — Synapse SDK's safeInvoke discards the returned promise. See issue #446.
+          onProgress: (event) => {
+            this.logger.debug({
+              ...dealLogContext,
+              event: "upload_progress",
+              message: "Upload in progress",
+              filecoinPinEventType: event.type,
+            });
+            switch (event.type) {
+              case "stored": {
+                deal.uploadEndTime = new Date();
+                deal.status = DealStatus.UPLOADED;
+                deal.ingestLatencyMs = null;
+                deal.ingestThroughputBps = null;
 
-              const uploadStartTime = deal.uploadStartTime;
-              const uploadEndTime = deal.uploadEndTime;
-              if (uploadStartTime == null) {
-                this.logger.warn({
-                  ...dealLogContext,
-                  event: "ingest_metrics_skipped_missing_upload_start_time",
-                  message: "Skipping ingest metrics: uploadStartTime is missing",
-                  uploadEndTime,
-                });
-              } else {
-                const ingestLatencyMs = uploadEndTime.getTime() - uploadStartTime.getTime();
-                if (!Number.isFinite(ingestLatencyMs) || ingestLatencyMs <= 0) {
+                const uploadStartTime = deal.uploadStartTime;
+                const uploadEndTime = deal.uploadEndTime;
+                if (uploadStartTime == null) {
                   this.logger.warn({
                     ...dealLogContext,
-                    event: "ingest_metrics_skipped_invalid_latency",
-                    message: "Skipping ingest metrics: invalid ingest latency",
-                    uploadStartTime,
+                    event: "ingest_metrics_skipped_missing_upload_start_time",
+                    message: "Skipping ingest metrics: uploadStartTime is missing",
                     uploadEndTime,
-                    ingestLatencyMs,
                   });
                 } else {
-                  deal.ingestLatencyMs = ingestLatencyMs;
-                  this.dataStorageMetrics.observeIngestMs(providerLabels, ingestLatencyMs);
-
-                  const ingestSeconds = ingestLatencyMs / 1000;
-                  const ingestThroughputBps = Math.round(deal.fileSize / ingestSeconds);
-                  if (!Number.isFinite(ingestThroughputBps) || ingestThroughputBps <= 0) {
+                  const ingestLatencyMs = uploadEndTime.getTime() - uploadStartTime.getTime();
+                  if (!Number.isFinite(ingestLatencyMs) || ingestLatencyMs <= 0) {
                     this.logger.warn({
                       ...dealLogContext,
-                      event: "ingest_throughput_skipped_invalid_value",
-                      message: "Skipping ingest throughput metric: invalid throughput value",
+                      event: "ingest_metrics_skipped_invalid_latency",
+                      message: "Skipping ingest metrics: invalid ingest latency",
+                      uploadStartTime,
+                      uploadEndTime,
                       ingestLatencyMs,
-                      fileSize: deal.fileSize,
-                      ingestThroughputBps,
                     });
                   } else {
-                    deal.ingestThroughputBps = ingestThroughputBps;
-                    this.dataStorageMetrics.observeIngestThroughput(providerLabels, ingestThroughputBps);
+                    deal.ingestLatencyMs = ingestLatencyMs;
+                    this.dataStorageMetrics.observeIngestMs(providerLabels, ingestLatencyMs);
+
+                    const ingestSeconds = ingestLatencyMs / 1000;
+                    const ingestThroughputBps = Math.round(deal.fileSize / ingestSeconds);
+                    if (!Number.isFinite(ingestThroughputBps) || ingestThroughputBps <= 0) {
+                      this.logger.warn({
+                        ...dealLogContext,
+                        event: "ingest_throughput_skipped_invalid_value",
+                        message: "Skipping ingest throughput metric: invalid throughput value",
+                        ingestLatencyMs,
+                        fileSize: deal.fileSize,
+                        ingestThroughputBps,
+                      });
+                    } else {
+                      deal.ingestThroughputBps = ingestThroughputBps;
+                      this.dataStorageMetrics.observeIngestThroughput(providerLabels, ingestThroughputBps);
+                    }
                   }
                 }
-              }
 
-              deal.pieceCid = event.data.pieceCid.toString();
-              dealLogContext.pieceCid = event.data.pieceCid.toString();
-              this.logger.log({
-                ...dealLogContext,
-                event: "stored",
-                message: `Store completed`,
-              });
-              uploadSucceeded = true;
-              this.dataStorageMetrics.recordUploadStatus(providerLabels, "success");
-              this.dataStorageMetrics.recordOnchainStatus(providerLabels, "pending");
-              onStoredAddons.promise = this.dealAddonsService
-                .handleStored(deal, dealInput.appliedAddons, addonSignal, dealLogContext)
-                .then(() => true)
-                .catch((error) => {
-                  storedError = error;
-                  return false;
-                });
-              break;
-            }
-            case "piecesAdded":
-              this.logger.log({
-                ...dealLogContext,
-                event: "pieces_added",
-                message: "Pieces added",
-                txHash: event.data.txHash,
-              });
-              deal.piecesAddedTime = new Date();
-              if (event.data.txHash != null) {
-                deal.transactionHash = event.data.txHash as Hex;
-              } else {
-                this.logger.warn({
+                deal.pieceCid = event.data.pieceCid.toString();
+                dealLogContext.pieceCid = event.data.pieceCid.toString();
+                this.logger.log({
                   ...dealLogContext,
-                  event: "pieces_added_no_tx_hash",
-                  message: "No transaction hash found for pieces added event",
+                  event: "stored",
+                  message: `Store completed`,
                 });
+                uploadSucceeded = true;
+                this.dataStorageMetrics.recordUploadStatus(providerLabels, "success");
+                this.dataStorageMetrics.recordOnchainStatus(providerLabels, "pending");
+                onStoredAddons.promise = this.dealAddonsService
+                  .handleStored(deal, dealInput.appliedAddons, addonSignal, dealLogContext)
+                  .then(() => true)
+                  .catch((error) => {
+                    storedError = error;
+                    return false;
+                  });
+                break;
               }
-              deal.status = DealStatus.PIECE_ADDED;
-              if (deal.uploadEndTime) {
-                this.dataStorageMetrics.observePieceAddedOnChainMs(
-                  providerLabels,
-                  deal.piecesAddedTime.getTime() - deal.uploadEndTime.getTime(),
-                );
-              }
-              break;
-            case "piecesConfirmed":
-              this.logger.log({
-                ...dealLogContext,
-                event: "pieces_confirmed",
-                message: "Pieces confirmed",
-                pieceIds: event.data.pieceIds,
-              });
-              if (event.data.pieceIds.length > 1) {
-                this.logger.warn({
+              case "piecesAdded":
+                this.logger.log({
                   ...dealLogContext,
-                  event: "pieces_confirmed_multiple_piece_ids",
-                  message: "Expected at most one pieceId for dealbot content, received multiple",
+                  event: "pieces_added",
+                  message: "Pieces added",
+                  txHash: event.data.txHash,
+                });
+                deal.piecesAddedTime = new Date();
+                if (event.data.txHash != null) {
+                  deal.transactionHash = event.data.txHash as Hex;
+                } else {
+                  this.logger.warn({
+                    ...dealLogContext,
+                    event: "pieces_added_no_tx_hash",
+                    message: "No transaction hash found for pieces added event",
+                  });
+                }
+                deal.status = DealStatus.PIECE_ADDED;
+                if (deal.uploadEndTime) {
+                  this.dataStorageMetrics.observePieceAddedOnChainMs(
+                    providerLabels,
+                    deal.piecesAddedTime.getTime() - deal.uploadEndTime.getTime(),
+                  );
+                }
+                break;
+              case "piecesConfirmed":
+                this.logger.log({
+                  ...dealLogContext,
+                  event: "pieces_confirmed",
+                  message: "Pieces confirmed",
                   pieceIds: event.data.pieceIds,
                 });
-              }
-              if (event.data.pieceIds.length > 0) {
-                deal.pieceId = Number(event.data.pieceIds[0]);
-              }
-              deal.piecesConfirmedTime = new Date();
-              deal.status = DealStatus.PIECE_CONFIRMED;
-              deal.chainLatencyMs =
-                deal.piecesAddedTime != null
-                  ? deal.piecesConfirmedTime.getTime() - deal.piecesAddedTime.getTime()
-                  : null;
-              onchainSucceeded = true;
-              if (deal.chainLatencyMs !== null) {
-                this.dataStorageMetrics.observePieceConfirmedOnChainMs(providerLabels, deal.chainLatencyMs);
-              }
-              this.dataStorageMetrics.recordOnchainStatus(providerLabels, "success");
-              break;
-          }
-        },
-      });
+                if (event.data.pieceIds.length > 1) {
+                  this.logger.warn({
+                    ...dealLogContext,
+                    event: "pieces_confirmed_multiple_piece_ids",
+                    message: "Expected at most one pieceId for dealbot content, received multiple",
+                    pieceIds: event.data.pieceIds,
+                  });
+                }
+                if (event.data.pieceIds.length > 0) {
+                  deal.pieceId = Number(event.data.pieceIds[0]);
+                }
+                deal.piecesConfirmedTime = new Date();
+                deal.status = DealStatus.PIECE_CONFIRMED;
+                deal.chainLatencyMs =
+                  deal.piecesAddedTime != null
+                    ? deal.piecesConfirmedTime.getTime() - deal.piecesAddedTime.getTime()
+                    : null;
+                onchainSucceeded = true;
+                if (deal.chainLatencyMs !== null) {
+                  this.dataStorageMetrics.observePieceConfirmedOnChainMs(providerLabels, deal.chainLatencyMs);
+                }
+                this.dataStorageMetrics.recordOnchainStatus(providerLabels, "success");
+                break;
+            }
+          },
+        }),
+        signal,
+      );
       signal?.throwIfAborted();
       const pieceCid = deal.pieceCid;
       const uploadStartTime = deal.uploadStartTime;
@@ -615,6 +620,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
         this.dataStorageMetrics.observeCheckDuration(providerLabels, checkDurationMs);
       }
       this.dataStorageMetrics.recordDataStorageStatus(providerLabels, "success");
+      dataStorageStatusEmitted = true;
 
       this.logger.log({
         ...dealLogContext,
@@ -658,7 +664,10 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
         this.retrievalMetrics.recordStatus(providerLabels, failureStatus);
         retrievalStatusEmitted = true;
       }
-      this.dataStorageMetrics.recordDataStorageStatus(providerLabels, failureStatus);
+      if (!dataStorageStatusEmitted) {
+        this.dataStorageMetrics.recordDataStorageStatus(providerLabels, failureStatus);
+        dataStorageStatusEmitted = true;
+      }
 
       throw error;
     } finally {
@@ -667,7 +676,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
         addonAbortCtrl.abort();
         await pending.catch(() => {});
         if (deal.ipniStatus === IpniStatus.PENDING) {
-          /** Addon aborted before reaching terminal IpniStatus. Clear so this run doesn't depress sp_performance.ipni_success_rate. Leaves real FAILED/VERIFIED untouched. See #503. */
+          /** Addon aborted before reaching terminal IpniStatus. Clear so ClickHouse/Postgres analytics don't count a transient PENDING as a non-null outcome and depress IPNI success rates. Leaves real FAILED/VERIFIED untouched. See #503. */
           deal.ipniStatus = null;
         }
       }
@@ -715,107 +724,12 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Composite PDP-liveness check. Runs two independent probes:
-   *
-   *   - FWSS `validateDataSet` (chain): wraps `PDPVerifier.dataSetLive` via
-   *     multicall and additionally verifies the listener is this WarmStorage
-   *     contract, so it covers chain-side liveness fully.
-   *   - SP HTTP `POST /pdp/data-sets/{id}/pieces` (off-chain): catches Curio's
-   *     `unrecoverable_proving_failure_epoch` state, which precedes chain
-   *     propagation and is the only signal observable when the SP refuses
-   *     addPieces but chain still reports the set as live.
-   *
-   * A positive-terminated signal from either probe wins: if any settled result
-   * is `false`, returns `false` even when the other probe threw a transient
-   * error. Otherwise rethrows the first rejection so a probe outage is not
-   * silently misclassified as live. The SP HTTP probe never throws on
-   * transient errors (returns `true` on non-409 responses, including network
-   * errors and auth failures), since HTTP 409 with Curio's terminated body is
-   * the only signal that endpoint emits.
+   * Thin proxy to `DatasetLivenessService.isDataSetLive`. See that class for
+   * probe rationale. Kept on DealService to preserve existing call sites
+   * (`getDataSetProvisioningStatus`, `createDeal` post-context guard).
    */
   async isDataSetLive(providerAddress: string, dataSetId: bigint, signal?: AbortSignal): Promise<boolean> {
-    signal?.throwIfAborted();
-    const settled = await Promise.allSettled([
-      this.probeFwssDataSetLive(dataSetId, signal),
-      this.probeSpHttpDataSetLive(providerAddress, dataSetId, signal),
-    ]);
-    if (settled.some((r) => r.status === "fulfilled" && r.value === false)) {
-      return false;
-    }
-    const rejection = settled.find((r): r is PromiseRejectedResult => r.status === "rejected");
-    if (rejection) throw rejection.reason;
-    return true;
-  }
-
-  protected async probeFwssDataSetLive(dataSetId: bigint, signal?: AbortSignal): Promise<boolean> {
-    signal?.throwIfAborted();
-    const { warmStorageService } = this.walletSdkService.getWalletServices();
-    try {
-      await awaitWithAbort(warmStorageService.validateDataSet({ dataSetId }), signal);
-      return true;
-    } catch (error) {
-      if (signal?.aborted) throw error;
-      const message = error instanceof Error ? error.message : String(error);
-      if (/does not exist or is not live/i.test(message)) {
-        return false;
-      }
-      throw error;
-    }
-  }
-
-  /**
-   * Probes the SP's Curio addPieces endpoint with an empty body. Curio's
-   * handler checks `unrecoverable_proving_failure_epoch` before body
-   * validation and returns HTTP 409 with "Data set has been terminated due to
-   * unrecoverable proving failure" when the dataset is marked terminated.
-   *
-   * Returns `false` only on `409` paired with that body text. The body
-   * substring is a guard against blast radius: if a future Curio reuses `409`
-   * for a non-terminal conflict, the probe stays conservative rather than
-   * triggering destructive repair. Any other response (including a `409` with
-   * a different body, `400` for empty pieces, `404`, `5xx`, and network
-   * errors) is treated as live.
-   */
-  protected async probeSpHttpDataSetLive(
-    providerAddress: string,
-    dataSetId: bigint,
-    signal?: AbortSignal,
-  ): Promise<boolean> {
-    signal?.throwIfAborted();
-    const providerInfo = this.walletSdkService.getProviderInfo(providerAddress);
-    if (!providerInfo) {
-      throw new Error(`Provider ${providerAddress} not found in registry`);
-    }
-    const serviceURL = providerInfo.pdp?.serviceURL;
-    if (!serviceURL) {
-      throw new Error(`Provider ${providerAddress} has no PDP serviceURL`);
-    }
-    const url = new URL(`pdp/data-sets/${dataSetId.toString()}/pieces`, serviceURL);
-    const timeoutSignal = AbortSignal.timeout(PDP_LIVENESS_PROBE_TIMEOUT_MS);
-    const probeSignal = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
-    try {
-      const res = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: "{}",
-        signal: probeSignal,
-      });
-      if (res.status !== 409) return true;
-      const body = await res.text();
-      return !/unrecoverable proving failure/i.test(body);
-    } catch (error) {
-      if (signal?.aborted) throw error;
-      this.logger.warn({
-        event: "dataset_sp_liveness_probe_failed",
-        message: "SP HTTP liveness probe failed; treating dataset as live",
-        providerAddress,
-        providerId: providerInfo.id,
-        dataSetId: dataSetId.toString(),
-        serviceURL,
-        error: toStructuredError(error),
-      });
-      return true;
-    }
+    return this.datasetLivenessService.isDataSetLive(providerAddress, dataSetId, signal);
   }
 
   /**
