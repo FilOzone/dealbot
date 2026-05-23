@@ -392,6 +392,7 @@ describe("DealService", () => {
 
         const labels = {
           checkType: "dataStorage",
+          network: "calibration",
           providerId: "42",
           providerName: "Test Provider",
           providerStatus: "approved",
@@ -588,6 +589,7 @@ describe("DealService", () => {
 
       const labels = {
         checkType: "dataStorage",
+        network: "calibration",
         providerId: "7",
         providerName: "Test Provider",
         providerStatus: "unapproved",
@@ -622,6 +624,7 @@ describe("DealService", () => {
 
       const labels = {
         checkType: "dataStorage",
+        network: "calibration",
         providerId: "7",
         providerName: "Test Provider",
         providerStatus: "unapproved",
@@ -911,6 +914,7 @@ describe("DealService", () => {
 
       const labels = {
         checkType: "dataStorage",
+        network: "calibration",
         providerId: "42",
         providerName: "Test Provider",
         providerStatus: "approved",
@@ -960,6 +964,7 @@ describe("DealService", () => {
 
       const labels = {
         checkType: "dataStorage",
+        network: "calibration",
         providerId: "42",
         providerName: "Test Provider",
         providerStatus: "approved",

@@ -43,9 +43,10 @@ export class WalletBalanceCollector implements OnModuleInit {
       this.refreshPromise = (async () => {
         try {
           const { usdfc, fil } = await this.walletSdkService.getWalletBalances();
-          const walletShort = this.configService.get("blockchain").walletAddress.slice(0, 8);
-          this.walletBalanceGauge.set({ currency: "USDFC", wallet: walletShort }, Number(usdfc));
-          this.walletBalanceGauge.set({ currency: "FIL", wallet: walletShort }, Number(fil));
+          const { network, walletAddress } = this.configService.get("blockchain", { infer: true });
+          const walletShort = walletAddress.slice(0, 8);
+          this.walletBalanceGauge.set({ currency: "USDFC", wallet: walletShort, network }, Number(usdfc));
+          this.walletBalanceGauge.set({ currency: "FIL", wallet: walletShort, network }, Number(fil));
           this.cachedAt = Date.now();
         } catch (error) {
           this.logger.warn({
