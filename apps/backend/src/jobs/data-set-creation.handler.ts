@@ -1,5 +1,6 @@
 import type { Logger } from "@nestjs/common";
 import type { DataSetLogContext, ProviderJobContext } from "../common/logging.js";
+import { Network } from "../common/types.js";
 import type { DealService } from "../deal/deal.service.js";
 
 export interface DataSetCreationDeps {
@@ -23,6 +24,7 @@ export interface DataSetCreationDeps {
 export async function provisionNextMissingDataSet(
   deps: DataSetCreationDeps,
   spAddress: string,
+  network: Network,
   minDataSets: number,
   baseDataSetMetadata: Record<string, string>,
   dataSetLogContext: ProviderJobContext,
@@ -45,7 +47,7 @@ export async function provisionNextMissingDataSet(
       dataSetIndex: i,
     };
 
-    const status = await dealService.getDataSetProvisioningStatus(spAddress, metadata, signal);
+    const status = await dealService.getDataSetProvisioningStatus(spAddress, metadata, network, signal);
 
     if (status.status === "live") {
       existingCount++;
@@ -59,7 +61,7 @@ export async function provisionNextMissingDataSet(
         message: "Detected PDP-terminated dataset; running repair",
         dataSetId: status.dataSetId.toString(),
       });
-      const result = await dealService.repairTerminatedDataSet(spAddress, status.dataSetId, signal);
+      const result = await dealService.repairTerminatedDataSet(spAddress, status.dataSetId, network, signal);
       logger.log({
         ...logContext,
         event: "data_set_repair_completed",
@@ -75,7 +77,7 @@ export async function provisionNextMissingDataSet(
       event: "creating_provisioned_data_set",
       message: "Creating provisioned data-set",
     });
-    await dealService.createDataSetWithPiece(spAddress, metadata, signal);
+    await dealService.createDataSetWithPiece(spAddress, metadata, network, signal);
     logger.log({
       ...logContext,
       event: "data_set_provisioning_progress",
