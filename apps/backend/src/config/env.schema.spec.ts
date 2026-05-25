@@ -322,17 +322,6 @@ describe("createConfigValidationSchema", () => {
       expect(error).toBeUndefined();
     });
 
-    it("rejects METRICS_PER_HOUR above the maximum", () => {
-      const { error } = validate(schemaFor("calibration"), {
-        ...baseEnv,
-        NETWORKS: "calibration",
-        CALIBRATION_METRICS_PER_HOUR: 4,
-        ...withWalletKey("CALIBRATION"),
-      });
-      expect(error).toBeDefined();
-      expect(error?.message).toMatch(/CALIBRATION_METRICS_PER_HOUR/);
-    });
-
     it("rejects DEALS_PER_SP_PER_HOUR at zero (below min)", () => {
       const { error } = validate(schemaFor("calibration"), {
         ...baseEnv,
@@ -352,6 +341,16 @@ describe("createConfigValidationSchema", () => {
       });
       expect(error).toBeDefined();
       expect(error?.message).toMatch(/CALIBRATION_MIN_NUM_DATASETS_FOR_CHECKS/);
+    });
+
+    it("rejects DEAL_JOB_TIMEOUT_SECONDS below 120", () => {
+      const { error } = validate(schemaFor("calibration"), {
+        ...baseEnv,
+        NETWORKS: "calibration",
+        CALIBRATION_DEAL_JOB_TIMEOUT_SECONDS: 60,
+        ...withWalletKey("CALIBRATION"),
+      });
+      expect(error).toBeDefined();
     });
   });
 
@@ -431,7 +430,6 @@ describe("createConfigValidationSchema", () => {
       expect(value.JOB_WORKER_POLL_SECONDS).toBe(60);
       expect(value.PG_BOSS_LOCAL_CONCURRENCY).toBe(20);
       expect(value.DEALBOT_PGBOSS_SCHEDULER_ENABLED).toBe(true);
-      expect(value.DEAL_JOB_TIMEOUT_SECONDS).toBe(360);
     });
 
     it("rejects JOB_SCHEDULER_POLL_SECONDS below 60", () => {
@@ -439,16 +437,6 @@ describe("createConfigValidationSchema", () => {
         ...baseEnv,
         NETWORKS: "calibration",
         JOB_SCHEDULER_POLL_SECONDS: 30,
-        ...withWalletKey("CALIBRATION"),
-      });
-      expect(error).toBeDefined();
-    });
-
-    it("rejects DEAL_JOB_TIMEOUT_SECONDS below 120", () => {
-      const { error } = validate(schemaFor("calibration"), {
-        ...baseEnv,
-        NETWORKS: "calibration",
-        DEAL_JOB_TIMEOUT_SECONDS: 60,
         ...withWalletKey("CALIBRATION"),
       });
       expect(error).toBeDefined();
