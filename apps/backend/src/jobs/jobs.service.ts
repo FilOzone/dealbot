@@ -766,7 +766,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         return "success";
       }
       try {
-        await this.pullCheckService.runPullCheck(spAddress, abortController.signal, logContext);
+        await this.pullCheckService.runPullCheck(spAddress, network, abortController.signal, logContext);
         return "success";
       } catch (error) {
         if (abortController.signal.aborted) {

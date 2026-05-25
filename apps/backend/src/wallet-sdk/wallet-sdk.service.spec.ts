@@ -39,13 +39,7 @@ const baseNetworkConfig = {
   pullCheckJobTimeoutSeconds: 300,
   pullCheckPollIntervalSeconds: 2,
   pullCheckPieceSizeBytes: 10 * 1024 * 1024, // 10 MiB
-  pullPieceMaxConcurrentStreams: 50,
-  pullPieceMaxStreamsPerCid: 3,
   pullPieceCleanupIntervalSeconds: 7 * 24 * 3600, // 7 days
-  clickhouseUrl: "http://localhost:8123",
-  clickhouseBatchSize: 500,
-  clickhouseFlushIntervalMs: 5000,
-  clickhouseMaxBufferSize: 5000,
 } satisfies IConfig["networks"]["calibration"];
 
 const makeProvider = (overrides: Partial<PDPProviderEx>): PDPProviderEx =>

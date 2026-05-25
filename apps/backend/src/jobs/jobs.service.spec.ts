@@ -146,13 +146,7 @@ describe("JobsService schedule rows", () => {
       pullCheckJobTimeoutSeconds: 300,
       pullCheckPollIntervalSeconds: 2,
       pullCheckPieceSizeBytes: 10 * 1024 * 1024,
-      pullPieceMaxConcurrentStreams: 50,
-      pullPieceMaxStreamsPerCid: 3,
       pullPieceCleanupIntervalSeconds: 7 * 24 * 3600,
-      clickhouseUrl: "http://localhost:8123",
-      clickhouseBatchSize: 500,
-      clickhouseFlushIntervalMs: 5000,
-      clickhouseMaxBufferSize: 5000,
     } satisfies IConfig["networks"]["calibration"];
 
     baseConfigValues = {
