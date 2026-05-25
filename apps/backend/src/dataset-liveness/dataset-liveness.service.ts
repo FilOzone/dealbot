@@ -3,7 +3,7 @@ import { Injectable, Logger } from "@nestjs/common";
 import { readContract } from "viem/actions";
 import { awaitWithAbort } from "../common/abort-utils.js";
 import { toStructuredError } from "../common/logging.js";
-import { Network } from "../common/types.js";
+import type { Network } from "../common/types.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
 
 const PDP_LIVENESS_PROBE_TIMEOUT_MS = 10_000;

@@ -119,18 +119,6 @@ export type BaseNetworkConfig = {
    */
   pullCheckPieceSizeBytes: number;
   /**
-   * Maximum number of concurrent piece streams across all pieceCids.
-   *
-   * Prevents DoS by limiting total server-wide streaming load.
-   */
-  pullPieceMaxConcurrentStreams: number;
-  /**
-   * Maximum number of concurrent streams per pieceCid.
-   *
-   * Prevents attackers from opening many connections to the same piece.
-   */
-  pullPieceMaxStreamsPerCid: number;
-  /**
    * How often (seconds) the global `pull_piece_cleanup` job runs to delete
    * expired `pull_pieces` rows (those whose `expires_at` is in the past).
    *
@@ -216,6 +204,21 @@ export interface IJobsConfig {
   shutdownFinalScrapeDelaySeconds: number;
 }
 
+export interface IPullPieceConfig {
+  /**
+   * Maximum number of concurrent piece streams across all pieceCids.
+   *
+   * Prevents DoS by limiting total server-wide streaming load.
+   */
+  maxConcurrentStreams: number;
+  /**
+   * Maximum number of concurrent streams per pieceCid.
+   *
+   * Prevents attackers from opening many connections to the same piece.
+   */
+  maxStreamsPerCid: number;
+}
+
 export interface IDatasetConfig {
   localDatasetsPath: string;
   randomDatasetSizes: number[];
@@ -239,6 +242,7 @@ export interface IConfig {
   networks: INetworksConfig;
   activeNetworks: Network[];
   jobs: IJobsConfig;
+  pullPiece: IPullPieceConfig;
   dataset: IDatasetConfig;
   timeouts: ITimeoutConfig;
   retrieval: IRetrievalConfig;
@@ -268,8 +272,6 @@ export type NetworkDefaults = Pick<
   | "pullCheckJobTimeoutSeconds"
   | "pullCheckPollIntervalSeconds"
   | "pullCheckPieceSizeBytes"
-  | "pullPieceMaxConcurrentStreams"
-  | "pullPieceMaxStreamsPerCid"
   | "pullPieceCleanupIntervalSeconds"
   | "clickhouseBatchSize"
   | "clickhouseFlushIntervalMs"

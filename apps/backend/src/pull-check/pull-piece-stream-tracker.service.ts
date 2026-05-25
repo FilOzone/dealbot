@@ -1,7 +1,7 @@
 import type { Readable } from "node:stream";
 import { Injectable, Logger, ServiceUnavailableException } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import type { IConfig, IPullPieceConfig } from "../config/app.config.js";
+import type { IConfig, IPullPieceConfig } from "../config/index.js";
 
 /**
  * Tracks active pull-piece streams to enforce global and per-pieceCid concurrency limits.
@@ -154,6 +154,6 @@ export class PullPieceStreamTracker {
   }
 
   private getPullPieceConfig(): IPullPieceConfig {
-    return this.configService.get<IPullPieceConfig>("pullPiece", { infer: true });
+    return this.configService.get("pullPiece", { infer: true });
   }
 }

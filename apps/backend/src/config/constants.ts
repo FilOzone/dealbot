@@ -28,8 +28,6 @@ export const networkDefaults = {
   pullCheckJobTimeoutSeconds: 300,
   pullCheckPollIntervalSeconds: 2,
   pullCheckPieceSizeBytes: 10 * 1024 * 1024, // 10 MiB
-  pullPieceMaxConcurrentStreams: 50,
-  pullPieceMaxStreamsPerCid: 3,
   pullPieceCleanupIntervalSeconds: 7 * 24 * 3600, // 7 days
 
   clickhouseBatchSize: 500,

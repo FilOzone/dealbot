@@ -101,6 +101,11 @@ export const jobsEnvSchema = {
   SHUTDOWN_FINAL_SCRAPE_DELAY_SECONDS: Joi.number().min(0).max(300).default(35),
 };
 
+export const pullPieceEnvSchema = {
+  PULL_PIECE_MAX_CONCURRENT_STREAMS: Joi.number().integer().min(1).default(50),
+  PULL_PIECE_MAX_STREAMS_PER_CID: Joi.number().integer().min(1).default(3),
+};
+
 export const datasetEnvSchema = {
   DEALBOT_LOCAL_DATASETS_PATH: Joi.string().default(DEFAULT_LOCAL_DATASETS_PATH),
   RANDOM_PIECE_SIZES: Joi.string().default("10485760"),
@@ -185,8 +190,6 @@ export const createPerNetworkEnvSchema = (prefix: Uppercase<Network> | "") => {
       .integer()
       .min(1024)
       .default(10 * 1024 * 1024),
-    [k("PULL_PIECE_MAX_CONCURRENT_STREAMS")]: Joi.number().integer().min(1).default(50),
-    [k("PULL_PIECE_MAX_STREAMS_PER_CID")]: Joi.number().integer().min(1).default(3),
     [k("PULL_PIECE_CLEANUP_INTERVAL_SECONDS")]: Joi.number()
       .integer()
       .min(3600)
@@ -215,6 +218,7 @@ export function createConfigValidationSchema(processEnv: NodeJS.ProcessEnv = pro
     ...databaseEnvSchema,
     ...globalNetworkEnvSchema,
     ...jobsEnvSchema,
+    ...pullPieceEnvSchema,
     ...datasetEnvSchema,
     ...timeoutEnvSchema,
     ...retrievalEnvSchema,

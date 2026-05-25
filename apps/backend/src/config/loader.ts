@@ -26,6 +26,7 @@ import type {
   IDatasetConfig,
   IJobsConfig,
   INetworkConfig,
+  IPullPieceConfig,
   IRetrievalConfig,
   ITimeoutConfig,
 } from "./types.js";
@@ -71,6 +72,11 @@ const loadJobsConfig = (env: NodeJS.ProcessEnv): IJobsConfig => ({
   schedulePhaseSeconds: getNumberEnv(env, "JOB_SCHEDULE_PHASE_SECONDS", 0),
   enqueueJitterSeconds: getNumberEnv(env, "JOB_ENQUEUE_JITTER_SECONDS", 0),
   shutdownFinalScrapeDelaySeconds: getNumberEnv(env, "SHUTDOWN_FINAL_SCRAPE_DELAY_SECONDS", 35),
+});
+
+const loadPullPieceConfig = (env: NodeJS.ProcessEnv): IPullPieceConfig => ({
+  maxConcurrentStreams: getNumberEnv(env, "PULL_PIECE_MAX_CONCURRENT_STREAMS", 5),
+  maxStreamsPerCid: getNumberEnv(env, "PULL_PIECE_MAX_STREAMS_PER_CID", 3),
 });
 
 const loadDatasetConfig = (env: NodeJS.ProcessEnv): IDatasetConfig => ({
@@ -199,16 +205,6 @@ function loadNetworkEnvPrefix(
       networkDefaults.pullCheckPollIntervalSeconds,
     ),
     pullCheckPieceSizeBytes: getNumberEnv(env, "PULL_CHECK_PIECE_SIZE_BYTES", networkDefaults.pullCheckPieceSizeBytes),
-    pullPieceMaxConcurrentStreams: getNumberEnv(
-      env,
-      "PULL_PIECE_MAX_CONCURRENT_STREAMS",
-      networkDefaults.pullPieceMaxConcurrentStreams,
-    ),
-    pullPieceMaxStreamsPerCid: getNumberEnv(
-      env,
-      "PULL_PIECE_MAX_STREAMS_PER_CID",
-      networkDefaults.pullPieceMaxStreamsPerCid,
-    ),
     pullPieceCleanupIntervalSeconds: getNumberEnv(
       env,
       "PULL_PIECE_CLEANUP_INTERVAL_SECONDS",
@@ -258,6 +254,7 @@ export function loadConfig(): IConfig {
     database: loadDatabaseConfig(process.env),
     ...loadNetworkConfigs(process.env),
     jobs: loadJobsConfig(process.env),
+    pullPiece: loadPullPieceConfig(process.env),
     dataset: loadDatasetConfig(process.env),
     timeouts: loadTimeoutConfig(process.env),
     retrieval: loadRetrievalConfig(process.env),
