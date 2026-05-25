@@ -4,6 +4,9 @@ export class StorageProviderDto {
   @ApiProperty({ description: "Storage provider address", example: "f01234" })
   address!: string;
 
+  @ApiProperty({ description: "Network this provider belongs to", enum: ["calibration", "mainnet"] })
+  network!: string;
+
   @ApiPropertyOptional({ description: "On-chain provider ID", type: String })
   providerId?: string;
 

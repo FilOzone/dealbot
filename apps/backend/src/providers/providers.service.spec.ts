@@ -22,7 +22,20 @@ describe("ProvidersService", () => {
     };
 
     configService = {
-      get: vi.fn().mockReturnValue({ ids: new Set(["123"]), addresses: new Set(["f0123"]) }),
+      get: vi.fn().mockImplementation((key: string) => {
+        if (key === "networks") {
+          return {
+            calibration: {
+              blockedSpIds: new Set(["123"]),
+              blockedSpAddresses: new Set(["f0123"]),
+            },
+          };
+        }
+        if (key === "activeNetworks") {
+          return ["calibration"];
+        }
+        return undefined;
+      }),
     };
 
     const module = await Test.createTestingModule({
@@ -36,19 +49,20 @@ describe("ProvidersService", () => {
     service = module.get<ProvidersService>(ProvidersService);
   });
 
-  it("getProvidersList applies blocklist filters", async () => {
+  it("getProvidersList applies per-network blocklist filters", async () => {
     const queryBuilder = repo.createQueryBuilder();
     repo.createQueryBuilder.mockReturnValue(queryBuilder);
 
     await service.getProvidersList();
 
     expect(queryBuilder.andWhere).toHaveBeenCalledWith(
-      '("sp"."providerId" IS NULL OR "sp"."providerId" NOT IN (:...blockedIds))',
-      { blockedIds: [123n] },
+      '("sp"."providerId" IS NULL OR NOT ("sp"."network" = :network_calibration AND "sp"."providerId" IN (:...blockedIds_calibration)))',
+      { network_calibration: "calibration", blockedIds_calibration: [123n] },
     );
-    expect(queryBuilder.andWhere).toHaveBeenCalledWith('LOWER("sp"."address") NOT IN (:...blockedAddresses)', {
-      blockedAddresses: ["f0123"],
-    });
+    expect(queryBuilder.andWhere).toHaveBeenCalledWith(
+      'NOT ("sp"."network" = :network_calibration AND LOWER("sp"."address") IN (:...blockedAddresses_calibration))',
+      { network_calibration: "calibration", blockedAddresses_calibration: ["f0123"] },
+    );
   });
 
   it("getProvidersList preserves providers with null providerId when applying blocklist filters", async () => {
@@ -58,13 +72,12 @@ describe("ProvidersService", () => {
     await service.getProvidersList();
 
     const providerIdFilterCall = queryBuilder.andWhere.mock.calls.find(
-      ([clause]: [string, { blockedIds?: bigint[] }]) =>
-        typeof clause === "string" && clause.includes('"sp"."providerId"'),
+      ([clause]: [string]) => typeof clause === "string" && clause.includes('"sp"."providerId"'),
     );
 
     expect(providerIdFilterCall).toBeDefined();
     expect(providerIdFilterCall?.[0]).toContain('("sp"."providerId" IS NULL');
-    expect(providerIdFilterCall?.[0]).toContain('"sp"."providerId" NOT IN');
-    expect(providerIdFilterCall?.[1]).toEqual({ blockedIds: [123n] });
+    expect(providerIdFilterCall?.[0]).toContain('"sp"."providerId" IN');
+    expect(providerIdFilterCall?.[1]).toMatchObject({ blockedIds_calibration: [123n] });
   });
 });

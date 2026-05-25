@@ -1,5 +1,7 @@
-import { Controller, DefaultValuePipe, Get, Logger, ParseIntPipe, Query } from "@nestjs/common";
+import { BadRequestException, Controller, DefaultValuePipe, Get, Logger, ParseIntPipe, Query } from "@nestjs/common";
 import { ApiOperation, ApiQuery, ApiResponse, ApiTags } from "@nestjs/swagger";
+import { SUPPORTED_NETWORKS } from "../common/constants.js";
+import type { Network } from "../common/types.js";
 import { ProviderListResponseDto } from "./dto/provider-list-response.dto.js";
 import { ProvidersService } from "./providers.service.js";
 
@@ -33,6 +35,12 @@ export class ProvidersController {
     type: Number,
     description: "Pagination offset (default: 0)",
   })
+  @ApiQuery({
+    name: "network",
+    required: false,
+    enum: SUPPORTED_NETWORKS,
+    description: "Filter by network. When omitted, providers from all active networks are returned.",
+  })
   @ApiResponse({
     status: 200,
     description: "List of providers",
@@ -41,12 +49,18 @@ export class ProvidersController {
   async listProviders(
     @Query("limit", new DefaultValuePipe(20), ParseIntPipe) limit?: number,
     @Query("offset", new DefaultValuePipe(0), ParseIntPipe) offset?: number,
+    @Query("network") network?: string,
   ): Promise<ProviderListResponseDto> {
-    this.logger.debug(`Listing providers: limit=${limit}, offset=${offset}`);
+    if (network !== undefined && !(SUPPORTED_NETWORKS as readonly string[]).includes(network)) {
+      throw new BadRequestException(`Invalid network "${network}". Must be one of: ${SUPPORTED_NETWORKS.join(", ")}`);
+    }
+
+    this.logger.debug(`Listing providers: limit=${limit}, offset=${offset}, network=${network ?? "all"}`);
 
     const { providers, total } = await this.providersService.getProvidersList({
       limit,
       offset,
+      network: network as Network | undefined,
     });
 
     return {
