@@ -8,6 +8,7 @@ import { generatePrivateKey } from "viem/accounts";
 import { afterEach, beforeEach, describe, expect, it, Mock, vi } from "vitest";
 import { ClickhouseService } from "../clickhouse/clickhouse.service.js";
 import { DealJobTerminatedDataSetError } from "../common/errors.js";
+import { IConfig } from "../config/index.js";
 import { Deal } from "../database/entities/deal.entity.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
 import { DealStatus, IpniStatus } from "../database/types.js";
@@ -24,6 +25,22 @@ import { RetrievalAddonsService } from "../retrieval-addons/retrieval-addons.ser
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
 import type { PDPProviderEx } from "../wallet-sdk/wallet-sdk.types.js";
 import { DealService } from "./deal.service.js";
+
+const DEFAULT_NETWORK = "calibration";
+
+const calibDefaults = {
+  walletPrivateKey: generatePrivateKey(),
+  network: DEFAULT_NETWORK,
+  walletAddress: "0x123",
+  checkDatasetCreationFees: false,
+  useOnlyApprovedProviders: false,
+  minNumDataSetsForChecks: 1,
+  dealsPerSpPerHour: 4,
+  retrievalsPerSpPerHour: 2,
+  dataSetCreationsPerSpPerHour: 1,
+  dataRetentionPollIntervalSeconds: 3600,
+  providersRefreshIntervalSeconds: 14400,
+};
 
 vi.mock("@filoz/synapse-sdk", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@filoz/synapse-sdk")>();
@@ -98,20 +115,12 @@ describe("DealService", () => {
 
   const mockConfigService = {
     get: vi.fn().mockImplementation((key: string) => {
-      if (key === "scheduling") {
-        return {
-          dealIntervalSeconds: 30,
-          dealStartOffsetSeconds: 0,
-          retrievalIntervalSeconds: 60,
-          retrievalStartOffsetSeconds: 600,
-          metricsStartOffsetSeconds: 900,
-        };
+      if (key === "activeNetworks") {
+        return [DEFAULT_NETWORK];
       }
-      if (key === "blockchain") {
+      if (key === "networks") {
         return {
-          walletPrivateKey: generatePrivateKey(),
-          network: "calibration",
-          walletAddress: "0x123",
+          calibration: calibDefaults,
         };
       }
       return undefined;
@@ -135,6 +144,13 @@ describe("DealService", () => {
     getWalletServices: vi.fn().mockReturnValue({
       paymentsService: {},
       warmStorageService: mockWarmStorageService,
+    }),
+    getSynapse: vi.fn().mockReturnValue({
+      storage: {
+        createContext: vi.fn().mockResolvedValue({
+          deletePiece: vi.fn(),
+        }),
+      },
     }),
   };
 
@@ -293,6 +309,7 @@ describe("DealService", () => {
         mockProviderInfo,
         mockDealInput,
         uploadPayload,
+        DEFAULT_NETWORK,
       )) as Deal;
 
       expect(createContextMock).toHaveBeenCalledWith(
@@ -388,11 +405,12 @@ describe("DealService", () => {
           providerInfo,
           mockDealInput,
           uploadPayload,
+          DEFAULT_NETWORK,
         )) as Deal;
 
         const labels = {
           checkType: "dataStorage",
-          network: "calibration",
+          network: DEFAULT_NETWORK,
           providerId: "42",
           providerName: "Test Provider",
           providerStatus: "approved",
@@ -454,7 +472,7 @@ describe("DealService", () => {
       });
 
       await expect(
-        service.createDeal(mockSynapseInstance, mockProviderInfo, mockDealInput, uploadPayload),
+        service.createDeal(mockSynapseInstance, mockProviderInfo, mockDealInput, uploadPayload, DEFAULT_NETWORK),
       ).rejects.toThrow("Dealbot did not receive onProgress events during upload");
 
       expect(mockDataStorageMetrics.observeIngestMs).not.toHaveBeenCalled();
@@ -499,6 +517,7 @@ describe("DealService", () => {
           mockProviderInfo,
           mockDealInput,
           uploadPayload,
+          DEFAULT_NETWORK,
         )) as Deal;
 
         expect(deal.ingestLatencyMs).toBeNull();
@@ -556,6 +575,7 @@ describe("DealService", () => {
           mockProviderInfo,
           zeroSizeDealInput,
           uploadPayload,
+          DEFAULT_NETWORK,
         )) as Deal;
 
         expect(deal.ingestLatencyMs).toBe(1000);
@@ -583,13 +603,13 @@ describe("DealService", () => {
 
       (executeUpload as Mock).mockRejectedValue(new Error("timed out waiting for upload"));
 
-      await expect(service.createDeal(mockSynapseInstance, providerInfo, mockDealInput, uploadPayload)).rejects.toThrow(
-        "timed out",
-      );
+      await expect(
+        service.createDeal(mockSynapseInstance, providerInfo, mockDealInput, uploadPayload, DEFAULT_NETWORK),
+      ).rejects.toThrow("timed out");
 
       const labels = {
         checkType: "dataStorage",
-        network: "calibration",
+        network: DEFAULT_NETWORK,
         providerId: "7",
         providerName: "Test Provider",
         providerStatus: "unapproved",
@@ -618,13 +638,13 @@ describe("DealService", () => {
 
       (executeUpload as Mock).mockRejectedValue(new Error("connection refused"));
 
-      await expect(service.createDeal(mockSynapseInstance, providerInfo, mockDealInput, uploadPayload)).rejects.toThrow(
-        "connection refused",
-      );
+      await expect(
+        service.createDeal(mockSynapseInstance, providerInfo, mockDealInput, uploadPayload, DEFAULT_NETWORK),
+      ).rejects.toThrow("connection refused");
 
       const labels = {
         checkType: "dataStorage",
-        network: "calibration",
+        network: DEFAULT_NETWORK,
         providerId: "7",
         providerName: "Test Provider",
         providerStatus: "unapproved",
@@ -675,6 +695,7 @@ describe("DealService", () => {
             mockProviderInfo,
             mockDealInput,
             uploadPayload,
+            DEFAULT_NETWORK,
             undefined,
             abortController.signal,
           ),
@@ -707,7 +728,7 @@ describe("DealService", () => {
       (executeUpload as Mock).mockRejectedValue(error);
 
       await expect(
-        service.createDeal(mockSynapseInstance, mockProviderInfo, mockDealInput, uploadPayload),
+        service.createDeal(mockSynapseInstance, mockProviderInfo, mockDealInput, uploadPayload, DEFAULT_NETWORK),
       ).rejects.toThrow("Upload failed");
 
       expect(mockDeal.status).toBe(DealStatus.FAILED);
@@ -725,7 +746,7 @@ describe("DealService", () => {
       createContextMock.mockRejectedValue(error);
 
       await expect(
-        service.createDeal(mockSynapseInstance, mockProviderInfo, mockDealInput, uploadPayload),
+        service.createDeal(mockSynapseInstance, mockProviderInfo, mockDealInput, uploadPayload, DEFAULT_NETWORK),
       ).rejects.toThrow("Storage creation failed");
 
       expect(mockDeal.status).toBe(DealStatus.FAILED);
@@ -743,7 +764,7 @@ describe("DealService", () => {
       createContextMock.mockRejectedValue(error);
 
       await expect(
-        service.createDeal(mockSynapseInstance, mockProviderInfo, mockDealInput, uploadPayload),
+        service.createDeal(mockSynapseInstance, mockProviderInfo, mockDealInput, uploadPayload, DEFAULT_NETWORK),
       ).rejects.toThrow("secret-token");
 
       expect(mockDeal.status).toBe(DealStatus.FAILED);
@@ -767,6 +788,7 @@ describe("DealService", () => {
           mockProviderInfo,
           mockDealInput,
           uploadPayload,
+          DEFAULT_NETWORK,
           undefined,
           abortController.signal,
         ),
@@ -801,7 +823,7 @@ describe("DealService", () => {
       dealAddonsMock.handleStored.mockRejectedValueOnce(ipniError);
 
       await expect(
-        service.createDeal(mockSynapseInstance, mockProviderInfo, mockDealInput, uploadPayload),
+        service.createDeal(mockSynapseInstance, mockProviderInfo, mockDealInput, uploadPayload, DEFAULT_NETWORK),
       ).rejects.toThrow("IPNI verification failed");
 
       expect(mockDeal.status).toBe(DealStatus.FAILED);
@@ -839,7 +861,7 @@ describe("DealService", () => {
       });
 
       await expect(
-        service.createDeal(mockSynapseInstance, mockProviderInfo, mockDealInput, uploadPayload),
+        service.createDeal(mockSynapseInstance, mockProviderInfo, mockDealInput, uploadPayload, DEFAULT_NETWORK),
       ).rejects.toBe(commitError);
 
       expect(capturedAddonSignal?.aborted).toBe(true);
@@ -877,7 +899,7 @@ describe("DealService", () => {
       });
 
       await expect(
-        service.createDeal(mockSynapseInstance, mockProviderInfo, mockDealInput, uploadPayload),
+        service.createDeal(mockSynapseInstance, mockProviderInfo, mockDealInput, uploadPayload, DEFAULT_NETWORK),
       ).rejects.toThrow("Retrieval gate failed");
 
       expect(mockDeal.status).toBe(DealStatus.FAILED);
@@ -909,12 +931,12 @@ describe("DealService", () => {
       );
 
       await expect(
-        service.createDeal(mockSynapseInstance, mockProviderInfo, mockDealInput, uploadPayload),
+        service.createDeal(mockSynapseInstance, mockProviderInfo, mockDealInput, uploadPayload, DEFAULT_NETWORK),
       ).rejects.toThrow("timed out");
 
       const labels = {
         checkType: "dataStorage",
-        network: "calibration",
+        network: DEFAULT_NETWORK,
         providerId: "42",
         providerName: "Test Provider",
         providerStatus: "approved",
@@ -959,12 +981,12 @@ describe("DealService", () => {
       retrievalAddonsMock.testAllRetrievalMethods.mockRejectedValue(new Error("retrieval timed out"));
 
       await expect(
-        service.createDeal(mockSynapseInstance, mockProviderInfo, mockDealInput, uploadPayload),
+        service.createDeal(mockSynapseInstance, mockProviderInfo, mockDealInput, uploadPayload, DEFAULT_NETWORK),
       ).rejects.toThrow("retrieval timed out");
 
       const labels = {
         checkType: "dataStorage",
-        network: "calibration",
+        network: DEFAULT_NETWORK,
         providerId: "42",
         providerName: "Test Provider",
         providerStatus: "approved",
@@ -1013,6 +1035,7 @@ describe("DealService", () => {
         mockProviderInfo,
         mockDealInput,
         uploadPayload,
+        DEFAULT_NETWORK,
       )) as Deal;
 
       expect(deal.dealLatencyMs).toBeGreaterThanOrEqual(0);
@@ -1053,11 +1076,24 @@ describe("DealService", () => {
       });
 
       const createServiceWithVersion = async (dealbotDataSetVersion: string | undefined) => {
-        mockConfigService.get.mockReturnValue({
+        const versionNetworkConfig = {
           walletPrivateKey: generatePrivateKey(),
           network: "calibration",
           walletAddress: "0x123",
+          checkDatasetCreationFees: false,
+          useOnlyApprovedProviders: false,
+          minNumDataSetsForChecks: 1,
+          dealsPerSpPerHour: 4,
+          retrievalsPerSpPerHour: 2,
+          dataSetCreationsPerSpPerHour: 1,
+          dataRetentionPollIntervalSeconds: 3600,
+          providersRefreshIntervalSeconds: 14400,
           dealbotDataSetVersion,
+        };
+        mockConfigService.get.mockImplementation((key: string) => {
+          if (key === "activeNetworks") return ["calibration"];
+          if (key === "networks") return { calibration: versionNetworkConfig };
+          return undefined;
         });
 
         const module: TestingModule = await Test.createTestingModule({
@@ -1090,7 +1126,13 @@ describe("DealService", () => {
           carData: Uint8Array.from([1, 2, 3]),
           rootCid: CID.parse(mockRootCid),
         };
-        await testService.createDeal(mockSynapseInstance, mockProviderInfo, dealInputWithMetadata, uploadPayload);
+        await testService.createDeal(
+          mockSynapseInstance,
+          mockProviderInfo,
+          dealInputWithMetadata,
+          uploadPayload,
+          DEFAULT_NETWORK,
+        );
 
         expect(createContextMock).toHaveBeenCalledWith({
           providerId: 101n,
@@ -1107,7 +1149,13 @@ describe("DealService", () => {
           carData: Uint8Array.from([1, 2, 3]),
           rootCid: CID.parse(mockRootCid),
         };
-        await testService.createDeal(mockSynapseInstance, mockProviderInfo, dealInputWithMetadata, uploadPayload);
+        await testService.createDeal(
+          mockSynapseInstance,
+          mockProviderInfo,
+          dealInputWithMetadata,
+          uploadPayload,
+          DEFAULT_NETWORK,
+        );
 
         expect(createContextMock).toHaveBeenCalledWith({
           providerId: 101n,
@@ -1123,7 +1171,13 @@ describe("DealService", () => {
           carData: Uint8Array.from([1, 2, 3]),
           rootCid: CID.parse(mockRootCid),
         };
-        await testService.createDeal(mockSynapseInstance, mockProviderInfo, dealInputWithMetadata, uploadPayload);
+        await testService.createDeal(
+          mockSynapseInstance,
+          mockProviderInfo,
+          dealInputWithMetadata,
+          uploadPayload,
+          DEFAULT_NETWORK,
+        );
 
         expect(createContextMock).toHaveBeenCalledWith({
           providerId: 101n,
@@ -1152,7 +1206,13 @@ describe("DealService", () => {
           },
         };
 
-        await testService.createDeal(mockSynapseInstance, mockProviderInfo, dealInputWithConflict, uploadPayload);
+        await testService.createDeal(
+          mockSynapseInstance,
+          mockProviderInfo,
+          dealInputWithConflict,
+          uploadPayload,
+          DEFAULT_NETWORK,
+        );
 
         // Verify config value overwrites dealInput value
         expect(createContextMock).toHaveBeenCalledWith({
@@ -1197,6 +1257,7 @@ describe("DealService", () => {
         mockProviderInfo,
         mockDealInput,
         uploadPayload,
+        DEFAULT_NETWORK,
       )) as Deal;
 
       // Verify that pieceId from piecesConfirmed (123) is preserved and not overwritten by undefined
@@ -1239,7 +1300,7 @@ describe("DealService", () => {
       };
       vi.spyOn(service as any, "createSynapseInstance").mockImplementation(() => synapseMock as unknown as Synapse);
 
-      const result = await service.getDataSetProvisioningStatus("0xprovider", { dealbotDS: "1" });
+      const result = await service.getDataSetProvisioningStatus("0xprovider", { dealbotDS: "1" }, DEFAULT_NETWORK);
       expect(result).toEqual({ status: "missing" });
     });
 
@@ -1249,10 +1310,10 @@ describe("DealService", () => {
           createContext: vi.fn().mockResolvedValue({ dataSetId: 7n }),
         },
       };
-      vi.spyOn(service as any, "createSynapseInstance").mockImplementation(() => synapseMock as unknown as Synapse);
+      mockWalletSdkService.getSynapse.mockReturnValue(synapseMock as unknown as Synapse);
       mockWarmStorageService.validateDataSet.mockResolvedValueOnce(undefined);
 
-      const result = await service.getDataSetProvisioningStatus("0xprovider", { dealbotDS: "1" });
+      const result = await service.getDataSetProvisioningStatus("0xprovider", { dealbotDS: "1" }, DEFAULT_NETWORK);
       expect(result).toEqual({ status: "live", dataSetId: 7n });
     });
 
@@ -1262,10 +1323,10 @@ describe("DealService", () => {
           createContext: vi.fn().mockResolvedValue({ dataSetId: 9n }),
         },
       };
-      vi.spyOn(service as any, "createSynapseInstance").mockImplementation(() => synapseMock as unknown as Synapse);
+      mockWalletSdkService.getSynapse.mockReturnValue(synapseMock as unknown as Synapse);
       mockDatasetLivenessService.isDataSetLive.mockResolvedValueOnce(false);
 
-      const result = await service.getDataSetProvisioningStatus("0xprovider", { dealbotDS: "1" });
+      const result = await service.getDataSetProvisioningStatus("0xprovider", { dealbotDS: "1" }, DEFAULT_NETWORK);
       expect(result).toEqual({ status: "terminated", dataSetId: 9n });
     });
   });
@@ -1305,10 +1366,9 @@ describe("DealService", () => {
     });
 
     it("returns undefined when minDataSets=1 and baseline is live", async () => {
-      (service as any).blockchainConfig.minNumDataSetsForChecks = 1;
       probeSpy.mockResolvedValueOnce({ status: "live", dataSetId: 1n });
 
-      const result = await service.resolveDataSetMetadataForDeal("0xprovider");
+      const result = await service.resolveDataSetMetadataForDeal("0xprovider", DEFAULT_NETWORK);
       expect(result).toBeUndefined();
       expect(probeSpy).toHaveBeenCalledTimes(1);
       const [, metadata] = probeSpy.mock.calls[0] ?? [];
@@ -1316,20 +1376,24 @@ describe("DealService", () => {
     });
 
     it("throws DealJobTerminatedDataSetError when baseline is terminated", async () => {
-      (service as any).blockchainConfig.minNumDataSetsForChecks = 1;
       probeSpy.mockResolvedValueOnce({ status: "terminated", dataSetId: 42n });
 
-      await expect(service.resolveDataSetMetadataForDeal("0xprovider")).rejects.toBeInstanceOf(
+      await expect(service.resolveDataSetMetadataForDeal("0xprovider", DEFAULT_NETWORK)).rejects.toBeInstanceOf(
         DealJobTerminatedDataSetError,
       );
     });
 
     it("uses indexed slot when live; does not probe baseline", async () => {
-      (service as any).blockchainConfig.minNumDataSetsForChecks = 3;
+      mockConfigService.get.mockImplementation((key: keyof IConfig) => {
+        if (key === "networks") {
+          return { calibration: { ...calibDefaults, minNumDataSetsForChecks: 3 } };
+        }
+        return undefined;
+      });
       vi.spyOn(Math, "random").mockReturnValue(0.5); // → index 1
       probeSpy.mockResolvedValueOnce({ status: "live", dataSetId: 7n });
 
-      const result = await service.resolveDataSetMetadataForDeal("0xprovider");
+      const result = await service.resolveDataSetMetadataForDeal("0xprovider", DEFAULT_NETWORK);
       expect(result).toEqual({ dealbotDS: "1" });
       expect(probeSpy).toHaveBeenCalledTimes(1);
       const [, metadata] = probeSpy.mock.calls[0] ?? [];
@@ -1341,17 +1405,27 @@ describe("DealService", () => {
       ["terminated", () => probeSpy.mockResolvedValueOnce({ status: "terminated", dataSetId: 99n })],
       ["probe throws", () => probeSpy.mockRejectedValueOnce(new Error("rpc failure"))],
     ])("falls back to baseline when indexed slot is %s", async (_label, setupIndexedProbe) => {
-      (service as any).blockchainConfig.minNumDataSetsForChecks = 3;
+      mockConfigService.get.mockImplementation((key: keyof IConfig) => {
+        if (key === "networks") {
+          return { calibration: { ...calibDefaults, minNumDataSetsForChecks: 3 } };
+        }
+        return undefined;
+      });
       vi.spyOn(Math, "random").mockReturnValue(0.5);
       setupIndexedProbe();
       probeSpy.mockResolvedValueOnce({ status: "live", dataSetId: 1n });
 
-      const result = await service.resolveDataSetMetadataForDeal("0xprovider");
+      const result = await service.resolveDataSetMetadataForDeal("0xprovider", DEFAULT_NETWORK);
       expect(result).toBeUndefined();
     });
 
     it("propagates abort from indexed probe", async () => {
-      (service as any).blockchainConfig.minNumDataSetsForChecks = 3;
+      mockConfigService.get.mockImplementation((key: keyof IConfig) => {
+        if (key === "networks") {
+          return { calibration: { ...calibDefaults, minNumDataSetsForChecks: 3 } };
+        }
+        return undefined;
+      });
       vi.spyOn(Math, "random").mockReturnValue(0.5);
       const controller = new AbortController();
       probeSpy.mockImplementationOnce(async () => {
@@ -1359,7 +1433,9 @@ describe("DealService", () => {
         throw new Error("aborted");
       });
 
-      await expect(service.resolveDataSetMetadataForDeal("0xprovider", controller.signal)).rejects.toThrow();
+      await expect(
+        service.resolveDataSetMetadataForDeal("0xprovider", DEFAULT_NETWORK, controller.signal),
+      ).rejects.toThrow();
       expect(probeSpy).toHaveBeenCalledTimes(1);
     });
   });
@@ -1376,7 +1452,7 @@ describe("DealService", () => {
         storage: { terminateDataSet: terminateMock },
         client: { waitForTransactionReceipt: waitForReceiptMock },
       };
-      vi.spyOn(service as any, "createSynapseInstance").mockImplementation(() => synapseMock as unknown as Synapse);
+      mockWalletSdkService.getSynapse.mockReturnValue(synapseMock);
 
       mockWarmStorageService.getDataSet.mockResolvedValueOnce({ pdpEndEpoch: 0n });
       mockWarmStorageService.getDataSet.mockResolvedValueOnce({ pdpEndEpoch: 12345n });
@@ -1388,7 +1464,7 @@ describe("DealService", () => {
         value: { transaction: transactionMock },
       });
 
-      const result = await service.repairTerminatedDataSet("0xaaa", 9n, undefined, 5_000);
+      const result = await service.repairTerminatedDataSet("0xaaa", 9n, DEFAULT_NETWORK, undefined, 5_000);
 
       expect(terminateMock).toHaveBeenCalledWith({ dataSetId: 9n });
       expect(waitForReceiptMock).toHaveBeenCalledWith({ hash: "0xhash" });
@@ -1406,8 +1482,7 @@ describe("DealService", () => {
         storage: { terminateDataSet: terminateMock },
         client: { waitForTransactionReceipt: vi.fn() },
       };
-      vi.spyOn(service as any, "createSynapseInstance").mockImplementation(() => synapseMock as unknown as Synapse);
-
+      mockWalletSdkService.getSynapse.mockReturnValue(synapseMock);
       mockWarmStorageService.getDataSet.mockResolvedValueOnce({ pdpEndEpoch: 999n });
 
       const updateFn = vi.fn().mockResolvedValue({ affected: 1 });
@@ -1417,7 +1492,7 @@ describe("DealService", () => {
         value: { transaction: transactionMock },
       });
 
-      const result = await service.repairTerminatedDataSet("0xaaa", 9n, undefined, 5_000);
+      const result = await service.repairTerminatedDataSet("0xaaa", 9n, DEFAULT_NETWORK, undefined, 5_000);
 
       expect(terminateMock).not.toHaveBeenCalled();
       expect(updateFn).toHaveBeenCalled();
@@ -1430,7 +1505,7 @@ describe("DealService", () => {
         storage: { terminateDataSet: terminateMock },
         client: { waitForTransactionReceipt: vi.fn() },
       };
-      vi.spyOn(service as any, "createSynapseInstance").mockImplementation(() => synapseMock as unknown as Synapse);
+      mockWalletSdkService.getSynapse.mockReturnValue(synapseMock);
 
       mockWarmStorageService.getDataSet.mockResolvedValueOnce({ pdpEndEpoch: 0n });
       mockWarmStorageService.getDataSet.mockResolvedValueOnce({ pdpEndEpoch: 7n });
@@ -1442,7 +1517,7 @@ describe("DealService", () => {
         value: { transaction: transactionMock },
       });
 
-      const result = await service.repairTerminatedDataSet("0xaaa", 9n, undefined, 5_000);
+      const result = await service.repairTerminatedDataSet("0xaaa", 9n, DEFAULT_NETWORK, undefined, 5_000);
 
       expect(terminateMock).toHaveBeenCalled();
       expect(updateFn).toHaveBeenCalled();
@@ -1492,9 +1567,9 @@ describe("DealService", () => {
       vi.spyOn(service as any, "createSynapseInstance").mockResolvedValue(synapseMock);
       mockDatasetLivenessService.isDataSetLive.mockResolvedValueOnce(false);
 
-      await expect(service.createDeal(synapseMock, providerInfo, dealInput, uploadPayload)).rejects.toBeInstanceOf(
-        DealJobTerminatedDataSetError,
-      );
+      await expect(
+        service.createDeal(synapseMock, providerInfo, dealInput, uploadPayload, DEFAULT_NETWORK),
+      ).rejects.toBeInstanceOf(DealJobTerminatedDataSetError);
       expect(executeUpload as Mock).not.toHaveBeenCalled();
       expect(mockDataStorageMetrics.recordUploadStatus).not.toHaveBeenCalled();
       expect(mockDataStorageMetrics.recordDataStorageStatus).not.toHaveBeenCalled();
@@ -1504,14 +1579,19 @@ describe("DealService", () => {
 
   describe("getBaseDataSetMetadata", () => {
     it("always includes IPNI metadata key", () => {
-      const metadata = service.getBaseDataSetMetadata();
+      const metadata = service.getBaseDataSetMetadata(DEFAULT_NETWORK);
       expect(metadata).toEqual(expect.objectContaining({ [METADATA_KEYS.WITH_IPFS_INDEXING]: "" }));
     });
 
     it("includes dataset version when configured along with IPNI metadata", () => {
-      (service as any).blockchainConfig.dealbotDataSetVersion = "v1";
+      mockConfigService.get.mockImplementation((key: keyof IConfig) => {
+        if (key === "networks") {
+          return { calibration: { ...calibDefaults, dealbotDataSetVersion: "v1" } };
+        }
+        return undefined;
+      });
 
-      const metadata = service.getBaseDataSetMetadata();
+      const metadata = service.getBaseDataSetMetadata(DEFAULT_NETWORK);
 
       expect(metadata).toEqual({
         [METADATA_KEYS.WITH_IPFS_INDEXING]: "",
@@ -1545,7 +1625,7 @@ describe("DealService", () => {
     it("throws when provider is not found in registry", async () => {
       vi.spyOn(mockWalletSdkService, "getProviderInfo").mockReturnValue(undefined);
 
-      await expect(service.createDataSetWithPiece("0xunknown", { dealbotDS: "1" })).rejects.toThrow(
+      await expect(service.createDataSetWithPiece("0xunknown", { dealbotDS: "1" }, DEFAULT_NETWORK)).rejects.toThrow(
         "Provider 0xunknown not found in registry",
       );
     });
@@ -1557,14 +1637,14 @@ describe("DealService", () => {
       const synapseMock = {
         storage: { createContext: createContextMock },
       } as unknown as Synapse;
-      vi.spyOn(service as any, "createSynapseInstance").mockImplementation(() => synapseMock);
+      mockWalletSdkService.getSynapse.mockReturnValue(synapseMock);
 
       (executeUpload as Mock).mockImplementation(async (_service, _data, _rootCid, options) => {
         await triggerUploadProgress(options?.onProgress);
         return { pieceCid: "bafk-seed", pieceId: 1, transactionHash: "0xhash" };
       });
 
-      await service.createDataSetWithPiece("0xprovider", { dealbotDS: "1" });
+      await service.createDataSetWithPiece("0xprovider", { dealbotDS: "1" }, DEFAULT_NETWORK);
 
       expect(createContextMock).toHaveBeenCalledWith({
         providerId: 101n,
@@ -1596,18 +1676,15 @@ describe("DealService", () => {
     it("does not invoke data-storage-check metrics or Deal persistence", async () => {
       vi.spyOn(mockWalletSdkService, "getProviderInfo").mockReturnValue(mockProviderInfo);
       const createContextMock = vi.fn().mockResolvedValue({ dataSetId: 1 });
-      vi.spyOn(service as any, "createSynapseInstance").mockImplementation(
-        () =>
-          ({
-            storage: { createContext: createContextMock },
-          }) as unknown as Synapse,
-      );
+      mockWalletSdkService.getSynapse.mockReturnValue({
+        storage: { createContext: createContextMock },
+      });
       (executeUpload as Mock).mockImplementation(async (_s, _d, _r, opts) => {
         await triggerUploadProgress(opts?.onProgress);
         return { pieceCid: "bafk-seed" };
       });
 
-      await service.createDataSetWithPiece("0xprovider", {});
+      await service.createDataSetWithPiece("0xprovider", {}, DEFAULT_NETWORK);
 
       expect(mockDataStorageMetrics.observeIngestMs).not.toHaveBeenCalled();
       expect(mockDataStorageMetrics.recordUploadStatus).not.toHaveBeenCalled();
@@ -1618,16 +1695,13 @@ describe("DealService", () => {
 
     it("fails when upload completes without a pieceCid", async () => {
       vi.spyOn(mockWalletSdkService, "getProviderInfo").mockReturnValue(mockProviderInfo);
-      vi.spyOn(service as any, "createSynapseInstance").mockImplementation(
-        () =>
-          ({
-            storage: { createContext: vi.fn().mockResolvedValue({ dataSetId: 1 }) },
-          }) as unknown as Synapse,
-      );
+      mockWalletSdkService.getSynapse.mockReturnValue({
+        storage: { createContext: vi.fn().mockResolvedValue({ dataSetId: 1 }) },
+      });
 
       (executeUpload as Mock).mockResolvedValue({});
 
-      await expect(service.createDataSetWithPiece("0xprovider", {})).rejects.toThrow(
+      await expect(service.createDataSetWithPiece("0xprovider", {}, DEFAULT_NETWORK)).rejects.toThrow(
         "Data-set creation upload completed without producing a pieceCid",
       );
       expect(mockDataSetCreationMetrics.recordStatus).not.toHaveBeenCalledWith(
@@ -1653,7 +1727,7 @@ describe("DealService", () => {
         await opts?.onProgress?.({ type: "stored", data: { pieceCid: "bafk" } });
       });
 
-      await expect(service.createDataSetWithPiece("0xprovider", {})).resolves.toBeUndefined();
+      await expect(service.createDataSetWithPiece("0xprovider", {}, DEFAULT_NETWORK)).resolves.toBeUndefined();
       expect(mockDataSetCreationMetrics.recordStatus).toHaveBeenCalledWith(
         expect.objectContaining({ checkType: "dataSetCreation" }),
         "success",
@@ -1674,7 +1748,7 @@ describe("DealService", () => {
       });
 
       const controller = new AbortController();
-      const resultPromise = service.createDataSetWithPiece("0xprovider", {}, controller.signal);
+      const resultPromise = service.createDataSetWithPiece("0xprovider", {}, DEFAULT_NETWORK, controller.signal);
       controller.abort(new Error("Job aborted"));
 
       await expect(resultPromise).rejects.toThrow("Job aborted");
