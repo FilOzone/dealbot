@@ -376,7 +376,7 @@ export class DealService {
       // pdpEndEpoch=0; createContext returns it and the next add-pieces path
       // would fail. See #379.
       if (storage.dataSetId !== undefined) {
-        const live = await this.isDataSetLive(providerAddress, storage.dataSetId, signal);
+        const live = await this.isDataSetLive(providerAddress, storage.dataSetId, network, signal);
         if (!live) {
           preUploadTerminated = true;
           throw new DealJobTerminatedDataSetError(storage.dataSetId);
@@ -729,7 +729,7 @@ export class DealService {
       return { status: "missing" };
     }
     const dataSetId = context.dataSetId;
-    const isLive = await this.isDataSetLive(providerAddress, dataSetId, signal);
+    const isLive = await this.isDataSetLive(providerAddress, dataSetId, network, signal);
     return isLive ? { status: "live", dataSetId } : { status: "terminated", dataSetId };
   }
 
@@ -738,8 +738,13 @@ export class DealService {
    * probe rationale. Kept on DealService to preserve existing call sites
    * (`getDataSetProvisioningStatus`, `createDeal` post-context guard).
    */
-  async isDataSetLive(providerAddress: string, dataSetId: bigint, signal?: AbortSignal): Promise<boolean> {
-    return this.datasetLivenessService.isDataSetLive(providerAddress, dataSetId, signal);
+  async isDataSetLive(
+    providerAddress: string,
+    dataSetId: bigint,
+    network: Network,
+    signal?: AbortSignal,
+  ): Promise<boolean> {
+    return this.datasetLivenessService.isDataSetLive(providerAddress, dataSetId, network, signal);
   }
 
   /**

@@ -3,6 +3,7 @@ import { Injectable, Logger } from "@nestjs/common";
 import { readContract } from "viem/actions";
 import { awaitWithAbort } from "../common/abort-utils.js";
 import { toStructuredError } from "../common/logging.js";
+import { Network } from "../common/types.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
 
 const PDP_LIVENESS_PROBE_TIMEOUT_MS = 10_000;
@@ -28,11 +29,16 @@ export class DatasetLivenessService {
 
   constructor(private readonly walletSdkService: WalletSdkService) {}
 
-  async isDataSetLive(providerAddress: string, dataSetId: bigint, signal?: AbortSignal): Promise<boolean> {
+  async isDataSetLive(
+    providerAddress: string,
+    dataSetId: bigint,
+    network: Network,
+    signal?: AbortSignal,
+  ): Promise<boolean> {
     signal?.throwIfAborted();
     const settled = await Promise.allSettled([
-      this.probeFwssDataSetLive(dataSetId, signal),
-      this.probeSpHttpDataSetLive(providerAddress, dataSetId, signal),
+      this.probeFwssDataSetLive(dataSetId, network, signal),
+      this.probeSpHttpDataSetLive(providerAddress, dataSetId, network, signal),
     ]);
     if (settled.some((r) => r.status === "fulfilled" && r.value === false)) {
       return false;
@@ -60,9 +66,9 @@ export class DatasetLivenessService {
    *
    * Source: `FilOzone/pdp` PDPVerifier.sol `pieceLive`.
    */
-  async isPieceLive(dataSetId: bigint, pieceId: bigint, signal?: AbortSignal): Promise<boolean> {
+  async isPieceLive(dataSetId: bigint, pieceId: bigint, network: Network, signal?: AbortSignal): Promise<boolean> {
     signal?.throwIfAborted();
-    const client = this.walletSdkService.getSynapseClient();
+    const client = this.walletSdkService.getSynapseClient(network);
     if (!client) {
       throw new Error("Synapse client not available for pieceLive read");
     }
@@ -79,9 +85,9 @@ export class DatasetLivenessService {
     return Boolean(result);
   }
 
-  protected async probeFwssDataSetLive(dataSetId: bigint, signal?: AbortSignal): Promise<boolean> {
+  protected async probeFwssDataSetLive(dataSetId: bigint, network: Network, signal?: AbortSignal): Promise<boolean> {
     signal?.throwIfAborted();
-    const { warmStorageService } = this.walletSdkService.getWalletServices();
+    const { warmStorageService } = this.walletSdkService.getWalletServices(network);
     try {
       await awaitWithAbort(warmStorageService.validateDataSet({ dataSetId }), signal);
       return true;
@@ -98,10 +104,11 @@ export class DatasetLivenessService {
   protected async probeSpHttpDataSetLive(
     providerAddress: string,
     dataSetId: bigint,
+    network: Network,
     signal?: AbortSignal,
   ): Promise<boolean> {
     signal?.throwIfAborted();
-    const providerInfo = this.walletSdkService.getProviderInfo(providerAddress);
+    const providerInfo = this.walletSdkService.getProviderInfo(providerAddress, network);
     if (!providerInfo) {
       throw new Error(`Provider ${providerAddress} not found in registry`);
     }

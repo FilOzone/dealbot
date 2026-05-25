@@ -159,7 +159,13 @@ export class RetrievalService {
       return [];
     }
 
-    const pieceLive = await this.checkPieceLive(deal.dataSetId, BigInt(deal.pieceId), signal, retrievalLogContext);
+    const pieceLive = await this.checkPieceLive(
+      deal.dataSetId,
+      BigInt(deal.pieceId),
+      deal.network,
+      signal,
+      retrievalLogContext,
+    );
     signal?.throwIfAborted();
     if (!pieceLive) {
       const updateResult = await this.dealRepository.update(
@@ -657,11 +663,12 @@ export class RetrievalService {
   private async checkPieceLive(
     dataSetId: bigint,
     pieceId: bigint,
+    network: Network,
     signal: AbortSignal | undefined,
     logContext: RetrievalLogContext,
   ): Promise<boolean> {
     try {
-      return await this.datasetLivenessService.isPieceLive(dataSetId, pieceId, signal);
+      return await this.datasetLivenessService.isPieceLive(dataSetId, pieceId, network, signal);
     } catch (error) {
       if (signal?.aborted) throw error;
       this.logger.warn({
