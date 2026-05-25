@@ -146,15 +146,23 @@ function loadNetworkEnvPrefix(
       networkDefaults.minNumDataSetsForChecks,
     ),
     dealsPerSpPerHour: getFloatEnv(env, k("DEALS_PER_SP_PER_HOUR"), networkDefaults.dealsPerSpPerHour),
-    dealJobTimeoutSeconds: getNumberEnv(env, "DEAL_JOB_TIMEOUT_SECONDS", 360),
+    dealJobTimeoutSeconds: getNumberEnv(env, k("DEAL_JOB_TIMEOUT_SECONDS"), networkDefaults.dealJobTimeoutSeconds),
     retrievalsPerSpPerHour: getFloatEnv(env, k("RETRIEVALS_PER_SP_PER_HOUR"), networkDefaults.retrievalsPerSpPerHour),
-    retrievalJobTimeoutSeconds: getNumberEnv(env, "RETRIEVAL_JOB_TIMEOUT_SECONDS", 60),
+    retrievalJobTimeoutSeconds: getNumberEnv(
+      env,
+      k("RETRIEVAL_JOB_TIMEOUT_SECONDS"),
+      networkDefaults.retrievalJobTimeoutSeconds,
+    ),
     dataSetCreationsPerSpPerHour: getFloatEnv(
       env,
       k("DATASET_CREATIONS_PER_SP_PER_HOUR"),
       networkDefaults.dataSetCreationsPerSpPerHour,
     ),
-    dataSetCreationJobTimeoutSeconds: getNumberEnv(env, "DATA_SET_CREATION_JOB_TIMEOUT_SECONDS", 300),
+    dataSetCreationJobTimeoutSeconds: getNumberEnv(
+      env,
+      k("DATA_SET_CREATION_JOB_TIMEOUT_SECONDS"),
+      networkDefaults.dataSetCreationJobTimeoutSeconds,
+    ),
     dataRetentionPollIntervalSeconds: getNumberEnv(
       env,
       k("DATA_RETENTION_POLL_INTERVAL_SECONDS"),
@@ -204,18 +212,18 @@ function loadNetworkEnvPrefix(
     pullChecksPerSpPerHour: getFloatEnv(env, k("PULL_CHECKS_PER_SP_PER_HOUR"), networkDefaults.pullChecksPerSpPerHour),
     pullCheckJobTimeoutSeconds: getNumberEnv(
       env,
-      "PULL_CHECK_JOB_TIMEOUT_SECONDS",
+      k("PULL_CHECK_JOB_TIMEOUT_SECONDS"),
       networkDefaults.pullCheckJobTimeoutSeconds,
     ),
     pullCheckPollIntervalSeconds: getNumberEnv(
       env,
-      "PULL_CHECK_POLL_INTERVAL_SECONDS",
+      k("PULL_CHECK_POLL_INTERVAL_SECONDS"),
       networkDefaults.pullCheckPollIntervalSeconds,
     ),
     pullCheckPieceSizeBytes: getNumberEnv(env, "PULL_CHECK_PIECE_SIZE_BYTES", networkDefaults.pullCheckPieceSizeBytes),
     pullPieceCleanupIntervalSeconds: getNumberEnv(
       env,
-      "PULL_PIECE_CLEANUP_INTERVAL_SECONDS",
+      k("PULL_PIECE_CLEANUP_INTERVAL_SECONDS"),
       networkDefaults.pullPieceCleanupIntervalSeconds,
     ),
   } satisfies Omit<BaseNetworkConfig, "network">;
