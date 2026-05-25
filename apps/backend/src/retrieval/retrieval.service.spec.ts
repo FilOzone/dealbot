@@ -7,6 +7,7 @@ import { Deal } from "../database/entities/deal.entity.js";
 import { Retrieval } from "../database/entities/retrieval.entity.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
 import { RetrievalStatus } from "../database/types.js";
+import { DatasetLivenessService } from "../dataset-liveness/dataset-liveness.service.js";
 import { IpniVerificationService } from "../ipni/ipni-verification.service.js";
 import { DiscoverabilityCheckMetrics, RetrievalCheckMetrics } from "../metrics-prometheus/check-metrics.service.js";
 import { RetrievalAddonsService } from "../retrieval-addons/retrieval-addons.service.js";
@@ -80,6 +81,8 @@ describe("RetrievalService timeouts", () => {
       spAddress: "0xsp",
       walletAddress: "0xwallet",
       pieceCid: "bafy-piece",
+      dataSetId: "13006",
+      pieceId: 42,
       ...overrides,
     }) as Deal;
 
@@ -96,6 +99,13 @@ describe("RetrievalService timeouts", () => {
         { provide: IpniVerificationService, useValue: mockIpniVerificationService },
         { provide: ConfigService, useValue: mockConfigService },
         { provide: ClickhouseService, useValue: { insert: vi.fn(), probeLocation: "test" } },
+        {
+          provide: DatasetLivenessService,
+          useValue: {
+            isDataSetLive: vi.fn().mockResolvedValue(true),
+            isPieceLive: vi.fn().mockResolvedValue(true),
+          },
+        },
       ],
     }).compile();
 
@@ -371,6 +381,8 @@ describe("RetrievalService parallel IPNI + transport", () => {
       spAddress: "0xsp",
       walletAddress: "0xwallet",
       pieceCid: "bafy-piece",
+      dataSetId: "13006",
+      pieceId: 42,
       metadata: {
         ipfs_pin: {
           rootCID: "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi",
@@ -428,6 +440,13 @@ describe("RetrievalService parallel IPNI + transport", () => {
         { provide: IpniVerificationService, useValue: mockIpniVerificationService },
         { provide: ConfigService, useValue: mockConfigService },
         { provide: ClickhouseService, useValue: { insert: vi.fn(), probeLocation: "test" } },
+        {
+          provide: DatasetLivenessService,
+          useValue: {
+            isDataSetLive: vi.fn().mockResolvedValue(true),
+            isPieceLive: vi.fn().mockResolvedValue(true),
+          },
+        },
       ],
     }).compile();
     return module.get<RetrievalService>(RetrievalService) as unknown as RetrievalServicePrivate;
@@ -574,7 +593,7 @@ describe("RetrievalService DB/provider drift", () => {
   const mockConfigService = {
     get: vi.fn((key: string) => {
       if (key === "jobs") return { mode: "cron" };
-      if (key === "blockchain") return { useOnlyApprovedProviders: false };
+      if (key === "blockchain") return { useOnlyApprovedProviders: false, walletAddress: "0x123" };
       if (key === "dataset") return { randomDatasetSizes: [10] };
       if (key === "timeouts") return { ipniVerificationTimeoutMs: 10_000, ipniVerificationPollingMs: 2_000 };
       return undefined;
@@ -612,6 +631,13 @@ describe("RetrievalService DB/provider drift", () => {
         { provide: IpniVerificationService, useValue: {} },
         { provide: ConfigService, useValue: mockConfigService },
         { provide: ClickhouseService, useValue: { insert: vi.fn(), probeLocation: "test" } },
+        {
+          provide: DatasetLivenessService,
+          useValue: {
+            isDataSetLive: vi.fn().mockResolvedValue(true),
+            isPieceLive: vi.fn().mockResolvedValue(true),
+          },
+        },
       ],
     }).compile();
     return module.get<RetrievalService>(RetrievalService);
@@ -628,5 +654,290 @@ describe("RetrievalService DB/provider drift", () => {
     const cleanedUpCall = calls.find((c) => c.clause.includes("cleaned_up"));
     expect(cleanedUpCall).toBeDefined();
     expect(cleanedUpCall?.params).toEqual({ cleanedUp: false });
+
+    const walletAddressCall = calls.find((c) => c.clause.includes("wallet_address"));
+    expect(walletAddressCall).toBeDefined();
+    expect(walletAddressCall?.params).toEqual({ walletAddress: "0x123" });
+  });
+});
+
+describe("RetrievalService SP piece status pre-flight", () => {
+  type PublicInterface<T> = { [K in keyof T]: T[K] };
+  type RetrievalServicePrivate = PublicInterface<RetrievalService> & {
+    performAllRetrievals: (deal: Deal, signal?: AbortSignal) => Promise<Retrieval[]>;
+  };
+
+  const mockRetrievalAddonsService = {
+    testAllRetrievalMethods: vi.fn().mockResolvedValue({
+      dealId: "deal-1",
+      results: [],
+      summary: { totalMethods: 0, successfulMethods: 0, failedMethods: 0 },
+      testedAt: new Date(),
+    }),
+    getApplicableStrategies: vi.fn().mockReturnValue([{}]),
+  };
+  const mockConfigService = {
+    get: vi.fn((key: string) => {
+      if (key === "app") return { runMode: "api" };
+      if (key === "jobs") return { pgbossSchedulerEnabled: false };
+      if (key === "blockchain") return { network: "calibration" };
+      if (key === "dataset") return { randomDatasetSizes: [] };
+      return undefined;
+    }),
+  };
+  const mockDealRepository = {
+    update: vi.fn().mockResolvedValue({ affected: 1 }),
+  };
+  const mockSpRepository = { findOne: vi.fn() };
+  const mockRetrievalMetrics = {
+    observeCheckDuration: vi.fn(),
+    recordStatus: vi.fn(),
+    observeFirstByteMs: vi.fn(),
+    observeLastByteMs: vi.fn(),
+    observeThroughput: vi.fn(),
+    recordHttpResponseCode: vi.fn(),
+    recordResultMetrics: vi.fn(),
+  };
+  const mockRetrievalRepositoryLocal = {
+    create: vi.fn((row: Partial<Retrieval>) => row as Retrieval),
+    save: vi.fn(async (row: Retrieval) => row),
+  };
+  const mockDatasetLivenessService = {
+    isDataSetLive: vi.fn().mockResolvedValue(true),
+    isPieceLive: vi.fn().mockResolvedValue(true),
+  };
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    mockDealRepository.update.mockClear();
+    mockRetrievalAddonsService.testAllRetrievalMethods.mockClear();
+    mockRetrievalMetrics.recordStatus.mockClear();
+    mockRetrievalRepositoryLocal.create.mockClear();
+    mockRetrievalRepositoryLocal.save.mockClear();
+    mockDatasetLivenessService.isDataSetLive.mockReset().mockResolvedValue(true);
+    mockDatasetLivenessService.isPieceLive.mockReset().mockResolvedValue(true);
+  });
+
+  const buildDeal = (overrides: Partial<Deal> = {}): Deal =>
+    ({
+      id: "deal-1",
+      spAddress: "0xsp",
+      walletAddress: "0xwallet",
+      pieceCid: "bafy-piece",
+      dataSetId: "13006",
+      pieceId: 42,
+      ...overrides,
+    }) as Deal;
+
+  const createService = async (): Promise<RetrievalServicePrivate> => {
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        RetrievalService,
+        { provide: RetrievalAddonsService, useValue: mockRetrievalAddonsService },
+        { provide: getRepositoryToken(Deal), useValue: mockDealRepository },
+        { provide: getRepositoryToken(Retrieval), useValue: mockRetrievalRepositoryLocal },
+        { provide: getRepositoryToken(StorageProvider), useValue: mockSpRepository },
+        { provide: RetrievalCheckMetrics, useValue: mockRetrievalMetrics },
+        { provide: DiscoverabilityCheckMetrics, useValue: { recordStatus: vi.fn(), observeIpniVerifyMs: vi.fn() } },
+        { provide: IpniVerificationService, useValue: { verify: vi.fn() } },
+        { provide: ConfigService, useValue: mockConfigService },
+        { provide: ClickhouseService, useValue: { insert: vi.fn(), probeLocation: "test" } },
+        { provide: DatasetLivenessService, useValue: mockDatasetLivenessService },
+      ],
+    }).compile();
+    return module.get<RetrievalService>(RetrievalService) as unknown as RetrievalServicePrivate;
+  };
+
+  it("emits failure.other and bails when deal has null dataSetId or pieceId", async () => {
+    const service = await createService();
+    mockSpRepository.findOne.mockResolvedValue({
+      address: "0xsp",
+      providerId: 5,
+      isApproved: true,
+      name: "Test SP",
+      serviceUrl: "https://sp.example.com",
+    });
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await service.performAllRetrievals(buildDeal({ pieceId: null as unknown as number }));
+
+    expect(result).toEqual([]);
+    expect(mockDealRepository.update).not.toHaveBeenCalled();
+    expect(mockDatasetLivenessService.isPieceLive).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(mockRetrievalAddonsService.testAllRetrievalMethods).not.toHaveBeenCalled();
+    expect(mockRetrievalMetrics.recordStatus).toHaveBeenCalledWith(expect.any(Object), "failure.other");
+  });
+
+  it("marks deal cleaned_up and skips retrieval when PDP pieceLive=false (no SP probe)", async () => {
+    const service = await createService();
+    mockSpRepository.findOne.mockResolvedValue({
+      address: "0xsp",
+      providerId: 5,
+      isApproved: true,
+      name: "Test SP",
+      serviceUrl: "https://sp.example.com",
+    });
+    mockDatasetLivenessService.isPieceLive.mockResolvedValueOnce(false);
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await service.performAllRetrievals(buildDeal());
+
+    expect(result).toEqual([]);
+    expect(mockDealRepository.update).toHaveBeenCalledWith(
+      { id: "deal-1", cleanedUp: false },
+      expect.objectContaining({ cleanedUp: true, cleanedUpAt: expect.any(Date) }),
+    );
+    expect(mockRetrievalAddonsService.testAllRetrievalMethods).not.toHaveBeenCalled();
+    expect(mockRetrievalMetrics.recordStatus).toHaveBeenCalledWith(expect.any(Object), "skipped.piece_missing");
+    // No SP probe when chain says piece is gone
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("records a failed retrieval (failure.other) when SP returns 404 but pieceLive=true", async () => {
+    const service = await createService();
+    mockSpRepository.findOne.mockResolvedValue({
+      address: "0xsp",
+      providerId: 5,
+      isApproved: true,
+      name: "Test SP",
+      serviceUrl: "https://sp.example.com",
+    });
+    mockDatasetLivenessService.isPieceLive.mockResolvedValueOnce(true);
+    const fetchMock = vi.fn().mockResolvedValue({ status: 404, ok: false } as Response);
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await service.performAllRetrievals(buildDeal());
+
+    expect(result).toHaveLength(1);
+    expect(mockDealRepository.update).not.toHaveBeenCalled();
+    expect(mockRetrievalAddonsService.testAllRetrievalMethods).not.toHaveBeenCalled();
+    expect(mockRetrievalMetrics.recordStatus).toHaveBeenCalledWith(expect.any(Object), "failure.other");
+    expect(mockRetrievalRepositoryLocal.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: RetrievalStatus.FAILED,
+        responseCode: 404,
+        errorMessage: expect.stringContaining("pieceLive=true"),
+      }),
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://sp.example.com/pdp/piece/bafy-piece/status",
+      expect.objectContaining({ method: "GET" }),
+    );
+  });
+
+  it("proceeds with retrieval when SP confirms piece exists", async () => {
+    const service = await createService();
+    mockSpRepository.findOne.mockResolvedValue({
+      address: "0xsp",
+      providerId: 5,
+      isApproved: true,
+      name: "Test SP",
+      serviceUrl: "https://sp.example.com",
+    });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ status: 200, ok: true } as Response));
+
+    await service.performAllRetrievals(buildDeal()).catch(() => undefined);
+
+    expect(mockDealRepository.update).not.toHaveBeenCalled();
+    expect(mockRetrievalAddonsService.testAllRetrievalMethods).toHaveBeenCalled();
+  });
+
+  it("treats piece as live and proceeds when isPieceLive RPC throws (no cleanup)", async () => {
+    const service = await createService();
+    mockSpRepository.findOne.mockResolvedValue({
+      address: "0xsp",
+      providerId: 5,
+      isApproved: true,
+      name: "Test SP",
+      serviceUrl: "https://sp.example.com",
+    });
+    mockDatasetLivenessService.isPieceLive.mockRejectedValueOnce(new Error("rpc down"));
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ status: 200, ok: true } as Response));
+
+    await service.performAllRetrievals(buildDeal()).catch(() => undefined);
+
+    expect(mockDealRepository.update).not.toHaveBeenCalled();
+    expect(mockRetrievalMetrics.recordStatus).not.toHaveBeenCalledWith(expect.any(Object), "skipped.piece_missing");
+    expect(mockRetrievalAddonsService.testAllRetrievalMethods).toHaveBeenCalled();
+  });
+
+  it("proceeds with retrieval when SP probe fails with a network error (unknown)", async () => {
+    const service = await createService();
+    mockSpRepository.findOne.mockResolvedValue({
+      address: "0xsp",
+      providerId: 5,
+      isApproved: true,
+      name: "Test SP",
+      serviceUrl: "https://sp.example.com",
+    });
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("network unreachable")));
+
+    await service.performAllRetrievals(buildDeal()).catch(() => undefined);
+
+    expect(mockDealRepository.update).not.toHaveBeenCalled();
+    expect(mockRetrievalAddonsService.testAllRetrievalMethods).toHaveBeenCalled();
+  });
+
+  it("skips probe and proceeds when provider has no serviceUrl", async () => {
+    const service = await createService();
+    mockSpRepository.findOne.mockResolvedValue({
+      address: "0xsp",
+      providerId: 5,
+      isApproved: true,
+      name: "Test SP",
+      serviceUrl: null,
+    });
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await service.performAllRetrievals(buildDeal()).catch(() => undefined);
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(mockDealRepository.update).not.toHaveBeenCalled();
+  });
+
+  it("re-throws when the outer signal aborts during the probe", async () => {
+    const service = await createService();
+    mockSpRepository.findOne.mockResolvedValue({
+      address: "0xsp",
+      providerId: 5,
+      isApproved: true,
+      name: "Test SP",
+      serviceUrl: "https://sp.example.com",
+    });
+    const ac = new AbortController();
+    const fetchMock = vi.fn().mockImplementation(() => {
+      ac.abort(new Error("cancelled by job"));
+      return Promise.reject(new DOMException("aborted", "AbortError"));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(service.performAllRetrievals(buildDeal(), ac.signal)).rejects.toThrow();
+    expect(mockDealRepository.update).not.toHaveBeenCalled();
+    expect(mockRetrievalAddonsService.testAllRetrievalMethods).not.toHaveBeenCalled();
+  });
+
+  it("strips trailing slash from serviceUrl and URL-encodes the pieceCid", async () => {
+    const service = await createService();
+    mockSpRepository.findOne.mockResolvedValue({
+      address: "0xsp",
+      providerId: 5,
+      isApproved: true,
+      name: "Test SP",
+      serviceUrl: "https://sp.example.com/",
+    });
+    const fetchMock = vi.fn().mockResolvedValue({ status: 200, ok: true } as Response);
+    vi.stubGlobal("fetch", fetchMock);
+
+    await service.performAllRetrievals(buildDeal({ pieceCid: "bafy/with/slashes" })).catch(() => undefined);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://sp.example.com/pdp/piece/bafy%2Fwith%2Fslashes/status",
+      expect.any(Object),
+    );
   });
 });

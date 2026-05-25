@@ -93,6 +93,10 @@ export const configValidationSchema = Joi.object({
   DEAL_JOB_TIMEOUT_SECONDS: Joi.number().min(120).default(360), // 6 minutes max runtime for data storage jobs (TODO: reduce default to 3 minutes)
   RETRIEVAL_JOB_TIMEOUT_SECONDS: Joi.number().min(60).default(60), // 1 minute max runtime for retrieval jobs (TODO: reduce default to 30 seconds)
   DATA_SET_CREATION_JOB_TIMEOUT_SECONDS: Joi.number().min(60).default(300), // 5 minutes max runtime for dataset creation jobs
+  // Seconds to hold the process alive after pg-boss drain completes, so Prometheus
+  // captures at least one scrape of the terminal counter increments emitted during
+  // shutdown. Default 35 covers the 30s ServiceMonitor interval plus a 5s buffer.
+  SHUTDOWN_FINAL_SCRAPE_DELAY_SECONDS: Joi.number().min(0).max(300).default(35),
   IPFS_BLOCK_FETCH_CONCURRENCY: Joi.number().integer().min(1).max(32).default(6),
 
   // Pull Check
@@ -287,6 +291,11 @@ export interface IJobsConfig {
    */
   retrievalJobTimeoutSeconds: number;
   /**
+   * Seconds to hold the process alive after pg-boss drain finishes, so Prometheus
+   * scrapes the terminal counter increments emitted during shutdown.
+   */
+  shutdownFinalScrapeDelaySeconds: number;
+  /**
    * Target number of piece cleanup runs per storage provider per hour.
    *
    * Increasing this makes cleanup more aggressive at the cost of more SP API calls.
@@ -475,6 +484,7 @@ export function loadConfig(): IConfig {
       dealJobTimeoutSeconds: Number.parseInt(process.env.DEAL_JOB_TIMEOUT_SECONDS || "360", 10),
       retrievalJobTimeoutSeconds: Number.parseInt(process.env.RETRIEVAL_JOB_TIMEOUT_SECONDS || "60", 10),
       dataSetCreationJobTimeoutSeconds: Number.parseInt(process.env.DATA_SET_CREATION_JOB_TIMEOUT_SECONDS || "300", 10),
+      shutdownFinalScrapeDelaySeconds: Number.parseInt(process.env.SHUTDOWN_FINAL_SCRAPE_DELAY_SECONDS || "35", 10),
       pieceCleanupPerSpPerHour: Number.parseFloat(process.env.JOB_PIECE_CLEANUP_PER_SP_PER_HOUR || String(1 / 24)),
       maxPieceCleanupRuntimeSeconds: Number.parseInt(process.env.MAX_PIECE_CLEANUP_RUNTIME_SECONDS || "300", 10),
     },

@@ -1,10 +1,9 @@
 import * as crypto from "node:crypto";
-import { Readable } from "node:stream";
 import { calculateFromIterable, parse as parsePieceCid } from "@filoz/synapse-core/piece";
 import { pullPieces, waitForPullPieces } from "@filoz/synapse-core/sp";
 import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import type { Account, Address, Chain, Client, Transport } from "viem";
+import type { Address } from "viem";
 import { ClickhouseService } from "../clickhouse/clickhouse.service.js";
 import { type ProviderJobContext, toStructuredError } from "../common/logging.js";
 import type { IAppConfig, IConfig, IPullPieceConfig } from "../config/app.config.js";
@@ -12,12 +11,10 @@ import { DataSourceService } from "../dataSource/dataSource.service.js";
 import { HttpClientService } from "../http-client/http-client.service.js";
 import { buildCheckMetricLabels, classifyFailureStatus } from "../metrics-prometheus/check-metric-labels.js";
 import { PullCheckCheckMetrics } from "../metrics-prometheus/check-metrics.service.js";
-import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
+import { type SynapseViemClient, WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
 import { PDPProviderEx } from "../wallet-sdk/wallet-sdk.types.js";
-import type { PullPiecePrepared, PullPieceRegistration } from "./pull-check.types.js";
+import type { PullPiecePrepared, PullPieceStreamResult } from "./pull-check.types.js";
 import { PullPieceRepository } from "./pull-piece.repository.js";
-
-type SynapseViemClient = Client<Transport, Chain, Account>;
 
 @Injectable()
 export class PullCheckService {
@@ -187,18 +184,6 @@ export class PullCheckService {
       if (labels !== null) this.pullCheckMetrics.recordStatus(labels, checkStatus);
       throw error;
     } finally {
-      if (prepared) {
-        const pieceCid = prepared.registration.pieceCid;
-        this.pullPieceRepository.forget(pieceCid).catch((error) => {
-          this.logger.warn({
-            ...logContext,
-            event: "pull_check_piece_forget_failed",
-            message: "Failed to delete pull piece after job completion",
-            pieceCid,
-            error: toStructuredError(error),
-          });
-        });
-      }
       if (checkStatus !== null) {
         this.clickhouseService.insert("pull_checks", {
           timestamp: Date.now(),
@@ -217,6 +202,9 @@ export class PullCheckService {
         });
       }
     }
+    // Pieces are not eagerly deleted here; they remain active (200) until their
+    // TTL expires so that SPs polling after job end are not spuriously told 404.
+    // The pull_piece_cleanup job hard-deletes once expires_at has passed.
   }
 
   /**
@@ -356,15 +344,17 @@ export class PullCheckService {
   }
 
   /**
-   * Stream the pull piece bytes for an active registration. Used by the
-   * `/api/piece/:pieceCid` controller. Returns null when no active registration
-   * exists; callers must distinguish 404 from 410 using the registry directly.
+   * Resolve a pull piece and open a byte stream for it.
+   *
+   * Returns:
+   * - null          → no row found; caller should respond 404
+   * - { status: "gone" }    → row exists but TTL has passed; caller should respond 410
+   * - { status: "active", … } → row is within TTL; caller may stream the bytes
    */
-  async openPullPieceStream(
-    pieceCid: string,
-  ): Promise<{ registration: PullPieceRegistration; stream: Readable } | null> {
+  async openPullPieceStream(pieceCid: string): Promise<PullPieceStreamResult | null> {
     const registration = await this.pullPieceRepository.resolve(pieceCid);
-    if (!registration || registration.expiresAt <= new Date()) return null;
+    if (!registration) return null;
+    if (registration.expiresAt <= new Date()) return { status: "gone" };
 
     const stream = this.dataSourceService.generateBytesStream({
       providerAddress: registration.providerAddress,
@@ -372,6 +362,6 @@ export class PullCheckService {
       bytesNeeded: registration.size,
     });
 
-    return { registration, stream };
+    return { status: "active", registration, stream };
   }
 }

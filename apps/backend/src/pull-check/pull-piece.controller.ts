@@ -28,7 +28,8 @@ export class PieceSourceController {
   @Get("piece/:pieceCid")
   @UseGuards(ThrottlerGuard)
   @ApiResponse({ status: 200, description: "Raw piece bytes streamed to the caller" })
-  @ApiResponse({ status: 404, description: "No active pull piece exists for this pieceCid" })
+  @ApiResponse({ status: 404, description: "No pull piece row exists for this pieceCid" })
+  @ApiResponse({ status: 410, description: "Pull piece row exists but its TTL has expired" })
   @ApiResponse({ status: 503, description: "Server is at capacity or too many concurrent requests for this piece" })
   async servePiece(@Param("pieceCid") pieceCid: string, @Res() res: Response): Promise<void> {
     if (!pieceCid || pieceCid.trim().length === 0) {
@@ -54,6 +55,15 @@ export class PieceSourceController {
           pieceCid,
         });
         res.status(404).send("Pull piece source not found");
+        return;
+      }
+      if (opened.status === "gone") {
+        this.logger.log({
+          event: "pull_check_piece_gone",
+          message: "Pull piece TTL has expired",
+          pieceCid,
+        });
+        res.status(410).send("Pull piece has expired");
         return;
       }
 
