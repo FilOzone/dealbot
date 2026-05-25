@@ -5,8 +5,8 @@ import { CID } from "multiformats/cid";
 import type { Repository } from "typeorm";
 import { ClickhouseService } from "../clickhouse/clickhouse.service.js";
 import { type ProviderJobContext, type RetrievalLogContext, toStructuredError } from "../common/logging.js";
-import type { Hex } from "../common/types.js";
-import type { IConfig } from "../config/app.config.js";
+import type { Hex, Network } from "../common/types.js";
+import type { IConfig } from "../config/index.js";
 import { Deal } from "../database/entities/deal.entity.js";
 import { Retrieval } from "../database/entities/retrieval.entity.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
@@ -57,10 +57,11 @@ export class RetrievalService {
 
   async performRandomRetrievalForProvider(
     spAddress: string,
+    network: Network,
     signal?: AbortSignal,
     logContext?: ProviderJobContext,
   ): Promise<Retrieval[]> {
-    const deal = await this.selectRandomSuccessfulDealForProvider(spAddress);
+    const deal = await this.selectRandomSuccessfulDealForProvider(spAddress, network);
     if (!deal) {
       this.logger.warn({
         ...logContext,
@@ -503,8 +504,8 @@ export class RetrievalService {
    * We select a random successful deal (DEAL_CREATED only) for a given provider.
    * Uses Postgres ORDER BY RANDOM() since Dealbot is Postgres-only.
    */
-  private async selectRandomSuccessfulDealForProvider(spAddress: string): Promise<Deal | null> {
-    const { network, walletAddress } = this.configService.get("blockchain", { infer: true });
+  private async selectRandomSuccessfulDealForProvider(spAddress: string, network: Network): Promise<Deal | null> {
+    const walletAddress = this.configService.get("networks", { infer: true })[network].walletAddress;
 
     const randomDatasetSizes = this.getRandomDatasetSizes();
     const query = this.dealRepository

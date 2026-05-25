@@ -1,12 +1,13 @@
 import { Synapse } from "@filoz/synapse-sdk";
-import { Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
 import { calculateActualStorage, listDataSets } from "filecoin-pin/core/data-set";
 import { IsNull, Not, Repository } from "typeorm";
 import { type PieceCleanupLogContext, type ProviderJobContext, toStructuredError } from "../common/logging.js";
 import { createSynapseFromConfig } from "../common/synapse-factory.js";
-import type { IBlockchainConfig, IConfig } from "../config/app.config.js";
+import { Network } from "../common/types.js";
+import type { IConfig, INetworkConfig } from "../config/index.js";
 import { Deal } from "../database/entities/deal.entity.js";
 import { DealStatus } from "../database/types.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
@@ -27,52 +28,30 @@ export interface CleanupResult {
 class LiveStorageQueryTimedOutError extends Error {}
 
 @Injectable()
-export class PieceCleanupService implements OnModuleInit, OnModuleDestroy {
+export class PieceCleanupService {
   private readonly logger = new Logger(PieceCleanupService.name);
-  private readonly blockchainConfig: IBlockchainConfig;
-  private sharedSynapse?: Synapse;
 
   constructor(
     private readonly configService: ConfigService<IConfig, true>,
     @InjectRepository(Deal)
     private readonly dealRepository: Repository<Deal>,
     private readonly walletSdkService: WalletSdkService,
-  ) {
-    this.blockchainConfig = this.configService.get("blockchain");
+  ) {}
+
+  private getNetworkConfig(network: Network): INetworkConfig {
+    return this.configService.get("networks")[network];
   }
 
-  async onModuleInit(): Promise<void> {
-    if (process.env.DEALBOT_DISABLE_CHAIN === "true") {
-      this.logger.warn("Chain integration disabled; skipping Synapse initialization for piece cleanup.");
-      return;
-    }
+  private async createSynapseInstance(network: Network): Promise<Synapse> {
+    const networkConfig = this.getNetworkConfig(network);
     try {
-      this.logger.log("Initializing shared Synapse instance for piece cleanup.");
-      const { synapse } = await createSynapseFromConfig(this.blockchainConfig);
-      this.sharedSynapse = synapse;
-    } catch (error) {
-      this.logger.error({
-        event: "piece_cleanup_synapse_init_failed",
-        message: "Failed to initialize shared Synapse instance for piece cleanup; will create on demand",
-        error: toStructuredError(error),
-      });
-    }
-  }
-
-  async onModuleDestroy(): Promise<void> {
-    if (this.sharedSynapse) {
-      this.sharedSynapse = undefined;
-    }
-  }
-
-  private async createSynapseInstance(): Promise<Synapse> {
-    try {
-      const { synapse } = await createSynapseFromConfig(this.blockchainConfig);
+      const { synapse } = await createSynapseFromConfig(networkConfig);
       return synapse;
     } catch (error) {
       this.logger.error({
         event: "synapse_init_failed",
         message: "Failed to initialize Synapse for piece cleanup",
+        network,
         error: toStructuredError(error),
       });
       throw error;
@@ -113,13 +92,14 @@ export class PieceCleanupService implements OnModuleInit, OnModuleDestroy {
    */
   private async checkProviderQuota(
     spAddress: string,
+    network: Network,
     signal?: AbortSignal,
     logContext?: ProviderJobContext,
   ): Promise<{ isOverQuota: boolean; storedBytes: number; thresholdBytes: number }> {
-    const thresholdBytes = this.configService.get("pieceCleanup").maxDatasetStorageSizeBytes;
+    const thresholdBytes = this.getNetworkConfig(network).maxDatasetStorageSizeBytes;
     let storedBytes: number;
     try {
-      storedBytes = await this.getLiveStoredBytesForProvider(spAddress, signal);
+      storedBytes = await this.getLiveStoredBytesForProvider(spAddress, network, signal);
     } catch (error) {
       if (signal?.aborted || error instanceof LiveStorageQueryTimedOutError) {
         throw error;
@@ -131,7 +111,7 @@ export class PieceCleanupService implements OnModuleInit, OnModuleDestroy {
         providerAddress: spAddress,
         error: toStructuredError(error),
       });
-      storedBytes = await this.getStoredBytesForProvider(spAddress);
+      storedBytes = await this.getStoredBytesForProvider(spAddress, network);
     }
     return { isOverQuota: storedBytes > thresholdBytes, storedBytes, thresholdBytes };
   }
@@ -147,13 +127,14 @@ export class PieceCleanupService implements OnModuleInit, OnModuleDestroy {
    */
   async cleanupPiecesForProvider(
     spAddress: string,
+    network: Network,
     signal?: AbortSignal,
     logContext?: ProviderJobContext,
   ): Promise<CleanupResult> {
     const { maxDatasetStorageSizeBytes: thresholdBytes, targetDatasetStorageSizeBytes: targetBytes } =
-      this.configService.get("pieceCleanup");
+      this.getNetworkConfig(network);
 
-    const { storedBytes, isOverQuota } = await this.checkProviderQuota(spAddress, signal, logContext);
+    const { storedBytes, isOverQuota } = await this.checkProviderQuota(spAddress, network, signal, logContext);
 
     const cleanupLogContext: PieceCleanupLogContext = {
       ...logContext,
@@ -184,13 +165,13 @@ export class PieceCleanupService implements OnModuleInit, OnModuleDestroy {
     let failed = 0;
     let bytesRemoved = 0;
 
-    const synapse = this.sharedSynapse ?? (await this.createSynapseInstance());
+    const synapse = this.walletSdkService.getSynapse(network) ?? (await this.createSynapseInstance(network));
 
     // Fetch candidates in batches. Keep deleting until back under quota or runtime cap.
     while (bytesRemoved < excessBytes) {
       signal?.throwIfAborted();
 
-      const candidates = await this.getCleanupCandidates(spAddress, 50);
+      const candidates = await this.getCleanupCandidates(spAddress, network, 50);
 
       if (candidates.length === 0) {
         this.logger.warn({
@@ -218,7 +199,7 @@ export class PieceCleanupService implements OnModuleInit, OnModuleDestroy {
         }
 
         try {
-          await this.deletePiece(deal, signal, synapse, cleanupLogContext);
+          await this.deletePiece(deal, network, signal, synapse, cleanupLogContext);
           deleted++;
           batchDeletedCount++;
           bytesRemoved += Number(deal.pieceSize || 0);
@@ -274,8 +255,8 @@ export class PieceCleanupService implements OnModuleInit, OnModuleDestroy {
   /**
    * Query the provider's actual storage via filecoin-pin.
    */
-  async getLiveStoredBytesForProvider(spAddress: string, signal?: AbortSignal): Promise<number> {
-    const synapse = this.sharedSynapse ?? (await this.createSynapseInstance());
+  async getLiveStoredBytesForProvider(spAddress: string, network: Network, signal?: AbortSignal): Promise<number> {
+    const synapse = this.walletSdkService.getSynapse(network) ?? (await this.createSynapseInstance(network));
 
     const datasets = await this.awaitWithAbort(
       listDataSets(synapse, {
@@ -319,9 +300,8 @@ export class PieceCleanupService implements OnModuleInit, OnModuleDestroy {
    * Calculate total stored bytes for a provider from the deals table.
    * Only counts completed deals that have not already been cleaned up.
    */
-  async getStoredBytesForProvider(spAddress: string): Promise<number> {
-    const walletAddress = this.blockchainConfig.walletAddress;
-    const network = this.blockchainConfig.network;
+  async getStoredBytesForProvider(spAddress: string, network: Network): Promise<number> {
+    const walletAddress = this.getNetworkConfig(network).walletAddress;
 
     const result = await this.dealRepository
       .createQueryBuilder("deal")
@@ -341,9 +321,9 @@ export class PieceCleanupService implements OnModuleInit, OnModuleDestroy {
   /**
    * Get the oldest completed deals (candidates for cleanup).
    */
-  async getCleanupCandidates(spAddress: string, limit: number): Promise<Deal[]> {
-    const walletAddress = this.blockchainConfig.walletAddress;
-    const network = this.blockchainConfig.network;
+  async getCleanupCandidates(spAddress: string, network: Network, limit: number): Promise<Deal[]> {
+    const walletAddress = this.getNetworkConfig(network).walletAddress;
+
     return this.dealRepository.find({
       where: {
         spAddress,
@@ -364,6 +344,7 @@ export class PieceCleanupService implements OnModuleInit, OnModuleDestroy {
    */
   async deletePiece(
     deal: Deal,
+    network: Network,
     signal?: AbortSignal,
     existingSynapse?: Synapse,
     logContext?: PieceCleanupLogContext,
@@ -377,11 +358,14 @@ export class PieceCleanupService implements OnModuleInit, OnModuleDestroy {
 
     signal?.throwIfAborted();
 
-    const providerId = this.walletSdkService.getProviderInfo(deal.spAddress)?.id;
+    const providerId = this.walletSdkService.getProviderInfo(deal.spAddress, network)?.id;
     if (providerId === undefined) {
       throw new Error(`Provider ID not found for SP address ${deal.spAddress}`);
     }
-    const synapse = existingSynapse ?? this.sharedSynapse ?? (await this.createSynapseInstance());
+    const synapse =
+      existingSynapse ?? this.walletSdkService.getSynapse(network) ?? (await this.createSynapseInstance(network));
+
+    console.log(synapse);
     const storage = await synapse.storage.createContext({
       providerId,
       dataSetId: deal.dataSetId,
