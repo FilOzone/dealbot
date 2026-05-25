@@ -364,8 +364,6 @@ export class PieceCleanupService {
     }
     const synapse =
       existingSynapse ?? this.walletSdkService.getSynapse(network) ?? (await this.createSynapseInstance(network));
-
-    console.log(synapse);
     const storage = await synapse.storage.createContext({
       providerId,
       dataSetId: deal.dataSetId,
