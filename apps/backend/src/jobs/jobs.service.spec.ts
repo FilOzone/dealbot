@@ -289,10 +289,9 @@ describe("JobsService schedule rows", () => {
 
     baseConfigValues = {
       ...baseConfigValues,
-      jobs: {
-        ...baseConfigValues.jobs,
-        dealJobTimeoutSeconds: 1,
-      } as IConfig["jobs"],
+      networks: {
+        calibration: { ...(baseConfigValues.networks as any).calibration, dealJobTimeoutSeconds: 1 },
+      } as unknown as IConfig["networks"],
     };
     configService = {
       get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),

@@ -532,7 +532,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
 
     // Create AbortController for job timeout enforcement
     const abortController = new AbortController();
-    const timeoutSeconds = this.configService.get("jobs").dealJobTimeoutSeconds;
+    const timeoutSeconds = this.configService.get("networks", { infer: true })[network].dealJobTimeoutSeconds;
     const timeoutMs = Math.max(120000, timeoutSeconds * 1000);
     const effectiveTimeoutSeconds = Math.round(timeoutMs / 1000);
     const abortReason = new Error(`Deal job timeout (${effectiveTimeoutSeconds}s) for ${spAddress}`);
@@ -636,7 +636,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
 
     // Create AbortController for job timeout enforcement
     const abortController = new AbortController();
-    const timeoutSeconds = this.configService.get("jobs").retrievalJobTimeoutSeconds;
+    const timeoutSeconds = this.configService.get("networks", { infer: true })[network].retrievalJobTimeoutSeconds;
     const timeoutMs = Math.max(60000, timeoutSeconds * 1000);
     const effectiveTimeoutSeconds = Math.round(timeoutMs / 1000);
     const abortReason = new Error(`Retrieval job timeout (${effectiveTimeoutSeconds}s) for ${spAddress}`);
@@ -811,8 +811,8 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     }
 
     const abortController = new AbortController();
-    const jobsConfig = this.configService.get("jobs");
-    const timeoutSeconds = jobsConfig.maxPieceCleanupRuntimeSeconds;
+    const networkCfg = this.configService.get("networks", { infer: true })[network];
+    const timeoutSeconds = networkCfg.maxPieceCleanupRuntimeSeconds;
     const timeoutMs = Math.max(60000, timeoutSeconds * 1000);
     const effectiveTimeoutSeconds = Math.round(timeoutMs / 1000);
     const abortReason = new Error(`Piece cleanup job timeout (${effectiveTimeoutSeconds}s) for ${spAddress}`);
@@ -904,12 +904,13 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       return;
     }
 
-    const minDataSets = this.configService.get("networks", { infer: true })[network].minNumDataSetsForChecks;
+    const networkCfg = this.configService.get("networks", { infer: true })[network];
+    const minDataSets = networkCfg.minNumDataSetsForChecks;
     const baseDataSetMetadata = this.dealService.getBaseDataSetMetadata(network);
 
     // Create AbortController for job timeout enforcement
     const abortController = new AbortController();
-    const timeoutSeconds = this.configService.get("jobs").dataSetCreationJobTimeoutSeconds;
+    const timeoutSeconds = networkCfg.dataSetCreationJobTimeoutSeconds;
     const timeoutMs = Math.max(120000, timeoutSeconds * 1000);
     const effectiveTimeoutSeconds = Math.round(timeoutMs / 1000);
     const abortReason = new Error(`Data set creation job timeout (${effectiveTimeoutSeconds}s) for ${spAddress}`);
