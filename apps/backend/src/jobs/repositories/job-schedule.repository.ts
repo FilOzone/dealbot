@@ -87,7 +87,7 @@ export class JobScheduleRepository {
           DELETE FROM job_schedule_state
           WHERE job_type IN ('deal', 'retrieval', 'data_set_creation', 'piece_cleanup', 'pull_check')
             AND sp_address <> ''
-            AND network = $1
+            AND network::text = $1
           RETURNING sp_address
           `,
           [network],
@@ -100,7 +100,7 @@ export class JobScheduleRepository {
         DELETE FROM job_schedule_state
         WHERE job_type IN ('deal', 'retrieval', 'data_set_creation', 'piece_cleanup', 'pull_check')
           AND sp_address <> ''
-          AND network = $1
+          AND network::text = $1
           AND sp_address <> ALL($2::text[])
         RETURNING sp_address
         `,
@@ -127,7 +127,7 @@ export class JobScheduleRepository {
       SELECT job_type, COUNT(*)::int AS count
       FROM job_schedule_state
       WHERE paused = true
-        AND ($1::text IS NULL OR network = $1)
+        AND ($1::text IS NULL OR network::text = $1)
       GROUP BY job_type
       `,
       [network ?? null],
@@ -152,7 +152,7 @@ export class JobScheduleRepository {
       FROM job_schedule_state
       WHERE paused = false
         AND next_run_at <= $1
-        AND ($2::text IS NULL OR network = $2)
+        AND ($2::text IS NULL OR network::text = $2)
       ORDER BY next_run_at ASC
       FOR UPDATE SKIP LOCKED
       `,
