@@ -21,6 +21,7 @@ import {
 import type {
   BaseNetworkConfig,
   IAppConfig,
+  IClickhouseConfig,
   IConfig,
   IDatabaseConfig,
   IDatasetConfig,
@@ -72,6 +73,13 @@ const loadJobsConfig = (env: NodeJS.ProcessEnv): IJobsConfig => ({
   schedulePhaseSeconds: getNumberEnv(env, "JOB_SCHEDULE_PHASE_SECONDS", 0),
   enqueueJitterSeconds: getNumberEnv(env, "JOB_ENQUEUE_JITTER_SECONDS", 0),
   shutdownFinalScrapeDelaySeconds: getNumberEnv(env, "SHUTDOWN_FINAL_SCRAPE_DELAY_SECONDS", 35),
+});
+
+const loadClickhouseConfig = (env: NodeJS.ProcessEnv): IClickhouseConfig => ({
+  url: env.CLICKHOUSE_URL || undefined,
+  batchSize: getNumberEnv(env, "CLICKHOUSE_BATCH_SIZE", 500),
+  flushIntervalMs: getNumberEnv(env, "CLICKHOUSE_FLUSH_INTERVAL_MS", 5000),
+  maxBufferSize: getNumberEnv(env, "CLICKHOUSE_MAX_BUFFER_SIZE", 5000),
 });
 
 const loadPullPieceConfig = (env: NodeJS.ProcessEnv): IPullPieceConfig => ({
@@ -210,15 +218,6 @@ function loadNetworkEnvPrefix(
       "PULL_PIECE_CLEANUP_INTERVAL_SECONDS",
       networkDefaults.pullPieceCleanupIntervalSeconds,
     ),
-
-    clickhouseUrl: get("CLICKHOUSE_URL") || undefined,
-    clickhouseBatchSize: getNumberEnv(env, "CLICKHOUSE_BATCH_SIZE", networkDefaults.clickhouseBatchSize),
-    clickhouseFlushIntervalMs: getNumberEnv(
-      env,
-      "CLICKHOUSE_FLUSH_INTERVAL_MS",
-      networkDefaults.clickhouseFlushIntervalMs,
-    ),
-    clickhouseMaxBufferSize: getNumberEnv(env, "CLICKHOUSE_MAX_BUFFER_SIZE", networkDefaults.clickhouseMaxBufferSize),
   } satisfies Omit<BaseNetworkConfig, "network">;
 
   const walletPrivateKey = (get("WALLET_PRIVATE_KEY") || undefined) as `0x${string}` | undefined;
@@ -254,6 +253,7 @@ export function loadConfig(): IConfig {
     database: loadDatabaseConfig(process.env),
     ...loadNetworkConfigs(process.env),
     jobs: loadJobsConfig(process.env),
+    clickhouse: loadClickhouseConfig(process.env),
     pullPiece: loadPullPieceConfig(process.env),
     dataset: loadDatasetConfig(process.env),
     timeouts: loadTimeoutConfig(process.env),

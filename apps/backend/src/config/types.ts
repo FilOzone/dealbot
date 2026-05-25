@@ -125,17 +125,6 @@ export type BaseNetworkConfig = {
    * Defaults to 7 days (604800 s). Minimum 1 hour enforced by Joi.
    */
   pullPieceCleanupIntervalSeconds: number;
-
-  /** Clickhouse Config */
-  /**
-   * ClickHouse connection URL. Must include the database in the path.
-   * Example: http://default:password@host:8123/dealbot
-   * If unset, ClickHouse emission is disabled.
-   */
-  clickhouseUrl: string | undefined;
-  clickhouseBatchSize: number;
-  clickhouseFlushIntervalMs: number;
-  clickhouseMaxBufferSize: number;
 };
 
 type WalletPrivateKeyNetworkConfig = BaseNetworkConfig & {
@@ -204,6 +193,18 @@ export interface IJobsConfig {
   shutdownFinalScrapeDelaySeconds: number;
 }
 
+export interface IClickhouseConfig {
+  /**
+   * ClickHouse connection URL. Must include the database in the path.
+   * Example: http://default:password@host:8123/dealbot
+   * If unset, ClickHouse emission is disabled.
+   */
+  url: string | undefined;
+  batchSize: number;
+  flushIntervalMs: number;
+  maxBufferSize: number;
+}
+
 export interface IPullPieceConfig {
   /**
    * Maximum number of concurrent piece streams across all pieceCids.
@@ -242,6 +243,7 @@ export interface IConfig {
   networks: INetworksConfig;
   activeNetworks: Network[];
   jobs: IJobsConfig;
+  clickhouse: IClickhouseConfig;
   pullPiece: IPullPieceConfig;
   dataset: IDatasetConfig;
   timeouts: ITimeoutConfig;
@@ -273,7 +275,4 @@ export type NetworkDefaults = Pick<
   | "pullCheckPollIntervalSeconds"
   | "pullCheckPieceSizeBytes"
   | "pullPieceCleanupIntervalSeconds"
-  | "clickhouseBatchSize"
-  | "clickhouseFlushIntervalMs"
-  | "clickhouseMaxBufferSize"
 >;

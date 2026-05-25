@@ -29,10 +29,6 @@ export const networkDefaults = {
   pullCheckPollIntervalSeconds: 2,
   pullCheckPieceSizeBytes: 10 * 1024 * 1024, // 10 MiB
   pullPieceCleanupIntervalSeconds: 7 * 24 * 3600, // 7 days
-
-  clickhouseBatchSize: 500,
-  clickhouseFlushIntervalMs: 5000,
-  clickhouseMaxBufferSize: 5000,
 } satisfies NetworkDefaults;
 
 /**

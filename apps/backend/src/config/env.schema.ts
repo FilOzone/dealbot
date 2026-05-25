@@ -106,6 +106,13 @@ export const pullPieceEnvSchema = {
   PULL_PIECE_MAX_STREAMS_PER_CID: Joi.number().integer().min(1).default(3),
 };
 
+export const clickhouseEnvSchema = {
+  CLICKHOUSE_URL: Joi.string().uri().optional(),
+  CLICKHOUSE_BATCH_SIZE: Joi.number().integer().min(1).default(500),
+  CLICKHOUSE_FLUSH_INTERVAL_MS: Joi.number().integer().min(100).default(5000),
+  CLICKHOUSE_MAX_BUFFER_SIZE: Joi.number().integer().min(1).default(5000),
+};
+
 export const datasetEnvSchema = {
   DEALBOT_LOCAL_DATASETS_PATH: Joi.string().default(DEFAULT_LOCAL_DATASETS_PATH),
   RANDOM_PIECE_SIZES: Joi.string().default("10485760"),
@@ -194,11 +201,6 @@ export const createPerNetworkEnvSchema = (prefix: Uppercase<Network> | "") => {
       .integer()
       .min(3600)
       .default(7 * 24 * 3600),
-
-    [k("CLICKHOUSE_URL")]: Joi.string().uri().optional(),
-    [k("CLICKHOUSE_BATCH_SIZE")]: Joi.number().integer().min(1).default(500),
-    [k("CLICKHOUSE_FLUSH_INTERVAL_MS")]: Joi.number().integer().min(100).default(5000),
-    [k("CLICKHOUSE_MAX_BUFFER_SIZE")]: Joi.number().integer().min(1).default(5000),
   };
 };
 
@@ -218,6 +220,7 @@ export function createConfigValidationSchema(processEnv: NodeJS.ProcessEnv = pro
     ...databaseEnvSchema,
     ...globalNetworkEnvSchema,
     ...jobsEnvSchema,
+    ...clickhouseEnvSchema,
     ...pullPieceEnvSchema,
     ...datasetEnvSchema,
     ...timeoutEnvSchema,
