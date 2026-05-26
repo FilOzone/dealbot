@@ -100,6 +100,7 @@ export class RetrievalService {
     }
     const providerLabels = buildCheckMetricLabels({
       checkType: "retrieval",
+      network: deal.network,
       providerId: provider.providerId,
       providerName: provider.name,
       providerIsApproved: provider.isApproved,

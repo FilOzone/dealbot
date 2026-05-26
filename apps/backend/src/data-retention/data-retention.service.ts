@@ -8,7 +8,7 @@ import { ClickhouseService } from "../clickhouse/clickhouse.service.js";
 import { toStructuredError } from "../common/logging.js";
 import { isSpBlocked } from "../common/sp-blocklist.js";
 import type { Network } from "../common/types.js";
-import { IBlockchainConfig, IConfig } from "../config/app.config.js";
+import { IConfig } from "../config/app.config.js";
 import { DataRetentionBaseline } from "../database/entities/data-retention-baseline.entity.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
 import { buildCheckMetricLabels, CheckMetricLabels } from "../metrics-prometheus/check-metric-labels.js";
@@ -60,8 +60,7 @@ export class DataRetentionService {
    * challenge delta since the last poll.
    */
   async pollDataRetention(): Promise<void> {
-    const blockchainCfg = this.configService.get<IBlockchainConfig>("blockchain");
-    const { network, pdpSubgraphEndpoint } = blockchainCfg;
+    const { network, pdpSubgraphEndpoint } = this.configService.get("blockchain", { infer: true });
     if (!pdpSubgraphEndpoint) {
       this.logger.warn({
         event: "pdp_subgraph_endpoint_not_configured",
@@ -266,12 +265,14 @@ export class DataRetentionService {
 
         if (provider && provider.providerId != null) {
           const approvedLabels = buildCheckMetricLabels({
+            network,
             checkType: "dataRetention",
             providerId: provider.providerId,
             providerName: provider.name,
             providerIsApproved: true,
           });
           const unapprovedLabels = buildCheckMetricLabels({
+            network,
             checkType: "dataRetention",
             providerId: provider.providerId,
             providerName: provider.name,
@@ -375,11 +376,13 @@ export class DataRetentionService {
       successPeriods: confirmedTotalSuccess,
     };
 
+    const network = this.configService.get("blockchain", { infer: true }).network;
     const providerLabels = buildCheckMetricLabels({
       checkType: "dataRetention",
       providerId: pdpProvider.id,
       providerName: pdpProvider.name,
       providerIsApproved: pdpProvider.isApproved,
+      network,
     });
 
     // Emit overdue periods gauge on every poll — this is a separate signal from the
