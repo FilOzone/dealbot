@@ -88,13 +88,53 @@ Source: [`car-validation.service.ts`](../../apps/backend/src/retrieval-anon/car-
 
 ## What Gets Asserted
 
-| # | Assertion | How It's Checked | Retries | Relevant Metric | Implemented? |
-|---|-----------|------------------|:---:|------------------|:---:|
-| 1 | SP serves the piece | `GET /piece/{pieceCid}` returns HTTP 2xx | 0 | [`anonPieceRetrievalLastByteMs`](./events-and-metrics.md#anonPieceRetrievalLastByteMs) | Yes |
-| 2 | Bytes match the declared CommP | Hash of response bytes equals `pieceCid` | 0 | [`anonPieceRetrievalStatus`](./events-and-metrics.md#anonPieceRetrievalStatus) | Yes |
-| 3 | Bytes parse as a CAR (IPFS-indexed pieces only) | `@ipld/car` parses the response | 0 | [`anonCarParseStatus`](./events-and-metrics.md#anonCarParseStatus) | Yes |
-| 4 | SP is advertised on IPNI for root + sampled CIDs | filecoinpin.contact returns provider records | polling until timeout | [`anonIpniStatus`](./events-and-metrics.md#anonIpniStatus) | Yes |
-| 5 | Sampled blocks fetch + hash-verify | `/ipfs/{cid}?format=raw` for each sample | 0 | [`anonBlockFetchStatus`](./events-and-metrics.md#anonBlockFetchStatus) | Yes |
+| # | Assertion | How It's Checked | Retries | Relevant Metric |
+|---|-----------|------------------|:---:|------------------|
+| 1 | SP serves the piece | `GET /piece/{pieceCid}` returns HTTP 2xx | 0 | [`anonPieceRetrievalLastByteMs`](./events-and-metrics.md#anonPieceRetrievalLastByteMs) |
+| 2 | Bytes match the declared CommP | Hash of response bytes equals `pieceCid` | 0 | [`anonPieceRetrievalStatus`](./events-and-metrics.md#anonPieceRetrievalStatus) |
+| 3 | Bytes parse as a CAR (IPFS-indexed pieces only) | `@ipld/car` parses the response | 0 | [`anonCarParseStatus`](./events-and-metrics.md#anonCarParseStatus) |
+| 4 | SP is advertised on IPNI for root + sampled CIDs | filecoinpin.contact returns provider records | polling until timeout | [`anonIpniStatus`](./events-and-metrics.md#anonIpniStatus) |
+| 5 | Sampled blocks fetch + hash-verify | `/ipfs/{cid}?format=raw` for each sample | 0 | [`anonBlockFetchStatus`](./events-and-metrics.md#anonBlockFetchStatus) |
+
+## Sub-status meanings
+
+Unlike a Data Storage deal, anonymous retrieval does **not** have a single rolled-up status. CAR / IPNI / block-fetch outcomes are recorded independently and do **not** flip the piece-fetch verdict. Each status metric below is emitted exactly once per check (except `anonPieceRetrievalStatus`, which is also emitted as `failure.no_piece` when piece selection itself fails).
+
+| anonPieceRetrievalStatus | Meaning |
+|--------|---------|
+| `success` | `GET /piece/{pieceCid}` returned HTTP 2xx **and** the response bytes hashed to the declared CommP. |
+| `failure.http` | Piece fetch did not return HTTP 2xx, or the request failed at the transport layer (DNS, TLS, connection reset, etc.). |
+| `failure.commp` | Piece fetch returned HTTP 2xx, but the response bytes hashed to a different CID than `pieceCid`. The bytes are discarded — downstream CAR / IPNI / block-fetch validation is skipped to avoid amplifying a misbehaving SP. |
+| `failure.timedout` | The job-level `AbortSignal` fired (most often `ANON_RETRIEVAL_JOB_TIMEOUT_SECONDS`). Partial timing/byte evidence is still persisted. |
+| `failure.no_piece` | The subgraph returned no candidate piece for the SP after all selection fallbacks. No HTTP request was attempted. |
+| `failure.other` | Catch-all for retrieval failures that do not match any of the categories above. |
+
+| anonCarParseStatus | Meaning |
+|--------|---------|
+| `parseable` | The fetched piece bytes were successfully parsed as a CAR by `@ipld/car`. |
+| `not_parseable` | The fetched piece bytes could not be parsed as a CAR (malformed header, truncated content, unexpected encoding, or parser threw). |
+
+> Emitted only when piece fetch succeeded **and** the piece advertises IPFS indexing (`withIPFSIndexing = true` with a non-null `ipfsRootCid`). Skipped otherwise; no row value is recorded.
+
+| anonIpniStatus | Meaning |
+|--------|---------|
+| `valid` | filecoinpin.contact returned the SP as a provider for the root CID **and** every sampled child CID within `IPNI_VERIFICATION_TIMEOUT_MS`. |
+| `invalid` | IPNI was queried but at least one CID never resolved to the SP under test before the timeout (or the timeout fired with unresolved CIDs). |
+| `skipped` | IPNI verification was not attempted — piece fetch failed, the piece does not advertise IPFS indexing, or the SP is not registered with `WalletSdkService` so no IPNI sampling could run. |
+| `error` | IPNI verification was attempted but the CAR-validation step threw before producing a result (e.g. invalid root CID, transport error, unexpected exception). |
+
+| anonBlockFetchStatus | Meaning |
+|--------|---------|
+| `valid` | Every sampled CID was fetched via `GET {spBaseUrl}/ipfs/{cid}?format=raw` and the response bytes hash-verified against the declared CID. |
+| `invalid` | At least one sampled block fetch failed: non-2xx HTTP, hash mismatch, unsupported codec, unsupported hash, or transport error. Each failed sample counts as one failed block. |
+| `skipped` | Block-fetch sampling was not attempted — piece fetch failed, the piece does not advertise IPFS indexing, or CAR parsing produced no sampleable CIDs. |
+| `error` | Block-fetch sampling was attempted but the CAR-validation step threw before completing (e.g. CAR parser threw, unexpected exception). |
+
+Sources:
+- [`anon-retrieval.service.ts`](../../apps/backend/src/retrieval-anon/anon-retrieval.service.ts) — emits the four status metrics
+- [`piece-retrieval.service.ts`](../../apps/backend/src/retrieval-anon/piece-retrieval.service.ts) — classifies piece-fetch outcomes
+- [`car-validation.service.ts`](../../apps/backend/src/retrieval-anon/car-validation.service.ts) — produces CAR / IPNI / block-fetch outcomes
+- [`types.ts` (`IpniCheckStatus`)](../../apps/backend/src/database/types.ts) — enum source of truth
 
 ## Result Recording
 

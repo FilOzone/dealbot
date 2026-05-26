@@ -6,16 +6,6 @@ This document is the intended **source of truth** for the events emitted by deal
 
 ## Data Storage Event Model
 
-The [Anonymous Retrieval check](./anon-retrievals.md) is a single-shot flow per piece: select → fetch piece → (optional) parse CAR + IPNI + block fetch → write one ClickHouse row.
-
-It is not modeled as a sequence of named lifecycle events. Instead it emits:
-
-- **Outcome metrics** when each step completes — see the [time](#time-related-metrics) and [status](#status-count-related-metrics) metric tables for `anonPieceRetrievalFirstByteMs`, `anonRetrievalCheckMs`, `anonPieceRetrievalStatus`, `anonCarParseStatus`, `anonIpniStatus`, `anonBlockFetchStatus`, and friends.
-- **One row per attempt** in the `anon_retrieval_checks` [ClickHouse table](#clickhouse-tables), emitted even on abort or unexpected error.
-- **Structured log lines** (`anon_retrieval_started`, `anon_retrieval_completed`, `anon_retrieval_no_piece`, `anon_retrieval_car_validation_failed`, `anon_retrieval_clickhouse_insert_failed`) carrying a `retrievalId` so each row can be joined back to log evidence.
-
-## Data Storage Event Model
-
 Below are the sequence of events for a [Data Storage check](./data-storage.md).  The Data Storage flow is used because it encapsulates a [Retrieval check](./retrievals.md) as well.
 
 ### Data Storage Event Timeline
@@ -65,6 +55,55 @@ sequenceDiagram
 | <a id="ipfsRetrievalLastByteReceived"></a>`ipfsRetrievalLastByteReceived` | Last byte received from `/ipfs/{rootCid}`. | Data Storage, Retrieval | [`retrieval-addons.service.ts`](../../apps/backend/src/retrieval-addons/retrieval-addons.service.ts) (drives `ipfsRetrievalLastByteMs`) |
 | <a id="ipfsRetrievalIntegrityChecked"></a>`ipfsRetrievalIntegrityChecked` | Retrieved content matches expected CID (per-block sha256 hash verification via `createBlock`). Inline check at end of DAG traversal; no discrete event emission. | Data Storage, Retrieval | [`ipfs-block.strategy.ts`](../../apps/backend/src/retrieval-addons/strategies/ipfs-block.strategy.ts) |
 
+## Anon Retrieval Check Event Model
+
+Below are the events for an [Anonymous Retrieval check](./anon-retrievals.md). Unlike the Data Storage flow, anonymous retrieval is a single-shot per-piece flow: select a publicly-discoverable piece from the FWSS subgraph → fetch the piece from the SP → optionally parse the CAR, verify IPNI, and sample block fetches → write one row to ClickHouse. The check emits one row to `anon_retrieval_checks` even on abort or unexpected error, so partial timing/byte evidence is never lost.
+
+### Anon Retrieval Check Event Timeline
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant Dealbot
+  participant Subgraph as Subgraph
+  participant SP as Storage Provider
+  participant IPNI as filecoinpin.contact
+
+  Dealbot->>Subgraph: anonPieceSelectionStart
+  Subgraph-->>Dealbot: anonPieceSelected
+  Dealbot->>SP: anonPieceFetchStart (GET /piece/{pieceCid})
+  SP-->>Dealbot: anonPieceFetchFirstByteReceived
+  SP-->>Dealbot: anonPieceFetchLastByteReceived
+  Dealbot-->>Dealbot: anonCommPVerified
+
+  opt if piece advertises IPFS indexing
+    Dealbot-->>Dealbot: anonCarParsed
+    Dealbot->>IPNI: anonIpniVerificationStart
+    IPNI-->>Dealbot: anonIpniVerificationComplete
+    Dealbot->>SP: anonBlockFetchStart (GET /ipfs/{cid}?format=raw, sampled)
+    SP-->>Dealbot: anonBlockFetchComplete
+  end
+
+  Dealbot-->>Dealbot: anonRetrievalCheckComplete
+```
+
+### Anon Retrieval Check Event List
+
+| Event | Definition                                                                                                                                                                                                           | Source of truth |
+|------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-----------------|
+| <a id="anonPieceSelectionStart"></a>`anonPieceSelectionStart` | Dealbot begins selecting an anonymous piece for the SP under test from Dealbot's subgraph (size-bucket + indexed/any pool sampling with fallbacks).                                                                  | [`anon-piece-selector.service.ts`](../../apps/backend/src/retrieval-anon/anon-piece-selector.service.ts) |
+| <a id="anonPieceSelected"></a>`anonPieceSelected` | Subgraph returned a candidate piece (or all fallbacks were exhausted and the check is recorded as `failure.no_piece`).                                                                                               | [`anon-piece-selector.service.ts`](../../apps/backend/src/retrieval-anon/anon-piece-selector.service.ts) |
+| <a id="anonPieceFetchStart"></a>`anonPieceFetchStart` | Dealbot initiates `GET {spBaseUrl}/piece/{pieceCid}`.                                                                                                                                                                | [`piece-retrieval.service.ts`](../../apps/backend/src/retrieval-anon/piece-retrieval.service.ts) (logs `anon_retrieval_started`) |
+| <a id="anonPieceFetchFirstByteReceived"></a>`anonPieceFetchFirstByteReceived` | First byte received from `/piece/{pieceCid}`.                                                                                                                                                                        | [`piece-retrieval.service.ts`](../../apps/backend/src/retrieval-anon/piece-retrieval.service.ts) (drives `anonPieceRetrievalFirstByteMs`) |
+| <a id="anonPieceFetchLastByteReceived"></a>`anonPieceFetchLastByteReceived` | Last byte received from `/piece/{pieceCid}`.                                                                                                                                                                         | [`piece-retrieval.service.ts`](../../apps/backend/src/retrieval-anon/piece-retrieval.service.ts) (drives `anonPieceRetrievalLastByteMs`) |
+| <a id="anonCommPVerified"></a>`anonCommPVerified` | Response bytes hashed and the resulting CommP compared against the declared `pieceCid`. Inline check; no discrete event emission. Failure flips piece fetch to `failure.commp`.                                      | [`piece-retrieval.service.ts`](../../apps/backend/src/retrieval-anon/piece-retrieval.service.ts) |
+| <a id="anonCarParsed"></a>`anonCarParsed` | Fetched piece bytes are parsed as a CAR and a random sample of `ANON_RETRIEVAL_BLOCK_SAMPLE_COUNT` CIDs is selected. Only runs when the piece advertises IPFS indexing.                                              | [`car-validation.service.ts`](../../apps/backend/src/retrieval-anon/car-validation.service.ts) |
+| <a id="anonIpniVerificationStart"></a>`anonIpniVerificationStart` | Dealbot begins polling filecoinpin.contact for `<rootCid + sampled CIDs, SP>` provider records.                                                                                                                      | [`car-validation.service.ts`](../../apps/backend/src/retrieval-anon/car-validation.service.ts) |
+| <a id="anonIpniVerificationComplete"></a>`anonIpniVerificationComplete` | IPNI verification finishes (all CIDs resolved to the SP, `IPNI_VERIFICATION_TIMEOUT_MS` reached, or error).                                                                                                          | [`car-validation.service.ts`](../../apps/backend/src/retrieval-anon/car-validation.service.ts) (drives `ipni_verify_ms`) |
+| <a id="anonBlockFetchStart"></a>`anonBlockFetchStart` | Dealbot starts fetching the sampled CIDs via `GET {spBaseUrl}/ipfs/{cid}?format=raw`.                                                                                                                                | [`car-validation.service.ts`](../../apps/backend/src/retrieval-anon/car-validation.service.ts) |
+| <a id="anonBlockFetchComplete"></a>`anonBlockFetchComplete` | All sampled block fetches finished; each response was hash-verified against its declared CID (any non-2xx, hash mismatch, unsupported codec, or transport error counts as a failed block).                           | [`car-validation.service.ts`](../../apps/backend/src/retrieval-anon/car-validation.service.ts) |
+| <a id="anonRetrievalCheckComplete"></a>`anonRetrievalCheckComplete` | Anonymous retrieval check terminates — successful piece fetch (plus optional CAR/IPNI/block-fetch validations) or any failure / abort. Drives the `anon_retrieval_checks` ClickHouse row and `anonRetrievalCheckMs`. | [`anon-retrieval.service.ts`](../../apps/backend/src/retrieval-anon/anon-retrieval.service.ts) (logs `anon_retrieval_completed`) |
+
 ## Metrics
 
 * Many of the metrics below are derived from the [events above](#event-list).
@@ -97,10 +136,10 @@ sequenceDiagram
 | <a id="dataStorageCheckMs"></a>`dataStorageCheckMs` | Data Storage | [`uploadToSpStart`](#uploadToSpStart) | [`ipfsRetrievalIntegrityChecked`](#ipfsRetrievalIntegrityChecked) | Duration of a Data Storage check | |
 | <a id="retrievalCheckMs"></a>`retrievalCheckMs` | Retrieval | Retrieval check start | [`ipfsRetrievalIntegrityChecked`](#ipfsRetrievalIntegrityChecked) | Duration of a Retrieval check | |
 | <a id="dataSetCreationMs"></a>`dataSetCreationMs` | Data-Set Creation | Data-set creation uploadToSpStart | Data-set creation pieceConfirmed | Duration of one data-set creation with confirmed piece (all using `createDataSetWithPiece`) | [`deal.service.ts`](../../apps/backend/src/deal/deal.service.ts) |
-| <a id="anonPieceRetrievalFirstByteMs"></a>`anonPieceRetrievalFirstByteMs` | Anonymous Retrieval | Piece fetch start | First byte received from `/piece/{pieceCid}` | Time to first byte for anonymous piece retrievals | [`anon-retrieval.service.ts`](../../apps/backend/src/retrieval-anon/anon-retrieval.service.ts) |
-| <a id="anonPieceRetrievalLastByteMs"></a>`anonPieceRetrievalLastByteMs` | Anonymous Retrieval | Piece fetch start | Last byte received from `/piece/{pieceCid}` | Total time to retrieve an anonymous piece | [`anon-retrieval.service.ts`](../../apps/backend/src/retrieval-anon/anon-retrieval.service.ts) |
+| <a id="anonPieceRetrievalFirstByteMs"></a>`anonPieceRetrievalFirstByteMs` | Anonymous Retrieval | [`anonPieceFetchStart`](#anonPieceFetchStart) | [`anonPieceFetchFirstByteReceived`](#anonPieceFetchFirstByteReceived) | Time to first byte for anonymous piece retrievals | [`anon-retrieval.service.ts`](../../apps/backend/src/retrieval-anon/anon-retrieval.service.ts) |
+| <a id="anonPieceRetrievalLastByteMs"></a>`anonPieceRetrievalLastByteMs` | Anonymous Retrieval | [`anonPieceFetchStart`](#anonPieceFetchStart) | [`anonPieceFetchLastByteReceived`](#anonPieceFetchLastByteReceived) | Total time to retrieve an anonymous piece | [`anon-retrieval.service.ts`](../../apps/backend/src/retrieval-anon/anon-retrieval.service.ts) |
 | <a id="anonPieceRetrievalThroughputBps"></a>`anonPieceRetrievalThroughputBps` | Anonymous Retrieval | n/a | n/a | `(bytesRetrieved / anonPieceRetrievalLastByteMs) * 1000` | [`anon-retrieval.service.ts`](../../apps/backend/src/retrieval-anon/anon-retrieval.service.ts) |
-| <a id="anonRetrievalCheckMs"></a>`anonRetrievalCheckMs` | Anonymous Retrieval | Anon retrieval check start | After CAR/IPNI/block-fetch validation completes (or on abort) | End-to-end anonymous retrieval check duration | [`anon-retrieval.service.ts`](../../apps/backend/src/retrieval-anon/anon-retrieval.service.ts) |
+| <a id="anonRetrievalCheckMs"></a>`anonRetrievalCheckMs` | Anonymous Retrieval | [`anonPieceSelected`](#anonPieceSelected) | [`anonRetrievalCheckComplete`](#anonRetrievalCheckComplete) | End-to-end anonymous retrieval check duration (excludes piece selection; includes CAR/IPNI/block-fetch validation when applicable). Emitted even on abort. | [`anon-retrieval.service.ts`](../../apps/backend/src/retrieval-anon/anon-retrieval.service.ts) |
 
 
 ### Status Count Related Metrics
@@ -120,11 +159,11 @@ sequenceDiagram
 | <a id="dataSetCreationStatus"></a>`dataSetCreationStatus` | Data-Set Creation | Not tied to an [event above](#event-list) but rather to data-set creation start (`pending`) and completion (`success`/`failure.*`) | `pending`, `success`, `failure.timedout`, `failure.other` | [`deal.service.ts`](../../apps/backend/src/deal/deal.service.ts) |
 | <a id="dataSetChallengeStatus"></a>`dataSetChallengeStatus` | Data Retention | Emitted on each [Data Retention Check](./data-retention.md) poll when a provider's confirmed proving-period totals advance (strictly positive deltas). Unit: **challenges** (period delta × `CHALLENGES_PER_PROVING_PERIOD = 5`). | `success` (challenges in successfully-proven periods), `failure` (challenges in faulted periods) | [`data-retention.service.ts`](../../apps/backend/src/data-retention/data-retention.service.ts) |
 | <a id="pdp_provider_estimated_overdue_periods"></a>`pdp_provider_estimated_overdue_periods` | Data Retention | Emitted on every [Data Retention Check](./data-retention.md) poll for every successfully processed provider. | Gauge value in proving periods (non-negative integer) | [`data-retention.service.ts`](../../apps/backend/src/data-retention/data-retention.service.ts) |
-| <a id="anonPieceRetrievalStatus"></a>`anonPieceRetrievalStatus` | Anonymous Retrieval | After piece fetch completes (or on abort) | `success` (HTTP 2xx **and** CommP matches), `failure.http`, `failure.commp` (HTTP 2xx but bytes hashed to a different CID), `failure.timedout`, `failure.no_piece`. | [`anon-retrieval.service.ts`](../../apps/backend/src/retrieval-anon/anon-retrieval.service.ts) |
-| <a id="anonPieceHttpResponseCode"></a>`anonPieceHttpResponseCode` | Anonymous Retrieval | After piece fetch completes | Same as [`ipfsRetrievalHttpResponseCode`](#ipfsRetrievalHttpResponseCode). | [`anon-retrieval.service.ts`](../../apps/backend/src/retrieval-anon/anon-retrieval.service.ts) |
-| <a id="anonCarParseStatus"></a>`anonCarParseStatus` | Anonymous Retrieval | After CAR validation runs (skipped when piece fetch failed or piece is not IPFS-indexed) | `parseable`, `not_parseable` | [`anon-retrieval.service.ts`](../../apps/backend/src/retrieval-anon/anon-retrieval.service.ts) |
-| <a id="anonIpniStatus"></a>`anonIpniStatus` | Anonymous Retrieval | After CAR validation runs, **or** when piece fetch failed (records `skipped`) | `valid`, `invalid`, `skipped`, `error` | [`anon-retrieval.service.ts`](../../apps/backend/src/retrieval-anon/anon-retrieval.service.ts) |
-| <a id="anonBlockFetchStatus"></a>`anonBlockFetchStatus` | Anonymous Retrieval | After block-fetch sampling runs, **or** when piece fetch failed (records `skipped`) | `valid`, `invalid`, `skipped`, `error` | [`anon-retrieval.service.ts`](../../apps/backend/src/retrieval-anon/anon-retrieval.service.ts) |
+| <a id="anonPieceRetrievalStatus"></a>`anonPieceRetrievalStatus` | Anonymous Retrieval | [`anonRetrievalCheckComplete`](#anonRetrievalCheckComplete) | `success`, `failure.http`, `failure.commp`, `failure.timedout`, `failure.no_piece`, `failure.other` from [Anonymous Retrieval Sub-status meanings](./anon-retrievals.md#sub-status-meanings). | [`anon-retrieval.service.ts`](../../apps/backend/src/retrieval-anon/anon-retrieval.service.ts) |
+| <a id="anonPieceHttpResponseCode"></a>`anonPieceHttpResponseCode` | Anonymous Retrieval | [`anonPieceFetchLastByteReceived`](#anonPieceFetchLastByteReceived) | Same as [`ipfsRetrievalHttpResponseCode`](#ipfsRetrievalHttpResponseCode). | [`anon-retrieval.service.ts`](../../apps/backend/src/retrieval-anon/anon-retrieval.service.ts) |
+| <a id="anonCarParseStatus"></a>`anonCarParseStatus` | Anonymous Retrieval | [`anonCarParsed`](#anonCarParsed) (skipped when piece fetch failed or piece is not IPFS-indexed) | `parseable`, `not_parseable` from [Anonymous Retrieval Sub-status meanings](./anon-retrievals.md#sub-status-meanings). | [`anon-retrieval.service.ts`](../../apps/backend/src/retrieval-anon/anon-retrieval.service.ts) |
+| <a id="anonIpniStatus"></a>`anonIpniStatus` | Anonymous Retrieval | [`anonIpniVerificationComplete`](#anonIpniVerificationComplete), **or** when piece fetch failed (records `skipped`) | `valid`, `invalid`, `skipped`, `error` from [Anonymous Retrieval Sub-status meanings](./anon-retrievals.md#sub-status-meanings). | [`anon-retrieval.service.ts`](../../apps/backend/src/retrieval-anon/anon-retrieval.service.ts) |
+| <a id="anonBlockFetchStatus"></a>`anonBlockFetchStatus` | Anonymous Retrieval | [`anonBlockFetchComplete`](#anonBlockFetchComplete), **or** when piece fetch failed (records `skipped`) | `valid`, `invalid`, `skipped`, `error` from [Anonymous Retrieval Sub-status meanings](./anon-retrievals.md#sub-status-meanings). | [`anon-retrieval.service.ts`](../../apps/backend/src/retrieval-anon/anon-retrieval.service.ts) |
 
 ## ClickHouse Tables
 
