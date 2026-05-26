@@ -1,33 +1,30 @@
-import { ArrowLeftRight } from "lucide-react";
-import { Link } from "react-router-dom";
-import { Button } from "@/components/ui/button";
-import { useNetworkConfig } from "@/hooks/useNetworkConfig";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { Network } from "@/types/config";
-import { NETWORK_DEPLOYMENT_URL, NETWORK_DOT_CLASS, NETWORK_LABEL } from "./constants";
+import { NETWORK_DOT_CLASS, NETWORK_LABEL } from "./constants";
 
-const otherNetwork = (network: Network): Network => (network === "mainnet" ? "calibration" : "mainnet");
+interface NetworkSwitcherProps {
+  networks: Network[];
+  selected: Network;
+  onChange: (network: Network) => void;
+}
 
 /**
- * Provides a link to the sibling deployment for the other network.
+ * In-page tab control for switching between the active networks of a
+ * multi-network deployment. Renders nothing when only one network is active.
  */
-export default function NetworkSwitcher() {
-  const { network, loading, error } = useNetworkConfig();
+export default function NetworkSwitcher({ networks, selected, onChange }: NetworkSwitcherProps) {
+  if (networks.length <= 1) return null;
 
-  if (loading) {
-    return <div className="h-8 w-8 sm:w-36 animate-pulse rounded-md bg-muted" aria-hidden />;
-  }
-
-  if (error || network === null) return null;
-
-  const other = otherNetwork(network);
-  const label = `Switch to ${NETWORK_LABEL[other]}`;
   return (
-    <Button asChild variant="outline" size="sm" title={label} aria-label={label}>
-      <Link to={NETWORK_DEPLOYMENT_URL[other]} rel="noreferrer">
-        <span className={`h-2 w-2 rounded-full ${NETWORK_DOT_CLASS[other]}`} aria-hidden />
-        <ArrowLeftRight className="h-3.5 w-3.5" />
-        <span className="hidden sm:inline">{NETWORK_LABEL[other]}</span>
-      </Link>
-    </Button>
+    <Tabs value={selected} onValueChange={(v) => onChange(v as Network)}>
+      <TabsList aria-label="Select network">
+        {networks.map((network) => (
+          <TabsTrigger key={network} value={network} className="flex items-center gap-1.5">
+            <span className={`h-2 w-2 rounded-full ${NETWORK_DOT_CLASS[network]}`} aria-hidden />
+            {NETWORK_LABEL[network]}
+          </TabsTrigger>
+        ))}
+      </TabsList>
+    </Tabs>
   );
 }

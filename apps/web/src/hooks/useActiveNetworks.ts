@@ -2,17 +2,18 @@ import { useEffect, useState } from "react";
 import { fetchAppConfig } from "@/api/client";
 import type { Network } from "@/types/config";
 
-interface UseNetworkConfigReturn {
-  network: Network | null;
+interface UseActiveNetworksReturn {
+  activeNetworks: Network[];
   loading: boolean;
   error: string | null;
 }
 
 /**
- * Fetch the dealbot app config and expose the network this instance monitors.
+ * Fetches the dealbot app config and returns the list of networks this
+ * deployment is actively monitoring (e.g. ["calibration"] or ["calibration", "mainnet"]).
  */
-export function useNetworkConfig(): UseNetworkConfigReturn {
-  const [network, setNetwork] = useState<Network | null>(null);
+export function useActiveNetworks(): UseActiveNetworksReturn {
+  const [activeNetworks, setActiveNetworks] = useState<Network[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -25,7 +26,7 @@ export function useNetworkConfig(): UseNetworkConfigReturn {
         setError(null);
         const data = await fetchAppConfig(controller.signal);
         if (controller.signal.aborted) return;
-        setNetwork(data.network);
+        setActiveNetworks(data.networks.map((n) => n.network));
       } catch (err) {
         if (controller.signal.aborted) return;
         setError(err instanceof Error ? err.message : "Failed to fetch app config");
@@ -38,9 +39,5 @@ export function useNetworkConfig(): UseNetworkConfigReturn {
     return () => controller.abort();
   }, []);
 
-  return {
-    network,
-    loading,
-    error,
-  };
+  return { activeNetworks, loading, error };
 }

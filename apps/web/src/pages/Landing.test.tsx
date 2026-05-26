@@ -1,4 +1,5 @@
 import { render, screen } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 import type { ProvidersListResponseWithoutMetrics } from "@/types/providers";
 
@@ -15,6 +16,14 @@ vi.mock("@/hooks/useProvidersList", () => ({
   useProvidersList: (...args: unknown[]) => mockUseProvidersList(...args),
 }));
 
+vi.mock("@/hooks/useActiveNetworks", () => ({
+  useActiveNetworks: () => ({ activeNetworks: ["mainnet"], loading: false, error: null }),
+}));
+
+vi.mock("@/hooks/useSelectedNetwork", () => ({
+  useSelectedNetwork: () => ["mainnet", vi.fn()],
+}));
+
 import Landing from "./Landing";
 
 function makeProvider(overrides: Record<string, unknown> = {}) {
@@ -28,6 +37,7 @@ function makeProvider(overrides: Record<string, unknown> = {}) {
     isActive: true,
     isApproved: true,
     region: "US",
+    network: "mainnet",
     metadata: {},
     createdAt: "2025-01-01T00:00:00Z",
     updatedAt: "2025-01-01T00:00:00Z",
@@ -49,16 +59,24 @@ function setupMock(providers: ReturnType<typeof makeProvider>[] = [makeProvider(
   });
 }
 
+function renderLanding() {
+  return render(
+    <MemoryRouter>
+      <Landing />
+    </MemoryRouter>,
+  );
+}
+
 describe("Landing", () => {
   it("renders string providerId in the table", () => {
     setupMock([makeProvider({ providerId: "42" })]);
-    render(<Landing />);
+    renderLanding();
     expect(screen.getByText("42")).toBeInTheDocument();
   });
 
   it("renders dash when providerId is null", () => {
     setupMock([makeProvider({ providerId: null })]);
-    render(<Landing />);
+    renderLanding();
     const row = screen.getByText("Test Provider").closest("tr")!;
     const cells = row.querySelectorAll("td");
     expect(cells[1].textContent).toBe("—");
