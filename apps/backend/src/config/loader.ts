@@ -83,7 +83,7 @@ const loadClickhouseConfig = (env: NodeJS.ProcessEnv): IClickhouseConfig => ({
 });
 
 const loadPullPieceConfig = (env: NodeJS.ProcessEnv): IPullPieceConfig => ({
-  maxConcurrentStreams: getNumberEnv(env, "PULL_PIECE_MAX_CONCURRENT_STREAMS", 5),
+  maxConcurrentStreams: getNumberEnv(env, "PULL_PIECE_MAX_CONCURRENT_STREAMS", 50),
   maxStreamsPerCid: getNumberEnv(env, "PULL_PIECE_MAX_STREAMS_PER_CID", 3),
 });
 
@@ -220,7 +220,11 @@ function loadNetworkEnvPrefix(
       k("PULL_CHECK_POLL_INTERVAL_SECONDS"),
       networkDefaults.pullCheckPollIntervalSeconds,
     ),
-    pullCheckPieceSizeBytes: getNumberEnv(env, "PULL_CHECK_PIECE_SIZE_BYTES", networkDefaults.pullCheckPieceSizeBytes),
+    pullCheckPieceSizeBytes: getNumberEnv(
+      env,
+      k("PULL_CHECK_PIECE_SIZE_BYTES"),
+      networkDefaults.pullCheckPieceSizeBytes,
+    ),
     pullPieceCleanupIntervalSeconds: getNumberEnv(
       env,
       k("PULL_PIECE_CLEANUP_INTERVAL_SECONDS"),

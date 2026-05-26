@@ -22,8 +22,8 @@ export const networkDefaults = {
   providersRefreshIntervalSeconds: 4 * 3600,
   maintenanceWindowsUtc: ["07:00", "22:00"],
   maintenanceWindowMinutes: 20,
-  maxDatasetStorageSizeBytes: 24 * 1024 * 1024 * 1024, // 10GB
-  targetDatasetStorageSizeBytes: 20 * 1024 * 1024 * 1024, // 8GB
+  maxDatasetStorageSizeBytes: 24 * 1024 * 1024 * 1024, // 24 GiB
+  targetDatasetStorageSizeBytes: 20 * 1024 * 1024 * 1024, // 20 GiB
   pullChecksPerSpPerHour: 1,
   pullCheckJobTimeoutSeconds: 300,
   pullCheckPollIntervalSeconds: 2,

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { loadConfig } from "./loader.js";
 
 /**
@@ -36,13 +36,13 @@ beforeEach(() => {
   process.env.DATABASE_USER = process.env.DATABASE_USER ?? "test";
   process.env.DATABASE_PASSWORD = process.env.DATABASE_PASSWORD ?? "test";
   process.env.DATABASE_NAME = process.env.DATABASE_NAME ?? "test";
+});
 
-  return () => {
-    for (const key of KEYS_TO_RESET) {
-      if (snapshot[key] === undefined) delete process.env[key];
-      else process.env[key] = snapshot[key];
-    }
-  };
+afterEach(() => {
+  for (const key of KEYS_TO_RESET) {
+    if (snapshot[key] === undefined) delete process.env[key];
+    else process.env[key] = snapshot[key];
+  }
 });
 
 describe("loadConfig", () => {
