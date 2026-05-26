@@ -35,12 +35,12 @@ The `subgraph-` prefix disambiguates from backend / web releases, which are tagg
 
 ## 3. Build and publish the subgraph
 
-> **Note:** Tag-triggered CI for subgraph deploys is not wired up yet — for now every release uses the manual fallback. Tracked as follow-up; target is to match [filecoin-pay-explorer's `deploy.yml`](https://github.com/FilOzone/filecoin-pay-explorer/blob/main/.github/workflows/deploy.yml).
+> **Note:** Tag-triggered CI for subgraph deploys is not wired up yet — for now every release uses the manual fallback. Tracked as follow-up in [#573](https://github.com/FilOzone/dealbot/issues/573); target is to match [filecoin-pay-explorer's `deploy.yml`](https://github.com/FilOzone/filecoin-pay-explorer/blob/main/.github/workflows/deploy.yml).
 
 The following commands need to be run in the `apps/subgraph` directory and require the `goldsky` CLI authenticated via a `GOLDSKY_API_KEY`.
 
 ```bash
-export VERSION=0.3.0   # no v prefix; used as the Goldsky version segment
+export VERSION=X.Y.Z   # no v prefix; used as the Goldsky version segment
 
 pnpm build:calibration
 pnpm deploy:calibration
@@ -62,7 +62,7 @@ pnpm deploy:mainnet
 Point dealbot staging at the new versioned URL. The cleanest way is via a `staging` tag so the staging backend's config can stay stable:
 
 ```bash
-for network in mainnet calibration; do
+for network in calibration mainnet; do
   goldsky subgraph tag delete dealbot-$network/$CURRENT_VERSION --tag staging 2>/dev/null || true
   goldsky subgraph tag create dealbot-$network/$NEW_RELEASE_VERSION --tag staging
 done
@@ -79,7 +79,7 @@ done
 > Re-tagging as `prod` below switches the **production** dealbot backend over to the new subgraph version. Do this only when you're ready to take it live.
 
 ```bash
-for network in mainnet calibration; do
+for network in calibration mainnet; do
   # `tag create` errors if `prod` already points at another version, so we
   # delete first. The window between the two calls is sub-second; consumers
   # querying the `prod` URL in that window will get an error.
