@@ -68,7 +68,7 @@ export class PullCheckService {
     const providerInfo = this.validateProviderInfo(spAddress);
     const labels = buildCheckMetricLabels({
       checkType: "pullCheck",
-      network: this.configService.get("blockchain.network", { infer: true }),
+      network: this.configService.get("blockchain", { infer: true }).network,
       providerId: providerInfo.id,
       providerName: providerInfo.name,
       providerIsApproved: providerInfo.isApproved,
