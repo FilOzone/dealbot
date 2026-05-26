@@ -1,4 +1,4 @@
-import type { AppConfigResponse } from "@/types/config";
+import type { AppConfigResponse, Network } from "@/types/config";
 import type { PaginationOptions } from "@/types/pagination";
 import type { ProvidersListResponseWithoutMetrics } from "@/types/providers";
 
@@ -31,10 +31,12 @@ const buildQueryString = (params: Record<string, string | number | boolean | und
 // ============================================================================
 
 /**
- * Fetch simple providers list (without performance metrics)
- * Used for dropdowns and filters
+ * Fetch simple providers list (without performance metrics).
+ * Pass `network` to scope results to a specific network; omit to get all active networks.
  */
-export async function fetchProvidersList(options?: PaginationOptions): Promise<ProvidersListResponseWithoutMetrics> {
+export async function fetchProvidersList(
+  options?: PaginationOptions & { network?: Network },
+): Promise<ProvidersListResponseWithoutMetrics> {
   const queryString = options ? buildQueryString(options as Record<string, string | number | boolean | undefined>) : "";
   const url = `${getBaseUrl()}/api/v1/providers${queryString}`;
 

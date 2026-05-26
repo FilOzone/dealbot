@@ -1,10 +1,15 @@
 export type Network = "mainnet" | "calibration";
 
-export interface AppConfigResponse {
+export interface NetworkConfig {
   network: Network;
-  jobs: {
-    dealsPerSpPerHour?: number;
-    dataSetCreationsPerSpPerHour?: number;
-    retrievalsPerSpPerHour?: number;
-  };
+  dealsPerSpPerHour: number;
+  retrievalsPerSpPerHour: number;
+  dataSetCreationsPerSpPerHour: number;
+  pullChecksPerSpPerHour: number;
+  dataRetentionPollIntervalSeconds: number;
+  providersRefreshIntervalSeconds: number;
+}
+
+export interface AppConfigResponse {
+  networks: NetworkConfig[];
 }

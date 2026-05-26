@@ -28,6 +28,7 @@ export interface PDPOffering {
  */
 export interface Provider {
   address: string;
+  network: string;
   providerId?: string | null;
   name: string;
   description: string;
