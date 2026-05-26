@@ -281,7 +281,7 @@ export interface IJobsConfig {
   /**
    * Maximum runtime (seconds) for anonymous retrieval jobs before forced abort.
    *
-   * Anonymous retrievals fetch arbitrary pieces (up to ~500 MiB), so this is
+   * Anonymous retrievals fetch arbitrary pieces (up to 100 MiB), so this is
    * typically larger than `retrievalJobTimeoutSeconds`. Uses AbortController
    * to actively cancel job execution while still persisting partial metrics.
    */

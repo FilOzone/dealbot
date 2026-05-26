@@ -20,9 +20,9 @@ const MIB = 1024n * 1024n;
 // All downloads are buffered in-memory, so we need to keep piece sizes reasonable
 // When changing these values, also update ./docs/checks/anon-retrievals.md#piece-selection
 const SIZE_BUCKETS: Record<SizeBucket, SizeRange> = {
-  small: { min: 1n * MIB, max: 20n * MIB - 1n },
-  medium: { min: 20n * MIB, max: 100n * MIB - 1n },
-  large: { min: 100n * MIB, max: 500n * MIB - 1n },
+  small: { min: 1n * MIB, max: 10n * MIB - 1n },
+  medium: { min: 10n * MIB, max: 50n * MIB - 1n },
+  large: { min: 50n * MIB, max: 100n * MIB - 1n },
 };
 
 // Weights for choosing a bucket per selection. Must sum to 1.
