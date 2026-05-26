@@ -5,7 +5,8 @@ import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import type { Address } from "viem";
 import { type ProviderJobContext, toStructuredError } from "../common/logging.js";
-import type { IAppConfig, IConfig, IPullPieceConfig } from "../config/app.config.js";
+import type { Network } from "../common/types.js";
+import type { IAppConfig, IConfig, INetworkConfig } from "../config/index.js";
 import { DataSourceService } from "../dataSource/dataSource.service.js";
 import { HttpClientService } from "../http-client/http-client.service.js";
 import { buildCheckMetricLabels, classifyFailureStatus } from "../metrics-prometheus/check-metric-labels.js";
@@ -33,13 +34,13 @@ export class PullCheckService {
    * the provider is unknown, inactive, missing a numeric provider id, or
    * missing a PDP serviceURL. Returns the enriched provider info on success.
    */
-  validateProviderInfo(spAddress: string): PDPProviderEx {
-    const providerInfo = this.walletSdkService.getProviderInfo(spAddress);
+  validateProviderInfo(spAddress: string, network: Network): PDPProviderEx {
+    const providerInfo = this.walletSdkService.getProviderInfo(spAddress, network);
     if (!providerInfo) {
-      throw new Error(`Storage provider not found: ${spAddress}`);
+      throw new Error(`Storage provider not found: ${spAddress} on ${network}`);
     }
     if (!providerInfo.isActive) {
-      throw new Error(`Storage provider is not active: ${spAddress}`);
+      throw new Error(`Storage provider is not active: ${spAddress} on ${network}`);
     }
     if (providerInfo.id == null) {
       throw new Error(`Storage provider is missing providerId: ${spAddress}`);
@@ -62,13 +63,14 @@ export class PullCheckService {
    */
   async runPullCheck(
     spAddress: string,
+    network: Network,
     signal: AbortSignal | undefined,
     logContext: ProviderJobContext,
   ): Promise<void> {
-    const providerInfo = this.validateProviderInfo(spAddress);
+    const providerInfo = this.validateProviderInfo(spAddress, network);
     const labels = buildCheckMetricLabels({
+      network: network,
       checkType: "pullCheck",
-      network: this.configService.get("blockchain.network", { infer: true }),
       providerId: providerInfo.id,
       providerName: providerInfo.name,
       providerIsApproved: providerInfo.isApproved,
@@ -79,11 +81,11 @@ export class PullCheckService {
 
     try {
       signal?.throwIfAborted();
-      prepared = await this.preparePullPiece(spAddress);
+      prepared = await this.preparePullPiece(spAddress, network);
       const pieceCidStr = prepared.registration.pieceCid;
       const pieceCidParsed = parsePieceCid(pieceCidStr);
 
-      const synapseClient = this.requireSynapseClient();
+      const synapseClient = this.requireSynapseClient(network);
 
       // Resolve pull options for either the existing-dataset or new-dataset SP
       // pull pathway. `pullPieces` requires both dataSetId and clientDataSetId
@@ -113,12 +115,12 @@ export class PullCheckService {
         requestLatencyMs,
       });
 
-      const pullPieceConfig = this.getPullPieceConfig();
+      const networkCfg = this.getNetworkConfig(network);
       // `waitForPullPieces` polls the SP repeatedly until a terminal pull status is reported
       const finalResponse = await waitForPullPieces(synapseClient, {
         ...pullPiecesOptions,
-        timeout: pullPieceConfig.pullCheckJobTimeoutSeconds * 1000,
-        pollInterval: pullPieceConfig.pullCheckPollIntervalSeconds * 1000,
+        timeout: networkCfg.pullCheckJobTimeoutSeconds * 1000,
+        pollInterval: networkCfg.pullCheckPollIntervalSeconds * 1000,
       });
       signal?.throwIfAborted();
       const completionLatencyMs = Date.now() - requestSubmittedAt.getTime();
@@ -259,9 +261,9 @@ export class PullCheckService {
    * Generate a synthetic test piece, compute its piece CID, register it for
    * `/api/piece/:pieceCid` serving, and return the source URL plus registration.
    */
-  async preparePullPiece(providerAddress: string): Promise<PullPiecePrepared> {
-    const pullPieceConfig = this.getPullPieceConfig();
-    const targetSize = pullPieceConfig.pullCheckPieceSizeBytes;
+  async preparePullPiece(providerAddress: string, network: Network): Promise<PullPiecePrepared> {
+    const networkCfg = this.getNetworkConfig(network);
+    const targetSize = networkCfg.pullCheckPieceSizeBytes;
     const key = crypto.randomBytes(16).toString("hex");
 
     const dataStream = this.dataSourceService.generateBytesStream({
@@ -280,15 +282,15 @@ export class PullCheckService {
       providerAddress,
       key,
       size: targetSize,
-      expiresAt: new Date(Date.now() + pullPieceConfig.pullCheckJobTimeoutSeconds * 2 * 1000),
+      expiresAt: new Date(Date.now() + networkCfg.pullCheckJobTimeoutSeconds * 2 * 1000),
     };
     await this.pullPieceRepository.register(registration);
 
     return { registration, sourceUrl };
   }
 
-  private getPullPieceConfig(): IPullPieceConfig {
-    return this.configService.get<IPullPieceConfig>("pullPiece", { infer: true });
+  private getNetworkConfig(network: Network): INetworkConfig {
+    return this.configService.get("networks", { infer: true })[network];
   }
 
   private resolvePublicBaseUrl(): string {
@@ -297,8 +299,8 @@ export class PullCheckService {
     return `http://${appConfig.host}:${appConfig.port}`;
   }
 
-  private requireSynapseClient(): SynapseViemClient {
-    const client = this.walletSdkService.getSynapseClient();
+  private requireSynapseClient(network: Network): SynapseViemClient {
+    const client = this.walletSdkService.getSynapseClient(network);
     if (client == null) {
       throw new Error("Synapse client unavailable: chain integration must be enabled for pull checks");
     }

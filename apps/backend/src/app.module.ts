@@ -4,7 +4,7 @@ import { LoggerModule } from "nestjs-pino";
 import { AppController } from "./app.controller.js";
 import { ClickhouseModule } from "./clickhouse/clickhouse.module.js";
 import { buildLoggerModuleParams } from "./common/pino.config.js";
-import { configValidationSchema, loadConfig } from "./config/app.config.js";
+import { loadConfig, validateConfig } from "./config/index.js";
 import { DatabaseModule } from "./database/database.module.js";
 import { DataSourceModule } from "./dataSource/dataSource.module.js";
 import { DealModule } from "./deal/deal.module.js";
@@ -19,9 +19,9 @@ import { RetrievalModule } from "./retrieval/retrieval.module.js";
   imports: [
     LoggerModule.forRoot(buildLoggerModuleParams()),
     ConfigModule.forRoot({
-      load: [loadConfig],
-      validationSchema: configValidationSchema,
       isGlobal: true,
+      load: [loadConfig],
+      validate: validateConfig,
     }),
     DatabaseModule,
     MetricsPrometheusModule,

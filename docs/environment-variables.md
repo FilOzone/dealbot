@@ -2,24 +2,47 @@
 
 This document provides a comprehensive guide to all environment variables used by the Dealbot. Understanding these variables is essential for proper configuration in development, testing, and production environments.
 
+## Multi-Network Support
+
+Dealbot drives one or more Filecoin networks from a **single process**. The active set is controlled by the [`NETWORKS`](#networks) variable, and every network-scoped variable is namespaced with the UPPERCASE network name.
+
+```bash
+# Run Dealbot against both networks from the same instance
+NETWORKS=calibration,mainnet
+
+CALIBRATION_WALLET_PRIVATE_KEY=0xabc...
+CALIBRATION_RPC_URL=https://api.calibration.node.glif.io/rpc/v1
+CALIBRATION_DEALS_PER_SP_PER_HOUR=2
+
+MAINNET_WALLET_PRIVATE_KEY=0xdef...
+MAINNET_RPC_URL=https://api.node.glif.io/rpc/v1
+MAINNET_DEALS_PER_SP_PER_HOUR=1
+```
+
+**Rules**
+
+- **Global vs. per-network.** Unprefixed variables (database, HTTP ports, job timeouts, etc.) apply to the whole process. Prefixed variables configure a specific network.
+- **Active-network validation.** Only networks listed in `NETWORKS` are validated at startup. Variables for inactive networks are ignored, so you can keep a `MAINNET_*` block commented out until you are ready.
+- **Wallet vs. session key.** Each active network must provide either `<NETWORK>_WALLET_PRIVATE_KEY` or `<NETWORK>_SESSION_KEY_PRIVATE_KEY`. When both are present the session key takes precedence (see [`docs/runbooks/wallet-and-session-keys.md`](./runbooks/wallet-and-session-keys.md)).
+- **Supported prefixes.** `CALIBRATION_*`, `MAINNET_*`. Additional networks can be added by extending `SUPPORTED_NETWORKS` in the codebase.
+
 ## Quick Reference
 
 | Category                                  | Variables                                                                                                                                                    |
 | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| [Application](#application-configuration) | `NODE_ENV`, `DEALBOT_PORT`, `DEALBOT_HOST`, `DEALBOT_API_PUBLIC_URL`, `DEALBOT_RUN_MODE`, `DEALBOT_METRICS_PORT`, `DEALBOT_METRICS_HOST`, `DEALBOT_ALLOWED_ORIGINS`, `ENABLE_DEV_MODE` |
+| [Application](#application-configuration) | `NODE_ENV`, `DEALBOT_PORT`, `DEALBOT_HOST`, `DEALBOT_RUN_MODE`, `DEALBOT_METRICS_PORT`, `DEALBOT_METRICS_HOST`, `DEALBOT_ALLOWED_ORIGINS`, `ENABLE_DEV_MODE`, `DEALBOT_API_PUBLIC_URL`, `DEALBOT_PROBE_LOCATION` |
 | [Database](#database-configuration)       | `DATABASE_HOST`, `DATABASE_PORT`, `DATABASE_POOL_MAX`, `DATABASE_USER`, `DATABASE_PASSWORD`, `DATABASE_NAME`                                                 |
-| [Blockchain](#blockchain-configuration)   | `NETWORK`, `RPC_URL`, `WALLET_ADDRESS`, `WALLET_PRIVATE_KEY`, `SESSION_KEY_PRIVATE_KEY`, `CHECK_DATASET_CREATION_FEES`, `USE_ONLY_APPROVED_PROVIDERS`, `PDP_SUBGRAPH_ENDPOINT` |
-| [Dataset Versioning](#dataset-versioning) | `DEALBOT_DATASET_VERSION`                                                                                                                                    |
-| [Scheduling](#scheduling-configuration)   | `PROVIDERS_REFRESH_INTERVAL_SECONDS`, `DATA_RETENTION_POLL_INTERVAL_SECONDS`, `DEALBOT_MAINTENANCE_WINDOWS_UTC`, `DEALBOT_MAINTENANCE_WINDOW_MINUTES`                                                                                                                                 |
-| [Jobs (pg-boss)](#jobs-pg-boss)           | `DEALBOT_PGBOSS_SCHEDULER_ENABLED`, `DEALBOT_PGBOSS_POOL_MAX`, `DEALS_PER_SP_PER_HOUR`, `DATASET_CREATIONS_PER_SP_PER_HOUR`, `RETRIEVALS_PER_SP_PER_HOUR`,  `JOB_SCHEDULER_POLL_SECONDS`, `JOB_WORKER_POLL_SECONDS`, `PG_BOSS_LOCAL_CONCURRENCY`, `JOB_CATCHUP_MAX_ENQUEUE`, `JOB_SCHEDULE_PHASE_SECONDS`, `JOB_ENQUEUE_JITTER_SECONDS`, `DEAL_JOB_TIMEOUT_SECONDS`, `RETRIEVAL_JOB_TIMEOUT_SECONDS`, `SHUTDOWN_FINAL_SCRAPE_DELAY_SECONDS`, `IPFS_BLOCK_FETCH_CONCURRENCY` |
+| [Per-Network](#per-network-configuration) | `<NET>_WALLET_ADDRESS`, `<NET>_WALLET_PRIVATE_KEY`, `<NET>_SESSION_KEY_PRIVATE_KEY`, `<NET>_RPC_URL`, `<NET>_CHECK_DATASET_CREATION_FEES`, `<NET>_USE_ONLY_APPROVED_PROVIDERS`, `<NET>_PDP_SUBGRAPH_ENDPOINT`, `<NET>_DEALBOT_DATASET_VERSION`, `<NET>_MIN_NUM_DATASETS_FOR_CHECKS`                                           |
+| [Per-Network Scheduling](#per-network-scheduling) | `<NET>_DEALS_PER_SP_PER_HOUR`, `<NET>_DEAL_JOB_TIMEOUT_SECONDS`, `<NET>_RETRIEVALS_PER_SP_PER_HOUR`, `<NET>_RETRIEVAL_JOB_TIMEOUT_SECONDS`, `<NET>_DATASET_CREATIONS_PER_SP_PER_HOUR`, `<NET>_DATA_SET_CREATION_JOB_TIMEOUT_SECONDS`, `<NET>_PULL_CHECKS_PER_SP_PER_HOUR`, `<NET>_PULL_CHECK_JOB_TIMEOUT_SECONDS`, `<NET>_PULL_CHECK_POLL_INTERVAL_SECONDS`, `<NET>_PULL_PIECE_CLEANUP_INTERVAL_SECONDS`, `<NET>_METRICS_PER_HOUR`, `<NET>_PROVIDERS_REFRESH_INTERVAL_SECONDS`, `<NET>_DATA_RETENTION_POLL_INTERVAL_SECONDS`, `<NET>_MAINTENANCE_WINDOWS_UTC`, `<NET>_MAINTENANCE_WINDOW_MINUTES`, `<NET>_BLOCKED_SP_IDS`, `<NET>_BLOCKED_SP_ADDRESSES`, `<NET>_MAX_DATASET_STORAGE_SIZE_BYTES`, `<NET>_TARGET_DATASET_STORAGE_SIZE_BYTES`, `<NET>_PIECE_CLEANUP_PER_SP_PER_HOUR`, `<NET>_MAX_PIECE_CLEANUP_RUNTIME_SECONDS` |
+| [Jobs (pg-boss)](#jobs-pg-boss)           | `DEALBOT_PGBOSS_SCHEDULER_ENABLED`, `DEALBOT_PGBOSS_POOL_MAX`, `JOB_SCHEDULER_POLL_SECONDS`, `JOB_WORKER_POLL_SECONDS`, `PG_BOSS_LOCAL_CONCURRENCY`, `JOB_CATCHUP_MAX_ENQUEUE`, `JOB_SCHEDULE_PHASE_SECONDS`, `JOB_ENQUEUE_JITTER_SECONDS`, `SHUTDOWN_FINAL_SCRAPE_DELAY_SECONDS`, `IPFS_BLOCK_FETCH_CONCURRENCY` |
+| [Pull Check](#pull-check-configuration)   | `PULL_CHECK_PIECE_SIZE_BYTES`, `PULL_PIECE_MAX_CONCURRENT_STREAMS`, `PULL_PIECE_MAX_STREAMS_PER_CID` |
+| [ClickHouse](#clickhouse-configuration)   | `CLICKHOUSE_URL`, `CLICKHOUSE_BATCH_SIZE`, `CLICKHOUSE_FLUSH_INTERVAL_MS`, `CLICKHOUSE_MAX_BUFFER_SIZE`                                                      |
 | [Dataset](#dataset-configuration)         | `DEALBOT_LOCAL_DATASETS_PATH`, `RANDOM_PIECE_SIZES`                                                                                                          |
-| [ClickHouse](#clickhouse-configuration)   | `CLICKHOUSE_URL`, `CLICKHOUSE_BATCH_SIZE`, `CLICKHOUSE_FLUSH_INTERVAL_MS`, `DEALBOT_PROBE_LOCATION`          |
 | [Timeouts](#timeout-configuration)        | `CONNECT_TIMEOUT_MS`, `HTTP_REQUEST_TIMEOUT_MS`, `HTTP2_REQUEST_TIMEOUT_MS`, `IPNI_VERIFICATION_TIMEOUT_MS`, `IPNI_VERIFICATION_POLLING_MS`                   |
-| [Piece Cleanup](#piece-cleanup)           | `MAX_DATASET_STORAGE_SIZE_BYTES`, `TARGET_DATASET_STORAGE_SIZE_BYTES`, `JOB_PIECE_CLEANUP_PER_SP_PER_HOUR`, `MAX_PIECE_CLEANUP_RUNTIME_SECONDS`       |
-| [Pull Check](#pull-check)                 | `PULL_CHECKS_PER_SP_PER_HOUR`, `PULL_CHECK_JOB_TIMEOUT_SECONDS`, `PULL_CHECK_POLL_INTERVAL_SECONDS`, `PULL_CHECK_PIECE_SIZE_BYTES`, `PULL_PIECE_MAX_CONCURRENT_STREAMS`, `PULL_PIECE_MAX_STREAMS_PER_CID`, `PULL_PIECE_CLEANUP_INTERVAL_SECONDS` |
-| [SP Blocklist](#sp-blocklist-configuration) | `BLOCKED_SP_IDS`, `BLOCKED_SP_ADDRESSES` |
 | [Prometheus Metrics](#prometheus-metrics-configuration) | `PROMETHEUS_WALLET_BALANCE_TTL_SECONDS`, `PROMETHEUS_WALLET_BALANCE_ERROR_COOLDOWN_SECONDS`                   |
 | [Web Frontend](#web-frontend)             | `VITE_API_BASE_URL`, `VITE_PLAUSIBLE_DATA_DOMAIN`, `DEALBOT_API_BASE_URL`                                                                                    |
+
+> **Legend.** `<NET>` is the uppercase network name (`CALIBRATION`, `MAINNET`).
 
 ---
 
@@ -141,29 +164,6 @@ DEALBOT_HOST=0.0.0.0
 
 ---
 
-### `DEALBOT_API_PUBLIC_URL`
-
-- **Type**: `string` (URL)
-- **Required**: No (but required for [Pull Check](./checks/pull-check.md) when SPs cannot reach `DEALBOT_HOST:DEALBOT_PORT` directly)
-- **Default**: Empty (falls back to `http://${DEALBOT_HOST}:${DEALBOT_PORT}`)
-
-**Role**: Public base URL for the Dealbot HTTP API. Used to construct the hosted-piece source URL handed to a storage provider during a pull check (`{DEALBOT_API_PUBLIC_URL}/api/piece/{pieceCid}`).
-
-**When to update**:
-
-- Set to the public URL of your Dealbot deployment whenever pull checks are enabled and SPs cannot reach the bind address directly (the typical production case)
-- Leave unset for local development where SPs reach Dealbot on `localhost`
-
-**Example**:
-
-```bash
-DEALBOT_API_PUBLIC_URL=https://dealbot.filoz.org
-```
-
-**Notes**: Trailing slashes are stripped at load time. The value is also trimmed and treated as empty when blank.
-
----
-
 ### `DEALBOT_ALLOWED_ORIGINS`
 
 - **Type**: `string` (comma-separated URLs)
@@ -205,6 +205,43 @@ DEALBOT_ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173,https://stag
 
 ```bash
 ENABLE_DEV_MODE=true
+```
+
+---
+
+### `DEALBOT_API_PUBLIC_URL`
+
+- **Type**: `string` (URL)
+- **Required**: No
+- **Default**: Empty (falls back to `http://<DEALBOT_HOST>:<DEALBOT_PORT>`)
+
+**Role**: Publicly reachable base URL for the Dealbot API. Used to construct hosted-piece source URLs that storage providers can fetch during pull checks. When unset, Dealbot constructs the URL from `DEALBOT_HOST` and `DEALBOT_PORT`, which may not be routable from external SP nodes.
+
+**When to update**:
+
+- Set in production when the Dealbot API is behind a reverse proxy or load balancer
+- Required for pull-check functionality to work correctly when SPs cannot reach the internal host/port directly
+
+**Example**:
+
+```bash
+DEALBOT_API_PUBLIC_URL=https://dealbot.example.com
+```
+
+---
+
+### `DEALBOT_PROBE_LOCATION`
+
+- **Type**: `string`
+- **Required**: No
+- **Default**: `unknown`
+
+**Role**: A label identifying the geographic or logical location of this Dealbot instance. Attached to metrics and check results to distinguish probes running in different regions or datacenters.
+
+**Example**:
+
+```bash
+DEALBOT_PROBE_LOCATION=us-east-1
 ```
 
 ---
@@ -316,346 +353,483 @@ DATABASE_POOL_MAX=1
 
 ---
 
-## Blockchain Configuration
+## Network Selection
 
-### `NETWORK`
+### `NETWORKS`
 
-- **Type**: `string`
+- **Type**: `string` (comma-separated list)
 - **Required**: No
 - **Default**: `calibration`
-- **Valid values**: `mainnet`, `calibration`
+- **Valid values (per entry)**: `mainnet`, `calibration`
 
-**Role**: Determines which Filecoin network to interact with. This affects contract addresses, RPC endpoints, and token economics.
+**Role**: Selects which Filecoin networks the instance drives. Every active network is validated independently at startup; inactive networks have their `<NET>_*` variables ignored entirely.
 
-**When to update**:
+**Examples**:
 
-- Set to `calibration` for testing with test FIL/USDFC tokens
-- Set to `mainnet` for production deployments with real FIL/USDFC
+```bash
+# Single network (default)
+NETWORKS=calibration
 
-**⚠️ Warning**: Switching to `mainnet` will use real FIL/USDFC tokens. Ensure your wallet is funded and you understand the costs involved.
+# Multi-network instance
+NETWORKS=calibration,mainnet
+```
+
+**⚠️ Warning**: Adding `mainnet` to `NETWORKS` will cause the instance to spend real FIL/USDFC for every scheduled job. Ensure the configured wallet is funded and rate limits are reviewed before enabling.
 
 ---
 
-### `RPC_URL`
+## Per-Network Configuration
+
+Every variable below must be prefixed with the uppercase network name (e.g. `CALIBRATION_`, `MAINNET_`). Values only apply when the corresponding network is listed in [`NETWORKS`](#networks).
+
+### `<NET>_WALLET_ADDRESS`
+
+- **Type**: `string` (Ethereum-style address)
+- **Required**: No (defaults to the zero address)
+- **Security**: Public, but should match `<NET>_WALLET_PRIVATE_KEY` or be the signer registered against `<NET>_SESSION_KEY_PRIVATE_KEY`.
+
+**Role**: The FEVM address used for signing transactions and paying for storage deals on the given network.
+
+**Example**:
+
+```bash
+CALIBRATION_WALLET_ADDRESS=0x1234567890abcdef1234567890abcdef12345678
+```
+
+---
+
+### `<NET>_WALLET_PRIVATE_KEY`
+
+- **Type**: `string` (0x-prefixed hex)
+- **Required**: One of `<NET>_WALLET_PRIVATE_KEY` or `<NET>_SESSION_KEY_PRIVATE_KEY` is required for every active network. Both may be set, in which case the session key takes precedence.
+- **Security**: **HIGHLY SENSITIVE** — never commit to version control; use Kubernetes Secrets or an equivalent secrets manager.
+
+**Role**: Private key for signing blockchain transactions on this network. Required in direct-key mode. Ignored when a session key is provided.
+
+---
+
+### `<NET>_SESSION_KEY_PRIVATE_KEY`
+
+- **Type**: `string` (0x-prefixed hex)
+- **Required**: See `<NET>_WALLET_PRIVATE_KEY` above.
+- **Security**: **HIGHLY SENSITIVE**.
+
+**Role**: When set, Dealbot uses session-key authentication on this network. The session key must be registered on the `SessionKeyRegistry` contract from `<NET>_WALLET_ADDRESS` (typically a Safe multisig). Storage operations (create dataset, add pieces) are signed with this key instead of `<NET>_WALLET_PRIVATE_KEY`.
+
+Session keys are scoped (only storage operations, not deposits or withdrawals) and time-limited (expiry set during registration). See [runbooks/wallet-and-session-keys.md](runbooks/wallet-and-session-keys.md) for the full setup process.
+
+---
+
+### `<NET>_RPC_URL`
 
 - **Type**: `string` (HTTP/HTTPS URL)
 - **Required**: No
-- **Default**: Uses the default public RPC for the configured network
+- **Default**: Empty (SDK falls back to its built-in default public RPC for the network)
 
-**Role**: Custom Filecoin RPC endpoint URL. When set, all on-chain calls (Synapse SDK, viem) use this endpoint instead of the default public RPC. Use an authenticated endpoint to avoid rate limiting on shared public infrastructure.
+**Role**: Custom Filecoin RPC endpoint. When set, all on-chain calls (Synapse SDK, viem) for this network use the configured endpoint. Use an authenticated endpoint to avoid rate-limiting on shared public infrastructure.
 
-Providers like Glif/Chain.Love support passing the API key as a query parameter:
+Providers like Glif/Chain.Love accept the API key as a query parameter:
 
 ```bash
-RPC_URL=https://filecoin.chain.love/rpc/v1?token=YOUR_API_KEY
+CALIBRATION_RPC_URL=https://filecoin.chain.love/rpc/v1?token=YOUR_API_KEY
 ```
-
-**When to update**:
-
-- When DealBot is hitting 429 rate limits on the default public RPC
-- When switching RPC providers
-- When rotating API keys
 
 **Security**: Treat as a secret if the URL contains an API key.
 
 ---
 
-### `WALLET_ADDRESS`
-
-- **Type**: `string` (Ethereum-style address)
-- **Required**: Yes
-- **Security**: Public, but should match `WALLET_PRIVATE_KEY`
-
-**Role**: The Ethereum/FEVM address used for signing transactions and paying for storage deals.
-
-**When to update**:
-
-- When switching to a different wallet
-- When setting up a new Dealbot instance
-- When rotating keys for security
-
-**Example**:
-
-```bash
-WALLET_ADDRESS=0x1234567890abcdef1234567890abcdef12345678
-```
-
----
-
-### `WALLET_PRIVATE_KEY`
-
-- **Type**: `string`
-- **Required**: Yes
-- **Security**: **HIGHLY SENSITIVE** - Never commit to version control, use secrets management
-
-**Role**: Private key for signing blockchain transactions. Required in direct key mode. Not needed when `SESSION_KEY_PRIVATE_KEY` is set (session key mode), since the session key handles all signing. If both are set, `SESSION_KEY_PRIVATE_KEY` takes precedence and `WALLET_PRIVATE_KEY` is ignored.
-
-**When to update**:
-
-- When rotating keys for security
-- When setting up a new Dealbot instance
-- When switching wallets
-
-**Security best practices**:
-
-- Use Kubernetes Secrets or a secrets manager (Vault, AWS Secrets Manager)
-- Never log or expose this value
-
----
-
-### `SESSION_KEY_PRIVATE_KEY`
-
-- **Type**: `string` (0x-prefixed hex private key)
-- **Required**: No
-- **Security**: **HIGHLY SENSITIVE** - Treat like `WALLET_PRIVATE_KEY`
-
-**Role**: When set, DealBot uses session key authentication. The session key must be registered on the SessionKeyRegistry contract from the `WALLET_ADDRESS` (typically a Safe multisig). Scoped storage operations are signed with this key instead of `WALLET_PRIVATE_KEY`.
-
-Session keys are scoped (only storage operations, not deposits or withdrawals) and time-limited (expiry set during registration). See [runbooks/wallet-and-session-keys.md](runbooks/wallet-and-session-keys.md) for the full setup process.
-
-**When to update**:
-
-- When rotating session keys
-- When switching to session key mode from direct key mode
-- When the session key has been compromised
-
----
-
-### `CHECK_DATASET_CREATION_FEES`
+### `<NET>_CHECK_DATASET_CREATION_FEES`
 
 - **Type**: `boolean`
 - **Required**: No
 - **Default**: `true`
 
-**Role**: When enabled, validates that the wallet has sufficient balance to cover dataset creation fees + 100 GiB of storage costs.
+**Role**: When enabled, validates that the network's wallet has sufficient balance to cover dataset-creation fees plus 100 GiB of storage costs before creating a new dataset.
 
 **When to update**:
 
-- Set to `false` to skip addition of dataset creation fees into storage costs.
+- Set to `false` to skip the balance check (e.g. for CI/test environments where insufficient balance is expected).
 
 ---
 
-### `USE_ONLY_APPROVED_PROVIDERS`
+### `<NET>_USE_ONLY_APPROVED_PROVIDERS`
 
 - **Type**: `boolean`
 - **Required**: No
 - **Default**: `true`
 
-**Role**: Restricts deal-making to only Filecoin Warm Storage Service (FWSS) approved storage providers. This ensures deals are made with approved providers.
+**Role**: Restricts deal-making to Filecoin Warm Storage Service (FWSS) approved storage providers for the network.
 
 **When to update**:
 
-- Set to `false` to test with any storage provider available for testing (providers that support "PDP" product in ServiceProviderRegistry)
+- Set to `false` to test against any provider that supports the `PDP` product in `ServiceProviderRegistry`.
 
 ---
 
-### `PDP_SUBGRAPH_ENDPOINT`
+### `<NET>_PDP_SUBGRAPH_ENDPOINT`
 
 - **Type**: `string` (URL)
 - **Required**: No
-- **Default**: Empty string (feature disabled)
+- **Default**: Empty (feature disabled for this network)
 
-**Role**: The Graph API endpoint for querying PDP (Proof of Data Possession) subgraph data. This endpoint is used to retrieve data retention info for provider data.
-
-**When to update**:
-
-- When switching between different Graph API endpoints
+**Role**: The Graph API endpoint for querying PDP (Proof of Data Possession) subgraph data for this network. Used to retrieve data-retention information for provider datasets.
 
 **Example**:
 
 ```bash
-PDP_SUBGRAPH_ENDPOINT=https://api.thegraph.com/subgraphs/filecoin/pdp
+CALIBRATION_PDP_SUBGRAPH_ENDPOINT=https://api.thegraph.com/subgraphs/filecoin/pdp
 ```
 
 ---
 
-## Dataset Versioning
+### `<NET>_MIN_NUM_DATASETS_FOR_CHECKS`
 
-### `DEALBOT_DATASET_VERSION`
+- **Type**: `number` (integer, ≥ 1)
+- **Required**: No
+- **Default**: `1`
+
+**Role**: Minimum number of datasets provisioned per storage provider before running checks on this network. When > 1, the `data_set_creation` job is responsible for provisioning any additional datasets.
+
+---
+
+### `<NET>_DEALBOT_DATASET_VERSION`
 
 - **Type**: `string`
 - **Required**: No
 - **Default**: Not set (no versioning)
 
-**Role**: Creates versioning for datasets, allowing multiple dataset versions without changing wallet addresses. Useful for separating test data from production data or managing dataset migrations.
+**Role**: Tags newly created datasets with a version label, enabling multiple generations of datasets on the same wallet. Useful for separating test data from production data or managing dataset migrations per network.
 
-**When to update**:
-
-- When you want to create a fresh set of datasets
-- When separating environments (e.g., `dealbot-v1`, `dealbot-staging`)
-
-**Example scenario**: Creating a new dataset version for testing:
+**Example**:
 
 ```bash
-DEALBOT_DATASET_VERSION=dealbot-v2
+CALIBRATION_DEALBOT_DATASET_VERSION=dealbot-v2
 ```
 
 ---
 
-## Scheduling Configuration
+## Per-Network Scheduling
 
-These variables control when and how often the Dealbot runs its automated jobs.
+Scheduling rates and intervals are configured per network, so each network can be tuned independently (e.g. an aggressive calibration cadence with a conservative mainnet cadence). Every variable below must be prefixed with the uppercase network name.
 
-**Note**: Dealbot uses pg-boss for rate-based scheduling (see [Jobs (pg-boss)](#jobs-pg-boss)).
+Dealbot uses pg-boss for rate-based scheduling — see [Jobs (pg-boss)](#jobs-pg-boss) for global worker/timeout settings.
 
-### `PROVIDERS_REFRESH_INTERVAL_SECONDS`
+### `<NET>_DEALS_PER_SP_PER_HOUR`
 
 - **Type**: `number`
 - **Required**: No
-- **Default**: `14400` (4 hours, recommended)
+- **Default**: `4`
+- **Limits**: capped at `20` to avoid excessive on-chain activity.
 
-**Role**: How often the providers refresh job runs, in seconds.
+**Role**: Target deal creation rate per storage provider on this network.
 
-**When to update**:
-
-- Increase for less frequent providers refresh (reduces costs, slower testing)
-- Decrease for more aggressive testing (higher costs, faster feedback)
-
-**Example scenario**: Running providers refresh every 4 hours (default):
-
-```bash
-PROVIDERS_REFRESH_INTERVAL_SECONDS=14400
-```
+**Notes**: Fractional values are supported (e.g. `0.25` ⇒ one deal every 4 hours per SP).
 
 ---
 
-### `DATA_RETENTION_POLL_INTERVAL_SECONDS`
+### `<NET>_DEAL_JOB_TIMEOUT_SECONDS`
+
+- **Type**: `number`
+- **Required**: No
+- **Default**: `360` (6 minutes)
+- **Minimum**: `120` (2 minutes)
+
+**Role**: Maximum runtime for data-storage jobs on this network before forced abort via `AbortController`. Covers end-to-end execution including provider lookup, upload, and IPNI verification.
+
+**When to update**:
+
+- Increase if deal uploads on this network consistently take longer than the default
+- Decrease to fail-fast on stuck jobs
+
+---
+
+### `<NET>_RETRIEVALS_PER_SP_PER_HOUR`
+
+- **Type**: `number`
+- **Required**: No
+- **Default**: `2`
+- **Limits**: capped at `20`.
+
+**Role**: Target retrieval test rate per storage provider on this network.
+
+---
+
+### `<NET>_RETRIEVAL_JOB_TIMEOUT_SECONDS`
+
+- **Type**: `number`
+- **Required**: No
+- **Default**: `60` (1 minute)
+- **Minimum**: `60`
+
+**Role**: Maximum runtime for retrieval jobs on this network before forced abort via `AbortController`.
+
+**When to update**:
+
+- Increase if retrieval tests on this network consistently exceed the default
+- Decrease to detect and fail stuck retrievals faster
+
+---
+
+### `<NET>_DATASET_CREATIONS_PER_SP_PER_HOUR`
+
+- **Type**: `number`
+- **Required**: No
+- **Default**: `1`
+- **Limits**: capped at `20`.
+
+**Role**: Target dataset-creation rate per storage provider on this network.
+
+---
+
+### `<NET>_DATA_SET_CREATION_JOB_TIMEOUT_SECONDS`
+
+- **Type**: `number`
+- **Required**: No
+- **Default**: `300` (5 minutes)
+- **Minimum**: `60`
+
+**Role**: Maximum runtime for dataset-creation jobs on this network before forced abort via `AbortController`.
+
+**When to update**:
+
+- Increase if dataset creation on this network consistently takes longer (e.g. slow networks or large initial piece uploads)
+- Decrease to fail faster on stuck provider interactions
+
+---
+
+### `<NET>_METRICS_PER_HOUR`
+
+- **Type**: `number`
+- **Required**: No
+- **Default**: `0.1`
+- **Limits**: capped at `3` to limit database load from materialized-view refreshes.
+
+**Role**: Frequency of metrics aggregation runs per hour on this network.
+
+---
+
+### `<NET>_PROVIDERS_REFRESH_INTERVAL_SECONDS`
+
+- **Type**: `number`
+- **Required**: No
+- **Default**: `14400` (4 hours)
+
+**Role**: How often the providers-refresh job runs for this network.
+
+---
+
+### `<NET>_DATA_RETENTION_POLL_INTERVAL_SECONDS`
 
 - **Type**: `number`
 - **Required**: No
 - **Default**: `3600` (1 hour)
 
-**Role**: How often the data retention polling job runs, in seconds. This job checks and manages data retention stats of providers for stored datasets.
-
-**When to update**:
-
-- Increase for less frequent data retention checks
-- Decrease for more frequent monitoring of data retention policies
-
-**Example scenario**: Running data retention checks every 2 hours:
-
-```bash
-DATA_RETENTION_POLL_INTERVAL_SECONDS=7200
-```
+**Role**: How often the data-retention polling job runs for this network. The job checks and updates data-retention stats of providers for stored datasets.
 
 ---
 
-### `DEAL_START_OFFSET_SECONDS`
+### `<NET>_MAINTENANCE_WINDOWS_UTC`
 
-- **Type**: `number`
-- **Required**: No
-- **Default**: `0`
-
-**Role**: Delay before the first deal creation job runs after startup.
-
-**When to update**:
-
-- Increase to allow other services to initialize first
-- Keep at `0` for immediate deal creation on startup
-
----
-
-### `RETRIEVAL_START_OFFSET_SECONDS`
-
-- **Type**: `number`
-- **Required**: No
-- **Default**: `600` (10 minutes) / `300` (5 minutes in .env.example)
-
-**Role**: Delay before the first retrieval test runs after startup. This offset prevents retrieval tests from running concurrently with deal creation.
-
-**When to update**:
-
-- Adjust to stagger job execution and prevent resource contention
-- Increase if deal creation takes longer than expected
-
----
-
-### `DEALBOT_MAINTENANCE_WINDOWS_UTC`
-
-- **Type**: `string` (comma-separated HH:MM times in UTC)
+- **Type**: `string` (comma-separated `HH:MM` times in UTC)
 - **Required**: No
 - **Default**: `07:00,22:00`
 
-**Role**: Daily maintenance windows (UTC) during which deal creation and retrieval checks are skipped.
-
-**Notes**:
-
-- Times must be in 24-hour `HH:MM` format.
-- Applies to both cron and pg-boss modes.
+**Role**: Daily maintenance windows (UTC) during which deal-creation and retrieval checks are skipped for this network. Different networks can have different schedules.
 
 **Example**:
 
 ```bash
-DEALBOT_MAINTENANCE_WINDOWS_UTC=06:30,21:30
+CALIBRATION_MAINTENANCE_WINDOWS_UTC=06:30,21:30
+MAINNET_MAINTENANCE_WINDOWS_UTC=05:00,17:00
 ```
 
 ---
 
-### `DEALBOT_MAINTENANCE_WINDOW_MINUTES`
+### `<NET>_MAINTENANCE_WINDOW_MINUTES`
 
 - **Type**: `number`
 - **Required**: No
 - **Default**: `20`
 - **Minimum**: `20`
-- **Maximum**: `360` (6 hours). With two daily windows, this keeps maintenance time ≤ runtime.
+- **Maximum**: `360` (6 hours)
 
-**Role**: Duration (minutes) of each maintenance window in `DEALBOT_MAINTENANCE_WINDOWS_UTC`.
+**Role**: Duration (minutes) of each maintenance window in `<NET>_MAINTENANCE_WINDOWS_UTC`.
+
+---
+
+### `<NET>_BLOCKED_SP_IDS`
+
+- **Type**: `string` (comma-separated provider IDs)
+- **Required**: No
+- **Default**: `""` (empty — no providers blocked)
+
+**Role**: Global blocklist by provider numeric ID. Providers listed here are excluded from **all** scheduled
+check types (data-storage, retrieval, and data-retention).
+
+**Example**: `<NET>_BLOCKED_SP_IDS=1234,5678`
+
+---
+
+### `<NET>_BLOCKED_SP_ADDRESSES`
+
+- **Type**: `string` (comma-separated provider Ethereum addresses)
+- **Required**: No
+- **Default**: `""` (empty — no providers blocked)
+
+**Role**: Global blocklist by provider address. Providers listed here are excluded from **all** scheduled
+check types (data-storage, retrieval, and data-retention). Matching is case-insensitive.
+
+**Example**: `<NET>_BLOCKED_SP_ADDRESSES=0xAbCd...,0x1234...`
+
+---
+
+### `<NET>_MAX_DATASET_STORAGE_SIZE_BYTES`
+
+- **Type**: `number` (integer, bytes)
+- **Required**: No
+- **Default**: `25769803776` (24 GiB)
+- **Minimum**: `1`
+
+**Role**: **High-water mark.** Maximum total stored data per SP (in bytes) before cleanup kicks in. When live storage for a provider exceeds this value, the cleanup job triggers and deletes the oldest pieces until usage drops below `<NET>_TARGET_DATASET_STORAGE_SIZE_BYTES` (the low-water mark).
+
+**When to update**:
+
+- Increase for longer runway before cleanup kicks in (e.g. months vs weeks)
+- Decrease if SP storage is constrained or costs are a concern
 
 **Example**:
 
 ```bash
-DEALBOT_MAINTENANCE_WINDOW_MINUTES=30
+<NET>_MAX_DATASET_STORAGE_SIZE_BYTES=12884901888  # 12 GiB per SP
 ```
+
+---
+
+### `<NET>_TARGET_DATASET_STORAGE_SIZE_BYTES`
+
+- **Type**: `number` (integer, bytes)
+- **Required**: No
+- **Default**: `21474836480` (20 GiB)
+- **Minimum**: `1`
+
+**Role**: **Low-water mark.** When cleanup triggers (live usage exceeds `<NET>_MAX_DATASET_STORAGE_SIZE_BYTES`), pieces are deleted until usage drops below this target. The gap between MAX and TARGET creates headroom so cleanup doesn't re-trigger immediately.
+
+**Headroom math**: At 4 deals/SP/hour × 10 MiB = ~960 MiB/day growth. With 4 GiB headroom (24 GiB MAX − 20 GiB TARGET), cleanup provides ~4 days of breathing room per run, which aligns with the daily default cadence.
+
+**When to update**:
+
+- Decrease for more aggressive cleanup (larger gap = more headroom)
+- Increase toward MAX for minimal cleanup (smaller gap = less headroom)
+- Must be less than `<NET>_MAX_DATASET_STORAGE_SIZE_BYTES` for cleanup to have effect
+
+**Example**:
+
+```bash
+<NET>_TARGET_DATASET_STORAGE_SIZE_BYTES=16106127360  # 15 GiB per SP (9 GiB headroom)
+```
+
+---
+
+### `<NET>_PIECE_CLEANUP_PER_SP_PER_HOUR`
+
+- **Type**: `number`
+- **Required**: No
+- **Default**: `0.0417` (~1/24, approximately once per day)
+- **Minimum**: `0.001`
+- **Maximum**: `20`
+
+**Role**: Target number of piece cleanup runs per storage provider per hour. Controls how frequently the cleanup job runs for each SP. The rate is converted to an interval internally (e.g. 1/hr = every 3600s, 1/24/hr ≈ every 86400s = once per day).
+
+**When to update**:
+
+- Increase to run cleanup more frequently when SPs are frequently over quota
+- Decrease to reduce scheduling overhead
+
+**Example**:
+
+```bash
+# Once per hour (more aggressive)
+<NET>_PIECE_CLEANUP_PER_SP_PER_HOUR=1
+
+# Once per week (very conservative)
+<NET>_PIECE_CLEANUP_PER_SP_PER_HOUR=0.006
+```
+
+---
+
+### `<NET>_MAX_PIECE_CLEANUP_RUNTIME_SECONDS`
+
+- **Type**: `number`
+- **Required**: No
+- **Default**: `300` (5 minutes)
+- **Minimum**: `60`
+
+**Role**: Maximum runtime for a cleanup job before forced abort via `AbortController`. Prevents stuck cleanup jobs from blocking the SP work queue.
+
+**When to update**:
+
+- Increase if piece deletion calls to the Synapse SDK are known to be slow
+- Decrease for faster abort detection on stuck jobs
+
+---
+
+### `<NET>_PULL_CHECKS_PER_SP_PER_HOUR`
+
+- **Type**: `number`
+- **Required**: No
+- **Default**: `1`
+- **Limits**: capped at `20`.
+
+**Role**: Target number of pull-check runs per storage provider per hour on this network. Pull checks validate the SP pull-to-park pathway by serving a temporary piece URL from Dealbot and asking the SP to pull and park it. Independent of deal and retrieval rates.
+
+**Notes**: Fractional values are supported (e.g. `0.5` ⇒ one pull check every 2 hours per SP).
+
+---
+
+### `<NET>_PULL_CHECK_JOB_TIMEOUT_SECONDS`
+
+- **Type**: `number`
+- **Required**: No
+- **Default**: `300` (5 minutes)
+
+**Role**: Maximum runtime for pull-check jobs on this network before forced abort via `AbortController`. Bounds the total polling window for a terminal SP pull status.
+
+---
+
+### `<NET>_PULL_CHECK_POLL_INTERVAL_SECONDS`
+
+- **Type**: `number`
+- **Required**: No
+- **Default**: `2`
+
+**Role**: Polling interval (seconds) used while waiting for a terminal SP pull status during a pull-check job on this network.
+
+**When to update**:
+
+- Increase to reduce polling load against SP endpoints
+- Decrease for faster detection of completed or failed pulls
+
+---
+
+### `<NET>_PULL_PIECE_CLEANUP_INTERVAL_SECONDS`
+
+- **Type**: `number` (seconds)
+- **Required**: No
+- **Default**: `604800` (7 days)
+- **Minimum**: `3600` (1 hour)
+
+**Role**: How often the `pull_piece_cleanup` job runs for this network to delete expired `pull_pieces` rows (those whose `expires_at` is in the past).
+
+**When to update**:
+
+- Decrease if pull-piece rows are accumulating faster than expected at this network's pull-check rate
+- Increase to reduce background cleanup overhead
 
 ---
 
 ## Jobs (pg-boss)
 
-In this mode, scheduling is
-rate-based (per hour) and persisted in Postgres so restarts do not reset timing.
-
-
-### `DEALS_PER_SP_PER_HOUR`
-
-- **Type**: `number`
-- **Required**: No
-- **Default**: `4`
-
-**Role**: Target deal creation rate per storage provider.
-
-**Limits**: Config schema caps this at 20 to avoid excessive on-chain activity.
-
-**Notes**: Fractional values are supported. For example, `0.25` means one deal every 4 hours per storage provider.
-
----
-
-### `RETRIEVALS_PER_SP_PER_HOUR`
-
-- **Type**: `number`
-- **Required**: No  
-- **Default**: `2`
-
-**Role**: Target retrieval test rate per storage provider.
-
-**Limits**: Config schema caps this at 20 to avoid overloading providers.
-
-**Notes**: Fractional values are supported. For example, `0.25` means one retrieval every 4 hours per storage provider.
-
----
-
-### `DATASET_CREATIONS_PER_SP_PER_HOUR`
-
-- **Type**: `number`
-- **Required**: No
-- **Default**: `1`
-
-**Role**: Target dataset creation rate per storage provider.
-
-**Limits**: Config schema caps this at 20 to avoid excessive dataset generation.
-
-**Notes**: Fractional values are supported. For example, `0.5` means one dataset creation every 2 hours per storage provider.
-
----
+These variables are **global** (not per-network) and control the shared pg-boss worker runtime. Scheduling is rate-based (per hour, per network) and persisted in Postgres so restarts do not reset timing — see [Per-Network Scheduling](#per-network-scheduling) for the rate/interval knobs.
 
 ### `JOB_SCHEDULER_POLL_SECONDS`
 
@@ -772,62 +946,21 @@ Use this to stagger multiple dealbot deployments that are not sharing a database
 
 ---
 
-### `DEAL_JOB_TIMEOUT_SECONDS`
-
-- **Type**: `number`
-- **Required**: No
-- **Default**: `360` (6 minutes)
-- **Minimum**: `120` (2 minutes)
-- **Enforced**: Yes (config validation)
-
-**Role**: Maximum runtime for data storage jobs before forced abort. When a deal job exceeds this timeout, it is actively cancelled using `AbortController`.
-
-**When to update**:
-
-- Increase if deal uploads consistently take longer than the default (e.g., slower networks, IPNI delays)
-- Decrease if you want to fail-fast on stuck jobs
-
-**Note**: This is independent of HTTP-level timeouts. The job timeout enforces end-to-end execution time of a Data Storage Check job including all operations (provider lookup, upload, IPNI verification, etc.).
-
----
-
-### `RETRIEVAL_JOB_TIMEOUT_SECONDS`
-
-- **Type**: `number`
-- **Required**: No
-- **Default**: `60` (1 minute)
-- **Minimum**: `60`
-- **Enforced**: Yes (config validation)
-
-**Role**: Maximum runtime for retrieval test jobs before forced abort. When a retrieval job exceeds this timeout, it is actively cancelled using `AbortController`.
-
-**When to update**:
-
-- Increase if retrieval tests consistently take longer than the default
-- Decrease to detect and fail stuck retrievals faster
-
-**Note**: This is independent of HTTP-level timeouts. The job timeout enforces end-to-end execution time of a Retrieval Check job.
-
----
-
 ### `SHUTDOWN_FINAL_SCRAPE_DELAY_SECONDS`
 
 - **Type**: `number`
 - **Required**: No
 - **Default**: `35`
-- **Minimum**: `0`
-- **Enforced**: Yes (config validation)
 
-**Role**: Seconds the worker process holds itself alive after pg-boss drain finishes, so Prometheus captures the terminal counter increments emitted during shutdown. Without this hold, the pod exits before its next scrape and the in-memory counter deltas die with it, leaving `dataStorageStatus{value=pending}` rows without matching `success` / `failure.*` increments.
+**Role**: Seconds the process stays alive after pg-boss drains and workers finish, so that Prometheus can scrape the final counter increments emitted during shutdown. Without this delay, terminal metrics (job completion/failure counters) may be missed by the scraper.
 
 **When to update**:
 
-- Increase if the ServiceMonitor scrape interval is longer than 30 seconds (set this to `scrape_interval + 5` for headroom)
-- Decrease to `0` to disable the hold (only safe if metrics are sourced elsewhere, e.g., a DB reconciler)
-
-**Note**: This value also constrains the deployment's `terminationGracePeriodSeconds`. The pod's total grace must cover the longest job timeout + pg-boss stop buffer + this delay. The default 480-second grace assumes default values across all three.
+- Increase if your Prometheus scrape interval is longer than 35 seconds
+- Decrease to speed up container shutdown when fast restarts are more important than final-scrape completeness
 
 ---
+
 ### `IPFS_BLOCK_FETCH_CONCURRENCY`
 
 - **Type**: `number`
@@ -847,248 +980,93 @@ Use this to stagger multiple dealbot deployments that are not sharing a database
 
 ---
 
-## Piece Cleanup
+## Pull Check Configuration
 
-These variables control the automatic cleanup of old pieces from storage providers to prevent
-unbounded data growth. Cleanup runs as a periodic pg-boss job per SP.
-
-The cleanup flow checks **live provider data** first (via `filecoin-pin`'s `calculateActualStorage()`) to determine how much data an SP is storing. When usage exceeds the high-water mark (`MAX_DATASET_STORAGE_SIZE_BYTES`), the cleanup job deletes the oldest pieces until usage drops below the low-water mark (`TARGET_DATASET_STORAGE_SIZE_BYTES`). This high-water/low-water approach prevents thrashing near the threshold.
-
-If the live query fails, cleanup falls back to DB-based `SUM(piece_size)` for the quota decision. Deal creation continues regardless of cleanup state.
-
-### `MAX_DATASET_STORAGE_SIZE_BYTES`
-
-- **Type**: `number` (integer, bytes)
-- **Required**: No
-- **Default**: `25769803776` (24 GiB)
-- **Minimum**: `1`
-
-**Role**: **High-water mark.** Maximum total stored data per SP (in bytes) before cleanup kicks in. When live storage for a provider exceeds this value, the cleanup job triggers and deletes the oldest pieces until usage drops below `TARGET_DATASET_STORAGE_SIZE_BYTES` (the low-water mark).
-
-**When to update**:
-
-- Increase for longer runway before cleanup kicks in (e.g. months vs weeks)
-- Decrease if SP storage is constrained or costs are a concern
-
-**Example**:
-
-```bash
-MAX_DATASET_STORAGE_SIZE_BYTES=12884901888  # 12 GiB per SP
-```
-
----
-
-### `TARGET_DATASET_STORAGE_SIZE_BYTES`
-
-- **Type**: `number` (integer, bytes)
-- **Required**: No
-- **Default**: `21474836480` (20 GiB)
-- **Minimum**: `1`
-
-**Role**: **Low-water mark.** When cleanup triggers (live usage exceeds `MAX_DATASET_STORAGE_SIZE_BYTES`), pieces are deleted until usage drops below this target. The gap between MAX and TARGET creates headroom so cleanup doesn't re-trigger immediately.
-
-**Headroom math**: At 4 deals/SP/hour × 10 MiB = ~960 MiB/day growth. With 4 GiB headroom (24 GiB MAX − 20 GiB TARGET), cleanup provides ~4 days of breathing room per run, which aligns with the daily default cadence.
-
-**When to update**:
-
-- Decrease for more aggressive cleanup (larger gap = more headroom)
-- Increase toward MAX for minimal cleanup (smaller gap = less headroom)
-- Must be less than `MAX_DATASET_STORAGE_SIZE_BYTES` for cleanup to have effect
-
-**Example**:
-
-```bash
-TARGET_DATASET_STORAGE_SIZE_BYTES=16106127360  # 15 GiB per SP (9 GiB headroom)
-```
-
----
-
-### `JOB_PIECE_CLEANUP_PER_SP_PER_HOUR`
-
-- **Type**: `number`
-- **Required**: No
-- **Default**: `0.0417` (~1/24, approximately once per day)
-- **Minimum**: `0.001`
-- **Maximum**: `20`
-
-**Role**: Target number of piece cleanup runs per storage provider per hour. Controls how frequently the cleanup job runs for each SP. The rate is converted to an interval internally (e.g. 1/hr = every 3600s, 1/24/hr ≈ every 86400s = once per day).
-
-Only used when `DEALBOT_JOBS_MODE=pgboss`.
-
-**When to update**:
-
-- Increase to run cleanup more frequently when SPs are frequently over quota
-- Decrease to reduce scheduling overhead
-
-**Example**:
-
-```bash
-# Once per hour (more aggressive)
-JOB_PIECE_CLEANUP_PER_SP_PER_HOUR=1
-
-# Once per week (very conservative)
-JOB_PIECE_CLEANUP_PER_SP_PER_HOUR=0.006
-```
-
----
-
-### `MAX_PIECE_CLEANUP_RUNTIME_SECONDS`
-
-- **Type**: `number`
-- **Required**: No
-- **Default**: `300` (5 minutes)
-- **Minimum**: `60`
-
-**Role**: Maximum runtime for a cleanup job before forced abort via `AbortController`. Prevents stuck cleanup jobs from blocking the SP work queue.
-
-Only used when `DEALBOT_JOBS_MODE=pgboss`.
-
-**When to update**:
-
-- Increase if piece deletion calls to the Synapse SDK are known to be slow
-- Decrease for faster abort detection on stuck jobs
-
----
-
-## Pull Check
-
-These variables control the [Pull Check](./checks/pull-check.md), which validates the SP pull-to-park pathway. Pull checks are scheduled per SP and exercised through the `sp.work` queue alongside deal, retrieval, and piece-cleanup jobs.
-
-### `PULL_CHECKS_PER_SP_PER_HOUR`
-
-- **Type**: `number`
-- **Required**: No
-- **Default**: `1`
-- **Minimum**: `0.001`
-- **Maximum**: `20`
-
-**Role**: Target number of pull checks per storage provider per hour. The rate is converted to an interval internally (for example `1` = every 3600s, `0.5` = every 7200s).
-
-**Notes**: Fractional values are supported. Pull checks are independent of `DEALS_PER_SP_PER_HOUR` and `RETRIEVALS_PER_SP_PER_HOUR`.
-
-**Example**:
-
-```bash
-# Twice per day
-PULL_CHECKS_PER_SP_PER_HOUR=0.083
-```
-
----
-
-### `PULL_CHECK_JOB_TIMEOUT_SECONDS`
-
-- **Type**: `number` (seconds)
-- **Required**: No
-- **Default**: `300` (5 minutes)
-- **Minimum**: `60`
-- **Enforced**: Yes (config validation)
-
-**Role**: Maximum runtime for a pull-check job before forced abort via `AbortController`. Bounds the polling window for terminal SP pull status and the direct `/piece/{pieceCid}` re-fetch combined.
-
-**When to update**:
-
-- Increase if SPs are slow to reach a terminal pull status (large piece sizes or busy SPs)
-- Decrease to fail-fast on stuck jobs
-
----
-
-### `PULL_CHECK_POLL_INTERVAL_SECONDS`
-
-- **Type**: `number` (seconds)
-- **Required**: No
-- **Default**: `2`
-- **Minimum**: `1`
-
-**Role**: Polling interval used by `waitForPullPieces` while waiting for the SP to report a terminal pull status (`complete` or `failed`).
-
-**When to update**:
-
-- Decrease for faster terminal-status detection at the cost of more SP-side load
-- Increase to be gentler on SPs at the cost of slower pull-check throughput
-
----
+These variables tune global aspects of the pull-check subsystem — piece size and server-side streaming limits. Scheduling rates and timeouts are configured per network in the [Per-Network Scheduling](#per-network-scheduling) section.
 
 ### `PULL_CHECK_PIECE_SIZE_BYTES`
 
-- **Type**: `number` (integer, bytes)
+- **Type**: `number` (bytes)
 - **Required**: No
 - **Default**: `10485760` (10 MiB)
-- **Minimum**: `1024`
 
-**Role**: Size of the synthetic random piece dealbot generates per pull check. The same byte length is used to compute [`pullRequestThroughputBps`](./checks/events-and-metrics.md#pullRequestThroughputBps).
+**Role**: Size (bytes) of the synthetic test piece Dealbot generates per pull-check run.
 
 **When to update**:
 
-- Decrease for quicker, lower-bandwidth pull tests
-- Increase to stress-test the SP's outbound fetch throughput
+- Increase for more realistic large-piece pull tests
+- Decrease for faster jobs in low-bandwidth environments
 
 ---
 
 ### `PULL_PIECE_MAX_CONCURRENT_STREAMS`
 
-- **Type**: `number` (integer)
+- **Type**: `number`
 - **Required**: No
-- **Default**: `50`
-- **Minimum**: `1`
+- **Default**: `5`
 
-**Role**: Maximum number of concurrent HTTP/2 streams allowed across all pieces being served at any given time. This is a process-wide cap shared by all in-flight piece requests.
-
-**When to update**:
-
-- Decrease to reduce load on the Dealbot HTTP server under heavy SP demand
-- Increase if many SPs are simultaneously fetching pieces and stream exhaustion is observed
-
-**Example**:
-
-```bash
-PULL_PIECE_MAX_CONCURRENT_STREAMS=50
-```
+**Role**: Maximum number of concurrent piece-streaming connections across all piece CIDs. Prevents a spike in pull requests from overloading the Dealbot HTTP server.
 
 ---
 
 ### `PULL_PIECE_MAX_STREAMS_PER_CID`
 
-- **Type**: `number` (integer)
+- **Type**: `number`
 - **Required**: No
 - **Default**: `3`
-- **Minimum**: `1`
 
-**Role**: Maximum number of concurrent HTTP/2 streams allowed per individual `pieceCid`. Prevents a single piece from consuming the entire `PULL_PIECE_MAX_CONCURRENT_STREAMS` budget.
+**Role**: Maximum number of concurrent streaming connections allowed per piece CID. Prevents a single CID from monopolizing the global stream budget.
 
-**When to update**:
+---
 
-- Decrease to spread stream capacity more evenly across pieces
-- Increase if a single large piece must be fetched concurrently by multiple SPs
+## ClickHouse Configuration
+
+ClickHouse is an **optional** long-term analytics store for check results. When `CLICKHOUSE_URL` is unset, ClickHouse emission is silently disabled and Dealbot runs normally using only Postgres and Prometheus.
+
+### `CLICKHOUSE_URL`
+
+- **Type**: `string` (HTTP URL)
+- **Required**: No
+- **Default**: Empty (ClickHouse disabled)
+- **Security**: Treat as a secret if the URL contains credentials.
+
+**Role**: ClickHouse connection URL. Must include the database in the path. When set, Dealbot buffers check results and flushes them to ClickHouse in batches. Write failures are logged and dropped — ClickHouse is not a source of truth.
 
 **Example**:
 
 ```bash
-PULL_PIECE_MAX_STREAMS_PER_CID=3
+CLICKHOUSE_URL=http://default:password@clickhouse.internal:8123/dealbot
 ```
 
 ---
 
-### `PULL_PIECE_CLEANUP_INTERVAL_SECONDS`
+### `CLICKHOUSE_BATCH_SIZE`
 
-- **Type**: `number` (integer, seconds)
+- **Type**: `number`
 - **Required**: No
-- **Default**: `604800` (7 days)
-- **Minimum**: `3600` (1 hour)
-- **Enforced**: Yes (config validation)
+- **Default**: `500`
 
-**Role**: How often the global `pull_piece_cleanup` scheduled job runs to delete `pull_pieces` rows whose `expires_at` timestamp has passed. These rows are temporary registrations created per pull check and are automatically expired after `2 × PULL_CHECK_JOB_TIMEOUT_SECONDS`.
+**Role**: Number of rows to accumulate before flushing to ClickHouse. Larger batches reduce HTTP overhead; smaller batches reduce memory usage and flush lag.
 
-**When to update**:
+---
 
-- Decrease if you want expired rows cleaned up more aggressively (e.g. high-volume deployments with many pull checks per hour)
-- Increase if the default churn rate is acceptable and you want to reduce scheduler overhead
+### `CLICKHOUSE_FLUSH_INTERVAL_MS`
 
-**Example**:
+- **Type**: `number` (milliseconds)
+- **Required**: No
+- **Default**: `5000` (5 seconds)
 
-```bash
-# Run every 24 hours instead of the default 7 days
-PULL_PIECE_CLEANUP_INTERVAL_SECONDS=86400
-```
+**Role**: Maximum time between ClickHouse flushes. Even if `CLICKHOUSE_BATCH_SIZE` is not reached, a flush is triggered after this interval to bound write latency.
+
+---
+
+### `CLICKHOUSE_MAX_BUFFER_SIZE`
+
+- **Type**: `number`
+- **Required**: No
+- **Default**: `5000`
+
+**Role**: Maximum number of rows to hold in the in-memory buffer before back-pressure is applied. When the buffer exceeds this limit, new rows are dropped and a warning is logged to prevent unbounded memory growth.
 
 ---
 
@@ -1128,78 +1106,6 @@ PULL_PIECE_CLEANUP_INTERVAL_SECONDS=86400
 
 ```bash
 RANDOM_PIECE_SIZES=1024,10240,102400
-```
-
----
-
-## ClickHouse Configuration
-
-Dealbot optionally writes check results to ClickHouse for long-term storage and analysis. All ClickHouse writes are disabled when `CLICKHOUSE_URL` is unset.
-
-### `CLICKHOUSE_URL`
-
-- **Type**: `string` (HTTP/HTTPS URL)
-- **Required**: No
-- **Default**: Not set (ClickHouse writes disabled)
-
-**Role**: ClickHouse connection URL. Must include the database name in the path. When unset, all ClickHouse inserts are silently dropped and no connection is made.
-
-**Example**:
-
-```bash
-CLICKHOUSE_URL=http://default:password@clickhouse-host:8123/dealbot
-```
-
----
-
-### `CLICKHOUSE_BATCH_SIZE`
-
-- **Type**: `number`
-- **Required**: No
-- **Default**: `500`
-- **Minimum**: `1`
-
-**Role**: Maximum number of rows to accumulate in the in-memory buffer before triggering a flush to ClickHouse. Rows are also flushed on the interval defined by `CLICKHOUSE_FLUSH_INTERVAL_MS`.
-
-**When to update**:
-
-- Decrease for lower-throughput deployments where you want more frequent writes
-- Increase to reduce write frequency under high load
-
----
-
-### `CLICKHOUSE_FLUSH_INTERVAL_MS`
-
-- **Type**: `number` (milliseconds)
-- **Required**: No
-- **Default**: `5000` (5 seconds)
-- **Minimum**: `100`
-
-**Role**: How often the ClickHouse buffer is flushed, regardless of batch size.
-
-**When to update**:
-
-- Decrease for more real-time data visibility
-- Increase to reduce write pressure on the ClickHouse server
-
----
-
-### `DEALBOT_PROBE_LOCATION`
-
-- **Type**: `string`
-- **Required**: No
-- **Default**: `unknown`
-
-**Role**: A label identifying where this dealbot instance is running (e.g. `aws-us-east-1`, `local`). Written to ClickHouse as `probe_location` on every row, allowing multi-region deployments to be distinguished in queries.
-
-**When to update**:
-
-- Set to a meaningful geographic or deployment identifier for each dealbot instance
-
-**Example**:
-
-```bash
-DEALBOT_PROBE_LOCATION=aws-us-east-1
 ```
 
 ---
@@ -1282,43 +1188,6 @@ DEALBOT_PROBE_LOCATION=aws-us-east-1
 
 - Increase to reduce IPNI query load
 - Decrease to detect results faster
-
----
-
-## SP Blocklist Configuration
-
-Both variables are **optional** and default to an empty list (no providers blocked). Values are
-comma-separated lists of provider IDs or addresses. Addresses are matched case-insensitively.
-
-A blocked provider is excluded from **all** scheduled check types: data-storage, retrieval, and
-data-retention. Blocking applies to **scheduled automation only** — manual/dev-triggered checks
-(via dev-tools endpoints) are not affected.
-
----
-
-### `BLOCKED_SP_IDS`
-
-- **Type**: `string` (comma-separated provider IDs)
-- **Required**: No
-- **Default**: `""` (empty — no providers blocked)
-
-**Role**: Global blocklist by provider numeric ID. Providers listed here are excluded from **all** scheduled
-check types (data-storage, retrieval, and data-retention).
-
-**Example**: `BLOCKED_SP_IDS=1234,5678`
-
----
-
-### `BLOCKED_SP_ADDRESSES`
-
-- **Type**: `string` (comma-separated provider Ethereum addresses)
-- **Required**: No
-- **Default**: `""` (empty — no providers blocked)
-
-**Role**: Global blocklist by provider address. Providers listed here are excluded from **all** scheduled
-check types (data-storage, retrieval, and data-retention). Matching is case-insensitive.
-
-**Example**: `BLOCKED_SP_ADDRESSES=0xAbCd...,0x1234...`
 
 ---
 

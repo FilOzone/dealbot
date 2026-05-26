@@ -7,7 +7,7 @@ import * as path from "path";
 import { toStructuredError } from "../common/logging.js";
 import { writeWithBackpressure } from "../common/stream-utils.js";
 import type { DataFile } from "../common/types.js";
-import type { IConfig, IDatasetConfig } from "../config/app.config.js";
+import type { IConfig, IDatasetConfig } from "../config/index.js";
 
 export interface DeterministicBytesOptions {
   /** Arbitrary namespace/key to scope the output (e.g. "nonce", "seed:round-1") */

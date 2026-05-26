@@ -1,5 +1,6 @@
 import { ApiProperty } from "@nestjs/swagger";
-import { IsOptional, IsString, IsUUID, ValidateIf } from "class-validator";
+import { IsIn, IsOptional, IsString, IsUUID, ValidateIf } from "class-validator";
+import type { Network } from "../../common/types.js";
 
 export class TriggerRetrievalQueryDto {
   @ApiProperty({
@@ -21,6 +22,18 @@ export class TriggerRetrievalQueryDto {
   @IsOptional()
   @ValidateIf((o) => !o.dealId)
   spAddress?: string;
+
+  @ApiProperty({
+    description: "Network to use",
+    example: "calibration",
+    required: false,
+    enum: ["mainnet", "calibration"],
+    default: "calibration",
+  })
+  @IsString()
+  @IsIn(["mainnet", "calibration"])
+  @IsOptional()
+  network?: Network;
 }
 
 export class RetrievalMethodResultDto {
