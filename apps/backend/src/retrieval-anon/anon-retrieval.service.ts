@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { Injectable, Logger } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { CID } from "multiformats/cid";
 import type { Repository } from "typeorm";
 import { ClickhouseService } from "../clickhouse/clickhouse.service.js";
 import { type ProviderJobContext, toStructuredError } from "../common/logging.js";
@@ -245,8 +244,15 @@ function blockFetchStatusForRow(parse: CarParseOutcome | null, blockFetch: Block
 }
 
 function buildAbortedPlaceholder(pieceCid: string, reason: unknown): PieceRetrievalResult {
-  const message =
-    reason instanceof Error && reason.message ? reason.message : typeof reason === "string" ? reason : "aborted";
+  let message: string;
+  if (reason instanceof Error) {
+    message = reason.message;
+  } else if (typeof reason === "string") {
+    message = reason;
+  } else {
+    message = "aborted";
+  }
+
   return {
     success: false,
     pieceCid,

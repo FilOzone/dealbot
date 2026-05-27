@@ -1,128 +1,44 @@
-# Automated Release Process
+# Release Process
 
-This repository uses an automated GitOps release workflow to promote changes from staging to production.
+Dealbot uses [release-please](https://github.com/googleapis/release-please) to drive semver releases from [Conventional Commits](https://www.conventionalcommits.org/), and ArgoCD Image Updater to promote those releases into Kubernetes. For release-please mechanics (commit parsing, version bumps, troubleshooting) see [release-please-flow.md](release-please-flow.md). For container images, manifests, and runtime topology see [deployment.md](deployment.md). For ingress, egress, persistence, secrets, and observability expectations see [infra.md](infra.md). For the subgraph release checklist see [release-subgraph.md](release-subgraph.md).
 
-Related docs:
-- [release-please-flow.md](release-please-flow.md) for release-please details and troubleshooting
-- [infra.md](infra.md) for ArgoCD/Kustomize integration in FilOzone/infra
-
-## Overview
+## Flow
 
 ```
-Code merged to main
-  ↓
-Build Docker images (e.g., sha-<sha> and sha-<run>-<sha>)
-  ↓
-ArgoCD auto-deploys to STAGING (watches ordered tags via Image Updater)
-  ↓
-release-please opens/updates Release PR (title includes component + version)
-  ↓
-Developer reviews and merges PR
-  ↓
-Retag same images with semver (e.g., v1.2.3)
-  ↓
-ArgoCD Image Updater detects new version in PRODUCTION
-  ↓
-Manual approval required to sync (initially)
+PR merged to main, matching docker-build path filters (apps/backend/**, apps/web/**, pnpm-lock.yaml, pnpm-workspace.yaml)
+  → Docker build tags image as sha-<sha> and sha-<run>-<sha>
+  → Image Updater promotes sha-<run>-<sha> to the staging environment
+  → release-please opens or updates a Release PR with bumped versions and changelogs
+  → Release PR merged                       (← human release gate)
+  → Release workflow retags sha-<sha> → vX.Y.Z
+  → Image Updater promotes vX.Y.Z to the production environment
 ```
 
-**Note:** Production auto-sync is disabled initially for safety. After confidence is established, it can be enabled.
+Both staging and production sync automatically. Image Updater writes the new tag back to the operating environment's manifests, and ArgoCD reconciles within a few minutes. Merging the Release PR is the release-cut gate for production semver images; retag and promotion run without further approval. An operator can still pause or sync manually per environment (see [Operating the release](#operating-the-release)).
 
-## How It Works
+Image-build scope and release scope differ. Changes under `apps/backend/**`, `apps/web/**`, `pnpm-lock.yaml`, or `pnpm-workspace.yaml` can build app images. Only commits that touch an app's path (`apps/backend` or `apps/web`) affect that app's release-please version.
 
-### 1. Merge to Main
+## Tags
 
-When you merge a PR to `main`, the release pipeline starts.
+Git tags and container tags use different shapes:
 
-### 2. Build Docker Images ([.github/workflows/docker-build.yml](../.github/workflows/docker-build.yml))
+| Tag                     | Producer                | Consumed by               |
+|-------------------------|-------------------------|---------------------------|
+| `backend-vX.Y.Z` / `web-vX.Y.Z` (git) | release-please | GitHub Releases, changelogs |
+| `sha-<sha>` (image)            | docker-build on `main`         | retag step                |
+| `sha-<run>-<sha>` (image)      | docker-build on `main`         | staging Image Updater     |
+| `pre-release-<sha>` (image)    | docker-build on `pre-release`  | opt-in canary environments |
+| `vX.Y.Z` (image)               | release-please workflow        | production Image Updater  |
 
-- Detects which apps changed (backend, web, or both)
-- Builds images only for changed apps
-- Tags:
-  - `sha-<git-sha>` (stable pointer used for promotion/retagging)
-  - `sha-<run-number>-<git-sha>` (monotonic tag used for staging)
-- Example: `ghcr.io/filozone/dealbot-backend:sha-1234-<sha>`
+Apps are versioned independently. A commit that touches only one app produces a Release PR entry, git tag, and retagged image for only that app.
 
-### 3. ArgoCD Deploys to Staging
+Workflows: [.github/workflows/docker-build.yml](../.github/workflows/docker-build.yml), [.github/workflows/release-please.yml](../.github/workflows/release-please.yml).
 
-- ArgoCD Image Updater watches ordered `sha-<run>-<sha>` tags in staging
-- Automatically deploys new images to staging
+## Operating the release
 
-### 4. release-please Opens/Updates the Release PR
+1. Merge feature PRs to `main` using a Conventional Commit title (validated by [pr-title.yml](../.github/workflows/pr-title.yml)).
+2. Staging picks up the new build automatically.
+3. When ready to ship, merge the open Release PR.
+4. Production picks up the new semver tag automatically.
 
-- release-please opens/updates a single PR titled like `chore: release to production (backend 0.2.0, web 0.5.0)`, listing all components that have changes
-- Includes per-app `package.json` version bumps and changelog entries
-- See [release-please-flow.md](release-please-flow.md) for versioning details
-
-### 5. Review and Merge the Release PR
-
-- Review the auto-created PR
-- If the bump looks wrong, update commits and let release-please refresh the PR
-- Merge the PR when ready to promote to production
-
-### 6. Retag Images with Semver
-
-- The release workflow retags the same `sha-<sha>` images as `vX.Y.Z`
-- Only apps with a release are retagged
-
-### 7. ArgoCD Detects New Version in Production
-
-- Image Updater sees the new semver tags and marks apps OutOfSync
-
-### 8. Manual Approval to Sync Production
-
-- Sync via ArgoCD UI or CLI (`argocd app sync dealbot-backend-prod`)
-
-## Examples
-
-### Example 1: Backend-only change
-
-```bash
-# Developer merges PR that changes backend code
-git merge feat/new-api-endpoint
-```
-
-**Result:**
-- ✅ Backend image built: `filoz-dealbot:sha-a1b2c3d`
-- ❌ Web image skipped (no changes)
-- 🚀 ArgoCD deploys backend to staging
-- 📝 Release PR updated: `chore: release to production`
-  - When the release PR is merged:
-     - Will only promote backend image
-     - Web stays at current version
-
-### Example 2: Dependency update
-
-```bash
-# Developer updates dependencies
-pnpm update
-git commit -am "chore: update dependencies"
-```
-
-**Result:**
-- ✅ Both images built (pnpm-lock.yaml changed)
-- 🚀 ArgoCD deploys both to staging
-- 📝 Release PR updated: `chore: release to production`
-  - Includes changes for both apps
-
-### Example 3: Hotfix (patch release)
-
-```bash
-# Developer merges a fix with a conventional commit (patch bump)
-git commit -m "fix: resolve critical issue"
-git push
-
-# release-please updates the Release PR with a patch bump
-# Developer merges the Release PR
-```
-
-**Result:**
-- 🏷️ Images retagged as `v0.2.1`
-- 🚀 Deployed to production as patch release
-
-## References
-
-- [release-please-flow.md](release-please-flow.md) - release-please behavior and troubleshooting
-- [infra.md](infra.md) - infra integration and where ArgoCD/Image Updater config lives
-- [.github/workflows/docker-build.yml](../.github/workflows/docker-build.yml)
-- [.github/workflows/release-please.yml](../.github/workflows/release-please.yml)
+If a release needs to be skipped, leave the Release PR open. Subsequent merges accumulate into it. To hold a release after the Release PR merges (e.g. a canary failed, on-call paged), pause auto-sync for that environment in ArgoCD. While paused, promote by syncing that environment manually via UI or CLI.

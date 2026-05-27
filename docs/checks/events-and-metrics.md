@@ -55,6 +55,40 @@ sequenceDiagram
 | <a id="ipfsRetrievalLastByteReceived"></a>`ipfsRetrievalLastByteReceived` | Last byte received from `/ipfs/{rootCid}`. | Data Storage, Retrieval | [`retrieval-addons.service.ts`](../../apps/backend/src/retrieval-addons/retrieval-addons.service.ts) (drives `ipfsRetrievalLastByteMs`) |
 | <a id="ipfsRetrievalIntegrityChecked"></a>`ipfsRetrievalIntegrityChecked` | Retrieved content matches expected CID (per-block sha256 hash verification via `createBlock`). Inline check at end of DAG traversal; no discrete event emission. | Data Storage, Retrieval | [`ipfs-block.strategy.ts`](../../apps/backend/src/retrieval-addons/strategies/ipfs-block.strategy.ts) |
 
+## Pull Check Event Model
+
+Below are the events for a [Pull Check](./pull-check.md). Pull checks reverse the data flow of the [Data Storage check](./data-storage.md): instead of dealbot uploading bytes, it asks the SP to pull bytes from a temporary `/api/piece/{pieceCid}` URL.
+
+### Pull Check Event Timeline
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant Dealbot
+  participant SP as PDP Storage Provider
+  participant RPC as Chain RPC Provider
+
+  Dealbot->>Dealbot: hostedPieceRegistered
+  Dealbot->>SP: pullRequestSubmittedToSp (pullPieces)
+  SP-->>Dealbot: pullRequestAcknowledgedBySp
+  SP-->>Dealbot: pullRequestStartedBySp
+  Dealbot->>SP: pullStatusPolled (waitForPullPieces, repeated)
+  SP-->>Dealbot: pullRequestIsTerminal
+  Dealbot->>SP: directPieceFetchStarted (/piece/{cid})
+  SP-->>Dealbot: directPieceFetchCompleted
+  Dealbot-->>Dealbot: pullRequestIntegrityChecked
+```
+
+### Pull Check Event List
+
+| Event | Definition | Implemented | Source of truth |
+|------|------------|:------:|-----------------|
+| <a id="pullRequestSubmittedToSp"></a>`pullRequestSubmittedToSp` | Dealbot calls Synapse pullPiece (`POST /pdp/piece/pull`) against the SP for the registered piece CID. | Yes | [`pull-check.service.ts`](../../apps/backend/src/pull-check/pull-check.service.ts) |
+| <a id="pullRequestAcknowledgedBySp"></a>`pullRequestAcknowledgedBySp` | SP returns from `pullPieces` (success or non-terminal-failure). | Yes | [`pull-check.service.ts`](../../apps/backend/src/pull-check/pull-check.service.ts) |
+| <a id="pullRequestStartedBySp"></a>`pullRequestStartedBySp` | Dealbot receives SP request for `/api/piece/{pieceCid}` from dealbot. Recorded once per registration. | Yes | [`pull-piece.controller.ts`](../../apps/backend/src/pull-check/pull-piece.controller.ts) |
+| <a id="pullRequestIsTerminal"></a>`pullRequestIsTerminal` | Dealbot determines the pull request is in terminal pull status (`complete`, `failed`, ...) via `waitForPullPieces` or the polling operation has timed out. Intermediate poll statuses are not counted. | Yes | [`pull-check.service.ts`](../../apps/backend/src/pull-check/pull-check.service.ts) |
+| <a id="pullRequestIntegrityChecked"></a>`pullRequestIntegrityChecked` | Dealbot completed direct `/piece/{pieceCid}` retrieval from the SP and confirmed the bytes match the pieceCid. | Yes | [`pull-check.service.ts`](../../apps/backend/src/pull-check/pull-check.service.ts) |
+
 ## Anon Retrieval Check Event Model
 
 Below are the events for an [Anonymous Retrieval check](./anon-retrievals.md). Unlike the Data Storage flow, anonymous retrieval is a single-shot per-piece flow: select a publicly-discoverable piece from the FWSS subgraph → fetch the piece from the SP → optionally parse the CAR, verify IPNI, and sample block fetches → write one row to ClickHouse. The check emits one row to `anon_retrieval_checks` even on abort or unexpected error, so partial timing/byte evidence is never lost.
@@ -110,7 +144,7 @@ sequenceDiagram
 * They are exported via Prometheus.
 * All Prometheus/OpenTelemetry metrics have label/attributes for:
    - `network=calibration|mainnet`
-   - `checkType=dataStorage|retrieval|anon_retrieval|dataRetention|dataSetCreation` — attribute metrics to a particular check/job
+   - `checkType=dataStorage|retrieval|anon_retrieval|dataRetention|dataSetCreation|pullCheck` — attribute metrics to a particular check/job
    - `providerId` — attribute metrics to a particular SP
    - `providerName` — human-readable name of the SP (defaults to `"unknown"` when not available)
    - `providerStatus=approved|unapproved` — attribute metrics to only approved SPs for example
@@ -128,7 +162,7 @@ sequenceDiagram
 | <a id="pieceConfirmedOnChainMs"></a>`pieceConfirmedOnChainMs` | Data Storage | [`pieceAdded`](#pieceAdded) | [`pieceConfirmed`](#pieceConfirmed) |  | [`deal.service.ts`](../../apps/backend/src/deal/deal.service.ts) |
 | <a id="spIndexLocallyMs"></a>`spIndexLocallyMs` | Data Storage | [`uploadToSpEnd`](#uploadToSpEnd) | [`spIndexingComplete`](#spIndexingComplete) |  | [`ipni.strategy.ts`](../../apps/backend/src/deal-addons/strategies/ipni.strategy.ts) |
 | <a id="spAnnounceAdvertisementMs"></a>`spAnnounceAdvertisementMs` | Data Storage | [`uploadToSpEnd`](#uploadToSpEnd) | [`spAnnouncedAdvertisementToIpni`](#spAnnouncedAdvertisementToIpni) |  | [`ipni.strategy.ts`](../../apps/backend/src/deal-addons/strategies/ipni.strategy.ts) |
-| <a id="ipniVerifyMs"></a>`ipniVerifyMs` | Data Storage, Retrieval | [`ipniVerificationStart`](#ipniVerificationStart) | [`ipniVerificationComplete`](#ipniVerificationComplete) |  | [`ipni.strategy.ts`](../../apps/backend/src/deal-addons/strategies/ipni.strategy.ts) |
+| <a id="ipniVerifyMs"></a>`ipniVerifyMs` | Data Storage, Retrieval | [`ipniVerificationStart`](#ipniVerificationStart) | [`ipniVerificationComplete`](#ipniVerificationComplete) | Carries a `value` label: `verified` (root CID confirmed in IPNI), `timeout` (duration ≥ timeout budget), `error` (other failure). Filter `{value="verified"}` for a true latency SLI. | [`ipni.strategy.ts`](../../apps/backend/src/deal-addons/strategies/ipni.strategy.ts), [`retrieval.service.ts`](../../apps/backend/src/retrieval/retrieval.service.ts) |
 | <a id="ipfsRetrievalFirstByteMs"></a>`ipfsRetrievalFirstByteMs` | Data Storage, Retrieval | [`ipfsRetrievalStart`](#ipfsRetrievalStart) | [`ipfsRetrievalFirstByteReceived`](#ipfsRetrievalFirstByteReceived) |  | [`retrieval.service.ts`](../../apps/backend/src/retrieval/retrieval.service.ts) |
 | <a id="ipfsRetrievalBlockFirstByteMs"></a>`ipfsRetrievalBlockFirstByteMs` | Data Storage, Retrieval | Each IPFS block request | First byte received for each block | Emitted for block-fetch retrievals (one observation per block) | [`retrieval.service.ts`](../../apps/backend/src/retrieval/retrieval.service.ts) |
 | <a id="ipfsRetrievalLastByteMs"></a>`ipfsRetrievalLastByteMs` | Data Storage, Retrieval | [`ipfsRetrievalStart`](#ipfsRetrievalStart) | [`ipfsRetrievalLastByteReceived`](#ipfsRetrievalLastByteReceived) |  | [`retrieval.service.ts`](../../apps/backend/src/retrieval/retrieval.service.ts) |
@@ -136,6 +170,10 @@ sequenceDiagram
 | <a id="dataStorageCheckMs"></a>`dataStorageCheckMs` | Data Storage | [`uploadToSpStart`](#uploadToSpStart) | [`ipfsRetrievalIntegrityChecked`](#ipfsRetrievalIntegrityChecked) | Duration of a Data Storage check | |
 | <a id="retrievalCheckMs"></a>`retrievalCheckMs` | Retrieval | Retrieval check start | [`ipfsRetrievalIntegrityChecked`](#ipfsRetrievalIntegrityChecked) | Duration of a Retrieval check | |
 | <a id="dataSetCreationMs"></a>`dataSetCreationMs` | Data-Set Creation | Data-set creation uploadToSpStart | Data-set creation pieceConfirmed | Duration of one data-set creation with confirmed piece (all using `createDataSetWithPiece`) | [`deal.service.ts`](../../apps/backend/src/deal/deal.service.ts) |
+| <a id="pullRequestAcknowledgementLatencyMs"></a>`pullRequestAcknowledgementLatencyMs` | Pull | [`pullRequestSubmittedToSp`](#pullRequestSubmittedToSp) | [`pullRequestAcknowledgedBySp`](#pullRequestAcknowledgedBySp) | Time from `pullPieces` submission to SP request acknowledgement. | [`pull-check.service.ts`](../../apps/backend/src/pull-check/pull-check.service.ts) |
+| <a id="pullRequestStartedMs"></a>`pullRequestStartedMs` | Pull | [`pullRequestSubmittedToSp`](#pullRequestSubmittedToSp) | [`pullRequestStartedBySp`](#pullRequestStartedBySp) | Time from `pullPieces` submission to the SP reading the first byte of `/api/piece/{pieceCid}`. Skipped (no observation) when the SP never fetches from dealbot. | [`pull-check.service.ts`](../../apps/backend/src/pull-check/pull-check.service.ts), [`pull-piece.controller.ts`](../../apps/backend/src/pull-check/pull-piece.controller.ts) |
+| <a id="pullRequestCompletionLatencyMs"></a>`pullRequestCompletionLatencyMs` | Pull | [`pullRequestSubmittedToSp`](#pullRequestSubmittedToSp) | [`pullRequestIsTerminal`](#pullRequestIsTerminal) | Time from `pullPieces` submission to terminal SP pull status. Emitted once for the check, either on success or failure. | [`pull-check.service.ts`](../../apps/backend/src/pull-check/pull-check.service.ts) |
+| <a id="pullRequestThroughputBps"></a>`pullRequestThroughputBps` | Pull | n/a | n/a | `(pieceSizeBytes / pullRequestCompletionLatencyMs) * 1000`. Upper-bound on actual transfer rate because `pullRequestCompletionLatencyMs` includes SP-side scheduling and dealbot's polling cadence. | [`pull-check.service.ts`](../../apps/backend/src/pull-check/pull-check.service.ts) |
 | <a id="anonPieceRetrievalFirstByteMs"></a>`anonPieceRetrievalFirstByteMs` | Anonymous Retrieval | [`anonPieceFetchStart`](#anonPieceFetchStart) | [`anonPieceFetchFirstByteReceived`](#anonPieceFetchFirstByteReceived) | Time to first byte for anonymous piece retrievals | [`anon-retrieval.service.ts`](../../apps/backend/src/retrieval-anon/anon-retrieval.service.ts) |
 | <a id="anonPieceRetrievalLastByteMs"></a>`anonPieceRetrievalLastByteMs` | Anonymous Retrieval | [`anonPieceFetchStart`](#anonPieceFetchStart) | [`anonPieceFetchLastByteReceived`](#anonPieceFetchLastByteReceived) | Total time to retrieve an anonymous piece | [`anon-retrieval.service.ts`](../../apps/backend/src/retrieval-anon/anon-retrieval.service.ts) |
 | <a id="anonPieceRetrievalThroughputBps"></a>`anonPieceRetrievalThroughputBps` | Anonymous Retrieval | n/a | n/a | `(bytesRetrieved / anonPieceRetrievalLastByteMs) * 1000` | [`anon-retrieval.service.ts`](../../apps/backend/src/retrieval-anon/anon-retrieval.service.ts) |
@@ -151,14 +189,16 @@ sequenceDiagram
 | Metric | Relevant Checks | When Emitted In Successful Case| `value` Values | Source of truth |
 |---|---|---|---|---|
 | <a id="dataStorageUploadStatus"></a>`dataStorageUploadStatus` | Data Storage | [`uploadToSpEnd`](#uploadToSpEnd) | `success`, `failure.timedout`, `failure.other` from [Data Storage Sub-status meanings](./data-storage.md#sub-status-meanings). |  |
-| <a id="dataStorageOnchainStatus"></a>`dataStorageOnchainStatus` | Data Storage | [`pieceConfirmed`](#pieceConfirmed) | `success`, `failure.timedout`, `failure.other` frin [Data Storage Sub-status meanings](./data-storage.md#sub-status-meanings). | [`deal.service.ts`](../../apps/backend/src/deal/deal.service.ts) |
+| <a id="dataStorageOnchainStatus"></a>`dataStorageOnchainStatus` | Data Storage | [`pieceConfirmed`](#pieceConfirmed) | `success`, `failure.timedout`, `failure.other` from [Data Storage Sub-status meanings](./data-storage.md#sub-status-meanings). | [`deal.service.ts`](../../apps/backend/src/deal/deal.service.ts) |
 | <a id="dataStorageStatus"></a>`dataStorageStatus` | Data Storage | When the Data Storage check completes (all four sub-statuses done) | `success`, `failure.timedout`, `failure.other` from [Deal Status Progression](./data-storage.md#deal-status-progression). | [`deal.service.ts`](../../apps/backend/src/deal/deal.service.ts) |
-| <a id="discoverabilityStatus"></a>`discoverabilityStatus` | Data Storage, Retrieval | [`ipniVerificationComplete`](#ipniVerificationComplete) | `success`, `failure.timedout`, `failure.other` from [Data Storage Sub-status meanings](./data-storage.md#sub-status-meanings). |  |
+| <a id="discoverabilityStatus"></a>`discoverabilityStatus` | Data Storage, Retrieval | [`ipniVerificationComplete`](#ipniVerificationComplete) | `success`, `failure.timedout`, `failure.other` from [Data Storage Sub-status meanings](./data-storage.md#sub-status-meanings). `skipped` when IPNI verification is bypassed because `rootCID`/`blockCIDs` are absent from deal metadata or `rootCID` cannot be parsed as a valid CID. |  |
 | <a id="ipfsRetrievalHttpResponseCode"></a>`ipfsRetrievalHttpResponseCode` | Data Storage, Retrieval | [`ipfsRetrievalLastByteReceived`](#ipfsRetrievalLastByteReceived) | `200`, `500`, `2xxSuccess`, `4xxClientError`, `5xxServerError`, `otherHttpStatusCodes`, `failure` | [`retrieval.service.ts`](../../apps/backend/src/retrieval/retrieval.service.ts) |
-| <a id="retrievalStatus"></a>`retrievalStatus` | Data Storage, Retrieval | [`ipfsRetrievalIntegrityChecked`](#ipfsRetrievalIntegrityChecked) | `success`, `failure.timedout`, `failure.other` from [Data Storage Sub-status meanings](./data-storage.md#sub-status-meanings). |  |
+| <a id="retrievalStatus"></a>`retrievalStatus` | Data Storage, Retrieval | [`ipfsRetrievalIntegrityChecked`](#ipfsRetrievalIntegrityChecked) | `success`, `failure.timedout`, `failure.other` from [Data Storage Sub-status meanings](./data-storage.md#sub-status-meanings). On the Retrieval path, the pre-flight branches on the on-chain `PDPVerifier.pieceLive(dataSetId, pieceId)` result. When `pieceLive=false` (dataset terminated, piece never created, or piece hard-removed), `skipped.piece_missing` is emitted and the deal is marked `cleaned_up=true`; no SP probe runs. When `pieceLive=true` and the SP returns 404 on `/pdp/piece/:pieceCid/status`, `failure.other` is emitted and a failed retrieval row is recorded (deal stays in the candidate pool for re-probing). |  |
 | <a id="dataSetCreationStatus"></a>`dataSetCreationStatus` | Data-Set Creation | Not tied to an [event above](#event-list) but rather to data-set creation start (`pending`) and completion (`success`/`failure.*`) | `pending`, `success`, `failure.timedout`, `failure.other` | [`deal.service.ts`](../../apps/backend/src/deal/deal.service.ts) |
 | <a id="dataSetChallengeStatus"></a>`dataSetChallengeStatus` | Data Retention | Emitted on each [Data Retention Check](./data-retention.md) poll when a provider's confirmed proving-period totals advance (strictly positive deltas). Unit: **challenges** (period delta × `CHALLENGES_PER_PROVING_PERIOD = 5`). | `success` (challenges in successfully-proven periods), `failure` (challenges in faulted periods) | [`data-retention.service.ts`](../../apps/backend/src/data-retention/data-retention.service.ts) |
 | <a id="pdp_provider_estimated_overdue_periods"></a>`pdp_provider_estimated_overdue_periods` | Data Retention | Emitted on every [Data Retention Check](./data-retention.md) poll for every successfully processed provider. | Gauge value in proving periods (non-negative integer) | [`data-retention.service.ts`](../../apps/backend/src/data-retention/data-retention.service.ts) |
+| <a id="pullRequestProviderStatus"></a>`pullRequestProviderStatus` | Pull | When the SP reports a terminal pull status via `waitForPullPieces`. Recorded exactly once per check (intermediate poll statuses are not counted). | Raw SP-reported pull status, for example `complete`, `failed`, `not_found`. Use this to separate SP-side pull failures from dealbot-side validation failures. | [`pull-check.service.ts`](../../apps/backend/src/pull-check/pull-check.service.ts) |
+| <a id="pullCheckStatus"></a>`pullCheckStatus` | Pull | When the [Pull Check](./pull-check.md) terminates (success after direct piece validation, or any failure). Recorded exactly once per check. | `success`, `failure.timedout`, `failure.other`. Failure classification follows [`classifyFailureStatus`](../../apps/backend/src/metrics-prometheus/check-metric-labels.ts) (timeout-keyed errors → `failure.timedout`, everything else → `failure.other`). | [`pull-check.service.ts`](../../apps/backend/src/pull-check/pull-check.service.ts) |
 | <a id="anonPieceRetrievalStatus"></a>`anonPieceRetrievalStatus` | Anonymous Retrieval | [`anonRetrievalCheckComplete`](#anonRetrievalCheckComplete) | `success`, `skipped`, `failure.http`, `failure.commp`, `failure.timedout`, `failure.other` from [Anonymous Retrieval Sub-status meanings](./anon-retrievals.md#sub-status-meanings). | [`anon-retrieval.service.ts`](../../apps/backend/src/retrieval-anon/anon-retrieval.service.ts) |
 | <a id="anonPieceHttpResponseCode"></a>`anonPieceHttpResponseCode` | Anonymous Retrieval | [`anonPieceFetchLastByteReceived`](#anonPieceFetchLastByteReceived) | Same as [`ipfsRetrievalHttpResponseCode`](#ipfsRetrievalHttpResponseCode). | [`anon-retrieval.service.ts`](../../apps/backend/src/retrieval-anon/anon-retrieval.service.ts) |
 | <a id="anonCarParseStatus"></a>`anonCarParseStatus` | Anonymous Retrieval | [`anonCarParsed`](#anonCarParsed), **or** when CAR parsing didn't run (records `skipped`) | `parseable`, `not_parseable`, `skipped` from [Anonymous Retrieval Sub-status meanings](./anon-retrievals.md#sub-status-meanings). | [`anon-retrieval.service.ts`](../../apps/backend/src/retrieval-anon/anon-retrieval.service.ts) |

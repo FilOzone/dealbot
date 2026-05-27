@@ -124,7 +124,7 @@ function makeService(opts: {
     observeLastByteMs: vi.fn(),
     observeThroughput: vi.fn(),
     observeCheckDuration: vi.fn(),
-    recordStatus: metricsRecordStatusSpy,
+    recordPieceRetrievalStatus: metricsRecordStatusSpy,
     recordHttpResponseCode: vi.fn(),
     recordCarParseStatus: metricsRecordCarParseSpy,
     recordIpniStatus: metricsRecordIpniSpy,

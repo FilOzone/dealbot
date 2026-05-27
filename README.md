@@ -7,7 +7,7 @@
 [![NestJS](https://img.shields.io/badge/nestjs-11.x-red.svg)](https://nestjs.com)
 [![React](https://img.shields.io/badge/react-19.x-blue.svg)](https://react.dev)
 
-An intelligent automation system for creating and monitoring PDP deals on the Filecoin network. Features automated deal creation, retrieval performance testing, comprehensive metrics tracking, and a modern web dashboard.
+An intelligent automation system for creating and monitoring PDP deals on the Filecoin network. Features automated deal creation, retrieval performance testing, detailed metrics tracking, and a modern web dashboard.
 
 ## Features
 
@@ -29,12 +29,11 @@ dealbot/
 ├── apps/
 │   ├── backend/      # NestJS API server (Port 8080)
 │   │   ├── src/
-│   │   │   ├── deal/            # Deal creation and management
-│   │   │   ├── retrieval/       # Storage retrieval testing
-│   │   │   ├── metrics/         # Performance metrics and analytics
-│   │   │   ├── jobs/            # pg-boss scheduling + workers
-│   │   │   ├── scheduler/       # Automated task scheduling
-│   │   │   └── wallet-sdk/      # Wallet and contract operations
+│   │   │   ├── deal/                # Deal creation and management
+│   │   │   ├── retrieval/           # Storage retrieval testing
+│   │   │   ├── metrics-prometheus/  # Prometheus instrumentation
+│   │   │   ├── jobs/                # pg-boss scheduler + workers
+│   │   │   └── wallet-sdk/          # Wallet and contract operations
 │   │   └── README.md     # Backend-specific documentation
 │   └── web/          # React + Vite dashboard (Port 5173)
 │       ├── src/
@@ -46,9 +45,10 @@ Frontend docs: [apps/web/README.md](apps/web/README.md)
 
 ## Developer Docs
 
-- [docs/environment-variables.md](docs/environment-variables.md) - Comprehensive environment variables reference
+- [docs/environment-variables.md](docs/environment-variables.md) - Full environment variables reference
 - [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) - Local Kubernetes development (Kind + Kustomize)
-- [docs/infra.md](docs/infra.md) - Integration with FilOzone/infra
+- [docs/deployment.md](docs/deployment.md) - Container images, Kustomize manifests, runtime topology
+- [docs/infra.md](docs/infra.md) - Ingress, egress, persistence, secrets, observability expectations
 - [docs/architecture.md](docs/architecture.md) - System architecture, component responsibilities, and data stores
 - [docs/production-operations.md](docs/production-operations.md) - Links to operational docs (infra runbook, Notion tracker)
 - [docs/release-process.md](docs/release-process.md) - Release pipeline overview

@@ -15,6 +15,7 @@ import type { JobType } from "../database/entities/job-schedule-state.entity.js"
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
 import { DealService } from "../deal/deal.service.js";
 import { PieceCleanupService } from "../piece-cleanup/piece-cleanup.service.js";
+import { PullCheckService } from "../pull-check/pull-check.service.js";
 import { RetrievalService } from "../retrieval/retrieval.service.js";
 import { AnonRetrievalService } from "../retrieval-anon/anon-retrieval.service.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
@@ -22,20 +23,21 @@ import { provisionNextMissingDataSet } from "./data-set-creation.handler.js";
 import {
   DATA_RETENTION_POLL_QUEUE,
   PROVIDERS_REFRESH_QUEUE,
+  PULL_PIECE_CLEANUP_QUEUE,
   RETRIEVAL_ANON_QUEUE,
   SP_WORK_QUEUE,
 } from "./job-queues.js";
 import { JobScheduleRepository } from "./repositories/job-schedule.repository.js";
 
-type SpJobType = "deal" | "retrieval" | "data_set_creation" | "retrieval_anon" | "piece_cleanup";
+type SpJobType = "deal" | "retrieval" | "data_set_creation" | "retrieval_anon" | "piece_cleanup" | "pull_check";
 const SP_JOB_TYPES: ReadonlySet<string> = new Set<string>([
   "deal",
   "retrieval",
   "retrieval_anon",
   "data_set_creation",
   "piece_cleanup",
+  "pull_check",
 ]);
-
 function isSpJobType(jobType: string): jobType is SpJobType {
   return SP_JOB_TYPES.has(jobType);
 }
@@ -45,6 +47,7 @@ type AnonRetrievalJobData = { spAddress: string; intervalSeconds: number };
 type ProvidersRefreshJobData = { intervalSeconds: number };
 type SpJob = Job<SpJobData>;
 type DataRetentionJobData = { intervalSeconds: number };
+type PullPieceCleanupJobData = { intervalSeconds: number };
 
 type ScheduleRow = {
   id: number;
@@ -75,8 +78,8 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     private readonly walletSdkService: WalletSdkService,
     private readonly dataRetentionService: DataRetentionService,
     private readonly pieceCleanupService: PieceCleanupService,
+    private readonly pullCheckService: PullCheckService,
     private readonly anonRetrievalService: AnonRetrievalService,
-
     @InjectMetric("jobs_queued")
     private readonly jobsQueuedGauge: Gauge,
     @InjectMetric("jobs_retry_scheduled")
@@ -194,8 +197,39 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         this.boss.off("error", this.bossErrorHandler);
         this.bossErrorHandler = undefined;
       }
-      await this.boss.stop();
+      /**
+       * pg-boss `stop()` default timeout is 30s, shorter than any of our per-job timeouts.
+       * Pass an explicit timeout that exceeds the longest job timeout so active handlers
+       * can finish (or hit their per-job AbortController) before pg-boss force-fails
+       * them via `failWip()`.
+       */
+      const jobs = this.configService.get("jobs");
+      const pullPiece = this.configService.get("pullPiece");
+      const longestJobTimeoutSec = Math.max(
+        jobs.dealJobTimeoutSeconds,
+        jobs.retrievalJobTimeoutSeconds,
+        jobs.dataSetCreationJobTimeoutSeconds,
+        pullPiece.pullCheckJobTimeoutSeconds,
+      );
+      const stopTimeoutMs = (longestJobTimeoutSec + 60) * 1000;
+      await this.boss.stop({ graceful: true, timeout: stopTimeoutMs });
       this.boss = null;
+
+      /**
+       * Hold the process alive past one ServiceMonitor scrape interval so
+       * Prometheus captures the terminal counter increments emitted during drain.
+       * Without this delay, the pod exits before its next scrape and the in-memory
+       * counter deltas die with it, leaving `pending` rows without matching terminals.
+       */
+      const finalScrapeDelayMs = jobs.shutdownFinalScrapeDelaySeconds * 1000;
+      if (finalScrapeDelayMs > 0) {
+        this.logger.log({
+          event: "pgboss_post_drain_scrape_hold",
+          message: "Holding process for final Prometheus scrape after drain",
+          delaySeconds: jobs.shutdownFinalScrapeDelaySeconds,
+        });
+        await new Promise((resolve) => setTimeout(resolve, finalScrapeDelayMs));
+      }
     }
   }
 
@@ -274,6 +308,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     await boss.createQueue(SP_WORK_QUEUE, { policy: "singleton" });
     await boss.createQueue(PROVIDERS_REFRESH_QUEUE);
     await boss.createQueue(DATA_RETENTION_POLL_QUEUE);
+    await boss.createQueue(PULL_PIECE_CLEANUP_QUEUE);
     await boss.createQueue(RETRIEVAL_ANON_QUEUE);
   }
 
@@ -306,6 +341,10 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
           }
           if (job.data.jobType === "piece_cleanup") {
             await this.handlePieceCleanupJob(job);
+            return;
+          }
+          if (job.data.jobType === "pull_check") {
+            await this.handlePullCheckJob(job);
             return;
           }
           this.logger.warn({
@@ -366,6 +405,20 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
           event: "worker_register_failed",
           message: "Failed to register worker",
           queue: RETRIEVAL_ANON_QUEUE,
+          error: toStructuredError(error),
+        }),
+      );
+    void this.boss
+      .work<PullPieceCleanupJobData, void>(
+        PULL_PIECE_CLEANUP_QUEUE,
+        { batchSize: 1, pollingIntervalSeconds: workerPollSeconds },
+        async ([job]) => this.handlePullPieceCleanupJob(job.data),
+      )
+      .catch((error) =>
+        this.logger.error({
+          event: "worker_register_failed",
+          message: "Failed to register worker",
+          queue: PULL_PIECE_CLEANUP_QUEUE,
           error: toStructuredError(error),
         }),
       );
@@ -716,6 +769,85 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     });
   }
 
+  private async handlePullPieceCleanupJob(data: PullPieceCleanupJobData): Promise<void> {
+    void data;
+    await this.recordJobExecution("pull_piece_cleanup", async () => {
+      const deletedCount = await this.pullCheckService.deleteExpiredPullPieces();
+      this.logger.log({
+        event: "pull_piece_cleanup_completed",
+        message: "Deleted expired pull piece registrations",
+        deletedCount,
+      });
+      return "success";
+    });
+  }
+
+  private async handlePullCheckJob(job: SpJob): Promise<void> {
+    const data = job.data;
+    const spAddress = data.spAddress;
+    const now = new Date();
+    const maintenance = this.getMaintenanceWindowStatus(now);
+    if (maintenance.active) {
+      this.logMaintenanceSkip(`pull_check job for ${spAddress}`, maintenance.window?.label, {
+        jobId: job.id,
+        providerAddress: spAddress,
+        providerId: this.walletSdkService.getProviderInfo(spAddress)?.id,
+        providerName: this.walletSdkService.getProviderInfo(spAddress)?.name,
+      });
+      await this.deferJobForMaintenance("pull_check", data, maintenance, now);
+      return;
+    }
+
+    const abortController = new AbortController();
+    const timeoutSeconds = this.configService.get("pullPiece", { infer: true }).pullCheckJobTimeoutSeconds;
+    const timeoutMs = Math.max(60000, timeoutSeconds * 1000);
+    const effectiveTimeoutSeconds = Math.round(timeoutMs / 1000);
+    const abortReason = new Error(`Pull check job timeout (${effectiveTimeoutSeconds}s) for ${spAddress}`);
+    const timeoutId = setTimeout(() => {
+      abortController.abort(abortReason);
+    }, timeoutMs);
+
+    await this.recordJobExecution("pull_check", async () => {
+      const logContext = await this.resolveRunnableProviderJobContext(
+        "pull_check",
+        spAddress,
+        job.id,
+        "Pull check job skipped: provider is blocked for scheduled pull checks",
+      );
+      if (logContext == null) {
+        clearTimeout(timeoutId);
+        return "success";
+      }
+      try {
+        await this.pullCheckService.runPullCheck(spAddress, abortController.signal, logContext);
+        return "success";
+      } catch (error) {
+        if (abortController.signal.aborted) {
+          const reason = abortController.signal.reason;
+          const reasonMessage = reason instanceof Error ? reason.message : String(reason ?? "");
+          this.logger.error({
+            ...logContext,
+            event: "pull_check_job_aborted",
+            message: reasonMessage || "Pull check job aborted after timeout",
+            timeoutSeconds: effectiveTimeoutSeconds,
+            error: toStructuredError(reason ?? error),
+          });
+          return "aborted";
+        }
+        this.logger.error({
+          ...logContext,
+          event: "pull_check_job_failed",
+          message: "Pull check job failed",
+          error: toStructuredError(error),
+        });
+        // Jobs are not retried once attempted; failures are handled by the next schedule tick.
+        throw error;
+      } finally {
+        clearTimeout(timeoutId);
+      }
+    });
+  }
+
   private async handlePieceCleanupJob(job: SpJob): Promise<void> {
     const data = job.data;
     const spAddress = data.spAddress;
@@ -975,21 +1107,27 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     dataRetentionPollIntervalSeconds: number;
     providersRefreshIntervalSeconds: number;
     pieceCleanupIntervalSeconds: number;
+    pullCheckIntervalSeconds: number;
+    pullPieceCleanupIntervalSeconds: number;
   } {
     const jobsConfig = this.configService.get("jobs", { infer: true });
     const scheduling = this.configService.get("scheduling", { infer: true });
+    const pullPieceConfig = this.configService.get("pullPiece", { infer: true });
 
     const dealsPerHour = jobsConfig.dealsPerSpPerHour;
     const retrievalsPerHour = jobsConfig.retrievalsPerSpPerHour;
     const dataSetCreationsPerHour = jobsConfig.dataSetCreationsPerSpPerHour;
     const pieceCleanupPerHour = jobsConfig.pieceCleanupPerSpPerHour;
+    const pullChecksPerHour = pullPieceConfig.pullChecksPerSpPerHour;
 
     const dealIntervalSeconds = Math.max(1, Math.round(3600 / dealsPerHour));
     const retrievalIntervalSeconds = Math.max(1, Math.round(3600 / retrievalsPerHour));
     const dataSetCreationIntervalSeconds = Math.max(1, Math.round(3600 / dataSetCreationsPerHour));
     const pieceCleanupIntervalSeconds = Math.max(1, Math.round(3600 / pieceCleanupPerHour));
+    const pullCheckIntervalSeconds = Math.max(1, Math.round(3600 / pullChecksPerHour));
     const dataRetentionPollIntervalSeconds = scheduling.dataRetentionPollIntervalSeconds;
     const providersRefreshIntervalSeconds = scheduling.providersRefreshIntervalSeconds;
+    const pullPieceCleanupIntervalSeconds = pullPieceConfig.pullPieceCleanupIntervalSeconds;
 
     const retrievalsAnonPerHour = jobsConfig.retrievalsAnonPerSpPerHour;
     const retrievalAnonIntervalSeconds = Math.max(1, Math.round(3600 / retrievalsAnonPerHour));
@@ -1002,6 +1140,8 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       dataRetentionPollIntervalSeconds,
       providersRefreshIntervalSeconds,
       pieceCleanupIntervalSeconds,
+      pullCheckIntervalSeconds,
+      pullPieceCleanupIntervalSeconds,
     };
   }
 
@@ -1010,7 +1150,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
    * - Inserts new rows for new providers.
    * - Updates intervals if config changed.
    * - Pauses rows for providers that are no longer active.
-   * - Ensures global data_retention_poll and providers_refresh jobs exist.
+   * - Ensures global data_retention_poll, providers_refresh, and pull_piece_cleanup jobs exist.
    */
   private async ensureScheduleRows(): Promise<void> {
     const now = new Date();
@@ -1022,6 +1162,8 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       dataRetentionPollIntervalSeconds,
       providersRefreshIntervalSeconds,
       pieceCleanupIntervalSeconds,
+      pullCheckIntervalSeconds,
+      pullPieceCleanupIntervalSeconds,
     } = this.getIntervalSecondsForRates();
 
     const useOnlyApprovedProviders = this.configService.get("blockchain").useOnlyApprovedProviders;
@@ -1042,6 +1184,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
 
     const minDataSets = this.configService.get("blockchain").minNumDataSetsForChecks;
     const cleanupStartAt = new Date(now.getTime() + phaseMs);
+    const pullCheckStartAt = new Date(now.getTime() + phaseMs);
 
     // Anon retrieval depends on the dealbot-owned subgraph. Without SUBGRAPH_ENDPOINT every
     // job would fail in SubgraphService.sampleAnonPiece(), so gate schedule creation on it.
@@ -1085,6 +1228,12 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         pieceCleanupIntervalSeconds,
         cleanupStartAt,
       );
+      await this.jobScheduleRepository.upsertSchedule(
+        "pull_check",
+        address,
+        pullCheckIntervalSeconds,
+        pullCheckStartAt,
+      );
     }
 
     if (providers.length > 0) {
@@ -1116,6 +1265,12 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       "",
       providersRefreshIntervalSeconds,
       providersRefreshStartAt,
+    );
+    await this.jobScheduleRepository.upsertSchedule(
+      "pull_piece_cleanup",
+      "",
+      pullPieceCleanupIntervalSeconds,
+      new Date(now.getTime() + phaseMs),
     );
   }
 
@@ -1160,23 +1315,6 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       const rows = await this.jobScheduleRepository.findDueSchedulesWithManager(manager, now);
 
       for (const row of rows) {
-        // Skip legacy job types that are no longer supported.
-        // TODO(#457): remove once RemoveMetricsJobScheduleRows has run everywhere and no such rows remain.
-        if (row.job_type === "metrics" || row.job_type === "metrics_cleanup") {
-          this.logger.warn({
-            event: "legacy_job_type_skipped",
-            message: "Skipping legacy job type - please remove from job_schedule_state table",
-            jobType: row.job_type,
-            scheduleId: row.id,
-          });
-          // Advance next_run_at so this row is not re-selected on every tick in
-          // environments where the RemoveMetricsJobScheduleRows migration has not run.
-          const legacyIntervalMs = row.interval_seconds * 1000;
-          const newNextRunAt = new Date(now.getTime() + (legacyIntervalMs > 0 ? legacyIntervalMs : 86_400_000));
-          await this.jobScheduleRepository.advanceScheduleNextRun(manager, row.id, newNextRunAt);
-          continue;
-        }
-
         const timing = this.getScheduleTiming(row, now);
         if (!timing) continue;
         const { intervalMs, nextRunAt, runsDue } = timing;
@@ -1228,16 +1366,16 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         return SP_WORK_QUEUE;
       case "piece_cleanup":
         return SP_WORK_QUEUE;
+      case "pull_check":
+        return SP_WORK_QUEUE;
       case "retrieval_anon":
         return RETRIEVAL_ANON_QUEUE;
       case "data_retention_poll":
         return DATA_RETENTION_POLL_QUEUE;
       case "providers_refresh":
         return PROVIDERS_REFRESH_QUEUE;
-      case "metrics":
-      case "metrics_cleanup":
-        // These legacy job types should be filtered out before reaching this method
-        throw new Error(`Legacy job type ${jobType} should not be processed - remove from job_schedule_state table`);
+      case "pull_piece_cleanup":
+        return PULL_PIECE_CLEANUP_QUEUE;
       default: {
         const exhaustiveCheck: never = jobType;
         throw new Error(`Unhandled job type: ${exhaustiveCheck}`);
@@ -1251,7 +1389,8 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       row.job_type === "retrieval" ||
       row.job_type === "retrieval_anon" ||
       row.job_type === "data_set_creation" ||
-      row.job_type === "piece_cleanup"
+      row.job_type === "piece_cleanup" ||
+      row.job_type === "pull_check"
     ) {
       return { jobType: row.job_type, spAddress: row.sp_address, intervalSeconds: row.interval_seconds };
     }
@@ -1325,8 +1464,10 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       "retrieval_anon",
       "data_set_creation",
       "piece_cleanup",
+      "pull_check",
       "data_retention_poll",
       "providers_refresh",
+      "pull_piece_cleanup",
     ];
     for (const jobType of jobTypes) {
       this.jobsQueuedGauge.set({ job_type: jobType }, 0);

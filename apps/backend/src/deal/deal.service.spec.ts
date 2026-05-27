@@ -12,6 +12,7 @@ import { Deal } from "../database/entities/deal.entity.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
 import { DealStatus, IpniStatus } from "../database/types.js";
 import { DataSourceService } from "../dataSource/dataSource.service.js";
+import { DatasetLivenessService } from "../dataset-liveness/dataset-liveness.service.js";
 import { DealAddonsService } from "../deal-addons/deal-addons.service.js";
 import { DealPreprocessingResult } from "../deal-addons/types.js";
 import {
@@ -36,6 +37,9 @@ vi.mock("@filoz/synapse-sdk", async (importOriginal) => {
     },
   };
 });
+
+const fetchMock = vi.fn(async () => new Response(null, { status: 200 }));
+vi.stubGlobal("fetch", fetchMock);
 
 vi.mock("filecoin-pin", () => ({
   executeUpload: vi.fn(),
@@ -119,6 +123,10 @@ describe("DealService", () => {
     getDataSet: vi.fn().mockResolvedValue({ pdpEndEpoch: 0n }),
     terminateDataSet: vi.fn().mockResolvedValue("0xhash"),
   };
+  // Default: dataset is live. Tests that exercise the terminated path override per-call.
+  const mockDatasetLivenessService = {
+    isDataSetLive: vi.fn().mockResolvedValue(true),
+  };
   const mockWalletSdkService = {
     getFWSSAddress: vi.fn().mockReturnValue("0xFWSS"),
     getTestingProvidersCount: vi.fn(),
@@ -177,6 +185,7 @@ describe("DealService", () => {
         { provide: RetrievalCheckMetrics, useValue: mockRetrievalMetrics },
         { provide: DataSetCreationCheckMetrics, useValue: mockDataSetCreationMetrics },
         { provide: ClickhouseService, useValue: { insert: vi.fn(), probeLocation: "test" } },
+        { provide: DatasetLivenessService, useValue: mockDatasetLivenessService },
       ],
     }).compile();
 
@@ -195,6 +204,7 @@ describe("DealService", () => {
 
   afterEach(() => {
     vi.clearAllMocks();
+    fetchMock.mockImplementation(async () => new Response(null, { status: 200 }));
   });
 
   describe("createDeal", () => {
@@ -222,7 +232,7 @@ describe("DealService", () => {
         isActive: true,
         isApproved: true,
         pdp: {
-          serviceURL: "service url",
+          serviceURL: "https://sp.example",
           minPieceSizeInBytes: 0n,
           maxPieceSizeInBytes: 100n,
           storagePricePerTibPerDay: 1n,
@@ -247,6 +257,9 @@ describe("DealService", () => {
 
       dealRepoMock.create.mockReturnValue(mockDeal);
       mockStorageProviderRepository.findOne.mockResolvedValue({});
+      mockSynapseInstance = { ...mockSynapseInstance, client: {} } as unknown as Synapse;
+      vi.spyOn(mockWalletSdkService, "getProviderInfo").mockReturnValue(mockProviderInfo);
+      vi.spyOn(service as any, "createSynapseInstance").mockResolvedValue(mockSynapseInstance);
     });
 
     it("processes the full deal lifecycle successfully", async () => {
@@ -829,7 +842,7 @@ describe("DealService", () => {
       expect(capturedAddonSignal?.aborted).toBe(true);
       expect(addonSettled).toBe(true);
       expect(mockDeal.status).toBe(DealStatus.FAILED);
-      /** Aborted runs must not leave ipniStatus = PENDING — would depress sp_performance.ipni_success_rate. */
+      /** Aborted runs must not leave ipniStatus = PENDING — transient state must not appear as a non-null outcome in ClickHouse/Postgres analytics. */
       expect(mockDeal.ipniStatus).toBeNull();
     });
 
@@ -1056,10 +1069,12 @@ describe("DealService", () => {
             { provide: RetrievalCheckMetrics, useValue: mockRetrievalMetrics },
             { provide: DataSetCreationCheckMetrics, useValue: mockDataSetCreationMetrics },
             { provide: ClickhouseService, useValue: { insert: vi.fn(), probeLocation: "test" } },
+            { provide: DatasetLivenessService, useValue: mockDatasetLivenessService },
           ],
         }).compile();
 
         const testService = module.get<DealService>(DealService);
+        vi.spyOn(testService as any, "createSynapseInstance").mockResolvedValue(mockSynapseInstance);
 
         return testService;
       };
@@ -1195,7 +1210,7 @@ describe("DealService", () => {
       isActive: true,
       isApproved: true,
       pdp: {
-        serviceURL: "service url",
+        serviceURL: "https://sp.example",
         minPieceSizeInBytes: 0n,
         maxPieceSizeInBytes: 100n,
         storagePricePerTibPerDay: 1n,
@@ -1236,16 +1251,14 @@ describe("DealService", () => {
       expect(result).toEqual({ status: "live", dataSetId: 7n });
     });
 
-    it("returns terminated when validateDataSet throws", async () => {
+    it("returns terminated when isDataSetLive returns false", async () => {
       const synapseMock = {
         storage: {
           createContext: vi.fn().mockResolvedValue({ dataSetId: 9n }),
         },
       };
       vi.spyOn(service as any, "createSynapseInstance").mockImplementation(() => synapseMock as unknown as Synapse);
-      mockWarmStorageService.validateDataSet.mockRejectedValueOnce(
-        new Error("Data set 9 does not exist or is not live"),
-      );
+      mockDatasetLivenessService.isDataSetLive.mockResolvedValueOnce(false);
 
       const result = await service.getDataSetProvisioningStatus("0xprovider", { dealbotDS: "1" });
       expect(result).toEqual({ status: "terminated", dataSetId: 9n });
@@ -1262,7 +1275,7 @@ describe("DealService", () => {
       isActive: true,
       isApproved: true,
       pdp: {
-        serviceURL: "service url",
+        serviceURL: "https://sp.example",
         minPieceSizeInBytes: 0n,
         maxPieceSizeInBytes: 100n,
         storagePricePerTibPerDay: 1n,
@@ -1432,20 +1445,6 @@ describe("DealService", () => {
     });
   });
 
-  describe("isDataSetLive", () => {
-    it("rethrows non-terminal probe errors instead of classifying as terminated", async () => {
-      mockWarmStorageService.validateDataSet.mockRejectedValueOnce(new Error("ECONNREFUSED 127.0.0.1:8545"));
-      await expect(service.isDataSetLive(1n)).rejects.toThrow("ECONNREFUSED");
-    });
-
-    it("returns false only on the known not-live error message", async () => {
-      mockWarmStorageService.validateDataSet.mockRejectedValueOnce(
-        new Error("Data set 1 does not exist or is not live"),
-      );
-      await expect(service.isDataSetLive(1n)).resolves.toBe(false);
-    });
-  });
-
   describe("createDeal isLive guard", () => {
     it("throws DealJobTerminatedDataSetError when data set is PDP-terminated; no metrics or save", async () => {
       const providerInfo: PDPProviderEx = {
@@ -1457,7 +1456,7 @@ describe("DealService", () => {
         isActive: true,
         isApproved: true,
         pdp: {
-          serviceURL: "u",
+          serviceURL: "https://sp.example",
           minPieceSizeInBytes: 0n,
           maxPieceSizeInBytes: 100n,
           storagePricePerTibPerDay: 1n,
@@ -1476,6 +1475,7 @@ describe("DealService", () => {
       } as any;
       const uploadPayload = { carData: Uint8Array.from([1]), rootCid: CID.parse(mockRootCid) };
       const synapseMock = {
+        client: {},
         storage: {
           createContext: vi.fn().mockResolvedValue({ dataSetId: 9n }),
         },
@@ -1483,9 +1483,9 @@ describe("DealService", () => {
       const deal = Object.assign(new Deal(), { id: "deal-skip", spAddress: "0xProvider" });
       dealRepoMock.create.mockReturnValue(deal);
       mockStorageProviderRepository.findOne.mockResolvedValue({ providerId: 1, isApproved: true });
-      mockWarmStorageService.validateDataSet.mockRejectedValueOnce(
-        new Error("Data set 9 does not exist or is not live"),
-      );
+      vi.spyOn(mockWalletSdkService, "getProviderInfo").mockReturnValue(providerInfo);
+      vi.spyOn(service as any, "createSynapseInstance").mockResolvedValue(synapseMock);
+      mockDatasetLivenessService.isDataSetLive.mockResolvedValueOnce(false);
 
       await expect(service.createDeal(synapseMock, providerInfo, dealInput, uploadPayload)).rejects.toBeInstanceOf(
         DealJobTerminatedDataSetError,
@@ -1525,7 +1525,7 @@ describe("DealService", () => {
       isActive: true,
       isApproved: true,
       pdp: {
-        serviceURL: "service url",
+        serviceURL: "https://sp.example",
         minPieceSizeInBytes: 0n,
         maxPieceSizeInBytes: 100n,
         storagePricePerTibPerDay: 1n,

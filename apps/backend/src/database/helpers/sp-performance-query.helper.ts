@@ -2,6 +2,10 @@ import { IpniStatus, ServiceType } from "../types.js";
 
 /**
  * Generate SQL query for SP performance materialized view
+ * @deprecated sp_performance_all_time and sp_performance_last_week were dropped in migration
+ * DropMetricsSchema1776200000000. This function is kept because prior migrations import it
+ * at compile time; it must not be deleted until those migrations are no longer part of the
+ * TypeORM migration chain.
  * @param dateFilter - Optional date filter for deals (e.g., "d.created_at >= NOW() - INTERVAL '7 days'")
  * @returns SQL query string
  */

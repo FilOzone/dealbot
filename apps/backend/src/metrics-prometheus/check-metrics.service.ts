@@ -8,7 +8,11 @@ import { buildCheckMetricLabels, type CheckMetricLabels } from "./check-metric-l
 
 const metricsLogger = new Logger("CheckMetrics");
 
-function observePositive(metric: Histogram, labels: CheckMetricLabels, value: number | null | undefined): void {
+function observePositive<T extends CheckMetricLabels>(
+  metric: Histogram,
+  labels: T,
+  value: number | null | undefined,
+): void {
   if (value == null || !Number.isFinite(value) || value <= 0) {
     metricsLogger.warn({
       event: "metric_value_dropped",
@@ -18,7 +22,7 @@ function observePositive(metric: Histogram, labels: CheckMetricLabels, value: nu
     });
     return;
   }
-  metric.observe({ ...labels }, value);
+  metric.observe(labels, value);
 }
 
 function classifyHttpResponseCode(statusCode: number): string {
@@ -157,6 +161,17 @@ export class RetrievalCheckMetrics {
   }
 }
 
+export type IpniVerifyOutcome = "verified" | "timeout" | "error";
+
+export function classifyIpniVerifyOutcome(
+  ipniResult: { rootCIDVerified: boolean; durationMs: number },
+  timeoutMs: number,
+): IpniVerifyOutcome {
+  if (ipniResult.rootCIDVerified) return "verified";
+  if (ipniResult.durationMs >= timeoutMs) return "timeout";
+  return "error";
+}
+
 @Injectable()
 export class DiscoverabilityCheckMetrics {
   private readonly logger = new Logger(DiscoverabilityCheckMetrics.name);
@@ -196,7 +211,11 @@ export class DiscoverabilityCheckMetrics {
     observePositive(this.spAnnounceAdvertisementMs, labels, value);
   }
 
-  observeIpniVerifyMs(labels: CheckMetricLabels | null, value: number | null | undefined): void {
+  observeIpniVerifyMs(
+    labels: CheckMetricLabels | null,
+    value: number | null | undefined,
+    outcome: IpniVerifyOutcome,
+  ): void {
     if (!labels) {
       this.logger.warn({
         event: "metric_emit_failed",
@@ -205,7 +224,7 @@ export class DiscoverabilityCheckMetrics {
       });
       return;
     }
-    observePositive(this.ipniVerifyMs, labels, value);
+    observePositive(this.ipniVerifyMs, { ...labels, value: outcome }, value);
   }
 
   recordStatus(labels: CheckMetricLabels | null, value: string): void {
@@ -247,6 +266,48 @@ export class DataSetCreationCheckMetrics {
 
   recordStatus(labels: CheckMetricLabels, value: string): void {
     this.dataSetCreationStatusCounter.inc({ ...labels, value });
+  }
+}
+
+@Injectable()
+export class PullCheckCheckMetrics {
+  constructor(
+    @InjectMetric("pullRequestAcknowledgementLatencyMs")
+    private readonly pullRequestAcknowledgementLatencyMs: Histogram,
+    @InjectMetric("pullRequestStartedMs")
+    private readonly pullRequestStartedMs: Histogram,
+    @InjectMetric("pullRequestCompletionLatencyMs")
+    private readonly pullRequestCompletionLatencyMs: Histogram,
+    @InjectMetric("pullRequestProviderStatus")
+    private readonly pullRequestProviderStatusCounter: Counter,
+    @InjectMetric("pullRequestThroughputBps")
+    private readonly pullRequestThroughputBps: Histogram,
+    @InjectMetric("pullCheckStatus")
+    private readonly pullCheckStatusCounter: Counter,
+  ) {}
+
+  observeAcknowledgementLatencyMs(labels: CheckMetricLabels, value: number | null | undefined): void {
+    observePositive(this.pullRequestAcknowledgementLatencyMs, labels, value);
+  }
+
+  observeStartedMs(labels: CheckMetricLabels, value: number | null | undefined): void {
+    observePositive(this.pullRequestStartedMs, labels, value);
+  }
+
+  observeCompletionLatencyMs(labels: CheckMetricLabels, value: number | null | undefined): void {
+    observePositive(this.pullRequestCompletionLatencyMs, labels, value);
+  }
+
+  recordProviderStatus(labels: CheckMetricLabels, value: string): void {
+    this.pullRequestProviderStatusCounter.inc({ ...labels, value });
+  }
+
+  observeThroughputBps(labels: CheckMetricLabels, value: number | null | undefined): void {
+    observePositive(this.pullRequestThroughputBps, labels, value);
+  }
+
+  recordStatus(labels: CheckMetricLabels, value: string): void {
+    this.pullCheckStatusCounter.inc({ ...labels, value });
   }
 }
 

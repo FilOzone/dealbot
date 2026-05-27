@@ -11,19 +11,29 @@ import { Deal } from "../database/entities/deal.entity.js";
 import { Retrieval } from "../database/entities/retrieval.entity.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
 import { DealStatus, RetrievalStatus, ServiceType } from "../database/types.js";
+import { DatasetLivenessService } from "../dataset-liveness/dataset-liveness.service.js";
 import { IpniVerificationService } from "../ipni/ipni-verification.service.js";
 import {
   buildCheckMetricLabels,
   type CheckMetricLabels,
   classifyFailureStatus,
 } from "../metrics-prometheus/check-metric-labels.js";
-import { DiscoverabilityCheckMetrics, RetrievalCheckMetrics } from "../metrics-prometheus/check-metrics.service.js";
+import {
+  classifyIpniVerifyOutcome,
+  DiscoverabilityCheckMetrics,
+  RetrievalCheckMetrics,
+} from "../metrics-prometheus/check-metrics.service.js";
 import { RetrievalAddonsService } from "../retrieval-addons/retrieval-addons.service.js";
 import type {
   RetrievalConfiguration,
   RetrievalExecutionResult,
   RetrievalTestResult,
 } from "../retrieval-addons/types.js";
+
+/** Timeout for the pre-flight SP piece-status probe. Short enough that an unresponsive
+ *  SP still beats falling through to the 30s IPNI verify path; on timeout we treat
+ *  the result as "unknown" and proceed with the normal retrieval. */
+const SP_PIECE_STATUS_PROBE_TIMEOUT_MS = 5_000;
 
 @Injectable()
 export class RetrievalService {
@@ -42,6 +52,7 @@ export class RetrievalService {
     private readonly ipniVerificationService: IpniVerificationService,
     private readonly configService: ConfigService<IConfig, true>,
     private readonly clickhouseService: ClickhouseService,
+    private readonly datasetLivenessService: DatasetLivenessService,
   ) {}
 
   async performRandomRetrievalForProvider(
@@ -120,7 +131,87 @@ export class RetrievalService {
       return [];
     }
 
-    let terminalStatus: "success" | "failure.timedout" | "failure.other" | null = null;
+    // Pre-check pipeline before any retrieval work. Requires `deal.dataSetId`
+    // and `deal.pieceId` to be populated (DealService writes them in the
+    // upload event handler).
+    //
+    //   1. Chain `pieceLive(dataSetId, pieceId)`: source of truth for whether
+    //      the SP is still expected to retain this piece. If false (dataset
+    //      terminated, piece never created, or piece hard-removed), mark the
+    //      deal cleaned_up + skip. No SP probe needed in this case.
+    //   2. SP HTTP GET `/pdp/piece/:pieceCid/status`: cheap health-check that
+    //      the SP can actually serve. 404 here when chain says the piece
+    //      should be live = real SP-side failure. Recorded as a failed
+    //      retrieval row (deal stays in the candidate pool so the scheduler
+    //      re-probes; persistent failures become observable on dashboards).
+    if (deal.dataSetId == null || deal.pieceId == null) {
+      // Bail loudly so the row is fixed before it pollutes downstream metrics.
+      this.retrievalMetrics.recordStatus(providerLabels, "failure.other");
+      this.logger.error({
+        ...retrievalLogContext,
+        event: "retrieval_missing_chain_ids",
+        message: "Deal is missing dataSetId or pieceId; cannot run chain pre-check. Backfill required.",
+        dataSetId: deal.dataSetId?.toString() ?? null,
+        pieceId: deal.pieceId ?? null,
+      });
+      return [];
+    }
+
+    const pieceLive = await this.checkPieceLive(deal.dataSetId, BigInt(deal.pieceId), signal, retrievalLogContext);
+    signal?.throwIfAborted();
+    if (!pieceLive) {
+      const updateResult = await this.dealRepository.update(
+        { id: deal.id, cleanedUp: false },
+        { cleanedUp: true, cleanedUpAt: new Date() },
+      );
+      this.retrievalMetrics.recordStatus(providerLabels, "skipped.piece_missing");
+      this.logger.warn({
+        ...retrievalLogContext,
+        event: "retrieval_skipped_piece_missing",
+        message: "PDP pieceLive=false; marked deal cleaned_up and skipped retrieval",
+        dataSetId: deal.dataSetId.toString(),
+        pieceId: deal.pieceId,
+        affected: updateResult.affected ?? 0,
+      });
+      return [];
+    }
+
+    if (provider.serviceUrl && deal.pieceCid) {
+      const probe = await this.probeSpPieceStatus(provider.serviceUrl, deal.pieceCid, signal);
+      signal?.throwIfAborted();
+      if (probe.result === "missing") {
+        // Chain pre-check above confirmed the piece SHOULD be retrievable.
+        // SP 404 here is an SP-side failure to honor its storage commitment.
+        this.retrievalMetrics.recordStatus(providerLabels, "failure.other");
+        const now = new Date();
+        const startedAt = new Date(now.getTime() - probe.durationMs);
+        const failed = this.retrievalRepository.create({
+          deal,
+          serviceType: ServiceType.IPFS_PIN,
+          retrievalEndpoint: probe.url,
+          status: RetrievalStatus.FAILED,
+          startedAt,
+          completedAt: now,
+          latencyMs: probe.durationMs,
+          responseCode: probe.statusCode ?? null,
+          errorMessage: "SP reports piece missing but PDP pieceLive=true",
+          retryCount: 0,
+        } as Partial<Retrieval>);
+        const saved = await this.retrievalRepository.save(failed);
+        this.logger.warn({
+          ...retrievalLogContext,
+          event: "retrieval_failed_piece_missing_live",
+          message: "SP reports piece missing while chain reports pieceLive=true; recorded failed retrieval",
+          statusUrl: probe.url,
+          statusCode: probe.statusCode,
+          probeDurationMs: probe.durationMs,
+        });
+        return [saved];
+      }
+    }
+
+    type SubStatus = "success" | "failure.timedout" | "failure.other";
+    let terminalStatus: SubStatus | null = null;
     let retrievals: Retrieval[] = [];
     let caughtError: unknown = null;
     const retrievalCheckStartTime = Date.now();
@@ -130,86 +221,39 @@ export class RetrievalService {
     this.retrievalMetrics.recordStatus(providerLabels, "pending");
 
     try {
-      if (this.isPgBossMode()) {
-        const ipniCheck = await this.verifyIpniForRetrieval(
-          ipniContext as { rootCid: CID; blockCids: CID[] },
-          deal.id,
-          provider,
-          providerLabels,
-          signal,
-        );
-        if (!ipniCheck.ok) {
-          terminalStatus = ipniCheck.failureStatus ?? "failure.other";
-        }
+      const transportPromise = this.runTransport(deal, config, providerLabels, retrievalLogContext, signal);
+      const ipniPromise = this.isPgBossMode()
+        ? this.verifyIpniForRetrieval(
+            ipniContext as { rootCid: CID; blockCids: CID[] },
+            deal.id,
+            provider,
+            providerLabels,
+            signal,
+          )
+        : Promise.resolve({ ok: true as const });
+
+      const [transportSettled, ipniSettled] = await Promise.allSettled([transportPromise, ipniPromise]);
+
+      if (transportSettled.status === "fulfilled") {
+        retrievals = transportSettled.value.retrievals;
+      } else {
+        caughtError = transportSettled.reason;
       }
 
-      if (!terminalStatus) {
-        const testResult: RetrievalTestResult = await this.retrievalAddonsService.testAllRetrievalMethods(
-          config,
-          signal,
-          retrievalLogContext,
-        );
-        retrievals = await Promise.all(
-          testResult.results.map((executionResult) =>
-            this.createRetrievalFromResult(deal, executionResult, providerLabels),
-          ),
-        );
-
-        const successCount = retrievals.filter((r) => r.status === RetrievalStatus.SUCCESS).length;
-        this.logger.log({
-          ...retrievalLogContext,
-          event: "retrievals_completed",
-          message: "Retrievals successful",
-          successCount,
-          totalCount: retrievals.length,
-        });
-
-        if (testResult.aborted || signal?.aborted) {
-          const abortReason = signal?.reason;
-          const abortMessage = abortReason instanceof Error ? abortReason.message : String(abortReason ?? "");
-          this.logger.warn({
-            ...retrievalLogContext,
-            event: "retrieval_job_aborted",
-            message: "Retrieval job aborted; recorded partial results.",
-            reason: abortMessage || "Unknown",
-            error: toStructuredError(abortReason),
-          });
-          terminalStatus = signal?.aborted ? "failure.timedout" : "failure.other";
-        } else {
-          terminalStatus = retrievals.every((retrieval) => retrieval.status === RetrievalStatus.SUCCESS)
-            ? "success"
-            : "failure.other";
-        }
-      }
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      if (signal?.aborted) {
-        const abortReason = signal.reason;
-        const abortMessage = abortReason instanceof Error ? abortReason.message : String(abortReason ?? "");
+      if (ipniSettled.status === "rejected") {
+        // verifyIpniForRetrieval already catches and records discoverabilityStatus.
+        // A rejection here is unexpected; log but do not affect retrievalStatus.
         this.logger.warn({
           ...retrievalLogContext,
-          event: "retrievals_aborted",
-          message: "Retrievals aborted",
-          reason: abortMessage || errorMessage,
-          error: toStructuredError(error),
+          event: "retrieval_ipni_unexpected_rejection",
+          message: "IPNI verification promise rejected unexpectedly",
+          error: toStructuredError(ipniSettled.reason),
         });
-        terminalStatus = "failure.timedout";
-      } else {
-        this.logger.error({
-          ...retrievalLogContext,
-          event: "all_retrievals_failed",
-          message: "All retrievals failed",
-          error: toStructuredError(error),
-        });
-        terminalStatus = classifyFailureStatus(error);
       }
 
-      // If this catch block fires, it's either:
-      // 1. The job timeout fired (signal aborted) - record failure.timedout once
-      // 2. A catastrophic error occurred (provider not found, etc.) - re-throw for logging
-      // 3. Individual HTTP timeouts are captured by Promise.allSettled in testAllRetrievalMethods
-      //    and converted to FAILED records through the normal flow
-      caughtError = error;
+      // retrievalStatus is scoped to the transport stage (ipfsRetrievalIntegrityChecked).
+      // IPNI outcomes are recorded independently via discoverabilityStatus.
+      terminalStatus = this.classifyTransportOutcome(transportSettled, signal);
     } finally {
       const retrievalCheckDurationMs = Date.now() - retrievalCheckStartTime;
       this.retrievalMetrics.observeCheckDuration(providerLabels, retrievalCheckDurationMs);
@@ -233,6 +277,89 @@ export class RetrievalService {
     }
 
     return retrievals;
+  }
+
+  private async runTransport(
+    deal: Deal,
+    config: RetrievalConfiguration,
+    providerLabels: CheckMetricLabels,
+    retrievalLogContext: RetrievalLogContext,
+    signal?: AbortSignal,
+  ): Promise<{ retrievals: Retrieval[]; aborted: boolean; allSuccess: boolean }> {
+    try {
+      const testResult: RetrievalTestResult = await this.retrievalAddonsService.testAllRetrievalMethods(
+        config,
+        signal,
+        retrievalLogContext,
+      );
+      const retrievals = await Promise.all(
+        testResult.results.map((executionResult) =>
+          this.createRetrievalFromResult(deal, executionResult, providerLabels),
+        ),
+      );
+
+      const successCount = retrievals.filter((r) => r.status === RetrievalStatus.SUCCESS).length;
+      const allSuccess = successCount === retrievals.length;
+      this.logger.log({
+        ...retrievalLogContext,
+        event: "retrievals_completed",
+        message: allSuccess ? "All retrievals succeeded" : "Retrievals completed with failures",
+        successCount,
+        totalCount: retrievals.length,
+        allSuccess,
+      });
+
+      const aborted = Boolean(testResult.aborted) || Boolean(signal?.aborted);
+      if (aborted) {
+        const abortReason = signal?.reason;
+        const abortMessage = abortReason instanceof Error ? abortReason.message : String(abortReason ?? "");
+        this.logger.warn({
+          ...retrievalLogContext,
+          event: "retrieval_job_aborted",
+          message: "Retrieval job aborted; recorded partial results.",
+          reason: abortMessage || "Unknown",
+          error: toStructuredError(abortReason),
+        });
+      }
+
+      return {
+        retrievals,
+        aborted,
+        allSuccess: retrievals.every((r) => r.status === RetrievalStatus.SUCCESS),
+      };
+    } catch (error) {
+      if (signal?.aborted) {
+        const abortReason = signal.reason;
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        const abortMessage = abortReason instanceof Error ? abortReason.message : String(abortReason ?? "");
+        this.logger.warn({
+          ...retrievalLogContext,
+          event: "retrievals_aborted",
+          message: "Retrievals aborted",
+          reason: abortMessage || errorMessage,
+          error: toStructuredError(error),
+        });
+      } else {
+        this.logger.error({
+          ...retrievalLogContext,
+          event: "all_retrievals_failed",
+          message: "All retrievals failed",
+          error: toStructuredError(error),
+        });
+      }
+      throw error;
+    }
+  }
+
+  private classifyTransportOutcome(
+    settled: PromiseSettledResult<{ retrievals: Retrieval[]; aborted: boolean; allSuccess: boolean }>,
+    signal?: AbortSignal,
+  ): "success" | "failure.timedout" | "failure.other" {
+    if (settled.status === "rejected") {
+      return signal?.aborted ? "failure.timedout" : classifyFailureStatus(settled.reason);
+    }
+    if (settled.value.aborted) return "failure.timedout";
+    return settled.value.allSuccess ? "success" : "failure.other";
   }
 
   private async createRetrievalFromResult(
@@ -330,15 +457,59 @@ export class RetrievalService {
   }
 
   /**
+   * Probe `${serviceUrl}/pdp/piece/:pieceCid/status` to determine whether the SP
+   * currently has the piece. Returns:
+   *   - "missing": SP responded 404 (authoritative — SP does not have the piece)
+   *   - "exists": SP responded 2xx (piece is held)
+   *   - "unknown": network error, probe timeout, or other status (don't act on it)
+   * An outer-signal abort during the probe is re-thrown so the caller can stop.
+   */
+  private async probeSpPieceStatus(
+    serviceUrl: string,
+    pieceCid: string,
+    outerSignal?: AbortSignal,
+  ): Promise<{ result: "missing" | "exists" | "unknown"; url: string; statusCode: number | null; durationMs: number }> {
+    const url = `${serviceUrl.replace(/\/$/, "")}/pdp/piece/${encodeURIComponent(pieceCid)}/status`;
+    const timeoutSignal = AbortSignal.timeout(SP_PIECE_STATUS_PROBE_TIMEOUT_MS);
+    const signal = outerSignal ? AbortSignal.any([outerSignal, timeoutSignal]) : timeoutSignal;
+    const start = Date.now();
+    try {
+      // Curio chi router does not register HEAD for /pdp/piece/{cid}/status (returns 405)
+      // and ignores Range headers. Body is a small JSON status payload (<500B), so just
+      // GET and drop the body without reading it.
+      const res = await fetch(url, {
+        method: "GET",
+        signal,
+        headers: { "User-Agent": "dealbot/probe" },
+      });
+      await res.body?.cancel().catch(() => undefined);
+      const durationMs = Date.now() - start;
+      if (res.status === 404) return { result: "missing", url, statusCode: 404, durationMs };
+      if (res.ok) return { result: "exists", url, statusCode: res.status, durationMs };
+      return { result: "unknown", url, statusCode: res.status, durationMs };
+    } catch (error) {
+      // Re-throw caller-initiated aborts so retrieval stops promptly. Probe-timeout
+      // and network errors fall through as "unknown" — we don't want to mark deals
+      // cleaned_up on flaky infra.
+      if (outerSignal?.aborted) {
+        throw error;
+      }
+      return { result: "unknown", url, statusCode: null, durationMs: Date.now() - start };
+    }
+  }
+
+  /**
    * We select a random successful deal (DEAL_CREATED only) for a given provider.
    * Uses Postgres ORDER BY RANDOM() since Dealbot is Postgres-only.
    */
   private async selectRandomSuccessfulDealForProvider(spAddress: string): Promise<Deal | null> {
+    const walletAddress = this.configService.get("blockchain", { infer: true }).walletAddress;
     const randomDatasetSizes = this.getRandomDatasetSizes();
     const query = this.dealRepository
       .createQueryBuilder("deal")
       .innerJoin("deal.storageProvider", "sp", "sp.isActive = :isActive", { isActive: true })
       .where("deal.sp_address = :spAddress", { spAddress })
+      .andWhere("deal.wallet_address = :walletAddress", { walletAddress })
       .andWhere("deal.status IN (:...statuses)", {
         statuses: [DealStatus.DEAL_CREATED],
       })
@@ -414,6 +585,7 @@ export class RetrievalService {
     const pollIntervalMs = timeouts.ipniVerificationPollingMs;
     this.discoverabilityMetrics.recordStatus(providerLabels, "pending");
 
+    const ipniVerifyStartMs = Date.now();
     try {
       const ipniResult = await this.ipniVerificationService.verify({
         rootCid,
@@ -424,7 +596,11 @@ export class RetrievalService {
         signal,
       });
 
-      this.discoverabilityMetrics.observeIpniVerifyMs(providerLabels, ipniResult.durationMs);
+      this.discoverabilityMetrics.observeIpniVerifyMs(
+        providerLabels,
+        ipniResult.durationMs,
+        classifyIpniVerifyOutcome(ipniResult, timeoutMs),
+      );
 
       if (ipniResult.rootCIDVerified) {
         this.discoverabilityMetrics.recordStatus(providerLabels, "success");
@@ -434,8 +610,20 @@ export class RetrievalService {
       this.discoverabilityMetrics.recordStatus(providerLabels, failureStatus);
       return { ok: false, failureStatus };
     } catch (error) {
+      const durationMs = Date.now() - ipniVerifyStartMs;
       if (signal?.aborted) {
         const failureStatus = "failure.timedout";
+        this.logger.warn({
+          event: "retrieval_ipni_verification_timed_out",
+          message: "Retrieval IPNI verification aborted by outer job timeout",
+          dealId,
+          providerId: provider.providerId,
+          providerName: provider.name,
+          providerAddress: provider.address,
+          ipfsRootCID: ipniContext.rootCid.toString(),
+          error: toStructuredError(error),
+        });
+        this.discoverabilityMetrics.observeIpniVerifyMs(providerLabels, durationMs, "timeout");
         this.discoverabilityMetrics.recordStatus(providerLabels, failureStatus);
         return { ok: false, failureStatus };
       }
@@ -450,8 +638,37 @@ export class RetrievalService {
         ipfsRootCID: ipniContext.rootCid.toString(),
         error: toStructuredError(error),
       });
+      this.discoverabilityMetrics.observeIpniVerifyMs(providerLabels, durationMs, "error");
       this.discoverabilityMetrics.recordStatus(providerLabels, failureStatus);
       return { ok: false, failureStatus };
+    }
+  }
+
+  /**
+   * Defensive wrapper around `DatasetLivenessService.isPieceLive` used by the
+   * retrieval pre-check. On RPC failure, return `true` (treat as live) so a
+   * transient chain outage does NOT cascade into bulk cleanups. The downstream
+   * SP probe + retrieval fetch will surface the real outcome instead.
+   */
+  private async checkPieceLive(
+    dataSetId: bigint,
+    pieceId: bigint,
+    signal: AbortSignal | undefined,
+    logContext: RetrievalLogContext,
+  ): Promise<boolean> {
+    try {
+      return await this.datasetLivenessService.isPieceLive(dataSetId, pieceId, signal);
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      this.logger.warn({
+        ...logContext,
+        event: "retrieval_piece_liveness_probe_failed",
+        message: "PDP pieceLive probe failed; treating piece as live to avoid spurious cleanup",
+        dataSetId: dataSetId.toString(),
+        pieceId: pieceId.toString(),
+        error: toStructuredError(error),
+      });
+      return true;
     }
   }
 }

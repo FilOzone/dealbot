@@ -7,6 +7,7 @@ import { Injectable, Logger, type OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
 import type { Repository } from "typeorm";
+import type { Account, Chain, Client, Transport } from "viem";
 import { type Hex } from "viem";
 import { DEV_TAG } from "../common/constants.js";
 import { toStructuredError } from "../common/logging.js";
@@ -14,6 +15,8 @@ import { createSynapseFromConfig } from "../common/synapse-factory.js";
 import type { IBlockchainConfig, IConfig } from "../config/app.config.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
 import type { PDPProviderEx, WalletServices } from "./wallet-sdk.types.js";
+
+export type SynapseViemClient = Client<Transport, Chain, Account>;
 
 @Injectable()
 export class WalletSdkService implements OnModuleInit {
@@ -306,6 +309,18 @@ export class WalletSdkService implements OnModuleInit {
    */
   getProviderInfo(address: string): PDPProviderEx | undefined {
     return this.providerCache.get(address);
+  }
+
+  /**
+   * Get the underlying Synapse-SDK viem client.
+   *
+   * Used by features that need to call low-level Synapse helpers (e.g. `pullPieces`
+   * from `@filoz/synapse-core/sp`) which require a viem `Client<Transport, Chain, Account>`.
+   * Returns `null` when chain integration is disabled or the client has not been
+   * initialized yet.
+   */
+  getSynapseClient(): SynapseViemClient | null {
+    return (this._synapseClient as SynapseViemClient | null) ?? null;
   }
 
   /**

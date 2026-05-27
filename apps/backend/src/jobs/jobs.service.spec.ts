@@ -4,6 +4,7 @@ import type { IConfig, ISpBlocklistConfig } from "../config/app.config.js";
 import {
   DATA_RETENTION_POLL_QUEUE,
   PROVIDERS_REFRESH_QUEUE,
+  PULL_PIECE_CLEANUP_QUEUE,
   RETRIEVAL_ANON_QUEUE,
   SP_WORK_QUEUE,
 } from "./job-queues.js";
@@ -60,19 +61,20 @@ describe("JobsService schedule rows", () => {
       walletSdkService: JobsServiceDeps[5];
       dataRetentionService: JobsServiceDeps[6];
       pieceCleanupService: JobsServiceDeps[7];
-      anonRetrievalService: JobsServiceDeps[8];
-      jobsQueuedGauge: JobsServiceDeps[9];
-      jobsRetryScheduledGauge: JobsServiceDeps[10];
-      oldestQueuedAgeGauge: JobsServiceDeps[11];
-      oldestInFlightAgeGauge: JobsServiceDeps[12];
-      jobsInFlightGauge: JobsServiceDeps[13];
-      jobsEnqueueAttemptsCounter: JobsServiceDeps[14];
-      jobsStartedCounter: JobsServiceDeps[15];
-      jobsCompletedCounter: JobsServiceDeps[16];
-      jobsPausedGauge: JobsServiceDeps[17];
-      jobDuration: JobsServiceDeps[18];
-      storageProvidersActive: JobsServiceDeps[19];
-      storageProvidersTested: JobsServiceDeps[20];
+      pullCheckService: JobsServiceDeps[8];
+      anonRetrievalService: JobsServiceDeps[9];
+      jobsQueuedGauge: JobsServiceDeps[10];
+      jobsRetryScheduledGauge: JobsServiceDeps[11];
+      oldestQueuedAgeGauge: JobsServiceDeps[12];
+      oldestInFlightAgeGauge: JobsServiceDeps[13];
+      jobsInFlightGauge: JobsServiceDeps[14];
+      jobsEnqueueAttemptsCounter: JobsServiceDeps[15];
+      jobsStartedCounter: JobsServiceDeps[16];
+      jobsCompletedCounter: JobsServiceDeps[17];
+      jobsPausedGauge: JobsServiceDeps[18];
+      jobDuration: JobsServiceDeps[19];
+      storageProvidersActive: JobsServiceDeps[20];
+      storageProvidersTested: JobsServiceDeps[21];
     }>,
   ) => JobsService;
 
@@ -140,11 +142,23 @@ describe("JobsService schedule rows", () => {
         pgbossLocalConcurrency: 9,
         pgbossSchedulerEnabled: true,
         workerPollSeconds: 60,
+        dealJobTimeoutSeconds: 360,
+        retrievalJobTimeoutSeconds: 60,
         dataSetCreationJobTimeoutSeconds: 300,
+        shutdownFinalScrapeDelaySeconds: 35,
         pieceCleanupPerSpPerHour: 1,
         maxPieceCleanupRuntimeSeconds: 300,
         retrievalsAnonPerSpPerHour: 2,
       } as IConfig["jobs"],
+      pullPiece: {
+        pullChecksPerSpPerHour: 1,
+        pullCheckJobTimeoutSeconds: 300,
+        pullCheckPollIntervalSeconds: 2,
+        pullCheckPieceSizeBytes: 10 * 1024 * 1024,
+        maxConcurrentStreams: 50,
+        maxStreamsPerCid: 3,
+        pullPieceCleanupIntervalSeconds: 7 * 24 * 3600,
+      },
       database: {
         host: "localhost",
         port: 5432,
@@ -172,7 +186,8 @@ describe("JobsService schedule rows", () => {
         overrides.walletSdkService ?? ({} as JobsServiceDeps[5]),
         overrides.dataRetentionService ?? (dataRetentionServiceMock as unknown as JobsServiceDeps[6]),
         overrides.pieceCleanupService ?? ({} as JobsServiceDeps[7]),
-        overrides.anonRetrievalService ?? ({} as JobsServiceDeps[8]),
+        overrides.pullCheckService ?? ({} as JobsServiceDeps[8]),
+        overrides.anonRetrievalService ?? ({} as JobsServiceDeps[9]),
         overrides.jobsQueuedGauge ?? metricsMocks.jobsQueuedGauge,
         overrides.jobsRetryScheduledGauge ?? metricsMocks.jobsRetryScheduledGauge,
         overrides.oldestQueuedAgeGauge ?? metricsMocks.oldestQueuedAgeGauge,
@@ -502,6 +517,11 @@ describe("JobsService schedule rows", () => {
       { batchSize: 1, pollingIntervalSeconds: 60 },
       expect.any(Function),
     );
+    expect(work).toHaveBeenCalledWith(
+      PULL_PIECE_CLEANUP_QUEUE,
+      { batchSize: 1, pollingIntervalSeconds: 60 },
+      expect.any(Function),
+    );
   });
 
   it("creates all worker queues when starting pg-boss", async () => {
@@ -512,6 +532,7 @@ describe("JobsService schedule rows", () => {
     expect(createQueue).toHaveBeenCalledWith(SP_WORK_QUEUE, { policy: "singleton" });
     expect(createQueue).toHaveBeenCalledWith(PROVIDERS_REFRESH_QUEUE);
     expect(createQueue).toHaveBeenCalledWith(DATA_RETENTION_POLL_QUEUE);
+    expect(createQueue).toHaveBeenCalledWith(PULL_PIECE_CLEANUP_QUEUE);
   });
 
   it("skips registering workers in api mode", async () => {
@@ -627,11 +648,12 @@ describe("JobsService schedule rows", () => {
     // Check upserts for providerB
     const upsertCalls = jobScheduleRepositoryMock.upsertSchedule.mock.calls;
     const upsertsForB = upsertCalls.filter((call) => call[1] === providerB.address);
-    expect(upsertsForB).toHaveLength(5);
+    expect(upsertsForB).toHaveLength(6);
     expect(upsertsForB.map((call) => call[0]).sort()).toEqual([
       "data_set_creation",
       "deal",
       "piece_cleanup",
+      "pull_check",
       "retrieval",
       "retrieval_anon",
     ]);
@@ -660,6 +682,7 @@ describe("JobsService schedule rows", () => {
       "data_set_creation",
       "deal",
       "piece_cleanup",
+      "pull_check",
       "retrieval",
     ]);
   });
@@ -1567,5 +1590,109 @@ describe("JobsService schedule rows", () => {
     }
 
     expect(storageProviderRepositoryMock.findOne).not.toHaveBeenCalled();
+  });
+
+  describe("onApplicationShutdown drain", () => {
+    type BossMock = {
+      stop: ReturnType<typeof vi.fn>;
+      off: ReturnType<typeof vi.fn>;
+    };
+
+    const attachMockBoss = (): BossMock => {
+      const bossMock: BossMock = {
+        stop: vi.fn(async () => undefined),
+        off: vi.fn(),
+      };
+      (service as unknown as { boss: BossMock | null }).boss = bossMock;
+      return bossMock;
+    };
+
+    it("calls boss.stop with explicit graceful timeout derived from the longest job timeout", async () => {
+      vi.useFakeTimers();
+      const bossMock = attachMockBoss();
+
+      const shutdownPromise = service.onApplicationShutdown();
+      await vi.advanceTimersByTimeAsync(35_001);
+      await shutdownPromise;
+
+      // Defaults: deal=360, retrieval=60, dataSetCreation=300, pullCheck=300 → max=360 → +60s buffer
+      expect(bossMock.stop).toHaveBeenCalledTimes(1);
+      expect(bossMock.stop).toHaveBeenCalledWith({ graceful: true, timeout: 420_000 });
+    });
+
+    it("picks the longest timeout across all job types, including pullCheck under pullPiece", async () => {
+      vi.useFakeTimers();
+      const overriddenJobs = {
+        ...baseConfigValues.jobs,
+        dealJobTimeoutSeconds: 120,
+        retrievalJobTimeoutSeconds: 60,
+        dataSetCreationJobTimeoutSeconds: 120,
+      } as IConfig["jobs"];
+      const overriddenPullPiece = {
+        ...baseConfigValues.pullPiece,
+        pullCheckJobTimeoutSeconds: 600,
+      } as IConfig["pullPiece"];
+      baseConfigValues = {
+        ...baseConfigValues,
+        jobs: overriddenJobs,
+        pullPiece: overriddenPullPiece,
+      };
+      configService = {
+        get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
+      } as unknown as JobsServiceDeps[0];
+      service = buildService({ configService });
+      const bossMock = attachMockBoss();
+
+      const shutdownPromise = service.onApplicationShutdown();
+      await vi.advanceTimersByTimeAsync(35_001);
+      await shutdownPromise;
+
+      // pullCheck wins at 600s, plus 60s buffer
+      expect(bossMock.stop).toHaveBeenCalledWith({ graceful: true, timeout: 660_000 });
+    });
+
+    it("holds the process for SHUTDOWN_FINAL_SCRAPE_DELAY_SECONDS after drain", async () => {
+      vi.useFakeTimers();
+      const bossMock = attachMockBoss();
+
+      const shutdownPromise = service.onApplicationShutdown();
+
+      // boss.stop is awaited before the sleep, so let it resolve first.
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(bossMock.stop).toHaveBeenCalledTimes(1);
+
+      // Now the sleep is pending. Advance just under the configured delay (35_000ms).
+      await vi.advanceTimersByTimeAsync(34_999);
+      // Race the promise against a microtask to confirm it hasn't resolved yet.
+      const settled = await Promise.race([shutdownPromise.then(() => "done"), Promise.resolve("pending")]);
+      expect(settled).toBe("pending");
+
+      await vi.advanceTimersByTimeAsync(2);
+      await shutdownPromise;
+    });
+
+    it("skips the post-drain sleep when shutdownFinalScrapeDelaySeconds is 0", async () => {
+      vi.useFakeTimers();
+      const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout");
+      baseConfigValues = {
+        ...baseConfigValues,
+        jobs: {
+          ...baseConfigValues.jobs,
+          shutdownFinalScrapeDelaySeconds: 0,
+        } as IConfig["jobs"],
+      };
+      configService = {
+        get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
+      } as unknown as JobsServiceDeps[0];
+      service = buildService({ configService });
+      const setTimeoutCallsBefore = setTimeoutSpy.mock.calls.length;
+      attachMockBoss();
+
+      await service.onApplicationShutdown();
+
+      // No additional setTimeout calls from the post-drain hold.
+      expect(setTimeoutSpy.mock.calls.length).toBe(setTimeoutCallsBefore);
+    });
   });
 });

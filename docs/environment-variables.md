@@ -4,21 +4,22 @@ This document provides a comprehensive guide to all environment variables used b
 
 ## Quick Reference
 
-| Category                                  | Variables                                                                                                                                                    |
-| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| [Application](#application-configuration) | `NODE_ENV`, `DEALBOT_PORT`, `DEALBOT_HOST`, `DEALBOT_RUN_MODE`, `DEALBOT_METRICS_PORT`, `DEALBOT_METRICS_HOST`, `DEALBOT_ALLOWED_ORIGINS`, `ENABLE_DEV_MODE` |
-| [Database](#database-configuration)       | `DATABASE_HOST`, `DATABASE_PORT`, `DATABASE_POOL_MAX`, `DATABASE_USER`, `DATABASE_PASSWORD`, `DATABASE_NAME`                                                 |
-| [Blockchain](#blockchain-configuration)   | `NETWORK`, `RPC_URL`, `WALLET_ADDRESS`, `WALLET_PRIVATE_KEY`, `SESSION_KEY_PRIVATE_KEY`, `CHECK_DATASET_CREATION_FEES`, `USE_ONLY_APPROVED_PROVIDERS`, `PDP_SUBGRAPH_ENDPOINT`, `SUBGRAPH_ENDPOINT` |
-| [Dataset Versioning](#dataset-versioning) | `DEALBOT_DATASET_VERSION`                                                                                                                                    |
-| [Scheduling](#scheduling-configuration)   | `PROVIDERS_REFRESH_INTERVAL_SECONDS`, `DATA_RETENTION_POLL_INTERVAL_SECONDS`, `DEALBOT_MAINTENANCE_WINDOWS_UTC`, `DEALBOT_MAINTENANCE_WINDOW_MINUTES`                                                                                                                                 |
-| [Jobs (pg-boss)](#jobs-pg-boss)           | `DEALBOT_PGBOSS_SCHEDULER_ENABLED`, `DEALBOT_PGBOSS_POOL_MAX`, `DEALS_PER_SP_PER_HOUR`, `DATASET_CREATIONS_PER_SP_PER_HOUR`, `RETRIEVALS_PER_SP_PER_HOUR`, `RETRIEVALS_ANON_PER_SP_PER_HOUR`, `JOB_SCHEDULER_POLL_SECONDS`, `JOB_WORKER_POLL_SECONDS`, `PG_BOSS_LOCAL_CONCURRENCY`, `JOB_CATCHUP_MAX_ENQUEUE`, `JOB_SCHEDULE_PHASE_SECONDS`, `JOB_ENQUEUE_JITTER_SECONDS`, `DEAL_JOB_TIMEOUT_SECONDS`, `RETRIEVAL_JOB_TIMEOUT_SECONDS`, `ANON_RETRIEVAL_JOB_TIMEOUT_SECONDS`, `ANON_RETRIEVAL_BLOCK_SAMPLE_COUNT`, `IPFS_BLOCK_FETCH_CONCURRENCY` |
-| [Dataset](#dataset-configuration)         | `DEALBOT_LOCAL_DATASETS_PATH`, `RANDOM_PIECE_SIZES`                                                                                                          |
-| [ClickHouse](#clickhouse-configuration)   | `CLICKHOUSE_URL`, `CLICKHOUSE_BATCH_SIZE`, `CLICKHOUSE_FLUSH_INTERVAL_MS`, `DEALBOT_PROBE_LOCATION`          |
-| [Timeouts](#timeout-configuration)        | `CONNECT_TIMEOUT_MS`, `HTTP_REQUEST_TIMEOUT_MS`, `HTTP2_REQUEST_TIMEOUT_MS`, `IPNI_VERIFICATION_TIMEOUT_MS`, `IPNI_VERIFICATION_POLLING_MS`                   |
-| [Piece Cleanup](#piece-cleanup)           | `MAX_DATASET_STORAGE_SIZE_BYTES`, `TARGET_DATASET_STORAGE_SIZE_BYTES`, `JOB_PIECE_CLEANUP_PER_SP_PER_HOUR`, `MAX_PIECE_CLEANUP_RUNTIME_SECONDS`       |
-| [SP Blocklist](#sp-blocklist-configuration) | `BLOCKED_SP_IDS`, `BLOCKED_SP_ADDRESSES` |
-| [Prometheus Metrics](#prometheus-metrics-configuration) | `PROMETHEUS_WALLET_BALANCE_TTL_SECONDS`, `PROMETHEUS_WALLET_BALANCE_ERROR_COOLDOWN_SECONDS`                   |
-| [Web Frontend](#web-frontend)             | `VITE_API_BASE_URL`, `VITE_PLAUSIBLE_DATA_DOMAIN`, `DEALBOT_API_BASE_URL`                                                                                    |
+| Category                                  | Variables                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| ----------------------------------------- |------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| [Application](#application-configuration) | `NODE_ENV`, `DEALBOT_PORT`, `DEALBOT_HOST`, `DEALBOT_API_PUBLIC_URL`, `DEALBOT_RUN_MODE`, `DEALBOT_METRICS_PORT`, `DEALBOT_METRICS_HOST`, `DEALBOT_ALLOWED_ORIGINS`, `ENABLE_DEV_MODE`                                                                                                                                                                                                                                                                                                                                                                                                   |
+| [Database](#database-configuration)       | `DATABASE_HOST`, `DATABASE_PORT`, `DATABASE_POOL_MAX`, `DATABASE_USER`, `DATABASE_PASSWORD`, `DATABASE_NAME`                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| [Blockchain](#blockchain-configuration)   | `NETWORK`, `RPC_URL`, `WALLET_ADDRESS`, `WALLET_PRIVATE_KEY`, `SESSION_KEY_PRIVATE_KEY`, `CHECK_DATASET_CREATION_FEES`, `USE_ONLY_APPROVED_PROVIDERS`, `PDP_SUBGRAPH_ENDPOINT`, `SUBGRAPH_ENDPOINT`                                                                                                                                                                                                                                                                                                                                                                                      |
+| [Dataset Versioning](#dataset-versioning) | `DEALBOT_DATASET_VERSION`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| [Scheduling](#scheduling-configuration)   | `PROVIDERS_REFRESH_INTERVAL_SECONDS`, `DATA_RETENTION_POLL_INTERVAL_SECONDS`, `DEALBOT_MAINTENANCE_WINDOWS_UTC`, `DEALBOT_MAINTENANCE_WINDOW_MINUTES`                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| [Jobs (pg-boss)](#jobs-pg-boss)           | `DEALBOT_PGBOSS_SCHEDULER_ENABLED`, `DEALBOT_PGBOSS_POOL_MAX`, `DEALS_PER_SP_PER_HOUR`, `DATASET_CREATIONS_PER_SP_PER_HOUR`, `RETRIEVALS_PER_SP_PER_HOUR`, `RETRIEVALS_ANON_PER_SP_PER_HOUR`, `JOB_SCHEDULER_POLL_SECONDS`, `JOB_WORKER_POLL_SECONDS`, `PG_BOSS_LOCAL_CONCURRENCY`, `JOB_CATCHUP_MAX_ENQUEUE`, `JOB_SCHEDULE_PHASE_SECONDS`, `JOB_ENQUEUE_JITTER_SECONDS`, `DEAL_JOB_TIMEOUT_SECONDS`, `RETRIEVAL_JOB_TIMEOUT_SECONDS`, `ANON_RETRIEVAL_JOB_TIMEOUT_SECONDS`, `ANON_RETRIEVAL_BLOCK_SAMPLE_COUNT`, `SHUTDOWN_FINAL_SCRAPE_DELAY_SECONDS`, `IPFS_BLOCK_FETCH_CONCURRENCY` |
+| [Dataset](#dataset-configuration)         | `DEALBOT_LOCAL_DATASETS_PATH`, `RANDOM_PIECE_SIZES`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| [ClickHouse](#clickhouse-configuration)   | `CLICKHOUSE_URL`, `CLICKHOUSE_BATCH_SIZE`, `CLICKHOUSE_FLUSH_INTERVAL_MS`, `DEALBOT_PROBE_LOCATION`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| [Timeouts](#timeout-configuration)        | `CONNECT_TIMEOUT_MS`, `HTTP_REQUEST_TIMEOUT_MS`, `HTTP2_REQUEST_TIMEOUT_MS`, `IPNI_VERIFICATION_TIMEOUT_MS`, `IPNI_VERIFICATION_POLLING_MS`                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| [Piece Cleanup](#piece-cleanup)           | `MAX_DATASET_STORAGE_SIZE_BYTES`, `TARGET_DATASET_STORAGE_SIZE_BYTES`, `JOB_PIECE_CLEANUP_PER_SP_PER_HOUR`, `MAX_PIECE_CLEANUP_RUNTIME_SECONDS`                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| [Pull Check](#pull-check)                 | `PULL_CHECKS_PER_SP_PER_HOUR`, `PULL_CHECK_JOB_TIMEOUT_SECONDS`, `PULL_CHECK_POLL_INTERVAL_SECONDS`, `PULL_CHECK_PIECE_SIZE_BYTES`, `PULL_PIECE_MAX_CONCURRENT_STREAMS`, `PULL_PIECE_MAX_STREAMS_PER_CID`, `PULL_PIECE_CLEANUP_INTERVAL_SECONDS`                                                                                                                                                                                                                                                                                                                                         |
+| [SP Blocklist](#sp-blocklist-configuration) | `BLOCKED_SP_IDS`, `BLOCKED_SP_ADDRESSES`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| [Prometheus Metrics](#prometheus-metrics-configuration) | `PROMETHEUS_WALLET_BALANCE_TTL_SECONDS`, `PROMETHEUS_WALLET_BALANCE_ERROR_COOLDOWN_SECONDS`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| [Web Frontend](#web-frontend)             | `VITE_API_BASE_URL`, `VITE_PLAUSIBLE_DATA_DOMAIN`, `DEALBOT_API_BASE_URL`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 
 ---
 
@@ -137,6 +138,29 @@ DEALBOT_METRICS_HOST=0.0.0.0
 ```bash
 DEALBOT_HOST=0.0.0.0
 ```
+
+---
+
+### `DEALBOT_API_PUBLIC_URL`
+
+- **Type**: `string` (URL)
+- **Required**: No (but required for [Pull Check](./checks/pull-check.md) when SPs cannot reach `DEALBOT_HOST:DEALBOT_PORT` directly)
+- **Default**: Empty (falls back to `http://${DEALBOT_HOST}:${DEALBOT_PORT}`)
+
+**Role**: Public base URL for the Dealbot HTTP API. Used to construct the hosted-piece source URL handed to a storage provider during a pull check (`{DEALBOT_API_PUBLIC_URL}/api/piece/{pieceCid}`).
+
+**When to update**:
+
+- Set to the public URL of your Dealbot deployment whenever pull checks are enabled and SPs cannot reach the bind address directly (the typical production case)
+- Leave unset for local development where SPs reach Dealbot on `localhost`
+
+**Example**:
+
+```bash
+DEALBOT_API_PUBLIC_URL=https://dealbot.filoz.org
+```
+
+**Notes**: Trailing slashes are stripped at load time. The value is also trimmed and treated as empty when blank.
 
 ---
 
@@ -385,7 +409,7 @@ WALLET_ADDRESS=0x1234567890abcdef1234567890abcdef12345678
 - **Required**: No
 - **Security**: **HIGHLY SENSITIVE** - Treat like `WALLET_PRIVATE_KEY`
 
-**Role**: When set, DealBot uses session key authentication. The session key must be registered on the SessionKeyRegistry contract from the `WALLET_ADDRESS` (typically a Safe multisig). Storage operations (create dataset, add pieces) are signed with this key instead of `WALLET_PRIVATE_KEY`.
+**Role**: When set, DealBot uses session key authentication. The session key must be registered on the SessionKeyRegistry contract from the `WALLET_ADDRESS` (typically a Safe multisig). Scoped storage operations are signed with this key instead of `WALLET_PRIVATE_KEY`.
 
 Session keys are scoped (only storage operations, not deposits or withdrawals) and time-limited (expiry set during registration). See [runbooks/wallet-and-session-keys.md](runbooks/wallet-and-session-keys.md) for the full setup process.
 
@@ -824,6 +848,25 @@ Use this to stagger multiple dealbot deployments that are not sharing a database
 
 ---
 
+### `SHUTDOWN_FINAL_SCRAPE_DELAY_SECONDS`
+
+- **Type**: `number`
+- **Required**: No
+- **Default**: `35`
+- **Minimum**: `0`
+- **Enforced**: Yes (config validation)
+
+**Role**: Seconds the worker process holds itself alive after pg-boss drain finishes, so Prometheus captures the terminal counter increments emitted during shutdown. Without this hold, the pod exits before its next scrape and the in-memory counter deltas die with it, leaving `dataStorageStatus{value=pending}` rows without matching `success` / `failure.*` increments.
+
+**When to update**:
+
+- Increase if the ServiceMonitor scrape interval is longer than 30 seconds (set this to `scrape_interval + 5` for headroom)
+- Decrease to `0` to disable the hold (only safe if metrics are sourced elsewhere, e.g., a DB reconciler)
+
+**Note**: This value also constrains the deployment's `terminationGracePeriodSeconds`. The pod's total grace must cover the longest job timeout + pg-boss stop buffer + this delay. The default 480-second grace assumes default values across all three.
+
+---
+
 ### `ANON_RETRIEVAL_JOB_TIMEOUT_SECONDS`
 
 - **Type**: `number`
@@ -986,6 +1029,148 @@ Only used when `DEALBOT_JOBS_MODE=pgboss`.
 
 - Increase if piece deletion calls to the Synapse SDK are known to be slow
 - Decrease for faster abort detection on stuck jobs
+
+---
+
+## Pull Check
+
+These variables control the [Pull Check](./checks/pull-check.md), which validates the SP pull-to-park pathway. Pull checks are scheduled per SP and exercised through the `sp.work` queue alongside deal, retrieval, and piece-cleanup jobs.
+
+### `PULL_CHECKS_PER_SP_PER_HOUR`
+
+- **Type**: `number`
+- **Required**: No
+- **Default**: `1`
+- **Minimum**: `0.001`
+- **Maximum**: `20`
+
+**Role**: Target number of pull checks per storage provider per hour. The rate is converted to an interval internally (for example `1` = every 3600s, `0.5` = every 7200s).
+
+**Notes**: Fractional values are supported. Pull checks are independent of `DEALS_PER_SP_PER_HOUR` and `RETRIEVALS_PER_SP_PER_HOUR`.
+
+**Example**:
+
+```bash
+# Twice per day
+PULL_CHECKS_PER_SP_PER_HOUR=0.083
+```
+
+---
+
+### `PULL_CHECK_JOB_TIMEOUT_SECONDS`
+
+- **Type**: `number` (seconds)
+- **Required**: No
+- **Default**: `300` (5 minutes)
+- **Minimum**: `60`
+- **Enforced**: Yes (config validation)
+
+**Role**: Maximum runtime for a pull-check job before forced abort via `AbortController`. Bounds the polling window for terminal SP pull status and the direct `/piece/{pieceCid}` re-fetch combined.
+
+**When to update**:
+
+- Increase if SPs are slow to reach a terminal pull status (large piece sizes or busy SPs)
+- Decrease to fail-fast on stuck jobs
+
+---
+
+### `PULL_CHECK_POLL_INTERVAL_SECONDS`
+
+- **Type**: `number` (seconds)
+- **Required**: No
+- **Default**: `2`
+- **Minimum**: `1`
+
+**Role**: Polling interval used by `waitForPullPieces` while waiting for the SP to report a terminal pull status (`complete` or `failed`).
+
+**When to update**:
+
+- Decrease for faster terminal-status detection at the cost of more SP-side load
+- Increase to be gentler on SPs at the cost of slower pull-check throughput
+
+---
+
+### `PULL_CHECK_PIECE_SIZE_BYTES`
+
+- **Type**: `number` (integer, bytes)
+- **Required**: No
+- **Default**: `10485760` (10 MiB)
+- **Minimum**: `1024`
+
+**Role**: Size of the synthetic random piece dealbot generates per pull check. The same byte length is used to compute [`pullRequestThroughputBps`](./checks/events-and-metrics.md#pullRequestThroughputBps).
+
+**When to update**:
+
+- Decrease for quicker, lower-bandwidth pull tests
+- Increase to stress-test the SP's outbound fetch throughput
+
+---
+
+### `PULL_PIECE_MAX_CONCURRENT_STREAMS`
+
+- **Type**: `number` (integer)
+- **Required**: No
+- **Default**: `50`
+- **Minimum**: `1`
+
+**Role**: Maximum number of concurrent HTTP/2 streams allowed across all pieces being served at any given time. This is a process-wide cap shared by all in-flight piece requests.
+
+**When to update**:
+
+- Decrease to reduce load on the Dealbot HTTP server under heavy SP demand
+- Increase if many SPs are simultaneously fetching pieces and stream exhaustion is observed
+
+**Example**:
+
+```bash
+PULL_PIECE_MAX_CONCURRENT_STREAMS=50
+```
+
+---
+
+### `PULL_PIECE_MAX_STREAMS_PER_CID`
+
+- **Type**: `number` (integer)
+- **Required**: No
+- **Default**: `3`
+- **Minimum**: `1`
+
+**Role**: Maximum number of concurrent HTTP/2 streams allowed per individual `pieceCid`. Prevents a single piece from consuming the entire `PULL_PIECE_MAX_CONCURRENT_STREAMS` budget.
+
+**When to update**:
+
+- Decrease to spread stream capacity more evenly across pieces
+- Increase if a single large piece must be fetched concurrently by multiple SPs
+
+**Example**:
+
+```bash
+PULL_PIECE_MAX_STREAMS_PER_CID=3
+```
+
+---
+
+### `PULL_PIECE_CLEANUP_INTERVAL_SECONDS`
+
+- **Type**: `number` (integer, seconds)
+- **Required**: No
+- **Default**: `604800` (7 days)
+- **Minimum**: `3600` (1 hour)
+- **Enforced**: Yes (config validation)
+
+**Role**: How often the global `pull_piece_cleanup` scheduled job runs to delete `pull_pieces` rows whose `expires_at` timestamp has passed. These rows are temporary registrations created per pull check and are automatically expired after `2 × PULL_CHECK_JOB_TIMEOUT_SECONDS`.
+
+**When to update**:
+
+- Decrease if you want expired rows cleaned up more aggressively (e.g. high-volume deployments with many pull checks per hour)
+- Increase if the default churn rate is acceptable and you want to reduce scheduler overhead
+
+**Example**:
+
+```bash
+# Run every 24 hours instead of the default 7 days
+PULL_PIECE_CLEANUP_INTERVAL_SECONDS=86400
+```
 
 ---
 

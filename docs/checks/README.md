@@ -6,6 +6,7 @@ The files are:
 - [retrievals.md](./retrievals.md): Defines the "retrieval check" and how it is calculated.
 - [anon-retrievals.md](./anon-retrievals.md): Defines the "anonymous retrieval check" (sampled public pieces, not dealbot-uploaded) and how it is calculated.
 - [data-retention.md](./data-retention.md): Defines the "data retention check" and how it is calculated.
+- [pull-check.md](./pull-check.md): Defines the "pull check" and how it is calculated.
 - [events-and-metrics.md](./events-and-metrics.md): Defines the events and metrics that are used to assess SP performance.
 
 
@@ -15,7 +16,7 @@ DealBot creates synthetic traffic for SPs in the onchain SP registry and monitor
 
 ## Terminology
 ### Check
-A "check" refers to a task type that dealbot performs on an SP. We currently have [Data Storage](./data-storage.md), [Retrieval](./retrievals.md), [Anonymous Retrieval](./anon-retrievals.md), and [Data Retention](./data-retention.md) checks.
+A "check" refers to a task type that dealbot performs on an SP. We currently have [Data Storage](./data-storage.md), [Retrieval](./retrievals.md), [Data Retention](./data-retention.md), [Anonymous Retrieval](./anon-retrievals.md), and [Pull](./pull-check.md) checks.
 
 ### Deal
 This is synonym for "Data Storage Check".  This is covered in the [data-storage.md](./data-storage.md).
