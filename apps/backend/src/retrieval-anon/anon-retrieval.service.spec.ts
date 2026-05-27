@@ -310,6 +310,32 @@ describe("AnonRetrievalService", () => {
       expect(row.block_fetch_failed_count).toBe(2);
     });
 
+    it("does not record SP-fault metrics when CAR validation is interrupted by signal abort", async () => {
+      // An operator-driven abort (job timeout, shutdown) that interrupts
+      // validateCarPiece must not show up as carParseable=false +
+      // ipni/blockFetch=ERROR — that would misattribute our cancellation to
+      // the SP and pollute scoreboards.
+      const ac = new AbortController();
+      const { service, insertSpy, metricsRecordIpniSpy, metricsRecordBlockFetchSpy } = makeService({
+        pieceResult: okPiece(Buffer.from("car-bytes")),
+        piece: INDEXED_PIECE,
+        validateCarImpl: async () => {
+          ac.abort(new Error("Anon retrieval job timeout"));
+          throw Object.assign(new Error("aborted"), { name: "AbortError" });
+        },
+      });
+
+      await service.performForProvider(SP_ADDRESS, ac.signal);
+
+      expect(metricsRecordIpniSpy).not.toHaveBeenCalledWith(expect.anything(), "error");
+      expect(metricsRecordBlockFetchSpy).not.toHaveBeenCalledWith(expect.anything(), "error");
+
+      const [, row] = insertSpy.mock.calls[0] as [string, Record<string, unknown>];
+      expect(row.ipni_status).toBe("skipped");
+      expect(row.car_parseable).toBeNull();
+      expect(row.block_fetch_valid).toBeNull();
+    });
+
     it("emits ipni_status='error' (not 'skipped') when CAR validation throws on a successful piece", async () => {
       // Distinguishes a real infra outage (e.g. IpniVerificationService down)
       // from a piece that legitimately had no IPFS indexing. Without the

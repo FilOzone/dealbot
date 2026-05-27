@@ -117,18 +117,32 @@ export class AnonRetrievalService {
                 : IpniCheckStatus.INVALID,
           );
         } catch (error) {
-          // Validation was attempted on a successful piece retrieval but threw.
-          this.metrics.recordCarParseStatus(labels, false);
-          this.metrics.recordIpniStatus(labels, IpniCheckStatus.ERROR);
-          this.metrics.recordBlockFetchStatus(labels, IpniCheckStatus.ERROR);
-          this.logger.warn({
-            ...logContext,
-            event: "anon_retrieval_car_validation_failed",
-            message: "CAR validation threw an error",
-            pieceCid: piece.pieceCid,
-            spAddress,
-            error: toStructuredError(error),
-          });
+          if (signal?.aborted) {
+            // Operator-driven cancellation, not an SP fault. Suppress the
+            // SP-fault metrics and downgrade the downstream ClickHouse status
+            // so we don't pollute SP scoreboards with our own aborts.
+            validatedCarPiece = false;
+            this.logger.warn({
+              ...logContext,
+              event: "anon_retrieval_car_validation_aborted",
+              message: "CAR validation aborted before completion",
+              pieceCid: piece.pieceCid,
+              spAddress,
+            });
+          } else {
+            // Validation was attempted on a successful piece retrieval but threw.
+            this.metrics.recordCarParseStatus(labels, false);
+            this.metrics.recordIpniStatus(labels, IpniCheckStatus.ERROR);
+            this.metrics.recordBlockFetchStatus(labels, IpniCheckStatus.ERROR);
+            this.logger.warn({
+              ...logContext,
+              event: "anon_retrieval_car_validation_failed",
+              message: "CAR validation threw an error",
+              pieceCid: piece.pieceCid,
+              spAddress,
+              error: toStructuredError(error),
+            });
+          }
         }
       } else if (!pieceResult.success) {
         // Piece retrieval failed (HTTP error or commP mismatch) — downstream
