@@ -140,7 +140,7 @@ Sources:
 
 ## Result Recording
 
-Each anonymous retrieval attempt writes one row to the `anon_retrieval_checks` ClickHouse table. The row is emitted **even on abort or unexpected error** so that the partial evidence (TTFB, bytes, response code) is preserved.
+Each anonymous retrieval attempt writes one row to the `anon_retrieval_checks` ClickHouse table unless we could not find a piece to probe for the SP. The row is emitted **even on abort or unexpected error** so that the partial evidence (TTFB, bytes, response code) is preserved.
 
 The DDL and column-level comments in [`clickhouse.schema.ts`](../../apps/backend/src/clickhouse/clickhouse.schema.ts) are authoritative. The summary below is for orientation.
 

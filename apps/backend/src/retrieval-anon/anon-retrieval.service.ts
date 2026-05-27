@@ -44,14 +44,7 @@ export class AnonRetrievalService {
     // 1. Select an anonymous piece
     const piece = await this.anonPieceSelectorService.selectPieceForProvider(spAddress, signal);
     if (!piece) {
-      this.logger.warn({
-        ...logContext,
-        event: "anon_retrieval_no_piece",
-        message: "No anonymous piece found for SP",
-        spAddress,
-      });
-      this.metrics.recordPieceRetrievalStatus(labels, "skipped");
-      return;
+      throw new Error(`No anonymous piece found for SP ${spAddress}`);
     }
 
     this.logger.log({
