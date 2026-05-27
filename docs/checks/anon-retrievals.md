@@ -36,8 +36,8 @@ Selection strategy (per scheduled job, per SP):
 
 1. **Pick a size bucket** by weighted random:
    - `small` (1–20 MiB) — 20%
-   - `medium` (20–100 MiB) — 50%
-   - `large` (100–500 MiB) — 30%
+   - `medium` (20–50 MiB) — 50%
+   - `large` (50–100 MiB) — 30%
 2. **Pick a pool**:
    - `indexed` (IPFS-indexed pieces) — 80%
    - `any` (all FWSS pieces) — 20%
@@ -98,7 +98,7 @@ Source: [`car-validation.service.ts`](../../apps/backend/src/retrieval-anon/car-
 
 ## Sub-status meanings
 
-Unlike a Data Storage deal, anonymous retrieval does **not** have a single rolled-up status. CAR / IPNI / block-fetch outcomes are recorded independently and do **not** flip the piece-fetch verdict. Each status metric below is emitted exactly once per check (except `anonPieceRetrievalStatus`, which is also emitted as `failure.no_piece` when piece selection itself fails).
+Unlike the [Data Storage check](./data-storage.md#deal-status-progression), anonymous retrieval does **not** have a rolled-up status (e.g., `anonRetrievalStatus). Piece retrieval, CAR parsing, IPNI verification, block-fetch outcomes are recorded independently. Each status metric below is emitted exactly once per check, except when `anonPieceRetrievalStatus=failure.no_piece` because selection itself fails.
 
 | anonPieceRetrievalStatus | Meaning |
 |--------|---------|
