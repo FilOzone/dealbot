@@ -118,15 +118,22 @@ export class SubgraphService {
   /**
    * Draw a single random anonymous piece for retrieval testing.
    *
-   * Uses the Root.sampleKey (keccak256 of the entity id) to pick the
-   * smallest key ≥ `params.sampleKey` that matches the filters — a uniform
-   * random pick when `sampleKey` is generated uniformly. Server-side filters
-   * cover SP, payer-exclusion, active status, size range, and optionally
-   * `withIPFSIndexing`. Returns null when no piece matches (callers should
-   * retry with a fresh sampleKey or relax the pool/bucket).
+   * Uses the Root.sampleKey (keccak256 of the entity id) to pick the piece
+   * closest to `params.sampleKey`. Runs the forward query first
+   * (`sampleKey_gte`, asc — smallest key at or above the target) and falls
+   * back to the reverse query (`sampleKey_lt`, desc — largest key below the
+   * target) only when the forward query returns nothing. The fallback covers
+   * the wrap-around dead zone where the random key happens to exceed every
+   * matching sampleKey; without it those draws would waste a fresh
+   * sampleKey roundtrip in the caller.
+   *
+   * Server-side filters cover SP, payer-exclusion, active status, size
+   * range, and optionally `withIPFSIndexing`. Returns null only when no
+   * piece in either direction matches the filters.
    *
    * `pdpPaymentEndEpoch` is returned to the caller for a cheap client-side
    * epoch comparison — GraphQL filters on nullable BigInts are awkward.
+   * However this will be changed in the context of https://github.com/FilOzone/dealbot/issues/579.
    */
   async sampleAnonPiece(params: SampleAnonPieceParams, signal?: AbortSignal): Promise<AnonCandidatePiece | null> {
     if (!this.blockchainConfig.subgraphEndpoint) {
@@ -139,7 +146,6 @@ export class SubgraphService {
       throw new Error("No subgraph endpoint configured");
     }
 
-    const query = buildSampleAnonPieceQuery(params.pool);
     const variables = {
       serviceProvider: params.serviceProvider.toLowerCase(),
       payer: params.payer.toLowerCase(),
@@ -148,40 +154,45 @@ export class SubgraphService {
       maxSize: params.maxSize,
     };
 
-    const validated = await this.executeQuery<RawSampleAnonPieceResponse>(
-      `sample_anon_piece_${params.pool}`,
-      query,
-      variables,
-      validateSampleAnonPieceResponse,
-      signal,
-    );
+    for (const reverse of [false, true]) {
+      const validated = await this.executeQuery<RawSampleAnonPieceResponse>(
+        `sample_anon_piece_${params.pool}_${reverse ? "reverse" : "forward"}`,
+        buildSampleAnonPieceQuery(params.pool, reverse),
+        variables,
+        validateSampleAnonPieceResponse,
+        signal,
+      );
 
-    const root = validated.roots[0];
-    if (!root) {
-      return null;
+      const root = validated.roots[0];
+      if (!root) {
+        continue;
+      }
+
+      try {
+        return {
+          pieceCid: decodePieceCid(root.cid),
+          pieceId: root.rootId,
+          dataSetId: root.proofSet.setId,
+          rawSize: root.rawSize,
+          withIPFSIndexing: root.proofSet.withIPFSIndexing,
+          ipfsRootCid: root.ipfsRootCID ?? null,
+          indexedAtBlock: validated._meta.block.number,
+          pdpPaymentEndEpoch:
+            root.proofSet.pdpPaymentEndEpoch != null ? BigInt(root.proofSet.pdpPaymentEndEpoch) : null,
+        };
+      } catch (error) {
+        this.logger.warn({
+          event: "anon_piece_cid_decode_failed",
+          message: "Failed to decode piece CID from subgraph data",
+          dataSetId: root.proofSet.setId,
+          pieceId: root.rootId,
+          error: toStructuredError(error),
+        });
+        return null;
+      }
     }
 
-    try {
-      return {
-        pieceCid: decodePieceCid(root.cid),
-        pieceId: root.rootId,
-        dataSetId: root.proofSet.setId,
-        rawSize: root.rawSize,
-        withIPFSIndexing: root.proofSet.withIPFSIndexing,
-        ipfsRootCid: root.ipfsRootCID ?? null,
-        indexedAtBlock: validated._meta.block.number,
-        pdpPaymentEndEpoch: root.proofSet.pdpPaymentEndEpoch != null ? BigInt(root.proofSet.pdpPaymentEndEpoch) : null,
-      };
-    } catch (error) {
-      this.logger.warn({
-        event: "anon_piece_cid_decode_failed",
-        message: "Failed to decode piece CID from subgraph data",
-        dataSetId: root.proofSet.setId,
-        pieceId: root.rootId,
-        error: toStructuredError(error),
-      });
-      return null;
-    }
+    return null;
   }
 
   /**

@@ -24,13 +24,18 @@ export const Queries = {
 } as const;
 
 /**
- * Build a sampleAnonPiece query scoped to the requested pool. The single
- * piece of query shape that differs is whether the proofSet filter pins
- * `withIPFSIndexing: true`; assembling the fragment here keeps the rest
- * of the query and the returned selection set shared.
+ * Build a sampleAnonPiece query scoped to the requested pool. The query
+ * shape varies in two ways: whether the proofSet filter pins
+ * `withIPFSIndexing: true`, and whether sampleKey is searched forward
+ * (`_gte` + asc — smallest key at or above the target) or backward
+ * (`_lt` + desc — largest key below the target). Filter direction and
+ * sort direction move together so both modes return the piece closest
+ * to the target sampleKey.
  */
-export function buildSampleAnonPieceQuery(pool: "indexed" | "any"): string {
+export function buildSampleAnonPieceQuery(pool: "indexed" | "any", reverse: boolean = false): string {
   const indexingFilter = pool === "indexed" ? "withIPFSIndexing: true" : "";
+  const sampleKeyFilter = reverse ? "sampleKey_lt" : "sampleKey_gte";
+  const orderDirection = reverse ? "desc" : "asc";
   return `
     query SampleAnonPiece(
       $serviceProvider: Bytes!
@@ -47,9 +52,9 @@ export function buildSampleAnonPieceQuery(pool: "indexed" | "any"): string {
       roots(
         first: 1
         orderBy: sampleKey
-        orderDirection: asc
+        orderDirection: ${orderDirection}
         where: {
-          sampleKey_gte: $sampleKey
+          ${sampleKeyFilter}: $sampleKey
           removed: false
           rawSize_gte: $minSize
           rawSize_lte: $maxSize

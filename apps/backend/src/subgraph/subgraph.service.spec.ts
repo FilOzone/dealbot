@@ -745,14 +745,43 @@ describe("SubgraphService", () => {
       expect(fetchMock).not.toHaveBeenCalled();
     });
 
-    it("returns null when the subgraph yields no matching root", async () => {
-      fetchMock.mockResolvedValueOnce({
+    it("returns null when neither directional query yields a matching root", async () => {
+      fetchMock.mockResolvedValue({
         ok: true,
         json: async () => makeSampleResponse([]),
       });
 
       const piece = await service.sampleAnonPiece(defaultSampleParams);
       expect(piece).toBeNull();
+      // Forward then reverse — confirms the wrap-around fallback fires when forward is empty.
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    it("falls back to the reverse-direction query when the forward query is empty", async () => {
+      fetchMock
+        .mockResolvedValueOnce({ ok: true, json: async () => makeSampleResponse([]) })
+        .mockResolvedValueOnce({ ok: true, json: async () => makeSampleResponse([makeSampleRoot()]) });
+
+      const piece = await service.sampleAnonPiece(defaultSampleParams);
+
+      expect(piece).not.toBeNull();
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      const forwardQuery = JSON.parse(fetchMock.mock.calls[0][1].body as string).query as string;
+      const reverseQuery = JSON.parse(fetchMock.mock.calls[1][1].body as string).query as string;
+      expect(forwardQuery).toContain("sampleKey_gte");
+      expect(forwardQuery).toContain("orderDirection: asc");
+      expect(reverseQuery).toContain("sampleKey_lt");
+      expect(reverseQuery).toContain("orderDirection: desc");
+    });
+
+    it("skips the reverse query when the forward query already returned a root", async () => {
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        json: async () => makeSampleResponse([makeSampleRoot()]),
+      });
+
+      await service.sampleAnonPiece(defaultSampleParams);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
     });
 
     it("parses the sampled root into a decoded candidate piece", async () => {
@@ -796,7 +825,7 @@ describe("SubgraphService", () => {
     });
 
     it("lowercases SP and payer addresses before querying", async () => {
-      fetchMock.mockResolvedValueOnce({ ok: true, json: async () => makeSampleResponse([]) });
+      fetchMock.mockResolvedValue({ ok: true, json: async () => makeSampleResponse([]) });
 
       await service.sampleAnonPiece(defaultSampleParams);
 
@@ -808,7 +837,7 @@ describe("SubgraphService", () => {
     });
 
     it("uses the any-pool query when pool is 'any'", async () => {
-      fetchMock.mockResolvedValueOnce({ ok: true, json: async () => makeSampleResponse([]) });
+      fetchMock.mockResolvedValue({ ok: true, json: async () => makeSampleResponse([]) });
 
       await service.sampleAnonPiece({ ...defaultSampleParams, pool: "any" });
 
@@ -834,7 +863,9 @@ describe("SubgraphService", () => {
       promise.catch(() => {});
       await vi.runAllTimersAsync();
 
-      await expect(promise).rejects.toThrow("Failed to fetch subgraph sample_anon_piece_indexed after 3 attempts");
+      await expect(promise).rejects.toThrow(
+        "Failed to fetch subgraph sample_anon_piece_indexed_forward after 3 attempts",
+      );
       expect(fetchMock).toHaveBeenCalledTimes(3);
     });
 
