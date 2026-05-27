@@ -36,18 +36,18 @@ describe("JobsService schedule rows", () => {
   };
   let dataRetentionServiceMock: { pollDataRetention: ReturnType<typeof vi.fn> };
   let metricsMocks: {
-    jobsQueuedGauge: JobsServiceDeps[9];
-    jobsRetryScheduledGauge: JobsServiceDeps[10];
-    oldestQueuedAgeGauge: JobsServiceDeps[11];
-    oldestInFlightAgeGauge: JobsServiceDeps[12];
-    jobsInFlightGauge: JobsServiceDeps[13];
-    jobsEnqueueAttemptsCounter: JobsServiceDeps[14];
-    jobsStartedCounter: JobsServiceDeps[15];
-    jobsCompletedCounter: JobsServiceDeps[16];
-    jobsPausedGauge: JobsServiceDeps[17];
-    jobDuration: JobsServiceDeps[18];
-    storageProvidersActive: JobsServiceDeps[19];
-    storageProvidersTested: JobsServiceDeps[20];
+    jobsQueuedGauge: JobsServiceDeps[10];
+    jobsRetryScheduledGauge: JobsServiceDeps[11];
+    oldestQueuedAgeGauge: JobsServiceDeps[12];
+    oldestInFlightAgeGauge: JobsServiceDeps[13];
+    jobsInFlightGauge: JobsServiceDeps[14];
+    jobsEnqueueAttemptsCounter: JobsServiceDeps[15];
+    jobsStartedCounter: JobsServiceDeps[16];
+    jobsCompletedCounter: JobsServiceDeps[17];
+    jobsPausedGauge: JobsServiceDeps[18];
+    jobDuration: JobsServiceDeps[19];
+    storageProvidersActive: JobsServiceDeps[20];
+    storageProvidersTested: JobsServiceDeps[21];
   };
   let baseConfigValues: Partial<IConfig>;
   let configService: JobsServiceDeps[0];
@@ -104,18 +104,18 @@ describe("JobsService schedule rows", () => {
     };
 
     metricsMocks = {
-      jobsQueuedGauge: { set: vi.fn() } as unknown as JobsServiceDeps[9],
-      jobsRetryScheduledGauge: { set: vi.fn() } as unknown as JobsServiceDeps[10],
-      oldestQueuedAgeGauge: { set: vi.fn() } as unknown as JobsServiceDeps[11],
-      oldestInFlightAgeGauge: { set: vi.fn() } as unknown as JobsServiceDeps[12],
-      jobsInFlightGauge: { set: vi.fn() } as unknown as JobsServiceDeps[13],
-      jobsEnqueueAttemptsCounter: { inc: vi.fn() } as unknown as JobsServiceDeps[14],
-      jobsStartedCounter: { inc: vi.fn() } as unknown as JobsServiceDeps[15],
-      jobsCompletedCounter: { inc: vi.fn() } as unknown as JobsServiceDeps[16],
-      jobsPausedGauge: { set: vi.fn() } as unknown as JobsServiceDeps[17],
-      jobDuration: { observe: vi.fn() } as unknown as JobsServiceDeps[18],
-      storageProvidersActive: { set: vi.fn() } as unknown as JobsServiceDeps[19],
-      storageProvidersTested: { set: vi.fn() } as unknown as JobsServiceDeps[20],
+      jobsQueuedGauge: { set: vi.fn() } as unknown as JobsServiceDeps[10],
+      jobsRetryScheduledGauge: { set: vi.fn() } as unknown as JobsServiceDeps[11],
+      oldestQueuedAgeGauge: { set: vi.fn() } as unknown as JobsServiceDeps[12],
+      oldestInFlightAgeGauge: { set: vi.fn() } as unknown as JobsServiceDeps[13],
+      jobsInFlightGauge: { set: vi.fn() } as unknown as JobsServiceDeps[14],
+      jobsEnqueueAttemptsCounter: { inc: vi.fn() } as unknown as JobsServiceDeps[15],
+      jobsStartedCounter: { inc: vi.fn() } as unknown as JobsServiceDeps[16],
+      jobsCompletedCounter: { inc: vi.fn() } as unknown as JobsServiceDeps[17],
+      jobsPausedGauge: { set: vi.fn() } as unknown as JobsServiceDeps[18],
+      jobDuration: { observe: vi.fn() } as unknown as JobsServiceDeps[19],
+      storageProvidersActive: { set: vi.fn() } as unknown as JobsServiceDeps[20],
+      storageProvidersTested: { set: vi.fn() } as unknown as JobsServiceDeps[21],
     };
 
     const emptySpBlocklists: ISpBlocklistConfig = {
@@ -994,7 +994,7 @@ describe("JobsService schedule rows", () => {
 
     service = buildService({
       configService,
-      anonRetrievalService: anonRetrievalService as unknown as JobsServiceDeps[8],
+      anonRetrievalService: anonRetrievalService as unknown as JobsServiceDeps[9],
       walletSdkService: walletSdkService as unknown as JobsServiceDeps[5],
     });
 
@@ -1510,7 +1510,7 @@ describe("JobsService schedule rows", () => {
     };
 
     service = buildService({
-      anonRetrievalService: anonRetrievalService as unknown as JobsServiceDeps[8],
+      anonRetrievalService: anonRetrievalService as unknown as JobsServiceDeps[9],
       walletSdkService: walletSdkService as unknown as JobsServiceDeps[5],
     });
 
