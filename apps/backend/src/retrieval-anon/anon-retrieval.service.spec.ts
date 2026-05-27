@@ -2,14 +2,21 @@ import type { Repository } from "typeorm";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ClickhouseService } from "../clickhouse/clickhouse.service.js";
 import type { StorageProvider } from "../database/entities/storage-provider.entity.js";
-import { RetrievalStatus } from "../database/types.js";
+import { BlockFetchStatus, CarParseStatus, IpniCheckStatus, RetrievalStatus } from "../database/types.js";
 import type { AnonRetrievalCheckMetrics } from "../metrics-prometheus/check-metrics.service.js";
 import type { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
 import type { AnonPieceSelectorService } from "./anon-piece-selector.service.js";
 import { AnonRetrievalService } from "./anon-retrieval.service.js";
-import type { CarValidationService } from "./car-validation.service.js";
 import type { PieceRetrievalService } from "./piece-retrieval.service.js";
-import type { AnonPiece, CarValidationResult, PieceRetrievalResult } from "./types.js";
+import type { PieceValidationService } from "./piece-validation.service.js";
+import type {
+  AnonPiece,
+  BlockFetchOutcome,
+  CarParseOutcome,
+  IpniCheckOutcome,
+  PieceRetrievalResult,
+  SampledBlock,
+} from "./types.js";
 
 const SP_ADDRESS = "0xaaaa0000000000000000000000000000000000aa";
 
@@ -22,6 +29,8 @@ const PIECE = {
   ipfsRootCid: null,
   serviceProvider: SP_ADDRESS,
 };
+
+const SAMPLED_BLOCKS = [] as SampledBlock[];
 
 function makeProvider(): StorageProvider {
   return {
@@ -36,14 +45,21 @@ function makeService(opts: {
   pieceResult: PieceRetrievalResult;
   fetchPieceImpl?: (signal?: AbortSignal) => Promise<PieceRetrievalResult>;
   piece?: AnonPiece | null;
-  carResult?: CarValidationResult;
-  validateCarImpl?: () => Promise<CarValidationResult>;
+  parseCarOutcome?: CarParseOutcome;
+  parseCarImpl?: (bytes: Buffer, signal?: AbortSignal) => Promise<CarParseOutcome>;
+  checkIpniOutcome?: IpniCheckOutcome;
+  checkIpniImpl?: () => Promise<IpniCheckOutcome>;
+  checkBlockFetchOutcome?: BlockFetchOutcome;
+  checkBlockFetchImpl?: () => Promise<BlockFetchOutcome>;
 }): {
   service: AnonRetrievalService;
   insertSpy: ReturnType<typeof vi.fn>;
   fetchSpy: ReturnType<typeof vi.fn>;
-  validateCarSpy: ReturnType<typeof vi.fn>;
+  parseCarSpy: ReturnType<typeof vi.fn>;
+  checkIpniSpy: ReturnType<typeof vi.fn>;
+  checkBlockFetchSpy: ReturnType<typeof vi.fn>;
   metricsRecordStatusSpy: ReturnType<typeof vi.fn>;
+  metricsRecordCarParseSpy: ReturnType<typeof vi.fn>;
   metricsRecordIpniSpy: ReturnType<typeof vi.fn>;
   metricsRecordBlockFetchSpy: ReturnType<typeof vi.fn>;
 } {
@@ -67,16 +83,40 @@ function makeService(opts: {
     fetchPiece: fetchSpy,
   } as unknown as PieceRetrievalService;
 
-  const validateCarSpy = vi.fn(opts.validateCarImpl ?? (async () => opts.carResult));
-  const carValidationService = {
-    validateCarPiece: validateCarSpy,
-  } as unknown as CarValidationService;
+  const parseCarSpy = vi.fn(
+    opts.parseCarImpl ??
+      (async () =>
+        opts.parseCarOutcome ?? {
+          status: CarParseStatus.PARSEABLE,
+          blockCount: 0,
+          sampledBlocks: SAMPLED_BLOCKS,
+        }),
+  );
+  const checkIpniSpy = vi.fn(
+    opts.checkIpniImpl ?? (async () => opts.checkIpniOutcome ?? { status: IpniCheckStatus.VALID, durationMs: 0 }),
+  );
+  const checkBlockFetchSpy = vi.fn(
+    opts.checkBlockFetchImpl ??
+      (async () =>
+        opts.checkBlockFetchOutcome ?? {
+          status: IpniCheckStatus.VALID,
+          sampledCount: 0,
+          failedCount: 0,
+          endpoint: "https://sp.test/ipfs/",
+        }),
+  );
+  const pieceValidationService = {
+    parseCar: parseCarSpy,
+    checkIpni: checkIpniSpy,
+    checkBlockFetch: checkBlockFetchSpy,
+  } as unknown as PieceValidationService;
 
   const walletSdkService = {
     getProviderInfo: vi.fn(() => ({ pdp: { serviceURL: "https://sp.test/" } })),
   } as unknown as WalletSdkService;
 
   const metricsRecordStatusSpy = vi.fn();
+  const metricsRecordCarParseSpy = vi.fn();
   const metricsRecordIpniSpy = vi.fn();
   const metricsRecordBlockFetchSpy = vi.fn();
   const metrics = {
@@ -86,7 +126,7 @@ function makeService(opts: {
     observeCheckDuration: vi.fn(),
     recordStatus: metricsRecordStatusSpy,
     recordHttpResponseCode: vi.fn(),
-    recordCarParseStatus: vi.fn(),
+    recordCarParseStatus: metricsRecordCarParseSpy,
     recordIpniStatus: metricsRecordIpniSpy,
     recordBlockFetchStatus: metricsRecordBlockFetchSpy,
   } as unknown as AnonRetrievalCheckMetrics;
@@ -94,7 +134,7 @@ function makeService(opts: {
   const service = new AnonRetrievalService(
     anonPieceSelector,
     pieceRetrievalService,
-    carValidationService,
+    pieceValidationService,
     walletSdkService,
     metrics,
     clickhouseService,
@@ -105,8 +145,11 @@ function makeService(opts: {
     service,
     insertSpy,
     fetchSpy,
-    validateCarSpy,
+    parseCarSpy,
+    checkIpniSpy,
+    checkBlockFetchSpy,
     metricsRecordStatusSpy,
+    metricsRecordCarParseSpy,
     metricsRecordIpniSpy,
     metricsRecordBlockFetchSpy,
   };
@@ -154,11 +197,11 @@ describe("AnonRetrievalService", () => {
     expect(typeof row.retrieval_id).toBe("string");
 
     // CAR/IPNI/block-fetch were never run on a non-IPFS-indexed piece — every
-    // dimension column should explicitly say "skipped" (ipni_status) or null.
-    expect(row.car_parseable).toBeNull();
+    // dimension status should explicitly say "skipped".
+    expect(row.car_status).toBe("skipped");
     expect(row.car_block_count).toBeNull();
     expect(row.block_fetch_endpoint).toBeNull();
-    expect(row.block_fetch_valid).toBeNull();
+    expect(row.block_fetch_status).toBe("skipped");
     expect(row.block_fetch_sampled_count).toBeNull();
     expect(row.block_fetch_failed_count).toBeNull();
     expect(row.ipni_status).toBe("skipped");
@@ -246,33 +289,31 @@ describe("AnonRetrievalService", () => {
     }
 
     it("emits populated CAR/IPNI/block-fetch columns when validation fully succeeds", async () => {
-      const carResult: CarValidationResult = {
-        carParseable: true,
-        blockCount: 42,
-        sampledCidCount: 5,
-        ipniValid: true,
-        ipniVerifyMs: 137,
-        blockFetchValid: true,
-        blockFetchFailedCount: 0,
-        blockFetchEndpoint: "https://sp.test/ipfs/",
-      };
-
-      const { service, insertSpy, validateCarSpy } = makeService({
+      const { service, insertSpy, parseCarSpy, checkIpniSpy, checkBlockFetchSpy } = makeService({
         pieceResult: okPiece(Buffer.from("car-bytes")),
         piece: INDEXED_PIECE,
-        carResult,
+        parseCarOutcome: { status: CarParseStatus.PARSEABLE, blockCount: 42, sampledBlocks: SAMPLED_BLOCKS },
+        checkIpniOutcome: { status: IpniCheckStatus.VALID, durationMs: 137 },
+        checkBlockFetchOutcome: {
+          status: BlockFetchStatus.SUCCESS,
+          sampledCount: 5,
+          failedCount: 0,
+          endpoint: "https://sp.test/ipfs/",
+        },
       });
 
       await service.performForProvider(SP_ADDRESS);
 
-      expect(validateCarSpy).toHaveBeenCalledTimes(1);
+      expect(parseCarSpy).toHaveBeenCalledTimes(1);
+      expect(checkIpniSpy).toHaveBeenCalledTimes(1);
+      expect(checkBlockFetchSpy).toHaveBeenCalledTimes(1);
       const [, row] = insertSpy.mock.calls[0] as [string, Record<string, unknown>];
       expect(row.piece_fetch_status).toBe(RetrievalStatus.SUCCESS);
       expect(row.commp_valid).toBe(true);
-      expect(row.car_parseable).toBe(true);
+      expect(row.car_status).toBe("parseable");
       expect(row.car_block_count).toBe(42);
       expect(row.block_fetch_endpoint).toBe("https://sp.test/ipfs/");
-      expect(row.block_fetch_valid).toBe(true);
+      expect(row.block_fetch_status).toBe("success");
       expect(row.block_fetch_sampled_count).toBe(5);
       expect(row.block_fetch_failed_count).toBe(0);
       expect(row.ipni_status).toBe("valid");
@@ -280,21 +321,17 @@ describe("AnonRetrievalService", () => {
     });
 
     it("distinguishes IPNI invalid from block-fetch failures", async () => {
-      const carResult: CarValidationResult = {
-        carParseable: true,
-        blockCount: 100,
-        sampledCidCount: 5,
-        ipniValid: false,
-        ipniVerifyMs: 250,
-        blockFetchValid: false,
-        blockFetchFailedCount: 2,
-        blockFetchEndpoint: "https://sp.test/ipfs/",
-      };
-
       const { service, insertSpy } = makeService({
         pieceResult: okPiece(Buffer.from("car-bytes")),
         piece: INDEXED_PIECE,
-        carResult,
+        parseCarOutcome: { status: CarParseStatus.PARSEABLE, blockCount: 100, sampledBlocks: SAMPLED_BLOCKS },
+        checkIpniOutcome: { status: IpniCheckStatus.INVALID, durationMs: 250 },
+        checkBlockFetchOutcome: {
+          status: BlockFetchStatus.FAILURE,
+          sampledCount: 5,
+          failedCount: 2,
+          endpoint: "https://sp.test/ipfs/",
+        },
       });
 
       await service.performForProvider(SP_ADDRESS);
@@ -303,61 +340,143 @@ describe("AnonRetrievalService", () => {
       // The piece-fetch path still succeeded — failures are surfaced as
       // independent dimensions, not folded into piece_fetch_status.
       expect(row.piece_fetch_status).toBe(RetrievalStatus.SUCCESS);
-      expect(row.car_parseable).toBe(true);
+      expect(row.car_status).toBe("parseable");
       expect(row.ipni_status).toBe("invalid");
-      expect(row.block_fetch_valid).toBe(false);
+      expect(row.block_fetch_status).toBe("failure");
       expect(row.block_fetch_sampled_count).toBe(5);
       expect(row.block_fetch_failed_count).toBe(2);
     });
 
-    it("does not record SP-fault metrics when CAR validation is interrupted by signal abort", async () => {
-      // An operator-driven abort (job timeout, shutdown) that interrupts
-      // validateCarPiece must not show up as carParseable=false +
-      // ipni/blockFetch=ERROR — that would misattribute our cancellation to
-      // the SP and pollute scoreboards.
-      const ac = new AbortController();
-      const { service, insertSpy, metricsRecordIpniSpy, metricsRecordBlockFetchSpy } = makeService({
-        pieceResult: okPiece(Buffer.from("car-bytes")),
+    it("skips downstream dimensions when parseCar returns NOT_PARSEABLE", async () => {
+      // The decoupled service guarantees that an unparseable CAR never even
+      // attempts IPNI or block fetch — there are no CIDs to verify or fetch.
+      const { service, insertSpy, parseCarSpy, checkIpniSpy, checkBlockFetchSpy } = makeService({
+        pieceResult: okPiece(Buffer.from("not-a-car")),
         piece: INDEXED_PIECE,
-        validateCarImpl: async () => {
-          ac.abort(new Error("Anon retrieval job timeout"));
-          throw Object.assign(new Error("aborted"), { name: "AbortError" });
-        },
+        parseCarOutcome: { status: CarParseStatus.NOT_PARSEABLE },
       });
 
-      await service.performForProvider(SP_ADDRESS, ac.signal);
+      await service.performForProvider(SP_ADDRESS);
 
-      expect(metricsRecordIpniSpy).not.toHaveBeenCalledWith(expect.anything(), "error");
-      expect(metricsRecordBlockFetchSpy).not.toHaveBeenCalledWith(expect.anything(), "error");
+      expect(parseCarSpy).toHaveBeenCalledTimes(1);
+      expect(checkIpniSpy).not.toHaveBeenCalled();
+      expect(checkBlockFetchSpy).not.toHaveBeenCalled();
 
       const [, row] = insertSpy.mock.calls[0] as [string, Record<string, unknown>];
+      expect(row.car_status).toBe("not_parseable");
+      expect(row.car_block_count).toBeNull();
+      expect(row.block_fetch_sampled_count).toBeNull();
+      expect(row.block_fetch_endpoint).toBeNull();
+      expect(row.block_fetch_status).toBe("skipped");
+      expect(row.block_fetch_failed_count).toBeNull();
       expect(row.ipni_status).toBe("skipped");
-      expect(row.car_parseable).toBeNull();
-      expect(row.block_fetch_valid).toBeNull();
+      expect(row.ipni_verify_ms).toBeNull();
     });
 
-    it("emits ipni_status='error' (not 'skipped') when CAR validation throws on a successful piece", async () => {
-      // Distinguishes a real infra outage (e.g. IpniVerificationService down)
-      // from a piece that legitimately had no IPFS indexing. Without the
-      // distinction, an outage looks like normal non-IPFS volume in dashboards.
-      const { service, insertSpy, metricsRecordIpniSpy, metricsRecordBlockFetchSpy } = makeService({
+    it("propagates checkIpni's SKIPPED status to the row (root CID unparseable)", async () => {
+      // Previously this case was bucketed as INVALID, which misattributed a
+      // client-side data problem (bad root CID from the subgraph) to the SP.
+      const { service, insertSpy, metricsRecordIpniSpy } = makeService({
         pieceResult: okPiece(Buffer.from("car-bytes")),
         piece: INDEXED_PIECE,
-        validateCarImpl: async () => {
-          throw new Error("IpniVerificationService down");
+        parseCarOutcome: { status: CarParseStatus.PARSEABLE, blockCount: 1, sampledBlocks: SAMPLED_BLOCKS },
+        checkIpniOutcome: { status: IpniCheckStatus.SKIPPED, durationMs: null },
+        checkBlockFetchOutcome: {
+          status: BlockFetchStatus.SUCCESS,
+          sampledCount: 1,
+          failedCount: 0,
+          endpoint: "https://sp.test/ipfs/",
         },
       });
 
       await service.performForProvider(SP_ADDRESS);
 
-      expect(metricsRecordIpniSpy).toHaveBeenCalledWith(expect.anything(), "error");
-      expect(metricsRecordBlockFetchSpy).toHaveBeenCalledWith(expect.anything(), "error");
+      expect(metricsRecordIpniSpy).toHaveBeenCalledWith(expect.anything(), IpniCheckStatus.SKIPPED);
+      const [, row] = insertSpy.mock.calls[0] as [string, Record<string, unknown>];
+      expect(row.ipni_status).toBe("skipped");
+      // car_status / block_fetch_status remain whatever their own steps returned.
+      expect(row.car_status).toBe("parseable");
+      expect(row.block_fetch_status).toBe("success");
+    });
+
+    it("propagates checkIpni's ERROR status only to ipni_status (not other dimensions)", async () => {
+      // The whole point of decoupling: an unexpected throw in IPNI verification
+      // cannot bleed into car_status or block_fetch_status.
+      const { service, insertSpy, metricsRecordIpniSpy, metricsRecordCarParseSpy, metricsRecordBlockFetchSpy } =
+        makeService({
+          pieceResult: okPiece(Buffer.from("car-bytes")),
+          piece: INDEXED_PIECE,
+          parseCarOutcome: { status: CarParseStatus.PARSEABLE, blockCount: 1, sampledBlocks: SAMPLED_BLOCKS },
+          checkIpniOutcome: { status: IpniCheckStatus.ERROR, durationMs: null },
+          checkBlockFetchOutcome: {
+            status: BlockFetchStatus.SUCCESS,
+            sampledCount: 1,
+            failedCount: 0,
+            endpoint: "https://sp.test/ipfs/",
+          },
+        });
+
+      await service.performForProvider(SP_ADDRESS);
+
+      expect(metricsRecordCarParseSpy).toHaveBeenCalledWith(expect.anything(), CarParseStatus.PARSEABLE);
+      expect(metricsRecordIpniSpy).toHaveBeenCalledWith(expect.anything(), IpniCheckStatus.ERROR);
+      expect(metricsRecordBlockFetchSpy).toHaveBeenCalledWith(expect.anything(), BlockFetchStatus.SUCCESS);
 
       const [, row] = insertSpy.mock.calls[0] as [string, Record<string, unknown>];
+      expect(row.car_status).toBe("parseable");
       expect(row.ipni_status).toBe("error");
-      // Piece-fetch path itself succeeded — only the validation pipeline failed.
-      expect(row.commp_valid).toBe(true);
-      expect(row.car_parseable).toBeNull();
+      expect(row.block_fetch_status).toBe("success");
+    });
+
+    it("propagates checkBlockFetch's SKIPPED status (SP info missing) without affecting other dimensions", async () => {
+      const { service, insertSpy } = makeService({
+        pieceResult: okPiece(Buffer.from("car-bytes")),
+        piece: INDEXED_PIECE,
+        parseCarOutcome: { status: CarParseStatus.PARSEABLE, blockCount: 1, sampledBlocks: SAMPLED_BLOCKS },
+        checkIpniOutcome: { status: IpniCheckStatus.VALID, durationMs: 50 },
+        checkBlockFetchOutcome: {
+          status: BlockFetchStatus.SKIPPED,
+          sampledCount: 1,
+          failedCount: null,
+          endpoint: null,
+          errorMessage: "Provider info not found",
+        },
+      });
+
+      await service.performForProvider(SP_ADDRESS);
+
+      const [, row] = insertSpy.mock.calls[0] as [string, Record<string, unknown>];
+      expect(row.car_status).toBe("parseable");
+      expect(row.ipni_status).toBe("valid");
+      expect(row.block_fetch_status).toBe("skipped");
+      expect(row.block_fetch_endpoint).toBeNull();
+      expect(row.block_fetch_failed_count).toBeNull();
+    });
+
+    it("marks every dimension SKIPPED when the signal aborts during parseCar", async () => {
+      // Operator-driven aborts must never charge an SP-fault bucket. The
+      // service propagates the abort; orchestrator's helpers default to SKIPPED.
+      const ac = new AbortController();
+      const { service, insertSpy, metricsRecordCarParseSpy, metricsRecordIpniSpy, metricsRecordBlockFetchSpy } =
+        makeService({
+          pieceResult: okPiece(Buffer.from("car-bytes")),
+          piece: INDEXED_PIECE,
+          parseCarImpl: async () => {
+            ac.abort(new Error("Anon retrieval job timeout"));
+            throw Object.assign(new Error("aborted"), { name: "AbortError" });
+          },
+        });
+
+      await service.performForProvider(SP_ADDRESS, ac.signal);
+
+      expect(metricsRecordCarParseSpy).toHaveBeenCalledWith(expect.anything(), CarParseStatus.SKIPPED);
+      expect(metricsRecordIpniSpy).toHaveBeenCalledWith(expect.anything(), IpniCheckStatus.SKIPPED);
+      expect(metricsRecordBlockFetchSpy).toHaveBeenCalledWith(expect.anything(), IpniCheckStatus.SKIPPED);
+
+      const [, row] = insertSpy.mock.calls[0] as [string, Record<string, unknown>];
+      expect(row.car_status).toBe("skipped");
+      expect(row.ipni_status).toBe("skipped");
+      expect(row.block_fetch_status).toBe("skipped");
     });
 
     it("skips CAR/IPNI/block-fetch when SP returns 2xx with wrong bytes (commPValid=false)", async () => {
@@ -383,8 +502,11 @@ describe("AnonRetrievalService", () => {
       const {
         service,
         insertSpy,
-        validateCarSpy,
+        parseCarSpy,
+        checkIpniSpy,
+        checkBlockFetchSpy,
         metricsRecordStatusSpy,
+        metricsRecordCarParseSpy,
         metricsRecordIpniSpy,
         metricsRecordBlockFetchSpy,
       } = makeService({
@@ -394,50 +516,20 @@ describe("AnonRetrievalService", () => {
 
       await service.performForProvider(SP_ADDRESS);
 
-      expect(validateCarSpy).not.toHaveBeenCalled();
-      expect(metricsRecordIpniSpy).toHaveBeenCalledWith(expect.anything(), "skipped");
-      expect(metricsRecordBlockFetchSpy).toHaveBeenCalledWith(expect.anything(), "skipped");
+      expect(parseCarSpy).not.toHaveBeenCalled();
+      expect(checkIpniSpy).not.toHaveBeenCalled();
+      expect(checkBlockFetchSpy).not.toHaveBeenCalled();
+      expect(metricsRecordCarParseSpy).toHaveBeenCalledWith(expect.anything(), CarParseStatus.SKIPPED);
+      expect(metricsRecordIpniSpy).toHaveBeenCalledWith(expect.anything(), IpniCheckStatus.SKIPPED);
+      expect(metricsRecordBlockFetchSpy).toHaveBeenCalledWith(expect.anything(), IpniCheckStatus.SKIPPED);
       expect(metricsRecordStatusSpy).toHaveBeenCalledWith(expect.anything(), "failure.commp");
 
       const [, row] = insertSpy.mock.calls[0] as [string, Record<string, unknown>];
       expect(row.piece_fetch_status).toBe(RetrievalStatus.FAILED);
       expect(row.commp_valid).toBe(false);
-      expect(row.car_parseable).toBeNull();
+      expect(row.car_status).toBe("skipped");
       expect(row.ipni_status).toBe("skipped");
-      expect(row.block_fetch_valid).toBeNull();
-    });
-
-    it("emits car_parseable=false with skipped IPNI/block-fetch when bytes don't parse as CAR", async () => {
-      const carResult: CarValidationResult = {
-        carParseable: false,
-        blockCount: 0,
-        sampledCidCount: 0,
-        ipniValid: null,
-        ipniVerifyMs: null,
-        blockFetchValid: null,
-        blockFetchFailedCount: null,
-        blockFetchEndpoint: null,
-      };
-
-      const { service, insertSpy } = makeService({
-        pieceResult: okPiece(Buffer.from("not-a-car")),
-        piece: INDEXED_PIECE,
-        carResult,
-      });
-
-      await service.performForProvider(SP_ADDRESS);
-
-      const [, row] = insertSpy.mock.calls[0] as [string, Record<string, unknown>];
-      expect(row.car_parseable).toBe(false);
-      // car_block_count and block_fetch_sampled_count are gated on carParseable
-      // so an unparseable CAR doesn't emit a misleading 0.
-      expect(row.car_block_count).toBeNull();
-      expect(row.block_fetch_sampled_count).toBeNull();
-      expect(row.block_fetch_endpoint).toBeNull();
-      expect(row.block_fetch_valid).toBeNull();
-      expect(row.block_fetch_failed_count).toBeNull();
-      expect(row.ipni_status).toBe("skipped");
-      expect(row.ipni_verify_ms).toBeNull();
+      expect(row.block_fetch_status).toBe("skipped");
     });
   });
 });

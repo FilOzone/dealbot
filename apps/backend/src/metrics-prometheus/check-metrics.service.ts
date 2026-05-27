@@ -2,7 +2,7 @@ import { Injectable, Logger } from "@nestjs/common";
 import { InjectMetric } from "@willsoto/nestjs-prometheus";
 import type { Counter, Histogram } from "prom-client";
 import type { Deal } from "../database/entities/deal.entity.js";
-import { IpniCheckStatus } from "../database/types.js";
+import { BlockFetchStatus, CarParseStatus, IpniCheckStatus } from "../database/types.js";
 import type { RetrievalExecutionResult } from "../retrieval-addons/types.js";
 import { buildCheckMetricLabels, type CheckMetricLabels } from "./check-metric-labels.js";
 
@@ -289,7 +289,7 @@ export class AnonRetrievalCheckMetrics {
     observePositive(this.checkMs, labels, value);
   }
 
-  recordStatus(labels: CheckMetricLabels, value: string): void {
+  recordPieceRetrievalStatus(labels: CheckMetricLabels, value: string): void {
     this.statusCounter.inc({ ...labels, value });
   }
 
@@ -300,15 +300,15 @@ export class AnonRetrievalCheckMetrics {
     });
   }
 
-  recordCarParseStatus(labels: CheckMetricLabels, parseable: boolean): void {
-    this.carParseCounter.inc({ ...labels, value: parseable ? "parseable" : "not_parseable" });
+  recordCarParseStatus(labels: CheckMetricLabels, value: CarParseStatus): void {
+    this.carParseCounter.inc({ ...labels, value });
   }
 
   recordIpniStatus(labels: CheckMetricLabels, value: IpniCheckStatus): void {
     this.ipniCounter.inc({ ...labels, value });
   }
 
-  recordBlockFetchStatus(labels: CheckMetricLabels, value: "valid" | "invalid" | "skipped" | "error"): void {
+  recordBlockFetchStatus(labels: CheckMetricLabels, value: BlockFetchStatus): void {
     this.blockFetchCounter.inc({ ...labels, value });
   }
 }

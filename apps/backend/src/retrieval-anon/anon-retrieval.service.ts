@@ -1,18 +1,19 @@
 import { randomUUID } from "node:crypto";
 import { Injectable, Logger } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
+import { CID } from "multiformats/cid";
 import type { Repository } from "typeorm";
 import { ClickhouseService } from "../clickhouse/clickhouse.service.js";
 import { type ProviderJobContext, toStructuredError } from "../common/logging.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
-import { IpniCheckStatus, RetrievalStatus, ServiceType } from "../database/types.js";
+import { BlockFetchStatus, CarParseStatus, IpniCheckStatus, RetrievalStatus, ServiceType } from "../database/types.js";
 import { buildCheckMetricLabels } from "../metrics-prometheus/check-metric-labels.js";
 import { AnonRetrievalCheckMetrics } from "../metrics-prometheus/check-metrics.service.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
 import { AnonPieceSelectorService } from "./anon-piece-selector.service.js";
-import { CarValidationService } from "./car-validation.service.js";
 import { PieceRetrievalService } from "./piece-retrieval.service.js";
-import type { CarValidationResult, PieceRetrievalResult } from "./types.js";
+import { PieceValidationService } from "./piece-validation.service.js";
+import type { BlockFetchOutcome, CarParseOutcome, IpniCheckOutcome, PieceRetrievalResult } from "./types.js";
 
 const ANON_RETRIEVAL_CHECKS_TABLE = "anon_retrieval_checks";
 
@@ -23,7 +24,7 @@ export class AnonRetrievalService {
   constructor(
     private readonly anonPieceSelectorService: AnonPieceSelectorService,
     private readonly pieceRetrievalService: PieceRetrievalService,
-    private readonly carValidationService: CarValidationService,
+    private readonly pieceValidationService: PieceValidationService,
     private readonly walletSdkService: WalletSdkService,
     private readonly metrics: AnonRetrievalCheckMetrics,
     private readonly clickhouseService: ClickhouseService,
@@ -50,7 +51,7 @@ export class AnonRetrievalService {
         message: "No anonymous piece found for SP",
         spAddress,
       });
-      this.metrics.recordStatus(labels, "failure.no_piece");
+      this.metrics.recordPieceRetrievalStatus(labels, "skipped");
       return;
     }
 
@@ -69,8 +70,9 @@ export class AnonRetrievalService {
     const startedAt = new Date();
 
     let pieceResult: PieceRetrievalResult | null = null;
-    let carResult: CarValidationResult | null = null;
-    let validatedCarPiece: boolean = false;
+    let parse: CarParseOutcome | null = null;
+    let ipni: IpniCheckOutcome | null = null;
+    let blockFetch: BlockFetchOutcome | null = null;
 
     try {
       // 2. Fetch the piece. fetchPiece never throws on abort — it returns a
@@ -87,9 +89,9 @@ export class AnonRetrievalService {
       this.metrics.observeThroughput(labels, pieceResult.throughputBps);
       this.metrics.recordHttpResponseCode(labels, pieceResult.statusCode);
 
-      // 3. CAR validation (only if piece was successfully retrieved and has IPFS indexing).
-      // `pieceResult.success` already encodes "HTTP 2xx AND commP matches" — fetchPiece
-      // flips success=false on a commP mismatch so we never parse mismatched bytes.
+      // 3. CAR / IPNI / block-fetch validation (only when piece was successfully
+      // retrieved, advertises IPFS indexing, and the job hasn't been cancelled).
+      // Each dimension is computed independently
       if (
         pieceResult.success &&
         piece.withIPFSIndexing &&
@@ -99,61 +101,36 @@ export class AnonRetrievalService {
         !signal?.aborted
       ) {
         try {
-          validatedCarPiece = true;
-          carResult = await this.carValidationService.validateCarPiece(
-            pieceResult.pieceBytes,
-            provider,
-            piece.ipfsRootCid,
-            signal,
-          );
-          this.metrics.recordCarParseStatus(labels, carResult.carParseable);
-          this.metrics.recordIpniStatus(labels, ipniStatusFromResult(carResult));
-          this.metrics.recordBlockFetchStatus(
-            labels,
-            carResult.blockFetchValid === null
-              ? IpniCheckStatus.SKIPPED
-              : carResult.blockFetchValid
-                ? IpniCheckStatus.VALID
-                : IpniCheckStatus.INVALID,
-          );
-        } catch (error) {
-          if (signal?.aborted) {
-            // Operator-driven cancellation, not an SP fault. Suppress the
-            // SP-fault metrics and downgrade the downstream ClickHouse status
-            // so we don't pollute SP scoreboards with our own aborts.
-            validatedCarPiece = false;
-            this.logger.warn({
-              ...logContext,
-              event: "anon_retrieval_car_validation_aborted",
-              message: "CAR validation aborted before completion",
-              pieceCid: piece.pieceCid,
-              spAddress,
-            });
-          } else {
-            // Validation was attempted on a successful piece retrieval but threw.
-            this.metrics.recordCarParseStatus(labels, false);
-            this.metrics.recordIpniStatus(labels, IpniCheckStatus.ERROR);
-            this.metrics.recordBlockFetchStatus(labels, IpniCheckStatus.ERROR);
-            this.logger.warn({
-              ...logContext,
-              event: "anon_retrieval_car_validation_failed",
-              message: "CAR validation threw an error",
-              pieceCid: piece.pieceCid,
-              spAddress,
-              error: toStructuredError(error),
-            });
+          parse = await this.pieceValidationService.parseCar(pieceResult.pieceBytes, signal);
+
+          if (parse.status === CarParseStatus.PARSEABLE) {
+            ipni = await this.pieceValidationService.checkIpni(
+              provider,
+              piece.ipfsRootCid,
+              parse.sampledBlocks,
+              signal,
+            );
+            blockFetch = await this.pieceValidationService.checkBlockFetch(parse.sampledBlocks, spAddress, signal);
           }
+        } catch (error) {
+          // pieceValidationService methods only throw on abort (via signal.throwIfAborted in
+          // their catch blocks). Operator-driven cancellation must not bubble
+          // out of performForProvider — the finally block still emits the row,
+          // and the status helpers default whatever didn't run to SKIPPED.
+          // Anything else is a genuine bug and is re-thrown.
+          if (!signal?.aborted) throw error;
         }
-      } else if (!pieceResult.success) {
-        // Piece retrieval failed (HTTP error or commP mismatch) — downstream
-        // validation was skipped because there is nothing trustworthy to validate.
-        this.metrics.recordIpniStatus(labels, IpniCheckStatus.SKIPPED);
-        this.metrics.recordBlockFetchStatus(labels, IpniCheckStatus.SKIPPED);
       }
 
-      // Overall check duration and status
+      const carStatus = carStatusForRow(parse);
+      const ipniStatus = ipniStatusForRow(parse, ipni);
+      const blockFetchStatus = blockFetchStatusForRow(parse, blockFetch);
+
+      this.metrics.recordCarParseStatus(labels, carStatus);
+      this.metrics.recordIpniStatus(labels, ipniStatus);
+      this.metrics.recordBlockFetchStatus(labels, blockFetchStatus);
       this.metrics.observeCheckDuration(labels, Date.now() - checkStart);
-      this.metrics.recordStatus(labels, anonPieceRetrievalStatus(pieceResult));
+      this.metrics.recordPieceRetrievalStatus(labels, anonPieceRetrievalStatus(pieceResult));
     } finally {
       // Always emit a ClickHouse row — even on abort or unexpected error — so
       // we never lose the evidence (ttfb, bytes, response code) we already
@@ -163,11 +140,10 @@ export class AnonRetrievalService {
       const providerInfo = this.walletSdkService.getProviderInfo(spAddress);
       const spBaseUrl = providerInfo?.pdp.serviceURL.replace(/\/$/, "") ?? spAddress;
       const pieceFetchStatus = finalPieceResult.success ? RetrievalStatus.SUCCESS : RetrievalStatus.FAILED;
-      const ipniStatus: IpniCheckStatus = !validatedCarPiece
-        ? IpniCheckStatus.SKIPPED
-        : carResult
-          ? ipniStatusFromResult(carResult)
-          : IpniCheckStatus.ERROR;
+
+      const carStatus = carStatusForRow(parse);
+      const ipniStatus = ipniStatusForRow(parse, ipni);
+      const blockFetchStatus = blockFetchStatusForRow(parse, blockFetch);
 
       try {
         this.clickhouseService.insert(ANON_RETRIEVAL_CHECKS_TABLE, {
@@ -192,14 +168,15 @@ export class AnonRetrievalService {
           bytes_retrieved: finalPieceResult.bytesReceived > 0 ? finalPieceResult.bytesReceived : null,
           throughput_bps: finalPieceResult.throughputBps > 0 ? Math.round(finalPieceResult.throughputBps) : null,
           commp_valid: !finalPieceResult.aborted && finalPieceResult.httpSuccess ? finalPieceResult.commPValid : null,
-          car_parseable: carResult ? carResult.carParseable : null,
-          car_block_count: carResult?.carParseable ? carResult?.blockCount : null,
-          block_fetch_endpoint: carResult?.blockFetchEndpoint ?? null,
-          block_fetch_valid: carResult ? carResult.blockFetchValid : null,
-          block_fetch_sampled_count: carResult?.carParseable ? carResult?.sampledCidCount : null,
-          block_fetch_failed_count: carResult?.blockFetchFailedCount ?? null,
+          car_status: carStatus,
+          car_block_count: parse && parse.status === CarParseStatus.PARSEABLE ? parse.blockCount : null,
+          block_fetch_endpoint: blockFetch?.endpoint ?? null,
+          block_fetch_status: blockFetchStatus,
+          block_fetch_sampled_count:
+            parse?.status === CarParseStatus.PARSEABLE && blockFetch ? blockFetch.sampledCount : null,
+          block_fetch_failed_count: blockFetch?.failedCount ?? null,
           ipni_status: ipniStatus,
-          ipni_verify_ms: carResult?.ipniVerifyMs ?? null,
+          ipni_verify_ms: ipni?.durationMs ?? null,
           error_message: finalPieceResult.errorMessage ?? null,
         });
       } catch (error) {
@@ -227,17 +204,12 @@ export class AnonRetrievalService {
         latencyMs: finalPieceResult.latencyMs,
         ttfbMs: finalPieceResult.ttfbMs,
         bytesRetrieved: finalPieceResult.bytesReceived,
-        carParseable: carResult?.carParseable,
-        ipniValid: carResult?.ipniValid,
-        blockFetchValid: carResult?.blockFetchValid,
+        carStatus,
+        ipniStatus,
+        blockFetchStatus,
       });
     }
   }
-}
-
-function ipniStatusFromResult(result: CarValidationResult): IpniCheckStatus {
-  if (result.ipniValid === null) return IpniCheckStatus.SKIPPED;
-  return result.ipniValid ? IpniCheckStatus.VALID : IpniCheckStatus.INVALID;
 }
 
 function anonPieceRetrievalStatus(pieceResult: PieceRetrievalResult): string {
@@ -246,6 +218,30 @@ function anonPieceRetrievalStatus(pieceResult: PieceRetrievalResult): string {
   if (!pieceResult.httpSuccess) return "failure.http";
   if (!pieceResult.commPValid) return "failure.commp";
   return "failure.other";
+}
+
+/**
+ * The per-dimension statuses default to SKIPPED whenever the dimension's
+ * prerequisite wasn't met — no IPFS indexing, piece fetch failed, the job
+ * was aborted, or an upstream dimension didn't produce a usable result.
+ * Service methods only ever return their concrete outcomes (VALID, INVALID,
+ * NOT_PARSEABLE, etc.); SKIPPED is the helper's contribution.
+ */
+function carStatusForRow(parse: CarParseOutcome | null): CarParseStatus {
+  if (!parse) return CarParseStatus.SKIPPED;
+  return parse.status;
+}
+
+function ipniStatusForRow(parse: CarParseOutcome | null, ipni: IpniCheckOutcome | null): IpniCheckStatus {
+  if (!parse || parse.status !== CarParseStatus.PARSEABLE) return IpniCheckStatus.SKIPPED;
+  if (!ipni) return IpniCheckStatus.SKIPPED;
+  return ipni.status;
+}
+
+function blockFetchStatusForRow(parse: CarParseOutcome | null, blockFetch: BlockFetchOutcome | null): BlockFetchStatus {
+  if (!parse || parse.status !== CarParseStatus.PARSEABLE) return BlockFetchStatus.SKIPPED;
+  if (!blockFetch) return BlockFetchStatus.SKIPPED;
+  return blockFetch.status;
 }
 
 function buildAbortedPlaceholder(pieceCid: string, reason: unknown): PieceRetrievalResult {

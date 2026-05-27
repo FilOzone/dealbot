@@ -1,3 +1,6 @@
+import type { CID } from "multiformats/cid";
+import { BlockFetchStatus, CarParseStatus, IpniCheckStatus } from "../database/types.js";
+
 /** The result of anonymous piece selection. */
 export type AnonPiece = {
   pieceCid: string;
@@ -25,15 +28,36 @@ export type PieceRetrievalResult = {
   aborted?: boolean;
 };
 
-/** Result of CAR validation. */
-export type CarValidationResult = {
-  carParseable: boolean;
-  blockCount: number;
-  sampledCidCount: number;
-  ipniValid: boolean | null;
-  ipniVerifyMs: number | null;
-  blockFetchValid: boolean | null;
-  blockFetchFailedCount: number | null;
-  blockFetchEndpoint: string | null;
+/** A block decoded from the CAR, retained for IPNI verification + block fetch. */
+export type SampledBlock = { cid: CID; bytes: Uint8Array };
+
+/**
+ * Result of CAR parsing. SKIPPED / ERROR are never produced here — the
+ * caller decides "this dimension never ran" semantics.
+ */
+export type CarParseOutcome =
+  | { status: CarParseStatus.PARSEABLE; blockCount: number; sampledBlocks: SampledBlock[] }
+  | { status: CarParseStatus.NOT_PARSEABLE; errorMessage?: string };
+
+/**
+ * Result of an IPNI verification attempt. `SKIPPED` is returned when a
+ * structural prerequisite couldn't be met (root CID won't parse). `ERROR`
+ * is reserved for unexpected exceptions raised by the verifier.
+ */
+export type IpniCheckOutcome = {
+  status: IpniCheckStatus;
+  durationMs: number | null;
+};
+
+/**
+ * Result of the block-fetch sampling step. `SKIPPED` is returned when a
+ * structural prerequisite couldn't be met (SP info not registered).
+ * `ERROR` is reserved for unexpected exceptions raised by the fetcher.
+ */
+export type BlockFetchOutcome = {
+  status: BlockFetchStatus;
+  sampledCount: number;
+  failedCount: number | null;
+  endpoint: string | null;
   errorMessage?: string;
 };

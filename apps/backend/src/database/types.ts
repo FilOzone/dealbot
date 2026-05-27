@@ -35,6 +35,19 @@ export enum IpniCheckStatus {
   ERROR = "error",
 }
 
+export enum CarParseStatus {
+  PARSEABLE = "parseable",
+  NOT_PARSEABLE = "not_parseable",
+  SKIPPED = "skipped",
+}
+
+export enum BlockFetchStatus {
+  SUCCESS = "success",
+  FAILURE = "failure",
+  SKIPPED = "skipped",
+  ERROR = "error",
+}
+
 /**
  * Metadata schema for deal storage and retrieval
  */

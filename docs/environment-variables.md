@@ -864,7 +864,7 @@ For each sampled CID, dealbot:
 - Increase for stronger statistical confidence that the SP serves the entire DAG correctly (more IPNI queries + per-block fetches per check)
 - Decrease to reduce per-check load on the SP and on filecoinpin.contact
 
-**Note**: A higher sample count multiplies both IPNI traffic and block-fetch traffic per check. The IPNI step is all-or-nothing across the root CID and the sampled child CIDs — see [Anonymous Retrieval § CAR Validation](./checks/anon-retrievals.md#car-validation-only-when-piece-advertises-ipfs-indexing).
+**Note**: A higher sample count multiplies both IPNI traffic and block-fetch traffic per check. The IPNI step is all-or-nothing across the root CID and the sampled child CIDs — see [Anonymous Retrieval § CAR / IPNI / block-fetch validation](./checks/anon-retrievals.md#car--ipni--block-fetch-validation-only-when-piece-advertises-ipfs-indexing).
 
 ---
 ### `IPFS_BLOCK_FETCH_CONCURRENCY`

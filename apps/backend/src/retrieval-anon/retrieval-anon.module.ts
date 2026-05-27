@@ -8,8 +8,8 @@ import { SubgraphModule } from "../subgraph/subgraph.module.js";
 import { WalletSdkModule } from "../wallet-sdk/wallet-sdk.module.js";
 import { AnonPieceSelectorService } from "./anon-piece-selector.service.js";
 import { AnonRetrievalService } from "./anon-retrieval.service.js";
-import { CarValidationService } from "./car-validation.service.js";
 import { PieceRetrievalService } from "./piece-retrieval.service.js";
+import { PieceValidationService } from "./piece-validation.service.js";
 
 @Module({
   imports: [
@@ -20,7 +20,7 @@ import { PieceRetrievalService } from "./piece-retrieval.service.js";
     HttpClientModule,
     IpniModule,
   ],
-  providers: [AnonPieceSelectorService, PieceRetrievalService, CarValidationService, AnonRetrievalService],
+  providers: [AnonPieceSelectorService, PieceRetrievalService, PieceValidationService, AnonRetrievalService],
   exports: [AnonRetrievalService],
 })
 export class RetrievalAnonModule {}
