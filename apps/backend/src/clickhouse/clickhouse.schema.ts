@@ -90,10 +90,10 @@ export function buildMigrations(database: string): string[] {
     throughput_bps             Nullable(UInt64),                  -- effective throughput, bytes per second
 
     commp_valid                Nullable(Bool),                    -- null when retrieval failed before CommP could be hashed
-    car_status                 LowCardinality(String),            -- 'parseable' | 'not_parseable' | 'skipped' | 'error' — mirrors anonCarParseStatus; skipped when piece fetch failed, piece is not IPFS-indexed, or the job aborted before parsing
+    car_status                 LowCardinality(String),            -- 'parseable' | 'not_parseable' | 'skipped' — mirrors anonCarParseStatus; skipped when piece fetch failed, piece is not IPFS-indexed, or the job aborted before parsing
     car_block_count            Nullable(UInt32),                  -- total number of blocks observed inside the CAR; null when skipped or not parseable
     block_fetch_endpoint       Nullable(String),                  -- gateway base URL probed for block fetch (e.g. {spBaseUrl}/ipfs/); null when skipped
-    block_fetch_status         LowCardinality(String),            -- 'valid' | 'invalid' | 'skipped' | 'error' — mirrors anonBlockFetchStatus; skipped when CAR validation didn't run or SP info missing
+    block_fetch_status         LowCardinality(String),            -- 'success' | 'failure' | 'skipped' | 'error' — mirrors anonBlockFetchStatus; skipped when CAR validation didn't run or SP info missing
     block_fetch_sampled_count  Nullable(UInt32),                  -- number of blocks sampled and probed via /ipfs/<cid>?format=raw
     block_fetch_failed_count   Nullable(UInt32),                  -- number of sampled blocks that failed (non-2xx, hash mismatch, unsupported codec, or transport error)
 

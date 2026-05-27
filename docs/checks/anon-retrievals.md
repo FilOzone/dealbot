@@ -101,7 +101,7 @@ Source: [`piece-validation.service.ts`](../../apps/backend/src/retrieval-anon/pi
 
 ## Sub-status meanings
 
-Unlike the [Data Storage check](./data-storage.md#deal-status-progression), anonymous retrieval does **not** have a rolled-up status (e.g., `anonRetrievalStatus). Piece retrieval, CAR parsing, IPNI verification, block-fetch outcomes are recorded independently. Each status metric below is emitted exactly once per check, except when `anonPieceRetrievalStatus=failure.no_piece` because selection itself fails.
+Unlike the [Data Storage check](./data-storage.md#deal-status-progression), anonymous retrieval does **not** have a rolled-up status (e.g., `anonRetrievalStatus). Piece retrieval, CAR parsing, IPNI verification, block-fetch outcomes are recorded independently. Each status metric below is emitted exactly once per check, except when `anonPieceRetrievalStatus=skipped` because selection itself failed and no HTTP/CAR/IPNI/block-fetch work ran.
 
 | anonPieceRetrievalStatus | Meaning |
 |--------|---------|
