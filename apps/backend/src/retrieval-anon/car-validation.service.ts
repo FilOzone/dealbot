@@ -193,6 +193,18 @@ export class CarValidationService {
           signal,
         });
 
+        if (resp.aborted) {
+          failedCount += 1;
+          this.logger.warn({
+            event: "block_fetch_aborted",
+            message: "Block fetch was aborted",
+            cid: cidStr,
+            spAddress,
+            abortReason: resp.abortReason,
+          });
+          continue;
+        }
+
         if (resp.metrics.statusCode < 200 || resp.metrics.statusCode >= 300) {
           failedCount += 1;
           this.logger.warn({
