@@ -35,13 +35,13 @@ Unlike the [Retrieval check](./retrievals.md#piece-selection), dealbot does not 
 Selection strategy (per scheduled job, per SP):
 
 1. **Pick a size bucket** by weighted random:
-   - `small` (1–20 MiB) — 20%
-   - `medium` (20–50 MiB) — 50%
+   - `small` (1–10 MiB) — 20%
+   - `medium` (10–50 MiB) — 50%
    - `large` (50–100 MiB) — 30%
 2. **Pick a pool**:
    - `indexed` (IPFS-indexed pieces) — 80%
    - `any` (all FWSS pieces) — 20%
-3. **Generate a uniform-random `sampleKey`** and query the subgraph for the smallest `Root.sampleKey ≥ $sampleKey` matching the SP, payer, size range, and pool filters.
+3. **Generate a uniform-random `sampleKey`** and query the subgraph for the smallest `Root.sampleKey ≥ $sampleKey` matching the SP, payer, size range, and pool filters. If no such row exists (the random key fell above every matching `sampleKey`), `sampleAnonPiece` retries in the reverse direction (largest `sampleKey < $sampleKey`) so the highest keys are not a dead zone.
 4. **Drop the candidate** if `pdpPaymentEndEpoch` has passed.
 5. **Fall back** through: (same bucket, opposite pool) → (any bucket, indexed) → (any bucket, any).
 
@@ -59,7 +59,7 @@ flowchart TD
   Select["Sample anonymous piece for SP from subgraph"] --> Fetch["GET /piece/{pieceCid}"]
   Fetch --> CommP["Hash bytes → verify CommP"]
   CommP --> HasIpfs{"piece.withIPFSIndexing<br/>and ipfsRootCid?"}
-  HasIpfs -- "no" --> Record["Persist Clickhosue row + emit Prometheus metrics"]
+  HasIpfs -- "no" --> Record["Persist ClickHouse row + emit Prometheus metrics"]
   HasIpfs -- "yes" --> ParseCar["Parse bytes as CAR"]
   ParseCar --> SampleBlocks["Pick N random CIDs<br/>(ANON_RETRIEVAL_BLOCK_SAMPLE_COUNT)"]
   SampleBlocks --> Ipni["IPNI: verify SP advertises root + sampled CIDs"]
@@ -72,7 +72,7 @@ flowchart TD
 ### Piece Fetch
 
 - **URL:** `{spBaseUrl}/piece/{pieceCid}` (HTTP/2)
-- **Buffered in memory** — piece sizes are capped at 500 MiB by selection.
+- **Buffered in memory** — piece sizes are capped at 100 MiB by selection (the upper bound of the `large` bucket).
 - **Validates CommP** — the CommP of the response bytes must match `pieceCid`.
 
 Source: [`piece-retrieval.service.ts`](../../apps/backend/src/retrieval-anon/piece-retrieval.service.ts)
@@ -158,13 +158,13 @@ The DDL and column-level comments in [`clickhouse.schema.ts`](../../apps/backend
 | `http_response_code` | Raw HTTP status; null on transport failure |
 | `first_byte_ms`, `last_byte_ms`, `bytes_retrieved`, `throughput_bps` | Piece-fetch performance |
 | `commp_valid` | Null when retrieval failed before CommP could be hashed |
-| `car_status` | `parseable` \| `not_parseable` \| `skipped` \| `error` — mirrors `anonCarParseStatus` |
+| `car_status` | `parseable` \| `not_parseable` \| `skipped` — mirrors `anonCarParseStatus` |
 | `car_block_count` | Total CAR block count; null unless `car_status='parseable'` |
 | `block_fetch_endpoint` | Gateway base URL probed; null when skipped or SP info missing |
-| `block_fetch_status` | `valid` \| `invalid` \| `skipped` \| `error` — mirrors `anonBlockFetchStatus` |
+| `block_fetch_status` | `success` \| `failure` \| `skipped` \| `error` — mirrors `anonBlockFetchStatus` |
 | `block_fetch_sampled_count`, `block_fetch_failed_count` | Sampled / failed block counts; null when skipped |
 | `ipni_status` | `valid` \| `invalid` \| `skipped` \| `error` — mirrors `anonIpniStatus` |
-| `ipni_verify_ms`, `ipni_verified_cids_count`, `ipni_unverified_cids_count` | IPNI check details |
+| `ipni_verify_ms` | IPNI verification duration; null when skipped |
 | `error_message` | Failure reason; null on success |
 
 Source: [`anon-retrieval.service.ts`](../../apps/backend/src/retrieval-anon/anon-retrieval.service.ts)
