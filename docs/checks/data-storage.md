@@ -34,7 +34,8 @@ Each deal asserts the following for every SP:
 | 2 | Piece submission recorded on-chain | Synapse `piecesAdded` progress event fires with a transaction hash | Onchain | n/a | [`pieceAddedOnChainMs`](./events-and-metrics.md#pieceAddedOnChainMs) | Yes |
 | 3 | Piece is confirmed on-chain | Synapse `piecesConfirmed` progress event fires | Onchain | n/a | [`pieceConfirmedOnChainMs`](./events-and-metrics.md#pieceConfirmedOnChainMs) | Yes |
 | 4 | SP indexes piece locally | PDP server reports `indexed: true` | Discoverability | n/a | [`spIndexLocallyMs`](./events-and-metrics.md#spIndexLocallyMs) | Yes |
-| 5 | Content is discoverable on filecoinpin.contact | IPNI index returns a <IpfsRootCid,SP> provider record | Discoverability | Polling with delay until timeout | [`ipniVerifyMs`](./events-and-metrics.md#ipniVerifyMs) | Yes |
+| 5 | Content is discoverable on filecoinpin.contact | IPNI index returns a <IpfsRootCid,SP> provider record on filecoinpin.contact. Drives the Discoverability sub-status. | Discoverability | Polling with delay until timeout | [`ipniVerifyMs`](./events-and-metrics.md#ipniVerifyMs) | Yes |
+| 5b | Content is discoverable on cid.contact (cross-check) | IPNI index returns a <IpfsRootCid,SP> provider record on cid.contact. Only attempted when step 5 succeeds. Does not affect the Discoverability sub-status. | Discoverability | Polling with delay until timeout | [`ipniVerifyMs`](./events-and-metrics.md#ipniVerifyMs), [`cidContactStatus`](./events-and-metrics.md#cidContactStatus) | Yes |
 | 6 | Content is retrievable | See [Retrieval Check](./retrievals.md#what-gets-asserted) for specific assertions | Retrieval | 0 | [`ipfsRetrievalLastByteMs`](./events-and-metrics.md#ipfsRetrievalLastByteMs) | Yes |
 | 7 | All checks pass | Deal is not marked successful until all assertions pass within window | All four | n/a | [`dataStorageCheckMs`](./events-and-metrics.md#dataStorageCheckMs) | Yes |
 
@@ -98,13 +99,16 @@ Source: [`ipni.strategy.ts` (`monitorPieceStatus`)](../../apps/backend/src/deal-
 
 ### 6. Verify IPNI indexing
 
-After the SP announces the piece index to IPNI, dealbot ensures the uploaded piece can be discovered by others with [standard IPFS tooling](https://github.com/filecoin-project/filecoin-pin/blob/master/documentation/glossary.md#standard-ipfs-tooling).  It does this by polling filecoinpin.contact for a valid provider record for the <IPFSRootCid,SP>.  
+After the SP announces the piece index to IPNI, dealbot ensures the uploaded piece can be discovered by others with [standard IPFS tooling](https://github.com/filecoin-project/filecoin-pin/blob/master/documentation/glossary.md#standard-ipfs-tooling). It does this in two sequential stages using the `waitForIpniProviderResults` function from the `filecoin-pin` library, passing an explicit `ipniIndexerUrl` for each call:
 
-This uses the `waitForIpniProviderResults` function from the `filecoin-pin` library.
+1. **filecoinpin.contact check:** Polls filecoinpin.contact for a valid <IpfsRootCid,SP> provider record. This result drives the Discoverability sub-status. If the CID is not confirmed here, the cid.contact check is skipped.
+2. **cid.contact check:** Only attempted when the filecoinpin.contact check succeeds. Polls cid.contact for the same provider record. The outcome is recorded in [`cidContactStatus`](./events-and-metrics.md#cidContactStatus) but does not affect the Discoverability sub-status.
 
 - **Polling interval:** 2 seconds (configurable via [`IPNI_VERIFICATION_POLLING_MS`](../environment-variables.md#ipni_verification_polling_ms), default `2000`)
 
-For data-storage checks, [`ipniVerifyMs`](./events-and-metrics.md#ipniVerifyMs) is measured from the SP's `advertisedAt` timestamp to the end of filecoinpin.contact verification when the SP provides a sane timestamp. This attributes the full "announced to visible on filecoinpin.contact" window instead of only dealbot's local polling window.
+For data-storage checks, the filecoinpin.contact [`ipniVerifyMs`](./events-and-metrics.md#ipniVerifyMs) observation is measured from the SP's `advertisedAt` timestamp to the end of filecoinpin.contact verification when the SP provides a sane timestamp. This attributes the full "announced to visible on filecoinpin.contact" window instead of only dealbot's local polling window.
+
+The timer-start for the cid.contact observation is TBD: using `advertisedAt` measures the full propagation window to cid.contact (always ≥ the filecoinpin.contact value); using the filecoinpin.contact verification time as the start measures only the incremental propagation gap between the two indexers. Depends which is more useful for the dashboard.
 
 Source: [`ipni.strategy.ts` (`monitorAndVerifyIPNI`)](../../apps/backend/src/deal-addons/strategies/ipni.strategy.ts)
 
