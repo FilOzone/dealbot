@@ -154,7 +154,7 @@ sequenceDiagram
 | <a id="pullRequestProviderStatus"></a>`pullRequestProviderStatus` | Pull | When the SP reports a terminal pull status via `waitForPullPieces`. Recorded exactly once per check (intermediate poll statuses are not counted). | Raw SP-reported pull status, for example `complete`, `failed`, `not_found`. Use this to separate SP-side pull failures from dealbot-side validation failures. |  | 1 | [`pull-check.service.ts`](../../apps/backend/src/pull-check/pull-check.service.ts) |
 | <a id="pullCheckStatus"></a>`pullCheckStatus` | Pull | When the [Pull Check](./pull-check.md) terminates (success after direct piece validation, or any failure). Recorded exactly once per check. | `success`, `failure.timedout`, `failure.other` from [Pull Check Status](./pull-check.md#pull-check-status). |  | 1 | [`pull-check.service.ts`](../../apps/backend/src/pull-check/pull-check.service.ts) |
 
-## Other Gauges
+### Other Gauges
 
 Unlike the [count metrics](#count-related-metrics) above, gauges below expose a **level** (for example overdue proving periods right now). They do not use the `value` outcome label. The scraped sample magnitude is the "Gauge Value" measurement.
 
