@@ -141,5 +141,7 @@ export interface MonitorAndVerifyResult {
   ipniResult: IPNIVerificationResult;
   /** null when cid.contact check was skipped because filecoinpin.contact did not verify */
   cidContactResult: IPNIVerificationResult | null;
+  /** the actual timeout budget given to the cid.contact check (remaining after filecoinpin.contact) */
+  cidContactTimeoutMs: number | null;
   skipped?: boolean;
 }
