@@ -371,6 +371,7 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       return {
         monitoringResult,
         cidContactResult: null,
+        cidContactTimeoutMs: null,
         skipped: true,
         ipniResult: {
           verified: 0,
@@ -401,6 +402,7 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       return {
         monitoringResult,
         cidContactResult: null,
+        cidContactTimeoutMs: null,
         skipped: true,
         ipniResult: {
           verified: 0,
@@ -476,6 +478,7 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
     // before filecoinpin.contact confirms would cache a false negative.
     signal?.throwIfAborted();
     let cidContactResult: IPNIVerificationResult | null = null;
+    let cidContactTimeoutMs: number | null = null;
     if (ipniResult.rootCIDVerified) {
       this.logger.log({
         ...dealLogContext,
@@ -485,24 +488,27 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
         blockCIDCount: blockCIDs.length,
       });
       const cidContactVerifyStartMs = Date.now();
+      cidContactTimeoutMs = Math.max(1, ipniTimeoutMs - (Date.now() - ipniVerifyStartMs));
       try {
         cidContactResult = await this.ipniVerificationService.verify({
           rootCid: rootCidObj,
           blockCids: blockCIDs,
           storageProvider,
-          timeoutMs: ipniTimeoutMs,
+          timeoutMs: cidContactTimeoutMs,
           pollIntervalMs: ipniPollIntervalMs,
           ipniIndexerUrl: CID_INDEXER_URL,
           signal,
         });
       } catch (error) {
-        // cid.contact failure must not propagate — it is observational only and
-        // does not affect Discoverability sub-status or the deal outcome.
+        // Re-throw abort errors — the job-level signal must not be swallowed here.
+        if (signal?.aborted) throw error;
+        // Non-abort cid.contact failures must not propagate — it is observational
+        // only and does not affect Discoverability sub-status or the deal outcome.
         const durationMs = Date.now() - cidContactVerifyStartMs;
         this.discoverabilityMetrics.observeIpniVerifyMs(
           this.discoverabilityMetrics.buildLabelsForDeal(deal),
           durationMs,
-          signal?.aborted ? "failure.timedout" : "failure.other",
+          "failure.other",
           "cid.contact",
         );
         this.logger.warn({
@@ -519,6 +525,7 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       monitoringResult,
       ipniResult,
       cidContactResult,
+      cidContactTimeoutMs,
     };
   }
 
@@ -961,12 +968,12 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
     this.discoverabilityMetrics.recordStatus(labels, finalDiscoverabilityStatus);
 
     // cid.contact cross-check metrics — emitted once per deal regardless of outcome
-    const { cidContactResult } = result;
+    const { cidContactResult, cidContactTimeoutMs } = result;
     let cidContactOutcome: CidContactVerificationOutcome;
     if (result.skipped || !ipniResult.rootCIDVerified) {
       cidContactOutcome = "skipped";
     } else if (cidContactResult) {
-      const verifyOutcome = classifyIpniVerifyOutcome(cidContactResult, ipniTimeoutMs);
+      const verifyOutcome = classifyIpniVerifyOutcome(cidContactResult, cidContactTimeoutMs ?? ipniTimeoutMs);
       // Timer start = filecoinpin.contact completion; durationMs from verify() IS that window
       this.discoverabilityMetrics.observeIpniVerifyMs(
         labels,
