@@ -102,7 +102,7 @@ const metricProviders = [
     // docs/checks/events-and-metrics.md#ipniVerifyMs
     name: "ipniVerifyMs",
     help: "IPNI verification duration (ms)",
-    labelNames: ["checkType", "providerId", "providerName", "providerStatus", "value"] as const,
+    labelNames: ["checkType", "providerId", "providerName", "providerStatus", "value", "indexer"] as const,
     buckets: [10, 50, 100, 500, 1000, 2000, 5000, 10000, 30000, 60000, 90000, 120000, 180000, 240000, 300000],
   }),
   makeHistogramProvider({
@@ -177,6 +177,12 @@ const metricProviders = [
     // docs/checks/data-storage.md#sub-status-meanings (Discoverability Status)
     name: "discoverabilityStatus",
     help: "Discoverability sub-status counts",
+    labelNames: ["checkType", "providerId", "providerName", "providerStatus", "value"] as const,
+  }),
+  makeCounterProvider({
+    // docs/checks/data-storage.md#cid-contact-verification-status
+    name: "cidContactVerification",
+    help: "cid.contact IPNI cross-check outcome counts",
     labelNames: ["checkType", "providerId", "providerName", "providerStatus", "value"] as const,
   }),
   makeCounterProvider({

@@ -139,5 +139,7 @@ export interface SingleCIDVerificationResult {
 export interface MonitorAndVerifyResult {
   monitoringResult: PieceMonitoringResult;
   ipniResult: IPNIVerificationResult;
+  /** null when cid.contact check was skipped because filecoinpin.contact did not verify */
+  cidContactResult: IPNIVerificationResult | null;
   skipped?: boolean;
 }
