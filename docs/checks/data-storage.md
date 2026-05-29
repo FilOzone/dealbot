@@ -35,7 +35,7 @@ Each deal asserts the following for every SP:
 | 3 | Piece is confirmed on-chain | Synapse `piecesConfirmed` progress event fires | Onchain | n/a | [`pieceConfirmedOnChainMs`](./events-and-metrics.md#pieceConfirmedOnChainMs) | Yes |
 | 4 | SP indexes piece locally | PDP server reports `indexed: true` | Discoverability | n/a | [`spIndexLocallyMs`](./events-and-metrics.md#spIndexLocallyMs) | Yes |
 | 5 | Content is discoverable on filecoinpin.contact | IPNI index returns a <IpfsRootCid,SP> provider record on filecoinpin.contact. Drives the Discoverability sub-status. | Discoverability (indexer=filecoinpin.contact) | Polling with delay until timeout | [`ipniVerifyMs`](./events-and-metrics.md#ipniVerifyMs) | Yes |
-| 5b | Content is discoverable on cid.contact (cross-check) | IPNI index returns a <IpfsRootCid,SP> provider record on cid.contact. Only attempted when step 5 succeeds. | cid.contact Verification | Polling with delay until timeout | [`ipniVerifyMs`](./events-and-metrics.md#ipniVerifyMs) | Yes |
+| 5b | Content is discoverable on cid.contact (observational cross-check) | IPNI index returns a <IpfsRootCid,SP> provider record on cid.contact. Only attempted when step 5 succeeds and does not affect deal success/failure. | cid.contact Verification | Polling with delay until timeout | [`ipniVerifyMs`](./events-and-metrics.md#ipniVerifyMs) | Yes |
 | 6 | Content is retrievable | See [Retrieval Check](./retrievals.md#what-gets-asserted) for specific assertions | Retrieval | 0 | [`ipfsRetrievalLastByteMs`](./events-and-metrics.md#ipfsRetrievalLastByteMs) | Yes |
 | 7 | All checks pass | Deal is not marked successful until all assertions pass within window | All four | n/a | [`dataStorageCheckMs`](./events-and-metrics.md#dataStorageCheckMs) | Yes |
 
