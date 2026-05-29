@@ -10,6 +10,15 @@ export function getRootEntityId(setId: BigInt, rootId: BigInt): Bytes {
   return Bytes.fromUTF8(setId.toString() + "-" + rootId.toString());
 }
 
+// Entity id for PendingPaymentTermination buckets, keyed by termination epoch.
+// Uses the decimal string form (not Bytes.fromBigInt) because that encoding
+// is length-stable across BigInts coming from event params vs loaded from
+// the store — `Bytes.fromBigInt` returns variable-length minimal bytes that
+// can differ between the two sources for the same numeric value.
+export function getBucketId(epoch: BigInt): Bytes {
+  return Bytes.fromUTF8(epoch.toString());
+}
+
 // Uniform pseudorandom sort key for Root entities. Used by dealbot to draw
 // random pieces fairly via `orderBy: sampleKey, where: { sampleKey_gte: X }`,
 // which needs a key distributed independently of setId/rootId.
