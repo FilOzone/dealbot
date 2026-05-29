@@ -29,23 +29,22 @@ export enum IpniStatus {
 }
 
 export enum IpniCheckStatus {
-  VALID = "valid",
-  INVALID = "invalid",
+  SUCCESS = "success",
   SKIPPED = "skipped",
-  ERROR = "error",
+  FAILURE_TIMEDOUT = "failure.timedout",
+  FAILURE_OTHER = "failure.other",
 }
 
 export enum CarParseStatus {
-  PARSEABLE = "parseable",
-  NOT_PARSEABLE = "not_parseable",
+  SUCCESS = "success",
   SKIPPED = "skipped",
+  FAILURE_NOT_PARSEABLE = "failure.not_parseable",
 }
 
 export enum BlockFetchStatus {
   SUCCESS = "success",
-  FAILURE = "failure",
   SKIPPED = "skipped",
-  ERROR = "error",
+  FAILURE_OTHER = "failure.other",
 }
 
 /**

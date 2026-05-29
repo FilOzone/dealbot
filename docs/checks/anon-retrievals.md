@@ -85,7 +85,7 @@ When the selected piece has `withIPFSIndexing = true` and a non-null `ipfsRootCi
 2. **IPNI check:** `IpniVerificationService.verify(rootCid, sampledCids, sp)` polls filecoinpin.contact until each CID resolves to the SP under test, the timeout fires, or `IPNI_VERIFICATION_TIMEOUT_MS` is reached.
 3. **Block fetch check:** for each sampled CID, fetch `{spBaseUrl}/ipfs/{cid}?format=raw` and hash-verify the response against the CID. Non-2xx, hash mismatch, unsupported codec, or transport errors all count as a single failed block.
 
-CAR parse failure (`not_parseable`) is attributed to the client (bad upload), not the SP. When the CAR is unparseable, IPNI and block fetch are skipped because there are no sampleable CIDs to verify or fetch.
+CAR parse failure (`failure.not_parseable`) is attributed to the client (bad upload), not the SP. When the CAR is unparseable, IPNI and block fetch are skipped because there are no sampleable CIDs to verify or fetch.
 
 Source: [`piece-validation.service.ts`](../../apps/backend/src/retrieval-anon/piece-validation.service.ts)
 
@@ -114,23 +114,22 @@ Unlike the [Data Storage check](./data-storage.md#deal-status-progression), anon
 
 | anonCarParseStatus | Meaning                                                                                                                                               |
 |--------|-------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `parseable` | The fetched piece bytes were successfully parsed as a CAR by `@ipld/car`.                                                                             |
-| `not_parseable` | The fetched piece bytes could not be parsed as a CAR (malformed header, truncated content, unexpected encoding, or parser threw an error). |
+| `success` | The fetched piece bytes were successfully parsed as a CAR by `@ipld/car`.                                                                             |
 | `skipped` | CAR parsing was not attempted — piece fetch failed, the piece does not advertise IPFS indexing, or the job aborted before parsing.                    |
+| `failure.not_parseable` | The fetched piece bytes could not be parsed as a CAR (malformed header, truncated content, unexpected encoding, or parser threw an error). Attributed to the client (bad upload), not the SP. |
 
 | anonIpniStatus | Meaning |
 |--------|---------|
-| `valid` | filecoinpin.contact returned the SP as a provider for the root CID **and** every sampled child CID within `IPNI_VERIFICATION_TIMEOUT_MS`. |
-| `invalid` | IPNI was queried but at least one CID never resolved to the SP under test before the timeout (or the timeout fired with unresolved CIDs). |
-| `skipped` | IPNI verification was not attempted — piece fetch failed, the piece does not advertise IPFS indexing, CAR parsing returned `not_parseable`, the root CID itself failed to parse, or the job aborted. |
-| `error` | IPNI verification was attempted and `IpniVerificationService.verify` threw unexpectedly (transport error, service down, etc.). |
+| `success` | filecoinpin.contact returned the SP as a provider for the root CID **and** every sampled child CID within `IPNI_VERIFICATION_TIMEOUT_MS`. |
+| `skipped` | IPNI verification was not attempted — piece fetch failed, the piece does not advertise IPFS indexing, CAR parsing returned `failure.not_parseable`, the root CID itself failed to parse, or the job aborted. |
+| `failure.timedout` | IPNI was queried but at least one CID never resolved to the SP under test before `IPNI_VERIFICATION_TIMEOUT_MS` (the poll loop exhausted its timeout with unresolved CIDs). |
+| `failure.other` | IPNI verification was attempted and `IpniVerificationService.verify` threw unexpectedly (transport error, service down, etc.). |
 
 | anonBlockFetchStatus | Meaning |
 |--------|---------|
 | `success` | Every sampled CID was fetched via `GET {spBaseUrl}/ipfs/{cid}?format=raw` and the response bytes hash-verified against the declared CID. |
-| `failure` | At least one sampled block fetch failed: non-2xx HTTP, hash mismatch, unsupported codec, unsupported hash, or transport error. Each failed sample counts as one failed block. |
-| `skipped` | Block-fetch sampling was not attempted — piece fetch failed, the piece does not advertise IPFS indexing, CAR parsing returned `not_parseable`, or the job aborted. |
-| `error` | Block-fetch sampling was attempted but the loop threw unexpectedly outside the per-block try/catch. |
+| `skipped` | Block-fetch sampling was not attempted — piece fetch failed, the piece does not advertise IPFS indexing, CAR parsing returned `failure.not_parseable`, or the job aborted. |
+| `failure.other` | At least one sampled block fetch failed (non-2xx HTTP, hash mismatch, unsupported codec, unsupported hash, or transport error — each failed sample counts as one failed block), **or** the sampling loop threw unexpectedly outside the per-block try/catch. Per-block granularity lives in `block_fetch_failed_count`. |
 
 Sources:
 - [`anon-retrieval.service.ts`](../../apps/backend/src/retrieval-anon/anon-retrieval.service.ts) — orchestrates the dimensions and emits the four status metrics
@@ -158,12 +157,12 @@ The DDL and column-level comments in [`clickhouse.schema.ts`](../../apps/backend
 | `http_response_code` | Raw HTTP status; null on transport failure |
 | `first_byte_ms`, `last_byte_ms`, `bytes_retrieved`, `throughput_bps` | Piece-fetch performance |
 | `commp_valid` | Null when retrieval failed before CommP could be hashed |
-| `car_status` | `parseable` \| `not_parseable` \| `skipped` — mirrors `anonCarParseStatus` |
+| `car_status` | `success` \| `skipped` \| `failure.not_parseable` — mirrors `anonCarParseStatus` |
 | `car_block_count` | Total CAR block count; null unless `car_status='parseable'` |
 | `block_fetch_endpoint` | Gateway base URL probed; null when skipped or SP info missing |
-| `block_fetch_status` | `success` \| `failure` \| `skipped` \| `error` — mirrors `anonBlockFetchStatus` |
+| `block_fetch_status` | `success` \| `skipped` \| `failure.other` — mirrors `anonBlockFetchStatus` |
 | `block_fetch_sampled_count`, `block_fetch_failed_count` | Sampled / failed block counts; null when skipped |
-| `ipni_status` | `valid` \| `invalid` \| `skipped` \| `error` — mirrors `anonIpniStatus` |
+| `ipni_status` | `success` \| `skipped` \| `failure.timedout` \| `failure.other` — mirrors `anonIpniStatus` |
 | `ipni_verify_ms` | IPNI verification duration; null when skipped |
 | `error_message` | Failure reason; null on success |
 

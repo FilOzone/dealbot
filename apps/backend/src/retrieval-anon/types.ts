@@ -32,17 +32,17 @@ export type PieceRetrievalResult = {
 export type SampledBlock = { cid: CID; bytes: Uint8Array };
 
 /**
- * Result of CAR parsing. SKIPPED / ERROR are never produced here — the
+ * Result of CAR parsing. SKIPPED is never produced here — the
  * caller decides "this dimension never ran" semantics.
  */
 export type CarParseOutcome =
-  | { status: CarParseStatus.PARSEABLE; blockCount: number; sampledBlocks: SampledBlock[] }
-  | { status: CarParseStatus.NOT_PARSEABLE; errorMessage?: string };
+  | { status: CarParseStatus.SUCCESS; blockCount: number; sampledBlocks: SampledBlock[] }
+  | { status: CarParseStatus.FAILURE_NOT_PARSEABLE; errorMessage?: string };
 
 /**
  * Result of an IPNI verification attempt. `SKIPPED` is returned when a
- * structural prerequisite couldn't be met (root CID won't parse). `ERROR`
- * is reserved for unexpected exceptions raised by the verifier.
+ * structural prerequisite couldn't be met (root CID won't parse).
+ * `FAILURE_OTHER` is reserved for unexpected exceptions raised by the verifier.
  */
 export type IpniCheckOutcome = {
   status: IpniCheckStatus;
@@ -52,7 +52,8 @@ export type IpniCheckOutcome = {
 /**
  * Result of the block-fetch sampling step. `SKIPPED` is returned when a
  * structural prerequisite couldn't be met (SP info not registered).
- * `ERROR` is reserved for unexpected exceptions raised by the fetcher.
+ * `FAILURE_OTHER` covers both block verification failures and unexpected
+ * exceptions raised by the fetcher.
  */
 export type BlockFetchOutcome = {
   status: BlockFetchStatus;

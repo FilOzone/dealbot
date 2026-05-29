@@ -95,7 +95,7 @@ export class AnonRetrievalService {
         try {
           parse = await this.pieceValidationService.parseCar(pieceResult.pieceBytes, signal);
 
-          if (parse.status === CarParseStatus.PARSEABLE) {
+          if (parse.status === CarParseStatus.SUCCESS) {
             ipni = await this.pieceValidationService.checkIpni(
               provider,
               piece.ipfsRootCid,
@@ -161,11 +161,11 @@ export class AnonRetrievalService {
           throughput_bps: finalPieceResult.throughputBps > 0 ? Math.round(finalPieceResult.throughputBps) : null,
           commp_valid: !finalPieceResult.aborted && finalPieceResult.httpSuccess ? finalPieceResult.commPValid : null,
           car_status: carStatus,
-          car_block_count: parse && parse.status === CarParseStatus.PARSEABLE ? parse.blockCount : null,
+          car_block_count: parse && parse.status === CarParseStatus.SUCCESS ? parse.blockCount : null,
           block_fetch_endpoint: blockFetch?.endpoint ?? null,
           block_fetch_status: blockFetchStatus,
           block_fetch_sampled_count:
-            parse?.status === CarParseStatus.PARSEABLE && blockFetch ? blockFetch.sampledCount : null,
+            parse?.status === CarParseStatus.SUCCESS && blockFetch ? blockFetch.sampledCount : null,
           block_fetch_failed_count: blockFetch?.failedCount ?? null,
           ipni_status: ipniStatus,
           ipni_verify_ms: ipni?.durationMs ?? null,
@@ -216,8 +216,8 @@ function anonPieceRetrievalStatus(pieceResult: PieceRetrievalResult): string {
  * The per-dimension statuses default to SKIPPED whenever the dimension's
  * prerequisite wasn't met — no IPFS indexing, piece fetch failed, the job
  * was aborted, or an upstream dimension didn't produce a usable result.
- * Service methods only ever return their concrete outcomes (VALID, INVALID,
- * NOT_PARSEABLE, etc.); SKIPPED is the helper's contribution.
+ * Service methods only ever return their concrete outcomes (success,
+ * failure.*, etc.); SKIPPED is the helper's contribution.
  */
 function carStatusForRow(parse: CarParseOutcome | null): CarParseStatus {
   if (!parse) return CarParseStatus.SKIPPED;
@@ -225,13 +225,13 @@ function carStatusForRow(parse: CarParseOutcome | null): CarParseStatus {
 }
 
 function ipniStatusForRow(parse: CarParseOutcome | null, ipni: IpniCheckOutcome | null): IpniCheckStatus {
-  if (!parse || parse.status !== CarParseStatus.PARSEABLE) return IpniCheckStatus.SKIPPED;
+  if (!parse || parse.status !== CarParseStatus.SUCCESS) return IpniCheckStatus.SKIPPED;
   if (!ipni) return IpniCheckStatus.SKIPPED;
   return ipni.status;
 }
 
 function blockFetchStatusForRow(parse: CarParseOutcome | null, blockFetch: BlockFetchOutcome | null): BlockFetchStatus {
-  if (!parse || parse.status !== CarParseStatus.PARSEABLE) return BlockFetchStatus.SKIPPED;
+  if (!parse || parse.status !== CarParseStatus.SUCCESS) return BlockFetchStatus.SKIPPED;
   if (!blockFetch) return BlockFetchStatus.SKIPPED;
   return blockFetch.status;
 }

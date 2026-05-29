@@ -87,19 +87,19 @@ function makeService(opts: {
     opts.parseCarImpl ??
       (async () =>
         opts.parseCarOutcome ?? {
-          status: CarParseStatus.PARSEABLE,
+          status: CarParseStatus.SUCCESS,
           blockCount: 0,
           sampledBlocks: SAMPLED_BLOCKS,
         }),
   );
   const checkIpniSpy = vi.fn(
-    opts.checkIpniImpl ?? (async () => opts.checkIpniOutcome ?? { status: IpniCheckStatus.VALID, durationMs: 0 }),
+    opts.checkIpniImpl ?? (async () => opts.checkIpniOutcome ?? { status: IpniCheckStatus.SUCCESS, durationMs: 0 }),
   );
   const checkBlockFetchSpy = vi.fn(
     opts.checkBlockFetchImpl ??
       (async () =>
         opts.checkBlockFetchOutcome ?? {
-          status: IpniCheckStatus.VALID,
+          status: IpniCheckStatus.SUCCESS,
           sampledCount: 0,
           failedCount: 0,
           endpoint: "https://sp.test/ipfs/",
@@ -292,8 +292,8 @@ describe("AnonRetrievalService", () => {
       const { service, insertSpy, parseCarSpy, checkIpniSpy, checkBlockFetchSpy } = makeService({
         pieceResult: okPiece(Buffer.from("car-bytes")),
         piece: INDEXED_PIECE,
-        parseCarOutcome: { status: CarParseStatus.PARSEABLE, blockCount: 42, sampledBlocks: SAMPLED_BLOCKS },
-        checkIpniOutcome: { status: IpniCheckStatus.VALID, durationMs: 137 },
+        parseCarOutcome: { status: CarParseStatus.SUCCESS, blockCount: 42, sampledBlocks: SAMPLED_BLOCKS },
+        checkIpniOutcome: { status: IpniCheckStatus.SUCCESS, durationMs: 137 },
         checkBlockFetchOutcome: {
           status: BlockFetchStatus.SUCCESS,
           sampledCount: 5,
@@ -310,24 +310,24 @@ describe("AnonRetrievalService", () => {
       const [, row] = insertSpy.mock.calls[0] as [string, Record<string, unknown>];
       expect(row.piece_fetch_status).toBe(RetrievalStatus.SUCCESS);
       expect(row.commp_valid).toBe(true);
-      expect(row.car_status).toBe("parseable");
+      expect(row.car_status).toBe("success");
       expect(row.car_block_count).toBe(42);
       expect(row.block_fetch_endpoint).toBe("https://sp.test/ipfs/");
       expect(row.block_fetch_status).toBe("success");
       expect(row.block_fetch_sampled_count).toBe(5);
       expect(row.block_fetch_failed_count).toBe(0);
-      expect(row.ipni_status).toBe("valid");
+      expect(row.ipni_status).toBe("success");
       expect(row.ipni_verify_ms).toBe(137);
     });
 
-    it("distinguishes IPNI invalid from block-fetch failures", async () => {
+    it("distinguishes IPNI failure.timedout from block-fetch failure.other", async () => {
       const { service, insertSpy } = makeService({
         pieceResult: okPiece(Buffer.from("car-bytes")),
         piece: INDEXED_PIECE,
-        parseCarOutcome: { status: CarParseStatus.PARSEABLE, blockCount: 100, sampledBlocks: SAMPLED_BLOCKS },
-        checkIpniOutcome: { status: IpniCheckStatus.INVALID, durationMs: 250 },
+        parseCarOutcome: { status: CarParseStatus.SUCCESS, blockCount: 100, sampledBlocks: SAMPLED_BLOCKS },
+        checkIpniOutcome: { status: IpniCheckStatus.FAILURE_TIMEDOUT, durationMs: 250 },
         checkBlockFetchOutcome: {
-          status: BlockFetchStatus.FAILURE,
+          status: BlockFetchStatus.FAILURE_OTHER,
           sampledCount: 5,
           failedCount: 2,
           endpoint: "https://sp.test/ipfs/",
@@ -340,20 +340,20 @@ describe("AnonRetrievalService", () => {
       // The piece-fetch path still succeeded — failures are surfaced as
       // independent dimensions, not folded into piece_fetch_status.
       expect(row.piece_fetch_status).toBe(RetrievalStatus.SUCCESS);
-      expect(row.car_status).toBe("parseable");
-      expect(row.ipni_status).toBe("invalid");
-      expect(row.block_fetch_status).toBe("failure");
+      expect(row.car_status).toBe("success");
+      expect(row.ipni_status).toBe("failure.timedout");
+      expect(row.block_fetch_status).toBe("failure.other");
       expect(row.block_fetch_sampled_count).toBe(5);
       expect(row.block_fetch_failed_count).toBe(2);
     });
 
-    it("skips downstream dimensions when parseCar returns NOT_PARSEABLE", async () => {
+    it("skips downstream dimensions when parseCar returns failure.not_parseable", async () => {
       // The decoupled service guarantees that an unparseable CAR never even
       // attempts IPNI or block fetch — there are no CIDs to verify or fetch.
       const { service, insertSpy, parseCarSpy, checkIpniSpy, checkBlockFetchSpy } = makeService({
         pieceResult: okPiece(Buffer.from("not-a-car")),
         piece: INDEXED_PIECE,
-        parseCarOutcome: { status: CarParseStatus.NOT_PARSEABLE },
+        parseCarOutcome: { status: CarParseStatus.FAILURE_NOT_PARSEABLE },
       });
 
       await service.performForProvider(SP_ADDRESS);
@@ -363,7 +363,7 @@ describe("AnonRetrievalService", () => {
       expect(checkBlockFetchSpy).not.toHaveBeenCalled();
 
       const [, row] = insertSpy.mock.calls[0] as [string, Record<string, unknown>];
-      expect(row.car_status).toBe("not_parseable");
+      expect(row.car_status).toBe("failure.not_parseable");
       expect(row.car_block_count).toBeNull();
       expect(row.block_fetch_sampled_count).toBeNull();
       expect(row.block_fetch_endpoint).toBeNull();
@@ -379,7 +379,7 @@ describe("AnonRetrievalService", () => {
       const { service, insertSpy, metricsRecordIpniSpy } = makeService({
         pieceResult: okPiece(Buffer.from("car-bytes")),
         piece: INDEXED_PIECE,
-        parseCarOutcome: { status: CarParseStatus.PARSEABLE, blockCount: 1, sampledBlocks: SAMPLED_BLOCKS },
+        parseCarOutcome: { status: CarParseStatus.SUCCESS, blockCount: 1, sampledBlocks: SAMPLED_BLOCKS },
         checkIpniOutcome: { status: IpniCheckStatus.SKIPPED, durationMs: null },
         checkBlockFetchOutcome: {
           status: BlockFetchStatus.SUCCESS,
@@ -395,19 +395,19 @@ describe("AnonRetrievalService", () => {
       const [, row] = insertSpy.mock.calls[0] as [string, Record<string, unknown>];
       expect(row.ipni_status).toBe("skipped");
       // car_status / block_fetch_status remain whatever their own steps returned.
-      expect(row.car_status).toBe("parseable");
+      expect(row.car_status).toBe("success");
       expect(row.block_fetch_status).toBe("success");
     });
 
-    it("propagates checkIpni's ERROR status only to ipni_status (not other dimensions)", async () => {
+    it("propagates checkIpni's failure.other status only to ipni_status (not other dimensions)", async () => {
       // The whole point of decoupling: an unexpected throw in IPNI verification
       // cannot bleed into car_status or block_fetch_status.
       const { service, insertSpy, metricsRecordIpniSpy, metricsRecordCarParseSpy, metricsRecordBlockFetchSpy } =
         makeService({
           pieceResult: okPiece(Buffer.from("car-bytes")),
           piece: INDEXED_PIECE,
-          parseCarOutcome: { status: CarParseStatus.PARSEABLE, blockCount: 1, sampledBlocks: SAMPLED_BLOCKS },
-          checkIpniOutcome: { status: IpniCheckStatus.ERROR, durationMs: null },
+          parseCarOutcome: { status: CarParseStatus.SUCCESS, blockCount: 1, sampledBlocks: SAMPLED_BLOCKS },
+          checkIpniOutcome: { status: IpniCheckStatus.FAILURE_OTHER, durationMs: null },
           checkBlockFetchOutcome: {
             status: BlockFetchStatus.SUCCESS,
             sampledCount: 1,
@@ -418,13 +418,13 @@ describe("AnonRetrievalService", () => {
 
       await service.performForProvider(SP_ADDRESS);
 
-      expect(metricsRecordCarParseSpy).toHaveBeenCalledWith(expect.anything(), CarParseStatus.PARSEABLE);
-      expect(metricsRecordIpniSpy).toHaveBeenCalledWith(expect.anything(), IpniCheckStatus.ERROR);
+      expect(metricsRecordCarParseSpy).toHaveBeenCalledWith(expect.anything(), CarParseStatus.SUCCESS);
+      expect(metricsRecordIpniSpy).toHaveBeenCalledWith(expect.anything(), IpniCheckStatus.FAILURE_OTHER);
       expect(metricsRecordBlockFetchSpy).toHaveBeenCalledWith(expect.anything(), BlockFetchStatus.SUCCESS);
 
       const [, row] = insertSpy.mock.calls[0] as [string, Record<string, unknown>];
-      expect(row.car_status).toBe("parseable");
-      expect(row.ipni_status).toBe("error");
+      expect(row.car_status).toBe("success");
+      expect(row.ipni_status).toBe("failure.other");
       expect(row.block_fetch_status).toBe("success");
     });
 
@@ -432,8 +432,8 @@ describe("AnonRetrievalService", () => {
       const { service, insertSpy } = makeService({
         pieceResult: okPiece(Buffer.from("car-bytes")),
         piece: INDEXED_PIECE,
-        parseCarOutcome: { status: CarParseStatus.PARSEABLE, blockCount: 1, sampledBlocks: SAMPLED_BLOCKS },
-        checkIpniOutcome: { status: IpniCheckStatus.VALID, durationMs: 50 },
+        parseCarOutcome: { status: CarParseStatus.SUCCESS, blockCount: 1, sampledBlocks: SAMPLED_BLOCKS },
+        checkIpniOutcome: { status: IpniCheckStatus.SUCCESS, durationMs: 50 },
         checkBlockFetchOutcome: {
           status: BlockFetchStatus.SKIPPED,
           sampledCount: 1,
@@ -446,8 +446,8 @@ describe("AnonRetrievalService", () => {
       await service.performForProvider(SP_ADDRESS);
 
       const [, row] = insertSpy.mock.calls[0] as [string, Record<string, unknown>];
-      expect(row.car_status).toBe("parseable");
-      expect(row.ipni_status).toBe("valid");
+      expect(row.car_status).toBe("success");
+      expect(row.ipni_status).toBe("success");
       expect(row.block_fetch_status).toBe("skipped");
       expect(row.block_fetch_endpoint).toBeNull();
       expect(row.block_fetch_failed_count).toBeNull();

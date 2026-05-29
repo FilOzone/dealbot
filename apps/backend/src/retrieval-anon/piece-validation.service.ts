@@ -43,7 +43,7 @@ export class PieceValidationService {
    * for downstream IPNI + block-fetch checks. CAR parse failure is
    * attributed to the client (bad upload), not the SP.
    *
-   * Returns `NOT_PARSEABLE` on parser exceptions. Propagates abort.
+   * Returns `failure.not_parseable` on parser exceptions. Propagates abort.
    */
   async parseCar(pieceBytes: Buffer, signal?: AbortSignal): Promise<CarParseOutcome> {
     let blocks: SampledBlock[];
@@ -56,12 +56,12 @@ export class PieceValidationService {
         message: "Failed to parse piece bytes as CAR - client fault, not SP",
         error: toStructuredError(error),
       });
-      return { status: CarParseStatus.NOT_PARSEABLE };
+      return { status: CarParseStatus.FAILURE_NOT_PARSEABLE };
     }
 
     if (blocks.length === 0) {
       return {
-        status: CarParseStatus.PARSEABLE,
+        status: CarParseStatus.SUCCESS,
         blockCount: 0,
         sampledBlocks: [],
       };
@@ -72,7 +72,7 @@ export class PieceValidationService {
     const sampledBlocks = shuffled.slice(0, sampleCount);
 
     return {
-      status: CarParseStatus.PARSEABLE,
+      status: CarParseStatus.SUCCESS,
       blockCount: blocks.length,
       sampledBlocks,
     };
@@ -116,7 +116,7 @@ export class PieceValidationService {
         signal,
       });
       return {
-        status: result.rootCIDVerified ? IpniCheckStatus.VALID : IpniCheckStatus.INVALID,
+        status: result.rootCIDVerified ? IpniCheckStatus.SUCCESS : IpniCheckStatus.FAILURE_TIMEDOUT,
         durationMs: result.durationMs,
       };
     } catch (error) {
@@ -128,16 +128,16 @@ export class PieceValidationService {
         ipfsRootCid,
         error: toStructuredError(error),
       });
-      return { status: IpniCheckStatus.ERROR, durationMs: null };
+      return { status: IpniCheckStatus.FAILURE_OTHER, durationMs: null };
     }
   }
 
   /**
    * Fetch each sampled block from the SP endpoint and hash-verify the
    * response against the declared CID. SKIPPED when SP info is missing
-   * (not the SP's fault — we couldn't even find the gateway). ERROR is
-   * reserved for unexpected exceptions outside the per-block loop;
-   * per-block failures aggregate into `failedCount` and map to INVALID.
+   * (not the SP's fault — we couldn't even find the gateway). Both per-block
+   * verification failures (aggregated into `failedCount`) and unexpected
+   * exceptions outside the per-block loop map to FAILURE_OTHER.
    */
   async checkBlockFetch(
     sampledBlocks: ReadonlyArray<SampledBlock>,
@@ -166,7 +166,7 @@ export class PieceValidationService {
         }
       }
       return {
-        status: failedCount === 0 ? BlockFetchStatus.SUCCESS : BlockFetchStatus.FAILURE,
+        status: failedCount === 0 ? BlockFetchStatus.SUCCESS : BlockFetchStatus.FAILURE_OTHER,
         sampledCount: sampledBlocks.length,
         failedCount,
         endpoint,
@@ -180,7 +180,7 @@ export class PieceValidationService {
         error: toStructuredError(error),
       });
       return {
-        status: BlockFetchStatus.ERROR,
+        status: BlockFetchStatus.FAILURE_OTHER,
         sampledCount: sampledBlocks.length,
         failedCount: null,
         endpoint,
