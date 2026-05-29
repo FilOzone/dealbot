@@ -105,9 +105,8 @@ After the SP announces the piece index to IPNI, dealbot ensures the uploaded pie
 2. **cid.contact check:** Only attempted when the filecoinpin.contact check succeeds. Polls cid.contact for the same provider record. The outcome is recorded in [`cidContactVerification`](./events-and-metrics.md#cidContactVerification) but does not affect the Discoverability sub-status.
    - Note: this sequential cid.contact check is intentional due to the negative caching of cid.contact. See [Why do we rely on filecoinpin.contact rather than cid.contact?](#why-do-we-rely-on-filecoinpincontact-rather-than-cidcontact) for more details.
 
+Additional notes:
 - **Polling interval:** 2 seconds (configurable via [`IPNI_VERIFICATION_POLLING_MS`](../environment-variables.md#ipni_verification_polling_ms))
-
-For data-storage checks:
 - [`ipniVerifyMs indexer=filecoinpin.contact`](./events-and-metrics.md#ipniVerifyMs) observation is measured from the SP's `advertisedAt` timestamp to the end of filecoinpin.contact verification when the SP provides a sane timestamp. This attributes the full "announced to visible on filecoinpin.contact" window instead of only dealbot's local polling window.
 - [`ipniVerifyMs indexer=cid.contact`](./events-and-metrics.md#ipniVerifyMs) observation is measured from filecoinpin.contact verification completion until verification completion on cid.contact. This captures the incremental propagation gap between the two indexers.
 
@@ -197,17 +196,17 @@ It's expected that a Data Storage check will still store an overall status for e
 | `failure.timedout` | Piece wasn't retrieved and verified within the allotted time. |
 | `failure.other` | Piece wasn't retrieved and verified for other reasons. |
 
-| cid.contact Verification Status | Meaning |
+| <a id="cid-contact-verification-status"></a>cid.contact Verification Status | Meaning |
 |--------|---------|
 | `pending` | cid.contact verification hasn't started yet because waiting for `Discoverability Status = success`. |
 | `success` | Root CID is discoverable via cid.contact and the SP is listed as a provider in the cid.contact response. |
-| `skipped` | cid.contact verification was not attempted because `Discoverability Status` is `skipped` or `failure.*` |
-| `failure.timedout` | Dealbot started but failed to verify <IPFSRootCid,SP> provider record within the allotted time |
+| `skipped` | cid.contact verification was not attempted because `Discoverability Status` is `skipped` or `failure.*`. |
+| `failure.timedout` | Dealbot started but failed to verify <IPFSRootCid,SP> provider record within the allotted time. |
 | `failure.other` | Dealbot started but failed to confirm <IPFSRootCid,SP> provider record for other reasons. |
 
-Sources: 
-- [`types.ts` (`DealStatus`)](../../apps/backend/src/database/types.ts#L1)
-- [`types.ts` (`IpniStatus`)](../../apps/backend/src/database/types.ts#L28)
+Prometheus outcome strings for the four Data Storage sub-statuses and overall check status are emitted via [`check-metrics.service.ts`](../../apps/backend/src/metrics-prometheus/check-metrics.service.ts) and [`classifyFailureStatus`](../../apps/backend/src/metrics-prometheus/check-metric-labels.ts). [`cidContactVerification`](./events-and-metrics.md#cidContactVerification) uses the cid.contact Verification Status values above.
+
+Deal entity progression uses [`DealStatus`](../../apps/backend/src/database/types.ts) and [`IpniStatus`](../../apps/backend/src/database/types.ts) (for example `sp_indexed`, `verified`) — these are coarser implementation states, not the dashboard `value` labels in the tables above.
 
 ## Metrics Recorded
 
