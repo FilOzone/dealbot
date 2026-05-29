@@ -16,6 +16,7 @@ import { HttpClientService } from "../../http-client/http-client.service.js";
 import { IpniVerificationService } from "../../ipni/ipni-verification.service.js";
 import { classifyFailureStatus } from "../../metrics-prometheus/check-metric-labels.js";
 import {
+  type CidContactVerificationOutcome,
   classifyIpniVerifyOutcome,
   DiscoverabilityCheckMetrics,
 } from "../../metrics-prometheus/check-metrics.service.js";
@@ -23,8 +24,16 @@ import {
 import type { IDealAddon } from "../interfaces/deal-addon.interface.js";
 import type { AddonExecutionContext, DealConfiguration, IpniPreprocessingResult, SynapseConfig } from "../types.js";
 import { AddonPriority } from "../types.js";
-import type { MonitorAndVerifyResult, PieceMonitoringResult, PieceStatus, PieceStatusResponse } from "./ipni.types.js";
+import type {
+  IPNIVerificationResult,
+  MonitorAndVerifyResult,
+  PieceMonitoringResult,
+  PieceStatus,
+  PieceStatusResponse,
+} from "./ipni.types.js";
 import { validatePieceStatusResponse } from "./ipni.types.js";
+
+const CID_INDEXER_URL = "https://cid.contact";
 
 /**
  * IPNI (InterPlanetary Network Indexer) add-on strategy
@@ -243,7 +252,13 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       signal?.throwIfAborted();
 
       // Update deal entity with tracking metrics
-      finalDiscoverabilityStatus = await this.updateDealWithIpniMetrics(deal, result, ipniTimeoutMs, dealLogContext);
+      finalDiscoverabilityStatus = await this.updateDealWithIpniMetrics(
+        deal,
+        result,
+        ipniTimeoutMs,
+        dealLogContext,
+        signal,
+      );
 
       signal?.throwIfAborted();
 
@@ -355,6 +370,7 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       });
       return {
         monitoringResult,
+        cidContactResult: null,
         skipped: true,
         ipniResult: {
           verified: 0,
@@ -384,6 +400,7 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       });
       return {
         monitoringResult,
+        cidContactResult: null,
         skipped: true,
         ipniResult: {
           verified: 0,
@@ -426,7 +443,8 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       this.discoverabilityMetrics.observeIpniVerifyMs(
         this.discoverabilityMetrics.buildLabelsForDeal(deal),
         durationMs,
-        signal?.aborted ? "timeout" : "error",
+        signal?.aborted ? "failure.timedout" : "failure.other",
+        "filecoinpin.contact",
       );
       throw error;
     }
@@ -453,9 +471,54 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       });
     }
 
+    // cid.contact cross-check — only runs when filecoinpin.contact verified.
+    // Sequential by design: cid.contact applies negative caching so querying
+    // before filecoinpin.contact confirms would cache a false negative.
+    signal?.throwIfAborted();
+    let cidContactResult: IPNIVerificationResult | null = null;
+    if (ipniResult.rootCIDVerified) {
+      this.logger.log({
+        ...dealLogContext,
+        event: "cid_contact_verification_started",
+        message: "Starting cid.contact cross-check",
+        rootCID,
+        blockCIDCount: blockCIDs.length,
+      });
+      const cidContactVerifyStartMs = Date.now();
+      try {
+        cidContactResult = await this.ipniVerificationService.verify({
+          rootCid: rootCidObj,
+          blockCids: blockCIDs,
+          storageProvider,
+          timeoutMs: ipniTimeoutMs,
+          pollIntervalMs: ipniPollIntervalMs,
+          ipniIndexerUrl: CID_INDEXER_URL,
+          signal,
+        });
+      } catch (error) {
+        // cid.contact failure must not propagate — it is observational only and
+        // does not affect Discoverability sub-status or the deal outcome.
+        const durationMs = Date.now() - cidContactVerifyStartMs;
+        this.discoverabilityMetrics.observeIpniVerifyMs(
+          this.discoverabilityMetrics.buildLabelsForDeal(deal),
+          durationMs,
+          signal?.aborted ? "failure.timedout" : "failure.other",
+          "cid.contact",
+        );
+        this.logger.warn({
+          ...dealLogContext,
+          event: "cid_contact_verification_error",
+          message: "cid.contact cross-check threw unexpectedly",
+          rootCID,
+          error: toStructuredError(error),
+        });
+      }
+    }
+
     return {
       monitoringResult,
       ipniResult,
+      cidContactResult,
     };
   }
 
@@ -698,6 +761,7 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
     result: MonitorAndVerifyResult,
     ipniTimeoutMs: number,
     dealLogContext: DealLogContext,
+    signal?: AbortSignal,
   ): Promise<string> {
     const { monitoringResult, ipniResult } = result;
     const { finalStatus } = monitoringResult;
@@ -840,6 +904,7 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
         labels,
         ipniVerifyMs,
         classifyIpniVerifyOutcome(ipniResult, ipniTimeoutMs),
+        "filecoinpin.contact",
       );
     }
 
@@ -894,6 +959,27 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       finalDiscoverabilityStatus = "failure.timedout";
     }
     this.discoverabilityMetrics.recordStatus(labels, finalDiscoverabilityStatus);
+
+    // cid.contact cross-check metrics — emitted once per deal regardless of outcome
+    const { cidContactResult } = result;
+    let cidContactOutcome: CidContactVerificationOutcome;
+    if (result.skipped || !ipniResult.rootCIDVerified) {
+      cidContactOutcome = "skipped";
+    } else if (cidContactResult) {
+      const verifyOutcome = classifyIpniVerifyOutcome(cidContactResult, ipniTimeoutMs);
+      // Timer start = filecoinpin.contact completion; durationMs from verify() IS that window
+      this.discoverabilityMetrics.observeIpniVerifyMs(
+        labels,
+        cidContactResult.durationMs,
+        verifyOutcome,
+        "cid.contact",
+      );
+      cidContactOutcome = verifyOutcome;
+    } else {
+      // verify() threw and was caught in monitorAndVerifyIPNI
+      cidContactOutcome = signal?.aborted ? "failure.timedout" : "failure.other";
+    }
+    this.discoverabilityMetrics.recordCidContactVerification(labels, cidContactOutcome);
 
     // Save the updated deal entity
     try {

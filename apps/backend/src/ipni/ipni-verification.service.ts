@@ -11,6 +11,7 @@ export type IpniVerificationInput = {
   storageProvider: StorageProvider;
   timeoutMs: number;
   pollIntervalMs: number;
+  ipniIndexerUrl?: string;
   signal?: AbortSignal;
 };
 
@@ -28,6 +29,7 @@ export class IpniVerificationService {
     storageProvider,
     timeoutMs,
     pollIntervalMs,
+    ipniIndexerUrl = "https://filecoinpin.contact",
     signal,
   }: IpniVerificationInput): Promise<IPNIVerificationResult> {
     const delayMs = Math.max(100, pollIntervalMs);
@@ -54,6 +56,7 @@ export class IpniVerificationService {
       providerId: storageProvider.providerId,
       providerName: storageProvider.name,
       serviceUrl: storageProvider.serviceUrl,
+      ipniIndexerUrl,
       blockCIDCount: blockCids.length,
       timeoutMs,
       pollIntervalMs: delayMs,
@@ -68,6 +71,7 @@ export class IpniVerificationService {
       delayMs,
       expectedProviders,
       signal: verificationSignal,
+      ipniIndexerUrl,
     }).catch((error) => {
       // Inner-timeout check runs first so the `ipni_verification_timed_out` event
       // fires even when the outer job signal aborts in the same tick. Otherwise
@@ -82,6 +86,7 @@ export class IpniVerificationService {
           providerId: storageProvider.providerId,
           providerName: storageProvider.name,
           serviceUrl: storageProvider.serviceUrl,
+          ipniIndexerUrl,
           blockCIDCount: blockCids.length,
           timeoutMs,
           pollIntervalMs: delayMs,
@@ -102,6 +107,7 @@ export class IpniVerificationService {
         providerId: storageProvider.providerId,
         providerName: storageProvider.name,
         serviceUrl: storageProvider.serviceUrl,
+        ipniIndexerUrl,
         blockCIDCount: blockCids.length,
         timeoutMs,
         pollIntervalMs: delayMs,
@@ -123,6 +129,7 @@ export class IpniVerificationService {
         providerName: storageProvider.name,
         verifyDurationMs: ipniVerificationDurationMs,
         blockCIDCount: blockCids.length,
+        ipniIndexerUrl,
       });
     }
 
