@@ -28,16 +28,16 @@ Failure occurs if any step fails or the deal exceeds its max allowed time. There
 
 Each deal asserts the following for every SP:
 
-| # | Assertion | How It's Checked | [Sub Status Affected](#sub-status-meanings) | Retries | Relevant Metric for Setting a Max Duration | Implemented? |
-|---|-----------|-----------------|:---:|:---:|-----------------------------------|:---:|
-| 1 | SP accepts piece upload | Upload completes without error (HTTP 200); piece CID is returned | Upload | 1 | [`ingestMs`](./events-and-metrics.md#ingestMs) | Yes |
-| 2 | Piece submission recorded on-chain | Synapse `piecesAdded` progress event fires with a transaction hash | Onchain | n/a | [`pieceAddedOnChainMs`](./events-and-metrics.md#pieceAddedOnChainMs) | Yes |
-| 3 | Piece is confirmed on-chain | Synapse `piecesConfirmed` progress event fires | Onchain | n/a | [`pieceConfirmedOnChainMs`](./events-and-metrics.md#pieceConfirmedOnChainMs) | Yes |
-| 4 | SP indexes piece locally | PDP server reports `indexed: true` | Discoverability | n/a | [`spIndexLocallyMs`](./events-and-metrics.md#spIndexLocallyMs) | Yes |
-| 5 | Content is discoverable on filecoinpin.contact | IPNI index returns a <IpfsRootCid,SP> provider record on filecoinpin.contact. Drives the Discoverability sub-status. | Discoverability (indexer=filecoinpin.contact) | Polling with delay until timeout | [`ipniVerifyMs`](./events-and-metrics.md#ipniVerifyMs) | Yes |
-| 5b | Content is discoverable on cid.contact (cross-check) | IPNI index returns a <IpfsRootCid,SP> provider record on cid.contact. Only attempted when step 5 succeeds. | cid.contact Verification | Polling with delay until timeout | [`ipniVerifyMs`](./events-and-metrics.md#ipniVerifyMs) | Yes |
-| 6 | Content is retrievable | See [Retrieval Check](./retrievals.md#what-gets-asserted) for specific assertions | Retrieval | 0 | [`ipfsRetrievalLastByteMs`](./events-and-metrics.md#ipfsRetrievalLastByteMs) | Yes |
-| 7 | All checks pass | Deal is not marked successful until all assertions pass within window | All four | n/a | [`dataStorageCheckMs`](./events-and-metrics.md#dataStorageCheckMs) | Yes |
+| # | Assertion | How It's Checked | [Sub Status Affected](#sub-status-meanings) | Retries | Relevant Metric for Setting a Max Duration |
+|---|-----------|-----------------|:---:|:---:|-----------------------------------|
+| 1 | SP accepts piece upload | Upload completes without error (HTTP 200); piece CID is returned | Upload | 1 | [`ingestMs`](./events-and-metrics.md#ingestMs) |
+| 2 | Piece submission recorded on-chain | Synapse `piecesAdded` progress event fires with a transaction hash | Onchain | n/a | [`pieceAddedOnChainMs`](./events-and-metrics.md#pieceAddedOnChainMs) |
+| 3 | Piece is confirmed on-chain | Synapse `piecesConfirmed` progress event fires | Onchain | n/a | [`pieceConfirmedOnChainMs`](./events-and-metrics.md#pieceConfirmedOnChainMs) |
+| 4 | SP indexes piece locally | PDP server reports `indexed: true` | Discoverability | n/a | [`spIndexLocallyMs`](./events-and-metrics.md#spIndexLocallyMs) |
+| 5 | Content is discoverable on filecoinpin.contact | IPNI index returns a <IpfsRootCid,SP> provider record on filecoinpin.contact. Drives the Discoverability sub-status. | Discoverability (indexer=filecoinpin.contact) | Polling with delay until timeout | [`ipniVerifyMs`](./events-and-metrics.md#ipniVerifyMs) |
+| 5b | Content is discoverable on cid.contact (cross-check) | IPNI index returns a <IpfsRootCid,SP> provider record on cid.contact. Only attempted when step 5 succeeds. | cid.contact Verification | Polling with delay until timeout | [`ipniVerifyMs`](./events-and-metrics.md#ipniVerifyMs) |
+| 6 | Content is retrievable | See [Retrieval Check](./retrievals.md#what-gets-asserted) for specific assertions | Retrieval | 0 | [`ipfsRetrievalLastByteMs`](./events-and-metrics.md#ipfsRetrievalLastByteMs) |
+| 7 | All checks pass | Deal is not marked successful until all assertions pass within window | All four | n/a | [`dataStorageCheckMs`](./events-and-metrics.md#dataStorageCheckMs) |
 
 ## Deal Lifecycle
 
@@ -204,9 +204,9 @@ It's expected that a Data Storage check will still store an overall status for e
 | `failure.timedout` | Dealbot started but failed to verify <IPFSRootCid,SP> provider record within the allotted time. |
 | `failure.other` | Dealbot started but failed to confirm <IPFSRootCid,SP> provider record for other reasons. |
 
-Sources: 
-- [`types.ts` (`DealStatus`)](../../apps/backend/src/database/types.ts#L1)
-- [`types.ts` (`IpniStatus`)](../../apps/backend/src/database/types.ts#L28)
+Prometheus outcome strings for the four Data Storage sub-statuses and overall check status are emitted via [`check-metrics.service.ts`](../../apps/backend/src/metrics-prometheus/check-metrics.service.ts) and [`classifyFailureStatus`](../../apps/backend/src/metrics-prometheus/check-metric-labels.ts). [`cidContactVerification`](./events-and-metrics.md#cidContactVerification) uses the cid.contact Verification Status values above.
+
+Deal entity progression uses [`DealStatus`](../../apps/backend/src/database/types.ts) and [`IpniStatus`](../../apps/backend/src/database/types.ts) (for example `sp_indexed`, `verified`) — these are coarser implementation states, not the dashboard `value` labels in the tables above.
 
 ## Metrics Recorded
 
