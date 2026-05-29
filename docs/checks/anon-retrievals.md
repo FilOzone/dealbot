@@ -146,7 +146,7 @@ The DDL and column-level comments in [`clickhouse.schema.ts`](../../apps/backend
 | Column | Meaning |
 |--------|---------|
 | `timestamp` | When the check started (ms UTC) |
-| `probe_location` | Dealbot probe location (`DEALBOT_PROBE_LOCATION`) |
+| `probe_location` | Dealbot probe location (`DEALBOT_PROBE_LOCATION`) - currently unused and set to `unknown` until https://github.com/FilOzone/dealbot/issues/246 lands |
 | `sp_address`, `sp_id`, `sp_name` | SP identity |
 | `retrieval_id` | Per-event UUID; correlates row to logs and Prometheus |
 | `piece_cid`, `data_set_id`, `piece_id`, `raw_size` | Sampled piece identity |

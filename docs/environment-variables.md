@@ -1268,6 +1268,9 @@ CLICKHOUSE_URL=http://default:password@clickhouse-host:8123/dealbot
 
 ### `DEALBOT_PROBE_LOCATION`
 
+> [!NOTE]
+> Currently unused and set to `unknown` until https://github.com/FilOzone/dealbot/issues/246 is resolved.
+
 - **Type**: `string`
 - **Required**: No
 - **Default**: `unknown`
