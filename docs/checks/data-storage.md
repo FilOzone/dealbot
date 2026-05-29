@@ -198,7 +198,6 @@ It's expected that a Data Storage check will still store an overall status for e
 
 | <a id="cid-contact-verification-status"></a>cid.contact Verification Status | Meaning |
 |--------|---------|
-| `pending` | cid.contact verification hasn't started yet because waiting for `Discoverability Status = success`. |
 | `success` | Root CID is discoverable via cid.contact and the SP is listed as a provider in the cid.contact response. |
 | `skipped` | cid.contact verification was not attempted because `Discoverability Status` is `skipped` or `failure.*`. |
 | `failure.timedout` | Dealbot started but failed to verify <IPFSRootCid,SP> provider record within the allotted time. |
