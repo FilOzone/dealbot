@@ -28,16 +28,16 @@ Failure occurs if any step fails or the deal exceeds its max allowed time. There
 
 Each deal asserts the following for every SP:
 
-| # | Assertion | How It's Checked | [Sub Status Affected](#sub-status-meanings) | Retries | Relevant Metric for Setting a Max Duration | Implemented? |
-|---|-----------|-----------------|:---:|:---:|-----------------------------------|:---:|
-| 1 | SP accepts piece upload | Upload completes without error (HTTP 200); piece CID is returned | Upload | 1 | [`ingestMs`](./events-and-metrics.md#ingestMs) | Yes |
-| 2 | Piece submission recorded on-chain | Synapse `piecesAdded` progress event fires with a transaction hash | Onchain | n/a | [`pieceAddedOnChainMs`](./events-and-metrics.md#pieceAddedOnChainMs) | Yes |
-| 3 | Piece is confirmed on-chain | Synapse `piecesConfirmed` progress event fires | Onchain | n/a | [`pieceConfirmedOnChainMs`](./events-and-metrics.md#pieceConfirmedOnChainMs) | Yes |
-| 4 | SP indexes piece locally | PDP server reports `indexed: true` | Discoverability | n/a | [`spIndexLocallyMs`](./events-and-metrics.md#spIndexLocallyMs) | Yes |
-| 5 | Content is discoverable on filecoinpin.contact | IPNI index returns a <IpfsRootCid,SP> provider record on filecoinpin.contact. Drives the Discoverability sub-status. | Discoverability | Polling with delay until timeout | [`ipniVerifyMs`](./events-and-metrics.md#ipniVerifyMs) | Yes |
-| 5b | Content is discoverable on cid.contact (cross-check) | IPNI index returns a <IpfsRootCid,SP> provider record on cid.contact. Only attempted when step 5 succeeds. Does not affect the Discoverability sub-status. | Discoverability | Polling with delay until timeout | [`ipniVerifyMs`](./events-and-metrics.md#ipniVerifyMs), [`cidContactStatus`](./events-and-metrics.md#cidContactStatus) | Yes |
-| 6 | Content is retrievable | See [Retrieval Check](./retrievals.md#what-gets-asserted) for specific assertions | Retrieval | 0 | [`ipfsRetrievalLastByteMs`](./events-and-metrics.md#ipfsRetrievalLastByteMs) | Yes |
-| 7 | All checks pass | Deal is not marked successful until all assertions pass within window | All four | n/a | [`dataStorageCheckMs`](./events-and-metrics.md#dataStorageCheckMs) | Yes |
+| # | Assertion | How It's Checked | [Sub Status Affected](#sub-status-meanings) | Retries | Relevant Metric for Setting a Max Duration |
+|---|-----------|-----------------|:---:|:---:|-----------------------------------|
+| 1 | SP accepts piece upload | Upload completes without error (HTTP 200); piece CID is returned | Upload | 1 | [`ingestMs`](./events-and-metrics.md#ingestMs) |
+| 2 | Piece submission recorded on-chain | Synapse `piecesAdded` progress event fires with a transaction hash | Onchain | n/a | [`pieceAddedOnChainMs`](./events-and-metrics.md#pieceAddedOnChainMs) |
+| 3 | Piece is confirmed on-chain | Synapse `piecesConfirmed` progress event fires | Onchain | n/a | [`pieceConfirmedOnChainMs`](./events-and-metrics.md#pieceConfirmedOnChainMs) |
+| 4 | SP indexes piece locally | PDP server reports `indexed: true` | Discoverability | n/a | [`spIndexLocallyMs`](./events-and-metrics.md#spIndexLocallyMs) |
+| 5 | Content is discoverable on filecoinpin.contact | IPNI index returns a <IpfsRootCid,SP> provider record on filecoinpin.contact. Drives the Discoverability sub-status. | Discoverability (indexer=filecoinpin.contact) | Polling with delay until timeout | [`ipniVerifyMs`](./events-and-metrics.md#ipniVerifyMs) |
+| 5b | Content is discoverable on cid.contact (cross-check) | IPNI index returns a <IpfsRootCid,SP> provider record on cid.contact. Only attempted when step 5 succeeds. | cid.contact Verification | Polling with delay until timeout | [`ipniVerifyMs`](./events-and-metrics.md#ipniVerifyMs) |
+| 6 | Content is retrievable | See [Retrieval Check](./retrievals.md#what-gets-asserted) for specific assertions | Retrieval | 0 | [`ipfsRetrievalLastByteMs`](./events-and-metrics.md#ipfsRetrievalLastByteMs) |
+| 7 | All checks pass | Deal is not marked successful until all assertions pass within window | All four | n/a | [`dataStorageCheckMs`](./events-and-metrics.md#dataStorageCheckMs) |
 
 ## Deal Lifecycle
 
@@ -102,13 +102,14 @@ Source: [`ipni.strategy.ts` (`monitorPieceStatus`)](../../apps/backend/src/deal-
 After the SP announces the piece index to IPNI, dealbot ensures the uploaded piece can be discovered by others with [standard IPFS tooling](https://github.com/filecoin-project/filecoin-pin/blob/master/documentation/glossary.md#standard-ipfs-tooling). It does this in two sequential stages using the `waitForIpniProviderResults` function from the `filecoin-pin` library, passing an explicit `ipniIndexerUrl` for each call:
 
 1. **filecoinpin.contact check:** Polls filecoinpin.contact for a valid <IpfsRootCid,SP> provider record. This result drives the Discoverability sub-status. If the CID is not confirmed here, the cid.contact check is skipped.
-2. **cid.contact check:** Only attempted when the filecoinpin.contact check succeeds. Polls cid.contact for the same provider record. The outcome is recorded in [`cidContactStatus`](./events-and-metrics.md#cidContactStatus) but does not affect the Discoverability sub-status.
+2. **cid.contact check:** Only attempted when the filecoinpin.contact check succeeds. Polls cid.contact for the same provider record. The outcome is recorded in [`cidContactVerification`](./events-and-metrics.md#cidContactVerification) but does not affect the Discoverability sub-status.
+   - Note: this sequential cid.contact check is intentional due to the negative caching of cid.contact. See [Why do we rely on filecoinpin.contact rather than cid.contact?](#why-do-we-rely-on-filecoinpincontact-rather-than-cidcontact) for more details.
 
-- **Polling interval:** 2 seconds (configurable via [`IPNI_VERIFICATION_POLLING_MS`](../environment-variables.md#ipni_verification_polling_ms), default `2000`)
+- **Polling interval:** 2 seconds (configurable via [`IPNI_VERIFICATION_POLLING_MS`](../environment-variables.md#ipni_verification_polling_ms))
 
-For data-storage checks, the filecoinpin.contact [`ipniVerifyMs`](./events-and-metrics.md#ipniVerifyMs) observation is measured from the SP's `advertisedAt` timestamp to the end of filecoinpin.contact verification when the SP provides a sane timestamp. This attributes the full "announced to visible on filecoinpin.contact" window instead of only dealbot's local polling window.
-
-The timer-start for the cid.contact observation is TBD: using `advertisedAt` measures the full propagation window to cid.contact (always ≥ the filecoinpin.contact value); using the filecoinpin.contact verification time as the start measures only the incremental propagation gap between the two indexers. Depends which is more useful for the dashboard.
+For data-storage checks:
+- [`ipniVerifyMs indexer=filecoinpin.contact`](./events-and-metrics.md#ipniVerifyMs) observation is measured from the SP's `advertisedAt` timestamp to the end of filecoinpin.contact verification when the SP provides a sane timestamp. This attributes the full "announced to visible on filecoinpin.contact" window instead of only dealbot's local polling window.
+- [`ipniVerifyMs indexer=cid.contact`](./events-and-metrics.md#ipniVerifyMs) observation is measured from filecoinpin.contact verification completion until verification completion on cid.contact. This captures the incremental propagation gap between the two indexers.
 
 Source: [`ipni.strategy.ts` (`monitorAndVerifyIPNI`)](../../apps/backend/src/deal-addons/strategies/ipni.strategy.ts)
 
@@ -123,6 +124,7 @@ A deal's **overall status** is a function of four sub-statuses: **Upload**, **On
 1. **Upload** must succeed first.
 2. After upload succeeds, **Onchain** and **Discoverability** run in parallel (two branches).
 3. **Retrieval** runs as soon as **Discoverability** progresses past `sp_indexed`.
+4. **cid.contact Verification** runs as soon as **Discoverability** completes. This does not affect the overall deal status, but is recorded in the metrics for cid.contact visibility.
 
 
 ```mermaid
@@ -130,6 +132,7 @@ flowchart TD
   U["Upload Status"]
   O["Onchain Status"]
   D["Discoverability Status"]
+  CV["cid.contact Verification"]
   R["Retrieval Status"]
   OK["Data Storage Check success"]
   FAIL["Data Storage Check failure"]
@@ -145,6 +148,7 @@ flowchart TD
 
   O -->|success| OK
   D -->|success| OK
+  D -->|success| CV
   R -->|success| OK
 ```
 
@@ -193,6 +197,14 @@ It's expected that a Data Storage check will still store an overall status for e
 | `failure.timedout` | Piece wasn't retrieved and verified within the allotted time. |
 | `failure.other` | Piece wasn't retrieved and verified for other reasons. |
 
+| cid.contact Verification Status | Meaning |
+|--------|---------|
+| `pending` | cid.contact verification hasn't started yet because waiting for `Discoverability Status = success`. |
+| `success` | Root CID is discoverable via cid.contact and the SP is listed as a provider in the cid.contact response. |
+| `skipped` | cid.contact verification was not attempted because `Discoverability Status` is `skipped` or `failure.*` |
+| `failure.timedout` | Dealbot started but failed to verify <IPFSRootCid,SP> provider record within the allotted time |
+| `failure.other` | Dealbot started but failed to confirm <IPFSRootCid,SP> provider record for other reasons. |
+
 Sources: 
 - [`types.ts` (`DealStatus`)](../../apps/backend/src/database/types.ts#L1)
 - [`types.ts` (`IpniStatus`)](../../apps/backend/src/database/types.ts#L28)
@@ -215,7 +227,7 @@ See also: [`docs/environment-variables.md`](../environment-variables.md) for the
 
 ## FAQ
 
-### Why do we check filecoinpin.contact rather than cid.contact?
+### Why do we rely on filecoinpin.contact rather than cid.contact?
 
 See https://github.com/filecoin-project/filecoin-pin/blob/master/documentation/content-routing-faq.md#why-is-there-filecoinpincontact-and-cidcontact
 
