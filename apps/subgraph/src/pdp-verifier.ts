@@ -41,6 +41,7 @@ export function handleDataSetCreated(event: DataSetCreatedEvent): void {
   proofSet.setId = event.params.setId;
   proofSet.owner = providerEntityId;
   proofSet.isActive = true;
+  proofSet.isPaymentActive = true;
   proofSet.status = DataSetStatus.EMPTY;
   proofSet.nextDeadline = BigInt.zero();
   proofSet.maxProvingPeriod = BigInt.zero();

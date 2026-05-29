@@ -1,5 +1,31 @@
 import { newMockEvent } from "matchstick-as";
 import { ethereum, BigInt, Address, Bytes } from "@graphprotocol/graph-ts";
+
+const DEFAULT_ADDRESS = Address.fromString("0xA16081F360e3847006dB660bae1c6d1b2e17eC2A");
+const DEFAULT_BYTES = DEFAULT_ADDRESS as Bytes;
+const DEFAULT_BIGINT = BigInt.fromI32(1);
+
+// Build an ethereum.Block with a specific block number. Matchstick's
+// `newBlock()` helper isn't exported, so reconstruct the same shape here.
+export function makeBlockAt(blockNumber: BigInt): ethereum.Block {
+  return new ethereum.Block(
+    DEFAULT_BYTES,
+    DEFAULT_BYTES,
+    DEFAULT_BYTES,
+    DEFAULT_ADDRESS,
+    DEFAULT_BYTES,
+    DEFAULT_BYTES,
+    DEFAULT_BYTES,
+    blockNumber,
+    DEFAULT_BIGINT,
+    DEFAULT_BIGINT,
+    DEFAULT_BIGINT,
+    DEFAULT_BIGINT,
+    DEFAULT_BIGINT,
+    DEFAULT_BIGINT,
+    DEFAULT_BIGINT,
+  );
+}
 import {
   DataSetCreated as FwssDataSetCreated,
   PieceAdded as FwssPieceAdded,
