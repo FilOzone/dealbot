@@ -1,6 +1,4 @@
-import type { AppConfigResponse } from "@/types/config";
 import type { PaginationOptions } from "@/types/pagination";
-import type { ProvidersListResponseWithoutMetrics } from "@/types/providers";
 
 const JSON_HEADERS = { "Content-Type": "application/json" } as const;
 
@@ -27,29 +25,29 @@ const buildQueryString = (params: Record<string, string | number | boolean | und
 };
 
 // ============================================================================
-// API FUNCTIONS
+// SWR FETCHER + KEYS
 // ============================================================================
 
 /**
- * Fetch simple providers list (without performance metrics)
- * Used for dropdowns and filters
+ * Generic JSON fetcher for SWR.
  */
-export async function fetchProvidersList(options?: PaginationOptions): Promise<ProvidersListResponseWithoutMetrics> {
-  const queryString = options ? buildQueryString(options as Record<string, string | number | boolean | undefined>) : "";
-  const url = `${getBaseUrl()}/api/v1/providers${queryString}`;
-
-  const res = await fetch(url, { headers: JSON_HEADERS });
-  if (!res.ok) throw new Error(`Failed to fetch providers list: HTTP ${res.status}`);
-
-  return (await res.json()) as ProvidersListResponseWithoutMetrics;
+export async function fetcher<T>(path: string): Promise<T> {
+  const res = await fetch(`${getBaseUrl()}${path}`, { headers: JSON_HEADERS });
+  if (!res.ok) throw new Error(`Request failed: ${path} (HTTP ${res.status})`);
+  return (await res.json()) as T;
 }
 
 /**
- * Fetch dealbot app configuration (networks this instance is monitoring, job rates, etc).
+ * Build `key` for SWR cache accepted by generic fetcher.
  */
-export async function fetchAppConfig(signal?: AbortSignal): Promise<AppConfigResponse> {
-  const url = `${getBaseUrl()}/api/config`;
-  const res = await fetch(url, { headers: JSON_HEADERS, signal });
-  if (!res.ok) throw new Error(`Failed to fetch app config: HTTP ${res.status}`);
-  return (await res.json()) as AppConfigResponse;
-}
+export const apiPaths = {
+  /** Dealbot app config (network this instance monitors, job rates, etc). */
+  config: (): string => "/api/config",
+  /** Simple providers list, for dropdowns/filters. */
+  providers: (options?: PaginationOptions): string => {
+    const queryString = options
+      ? buildQueryString(options as Record<string, string | number | boolean | undefined>)
+      : "";
+    return `/api/v1/providers${queryString}`;
+  },
+} as const;
