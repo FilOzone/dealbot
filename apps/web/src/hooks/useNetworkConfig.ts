@@ -12,7 +12,7 @@ interface UseNetworkConfigReturn {
  * Fetch the dealbot app config and expose the network this instance monitors.
  */
 export function useNetworkConfig(): UseNetworkConfigReturn {
-  const { data, error, isLoading } = useSWR<AppConfigResponse>(apiPaths.config(), fetcher);
+  const { data, error, isLoading } = useSWR(apiPaths.config(), fetcher<AppConfigResponse>);
 
   return {
     network: data?.network ?? null,

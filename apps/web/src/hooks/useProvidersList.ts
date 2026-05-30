@@ -8,22 +8,22 @@ interface UseProvidersListReturn {
   error: string | null;
 }
 
-const EMPTY_PROVIDERS: ProvidersListResponseWithoutMetrics = {
-  providers: [],
-  count: 0,
-  limit: 20,
-  offset: 0,
-  total: 0,
-};
-
 export function useProvidersList(offset = 0, limit = 20): UseProvidersListReturn {
-  const { data, error, isLoading } = useSWR<ProvidersListResponseWithoutMetrics>(
+  const { data, error, isLoading } = useSWR(
     apiPaths.providers({ offset, limit }),
-    fetcher,
+    fetcher<ProvidersListResponseWithoutMetrics>,
   );
 
+  const emptyProviders: ProvidersListResponseWithoutMetrics = {
+    providers: [],
+    count: 0,
+    limit,
+    offset,
+    total: 0,
+  };
+
   return {
-    providers: data ?? EMPTY_PROVIDERS,
+    providers: data ?? emptyProviders,
     loading: isLoading,
     error: toErrorMessage(error, "Failed to fetch providers list"),
   };
