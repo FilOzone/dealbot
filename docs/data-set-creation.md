@@ -55,7 +55,7 @@ The job treats required datasets as numbered slots from `0` to `MIN_NUM_DATASETS
 For each slot, it computes deterministic metadata:
 
 - Base metadata comes from `DealService.getBaseDataSetMetadata()`.
-- Base metadata always includes the IPNI metadata key (`withIpniIndexing=""`).
+- Base metadata always includes the IPNI metadata key (`withIPFSIndexing=""`).
 - If `DEALBOT_DATASET_VERSION` is configured, base metadata also includes `dealbotDataSetVersion`.
 - Slot `0` uses only the base metadata.
 - Slots `1+` add `dealbotDS: String(index)`.
