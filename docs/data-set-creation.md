@@ -15,7 +15,7 @@ This doc explains the design of the `data_set_creation` job: why it exists, how 
 
 ## Why it was added and why it still matters
 
-This job was originally added so dealbot could maintain enough datasets per provider for `data_retention` to accumulate enough samples to evaluate FWSS approval criteria. In practice, `MIN_NUM_DATASETS_FOR_CHECKS` increases the number of datasets for provider for submitting on-chain proofs generating enough samples for data retention check.
+This job was originally added so dealbot could maintain enough datasets per provider for `data_retention` to accumulate enough samples to evaluate FWSS approval criteria. In practice, raising `MIN_NUM_DATASETS_FOR_CHECKS` increases the number of datasets per provider, which increases on-chain proof samples for the data retention check.
 
 That original motivation is different from the job's current operational role. Today, `data_set_creation` is also the repair path for terminated datasets that still resolve via metadata in `createContext(...)` but are no longer usable because they are suffering unrecoverable proving failures on the SP side.
 
