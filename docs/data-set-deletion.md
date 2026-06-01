@@ -78,7 +78,7 @@ For one provider, one invocation of `data_set_deletion` works like this:
    - a. Build its metadata using the same logic as `data_set_creation`.
    - b. Classify it via `getDataSetProvisioningStatus()`.
    - c. Skip if `missing` — nothing to delete.
-   - d. Skip if `terminated` — this means Synapse returned a `dataSetId` (`pdpEndEpoch === 0`) but liveness probes are failing. `data_set_creation` owns repair of these slots via `repairTerminatedDataSet`. Note: a slot whose `terminateService` was already called will never appear as `terminated` here — the Synapse SDK filters datasets with `pdpEndEpoch !== 0` from metadata lookups, so it shows as `missing` instead.
+   - d. Skip if `terminated` — `data_set_creation` owns repair of these slots.
    - e. Skip if `live` but has any deal row with `cleaned_up = false` — the deal job is still tracking it as active.
 6. Call the delete flow on the first slot that passes all skip conditions (reaches step 5e without being skipped).
 7. After successful deletion, mark `deals.cleaned_up = true` for all deal rows associated with that `dataSetId` in a single transaction.
