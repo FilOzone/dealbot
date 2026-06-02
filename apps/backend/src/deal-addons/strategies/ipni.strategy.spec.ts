@@ -69,6 +69,7 @@ describe("IpniAddonStrategy getPieceStatus", () => {
       observeSpAnnounceAdvertisementMs: vi.fn(),
       observeIpniVerifyMs: vi.fn(),
       recordStatus: vi.fn(),
+      recordCidContactVerification: vi.fn(),
       buildLabelsForDeal: vi.fn().mockImplementation((deal: DealForMetrics) => {
         if (!deal?.spAddress) return null;
         return buildCheckMetricLabels({
@@ -307,7 +308,14 @@ describe("IpniAddonStrategy getPieceStatus", () => {
 
       expect(discoverabilityMetrics.observeSpIndexLocallyMs).toHaveBeenCalledWith(labels, 1000);
       expect(discoverabilityMetrics.observeSpAnnounceAdvertisementMs).toHaveBeenCalledWith(labels, 2000);
-      expect(discoverabilityMetrics.observeIpniVerifyMs).toHaveBeenCalledWith(labels, 1500, "verified");
+      expect(discoverabilityMetrics.observeIpniVerifyMs).toHaveBeenCalledWith(
+        labels,
+        1500,
+        "success",
+        "filecoinpin.contact",
+      );
+      expect(discoverabilityMetrics.observeIpniVerifyMs).toHaveBeenCalledWith(labels, 9999, "success", "cid.contact");
+      expect(discoverabilityMetrics.recordCidContactVerification).toHaveBeenCalledWith(labels, "success");
       expect(discoverabilityMetrics.recordStatus).toHaveBeenCalledWith(labels, "sp_indexed");
       expect(discoverabilityMetrics.recordStatus).toHaveBeenCalledWith(labels, "sp_announced_advertisement");
       expect(discoverabilityMetrics.recordStatus).toHaveBeenCalledWith(labels, "success");
@@ -362,6 +370,7 @@ describe("IpniAddonStrategy getPieceStatus", () => {
             failedCIDs: [],
             verifiedAt: new Date().toISOString(),
           },
+          cidContactResult: null,
         },
         10_000,
         {},
@@ -378,7 +387,12 @@ describe("IpniAddonStrategy getPieceStatus", () => {
       expect(deal.ipniAdvertisedAt?.toISOString()).toBe(observedAt);
       expect(discoverabilityMetrics.observeSpIndexLocallyMs).toHaveBeenCalledWith(labels, 1000);
       expect(discoverabilityMetrics.observeSpAnnounceAdvertisementMs).toHaveBeenCalledWith(labels, 1000);
-      expect(discoverabilityMetrics.observeIpniVerifyMs).toHaveBeenCalledWith(labels, 4000, "verified");
+      expect(discoverabilityMetrics.observeIpniVerifyMs).toHaveBeenCalledWith(
+        labels,
+        4000,
+        "success",
+        "filecoinpin.contact",
+      );
       expect(mockRepo.save).toHaveBeenCalled();
     } finally {
       vi.useRealTimers();
@@ -462,7 +476,13 @@ describe("IpniAddonStrategy getPieceStatus", () => {
         providerStatus: "approved",
       };
 
-      expect(discoverabilityMetrics.observeIpniVerifyMs).toHaveBeenCalledWith(labels, 10_000, "timeout");
+      expect(discoverabilityMetrics.observeIpniVerifyMs).toHaveBeenCalledWith(
+        labels,
+        10_000,
+        "failure.timedout",
+        "filecoinpin.contact",
+      );
+      expect(discoverabilityMetrics.recordCidContactVerification).toHaveBeenCalledWith(labels, "skipped");
       expect(discoverabilityMetrics.recordStatus).toHaveBeenCalledWith(labels, "failure.timedout");
       expect(mockRepo.save).toHaveBeenCalled();
     } finally {
@@ -526,7 +546,13 @@ describe("IpniAddonStrategy getPieceStatus", () => {
     await strategyForTest.updateDealWithIpniMetrics(deal, result, 10_000, {});
 
     const labels = { checkType: "dataStorage", providerId: "9", providerName: "SP", providerStatus: "approved" };
-    expect(discoverabilityMetrics.observeIpniVerifyMs).toHaveBeenCalledWith(labels, 500, "error");
+    expect(discoverabilityMetrics.observeIpniVerifyMs).toHaveBeenCalledWith(
+      labels,
+      500,
+      "failure.other",
+      "filecoinpin.contact",
+    );
+    expect(discoverabilityMetrics.recordCidContactVerification).toHaveBeenCalledWith(labels, "skipped");
   });
 
   it("skips IPNI verification when rootCID and blockCIDs are missing", async () => {
