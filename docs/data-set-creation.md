@@ -5,21 +5,21 @@ This doc explains the design of the `data_set_creation` job: why it exists, how 
 ## Summary
 
 - `data_set_creation` was originally added so dealbot could maintain enough datasets per provider for data-retention sampling and FWSS approval evaluation.
-- It now also serves as the repair path for terminated datasets that are still resolved by metadata but are no longer live.
-- Operationally, it ensures each active storage provider has at least `MIN_NUM_DATASETS_FOR_CHECKS` live datasets available for checks.
+- It now also serves as the repair path for terminated datasets that are still resolved by synapse-sdk in data storage checks but are no longer live.
+- Operationally, it ensures each active storage provider has at least [`MIN_NUM_DATASETS_FOR_CHECKS`](./environment-variables.md#min_num_datasets_for_checks) live datasets available for checks.
 - The scheduler creates one `job_schedule_state` row per `<sp_address, data_set_creation>` when `MIN_NUM_DATASETS_FOR_CHECKS >= 1`.
-- Each run inspects dataset slots in order and handles **at most one** non-live slot per invocation.
+Each run examines dataset slots for a provider in numerical order (`0` through `MIN_NUM_DATASETS_FOR_CHECKS - 1`). A slot represents one required on-chain dataset for unique data set metadata. Only one non-live slot is processed per invocation.
 - Missing datasets are provisioned by uploading a minimal seed piece.
-- Terminated datasets are repaired first; replacement is deferred to a later run.
+- Terminated datasets are repaired first; replacement is deferred to a later run (the handler exits after repair; the next scheduled tick sees the slot as `missing` and provisions the replacement).
 - The job runs on the shared `sp.work` queue with the same per-SP singleton behavior as `deal`, `retrieval`, `piece_cleanup`, and `pull_check`.
 
 ## Why it was added and why it still matters
 
-This job was originally added so dealbot could maintain enough datasets per provider for `data_retention` to accumulate enough samples to evaluate FWSS approval criteria. In practice, `MIN_NUM_DATASETS_FOR_CHECKS` increases the number of datasets for provider for submitting on-chain proofs generating enough samples for data retention check.
+This job was originally added so dealbot could maintain enough datasets per provider for `data_retention` to accumulate enough samples to evaluate FWSS approval criteria. In practice, raising `MIN_NUM_DATASETS_FOR_CHECKS` increases the number of datasets per provider, which increases on-chain proof samples for the data retention check.
 
 That original motivation is different from the job's current operational role. Today, `data_set_creation` is also the repair path for terminated datasets that still resolve via metadata in `createContext(...)` but are no longer usable because they are suffering unrecoverable proving failures on the SP side.
 
-Those terminated datasets are often first surfaced by the `deal` job. When that happens, `deal` does not repair them inline; it defers repair to `data_set_creation`, which then reconciles the slot incrementally.
+Those terminated datasets are often first surfaced by the `deal` job. When that happens, `deal` does not repair them inline; it defers repair to `data_set_creation`, which then reconciles the slot incrementally. See [Terminated dataset repair flow](#terminated-dataset-repair-flow) for details.
 
 This job remains intentionally separate from `deal`:
 
@@ -52,10 +52,12 @@ Before the handler does any provisioning work, it applies the same operational g
 
 The job treats required datasets as numbered slots from `0` to `MIN_NUM_DATASETS_FOR_CHECKS - 1`.
 
-For each slot, it computes deterministic metadata:
+**Slots** are defined by unique combinations of dataset metadata. Dataset metadata consists of base metadata plus slot-specific metadata. Each distinct value of dealbotDS (from no value through `MIN_NUM_DATASETS_FOR_CHECKS - 1`) defines a different slot.
+
+For each slot, it computes that deterministic metadata:
 
 - Base metadata comes from `DealService.getBaseDataSetMetadata()`.
-- Base metadata always includes the IPNI metadata key (`withIpniIndexing=""`).
+- Base metadata always includes the IPNI metadata key (`withIPFSIndexing=""`).
 - If `DEALBOT_DATASET_VERSION` is configured, base metadata also includes `dealbotDataSetVersion`.
 - Slot `0` uses only the base metadata.
 - Slots `1+` add `dealbotDS: String(index)`.
@@ -66,7 +68,7 @@ This makes each slot addressable and idempotent: repeated runs look up the same 
 
 For one provider, one invocation of `data_set_creation` works like this:
 
-1. Resolve the provider context and verify the provider is runnable.
+1. Resolve the provider context and verify the provider is runnable (not on the SP blocklist).
 2. Read `MIN_NUM_DATASETS_FOR_CHECKS` and the base dataset metadata.
 3. Iterate slots from `0` upward.
 4. For each slot, call `DealService.getDataSetProvisioningStatus(spAddress, metadata, signal)`.
@@ -114,12 +116,14 @@ Repair is intentionally idempotent:
 
 1. Read the FWSS dataset state.
 2. If `pdpEndEpoch` is already non-zero, skip the terminate transaction.
-3. Otherwise call `terminateDataSet`.
+3. Otherwise, call `terminateService` on-chain, which sets `pdpEndEpoch` to the current epoch plus the lockup period (30 days) and marks the slot as missing.
 4. Wait for the transaction receipt when possible.
 5. Poll FWSS until `pdpEndEpoch != 0`.
 6. Mark existing `Deal` rows for that `dataSetId` as `cleanedUp=true` in one transaction.
 
 After that repair completes, the next scheduled run will see the slot as `missing` and provision a replacement dataset.
+
+The slot appears as `missing` (not `terminated`) on the next run because the Synapse SDK automatically filters out datasets with `pdpEndEpoch !== 0`. Once step 5 confirms `pdpEndEpoch !== 0` on-chain, `getDataSetProvisioningStatus` returns `missing` for that slot.
 
 This two-step approach avoids mixing termination cleanup and replacement provisioning into one long, failure-prone handler execution.
 
@@ -133,11 +137,11 @@ This two-step approach avoids mixing termination cleanup and replacement provisi
 
 The main controls for this job are:
 
-- `MIN_NUM_DATASETS_FOR_CHECKS`: required number of live dataset slots per provider.
+- [`MIN_NUM_DATASETS_FOR_CHECKS`](./environment-variables.md#min_num_datasets_for_checks): required number of live dataset slots per provider.
 - [`DATASET_CREATIONS_PER_SP_PER_HOUR`](./environment-variables.md#dataset_creations_per_sp_per_hour): scheduling rate for reconciliation runs.
-- `DATA_SET_CREATION_JOB_TIMEOUT_SECONDS`: job timeout before the abort signal fires.
+- [`DATA_SET_CREATION_JOB_TIMEOUT_SECONDS`](./environment-variables.md#data_set_creation_job_timeout_seconds): job timeout before the abort signal fires.
 - [`DEALBOT_DATASET_VERSION`](./environment-variables.md#dealbot_dataset_version): optional version tag added to base dataset metadata.
-- `USE_ONLY_APPROVED_PROVIDERS`: indirectly affects which providers receive schedules.
+- [`USE_ONLY_APPROVED_PROVIDERS`](./environment-variables.md#use_only_approved_providers): indirectly affects which providers receive schedules.
 
 ## Observability
 

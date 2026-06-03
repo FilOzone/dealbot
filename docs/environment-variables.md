@@ -11,7 +11,7 @@ This document provides a comprehensive guide to all environment variables used b
 | [Blockchain](#blockchain-configuration)   | `NETWORK`, `RPC_URL`, `WALLET_ADDRESS`, `WALLET_PRIVATE_KEY`, `SESSION_KEY_PRIVATE_KEY`, `CHECK_DATASET_CREATION_FEES`, `USE_ONLY_APPROVED_PROVIDERS`, `PDP_SUBGRAPH_ENDPOINT` |
 | [Dataset Versioning](#dataset-versioning) | `DEALBOT_DATASET_VERSION`                                                                                                                                    |
 | [Scheduling](#scheduling-configuration)   | `PROVIDERS_REFRESH_INTERVAL_SECONDS`, `DATA_RETENTION_POLL_INTERVAL_SECONDS`, `DEALBOT_MAINTENANCE_WINDOWS_UTC`, `DEALBOT_MAINTENANCE_WINDOW_MINUTES`                                                                                                                                 |
-| [Jobs (pg-boss)](#jobs-pg-boss)           | `DEALBOT_PGBOSS_SCHEDULER_ENABLED`, `DEALBOT_PGBOSS_POOL_MAX`, `DEALS_PER_SP_PER_HOUR`, `DATASET_CREATIONS_PER_SP_PER_HOUR`, `RETRIEVALS_PER_SP_PER_HOUR`,  `JOB_SCHEDULER_POLL_SECONDS`, `JOB_WORKER_POLL_SECONDS`, `PG_BOSS_LOCAL_CONCURRENCY`, `JOB_CATCHUP_MAX_ENQUEUE`, `JOB_SCHEDULE_PHASE_SECONDS`, `JOB_ENQUEUE_JITTER_SECONDS`, `DEAL_JOB_TIMEOUT_SECONDS`, `RETRIEVAL_JOB_TIMEOUT_SECONDS`, `SHUTDOWN_FINAL_SCRAPE_DELAY_SECONDS`, `IPFS_BLOCK_FETCH_CONCURRENCY` |
+| [Jobs (pg-boss)](#jobs-pg-boss)           | `DEALBOT_PGBOSS_SCHEDULER_ENABLED`, `DEALBOT_PGBOSS_POOL_MAX`, `DEALS_PER_SP_PER_HOUR`, `MIN_NUM_DATASETS_FOR_CHECKS`, `DATASET_CREATIONS_PER_SP_PER_HOUR`, `RETRIEVALS_PER_SP_PER_HOUR`,  `JOB_SCHEDULER_POLL_SECONDS`, `JOB_WORKER_POLL_SECONDS`, `PG_BOSS_LOCAL_CONCURRENCY`, `JOB_CATCHUP_MAX_ENQUEUE`, `JOB_SCHEDULE_PHASE_SECONDS`, `JOB_ENQUEUE_JITTER_SECONDS`, `DATA_SET_CREATION_JOB_TIMEOUT_SECONDS`, `DEAL_JOB_TIMEOUT_SECONDS`, `RETRIEVAL_JOB_TIMEOUT_SECONDS`, `SHUTDOWN_FINAL_SCRAPE_DELAY_SECONDS`, `IPFS_BLOCK_FETCH_CONCURRENCY` |
 | [Dataset](#dataset-configuration)         | `DEALBOT_LOCAL_DATASETS_PATH`, `RANDOM_PIECE_SIZES`                                                                                                          |
 | [ClickHouse](#clickhouse-configuration)   | `CLICKHOUSE_URL`, `CLICKHOUSE_BATCH_SIZE`, `CLICKHOUSE_FLUSH_INTERVAL_MS`, `DEALBOT_PROBE_LOCATION`          |
 | [Timeouts](#timeout-configuration)        | `CONNECT_TIMEOUT_MS`, `HTTP_REQUEST_TIMEOUT_MS`, `HTTP2_REQUEST_TIMEOUT_MS`, `IPNI_VERIFICATION_TIMEOUT_MS`, `IPNI_VERIFICATION_POLLING_MS`                   |
@@ -643,6 +643,25 @@ rate-based (per hour) and persisted in Postgres so restarts do not reset timing.
 
 ---
 
+### `MIN_NUM_DATASETS_FOR_CHECKS`
+
+- **Type**: `number` (integer)
+- **Required**: No
+- **Default**: `1`
+- **Minimum**: `1`
+- **Enforced**: Yes (config validation)
+
+**Role**: Minimum number of live on-chain datasets (slots) each active storage provider must maintain for checks to function. The `data_set_creation` job reconciles providers to this count on every run. Increasing this value gives the `data_retention` check more datasets to sample proofs from, which affects FWSS approval evaluation.
+
+**When to update**:
+
+- Increase if you want more datasets per provider to raise the density of data-retention proof samples.
+- Decrease to reduce on-chain footprint per provider during testing.
+
+**See also**: [`docs/data-set-creation.md`](./data-set-creation.md)
+
+---
+
 ### `DATASET_CREATIONS_PER_SP_PER_HOUR`
 
 - **Type**: `number`
@@ -769,6 +788,25 @@ Use this to stagger multiple dealbot deployments that are not sharing a database
 - **Default**: `0`
 
 **Role**: Random delay (seconds) applied when enqueuing jobs to avoid synchronized bursts.
+
+---
+
+### `DATA_SET_CREATION_JOB_TIMEOUT_SECONDS`
+
+- **Type**: `number`
+- **Required**: No
+- **Default**: `300` (5 minutes)
+- **Minimum**: `60` (1 minute)
+- **Enforced**: Yes (config validation, effective floor applied at runtime)
+
+**Role**: Maximum runtime for `data_set_creation` jobs before forced abort via `AbortController`. Covers the full slot scan, any termination-repair polling, and dataset provisioning.
+
+**When to update**:
+
+- Increase if termination-repair polling (`pdpEndEpoch` confirmation) consistently times out on slow networks.
+- Decrease for faster fail-fast behavior during testing.
+
+**Note**: If the configured value is below 120 seconds, the runtime silently raises it to 120 seconds as an effective floor.
 
 ---
 
