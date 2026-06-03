@@ -12,7 +12,7 @@ import { DataRetentionBaseline } from "../database/entities/data-retention-basel
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
 import { buildCheckMetricLabels, CheckMetricLabels } from "../metrics-prometheus/check-metric-labels.js";
 import { PDPSubgraphService } from "../pdp-subgraph/pdp-subgraph.service.js";
-import { type ProviderDataSetResponse } from "../pdp-subgraph/types.js";
+import { type ProviderDataSetResponse, type SubgraphMeta } from "../pdp-subgraph/types.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
 import { type PDPProviderEx } from "../wallet-sdk/wallet-sdk.types.js";
 
@@ -90,7 +90,14 @@ export class DataRetentionService {
     let subgraphQueryFailed = false;
 
     try {
-      const subgraphMeta = await this.pdpSubgraphService.fetchSubgraphMeta();
+      let subgraphMeta: SubgraphMeta;
+      try {
+        subgraphMeta = await this.pdpSubgraphService.fetchSubgraphMeta();
+      } catch (error) {
+        // The subgraph is a hard dependency for the poll; label this precisely so the
+        // outer catch (which now preserves error type) rethrows it as a dependency failure.
+        throw new DataRetentionDependencyError("Failed to fetch PDP subgraph meta", { cause: error });
+      }
       const allProviderInfos = this.walletSdkService.getTestingProviders();
       const spBlocklists = this.configService.get("spBlocklists");
       const providerInfos = allProviderInfos?.filter((p) => !isSpBlocked(spBlocklists, p.serviceProvider, p.id));
@@ -212,10 +219,10 @@ export class DataRetentionService {
         message: "Failed to poll data retention",
         error: toStructuredError(error),
       });
-      // Re-throw as a dependency failure
-      throw error instanceof DataRetentionDependencyError
-        ? error
-        : new DataRetentionDependencyError("Failed to poll data retention", { cause: error });
+      // Preserve the original failure type: genuine dependency failures are already
+      // DataRetentionDependencyError, while anything else (e.g. a logic error) must not be
+      // mislabeled as a dependency outage. Wrap only non-Error throwables.
+      throw error instanceof Error ? error : new Error(String(error));
     }
 
     // Fail the job once the poll has recorded what it could.

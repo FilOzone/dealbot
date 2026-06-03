@@ -382,6 +382,16 @@ describe("DataRetentionService", () => {
     expect(pdpSubgraphServiceMock.fetchProvidersWithDatasets).not.toHaveBeenCalled();
   });
 
+  it("preserves the original error type for unexpected (non-dependency) failures", async () => {
+    // A logic/programming error must not be mislabeled as a dependency outage.
+    const bug = new TypeError("unexpected bug");
+    walletSdkServiceMock.getTestingProviders.mockImplementationOnce(() => {
+      throw bug;
+    });
+
+    await expect(service.pollDataRetention()).rejects.toBe(bug);
+  });
+
   it("fails the job when baselines cannot be loaded from the database", async () => {
     mockBaselineRepository.find.mockRejectedValueOnce(new Error("DB connection failed"));
 
