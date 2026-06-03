@@ -2,6 +2,8 @@
 
 This doc proposes a calibration-only `data_set_termination` job that periodically terminates a dealbot managed dataset so the existing `data_set_creation` job naturally recreates it. The goal is to keep dealbot continuously exercising the on-chain `createDataSet` lifecycle instead of only creating datasets until a steady-state cap is reached.
 
+> **Note**: this design does **not** attempt `PDPVerifier.deleteDataSet`, which is SP-initiated; if `deleteDataSet` canary coverage is required for #586, that would need a different approach.
+
 ## Summary
 
 - `data_set_termination` is a calibration-only job that periodically terminates one managed dataset slot per provider.
@@ -100,7 +102,7 @@ As with `data_set_creation`, the job performs **at most one state-changing actio
 The termination flow should be implemented in a dedicated service method rather than inline in `JobsService`.
 
 1. Resolve provider info from cache and the target `dataSetId` using synapse-sdk by building slot dataset metadata.
-2. Call the on-chain `terminateService` path through Synapse.
+2. Call the on-chain `terminateService` path through Synapse (`await synapse.storage.terminateDataSet({ dataSetId })`).
 3. Wait for transaction receipt.
 4. Poll until `pdpEndEpoch !== 0`. A live dataset has `pdpEndEpoch === 0`; once `terminateService` confirms, `pdpEndEpoch !== 0` is set on-chain. The Synapse SDK filters datasets with `pdpEndEpoch !== 0` from metadata lookups, so `getDataSetProvisioningStatus()` will return `missing` for this slot from this point on.
 5. Once `pdpEndEpoch !== 0` is observed, the termination flow's work is done. `data_set_creation` will see the slot as `missing` on its next run and provision a replacement directly.
@@ -126,10 +128,12 @@ For termination metrics, `checkType=dataSetTermination`. For creation metrics re
 
 #### Creation metrics (primary signal)
 
+These already exist and are defined in [`events-and-metrics.md`](./checks/events-and-metrics.md). `data_set_termination` creates the conditions for them to fire — if they stay silent after termination is running, something is wrong with creation.
+
 | Metric | `value` labels | What to watch for |
 |--------|---------------|-------------------|
-| `dataSetCreationStatus`| `pending`, `success`, `failure.timedout`, `failure.other`, `skipped.no_candidate` | `success` count should rise in the interval after each termination; persistent `failure.*` after a termination indicates a `createDataSet` regression |
-| `dataSetCreationMs`| — | Latency histogram for `createDataSetWithPiece`; spikes after termination may indicate on-chain congestion |
+| [`dataSetCreationStatus`](./checks/events-and-metrics.md#dataSetCreationStatus) | `pending`, `success`, `failure.timedout`, `failure.other` | `success` count should rise in the interval after each termination; persistent `failure.*` after a termination indicates a `createDataSet` regression |
+| [`dataSetCreationMs`](./checks/events-and-metrics.md#dataSetCreationMs) | — | Latency histogram for `createDataSetWithPiece`; spikes after termination may indicate on-chain congestion |
 
 #### Termination metrics (trigger health)
 
