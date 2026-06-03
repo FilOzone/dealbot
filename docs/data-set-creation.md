@@ -19,7 +19,7 @@ This job was originally added so dealbot could maintain enough datasets per prov
 
 That original motivation is different from the job's current operational role. Today, `data_set_creation` is also the repair path for terminated datasets that still resolve via metadata in `createContext(...)` but are no longer usable because they are suffering unrecoverable proving failures on the SP side.
 
-Those terminated datasets are often first surfaced by the `deal` job. When that happens, `deal` does not repair them inline; it defers repair to `data_set_creation`, which then reconciles the slot incrementally.
+Those terminated datasets are often first surfaced by the `deal` job. When that happens, `deal` does not repair them inline; it defers repair to `data_set_creation`, which then reconciles the slot incrementally. See [Terminated dataset repair flow](#terminated-dataset-repair-flow) for details.
 
 This job remains intentionally separate from `deal`:
 
