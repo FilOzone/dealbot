@@ -668,7 +668,11 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
           message: "Chain integration disabled; skipping provider refresh job.",
         });
       } else {
-        await this.walletSdkService.loadProviders();
+        // loadProviders() swallows on-chain failures and returns false, that is a job failure.
+        const loaded = await this.walletSdkService.loadProviders();
+        if (!loaded) {
+          throw new Error("Provider refresh failed: unable to load providers from on-chain registry");
+        }
       }
       await this.updateStorageProviderGauges();
       return "success";

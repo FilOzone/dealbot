@@ -12,9 +12,21 @@ import { DataRetentionBaseline } from "../database/entities/data-retention-basel
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
 import { buildCheckMetricLabels, CheckMetricLabels } from "../metrics-prometheus/check-metric-labels.js";
 import { PDPSubgraphService } from "../pdp-subgraph/pdp-subgraph.service.js";
-import { type ProviderDataSetResponse } from "../pdp-subgraph/types.js";
+import { type ProviderDataSetResponse, type SubgraphMeta } from "../pdp-subgraph/types.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
 import { type PDPProviderEx } from "../wallet-sdk/wallet-sdk.types.js";
+
+/**
+ * Thrown when the data-retention check cannot run because one of its dependencies
+ * (the PDP subgraph or the persisted baselines) is unavailable. Transient per-provider
+ * failures do NOT raise this — they leave the job a success with partial results.
+ */
+export class DataRetentionDependencyError extends Error {
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message, options);
+    this.name = "DataRetentionDependencyError";
+  }
+}
 
 type ProviderBaseline = {
   faultedPeriods: bigint;
@@ -61,140 +73,153 @@ export class DataRetentionService {
   async pollDataRetention(): Promise<void> {
     const pdpSubgraphEndpoint = this.configService.get("blockchain").pdpSubgraphEndpoint;
     if (!pdpSubgraphEndpoint) {
-      this.logger.warn({
+      this.logger.error({
         event: "pdp_subgraph_endpoint_not_configured",
         message: "No PDP subgraph endpoint configured",
       });
-      return;
+      throw new DataRetentionDependencyError("PDP subgraph endpoint is not configured");
     }
 
     const baselines = await this.loadBaselinesFromDb();
     if (baselines === null) {
-      // Cannot safely compute deltas without persisted baselines.
-      return;
+      // Cannot safely compute deltas without persisted baselines. The DB dependency is unavailable.
+      throw new DataRetentionDependencyError("Failed to load data-retention baselines from database");
     }
 
+    let subgraphMeta: SubgraphMeta;
     try {
-      const subgraphMeta = await this.pdpSubgraphService.fetchSubgraphMeta();
-      const allProviderInfos = this.walletSdkService.getTestingProviders();
-      const spBlocklists = this.configService.get("spBlocklists");
-      const providerInfos = allProviderInfos?.filter((p) => !isSpBlocked(spBlocklists, p.serviceProvider, p.id));
-
-      if (!providerInfos || providerInfos.length === 0) {
-        this.logger.warn({
-          event: "no_testing_providers_configured",
-          message: "No testing providers configured",
-        });
-        return;
-      }
-
-      const blockNumber = subgraphMeta._meta.block.number;
-      const blockNumberBigInt = BigInt(blockNumber);
-      // Create snapshot of provider cache to avoid race condition if loadProviders() clears cache
-      // Normalize addresses to lowercase for consistent lookups
-      const providerInfoMap = new Map(providerInfos.map((info) => [info.serviceProvider.toLowerCase(), info]));
-      const providerAddresses = Array.from(providerInfoMap.keys());
-
-      let hasProcessingErrors = false;
-
-      for (let i = 0; i < providerAddresses.length; i += DataRetentionService.MAX_PROVIDER_BATCH_LENGTH) {
-        const batchAddresses = providerAddresses.slice(
-          i,
-          Math.min(providerAddresses.length, i + DataRetentionService.MAX_PROVIDER_BATCH_LENGTH),
-        );
-
-        try {
-          const providersFromSubgraph = await this.pdpSubgraphService.fetchProvidersWithDatasets({
-            blockNumber,
-            addresses: batchAddresses,
-          });
-
-          // Process providers in parallel
-          const processingResults = await Promise.allSettled(
-            providersFromSubgraph.map((provider) => {
-              const providerInfo = providerInfoMap.get(provider.address.toLowerCase());
-              if (!providerInfo) {
-                return Promise.reject(
-                  new Error(
-                    `Provider ${provider.address} returned from subgraph but not found in local cache - data inconsistency`,
-                  ),
-                );
-              }
-              return this.processProvider(provider, providerInfo, blockNumberBigInt, baselines);
-            }),
-          );
-
-          await Promise.all(
-            processingResults.map(async (result, index) => {
-              if (result.status === "rejected") {
-                hasProcessingErrors = true;
-                const addr = providersFromSubgraph[index].address;
-                const providerInfo = providerInfoMap.get(addr.toLowerCase());
-                this.logger.error({
-                  event: "provider_processing_failed",
-                  message: "Failed to process provider",
-                  providerAddress: addr,
-                  providerId: providerInfo?.id,
-                  providerName: providerInfo?.name,
-                  error: toStructuredError(result.reason),
-                });
-                return;
-              }
-
-              try {
-                await this.persistBaseline(result.value.providerAddress, result.value.baseline, blockNumberBigInt);
-              } catch (error) {
-                hasProcessingErrors = true;
-                // Leave stale cleanup for a later poll so DB-backed baselines and local state do not diverge further.
-                this.logger.warn({
-                  event: "baseline_persist_failed",
-                  message: "Failed to persist baseline to database",
-                  providerAddress: result.value.providerAddress,
-                  error: toStructuredError(error),
-                });
-                return;
-              }
-
-              try {
-                this.applyPersistedProviderResult(result.value, baselines);
-              } catch (error) {
-                hasProcessingErrors = true;
-                this.logger.error({
-                  event: "provider_result_apply_failed",
-                  message: "Failed to apply persisted provider result",
-                  providerAddress: result.value.providerAddress,
-                  error: toStructuredError(error),
-                });
-              }
-            }),
-          );
-        } catch (error) {
-          hasProcessingErrors = true;
-          this.logger.error({
-            event: "provider_batch_fetch_failed",
-            message: "Failed to fetch batch",
-            batchStartIndex: i,
-            error: toStructuredError(error),
-          });
-          // Continue processing next batch
-        }
-      }
-
-      // Only cleanup stale providers after successful poll to preserve baselines during transient failures
-      if (!hasProcessingErrors) {
-        await this.cleanupStaleProviders(providerAddresses, baselines);
-      } else {
-        this.logger.warn({
-          event: "stale_provider_cleanup_skipped",
-          message: "Skipping stale provider cleanup due to processing errors",
-        });
-      }
+      subgraphMeta = await this.pdpSubgraphService.fetchSubgraphMeta();
     } catch (error) {
       this.logger.error({
         event: "data_retention_poll_failed",
-        message: "Failed to poll data retention",
+        message: "Failed to fetch subgraph meta",
         error: toStructuredError(error),
       });
+      throw new DataRetentionDependencyError("Failed to fetch PDP subgraph meta", { cause: error });
+    }
+
+    const allProviderInfos = this.walletSdkService.getTestingProviders();
+    const spBlocklists = this.configService.get("spBlocklists");
+    const providerInfos = allProviderInfos?.filter((p) => !isSpBlocked(spBlocklists, p.serviceProvider, p.id));
+
+    if (!providerInfos || providerInfos.length === 0) {
+      // An empty-but-healthy provider set is a successful no-op poll, not a failure.
+      this.logger.warn({
+        event: "no_testing_providers_configured",
+        message: "No testing providers configured",
+      });
+      return;
+    }
+
+    const blockNumber = subgraphMeta._meta.block.number;
+    const blockNumberBigInt = BigInt(blockNumber);
+    // Create snapshot of provider cache to avoid race condition if loadProviders() clears cache
+    // Normalize addresses to lowercase for consistent lookups
+    const providerInfoMap = new Map(providerInfos.map((info) => [info.serviceProvider.toLowerCase(), info]));
+    const providerAddresses = Array.from(providerInfoMap.keys());
+
+    // Per-provider processing failures are transient and keep the job a success.
+    let hasProcessingErrors = false;
+    // A subgraph query failure means the check could not run against its dependency, its a job failure.
+    let subgraphQueryFailed = false;
+
+    for (let i = 0; i < providerAddresses.length; i += DataRetentionService.MAX_PROVIDER_BATCH_LENGTH) {
+      const batchAddresses = providerAddresses.slice(
+        i,
+        Math.min(providerAddresses.length, i + DataRetentionService.MAX_PROVIDER_BATCH_LENGTH),
+      );
+
+      try {
+        const providersFromSubgraph = await this.pdpSubgraphService.fetchProvidersWithDatasets({
+          blockNumber,
+          addresses: batchAddresses,
+        });
+
+        // Process providers in parallel
+        const processingResults = await Promise.allSettled(
+          providersFromSubgraph.map((provider) => {
+            const providerInfo = providerInfoMap.get(provider.address.toLowerCase());
+            if (!providerInfo) {
+              return Promise.reject(
+                new Error(
+                  `Provider ${provider.address} returned from subgraph but not found in local cache - data inconsistency`,
+                ),
+              );
+            }
+            return this.processProvider(provider, providerInfo, blockNumberBigInt, baselines);
+          }),
+        );
+
+        await Promise.all(
+          processingResults.map(async (result, index) => {
+            if (result.status === "rejected") {
+              hasProcessingErrors = true;
+              const addr = providersFromSubgraph[index].address;
+              const providerInfo = providerInfoMap.get(addr.toLowerCase());
+              this.logger.error({
+                event: "provider_processing_failed",
+                message: "Failed to process provider",
+                providerAddress: addr,
+                providerId: providerInfo?.id,
+                providerName: providerInfo?.name,
+                error: toStructuredError(result.reason),
+              });
+              return;
+            }
+
+            try {
+              await this.persistBaseline(result.value.providerAddress, result.value.baseline, blockNumberBigInt);
+            } catch (error) {
+              hasProcessingErrors = true;
+              // Leave stale cleanup for a later poll so DB-backed baselines and local state do not diverge further.
+              this.logger.warn({
+                event: "baseline_persist_failed",
+                message: "Failed to persist baseline to database",
+                providerAddress: result.value.providerAddress,
+                error: toStructuredError(error),
+              });
+              return;
+            }
+
+            try {
+              this.applyPersistedProviderResult(result.value, baselines);
+            } catch (error) {
+              hasProcessingErrors = true;
+              this.logger.error({
+                event: "provider_result_apply_failed",
+                message: "Failed to apply persisted provider result",
+                providerAddress: result.value.providerAddress,
+                error: toStructuredError(error),
+              });
+            }
+          }),
+        );
+      } catch (error) {
+        // Subgraph query failure: a dependency outage, not a per-provider issue.
+        subgraphQueryFailed = true;
+        this.logger.error({
+          event: "provider_batch_fetch_failed",
+          message: "Failed to fetch batch",
+          batchStartIndex: i,
+          error: toStructuredError(error),
+        });
+        // Continue processing next batch
+      }
+    }
+
+    // Only cleanup stale providers after a fully clean poll to preserve baselines during transient failures
+    if (!hasProcessingErrors && !subgraphQueryFailed) {
+      await this.cleanupStaleProviders(providerAddresses, baselines);
+    } else {
+      this.logger.warn({
+        event: "stale_provider_cleanup_skipped",
+        message: "Skipping stale provider cleanup due to processing errors",
+      });
+    }
+
+    // The subgraph dependency failed for at least one batch: fail the job so the outage alarms.
+    if (subgraphQueryFailed) {
+      throw new DataRetentionDependencyError("PDP subgraph query failed for one or more provider batches");
     }
   }
 
