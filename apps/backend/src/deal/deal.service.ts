@@ -872,27 +872,34 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     pollTimeoutMs = 60_000,
   ): Promise<{ dataSetId: bigint; pdpEndEpoch: bigint }> {
     const providerInfo = this.walletSdkService.getProviderInfo(providerAddress);
+    if (!providerInfo) {
+      throw new Error(`Provider ${providerAddress} not found in registry`);
+    }
+
+    const logContext = {
+      providerAddress,
+      providerName: providerInfo.name,
+      providerId: providerInfo.id,
+    };
     const labels = buildCheckMetricLabels({
       checkType: "dataSetLifecycleCheck",
-      providerId: providerInfo?.id,
-      providerName: providerInfo?.name,
-      providerIsApproved: providerInfo?.isApproved,
+      providerId: providerInfo.id,
+      providerName: providerInfo.name,
+      providerIsApproved: providerInfo.isApproved,
     });
 
     const startedAt = Date.now();
     this.logger.log({
       event: "dataset_lifecycle_check_started",
       message: "Starting data-set lifecycle check (create then terminate)",
-      providerAddress,
-      providerId: providerInfo?.id,
-      providerName: providerInfo?.name,
+      ...logContext,
       metadata,
     });
 
     let dataSetId: bigint | undefined;
     try {
       // 1. Create a fresh throwaway data set with a seed piece (no creation metrics).
-      ({ dataSetId } = await this.createDataSetWithPieceInternal(providerAddress, metadata, signal));
+      ({ dataSetId } = await this.createDataSetWithPieceInternal(providerInfo, metadata, signal));
       if (!dataSetId) {
         throw new Error("Data-set creation upload completed without resolving a dataSetId");
       }
@@ -905,9 +912,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       this.logger.log({
         event: "dataset_lifecycle_check_succeeded",
         message: "Data-set lifecycle check completed: created and terminated throwaway data set",
-        providerAddress,
-        providerId: providerInfo?.id,
-        providerName: providerInfo?.name,
+        ...logContext,
         dataSetId: dataSetId.toString(),
         pdpEndEpoch: pdpEndEpoch.toString(),
         durationMs,
@@ -927,9 +932,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
           dataSetId === undefined
             ? "Data-set lifecycle check failed during creation"
             : "Data-set lifecycle check failed during termination; throwaway data set may have leaked",
-        providerAddress,
-        providerId: providerInfo?.id,
-        providerName: providerInfo?.name,
+        ...logContext,
         dataSetId: dataSetId?.toString(),
         durationMs,
         status,
@@ -977,26 +980,33 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     signal?: AbortSignal,
   ): Promise<void> {
     const providerInfo = this.walletSdkService.getProviderInfo(providerAddress);
+    if (!providerInfo) {
+      throw new Error(`Provider ${providerAddress} not found in registry`);
+    }
+
+    const logContext = {
+      providerAddress,
+      providerId: providerInfo.id,
+      providerName: providerInfo.name,
+    };
     const labels = buildCheckMetricLabels({
       checkType: "dataSetCreation",
-      providerId: providerInfo?.id,
-      providerName: providerInfo?.name,
-      providerIsApproved: providerInfo?.isApproved,
+      providerId: providerInfo.id,
+      providerName: providerInfo.name,
+      providerIsApproved: providerInfo.isApproved,
     });
 
     const startedAt = Date.now();
     this.dataSetCreationMetrics.recordStatus(labels, "pending");
     this.logger.log({
+      ...logContext,
       event: "dataset_creation_with_piece_started",
       message: "Starting data-set creation with piece",
-      providerAddress,
-      providerId: providerInfo?.id,
-      providerName: providerInfo?.name,
       metadata,
     });
 
     try {
-      const result = await this.createDataSetWithPieceInternal(providerAddress, metadata, signal);
+      const result = await this.createDataSetWithPieceInternal(providerInfo, metadata, signal);
       const durationMs = Date.now() - startedAt;
       this.dataSetCreationMetrics.observeCheckDuration(labels, durationMs);
       this.dataSetCreationMetrics.recordStatus(labels, "success");
@@ -1005,9 +1015,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
         this.logger.warn({
           event: "dataset_creation_missing_onchain_events",
           message: "Data-set creation succeeded without full on-chain progress events",
-          providerAddress,
-          providerId: providerInfo?.id,
-          providerName: providerInfo?.name,
+          ...logContext,
           pieceAdded: result.pieceAdded,
           piecesConfirmed: result.piecesConfirmed,
         });
@@ -1016,9 +1024,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       this.logger.log({
         event: "dataset_creation_with_piece_succeeded",
         message: "Data-set created with piece",
-        providerAddress,
-        providerId: providerInfo?.id,
-        providerName: providerInfo?.name,
+        ...logContext,
         durationMs,
         dataSetId: result.dataSetId ?? "unknown",
         pieceCid: result.pieceCid,
@@ -1034,9 +1040,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       this.logger.error({
         event: "dataset_creation_with_piece_failed",
         message: "Data-set creation with piece failed",
-        providerAddress,
-        providerId: providerInfo?.id,
-        providerName: providerInfo?.name,
+        ...logContext,
         durationMs,
         error: toStructuredError(error),
       });
@@ -1054,7 +1058,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
    * the context resolved no `dataSetId` (we cannot operate on an unidentified set).
    */
   private async createDataSetWithPieceInternal(
-    providerAddress: string,
+    providerInfo: PDPProviderEx,
     metadata: Record<string, string>,
     signal?: AbortSignal,
   ): Promise<{
@@ -1066,11 +1070,13 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     piecesConfirmed: boolean;
   }> {
     signal?.throwIfAborted();
-    const providerInfo = this.walletSdkService.getProviderInfo(providerAddress);
-    if (!providerInfo) {
-      throw new Error(`Provider ${providerAddress} not found in registry`);
-    }
 
+    const providerAddress = providerInfo.serviceProvider;
+    const logContext = {
+      providerAddress,
+      providerName: providerInfo.name,
+      providerId: providerInfo.id,
+    };
     let pieceAdded = false;
     let piecesConfirmed = false;
     let pieceCid: string | undefined;
@@ -1115,9 +1121,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
               this.logger.debug({
                 event: "dataset_creation_stored",
                 message: "Data-set creation stored",
-                providerAddress,
-                providerId: providerInfo.id,
-                providerName: providerInfo.name,
+                ...logContext,
                 pieceCid,
               });
               break;
@@ -1126,9 +1130,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
               this.logger.debug({
                 event: "dataset_creation_pieces_added",
                 message: "Data-set creation pieces added",
-                providerAddress,
-                providerId: providerInfo.id,
-                providerName: providerInfo.name,
+                ...logContext,
                 txHash: event.data.txHash ?? "unknown",
               });
               break;
@@ -1137,9 +1139,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
               this.logger.debug({
                 event: "dataset_creation_pieces_confirmed",
                 message: "Data-set creation pieces confirmed",
-                providerAddress,
-                providerId: providerInfo.id,
-                providerName: providerInfo.name,
+                ...logContext,
                 pieceIds: event.data.pieceIds,
               });
               break;
