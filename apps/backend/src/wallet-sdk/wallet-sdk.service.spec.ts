@@ -18,7 +18,6 @@ const baseConfig: IBlockchainConfig = {
   checkDatasetCreationFees: false,
   useOnlyApprovedProviders: false,
   minNumDataSetsForChecks: 1,
-  dataSetTerminationMinIndex: 1,
   pdpSubgraphEndpoint: "https://api.thegraph.com/subgraphs/filecoin/pdp",
 };
 

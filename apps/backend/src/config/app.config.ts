@@ -58,22 +58,6 @@ export const configValidationSchema = Joi.object({
   DEALBOT_DATASET_VERSION: Joi.string().optional(),
   MIN_NUM_DATASETS_FOR_CHECKS: Joi.number().integer().min(1).default(1),
   PDP_SUBGRAPH_ENDPOINT: Joi.string().uri().optional().allow(""),
-  // Lowest dataset slot index eligible for termination (inclusive). Slots 0..(index-1)
-  // are never touched. Must be >= 1 and <= MIN_NUM_DATASETS_FOR_CHECKS; equal disables
-  // termination (empty canary window). See docs/data-set-termination.md.
-  DATA_SET_TERMINATION_MIN_INDEX: Joi.number()
-    .integer()
-    .min(1)
-    .default(1)
-    .custom((value, helpers) => {
-      const minDataSets = helpers.state.ancestors?.[0]?.MIN_NUM_DATASETS_FOR_CHECKS;
-      if (minDataSets != null && value > minDataSets) {
-        return helpers.error("any.invalid", {
-          message: `DATA_SET_TERMINATION_MIN_INDEX (${value}) must be <= MIN_NUM_DATASETS_FOR_CHECKS (${minDataSets})`,
-        });
-      }
-      return value;
-    }, "min index <= min datasets validation"),
 
   // Scheduling
   PROVIDERS_REFRESH_INTERVAL_SECONDS: Joi.number().default(4 * 3600),
@@ -96,12 +80,12 @@ export const configValidationSchema = Joi.object({
   // Per-hour limits are guardrails to avoid excessive background load.
   DEALS_PER_SP_PER_HOUR: Joi.number().min(0.001).max(20).default(4),
   DATASET_CREATIONS_PER_SP_PER_HOUR: Joi.number().min(0.001).max(20).default(1),
-  DATASET_TERMINATIONS_PER_SP_PER_HOUR: Joi.number().min(0.001).max(20).default(1),
+  DATASET_LIFECYCLE_CHECKS_PER_SP_PER_HOUR: Joi.number().min(0.001).max(20).default(1),
   RETRIEVALS_PER_SP_PER_HOUR: Joi.number().min(0.001).max(20).default(2),
-  // Enables the data_set_termination canary job. The network-dependent default (true on
+  // Enables the data_set_lifecycle_check canary job. The network-dependent default (true on
   // calibration, false on mainnet) is resolved in loadConfig; here we only validate the
-  // type when explicitly set. See docs/data-set-termination.md.
-  DATASET_TERMINATION_ENABLED: Joi.boolean().optional(),
+  // type when explicitly set. See docs/checks/data-set-lifecycle-check.md.
+  DATASET_LIFECYCLE_CHECK_ENABLED: Joi.boolean().optional(),
   // Polling interval for pg-boss scheduler (lower = more responsive, higher = less DB chatter).
   JOB_SCHEDULER_POLL_SECONDS: Joi.number().min(60).default(300),
   JOB_WORKER_POLL_SECONDS: Joi.number().min(5).default(60),
@@ -114,7 +98,7 @@ export const configValidationSchema = Joi.object({
   DEAL_JOB_TIMEOUT_SECONDS: Joi.number().min(120).default(360), // 6 minutes max runtime for data storage jobs (TODO: reduce default to 3 minutes)
   RETRIEVAL_JOB_TIMEOUT_SECONDS: Joi.number().min(60).default(60), // 1 minute max runtime for retrieval jobs (TODO: reduce default to 30 seconds)
   DATA_SET_CREATION_JOB_TIMEOUT_SECONDS: Joi.number().min(60).default(300), // 5 minutes max runtime for dataset creation jobs
-  DATA_SET_TERMINATION_JOB_TIMEOUT_SECONDS: Joi.number().min(60).default(300), // 5 minutes max runtime for dataset termination jobs
+  DATA_SET_LIFECYCLE_CHECK_JOB_TIMEOUT_SECONDS: Joi.number().min(60).default(600), // 10 minutes: covers create + seed-piece upload + terminate + pdpEndEpoch poll
   // Seconds to hold the process alive after pg-boss drain completes, so Prometheus
   // captures at least one scrape of the terminal counter increments emitted during
   // shutdown. Default 35 covers the 30s ServiceMonitor interval plus a 5s buffer.
@@ -221,12 +205,6 @@ export interface IBlockchainConfig {
   useOnlyApprovedProviders: boolean;
   dealbotDataSetVersion?: string;
   minNumDataSetsForChecks: number;
-  /**
-   * Lowest dataset slot index eligible for the `data_set_termination` job (inclusive).
-   * Slots `0..(dataSetTerminationMinIndex - 1)` are never terminated. Guaranteed to be
-   * `>= 1` and `<= minNumDataSetsForChecks` by config validation.
-   */
-  dataSetTerminationMinIndex: number;
   pdpSubgraphEndpoint?: string;
 }
 
@@ -255,20 +233,16 @@ export interface IJobsConfig {
    */
   dataSetCreationsPerSpPerHour: number;
   /**
-   * Enables the calibration-focused `data_set_termination` canary job.
+   * Enables the calibration-focused `data_set_lifecycle_check` canary job, which
+   * creates a throwaway data set and immediately terminates it in a single tick.
    *
-   * Defaults to true on calibration and false on mainnet. Even when enabled, a
-   * schedule is only created when the canary window
-   * (`minNumDataSetsForChecks - dataSetTerminationMinIndex`) is non-empty.
+   * Defaults to true on calibration and false on mainnet.
    */
-  dataSetTerminationEnabled: boolean;
+  dataSetLifecycleCheckEnabled: boolean;
   /**
-   * Target number of dataset termination runs per storage provider per hour.
-   *
-   * Should be <= `dataSetCreationsPerSpPerHour` so creation can replenish terminated
-   * slots without backlog. A startup warning is logged when this constraint is violated.
+   * Target number of dataset lifecycle check runs per storage provider per hour.
    */
-  dataSetTerminationsPerSpPerHour: number;
+  dataSetLifecycleChecksPerSpPerHour: number;
   /**
    * How often the scheduler polls Postgres for due jobs (seconds).
    *
@@ -328,12 +302,12 @@ export interface IJobsConfig {
    */
   dataSetCreationJobTimeoutSeconds: number;
   /**
-   * Maximum runtime (seconds) for data-set termination jobs before forced abort.
+   * Maximum runtime (seconds) for data-set lifecycle check jobs before forced abort.
    *
-   * Bounds the terminateService call plus the `pdpEndEpoch != 0` confirmation poll.
-   * Uses AbortController to actively cancel job execution.
+   * Bounds the create-with-seed-piece upload, the terminateService call, and the
+   * `pdpEndEpoch != 0` confirmation poll. Uses AbortController to actively cancel execution.
    */
-  dataSetTerminationJobTimeoutSeconds: number;
+  dataSetLifecycleCheckJobTimeoutSeconds: number;
   /**
    * Maximum runtime (seconds) for retrieval jobs before forced abort.
    *
@@ -508,7 +482,6 @@ export function loadConfig(): IConfig {
       useOnlyApprovedProviders: process.env.USE_ONLY_APPROVED_PROVIDERS !== "false",
       dealbotDataSetVersion: process.env.DEALBOT_DATASET_VERSION,
       minNumDataSetsForChecks: Number.parseInt(process.env.MIN_NUM_DATASETS_FOR_CHECKS || "1", 10),
-      dataSetTerminationMinIndex: Number.parseInt(process.env.DATA_SET_TERMINATION_MIN_INDEX || "1", 10),
       pdpSubgraphEndpoint: process.env.PDP_SUBGRAPH_ENDPOINT || "",
     },
     scheduling: {
@@ -524,15 +497,17 @@ export function loadConfig(): IConfig {
       dealsPerSpPerHour: Number.parseFloat(process.env.DEALS_PER_SP_PER_HOUR || "4"),
       retrievalsPerSpPerHour: Number.parseFloat(process.env.RETRIEVALS_PER_SP_PER_HOUR || "2"),
       dataSetCreationsPerSpPerHour: Number.parseFloat(process.env.DATASET_CREATIONS_PER_SP_PER_HOUR || "1"),
-      dataSetTerminationEnabled: (() => {
-        const raw = process.env.DATASET_TERMINATION_ENABLED;
+      dataSetLifecycleCheckEnabled: (() => {
+        const raw = process.env.DATASET_LIFECYCLE_CHECK_ENABLED;
         if (raw == null || raw.trim().length === 0) {
           // Default: enabled on calibration, disabled on mainnet.
           return (process.env.NETWORK || "calibration") === "calibration";
         }
         return raw === "true";
       })(),
-      dataSetTerminationsPerSpPerHour: Number.parseFloat(process.env.DATASET_TERMINATIONS_PER_SP_PER_HOUR || "1"),
+      dataSetLifecycleChecksPerSpPerHour: Number.parseFloat(
+        process.env.DATASET_LIFECYCLE_CHECKS_PER_SP_PER_HOUR || "1",
+      ),
       schedulerPollSeconds: Number.parseInt(process.env.JOB_SCHEDULER_POLL_SECONDS || "300", 10),
       workerPollSeconds: Number.parseInt(process.env.JOB_WORKER_POLL_SECONDS || "60", 10),
       pgbossLocalConcurrency: Number.parseInt(process.env.PG_BOSS_LOCAL_CONCURRENCY || "20", 10),
@@ -544,8 +519,8 @@ export function loadConfig(): IConfig {
       dealJobTimeoutSeconds: Number.parseInt(process.env.DEAL_JOB_TIMEOUT_SECONDS || "360", 10),
       retrievalJobTimeoutSeconds: Number.parseInt(process.env.RETRIEVAL_JOB_TIMEOUT_SECONDS || "60", 10),
       dataSetCreationJobTimeoutSeconds: Number.parseInt(process.env.DATA_SET_CREATION_JOB_TIMEOUT_SECONDS || "300", 10),
-      dataSetTerminationJobTimeoutSeconds: Number.parseInt(
-        process.env.DATA_SET_TERMINATION_JOB_TIMEOUT_SECONDS || "300",
+      dataSetLifecycleCheckJobTimeoutSeconds: Number.parseInt(
+        process.env.DATA_SET_LIFECYCLE_CHECK_JOB_TIMEOUT_SECONDS || "600",
         10,
       ),
       shutdownFinalScrapeDelaySeconds: Number.parseInt(process.env.SHUTDOWN_FINAL_SCRAPE_DELAY_SECONDS || "35", 10),

@@ -128,7 +128,6 @@ describe("JobsService schedule rows", () => {
       blockchain: {
         useOnlyApprovedProviders: false,
         minNumDataSetsForChecks: 1,
-        dataSetTerminationMinIndex: 1,
       } as IConfig["blockchain"],
       scheduling: {
         providersRefreshIntervalSeconds: 4 * 3600,
@@ -145,9 +144,9 @@ describe("JobsService schedule rows", () => {
         dealJobTimeoutSeconds: 360,
         retrievalJobTimeoutSeconds: 60,
         dataSetCreationJobTimeoutSeconds: 300,
-        dataSetTerminationEnabled: false,
-        dataSetTerminationsPerSpPerHour: 1,
-        dataSetTerminationJobTimeoutSeconds: 300,
+        dataSetLifecycleCheckEnabled: false,
+        dataSetLifecycleChecksPerSpPerHour: 1,
+        dataSetLifecycleCheckJobTimeoutSeconds: 600,
         shutdownFinalScrapeDelaySeconds: 35,
         pieceCleanupPerSpPerHour: 1,
         maxPieceCleanupRuntimeSeconds: 300,
@@ -1259,25 +1258,17 @@ describe("JobsService schedule rows", () => {
     expect(dealService.createDataSetWithPiece).not.toHaveBeenCalled();
   });
 
-  it("data_set_termination job skips when disabled", async () => {
+  it("data_set_lifecycle_check job skips when disabled", async () => {
     baseConfigValues = {
       ...baseConfigValues,
-      blockchain: {
-        ...baseConfigValues.blockchain,
-        minNumDataSetsForChecks: 3,
-        dataSetTerminationMinIndex: 1,
-      } as IConfig["blockchain"],
-      jobs: { ...baseConfigValues.jobs, dataSetTerminationEnabled: false } as IConfig["jobs"],
+      jobs: { ...baseConfigValues.jobs, dataSetLifecycleCheckEnabled: false } as IConfig["jobs"],
     };
     configService = {
       get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
     } as unknown as JobsServiceDeps[0];
 
     const dealService = {
-      getBaseDataSetMetadata: vi.fn(() => ({})),
-      getDataSetProvisioningStatus: vi.fn(),
-      terminateManagedDataSet: vi.fn(),
-      recordDataSetTerminationSkipped: vi.fn(),
+      runDataSetLifecycleCheck: vi.fn(),
     };
     const walletSdkService = { getProviderInfo: vi.fn(() => ({ id: 1, name: "test-provider" })) };
 
@@ -1287,34 +1278,25 @@ describe("JobsService schedule rows", () => {
       walletSdkService: walletSdkService as unknown as ConstructorParameters<typeof JobsService>[5],
     });
 
-    await callPrivate(service, "handleDataSetTerminationJob", {
-      id: "job-term-1",
-      data: { jobType: "data_set_termination", spAddress: "0xaaa", intervalSeconds: 3600 },
+    await callPrivate(service, "handleDataSetLifecycleCheckJob", {
+      id: "job-lc-1",
+      data: { jobType: "data_set_lifecycle_check", spAddress: "0xaaa", intervalSeconds: 3600 },
     });
 
-    expect(dealService.getDataSetProvisioningStatus).not.toHaveBeenCalled();
-    expect(dealService.terminateManagedDataSet).not.toHaveBeenCalled();
+    expect(dealService.runDataSetLifecycleCheck).not.toHaveBeenCalled();
   });
 
-  it("data_set_termination job skips when canary window is empty", async () => {
+  it("data_set_lifecycle_check job creates and terminates a throwaway data set when enabled", async () => {
     baseConfigValues = {
       ...baseConfigValues,
-      blockchain: {
-        ...baseConfigValues.blockchain,
-        minNumDataSetsForChecks: 2,
-        dataSetTerminationMinIndex: 2, // window = 2 - 2 = 0
-      } as IConfig["blockchain"],
-      jobs: { ...baseConfigValues.jobs, dataSetTerminationEnabled: true } as IConfig["jobs"],
+      jobs: { ...baseConfigValues.jobs, dataSetLifecycleCheckEnabled: true } as IConfig["jobs"],
     };
     configService = {
       get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
     } as unknown as JobsServiceDeps[0];
 
     const dealService = {
-      getBaseDataSetMetadata: vi.fn(() => ({})),
-      getDataSetProvisioningStatus: vi.fn(),
-      terminateManagedDataSet: vi.fn(),
-      recordDataSetTerminationSkipped: vi.fn(),
+      runDataSetLifecycleCheck: vi.fn(async () => ({ dataSetId: 55n, pdpEndEpoch: 9n })),
     };
     const walletSdkService = { getProviderInfo: vi.fn(() => ({ id: 1, name: "test-provider" })) };
 
@@ -1324,70 +1306,26 @@ describe("JobsService schedule rows", () => {
       walletSdkService: walletSdkService as unknown as ConstructorParameters<typeof JobsService>[5],
     });
 
-    await callPrivate(service, "handleDataSetTerminationJob", {
-      id: "job-term-2",
-      data: { jobType: "data_set_termination", spAddress: "0xaaa", intervalSeconds: 3600 },
+    await callPrivate(service, "handleDataSetLifecycleCheckJob", {
+      id: "job-lc-2",
+      data: { jobType: "data_set_lifecycle_check", spAddress: "0xaaa", intervalSeconds: 3600 },
     });
 
-    expect(dealService.getDataSetProvisioningStatus).not.toHaveBeenCalled();
-    expect(dealService.terminateManagedDataSet).not.toHaveBeenCalled();
-  });
-
-  it("data_set_termination job terminates a slot in the canary window when enabled", async () => {
-    baseConfigValues = {
-      ...baseConfigValues,
-      blockchain: {
-        ...baseConfigValues.blockchain,
-        minNumDataSetsForChecks: 2,
-        dataSetTerminationMinIndex: 1, // window = [1, 2)
-      } as IConfig["blockchain"],
-      jobs: { ...baseConfigValues.jobs, dataSetTerminationEnabled: true } as IConfig["jobs"],
-    };
-    configService = {
-      get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
-    } as unknown as JobsServiceDeps[0];
-
-    const dealService = {
-      getBaseDataSetMetadata: vi.fn(() => ({})),
-      getDataSetProvisioningStatus: vi.fn(async () => ({ status: "live" as const, dataSetId: 55n })),
-      terminateManagedDataSet: vi.fn(async () => ({ dealsAffected: 1, pdpEndEpoch: 9n })),
-      recordDataSetTerminationSkipped: vi.fn(),
-    };
-    const walletSdkService = { getProviderInfo: vi.fn(() => ({ id: 1, name: "test-provider" })) };
-
-    service = buildService({
-      configService,
-      dealService: dealService as unknown as ConstructorParameters<typeof JobsService>[3],
-      walletSdkService: walletSdkService as unknown as ConstructorParameters<typeof JobsService>[5],
-    });
-
-    await callPrivate(service, "handleDataSetTerminationJob", {
-      id: "job-term-3",
-      data: { jobType: "data_set_termination", spAddress: "0xaaa", intervalSeconds: 3600 },
-    });
-
-    expect(dealService.getDataSetProvisioningStatus).toHaveBeenCalledWith(
+    expect(dealService.runDataSetLifecycleCheck).toHaveBeenCalledWith(
       "0xaaa",
-      { dealbotDS: "1" },
-      expect.any(AbortSignal),
-    );
-    expect(dealService.terminateManagedDataSet).toHaveBeenCalledWith(
-      "0xaaa",
-      55n,
+      expect.objectContaining({ dealbotLifecycleCheck: expect.any(String) }),
       expect.any(AbortSignal),
       expect.any(Number),
     );
+    // The fixed marker key is the only metadata; no base/slot metadata is attached.
+    const metadataArg = (dealService.runDataSetLifecycleCheck.mock.calls[0] as unknown[])[1] as Record<string, string>;
+    expect(Object.keys(metadataArg)).toEqual(["dealbotLifecycleCheck"]);
   });
 
-  it("creates data_set_termination schedules when enabled with a non-empty window", async () => {
+  it("creates data_set_lifecycle_check schedules when enabled", async () => {
     baseConfigValues = {
       ...baseConfigValues,
-      blockchain: {
-        ...baseConfigValues.blockchain,
-        minNumDataSetsForChecks: 3,
-        dataSetTerminationMinIndex: 1,
-      } as IConfig["blockchain"],
-      jobs: { ...baseConfigValues.jobs, dataSetTerminationEnabled: true } as IConfig["jobs"],
+      jobs: { ...baseConfigValues.jobs, dataSetLifecycleCheckEnabled: true } as IConfig["jobs"],
     };
     configService = {
       get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
@@ -1398,25 +1336,25 @@ describe("JobsService schedule rows", () => {
 
     await callPrivate(service, "ensureScheduleRows");
 
-    const terminationUpserts = jobScheduleRepositoryMock.upsertSchedule.mock.calls.filter(
-      (call) => call[0] === "data_set_termination",
+    const lifecycleUpserts = jobScheduleRepositoryMock.upsertSchedule.mock.calls.filter(
+      (call) => call[0] === "data_set_lifecycle_check",
     );
-    expect(terminationUpserts).toHaveLength(1);
-    expect(terminationUpserts[0][1]).toBe("0xaaa");
+    expect(lifecycleUpserts).toHaveLength(1);
+    expect(lifecycleUpserts[0][1]).toBe("0xaaa");
     expect(jobScheduleRepositoryMock.deleteSchedulesByJobType).not.toHaveBeenCalled();
   });
 
-  it("removes data_set_termination schedules when disabled", async () => {
-    // base config has dataSetTerminationEnabled=false
+  it("removes data_set_lifecycle_check schedules when disabled", async () => {
+    // base config has dataSetLifecycleCheckEnabled=false
     storageProviderRepositoryMock.find.mockResolvedValueOnce([{ address: "0xaaa" }]);
 
     await callPrivate(service, "ensureScheduleRows");
 
-    const terminationUpserts = jobScheduleRepositoryMock.upsertSchedule.mock.calls.filter(
-      (call) => call[0] === "data_set_termination",
+    const lifecycleUpserts = jobScheduleRepositoryMock.upsertSchedule.mock.calls.filter(
+      (call) => call[0] === "data_set_lifecycle_check",
     );
-    expect(terminationUpserts).toHaveLength(0);
-    expect(jobScheduleRepositoryMock.deleteSchedulesByJobType).toHaveBeenCalledWith("data_set_termination");
+    expect(lifecycleUpserts).toHaveLength(0);
+    expect(jobScheduleRepositoryMock.deleteSchedulesByJobType).toHaveBeenCalledWith("data_set_lifecycle_check");
   });
 
   it("sets active, inactive, and tested provider gauge values after refresh", async () => {
@@ -1678,9 +1616,10 @@ describe("JobsService schedule rows", () => {
       await vi.advanceTimersByTimeAsync(35_001);
       await shutdownPromise;
 
-      // Defaults: deal=360, retrieval=60, dataSetCreation=300, pullCheck=300 → max=360 → +60s buffer
+      // Defaults: deal=360, retrieval=60, dataSetCreation=300, dataSetLifecycleCheck=600,
+      // pullCheck=300 → max=600 → +60s buffer
       expect(bossMock.stop).toHaveBeenCalledTimes(1);
-      expect(bossMock.stop).toHaveBeenCalledWith({ graceful: true, timeout: 420_000 });
+      expect(bossMock.stop).toHaveBeenCalledWith({ graceful: true, timeout: 660_000 });
     });
 
     it("picks the longest timeout across all job types, including pullCheck under pullPiece", async () => {

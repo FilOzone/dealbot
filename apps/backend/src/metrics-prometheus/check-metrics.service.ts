@@ -286,29 +286,30 @@ export class DataSetCreationCheckMetrics {
 }
 
 @Injectable()
-export class DataSetTerminationCheckMetrics {
+export class DataSetLifecycleCheckMetrics {
   constructor(
-    @InjectMetric("dataSetTerminationMs")
-    private readonly dataSetTerminationMs: Histogram,
-    @InjectMetric("dataSetTerminationStatus")
-    private readonly dataSetTerminationStatusCounter: Counter,
+    @InjectMetric("dataSetLifecycleCheckMs")
+    private readonly dataSetLifecycleCheckMs: Histogram,
+    @InjectMetric("dataSetLifecycleCheckStatus")
+    private readonly dataSetLifecycleCheckStatusCounter: Counter,
   ) {}
 
   /**
-   * Observe the time from the `terminateService` call to `pdpEndEpoch != 0` confirmation.
+   * Observe the end-to-end duration of one lifecycle check (create throwaway data set
+   * with a seed piece, then `terminateService` and confirm `pdpEndEpoch != 0`).
    * Emitted on `success` and `failure.timedout` only (analogous to `dataSetCreationMs`).
    */
   observeCheckDuration(labels: CheckMetricLabels, value: number | null | undefined): void {
-    observePositive(this.dataSetTerminationMs, labels, value);
+    observePositive(this.dataSetLifecycleCheckMs, labels, value);
   }
 
   /**
-   * Record data-set termination status.
-   * Values: `success`, `failure.timedout`, `failure.other`, `skipped.no_candidate`.
-   * See docs/data-set-termination.md#termination-metrics-trigger-health.
+   * Record data-set lifecycle check status.
+   * Values: `success`, `failure.timedout`, `failure.other`.
+   * See docs/checks/data-set-lifecycle-check.md.
    */
   recordStatus(labels: CheckMetricLabels, value: string): void {
-    this.dataSetTerminationStatusCounter.inc({ ...labels, value });
+    this.dataSetLifecycleCheckStatusCounter.inc({ ...labels, value });
   }
 }
 

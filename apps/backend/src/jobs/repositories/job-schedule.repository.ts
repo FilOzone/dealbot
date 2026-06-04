@@ -71,7 +71,7 @@ export class JobScheduleRepository {
         const [rows] = (await this.dataSource.query(
           `
           DELETE FROM job_schedule_state
-          WHERE job_type IN ('deal', 'retrieval', 'data_set_creation', 'data_set_termination', 'piece_cleanup', 'pull_check')
+          WHERE job_type IN ('deal', 'retrieval', 'data_set_creation', 'data_set_lifecycle_check', 'piece_cleanup', 'pull_check')
             AND sp_address <> ''
           RETURNING sp_address
           `,
@@ -82,7 +82,7 @@ export class JobScheduleRepository {
       const [rows] = (await this.dataSource.query(
         `
         DELETE FROM job_schedule_state
-        WHERE job_type IN ('deal', 'retrieval', 'data_set_creation', 'data_set_termination', 'piece_cleanup', 'pull_check')
+        WHERE job_type IN ('deal', 'retrieval', 'data_set_creation', 'data_set_lifecycle_check', 'piece_cleanup', 'pull_check')
           AND sp_address <> ''
           AND sp_address <> ALL($1::text[])
         RETURNING sp_address
@@ -104,8 +104,8 @@ export class JobScheduleRepository {
    * Deletes all per-provider schedule rows for a given job type.
    *
    * Used to stop a job entirely when it is disabled by config (for example the
-   * `data_set_termination` canary when `DATASET_TERMINATION_ENABLED=false` or the
-   * canary window is empty), so stale schedules do not keep enqueuing no-op jobs.
+   * `data_set_lifecycle_check` canary when `DATASET_LIFECYCLE_CHECK_ENABLED=false`),
+   * so stale schedules do not keep enqueuing no-op jobs.
    *
    * @param jobType - The job type whose per-provider schedules should be removed.
    * @returns Number of schedule rows deleted.

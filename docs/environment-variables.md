@@ -11,7 +11,7 @@ This document provides a comprehensive guide to all environment variables used b
 | [Blockchain](#blockchain-configuration)   | `NETWORK`, `RPC_URL`, `WALLET_ADDRESS`, `WALLET_PRIVATE_KEY`, `SESSION_KEY_PRIVATE_KEY`, `CHECK_DATASET_CREATION_FEES`, `USE_ONLY_APPROVED_PROVIDERS`, `PDP_SUBGRAPH_ENDPOINT` |
 | [Dataset Versioning](#dataset-versioning) | `DEALBOT_DATASET_VERSION`                                                                                                                                    |
 | [Scheduling](#scheduling-configuration)   | `PROVIDERS_REFRESH_INTERVAL_SECONDS`, `DATA_RETENTION_POLL_INTERVAL_SECONDS`, `DEALBOT_MAINTENANCE_WINDOWS_UTC`, `DEALBOT_MAINTENANCE_WINDOW_MINUTES`                                                                                                                                 |
-| [Jobs (pg-boss)](#jobs-pg-boss)           | `DEALBOT_PGBOSS_SCHEDULER_ENABLED`, `DEALBOT_PGBOSS_POOL_MAX`, `DEALS_PER_SP_PER_HOUR`, `MIN_NUM_DATASETS_FOR_CHECKS`, `DATA_SET_TERMINATION_MIN_INDEX`, `DATASET_CREATIONS_PER_SP_PER_HOUR`, `DATASET_TERMINATION_ENABLED`, `DATASET_TERMINATIONS_PER_SP_PER_HOUR`, `RETRIEVALS_PER_SP_PER_HOUR`,  `JOB_SCHEDULER_POLL_SECONDS`, `JOB_WORKER_POLL_SECONDS`, `PG_BOSS_LOCAL_CONCURRENCY`, `JOB_CATCHUP_MAX_ENQUEUE`, `JOB_SCHEDULE_PHASE_SECONDS`, `JOB_ENQUEUE_JITTER_SECONDS`, `DATA_SET_CREATION_JOB_TIMEOUT_SECONDS`, `DATA_SET_TERMINATION_JOB_TIMEOUT_SECONDS`, `DEAL_JOB_TIMEOUT_SECONDS`, `RETRIEVAL_JOB_TIMEOUT_SECONDS`, `SHUTDOWN_FINAL_SCRAPE_DELAY_SECONDS`, `IPFS_BLOCK_FETCH_CONCURRENCY` |
+| [Jobs (pg-boss)](#jobs-pg-boss)           | `DEALBOT_PGBOSS_SCHEDULER_ENABLED`, `DEALBOT_PGBOSS_POOL_MAX`, `DEALS_PER_SP_PER_HOUR`, `MIN_NUM_DATASETS_FOR_CHECKS`, `DATASET_CREATIONS_PER_SP_PER_HOUR`, `DATASET_LIFECYCLE_CHECK_ENABLED`, `DATASET_LIFECYCLE_CHECKS_PER_SP_PER_HOUR`, `RETRIEVALS_PER_SP_PER_HOUR`,  `JOB_SCHEDULER_POLL_SECONDS`, `JOB_WORKER_POLL_SECONDS`, `PG_BOSS_LOCAL_CONCURRENCY`, `JOB_CATCHUP_MAX_ENQUEUE`, `JOB_SCHEDULE_PHASE_SECONDS`, `JOB_ENQUEUE_JITTER_SECONDS`, `DATA_SET_CREATION_JOB_TIMEOUT_SECONDS`, `DATA_SET_LIFECYCLE_CHECK_JOB_TIMEOUT_SECONDS`, `DEAL_JOB_TIMEOUT_SECONDS`, `RETRIEVAL_JOB_TIMEOUT_SECONDS`, `SHUTDOWN_FINAL_SCRAPE_DELAY_SECONDS`, `IPFS_BLOCK_FETCH_CONCURRENCY` |
 | [Dataset](#dataset-configuration)         | `DEALBOT_LOCAL_DATASETS_PATH`, `RANDOM_PIECE_SIZES`                                                                                                          |
 | [ClickHouse](#clickhouse-configuration)   | `CLICKHOUSE_URL`, `CLICKHOUSE_BATCH_SIZE`, `CLICKHOUSE_FLUSH_INTERVAL_MS`, `DEALBOT_PROBE_LOCATION`          |
 | [Timeouts](#timeout-configuration)        | `CONNECT_TIMEOUT_MS`, `HTTP_REQUEST_TIMEOUT_MS`, `HTTP2_REQUEST_TIMEOUT_MS`, `IPNI_VERIFICATION_TIMEOUT_MS`, `IPNI_VERIFICATION_POLLING_MS`                   |
@@ -662,28 +662,6 @@ rate-based (per hour) and persisted in Postgres so restarts do not reset timing.
 
 ---
 
-### `DATA_SET_TERMINATION_MIN_INDEX`
-
-- **Type**: `number` (integer)
-- **Required**: No
-- **Default**: `1`
-- **Minimum**: `1`
-- **Maximum**: `MIN_NUM_DATASETS_FOR_CHECKS`
-- **Enforced**: Yes (config validation; violating either bound crashes the application on startup)
-
-**Role**: The lowest dataset slot index (inclusive) the `data_set_termination` canary may terminate. Slots `0..(DATA_SET_TERMINATION_MIN_INDEX - 1)` are never touched, keeping a stable baseline for ongoing checks. The canary window is `[DATA_SET_TERMINATION_MIN_INDEX, MIN_NUM_DATASETS_FOR_CHECKS)`.
-
-**When to update**:
-
-- Increase to protect more low-index slots from termination.
-- Set equal to `MIN_NUM_DATASETS_FOR_CHECKS` to disable termination entirely (the canary window becomes empty and no schedule is created).
-
-**Example**: `MIN_NUM_DATASETS_FOR_CHECKS=10`, `DATA_SET_TERMINATION_MIN_INDEX=5` → slots 0–4 are stable, slots 5–9 cycle as the canary window.
-
-**See also**: [`docs/data-set-termination.md`](./data-set-termination.md)
-
----
-
 ### `DATASET_CREATIONS_PER_SP_PER_HOUR`
 
 - **Type**: `number`
@@ -698,31 +676,31 @@ rate-based (per hour) and persisted in Postgres so restarts do not reset timing.
 
 ---
 
-### `DATASET_TERMINATION_ENABLED`
+### `DATASET_LIFECYCLE_CHECK_ENABLED`
 
 - **Type**: `boolean`
 - **Required**: No
 - **Default**: `true` on calibration, `false` on mainnet
 
-**Role**: Enables the `data_set_termination` canary job, which periodically terminates one managed dataset slot per provider so `data_set_creation` recreates it, keeping the on-chain `createDataSet` lifecycle continuously exercised.
+**Role**: Enables the `data_set_lifecycle_check` canary job, which in a single tick creates a throwaway data set with a seed piece and immediately terminates it (`terminateService`), continuously exercising the on-chain `createDataSet → terminateService` lifecycle.
 
-**Notes**: Even when enabled, a schedule is only created when the canary window is non-empty (`MIN_NUM_DATASETS_FOR_CHECKS - DATA_SET_TERMINATION_MIN_INDEX > 0`). The default-empty window with `MIN_NUM_DATASETS_FOR_CHECKS=1` means termination is effectively off until you raise `MIN_NUM_DATASETS_FOR_CHECKS`.
+**Notes**: Self-contained — it does not touch the managed check data sets and does not depend on `data_set_creation`. When disabled, stale schedules are removed so they stop enqueuing no-op jobs.
 
-**See also**: [`docs/data-set-termination.md`](./data-set-termination.md)
+**See also**: [`docs/checks/data-set-lifecycle-check.md`](./checks/data-set-lifecycle-check.md)
 
 ---
 
-### `DATASET_TERMINATIONS_PER_SP_PER_HOUR`
+### `DATASET_LIFECYCLE_CHECKS_PER_SP_PER_HOUR`
 
 - **Type**: `number`
 - **Required**: No
 - **Default**: `1`
 
-**Role**: Target dataset termination rate per storage provider for the `data_set_termination` canary.
+**Role**: Target lifecycle check rate per storage provider for the `data_set_lifecycle_check` canary. Each run creates and terminates one throwaway data set.
 
 **Limits**: Config schema caps this at 20.
 
-**Notes**: Should be **less than or equal to** `DATASET_CREATIONS_PER_SP_PER_HOUR` so creation can replenish terminated slots without backlog. A startup warning is logged if this constraint is violated. Fractional values are supported.
+**Notes**: Independent of `DATASET_CREATIONS_PER_SP_PER_HOUR`. Fractional values are supported.
 
 ---
 
@@ -860,24 +838,24 @@ Use this to stagger multiple dealbot deployments that are not sharing a database
 
 ---
 
-### `DATA_SET_TERMINATION_JOB_TIMEOUT_SECONDS`
+### `DATA_SET_LIFECYCLE_CHECK_JOB_TIMEOUT_SECONDS`
 
 - **Type**: `number`
 - **Required**: No
-- **Default**: `300` (5 minutes)
+- **Default**: `600` (10 minutes)
 - **Minimum**: `60` (1 minute)
 - **Enforced**: Yes (config validation, effective floor applied at runtime)
 
-**Role**: Maximum runtime for `data_set_termination` jobs before forced abort via `AbortController`. Bounds the slot scan, the `terminateService` call, and the `pdpEndEpoch != 0` confirmation poll.
+**Role**: Maximum runtime for `data_set_lifecycle_check` jobs before forced abort via `AbortController`. Bounds the seed-piece upload, the `terminateService` call, and the `pdpEndEpoch != 0` confirmation poll.
 
 **When to update**:
 
-- Increase if `pdpEndEpoch` confirmation consistently times out on slow networks.
+- Increase if create-plus-terminate consistently times out on slow networks.
 - Decrease for faster fail-fast behavior during testing.
 
-**Note**: If the configured value is below 60 seconds, the runtime silently raises it to 60 seconds as an effective floor. An abort due to this timeout (or an internal poll timeout) is recorded as `dataSetTerminationStatus{value="failure.timedout"}` and retried on the next scheduled tick.
+**Note**: If the configured value is below 60 seconds, the runtime silently raises it to 60 seconds as an effective floor. An abort due to this timeout (or an internal poll timeout) is recorded as `dataSetLifecycleCheckStatus{value="failure.timedout"}` and retried on the next scheduled tick.
 
-**See also**: [`docs/data-set-termination.md`](./data-set-termination.md)
+**See also**: [`docs/checks/data-set-lifecycle-check.md`](./checks/data-set-lifecycle-check.md)
 
 ---
 

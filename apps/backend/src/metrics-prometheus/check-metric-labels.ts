@@ -3,7 +3,7 @@ export type CheckType =
   | "retrieval"
   | "dataRetention"
   | "dataSetCreation"
-  | "dataSetTermination"
+  | "dataSetLifecycleCheck"
   | "pullCheck";
 export type ProviderStatus = "approved" | "unapproved";
 

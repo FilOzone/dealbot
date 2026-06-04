@@ -17,7 +17,7 @@ import { DealAddonsService } from "../deal-addons/deal-addons.service.js";
 import { DealPreprocessingResult } from "../deal-addons/types.js";
 import {
   DataSetCreationCheckMetrics,
-  DataSetTerminationCheckMetrics,
+  DataSetLifecycleCheckMetrics,
   DataStorageCheckMetrics,
   RetrievalCheckMetrics,
 } from "../metrics-prometheus/check-metrics.service.js";
@@ -170,7 +170,7 @@ describe("DealService", () => {
     observeCheckDuration: vi.fn(),
     recordStatus: vi.fn(),
   };
-  const mockDataSetTerminationMetrics = {
+  const mockDataSetLifecycleCheckMetrics = {
     observeCheckDuration: vi.fn(),
     recordStatus: vi.fn(),
   };
@@ -189,7 +189,7 @@ describe("DealService", () => {
         { provide: DataStorageCheckMetrics, useValue: mockDataStorageMetrics },
         { provide: RetrievalCheckMetrics, useValue: mockRetrievalMetrics },
         { provide: DataSetCreationCheckMetrics, useValue: mockDataSetCreationMetrics },
-        { provide: DataSetTerminationCheckMetrics, useValue: mockDataSetTerminationMetrics },
+        { provide: DataSetLifecycleCheckMetrics, useValue: mockDataSetLifecycleCheckMetrics },
         { provide: ClickhouseService, useValue: { insert: vi.fn(), probeLocation: "test" } },
         { provide: DatasetLivenessService, useValue: mockDatasetLivenessService },
       ],
@@ -1074,7 +1074,7 @@ describe("DealService", () => {
             { provide: DataStorageCheckMetrics, useValue: mockDataStorageMetrics },
             { provide: RetrievalCheckMetrics, useValue: mockRetrievalMetrics },
             { provide: DataSetCreationCheckMetrics, useValue: mockDataSetCreationMetrics },
-            { provide: DataSetTerminationCheckMetrics, useValue: mockDataSetTerminationMetrics },
+            { provide: DataSetLifecycleCheckMetrics, useValue: mockDataSetLifecycleCheckMetrics },
             { provide: ClickhouseService, useValue: { insert: vi.fn(), probeLocation: "test" } },
             { provide: DatasetLivenessService, useValue: mockDatasetLivenessService },
           ],
@@ -1452,7 +1452,7 @@ describe("DealService", () => {
     });
   });
 
-  describe("terminateManagedDataSet", () => {
+  describe("runDataSetLifecycleCheck", () => {
     beforeEach(() => {
       vi.spyOn(mockWalletSdkService, "getProviderInfo").mockReturnValue({
         id: 1n,
@@ -1461,76 +1461,70 @@ describe("DealService", () => {
       } as any);
     });
 
-    it("terminates, marks deals cleaned up, and records success + duration metrics", async () => {
+    it("creates a throwaway data set, terminates it, and records only lifecycle metrics", async () => {
       const terminateMock = vi.fn().mockResolvedValue("0xhash");
       const synapseMock = {
-        storage: { terminateDataSet: terminateMock },
+        storage: {
+          createContext: vi.fn().mockResolvedValue({ dataSetId: 9n }),
+          terminateDataSet: terminateMock,
+        },
         client: { waitForTransactionReceipt: vi.fn().mockResolvedValue({ status: "success" }) },
       };
       vi.spyOn(service as any, "createSynapseInstance").mockImplementation(() => synapseMock as unknown as Synapse);
+      (executeUpload as Mock).mockImplementation(async (_s, _d, _r, options) => {
+        await triggerUploadProgress(options?.onProgress);
+        return { pieceCid: "bafk-seed", pieceId: 1, transactionHash: "0xhash" };
+      });
 
+      // getDataSet: first probe inside ensureDataSetTerminated, then the confirmation poll.
       mockWarmStorageService.getDataSet.mockResolvedValueOnce({ pdpEndEpoch: 0n });
       mockWarmStorageService.getDataSet.mockResolvedValueOnce({ pdpEndEpoch: 4321n });
 
-      const updateFn = vi.fn().mockResolvedValue({ affected: 3 });
-      const transactionMock = vi.fn(async (cb: any) => cb({ getRepository: () => ({ update: updateFn }) }));
-      Object.defineProperty(dealRepoMock, "manager", {
-        configurable: true,
-        value: { transaction: transactionMock },
-      });
-
-      const result = await service.terminateManagedDataSet("0xaaa", 9n, undefined, 5_000);
-
-      expect(terminateMock).toHaveBeenCalledWith({ dataSetId: 9n });
-      expect(updateFn).toHaveBeenCalledWith(
-        { dataSetId: 9n, cleanedUp: false },
-        expect.objectContaining({ cleanedUp: true }),
+      const result = await service.runDataSetLifecycleCheck(
+        "0xaaa",
+        { dealbotLifecycleCheck: "nonce-1" },
+        undefined,
+        5_000,
       );
-      expect(result).toEqual({ dealsAffected: 3, pdpEndEpoch: 4321n });
-      expect(mockDataSetTerminationMetrics.recordStatus).toHaveBeenCalledWith(
-        expect.objectContaining({ checkType: "dataSetTermination" }),
+
+      expect(synapseMock.storage.createContext).toHaveBeenCalledWith(
+        expect.objectContaining({ metadata: { dealbotLifecycleCheck: "nonce-1" } }),
+      );
+      expect(terminateMock).toHaveBeenCalledWith({ dataSetId: 9n });
+      expect(result).toEqual({ dataSetId: 9n, pdpEndEpoch: 4321n });
+      expect(mockDataSetLifecycleCheckMetrics.recordStatus).toHaveBeenCalledWith(
+        expect.objectContaining({ checkType: "dataSetLifecycleCheck" }),
         "success",
       );
-      expect(mockDataSetTerminationMetrics.observeCheckDuration).toHaveBeenCalledWith(
-        expect.objectContaining({ checkType: "dataSetTermination" }),
+      expect(mockDataSetLifecycleCheckMetrics.observeCheckDuration).toHaveBeenCalledWith(
+        expect.objectContaining({ checkType: "dataSetLifecycleCheck" }),
         expect.any(Number),
       );
+      // The create step must NOT record dataSetCreation metrics (those belong to data_set_creation).
+      expect(mockDataSetCreationMetrics.recordStatus).not.toHaveBeenCalled();
+      expect(mockDataSetCreationMetrics.observeCheckDuration).not.toHaveBeenCalled();
+      // No Deal rows exist for the throwaway set, so no cleanup is attempted.
+      expect(dealRepoMock.save).not.toHaveBeenCalled();
     });
 
     it("records failure.timedout and rethrows when the signal is already aborted", async () => {
-      const terminateMock = vi.fn();
+      const createContextMock = vi.fn().mockResolvedValue({ dataSetId: 9n });
       const synapseMock = {
-        storage: { terminateDataSet: terminateMock },
+        storage: { createContext: createContextMock, terminateDataSet: vi.fn() },
         client: { waitForTransactionReceipt: vi.fn() },
       };
       vi.spyOn(service as any, "createSynapseInstance").mockImplementation(() => synapseMock as unknown as Synapse);
 
       const controller = new AbortController();
-      controller.abort(new Error("Data set termination job timeout (300s)"));
+      controller.abort(new Error("Data set lifecycle check job timeout (600s)"));
 
-      await expect(service.terminateManagedDataSet("0xaaa", 9n, controller.signal, 5_000)).rejects.toThrow();
+      await expect(
+        service.runDataSetLifecycleCheck("0xaaa", { dealbotLifecycleCheck: "nonce-2" }, controller.signal, 5_000),
+      ).rejects.toThrow();
 
-      expect(terminateMock).not.toHaveBeenCalled();
-      expect(mockDataSetTerminationMetrics.recordStatus).toHaveBeenCalledWith(
-        expect.objectContaining({ checkType: "dataSetTermination" }),
+      expect(mockDataSetLifecycleCheckMetrics.recordStatus).toHaveBeenCalledWith(
+        expect.objectContaining({ checkType: "dataSetLifecycleCheck" }),
         "failure.timedout",
-      );
-    });
-  });
-
-  describe("recordDataSetTerminationSkipped", () => {
-    it("records skipped.no_candidate with dataSetTermination labels", () => {
-      vi.spyOn(mockWalletSdkService, "getProviderInfo").mockReturnValue({
-        id: 7n,
-        name: "sp",
-        isApproved: false,
-      } as any);
-
-      service.recordDataSetTerminationSkipped("0xaaa");
-
-      expect(mockDataSetTerminationMetrics.recordStatus).toHaveBeenCalledWith(
-        expect.objectContaining({ checkType: "dataSetTermination", providerId: "7", providerStatus: "unapproved" }),
-        "skipped.no_candidate",
       );
     });
   });
