@@ -87,10 +87,9 @@ export class WalletSdkService implements OnModuleInit {
    * This allows dealbot to test all FWSS SPs, even those not yet approved
    * Only loads active, approved providers that support the PDP product
    */
-  async loadProviders(): Promise<void> {
+  async loadProviders(): Promise<boolean> {
     if (this.providersLoadPromise) {
-      await this.providersLoadPromise;
-      return;
+      return this.providersLoadPromise;
     }
 
     this.providersLoadPromise = this.loadProvidersInternal();
@@ -99,6 +98,7 @@ export class WalletSdkService implements OnModuleInit {
       if (success) {
         this.providersLoadedOnce = true;
       }
+      return success;
     } finally {
       this.providersLoadPromise = null;
     }

@@ -12,9 +12,21 @@ import { DataRetentionBaseline } from "../database/entities/data-retention-basel
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
 import { buildCheckMetricLabels, CheckMetricLabels } from "../metrics-prometheus/check-metric-labels.js";
 import { PDPSubgraphService } from "../pdp-subgraph/pdp-subgraph.service.js";
-import { type ProviderDataSetResponse } from "../pdp-subgraph/types.js";
+import { type ProviderDataSetResponse, type SubgraphMeta } from "../pdp-subgraph/types.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
 import { type PDPProviderEx } from "../wallet-sdk/wallet-sdk.types.js";
+
+/**
+ * Thrown when the data-retention check cannot run because one of its dependencies
+ * (the PDP subgraph or the persisted baselines) is unavailable. Transient per-provider
+ * failures do NOT raise this — they leave the job a success with partial results.
+ */
+export class DataRetentionDependencyError extends Error {
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message, options);
+    this.name = "DataRetentionDependencyError";
+  }
+}
 
 type ProviderBaseline = {
   faultedPeriods: bigint;
@@ -61,26 +73,37 @@ export class DataRetentionService {
   async pollDataRetention(): Promise<void> {
     const pdpSubgraphEndpoint = this.configService.get("blockchain").pdpSubgraphEndpoint;
     if (!pdpSubgraphEndpoint) {
-      this.logger.warn({
+      this.logger.error({
         event: "pdp_subgraph_endpoint_not_configured",
         message: "No PDP subgraph endpoint configured",
       });
-      return;
+      throw new DataRetentionDependencyError("PDP subgraph endpoint not configured");
     }
 
     const baselines = await this.loadBaselinesFromDb();
     if (baselines === null) {
-      // Cannot safely compute deltas without persisted baselines.
-      return;
+      // Cannot safely compute deltas without persisted baselines. DB dependency is unavailable.
+      throw new DataRetentionDependencyError("Failed to load data retention baselines from database");
     }
 
+    // A subgraph query failure means the check could not run against its dependency, its a job failure.
+    let subgraphQueryFailed = false;
+
     try {
-      const subgraphMeta = await this.pdpSubgraphService.fetchSubgraphMeta();
+      let subgraphMeta: SubgraphMeta;
+      try {
+        subgraphMeta = await this.pdpSubgraphService.fetchSubgraphMeta();
+      } catch (error) {
+        // The subgraph is a hard dependency for the poll; label this precisely so the
+        // outer catch (which now preserves error type) rethrows it as a dependency failure.
+        throw new DataRetentionDependencyError("Failed to fetch PDP subgraph meta", { cause: error });
+      }
       const allProviderInfos = this.walletSdkService.getTestingProviders();
       const spBlocklists = this.configService.get("spBlocklists");
       const providerInfos = allProviderInfos?.filter((p) => !isSpBlocked(spBlocklists, p.serviceProvider, p.id));
 
       if (!providerInfos || providerInfos.length === 0) {
+        // An empty-but-healthy provider set is a successful no-op poll, not a failure.
         this.logger.warn({
           event: "no_testing_providers_configured",
           message: "No testing providers configured",
@@ -170,6 +193,7 @@ export class DataRetentionService {
           );
         } catch (error) {
           hasProcessingErrors = true;
+          subgraphQueryFailed = true;
           this.logger.error({
             event: "provider_batch_fetch_failed",
             message: "Failed to fetch batch",
@@ -195,6 +219,15 @@ export class DataRetentionService {
         message: "Failed to poll data retention",
         error: toStructuredError(error),
       });
+      // Preserve the original failure type: genuine dependency failures are already
+      // DataRetentionDependencyError, while anything else (e.g. a logic error) must not be
+      // mislabeled as a dependency outage. Wrap only non-Error throwables.
+      throw error instanceof Error ? error : new Error(String(error));
+    }
+
+    // Fail the job once the poll has recorded what it could.
+    if (subgraphQueryFailed) {
+      throw new DataRetentionDependencyError("PDP subgraph query failed for one or more provider batches");
     }
   }
 
