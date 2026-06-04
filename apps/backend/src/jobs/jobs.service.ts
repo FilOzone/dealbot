@@ -9,6 +9,7 @@ import { DealJobTerminatedDataSetError } from "../common/errors.js";
 import { type JobLogContext, type ProviderJobContext, toStructuredError } from "../common/logging.js";
 import { getMaintenanceWindowStatus } from "../common/maintenance-window.js";
 import { isSpBlocked } from "../common/sp-blocklist.js";
+import type { Network } from "../common/types.js";
 import type { IConfig, ISpBlocklistConfig } from "../config/app.config.js";
 import { DataRetentionService } from "../data-retention/data-retention.service.js";
 import type { JobType } from "../database/entities/job-schedule-state.entity.js";
@@ -39,16 +40,17 @@ function isSpJobType(jobType: string): jobType is SpJobType {
   return SP_JOB_TYPES.has(jobType);
 }
 
-type SpJobData = { jobType: SpJobType; spAddress: string; intervalSeconds: number };
-type ProvidersRefreshJobData = { intervalSeconds: number };
+type SpJobData = { jobType: SpJobType; spAddress: string; network: Network; intervalSeconds: number };
+type ProvidersRefreshJobData = { network: Network; intervalSeconds: number };
 type SpJob = Job<SpJobData>;
-type DataRetentionJobData = { intervalSeconds: number };
-type PullPieceCleanupJobData = { intervalSeconds: number };
+type DataRetentionJobData = { network: Network; intervalSeconds: number };
+type PullPieceCleanupJobData = { network: Network; intervalSeconds: number };
 
 type ScheduleRow = {
   id: number;
   job_type: JobType;
   sp_address: string;
+  network: Network;
   interval_seconds: number;
   next_run_at: string;
 };
@@ -1066,12 +1068,15 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       pullPieceCleanupIntervalSeconds,
     } = this.getIntervalSecondsForRates();
 
-    const useOnlyApprovedProviders = this.configService.get("blockchain").useOnlyApprovedProviders;
+    const blockchainCfg = this.configService.get("blockchain", { infer: true });
+    const network = blockchainCfg.network;
+
+    const useOnlyApprovedProviders = blockchainCfg.useOnlyApprovedProviders;
     // Active providers are guaranteed to support ipniIpfs
     // as validated by WalletSdkService.loadProvidersInternal()
     const providers = await this.storageProviderRepository.find({
       select: { address: true, providerId: true },
-      where: useOnlyApprovedProviders ? { isActive: true, isApproved: true } : { isActive: true },
+      where: { network, isActive: true, ...(useOnlyApprovedProviders && { isApproved: true }) },
     });
 
     const phaseMs = this.schedulePhaseSeconds() * 1000;
@@ -1081,7 +1086,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     const dataRetentionPollStartAt = new Date(now.getTime() + phaseMs);
     const providersRefreshStartAt = new Date(now.getTime() + phaseMs);
 
-    const minDataSets = this.configService.get("blockchain").minNumDataSetsForChecks;
+    const minDataSets = blockchainCfg.minNumDataSetsForChecks;
     const cleanupStartAt = new Date(now.getTime() + phaseMs);
     const pullCheckStartAt = new Date(now.getTime() + phaseMs);
 
@@ -1099,12 +1104,19 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     }
 
     for (const address of unblockedAddresses) {
-      await this.jobScheduleRepository.upsertSchedule("deal", address, dealIntervalSeconds, dealStartAt);
-      await this.jobScheduleRepository.upsertSchedule("retrieval", address, retrievalIntervalSeconds, retrievalStartAt);
+      await this.jobScheduleRepository.upsertSchedule("deal", address, network, dealIntervalSeconds, dealStartAt);
+      await this.jobScheduleRepository.upsertSchedule(
+        "retrieval",
+        address,
+        network,
+        retrievalIntervalSeconds,
+        retrievalStartAt,
+      );
       if (minDataSets >= 1) {
         await this.jobScheduleRepository.upsertSchedule(
           "data_set_creation",
           address,
+          network,
           dataSetCreationIntervalSeconds,
           dataSetCreationStartAt,
         );
@@ -1112,19 +1124,24 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       await this.jobScheduleRepository.upsertSchedule(
         "piece_cleanup",
         address,
+        network,
         pieceCleanupIntervalSeconds,
         cleanupStartAt,
       );
       await this.jobScheduleRepository.upsertSchedule(
         "pull_check",
         address,
+        network,
         pullCheckIntervalSeconds,
         pullCheckStartAt,
       );
     }
 
     if (providers.length > 0) {
-      const deletedAddresses = await this.jobScheduleRepository.deleteSchedulesForInactiveProviders(unblockedAddresses);
+      const deletedAddresses = await this.jobScheduleRepository.deleteSchedulesForInactiveProviders(
+        unblockedAddresses,
+        network,
+      );
       if (deletedAddresses.length > 0) {
         this.logger.warn({
           event: "job_schedules_deleted",
@@ -1144,18 +1161,21 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     await this.jobScheduleRepository.upsertSchedule(
       "data_retention_poll",
       "",
+      network,
       dataRetentionPollIntervalSeconds,
       dataRetentionPollStartAt,
     );
     await this.jobScheduleRepository.upsertSchedule(
       "providers_refresh",
       "",
+      network,
       providersRefreshIntervalSeconds,
       providersRefreshStartAt,
     );
     await this.jobScheduleRepository.upsertSchedule(
       "pull_piece_cleanup",
       "",
+      network,
       pullPieceCleanupIntervalSeconds,
       new Date(now.getTime() + phaseMs),
     );
@@ -1189,6 +1209,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
 
   private async enqueueDueJobs(): Promise<void> {
     if (!this.boss) return;
+    const network = this.configService.get("blockchain", { infer: true }).network;
 
     const now = new Date();
     const maintenance = this.getMaintenanceWindowStatus(now);
@@ -1199,7 +1220,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     }
 
     await this.jobScheduleRepository.runTransaction(async (manager) => {
-      const rows = await this.jobScheduleRepository.findDueSchedulesWithManager(manager, now);
+      const rows = await this.jobScheduleRepository.findDueSchedulesWithManager(manager, now, network);
 
       for (const row of rows) {
         const timing = this.getScheduleTiming(row, now);
@@ -1276,9 +1297,14 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       row.job_type === "piece_cleanup" ||
       row.job_type === "pull_check"
     ) {
-      return { jobType: row.job_type, spAddress: row.sp_address, intervalSeconds: row.interval_seconds };
+      return {
+        jobType: row.job_type,
+        spAddress: row.sp_address,
+        network: row.network,
+        intervalSeconds: row.interval_seconds,
+      };
     }
-    return { intervalSeconds: row.interval_seconds };
+    return { network: row.network, intervalSeconds: row.interval_seconds };
   }
 
   /**
@@ -1297,11 +1323,12 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       if (isSpJobType(jobType)) {
         const spData = data as SpJobData;
         if (!finalOptions.singletonKey) {
-          finalOptions.singletonKey = spData.spAddress;
+          // Include network in singleton key to prevent cross-network deduplication collisions
+          finalOptions.singletonKey = `${spData.network}:${spData.spAddress}`;
         }
       } else {
-        // Global jobs: use job type as singleton key.
-        finalOptions.singletonKey = jobType;
+        // Global jobs: include network in singleton key for per-network isolation
+        finalOptions.singletonKey = `${data.network}:${jobType}`;
       }
       await this.boss.send(name, data, finalOptions);
       this.jobsEnqueueAttemptsCounter.inc({ job_type: jobType, outcome: "success" });
@@ -1342,6 +1369,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
    * Refreshes queue depth and age gauges from pg-boss tables.
    */
   private async updateQueueMetrics(): Promise<void> {
+    const network = this.configService.get("blockchain", { infer: true }).network;
     const jobTypes: JobType[] = [
       "deal",
       "retrieval",
@@ -1361,7 +1389,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       this.oldestInFlightAgeGauge.set({ job_type: jobType }, 0);
     }
 
-    const rows = await this.jobScheduleRepository.countBossJobStates(["created", "retry", "active"]);
+    const rows = await this.jobScheduleRepository.countBossJobStates(["created", "retry", "active"], network);
     if (rows.length > 0) {
       for (const row of rows) {
         const jobType = row.job_type as JobType;
@@ -1383,20 +1411,20 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       });
     }
 
-    const pausedSchedules = await this.jobScheduleRepository.countPausedSchedules();
+    const pausedSchedules = await this.jobScheduleRepository.countPausedSchedules(network);
     for (const row of pausedSchedules) {
       this.jobsPausedGauge.set({ job_type: row.job_type }, row.count);
     }
 
     const now = new Date();
-    const queuedAges = await this.jobScheduleRepository.minBossJobAgeSecondsByState("created", now);
+    const queuedAges = await this.jobScheduleRepository.minBossJobAgeSecondsByState("created", now, network);
     for (const row of queuedAges) {
       const jobType = row.job_type as JobType;
       if (!jobTypes.includes(jobType)) continue;
       this.oldestQueuedAgeGauge.set({ job_type: jobType }, Math.max(0, row.min_age_seconds ?? 0));
     }
 
-    const activeAges = await this.jobScheduleRepository.minBossJobAgeSecondsByState("active", now);
+    const activeAges = await this.jobScheduleRepository.minBossJobAgeSecondsByState("active", now, network);
     for (const row of activeAges) {
       const jobType = row.job_type as JobType;
       if (!jobTypes.includes(jobType)) continue;

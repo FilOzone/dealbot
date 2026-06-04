@@ -12,6 +12,7 @@ import { type Hex } from "viem";
 import { DEV_TAG } from "../common/constants.js";
 import { toStructuredError } from "../common/logging.js";
 import { createSynapseFromConfig } from "../common/synapse-factory.js";
+import { Network } from "../common/types.js";
 import type { IBlockchainConfig, IConfig } from "../config/app.config.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
 import type { PDPProviderEx, WalletServices } from "./wallet-sdk.types.js";
@@ -193,7 +194,7 @@ export class WalletSdkService implements OnModuleInit {
         };
       });
 
-      this.syncProvidersToDatabase(extendedProviders).catch((err) =>
+      this.syncProvidersToDatabase(extendedProviders, this.blockchainConfig.network).catch((err) =>
         this.logger.error({
           event: "providers_sync_to_db_failed",
           message: "Failed to sync providers to DB",
@@ -431,7 +432,7 @@ export class WalletSdkService implements OnModuleInit {
   /**
    * Create or update provider in database
    */
-  async syncProvidersToDatabase(providerInfos: PDPProviderEx[]): Promise<void> {
+  async syncProvidersToDatabase(providerInfos: PDPProviderEx[], network: Network): Promise<void> {
     try {
       const dedupedProviders = new Map<string, PDPProviderEx>();
       const duplicatesByAddress = new Map<string, Set<bigint>>();
@@ -507,6 +508,7 @@ export class WalletSdkService implements OnModuleInit {
 
       const entities = Array.from(dedupedProviders.values()).map((info) =>
         this.spRepository.create({
+          network,
           address: info.serviceProvider as Hex,
           providerId: info.id,
           name: info.name,
@@ -521,7 +523,7 @@ export class WalletSdkService implements OnModuleInit {
       );
 
       await this.spRepository.upsert(entities, {
-        conflictPaths: ["address"],
+        conflictPaths: ["address", "network"],
         skipUpdateIfNoValuesChanged: true,
       });
     } catch (error) {

@@ -503,12 +503,14 @@ export class RetrievalService {
    * Uses Postgres ORDER BY RANDOM() since Dealbot is Postgres-only.
    */
   private async selectRandomSuccessfulDealForProvider(spAddress: string): Promise<Deal | null> {
-    const walletAddress = this.configService.get("blockchain", { infer: true }).walletAddress;
+    const { network, walletAddress } = this.configService.get("blockchain", { infer: true });
+
     const randomDatasetSizes = this.getRandomDatasetSizes();
     const query = this.dealRepository
       .createQueryBuilder("deal")
       .innerJoin("deal.storageProvider", "sp", "sp.isActive = :isActive", { isActive: true })
       .where("deal.sp_address = :spAddress", { spAddress })
+      .andWhere("deal.network = :network", { network })
       .andWhere("deal.wallet_address = :walletAddress", { walletAddress })
       .andWhere("deal.status IN (:...statuses)", {
         statuses: [DealStatus.DEAL_CREATED],

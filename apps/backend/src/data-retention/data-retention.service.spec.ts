@@ -69,7 +69,7 @@ describe("DataRetentionService", () => {
     configServiceMock = {
       get: vi.fn((key: keyof IConfig) => {
         if (key === "blockchain") {
-          return { pdpSubgraphEndpoint: "https://example.com/subgraph" };
+          return { pdpSubgraphEndpoint: "https://example.com/subgraph", network: "calibration" };
         }
         if (key === "spBlocklists") {
           return { ids: new Set(), addresses: new Set() };
@@ -176,7 +176,7 @@ describe("DataRetentionService", () => {
 
   it("returns early when all providers are blocked for data-retention", async () => {
     (configServiceMock.get as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
-      if (key === "blockchain") return { pdpSubgraphEndpoint: "https://example.com/subgraph" };
+      if (key === "blockchain") return { pdpSubgraphEndpoint: "https://example.com/subgraph", network: "calibration" };
       if (key === "spBlocklists") return { ids: new Set(), addresses: new Set([PROVIDER_A, PROVIDER_B]) };
     });
 
@@ -187,7 +187,7 @@ describe("DataRetentionService", () => {
 
   it("excludes blocked providers from data-retention polling while retaining unblocked ones", async () => {
     (configServiceMock.get as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
-      if (key === "blockchain") return { pdpSubgraphEndpoint: "https://example.com/subgraph" };
+      if (key === "blockchain") return { pdpSubgraphEndpoint: "https://example.com/subgraph", network: "calibration" };
       if (key === "spBlocklists") return { ids: new Set(), addresses: new Set([PROVIDER_A]) };
     });
     pdpSubgraphServiceMock.fetchProvidersWithDatasets.mockResolvedValueOnce([makeProvider({ address: PROVIDER_B })]);
@@ -195,8 +195,8 @@ describe("DataRetentionService", () => {
     await service.pollDataRetention();
 
     const allAddressesPolled: string[] = (
-      pdpSubgraphServiceMock.fetchProvidersWithDatasets.mock.calls as [{ addresses: string[] }][]
-    ).flatMap(([{ addresses }]) => addresses);
+      pdpSubgraphServiceMock.fetchProvidersWithDatasets.mock.calls as [string, { addresses: string[] }][]
+    ).flatMap(([, { addresses }]) => addresses);
     expect(allAddressesPolled).toContain(PROVIDER_B.toLowerCase());
     expect(allAddressesPolled).not.toContain(PROVIDER_A.toLowerCase());
   });
@@ -215,7 +215,7 @@ describe("DataRetentionService", () => {
     await service.pollDataRetention();
 
     expect(pdpSubgraphServiceMock.fetchSubgraphMeta).toHaveBeenCalled();
-    expect(pdpSubgraphServiceMock.fetchProvidersWithDatasets).toHaveBeenCalledWith({
+    expect(pdpSubgraphServiceMock.fetchProvidersWithDatasets).toHaveBeenCalledWith("https://example.com/subgraph", {
       blockNumber: 1200,
       addresses: [PROVIDER_A, PROVIDER_B],
     });
@@ -229,11 +229,12 @@ describe("DataRetentionService", () => {
     expect(mockBaselineRepository.upsert).toHaveBeenCalledWith(
       {
         providerAddress: PROVIDER_A,
+        network: "calibration",
         faultedPeriods: "10",
         successPeriods: "90",
         lastBlockNumber: "1200",
       },
-      ["providerAddress"],
+      ["providerAddress", "network"],
     );
   });
 
@@ -282,8 +283,20 @@ describe("DataRetentionService", () => {
   it("handles multiple providers independently", async () => {
     // Seed DB baselines so first poll emits deltas
     mockBaselineRepository.find.mockResolvedValueOnce([
-      { providerAddress: PROVIDER_A, faultedPeriods: "0", successPeriods: "0", lastBlockNumber: "1000" },
-      { providerAddress: PROVIDER_B, faultedPeriods: "0", successPeriods: "0", lastBlockNumber: "1000" },
+      {
+        providerAddress: PROVIDER_A,
+        network: "calibration",
+        faultedPeriods: "0",
+        successPeriods: "0",
+        lastBlockNumber: "1000",
+      },
+      {
+        providerAddress: PROVIDER_B,
+        network: "calibration",
+        faultedPeriods: "0",
+        successPeriods: "0",
+        lastBlockNumber: "1000",
+      },
     ]);
 
     const providerA = makeProvider({ address: PROVIDER_A, totalFaultedPeriods: 5n });
@@ -306,7 +319,13 @@ describe("DataRetentionService", () => {
   it("uses subgraph-confirmed totals directly without overdue estimation", async () => {
     // Seed baseline so we can verify the computed values via deltas
     mockBaselineRepository.find.mockResolvedValueOnce([
-      { providerAddress: PROVIDER_A, faultedPeriods: "0", successPeriods: "0", lastBlockNumber: "1000" },
+      {
+        providerAddress: PROVIDER_A,
+        network: "calibration",
+        faultedPeriods: "0",
+        successPeriods: "0",
+        lastBlockNumber: "1000",
+      },
     ]);
 
     const provider = makeProvider();
@@ -343,7 +362,13 @@ describe("DataRetentionService", () => {
   it("emits both faulted and success counters from subgraph totals", async () => {
     // Seed baseline so we can verify the computed values via deltas
     mockBaselineRepository.find.mockResolvedValueOnce([
-      { providerAddress: PROVIDER_A, faultedPeriods: "0", successPeriods: "0", lastBlockNumber: "1000" },
+      {
+        providerAddress: PROVIDER_A,
+        network: "calibration",
+        faultedPeriods: "0",
+        successPeriods: "0",
+        lastBlockNumber: "1000",
+      },
     ]);
 
     const provider = makeProvider();
@@ -409,7 +434,13 @@ describe("DataRetentionService", () => {
 
     // Seed baseline at zero so the full largeValue becomes the delta
     mockBaselineRepository.find.mockResolvedValueOnce([
-      { providerAddress: PROVIDER_A, faultedPeriods: "0", successPeriods: "0", lastBlockNumber: "1000" },
+      {
+        providerAddress: PROVIDER_A,
+        network: "calibration",
+        faultedPeriods: "0",
+        successPeriods: "0",
+        lastBlockNumber: "1000",
+      },
     ]);
 
     pdpSubgraphServiceMock.fetchProvidersWithDatasets.mockResolvedValueOnce([
@@ -433,7 +464,13 @@ describe("DataRetentionService", () => {
 
     // Seed baseline at zero so the full value becomes the delta
     mockBaselineRepository.find.mockResolvedValueOnce([
-      { providerAddress: PROVIDER_A, faultedPeriods: "0", successPeriods: "0", lastBlockNumber: "1000" },
+      {
+        providerAddress: PROVIDER_A,
+        network: "calibration",
+        faultedPeriods: "0",
+        successPeriods: "0",
+        lastBlockNumber: "1000",
+      },
     ]);
 
     pdpSubgraphServiceMock.fetchProvidersWithDatasets.mockResolvedValueOnce([
@@ -449,7 +486,13 @@ describe("DataRetentionService", () => {
   it("uses only subgraph-confirmed provider-level totals", async () => {
     // Seed baseline at zero so subgraph totals are visible as delta
     mockBaselineRepository.find.mockResolvedValueOnce([
-      { providerAddress: PROVIDER_A, faultedPeriods: "0", successPeriods: "0", lastBlockNumber: "1000" },
+      {
+        providerAddress: PROVIDER_A,
+        network: "calibration",
+        faultedPeriods: "0",
+        successPeriods: "0",
+        lastBlockNumber: "1000",
+      },
     ]);
 
     const provider = makeProvider({
@@ -481,12 +524,16 @@ describe("DataRetentionService", () => {
 
     // Should be called twice: once for first 50, once for remaining 25
     expect(pdpSubgraphServiceMock.fetchProvidersWithDatasets).toHaveBeenCalledTimes(2);
-    expect(pdpSubgraphServiceMock.fetchProvidersWithDatasets).toHaveBeenNthCalledWith(1, {
-      addresses: expect.arrayContaining([expect.any(String)]),
-      blockNumber: 1200,
-    });
-    expect(pdpSubgraphServiceMock.fetchProvidersWithDatasets.mock.calls[0][0].addresses).toHaveLength(50);
-    expect(pdpSubgraphServiceMock.fetchProvidersWithDatasets.mock.calls[1][0].addresses).toHaveLength(25);
+    expect(pdpSubgraphServiceMock.fetchProvidersWithDatasets).toHaveBeenNthCalledWith(
+      1,
+      "https://example.com/subgraph",
+      {
+        addresses: expect.arrayContaining([expect.any(String)]),
+        blockNumber: 1200,
+      },
+    );
+    expect(pdpSubgraphServiceMock.fetchProvidersWithDatasets.mock.calls[0][1].addresses).toHaveLength(50);
+    expect(pdpSubgraphServiceMock.fetchProvidersWithDatasets.mock.calls[1][1].addresses).toHaveLength(25);
   });
 
   it("continues processing next batch if one batch fails", async () => {
@@ -562,9 +609,9 @@ describe("DataRetentionService", () => {
 
       await service.pollDataRetention();
 
-      // Should fetch stale provider info from database
+      // Should fetch stale provider info from database (network-scoped)
       expect(mockSPRepository.find).toHaveBeenCalledWith({
-        where: { address: expect.anything() },
+        where: { address: expect.anything(), network: "calibration" },
         select: ["address", "providerId", "name", "isApproved"],
       });
 
@@ -803,9 +850,9 @@ describe("DataRetentionService", () => {
 
       await service.pollDataRetention();
 
-      // Should fetch both stale providers in one query
+      // Should fetch both stale providers in one query (network-scoped)
       expect(mockSPRepository.find).toHaveBeenCalledWith({
-        where: { address: expect.anything() },
+        where: { address: expect.anything(), network: "calibration" },
         select: ["address", "providerId", "name", "isApproved"],
       });
 
@@ -876,6 +923,7 @@ describe("DataRetentionService", () => {
       mockBaselineRepository.find.mockResolvedValueOnce([
         {
           providerAddress: PROVIDER_A,
+          network: "calibration",
           faultedPeriods: "10",
           successPeriods: "90",
           lastBlockNumber: "1100",
@@ -898,6 +946,7 @@ describe("DataRetentionService", () => {
       mockBaselineRepository.find.mockResolvedValueOnce([
         {
           providerAddress: PROVIDER_A,
+          network: "calibration",
           faultedPeriods: "8",
           successPeriods: "85",
           lastBlockNumber: "1000",
@@ -997,6 +1046,7 @@ describe("DataRetentionService", () => {
       mockBaselineRepository.find.mockRejectedValueOnce(new Error("DB connection failed")).mockResolvedValueOnce([
         {
           providerAddress: PROVIDER_A,
+          network: "calibration",
           faultedPeriods: "10",
           successPeriods: "90",
           lastBlockNumber: "1100",
@@ -1060,8 +1110,11 @@ describe("DataRetentionService", () => {
 
       await service.pollDataRetention();
 
-      // Should delete the baseline from DB
-      expect(mockBaselineRepository.delete).toHaveBeenCalledWith({ providerAddress: PROVIDER_A });
+      // Should delete the baseline from DB (network-scoped)
+      expect(mockBaselineRepository.delete).toHaveBeenCalledWith({
+        providerAddress: PROVIDER_A,
+        network: "calibration",
+      });
     });
   });
 
