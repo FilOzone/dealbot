@@ -31,6 +31,7 @@ import type { DealPreprocessingResult } from "../deal-addons/types.js";
 import { buildCheckMetricLabels, classifyFailureStatus } from "../metrics-prometheus/check-metric-labels.js";
 import {
   DataSetCreationCheckMetrics,
+  DataSetTerminationCheckMetrics,
   DataStorageCheckMetrics,
   RetrievalCheckMetrics,
 } from "../metrics-prometheus/check-metrics.service.js";
@@ -69,6 +70,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     private readonly dataStorageMetrics: DataStorageCheckMetrics,
     private readonly retrievalMetrics: RetrievalCheckMetrics,
     private readonly dataSetCreationMetrics: DataSetCreationCheckMetrics,
+    private readonly dataSetTerminationMetrics: DataSetTerminationCheckMetrics,
     private readonly clickhouseService: ClickhouseService,
     private readonly datasetLivenessService: DatasetLivenessService,
   ) {
@@ -732,7 +734,9 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Repair a PDP-terminated dataset (FWSS may or may not have flipped pdpEndEpoch).
+   * Terminate a dataset on-chain (if needed) and wait for FWSS to confirm
+   * `pdpEndEpoch != 0`. Shared by the `data_set_creation` repair path and the
+   * `data_set_termination` canary job.
    *
    * Idempotent sequence:
    *   1. Read FWSS pdpEndEpoch. If already non-zero, skip the on-chain call.
@@ -740,8 +744,86 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
    *      FWSS pdpEndEpoch until non-zero. A revert that matches a known
    *      already-terminated message is treated as a no-op and falls through
    *      to the poll, so a partially-completed prior run can complete.
-   *   3. Mark every Deal row with this dataSetId as cleaned up in a single
-   *      transaction (filtered on cleaned_up=false, so re-runs do not double-write).
+   *
+   * Returns the confirmed non-zero `pdpEndEpoch`. Throws on abort or poll timeout.
+   */
+  private async ensureDataSetTerminated(
+    providerAddress: string,
+    dataSetId: bigint,
+    signal?: AbortSignal,
+    pollTimeoutMs = 60_000,
+  ): Promise<bigint> {
+    signal?.throwIfAborted();
+    const synapse = this.sharedSynapse ?? (await this.createSynapseInstance());
+    const { warmStorageService } = this.walletSdkService.getWalletServices();
+
+    const existing = await awaitWithAbort(warmStorageService.getDataSet({ dataSetId }), signal);
+    if (existing != null && existing.pdpEndEpoch !== 0n) {
+      this.logger.log({
+        event: "dataset_already_terminated",
+        message: "FWSS pdpEndEpoch already set; skipping terminateDataSet",
+        providerAddress,
+        dataSetId: dataSetId.toString(),
+        pdpEndEpoch: existing.pdpEndEpoch.toString(),
+      });
+      return existing.pdpEndEpoch;
+    }
+
+    let txHash: `0x${string}` | undefined;
+    try {
+      txHash = await awaitWithAbort(synapse.storage.terminateDataSet({ dataSetId }), signal);
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      const message = error instanceof Error ? error.message : String(error);
+      if (!/already.*terminat|service.*terminated|pdpEndEpoch.*set/i.test(message)) {
+        throw error;
+      }
+      this.logger.warn({
+        event: "dataset_terminate_already_handled",
+        message: "terminateDataSet reverted as already-terminated; continuing to poll",
+        providerAddress,
+        dataSetId: dataSetId.toString(),
+        revert: message,
+      });
+    }
+    signal?.throwIfAborted();
+    if (txHash != null) {
+      try {
+        await awaitWithAbort(synapse.client.waitForTransactionReceipt({ hash: txHash }), signal);
+      } catch (error) {
+        if (signal?.aborted) throw error;
+        this.logger.warn({
+          event: "dataset_terminate_receipt_wait_failed",
+          message: "Receipt wait failed; falling back to FWSS state poll",
+          providerAddress,
+          dataSetId: dataSetId.toString(),
+          txHash,
+          error: toStructuredError(error),
+        });
+      }
+    }
+    return this.waitForPdpEndEpoch(dataSetId, pollTimeoutMs, signal);
+  }
+
+  /**
+   * Mark every Deal row with `dataSetId` as cleaned up in a single transaction.
+   * Filtered on cleaned_up=false so re-runs do not double-write. Returns affected count.
+   */
+  private async markDataSetDealsCleanedUp(dataSetId: bigint): Promise<number> {
+    return this.dealRepository.manager.transaction(async (manager) => {
+      const update = await manager
+        .getRepository(Deal)
+        .update({ dataSetId, cleanedUp: false }, { cleanedUp: true, cleanedUpAt: new Date() });
+      return update.affected ?? 0;
+    });
+  }
+
+  /**
+   * Repair a PDP-terminated dataset (FWSS may or may not have flipped pdpEndEpoch).
+   *
+   * Idempotent sequence:
+   *   1-2. Terminate on-chain and confirm pdpEndEpoch != 0 (see ensureDataSetTerminated).
+   *   3.   Mark every Deal row with this dataSetId as cleaned up.
    */
   async repairTerminatedDataSet(
     providerAddress: string,
@@ -749,65 +831,9 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     signal?: AbortSignal,
     pollTimeoutMs = 60_000,
   ): Promise<{ dealsAffected: number; pdpEndEpoch: bigint }> {
-    signal?.throwIfAborted();
-    const synapse = this.sharedSynapse ?? (await this.createSynapseInstance());
     const providerInfo = this.walletSdkService.getProviderInfo(providerAddress);
-    const { warmStorageService } = this.walletSdkService.getWalletServices();
-
-    let pdpEndEpoch: bigint;
-    const existing = await awaitWithAbort(warmStorageService.getDataSet({ dataSetId }), signal);
-    if (existing != null && existing.pdpEndEpoch !== 0n) {
-      pdpEndEpoch = existing.pdpEndEpoch;
-      this.logger.log({
-        event: "dataset_already_terminated",
-        message: "FWSS pdpEndEpoch already set; skipping terminateDataSet",
-        providerAddress,
-        dataSetId: dataSetId.toString(),
-        pdpEndEpoch: pdpEndEpoch.toString(),
-      });
-    } else {
-      let txHash: `0x${string}` | undefined;
-      try {
-        txHash = await awaitWithAbort(synapse.storage.terminateDataSet({ dataSetId }), signal);
-      } catch (error) {
-        if (signal?.aborted) throw error;
-        const message = error instanceof Error ? error.message : String(error);
-        if (!/already.*terminat|service.*terminated|pdpEndEpoch.*set/i.test(message)) {
-          throw error;
-        }
-        this.logger.warn({
-          event: "dataset_terminate_already_handled",
-          message: "terminateDataSet reverted as already-terminated; continuing to poll",
-          providerAddress,
-          dataSetId: dataSetId.toString(),
-          revert: message,
-        });
-      }
-      signal?.throwIfAborted();
-      if (txHash != null) {
-        try {
-          await awaitWithAbort(synapse.client.waitForTransactionReceipt({ hash: txHash }), signal);
-        } catch (error) {
-          if (signal?.aborted) throw error;
-          this.logger.warn({
-            event: "dataset_terminate_receipt_wait_failed",
-            message: "Receipt wait failed; falling back to FWSS state poll",
-            providerAddress,
-            dataSetId: dataSetId.toString(),
-            txHash,
-            error: toStructuredError(error),
-          });
-        }
-      }
-      pdpEndEpoch = await this.waitForPdpEndEpoch(dataSetId, pollTimeoutMs, signal);
-    }
-
-    const result = await this.dealRepository.manager.transaction(async (manager) => {
-      const update = await manager
-        .getRepository(Deal)
-        .update({ dataSetId, cleanedUp: false }, { cleanedUp: true, cleanedUpAt: new Date() });
-      return update.affected ?? 0;
-    });
+    const pdpEndEpoch = await this.ensureDataSetTerminated(providerAddress, dataSetId, signal, pollTimeoutMs);
+    const dealsAffected = await this.markDataSetDealsCleanedUp(dataSetId);
 
     this.logger.log({
       event: "dataset_terminated_repaired",
@@ -816,10 +842,102 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       providerId: providerInfo?.id,
       dataSetId: dataSetId.toString(),
       pdpEndEpoch: pdpEndEpoch.toString(),
-      dealsAffected: result,
+      dealsAffected,
     });
 
-    return { dealsAffected: result, pdpEndEpoch };
+    return { dealsAffected, pdpEndEpoch };
+  }
+
+  /**
+   * Terminate a single dealbot-managed dataset slot and confirm on-chain, emitting
+   * data-set termination metrics. Used by the `data_set_termination` canary job.
+   *
+   * Mechanically identical to {@link repairTerminatedDataSet} (terminate -> confirm
+   * `pdpEndEpoch != 0` -> mark deals cleaned up) but additionally records
+   * `dataSetTerminationStatus` and `dataSetTerminationMs` so the canary trigger is
+   * observable. An abort (job timeout) or an internal poll timeout is classified as
+   * `failure.timedout`; pg-boss retries on the next scheduled tick.
+   */
+  async terminateManagedDataSet(
+    providerAddress: string,
+    dataSetId: bigint,
+    signal?: AbortSignal,
+    pollTimeoutMs = 60_000,
+  ): Promise<{ dealsAffected: number; pdpEndEpoch: bigint }> {
+    const providerInfo = this.walletSdkService.getProviderInfo(providerAddress);
+    const labels = buildCheckMetricLabels({
+      checkType: "dataSetTermination",
+      providerId: providerInfo?.id,
+      providerName: providerInfo?.name,
+      providerIsApproved: providerInfo?.isApproved,
+    });
+
+    const startedAt = Date.now();
+    this.logger.log({
+      event: "dataset_termination_started",
+      message: "Starting managed data-set termination",
+      providerAddress,
+      providerId: providerInfo?.id,
+      providerName: providerInfo?.name,
+      dataSetId: dataSetId.toString(),
+    });
+
+    try {
+      const pdpEndEpoch = await this.ensureDataSetTerminated(providerAddress, dataSetId, signal, pollTimeoutMs);
+      const dealsAffected = await this.markDataSetDealsCleanedUp(dataSetId);
+      const durationMs = Date.now() - startedAt;
+
+      this.dataSetTerminationMetrics.observeCheckDuration(labels, durationMs);
+      this.dataSetTerminationMetrics.recordStatus(labels, "success");
+      this.logger.log({
+        event: "dataset_termination_succeeded",
+        message: "Terminated managed data-set; data_set_creation will replenish the slot",
+        providerAddress,
+        providerId: providerInfo?.id,
+        providerName: providerInfo?.name,
+        dataSetId: dataSetId.toString(),
+        pdpEndEpoch: pdpEndEpoch.toString(),
+        dealsAffected,
+        durationMs,
+      });
+      return { dealsAffected, pdpEndEpoch };
+    } catch (error) {
+      const durationMs = Date.now() - startedAt;
+      // An abort (job-level timeout) or an internal poll timeout both count as failure.timedout.
+      const status = signal?.aborted ? "failure.timedout" : classifyFailureStatus(error);
+      if (status === "failure.timedout") {
+        this.dataSetTerminationMetrics.observeCheckDuration(labels, durationMs);
+      }
+      this.dataSetTerminationMetrics.recordStatus(labels, status);
+      this.logger.error({
+        event: "dataset_termination_failed",
+        message: "Managed data-set termination failed",
+        providerAddress,
+        providerId: providerInfo?.id,
+        providerName: providerInfo?.name,
+        dataSetId: dataSetId.toString(),
+        durationMs,
+        status,
+        error: toStructuredError(error),
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Record a `skipped.no_candidate` data-set termination outcome for a provider.
+   * Emitted by the termination handler when every eligible slot resolves as `missing`
+   * (nothing live/terminated to act on this tick).
+   */
+  recordDataSetTerminationSkipped(providerAddress: string): void {
+    const providerInfo = this.walletSdkService.getProviderInfo(providerAddress);
+    const labels = buildCheckMetricLabels({
+      checkType: "dataSetTermination",
+      providerId: providerInfo?.id,
+      providerName: providerInfo?.name,
+      providerIsApproved: providerInfo?.isApproved,
+    });
+    this.dataSetTerminationMetrics.recordStatus(labels, "skipped.no_candidate");
   }
 
   /**

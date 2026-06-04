@@ -9,6 +9,7 @@ import {
 import { WalletSdkModule } from "../wallet-sdk/wallet-sdk.module.js";
 import {
   DataSetCreationCheckMetrics,
+  DataSetTerminationCheckMetrics,
   DataStorageCheckMetrics,
   DiscoverabilityCheckMetrics,
   PullCheckCheckMetrics,
@@ -154,6 +155,13 @@ const metricProviders = [
     labelNames: ["checkType", "providerId", "providerName", "providerStatus"] as const,
     buckets: [100, 500, 1000, 2000, 5000, 10000, 30000, 60000, 120000, 300000, 600000],
   }),
+  makeHistogramProvider({
+    // docs/checks/events-and-metrics.md#dataSetTerminationMs
+    name: "dataSetTerminationMs",
+    help: "Duration from terminateService call to pdpEndEpoch != 0 confirmation (ms)",
+    labelNames: ["checkType", "providerId", "providerName", "providerStatus"] as const,
+    buckets: [100, 500, 1000, 2000, 5000, 10000, 30000, 60000, 120000, 300000, 600000],
+  }),
   // Sub-status metrics (docs/checks/data-storage.md)
   makeCounterProvider({
     // docs/checks/data-storage.md#sub-status-meanings (Upload Status)
@@ -201,6 +209,12 @@ const metricProviders = [
     // docs/checks/events-and-metrics.md#dataSetCreationStatus
     name: "dataSetCreationStatus",
     help: "Data-set creation status counts",
+    labelNames: ["checkType", "providerId", "providerName", "providerStatus", "value"] as const,
+  }),
+  makeCounterProvider({
+    // docs/checks/events-and-metrics.md#dataSetTerminationStatus
+    name: "dataSetTerminationStatus",
+    help: "Data-set termination status counts (success | failure.timedout | failure.other | skipped.no_candidate)",
     labelNames: ["checkType", "providerId", "providerName", "providerStatus", "value"] as const,
   }),
   // Pull check metrics (docs/checks/pull-check.md)
@@ -375,6 +389,7 @@ const metricProviders = [
     RetrievalCheckMetrics,
     DiscoverabilityCheckMetrics,
     DataSetCreationCheckMetrics,
+    DataSetTerminationCheckMetrics,
     PullCheckCheckMetrics,
     WalletBalanceCollector,
     // HTTP metrics interceptor
@@ -390,6 +405,7 @@ const metricProviders = [
     RetrievalCheckMetrics,
     DiscoverabilityCheckMetrics,
     DataSetCreationCheckMetrics,
+    DataSetTerminationCheckMetrics,
     PullCheckCheckMetrics,
     WalletBalanceCollector,
   ],

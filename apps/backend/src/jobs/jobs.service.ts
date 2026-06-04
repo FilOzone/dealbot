@@ -19,6 +19,7 @@ import { PullCheckService } from "../pull-check/pull-check.service.js";
 import { RetrievalService } from "../retrieval/retrieval.service.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
 import { provisionNextMissingDataSet } from "./data-set-creation.handler.js";
+import { terminateNextDataSet } from "./data-set-termination.handler.js";
 import {
   DATA_RETENTION_POLL_QUEUE,
   PROVIDERS_REFRESH_QUEUE,
@@ -27,11 +28,12 @@ import {
 } from "./job-queues.js";
 import { JobScheduleRepository } from "./repositories/job-schedule.repository.js";
 
-type SpJobType = "deal" | "retrieval" | "data_set_creation" | "piece_cleanup" | "pull_check";
+type SpJobType = "deal" | "retrieval" | "data_set_creation" | "data_set_termination" | "piece_cleanup" | "pull_check";
 const SP_JOB_TYPES: ReadonlySet<string> = new Set<string>([
   "deal",
   "retrieval",
   "data_set_creation",
+  "data_set_termination",
   "piece_cleanup",
   "pull_check",
 ]);
@@ -168,10 +170,36 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       return;
     }
 
+    this.warnIfTerminationRateExceedsCreation();
+
     await this.tick();
     this.schedulerInterval = setInterval(() => {
       void this.tick();
     }, this.schedulerPollMs());
+  }
+
+  /**
+   * Emits a startup warning when the termination rate exceeds the creation rate.
+   *
+   * If `data_set_termination` runs faster than `data_set_creation`, the missing-slot
+   * backlog accumulates and the loop stops behaving like a simple steady-state canary.
+   * See docs/data-set-termination.md#relationship-to-data_set_creation.
+   */
+  private warnIfTerminationRateExceedsCreation(): void {
+    const jobs = this.configService.get("jobs");
+    if (!jobs.dataSetTerminationEnabled) {
+      return;
+    }
+    if (jobs.dataSetTerminationsPerSpPerHour > jobs.dataSetCreationsPerSpPerHour) {
+      this.logger.warn({
+        event: "data_set_termination_rate_exceeds_creation",
+        message:
+          "DATASET_TERMINATIONS_PER_SP_PER_HOUR exceeds DATASET_CREATIONS_PER_SP_PER_HOUR; " +
+          "terminations may outpace creation and accumulate a missing-slot backlog.",
+        dataSetTerminationsPerSpPerHour: jobs.dataSetTerminationsPerSpPerHour,
+        dataSetCreationsPerSpPerHour: jobs.dataSetCreationsPerSpPerHour,
+      });
+    }
   }
 
   /**
@@ -204,6 +232,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         jobs.dealJobTimeoutSeconds,
         jobs.retrievalJobTimeoutSeconds,
         jobs.dataSetCreationJobTimeoutSeconds,
+        jobs.dataSetTerminationJobTimeoutSeconds,
         pullPiece.pullCheckJobTimeoutSeconds,
       );
       const stopTimeoutMs = (longestJobTimeoutSec + 60) * 1000;
@@ -331,6 +360,10 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
           }
           if (job.data.jobType === "data_set_creation") {
             await this.handleDataSetCreationJob(job);
+            return;
+          }
+          if (job.data.jobType === "data_set_termination") {
+            await this.handleDataSetTerminationJob(job);
             return;
           }
           if (job.data.jobType === "piece_cleanup") {
@@ -919,6 +952,112 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     });
   }
 
+  /**
+   * Handles one `data_set_termination` invocation for a provider.
+   *
+   * Terminates at most one managed dataset slot in the canary window so the existing
+   * `data_set_creation` job recreates it, keeping the on-chain createDataSet path
+   * continuously exercised. Gated by `DATASET_TERMINATION_ENABLED` and a non-empty
+   * canary window (`MIN_NUM_DATASETS_FOR_CHECKS - DATA_SET_TERMINATION_MIN_INDEX > 0`).
+   */
+  private async handleDataSetTerminationJob(job: SpJob): Promise<void> {
+    const data = job.data;
+    const spAddress = data.spAddress;
+    const now = new Date();
+    const maintenance = this.getMaintenanceWindowStatus(now);
+    if (maintenance.active) {
+      this.logMaintenanceSkip(`data_set_termination job for ${spAddress}`, maintenance.window?.label, {
+        jobId: job.id,
+        providerAddress: spAddress,
+        providerId: this.walletSdkService.getProviderInfo(spAddress)?.id,
+        providerName: this.walletSdkService.getProviderInfo(spAddress)?.name,
+      });
+      await this.deferJobForMaintenance("data_set_termination", data, maintenance, now);
+      return;
+    }
+
+    const blockchain = this.configService.get("blockchain");
+    const jobsConfig = this.configService.get("jobs");
+    const minDataSets = blockchain.minNumDataSetsForChecks;
+    const minIndex = blockchain.dataSetTerminationMinIndex;
+    // Defensive gate: schedules are only created when enabled with a non-empty canary
+    // window, but a stale enqueued job (e.g. after disabling) must still no-op safely.
+    if (!jobsConfig.dataSetTerminationEnabled || minDataSets - minIndex <= 0) {
+      this.logger.log({
+        jobId: job.id,
+        providerAddress: spAddress,
+        providerId: this.walletSdkService.getProviderInfo(spAddress)?.id,
+        providerName: this.walletSdkService.getProviderInfo(spAddress)?.name,
+        event: "data_set_termination_job_disabled",
+        message: "Data set termination job skipped: disabled or empty canary window",
+        enabled: jobsConfig.dataSetTerminationEnabled,
+        minDataSets,
+        minIndex,
+      });
+      return;
+    }
+
+    const baseDataSetMetadata = this.dealService.getBaseDataSetMetadata();
+
+    // Create AbortController for job timeout enforcement
+    const abortController = new AbortController();
+    const timeoutSeconds = jobsConfig.dataSetTerminationJobTimeoutSeconds;
+    const timeoutMs = Math.max(60000, timeoutSeconds * 1000);
+    const effectiveTimeoutSeconds = Math.round(timeoutMs / 1000);
+    const abortReason = new Error(`Data set termination job timeout (${effectiveTimeoutSeconds}s) for ${spAddress}`);
+    const timeoutId = setTimeout(() => {
+      abortController.abort(abortReason);
+    }, timeoutMs);
+
+    await this.recordJobExecution("data_set_termination", async () => {
+      const dataSetLogContext = await this.resolveRunnableProviderJobContext(
+        "data_set_termination",
+        spAddress,
+        job.id,
+        "Data set termination job skipped: provider is blocked for scheduled data-storage checks",
+      );
+      if (dataSetLogContext == null) {
+        clearTimeout(timeoutId);
+        return "success";
+      }
+      try {
+        await terminateNextDataSet(
+          { dealService: this.dealService, logger: this.logger },
+          spAddress,
+          minDataSets,
+          minIndex,
+          baseDataSetMetadata,
+          dataSetLogContext,
+          timeoutMs,
+          abortController.signal,
+        );
+        return "success";
+      } catch (error) {
+        if (abortController.signal.aborted) {
+          const reason = abortController.signal.reason;
+          const reasonMessage = reason instanceof Error ? reason.message : String(reason ?? "");
+          this.logger.error({
+            ...dataSetLogContext,
+            event: "data_set_termination_job_aborted",
+            message: reasonMessage || "Data set termination job aborted after timeout",
+            timeoutSeconds: effectiveTimeoutSeconds,
+            error: toStructuredError(reason ?? error),
+          });
+          return "aborted";
+        }
+        this.logger.error({
+          ...dataSetLogContext,
+          event: "data_set_termination_job_failed",
+          message: "Data set termination job failed",
+          error: toStructuredError(error),
+        });
+        throw error;
+      } finally {
+        clearTimeout(timeoutId);
+      }
+    });
+  }
+
   private maintenanceResumeAt(now: Date, maintenance: ReturnType<typeof getMaintenanceWindowStatus>): Date | null {
     if (!maintenance.active || !maintenance.window) {
       return null;
@@ -1009,6 +1148,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     dealIntervalSeconds: number;
     retrievalIntervalSeconds: number;
     dataSetCreationIntervalSeconds: number;
+    dataSetTerminationIntervalSeconds: number;
     dataRetentionPollIntervalSeconds: number;
     providersRefreshIntervalSeconds: number;
     pieceCleanupIntervalSeconds: number;
@@ -1022,12 +1162,14 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     const dealsPerHour = jobsConfig.dealsPerSpPerHour;
     const retrievalsPerHour = jobsConfig.retrievalsPerSpPerHour;
     const dataSetCreationsPerHour = jobsConfig.dataSetCreationsPerSpPerHour;
+    const dataSetTerminationsPerHour = jobsConfig.dataSetTerminationsPerSpPerHour;
     const pieceCleanupPerHour = jobsConfig.pieceCleanupPerSpPerHour;
     const pullChecksPerHour = pullPieceConfig.pullChecksPerSpPerHour;
 
     const dealIntervalSeconds = Math.max(1, Math.round(3600 / dealsPerHour));
     const retrievalIntervalSeconds = Math.max(1, Math.round(3600 / retrievalsPerHour));
     const dataSetCreationIntervalSeconds = Math.max(1, Math.round(3600 / dataSetCreationsPerHour));
+    const dataSetTerminationIntervalSeconds = Math.max(1, Math.round(3600 / dataSetTerminationsPerHour));
     const pieceCleanupIntervalSeconds = Math.max(1, Math.round(3600 / pieceCleanupPerHour));
     const pullCheckIntervalSeconds = Math.max(1, Math.round(3600 / pullChecksPerHour));
     const dataRetentionPollIntervalSeconds = scheduling.dataRetentionPollIntervalSeconds;
@@ -1038,6 +1180,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       dealIntervalSeconds,
       retrievalIntervalSeconds,
       dataSetCreationIntervalSeconds,
+      dataSetTerminationIntervalSeconds,
       dataRetentionPollIntervalSeconds,
       providersRefreshIntervalSeconds,
       pieceCleanupIntervalSeconds,
@@ -1059,6 +1202,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       dealIntervalSeconds,
       retrievalIntervalSeconds,
       dataSetCreationIntervalSeconds,
+      dataSetTerminationIntervalSeconds,
       dataRetentionPollIntervalSeconds,
       providersRefreshIntervalSeconds,
       pieceCleanupIntervalSeconds,
@@ -1078,10 +1222,17 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     const dealStartAt = new Date(now.getTime() + phaseMs);
     const retrievalStartAt = new Date(now.getTime() + phaseMs);
     const dataSetCreationStartAt = new Date(now.getTime() + phaseMs);
+    const dataSetTerminationStartAt = new Date(now.getTime() + phaseMs);
     const dataRetentionPollStartAt = new Date(now.getTime() + phaseMs);
     const providersRefreshStartAt = new Date(now.getTime() + phaseMs);
 
-    const minDataSets = this.configService.get("blockchain").minNumDataSetsForChecks;
+    const blockchainCfg = this.configService.get("blockchain");
+    const minDataSets = blockchainCfg.minNumDataSetsForChecks;
+    // Termination schedules are only created when enabled with a non-empty canary window
+    // (slots [DATA_SET_TERMINATION_MIN_INDEX, MIN_NUM_DATASETS_FOR_CHECKS)).
+    const terminationScheduleEnabled =
+      this.configService.get("jobs").dataSetTerminationEnabled &&
+      minDataSets - blockchainCfg.dataSetTerminationMinIndex > 0;
     const cleanupStartAt = new Date(now.getTime() + phaseMs);
     const pullCheckStartAt = new Date(now.getTime() + phaseMs);
 
@@ -1107,6 +1258,14 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
           address,
           dataSetCreationIntervalSeconds,
           dataSetCreationStartAt,
+        );
+      }
+      if (terminationScheduleEnabled) {
+        await this.jobScheduleRepository.upsertSchedule(
+          "data_set_termination",
+          address,
+          dataSetTerminationIntervalSeconds,
+          dataSetTerminationStartAt,
         );
       }
       await this.jobScheduleRepository.upsertSchedule(
@@ -1138,6 +1297,19 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         event: "job_schedule_deletion_skipped",
         message: "No active providers found; skipping job schedule deletion to prevent accidental mass-deletion",
       });
+    }
+
+    // When termination is disabled (or the canary window is empty), remove any stale
+    // data_set_termination schedules so they stop enqueuing no-op jobs.
+    if (!terminationScheduleEnabled) {
+      const removed = await this.jobScheduleRepository.deleteSchedulesByJobType("data_set_termination");
+      if (removed > 0) {
+        this.logger.warn({
+          event: "data_set_termination_schedules_removed",
+          message: "Removed data_set_termination schedules because the job is disabled or the canary window is empty",
+          removed,
+        });
+      }
     }
 
     // Global job schedules (sp_address = '')
@@ -1251,6 +1423,8 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         return SP_WORK_QUEUE;
       case "data_set_creation":
         return SP_WORK_QUEUE;
+      case "data_set_termination":
+        return SP_WORK_QUEUE;
       case "piece_cleanup":
         return SP_WORK_QUEUE;
       case "pull_check":
@@ -1273,6 +1447,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       row.job_type === "deal" ||
       row.job_type === "retrieval" ||
       row.job_type === "data_set_creation" ||
+      row.job_type === "data_set_termination" ||
       row.job_type === "piece_cleanup" ||
       row.job_type === "pull_check"
     ) {
@@ -1346,6 +1521,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       "deal",
       "retrieval",
       "data_set_creation",
+      "data_set_termination",
       "piece_cleanup",
       "pull_check",
       "data_retention_poll",

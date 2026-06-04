@@ -17,6 +17,7 @@ import { DealAddonsService } from "../deal-addons/deal-addons.service.js";
 import { DealPreprocessingResult } from "../deal-addons/types.js";
 import {
   DataSetCreationCheckMetrics,
+  DataSetTerminationCheckMetrics,
   DataStorageCheckMetrics,
   RetrievalCheckMetrics,
 } from "../metrics-prometheus/check-metrics.service.js";
@@ -169,6 +170,10 @@ describe("DealService", () => {
     observeCheckDuration: vi.fn(),
     recordStatus: vi.fn(),
   };
+  const mockDataSetTerminationMetrics = {
+    observeCheckDuration: vi.fn(),
+    recordStatus: vi.fn(),
+  };
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -184,6 +189,7 @@ describe("DealService", () => {
         { provide: DataStorageCheckMetrics, useValue: mockDataStorageMetrics },
         { provide: RetrievalCheckMetrics, useValue: mockRetrievalMetrics },
         { provide: DataSetCreationCheckMetrics, useValue: mockDataSetCreationMetrics },
+        { provide: DataSetTerminationCheckMetrics, useValue: mockDataSetTerminationMetrics },
         { provide: ClickhouseService, useValue: { insert: vi.fn(), probeLocation: "test" } },
         { provide: DatasetLivenessService, useValue: mockDatasetLivenessService },
       ],
@@ -1068,6 +1074,7 @@ describe("DealService", () => {
             { provide: DataStorageCheckMetrics, useValue: mockDataStorageMetrics },
             { provide: RetrievalCheckMetrics, useValue: mockRetrievalMetrics },
             { provide: DataSetCreationCheckMetrics, useValue: mockDataSetCreationMetrics },
+            { provide: DataSetTerminationCheckMetrics, useValue: mockDataSetTerminationMetrics },
             { provide: ClickhouseService, useValue: { insert: vi.fn(), probeLocation: "test" } },
             { provide: DatasetLivenessService, useValue: mockDatasetLivenessService },
           ],
@@ -1442,6 +1449,89 @@ describe("DealService", () => {
       expect(terminateMock).toHaveBeenCalled();
       expect(updateFn).toHaveBeenCalled();
       expect(result.pdpEndEpoch).toBe(7n);
+    });
+  });
+
+  describe("terminateManagedDataSet", () => {
+    beforeEach(() => {
+      vi.spyOn(mockWalletSdkService, "getProviderInfo").mockReturnValue({
+        id: 1n,
+        name: "sp",
+        isApproved: true,
+      } as any);
+    });
+
+    it("terminates, marks deals cleaned up, and records success + duration metrics", async () => {
+      const terminateMock = vi.fn().mockResolvedValue("0xhash");
+      const synapseMock = {
+        storage: { terminateDataSet: terminateMock },
+        client: { waitForTransactionReceipt: vi.fn().mockResolvedValue({ status: "success" }) },
+      };
+      vi.spyOn(service as any, "createSynapseInstance").mockImplementation(() => synapseMock as unknown as Synapse);
+
+      mockWarmStorageService.getDataSet.mockResolvedValueOnce({ pdpEndEpoch: 0n });
+      mockWarmStorageService.getDataSet.mockResolvedValueOnce({ pdpEndEpoch: 4321n });
+
+      const updateFn = vi.fn().mockResolvedValue({ affected: 3 });
+      const transactionMock = vi.fn(async (cb: any) => cb({ getRepository: () => ({ update: updateFn }) }));
+      Object.defineProperty(dealRepoMock, "manager", {
+        configurable: true,
+        value: { transaction: transactionMock },
+      });
+
+      const result = await service.terminateManagedDataSet("0xaaa", 9n, undefined, 5_000);
+
+      expect(terminateMock).toHaveBeenCalledWith({ dataSetId: 9n });
+      expect(updateFn).toHaveBeenCalledWith(
+        { dataSetId: 9n, cleanedUp: false },
+        expect.objectContaining({ cleanedUp: true }),
+      );
+      expect(result).toEqual({ dealsAffected: 3, pdpEndEpoch: 4321n });
+      expect(mockDataSetTerminationMetrics.recordStatus).toHaveBeenCalledWith(
+        expect.objectContaining({ checkType: "dataSetTermination" }),
+        "success",
+      );
+      expect(mockDataSetTerminationMetrics.observeCheckDuration).toHaveBeenCalledWith(
+        expect.objectContaining({ checkType: "dataSetTermination" }),
+        expect.any(Number),
+      );
+    });
+
+    it("records failure.timedout and rethrows when the signal is already aborted", async () => {
+      const terminateMock = vi.fn();
+      const synapseMock = {
+        storage: { terminateDataSet: terminateMock },
+        client: { waitForTransactionReceipt: vi.fn() },
+      };
+      vi.spyOn(service as any, "createSynapseInstance").mockImplementation(() => synapseMock as unknown as Synapse);
+
+      const controller = new AbortController();
+      controller.abort(new Error("Data set termination job timeout (300s)"));
+
+      await expect(service.terminateManagedDataSet("0xaaa", 9n, controller.signal, 5_000)).rejects.toThrow();
+
+      expect(terminateMock).not.toHaveBeenCalled();
+      expect(mockDataSetTerminationMetrics.recordStatus).toHaveBeenCalledWith(
+        expect.objectContaining({ checkType: "dataSetTermination" }),
+        "failure.timedout",
+      );
+    });
+  });
+
+  describe("recordDataSetTerminationSkipped", () => {
+    it("records skipped.no_candidate with dataSetTermination labels", () => {
+      vi.spyOn(mockWalletSdkService, "getProviderInfo").mockReturnValue({
+        id: 7n,
+        name: "sp",
+        isApproved: false,
+      } as any);
+
+      service.recordDataSetTerminationSkipped("0xaaa");
+
+      expect(mockDataSetTerminationMetrics.recordStatus).toHaveBeenCalledWith(
+        expect.objectContaining({ checkType: "dataSetTermination", providerId: "7", providerStatus: "unapproved" }),
+        "skipped.no_candidate",
+      );
     });
   });
 

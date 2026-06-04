@@ -286,6 +286,33 @@ export class DataSetCreationCheckMetrics {
 }
 
 @Injectable()
+export class DataSetTerminationCheckMetrics {
+  constructor(
+    @InjectMetric("dataSetTerminationMs")
+    private readonly dataSetTerminationMs: Histogram,
+    @InjectMetric("dataSetTerminationStatus")
+    private readonly dataSetTerminationStatusCounter: Counter,
+  ) {}
+
+  /**
+   * Observe the time from the `terminateService` call to `pdpEndEpoch != 0` confirmation.
+   * Emitted on `success` and `failure.timedout` only (analogous to `dataSetCreationMs`).
+   */
+  observeCheckDuration(labels: CheckMetricLabels, value: number | null | undefined): void {
+    observePositive(this.dataSetTerminationMs, labels, value);
+  }
+
+  /**
+   * Record data-set termination status.
+   * Values: `success`, `failure.timedout`, `failure.other`, `skipped.no_candidate`.
+   * See docs/data-set-termination.md#termination-metrics-trigger-health.
+   */
+  recordStatus(labels: CheckMetricLabels, value: string): void {
+    this.dataSetTerminationStatusCounter.inc({ ...labels, value });
+  }
+}
+
+@Injectable()
 export class PullCheckCheckMetrics {
   constructor(
     @InjectMetric("pullRequestAcknowledgementLatencyMs")

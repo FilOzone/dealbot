@@ -25,6 +25,7 @@ describe("JobsService schedule rows", () => {
   let jobScheduleRepositoryMock: {
     upsertSchedule: ReturnType<typeof vi.fn>;
     deleteSchedulesForInactiveProviders: ReturnType<typeof vi.fn>;
+    deleteSchedulesByJobType: ReturnType<typeof vi.fn>;
     countPausedSchedules: ReturnType<typeof vi.fn>;
     findDueSchedulesWithManager: ReturnType<typeof vi.fn>;
     runTransaction: ReturnType<typeof vi.fn>;
@@ -86,6 +87,7 @@ describe("JobsService schedule rows", () => {
     jobScheduleRepositoryMock = {
       upsertSchedule: vi.fn(),
       deleteSchedulesForInactiveProviders: vi.fn(async () => []),
+      deleteSchedulesByJobType: vi.fn(async () => 0),
       countPausedSchedules: vi.fn(async () => []),
       findDueSchedulesWithManager: vi.fn(),
       runTransaction: vi.fn(async (callback: (manager: unknown) => Promise<void>) => {
@@ -123,7 +125,11 @@ describe("JobsService schedule rows", () => {
 
     baseConfigValues = {
       app: { runMode: "both" } as IConfig["app"],
-      blockchain: { useOnlyApprovedProviders: false, minNumDataSetsForChecks: 1 } as IConfig["blockchain"],
+      blockchain: {
+        useOnlyApprovedProviders: false,
+        minNumDataSetsForChecks: 1,
+        dataSetTerminationMinIndex: 1,
+      } as IConfig["blockchain"],
       scheduling: {
         providersRefreshIntervalSeconds: 4 * 3600,
         dataRetentionPollIntervalSeconds: 3600,
@@ -139,6 +145,9 @@ describe("JobsService schedule rows", () => {
         dealJobTimeoutSeconds: 360,
         retrievalJobTimeoutSeconds: 60,
         dataSetCreationJobTimeoutSeconds: 300,
+        dataSetTerminationEnabled: false,
+        dataSetTerminationsPerSpPerHour: 1,
+        dataSetTerminationJobTimeoutSeconds: 300,
         shutdownFinalScrapeDelaySeconds: 35,
         pieceCleanupPerSpPerHour: 1,
         maxPieceCleanupRuntimeSeconds: 300,
@@ -1248,6 +1257,166 @@ describe("JobsService schedule rows", () => {
 
     expect(dealService.repairTerminatedDataSet).toHaveBeenCalledWith("0xaaa", 7n, undefined);
     expect(dealService.createDataSetWithPiece).not.toHaveBeenCalled();
+  });
+
+  it("data_set_termination job skips when disabled", async () => {
+    baseConfigValues = {
+      ...baseConfigValues,
+      blockchain: {
+        ...baseConfigValues.blockchain,
+        minNumDataSetsForChecks: 3,
+        dataSetTerminationMinIndex: 1,
+      } as IConfig["blockchain"],
+      jobs: { ...baseConfigValues.jobs, dataSetTerminationEnabled: false } as IConfig["jobs"],
+    };
+    configService = {
+      get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
+    } as unknown as JobsServiceDeps[0];
+
+    const dealService = {
+      getBaseDataSetMetadata: vi.fn(() => ({})),
+      getDataSetProvisioningStatus: vi.fn(),
+      terminateManagedDataSet: vi.fn(),
+      recordDataSetTerminationSkipped: vi.fn(),
+    };
+    const walletSdkService = { getProviderInfo: vi.fn(() => ({ id: 1, name: "test-provider" })) };
+
+    service = buildService({
+      configService,
+      dealService: dealService as unknown as ConstructorParameters<typeof JobsService>[3],
+      walletSdkService: walletSdkService as unknown as ConstructorParameters<typeof JobsService>[5],
+    });
+
+    await callPrivate(service, "handleDataSetTerminationJob", {
+      id: "job-term-1",
+      data: { jobType: "data_set_termination", spAddress: "0xaaa", intervalSeconds: 3600 },
+    });
+
+    expect(dealService.getDataSetProvisioningStatus).not.toHaveBeenCalled();
+    expect(dealService.terminateManagedDataSet).not.toHaveBeenCalled();
+  });
+
+  it("data_set_termination job skips when canary window is empty", async () => {
+    baseConfigValues = {
+      ...baseConfigValues,
+      blockchain: {
+        ...baseConfigValues.blockchain,
+        minNumDataSetsForChecks: 2,
+        dataSetTerminationMinIndex: 2, // window = 2 - 2 = 0
+      } as IConfig["blockchain"],
+      jobs: { ...baseConfigValues.jobs, dataSetTerminationEnabled: true } as IConfig["jobs"],
+    };
+    configService = {
+      get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
+    } as unknown as JobsServiceDeps[0];
+
+    const dealService = {
+      getBaseDataSetMetadata: vi.fn(() => ({})),
+      getDataSetProvisioningStatus: vi.fn(),
+      terminateManagedDataSet: vi.fn(),
+      recordDataSetTerminationSkipped: vi.fn(),
+    };
+    const walletSdkService = { getProviderInfo: vi.fn(() => ({ id: 1, name: "test-provider" })) };
+
+    service = buildService({
+      configService,
+      dealService: dealService as unknown as ConstructorParameters<typeof JobsService>[3],
+      walletSdkService: walletSdkService as unknown as ConstructorParameters<typeof JobsService>[5],
+    });
+
+    await callPrivate(service, "handleDataSetTerminationJob", {
+      id: "job-term-2",
+      data: { jobType: "data_set_termination", spAddress: "0xaaa", intervalSeconds: 3600 },
+    });
+
+    expect(dealService.getDataSetProvisioningStatus).not.toHaveBeenCalled();
+    expect(dealService.terminateManagedDataSet).not.toHaveBeenCalled();
+  });
+
+  it("data_set_termination job terminates a slot in the canary window when enabled", async () => {
+    baseConfigValues = {
+      ...baseConfigValues,
+      blockchain: {
+        ...baseConfigValues.blockchain,
+        minNumDataSetsForChecks: 2,
+        dataSetTerminationMinIndex: 1, // window = [1, 2)
+      } as IConfig["blockchain"],
+      jobs: { ...baseConfigValues.jobs, dataSetTerminationEnabled: true } as IConfig["jobs"],
+    };
+    configService = {
+      get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
+    } as unknown as JobsServiceDeps[0];
+
+    const dealService = {
+      getBaseDataSetMetadata: vi.fn(() => ({})),
+      getDataSetProvisioningStatus: vi.fn(async () => ({ status: "live" as const, dataSetId: 55n })),
+      terminateManagedDataSet: vi.fn(async () => ({ dealsAffected: 1, pdpEndEpoch: 9n })),
+      recordDataSetTerminationSkipped: vi.fn(),
+    };
+    const walletSdkService = { getProviderInfo: vi.fn(() => ({ id: 1, name: "test-provider" })) };
+
+    service = buildService({
+      configService,
+      dealService: dealService as unknown as ConstructorParameters<typeof JobsService>[3],
+      walletSdkService: walletSdkService as unknown as ConstructorParameters<typeof JobsService>[5],
+    });
+
+    await callPrivate(service, "handleDataSetTerminationJob", {
+      id: "job-term-3",
+      data: { jobType: "data_set_termination", spAddress: "0xaaa", intervalSeconds: 3600 },
+    });
+
+    expect(dealService.getDataSetProvisioningStatus).toHaveBeenCalledWith(
+      "0xaaa",
+      { dealbotDS: "1" },
+      expect.any(AbortSignal),
+    );
+    expect(dealService.terminateManagedDataSet).toHaveBeenCalledWith(
+      "0xaaa",
+      55n,
+      expect.any(AbortSignal),
+      expect.any(Number),
+    );
+  });
+
+  it("creates data_set_termination schedules when enabled with a non-empty window", async () => {
+    baseConfigValues = {
+      ...baseConfigValues,
+      blockchain: {
+        ...baseConfigValues.blockchain,
+        minNumDataSetsForChecks: 3,
+        dataSetTerminationMinIndex: 1,
+      } as IConfig["blockchain"],
+      jobs: { ...baseConfigValues.jobs, dataSetTerminationEnabled: true } as IConfig["jobs"],
+    };
+    configService = {
+      get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
+    } as unknown as JobsServiceDeps[0];
+    service = buildService({ configService });
+
+    storageProviderRepositoryMock.find.mockResolvedValueOnce([{ address: "0xaaa" }]);
+
+    await callPrivate(service, "ensureScheduleRows");
+
+    const terminationUpserts = jobScheduleRepositoryMock.upsertSchedule.mock.calls.filter(
+      (call) => call[0] === "data_set_termination",
+    );
+    expect(terminationUpserts).toHaveLength(1);
+    expect(terminationUpserts[0][1]).toBe("0xaaa");
+    expect(jobScheduleRepositoryMock.deleteSchedulesByJobType).not.toHaveBeenCalled();
+  });
+
+  it("removes data_set_termination schedules when disabled", async () => {
+    // base config has dataSetTerminationEnabled=false
+    storageProviderRepositoryMock.find.mockResolvedValueOnce([{ address: "0xaaa" }]);
+
+    await callPrivate(service, "ensureScheduleRows");
+
+    const terminationUpserts = jobScheduleRepositoryMock.upsertSchedule.mock.calls.filter(
+      (call) => call[0] === "data_set_termination",
+    );
+    expect(terminationUpserts).toHaveLength(0);
+    expect(jobScheduleRepositoryMock.deleteSchedulesByJobType).toHaveBeenCalledWith("data_set_termination");
   });
 
   it("sets active, inactive, and tested provider gauge values after refresh", async () => {
