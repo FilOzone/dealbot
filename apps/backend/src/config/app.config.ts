@@ -98,7 +98,7 @@ export const configValidationSchema = Joi.object({
   DEAL_JOB_TIMEOUT_SECONDS: Joi.number().min(120).default(360), // 6 minutes max runtime for data storage jobs (TODO: reduce default to 3 minutes)
   RETRIEVAL_JOB_TIMEOUT_SECONDS: Joi.number().min(60).default(60), // 1 minute max runtime for retrieval jobs (TODO: reduce default to 30 seconds)
   DATA_SET_CREATION_JOB_TIMEOUT_SECONDS: Joi.number().min(60).default(300), // 5 minutes max runtime for dataset creation jobs
-  DATA_SET_LIFECYCLE_CHECK_JOB_TIMEOUT_SECONDS: Joi.number().min(60).default(360), // 6 minutes: covers create + seed-piece upload + terminate + pdpEndEpoch poll
+  DATA_SET_LIFECYCLE_CHECK_JOB_TIMEOUT_SECONDS: Joi.number().min(60).default(600), // 10 minutes: covers create + seed-piece upload + terminate + pdpEndEpoch poll
   // Seconds to hold the process alive after pg-boss drain completes, so Prometheus
   // captures at least one scrape of the terminal counter increments emitted during
   // shutdown. Default 35 covers the 30s ServiceMonitor interval plus a 5s buffer.
@@ -520,7 +520,7 @@ export function loadConfig(): IConfig {
       retrievalJobTimeoutSeconds: Number.parseInt(process.env.RETRIEVAL_JOB_TIMEOUT_SECONDS || "60", 10),
       dataSetCreationJobTimeoutSeconds: Number.parseInt(process.env.DATA_SET_CREATION_JOB_TIMEOUT_SECONDS || "300", 10),
       dataSetLifecycleCheckJobTimeoutSeconds: Number.parseInt(
-        process.env.DATA_SET_LIFECYCLE_CHECK_JOB_TIMEOUT_SECONDS || "360",
+        process.env.DATA_SET_LIFECYCLE_CHECK_JOB_TIMEOUT_SECONDS || "600",
         10,
       ),
       shutdownFinalScrapeDelaySeconds: Number.parseInt(process.env.SHUTDOWN_FINAL_SCRAPE_DELAY_SECONDS || "35", 10),

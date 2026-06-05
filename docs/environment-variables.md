@@ -682,7 +682,7 @@ rate-based (per hour) and persisted in Postgres so restarts do not reset timing.
 - **Required**: No
 - **Default**: `true` on calibration, `false` on mainnet
 
-**Role**: Enables the `data_set_lifecycle_check` canary job, which in a single tick creates a throwaway data set with a seed piece and immediately terminates it (`terminateService`), continuously exercising the on-chain `createDataSet → terminateService` lifecycle.
+**Role**: Enables the `data_set_lifecycle_check` canary job, which in a single tick creates an empty throwaway data set and immediately terminates it (`terminateServiceSync`), continuously exercising the on-chain `createDataSet → terminateService` lifecycle.
 
 **Notes**: Self-contained — it does not touch the managed check data sets and does not depend on `data_set_creation`. When disabled, stale schedules are removed so they stop enqueuing no-op jobs.
 
@@ -846,7 +846,7 @@ Use this to stagger multiple dealbot deployments that are not sharing a database
 - **Minimum**: `60` (1 minute)
 - **Enforced**: Yes (config validation, effective floor applied at runtime)
 
-**Role**: Maximum runtime for `data_set_lifecycle_check` jobs before forced abort via `AbortController`. Bounds the seed-piece upload, the `terminateService` call, and the `pdpEndEpoch != 0` confirmation poll.
+**Role**: Maximum runtime for `data_set_lifecycle_check` jobs before forced abort via `AbortController`. Bounds the empty data set creation (`createDataSet` + `waitForCreateDataSet`) and the `terminateServiceSync` call.
 
 **When to update**:
 

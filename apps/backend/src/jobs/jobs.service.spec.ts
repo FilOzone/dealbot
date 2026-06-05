@@ -144,7 +144,7 @@ describe("JobsService schedule rows", () => {
         dataSetCreationJobTimeoutSeconds: 300,
         dataSetLifecycleCheckEnabled: false,
         dataSetLifecycleChecksPerSpPerHour: 1,
-        dataSetLifecycleCheckJobTimeoutSeconds: 360,
+        dataSetLifecycleCheckJobTimeoutSeconds: 600,
         shutdownFinalScrapeDelaySeconds: 35,
         pieceCleanupPerSpPerHour: 1,
         maxPieceCleanupRuntimeSeconds: 300,
@@ -1613,10 +1613,10 @@ describe("JobsService schedule rows", () => {
       await vi.advanceTimersByTimeAsync(35_001);
       await shutdownPromise;
 
-      // Defaults: deal=360, retrieval=60, dataSetCreation=300, dataSetLifecycleCheck=360,
-      // pullCheck=300 → max=360 → +60s buffer
+      // Defaults: deal=360, retrieval=60, dataSetCreation=300, dataSetLifecycleCheck=600,
+      // pullCheck=300 → max=600 → +60s buffer
       expect(bossMock.stop).toHaveBeenCalledTimes(1);
-      expect(bossMock.stop).toHaveBeenCalledWith({ graceful: true, timeout: 420_000 });
+      expect(bossMock.stop).toHaveBeenCalledWith({ graceful: true, timeout: 660_000 });
     });
 
     it("picks the longest timeout across all job types, including pullCheck under pullPiece", async () => {
