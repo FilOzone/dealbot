@@ -5,6 +5,7 @@ import { InjectMetric } from "@willsoto/nestjs-prometheus";
 import { type Job, PgBoss, type SendOptions } from "pg-boss";
 import type { Counter, Gauge, Histogram } from "prom-client";
 import type { Repository } from "typeorm";
+import { LIFECYCLE_CHECK_METADATA_KEY } from "../common/constants.js";
 import { DealJobTerminatedDataSetError } from "../common/errors.js";
 import { type JobLogContext, type ProviderJobContext, toStructuredError } from "../common/logging.js";
 import { getMaintenanceWindowStatus } from "../common/maintenance-window.js";
@@ -26,13 +27,6 @@ import {
   SP_WORK_QUEUE,
 } from "./job-queues.js";
 import { JobScheduleRepository } from "./repositories/job-schedule.repository.js";
-
-/**
- * Fixed metadata marker key tagging every throwaway data set created by the
- * `data_set_lifecycle_check` job. The value is a per-run nonce; the key is the stable
- * handle operators use to list/sweep leaked sets (create-OK / terminate-failed runs).
- */
-const LIFECYCLE_CHECK_METADATA_KEY = "dealbotLifecycleCheck";
 
 type SpJobType =
   | "deal"
@@ -943,10 +937,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
    *
    * Creates a throwaway data set with a seed piece, then immediately calls
    * `terminateService` on it — exercising the full create -> terminate lifecycle in a
-   * single tick. The set carries a fixed `dealbotLifecycleCheck` marker key (with a
-   * per-run nonce value to force a fresh set), so any set leaked by a create-OK /
-   * terminate-failed run can be found and swept manually by that key. Gated by
-   * `DATASET_LIFECYCLE_CHECK_ENABLED`.
+   * single tick.
    */
   private async handleDataSetLifecycleCheckJob(job: SpJob): Promise<void> {
     const data = job.data;
@@ -1207,8 +1198,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     const dataRetentionPollStartAt = new Date(now.getTime() + phaseMs);
     const providersRefreshStartAt = new Date(now.getTime() + phaseMs);
 
-    const blockchainCfg = this.configService.get("blockchain", { infer: true });
-    const minDataSets = blockchainCfg.minNumDataSetsForChecks;
+    const minDataSets = this.configService.get("blockchain", { infer: true }).minNumDataSetsForChecks;
     // Lifecycle check schedules are only created when enabled explicitly
     const lifecycleCheckScheduleEnabled = this.configService.get("jobs", { infer: true }).dataSetLifecycleCheckEnabled;
     const cleanupStartAt = new Date(now.getTime() + phaseMs);
