@@ -74,6 +74,7 @@ describe("JobsService schedule rows", () => {
       jobDuration: JobsServiceDeps[18];
       storageProvidersActive: JobsServiceDeps[19];
       storageProvidersTested: JobsServiceDeps[20];
+      dataSetLifecycleService: JobsServiceDeps[21];
     }>,
   ) => JobsService;
 
@@ -197,6 +198,7 @@ describe("JobsService schedule rows", () => {
         overrides.jobDuration ?? metricsMocks.jobDuration,
         overrides.storageProvidersActive ?? metricsMocks.storageProvidersActive,
         overrides.storageProvidersTested ?? metricsMocks.storageProvidersTested,
+        overrides.dataSetLifecycleService ?? ({} as JobsServiceDeps[21]),
       );
 
     service = buildService();
@@ -1264,14 +1266,12 @@ describe("JobsService schedule rows", () => {
       get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
     } as unknown as JobsServiceDeps[0];
 
-    const dealService = {
-      runDataSetLifecycleCheck: vi.fn(),
-    };
+    const dataSetLifecycleService = { runLifecycleCheck: vi.fn() };
     const walletSdkService = { getProviderInfo: vi.fn(() => ({ id: 1, name: "test-provider" })) };
 
     service = buildService({
       configService,
-      dealService: dealService as unknown as ConstructorParameters<typeof JobsService>[3],
+      dataSetLifecycleService: dataSetLifecycleService as unknown as JobsServiceDeps[21],
       walletSdkService: walletSdkService as unknown as ConstructorParameters<typeof JobsService>[5],
     });
 
@@ -1280,7 +1280,7 @@ describe("JobsService schedule rows", () => {
       data: { jobType: "data_set_lifecycle_check", spAddress: "0xaaa", intervalSeconds: 3600 },
     });
 
-    expect(dealService.runDataSetLifecycleCheck).not.toHaveBeenCalled();
+    expect(dataSetLifecycleService.runLifecycleCheck).not.toHaveBeenCalled();
   });
 
   it("data_set_lifecycle_check job creates and terminates a throwaway data set when enabled", async () => {
@@ -1292,14 +1292,12 @@ describe("JobsService schedule rows", () => {
       get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
     } as unknown as JobsServiceDeps[0];
 
-    const dealService = {
-      runDataSetLifecycleCheck: vi.fn(async () => ({ dataSetId: 55n, pdpEndEpoch: 9n })),
-    };
+    const dataSetLifecycleService = { runLifecycleCheck: vi.fn(async () => undefined) };
     const walletSdkService = { getProviderInfo: vi.fn(() => ({ id: 1, name: "test-provider" })) };
 
     service = buildService({
       configService,
-      dealService: dealService as unknown as ConstructorParameters<typeof JobsService>[3],
+      dataSetLifecycleService: dataSetLifecycleService as unknown as JobsServiceDeps[21],
       walletSdkService: walletSdkService as unknown as ConstructorParameters<typeof JobsService>[5],
     });
 
@@ -1308,14 +1306,16 @@ describe("JobsService schedule rows", () => {
       data: { jobType: "data_set_lifecycle_check", spAddress: "0xaaa", intervalSeconds: 3600 },
     });
 
-    expect(dealService.runDataSetLifecycleCheck).toHaveBeenCalledWith(
+    expect(dataSetLifecycleService.runLifecycleCheck).toHaveBeenCalledWith(
       "0xaaa",
       expect.objectContaining({ dealbotLifecycleCheck: expect.any(String) }),
       expect.any(AbortSignal),
-      expect.any(Number),
     );
     // The fixed marker key is the only metadata; no base/slot metadata is attached.
-    const metadataArg = (dealService.runDataSetLifecycleCheck.mock.calls[0] as unknown[])[1] as Record<string, string>;
+    const metadataArg = (dataSetLifecycleService.runLifecycleCheck.mock.calls[0] as unknown[])[1] as Record<
+      string,
+      string
+    >;
     expect(Object.keys(metadataArg)).toEqual(["dealbotLifecycleCheck"]);
   });
 

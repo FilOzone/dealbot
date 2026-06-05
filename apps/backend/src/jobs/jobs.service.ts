@@ -12,6 +12,7 @@ import { getMaintenanceWindowStatus } from "../common/maintenance-window.js";
 import { isSpBlocked } from "../common/sp-blocklist.js";
 import type { IConfig, ISpBlocklistConfig } from "../config/app.config.js";
 import { DataRetentionService } from "../data-retention/data-retention.service.js";
+import { DataSetLifecycleService } from "../data-set-lifecycle/data-set-lifecycle.service.js";
 import type { JobType } from "../database/entities/job-schedule-state.entity.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
 import { DealService } from "../deal/deal.service.js";
@@ -107,6 +108,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     private readonly storageProvidersActive: Gauge,
     @InjectMetric("storage_providers_tested")
     private readonly storageProvidersTested: Gauge,
+    private readonly dataSetLifecycleService: DataSetLifecycleService,
   ) {}
 
   /**
@@ -1002,7 +1004,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         return "success";
       }
       try {
-        await this.dealService.runDataSetLifecycleCheck(spAddress, metadata, abortController.signal, timeoutMs);
+        await this.dataSetLifecycleService.runLifecycleCheck(spAddress, metadata, abortController.signal);
         return "success";
       } catch (error) {
         if (abortController.signal.aborted) {
