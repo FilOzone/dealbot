@@ -12,6 +12,11 @@ export function useProvidersList(offset = 0, limit = 20): UseProvidersListReturn
   const { data, error, isLoading } = useSWR(
     apiPaths.providers({ offset, limit }),
     fetcher<ProvidersListResponseWithoutMetrics>,
+    {
+      revalidateOnFocus: false,
+      revalidateOnReconnect: false,
+      refreshInterval: 20 * 60 * 1000,
+    },
   );
 
   const emptyProviders: ProvidersListResponseWithoutMetrics = {
