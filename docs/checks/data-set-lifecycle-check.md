@@ -1,118 +1,127 @@
 # Data Set Lifecycle Check
 
-`data_set_lifecycle_check` is a calibration-focused canary job that, in a **single tick**,
-creates a throwaway data set with a seed piece and immediately terminates it
-(`terminateService`). It exists to continuously exercise the full on-chain
-`createDataSet → terminateService` lifecycle so dealbot detects regressions in either path,
-independent of how many managed check data sets a provider already has.
+This document is the **source of truth** for how dealbot's Data Set Lifecycle check works.
 
-> **Note**: this job does **not** attempt `PDPVerifier.deleteDataSet`, which is SP-initiated.
-> See the FAQ for what happens on-chain after `terminateService`.
+Source code links throughout this document point to the current implementation.
 
-## Summary
+For event and metric definitions used by the dashboard, see [Dealbot Events & Metrics](./events-and-metrics.md).
 
-- Self-contained: one invocation **creates one data set and terminates it**. It does not
-  touch the managed check data sets (slots `0..MIN_NUM_DATASETS_FOR_CHECKS-1`) and does not
-  depend on `data_set_creation` to replenish anything.
-- Runs on the shared `sp.work` queue with `singletonKey=spAddress`, so it cannot race with
-  `deal`, `retrieval`, `piece_cleanup`, `pull_check`, or `data_set_creation` for the same provider.
-- Schedule creation is gated by `DATASET_LIFECYCLE_CHECK_ENABLED` (default: true on
-  calibration, false on mainnet).
-- The throwaway data set carries a single fixed metadata marker key, `dealbotLifecycleCheck`,
-  with a per-run nonce value. No base/slot metadata is attached.
+> **Note**: This check calls `terminateService` to start the on-chain termination sequence. It does **not** call `PDPVerifier.deleteDataSet`, which is SP-initiated. See the [FAQ](#what-happens-on-chain-after-terminateservice-is-called) for details on what happens after termination.
 
-## Why a single-tick create + terminate
+## Overview
 
-The previous design terminated an existing managed slot and relied on `data_set_creation` to
-recreate it on a later tick. That coupled the canary to `MIN_NUM_DATASETS_FOR_CHECKS`, a
-min-index window, and the creation job's cadence. The lifecycle check collapses this into one
-self-contained job: it always creates a fresh set and terminates it in the same run, so the
-canary works regardless of provider state and needs no cross-job coordination.
+A "data set lifecycle check" tests the full `createDataSet → terminateService` lifecycle for a storage provider. Dealbot creates a throwaway data set with a small seed piece and immediately terminates it in the same run. A successful check confirms both the `createDataSet` and `terminateService` paths work correctly on the SP.
 
-### Trade-off: leakage
+Every data set lifecycle check, dealbot:
 
-If creation succeeds but termination fails (process crash, job timeout, on-chain revert that
-isn't an already-terminated no-op), the created data set **leaks** — it stays live on the SP.
-This is an accepted trade-off for the job's simplicity.
+1. Creates a new data set with a 200 KiB seed piece, tagged with a `dealbotLifecycleCheck` metadata key so any leaked sets are discoverable later
+2. Calls `terminateService` on the created data set
+3. Polls FWSS until `pdpEndEpoch != 0`, confirming termination was recorded on-chain
 
-Because every set created by this job carries the fixed `dealbotLifecycleCheck` metadata key,
-leaked sets are discoverable and can be swept manually (filter datasets by that metadata key).
-If leakage grows significantly, that is the handle to clean up by. The
-`dataset_lifecycle_check_failed` log line with `leakedDataSet: true` records the `dataSetId`
-of each leak when it happens.
+A successful check requires all [assertions in the table below](#what-gets-asserted) to pass. Failure occurs if any step fails or the check exceeds its max allowed time.
+
+## What Gets Asserted
+
+Each data set lifecycle check asserts the following for every SP:
+
+| # | Assertion | How It's Checked | Relevant Metric |
+|---|-----------|-----------------|-----------------|
+| 1 | SP creates a data set with a seed piece | `createContext` + `executeUpload` call completes and returns a `dataSetId` | [`dataSetLifecycleCheckStatus`](./events-and-metrics.md#dataSetLifecycleCheckStatus) |
+| 2 | `terminateService` succeeds on the created data set | `terminateService` call completes without error (already-terminated reverts are treated as success) | [`dataSetLifecycleCheckStatus`](./events-and-metrics.md#dataSetLifecycleCheckStatus) |
+| 3 | Termination is confirmed on-chain | Dealbot polls FWSS until `pdpEndEpoch != 0` | [`dataSetLifecycleCheckMs`](./events-and-metrics.md#dataSetLifecycleCheckMs) |
+| 4 | All steps complete within the timeout | Check is not marked successful until all steps pass within `DATA_SET_LIFECYCLE_CHECK_JOB_TIMEOUT_SECONDS` | [`dataSetLifecycleCheckMs`](./events-and-metrics.md#dataSetLifecycleCheckMs) |
+
+## Data Set Lifecycle Check Lifecycle
+
+The dealbot scheduler triggers data set lifecycle check jobs at a configurable rate.
+
+```mermaid
+flowchart TD
+  CreateDataSet["Create data set with 200 KiB seed piece"] --> Terminate["Call terminateService"]
+  Terminate --> Poll["Poll FWSS until pdpEndEpoch != 0"]
+  Poll -->|confirmed| Success["Mark check successful"]
+  Poll -->|timeout| Fail["Mark check failed (timedout)"]
+  Terminate -->|error| Fail
+  CreateDataSet -->|error| Fail
+```
+
+### 1. Apply job guards
+
+Dealbot applies the same maintenance-window and SP-blocklist rules used by all other SP jobs. If `DATASET_LIFECYCLE_CHECK_ENABLED` is `false`, the job logs a disabled skip and exits.
+
+### 2. Create the data set
+
+Dealbot creates a new data set with a 200 KiB seed piece. The data set is tagged with metadata `{ dealbotLifecycleCheck: "<timestamp>" }`. The fixed `dealbotLifecycleCheck` key is the handle for finding leaked sets later; the per-run value ensures a fresh data set is created on every invocation rather than resolving a prior one. See the [FAQ](#why-does-data-set-creation-use-a-seed-piece) for why we use a seed piece.
+
+This step does **not** emit `dataSetCreation` metrics — those belong to the `data_set_creation` job.
+
+Source: [`deal.service.ts` (`runDataSetLifecycleCheck`)](../../apps/backend/src/deal/deal.service.ts)
+
+### 3. Terminate the service
+
+Dealbot calls `synapse.storage.terminateDataSet` (aka `terminateService` at contract level) on the newly created `dataSetId`, which sets `pdpEndEpoch` to a near future epoch (~30 days).
+
+### 4. Wait for on-chain confirmation
+
+Dealbot polls FWSS until `pdpEndEpoch != 0`, confirming the termination was recorded on-chain. This is Step 1 of the [full on-chain termination sequence](#what-happens-on-chain-after-terminateservice-is-called). The job does not wait for the full ~30-day rail finalization.
+
+The entire check (creation + upload + termination + confirmation) is bounded by `DATA_SET_LIFECYCLE_CHECK_JOB_TIMEOUT_SECONDS`. A timeout is classified as `failure.timedout`.
+
+## Check Status Progression
+
+A data set lifecycle check has a single terminal status, recorded once per check via [`dataSetLifecycleCheckStatus`](./events-and-metrics.md#dataSetLifecycleCheckStatus):
+
+| Overall Status | Meaning |
+|--------|---------|
+| `success` | All steps passed: data set created, service terminated, and termination confirmed on-chain. |
+| `failure.timedout` | The job was aborted because it exceeded `DATA_SET_LIFECYCLE_CHECK_JOB_TIMEOUT_SECONDS`. |
+| `failure.other` | Any other failure: `createDataSet` failed, `terminateService` failed, or on-chain confirmation polling failed. |
+
+## Metrics Recorded
+
+Metric definitions live in [Dealbot Events & Metrics](./events-and-metrics.md). The metrics emitted by a data set lifecycle check are:
+
+- [`dataSetLifecycleCheckStatus`](./events-and-metrics.md#dataSetLifecycleCheckStatus) — `success`, `failure.timedout`, or `failure.other` per provider per run
+- [`dataSetLifecycleCheckMs`](./events-and-metrics.md#dataSetLifecycleCheckMs) — end-to-end duration (create + upload + terminate + confirm); emitted on `success` and `failure.timedout`
 
 ## Configuration
 
-- [`DATASET_LIFECYCLE_CHECK_ENABLED`](../environment-variables.md#dataset_lifecycle_check_enabled)
-  — enables the job. Defaults to true on calibration, false on mainnet. When disabled, stale
-  schedules are removed so they stop enqueuing no-op jobs.
-- [`DATASET_LIFECYCLE_CHECKS_PER_SP_PER_HOUR`](../environment-variables.md#dataset_lifecycle_checks_per_sp_per_hour)
-  — rate per provider, converted internally to `intervalSeconds`. Independent of
-  `DATASET_CREATIONS_PER_SP_PER_HOUR`.
-- [`DATA_SET_LIFECYCLE_CHECK_JOB_TIMEOUT_SECONDS`](../environment-variables.md#data_set_lifecycle_check_job_timeout_seconds)
-  — max runtime for one invocation. Bounds the seed-piece upload, the `terminateService`
-  call, and the `pdpEndEpoch != 0` confirmation poll. Default `600`.
+Key environment variables that control data set lifecycle check behavior:
 
-## Handler algorithm
+| Variable | Description |
+|----------|-------------|
+| `DATASET_LIFECYCLE_CHECK_ENABLED` | Enables or disables the check. Defaults to `true` on calibration, `false` on mainnet. When disabled, stale schedules are removed so they stop enqueuing no-op jobs. |
+| `DATASET_LIFECYCLE_CHECKS_PER_SP_PER_HOUR` | Per-SP check rate. Independent of `DATASET_CREATIONS_PER_SP_PER_HOUR`. |
+| `DATA_SET_LIFECYCLE_CHECK_JOB_TIMEOUT_SECONDS` | Max end-to-end job runtime before forced abort. Default `600`. |
 
-For one provider, one invocation of `data_set_lifecycle_check`:
+Source: [`apps/backend/src/config/app.config.ts`](../../apps/backend/src/config/app.config.ts)
 
-1. Apply the same maintenance-window and SP-blocklist rules used by other SP jobs.
-2. If `DATASET_LIFECYCLE_CHECK_ENABLED` is false, log a disabled skip and exit (defensive gate
-   for stale enqueued jobs).
-3. Build metadata `{ dealbotLifecycleCheck: "<timestamp>-<jobId>" }`. The fixed key is the
-   manual-cleanup handle; the per-run nonce value forces `createContext` to provision a fresh
-   set instead of resolving a prior (possibly leaked) set.
-4. Create an `AbortController` from `DATA_SET_LIFECYCLE_CHECK_JOB_TIMEOUT_SECONDS`.
-5. Call `DealService.runDataSetLifecycleCheck(spAddress, metadata, signal, timeoutMs)`, which:
-   - a. Creates the data set with a 200 KiB seed piece (metrics-free; **no** `dataSetCreation`
-     metrics — those belong to `data_set_creation`).
-   - b. Calls `terminateService` on the created `dataSetId` and polls until FWSS confirms
-     `pdpEndEpoch != 0`.
-   - c. Records `dataSetLifecycleCheckStatus` / `dataSetLifecycleCheckMs`.
-
-### Idempotency / abort handling
-
-- An abort (job timeout) or internal poll timeout is classified as `failure.timedout`;
-  pg-boss does not retry (failures are handled by the next scheduled tick).
-- The terminate step tolerates an already-terminated revert as a no-op and continues polling.
-
-## Metrics
-
-All metrics carry the standard label set (`checkType`, `providerId`, `providerName`,
-`providerStatus`) with `checkType=dataSetLifecycleCheck`. See
-[`events-and-metrics.md`](./events-and-metrics.md).
-
-| Metric | `value` labels | What to watch for |
-|--------|---------------|-------------------|
-| [`dataSetLifecycleCheckStatus`](./events-and-metrics.md#dataSetLifecycleCheckStatus) | `success`, `failure.timedout`, `failure.other` | `success` per provider confirms the full create→terminate lifecycle works on calibration; persistent `failure.*` indicates a `createDataSet` or `terminateService` regression |
-| [`dataSetLifecycleCheckMs`](./events-and-metrics.md#dataSetLifecycleCheckMs) | — | End-to-end duration (create + upload + terminate + confirm); emitted on `success` and `failure.timedout` only |
+See also: [`docs/environment-variables.md`](../environment-variables.md) for the source-of-truth configuration reference.
 
 ## FAQ
 
 ### What happens on-chain after `terminateService` is called?
 
-`terminateService` does not delete a dataset instantly. It starts a multi-step on-chain
-sequence that plays out over roughly 30 days. The lifecycle check only needs the first step to
-complete before it exits.
+`terminateService` does not delete a data set instantly. It starts a multi-step on-chain sequence that plays out over roughly 30 days. The lifecycle check only waits for the first step before it exits.
 
-**Step 1 — terminateService tx confirms.** `terminateService` calls
-`FilecoinPay.terminateRail(pdpRailId)`, which sets `endEpoch = block.number + lockupPeriod` on
-the PDP rail. The FWSS `railTerminated` callback fires in the same transaction, stores
-`info.pdpEndEpoch`, and emits `PDPPaymentsTerminated` and `ServiceTerminated`. This is the
-point the job polls for: `pdpEndEpoch != 0`.
+**Step 1 — terminateService confirms.** `terminateService` calls `FilecoinPay.terminateRail(pdpRailId)`, which sets `endEpoch = block.number + lockupPeriod` on the PDP rail. The FWSS `railTerminated` callback fires in the same transaction, stores `info.pdpEndEpoch`, and emits `PDPPaymentsTerminated` and `ServiceTerminated`. This is the point dealbot polls for: `pdpEndEpoch != 0`.
 
-**Step 2 — rail finalization (~30 days later).** When the PDP rail's `settledUpTo` reaches
-`endEpoch`, `finalizeTerminatedRail` fires atomically inside the settle transaction.
+**Step 2 — rail finalization (~30 days later).** When the PDP rail's `settledUpTo` reaches `endEpoch`, `finalizeTerminatedRail` fires atomically inside the settle transaction.
 
-**Step 3 — dataset deletion at PDPVerifier (SP-initiated).** After the rail finalizes, the SP
-may call `PDPVerifier.deleteDataSet`. The lifecycle check does not wait for steps 2 or 3 —
-waiting ~30 days per invocation would defeat the purpose of a canary cycle.
+**Step 3 — data set deletion at PDPVerifier (SP-initiated).** After the rail finalizes, the SP may call `PDPVerifier.deleteDataSet`. The lifecycle check does not wait for steps 2 or 3 — waiting ~30 days per invocation would defeat the purpose of a canary.
 
-## Source of truth
+### Why does data set creation use a seed piece?
 
-- Dataset creation design: [`docs/data-set-creation.md`](../data-set-creation.md)
-- Job system overview: [`docs/jobs.md`](../jobs.md)
-- Metrics and event definitions: [`docs/checks/events-and-metrics.md`](./events-and-metrics.md)
-- Scheduler and workers: [`apps/backend/src/jobs/jobs.service.ts`](../../apps/backend/src/jobs/jobs.service.ts)
-- Deal service dataset logic (`createDataSetWithPiece`, `runDataSetLifecycleCheck`): [`apps/backend/src/deal/deal.service.ts`](../../apps/backend/src/deal/deal.service.ts)
+Data set creation goes through `createContext` + `executeUpload` (the same flow as the data storage check) rather than calling `PDPVerifier.createDataSet` directly, because support for empty data sets is being removed from Curio and `synapse-sdk`.
+
+### What if creation succeeds but termination fails?
+
+If creation succeeds but termination fails (process crash, job timeout, or an on-chain error that is not an already-terminated no-op), the created data set stays live on the SP. This is called a leak and is an accepted trade-off for keeping the job self-contained.
+
+Leaked sets are discoverable by filtering data sets with the `dealbotLifecycleCheck` metadata key. Each leak is also recorded in the `dataset_lifecycle_check_failed` log line with `leakedDataSet: true` and the `dataSetId` for easy identification.
+
+### Why does the job create and terminate in the same run?
+
+An earlier design terminated an existing managed slot and relied on `data_set_creation` to recreate it on a later tick. That approach was coupled to `MIN_NUM_DATASETS_FOR_CHECKS`, a minimum-index window, and the creation job's schedule — making the canary sensitive to overall provider state.
+
+The current design is self-contained: it always creates a fresh data set and terminates it in the same run. The check works regardless of provider state and needs no coordination with other jobs.
