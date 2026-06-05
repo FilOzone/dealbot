@@ -31,7 +31,6 @@ import type { DealPreprocessingResult } from "../deal-addons/types.js";
 import { buildCheckMetricLabels, classifyFailureStatus } from "../metrics-prometheus/check-metric-labels.js";
 import {
   DataSetCreationCheckMetrics,
-  DataSetLifecycleCheckMetrics,
   DataStorageCheckMetrics,
   RetrievalCheckMetrics,
 } from "../metrics-prometheus/check-metrics.service.js";
@@ -70,7 +69,6 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     private readonly dataStorageMetrics: DataStorageCheckMetrics,
     private readonly retrievalMetrics: RetrievalCheckMetrics,
     private readonly dataSetCreationMetrics: DataSetCreationCheckMetrics,
-    private readonly dataSetLifecycleCheckMetrics: DataSetLifecycleCheckMetrics,
     private readonly clickhouseService: ClickhouseService,
     private readonly datasetLivenessService: DatasetLivenessService,
   ) {
@@ -734,9 +732,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Terminate a dataset on-chain (if needed) and wait for FWSS to confirm
-   * `pdpEndEpoch != 0`. Shared by the `data_set_creation` repair path and the
-   * `data_set_lifecycle_check` canary job.
+   * Repair a PDP-terminated dataset (FWSS may or may not have flipped pdpEndEpoch).
    *
    * Idempotent sequence:
    *   1. Read FWSS pdpEndEpoch. If already non-zero, skip the on-chain call.
@@ -744,86 +740,8 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
    *      FWSS pdpEndEpoch until non-zero. A revert that matches a known
    *      already-terminated message is treated as a no-op and falls through
    *      to the poll, so a partially-completed prior run can complete.
-   *
-   * Returns the confirmed non-zero `pdpEndEpoch`. Throws on abort or poll timeout.
-   */
-  private async ensureDataSetTerminated(
-    providerAddress: string,
-    dataSetId: bigint,
-    signal?: AbortSignal,
-    pollTimeoutMs = 60_000,
-  ): Promise<bigint> {
-    signal?.throwIfAborted();
-    const synapse = this.sharedSynapse ?? (await this.createSynapseInstance());
-    const { warmStorageService } = this.walletSdkService.getWalletServices();
-
-    const existing = await awaitWithAbort(warmStorageService.getDataSet({ dataSetId }), signal);
-    if (existing != null && existing.pdpEndEpoch !== 0n) {
-      this.logger.log({
-        event: "dataset_already_terminated",
-        message: "FWSS pdpEndEpoch already set; skipping terminateDataSet",
-        providerAddress,
-        dataSetId: dataSetId.toString(),
-        pdpEndEpoch: existing.pdpEndEpoch.toString(),
-      });
-      return existing.pdpEndEpoch;
-    }
-
-    let txHash: `0x${string}` | undefined;
-    try {
-      txHash = await awaitWithAbort(synapse.storage.terminateDataSet({ dataSetId }), signal);
-    } catch (error) {
-      if (signal?.aborted) throw error;
-      const message = error instanceof Error ? error.message : String(error);
-      if (!/already.*terminat|service.*terminated|pdpEndEpoch.*set/i.test(message)) {
-        throw error;
-      }
-      this.logger.warn({
-        event: "dataset_terminate_already_handled",
-        message: "terminateDataSet reverted as already-terminated; continuing to poll",
-        providerAddress,
-        dataSetId: dataSetId.toString(),
-        revert: message,
-      });
-    }
-    signal?.throwIfAborted();
-    if (txHash != null) {
-      try {
-        await awaitWithAbort(synapse.client.waitForTransactionReceipt({ hash: txHash }), signal);
-      } catch (error) {
-        if (signal?.aborted) throw error;
-        this.logger.warn({
-          event: "dataset_terminate_receipt_wait_failed",
-          message: "Receipt wait failed; falling back to FWSS state poll",
-          providerAddress,
-          dataSetId: dataSetId.toString(),
-          txHash,
-          error: toStructuredError(error),
-        });
-      }
-    }
-    return this.waitForPdpEndEpoch(dataSetId, pollTimeoutMs, signal);
-  }
-
-  /**
-   * Mark every Deal row with `dataSetId` as cleaned up in a single transaction.
-   * Filtered on cleaned_up=false so re-runs do not double-write. Returns affected count.
-   */
-  private async markDataSetDealsCleanedUp(dataSetId: bigint): Promise<number> {
-    return this.dealRepository.manager.transaction(async (manager) => {
-      const update = await manager
-        .getRepository(Deal)
-        .update({ dataSetId, cleanedUp: false }, { cleanedUp: true, cleanedUpAt: new Date() });
-      return update.affected ?? 0;
-    });
-  }
-
-  /**
-   * Repair a PDP-terminated dataset (FWSS may or may not have flipped pdpEndEpoch).
-   *
-   * Idempotent sequence:
-   *   1-2. Terminate on-chain and confirm pdpEndEpoch != 0 (see ensureDataSetTerminated).
-   *   3.   Mark every Deal row with this dataSetId as cleaned up.
+   *   3. Mark every Deal row with this dataSetId as cleaned up in a single
+   *      transaction (filtered on cleaned_up=false, so re-runs do not double-write).
    */
   async repairTerminatedDataSet(
     providerAddress: string,
@@ -831,9 +749,65 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     signal?: AbortSignal,
     pollTimeoutMs = 60_000,
   ): Promise<{ dealsAffected: number; pdpEndEpoch: bigint }> {
+    signal?.throwIfAborted();
+    const synapse = this.sharedSynapse ?? (await this.createSynapseInstance());
     const providerInfo = this.walletSdkService.getProviderInfo(providerAddress);
-    const pdpEndEpoch = await this.ensureDataSetTerminated(providerAddress, dataSetId, signal, pollTimeoutMs);
-    const dealsAffected = await this.markDataSetDealsCleanedUp(dataSetId);
+    const { warmStorageService } = this.walletSdkService.getWalletServices();
+
+    let pdpEndEpoch: bigint;
+    const existing = await awaitWithAbort(warmStorageService.getDataSet({ dataSetId }), signal);
+    if (existing != null && existing.pdpEndEpoch !== 0n) {
+      pdpEndEpoch = existing.pdpEndEpoch;
+      this.logger.log({
+        event: "dataset_already_terminated",
+        message: "FWSS pdpEndEpoch already set; skipping terminateDataSet",
+        providerAddress,
+        dataSetId: dataSetId.toString(),
+        pdpEndEpoch: pdpEndEpoch.toString(),
+      });
+    } else {
+      let txHash: `0x${string}` | undefined;
+      try {
+        txHash = await awaitWithAbort(synapse.storage.terminateDataSet({ dataSetId }), signal);
+      } catch (error) {
+        if (signal?.aborted) throw error;
+        const message = error instanceof Error ? error.message : String(error);
+        if (!/already.*terminat|service.*terminated|pdpEndEpoch.*set/i.test(message)) {
+          throw error;
+        }
+        this.logger.warn({
+          event: "dataset_terminate_already_handled",
+          message: "terminateDataSet reverted as already-terminated; continuing to poll",
+          providerAddress,
+          dataSetId: dataSetId.toString(),
+          revert: message,
+        });
+      }
+      signal?.throwIfAborted();
+      if (txHash != null) {
+        try {
+          await awaitWithAbort(synapse.client.waitForTransactionReceipt({ hash: txHash }), signal);
+        } catch (error) {
+          if (signal?.aborted) throw error;
+          this.logger.warn({
+            event: "dataset_terminate_receipt_wait_failed",
+            message: "Receipt wait failed; falling back to FWSS state poll",
+            providerAddress,
+            dataSetId: dataSetId.toString(),
+            txHash,
+            error: toStructuredError(error),
+          });
+        }
+      }
+      pdpEndEpoch = await this.waitForPdpEndEpoch(dataSetId, pollTimeoutMs, signal);
+    }
+
+    const result = await this.dealRepository.manager.transaction(async (manager) => {
+      const update = await manager
+        .getRepository(Deal)
+        .update({ dataSetId, cleanedUp: false }, { cleanedUp: true, cleanedUpAt: new Date() });
+      return update.affected ?? 0;
+    });
 
     this.logger.log({
       event: "dataset_terminated_repaired",
@@ -842,104 +816,10 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       providerId: providerInfo?.id,
       dataSetId: dataSetId.toString(),
       pdpEndEpoch: pdpEndEpoch.toString(),
-      dealsAffected,
+      dealsAffected: result,
     });
 
-    return { dealsAffected, pdpEndEpoch };
-  }
-
-  /**
-   * Run one data-set lifecycle check: create a throwaway data set with a seed piece,
-   * then immediately terminate it and confirm `pdpEndEpoch != 0` on-chain. Used by the
-   * `data_set_lifecycle_check` canary job to validate that an SP honours the full
-   * create -> `terminateService` lifecycle.
-   *
-   * Self-contained: it never touches the managed check data sets and creates no `Deal`
-   * rows, so no Deal cleanup is performed. The throwaway set is created with caller-supplied
-   * `metadata` carrying the fixed `dealbotLifecycleCheck` marker key (a per-run nonce value
-   * forces a fresh set each tick); operators can list/sweep leaks by that key.
-   *
-   * Emits only `dataSetLifecycleCheckStatus` / `dataSetLifecycleCheckMs` — never the
-   * `dataSetCreation` metrics (those belong to the `data_set_creation` job). An abort
-   * (job timeout) or an internal poll timeout is classified as `failure.timedout`. If
-   * creation succeeds but
-   * termination fails the set leaks (accepted trade-off); pg-boss retries on the next tick.
-   */
-  async runDataSetLifecycleCheck(
-    providerAddress: string,
-    metadata: Record<string, string>,
-    signal?: AbortSignal,
-    pollTimeoutMs = 60_000,
-  ): Promise<{ dataSetId: bigint; pdpEndEpoch: bigint }> {
-    const providerInfo = this.walletSdkService.getProviderInfo(providerAddress);
-    if (!providerInfo) {
-      throw new Error(`Provider ${providerAddress} not found in registry`);
-    }
-
-    const logContext = {
-      providerAddress,
-      providerName: providerInfo.name,
-      providerId: providerInfo.id,
-    };
-    const labels = buildCheckMetricLabels({
-      checkType: "dataSetLifecycleCheck",
-      providerId: providerInfo.id,
-      providerName: providerInfo.name,
-      providerIsApproved: providerInfo.isApproved,
-    });
-
-    const startedAt = Date.now();
-    this.logger.log({
-      event: "dataset_lifecycle_check_started",
-      message: "Starting data-set lifecycle check (create then terminate)",
-      ...logContext,
-      metadata,
-    });
-
-    let dataSetId: bigint | undefined;
-    try {
-      // 1. Create a fresh throwaway data set with a seed piece (no creation metrics).
-      ({ dataSetId } = await this.createDataSetWithPieceInternal(providerInfo, metadata, signal));
-      if (!dataSetId) {
-        throw new Error("Data-set creation upload completed without resolving a dataSetId");
-      }
-      // 2. Immediately terminate the exact set we just created and confirm on-chain.
-      const pdpEndEpoch = await this.ensureDataSetTerminated(providerAddress, dataSetId, signal, pollTimeoutMs);
-      const durationMs = Date.now() - startedAt;
-
-      this.dataSetLifecycleCheckMetrics.observeCheckDuration(labels, durationMs);
-      this.dataSetLifecycleCheckMetrics.recordStatus(labels, "success");
-      this.logger.log({
-        event: "dataset_lifecycle_check_succeeded",
-        message: "Data-set lifecycle check completed: created and terminated throwaway data set",
-        ...logContext,
-        dataSetId: dataSetId.toString(),
-        pdpEndEpoch: pdpEndEpoch.toString(),
-        durationMs,
-      });
-      return { dataSetId, pdpEndEpoch };
-    } catch (error) {
-      const durationMs = Date.now() - startedAt;
-      // An abort (job-level timeout) or an internal poll timeout both count as failure.timedout.
-      const status = signal?.aborted ? "failure.timedout" : classifyFailureStatus(error);
-      if (status === "failure.timedout") {
-        this.dataSetLifecycleCheckMetrics.observeCheckDuration(labels, durationMs);
-      }
-      this.dataSetLifecycleCheckMetrics.recordStatus(labels, status);
-      this.logger.error({
-        event: "dataset_lifecycle_check_failed",
-        message:
-          dataSetId === undefined
-            ? "Data-set lifecycle check failed during creation"
-            : "Data-set lifecycle check failed during termination; throwaway data set may have leaked",
-        ...logContext,
-        dataSetId: dataSetId?.toString(),
-        durationMs,
-        status,
-        error: toStructuredError(error),
-      });
-      throw error;
-    }
+    return { dealsAffected: result, pdpEndEpoch };
   }
 
   /**
@@ -965,9 +845,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Creates an on-chain data-set with a minimal 200 KiB piece for a provider,
-   * recording `dataSetCreation` metrics. Used by the `data_set_creation` job.
-   *
+   * Creates an on-chain data-set with a minimal 200 KiB piece for a provider.
    * Uses createContext + executeUpload (same flow as data storage check) instead of
    * PDPServer.createDataSet, since empty datasets are being removed from curio and synapse-sdk.
    *
@@ -979,16 +857,11 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     metadata: Record<string, string>,
     signal?: AbortSignal,
   ): Promise<void> {
+    signal?.throwIfAborted();
     const providerInfo = this.walletSdkService.getProviderInfo(providerAddress);
     if (!providerInfo) {
       throw new Error(`Provider ${providerAddress} not found in registry`);
     }
-
-    const logContext = {
-      providerAddress,
-      providerId: providerInfo.id,
-      providerName: providerInfo.name,
-    };
     const labels = buildCheckMetricLabels({
       checkType: "dataSetCreation",
       providerId: providerInfo.id,
@@ -999,39 +872,133 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     const startedAt = Date.now();
     this.dataSetCreationMetrics.recordStatus(labels, "pending");
     this.logger.log({
-      ...logContext,
       event: "dataset_creation_with_piece_started",
       message: "Starting data-set creation with piece",
+      providerAddress,
+      providerId: providerInfo.id,
+      providerName: providerInfo.name,
       metadata,
     });
 
+    let pieceAdded = false;
+    let piecesConfirmed = false;
+    let pieceCid: string | undefined;
+    let pieceId: number | undefined;
+    let transactionHash: string | undefined;
+
     try {
-      const result = await this.createDataSetWithPieceInternal(providerInfo, metadata, signal);
+      const synapse = this.sharedSynapse ?? (await this.createSynapseInstance());
+      signal?.throwIfAborted();
+
+      const DATA_SET_CREATION_PIECE_SIZE = 200 * 1024; // 200 KiB
+      const payload = Buffer.alloc(DATA_SET_CREATION_PIECE_SIZE, 0x61);
+      const dataFile = {
+        data: payload,
+        size: DATA_SET_CREATION_PIECE_SIZE,
+        name: "dataset-seed.bin",
+      };
+
+      const carResult = await buildUnixfsCar(dataFile, { signal });
+      signal?.throwIfAborted();
+
+      const storage = await awaitWithAbort(
+        synapse.storage.createContext({
+          providerId: providerInfo.id,
+          metadata,
+        }),
+        signal,
+      );
+      signal?.throwIfAborted();
+
+      const filecoinPinLogger = createFilecoinPinLogger(this.logger);
+
+      const uploadResult = (await awaitWithAbort(
+        executeUpload(synapse, carResult.carData, carResult.rootCID, {
+          logger: filecoinPinLogger,
+          contextId: providerAddress,
+          contexts: [storage],
+          pieceMetadata: {},
+          ipniValidation: { enabled: false },
+          // Must stay synchronous — see issue #446.
+          onProgress: (event) => {
+            switch (event.type) {
+              case "stored":
+                pieceCid = event.data.pieceCid.toString();
+                this.logger.debug({
+                  event: "dataset_creation_stored",
+                  message: "Data-set creation stored",
+                  providerAddress,
+                  providerId: providerInfo.id,
+                  providerName: providerInfo.name,
+                  pieceCid,
+                });
+                break;
+              case "piecesAdded":
+                pieceAdded = true;
+                this.logger.debug({
+                  event: "dataset_creation_pieces_added",
+                  message: "Data-set creation pieces added",
+                  providerAddress,
+                  providerId: providerInfo.id,
+                  providerName: providerInfo.name,
+                  txHash: event.data.txHash ?? "unknown",
+                });
+                break;
+              case "piecesConfirmed":
+                piecesConfirmed = true;
+                this.logger.debug({
+                  event: "dataset_creation_pieces_confirmed",
+                  message: "Data-set creation pieces confirmed",
+                  providerAddress,
+                  providerId: providerInfo.id,
+                  providerName: providerInfo.name,
+                  pieceIds: event.data.pieceIds,
+                });
+                break;
+            }
+          },
+        }),
+        signal,
+      )) as Partial<UploadResultSummary> | undefined;
+
+      pieceCid = pieceCid ?? uploadResult?.pieceCid;
+      pieceId = uploadResult?.pieceId;
+      transactionHash = uploadResult?.transactionHash;
+
       const durationMs = Date.now() - startedAt;
       this.dataSetCreationMetrics.observeCheckDuration(labels, durationMs);
+
+      if (!pieceCid) {
+        throw new Error("Data-set creation upload completed without producing a pieceCid");
+      }
+
       this.dataSetCreationMetrics.recordStatus(labels, "success");
 
-      if (!result.pieceAdded || !result.piecesConfirmed) {
+      if (!pieceAdded || !piecesConfirmed) {
         this.logger.warn({
           event: "dataset_creation_missing_onchain_events",
           message: "Data-set creation succeeded without full on-chain progress events",
-          ...logContext,
-          pieceAdded: result.pieceAdded,
-          piecesConfirmed: result.piecesConfirmed,
+          providerAddress,
+          providerId: providerInfo.id,
+          providerName: providerInfo.name,
+          pieceAdded,
+          piecesConfirmed,
         });
       }
 
       this.logger.log({
         event: "dataset_creation_with_piece_succeeded",
         message: "Data-set created with piece",
-        ...logContext,
+        providerAddress,
+        providerId: providerInfo.id,
+        providerName: providerInfo.name,
         durationMs,
-        dataSetId: result.dataSetId ?? "unknown",
-        pieceCid: result.pieceCid,
-        pieceId: result.pieceId ?? "unknown",
-        txHash: result.transactionHash ?? "unknown",
-        pieceAdded: result.pieceAdded,
-        piecesConfirmed: result.piecesConfirmed,
+        dataSetId: storage.dataSetId ?? "unknown",
+        pieceCid: pieceCid ?? "unknown",
+        pieceId: pieceId ?? "unknown",
+        txHash: transactionHash ?? "unknown",
+        pieceAdded,
+        piecesConfirmed,
       });
     } catch (error) {
       const durationMs = Date.now() - startedAt;
@@ -1040,128 +1007,19 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       this.logger.error({
         event: "dataset_creation_with_piece_failed",
         message: "Data-set creation with piece failed",
-        ...logContext,
+        providerAddress,
+        providerId: providerInfo.id,
+        providerName: providerInfo.name,
         durationMs,
+        pieceAdded,
+        piecesConfirmed,
+        pieceCid,
+        pieceId,
+        transactionHash,
         error: toStructuredError(error),
       });
       throw error;
     }
-  }
-
-  /**
-   * Metrics-free creation of an on-chain data-set with a minimal 200 KiB seed piece.
-   *
-   * Performs createContext + executeUpload and returns the created `dataSetId` and upload
-   * summary. Records NO check metrics so callers can attribute the work to the right check
-   * (`data_set_creation` via {@link createDataSetWithPiece}, or `data_set_lifecycle_check`
-   * via {@link runDataSetLifecycleCheck}). Throws if the upload produced no `pieceCid` or
-   * the context resolved no `dataSetId` (we cannot operate on an unidentified set).
-   */
-  private async createDataSetWithPieceInternal(
-    providerInfo: PDPProviderEx,
-    metadata: Record<string, string>,
-    signal?: AbortSignal,
-  ): Promise<{
-    dataSetId?: bigint;
-    pieceCid: string;
-    pieceId: number | undefined;
-    transactionHash: string | undefined;
-    pieceAdded: boolean;
-    piecesConfirmed: boolean;
-  }> {
-    signal?.throwIfAborted();
-
-    const providerAddress = providerInfo.serviceProvider;
-    const logContext = {
-      providerAddress,
-      providerName: providerInfo.name,
-      providerId: providerInfo.id,
-    };
-    let pieceAdded = false;
-    let piecesConfirmed = false;
-    let pieceCid: string | undefined;
-
-    const synapse = this.sharedSynapse ?? (await this.createSynapseInstance());
-    signal?.throwIfAborted();
-
-    const DATA_SET_CREATION_PIECE_SIZE = 200 * 1024; // 200 KiB
-    const payload = Buffer.alloc(DATA_SET_CREATION_PIECE_SIZE, 0x61);
-    const dataFile = {
-      data: payload,
-      size: DATA_SET_CREATION_PIECE_SIZE,
-      name: "dataset-seed.bin",
-    };
-
-    const carResult = await buildUnixfsCar(dataFile, { signal });
-    signal?.throwIfAborted();
-
-    const storage = await awaitWithAbort(
-      synapse.storage.createContext({
-        providerId: providerInfo.id,
-        metadata,
-      }),
-      signal,
-    );
-    signal?.throwIfAborted();
-
-    const filecoinPinLogger = createFilecoinPinLogger(this.logger);
-
-    const uploadResult = (await awaitWithAbort(
-      executeUpload(synapse, carResult.carData, carResult.rootCID, {
-        logger: filecoinPinLogger,
-        contextId: providerAddress,
-        contexts: [storage],
-        pieceMetadata: {},
-        ipniValidation: { enabled: false },
-        // Must stay synchronous — see issue #446.
-        onProgress: (event) => {
-          switch (event.type) {
-            case "stored":
-              pieceCid = event.data.pieceCid.toString();
-              this.logger.debug({
-                event: "dataset_creation_stored",
-                message: "Data-set creation stored",
-                ...logContext,
-                pieceCid,
-              });
-              break;
-            case "piecesAdded":
-              pieceAdded = true;
-              this.logger.debug({
-                event: "dataset_creation_pieces_added",
-                message: "Data-set creation pieces added",
-                ...logContext,
-                txHash: event.data.txHash ?? "unknown",
-              });
-              break;
-            case "piecesConfirmed":
-              piecesConfirmed = true;
-              this.logger.debug({
-                event: "dataset_creation_pieces_confirmed",
-                message: "Data-set creation pieces confirmed",
-                ...logContext,
-                pieceIds: event.data.pieceIds,
-              });
-              break;
-          }
-        },
-      }),
-      signal,
-    )) as Partial<UploadResultSummary> | undefined;
-
-    pieceCid = pieceCid ?? uploadResult?.pieceCid;
-    if (!pieceCid) {
-      throw new Error("Data-set creation upload completed without producing a pieceCid");
-    }
-
-    return {
-      dataSetId: storage.dataSetId,
-      pieceCid,
-      pieceId: uploadResult?.pieceId,
-      transactionHash: uploadResult?.transactionHash,
-      pieceAdded,
-      piecesConfirmed,
-    };
   }
 
   // ============================================================================
