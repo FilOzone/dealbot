@@ -4,6 +4,7 @@ export type CheckType =
   | "dataRetention"
   | "dataSetCreation"
   | "dataSetLifecycleCheck"
+  | "dataSetWithPiecesLifecycleCheck"
   | "pullCheck";
 export type ProviderStatus = "approved" | "unapproved";
 

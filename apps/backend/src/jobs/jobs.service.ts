@@ -937,9 +937,10 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
   /**
    * Handles one `data_set_lifecycle_check` invocation for a provider.
    *
-   * Creates a throwaway data set with a seed piece, then immediately calls
-   * `terminateService` on it — exercising the full create -> terminate lifecycle in a
-   * single tick.
+   * A coin-flip selects which creation path to exercise each tick — either an empty data
+   * set (createDataSet) or a data set with a canary piece (createDataSetAndAddPieces) —
+   * then immediately terminates it. Covering both paths over time without doubling the
+   * per-tick on-chain transaction cost.
    */
   private async handleDataSetLifecycleCheckJob(job: SpJob): Promise<void> {
     const data = job.data;

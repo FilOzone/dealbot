@@ -1,11 +1,26 @@
-import { createDataSet, waitForCreateDataSet } from "@filoz/synapse-core/sp";
+import {
+  createDataSet,
+  createDataSetAndAddPieces,
+  findPiece,
+  uploadPieceStreaming,
+  waitForCreateDataSet,
+  waitForCreateDataSetAddPieces,
+} from "@filoz/synapse-core/sp";
 import { terminateServiceSync } from "@filoz/synapse-core/warm-storage";
 import { Injectable, Logger } from "@nestjs/common";
 import { awaitWithAbort } from "../common/abort-utils.js";
 import { toStructuredError } from "../common/logging.js";
 import { buildCheckMetricLabels, classifyFailureStatus } from "../metrics-prometheus/check-metric-labels.js";
 import { DataSetLifecycleCheckMetrics } from "../metrics-prometheus/check-metrics.service.js";
+import type { SynapseViemClient } from "../wallet-sdk/wallet-sdk.service.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
+import type { PDPProviderEx } from "../wallet-sdk/wallet-sdk.types.js";
+
+// A fixed 256-byte buffer used as the canary piece for the with-pieces lifecycle check.
+// Small enough to keep upload time and cost minimal; large enough to be a valid PDP piece.
+// The data is deterministic so a leaked data set can always be identified by its fixed
+// piece CID alongside the `dealbotLifecycleCheck` metadata key.
+const CANARY_PIECE_DATA = new Uint8Array(256).fill(0x61);
 
 @Injectable()
 export class DataSetLifecycleService {
@@ -17,18 +32,25 @@ export class DataSetLifecycleService {
   ) {}
 
   /**
-   * Run one data-set lifecycle check: create an empty throwaway data set on the SP,
-   * wait for on-chain confirmation, then immediately terminate it. Used by the
-   * `data_set_lifecycle_check` canary job to validate that an SP honours the full
-   * create → terminate lifecycle.
+   * Run one data-set lifecycle check for a provider.
    *
-   * Never touches managed check data sets and creates no Deal rows. The throwaway set
-   * is identified by the fixed `dealbotLifecycleCheck` marker key in `metadata`; a
-   * per-run nonce value prevents accidentally reusing a prior leaked set. If creation
-   * succeeds but termination fails the set leaks (accepted trade-off); operators can
-   * sweep leaks by that key.
+   * A coin-flip selects which creation path to exercise each tick:
    *
-   * Emits only `dataSetLifecycleCheckStatus` / `dataSetLifecycleCheckMs` metrics.
+   *   empty variant (50%):
+   *     createDataSet → waitForCreateDataSet → terminateServiceSync
+   *
+   *   with-pieces variant (50%):
+   *     uploadPieceStreaming → findPiece →
+   *     createDataSetAndAddPieces → waitForCreateDataSetAddPieces → terminateServiceSync
+   *
+   * Running one variant per tick rather than both keeps the per-tick on-chain transaction
+   * cost identical to the current single-check budget while covering both code paths over
+   * time. Each variant emits metrics under a distinct `checkType` label so dashboards can
+   * track them independently.
+   *
+   * Never touches managed check data sets and creates no Deal rows. Throwaway sets are
+   * identified by the `dealbotLifecycleCheck` metadata key. If creation succeeds but
+   * termination fails the set leaks (accepted trade-off); operators can sweep leaks by key.
    */
   async runLifecycleCheck(spAddress: string, metadata: Record<string, string>, signal?: AbortSignal): Promise<void> {
     const providerInfo = this.walletSdkService.getProviderInfo(spAddress);
@@ -41,23 +63,37 @@ export class DataSetLifecycleService {
       throw new Error("Synapse client not initialized");
     }
 
+    if (Math.random() < 0.5) {
+      await this.runEmptyVariant(client, providerInfo, spAddress, metadata, signal);
+    } else {
+      await this.runWithPiecesVariant(client, providerInfo, spAddress, metadata, signal);
+    }
+  }
+
+  private async runEmptyVariant(
+    client: SynapseViemClient,
+    providerInfo: PDPProviderEx,
+    spAddress: string,
+    metadata: Record<string, string>,
+    signal: AbortSignal | undefined,
+  ): Promise<void> {
     const labels = buildCheckMetricLabels({
       checkType: "dataSetLifecycleCheck",
       providerId: providerInfo.id,
       providerName: providerInfo.name,
       providerIsApproved: providerInfo.isApproved,
     });
-
     const logContext = {
       providerAddress: spAddress,
       providerName: providerInfo.name,
       providerId: providerInfo.id,
+      variant: "empty",
     };
 
     const startedAt = Date.now();
     this.logger.log({
       event: "dataset_lifecycle_check_started",
-      message: "Starting data-set lifecycle check",
+      message: "Starting data-set lifecycle check (empty variant)",
       ...logContext,
     });
 
@@ -119,7 +155,7 @@ export class DataSetLifecycleService {
 
       this.logger.log({
         event: "dataset_lifecycle_check_succeeded",
-        message: "Data-set lifecycle check completed: created and terminated throwaway data set",
+        message: "Data-set lifecycle check completed (empty variant)",
         ...logContext,
         dataSetId: dataSetId.toString(),
         durationMs,
@@ -135,7 +171,158 @@ export class DataSetLifecycleService {
         event: "dataset_lifecycle_check_failed",
         message:
           dataSetId === undefined
-            ? "Data-set lifecycle check failed during creation"
+            ? "Data-set lifecycle check failed during creation (empty variant)"
+            : "Data-set lifecycle check failed during termination; throwaway data set may have leaked",
+        ...logContext,
+        dataSetId: dataSetId?.toString(),
+        durationMs,
+        status,
+        error: toStructuredError(error),
+      });
+      throw error;
+    }
+  }
+
+  private async runWithPiecesVariant(
+    client: SynapseViemClient,
+    providerInfo: PDPProviderEx,
+    spAddress: string,
+    metadata: Record<string, string>,
+    signal: AbortSignal | undefined,
+  ): Promise<void> {
+    const labels = buildCheckMetricLabels({
+      checkType: "dataSetWithPiecesLifecycleCheck",
+      providerId: providerInfo.id,
+      providerName: providerInfo.name,
+      providerIsApproved: providerInfo.isApproved,
+    });
+    const logContext = {
+      providerAddress: spAddress,
+      providerName: providerInfo.name,
+      providerId: providerInfo.id,
+      variant: "withPieces",
+    };
+
+    const startedAt = Date.now();
+    this.logger.log({
+      event: "dataset_with_pieces_lifecycle_check_started",
+      message: "Starting data-set lifecycle check (with-pieces variant)",
+      ...logContext,
+    });
+
+    let dataSetId: bigint | undefined;
+    try {
+      signal?.throwIfAborted();
+
+      // 1. Upload the canary piece to the SP's HTTP storage service.
+      const { pieceCid } = await awaitWithAbort(
+        uploadPieceStreaming({
+          serviceURL: providerInfo.pdp.serviceURL,
+          data: CANARY_PIECE_DATA,
+          signal,
+        }),
+        signal,
+      );
+      signal?.throwIfAborted();
+
+      this.logger.log({
+        event: "dataset_with_pieces_lifecycle_check_piece_uploaded",
+        message: "Canary piece uploaded; verifying SP has ingested it",
+        ...logContext,
+        pieceCid: pieceCid.toString(),
+      });
+
+      // 2. Verify the SP has ingested the piece before submitting the on-chain transaction.
+      //    findPiece with retry polls until the SP confirms availability, catching upload
+      //    processing delays that would otherwise cause createDataSetAndAddPieces to fail.
+      await awaitWithAbort(
+        findPiece({
+          serviceURL: providerInfo.pdp.serviceURL,
+          pieceCid,
+          retry: true,
+          signal,
+        }),
+        signal,
+      );
+      signal?.throwIfAborted();
+
+      // 3. Atomically create the data set and register the piece on-chain.
+      const createResult = await awaitWithAbort(
+        createDataSetAndAddPieces(client, {
+          cdn: false,
+          payee: providerInfo.payee,
+          serviceURL: providerInfo.pdp.serviceURL,
+          pieces: [{ pieceCid }],
+          metadata,
+        }),
+        signal,
+      );
+      signal?.throwIfAborted();
+
+      this.logger.log({
+        event: "dataset_with_pieces_lifecycle_check_creating",
+        message: "Data set with piece submitted; waiting for SP confirmation",
+        ...logContext,
+        txHash: createResult.txHash,
+        pieceCid: pieceCid.toString(),
+      });
+
+      // 4. Wait for on-chain confirmation of both data set creation and piece addition.
+      const confirmed = await awaitWithAbort(
+        waitForCreateDataSetAddPieces({ statusUrl: createResult.statusUrl }),
+        signal,
+      );
+      dataSetId = confirmed.dataSetId;
+      signal?.throwIfAborted();
+
+      this.logger.log({
+        event: "dataset_with_pieces_lifecycle_check_created",
+        message: "Data set with piece created and confirmed on-chain",
+        ...logContext,
+        dataSetId: dataSetId.toString(),
+        piecesIds: confirmed.piecesIds.map(String),
+      });
+
+      // 5. Immediately terminate the throwaway data set.
+      await awaitWithAbort(
+        terminateServiceSync(client, {
+          dataSetId,
+          onHash: (hash) => {
+            this.logger.log({
+              event: "dataset_with_pieces_lifecycle_check_terminating",
+              message: "Terminate transaction submitted",
+              ...logContext,
+              dataSetId: (dataSetId as bigint).toString(),
+              txHash: hash,
+            });
+          },
+        }),
+        signal,
+      );
+
+      const durationMs = Date.now() - startedAt;
+      this.lifecycleCheckMetrics.observeCheckDuration(labels, durationMs);
+      this.lifecycleCheckMetrics.recordStatus(labels, "success");
+
+      this.logger.log({
+        event: "dataset_with_pieces_lifecycle_check_succeeded",
+        message: "Data-set lifecycle check completed (with-pieces variant)",
+        ...logContext,
+        dataSetId: dataSetId.toString(),
+        durationMs,
+      });
+    } catch (error) {
+      const durationMs = Date.now() - startedAt;
+      const status = signal?.aborted ? "failure.timedout" : classifyFailureStatus(error);
+      if (status === "failure.timedout") {
+        this.lifecycleCheckMetrics.observeCheckDuration(labels, durationMs);
+      }
+      this.lifecycleCheckMetrics.recordStatus(labels, status);
+      this.logger.error({
+        event: "dataset_with_pieces_lifecycle_check_failed",
+        message:
+          dataSetId === undefined
+            ? "Data-set lifecycle check failed before data set was confirmed (with-pieces variant)"
             : "Data-set lifecycle check failed during termination; throwaway data set may have leaked",
         ...logContext,
         dataSetId: dataSetId?.toString(),
