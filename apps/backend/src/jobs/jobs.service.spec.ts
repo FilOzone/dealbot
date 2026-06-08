@@ -1310,6 +1310,7 @@ describe("JobsService schedule rows", () => {
       "0xaaa",
       expect.objectContaining({ dealbotLifecycleCheck: expect.any(String) }),
       expect.any(AbortSignal),
+      expect.objectContaining({ jobId: expect.any(String) }),
     );
     // The fixed marker key is the only metadata; no base/slot metadata is attached.
     const metadataArg = (dataSetLifecycleService.runLifecycleCheck.mock.calls[0] as unknown[])[1] as Record<
