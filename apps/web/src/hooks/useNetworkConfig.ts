@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
-import { fetchAppConfig } from "@/api/client";
-import type { Network } from "@/types/config";
+import useSWR from "swr";
+import { apiPaths, fetcher } from "@/api/client";
+import type { AppConfigResponse, Network } from "@/types/config";
 
 interface UseNetworkConfigReturn {
   network: Network | null;
@@ -12,35 +12,20 @@ interface UseNetworkConfigReturn {
  * Fetch the dealbot app config and expose the network this instance monitors.
  */
 export function useNetworkConfig(): UseNetworkConfigReturn {
-  const [network, setNetwork] = useState<Network | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    const controller = new AbortController();
-
-    (async () => {
-      try {
-        setLoading(true);
-        setError(null);
-        const data = await fetchAppConfig(controller.signal);
-        if (controller.signal.aborted) return;
-        setNetwork(data.network);
-      } catch (err) {
-        if (controller.signal.aborted) return;
-        setError(err instanceof Error ? err.message : "Failed to fetch app config");
-        console.error("Error fetching app config:", err);
-      } finally {
-        if (!controller.signal.aborted) setLoading(false);
-      }
-    })();
-
-    return () => controller.abort();
-  }, []);
+  const { data, error, isLoading } = useSWR(apiPaths.config(), fetcher<AppConfigResponse>, {
+    revalidateIfStale: false,
+    revalidateOnFocus: false,
+    revalidateOnReconnect: false,
+  });
 
   return {
-    network,
-    loading,
-    error,
+    network: data?.network ?? null,
+    loading: isLoading,
+    error: toErrorMessage(error, "Failed to fetch app config"),
   };
+}
+
+function toErrorMessage(error: unknown, fallback: string): string | null {
+  if (!error) return null;
+  return error instanceof Error ? error.message : fallback;
 }

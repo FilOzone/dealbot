@@ -2,10 +2,23 @@ import { server } from "@test/mocks/server";
 import { render, screen, waitFor } from "@testing-library/react";
 import { HttpResponse, http } from "msw";
 import { MemoryRouter } from "react-router-dom";
+import { SWRConfig } from "swr";
 import { describe, expect, it } from "vitest";
 import NetworkSwitcher from "./NetworkSwitcher";
 
 const configUrl = "/api/config";
+
+// Each render gets a fresh SWR cache so cases setting different /api/config
+// responses don't reuse a value cached by a previous case.
+function renderSwitcher() {
+  return render(
+    <SWRConfig value={{ provider: () => new Map() }}>
+      <MemoryRouter>
+        <NetworkSwitcher />
+      </MemoryRouter>
+    </SWRConfig>,
+  );
+}
 
 describe("NetworkSwitcher", () => {
   it("shows current network and a link to switch to the other deployment (mainnet → calibration)", async () => {
@@ -18,11 +31,7 @@ describe("NetworkSwitcher", () => {
       ),
     );
 
-    render(
-      <MemoryRouter>
-        <NetworkSwitcher />
-      </MemoryRouter>,
-    );
+    renderSwitcher();
 
     const switchLink = await screen.findByRole("link", { name: /Switch to Calibration/i });
     expect(switchLink).toHaveAttribute("href", "https://staging.dealbot.filoz.org");
@@ -38,11 +47,7 @@ describe("NetworkSwitcher", () => {
       ),
     );
 
-    render(
-      <MemoryRouter>
-        <NetworkSwitcher />
-      </MemoryRouter>,
-    );
+    renderSwitcher();
 
     const switchLink = await screen.findByRole("link", { name: /Switch to Mainnet/i });
     expect(switchLink).toHaveAttribute("href", "https://dealbot.filoz.org");
@@ -51,11 +56,7 @@ describe("NetworkSwitcher", () => {
   it("shows loading state initially", () => {
     server.use(http.get(configUrl, () => new Promise(() => {})));
 
-    const { container } = render(
-      <MemoryRouter>
-        <NetworkSwitcher />
-      </MemoryRouter>,
-    );
+    const { container } = renderSwitcher();
 
     const loadingElement = container.querySelector(".animate-pulse");
     expect(loadingElement).toBeInTheDocument();
@@ -69,11 +70,7 @@ describe("NetworkSwitcher", () => {
       }),
     );
 
-    const { container } = render(
-      <MemoryRouter>
-        <NetworkSwitcher />
-      </MemoryRouter>,
-    );
+    const { container } = renderSwitcher();
 
     await waitFor(() => {
       expect(container.firstChild).toBeNull();
@@ -90,11 +87,7 @@ describe("NetworkSwitcher", () => {
       ),
     );
 
-    render(
-      <MemoryRouter>
-        <NetworkSwitcher />
-      </MemoryRouter>,
-    );
+    renderSwitcher();
 
     const switchLink = await screen.findByRole("link", { name: /Switch to Calibration/i });
     expect(switchLink).toHaveAttribute("rel", "noreferrer");
@@ -110,11 +103,7 @@ describe("NetworkSwitcher", () => {
       ),
     );
 
-    const { container } = render(
-      <MemoryRouter>
-        <NetworkSwitcher />
-      </MemoryRouter>,
-    );
+    const { container } = renderSwitcher();
 
     await screen.findByRole("link", { name: /Switch to Mainnet/i });
 
@@ -132,11 +121,7 @@ describe("NetworkSwitcher", () => {
       ),
     );
 
-    const { container } = render(
-      <MemoryRouter>
-        <NetworkSwitcher />
-      </MemoryRouter>,
-    );
+    const { container } = renderSwitcher();
 
     await screen.findByRole("link", { name: /Switch to Calibration/i });
 
