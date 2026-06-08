@@ -179,9 +179,9 @@ describe("DataSetLifecycleService", () => {
     vi.mocked(terminateServiceSync).mockResolvedValue({ receipt: {} as any, event: {} as any });
     vi.mocked(createDataSet).mockRejectedValue(new Error("empty variant: SP unreachable"));
 
-    await expect(
-      service.runLifecycleCheck("0xsp", { dealbotLifecycleCheck: "nonce-partial-1" }),
-    ).rejects.toThrow("empty variant: SP unreachable");
+    await expect(service.runLifecycleCheck("0xsp", { dealbotLifecycleCheck: "nonce-partial-1" })).rejects.toThrow(
+      "empty variant: SP unreachable",
+    );
 
     // with-pieces variant still ran and recorded success
     expect(mockMetrics.recordStatus).toHaveBeenCalledWith(
@@ -200,9 +200,9 @@ describe("DataSetLifecycleService", () => {
     vi.mocked(terminateServiceSync).mockResolvedValue({ receipt: {} as any, event: {} as any });
     vi.mocked(uploadPieceStreaming).mockRejectedValue(new Error("with-pieces variant: upload failed"));
 
-    await expect(
-      service.runLifecycleCheck("0xsp", { dealbotLifecycleCheck: "nonce-partial-2" }),
-    ).rejects.toThrow("with-pieces variant: upload failed");
+    await expect(service.runLifecycleCheck("0xsp", { dealbotLifecycleCheck: "nonce-partial-2" })).rejects.toThrow(
+      "with-pieces variant: upload failed",
+    );
 
     // empty variant still ran and recorded success
     expect(mockMetrics.recordStatus).toHaveBeenCalledWith(
@@ -220,9 +220,7 @@ describe("DataSetLifecycleService", () => {
     vi.mocked(createDataSet).mockRejectedValue(new Error("empty failed"));
     vi.mocked(uploadPieceStreaming).mockRejectedValue(new Error("with-pieces failed"));
 
-    const error = await service
-      .runLifecycleCheck("0xsp", { dealbotLifecycleCheck: "nonce-both-fail" })
-      .catch((e) => e);
+    const error = await service.runLifecycleCheck("0xsp", { dealbotLifecycleCheck: "nonce-both-fail" }).catch((e) => e);
 
     expect(error).toBeInstanceOf(AggregateError);
     expect((error as AggregateError).errors).toHaveLength(2);
