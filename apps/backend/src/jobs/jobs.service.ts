@@ -937,10 +937,9 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
   /**
    * Handles one `data_set_lifecycle_check` invocation for a provider.
    *
-   * A coin-flip selects which creation path to exercise each tick — either an empty data
-   * set (createDataSet) or a data set with a canary piece (createDataSetAndAddPieces) —
-   * then immediately terminates it. Covering both paths over time without doubling the
-   * per-tick on-chain transaction cost.
+   * Both creation variants run in parallel every tick: the empty variant (createDataSet)
+   * and the with-pieces variant (createDataSetAndAddPieces). Each immediately terminates
+   * its throwaway data set.
    */
   private async handleDataSetLifecycleCheckJob(job: SpJob): Promise<void> {
     const data = job.data;
@@ -1005,7 +1004,12 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         return "success";
       }
       try {
-        await this.dataSetLifecycleService.runLifecycleCheck(spAddress, metadata, abortController.signal);
+        await this.dataSetLifecycleService.runLifecycleCheck(
+          spAddress,
+          metadata,
+          abortController.signal,
+          dataSetLogContext,
+        );
         return "success";
       } catch (error) {
         if (abortController.signal.aborted) {

@@ -9,12 +9,19 @@ import {
 import { terminateServiceSync } from "@filoz/synapse-core/warm-storage";
 import { Injectable, Logger } from "@nestjs/common";
 import { awaitWithAbort } from "../common/abort-utils.js";
-import { toStructuredError } from "../common/logging.js";
+import { type ProviderJobContext, toStructuredError } from "../common/logging.js";
 import { buildCheckMetricLabels, classifyFailureStatus } from "../metrics-prometheus/check-metric-labels.js";
 import { DataSetLifecycleCheckMetrics } from "../metrics-prometheus/check-metrics.service.js";
 import type { SynapseViemClient } from "../wallet-sdk/wallet-sdk.service.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
 import type { PDPProviderEx } from "../wallet-sdk/wallet-sdk.types.js";
+
+type LifecycleBaseLogContext = {
+  jobId?: string;
+  providerAddress: string;
+  providerId: bigint;
+  providerName: string;
+};
 
 // A fixed 256-byte buffer used as the canary piece for the with-pieces lifecycle check.
 // Small enough to keep upload time and cost minimal; large enough to be a valid PDP piece.
@@ -52,7 +59,12 @@ export class DataSetLifecycleService {
    * identified by the `dealbotLifecycleCheck` metadata key. If creation succeeds but
    * termination fails the set leaks (accepted trade-off); operators can sweep leaks by key.
    */
-  async runLifecycleCheck(spAddress: string, metadata: Record<string, string>, signal?: AbortSignal): Promise<void> {
+  async runLifecycleCheck(
+    spAddress: string,
+    metadata: Record<string, string>,
+    signal?: AbortSignal,
+    jobContext?: ProviderJobContext,
+  ): Promise<void> {
     const providerInfo = this.walletSdkService.getProviderInfo(spAddress);
     if (!providerInfo) {
       throw new Error(`Provider ${spAddress} not found in registry`);
@@ -63,9 +75,16 @@ export class DataSetLifecycleService {
       throw new Error("Synapse client not initialized");
     }
 
+    const baseLogContext: LifecycleBaseLogContext = {
+      jobId: jobContext?.jobId,
+      providerAddress: spAddress,
+      providerId: jobContext?.providerId ?? providerInfo.id,
+      providerName: jobContext?.providerName ?? providerInfo.name,
+    };
+
     const [emptyResult, withPiecesResult] = await Promise.allSettled([
-      this.runEmptyVariant(client, providerInfo, spAddress, metadata, signal),
-      this.runWithPiecesVariant(client, providerInfo, spAddress, metadata, signal),
+      this.runEmptyVariant(client, providerInfo, baseLogContext, metadata, signal),
+      this.runWithPiecesVariant(client, providerInfo, baseLogContext, metadata, signal),
     ]);
 
     const errors = [emptyResult, withPiecesResult]
@@ -79,7 +98,7 @@ export class DataSetLifecycleService {
   private async runEmptyVariant(
     client: SynapseViemClient,
     providerInfo: PDPProviderEx,
-    spAddress: string,
+    baseLogContext: LifecycleBaseLogContext,
     metadata: Record<string, string>,
     signal: AbortSignal | undefined,
   ): Promise<void> {
@@ -89,12 +108,7 @@ export class DataSetLifecycleService {
       providerName: providerInfo.name,
       providerIsApproved: providerInfo.isApproved,
     });
-    const logContext = {
-      providerAddress: spAddress,
-      providerName: providerInfo.name,
-      providerId: providerInfo.id,
-      variant: "empty",
-    };
+    const logContext = { ...baseLogContext, variant: "empty" };
 
     const startedAt = Date.now();
     this.logger.log({
@@ -192,7 +206,7 @@ export class DataSetLifecycleService {
   private async runWithPiecesVariant(
     client: SynapseViemClient,
     providerInfo: PDPProviderEx,
-    spAddress: string,
+    baseLogContext: LifecycleBaseLogContext,
     metadata: Record<string, string>,
     signal: AbortSignal | undefined,
   ): Promise<void> {
@@ -202,12 +216,7 @@ export class DataSetLifecycleService {
       providerName: providerInfo.name,
       providerIsApproved: providerInfo.isApproved,
     });
-    const logContext = {
-      providerAddress: spAddress,
-      providerName: providerInfo.name,
-      providerId: providerInfo.id,
-      variant: "withPieces",
-    };
+    const logContext = { ...baseLogContext, variant: "withPieces" };
 
     const startedAt = Date.now();
     this.logger.log({
