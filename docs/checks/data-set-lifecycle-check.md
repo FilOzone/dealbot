@@ -10,27 +10,27 @@ For event and metric definitions used by the dashboard, see [Dealbot Events & Me
 
 ## Overview
 
-A "data set lifecycle check" tests the full `createDataSet → terminateService` lifecycle for a storage provider. Each tick a coin-flip selects one of two data set creation path variants, then immediately terminates the throwaway data set. Running one variant per tick keeps the per-tick on-chain transaction cost identical to a single-check budget while covering both code paths over time.
+A "data set lifecycle check" tests the `createDataSet → terminateService` lifecycle for a storage provider. Each tick both creation path variants run in parallel, then each immediately terminates its throwaway data set. Running both variants every tick means both SP code paths are exercised on every invocation.
 
-**Empty variant** (50% of ticks): exercises the `createDataSet` path.
+**Empty variant**: exercises the `createDataSet` path.
 1. Creates a new empty data set, tagged with `dealbotLifecycleCheck` metadata
 2. Waits for the SP to confirm the data set on-chain (`dataSetId` returned)
 3. Calls `terminateService` on the created data set and waits for the transaction receipt
 
-**With-pieces variant** (50% of ticks): exercises the `createDataSetAndAddPieces` path.
+**With-pieces variant**: exercises the `createDataSetAndAddPieces` path.
 1. Uploads a small deterministic canary piece to the SP's HTTP storage service
 2. Polls until the SP confirms it has ingested the piece (`findPiece` with retry)
 3. Atomically creates a data set and registers the piece on-chain
 4. Waits for the SP to confirm both data set creation and piece addition
 5. Calls `terminateService` on the created data set and waits for the transaction receipt
 
-A successful check requires all steps of whichever variant runs to complete within the allowed time. Failure occurs if any step fails or the check exceeds `DATA_SET_LIFECYCLE_CHECK_JOB_TIMEOUT_SECONDS`.
+A successful check requires all steps of **both** variants to complete within the allowed time. If either variant fails, the overall job fails. If both variants fail, an `AggregateError` is thrown. Failure occurs if any step fails or the check exceeds `DATA_SET_LIFECYCLE_CHECK_JOB_TIMEOUT_SECONDS`.
 
 The two variants emit metrics under distinct `checkType` labels (`dataSetLifecycleCheck` and `dataSetWithPiecesLifecycleCheck`) so dashboards can track them independently.
 
 ## What Gets Asserted
 
-Each data set lifecycle check asserts the following for every SP. Assertions 1–3 apply to the empty variant; assertions 1′–5′ apply to the with-pieces variant. Both paths share the timeout assertion.
+Each data set lifecycle check asserts the following for every SP. Both variants run every tick in parallel. Assertions 1–3 apply to the empty variant; assertions 1′–5′ apply to the with-pieces variant. Both paths share the timeout assertion.
 
 **Empty variant assertions:**
 
@@ -54,15 +54,15 @@ Each data set lifecycle check asserts the following for every SP. Assertions 1�
 
 ## Data Set Lifecycle Check Lifecycle
 
-The dealbot scheduler triggers data set lifecycle check jobs at a configurable rate. On each tick, a coin-flip (`Math.random() < 0.5`) selects which creation variant to run — never both.
+The dealbot scheduler triggers data set lifecycle check jobs at a configurable rate. On each tick, both creation variants run in parallel via `Promise.allSettled`.
 
 ```mermaid
 flowchart TD
   Start["Job starts"] --> Guard["Apply job guards"]
   Guard -->|disabled| Skip["Log skip and exit"]
-  Guard -->|enabled| CoinFlip{"coin-flip\nMath.random()"}
+  Guard -->|enabled| Parallel["Run both variants in parallel\nPromise.allSettled"]
 
-  CoinFlip -->|"< 0.5 (empty variant)"| CreateDataSet["createDataSet"]
+  Parallel --> CreateDataSet["createDataSet\n(empty variant)"]
   CreateDataSet --> WaitEmpty["waitForCreateDataSet"]
   WaitEmpty -->|dataSetId confirmed| TerminateE["terminateServiceSync"]
   TerminateE -->|tx receipt received| SuccessE["Record success\n(dataSetLifecycleCheck)"]
@@ -70,7 +70,7 @@ flowchart TD
   WaitEmpty -->|error| FailE
   CreateDataSet -->|error| FailE
 
-  CoinFlip -->|">= 0.5 (with-pieces variant)"| Upload["uploadPieceStreaming"]
+  Parallel --> Upload["uploadPieceStreaming\n(with-pieces variant)"]
   Upload --> FindPiece["findPiece (retry)"]
   FindPiece --> CreateWithPieces["createDataSetAndAddPieces"]
   CreateWithPieces --> WaitPieces["waitForCreateDataSetAddPieces"]
@@ -81,15 +81,19 @@ flowchart TD
   CreateWithPieces -->|error| FailW
   FindPiece -->|error| FailW
   Upload -->|error| FailW
+
+  SuccessE & FailE & SuccessW & FailW --> Settle["Collect results"]
+  Settle -->|any variant rejected| JobFail["Throw error / AggregateError\n(job marked failed)"]
+  Settle -->|both variants succeeded| JobSuccess["Job succeeds"]
 ```
 
 ### 1. Apply job guards
 
 Dealbot applies the same maintenance-window and SP-blocklist rules used by all other SP jobs. If `DATASET_LIFECYCLE_CHECK_ENABLED` is `false`, the job logs a disabled skip and exits.
 
-### 2. Select variant (coin-flip)
+### 2. Run both variants in parallel
 
-`Math.random() < 0.5` → empty variant; `>= 0.5` → with-pieces variant. Exactly one variant runs per tick. See [Why two variants?](#why-two-variants) for the rationale.
+Both the empty variant and the with-pieces variant are started concurrently via `Promise.allSettled`. Each variant runs to completion independently and records its own metrics. After both settle, any rejections are collected: if one variant failed the original error is re-thrown; if both failed an `AggregateError` is thrown. This ensures check dependency outages are never swallowed as success. See [Why two variants?](#why-two-variants) for the rationale.
 
 Source: [`data-set-lifecycle.service.ts` (`runLifecycleCheck`)](../../apps/backend/src/data-set-lifecycle/data-set-lifecycle.service.ts)
 
@@ -168,8 +172,8 @@ Key environment variables that control data set lifecycle check behavior:
 | Variable | Description |
 |----------|-------------|
 | `DATASET_LIFECYCLE_CHECK_ENABLED` | Enables or disables both variants of the check. Defaults to `true` on calibration, `false` on mainnet. When disabled, stale schedules are removed so they stop enqueuing no-op jobs. |
-| `DATASET_LIFECYCLE_CHECKS_PER_SP_PER_HOUR` | Per-SP check rate. Each tick runs one variant (coin-flip). Independent of `DATASET_CREATIONS_PER_SP_PER_HOUR`. |
-| `DATA_SET_LIFECYCLE_CHECK_JOB_TIMEOUT_SECONDS` | Max end-to-end job runtime before forced abort. Applies to whichever variant runs per tick. Default `600`. |
+| `DATASET_LIFECYCLE_CHECKS_PER_SP_PER_HOUR` | Per-SP check rate. Each tick runs both variants in parallel. Independent of `DATASET_CREATIONS_PER_SP_PER_HOUR`. |
+| `DATA_SET_LIFECYCLE_CHECK_JOB_TIMEOUT_SECONDS` | Max end-to-end job runtime before forced abort. Both variants run in parallel within this budget. Default `600`. |
 
 Source: [`apps/backend/src/config/app.config.ts`](../../apps/backend/src/config/app.config.ts)
 
@@ -191,7 +195,7 @@ See also: [`docs/environment-variables.md`](../environment-variables.md) for the
 
 The data storage check (`data_set_creation` job) uses `createDataSetAndAddPieces` internally when creating a new data set with a piece. A canary that only exercises `createDataSet` would leave `createDataSetAndAddPieces` untested by the lifecycle check.
 
-Running both variants in the same tick would double the per-tick on-chain transaction cost — two `createDataSet`/`terminateService` round trips instead of one. The coin-flip approach avoids this: exactly one variant runs per tick, keeping cost identical to the previous single-check budget. Both paths are covered in expectation over two ticks.
+Both variants run on every tick. It ensures both SP code paths are exercised on every invocation rather than in expectation over two ticks. The `Promise.allSettled` approach also ensures that a failure in one variant is never hidden by success in the other.
 
 The empty variant exercises the `createDataSet → waitForCreateDataSet → terminateService` path. The with-pieces variant exercises `uploadPieceStreaming → findPiece → createDataSetAndAddPieces → waitForCreateDataSetAddPieces → terminateService`. The two `checkType` label values (`dataSetLifecycleCheck` and `dataSetWithPiecesLifecycleCheck`) let Grafana track them as independent time series.
 

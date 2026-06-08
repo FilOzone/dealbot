@@ -34,19 +34,19 @@ export class DataSetLifecycleService {
   /**
    * Run one data-set lifecycle check for a provider.
    *
-   * A coin-flip selects which creation path to exercise each tick:
+   * Both creation paths run in parallel every tick:
    *
-   *   empty variant (50%):
+   *   empty variant:
    *     createDataSet → waitForCreateDataSet → terminateServiceSync
    *
-   *   with-pieces variant (50%):
+   *   with-pieces variant:
    *     uploadPieceStreaming → findPiece →
    *     createDataSetAndAddPieces → waitForCreateDataSetAddPieces → terminateServiceSync
    *
-   * Running one variant per tick rather than both keeps the per-tick on-chain transaction
-   * cost identical to the current single-check budget while covering both code paths over
-   * time. Each variant emits metrics under a distinct `checkType` label so dashboards can
-   * track them independently.
+   * Each variant emits metrics under a distinct `checkType` label so dashboards can
+   * track them independently. Promise.allSettled lets both variants always run to
+   * completion and record their own metrics. Any rejection is re-thrown so that check
+   * dependency outages are never swallowed as success.
    *
    * Never touches managed check data sets and creates no Deal rows. Throwaway sets are
    * identified by the `dealbotLifecycleCheck` metadata key. If creation succeeds but
@@ -63,11 +63,17 @@ export class DataSetLifecycleService {
       throw new Error("Synapse client not initialized");
     }
 
-    if (Math.random() < 0.5) {
-      await this.runEmptyVariant(client, providerInfo, spAddress, metadata, signal);
-    } else {
-      await this.runWithPiecesVariant(client, providerInfo, spAddress, metadata, signal);
-    }
+    const [emptyResult, withPiecesResult] = await Promise.allSettled([
+      this.runEmptyVariant(client, providerInfo, spAddress, metadata, signal),
+      this.runWithPiecesVariant(client, providerInfo, spAddress, metadata, signal),
+    ]);
+
+    const errors = [emptyResult, withPiecesResult]
+      .filter((r): r is PromiseRejectedResult => r.status === "rejected")
+      .map((r) => r.reason);
+
+    if (errors.length === 1) throw errors[0];
+    if (errors.length > 1) throw new AggregateError(errors, "One or more lifecycle check variants failed");
   }
 
   private async runEmptyVariant(

@@ -100,7 +100,7 @@ sequenceDiagram
 * They are exported via Prometheus.
 * All Prometheus/OpenTelemetry metrics have label/attributes for:
    - `network=calibration|mainnet`
-   - `checkType=dataStorage|retrieval|dataRetention|dataSetCreation|dataSetLifecycleCheck|pullCheck` — attribute metrics to a particular check/job
+   - `checkType=dataStorage|retrieval|dataRetention|dataSetCreation|dataSetLifecycleCheck|dataSetWithPiecesLifecycleCheck|pullCheck` — attribute metrics to a particular check/job
    - `providerId` — attribute metrics to a particular SP
    - `providerName` — human-readable name of the SP (defaults to `"unknown"` when not available)
    - `providerStatus=approved|unapproved` — attribute metrics to only approved SPs for example

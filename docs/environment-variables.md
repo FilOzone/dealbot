@@ -682,7 +682,7 @@ rate-based (per hour) and persisted in Postgres so restarts do not reset timing.
 - **Required**: No
 - **Default**: `true` on calibration, `false` on mainnet
 
-**Role**: Enables the `data_set_lifecycle_check` canary job. Each tick a coin-flip selects one of two creation variants: the **empty variant** (`createDataSet → terminateService`) or the **with-pieces variant** (`uploadPieceStreaming → findPiece → createDataSetAndAddPieces → terminateService`). Both paths immediately terminate their throwaway data set, covering both SP code paths over time without doubling the per-tick on-chain cost.
+**Role**: Enables the `data_set_lifecycle_check` canary job. Each tick both creation variants run in parallel: the **empty variant** (`createDataSet → terminateService`) and the **with-pieces variant** (`uploadPieceStreaming → findPiece → createDataSetAndAddPieces → terminateService`). Both paths immediately terminate their throwaway data set. If either variant fails the job fails — dependency outages are not swallowed as success.
 
 **Notes**: Self-contained — it does not touch the managed check data sets and does not depend on `data_set_creation`. When disabled, stale schedules are removed so they stop enqueuing no-op jobs.
 
@@ -696,7 +696,7 @@ rate-based (per hour) and persisted in Postgres so restarts do not reset timing.
 - **Required**: No
 - **Default**: `1`
 
-**Role**: Target lifecycle check rate per storage provider for the `data_set_lifecycle_check` canary. Each tick runs one variant (empty or with-pieces, selected by coin-flip) and terminates its throwaway data set.
+**Role**: Target lifecycle check rate per storage provider for the `data_set_lifecycle_check` canary. Each tick runs both variants (empty and with-pieces) in parallel and terminates each throwaway data set.
 
 **Limits**: Config schema caps this at 20.
 
@@ -846,11 +846,11 @@ Use this to stagger multiple dealbot deployments that are not sharing a database
 - **Minimum**: `60` (1 minute)
 - **Enforced**: Yes (config validation, effective floor applied at runtime)
 
-**Role**: Maximum runtime for `data_set_lifecycle_check` jobs before forced abort via `AbortController`. Applies to whichever variant runs per tick — bounds all steps from creation start through `terminateServiceSync` receipt.
+**Role**: Maximum runtime for `data_set_lifecycle_check` jobs before forced abort via `AbortController`. Both variants run in parallel within this budget — the timeout bounds the wall-clock time from job start until both variants have settled (or been aborted).
 
 **When to update**:
 
-- Increase if the with-pieces variant (`uploadPieceStreaming` + `findPiece` + `createDataSetAndAddPieces` + `terminateServiceSync`) consistently times out on slow networks, since it has more steps than the empty variant.
+- Increase if the with-pieces variant (`uploadPieceStreaming` + `findPiece` + `createDataSetAndAddPieces` + `terminateServiceSync`) consistently times out on slow networks, since it has more steps than the empty variant and will typically be the critical path.
 - Decrease for faster fail-fast behavior during testing.
 
 **Note**: If the configured value is below 60 seconds, the runtime silently raises it to 60 seconds as an effective floor. An abort due to this timeout (or an internal poll timeout) is recorded as `dataSetLifecycleCheckStatus{value="failure.timedout"}` (empty variant) or `dataSetWithPiecesLifecycleCheckStatus{value="failure.timedout"}` (with-pieces variant) and retried on the next scheduled tick.
