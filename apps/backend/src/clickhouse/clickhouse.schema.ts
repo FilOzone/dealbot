@@ -102,6 +102,17 @@ export function buildMigrations(database: string): string[] {
   PARTITION BY toStartOfMonth(timestamp)
   TTL toDateTime(timestamp) + INTERVAL 1 YEAR`,
 
+    // These are the flattened subcolumns of a Nested(...) column; added flattened
+    // rather than as `ADD COLUMN retrieval_checks Nested(...)` so IF NOT EXISTS stays idempotent on
+    // replay. The bare nested name may not exist as a column, the dotted subcolumns certainly do.
+    `ALTER TABLE ${database}.data_storage_checks
+        ADD COLUMN IF NOT EXISTS \`retrieval_checks.method\`             Array(LowCardinality(String)),
+        ADD COLUMN IF NOT EXISTS \`retrieval_checks.status\`             Array(LowCardinality(String)),
+        ADD COLUMN IF NOT EXISTS \`retrieval_checks.http_response_code\` Array(Nullable(UInt16)),
+        ADD COLUMN IF NOT EXISTS \`retrieval_checks.first_byte_ms\`      Array(Nullable(Float64)),
+        ADD COLUMN IF NOT EXISTS \`retrieval_checks.last_byte_ms\`       Array(Nullable(Float64)),
+        ADD COLUMN IF NOT EXISTS \`retrieval_checks.bytes_retrieved\`    Array(Nullable(UInt64))`,
+
     `CREATE TABLE IF NOT EXISTS ${database}.anon_retrieval_checks
 (
     timestamp                  DateTime64(3, 'UTC'),              -- when the check completed

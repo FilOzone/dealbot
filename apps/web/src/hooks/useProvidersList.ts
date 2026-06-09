@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { fetchProvidersList } from "@/api/client";
+import useSWR from "swr";
+import { apiPaths, fetcher } from "@/api/client";
 import type { ProvidersListResponseWithoutMetrics } from "@/types/providers";
 
 interface UseProvidersListReturn {
@@ -9,46 +9,32 @@ interface UseProvidersListReturn {
 }
 
 export function useProvidersList(offset = 0, limit = 20): UseProvidersListReturn {
-  const [providers, setProviders] = useState<ProvidersListResponseWithoutMetrics>({
+  const { data, error, isLoading } = useSWR(
+    apiPaths.providers({ offset, limit }),
+    fetcher<ProvidersListResponseWithoutMetrics>,
+    {
+      revalidateOnFocus: false,
+      revalidateOnReconnect: false,
+      refreshInterval: 20 * 60 * 1000,
+    },
+  );
+
+  const emptyProviders: ProvidersListResponseWithoutMetrics = {
     providers: [],
     count: 0,
-    limit: 20,
-    offset: 0,
+    limit,
+    offset,
     total: 0,
-  });
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  };
 
-  useEffect(() => {
-    let isMounted = true;
+  return {
+    providers: data ?? emptyProviders,
+    loading: isLoading,
+    error: toErrorMessage(error, "Failed to fetch providers list"),
+  };
+}
 
-    const loadProviders = async () => {
-      try {
-        setLoading(true);
-        setError(null);
-        const data = await fetchProvidersList({ offset, limit });
-
-        if (isMounted) {
-          setProviders(data);
-        }
-      } catch (err) {
-        if (isMounted) {
-          setError(err instanceof Error ? err.message : "Failed to fetch providers list");
-          console.error("Error fetching providers list:", err);
-        }
-      } finally {
-        if (isMounted) {
-          setLoading(false);
-        }
-      }
-    };
-
-    loadProviders();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [offset, limit]);
-
-  return { providers, loading, error };
+function toErrorMessage(error: unknown, fallback: string): string | null {
+  if (!error) return null;
+  return error instanceof Error ? error.message : fallback;
 }
