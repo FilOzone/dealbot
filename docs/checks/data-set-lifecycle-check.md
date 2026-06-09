@@ -60,31 +60,13 @@ flowchart TD
   Guard -->|disabled| Skip["Log skip and exit"]
   Guard -->|enabled| Parallel["Run both variants in parallel\nPromise.allSettled"]
 
-  Parallel --> CreateDataSet["createDataSet\n(empty variant)"]
-  CreateDataSet --> WaitEmpty["waitForCreateDataSet"]
-  WaitEmpty -->|dataSetId confirmed| TerminateE["terminateServiceSync"]
-  TerminateE -->|tx receipt received| OkE["settled: fulfilled"]
-  TerminateE -->|error| ErrE["settled: rejected"]
-  WaitEmpty -->|error| ErrE
-  CreateDataSet -->|error| ErrE
+  Parallel --> Empty["createDataSet\nwaitForCreateDataSet\n(empty variant)"]
+  Parallel --> Pieces["uploadPieceStreaming → findPiece\ncreateDataSetAndAddPieces\nwaitForCreateDataSetAddPieces\n(with-pieces variant)"]
 
-  Parallel --> Upload["uploadPieceStreaming\n(with-pieces variant)"]
-  Upload --> FindPiece["findPiece (retry)"]
-  FindPiece --> CreateWithPieces["createDataSetAndAddPieces"]
-  CreateWithPieces --> WaitPieces["waitForCreateDataSetAddPieces"]
-  WaitPieces -->|dataSetId + piecesIds confirmed| TerminateW["terminateServiceSync"]
-  TerminateW -->|tx receipt received| OkW["settled: fulfilled"]
-  TerminateW -->|error| ErrW["settled: rejected"]
-  WaitPieces -->|error| ErrW
-  CreateWithPieces -->|error| ErrW
-  FindPiece -->|error| ErrW
-  Upload -->|error| ErrW
+  Empty & Pieces --> Terminate["terminateServiceSync\n(both variants)"]
 
-  OkE & ErrE & OkW & ErrW --> Settle["Collect results"]
-  Settle -->|both fulfilled| RecordSuccess["Record success\n(dataSetLifecycleCheck)"]
-  RecordSuccess --> JobSuccess["Job succeeds"]
-  Settle -->|any rejected| RecordFail["Record failure\n(dataSetLifecycleCheck)"]
-  RecordFail --> JobFail["Throw error / AggregateError\n(job marked failed)"]
+  Terminate -->|both fulfilled| JobSuccess["Record success\nJob succeeds"]
+  Terminate -->|any rejected| JobFail["Record failure\nThrow error / AggregateError"]
 ```
 
 ### 1. Apply job guards
