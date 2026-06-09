@@ -7,6 +7,7 @@ import {
   DATA_RETENTION_POLL_QUEUE,
   PROVIDERS_REFRESH_QUEUE,
   PULL_PIECE_CLEANUP_QUEUE,
+  RETRIEVAL_ANON_QUEUE,
   SP_WORK_QUEUE,
 } from "../job-queues.js";
 
@@ -211,6 +212,7 @@ export class JobScheduleRepository {
           WHEN name = $3 THEN 'data_retention_poll'
           WHEN name = $4 THEN 'providers_refresh'
           WHEN name = $5 THEN 'pull_piece_cleanup'
+          WHEN name = $6 THEN 'retrieval_anon'
           ELSE name
         END AS job_type,
         state::text AS state,
@@ -219,7 +221,14 @@ export class JobScheduleRepository {
       WHERE state::text = ANY($1::text[])
       GROUP BY 1, 2
       `,
-      [states, SP_WORK_QUEUE, DATA_RETENTION_POLL_QUEUE, PROVIDERS_REFRESH_QUEUE, PULL_PIECE_CLEANUP_QUEUE],
+      [
+        states,
+        SP_WORK_QUEUE,
+        DATA_RETENTION_POLL_QUEUE,
+        PROVIDERS_REFRESH_QUEUE,
+        PULL_PIECE_CLEANUP_QUEUE,
+        RETRIEVAL_ANON_QUEUE,
+      ],
     );
   }
 
@@ -239,6 +248,7 @@ export class JobScheduleRepository {
           WHEN name = $4 THEN 'data_retention_poll'
           WHEN name = $5 THEN 'providers_refresh'
           WHEN name = $6 THEN 'pull_piece_cleanup'
+          WHEN name = $7 THEN 'retrieval_anon'
           ELSE name
         END AS job_type,
         MIN(
@@ -255,7 +265,15 @@ export class JobScheduleRepository {
       WHERE state::text = $2
       GROUP BY 1
       `,
-      [now, state, SP_WORK_QUEUE, DATA_RETENTION_POLL_QUEUE, PROVIDERS_REFRESH_QUEUE, PULL_PIECE_CLEANUP_QUEUE],
+      [
+        now,
+        state,
+        SP_WORK_QUEUE,
+        DATA_RETENTION_POLL_QUEUE,
+        PROVIDERS_REFRESH_QUEUE,
+        PULL_PIECE_CLEANUP_QUEUE,
+        RETRIEVAL_ANON_QUEUE,
+      ],
     );
   }
 }
