@@ -500,8 +500,8 @@ export function loadConfig(): IConfig {
       dataSetLifecycleCheckEnabled: (() => {
         const raw = process.env.DATASET_LIFECYCLE_CHECK_ENABLED;
         if (raw == null || raw.trim().length === 0) {
-          // Default: enabled on calibration, disabled on mainnet.
-          return (process.env.NETWORK || "calibration") === "calibration";
+          // Default: disabled on mainnet, enabled everywhere else.
+          return (process.env.NETWORK || "calibration") !== "mainnet";
         }
         return raw === "true";
       })(),

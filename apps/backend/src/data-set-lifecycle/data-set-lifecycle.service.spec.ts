@@ -140,14 +140,12 @@ describe("DataSetLifecycleService", () => {
     expect(terminateServiceSync).toHaveBeenCalledWith(mockClient, expect.objectContaining({ dataSetId: 42n }));
     expect(terminateServiceSync).toHaveBeenCalledWith(mockClient, expect.objectContaining({ dataSetId: 77n }));
 
+    expect(mockMetrics.recordStatus).toHaveBeenCalledOnce();
     expect(mockMetrics.recordStatus).toHaveBeenCalledWith(
       expect.objectContaining({ checkType: "dataSetLifecycleCheck" }),
       "success",
     );
-    expect(mockMetrics.recordStatus).toHaveBeenCalledWith(
-      expect.objectContaining({ checkType: "dataSetWithPiecesLifecycleCheck" }),
-      "success",
-    );
+    expect(mockMetrics.observeCheckDuration).toHaveBeenCalledOnce();
   });
 
   // ─── Abort before any work ─────────────────────────────────────────────────
@@ -162,12 +160,9 @@ describe("DataSetLifecycleService", () => {
 
     expect(createDataSet).not.toHaveBeenCalled();
     expect(uploadPieceStreaming).not.toHaveBeenCalled();
+    expect(mockMetrics.recordStatus).toHaveBeenCalledOnce();
     expect(mockMetrics.recordStatus).toHaveBeenCalledWith(
       expect.objectContaining({ checkType: "dataSetLifecycleCheck" }),
-      "failure.timedout",
-    );
-    expect(mockMetrics.recordStatus).toHaveBeenCalledWith(
-      expect.objectContaining({ checkType: "dataSetWithPiecesLifecycleCheck" }),
       "failure.timedout",
     );
   });
@@ -183,12 +178,7 @@ describe("DataSetLifecycleService", () => {
       "empty variant: SP unreachable",
     );
 
-    // with-pieces variant still ran and recorded success
-    expect(mockMetrics.recordStatus).toHaveBeenCalledWith(
-      expect.objectContaining({ checkType: "dataSetWithPiecesLifecycleCheck" }),
-      "success",
-    );
-    // empty variant recorded its failure
+    expect(mockMetrics.recordStatus).toHaveBeenCalledOnce();
     expect(mockMetrics.recordStatus).toHaveBeenCalledWith(
       expect.objectContaining({ checkType: "dataSetLifecycleCheck" }),
       "failure.other",
@@ -204,14 +194,9 @@ describe("DataSetLifecycleService", () => {
       "with-pieces variant: upload failed",
     );
 
-    // empty variant still ran and recorded success
+    expect(mockMetrics.recordStatus).toHaveBeenCalledOnce();
     expect(mockMetrics.recordStatus).toHaveBeenCalledWith(
       expect.objectContaining({ checkType: "dataSetLifecycleCheck" }),
-      "success",
-    );
-    // with-pieces variant recorded its failure
-    expect(mockMetrics.recordStatus).toHaveBeenCalledWith(
-      expect.objectContaining({ checkType: "dataSetWithPiecesLifecycleCheck" }),
       "failure.other",
     );
   });
@@ -224,12 +209,9 @@ describe("DataSetLifecycleService", () => {
 
     expect(error).toBeInstanceOf(AggregateError);
     expect((error as AggregateError).errors).toHaveLength(2);
+    expect(mockMetrics.recordStatus).toHaveBeenCalledOnce();
     expect(mockMetrics.recordStatus).toHaveBeenCalledWith(
       expect.objectContaining({ checkType: "dataSetLifecycleCheck" }),
-      "failure.other",
-    );
-    expect(mockMetrics.recordStatus).toHaveBeenCalledWith(
-      expect.objectContaining({ checkType: "dataSetWithPiecesLifecycleCheck" }),
       "failure.other",
     );
   });
@@ -246,6 +228,7 @@ describe("DataSetLifecycleService", () => {
     );
 
     expect(terminateServiceSync).toHaveBeenCalledOnce(); // only with-pieces succeeded
+    expect(mockMetrics.recordStatus).toHaveBeenCalledOnce();
     expect(mockMetrics.recordStatus).toHaveBeenCalledWith(
       expect.objectContaining({ checkType: "dataSetLifecycleCheck" }),
       "failure.other",
@@ -262,13 +245,10 @@ describe("DataSetLifecycleService", () => {
       "terminate failed",
     );
 
+    expect(mockMetrics.recordStatus).toHaveBeenCalledOnce();
     expect(mockMetrics.recordStatus).toHaveBeenCalledWith(
       expect.objectContaining({ checkType: "dataSetLifecycleCheck" }),
       "failure.other",
-    );
-    expect(mockMetrics.recordStatus).toHaveBeenCalledWith(
-      expect.objectContaining({ checkType: "dataSetWithPiecesLifecycleCheck" }),
-      "success",
     );
   });
 
@@ -283,13 +263,10 @@ describe("DataSetLifecycleService", () => {
     );
 
     expect(createDataSetAndAddPieces).not.toHaveBeenCalled();
-    expect(mockMetrics.recordStatus).toHaveBeenCalledWith(
-      expect.objectContaining({ checkType: "dataSetWithPiecesLifecycleCheck" }),
-      "failure.other",
-    );
+    expect(mockMetrics.recordStatus).toHaveBeenCalledOnce();
     expect(mockMetrics.recordStatus).toHaveBeenCalledWith(
       expect.objectContaining({ checkType: "dataSetLifecycleCheck" }),
-      "success",
+      "failure.other",
     );
   });
 
@@ -305,13 +282,10 @@ describe("DataSetLifecycleService", () => {
     );
 
     expect(waitForCreateDataSetAddPieces).not.toHaveBeenCalled();
-    expect(mockMetrics.recordStatus).toHaveBeenCalledWith(
-      expect.objectContaining({ checkType: "dataSetWithPiecesLifecycleCheck" }),
-      "failure.other",
-    );
+    expect(mockMetrics.recordStatus).toHaveBeenCalledOnce();
     expect(mockMetrics.recordStatus).toHaveBeenCalledWith(
       expect.objectContaining({ checkType: "dataSetLifecycleCheck" }),
-      "success",
+      "failure.other",
     );
   });
 
@@ -325,13 +299,10 @@ describe("DataSetLifecycleService", () => {
       "terminate failed",
     );
 
-    expect(mockMetrics.recordStatus).toHaveBeenCalledWith(
-      expect.objectContaining({ checkType: "dataSetWithPiecesLifecycleCheck" }),
-      "failure.other",
-    );
+    expect(mockMetrics.recordStatus).toHaveBeenCalledOnce();
     expect(mockMetrics.recordStatus).toHaveBeenCalledWith(
       expect.objectContaining({ checkType: "dataSetLifecycleCheck" }),
-      "success",
+      "failure.other",
     );
   });
 

@@ -23,12 +23,6 @@ type LifecycleBaseLogContext = {
   providerName: string;
 };
 
-// A fixed 256-byte buffer used as the canary piece for the with-pieces lifecycle check.
-// Small enough to keep upload time and cost minimal; large enough to be a valid PDP piece.
-// The data is deterministic so a leaked data set can always be identified by its fixed
-// piece CID alongside the `dealbotLifecycleCheck` metadata key.
-const CANARY_PIECE_DATA = new Uint8Array(256).fill(0x61);
-
 @Injectable()
 export class DataSetLifecycleService {
   private readonly logger = new Logger(DataSetLifecycleService.name);
@@ -49,11 +43,6 @@ export class DataSetLifecycleService {
    *   with-pieces variant:
    *     uploadPieceStreaming → findPiece →
    *     createDataSetAndAddPieces → waitForCreateDataSetAddPieces → terminateServiceSync
-   *
-   * Each variant emits metrics under a distinct `checkType` label so dashboards can
-   * track them independently. Promise.allSettled lets both variants always run to
-   * completion and record their own metrics. Any rejection is re-thrown so that check
-   * dependency outages are never swallowed as success.
    *
    * Never touches managed check data sets and creates no Deal rows. Throwaway sets are
    * identified by the `dealbotLifecycleCheck` metadata key. If creation succeeds but
@@ -82,6 +71,15 @@ export class DataSetLifecycleService {
       providerName: jobContext?.providerName ?? providerInfo.name,
     };
 
+    const labels = buildCheckMetricLabels({
+      checkType: "dataSetLifecycleCheck",
+      providerId: providerInfo.id,
+      providerName: providerInfo.name,
+      providerIsApproved: providerInfo.isApproved,
+    });
+
+    const startedAt = Date.now();
+
     const [emptyResult, withPiecesResult] = await Promise.allSettled([
       this.runEmptyVariant(client, providerInfo, baseLogContext, metadata, signal),
       this.runWithPiecesVariant(client, providerInfo, baseLogContext, metadata, signal),
@@ -91,8 +89,20 @@ export class DataSetLifecycleService {
       .filter((r): r is PromiseRejectedResult => r.status === "rejected")
       .map((r) => r.reason);
 
-    if (errors.length === 1) throw errors[0];
-    if (errors.length > 1) throw new AggregateError(errors, "One or more lifecycle check variants failed");
+    const durationMs = Date.now() - startedAt;
+
+    if (errors.length === 0) {
+      this.lifecycleCheckMetrics.observeCheckDuration(labels, durationMs);
+      this.lifecycleCheckMetrics.recordStatus(labels, "success");
+    } else {
+      const status = signal?.aborted ? "failure.timedout" : classifyFailureStatus(errors[0]);
+      if (status === "failure.timedout") {
+        this.lifecycleCheckMetrics.observeCheckDuration(labels, durationMs);
+      }
+      this.lifecycleCheckMetrics.recordStatus(labels, status);
+      if (errors.length === 1) throw errors[0];
+      throw new AggregateError(errors, "One or more lifecycle check variants failed");
+    }
   }
 
   private async runEmptyVariant(
@@ -102,12 +112,6 @@ export class DataSetLifecycleService {
     metadata: Record<string, string>,
     signal: AbortSignal | undefined,
   ): Promise<void> {
-    const labels = buildCheckMetricLabels({
-      checkType: "dataSetLifecycleCheck",
-      providerId: providerInfo.id,
-      providerName: providerInfo.name,
-      providerIsApproved: providerInfo.isApproved,
-    });
     const logContext = { ...baseLogContext, variant: "empty" };
 
     const startedAt = Date.now();
@@ -170,9 +174,6 @@ export class DataSetLifecycleService {
       );
 
       const durationMs = Date.now() - startedAt;
-      this.lifecycleCheckMetrics.observeCheckDuration(labels, durationMs);
-      this.lifecycleCheckMetrics.recordStatus(labels, "success");
-
       this.logger.log({
         event: "dataset_lifecycle_check_succeeded",
         message: "Data-set lifecycle check completed (empty variant)",
@@ -183,10 +184,6 @@ export class DataSetLifecycleService {
     } catch (error) {
       const durationMs = Date.now() - startedAt;
       const status = signal?.aborted ? "failure.timedout" : classifyFailureStatus(error);
-      if (status === "failure.timedout") {
-        this.lifecycleCheckMetrics.observeCheckDuration(labels, durationMs);
-      }
-      this.lifecycleCheckMetrics.recordStatus(labels, status);
       this.logger.error({
         event: "dataset_lifecycle_check_failed",
         message:
@@ -210,12 +207,6 @@ export class DataSetLifecycleService {
     metadata: Record<string, string>,
     signal: AbortSignal | undefined,
   ): Promise<void> {
-    const labels = buildCheckMetricLabels({
-      checkType: "dataSetWithPiecesLifecycleCheck",
-      providerId: providerInfo.id,
-      providerName: providerInfo.name,
-      providerIsApproved: providerInfo.isApproved,
-    });
     const logContext = { ...baseLogContext, variant: "withPieces" };
 
     const startedAt = Date.now();
@@ -230,10 +221,13 @@ export class DataSetLifecycleService {
       signal?.throwIfAborted();
 
       // 1. Upload the canary piece to the SP's HTTP storage service.
+      //    Random bytes per call prevent SP-side piece caching from masking storage failures.
+      const canaryPiece = new Uint8Array(256);
+      crypto.getRandomValues(canaryPiece);
       const { pieceCid } = await awaitWithAbort(
         uploadPieceStreaming({
           serviceURL: providerInfo.pdp.serviceURL,
-          data: CANARY_PIECE_DATA,
+          data: canaryPiece,
           signal,
         }),
         signal,
@@ -316,9 +310,6 @@ export class DataSetLifecycleService {
       );
 
       const durationMs = Date.now() - startedAt;
-      this.lifecycleCheckMetrics.observeCheckDuration(labels, durationMs);
-      this.lifecycleCheckMetrics.recordStatus(labels, "success");
-
       this.logger.log({
         event: "dataset_with_pieces_lifecycle_check_succeeded",
         message: "Data-set lifecycle check completed (with-pieces variant)",
@@ -329,10 +320,6 @@ export class DataSetLifecycleService {
     } catch (error) {
       const durationMs = Date.now() - startedAt;
       const status = signal?.aborted ? "failure.timedout" : classifyFailureStatus(error);
-      if (status === "failure.timedout") {
-        this.lifecycleCheckMetrics.observeCheckDuration(labels, durationMs);
-      }
-      this.lifecycleCheckMetrics.recordStatus(labels, status);
       this.logger.error({
         event: "dataset_with_pieces_lifecycle_check_failed",
         message:

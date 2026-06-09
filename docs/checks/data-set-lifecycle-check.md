@@ -10,7 +10,7 @@ For event and metric definitions used by the dashboard, see [Dealbot Events & Me
 
 ## Overview
 
-A "data set lifecycle check" tests the `createDataSet → terminateService` lifecycle for a storage provider. Each tick both creation path variants run in parallel, then each immediately terminates its throwaway data set. Running both variants every tick means both SP code paths are exercised on every invocation.
+A "data set lifecycle check" tests the `createDataSet|createDataSetAndAddPieces → terminateService` lifecycle for a storage provider. Each tick _both_ creation path variants run in parallel, then each immediately terminates its throwaway data set.
 
 **Empty variant**: exercises the `createDataSet` path.
 1. Creates a new empty data set, tagged with `dealbotLifecycleCheck` metadata
@@ -18,7 +18,7 @@ A "data set lifecycle check" tests the `createDataSet → terminateService` life
 3. Calls `terminateService` on the created data set and waits for the transaction receipt
 
 **With-pieces variant**: exercises the `createDataSetAndAddPieces` path.
-1. Uploads a small deterministic canary piece to the SP's HTTP storage service
+1. Uploads a small random 256-byte canary piece to the SP's HTTP storage service
 2. Polls until the SP confirms it has ingested the piece (`findPiece` with retry)
 3. Atomically creates a data set and registers the piece on-chain
 4. Waits for the SP to confirm both data set creation and piece addition
@@ -26,11 +26,9 @@ A "data set lifecycle check" tests the `createDataSet → terminateService` life
 
 A successful check requires all steps of **both** variants to complete within the allowed time. If either variant fails, the overall job fails. If both variants fail, an `AggregateError` is thrown. Failure occurs if any step fails or the check exceeds `DATA_SET_LIFECYCLE_CHECK_JOB_TIMEOUT_SECONDS`.
 
-The two variants emit metrics under distinct `checkType` labels (`dataSetLifecycleCheck` and `dataSetWithPiecesLifecycleCheck`) so dashboards can track them independently.
+Both variants share a single `checkType` label (`dataSetLifecycleCheck`). One combined metric is emitted per tick: `success` only when both variants pass, `failure` when either fails.
 
 ## What Gets Asserted
-
-Each data set lifecycle check asserts the following for every SP. Both variants run every tick in parallel. Assertions 1–3 apply to the empty variant; assertions 1′–5′ apply to the with-pieces variant. Both paths share the timeout assertion.
 
 **Empty variant assertions:**
 
@@ -45,12 +43,12 @@ Each data set lifecycle check asserts the following for every SP. Both variants 
 
 | # | Assertion | How It's Checked | Relevant Metric |
 |---|-----------|-----------------|-----------------|
-| 1′ | SP accepts the canary piece upload | `uploadPieceStreaming` completes and returns a `pieceCid` | [`dataSetWithPiecesLifecycleCheckStatus`](./events-and-metrics.md#dataSetWithPiecesLifecycleCheckStatus) |
-| 2′ | SP confirms piece ingestion | `findPiece` (with retry) resolves, confirming the SP has the data before the on-chain call | [`dataSetWithPiecesLifecycleCheckStatus`](./events-and-metrics.md#dataSetWithPiecesLifecycleCheckStatus) |
-| 3′ | SP accepts atomic data set + piece creation | `createDataSetAndAddPieces` call completes and the SP returns a `statusUrl` | [`dataSetWithPiecesLifecycleCheckStatus`](./events-and-metrics.md#dataSetWithPiecesLifecycleCheckStatus) |
-| 4′ | Data set and piece are confirmed on-chain | `waitForCreateDataSetAddPieces` resolves with a `dataSetId` and `piecesIds` | [`dataSetWithPiecesLifecycleCheckStatus`](./events-and-metrics.md#dataSetWithPiecesLifecycleCheckStatus) |
-| 5′ | `terminateService` succeeds on the created data set | `terminateServiceSync` call completes and the transaction receipt is received | [`dataSetWithPiecesLifecycleCheckMs`](./events-and-metrics.md#dataSetWithPiecesLifecycleCheckMs) |
-| 6′ | All steps complete within the timeout | Check is not marked successful until all steps pass within `DATA_SET_LIFECYCLE_CHECK_JOB_TIMEOUT_SECONDS` | [`dataSetWithPiecesLifecycleCheckMs`](./events-and-metrics.md#dataSetWithPiecesLifecycleCheckMs) |
+| 1′ | SP accepts the canary piece upload | `uploadPieceStreaming` completes and returns a `pieceCid` | [`dataSetLifecycleCheckStatus`](./events-and-metrics.md#dataSetLifecycleCheckStatus) |
+| 2′ | SP confirms piece ingestion | `findPiece` (with retry) resolves, confirming the SP has the data before the on-chain call | [`dataSetLifecycleCheckStatus`](./events-and-metrics.md#dataSetLifecycleCheckStatus) |
+| 3′ | SP accepts atomic data set + piece creation | `createDataSetAndAddPieces` call completes and the SP returns a `statusUrl` | [`dataSetLifecycleCheckStatus`](./events-and-metrics.md#dataSetLifecycleCheckStatus) |
+| 4′ | Data set and piece are confirmed on-chain | `waitForCreateDataSetAddPieces` resolves with a `dataSetId` and `piecesIds` | [`dataSetLifecycleCheckStatus`](./events-and-metrics.md#dataSetLifecycleCheckStatus) |
+| 5′ | `terminateService` succeeds on the created data set | `terminateServiceSync` call completes and the transaction receipt is received | [`dataSetLifecycleCheckMs`](./events-and-metrics.md#dataSetLifecycleCheckMs) |
+| 6′ | All steps complete within the timeout | Check is not marked successful until all steps pass within `DATA_SET_LIFECYCLE_CHECK_JOB_TIMEOUT_SECONDS` | [`dataSetLifecycleCheckMs`](./events-and-metrics.md#dataSetLifecycleCheckMs) |
 
 ## Data Set Lifecycle Check Lifecycle
 
@@ -65,26 +63,28 @@ flowchart TD
   Parallel --> CreateDataSet["createDataSet\n(empty variant)"]
   CreateDataSet --> WaitEmpty["waitForCreateDataSet"]
   WaitEmpty -->|dataSetId confirmed| TerminateE["terminateServiceSync"]
-  TerminateE -->|tx receipt received| SuccessE["Record success\n(dataSetLifecycleCheck)"]
-  TerminateE -->|error| FailE["Record failure\n(dataSetLifecycleCheck)"]
-  WaitEmpty -->|error| FailE
-  CreateDataSet -->|error| FailE
+  TerminateE -->|tx receipt received| OkE["settled: fulfilled"]
+  TerminateE -->|error| ErrE["settled: rejected"]
+  WaitEmpty -->|error| ErrE
+  CreateDataSet -->|error| ErrE
 
   Parallel --> Upload["uploadPieceStreaming\n(with-pieces variant)"]
   Upload --> FindPiece["findPiece (retry)"]
   FindPiece --> CreateWithPieces["createDataSetAndAddPieces"]
   CreateWithPieces --> WaitPieces["waitForCreateDataSetAddPieces"]
   WaitPieces -->|dataSetId + piecesIds confirmed| TerminateW["terminateServiceSync"]
-  TerminateW -->|tx receipt received| SuccessW["Record success\n(dataSetWithPiecesLifecycleCheck)"]
-  TerminateW -->|error| FailW["Record failure\n(dataSetWithPiecesLifecycleCheck)"]
-  WaitPieces -->|error| FailW
-  CreateWithPieces -->|error| FailW
-  FindPiece -->|error| FailW
-  Upload -->|error| FailW
+  TerminateW -->|tx receipt received| OkW["settled: fulfilled"]
+  TerminateW -->|error| ErrW["settled: rejected"]
+  WaitPieces -->|error| ErrW
+  CreateWithPieces -->|error| ErrW
+  FindPiece -->|error| ErrW
+  Upload -->|error| ErrW
 
-  SuccessE & FailE & SuccessW & FailW --> Settle["Collect results"]
-  Settle -->|any variant rejected| JobFail["Throw error / AggregateError\n(job marked failed)"]
-  Settle -->|both variants succeeded| JobSuccess["Job succeeds"]
+  OkE & ErrE & OkW & ErrW --> Settle["Collect results"]
+  Settle -->|both fulfilled| RecordSuccess["Record success\n(dataSetLifecycleCheck)"]
+  RecordSuccess --> JobSuccess["Job succeeds"]
+  Settle -->|any rejected| RecordFail["Record failure\n(dataSetLifecycleCheck)"]
+  RecordFail --> JobFail["Throw error / AggregateError\n(job marked failed)"]
 ```
 
 ### 1. Apply job guards
@@ -93,7 +93,7 @@ Dealbot applies the same maintenance-window and SP-blocklist rules used by all o
 
 ### 2. Run both variants in parallel
 
-Both the empty variant and the with-pieces variant are started concurrently via `Promise.allSettled`. Each variant runs to completion independently and records its own metrics. After both settle, any rejections are collected: if one variant failed the original error is re-thrown; if both failed an `AggregateError` is thrown. This ensures check dependency outages are never swallowed as success. See [Why two variants?](#why-two-variants) for the rationale.
+Both the empty variant and the with-pieces variant are started concurrently via `Promise.allSettled`. Each variant runs to completion independently and logs its own outcome. After both settle, a single combined metric is recorded under `checkType=dataSetLifecycleCheck`: `success` only when both pass, `failure` when either fails. Any rejection is re-thrown so check dependency outages are never swallowed as success. See [Why two variants?](#why-two-variants) for the rationale.
 
 Source: [`data-set-lifecycle.service.ts` (`runLifecycleCheck`)](../../apps/backend/src/data-set-lifecycle/data-set-lifecycle.service.ts)
 
@@ -113,7 +113,7 @@ Dealbot calls `waitForCreateDataSet` with the `statusUrl` returned by the SP. Wh
 
 ### 4a. Upload canary piece
 
-Dealbot calls `uploadPieceStreaming` to push a small fixed canary piece (256 bytes, all `0x61`) to the SP's HTTP storage service. The piece is deterministic so a leaked data set can always be identified by its piece CID alongside the `dealbotLifecycleCheck` metadata key.
+Dealbot calls `uploadPieceStreaming` to push a small random 256-byte canary piece to the SP's HTTP storage service. Leaked data sets are identifiable by the `dealbotLifecycleCheck` metadata key.
 
 ### 4b. Verify piece ingestion
 
@@ -135,35 +135,20 @@ The entire check (all variant steps + termination) is bounded by `DATA_SET_LIFEC
 
 ## Check Status Progression
 
-Each variant records a single terminal status once per check. The status values are the same for both variants.
-
-**Empty variant** — recorded via [`dataSetLifecycleCheckStatus`](./events-and-metrics.md#dataSetLifecycleCheckStatus):
+One combined status is recorded per tick (after both variants settle) via [`dataSetLifecycleCheckStatus`](./events-and-metrics.md#dataSetLifecycleCheckStatus):
 
 | Overall Status | Meaning |
 |--------|---------|
-| `success` | All steps passed: empty data set created, confirmed on-chain, service terminated. |
+| `success` | Both variants passed: all creation, confirmation, and termination steps completed for both paths. |
 | `failure.timedout` | The job was aborted because it exceeded `DATA_SET_LIFECYCLE_CHECK_JOB_TIMEOUT_SECONDS`. |
-| `failure.other` | Any other failure: `createDataSet` failed, `waitForCreateDataSet` failed, or `terminateService` failed. |
-
-**With-pieces variant** — recorded via [`dataSetWithPiecesLifecycleCheckStatus`](./events-and-metrics.md#dataSetWithPiecesLifecycleCheckStatus):
-
-| Overall Status | Meaning |
-|--------|---------|
-| `success` | All steps passed: canary piece uploaded and ingested, data set created with piece, confirmed on-chain, service terminated. |
-| `failure.timedout` | The job was aborted because it exceeded `DATA_SET_LIFECYCLE_CHECK_JOB_TIMEOUT_SECONDS`. |
-| `failure.other` | Any other failure: upload failed, `findPiece` timed out, `createDataSetAndAddPieces` failed, or `terminateService` failed. |
+| `failure.other` | Any other failure in either variant: creation, confirmation, piece upload, or termination step failed. |
 
 ## Metrics Recorded
 
-Metric definitions live in [Dealbot Events & Metrics](./events-and-metrics.md). Metrics are emitted under a distinct `checkType` label per variant so dashboards can track them independently.
+Metric definitions live in [Dealbot Events & Metrics](./events-and-metrics.md). One combined observation is emitted per tick using `checkType=dataSetLifecycleCheck`.
 
-**Empty variant:**
-- [`dataSetLifecycleCheckStatus`](./events-and-metrics.md#dataSetLifecycleCheckStatus) — `success`, `failure.timedout`, or `failure.other` per provider per run
-- [`dataSetLifecycleCheckMs`](./events-and-metrics.md#dataSetLifecycleCheckMs) — end-to-end duration (createDataSet + waitForCreateDataSet + terminateServiceSync); emitted on `success` and `failure.timedout`
-
-**With-pieces variant:**
-- [`dataSetWithPiecesLifecycleCheckStatus`](./events-and-metrics.md#dataSetWithPiecesLifecycleCheckStatus) — `success`, `failure.timedout`, or `failure.other` per provider per run
-- [`dataSetWithPiecesLifecycleCheckMs`](./events-and-metrics.md#dataSetWithPiecesLifecycleCheckMs) — end-to-end duration (upload + findPiece + createDataSetAndAddPieces + waitForCreateDataSetAddPieces + terminateServiceSync); emitted on `success` and `failure.timedout`
+- [`dataSetLifecycleCheckStatus`](./events-and-metrics.md#dataSetLifecycleCheckStatus) — `success`, `failure.timedout`, or `failure.other` per provider per run; `success` requires both variants to pass
+- [`dataSetLifecycleCheckMs`](./events-and-metrics.md#dataSetLifecycleCheckMs) — wall-clock duration of the full parallel execution (from the `Promise.allSettled` start to when both variants settle); emitted on `success` and `failure.timedout`
 
 ## Configuration
 
@@ -197,13 +182,13 @@ The data storage check (`data_set_creation` job) uses `createDataSetAndAddPieces
 
 Both variants run on every tick. It ensures both SP code paths are exercised on every invocation rather than in expectation over two ticks. The `Promise.allSettled` approach also ensures that a failure in one variant is never hidden by success in the other.
 
-The empty variant exercises the `createDataSet → waitForCreateDataSet → terminateService` path. The with-pieces variant exercises `uploadPieceStreaming → findPiece → createDataSetAndAddPieces → waitForCreateDataSetAddPieces → terminateService`. The two `checkType` label values (`dataSetLifecycleCheck` and `dataSetWithPiecesLifecycleCheck`) let Grafana track them as independent time series.
+The empty variant exercises the `createDataSet → waitForCreateDataSet → terminateService` path. The with-pieces variant exercises `uploadPieceStreaming → findPiece → createDataSetAndAddPieces → waitForCreateDataSetAddPieces → terminateService`. Both variants share the single `checkType=dataSetLifecycleCheck` label; per-variant outcomes are visible only in the log lines (each carries `variant: "empty"` or `variant: "withPieces"`).
 
 ### What if creation succeeds but termination fails?
 
 If creation succeeds but termination fails (process crash, job timeout, or an on-chain error that is not an already-terminated no-op), the created data set stays live on the SP. This is called a leak and is an accepted trade-off for keeping the job self-contained.
 
-Leaked sets are discoverable by filtering data sets with the `dealbotLifecycleCheck` metadata key — this key is set by both variants. For the with-pieces variant, the canary piece is additionally identifiable by its fixed piece CID (256 bytes, all `0x61`). Each leak is recorded in the log line (message: "throwaway data set may have leaked") with the `dataSetId` included for easy identification.
+Leaked sets are discoverable by filtering data sets with the `dealbotLifecycleCheck` metadata key — this key is set by both variants. Each leak is recorded in the log line (message: "throwaway data set may have leaked") with the `dataSetId` included.
 
 ### Why does the job create and terminate in the same run?
 

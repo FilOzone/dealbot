@@ -680,7 +680,7 @@ rate-based (per hour) and persisted in Postgres so restarts do not reset timing.
 
 - **Type**: `boolean`
 - **Required**: No
-- **Default**: `true` on calibration, `false` on mainnet
+- **Default**: `false` on mainnet, `true` everywhere else
 
 **Role**: Enables the `data_set_lifecycle_check` canary job. Each tick both creation variants run in parallel: the **empty variant** (`createDataSet → terminateService`) and the **with-pieces variant** (`uploadPieceStreaming → findPiece → createDataSetAndAddPieces → terminateService`). Both paths immediately terminate their throwaway data set. If either variant fails the job fails — dependency outages are not swallowed as success.
 
@@ -853,7 +853,7 @@ Use this to stagger multiple dealbot deployments that are not sharing a database
 - Increase if the with-pieces variant (`uploadPieceStreaming` + `findPiece` + `createDataSetAndAddPieces` + `terminateServiceSync`) consistently times out on slow networks, since it has more steps than the empty variant and will typically be the critical path.
 - Decrease for faster fail-fast behavior during testing.
 
-**Note**: If the configured value is below 60 seconds, the runtime silently raises it to 60 seconds as an effective floor. An abort due to this timeout (or an internal poll timeout) is recorded as `dataSetLifecycleCheckStatus{value="failure.timedout"}` (empty variant) or `dataSetWithPiecesLifecycleCheckStatus{value="failure.timedout"}` (with-pieces variant) and retried on the next scheduled tick.
+**Note**: If the configured value is below 60 seconds, the runtime silently raises it to 60 seconds as an effective floor. An abort due to this timeout (or an internal poll timeout) is recorded as `dataSetLifecycleCheckStatus{value="failure.timedout"}` and retried on the next scheduled tick.
 
 **See also**: [`docs/checks/data-set-lifecycle-check.md`](./checks/data-set-lifecycle-check.md)
 
