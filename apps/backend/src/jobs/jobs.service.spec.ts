@@ -5,7 +5,6 @@ import {
   DATA_RETENTION_POLL_QUEUE,
   PROVIDERS_REFRESH_QUEUE,
   PULL_PIECE_CLEANUP_QUEUE,
-  RETRIEVAL_ANON_QUEUE,
   SP_WORK_QUEUE,
 } from "./job-queues.js";
 import { JobsService } from "./jobs.service.js";
@@ -144,6 +143,7 @@ describe("JobsService schedule rows", () => {
         workerPollSeconds: 60,
         dealJobTimeoutSeconds: 360,
         retrievalJobTimeoutSeconds: 60,
+        anonRetrievalJobTimeoutSeconds: 360,
         dataSetCreationJobTimeoutSeconds: 300,
         shutdownFinalScrapeDelaySeconds: 35,
         pieceCleanupPerSpPerHour: 1,
@@ -522,6 +522,26 @@ describe("JobsService schedule rows", () => {
       { batchSize: 1, pollingIntervalSeconds: 60 },
       expect.any(Function),
     );
+  });
+
+  it("routes retrieval_anon jobs from the sp.work queue to the anon retrieval handler", async () => {
+    const work = vi.fn().mockResolvedValue(undefined);
+    (service as unknown as { boss: { work: typeof work } }).boss = { work };
+
+    callPrivate(service, "registerWorkers");
+
+    const spWorkCall = work.mock.calls.find((call) => call[0] === SP_WORK_QUEUE);
+    expect(spWorkCall).toBeDefined();
+    const spWorkCallback = spWorkCall?.[2] as (jobs: unknown[]) => Promise<void>;
+
+    const handleAnonRetrievalJob = vi.fn().mockResolvedValue(undefined);
+    (service as unknown as { handleAnonRetrievalJob: typeof handleAnonRetrievalJob }).handleAnonRetrievalJob =
+      handleAnonRetrievalJob;
+
+    const job = { id: "job-anon", data: { jobType: "retrieval_anon", spAddress: "0xaaa", intervalSeconds: 60 } };
+    await spWorkCallback([job]);
+
+    expect(handleAnonRetrievalJob).toHaveBeenCalledWith(job);
   });
 
   it("creates all worker queues when starting pg-boss", async () => {
@@ -971,7 +991,7 @@ describe("JobsService schedule rows", () => {
     );
   });
 
-  it("anon retrieval job defers to RETRIEVAL_ANON_QUEUE during maintenance window", async () => {
+  it("anon retrieval job defers to sp.work queue during maintenance window", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2024-01-01T07:05:00Z"));
 
@@ -1003,14 +1023,14 @@ describe("JobsService schedule rows", () => {
 
     await callPrivate(service, "handleAnonRetrievalJob", {
       id: "job-anon-maintenance",
-      data: { spAddress: "0xaaa", intervalSeconds: 60 },
+      data: { jobType: "retrieval_anon", spAddress: "0xaaa", intervalSeconds: 60 },
     });
 
     const expectedResumeAt = new Date("2024-01-01T07:20:00Z");
     expect(anonRetrievalService.performForProvider).not.toHaveBeenCalled();
     expect(safeSend).toHaveBeenCalledWith(
       "retrieval_anon",
-      RETRIEVAL_ANON_QUEUE,
+      SP_WORK_QUEUE,
       { jobType: "retrieval_anon", spAddress: "0xaaa", intervalSeconds: 60 },
       { startAfter: expectedResumeAt },
     );
@@ -1516,7 +1536,7 @@ describe("JobsService schedule rows", () => {
 
     await callPrivate(service, "handleAnonRetrievalJob", {
       id: "job-blocked-anon",
-      data: { spAddress: "0xaaa", intervalSeconds: 60 },
+      data: { jobType: "retrieval_anon", spAddress: "0xaaa", intervalSeconds: 60 },
     });
 
     expect(anonRetrievalService.performForProvider).not.toHaveBeenCalled();
@@ -1615,7 +1635,7 @@ describe("JobsService schedule rows", () => {
       await vi.advanceTimersByTimeAsync(35_001);
       await shutdownPromise;
 
-      // Defaults: deal=360, retrieval=60, dataSetCreation=300, pullCheck=300 → max=360 → +60s buffer
+      // Defaults: deal=360, retrieval=60, anonRetrieval=360, dataSetCreation=300, pullCheck=300 → max=360 → +60s buffer
       expect(bossMock.stop).toHaveBeenCalledTimes(1);
       expect(bossMock.stop).toHaveBeenCalledWith({ graceful: true, timeout: 420_000 });
     });

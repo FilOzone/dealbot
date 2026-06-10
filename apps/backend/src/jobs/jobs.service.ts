@@ -24,7 +24,6 @@ import {
   DATA_RETENTION_POLL_QUEUE,
   PROVIDERS_REFRESH_QUEUE,
   PULL_PIECE_CLEANUP_QUEUE,
-  RETRIEVAL_ANON_QUEUE,
   SP_WORK_QUEUE,
 } from "./job-queues.js";
 import { JobScheduleRepository } from "./repositories/job-schedule.repository.js";
@@ -43,7 +42,6 @@ function isSpJobType(jobType: string): jobType is SpJobType {
 }
 
 type SpJobData = { jobType: SpJobType; spAddress: string; intervalSeconds: number };
-type AnonRetrievalJobData = { spAddress: string; intervalSeconds: number };
 type ProvidersRefreshJobData = { intervalSeconds: number };
 type SpJob = Job<SpJobData>;
 type DataRetentionJobData = { intervalSeconds: number };
@@ -208,6 +206,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       const longestJobTimeoutSec = Math.max(
         jobs.dealJobTimeoutSeconds,
         jobs.retrievalJobTimeoutSeconds,
+        jobs.anonRetrievalJobTimeoutSeconds,
         jobs.dataSetCreationJobTimeoutSeconds,
         pullPiece.pullCheckJobTimeoutSeconds,
       );
@@ -309,7 +308,6 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     await boss.createQueue(PROVIDERS_REFRESH_QUEUE);
     await boss.createQueue(DATA_RETENTION_POLL_QUEUE);
     await boss.createQueue(PULL_PIECE_CLEANUP_QUEUE);
-    await boss.createQueue(RETRIEVAL_ANON_QUEUE);
   }
 
   private registerWorkers(): void {
@@ -333,6 +331,10 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
           }
           if (job.data.jobType === "retrieval") {
             await this.handleRetrievalJob(job);
+            return;
+          }
+          if (job.data.jobType === "retrieval_anon") {
+            await this.handleAnonRetrievalJob(job);
             return;
           }
           if (job.data.jobType === "data_set_creation") {
@@ -388,23 +390,6 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
           event: "worker_register_failed",
           message: "Failed to register worker",
           queue: PROVIDERS_REFRESH_QUEUE,
-          error: toStructuredError(error),
-        }),
-      );
-    void this.boss
-      .work<AnonRetrievalJobData, void>(
-        RETRIEVAL_ANON_QUEUE,
-        { batchSize: 1, localConcurrency: spConcurrency, pollingIntervalSeconds: workerPollSeconds },
-        async ([job]) => {
-          if (!job) return;
-          await this.handleAnonRetrievalJob(job);
-        },
-      )
-      .catch((error) =>
-        this.logger.error({
-          event: "worker_register_failed",
-          message: "Failed to register worker",
-          queue: RETRIEVAL_ANON_QUEUE,
           error: toStructuredError(error),
         }),
       );
@@ -674,7 +659,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     });
   }
 
-  private async handleAnonRetrievalJob(job: Job<AnonRetrievalJobData>): Promise<void> {
+  private async handleAnonRetrievalJob(job: SpJob): Promise<void> {
     const data = job.data;
     const spAddress = data.spAddress;
     const now = new Date();
@@ -686,12 +671,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         providerId: this.walletSdkService.getProviderInfo(spAddress)?.id,
         providerName: this.walletSdkService.getProviderInfo(spAddress)?.name,
       });
-      await this.deferJobForMaintenance(
-        "retrieval_anon",
-        { jobType: "retrieval_anon", spAddress, intervalSeconds: data.intervalSeconds },
-        maintenance,
-        now,
-      );
+      await this.deferJobForMaintenance("retrieval_anon", data, maintenance, now);
       return;
     }
 
@@ -1373,7 +1353,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       case "pull_check":
         return SP_WORK_QUEUE;
       case "retrieval_anon":
-        return RETRIEVAL_ANON_QUEUE;
+        return SP_WORK_QUEUE;
       case "data_retention_poll":
         return DATA_RETENTION_POLL_QUEUE;
       case "providers_refresh":
