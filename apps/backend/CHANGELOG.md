@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.8.0](https://github.com/FilOzone/dealbot/compare/backend-v1.7.0...backend-v1.8.0) (2026-06-08)
+
+
+### Features
+
+* add cid.contact ipni verification after filecoinpin.contact check ([#580](https://github.com/FilOzone/dealbot/issues/580)) ([9ca4ffa](https://github.com/FilOzone/dealbot/commit/9ca4ffa2e7027097a541719fb8e9ff7b6861733f))
+* add pull_checks table to clickhouse ([#522](https://github.com/FilOzone/dealbot/issues/522)) ([4c1a9ca](https://github.com/FilOzone/dealbot/commit/4c1a9cad05cda9bbd675f3e2d72ce3b9cf08c91b))
+* store deal retrieval metrics in clickhouse ([#595](https://github.com/FilOzone/dealbot/issues/595)) ([be18abe](https://github.com/FilOzone/dealbot/commit/be18abedaa0d26fb64c6b1cca43acfbb44917cf3))
+
+
+### Bug Fixes
+
+* jobs report success during dependency outages ([#592](https://github.com/FilOzone/dealbot/issues/592)) ([d934ba6](https://github.com/FilOzone/dealbot/commit/d934ba690da41833ac68aaab293efb1bf1da64d2))
+* use SP IPNI timestamps ([#557](https://github.com/FilOzone/dealbot/issues/557)) ([c621f7f](https://github.com/FilOzone/dealbot/commit/c621f7fb2114b5420c25695fc494be00b086de8f))
+
 ## [1.7.0](https://github.com/FilOzone/dealbot/compare/backend-v1.6.0...backend-v1.7.0) (2026-05-22)
 
 
