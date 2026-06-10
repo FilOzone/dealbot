@@ -3,6 +3,7 @@ import { Column, CreateDateColumn, Entity, Index, PrimaryGeneratedColumn, Update
 export type JobType =
   | "deal"
   | "retrieval"
+  | "retrieval_anon"
   | "data_set_creation"
   | "pull_check"
   | "providers_refresh"

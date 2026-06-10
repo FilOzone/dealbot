@@ -8,6 +8,7 @@ import {
 } from "@willsoto/nestjs-prometheus";
 import { WalletSdkModule } from "../wallet-sdk/wallet-sdk.module.js";
 import {
+  AnonRetrievalCheckMetrics,
   DataSetCreationCheckMetrics,
   DataStorageCheckMetrics,
   DiscoverabilityCheckMetrics,
@@ -249,6 +250,56 @@ const metricProviders = [
     help: "Estimated number of unrecorded overdue proving periods per provider. Resets to 0 when the subgraph catches up.",
     labelNames: ["checkType", "providerId", "providerName", "providerStatus"] as const,
   }),
+  // Anonymous Retrieval Metrics
+  makeHistogramProvider({
+    name: "anonPieceRetrievalFirstByteMs",
+    help: "Time to first byte for anonymous piece retrievals via /piece/{cid} (ms)",
+    labelNames: ["checkType", "providerId", "providerName", "providerStatus"] as const,
+    buckets: [1, 5, 10, 50, 100, 250, 500, 1000, 2000, 5000, 10000, 30000],
+  }),
+  makeHistogramProvider({
+    name: "anonPieceRetrievalLastByteMs",
+    help: "Total time to retrieve an anonymous piece via /piece/{cid} (ms)",
+    labelNames: ["checkType", "providerId", "providerName", "providerStatus"] as const,
+    buckets: [1, 5, 10, 50, 100, 250, 500, 1000, 2000, 5000, 10000, 30000, 60000, 120000, 300000],
+  }),
+  makeHistogramProvider({
+    name: "anonPieceRetrievalThroughputBps",
+    help: "Throughput for anonymous piece retrievals (bytes/s)",
+    labelNames: ["checkType", "providerId", "providerName", "providerStatus"] as const,
+    buckets: throughputBuckets,
+  }),
+  makeHistogramProvider({
+    name: "anonRetrievalCheckMs",
+    help: "End-to-end anonymous retrieval check duration (ms)",
+    labelNames: ["checkType", "providerId", "providerName", "providerStatus"] as const,
+    buckets: [100, 500, 1000, 2000, 5000, 10000, 30000, 60000, 120000, 300000, 600000],
+  }),
+  makeCounterProvider({
+    name: "anonPieceRetrievalStatus",
+    help: "Anonymous piece retrieval overall outcome",
+    labelNames: ["checkType", "providerId", "providerName", "providerStatus", "value"] as const,
+  }),
+  makeCounterProvider({
+    name: "anonPieceHttpResponseCode",
+    help: "HTTP response codes for anonymous piece retrieval requests",
+    labelNames: ["checkType", "providerId", "providerName", "providerStatus", "value"] as const,
+  }),
+  makeCounterProvider({
+    name: "anonCarParseStatus",
+    help: "Anonymous retrieval CAR parse outcomes (parseable / not_parseable / skipped)",
+    labelNames: ["checkType", "providerId", "providerName", "providerStatus", "value"] as const,
+  }),
+  makeCounterProvider({
+    name: "anonIpniStatus",
+    help: "Anonymous retrieval IPNI check outcomes (valid / invalid / skipped / error)",
+    labelNames: ["checkType", "providerId", "providerName", "providerStatus", "value"] as const,
+  }),
+  makeCounterProvider({
+    name: "anonBlockFetchStatus",
+    help: "Anonymous retrieval block fetch validation outcomes (success / failure / skipped / error)",
+    labelNames: ["checkType", "providerId", "providerName", "providerStatus", "value"] as const,
+  }),
   // Storage provider metrics: absolute counts, independent of query filters.
   makeGaugeProvider({
     name: "storage_providers_active",
@@ -376,6 +427,7 @@ const metricProviders = [
     DiscoverabilityCheckMetrics,
     DataSetCreationCheckMetrics,
     PullCheckCheckMetrics,
+    AnonRetrievalCheckMetrics,
     WalletBalanceCollector,
     // HTTP metrics interceptor
     {
@@ -391,6 +443,7 @@ const metricProviders = [
     DiscoverabilityCheckMetrics,
     DataSetCreationCheckMetrics,
     PullCheckCheckMetrics,
+    AnonRetrievalCheckMetrics,
     WalletBalanceCollector,
   ],
 })

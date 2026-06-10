@@ -82,12 +82,11 @@ export class HttpClientService {
       let ttfbTime = 0;
       let statusCode = 0;
 
-      /**
-       * Dual-timeout strategy for HTTP/2 requests:
-       * 1. AbortSignal.timeout() - Undici's native timeout (10 min default)
-       * 2. AbortSignal.timeout() for connection/headers (10 sec default)
-       */
-      const { signal, connectTimeoutSignal } = this.buildHttp2Signals(options.signal);
+      // Dual-timeout strategy for HTTP/2 requests:
+      // - `headersTimeout` (undici): scopes the connect + response-headers phase.
+      // - Combined AbortSignal: transfer-timeout ceiling + parent (job) signal.
+      const transferTimeoutSignal = AbortSignal.timeout(this.http2TimeoutMs);
+      const signal = options.signal ? anySignal([transferTimeoutSignal, options.signal]) : transferTimeoutSignal;
       const requestOptions: any = {
         method,
         headers: {
@@ -95,6 +94,7 @@ export class HttpClientService {
           ...headers,
         },
         signal,
+        headersTimeout: this.connectTimeoutMs,
       };
 
       if (data) {
@@ -106,7 +106,8 @@ export class HttpClientService {
       try {
         response = await undiciRequest(url, requestOptions);
       } catch (error) {
-        if (connectTimeoutSignal.aborted) {
+        // discern connection error from transfer error
+        if (isHeadersTimeoutError(error)) {
           throw new Error(`HTTP/2 connection/headers timed out after ${this.connectTimeoutMs}ms`);
         }
         throw error;
@@ -116,8 +117,15 @@ export class HttpClientService {
       statusCode = response.statusCode;
 
       const chunks: Buffer[] = [];
-      for await (const chunk of response.body) {
-        chunks.push(Buffer.from(chunk));
+      let downloadError: unknown;
+      try {
+        for await (const chunk of response.body) {
+          chunks.push(Buffer.from(chunk));
+        }
+      } catch (error) {
+        // Download-phase failures (e.g. abort signal) fall through so we can
+        // return the partial buffer + metrics collected so far.
+        downloadError = error;
       }
       const dataBuffer = Buffer.concat(chunks);
 
@@ -133,6 +141,29 @@ export class HttpClientService {
         timestamp: new Date(),
         httpVersion: "2",
       };
+
+      if (downloadError !== undefined) {
+        const aborted = options.signal?.aborted === true || isAbortLikeError(downloadError);
+        if (!aborted) {
+          throw downloadError;
+        }
+        const abortReason = describeAbortReason(options.signal, downloadError);
+        this.logger.warn({
+          event: "http2_download_aborted",
+          message: "HTTP/2 download aborted after headers; returning partial data",
+          url,
+          bytesReceived: dataBuffer.length,
+          totalTime: metrics.totalTime,
+          ttfb: metrics.ttfb,
+          abortReason,
+        });
+        return {
+          data: dataBuffer as T,
+          metrics,
+          aborted: true,
+          abortReason,
+        };
+      }
 
       return {
         data: dataBuffer as T,
@@ -269,7 +300,11 @@ export class HttpClientService {
   async requestStream(
     url: string,
     options: { signal?: AbortSignal } = {},
-  ): Promise<{ statusCode: number; headers: Record<string, string | string[] | undefined>; body: Readable }> {
+  ): Promise<{
+    statusCode: number;
+    headers: Record<string, string | string[] | undefined>;
+    body: Readable;
+  }> {
     try {
       const response = await undiciRequest(url, {
         method: "GET",
@@ -302,24 +337,28 @@ export class HttpClientService {
       throw normalized;
     }
   }
+}
 
-  private buildHttp2Signals(parentSignal?: AbortSignal): {
-    signal: AbortSignal;
-    connectTimeoutSignal: AbortSignal;
-  } {
-    const transferTimeoutSignal = AbortSignal.timeout(this.http2TimeoutMs);
-    const connectTimeoutSignal = AbortSignal.timeout(this.connectTimeoutMs);
-
-    if (parentSignal) {
-      return {
-        signal: anySignal([transferTimeoutSignal, connectTimeoutSignal, parentSignal]),
-        connectTimeoutSignal,
-      };
-    }
-
-    return {
-      signal: anySignal([transferTimeoutSignal, connectTimeoutSignal]),
-      connectTimeoutSignal,
-    };
+function isAbortLikeError(error: unknown): boolean {
+  if (error instanceof Error) {
+    return error.name === "AbortError" || error.name === "TimeoutError" || /abort/i.test(error.message);
   }
+  return false;
+}
+
+/**
+ * Determines if a given error represents a "Headers Timeout" error.
+ */
+function isHeadersTimeoutError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const code = (error as Error & { code?: string }).code;
+  return error.name === "HeadersTimeoutError" || code === "UND_ERR_HEADERS_TIMEOUT";
+}
+
+function describeAbortReason(signal: AbortSignal | undefined, fallback: unknown): string {
+  const reason = signal?.reason;
+  if (reason instanceof Error && reason.message) return reason.message;
+  if (typeof reason === "string" && reason.length > 0) return reason;
+  if (fallback instanceof Error && fallback.message) return fallback.message;
+  return "aborted";
 }
