@@ -1,4 +1,10 @@
-export type CheckType = "dataStorage" | "retrieval" | "dataRetention" | "dataSetCreation" | "pullCheck";
+export type CheckType =
+  | "dataStorage"
+  | "retrieval"
+  | "dataRetention"
+  | "dataSetCreation"
+  | "dataSetLifecycleCheck"
+  | "pullCheck";
 export type ProviderStatus = "approved" | "unapproved";
 
 export type CheckMetricLabels = {

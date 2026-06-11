@@ -11,7 +11,7 @@ This document provides a comprehensive guide to all environment variables used b
 | [Blockchain](#blockchain-configuration)   | `NETWORK`, `RPC_URL`, `WALLET_ADDRESS`, `WALLET_PRIVATE_KEY`, `SESSION_KEY_PRIVATE_KEY`, `CHECK_DATASET_CREATION_FEES`, `USE_ONLY_APPROVED_PROVIDERS`, `PDP_SUBGRAPH_ENDPOINT` |
 | [Dataset Versioning](#dataset-versioning) | `DEALBOT_DATASET_VERSION`                                                                                                                                    |
 | [Scheduling](#scheduling-configuration)   | `PROVIDERS_REFRESH_INTERVAL_SECONDS`, `DATA_RETENTION_POLL_INTERVAL_SECONDS`, `DEALBOT_MAINTENANCE_WINDOWS_UTC`, `DEALBOT_MAINTENANCE_WINDOW_MINUTES`                                                                                                                                 |
-| [Jobs (pg-boss)](#jobs-pg-boss)           | `DEALBOT_PGBOSS_SCHEDULER_ENABLED`, `DEALBOT_PGBOSS_POOL_MAX`, `DEALS_PER_SP_PER_HOUR`, `MIN_NUM_DATASETS_FOR_CHECKS`, `DATASET_CREATIONS_PER_SP_PER_HOUR`, `RETRIEVALS_PER_SP_PER_HOUR`,  `JOB_SCHEDULER_POLL_SECONDS`, `JOB_WORKER_POLL_SECONDS`, `PG_BOSS_LOCAL_CONCURRENCY`, `JOB_CATCHUP_MAX_ENQUEUE`, `JOB_SCHEDULE_PHASE_SECONDS`, `JOB_ENQUEUE_JITTER_SECONDS`, `DATA_SET_CREATION_JOB_TIMEOUT_SECONDS`, `DEAL_JOB_TIMEOUT_SECONDS`, `RETRIEVAL_JOB_TIMEOUT_SECONDS`, `SHUTDOWN_FINAL_SCRAPE_DELAY_SECONDS`, `IPFS_BLOCK_FETCH_CONCURRENCY` |
+| [Jobs (pg-boss)](#jobs-pg-boss)           | `DEALBOT_PGBOSS_SCHEDULER_ENABLED`, `DEALBOT_PGBOSS_POOL_MAX`, `DEALS_PER_SP_PER_HOUR`, `MIN_NUM_DATASETS_FOR_CHECKS`, `DATASET_CREATIONS_PER_SP_PER_HOUR`, `DATASET_LIFECYCLE_CHECK_ENABLED`, `DATASET_LIFECYCLE_CHECKS_PER_SP_PER_HOUR`, `RETRIEVALS_PER_SP_PER_HOUR`,  `JOB_SCHEDULER_POLL_SECONDS`, `JOB_WORKER_POLL_SECONDS`, `PG_BOSS_LOCAL_CONCURRENCY`, `JOB_CATCHUP_MAX_ENQUEUE`, `JOB_SCHEDULE_PHASE_SECONDS`, `JOB_ENQUEUE_JITTER_SECONDS`, `DATA_SET_CREATION_JOB_TIMEOUT_SECONDS`, `DATA_SET_LIFECYCLE_CHECK_JOB_TIMEOUT_SECONDS`, `DEAL_JOB_TIMEOUT_SECONDS`, `RETRIEVAL_JOB_TIMEOUT_SECONDS`, `SHUTDOWN_FINAL_SCRAPE_DELAY_SECONDS`, `IPFS_BLOCK_FETCH_CONCURRENCY` |
 | [Dataset](#dataset-configuration)         | `DEALBOT_LOCAL_DATASETS_PATH`, `RANDOM_PIECE_SIZES`                                                                                                          |
 | [ClickHouse](#clickhouse-configuration)   | `CLICKHOUSE_URL`, `CLICKHOUSE_BATCH_SIZE`, `CLICKHOUSE_FLUSH_INTERVAL_MS`, `DEALBOT_PROBE_LOCATION`          |
 | [Timeouts](#timeout-configuration)        | `CONNECT_TIMEOUT_MS`, `HTTP_REQUEST_TIMEOUT_MS`, `HTTP2_REQUEST_TIMEOUT_MS`, `IPNI_VERIFICATION_TIMEOUT_MS`, `IPNI_VERIFICATION_POLLING_MS`                   |
@@ -676,6 +676,34 @@ rate-based (per hour) and persisted in Postgres so restarts do not reset timing.
 
 ---
 
+### `DATASET_LIFECYCLE_CHECK_ENABLED`
+
+- **Type**: `boolean`
+- **Required**: No
+- **Default**: `false` on mainnet, `true` everywhere else
+
+**Role**: Enables the `data_set_lifecycle_check` canary job. Each tick both creation variants run in parallel: the **empty variant** (`createDataSet → terminateService`) and the **with-pieces variant** (`uploadPieceStreaming → findPiece → createDataSetAndAddPieces → terminateService`). Both paths immediately terminate their throwaway data set. If either variant fails the job fails — dependency outages are not swallowed as success.
+
+**Notes**: Self-contained — it does not touch the managed check data sets and does not depend on `data_set_creation`. When disabled, stale schedules are removed so they stop enqueuing no-op jobs.
+
+**See also**: [`docs/checks/data-set-lifecycle-check.md`](./checks/data-set-lifecycle-check.md)
+
+---
+
+### `DATASET_LIFECYCLE_CHECKS_PER_SP_PER_HOUR`
+
+- **Type**: `number`
+- **Required**: No
+- **Default**: `1`
+
+**Role**: Target lifecycle check rate per storage provider for the `data_set_lifecycle_check` canary. Each tick runs both variants (empty and with-pieces) in parallel and terminates each throwaway data set.
+
+**Limits**: Config schema caps this at 20.
+
+**Notes**: Independent of `DATASET_CREATIONS_PER_SP_PER_HOUR`. Fractional values are supported.
+
+---
+
 ### `JOB_SCHEDULER_POLL_SECONDS`
 
 - **Type**: `number`
@@ -807,6 +835,27 @@ Use this to stagger multiple dealbot deployments that are not sharing a database
 - Decrease for faster fail-fast behavior during testing.
 
 **Note**: If the configured value is below 120 seconds, the runtime silently raises it to 120 seconds as an effective floor.
+
+---
+
+### `DATA_SET_LIFECYCLE_CHECK_JOB_TIMEOUT_SECONDS`
+
+- **Type**: `number`
+- **Required**: No
+- **Default**: `600` (10 minutes)
+- **Minimum**: `60` (1 minute)
+- **Enforced**: Yes (config validation, effective floor applied at runtime)
+
+**Role**: Maximum runtime for `data_set_lifecycle_check` jobs before forced abort via `AbortController`. Both variants run in parallel within this budget — the timeout bounds the wall-clock time from job start until both variants have settled (or been aborted).
+
+**When to update**:
+
+- Increase if the with-pieces variant (`uploadPieceStreaming` + `findPiece` + `createDataSetAndAddPieces` + `terminateServiceSync`) consistently times out on slow networks, since it has more steps than the empty variant and will typically be the critical path.
+- Decrease for faster fail-fast behavior during testing.
+
+**Note**: If the configured value is below 60 seconds, the runtime silently raises it to 60 seconds as an effective floor. An abort due to this timeout (or an internal poll timeout) is recorded as `dataSetLifecycleCheckStatus{value="failure.timedout"}` and retried on the next scheduled tick.
+
+**See also**: [`docs/checks/data-set-lifecycle-check.md`](./checks/data-set-lifecycle-check.md)
 
 ---
 
