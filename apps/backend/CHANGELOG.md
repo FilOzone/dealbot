@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.9.0](https://github.com/FilOzone/dealbot/compare/backend-v1.8.0...backend-v1.9.0) (2026-06-11)
+
+
+### Features
+
+* data set lifecycle job ([#588](https://github.com/FilOzone/dealbot/issues/588)) ([37ddd2e](https://github.com/FilOzone/dealbot/commit/37ddd2e1acffb500a95d9c8e48430d17020fd118))
+
 ## [1.8.0](https://github.com/FilOzone/dealbot/compare/backend-v1.7.0...backend-v1.8.0) (2026-06-08)
 
 
