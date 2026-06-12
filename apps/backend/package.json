@@ -30,8 +30,8 @@
   },
   "dependencies": {
     "@clickhouse/client": "^1.11.0",
-    "@filoz/synapse-core": "0.5.2",
-    "@filoz/synapse-sdk": "0.41.0",
+    "@filoz/synapse-core": "0.7.0",
+    "@filoz/synapse-sdk": "1.0.1",
     "@ipld/car": "^5.4.2",
     "@ipld/dag-pb": "^4.1.4",
     "@nestjs/axios": "^4.0.1",

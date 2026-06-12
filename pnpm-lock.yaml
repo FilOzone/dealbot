@@ -45,11 +45,11 @@ importers:
         specifier: ^1.11.0
         version: 1.18.2
       '@filoz/synapse-core':
-        specifier: 0.5.2
-        version: 0.5.2(typescript@5.9.3)(viem@2.48.11(typescript@5.9.3)(zod@4.4.3))
+        specifier: 0.7.0
+        version: 0.7.0(typescript@5.9.3)(viem@2.48.11(typescript@5.9.3)(zod@4.4.3))
       '@filoz/synapse-sdk':
-        specifier: 0.41.0
-        version: 0.41.0(typescript@5.9.3)(viem@2.48.11(typescript@5.9.3)(zod@4.4.3))
+        specifier: 1.0.1
+        version: 1.0.1(typescript@5.9.3)(viem@2.48.11(typescript@5.9.3)(zod@4.4.3))
       '@ipld/car':
         specifier: ^5.4.2
         version: 5.4.2
@@ -894,8 +894,18 @@ packages:
     peerDependencies:
       viem: 2.x
 
+  '@filoz/synapse-core@0.7.0':
+    resolution: {integrity: sha512-54G+yH1DrqXpCrtSZF5SYvNma3W2iA/LH6hLWmADy5tW1CkPlvtHZ5essqrJtlk3lfNRYMWk3+13ejzXxDAWWw==}
+    peerDependencies:
+      viem: 2.x
+
   '@filoz/synapse-sdk@0.41.0':
     resolution: {integrity: sha512-hbxV71Zjk1AExgghdP+LoYY1UqdnUMVB6Te1aJ5Af/e1lVDIOXIAHYm1WzSLCp6pU/a/+hLpGyl1CCu1IUPwYQ==}
+    peerDependencies:
+      viem: 2.x
+
+  '@filoz/synapse-sdk@1.0.1':
+    resolution: {integrity: sha512-zUAFPVPit9CNcOfjzv4oH+zqj0FkyVHJkXbeWpuJo4ZQxlCTieILpgEn7zR5LFnGKBpukzM0iIzW1mOEqGZ6jA==}
     peerDependencies:
       viem: 2.x
 
@@ -3015,6 +3025,10 @@ packages:
   bidi-js@1.0.3:
     resolution: {integrity: sha512-RKshQI1R3YQ+n9YJz2QQ147P66ELpa1FQEg20Dk8oW9t2KgLbpDLLp9aGZ7y8WHSshDknG0bknqGw5/tyCs5tw==}
 
+  bigint-mod-arith@3.3.1:
+    resolution: {integrity: sha512-pX/cYW3dCa87Jrzv6DAr8ivbbJRzEX5yGhdt8IutnX/PCIXfpx+mabWNK/M8qqh+zQ0J3thftUBHW0ByuUlG0w==}
+    engines: {node: '>=10.4.0'}
+
   binaryen@102.0.0-nightly.20211028:
     resolution: {integrity: sha512-GCJBVB5exbxzzvyt8MGDv/MeUjs6gkXDvf4xOIItRBptYl0Tz5sm1o/uG95YK0L0VeG5ajDu3hRtkBP2kzqC5w==}
     hasBin: true
@@ -4440,8 +4454,14 @@ packages:
   isexe@2.0.0:
     resolution: {integrity: sha512-RHxMLp9lnKHGHRng9QFhRCMbYAcVpn69smSGcq3f36xjgVVWThj4qqLbTLlq7Ssj8B+fIQ1EuCEGI2lKsyQeIw==}
 
+  iso-base@4.4.0:
+    resolution: {integrity: sha512-W4BJbRDBi66wcBFJ23ZlGnFOZ874CIut4y9PlsScMSYu7ckCX+MWNAaEoE0efTSYDoVEn1qy0FDVSjE8q0ieHw==}
+
   iso-kv@3.1.1:
     resolution: {integrity: sha512-yKTLmUCc8gl0MXJs3ZaTaNDgfG/2ROasZERKPa5aYY7Ks/eb8BvGfLHrC+t1cHxiRkogvaXulDP77ovwLKgLPg==}
+
+  iso-kv@3.2.0:
+    resolution: {integrity: sha512-rMVXO7zDEecXOJEiDnbDqjZ7gSe7VqDn2FTkUFWeqkcYMmgMdmB7pDgUaZxiEyiL1+gO7RnbqEI2Ce3xIW4UBQ==}
 
   iso-url@1.2.1:
     resolution: {integrity: sha512-9JPDgCN4B7QPkLtYAAOrEuAWvP9rWvR5offAr0/SeF046wIkglqH3VXgYYP6NcsKslH80UIVgmPqNe3j7tG2ng==}
@@ -4449,6 +4469,9 @@ packages:
 
   iso-web@2.2.1:
     resolution: {integrity: sha512-4pkaxMAK089Gt+ua046Y0vGu7V7V7+P/2fEzlxYK0ssMvQFufaqkETHhoid+422L/kjU7aw9j1BxorpG6jmtXw==}
+
+  iso-web@3.1.2:
+    resolution: {integrity: sha512-OpWz+KNH4vYNVvpc6T1z/zkZtT6iTQXYjc0sIbkPDwYEM5Qurg0LYESrEHloxb6xj5T/2rrnsTtaYlUSIzgicg==}
 
   isomorphic-ws@4.0.1:
     resolution: {integrity: sha512-BhBvN2MBpWTaSHdWRb/bwdZJ1WaehQ2L1KngkCkfLUGF0mAWAT1sQUQacEmQ0jXkFw/czDXPNQSL5u2/Krsz1w==}
@@ -4734,6 +4757,10 @@ packages:
   kysely@0.28.17:
     resolution: {integrity: sha512-nbD8lB9EB3wNdMhOCdx5Li8DxnLbvKByylRLcJ1h+4SkrowVeECAyZlyiKMThF7xFdRz0jSQ2MoJr+wXux2y0Q==}
     engines: {node: '>=20.0.0'}
+
+  kysely@0.29.2:
+    resolution: {integrity: sha512-s6WVJyEZrbm6jhBpiKHsGHyePMrVQKJ85wZCFCr9W4QHv6WTjWIrdvTmO9hDEA3bNK0xkrE2DqrHsXMLWuZpQg==}
+    engines: {node: '>=22.0.0'}
 
   leven@3.1.0:
     resolution: {integrity: sha512-qsda+H8jTaUaN/x5vzW2rzc+8Rw4TAQ/4KjB46IwK5VH+IlVeeeje/EoZRpiXvIqjFgK84QffqPztGI3VBLG1A==}
@@ -5378,6 +5405,14 @@ packages:
 
   ox@0.14.20:
     resolution: {integrity: sha512-rby38C3nDn8eQkf29Zgw4hkCZJ64Qqi0zRPWL8ENUQ7JVuoITqrVtwWQgM/He19SCMUEc7hS/Sjw0jIOSLJhOw==}
+    peerDependencies:
+      typescript: '>=5.4.0'
+    peerDependenciesMeta:
+      typescript:
+        optional: true
+
+  ox@0.14.29:
+    resolution: {integrity: sha512-M5j87Ec4V99MQdRct/g09eWXW60g6zhHTUs1lr4deUtrPDnezBdCJTgKd7pxqTpSZBFveV0ALi9jMMuT1qKyNg==}
     peerDependencies:
       typescript: '>=5.4.0'
     peerDependenciesMeta:
@@ -7625,10 +7660,33 @@ snapshots:
     transitivePeerDependencies:
       - typescript
 
+  '@filoz/synapse-core@0.7.0(typescript@5.9.3)(viem@2.48.11(typescript@5.9.3)(zod@4.4.3))':
+    dependencies:
+      dnum: 2.17.0
+      iso-web: 3.1.2
+      multiformats: 14.0.0
+      ox: 0.14.29(typescript@5.9.3)(zod@4.4.3)
+      p-locate: 7.0.0
+      p-queue: 9.2.0
+      p-some: 7.0.0
+      sync-multihash-sha2: 1.0.0
+      viem: 2.48.11(typescript@5.9.3)(zod@4.4.3)
+      zod: 4.4.3
+    transitivePeerDependencies:
+      - typescript
+
   '@filoz/synapse-sdk@0.41.0(typescript@5.9.3)(viem@2.48.11(typescript@5.9.3)(zod@4.4.3))':
     dependencies:
       '@filoz/synapse-core': 0.5.2(typescript@5.9.3)(viem@2.48.11(typescript@5.9.3)(zod@4.4.3))
       multiformats: 13.4.2
+      viem: 2.48.11(typescript@5.9.3)(zod@4.4.3)
+    transitivePeerDependencies:
+      - typescript
+
+  '@filoz/synapse-sdk@1.0.1(typescript@5.9.3)(viem@2.48.11(typescript@5.9.3)(zod@4.4.3))':
+    dependencies:
+      '@filoz/synapse-core': 0.7.0(typescript@5.9.3)(viem@2.48.11(typescript@5.9.3)(zod@4.4.3))
+      multiformats: 14.0.0
       viem: 2.48.11(typescript@5.9.3)(zod@4.4.3)
     transitivePeerDependencies:
       - typescript
@@ -10654,6 +10712,8 @@ snapshots:
     dependencies:
       require-from-string: 2.0.2
 
+  bigint-mod-arith@3.3.1: {}
+
   binaryen@102.0.0-nightly.20211028: {}
 
   binaryen@116.0.0-nightly.20240114: {}
@@ -12268,11 +12328,22 @@ snapshots:
 
   isexe@2.0.0: {}
 
+  iso-base@4.4.0:
+    dependencies:
+      bigint-mod-arith: 3.3.1
+
   iso-kv@3.1.1:
     dependencies:
       conf: 15.1.0
       idb-keyval: 6.2.2
       kysely: 0.28.17
+
+  iso-kv@3.2.0:
+    dependencies:
+      conf: 15.1.0
+      idb-keyval: 6.2.2
+      iso-base: 4.4.0
+      kysely: 0.29.2
 
   iso-url@1.2.1: {}
 
@@ -12281,6 +12352,14 @@ snapshots:
       delay: 7.0.0
       is-network-error: 1.3.2
       iso-kv: 3.1.1
+      p-retry: 8.0.0
+
+  iso-web@3.1.2:
+    dependencies:
+      '@standard-schema/spec': 1.1.0
+      delay: 7.0.0
+      is-network-error: 1.3.2
+      iso-kv: 3.2.0
       p-retry: 8.0.0
 
   isomorphic-ws@4.0.1(ws@7.5.10):
@@ -12705,6 +12784,8 @@ snapshots:
       - undici
 
   kysely@0.28.17: {}
+
+  kysely@0.29.2: {}
 
   leven@3.1.0: {}
 
@@ -13449,6 +13530,21 @@ snapshots:
       - zod
 
   ox@0.14.20(typescript@5.9.3)(zod@4.4.3):
+    dependencies:
+      '@adraffy/ens-normalize': 1.11.1
+      '@noble/ciphers': 1.3.0
+      '@noble/curves': 1.9.1
+      '@noble/hashes': 1.8.0
+      '@scure/bip32': 1.7.0
+      '@scure/bip39': 1.6.0
+      abitype: 1.2.3(typescript@5.9.3)(zod@4.4.3)
+      eventemitter3: 5.0.1
+    optionalDependencies:
+      typescript: 5.9.3
+    transitivePeerDependencies:
+      - zod
+
+  ox@0.14.29(typescript@5.9.3)(zod@4.4.3):
     dependencies:
       '@adraffy/ens-normalize': 1.11.1
       '@noble/ciphers': 1.3.0
