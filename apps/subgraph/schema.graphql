@@ -19,10 +19,11 @@ type DataSet @entity(immutable: false) {
   id: Bytes! # setId
   setId: BigInt!
   owner: Provider!
-  # True iff the dataset has not been deleted (PDPVerifier.DataSetDeleted)
-  # and the FWSS service has not been terminated (FWSS.ServiceTerminated).
-  # Note: PDPPaymentTerminated does NOT affect this flag; clients compare
-  # pdpPaymentEndEpoch to current epoch themselves.
+  # Dataset existence + service-level state.
+  #   true  — dataset exists on PDPVerifier and the FWSS service is serving it.
+  #   false — PDPVerifier.DataSetDeleted or FWSS.ServiceTerminated has fired.
+  # Orthogonal to `isPaymentActive`: payment-rail termination does NOT touch
+  # this flag. Queries that want "currently served AND paid" must AND both flags.
   isActive: Boolean!
   status: DataSetStatus!
   # Block number of next deadline, 0 if not set. Dealbot filters on this
@@ -45,8 +46,18 @@ type DataSet @entity(immutable: false) {
 
   # Populated by FWSS.PDPPaymentTerminated handler.
   # May be in the past (already terminated) or future (terminating).
-  # Does NOT flip isActive — clients compare to current epoch.
+  # Retained for informational / backwards-compatible use; clients SHOULD
+  # filter on `isPaymentActive` rather than comparing this to current epoch.
   pdpPaymentEndEpoch: BigInt
+
+  # PDP payment-rail state.
+  #   true  — the SP is currently being paid for PDP on this dataset.
+  #   false — payment has terminated (`pdpPaymentEndEpoch` reached, or service
+  #           terminated, since payment cannot resume without the service).
+  # Orthogonal to `isActive`: a dataset can have its payment rail end while the
+  # service is still active (`isActive: true, isPaymentActive: false`). Queries
+  # that want "currently served AND paid" must AND both flags.
+  isPaymentActive: Boolean!
 
   # Block timestamp at which this DataSet was first created. Set once on
   # the creating event (whichever of FWSS.DataSetCreated or
@@ -79,4 +90,16 @@ type Root @entity(immutable: false) {
   sampleKey: Bytes!
 
   proofSet: DataSet!
+}
+
+# Bucket of DataSet IDs whose PDP payment terminates at a specific epoch.
+# Looked up O(1) by id (the epoch encoded as bytes) inside the block handler
+# attached to the FWSS data source. Populated by handleFwssPdpPaymentTerminated
+# when endEpoch > current block; consumed and removed by handleBlock when the
+# chain reaches that epoch. ServiceTerminated also unschedules entries when
+# it fires before the epoch is reached.
+type PendingPaymentTermination @entity(immutable: false) {
+  id: Bytes! # UTF-8 of the epoch's decimal string (see fwss.ts)
+  epoch: BigInt!
+  dataSetIds: [Bytes!]!
 }

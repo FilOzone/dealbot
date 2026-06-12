@@ -1,13 +1,14 @@
 import { assert, beforeEach, clearStore, describe, test } from "matchstick-as/assembly/index";
 import { Address, BigInt, Bytes } from "@graphprotocol/graph-ts";
 import {
+  handleBlock,
   handleFwssDataSetCreated,
   handleFwssDataSetServiceProviderChanged,
   handleFwssPdpPaymentTerminated,
   handleFwssPieceAdded,
   handleFwssServiceTerminated,
 } from "../src/fwss";
-import { getRootEntityId } from "../src/helpers";
+import { getRootEntityId, getBucketId } from "../src/helpers";
 import { handleDataSetCreated, handlePiecesAdded } from "../src/pdp-verifier";
 import { createDataSetCreatedEvent, createRootsAddedEvent } from "./pdp-verifier-utils";
 import {
@@ -16,6 +17,7 @@ import {
   createFwssPdpPaymentTerminatedEvent,
   createFwssPieceAddedEvent,
   createFwssServiceTerminatedEvent,
+  makeBlockAt,
 } from "./fwss-utils";
 
 const SET_ID = BigInt.fromI32(1);
@@ -204,6 +206,139 @@ describe("FWSS handlers", () => {
 
     assert.fieldEquals("DataSet", PROOF_SET_ENTITY_ID.toHexString(), "pdpPaymentEndEpoch", "12345");
     assert.fieldEquals("DataSet", PROOF_SET_ENTITY_ID.toHexString(), "isActive", "true");
+  });
+
+  test("handleFwssPdpPaymentTerminated with future endEpoch schedules the bucket and keeps isPaymentActive", () => {
+    seedDataSet();
+    // Default event block.number is 1; endEpoch=12345 is in the future.
+    const ev = createFwssPdpPaymentTerminatedEvent(SET_ID, BigInt.fromI32(12345), PDP_RAIL_ID);
+    handleFwssPdpPaymentTerminated(ev);
+
+    assert.fieldEquals("DataSet", PROOF_SET_ENTITY_ID.toHexString(), "isPaymentActive", "true");
+    const bucketId = getBucketId(BigInt.fromI32(12345)).toHexString();
+    assert.fieldEquals("PendingPaymentTermination", bucketId, "epoch", "12345");
+    assert.fieldEquals(
+      "PendingPaymentTermination",
+      bucketId,
+      "dataSetIds",
+      "[" + PROOF_SET_ENTITY_ID.toHexString() + "]",
+    );
+  });
+
+  test("handleFwssPdpPaymentTerminated with past endEpoch flips isPaymentActive immediately without scheduling", () => {
+    seedDataSet();
+    // endEpoch=0 is before the event's default block.number=1.
+    const ev = createFwssPdpPaymentTerminatedEvent(SET_ID, BigInt.zero(), PDP_RAIL_ID);
+    handleFwssPdpPaymentTerminated(ev);
+
+    assert.fieldEquals("DataSet", PROOF_SET_ENTITY_ID.toHexString(), "isPaymentActive", "false");
+    const bucketId = getBucketId(BigInt.zero()).toHexString();
+    assert.notInStore("PendingPaymentTermination", bucketId);
+  });
+
+  test("handleFwssPdpPaymentTerminated with endEpoch equal to current block flips immediately", () => {
+    seedDataSet();
+    // endEpoch == block.number (default 1): treated as already past.
+    const ev = createFwssPdpPaymentTerminatedEvent(SET_ID, BigInt.fromI32(1), PDP_RAIL_ID);
+    handleFwssPdpPaymentTerminated(ev);
+
+    assert.fieldEquals("DataSet", PROOF_SET_ENTITY_ID.toHexString(), "isPaymentActive", "false");
+    const bucketId = getBucketId(BigInt.fromI32(1)).toHexString();
+    assert.notInStore("PendingPaymentTermination", bucketId);
+  });
+
+  test("re-termination unschedules the previous bucket and reschedules under the new epoch", () => {
+    seedDataSet();
+    handleFwssPdpPaymentTerminated(createFwssPdpPaymentTerminatedEvent(SET_ID, BigInt.fromI32(100), PDP_RAIL_ID));
+    handleFwssPdpPaymentTerminated(createFwssPdpPaymentTerminatedEvent(SET_ID, BigInt.fromI32(200), PDP_RAIL_ID));
+
+    const oldBucket = getBucketId(BigInt.fromI32(100)).toHexString();
+    const newBucket = getBucketId(BigInt.fromI32(200)).toHexString();
+    assert.notInStore("PendingPaymentTermination", oldBucket);
+    assert.fieldEquals(
+      "PendingPaymentTermination",
+      newBucket,
+      "dataSetIds",
+      "[" + PROOF_SET_ENTITY_ID.toHexString() + "]",
+    );
+    assert.fieldEquals("DataSet", PROOF_SET_ENTITY_ID.toHexString(), "pdpPaymentEndEpoch", "200");
+  });
+
+  test("re-termination with a future endEpoch restores isPaymentActive after a prior termination elapsed", () => {
+    // Simulates: termination scheduled, epoch passes (flag flips false), then a
+    // new PDPPaymentTerminated pushes the end into the future. The dataset is
+    // paying again until the new epoch, so the flag must flip back to true.
+    seedDataSet();
+    handleFwssPdpPaymentTerminated(createFwssPdpPaymentTerminatedEvent(SET_ID, BigInt.fromI32(100), PDP_RAIL_ID));
+    handleBlock(makeBlockAt(BigInt.fromI32(100)));
+    assert.fieldEquals("DataSet", PROOF_SET_ENTITY_ID.toHexString(), "isPaymentActive", "false");
+
+    handleFwssPdpPaymentTerminated(createFwssPdpPaymentTerminatedEvent(SET_ID, BigInt.fromI32(500), PDP_RAIL_ID));
+
+    assert.fieldEquals("DataSet", PROOF_SET_ENTITY_ID.toHexString(), "isPaymentActive", "true");
+    assert.fieldEquals("DataSet", PROOF_SET_ENTITY_ID.toHexString(), "pdpPaymentEndEpoch", "500");
+    const newBucket = getBucketId(BigInt.fromI32(500)).toHexString();
+    assert.fieldEquals(
+      "PendingPaymentTermination",
+      newBucket,
+      "dataSetIds",
+      "[" + PROOF_SET_ENTITY_ID.toHexString() + "]",
+    );
+  });
+
+  // -- handleBlock --------------------------------------------------------
+
+  test("handleBlock flips isPaymentActive and removes the bucket at the scheduled epoch", () => {
+    seedDataSet();
+    handleFwssPdpPaymentTerminated(createFwssPdpPaymentTerminatedEvent(SET_ID, BigInt.fromI32(500), PDP_RAIL_ID));
+    assert.fieldEquals("DataSet", PROOF_SET_ENTITY_ID.toHexString(), "isPaymentActive", "true");
+
+    handleBlock(makeBlockAt(BigInt.fromI32(500)));
+
+    assert.fieldEquals("DataSet", PROOF_SET_ENTITY_ID.toHexString(), "isPaymentActive", "false");
+    const bucketId = getBucketId(BigInt.fromI32(500)).toHexString();
+    assert.notInStore("PendingPaymentTermination", bucketId);
+  });
+
+  test("handleBlock is a no-op when no bucket exists for the current block", () => {
+    seedDataSet();
+    // No PDPPaymentTerminated fired; isPaymentActive must stay true after a tick.
+    handleBlock(makeBlockAt(BigInt.fromI32(7)));
+    assert.fieldEquals("DataSet", PROOF_SET_ENTITY_ID.toHexString(), "isPaymentActive", "true");
+  });
+
+  test("handleBlock skips datasets whose pdpPaymentEndEpoch no longer matches the bucket epoch", () => {
+    // Defense in depth: if a stale bucket entry survives (re-termination races
+    // or future schema changes), the block handler re-checks the dataset's
+    // current end epoch before flipping.
+    seedDataSet();
+    handleFwssPdpPaymentTerminated(createFwssPdpPaymentTerminatedEvent(SET_ID, BigInt.fromI32(100), PDP_RAIL_ID));
+    handleFwssPdpPaymentTerminated(createFwssPdpPaymentTerminatedEvent(SET_ID, BigInt.fromI32(200), PDP_RAIL_ID));
+
+    // Firing the OLD epoch should not flip — the dataset is now scheduled for 200.
+    handleBlock(makeBlockAt(BigInt.fromI32(100)));
+    assert.fieldEquals("DataSet", PROOF_SET_ENTITY_ID.toHexString(), "isPaymentActive", "true");
+
+    // Firing the NEW epoch flips.
+    handleBlock(makeBlockAt(BigInt.fromI32(200)));
+    assert.fieldEquals("DataSet", PROOF_SET_ENTITY_ID.toHexString(), "isPaymentActive", "false");
+  });
+
+  test("handleFwssServiceTerminated also flips isPaymentActive and removes the bucket entry", () => {
+    seedDataSet();
+    handleFwssPdpPaymentTerminated(createFwssPdpPaymentTerminatedEvent(SET_ID, BigInt.fromI32(300), PDP_RAIL_ID));
+
+    handleFwssServiceTerminated(createFwssServiceTerminatedEvent(SET_ID, PROVIDER_ADDRESS));
+
+    assert.fieldEquals("DataSet", PROOF_SET_ENTITY_ID.toHexString(), "isActive", "false");
+    assert.fieldEquals("DataSet", PROOF_SET_ENTITY_ID.toHexString(), "isPaymentActive", "false");
+    const bucketId = getBucketId(BigInt.fromI32(300)).toHexString();
+    assert.notInStore("PendingPaymentTermination", bucketId);
+  });
+
+  test("DataSet is created with isPaymentActive=true by default", () => {
+    seedDataSet();
+    assert.fieldEquals("DataSet", PROOF_SET_ENTITY_ID.toHexString(), "isPaymentActive", "true");
   });
 
   test("handleFwssPdpPaymentTerminated no-ops for unknown dataSetId", () => {
