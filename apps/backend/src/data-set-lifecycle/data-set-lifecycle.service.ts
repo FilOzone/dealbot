@@ -269,7 +269,7 @@ export class DataSetLifecycleService {
         findPiece({
           serviceURL: providerInfo.pdp.serviceURL,
           pieceCid,
-          retry: true,
+          poll: true,
           signal,
         }),
         signal,

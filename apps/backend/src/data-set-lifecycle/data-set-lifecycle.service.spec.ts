@@ -129,7 +129,7 @@ describe("DataSetLifecycleService", () => {
       expect.objectContaining({ serviceURL: "https://sp.example.com" }),
     );
     expect(findPiece).toHaveBeenCalledWith(
-      expect.objectContaining({ serviceURL: "https://sp.example.com", pieceCid: mockPieceCid, retry: true }),
+      expect.objectContaining({ serviceURL: "https://sp.example.com", pieceCid: mockPieceCid, poll: true }),
     );
     expect(createDataSetAndAddPieces).toHaveBeenCalledWith(
       mockClient,
