@@ -2,11 +2,13 @@ import {
   createDataSet,
   createDataSetAndAddPieces,
   findPiece,
+  type TerminateServiceStatusSuccess,
+  terminateService,
   uploadPieceStreaming,
   waitForCreateDataSet,
   waitForCreateDataSetAddPieces,
+  waitForTerminateService,
 } from "@filoz/synapse-core/sp";
-import { terminateServiceSync } from "@filoz/synapse-core/warm-storage";
 import { Injectable, Logger } from "@nestjs/common";
 import { awaitWithAbort } from "../common/abort-utils.js";
 import { type ProviderJobContext, toStructuredError } from "../common/logging.js";
@@ -22,6 +24,24 @@ type LifecycleBaseLogContext = {
   providerId: bigint;
   providerName: string;
 };
+
+/**
+ * Provider-relayed termination as a single call: sign + POST the EIP-712
+ * authorization (`terminateService`) then poll until the SP confirms it on-chain
+ * (`waitForTerminateService`). Replaces the old warm-storage `terminateServiceSync`,
+ * which submitted the tx directly — a path that reverts for Safe-multisig payers
+ * because the session-key signer is never the on-chain msg.sender (#546).
+ */
+async function terminateServiceSync(
+  client: SynapseViemClient,
+  options: { dataSetId: bigint; serviceURL: string; onHash?: (hash: `0x${string}`) => void },
+): Promise<TerminateServiceStatusSuccess> {
+  const { statusUrl } = await terminateService(client, {
+    dataSetId: options.dataSetId,
+    serviceURL: options.serviceURL,
+  });
+  return waitForTerminateService({ statusUrl, onHash: options.onHash });
+}
 
 @Injectable()
 export class DataSetLifecycleService {
@@ -160,6 +180,7 @@ export class DataSetLifecycleService {
       await awaitWithAbort(
         terminateServiceSync(client, {
           dataSetId,
+          serviceURL: providerInfo.pdp.serviceURL,
           onHash: (hash) => {
             this.logger.log({
               event: "dataset_lifecycle_check_terminating",
@@ -296,6 +317,7 @@ export class DataSetLifecycleService {
       await awaitWithAbort(
         terminateServiceSync(client, {
           dataSetId,
+          serviceURL: providerInfo.pdp.serviceURL,
           onHash: (hash) => {
             this.logger.log({
               event: "dataset_with_pieces_lifecycle_check_terminating",
