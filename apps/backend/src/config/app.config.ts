@@ -52,6 +52,11 @@ export const configValidationSchema = Joi.object({
     .uri({ scheme: ["http", "https"] })
     .optional()
     .allow(""),
+  // Per-request RPC timeout for the viem transport. Must stay ABOVE eRPC's
+  // network failsafe timeout so eRPC can fail over to a fallback upstream
+  // before dealbot gives up. viem's own default is 10s, which is below eRPC's
+  // budget and causes premature client aborts. See #603.
+  RPC_REQUEST_TIMEOUT_MS: Joi.number().integer().min(1000).default(30000),
   SESSION_KEY_PRIVATE_KEY: Joi.string().optional().empty(""),
   CHECK_DATASET_CREATION_FEES: Joi.boolean().default(true),
   USE_ONLY_APPROVED_PROVIDERS: Joi.boolean().default(true),
@@ -198,6 +203,7 @@ export interface IDatabaseConfig {
 export interface IBlockchainConfig {
   network: Network;
   rpcUrl?: string;
+  rpcRequestTimeoutMs: number;
   sessionKeyPrivateKey?: `0x${string}`;
   walletAddress: string;
   walletPrivateKey: `0x${string}`;
@@ -475,6 +481,7 @@ export function loadConfig(): IConfig {
     blockchain: {
       network: (process.env.NETWORK || "calibration") as Network,
       rpcUrl: process.env.RPC_URL || undefined,
+      rpcRequestTimeoutMs: Number.parseInt(process.env.RPC_REQUEST_TIMEOUT_MS || "30000", 10),
       sessionKeyPrivateKey: (process.env.SESSION_KEY_PRIVATE_KEY || undefined) as `0x${string}` | undefined,
       walletAddress: process.env.WALLET_ADDRESS || "0x0000000000000000000000000000000000000000",
       walletPrivateKey: (process.env.WALLET_PRIVATE_KEY || undefined) as `0x${string}`,
