@@ -15,6 +15,10 @@ vi.mock("@/hooks/useProvidersList", () => ({
   useProvidersList: (...args: unknown[]) => mockUseProvidersList(...args),
 }));
 
+vi.mock("@/hooks/useNetworkConfig", () => ({
+  useNetworkConfig: () => ({ network: "mainnet", loading: false, error: null }),
+}));
+
 import Landing from "./Landing";
 
 function makeProvider(overrides: Record<string, unknown> = {}) {

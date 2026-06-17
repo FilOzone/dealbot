@@ -15,7 +15,7 @@ This doc explains what a "job" is in dealbot, how jobs are defined, how they're 
 | --- | --- | --- |
 | `job_schedule_state` | One per `<sp, job_type>` plus global rows | Schedule state owned by dealbot. |
 | Storage provider (SP) | One per SP in registry | Filtered by `USE_ONLY_APPROVED_PROVIDERS` when enabled. |
-| Job type | `deal`, `retrieval`, `data_set_creation`, `piece_cleanup`, `pull_check`, `providers_refresh`, `data_retention_poll` | `deal` corresponds to "data storage check" externally; we keep `deal` in code/DB for compatibility. |
+| Job type | `deal`, `retrieval`, `data_set_creation`, `data_set_lifecycle_check`, `piece_cleanup`, `pull_check`, `providers_refresh`, `data_retention_poll` | `deal` corresponds to "data storage check" externally; we keep `deal` in code/DB for compatibility. |
 | pg-boss queue | `sp.work`, `providers.refresh`, `data.retention.poll` | `sp.work` is a singleton queue. |
 | Dealbot scheduler | One per process (when enabled) | Runs the scheduling loop. |
 | Dealbot worker process | One Node.js process with `DEALBOT_RUN_MODE=worker` or `both` | Hosts pg-boss workers. |
@@ -30,12 +30,14 @@ This doc explains what a "job" is in dealbot, how jobs are defined, how they're 
 
 ## Job Types, Queues, and Handlers
 
-| Job type | Queue | Handler | Payload |
-| --- | --- | --- | --- |
-| `deal` | `sp.work` | [`JobsService.handleDealJob`](../apps/backend/src/jobs/jobs.service.ts) | `{ jobType: 'deal', spAddress, intervalSeconds }` |
-| `retrieval` | `sp.work` | [`JobsService.handleRetrievalJob`](../apps/backend/src/jobs/jobs.service.ts) | `{ jobType: 'retrieval', spAddress, intervalSeconds }` |
-| `piece_cleanup` | `sp.work` | [`JobsService.handlePieceCleanupJob`](../apps/backend/src/jobs/jobs.service.ts) | `{ jobType: 'piece_cleanup', spAddress, intervalSeconds }` |
-| `pull_check` | `sp.work` | [`JobsService.handlePullCheckJob`](../apps/backend/src/jobs/jobs.service.ts) | `{ jobType: 'pull_check', spAddress, intervalSeconds }` |
+| Job type | Queue | Handler | Payload | Design doc |
+| --- | --- | --- | --- | --- |
+| `deal` | `sp.work` | [`JobsService.handleDealJob`](../apps/backend/src/jobs/jobs.service.ts) | `{ jobType: 'deal', spAddress, intervalSeconds }` | [data-storage check](./checks/data-storage.md) |
+| `retrieval` | `sp.work` | [`JobsService.handleRetrievalJob`](../apps/backend/src/jobs/jobs.service.ts) | `{ jobType: 'retrieval', spAddress, intervalSeconds }` | [retrieval check](./checks/retrievals.md) |
+| `piece_cleanup` | `sp.work` | [`JobsService.handlePieceCleanupJob`](../apps/backend/src/jobs/jobs.service.ts) | `{ jobType: 'piece_cleanup', spAddress, intervalSeconds }` | — |
+| `pull_check` | `sp.work` | [`JobsService.handlePullCheckJob`](../apps/backend/src/jobs/jobs.service.ts) | `{ jobType: 'pull_check', spAddress, intervalSeconds }` | [pull check](./checks/pull-check.md) |
+| `data_set_creation` | `sp.work` | [`JobsService.handleDataSetCreationJob`](../apps/backend/src/jobs/jobs.service.ts) | `{ jobType: 'data_set_creation', spAddress, intervalSeconds }` | [data-set-creation](./data-set-creation.md) |
+| `data_set_lifecycle_check` | `sp.work` | [`JobsService.handleDataSetLifecycleCheckJob`](../apps/backend/src/jobs/jobs.service.ts) | `{ jobType: 'data_set_lifecycle_check', spAddress, intervalSeconds }` | [data-set-lifecycle-check](./checks/data-set-lifecycle-check.md) |
 
 `sp.work` is created with `policy=singleton`, and jobs set `singletonKey=spAddress` so only one active job per SP can run at a time.
 

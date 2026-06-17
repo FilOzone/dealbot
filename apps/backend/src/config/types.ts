@@ -33,6 +33,13 @@ export type BaseNetworkConfig = {
 
   /** Blockchain Config */
   rpcUrl?: string;
+  /**
+   * Per-request timeout (ms) for the viem RPC transport.
+   *
+   * Kept above eRPC's network failsafe budget so eRPC can fail over to a
+   * fallback upstream before DealBot aborts the request. See #603/#604.
+   */
+  rpcRequestTimeoutMs: number;
   walletAddress: string;
   checkDatasetCreationFees: boolean;
   useOnlyApprovedProviders: boolean;
@@ -57,6 +64,17 @@ export type BaseNetworkConfig = {
    */
   dataSetCreationsPerSpPerHour: number;
   /**
+   * Enables the `data_set_lifecycle_check` canary job, which creates a
+   * throwaway data set (with a seed piece) and immediately terminates it to
+   * verify the SP create→terminate lifecycle. Defaults to disabled on mainnet
+   * and enabled on every other network. See docs/checks/data-set-lifecycle-check.md.
+   */
+  dataSetLifecycleCheckEnabled: boolean;
+  /**
+   * Target number of dataset lifecycle check runs per storage provider per hour.
+   */
+  dataSetLifecycleChecksPerSpPerHour: number;
+  /**
    * Target number of piece cleanup runs per storage provider per hour.
    *
    * Increasing this makes cleanup more aggressive at the cost of more SP API calls.
@@ -80,6 +98,12 @@ export type BaseNetworkConfig = {
    * Uses AbortController to actively cancel job execution.
    */
   retrievalJobTimeoutSeconds: number;
+  /**
+   * Maximum runtime (seconds) for data-set lifecycle check jobs before forced abort.
+   *
+   * Covers create + seed-piece upload + terminate + pdpEndEpoch poll.
+   */
+  dataSetLifecycleCheckJobTimeoutSeconds: number;
   maxPieceCleanupRuntimeSeconds: number;
   dataRetentionPollIntervalSeconds: number;
   providersRefreshIntervalSeconds: number;
@@ -256,12 +280,15 @@ export type NetworkDefaults = Pick<
   | "checkDatasetCreationFees"
   | "useOnlyApprovedProviders"
   | "minNumDataSetsForChecks"
+  | "rpcRequestTimeoutMs"
   | "dealsPerSpPerHour"
   | "dealJobTimeoutSeconds"
   | "retrievalsPerSpPerHour"
   | "retrievalJobTimeoutSeconds"
   | "dataSetCreationsPerSpPerHour"
   | "dataSetCreationJobTimeoutSeconds"
+  | "dataSetLifecycleChecksPerSpPerHour"
+  | "dataSetLifecycleCheckJobTimeoutSeconds"
   | "pieceCleanupPerSpPerHour"
   | "maxPieceCleanupRuntimeSeconds"
   | "dataRetentionPollIntervalSeconds"

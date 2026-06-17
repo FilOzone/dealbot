@@ -39,7 +39,14 @@ export interface SynapseInstanceResult {
 export async function createSynapseFromConfig(config: INetworkConfig): Promise<SynapseInstanceResult> {
   const chain = config.network === "mainnet" ? mainnet : calibration;
   const rpcUrl = config.rpcUrl;
-  const transport = rpcUrl ? http(rpcUrl) : http();
+  // Keep this timeout above eRPC's network failsafe budget so eRPC can fail
+  // over to a fallback upstream before we abort. viem's default is 10s, which
+  // is below eRPC's budget and turns slow-upstream latency into hard failures.
+  // See #603.
+  const transportOpts = { timeout: config.rpcRequestTimeoutMs };
+  // Always carries the configured timeout. With no rpcUrl, http(undefined)
+  // falls back to the chain's default RPC, so the timeout applies on every path.
+  const transport = rpcUrl ? http(rpcUrl, transportOpts) : http(undefined, transportOpts);
 
   if ("sessionKeyPrivateKey" in config) {
     const sessionKeyPK = config.sessionKeyPrivateKey;
@@ -100,7 +107,7 @@ export async function createSynapseFromConfig(config: INetworkConfig): Promise<S
       account: privateKeyToAccount(config.walletPrivateKey),
       chain,
       source: "dealbot",
-      ...(rpcUrl ? { transport } : {}),
+      transport,
     }),
     isSessionKeyMode: false,
   };

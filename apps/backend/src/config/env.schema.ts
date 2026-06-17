@@ -149,6 +149,7 @@ export const createPerNetworkEnvSchema = (prefix: Uppercase<Network> | "") => {
       .uri({ scheme: ["http", "https"] })
       .optional()
       .allow(""),
+    [k("RPC_REQUEST_TIMEOUT_MS")]: Joi.number().integer().min(1000).default(30000),
     [k("PDP_SUBGRAPH_ENDPOINT")]: Joi.string().uri().optional().allow(""),
     [k("CHECK_DATASET_CREATION_FEES")]: Joi.boolean().optional(),
     [k("USE_ONLY_APPROVED_PROVIDERS")]: Joi.boolean().optional(),
@@ -157,9 +158,14 @@ export const createPerNetworkEnvSchema = (prefix: Uppercase<Network> | "") => {
     [k("DEALS_PER_SP_PER_HOUR")]: Joi.number().min(0.001).max(20).optional(),
     [k("RETRIEVALS_PER_SP_PER_HOUR")]: Joi.number().min(0.001).max(20).optional(),
     [k("DATASET_CREATIONS_PER_SP_PER_HOUR")]: Joi.number().min(0.001).max(20).optional(),
+    [k("DATASET_LIFECYCLE_CHECKS_PER_SP_PER_HOUR")]: Joi.number().min(0.001).max(20).default(1),
+    // Enables the data_set_lifecycle_check canary job. Left optional so the loader can
+    // apply the network-dependent default (enabled off mainnet, disabled on mainnet).
+    [k("DATASET_LIFECYCLE_CHECK_ENABLED")]: Joi.boolean().optional(),
     [k("DEAL_JOB_TIMEOUT_SECONDS")]: Joi.number().min(120).default(360),
     [k("RETRIEVAL_JOB_TIMEOUT_SECONDS")]: Joi.number().min(60).default(60),
     [k("DATA_SET_CREATION_JOB_TIMEOUT_SECONDS")]: Joi.number().min(60).default(300),
+    [k("DATA_SET_LIFECYCLE_CHECK_JOB_TIMEOUT_SECONDS")]: Joi.number().min(60).default(600),
     [k("DATA_RETENTION_POLL_INTERVAL_SECONDS")]: Joi.number().optional(),
     [k("PROVIDERS_REFRESH_INTERVAL_SECONDS")]: Joi.number().optional(),
     [k("MAINTENANCE_WINDOWS_UTC")]: Joi.string().default("07:00,22:00").custom(validateMaintenanceWindowsEnv),

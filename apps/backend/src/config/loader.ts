@@ -124,10 +124,12 @@ function loadNetworkEnvPrefix(
 ): DistributiveOmit<INetworkConfig, "network"> {
   const k = (key: string) => `${prefix}_${key}`;
   const get = (key: string) => env[k(key)];
+  const network = prefix.toLowerCase() as Network;
 
   const base = {
     walletAddress: get("WALLET_ADDRESS") || ZERO_ADDRESS,
     rpcUrl: get("RPC_URL") || undefined,
+    rpcRequestTimeoutMs: getNumberEnv(env, k("RPC_REQUEST_TIMEOUT_MS"), networkDefaults.rpcRequestTimeoutMs),
     pdpSubgraphEndpoint: get("PDP_SUBGRAPH_ENDPOINT") || undefined,
     checkDatasetCreationFees: getBooleanEnv(
       env,
@@ -162,6 +164,18 @@ function loadNetworkEnvPrefix(
       env,
       k("DATA_SET_CREATION_JOB_TIMEOUT_SECONDS"),
       networkDefaults.dataSetCreationJobTimeoutSeconds,
+    ),
+    // Network-dependent default: enabled on every network except mainnet.
+    dataSetLifecycleCheckEnabled: getBooleanEnv(env, k("DATASET_LIFECYCLE_CHECK_ENABLED"), network !== "mainnet"),
+    dataSetLifecycleChecksPerSpPerHour: getFloatEnv(
+      env,
+      k("DATASET_LIFECYCLE_CHECKS_PER_SP_PER_HOUR"),
+      networkDefaults.dataSetLifecycleChecksPerSpPerHour,
+    ),
+    dataSetLifecycleCheckJobTimeoutSeconds: getNumberEnv(
+      env,
+      k("DATA_SET_LIFECYCLE_CHECK_JOB_TIMEOUT_SECONDS"),
+      networkDefaults.dataSetLifecycleCheckJobTimeoutSeconds,
     ),
     dataRetentionPollIntervalSeconds: getNumberEnv(
       env,

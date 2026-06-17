@@ -5,6 +5,7 @@ import { InjectMetric } from "@willsoto/nestjs-prometheus";
 import { type Job, PgBoss, type SendOptions } from "pg-boss";
 import type { Counter, Gauge, Histogram } from "prom-client";
 import type { Repository } from "typeorm";
+import { LIFECYCLE_CHECK_METADATA_KEY } from "../common/constants.js";
 import { DealJobTerminatedDataSetError } from "../common/errors.js";
 import { type JobLogContext, type ProviderJobContext, toStructuredError } from "../common/logging.js";
 import { getMaintenanceWindowStatus } from "../common/maintenance-window.js";
@@ -12,6 +13,7 @@ import { isSpBlocked } from "../common/sp-blocklist.js";
 import type { Network } from "../common/types.js";
 import type { IConfig } from "../config/index.js";
 import { DataRetentionService } from "../data-retention/data-retention.service.js";
+import { DataSetLifecycleService } from "../data-set-lifecycle/data-set-lifecycle.service.js";
 import type { JobType } from "../database/entities/job-schedule-state.entity.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
 import { DealService } from "../deal/deal.service.js";
@@ -28,11 +30,18 @@ import {
 } from "./job-queues.js";
 import { JobScheduleRepository } from "./repositories/job-schedule.repository.js";
 
-type SpJobType = "deal" | "retrieval" | "data_set_creation" | "piece_cleanup" | "pull_check";
+type SpJobType =
+  | "deal"
+  | "retrieval"
+  | "data_set_creation"
+  | "data_set_lifecycle_check"
+  | "piece_cleanup"
+  | "pull_check";
 const SP_JOB_TYPES: ReadonlySet<string> = new Set<string>([
   "deal",
   "retrieval",
   "data_set_creation",
+  "data_set_lifecycle_check",
   "piece_cleanup",
   "pull_check",
 ]);
@@ -101,6 +110,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     private readonly storageProvidersActive: Gauge,
     @InjectMetric("storage_providers_tested")
     private readonly storageProvidersTested: Gauge,
+    private readonly dataSetLifecycleService: DataSetLifecycleService,
   ) {}
 
   /**
@@ -215,6 +225,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
           cfg.dealJobTimeoutSeconds,
           cfg.retrievalJobTimeoutSeconds,
           cfg.dataSetCreationJobTimeoutSeconds,
+          cfg.dataSetLifecycleCheckJobTimeoutSeconds,
           cfg.pullCheckJobTimeoutSeconds,
         );
 
@@ -351,6 +362,10 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
           }
           if (job.data.jobType === "data_set_creation") {
             await this.handleDataSetCreationJob(job);
+            return;
+          }
+          if (job.data.jobType === "data_set_lifecycle_check") {
+            await this.handleDataSetLifecycleCheckJob(job);
             return;
           }
           if (job.data.jobType === "piece_cleanup") {
@@ -707,7 +722,11 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
           network: data.network,
         });
       } else {
-        await this.walletSdkService.loadProviders(data.network);
+        // loadProviders() swallows on-chain failures and returns false, that is a job failure.
+        const loaded = await this.walletSdkService.loadProviders(data.network);
+        if (!loaded) {
+          throw new Error("Provider refresh failed: unable to load providers from on-chain registry");
+        }
       }
       await this.updateStorageProviderGauges(data.network);
       return "success";
@@ -967,6 +986,111 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     });
   }
 
+  /**
+   * Handles one `data_set_lifecycle_check` invocation for a provider.
+   *
+   * Both creation variants run in parallel every tick: the empty variant (createDataSet)
+   * and the with-pieces variant (createDataSetAndAddPieces). Each immediately terminates
+   * its throwaway data set.
+   */
+  private async handleDataSetLifecycleCheckJob(job: SpJob): Promise<void> {
+    const data = job.data;
+    const { spAddress, network } = data;
+    const now = new Date();
+    const maintenance = this.getMaintenanceWindowStatus(now, network);
+    if (maintenance.active) {
+      this.logMaintenanceSkip(`data_set_lifecycle_check job for ${spAddress}`, network, maintenance.window?.label, {
+        jobId: job.id,
+        providerAddress: spAddress,
+        providerId: this.walletSdkService.getProviderInfo(spAddress, network)?.id,
+        providerName: this.walletSdkService.getProviderInfo(spAddress, network)?.name,
+      });
+      await this.deferJobForMaintenance("data_set_lifecycle_check", data, maintenance, now);
+      return;
+    }
+
+    const networkCfg = this.configService.get("networks", { infer: true })[network];
+    // Defensive gate: schedules are only created when enabled, but a stale enqueued job
+    // (e.g. after disabling) must still no-op safely.
+    if (!networkCfg.dataSetLifecycleCheckEnabled) {
+      this.logger.log({
+        jobId: job.id,
+        providerAddress: spAddress,
+        providerId: this.walletSdkService.getProviderInfo(spAddress, network)?.id,
+        providerName: this.walletSdkService.getProviderInfo(spAddress, network)?.name,
+        event: "data_set_lifecycle_check_job_disabled",
+        message: "Data set lifecycle check job skipped: disabled",
+        enabled: networkCfg.dataSetLifecycleCheckEnabled,
+      });
+      return;
+    }
+
+    // Fixed marker key + per-run nonce value. The key is the manual-cleanup handle; the
+    // nonce forces createContext to provision a fresh set each tick instead of resolving
+    // a prior (possibly leaked) set. Intentionally excludes base data-set metadata.
+    const metadata: Record<string, string> = {
+      [LIFECYCLE_CHECK_METADATA_KEY]: Date.now().toString(),
+    };
+
+    // Create AbortController for job timeout enforcement
+    const abortController = new AbortController();
+    const timeoutSeconds = networkCfg.dataSetLifecycleCheckJobTimeoutSeconds;
+    const timeoutMs = Math.max(60000, timeoutSeconds * 1000);
+    const effectiveTimeoutSeconds = Math.round(timeoutMs / 1000);
+    const abortReason = new Error(
+      `Data set lifecycle check job timeout (${effectiveTimeoutSeconds}s) for ${spAddress}`,
+    );
+    const timeoutId = setTimeout(() => {
+      abortController.abort(abortReason);
+    }, timeoutMs);
+
+    await this.recordJobExecution("data_set_lifecycle_check", network, async () => {
+      const dataSetLogContext = await this.resolveRunnableProviderJobContext(
+        "data_set_lifecycle_check",
+        spAddress,
+        job.id,
+        "Data set lifecycle check job skipped: provider is blocked for scheduled data-storage checks",
+        network,
+      );
+      if (dataSetLogContext == null) {
+        clearTimeout(timeoutId);
+        return "success";
+      }
+      try {
+        await this.dataSetLifecycleService.runLifecycleCheck(
+          spAddress,
+          network,
+          metadata,
+          abortController.signal,
+          dataSetLogContext,
+        );
+        return "success";
+      } catch (error) {
+        if (abortController.signal.aborted) {
+          const reason = abortController.signal.reason;
+          const reasonMessage = reason instanceof Error ? reason.message : String(reason ?? "");
+          this.logger.error({
+            ...dataSetLogContext,
+            event: "data_set_lifecycle_check_job_aborted",
+            message: reasonMessage || "Data set lifecycle check job aborted after timeout",
+            timeoutSeconds: effectiveTimeoutSeconds,
+            error: toStructuredError(reason ?? error),
+          });
+          return "aborted";
+        }
+        this.logger.error({
+          ...dataSetLogContext,
+          event: "data_set_lifecycle_check_job_failed",
+          message: "Data set lifecycle check job failed",
+          error: toStructuredError(error),
+        });
+        throw error;
+      } finally {
+        clearTimeout(timeoutId);
+      }
+    });
+  }
+
   private maintenanceResumeAt(
     now: Date,
     network: Network,
@@ -1064,6 +1188,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     dealIntervalSeconds: number;
     retrievalIntervalSeconds: number;
     dataSetCreationIntervalSeconds: number;
+    dataSetLifecycleCheckIntervalSeconds: number;
     dataRetentionPollIntervalSeconds: number;
     providersRefreshIntervalSeconds: number;
     pieceCleanupIntervalSeconds: number;
@@ -1076,6 +1201,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       dealsPerSpPerHour,
       retrievalsPerSpPerHour,
       dataSetCreationsPerSpPerHour,
+      dataSetLifecycleChecksPerSpPerHour,
       pieceCleanupPerSpPerHour,
       pullChecksPerSpPerHour,
       dataRetentionPollIntervalSeconds,
@@ -1086,6 +1212,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     const dealIntervalSeconds = Math.max(1, Math.round(3600 / dealsPerSpPerHour));
     const retrievalIntervalSeconds = Math.max(1, Math.round(3600 / retrievalsPerSpPerHour));
     const dataSetCreationIntervalSeconds = Math.max(1, Math.round(3600 / dataSetCreationsPerSpPerHour));
+    const dataSetLifecycleCheckIntervalSeconds = Math.max(1, Math.round(3600 / dataSetLifecycleChecksPerSpPerHour));
     const pieceCleanupIntervalSeconds = Math.max(1, Math.round(3600 / pieceCleanupPerSpPerHour));
     const pullCheckIntervalSeconds = Math.max(1, Math.round(3600 / pullChecksPerSpPerHour));
 
@@ -1093,6 +1220,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       dealIntervalSeconds,
       retrievalIntervalSeconds,
       dataSetCreationIntervalSeconds,
+      dataSetLifecycleCheckIntervalSeconds,
       dataRetentionPollIntervalSeconds,
       providersRefreshIntervalSeconds,
       pieceCleanupIntervalSeconds,
@@ -1114,6 +1242,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       dealIntervalSeconds,
       retrievalIntervalSeconds,
       dataSetCreationIntervalSeconds,
+      dataSetLifecycleCheckIntervalSeconds,
       dataRetentionPollIntervalSeconds,
       providersRefreshIntervalSeconds,
       pieceCleanupIntervalSeconds,
@@ -1134,10 +1263,13 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     const dealStartAt = new Date(now.getTime() + phaseMs);
     const retrievalStartAt = new Date(now.getTime() + phaseMs);
     const dataSetCreationStartAt = new Date(now.getTime() + phaseMs);
+    const dataSetLifecycleCheckStartAt = new Date(now.getTime() + phaseMs);
     const dataRetentionPollStartAt = new Date(now.getTime() + phaseMs);
     const providersRefreshStartAt = new Date(now.getTime() + phaseMs);
 
     const minDataSets = networkCfg.minNumDataSetsForChecks;
+    // Lifecycle check schedules are only created when enabled explicitly
+    const lifecycleCheckScheduleEnabled = networkCfg.dataSetLifecycleCheckEnabled;
     const cleanupStartAt = new Date(now.getTime() + phaseMs);
     const pullCheckStartAt = new Date(now.getTime() + phaseMs);
 
@@ -1169,6 +1301,15 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
           network,
           dataSetCreationIntervalSeconds,
           dataSetCreationStartAt,
+        );
+      }
+      if (lifecycleCheckScheduleEnabled) {
+        await this.jobScheduleRepository.upsertSchedule(
+          "data_set_lifecycle_check",
+          address,
+          network,
+          dataSetLifecycleCheckIntervalSeconds,
+          dataSetLifecycleCheckStartAt,
         );
       }
       await this.jobScheduleRepository.upsertSchedule(
@@ -1205,6 +1346,19 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         event: "job_schedule_deletion_skipped",
         message: "No active providers found; skipping job schedule deletion to prevent accidental mass-deletion",
       });
+    }
+
+    // When the lifecycle check is disabled, remove any stale data_set_lifecycle_check
+    // schedules so they stop enqueuing no-op jobs.
+    if (!lifecycleCheckScheduleEnabled) {
+      const removed = await this.jobScheduleRepository.deleteSchedulesByJobType("data_set_lifecycle_check", network);
+      if (removed > 0) {
+        this.logger.warn({
+          event: "data_set_lifecycle_check_schedules_removed",
+          message: "Removed data_set_lifecycle_check schedules because the job is disabled",
+          removed,
+        });
+      }
     }
 
     // Per-network global job schedules (sp_address = '')
@@ -1321,6 +1475,8 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         return SP_WORK_QUEUE;
       case "data_set_creation":
         return SP_WORK_QUEUE;
+      case "data_set_lifecycle_check":
+        return SP_WORK_QUEUE;
       case "piece_cleanup":
         return SP_WORK_QUEUE;
       case "pull_check":
@@ -1343,6 +1499,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       row.job_type === "deal" ||
       row.job_type === "retrieval" ||
       row.job_type === "data_set_creation" ||
+      row.job_type === "data_set_lifecycle_check" ||
       row.job_type === "piece_cleanup" ||
       row.job_type === "pull_check"
     ) {
@@ -1426,6 +1583,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       "deal",
       "retrieval",
       "data_set_creation",
+      "data_set_lifecycle_check",
       "piece_cleanup",
       "pull_check",
       "data_retention_poll",

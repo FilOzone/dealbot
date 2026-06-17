@@ -13,6 +13,7 @@ type LoggerLike = {
 
 const baseNetworkConfig = {
   network: "calibration" as const,
+  rpcRequestTimeoutMs: 30000,
   walletAddress: "0x0000000000000000000000000000000000000000",
   walletPrivateKey: "0xtest" as `0x${string}`,
   checkDatasetCreationFees: false,
@@ -22,6 +23,9 @@ const baseNetworkConfig = {
   dealsPerSpPerHour: 4,
   retrievalsPerSpPerHour: 2,
   dataSetCreationsPerSpPerHour: 1,
+  dataSetLifecycleCheckEnabled: true,
+  dataSetLifecycleChecksPerSpPerHour: 1,
+  dataSetLifecycleCheckJobTimeoutSeconds: 600,
   dataRetentionPollIntervalSeconds: 3600,
   providersRefreshIntervalSeconds: 14400,
   maintenanceWindowsUtc: ["07:00", "22:00"],

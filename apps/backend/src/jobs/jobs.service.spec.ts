@@ -28,6 +28,7 @@ describe("JobsService schedule rows", () => {
   let jobScheduleRepositoryMock: {
     upsertSchedule: ReturnType<typeof vi.fn>;
     deleteSchedulesForInactiveProviders: ReturnType<typeof vi.fn>;
+    deleteSchedulesByJobType: ReturnType<typeof vi.fn>;
     countPausedSchedules: ReturnType<typeof vi.fn>;
     findDueSchedulesWithManager: ReturnType<typeof vi.fn>;
     runTransaction: ReturnType<typeof vi.fn>;
@@ -76,6 +77,7 @@ describe("JobsService schedule rows", () => {
       jobDuration: JobsServiceDeps[18];
       storageProvidersActive: JobsServiceDeps[19];
       storageProvidersTested: JobsServiceDeps[20];
+      dataSetLifecycleService: JobsServiceDeps[21];
     }>,
   ) => JobsService;
 
@@ -89,6 +91,7 @@ describe("JobsService schedule rows", () => {
     jobScheduleRepositoryMock = {
       upsertSchedule: vi.fn(),
       deleteSchedulesForInactiveProviders: vi.fn(async () => []),
+      deleteSchedulesByJobType: vi.fn(async () => 0),
       countPausedSchedules: vi.fn(async () => []),
       findDueSchedulesWithManager: vi.fn(),
       runTransaction: vi.fn(async (callback: (manager: unknown) => Promise<void>) => {
@@ -124,9 +127,13 @@ describe("JobsService schedule rows", () => {
       network: DEFAULT_NETWORK,
       useOnlyApprovedProviders: false,
       minNumDataSetsForChecks: 1,
+      rpcRequestTimeoutMs: 30000,
       dealsPerSpPerHour: 4,
       retrievalsPerSpPerHour: 2,
       dataSetCreationsPerSpPerHour: 1,
+      dataSetLifecycleCheckEnabled: false,
+      dataSetLifecycleChecksPerSpPerHour: 1,
+      dataSetLifecycleCheckJobTimeoutSeconds: 600,
       dataRetentionPollIntervalSeconds: 3600,
       providersRefreshIntervalSeconds: 14400,
       walletAddress: "0x0000000000000000000000000000000000000000",
@@ -197,6 +204,7 @@ describe("JobsService schedule rows", () => {
         overrides.jobDuration ?? metricsMocks.jobDuration,
         overrides.storageProvidersActive ?? metricsMocks.storageProvidersActive,
         overrides.storageProvidersTested ?? metricsMocks.storageProvidersTested,
+        overrides.dataSetLifecycleService ?? ({} as JobsServiceDeps[21]),
       );
 
     service = buildService();
@@ -1324,6 +1332,124 @@ describe("JobsService schedule rows", () => {
     expect(dealService.createDataSetWithPiece).not.toHaveBeenCalled();
   });
 
+  it("data_set_lifecycle_check job skips when disabled", async () => {
+    baseConfigValues = {
+      ...baseConfigValues,
+      networks: {
+        calibration: { ...(baseConfigValues.networks as any).calibration, dataSetLifecycleCheckEnabled: false },
+      } as unknown as IConfig["networks"],
+    };
+    configService = {
+      get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
+    } as unknown as JobsServiceDeps[0];
+
+    const dataSetLifecycleService = { runLifecycleCheck: vi.fn() };
+    const walletSdkService = { getProviderInfo: vi.fn(() => ({ id: 1, name: "test-provider" })) };
+
+    service = buildService({
+      configService,
+      dataSetLifecycleService: dataSetLifecycleService as unknown as JobsServiceDeps[21],
+      walletSdkService: walletSdkService as unknown as ConstructorParameters<typeof JobsService>[5],
+    });
+
+    await callPrivate(service, "handleDataSetLifecycleCheckJob", {
+      id: "job-lc-1",
+      data: {
+        jobType: "data_set_lifecycle_check",
+        spAddress: "0xaaa",
+        network: DEFAULT_NETWORK,
+        intervalSeconds: 3600,
+      },
+    });
+
+    expect(dataSetLifecycleService.runLifecycleCheck).not.toHaveBeenCalled();
+  });
+
+  it("data_set_lifecycle_check job creates and terminates a throwaway data set when enabled", async () => {
+    baseConfigValues = {
+      ...baseConfigValues,
+      networks: {
+        calibration: { ...(baseConfigValues.networks as any).calibration, dataSetLifecycleCheckEnabled: true },
+      } as unknown as IConfig["networks"],
+    };
+    configService = {
+      get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
+    } as unknown as JobsServiceDeps[0];
+
+    const dataSetLifecycleService = { runLifecycleCheck: vi.fn(async () => undefined) };
+    const walletSdkService = { getProviderInfo: vi.fn(() => ({ id: 1, name: "test-provider" })) };
+
+    service = buildService({
+      configService,
+      dataSetLifecycleService: dataSetLifecycleService as unknown as JobsServiceDeps[21],
+      walletSdkService: walletSdkService as unknown as ConstructorParameters<typeof JobsService>[5],
+    });
+
+    await callPrivate(service, "handleDataSetLifecycleCheckJob", {
+      id: "job-lc-2",
+      data: {
+        jobType: "data_set_lifecycle_check",
+        spAddress: "0xaaa",
+        network: DEFAULT_NETWORK,
+        intervalSeconds: 3600,
+      },
+    });
+
+    expect(dataSetLifecycleService.runLifecycleCheck).toHaveBeenCalledWith(
+      "0xaaa",
+      DEFAULT_NETWORK,
+      expect.objectContaining({ dealbotLifecycleCheck: expect.any(String) }),
+      expect.any(AbortSignal),
+      expect.objectContaining({ jobId: expect.any(String) }),
+    );
+    // The fixed marker key is the only metadata; no base/slot metadata is attached.
+    const metadataArg = (dataSetLifecycleService.runLifecycleCheck.mock.calls[0] as unknown[])[2] as Record<
+      string,
+      string
+    >;
+    expect(Object.keys(metadataArg)).toEqual(["dealbotLifecycleCheck"]);
+  });
+
+  it("creates data_set_lifecycle_check schedules when enabled", async () => {
+    baseConfigValues = {
+      ...baseConfigValues,
+      networks: {
+        calibration: { ...(baseConfigValues.networks as any).calibration, dataSetLifecycleCheckEnabled: true },
+      } as unknown as IConfig["networks"],
+    };
+    configService = {
+      get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
+    } as unknown as JobsServiceDeps[0];
+    service = buildService({ configService });
+
+    storageProviderRepositoryMock.find.mockResolvedValueOnce([{ address: "0xaaa" }]);
+
+    await callPrivate(service, "ensureScheduleRows", DEFAULT_NETWORK);
+
+    const lifecycleUpserts = jobScheduleRepositoryMock.upsertSchedule.mock.calls.filter(
+      (call) => call[0] === "data_set_lifecycle_check",
+    );
+    expect(lifecycleUpserts).toHaveLength(1);
+    expect(lifecycleUpserts[0][1]).toBe("0xaaa");
+    expect(jobScheduleRepositoryMock.deleteSchedulesByJobType).not.toHaveBeenCalled();
+  });
+
+  it("removes data_set_lifecycle_check schedules when disabled", async () => {
+    // base config has dataSetLifecycleCheckEnabled=false
+    storageProviderRepositoryMock.find.mockResolvedValueOnce([{ address: "0xaaa" }]);
+
+    await callPrivate(service, "ensureScheduleRows", DEFAULT_NETWORK);
+
+    const lifecycleUpserts = jobScheduleRepositoryMock.upsertSchedule.mock.calls.filter(
+      (call) => call[0] === "data_set_lifecycle_check",
+    );
+    expect(lifecycleUpserts).toHaveLength(0);
+    expect(jobScheduleRepositoryMock.deleteSchedulesByJobType).toHaveBeenCalledWith(
+      "data_set_lifecycle_check",
+      "calibration",
+    );
+  });
+
   it("sets active, inactive, and tested provider gauge values after refresh", async () => {
     storageProviderRepositoryMock.count
       .mockResolvedValueOnce(10) // totalProviders
@@ -1645,9 +1771,10 @@ describe("JobsService schedule rows", () => {
       await vi.advanceTimersByTimeAsync(35_001);
       await shutdownPromise;
 
-      // Defaults: deal=360, retrieval=60, dataSetCreation=300, pullCheck=300 → max=360 → +60s buffer
+      // Defaults: deal=360, retrieval=60, dataSetCreation=300, dataSetLifecycleCheck=600,
+      // pullCheck=300 → max=600 → +60s buffer
       expect(bossMock.stop).toHaveBeenCalledTimes(1);
-      expect(bossMock.stop).toHaveBeenCalledWith({ graceful: true, timeout: 420_000 });
+      expect(bossMock.stop).toHaveBeenCalledWith({ graceful: true, timeout: 660_000 });
     });
 
     it("picks the longest timeout across all job types, including pullCheck under pullPiece", async () => {

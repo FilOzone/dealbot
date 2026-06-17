@@ -160,15 +160,17 @@ export class RetrievalCheckMetrics {
   }
 }
 
-export type IpniVerifyOutcome = "verified" | "timeout" | "error";
+export type IpniVerifyOutcome = "success" | "failure.timedout" | "failure.other";
+export type IpniIndexer = "filecoinpin.contact" | "cid.contact";
+export type CidContactVerificationOutcome = "success" | "failure.timedout" | "failure.other" | "skipped";
 
 export function classifyIpniVerifyOutcome(
   ipniResult: { rootCIDVerified: boolean; durationMs: number },
   timeoutMs: number,
 ): IpniVerifyOutcome {
-  if (ipniResult.rootCIDVerified) return "verified";
-  if (ipniResult.durationMs >= timeoutMs) return "timeout";
-  return "error";
+  if (ipniResult.rootCIDVerified) return "success";
+  if (ipniResult.durationMs >= timeoutMs) return "failure.timedout";
+  return "failure.other";
 }
 
 @Injectable()
@@ -184,6 +186,8 @@ export class DiscoverabilityCheckMetrics {
     private readonly ipniVerifyMs: Histogram,
     @InjectMetric("discoverabilityStatus")
     private readonly discoverabilityStatusCounter: Counter,
+    @InjectMetric("cidContactVerification")
+    private readonly cidContactVerificationCounter: Counter,
   ) {}
 
   observeSpIndexLocallyMs(labels: CheckMetricLabels | null, value: number | null | undefined): void {
@@ -214,6 +218,7 @@ export class DiscoverabilityCheckMetrics {
     labels: CheckMetricLabels | null,
     value: number | null | undefined,
     outcome: IpniVerifyOutcome,
+    indexer: IpniIndexer,
   ): void {
     if (!labels) {
       this.logger.warn({
@@ -223,7 +228,19 @@ export class DiscoverabilityCheckMetrics {
       });
       return;
     }
-    observePositive(this.ipniVerifyMs, { ...labels, value: outcome }, value);
+    observePositive(this.ipniVerifyMs, { ...labels, value: outcome, indexer }, value);
+  }
+
+  recordCidContactVerification(labels: CheckMetricLabels | null, outcome: CidContactVerificationOutcome): void {
+    if (!labels) {
+      this.logger.warn({
+        event: "metric_emit_failed",
+        message: "Cannot emit cidContactVerification: no provider labels",
+        metric: "cidContactVerification",
+      });
+      return;
+    }
+    this.cidContactVerificationCounter.inc({ ...labels, value: outcome });
   }
 
   recordStatus(labels: CheckMetricLabels | null, value: string): void {
@@ -266,6 +283,34 @@ export class DataSetCreationCheckMetrics {
 
   recordStatus(labels: CheckMetricLabels, value: string): void {
     this.dataSetCreationStatusCounter.inc({ ...labels, value });
+  }
+}
+
+@Injectable()
+export class DataSetLifecycleCheckMetrics {
+  constructor(
+    @InjectMetric("dataSetLifecycleCheckMs")
+    private readonly dataSetLifecycleCheckMs: Histogram,
+    @InjectMetric("dataSetLifecycleCheckStatus")
+    private readonly dataSetLifecycleCheckStatusCounter: Counter,
+  ) {}
+
+  /**
+   * Observe the end-to-end duration of one lifecycle check (create throwaway data set
+   * with a seed piece, then `terminateService` and confirm `pdpEndEpoch != 0`).
+   * Emitted on `success` and `failure.timedout` only (analogous to `dataSetCreationMs`).
+   */
+  observeCheckDuration(labels: CheckMetricLabels, value: number | null | undefined): void {
+    observePositive(this.dataSetLifecycleCheckMs, labels, value);
+  }
+
+  /**
+   * Record data-set lifecycle check status.
+   * Values: `success`, `failure.timedout`, `failure.other`.
+   * See docs/checks/data-set-lifecycle-check.md.
+   */
+  recordStatus(labels: CheckMetricLabels, value: string): void {
+    this.dataSetLifecycleCheckStatusCounter.inc({ ...labels, value });
   }
 }
 

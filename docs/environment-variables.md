@@ -32,8 +32,8 @@ MAINNET_DEALS_PER_SP_PER_HOUR=1
 | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | [Application](#application-configuration) | `NODE_ENV`, `DEALBOT_PORT`, `DEALBOT_HOST`, `DEALBOT_RUN_MODE`, `DEALBOT_METRICS_PORT`, `DEALBOT_METRICS_HOST`, `DEALBOT_ALLOWED_ORIGINS`, `ENABLE_DEV_MODE`, `DEALBOT_API_PUBLIC_URL`, `DEALBOT_PROBE_LOCATION` |
 | [Database](#database-configuration)       | `DATABASE_HOST`, `DATABASE_PORT`, `DATABASE_POOL_MAX`, `DATABASE_USER`, `DATABASE_PASSWORD`, `DATABASE_NAME`                                                 |
-| [Per-Network](#per-network-configuration) | `<NET>_WALLET_ADDRESS`, `<NET>_WALLET_PRIVATE_KEY`, `<NET>_SESSION_KEY_PRIVATE_KEY`, `<NET>_RPC_URL`, `<NET>_CHECK_DATASET_CREATION_FEES`, `<NET>_USE_ONLY_APPROVED_PROVIDERS`, `<NET>_PDP_SUBGRAPH_ENDPOINT`, `<NET>_DEALBOT_DATASET_VERSION`, `<NET>_MIN_NUM_DATASETS_FOR_CHECKS`                                           |
-| [Per-Network Scheduling](#per-network-scheduling) | `<NET>_DEALS_PER_SP_PER_HOUR`, `<NET>_DEAL_JOB_TIMEOUT_SECONDS`, `<NET>_RETRIEVALS_PER_SP_PER_HOUR`, `<NET>_RETRIEVAL_JOB_TIMEOUT_SECONDS`, `<NET>_DATASET_CREATIONS_PER_SP_PER_HOUR`, `<NET>_DATA_SET_CREATION_JOB_TIMEOUT_SECONDS`, `<NET>_PULL_CHECKS_PER_SP_PER_HOUR`, `<NET>_PULL_CHECK_JOB_TIMEOUT_SECONDS`, `<NET>_PULL_CHECK_POLL_INTERVAL_SECONDS`, `<NET>_PULL_PIECE_CLEANUP_INTERVAL_SECONDS`, `<NET>_METRICS_PER_HOUR`, `<NET>_PROVIDERS_REFRESH_INTERVAL_SECONDS`, `<NET>_DATA_RETENTION_POLL_INTERVAL_SECONDS`, `<NET>_MAINTENANCE_WINDOWS_UTC`, `<NET>_MAINTENANCE_WINDOW_MINUTES`, `<NET>_BLOCKED_SP_IDS`, `<NET>_BLOCKED_SP_ADDRESSES`, `<NET>_MAX_DATASET_STORAGE_SIZE_BYTES`, `<NET>_TARGET_DATASET_STORAGE_SIZE_BYTES`, `<NET>_PIECE_CLEANUP_PER_SP_PER_HOUR`, `<NET>_MAX_PIECE_CLEANUP_RUNTIME_SECONDS` |
+| [Per-Network](#per-network-configuration) | `<NET>_WALLET_ADDRESS`, `<NET>_WALLET_PRIVATE_KEY`, `<NET>_SESSION_KEY_PRIVATE_KEY`, `<NET>_RPC_URL`, `<NET>_RPC_REQUEST_TIMEOUT_MS`, `<NET>_CHECK_DATASET_CREATION_FEES`, `<NET>_USE_ONLY_APPROVED_PROVIDERS`, `<NET>_PDP_SUBGRAPH_ENDPOINT`, `<NET>_DEALBOT_DATASET_VERSION`, `<NET>_MIN_NUM_DATASETS_FOR_CHECKS`                                           |
+| [Per-Network Scheduling](#per-network-scheduling) | `<NET>_DEALS_PER_SP_PER_HOUR`, `<NET>_DEAL_JOB_TIMEOUT_SECONDS`, `<NET>_RETRIEVALS_PER_SP_PER_HOUR`, `<NET>_RETRIEVAL_JOB_TIMEOUT_SECONDS`, `<NET>_DATASET_CREATIONS_PER_SP_PER_HOUR`, `<NET>_DATA_SET_CREATION_JOB_TIMEOUT_SECONDS`, `<NET>_DATASET_LIFECYCLE_CHECK_ENABLED`, `<NET>_DATASET_LIFECYCLE_CHECKS_PER_SP_PER_HOUR`, `<NET>_DATA_SET_LIFECYCLE_CHECK_JOB_TIMEOUT_SECONDS`, `<NET>_PULL_CHECKS_PER_SP_PER_HOUR`, `<NET>_PULL_CHECK_JOB_TIMEOUT_SECONDS`, `<NET>_PULL_CHECK_POLL_INTERVAL_SECONDS`, `<NET>_PULL_PIECE_CLEANUP_INTERVAL_SECONDS`, `<NET>_METRICS_PER_HOUR`, `<NET>_PROVIDERS_REFRESH_INTERVAL_SECONDS`, `<NET>_DATA_RETENTION_POLL_INTERVAL_SECONDS`, `<NET>_MAINTENANCE_WINDOWS_UTC`, `<NET>_MAINTENANCE_WINDOW_MINUTES`, `<NET>_BLOCKED_SP_IDS`, `<NET>_BLOCKED_SP_ADDRESSES`, `<NET>_MAX_DATASET_STORAGE_SIZE_BYTES`, `<NET>_TARGET_DATASET_STORAGE_SIZE_BYTES`, `<NET>_PIECE_CLEANUP_PER_SP_PER_HOUR`, `<NET>_MAX_PIECE_CLEANUP_RUNTIME_SECONDS` |
 | [Jobs (pg-boss)](#jobs-pg-boss)           | `DEALBOT_PGBOSS_SCHEDULER_ENABLED`, `DEALBOT_PGBOSS_POOL_MAX`, `JOB_SCHEDULER_POLL_SECONDS`, `JOB_WORKER_POLL_SECONDS`, `PG_BOSS_LOCAL_CONCURRENCY`, `JOB_CATCHUP_MAX_ENQUEUE`, `JOB_SCHEDULE_PHASE_SECONDS`, `JOB_ENQUEUE_JITTER_SECONDS`, `SHUTDOWN_FINAL_SCRAPE_DELAY_SECONDS`, `IPFS_BLOCK_FETCH_CONCURRENCY` |
 | [Pull Check](#pull-check-configuration)   | `PULL_CHECK_PIECE_SIZE_BYTES`, `PULL_PIECE_MAX_CONCURRENT_STREAMS`, `PULL_PIECE_MAX_STREAMS_PER_CID` |
 | [ClickHouse](#clickhouse-configuration)   | `CLICKHOUSE_URL`, `CLICKHOUSE_BATCH_SIZE`, `CLICKHOUSE_FLUSH_INTERVAL_MS`, `CLICKHOUSE_MAX_BUFFER_SIZE`                                                      |
@@ -831,6 +831,96 @@ check types (data-storage, retrieval, and data-retention). Matching is case-inse
 
 These variables are **global** (not per-network) and control the shared pg-boss worker runtime. Scheduling is rate-based (per hour, per network) and persisted in Postgres so restarts do not reset timing — see [Per-Network Scheduling](#per-network-scheduling) for the rate/interval knobs.
 
+
+### `DEALS_PER_SP_PER_HOUR`
+
+- **Type**: `number`
+- **Required**: No
+- **Default**: `4`
+
+**Role**: Target deal creation rate per storage provider.
+
+**Limits**: Config schema caps this at 20 to avoid excessive on-chain activity.
+
+**Notes**: Fractional values are supported. For example, `0.25` means one deal every 4 hours per storage provider.
+
+---
+
+### `RETRIEVALS_PER_SP_PER_HOUR`
+
+- **Type**: `number`
+- **Required**: No  
+- **Default**: `2`
+
+**Role**: Target retrieval test rate per storage provider.
+
+**Limits**: Config schema caps this at 20 to avoid overloading providers.
+
+**Notes**: Fractional values are supported. For example, `0.25` means one retrieval every 4 hours per storage provider.
+
+---
+
+### `MIN_NUM_DATASETS_FOR_CHECKS`
+
+- **Type**: `number` (integer)
+- **Required**: No
+- **Default**: `1`
+- **Minimum**: `1`
+- **Enforced**: Yes (config validation)
+
+**Role**: Minimum number of live on-chain datasets (slots) each active storage provider must maintain for checks to function. The `data_set_creation` job reconciles providers to this count on every run. Increasing this value gives the `data_retention` check more datasets to sample proofs from, which affects FWSS approval evaluation.
+
+**When to update**:
+
+- Increase if you want more datasets per provider to raise the density of data-retention proof samples.
+- Decrease to reduce on-chain footprint per provider during testing.
+
+**See also**: [`docs/data-set-creation.md`](./data-set-creation.md)
+
+---
+
+### `DATASET_CREATIONS_PER_SP_PER_HOUR`
+
+- **Type**: `number`
+- **Required**: No
+- **Default**: `1`
+
+**Role**: Target dataset creation rate per storage provider.
+
+**Limits**: Config schema caps this at 20 to avoid excessive dataset generation.
+
+**Notes**: Fractional values are supported. For example, `0.5` means one dataset creation every 2 hours per storage provider.
+
+---
+
+### `DATASET_LIFECYCLE_CHECK_ENABLED`
+
+- **Type**: `boolean`
+- **Required**: No
+- **Default**: `false` on mainnet, `true` everywhere else
+
+**Role**: Enables the `data_set_lifecycle_check` canary job. Each tick both creation variants run in parallel: the **empty variant** (`createDataSet → terminateService`) and the **with-pieces variant** (`uploadPieceStreaming → findPiece → createDataSetAndAddPieces → terminateService`). Both paths immediately terminate their throwaway data set. If either variant fails the job fails — dependency outages are not swallowed as success.
+
+**Notes**: Self-contained — it does not touch the managed check data sets and does not depend on `data_set_creation`. When disabled, stale schedules are removed so they stop enqueuing no-op jobs.
+
+**See also**: [`docs/checks/data-set-lifecycle-check.md`](./checks/data-set-lifecycle-check.md)
+
+---
+
+### `DATASET_LIFECYCLE_CHECKS_PER_SP_PER_HOUR`
+
+- **Type**: `number`
+- **Required**: No
+- **Default**: `1`
+
+**Role**: Target lifecycle check rate per storage provider for the `data_set_lifecycle_check` canary. Each tick runs both variants (empty and with-pieces) in parallel and terminates each throwaway data set.
+
+**Limits**: Config schema caps this at 20.
+
+**Notes**: Independent of `DATASET_CREATIONS_PER_SP_PER_HOUR`. Fractional values are supported.
+
+---
+
 ### `JOB_SCHEDULER_POLL_SECONDS`
 
 - **Type**: `number`
@@ -943,6 +1033,84 @@ Use this to stagger multiple dealbot deployments that are not sharing a database
 - **Default**: `0`
 
 **Role**: Random delay (seconds) applied when enqueuing jobs to avoid synchronized bursts.
+
+---
+
+### `DATA_SET_CREATION_JOB_TIMEOUT_SECONDS`
+
+- **Type**: `number`
+- **Required**: No
+- **Default**: `300` (5 minutes)
+- **Minimum**: `60` (1 minute)
+- **Enforced**: Yes (config validation, effective floor applied at runtime)
+
+**Role**: Maximum runtime for `data_set_creation` jobs before forced abort via `AbortController`. Covers the full slot scan, any termination-repair polling, and dataset provisioning.
+
+**When to update**:
+
+- Increase if termination-repair polling (`pdpEndEpoch` confirmation) consistently times out on slow networks.
+- Decrease for faster fail-fast behavior during testing.
+
+**Note**: If the configured value is below 120 seconds, the runtime silently raises it to 120 seconds as an effective floor.
+
+---
+
+### `DATA_SET_LIFECYCLE_CHECK_JOB_TIMEOUT_SECONDS`
+
+- **Type**: `number`
+- **Required**: No
+- **Default**: `600` (10 minutes)
+- **Minimum**: `60` (1 minute)
+- **Enforced**: Yes (config validation, effective floor applied at runtime)
+
+**Role**: Maximum runtime for `data_set_lifecycle_check` jobs before forced abort via `AbortController`. Both variants run in parallel within this budget — the timeout bounds the wall-clock time from job start until both variants have settled (or been aborted).
+
+**When to update**:
+
+- Increase if the with-pieces variant (`uploadPieceStreaming` + `findPiece` + `createDataSetAndAddPieces` + `terminateServiceSync`) consistently times out on slow networks, since it has more steps than the empty variant and will typically be the critical path.
+- Decrease for faster fail-fast behavior during testing.
+
+**Note**: If the configured value is below 60 seconds, the runtime silently raises it to 60 seconds as an effective floor. An abort due to this timeout (or an internal poll timeout) is recorded as `dataSetLifecycleCheckStatus{value="failure.timedout"}` and retried on the next scheduled tick.
+
+**See also**: [`docs/checks/data-set-lifecycle-check.md`](./checks/data-set-lifecycle-check.md)
+
+---
+
+### `DEAL_JOB_TIMEOUT_SECONDS`
+
+- **Type**: `number`
+- **Required**: No
+- **Default**: `360` (6 minutes)
+- **Minimum**: `120` (2 minutes)
+- **Enforced**: Yes (config validation)
+
+**Role**: Maximum runtime for data storage jobs before forced abort. When a deal job exceeds this timeout, it is actively cancelled using `AbortController`.
+
+**When to update**:
+
+- Increase if deal uploads consistently take longer than the default (e.g., slower networks, IPNI delays)
+- Decrease if you want to fail-fast on stuck jobs
+
+**Note**: This is independent of HTTP-level timeouts. The job timeout enforces end-to-end execution time of a Data Storage Check job including all operations (provider lookup, upload, IPNI verification, etc.).
+
+---
+
+### `RETRIEVAL_JOB_TIMEOUT_SECONDS`
+
+- **Type**: `number`
+- **Required**: No
+- **Default**: `60` (1 minute)
+- **Minimum**: `60`
+- **Enforced**: Yes (config validation)
+
+**Role**: Maximum runtime for retrieval test jobs before forced abort. When a retrieval job exceeds this timeout, it is actively cancelled using `AbortController`.
+
+**When to update**:
+
+- Increase if retrieval tests consistently take longer than the default
+- Decrease to detect and fail stuck retrievals faster
+
+**Note**: This is independent of HTTP-level timeouts. The job timeout enforces end-to-end execution time of a Retrieval Check job.
 
 ---
 
