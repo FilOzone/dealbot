@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.1](https://github.com/FilOzone/dealbot/compare/web-v1.3.0...web-v1.3.1) (2026-06-08)
+
+
+### Miscellaneous
+
+* **web:** migrate to SWR for data fetching ([#585](https://github.com/FilOzone/dealbot/issues/585)) ([33f62be](https://github.com/FilOzone/dealbot/commit/33f62bef521fdb95f34799fdda6dc94f5286cb69))
+
 ## [1.3.0](https://github.com/FilOzone/dealbot/compare/web-v1.2.0...web-v1.3.0) (2026-05-19)
 
 

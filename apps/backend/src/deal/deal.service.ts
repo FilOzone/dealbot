@@ -35,7 +35,7 @@ import {
   RetrievalCheckMetrics,
 } from "../metrics-prometheus/check-metrics.service.js";
 import { RetrievalAddonsService } from "../retrieval-addons/retrieval-addons.service.js";
-import type { RetrievalConfiguration } from "../retrieval-addons/types.js";
+import type { RetrievalConfiguration, RetrievalExecutionResult } from "../retrieval-addons/types.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
 import type { PDPProviderEx } from "../wallet-sdk/wallet-sdk.types.js";
 
@@ -283,6 +283,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     let retrievalStatusEmitted = false;
     let preUploadTerminated = false;
     let dataStorageStatusEmitted = false;
+    let retrievalResults: RetrievalExecutionResult[] = [];
 
     let deal: Deal;
     if (existingDealId) {
@@ -590,6 +591,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
         dealLogContext,
       );
       signal?.throwIfAborted();
+      retrievalResults = retrievalTest.results;
 
       this.retrievalMetrics.recordResultMetrics(retrievalTest.results, providerLabels);
       this.retrievalMetrics.recordStatus(
@@ -684,7 +686,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
         }
       }
       if (!preUploadTerminated) {
-        await this.saveDeal(deal, dealLogContext);
+        await this.saveDeal(deal, retrievalResults, dealLogContext);
       }
     }
   }
@@ -1091,7 +1093,11 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     deal.pieceId = uploadResult.pieceId ?? deal.pieceId;
   }
 
-  private async saveDeal(deal: Deal, dealLogContext: DealLogContext): Promise<void> {
+  private async saveDeal(
+    deal: Deal,
+    retrievalResults: RetrievalExecutionResult[],
+    dealLogContext: DealLogContext,
+  ): Promise<void> {
     this.clickhouseService.insert("data_storage_checks", {
       timestamp: Date.now(),
       probe_location: this.clickhouseService.probeLocation,
@@ -1115,6 +1121,12 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       ipni_verified_at: deal.ipniVerifiedAt?.getTime() ?? null,
       ipni_verified_cids_count: deal.ipniVerifiedCidsCount ?? null,
       ipni_unverified_cids_count: deal.ipniUnverifiedCidsCount ?? null,
+      "retrieval_checks.method": retrievalResults.map((r) => r.method),
+      "retrieval_checks.status": retrievalResults.map((r) => (r.success ? "success" : "failure")),
+      "retrieval_checks.http_response_code": retrievalResults.map((r) => r.metrics.statusCode || null),
+      "retrieval_checks.first_byte_ms": retrievalResults.map((r) => (r.success ? r.metrics.ttfb : null)),
+      "retrieval_checks.last_byte_ms": retrievalResults.map((r) => (r.success ? r.metrics.latency : null)),
+      "retrieval_checks.bytes_retrieved": retrievalResults.map((r) => (r.success ? r.metrics.responseSize : null)),
     });
 
     try {
