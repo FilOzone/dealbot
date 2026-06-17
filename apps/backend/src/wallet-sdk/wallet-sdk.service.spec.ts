@@ -13,6 +13,7 @@ type LoggerLike = {
 
 const baseConfig: IBlockchainConfig = {
   network: "calibration",
+  rpcRequestTimeoutMs: 30000,
   walletAddress: "0x0000000000000000000000000000000000000000",
   walletPrivateKey: "0xtest",
   checkDatasetCreationFees: false,

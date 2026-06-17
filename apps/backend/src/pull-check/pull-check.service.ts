@@ -4,6 +4,7 @@ import { pullPieces, waitForPullPieces } from "@filoz/synapse-core/sp";
 import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import type { Address } from "viem";
+import { ClickhouseService } from "../clickhouse/clickhouse.service.js";
 import { type ProviderJobContext, toStructuredError } from "../common/logging.js";
 import type { IAppConfig, IConfig, IPullPieceConfig } from "../config/app.config.js";
 import { DataSourceService } from "../dataSource/dataSource.service.js";
@@ -26,6 +27,7 @@ export class PullCheckService {
     private readonly pullPieceRepository: PullPieceRepository,
     private readonly pullCheckMetrics: PullCheckCheckMetrics,
     private readonly httpClientService: HttpClientService,
+    private readonly clickhouseService: ClickhouseService,
   ) {}
 
   /**
@@ -65,18 +67,26 @@ export class PullCheckService {
     signal: AbortSignal | undefined,
     logContext: ProviderJobContext,
   ): Promise<void> {
-    const providerInfo = this.validateProviderInfo(spAddress);
-    const labels = buildCheckMetricLabels({
-      checkType: "pullCheck",
-      providerId: providerInfo.id,
-      providerName: providerInfo.name,
-      providerIsApproved: providerInfo.isApproved,
-    });
+    let providerInfo: PDPProviderEx | null = null;
+    let labels: ReturnType<typeof buildCheckMetricLabels> | null = null;
 
     let prepared: PullPiecePrepared | null = null;
     let requestSubmittedAt: Date | null = null;
+    let requestLatencyMs: number | null = null;
+    let completionLatencyMs: number | null = null;
+    let firstByteMs: number | null = null;
+    let throughputBps: number | null = null;
+    let finalProviderStatus: string | null = null;
+    let checkStatus: string | null = null;
 
     try {
+      providerInfo = this.validateProviderInfo(spAddress);
+      labels = buildCheckMetricLabels({
+        checkType: "pullCheck",
+        providerId: providerInfo.id,
+        providerName: providerInfo.name,
+        providerIsApproved: providerInfo.isApproved,
+      });
       signal?.throwIfAborted();
       prepared = await this.preparePullPiece(spAddress);
       const pieceCidStr = prepared.registration.pieceCid;
@@ -101,7 +111,7 @@ export class PullCheckService {
       await this.pullPieceRepository.markPullSubmitted(pieceCidStr, requestSubmittedAt);
       const pullResponse = await pullPieces(synapseClient, pullPiecesOptions);
       signal?.throwIfAborted();
-      const requestLatencyMs = Date.now() - requestSubmittedAt.getTime();
+      requestLatencyMs = Date.now() - requestSubmittedAt.getTime();
       this.pullCheckMetrics.observeAcknowledgementLatencyMs(labels, requestLatencyMs);
       this.logger.log({
         ...logContext,
@@ -120,10 +130,11 @@ export class PullCheckService {
         pollInterval: pullPieceConfig.pullCheckPollIntervalSeconds * 1000,
       });
       signal?.throwIfAborted();
-      const completionLatencyMs = Date.now() - requestSubmittedAt.getTime();
+      completionLatencyMs = Date.now() - requestSubmittedAt.getTime();
       this.pullCheckMetrics.observeCompletionLatencyMs(labels, completionLatencyMs);
       // Record the SP-reported terminal pull status (one increment per check)
-      this.pullCheckMetrics.recordProviderStatus(labels, finalResponse.status);
+      finalProviderStatus = finalResponse.status;
+      this.pullCheckMetrics.recordProviderStatus(labels, finalProviderStatus);
 
       if (finalResponse.status !== "complete") {
         throw new Error(`Storage provider failed to pull piece: status=${finalResponse.status}`);
@@ -142,7 +153,7 @@ export class PullCheckService {
       }
 
       const firstByteEntry = await this.pullPieceRepository.resolve(pieceCidStr);
-      const firstByteMs =
+      firstByteMs =
         firstByteEntry?.firstByteAt && firstByteEntry?.pullSubmittedAt
           ? firstByteEntry.firstByteAt.getTime() - firstByteEntry.pullSubmittedAt.getTime()
           : null;
@@ -152,10 +163,11 @@ export class PullCheckService {
       // Throughput approximated as pieceSize / completionLatency. This is an
       // upper-bound on actual transfer time because completionLatency includes
       // SP-side scheduling/queuing and our polling cadence.
-      const throughputBps = Math.round((prepared.registration.size * 1000) / Math.max(completionLatencyMs, 1));
+      throughputBps = Math.round((prepared.registration.size * 1000) / Math.max(completionLatencyMs ?? 1, 1));
       this.pullCheckMetrics.observeThroughputBps(labels, throughputBps);
 
-      this.pullCheckMetrics.recordStatus(labels, "success");
+      checkStatus = "success";
+      this.pullCheckMetrics.recordStatus(labels, checkStatus);
       this.logger.log({
         ...logContext,
         event: "pull_check_completed",
@@ -168,8 +180,27 @@ export class PullCheckService {
         pieceSizeBytes: prepared.registration.size,
       });
     } catch (error) {
-      this.pullCheckMetrics.recordStatus(labels, classifyFailureStatus(error));
+      checkStatus = classifyFailureStatus(error);
+      if (labels !== null) this.pullCheckMetrics.recordStatus(labels, checkStatus);
       throw error;
+    } finally {
+      if (checkStatus !== null) {
+        this.clickhouseService.insert("pull_checks", {
+          timestamp: Date.now(),
+          probe_location: this.clickhouseService.probeLocation,
+          sp_address: spAddress,
+          sp_id: providerInfo?.id != null ? String(providerInfo.id) : null,
+          sp_name: providerInfo?.name ?? null,
+          piece_cid: prepared?.registration.pieceCid ?? null,
+          piece_size_bytes: prepared?.registration.size ?? null,
+          status: checkStatus,
+          provider_status: finalProviderStatus,
+          acknowledgement_latency_ms: requestLatencyMs,
+          completion_latency_ms: completionLatencyMs,
+          first_byte_ms: firstByteMs,
+          throughput_bps: throughputBps,
+        });
+      }
     }
     // Pieces are not eagerly deleted here; they remain active (200) until their
     // TTL expires so that SPs polling after job end are not spuriously told 404.

@@ -52,6 +52,11 @@ export const configValidationSchema = Joi.object({
     .uri({ scheme: ["http", "https"] })
     .optional()
     .allow(""),
+  // Per-request RPC timeout for the viem transport. Must stay ABOVE eRPC's
+  // network failsafe timeout so eRPC can fail over to a fallback upstream
+  // before dealbot gives up. viem's own default is 10s, which is below eRPC's
+  // budget and causes premature client aborts. See #603.
+  RPC_REQUEST_TIMEOUT_MS: Joi.number().integer().min(1000).default(30000),
   SESSION_KEY_PRIVATE_KEY: Joi.string().optional().empty(""),
   CHECK_DATASET_CREATION_FEES: Joi.boolean().default(true),
   USE_ONLY_APPROVED_PROVIDERS: Joi.boolean().default(true),
@@ -80,7 +85,12 @@ export const configValidationSchema = Joi.object({
   // Per-hour limits are guardrails to avoid excessive background load.
   DEALS_PER_SP_PER_HOUR: Joi.number().min(0.001).max(20).default(4),
   DATASET_CREATIONS_PER_SP_PER_HOUR: Joi.number().min(0.001).max(20).default(1),
+  DATASET_LIFECYCLE_CHECKS_PER_SP_PER_HOUR: Joi.number().min(0.001).max(20).default(1),
   RETRIEVALS_PER_SP_PER_HOUR: Joi.number().min(0.001).max(20).default(2),
+  // Enables the data_set_lifecycle_check canary job. The network-dependent default (true on
+  // calibration, false on mainnet) is resolved in loadConfig; here we only validate the
+  // type when explicitly set. See docs/checks/data-set-lifecycle-check.md.
+  DATASET_LIFECYCLE_CHECK_ENABLED: Joi.boolean().optional(),
   // Polling interval for pg-boss scheduler (lower = more responsive, higher = less DB chatter).
   JOB_SCHEDULER_POLL_SECONDS: Joi.number().min(60).default(300),
   JOB_WORKER_POLL_SECONDS: Joi.number().min(5).default(60),
@@ -93,6 +103,7 @@ export const configValidationSchema = Joi.object({
   DEAL_JOB_TIMEOUT_SECONDS: Joi.number().min(120).default(360), // 6 minutes max runtime for data storage jobs (TODO: reduce default to 3 minutes)
   RETRIEVAL_JOB_TIMEOUT_SECONDS: Joi.number().min(60).default(60), // 1 minute max runtime for retrieval jobs (TODO: reduce default to 30 seconds)
   DATA_SET_CREATION_JOB_TIMEOUT_SECONDS: Joi.number().min(60).default(300), // 5 minutes max runtime for dataset creation jobs
+  DATA_SET_LIFECYCLE_CHECK_JOB_TIMEOUT_SECONDS: Joi.number().min(60).default(600), // 10 minutes: covers create + seed-piece upload + terminate + pdpEndEpoch poll
   // Seconds to hold the process alive after pg-boss drain completes, so Prometheus
   // captures at least one scrape of the terminal counter increments emitted during
   // shutdown. Default 35 covers the 30s ServiceMonitor interval plus a 5s buffer.
@@ -192,6 +203,7 @@ export interface IDatabaseConfig {
 export interface IBlockchainConfig {
   network: Network;
   rpcUrl?: string;
+  rpcRequestTimeoutMs: number;
   sessionKeyPrivateKey?: `0x${string}`;
   walletAddress: string;
   walletPrivateKey: `0x${string}`;
@@ -226,6 +238,17 @@ export interface IJobsConfig {
    * Target number of dataset creation runs per storage provider per hour.
    */
   dataSetCreationsPerSpPerHour: number;
+  /**
+   * Enables the `data_set_lifecycle_check` canary job, which creates a
+   * throwaway data set and immediately terminates it in a single tick.
+   *
+   * Defaults to true on calibration and false on mainnet.
+   */
+  dataSetLifecycleCheckEnabled: boolean;
+  /**
+   * Target number of dataset lifecycle check runs per storage provider per hour.
+   */
+  dataSetLifecycleChecksPerSpPerHour: number;
   /**
    * How often the scheduler polls Postgres for due jobs (seconds).
    *
@@ -284,6 +307,13 @@ export interface IJobsConfig {
    * Uses AbortController to actively cancel job execution.
    */
   dataSetCreationJobTimeoutSeconds: number;
+  /**
+   * Maximum runtime (seconds) for data-set lifecycle check jobs before forced abort.
+   *
+   * Bounds the create-with-seed-piece upload, the terminateService call, and the
+   * `pdpEndEpoch != 0` confirmation poll. Uses AbortController to actively cancel execution.
+   */
+  dataSetLifecycleCheckJobTimeoutSeconds: number;
   /**
    * Maximum runtime (seconds) for retrieval jobs before forced abort.
    *
@@ -451,6 +481,7 @@ export function loadConfig(): IConfig {
     blockchain: {
       network: process.env.NETWORK as Network,
       rpcUrl: process.env.RPC_URL || undefined,
+      rpcRequestTimeoutMs: Number.parseInt(process.env.RPC_REQUEST_TIMEOUT_MS || "30000", 10),
       sessionKeyPrivateKey: (process.env.SESSION_KEY_PRIVATE_KEY || undefined) as `0x${string}` | undefined,
       walletAddress: process.env.WALLET_ADDRESS || "0x0000000000000000000000000000000000000000",
       walletPrivateKey: (process.env.WALLET_PRIVATE_KEY || undefined) as `0x${string}`,
@@ -473,6 +504,17 @@ export function loadConfig(): IConfig {
       dealsPerSpPerHour: Number.parseFloat(process.env.DEALS_PER_SP_PER_HOUR || "4"),
       retrievalsPerSpPerHour: Number.parseFloat(process.env.RETRIEVALS_PER_SP_PER_HOUR || "2"),
       dataSetCreationsPerSpPerHour: Number.parseFloat(process.env.DATASET_CREATIONS_PER_SP_PER_HOUR || "1"),
+      dataSetLifecycleCheckEnabled: (() => {
+        const raw = process.env.DATASET_LIFECYCLE_CHECK_ENABLED;
+        if (raw == null || raw.trim().length === 0) {
+          // Default: disabled on mainnet, enabled everywhere else.
+          return (process.env.NETWORK || "calibration") !== "mainnet";
+        }
+        return raw === "true";
+      })(),
+      dataSetLifecycleChecksPerSpPerHour: Number.parseFloat(
+        process.env.DATASET_LIFECYCLE_CHECKS_PER_SP_PER_HOUR || "1",
+      ),
       schedulerPollSeconds: Number.parseInt(process.env.JOB_SCHEDULER_POLL_SECONDS || "300", 10),
       workerPollSeconds: Number.parseInt(process.env.JOB_WORKER_POLL_SECONDS || "60", 10),
       pgbossLocalConcurrency: Number.parseInt(process.env.PG_BOSS_LOCAL_CONCURRENCY || "20", 10),
@@ -484,6 +526,10 @@ export function loadConfig(): IConfig {
       dealJobTimeoutSeconds: Number.parseInt(process.env.DEAL_JOB_TIMEOUT_SECONDS || "360", 10),
       retrievalJobTimeoutSeconds: Number.parseInt(process.env.RETRIEVAL_JOB_TIMEOUT_SECONDS || "60", 10),
       dataSetCreationJobTimeoutSeconds: Number.parseInt(process.env.DATA_SET_CREATION_JOB_TIMEOUT_SECONDS || "300", 10),
+      dataSetLifecycleCheckJobTimeoutSeconds: Number.parseInt(
+        process.env.DATA_SET_LIFECYCLE_CHECK_JOB_TIMEOUT_SECONDS || "600",
+        10,
+      ),
       shutdownFinalScrapeDelaySeconds: Number.parseInt(process.env.SHUTDOWN_FINAL_SCRAPE_DELAY_SECONDS || "35", 10),
       pieceCleanupPerSpPerHour: Number.parseFloat(process.env.JOB_PIECE_CLEANUP_PER_SP_PER_HOUR || String(1 / 24)),
       maxPieceCleanupRuntimeSeconds: Number.parseInt(process.env.MAX_PIECE_CLEANUP_RUNTIME_SECONDS || "300", 10),

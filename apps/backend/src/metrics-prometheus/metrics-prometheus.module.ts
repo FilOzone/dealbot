@@ -9,6 +9,7 @@ import {
 import { WalletSdkModule } from "../wallet-sdk/wallet-sdk.module.js";
 import {
   DataSetCreationCheckMetrics,
+  DataSetLifecycleCheckMetrics,
   DataStorageCheckMetrics,
   DiscoverabilityCheckMetrics,
   PullCheckCheckMetrics,
@@ -102,7 +103,7 @@ const metricProviders = [
     // docs/checks/events-and-metrics.md#ipniVerifyMs
     name: "ipniVerifyMs",
     help: "IPNI verification duration (ms)",
-    labelNames: ["checkType", "providerId", "providerName", "providerStatus", "value"] as const,
+    labelNames: ["checkType", "providerId", "providerName", "providerStatus", "value", "indexer"] as const,
     buckets: [10, 50, 100, 500, 1000, 2000, 5000, 10000, 30000, 60000, 90000, 120000, 180000, 240000, 300000],
   }),
   makeHistogramProvider({
@@ -154,6 +155,13 @@ const metricProviders = [
     labelNames: ["checkType", "providerId", "providerName", "providerStatus"] as const,
     buckets: [100, 500, 1000, 2000, 5000, 10000, 30000, 60000, 120000, 300000, 600000],
   }),
+  makeHistogramProvider({
+    // docs/checks/events-and-metrics.md#dataSetLifecycleCheckMs
+    name: "dataSetLifecycleCheckMs",
+    help: "End-to-end data-set lifecycle check duration: create with seed piece then terminate and confirm pdpEndEpoch != 0 (ms)",
+    labelNames: ["checkType", "providerId", "providerName", "providerStatus"] as const,
+    buckets: [100, 500, 1000, 2000, 5000, 10000, 30000, 60000, 120000, 300000, 600000],
+  }),
   // Sub-status metrics (docs/checks/data-storage.md)
   makeCounterProvider({
     // docs/checks/data-storage.md#sub-status-meanings (Upload Status)
@@ -180,6 +188,12 @@ const metricProviders = [
     labelNames: ["checkType", "providerId", "providerName", "providerStatus", "value"] as const,
   }),
   makeCounterProvider({
+    // docs/checks/data-storage.md#cid-contact-verification-status
+    name: "cidContactVerification",
+    help: "cid.contact IPNI cross-check outcome counts",
+    labelNames: ["checkType", "providerId", "providerName", "providerStatus", "value"] as const,
+  }),
+  makeCounterProvider({
     // docs/checks/data-storage.md#sub-status-meanings (Retrieval Status)
     name: "retrievalStatus",
     help: "Retrieval sub-status counts",
@@ -195,6 +209,12 @@ const metricProviders = [
     // docs/checks/events-and-metrics.md#dataSetCreationStatus
     name: "dataSetCreationStatus",
     help: "Data-set creation status counts",
+    labelNames: ["checkType", "providerId", "providerName", "providerStatus", "value"] as const,
+  }),
+  makeCounterProvider({
+    // docs/checks/events-and-metrics.md#dataSetLifecycleCheckStatus
+    name: "dataSetLifecycleCheckStatus",
+    help: "Data-set lifecycle check status counts (success | failure.timedout | failure.other)",
     labelNames: ["checkType", "providerId", "providerName", "providerStatus", "value"] as const,
   }),
   // Pull check metrics (docs/checks/pull-check.md)
@@ -369,6 +389,7 @@ const metricProviders = [
     RetrievalCheckMetrics,
     DiscoverabilityCheckMetrics,
     DataSetCreationCheckMetrics,
+    DataSetLifecycleCheckMetrics,
     PullCheckCheckMetrics,
     WalletBalanceCollector,
     // HTTP metrics interceptor
@@ -384,6 +405,7 @@ const metricProviders = [
     RetrievalCheckMetrics,
     DiscoverabilityCheckMetrics,
     DataSetCreationCheckMetrics,
+    DataSetLifecycleCheckMetrics,
     PullCheckCheckMetrics,
     WalletBalanceCollector,
   ],
