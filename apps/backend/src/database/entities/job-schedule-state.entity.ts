@@ -5,6 +5,7 @@ export type JobType =
   | "retrieval"
   | "retrieval_anon"
   | "data_set_creation"
+  | "data_set_lifecycle_check"
   | "pull_check"
   | "providers_refresh"
   | "data_retention_poll"

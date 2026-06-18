@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 import { TypeOrmModule } from "@nestjs/typeorm";
 import { DataRetentionModule } from "../data-retention/data-retention.module.js";
+import { DataSetLifecycleModule } from "../data-set-lifecycle/data-set-lifecycle.module.js";
 import { DatabaseModule } from "../database/database.module.js";
 import { JobScheduleState } from "../database/entities/job-schedule-state.entity.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
@@ -17,6 +18,7 @@ import { JobScheduleRepository } from "./repositories/job-schedule.repository.js
   imports: [
     DatabaseModule,
     TypeOrmModule.forFeature([StorageProvider, JobScheduleState]),
+    DataSetLifecycleModule,
     DealModule,
     RetrievalModule,
     WalletSdkModule,

@@ -4,6 +4,7 @@ export type CheckType =
   | "anon_retrieval"
   | "dataRetention"
   | "dataSetCreation"
+  | "dataSetLifecycleCheck"
   | "pullCheck";
 export type ProviderStatus = "approved" | "unapproved";
 

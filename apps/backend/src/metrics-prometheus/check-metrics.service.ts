@@ -287,6 +287,34 @@ export class DataSetCreationCheckMetrics {
 }
 
 @Injectable()
+export class DataSetLifecycleCheckMetrics {
+  constructor(
+    @InjectMetric("dataSetLifecycleCheckMs")
+    private readonly dataSetLifecycleCheckMs: Histogram,
+    @InjectMetric("dataSetLifecycleCheckStatus")
+    private readonly dataSetLifecycleCheckStatusCounter: Counter,
+  ) {}
+
+  /**
+   * Observe the end-to-end duration of one lifecycle check (create throwaway data set
+   * with a seed piece, then `terminateService` and confirm `pdpEndEpoch != 0`).
+   * Emitted on `success` and `failure.timedout` only (analogous to `dataSetCreationMs`).
+   */
+  observeCheckDuration(labels: CheckMetricLabels, value: number | null | undefined): void {
+    observePositive(this.dataSetLifecycleCheckMs, labels, value);
+  }
+
+  /**
+   * Record data-set lifecycle check status.
+   * Values: `success`, `failure.timedout`, `failure.other`.
+   * See docs/checks/data-set-lifecycle-check.md.
+   */
+  recordStatus(labels: CheckMetricLabels, value: string): void {
+    this.dataSetLifecycleCheckStatusCounter.inc({ ...labels, value });
+  }
+}
+
+@Injectable()
 export class PullCheckCheckMetrics {
   constructor(
     @InjectMetric("pullRequestAcknowledgementLatencyMs")

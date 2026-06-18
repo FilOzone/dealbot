@@ -7,6 +7,7 @@ The files are:
 - [anon-retrievals.md](./anon-retrievals.md): Defines the "anonymous retrieval check" (sampled public pieces, not dealbot-uploaded) and how it is calculated.
 - [data-retention.md](./data-retention.md): Defines the "data retention check" and how it is calculated.
 - [pull-check.md](./pull-check.md): Defines the "pull check" and how it is calculated.
+- [data-set-lifecycle-check.md](./data-set-lifecycle-check.md): Defines the `data_set_lifecycle_check` canary that creates and terminates a throwaway data set each tick.
 - [events-and-metrics.md](./events-and-metrics.md): Defines the events and metrics that are used to assess SP performance.
 
 
