@@ -1398,15 +1398,16 @@ DEALBOT_PROBE_LOCATION=aws-us-east-1
 
 - **Type**: `number` (milliseconds)
 - **Required**: No
-- **Default**: `240000` (4 minutes)
+- **Default**: Derived from the longest configured job timeout. With default job timeouts this is `600000` (10 minutes), set by `DATA_SET_LIFECYCLE_CHECK_JOB_TIMEOUT_SECONDS`.
 - **Minimum**: `1000`
 
-**Role**: Maximum total time for HTTP/1.1 requests, including body transfer.
+**Role**: Maximum total time for HTTP/1.1 requests, including body transfer. Applies to the default `requestWithMetrics` path and to streaming body transfers.
+
+**Notes**: Most deployments should leave this unset. Each job that issues HTTP requests carries its own `AbortController` signal, which fires first and is authoritative; this timeout is only a per-request ceiling for callers that pass no signal. Setting it below the longest job timeout logs a warning at boot and can abort in-flight work before the job signal reports it, producing short, unexplained timeouts.
 
 **When to update**:
 
-- Increase for large file retrievals
-- Decrease to fail faster on slow providers
+- Set explicitly only to cap requests below the longest job timeout (rare), or to raise the ceiling if you also raise a job timeout above the derived default.
 
 ---
 
@@ -1414,14 +1415,12 @@ DEALBOT_PROBE_LOCATION=aws-us-east-1
 
 - **Type**: `number` (milliseconds)
 - **Required**: No
-- **Default**: `240000` (4 minutes)
+- **Default**: Derived from the longest configured job timeout, same as `HTTP_REQUEST_TIMEOUT_MS` (`600000` / 10 minutes with default job timeouts).
 - **Minimum**: `1000`
 
-**Role**: Maximum total time for HTTP/2 requests, including body transfer.
+**Role**: Maximum total time for HTTP/2 requests, including body transfer. Used as the transfer-timeout ceiling for the HTTP/2 request path (anon retrieval, pull check piece fetches).
 
-**When to update**:
-
-- Typically kept in sync with `HTTP_REQUEST_TIMEOUT_MS`
+**Notes**: Same derive-and-override behavior as `HTTP_REQUEST_TIMEOUT_MS`. The connect/headers phase is bounded separately by `CONNECT_TIMEOUT_MS`.
 
 ---
 
