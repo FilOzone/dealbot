@@ -28,6 +28,25 @@ export enum IpniStatus {
   FAILED = "failed",
 }
 
+export enum IpniCheckStatus {
+  SUCCESS = "success",
+  SKIPPED = "skipped",
+  FAILURE_TIMEDOUT = "failure.timedout",
+  FAILURE_OTHER = "failure.other",
+}
+
+export enum CarParseStatus {
+  SUCCESS = "success",
+  SKIPPED = "skipped",
+  FAILURE_NOT_PARSEABLE = "failure.not_parseable",
+}
+
+export enum BlockFetchStatus {
+  SUCCESS = "success",
+  SKIPPED = "skipped",
+  FAILURE_OTHER = "failure.other",
+}
+
 /**
  * Metadata schema for deal storage and retrieval
  */

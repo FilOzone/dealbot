@@ -1,6 +1,7 @@
 export type CheckType =
   | "dataStorage"
   | "retrieval"
+  | "anon_retrieval"
   | "dataRetention"
   | "dataSetCreation"
   | "dataSetLifecycleCheck"

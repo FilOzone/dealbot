@@ -13,4 +13,6 @@ export interface RequestMetrics {
 export interface RequestWithMetrics<T> {
   data: T;
   metrics: RequestMetrics;
+  aborted?: boolean; // Set when the request was aborted mid-download after response headers arrived.
+  abortReason?: string; // Error message when `aborted` is true; human-readable summary of the abort reason.
 }

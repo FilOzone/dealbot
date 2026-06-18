@@ -2,6 +2,7 @@ import { Injectable, Logger } from "@nestjs/common";
 import { InjectMetric } from "@willsoto/nestjs-prometheus";
 import type { Counter, Histogram } from "prom-client";
 import type { Deal } from "../database/entities/deal.entity.js";
+import { BlockFetchStatus, CarParseStatus, IpniCheckStatus } from "../database/types.js";
 import type { RetrievalExecutionResult } from "../retrieval-addons/types.js";
 import { buildCheckMetricLabels, type CheckMetricLabels } from "./check-metric-labels.js";
 
@@ -352,5 +353,68 @@ export class PullCheckCheckMetrics {
 
   recordStatus(labels: CheckMetricLabels, value: string): void {
     this.pullCheckStatusCounter.inc({ ...labels, value });
+  }
+}
+
+@Injectable()
+export class AnonRetrievalCheckMetrics {
+  constructor(
+    @InjectMetric("anonPieceRetrievalFirstByteMs")
+    private readonly firstByteMs: Histogram,
+    @InjectMetric("anonPieceRetrievalLastByteMs")
+    private readonly lastByteMs: Histogram,
+    @InjectMetric("anonPieceRetrievalThroughputBps")
+    private readonly throughputBps: Histogram,
+    @InjectMetric("anonRetrievalCheckMs")
+    private readonly checkMs: Histogram,
+    @InjectMetric("anonPieceRetrievalStatus")
+    private readonly statusCounter: Counter,
+    @InjectMetric("anonPieceHttpResponseCode")
+    private readonly httpResponseCounter: Counter,
+    @InjectMetric("anonCarParseStatus")
+    private readonly carParseCounter: Counter,
+    @InjectMetric("anonIpniStatus")
+    private readonly ipniCounter: Counter,
+    @InjectMetric("anonBlockFetchStatus")
+    private readonly blockFetchCounter: Counter,
+  ) {}
+
+  observeFirstByteMs(labels: CheckMetricLabels, value: number | null | undefined): void {
+    observePositive(this.firstByteMs, labels, value);
+  }
+
+  observeLastByteMs(labels: CheckMetricLabels, value: number | null | undefined): void {
+    observePositive(this.lastByteMs, labels, value);
+  }
+
+  observeThroughput(labels: CheckMetricLabels, value: number | null | undefined): void {
+    observePositive(this.throughputBps, labels, value);
+  }
+
+  observeCheckDuration(labels: CheckMetricLabels, value: number | null | undefined): void {
+    observePositive(this.checkMs, labels, value);
+  }
+
+  recordPieceRetrievalStatus(labels: CheckMetricLabels, value: string): void {
+    this.statusCounter.inc({ ...labels, value });
+  }
+
+  recordHttpResponseCode(labels: CheckMetricLabels, statusCode: number): void {
+    this.httpResponseCounter.inc({
+      ...labels,
+      value: classifyHttpResponseCode(statusCode),
+    });
+  }
+
+  recordCarParseStatus(labels: CheckMetricLabels, value: CarParseStatus): void {
+    this.carParseCounter.inc({ ...labels, value });
+  }
+
+  recordIpniStatus(labels: CheckMetricLabels, value: IpniCheckStatus): void {
+    this.ipniCounter.inc({ ...labels, value });
+  }
+
+  recordBlockFetchStatus(labels: CheckMetricLabels, value: BlockFetchStatus): void {
+    this.blockFetchCounter.inc({ ...labels, value });
   }
 }
