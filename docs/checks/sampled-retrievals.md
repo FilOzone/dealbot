@@ -1,6 +1,6 @@
-# Anonymous Retrieval Check
+# Sampled Retrieval Check
 
-This document is the **source of truth** for how dealbot's Anonymous Retrieval check works.
+This document is the **source of truth** for how dealbot's Sampled Retrieval check works.
 
 Source code links throughout this document point to the current implementation.
 
@@ -8,13 +8,13 @@ For event and metric definitions to be used by the dashboard, see [Dealbot Event
 
 ## Overview
 
-The Anonymous Retrieval check (sometimes referred to internally as [retrieval++](https://github.com/FilOzone/dealbot/pull/427)) tests publicly discoverable pieces on a storage provider (pieces that were *not* uploaded by dealbot). The intent is to measure SP retrievability against real-world tenant data, not just dealbot's own corpus.
+The Sampled Retrieval check (sometimes referred to internally as [retrieval++](https://github.com/FilOzone/dealbot/pull/427)) tests publicly discoverable pieces on a storage provider (pieces that were *not* uploaded by dealbot). The intent is to measure SP retrievability against real-world tenant data, not just dealbot's own corpus.
 
-This is distinct from the [Retrieval check](./retrievals.md), which exercises pieces dealbot itself uploaded as part of a [Data Storage check](./data-storage.md). The Anonymous Retrieval check answers a different question: does the SP serve arbitrary pieces from its broader public corpus, with the same correctness and performance properties as dealbot's controlled pieces?
+This is distinct from the [Retrieval check](./retrievals.md), which exercises pieces dealbot itself uploaded as part of a [Data Storage check](./data-storage.md). The Sampled Retrieval check answers a different question: does the SP serve arbitrary pieces from its broader public corpus, with the same correctness and performance properties as dealbot's controlled pieces?
 
 ### Definition of Successful Retrieval
 
-A successful anonymous retrieval requires:
+A successful sampled retrieval requires:
 
 1. **Piece fetch** — `GET {spBaseUrl}/piece/{pieceCid}` returns HTTP 2xx and the response bytes hash to the declared CommP (piece CID).
 
@@ -26,7 +26,7 @@ If the piece advertises IPFS indexing (`withIPFSIndexing = true` and a non-null 
 
 A piece without IPFS indexing is exercised only at step (1).
 
-Operational timeouts exist to prevent jobs from running indefinitely. If the job exceeds `ANON_RETRIEVAL_JOB_TIMEOUT_SECONDS`, it is aborted; a row is still emitted so that partial metrics (TTFB, bytes, response code) are not lost.
+Operational timeouts exist to prevent jobs from running indefinitely. If the job exceeds `SAMPLED_RETRIEVAL_JOB_TIMEOUT_SECONDS`, it is aborted; a row is still emitted so that partial metrics (TTFB, bytes, response code) are not lost.
 
 ## Piece Selection
 
@@ -41,7 +41,7 @@ Selection strategy (per scheduled job, per SP):
 2. **Pick a pool**:
    - `indexed` (IPFS-indexed pieces) — 80%
    - `any` (all FWSS pieces) — 20%
-3. **Generate a uniform-random `sampleKey`** and query the subgraph for the smallest `Root.sampleKey ≥ $sampleKey` matching the SP, payer, size range, and pool filters. If no such row exists (the random key fell above every matching `sampleKey`), `sampleAnonPiece` retries in the reverse direction (largest `sampleKey < $sampleKey`) so the highest keys are not a dead zone.
+3. **Generate a uniform-random `sampleKey`** and query the subgraph for the smallest `Root.sampleKey ≥ $sampleKey` matching the SP, payer, size range, and pool filters. If no such row exists (the random key fell above every matching `sampleKey`), `samplePiece` retries in the reverse direction (largest `sampleKey < $sampleKey`) so the highest keys are not a dead zone.
 4. **Drop the candidate** if `pdpPaymentEndEpoch` has passed.
 5. **Fall back** through: (same bucket, opposite pool) → (any bucket, indexed) → (any bucket, any).
 
@@ -50,18 +50,18 @@ The 80/20 split for `indexed` vs `any` exists so that SPs cannot optimize only t
 > [!NOTE]
 > The bucket sizes were chosen such that the whole file will still fit into memory. In the future we may implement a streaming verification and parsing.
 
-Source: [`anon-piece-selector.service.ts`](../../apps/backend/src/retrieval-anon/anon-piece-selector.service.ts)
+Source: [`sampled-piece-selector.service.ts`](../../apps/backend/src/sampled-retrieval/sampled-piece-selector.service.ts)
 
 ## What Happens Each Cycle
 
 ```mermaid
 flowchart TD
-  Select["Sample anonymous piece for SP from subgraph"] --> Fetch["GET /piece/{pieceCid}"]
+  Select["Sample sampled piece for SP from subgraph"] --> Fetch["GET /piece/{pieceCid}"]
   Fetch --> CommP["Hash bytes → verify CommP"]
   CommP --> HasIpfs{"piece.withIPFSIndexing<br/>and ipfsRootCid?"}
   HasIpfs -- "no" --> Record["Persist ClickHouse row + emit Prometheus metrics"]
   HasIpfs -- "yes" --> ParseCar["Parse bytes as CAR"]
-  ParseCar --> SampleBlocks["Pick N random CIDs<br/>(ANON_RETRIEVAL_BLOCK_SAMPLE_COUNT)"]
+  ParseCar --> SampleBlocks["Pick N random CIDs<br/>(SAMPLED_RETRIEVAL_BLOCK_SAMPLE_COUNT)"]
   SampleBlocks --> Ipni["IPNI: verify SP advertises root + sampled CIDs"]
   SampleBlocks --> BlockFetch["GET /ipfs/{cid}?format=raw for each sampled CID"]
   BlockFetch --> HashCheck["Hash-verify each response against its CID"]
@@ -75,71 +75,71 @@ flowchart TD
 - **Buffered in memory** — piece sizes are capped at 100 MiB by selection (the upper bound of the `large` bucket).
 - **Validates CommP** — the CommP of the response bytes must match `pieceCid`.
 
-Source: [`piece-retrieval.service.ts`](../../apps/backend/src/retrieval-anon/piece-retrieval.service.ts)
+Source: [`piece-retrieval.service.ts`](../../apps/backend/src/sampled-retrieval/piece-retrieval.service.ts)
 
 ### CAR / IPNI / block-fetch validation (only when piece advertises IPFS indexing)
 
 When the selected piece has `withIPFSIndexing = true` and a non-null `ipfsRootCid`, three dimensions are exercised by `PieceValidationService`. Each dimension has an independent outcome; a failure or skip in one never bleeds into another's status.
 
-1. **CAR parse:** `@ipld/car` parses the response bytes; a random sample of `ANON_RETRIEVAL_BLOCK_SAMPLE_COUNT` CIDs is selected for the next two steps.
+1. **CAR parse:** `@ipld/car` parses the response bytes; a random sample of `SAMPLED_RETRIEVAL_BLOCK_SAMPLE_COUNT` CIDs is selected for the next two steps.
 2. **IPNI check:** `IpniVerificationService.verify(rootCid, sampledCids, sp)` polls filecoinpin.contact until each CID resolves to the SP under test, the timeout fires, or `IPNI_VERIFICATION_TIMEOUT_MS` is reached.
 3. **Block fetch check:** for each sampled CID, fetch `{spBaseUrl}/ipfs/{cid}?format=raw` and hash-verify the response against the CID. Non-2xx, hash mismatch, unsupported codec, or transport errors all count as a single failed block.
 
 CAR parse failure (`failure.not_parseable`) is attributed to the client (bad upload), not the SP. When the CAR is unparseable, IPNI and block fetch are skipped because there are no sampleable CIDs to verify or fetch.
 
-Source: [`piece-validation.service.ts`](../../apps/backend/src/retrieval-anon/piece-validation.service.ts)
+Source: [`piece-validation.service.ts`](../../apps/backend/src/sampled-retrieval/piece-validation.service.ts)
 
 ## What Gets Asserted
 
 | # | Assertion | How It's Checked | Retries | Relevant Metric |
 |---|-----------|------------------|:---:|------------------|
-| 1 | SP serves the piece | `GET /piece/{pieceCid}` returns HTTP 2xx | 0 | [`anonPieceRetrievalLastByteMs`](./events-and-metrics.md#anonPieceRetrievalLastByteMs) |
-| 2 | Bytes match the declared CommP | Hash of response bytes equals `pieceCid` | 0 | [`anonPieceRetrievalStatus`](./events-and-metrics.md#anonPieceRetrievalStatus) |
-| 3 | Bytes parse as a CAR (IPFS-indexed pieces only) | `@ipld/car` parses the response | 0 | [`anonCarParseStatus`](./events-and-metrics.md#anonCarParseStatus) |
-| 4 | SP is advertised on IPNI for root + sampled CIDs | filecoinpin.contact returns provider records | polling until timeout | [`anonIpniStatus`](./events-and-metrics.md#anonIpniStatus) |
-| 5 | Sampled blocks fetch + hash-verify | `/ipfs/{cid}?format=raw` for each sample | 0 | [`anonBlockFetchStatus`](./events-and-metrics.md#anonBlockFetchStatus) |
+| 1 | SP serves the piece | `GET /piece/{pieceCid}` returns HTTP 2xx | 0 | [`sampledPieceRetrievalLastByteMs`](./events-and-metrics.md#sampledPieceRetrievalLastByteMs) |
+| 2 | Bytes match the declared CommP | Hash of response bytes equals `pieceCid` | 0 | [`sampledPieceRetrievalStatus`](./events-and-metrics.md#sampledPieceRetrievalStatus) |
+| 3 | Bytes parse as a CAR (IPFS-indexed pieces only) | `@ipld/car` parses the response | 0 | [`sampledCarParseStatus`](./events-and-metrics.md#sampledCarParseStatus) |
+| 4 | SP is advertised on IPNI for root + sampled CIDs | filecoinpin.contact returns provider records | polling until timeout | [`sampledIpniStatus`](./events-and-metrics.md#sampledIpniStatus) |
+| 5 | Sampled blocks fetch + hash-verify | `/ipfs/{cid}?format=raw` for each sample | 0 | [`sampledBlockFetchStatus`](./events-and-metrics.md#sampledBlockFetchStatus) |
 
 ## Sub-status meanings
 
-Unlike the [Data Storage check](./data-storage.md#deal-status-progression), anonymous retrieval does **not** have a rolled-up status (e.g., `anonRetrievalStatus`). Piece retrieval, CAR parsing, IPNI verification, block-fetch outcomes are recorded independently. Each status metric below is emitted exactly once per check, except when `anonPieceRetrievalStatus=skipped` because selection itself failed and no HTTP/CAR/IPNI/block-fetch work ran.
+Unlike the [Data Storage check](./data-storage.md#deal-status-progression), sampled retrieval does **not** have a rolled-up status (e.g., `sampledRetrievalStatus`). Piece retrieval, CAR parsing, IPNI verification, block-fetch outcomes are recorded independently. Each status metric below is emitted exactly once per check, except when `sampledPieceRetrievalStatus=skipped` because selection itself failed and no HTTP/CAR/IPNI/block-fetch work ran.
 
-| anonPieceRetrievalStatus | Meaning |
+| sampledPieceRetrievalStatus | Meaning |
 |--------|---------|
 | `success` | `GET /piece/{pieceCid}` returned HTTP 2xx **and** the response bytes hashed to the declared CommP. |
 | `skipped` | The subgraph returned no candidate piece for the SP after all selection fallbacks. No HTTP request was attempted. |
 | `failure.http` | Piece fetch did not return HTTP 2xx, or the request failed at the transport layer (DNS, TLS, connection reset, etc.). |
 | `failure.commp` | Piece fetch returned HTTP 2xx, but the response bytes hashed to a different CID than `pieceCid`. The bytes are discarded — downstream CAR / IPNI / block-fetch validation is skipped to avoid amplifying a misbehaving SP. |
-| `failure.timedout` | The job-level `AbortSignal` fired (most often `ANON_RETRIEVAL_JOB_TIMEOUT_SECONDS`). Partial timing/byte evidence is still persisted. |
+| `failure.timedout` | The job-level `AbortSignal` fired (most often `SAMPLED_RETRIEVAL_JOB_TIMEOUT_SECONDS`). Partial timing/byte evidence is still persisted. |
 | `failure.other` | Catch-all for retrieval failures that do not match any of the categories above. |
 
-| anonCarParseStatus | Meaning                                                                                                                                               |
+| sampledCarParseStatus | Meaning                                                                                                                                               |
 |--------|-------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `success` | The fetched piece bytes were successfully parsed as a CAR by `@ipld/car`.                                                                             |
 | `skipped` | CAR parsing was not attempted — piece fetch failed, the piece does not advertise IPFS indexing, or the job aborted before parsing.                    |
 | `failure.not_parseable` | The fetched piece bytes could not be parsed as a CAR (malformed header, truncated content, unexpected encoding, or parser threw an error). Attributed to the client (bad upload), not the SP. |
 
-| anonIpniStatus | Meaning |
+| sampledIpniStatus | Meaning |
 |--------|---------|
 | `success` | filecoinpin.contact returned the SP as a provider for the root CID **and** every sampled child CID within `IPNI_VERIFICATION_TIMEOUT_MS`. |
 | `skipped` | IPNI verification was not attempted — piece fetch failed, the piece does not advertise IPFS indexing, CAR parsing returned `failure.not_parseable`, the root CID itself failed to parse, or the job aborted. |
 | `failure.timedout` | IPNI was queried but at least one CID never resolved to the SP under test before `IPNI_VERIFICATION_TIMEOUT_MS` (the poll loop exhausted its timeout with unresolved CIDs). |
 | `failure.other` | IPNI verification was attempted and `IpniVerificationService.verify` threw unexpectedly (transport error, service down, etc.). |
 
-| anonBlockFetchStatus | Meaning |
+| sampledBlockFetchStatus | Meaning |
 |--------|---------|
 | `success` | Every sampled CID was fetched via `GET {spBaseUrl}/ipfs/{cid}?format=raw` and the response bytes hash-verified against the declared CID. |
 | `skipped` | Block-fetch sampling was not attempted — piece fetch failed, the piece does not advertise IPFS indexing, CAR parsing returned `failure.not_parseable`, or the job aborted. |
 | `failure.other` | At least one sampled block fetch failed (non-2xx HTTP, hash mismatch, unsupported codec, unsupported hash, or transport error — each failed sample counts as one failed block), **or** the sampling loop threw unexpectedly outside the per-block try/catch. Per-block granularity lives in `block_fetch_failed_count`. |
 
 Sources:
-- [`anon-retrieval.service.ts`](../../apps/backend/src/retrieval-anon/anon-retrieval.service.ts) — orchestrates the dimensions and emits the four status metrics
-- [`piece-retrieval.service.ts`](../../apps/backend/src/retrieval-anon/piece-retrieval.service.ts) — classifies piece-fetch outcomes
-- [`piece-validation.service.ts`](../../apps/backend/src/retrieval-anon/piece-validation.service.ts) — produces CAR / IPNI / block-fetch outcomes independently
+- [`sampled-retrieval.service.ts`](../../apps/backend/src/sampled-retrieval/sampled-retrieval.service.ts) — orchestrates the dimensions and emits the four status metrics
+- [`piece-retrieval.service.ts`](../../apps/backend/src/sampled-retrieval/piece-retrieval.service.ts) — classifies piece-fetch outcomes
+- [`piece-validation.service.ts`](../../apps/backend/src/sampled-retrieval/piece-validation.service.ts) — produces CAR / IPNI / block-fetch outcomes independently
 - [`types.ts` (`CarParseStatus`, `IpniCheckStatus`)](../../apps/backend/src/database/types.ts) — enum source of truth
 
 ## Result Recording
 
-Each anonymous retrieval attempt writes one row to the `anon_retrieval_checks` ClickHouse table unless we could not find a piece to probe for the SP. The row is emitted **even on abort or unexpected error** so that the partial evidence (TTFB, bytes, response code) is preserved.
+Each sampled retrieval attempt writes one row to the `sampled_retrieval_checks` ClickHouse table unless we could not find a piece to probe for the SP. The row is emitted **even on abort or unexpected error** so that the partial evidence (TTFB, bytes, response code) is preserved.
 
 The DDL and column-level comments in [`clickhouse.schema.ts`](../../apps/backend/src/clickhouse/clickhouse.schema.ts) are authoritative. The summary below is for orientation.
 
@@ -157,30 +157,30 @@ The DDL and column-level comments in [`clickhouse.schema.ts`](../../apps/backend
 | `http_response_code` | Raw HTTP status; null on transport failure |
 | `first_byte_ms`, `last_byte_ms`, `bytes_retrieved`, `throughput_bps` | Piece-fetch performance |
 | `commp_valid` | Null when retrieval failed before CommP could be hashed |
-| `car_status` | `success` \| `skipped` \| `failure.not_parseable` — mirrors `anonCarParseStatus` |
+| `car_status` | `success` \| `skipped` \| `failure.not_parseable` — mirrors `sampledCarParseStatus` |
 | `car_block_count` | Total CAR block count; null unless `car_status='parseable'` |
 | `block_fetch_endpoint` | Gateway base URL probed; null when skipped or SP info missing |
-| `block_fetch_status` | `success` \| `skipped` \| `failure.other` — mirrors `anonBlockFetchStatus` |
+| `block_fetch_status` | `success` \| `skipped` \| `failure.other` — mirrors `sampledBlockFetchStatus` |
 | `block_fetch_sampled_count`, `block_fetch_failed_count` | Sampled / failed block counts; null when skipped |
-| `ipni_status` | `success` \| `skipped` \| `failure.timedout` \| `failure.other` — mirrors `anonIpniStatus` |
+| `ipni_status` | `success` \| `skipped` \| `failure.timedout` \| `failure.other` — mirrors `sampledIpniStatus` |
 | `ipni_verify_ms` | IPNI verification duration; null when skipped |
 | `error_message` | Failure reason; null on success |
 
-Source: [`anon-retrieval.service.ts`](../../apps/backend/src/retrieval-anon/anon-retrieval.service.ts)
+Source: [`sampled-retrieval.service.ts`](../../apps/backend/src/sampled-retrieval/sampled-retrieval.service.ts)
 
 ## Metrics Recorded
 
-Anonymous-retrieval Prometheus metric definitions live in [Dealbot Events & Metrics](./events-and-metrics.md). All anon-retrieval metrics carry `checkType=anon_retrieval`.
+Sampled-retrieval Prometheus metric definitions live in [Dealbot Events & Metrics](./events-and-metrics.md). All sampled-retrieval metrics carry `checkType=sampledRetrieval`.
 
 ## Configuration
 
-Key environment variables that control anonymous retrieval testing:
+Key environment variables that control sampled retrieval testing:
 
 | Variable | Description |
 |----------|-------------|
-| `RETRIEVALS_ANON_PER_SP_PER_HOUR` | Anonymous retrieval rate per SP. Falls back to `RETRIEVALS_PER_SP_PER_HOUR` when unset. |
-| `ANON_RETRIEVAL_JOB_TIMEOUT_SECONDS` | Max end-to-end anon retrieval job runtime before forced abort (default 360s). |
-| `ANON_RETRIEVAL_BLOCK_SAMPLE_COUNT` | Number of CIDs sampled from the parsed CAR for IPNI + block-fetch verification (default 5, max 50). |
+| `SAMPLED_RETRIEVALS_PER_SP_PER_HOUR` | Sampled retrieval rate per SP. Falls back to `RETRIEVALS_PER_SP_PER_HOUR` when unset. |
+| `SAMPLED_RETRIEVAL_JOB_TIMEOUT_SECONDS` | Max end-to-end sampled retrieval job runtime before forced abort (default 360s). |
+| `SAMPLED_RETRIEVAL_BLOCK_SAMPLE_COUNT` | Number of CIDs sampled from the parsed CAR for IPNI + block-fetch verification (default 5, max 50). |
 | `IPNI_VERIFICATION_TIMEOUT_MS` | Max time to wait for IPNI provider verification (shared with the Retrieval check). |
 | `IPNI_VERIFICATION_POLLING_MS` | Poll interval between IPNI verification attempts (shared). |
 | `CONNECT_TIMEOUT_MS` | Connection/header timeout for HTTP requests. |

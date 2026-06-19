@@ -7,25 +7,25 @@ import { type ProviderJobContext, toStructuredError } from "../common/logging.js
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
 import { BlockFetchStatus, CarParseStatus, IpniCheckStatus, RetrievalStatus, ServiceType } from "../database/types.js";
 import { buildCheckMetricLabels } from "../metrics-prometheus/check-metric-labels.js";
-import { AnonRetrievalCheckMetrics } from "../metrics-prometheus/check-metrics.service.js";
+import { SampledRetrievalCheckMetrics } from "../metrics-prometheus/check-metrics.service.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
-import { AnonPieceSelectorService } from "./anon-piece-selector.service.js";
 import { PieceRetrievalService } from "./piece-retrieval.service.js";
 import { PieceValidationService } from "./piece-validation.service.js";
+import { SampledPieceSelectorService } from "./sampled-piece-selector.service.js";
 import type { BlockFetchOutcome, CarParseOutcome, IpniCheckOutcome, PieceRetrievalResult } from "./types.js";
 
-const ANON_RETRIEVAL_CHECKS_TABLE = "anon_retrieval_checks";
+const SAMPLED_RETRIEVAL_CHECKS_TABLE = "sampled_retrieval_checks";
 
 @Injectable()
-export class AnonRetrievalService {
-  private readonly logger = new Logger(AnonRetrievalService.name);
+export class SampledRetrievalService {
+  private readonly logger = new Logger(SampledRetrievalService.name);
 
   constructor(
-    private readonly anonPieceSelectorService: AnonPieceSelectorService,
+    private readonly sampledPieceSelectorService: SampledPieceSelectorService,
     private readonly pieceRetrievalService: PieceRetrievalService,
     private readonly pieceValidationService: PieceValidationService,
     private readonly walletSdkService: WalletSdkService,
-    private readonly metrics: AnonRetrievalCheckMetrics,
+    private readonly metrics: SampledRetrievalCheckMetrics,
     private readonly clickhouseService: ClickhouseService,
     @InjectRepository(StorageProvider)
     private readonly spRepository: Repository<StorageProvider>,
@@ -35,21 +35,21 @@ export class AnonRetrievalService {
     // Build metric labels
     const provider = await this.spRepository.findOne({ where: { address: spAddress } });
     const labels = buildCheckMetricLabels({
-      checkType: "anon_retrieval",
+      checkType: "sampledRetrieval",
       providerId: provider?.providerId,
       providerName: provider?.name,
       providerIsApproved: provider?.isApproved,
     });
 
     // 1. Select an anonymous piece
-    const piece = await this.anonPieceSelectorService.selectPieceForProvider(spAddress, signal);
+    const piece = await this.sampledPieceSelectorService.selectPieceForProvider(spAddress, signal);
     if (!piece) {
       throw new Error(`No anonymous piece found for SP ${spAddress}`);
     }
 
     this.logger.log({
       ...logContext,
-      event: "anon_retrieval_started",
+      event: "sampled_retrieval_started",
       message: "Starting anonymous retrieval test",
       pieceCid: piece.pieceCid,
       dataSetId: piece.dataSetId,
@@ -122,7 +122,7 @@ export class AnonRetrievalService {
       this.metrics.recordIpniStatus(labels, ipniStatus);
       this.metrics.recordBlockFetchStatus(labels, blockFetchStatus);
       this.metrics.observeCheckDuration(labels, Date.now() - checkStart);
-      this.metrics.recordPieceRetrievalStatus(labels, anonPieceRetrievalStatus(pieceResult));
+      this.metrics.recordPieceRetrievalStatus(labels, sampledPieceRetrievalStatus(pieceResult));
     } finally {
       // Always emit a ClickHouse row — even on abort or unexpected error — so
       // we never lose the evidence (ttfb, bytes, response code) we already
@@ -138,7 +138,7 @@ export class AnonRetrievalService {
       const blockFetchStatus = blockFetchStatusForRow(parse, blockFetch);
 
       try {
-        this.clickhouseService.insert(ANON_RETRIEVAL_CHECKS_TABLE, {
+        this.clickhouseService.insert(SAMPLED_RETRIEVAL_CHECKS_TABLE, {
           timestamp: startedAt.getTime(),
           probe_location: this.clickhouseService.probeLocation,
           sp_address: spAddress,
@@ -176,7 +176,7 @@ export class AnonRetrievalService {
         // guard against unexpected runtime errors so we don't break the probe cycle.
         this.logger.warn({
           ...logContext,
-          event: "anon_retrieval_clickhouse_insert_failed",
+          event: "sampled_retrieval_clickhouse_insert_failed",
           message: "Failed to enqueue anonymous retrieval row to ClickHouse",
           pieceCid: piece.pieceCid,
           spAddress,
@@ -186,7 +186,7 @@ export class AnonRetrievalService {
 
       this.logger.log({
         ...logContext,
-        event: "anon_retrieval_completed",
+        event: "sampled_retrieval_completed",
         message: "Anonymous retrieval test completed",
         retrievalId,
         pieceCid: piece.pieceCid,
@@ -204,7 +204,7 @@ export class AnonRetrievalService {
   }
 }
 
-function anonPieceRetrievalStatus(pieceResult: PieceRetrievalResult): string {
+function sampledPieceRetrievalStatus(pieceResult: PieceRetrievalResult): string {
   if (pieceResult.success) return "success";
   if (pieceResult.aborted) return "failure.timedout";
   if (!pieceResult.httpSuccess) return "failure.http";

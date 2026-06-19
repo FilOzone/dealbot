@@ -357,25 +357,25 @@ export class PullCheckCheckMetrics {
 }
 
 @Injectable()
-export class AnonRetrievalCheckMetrics {
+export class SampledRetrievalCheckMetrics {
   constructor(
-    @InjectMetric("anonPieceRetrievalFirstByteMs")
+    @InjectMetric("sampledPieceRetrievalFirstByteMs")
     private readonly firstByteMs: Histogram,
-    @InjectMetric("anonPieceRetrievalLastByteMs")
+    @InjectMetric("sampledPieceRetrievalLastByteMs")
     private readonly lastByteMs: Histogram,
-    @InjectMetric("anonPieceRetrievalThroughputBps")
+    @InjectMetric("sampledPieceRetrievalThroughputBps")
     private readonly throughputBps: Histogram,
-    @InjectMetric("anonRetrievalCheckMs")
+    @InjectMetric("sampledRetrievalCheckMs")
     private readonly checkMs: Histogram,
-    @InjectMetric("anonPieceRetrievalStatus")
+    @InjectMetric("sampledPieceRetrievalStatus")
     private readonly statusCounter: Counter,
-    @InjectMetric("anonPieceHttpResponseCode")
+    @InjectMetric("sampledPieceHttpResponseCode")
     private readonly httpResponseCounter: Counter,
-    @InjectMetric("anonCarParseStatus")
+    @InjectMetric("sampledCarParseStatus")
     private readonly carParseCounter: Counter,
-    @InjectMetric("anonIpniStatus")
+    @InjectMetric("sampledIpniStatus")
     private readonly ipniCounter: Counter,
-    @InjectMetric("anonBlockFetchStatus")
+    @InjectMetric("sampledBlockFetchStatus")
     private readonly blockFetchCounter: Counter,
   ) {}
 

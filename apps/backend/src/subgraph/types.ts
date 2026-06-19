@@ -56,7 +56,7 @@ export type ProviderDataSetResponse = {
 };
 
 /** A piece eligible for anonymous retrieval. */
-export type AnonCandidatePiece = {
+export type CandidatePiece = {
   /** Decoded piece CID string (e.g. "bafk..."). */
   pieceCid: string;
   /** On-chain piece ID (rootId) as a decimal string. */
@@ -79,7 +79,7 @@ export type AnonCandidatePiece = {
  * Validated raw shape of the anonymous piece sampling subgraph response.
  * At most one root is returned (`first: 1`).
  */
-export type RawSampleAnonPieceResponse = {
+export type RawSamplePieceResponse = {
   _meta: { block: { number: number } };
   roots: Array<{
     rootId: string;
@@ -190,7 +190,7 @@ const sampleRootSchema = Joi.object({
   proofSet: sampleRootProofSetSchema.required(),
 }).unknown(true);
 
-const sampleAnonPieceResponseSchema = Joi.object({
+const samplePieceResponseSchema = Joi.object({
   _meta: Joi.object({
     block: Joi.object({
       number: Joi.number().integer().positive().required(),
@@ -239,14 +239,14 @@ export function validateProviderDataSetResponse(value: unknown): ProviderDataSet
 }
 
 /**
- * Validates the raw sampleAnonPiece response from the subgraph.
+ * Validates the raw samplePiece response from the subgraph.
  *
  * @throws Error if validation fails
  */
-export function validateSampleAnonPieceResponse(value: unknown): RawSampleAnonPieceResponse {
-  const { error, value: validated } = sampleAnonPieceResponseSchema.validate(value, { abortEarly: false });
+export function validateSamplePieceResponse(value: unknown): RawSamplePieceResponse {
+  const { error, value: validated } = samplePieceResponseSchema.validate(value, { abortEarly: false });
   if (error) {
-    throw new Error(`Invalid sampleAnonPiece response format: ${error.message}`);
+    throw new Error(`Invalid samplePiece response format: ${error.message}`);
   }
-  return validated as RawSampleAnonPieceResponse;
+  return validated as RawSamplePieceResponse;
 }

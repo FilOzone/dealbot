@@ -62,7 +62,7 @@ describe("JobsService schedule rows", () => {
       dataRetentionService: JobsServiceDeps[6];
       pieceCleanupService: JobsServiceDeps[7];
       pullCheckService: JobsServiceDeps[8];
-      anonRetrievalService: JobsServiceDeps[9];
+      sampledRetrievalService: JobsServiceDeps[9];
       jobsQueuedGauge: JobsServiceDeps[10];
       jobsRetryScheduledGauge: JobsServiceDeps[11];
       oldestQueuedAgeGauge: JobsServiceDeps[12];
@@ -146,7 +146,7 @@ describe("JobsService schedule rows", () => {
         workerPollSeconds: 60,
         dealJobTimeoutSeconds: 360,
         retrievalJobTimeoutSeconds: 60,
-        anonRetrievalJobTimeoutSeconds: 360,
+        sampledRetrievalJobTimeoutSeconds: 360,
         dataSetCreationJobTimeoutSeconds: 300,
         dataSetLifecycleCheckEnabled: false,
         dataSetLifecycleChecksPerSpPerHour: 1,
@@ -154,7 +154,7 @@ describe("JobsService schedule rows", () => {
         shutdownFinalScrapeDelaySeconds: 35,
         pieceCleanupPerSpPerHour: 1,
         maxPieceCleanupRuntimeSeconds: 300,
-        retrievalsAnonPerSpPerHour: 2,
+        sampledRetrievalsPerSpPerHour: 2,
       } as IConfig["jobs"],
       pullPiece: {
         pullChecksPerSpPerHour: 1,
@@ -193,7 +193,7 @@ describe("JobsService schedule rows", () => {
         overrides.dataRetentionService ?? (dataRetentionServiceMock as unknown as JobsServiceDeps[6]),
         overrides.pieceCleanupService ?? ({} as JobsServiceDeps[7]),
         overrides.pullCheckService ?? ({} as JobsServiceDeps[8]),
-        overrides.anonRetrievalService ?? ({} as JobsServiceDeps[9]),
+        overrides.sampledRetrievalService ?? ({} as JobsServiceDeps[9]),
         overrides.jobsQueuedGauge ?? metricsMocks.jobsQueuedGauge,
         overrides.jobsRetryScheduledGauge ?? metricsMocks.jobsRetryScheduledGauge,
         overrides.oldestQueuedAgeGauge ?? metricsMocks.oldestQueuedAgeGauge,
@@ -531,7 +531,7 @@ describe("JobsService schedule rows", () => {
     );
   });
 
-  it("routes retrieval_anon jobs from the sp.work queue to the anon retrieval handler", async () => {
+  it("routes retrieval_sampled jobs from the sp.work queue to the sampled retrieval handler", async () => {
     const work = vi.fn().mockResolvedValue(undefined);
     (service as unknown as { boss: { work: typeof work } }).boss = { work };
 
@@ -541,14 +541,14 @@ describe("JobsService schedule rows", () => {
     expect(spWorkCall).toBeDefined();
     const spWorkCallback = spWorkCall?.[2] as (jobs: unknown[]) => Promise<void>;
 
-    const handleAnonRetrievalJob = vi.fn().mockResolvedValue(undefined);
-    (service as unknown as { handleAnonRetrievalJob: typeof handleAnonRetrievalJob }).handleAnonRetrievalJob =
-      handleAnonRetrievalJob;
+    const handleSampledRetrievalJob = vi.fn().mockResolvedValue(undefined);
+    (service as unknown as { handleSampledRetrievalJob: typeof handleSampledRetrievalJob }).handleSampledRetrievalJob =
+      handleSampledRetrievalJob;
 
-    const job = { id: "job-anon", data: { jobType: "retrieval_anon", spAddress: "0xaaa", intervalSeconds: 60 } };
+    const job = { id: "job-sampled", data: { jobType: "retrieval_sampled", spAddress: "0xaaa", intervalSeconds: 60 } };
     await spWorkCallback([job]);
 
-    expect(handleAnonRetrievalJob).toHaveBeenCalledWith(job);
+    expect(handleSampledRetrievalJob).toHaveBeenCalledWith(job);
   });
 
   it("creates all worker queues when starting pg-boss", async () => {
@@ -682,11 +682,11 @@ describe("JobsService schedule rows", () => {
       "piece_cleanup",
       "pull_check",
       "retrieval",
-      "retrieval_anon",
+      "retrieval_sampled",
     ]);
   });
 
-  it("skips retrieval_anon schedule when subgraph endpoint is not configured", async () => {
+  it("skips retrieval_sampled schedule when subgraph endpoint is not configured", async () => {
     baseConfigValues = {
       ...baseConfigValues,
       blockchain: { ...baseConfigValues.blockchain, subgraphEndpoint: "" } as IConfig["blockchain"],
@@ -998,7 +998,7 @@ describe("JobsService schedule rows", () => {
     );
   });
 
-  it("anon retrieval job defers to sp.work queue during maintenance window", async () => {
+  it("sampled retrieval job defers to sp.work queue during maintenance window", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2024-01-01T07:05:00Z"));
 
@@ -1014,31 +1014,31 @@ describe("JobsService schedule rows", () => {
       get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
     } as unknown as JobsServiceDeps[0];
 
-    const anonRetrievalService = { performForProvider: vi.fn() };
+    const sampledRetrievalService = { performForProvider: vi.fn() };
     const walletSdkService = {
       getProviderInfo: vi.fn(() => ({ id: 1n, name: "sp" })),
     };
 
     service = buildService({
       configService,
-      anonRetrievalService: anonRetrievalService as unknown as JobsServiceDeps[9],
+      sampledRetrievalService: sampledRetrievalService as unknown as JobsServiceDeps[9],
       walletSdkService: walletSdkService as unknown as JobsServiceDeps[5],
     });
 
     const safeSend = vi.fn().mockResolvedValue(true);
     (service as unknown as { safeSend: typeof safeSend }).safeSend = safeSend;
 
-    await callPrivate(service, "handleAnonRetrievalJob", {
-      id: "job-anon-maintenance",
-      data: { jobType: "retrieval_anon", spAddress: "0xaaa", intervalSeconds: 60 },
+    await callPrivate(service, "handleSampledRetrievalJob", {
+      id: "job-sampled-maintenance",
+      data: { jobType: "retrieval_sampled", spAddress: "0xaaa", intervalSeconds: 60 },
     });
 
     const expectedResumeAt = new Date("2024-01-01T07:20:00Z");
-    expect(anonRetrievalService.performForProvider).not.toHaveBeenCalled();
+    expect(sampledRetrievalService.performForProvider).not.toHaveBeenCalled();
     expect(safeSend).toHaveBeenCalledWith(
-      "retrieval_anon",
+      "retrieval_sampled",
       SP_WORK_QUEUE,
-      { jobType: "retrieval_anon", spAddress: "0xaaa", intervalSeconds: 60 },
+      { jobType: "retrieval_sampled", spAddress: "0xaaa", intervalSeconds: 60 },
       { startAfter: expectedResumeAt },
     );
   });
@@ -1623,28 +1623,28 @@ describe("JobsService schedule rows", () => {
     expect(dealService.createDataSetWithPiece).not.toHaveBeenCalled();
   });
 
-  it("anon retrieval job is skipped at runtime when provider is blocked", async () => {
+  it("sampled retrieval job is skipped at runtime when provider is blocked", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2024-01-01T12:00:00Z"));
 
     baseConfigValues.spBlocklists = { ids: new Set(["4"]), addresses: new Set() };
 
-    const anonRetrievalService = { performForProvider: vi.fn() };
+    const sampledRetrievalService = { performForProvider: vi.fn() };
     const walletSdkService = {
       getProviderInfo: vi.fn(() => ({ id: 4n, name: "sp" })),
     };
 
     service = buildService({
-      anonRetrievalService: anonRetrievalService as unknown as JobsServiceDeps[9],
+      sampledRetrievalService: sampledRetrievalService as unknown as JobsServiceDeps[9],
       walletSdkService: walletSdkService as unknown as JobsServiceDeps[5],
     });
 
-    await callPrivate(service, "handleAnonRetrievalJob", {
-      id: "job-blocked-anon",
-      data: { jobType: "retrieval_anon", spAddress: "0xaaa", intervalSeconds: 60 },
+    await callPrivate(service, "handleSampledRetrievalJob", {
+      id: "job-blocked-sampled",
+      data: { jobType: "retrieval_sampled", spAddress: "0xaaa", intervalSeconds: 60 },
     });
 
-    expect(anonRetrievalService.performForProvider).not.toHaveBeenCalled();
+    expect(sampledRetrievalService.performForProvider).not.toHaveBeenCalled();
   });
 
   it("SP jobs skip address-blocked providers before resolving missing provider context", async () => {
@@ -1740,7 +1740,7 @@ describe("JobsService schedule rows", () => {
       await vi.advanceTimersByTimeAsync(35_001);
       await shutdownPromise;
 
-      // Defaults: deal=360, retrieval=60, anonRetrieval=360, dataSetCreation=300,
+      // Defaults: deal=360, retrieval=60, sampledRetrieval=360, dataSetCreation=300,
       // dataSetLifecycleCheck=600, pullCheck=300 → max=600 → +60s buffer
 
       expect(bossMock.stop).toHaveBeenCalledTimes(1);

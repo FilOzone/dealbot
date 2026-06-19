@@ -6,7 +6,7 @@ This doc explains what a "job" is in dealbot, how jobs are defined, how they're 
 
 - `job_schedule_state` is the primary schedule entity with one row per `<job_type, sp_address>` plus global rows with an empty `sp_address`.
 - The dealbot scheduler loop polls for due `job_schedule_state` rows, enqueues corresponding pg-boss jobs, and advances `job_schedule_state.next_run_at`.
-- All per-SP jobs (`deal`, `retrieval`, `retrieval_anon`, `data_set_creation`, `piece_cleanup`, `pull_check`) share the `sp.work` queue with `policy=singleton` and `singletonKey=spAddress` to enforce one active job per SP while allowing backlog.
+- All per-SP jobs (`deal`, `retrieval`, `retrieval_sampled`, `data_set_creation`, `piece_cleanup`, `pull_check`) share the `sp.work` queue with `policy=singleton` and `singletonKey=spAddress` to enforce one active job per SP while allowing backlog.
 - Dealbot workers poll pg-boss queues via [`boss.work()`](https://github.com/timgit/pg-boss/blob/master/docs/api/workers.md) and run the corresponding handlers.
 
 ## Entities and Terminology
@@ -15,7 +15,7 @@ This doc explains what a "job" is in dealbot, how jobs are defined, how they're 
 | --- | --- | --- |
 | `job_schedule_state` | One per `<sp, job_type>` plus global rows | Schedule state owned by dealbot. |
 | Storage provider (SP) | One per SP in registry | Filtered by `USE_ONLY_APPROVED_PROVIDERS` when enabled. |
-| Job type | `deal`, `retrieval`, `retrieval_anon`, `data_set_creation`, `data_set_lifecycle_check`, `piece_cleanup`, `pull_check`, `providers_refresh`, `data_retention_poll`, `pull_piece_cleanup` | `deal` corresponds to "data storage check" externally; we keep `deal` in code/DB for compatibility. |
+| Job type | `deal`, `retrieval`, `retrieval_sampled`, `data_set_creation`, `data_set_lifecycle_check`, `piece_cleanup`, `pull_check`, `providers_refresh`, `data_retention_poll`, `pull_piece_cleanup` | `deal` corresponds to "data storage check" externally; we keep `deal` in code/DB for compatibility. |
 | pg-boss queue | `sp.work`, `providers.refresh`, `data.retention.poll`, `pull.piece.cleanup` | `sp.work` is a singleton queue. |
 | Dealbot scheduler | One per process (when enabled) | Runs the scheduling loop. |
 | Dealbot worker process | One Node.js process with `DEALBOT_RUN_MODE=worker` or `both` | Hosts pg-boss workers. |
@@ -34,7 +34,7 @@ This doc explains what a "job" is in dealbot, how jobs are defined, how they're 
 | --- | --- | --- | --- | --- |
 | `deal` | `sp.work` | [`JobsService.handleDealJob`](../apps/backend/src/jobs/jobs.service.ts) | `{ jobType: 'deal', spAddress, intervalSeconds }` | [data-storage check](./checks/data-storage.md) |
 | `retrieval` | `sp.work` | [`JobsService.handleRetrievalJob`](../apps/backend/src/jobs/jobs.service.ts) | `{ jobType: 'retrieval', spAddress, intervalSeconds }` | [retrieval check](./checks/retrievals.md) |
-| `retrieval_anon` | `sp.work` | [`JobsService.handleAnonRetrievalJob`](../apps/backend/src/jobs/jobs.service.ts) | `{ jobType: 'retrieval_anon', spAddress, intervalSeconds }` | [anonymous retrieval check](./checks/anon-retrievals.md) |
+| `retrieval_sampled` | `sp.work` | [`JobsService.handleSampledRetrievalJob`](../apps/backend/src/jobs/jobs.service.ts) | `{ jobType: 'retrieval_sampled', spAddress, intervalSeconds }` | [sampled retrieval check](./checks/sampled-retrievals.md) |
 | `piece_cleanup` | `sp.work` | [`JobsService.handlePieceCleanupJob`](../apps/backend/src/jobs/jobs.service.ts) | `{ jobType: 'piece_cleanup', spAddress, intervalSeconds }` | — |
 | `pull_check` | `sp.work` | [`JobsService.handlePullCheckJob`](../apps/backend/src/jobs/jobs.service.ts) | `{ jobType: 'pull_check', spAddress, intervalSeconds }` | [pull check](./checks/pull-check.md) |
 | `data_set_creation` | `sp.work` | [`JobsService.handleDataSetCreationJob`](../apps/backend/src/jobs/jobs.service.ts) | `{ jobType: 'data_set_creation', spAddress, intervalSeconds }` | [data-set-creation](./data-set-creation.md) |
@@ -42,7 +42,7 @@ This doc explains what a "job" is in dealbot, how jobs are defined, how they're 
 
 `sp.work` is created with `policy=singleton`, and jobs set `singletonKey=spAddress` so only one active job per SP can run at a time.
 
-`retrieval_anon` schedules are only created when `SUBGRAPH_ENDPOINT` is configured, because anonymous retrievals sample pieces from the dealbot-owned subgraph.
+`retrieval_sampled` schedules are only created when `SUBGRAPH_ENDPOINT` is configured, because sampled retrievals sample pieces from the dealbot-owned subgraph.
 
 pg-boss also has a separate pub/sub API (`publish`/`subscribe`) for fan-out. Dealbot uses `send`/`work` for direct queue processing.
 
@@ -142,7 +142,7 @@ Use these formulas to reason about whether the system can keep up and how much b
 
 Per-SP capacity (one job per SP at a time):
 
-- Per-SP execution-minutes per hour = `(deals_per_sp_per_hour * deal_max_minutes) + (retrievals_per_sp_per_hour * retrieval_max_minutes) + (retrievals_anon_per_sp_per_hour * anon_retrieval_max_minutes) + (piece_cleanup_per_sp_per_hour * cleanup_max_minutes) + (pull_checks_per_sp_per_hour * pull_check_max_minutes)`
+- Per-SP execution-minutes per hour = `(deals_per_sp_per_hour * deal_max_minutes) + (retrievals_per_sp_per_hour * retrieval_max_minutes) + (sampled_retrievals_per_sp_per_hour * sampled_retrieval_max_minutes) + (piece_cleanup_per_sp_per_hour * cleanup_max_minutes) + (pull_checks_per_sp_per_hour * pull_check_max_minutes)`
 - If per-SP execution-minutes per hour > 60, that SP can never catch up (backlog grows), even if we had infinite dealbot workers.  
 - If per-SP execution-minutes per hour <= 60, backlog should eventually drain, assuming there are enough dealbot workers (headroom = `60 - per-SP execution-minutes per hour`).
 
@@ -153,7 +153,7 @@ Cluster capacity (worker pool bound):
 - Worker concurrency (jobs at once) = `dealbot_worker_processes * PG_BOSS_LOCAL_CONCURRENCY`
 - Max sustainable SP count ≈ `(dealbot_worker_processes * PG_BOSS_LOCAL_CONCURRENCY * 60) / per_sp_execution_minutes_per_hour`
 
-Example (18 SPs, 4 deals/hr @ 5m, 6 retrievals/hr @ 2m, 2 anon retrievals/hr @ 3m, 1 / 24 piece cleanup/hr @ 5m, 1 pull check/hr @ 5m, 5 dealbot workers, `PG_BOSS_LOCAL_CONCURRENCY=20`):
+Example (18 SPs, 4 deals/hr @ 5m, 6 retrievals/hr @ 2m, 2 sampled retrievals/hr @ 3m, 1 / 24 piece cleanup/hr @ 5m, 1 pull check/hr @ 5m, 5 dealbot workers, `PG_BOSS_LOCAL_CONCURRENCY=20`):
 
 - Per-SP execution-minutes per hour = `4*5m + 6*2m + 2*3m + 1/24*5m + 1*5m = 44 execution-min/hr` (OK; 16 execution-min/hr headroom)
 - Worker capacity minutes per hour = `5 * 20 * 60 = 6000 execution-min/hr`

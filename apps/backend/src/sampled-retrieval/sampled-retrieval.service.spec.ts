@@ -3,19 +3,19 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ClickhouseService } from "../clickhouse/clickhouse.service.js";
 import type { StorageProvider } from "../database/entities/storage-provider.entity.js";
 import { BlockFetchStatus, CarParseStatus, IpniCheckStatus, RetrievalStatus } from "../database/types.js";
-import type { AnonRetrievalCheckMetrics } from "../metrics-prometheus/check-metrics.service.js";
+import type { SampledRetrievalCheckMetrics } from "../metrics-prometheus/check-metrics.service.js";
 import type { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
-import type { AnonPieceSelectorService } from "./anon-piece-selector.service.js";
-import { AnonRetrievalService } from "./anon-retrieval.service.js";
 import type { PieceRetrievalService } from "./piece-retrieval.service.js";
 import type { PieceValidationService } from "./piece-validation.service.js";
+import type { SampledPieceSelectorService } from "./sampled-piece-selector.service.js";
+import { SampledRetrievalService } from "./sampled-retrieval.service.js";
 import type {
-  AnonPiece,
   BlockFetchOutcome,
   CarParseOutcome,
   IpniCheckOutcome,
   PieceRetrievalResult,
   SampledBlock,
+  SampledPiece,
 } from "./types.js";
 
 const SP_ADDRESS = "0xaaaa0000000000000000000000000000000000aa";
@@ -44,7 +44,7 @@ function makeProvider(): StorageProvider {
 function makeService(opts: {
   pieceResult: PieceRetrievalResult;
   fetchPieceImpl?: (signal?: AbortSignal) => Promise<PieceRetrievalResult>;
-  piece?: AnonPiece | null;
+  piece?: SampledPiece | null;
   parseCarOutcome?: CarParseOutcome;
   parseCarImpl?: (bytes: Buffer, signal?: AbortSignal) => Promise<CarParseOutcome>;
   checkIpniOutcome?: IpniCheckOutcome;
@@ -52,7 +52,7 @@ function makeService(opts: {
   checkBlockFetchOutcome?: BlockFetchOutcome;
   checkBlockFetchImpl?: () => Promise<BlockFetchOutcome>;
 }): {
-  service: AnonRetrievalService;
+  service: SampledRetrievalService;
   insertSpy: ReturnType<typeof vi.fn>;
   fetchSpy: ReturnType<typeof vi.fn>;
   parseCarSpy: ReturnType<typeof vi.fn>;
@@ -74,9 +74,9 @@ function makeService(opts: {
     findOne: vi.fn(async () => makeProvider()),
   } as unknown as Repository<StorageProvider>;
 
-  const anonPieceSelector = {
+  const sampledPieceSelector = {
     selectPieceForProvider: vi.fn(async () => (opts.piece === null ? null : (opts.piece ?? PIECE))),
-  } as unknown as AnonPieceSelectorService;
+  } as unknown as SampledPieceSelectorService;
 
   const fetchSpy = vi.fn(opts.fetchPieceImpl ?? (async () => opts.pieceResult));
   const pieceRetrievalService = {
@@ -129,10 +129,10 @@ function makeService(opts: {
     recordCarParseStatus: metricsRecordCarParseSpy,
     recordIpniStatus: metricsRecordIpniSpy,
     recordBlockFetchStatus: metricsRecordBlockFetchSpy,
-  } as unknown as AnonRetrievalCheckMetrics;
+  } as unknown as SampledRetrievalCheckMetrics;
 
-  const service = new AnonRetrievalService(
-    anonPieceSelector,
+  const service = new SampledRetrievalService(
+    sampledPieceSelector,
     pieceRetrievalService,
     pieceValidationService,
     walletSdkService,
@@ -155,7 +155,7 @@ function makeService(opts: {
   };
 }
 
-describe("AnonRetrievalService", () => {
+describe("SampledRetrievalService", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -172,7 +172,7 @@ describe("AnonRetrievalService", () => {
       statusCode: 200,
       httpSuccess: false,
       commPValid: false,
-      errorMessage: "Anon retrieval job timeout (60s) for sp1",
+      errorMessage: "Sampled retrieval job timeout (60s) for sp1",
       aborted: true,
     };
 
@@ -182,14 +182,14 @@ describe("AnonRetrievalService", () => {
 
     expect(insertSpy).toHaveBeenCalledTimes(1);
     const [table, row] = insertSpy.mock.calls[0] as [string, Record<string, unknown>];
-    expect(table).toBe("anon_retrieval_checks");
+    expect(table).toBe("sampled_retrieval_checks");
     expect(row.piece_fetch_status).toBe(RetrievalStatus.FAILED);
     expect(row.bytes_retrieved).toBe(524288);
     expect(row.first_byte_ms).toBe(150);
     expect(row.last_byte_ms).toBe(42000);
     expect(row.throughput_bps).toBe(12500);
     expect(row.http_response_code).toBe(200);
-    expect(row.error_message).toContain("Anon retrieval job timeout");
+    expect(row.error_message).toContain("Sampled retrieval job timeout");
     expect(row.piece_cid).toBe(PIECE.pieceCid);
     expect(row.sp_address).toBe(SP_ADDRESS);
     expect(row.sp_id).toBe(7);
@@ -210,7 +210,7 @@ describe("AnonRetrievalService", () => {
 
   it("still emits a row when the signal aborts before fetchPiece runs", async () => {
     const ac = new AbortController();
-    ac.abort(new Error("Anon retrieval job timeout (60s) for sp1"));
+    ac.abort(new Error("Sampled retrieval job timeout (60s) for sp1"));
 
     const never: PieceRetrievalResult = {
       success: false,
@@ -233,7 +233,7 @@ describe("AnonRetrievalService", () => {
     expect(insertSpy).toHaveBeenCalledTimes(1);
     const [, row] = insertSpy.mock.calls[0] as [string, Record<string, unknown>];
     expect(row.piece_fetch_status).toBe(RetrievalStatus.FAILED);
-    expect(row.error_message).toContain("Anon retrieval job timeout");
+    expect(row.error_message).toContain("Sampled retrieval job timeout");
     expect(row.bytes_retrieved).toBeNull();
     expect(row.first_byte_ms).toBeNull();
   });
@@ -267,7 +267,7 @@ describe("AnonRetrievalService", () => {
   });
 
   describe("with IPFS indexing", () => {
-    const INDEXED_PIECE: AnonPiece = {
+    const INDEXED_PIECE: SampledPiece = {
       ...PIECE,
       withIPFSIndexing: true,
       ipfsRootCid: "bafyrootcid",
@@ -462,7 +462,7 @@ describe("AnonRetrievalService", () => {
           pieceResult: okPiece(Buffer.from("car-bytes")),
           piece: INDEXED_PIECE,
           parseCarImpl: async () => {
-            ac.abort(new Error("Anon retrieval job timeout"));
+            ac.abort(new Error("Sampled retrieval job timeout"));
             throw Object.assign(new Error("aborted"), { name: "AbortError" });
           },
         });

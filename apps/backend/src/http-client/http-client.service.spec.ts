@@ -116,7 +116,7 @@ describe("HttpClientService", () => {
       yield Buffer.from("hello");
       yield Buffer.from(" world");
       // Simulate an abort mid-stream after two chunks.
-      parentAbort.abort(new Error("Anon retrieval job timeout (60s) for sp1"));
+      parentAbort.abort(new Error("Sampled retrieval job timeout (60s) for sp1"));
       throw new Error("aborted");
     }
 

@@ -3,27 +3,27 @@ import { ConfigService } from "@nestjs/config";
 import { delay } from "../common/abort-utils.js";
 import { toStructuredError } from "../common/logging.js";
 import type { IBlockchainConfig, IConfig } from "../config/app.config.js";
-import { buildSampleAnonPieceQuery, Queries } from "./queries.js";
+import { buildSamplePieceQuery, Queries } from "./queries.js";
 import type {
-  AnonCandidatePiece,
+  CandidatePiece,
   GraphQLResponse,
   ProviderDataSetResponse,
   ProvidersWithDataSetsOptions,
-  RawSampleAnonPieceResponse,
+  RawSamplePieceResponse,
   SubgraphMeta,
 } from "./types.js";
 import {
   decodePieceCid,
   validateProviderDataSetResponse,
-  validateSampleAnonPieceResponse,
+  validateSamplePieceResponse,
   validateSubgraphMetaResponse,
 } from "./types.js";
 
 /** Pool of pieces to sample from. */
-export type AnonPiecePool = "indexed" | "any";
+export type PiecePool = "indexed" | "any";
 
 /** Inputs for a single anonymous piece sample query. */
-export type SampleAnonPieceParams = {
+export type SamplePieceParams = {
   /** Service provider address (lowercase hex). */
   serviceProvider: string;
   /** Dealbot's own payer address (excluded to keep the sample non-dealbot). */
@@ -35,7 +35,7 @@ export type SampleAnonPieceParams = {
   /** Inclusive upper bound on raw piece size in bytes (decimal string). */
   maxSize: string;
   /** Which pool to sample from. */
-  pool: AnonPiecePool;
+  pool: PiecePool;
 };
 
 /**
@@ -57,7 +57,7 @@ class ValidationError extends Error {
  *
  * Functionally a superset of `PDPSubgraphService`: it exposes the same
  * `fetchSubgraphMeta` / `fetchProvidersWithDatasets` surface plus the new
- * `sampleAnonPiece` query used by anonymous retrievals.
+ * `samplePiece` query used by anonymous retrievals.
  *
  * The two services intentionally coexist while we migrate off the upstream
  * pdp-explorer subgraph: `PDPSubgraphService` continues to drive the
@@ -135,10 +135,10 @@ export class SubgraphService {
    * epoch comparison — GraphQL filters on nullable BigInts are awkward.
    * However this will be changed in the context of https://github.com/FilOzone/dealbot/issues/579.
    */
-  async sampleAnonPiece(params: SampleAnonPieceParams, signal?: AbortSignal): Promise<AnonCandidatePiece | null> {
+  async samplePiece(params: SamplePieceParams, signal?: AbortSignal): Promise<CandidatePiece | null> {
     if (!this.blockchainConfig.subgraphEndpoint) {
       // Surface misconfiguration distinctly so it does not look like an empty
-      // candidate pool (which silently no-ops every anon retrieval job).
+      // candidate pool (which silently no-ops every sampled retrieval job).
       this.logger.error({
         event: "subgraph_endpoint_not_configured",
         message: "Cannot sample anonymous piece — no subgraph endpoint configured",
@@ -155,11 +155,11 @@ export class SubgraphService {
     };
 
     for (const reverse of [false, true]) {
-      const validated = await this.executeQuery<RawSampleAnonPieceResponse>(
-        `sample_anon_piece_${params.pool}_${reverse ? "reverse" : "forward"}`,
-        buildSampleAnonPieceQuery(params.pool, reverse),
+      const validated = await this.executeQuery<RawSamplePieceResponse>(
+        `sample_piece_${params.pool}_${reverse ? "reverse" : "forward"}`,
+        buildSamplePieceQuery(params.pool, reverse),
         variables,
-        validateSampleAnonPieceResponse,
+        validateSamplePieceResponse,
         signal,
       );
 
@@ -182,7 +182,7 @@ export class SubgraphService {
         };
       } catch (error) {
         this.logger.warn({
-          event: "anon_piece_cid_decode_failed",
+          event: "sampled_piece_cid_decode_failed",
           message: "Failed to decode piece CID from subgraph data",
           dataSetId: root.proofSet.setId,
           pieceId: root.rootId,
