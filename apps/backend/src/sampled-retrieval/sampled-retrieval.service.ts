@@ -158,7 +158,6 @@ export class SampledRetrievalService {
           first_byte_ms: finalPieceResult.ttfbMs > 0 ? finalPieceResult.ttfbMs : null,
           last_byte_ms: finalPieceResult.latencyMs > 0 ? finalPieceResult.latencyMs : null,
           bytes_retrieved: finalPieceResult.bytesReceived > 0 ? finalPieceResult.bytesReceived : null,
-          throughput_bps: finalPieceResult.throughputBps > 0 ? Math.round(finalPieceResult.throughputBps) : null,
           commp_valid: !finalPieceResult.aborted && finalPieceResult.httpSuccess ? finalPieceResult.commPValid : null,
           car_status: carStatus,
           car_block_count: parse && parse.status === CarParseStatus.SUCCESS ? parse.blockCount : null,

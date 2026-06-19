@@ -187,7 +187,6 @@ describe("SampledRetrievalService", () => {
     expect(row.bytes_retrieved).toBe(524288);
     expect(row.first_byte_ms).toBe(150);
     expect(row.last_byte_ms).toBe(42000);
-    expect(row.throughput_bps).toBe(12500);
     expect(row.http_response_code).toBe(200);
     expect(row.error_message).toContain("Sampled retrieval job timeout");
     expect(row.piece_cid).toBe(PIECE.pieceCid);
