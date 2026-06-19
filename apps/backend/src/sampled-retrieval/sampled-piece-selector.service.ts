@@ -2,10 +2,10 @@ import { randomBytes } from "node:crypto";
 import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import type { IConfig } from "../config/app.config.js";
-import type { AnonPiecePool, SampleAnonPieceParams } from "../subgraph/subgraph.service.js";
+import type { PiecePool, SamplePieceParams } from "../subgraph/subgraph.service.js";
 import { SubgraphService } from "../subgraph/subgraph.service.js";
-import type { AnonCandidatePiece } from "../subgraph/types.js";
-import type { AnonPiece } from "./types.js";
+import type { CandidatePiece } from "../subgraph/types.js";
+import type { SampledPiece } from "./types.js";
 
 /**
  * Piece size buckets, in raw (unpadded) bytes. Weighted sampling across
@@ -18,7 +18,7 @@ type SizeRange = { min: bigint; max: bigint };
 const MIB = 1024n * 1024n;
 
 // All downloads are buffered in-memory, so we need to keep piece sizes reasonable
-// When changing these values, also update ./docs/checks/anon-retrievals.md#piece-selection
+// When changing these values, also update ./docs/checks/sampled-retrievals.md#piece-selection
 const SIZE_BUCKETS: Record<SizeBucket, SizeRange> = {
   small: { min: 1n * MIB, max: 10n * MIB - 1n },
   medium: { min: 10n * MIB, max: 50n * MIB - 1n },
@@ -26,7 +26,7 @@ const SIZE_BUCKETS: Record<SizeBucket, SizeRange> = {
 };
 
 // Weights for choosing a bucket per selection. Must sum to 1.
-// When changing these values, also update ./docs/checks/anon-retrievals.md#piece-selection
+// When changing these values, also update ./docs/checks/sampled-retrievals.md#piece-selection
 const BUCKET_WEIGHTS: Record<SizeBucket, number> = {
   small: 0.2,
   medium: 0.5,
@@ -38,13 +38,13 @@ const BUCKET_WEIGHTS: Record<SizeBucket, number> = {
  * The rest of the time we sample across all FWSS pieces, so SPs can't
  * optimise only their CAR corpus.
  *
- * When changing this value, also update ./docs/checks/anon-retrievals.md#piece-selection
+ * When changing this value, also update ./docs/checks/sampled-retrievals.md#piece-selection
  */
 const IPFS_INDEXED_SAMPLE_RATE = 0.8;
 
 @Injectable()
-export class AnonPieceSelectorService {
-  private readonly logger = new Logger(AnonPieceSelectorService.name);
+export class SampledPieceSelectorService {
+  private readonly logger = new Logger(SampledPieceSelectorService.name);
 
   constructor(
     private readonly subgraphService: SubgraphService,
@@ -58,20 +58,20 @@ export class AnonPieceSelectorService {
    * 1. Pick a size bucket by weighted random.
    * 2. Pick a pool (`indexed` 80% / `any` 20%).
    * 3. Generate a uniform-random sampleKey and query the subgraph for the
-   *    piece closest to that key. `sampleAnonPiece` handles the wrap-around
+   *    piece closest to that key. `samplePiece` handles the wrap-around
    *    dead zone internally via a reverse-direction fallback.
    * 4. Drop the pick if `pdpPaymentEndEpoch` has passed; redraw once with a
    *    fresh sampleKey.
    * 5. If still empty, fall back through: (same bucket, opposite pool) →
    *    (any bucket, indexed) → (any bucket, any).
    */
-  async selectPieceForProvider(spAddress: string, signal?: AbortSignal): Promise<AnonPiece | null> {
+  async selectPieceForProvider(spAddress: string, signal?: AbortSignal): Promise<SampledPiece | null> {
     const dealbotPayer = this.configService.get("blockchain", { infer: true }).walletAddress;
 
     const bucket = this.pickBucket();
-    const pool: AnonPiecePool = Math.random() < IPFS_INDEXED_SAMPLE_RATE ? "indexed" : "any";
+    const pool: PiecePool = Math.random() < IPFS_INDEXED_SAMPLE_RATE ? "indexed" : "any";
 
-    const attempts: Array<{ bucket: SizeBucket | "any"; pool: AnonPiecePool }> = [
+    const attempts: Array<{ bucket: SizeBucket | "any"; pool: PiecePool }> = [
       { bucket: bucket, pool: pool },
       { bucket: bucket, pool: pool === "indexed" ? "any" : "indexed" },
       { bucket: "any", pool: "indexed" },
@@ -92,7 +92,7 @@ export class AnonPieceSelectorService {
 
       if (piece) {
         this.logger.log({
-          event: "anon_piece_selected",
+          event: "sampled_piece_selected",
           message: "Selected anonymous piece for retrieval test",
           spAddress,
           pieceCid: piece.pieceCid,
@@ -115,7 +115,7 @@ export class AnonPieceSelectorService {
     }
 
     this.logger.warn({
-      event: "anon_no_candidates",
+      event: "sampled_no_candidates",
       message: "No anonymous piece found after all fallbacks",
       spAddress,
     });
@@ -128,26 +128,26 @@ export class AnonPieceSelectorService {
    * draws with fresh sampleKeys so we can retry past a piece whose
    * `pdpPaymentEndEpoch` has already terminated. Boundary handling
    * (random key above all matching sampleKeys) lives inside
-   * `sampleAnonPiece`, so the retry here is solely for epoch-termination.
+   * `samplePiece`, so the retry here is solely for epoch-termination.
    *
    * Change this logic when https://github.com/FilOzone/dealbot/issues/579 has
-   * landed. Then we don't need to retry because sampleAnonPiece can directly
+   * landed. Then we don't need to retry because samplePiece can directly
    * query for pieces that have not already terminated.
    */
   private async drawPiece(args: {
     spAddress: string;
     dealbotPayer: string;
     bucket: SizeBucket | "any";
-    pool: AnonPiecePool;
+    pool: PiecePool;
     signal?: AbortSignal;
-  }): Promise<AnonCandidatePiece | null> {
+  }): Promise<CandidatePiece | null> {
     const range = args.bucket === "any" ? fullRange() : SIZE_BUCKETS[args.bucket];
 
     for (let attempt = 0; attempt < 2; attempt++) {
       if (args.signal?.aborted) {
         return null;
       }
-      const params: SampleAnonPieceParams = {
+      const params: SamplePieceParams = {
         serviceProvider: args.spAddress,
         payer: args.dealbotPayer,
         sampleKey: randomSampleKey(),
@@ -156,7 +156,7 @@ export class AnonPieceSelectorService {
         pool: args.pool,
       };
 
-      const piece = await this.subgraphService.sampleAnonPiece(params, args.signal);
+      const piece = await this.subgraphService.samplePiece(params, args.signal);
       if (!piece) {
         continue;
       }

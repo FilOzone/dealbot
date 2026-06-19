@@ -11,7 +11,7 @@ This document provides a comprehensive guide to all environment variables used b
 | [Blockchain](#blockchain-configuration)   | `NETWORK`, `RPC_URL`, `WALLET_ADDRESS`, `WALLET_PRIVATE_KEY`, `SESSION_KEY_PRIVATE_KEY`, `CHECK_DATASET_CREATION_FEES`, `USE_ONLY_APPROVED_PROVIDERS`, `PDP_SUBGRAPH_ENDPOINT`, `SUBGRAPH_ENDPOINT`                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | [Dataset Versioning](#dataset-versioning) | `DEALBOT_DATASET_VERSION`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | [Scheduling](#scheduling-configuration)   | `PROVIDERS_REFRESH_INTERVAL_SECONDS`, `DATA_RETENTION_POLL_INTERVAL_SECONDS`, `DEALBOT_MAINTENANCE_WINDOWS_UTC`, `DEALBOT_MAINTENANCE_WINDOW_MINUTES`                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| [Jobs (pg-boss)](#jobs-pg-boss)           | `DEALBOT_PGBOSS_SCHEDULER_ENABLED`, `DEALBOT_PGBOSS_POOL_MAX`, `DEALS_PER_SP_PER_HOUR`, `MIN_NUM_DATASETS_FOR_CHECKS`,`DATASET_CREATIONS_PER_SP_PER_HOUR`, `DATASET_LIFECYCLE_CHECK_ENABLED`, `DATASET_LIFECYCLE_CHECKS_PER_SP_PER_HOUR`, `RETRIEVALS_PER_SP_PER_HOUR`, `RETRIEVALS_ANON_PER_SP_PER_HOUR`, `JOB_SCHEDULER_POLL_SECONDS`, `JOB_WORKER_POLL_SECONDS`, `PG_BOSS_LOCAL_CONCURRENCY`, `JOB_CATCHUP_MAX_ENQUEUE`, `JOB_SCHEDULE_PHASE_SECONDS`, `JOB_ENQUEUE_JITTER_SECONDS`, `DATA_SET_CREATION_JOB_TIMEOUT_SECONDS`, `DATA_SET_LIFECYCLE_CHECK_JOB_TIMEOUT_SECONDS`, `DEAL_JOB_TIMEOUT_SECONDS`, `RETRIEVAL_JOB_TIMEOUT_SECONDS`, `ANON_RETRIEVAL_JOB_TIMEOUT_SECONDS`, `ANON_RETRIEVAL_BLOCK_SAMPLE_COUNT`, `SHUTDOWN_FINAL_SCRAPE_DELAY_SECONDS`, `IPFS_BLOCK_FETCH_CONCURRENCY` |
+| [Jobs (pg-boss)](#jobs-pg-boss)           | `DEALBOT_PGBOSS_SCHEDULER_ENABLED`, `DEALBOT_PGBOSS_POOL_MAX`, `DEALS_PER_SP_PER_HOUR`, `MIN_NUM_DATASETS_FOR_CHECKS`,`DATASET_CREATIONS_PER_SP_PER_HOUR`, `DATASET_LIFECYCLE_CHECK_ENABLED`, `DATASET_LIFECYCLE_CHECKS_PER_SP_PER_HOUR`, `RETRIEVALS_PER_SP_PER_HOUR`, `SAMPLED_RETRIEVALS_PER_SP_PER_HOUR`, `JOB_SCHEDULER_POLL_SECONDS`, `JOB_WORKER_POLL_SECONDS`, `PG_BOSS_LOCAL_CONCURRENCY`, `JOB_CATCHUP_MAX_ENQUEUE`, `JOB_SCHEDULE_PHASE_SECONDS`, `JOB_ENQUEUE_JITTER_SECONDS`, `DATA_SET_CREATION_JOB_TIMEOUT_SECONDS`, `DATA_SET_LIFECYCLE_CHECK_JOB_TIMEOUT_SECONDS`, `DEAL_JOB_TIMEOUT_SECONDS`, `RETRIEVAL_JOB_TIMEOUT_SECONDS`, `SAMPLED_RETRIEVAL_JOB_TIMEOUT_SECONDS`, `SAMPLED_RETRIEVAL_BLOCK_SAMPLE_COUNT`, `SHUTDOWN_FINAL_SCRAPE_DELAY_SECONDS`, `IPFS_BLOCK_FETCH_CONCURRENCY` |
 | [Dataset](#dataset-configuration)         | `DEALBOT_LOCAL_DATASETS_PATH`, `RANDOM_PIECE_SIZES`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | [ClickHouse](#clickhouse-configuration)   | `CLICKHOUSE_URL`, `CLICKHOUSE_BATCH_SIZE`, `CLICKHOUSE_FLUSH_INTERVAL_MS`, `DEALBOT_PROBE_LOCATION`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | [Timeouts](#timeout-configuration)        | `CONNECT_TIMEOUT_MS`, `HTTP_REQUEST_TIMEOUT_MS`, `HTTP2_REQUEST_TIMEOUT_MS`, `IPNI_VERIFICATION_TIMEOUT_MS`, `IPNI_VERIFICATION_POLLING_MS`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
@@ -457,7 +457,7 @@ Session keys are scoped (only storage operations, not deposits or withdrawals) a
 
 **Role**: The Graph API endpoint for querying PDP (Proof of Data Possession) subgraph data. This endpoint is used to retrieve data retention info for provider data.
 
-This variable is kept distinct from [`SUBGRAPH_ENDPOINT`](#subgraph_endpoint) so the [dealbot-owned subgraph](../../src/subgraph) can be rolled out incrementally. Only the newer [anonymous-retrieval check](./checks/anon-retrievals.md) points at the new endpoint while the established [data-retention check](./checks/data-retention.md) stays on the upstream subgraph.
+This variable is kept distinct from [`SUBGRAPH_ENDPOINT`](#subgraph_endpoint) so the [dealbot-owned subgraph](../../src/subgraph) can be rolled out incrementally. Only the newer [sampled-retrieval check](./checks/sampled-retrievals.md) points at the new endpoint while the established [data-retention check](./checks/data-retention.md) stays on the upstream subgraph.
 
 **When to update**:
 
@@ -477,7 +477,7 @@ PDP_SUBGRAPH_ENDPOINT=https://api.thegraph.com/subgraphs/filecoin/pdp
 - **Required**: No
 - **Default**: Empty string (feature disabled)
 
-**Role**: The Graph API endpoint for the dealbot-owned subgraph. Currently drives only the [anonymous-retrieval](./checks/anon-retrievals.md) candidate-piece query. Once the dealbot-owned subgraph has soaked in production it is intended to replace [`PDP_SUBGRAPH_ENDPOINT`](#pdp_subgraph_endpoint).
+**Role**: The Graph API endpoint for the dealbot-owned subgraph. Currently drives only the [sampled-retrieval](./checks/sampled-retrievals.md) candidate-piece query. Once the dealbot-owned subgraph has soaked in production it is intended to replace [`PDP_SUBGRAPH_ENDPOINT`](#pdp_subgraph_endpoint).
 
 The dealbot-owned subgraph lives at [`apps/subgraph/`](../apps/subgraph) (package `@dealbot/subgraph`) and is deployed to [Goldsky](https://goldsky.com).
 
@@ -687,16 +687,16 @@ rate-based (per hour) and persisted in Postgres so restarts do not reset timing.
 
 ---
 
-### `RETRIEVALS_ANON_PER_SP_PER_HOUR`
+### `SAMPLED_RETRIEVALS_PER_SP_PER_HOUR`
 
 - **Type**: `number`
 - **Required**: No
 - **Default**: Falls back to `RETRIEVALS_PER_SP_PER_HOUR`, which itself defaults to `2`
 - **Limits**: `0.001` – `20`
 
-**Role**: Target [anonymous retrieval](./checks/anon-retrievals.md) check rate per storage provider. Anonymous retrievals fetch arbitrary FWSS pieces sampled from the on-chain subgraph (not pieces dealbot uploaded), so this rate controls coverage of the SP's broader public corpus independently of the dealbot-owned [retrieval check](./checks/retrievals.md) rate.
+**Role**: Target [sampled retrieval](./checks/sampled-retrievals.md) check rate per storage provider. Sampled retrievals fetch arbitrary FWSS pieces sampled from the on-chain subgraph (not pieces dealbot uploaded), so this rate controls coverage of the SP's broader public corpus independently of the dealbot-owned [retrieval check](./checks/retrievals.md) rate.
 
-**Notes**: Fractional values are supported. For example, `0.5` means one anon retrieval every 2 hours per storage provider.
+**Notes**: Fractional values are supported. For example, `0.5` means one sampled retrieval every 2 hours per storage provider.
 
 ---
 
@@ -954,7 +954,7 @@ Use this to stagger multiple dealbot deployments that are not sharing a database
 
 ---
 
-### `ANON_RETRIEVAL_JOB_TIMEOUT_SECONDS`
+### `SAMPLED_RETRIEVAL_JOB_TIMEOUT_SECONDS`
 
 - **Type**: `number`
 - **Required**: No
@@ -962,18 +962,18 @@ Use this to stagger multiple dealbot deployments that are not sharing a database
 - **Minimum**: `60`
 - **Enforced**: Yes (config validation)
 
-**Role**: Maximum runtime for anonymous retrieval jobs before forced abort. Anonymous retrievals fetch arbitrary pieces (up to ~500 MiB) that were not produced by the dealbot, so this is typically larger than `RETRIEVAL_JOB_TIMEOUT_SECONDS`. When the timeout trips, partial metrics (`ttfb_ms`, `bytes_retrieved`, `response_code`) are still persisted so the abort is not silently lost.
+**Role**: Maximum runtime for sampled retrieval jobs before forced abort. Sampled retrievals fetch arbitrary pieces (up to ~500 MiB) that were not produced by the dealbot, so this is typically larger than `RETRIEVAL_JOB_TIMEOUT_SECONDS`. When the timeout trips, partial metrics (`ttfb_ms`, `bytes_retrieved`, `response_code`) are still persisted so the abort is not silently lost.
 
 **When to update**:
 
 - Increase if large pieces are consistently being cut off mid-download
 - Decrease to detect and fail stuck retrievals faster
 
-**Note**: This is independent of HTTP-level timeouts (`CONNECT_TIMEOUT_MS`, `HTTP2_REQUEST_TIMEOUT_MS`). The job timeout covers the end-to-end execution of an Anon Retrieval Check (piece selection, download, CommP validation, CAR/IPNI validation).
+**Note**: This is independent of HTTP-level timeouts (`CONNECT_TIMEOUT_MS`, `HTTP2_REQUEST_TIMEOUT_MS`). The job timeout covers the end-to-end execution of an Sampled Retrieval Check (piece selection, download, CommP validation, CAR/IPNI validation).
 
 ---
 
-### `ANON_RETRIEVAL_BLOCK_SAMPLE_COUNT`
+### `SAMPLED_RETRIEVAL_BLOCK_SAMPLE_COUNT`
 
 - **Type**: `number` (integer)
 - **Required**: No
@@ -982,7 +982,7 @@ Use this to stagger multiple dealbot deployments that are not sharing a database
 - **Maximum**: `50`
 - **Enforced**: Yes (config validation)
 
-**Role**: Number of CIDs randomly sampled from the parsed CAR for IPNI verification and block-fetch validation during an [anonymous retrieval check](./checks/anon-retrievals.md). Only applies to pieces with IPFS indexing enabled — pieces without an `ipfsRootCid` skip CAR validation entirely.
+**Role**: Number of CIDs randomly sampled from the parsed CAR for IPNI verification and block-fetch validation during an [sampled retrieval check](./checks/sampled-retrievals.md). Only applies to pieces with IPFS indexing enabled — pieces without an `ipfsRootCid` skip CAR validation entirely.
 
 For each sampled CID, dealbot:
 
@@ -994,7 +994,7 @@ For each sampled CID, dealbot:
 - Increase for stronger statistical confidence that the SP serves the entire DAG correctly (more IPNI queries + per-block fetches per check)
 - Decrease to reduce per-check load on the SP and on filecoinpin.contact
 
-**Note**: A higher sample count multiplies both IPNI traffic and block-fetch traffic per check. The IPNI step is all-or-nothing across the root CID and the sampled child CIDs — see [Anonymous Retrieval § CAR / IPNI / block-fetch validation](./checks/anon-retrievals.md#car--ipni--block-fetch-validation-only-when-piece-advertises-ipfs-indexing).
+**Note**: A higher sample count multiplies both IPNI traffic and block-fetch traffic per check. The IPNI step is all-or-nothing across the root CID and the sampled child CIDs — see [Sampled Retrieval § CAR / IPNI / block-fetch validation](./checks/sampled-retrievals.md#car--ipni--block-fetch-validation-only-when-piece-advertises-ipfs-indexing).
 
 ---
 ### `IPFS_BLOCK_FETCH_CONCURRENCY`
@@ -1418,7 +1418,7 @@ DEALBOT_PROBE_LOCATION=aws-us-east-1
 - **Default**: Derived from the longest configured job timeout, same as `HTTP_REQUEST_TIMEOUT_MS` (`600000` / 10 minutes with default job timeouts).
 - **Minimum**: `1000`
 
-**Role**: Maximum total time for HTTP/2 requests, including body transfer. Used as the transfer-timeout ceiling for the HTTP/2 request path (anon retrieval, pull check piece fetches).
+**Role**: Maximum total time for HTTP/2 requests, including body transfer. Used as the transfer-timeout ceiling for the HTTP/2 request path (sampled retrieval, pull check piece fetches).
 
 **Notes**: Same derive-and-override behavior as `HTTP_REQUEST_TIMEOUT_MS`. The connect/headers phase is bounded separately by `CONNECT_TIMEOUT_MS`.
 

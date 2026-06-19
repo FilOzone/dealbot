@@ -24,7 +24,7 @@ export const Queries = {
 } as const;
 
 /**
- * Build a sampleAnonPiece query scoped to the requested pool. The query
+ * Build a samplePiece query scoped to the requested pool. The query
  * shape varies in two ways: whether the proofSet filter pins
  * `withIPFSIndexing: true`, and whether sampleKey is searched forward
  * (`_gte` + asc — smallest key at or above the target) or backward
@@ -32,12 +32,12 @@ export const Queries = {
  * sort direction move together so both modes return the piece closest
  * to the target sampleKey.
  */
-export function buildSampleAnonPieceQuery(pool: "indexed" | "any", reverse: boolean = false): string {
+export function buildSamplePieceQuery(pool: "indexed" | "any", reverse: boolean = false): string {
   const indexingFilter = pool === "indexed" ? "withIPFSIndexing: true" : "";
   const sampleKeyFilter = reverse ? "sampleKey_lt" : "sampleKey_gte";
   const orderDirection = reverse ? "desc" : "asc";
   return `
-    query SampleAnonPiece(
+    query SamplePiece(
       $serviceProvider: Bytes!
       $payer: Bytes!
       $sampleKey: Bytes!

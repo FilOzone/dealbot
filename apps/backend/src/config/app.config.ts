@@ -96,7 +96,7 @@ export const configValidationSchema = Joi.object({
   DATASET_CREATIONS_PER_SP_PER_HOUR: Joi.number().min(0.001).max(20).default(1),
   DATASET_LIFECYCLE_CHECKS_PER_SP_PER_HOUR: Joi.number().min(0.001).max(20).default(1),
   RETRIEVALS_PER_SP_PER_HOUR: Joi.number().min(0.001).max(20).default(2),
-  RETRIEVALS_ANON_PER_SP_PER_HOUR: Joi.number().min(0.001).max(20).empty("").optional(),
+  SAMPLED_RETRIEVALS_PER_SP_PER_HOUR: Joi.number().min(0.001).max(20).empty("").optional(),
   // Enables the data_set_lifecycle_check canary job. The network-dependent default (true on
   // calibration, false on mainnet) is resolved in loadConfig; here we only validate the
   // type when explicitly set. See docs/checks/data-set-lifecycle-check.md.
@@ -112,7 +112,7 @@ export const configValidationSchema = Joi.object({
   JOB_ENQUEUE_JITTER_SECONDS: Joi.number().min(0).default(0),
   DEAL_JOB_TIMEOUT_SECONDS: Joi.number().min(120).default(360), // 6 minutes max runtime for data storage jobs (TODO: reduce default to 3 minutes)
   RETRIEVAL_JOB_TIMEOUT_SECONDS: Joi.number().min(60).default(60), // 1 minute max runtime for retrieval jobs (TODO: reduce default to 30 seconds)
-  ANON_RETRIEVAL_JOB_TIMEOUT_SECONDS: Joi.number().min(60).default(360), // 6 minutes max runtime for anon retrieval jobs (pieces can be up to 500 MiB)
+  SAMPLED_RETRIEVAL_JOB_TIMEOUT_SECONDS: Joi.number().min(60).default(360), // 6 minutes max runtime for sampled retrieval jobs (pieces can be up to 500 MiB)
   DATA_SET_CREATION_JOB_TIMEOUT_SECONDS: Joi.number().min(60).default(300), // 5 minutes max runtime for dataset creation jobs
   DATA_SET_LIFECYCLE_CHECK_JOB_TIMEOUT_SECONDS: Joi.number().min(60).default(600), // 10 minutes: covers create + seed-piece upload + terminate + pdpEndEpoch poll
   // Seconds to hold the process alive after pg-boss drain completes, so Prometheus
@@ -120,7 +120,7 @@ export const configValidationSchema = Joi.object({
   // shutdown. Default 35 covers the 30s ServiceMonitor interval plus a 5s buffer.
   SHUTDOWN_FINAL_SCRAPE_DELAY_SECONDS: Joi.number().min(0).max(300).default(35),
   IPFS_BLOCK_FETCH_CONCURRENCY: Joi.number().integer().min(1).max(32).default(6),
-  ANON_RETRIEVAL_BLOCK_SAMPLE_COUNT: Joi.number().integer().min(1).max(50).default(5),
+  SAMPLED_RETRIEVAL_BLOCK_SAMPLE_COUNT: Joi.number().integer().min(1).max(50).default(5),
 
   // Pull Check
   PULL_CHECKS_PER_SP_PER_HOUR: Joi.number().min(0.001).max(20).default(1),
@@ -346,7 +346,7 @@ export interface IJobsConfig {
    * typically larger than `retrievalJobTimeoutSeconds`. Uses AbortController
    * to actively cancel job execution while still persisting partial metrics.
    */
-  anonRetrievalJobTimeoutSeconds: number;
+  sampledRetrievalJobTimeoutSeconds: number;
   /**
    * Target number of piece cleanup runs per storage provider per hour.
    *
@@ -366,7 +366,7 @@ export interface IJobsConfig {
    * Target number of anonymous retrieval tests per storage provider per hour.
    * Defaults to retrievalsPerSpPerHour when not set.
    */
-  retrievalsAnonPerSpPerHour: number;
+  sampledRetrievalsPerSpPerHour: number;
 }
 
 export interface IDatasetConfig {
@@ -387,7 +387,7 @@ export interface IRetrievalConfig {
   /**
    * Number of CAR blocks to sample for IPNI + block-fetch validation.
    */
-  anonBlockSampleCount: number;
+  sampledBlockSampleCount: number;
 }
 
 export interface IPieceCleanupConfig {
@@ -476,7 +476,7 @@ export function loadConfig(): IConfig {
   const jobTimeoutSeconds = {
     deal: Number.parseInt(process.env.DEAL_JOB_TIMEOUT_SECONDS || "360", 10),
     retrieval: Number.parseInt(process.env.RETRIEVAL_JOB_TIMEOUT_SECONDS || "60", 10),
-    anonRetrieval: Number.parseInt(process.env.ANON_RETRIEVAL_JOB_TIMEOUT_SECONDS || "360", 10),
+    sampledRetrieval: Number.parseInt(process.env.SAMPLED_RETRIEVAL_JOB_TIMEOUT_SECONDS || "360", 10),
     dataSetCreation: Number.parseInt(process.env.DATA_SET_CREATION_JOB_TIMEOUT_SECONDS || "300", 10),
     dataSetLifecycleCheck: Number.parseInt(process.env.DATA_SET_LIFECYCLE_CHECK_JOB_TIMEOUT_SECONDS || "600", 10),
     pieceCleanup: Number.parseInt(process.env.MAX_PIECE_CLEANUP_RUNTIME_SECONDS || "300", 10),
@@ -596,9 +596,9 @@ export function loadConfig(): IConfig {
       enqueueJitterSeconds: Number.parseInt(process.env.JOB_ENQUEUE_JITTER_SECONDS || "0", 10),
       dealJobTimeoutSeconds: jobTimeoutSeconds.deal,
       retrievalJobTimeoutSeconds: jobTimeoutSeconds.retrieval,
-      anonRetrievalJobTimeoutSeconds: jobTimeoutSeconds.anonRetrieval,
-      retrievalsAnonPerSpPerHour: Number.parseFloat(
-        process.env.RETRIEVALS_ANON_PER_SP_PER_HOUR || process.env.RETRIEVALS_PER_SP_PER_HOUR || "2",
+      sampledRetrievalJobTimeoutSeconds: jobTimeoutSeconds.sampledRetrieval,
+      sampledRetrievalsPerSpPerHour: Number.parseFloat(
+        process.env.SAMPLED_RETRIEVALS_PER_SP_PER_HOUR || process.env.RETRIEVALS_PER_SP_PER_HOUR || "2",
       ),
       dataSetCreationJobTimeoutSeconds: jobTimeoutSeconds.dataSetCreation,
       dataSetLifecycleCheckJobTimeoutSeconds: jobTimeoutSeconds.dataSetLifecycleCheck,
@@ -633,7 +633,7 @@ export function loadConfig(): IConfig {
     },
     retrieval: {
       ipfsBlockFetchConcurrency: Number.parseInt(process.env.IPFS_BLOCK_FETCH_CONCURRENCY || "6", 10),
-      anonBlockSampleCount: Number.parseInt(process.env.ANON_RETRIEVAL_BLOCK_SAMPLE_COUNT || "5", 10),
+      sampledBlockSampleCount: Number.parseInt(process.env.SAMPLED_RETRIEVAL_BLOCK_SAMPLE_COUNT || "5", 10),
     },
     clickhouse: {
       url: process.env.CLICKHOUSE_URL || undefined,

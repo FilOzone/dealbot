@@ -2,7 +2,7 @@ import type { CID } from "multiformats/cid";
 import { BlockFetchStatus, CarParseStatus, IpniCheckStatus } from "../database/types.js";
 
 /** The result of anonymous piece selection. */
-export type AnonPiece = {
+export type SampledPiece = {
   pieceCid: string;
   dataSetId: string;
   pieceId: string;

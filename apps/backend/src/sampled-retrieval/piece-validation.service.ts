@@ -67,15 +67,28 @@ export class PieceValidationService {
       };
     }
 
-    const sampleCount = this.configService.get("retrieval", { infer: true }).anonBlockSampleCount;
-    const shuffled = [...blocks].sort(() => Math.random() - 0.5);
-    const sampledBlocks = shuffled.slice(0, sampleCount);
+    const sampleCount = this.configService.get("retrieval", { infer: true }).sampledBlockSampleCount;
+    const sampledBlocks = this.sampleBlocks(blocks, sampleCount);
 
     return {
       status: CarParseStatus.SUCCESS,
       blockCount: blocks.length,
       sampledBlocks,
     };
+  }
+
+  /**
+   * Uniformly select up to `count` blocks without replacement via a partial
+   * Fisher-Yates shuffle (O(count)).
+   */
+  private sampleBlocks(blocks: ReadonlyArray<SampledBlock>, count: number): SampledBlock[] {
+    const pool = [...blocks];
+    const k = Math.min(count, pool.length);
+    for (let i = 0; i < k; i++) {
+      const j = i + Math.floor(Math.random() * (pool.length - i));
+      [pool[i], pool[j]] = [pool[j], pool[i]];
+    }
+    return pool.slice(0, k);
   }
 
   /**

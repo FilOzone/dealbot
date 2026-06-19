@@ -729,17 +729,17 @@ describe("SubgraphService", () => {
     });
   });
 
-  describe("sampleAnonPiece", () => {
+  describe("samplePiece", () => {
     it("throws when endpoint is not configured (distinct from empty result)", async () => {
       // Returning null here would make a misconfigured deployment indistinguishable
-      // from a genuinely empty candidate pool — every anon job would silently
+      // from a genuinely empty candidate pool — every sampled job would silently
       // no-op forever. Fail loudly instead.
       const noEndpointConfig = {
         get: vi.fn(() => ({ subgraphEndpoint: "" })),
       } as unknown as ConfigService<IConfig, true>;
       const noEndpointService = new SubgraphService(noEndpointConfig);
 
-      await expect(noEndpointService.sampleAnonPiece(defaultSampleParams)).rejects.toThrow(
+      await expect(noEndpointService.samplePiece(defaultSampleParams)).rejects.toThrow(
         "No subgraph endpoint configured",
       );
       expect(fetchMock).not.toHaveBeenCalled();
@@ -751,7 +751,7 @@ describe("SubgraphService", () => {
         json: async () => makeSampleResponse([]),
       });
 
-      const piece = await service.sampleAnonPiece(defaultSampleParams);
+      const piece = await service.samplePiece(defaultSampleParams);
       expect(piece).toBeNull();
       // Forward then reverse — confirms the wrap-around fallback fires when forward is empty.
       expect(fetchMock).toHaveBeenCalledTimes(2);
@@ -762,7 +762,7 @@ describe("SubgraphService", () => {
         .mockResolvedValueOnce({ ok: true, json: async () => makeSampleResponse([]) })
         .mockResolvedValueOnce({ ok: true, json: async () => makeSampleResponse([makeSampleRoot()]) });
 
-      const piece = await service.sampleAnonPiece(defaultSampleParams);
+      const piece = await service.samplePiece(defaultSampleParams);
 
       expect(piece).not.toBeNull();
       expect(fetchMock).toHaveBeenCalledTimes(2);
@@ -780,7 +780,7 @@ describe("SubgraphService", () => {
         json: async () => makeSampleResponse([makeSampleRoot()]),
       });
 
-      await service.sampleAnonPiece(defaultSampleParams);
+      await service.samplePiece(defaultSampleParams);
       expect(fetchMock).toHaveBeenCalledTimes(1);
     });
 
@@ -790,7 +790,7 @@ describe("SubgraphService", () => {
         json: async () => makeSampleResponse([makeSampleRoot()]),
       });
 
-      const piece = await service.sampleAnonPiece(defaultSampleParams);
+      const piece = await service.samplePiece(defaultSampleParams);
 
       expect(piece).toMatchObject({
         pieceCid: EXAMPLE_PIECE_CID,
@@ -820,14 +820,14 @@ describe("SubgraphService", () => {
           ]),
       });
 
-      const piece = await service.sampleAnonPiece(defaultSampleParams);
+      const piece = await service.samplePiece(defaultSampleParams);
       expect(piece?.pdpPaymentEndEpoch).toBe(5000n);
     });
 
     it("lowercases SP and payer addresses before querying", async () => {
       fetchMock.mockResolvedValue({ ok: true, json: async () => makeSampleResponse([]) });
 
-      await service.sampleAnonPiece(defaultSampleParams);
+      await service.samplePiece(defaultSampleParams);
 
       const [, opts] = fetchMock.mock.calls[0];
       const body = JSON.parse(opts.body as string);
@@ -839,7 +839,7 @@ describe("SubgraphService", () => {
     it("uses the any-pool query when pool is 'any'", async () => {
       fetchMock.mockResolvedValue({ ok: true, json: async () => makeSampleResponse([]) });
 
-      await service.sampleAnonPiece({ ...defaultSampleParams, pool: "any" });
+      await service.samplePiece({ ...defaultSampleParams, pool: "any" });
 
       const [, opts] = fetchMock.mock.calls[0];
       const body = JSON.parse(opts.body as string);
@@ -852,20 +852,18 @@ describe("SubgraphService", () => {
         json: async () => makeSampleResponse([makeSampleRoot({ cid: "0xdeadbeef" })]),
       });
 
-      const piece = await service.sampleAnonPiece(defaultSampleParams);
+      const piece = await service.samplePiece(defaultSampleParams);
       expect(piece).toBeNull();
     });
 
     it("throws after max retries on repeated HTTP errors", async () => {
       fetchMock.mockResolvedValue({ ok: false, status: 500, statusText: "Internal Server Error" });
 
-      const promise = service.sampleAnonPiece(defaultSampleParams);
+      const promise = service.samplePiece(defaultSampleParams);
       promise.catch(() => {});
       await vi.runAllTimersAsync();
 
-      await expect(promise).rejects.toThrow(
-        "Failed to fetch subgraph sample_anon_piece_indexed_forward after 3 attempts",
-      );
+      await expect(promise).rejects.toThrow("Failed to fetch subgraph sample_piece_indexed_forward after 3 attempts");
       expect(fetchMock).toHaveBeenCalledTimes(3);
     });
 
@@ -875,7 +873,7 @@ describe("SubgraphService", () => {
         json: async () => ({ data: { _meta: { block: { number: 1 } } } }), // missing roots
       });
 
-      await expect(service.sampleAnonPiece(defaultSampleParams)).rejects.toThrow(/validation failed/i);
+      await expect(service.samplePiece(defaultSampleParams)).rejects.toThrow(/validation failed/i);
       expect(fetchMock).toHaveBeenCalledTimes(1);
     });
   });
