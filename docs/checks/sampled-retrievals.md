@@ -139,7 +139,7 @@ Sources:
 
 ## Result Recording
 
-Each sampled retrieval attempt writes one row to the `sampled_retrieval_checks` ClickHouse table unless we could not find a piece to probe for the SP. The row is emitted **even on abort or unexpected error** so that the partial evidence (TTFB, bytes, response code) is preserved.
+Each sampled retrieval attempt writes one row to the `sampled_retrieval_checks` ClickHouse table — including a `skipped` row (`piece_fetch_status='skipped'`) when piece selection found no candidate for the SP after all fallbacks, so the empty-pool case is recorded as check data rather than counted as a job failure. The row is emitted **even on abort or unexpected error** so that the partial evidence (TTFB, bytes, response code) is preserved. On a skipped row there is no piece to test, so the piece-identity columns (`piece_cid`, `data_set_id`, `piece_id`, `raw_size`) carry sentinel values (`''` / `0`).
 
 The DDL and column-level comments in [`clickhouse.schema.ts`](../../apps/backend/src/clickhouse/clickhouse.schema.ts) are authoritative. The summary below is for orientation.
 
@@ -153,7 +153,7 @@ The DDL and column-level comments in [`clickhouse.schema.ts`](../../apps/backend
 | `with_ipfs_indexing`, `ipfs_root_cid` | Whether the piece advertises IPNI metadata |
 | `service_type` | Always `direct_sp` today |
 | `retrieval_endpoint` | URL probed for piece fetch |
-| `piece_fetch_status` | `success` or `failed` — outcome of `/piece/{cid}` (HTTP 2xx **and** CommP match). CAR/IPNI/block-fetch outcomes live in their own columns and do **not** flip this status. |
+| `piece_fetch_status` | `success`, `failed`, or `skipped` — outcome of `/piece/{cid}` (HTTP 2xx **and** CommP match). `skipped` = no candidate piece was found, so no request was made. CAR/IPNI/block-fetch outcomes live in their own columns and do **not** flip this status. |
 | `http_response_code` | Raw HTTP status; null on transport failure |
 | `first_byte_ms`, `last_byte_ms`, `bytes_retrieved` | Piece-fetch performance |
 | `commp_valid` | Null when retrieval failed before CommP could be hashed |
