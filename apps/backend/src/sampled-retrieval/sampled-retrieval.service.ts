@@ -206,6 +206,7 @@ export class SampledRetrievalService {
 function sampledPieceRetrievalStatus(pieceResult: PieceRetrievalResult): string {
   if (pieceResult.success) return "success";
   if (pieceResult.aborted) return "failure.timedout";
+  if (pieceResult.tooLarge) return "failure.too_large";
   if (!pieceResult.httpSuccess) return "failure.http";
   if (!pieceResult.commPValid) return "failure.commp";
   return "failure.other";

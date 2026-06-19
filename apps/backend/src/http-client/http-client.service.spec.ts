@@ -154,4 +154,79 @@ describe("HttpClientService", () => {
       "network reset",
     );
   });
+
+  it("aborts the HTTP/2 download and flags limitExceeded once maxBytes is exceeded", async () => {
+    const service = await createService();
+
+    // An endpoint streaming more bytes than allowed must be cut off before the
+    // whole response is buffered, and the stream torn down (finally runs).
+    let cleanedUp = false;
+    async function* oversizedBody() {
+      try {
+        while (true) {
+          yield Buffer.alloc(10); // 10 bytes per chunk
+        }
+      } finally {
+        cleanedUp = true;
+      }
+    }
+
+    undiciRequestMock.mockImplementationOnce(async () => ({
+      statusCode: 200,
+      body: oversizedBody(),
+    }));
+
+    const result = await service.requestWithMetrics<Buffer>("http://example.com/piece", {
+      httpVersion: "2",
+      maxBytes: 25,
+    });
+
+    expect(result.limitExceeded).toBe(true);
+    expect(result.aborted).toBeUndefined();
+    // Partial buffer is discarded; only the received byte count is reported.
+    expect(Buffer.isBuffer(result.data) ? result.data.length : -1).toBe(0);
+    expect(result.metrics.responseSize).toBeGreaterThan(25);
+    // Breaking out of the for-await ran the generator's finally → stream destroyed.
+    expect(cleanedUp).toBe(true);
+  });
+
+  it("returns the full body when the HTTP/2 download stays within maxBytes", async () => {
+    const service = await createService();
+
+    async function* body() {
+      yield Buffer.from("hello");
+      yield Buffer.from(" world");
+    }
+
+    undiciRequestMock.mockImplementationOnce(async () => ({
+      statusCode: 200,
+      body: body(),
+    }));
+
+    const result = await service.requestWithMetrics<Buffer>("http://example.com/piece", {
+      httpVersion: "2",
+      maxBytes: 1024,
+    });
+
+    expect(result.limitExceeded).toBeUndefined();
+    expect(Buffer.isBuffer(result.data) ? result.data.toString() : "").toBe("hello world");
+    expect(result.metrics.responseSize).toBe(11);
+  });
+
+  it("passes maxBytes to axios as maxContentLength/maxBodyLength for HTTP/1.1", async () => {
+    const service = await createService();
+
+    mockHttpService.request.mockReturnValueOnce(
+      of({
+        status: 200,
+        data: Buffer.from("ok"),
+      }),
+    );
+
+    await service.requestWithMetrics("http://example.com", { httpVersion: "1.1", maxBytes: 4096 });
+
+    const config = mockHttpService.request.mock.calls[0][0];
+    expect(config.maxContentLength).toBe(4096);
+    expect(config.maxBodyLength).toBe(4096);
+  });
 });

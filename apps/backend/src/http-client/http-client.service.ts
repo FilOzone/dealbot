@@ -35,9 +35,17 @@ export class HttpClientService {
       headers?: Record<string, string>;
       httpVersion?: HttpVersion;
       signal?: AbortSignal;
+      /**
+       * Hard ceiling on response body bytes. When set, the download is aborted
+       * mid-stream once received bytes exceed this value, the partial buffer is
+       * discarded, and the result is flagged `limitExceeded`. Bounds peak memory
+       * when fetching from untrusted endpoints that may stream more than they
+       * advertised. Omitted → no cap (existing behavior).
+       */
+      maxBytes?: number;
     } = {},
   ): Promise<RequestWithMetrics<T>> {
-    const { method = "GET", data, headers = {}, httpVersion = "1.1", signal } = options;
+    const { method = "GET", data, headers = {}, httpVersion = "1.1", signal, maxBytes } = options;
 
     // Route to appropriate implementation
     if (httpVersion === "2") {
@@ -46,6 +54,7 @@ export class HttpClientService {
         data,
         headers,
         signal,
+        maxBytes,
       });
     }
 
@@ -54,6 +63,7 @@ export class HttpClientService {
       data,
       headers,
       signal,
+      maxBytes,
     });
   }
 
@@ -67,9 +77,10 @@ export class HttpClientService {
       data?: any;
       headers: Record<string, string>;
       signal?: AbortSignal;
+      maxBytes?: number;
     },
   ): Promise<RequestWithMetrics<T>> {
-    const { method, data, headers } = options;
+    const { method, data, headers, maxBytes } = options;
 
     try {
       this.logger.debug({
@@ -117,9 +128,16 @@ export class HttpClientService {
       statusCode = response.statusCode;
 
       const chunks: Buffer[] = [];
+      let receivedBytes = 0;
+      let limitExceeded = false;
       let downloadError: unknown;
       try {
         for await (const chunk of response.body) {
+          receivedBytes += chunk.length;
+          if (maxBytes !== undefined && receivedBytes > maxBytes) {
+            limitExceeded = true;
+            break;
+          }
           chunks.push(Buffer.from(chunk));
         }
       } catch (error) {
@@ -127,6 +145,33 @@ export class HttpClientService {
         // return the partial buffer + metrics collected so far.
         downloadError = error;
       }
+
+      if (limitExceeded) {
+        chunks.length = 0;
+        const totalTime = performance.now() - startTime;
+        const metrics: RequestMetrics = {
+          ttfb: Math.round(ttfbTime),
+          totalTime: Math.round(totalTime),
+          downloadTime: Math.round(totalTime - ttfbTime),
+          statusCode,
+          responseSize: receivedBytes,
+          timestamp: new Date(),
+          httpVersion: "2",
+        };
+        this.logger.warn({
+          event: "http2_download_limit_exceeded",
+          message: "HTTP/2 download exceeded max response size; aborting",
+          url,
+          maxBytes,
+          bytesReceived: receivedBytes,
+        });
+        return {
+          data: Buffer.alloc(0) as T,
+          metrics,
+          limitExceeded: true,
+        };
+      }
+
       const dataBuffer = Buffer.concat(chunks);
 
       const endTime = performance.now();
@@ -190,9 +235,10 @@ export class HttpClientService {
       data?: any;
       headers: Record<string, string>;
       signal?: AbortSignal;
+      maxBytes?: number;
     },
   ): Promise<RequestWithMetrics<T>> {
-    const { method, data, headers, signal } = options;
+    const { method, data, headers, signal, maxBytes } = options;
 
     try {
       this.logger.debug({
@@ -218,6 +264,7 @@ export class HttpClientService {
         signal,
         maxRedirects: 5,
         responseType: "arraybuffer",
+        ...(maxBytes !== undefined ? { maxContentLength: maxBytes, maxBodyLength: maxBytes } : {}),
         onDownloadProgress: () => {
           if (!firstByteReceived) {
             ttfbTime = performance.now() - startTime;
