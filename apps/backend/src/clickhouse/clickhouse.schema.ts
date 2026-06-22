@@ -143,7 +143,6 @@ export function buildMigrations(database: string): string[] {
     first_byte_ms              Nullable(Float64),                 -- time to first response byte
     last_byte_ms               Nullable(Float64),                 -- time to last response byte
     bytes_retrieved            Nullable(UInt64),                  -- bytes received from /piece/{cid}
-    throughput_bps             Nullable(UInt64),                  -- effective throughput, bytes per second
 
     commp_valid                Nullable(Bool),                    -- null when retrieval failed before CommP could be hashed
     car_status                 LowCardinality(String),            -- 'success' | 'skipped' | 'failure.not_parseable' — mirrors sampledCarParseStatus; skipped when piece fetch failed, piece is not IPFS-indexed, or the job aborted before parsing
