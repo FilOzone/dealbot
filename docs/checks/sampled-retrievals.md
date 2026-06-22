@@ -158,7 +158,7 @@ The DDL and column-level comments in [`clickhouse.schema.ts`](../../apps/backend
 | `first_byte_ms`, `last_byte_ms`, `bytes_retrieved` | Piece-fetch performance |
 | `commp_valid` | Null when retrieval failed before CommP could be hashed |
 | `car_status` | `success` \| `skipped` \| `failure.not_parseable` — mirrors `sampledCarParseStatus` |
-| `car_block_count` | Total CAR block count; null unless `car_status='parseable'` |
+| `car_block_count` | Total CAR block count; null unless `car_status='success'` |
 | `block_fetch_endpoint` | Gateway base URL probed; null when skipped or SP info missing |
 | `block_fetch_status` | `success` \| `skipped` \| `failure.other` — mirrors `sampledBlockFetchStatus` |
 | `block_fetch_sampled_count`, `block_fetch_failed_count` | Sampled / failed block counts; null when skipped |
