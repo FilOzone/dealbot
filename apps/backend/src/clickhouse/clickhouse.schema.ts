@@ -143,7 +143,6 @@ export function buildMigrations(database: string): string[] {
     first_byte_ms              Nullable(Float64),                 -- time to first response byte
     last_byte_ms               Nullable(Float64),                 -- time to last response byte
     bytes_retrieved            Nullable(UInt64),                  -- bytes received from /piece/{cid}
-    throughput_bps             Nullable(UInt64),                  -- effective throughput, bytes per second
 
     commp_valid                Nullable(Bool),                    -- null when retrieval failed before CommP could be hashed
     car_status                 LowCardinality(String),            -- 'success' | 'skipped' | 'failure.not_parseable' — mirrors sampledCarParseStatus; skipped when piece fetch failed, piece is not IPFS-indexed, or the job aborted before parsing
@@ -161,5 +160,10 @@ export function buildMigrations(database: string): string[] {
   PRIMARY KEY (probe_location, sp_address, timestamp)
   PARTITION BY toStartOfMonth(timestamp)
   TTL toDateTime(timestamp) + INTERVAL 1 YEAR`,
+
+    // throughput_bps was dropped because it is derivable
+    // at query time as bytes_retrieved / (last_byte_ms / 1000).
+    `ALTER TABLE ${database}.sampled_retrieval_checks
+        DROP COLUMN IF EXISTS throughput_bps`,
   ];
 }

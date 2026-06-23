@@ -155,10 +155,10 @@ The DDL and column-level comments in [`clickhouse.schema.ts`](../../apps/backend
 | `retrieval_endpoint` | URL probed for piece fetch |
 | `piece_fetch_status` | `success` or `failed` — outcome of `/piece/{cid}` (HTTP 2xx **and** CommP match). CAR/IPNI/block-fetch outcomes live in their own columns and do **not** flip this status. |
 | `http_response_code` | Raw HTTP status; null on transport failure |
-| `first_byte_ms`, `last_byte_ms`, `bytes_retrieved`, `throughput_bps` | Piece-fetch performance |
+| `first_byte_ms`, `last_byte_ms`, `bytes_retrieved` | Piece-fetch performance |
 | `commp_valid` | Null when retrieval failed before CommP could be hashed |
 | `car_status` | `success` \| `skipped` \| `failure.not_parseable` — mirrors `sampledCarParseStatus` |
-| `car_block_count` | Total CAR block count; null unless `car_status='parseable'` |
+| `car_block_count` | Total CAR block count; null unless `car_status='success'` |
 | `block_fetch_endpoint` | Gateway base URL probed; null when skipped or SP info missing |
 | `block_fetch_status` | `success` \| `skipped` \| `failure.other` — mirrors `sampledBlockFetchStatus` |
 | `block_fetch_sampled_count`, `block_fetch_failed_count` | Sampled / failed block counts; null when skipped |

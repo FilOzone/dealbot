@@ -301,17 +301,17 @@ const metricProviders = [
   }),
   makeCounterProvider({
     name: "sampledCarParseStatus",
-    help: "Anonymous retrieval CAR parse outcomes (parseable / not_parseable / skipped)",
+    help: "Anonymous retrieval CAR parse outcomes (success / skipped / failure.not_parseable)",
     labelNames: ["checkType", "providerId", "providerName", "providerStatus", "value"] as const,
   }),
   makeCounterProvider({
     name: "sampledIpniStatus",
-    help: "Anonymous retrieval IPNI check outcomes (valid / invalid / skipped / error)",
+    help: "Anonymous retrieval IPNI check outcomes (success / skipped / failure.timedout / failure.other)",
     labelNames: ["checkType", "providerId", "providerName", "providerStatus", "value"] as const,
   }),
   makeCounterProvider({
     name: "sampledBlockFetchStatus",
-    help: "Anonymous retrieval block fetch validation outcomes (success / failure / skipped / error)",
+    help: "Anonymous retrieval block fetch validation outcomes (success / skipped / failure.other)",
     labelNames: ["checkType", "providerId", "providerName", "providerStatus", "value"] as const,
   }),
   // Storage provider metrics: absolute counts, independent of query filters.
