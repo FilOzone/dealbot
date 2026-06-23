@@ -1,5 +1,5 @@
 import * as crypto from "node:crypto";
-import { calculateFromIterable, parse as parsePieceCid } from "@filoz/synapse-core/piece";
+import * as Piece from "@filoz/synapse-core/piece";
 import { pullPieces, waitForPullPieces } from "@filoz/synapse-core/sp";
 import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
@@ -90,7 +90,7 @@ export class PullCheckService {
       signal?.throwIfAborted();
       prepared = await this.preparePullPiece(spAddress);
       const pieceCidStr = prepared.registration.pieceCid;
-      const pieceCidParsed = parsePieceCid(pieceCidStr);
+      const pieceCidParsed = Piece.from(pieceCidStr);
 
       const synapseClient = this.requireSynapseClient();
 
@@ -258,7 +258,7 @@ export class PullCheckService {
       }
 
       try {
-        const calculatedPieceCid = await calculateFromIterable(response.body);
+        const calculatedPieceCid = await Piece.calculate(response.body);
         return calculatedPieceCid.toString() === pieceCid;
       } finally {
         // Guarantee the underlying socket is released if `calculateFromIterable`
@@ -300,7 +300,7 @@ export class PullCheckService {
       bytesNeeded: targetSize,
     });
 
-    const pieceCid = await calculateFromIterable(dataStream);
+    const pieceCid = await Piece.calculate(dataStream);
     const pieceCidStr = pieceCid.toString();
     const baseUrl = this.resolvePublicBaseUrl();
     const sourceUrl = `${baseUrl}/api/piece/${pieceCidStr}`;

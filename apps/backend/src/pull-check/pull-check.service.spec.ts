@@ -16,9 +16,8 @@ import { PullPieceRepository } from "./pull-piece.repository.js";
 // strings rather than real CID objects, keeping the tests fast and isolated
 // from the SDK's internal hashing.
 vi.mock("@filoz/synapse-core/piece", () => ({
-  parse: vi.fn((s: string) => ({ __parsed: s, toString: () => s })),
-  calculate: vi.fn(() => ({ toString: () => "bafk-test-piece" })),
-  calculateFromIterable: vi.fn().mockResolvedValue("bafk-test-piece"),
+  from: vi.fn((s: string) => ({ __parsed: s, toString: () => s })),
+  calculate: vi.fn().mockResolvedValue("bafk-test-piece"),
 }));
 
 vi.mock("@filoz/synapse-core/sp", () => ({
@@ -26,7 +25,7 @@ vi.mock("@filoz/synapse-core/sp", () => ({
   waitForPullPieces: vi.fn(),
 }));
 
-import { calculateFromIterable } from "@filoz/synapse-core/piece";
+import { calculate } from "@filoz/synapse-core/piece";
 import { pullPieces, waitForPullPieces } from "@filoz/synapse-core/sp";
 
 function makeProvider(overrides: Partial<PDPProviderEx> = {}): PDPProviderEx {
@@ -208,7 +207,7 @@ describe("PullCheckService", () => {
         body: Readable.from([Buffer.from("payload")]),
       });
       if (cidResult !== "bafk-test-piece") {
-        vi.mocked(calculateFromIterable).mockResolvedValueOnce(cidResult as any);
+        vi.mocked(calculate).mockResolvedValueOnce(cidResult as any);
       }
     }
 
@@ -408,7 +407,7 @@ describe("PullCheckService", () => {
       // `validateByDirectPieceFetch` call `calculateFromIterable`, so chain
       // two one-shot mocks: the first satisfies prepare with the canonical
       // CID, the second makes the direct-fetch recompute disagree.
-      vi.mocked(calculateFromIterable)
+      vi.mocked(calculate)
         .mockResolvedValueOnce("bafk-test-piece" as any)
         .mockResolvedValueOnce("bafk-mismatch" as any);
 

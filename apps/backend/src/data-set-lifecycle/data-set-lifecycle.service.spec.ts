@@ -10,10 +10,8 @@ vi.mock("@filoz/synapse-core/sp", () => ({
   findPiece: vi.fn(),
   createDataSetAndAddPieces: vi.fn(),
   waitForCreateDataSetAddPieces: vi.fn(),
-}));
-
-vi.mock("@filoz/synapse-core/warm-storage", () => ({
-  terminateServiceSync: vi.fn(),
+  terminateService: vi.fn(),
+  waitForTerminateService: vi.fn(),
 }));
 
 const {
@@ -23,8 +21,9 @@ const {
   findPiece,
   createDataSetAndAddPieces,
   waitForCreateDataSetAddPieces,
+  terminateService,
+  waitForTerminateService,
 } = await import("@filoz/synapse-core/sp");
-const { terminateServiceSync } = await import("@filoz/synapse-core/warm-storage");
 
 const mockClient = { account: { address: "0xwallet" } };
 
@@ -75,10 +74,21 @@ function setupWithPiecesVariantMocks() {
   });
 }
 
+function setupTerminateMocks() {
+  vi.mocked(terminateService).mockResolvedValue({ statusUrl: "https://sp.example.com/terminate/status" });
+  vi.mocked(waitForTerminateService).mockResolvedValue({
+    terminationTxHash: "0xterminate",
+    txStatus: "confirmed",
+    txSuccess: true,
+    fwssTerminated: true,
+    serviceTerminationEpoch: 100n,
+  } as any);
+}
+
 function setupAllVariantMocks() {
   setupEmptyVariantMocks();
   setupWithPiecesVariantMocks();
-  vi.mocked(terminateServiceSync).mockResolvedValue({ receipt: {} as any, event: {} as any });
+  setupTerminateMocks();
 }
 
 describe("DataSetLifecycleService", () => {
@@ -119,7 +129,7 @@ describe("DataSetLifecycleService", () => {
       expect.objectContaining({ serviceURL: "https://sp.example.com" }),
     );
     expect(findPiece).toHaveBeenCalledWith(
-      expect.objectContaining({ serviceURL: "https://sp.example.com", pieceCid: mockPieceCid, retry: true }),
+      expect.objectContaining({ serviceURL: "https://sp.example.com", pieceCid: mockPieceCid, poll: true }),
     );
     expect(createDataSetAndAddPieces).toHaveBeenCalledWith(
       mockClient,
@@ -135,10 +145,20 @@ describe("DataSetLifecycleService", () => {
       expect.objectContaining({ statusUrl: "https://sp.example.com/status/2" }),
     );
 
-    // terminateServiceSync called for both data sets
-    expect(terminateServiceSync).toHaveBeenCalledTimes(2);
-    expect(terminateServiceSync).toHaveBeenCalledWith(mockClient, expect.objectContaining({ dataSetId: 42n }));
-    expect(terminateServiceSync).toHaveBeenCalledWith(mockClient, expect.objectContaining({ dataSetId: 77n }));
+    // terminateService (provider-relayed) called for both data sets, each followed by a status poll
+    expect(terminateService).toHaveBeenCalledTimes(2);
+    expect(terminateService).toHaveBeenCalledWith(
+      mockClient,
+      expect.objectContaining({ dataSetId: 42n, serviceURL: "https://sp.example.com" }),
+    );
+    expect(terminateService).toHaveBeenCalledWith(
+      mockClient,
+      expect.objectContaining({ dataSetId: 77n, serviceURL: "https://sp.example.com" }),
+    );
+    expect(waitForTerminateService).toHaveBeenCalledTimes(2);
+    expect(waitForTerminateService).toHaveBeenCalledWith(
+      expect.objectContaining({ statusUrl: "https://sp.example.com/terminate/status" }),
+    );
 
     expect(mockMetrics.recordStatus).toHaveBeenCalledOnce();
     expect(mockMetrics.recordStatus).toHaveBeenCalledWith(
@@ -171,7 +191,7 @@ describe("DataSetLifecycleService", () => {
 
   it("throws when empty variant fails even if with-pieces variant succeeds", async () => {
     setupWithPiecesVariantMocks();
-    vi.mocked(terminateServiceSync).mockResolvedValue({ receipt: {} as any, event: {} as any });
+    setupTerminateMocks();
     vi.mocked(createDataSet).mockRejectedValue(new Error("empty variant: SP unreachable"));
 
     await expect(service.runLifecycleCheck("0xsp", { dealbotLifecycleCheck: "nonce-partial-1" })).rejects.toThrow(
@@ -187,7 +207,7 @@ describe("DataSetLifecycleService", () => {
 
   it("throws when with-pieces variant fails even if empty variant succeeds", async () => {
     setupEmptyVariantMocks();
-    vi.mocked(terminateServiceSync).mockResolvedValue({ receipt: {} as any, event: {} as any });
+    setupTerminateMocks();
     vi.mocked(uploadPieceStreaming).mockRejectedValue(new Error("with-pieces variant: upload failed"));
 
     await expect(service.runLifecycleCheck("0xsp", { dealbotLifecycleCheck: "nonce-partial-2" })).rejects.toThrow(
@@ -220,14 +240,14 @@ describe("DataSetLifecycleService", () => {
 
   it("records failure.other for empty variant when createDataSet rejects", async () => {
     setupWithPiecesVariantMocks();
-    vi.mocked(terminateServiceSync).mockResolvedValue({ receipt: {} as any, event: {} as any });
+    setupTerminateMocks();
     vi.mocked(createDataSet).mockRejectedValue(new Error("SP unreachable"));
 
     await expect(service.runLifecycleCheck("0xsp", { dealbotLifecycleCheck: "nonce-e-1" })).rejects.toThrow(
       "SP unreachable",
     );
 
-    expect(terminateServiceSync).toHaveBeenCalledOnce(); // only with-pieces succeeded
+    expect(terminateService).toHaveBeenCalledOnce(); // only with-pieces succeeded
     expect(mockMetrics.recordStatus).toHaveBeenCalledOnce();
     expect(mockMetrics.recordStatus).toHaveBeenCalledWith(
       expect.objectContaining({ checkType: "dataSetLifecycleCheck" }),
@@ -237,9 +257,9 @@ describe("DataSetLifecycleService", () => {
 
   it("records failure.other for empty variant when termination fails after creation", async () => {
     setupAllVariantMocks();
-    vi.mocked(terminateServiceSync)
+    vi.mocked(terminateService)
       .mockRejectedValueOnce(new Error("terminate failed"))
-      .mockResolvedValueOnce({ receipt: {} as any, event: {} as any });
+      .mockResolvedValueOnce({ statusUrl: "https://sp.example.com/terminate/status" });
 
     await expect(service.runLifecycleCheck("0xsp", { dealbotLifecycleCheck: "nonce-e-2" })).rejects.toThrow(
       "terminate failed",
@@ -254,7 +274,7 @@ describe("DataSetLifecycleService", () => {
 
   it("records failure.other for with-pieces variant when findPiece rejects", async () => {
     setupEmptyVariantMocks();
-    vi.mocked(terminateServiceSync).mockResolvedValue({ receipt: {} as any, event: {} as any });
+    setupTerminateMocks();
     vi.mocked(uploadPieceStreaming).mockResolvedValue({ pieceCid: mockPieceCid as any, size: 256 });
     vi.mocked(findPiece).mockRejectedValue(new Error("piece not found"));
 
@@ -272,7 +292,7 @@ describe("DataSetLifecycleService", () => {
 
   it("records failure.other for with-pieces variant when createDataSetAndAddPieces rejects", async () => {
     setupEmptyVariantMocks();
-    vi.mocked(terminateServiceSync).mockResolvedValue({ receipt: {} as any, event: {} as any });
+    setupTerminateMocks();
     vi.mocked(uploadPieceStreaming).mockResolvedValue({ pieceCid: mockPieceCid as any, size: 256 });
     vi.mocked(findPiece).mockResolvedValue(mockPieceCid as any);
     vi.mocked(createDataSetAndAddPieces).mockRejectedValue(new Error("on-chain create failed"));
@@ -291,8 +311,8 @@ describe("DataSetLifecycleService", () => {
 
   it("records failure.other for with-pieces variant when termination fails after creation", async () => {
     setupAllVariantMocks();
-    vi.mocked(terminateServiceSync)
-      .mockResolvedValueOnce({ receipt: {} as any, event: {} as any })
+    vi.mocked(terminateService)
+      .mockResolvedValueOnce({ statusUrl: "https://sp.example.com/terminate/status" })
       .mockRejectedValueOnce(new Error("terminate failed"));
 
     await expect(service.runLifecycleCheck("0xsp", { dealbotLifecycleCheck: "nonce-wp-3" })).rejects.toThrow(
