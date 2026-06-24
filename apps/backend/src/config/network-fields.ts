@@ -70,6 +70,10 @@ export const CHAIN_SPECIFIC_NETWORK_VARS = new Set<PerNetworkVar>([
   "DEALBOT_DATASET_VERSION",
   "BLOCKED_SP_IDS",
   "BLOCKED_SP_ADDRESSES",
+  // Has a network-dependent default (off on mainnet) because the canary can't
+  // auto-terminate PDP data sets when the payer is a Safe multisig (dealbot#546).
+  // Kept chain-specific so a shared `=true` can't accidentally enable it on mainnet.
+  "DATASET_LIFECYCLE_CHECK_ENABLED",
 ]);
 
 /** Inheritable vars read the unprefixed shared slot; chain-specific ones don't. */

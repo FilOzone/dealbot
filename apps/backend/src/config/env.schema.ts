@@ -176,8 +176,8 @@ const perNetworkFieldRules = (): Record<PerNetworkVar, Joi.Schema> => ({
   RETRIEVAL_JOB_TIMEOUT_SECONDS: Joi.number().min(60).optional(),
   DATA_SET_CREATION_JOB_TIMEOUT_SECONDS: Joi.number().min(60).optional(),
   DATA_SET_LIFECYCLE_CHECK_JOB_TIMEOUT_SECONDS: Joi.number().min(60).optional(),
-  DATA_RETENTION_POLL_INTERVAL_SECONDS: Joi.number().optional(),
-  PROVIDERS_REFRESH_INTERVAL_SECONDS: Joi.number().optional(),
+  DATA_RETENTION_POLL_INTERVAL_SECONDS: Joi.number().integer().min(1).optional(),
+  PROVIDERS_REFRESH_INTERVAL_SECONDS: Joi.number().integer().min(1).optional(),
   MAINTENANCE_WINDOWS_UTC: Joi.string().custom(validateMaintenanceWindowsEnv).optional(),
   MAINTENANCE_WINDOW_MINUTES: Joi.number().min(20).max(360).optional(),
   BLOCKED_SP_IDS: Joi.string().optional().allow(""),
@@ -205,14 +205,16 @@ export const createPerNetworkEnvSchema = (prefix: Uppercase<Network>): Record<st
  * Bare (unprefixed) shared overrides for inheritable vars. Registered once
  * globally so a shared value (e.g. `DEAL_JOB_TIMEOUT_SECONDS`) is validated with
  * the same rule as its prefixed override, not waved through by `allowUnknown`.
- * `.strip()` keeps the value out of the validated output so it is never assigned
- * back into `process.env`; the loader reads the operator's original value.
+ *
+ * These keep their value in the validated output (no `.strip()`): NestJS assigns
+ * the validated object back into `process.env`, which is how a shared value that
+ * comes from a `.env` file (rather than the OS environment) reaches the loader.
+ * They carry no `.default()`, so an absent key stays absent and the loader's
+ * per-network default applies — nothing is injected to shadow an override.
  */
 export const createSharedNetworkEnvSchema = (): Record<string, Joi.Schema> => {
   const rules = perNetworkFieldRules();
-  return Object.fromEntries(
-    INHERITABLE_NETWORK_VARS.map((key) => [key, (rules[key] as Joi.AnySchema).optional().strip()]),
-  );
+  return Object.fromEntries(INHERITABLE_NETWORK_VARS.map((key) => [key, (rules[key] as Joi.AnySchema).optional()]));
 };
 
 // ---------------------------------------------------------------------------

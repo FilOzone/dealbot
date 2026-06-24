@@ -38,6 +38,9 @@ const KEYS_TO_RESET = [
   "PDP_SUBGRAPH_ENDPOINT",
   "MAX_DATASET_STORAGE_SIZE_BYTES",
   "TARGET_DATASET_STORAGE_SIZE_BYTES",
+  "DATASET_LIFECYCLE_CHECK_ENABLED",
+  "CALIBRATION_DATASET_LIFECYCLE_CHECK_ENABLED",
+  "MAINNET_DATASET_LIFECYCLE_CHECK_ENABLED",
 ];
 
 const snapshot: Record<string, string | undefined> = {};
@@ -165,6 +168,28 @@ describe("loadConfig per-network inheritance", () => {
     process.env.CALIBRATION_TARGET_DATASET_STORAGE_SIZE_BYTES = "2000"; // override
 
     expect(() => loadConfig()).toThrow(/must be less than MAX_DATASET_STORAGE_SIZE_BYTES/);
+  });
+
+  it("catches TARGET>=MAX when both come from shared unprefixed vars", () => {
+    process.env.NETWORKS = "calibration";
+    process.env.CALIBRATION_WALLET_PRIVATE_KEY = "0xcal";
+    process.env.MAX_DATASET_STORAGE_SIZE_BYTES = "1000";
+    process.env.TARGET_DATASET_STORAGE_SIZE_BYTES = "1500";
+
+    expect(() => loadConfig()).toThrow(/TARGET_DATASET_STORAGE_SIZE_BYTES/);
+  });
+
+  it("does not let a shared DATASET_LIFECYCLE_CHECK_ENABLED enable the canary on mainnet", () => {
+    process.env.NETWORKS = "calibration,mainnet";
+    process.env.CALIBRATION_WALLET_PRIVATE_KEY = "0xcal";
+    process.env.MAINNET_WALLET_PRIVATE_KEY = "0xmain";
+    // Shared (unprefixed) value: chain-specific var must NOT inherit it.
+    process.env.DATASET_LIFECYCLE_CHECK_ENABLED = "true";
+
+    const cfg = loadConfig();
+
+    expect(cfg.networks.calibration.dataSetLifecycleCheckEnabled).toBe(true); // network default (off mainnet only)
+    expect(cfg.networks.mainnet.dataSetLifecycleCheckEnabled).toBe(false); // safety default preserved
   });
 
   it("throws when NETWORKS resolves to no supported networks", () => {
