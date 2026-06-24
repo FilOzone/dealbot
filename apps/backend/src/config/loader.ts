@@ -10,7 +10,7 @@
 import { DEFAULT_LOCAL_DATASETS_PATH, ZERO_ADDRESS } from "../common/constants.js";
 import type { Network } from "../common/types.js";
 import { networkDefaults } from "./constants.js";
-import { getBooleanEnv, getFloatEnv, getNumberEnv, getStringEnv } from "./env.helpers.js";
+import { coerceBoolean, coerceFloat, coerceNumber, getBooleanEnv, getNumberEnv, getStringEnv } from "./env.helpers.js";
 import {
   parseActiveNetworks,
   parseAddressList,
@@ -18,6 +18,7 @@ import {
   parseRandomDatasetSizes,
   parseRunMode,
 } from "./env.parsers.js";
+import { inheritsUnprefixed, type PerNetworkVar } from "./network-fields.js";
 import type {
   BaseNetworkConfig,
   IAppConfig,
@@ -114,140 +115,134 @@ type DistributiveOmit<T, K extends keyof any> = T extends any ? Omit<T, K> : nev
  * Reads all per-network env vars for one network's prefix
  * (e.g. `"CALIBRATION"` → reads `CALIBRATION_RPC_URL`, `CALIBRATION_WALLET_ADDRESS`, ...).
  *
- * Legacy (unprefixed) envs are translated to this prefixed form by
- * `applyLegacyEnvCompat` before `loadConfig` runs, so this function only
- * needs to handle the prefixed scheme.
+ * Inheritable vars resolve with precedence `<PREFIX>_<KEY>` → unprefixed `<KEY>`
+ * → default, so a shared value can be set once and overridden per network.
+ * Chain-specific vars (see `network-fields.ts`) read the prefixed slot only.
+ * Legacy unprefixed single-network envs are translated to the prefixed form by
+ * `applyLegacyEnvCompat` before `loadConfig` runs.
  */
 function loadNetworkEnvPrefix(
   prefix: Uppercase<Network>,
   env: NodeJS.ProcessEnv,
 ): DistributiveOmit<INetworkConfig, "network"> {
-  const k = (key: string) => `${prefix}_${key}`;
-  const get = (key: string) => env[k(key)];
   const network = prefix.toLowerCase() as Network;
 
+  // Resolve one per-network var: prefixed override wins, inheritable vars then
+  // fall back to the unprefixed shared slot, else undefined (caller defaults).
+  const resolve = (key: PerNetworkVar): string | undefined => {
+    const prefixed = env[`${prefix}_${key}`];
+    if (prefixed) return prefixed;
+    if (inheritsUnprefixed(key)) {
+      const shared = env[key];
+      if (shared) return shared;
+    }
+    return undefined;
+  };
+
   const base = {
-    walletAddress: get("WALLET_ADDRESS") || ZERO_ADDRESS,
-    rpcUrl: get("RPC_URL") || undefined,
-    rpcRequestTimeoutMs: getNumberEnv(env, k("RPC_REQUEST_TIMEOUT_MS"), networkDefaults.rpcRequestTimeoutMs),
-    pdpSubgraphEndpoint: get("PDP_SUBGRAPH_ENDPOINT") || undefined,
-    checkDatasetCreationFees: getBooleanEnv(
-      env,
-      k("CHECK_DATASET_CREATION_FEES"),
+    walletAddress: resolve("WALLET_ADDRESS") ?? ZERO_ADDRESS,
+    rpcUrl: resolve("RPC_URL"),
+    rpcRequestTimeoutMs: coerceNumber(resolve("RPC_REQUEST_TIMEOUT_MS"), networkDefaults.rpcRequestTimeoutMs),
+    pdpSubgraphEndpoint: resolve("PDP_SUBGRAPH_ENDPOINT"),
+    checkDatasetCreationFees: coerceBoolean(
+      resolve("CHECK_DATASET_CREATION_FEES"),
       networkDefaults.checkDatasetCreationFees,
     ),
-    useOnlyApprovedProviders: getBooleanEnv(
-      env,
-      k("USE_ONLY_APPROVED_PROVIDERS"),
+    useOnlyApprovedProviders: coerceBoolean(
+      resolve("USE_ONLY_APPROVED_PROVIDERS"),
       networkDefaults.useOnlyApprovedProviders,
     ),
-    dealbotDataSetVersion: get("DEALBOT_DATASET_VERSION") || undefined,
-    minNumDataSetsForChecks: getNumberEnv(
-      env,
-      k("MIN_NUM_DATASETS_FOR_CHECKS"),
+    dealbotDataSetVersion: resolve("DEALBOT_DATASET_VERSION"),
+    minNumDataSetsForChecks: coerceNumber(
+      resolve("MIN_NUM_DATASETS_FOR_CHECKS"),
       networkDefaults.minNumDataSetsForChecks,
     ),
-    dealsPerSpPerHour: getFloatEnv(env, k("DEALS_PER_SP_PER_HOUR"), networkDefaults.dealsPerSpPerHour),
-    dealJobTimeoutSeconds: getNumberEnv(env, k("DEAL_JOB_TIMEOUT_SECONDS"), networkDefaults.dealJobTimeoutSeconds),
-    retrievalsPerSpPerHour: getFloatEnv(env, k("RETRIEVALS_PER_SP_PER_HOUR"), networkDefaults.retrievalsPerSpPerHour),
-    retrievalJobTimeoutSeconds: getNumberEnv(
-      env,
-      k("RETRIEVAL_JOB_TIMEOUT_SECONDS"),
+    dealsPerSpPerHour: coerceFloat(resolve("DEALS_PER_SP_PER_HOUR"), networkDefaults.dealsPerSpPerHour),
+    dealJobTimeoutSeconds: coerceNumber(resolve("DEAL_JOB_TIMEOUT_SECONDS"), networkDefaults.dealJobTimeoutSeconds),
+    retrievalsPerSpPerHour: coerceFloat(resolve("RETRIEVALS_PER_SP_PER_HOUR"), networkDefaults.retrievalsPerSpPerHour),
+    retrievalJobTimeoutSeconds: coerceNumber(
+      resolve("RETRIEVAL_JOB_TIMEOUT_SECONDS"),
       networkDefaults.retrievalJobTimeoutSeconds,
     ),
-    dataSetCreationsPerSpPerHour: getFloatEnv(
-      env,
-      k("DATASET_CREATIONS_PER_SP_PER_HOUR"),
+    dataSetCreationsPerSpPerHour: coerceFloat(
+      resolve("DATASET_CREATIONS_PER_SP_PER_HOUR"),
       networkDefaults.dataSetCreationsPerSpPerHour,
     ),
-    dataSetCreationJobTimeoutSeconds: getNumberEnv(
-      env,
-      k("DATA_SET_CREATION_JOB_TIMEOUT_SECONDS"),
+    dataSetCreationJobTimeoutSeconds: coerceNumber(
+      resolve("DATA_SET_CREATION_JOB_TIMEOUT_SECONDS"),
       networkDefaults.dataSetCreationJobTimeoutSeconds,
     ),
     // Network-dependent default: enabled on every network except mainnet.
-    dataSetLifecycleCheckEnabled: getBooleanEnv(env, k("DATASET_LIFECYCLE_CHECK_ENABLED"), network !== "mainnet"),
-    dataSetLifecycleChecksPerSpPerHour: getFloatEnv(
-      env,
-      k("DATASET_LIFECYCLE_CHECKS_PER_SP_PER_HOUR"),
+    dataSetLifecycleCheckEnabled: coerceBoolean(resolve("DATASET_LIFECYCLE_CHECK_ENABLED"), network !== "mainnet"),
+    dataSetLifecycleChecksPerSpPerHour: coerceFloat(
+      resolve("DATASET_LIFECYCLE_CHECKS_PER_SP_PER_HOUR"),
       networkDefaults.dataSetLifecycleChecksPerSpPerHour,
     ),
-    dataSetLifecycleCheckJobTimeoutSeconds: getNumberEnv(
-      env,
-      k("DATA_SET_LIFECYCLE_CHECK_JOB_TIMEOUT_SECONDS"),
+    dataSetLifecycleCheckJobTimeoutSeconds: coerceNumber(
+      resolve("DATA_SET_LIFECYCLE_CHECK_JOB_TIMEOUT_SECONDS"),
       networkDefaults.dataSetLifecycleCheckJobTimeoutSeconds,
     ),
-    dataRetentionPollIntervalSeconds: getNumberEnv(
-      env,
-      k("DATA_RETENTION_POLL_INTERVAL_SECONDS"),
+    dataRetentionPollIntervalSeconds: coerceNumber(
+      resolve("DATA_RETENTION_POLL_INTERVAL_SECONDS"),
       networkDefaults.dataRetentionPollIntervalSeconds,
     ),
-    providersRefreshIntervalSeconds: getNumberEnv(
-      env,
-      k("PROVIDERS_REFRESH_INTERVAL_SECONDS"),
+    providersRefreshIntervalSeconds: coerceNumber(
+      resolve("PROVIDERS_REFRESH_INTERVAL_SECONDS"),
       networkDefaults.providersRefreshIntervalSeconds,
     ),
-    pieceCleanupPerSpPerHour: getFloatEnv(
-      env,
-      k("PIECE_CLEANUP_PER_SP_PER_HOUR"),
+    pieceCleanupPerSpPerHour: coerceFloat(
+      resolve("PIECE_CLEANUP_PER_SP_PER_HOUR"),
       networkDefaults.pieceCleanupPerSpPerHour,
     ),
-    maxPieceCleanupRuntimeSeconds: getNumberEnv(
-      env,
-      k("MAX_PIECE_CLEANUP_RUNTIME_SECONDS"),
+    maxPieceCleanupRuntimeSeconds: coerceNumber(
+      resolve("MAX_PIECE_CLEANUP_RUNTIME_SECONDS"),
       networkDefaults.maxPieceCleanupRuntimeSeconds,
     ),
-    maxDatasetStorageSizeBytes: getNumberEnv(
-      env,
-      k("MAX_DATASET_STORAGE_SIZE_BYTES"),
+    maxDatasetStorageSizeBytes: coerceNumber(
+      resolve("MAX_DATASET_STORAGE_SIZE_BYTES"),
       networkDefaults.maxDatasetStorageSizeBytes,
     ),
-    targetDatasetStorageSizeBytes: getNumberEnv(
-      env,
-      k("TARGET_DATASET_STORAGE_SIZE_BYTES"),
+    targetDatasetStorageSizeBytes: coerceNumber(
+      resolve("TARGET_DATASET_STORAGE_SIZE_BYTES"),
       networkDefaults.targetDatasetStorageSizeBytes,
     ),
 
-    maintenanceWindowsUtc: get("MAINTENANCE_WINDOWS_UTC")
-      ? get("MAINTENANCE_WINDOWS_UTC")!
-          .split(",")
-          .map((v) => v.trim())
-          .filter((v) => v.length > 0)
-      : networkDefaults.maintenanceWindowsUtc,
-    maintenanceWindowMinutes: getNumberEnv(
-      env,
-      k("MAINTENANCE_WINDOW_MINUTES"),
+    maintenanceWindowsUtc: ((raw) =>
+      raw
+        ? raw
+            .split(",")
+            .map((v) => v.trim())
+            .filter((v) => v.length > 0)
+        : networkDefaults.maintenanceWindowsUtc)(resolve("MAINTENANCE_WINDOWS_UTC")),
+    maintenanceWindowMinutes: coerceNumber(
+      resolve("MAINTENANCE_WINDOW_MINUTES"),
       networkDefaults.maintenanceWindowMinutes,
     ),
 
-    blockedSpIds: parseIdList(get("BLOCKED_SP_IDS")),
-    blockedSpAddresses: parseAddressList(get("BLOCKED_SP_ADDRESSES")),
+    blockedSpIds: parseIdList(resolve("BLOCKED_SP_IDS")),
+    blockedSpAddresses: parseAddressList(resolve("BLOCKED_SP_ADDRESSES")),
 
-    pullChecksPerSpPerHour: getFloatEnv(env, k("PULL_CHECKS_PER_SP_PER_HOUR"), networkDefaults.pullChecksPerSpPerHour),
-    pullCheckJobTimeoutSeconds: getNumberEnv(
-      env,
-      k("PULL_CHECK_JOB_TIMEOUT_SECONDS"),
+    pullChecksPerSpPerHour: coerceFloat(resolve("PULL_CHECKS_PER_SP_PER_HOUR"), networkDefaults.pullChecksPerSpPerHour),
+    pullCheckJobTimeoutSeconds: coerceNumber(
+      resolve("PULL_CHECK_JOB_TIMEOUT_SECONDS"),
       networkDefaults.pullCheckJobTimeoutSeconds,
     ),
-    pullCheckPollIntervalSeconds: getNumberEnv(
-      env,
-      k("PULL_CHECK_POLL_INTERVAL_SECONDS"),
+    pullCheckPollIntervalSeconds: coerceNumber(
+      resolve("PULL_CHECK_POLL_INTERVAL_SECONDS"),
       networkDefaults.pullCheckPollIntervalSeconds,
     ),
-    pullCheckPieceSizeBytes: getNumberEnv(
-      env,
-      k("PULL_CHECK_PIECE_SIZE_BYTES"),
+    pullCheckPieceSizeBytes: coerceNumber(
+      resolve("PULL_CHECK_PIECE_SIZE_BYTES"),
       networkDefaults.pullCheckPieceSizeBytes,
     ),
-    pullPieceCleanupIntervalSeconds: getNumberEnv(
-      env,
-      k("PULL_PIECE_CLEANUP_INTERVAL_SECONDS"),
+    pullPieceCleanupIntervalSeconds: coerceNumber(
+      resolve("PULL_PIECE_CLEANUP_INTERVAL_SECONDS"),
       networkDefaults.pullPieceCleanupIntervalSeconds,
     ),
   } satisfies Omit<BaseNetworkConfig, "network">;
 
-  const walletPrivateKey = (get("WALLET_PRIVATE_KEY") || undefined) as `0x${string}` | undefined;
-  const sessionKeyPrivateKey = (get("SESSION_KEY_PRIVATE_KEY") || undefined) as `0x${string}` | undefined;
+  const walletPrivateKey = resolve("WALLET_PRIVATE_KEY") as `0x${string}` | undefined;
+  const sessionKeyPrivateKey = resolve("SESSION_KEY_PRIVATE_KEY") as `0x${string}` | undefined;
 
   if (sessionKeyPrivateKey) return { ...base, sessionKeyPrivateKey };
   if (walletPrivateKey) return { ...base, walletPrivateKey };
@@ -259,11 +254,27 @@ function loadNetworkEnvPrefix(
 
 const loadNetworkConfigs = (env: NodeJS.ProcessEnv): Pick<IConfig, "networks" | "activeNetworks"> => {
   const activeNetworks = parseActiveNetworks(env);
+  if (activeNetworks.length === 0) {
+    // parseActiveNetworks already falls back to a default network for an absent
+    // NETWORKS; reaching here means NETWORKS was set but resolved to nothing
+    // (e.g. whitespace/commas). Fail fast rather than boot an idle process.
+    throw new Error("[config] NETWORKS resolved to no supported networks. Set NETWORKS to a comma-separated list.");
+  }
   const networks = {} as Record<Network, INetworkConfig>;
 
   for (const network of activeNetworks) {
     const prefix = network.toUpperCase() as Uppercase<Network>;
-    networks[network] = { network, ...loadNetworkEnvPrefix(prefix, env) };
+    const networkConfig: INetworkConfig = { network, ...loadNetworkEnvPrefix(prefix, env) };
+    // Cross-field invariant: the eviction target must sit below the hard cap, or
+    // piece cleanup has no headroom to act. Asserted post-resolution because the
+    // two values can come from different precedence tiers (override vs shared).
+    if (networkConfig.targetDatasetStorageSizeBytes >= networkConfig.maxDatasetStorageSizeBytes) {
+      throw new Error(
+        `[config] ${network}: TARGET_DATASET_STORAGE_SIZE_BYTES (${networkConfig.targetDatasetStorageSizeBytes}) ` +
+          `must be less than MAX_DATASET_STORAGE_SIZE_BYTES (${networkConfig.maxDatasetStorageSizeBytes})`,
+      );
+    }
+    networks[network] = networkConfig;
   }
 
   return { networks, activeNetworks };

@@ -145,7 +145,7 @@ describe("DealService", () => {
       paymentsService: {},
       warmStorageService: mockWarmStorageService,
     }),
-    getSynapse: vi.fn().mockReturnValue({
+    tryGetSynapse: vi.fn().mockReturnValue({
       storage: {
         createContext: vi.fn().mockResolvedValue({
           deletePiece: vi.fn(),
@@ -1310,7 +1310,7 @@ describe("DealService", () => {
           createContext: vi.fn().mockResolvedValue({ dataSetId: 7n }),
         },
       };
-      mockWalletSdkService.getSynapse.mockReturnValue(synapseMock as unknown as Synapse);
+      mockWalletSdkService.tryGetSynapse.mockReturnValue(synapseMock as unknown as Synapse);
       mockWarmStorageService.validateDataSet.mockResolvedValueOnce(undefined);
 
       const result = await service.getDataSetProvisioningStatus("0xprovider", { dealbotDS: "1" }, DEFAULT_NETWORK);
@@ -1323,7 +1323,7 @@ describe("DealService", () => {
           createContext: vi.fn().mockResolvedValue({ dataSetId: 9n }),
         },
       };
-      mockWalletSdkService.getSynapse.mockReturnValue(synapseMock as unknown as Synapse);
+      mockWalletSdkService.tryGetSynapse.mockReturnValue(synapseMock as unknown as Synapse);
       mockDatasetLivenessService.isDataSetLive.mockResolvedValueOnce(false);
 
       const result = await service.getDataSetProvisioningStatus("0xprovider", { dealbotDS: "1" }, DEFAULT_NETWORK);
@@ -1452,7 +1452,7 @@ describe("DealService", () => {
         storage: { terminateDataSet: terminateMock },
         client: { waitForTransactionReceipt: waitForReceiptMock },
       };
-      mockWalletSdkService.getSynapse.mockReturnValue(synapseMock);
+      mockWalletSdkService.tryGetSynapse.mockReturnValue(synapseMock);
 
       mockWarmStorageService.getDataSet.mockResolvedValueOnce({ pdpEndEpoch: 0n });
       mockWarmStorageService.getDataSet.mockResolvedValueOnce({ pdpEndEpoch: 12345n });
@@ -1482,7 +1482,7 @@ describe("DealService", () => {
         storage: { terminateDataSet: terminateMock },
         client: { waitForTransactionReceipt: vi.fn() },
       };
-      mockWalletSdkService.getSynapse.mockReturnValue(synapseMock);
+      mockWalletSdkService.tryGetSynapse.mockReturnValue(synapseMock);
       mockWarmStorageService.getDataSet.mockResolvedValueOnce({ pdpEndEpoch: 999n });
 
       const updateFn = vi.fn().mockResolvedValue({ affected: 1 });
@@ -1505,7 +1505,7 @@ describe("DealService", () => {
         storage: { terminateDataSet: terminateMock },
         client: { waitForTransactionReceipt: vi.fn() },
       };
-      mockWalletSdkService.getSynapse.mockReturnValue(synapseMock);
+      mockWalletSdkService.tryGetSynapse.mockReturnValue(synapseMock);
 
       mockWarmStorageService.getDataSet.mockResolvedValueOnce({ pdpEndEpoch: 0n });
       mockWarmStorageService.getDataSet.mockResolvedValueOnce({ pdpEndEpoch: 7n });
@@ -1637,7 +1637,7 @@ describe("DealService", () => {
       const synapseMock = {
         storage: { createContext: createContextMock },
       } as unknown as Synapse;
-      mockWalletSdkService.getSynapse.mockReturnValue(synapseMock);
+      mockWalletSdkService.tryGetSynapse.mockReturnValue(synapseMock);
 
       (executeUpload as Mock).mockImplementation(async (_service, _data, _rootCid, options) => {
         await triggerUploadProgress(options?.onProgress);
@@ -1676,7 +1676,7 @@ describe("DealService", () => {
     it("does not invoke data-storage-check metrics or Deal persistence", async () => {
       vi.spyOn(mockWalletSdkService, "getProviderInfo").mockReturnValue(mockProviderInfo);
       const createContextMock = vi.fn().mockResolvedValue({ dataSetId: 1 });
-      mockWalletSdkService.getSynapse.mockReturnValue({
+      mockWalletSdkService.tryGetSynapse.mockReturnValue({
         storage: { createContext: createContextMock },
       });
       (executeUpload as Mock).mockImplementation(async (_s, _d, _r, opts) => {
@@ -1695,7 +1695,7 @@ describe("DealService", () => {
 
     it("fails when upload completes without a pieceCid", async () => {
       vi.spyOn(mockWalletSdkService, "getProviderInfo").mockReturnValue(mockProviderInfo);
-      mockWalletSdkService.getSynapse.mockReturnValue({
+      mockWalletSdkService.tryGetSynapse.mockReturnValue({
         storage: { createContext: vi.fn().mockResolvedValue({ dataSetId: 1 }) },
       });
 

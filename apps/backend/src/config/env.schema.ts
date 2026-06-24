@@ -25,6 +25,7 @@ import type { Network } from "../common/types.js";
 import { NETWORK_ENV_PREFIXES } from "./constants.js";
 import { parseActiveNetworks } from "./env.parsers.js";
 import { applyLegacyEnvCompat, logLegacyEnvCompatResult } from "./legacy-env-compat.js";
+import { INHERITABLE_NETWORK_VARS, type PerNetworkVar } from "./network-fields.js";
 
 // ---------------------------------------------------------------------------
 // Custom Joi validators
@@ -36,15 +37,23 @@ const validateNetworksEnv = (value: string, helpers: Joi.CustomHelpers) => {
     .map((s) => s.trim())
     .filter((s) => s.length > 0);
 
+  if (parts.length === 0) {
+    // A present-but-empty NETWORKS (whitespace/commas) would otherwise load zero
+    // active networks and boot an idle process. Reject it explicitly.
+    return helpers.message({
+      custom: `NETWORKS must list at least one supported network: ${SUPPORTED_NETWORKS.join(", ")}.`,
+    });
+  }
+
   for (const part of parts) {
     if (!SUPPORTED_NETWORKS.includes(part as Network)) {
-      return helpers.error("any.invalid", {
-        message: `Invalid network "${part}". Supported: ${SUPPORTED_NETWORKS.join(", ")}.`,
+      return helpers.message({
+        custom: `Invalid network "${part}". Supported: ${SUPPORTED_NETWORKS.join(", ")}.`,
       });
     }
   }
 
-  return parts.length === 0 ? SUPPORTED_NETWORKS[0] : value;
+  return value;
 };
 
 const validateMaintenanceWindowsEnv = (value: string, helpers: Joi.CustomHelpers) => {
@@ -135,79 +144,75 @@ export const retrievalEnvSchema = {
 // ---------------------------------------------------------------------------
 
 /**
- * Returns the Joi field rules for a single network prefix (e.g. `"CALIBRATION"`).
- * Fields are defined as optional here; active-network enforcement is handled
- * in `createConfigValidationSchema`.
+ * Validation rules for each per-network var, keyed by base name (no prefix).
+ *
+ * These carry NO `.default()` on purpose. NestJS assigns Joi-applied defaults
+ * back into `process.env` for absent keys; an injected prefixed default
+ * (`CALIBRATION_DEAL_JOB_TIMEOUT_SECONDS`) would then shadow an unprefixed
+ * shared value in the loader's resolver and break inheritance. All per-network
+ * defaults live in the loader (`networkDefaults`) instead. Cross-field checks
+ * (e.g. TARGET < MAX) also live in the loader, post-resolution.
  */
-export const createPerNetworkEnvSchema = (prefix: Uppercase<Network> | "") => {
-  const k = (key: string) => `${prefix}_${key}`;
-  return {
-    [k("WALLET_ADDRESS")]: Joi.string().required(),
-    [k("WALLET_PRIVATE_KEY")]: Joi.string().optional().empty(""),
-    [k("SESSION_KEY_PRIVATE_KEY")]: Joi.string().optional().empty(""),
-    [k("RPC_URL")]: Joi.string()
-      .uri({ scheme: ["http", "https"] })
-      .optional()
-      .allow(""),
-    [k("RPC_REQUEST_TIMEOUT_MS")]: Joi.number().integer().min(1000).default(30000),
-    [k("PDP_SUBGRAPH_ENDPOINT")]: Joi.string().uri().optional().allow(""),
-    [k("CHECK_DATASET_CREATION_FEES")]: Joi.boolean().optional(),
-    [k("USE_ONLY_APPROVED_PROVIDERS")]: Joi.boolean().optional(),
-    [k("DEALBOT_DATASET_VERSION")]: Joi.string().optional(),
-    [k("MIN_NUM_DATASETS_FOR_CHECKS")]: Joi.number().integer().min(1).optional(),
-    [k("DEALS_PER_SP_PER_HOUR")]: Joi.number().min(0.001).max(20).optional(),
-    [k("RETRIEVALS_PER_SP_PER_HOUR")]: Joi.number().min(0.001).max(20).optional(),
-    [k("DATASET_CREATIONS_PER_SP_PER_HOUR")]: Joi.number().min(0.001).max(20).optional(),
-    [k("DATASET_LIFECYCLE_CHECKS_PER_SP_PER_HOUR")]: Joi.number().min(0.001).max(20).default(1),
-    // Enables the data_set_lifecycle_check canary job. Left optional so the loader can
-    // apply the network-dependent default (enabled off mainnet, disabled on mainnet).
-    [k("DATASET_LIFECYCLE_CHECK_ENABLED")]: Joi.boolean().optional(),
-    [k("DEAL_JOB_TIMEOUT_SECONDS")]: Joi.number().min(120).default(360),
-    [k("RETRIEVAL_JOB_TIMEOUT_SECONDS")]: Joi.number().min(60).default(60),
-    [k("DATA_SET_CREATION_JOB_TIMEOUT_SECONDS")]: Joi.number().min(60).default(300),
-    [k("DATA_SET_LIFECYCLE_CHECK_JOB_TIMEOUT_SECONDS")]: Joi.number().min(60).default(600),
-    [k("DATA_RETENTION_POLL_INTERVAL_SECONDS")]: Joi.number().optional(),
-    [k("PROVIDERS_REFRESH_INTERVAL_SECONDS")]: Joi.number().optional(),
-    [k("MAINTENANCE_WINDOWS_UTC")]: Joi.string().default("07:00,22:00").custom(validateMaintenanceWindowsEnv),
-    [k("MAINTENANCE_WINDOW_MINUTES")]: Joi.number().min(20).max(360).default(20),
-    [k("BLOCKED_SP_IDS")]: Joi.string().optional().allow(""),
-    [k("BLOCKED_SP_ADDRESSES")]: Joi.string().optional().allow(""),
+const perNetworkFieldRules = (): Record<PerNetworkVar, Joi.Schema> => ({
+  WALLET_ADDRESS: Joi.string().required(),
+  WALLET_PRIVATE_KEY: Joi.string().optional().empty(""),
+  SESSION_KEY_PRIVATE_KEY: Joi.string().optional().empty(""),
+  RPC_URL: Joi.string()
+    .uri({ scheme: ["http", "https"] })
+    .optional()
+    .allow(""),
+  RPC_REQUEST_TIMEOUT_MS: Joi.number().integer().min(1000).optional(),
+  PDP_SUBGRAPH_ENDPOINT: Joi.string().uri().optional().allow(""),
+  CHECK_DATASET_CREATION_FEES: Joi.boolean().optional(),
+  USE_ONLY_APPROVED_PROVIDERS: Joi.boolean().optional(),
+  DEALBOT_DATASET_VERSION: Joi.string().optional(),
+  MIN_NUM_DATASETS_FOR_CHECKS: Joi.number().integer().min(1).optional(),
+  DEALS_PER_SP_PER_HOUR: Joi.number().min(0.001).max(20).optional(),
+  RETRIEVALS_PER_SP_PER_HOUR: Joi.number().min(0.001).max(20).optional(),
+  DATASET_CREATIONS_PER_SP_PER_HOUR: Joi.number().min(0.001).max(20).optional(),
+  DATASET_LIFECYCLE_CHECKS_PER_SP_PER_HOUR: Joi.number().min(0.001).max(20).optional(),
+  DATASET_LIFECYCLE_CHECK_ENABLED: Joi.boolean().optional(),
+  DEAL_JOB_TIMEOUT_SECONDS: Joi.number().min(120).optional(),
+  RETRIEVAL_JOB_TIMEOUT_SECONDS: Joi.number().min(60).optional(),
+  DATA_SET_CREATION_JOB_TIMEOUT_SECONDS: Joi.number().min(60).optional(),
+  DATA_SET_LIFECYCLE_CHECK_JOB_TIMEOUT_SECONDS: Joi.number().min(60).optional(),
+  DATA_RETENTION_POLL_INTERVAL_SECONDS: Joi.number().optional(),
+  PROVIDERS_REFRESH_INTERVAL_SECONDS: Joi.number().optional(),
+  MAINTENANCE_WINDOWS_UTC: Joi.string().custom(validateMaintenanceWindowsEnv).optional(),
+  MAINTENANCE_WINDOW_MINUTES: Joi.number().min(20).max(360).optional(),
+  BLOCKED_SP_IDS: Joi.string().optional().allow(""),
+  BLOCKED_SP_ADDRESSES: Joi.string().optional().allow(""),
+  PIECE_CLEANUP_PER_SP_PER_HOUR: Joi.number().min(0.001).max(20).optional(),
+  MAX_PIECE_CLEANUP_RUNTIME_SECONDS: Joi.number().min(60).optional(),
+  MAX_DATASET_STORAGE_SIZE_BYTES: Joi.number().integer().min(1).optional(),
+  TARGET_DATASET_STORAGE_SIZE_BYTES: Joi.number().integer().min(1).optional(),
+  PULL_CHECKS_PER_SP_PER_HOUR: Joi.number().min(0.001).max(20).optional(),
+  PULL_CHECK_JOB_TIMEOUT_SECONDS: Joi.number().min(60).optional(),
+  PULL_CHECK_POLL_INTERVAL_SECONDS: Joi.number().min(1).optional(),
+  PULL_CHECK_PIECE_SIZE_BYTES: Joi.number().integer().min(1024).optional(),
+  PULL_PIECE_CLEANUP_INTERVAL_SECONDS: Joi.number().integer().min(3600).optional(),
+});
 
-    [k("PIECE_CLEANUP_PER_SP_PER_HOUR")]: Joi.number()
-      .min(0.001)
-      .max(20)
-      .default(1 / 24),
-    [k("MAX_PIECE_CLEANUP_RUNTIME_SECONDS")]: Joi.number().min(60).default(300),
-    [k("MAX_DATASET_STORAGE_SIZE_BYTES")]: Joi.number()
-      .integer()
-      .min(1)
-      .default(24 * 1024 * 1024 * 1024),
-    [k("TARGET_DATASET_STORAGE_SIZE_BYTES")]: Joi.number()
-      .integer()
-      .min(1)
-      .default(20 * 1024 * 1024 * 1024) // 20 GiB per SP
-      .custom((value, helpers) => {
-        const max = helpers.state.ancestors?.[0]?.MAX_DATASET_STORAGE_SIZE_BYTES;
-        if (max != null && value >= max) {
-          return helpers.error("any.invalid", {
-            message: `TARGET_DATASET_STORAGE_SIZE_BYTES (${value}) must be less than MAX_DATASET_STORAGE_SIZE_BYTES (${max})`,
-          });
-        }
-        return value;
-      }, "target < max validation"),
+/**
+ * Returns the Joi field rules for a single network prefix (e.g. `"CALIBRATION"`),
+ * keyed by `<PREFIX>_<KEY>`. Active-network enforcement (required wallet, wallet
+ * key `.or()`) is applied in `createConfigValidationSchema`.
+ */
+export const createPerNetworkEnvSchema = (prefix: Uppercase<Network>): Record<string, Joi.Schema> =>
+  Object.fromEntries(Object.entries(perNetworkFieldRules()).map(([key, rule]) => [`${prefix}_${key}`, rule]));
 
-    [k("PULL_CHECKS_PER_SP_PER_HOUR")]: Joi.number().min(0.001).max(20).default(1),
-    [k("PULL_CHECK_JOB_TIMEOUT_SECONDS")]: Joi.number().min(60).default(300),
-    [k("PULL_CHECK_POLL_INTERVAL_SECONDS")]: Joi.number().min(1).default(2),
-    [k("PULL_CHECK_PIECE_SIZE_BYTES")]: Joi.number()
-      .integer()
-      .min(1024)
-      .default(10 * 1024 * 1024),
-    [k("PULL_PIECE_CLEANUP_INTERVAL_SECONDS")]: Joi.number()
-      .integer()
-      .min(3600)
-      .default(7 * 24 * 3600),
-  };
+/**
+ * Bare (unprefixed) shared overrides for inheritable vars. Registered once
+ * globally so a shared value (e.g. `DEAL_JOB_TIMEOUT_SECONDS`) is validated with
+ * the same rule as its prefixed override, not waved through by `allowUnknown`.
+ * `.strip()` keeps the value out of the validated output so it is never assigned
+ * back into `process.env`; the loader reads the operator's original value.
+ */
+export const createSharedNetworkEnvSchema = (): Record<string, Joi.Schema> => {
+  const rules = perNetworkFieldRules();
+  return Object.fromEntries(
+    INHERITABLE_NETWORK_VARS.map((key) => [key, (rules[key] as Joi.AnySchema).optional().strip()]),
+  );
 };
 
 // ---------------------------------------------------------------------------
@@ -231,6 +236,8 @@ export function createConfigValidationSchema(processEnv: NodeJS.ProcessEnv = pro
     ...datasetEnvSchema,
     ...timeoutEnvSchema,
     ...retrievalEnvSchema,
+    // Unprefixed shared overrides for inheritable per-network vars, validated once.
+    ...createSharedNetworkEnvSchema(),
   };
 
   const walletKeyOrConditions: [string, string][] = [];

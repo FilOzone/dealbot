@@ -10,19 +10,27 @@ Dealbot drives one or more Filecoin networks from a **single process**. The acti
 # Run Dealbot against both networks from the same instance
 NETWORKS=calibration,mainnet
 
+# Credentials and endpoints are per-network (never shared)
 CALIBRATION_WALLET_PRIVATE_KEY=0xabc...
 CALIBRATION_RPC_URL=https://api.calibration.node.glif.io/rpc/v1
-CALIBRATION_DEALS_PER_SP_PER_HOUR=2
-
 MAINNET_WALLET_PRIVATE_KEY=0xdef...
 MAINNET_RPC_URL=https://api.node.glif.io/rpc/v1
+
+# Shared tuning: set once unprefixed, applies to every network
+DEAL_JOB_TIMEOUT_SECONDS=360
+MAINTENANCE_WINDOWS_UTC=07:00,22:00
+
+# ...and override per network only where they differ
+CALIBRATION_DEALS_PER_SP_PER_HOUR=2
 MAINNET_DEALS_PER_SP_PER_HOUR=1
 ```
 
 **Rules**
 
-- **Global vs. per-network.** Unprefixed variables (database, HTTP ports, job timeouts, etc.) apply to the whole process. Prefixed variables configure a specific network.
-- **Active-network validation.** Only networks listed in `NETWORKS` are validated at startup. Variables for inactive networks are ignored, so you can keep a `MAINNET_*` block commented out until you are ready.
+- **Resolution precedence (per-network vars).** Each network resolves a variable as `<NETWORK>_<VAR>` (per-network override) → `<VAR>` (unprefixed shared value) → built-in default. Set a value once unprefixed to share it across every active network, and add a `<NETWORK>_` override only where a network differs.
+- **Chain-specific vars never inherit.** Credentials, chain endpoints, and chain-local identifiers must be set with a prefix and do not read the unprefixed slot: `WALLET_ADDRESS`, `WALLET_PRIVATE_KEY`, `SESSION_KEY_PRIVATE_KEY`, `RPC_URL`, `PDP_SUBGRAPH_ENDPOINT`, `DEALBOT_DATASET_VERSION`, `BLOCKED_SP_IDS`, `BLOCKED_SP_ADDRESSES`.
+- **Process-global vars.** Database, HTTP ports, ClickHouse, and pg-boss scheduler settings apply to the whole process and have no per-network form.
+- **Validation.** Both the unprefixed shared value and each `<NETWORK>_` override are validated against the same rules at startup. Only networks listed in `NETWORKS` are required; variables for inactive networks are ignored, so you can keep a `MAINNET_*` block commented out until you are ready.
 - **Wallet vs. session key.** Each active network must provide either `<NETWORK>_WALLET_PRIVATE_KEY` or `<NETWORK>_SESSION_KEY_PRIVATE_KEY`. When both are present the session key takes precedence (see [`docs/runbooks/wallet-and-session-keys.md`](./runbooks/wallet-and-session-keys.md)).
 - **Supported prefixes.** `CALIBRATION_*`, `MAINNET_*`. Additional networks can be added by extending `SUPPORTED_NETWORKS` in the codebase.
 

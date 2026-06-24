@@ -97,7 +97,7 @@ export class DealService {
 
     try {
       const synapse =
-        this.walletSdkService.getSynapse(options.network) ?? (await this.createSynapseInstance(options.network));
+        this.walletSdkService.tryGetSynapse(options.network) ?? (await this.createSynapseInstance(options.network));
       const uploadPayload = await this.prepareUploadPayload(preprocessed, options.signal);
       return await this.createDeal(
         synapse,
@@ -714,7 +714,7 @@ export class DealService {
     { status: "missing" } | { status: "live"; dataSetId: bigint } | { status: "terminated"; dataSetId: bigint }
   > {
     signal?.throwIfAborted();
-    const synapse = this.walletSdkService.getSynapse(network) ?? (await this.createSynapseInstance(network));
+    const synapse = this.walletSdkService.tryGetSynapse(network) ?? (await this.createSynapseInstance(network));
     const providerInfo = this.walletSdkService.getProviderInfo(providerAddress, network);
     if (!providerInfo) {
       throw new Error(`Provider ${providerAddress} not found in registry`);
@@ -769,7 +769,7 @@ export class DealService {
     pollTimeoutMs = 60_000,
   ): Promise<{ dealsAffected: number; pdpEndEpoch: bigint }> {
     signal?.throwIfAborted();
-    const synapse = this.walletSdkService.getSynapse(network) ?? (await this.createSynapseInstance(network));
+    const synapse = this.walletSdkService.tryGetSynapse(network) ?? (await this.createSynapseInstance(network));
     const providerInfo = this.walletSdkService.getProviderInfo(providerAddress, network);
     const { warmStorageService } = this.walletSdkService.getWalletServices(network);
 
@@ -913,7 +913,7 @@ export class DealService {
     let transactionHash: string | undefined;
 
     try {
-      const synapse = this.walletSdkService.getSynapse(network) ?? (await this.createSynapseInstance(network));
+      const synapse = this.walletSdkService.tryGetSynapse(network) ?? (await this.createSynapseInstance(network));
       signal?.throwIfAborted();
 
       const DATA_SET_CREATION_PIECE_SIZE = 200 * 1024; // 200 KiB

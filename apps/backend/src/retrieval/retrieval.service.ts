@@ -95,7 +95,7 @@ export class RetrievalService {
   ): Promise<Retrieval[]> {
     signal?.throwIfAborted();
 
-    const provider = await this.findStorageProvider(deal.spAddress);
+    const provider = await this.findStorageProvider(deal.spAddress, deal.network);
     if (!provider) {
       throw new Error(`Storage provider ${deal.spAddress} not found`);
     }
@@ -460,8 +460,11 @@ export class RetrievalService {
     }
   }
 
-  private async findStorageProvider(address: string): Promise<StorageProvider | null> {
-    return this.spRepository.findOne({ where: { address } });
+  private async findStorageProvider(address: string, network: Network): Promise<StorageProvider | null> {
+    // storage_providers is keyed by (address, network); the same SP address can
+    // exist on both chains, so the network filter is required to avoid returning
+    // the wrong row.
+    return this.spRepository.findOne({ where: { address, network } });
   }
 
   /**

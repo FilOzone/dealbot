@@ -378,9 +378,11 @@ const metricProviders = [
         enabled: true,
       },
       path: "/metrics",
+      // Network is applied per-metric where it is meaningful. A process runs
+      // multiple networks, so a single global `network` default label would
+      // mislabel process/default metrics and any series that forgot to set it.
       defaultLabels: {
         app: "dealbot",
-        network: process.env.NETWORK || "calibration",
       },
     }),
   ],
