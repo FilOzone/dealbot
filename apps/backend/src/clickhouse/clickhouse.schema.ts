@@ -138,7 +138,7 @@ export function buildMigrations(database: string): string[] {
     service_type               LowCardinality(String),            -- 'direct_sp' (only mode for sampled retrievals today)
     retrieval_endpoint         String,                            -- URL probed (e.g. {spBaseUrl}/piece/{pieceCid})
 
-    piece_fetch_status         LowCardinality(String),            -- 'success' | 'failed' | 'skipped' — HTTP transport outcome of GET /piece/<pieceCid> (HTTP 2xx). CommP validity, CAR/IPNI/block-fetch outcomes live in their own columns. 'skipped' = no candidate piece after all selection fallbacks; no request was made and piece-identity columns (piece_cid/data_set_id/piece_id/raw_size) carry sentinel values (''/0).
+    piece_fetch_status         LowCardinality(String),            -- 'success' | 'failed' | 'skipped' — outcome of GET /piece/<pieceCid> ('success' = HTTP 2xx and CommP match). CAR/IPNI/block-fetch outcomes live in their own columns. 'skipped' = no candidate piece after all selection fallbacks; no request was made and piece-identity columns (piece_cid/data_set_id/piece_id/raw_size) carry sentinel values (''/0).
     http_response_code         Nullable(UInt16),                  -- raw HTTP status; null on transport failure
     first_byte_ms              Nullable(Float64),                 -- time to first response byte
     last_byte_ms               Nullable(Float64),                 -- time to last response byte
