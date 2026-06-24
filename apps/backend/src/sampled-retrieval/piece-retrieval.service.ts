@@ -1,4 +1,4 @@
-import { asPieceCID, calculate as calculatePieceCid } from "@filoz/synapse-core/piece";
+import * as Piece from "@filoz/synapse-core/piece";
 import { Injectable, Logger } from "@nestjs/common";
 import { toStructuredError } from "../common/logging.js";
 import { HttpClientService } from "../http-client/http-client.service.js";
@@ -195,7 +195,7 @@ export class PieceRetrievalService {
    * against the expected CID. Returns false on parse failure, computation failure, or mismatch.
    */
   private async validateCommP(bytes: Buffer, pieceCid: string): Promise<boolean> {
-    const expected = asPieceCID(pieceCid);
+    const expected = Piece.tryFrom(pieceCid);
     if (!expected) {
       this.logger.warn({
         event: "commp_invalid_piece_cid",
@@ -206,8 +206,8 @@ export class PieceRetrievalService {
     }
 
     try {
-      const computed = calculatePieceCid(bytes);
-      const matches = computed.toString() === expected.toString();
+      const computed = await Piece.calculate(bytes);
+      const matches = Piece.equals(expected, computed);
       if (!matches) {
         this.logger.warn({
           event: "commp_mismatch",
