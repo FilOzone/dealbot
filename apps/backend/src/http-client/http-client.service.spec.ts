@@ -1,7 +1,7 @@
 import { HttpService } from "@nestjs/axios";
 import { ConfigService } from "@nestjs/config";
 import { Test, TestingModule } from "@nestjs/testing";
-import { of } from "rxjs";
+import { of, throwError } from "rxjs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { HttpClientService } from "./http-client.service.js";
 
@@ -230,5 +230,25 @@ describe("HttpClientService", () => {
     // `maxBodyLength` caps the *request* payload, not the response, so it must
     // stay untouched when maxBytes is a response-body ceiling.
     expect(config.maxBodyLength).toBeUndefined();
+  });
+
+  it("flags limitExceeded instead of throwing when HTTP/1.1 exceeds maxBytes", async () => {
+    const service = await createService();
+
+    // axios rejects with this error once the response outgrows maxContentLength.
+    const err = new Error("maxContentLength size of 4096 exceeded") as Error & { code?: string };
+    err.code = "ERR_BAD_RESPONSE";
+    mockHttpService.request.mockReturnValueOnce(throwError(() => err));
+
+    const result = await service.requestWithMetrics<Buffer>("http://example.com/piece", {
+      httpVersion: "1.1",
+      maxBytes: 4096,
+    });
+
+    expect(result.limitExceeded).toBe(true);
+    expect(result.aborted).toBeUndefined();
+    // Partial buffer is discarded, mirroring the HTTP/2 contract.
+    expect(Buffer.isBuffer(result.data) ? result.data.length : -1).toBe(0);
+    expect(result.metrics.responseSize).toBe(4096);
   });
 });

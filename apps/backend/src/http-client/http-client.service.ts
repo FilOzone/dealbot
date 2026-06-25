@@ -240,17 +240,17 @@ export class HttpClientService {
   ): Promise<RequestWithMetrics<T>> {
     const { method, data, headers, signal, maxBytes } = options;
 
+    const startTime = performance.now();
+    let ttfbTime = 0;
+    let firstByteReceived = false;
+    let statusCode = 0;
+
     try {
       this.logger.debug({
         event: "http1_request_started",
         message: "Requesting via HTTP/1.1",
         url,
       });
-
-      const startTime = performance.now();
-      let ttfbTime = 0;
-      let firstByteReceived = false;
-      let statusCode = 0;
 
       const config: AxiosRequestConfig = {
         method,
@@ -304,6 +304,36 @@ export class HttpClientService {
         metrics,
       };
     } catch (error) {
+      // axios destroys the stream and rejects once the response exceeds
+      // `maxContentLength`. Mirror the HTTP/2 path: discard the partial body and
+      // surface a `limitExceeded` flag instead of throwing, so both transports
+      // expose the same contract to callers.
+      if (maxBytes !== undefined && isMaxContentLengthExceededError(error)) {
+        const totalTime = performance.now() - startTime;
+        const metrics: RequestMetrics = {
+          ttfb: Math.round(ttfbTime),
+          totalTime: Math.round(totalTime),
+          downloadTime: Math.round(totalTime - ttfbTime),
+          statusCode,
+          // axios aborts as soon as the cap is crossed and does not expose the
+          // exact overflow size, so report the ceiling that was exceeded.
+          responseSize: maxBytes,
+          timestamp: new Date(),
+          httpVersion: "1.1",
+        };
+        this.logger.warn({
+          event: "http1_download_limit_exceeded",
+          message: "HTTP/1.1 download exceeded max response size; aborting",
+          url,
+          maxBytes,
+        });
+        return {
+          data: Buffer.alloc(0) as T,
+          metrics,
+          limitExceeded: true,
+        };
+      }
+
       this.logger.warn({
         event: "http_request_failed",
         message: "HTTP/1.1 request failed",
@@ -391,6 +421,15 @@ function isAbortLikeError(error: unknown): boolean {
     return error.name === "AbortError" || error.name === "TimeoutError" || /abort/i.test(error.message);
   }
   return false;
+}
+
+/**
+ * Determines if a given error is axios' "maxContentLength exceeded" rejection.
+ * axios reuses the generic `ERR_BAD_RESPONSE` code for several cases, so match
+ * on the distinctive message instead.
+ */
+function isMaxContentLengthExceededError(error: unknown): boolean {
+  return error instanceof Error && /maxcontentlength/i.test(error.message);
 }
 
 /**
