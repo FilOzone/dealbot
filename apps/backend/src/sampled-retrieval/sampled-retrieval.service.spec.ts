@@ -2,7 +2,8 @@ import type { Repository } from "typeorm";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ClickhouseService } from "../clickhouse/clickhouse.service.js";
 import type { StorageProvider } from "../database/entities/storage-provider.entity.js";
-import { BlockFetchStatus, CarParseStatus, IpniCheckStatus, RetrievalStatus } from "../database/types.js";
+import { BlockFetchStatus, CarParseStatus, IpniCheckStatus } from "../database/types.js";
+import { PieceFetchStatus } from "../clickhouse/clickhouse.types.js";
 import type { SampledRetrievalCheckMetrics } from "../metrics-prometheus/check-metrics.service.js";
 import type { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
 import type { PieceRetrievalService } from "./piece-retrieval.service.js";
@@ -183,7 +184,7 @@ describe("SampledRetrievalService", () => {
     expect(insertSpy).toHaveBeenCalledTimes(1);
     const [table, row] = insertSpy.mock.calls[0] as [string, Record<string, unknown>];
     expect(table).toBe("sampled_retrieval_checks");
-    expect(row.piece_fetch_status).toBe(RetrievalStatus.FAILED);
+    expect(row.piece_fetch_status).toBe(PieceFetchStatus.FAILED);
     expect(row.bytes_retrieved).toBe(524288);
     expect(row.first_byte_ms).toBe(150);
     expect(row.last_byte_ms).toBe(42000);
@@ -231,7 +232,7 @@ describe("SampledRetrievalService", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(insertSpy).toHaveBeenCalledTimes(1);
     const [, row] = insertSpy.mock.calls[0] as [string, Record<string, unknown>];
-    expect(row.piece_fetch_status).toBe(RetrievalStatus.FAILED);
+    expect(row.piece_fetch_status).toBe(PieceFetchStatus.FAILED);
     expect(row.error_message).toContain("Sampled retrieval job timeout");
     expect(row.bytes_retrieved).toBeNull();
     expect(row.first_byte_ms).toBeNull();
@@ -262,7 +263,7 @@ describe("SampledRetrievalService", () => {
 
     expect(insertSpy).toHaveBeenCalledTimes(1);
     const [, row] = insertSpy.mock.calls[0] as [string, Record<string, unknown>];
-    expect(row.piece_fetch_status).toBe(RetrievalStatus.FAILED);
+    expect(row.piece_fetch_status).toBe(PieceFetchStatus.FAILED);
   });
 
   it("records a skipped check instead of throwing when no candidate piece is found", async () => {
@@ -294,7 +295,7 @@ describe("SampledRetrievalService", () => {
     expect(insertSpy).toHaveBeenCalledTimes(1);
     const [table, row] = insertSpy.mock.calls[0] as [string, Record<string, unknown>];
     expect(table).toBe("sampled_retrieval_checks");
-    expect(row.piece_fetch_status).toBe(RetrievalStatus.SKIPPED);
+    expect(row.piece_fetch_status).toBe(PieceFetchStatus.SKIPPED);
     expect(row.car_status).toBe("skipped");
     expect(row.ipni_status).toBe("skipped");
     expect(row.block_fetch_status).toBe("skipped");
@@ -383,7 +384,7 @@ describe("SampledRetrievalService", () => {
       expect(checkIpniSpy).toHaveBeenCalledTimes(1);
       expect(checkBlockFetchSpy).toHaveBeenCalledTimes(1);
       const [, row] = insertSpy.mock.calls[0] as [string, Record<string, unknown>];
-      expect(row.piece_fetch_status).toBe(RetrievalStatus.SUCCESS);
+      expect(row.piece_fetch_status).toBe(PieceFetchStatus.SUCCESS);
       expect(row.commp_valid).toBe(true);
       expect(row.car_status).toBe("success");
       expect(row.car_block_count).toBe(42);
@@ -414,7 +415,7 @@ describe("SampledRetrievalService", () => {
       const [, row] = insertSpy.mock.calls[0] as [string, Record<string, unknown>];
       // The piece-fetch path still succeeded — failures are surfaced as
       // independent dimensions, not folded into piece_fetch_status.
-      expect(row.piece_fetch_status).toBe(RetrievalStatus.SUCCESS);
+      expect(row.piece_fetch_status).toBe(PieceFetchStatus.SUCCESS);
       expect(row.car_status).toBe("success");
       expect(row.ipni_status).toBe("failure.timedout");
       expect(row.block_fetch_status).toBe("failure.other");
@@ -600,7 +601,7 @@ describe("SampledRetrievalService", () => {
       expect(metricsRecordStatusSpy).toHaveBeenCalledWith(expect.anything(), "failure.commp");
 
       const [, row] = insertSpy.mock.calls[0] as [string, Record<string, unknown>];
-      expect(row.piece_fetch_status).toBe(RetrievalStatus.FAILED);
+      expect(row.piece_fetch_status).toBe(PieceFetchStatus.FAILED);
       expect(row.commp_valid).toBe(false);
       expect(row.car_status).toBe("skipped");
       expect(row.ipni_status).toBe("skipped");

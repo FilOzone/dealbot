@@ -18,7 +18,6 @@ export enum RetrievalStatus {
   SUCCESS = "success",
   FAILED = "failed",
   TIMEOUT = "timeout",
-  SKIPPED = "skipped",
 }
 
 export enum IpniStatus {

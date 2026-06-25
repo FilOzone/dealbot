@@ -5,7 +5,6 @@ import type { Repository } from "typeorm";
 import { ClickhouseService } from "../clickhouse/clickhouse.service.js";
 import { type ProviderJobContext, toStructuredError } from "../common/logging.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
-import { BlockFetchStatus, CarParseStatus, IpniCheckStatus, RetrievalStatus, ServiceType } from "../database/types.js";
 import { buildCheckMetricLabels, type CheckMetricLabels } from "../metrics-prometheus/check-metric-labels.js";
 import { SampledRetrievalCheckMetrics } from "../metrics-prometheus/check-metrics.service.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
@@ -13,6 +12,7 @@ import { PieceRetrievalService } from "./piece-retrieval.service.js";
 import { PieceValidationService } from "./piece-validation.service.js";
 import { SampledPieceSelectorService } from "./sampled-piece-selector.service.js";
 import type { BlockFetchOutcome, CarParseOutcome, IpniCheckOutcome, PieceRetrievalResult } from "./types.js";
+import { PieceFetchStatus } from "../clickhouse/clickhouse.types.js";
 
 const SAMPLED_RETRIEVAL_CHECKS_TABLE = "sampled_retrieval_checks";
 
@@ -135,7 +135,7 @@ export class SampledRetrievalService {
       const retrievalId = randomUUID();
       const providerInfo = this.walletSdkService.getProviderInfo(spAddress);
       const spBaseUrl = providerInfo?.pdp.serviceURL.replace(/\/$/, "") ?? spAddress;
-      const pieceFetchStatus = finalPieceResult.success ? RetrievalStatus.SUCCESS : RetrievalStatus.FAILED;
+      const pieceFetchStatus = finalPieceResult.success ? PieceFetchStatus.SUCCESS : PieceFetchStatus.FAILED;
 
       const carStatus = carStatusForRow(parse);
       const ipniStatus = ipniStatusForRow(parse, ipni);
@@ -238,7 +238,7 @@ export class SampledRetrievalService {
         ipfs_root_cid: null,
         service_type: ServiceType.DIRECT_SP,
         retrieval_endpoint: "",
-        piece_fetch_status: RetrievalStatus.SKIPPED,
+        piece_fetch_status: PieceFetchStatus.SKIPPED,
         http_response_code: null,
         first_byte_ms: null,
         last_byte_ms: null,
