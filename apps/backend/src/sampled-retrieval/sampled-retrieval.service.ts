@@ -3,6 +3,7 @@ import { Injectable, Logger } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import type { Repository } from "typeorm";
 import { ClickhouseService } from "../clickhouse/clickhouse.service.js";
+import { PieceFetchStatus } from "../clickhouse/clickhouse.types.js";
 import { type ProviderJobContext, toStructuredError } from "../common/logging.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
 import { BlockFetchStatus, CarParseStatus, IpniCheckStatus, ServiceType } from "../database/types.js";
@@ -13,7 +14,6 @@ import { PieceRetrievalService } from "./piece-retrieval.service.js";
 import { PieceValidationService } from "./piece-validation.service.js";
 import { SampledPieceSelectorService } from "./sampled-piece-selector.service.js";
 import type { BlockFetchOutcome, CarParseOutcome, IpniCheckOutcome, PieceRetrievalResult } from "./types.js";
-import { PieceFetchStatus } from "../clickhouse/clickhouse.types.js";
 
 const SAMPLED_RETRIEVAL_CHECKS_TABLE = "sampled_retrieval_checks";
 

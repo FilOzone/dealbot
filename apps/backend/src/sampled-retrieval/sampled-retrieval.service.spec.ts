@@ -1,9 +1,9 @@
 import type { Repository } from "typeorm";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ClickhouseService } from "../clickhouse/clickhouse.service.js";
+import { PieceFetchStatus } from "../clickhouse/clickhouse.types.js";
 import type { StorageProvider } from "../database/entities/storage-provider.entity.js";
 import { BlockFetchStatus, CarParseStatus, IpniCheckStatus } from "../database/types.js";
-import { PieceFetchStatus } from "../clickhouse/clickhouse.types.js";
 import type { SampledRetrievalCheckMetrics } from "../metrics-prometheus/check-metrics.service.js";
 import type { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
 import type { PieceRetrievalService } from "./piece-retrieval.service.js";
