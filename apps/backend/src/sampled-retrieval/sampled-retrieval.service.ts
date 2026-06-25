@@ -5,6 +5,7 @@ import type { Repository } from "typeorm";
 import { ClickhouseService } from "../clickhouse/clickhouse.service.js";
 import { type ProviderJobContext, toStructuredError } from "../common/logging.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
+import { BlockFetchStatus, CarParseStatus, IpniCheckStatus, ServiceType } from "../database/types.js";
 import { buildCheckMetricLabels, type CheckMetricLabels } from "../metrics-prometheus/check-metric-labels.js";
 import { SampledRetrievalCheckMetrics } from "../metrics-prometheus/check-metrics.service.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
@@ -243,7 +244,6 @@ export class SampledRetrievalService {
         first_byte_ms: null,
         last_byte_ms: null,
         bytes_retrieved: null,
-        throughput_bps: null,
         commp_valid: null,
         car_status: CarParseStatus.SKIPPED,
         car_block_count: null,
