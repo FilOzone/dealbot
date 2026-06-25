@@ -40,7 +40,7 @@ export class HttpClientService {
        * mid-stream once received bytes exceed this value, the partial buffer is
        * discarded, and the result is flagged `limitExceeded`. Bounds peak memory
        * when fetching from untrusted endpoints that may stream more than they
-       * advertised. Omitted → no cap (existing behavior).
+       * advertised. Omitted → no cap.
        */
       maxBytes?: number;
     } = {},
@@ -264,7 +264,7 @@ export class HttpClientService {
         signal,
         maxRedirects: 5,
         responseType: "arraybuffer",
-        ...(maxBytes !== undefined ? { maxContentLength: maxBytes, maxBodyLength: maxBytes } : {}),
+        ...(maxBytes !== undefined ? { maxContentLength: maxBytes } : {}),
         onDownloadProgress: () => {
           if (!firstByteReceived) {
             ttfbTime = performance.now() - startTime;

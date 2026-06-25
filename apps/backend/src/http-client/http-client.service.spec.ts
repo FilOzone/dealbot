@@ -213,7 +213,7 @@ describe("HttpClientService", () => {
     expect(result.metrics.responseSize).toBe(11);
   });
 
-  it("passes maxBytes to axios as maxContentLength/maxBodyLength for HTTP/1.1", async () => {
+  it("caps only the response body via maxContentLength for HTTP/1.1, leaving the request body uncapped", async () => {
     const service = await createService();
 
     mockHttpService.request.mockReturnValueOnce(
@@ -227,6 +227,8 @@ describe("HttpClientService", () => {
 
     const config = mockHttpService.request.mock.calls[0][0];
     expect(config.maxContentLength).toBe(4096);
-    expect(config.maxBodyLength).toBe(4096);
+    // `maxBodyLength` caps the *request* payload, not the response, so it must
+    // stay untouched when maxBytes is a response-body ceiling.
+    expect(config.maxBodyLength).toBeUndefined();
   });
 });
