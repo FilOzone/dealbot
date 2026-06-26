@@ -36,18 +36,18 @@ describe("JobsService schedule rows", () => {
   };
   let dataRetentionServiceMock: { pollDataRetention: ReturnType<typeof vi.fn> };
   let metricsMocks: {
-    jobsQueuedGauge: JobsServiceDeps[9];
-    jobsRetryScheduledGauge: JobsServiceDeps[10];
-    oldestQueuedAgeGauge: JobsServiceDeps[11];
-    oldestInFlightAgeGauge: JobsServiceDeps[12];
-    jobsInFlightGauge: JobsServiceDeps[13];
-    jobsEnqueueAttemptsCounter: JobsServiceDeps[14];
-    jobsStartedCounter: JobsServiceDeps[15];
-    jobsCompletedCounter: JobsServiceDeps[16];
-    jobsPausedGauge: JobsServiceDeps[17];
-    jobDuration: JobsServiceDeps[18];
-    storageProvidersActive: JobsServiceDeps[19];
-    storageProvidersTested: JobsServiceDeps[20];
+    jobsQueuedGauge: JobsServiceDeps[10];
+    jobsRetryScheduledGauge: JobsServiceDeps[11];
+    oldestQueuedAgeGauge: JobsServiceDeps[12];
+    oldestInFlightAgeGauge: JobsServiceDeps[13];
+    jobsInFlightGauge: JobsServiceDeps[14];
+    jobsEnqueueAttemptsCounter: JobsServiceDeps[15];
+    jobsStartedCounter: JobsServiceDeps[16];
+    jobsCompletedCounter: JobsServiceDeps[17];
+    jobsPausedGauge: JobsServiceDeps[18];
+    jobDuration: JobsServiceDeps[19];
+    storageProvidersActive: JobsServiceDeps[20];
+    storageProvidersTested: JobsServiceDeps[21];
   };
   let baseConfigValues: Partial<IConfig>;
   let configService: JobsServiceDeps[0];
@@ -62,19 +62,20 @@ describe("JobsService schedule rows", () => {
       dataRetentionService: JobsServiceDeps[6];
       pieceCleanupService: JobsServiceDeps[7];
       pullCheckService: JobsServiceDeps[8];
-      jobsQueuedGauge: JobsServiceDeps[9];
-      jobsRetryScheduledGauge: JobsServiceDeps[10];
-      oldestQueuedAgeGauge: JobsServiceDeps[11];
-      oldestInFlightAgeGauge: JobsServiceDeps[12];
-      jobsInFlightGauge: JobsServiceDeps[13];
-      jobsEnqueueAttemptsCounter: JobsServiceDeps[14];
-      jobsStartedCounter: JobsServiceDeps[15];
-      jobsCompletedCounter: JobsServiceDeps[16];
-      jobsPausedGauge: JobsServiceDeps[17];
-      jobDuration: JobsServiceDeps[18];
-      storageProvidersActive: JobsServiceDeps[19];
-      storageProvidersTested: JobsServiceDeps[20];
-      dataSetLifecycleService: JobsServiceDeps[21];
+      sampledRetrievalService: JobsServiceDeps[9];
+      jobsQueuedGauge: JobsServiceDeps[10];
+      jobsRetryScheduledGauge: JobsServiceDeps[11];
+      oldestQueuedAgeGauge: JobsServiceDeps[12];
+      oldestInFlightAgeGauge: JobsServiceDeps[13];
+      jobsInFlightGauge: JobsServiceDeps[14];
+      jobsEnqueueAttemptsCounter: JobsServiceDeps[15];
+      jobsStartedCounter: JobsServiceDeps[16];
+      jobsCompletedCounter: JobsServiceDeps[17];
+      jobsPausedGauge: JobsServiceDeps[18];
+      jobDuration: JobsServiceDeps[19];
+      storageProvidersActive: JobsServiceDeps[20];
+      storageProvidersTested: JobsServiceDeps[21];
+      dataSetLifecycleService: JobsServiceDeps[22];
     }>,
   ) => JobsService;
 
@@ -105,18 +106,18 @@ describe("JobsService schedule rows", () => {
     };
 
     metricsMocks = {
-      jobsQueuedGauge: { set: vi.fn() } as unknown as JobsServiceDeps[9],
-      jobsRetryScheduledGauge: { set: vi.fn() } as unknown as JobsServiceDeps[10],
-      oldestQueuedAgeGauge: { set: vi.fn() } as unknown as JobsServiceDeps[11],
-      oldestInFlightAgeGauge: { set: vi.fn() } as unknown as JobsServiceDeps[12],
-      jobsInFlightGauge: { set: vi.fn() } as unknown as JobsServiceDeps[13],
-      jobsEnqueueAttemptsCounter: { inc: vi.fn() } as unknown as JobsServiceDeps[14],
-      jobsStartedCounter: { inc: vi.fn() } as unknown as JobsServiceDeps[15],
-      jobsCompletedCounter: { inc: vi.fn() } as unknown as JobsServiceDeps[16],
-      jobsPausedGauge: { set: vi.fn() } as unknown as JobsServiceDeps[17],
-      jobDuration: { observe: vi.fn() } as unknown as JobsServiceDeps[18],
-      storageProvidersActive: { set: vi.fn() } as unknown as JobsServiceDeps[19],
-      storageProvidersTested: { set: vi.fn() } as unknown as JobsServiceDeps[20],
+      jobsQueuedGauge: { set: vi.fn() } as unknown as JobsServiceDeps[10],
+      jobsRetryScheduledGauge: { set: vi.fn() } as unknown as JobsServiceDeps[11],
+      oldestQueuedAgeGauge: { set: vi.fn() } as unknown as JobsServiceDeps[12],
+      oldestInFlightAgeGauge: { set: vi.fn() } as unknown as JobsServiceDeps[13],
+      jobsInFlightGauge: { set: vi.fn() } as unknown as JobsServiceDeps[14],
+      jobsEnqueueAttemptsCounter: { inc: vi.fn() } as unknown as JobsServiceDeps[15],
+      jobsStartedCounter: { inc: vi.fn() } as unknown as JobsServiceDeps[16],
+      jobsCompletedCounter: { inc: vi.fn() } as unknown as JobsServiceDeps[17],
+      jobsPausedGauge: { set: vi.fn() } as unknown as JobsServiceDeps[18],
+      jobDuration: { observe: vi.fn() } as unknown as JobsServiceDeps[19],
+      storageProvidersActive: { set: vi.fn() } as unknown as JobsServiceDeps[20],
+      storageProvidersTested: { set: vi.fn() } as unknown as JobsServiceDeps[21],
     };
 
     const emptySpBlocklists: ISpBlocklistConfig = {
@@ -130,6 +131,7 @@ describe("JobsService schedule rows", () => {
         useOnlyApprovedProviders: false,
         minNumDataSetsForChecks: 1,
         network: "calibration",
+        subgraphEndpoint: "https://example.com/subgraph",
       } as IConfig["blockchain"],
       scheduling: {
         providersRefreshIntervalSeconds: 4 * 3600,
@@ -145,6 +147,7 @@ describe("JobsService schedule rows", () => {
         workerPollSeconds: 60,
         dealJobTimeoutSeconds: 360,
         retrievalJobTimeoutSeconds: 60,
+        sampledRetrievalJobTimeoutSeconds: 360,
         dataSetCreationJobTimeoutSeconds: 300,
         dataSetLifecycleCheckEnabled: false,
         dataSetLifecycleChecksPerSpPerHour: 1,
@@ -152,6 +155,7 @@ describe("JobsService schedule rows", () => {
         shutdownFinalScrapeDelaySeconds: 35,
         pieceCleanupPerSpPerHour: 1,
         maxPieceCleanupRuntimeSeconds: 300,
+        sampledRetrievalsPerSpPerHour: 2,
       } as IConfig["jobs"],
       pullPiece: {
         pullChecksPerSpPerHour: 1,
@@ -190,6 +194,7 @@ describe("JobsService schedule rows", () => {
         overrides.dataRetentionService ?? (dataRetentionServiceMock as unknown as JobsServiceDeps[6]),
         overrides.pieceCleanupService ?? ({} as JobsServiceDeps[7]),
         overrides.pullCheckService ?? ({} as JobsServiceDeps[8]),
+        overrides.sampledRetrievalService ?? ({} as JobsServiceDeps[9]),
         overrides.jobsQueuedGauge ?? metricsMocks.jobsQueuedGauge,
         overrides.jobsRetryScheduledGauge ?? metricsMocks.jobsRetryScheduledGauge,
         overrides.oldestQueuedAgeGauge ?? metricsMocks.oldestQueuedAgeGauge,
@@ -202,7 +207,7 @@ describe("JobsService schedule rows", () => {
         overrides.jobDuration ?? metricsMocks.jobDuration,
         overrides.storageProvidersActive ?? metricsMocks.storageProvidersActive,
         overrides.storageProvidersTested ?? metricsMocks.storageProvidersTested,
-        overrides.dataSetLifecycleService ?? ({} as JobsServiceDeps[21]),
+        overrides.dataSetLifecycleService ?? ({} as JobsServiceDeps[22]),
       );
 
     service = buildService();
@@ -531,6 +536,26 @@ describe("JobsService schedule rows", () => {
     );
   });
 
+  it("routes retrieval_sampled jobs from the sp.work queue to the sampled retrieval handler", async () => {
+    const work = vi.fn().mockResolvedValue(undefined);
+    (service as unknown as { boss: { work: typeof work } }).boss = { work };
+
+    callPrivate(service, "registerWorkers");
+
+    const spWorkCall = work.mock.calls.find((call) => call[0] === SP_WORK_QUEUE);
+    expect(spWorkCall).toBeDefined();
+    const spWorkCallback = spWorkCall?.[2] as (jobs: unknown[]) => Promise<void>;
+
+    const handleSampledRetrievalJob = vi.fn().mockResolvedValue(undefined);
+    (service as unknown as { handleSampledRetrievalJob: typeof handleSampledRetrievalJob }).handleSampledRetrievalJob =
+      handleSampledRetrievalJob;
+
+    const job = { id: "job-sampled", data: { jobType: "retrieval_sampled", spAddress: "0xaaa", intervalSeconds: 60 } };
+    await spWorkCallback([job]);
+
+    expect(handleSampledRetrievalJob).toHaveBeenCalledWith(job);
+  });
+
   it("creates all worker queues when starting pg-boss", async () => {
     const createQueue = vi.fn().mockResolvedValue(undefined);
 
@@ -655,8 +680,37 @@ describe("JobsService schedule rows", () => {
     // Check upserts for providerB
     const upsertCalls = jobScheduleRepositoryMock.upsertSchedule.mock.calls;
     const upsertsForB = upsertCalls.filter((call) => call[1] === providerB.address);
-    expect(upsertsForB).toHaveLength(5);
+    expect(upsertsForB).toHaveLength(6);
     expect(upsertsForB.map((call) => call[0]).sort()).toEqual([
+      "data_set_creation",
+      "deal",
+      "piece_cleanup",
+      "pull_check",
+      "retrieval",
+      "retrieval_sampled",
+    ]);
+  });
+
+  it("skips retrieval_sampled schedule when subgraph endpoint is not configured", async () => {
+    baseConfigValues = {
+      ...baseConfigValues,
+      blockchain: { ...baseConfigValues.blockchain, subgraphEndpoint: "" } as IConfig["blockchain"],
+    };
+    configService = {
+      get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
+    } as unknown as JobsServiceDeps[0];
+
+    service = buildService({ configService });
+
+    const providerA = { address: "0xaaa" };
+    storageProviderRepositoryMock.find.mockResolvedValueOnce([providerA]);
+
+    await callPrivate(service, "ensureScheduleRows");
+
+    const upsertsForA = jobScheduleRepositoryMock.upsertSchedule.mock.calls.filter(
+      (call) => call[1] === providerA.address,
+    );
+    expect(upsertsForA.map((call) => call[0]).sort()).toEqual([
       "data_set_creation",
       "deal",
       "piece_cleanup",
@@ -956,6 +1010,51 @@ describe("JobsService schedule rows", () => {
     );
   });
 
+  it("sampled retrieval job defers to sp.work queue during maintenance window", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2024-01-01T07:05:00Z"));
+
+    baseConfigValues = {
+      ...baseConfigValues,
+      scheduling: {
+        ...baseConfigValues.scheduling,
+        maintenanceWindowsUtc: ["07:00"],
+        maintenanceWindowMinutes: 20,
+      } as IConfig["scheduling"],
+    };
+    configService = {
+      get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
+    } as unknown as JobsServiceDeps[0];
+
+    const sampledRetrievalService = { performForProvider: vi.fn() };
+    const walletSdkService = {
+      getProviderInfo: vi.fn(() => ({ id: 1n, name: "sp" })),
+    };
+
+    service = buildService({
+      configService,
+      sampledRetrievalService: sampledRetrievalService as unknown as JobsServiceDeps[9],
+      walletSdkService: walletSdkService as unknown as JobsServiceDeps[5],
+    });
+
+    const safeSend = vi.fn().mockResolvedValue(true);
+    (service as unknown as { safeSend: typeof safeSend }).safeSend = safeSend;
+
+    await callPrivate(service, "handleSampledRetrievalJob", {
+      id: "job-sampled-maintenance",
+      data: { jobType: "retrieval_sampled", spAddress: "0xaaa", intervalSeconds: 60 },
+    });
+
+    const expectedResumeAt = new Date("2024-01-01T07:20:00Z");
+    expect(sampledRetrievalService.performForProvider).not.toHaveBeenCalled();
+    expect(safeSend).toHaveBeenCalledWith(
+      "retrieval_sampled",
+      SP_WORK_QUEUE,
+      { jobType: "retrieval_sampled", spAddress: "0xaaa", intervalSeconds: 60 },
+      { startAfter: expectedResumeAt },
+    );
+  });
+
   it("deal job delegates to createDealForProvider", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2024-01-01T12:00:00Z"));
@@ -1024,7 +1123,7 @@ describe("JobsService schedule rows", () => {
     expect(dealService.createDealForProvider).toHaveBeenCalledTimes(1);
   });
 
-  it("deal job maps DealJobTerminatedDataSetError to handler_result=error", async () => {
+  it("data storage job does not run data-storage check when data-set selection aborts", async () => {
     const completedCounter = metricsMocks.jobsCompletedCounter as unknown as { inc: ReturnType<typeof vi.fn> };
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2024-01-01T12:00:00Z"));
@@ -1286,7 +1385,7 @@ describe("JobsService schedule rows", () => {
 
     service = buildService({
       configService,
-      dataSetLifecycleService: dataSetLifecycleService as unknown as JobsServiceDeps[21],
+      dataSetLifecycleService: dataSetLifecycleService as unknown as JobsServiceDeps[22],
       walletSdkService: walletSdkService as unknown as ConstructorParameters<typeof JobsService>[5],
     });
 
@@ -1312,7 +1411,7 @@ describe("JobsService schedule rows", () => {
 
     service = buildService({
       configService,
-      dataSetLifecycleService: dataSetLifecycleService as unknown as JobsServiceDeps[21],
+      dataSetLifecycleService: dataSetLifecycleService as unknown as JobsServiceDeps[22],
       walletSdkService: walletSdkService as unknown as ConstructorParameters<typeof JobsService>[5],
     });
 
@@ -1539,6 +1638,30 @@ describe("JobsService schedule rows", () => {
     expect(dealService.createDataSetWithPiece).not.toHaveBeenCalled();
   });
 
+  it("sampled retrieval job is skipped at runtime when provider is blocked", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2024-01-01T12:00:00Z"));
+
+    baseConfigValues.spBlocklists = { ids: new Set(["4"]), addresses: new Set() };
+
+    const sampledRetrievalService = { performForProvider: vi.fn() };
+    const walletSdkService = {
+      getProviderInfo: vi.fn(() => ({ id: 4n, name: "sp" })),
+    };
+
+    service = buildService({
+      sampledRetrievalService: sampledRetrievalService as unknown as JobsServiceDeps[9],
+      walletSdkService: walletSdkService as unknown as JobsServiceDeps[5],
+    });
+
+    await callPrivate(service, "handleSampledRetrievalJob", {
+      id: "job-blocked-sampled",
+      data: { jobType: "retrieval_sampled", spAddress: "0xaaa", intervalSeconds: 60 },
+    });
+
+    expect(sampledRetrievalService.performForProvider).not.toHaveBeenCalled();
+  });
+
   it("SP jobs skip address-blocked providers before resolving missing provider context", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2024-01-01T12:00:00Z"));
@@ -1637,8 +1760,9 @@ describe("JobsService schedule rows", () => {
       await vi.advanceTimersByTimeAsync(35_001);
       await shutdownPromise;
 
-      // Defaults: deal=360, retrieval=60, dataSetCreation=300, dataSetLifecycleCheck=600,
-      // pullCheck=300 → max=600 → +60s buffer
+      // Defaults: deal=360, retrieval=60, sampledRetrieval=360, dataSetCreation=300,
+      // dataSetLifecycleCheck=600, pullCheck=300 → max=600 → +60s buffer
+
       expect(bossMock.stop).toHaveBeenCalledTimes(1);
       expect(bossMock.stop).toHaveBeenCalledWith({ graceful: true, timeout: 660_000 });
     });
