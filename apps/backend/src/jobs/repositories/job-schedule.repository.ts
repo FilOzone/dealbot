@@ -85,7 +85,7 @@ export class JobScheduleRepository {
         const [rows] = (await this.dataSource.query(
           `
           DELETE FROM job_schedule_state
-          WHERE job_type IN ('deal', 'retrieval', 'data_set_creation', 'piece_cleanup', 'pull_check')
+          WHERE job_type IN ('deal', 'retrieval', 'retrieval_sampled', 'data_set_creation', 'data_set_lifecycle_check', 'piece_cleanup', 'pull_check')
             AND sp_address <> ''
             AND network::text = $1
           RETURNING sp_address
@@ -98,7 +98,7 @@ export class JobScheduleRepository {
       const [rows] = (await this.dataSource.query(
         `
         DELETE FROM job_schedule_state
-        WHERE job_type IN ('deal', 'retrieval', 'data_set_creation', 'piece_cleanup', 'pull_check')
+        WHERE job_type IN ('deal', 'retrieval', 'retrieval_sampled', 'data_set_creation', 'data_set_lifecycle_check', 'piece_cleanup', 'pull_check')
           AND sp_address <> ''
           AND network::text = $1
           AND sp_address <> ALL($2::text[])
@@ -116,6 +116,32 @@ export class JobScheduleRepository {
       });
       throw error;
     }
+  }
+
+  /**
+   * Deletes all per-provider schedule rows for a given job type.
+   *
+   * Used to stop a job entirely when it is disabled by config (for example the
+   * `data_set_lifecycle_check` canary when `DATASET_LIFECYCLE_CHECK_ENABLED=false`),
+   * so stale schedules do not keep enqueuing no-op jobs.
+   *
+   * @param jobType - The job type whose per-provider schedules should be removed.
+   * @param network - Only remove schedules belonging to this network.
+   * @returns Number of schedule rows deleted.
+   */
+  async deleteSchedulesByJobType(jobType: JobType, network: Network): Promise<number> {
+    const result = await this.dataSource.query(
+      `
+      DELETE FROM job_schedule_state
+      WHERE job_type = $1
+        AND sp_address <> ''
+        AND network::text = $2
+      `,
+      [jobType, network],
+    );
+    // node-postgres returns [rows, rowCount] for DELETE without RETURNING.
+    const rowCount = Array.isArray(result) ? result[1] : undefined;
+    return typeof rowCount === "number" ? rowCount : 0;
   }
 
   /**

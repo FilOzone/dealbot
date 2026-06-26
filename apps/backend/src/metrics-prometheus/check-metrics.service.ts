@@ -2,6 +2,7 @@ import { Injectable, Logger } from "@nestjs/common";
 import { InjectMetric } from "@willsoto/nestjs-prometheus";
 import type { Counter, Histogram } from "prom-client";
 import type { Deal } from "../database/entities/deal.entity.js";
+import { BlockFetchStatus, CarParseStatus, IpniCheckStatus } from "../database/types.js";
 import type { RetrievalExecutionResult } from "../retrieval-addons/types.js";
 import { buildCheckMetricLabels, type CheckMetricLabels } from "./check-metric-labels.js";
 
@@ -160,15 +161,17 @@ export class RetrievalCheckMetrics {
   }
 }
 
-export type IpniVerifyOutcome = "verified" | "timeout" | "error";
+export type IpniVerifyOutcome = "success" | "failure.timedout" | "failure.other";
+export type IpniIndexer = "filecoinpin.contact" | "cid.contact";
+export type CidContactVerificationOutcome = "success" | "failure.timedout" | "failure.other" | "skipped";
 
 export function classifyIpniVerifyOutcome(
   ipniResult: { rootCIDVerified: boolean; durationMs: number },
   timeoutMs: number,
 ): IpniVerifyOutcome {
-  if (ipniResult.rootCIDVerified) return "verified";
-  if (ipniResult.durationMs >= timeoutMs) return "timeout";
-  return "error";
+  if (ipniResult.rootCIDVerified) return "success";
+  if (ipniResult.durationMs >= timeoutMs) return "failure.timedout";
+  return "failure.other";
 }
 
 @Injectable()
@@ -184,6 +187,8 @@ export class DiscoverabilityCheckMetrics {
     private readonly ipniVerifyMs: Histogram,
     @InjectMetric("discoverabilityStatus")
     private readonly discoverabilityStatusCounter: Counter,
+    @InjectMetric("cidContactVerification")
+    private readonly cidContactVerificationCounter: Counter,
   ) {}
 
   observeSpIndexLocallyMs(labels: CheckMetricLabels | null, value: number | null | undefined): void {
@@ -214,6 +219,7 @@ export class DiscoverabilityCheckMetrics {
     labels: CheckMetricLabels | null,
     value: number | null | undefined,
     outcome: IpniVerifyOutcome,
+    indexer: IpniIndexer,
   ): void {
     if (!labels) {
       this.logger.warn({
@@ -223,7 +229,19 @@ export class DiscoverabilityCheckMetrics {
       });
       return;
     }
-    observePositive(this.ipniVerifyMs, { ...labels, value: outcome }, value);
+    observePositive(this.ipniVerifyMs, { ...labels, value: outcome, indexer }, value);
+  }
+
+  recordCidContactVerification(labels: CheckMetricLabels | null, outcome: CidContactVerificationOutcome): void {
+    if (!labels) {
+      this.logger.warn({
+        event: "metric_emit_failed",
+        message: "Cannot emit cidContactVerification: no provider labels",
+        metric: "cidContactVerification",
+      });
+      return;
+    }
+    this.cidContactVerificationCounter.inc({ ...labels, value: outcome });
   }
 
   recordStatus(labels: CheckMetricLabels | null, value: string): void {
@@ -270,6 +288,34 @@ export class DataSetCreationCheckMetrics {
 }
 
 @Injectable()
+export class DataSetLifecycleCheckMetrics {
+  constructor(
+    @InjectMetric("dataSetLifecycleCheckMs")
+    private readonly dataSetLifecycleCheckMs: Histogram,
+    @InjectMetric("dataSetLifecycleCheckStatus")
+    private readonly dataSetLifecycleCheckStatusCounter: Counter,
+  ) {}
+
+  /**
+   * Observe the end-to-end duration of one lifecycle check (create throwaway data set
+   * with a seed piece, then `terminateService` and confirm `pdpEndEpoch != 0`).
+   * Emitted on `success` and `failure.timedout` only (analogous to `dataSetCreationMs`).
+   */
+  observeCheckDuration(labels: CheckMetricLabels, value: number | null | undefined): void {
+    observePositive(this.dataSetLifecycleCheckMs, labels, value);
+  }
+
+  /**
+   * Record data-set lifecycle check status.
+   * Values: `success`, `failure.timedout`, `failure.other`.
+   * See docs/checks/data-set-lifecycle-check.md.
+   */
+  recordStatus(labels: CheckMetricLabels, value: string): void {
+    this.dataSetLifecycleCheckStatusCounter.inc({ ...labels, value });
+  }
+}
+
+@Injectable()
 export class PullCheckCheckMetrics {
   constructor(
     @InjectMetric("pullRequestAcknowledgementLatencyMs")
@@ -308,5 +354,68 @@ export class PullCheckCheckMetrics {
 
   recordStatus(labels: CheckMetricLabels, value: string): void {
     this.pullCheckStatusCounter.inc({ ...labels, value });
+  }
+}
+
+@Injectable()
+export class SampledRetrievalCheckMetrics {
+  constructor(
+    @InjectMetric("sampledPieceRetrievalFirstByteMs")
+    private readonly firstByteMs: Histogram,
+    @InjectMetric("sampledPieceRetrievalLastByteMs")
+    private readonly lastByteMs: Histogram,
+    @InjectMetric("sampledPieceRetrievalThroughputBps")
+    private readonly throughputBps: Histogram,
+    @InjectMetric("sampledRetrievalCheckMs")
+    private readonly checkMs: Histogram,
+    @InjectMetric("sampledPieceRetrievalStatus")
+    private readonly statusCounter: Counter,
+    @InjectMetric("sampledPieceHttpResponseCode")
+    private readonly httpResponseCounter: Counter,
+    @InjectMetric("sampledCarParseStatus")
+    private readonly carParseCounter: Counter,
+    @InjectMetric("sampledIpniStatus")
+    private readonly ipniCounter: Counter,
+    @InjectMetric("sampledBlockFetchStatus")
+    private readonly blockFetchCounter: Counter,
+  ) {}
+
+  observeFirstByteMs(labels: CheckMetricLabels, value: number | null | undefined): void {
+    observePositive(this.firstByteMs, labels, value);
+  }
+
+  observeLastByteMs(labels: CheckMetricLabels, value: number | null | undefined): void {
+    observePositive(this.lastByteMs, labels, value);
+  }
+
+  observeThroughput(labels: CheckMetricLabels, value: number | null | undefined): void {
+    observePositive(this.throughputBps, labels, value);
+  }
+
+  observeCheckDuration(labels: CheckMetricLabels, value: number | null | undefined): void {
+    observePositive(this.checkMs, labels, value);
+  }
+
+  recordPieceRetrievalStatus(labels: CheckMetricLabels, value: string): void {
+    this.statusCounter.inc({ ...labels, value });
+  }
+
+  recordHttpResponseCode(labels: CheckMetricLabels, statusCode: number): void {
+    this.httpResponseCounter.inc({
+      ...labels,
+      value: classifyHttpResponseCode(statusCode),
+    });
+  }
+
+  recordCarParseStatus(labels: CheckMetricLabels, value: CarParseStatus): void {
+    this.carParseCounter.inc({ ...labels, value });
+  }
+
+  recordIpniStatus(labels: CheckMetricLabels, value: IpniCheckStatus): void {
+    this.ipniCounter.inc({ ...labels, value });
+  }
+
+  recordBlockFetchStatus(labels: CheckMetricLabels, value: BlockFetchStatus): void {
+    this.blockFetchCounter.inc({ ...labels, value });
   }
 }

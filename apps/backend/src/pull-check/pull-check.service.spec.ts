@@ -2,6 +2,7 @@ import { Readable } from "node:stream";
 import { ConfigService } from "@nestjs/config";
 import { Test, type TestingModule } from "@nestjs/testing";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { ClickhouseService } from "../clickhouse/clickhouse.service.js";
 import type { ProviderJobContext } from "../common/logging.js";
 import type { IConfig } from "../config/index.js";
 import { DataSourceService } from "../dataSource/dataSource.service.js";
@@ -18,9 +19,8 @@ const DEFAULT_NETWORK = "calibration";
 // strings rather than real CID objects, keeping the tests fast and isolated
 // from the SDK's internal hashing.
 vi.mock("@filoz/synapse-core/piece", () => ({
-  parse: vi.fn((s: string) => ({ __parsed: s, toString: () => s })),
-  calculate: vi.fn(() => ({ toString: () => "bafk-test-piece" })),
-  calculateFromIterable: vi.fn().mockResolvedValue("bafk-test-piece"),
+  from: vi.fn((s: string) => ({ __parsed: s, toString: () => s })),
+  calculate: vi.fn().mockResolvedValue("bafk-test-piece"),
 }));
 
 vi.mock("@filoz/synapse-core/sp", () => ({
@@ -28,7 +28,7 @@ vi.mock("@filoz/synapse-core/sp", () => ({
   waitForPullPieces: vi.fn(),
 }));
 
-import { calculateFromIterable } from "@filoz/synapse-core/piece";
+import { calculate } from "@filoz/synapse-core/piece";
 import { pullPieces, waitForPullPieces } from "@filoz/synapse-core/sp";
 
 function makeProvider(overrides: Partial<PDPProviderEx> = {}): PDPProviderEx {
@@ -69,6 +69,7 @@ describe("PullCheckService", () => {
     observeThroughputBps: ReturnType<typeof vi.fn>;
     recordStatus: ReturnType<typeof vi.fn>;
   };
+  let clickhouseServiceMock: { insert: ReturnType<typeof vi.fn>; probeLocation: string };
   let configValues: Partial<IConfig>;
 
   beforeEach(async () => {
@@ -99,6 +100,7 @@ describe("PullCheckService", () => {
       observeThroughputBps: vi.fn(),
       recordStatus: vi.fn(),
     };
+    clickhouseServiceMock = { insert: vi.fn(), probeLocation: "test" };
 
     configValues = {
       app: { host: "localhost", port: 3000, apiPublicUrl: "https://dealbot.example" } as IConfig["app"],
@@ -129,6 +131,7 @@ describe("PullCheckService", () => {
         { provide: PullPieceRepository, useValue: registryMock },
         { provide: PullCheckCheckMetrics, useValue: metricsMock },
         { provide: HttpClientService, useValue: httpClientServiceMock },
+        { provide: ClickhouseService, useValue: clickhouseServiceMock },
       ],
     }).compile();
 
@@ -214,7 +217,7 @@ describe("PullCheckService", () => {
         body: Readable.from([Buffer.from("payload")]),
       });
       if (cidResult !== "bafk-test-piece") {
-        vi.mocked(calculateFromIterable).mockResolvedValueOnce(cidResult as any);
+        vi.mocked(calculate).mockResolvedValueOnce(cidResult as any);
       }
     }
 
@@ -348,6 +351,18 @@ describe("PullCheckService", () => {
 
       // Pieces expire via TTL rather than being deleted at job end.
       expect(registryMock.forget).not.toHaveBeenCalled();
+      // ClickHouse row written with the check result.
+      expect(clickhouseServiceMock.insert).toHaveBeenCalledWith(
+        "pull_checks",
+        expect.objectContaining({
+          probe_location: "test",
+          sp_address: "0xsp",
+          piece_cid: "bafk-test-piece",
+          piece_size_bytes: 1024,
+          status: "success",
+          provider_status: "complete",
+        }),
+      );
     });
 
     it("does not observe firstByte when the SP never read from /api/piece (cached pull)", async () => {
@@ -376,6 +391,15 @@ describe("PullCheckService", () => {
       expect(metricsMock.recordProviderStatus).toHaveBeenCalledWith(expect.any(Object), "failed");
       expect(metricsMock.recordStatus).toHaveBeenLastCalledWith(expect.any(Object), "failure.other");
       expect(registryMock.forget).not.toHaveBeenCalled();
+      // ClickHouse row written with the failure outcome.
+      expect(clickhouseServiceMock.insert).toHaveBeenCalledWith(
+        "pull_checks",
+        expect.objectContaining({
+          sp_address: "0xsp",
+          status: "failure.other",
+          provider_status: "failed",
+        }),
+      );
     });
 
     it("classifies timeouts as failure.timedout", async () => {
@@ -384,6 +408,13 @@ describe("PullCheckService", () => {
 
       await expect(service.runPullCheck("0xsp", DEFAULT_NETWORK, undefined, logContext)).rejects.toThrow();
       expect(metricsMock.recordStatus).toHaveBeenLastCalledWith(expect.any(Object), "failure.timedout");
+      expect(clickhouseServiceMock.insert).toHaveBeenCalledWith(
+        "pull_checks",
+        expect.objectContaining({
+          sp_address: "0xsp",
+          status: "failure.timedout",
+        }),
+      );
     });
 
     it("re-throws and runs cleanup when the validation step fails", async () => {
@@ -392,7 +423,7 @@ describe("PullCheckService", () => {
       // `validateByDirectPieceFetch` call `calculateFromIterable`, so chain
       // two one-shot mocks: the first satisfies prepare with the canonical
       // CID, the second makes the direct-fetch recompute disagree.
-      vi.mocked(calculateFromIterable)
+      vi.mocked(calculate)
         .mockResolvedValueOnce("bafk-test-piece" as any)
         .mockResolvedValueOnce("bafk-mismatch" as any);
 
@@ -424,6 +455,26 @@ describe("PullCheckService", () => {
         /Synapse client unavailable/,
       );
       expect(metricsMock.recordStatus).toHaveBeenLastCalledWith(expect.any(Object), "failure.other");
+    });
+
+    it("writes a ClickHouse row with null sp fields when the provider is unknown", async () => {
+      walletSdkServiceMock.getProviderInfo.mockReturnValue(undefined);
+
+      await expect(service.runPullCheck("0xsp", DEFAULT_NETWORK, undefined, logContext)).rejects.toThrow(/not found/);
+      // No metrics recorded (labels could not be built).
+      expect(metricsMock.recordStatus).not.toHaveBeenCalled();
+      // ClickHouse row still written: sp_address is always available,
+      // sp_id and sp_name are null since providerInfo was never resolved.
+      expect(clickhouseServiceMock.insert).toHaveBeenCalledWith(
+        "pull_checks",
+        expect.objectContaining({
+          sp_address: "0xsp",
+          sp_id: null,
+          sp_name: null,
+          piece_cid: null,
+          status: "failure.other",
+        }),
+      );
     });
   });
 

@@ -14,6 +14,7 @@ import { MetricsPrometheusModule } from "./metrics-prometheus/metrics-prometheus
 import { ProvidersModule } from "./providers/providers.module.js";
 import { PullCheckModule } from "./pull-check/pull-check.module.js";
 import { RetrievalModule } from "./retrieval/retrieval.module.js";
+import { SampledRetrievalModule } from "./sampled-retrieval/sampled-retrieval.module.js";
 
 @Module({
   imports: [
@@ -29,6 +30,7 @@ import { RetrievalModule } from "./retrieval/retrieval.module.js";
     JobsModule,
     DealModule,
     RetrievalModule,
+    SampledRetrievalModule,
     DataSourceModule,
     ProvidersModule,
     PullCheckModule,

@@ -41,7 +41,9 @@ const loadAppConfig = (env: NodeJS.ProcessEnv): IAppConfig => ({
   runMode: parseRunMode(env),
   port: getNumberEnv(env, "DEALBOT_PORT", 3000),
   host: getStringEnv(env, "DEALBOT_HOST", "127.0.0.1"),
-  apiPublicUrl: env.DEALBOT_API_PUBLIC_URL || undefined,
+  // Normalize: trim and strip trailing slashes so hosted-piece source URLs
+  // (e.g. `${apiPublicUrl}/api/...`) never end up with a `//` join.
+  apiPublicUrl: env.DEALBOT_API_PUBLIC_URL?.trim().replace(/\/+$/, "") || undefined,
   metricsPort: getNumberEnv(env, "DEALBOT_METRICS_PORT", 9090),
   metricsHost: getStringEnv(env, "DEALBOT_METRICS_HOST", "0.0.0.0"),
   enableDevMode: env.ENABLE_DEV_MODE === "true",
@@ -102,6 +104,7 @@ const loadTimeoutConfig = (env: NodeJS.ProcessEnv): ITimeoutConfig => ({
 
 const loadRetrievalConfig = (env: NodeJS.ProcessEnv): IRetrievalConfig => ({
   ipfsBlockFetchConcurrency: getNumberEnv(env, "IPFS_BLOCK_FETCH_CONCURRENCY", 6),
+  sampledBlockSampleCount: getNumberEnv(env, "SAMPLED_RETRIEVAL_BLOCK_SAMPLE_COUNT", 5),
 });
 
 // ---------------------------------------------------------------------------
@@ -124,11 +127,14 @@ function loadNetworkEnvPrefix(
 ): DistributiveOmit<INetworkConfig, "network"> {
   const k = (key: string) => `${prefix}_${key}`;
   const get = (key: string) => env[k(key)];
+  const network = prefix.toLowerCase() as Network;
 
   const base = {
     walletAddress: get("WALLET_ADDRESS") || ZERO_ADDRESS,
     rpcUrl: get("RPC_URL") || undefined,
+    rpcRequestTimeoutMs: getNumberEnv(env, k("RPC_REQUEST_TIMEOUT_MS"), networkDefaults.rpcRequestTimeoutMs),
     pdpSubgraphEndpoint: get("PDP_SUBGRAPH_ENDPOINT") || undefined,
+    subgraphEndpoint: get("SUBGRAPH_ENDPOINT") || undefined,
     checkDatasetCreationFees: getBooleanEnv(
       env,
       k("CHECK_DATASET_CREATION_FEES"),
@@ -148,10 +154,20 @@ function loadNetworkEnvPrefix(
     dealsPerSpPerHour: getFloatEnv(env, k("DEALS_PER_SP_PER_HOUR"), networkDefaults.dealsPerSpPerHour),
     dealJobTimeoutSeconds: getNumberEnv(env, k("DEAL_JOB_TIMEOUT_SECONDS"), networkDefaults.dealJobTimeoutSeconds),
     retrievalsPerSpPerHour: getFloatEnv(env, k("RETRIEVALS_PER_SP_PER_HOUR"), networkDefaults.retrievalsPerSpPerHour),
+    sampledRetrievalsPerSpPerHour: getFloatEnv(
+      env,
+      k("SAMPLED_RETRIEVALS_PER_SP_PER_HOUR"),
+      networkDefaults.sampledRetrievalsPerSpPerHour,
+    ),
     retrievalJobTimeoutSeconds: getNumberEnv(
       env,
       k("RETRIEVAL_JOB_TIMEOUT_SECONDS"),
       networkDefaults.retrievalJobTimeoutSeconds,
+    ),
+    sampledRetrievalJobTimeoutSeconds: getNumberEnv(
+      env,
+      k("SAMPLED_RETRIEVAL_JOB_TIMEOUT_SECONDS"),
+      networkDefaults.sampledRetrievalJobTimeoutSeconds,
     ),
     dataSetCreationsPerSpPerHour: getFloatEnv(
       env,
@@ -162,6 +178,18 @@ function loadNetworkEnvPrefix(
       env,
       k("DATA_SET_CREATION_JOB_TIMEOUT_SECONDS"),
       networkDefaults.dataSetCreationJobTimeoutSeconds,
+    ),
+    // Network-dependent default: enabled on every network except mainnet.
+    dataSetLifecycleCheckEnabled: getBooleanEnv(env, k("DATASET_LIFECYCLE_CHECK_ENABLED"), network !== "mainnet"),
+    dataSetLifecycleChecksPerSpPerHour: getFloatEnv(
+      env,
+      k("DATASET_LIFECYCLE_CHECKS_PER_SP_PER_HOUR"),
+      networkDefaults.dataSetLifecycleChecksPerSpPerHour,
+    ),
+    dataSetLifecycleCheckJobTimeoutSeconds: getNumberEnv(
+      env,
+      k("DATA_SET_LIFECYCLE_CHECK_JOB_TIMEOUT_SECONDS"),
+      networkDefaults.dataSetLifecycleCheckJobTimeoutSeconds,
     ),
     dataRetentionPollIntervalSeconds: getNumberEnv(
       env,

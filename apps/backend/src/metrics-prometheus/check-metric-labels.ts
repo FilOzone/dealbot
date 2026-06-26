@@ -1,6 +1,13 @@
 import type { Network } from "../common/types.js";
 
-export type CheckType = "dataStorage" | "retrieval" | "dataRetention" | "dataSetCreation" | "pullCheck";
+export type CheckType =
+  | "dataStorage"
+  | "retrieval"
+  | "sampledRetrieval"
+  | "dataRetention"
+  | "dataSetCreation"
+  | "dataSetLifecycleCheck"
+  | "pullCheck";
 export type ProviderStatus = "approved" | "unapproved";
 
 export type CheckMetricLabels = {

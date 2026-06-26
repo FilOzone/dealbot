@@ -33,11 +33,25 @@ export type BaseNetworkConfig = {
 
   /** Blockchain Config */
   rpcUrl?: string;
+  /**
+   * Per-request timeout (ms) for the viem RPC transport.
+   *
+   * Kept above eRPC's network failsafe budget so eRPC can fail over to a
+   * fallback upstream before DealBot aborts the request. See #603/#604.
+   */
+  rpcRequestTimeoutMs: number;
   walletAddress: string;
   checkDatasetCreationFees: boolean;
   useOnlyApprovedProviders: boolean;
   dealbotDataSetVersion?: string;
   pdpSubgraphEndpoint?: string;
+  /**
+   * Endpoint of the dealbot-owned subgraph used for sampled (anonymous) piece
+   * selection. Per-network — each network has its own subgraph deployment.
+   * When unset, sampled-retrieval schedules are not created for that network.
+   * Eventually replaces `pdpSubgraphEndpoint`.
+   */
+  subgraphEndpoint?: string;
   minNumDataSetsForChecks: number;
 
   /**
@@ -53,9 +67,26 @@ export type BaseNetworkConfig = {
    */
   retrievalsPerSpPerHour: number;
   /**
+   * Target number of sampled (anonymous) retrieval tests per storage provider
+   * per hour. Sampled retrievals pull a random indexed piece via the
+   * dealbot-owned subgraph; gated on `subgraphEndpoint` being set.
+   */
+  sampledRetrievalsPerSpPerHour: number;
+  /**
    * Target number of dataset creation runs per storage provider per hour.
    */
   dataSetCreationsPerSpPerHour: number;
+  /**
+   * Enables the `data_set_lifecycle_check` canary job, which creates a
+   * throwaway data set (with a seed piece) and immediately terminates it to
+   * verify the SP create→terminate lifecycle. Defaults to disabled on mainnet
+   * and enabled on every other network. See docs/checks/data-set-lifecycle-check.md.
+   */
+  dataSetLifecycleCheckEnabled: boolean;
+  /**
+   * Target number of dataset lifecycle check runs per storage provider per hour.
+   */
+  dataSetLifecycleChecksPerSpPerHour: number;
   /**
    * Target number of piece cleanup runs per storage provider per hour.
    *
@@ -80,6 +111,19 @@ export type BaseNetworkConfig = {
    * Uses AbortController to actively cancel job execution.
    */
   retrievalJobTimeoutSeconds: number;
+  /**
+   * Maximum runtime (seconds) for sampled retrieval jobs before forced abort.
+   *
+   * Typically larger than `retrievalJobTimeoutSeconds` since sampled pieces can
+   * be up to 500 MiB. Uses AbortController to actively cancel job execution.
+   */
+  sampledRetrievalJobTimeoutSeconds: number;
+  /**
+   * Maximum runtime (seconds) for data-set lifecycle check jobs before forced abort.
+   *
+   * Covers create + seed-piece upload + terminate + pdpEndEpoch poll.
+   */
+  dataSetLifecycleCheckJobTimeoutSeconds: number;
   maxPieceCleanupRuntimeSeconds: number;
   dataRetentionPollIntervalSeconds: number;
   providersRefreshIntervalSeconds: number;
@@ -235,6 +279,11 @@ export interface ITimeoutConfig {
 
 export interface IRetrievalConfig {
   ipfsBlockFetchConcurrency: number;
+  /**
+   * Number of CAR blocks sampled for IPNI / block-fetch validation during a
+   * sampled retrieval check. Network-independent tuning knob.
+   */
+  sampledBlockSampleCount: number;
 }
 
 export interface IConfig {
@@ -256,12 +305,17 @@ export type NetworkDefaults = Pick<
   | "checkDatasetCreationFees"
   | "useOnlyApprovedProviders"
   | "minNumDataSetsForChecks"
+  | "rpcRequestTimeoutMs"
   | "dealsPerSpPerHour"
   | "dealJobTimeoutSeconds"
   | "retrievalsPerSpPerHour"
+  | "sampledRetrievalsPerSpPerHour"
   | "retrievalJobTimeoutSeconds"
+  | "sampledRetrievalJobTimeoutSeconds"
   | "dataSetCreationsPerSpPerHour"
   | "dataSetCreationJobTimeoutSeconds"
+  | "dataSetLifecycleChecksPerSpPerHour"
+  | "dataSetLifecycleCheckJobTimeoutSeconds"
   | "pieceCleanupPerSpPerHour"
   | "maxPieceCleanupRuntimeSeconds"
   | "dataRetentionPollIntervalSeconds"

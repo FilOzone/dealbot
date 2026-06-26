@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
-import { fetchAppConfig } from "@/api/client";
-import type { Network } from "@/types/config";
+import useSWR from "swr";
+import { apiPaths, fetcher } from "@/api/client";
+import type { AppConfigResponse, Network } from "@/types/config";
 
 interface UseActiveNetworksReturn {
   activeNetworks: Network[];
@@ -13,31 +13,20 @@ interface UseActiveNetworksReturn {
  * deployment is actively monitoring (e.g. ["calibration"] or ["calibration", "mainnet"]).
  */
 export function useActiveNetworks(): UseActiveNetworksReturn {
-  const [activeNetworks, setActiveNetworks] = useState<Network[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { data, error, isLoading } = useSWR(apiPaths.config(), fetcher<AppConfigResponse>, {
+    revalidateIfStale: false,
+    revalidateOnFocus: false,
+    revalidateOnReconnect: false,
+  });
 
-  useEffect(() => {
-    const controller = new AbortController();
+  return {
+    activeNetworks: data?.networks.map((n) => n.network) ?? [],
+    loading: isLoading,
+    error: toErrorMessage(error, "Failed to fetch app config"),
+  };
+}
 
-    (async () => {
-      try {
-        setLoading(true);
-        setError(null);
-        const data = await fetchAppConfig(controller.signal);
-        if (controller.signal.aborted) return;
-        setActiveNetworks(data.networks.map((n) => n.network));
-      } catch (err) {
-        if (controller.signal.aborted) return;
-        setError(err instanceof Error ? err.message : "Failed to fetch app config");
-        console.error("Error fetching app config:", err);
-      } finally {
-        if (!controller.signal.aborted) setLoading(false);
-      }
-    })();
-
-    return () => controller.abort();
-  }, []);
-
-  return { activeNetworks, loading, error };
+function toErrorMessage(error: unknown, fallback: string): string | null {
+  if (!error) return null;
+  return error instanceof Error ? error.message : fallback;
 }

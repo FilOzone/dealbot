@@ -5,7 +5,9 @@ import type { Network } from "../../common/types.js";
 export type JobType =
   | "deal"
   | "retrieval"
+  | "retrieval_sampled"
   | "data_set_creation"
+  | "data_set_lifecycle_check"
   | "pull_check"
   | "providers_refresh"
   | "data_retention_poll"

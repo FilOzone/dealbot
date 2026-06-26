@@ -13,6 +13,7 @@ type LoggerLike = {
 
 const baseNetworkConfig = {
   network: "calibration" as const,
+  rpcRequestTimeoutMs: 30000,
   walletAddress: "0x0000000000000000000000000000000000000000",
   walletPrivateKey: "0xtest" as `0x${string}`,
   checkDatasetCreationFees: false,
@@ -21,7 +22,11 @@ const baseNetworkConfig = {
   pdpSubgraphEndpoint: "https://api.thegraph.com/subgraphs/filecoin/pdp",
   dealsPerSpPerHour: 4,
   retrievalsPerSpPerHour: 2,
+  sampledRetrievalsPerSpPerHour: 2,
   dataSetCreationsPerSpPerHour: 1,
+  dataSetLifecycleCheckEnabled: true,
+  dataSetLifecycleChecksPerSpPerHour: 1,
+  dataSetLifecycleCheckJobTimeoutSeconds: 600,
   dataRetentionPollIntervalSeconds: 3600,
   providersRefreshIntervalSeconds: 14400,
   maintenanceWindowsUtc: ["07:00", "22:00"],
@@ -35,6 +40,7 @@ const baseNetworkConfig = {
   dealJobTimeoutSeconds: 300,
   dataSetCreationJobTimeoutSeconds: 300,
   retrievalJobTimeoutSeconds: 300,
+  sampledRetrievalJobTimeoutSeconds: 360,
   pullChecksPerSpPerHour: 1,
   pullCheckJobTimeoutSeconds: 300,
   pullCheckPollIntervalSeconds: 2,

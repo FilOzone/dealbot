@@ -9,10 +9,12 @@ import {
 import { WalletSdkModule } from "../wallet-sdk/wallet-sdk.module.js";
 import {
   DataSetCreationCheckMetrics,
+  DataSetLifecycleCheckMetrics,
   DataStorageCheckMetrics,
   DiscoverabilityCheckMetrics,
   PullCheckCheckMetrics,
   RetrievalCheckMetrics,
+  SampledRetrievalCheckMetrics,
 } from "./check-metrics.service.js";
 import { MetricsPrometheusInterceptor } from "./metrics-prometheus.interceptor.js";
 import { WalletBalanceCollector } from "./wallet-balance.collector.js";
@@ -102,7 +104,7 @@ const metricProviders = [
     // docs/checks/events-and-metrics.md#ipniVerifyMs
     name: "ipniVerifyMs",
     help: "IPNI verification duration (ms)",
-    labelNames: ["checkType", "providerId", "providerName", "providerStatus", "value", "network"] as const,
+    labelNames: ["checkType", "providerId", "providerName", "providerStatus", "value", "indexer", "network"] as const,
     buckets: [10, 50, 100, 500, 1000, 2000, 5000, 10000, 30000, 60000, 90000, 120000, 180000, 240000, 300000],
   }),
   makeHistogramProvider({
@@ -154,6 +156,13 @@ const metricProviders = [
     labelNames: ["checkType", "providerId", "providerName", "providerStatus", "network"] as const,
     buckets: [100, 500, 1000, 2000, 5000, 10000, 30000, 60000, 120000, 300000, 600000],
   }),
+  makeHistogramProvider({
+    // docs/checks/events-and-metrics.md#dataSetLifecycleCheckMs
+    name: "dataSetLifecycleCheckMs",
+    help: "End-to-end data-set lifecycle check duration: create with seed piece then terminate and confirm pdpEndEpoch != 0 (ms)",
+    labelNames: ["checkType", "providerId", "providerName", "providerStatus", "network"] as const,
+    buckets: [100, 500, 1000, 2000, 5000, 10000, 30000, 60000, 120000, 300000, 600000],
+  }),
   // Sub-status metrics (docs/checks/data-storage.md)
   makeCounterProvider({
     // docs/checks/data-storage.md#sub-status-meanings (Upload Status)
@@ -180,6 +189,12 @@ const metricProviders = [
     labelNames: ["checkType", "providerId", "providerName", "providerStatus", "value", "network"] as const,
   }),
   makeCounterProvider({
+    // docs/checks/data-storage.md#cid-contact-verification-status
+    name: "cidContactVerification",
+    help: "cid.contact IPNI cross-check outcome counts",
+    labelNames: ["checkType", "providerId", "providerName", "providerStatus", "value", "network"] as const,
+  }),
+  makeCounterProvider({
     // docs/checks/data-storage.md#sub-status-meanings (Retrieval Status)
     name: "retrievalStatus",
     help: "Retrieval sub-status counts",
@@ -195,6 +210,12 @@ const metricProviders = [
     // docs/checks/events-and-metrics.md#dataSetCreationStatus
     name: "dataSetCreationStatus",
     help: "Data-set creation status counts",
+    labelNames: ["checkType", "providerId", "providerName", "providerStatus", "value", "network"] as const,
+  }),
+  makeCounterProvider({
+    // docs/checks/events-and-metrics.md#dataSetLifecycleCheckStatus
+    name: "dataSetLifecycleCheckStatus",
+    help: "Data-set lifecycle check status counts (success | failure.timedout | failure.other)",
     labelNames: ["checkType", "providerId", "providerName", "providerStatus", "value", "network"] as const,
   }),
   // Pull check metrics (docs/checks/pull-check.md)
@@ -242,6 +263,56 @@ const metricProviders = [
     name: "pdp_provider_estimated_overdue_periods",
     help: "Estimated number of unrecorded overdue proving periods per provider. Resets to 0 when the subgraph catches up.",
     labelNames: ["checkType", "providerId", "providerName", "providerStatus", "network"] as const,
+  }),
+  // Anonymous Retrieval Metrics
+  makeHistogramProvider({
+    name: "sampledPieceRetrievalFirstByteMs",
+    help: "Time to first byte for anonymous piece retrievals via /piece/{cid} (ms)",
+    labelNames: ["checkType", "providerId", "providerName", "providerStatus", "network"] as const,
+    buckets: [1, 5, 10, 50, 100, 250, 500, 1000, 2000, 5000, 10000, 30000],
+  }),
+  makeHistogramProvider({
+    name: "sampledPieceRetrievalLastByteMs",
+    help: "Total time to retrieve an anonymous piece via /piece/{cid} (ms)",
+    labelNames: ["checkType", "providerId", "providerName", "providerStatus", "network"] as const,
+    buckets: [1, 5, 10, 50, 100, 250, 500, 1000, 2000, 5000, 10000, 30000, 60000, 120000, 300000],
+  }),
+  makeHistogramProvider({
+    name: "sampledPieceRetrievalThroughputBps",
+    help: "Throughput for anonymous piece retrievals (bytes/s)",
+    labelNames: ["checkType", "providerId", "providerName", "providerStatus", "network"] as const,
+    buckets: throughputBuckets,
+  }),
+  makeHistogramProvider({
+    name: "sampledRetrievalCheckMs",
+    help: "End-to-end anonymous retrieval check duration (ms)",
+    labelNames: ["checkType", "providerId", "providerName", "providerStatus", "network"] as const,
+    buckets: [100, 500, 1000, 2000, 5000, 10000, 30000, 60000, 120000, 300000, 600000],
+  }),
+  makeCounterProvider({
+    name: "sampledPieceRetrievalStatus",
+    help: "Anonymous piece retrieval overall outcome",
+    labelNames: ["checkType", "providerId", "providerName", "providerStatus", "value", "network"] as const,
+  }),
+  makeCounterProvider({
+    name: "sampledPieceHttpResponseCode",
+    help: "HTTP response codes for anonymous piece retrieval requests",
+    labelNames: ["checkType", "providerId", "providerName", "providerStatus", "value", "network"] as const,
+  }),
+  makeCounterProvider({
+    name: "sampledCarParseStatus",
+    help: "Anonymous retrieval CAR parse outcomes (success / skipped / failure.not_parseable)",
+    labelNames: ["checkType", "providerId", "providerName", "providerStatus", "value", "network"] as const,
+  }),
+  makeCounterProvider({
+    name: "sampledIpniStatus",
+    help: "Anonymous retrieval IPNI check outcomes (success / skipped / failure.timedout / failure.other)",
+    labelNames: ["checkType", "providerId", "providerName", "providerStatus", "value", "network"] as const,
+  }),
+  makeCounterProvider({
+    name: "sampledBlockFetchStatus",
+    help: "Anonymous retrieval block fetch validation outcomes (success / skipped / failure.other)",
+    labelNames: ["checkType", "providerId", "providerName", "providerStatus", "value", "network"] as const,
   }),
   // Storage provider metrics: absolute counts, independent of query filters.
   makeGaugeProvider({
@@ -370,7 +441,9 @@ const metricProviders = [
     RetrievalCheckMetrics,
     DiscoverabilityCheckMetrics,
     DataSetCreationCheckMetrics,
+    DataSetLifecycleCheckMetrics,
     PullCheckCheckMetrics,
+    SampledRetrievalCheckMetrics,
     WalletBalanceCollector,
     // HTTP metrics interceptor
     {
@@ -385,7 +458,9 @@ const metricProviders = [
     RetrievalCheckMetrics,
     DiscoverabilityCheckMetrics,
     DataSetCreationCheckMetrics,
+    DataSetLifecycleCheckMetrics,
     PullCheckCheckMetrics,
+    SampledRetrievalCheckMetrics,
     WalletBalanceCollector,
   ],
 })

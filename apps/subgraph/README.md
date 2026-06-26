@@ -2,10 +2,19 @@
 
 A dealbot-owned Graph Protocol subgraph.
 
-## What it indexes
+What it indexes
 
 - **PDPVerifier** — dataset lifecycle, piece add/remove, proving periods.
 - **FilecoinWarmStorageService (FWSS)** — payer/service-provider metadata, `withIPFSIndexing` flag, `ipfsRootCID` per piece, service/payment termination.
+
+## Motivation
+
+The motivation comes from the sampled retrieval check from [#427](https://github.com/FilOzone/dealbot/issues/427): probing SPs for pieces dealbot did not create, so an SP can't preferentially serve pieces when "the teacher is watching". To pick those pieces fairly we need to query any FWSS-managed piece on a given SP, including `withIPFSIndexing` and `ipfsRootCID`, uniformly at random across the SP's entire active piece set. Neither existing subgraph supports that shape:
+
+- [FilOzone/pdp-explorer](https://github.com/FilOzone/pdp-explorer): indexes the PDPVerifier contract only. No FWSS-level fields, so it can't tell us whether a piece is CAR-validatable (`withIPFSIndexing`) or what its `ipfsRootCID` is.
+- [FIL-Builders/fwss-subgraph](https://github.com/FIL-Builders/fwss-subgraph): FWSS-centric, but doesn't expose the joined PDP+FWSS view we need (active piece set per SP, with IPFS metadata attached) and isn't on a release cadence we control.
+
+`@dealbot/subgraph` is intentionally a strict functional superset of `pdp-explorer`: same PDPVerifier coverage, plus the FWSS fields we need. Once we're confident in its correct operation it can become a drop-in replacement for `PDP_SUBGRAPH_ENDPOINT`, but for now the basic retrieval and data-retention checks continue to use `pdp-explorer`.
 
 ## Contract ABIs
 
@@ -31,20 +40,7 @@ pnpm build:calibration
 pnpm test
 ```
 
-## Deploy
+## Release and Deployment
 
-Requires `goldsky` CLI authenticated via `GOLDSKY_API_KEY`.
+The subgraph is versioned and released independently of `apps/backend` and `apps/web`. The end-to-end checklist lives in [`docs/release-subgraph.md`](../../docs/release-subgraph.md).
 
-```bash
-export VERSION=0.1.0
-pnpm build:calibration
-pnpm deploy:calibration
-
-pnpm build:mainnet
-pnpm deploy:mainnet
-```
-
-Goldsky slots (slugs TBD):
-
-- `dealbot-mainnet/<version>` — mainnet
-- `dealbot-calibration/<version>` — calibration

@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { setTimeout as setTimeoutAsync } from "node:timers/promises";
 import { METADATA_KEYS, SIZE_CONSTANTS, Synapse } from "@filoz/synapse-sdk";
 import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
@@ -35,7 +34,7 @@ import {
   RetrievalCheckMetrics,
 } from "../metrics-prometheus/check-metrics.service.js";
 import { RetrievalAddonsService } from "../retrieval-addons/retrieval-addons.service.js";
-import type { RetrievalConfiguration } from "../retrieval-addons/types.js";
+import type { RetrievalConfiguration, RetrievalExecutionResult } from "../retrieval-addons/types.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
 import type { PDPProviderEx } from "../wallet-sdk/wallet-sdk.types.js";
 
@@ -288,6 +287,7 @@ export class DealService {
     let retrievalStatusEmitted = false;
     let preUploadTerminated = false;
     let dataStorageStatusEmitted = false;
+    let retrievalResults: RetrievalExecutionResult[] = [];
 
     let deal: Deal;
     if (existingDealId) {
@@ -596,6 +596,7 @@ export class DealService {
         dealLogContext,
       );
       signal?.throwIfAborted();
+      retrievalResults = retrievalTest.results;
 
       this.retrievalMetrics.recordResultMetrics(retrievalTest.results, providerLabels);
       this.retrievalMetrics.recordStatus(
@@ -690,7 +691,7 @@ export class DealService {
         }
       }
       if (!preUploadTerminated) {
-        await this.saveDeal(deal, dealLogContext);
+        await this.saveDeal(deal, retrievalResults, dealLogContext);
       }
     }
   }
@@ -751,11 +752,12 @@ export class DealService {
    * Repair a PDP-terminated dataset (FWSS may or may not have flipped pdpEndEpoch).
    *
    * Idempotent sequence:
-   *   1. Read FWSS pdpEndEpoch. If already non-zero, skip the on-chain call.
-   *   2. Otherwise call terminateDataSet, wait for the tx receipt, then poll
-   *      FWSS pdpEndEpoch until non-zero. A revert that matches a known
-   *      already-terminated message is treated as a no-op and falls through
-   *      to the poll, so a partially-completed prior run can complete.
+   *   1. Read FWSS pdpEndEpoch. If already non-zero, skip termination.
+   *   2. Otherwise call provider-relayed terminateService: the SDK signs the
+   *      EIP-712 authorization and the provider relays the on-chain tx. The call
+   *      resolves with the termination endEpoch once FWSS reports the service
+   *      terminated. The SDK treats an already-terminated or in-flight service as
+   *      a no-op, so a partially-completed prior run can complete.
    *   3. Mark every Deal row with this dataSetId as cleaned up in a single
    *      transaction (filtered on cleaned_up=false, so re-runs do not double-write).
    */
@@ -764,7 +766,6 @@ export class DealService {
     dataSetId: bigint,
     network: Network,
     signal?: AbortSignal,
-    pollTimeoutMs = 60_000,
   ): Promise<{ dealsAffected: number; pdpEndEpoch: bigint }> {
     signal?.throwIfAborted();
     const synapse = this.walletSdkService.getSynapse(network) ?? (await this.createSynapseInstance(network));
@@ -777,46 +778,29 @@ export class DealService {
       pdpEndEpoch = existing.pdpEndEpoch;
       this.logger.log({
         event: "dataset_already_terminated",
-        message: "FWSS pdpEndEpoch already set; skipping terminateDataSet",
+        message: "FWSS pdpEndEpoch already set; skipping terminateService",
         providerAddress,
         dataSetId: dataSetId.toString(),
         pdpEndEpoch: pdpEndEpoch.toString(),
       });
     } else {
-      let txHash: `0x${string}` | undefined;
-      try {
-        txHash = await awaitWithAbort(synapse.storage.terminateDataSet({ dataSetId }), signal);
-      } catch (error) {
-        if (signal?.aborted) throw error;
-        const message = error instanceof Error ? error.message : String(error);
-        if (!/already.*terminat|service.*terminated|pdpEndEpoch.*set/i.test(message)) {
-          throw error;
-        }
-        this.logger.warn({
-          event: "dataset_terminate_already_handled",
-          message: "terminateDataSet reverted as already-terminated; continuing to poll",
-          providerAddress,
-          dataSetId: dataSetId.toString(),
-          revert: message,
-        });
-      }
       signal?.throwIfAborted();
-      if (txHash != null) {
-        try {
-          await awaitWithAbort(synapse.client.waitForTransactionReceipt({ hash: txHash }), signal);
-        } catch (error) {
-          if (signal?.aborted) throw error;
-          this.logger.warn({
-            event: "dataset_terminate_receipt_wait_failed",
-            message: "Receipt wait failed; falling back to FWSS state poll",
-            providerAddress,
-            dataSetId: dataSetId.toString(),
-            txHash,
-            error: toStructuredError(error),
-          });
-        }
-      }
-      pdpEndEpoch = await this.waitForPdpEndEpoch(dataSetId, pollTimeoutMs, network, signal);
+      const result = await awaitWithAbort(
+        synapse.storage.terminateService({
+          dataSetId,
+          onSubmitted: (txHash) => {
+            this.logger.log({
+              event: "dataset_terminate_submitted",
+              message: "Provider-relayed termination transaction submitted",
+              providerAddress,
+              dataSetId: dataSetId.toString(),
+              txHash,
+            });
+          },
+        }),
+        signal,
+      );
+      pdpEndEpoch = result.endEpoch;
     }
 
     const result = await this.dealRepository.manager.transaction(async (manager) => {
@@ -837,33 +821,6 @@ export class DealService {
     });
 
     return { dealsAffected: result, pdpEndEpoch };
-  }
-
-  /**
-   * Poll FWSS getDataSet({dataSetId}).pdpEndEpoch until non-zero. Exponential
-   * backoff capped at 8s. Throws on timeout.
-   */
-  private async waitForPdpEndEpoch(
-    dataSetId: bigint,
-    timeoutMs: number,
-    network: Network,
-    signal?: AbortSignal,
-  ): Promise<bigint> {
-    const { warmStorageService } = this.walletSdkService.getWalletServices(network);
-    const start = Date.now();
-    let delay = 1_000;
-    while (Date.now() - start < timeoutMs) {
-      const info = await awaitWithAbort(warmStorageService.getDataSet({ dataSetId }), signal);
-      if (info != null && info.pdpEndEpoch !== 0n) {
-        return info.pdpEndEpoch;
-      }
-      const remaining = timeoutMs - (Date.now() - start);
-      if (remaining <= 0) break;
-      const wait = Math.min(delay, remaining);
-      await setTimeoutAsync(wait, undefined, { signal });
-      delay = Math.min(delay * 2, 8_000);
-    }
-    throw new Error(`Timeout waiting for FWSS pdpEndEpoch != 0 on dataSetId ${dataSetId.toString()}`);
   }
 
   /**
@@ -1111,7 +1068,11 @@ export class DealService {
     deal.pieceId = uploadResult.pieceId ?? deal.pieceId;
   }
 
-  private async saveDeal(deal: Deal, dealLogContext: DealLogContext): Promise<void> {
+  private async saveDeal(
+    deal: Deal,
+    retrievalResults: RetrievalExecutionResult[],
+    dealLogContext: DealLogContext,
+  ): Promise<void> {
     this.clickhouseService.insert("data_storage_checks", {
       timestamp: Date.now(),
       probe_location: this.clickhouseService.probeLocation,
@@ -1135,6 +1096,12 @@ export class DealService {
       ipni_verified_at: deal.ipniVerifiedAt?.getTime() ?? null,
       ipni_verified_cids_count: deal.ipniVerifiedCidsCount ?? null,
       ipni_unverified_cids_count: deal.ipniUnverifiedCidsCount ?? null,
+      "retrieval_checks.method": retrievalResults.map((r) => r.method),
+      "retrieval_checks.status": retrievalResults.map((r) => (r.success ? "success" : "failure")),
+      "retrieval_checks.http_response_code": retrievalResults.map((r) => r.metrics.statusCode || null),
+      "retrieval_checks.first_byte_ms": retrievalResults.map((r) => (r.success ? r.metrics.ttfb : null)),
+      "retrieval_checks.last_byte_ms": retrievalResults.map((r) => (r.success ? r.metrics.latency : null)),
+      "retrieval_checks.bytes_retrieved": retrievalResults.map((r) => (r.success ? r.metrics.responseSize : null)),
     });
 
     try {

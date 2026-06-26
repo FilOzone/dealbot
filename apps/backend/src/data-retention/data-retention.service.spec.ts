@@ -10,7 +10,7 @@ import { buildCheckMetricLabels } from "../metrics-prometheus/check-metric-label
 import type { PDPSubgraphService } from "../pdp-subgraph/pdp-subgraph.service.js";
 import type { ProviderDataSetResponse } from "../pdp-subgraph/types.js";
 import type { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
-import { DataRetentionService } from "./data-retention.service.js";
+import { DataRetentionDependencyError, DataRetentionService } from "./data-retention.service.js";
 
 const PROVIDER_A = "0xd8da6bf26964af9d7eed9e03e53415d37aa96045" as const;
 const PROVIDER_B = "0xab5801a7d398351b8be11c439e05c5b3259aec9b" as const;
@@ -162,15 +162,14 @@ describe("DataRetentionService", () => {
     );
   });
 
-  it("returns early when pdpSubgraphEndpoint is empty", async () => {
+  it("throws early when pdpSubgraphEndpoint is empty", async () => {
     (configServiceMock.get as ReturnType<typeof vi.fn>).mockImplementation((key: keyof IConfig) => {
       if (key === "activeNetworks") return ["calibration"];
       if (key === "networks") return { calibration: { pdpSubgraphEndpoint: "", network: "calibration" } };
       return undefined;
     });
 
-    await service.pollDataRetention("calibration");
-
+    await expect(service.pollDataRetention("calibration")).rejects.toBeInstanceOf(DataRetentionDependencyError);
     expect(pdpSubgraphServiceMock.fetchSubgraphMeta).not.toHaveBeenCalled();
     expect(pdpSubgraphServiceMock.fetchProvidersWithDatasets).not.toHaveBeenCalled();
   });
@@ -421,10 +420,61 @@ describe("DataRetentionService", () => {
     });
   });
 
-  it("catches and logs errors without rethrowing", async () => {
+  it("fails the job when the subgraph query is unavailable", async () => {
     pdpSubgraphServiceMock.fetchProvidersWithDatasets.mockRejectedValueOnce(new Error("subgraph down"));
 
-    // Should not throw
+    // A dependency outage must surface as a job failure, not a silent success.
+    await expect(service.pollDataRetention("calibration")).rejects.toBeInstanceOf(DataRetentionDependencyError);
+  });
+
+  it("fails the job when fetching subgraph meta fails", async () => {
+    pdpSubgraphServiceMock.fetchSubgraphMeta.mockRejectedValueOnce(new Error("subgraph meta down"));
+
+    await expect(service.pollDataRetention("calibration")).rejects.toBeInstanceOf(DataRetentionDependencyError);
+    expect(pdpSubgraphServiceMock.fetchProvidersWithDatasets).not.toHaveBeenCalled();
+  });
+
+  it("preserves the original error type for unexpected (non-dependency) failures", async () => {
+    // A logic/programming error must not be mislabeled as a dependency outage.
+    const bug = new TypeError("unexpected bug");
+    walletSdkServiceMock.getTestingProviders.mockImplementationOnce(() => {
+      throw bug;
+    });
+
+    await expect(service.pollDataRetention("calibration")).rejects.toBe(bug);
+  });
+
+  it("fails the job when baselines cannot be loaded from the database", async () => {
+    mockBaselineRepository.find.mockRejectedValueOnce(new Error("DB connection failed"));
+
+    await expect(service.pollDataRetention("calibration")).rejects.toBeInstanceOf(DataRetentionDependencyError);
+    // Aborts before touching the subgraph.
+    expect(pdpSubgraphServiceMock.fetchSubgraphMeta).not.toHaveBeenCalled();
+  });
+
+  it("fails the job when the subgraph endpoint is missing in production", async () => {
+    (configServiceMock.get as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
+      if (key === "activeNetworks") return ["calibration"];
+      if (key === "networks") return { calibration: { pdpSubgraphEndpoint: "", network: "calibration" } };
+      if (key === "app") return { env: "production" };
+      return undefined;
+    });
+
+    await expect(service.pollDataRetention("calibration")).rejects.toBeInstanceOf(DataRetentionDependencyError);
+  });
+
+  it("stays a success when the provider set is empty but healthy", async () => {
+    walletSdkServiceMock.getTestingProviders.mockReturnValueOnce([]);
+
+    await expect(service.pollDataRetention("calibration")).resolves.toBeUndefined();
+  });
+
+  it("stays a success when a single provider fails to process (transient per-provider failure)", async () => {
+    // Provider returned from subgraph but absent from the local cache rejects in processing,
+    // which is a transient per-provider failure and must not fail the whole job.
+    const PROVIDER_C = "0x1234567890123456789012345678901234567890";
+    pdpSubgraphServiceMock.fetchProvidersWithDatasets.mockResolvedValueOnce([makeProvider({ address: PROVIDER_C })]);
+
     await expect(service.pollDataRetention("calibration")).resolves.toBeUndefined();
   });
 
@@ -563,7 +613,7 @@ describe("DataRetentionService", () => {
     expect(pdpSubgraphServiceMock.fetchProvidersWithDatasets.mock.calls[1][1].addresses).toHaveLength(25);
   });
 
-  it("continues processing next batch if one batch fails", async () => {
+  it("processes all remaining batches before failing when one batch fails", async () => {
     const manyProviders = Array.from({ length: 75 }, (_, i) => ({
       id: i + 1,
       serviceProvider: `0x${i.toString().padStart(40, "0")}`,
@@ -577,7 +627,9 @@ describe("DataRetentionService", () => {
       .mockRejectedValueOnce(new Error("Subgraph timeout"))
       .mockResolvedValueOnce([]);
 
-    await service.pollDataRetention("calibration");
+    // The poll attempts every batch so healthy data is recorded, then fails the job
+    // because the subgraph dependency errored.
+    await expect(service.pollDataRetention("calibration")).rejects.toBeInstanceOf(DataRetentionDependencyError);
 
     // Both batches should be attempted
     expect(pdpSubgraphServiceMock.fetchProvidersWithDatasets).toHaveBeenCalledTimes(2);
@@ -899,10 +951,10 @@ describe("DataRetentionService", () => {
         { id: 2, serviceProvider: PROVIDER_B, name: "Provider B", isApproved: false },
       ]);
 
-      // Simulate processing error
+      // Simulate a subgraph query failure
       pdpSubgraphServiceMock.fetchProvidersWithDatasets.mockRejectedValueOnce(new Error("Processing failed"));
 
-      await service.pollDataRetention("calibration");
+      await expect(service.pollDataRetention("calibration")).rejects.toBeInstanceOf(DataRetentionDependencyError);
 
       // Should NOT attempt cleanup due to processing errors
       expect(mockSPRepository.find).not.toHaveBeenCalled();
@@ -999,7 +1051,7 @@ describe("DataRetentionService", () => {
       expect(incCalls).toEqual(expect.arrayContaining([[10], [25]]));
     });
 
-    it("reloads baselines from DB on every poll", async () => {
+    it("only loads baselines from DB once across multiple polls", async () => {
       pdpSubgraphServiceMock.fetchProvidersWithDatasets.mockResolvedValue([makeProvider()]);
 
       await service.pollDataRetention("calibration");
@@ -1084,8 +1136,8 @@ describe("DataRetentionService", () => {
 
       pdpSubgraphServiceMock.fetchProvidersWithDatasets.mockResolvedValue([makeProvider()]);
 
-      // First poll: DB load fails, poll bails out to avoid emitting bloated values
-      await service.pollDataRetention("calibration");
+      // First poll: DB load fails, poll fails the job to avoid emitting bloated values
+      await expect(service.pollDataRetention("calibration")).rejects.toBeInstanceOf(DataRetentionDependencyError);
       expect(mockBaselineRepository.find).toHaveBeenCalledTimes(1);
       expect(pdpSubgraphServiceMock.fetchSubgraphMeta).not.toHaveBeenCalled();
       expect(counterMock.labels).not.toHaveBeenCalled();
