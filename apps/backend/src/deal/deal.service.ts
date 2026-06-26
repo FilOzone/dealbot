@@ -806,7 +806,7 @@ export class DealService {
     const result = await this.dealRepository.manager.transaction(async (manager) => {
       const update = await manager
         .getRepository(Deal)
-        .update({ dataSetId, cleanedUp: false }, { cleanedUp: true, cleanedUpAt: new Date() });
+        .update({ dataSetId, network, cleanedUp: false }, { cleanedUp: true, cleanedUpAt: new Date() });
       return update.affected ?? 0;
     });
 

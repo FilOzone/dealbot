@@ -26,6 +26,7 @@ export type PieceRetrievalResult = {
   commPValid: boolean;
   errorMessage?: string;
   aborted?: boolean;
+  tooLarge?: boolean;
 };
 
 /** A block decoded from the CAR, retained for IPNI verification + block fetch. */

@@ -4,6 +4,7 @@ import { toStructuredError } from "../common/logging.js";
 import type { Network } from "../common/types.js";
 import { HttpClientService } from "../http-client/http-client.service.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
+import { SAMPLED_MAX_PIECE_DOWNLOAD_BYTES } from "./sampled-piece-selector.service.js";
 import type { PieceRetrievalResult } from "./types.js";
 
 @Injectable()
@@ -53,12 +54,40 @@ export class PieceRetrievalService {
     try {
       const result = await this.httpClientService.requestWithMetrics<Buffer>(url, {
         httpVersion: "2",
+        maxBytes: SAMPLED_MAX_PIECE_DOWNLOAD_BYTES,
         signal,
       });
 
       const { metrics } = result;
       const isHttpSuccess = metrics.statusCode >= 200 && metrics.statusCode < 300;
       const throughputBps = metrics.totalTime > 0 ? metrics.responseSize / (metrics.totalTime / 1000) : 0;
+
+      if (result.limitExceeded) {
+        this.logger.warn({
+          event: "piece_fetch_too_large",
+          message: "Piece fetch exceeded max download size; aborted to protect worker memory",
+          url,
+          pieceCid,
+          spAddress,
+          bytesReceived: metrics.responseSize,
+          maxBytes: SAMPLED_MAX_PIECE_DOWNLOAD_BYTES,
+        });
+
+        return {
+          success: false,
+          pieceCid,
+          bytesReceived: metrics.responseSize,
+          pieceBytes: null,
+          latencyMs: metrics.totalTime,
+          ttfbMs: metrics.ttfb,
+          throughputBps,
+          statusCode: metrics.statusCode,
+          httpSuccess: false,
+          commPValid: false,
+          errorMessage: `Piece exceeded max download size of ${SAMPLED_MAX_PIECE_DOWNLOAD_BYTES} bytes`,
+          tooLarge: true,
+        };
+      }
 
       if (result.aborted) {
         this.logger.warn({

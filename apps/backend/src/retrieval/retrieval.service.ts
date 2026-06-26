@@ -461,9 +461,6 @@ export class RetrievalService {
   }
 
   private async findStorageProvider(address: string, network: Network): Promise<StorageProvider | null> {
-    // storage_providers is keyed by (address, network); the same SP address can
-    // exist on both chains, so the network filter is required to avoid returning
-    // the wrong row.
     return this.spRepository.findOne({ where: { address, network } });
   }
 
