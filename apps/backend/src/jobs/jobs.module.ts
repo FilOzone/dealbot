@@ -9,6 +9,7 @@ import { DealModule } from "../deal/deal.module.js";
 import { PieceCleanupModule } from "../piece-cleanup/piece-cleanup.module.js";
 import { PullCheckModule } from "../pull-check/pull-check.module.js";
 import { RetrievalModule } from "../retrieval/retrieval.module.js";
+import { SampledRetrievalModule } from "../sampled-retrieval/sampled-retrieval.module.js";
 import { WalletSdkModule } from "../wallet-sdk/wallet-sdk.module.js";
 import { JobsService } from "./jobs.service.js";
 import { JobScheduleRepository } from "./repositories/job-schedule.repository.js";
@@ -24,6 +25,7 @@ import { JobScheduleRepository } from "./repositories/job-schedule.repository.js
     DataRetentionModule,
     PieceCleanupModule,
     PullCheckModule,
+    SampledRetrievalModule,
   ],
   providers: [JobsService, JobScheduleRepository],
 })

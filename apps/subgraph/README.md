@@ -9,7 +9,7 @@ What it indexes
 
 ## Motivation
 
-The motivation comes from the anonymous retrieval check from [#427](https://github.com/FilOzone/dealbot/issues/427): probing SPs for pieces dealbot did not create, so an SP can't preferentially serve pieces when "the teacher is watching". To pick those pieces fairly we need to query any FWSS-managed piece on a given SP, including `withIPFSIndexing` and `ipfsRootCID`, uniformly at random across the SP's entire active piece set. Neither existing subgraph supports that shape:
+The motivation comes from the sampled retrieval check from [#427](https://github.com/FilOzone/dealbot/issues/427): probing SPs for pieces dealbot did not create, so an SP can't preferentially serve pieces when "the teacher is watching". To pick those pieces fairly we need to query any FWSS-managed piece on a given SP, including `withIPFSIndexing` and `ipfsRootCID`, uniformly at random across the SP's entire active piece set. Neither existing subgraph supports that shape:
 
 - [FilOzone/pdp-explorer](https://github.com/FilOzone/pdp-explorer): indexes the PDPVerifier contract only. No FWSS-level fields, so it can't tell us whether a piece is CAR-validatable (`withIPFSIndexing`) or what its `ipfsRootCID` is.
 - [FIL-Builders/fwss-subgraph](https://github.com/FIL-Builders/fwss-subgraph): FWSS-centric, but doesn't expose the joined PDP+FWSS view we need (active piece set per SP, with IPFS metadata attached) and isn't on a release cadence we control.

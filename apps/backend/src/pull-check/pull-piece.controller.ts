@@ -1,5 +1,5 @@
 import { PassThrough } from "node:stream";
-import { asPieceCID } from "@filoz/synapse-core/piece";
+import { tryFrom as pieceTryFrom } from "@filoz/synapse-core/piece";
 import { Controller, Get, Logger, NotFoundException, Param, Res, UseGuards } from "@nestjs/common";
 import { ApiResponse, ApiTags } from "@nestjs/swagger";
 import { ThrottlerGuard } from "@nestjs/throttler";
@@ -36,7 +36,7 @@ export class PieceSourceController {
       throw new NotFoundException("pieceCid is required");
     }
 
-    if (!asPieceCID(pieceCid)) {
+    if (!pieceTryFrom(pieceCid)) {
       throw new NotFoundException("pieceCid is invalid");
     }
 

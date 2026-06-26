@@ -20,6 +20,7 @@ import { DealService } from "../deal/deal.service.js";
 import { PieceCleanupService } from "../piece-cleanup/piece-cleanup.service.js";
 import { PullCheckService } from "../pull-check/pull-check.service.js";
 import { RetrievalService } from "../retrieval/retrieval.service.js";
+import { SampledRetrievalService } from "../sampled-retrieval/sampled-retrieval.service.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
 import { provisionNextMissingDataSet } from "./data-set-creation.handler.js";
 import {
@@ -33,6 +34,7 @@ import { JobScheduleRepository } from "./repositories/job-schedule.repository.js
 type SpJobType =
   | "deal"
   | "retrieval"
+  | "retrieval_sampled"
   | "data_set_creation"
   | "data_set_lifecycle_check"
   | "piece_cleanup"
@@ -40,6 +42,7 @@ type SpJobType =
 const SP_JOB_TYPES: ReadonlySet<string> = new Set<string>([
   "deal",
   "retrieval",
+  "retrieval_sampled",
   "data_set_creation",
   "data_set_lifecycle_check",
   "piece_cleanup",
@@ -86,6 +89,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     private readonly dataRetentionService: DataRetentionService,
     private readonly pieceCleanupService: PieceCleanupService,
     private readonly pullCheckService: PullCheckService,
+    private readonly sampledRetrievalService: SampledRetrievalService,
     @InjectMetric("jobs_queued")
     private readonly jobsQueuedGauge: Gauge,
     @InjectMetric("jobs_retry_scheduled")
@@ -215,6 +219,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       const longestJobTimeoutSec = Math.max(
         jobs.dealJobTimeoutSeconds,
         jobs.retrievalJobTimeoutSeconds,
+        jobs.sampledRetrievalJobTimeoutSeconds,
         jobs.dataSetCreationJobTimeoutSeconds,
         jobs.dataSetLifecycleCheckJobTimeoutSeconds,
         pullPiece.pullCheckJobTimeoutSeconds,
@@ -340,6 +345,10 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
           }
           if (job.data.jobType === "retrieval") {
             await this.handleRetrievalJob(job);
+            return;
+          }
+          if (job.data.jobType === "retrieval_sampled") {
+            await this.handleSampledRetrievalJob(job);
             return;
           }
           if (job.data.jobType === "data_set_creation") {
@@ -661,6 +670,72 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
           error: toStructuredError(error),
         });
         // Jobs are not retried once attempted; failures are handled by the next schedule tick.
+        throw error;
+      } finally {
+        clearTimeout(timeoutId);
+      }
+    });
+  }
+
+  private async handleSampledRetrievalJob(job: SpJob): Promise<void> {
+    const data = job.data;
+    const spAddress = data.spAddress;
+    const now = new Date();
+    const maintenance = this.getMaintenanceWindowStatus(now);
+    if (maintenance.active) {
+      this.logMaintenanceSkip(`retrieval_sampled job for ${spAddress}`, maintenance.window?.label, {
+        jobId: job.id,
+        providerAddress: spAddress,
+        providerId: this.walletSdkService.getProviderInfo(spAddress)?.id,
+        providerName: this.walletSdkService.getProviderInfo(spAddress)?.name,
+      });
+      await this.deferJobForMaintenance("retrieval_sampled", data, maintenance, now);
+      return;
+    }
+
+    // Create AbortController for job timeout enforcement
+    const abortController = new AbortController();
+    const timeoutSeconds = this.configService.get("jobs").sampledRetrievalJobTimeoutSeconds;
+    const timeoutMs = Math.max(60000, timeoutSeconds * 1000);
+    const effectiveTimeoutSeconds = Math.round(timeoutMs / 1000);
+    const abortReason = new Error(`Sampled retrieval job timeout (${effectiveTimeoutSeconds}s) for ${spAddress}`);
+    const timeoutId = setTimeout(() => {
+      abortController.abort(abortReason);
+    }, timeoutMs);
+
+    await this.recordJobExecution("retrieval_sampled", async () => {
+      const logContext = await this.resolveRunnableProviderJobContext(
+        "retrieval_sampled",
+        spAddress,
+        job.id,
+        "Sampled retrieval job skipped: provider is blocked for scheduled retrieval checks",
+      );
+      if (logContext == null) {
+        clearTimeout(timeoutId);
+        return "success";
+      }
+      try {
+        await this.sampledRetrievalService.performForProvider(spAddress, abortController.signal, logContext);
+        return "success";
+      } catch (error) {
+        if (abortController.signal.aborted) {
+          const reason = abortController.signal.reason;
+          const reasonMessage = reason instanceof Error ? reason.message : String(reason ?? "");
+          this.logger.error({
+            ...logContext,
+            event: "sampled_retrieval_job_aborted",
+            message: reasonMessage || "Sampled retrieval job aborted after timeout",
+            timeoutSeconds: effectiveTimeoutSeconds,
+            error: toStructuredError(reason ?? error),
+          });
+          return "aborted";
+        }
+        this.logger.error({
+          ...logContext,
+          event: "sampled_retrieval_job_failed",
+          message: "Sampled retrieval job failed",
+          error: toStructuredError(error),
+        });
         throw error;
       } finally {
         clearTimeout(timeoutId);
@@ -1080,7 +1155,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     if (resumeAt == null) {
       return;
     }
-    await this.safeSend(jobType, SP_WORK_QUEUE, data, { startAfter: resumeAt });
+    await this.safeSend(jobType, this.mapJobName(jobType), data, { startAfter: resumeAt });
   }
 
   /**
@@ -1133,6 +1208,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
   private getIntervalSecondsForRates(): {
     dealIntervalSeconds: number;
     retrievalIntervalSeconds: number;
+    sampledRetrievalIntervalSeconds: number;
     dataSetCreationIntervalSeconds: number;
     dataSetLifecycleCheckIntervalSeconds: number;
     dataRetentionPollIntervalSeconds: number;
@@ -1162,9 +1238,13 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     const providersRefreshIntervalSeconds = scheduling.providersRefreshIntervalSeconds;
     const pullPieceCleanupIntervalSeconds = pullPieceConfig.pullPieceCleanupIntervalSeconds;
 
+    const sampledRetrievalsPerHour = jobsConfig.sampledRetrievalsPerSpPerHour;
+    const sampledRetrievalIntervalSeconds = Math.max(1, Math.round(3600 / sampledRetrievalsPerHour));
+
     return {
       dealIntervalSeconds,
       retrievalIntervalSeconds,
+      sampledRetrievalIntervalSeconds,
       dataSetCreationIntervalSeconds,
       dataSetLifecycleCheckIntervalSeconds,
       dataRetentionPollIntervalSeconds,
@@ -1187,6 +1267,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     const {
       dealIntervalSeconds,
       retrievalIntervalSeconds,
+      sampledRetrievalIntervalSeconds,
       dataSetCreationIntervalSeconds,
       dataSetLifecycleCheckIntervalSeconds,
       dataRetentionPollIntervalSeconds,
@@ -1210,6 +1291,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     const phaseMs = this.schedulePhaseSeconds() * 1000;
     const dealStartAt = new Date(now.getTime() + phaseMs);
     const retrievalStartAt = new Date(now.getTime() + phaseMs);
+    const sampledRetrievalStartAt = new Date(now.getTime() + phaseMs);
     const dataSetCreationStartAt = new Date(now.getTime() + phaseMs);
     const dataSetLifecycleCheckStartAt = new Date(now.getTime() + phaseMs);
     const dataRetentionPollStartAt = new Date(now.getTime() + phaseMs);
@@ -1220,6 +1302,10 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     const lifecycleCheckScheduleEnabled = this.configService.get("jobs", { infer: true }).dataSetLifecycleCheckEnabled;
     const cleanupStartAt = new Date(now.getTime() + phaseMs);
     const pullCheckStartAt = new Date(now.getTime() + phaseMs);
+
+    // Sampled retrieval depends on the dealbot-owned subgraph. Without SUBGRAPH_ENDPOINT every
+    // job would fail in SubgraphService.samplePiece(), so gate schedule creation on it.
+    const sampledRetrievalEnabled = Boolean(this.configService.get("blockchain").subgraphEndpoint);
 
     const spBlocklistsCfg = this.configService.get<ISpBlocklistConfig>("spBlocklists");
     const unblockedAddresses = providers
@@ -1243,6 +1329,15 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         retrievalIntervalSeconds,
         retrievalStartAt,
       );
+      if (sampledRetrievalEnabled) {
+        await this.jobScheduleRepository.upsertSchedule(
+          "retrieval_sampled",
+          address,
+          network,
+          sampledRetrievalIntervalSeconds,
+          sampledRetrievalStartAt,
+        );
+      }
       if (minDataSets >= 1) {
         await this.jobScheduleRepository.upsertSchedule(
           "data_set_creation",
@@ -1431,6 +1526,8 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         return SP_WORK_QUEUE;
       case "pull_check":
         return SP_WORK_QUEUE;
+      case "retrieval_sampled":
+        return SP_WORK_QUEUE;
       case "data_retention_poll":
         return DATA_RETENTION_POLL_QUEUE;
       case "providers_refresh":
@@ -1448,6 +1545,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     if (
       row.job_type === "deal" ||
       row.job_type === "retrieval" ||
+      row.job_type === "retrieval_sampled" ||
       row.job_type === "data_set_creation" ||
       row.job_type === "data_set_lifecycle_check" ||
       row.job_type === "piece_cleanup" ||
@@ -1530,6 +1628,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     const jobTypes: JobType[] = [
       "deal",
       "retrieval",
+      "retrieval_sampled",
       "data_set_creation",
       "data_set_lifecycle_check",
       "piece_cleanup",

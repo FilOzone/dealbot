@@ -1028,7 +1028,7 @@ describe("DataRetentionService", () => {
       expect(incCalls).toEqual(expect.arrayContaining([[10], [25]]));
     });
 
-    it("reloads baselines from DB on every poll", async () => {
+    it("only loads baselines from DB once across multiple polls", async () => {
       pdpSubgraphServiceMock.fetchProvidersWithDatasets.mockResolvedValue([makeProvider()]);
 
       await service.pollDataRetention();
