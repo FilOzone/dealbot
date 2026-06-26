@@ -16,10 +16,13 @@ export const coerceFloat = (value: string | undefined, fallback: number): number
   value ? Number.parseFloat(value) : fallback;
 
 /**
- * Coerces a boolean env value, matching Joi's case-insensitive `true`/`false`.
- * Anything unrecognized returns the fallback (Joi rejects such values at boot
- * for registered keys, so the loader never sees them there). Notably `"0"`,
- * `"no"`, and `"False"` are NOT treated as `true`.
+ * Coerces a boolean env value, matching Joi's case-insensitive `true`/`false`
+ * (so `"true"`, `"TRUE"`, `"false"`, `"False"` all parse to the obvious value).
+ * Any other string — `"0"`, `"1"`, `"no"`, `"yes"`, etc. — is unrecognized and
+ * returns the fallback rather than parsing as `false`: for a key whose default
+ * is `true` (e.g. `CHECK_DATASET_CREATION_FEES`), setting `"0"`/`"no"` does NOT
+ * disable it. (Joi rejects unrecognized values at boot for registered keys, so
+ * the loader never sees them there.)
  */
 export const coerceBoolean = (value: string | undefined, fallback: boolean): boolean => {
   if (value === undefined) return fallback;
