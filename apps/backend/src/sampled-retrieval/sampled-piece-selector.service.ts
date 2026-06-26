@@ -25,6 +25,26 @@ const SIZE_BUCKETS: Record<SizeBucket, SizeRange> = {
   large: { min: 50n * MIB, max: 100n * MIB - 1n },
 };
 
+/**
+ * Hard ceiling on bytes buffered for a single anonymous piece download
+ * (`GET /piece/{cid}`). The endpoint is fed untrusted SP bytes with no enforced
+ * length, so the download is aborted once it exceeds this (issue #607) rather
+ * than risk OOMing the worker.
+ *
+ * Derived from the largest selectable piece so it stays in sync with the buckets.
+ * The 2× margin covers Fr32 padding (the served piece rounds up to the next
+ * Filecoin piece size — a 100 MiB-raw piece can be ~128 MiB on the wire) plus
+ * slack, so legitimate large-bucket pieces are never falsely aborted.
+ */
+export const SAMPLED_MAX_PIECE_DOWNLOAD_BYTES = Number((SIZE_BUCKETS.large.max + 1n) * 2n);
+
+/**
+ * Hard ceiling on bytes buffered for a single sampled-block fetch
+ * (`GET /ipfs/{cid}?format=raw`). Individual UnixFS blocks are small (≤ ~1–4 MiB);
+ * 8 MiB leaves generous headroom while still bounding an untrusted SP's response.
+ */
+export const SAMPLED_MAX_BLOCK_DOWNLOAD_BYTES = Number(8n * MIB);
+
 // Weights for choosing a bucket per selection. Must sum to 1.
 // When changing these values, also update ./docs/checks/sampled-retrievals.md#piece-selection
 const BUCKET_WEIGHTS: Record<SizeBucket, number> = {

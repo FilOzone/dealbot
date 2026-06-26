@@ -2,6 +2,7 @@ import type { ConfigService } from "@nestjs/config";
 import type { Repository } from "typeorm";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ClickhouseService } from "../clickhouse/clickhouse.service.js";
+import { PieceFetchStatus } from "../clickhouse/clickhouse.types.js";
 import type { IConfig } from "../config/app.config.js";
 import type { StorageProvider } from "../database/entities/storage-provider.entity.js";
 import { BlockFetchStatus, CarParseStatus, IpniCheckStatus, RetrievalStatus } from "../database/types.js";
@@ -215,7 +216,7 @@ describe("SampledRetrievalService", () => {
     expect(insertSpy).toHaveBeenCalledTimes(1);
     const [table, row] = insertSpy.mock.calls[0] as [string, Record<string, unknown>];
     expect(table).toBe("sampled_retrieval_checks");
-    expect(row.piece_fetch_status).toBe(RetrievalStatus.FAILED);
+    expect(row.piece_fetch_status).toBe(PieceFetchStatus.FAILED);
     expect(row.bytes_retrieved).toBe(524288);
     expect(row.first_byte_ms).toBe(150);
     expect(row.last_byte_ms).toBe(42000);
@@ -237,6 +238,40 @@ describe("SampledRetrievalService", () => {
     expect(row.block_fetch_failed_count).toBeNull();
     expect(row.ipni_status).toBe("skipped");
     expect(row.ipni_verify_ms).toBeNull();
+  });
+
+  it("maps a too-large piece fetch to failure.too_large and skips downstream dimensions", async () => {
+    // fetchPiece aborts the download once it exceeds the enforced ceiling and
+    // returns tooLarge=true. The bytes were discarded, so CAR/IPNI/block-fetch
+    // never run, and the status must be distinct from a timeout or plain HTTP fail.
+    const tooLarge: PieceRetrievalResult = {
+      success: false,
+      pieceCid: PIECE.pieceCid,
+      bytesReceived: 209715201,
+      pieceBytes: null,
+      latencyMs: 5000,
+      ttfbMs: 30,
+      throughputBps: 41943040,
+      statusCode: 200,
+      httpSuccess: false,
+      commPValid: false,
+      errorMessage: "Piece exceeded max download size of 209715200 bytes",
+      tooLarge: true,
+    };
+
+    const { service, insertSpy, parseCarSpy, metricsRecordStatusSpy } = makeService({ pieceResult: tooLarge });
+
+    await service.performForProvider(SP_ADDRESS);
+
+    expect(parseCarSpy).not.toHaveBeenCalled();
+    expect(metricsRecordStatusSpy).toHaveBeenCalledWith(expect.anything(), "failure.too_large");
+
+    const [, row] = insertSpy.mock.calls[0] as [string, Record<string, unknown>];
+    expect(row.piece_fetch_status).toBe(RetrievalStatus.FAILED);
+    expect(row.bytes_retrieved).toBe(209715201);
+    expect(row.error_message).toContain("exceeded max download size");
+    expect(row.commp_valid).toBeNull();
+    expect(row.car_status).toBe("skipped");
   });
 
   it("still emits a row when the signal aborts before fetchPiece runs", async () => {
@@ -263,7 +298,7 @@ describe("SampledRetrievalService", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(insertSpy).toHaveBeenCalledTimes(1);
     const [, row] = insertSpy.mock.calls[0] as [string, Record<string, unknown>];
-    expect(row.piece_fetch_status).toBe(RetrievalStatus.FAILED);
+    expect(row.piece_fetch_status).toBe(PieceFetchStatus.FAILED);
     expect(row.error_message).toContain("Sampled retrieval job timeout");
     expect(row.bytes_retrieved).toBeNull();
     expect(row.first_byte_ms).toBeNull();
@@ -294,7 +329,83 @@ describe("SampledRetrievalService", () => {
 
     expect(insertSpy).toHaveBeenCalledTimes(1);
     const [, row] = insertSpy.mock.calls[0] as [string, Record<string, unknown>];
-    expect(row.piece_fetch_status).toBe(RetrievalStatus.FAILED);
+    expect(row.piece_fetch_status).toBe(PieceFetchStatus.FAILED);
+  });
+
+  it("records a skipped check instead of throwing when no candidate piece is found", async () => {
+    const never: PieceRetrievalResult = {
+      success: false,
+      pieceCid: "",
+      bytesReceived: 0,
+      pieceBytes: null,
+      latencyMs: 0,
+      ttfbMs: 0,
+      throughputBps: 0,
+      statusCode: 0,
+      httpSuccess: false,
+      commPValid: false,
+    };
+
+    const { service, insertSpy, fetchSpy, metricsRecordStatusSpy } = makeService({
+      pieceResult: never,
+      piece: null,
+    });
+
+    await expect(service.performForProvider(SP_ADDRESS)).resolves.toBeUndefined();
+
+    // No piece was selected, so no fetch was attempted; only the overall
+    // piece-retrieval status metric is emitted, valued "skipped".
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(metricsRecordStatusSpy).toHaveBeenCalledWith(expect.anything(), "skipped");
+
+    expect(insertSpy).toHaveBeenCalledTimes(1);
+    const [table, row] = insertSpy.mock.calls[0] as [string, Record<string, unknown>];
+    expect(table).toBe("sampled_retrieval_checks");
+    expect(row.piece_fetch_status).toBe(PieceFetchStatus.SKIPPED);
+    expect(row.car_status).toBe("skipped");
+    expect(row.ipni_status).toBe("skipped");
+    expect(row.block_fetch_status).toBe("skipped");
+    // No piece → identity columns carry sentinels and perf columns are null.
+    expect(row.piece_cid).toBe("");
+    expect(row.data_set_id).toBe(0);
+    expect(row.piece_id).toBe(0);
+    expect(row.raw_size).toBe(0);
+    expect(row.with_ipfs_indexing).toBe(false);
+    expect(row.http_response_code).toBeNull();
+    expect(row.bytes_retrieved).toBeNull();
+    expect(row.sp_address).toBe(SP_ADDRESS);
+    expect(row.sp_id).toBe(7);
+    expect(row.error_message).toContain("No candidate piece found");
+  });
+
+  it("throws (preserving abort semantics) when selection returns null due to an aborted signal", async () => {
+    const ac = new AbortController();
+    ac.abort(new Error("Sampled retrieval job timeout (60s) for sp1"));
+
+    const never: PieceRetrievalResult = {
+      success: false,
+      pieceCid: "",
+      bytesReceived: 0,
+      pieceBytes: null,
+      latencyMs: 0,
+      ttfbMs: 0,
+      throughputBps: 0,
+      statusCode: 0,
+      httpSuccess: false,
+      commPValid: false,
+    };
+
+    const { service, insertSpy, metricsRecordStatusSpy } = makeService({
+      pieceResult: never,
+      piece: null,
+    });
+
+    await expect(service.performForProvider(SP_ADDRESS, ac.signal)).rejects.toThrow("aborted during piece selection");
+
+    // An abort is not an empty-pool skip: no check row, no skipped metric — the
+    // job handler maps the aborted signal to "aborted" rather than a failure.
+    expect(insertSpy).not.toHaveBeenCalled();
+    expect(metricsRecordStatusSpy).not.toHaveBeenCalled();
   });
 
   describe("with IPFS indexing", () => {
@@ -339,7 +450,7 @@ describe("SampledRetrievalService", () => {
       expect(checkIpniSpy).toHaveBeenCalledTimes(1);
       expect(checkBlockFetchSpy).toHaveBeenCalledTimes(1);
       const [, row] = insertSpy.mock.calls[0] as [string, Record<string, unknown>];
-      expect(row.piece_fetch_status).toBe(RetrievalStatus.SUCCESS);
+      expect(row.piece_fetch_status).toBe(PieceFetchStatus.SUCCESS);
       expect(row.commp_valid).toBe(true);
       expect(row.car_status).toBe("success");
       expect(row.car_block_count).toBe(42);
@@ -370,7 +481,7 @@ describe("SampledRetrievalService", () => {
       const [, row] = insertSpy.mock.calls[0] as [string, Record<string, unknown>];
       // The piece-fetch path still succeeded — failures are surfaced as
       // independent dimensions, not folded into piece_fetch_status.
-      expect(row.piece_fetch_status).toBe(RetrievalStatus.SUCCESS);
+      expect(row.piece_fetch_status).toBe(PieceFetchStatus.SUCCESS);
       expect(row.car_status).toBe("success");
       expect(row.ipni_status).toBe("failure.timedout");
       expect(row.block_fetch_status).toBe("failure.other");
@@ -556,7 +667,7 @@ describe("SampledRetrievalService", () => {
       expect(metricsRecordStatusSpy).toHaveBeenCalledWith(expect.anything(), "failure.commp");
 
       const [, row] = insertSpy.mock.calls[0] as [string, Record<string, unknown>];
-      expect(row.piece_fetch_status).toBe(RetrievalStatus.FAILED);
+      expect(row.piece_fetch_status).toBe(PieceFetchStatus.FAILED);
       expect(row.commp_valid).toBe(false);
       expect(row.car_status).toBe("skipped");
       expect(row.ipni_status).toBe("skipped");
