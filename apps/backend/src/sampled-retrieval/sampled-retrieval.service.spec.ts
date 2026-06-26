@@ -207,6 +207,40 @@ describe("SampledRetrievalService", () => {
     expect(row.ipni_verify_ms).toBeNull();
   });
 
+  it("maps a too-large piece fetch to failure.too_large and skips downstream dimensions", async () => {
+    // fetchPiece aborts the download once it exceeds the enforced ceiling and
+    // returns tooLarge=true. The bytes were discarded, so CAR/IPNI/block-fetch
+    // never run, and the status must be distinct from a timeout or plain HTTP fail.
+    const tooLarge: PieceRetrievalResult = {
+      success: false,
+      pieceCid: PIECE.pieceCid,
+      bytesReceived: 209715201,
+      pieceBytes: null,
+      latencyMs: 5000,
+      ttfbMs: 30,
+      throughputBps: 41943040,
+      statusCode: 200,
+      httpSuccess: false,
+      commPValid: false,
+      errorMessage: "Piece exceeded max download size of 209715200 bytes",
+      tooLarge: true,
+    };
+
+    const { service, insertSpy, parseCarSpy, metricsRecordStatusSpy } = makeService({ pieceResult: tooLarge });
+
+    await service.performForProvider(SP_ADDRESS);
+
+    expect(parseCarSpy).not.toHaveBeenCalled();
+    expect(metricsRecordStatusSpy).toHaveBeenCalledWith(expect.anything(), "failure.too_large");
+
+    const [, row] = insertSpy.mock.calls[0] as [string, Record<string, unknown>];
+    expect(row.piece_fetch_status).toBe(RetrievalStatus.FAILED);
+    expect(row.bytes_retrieved).toBe(209715201);
+    expect(row.error_message).toContain("exceeded max download size");
+    expect(row.commp_valid).toBeNull();
+    expect(row.car_status).toBe("skipped");
+  });
+
   it("still emits a row when the signal aborts before fetchPiece runs", async () => {
     const ac = new AbortController();
     ac.abort(new Error("Sampled retrieval job timeout (60s) for sp1"));
