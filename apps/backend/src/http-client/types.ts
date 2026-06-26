@@ -15,4 +15,5 @@ export interface RequestWithMetrics<T> {
   metrics: RequestMetrics;
   aborted?: boolean; // Set when the request was aborted mid-download after response headers arrived.
   abortReason?: string; // Error message when `aborted` is true; human-readable summary of the abort reason.
+  limitExceeded?: boolean; // Set when the download was aborted because it exceeded the caller-supplied `maxBytes` ceiling. `data` is empty in that case.
 }

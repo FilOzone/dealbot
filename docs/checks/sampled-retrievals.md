@@ -73,6 +73,7 @@ flowchart TD
 
 - **URL:** `{spBaseUrl}/piece/{pieceCid}` (HTTP/2)
 - **Buffered in memory** — piece sizes are capped at 100 MiB by selection (the upper bound of the `large` bucket).
+- **Download ceiling enforced** — the download is aborted once received bytes exceed `SAMPLED_MAX_PIECE_DOWNLOAD_BYTES`; the partial buffer is discarded and the result is recorded as `failure.too_large`. The advertised size is the subgraph's claim, not an enforced limit, so this is the actual on-the-wire ceiling.
 - **Validates CommP** — the CommP of the response bytes must match `pieceCid`.
 
 Source: [`piece-retrieval.service.ts`](../../apps/backend/src/sampled-retrieval/piece-retrieval.service.ts)
@@ -83,7 +84,7 @@ When the selected piece has `withIPFSIndexing = true` and a non-null `ipfsRootCi
 
 1. **CAR parse:** `@ipld/car` parses the response bytes; a random sample of `SAMPLED_RETRIEVAL_BLOCK_SAMPLE_COUNT` CIDs is selected for the next two steps.
 2. **IPNI check:** `IpniVerificationService.verify(rootCid, sampledCids, sp)` polls filecoinpin.contact until each CID resolves to the SP under test, the timeout fires, or `IPNI_VERIFICATION_TIMEOUT_MS` is reached.
-3. **Block fetch check:** for each sampled CID, fetch `{spBaseUrl}/ipfs/{cid}?format=raw` and hash-verify the response against the CID. Non-2xx, hash mismatch, unsupported codec, or transport errors all count as a single failed block.
+3. **Block fetch check:** for each sampled CID, fetch `{spBaseUrl}/ipfs/{cid}?format=raw` and hash-verify the response against the CID. Non-2xx, hash mismatch, unsupported codec, a response exceeding `SAMPLED_MAX_BLOCK_DOWNLOAD_BYTES`, or transport errors all count as a single failed block.
 
 CAR parse failure (`failure.not_parseable`) is attributed to the client (bad upload), not the SP. When the CAR is unparseable, IPNI and block fetch are skipped because there are no sampleable CIDs to verify or fetch.
 
@@ -109,6 +110,7 @@ Unlike the [Data Storage check](./data-storage.md#deal-status-progression), samp
 | `skipped` | The subgraph returned no candidate piece for the SP after all selection fallbacks. No HTTP request was attempted. |
 | `failure.http` | Piece fetch did not return HTTP 2xx, or the request failed at the transport layer (DNS, TLS, connection reset, etc.). |
 | `failure.commp` | Piece fetch returned HTTP 2xx, but the response bytes hashed to a different CID than `pieceCid`. The bytes are discarded — downstream CAR / IPNI / block-fetch validation is skipped to avoid amplifying a misbehaving SP. |
+| `failure.too_large` | The SP streamed more than `SAMPLED_MAX_PIECE_DOWNLOAD_BYTES`. The download was aborted mid-stream and the partial buffer discarded so a misbehaving SP cannot OOM the worker. Downstream CAR / IPNI / block-fetch validation is skipped. |
 | `failure.timedout` | The job-level `AbortSignal` fired (most often `SAMPLED_RETRIEVAL_JOB_TIMEOUT_SECONDS`). Partial timing/byte evidence is still persisted. |
 | `failure.other` | Catch-all for retrieval failures that do not match any of the categories above. |
 
@@ -129,7 +131,7 @@ Unlike the [Data Storage check](./data-storage.md#deal-status-progression), samp
 |--------|---------|
 | `success` | Every sampled CID was fetched via `GET {spBaseUrl}/ipfs/{cid}?format=raw` and the response bytes hash-verified against the declared CID. |
 | `skipped` | Block-fetch sampling was not attempted — piece fetch failed, the piece does not advertise IPFS indexing, CAR parsing returned `failure.not_parseable`, or the job aborted. |
-| `failure.other` | At least one sampled block fetch failed (non-2xx HTTP, hash mismatch, unsupported codec, unsupported hash, or transport error — each failed sample counts as one failed block), **or** the sampling loop threw unexpectedly outside the per-block try/catch. Per-block granularity lives in `block_fetch_failed_count`. |
+| `failure.other` | At least one sampled block fetch failed (non-2xx HTTP, hash mismatch, unsupported codec, unsupported hash, a response exceeding `SAMPLED_MAX_BLOCK_DOWNLOAD_BYTES`, or transport error — each failed sample counts as one failed block), **or** the sampling loop threw unexpectedly outside the per-block try/catch. Per-block granularity lives in `block_fetch_failed_count`. |
 
 Sources:
 - [`sampled-retrieval.service.ts`](../../apps/backend/src/sampled-retrieval/sampled-retrieval.service.ts) — orchestrates the dimensions and emits the four status metrics
@@ -139,7 +141,7 @@ Sources:
 
 ## Result Recording
 
-Each sampled retrieval attempt writes one row to the `sampled_retrieval_checks` ClickHouse table unless we could not find a piece to probe for the SP. The row is emitted **even on abort or unexpected error** so that the partial evidence (TTFB, bytes, response code) is preserved.
+Each sampled retrieval attempt writes one row to the `sampled_retrieval_checks` ClickHouse table — including a `skipped` row (`piece_fetch_status='skipped'`) when piece selection found no candidate for the SP after all fallbacks, so the empty-pool case is recorded as check data rather than counted as a job failure. The row is emitted **even on abort or unexpected error** so that the partial evidence (TTFB, bytes, response code) is preserved. On a skipped row there is no piece to test, so the piece-identity columns (`piece_cid`, `data_set_id`, `piece_id`, `raw_size`) carry sentinel values (`''` / `0`).
 
 The DDL and column-level comments in [`clickhouse.schema.ts`](../../apps/backend/src/clickhouse/clickhouse.schema.ts) are authoritative. The summary below is for orientation.
 
@@ -153,7 +155,7 @@ The DDL and column-level comments in [`clickhouse.schema.ts`](../../apps/backend
 | `with_ipfs_indexing`, `ipfs_root_cid` | Whether the piece advertises IPNI metadata |
 | `service_type` | Always `direct_sp` today |
 | `retrieval_endpoint` | URL probed for piece fetch |
-| `piece_fetch_status` | `success` or `failed` — outcome of `/piece/{cid}` (HTTP 2xx **and** CommP match). CAR/IPNI/block-fetch outcomes live in their own columns and do **not** flip this status. |
+| `piece_fetch_status` | `success`, `failed`, or `skipped` — outcome of `/piece/{cid}` (HTTP 2xx **and** CommP match). `skipped` = no candidate piece was found, so no request was made. CAR/IPNI/block-fetch outcomes live in their own columns and do **not** flip this status. |
 | `http_response_code` | Raw HTTP status; null on transport failure |
 | `first_byte_ms`, `last_byte_ms`, `bytes_retrieved` | Piece-fetch performance |
 | `commp_valid` | Null when retrieval failed before CommP could be hashed |
@@ -185,5 +187,7 @@ Key environment variables that control sampled retrieval testing:
 | `IPNI_VERIFICATION_POLLING_MS` | Poll interval between IPNI verification attempts (shared). |
 | `CONNECT_TIMEOUT_MS` | Connection/header timeout for HTTP requests. |
 | `HTTP2_REQUEST_TIMEOUT_MS` | Total timeout for HTTP/2 retrieval requests. |
+
+The in-memory download ceilings (`SAMPLED_MAX_PIECE_DOWNLOAD_BYTES`, `SAMPLED_MAX_BLOCK_DOWNLOAD_BYTES`) are compile-time constants in [`sampled-piece-selector.service.ts`](../../apps/backend/src/sampled-retrieval/sampled-piece-selector.service.ts), not environment variables. The piece ceiling is derived from `SIZE_BUCKETS.large.max` so it stays in sync with the selection buckets.
 
 See also: [`docs/environment-variables.md`](../environment-variables.md) for the full configuration reference.

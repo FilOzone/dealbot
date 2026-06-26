@@ -5,6 +5,7 @@ import { InjectMetric } from "@willsoto/nestjs-prometheus";
 import { Counter, Gauge, Histogram } from "prom-client";
 import type { IClickhouseConfig, IConfig } from "../config/app.config.js";
 import { buildMigrations } from "./clickhouse.schema.js";
+import { ClickHouseRows } from "./clickhouse.types.js";
 
 interface BufferedRow {
   table: string;
@@ -86,8 +87,14 @@ export class ClickhouseService implements OnModuleInit, OnApplicationShutdown {
   /**
    * Queue a row for insertion. Returns immediately; the flush happens in the background.
    * Safe to call when ClickHouse is disabled: rows are silently dropped.
+   *
+   * Tables registered in {@link ClickHouseRows} are type-checked against their
+   * row shape; any other table name accepts a `Record<string, unknown>`.
    */
-  insert(table: string, row: Record<string, unknown>): void {
+  insert<T extends string>(
+    table: T,
+    row: T extends keyof ClickHouseRows ? ClickHouseRows[T] : Record<string, unknown>,
+  ): void {
     if (!this.client) return;
 
     if (this.buffer.length >= this.config.maxBufferSize) {
@@ -95,7 +102,7 @@ export class ClickhouseService implements OnModuleInit, OnApplicationShutdown {
       this.droppedRows.inc({ reason: "buffer_full" });
     }
 
-    this.buffer.push({ table, row });
+    this.buffer.push({ table, row: row as Record<string, unknown> });
     this.bufferRows.set(this.buffer.length);
 
     if (this.buffer.length >= this.config.batchSize) {

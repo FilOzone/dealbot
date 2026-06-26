@@ -4,11 +4,12 @@ import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
 import type { Repository } from "typeorm";
 import { ClickhouseService } from "../clickhouse/clickhouse.service.js";
+import { PieceFetchStatus } from "../clickhouse/clickhouse.types.js";
 import { type ProviderJobContext, toStructuredError } from "../common/logging.js";
 import type { IBlockchainConfig, IConfig } from "../config/app.config.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
-import { BlockFetchStatus, CarParseStatus, IpniCheckStatus, RetrievalStatus, ServiceType } from "../database/types.js";
-import { buildCheckMetricLabels } from "../metrics-prometheus/check-metric-labels.js";
+import { BlockFetchStatus, CarParseStatus, IpniCheckStatus, ServiceType } from "../database/types.js";
+import { buildCheckMetricLabels, type CheckMetricLabels } from "../metrics-prometheus/check-metric-labels.js";
 import { SampledRetrievalCheckMetrics } from "../metrics-prometheus/check-metrics.service.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
 import { PieceRetrievalService } from "./piece-retrieval.service.js";
@@ -52,7 +53,11 @@ export class SampledRetrievalService {
     // 1. Select an anonymous piece
     const piece = await this.sampledPieceSelectorService.selectPieceForProvider(spAddress, signal);
     if (!piece) {
-      throw new Error(`No anonymous piece found for SP ${spAddress}`);
+      if (signal?.aborted) {
+        throw new Error(`Sampled retrieval aborted during piece selection for SP ${spAddress}`);
+      }
+      this.recordSkippedCheck(spAddress, provider, labels, logContext);
+      return;
     }
 
     this.logger.log({
@@ -139,7 +144,7 @@ export class SampledRetrievalService {
       const retrievalId = randomUUID();
       const providerInfo = this.walletSdkService.getProviderInfo(spAddress);
       const spBaseUrl = providerInfo?.pdp.serviceURL.replace(/\/$/, "") ?? spAddress;
-      const pieceFetchStatus = finalPieceResult.success ? RetrievalStatus.SUCCESS : RetrievalStatus.FAILED;
+      const pieceFetchStatus = finalPieceResult.success ? PieceFetchStatus.SUCCESS : PieceFetchStatus.FAILED;
 
       const carStatus = carStatusForRow(parse);
       const ipniStatus = ipniStatusForRow(parse, ipni);
@@ -209,11 +214,81 @@ export class SampledRetrievalService {
       });
     }
   }
+
+  /**
+   * Record a SKIPPED check when piece selection found no candidate after all
+   * fallbacks (a normal outcome for an SP with a small or young corpus).
+   */
+  private recordSkippedCheck(
+    spAddress: string,
+    provider: StorageProvider | null,
+    labels: CheckMetricLabels,
+    logContext?: ProviderJobContext,
+  ): void {
+    const startedAt = new Date();
+    const retrievalId = randomUUID();
+    const errorMessage = "No candidate piece found for this SP after all selection fallbacks";
+
+    this.metrics.recordPieceRetrievalStatus(labels, "skipped");
+
+    try {
+      this.clickhouseService.insert(SAMPLED_RETRIEVAL_CHECKS_TABLE, {
+        timestamp: startedAt.getTime(),
+        probe_location: this.clickhouseService.probeLocation,
+        sp_address: spAddress,
+        sp_id: provider?.providerId != null ? Number(provider.providerId) : null,
+        sp_name: provider?.name ?? null,
+        retrieval_id: retrievalId,
+        piece_cid: "",
+        data_set_id: 0,
+        piece_id: 0,
+        raw_size: 0,
+        with_ipfs_indexing: false,
+        ipfs_root_cid: null,
+        service_type: ServiceType.DIRECT_SP,
+        retrieval_endpoint: "",
+        piece_fetch_status: PieceFetchStatus.SKIPPED,
+        http_response_code: null,
+        first_byte_ms: null,
+        last_byte_ms: null,
+        bytes_retrieved: null,
+        commp_valid: null,
+        car_status: CarParseStatus.SKIPPED,
+        car_block_count: null,
+        block_fetch_endpoint: null,
+        block_fetch_status: BlockFetchStatus.SKIPPED,
+        block_fetch_sampled_count: null,
+        block_fetch_failed_count: null,
+        ipni_status: IpniCheckStatus.SKIPPED,
+        ipni_verify_ms: null,
+        error_message: errorMessage,
+      });
+    } catch (error) {
+      // ClickhouseService.insert is buffered/non-throwing in normal operation, but
+      // guard against unexpected runtime errors so we don't break the probe cycle.
+      this.logger.warn({
+        ...logContext,
+        event: "sampled_retrieval_clickhouse_insert_failed",
+        message: "Failed to enqueue skipped sampled-retrieval row to ClickHouse",
+        spAddress,
+        error: toStructuredError(error),
+      });
+    }
+
+    this.logger.log({
+      ...logContext,
+      event: "sampled_retrieval_skipped",
+      message: "No candidate piece to test for this SP; recorded skipped check",
+      retrievalId,
+      spAddress,
+    });
+  }
 }
 
 function sampledPieceRetrievalStatus(pieceResult: PieceRetrievalResult): string {
   if (pieceResult.success) return "success";
   if (pieceResult.aborted) return "failure.timedout";
+  if (pieceResult.tooLarge) return "failure.too_large";
   if (!pieceResult.httpSuccess) return "failure.http";
   if (!pieceResult.commPValid) return "failure.commp";
   return "failure.other";

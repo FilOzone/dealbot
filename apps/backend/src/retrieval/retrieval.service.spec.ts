@@ -79,6 +79,7 @@ describe("RetrievalService timeouts", () => {
     ({
       id: "deal-1",
       spAddress: "0xsp",
+      network: "calibration",
       walletAddress: "0xwallet",
       pieceCid: "bafy-piece",
       dataSetId: "13006",
@@ -157,6 +158,7 @@ describe("RetrievalService timeouts", () => {
 
     await service.performAllRetrievals(buildDeal());
 
+    expect(mockSpRepository.findOne).toHaveBeenCalledWith({ where: { address: "0xsp", network: "calibration" } });
     expect(mockRetrievalRepository.save).toHaveBeenCalledWith(
       expect.objectContaining({
         status: RetrievalStatus.FAILED,
@@ -379,6 +381,7 @@ describe("RetrievalService parallel IPNI + transport", () => {
     ({
       id: "deal-1",
       spAddress: "0xsp",
+      network: "calibration",
       walletAddress: "0xwallet",
       pieceCid: "bafy-piece",
       dataSetId: "13006",
@@ -723,6 +726,7 @@ describe("RetrievalService SP piece status pre-flight", () => {
     ({
       id: "deal-1",
       spAddress: "0xsp",
+      network: "calibration",
       walletAddress: "0xwallet",
       pieceCid: "bafy-piece",
       dataSetId: "13006",
