@@ -1,7 +1,7 @@
 import { HttpService } from "@nestjs/axios";
 import { ConfigService } from "@nestjs/config";
 import { Test, TestingModule } from "@nestjs/testing";
-import { of } from "rxjs";
+import { of, throwError } from "rxjs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { HttpClientService } from "./http-client.service.js";
 
@@ -153,5 +153,102 @@ describe("HttpClientService", () => {
     await expect(service.requestWithMetrics<Buffer>("http://example.com/piece", { httpVersion: "2" })).rejects.toThrow(
       "network reset",
     );
+  });
+
+  it("aborts the HTTP/2 download and flags limitExceeded once maxBytes is exceeded", async () => {
+    const service = await createService();
+
+    // An endpoint streaming more bytes than allowed must be cut off before the
+    // whole response is buffered, and the stream torn down (finally runs).
+    let cleanedUp = false;
+    async function* oversizedBody() {
+      try {
+        while (true) {
+          yield Buffer.alloc(10); // 10 bytes per chunk
+        }
+      } finally {
+        cleanedUp = true;
+      }
+    }
+
+    undiciRequestMock.mockImplementationOnce(async () => ({
+      statusCode: 200,
+      body: oversizedBody(),
+    }));
+
+    const result = await service.requestWithMetrics<Buffer>("http://example.com/piece", {
+      httpVersion: "2",
+      maxBytes: 25,
+    });
+
+    expect(result.limitExceeded).toBe(true);
+    expect(result.aborted).toBeUndefined();
+    // Partial buffer is discarded; only the received byte count is reported.
+    expect(Buffer.isBuffer(result.data) ? result.data.length : -1).toBe(0);
+    expect(result.metrics.responseSize).toBeGreaterThan(25);
+    // Breaking out of the for-await ran the generator's finally → stream destroyed.
+    expect(cleanedUp).toBe(true);
+  });
+
+  it("returns the full body when the HTTP/2 download stays within maxBytes", async () => {
+    const service = await createService();
+
+    async function* body() {
+      yield Buffer.from("hello");
+      yield Buffer.from(" world");
+    }
+
+    undiciRequestMock.mockImplementationOnce(async () => ({
+      statusCode: 200,
+      body: body(),
+    }));
+
+    const result = await service.requestWithMetrics<Buffer>("http://example.com/piece", {
+      httpVersion: "2",
+      maxBytes: 1024,
+    });
+
+    expect(result.limitExceeded).toBeUndefined();
+    expect(Buffer.isBuffer(result.data) ? result.data.toString() : "").toBe("hello world");
+    expect(result.metrics.responseSize).toBe(11);
+  });
+
+  it("caps only the response body via maxContentLength for HTTP/1.1, leaving the request body uncapped", async () => {
+    const service = await createService();
+
+    mockHttpService.request.mockReturnValueOnce(
+      of({
+        status: 200,
+        data: Buffer.from("ok"),
+      }),
+    );
+
+    await service.requestWithMetrics("http://example.com", { httpVersion: "1.1", maxBytes: 4096 });
+
+    const config = mockHttpService.request.mock.calls[0][0];
+    expect(config.maxContentLength).toBe(4096);
+    // `maxBodyLength` caps the *request* payload, not the response, so it must
+    // stay untouched when maxBytes is a response-body ceiling.
+    expect(config.maxBodyLength).toBeUndefined();
+  });
+
+  it("flags limitExceeded instead of throwing when HTTP/1.1 exceeds maxBytes", async () => {
+    const service = await createService();
+
+    // axios rejects with this error once the response outgrows maxContentLength.
+    const err = new Error("maxContentLength size of 4096 exceeded") as Error & { code?: string };
+    err.code = "ERR_BAD_RESPONSE";
+    mockHttpService.request.mockReturnValueOnce(throwError(() => err));
+
+    const result = await service.requestWithMetrics<Buffer>("http://example.com/piece", {
+      httpVersion: "1.1",
+      maxBytes: 4096,
+    });
+
+    expect(result.limitExceeded).toBe(true);
+    expect(result.aborted).toBeUndefined();
+    // Partial buffer is discarded, mirroring the HTTP/2 contract.
+    expect(Buffer.isBuffer(result.data) ? result.data.length : -1).toBe(0);
+    expect(result.metrics.responseSize).toBe(4096);
   });
 });

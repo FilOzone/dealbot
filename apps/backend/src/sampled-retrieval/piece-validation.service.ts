@@ -14,6 +14,7 @@ import { BlockFetchStatus, CarParseStatus, IpniCheckStatus } from "../database/t
 import { HttpClientService } from "../http-client/http-client.service.js";
 import { IpniVerificationService } from "../ipni/ipni-verification.service.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
+import { SAMPLED_MAX_BLOCK_DOWNLOAD_BYTES } from "./sampled-piece-selector.service.js";
 import type { BlockFetchOutcome, CarParseOutcome, IpniCheckOutcome, SampledBlock } from "./types.js";
 
 // UnixFS DAGs use only dag-pb (interior nodes) and raw (leaf data) codecs
@@ -234,8 +235,21 @@ export class PieceValidationService {
       const resp = await this.httpClientService.requestWithMetrics<Buffer>(blockUrl, {
         headers: { Accept: "application/vnd.ipld.raw" },
         httpVersion: "2",
+        maxBytes: SAMPLED_MAX_BLOCK_DOWNLOAD_BYTES,
         signal,
       });
+
+      if (resp.limitExceeded) {
+        this.logger.warn({
+          event: "block_fetch_too_large",
+          message: "Block fetch exceeded max download size",
+          cid: cidStr,
+          spAddress,
+          bytesReceived: resp.metrics.responseSize,
+          maxBytes: SAMPLED_MAX_BLOCK_DOWNLOAD_BYTES,
+        });
+        return false;
+      }
 
       if (resp.aborted) {
         this.logger.warn({
