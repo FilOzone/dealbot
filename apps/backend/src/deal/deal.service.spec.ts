@@ -130,7 +130,6 @@ describe("DealService", () => {
   const mockWarmStorageService = {
     validateDataSet: vi.fn().mockResolvedValue(undefined),
     getDataSet: vi.fn().mockResolvedValue({ pdpEndEpoch: 0n }),
-    terminateDataSet: vi.fn().mockResolvedValue("0xhash"),
   };
   // Default: dataset is live. Tests that exercise the terminated path override per-call.
   const mockDatasetLivenessService = {
@@ -1445,17 +1444,14 @@ describe("DealService", () => {
       vi.spyOn(mockWalletSdkService, "getProviderInfo").mockReturnValue({ id: 1n, name: "sp" } as any);
     });
 
-    it("terminates, awaits receipt, polls pdpEndEpoch, and marks affected deals cleaned up in one transaction", async () => {
-      const terminateMock = vi.fn().mockResolvedValue("0xhash");
-      const waitForReceiptMock = vi.fn().mockResolvedValue({ status: "success" });
+    it("terminates via provider relay and marks affected deals cleaned up in one transaction", async () => {
+      const terminateMock = vi.fn().mockResolvedValue({ txHash: "0xhash", dataSetId: 9n, endEpoch: 12345n });
       const synapseMock = {
-        storage: { terminateDataSet: terminateMock },
-        client: { waitForTransactionReceipt: waitForReceiptMock },
+        storage: { terminateService: terminateMock },
       };
       mockWalletSdkService.getSynapse.mockReturnValue(synapseMock);
 
       mockWarmStorageService.getDataSet.mockResolvedValueOnce({ pdpEndEpoch: 0n });
-      mockWarmStorageService.getDataSet.mockResolvedValueOnce({ pdpEndEpoch: 12345n });
 
       const updateFn = vi.fn().mockResolvedValue({ affected: 2 });
       const transactionMock = vi.fn(async (cb: any) => cb({ getRepository: () => ({ update: updateFn }) }));
@@ -1464,10 +1460,9 @@ describe("DealService", () => {
         value: { transaction: transactionMock },
       });
 
-      const result = await service.repairTerminatedDataSet("0xaaa", 9n, DEFAULT_NETWORK, undefined, 5_000);
+      const result = await service.repairTerminatedDataSet("0xaaa", 9n, DEFAULT_NETWORK);
 
-      expect(terminateMock).toHaveBeenCalledWith({ dataSetId: 9n });
-      expect(waitForReceiptMock).toHaveBeenCalledWith({ hash: "0xhash" });
+      expect(terminateMock).toHaveBeenCalledWith(expect.objectContaining({ dataSetId: 9n }));
       expect(updateFn).toHaveBeenCalledWith(
         { dataSetId: 9n, cleanedUp: false },
         expect.objectContaining({ cleanedUp: true, cleanedUpAt: expect.any(Date) }),
@@ -1476,11 +1471,10 @@ describe("DealService", () => {
       expect(result.pdpEndEpoch).toBe(12345n);
     });
 
-    it("skips terminateDataSet when FWSS pdpEndEpoch is already non-zero (idempotent)", async () => {
+    it("skips terminateService when FWSS pdpEndEpoch is already non-zero (idempotent)", async () => {
       const terminateMock = vi.fn();
       const synapseMock = {
-        storage: { terminateDataSet: terminateMock },
-        client: { waitForTransactionReceipt: vi.fn() },
+        storage: { terminateService: terminateMock },
       };
       mockWalletSdkService.getSynapse.mockReturnValue(synapseMock);
       mockWarmStorageService.getDataSet.mockResolvedValueOnce({ pdpEndEpoch: 999n });
@@ -1492,23 +1486,23 @@ describe("DealService", () => {
         value: { transaction: transactionMock },
       });
 
-      const result = await service.repairTerminatedDataSet("0xaaa", 9n, DEFAULT_NETWORK, undefined, 5_000);
+      const result = await service.repairTerminatedDataSet("0xaaa", 9n, DEFAULT_NETWORK);
 
       expect(terminateMock).not.toHaveBeenCalled();
       expect(updateFn).toHaveBeenCalled();
       expect(result.pdpEndEpoch).toBe(999n);
     });
 
-    it("treats already-terminated revert as a no-op and continues to cleanup", async () => {
-      const terminateMock = vi.fn().mockRejectedValue(new Error("Service already terminated"));
+    it("uses the endEpoch from terminateService when the SDK handles an already-terminated service", async () => {
+      // The SDK's provider-relayed terminateService resolves an already-terminated
+      // service internally (no provider tx, txHash undefined) and returns its endEpoch.
+      const terminateMock = vi.fn().mockResolvedValue({ dataSetId: 9n, endEpoch: 7n });
       const synapseMock = {
-        storage: { terminateDataSet: terminateMock },
-        client: { waitForTransactionReceipt: vi.fn() },
+        storage: { terminateService: terminateMock },
       };
       mockWalletSdkService.getSynapse.mockReturnValue(synapseMock);
 
       mockWarmStorageService.getDataSet.mockResolvedValueOnce({ pdpEndEpoch: 0n });
-      mockWarmStorageService.getDataSet.mockResolvedValueOnce({ pdpEndEpoch: 7n });
 
       const updateFn = vi.fn().mockResolvedValue({ affected: 0 });
       const transactionMock = vi.fn(async (cb: any) => cb({ getRepository: () => ({ update: updateFn }) }));
@@ -1517,7 +1511,7 @@ describe("DealService", () => {
         value: { transaction: transactionMock },
       });
 
-      const result = await service.repairTerminatedDataSet("0xaaa", 9n, DEFAULT_NETWORK, undefined, 5_000);
+      const result = await service.repairTerminatedDataSet("0xaaa", 9n, DEFAULT_NETWORK);
 
       expect(terminateMock).toHaveBeenCalled();
       expect(updateFn).toHaveBeenCalled();

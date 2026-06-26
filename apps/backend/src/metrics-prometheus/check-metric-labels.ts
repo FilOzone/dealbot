@@ -3,6 +3,7 @@ import type { Network } from "../common/types.js";
 export type CheckType =
   | "dataStorage"
   | "retrieval"
+  | "sampledRetrieval"
   | "dataRetention"
   | "dataSetCreation"
   | "dataSetLifecycleCheck"

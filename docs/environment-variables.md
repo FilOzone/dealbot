@@ -32,9 +32,9 @@ MAINNET_DEALS_PER_SP_PER_HOUR=1
 | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | [Application](#application-configuration) | `NODE_ENV`, `DEALBOT_PORT`, `DEALBOT_HOST`, `DEALBOT_RUN_MODE`, `DEALBOT_METRICS_PORT`, `DEALBOT_METRICS_HOST`, `DEALBOT_ALLOWED_ORIGINS`, `ENABLE_DEV_MODE`, `DEALBOT_API_PUBLIC_URL`, `DEALBOT_PROBE_LOCATION` |
 | [Database](#database-configuration)       | `DATABASE_HOST`, `DATABASE_PORT`, `DATABASE_POOL_MAX`, `DATABASE_USER`, `DATABASE_PASSWORD`, `DATABASE_NAME`                                                 |
-| [Per-Network](#per-network-configuration) | `<NET>_WALLET_ADDRESS`, `<NET>_WALLET_PRIVATE_KEY`, `<NET>_SESSION_KEY_PRIVATE_KEY`, `<NET>_RPC_URL`, `<NET>_RPC_REQUEST_TIMEOUT_MS`, `<NET>_CHECK_DATASET_CREATION_FEES`, `<NET>_USE_ONLY_APPROVED_PROVIDERS`, `<NET>_PDP_SUBGRAPH_ENDPOINT`, `<NET>_DEALBOT_DATASET_VERSION`, `<NET>_MIN_NUM_DATASETS_FOR_CHECKS`                                           |
-| [Per-Network Scheduling](#per-network-scheduling) | `<NET>_DEALS_PER_SP_PER_HOUR`, `<NET>_DEAL_JOB_TIMEOUT_SECONDS`, `<NET>_RETRIEVALS_PER_SP_PER_HOUR`, `<NET>_RETRIEVAL_JOB_TIMEOUT_SECONDS`, `<NET>_DATASET_CREATIONS_PER_SP_PER_HOUR`, `<NET>_DATA_SET_CREATION_JOB_TIMEOUT_SECONDS`, `<NET>_DATASET_LIFECYCLE_CHECK_ENABLED`, `<NET>_DATASET_LIFECYCLE_CHECKS_PER_SP_PER_HOUR`, `<NET>_DATA_SET_LIFECYCLE_CHECK_JOB_TIMEOUT_SECONDS`, `<NET>_PULL_CHECKS_PER_SP_PER_HOUR`, `<NET>_PULL_CHECK_JOB_TIMEOUT_SECONDS`, `<NET>_PULL_CHECK_POLL_INTERVAL_SECONDS`, `<NET>_PULL_PIECE_CLEANUP_INTERVAL_SECONDS`, `<NET>_METRICS_PER_HOUR`, `<NET>_PROVIDERS_REFRESH_INTERVAL_SECONDS`, `<NET>_DATA_RETENTION_POLL_INTERVAL_SECONDS`, `<NET>_MAINTENANCE_WINDOWS_UTC`, `<NET>_MAINTENANCE_WINDOW_MINUTES`, `<NET>_BLOCKED_SP_IDS`, `<NET>_BLOCKED_SP_ADDRESSES`, `<NET>_MAX_DATASET_STORAGE_SIZE_BYTES`, `<NET>_TARGET_DATASET_STORAGE_SIZE_BYTES`, `<NET>_PIECE_CLEANUP_PER_SP_PER_HOUR`, `<NET>_MAX_PIECE_CLEANUP_RUNTIME_SECONDS` |
-| [Jobs (pg-boss)](#jobs-pg-boss)           | `DEALBOT_PGBOSS_SCHEDULER_ENABLED`, `DEALBOT_PGBOSS_POOL_MAX`, `JOB_SCHEDULER_POLL_SECONDS`, `JOB_WORKER_POLL_SECONDS`, `PG_BOSS_LOCAL_CONCURRENCY`, `JOB_CATCHUP_MAX_ENQUEUE`, `JOB_SCHEDULE_PHASE_SECONDS`, `JOB_ENQUEUE_JITTER_SECONDS`, `SHUTDOWN_FINAL_SCRAPE_DELAY_SECONDS`, `IPFS_BLOCK_FETCH_CONCURRENCY` |
+| [Per-Network](#per-network-configuration) | `<NET>_WALLET_ADDRESS`, `<NET>_WALLET_PRIVATE_KEY`, `<NET>_SESSION_KEY_PRIVATE_KEY`, `<NET>_RPC_URL`, `<NET>_RPC_REQUEST_TIMEOUT_MS`, `<NET>_CHECK_DATASET_CREATION_FEES`, `<NET>_USE_ONLY_APPROVED_PROVIDERS`, `<NET>_PDP_SUBGRAPH_ENDPOINT`, `<NET>_SUBGRAPH_ENDPOINT`, `<NET>_DEALBOT_DATASET_VERSION`, `<NET>_MIN_NUM_DATASETS_FOR_CHECKS`                                           |
+| [Per-Network Scheduling](#per-network-scheduling) | `<NET>_DEALS_PER_SP_PER_HOUR`, `<NET>_DEAL_JOB_TIMEOUT_SECONDS`, `<NET>_RETRIEVALS_PER_SP_PER_HOUR`, `<NET>_RETRIEVAL_JOB_TIMEOUT_SECONDS`, `<NET>_SAMPLED_RETRIEVALS_PER_SP_PER_HOUR`, `<NET>_SAMPLED_RETRIEVAL_JOB_TIMEOUT_SECONDS`, `<NET>_DATASET_CREATIONS_PER_SP_PER_HOUR`, `<NET>_DATA_SET_CREATION_JOB_TIMEOUT_SECONDS`, `<NET>_DATASET_LIFECYCLE_CHECK_ENABLED`, `<NET>_DATASET_LIFECYCLE_CHECKS_PER_SP_PER_HOUR`, `<NET>_DATA_SET_LIFECYCLE_CHECK_JOB_TIMEOUT_SECONDS`, `<NET>_PULL_CHECKS_PER_SP_PER_HOUR`, `<NET>_PULL_CHECK_JOB_TIMEOUT_SECONDS`, `<NET>_PULL_CHECK_POLL_INTERVAL_SECONDS`, `<NET>_PULL_PIECE_CLEANUP_INTERVAL_SECONDS`, `<NET>_METRICS_PER_HOUR`, `<NET>_PROVIDERS_REFRESH_INTERVAL_SECONDS`, `<NET>_DATA_RETENTION_POLL_INTERVAL_SECONDS`, `<NET>_MAINTENANCE_WINDOWS_UTC`, `<NET>_MAINTENANCE_WINDOW_MINUTES`, `<NET>_BLOCKED_SP_IDS`, `<NET>_BLOCKED_SP_ADDRESSES`, `<NET>_MAX_DATASET_STORAGE_SIZE_BYTES`, `<NET>_TARGET_DATASET_STORAGE_SIZE_BYTES`, `<NET>_PIECE_CLEANUP_PER_SP_PER_HOUR`, `<NET>_MAX_PIECE_CLEANUP_RUNTIME_SECONDS` |
+| [Jobs (pg-boss)](#jobs-pg-boss)           | `DEALBOT_PGBOSS_SCHEDULER_ENABLED`, `DEALBOT_PGBOSS_POOL_MAX`, `JOB_SCHEDULER_POLL_SECONDS`, `JOB_WORKER_POLL_SECONDS`, `PG_BOSS_LOCAL_CONCURRENCY`, `JOB_CATCHUP_MAX_ENQUEUE`, `JOB_SCHEDULE_PHASE_SECONDS`, `JOB_ENQUEUE_JITTER_SECONDS`, `SHUTDOWN_FINAL_SCRAPE_DELAY_SECONDS`, `IPFS_BLOCK_FETCH_CONCURRENCY`, `SAMPLED_RETRIEVAL_BLOCK_SAMPLE_COUNT` |
 | [Pull Check](#pull-check-configuration)   | `PULL_CHECK_PIECE_SIZE_BYTES`, `PULL_PIECE_MAX_CONCURRENT_STREAMS`, `PULL_PIECE_MAX_STREAMS_PER_CID` |
 | [ClickHouse](#clickhouse-configuration)   | `CLICKHOUSE_URL`, `CLICKHOUSE_BATCH_SIZE`, `CLICKHOUSE_FLUSH_INTERVAL_MS`, `CLICKHOUSE_MAX_BUFFER_SIZE`                                                      |
 | [Dataset](#dataset-configuration)         | `DEALBOT_LOCAL_DATASETS_PATH`, `RANDOM_PIECE_SIZES`                                                                                                          |
@@ -474,10 +474,30 @@ CALIBRATION_RPC_URL=https://filecoin.chain.love/rpc/v1?token=YOUR_API_KEY
 
 **Role**: The Graph API endpoint for querying PDP (Proof of Data Possession) subgraph data for this network. Used to retrieve data-retention information for provider datasets.
 
+Kept distinct from [`<NET>_SUBGRAPH_ENDPOINT`](#net_subgraph_endpoint) so the dealbot-owned subgraph can be rolled out incrementally: only the newer [sampled-retrieval check](./checks/sampled-retrievals.md) points at the new endpoint while the established [data-retention check](./checks/data-retention.md) stays on the upstream pdp-explorer subgraph.
+
 **Example**:
 
 ```bash
 CALIBRATION_PDP_SUBGRAPH_ENDPOINT=https://api.thegraph.com/subgraphs/filecoin/pdp
+```
+
+---
+
+### `<NET>_SUBGRAPH_ENDPOINT`
+
+- **Type**: `string` (URL)
+- **Required**: No
+- **Default**: Empty (sampled-retrieval disabled for this network)
+
+**Role**: The Graph API endpoint for the dealbot-owned subgraph for this network. Currently drives only the [sampled-retrieval](./checks/sampled-retrievals.md) candidate-piece query; when unset, sampled-retrieval schedules are not created for the network. Once the dealbot-owned subgraph has soaked in production it is intended to replace [`<NET>_PDP_SUBGRAPH_ENDPOINT`](#net_pdp_subgraph_endpoint).
+
+The dealbot-owned subgraph lives at [`apps/subgraph/`](../apps/subgraph) (package `@dealbot/subgraph`) and is deployed to [Goldsky](https://goldsky.com).
+
+**Example**:
+
+```bash
+CALIBRATION_SUBGRAPH_ENDPOINT=https://api.goldsky.com/api/public/<project>/subgraphs/dealbot-subgraph/<version>/gn
 ```
 
 ---
@@ -567,6 +587,28 @@ Dealbot uses pg-boss for rate-based scheduling — see [Jobs (pg-boss)](#jobs-pg
 
 - Increase if retrieval tests on this network consistently exceed the default
 - Decrease to detect and fail stuck retrievals faster
+
+---
+
+### `<NET>_SAMPLED_RETRIEVALS_PER_SP_PER_HOUR`
+
+- **Type**: `number`
+- **Required**: No
+- **Default**: `2` (matches `<NET>_RETRIEVALS_PER_SP_PER_HOUR`)
+- **Limits**: capped at `20`.
+
+**Role**: Target [sampled (anonymous) retrieval](./checks/sampled-retrievals.md) rate per storage provider on this network. Sampled retrievals pull a random indexed piece selected via the dealbot-owned subgraph; they are only scheduled when [`<NET>_SUBGRAPH_ENDPOINT`](#net_subgraph_endpoint) is set.
+
+---
+
+### `<NET>_SAMPLED_RETRIEVAL_JOB_TIMEOUT_SECONDS`
+
+- **Type**: `number`
+- **Required**: No
+- **Default**: `360` (6 minutes)
+- **Minimum**: `60`
+
+**Role**: Maximum runtime for sampled retrieval jobs on this network before forced abort. Sampled retrievals fetch arbitrary pieces (up to ~500 MiB) not produced by the dealbot, so this is typically larger than `<NET>_RETRIEVAL_JOB_TIMEOUT_SECONDS`. On timeout, partial metrics (`ttfb_ms`, `bytes_retrieved`, `response_code`) are still persisted so the abort is not silently lost.
 
 ---
 
@@ -879,6 +921,19 @@ These variables are **global** (not per-network) and control the shared pg-boss 
 
 ---
 
+### `SAMPLED_RETRIEVALS_PER_SP_PER_HOUR`
+
+- **Type**: `number`
+- **Required**: No
+- **Default**: Falls back to `RETRIEVALS_PER_SP_PER_HOUR`, which itself defaults to `2`
+- **Limits**: `0.001` – `20`
+
+**Role**: Target [sampled retrieval](./checks/sampled-retrievals.md) check rate per storage provider. Sampled retrievals fetch arbitrary FWSS pieces sampled from the on-chain subgraph (not pieces dealbot uploaded), so this rate controls coverage of the SP's broader public corpus independently of the dealbot-owned [retrieval check](./checks/retrievals.md) rate.
+
+**Notes**: Fractional values are supported. For example, `0.5` means one sampled retrieval every 2 hours per storage provider.
+
+---
+
 ### `DATASET_CREATIONS_PER_SP_PER_HOUR`
 
 - **Type**: `number`
@@ -1129,6 +1184,31 @@ Use this to stagger multiple dealbot deployments that are not sharing a database
 
 ---
 
+### `SAMPLED_RETRIEVAL_BLOCK_SAMPLE_COUNT`
+
+- **Type**: `number` (integer)
+- **Required**: No
+- **Default**: `5`
+- **Minimum**: `1`
+- **Maximum**: `50`
+- **Enforced**: Yes (config validation)
+
+**Role**: Number of CIDs randomly sampled from the parsed CAR for IPNI verification and block-fetch validation during an [sampled retrieval check](./checks/sampled-retrievals.md). Only applies to pieces with IPFS indexing enabled — pieces without an `ipfsRootCid` skip CAR validation entirely.
+
+For each sampled CID, dealbot:
+
+1. Confirms via filecoinpin.contact that the SP is advertised as a provider for the CID.
+2. Re-fetches the block via `{spBaseUrl}/ipfs/{cid}?format=raw` and hash-verifies the response.
+
+**When to update**:
+
+- Increase for stronger statistical confidence that the SP serves the entire DAG correctly (more IPNI queries + per-block fetches per check)
+- Decrease to reduce per-check load on the SP and on filecoinpin.contact
+
+**Note**: A higher sample count multiplies both IPNI traffic and block-fetch traffic per check. The IPNI step is all-or-nothing across the root CID and the sampled child CIDs — see [Sampled Retrieval § CAR / IPNI / block-fetch validation](./checks/sampled-retrievals.md#car--ipni--block-fetch-validation-only-when-piece-advertises-ipfs-indexing).
+
+---
+
 ### `IPFS_BLOCK_FETCH_CONCURRENCY`
 
 - **Type**: `number`
@@ -1300,15 +1380,16 @@ RANDOM_PIECE_SIZES=1024,10240,102400
 
 - **Type**: `number` (milliseconds)
 - **Required**: No
-- **Default**: `240000` (4 minutes)
+- **Default**: Derived from the longest configured job timeout. With default job timeouts this is `600000` (10 minutes), set by `DATA_SET_LIFECYCLE_CHECK_JOB_TIMEOUT_SECONDS`.
 - **Minimum**: `1000`
 
-**Role**: Maximum total time for HTTP/1.1 requests, including body transfer.
+**Role**: Maximum total time for HTTP/1.1 requests, including body transfer. Applies to the default `requestWithMetrics` path and to streaming body transfers.
+
+**Notes**: Most deployments should leave this unset. Each job that issues HTTP requests carries its own `AbortController` signal, which fires first and is authoritative; this timeout is only a per-request ceiling for callers that pass no signal. Setting it below the longest job timeout logs a warning at boot and can abort in-flight work before the job signal reports it, producing short, unexplained timeouts.
 
 **When to update**:
 
-- Increase for large file retrievals
-- Decrease to fail faster on slow providers
+- Set explicitly only to cap requests below the longest job timeout (rare), or to raise the ceiling if you also raise a job timeout above the derived default.
 
 ---
 
@@ -1316,14 +1397,12 @@ RANDOM_PIECE_SIZES=1024,10240,102400
 
 - **Type**: `number` (milliseconds)
 - **Required**: No
-- **Default**: `240000` (4 minutes)
+- **Default**: Derived from the longest configured job timeout, same as `HTTP_REQUEST_TIMEOUT_MS` (`600000` / 10 minutes with default job timeouts).
 - **Minimum**: `1000`
 
-**Role**: Maximum total time for HTTP/2 requests, including body transfer.
+**Role**: Maximum total time for HTTP/2 requests, including body transfer. Used as the transfer-timeout ceiling for the HTTP/2 request path (sampled retrieval, pull check piece fetches).
 
-**When to update**:
-
-- Typically kept in sync with `HTTP_REQUEST_TIMEOUT_MS`
+**Notes**: Same derive-and-override behavior as `HTTP_REQUEST_TIMEOUT_MS`. The connect/headers phase is bounded separately by `CONNECT_TIMEOUT_MS`.
 
 ---
 

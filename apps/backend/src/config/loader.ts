@@ -102,6 +102,7 @@ const loadTimeoutConfig = (env: NodeJS.ProcessEnv): ITimeoutConfig => ({
 
 const loadRetrievalConfig = (env: NodeJS.ProcessEnv): IRetrievalConfig => ({
   ipfsBlockFetchConcurrency: getNumberEnv(env, "IPFS_BLOCK_FETCH_CONCURRENCY", 6),
+  sampledBlockSampleCount: getNumberEnv(env, "SAMPLED_RETRIEVAL_BLOCK_SAMPLE_COUNT", 5),
 });
 
 // ---------------------------------------------------------------------------
@@ -131,6 +132,7 @@ function loadNetworkEnvPrefix(
     rpcUrl: get("RPC_URL") || undefined,
     rpcRequestTimeoutMs: getNumberEnv(env, k("RPC_REQUEST_TIMEOUT_MS"), networkDefaults.rpcRequestTimeoutMs),
     pdpSubgraphEndpoint: get("PDP_SUBGRAPH_ENDPOINT") || undefined,
+    subgraphEndpoint: get("SUBGRAPH_ENDPOINT") || undefined,
     checkDatasetCreationFees: getBooleanEnv(
       env,
       k("CHECK_DATASET_CREATION_FEES"),
@@ -150,10 +152,20 @@ function loadNetworkEnvPrefix(
     dealsPerSpPerHour: getFloatEnv(env, k("DEALS_PER_SP_PER_HOUR"), networkDefaults.dealsPerSpPerHour),
     dealJobTimeoutSeconds: getNumberEnv(env, k("DEAL_JOB_TIMEOUT_SECONDS"), networkDefaults.dealJobTimeoutSeconds),
     retrievalsPerSpPerHour: getFloatEnv(env, k("RETRIEVALS_PER_SP_PER_HOUR"), networkDefaults.retrievalsPerSpPerHour),
+    sampledRetrievalsPerSpPerHour: getFloatEnv(
+      env,
+      k("SAMPLED_RETRIEVALS_PER_SP_PER_HOUR"),
+      networkDefaults.sampledRetrievalsPerSpPerHour,
+    ),
     retrievalJobTimeoutSeconds: getNumberEnv(
       env,
       k("RETRIEVAL_JOB_TIMEOUT_SECONDS"),
       networkDefaults.retrievalJobTimeoutSeconds,
+    ),
+    sampledRetrievalJobTimeoutSeconds: getNumberEnv(
+      env,
+      k("SAMPLED_RETRIEVAL_JOB_TIMEOUT_SECONDS"),
+      networkDefaults.sampledRetrievalJobTimeoutSeconds,
     ),
     dataSetCreationsPerSpPerHour: getFloatEnv(
       env,

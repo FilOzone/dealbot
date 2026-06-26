@@ -45,6 +45,13 @@ export type BaseNetworkConfig = {
   useOnlyApprovedProviders: boolean;
   dealbotDataSetVersion?: string;
   pdpSubgraphEndpoint?: string;
+  /**
+   * Endpoint of the dealbot-owned subgraph used for sampled (anonymous) piece
+   * selection. Per-network — each network has its own subgraph deployment.
+   * When unset, sampled-retrieval schedules are not created for that network.
+   * Eventually replaces `pdpSubgraphEndpoint`.
+   */
+  subgraphEndpoint?: string;
   minNumDataSetsForChecks: number;
 
   /**
@@ -59,6 +66,12 @@ export type BaseNetworkConfig = {
    * Increasing this increases retrieval load against providers and DB writes.
    */
   retrievalsPerSpPerHour: number;
+  /**
+   * Target number of sampled (anonymous) retrieval tests per storage provider
+   * per hour. Sampled retrievals pull a random indexed piece via the
+   * dealbot-owned subgraph; gated on `subgraphEndpoint` being set.
+   */
+  sampledRetrievalsPerSpPerHour: number;
   /**
    * Target number of dataset creation runs per storage provider per hour.
    */
@@ -98,6 +111,13 @@ export type BaseNetworkConfig = {
    * Uses AbortController to actively cancel job execution.
    */
   retrievalJobTimeoutSeconds: number;
+  /**
+   * Maximum runtime (seconds) for sampled retrieval jobs before forced abort.
+   *
+   * Typically larger than `retrievalJobTimeoutSeconds` since sampled pieces can
+   * be up to 500 MiB. Uses AbortController to actively cancel job execution.
+   */
+  sampledRetrievalJobTimeoutSeconds: number;
   /**
    * Maximum runtime (seconds) for data-set lifecycle check jobs before forced abort.
    *
@@ -259,6 +279,11 @@ export interface ITimeoutConfig {
 
 export interface IRetrievalConfig {
   ipfsBlockFetchConcurrency: number;
+  /**
+   * Number of CAR blocks sampled for IPNI / block-fetch validation during a
+   * sampled retrieval check. Network-independent tuning knob.
+   */
+  sampledBlockSampleCount: number;
 }
 
 export interface IConfig {
@@ -284,7 +309,9 @@ export type NetworkDefaults = Pick<
   | "dealsPerSpPerHour"
   | "dealJobTimeoutSeconds"
   | "retrievalsPerSpPerHour"
+  | "sampledRetrievalsPerSpPerHour"
   | "retrievalJobTimeoutSeconds"
+  | "sampledRetrievalJobTimeoutSeconds"
   | "dataSetCreationsPerSpPerHour"
   | "dataSetCreationJobTimeoutSeconds"
   | "dataSetLifecycleChecksPerSpPerHour"
