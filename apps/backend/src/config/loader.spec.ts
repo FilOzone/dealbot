@@ -41,6 +41,7 @@ const KEYS_TO_RESET = [
   "DATASET_LIFECYCLE_CHECK_ENABLED",
   "CALIBRATION_DATASET_LIFECYCLE_CHECK_ENABLED",
   "MAINNET_DATASET_LIFECYCLE_CHECK_ENABLED",
+  "DEALBOT_API_PUBLIC_URL",
 ];
 
 const snapshot: Record<string, string | undefined> = {};
@@ -81,6 +82,22 @@ describe("loadConfig", () => {
     } else {
       throw new Error("calibration should be loaded as walletPrivateKey variant");
     }
+  });
+
+  it("normalizes apiPublicUrl by trimming and stripping trailing slashes", () => {
+    process.env.NETWORKS = "calibration";
+    process.env.CALIBRATION_WALLET_PRIVATE_KEY = "0xkey";
+    process.env.DEALBOT_API_PUBLIC_URL = "  https://dealbot.example.com///  ";
+
+    expect(loadConfig().app.apiPublicUrl).toBe("https://dealbot.example.com");
+  });
+
+  it("treats a blank apiPublicUrl as undefined", () => {
+    process.env.NETWORKS = "calibration";
+    process.env.CALIBRATION_WALLET_PRIVATE_KEY = "0xkey";
+    process.env.DEALBOT_API_PUBLIC_URL = "   ";
+
+    expect(loadConfig().app.apiPublicUrl).toBeUndefined();
   });
 
   it("loads both networks when both are listed in NETWORKS", () => {

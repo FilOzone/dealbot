@@ -65,6 +65,21 @@ describe("ProvidersService", () => {
     );
   });
 
+  it("getProvidersList does not throw for a supported-but-inactive network with no config", async () => {
+    const queryBuilder = repo.createQueryBuilder();
+    repo.createQueryBuilder.mockReturnValue(queryBuilder);
+
+    // `mainnet` is a supported network but has no entry in `networks` (inactive).
+    // The blocklist loop must skip it rather than dereferencing undefined config.
+    await expect(service.getProvidersList({ network: "mainnet" })).resolves.toEqual({ providers: [], total: 0 });
+
+    // No blocklist clauses are applied for the unconfigured network.
+    const blocklistCalls = queryBuilder.andWhere.mock.calls.filter(
+      ([clause]: [string]) => typeof clause === "string" && clause.includes("blockedIds_"),
+    );
+    expect(blocklistCalls).toHaveLength(0);
+  });
+
   it("getProvidersList preserves providers with null providerId when applying blocklist filters", async () => {
     const queryBuilder = repo.createQueryBuilder();
     repo.createQueryBuilder.mockReturnValue(queryBuilder);

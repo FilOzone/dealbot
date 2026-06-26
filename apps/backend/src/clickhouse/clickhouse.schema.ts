@@ -112,5 +112,58 @@ export function buildMigrations(database: string): string[] {
         ADD COLUMN IF NOT EXISTS \`retrieval_checks.first_byte_ms\`      Array(Nullable(Float64)),
         ADD COLUMN IF NOT EXISTS \`retrieval_checks.last_byte_ms\`       Array(Nullable(Float64)),
         ADD COLUMN IF NOT EXISTS \`retrieval_checks.bytes_retrieved\`    Array(Nullable(UInt64))`,
+
+    // The check was renamed anon_retrieval -> sampled_retrieval. This table is created
+    // unconditionally on startup, so rename it in place instead of leaving it orphaned
+    // beside a fresh table.
+    `RENAME TABLE IF EXISTS ${database}.anon_retrieval_checks TO ${database}.sampled_retrieval_checks`,
+
+    `CREATE TABLE IF NOT EXISTS ${database}.sampled_retrieval_checks
+(
+    timestamp                  DateTime64(3, 'UTC'),              -- when the check completed
+    probe_location             LowCardinality(String),            -- dealbot location
+    sp_address                 String,                            -- storage provider address (lowercased)
+    sp_id                      Nullable(UInt64),                  -- storage provider numeric id
+    sp_name                    Nullable(String),                  -- storage provider name
+
+    retrieval_id               UUID,                              -- per-event correlation id (log/Prometheus join)
+
+    piece_cid                  String,                            -- piece CID (v2/CommP) sampled from the subgraph
+    data_set_id                UInt64,                            -- on-chain data set id
+    piece_id                   UInt64,                            -- on-chain piece id within the data set
+    raw_size                   UInt64,                            -- raw (unpadded) piece size, bytes
+    with_ipfs_indexing         Bool,                              -- whether the piece advertises IPNI metadata
+    ipfs_root_cid              Nullable(String),                  -- root CID of the contained DAG; null when not IPFS-indexed
+
+    service_type               LowCardinality(String),            -- 'direct_sp' (only mode for sampled retrievals today)
+    retrieval_endpoint         String,                            -- URL probed (e.g. {spBaseUrl}/piece/{pieceCid})
+
+    piece_fetch_status         LowCardinality(String),            -- 'success' | 'failed' — HTTP transport outcome of GET /piece/<pieceCid> (HTTP 2xx). CommP validity, CAR/IPNI/block-fetch outcomes live in their own columns.
+    http_response_code         Nullable(UInt16),                  -- raw HTTP status; null on transport failure
+    first_byte_ms              Nullable(Float64),                 -- time to first response byte
+    last_byte_ms               Nullable(Float64),                 -- time to last response byte
+    bytes_retrieved            Nullable(UInt64),                  -- bytes received from /piece/{cid}
+
+    commp_valid                Nullable(Bool),                    -- null when retrieval failed before CommP could be hashed
+    car_status                 LowCardinality(String),            -- 'success' | 'skipped' | 'failure.not_parseable' — mirrors sampledCarParseStatus; skipped when piece fetch failed, piece is not IPFS-indexed, or the job aborted before parsing
+    car_block_count            Nullable(UInt32),                  -- total number of blocks observed inside the CAR; null when skipped or not parseable
+    block_fetch_endpoint       Nullable(String),                  -- gateway base URL probed for block fetch (e.g. {spBaseUrl}/ipfs/); null when skipped
+    block_fetch_status         LowCardinality(String),            -- 'success' | 'skipped' | 'failure.other' — mirrors sampledBlockFetchStatus; skipped when CAR validation didn't run or SP info missing
+    block_fetch_sampled_count  Nullable(UInt32),                  -- number of blocks sampled and probed via /ipfs/<cid>?format=raw
+    block_fetch_failed_count   Nullable(UInt32),                  -- number of sampled blocks that failed (non-2xx, hash mismatch, unsupported codec, or transport error)
+
+    ipni_status                LowCardinality(String),            -- 'success' | 'skipped' | 'failure.timedout' | 'failure.other' — mirrors sampledIpniStatus; all-or-nothing across the root CID and the sampled child CIDs (filecoin-pin verifies them as a single batch)
+    ipni_verify_ms             Nullable(Float64),                 -- IPNI verification duration; null when skipped
+
+    error_message              Nullable(String)                   -- failure reason; null on success
+) ENGINE MergeTree()
+  PRIMARY KEY (probe_location, sp_address, timestamp)
+  PARTITION BY toStartOfMonth(timestamp)
+  TTL toDateTime(timestamp) + INTERVAL 1 YEAR`,
+
+    // throughput_bps was dropped because it is derivable
+    // at query time as bytes_retrieved / (last_byte_ms / 1000).
+    `ALTER TABLE ${database}.sampled_retrieval_checks
+        DROP COLUMN IF EXISTS throughput_bps`,
   ];
 }

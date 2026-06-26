@@ -23,6 +23,8 @@ describe("network-fields classification", () => {
       "SESSION_KEY_PRIVATE_KEY",
       "RPC_URL",
       "PDP_SUBGRAPH_ENDPOINT",
+      // Dealbot-owned subgraph endpoint: chain-scoped data, so it never inherits.
+      "SUBGRAPH_ENDPOINT",
       "BLOCKED_SP_IDS",
       "BLOCKED_SP_ADDRESSES",
     ] as const) {
@@ -34,6 +36,8 @@ describe("network-fields classification", () => {
     for (const key of [
       "DEAL_JOB_TIMEOUT_SECONDS",
       "DEALS_PER_SP_PER_HOUR",
+      "SAMPLED_RETRIEVALS_PER_SP_PER_HOUR",
+      "SAMPLED_RETRIEVAL_JOB_TIMEOUT_SECONDS",
       "MAINTENANCE_WINDOWS_UTC",
       "MAX_DATASET_STORAGE_SIZE_BYTES",
     ] as const) {

@@ -85,7 +85,7 @@ export class JobScheduleRepository {
         const [rows] = (await this.dataSource.query(
           `
           DELETE FROM job_schedule_state
-          WHERE job_type IN ('deal', 'retrieval', 'data_set_creation', 'data_set_lifecycle_check', 'piece_cleanup', 'pull_check')
+          WHERE job_type IN ('deal', 'retrieval', 'retrieval_sampled', 'data_set_creation', 'data_set_lifecycle_check', 'piece_cleanup', 'pull_check')
             AND sp_address <> ''
             AND network::text = $1
           RETURNING sp_address
@@ -98,7 +98,7 @@ export class JobScheduleRepository {
       const [rows] = (await this.dataSource.query(
         `
         DELETE FROM job_schedule_state
-        WHERE job_type IN ('deal', 'retrieval', 'data_set_creation', 'data_set_lifecycle_check', 'piece_cleanup', 'pull_check')
+        WHERE job_type IN ('deal', 'retrieval', 'retrieval_sampled', 'data_set_creation', 'data_set_lifecycle_check', 'piece_cleanup', 'pull_check')
           AND sp_address <> ''
           AND network::text = $1
           AND sp_address <> ALL($2::text[])

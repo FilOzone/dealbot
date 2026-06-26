@@ -137,6 +137,7 @@ export const timeoutEnvSchema = {
 
 export const retrievalEnvSchema = {
   IPFS_BLOCK_FETCH_CONCURRENCY: Joi.number().integer().min(1).max(32).default(6),
+  SAMPLED_RETRIEVAL_BLOCK_SAMPLE_COUNT: Joi.number().integer().min(1).max(50).default(5),
 };
 
 // ---------------------------------------------------------------------------
@@ -163,17 +164,20 @@ const perNetworkFieldRules = (): Record<PerNetworkVar, Joi.Schema> => ({
     .allow(""),
   RPC_REQUEST_TIMEOUT_MS: Joi.number().integer().min(1000).optional(),
   PDP_SUBGRAPH_ENDPOINT: Joi.string().uri().optional().allow(""),
+  SUBGRAPH_ENDPOINT: Joi.string().uri().optional().allow(""),
   CHECK_DATASET_CREATION_FEES: Joi.boolean().optional(),
   USE_ONLY_APPROVED_PROVIDERS: Joi.boolean().optional(),
   DEALBOT_DATASET_VERSION: Joi.string().optional(),
   MIN_NUM_DATASETS_FOR_CHECKS: Joi.number().integer().min(1).optional(),
   DEALS_PER_SP_PER_HOUR: Joi.number().min(0.001).max(20).optional(),
   RETRIEVALS_PER_SP_PER_HOUR: Joi.number().min(0.001).max(20).optional(),
+  SAMPLED_RETRIEVALS_PER_SP_PER_HOUR: Joi.number().min(0.001).max(20).optional(),
   DATASET_CREATIONS_PER_SP_PER_HOUR: Joi.number().min(0.001).max(20).optional(),
   DATASET_LIFECYCLE_CHECKS_PER_SP_PER_HOUR: Joi.number().min(0.001).max(20).optional(),
   DATASET_LIFECYCLE_CHECK_ENABLED: Joi.boolean().optional(),
   DEAL_JOB_TIMEOUT_SECONDS: Joi.number().min(120).optional(),
   RETRIEVAL_JOB_TIMEOUT_SECONDS: Joi.number().min(60).optional(),
+  SAMPLED_RETRIEVAL_JOB_TIMEOUT_SECONDS: Joi.number().min(60).optional(),
   DATA_SET_CREATION_JOB_TIMEOUT_SECONDS: Joi.number().min(60).optional(),
   DATA_SET_LIFECYCLE_CHECK_JOB_TIMEOUT_SECONDS: Joi.number().min(60).optional(),
   DATA_RETENTION_POLL_INTERVAL_SECONDS: Joi.number().integer().min(1).optional(),

@@ -42,7 +42,9 @@ const loadAppConfig = (env: NodeJS.ProcessEnv): IAppConfig => ({
   runMode: parseRunMode(env),
   port: getNumberEnv(env, "DEALBOT_PORT", 3000),
   host: getStringEnv(env, "DEALBOT_HOST", "127.0.0.1"),
-  apiPublicUrl: env.DEALBOT_API_PUBLIC_URL || undefined,
+  // Normalize: trim and strip trailing slashes so hosted-piece source URLs
+  // (e.g. `${apiPublicUrl}/api/...`) never end up with a `//` join.
+  apiPublicUrl: env.DEALBOT_API_PUBLIC_URL?.trim().replace(/\/+$/, "") || undefined,
   metricsPort: getNumberEnv(env, "DEALBOT_METRICS_PORT", 9090),
   metricsHost: getStringEnv(env, "DEALBOT_METRICS_HOST", "0.0.0.0"),
   enableDevMode: env.ENABLE_DEV_MODE === "true",
@@ -103,6 +105,7 @@ const loadTimeoutConfig = (env: NodeJS.ProcessEnv): ITimeoutConfig => ({
 
 const loadRetrievalConfig = (env: NodeJS.ProcessEnv): IRetrievalConfig => ({
   ipfsBlockFetchConcurrency: getNumberEnv(env, "IPFS_BLOCK_FETCH_CONCURRENCY", 6),
+  sampledBlockSampleCount: getNumberEnv(env, "SAMPLED_RETRIEVAL_BLOCK_SAMPLE_COUNT", 5),
 });
 
 // ---------------------------------------------------------------------------
@@ -144,6 +147,7 @@ function loadNetworkEnvPrefix(
     rpcUrl: resolve("RPC_URL"),
     rpcRequestTimeoutMs: coerceNumber(resolve("RPC_REQUEST_TIMEOUT_MS"), networkDefaults.rpcRequestTimeoutMs),
     pdpSubgraphEndpoint: resolve("PDP_SUBGRAPH_ENDPOINT"),
+    subgraphEndpoint: resolve("SUBGRAPH_ENDPOINT"),
     checkDatasetCreationFees: coerceBoolean(
       resolve("CHECK_DATASET_CREATION_FEES"),
       networkDefaults.checkDatasetCreationFees,
@@ -160,9 +164,17 @@ function loadNetworkEnvPrefix(
     dealsPerSpPerHour: coerceFloat(resolve("DEALS_PER_SP_PER_HOUR"), networkDefaults.dealsPerSpPerHour),
     dealJobTimeoutSeconds: coerceNumber(resolve("DEAL_JOB_TIMEOUT_SECONDS"), networkDefaults.dealJobTimeoutSeconds),
     retrievalsPerSpPerHour: coerceFloat(resolve("RETRIEVALS_PER_SP_PER_HOUR"), networkDefaults.retrievalsPerSpPerHour),
+    sampledRetrievalsPerSpPerHour: coerceFloat(
+      resolve("SAMPLED_RETRIEVALS_PER_SP_PER_HOUR"),
+      networkDefaults.sampledRetrievalsPerSpPerHour,
+    ),
     retrievalJobTimeoutSeconds: coerceNumber(
       resolve("RETRIEVAL_JOB_TIMEOUT_SECONDS"),
       networkDefaults.retrievalJobTimeoutSeconds,
+    ),
+    sampledRetrievalJobTimeoutSeconds: coerceNumber(
+      resolve("SAMPLED_RETRIEVAL_JOB_TIMEOUT_SECONDS"),
+      networkDefaults.sampledRetrievalJobTimeoutSeconds,
     ),
     dataSetCreationsPerSpPerHour: coerceFloat(
       resolve("DATASET_CREATIONS_PER_SP_PER_HOUR"),

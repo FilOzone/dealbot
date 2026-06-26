@@ -56,6 +56,12 @@ export class ProvidersService {
 
     for (const net of networksToFilter) {
       const cfg = networksConfig[net];
+      // `networks` is only populated for active networks. The controller already
+      // rejects inactive networks at the boundary, but this is a public method —
+      // guard against internal/future callers passing an inactive network so we
+      // skip (no providers, no blocklist) rather than dereferencing undefined and
+      // 500-ing.
+      if (!cfg) continue;
 
       const blockedIds: bigint[] = [];
       for (const id of cfg.blockedSpIds) {
