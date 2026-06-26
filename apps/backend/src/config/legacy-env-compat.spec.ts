@@ -108,4 +108,50 @@ describe("applyLegacyEnvCompat", () => {
       expect(b.CALIBRATION_WALLET_PRIVATE_KEY).toBeUndefined();
     });
   });
+
+  describe("renamed legacy vars", () => {
+    it("promotes a renamed var to its current unprefixed name (legacy mode)", () => {
+      const env = envOf({
+        NETWORK: "calibration",
+        WALLET_PRIVATE_KEY: "0xkey",
+        DEALBOT_MAINTENANCE_WINDOWS_UTC: "01:00,13:00",
+        JOB_PIECE_CLEANUP_PER_SP_PER_HOUR: "0.5",
+      });
+      const result = applyLegacyEnvCompat(env);
+
+      expect(result.renamedVars).toEqual(
+        expect.arrayContaining([
+          "DEALBOT_MAINTENANCE_WINDOWS_UTC->MAINTENANCE_WINDOWS_UTC",
+          "JOB_PIECE_CLEANUP_PER_SP_PER_HOUR->PIECE_CLEANUP_PER_SP_PER_HOUR",
+        ]),
+      );
+      expect(env.MAINTENANCE_WINDOWS_UTC).toBe("01:00,13:00");
+      expect(env.PIECE_CLEANUP_PER_SP_PER_HOUR).toBe("0.5");
+    });
+
+    it("promotes renamed vars even when NETWORKS is already set (multi-network mode)", () => {
+      const env = envOf({
+        NETWORKS: "calibration,mainnet",
+        DEALBOT_MAINTENANCE_WINDOW_MINUTES: "45",
+      });
+      const result = applyLegacyEnvCompat(env);
+
+      expect(result.applied).toBe(true);
+      expect(result.skipReason).toBe("networks_already_set");
+      expect(result.renamedVars).toContain("DEALBOT_MAINTENANCE_WINDOW_MINUTES->MAINTENANCE_WINDOW_MINUTES");
+      expect(env.MAINTENANCE_WINDOW_MINUTES).toBe("45");
+    });
+
+    it("does not overwrite an already-set current name (explicit wins)", () => {
+      const env = envOf({
+        NETWORKS: "calibration",
+        DEALBOT_MAINTENANCE_WINDOWS_UTC: "01:00",
+        MAINTENANCE_WINDOWS_UTC: "07:00,22:00",
+      });
+      const result = applyLegacyEnvCompat(env);
+
+      expect(env.MAINTENANCE_WINDOWS_UTC).toBe("07:00,22:00");
+      expect(result.renamedVars).not.toContain("DEALBOT_MAINTENANCE_WINDOWS_UTC->MAINTENANCE_WINDOWS_UTC");
+    });
+  });
 });

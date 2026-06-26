@@ -71,7 +71,7 @@ describe("PieceCleanupService", () => {
   function createWalletSdkMock() {
     return {
       getProviderInfo: vi.fn().mockReturnValue({ id: 9, name: "Test SP" }),
-      getSynapse: vi.fn().mockReturnValue({
+      tryGetSynapse: vi.fn().mockReturnValue({
         storage: {
           createContext: vi.fn().mockResolvedValue({
             deletePiece: vi.fn(),
@@ -533,7 +533,7 @@ describe("PieceCleanupService", () => {
       const createContextMock = vi.fn().mockResolvedValue({
         deletePiece: deletePieceMock,
       });
-      walletSdkMock.getSynapse.mockReturnValue({
+      walletSdkMock.tryGetSynapse.mockReturnValue({
         storage: {
           createContext: createContextMock,
         },
@@ -560,7 +560,7 @@ describe("PieceCleanupService", () => {
       const createContextMock = vi.fn().mockResolvedValue({
         deletePiece: deletePieceMock,
       });
-      walletSdkMock.getSynapse.mockReturnValue(null);
+      walletSdkMock.tryGetSynapse.mockReturnValue(null);
       (createSynapseFromConfig as ReturnType<typeof vi.fn>).mockResolvedValue({
         synapse: {
           storage: {
@@ -589,7 +589,7 @@ describe("PieceCleanupService", () => {
       const createContextMock = vi.fn().mockResolvedValue({
         deletePiece: deletePieceMock,
       });
-      walletSdkMock.getSynapse.mockReturnValue({
+      walletSdkMock.tryGetSynapse.mockReturnValue({
         storage: {
           createContext: createContextMock,
         },
@@ -609,7 +609,7 @@ describe("PieceCleanupService", () => {
       const createContextMock = vi.fn().mockResolvedValue({
         deletePiece: deletePieceMock,
       });
-      walletSdkMock.getSynapse.mockReturnValue({
+      walletSdkMock.tryGetSynapse.mockReturnValue({
         storage: {
           createContext: createContextMock,
         },
