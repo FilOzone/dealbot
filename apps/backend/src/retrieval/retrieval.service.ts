@@ -5,7 +5,7 @@ import { CID } from "multiformats/cid";
 import type { Repository } from "typeorm";
 import { ClickhouseService } from "../clickhouse/clickhouse.service.js";
 import { type ProviderJobContext, type RetrievalLogContext, toStructuredError } from "../common/logging.js";
-import type { Hex } from "../common/types.js";
+import type { Hex, Network } from "../common/types.js";
 import type { IConfig } from "../config/app.config.js";
 import { Deal } from "../database/entities/deal.entity.js";
 import { Retrieval } from "../database/entities/retrieval.entity.js";
@@ -94,7 +94,7 @@ export class RetrievalService {
   ): Promise<Retrieval[]> {
     signal?.throwIfAborted();
 
-    const provider = await this.findStorageProvider(deal.spAddress);
+    const provider = await this.findStorageProvider(deal.spAddress, deal.network);
     if (!provider) {
       throw new Error(`Storage provider ${deal.spAddress} not found`);
     }
@@ -452,8 +452,8 @@ export class RetrievalService {
     }
   }
 
-  private async findStorageProvider(address: string): Promise<StorageProvider | null> {
-    return this.spRepository.findOne({ where: { address } });
+  private async findStorageProvider(address: string, network: Network): Promise<StorageProvider | null> {
+    return this.spRepository.findOne({ where: { address, network } });
   }
 
   /**
