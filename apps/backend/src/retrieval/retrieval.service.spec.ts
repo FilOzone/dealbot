@@ -79,8 +79,8 @@ describe("RetrievalService timeouts", () => {
   const buildDeal = (overrides: Partial<Deal> = {}): Deal =>
     ({
       id: "deal-1",
-      network: "calibration",
       spAddress: "0xsp",
+      network: "calibration",
       walletAddress: "0xwallet",
       pieceCid: "bafy-piece",
       dataSetId: "13006",
@@ -159,6 +159,7 @@ describe("RetrievalService timeouts", () => {
 
     await service.performAllRetrievals(buildDeal());
 
+    expect(mockSpRepository.findOne).toHaveBeenCalledWith({ where: { address: "0xsp", network: "calibration" } });
     expect(mockRetrievalRepository.save).toHaveBeenCalledWith(
       expect.objectContaining({
         status: RetrievalStatus.FAILED,
@@ -225,9 +226,9 @@ describe("RetrievalService timeouts", () => {
       await service.performAllRetrievals(buildDeal());
 
       const labels = {
-        network: "calibration",
         checkType: "retrieval",
         providerId: "7",
+        network: "calibration",
         providerName: "Test SP",
         providerStatus: "unapproved",
       };
@@ -258,9 +259,9 @@ describe("RetrievalService timeouts", () => {
     await expect(service.performAllRetrievals(buildDeal())).rejects.toThrow("timeout");
 
     const labels = {
-      network: "calibration",
       checkType: "retrieval",
       providerId: "7",
+      network: "calibration",
       providerName: "Test SP",
       providerStatus: "unapproved",
     };
@@ -325,9 +326,9 @@ describe("RetrievalService timeouts", () => {
     const retrievals = await service.performAllRetrievals(buildDeal(), abortController.signal);
 
     const labels = {
-      network: "calibration",
       checkType: "retrieval",
       providerId: "7",
+      network: "calibration",
       providerName: "Test SP",
       providerStatus: "unapproved",
     };
@@ -385,6 +386,7 @@ describe("RetrievalService parallel IPNI + transport", () => {
     ({
       id: "deal-1",
       spAddress: "0xsp",
+      network: "calibration",
       walletAddress: "0xwallet",
       pieceCid: "bafy-piece",
       dataSetId: "13006",
@@ -400,6 +402,7 @@ describe("RetrievalService parallel IPNI + transport", () => {
   const labels = {
     checkType: "retrieval",
     providerId: "7",
+    network: "calibration",
     providerName: "Test SP",
     providerStatus: "unapproved",
   };
@@ -729,6 +732,7 @@ describe("RetrievalService SP piece status pre-flight", () => {
     ({
       id: "deal-1",
       spAddress: "0xsp",
+      network: "calibration",
       walletAddress: "0xwallet",
       pieceCid: "bafy-piece",
       dataSetId: "13006",

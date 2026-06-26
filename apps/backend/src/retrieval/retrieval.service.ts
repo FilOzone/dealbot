@@ -95,7 +95,7 @@ export class RetrievalService {
   ): Promise<Retrieval[]> {
     signal?.throwIfAborted();
 
-    const provider = await this.findStorageProvider(deal.spAddress);
+    const provider = await this.findStorageProvider(deal.spAddress, deal.network);
     if (!provider) {
       throw new Error(`Storage provider ${deal.spAddress} not found`);
     }
@@ -460,8 +460,8 @@ export class RetrievalService {
     }
   }
 
-  private async findStorageProvider(address: string): Promise<StorageProvider | null> {
-    return this.spRepository.findOne({ where: { address } });
+  private async findStorageProvider(address: string, network: Network): Promise<StorageProvider | null> {
+    return this.spRepository.findOne({ where: { address, network } });
   }
 
   /**
