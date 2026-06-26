@@ -101,6 +101,7 @@ export class SampledPieceSelectorService {
           event: "sampled_piece_selected",
           message: "Selected anonymous piece for retrieval test",
           spAddress,
+          network,
           pieceCid: piece.pieceCid,
           dataSetId: piece.dataSetId,
           withIPFSIndexing: piece.withIPFSIndexing,
@@ -124,6 +125,7 @@ export class SampledPieceSelectorService {
       event: "sampled_no_candidates",
       message: "No anonymous piece found after all fallbacks",
       spAddress,
+      network,
     });
 
     return null;

@@ -192,6 +192,7 @@ export class PieceValidationService {
         event: "block_fetch_unexpected_error",
         message: "Block fetch loop threw unexpectedly",
         spAddress,
+        network,
         error: toStructuredError(error),
       });
       return {

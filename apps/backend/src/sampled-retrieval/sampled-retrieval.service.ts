@@ -63,6 +63,7 @@ export class SampledRetrievalService {
       pieceId: piece.pieceId,
       withIPFSIndexing: piece.withIPFSIndexing,
       spAddress,
+      network,
     });
 
     const checkStart = Date.now();
@@ -191,6 +192,7 @@ export class SampledRetrievalService {
           message: "Failed to enqueue anonymous retrieval row to ClickHouse",
           pieceCid: piece.pieceCid,
           spAddress,
+          network,
           error: toStructuredError(error),
         });
       }
@@ -202,6 +204,7 @@ export class SampledRetrievalService {
         retrievalId,
         pieceCid: piece.pieceCid,
         spAddress,
+        network,
         success: finalPieceResult.success,
         aborted: finalPieceResult.aborted === true,
         latencyMs: finalPieceResult.latencyMs,

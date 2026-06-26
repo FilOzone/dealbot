@@ -28,6 +28,7 @@ export class PieceRetrievalService {
         event: "provider_info_not_found",
         message: "Cannot fetch piece: provider info not found",
         spAddress,
+        network,
         pieceCid,
       });
 
@@ -66,6 +67,7 @@ export class PieceRetrievalService {
           url,
           pieceCid,
           spAddress,
+          network,
           bytesReceived: metrics.responseSize,
           ttfbMs: metrics.ttfb,
           abortReason: result.abortReason,
@@ -95,6 +97,7 @@ export class PieceRetrievalService {
           statusCode: metrics.statusCode,
           pieceCid,
           spAddress,
+          network,
         });
 
         return {
@@ -127,6 +130,7 @@ export class PieceRetrievalService {
           url,
           pieceCid,
           spAddress,
+          network,
           bytesReceived: metrics.responseSize,
         });
 
@@ -150,6 +154,7 @@ export class PieceRetrievalService {
         message: "Piece fetched successfully",
         pieceCid,
         spAddress,
+        network,
         bytesReceived: metrics.responseSize,
         latencyMs: metrics.totalTime,
         ttfbMs: metrics.ttfb,
@@ -175,6 +180,7 @@ export class PieceRetrievalService {
         url,
         pieceCid,
         spAddress,
+        network,
         aborted,
         error: toStructuredError(error),
       });
