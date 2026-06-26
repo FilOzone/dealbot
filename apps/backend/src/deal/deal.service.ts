@@ -266,10 +266,12 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     extraDataSetMetadata?: Record<string, string>,
     logContext?: ProviderJobContext,
   ): Promise<Deal> {
+    const network = this.blockchainConfig.network;
     const providerAddress = pdpProvider.serviceProvider;
     const checkType = "dataStorage" as const;
     let providerLabels = buildCheckMetricLabels({
       checkType,
+      network,
       providerId: pdpProvider.id,
       providerName: pdpProvider.name,
       providerIsApproved: pdpProvider.isApproved,
@@ -312,7 +314,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     deal.fileName = dealInput.processedData.name;
     deal.fileSize = dealInput.processedData.size;
     deal.spAddress = providerAddress;
-    deal.network = this.blockchainConfig.network;
+    deal.network = network;
     deal.status = DealStatus.PENDING;
     deal.walletAddress = this.blockchainConfig.walletAddress;
     deal.metadata = dealInput.metadata;
@@ -343,6 +345,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       dealLogContext.providerId = deal.storageProvider?.providerId ?? dealLogContext.providerId;
       providerLabels = buildCheckMetricLabels({
         checkType,
+        network,
         providerId: deal.storageProvider?.providerId,
         providerName: pdpProvider.name ?? deal.storageProvider?.name,
         providerIsApproved: pdpProvider.isApproved ?? deal.storageProvider?.isApproved,
@@ -830,6 +833,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     }
     const labels = buildCheckMetricLabels({
       checkType: "dataSetCreation",
+      network: this.blockchainConfig.network,
       providerId: providerInfo.id,
       providerName: providerInfo.name,
       providerIsApproved: providerInfo.isApproved,

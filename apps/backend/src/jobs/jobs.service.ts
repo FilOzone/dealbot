@@ -912,10 +912,11 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       const activeCount = await this.storageProviderRepository.count({ where: { isActive: true } });
       const inactiveCount = Math.max(0, totalProviders - activeCount);
 
-      this.storageProvidersActive.set({ status: "active" }, activeCount);
-      this.storageProvidersActive.set({ status: "inactive" }, inactiveCount);
+      const { network, useOnlyApprovedProviders } = this.configService.get("blockchain", { infer: true });
 
-      const useOnlyApprovedProviders = this.configService.get("blockchain").useOnlyApprovedProviders;
+      this.storageProvidersActive.set({ status: "active", network }, activeCount);
+      this.storageProvidersActive.set({ status: "inactive", network }, inactiveCount);
+
       const testedWhere = useOnlyApprovedProviders ? { isActive: true, isApproved: true } : { isActive: true };
       const spBlocklists = this.configService.get<ISpBlocklistConfig>("spBlocklists");
       const hasGlobalBlocklist = spBlocklists.addresses.size > 0 || spBlocklists.ids.size > 0;
@@ -929,7 +930,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       } else {
         testedCount = await this.storageProviderRepository.count({ where: testedWhere });
       }
-      this.storageProvidersTested.set(testedCount);
+      this.storageProvidersTested.set({ network }, testedCount);
     } catch (error) {
       this.logger.warn({
         event: "update_storage_provider_metrics_failed",
@@ -1584,7 +1585,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         finalOptions.singletonKey = `${data.network}:${jobType}`;
       }
       await this.boss.send(name, data, finalOptions);
-      this.jobsEnqueueAttemptsCounter.inc({ job_type: jobType, outcome: "success" });
+      this.jobsEnqueueAttemptsCounter.inc({ job_type: jobType, outcome: "success", network: data.network });
       return true;
     } catch (error) {
       this.logger.warn({
@@ -1594,7 +1595,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         jobType,
         error: toStructuredError(error),
       });
-      this.jobsEnqueueAttemptsCounter.inc({ job_type: jobType, outcome: "error" });
+      this.jobsEnqueueAttemptsCounter.inc({ job_type: jobType, outcome: "error", network: data.network });
       return false;
     }
   }
@@ -1603,17 +1604,18 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
    * Records handler start/end metrics around a job execution.
    */
   private async recordJobExecution(jobType: JobType, run: () => Promise<JobRunStatus>): Promise<void> {
+    const network = this.configService.get("blockchain", { infer: true }).network;
     const startedAt = Date.now();
-    this.jobsStartedCounter.inc({ job_type: jobType });
+    this.jobsStartedCounter.inc({ job_type: jobType, network });
     try {
       const status = await run();
       const finishedAt = Date.now();
-      this.jobDuration.observe({ job_type: jobType }, (finishedAt - startedAt) / 1000);
-      this.jobsCompletedCounter.inc({ job_type: jobType, handler_result: status });
+      this.jobDuration.observe({ job_type: jobType, network }, (finishedAt - startedAt) / 1000);
+      this.jobsCompletedCounter.inc({ job_type: jobType, handler_result: status, network });
     } catch (error) {
       const finishedAt = Date.now();
-      this.jobDuration.observe({ job_type: jobType }, (finishedAt - startedAt) / 1000);
-      this.jobsCompletedCounter.inc({ job_type: jobType, handler_result: "error" });
+      this.jobDuration.observe({ job_type: jobType, network }, (finishedAt - startedAt) / 1000);
+      this.jobsCompletedCounter.inc({ job_type: jobType, handler_result: "error", network });
       throw error;
     }
   }
@@ -1636,12 +1638,12 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       "pull_piece_cleanup",
     ];
     for (const jobType of jobTypes) {
-      this.jobsQueuedGauge.set({ job_type: jobType }, 0);
-      this.jobsRetryScheduledGauge.set({ job_type: jobType }, 0);
-      this.jobsInFlightGauge.set({ job_type: jobType }, 0);
-      this.jobsPausedGauge.set({ job_type: jobType }, 0);
-      this.oldestQueuedAgeGauge.set({ job_type: jobType }, 0);
-      this.oldestInFlightAgeGauge.set({ job_type: jobType }, 0);
+      this.jobsQueuedGauge.set({ job_type: jobType, network }, 0);
+      this.jobsRetryScheduledGauge.set({ job_type: jobType, network }, 0);
+      this.jobsInFlightGauge.set({ job_type: jobType, network }, 0);
+      this.jobsPausedGauge.set({ job_type: jobType, network }, 0);
+      this.oldestQueuedAgeGauge.set({ job_type: jobType, network }, 0);
+      this.oldestInFlightAgeGauge.set({ job_type: jobType, network }, 0);
     }
 
     const rows = await this.jobScheduleRepository.countBossJobStates(["created", "retry", "active"], network);
@@ -1651,11 +1653,11 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         if (!jobTypes.includes(jobType)) continue;
         const state = String(row.state).toLowerCase();
         if (state === "active") {
-          this.jobsInFlightGauge.set({ job_type: jobType }, row.count);
+          this.jobsInFlightGauge.set({ job_type: jobType, network }, row.count);
         } else if (state === "retry") {
-          this.jobsRetryScheduledGauge.set({ job_type: jobType }, row.count);
+          this.jobsRetryScheduledGauge.set({ job_type: jobType, network }, row.count);
         } else {
-          this.jobsQueuedGauge.set({ job_type: jobType }, row.count);
+          this.jobsQueuedGauge.set({ job_type: jobType, network }, row.count);
         }
       }
     } else {
@@ -1668,7 +1670,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
 
     const pausedSchedules = await this.jobScheduleRepository.countPausedSchedules(network);
     for (const row of pausedSchedules) {
-      this.jobsPausedGauge.set({ job_type: row.job_type }, row.count);
+      this.jobsPausedGauge.set({ job_type: row.job_type, network }, row.count);
     }
 
     const now = new Date();
@@ -1676,14 +1678,14 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     for (const row of queuedAges) {
       const jobType = row.job_type as JobType;
       if (!jobTypes.includes(jobType)) continue;
-      this.oldestQueuedAgeGauge.set({ job_type: jobType }, Math.max(0, row.min_age_seconds ?? 0));
+      this.oldestQueuedAgeGauge.set({ job_type: jobType, network }, Math.max(0, row.min_age_seconds ?? 0));
     }
 
     const activeAges = await this.jobScheduleRepository.minBossJobAgeSecondsByState("active", now, network);
     for (const row of activeAges) {
       const jobType = row.job_type as JobType;
       if (!jobTypes.includes(jobType)) continue;
-      this.oldestInFlightAgeGauge.set({ job_type: jobType }, Math.max(0, row.min_age_seconds ?? 0));
+      this.oldestInFlightAgeGauge.set({ job_type: jobType, network }, Math.max(0, row.min_age_seconds ?? 0));
     }
   }
 }

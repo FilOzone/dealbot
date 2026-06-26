@@ -44,6 +44,7 @@ export class SampledRetrievalService {
     const provider = await this.spRepository.findOne({ where: { address: spAddress, network: this.network } });
     const labels = buildCheckMetricLabels({
       checkType: "sampledRetrieval",
+      network: this.network,
       providerId: provider?.providerId,
       providerName: provider?.name,
       providerIsApproved: provider?.isApproved,
