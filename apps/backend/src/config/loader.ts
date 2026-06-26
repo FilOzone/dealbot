@@ -41,7 +41,9 @@ const loadAppConfig = (env: NodeJS.ProcessEnv): IAppConfig => ({
   runMode: parseRunMode(env),
   port: getNumberEnv(env, "DEALBOT_PORT", 3000),
   host: getStringEnv(env, "DEALBOT_HOST", "127.0.0.1"),
-  apiPublicUrl: env.DEALBOT_API_PUBLIC_URL || undefined,
+  // Normalize: trim and strip trailing slashes so hosted-piece source URLs
+  // (e.g. `${apiPublicUrl}/api/...`) never end up with a `//` join.
+  apiPublicUrl: env.DEALBOT_API_PUBLIC_URL?.trim().replace(/\/+$/, "") || undefined,
   metricsPort: getNumberEnv(env, "DEALBOT_METRICS_PORT", 9090),
   metricsHost: getStringEnv(env, "DEALBOT_METRICS_HOST", "0.0.0.0"),
   enableDevMode: env.ENABLE_DEV_MODE === "true",
