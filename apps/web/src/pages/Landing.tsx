@@ -96,7 +96,7 @@ export default function Landing() {
     providers: providersResponse,
     loading: providersLoading,
     error: providersError,
-  } = useProvidersList(0, 500, configLoading ? null : (selectedNetwork ?? undefined));
+  } = useProvidersList(0, 500, selectedNetwork);
 
   return (
     <div className="flex w-full flex-col items-center gap-12 pt-8">

@@ -20,7 +20,7 @@ export function useActiveNetworks(): UseActiveNetworksReturn {
   });
 
   return {
-    activeNetworks: data?.networks.map((n) => n.network) ?? [],
+    activeNetworks: data?.networks?.map((n) => n.network) ?? [],
     loading: isLoading,
     error: toErrorMessage(error, "Failed to fetch app config"),
   };

@@ -9,7 +9,7 @@ interface UseProvidersListReturn {
   error: string | null;
 }
 
-export function useProvidersList(offset = 0, limit = 20, network?: Network | null): UseProvidersListReturn {
+export function useProvidersList(offset = 0, limit = 20, network: Network | null): UseProvidersListReturn {
   const { data, error, isLoading } = useSWR(
     apiPaths.providers({ offset, limit, network }),
     fetcher<ProvidersListResponseWithoutMetrics>,
