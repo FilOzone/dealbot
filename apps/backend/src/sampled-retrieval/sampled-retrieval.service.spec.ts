@@ -1,9 +1,7 @@
-import type { ConfigService } from "@nestjs/config";
 import type { Repository } from "typeorm";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ClickhouseService } from "../clickhouse/clickhouse.service.js";
 import { PieceFetchStatus } from "../clickhouse/clickhouse.types.js";
-import type { IConfig } from "../config/app.config.js";
 import type { StorageProvider } from "../database/entities/storage-provider.entity.js";
 import { BlockFetchStatus, CarParseStatus, IpniCheckStatus, RetrievalStatus } from "../database/types.js";
 import type { SampledRetrievalCheckMetrics } from "../metrics-prometheus/check-metrics.service.js";
@@ -22,6 +20,7 @@ import type {
 } from "./types.js";
 
 const SP_ADDRESS = "0xaaaa0000000000000000000000000000000000aa";
+const NETWORK = "calibration" as const;
 
 const PIECE = {
   pieceCid: "baga6ea4seaqpiece",
@@ -136,10 +135,6 @@ function makeService(opts: {
     recordBlockFetchStatus: metricsRecordBlockFetchSpy,
   } as unknown as SampledRetrievalCheckMetrics;
 
-  const configService = {
-    get: vi.fn(() => ({ network: "calibration" })),
-  } as unknown as ConfigService<IConfig, true>;
-
   const service = new SampledRetrievalService(
     sampledPieceSelector,
     pieceRetrievalService,
@@ -148,7 +143,6 @@ function makeService(opts: {
     metrics,
     clickhouseService,
     spRepository,
-    configService,
   );
 
   return {
@@ -188,7 +182,7 @@ describe("SampledRetrievalService", () => {
       },
     });
 
-    await service.performForProvider(SP_ADDRESS);
+    await service.performForProvider(SP_ADDRESS, NETWORK);
 
     expect(findOneSpy).toHaveBeenCalledWith({ where: { address: SP_ADDRESS, network: "calibration" } });
   });
@@ -210,7 +204,7 @@ describe("SampledRetrievalService", () => {
       },
     });
 
-    await service.performForProvider(SP_ADDRESS);
+    await service.performForProvider(SP_ADDRESS, NETWORK);
 
     expect(metricsRecordStatusSpy).toHaveBeenCalledWith(
       expect.objectContaining({ checkType: "sampledRetrieval", network: "calibration" }),
@@ -236,7 +230,7 @@ describe("SampledRetrievalService", () => {
 
     const { service, insertSpy } = makeService({ pieceResult: partial });
 
-    await service.performForProvider(SP_ADDRESS);
+    await service.performForProvider(SP_ADDRESS, NETWORK);
 
     expect(insertSpy).toHaveBeenCalledTimes(1);
     const [table, row] = insertSpy.mock.calls[0] as [string, Record<string, unknown>];
@@ -286,7 +280,7 @@ describe("SampledRetrievalService", () => {
 
     const { service, insertSpy, parseCarSpy, metricsRecordStatusSpy } = makeService({ pieceResult: tooLarge });
 
-    await service.performForProvider(SP_ADDRESS);
+    await service.performForProvider(SP_ADDRESS, NETWORK);
 
     expect(parseCarSpy).not.toHaveBeenCalled();
     expect(metricsRecordStatusSpy).toHaveBeenCalledWith(expect.anything(), "failure.too_large");
@@ -318,7 +312,7 @@ describe("SampledRetrievalService", () => {
 
     const { service, insertSpy, fetchSpy } = makeService({ pieceResult: never });
 
-    await service.performForProvider(SP_ADDRESS, ac.signal);
+    await service.performForProvider(SP_ADDRESS, NETWORK, ac.signal);
 
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(insertSpy).toHaveBeenCalledTimes(1);
@@ -350,7 +344,7 @@ describe("SampledRetrievalService", () => {
       },
     });
 
-    await expect(service.performForProvider(SP_ADDRESS)).rejects.toThrow("network down");
+    await expect(service.performForProvider(SP_ADDRESS, NETWORK)).rejects.toThrow("network down");
 
     expect(insertSpy).toHaveBeenCalledTimes(1);
     const [, row] = insertSpy.mock.calls[0] as [string, Record<string, unknown>];
@@ -376,7 +370,7 @@ describe("SampledRetrievalService", () => {
       piece: null,
     });
 
-    await expect(service.performForProvider(SP_ADDRESS)).resolves.toBeUndefined();
+    await expect(service.performForProvider(SP_ADDRESS, NETWORK)).resolves.toBeUndefined();
 
     // No piece was selected, so no fetch was attempted; only the overall
     // piece-retrieval status metric is emitted, valued "skipped".
@@ -425,7 +419,9 @@ describe("SampledRetrievalService", () => {
       piece: null,
     });
 
-    await expect(service.performForProvider(SP_ADDRESS, ac.signal)).rejects.toThrow("aborted during piece selection");
+    await expect(service.performForProvider(SP_ADDRESS, NETWORK, ac.signal)).rejects.toThrow(
+      "aborted during piece selection",
+    );
 
     // An abort is not an empty-pool skip: no check row, no skipped metric — the
     // job handler maps the aborted signal to "aborted" rather than a failure.
@@ -469,7 +465,7 @@ describe("SampledRetrievalService", () => {
         },
       });
 
-      await service.performForProvider(SP_ADDRESS);
+      await service.performForProvider(SP_ADDRESS, NETWORK);
 
       expect(parseCarSpy).toHaveBeenCalledTimes(1);
       expect(checkIpniSpy).toHaveBeenCalledTimes(1);
@@ -501,7 +497,7 @@ describe("SampledRetrievalService", () => {
         },
       });
 
-      await service.performForProvider(SP_ADDRESS);
+      await service.performForProvider(SP_ADDRESS, NETWORK);
 
       const [, row] = insertSpy.mock.calls[0] as [string, Record<string, unknown>];
       // The piece-fetch path still succeeded — failures are surfaced as
@@ -523,7 +519,7 @@ describe("SampledRetrievalService", () => {
         parseCarOutcome: { status: CarParseStatus.FAILURE_NOT_PARSEABLE },
       });
 
-      await service.performForProvider(SP_ADDRESS);
+      await service.performForProvider(SP_ADDRESS, NETWORK);
 
       expect(parseCarSpy).toHaveBeenCalledTimes(1);
       expect(checkIpniSpy).not.toHaveBeenCalled();
@@ -556,7 +552,7 @@ describe("SampledRetrievalService", () => {
         },
       });
 
-      await service.performForProvider(SP_ADDRESS);
+      await service.performForProvider(SP_ADDRESS, NETWORK);
 
       expect(metricsRecordIpniSpy).toHaveBeenCalledWith(expect.anything(), IpniCheckStatus.SKIPPED);
       const [, row] = insertSpy.mock.calls[0] as [string, Record<string, unknown>];
@@ -583,7 +579,7 @@ describe("SampledRetrievalService", () => {
           },
         });
 
-      await service.performForProvider(SP_ADDRESS);
+      await service.performForProvider(SP_ADDRESS, NETWORK);
 
       expect(metricsRecordCarParseSpy).toHaveBeenCalledWith(expect.anything(), CarParseStatus.SUCCESS);
       expect(metricsRecordIpniSpy).toHaveBeenCalledWith(expect.anything(), IpniCheckStatus.FAILURE_OTHER);
@@ -610,7 +606,7 @@ describe("SampledRetrievalService", () => {
         },
       });
 
-      await service.performForProvider(SP_ADDRESS);
+      await service.performForProvider(SP_ADDRESS, NETWORK);
 
       const [, row] = insertSpy.mock.calls[0] as [string, Record<string, unknown>];
       expect(row.car_status).toBe("success");
@@ -634,7 +630,7 @@ describe("SampledRetrievalService", () => {
           },
         });
 
-      await service.performForProvider(SP_ADDRESS, ac.signal);
+      await service.performForProvider(SP_ADDRESS, NETWORK, ac.signal);
 
       expect(metricsRecordCarParseSpy).toHaveBeenCalledWith(expect.anything(), CarParseStatus.SKIPPED);
       expect(metricsRecordIpniSpy).toHaveBeenCalledWith(expect.anything(), IpniCheckStatus.SKIPPED);
@@ -681,7 +677,7 @@ describe("SampledRetrievalService", () => {
         piece: INDEXED_PIECE,
       });
 
-      await service.performForProvider(SP_ADDRESS);
+      await service.performForProvider(SP_ADDRESS, NETWORK);
 
       expect(parseCarSpy).not.toHaveBeenCalled();
       expect(checkIpniSpy).not.toHaveBeenCalled();

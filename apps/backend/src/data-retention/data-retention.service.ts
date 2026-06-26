@@ -8,7 +8,7 @@ import { ClickhouseService } from "../clickhouse/clickhouse.service.js";
 import { toStructuredError } from "../common/logging.js";
 import { isSpBlocked } from "../common/sp-blocklist.js";
 import type { Network } from "../common/types.js";
-import { IConfig } from "../config/app.config.js";
+import { IConfig, INetworksConfig } from "../config/index.js";
 import { DataRetentionBaseline } from "../database/entities/data-retention-baseline.entity.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
 import { buildCheckMetricLabels, CheckMetricLabels } from "../metrics-prometheus/check-metric-labels.js";
@@ -71,8 +71,9 @@ export class DataRetentionService {
    * converts them to challenge counts, and increments Prometheus counters with the
    * challenge delta since the last poll.
    */
-  async pollDataRetention(): Promise<void> {
-    const { network, pdpSubgraphEndpoint } = this.configService.get("blockchain", { infer: true });
+  async pollDataRetention(network: Network): Promise<void> {
+    const networkConfig = this.configService.get<INetworksConfig>("networks")[network];
+    const pdpSubgraphEndpoint = networkConfig.pdpSubgraphEndpoint;
     if (!pdpSubgraphEndpoint) {
       this.logger.error({
         event: "pdp_subgraph_endpoint_not_configured",
@@ -100,8 +101,8 @@ export class DataRetentionService {
         // outer catch (which now preserves error type) rethrows it as a dependency failure.
         throw new DataRetentionDependencyError("Failed to fetch PDP subgraph meta", { cause: error });
       }
-      const allProviderInfos = this.walletSdkService.getTestingProviders();
-      const spBlocklists = this.configService.get("spBlocklists");
+      const allProviderInfos = this.walletSdkService.getTestingProviders(network);
+      const spBlocklists = this.configService.get("networks", { infer: true })[network];
       const providerInfos = allProviderInfos?.filter((p) => !isSpBlocked(spBlocklists, p.serviceProvider, p.id));
 
       if (!providerInfos || providerInfos.length === 0) {
@@ -145,7 +146,7 @@ export class DataRetentionService {
                   ),
                 );
               }
-              return this.processProvider(provider, providerInfo, blockNumberBigInt, baselines);
+              return this.processProvider(provider, providerInfo, blockNumberBigInt, baselines, network);
             }),
           );
 
@@ -377,6 +378,7 @@ export class DataRetentionService {
     pdpProvider: PDPProviderEx,
     currentBlock: bigint,
     baselines: Map<string, ProviderBaseline>,
+    network: Network,
   ): Promise<ProcessedProviderResult> {
     const { address, totalFaultedPeriods, totalProvingPeriods, proofSets } = provider;
     // Note: Query filters proofSets with nextDeadline_lt: $blockNumber, so all deadlines are in the past
@@ -409,7 +411,6 @@ export class DataRetentionService {
       successPeriods: confirmedTotalSuccess,
     };
 
-    const network = this.configService.get("blockchain", { infer: true }).network;
     const providerLabels = buildCheckMetricLabels({
       checkType: "dataRetention",
       providerId: pdpProvider.id,

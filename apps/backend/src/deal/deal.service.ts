@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { METADATA_KEYS, SIZE_CONSTANTS, Synapse } from "@filoz/synapse-sdk";
-import { Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
 import { executeUpload } from "filecoin-pin";
@@ -18,8 +18,8 @@ import {
   toStructuredError,
 } from "../common/logging.js";
 import { createSynapseFromConfig } from "../common/synapse-factory.js";
-import type { DataFile, Hex } from "../common/types.js";
-import type { IBlockchainConfig, IConfig } from "../config/app.config.js";
+import type { DataFile, Hex, Network } from "../common/types.js";
+import type { IConfig, INetworkConfig } from "../config/types.js";
 import { Deal } from "../database/entities/deal.entity.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
 import { DealStatus, IpniStatus, ServiceType } from "../database/types.js";
@@ -50,10 +50,8 @@ type UploadResultSummary = {
 };
 
 @Injectable()
-export class DealService implements OnModuleInit, OnModuleDestroy {
+export class DealService {
   private readonly logger = new Logger(DealService.name);
-  private readonly blockchainConfig: IBlockchainConfig;
-  private sharedSynapse?: Synapse;
 
   constructor(
     private readonly dataSourceService: DataSourceService,
@@ -70,27 +68,16 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     private readonly dataSetCreationMetrics: DataSetCreationCheckMetrics,
     private readonly clickhouseService: ClickhouseService,
     private readonly datasetLivenessService: DatasetLivenessService,
-  ) {
-    this.blockchainConfig = this.configService.get("blockchain");
-  }
+  ) {}
 
-  async onModuleInit() {
-    this.logger.log({
-      event: "synapse_initialization",
-      message: "Creating shared Synapse instance",
-    });
-    this.sharedSynapse = await this.createSynapseInstance();
-  }
-
-  async onModuleDestroy(): Promise<void> {
-    if (this.sharedSynapse) {
-      this.sharedSynapse = undefined;
-    }
+  private getNetworkConfig(network: Network): INetworkConfig {
+    return this.configService.get("networks")[network];
   }
 
   async createDealForProvider(
     pdpProvider: PDPProviderEx,
     options: {
+      network: Network;
       existingDealId?: string;
       signal?: AbortSignal;
       logContext?: ProviderJobContext;
@@ -100,6 +87,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
 
     const extraDataSetMetadata = await this.resolveDataSetMetadataForDeal(
       pdpProvider.serviceProvider,
+      options.network,
       options.signal,
       options.logContext,
     );
@@ -107,13 +95,15 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     const { preprocessed, cleanup } = await this.prepareDealInput(options.signal, options.logContext);
 
     try {
-      const synapse = this.sharedSynapse ?? (await this.createSynapseInstance());
+      const synapse =
+        this.walletSdkService.getSynapse(options.network) ?? (await this.createSynapseInstance(options.network));
       const uploadPayload = await this.prepareUploadPayload(preprocessed, options.signal);
       return await this.createDeal(
         synapse,
         pdpProvider,
         preprocessed,
         uploadPayload,
+        options.network,
         options.existingDealId,
         options.signal,
         extraDataSetMetadata,
@@ -141,17 +131,29 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
    */
   async resolveDataSetMetadataForDeal(
     providerAddress: string,
+    network: Network,
     signal?: AbortSignal,
     logContext?: ProviderJobContext,
   ): Promise<Record<string, string> | undefined> {
     signal?.throwIfAborted();
-    const baseDataSetMetadata = this.getBaseDataSetMetadata();
+    const baseDataSetMetadata = this.getBaseDataSetMetadata(network);
 
-    const indexedMetadata = await this.tryIndexedDataSetSlot(providerAddress, baseDataSetMetadata, signal, logContext);
+    const indexedMetadata = await this.tryIndexedDataSetSlot(
+      providerAddress,
+      baseDataSetMetadata,
+      network,
+      signal,
+      logContext,
+    );
     if (indexedMetadata !== undefined) return indexedMetadata;
 
     try {
-      const baselineStatus = await this.getDataSetProvisioningStatus(providerAddress, baseDataSetMetadata, signal);
+      const baselineStatus = await this.getDataSetProvisioningStatus(
+        providerAddress,
+        baseDataSetMetadata,
+        network,
+        signal,
+      );
       if (baselineStatus.status === "terminated") {
         throw new DealJobTerminatedDataSetError(baselineStatus.dataSetId);
       }
@@ -172,10 +174,11 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
   private async tryIndexedDataSetSlot(
     providerAddress: string,
     baseDataSetMetadata: Record<string, string>,
+    network: Network,
     signal: AbortSignal | undefined,
     logContext: ProviderJobContext | undefined,
   ): Promise<Record<string, string> | undefined> {
-    const minDataSets = this.blockchainConfig.minNumDataSetsForChecks;
+    const minDataSets = this.getNetworkConfig(network).minNumDataSetsForChecks;
     if (minDataSets <= 1) return undefined;
     const dsIndex = Math.floor(Math.random() * minDataSets);
     if (dsIndex === 0) return undefined;
@@ -185,6 +188,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       const status = await this.getDataSetProvisioningStatus(
         providerAddress,
         { ...baseDataSetMetadata, ...dsIndexMetadata },
+        network,
         signal,
       );
       if (status.status === "live") return dsIndexMetadata;
@@ -241,19 +245,20 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     return { preprocessed, cleanup };
   }
 
-  getBaseDataSetMetadata(): Record<string, string> {
+  getBaseDataSetMetadata(network: Network): Record<string, string> {
     // IPNI is always enabled for all deals
     const metadata: Record<string, string> = {
       [METADATA_KEYS.WITH_IPFS_INDEXING]: "",
     };
-    if (this.blockchainConfig.dealbotDataSetVersion) {
-      metadata.dealbotDataSetVersion = this.blockchainConfig.dealbotDataSetVersion;
+    const networkConfig = this.getNetworkConfig(network);
+    if (networkConfig.dealbotDataSetVersion) {
+      metadata.dealbotDataSetVersion = networkConfig.dealbotDataSetVersion;
     }
     return metadata;
   }
 
-  getWalletAddress(): string {
-    return this.blockchainConfig.walletAddress;
+  getWalletAddress(network: Network): string {
+    return this.getNetworkConfig(network).walletAddress;
   }
 
   async createDeal(
@@ -261,12 +266,12 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     pdpProvider: PDPProviderEx,
     dealInput: DealPreprocessingResult,
     uploadPayload: UploadPayload,
+    network: Network,
     existingDealId?: string,
     signal?: AbortSignal,
     extraDataSetMetadata?: Record<string, string>,
     logContext?: ProviderJobContext,
   ): Promise<Deal> {
-    const network = this.blockchainConfig.network;
     const providerAddress = pdpProvider.serviceProvider;
     const checkType = "dataStorage" as const;
     let providerLabels = buildCheckMetricLabels({
@@ -311,12 +316,13 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       deal.id = randomUUID();
     }
 
+    const networkCfg = this.getNetworkConfig(network);
     deal.fileName = dealInput.processedData.name;
     deal.fileSize = dealInput.processedData.size;
     deal.spAddress = providerAddress;
     deal.network = network;
     deal.status = DealStatus.PENDING;
-    deal.walletAddress = this.blockchainConfig.walletAddress;
+    deal.walletAddress = networkCfg.walletAddress;
     deal.metadata = dealInput.metadata;
     deal.serviceTypes = dealInput.appliedAddons;
 
@@ -353,8 +359,8 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
 
       const dataSetMetadata = { ...dealInput.synapseConfig.dataSetMetadata, ...extraDataSetMetadata };
 
-      if (this.blockchainConfig.dealbotDataSetVersion) {
-        dataSetMetadata.dealbotDataSetVersion = this.blockchainConfig.dealbotDataSetVersion;
+      if (networkCfg.dealbotDataSetVersion) {
+        dataSetMetadata.dealbotDataSetVersion = networkCfg.dealbotDataSetVersion;
       }
       const filecoinPinLogger = createFilecoinPinLogger(this.logger, dealLogContext);
 
@@ -370,7 +376,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       // pdpEndEpoch=0; createContext returns it and the next add-pieces path
       // would fail. See #379.
       if (storage.dataSetId !== undefined) {
-        const live = await this.isDataSetLive(providerAddress, storage.dataSetId, signal);
+        const live = await this.isDataSetLive(providerAddress, storage.dataSetId, network, signal);
         if (!live) {
           preUploadTerminated = true;
           throw new DealJobTerminatedDataSetError(storage.dataSetId);
@@ -701,13 +707,14 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
   async getDataSetProvisioningStatus(
     providerAddress: string,
     metadata: Record<string, string>,
+    network: Network,
     signal?: AbortSignal,
   ): Promise<
     { status: "missing" } | { status: "live"; dataSetId: bigint } | { status: "terminated"; dataSetId: bigint }
   > {
     signal?.throwIfAborted();
-    const synapse = this.sharedSynapse ?? (await this.createSynapseInstance());
-    const providerInfo = this.walletSdkService.getProviderInfo(providerAddress);
+    const synapse = this.walletSdkService.getSynapse(network) ?? (await this.createSynapseInstance(network));
+    const providerInfo = this.walletSdkService.getProviderInfo(providerAddress, network);
     if (!providerInfo) {
       throw new Error(`Provider ${providerAddress} not found in registry`);
     }
@@ -723,7 +730,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
       return { status: "missing" };
     }
     const dataSetId = context.dataSetId;
-    const isLive = await this.isDataSetLive(providerAddress, dataSetId, signal);
+    const isLive = await this.isDataSetLive(providerAddress, dataSetId, network, signal);
     return isLive ? { status: "live", dataSetId } : { status: "terminated", dataSetId };
   }
 
@@ -732,8 +739,13 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
    * probe rationale. Kept on DealService to preserve existing call sites
    * (`getDataSetProvisioningStatus`, `createDeal` post-context guard).
    */
-  async isDataSetLive(providerAddress: string, dataSetId: bigint, signal?: AbortSignal): Promise<boolean> {
-    return this.datasetLivenessService.isDataSetLive(providerAddress, dataSetId, signal);
+  async isDataSetLive(
+    providerAddress: string,
+    dataSetId: bigint,
+    network: Network,
+    signal?: AbortSignal,
+  ): Promise<boolean> {
+    return this.datasetLivenessService.isDataSetLive(providerAddress, dataSetId, network, signal);
   }
 
   /**
@@ -752,12 +764,13 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
   async repairTerminatedDataSet(
     providerAddress: string,
     dataSetId: bigint,
+    network: Network,
     signal?: AbortSignal,
   ): Promise<{ dealsAffected: number; pdpEndEpoch: bigint }> {
     signal?.throwIfAborted();
-    const synapse = this.sharedSynapse ?? (await this.createSynapseInstance());
-    const providerInfo = this.walletSdkService.getProviderInfo(providerAddress);
-    const { warmStorageService } = this.walletSdkService.getWalletServices();
+    const synapse = this.walletSdkService.getSynapse(network) ?? (await this.createSynapseInstance(network));
+    const providerInfo = this.walletSdkService.getProviderInfo(providerAddress, network);
+    const { warmStorageService } = this.walletSdkService.getWalletServices(network);
 
     let pdpEndEpoch: bigint;
     const existing = await awaitWithAbort(warmStorageService.getDataSet({ dataSetId }), signal);
@@ -793,10 +806,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     const result = await this.dealRepository.manager.transaction(async (manager) => {
       const update = await manager
         .getRepository(Deal)
-        .update(
-          { dataSetId, network: this.blockchainConfig.network, cleanedUp: false },
-          { cleanedUp: true, cleanedUpAt: new Date() },
-        );
+        .update({ dataSetId, network, cleanedUp: false }, { cleanedUp: true, cleanedUpAt: new Date() });
       return update.affected ?? 0;
     });
 
@@ -824,16 +834,17 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
   async createDataSetWithPiece(
     providerAddress: string,
     metadata: Record<string, string>,
+    network: Network,
     signal?: AbortSignal,
   ): Promise<void> {
     signal?.throwIfAborted();
-    const providerInfo = this.walletSdkService.getProviderInfo(providerAddress);
+    const providerInfo = this.walletSdkService.getProviderInfo(providerAddress, network);
     if (!providerInfo) {
       throw new Error(`Provider ${providerAddress} not found in registry`);
     }
     const labels = buildCheckMetricLabels({
+      network,
       checkType: "dataSetCreation",
-      network: this.blockchainConfig.network,
       providerId: providerInfo.id,
       providerName: providerInfo.name,
       providerIsApproved: providerInfo.isApproved,
@@ -857,7 +868,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     let transactionHash: string | undefined;
 
     try {
-      const synapse = this.sharedSynapse ?? (await this.createSynapseInstance());
+      const synapse = this.walletSdkService.getSynapse(network) ?? (await this.createSynapseInstance(network));
       signal?.throwIfAborted();
 
       const DATA_SET_CREATION_PIECE_SIZE = 200 * 1024; // 200 KiB
@@ -996,14 +1007,15 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
   // Deal Creation Helpers
   // ============================================================================
 
-  private async createSynapseInstance(): Promise<Synapse> {
+  private async createSynapseInstance(network: Network): Promise<Synapse> {
     try {
-      const { synapse, isSessionKeyMode } = await createSynapseFromConfig(this.blockchainConfig);
+      const networkCfg = this.getNetworkConfig(network);
+      const { synapse, isSessionKeyMode } = await createSynapseFromConfig(networkCfg);
       if (isSessionKeyMode) {
         this.logger.log({
           event: "synapse_session_key_init",
           message: "Initializing Synapse with session key",
-          walletAddress: this.blockchainConfig.walletAddress,
+          walletAddress: networkCfg.walletAddress,
         });
       }
       return synapse;

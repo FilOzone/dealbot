@@ -1,12 +1,14 @@
 import type { ConfigService } from "@nestjs/config";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { IConfig } from "../config/app.config.js";
+import type { Network } from "../common/types.js";
+import type { IConfig } from "../config/index.js";
 import type { SamplePieceParams, SubgraphService } from "../subgraph/subgraph.service.js";
 import type { CandidatePiece } from "../subgraph/types.js";
 import { SampledPieceSelectorService } from "./sampled-piece-selector.service.js";
 
 const SP_ADDRESS = "0xAaAaAAaAaaaAaAAAAaaaaAAaaAaaaAAaaaaa1111";
 const DEALBOT_PAYER = "0xBbBBBbBBbbbBbBBBBBbbbbbBBbbBbbbBBbbbb2222";
+const NETWORK: Network = "calibration";
 
 const makePiece = (overrides: Partial<CandidatePiece> = {}): CandidatePiece => ({
   pieceCid: `baga6ea4seaqpiece${Math.random().toString(36).slice(2, 10)}`,
@@ -23,8 +25,8 @@ const makePiece = (overrides: Partial<CandidatePiece> = {}): CandidatePiece => (
 const makeConfigService = (): ConfigService<IConfig, true> =>
   ({
     get: vi.fn((key: string) => {
-      if (key === "blockchain") {
-        return { walletAddress: DEALBOT_PAYER };
+      if (key === "networks") {
+        return { calibration: { walletAddress: DEALBOT_PAYER } };
       }
       return undefined;
     }),
@@ -43,7 +45,7 @@ describe("SampledPieceSelectorService", () => {
     samplePiece.mockResolvedValue(null);
     const service = new SampledPieceSelectorService(subgraphService, makeConfigService());
 
-    const result = await service.selectPieceForProvider(SP_ADDRESS);
+    const result = await service.selectPieceForProvider(SP_ADDRESS, NETWORK);
 
     expect(result).toBeNull();
     expect(samplePiece).toHaveBeenCalled();
@@ -53,7 +55,7 @@ describe("SampledPieceSelectorService", () => {
     samplePiece.mockResolvedValueOnce(makePiece({ pieceCid: "baga-the-one" }));
     const service = new SampledPieceSelectorService(subgraphService, makeConfigService());
 
-    const result = await service.selectPieceForProvider(SP_ADDRESS);
+    const result = await service.selectPieceForProvider(SP_ADDRESS, NETWORK);
 
     expect(result).not.toBeNull();
     expect(result?.pieceCid).toBe("baga-the-one");
@@ -67,7 +69,7 @@ describe("SampledPieceSelectorService", () => {
     const ac = new AbortController();
     ac.abort(new Error("Sampled retrieval job timeout"));
 
-    const result = await service.selectPieceForProvider(SP_ADDRESS, ac.signal);
+    const result = await service.selectPieceForProvider(SP_ADDRESS, NETWORK, ac.signal);
 
     expect(result).toBeNull();
     expect(samplePiece).not.toHaveBeenCalled();
@@ -77,9 +79,9 @@ describe("SampledPieceSelectorService", () => {
     samplePiece.mockResolvedValueOnce(makePiece());
     const service = new SampledPieceSelectorService(subgraphService, makeConfigService());
 
-    await service.selectPieceForProvider(SP_ADDRESS);
+    await service.selectPieceForProvider(SP_ADDRESS, NETWORK);
 
-    const call = samplePiece.mock.calls[0][0] as SamplePieceParams;
+    const call = samplePiece.mock.calls[0][1] as SamplePieceParams;
     expect(call.payer).toBe(DEALBOT_PAYER);
     expect(call.serviceProvider).toBe(SP_ADDRESS);
   });
@@ -92,7 +94,7 @@ describe("SampledPieceSelectorService", () => {
       .mockResolvedValueOnce(makePiece({ pieceCid: freshCid, pdpPaymentEndEpoch: null }));
 
     const service = new SampledPieceSelectorService(subgraphService, makeConfigService());
-    const result = await service.selectPieceForProvider(SP_ADDRESS);
+    const result = await service.selectPieceForProvider(SP_ADDRESS, NETWORK);
 
     expect(result?.pieceCid).toBe(freshCid);
   });
@@ -108,7 +110,7 @@ describe("SampledPieceSelectorService", () => {
       .mockResolvedValueOnce(makePiece({ pieceCid: liveCid, pdpPaymentEndEpoch: 201n, indexedAtBlock: 200 }));
 
     const service = new SampledPieceSelectorService(subgraphService, makeConfigService());
-    const result = await service.selectPieceForProvider(SP_ADDRESS);
+    const result = await service.selectPieceForProvider(SP_ADDRESS, NETWORK);
 
     expect(result?.pieceCid).toBe(liveCid);
   });
@@ -119,13 +121,13 @@ describe("SampledPieceSelectorService", () => {
     samplePiece.mockResolvedValueOnce(null).mockResolvedValueOnce(null).mockResolvedValueOnce(fresh);
 
     const service = new SampledPieceSelectorService(subgraphService, makeConfigService());
-    const result = await service.selectPieceForProvider(SP_ADDRESS);
+    const result = await service.selectPieceForProvider(SP_ADDRESS, NETWORK);
 
     expect(result?.pieceCid).toBe("baga-other-pool");
 
     // The second (fallback) call should target the opposite pool.
-    const firstCall = samplePiece.mock.calls[0][0] as SamplePieceParams;
-    const fallbackCall = samplePiece.mock.calls[2][0] as SamplePieceParams;
+    const firstCall = samplePiece.mock.calls[0][1] as SamplePieceParams;
+    const fallbackCall = samplePiece.mock.calls[2][1] as SamplePieceParams;
     expect(fallbackCall.pool).not.toBe(firstCall.pool);
   });
 
@@ -140,13 +142,13 @@ describe("SampledPieceSelectorService", () => {
       .mockResolvedValueOnce(makePiece({ pieceCid: "baga-any-bucket" }));
 
     const service = new SampledPieceSelectorService(subgraphService, makeConfigService());
-    const result = await service.selectPieceForProvider(SP_ADDRESS);
+    const result = await service.selectPieceForProvider(SP_ADDRESS, NETWORK);
 
     expect(result?.pieceCid).toBe("baga-any-bucket");
 
     // The 5th call (index 4) should be the widened-bucket attempt; its size
     // range covers at least the 32 GiB ceiling of the "large" bucket.
-    const widened = samplePiece.mock.calls[4][0] as SamplePieceParams;
+    const widened = samplePiece.mock.calls[4][1] as SamplePieceParams;
     expect(BigInt(widened.maxSize)).toBeGreaterThanOrEqual(32n * 1024n * 1024n * 1024n);
     expect(widened.minSize).toBe("0");
   });
@@ -155,10 +157,10 @@ describe("SampledPieceSelectorService", () => {
     samplePiece.mockResolvedValueOnce(null).mockResolvedValueOnce(makePiece());
 
     const service = new SampledPieceSelectorService(subgraphService, makeConfigService());
-    await service.selectPieceForProvider(SP_ADDRESS);
+    await service.selectPieceForProvider(SP_ADDRESS, NETWORK);
 
-    const call1 = samplePiece.mock.calls[0][0] as SamplePieceParams;
-    const call2 = samplePiece.mock.calls[1][0] as SamplePieceParams;
+    const call1 = samplePiece.mock.calls[0][1] as SamplePieceParams;
+    const call2 = samplePiece.mock.calls[1][1] as SamplePieceParams;
     expect(call1.sampleKey).toMatch(/^0x[0-9a-f]{64}$/);
     expect(call2.sampleKey).toMatch(/^0x[0-9a-f]{64}$/);
     expect(call1.sampleKey).not.toBe(call2.sampleKey);

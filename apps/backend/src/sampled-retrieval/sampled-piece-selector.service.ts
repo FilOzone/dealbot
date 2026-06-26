@@ -1,7 +1,8 @@
 import { randomBytes } from "node:crypto";
 import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import type { IConfig } from "../config/app.config.js";
+import type { Network } from "../common/types.js";
+import type { IConfig } from "../config/index.js";
 import type { PiecePool, SamplePieceParams } from "../subgraph/subgraph.service.js";
 import { SubgraphService } from "../subgraph/subgraph.service.js";
 import type { CandidatePiece } from "../subgraph/types.js";
@@ -85,8 +86,12 @@ export class SampledPieceSelectorService {
    * 5. If still empty, fall back through: (same bucket, opposite pool) →
    *    (any bucket, indexed) → (any bucket, any).
    */
-  async selectPieceForProvider(spAddress: string, signal?: AbortSignal): Promise<SampledPiece | null> {
-    const dealbotPayer = this.configService.get("blockchain", { infer: true }).walletAddress;
+  async selectPieceForProvider(
+    spAddress: string,
+    network: Network,
+    signal?: AbortSignal,
+  ): Promise<SampledPiece | null> {
+    const dealbotPayer = this.configService.get("networks", { infer: true })[network].walletAddress;
 
     const bucket = this.pickBucket();
     const pool: PiecePool = Math.random() < IPFS_INDEXED_SAMPLE_RATE ? "indexed" : "any";
@@ -104,6 +109,7 @@ export class SampledPieceSelectorService {
       }
       const piece = await this.drawPiece({
         spAddress,
+        network,
         dealbotPayer,
         bucket: attempt.bucket,
         pool: attempt.pool,
@@ -115,6 +121,7 @@ export class SampledPieceSelectorService {
           event: "sampled_piece_selected",
           message: "Selected anonymous piece for retrieval test",
           spAddress,
+          network,
           pieceCid: piece.pieceCid,
           dataSetId: piece.dataSetId,
           withIPFSIndexing: piece.withIPFSIndexing,
@@ -138,6 +145,7 @@ export class SampledPieceSelectorService {
       event: "sampled_no_candidates",
       message: "No anonymous piece found after all fallbacks",
       spAddress,
+      network,
     });
 
     return null;
@@ -156,6 +164,7 @@ export class SampledPieceSelectorService {
    */
   private async drawPiece(args: {
     spAddress: string;
+    network: Network;
     dealbotPayer: string;
     bucket: SizeBucket | "any";
     pool: PiecePool;
@@ -176,7 +185,7 @@ export class SampledPieceSelectorService {
         pool: args.pool,
       };
 
-      const piece = await this.subgraphService.samplePiece(params, args.signal);
+      const piece = await this.subgraphService.samplePiece(args.network, params, args.signal);
       if (!piece) {
         continue;
       }
