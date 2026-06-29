@@ -7,10 +7,14 @@ interface ImportMeta {
     readonly VITE_API_BASE_URL: string;
     readonly VITE_PLAUSIBLE_DATA_DOMAIN?: string;
     readonly VITE_DASHBOARD_URL?: string;
+    readonly VITE_DASHBOARD_URL_MAINNET?: string;
+    readonly VITE_DASHBOARD_URL_CALIBRATION?: string;
     readonly VITE_DASHBOARD_EMBED_URL?: string;
     readonly VITE_APPROVED_SP_DASHBOARD_URL_MAINNET?: string;
     readonly VITE_APPROVED_SP_DASHBOARD_URL_CALIBRATION?: string;
     readonly VITE_LOGS_URL?: string;
+    readonly VITE_LOGS_URL_MAINNET?: string;
+    readonly VITE_LOGS_URL_CALIBRATION?: string;
   };
 }
 
@@ -19,9 +23,13 @@ interface Window {
     API_BASE_URL?: string;
     PLAUSIBLE_DATA_DOMAIN?: string;
     DASHBOARD_URL?: string;
+    DASHBOARD_URL_MAINNET?: string;
+    DASHBOARD_URL_CALIBRATION?: string;
     DASHBOARD_EMBED_URL?: string;
     APPROVED_SP_DASHBOARD_URL_MAINNET?: string;
     APPROVED_SP_DASHBOARD_URL_CALIBRATION?: string;
     LOGS_URL?: string;
+    LOGS_URL_MAINNET?: string;
+    LOGS_URL_CALIBRATION?: string;
   };
 }

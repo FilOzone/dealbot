@@ -51,11 +51,51 @@ const getConfigUrl = (runtimeValue?: string, buildValue?: string) => {
   return { safe, isInvalid: Boolean(raw) && !safe };
 };
 
+type NetworkUrlSource = { runtime?: string; build?: string };
+
+/**
+ * Resolves a URL that may be configured per network, falling back to a bare
+ * global value so single-network deployments keep working before infra sets the
+ * per-network vars. Precedence within each tier (runtime, build) is
+ * per-network → global; runtime still wins over build (see getConfigUrl).
+ */
+const getNetworkConfigUrl = (
+  network: Network | null,
+  perNetwork: Record<Network, NetworkUrlSource>,
+  global: NetworkUrlSource,
+) => {
+  const scoped = network ? perNetwork[network] : undefined;
+  return getConfigUrl(scoped?.runtime ?? global.runtime, scoped?.build ?? global.build);
+};
+
 const getConfig = (network: Network | null) => {
   const runtimeConfig = typeof window === "undefined" ? undefined : window.__DEALBOT_CONFIG__;
 
-  const dashboardUrl = getConfigUrl(runtimeConfig?.DASHBOARD_URL, import.meta.env.VITE_DASHBOARD_URL);
-  const approvedSpSources: Record<Network, { runtime?: string; build?: string }> = {
+  // Metrics dashboard and SP logs live in a distinct BetterStack dashboard per
+  // network, so prefer a per-network URL and fall back to the bare global var so
+  // single-network deployments keep working until infra sets the per-network vars.
+  const dashboardUrl = getNetworkConfigUrl(
+    network,
+    {
+      mainnet: { runtime: runtimeConfig?.DASHBOARD_URL_MAINNET, build: import.meta.env.VITE_DASHBOARD_URL_MAINNET },
+      calibration: {
+        runtime: runtimeConfig?.DASHBOARD_URL_CALIBRATION,
+        build: import.meta.env.VITE_DASHBOARD_URL_CALIBRATION,
+      },
+    },
+    { runtime: runtimeConfig?.DASHBOARD_URL, build: import.meta.env.VITE_DASHBOARD_URL },
+  );
+  const logsUrl = getNetworkConfigUrl(
+    network,
+    {
+      mainnet: { runtime: runtimeConfig?.LOGS_URL_MAINNET, build: import.meta.env.VITE_LOGS_URL_MAINNET },
+      calibration: { runtime: runtimeConfig?.LOGS_URL_CALIBRATION, build: import.meta.env.VITE_LOGS_URL_CALIBRATION },
+    },
+    { runtime: runtimeConfig?.LOGS_URL, build: import.meta.env.VITE_LOGS_URL },
+  );
+
+  // Approved-SP dashboard: per-network only (two separate curated dashboards; no global fallback).
+  const approvedSpSources: Record<Network, NetworkUrlSource> = {
     mainnet: {
       runtime: runtimeConfig?.APPROVED_SP_DASHBOARD_URL_MAINNET,
       build: import.meta.env.VITE_APPROVED_SP_DASHBOARD_URL_MAINNET,
@@ -68,7 +108,6 @@ const getConfig = (network: Network | null) => {
   const approvedSpDashboardUrl = network
     ? getConfigUrl(approvedSpSources[network].runtime, approvedSpSources[network].build)
     : { safe: "", isInvalid: false };
-  const logsUrl = getConfigUrl(runtimeConfig?.LOGS_URL, import.meta.env.VITE_LOGS_URL);
 
   return {
     dashboardUrl: dashboardUrl.safe,
