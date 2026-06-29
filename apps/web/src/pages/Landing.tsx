@@ -98,6 +98,8 @@ export default function Landing() {
     error: providersError,
   } = useProvidersList(0, 500, selectedNetwork);
 
+  const providersPending = configLoading || selectedNetwork === null || providersLoading;
+
   return (
     <div className="flex w-full flex-col items-center gap-12 pt-8">
       {/* Hero */}
@@ -211,8 +213,8 @@ export default function Landing() {
             </p>
           )}
           {providersError && <p className="text-sm text-destructive">{providersError}</p>}
-          {providersLoading && <p className="text-sm text-muted-foreground">Loading providers…</p>}
-          {!providersLoading &&
+          {providersPending && <p className="text-sm text-muted-foreground">Loading providers…</p>}
+          {!providersPending &&
             !providersError &&
             (() => {
               const activeProviders = providersResponse.providers
