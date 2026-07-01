@@ -179,8 +179,8 @@ export default function Landing() {
         {approvedSpDashboardUrlInvalid && selectedNetwork && (
           <p className="text-sm text-yellow-600">
             Warning: approved-SP dashboard URL (<code>APPROVED_SP_DASHBOARD_URL</code> or{" "}
-            <code>APPROVED_SP_DASHBOARD_URL_{selectedNetwork.toUpperCase()}</code>) configured but invalid. Link
-            unavailable.
+            <code>APPROVED_SP_DASHBOARD_URL_{selectedNetwork.toUpperCase()}</code>, or their <code>VITE_</code>-prefixed
+            build-time equivalents) configured but invalid. Link unavailable.
           </p>
         )}
         <p className="text-sm text-muted-foreground">
