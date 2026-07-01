@@ -10,8 +10,9 @@ import type { Network } from "@/types/config";
 
 /**
  * Builds a BetterStack dashboard or logs URL scoped to a single provider.
- * Appends time range (now-24h to now) and provider filter.
- * Metrics dashboard uses vs[provider_id]; logs dashboard uses vs[providerId].
+ * Appends time range and provider filter. Metrics dashboard uses vs[provider_id];
+ * logs dashboard uses vs[providerId]. Network scoping is layered on separately
+ * via withNetworkParam.
  */
 function buildBetterStackUrlWithProvider(
   baseUrl: string,
@@ -54,48 +55,39 @@ const getConfigUrl = (runtimeValue?: string, buildValue?: string) => {
 type NetworkUrlSource = { runtime?: string; build?: string };
 
 /**
- * Resolves a URL that may be configured per network, falling back to a bare
- * global value so single-network deployments keep working before infra sets the
- * per-network vars. Precedence within each tier (runtime, build) is
- * per-network → global; runtime still wins over build (see getConfigUrl).
+ * Adds the vs[network] dashboard filter to a URL, preserving existing params.
+ * Empty/invalid input yields "", and a null network returns the URL unchanged.
+ * A no-op until the BetterStack dashboard defines a {{network}} variable, so it
+ * is safe to emit ahead of that dashboard change.
  */
-const getNetworkConfigUrl = (
-  network: Network | null,
-  perNetwork: Record<Network, NetworkUrlSource>,
-  global: NetworkUrlSource,
-) => {
-  const scoped = network ? perNetwork[network] : undefined;
-  return getConfigUrl(scoped?.runtime ?? global.runtime, scoped?.build ?? global.build);
+const withNetworkParam = (baseUrl: string, network: Network | null): string => {
+  if (!baseUrl || !network) return baseUrl;
+  try {
+    const url = new URL(baseUrl);
+    url.searchParams.set("vs[network]", network);
+    return url.toString();
+  } catch {
+    return "";
+  }
 };
 
 const getConfig = (network: Network | null) => {
   const runtimeConfig = typeof window === "undefined" ? undefined : window.__DEALBOT_CONFIG__;
 
-  // Metrics dashboard and SP logs live in a distinct BetterStack dashboard per
-  // network, so prefer a per-network URL and fall back to the bare global var so
-  // single-network deployments keep working until infra sets the per-network vars.
-  const dashboardUrl = getNetworkConfigUrl(
-    network,
-    {
-      mainnet: { runtime: runtimeConfig?.DASHBOARD_URL_MAINNET, build: import.meta.env.VITE_DASHBOARD_URL_MAINNET },
-      calibration: {
-        runtime: runtimeConfig?.DASHBOARD_URL_CALIBRATION,
-        build: import.meta.env.VITE_DASHBOARD_URL_CALIBRATION,
-      },
-    },
-    { runtime: runtimeConfig?.DASHBOARD_URL, build: import.meta.env.VITE_DASHBOARD_URL },
-  );
-  const logsUrl = getNetworkConfigUrl(
-    network,
-    {
-      mainnet: { runtime: runtimeConfig?.LOGS_URL_MAINNET, build: import.meta.env.VITE_LOGS_URL_MAINNET },
-      calibration: { runtime: runtimeConfig?.LOGS_URL_CALIBRATION, build: import.meta.env.VITE_LOGS_URL_CALIBRATION },
-    },
-    { runtime: runtimeConfig?.LOGS_URL, build: import.meta.env.VITE_LOGS_URL },
-  );
+  // Metrics dashboard and SP logs are a single per-environment dashboard; the
+  // per-SP rows add a vs[network] filter (see withNetworkParam) so one dashboard
+  // serves every network the deployment monitors.
+  const dashboardUrl = getConfigUrl(runtimeConfig?.DASHBOARD_URL, import.meta.env.VITE_DASHBOARD_URL);
+  const logsUrl = getConfigUrl(runtimeConfig?.LOGS_URL, import.meta.env.VITE_LOGS_URL);
 
-  // Approved-SP dashboard: per-network only (two separate curated dashboards; no global fallback).
-  const approvedSpSources: Record<Network, NetworkUrlSource> = {
+  // Approved-SP dashboard: prefer the combined per-environment dashboard scoped
+  // with vs[network]; fall back to the legacy per-network dashboards so existing
+  // deployments keep working until infra sets APPROVED_SP_DASHBOARD_URL.
+  const approvedSpGlobal = getConfigUrl(
+    runtimeConfig?.APPROVED_SP_DASHBOARD_URL,
+    import.meta.env.VITE_APPROVED_SP_DASHBOARD_URL,
+  );
+  const approvedSpPerNetworkSources: Record<Network, NetworkUrlSource> = {
     mainnet: {
       runtime: runtimeConfig?.APPROVED_SP_DASHBOARD_URL_MAINNET,
       build: import.meta.env.VITE_APPROVED_SP_DASHBOARD_URL_MAINNET,
@@ -105,9 +97,15 @@ const getConfig = (network: Network | null) => {
       build: import.meta.env.VITE_APPROVED_SP_DASHBOARD_URL_CALIBRATION,
     },
   };
-  const approvedSpDashboardUrl = network
-    ? getConfigUrl(approvedSpSources[network].runtime, approvedSpSources[network].build)
+  const approvedSpPerNetwork = network
+    ? getConfigUrl(approvedSpPerNetworkSources[network].runtime, approvedSpPerNetworkSources[network].build)
     : { safe: "", isInvalid: false };
+  let approvedSpDashboardUrl = approvedSpPerNetwork;
+  if (approvedSpGlobal.safe) {
+    approvedSpDashboardUrl = { safe: withNetworkParam(approvedSpGlobal.safe, network), isInvalid: false };
+  } else if (approvedSpGlobal.isInvalid) {
+    approvedSpDashboardUrl = approvedSpGlobal;
+  }
 
   return {
     dashboardUrl: dashboardUrl.safe,
@@ -180,8 +178,8 @@ export default function Landing() {
         </p>
         {approvedSpDashboardUrlInvalid && selectedNetwork && (
           <p className="text-sm text-yellow-600">
-            Warning: <code>APPROVED_SP_DASHBOARD_URL_{selectedNetwork.toUpperCase()}</code> (or{" "}
-            <code>VITE_APPROVED_SP_DASHBOARD_URL_{selectedNetwork.toUpperCase()}</code>) configured but invalid. Link
+            Warning: approved-SP dashboard URL (<code>APPROVED_SP_DASHBOARD_URL</code> or{" "}
+            <code>APPROVED_SP_DASHBOARD_URL_{selectedNetwork.toUpperCase()}</code>) configured but invalid. Link
             unavailable.
           </p>
         )}
@@ -283,11 +281,17 @@ export default function Landing() {
                         const providerId = provider.providerId;
                         const metricsHref =
                           dashboardUrl && providerId != null
-                            ? buildBetterStackUrlWithProvider(dashboardUrl, providerId, "vs[provider_id]")
+                            ? withNetworkParam(
+                                buildBetterStackUrlWithProvider(dashboardUrl, providerId, "vs[provider_id]"),
+                                selectedNetwork,
+                              )
                             : "";
                         const logsHref =
                           logsUrl && providerId != null
-                            ? buildBetterStackUrlWithProvider(logsUrl, providerId, "vs[providerId]")
+                            ? withNetworkParam(
+                                buildBetterStackUrlWithProvider(logsUrl, providerId, "vs[providerId]"),
+                                selectedNetwork,
+                              )
                             : "";
                         return (
                           <tr key={provider.address} className="border-b last:border-b-0">
