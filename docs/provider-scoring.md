@@ -12,7 +12,7 @@ Providers are sorted by three criteria evaluated left-to-right. The first criter
 | 2 | Bayesian score (0–100) | Higher first | Confidence-adjusted weighted quality signal; missing check data lowers it (see below) |
 | 3 | Provider ID | Lower first | Deterministic tiebreaker when everything else is equal |
 
-Approval itself is an on-chain decision. The dealbot check data — and the [approval criteria](checks/production-configuration-and-approval-methodology.md) built on it — guides that decision rather than setting it directly; dealbot does not flip the approved flag. The scenarios below note the check signals that would typically inform whether a provider is approved.
+Approval itself is an on-chain decision. The dealbot check data and the [approval criteria](checks/production-configuration-and-approval-methodology.md) guide that decision. The [scenarios below](#concrete-scenarios) note the check signals that would typically inform whether a provider is approved.
 
 ## Bayesian Score
 
