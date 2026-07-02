@@ -1,7 +1,9 @@
+import type { ConfigService } from "@nestjs/config";
 import type { Repository } from "typeorm";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ClickhouseService } from "../clickhouse/clickhouse.service.js";
 import { PieceFetchStatus } from "../clickhouse/clickhouse.types.js";
+import type { IConfig } from "../config/app.config.js";
 import type { StorageProvider } from "../database/entities/storage-provider.entity.js";
 import { BlockFetchStatus, CarParseStatus, IpniCheckStatus, RetrievalStatus } from "../database/types.js";
 import type { SampledRetrievalCheckMetrics } from "../metrics-prometheus/check-metrics.service.js";
@@ -55,6 +57,7 @@ function makeService(opts: {
 }): {
   service: SampledRetrievalService;
   insertSpy: ReturnType<typeof vi.fn>;
+  findOneSpy: ReturnType<typeof vi.fn>;
   fetchSpy: ReturnType<typeof vi.fn>;
   parseCarSpy: ReturnType<typeof vi.fn>;
   checkIpniSpy: ReturnType<typeof vi.fn>;
@@ -71,8 +74,9 @@ function makeService(opts: {
     probeLocation: "test-location",
   } as unknown as ClickhouseService;
 
+  const findOneSpy = vi.fn(async () => makeProvider());
   const spRepository = {
-    findOne: vi.fn(async () => makeProvider()),
+    findOne: findOneSpy,
   } as unknown as Repository<StorageProvider>;
 
   const sampledPieceSelector = {
@@ -132,6 +136,10 @@ function makeService(opts: {
     recordBlockFetchStatus: metricsRecordBlockFetchSpy,
   } as unknown as SampledRetrievalCheckMetrics;
 
+  const configService = {
+    get: vi.fn(() => ({ network: "calibration" })),
+  } as unknown as ConfigService<IConfig, true>;
+
   const service = new SampledRetrievalService(
     sampledPieceSelector,
     pieceRetrievalService,
@@ -140,11 +148,13 @@ function makeService(opts: {
     metrics,
     clickhouseService,
     spRepository,
+    configService,
   );
 
   return {
     service,
     insertSpy,
+    findOneSpy,
     fetchSpy,
     parseCarSpy,
     checkIpniSpy,
@@ -159,6 +169,28 @@ function makeService(opts: {
 describe("SampledRetrievalService", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it("looks up the storage provider scoped to the configured network", async () => {
+    const { service, findOneSpy } = makeService({
+      pieceResult: {
+        success: true,
+        pieceCid: PIECE.pieceCid,
+        bytesReceived: 1024,
+        pieceBytes: null,
+        latencyMs: 10,
+        ttfbMs: 5,
+        throughputBps: 100,
+        statusCode: 200,
+        httpSuccess: true,
+        commPValid: true,
+        aborted: false,
+      },
+    });
+
+    await service.performForProvider(SP_ADDRESS);
+
+    expect(findOneSpy).toHaveBeenCalledWith({ where: { address: SP_ADDRESS, network: "calibration" } });
   });
 
   it("emits a ClickHouse row with partial metrics when fetchPiece returns aborted=true", async () => {

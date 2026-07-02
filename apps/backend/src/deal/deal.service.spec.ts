@@ -1383,7 +1383,7 @@ describe("DealService", () => {
 
       expect(terminateMock).toHaveBeenCalledWith(expect.objectContaining({ dataSetId: 9n }));
       expect(updateFn).toHaveBeenCalledWith(
-        { dataSetId: 9n, cleanedUp: false },
+        { dataSetId: 9n, network: "calibration", cleanedUp: false },
         expect.objectContaining({ cleanedUp: true, cleanedUpAt: expect.any(Date) }),
       );
       expect(result.dealsAffected).toBe(2);

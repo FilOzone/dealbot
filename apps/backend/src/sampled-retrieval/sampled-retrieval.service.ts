@@ -1,10 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { Injectable, Logger } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
 import type { Repository } from "typeorm";
 import { ClickhouseService } from "../clickhouse/clickhouse.service.js";
 import { PieceFetchStatus } from "../clickhouse/clickhouse.types.js";
 import { type ProviderJobContext, toStructuredError } from "../common/logging.js";
+import type { IBlockchainConfig, IConfig } from "../config/app.config.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
 import { BlockFetchStatus, CarParseStatus, IpniCheckStatus, ServiceType } from "../database/types.js";
 import { buildCheckMetricLabels, type CheckMetricLabels } from "../metrics-prometheus/check-metric-labels.js";
@@ -21,6 +23,8 @@ const SAMPLED_RETRIEVAL_CHECKS_TABLE = "sampled_retrieval_checks";
 export class SampledRetrievalService {
   private readonly logger = new Logger(SampledRetrievalService.name);
 
+  private readonly network: IBlockchainConfig["network"];
+
   constructor(
     private readonly sampledPieceSelectorService: SampledPieceSelectorService,
     private readonly pieceRetrievalService: PieceRetrievalService,
@@ -30,11 +34,14 @@ export class SampledRetrievalService {
     private readonly clickhouseService: ClickhouseService,
     @InjectRepository(StorageProvider)
     private readonly spRepository: Repository<StorageProvider>,
-  ) {}
+    private readonly configService: ConfigService<IConfig, true>,
+  ) {
+    this.network = this.configService.get("blockchain").network;
+  }
 
   async performForProvider(spAddress: string, signal?: AbortSignal, logContext?: ProviderJobContext): Promise<void> {
     // Build metric labels
-    const provider = await this.spRepository.findOne({ where: { address: spAddress } });
+    const provider = await this.spRepository.findOne({ where: { address: spAddress, network: this.network } });
     const labels = buildCheckMetricLabels({
       checkType: "sampledRetrieval",
       providerId: provider?.providerId,

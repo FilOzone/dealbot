@@ -1,8 +1,10 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
 import type { Repository } from "typeorm";
 import { DealJobTerminatedDataSetError } from "../common/errors.js";
 import { type DealLogContext, toStructuredError } from "../common/logging.js";
+import type { IBlockchainConfig, IConfig } from "../config/app.config.js";
 import { Deal } from "../database/entities/deal.entity.js";
 import { DealStatus, RetrievalStatus } from "../database/types.js";
 import { DealService } from "../deal/deal.service.js";
@@ -19,6 +21,7 @@ export class DevToolsService {
     private readonly walletSdkService: WalletSdkService,
     private readonly dealService: DealService,
     private readonly retrievalService: RetrievalService,
+    private readonly configService: ConfigService<IConfig, true>,
     @InjectRepository(Deal)
     private readonly dealRepository: Repository<Deal>,
   ) {}
@@ -93,6 +96,7 @@ export class DevToolsService {
     // Create a pending deal record first so we can return the ID immediately
     const pendingDeal = this.dealRepository.create({
       spAddress,
+      network: this.configService.get<IBlockchainConfig>("blockchain").network,
       walletAddress: this.dealService.getWalletAddress(),
       fileName: "pending",
       fileSize: 0,
