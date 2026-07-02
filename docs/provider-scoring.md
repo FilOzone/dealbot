@@ -8,7 +8,7 @@ Providers are sorted by four criteria evaluated left-to-right. The first criteri
 
 | Priority | Criterion | Direction | What it means |
 |---|---|---|---|
-| 1 | Approved (yes/no) | Approved first | Providers that meet all approval criteria always appear above those that do not |
+| 1 | Approved (yes/no) | Approved first | Providers marked as approved in the on-chain SP Registry appear above those that are not |
 | 2 | Complete data (yes/no) | Complete first | Within each approval group, providers with data on every check rank above those with coverage gaps |
 | 3 | Bayesian score (0–100) | Higher first | Confidence-adjusted weighted quality signal |
 | 4 | Provider ID | Lower first | Deterministic tiebreaker when everything else is equal |
