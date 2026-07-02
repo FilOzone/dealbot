@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.10.1](https://github.com/FilOzone/dealbot/compare/backend-v1.10.0...backend-v1.10.1) (2026-07-02)
+
+
+### Documentation
+
+* update production API domain ([#635](https://github.com/FilOzone/dealbot/issues/635)) ([83ff0b5](https://github.com/FilOzone/dealbot/commit/83ff0b520d6b6885163acf8c8ef986f81cfa507b))
+
 ## [1.10.0](https://github.com/FilOzone/dealbot/compare/backend-v1.9.0...backend-v1.10.0) (2026-06-26)
 
 
