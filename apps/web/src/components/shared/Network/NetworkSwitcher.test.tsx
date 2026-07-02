@@ -22,10 +22,11 @@ describe("NetworkSwitcher", () => {
   });
 
   it("calls onChange with the clicked network", async () => {
+    const user = userEvent.setup();
     const onChange = vi.fn();
     render(<NetworkSwitcher networks={["mainnet", "calibration"]} selected="mainnet" onChange={onChange} />);
 
-    await userEvent.click(screen.getByRole("tab", { name: /calibration/i }));
+    await user.click(screen.getByRole("tab", { name: /calibration/i }));
     expect(onChange).toHaveBeenCalledWith("calibration");
   });
 
