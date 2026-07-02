@@ -10,8 +10,9 @@ import type { Network } from "@/types/config";
 
 /**
  * Builds a BetterStack dashboard or logs URL scoped to a single provider.
- * Appends time range (now-24h to now) and provider filter.
- * Metrics dashboard uses vs[provider_id]; logs dashboard uses vs[providerId].
+ * Appends time range and provider filter. Metrics dashboard uses vs[provider_id];
+ * logs dashboard uses vs[providerId]. Network scoping is layered on separately
+ * via withNetworkParam.
  */
 function buildBetterStackUrlWithProvider(
   baseUrl: string,
@@ -51,11 +52,42 @@ const getConfigUrl = (runtimeValue?: string, buildValue?: string) => {
   return { safe, isInvalid: Boolean(raw) && !safe };
 };
 
+type NetworkUrlSource = { runtime?: string; build?: string };
+
+/**
+ * Adds the vs[network] dashboard filter to a URL, preserving existing params.
+ * Empty/invalid input yields "", and a null network returns the URL unchanged.
+ * A no-op until the BetterStack dashboard defines a {{network}} variable, so it
+ * is safe to emit ahead of that dashboard change.
+ */
+const withNetworkParam = (baseUrl: string, network: Network | null): string => {
+  if (!baseUrl || !network) return baseUrl;
+  try {
+    const url = new URL(baseUrl);
+    url.searchParams.set("vs[network]", network);
+    return url.toString();
+  } catch {
+    return "";
+  }
+};
+
 const getConfig = (network: Network | null) => {
   const runtimeConfig = typeof window === "undefined" ? undefined : window.__DEALBOT_CONFIG__;
 
+  // Metrics dashboard and SP logs are a single per-environment dashboard; the
+  // per-SP rows add a vs[network] filter (see withNetworkParam) so one dashboard
+  // serves every network the deployment monitors.
   const dashboardUrl = getConfigUrl(runtimeConfig?.DASHBOARD_URL, import.meta.env.VITE_DASHBOARD_URL);
-  const approvedSpSources: Record<Network, { runtime?: string; build?: string }> = {
+  const logsUrl = getConfigUrl(runtimeConfig?.LOGS_URL, import.meta.env.VITE_LOGS_URL);
+
+  // Approved-SP dashboard: prefer the combined per-environment dashboard scoped
+  // with vs[network]; fall back to the legacy per-network dashboards so existing
+  // deployments keep working until infra sets APPROVED_SP_DASHBOARD_URL.
+  const approvedSpGlobal = getConfigUrl(
+    runtimeConfig?.APPROVED_SP_DASHBOARD_URL,
+    import.meta.env.VITE_APPROVED_SP_DASHBOARD_URL,
+  );
+  const approvedSpPerNetworkSources: Record<Network, NetworkUrlSource> = {
     mainnet: {
       runtime: runtimeConfig?.APPROVED_SP_DASHBOARD_URL_MAINNET,
       build: import.meta.env.VITE_APPROVED_SP_DASHBOARD_URL_MAINNET,
@@ -65,10 +97,15 @@ const getConfig = (network: Network | null) => {
       build: import.meta.env.VITE_APPROVED_SP_DASHBOARD_URL_CALIBRATION,
     },
   };
-  const approvedSpDashboardUrl = network
-    ? getConfigUrl(approvedSpSources[network].runtime, approvedSpSources[network].build)
+  const approvedSpPerNetwork = network
+    ? getConfigUrl(approvedSpPerNetworkSources[network].runtime, approvedSpPerNetworkSources[network].build)
     : { safe: "", isInvalid: false };
-  const logsUrl = getConfigUrl(runtimeConfig?.LOGS_URL, import.meta.env.VITE_LOGS_URL);
+  let approvedSpDashboardUrl = approvedSpPerNetwork;
+  if (approvedSpGlobal.safe) {
+    approvedSpDashboardUrl = { safe: withNetworkParam(approvedSpGlobal.safe, network), isInvalid: false };
+  } else if (approvedSpGlobal.isInvalid) {
+    approvedSpDashboardUrl = approvedSpGlobal;
+  }
 
   return {
     dashboardUrl: dashboardUrl.safe,
@@ -142,9 +179,9 @@ export default function Landing() {
         </p>
         {approvedSpDashboardUrlInvalid && selectedNetwork && (
           <p className="text-sm text-yellow-600">
-            Warning: <code>APPROVED_SP_DASHBOARD_URL_{selectedNetwork.toUpperCase()}</code> (or{" "}
-            <code>VITE_APPROVED_SP_DASHBOARD_URL_{selectedNetwork.toUpperCase()}</code>) configured but invalid. Link
-            unavailable.
+            Warning: approved-SP dashboard URL (<code>APPROVED_SP_DASHBOARD_URL</code> or{" "}
+            <code>APPROVED_SP_DASHBOARD_URL_{selectedNetwork.toUpperCase()}</code>, or their <code>VITE_</code>-prefixed
+            build-time equivalents) configured but invalid. Link unavailable.
           </p>
         )}
         <p className="text-sm text-muted-foreground">
@@ -247,11 +284,17 @@ export default function Landing() {
                         const providerId = provider.providerId;
                         const metricsHref =
                           dashboardUrl && providerId != null
-                            ? buildBetterStackUrlWithProvider(dashboardUrl, providerId, "vs[provider_id]")
+                            ? withNetworkParam(
+                                buildBetterStackUrlWithProvider(dashboardUrl, providerId, "vs[provider_id]"),
+                                selectedNetwork,
+                              )
                             : "";
                         const logsHref =
                           logsUrl && providerId != null
-                            ? buildBetterStackUrlWithProvider(logsUrl, providerId, "vs[providerId]")
+                            ? withNetworkParam(
+                                buildBetterStackUrlWithProvider(logsUrl, providerId, "vs[providerId]"),
+                                selectedNetwork,
+                              )
                             : "";
                         return (
                           <tr key={provider.address} className="border-b last:border-b-0">

@@ -78,6 +78,9 @@ function renderLanding() {
 }
 
 describe("Landing", () => {
+  afterEach(() => {
+    window.__DEALBOT_CONFIG__ = undefined;
+  });
   beforeEach(() => {
     mockUseActiveNetworks.mockReturnValue({ activeNetworks: ["mainnet"], loading: false, error: null });
     mockUseSelectedNetwork.mockReturnValue(["mainnet", vi.fn()]);
@@ -96,6 +99,42 @@ describe("Landing", () => {
     const row = screen.getByText("Test Provider").closest("tr")!;
     const cells = row.querySelectorAll("td");
     expect(cells[1].textContent).toBe("—");
+  });
+
+  it("scopes per-SP metrics and logs links with vs[network]", () => {
+    window.__DEALBOT_CONFIG__ = {
+      DASHBOARD_URL: "https://telemetry.betterstack.com/dashboards/metrics",
+      LOGS_URL: "https://telemetry.betterstack.com/dashboards/logs",
+    };
+    setupMock([makeProvider({ providerId: "42" })]);
+    renderLanding();
+    const metrics = screen.getByRole("link", { name: /Metrics/ });
+    const logs = screen.getByRole("link", { name: /Logs/ });
+    expect(metrics.getAttribute("href")).toContain("vs%5Bnetwork%5D=mainnet");
+    expect(logs.getAttribute("href")).toContain("vs%5Bnetwork%5D=mainnet");
+  });
+
+  it("prefers the combined approved-SP dashboard and scopes it with vs[network]", () => {
+    window.__DEALBOT_CONFIG__ = {
+      APPROVED_SP_DASHBOARD_URL: "https://telemetry.betterstack.com/dashboards/combined",
+      APPROVED_SP_DASHBOARD_URL_MAINNET: "https://telemetry.betterstack.com/dashboards/legacy-mainnet",
+    };
+    setupMock();
+    renderLanding();
+    const href = screen.getByRole("link", { name: /View dashboard/ }).getAttribute("href") ?? "";
+    expect(href).toContain("/dashboards/combined");
+    expect(href).toContain("vs%5Bnetwork%5D=mainnet");
+  });
+
+  it("falls back to the legacy per-network approved-SP dashboard when the combined var is unset", () => {
+    window.__DEALBOT_CONFIG__ = {
+      APPROVED_SP_DASHBOARD_URL_MAINNET: "https://telemetry.betterstack.com/dashboards/legacy-mainnet",
+    };
+    setupMock();
+    renderLanding();
+    const href = screen.getByRole("link", { name: /View dashboard/ }).getAttribute("href") ?? "";
+    expect(href).toContain("/dashboards/legacy-mainnet");
+    expect(href).not.toContain("vs%5Bnetwork%5D");
   });
 
   it("shows config errors instead of leaving providers loading", () => {
