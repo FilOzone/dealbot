@@ -175,7 +175,7 @@ pnpm preview
 
 Complete API documentation is available via Swagger UI:
 
-- **Production:** [https://dealbot.fwss.io/api](https://dealbot.fwss.io/api)
+- **Production:** [https://dealbot.filoz.org/api](https://dealbot.filoz.org/api)
 - **Local:** `http://localhost:8080/api` (when running locally)
 
 ## Contributing
