@@ -80,7 +80,6 @@ When dealbot itself encounters a probing outage, the gap typically affects all p
 - Retrieval: 2 910 / 3 000 checks → lower bound ~96.2 %
 - Storage: 2 910 / 3 000 checks → lower bound ~96.2 %
 - **Bayesian score**: 0.40 × 99.8 + 0.35 × 96.2 + 0.25 × 96.2 ≈ **97.9**
-- Sort position: approved · score 97.9
 
 ### 2. New provider, good rates, low sample count
 
@@ -88,7 +87,6 @@ When dealbot itself encounters a probing outage, the gap typically affects all p
 - Retrieval: 194 / 200 checks → lower bound ~92.8 %
 - Storage: 194 / 200 checks → lower bound ~92.8 %
 - **Bayesian score**: 0.40 × 98.5 + 0.35 × 92.8 + 0.25 × 92.8 ≈ **95.6**
-- Sort position: approved · score 95.6 — approved, but ranked below the established provider despite the same observed retrieval rate, because the lower sample count means we are less certain
 
 ### 3. Borderline provider, exactly at the approval thresholds
 
@@ -96,7 +94,6 @@ When dealbot itself encounters a probing outage, the gap typically affects all p
 - Retrieval: 194 / 200 checks (97 %) → lower bound ~92.8 %
 - Storage: 194 / 200 checks (97 %) → lower bound ~92.8 %
 - **Bayesian score**: 0.40 × 97.9 + 0.35 × 92.8 + 0.25 × 92.8 ≈ **94.9**
-- Sort position: approved · score 94.9 — approved but ranks last among approved providers
 
 ### 4. Dealbot probing outage (storage checks unavailable for all providers)
 
@@ -115,7 +112,6 @@ A provider has reliable storage and retention but struggles to serve data back t
 - Retrieval: 1 600 / 2 000 checks (80 %) → lower bound ~78.3 %
 - Storage: 1 960 / 2 000 checks (98 %) → lower bound ~97.1 %
 - **Bayesian score**: 0.40 × 99.7 + 0.35 × 78.3 + 0.25 × 97.1 ≈ **91.2**
-- Sort position: not approved (retrieval below threshold) · score 91.2 — the 35 % retrieval weight pulls the score down substantially despite the near-perfect retention
 
 ### 6. High fault rate, ample samples
 
@@ -125,4 +121,3 @@ A provider has accumulated many retention periods but consistently loses data.
 - Retrieval: 940 / 1 000 checks (94 %) → lower bound ~92.3 %
 - Storage: 960 / 1 000 checks (96 %) → lower bound ~94.6 %
 - **Bayesian score**: 0.40 × 95.6 + 0.35 × 92.3 + 0.25 × 94.6 ≈ **94.2**
-- Sort position: not approved (fault rate well above the 0.2 % approval threshold) · score 94.2 — a respectable-looking Bayesian score, but the fault rate is far outside the range that would guide an on-chain approval; the score reflects the ample sample count narrowing the interval around a genuinely poor observed rate
