@@ -41,7 +41,7 @@ In plain terms: given the observed data, there is a 95 % probability that the pr
 | 100.0 % | 200 | ~98.5 % |
 | 100.0 % | 2 000 | ~99.9 % |
 
-Notice that the 97 % provider with 2 000 checks (lower bound ~96.3 %) and the 99 % provider with 200 checks (lower bound ~96.9 %) score nearly identically — the scoring correctly recognises them as about equally trustworthy despite the different observed rates.
+Notice that the 97 % provider with 2 000 checks (lower bound ~96.3 %) and the 99 % provider with 200 checks (lower bound ~96.9 %) score nearly identically — the scoring correctly recognizes them as about equally trustworthy despite the different observed rates.
 
 ### Check weights
 
