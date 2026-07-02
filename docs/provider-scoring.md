@@ -53,7 +53,7 @@ The three active check types are combined as a weighted average of their individ
 | Data retrieval | 35 % | Inability to serve stored data when a client needs it is an immediately user-visible failure with no retry on the client side |
 | Data storage | 25 % | Upload failures are retryable; important as the end-to-end ingest signal but lower stakes than the read path |
 
-When a check type has no data at all (zero samples), its lower bound is treated as zero and it still contributes its full weight to the average. A provider missing data on a check therefore scores lower than an otherwise-equal provider with full coverage. This keeps the ranking simple — a single score handles both quality and data completeness, with no separate sort tier for coverage gaps.
+When a check type has no data at all (zero samples), its lower bound is treated as zero and it still contributes its full weight to the average. A provider missing data on a check therefore scores lower than an otherwise-equal provider with full coverage. This keeps the ranking simple as a single score handles both quality and data completeness.
 
 ### Checks not yet in the score
 
@@ -66,7 +66,7 @@ They aren't included currently because they aren't part of the [SP approval crit
 
 ## Missing Check Data
 
-Because a missing check contributes zero to the Bayesian score (see [Check weights](#check-weights)), data gaps are handled by the score itself rather than a separate sort criterion. A provider that genuinely has no data on a check — for example, a newly onboarded provider that has not yet accumulated enough retention periods — scores lower than peers with full coverage.
+Because a missing check contributes zero to the Bayesian score (see [Check weights](#check-weights)), data gaps are handled by the score itself rather than a separate sort criterion. A provider that genuinely has no data on a check, for example, a newly onboarded provider that has not yet accumulated enough retention periods, scores lower than peers with full coverage.
 
 When dealbot itself encounters a probing outage, the gap typically affects all providers simultaneously. Every provider loses the same check contribution, so relative ordering within each group is unchanged even though absolute scores drop.
 
