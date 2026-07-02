@@ -2,16 +2,17 @@ import useSWR from "swr";
 import { apiPaths, fetcher } from "@/api/client";
 import type { AppConfigResponse, Network } from "@/types/config";
 
-interface UseNetworkConfigReturn {
-  network: Network | null;
+interface UseActiveNetworksReturn {
+  activeNetworks: Network[];
   loading: boolean;
   error: string | null;
 }
 
 /**
- * Fetch the dealbot app config and expose the network this instance monitors.
+ * Fetches the dealbot app config and returns the list of networks this
+ * deployment is actively monitoring (e.g. ["calibration"] or ["calibration", "mainnet"]).
  */
-export function useNetworkConfig(): UseNetworkConfigReturn {
+export function useActiveNetworks(): UseActiveNetworksReturn {
   const { data, error, isLoading } = useSWR(apiPaths.config(), fetcher<AppConfigResponse>, {
     revalidateIfStale: false,
     revalidateOnFocus: false,
@@ -19,7 +20,7 @@ export function useNetworkConfig(): UseNetworkConfigReturn {
   });
 
   return {
-    network: data?.network ?? null,
+    activeNetworks: data?.networks?.map((n) => n.network) ?? [],
     loading: isLoading,
     error: toErrorMessage(error, "Failed to fetch app config"),
   };

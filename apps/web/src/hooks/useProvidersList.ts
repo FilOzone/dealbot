@@ -1,5 +1,6 @@
 import useSWR from "swr";
 import { apiPaths, fetcher } from "@/api/client";
+import type { Network } from "@/types/config";
 import type { ProvidersListResponseWithoutMetrics } from "@/types/providers";
 
 interface UseProvidersListReturn {
@@ -8,9 +9,9 @@ interface UseProvidersListReturn {
   error: string | null;
 }
 
-export function useProvidersList(offset = 0, limit = 20): UseProvidersListReturn {
+export function useProvidersList(offset = 0, limit = 20, network: Network | null): UseProvidersListReturn {
   const { data, error, isLoading } = useSWR(
-    apiPaths.providers({ offset, limit }),
+    apiPaths.providers({ offset, limit, network }),
     fetcher<ProvidersListResponseWithoutMetrics>,
     {
       revalidateOnFocus: false,
