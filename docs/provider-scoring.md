@@ -1,6 +1,6 @@
 # FOC Provider Scoring
 
-This document explains how storage providers (SPs) are ranked.
+This document describes a default strategy for how storage providers (SPs) can be ranked. No code in this repo currently uses this methodology; it is intended as a guide for dashboards that want to give a sort order for SPs (e.g., https://probelab.io/filecoin/foc/).
 
 ## Overview
 
