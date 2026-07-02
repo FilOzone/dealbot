@@ -1,3 +1,5 @@
+import type { Network } from "./config";
+
 /**
  * Decoded provider info
  */
@@ -28,7 +30,7 @@ export interface PDPOffering {
  */
 export interface Provider {
   address: string;
-  network: string;
+  network: Network;
   providerId?: string | null;
   name: string;
   description: string;

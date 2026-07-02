@@ -118,7 +118,7 @@ const getConfig = (network: Network | null) => {
 };
 
 export default function Landing() {
-  const { activeNetworks, loading: configLoading } = useActiveNetworks();
+  const { activeNetworks, loading: configLoading, error: configError } = useActiveNetworks();
   const [selectedNetwork, setSelectedNetwork] = useSelectedNetwork(activeNetworks);
   const {
     dashboardUrl,
@@ -135,7 +135,8 @@ export default function Landing() {
     error: providersError,
   } = useProvidersList(0, 500, selectedNetwork);
 
-  const providersPending = configLoading || selectedNetwork === null || providersLoading;
+  const providersDisplayError = configError ?? providersError;
+  const providersPending = configLoading || (!configError && selectedNetwork === null) || providersLoading;
 
   return (
     <div className="flex w-full flex-col items-center gap-12 pt-8">
@@ -249,10 +250,12 @@ export default function Landing() {
               them.
             </p>
           )}
-          {providersError && <p className="text-sm text-destructive">{providersError}</p>}
-          {providersPending && <p className="text-sm text-muted-foreground">Loading providers…</p>}
+          {providersDisplayError && <p className="text-sm text-destructive">{providersDisplayError}</p>}
+          {!providersDisplayError && providersPending && (
+            <p className="text-sm text-muted-foreground">Loading providers…</p>
+          )}
           {!providersPending &&
-            !providersError &&
+            !providersDisplayError &&
             (() => {
               const activeProviders = providersResponse.providers
                 .filter((p) => p.isActive)
@@ -336,11 +339,13 @@ export default function Landing() {
                 </div>
               );
             })()}
-          {!providersLoading && !providersError && providersResponse.total > providersResponse.providers.length && (
-            <p className="mt-2 text-xs text-muted-foreground">
-              Showing first {providersResponse.providers.length} of {providersResponse.total} providers.
-            </p>
-          )}
+          {!providersPending &&
+            !providersDisplayError &&
+            providersResponse.total > providersResponse.providers.length && (
+              <p className="mt-2 text-xs text-muted-foreground">
+                Showing first {providersResponse.providers.length} of {providersResponse.total} providers.
+              </p>
+            )}
         </CardContent>
       </Card>
     </div>
