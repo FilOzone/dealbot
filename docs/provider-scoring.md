@@ -12,6 +12,8 @@ Providers are sorted by three criteria evaluated left-to-right. The first criter
 | 2 | Bayesian score (0–100) | Higher first | Confidence-adjusted weighted quality signal; missing check data lowers it (see below) |
 | 3 | Provider ID | Lower first | Deterministic tiebreaker when everything else is equal |
 
+Approval itself is an on-chain decision. The dealbot check data — and the [approval criteria](checks/production-configuration-and-approval-methodology.md) built on it — guides that decision rather than setting it directly; dealbot does not flip the approved flag. The scenarios below note the check signals that would typically inform whether a provider is approved.
+
 ## Bayesian Score
 
 ### Why raw percentages aren't enough
@@ -123,4 +125,4 @@ A provider has accumulated many retention periods but consistently loses data.
 - Retrieval: 940 / 1 000 checks (94 %) → lower bound ~92.3 %
 - Storage: 960 / 1 000 checks (96 %) → lower bound ~94.6 %
 - **Bayesian score**: 0.40 × 95.6 + 0.35 × 92.3 + 0.25 × 94.6 ≈ **94.2**
-- Sort position: not approved (fault rate well above 0.2 % threshold) · score 94.2 — a respectable-looking Bayesian score but blocked from approval by the hard retention fault gate; the score reflects the ample sample count narrowing the interval around a genuinely poor observed rate
+- Sort position: not approved (fault rate well above the 0.2 % approval threshold) · score 94.2 — a respectable-looking Bayesian score, but the fault rate is far outside the range that would guide an on-chain approval; the score reflects the ample sample count narrowing the interval around a genuinely poor observed rate
