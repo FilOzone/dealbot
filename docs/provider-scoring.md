@@ -55,14 +55,14 @@ The three active check types are combined as a weighted average of their individ
 
 When a check type has no data at all (zero samples), its lower bound is treated as zero and it still contributes its full weight to the average. A provider missing data on a check therefore scores lower than an otherwise-equal provider with full coverage. This keeps the ranking simple — a single score handles both quality and data completeness, with no separate sort tier for coverage gaps.
 
-### Planned future checks
+### Checks not yet in the score
 
-Three additional check types are planned for dealbot and will be incorporated into the score when they launch:
+These additional check types already run in dealbot and could be incorporated into the score:
 
-| Check | Planned weight | Purpose                                                                       |
-|---|----------------|-------------------------------------------------------------------------------|
-| Sampled retrieval | TBD            | Retrieves real FWSS pieces held by the provider; not synthetic dealbot corpus |
-| Pull pathway | TBD           | Tests the SP pull workflow                                                    |
+* [Pull](checks/pull-check.md)
+* [Sampled Retrieval](checks/sampled-retrievals.md)
+
+They aren't included currently because they aren't part of the [SP approval criteria](checks/production-configuration-and-approval-methodology.md).
 
 ## Missing Check Data
 
