@@ -1,5 +1,5 @@
-import { afterAll, assert, beforeAll, clearStore, describe, test } from "matchstick-as/assembly/index";
 import { Address, BigInt, Bytes } from "@graphprotocol/graph-ts";
+import { afterAll, assert, beforeAll, clearStore, describe, test } from "matchstick-as/assembly/index";
 import { getRootEntityId, getRootSampleKey } from "../src/helpers";
 import { handleDataSetCreated, handlePiecesAdded } from "../src/pdp-verifier";
 import { createDataSetCreatedEvent, createRootsAddedEvent } from "./pdp-verifier-utils";
@@ -7,8 +7,7 @@ import { createDataSetCreatedEvent, createRootsAddedEvent } from "./pdp-verifier
 const SET_ID = BigInt.fromI32(1);
 const ROOT_ID_1 = BigInt.fromI32(101);
 const RAW_SIZE_1 = BigInt.fromI32(10486897);
-const ROOT_CID_1_STR =
-  "0x01559120258ff7f7021387dcea7164b7d1c4a98bd6f8d3c187e3114795efa391df307c8aa9d5d5cbac03";
+const ROOT_CID_1_STR = "0x01559120258ff7f7021387dcea7164b7d1c4a98bd6f8d3c187e3114795efa391df307c8aa9d5d5cbac03";
 const SENDER_ADDRESS = Address.fromString("0xa16081f360e3847006db660bae1c6d1b2e17ec2a");
 const CONTRACT_ADDRESS = Address.fromString("0xb16081f360e3847006db660bae1c6d1b2e17ec2b");
 const PROOF_SET_ID_BYTES = Bytes.fromBigInt(SET_ID);
@@ -29,7 +28,7 @@ describe("handlePiecesAdded Tests", () => {
     rootsAddedEvent.block.timestamp = BigInt.fromI32(100);
     rootsAddedEvent.block.number = BigInt.fromI32(50);
     rootsAddedEvent.logIndex = BigInt.fromI32(1);
-    rootsAddedEvent.transaction.hash = Bytes.fromHexString("0x" + "c".repeat(64));
+    rootsAddedEvent.transaction.hash = Bytes.fromHexString(`0x${"c".repeat(64)}`);
 
     handlePiecesAdded(rootsAddedEvent);
   });

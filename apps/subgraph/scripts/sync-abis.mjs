@@ -5,7 +5,7 @@
 // truth; bumping the synapse-core version is all that's needed to pick up
 // ABI changes.
 
-import { writeFile, mkdir } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { fwss, pdp } from "@filoz/synapse-core/abis";
