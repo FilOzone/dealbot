@@ -5,7 +5,7 @@
   "scripts": {
     "sync-abis": "node scripts/sync-abis.mjs",
     "codegen": "pnpm run sync-abis && graph codegen",
-    "build": "pnpm run codegen && pnpm run build:mainnet",
+    "build": "pnpm run build:mainnet",
     "build:mainnet": "pnpm run codegen && graph build --network filecoin",
     "build:calibration": "pnpm run codegen && graph build --network filecoin-testnet",
     "deploy:mainnet": "goldsky subgraph deploy dealbot-mainnet/$VERSION --path ./build",
