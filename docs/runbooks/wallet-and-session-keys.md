@@ -76,7 +76,7 @@ node scripts/create-session-key-safe.mjs \
 
 The script outputs:
 1. The session key address and private key
-2. Permission hashes being registered (CreateDataSet, AddPieces, SchedulePieceRemovals, DeleteDataSet, TerminateService)
+2. Permission hashes being registered (CreateDataSet, AddPieces, SchedulePieceRemovals, TerminateService)
 3. Safe transaction details: target contract address and ABI-encoded calldata
 4. Verification: the decoded calldata for human review before submission
 5. The `SESSION_KEY_PRIVATE_KEY` env var value for deployment
