@@ -42,10 +42,6 @@ export class PieceCleanupService implements OnModuleInit, OnModuleDestroy {
   }
 
   async onModuleInit(): Promise<void> {
-    if (process.env.DEALBOT_DISABLE_CHAIN === "true") {
-      this.logger.warn("Chain integration disabled; skipping Synapse initialization for piece cleanup.");
-      return;
-    }
     try {
       this.logger.log("Initializing shared Synapse instance for piece cleanup.");
       const { synapse } = await createSynapseFromConfig(this.blockchainConfig);

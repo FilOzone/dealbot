@@ -39,12 +39,10 @@ describe("WalletBalanceCollector", () => {
     );
     collector.onModuleInit();
     collectFn = gaugeMock.collect as () => Promise<void>;
-    delete process.env.DEALBOT_DISABLE_CHAIN;
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
-    delete process.env.DEALBOT_DISABLE_CHAIN;
   });
 
   it("registers a collect callback on the gauge during module init", () => {
@@ -76,13 +74,6 @@ describe("WalletBalanceCollector", () => {
     vi.spyOn(Date, "now").mockReturnValue(Date.now() + 60 * 60 * 1000 + 1);
     await collectFn();
     expect(walletSdkMock.getWalletBalances).toHaveBeenCalledTimes(2);
-  });
-
-  it("skips chain call when DEALBOT_DISABLE_CHAIN is true", async () => {
-    process.env.DEALBOT_DISABLE_CHAIN = "true";
-    await collectFn();
-    expect(walletSdkMock.getWalletBalances).not.toHaveBeenCalled();
-    expect(gaugeMock.set).not.toHaveBeenCalled();
   });
 
   it("prevents concurrent fetches when multiple scrapes happen simultaneously", async () => {

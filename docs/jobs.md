@@ -54,7 +54,7 @@ pg-boss also has a separate pub/sub API (`publish`/`subscribe`) for fan-out. Dea
 
 ## How Schedules Are Created and Updated
 
-1. **Startup provider sync**: When pg-boss is enabled, `JobsService` calls `WalletSdkService.ensureWalletAllowances()` and `WalletSdkService.loadProviders()` (unless `DEALBOT_DISABLE_CHAIN=true`). `loadProviders()` pulls providers from the on-chain SP registry and syncs them into `storage_providers`.
+1. **Startup provider sync**: When pg-boss is enabled, `JobsService` calls `WalletSdkService.ensureWalletAllowances()` and `WalletSdkService.loadProviders()`. `loadProviders()` pulls providers from the on-chain SP registry and syncs them into `storage_providers`.
 1. **Scheduler tick creates/updates schedules**: The scheduler loop runs immediately on startup and then every `JOB_SCHEDULER_POLL_SECONDS`. It upserts schedules for each active provider and ensures global `data_retention_poll` and `providers_refresh` schedules exist. It deletes deal/retrieval schedules for providers that are no longer active/approved.
 1. **New SP added to registry (example)**: Once `loadProviders()` syncs a new provider, the next scheduler tick inserts `deal` and `retrieval` schedules for that SP.
 1. **SP status changes (example)**: When `loadProviders()` updates provider status, the next scheduler tick re-evaluates and deletes schedules for inactive/unapproved providers.

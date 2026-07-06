@@ -133,10 +133,8 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     const schedulerEnabled = runMode !== "worker" && (this.configService.get("jobs")?.pgbossSchedulerEnabled ?? true);
     const workersEnabled = runMode !== "api";
 
-    if (process.env.DEALBOT_DISABLE_CHAIN !== "true") {
-      await this.walletSdkService.ensureWalletAllowances();
-      await this.walletSdkService.ensureProvidersLoaded();
-    }
+    await this.walletSdkService.ensureWalletAllowances();
+    await this.walletSdkService.ensureProvidersLoaded();
     await this.startBoss();
     if (!this.boss) {
       this.logger.error({
@@ -433,7 +431,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
   private async resolveProviderJobContext(spAddress: string, jobId: string): Promise<ProviderJobContext> {
     let providerInfo = this.walletSdkService.getProviderInfo(spAddress);
 
-    if (providerInfo == null && process.env.DEALBOT_DISABLE_CHAIN !== "true") {
+    if (providerInfo == null) {
       await this.walletSdkService.loadProviders();
       providerInfo = this.walletSdkService.getProviderInfo(spAddress);
     }
@@ -547,9 +545,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       try {
         let provider = this.walletSdkService.getTestingProviders().find((p) => p.serviceProvider === spAddress);
         if (!provider) {
-          if (process.env.DEALBOT_DISABLE_CHAIN !== "true") {
-            await this.walletSdkService.loadProviders();
-          }
+          await this.walletSdkService.loadProviders();
           provider = this.walletSdkService.getTestingProviders().find((p) => p.serviceProvider === spAddress);
           if (!provider) {
             this.logger.warn({
@@ -752,17 +748,10 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
   private async handleProvidersRefreshJob(data: ProvidersRefreshJobData): Promise<void> {
     void data;
     await this.recordJobExecution("providers_refresh", async () => {
-      if (process.env.DEALBOT_DISABLE_CHAIN === "true") {
-        this.logger.warn({
-          event: "chain_integration_disabled",
-          message: "Chain integration disabled; skipping provider refresh job.",
-        });
-      } else {
-        // loadProviders() swallows on-chain failures and returns false, that is a job failure.
-        const loaded = await this.walletSdkService.loadProviders();
-        if (!loaded) {
-          throw new Error("Provider refresh failed: unable to load providers from on-chain registry");
-        }
+      // loadProviders() swallows on-chain failures and returns false, that is a job failure.
+      const loaded = await this.walletSdkService.loadProviders();
+      if (!loaded) {
+        throw new Error("Provider refresh failed: unable to load providers from on-chain registry");
       }
       await this.updateStorageProviderGauges();
       return "success";

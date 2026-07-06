@@ -27,9 +27,6 @@ export class WalletBalanceCollector implements OnModuleInit {
   onModuleInit(): void {
     const gauge = this.walletBalanceGauge as Gauge & { collect: () => Promise<void> };
     gauge.collect = async () => {
-      if (process.env.DEALBOT_DISABLE_CHAIN === "true") {
-        return;
-      }
       const now = Date.now();
       if (now - this.cachedAt < this.cacheTtlMs) {
         return;
