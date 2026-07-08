@@ -165,7 +165,7 @@ export class PieceCleanupService {
     let failed = 0;
     let bytesRemoved = 0;
 
-    const synapse = this.walletSdkService.getSynapse(network) ?? (await this.createSynapseInstance(network));
+    const synapse = this.walletSdkService.tryGetSynapse(network) ?? (await this.createSynapseInstance(network));
 
     // Fetch candidates in batches. Keep deleting until back under quota or runtime cap.
     while (bytesRemoved < excessBytes) {
@@ -256,7 +256,7 @@ export class PieceCleanupService {
    * Query the provider's actual storage via filecoin-pin.
    */
   async getLiveStoredBytesForProvider(spAddress: string, network: Network, signal?: AbortSignal): Promise<number> {
-    const synapse = this.walletSdkService.getSynapse(network) ?? (await this.createSynapseInstance(network));
+    const synapse = this.walletSdkService.tryGetSynapse(network) ?? (await this.createSynapseInstance(network));
 
     const datasets = await this.awaitWithAbort(
       listDataSets(synapse, {
@@ -363,7 +363,7 @@ export class PieceCleanupService {
       throw new Error(`Provider ID not found for SP address ${deal.spAddress}`);
     }
     const synapse =
-      existingSynapse ?? this.walletSdkService.getSynapse(network) ?? (await this.createSynapseInstance(network));
+      existingSynapse ?? this.walletSdkService.tryGetSynapse(network) ?? (await this.createSynapseInstance(network));
     const storage = await synapse.storage.createContext({
       providerId,
       dataSetId: deal.dataSetId,

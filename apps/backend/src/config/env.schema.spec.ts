@@ -506,4 +506,70 @@ describe("createConfigValidationSchema", () => {
       expect(a).not.toBe(b);
     });
   });
+
+  describe("shared (unprefixed) override validation", () => {
+    it("accepts an in-range shared value", () => {
+      const { error } = validate(schemaFor("calibration"), {
+        ...baseEnv,
+        NETWORKS: "calibration",
+        ...withWalletKey("CALIBRATION"),
+        DEALS_PER_SP_PER_HOUR: 4,
+      });
+      expect(error).toBeUndefined();
+    });
+
+    it("rejects an out-of-range shared value (not waved through by allowUnknown)", () => {
+      const { error } = validate(schemaFor("calibration"), {
+        ...baseEnv,
+        NETWORKS: "calibration",
+        ...withWalletKey("CALIBRATION"),
+        DEALS_PER_SP_PER_HOUR: 999,
+      });
+      expect(error).toBeDefined();
+      expect(error?.message).toMatch(/DEALS_PER_SP_PER_HOUR/);
+    });
+
+    it("rejects an invalid shared maintenance-window format", () => {
+      const { error } = validate(schemaFor("calibration"), {
+        ...baseEnv,
+        NETWORKS: "calibration",
+        ...withWalletKey("CALIBRATION"),
+        MAINTENANCE_WINDOWS_UTC: "not-a-time",
+      });
+      expect(error).toBeDefined();
+    });
+
+    it("does not register a bare key for a chain-specific var", () => {
+      // BLOCKED_SP_IDS is chain-specific; an unprefixed value is unknown to the
+      // schema and only allowed because allowUnknown is on (never validated as shared).
+      const { error } = validate(schemaFor("calibration"), {
+        ...baseEnv,
+        NETWORKS: "calibration",
+        ...withWalletKey("CALIBRATION"),
+        BLOCKED_SP_IDS: "1,2,3",
+      });
+      expect(error).toBeUndefined();
+    });
+  });
+
+  describe("NETWORKS validation", () => {
+    it("rejects a present-but-empty NETWORKS (whitespace/commas)", () => {
+      const { error } = validate(schemaFor("calibration"), {
+        ...baseEnv,
+        NETWORKS: " , ,",
+        ...withWalletKey("CALIBRATION"),
+      });
+      expect(error).toBeDefined();
+      expect(error?.message).toMatch(/NETWORKS must list at least one supported network/);
+    });
+
+    it("rejects an unsupported network name", () => {
+      const { error } = validate(schemaFor("calibration"), {
+        ...baseEnv,
+        NETWORKS: "calibration,moonbase",
+        ...withWalletKey("CALIBRATION"),
+      });
+      expect(error).toBeDefined();
+    });
+  });
 });

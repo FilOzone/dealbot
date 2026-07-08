@@ -167,7 +167,7 @@ backend/
 Interactive API documentation is available via Swagger UI:
 
 - **Local:** `http://localhost:8080/api`
-- **Production:** `https://dealbot.fwss.io/api`
+- **Production:** `https://dealbot.filoz.org/api`
 
 ## Development
 
