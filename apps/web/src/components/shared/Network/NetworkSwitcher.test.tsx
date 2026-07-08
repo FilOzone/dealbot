@@ -1,131 +1,51 @@
-import { server } from "@test/mocks/server";
-import { render, screen, waitFor } from "@testing-library/react";
-import { HttpResponse, http } from "msw";
-import { MemoryRouter } from "react-router-dom";
-import { SWRConfig } from "swr";
-import { describe, expect, it } from "vitest";
+import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { describe, expect, it, vi } from "vitest";
 import NetworkSwitcher from "./NetworkSwitcher";
 
-const configUrl = "/api/config";
-
-// Each render gets a fresh SWR cache so cases setting different /api/config
-// responses don't reuse a value cached by a previous case.
-function renderSwitcher() {
-  return render(
-    <SWRConfig value={{ provider: () => new Map() }}>
-      <MemoryRouter>
-        <NetworkSwitcher />
-      </MemoryRouter>
-    </SWRConfig>,
-  );
-}
-
 describe("NetworkSwitcher", () => {
-  it("shows current network and a link to switch to the other deployment (mainnet → calibration)", async () => {
-    server.use(
-      http.get(configUrl, () =>
-        HttpResponse.json({
-          network: "mainnet",
-          jobs: {},
-        }),
-      ),
-    );
-
-    renderSwitcher();
-
-    const switchLink = await screen.findByRole("link", { name: /Switch to Calibration/i });
-    expect(switchLink).toHaveAttribute("href", "https://staging.dealbot.filoz.org");
+  it("renders nothing when only one network is active", () => {
+    const { container } = render(<NetworkSwitcher networks={["mainnet"]} selected="mainnet" onChange={vi.fn()} />);
+    expect(container.firstChild).toBeNull();
   });
 
-  it("offers switching to mainnet when current instance monitors calibration", async () => {
-    server.use(
-      http.get(configUrl, () =>
-        HttpResponse.json({
-          network: "calibration",
-          jobs: {},
-        }),
-      ),
-    );
-
-    renderSwitcher();
-
-    const switchLink = await screen.findByRole("link", { name: /Switch to Mainnet/i });
-    expect(switchLink).toHaveAttribute("href", "https://dealbot.filoz.org");
+  it("renders a tab for each network when multiple are active", () => {
+    render(<NetworkSwitcher networks={["mainnet", "calibration"]} selected="mainnet" onChange={vi.fn()} />);
+    expect(screen.getByRole("tab", { name: /mainnet/i })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /calibration/i })).toBeInTheDocument();
   });
 
-  it("shows loading state initially", () => {
-    server.use(http.get(configUrl, () => new Promise(() => {})));
-
-    const { container } = renderSwitcher();
-
-    const loadingElement = container.querySelector(".animate-pulse");
-    expect(loadingElement).toBeInTheDocument();
-    expect(loadingElement).toHaveClass("bg-muted");
+  it("marks the selected network tab as aria-selected", () => {
+    render(<NetworkSwitcher networks={["mainnet", "calibration"]} selected="calibration" onChange={vi.fn()} />);
+    expect(screen.getByRole("tab", { name: /calibration/i })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: /mainnet/i })).toHaveAttribute("aria-selected", "false");
   });
 
-  it("hides component when network config fails to load", async () => {
-    server.use(
-      http.get(configUrl, () => {
-        return new HttpResponse(null, { status: 500 });
-      }),
-    );
+  it("calls onChange with the clicked network", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(<NetworkSwitcher networks={["mainnet", "calibration"]} selected="mainnet" onChange={onChange} />);
 
-    const { container } = renderSwitcher();
-
-    await waitFor(() => {
-      expect(container.firstChild).toBeNull();
-    });
+    await user.click(screen.getByRole("tab", { name: /calibration/i }));
+    expect(onChange).toHaveBeenCalledWith("calibration");
   });
 
-  it("opens link in new tab with proper security attributes", async () => {
-    server.use(
-      http.get(configUrl, () =>
-        HttpResponse.json({
-          network: "mainnet",
-          jobs: {},
-        }),
-      ),
+  it("shows emerald dot for mainnet tab", () => {
+    const { container } = render(
+      <NetworkSwitcher networks={["mainnet", "calibration"]} selected="mainnet" onChange={vi.fn()} />,
     );
-
-    renderSwitcher();
-
-    const switchLink = await screen.findByRole("link", { name: /Switch to Calibration/i });
-    expect(switchLink).toHaveAttribute("rel", "noreferrer");
+    expect(container.querySelector(".bg-emerald-500")).toBeInTheDocument();
   });
 
-  it("displays correct network indicator color for calibration", async () => {
-    server.use(
-      http.get(configUrl, () =>
-        HttpResponse.json({
-          network: "calibration",
-          jobs: {},
-        }),
-      ),
+  it("shows amber dot for calibration tab", () => {
+    const { container } = render(
+      <NetworkSwitcher networks={["mainnet", "calibration"]} selected="mainnet" onChange={vi.fn()} />,
     );
-
-    const { container } = renderSwitcher();
-
-    await screen.findByRole("link", { name: /Switch to Mainnet/i });
-
-    const networkDot = container.querySelector(".bg-emerald-500");
-    expect(networkDot).toBeInTheDocument();
+    expect(container.querySelector(".bg-amber-500")).toBeInTheDocument();
   });
 
-  it("displays correct network indicator color for mainnet", async () => {
-    server.use(
-      http.get(configUrl, () =>
-        HttpResponse.json({
-          network: "mainnet",
-          jobs: {},
-        }),
-      ),
-    );
-
-    const { container } = renderSwitcher();
-
-    await screen.findByRole("link", { name: /Switch to Calibration/i });
-
-    const networkDot = container.querySelector(".bg-amber-500");
-    expect(networkDot).toBeInTheDocument();
+  it("has role=tablist on the container", () => {
+    render(<NetworkSwitcher networks={["mainnet", "calibration"]} selected="mainnet" onChange={vi.fn()} />);
+    expect(screen.getByRole("tablist")).toBeInTheDocument();
   });
 });

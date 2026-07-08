@@ -1,4 +1,9 @@
+import type { Network } from "@/types/config";
 import type { PaginationOptions } from "@/types/pagination";
+
+type PaginationOptionsWithNetwork = PaginationOptions & {
+  network?: Network | null;
+};
 
 const JSON_HEADERS = { "Content-Type": "application/json" } as const;
 
@@ -44,10 +49,11 @@ export const apiPaths = {
   /** Dealbot app config (network this instance monitors, job rates, etc). */
   config: (): string => "/api/config",
   /** Simple providers list, for dropdowns/filters. */
-  providers: (options?: PaginationOptions): string => {
-    const queryString = options
-      ? buildQueryString(options as Record<string, string | number | boolean | undefined>)
-      : "";
+  providers: (options?: PaginationOptionsWithNetwork): string | null => {
+    if (!options?.network) {
+      return null;
+    }
+    const queryString = buildQueryString(options as Record<string, string | number | boolean | undefined>);
     return `/api/v1/providers${queryString}`;
   },
 } as const;

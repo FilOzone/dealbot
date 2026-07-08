@@ -1,16 +1,20 @@
-import { useNetworkConfig } from "@/hooks/useNetworkConfig";
+import type { Network } from "@/types/config";
 import { NETWORK_DOT_CLASS, NETWORK_LABEL } from "./constants";
 
-function NetworkBadge({ className }: { className?: string }) {
-  const { network, loading, error } = useNetworkConfig();
+interface NetworkBadgeProps {
+  network: Network | null;
+  loading?: boolean;
+  className?: string;
+}
 
+function NetworkBadge({ network, loading = false, className }: NetworkBadgeProps) {
   if (loading) {
     return (
       <span className={`inline-block h-6 w-40 animate-pulse rounded-full bg-muted ${className ?? ""}`} aria-hidden />
     );
   }
 
-  if (error || network === null) return null;
+  if (network === null) return null;
 
   return (
     <span

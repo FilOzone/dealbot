@@ -1,10 +1,11 @@
 import { Activity, ExternalLink, LineChart } from "lucide-react";
-import { NetworkBadge } from "@/components/shared";
+import { NetworkBadge, NetworkSwitcher } from "@/components/shared";
 import { NETWORK_LABEL } from "@/components/shared/Network/constants";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { useNetworkConfig } from "@/hooks/useNetworkConfig";
+import { useActiveNetworks } from "@/hooks/useActiveNetworks";
 import { useProvidersList } from "@/hooks/useProvidersList";
+import { useSelectedNetwork } from "@/hooks/useSelectedNetwork";
 import type { Network } from "@/types/config";
 
 /**
@@ -80,7 +81,8 @@ const getConfig = (network: Network | null) => {
 };
 
 export default function Landing() {
-  const { network } = useNetworkConfig();
+  const { activeNetworks, loading: configLoading, error: configError } = useActiveNetworks();
+  const [selectedNetwork, setSelectedNetwork] = useSelectedNetwork(activeNetworks);
   const {
     dashboardUrl,
     dashboardUrlInvalid,
@@ -88,8 +90,16 @@ export default function Landing() {
     approvedSpDashboardUrlInvalid,
     logsUrl,
     logsUrlInvalid,
-  } = getConfig(network);
-  const { providers: providersResponse, loading: providersLoading, error: providersError } = useProvidersList(0, 500);
+  } = getConfig(selectedNetwork);
+  // Pass null while config is loading to defer the fetch; once resolved, scope to the selected network.
+  const {
+    providers: providersResponse,
+    loading: providersLoading,
+    error: providersError,
+  } = useProvidersList(0, 500, selectedNetwork);
+
+  const providersDisplayError = configError ?? providersError;
+  const providersPending = configLoading || (!configError && selectedNetwork === null) || providersLoading;
 
   return (
     <div className="flex w-full flex-col items-center gap-12 pt-8">
@@ -101,7 +111,7 @@ export default function Landing() {
         </div>
 
         <div className="flex justify-center">
-          <NetworkBadge />
+          <NetworkBadge network={selectedNetwork} loading={configLoading} />
         </div>
 
         <p className="text-muted-foreground text-lg">
@@ -130,10 +140,10 @@ export default function Landing() {
             See the approval methodology ↗
           </a>
         </p>
-        {approvedSpDashboardUrlInvalid && network && (
+        {approvedSpDashboardUrlInvalid && selectedNetwork && (
           <p className="text-sm text-yellow-600">
-            Warning: <code>APPROVED_SP_DASHBOARD_URL_{network.toUpperCase()}</code> (or{" "}
-            <code>VITE_APPROVED_SP_DASHBOARD_URL_{network.toUpperCase()}</code>) configured but invalid. Link
+            Warning: <code>APPROVED_SP_DASHBOARD_URL_{selectedNetwork.toUpperCase()}</code> (or{" "}
+            <code>VITE_APPROVED_SP_DASHBOARD_URL_{selectedNetwork.toUpperCase()}</code>) configured but invalid. Link
             unavailable.
           </p>
         )}
@@ -151,7 +161,7 @@ export default function Landing() {
       </div>
 
       {/* Combined approved-SP dashboard CTA */}
-      {approvedSpDashboardUrl && network && (
+      {approvedSpDashboardUrl && selectedNetwork && (
         <Card className="w-full border-primary/40 bg-primary/5">
           <CardContent className="flex flex-col items-start gap-3 py-5 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-start gap-3">
@@ -159,7 +169,7 @@ export default function Landing() {
               <div>
                 <p className="font-medium">Filecoin Onchain Cloud: approved SP performance</p>
                 <p className="text-sm text-muted-foreground">
-                  Aggregated metrics across all SPs approved for FOC storage on {NETWORK_LABEL[network]}.
+                  Aggregated metrics across all SPs approved for FOC storage on {NETWORK_LABEL[selectedNetwork]}.
                 </p>
               </div>
             </div>
@@ -176,7 +186,12 @@ export default function Landing() {
       {/* Storage providers – metrics & logs */}
       <Card className="w-full">
         <CardHeader>
-          <CardTitle className="text-base">Storage providers – metrics & logs</CardTitle>
+          <div className="flex items-center justify-between gap-4">
+            <CardTitle className="text-base">Storage providers – metrics & logs</CardTitle>
+            {selectedNetwork !== null && (
+              <NetworkSwitcher networks={activeNetworks} selected={selectedNetwork} onChange={setSelectedNetwork} />
+            )}
+          </div>
         </CardHeader>
         <CardContent>
           {(dashboardUrlInvalid || logsUrlInvalid) && (
@@ -198,10 +213,12 @@ export default function Landing() {
               them.
             </p>
           )}
-          {providersError && <p className="text-sm text-destructive">{providersError}</p>}
-          {providersLoading && <p className="text-sm text-muted-foreground">Loading providers…</p>}
-          {!providersLoading &&
-            !providersError &&
+          {providersDisplayError && <p className="text-sm text-destructive">{providersDisplayError}</p>}
+          {!providersDisplayError && providersPending && (
+            <p className="text-sm text-muted-foreground">Loading providers…</p>
+          )}
+          {!providersPending &&
+            !providersDisplayError &&
             (() => {
               const activeProviders = providersResponse.providers
                 .filter((p) => p.isActive)
@@ -279,11 +296,13 @@ export default function Landing() {
                 </div>
               );
             })()}
-          {!providersLoading && !providersError && providersResponse.total > providersResponse.providers.length && (
-            <p className="mt-2 text-xs text-muted-foreground">
-              Showing first {providersResponse.providers.length} of {providersResponse.total} providers.
-            </p>
-          )}
+          {!providersPending &&
+            !providersDisplayError &&
+            providersResponse.total > providersResponse.providers.length && (
+              <p className="mt-2 text-xs text-muted-foreground">
+                Showing first {providersResponse.providers.length} of {providersResponse.total} providers.
+              </p>
+            )}
         </CardContent>
       </Card>
     </div>
