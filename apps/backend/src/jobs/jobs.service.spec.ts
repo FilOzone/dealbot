@@ -1436,6 +1436,9 @@ describe("JobsService schedule rows", () => {
   });
 
   it("data_set_lifecycle_check job skips when disabled", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2024-01-01T12:00:00Z"));
+
     baseConfigValues = {
       ...baseConfigValues,
       networks: {
@@ -1469,6 +1472,9 @@ describe("JobsService schedule rows", () => {
   });
 
   it("data_set_lifecycle_check job creates and terminates a throwaway data set when enabled", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2024-01-01T12:00:00Z"));
+
     baseConfigValues = {
       ...baseConfigValues,
       networks: {
