@@ -973,7 +973,6 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       } else {
         testedCount = await this.storageProviderRepository.count({ where: testedWhere });
       }
-
       this.storageProvidersTested.set({ network }, testedCount);
     } catch (error) {
       this.logger.warn({
