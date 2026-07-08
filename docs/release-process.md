@@ -18,6 +18,8 @@ Both staging and production sync automatically. Image Updater writes the new tag
 
 Image-build scope and release scope differ. Changes under `apps/backend/**`, `apps/web/**`, `pnpm-lock.yaml`, or `pnpm-workspace.yaml` can build app images. Only commits that touch an app's path (`apps/backend` or `apps/web`) affect that app's release-please version.
 
+The subgraph has a separate release-please workflow and release checklist. Changes under `apps/subgraph/**` can produce a subgraph-only Release PR and deploy immutable Goldsky versions, but Goldsky `staging` / `prod` tag promotion remains manual after indexing. See [release-subgraph.md](release-subgraph.md).
+
 ## Tags
 
 Git tags and container tags use different shapes:
@@ -25,6 +27,7 @@ Git tags and container tags use different shapes:
 | Tag                     | Producer                | Consumed by               |
 |-------------------------|-------------------------|---------------------------|
 | `backend-vX.Y.Z` / `web-vX.Y.Z` (git) | release-please | GitHub Releases, changelogs |
+| `subgraph-vX.Y.Z` (git)        | subgraph release-please | GitHub Release, Goldsky immutable deploy |
 | `sha-<sha>` (image)            | docker-build on `main`         | retag step                |
 | `sha-<run>-<sha>` (image)      | docker-build on `main`         | staging Image Updater     |
 | `pre-release-<sha>` (image)    | docker-build on `pre-release`  | opt-in canary environments |
@@ -32,7 +35,7 @@ Git tags and container tags use different shapes:
 
 Apps are versioned independently. A commit that touches only one app produces a Release PR entry, git tag, and retagged image for only that app.
 
-Workflows: [.github/workflows/docker-build.yml](../.github/workflows/docker-build.yml), [.github/workflows/release-please.yml](../.github/workflows/release-please.yml).
+Workflows: [.github/workflows/docker-build.yml](../.github/workflows/docker-build.yml), [.github/workflows/release-please.yml](../.github/workflows/release-please.yml), [.github/workflows/release-subgraph.yml](../.github/workflows/release-subgraph.yml).
 
 ## Operating the release
 

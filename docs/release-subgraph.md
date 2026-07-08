@@ -2,42 +2,40 @@
 
 Source of truth for releasing and deploying [`apps/subgraph/`](../apps/subgraph/).
 
-The dealbot subgraph is versioned independently from `apps/backend` and `apps/web`. Those two go through a release process as described in [release-process.md](release-process.md). The subgraph is published to [Goldsky](https://goldsky.com/) on its own cadence following the steps below.
+The dealbot subgraph is versioned independently from `apps/backend` and `apps/web`. Those two go through a release process as described in [release-process.md](release-process.md). The subgraph uses its own release-please workflow and is published to [Goldsky](https://goldsky.com/) on its own cadence following the steps below.
 
 When cutting a release, you may copy the checklist into a new GitHub issue titled `Release subgraph vX.Y.Z` and tick the boxes as you go. The structure mirrors [filecoin-pay-explorer's release template](https://github.com/FilOzone/filecoin-pay-explorer/blob/main/.github/ISSUE_TEMPLATE/release.md).
 
 ## Notes
 
 - Dealbot's backend consumes the subgraph at a `prod`-tagged URL (e.g. `.../dealbot-mainnet/prod/gn`). Re-tagging is what actually promotes a new version to production (no backend redeploy required).
+- The release workflow deploys immutable Goldsky versions only. Goldsky `staging` and `prod` tags are moved manually after the new version finishes indexing and is validated.
 - This checklist assumes a **backward-compatible** change. For a breaking change see [Breaking changes](#breaking-changes) at the bottom.
 
-## 1. Define the new version
+## 1. Merge the subgraph Release PR
 
-```bash
-NEW_RELEASE_VERSION="X.Y.Z"   # no v prefix — used as the Goldsky version segment
-CURRENT_VERSION="X.Y.Z"       # version currently tagged as `prod` (will be replaced)
-```
+Subgraph releases are managed by the separate [`release-subgraph.yml`](../.github/workflows/release-subgraph.yml) workflow, using [`release-please-subgraph-config.json`](../release-please-subgraph-config.json) and [`apps/subgraph/CHANGELOG.md`](../apps/subgraph/CHANGELOG.md).
 
-- [ ] Version strings agreed and set
-- [ ] Bump follows semver: additive → minor, fix → patch, breaking → major
+When a conventional commit touching `apps/subgraph/**` lands on `main`, release-please opens or updates a subgraph-only Release PR.
 
-## 2. Create a GitHub release
+- [ ] Review the subgraph Release PR
+- [ ] Confirm the semver bump is correct: additive → minor, fix → patch, breaking → major
+- [ ] Merge the subgraph Release PR
 
-```bash
-gh release create "subgraph-v$NEW_RELEASE_VERSION" \
-  --title "subgraph v$NEW_RELEASE_VERSION" \
-  --generate-notes
-```
+Merging the Release PR creates the GitHub Release and tag `subgraph-vX.Y.Z`. The `subgraph-` prefix disambiguates from backend and web release tags.
 
-- [ ] GitHub release created with tag `subgraph-vX.Y.Z`
+## 2. Confirm immutable Goldsky deployment
 
-The `subgraph-` prefix disambiguates from backend / web releases, which are tagged on the same repo by release-please.
+The same release workflow deploys the released version to Goldsky for both networks:
 
-## 3. Build and publish the subgraph
+- `dealbot-calibration/X.Y.Z`
+- `dealbot-mainnet/X.Y.Z`
 
-> **Note:** Tag-triggered CI for subgraph deploys is not wired up yet — for now every release uses the manual fallback. Tracked as follow-up in [#573](https://github.com/FilOzone/dealbot/issues/573); target is to match [filecoin-pay-explorer's `deploy.yml`](https://github.com/FilOzone/filecoin-pay-explorer/blob/main/.github/workflows/deploy.yml).
+- [ ] GitHub Release created with tag `subgraph-vX.Y.Z`
+- [ ] `release-subgraph.yml` deployed `dealbot-calibration/X.Y.Z`
+- [ ] `release-subgraph.yml` deployed `dealbot-mainnet/X.Y.Z`
 
-The following commands need to be run in the `apps/subgraph` directory and require the `goldsky` CLI authenticated via a `GOLDSKY_API_KEY`.
+If the automated deploy fails after the GitHub Release is created, rerun the failed `release-subgraph.yml` job from GitHub Actions. Manual fallback commands are:
 
 ```bash
 export VERSION=X.Y.Z   # no v prefix; used as the Goldsky version segment
@@ -49,19 +47,19 @@ pnpm build:mainnet
 pnpm deploy:mainnet
 ```
 
-- [ ] `dealbot-calibration/$NEW_RELEASE_VERSION` deployed
-- [ ] `dealbot-mainnet/$NEW_RELEASE_VERSION` deployed
-
-## 4. Await subgraph indexing
+## 3. Await subgraph indexing
 
 - [ ] Received confirmation email that `dealbot-calibration` finished indexing
 - [ ] Received confirmation email that `dealbot-mainnet` finished indexing
 
-## 5. Smoke-test the candidate in staging
+## 4. Smoke-test the candidate in staging
 
 Point dealbot staging at the new versioned URL. The cleanest way is via a `staging` tag so the staging backend's config can stay stable:
 
 ```bash
+NEW_RELEASE_VERSION="X.Y.Z"
+CURRENT_VERSION="X.Y.Z"       # version currently tagged as `staging` or `prod`
+
 for network in calibration mainnet; do
   goldsky subgraph tag delete dealbot-$network/$CURRENT_VERSION --tag staging 2>/dev/null || true
   goldsky subgraph tag create dealbot-$network/$NEW_RELEASE_VERSION --tag staging
@@ -73,12 +71,15 @@ done
 - [ ] Dealbot staging backend's subgraph-dependent checks succeed against the new subgraph
 - [ ] No new errors in dealbot staging logs
 
-## 6. Promote subgraphs to `prod`
+## 5. Promote subgraphs to `prod`
 
 > [!NOTE]
 > Re-tagging as `prod` below switches the **production** dealbot backend over to the new subgraph version. Do this only when you're ready to take it live.
 
 ```bash
+NEW_RELEASE_VERSION="X.Y.Z"
+CURRENT_VERSION="X.Y.Z"       # version currently tagged as `prod`
+
 for network in calibration mainnet; do
   # `tag create` errors if `prod` already points at another version, so we
   # delete first. The window between the two calls is sub-second; consumers
@@ -91,12 +92,12 @@ done
 - [ ] `dealbot-mainnet` tagged as `prod`
 - [ ] `dealbot-calibration` tagged as `prod`
 
-## 7. Verify production
+## 6. Verify production
 
 - [ ] Dealbot production backend's subgraph-dependent checks are healthy
 - [ ] No regressions in production metrics or dashboards
 
-## 8. Wrap-up
+## 7. Wrap-up
 
 - [ ] Announce the release in `#fil-foc`
 - [ ] Capture any improvements needed for next time

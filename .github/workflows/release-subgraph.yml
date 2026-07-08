@@ -1,0 +1,91 @@
+name: Release Subgraph
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/release-subgraph.yml"
+      - ".release-please-subgraph-manifest.json"
+      - "release-please-subgraph-config.json"
+      - "apps/subgraph/**"
+  workflow_dispatch:
+    inputs:
+      note:
+        description: "Optional note for why this run was triggered manually."
+        required: false
+        type: string
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    name: Release Please
+    runs-on: ubuntu-latest
+    concurrency:
+      group: release-please-subgraph
+      cancel-in-progress: false
+    outputs:
+      release_created: ${{ steps.release.outputs['apps/subgraph--release_created'] }}
+      tag_name: ${{ steps.release.outputs['apps/subgraph--tag_name'] }}
+      version: ${{ steps.release.outputs['apps/subgraph--version'] }}
+    steps:
+      - uses: googleapis/release-please-action@v5
+        id: release
+        with:
+          # PAT so release PRs trigger other workflows and avoid GITHUB_TOKEN recursion limits.
+          token: ${{ secrets.FILOZZY_RELEASE_PLEASE_PAT }}
+          config-file: release-please-subgraph-config.json
+          manifest-file: .release-please-subgraph-manifest.json
+
+  deploy:
+    name: Deploy subgraph to Goldsky (${{ matrix.network }})
+    needs: release-please
+    if: needs.release-please.outputs.release_created == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        network:
+          - calibration
+          - mainnet
+    env:
+      VERSION: ${{ needs.release-please.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 9.15.2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Goldsky CLI
+        run: curl -fsSL https://goldsky.com | sh -s -- -f
+        shell: bash
+
+      - name: Build subgraph (${{ matrix.network }})
+        run: pnpm --filter @dealbot/subgraph run build:${{ matrix.network }}
+
+      - name: Deploy subgraph (${{ matrix.network }})
+        env:
+          GOLDSKY_API_KEY: ${{ secrets.GOLDSKY_API_KEY }}
+        run: goldsky subgraph deploy "dealbot-${{ matrix.network }}/$VERSION" --path . --token "$GOLDSKY_API_KEY"
+        working-directory: apps/subgraph
