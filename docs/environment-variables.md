@@ -10,19 +10,27 @@ Dealbot drives one or more Filecoin networks from a **single process**. The acti
 # Run Dealbot against both networks from the same instance
 NETWORKS=calibration,mainnet
 
+# Credentials and endpoints are per-network (never shared)
 CALIBRATION_WALLET_PRIVATE_KEY=0xabc...
 CALIBRATION_RPC_URL=https://api.calibration.node.glif.io/rpc/v1
-CALIBRATION_DEALS_PER_SP_PER_HOUR=2
-
 MAINNET_WALLET_PRIVATE_KEY=0xdef...
 MAINNET_RPC_URL=https://api.node.glif.io/rpc/v1
+
+# Shared tuning: set once unprefixed, applies to every network
+DEAL_JOB_TIMEOUT_SECONDS=360
+MAINTENANCE_WINDOWS_UTC=07:00,22:00
+
+# ...and override per network only where they differ
+CALIBRATION_DEALS_PER_SP_PER_HOUR=2
 MAINNET_DEALS_PER_SP_PER_HOUR=1
 ```
 
 **Rules**
 
-- **Global vs. per-network.** Unprefixed variables (database, HTTP ports, job timeouts, etc.) apply to the whole process. Prefixed variables configure a specific network.
-- **Active-network validation.** Only networks listed in `NETWORKS` are validated at startup. Variables for inactive networks are ignored, so you can keep a `MAINNET_*` block commented out until you are ready.
+- **Resolution precedence (per-network vars).** Each network resolves a variable as `<NETWORK>_<VAR>` (per-network override) → `<VAR>` (unprefixed shared value) → built-in default. Set a value once unprefixed to share it across every active network, and add a `<NETWORK>_` override only where a network differs.
+- **Chain-specific vars never inherit.** Credentials, chain endpoints, and chain-local identifiers must be set with a prefix and do not read the unprefixed slot: `WALLET_ADDRESS`, `WALLET_PRIVATE_KEY`, `SESSION_KEY_PRIVATE_KEY`, `RPC_URL`, `PDP_SUBGRAPH_ENDPOINT`, `SUBGRAPH_ENDPOINT`, `DEALBOT_DATASET_VERSION`, `BLOCKED_SP_IDS`, `BLOCKED_SP_ADDRESSES`, `DATASET_LIFECYCLE_CHECK_ENABLED`. (`DATASET_LIFECYCLE_CHECK_ENABLED` is chain-specific because its default is network-dependent — off on mainnet — so a shared `=true` must not silently enable the canary there.)
+- **Process-global vars.** Database, HTTP ports, ClickHouse, and pg-boss scheduler settings apply to the whole process and have no per-network form.
+- **Validation.** Both the unprefixed shared value and each `<NETWORK>_` override are validated against the same rules at startup. Only networks listed in `NETWORKS` are required; variables for inactive networks are ignored, so you can keep a `MAINNET_*` block commented out until you are ready.
 - **Wallet vs. session key.** Each active network must provide either `<NETWORK>_WALLET_PRIVATE_KEY` or `<NETWORK>_SESSION_KEY_PRIVATE_KEY`. When both are present the session key takes precedence (see [`docs/runbooks/wallet-and-session-keys.md`](./runbooks/wallet-and-session-keys.md)).
 - **Supported prefixes.** `CALIBRATION_*`, `MAINNET_*`. Additional networks can be added by extending `SUPPORTED_NETWORKS` in the codebase.
 
@@ -33,9 +41,9 @@ MAINNET_DEALS_PER_SP_PER_HOUR=1
 | [Application](#application-configuration) | `NODE_ENV`, `DEALBOT_PORT`, `DEALBOT_HOST`, `DEALBOT_RUN_MODE`, `DEALBOT_METRICS_PORT`, `DEALBOT_METRICS_HOST`, `DEALBOT_ALLOWED_ORIGINS`, `ENABLE_DEV_MODE`, `DEALBOT_API_PUBLIC_URL`, `DEALBOT_PROBE_LOCATION` |
 | [Database](#database-configuration)       | `DATABASE_HOST`, `DATABASE_PORT`, `DATABASE_POOL_MAX`, `DATABASE_USER`, `DATABASE_PASSWORD`, `DATABASE_NAME`                                                 |
 | [Per-Network](#per-network-configuration) | `<NET>_WALLET_ADDRESS`, `<NET>_WALLET_PRIVATE_KEY`, `<NET>_SESSION_KEY_PRIVATE_KEY`, `<NET>_RPC_URL`, `<NET>_RPC_REQUEST_TIMEOUT_MS`, `<NET>_CHECK_DATASET_CREATION_FEES`, `<NET>_USE_ONLY_APPROVED_PROVIDERS`, `<NET>_PDP_SUBGRAPH_ENDPOINT`, `<NET>_SUBGRAPH_ENDPOINT`, `<NET>_DEALBOT_DATASET_VERSION`, `<NET>_MIN_NUM_DATASETS_FOR_CHECKS`                                           |
-| [Per-Network Scheduling](#per-network-scheduling) | `<NET>_DEALS_PER_SP_PER_HOUR`, `<NET>_DEAL_JOB_TIMEOUT_SECONDS`, `<NET>_RETRIEVALS_PER_SP_PER_HOUR`, `<NET>_RETRIEVAL_JOB_TIMEOUT_SECONDS`, `<NET>_SAMPLED_RETRIEVALS_PER_SP_PER_HOUR`, `<NET>_SAMPLED_RETRIEVAL_JOB_TIMEOUT_SECONDS`, `<NET>_DATASET_CREATIONS_PER_SP_PER_HOUR`, `<NET>_DATA_SET_CREATION_JOB_TIMEOUT_SECONDS`, `<NET>_DATASET_LIFECYCLE_CHECK_ENABLED`, `<NET>_DATASET_LIFECYCLE_CHECKS_PER_SP_PER_HOUR`, `<NET>_DATA_SET_LIFECYCLE_CHECK_JOB_TIMEOUT_SECONDS`, `<NET>_PULL_CHECKS_PER_SP_PER_HOUR`, `<NET>_PULL_CHECK_JOB_TIMEOUT_SECONDS`, `<NET>_PULL_CHECK_POLL_INTERVAL_SECONDS`, `<NET>_PULL_PIECE_CLEANUP_INTERVAL_SECONDS`, `<NET>_METRICS_PER_HOUR`, `<NET>_PROVIDERS_REFRESH_INTERVAL_SECONDS`, `<NET>_DATA_RETENTION_POLL_INTERVAL_SECONDS`, `<NET>_MAINTENANCE_WINDOWS_UTC`, `<NET>_MAINTENANCE_WINDOW_MINUTES`, `<NET>_BLOCKED_SP_IDS`, `<NET>_BLOCKED_SP_ADDRESSES`, `<NET>_MAX_DATASET_STORAGE_SIZE_BYTES`, `<NET>_TARGET_DATASET_STORAGE_SIZE_BYTES`, `<NET>_PIECE_CLEANUP_PER_SP_PER_HOUR`, `<NET>_MAX_PIECE_CLEANUP_RUNTIME_SECONDS` |
+| [Per-Network Scheduling](#per-network-scheduling) | `<NET>_DEALS_PER_SP_PER_HOUR`, `<NET>_DEAL_JOB_TIMEOUT_SECONDS`, `<NET>_RETRIEVALS_PER_SP_PER_HOUR`, `<NET>_RETRIEVAL_JOB_TIMEOUT_SECONDS`, `<NET>_SAMPLED_RETRIEVALS_PER_SP_PER_HOUR`, `<NET>_SAMPLED_RETRIEVAL_JOB_TIMEOUT_SECONDS`, `<NET>_DATASET_CREATIONS_PER_SP_PER_HOUR`, `<NET>_DATA_SET_CREATION_JOB_TIMEOUT_SECONDS`, `<NET>_DATASET_LIFECYCLE_CHECK_ENABLED`, `<NET>_DATASET_LIFECYCLE_CHECKS_PER_SP_PER_HOUR`, `<NET>_DATA_SET_LIFECYCLE_CHECK_JOB_TIMEOUT_SECONDS`, `<NET>_PULL_CHECKS_PER_SP_PER_HOUR`, `<NET>_PULL_CHECK_JOB_TIMEOUT_SECONDS`, `<NET>_PULL_CHECK_POLL_INTERVAL_SECONDS`, `<NET>_PULL_CHECK_PIECE_SIZE_BYTES`, `<NET>_PULL_PIECE_CLEANUP_INTERVAL_SECONDS`, `<NET>_PROVIDERS_REFRESH_INTERVAL_SECONDS`, `<NET>_DATA_RETENTION_POLL_INTERVAL_SECONDS`, `<NET>_MAINTENANCE_WINDOWS_UTC`, `<NET>_MAINTENANCE_WINDOW_MINUTES`, `<NET>_BLOCKED_SP_IDS`, `<NET>_BLOCKED_SP_ADDRESSES`, `<NET>_MAX_DATASET_STORAGE_SIZE_BYTES`, `<NET>_TARGET_DATASET_STORAGE_SIZE_BYTES`, `<NET>_PIECE_CLEANUP_PER_SP_PER_HOUR`, `<NET>_MAX_PIECE_CLEANUP_RUNTIME_SECONDS` |
 | [Jobs (pg-boss)](#jobs-pg-boss)           | `DEALBOT_PGBOSS_SCHEDULER_ENABLED`, `DEALBOT_PGBOSS_POOL_MAX`, `JOB_SCHEDULER_POLL_SECONDS`, `JOB_WORKER_POLL_SECONDS`, `PG_BOSS_LOCAL_CONCURRENCY`, `JOB_CATCHUP_MAX_ENQUEUE`, `JOB_SCHEDULE_PHASE_SECONDS`, `JOB_ENQUEUE_JITTER_SECONDS`, `SHUTDOWN_FINAL_SCRAPE_DELAY_SECONDS`, `IPFS_BLOCK_FETCH_CONCURRENCY`, `SAMPLED_RETRIEVAL_BLOCK_SAMPLE_COUNT` |
-| [Pull Check](#pull-check-configuration)   | `PULL_CHECK_PIECE_SIZE_BYTES`, `PULL_PIECE_MAX_CONCURRENT_STREAMS`, `PULL_PIECE_MAX_STREAMS_PER_CID` |
+| [Pull Check](#pull-check-configuration)   | `PULL_PIECE_MAX_CONCURRENT_STREAMS`, `PULL_PIECE_MAX_STREAMS_PER_CID` |
 | [ClickHouse](#clickhouse-configuration)   | `CLICKHOUSE_URL`, `CLICKHOUSE_BATCH_SIZE`, `CLICKHOUSE_FLUSH_INTERVAL_MS`, `CLICKHOUSE_MAX_BUFFER_SIZE`                                                      |
 | [Dataset](#dataset-configuration)         | `DEALBOT_LOCAL_DATASETS_PATH`, `RANDOM_PIECE_SIZES`                                                                                                          |
 | [Timeouts](#timeout-configuration)        | `CONNECT_TIMEOUT_MS`, `HTTP_REQUEST_TIMEOUT_MS`, `HTTP2_REQUEST_TIMEOUT_MS`, `IPNI_VERIFICATION_TIMEOUT_MS`, `IPNI_VERIFICATION_POLLING_MS`                   |
@@ -639,17 +647,6 @@ Dealbot uses pg-boss for rate-based scheduling — see [Jobs (pg-boss)](#jobs-pg
 
 ---
 
-### `<NET>_METRICS_PER_HOUR`
-
-- **Type**: `number`
-- **Required**: No
-- **Default**: `0.1`
-- **Limits**: capped at `3` to limit database load from materialized-view refreshes.
-
-**Role**: Frequency of metrics aggregation runs per hour on this network.
-
----
-
 ### `<NET>_PROVIDERS_REFRESH_INTERVAL_SECONDS`
 
 - **Type**: `number`
@@ -850,6 +847,21 @@ check types (data-storage, retrieval, and data-retention). Matching is case-inse
 
 - Increase to reduce polling load against SP endpoints
 - Decrease for faster detection of completed or failed pulls
+
+---
+
+### `<NET>_PULL_CHECK_PIECE_SIZE_BYTES`
+
+- **Type**: `number` (bytes)
+- **Required**: No
+- **Default**: `10485760` (10 MiB)
+
+**Role**: Size (bytes) of the synthetic test piece Dealbot generates per pull-check run on this network. Set once unprefixed (`PULL_CHECK_PIECE_SIZE_BYTES`) to share across networks, or override per network with the `<NET>_` prefix.
+
+**When to update**:
+
+- Increase for more realistic large-piece pull tests
+- Decrease for faster jobs in low-bandwidth environments
 
 ---
 
@@ -1230,22 +1242,7 @@ For each sampled CID, dealbot:
 
 ## Pull Check Configuration
 
-These variables tune global aspects of the pull-check subsystem — piece size and server-side streaming limits. Scheduling rates and timeouts are configured per network in the [Per-Network Scheduling](#per-network-scheduling) section.
-
-### `PULL_CHECK_PIECE_SIZE_BYTES`
-
-- **Type**: `number` (bytes)
-- **Required**: No
-- **Default**: `10485760` (10 MiB)
-
-**Role**: Size (bytes) of the synthetic test piece Dealbot generates per pull-check run.
-
-**When to update**:
-
-- Increase for more realistic large-piece pull tests
-- Decrease for faster jobs in low-bandwidth environments
-
----
+These variables tune global, server-side aspects of the pull-check subsystem — the streaming limits. Piece size (`<NET>_PULL_CHECK_PIECE_SIZE_BYTES`) and scheduling rates/timeouts are configured per network in the [Per-Network Scheduling](#per-network-scheduling) section.
 
 ### `PULL_PIECE_MAX_CONCURRENT_STREAMS`
 

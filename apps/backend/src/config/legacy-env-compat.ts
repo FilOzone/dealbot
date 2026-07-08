@@ -29,62 +29,56 @@
 import { SUPPORTED_NETWORKS } from "../common/constants.js";
 import { createPinoExitLogger } from "../common/pino.config.js";
 import type { Network } from "../common/types.js";
+import { PER_NETWORK_VARS } from "./network-fields.js";
 
 /**
  * Env var names (unprefixed) that were moved into a per-network namespace.
- * Each corresponds to a `<PREFIX>_<KEY>` variable in the new layout.
- *
- * Keep this list in sync with `createPerNetworkEnvSchema` in `env.schema.ts`.
+ * Each corresponds to a `<PREFIX>_<KEY>` variable in the new layout. Sourced
+ * from the per-network var catalog so this can't drift from the schema/loader.
  */
-const LEGACY_PER_NETWORK_VARS = [
-  "WALLET_ADDRESS",
-  "WALLET_PRIVATE_KEY",
-  "SESSION_KEY_PRIVATE_KEY",
-  "RPC_URL",
-  "RPC_REQUEST_TIMEOUT_MS",
-  "PDP_SUBGRAPH_ENDPOINT",
-  "SUBGRAPH_ENDPOINT",
-  "CHECK_DATASET_CREATION_FEES",
-  "USE_ONLY_APPROVED_PROVIDERS",
-  "DEALBOT_DATASET_VERSION",
-  "MIN_NUM_DATASETS_FOR_CHECKS",
-  "DEALS_PER_SP_PER_HOUR",
-  "RETRIEVALS_PER_SP_PER_HOUR",
-  "SAMPLED_RETRIEVALS_PER_SP_PER_HOUR",
-  "DATASET_CREATIONS_PER_SP_PER_HOUR",
-  "DATASET_LIFECYCLE_CHECKS_PER_SP_PER_HOUR",
-  "DATASET_LIFECYCLE_CHECK_ENABLED",
-  "DEAL_JOB_TIMEOUT_SECONDS",
-  "RETRIEVAL_JOB_TIMEOUT_SECONDS",
-  "SAMPLED_RETRIEVAL_JOB_TIMEOUT_SECONDS",
-  "DATA_SET_CREATION_JOB_TIMEOUT_SECONDS",
-  "DATA_SET_LIFECYCLE_CHECK_JOB_TIMEOUT_SECONDS",
-  "DATA_RETENTION_POLL_INTERVAL_SECONDS",
-  "PROVIDERS_REFRESH_INTERVAL_SECONDS",
-  "MAINTENANCE_WINDOWS_UTC",
-  "MAINTENANCE_WINDOW_MINUTES",
-  "BLOCKED_SP_IDS",
-  "BLOCKED_SP_ADDRESSES",
-  "PIECE_CLEANUP_PER_SP_PER_HOUR",
-  "MAX_PIECE_CLEANUP_RUNTIME_SECONDS",
-  "MAX_DATASET_STORAGE_SIZE_BYTES",
-  "TARGET_DATASET_STORAGE_SIZE_BYTES",
-  "PULL_CHECKS_PER_SP_PER_HOUR",
-  "PULL_CHECK_JOB_TIMEOUT_SECONDS",
-  "PULL_CHECK_POLL_INTERVAL_SECONDS",
-  "PULL_CHECK_PIECE_SIZE_BYTES",
-  "PULL_PIECE_CLEANUP_INTERVAL_SECONDS",
-] as const;
+const LEGACY_PER_NETWORK_VARS = PER_NETWORK_VARS;
+
+/**
+ * Per-network vars whose unprefixed name changed in the move to the new layout.
+ * Maps the operator's existing (old) name to the current unprefixed name so a
+ * deployment that still sets the old name keeps its configured value instead of
+ * silently reverting to a default. Applied in both legacy and multi-network
+ * mode; the current name, once populated, is inherited per network by the loader.
+ */
+const RENAMED_LEGACY_VARS: Record<string, string> = {
+  DEALBOT_MAINTENANCE_WINDOWS_UTC: "MAINTENANCE_WINDOWS_UTC",
+  DEALBOT_MAINTENANCE_WINDOW_MINUTES: "MAINTENANCE_WINDOW_MINUTES",
+  JOB_PIECE_CLEANUP_PER_SP_PER_HOUR: "PIECE_CLEANUP_PER_SP_PER_HOUR",
+};
 
 export interface LegacyEnvCompatResult {
-  /** True if legacy translation was applied. */
+  /** True if any legacy translation (rename and/or single-network copy) was applied. */
   applied: boolean;
-  /** The network the legacy env was resolved to (only set when applied). */
+  /** The network the legacy env was resolved to (only set for single-network translation). */
   network?: Network;
   /** Legacy var names that were copied into the new prefixed slot. */
   translatedVars: string[];
-  /** Reason translation was skipped, for diagnostics. */
+  /** Renamed vars promoted to their current unprefixed name (`OLD->NEW`). */
+  renamedVars: string[];
+  /** Reason single-network translation was skipped, for diagnostics. */
   skipReason?: "networks_already_set" | "no_legacy_network" | "invalid_legacy_network";
+}
+
+/**
+ * Promotes renamed legacy vars to their current unprefixed name when the current
+ * name is unset. Returns the `OLD->NEW` pairs that were applied.
+ */
+function applyRenamedLegacyVars(env: NodeJS.ProcessEnv): string[] {
+  const renamed: string[] = [];
+  for (const [oldName, currentName] of Object.entries(RENAMED_LEGACY_VARS)) {
+    const oldValue = env[oldName];
+    if (typeof oldValue !== "string" || oldValue.length === 0) continue;
+    const existing = env[currentName];
+    if (typeof existing === "string" && existing.length > 0) continue; // current name wins
+    env[currentName] = oldValue;
+    renamed.push(`${oldName}->${currentName}`);
+  }
+  return renamed;
 }
 
 /**
@@ -100,18 +94,20 @@ export interface LegacyEnvCompatResult {
  *    missing-config error with its normal diagnostics.
  */
 export function applyLegacyEnvCompat(env: NodeJS.ProcessEnv): LegacyEnvCompatResult {
+  const renamedVars = applyRenamedLegacyVars(env);
+
   if (typeof env.NETWORKS === "string" && env.NETWORKS.trim().length > 0) {
-    return { applied: false, translatedVars: [], skipReason: "networks_already_set" };
+    return { applied: renamedVars.length > 0, translatedVars: [], renamedVars, skipReason: "networks_already_set" };
   }
 
   const legacyRaw = env.NETWORK;
   if (typeof legacyRaw !== "string" || legacyRaw.trim().length === 0) {
-    return { applied: false, translatedVars: [], skipReason: "no_legacy_network" };
+    return { applied: renamedVars.length > 0, translatedVars: [], renamedVars, skipReason: "no_legacy_network" };
   }
 
   const legacyNetwork = legacyRaw.trim().toLowerCase();
   if (!SUPPORTED_NETWORKS.includes(legacyNetwork as Network)) {
-    return { applied: false, translatedVars: [], skipReason: "invalid_legacy_network" };
+    return { applied: renamedVars.length > 0, translatedVars: [], renamedVars, skipReason: "invalid_legacy_network" };
   }
 
   const network = legacyNetwork as Network;
@@ -132,7 +128,7 @@ export function applyLegacyEnvCompat(env: NodeJS.ProcessEnv): LegacyEnvCompatRes
     translatedVars.push(key);
   }
 
-  return { applied: true, network, translatedVars };
+  return { applied: true, network, translatedVars, renamedVars };
 }
 
 /**
@@ -146,9 +142,10 @@ export function logLegacyEnvCompatResult(result: LegacyEnvCompatResult): void {
     level: "warn",
     event: "config_legacy_env_detected",
     message:
-      "Legacy single-network env vars detected; translated into per-network prefixed vars. " +
-      "Update your ConfigMap/Secrets to the prefixed names before the next release.",
+      "Legacy env vars detected and translated. Update your ConfigMap/Secrets to the current " +
+      "names (per-network prefixed, or unprefixed shared) before the next release.",
     network: result.network,
     translatedVars: result.translatedVars,
+    renamedVars: result.renamedVars,
   });
 }

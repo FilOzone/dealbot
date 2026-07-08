@@ -97,7 +97,7 @@ export class RetrievalService {
 
     const provider = await this.findStorageProvider(deal.spAddress, deal.network);
     if (!provider) {
-      throw new Error(`Storage provider ${deal.spAddress} not found`);
+      throw new Error(`Storage provider ${deal.spAddress} not found on network ${deal.network}`);
     }
     const providerLabels = buildCheckMetricLabels({
       checkType: "retrieval",
