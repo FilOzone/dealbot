@@ -1,4 +1,6 @@
+import type { ConfigService } from "@nestjs/config";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { IConfig } from "../config/app.config.js";
 import { DataSetLifecycleCheckMetrics } from "../metrics-prometheus/check-metrics.service.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
 import { DataSetLifecycleService } from "./data-set-lifecycle.service.js";
@@ -48,6 +50,10 @@ const mockMetrics = {
   recordStatus: vi.fn(),
 } as unknown as DataSetLifecycleCheckMetrics;
 
+const mockConfigService = {
+  get: vi.fn(() => ({ network: "calibration" })),
+} as unknown as ConfigService<IConfig, true>;
+
 function setupEmptyVariantMocks() {
   vi.mocked(createDataSet).mockResolvedValue({ txHash: "0xhash1", statusUrl: "https://sp.example.com/status/1" });
   vi.mocked(waitForCreateDataSet).mockResolvedValue({
@@ -96,7 +102,7 @@ describe("DataSetLifecycleService", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    service = new DataSetLifecycleService(mockWalletSdkService, mockMetrics);
+    service = new DataSetLifecycleService(mockWalletSdkService, mockMetrics, mockConfigService);
   });
 
   afterEach(() => {

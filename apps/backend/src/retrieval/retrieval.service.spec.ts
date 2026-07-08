@@ -226,6 +226,7 @@ describe("RetrievalService timeouts", () => {
       const labels = {
         checkType: "retrieval",
         providerId: "7",
+        network: "calibration",
         providerName: "Test SP",
         providerStatus: "unapproved",
       };
@@ -258,6 +259,7 @@ describe("RetrievalService timeouts", () => {
     const labels = {
       checkType: "retrieval",
       providerId: "7",
+      network: "calibration",
       providerName: "Test SP",
       providerStatus: "unapproved",
     };
@@ -324,6 +326,7 @@ describe("RetrievalService timeouts", () => {
     const labels = {
       checkType: "retrieval",
       providerId: "7",
+      network: "calibration",
       providerName: "Test SP",
       providerStatus: "unapproved",
     };
@@ -397,6 +400,7 @@ describe("RetrievalService parallel IPNI + transport", () => {
   const labels = {
     checkType: "retrieval",
     providerId: "7",
+    network: "calibration",
     providerName: "Test SP",
     providerStatus: "unapproved",
   };

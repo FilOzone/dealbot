@@ -1,3 +1,5 @@
+import type { Network } from "../common/types.js";
+
 export type CheckType =
   | "dataStorage"
   | "retrieval"
@@ -13,10 +15,12 @@ export type CheckMetricLabels = {
   providerId: string;
   providerName: string;
   providerStatus: ProviderStatus;
+  network: Network;
 };
 
 export type CheckMetricLabelInput = {
   checkType: CheckType;
+  network: Network;
   providerId?: bigint | null;
   providerName?: string | null;
   providerIsApproved?: boolean | null;
@@ -24,6 +28,7 @@ export type CheckMetricLabelInput = {
 
 export const buildCheckMetricLabels = ({
   checkType,
+  network,
   providerId,
   providerName,
   providerIsApproved,
@@ -33,6 +38,7 @@ export const buildCheckMetricLabels = ({
 
   return {
     checkType,
+    network,
     providerId: normalizedProviderId,
     providerName: providerName ?? "unknown",
     providerStatus,

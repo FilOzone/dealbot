@@ -10,8 +10,10 @@ import {
   waitForTerminateService,
 } from "@filoz/synapse-core/sp";
 import { Injectable, Logger } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
 import { awaitWithAbort } from "../common/abort-utils.js";
 import { type ProviderJobContext, toStructuredError } from "../common/logging.js";
+import type { IConfig } from "../config/app.config.js";
 import { buildCheckMetricLabels, classifyFailureStatus } from "../metrics-prometheus/check-metric-labels.js";
 import { DataSetLifecycleCheckMetrics } from "../metrics-prometheus/check-metrics.service.js";
 import type { SynapseViemClient } from "../wallet-sdk/wallet-sdk.service.js";
@@ -50,6 +52,7 @@ export class DataSetLifecycleService {
   constructor(
     private readonly walletSdkService: WalletSdkService,
     private readonly lifecycleCheckMetrics: DataSetLifecycleCheckMetrics,
+    private readonly configService: ConfigService<IConfig, true>,
   ) {}
 
   /**
@@ -93,6 +96,7 @@ export class DataSetLifecycleService {
 
     const labels = buildCheckMetricLabels({
       checkType: "dataSetLifecycleCheck",
+      network: this.configService.get("blockchain", { infer: true }).network,
       providerId: providerInfo.id,
       providerName: providerInfo.name,
       providerIsApproved: providerInfo.isApproved,

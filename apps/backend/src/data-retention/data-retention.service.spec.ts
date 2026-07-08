@@ -336,6 +336,7 @@ describe("DataRetentionService", () => {
     // confirmedTotalSuccess = 100 - 10 = 90
     expect(counterMock.labels).toHaveBeenCalledWith({
       checkType: "dataRetention",
+      network: "calibration",
       providerId: "1",
       providerName: "Provider A",
       providerStatus: "approved",
@@ -343,6 +344,7 @@ describe("DataRetentionService", () => {
     });
     expect(counterMock.labels).toHaveBeenCalledWith({
       checkType: "dataRetention",
+      network: "calibration",
       providerId: "1",
       providerName: "Provider A",
       providerStatus: "approved",
@@ -379,6 +381,7 @@ describe("DataRetentionService", () => {
     // confirmedTotalSuccess = 100 - 10 = 90
     expect(counterMock.labels).toHaveBeenCalledWith({
       checkType: "dataRetention",
+      network: "calibration",
       providerId: "1",
       providerName: "Provider A",
       providerStatus: "approved",
@@ -386,6 +389,7 @@ describe("DataRetentionService", () => {
     });
     expect(counterMock.labels).toHaveBeenCalledWith({
       checkType: "dataRetention",
+      network: "calibration",
       providerId: "1",
       providerName: "Provider A",
       providerStatus: "approved",
@@ -673,12 +677,14 @@ describe("DataRetentionService", () => {
         providerId: 1n,
         providerName: "Provider A",
         providerIsApproved: true,
+        network: "calibration",
       });
       const unapprovedLabels = buildCheckMetricLabels({
         checkType: "dataRetention",
         providerId: 1n,
         providerName: "Provider A",
         providerIsApproved: false,
+        network: "calibration",
       });
       expect(counterMock.remove).toHaveBeenCalledWith({ ...approvedLabels, value: "success" });
       expect(counterMock.remove).toHaveBeenCalledWith({ ...approvedLabels, value: "failure" });
@@ -1267,12 +1273,14 @@ describe("DataRetentionService", () => {
         providerId: 1n,
         providerName: "Provider A",
         providerIsApproved: true,
+        network: "calibration",
       });
       const unapprovedLabels = buildCheckMetricLabels({
         checkType: "dataRetention",
         providerId: 1n,
         providerName: "Provider A",
         providerIsApproved: false,
+        network: "calibration",
       });
       expect(gaugeMock.remove).toHaveBeenCalledWith(approvedLabels);
       expect(gaugeMock.remove).toHaveBeenCalledWith(unapprovedLabels);

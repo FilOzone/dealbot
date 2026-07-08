@@ -193,6 +193,31 @@ describe("SampledRetrievalService", () => {
     expect(findOneSpy).toHaveBeenCalledWith({ where: { address: SP_ADDRESS, network: "calibration" } });
   });
 
+  it("tags sampled retrieval metrics with the configured network", async () => {
+    const { service, metricsRecordStatusSpy } = makeService({
+      pieceResult: {
+        success: true,
+        pieceCid: PIECE.pieceCid,
+        bytesReceived: 1024,
+        pieceBytes: null,
+        latencyMs: 10,
+        ttfbMs: 5,
+        throughputBps: 100,
+        statusCode: 200,
+        httpSuccess: true,
+        commPValid: true,
+        aborted: false,
+      },
+    });
+
+    await service.performForProvider(SP_ADDRESS);
+
+    expect(metricsRecordStatusSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ checkType: "sampledRetrieval", network: "calibration" }),
+      expect.anything(),
+    );
+  });
+
   it("emits a ClickHouse row with partial metrics when fetchPiece returns aborted=true", async () => {
     const partial: PieceRetrievalResult = {
       success: false,

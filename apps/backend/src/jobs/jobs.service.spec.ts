@@ -236,9 +236,13 @@ describe("JobsService schedule rows", () => {
     await callPrivate(service, "recordJobExecution", "deal", run);
 
     expect(run).toHaveBeenCalled();
-    expect(startedCounter.inc).toHaveBeenCalledWith({ job_type: "deal" });
-    expect(completedCounter.inc).toHaveBeenCalledWith({ job_type: "deal", handler_result: "success" });
-    expect(durationHistogram.observe).toHaveBeenCalledWith({ job_type: "deal" }, 5);
+    expect(startedCounter.inc).toHaveBeenCalledWith({ job_type: "deal", network: "calibration" });
+    expect(completedCounter.inc).toHaveBeenCalledWith({
+      job_type: "deal",
+      handler_result: "success",
+      network: "calibration",
+    });
+    expect(durationHistogram.observe).toHaveBeenCalledWith({ job_type: "deal", network: "calibration" }, 5);
   });
 
   it("records metrics for failed job execution", async () => {
@@ -257,9 +261,13 @@ describe("JobsService schedule rows", () => {
 
     await expect(callPrivate(service, "recordJobExecution", "deal", run)).rejects.toThrow("boom");
 
-    expect(startedCounter.inc).toHaveBeenCalledWith({ job_type: "deal" });
-    expect(completedCounter.inc).toHaveBeenCalledWith({ job_type: "deal", handler_result: "error" });
-    expect(durationHistogram.observe).toHaveBeenCalledWith({ job_type: "deal" }, 2);
+    expect(startedCounter.inc).toHaveBeenCalledWith({ job_type: "deal", network: "calibration" });
+    expect(completedCounter.inc).toHaveBeenCalledWith({
+      job_type: "deal",
+      handler_result: "error",
+      network: "calibration",
+    });
+    expect(durationHistogram.observe).toHaveBeenCalledWith({ job_type: "deal", network: "calibration" }, 2);
   });
 
   it("records metrics for aborted job execution", async () => {
@@ -278,9 +286,13 @@ describe("JobsService schedule rows", () => {
 
     await callPrivate(service, "recordJobExecution", "deal", run);
 
-    expect(startedCounter.inc).toHaveBeenCalledWith({ job_type: "deal" });
-    expect(completedCounter.inc).toHaveBeenCalledWith({ job_type: "deal", handler_result: "aborted" });
-    expect(durationHistogram.observe).toHaveBeenCalledWith({ job_type: "deal" }, 3);
+    expect(startedCounter.inc).toHaveBeenCalledWith({ job_type: "deal", network: "calibration" });
+    expect(completedCounter.inc).toHaveBeenCalledWith({
+      job_type: "deal",
+      handler_result: "aborted",
+      network: "calibration",
+    });
+    expect(durationHistogram.observe).toHaveBeenCalledWith({ job_type: "deal", network: "calibration" }, 3);
   });
 
   it("deal job records aborted when abort signal fires", async () => {
@@ -341,7 +353,11 @@ describe("JobsService schedule rows", () => {
     await vi.advanceTimersByTimeAsync(120_000);
     await jobPromise;
 
-    expect(completedCounter.inc).toHaveBeenCalledWith({ job_type: "deal", handler_result: "aborted" });
+    expect(completedCounter.inc).toHaveBeenCalledWith({
+      job_type: "deal",
+      handler_result: "aborted",
+      network: "calibration",
+    });
   });
 
   it("retrieval job records aborted when abort signal fires", async () => {
@@ -399,7 +415,11 @@ describe("JobsService schedule rows", () => {
     await vi.advanceTimersByTimeAsync(60_000);
     await jobPromise;
 
-    expect(completedCounter.inc).toHaveBeenCalledWith({ job_type: "retrieval", handler_result: "aborted" });
+    expect(completedCounter.inc).toHaveBeenCalledWith({
+      job_type: "retrieval",
+      handler_result: "aborted",
+      network: "calibration",
+    });
   });
 
   it("retrieval job resolves providerId from storage_providers when wallet cache misses", async () => {
@@ -476,7 +496,11 @@ describe("JobsService schedule rows", () => {
     ).rejects.toThrow("providerId is required for job execution");
 
     expect(retrievalService.performRandomRetrievalForProvider).not.toHaveBeenCalled();
-    expect(completedCounter.inc).toHaveBeenCalledWith({ job_type: "retrieval", handler_result: "error" });
+    expect(completedCounter.inc).toHaveBeenCalledWith({
+      job_type: "retrieval",
+      handler_result: "error",
+      network: "calibration",
+    });
   });
 
   it("updates queue metrics from pg-boss state and age queries", async () => {
@@ -497,15 +521,15 @@ describe("JobsService schedule rows", () => {
 
     await callPrivate(service, "updateQueueMetrics");
 
-    expect(jobsQueuedGauge.set).toHaveBeenCalledWith({ job_type: "deal" }, 0);
-    expect(jobsQueuedGauge.set).toHaveBeenCalledWith({ job_type: "retrieval" }, 0);
-    expect(jobsQueuedGauge.set).toHaveBeenCalledWith({ job_type: "data_retention_poll" }, 0);
-    expect(jobsInFlightGauge.set).toHaveBeenCalledWith({ job_type: "retrieval" }, 1);
-    expect(jobsQueuedGauge.set).toHaveBeenCalledWith({ job_type: "deal" }, 2);
+    expect(jobsQueuedGauge.set).toHaveBeenCalledWith({ job_type: "deal", network: "calibration" }, 0);
+    expect(jobsQueuedGauge.set).toHaveBeenCalledWith({ job_type: "retrieval", network: "calibration" }, 0);
+    expect(jobsQueuedGauge.set).toHaveBeenCalledWith({ job_type: "data_retention_poll", network: "calibration" }, 0);
+    expect(jobsInFlightGauge.set).toHaveBeenCalledWith({ job_type: "retrieval", network: "calibration" }, 1);
+    expect(jobsQueuedGauge.set).toHaveBeenCalledWith({ job_type: "deal", network: "calibration" }, 2);
 
-    expect(oldestQueuedGauge.set).toHaveBeenCalledWith({ job_type: "deal" }, 12);
-    expect(oldestInFlightGauge.set).toHaveBeenCalledWith({ job_type: "retrieval" }, 34);
-    expect(jobsPausedGauge.set).toHaveBeenCalledWith({ job_type: "deal" }, 0);
+    expect(oldestQueuedGauge.set).toHaveBeenCalledWith({ job_type: "deal", network: "calibration" }, 12);
+    expect(oldestInFlightGauge.set).toHaveBeenCalledWith({ job_type: "retrieval", network: "calibration" }, 34);
+    expect(jobsPausedGauge.set).toHaveBeenCalledWith({ job_type: "deal", network: "calibration" }, 0);
   });
 
   it("registers pg-boss workers with per-queue batch sizes", async () => {
@@ -655,7 +679,7 @@ describe("JobsService schedule rows", () => {
 
     await callPrivate(service, "updateQueueMetrics");
 
-    expect(jobsPausedGauge.set).toHaveBeenCalledWith({ job_type: "deal" }, 2);
+    expect(jobsPausedGauge.set).toHaveBeenCalledWith({ job_type: "deal", network: "calibration" }, 2);
   });
 
   it("adds schedule rows for newly seen providers", async () => {
@@ -1152,7 +1176,11 @@ describe("JobsService schedule rows", () => {
     });
 
     expect(dealService.createDealForProvider).toHaveBeenCalledTimes(1);
-    expect(completedCounter.inc).toHaveBeenCalledWith({ job_type: "deal", handler_result: "error" });
+    expect(completedCounter.inc).toHaveBeenCalledWith({
+      job_type: "deal",
+      handler_result: "error",
+      network: "calibration",
+    });
   });
 
   it("data_set_creation job creates initial data set when minNumDataSetsForChecks is 1", async () => {
@@ -1489,9 +1517,9 @@ describe("JobsService schedule rows", () => {
 
     await callPrivate(service, "updateStorageProviderGauges");
 
-    expect(activeGauge.set).toHaveBeenCalledWith({ status: "active" }, 7);
-    expect(activeGauge.set).toHaveBeenCalledWith({ status: "inactive" }, 3);
-    expect(testedGauge.set).toHaveBeenCalledWith(7);
+    expect(activeGauge.set).toHaveBeenCalledWith({ status: "active", network: "calibration" }, 7);
+    expect(activeGauge.set).toHaveBeenCalledWith({ status: "inactive", network: "calibration" }, 3);
+    expect(testedGauge.set).toHaveBeenCalledWith({ network: "calibration" }, 7);
   });
 
   it("filters tested providers by isApproved when useOnlyApprovedProviders is enabled", async () => {
@@ -1535,7 +1563,7 @@ describe("JobsService schedule rows", () => {
 
     await callPrivate(service, "updateStorageProviderGauges");
 
-    expect(testedGauge.set).toHaveBeenCalledWith(2); // 3 providers minus 1 globally blocked
+    expect(testedGauge.set).toHaveBeenCalledWith({ network: "calibration" }, 2); // 3 providers minus 1 globally blocked
   });
 
   it("catches storage provider gauge errors without rethrowing", async () => {
@@ -1737,7 +1765,11 @@ describe("JobsService schedule rows", () => {
       });
 
       testCase.expectCheckNotRun();
-      expect(completedCounter.inc).toHaveBeenCalledWith({ job_type: testCase.jobType, handler_result: "success" });
+      expect(completedCounter.inc).toHaveBeenCalledWith({
+        job_type: testCase.jobType,
+        handler_result: "success",
+        network: "calibration",
+      });
     }
 
     expect(storageProviderRepositoryMock.findOne).not.toHaveBeenCalled();
