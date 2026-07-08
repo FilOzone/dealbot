@@ -312,6 +312,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     deal.fileName = dealInput.processedData.name;
     deal.fileSize = dealInput.processedData.size;
     deal.spAddress = providerAddress;
+    deal.network = this.blockchainConfig.network;
     deal.status = DealStatus.PENDING;
     deal.walletAddress = this.blockchainConfig.walletAddress;
     deal.metadata = dealInput.metadata;
@@ -337,7 +338,7 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     try {
       // Load storageProvider relation
       deal.storageProvider = await this.storageProviderRepository.findOne({
-        where: { address: deal.spAddress },
+        where: { address: deal.spAddress, network: deal.network },
       });
       dealLogContext.providerId = deal.storageProvider?.providerId ?? dealLogContext.providerId;
       providerLabels = buildCheckMetricLabels({
@@ -789,7 +790,10 @@ export class DealService implements OnModuleInit, OnModuleDestroy {
     const result = await this.dealRepository.manager.transaction(async (manager) => {
       const update = await manager
         .getRepository(Deal)
-        .update({ dataSetId, cleanedUp: false }, { cleanedUp: true, cleanedUpAt: new Date() });
+        .update(
+          { dataSetId, network: this.blockchainConfig.network, cleanedUp: false },
+          { cleanedUp: true, cleanedUpAt: new Date() },
+        );
       return update.affected ?? 0;
     });
 

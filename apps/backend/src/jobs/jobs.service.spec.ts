@@ -130,6 +130,7 @@ describe("JobsService schedule rows", () => {
       blockchain: {
         useOnlyApprovedProviders: false,
         minNumDataSetsForChecks: 1,
+        network: "calibration",
         subgraphEndpoint: "https://example.com/subgraph",
       } as IConfig["blockchain"],
       scheduling: {
@@ -331,6 +332,7 @@ describe("JobsService schedule rows", () => {
       data: {
         jobType: "deal",
         spAddress: "0xaaa",
+        network: "calibration",
         intervalSeconds: 60,
       },
     });
@@ -389,6 +391,7 @@ describe("JobsService schedule rows", () => {
       data: {
         jobType: "retrieval",
         spAddress: "0xaaa",
+        network: "calibration",
         intervalSeconds: 60,
       },
     });
@@ -424,6 +427,7 @@ describe("JobsService schedule rows", () => {
       data: {
         jobType: "retrieval",
         spAddress: "0xaaa",
+        network: "calibration",
         intervalSeconds: 60,
       },
     });
@@ -465,6 +469,7 @@ describe("JobsService schedule rows", () => {
         data: {
           jobType: "retrieval",
           spAddress: "0xaaa",
+          network: "calibration",
           intervalSeconds: 60,
         },
       }),
@@ -720,7 +725,10 @@ describe("JobsService schedule rows", () => {
 
     await callPrivate(service, "ensureScheduleRows");
 
-    expect(jobScheduleRepositoryMock.deleteSchedulesForInactiveProviders).toHaveBeenCalledWith([providerA.address]);
+    expect(jobScheduleRepositoryMock.deleteSchedulesForInactiveProviders).toHaveBeenCalledWith(
+      [providerA.address],
+      "calibration",
+    );
   });
 
   it("does not delete schedule rows when no active providers exist", async () => {
@@ -734,7 +742,7 @@ describe("JobsService schedule rows", () => {
   it("uses approved-only filter when configured", async () => {
     baseConfigValues = {
       ...baseConfigValues,
-      blockchain: { useOnlyApprovedProviders: true } as IConfig["blockchain"],
+      blockchain: { useOnlyApprovedProviders: true, network: "calibration" } as IConfig["blockchain"],
     };
     configService = {
       get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
@@ -747,7 +755,7 @@ describe("JobsService schedule rows", () => {
 
     expect(storageProviderRepositoryMock.find).toHaveBeenCalledWith({
       select: { address: true, providerId: true },
-      where: { isActive: true, isApproved: true },
+      where: { isActive: true, isApproved: true, network: "calibration" },
     });
   });
 
@@ -759,12 +767,14 @@ describe("JobsService schedule rows", () => {
     expect(jobScheduleRepositoryMock.upsertSchedule).toHaveBeenCalledWith(
       "providers_refresh",
       "",
+      "calibration",
       expect.any(Number),
       expect.any(Date),
     );
     expect(jobScheduleRepositoryMock.upsertSchedule).toHaveBeenCalledWith(
       "data_retention_poll",
       "",
+      "calibration",
       expect.any(Number),
       expect.any(Date),
     );
@@ -796,6 +806,7 @@ describe("JobsService schedule rows", () => {
         id: 1,
         job_type: "deal",
         sp_address: "0xaaa",
+        network: "calibration",
         interval_seconds: 1,
         next_run_at: "2024-01-01T00:00:00Z",
       },
@@ -806,8 +817,8 @@ describe("JobsService schedule rows", () => {
     expect(send).toHaveBeenCalledTimes(3);
     for (const call of send.mock.calls) {
       expect(call[0]).toBe("sp.work");
-      expect(call[1]).toMatchObject({ jobType: "deal", spAddress: "0xaaa" });
-      expect(call[2]).toMatchObject({ singletonKey: "0xaaa", retryLimit: 0 });
+      expect(call[1]).toMatchObject({ jobType: "deal", spAddress: "0xaaa", network: "calibration" });
+      expect(call[2]).toMatchObject({ singletonKey: "calibration:0xaaa", retryLimit: 0 });
       expect(call[2]?.startAfter).toBeUndefined();
     }
 
@@ -863,6 +874,7 @@ describe("JobsService schedule rows", () => {
         id: 11,
         job_type: "providers_refresh",
         sp_address: "",
+        network: "calibration",
         interval_seconds: 14400,
         next_run_at: "2024-01-01T00:00:00Z",
       },
@@ -872,7 +884,7 @@ describe("JobsService schedule rows", () => {
 
     expect(send).toHaveBeenCalledTimes(1);
     expect(send.mock.calls[0][2]).toMatchObject({
-      singletonKey: "providers_refresh",
+      singletonKey: "calibration:providers_refresh",
       retryLimit: 0,
     });
   });
@@ -945,7 +957,7 @@ describe("JobsService schedule rows", () => {
       service,
       "deferJobForMaintenance",
       "deal",
-      { jobType: "deal", spAddress: "0xaaa", intervalSeconds: 60 },
+      { jobType: "deal", spAddress: "0xaaa", network: "calibration", intervalSeconds: 60 },
       maintenance,
       now,
     );
@@ -954,7 +966,7 @@ describe("JobsService schedule rows", () => {
     expect(safeSend).toHaveBeenCalledWith(
       "deal",
       "sp.work",
-      { jobType: "deal", spAddress: "0xaaa", intervalSeconds: 60 },
+      { jobType: "deal", spAddress: "0xaaa", network: "calibration", intervalSeconds: 60 },
       { startAfter: expectedResumeAt },
     );
   });
@@ -984,7 +996,7 @@ describe("JobsService schedule rows", () => {
       service,
       "deferJobForMaintenance",
       "retrieval",
-      { jobType: "retrieval", spAddress: "0xbbb", intervalSeconds: 60 },
+      { jobType: "retrieval", spAddress: "0xbbb", network: "calibration", intervalSeconds: 60 },
       maintenance,
       now,
     );
@@ -993,7 +1005,7 @@ describe("JobsService schedule rows", () => {
     expect(safeSend).toHaveBeenCalledWith(
       "retrieval",
       "sp.work",
-      { jobType: "retrieval", spAddress: "0xbbb", intervalSeconds: 60 },
+      { jobType: "retrieval", spAddress: "0xbbb", network: "calibration", intervalSeconds: 60 },
       { startAfter: expectedResumeAt },
     );
   });
@@ -1064,7 +1076,7 @@ describe("JobsService schedule rows", () => {
 
     await callPrivate(service, "handleDealJob", {
       id: "job-deal-1",
-      data: { jobType: "deal", spAddress: "0xaaa", intervalSeconds: 60 },
+      data: { jobType: "deal", spAddress: "0xaaa", network: "calibration", intervalSeconds: 60 },
     });
 
     expect(dealService.createDealForProvider).toHaveBeenCalledTimes(1);
@@ -1104,7 +1116,7 @@ describe("JobsService schedule rows", () => {
 
     await callPrivate(service, "handleDealJob", {
       id: "job-deal-no-quota-gate",
-      data: { jobType: "deal", spAddress: "0xaaa", intervalSeconds: 60 },
+      data: { jobType: "deal", spAddress: "0xaaa", network: "calibration", intervalSeconds: 60 },
     });
 
     expect(pieceCleanupService.cleanupPiecesForProvider).not.toHaveBeenCalled();
@@ -1136,7 +1148,7 @@ describe("JobsService schedule rows", () => {
 
     await callPrivate(service, "handleDealJob", {
       id: "job-deal-terminated",
-      data: { jobType: "deal", spAddress: "0xaaa", intervalSeconds: 60 },
+      data: { jobType: "deal", spAddress: "0xaaa", network: "calibration", intervalSeconds: 60 },
     });
 
     expect(dealService.createDealForProvider).toHaveBeenCalledTimes(1);
@@ -1165,7 +1177,7 @@ describe("JobsService schedule rows", () => {
 
     await callPrivate(service, "handleDataSetCreationJob", {
       id: "job-ds-1",
-      data: { jobType: "data_set_creation", spAddress: "0xaaa", intervalSeconds: 3600 },
+      data: { jobType: "data_set_creation", spAddress: "0xaaa", network: "calibration", intervalSeconds: 3600 },
     });
 
     expect(dealService.createDataSetWithPiece).toHaveBeenCalledTimes(1);
@@ -1207,7 +1219,7 @@ describe("JobsService schedule rows", () => {
 
     await callPrivate(service, "handleDataSetCreationJob", {
       id: "job-ds-2",
-      data: { jobType: "data_set_creation", spAddress: "0xaaa", intervalSeconds: 3600 },
+      data: { jobType: "data_set_creation", spAddress: "0xaaa", network: "calibration", intervalSeconds: 3600 },
     });
 
     expect(dealService.createDataSetWithPiece).not.toHaveBeenCalled();
@@ -1248,7 +1260,7 @@ describe("JobsService schedule rows", () => {
 
     await callPrivate(service, "handleDataSetCreationJob", {
       id: "job-ds-3",
-      data: { jobType: "data_set_creation", spAddress: "0xaaa", intervalSeconds: 3600 },
+      data: { jobType: "data_set_creation", spAddress: "0xaaa", network: "calibration", intervalSeconds: 3600 },
     });
 
     // Only the first missing data set (index 0) should be created
@@ -1293,7 +1305,7 @@ describe("JobsService schedule rows", () => {
 
     await callPrivate(service, "handleDataSetCreationJob", {
       id: "job-ds-3b",
-      data: { jobType: "data_set_creation", spAddress: "0xaaa", intervalSeconds: 3600 },
+      data: { jobType: "data_set_creation", spAddress: "0xaaa", network: "calibration", intervalSeconds: 3600 },
     });
 
     // Should skip index 0 (exists) and create only index 1
@@ -1460,7 +1472,10 @@ describe("JobsService schedule rows", () => {
       (call) => call[0] === "data_set_lifecycle_check",
     );
     expect(lifecycleUpserts).toHaveLength(0);
-    expect(jobScheduleRepositoryMock.deleteSchedulesByJobType).toHaveBeenCalledWith("data_set_lifecycle_check");
+    expect(jobScheduleRepositoryMock.deleteSchedulesByJobType).toHaveBeenCalledWith(
+      "data_set_lifecycle_check",
+      "calibration",
+    );
   });
 
   it("sets active, inactive, and tested provider gauge values after refresh", async () => {
@@ -1544,7 +1559,7 @@ describe("JobsService schedule rows", () => {
     expect(jobTypes).not.toContain("retrieval");
     // Blocked provider is excluded from the active-address list passed to cleanup,
     // so its existing schedule rows will be deleted.
-    expect(jobScheduleRepositoryMock.deleteSchedulesForInactiveProviders).toHaveBeenCalledWith([]);
+    expect(jobScheduleRepositoryMock.deleteSchedulesForInactiveProviders).toHaveBeenCalledWith([], "calibration");
   });
 
   it("deal job is skipped at runtime when provider is blocked", async () => {
@@ -1570,7 +1585,7 @@ describe("JobsService schedule rows", () => {
 
     await callPrivate(service, "handleDealJob", {
       id: "job-blocked-deal",
-      data: { jobType: "deal", spAddress: "0xaaa", intervalSeconds: 60 },
+      data: { jobType: "deal", spAddress: "0xaaa", network: "calibration", intervalSeconds: 60 },
     });
 
     expect(dealService.createDealForProvider).not.toHaveBeenCalled();
@@ -1594,7 +1609,7 @@ describe("JobsService schedule rows", () => {
 
     await callPrivate(service, "handleRetrievalJob", {
       id: "job-blocked-retrieval",
-      data: { jobType: "retrieval", spAddress: "0xaaa", intervalSeconds: 60 },
+      data: { jobType: "retrieval", spAddress: "0xaaa", network: "calibration", intervalSeconds: 60 },
     });
 
     expect(retrievalService.performRandomRetrievalForProvider).not.toHaveBeenCalled();
@@ -1623,7 +1638,7 @@ describe("JobsService schedule rows", () => {
 
     await callPrivate(service, "handleDataSetCreationJob", {
       id: "job-blocked-ds",
-      data: { jobType: "data_set_creation", spAddress: "0xaaa", intervalSeconds: 3600 },
+      data: { jobType: "data_set_creation", spAddress: "0xaaa", network: "calibration", intervalSeconds: 3600 },
     });
 
     expect(dealService.createDataSetWithPiece).not.toHaveBeenCalled();
@@ -1713,7 +1728,12 @@ describe("JobsService schedule rows", () => {
     for (const testCase of cases) {
       await callPrivate(testCase.service, testCase.handler, {
         id: `job-address-blocked-${testCase.jobType}`,
-        data: { jobType: testCase.jobType, spAddress: "0xaaa", intervalSeconds: testCase.intervalSeconds },
+        data: {
+          jobType: testCase.jobType,
+          spAddress: "0xaaa",
+          network: "calibration",
+          intervalSeconds: testCase.intervalSeconds,
+        },
       });
 
       testCase.expectCheckNotRun();

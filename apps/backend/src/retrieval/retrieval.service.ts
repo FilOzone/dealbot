@@ -5,7 +5,7 @@ import { CID } from "multiformats/cid";
 import type { Repository } from "typeorm";
 import { ClickhouseService } from "../clickhouse/clickhouse.service.js";
 import { type ProviderJobContext, type RetrievalLogContext, toStructuredError } from "../common/logging.js";
-import type { Hex } from "../common/types.js";
+import type { Hex, Network } from "../common/types.js";
 import type { IConfig } from "../config/app.config.js";
 import { Deal } from "../database/entities/deal.entity.js";
 import { Retrieval } from "../database/entities/retrieval.entity.js";
@@ -94,7 +94,7 @@ export class RetrievalService {
   ): Promise<Retrieval[]> {
     signal?.throwIfAborted();
 
-    const provider = await this.findStorageProvider(deal.spAddress);
+    const provider = await this.findStorageProvider(deal.spAddress, deal.network);
     if (!provider) {
       throw new Error(`Storage provider ${deal.spAddress} not found`);
     }
@@ -452,8 +452,8 @@ export class RetrievalService {
     }
   }
 
-  private async findStorageProvider(address: string): Promise<StorageProvider | null> {
-    return this.spRepository.findOne({ where: { address } });
+  private async findStorageProvider(address: string, network: Network): Promise<StorageProvider | null> {
+    return this.spRepository.findOne({ where: { address, network } });
   }
 
   /**
@@ -503,12 +503,14 @@ export class RetrievalService {
    * Uses Postgres ORDER BY RANDOM() since Dealbot is Postgres-only.
    */
   private async selectRandomSuccessfulDealForProvider(spAddress: string): Promise<Deal | null> {
-    const walletAddress = this.configService.get("blockchain", { infer: true }).walletAddress;
+    const { network, walletAddress } = this.configService.get("blockchain", { infer: true });
+
     const randomDatasetSizes = this.getRandomDatasetSizes();
     const query = this.dealRepository
       .createQueryBuilder("deal")
       .innerJoin("deal.storageProvider", "sp", "sp.isActive = :isActive", { isActive: true })
       .where("deal.sp_address = :spAddress", { spAddress })
+      .andWhere("deal.network = :network", { network })
       .andWhere("deal.wallet_address = :walletAddress", { walletAddress })
       .andWhere("deal.status IN (:...statuses)", {
         statuses: [DealStatus.DEAL_CREATED],

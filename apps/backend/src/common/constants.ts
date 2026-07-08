@@ -8,6 +8,9 @@ export const MAX_BLOCK_SIZE = 5 * 1024 * 1024;
 
 export const DEV_TAG = stringToHex("dev");
 
+// First network will be used as default in absence of NETWORKS config
+export const SUPPORTED_NETWORKS = ["calibration", "mainnet"] as const;
+
 /**
  * Fixed metadata marker key tagging every throwaway data set created by the
  * `data_set_lifecycle_check` job. The value is a per-run nonce; the key is the stable

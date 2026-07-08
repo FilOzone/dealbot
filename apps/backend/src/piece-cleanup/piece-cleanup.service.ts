@@ -321,10 +321,13 @@ export class PieceCleanupService implements OnModuleInit, OnModuleDestroy {
    */
   async getStoredBytesForProvider(spAddress: string): Promise<number> {
     const walletAddress = this.blockchainConfig.walletAddress;
+    const network = this.blockchainConfig.network;
+
     const result = await this.dealRepository
       .createQueryBuilder("deal")
       .select("COALESCE(SUM(deal.piece_size), 0)", "totalBytes")
       .where("deal.sp_address = :spAddress", { spAddress })
+      .andWhere("deal.network = :network", { network })
       .andWhere("deal.wallet_address = :walletAddress", { walletAddress })
       .andWhere("deal.status = :status", { status: DealStatus.DEAL_CREATED })
       .andWhere("deal.piece_id IS NOT NULL")
@@ -340,10 +343,12 @@ export class PieceCleanupService implements OnModuleInit, OnModuleDestroy {
    */
   async getCleanupCandidates(spAddress: string, limit: number): Promise<Deal[]> {
     const walletAddress = this.blockchainConfig.walletAddress;
+    const network = this.blockchainConfig.network;
     return this.dealRepository.find({
       where: {
         spAddress,
         walletAddress,
+        network,
         status: DealStatus.DEAL_CREATED,
         pieceId: Not(IsNull()),
         dataSetId: Not(IsNull()),
