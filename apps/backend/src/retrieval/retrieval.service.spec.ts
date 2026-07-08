@@ -3,6 +3,7 @@ import { Test, TestingModule } from "@nestjs/testing";
 import { getRepositoryToken } from "@nestjs/typeorm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ClickhouseService } from "../clickhouse/clickhouse.service.js";
+import { Network } from "../common/types.js";
 import { Deal } from "../database/entities/deal.entity.js";
 import { Retrieval } from "../database/entities/retrieval.entity.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
@@ -34,7 +35,7 @@ describe("RetrievalService timeouts", () => {
     get: vi.fn((key: string) => {
       if (key === "app") return { runMode: "api" };
       if (key === "jobs") return { pgbossSchedulerEnabled: false };
-      if (key === "blockchain") return { network: "calibration" };
+      if (key === "networks") return { calibration: { walletAddress: "0x123" } };
       if (key === "dataset") return { randomDatasetSizes: [10] };
       if (key === "timeouts") return { ipniVerificationTimeoutMs: 10_000, ipniVerificationPollingMs: 2_000 };
       return undefined;
@@ -176,6 +177,7 @@ describe("RetrievalService timeouts", () => {
 
       mockSpRepository.findOne.mockResolvedValue({
         address: "0xsp",
+        network: "calibration",
         providerId: 7,
         isApproved: false,
         name: "Test SP",
@@ -600,7 +602,7 @@ describe("RetrievalService DB/provider drift", () => {
   const mockConfigService = {
     get: vi.fn((key: string) => {
       if (key === "jobs") return { mode: "cron" };
-      if (key === "blockchain") return { useOnlyApprovedProviders: false, walletAddress: "0x123" };
+      if (key === "networks") return { calibration: { walletAddress: "0x123" } };
       if (key === "dataset") return { randomDatasetSizes: [10] };
       if (key === "timeouts") return { ipniVerificationTimeoutMs: 10_000, ipniVerificationPollingMs: 2_000 };
       return undefined;
@@ -653,10 +655,10 @@ describe("RetrievalService DB/provider drift", () => {
   it("selectRandomSuccessfulDealForProvider excludes cleaned-up deals", async () => {
     const { qb, calls } = createMockQueryBuilder();
     const svc = (await createServiceWithQb(qb)) as unknown as {
-      selectRandomSuccessfulDealForProvider: (spAddress: string) => Promise<Deal | null>;
+      selectRandomSuccessfulDealForProvider: (spAddress: string, network: Network) => Promise<Deal | null>;
     };
 
-    await svc.selectRandomSuccessfulDealForProvider("0xSP");
+    await svc.selectRandomSuccessfulDealForProvider("0xSP", "calibration");
 
     const cleanedUpCall = calls.find((c) => c.clause.includes("cleaned_up"));
     expect(cleanedUpCall).toBeDefined();

@@ -3,7 +3,7 @@ import { Injectable, Logger, OnApplicationShutdown, OnModuleInit } from "@nestjs
 import { ConfigService } from "@nestjs/config";
 import { InjectMetric } from "@willsoto/nestjs-prometheus";
 import { Counter, Gauge, Histogram } from "prom-client";
-import type { IClickhouseConfig, IConfig } from "../config/app.config.js";
+import type { IClickhouseConfig, IConfig } from "../config/index.js";
 import { buildMigrations } from "./clickhouse.schema.js";
 import { ClickHouseRows } from "./clickhouse.types.js";
 

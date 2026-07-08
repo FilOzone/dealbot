@@ -1,11 +1,13 @@
 import type { ConfigService } from "@nestjs/config";
 import { CID } from "multiformats/cid";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { IConfig } from "../config/app.config.js";
+import type { Network } from "../common/types.js";
+import type { IConfig } from "../config/index.js";
 import { SubgraphService } from "./subgraph.service.js";
 
 const VALID_ADDRESS = "0xd8da6bf26964af9d7eed9e03e53415d37aa96045" as const;
 const SUBGRAPH_ENDPOINT = "https://api.thegraph.com/subgraphs/filecoin/pdp" as const;
+const NETWORK: Network = "calibration";
 
 const makeSubgraphResponse = (providers: Record<string, unknown>[] = []) => ({
   data: { providers },
@@ -79,8 +81,8 @@ describe("SubgraphService", () => {
   beforeEach(() => {
     const configService = {
       get: vi.fn((key: keyof IConfig) => {
-        if (key === "blockchain") {
-          return { subgraphEndpoint: SUBGRAPH_ENDPOINT };
+        if (key === "networks") {
+          return { calibration: { subgraphEndpoint: SUBGRAPH_ENDPOINT } };
         }
         return undefined;
       }),
@@ -106,7 +108,7 @@ describe("SubgraphService", () => {
         json: async () => makeSubgraphResponse([makeValidProvider()]),
       });
 
-      const providers = await service.fetchProvidersWithDatasets({
+      const providers = await service.fetchProvidersWithDatasets(NETWORK, {
         blockNumber: 5000,
         addresses: [VALID_ADDRESS],
       });
@@ -130,7 +132,7 @@ describe("SubgraphService", () => {
         json: async () => makeSubgraphResponse([]),
       });
 
-      const providers = await service.fetchProvidersWithDatasets({
+      const providers = await service.fetchProvidersWithDatasets(NETWORK, {
         blockNumber: 5000,
         addresses: [VALID_ADDRESS],
       });
@@ -138,7 +140,7 @@ describe("SubgraphService", () => {
     });
 
     it("returns empty array when addresses array is empty", async () => {
-      const providers = await service.fetchProvidersWithDatasets({
+      const providers = await service.fetchProvidersWithDatasets(NETWORK, {
         blockNumber: 5000,
         addresses: [],
       });
@@ -153,7 +155,7 @@ describe("SubgraphService", () => {
         status: 500,
       });
 
-      const promise = service.fetchProvidersWithDatasets({
+      const promise = service.fetchProvidersWithDatasets(NETWORK, {
         blockNumber: 5000,
         addresses: [VALID_ADDRESS],
       });
@@ -176,7 +178,7 @@ describe("SubgraphService", () => {
         }),
       });
 
-      const promise = service.fetchProvidersWithDatasets({
+      const promise = service.fetchProvidersWithDatasets(NETWORK, {
         blockNumber: 5000,
         addresses: [VALID_ADDRESS],
       });
@@ -192,7 +194,7 @@ describe("SubgraphService", () => {
     it("throws on network failure", async () => {
       fetchMock.mockRejectedValueOnce(new Error("Network error"));
 
-      const promise = service.fetchProvidersWithDatasets({
+      const promise = service.fetchProvidersWithDatasets(NETWORK, {
         blockNumber: 5000,
         addresses: [VALID_ADDRESS],
       });
@@ -214,7 +216,7 @@ describe("SubgraphService", () => {
       });
 
       await expect(
-        service.fetchProvidersWithDatasets({
+        service.fetchProvidersWithDatasets(NETWORK, {
           blockNumber: 5000,
           addresses: [VALID_ADDRESS],
         }),
@@ -233,7 +235,7 @@ describe("SubgraphService", () => {
       });
 
       await expect(
-        service.fetchProvidersWithDatasets({
+        service.fetchProvidersWithDatasets(NETWORK, {
           blockNumber: 5000,
           addresses: [VALID_ADDRESS],
         }),
@@ -249,7 +251,7 @@ describe("SubgraphService", () => {
         json: async () => makeSubgraphResponse([makeValidProvider()]),
       });
 
-      await service.fetchProvidersWithDatasets({
+      await service.fetchProvidersWithDatasets(NETWORK, {
         blockNumber: 12345,
         addresses: [VALID_ADDRESS],
       });
@@ -270,7 +272,7 @@ describe("SubgraphService", () => {
         }),
       });
 
-      const promise = service.fetchProvidersWithDatasets({
+      const promise = service.fetchProvidersWithDatasets(NETWORK, {
         blockNumber: 5000,
         addresses: [VALID_ADDRESS],
       });
@@ -292,7 +294,7 @@ describe("SubgraphService", () => {
       });
 
       const addresses = [VALID_ADDRESS, "0xAb5801a7D398351b8bE11C439e05C5B3259aeC9B"];
-      await service.fetchProvidersWithDatasets({
+      await service.fetchProvidersWithDatasets(NETWORK, {
         blockNumber: 5000,
         addresses,
       });
@@ -310,7 +312,7 @@ describe("SubgraphService", () => {
         json: async () => makeSubgraphResponse([]),
       });
 
-      await service.fetchProvidersWithDatasets({
+      await service.fetchProvidersWithDatasets(NETWORK, {
         blockNumber: 5000,
         addresses,
       });
@@ -326,7 +328,7 @@ describe("SubgraphService", () => {
         json: async () => makeSubgraphResponse([makeValidProvider()]),
       });
 
-      const promise = service.fetchProvidersWithDatasets({
+      const promise = service.fetchProvidersWithDatasets(NETWORK, {
         blockNumber: 5000,
         addresses: [VALID_ADDRESS],
       });
@@ -358,7 +360,7 @@ describe("SubgraphService", () => {
         };
       });
 
-      const fetchPromise = service.fetchProvidersWithDatasets({
+      const fetchPromise = service.fetchProvidersWithDatasets(NETWORK, {
         blockNumber: 5000,
         addresses,
       });
@@ -380,7 +382,7 @@ describe("SubgraphService", () => {
         json: async () => makeSubgraphMetaResponse(12345),
       });
 
-      const meta = await service.fetchSubgraphMeta();
+      const meta = await service.fetchSubgraphMeta(NETWORK);
 
       expect(fetchMock).toHaveBeenCalledWith(SUBGRAPH_ENDPOINT, {
         method: "POST",
@@ -399,12 +401,16 @@ describe("SubgraphService", () => {
 
     it("throws when subgraph endpoint is not configured", async () => {
       const configService = {
-        get: vi.fn(() => ({ subgraphEndpoint: "" })),
+        get: vi.fn((key: keyof IConfig) =>
+          key === "networks" ? { calibration: { subgraphEndpoint: "" } } : undefined,
+        ),
       } as unknown as ConfigService<IConfig, true>;
 
       const serviceWithoutEndpoint = new SubgraphService(configService);
 
-      await expect(serviceWithoutEndpoint.fetchSubgraphMeta()).rejects.toThrow("No subgraph endpoint configured");
+      await expect(serviceWithoutEndpoint.fetchSubgraphMeta(NETWORK)).rejects.toThrow(
+        "No subgraph endpoint configured",
+      );
     });
 
     it("throws on HTTP error response", async () => {
@@ -414,7 +420,7 @@ describe("SubgraphService", () => {
         statusText: "Internal Server Error",
       });
 
-      const promise = service.fetchSubgraphMeta();
+      const promise = service.fetchSubgraphMeta(NETWORK);
       promise.catch(() => {});
 
       await vi.runAllTimersAsync();
@@ -431,7 +437,7 @@ describe("SubgraphService", () => {
         }),
       });
 
-      const promise = service.fetchSubgraphMeta();
+      const promise = service.fetchSubgraphMeta(NETWORK);
       promise.catch(() => {});
 
       await vi.runAllTimersAsync();
@@ -454,7 +460,7 @@ describe("SubgraphService", () => {
         }),
       });
 
-      await expect(service.fetchSubgraphMeta()).rejects.toThrow("Data validation failed");
+      await expect(service.fetchSubgraphMeta(NETWORK)).rejects.toThrow("Data validation failed");
       expect(fetchMock).toHaveBeenCalledTimes(1); // Should not retry validation errors
     });
 
@@ -472,7 +478,7 @@ describe("SubgraphService", () => {
         }),
       });
 
-      await expect(service.fetchSubgraphMeta()).rejects.toThrow("Data validation failed");
+      await expect(service.fetchSubgraphMeta(NETWORK)).rejects.toThrow("Data validation failed");
       expect(fetchMock).toHaveBeenCalledTimes(1);
     });
 
@@ -482,7 +488,7 @@ describe("SubgraphService", () => {
         json: async () => makeSubgraphMetaResponse(12345),
       });
 
-      const promise = service.fetchSubgraphMeta();
+      const promise = service.fetchSubgraphMeta(NETWORK);
 
       await vi.runAllTimersAsync();
 
@@ -496,7 +502,7 @@ describe("SubgraphService", () => {
     it("throws after MAX_RETRIES attempts on persistent network errors", async () => {
       fetchMock.mockRejectedValue(new Error("Network timeout"));
 
-      const promise = service.fetchSubgraphMeta();
+      const promise = service.fetchSubgraphMeta(NETWORK);
       promise.catch(() => {});
 
       await vi.runAllTimersAsync();
@@ -517,7 +523,7 @@ describe("SubgraphService", () => {
       const startTime = Date.now();
 
       // Make 5 requests - should all go through immediately
-      const promises = Array.from({ length: 5 }, () => service.fetchSubgraphMeta());
+      const promises = Array.from({ length: 5 }, () => service.fetchSubgraphMeta(NETWORK));
 
       await Promise.all(promises);
 
@@ -536,13 +542,13 @@ describe("SubgraphService", () => {
       });
 
       // Fill up the rate limit window with 50 requests
-      const initialPromises = Array.from({ length: 50 }, () => service.fetchSubgraphMeta());
+      const initialPromises = Array.from({ length: 50 }, () => service.fetchSubgraphMeta(NETWORK));
       await Promise.all(initialPromises);
 
       fetchMock.mockClear();
 
       // Try to make one more request - should wait for oldest to expire
-      const promise = service.fetchSubgraphMeta();
+      const promise = service.fetchSubgraphMeta(NETWORK);
 
       // Advance past the 10 second window + buffer
       await vi.advanceTimersByTimeAsync(10010);
@@ -565,7 +571,7 @@ describe("SubgraphService", () => {
       });
 
       // Fill 48 slots
-      const initialPromises = Array.from({ length: 48 }, () => service.fetchSubgraphMeta());
+      const initialPromises = Array.from({ length: 48 }, () => service.fetchSubgraphMeta(NETWORK));
       await vi.runAllTimersAsync();
       await Promise.all(initialPromises);
 
@@ -593,7 +599,7 @@ describe("SubgraphService", () => {
       });
 
       // Make 30 requests at t=0
-      const batch1 = Array.from({ length: 30 }, () => service.fetchSubgraphMeta());
+      const batch1 = Array.from({ length: 30 }, () => service.fetchSubgraphMeta(NETWORK));
       await vi.runAllTimersAsync();
       await Promise.all(batch1);
 
@@ -601,7 +607,7 @@ describe("SubgraphService", () => {
       await vi.advanceTimersByTimeAsync(5000);
 
       // Make 20 more requests at t=5000
-      const batch2 = Array.from({ length: 20 }, () => service.fetchSubgraphMeta());
+      const batch2 = Array.from({ length: 20 }, () => service.fetchSubgraphMeta(NETWORK));
       await vi.runAllTimersAsync();
       await Promise.all(batch2);
 
@@ -612,7 +618,7 @@ describe("SubgraphService", () => {
       fetchMock.mockClear();
 
       // Should be able to make 30 more requests immediately
-      const batch3 = Array.from({ length: 30 }, () => service.fetchSubgraphMeta());
+      const batch3 = Array.from({ length: 30 }, () => service.fetchSubgraphMeta(NETWORK));
       await vi.runAllTimersAsync();
       await Promise.all(batch3);
 
@@ -626,13 +632,13 @@ describe("SubgraphService", () => {
       });
 
       // Fill the window
-      const initialPromises = Array.from({ length: 50 }, () => service.fetchSubgraphMeta());
+      const initialPromises = Array.from({ length: 50 }, () => service.fetchSubgraphMeta(NETWORK));
       await vi.runAllTimersAsync();
       await Promise.all(initialPromises);
 
       fetchMock.mockClear();
 
-      const promise = service.fetchSubgraphMeta();
+      const promise = service.fetchSubgraphMeta(NETWORK);
 
       // Advance past the window + buffer
       await vi.advanceTimersByTimeAsync(10010);
@@ -648,7 +654,7 @@ describe("SubgraphService", () => {
       });
 
       // Fill window with 50 requests
-      const batch1 = Array.from({ length: 50 }, () => service.fetchSubgraphMeta());
+      const batch1 = Array.from({ length: 50 }, () => service.fetchSubgraphMeta(NETWORK));
       await vi.runAllTimersAsync();
       await Promise.all(batch1);
 
@@ -679,7 +685,7 @@ describe("SubgraphService", () => {
       });
 
       // Fill 47 slots
-      const initial = Array.from({ length: 47 }, () => service.fetchSubgraphMeta());
+      const initial = Array.from({ length: 47 }, () => service.fetchSubgraphMeta(NETWORK));
       await vi.runAllTimersAsync();
       await Promise.all(initial);
 
@@ -711,7 +717,7 @@ describe("SubgraphService", () => {
       });
 
       // Make 20 requests
-      const batch1 = Array.from({ length: 20 }, () => service.fetchSubgraphMeta());
+      const batch1 = Array.from({ length: 20 }, () => service.fetchSubgraphMeta(NETWORK));
       await vi.runAllTimersAsync();
       await Promise.all(batch1);
 
@@ -721,7 +727,7 @@ describe("SubgraphService", () => {
       fetchMock.mockClear();
 
       // Make another request - should have full window available
-      await service.fetchSubgraphMeta();
+      await service.fetchSubgraphMeta(NETWORK);
 
       const timestamps = (service as any).requestTimestamps;
       // Should only have 1 timestamp (the new one), old ones filtered out
@@ -735,11 +741,13 @@ describe("SubgraphService", () => {
       // from a genuinely empty candidate pool — every sampled job would silently
       // no-op forever. Fail loudly instead.
       const noEndpointConfig = {
-        get: vi.fn(() => ({ subgraphEndpoint: "" })),
+        get: vi.fn((key: keyof IConfig) =>
+          key === "networks" ? { calibration: { subgraphEndpoint: "" } } : undefined,
+        ),
       } as unknown as ConfigService<IConfig, true>;
       const noEndpointService = new SubgraphService(noEndpointConfig);
 
-      await expect(noEndpointService.samplePiece(defaultSampleParams)).rejects.toThrow(
+      await expect(noEndpointService.samplePiece(NETWORK, defaultSampleParams)).rejects.toThrow(
         "No subgraph endpoint configured",
       );
       expect(fetchMock).not.toHaveBeenCalled();
@@ -751,7 +759,7 @@ describe("SubgraphService", () => {
         json: async () => makeSampleResponse([]),
       });
 
-      const piece = await service.samplePiece(defaultSampleParams);
+      const piece = await service.samplePiece(NETWORK, defaultSampleParams);
       expect(piece).toBeNull();
       // Forward then reverse — confirms the wrap-around fallback fires when forward is empty.
       expect(fetchMock).toHaveBeenCalledTimes(2);
@@ -762,7 +770,7 @@ describe("SubgraphService", () => {
         .mockResolvedValueOnce({ ok: true, json: async () => makeSampleResponse([]) })
         .mockResolvedValueOnce({ ok: true, json: async () => makeSampleResponse([makeSampleRoot()]) });
 
-      const piece = await service.samplePiece(defaultSampleParams);
+      const piece = await service.samplePiece(NETWORK, defaultSampleParams);
 
       expect(piece).not.toBeNull();
       expect(fetchMock).toHaveBeenCalledTimes(2);
@@ -780,7 +788,7 @@ describe("SubgraphService", () => {
         json: async () => makeSampleResponse([makeSampleRoot()]),
       });
 
-      await service.samplePiece(defaultSampleParams);
+      await service.samplePiece(NETWORK, defaultSampleParams);
       expect(fetchMock).toHaveBeenCalledTimes(1);
     });
 
@@ -790,7 +798,7 @@ describe("SubgraphService", () => {
         json: async () => makeSampleResponse([makeSampleRoot()]),
       });
 
-      const piece = await service.samplePiece(defaultSampleParams);
+      const piece = await service.samplePiece(NETWORK, defaultSampleParams);
 
       expect(piece).toMatchObject({
         pieceCid: EXAMPLE_PIECE_CID,
@@ -820,14 +828,14 @@ describe("SubgraphService", () => {
           ]),
       });
 
-      const piece = await service.samplePiece(defaultSampleParams);
+      const piece = await service.samplePiece(NETWORK, defaultSampleParams);
       expect(piece?.pdpPaymentEndEpoch).toBe(5000n);
     });
 
     it("lowercases SP and payer addresses before querying", async () => {
       fetchMock.mockResolvedValue({ ok: true, json: async () => makeSampleResponse([]) });
 
-      await service.samplePiece(defaultSampleParams);
+      await service.samplePiece(NETWORK, defaultSampleParams);
 
       const [, opts] = fetchMock.mock.calls[0];
       const body = JSON.parse(opts.body as string);
@@ -839,7 +847,7 @@ describe("SubgraphService", () => {
     it("uses the any-pool query when pool is 'any'", async () => {
       fetchMock.mockResolvedValue({ ok: true, json: async () => makeSampleResponse([]) });
 
-      await service.samplePiece({ ...defaultSampleParams, pool: "any" });
+      await service.samplePiece(NETWORK, { ...defaultSampleParams, pool: "any" });
 
       const [, opts] = fetchMock.mock.calls[0];
       const body = JSON.parse(opts.body as string);
@@ -852,14 +860,14 @@ describe("SubgraphService", () => {
         json: async () => makeSampleResponse([makeSampleRoot({ cid: "0xdeadbeef" })]),
       });
 
-      const piece = await service.samplePiece(defaultSampleParams);
+      const piece = await service.samplePiece(NETWORK, defaultSampleParams);
       expect(piece).toBeNull();
     });
 
     it("throws after max retries on repeated HTTP errors", async () => {
       fetchMock.mockResolvedValue({ ok: false, status: 500, statusText: "Internal Server Error" });
 
-      const promise = service.samplePiece(defaultSampleParams);
+      const promise = service.samplePiece(NETWORK, defaultSampleParams);
       promise.catch(() => {});
       await vi.runAllTimersAsync();
 
@@ -873,7 +881,7 @@ describe("SubgraphService", () => {
         json: async () => ({ data: { _meta: { block: { number: 1 } } } }), // missing roots
       });
 
-      await expect(service.samplePiece(defaultSampleParams)).rejects.toThrow(/validation failed/i);
+      await expect(service.samplePiece(NETWORK, defaultSampleParams)).rejects.toThrow(/validation failed/i);
       expect(fetchMock).toHaveBeenCalledTimes(1);
     });
   });

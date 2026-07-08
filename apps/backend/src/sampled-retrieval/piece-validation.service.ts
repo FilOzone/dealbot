@@ -7,7 +7,8 @@ import { CID } from "multiformats/cid";
 import * as raw from "multiformats/codecs/raw";
 import { sha256 } from "multiformats/hashes/sha2";
 import { toStructuredError } from "../common/logging.js";
-import type { IConfig } from "../config/app.config.js";
+import type { Network } from "../common/types.js";
+import type { IConfig } from "../config/index.js";
 import type { StorageProvider } from "../database/entities/storage-provider.entity.js";
 import { BlockFetchStatus, CarParseStatus, IpniCheckStatus } from "../database/types.js";
 import { HttpClientService } from "../http-client/http-client.service.js";
@@ -156,9 +157,10 @@ export class PieceValidationService {
   async checkBlockFetch(
     sampledBlocks: ReadonlyArray<SampledBlock>,
     spAddress: string,
+    network: Network,
     signal?: AbortSignal,
   ): Promise<BlockFetchOutcome> {
-    const providerInfo = this.walletSdkService.getProviderInfo(spAddress);
+    const providerInfo = this.walletSdkService.getProviderInfo(spAddress, network);
     if (!providerInfo) {
       return {
         status: BlockFetchStatus.SKIPPED,
@@ -191,6 +193,7 @@ export class PieceValidationService {
         event: "block_fetch_unexpected_error",
         message: "Block fetch loop threw unexpectedly",
         spAddress,
+        network,
         error: toStructuredError(error),
       });
       return {

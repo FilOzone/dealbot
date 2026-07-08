@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { type ISpBlocklistConfig } from "../config/app.config.js";
+import type { INetworkConfig } from "../config/types.js";
 import { isSpBlocked } from "./sp-blocklist.js";
 
-const cfg = (overrides: Partial<ISpBlocklistConfig> = {}): ISpBlocklistConfig => ({
-  ids: new Set(),
-  addresses: new Set(),
+const cfg = (overrides: Partial<INetworkConfig> = {}): Pick<INetworkConfig, "blockedSpAddresses" | "blockedSpIds"> => ({
+  blockedSpIds: new Set(),
+  blockedSpAddresses: new Set(),
   ...overrides,
 });
 
@@ -15,25 +15,25 @@ describe("isSpBlocked", () => {
   });
 
   it("blocks by address", () => {
-    expect(isSpBlocked(cfg({ addresses: new Set(["0xaaa"]) }), "0xaaa")).toBe(true);
+    expect(isSpBlocked(cfg({ blockedSpAddresses: new Set(["0xaaa"]) }), "0xaaa")).toBe(true);
   });
 
   it("address matching is case-insensitive", () => {
-    const c = cfg({ addresses: new Set(["0xaaa"]) });
+    const c = cfg({ blockedSpAddresses: new Set(["0xaaa"]) });
     expect(isSpBlocked(c, "0xAAA")).toBe(true);
     expect(isSpBlocked(c, "0XAAA")).toBe(true);
   });
 
   it("blocks by numeric ID", () => {
-    expect(isSpBlocked(cfg({ ids: new Set(["42"]) }), "0xaaa", 42n)).toBe(true);
+    expect(isSpBlocked(cfg({ blockedSpIds: new Set(["42"]) }), "0xaaa", 42n)).toBe(true);
   });
 
   it("skips ID check when id is undefined", () => {
-    expect(isSpBlocked(cfg({ ids: new Set(["42"]) }), "0xaaa", undefined)).toBe(false);
+    expect(isSpBlocked(cfg({ blockedSpIds: new Set(["42"]) }), "0xaaa", undefined)).toBe(false);
   });
 
   it("does not block unrelated provider", () => {
-    const c = cfg({ ids: new Set(["5"]), addresses: new Set(["0xaaa"]) });
+    const c = cfg({ blockedSpIds: new Set(["5"]), blockedSpAddresses: new Set(["0xaaa"]) });
     expect(isSpBlocked(c, "0xbbb", 6n)).toBe(false);
   });
 });

@@ -1,3 +1,5 @@
+import { Network } from "./types.js";
+
 type ErrorWithCode = Error & { code?: unknown };
 const MAX_ERROR_STACK_LENGTH = 4 * 1024;
 const ERROR_STACK_REDACTION_BUFFER_LENGTH = 512;
@@ -160,6 +162,7 @@ export type ProviderJobContext = {
   providerAddress: string;
   providerId: bigint;
   providerName: string;
+  network: Network;
 };
 
 /**
@@ -181,6 +184,7 @@ export type DataSetLogContext = {
 export type JobLogContext = {
   jobId?: string;
   providerAddress: string;
+  network: Network;
   providerId?: bigint;
   providerName?: string;
 };

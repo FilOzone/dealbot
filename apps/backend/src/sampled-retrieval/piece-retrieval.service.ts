@@ -1,6 +1,7 @@
 import * as Piece from "@filoz/synapse-core/piece";
 import { Injectable, Logger } from "@nestjs/common";
 import { toStructuredError } from "../common/logging.js";
+import type { Network } from "../common/types.js";
 import { HttpClientService } from "../http-client/http-client.service.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
 import { SAMPLED_MAX_PIECE_DOWNLOAD_BYTES } from "./sampled-piece-selector.service.js";
@@ -15,14 +16,20 @@ export class PieceRetrievalService {
     private readonly httpClientService: HttpClientService,
   ) {}
 
-  async fetchPiece(spAddress: string, pieceCid: string, signal?: AbortSignal): Promise<PieceRetrievalResult> {
-    const providerInfo = this.walletSdkService.getProviderInfo(spAddress);
+  async fetchPiece(
+    spAddress: string,
+    network: Network,
+    pieceCid: string,
+    signal?: AbortSignal,
+  ): Promise<PieceRetrievalResult> {
+    const providerInfo = this.walletSdkService.getProviderInfo(spAddress, network);
 
     if (!providerInfo) {
       this.logger.warn({
         event: "provider_info_not_found",
         message: "Cannot fetch piece: provider info not found",
         spAddress,
+        network,
         pieceCid,
       });
 
@@ -89,6 +96,7 @@ export class PieceRetrievalService {
           url,
           pieceCid,
           spAddress,
+          network,
           bytesReceived: metrics.responseSize,
           ttfbMs: metrics.ttfb,
           abortReason: result.abortReason,
@@ -118,6 +126,7 @@ export class PieceRetrievalService {
           statusCode: metrics.statusCode,
           pieceCid,
           spAddress,
+          network,
         });
 
         return {
@@ -150,6 +159,7 @@ export class PieceRetrievalService {
           url,
           pieceCid,
           spAddress,
+          network,
           bytesReceived: metrics.responseSize,
         });
 
@@ -173,6 +183,7 @@ export class PieceRetrievalService {
         message: "Piece fetched successfully",
         pieceCid,
         spAddress,
+        network,
         bytesReceived: metrics.responseSize,
         latencyMs: metrics.totalTime,
         ttfbMs: metrics.ttfb,
@@ -198,6 +209,7 @@ export class PieceRetrievalService {
         url,
         pieceCid,
         spAddress,
+        network,
         aborted,
         error: toStructuredError(error),
       });

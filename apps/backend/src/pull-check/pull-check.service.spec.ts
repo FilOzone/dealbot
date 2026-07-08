@@ -3,7 +3,8 @@ import { ConfigService } from "@nestjs/config";
 import { Test, type TestingModule } from "@nestjs/testing";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ClickhouseService } from "../clickhouse/clickhouse.service.js";
-import type { IConfig } from "../config/app.config.js";
+import type { ProviderJobContext } from "../common/logging.js";
+import type { IConfig } from "../config/index.js";
 import { DataSourceService } from "../dataSource/dataSource.service.js";
 import { HttpClientService } from "../http-client/http-client.service.js";
 import { PullCheckCheckMetrics } from "../metrics-prometheus/check-metrics.service.js";
@@ -11,6 +12,8 @@ import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
 import type { PDPProviderEx } from "../wallet-sdk/wallet-sdk.types.js";
 import { PullCheckService } from "./pull-check.service.js";
 import { PullPieceRepository } from "./pull-piece.repository.js";
+
+const DEFAULT_NETWORK = "calibration";
 
 // `@filoz/synapse-core/piece` is mocked so that piece CIDs are deterministic
 // strings rather than real CID objects, keeping the tests fast and isolated
@@ -101,16 +104,17 @@ describe("PullCheckService", () => {
 
     configValues = {
       app: { host: "localhost", port: 3000, apiPublicUrl: "https://dealbot.example" } as IConfig["app"],
-      blockchain: { network: "calibration", walletAddress: "0xwallet" } as IConfig["blockchain"],
-      pullPiece: {
-        pullChecksPerSpPerHour: 1,
-        pullCheckJobTimeoutSeconds: 300,
-        pullCheckPollIntervalSeconds: 5,
-        pullCheckPieceSizeBytes: 1024,
-        maxConcurrentStreams: 50,
-        maxStreamsPerCid: 3,
-        pullPieceCleanupIntervalSeconds: 7 * 24 * 3600,
-      },
+      networks: {
+        [DEFAULT_NETWORK]: {
+          network: DEFAULT_NETWORK,
+          walletAddress: "0xwallet",
+          pullChecksPerSpPerHour: 1,
+          pullCheckJobTimeoutSeconds: 300,
+          pullCheckPollIntervalSeconds: 5,
+          pullCheckPieceSizeBytes: 1024,
+          pullPieceCleanupIntervalSeconds: 7 * 24 * 3600,
+        },
+      } as IConfig["networks"],
       dataset: { localDatasetsPath: "/tmp/datasets" } as IConfig["dataset"],
     };
 
@@ -143,35 +147,35 @@ describe("PullCheckService", () => {
       const provider = makeProvider();
       walletSdkServiceMock.getProviderInfo.mockReturnValue(provider);
 
-      expect(service.validateProviderInfo("0xsp")).toBe(provider);
+      expect(service.validateProviderInfo("0xsp", DEFAULT_NETWORK)).toBe(provider);
     });
 
     it("throws when the provider is unknown", () => {
       walletSdkServiceMock.getProviderInfo.mockReturnValue(undefined);
-      expect(() => service.validateProviderInfo("0xsp")).toThrow(/not found/);
+      expect(() => service.validateProviderInfo("0xsp", DEFAULT_NETWORK)).toThrow(/not found/);
     });
 
     it("throws when the provider is inactive", () => {
       walletSdkServiceMock.getProviderInfo.mockReturnValue(makeProvider({ isActive: false }));
-      expect(() => service.validateProviderInfo("0xsp")).toThrow(/not active/);
+      expect(() => service.validateProviderInfo("0xsp", DEFAULT_NETWORK)).toThrow(/not active/);
     });
 
     it("throws when the provider is missing a numeric id", () => {
       walletSdkServiceMock.getProviderInfo.mockReturnValue(makeProvider({ id: undefined as unknown as bigint }));
-      expect(() => service.validateProviderInfo("0xsp")).toThrow(/missing providerId/);
+      expect(() => service.validateProviderInfo("0xsp", DEFAULT_NETWORK)).toThrow(/missing providerId/);
     });
 
     it("throws when the provider is missing a PDP serviceURL", () => {
       walletSdkServiceMock.getProviderInfo.mockReturnValue(
         makeProvider({ pdp: { serviceURL: "" } as PDPProviderEx["pdp"] }),
       );
-      expect(() => service.validateProviderInfo("0xsp")).toThrow(/missing serviceURL/);
+      expect(() => service.validateProviderInfo("0xsp", DEFAULT_NETWORK)).toThrow(/missing serviceURL/);
     });
   });
 
   describe("preparePullPiece", () => {
     it("generates deterministic bytes, computes the piece CID, and registers the pull piece", async () => {
-      const prepared = await service.preparePullPiece("0xsp");
+      const prepared = await service.preparePullPiece("0xsp", DEFAULT_NETWORK);
 
       expect(dataSourceServiceMock.generateBytesStream).toHaveBeenCalledWith({
         providerAddress: "0xsp",
@@ -188,14 +192,20 @@ describe("PullCheckService", () => {
     it("falls back to host:port when apiPublicUrl is not configured", async () => {
       configValues.app = { host: "localhost", port: 3000 } as IConfig["app"];
 
-      const prepared = await service.preparePullPiece("0xsp");
+      const prepared = await service.preparePullPiece("0xsp", DEFAULT_NETWORK);
       expect(prepared.sourceUrl).toBe("http://localhost:3000/api/piece/bafk-test-piece");
     });
   });
 
   describe("validateByDirectPieceFetch", () => {
     const provider = makeProvider();
-    const logContext = { jobId: "job-1", providerAddress: "0xsp", providerId: 42n, providerName: "test-sp" };
+    const logContext: ProviderJobContext = {
+      jobId: "job-1",
+      providerAddress: "0xsp",
+      providerId: 42n,
+      providerName: "test-sp",
+      network: DEFAULT_NETWORK,
+    };
 
     function makeStreamResponse(
       overrides: { statusCode?: number; headers?: Record<string, string>; cidResult?: string } = {},
@@ -274,7 +284,13 @@ describe("PullCheckService", () => {
   });
 
   describe("runPullCheck", () => {
-    const logContext = { jobId: "job-1", providerAddress: "0xsp", providerId: 42n, providerName: "test-sp" };
+    const logContext: ProviderJobContext = {
+      jobId: "job-1",
+      providerAddress: "0xsp",
+      providerId: 42n,
+      providerName: "test-sp",
+      network: DEFAULT_NETWORK,
+    };
 
     function arrangeHappyPath() {
       // Pre-stage a registration that preparePullPiece will install.
@@ -314,7 +330,7 @@ describe("PullCheckService", () => {
     it("runs the full lifecycle, observes all metrics, and records success", async () => {
       const { registration } = arrangeHappyPath();
 
-      await service.runPullCheck("0xsp", undefined, logContext);
+      await service.runPullCheck("0xsp", DEFAULT_NETWORK, undefined, logContext);
 
       // Submit timestamp is stamped on the registration.
       expect(registryMock.markPullSubmitted).toHaveBeenCalledWith(registration.pieceCid, expect.any(Date));
@@ -354,7 +370,7 @@ describe("PullCheckService", () => {
       // Simulate a cached pull: SP never fetched from us.
       registryMock.resolve.mockResolvedValue({ ...registration, firstByteAt: undefined });
 
-      await service.runPullCheck("0xsp", undefined, logContext);
+      await service.runPullCheck("0xsp", DEFAULT_NETWORK, undefined, logContext);
 
       expect(metricsMock.observeStartedMs).not.toHaveBeenCalled();
       expect(metricsMock.observeThroughputBps).toHaveBeenCalledTimes(1);
@@ -368,7 +384,7 @@ describe("PullCheckService", () => {
         pieces: [],
       } as unknown as Awaited<ReturnType<typeof waitForPullPieces>>);
 
-      await expect(service.runPullCheck("0xsp", undefined, logContext)).rejects.toThrow(
+      await expect(service.runPullCheck("0xsp", DEFAULT_NETWORK, undefined, logContext)).rejects.toThrow(
         /Storage provider failed to pull piece/,
       );
 
@@ -390,7 +406,7 @@ describe("PullCheckService", () => {
       arrangeHappyPath();
       vi.mocked(waitForPullPieces).mockRejectedValue(new Error("polling timed out after 300s"));
 
-      await expect(service.runPullCheck("0xsp", undefined, logContext)).rejects.toThrow();
+      await expect(service.runPullCheck("0xsp", DEFAULT_NETWORK, undefined, logContext)).rejects.toThrow();
       expect(metricsMock.recordStatus).toHaveBeenLastCalledWith(expect.any(Object), "failure.timedout");
       expect(clickhouseServiceMock.insert).toHaveBeenCalledWith(
         "pull_checks",
@@ -411,7 +427,9 @@ describe("PullCheckService", () => {
         .mockResolvedValueOnce("bafk-test-piece" as any)
         .mockResolvedValueOnce("bafk-mismatch" as any);
 
-      await expect(service.runPullCheck("0xsp", undefined, logContext)).rejects.toThrow(/validation failed/);
+      await expect(service.runPullCheck("0xsp", DEFAULT_NETWORK, undefined, logContext)).rejects.toThrow(
+        /validation failed/,
+      );
       expect(metricsMock.recordStatus).toHaveBeenLastCalledWith(expect.any(Object), "failure.other");
       expect(registryMock.forget).not.toHaveBeenCalled();
     });
@@ -421,7 +439,7 @@ describe("PullCheckService", () => {
       const controller = new AbortController();
       controller.abort(new Error("Pull check job timeout (300s) for 0xsp"));
 
-      await expect(service.runPullCheck("0xsp", controller.signal, logContext)).rejects.toThrow();
+      await expect(service.runPullCheck("0xsp", DEFAULT_NETWORK, controller.signal, logContext)).rejects.toThrow();
       // No SP-side calls were issued.
       expect(pullPieces).not.toHaveBeenCalled();
       expect(waitForPullPieces).not.toHaveBeenCalled();
@@ -433,14 +451,16 @@ describe("PullCheckService", () => {
       arrangeHappyPath();
       walletSdkServiceMock.getSynapseClient.mockReturnValue(null);
 
-      await expect(service.runPullCheck("0xsp", undefined, logContext)).rejects.toThrow(/Synapse client unavailable/);
+      await expect(service.runPullCheck("0xsp", DEFAULT_NETWORK, undefined, logContext)).rejects.toThrow(
+        /Synapse client unavailable/,
+      );
       expect(metricsMock.recordStatus).toHaveBeenLastCalledWith(expect.any(Object), "failure.other");
     });
 
     it("writes a ClickHouse row with null sp fields when the provider is unknown", async () => {
       walletSdkServiceMock.getProviderInfo.mockReturnValue(undefined);
 
-      await expect(service.runPullCheck("0xsp", undefined, logContext)).rejects.toThrow(/not found/);
+      await expect(service.runPullCheck("0xsp", DEFAULT_NETWORK, undefined, logContext)).rejects.toThrow(/not found/);
       // No metrics recorded (labels could not be built).
       expect(metricsMock.recordStatus).not.toHaveBeenCalled();
       // ClickHouse row still written: sp_address is always available,

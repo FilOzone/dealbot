@@ -1,6 +1,7 @@
+import { Network } from "src/common/types.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DealJobTerminatedDataSetError } from "../common/errors.js";
-import type { IConfig, ISpBlocklistConfig } from "../config/app.config.js";
+import type { IConfig, INetworkConfig, INetworksConfig } from "../config/types.js";
 import {
   DATA_RETENTION_POLL_QUEUE,
   PROVIDERS_REFRESH_QUEUE,
@@ -8,6 +9,8 @@ import {
   SP_WORK_QUEUE,
 } from "./job-queues.js";
 import { JobsService } from "./jobs.service.js";
+
+const DEFAULT_NETWORK = "calibration";
 
 type JobsServiceDeps = ConstructorParameters<typeof JobsService>;
 
@@ -120,52 +123,55 @@ describe("JobsService schedule rows", () => {
       storageProvidersTested: { set: vi.fn() } as unknown as JobsServiceDeps[21],
     };
 
-    const emptySpBlocklists: ISpBlocklistConfig = {
-      ids: new Set(),
-      addresses: new Set(),
-    };
+    const baseNetworkConfig = {
+      walletPrivateKey: "0x",
+      network: DEFAULT_NETWORK,
+      useOnlyApprovedProviders: false,
+      minNumDataSetsForChecks: 1,
+      rpcRequestTimeoutMs: 30000,
+      subgraphEndpoint: "https://example.com/subgraph",
+      dealsPerSpPerHour: 4,
+      retrievalsPerSpPerHour: 2,
+      sampledRetrievalsPerSpPerHour: 2,
+      dataSetCreationsPerSpPerHour: 1,
+      dataSetLifecycleCheckEnabled: false,
+      dataSetLifecycleChecksPerSpPerHour: 1,
+      dataSetLifecycleCheckJobTimeoutSeconds: 600,
+      dataRetentionPollIntervalSeconds: 3600,
+      providersRefreshIntervalSeconds: 14400,
+      walletAddress: "0x0000000000000000000000000000000000000000",
+      checkDatasetCreationFees: true,
+      maintenanceWindowsUtc: ["07:00", "22:00"],
+      maintenanceWindowMinutes: 20,
+      blockedSpIds: new Set(),
+      blockedSpAddresses: new Set(),
+      pieceCleanupPerSpPerHour: 1,
+      maxPieceCleanupRuntimeSeconds: 300,
+      maxDatasetStorageSizeBytes: 24 * 1024 * 1024 * 1024,
+      targetDatasetStorageSizeBytes: 20 * 1024 * 1024 * 1024,
+      dealJobTimeoutSeconds: 360,
+      dataSetCreationJobTimeoutSeconds: 300,
+      retrievalJobTimeoutSeconds: 60,
+      sampledRetrievalJobTimeoutSeconds: 360,
+      pullChecksPerSpPerHour: 1,
+      pullCheckJobTimeoutSeconds: 300,
+      pullCheckPollIntervalSeconds: 2,
+      pullCheckPieceSizeBytes: 10 * 1024 * 1024,
+      pullPieceCleanupIntervalSeconds: 7 * 24 * 3600,
+    } satisfies IConfig["networks"]["calibration"];
 
     baseConfigValues = {
       app: { runMode: "both" } as IConfig["app"],
-      blockchain: {
-        useOnlyApprovedProviders: false,
-        minNumDataSetsForChecks: 1,
-        network: "calibration",
-        subgraphEndpoint: "https://example.com/subgraph",
-      } as IConfig["blockchain"],
-      scheduling: {
-        providersRefreshIntervalSeconds: 4 * 3600,
-        dataRetentionPollIntervalSeconds: 3600,
-        maintenanceWindowsUtc: ["07:00", "22:00"],
-        maintenanceWindowMinutes: 20,
-      } as IConfig["scheduling"],
+      activeNetworks: [DEFAULT_NETWORK] as IConfig["activeNetworks"],
+      networks: { calibration: baseNetworkConfig } as unknown as IConfig["networks"],
       jobs: {
         schedulePhaseSeconds: 0,
         catchupMaxEnqueue: 10,
         pgbossLocalConcurrency: 9,
         pgbossSchedulerEnabled: true,
         workerPollSeconds: 60,
-        dealJobTimeoutSeconds: 360,
-        retrievalJobTimeoutSeconds: 60,
-        sampledRetrievalJobTimeoutSeconds: 360,
-        dataSetCreationJobTimeoutSeconds: 300,
-        dataSetLifecycleCheckEnabled: false,
-        dataSetLifecycleChecksPerSpPerHour: 1,
-        dataSetLifecycleCheckJobTimeoutSeconds: 600,
         shutdownFinalScrapeDelaySeconds: 35,
-        pieceCleanupPerSpPerHour: 1,
-        maxPieceCleanupRuntimeSeconds: 300,
-        sampledRetrievalsPerSpPerHour: 2,
       } as IConfig["jobs"],
-      pullPiece: {
-        pullChecksPerSpPerHour: 1,
-        pullCheckJobTimeoutSeconds: 300,
-        pullCheckPollIntervalSeconds: 2,
-        pullCheckPieceSizeBytes: 10 * 1024 * 1024,
-        maxConcurrentStreams: 50,
-        maxStreamsPerCid: 3,
-        pullPieceCleanupIntervalSeconds: 7 * 24 * 3600,
-      },
       database: {
         host: "localhost",
         port: 5432,
@@ -173,10 +179,6 @@ describe("JobsService schedule rows", () => {
         password: "pass",
         database: "dealbot",
       } as IConfig["database"],
-      pieceCleanup: {
-        maxDatasetStorageSizeBytes: 24 * 1024 * 1024 * 1024,
-      } as IConfig["pieceCleanup"],
-      spBlocklists: emptySpBlocklists,
     };
 
     configService = {
@@ -233,16 +235,16 @@ describe("JobsService schedule rows", () => {
       return "success";
     });
 
-    await callPrivate(service, "recordJobExecution", "deal", run);
+    await callPrivate(service, "recordJobExecution", "deal", DEFAULT_NETWORK, run);
 
     expect(run).toHaveBeenCalled();
-    expect(startedCounter.inc).toHaveBeenCalledWith({ job_type: "deal", network: "calibration" });
+    expect(startedCounter.inc).toHaveBeenCalledWith({ job_type: "deal", network: DEFAULT_NETWORK });
     expect(completedCounter.inc).toHaveBeenCalledWith({
       job_type: "deal",
       handler_result: "success",
-      network: "calibration",
+      network: DEFAULT_NETWORK,
     });
-    expect(durationHistogram.observe).toHaveBeenCalledWith({ job_type: "deal", network: "calibration" }, 5);
+    expect(durationHistogram.observe).toHaveBeenCalledWith({ job_type: "deal", network: DEFAULT_NETWORK }, 5);
   });
 
   it("records metrics for failed job execution", async () => {
@@ -259,15 +261,15 @@ describe("JobsService schedule rows", () => {
       throw new Error("boom");
     });
 
-    await expect(callPrivate(service, "recordJobExecution", "deal", run)).rejects.toThrow("boom");
+    await expect(callPrivate(service, "recordJobExecution", "deal", DEFAULT_NETWORK, run)).rejects.toThrow("boom");
 
-    expect(startedCounter.inc).toHaveBeenCalledWith({ job_type: "deal", network: "calibration" });
+    expect(startedCounter.inc).toHaveBeenCalledWith({ job_type: "deal", network: DEFAULT_NETWORK });
     expect(completedCounter.inc).toHaveBeenCalledWith({
       job_type: "deal",
       handler_result: "error",
-      network: "calibration",
+      network: DEFAULT_NETWORK,
     });
-    expect(durationHistogram.observe).toHaveBeenCalledWith({ job_type: "deal", network: "calibration" }, 2);
+    expect(durationHistogram.observe).toHaveBeenCalledWith({ job_type: "deal", network: DEFAULT_NETWORK }, 2);
   });
 
   it("records metrics for aborted job execution", async () => {
@@ -284,15 +286,15 @@ describe("JobsService schedule rows", () => {
       return "aborted" as const;
     });
 
-    await callPrivate(service, "recordJobExecution", "deal", run);
+    await callPrivate(service, "recordJobExecution", "deal", DEFAULT_NETWORK, run);
 
-    expect(startedCounter.inc).toHaveBeenCalledWith({ job_type: "deal", network: "calibration" });
+    expect(startedCounter.inc).toHaveBeenCalledWith({ job_type: "deal", network: DEFAULT_NETWORK });
     expect(completedCounter.inc).toHaveBeenCalledWith({
       job_type: "deal",
       handler_result: "aborted",
-      network: "calibration",
+      network: DEFAULT_NETWORK,
     });
-    expect(durationHistogram.observe).toHaveBeenCalledWith({ job_type: "deal", network: "calibration" }, 3);
+    expect(durationHistogram.observe).toHaveBeenCalledWith({ job_type: "deal", network: DEFAULT_NETWORK }, 3);
   });
 
   it("deal job records aborted when abort signal fires", async () => {
@@ -300,10 +302,9 @@ describe("JobsService schedule rows", () => {
 
     baseConfigValues = {
       ...baseConfigValues,
-      jobs: {
-        ...baseConfigValues.jobs,
-        dealJobTimeoutSeconds: 1,
-      } as IConfig["jobs"],
+      networks: {
+        calibration: { ...(baseConfigValues.networks as any).calibration, dealJobTimeoutSeconds: 1 },
+      } as unknown as IConfig["networks"],
     };
     configService = {
       get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
@@ -342,9 +343,9 @@ describe("JobsService schedule rows", () => {
     const jobPromise = callPrivate(service, "handleDealJob", {
       id: "job-123",
       data: {
+        network: DEFAULT_NETWORK,
         jobType: "deal",
         spAddress: "0xaaa",
-        network: "calibration",
         intervalSeconds: 60,
       },
     });
@@ -356,7 +357,7 @@ describe("JobsService schedule rows", () => {
     expect(completedCounter.inc).toHaveBeenCalledWith({
       job_type: "deal",
       handler_result: "aborted",
-      network: "calibration",
+      network: DEFAULT_NETWORK,
     });
   });
 
@@ -379,7 +380,7 @@ describe("JobsService schedule rows", () => {
     } as unknown as JobsServiceDeps[0];
 
     const retrievalService = {
-      performRandomRetrievalForProvider: vi.fn(async (_sp: string, signal: AbortSignal) => {
+      performRandomRetrievalForProvider: vi.fn(async (_sp: string, _network: Network, signal: AbortSignal) => {
         await new Promise<void>((resolve) => {
           if (signal.aborted) return resolve();
           signal.addEventListener("abort", () => resolve(), { once: true });
@@ -407,7 +408,7 @@ describe("JobsService schedule rows", () => {
       data: {
         jobType: "retrieval",
         spAddress: "0xaaa",
-        network: "calibration",
+        network: DEFAULT_NETWORK,
         intervalSeconds: 60,
       },
     });
@@ -418,7 +419,7 @@ describe("JobsService schedule rows", () => {
     expect(completedCounter.inc).toHaveBeenCalledWith({
       job_type: "retrieval",
       handler_result: "aborted",
-      network: "calibration",
+      network: DEFAULT_NETWORK,
     });
   });
 
@@ -447,13 +448,14 @@ describe("JobsService schedule rows", () => {
       data: {
         jobType: "retrieval",
         spAddress: "0xaaa",
-        network: "calibration",
+        network: DEFAULT_NETWORK,
         intervalSeconds: 60,
       },
     });
 
     expect(retrievalService.performRandomRetrievalForProvider).toHaveBeenCalledWith(
       "0xaaa",
+      DEFAULT_NETWORK,
       expect.any(AbortSignal),
       expect.objectContaining({
         jobId: "job-retrieval-provider-fallback",
@@ -489,7 +491,7 @@ describe("JobsService schedule rows", () => {
         data: {
           jobType: "retrieval",
           spAddress: "0xaaa",
-          network: "calibration",
+          network: DEFAULT_NETWORK,
           intervalSeconds: 60,
         },
       }),
@@ -499,7 +501,7 @@ describe("JobsService schedule rows", () => {
     expect(completedCounter.inc).toHaveBeenCalledWith({
       job_type: "retrieval",
       handler_result: "error",
-      network: "calibration",
+      network: DEFAULT_NETWORK,
     });
   });
 
@@ -519,17 +521,17 @@ describe("JobsService schedule rows", () => {
       .mockResolvedValueOnce([{ job_type: "deal", min_age_seconds: 12 }])
       .mockResolvedValueOnce([{ job_type: "retrieval", min_age_seconds: 34 }]);
 
-    await callPrivate(service, "updateQueueMetrics");
+    await callPrivate(service, "updateQueueMetrics", DEFAULT_NETWORK);
 
-    expect(jobsQueuedGauge.set).toHaveBeenCalledWith({ job_type: "deal", network: "calibration" }, 0);
-    expect(jobsQueuedGauge.set).toHaveBeenCalledWith({ job_type: "retrieval", network: "calibration" }, 0);
-    expect(jobsQueuedGauge.set).toHaveBeenCalledWith({ job_type: "data_retention_poll", network: "calibration" }, 0);
-    expect(jobsInFlightGauge.set).toHaveBeenCalledWith({ job_type: "retrieval", network: "calibration" }, 1);
-    expect(jobsQueuedGauge.set).toHaveBeenCalledWith({ job_type: "deal", network: "calibration" }, 2);
+    expect(jobsQueuedGauge.set).toHaveBeenCalledWith({ job_type: "deal", network: DEFAULT_NETWORK }, 0);
+    expect(jobsQueuedGauge.set).toHaveBeenCalledWith({ job_type: "retrieval", network: DEFAULT_NETWORK }, 0);
+    expect(jobsQueuedGauge.set).toHaveBeenCalledWith({ job_type: "data_retention_poll", network: DEFAULT_NETWORK }, 0);
+    expect(jobsInFlightGauge.set).toHaveBeenCalledWith({ job_type: "retrieval", network: DEFAULT_NETWORK }, 1);
+    expect(jobsQueuedGauge.set).toHaveBeenCalledWith({ job_type: "deal", network: DEFAULT_NETWORK }, 2);
 
-    expect(oldestQueuedGauge.set).toHaveBeenCalledWith({ job_type: "deal", network: "calibration" }, 12);
-    expect(oldestInFlightGauge.set).toHaveBeenCalledWith({ job_type: "retrieval", network: "calibration" }, 34);
-    expect(jobsPausedGauge.set).toHaveBeenCalledWith({ job_type: "deal", network: "calibration" }, 0);
+    expect(oldestQueuedGauge.set).toHaveBeenCalledWith({ job_type: "deal", network: DEFAULT_NETWORK }, 12);
+    expect(oldestInFlightGauge.set).toHaveBeenCalledWith({ job_type: "retrieval", network: DEFAULT_NETWORK }, 34);
+    expect(jobsPausedGauge.set).toHaveBeenCalledWith({ job_type: "deal", network: DEFAULT_NETWORK }, 0);
   });
 
   it("registers pg-boss workers with per-queue batch sizes", async () => {
@@ -677,15 +679,17 @@ describe("JobsService schedule rows", () => {
     jobScheduleRepositoryMock.countPausedSchedules.mockResolvedValueOnce([{ job_type: "deal", count: 2 }]);
     jobScheduleRepositoryMock.minBossJobAgeSecondsByState.mockResolvedValueOnce([]).mockResolvedValueOnce([]);
 
-    await callPrivate(service, "updateQueueMetrics");
+    await callPrivate(service, "updateQueueMetrics", DEFAULT_NETWORK);
 
-    expect(jobsPausedGauge.set).toHaveBeenCalledWith({ job_type: "deal", network: "calibration" }, 2);
+    expect(jobsPausedGauge.set).toHaveBeenCalledWith({ job_type: "deal", network: DEFAULT_NETWORK }, 2);
   });
 
   it("adds schedule rows for newly seen providers", async () => {
     baseConfigValues = {
       ...baseConfigValues,
-      blockchain: { ...baseConfigValues.blockchain, minNumDataSetsForChecks: 3 } as IConfig["blockchain"],
+      networks: {
+        calibration: { ...(baseConfigValues.networks as any).calibration, minNumDataSetsForChecks: 3 },
+      } as unknown as IConfig["networks"],
     };
     configService = {
       get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
@@ -698,8 +702,8 @@ describe("JobsService schedule rows", () => {
 
     storageProviderRepositoryMock.find.mockResolvedValueOnce([providerA]).mockResolvedValueOnce([providerA, providerB]);
 
-    await callPrivate(service, "ensureScheduleRows");
-    await callPrivate(service, "ensureScheduleRows");
+    await callPrivate(service, "ensureScheduleRows", DEFAULT_NETWORK);
+    await callPrivate(service, "ensureScheduleRows", DEFAULT_NETWORK);
 
     // Check upserts for providerB
     const upsertCalls = jobScheduleRepositoryMock.upsertSchedule.mock.calls;
@@ -718,7 +722,9 @@ describe("JobsService schedule rows", () => {
   it("skips retrieval_sampled schedule when subgraph endpoint is not configured", async () => {
     baseConfigValues = {
       ...baseConfigValues,
-      blockchain: { ...baseConfigValues.blockchain, subgraphEndpoint: "" } as IConfig["blockchain"],
+      networks: {
+        calibration: { ...(baseConfigValues.networks as any).calibration, subgraphEndpoint: "" },
+      } as unknown as IConfig["networks"],
     };
     configService = {
       get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
@@ -729,7 +735,7 @@ describe("JobsService schedule rows", () => {
     const providerA = { address: "0xaaa" };
     storageProviderRepositoryMock.find.mockResolvedValueOnce([providerA]);
 
-    await callPrivate(service, "ensureScheduleRows");
+    await callPrivate(service, "ensureScheduleRows", DEFAULT_NETWORK);
 
     const upsertsForA = jobScheduleRepositoryMock.upsertSchedule.mock.calls.filter(
       (call) => call[1] === providerA.address,
@@ -747,18 +753,18 @@ describe("JobsService schedule rows", () => {
     const providerA = { address: "0xaaa" };
     storageProviderRepositoryMock.find.mockResolvedValueOnce([providerA]);
 
-    await callPrivate(service, "ensureScheduleRows");
+    await callPrivate(service, "ensureScheduleRows", DEFAULT_NETWORK);
 
     expect(jobScheduleRepositoryMock.deleteSchedulesForInactiveProviders).toHaveBeenCalledWith(
       [providerA.address],
-      "calibration",
+      DEFAULT_NETWORK,
     );
   });
 
   it("does not delete schedule rows when no active providers exist", async () => {
     storageProviderRepositoryMock.find.mockResolvedValueOnce([]);
 
-    await callPrivate(service, "ensureScheduleRows");
+    await callPrivate(service, "ensureScheduleRows", DEFAULT_NETWORK);
 
     expect(jobScheduleRepositoryMock.deleteSchedulesForInactiveProviders).not.toHaveBeenCalled();
   });
@@ -766,7 +772,9 @@ describe("JobsService schedule rows", () => {
   it("uses approved-only filter when configured", async () => {
     baseConfigValues = {
       ...baseConfigValues,
-      blockchain: { useOnlyApprovedProviders: true, network: "calibration" } as IConfig["blockchain"],
+      networks: {
+        calibration: { ...(baseConfigValues.networks as any).calibration, useOnlyApprovedProviders: true },
+      } as unknown as IConfig["networks"],
     };
     configService = {
       get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
@@ -775,30 +783,30 @@ describe("JobsService schedule rows", () => {
     service = buildService({ configService });
 
     storageProviderRepositoryMock.find.mockResolvedValueOnce([]);
-    await callPrivate(service, "ensureScheduleRows");
+    await callPrivate(service, "ensureScheduleRows", DEFAULT_NETWORK);
 
     expect(storageProviderRepositoryMock.find).toHaveBeenCalledWith({
       select: { address: true, providerId: true },
-      where: { isActive: true, isApproved: true, network: "calibration" },
+      where: { isActive: true, isApproved: true, network: DEFAULT_NETWORK },
     });
   });
 
   it("always inserts global data_retention_poll and providers_refresh schedules", async () => {
     storageProviderRepositoryMock.find.mockResolvedValueOnce([]);
 
-    await callPrivate(service, "ensureScheduleRows");
+    await callPrivate(service, "ensureScheduleRows", DEFAULT_NETWORK);
 
     expect(jobScheduleRepositoryMock.upsertSchedule).toHaveBeenCalledWith(
       "providers_refresh",
       "",
-      "calibration",
+      DEFAULT_NETWORK,
       expect.any(Number),
       expect.any(Date),
     );
     expect(jobScheduleRepositoryMock.upsertSchedule).toHaveBeenCalledWith(
       "data_retention_poll",
       "",
-      "calibration",
+      DEFAULT_NETWORK,
       expect.any(Number),
       expect.any(Date),
     );
@@ -830,19 +838,19 @@ describe("JobsService schedule rows", () => {
         id: 1,
         job_type: "deal",
         sp_address: "0xaaa",
-        network: "calibration",
+        network: DEFAULT_NETWORK,
         interval_seconds: 1,
         next_run_at: "2024-01-01T00:00:00Z",
       },
     ]);
 
-    await callPrivate(service, "enqueueDueJobs");
+    await callPrivate(service, "enqueueDueJobs", DEFAULT_NETWORK);
 
     expect(send).toHaveBeenCalledTimes(3);
     for (const call of send.mock.calls) {
       expect(call[0]).toBe("sp.work");
-      expect(call[1]).toMatchObject({ jobType: "deal", spAddress: "0xaaa", network: "calibration" });
-      expect(call[2]).toMatchObject({ singletonKey: "calibration:0xaaa", retryLimit: 0 });
+      expect(call[1]).toMatchObject({ jobType: "deal", spAddress: "0xaaa", network: DEFAULT_NETWORK });
+      expect(call[2]).toMatchObject({ singletonKey: `${DEFAULT_NETWORK}:0xaaa`, retryLimit: 0 });
       expect(call[2]?.startAfter).toBeUndefined();
     }
 
@@ -866,12 +874,13 @@ describe("JobsService schedule rows", () => {
         id: 10,
         job_type: "providers_refresh",
         sp_address: "",
+        network: DEFAULT_NETWORK,
         interval_seconds: 1800,
         next_run_at: "2024-01-01T00:00:00Z",
       },
     ]);
 
-    await callPrivate(service, "enqueueDueJobs");
+    await callPrivate(service, "enqueueDueJobs", DEFAULT_NETWORK);
 
     // Should only enqueue once despite being 8 intervals overdue
     expect(send).toHaveBeenCalledTimes(1);
@@ -898,13 +907,13 @@ describe("JobsService schedule rows", () => {
         id: 11,
         job_type: "providers_refresh",
         sp_address: "",
-        network: "calibration",
+        network: DEFAULT_NETWORK,
         interval_seconds: 14400,
         next_run_at: "2024-01-01T00:00:00Z",
       },
     ]);
 
-    await callPrivate(service, "enqueueDueJobs");
+    await callPrivate(service, "enqueueDueJobs", DEFAULT_NETWORK);
 
     expect(send).toHaveBeenCalledTimes(1);
     expect(send.mock.calls[0][2]).toMatchObject({
@@ -916,11 +925,13 @@ describe("JobsService schedule rows", () => {
   it("global jobs are skipped during maintenance windows", async () => {
     baseConfigValues = {
       ...baseConfigValues,
-      scheduling: {
-        ...baseConfigValues.scheduling,
-        maintenanceWindowsUtc: ["03:00"],
-        maintenanceWindowMinutes: 60,
-      } as IConfig["scheduling"],
+      networks: {
+        calibration: {
+          ...baseConfigValues.networks?.calibration,
+          maintenanceWindowsUtc: ["03:00"],
+          maintenanceWindowMinutes: 60,
+        } as INetworkConfig,
+      } as INetworksConfig,
     };
     configService = {
       get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
@@ -939,13 +950,14 @@ describe("JobsService schedule rows", () => {
       {
         id: 20,
         job_type: "providers_refresh",
+        network: DEFAULT_NETWORK,
         sp_address: "",
         interval_seconds: 1800,
         next_run_at: "2024-01-01T03:00:00Z",
       },
     ]);
 
-    await callPrivate(service, "enqueueDueJobs");
+    await callPrivate(service, "enqueueDueJobs", DEFAULT_NETWORK);
 
     // Global job should not be enqueued during maintenance
     expect(send).not.toHaveBeenCalled();
@@ -959,11 +971,13 @@ describe("JobsService schedule rows", () => {
   it("defers jobs until maintenance window ends (same-day)", async () => {
     baseConfigValues = {
       ...baseConfigValues,
-      scheduling: {
-        ...baseConfigValues.scheduling,
-        maintenanceWindowsUtc: ["07:00"],
-        maintenanceWindowMinutes: 20,
-      } as IConfig["scheduling"],
+      networks: {
+        calibration: {
+          ...baseConfigValues.networks?.calibration,
+          maintenanceWindowsUtc: ["07:00"],
+          maintenanceWindowMinutes: 20,
+        } as INetworkConfig,
+      } as INetworksConfig,
     };
     configService = {
       get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
@@ -975,13 +989,13 @@ describe("JobsService schedule rows", () => {
     (service as unknown as { safeSend: typeof safeSend }).safeSend = safeSend;
 
     const now = new Date("2024-01-01T07:05:00Z");
-    const maintenance = callPrivate(service, "getMaintenanceWindowStatus", now) as any;
+    const maintenance = callPrivate(service, "getMaintenanceWindowStatus", now, DEFAULT_NETWORK) as any;
 
     await callPrivate(
       service,
       "deferJobForMaintenance",
       "deal",
-      { jobType: "deal", spAddress: "0xaaa", network: "calibration", intervalSeconds: 60 },
+      { jobType: "deal", spAddress: "0xaaa", network: DEFAULT_NETWORK, intervalSeconds: 60 },
       maintenance,
       now,
     );
@@ -990,7 +1004,7 @@ describe("JobsService schedule rows", () => {
     expect(safeSend).toHaveBeenCalledWith(
       "deal",
       "sp.work",
-      { jobType: "deal", spAddress: "0xaaa", network: "calibration", intervalSeconds: 60 },
+      { jobType: "deal", spAddress: "0xaaa", network: DEFAULT_NETWORK, intervalSeconds: 60 },
       { startAfter: expectedResumeAt },
     );
   });
@@ -998,11 +1012,13 @@ describe("JobsService schedule rows", () => {
   it("defers jobs until maintenance window ends (wraps midnight)", async () => {
     baseConfigValues = {
       ...baseConfigValues,
-      scheduling: {
-        ...baseConfigValues.scheduling,
-        maintenanceWindowsUtc: ["23:50"],
-        maintenanceWindowMinutes: 20,
-      } as IConfig["scheduling"],
+      networks: {
+        calibration: {
+          ...baseConfigValues.networks?.calibration,
+          maintenanceWindowsUtc: ["23:50"],
+          maintenanceWindowMinutes: 20,
+        } as INetworkConfig,
+      } as INetworksConfig,
     };
     configService = {
       get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
@@ -1014,13 +1030,13 @@ describe("JobsService schedule rows", () => {
     (service as unknown as { safeSend: typeof safeSend }).safeSend = safeSend;
 
     const now = new Date("2024-01-01T23:55:00Z");
-    const maintenance = callPrivate(service, "getMaintenanceWindowStatus", now) as any;
+    const maintenance = callPrivate(service, "getMaintenanceWindowStatus", now, DEFAULT_NETWORK) as any;
 
     await callPrivate(
       service,
       "deferJobForMaintenance",
       "retrieval",
-      { jobType: "retrieval", spAddress: "0xbbb", network: "calibration", intervalSeconds: 60 },
+      { jobType: "retrieval", spAddress: "0xbbb", network: DEFAULT_NETWORK, intervalSeconds: 60 },
       maintenance,
       now,
     );
@@ -1029,7 +1045,7 @@ describe("JobsService schedule rows", () => {
     expect(safeSend).toHaveBeenCalledWith(
       "retrieval",
       "sp.work",
-      { jobType: "retrieval", spAddress: "0xbbb", network: "calibration", intervalSeconds: 60 },
+      { jobType: "retrieval", spAddress: "0xbbb", network: DEFAULT_NETWORK, intervalSeconds: 60 },
       { startAfter: expectedResumeAt },
     );
   });
@@ -1040,11 +1056,13 @@ describe("JobsService schedule rows", () => {
 
     baseConfigValues = {
       ...baseConfigValues,
-      scheduling: {
-        ...baseConfigValues.scheduling,
-        maintenanceWindowsUtc: ["07:00"],
-        maintenanceWindowMinutes: 20,
-      } as IConfig["scheduling"],
+      networks: {
+        calibration: {
+          ...baseConfigValues.networks?.calibration,
+          maintenanceWindowsUtc: ["07:00"],
+          maintenanceWindowMinutes: 20,
+        } as INetworkConfig,
+      } as INetworksConfig,
     };
     configService = {
       get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
@@ -1066,7 +1084,7 @@ describe("JobsService schedule rows", () => {
 
     await callPrivate(service, "handleSampledRetrievalJob", {
       id: "job-sampled-maintenance",
-      data: { jobType: "retrieval_sampled", spAddress: "0xaaa", intervalSeconds: 60 },
+      data: { jobType: "retrieval_sampled", spAddress: "0xaaa", network: DEFAULT_NETWORK, intervalSeconds: 60 },
     });
 
     const expectedResumeAt = new Date("2024-01-01T07:20:00Z");
@@ -1074,7 +1092,7 @@ describe("JobsService schedule rows", () => {
     expect(safeSend).toHaveBeenCalledWith(
       "retrieval_sampled",
       SP_WORK_QUEUE,
-      { jobType: "retrieval_sampled", spAddress: "0xaaa", intervalSeconds: 60 },
+      { jobType: "retrieval_sampled", spAddress: "0xaaa", network: DEFAULT_NETWORK, intervalSeconds: 60 },
       { startAfter: expectedResumeAt },
     );
   });
@@ -1100,7 +1118,7 @@ describe("JobsService schedule rows", () => {
 
     await callPrivate(service, "handleDealJob", {
       id: "job-deal-1",
-      data: { jobType: "deal", spAddress: "0xaaa", network: "calibration", intervalSeconds: 60 },
+      data: { jobType: "deal", spAddress: "0xaaa", network: DEFAULT_NETWORK, intervalSeconds: 60 },
     });
 
     expect(dealService.createDealForProvider).toHaveBeenCalledTimes(1);
@@ -1140,7 +1158,7 @@ describe("JobsService schedule rows", () => {
 
     await callPrivate(service, "handleDealJob", {
       id: "job-deal-no-quota-gate",
-      data: { jobType: "deal", spAddress: "0xaaa", network: "calibration", intervalSeconds: 60 },
+      data: { jobType: "deal", spAddress: "0xaaa", network: DEFAULT_NETWORK, intervalSeconds: 60 },
     });
 
     expect(pieceCleanupService.cleanupPiecesForProvider).not.toHaveBeenCalled();
@@ -1172,14 +1190,14 @@ describe("JobsService schedule rows", () => {
 
     await callPrivate(service, "handleDealJob", {
       id: "job-deal-terminated",
-      data: { jobType: "deal", spAddress: "0xaaa", network: "calibration", intervalSeconds: 60 },
+      data: { jobType: "deal", spAddress: "0xaaa", network: DEFAULT_NETWORK, intervalSeconds: 60 },
     });
 
     expect(dealService.createDealForProvider).toHaveBeenCalledTimes(1);
     expect(completedCounter.inc).toHaveBeenCalledWith({
       job_type: "deal",
       handler_result: "error",
-      network: "calibration",
+      network: DEFAULT_NETWORK,
     });
   });
 
@@ -1205,13 +1223,14 @@ describe("JobsService schedule rows", () => {
 
     await callPrivate(service, "handleDataSetCreationJob", {
       id: "job-ds-1",
-      data: { jobType: "data_set_creation", spAddress: "0xaaa", network: "calibration", intervalSeconds: 3600 },
+      data: { jobType: "data_set_creation", spAddress: "0xaaa", network: DEFAULT_NETWORK, intervalSeconds: 3600 },
     });
 
     expect(dealService.createDataSetWithPiece).toHaveBeenCalledTimes(1);
     expect(dealService.createDataSetWithPiece).toHaveBeenCalledWith(
       "0xaaa",
       { withIpniIndexing: "" },
+      DEFAULT_NETWORK,
       expect.any(AbortSignal),
     );
   });
@@ -1222,7 +1241,9 @@ describe("JobsService schedule rows", () => {
 
     baseConfigValues = {
       ...baseConfigValues,
-      blockchain: { ...baseConfigValues.blockchain, minNumDataSetsForChecks: 3 } as IConfig["blockchain"],
+      networks: {
+        calibration: { ...(baseConfigValues.networks as any).calibration, minNumDataSetsForChecks: 3 },
+      } as unknown as IConfig["networks"],
     };
     configService = {
       get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
@@ -1247,13 +1268,14 @@ describe("JobsService schedule rows", () => {
 
     await callPrivate(service, "handleDataSetCreationJob", {
       id: "job-ds-2",
-      data: { jobType: "data_set_creation", spAddress: "0xaaa", network: "calibration", intervalSeconds: 3600 },
+      data: { jobType: "data_set_creation", spAddress: "0xaaa", network: DEFAULT_NETWORK, intervalSeconds: 3600 },
     });
 
     expect(dealService.createDataSetWithPiece).not.toHaveBeenCalled();
     expect(dealService.getDataSetProvisioningStatus).toHaveBeenCalledWith(
       "0xaaa",
       { dealbotDataSetVersion: "v1" },
+      DEFAULT_NETWORK,
       expect.any(AbortSignal),
     );
   });
@@ -1263,7 +1285,9 @@ describe("JobsService schedule rows", () => {
     vi.setSystemTime(new Date("2024-01-01T12:00:00Z"));
     baseConfigValues = {
       ...baseConfigValues,
-      blockchain: { ...baseConfigValues.blockchain, minNumDataSetsForChecks: 3 } as IConfig["blockchain"],
+      networks: {
+        calibration: { ...(baseConfigValues.networks as any).calibration, minNumDataSetsForChecks: 3 },
+      } as unknown as IConfig["networks"],
     };
     configService = {
       get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
@@ -1288,7 +1312,7 @@ describe("JobsService schedule rows", () => {
 
     await callPrivate(service, "handleDataSetCreationJob", {
       id: "job-ds-3",
-      data: { jobType: "data_set_creation", spAddress: "0xaaa", network: "calibration", intervalSeconds: 3600 },
+      data: { jobType: "data_set_creation", spAddress: "0xaaa", network: DEFAULT_NETWORK, intervalSeconds: 3600 },
     });
 
     // Only the first missing data set (index 0) should be created
@@ -1296,6 +1320,7 @@ describe("JobsService schedule rows", () => {
     expect(dealService.createDataSetWithPiece).toHaveBeenCalledWith(
       "0xaaa",
       { dealbotDataSetVersion: "v1" },
+      DEFAULT_NETWORK,
       expect.any(AbortSignal),
     );
   });
@@ -1305,7 +1330,9 @@ describe("JobsService schedule rows", () => {
     vi.setSystemTime(new Date("2024-01-01T12:00:00Z"));
     baseConfigValues = {
       ...baseConfigValues,
-      blockchain: { ...baseConfigValues.blockchain, minNumDataSetsForChecks: 3 } as IConfig["blockchain"],
+      networks: {
+        calibration: { ...(baseConfigValues.networks as any).calibration, minNumDataSetsForChecks: 3 },
+      } as unknown as IConfig["networks"],
     };
     configService = {
       get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
@@ -1333,7 +1360,7 @@ describe("JobsService schedule rows", () => {
 
     await callPrivate(service, "handleDataSetCreationJob", {
       id: "job-ds-3b",
-      data: { jobType: "data_set_creation", spAddress: "0xaaa", network: "calibration", intervalSeconds: 3600 },
+      data: { jobType: "data_set_creation", spAddress: "0xaaa", network: DEFAULT_NETWORK, intervalSeconds: 3600 },
     });
 
     // Should skip index 0 (exists) and create only index 1
@@ -1341,6 +1368,7 @@ describe("JobsService schedule rows", () => {
     expect(dealService.createDataSetWithPiece).toHaveBeenCalledWith(
       "0xaaa",
       { dealbotDataSetVersion: "v1", dealbotDS: "1" },
+      DEFAULT_NETWORK,
       expect.any(AbortSignal),
     );
   });
@@ -1364,9 +1392,16 @@ describe("JobsService schedule rows", () => {
       provisionNextMissingDataSet(
         { dealService, logger },
         "0xaaa",
+        DEFAULT_NETWORK,
         5,
         {},
-        { providerAddress: "0xaaa", jobId: "job-ds-4", providerId: 1n, providerName: "test-provider" },
+        {
+          providerAddress: "0xaaa",
+          jobId: "job-ds-4",
+          providerId: 1n,
+          providerName: "test-provider",
+          network: DEFAULT_NETWORK,
+        },
         controller.signal,
       ),
     ).rejects.toThrow("Job timed out");
@@ -1390,12 +1425,13 @@ describe("JobsService schedule rows", () => {
     await provisionNextMissingDataSet(
       { dealService, logger },
       "0xaaa",
+      DEFAULT_NETWORK,
       3,
       {},
-      { providerAddress: "0xaaa", jobId: "job-ds-term", providerId: 1n, providerName: "sp" },
+      { providerAddress: "0xaaa", jobId: "job-ds-term", providerId: 1n, providerName: "sp", network: DEFAULT_NETWORK },
     );
 
-    expect(dealService.repairTerminatedDataSet).toHaveBeenCalledWith("0xaaa", 7n, undefined);
+    expect(dealService.repairTerminatedDataSet).toHaveBeenCalledWith("0xaaa", 7n, DEFAULT_NETWORK, undefined);
     expect(dealService.createDataSetWithPiece).not.toHaveBeenCalled();
   });
 
@@ -1405,7 +1441,9 @@ describe("JobsService schedule rows", () => {
 
     baseConfigValues = {
       ...baseConfigValues,
-      jobs: { ...baseConfigValues.jobs, dataSetLifecycleCheckEnabled: false } as IConfig["jobs"],
+      networks: {
+        calibration: { ...(baseConfigValues.networks as any).calibration, dataSetLifecycleCheckEnabled: false },
+      } as unknown as IConfig["networks"],
     };
     configService = {
       get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
@@ -1422,7 +1460,12 @@ describe("JobsService schedule rows", () => {
 
     await callPrivate(service, "handleDataSetLifecycleCheckJob", {
       id: "job-lc-1",
-      data: { jobType: "data_set_lifecycle_check", spAddress: "0xaaa", intervalSeconds: 3600 },
+      data: {
+        jobType: "data_set_lifecycle_check",
+        spAddress: "0xaaa",
+        network: DEFAULT_NETWORK,
+        intervalSeconds: 3600,
+      },
     });
 
     expect(dataSetLifecycleService.runLifecycleCheck).not.toHaveBeenCalled();
@@ -1434,7 +1477,9 @@ describe("JobsService schedule rows", () => {
 
     baseConfigValues = {
       ...baseConfigValues,
-      jobs: { ...baseConfigValues.jobs, dataSetLifecycleCheckEnabled: true } as IConfig["jobs"],
+      networks: {
+        calibration: { ...(baseConfigValues.networks as any).calibration, dataSetLifecycleCheckEnabled: true },
+      } as unknown as IConfig["networks"],
     };
     configService = {
       get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
@@ -1451,17 +1496,23 @@ describe("JobsService schedule rows", () => {
 
     await callPrivate(service, "handleDataSetLifecycleCheckJob", {
       id: "job-lc-2",
-      data: { jobType: "data_set_lifecycle_check", spAddress: "0xaaa", intervalSeconds: 3600 },
+      data: {
+        jobType: "data_set_lifecycle_check",
+        spAddress: "0xaaa",
+        network: DEFAULT_NETWORK,
+        intervalSeconds: 3600,
+      },
     });
 
     expect(dataSetLifecycleService.runLifecycleCheck).toHaveBeenCalledWith(
       "0xaaa",
+      DEFAULT_NETWORK,
       expect.objectContaining({ dealbotLifecycleCheck: expect.any(String) }),
       expect.any(AbortSignal),
       expect.objectContaining({ jobId: expect.any(String) }),
     );
     // The fixed marker key is the only metadata; no base/slot metadata is attached.
-    const metadataArg = (dataSetLifecycleService.runLifecycleCheck.mock.calls[0] as unknown[])[1] as Record<
+    const metadataArg = (dataSetLifecycleService.runLifecycleCheck.mock.calls[0] as unknown[])[2] as Record<
       string,
       string
     >;
@@ -1471,7 +1522,9 @@ describe("JobsService schedule rows", () => {
   it("creates data_set_lifecycle_check schedules when enabled", async () => {
     baseConfigValues = {
       ...baseConfigValues,
-      jobs: { ...baseConfigValues.jobs, dataSetLifecycleCheckEnabled: true } as IConfig["jobs"],
+      networks: {
+        calibration: { ...(baseConfigValues.networks as any).calibration, dataSetLifecycleCheckEnabled: true },
+      } as unknown as IConfig["networks"],
     };
     configService = {
       get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
@@ -1480,7 +1533,7 @@ describe("JobsService schedule rows", () => {
 
     storageProviderRepositoryMock.find.mockResolvedValueOnce([{ address: "0xaaa" }]);
 
-    await callPrivate(service, "ensureScheduleRows");
+    await callPrivate(service, "ensureScheduleRows", DEFAULT_NETWORK);
 
     const lifecycleUpserts = jobScheduleRepositoryMock.upsertSchedule.mock.calls.filter(
       (call) => call[0] === "data_set_lifecycle_check",
@@ -1494,7 +1547,7 @@ describe("JobsService schedule rows", () => {
     // base config has dataSetLifecycleCheckEnabled=false
     storageProviderRepositoryMock.find.mockResolvedValueOnce([{ address: "0xaaa" }]);
 
-    await callPrivate(service, "ensureScheduleRows");
+    await callPrivate(service, "ensureScheduleRows", DEFAULT_NETWORK);
 
     const lifecycleUpserts = jobScheduleRepositoryMock.upsertSchedule.mock.calls.filter(
       (call) => call[0] === "data_set_lifecycle_check",
@@ -1515,33 +1568,41 @@ describe("JobsService schedule rows", () => {
     const activeGauge = metricsMocks.storageProvidersActive as unknown as { set: ReturnType<typeof vi.fn> };
     const testedGauge = metricsMocks.storageProvidersTested as unknown as { set: ReturnType<typeof vi.fn> };
 
-    await callPrivate(service, "updateStorageProviderGauges");
+    await callPrivate(service, "updateStorageProviderGauges", DEFAULT_NETWORK);
 
-    expect(activeGauge.set).toHaveBeenCalledWith({ status: "active", network: "calibration" }, 7);
-    expect(activeGauge.set).toHaveBeenCalledWith({ status: "inactive", network: "calibration" }, 3);
-    expect(testedGauge.set).toHaveBeenCalledWith({ network: "calibration" }, 7);
+    expect(activeGauge.set).toHaveBeenCalledWith({ status: "active", network: DEFAULT_NETWORK }, 7);
+    expect(activeGauge.set).toHaveBeenCalledWith({ status: "inactive", network: DEFAULT_NETWORK }, 3);
+    expect(testedGauge.set).toHaveBeenCalledWith({ network: DEFAULT_NETWORK }, 7);
   });
 
   it("filters tested providers by isApproved when useOnlyApprovedProviders is enabled", async () => {
-    baseConfigValues.blockchain = {
-      useOnlyApprovedProviders: true,
-      minNumDataSetsForChecks: 1,
-    } as IConfig["blockchain"];
+    baseConfigValues = {
+      ...baseConfigValues,
+      networks: {
+        calibration: { ...(baseConfigValues.networks as any).calibration, useOnlyApprovedProviders: true },
+      } as unknown as IConfig["networks"],
+    };
     service = buildService();
 
     storageProviderRepositoryMock.count.mockResolvedValueOnce(10).mockResolvedValueOnce(7).mockResolvedValueOnce(5); // testedCount (only approved)
 
-    await callPrivate(service, "updateStorageProviderGauges");
+    await callPrivate(service, "updateStorageProviderGauges", DEFAULT_NETWORK);
 
     expect(storageProviderRepositoryMock.count).toHaveBeenNthCalledWith(3, {
-      where: { isActive: true, isApproved: true },
+      where: { isActive: true, isApproved: true, network: DEFAULT_NETWORK },
     });
   });
 
   it("subtracts globally blocked providers from tested gauge when global blocklist is non-empty", async () => {
-    baseConfigValues.spBlocklists = {
-      ids: new Set<string>(),
-      addresses: new Set(["0xblocked"]),
+    baseConfigValues = {
+      ...baseConfigValues,
+      networks: {
+        calibration: {
+          ...(baseConfigValues.networks as any).calibration,
+          blockedSpIds: new Set<string>(),
+          blockedSpAddresses: new Set(["0xblocked"]),
+        },
+      } as unknown as IConfig["networks"],
     };
     configService = {
       get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
@@ -1561,9 +1622,9 @@ describe("JobsService schedule rows", () => {
 
     const testedGauge = metricsMocks.storageProvidersTested as unknown as { set: ReturnType<typeof vi.fn> };
 
-    await callPrivate(service, "updateStorageProviderGauges");
+    await callPrivate(service, "updateStorageProviderGauges", DEFAULT_NETWORK);
 
-    expect(testedGauge.set).toHaveBeenCalledWith({ network: "calibration" }, 2); // 3 providers minus 1 globally blocked
+    expect(testedGauge.set).toHaveBeenCalledWith({ network: DEFAULT_NETWORK }, 2); // 3 providers minus 1 globally blocked
   });
 
   it("catches storage provider gauge errors without rethrowing", async () => {
@@ -1575,10 +1636,19 @@ describe("JobsService schedule rows", () => {
     const providerA = { address: "0xaaa", providerId: 1n };
     storageProviderRepositoryMock.find.mockResolvedValueOnce([providerA]);
 
-    baseConfigValues.spBlocklists = { ids: new Set(["1"]), addresses: new Set() };
+    baseConfigValues = {
+      ...baseConfigValues,
+      networks: {
+        calibration: {
+          ...(baseConfigValues.networks as any).calibration,
+          blockedSpIds: new Set(["1"]),
+          blockedSpAddresses: new Set(),
+        },
+      } as unknown as IConfig["networks"],
+    };
     service = buildService();
 
-    await callPrivate(service, "ensureScheduleRows");
+    await callPrivate(service, "ensureScheduleRows", DEFAULT_NETWORK);
 
     const upsertCalls = jobScheduleRepositoryMock.upsertSchedule.mock.calls;
     const jobTypes = upsertCalls.filter((c) => c[1] === providerA.address).map((c) => c[0]);
@@ -1587,14 +1657,23 @@ describe("JobsService schedule rows", () => {
     expect(jobTypes).not.toContain("retrieval");
     // Blocked provider is excluded from the active-address list passed to cleanup,
     // so its existing schedule rows will be deleted.
-    expect(jobScheduleRepositoryMock.deleteSchedulesForInactiveProviders).toHaveBeenCalledWith([], "calibration");
+    expect(jobScheduleRepositoryMock.deleteSchedulesForInactiveProviders).toHaveBeenCalledWith([], DEFAULT_NETWORK);
   });
 
   it("deal job is skipped at runtime when provider is blocked", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2024-01-01T12:00:00Z"));
 
-    baseConfigValues.spBlocklists = { ids: new Set(["1"]), addresses: new Set() };
+    baseConfigValues = {
+      ...baseConfigValues,
+      networks: {
+        calibration: {
+          ...(baseConfigValues.networks as any).calibration,
+          blockedSpIds: new Set(["1"]),
+          blockedSpAddresses: new Set(),
+        },
+      } as unknown as IConfig["networks"],
+    };
 
     const dealService = {
       createDealForProvider: vi.fn(),
@@ -1613,7 +1692,7 @@ describe("JobsService schedule rows", () => {
 
     await callPrivate(service, "handleDealJob", {
       id: "job-blocked-deal",
-      data: { jobType: "deal", spAddress: "0xaaa", network: "calibration", intervalSeconds: 60 },
+      data: { jobType: "deal", spAddress: "0xaaa", network: DEFAULT_NETWORK, intervalSeconds: 60 },
     });
 
     expect(dealService.createDealForProvider).not.toHaveBeenCalled();
@@ -1623,7 +1702,16 @@ describe("JobsService schedule rows", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2024-01-01T12:00:00Z"));
 
-    baseConfigValues.spBlocklists = { ids: new Set(["2"]), addresses: new Set() };
+    baseConfigValues = {
+      ...baseConfigValues,
+      networks: {
+        calibration: {
+          ...(baseConfigValues.networks as any).calibration,
+          blockedSpIds: new Set(["2"]),
+          blockedSpAddresses: new Set(),
+        },
+      } as unknown as IConfig["networks"],
+    };
 
     const retrievalService = { performRandomRetrievalForProvider: vi.fn() };
     const walletSdkService = {
@@ -1637,7 +1725,7 @@ describe("JobsService schedule rows", () => {
 
     await callPrivate(service, "handleRetrievalJob", {
       id: "job-blocked-retrieval",
-      data: { jobType: "retrieval", spAddress: "0xaaa", network: "calibration", intervalSeconds: 60 },
+      data: { jobType: "retrieval", spAddress: "0xaaa", network: DEFAULT_NETWORK, intervalSeconds: 60 },
     });
 
     expect(retrievalService.performRandomRetrievalForProvider).not.toHaveBeenCalled();
@@ -1647,7 +1735,16 @@ describe("JobsService schedule rows", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2024-01-01T12:00:00Z"));
 
-    baseConfigValues.spBlocklists = { ids: new Set(["3"]), addresses: new Set() };
+    baseConfigValues = {
+      ...baseConfigValues,
+      networks: {
+        calibration: {
+          ...(baseConfigValues.networks as any).calibration,
+          blockedSpIds: new Set(["3"]),
+          blockedSpAddresses: new Set(),
+        },
+      } as unknown as IConfig["networks"],
+    };
 
     const dealService = {
       getBaseDataSetMetadata: vi.fn(() => ({})),
@@ -1666,7 +1763,7 @@ describe("JobsService schedule rows", () => {
 
     await callPrivate(service, "handleDataSetCreationJob", {
       id: "job-blocked-ds",
-      data: { jobType: "data_set_creation", spAddress: "0xaaa", network: "calibration", intervalSeconds: 3600 },
+      data: { jobType: "data_set_creation", spAddress: "0xaaa", network: DEFAULT_NETWORK, intervalSeconds: 3600 },
     });
 
     expect(dealService.createDataSetWithPiece).not.toHaveBeenCalled();
@@ -1676,7 +1773,16 @@ describe("JobsService schedule rows", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2024-01-01T12:00:00Z"));
 
-    baseConfigValues.spBlocklists = { ids: new Set(["4"]), addresses: new Set() };
+    baseConfigValues = {
+      ...baseConfigValues,
+      networks: {
+        calibration: {
+          ...(baseConfigValues.networks as any).calibration,
+          blockedSpIds: new Set(["4"]),
+          blockedSpAddresses: new Set(),
+        },
+      } as unknown as IConfig["networks"],
+    };
 
     const sampledRetrievalService = { performForProvider: vi.fn() };
     const walletSdkService = {
@@ -1690,7 +1796,7 @@ describe("JobsService schedule rows", () => {
 
     await callPrivate(service, "handleSampledRetrievalJob", {
       id: "job-blocked-sampled",
-      data: { jobType: "retrieval_sampled", spAddress: "0xaaa", intervalSeconds: 60 },
+      data: { jobType: "retrieval_sampled", spAddress: "0xaaa", network: DEFAULT_NETWORK, intervalSeconds: 60 },
     });
 
     expect(sampledRetrievalService.performForProvider).not.toHaveBeenCalled();
@@ -1700,7 +1806,16 @@ describe("JobsService schedule rows", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2024-01-01T12:00:00Z"));
 
-    baseConfigValues.spBlocklists = { ids: new Set(), addresses: new Set(["0xaaa"]) };
+    baseConfigValues = {
+      ...baseConfigValues,
+      networks: {
+        calibration: {
+          ...(baseConfigValues.networks as any).calibration,
+          blockedSpIds: new Set(),
+          blockedSpAddresses: new Set(["0xaaa"]),
+        },
+      } as unknown as IConfig["networks"],
+    };
 
     const completedCounter = metricsMocks.jobsCompletedCounter as unknown as { inc: ReturnType<typeof vi.fn> };
     const dealService = {
@@ -1759,7 +1874,7 @@ describe("JobsService schedule rows", () => {
         data: {
           jobType: testCase.jobType,
           spAddress: "0xaaa",
-          network: "calibration",
+          network: DEFAULT_NETWORK,
           intervalSeconds: testCase.intervalSeconds,
         },
       });
@@ -1768,7 +1883,7 @@ describe("JobsService schedule rows", () => {
       expect(completedCounter.inc).toHaveBeenCalledWith({
         job_type: testCase.jobType,
         handler_result: "success",
-        network: "calibration",
+        network: DEFAULT_NETWORK,
       });
     }
 
@@ -1807,20 +1922,17 @@ describe("JobsService schedule rows", () => {
 
     it("picks the longest timeout across all job types, including pullCheck under pullPiece", async () => {
       vi.useFakeTimers();
-      const overriddenJobs = {
-        ...baseConfigValues.jobs,
-        dealJobTimeoutSeconds: 120,
-        retrievalJobTimeoutSeconds: 60,
-        dataSetCreationJobTimeoutSeconds: 120,
-      } as IConfig["jobs"];
-      const overriddenPullPiece = {
-        ...baseConfigValues.pullPiece,
-        pullCheckJobTimeoutSeconds: 600,
-      } as IConfig["pullPiece"];
       baseConfigValues = {
         ...baseConfigValues,
-        jobs: overriddenJobs,
-        pullPiece: overriddenPullPiece,
+        networks: {
+          calibration: {
+            ...(baseConfigValues.networks as any).calibration,
+            dealJobTimeoutSeconds: 120,
+            retrievalJobTimeoutSeconds: 60,
+            dataSetCreationJobTimeoutSeconds: 120,
+            pullCheckJobTimeoutSeconds: 600,
+          },
+        } as unknown as IConfig["networks"],
       };
       configService = {
         get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
