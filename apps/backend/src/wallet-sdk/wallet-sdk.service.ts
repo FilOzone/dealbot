@@ -365,6 +365,16 @@ export class WalletSdkService implements OnModuleInit {
   }
 
   /**
+   * Returns the initialized Synapse for a network, or `undefined` when the
+   * network has no initialized state (chain integration disabled, or the network
+   * isn't active). Unlike {@link getSynapse}, this never throws, so callers can
+   * fall back to on-demand creation.
+   */
+  tryGetSynapse(network: Network): Synapse | undefined {
+    return this.networkStates.get(network)?.synapse;
+  }
+
+  /**
    * Ensure wallet has sufficient allowances for operations.
    * Skipped in session key mode, deposits and operator approvals must be
    * done separately via the Safe multisig UI.

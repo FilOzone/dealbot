@@ -1,5 +1,28 @@
 # Changelog
 
+## [1.10.0](https://github.com/FilOzone/dealbot/compare/backend-v1.9.0...backend-v1.10.0) (2026-06-26)
+
+
+### Features
+
+* anon piece selection and retrieval ([#487](https://github.com/FilOzone/dealbot/issues/487)) ([2452e7d](https://github.com/FilOzone/dealbot/commit/2452e7deeb177ff6e94383386458f2a914ebf679))
+
+
+### Bug Fixes
+
+* **retrieval-anon:** cap in-memory download size to prevent OOM ([#615](https://github.com/FilOzone/dealbot/issues/615)) ([7b2ffd4](https://github.com/FilOzone/dealbot/commit/7b2ffd40ddbe3db18741f60c198436b179be03d3))
+* **sampled:** record empty candidate pool as skipped check ([#614](https://github.com/FilOzone/dealbot/issues/614)) ([8c1e713](https://github.com/FilOzone/dealbot/commit/8c1e713233757a4e21509818f25c928de7a02a95))
+
+
+### Miscellaneous
+
+* drop derived throughput_bps column ([#613](https://github.com/FilOzone/dealbot/issues/613)) ([61e08b6](https://github.com/FilOzone/dealbot/commit/61e08b6d15d920de35a372b82671c7de56dc5eb0))
+* migrate dataset termination to provider-relayed flow ([#602](https://github.com/FilOzone/dealbot/issues/602)) ([4462b76](https://github.com/FilOzone/dealbot/commit/4462b768c2d3e6ccbbe2bc11fdfa335571227f05))
+* migrate to synapse-core/piece namespace API ([#620](https://github.com/FilOzone/dealbot/issues/620)) ([9606575](https://github.com/FilOzone/dealbot/commit/9606575c6ade3fd8b9c693f91742b6d57313f239))
+* rename anon-retrieval -&gt; sampled-retrieval ([e4786a2](https://github.com/FilOzone/dealbot/commit/e4786a29fcaf9ee2015e7f439f4d15008f7e1c92))
+* rename anon-retrieval to sampled-retrieval ([#612](https://github.com/FilOzone/dealbot/issues/612)) ([e4786a2](https://github.com/FilOzone/dealbot/commit/e4786a29fcaf9ee2015e7f439f4d15008f7e1c92))
+* **sampled-retrieval:** import RetrievalStatus type for test suite ([#622](https://github.com/FilOzone/dealbot/issues/622)) ([ed7521a](https://github.com/FilOzone/dealbot/commit/ed7521ae6842fa469867202bf007e868b56cace4))
+
 ## [1.9.0](https://github.com/FilOzone/dealbot/compare/backend-v1.8.0...backend-v1.9.0) (2026-06-16)
 
 

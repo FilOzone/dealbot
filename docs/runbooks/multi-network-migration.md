@@ -8,8 +8,10 @@ or two cooperating instances — can safely operate on multiple networks
 (e.g. `mainnet` and `calibration`) without rows colliding under shared keys.
 
 > Audience: operators upgrading an existing single-network deployment. Fresh
-> deployments only need to set `NETWORK` (or `DEALBOT_LEGACY_NETWORK_BACKFILL`)
-> to a supported value before first start; the migration runs automatically.
+> deployments must set `NETWORK` regardless of this migration — the backend
+> config (`app.config.ts`) marks it required — and the migration falls back to
+> that same value, so no separate `DEALBOT_LEGACY_NETWORK_BACKFILL` is needed
+> for a first start; the migration runs automatically.
 
 ## What the migration changes
 

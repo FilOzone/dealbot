@@ -232,6 +232,9 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
           cfg.dataSetCreationJobTimeoutSeconds,
           cfg.dataSetLifecycleCheckJobTimeoutSeconds,
           cfg.pullCheckJobTimeoutSeconds,
+          // piece_cleanup runs on the same SP_WORK_QUEUE with its own abort
+          // bound to this timeout; include it so drain doesn't force-fail it.
+          cfg.maxPieceCleanupRuntimeSeconds,
         );
 
         if (maxNetworkTimeout > longestJobTimeoutSec) {
@@ -973,7 +976,6 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       } else {
         testedCount = await this.storageProviderRepository.count({ where: testedWhere });
       }
-
       this.storageProvidersTested.set({ network }, testedCount);
     } catch (error) {
       this.logger.warn({

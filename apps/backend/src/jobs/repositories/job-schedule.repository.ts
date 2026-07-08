@@ -87,7 +87,7 @@ export class JobScheduleRepository {
           DELETE FROM job_schedule_state
           WHERE job_type IN ('deal', 'retrieval', 'retrieval_sampled', 'data_set_creation', 'data_set_lifecycle_check', 'piece_cleanup', 'pull_check')
             AND sp_address <> ''
-            AND network::text = $1
+            AND network = $1::network_enum
           RETURNING sp_address
           `,
           [network],
@@ -100,7 +100,7 @@ export class JobScheduleRepository {
         DELETE FROM job_schedule_state
         WHERE job_type IN ('deal', 'retrieval', 'retrieval_sampled', 'data_set_creation', 'data_set_lifecycle_check', 'piece_cleanup', 'pull_check')
           AND sp_address <> ''
-          AND network::text = $1
+          AND network = $1::network_enum
           AND sp_address <> ALL($2::text[])
         RETURNING sp_address
         `,
@@ -135,7 +135,7 @@ export class JobScheduleRepository {
       DELETE FROM job_schedule_state
       WHERE job_type = $1
         AND sp_address <> ''
-        AND network::text = $2
+        AND network = $2::network_enum
       `,
       [jobType, network],
     );
@@ -153,7 +153,7 @@ export class JobScheduleRepository {
       SELECT job_type, COUNT(*)::int AS count
       FROM job_schedule_state
       WHERE paused = true
-        AND ($1::text IS NULL OR network::text = $1)
+        AND ($1::network_enum IS NULL OR network = $1::network_enum)
       GROUP BY job_type
       `,
       [network ?? null],
@@ -178,7 +178,7 @@ export class JobScheduleRepository {
       FROM job_schedule_state
       WHERE paused = false
         AND next_run_at <= $1
-        AND ($2::text IS NULL OR network::text = $2)
+        AND ($2::network_enum IS NULL OR network = $2::network_enum)
       ORDER BY next_run_at ASC
       FOR UPDATE SKIP LOCKED
       `,
