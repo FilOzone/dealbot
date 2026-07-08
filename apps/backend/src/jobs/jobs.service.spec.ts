@@ -1400,6 +1400,9 @@ describe("JobsService schedule rows", () => {
   });
 
   it("data_set_lifecycle_check job skips when disabled", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2024-01-01T12:00:00Z"));
+
     baseConfigValues = {
       ...baseConfigValues,
       jobs: { ...baseConfigValues.jobs, dataSetLifecycleCheckEnabled: false } as IConfig["jobs"],
@@ -1426,6 +1429,9 @@ describe("JobsService schedule rows", () => {
   });
 
   it("data_set_lifecycle_check job creates and terminates a throwaway data set when enabled", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2024-01-01T12:00:00Z"));
+
     baseConfigValues = {
       ...baseConfigValues,
       jobs: { ...baseConfigValues.jobs, dataSetLifecycleCheckEnabled: true } as IConfig["jobs"],
