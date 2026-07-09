@@ -19,12 +19,7 @@
  */
 
 import { calibration, mainnet } from "@filoz/synapse-core/chains";
-import {
-  DefaultFwssPermissions,
-  loginCall,
-  PermissionNames,
-  TerminateServicePermission,
-} from "@filoz/synapse-core/session-key";
+import { DefaultFwssPermissions, loginCall, PermissionNames } from "@filoz/synapse-core/session-key";
 import { decodeFunctionData, encodeFunctionData } from "viem";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 
@@ -43,15 +38,12 @@ const chain = networkName === "mainnet" ? mainnet : calibration;
 const sessionAccount = privateKeyToAccount(sessionPrivateKey);
 const expiresAt = BigInt(Math.floor(Date.now() / 1000) + expiryDays * 24 * 60 * 60);
 const expiryDate = new Date(Number(expiresAt) * 1000);
-// Register the current default FWSS permissions, plus TerminateService for compatibility with
-// filecoin-pin/Synapse versions that require it during session-key initialization.
-const DealBotFwssPermissions = Array.from(new Set([...DefaultFwssPermissions, TerminateServicePermission]));
 
 // Use the SDK's loginCall to get the exact ABI and args
 const call = loginCall({
   chain,
   address: sessionAccount.address,
-  permissions: DealBotFwssPermissions,
+  permissions: DefaultFwssPermissions,
   expiresAt,
   origin: "dealbot",
 });
@@ -78,7 +70,7 @@ console.log(`Expiry:             ${expiryDate.toISOString()} (${expiryDays} days
 console.log(`Origin:             dealbot`);
 console.log();
 console.log("--- Permissions ---");
-for (const hash of DealBotFwssPermissions) {
+for (const hash of DefaultFwssPermissions) {
   console.log(`  ${PermissionNames[hash] || "Unknown"}: ${hash}`);
 }
 console.log();
