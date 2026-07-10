@@ -2,24 +2,36 @@ import {
   Column,
   CreateDateColumn,
   Entity,
+  Index,
   JoinColumn,
   ManyToOne,
   OneToMany,
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from "typeorm";
+import { SUPPORTED_NETWORKS } from "../../common/constants.js";
+import type { Network } from "../../common/types.js";
 import { BigIntColumn } from "../helpers/bigint-column.js";
 import { type DealMetadata, DealStatus, IpniStatus, type ServiceType } from "../types.js";
 import type { Retrieval } from "./retrieval.entity.js";
 import { StorageProvider } from "./storage-provider.entity.js";
 
 @Entity("deals")
+@Index(["network", "spAddress"])
 export class Deal {
   @PrimaryGeneratedColumn("uuid")
   id: string;
 
   @Column({ name: "sp_address" })
   spAddress: string;
+
+  @Column({
+    name: "network",
+    type: "enum",
+    enum: [...SUPPORTED_NETWORKS],
+    enumName: "network_enum",
+  })
+  network: Network;
 
   @Column({ name: "wallet_address" })
   walletAddress: string;
@@ -151,7 +163,10 @@ export class Deal {
     (sp) => sp.deals,
     { onDelete: "CASCADE" },
   )
-  @JoinColumn({ name: "sp_address" })
+  @JoinColumn([
+    { name: "sp_address", referencedColumnName: "address" },
+    { name: "network", referencedColumnName: "network" },
+  ])
   storageProvider: StorageProvider | null;
 
   @OneToMany("Retrieval", "deal")

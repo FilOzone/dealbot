@@ -5,6 +5,7 @@ import type { Repository } from "typeorm";
 import { ClickhouseService } from "../clickhouse/clickhouse.service.js";
 import { PieceFetchStatus } from "../clickhouse/clickhouse.types.js";
 import { type ProviderJobContext, toStructuredError } from "../common/logging.js";
+import type { Network } from "../common/types.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
 import { BlockFetchStatus, CarParseStatus, IpniCheckStatus, ServiceType } from "../database/types.js";
 import { buildCheckMetricLabels, type CheckMetricLabels } from "../metrics-prometheus/check-metric-labels.js";
@@ -32,18 +33,24 @@ export class SampledRetrievalService {
     private readonly spRepository: Repository<StorageProvider>,
   ) {}
 
-  async performForProvider(spAddress: string, signal?: AbortSignal, logContext?: ProviderJobContext): Promise<void> {
+  async performForProvider(
+    spAddress: string,
+    network: Network,
+    signal?: AbortSignal,
+    logContext?: ProviderJobContext,
+  ): Promise<void> {
     // Build metric labels
-    const provider = await this.spRepository.findOne({ where: { address: spAddress } });
+    const provider = await this.spRepository.findOne({ where: { address: spAddress, network } });
     const labels = buildCheckMetricLabels({
       checkType: "sampledRetrieval",
+      network,
       providerId: provider?.providerId,
       providerName: provider?.name,
       providerIsApproved: provider?.isApproved,
     });
 
     // 1. Select an anonymous piece
-    const piece = await this.sampledPieceSelectorService.selectPieceForProvider(spAddress, signal);
+    const piece = await this.sampledPieceSelectorService.selectPieceForProvider(spAddress, network, signal);
     if (!piece) {
       if (signal?.aborted) {
         throw new Error(`Sampled retrieval aborted during piece selection for SP ${spAddress}`);
@@ -61,6 +68,7 @@ export class SampledRetrievalService {
       pieceId: piece.pieceId,
       withIPFSIndexing: piece.withIPFSIndexing,
       spAddress,
+      network,
     });
 
     const checkStart = Date.now();
@@ -77,7 +85,7 @@ export class SampledRetrievalService {
       if (signal?.aborted) {
         pieceResult = buildAbortedPlaceholder(piece.pieceCid, signal.reason);
       } else {
-        pieceResult = await this.pieceRetrievalService.fetchPiece(spAddress, piece.pieceCid, signal);
+        pieceResult = await this.pieceRetrievalService.fetchPiece(spAddress, network, piece.pieceCid, signal);
       }
 
       // Emit piece retrieval metrics
@@ -107,7 +115,12 @@ export class SampledRetrievalService {
               parse.sampledBlocks,
               signal,
             );
-            blockFetch = await this.pieceValidationService.checkBlockFetch(parse.sampledBlocks, spAddress, signal);
+            blockFetch = await this.pieceValidationService.checkBlockFetch(
+              parse.sampledBlocks,
+              spAddress,
+              network,
+              signal,
+            );
           }
         } catch (error) {
           // pieceValidationService methods only throw on abort (via signal.throwIfAborted in
@@ -134,7 +147,7 @@ export class SampledRetrievalService {
       // collected. ClickhouseService.insert is a no-op when disabled.
       const finalPieceResult = pieceResult ?? buildAbortedPlaceholder(piece.pieceCid, signal?.reason);
       const retrievalId = randomUUID();
-      const providerInfo = this.walletSdkService.getProviderInfo(spAddress);
+      const providerInfo = this.walletSdkService.getProviderInfo(spAddress, network);
       const spBaseUrl = providerInfo?.pdp.serviceURL.replace(/\/$/, "") ?? spAddress;
       const pieceFetchStatus = finalPieceResult.success ? PieceFetchStatus.SUCCESS : PieceFetchStatus.FAILED;
 
@@ -184,6 +197,7 @@ export class SampledRetrievalService {
           message: "Failed to enqueue anonymous retrieval row to ClickHouse",
           pieceCid: piece.pieceCid,
           spAddress,
+          network,
           error: toStructuredError(error),
         });
       }
@@ -195,6 +209,7 @@ export class SampledRetrievalService {
         retrievalId,
         pieceCid: piece.pieceCid,
         spAddress,
+        network,
         success: finalPieceResult.success,
         aborted: finalPieceResult.aborted === true,
         latencyMs: finalPieceResult.latencyMs,

@@ -1,4 +1,4 @@
-import { PDPProvider } from "@filoz/synapse-sdk";
+import { PDPProvider, Synapse } from "@filoz/synapse-sdk";
 import type { PaymentsService } from "@filoz/synapse-sdk/payments";
 import { SPRegistryService } from "@filoz/synapse-sdk/sp-registry";
 import { StorageManager } from "@filoz/synapse-sdk/storage";
@@ -12,66 +12,88 @@ import { type Hex } from "viem";
 import { DEV_TAG } from "../common/constants.js";
 import { toStructuredError } from "../common/logging.js";
 import { createSynapseFromConfig } from "../common/synapse-factory.js";
-import type { IBlockchainConfig, IConfig } from "../config/app.config.js";
+import type { Network } from "../common/types.js";
+import type { IConfig, INetworkConfig } from "../config/index.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
 import type { PDPProviderEx, WalletServices } from "./wallet-sdk.types.js";
 
 export type SynapseViemClient = Client<Transport, Chain, Account>;
 
+interface NetworkState {
+  config: INetworkConfig;
+  synapse: Synapse;
+  paymentsService: PaymentsService;
+  warmStorageService: WarmStorageService;
+  spRegistry: SPRegistryService;
+  storageManager: StorageManager;
+  synapseClient: SynapseViemClient;
+  isSessionKeyMode: boolean;
+  providerCache: Map<string, PDPProviderEx>;
+  activeProviderAddresses: Set<string>;
+  approvedProviderAddresses: Set<string>;
+  providersLoadPromise: Promise<boolean> | null;
+  providersLoadedOnce: boolean;
+}
+
 @Injectable()
 export class WalletSdkService implements OnModuleInit {
   private readonly logger = new Logger(WalletSdkService.name);
-  private readonly blockchainConfig: IBlockchainConfig;
-  private paymentsService: PaymentsService;
-  private warmStorageService: WarmStorageService;
-  private spRegistry: SPRegistryService;
-  private storageManager: StorageManager;
-  private providerCache: Map<string, PDPProviderEx> = new Map();
-  private activeProviderAddresses: Set<string> = new Set();
-  private approvedProviderAddresses: Set<string> = new Set();
-  private providersLoadPromise: Promise<boolean> | null = null;
-  private providersLoadedOnce = false;
-  private _isSessionKeyMode = false;
-  private _synapseClient: any;
+  private readonly networkStates: Map<Network, NetworkState> = new Map();
 
   constructor(
     private readonly configService: ConfigService<IConfig, true>,
     @InjectRepository(StorageProvider)
     private readonly spRepository: Repository<StorageProvider>,
-  ) {
-    this.blockchainConfig = this.configService.get<IBlockchainConfig>("blockchain");
-  }
+  ) {}
 
   async onModuleInit() {
-    await this.initializeServices();
-    await this.ensureProvidersLoaded();
+    const activeNetworks = this.configService.get("activeNetworks");
+    for (const network of activeNetworks) {
+      await this.initializeServicesForNetwork(network);
+      await this.ensureProvidersLoaded(network);
+    }
   }
 
   /**
-   * Initialize wallet services with provider and signer
+   * Initialize wallet services for a specific network.
    */
-  private async initializeServices(): Promise<void> {
-    const { synapse, isSessionKeyMode } = await createSynapseFromConfig(this.blockchainConfig);
+  private async initializeServicesForNetwork(network: Network): Promise<void> {
+    const networkConfig = this.configService.get("networks")[network];
+    const { synapse, isSessionKeyMode } = await createSynapseFromConfig(networkConfig);
 
     this.logger.log({
       event: "wallet_sdk_initialized",
       message: isSessionKeyMode
         ? "Initialized wallet SDK services (session key mode)"
         : "Initialized wallet SDK services",
-      network: this.blockchainConfig.network,
-      walletAddress: this.blockchainConfig.walletAddress,
+      network,
+      walletAddress: networkConfig.walletAddress,
     });
 
-    this.warmStorageService = new WarmStorageService({
-      client: synapse.client,
+    this.networkStates.set(network, {
+      synapse,
+      isSessionKeyMode,
+      config: networkConfig,
+      paymentsService: synapse.payments,
+      warmStorageService: new WarmStorageService({ client: synapse.client }),
+      spRegistry: new SPRegistryService({ client: synapse.client }),
+      storageManager: synapse.storage,
+      synapseClient: synapse.client,
+      providerCache: new Map(),
+      activeProviderAddresses: new Set(),
+      approvedProviderAddresses: new Set(),
+      providersLoadPromise: null,
+      providersLoadedOnce: false,
     });
-    this.spRegistry = new SPRegistryService({
-      client: synapse.client,
-    });
-    this.paymentsService = synapse.payments;
-    this.storageManager = synapse.storage;
-    this._synapseClient = synapse.client;
-    this._isSessionKeyMode = isSessionKeyMode;
+  }
+
+  private getNetworkState(network: Network): NetworkState {
+    const target = network;
+    const state = this.networkStates.get(target);
+    if (!state) {
+      throw new Error(`No initialized state for network "${target}". Ensure NETWORKS includes this network.`);
+    }
+    return state;
   }
 
   /**
@@ -79,42 +101,45 @@ export class WalletSdkService implements OnModuleInit {
    * This allows dealbot to test all FWSS SPs, even those not yet approved
    * Only loads active, approved providers that support the PDP product
    */
-  async loadProviders(): Promise<boolean> {
-    if (this.providersLoadPromise) {
-      return this.providersLoadPromise;
+  async loadProviders(network: Network): Promise<boolean> {
+    const state = this.getNetworkState(network);
+    if (state.providersLoadPromise) {
+      return state.providersLoadPromise;
     }
 
-    this.providersLoadPromise = this.loadProvidersInternal();
+    state.providersLoadPromise = this.loadProvidersInternal(network);
     try {
-      const success = await this.providersLoadPromise;
+      const success = await state.providersLoadPromise;
       if (success) {
-        this.providersLoadedOnce = true;
+        state.providersLoadedOnce = true;
       }
       return success;
     } finally {
-      this.providersLoadPromise = null;
+      state.providersLoadPromise = null;
     }
   }
 
-  async ensureProvidersLoaded(): Promise<void> {
-    if (this.providersLoadedOnce) {
+  async ensureProvidersLoaded(network: Network): Promise<void> {
+    const state = this.getNetworkState(network);
+    if (state.providersLoadedOnce) {
       return;
     }
-    await this.loadProviders();
+    await this.loadProviders(network);
   }
 
-  private async loadProvidersInternal(): Promise<boolean> {
+  private async loadProvidersInternal(network: Network): Promise<boolean> {
+    const state = this.getNetworkState(network);
     try {
       this.logger.log({
         event: "providers_load_started",
         message: "Loading all service providers from sp-registry",
       });
 
-      const approvedIds = await this.warmStorageService.getApprovedProviderIds();
+      const approvedIds = await state.warmStorageService.getApprovedProviderIds();
 
-      const totalProviders = await this.spRegistry.getProviderCount();
+      const totalProviders = await state.spRegistry.getProviderCount();
 
-      const activeProviders = await this.spRegistry.getAllActiveProviders();
+      const activeProviders = await state.spRegistry.getAllActiveProviders();
       const activeProviderIds = new Set(activeProviders.map((info) => info.id));
       const allProviderIds = Array.from({ length: Number(totalProviders) }, (_, i) => BigInt(i + 1));
       const inactiveProviderIds = allProviderIds.filter((id) => !activeProviderIds.has(id));
@@ -125,7 +150,7 @@ export class WalletSdkService implements OnModuleInit {
         // (empty capabilities), which causes getPDPProvidersByIds to throw.
         for (const id of inactiveProviderIds) {
           try {
-            const provider = await this.spRegistry.getProvider({ providerId: id });
+            const provider = await state.spRegistry.getProvider({ providerId: id });
             if (provider) {
               providerInfos.push(provider);
             }
@@ -147,15 +172,16 @@ export class WalletSdkService implements OnModuleInit {
             message: "Skipping dev provider",
             providerId: info.id,
             providerName: info.name,
+            network,
           });
           return false;
         }
         return true;
       });
 
-      this.providerCache.clear();
-      this.activeProviderAddresses.clear();
-      this.approvedProviderAddresses.clear();
+      state.providerCache.clear();
+      state.activeProviderAddresses.clear();
+      state.approvedProviderAddresses.clear();
       const extendedProviders = validProviders.map((info) => {
         const supportsIpniIpfs = !!info.pdp.ipniIpfs;
         const isApproved = approvedIds.includes(info.id);
@@ -168,13 +194,14 @@ export class WalletSdkService implements OnModuleInit {
             providerId: info.id,
             providerName: info.name,
             providerAddress: info.serviceProvider,
+            network,
           });
         }
 
         // select approved, active providers
-        if (info.isActive) this.activeProviderAddresses.add(info.serviceProvider);
-        if (isApproved && info.isActive) this.approvedProviderAddresses.add(info.serviceProvider);
-        this.providerCache.set(info.serviceProvider, {
+        if (info.isActive) state.activeProviderAddresses.add(info.serviceProvider);
+        if (isApproved && info.isActive) state.approvedProviderAddresses.add(info.serviceProvider);
+        state.providerCache.set(info.serviceProvider, {
           ...info,
           isApproved,
         });
@@ -185,7 +212,7 @@ export class WalletSdkService implements OnModuleInit {
         };
       });
 
-      this.syncProvidersToDatabase(extendedProviders).catch((err) =>
+      this.syncProvidersToDatabase(extendedProviders, network).catch((err) =>
         this.logger.error({
           event: "providers_sync_to_db_failed",
           message: "Failed to sync providers to DB",
@@ -196,9 +223,10 @@ export class WalletSdkService implements OnModuleInit {
       this.logger.log({
         event: "providers_load_completed",
         message: "Loaded providers from on-chain",
-        totalProviders: this.providerCache.size,
-        testingProviders: this.activeProviderAddresses.size,
-        approvedProviders: this.approvedProviderAddresses.size,
+        network,
+        totalProviders: state.providerCache.size,
+        testingProviders: state.activeProviderAddresses.size,
+        approvedProviders: state.approvedProviderAddresses.size,
       });
       return true;
     } catch (error) {
@@ -206,11 +234,12 @@ export class WalletSdkService implements OnModuleInit {
         event: "providers_load_failed",
         message: "Failed to load registered providers from on-chain",
         error: toStructuredError(error),
+        network,
       });
       // Fallback to empty array, let the application handle this gracefully
-      this.providerCache.clear();
-      this.activeProviderAddresses.clear();
-      this.approvedProviderAddresses.clear();
+      state.providerCache.clear();
+      state.activeProviderAddresses.clear();
+      state.approvedProviderAddresses.clear();
       return false;
     }
   }
@@ -218,34 +247,36 @@ export class WalletSdkService implements OnModuleInit {
   /**
    * Get count of approved providers
    */
-  getApprovedProvidersCount(): number {
-    return this.approvedProviderAddresses.size;
+  getApprovedProvidersCount(network: Network): number {
+    return this.getNetworkState(network).approvedProviderAddresses.size;
   }
 
   /**
    * Get count of all active providers supporting ipniIpfs
    */
-  getAllActiveProvidersCount(): number {
-    return this.activeProviderAddresses.size;
+  getAllActiveProvidersCount(network: Network): number {
+    return this.getNetworkState(network).activeProviderAddresses.size;
   }
 
   /**
    * Get count of testing providers
    */
-  getTestingProvidersCount(): number {
-    return this.blockchainConfig.useOnlyApprovedProviders
-      ? this.getApprovedProvidersCount()
-      : this.getAllActiveProvidersCount();
+  getTestingProvidersCount(network: Network): number {
+    const state = this.getNetworkState(network);
+    return state.config.useOnlyApprovedProviders
+      ? state.approvedProviderAddresses.size
+      : state.activeProviderAddresses.size;
   }
 
   /**
    * Get approved providers
    */
-  getApprovedProviders(): PDPProviderEx[] {
+  getApprovedProviders(network: Network): PDPProviderEx[] {
+    const state = this.getNetworkState(network);
     const approvedProviders: PDPProviderEx[] = [];
 
-    for (const address of this.approvedProviderAddresses) {
-      const provider = this.providerCache.get(address);
+    for (const address of state.approvedProviderAddresses) {
+      const provider = state.providerCache.get(address);
       if (provider) approvedProviders.push(provider);
     }
 
@@ -255,11 +286,12 @@ export class WalletSdkService implements OnModuleInit {
   /**
    * Get all active providers
    */
-  getAllActiveProviders(): PDPProviderEx[] {
+  getAllActiveProviders(network: Network): PDPProviderEx[] {
+    const state = this.getNetworkState(network);
     const activeProviders: PDPProviderEx[] = [];
 
-    for (const address of this.activeProviderAddresses) {
-      const provider = this.providerCache.get(address);
+    for (const address of state.activeProviderAddresses) {
+      const provider = state.providerCache.get(address);
       if (provider) activeProviders.push(provider);
     }
 
@@ -269,17 +301,21 @@ export class WalletSdkService implements OnModuleInit {
   /**
    * Get testing providers
    */
-  getTestingProviders(): PDPProviderEx[] {
-    return this.blockchainConfig.useOnlyApprovedProviders ? this.getApprovedProviders() : this.getAllActiveProviders();
+  getTestingProviders(network: Network): PDPProviderEx[] {
+    const state = this.getNetworkState(network);
+    return state.config.useOnlyApprovedProviders
+      ? this.getApprovedProviders(network)
+      : this.getAllActiveProviders(network);
   }
 
   /**
    * Get wallet services (now returns instance variables)
    */
-  getWalletServices(): WalletServices {
+  getWalletServices(network: Network): WalletServices {
+    const state = this.getNetworkState(network);
     return {
-      paymentsService: this.paymentsService,
-      warmStorageService: this.warmStorageService,
+      paymentsService: state.paymentsService,
+      warmStorageService: state.warmStorageService,
     };
   }
 
@@ -287,9 +323,10 @@ export class WalletSdkService implements OnModuleInit {
    * Get wallet balances in base units.
    * USDFC is the available balance in the Filecoin Pay contract (funds minus lockups).
    */
-  async getWalletBalances(): Promise<{ usdfc: bigint; fil: bigint }> {
-    const accountInfo = await this.paymentsService.accountInfo();
-    const filBalance = await this.paymentsService.walletBalance();
+  async getWalletBalances(network: Network): Promise<{ usdfc: bigint; fil: bigint }> {
+    const state = this.getNetworkState(network);
+    const accountInfo = await state.paymentsService.accountInfo();
+    const filBalance = await state.paymentsService.walletBalance();
     return {
       usdfc: accountInfo.availableFunds,
       fil: filBalance,
@@ -297,10 +334,10 @@ export class WalletSdkService implements OnModuleInit {
   }
 
   /**
-   * Get approved provider info by address
+   * Get provider info by address for a specific network.
    */
-  getProviderInfo(address: string): PDPProviderEx | undefined {
-    return this.providerCache.get(address);
+  getProviderInfo(address: string, network: Network): PDPProviderEx | undefined {
+    return this.getNetworkState(network).providerCache.get(address);
   }
 
   /**
@@ -311,8 +348,22 @@ export class WalletSdkService implements OnModuleInit {
    * Returns `null` when chain integration is disabled or the client has not been
    * initialized yet.
    */
-  getSynapseClient(): SynapseViemClient | null {
-    return (this._synapseClient as SynapseViemClient | null) ?? null;
+  getSynapseClient(network: Network): SynapseViemClient | null {
+    return (this.getNetworkState(network).synapseClient as SynapseViemClient | null) ?? null;
+  }
+
+  getSynapse(network: Network): Synapse {
+    return this.getNetworkState(network).synapse;
+  }
+
+  /**
+   * Returns the initialized Synapse for a network, or `undefined` when the
+   * network has no initialized state (chain integration disabled, or the network
+   * isn't active). Unlike {@link getSynapse}, this never throws, so callers can
+   * fall back to on-demand creation.
+   */
+  tryGetSynapse(network: Network): Synapse | undefined {
+    return this.networkStates.get(network)?.synapse;
   }
 
   /**
@@ -320,11 +371,12 @@ export class WalletSdkService implements OnModuleInit {
    * Skipped in session key mode, deposits and operator approvals must be
    * done separately via the Safe multisig UI.
    */
-  async ensureWalletAllowances(): Promise<void> {
-    if (this._isSessionKeyMode) {
+  async ensureWalletAllowances(network: Network): Promise<void> {
+    const state = this.getNetworkState(network);
+    if (state.isSessionKeyMode) {
       const { getUploadCosts } = await import("@filoz/synapse-core/warm-storage");
-      const costs = await getUploadCosts(this._synapseClient, {
-        clientAddress: this.blockchainConfig.walletAddress as `0x${string}`,
+      const costs = await getUploadCosts(state.synapseClient, {
+        clientAddress: state.config.walletAddress as `0x${string}`,
         dataSize: 100n * 1024n * 1024n * 1024n,
       });
 
@@ -333,6 +385,7 @@ export class WalletSdkService implements OnModuleInit {
           event: "wallet_status_check_completed",
           message: "Session key mode: account is funded and approved",
           costs: this.serializeBigInt(costs),
+          network,
         });
       } else {
         this.logger.error({
@@ -342,6 +395,7 @@ export class WalletSdkService implements OnModuleInit {
           depositNeeded: costs.depositNeeded.toString(),
           needsApproval: costs.needsFwssMaxApproval,
           costs: this.serializeBigInt(costs),
+          network,
         });
         throw new Error(
           `Session key mode: wallet not ready (depositNeeded=${costs.depositNeeded.toString()}, needsFwssMaxApproval=${costs.needsFwssMaxApproval})`,
@@ -350,7 +404,7 @@ export class WalletSdkService implements OnModuleInit {
       return;
     }
     const STORAGE_SIZE_GB = 100n;
-    const { costs, transaction } = await this.storageManager.prepare({
+    const { costs, transaction } = await state.storageManager.prepare({
       dataSize: STORAGE_SIZE_GB * 1024n * 1024n * 1024n,
     });
 
@@ -359,6 +413,7 @@ export class WalletSdkService implements OnModuleInit {
       depositAmount: transaction?.depositAmount,
       includesApproval: transaction?.includesApproval,
       costs,
+      network,
     });
 
     if (transaction) {
@@ -367,6 +422,7 @@ export class WalletSdkService implements OnModuleInit {
         depositAmount: transaction.depositAmount.toString(),
         includesApproval: transaction?.includesApproval,
         costs,
+        network,
       });
 
       const { hash } = await transaction.execute();
@@ -377,6 +433,7 @@ export class WalletSdkService implements OnModuleInit {
         depositAmount: transaction.depositAmount.toString(),
         includesApproval: transaction.includesApproval,
         costs,
+        network,
       });
     }
   }
@@ -421,9 +478,9 @@ export class WalletSdkService implements OnModuleInit {
   }
 
   /**
-   * Create or update provider in database
+   * Create or update provider in database with network scoping
    */
-  async syncProvidersToDatabase(providerInfos: PDPProviderEx[]): Promise<void> {
+  async syncProvidersToDatabase(providerInfos: PDPProviderEx[], network: Network): Promise<void> {
     try {
       const dedupedProviders = new Map<string, PDPProviderEx>();
       const duplicatesByAddress = new Map<string, Set<bigint>>();
@@ -438,6 +495,7 @@ export class WalletSdkService implements OnModuleInit {
             event: "duplicate_provider_address",
             message: "Duplicate provider address detected",
             address,
+            network,
             existingProviderId: existing.id,
             newProviderId: info.id,
           });
@@ -483,6 +541,7 @@ export class WalletSdkService implements OnModuleInit {
             event: "duplicate_provider_addresses_unresolved",
             message:
               "Duplicate provider addresses without active/inactive resolution; keeping highest providerId entries",
+            network,
             details: formatDetails(conflictAddresses),
           });
         }
@@ -492,6 +551,7 @@ export class WalletSdkService implements OnModuleInit {
           this.logger.warn({
             event: "duplicate_provider_addresses_resolved",
             message: "Duplicate provider addresses detected; replaced inactive entries with active ones",
+            network,
             details: formatDetails(resolvedOnly),
           });
         }
@@ -499,6 +559,7 @@ export class WalletSdkService implements OnModuleInit {
 
       const entities = Array.from(dedupedProviders.values()).map((info) =>
         this.spRepository.create({
+          network,
           address: info.serviceProvider as Hex,
           providerId: info.id,
           name: info.name,
@@ -513,7 +574,7 @@ export class WalletSdkService implements OnModuleInit {
       );
 
       await this.spRepository.upsert(entities, {
-        conflictPaths: ["address"],
+        conflictPaths: ["address", "network"],
         skipUpdateIfNoValuesChanged: true,
       });
     } catch (error) {
@@ -521,6 +582,7 @@ export class WalletSdkService implements OnModuleInit {
         event: "track_providers_failed",
         message: "Failed to track providers",
         error: toStructuredError(error),
+        network,
       });
       throw error;
     }

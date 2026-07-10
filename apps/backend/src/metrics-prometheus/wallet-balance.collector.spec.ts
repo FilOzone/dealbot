@@ -1,14 +1,14 @@
 import type { ConfigService } from "@nestjs/config";
 import type { Gauge } from "prom-client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { IConfig } from "../config/app.config.js";
+import type { IConfig } from "../config/index.js";
 import type { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
 import { WalletBalanceCollector } from "./wallet-balance.collector.js";
 
 describe("WalletBalanceCollector", () => {
   let collector: WalletBalanceCollector;
   let gaugeMock: { set: ReturnType<typeof vi.fn>; collect?: () => Promise<void> };
-  let walletSdkMock: { getWalletBalances: ReturnType<typeof vi.fn> };
+  let walletSdkMock: { getWalletBalances: ReturnType<typeof vi.fn>; getNetworkConfig: ReturnType<typeof vi.fn> };
   let configMock: { get: ReturnType<typeof vi.fn> };
   let collectFn: () => Promise<void>;
 
@@ -16,6 +16,7 @@ describe("WalletBalanceCollector", () => {
     gaugeMock = { set: vi.fn() };
     walletSdkMock = {
       getWalletBalances: vi.fn(async () => ({ usdfc: 50_000_000n, fil: 1_000_000_000n })),
+      getNetworkConfig: vi.fn(() => ({ walletAddress: "0xABCDEF1234567890" })),
     };
     configMock = {
       get: vi.fn((key: string) => {
@@ -25,8 +26,11 @@ describe("WalletBalanceCollector", () => {
             prometheusWalletBalanceErrorCooldownSeconds: 60,
           };
         }
-        if (key === "blockchain") {
-          return { walletAddress: "0xABCDEF1234567890" };
+        if (key === "activeNetworks") {
+          return ["calibration"];
+        }
+        if (key === "networks") {
+          return { calibration: { walletAddress: "0xABCDEF1234567890", network: "calibration" } };
         }
         return {};
       }),
@@ -53,8 +57,14 @@ describe("WalletBalanceCollector", () => {
     await collectFn();
 
     expect(walletSdkMock.getWalletBalances).toHaveBeenCalledOnce();
-    expect(gaugeMock.set).toHaveBeenCalledWith({ currency: "USDFC", wallet: "0xABCDEF" }, 50_000_000);
-    expect(gaugeMock.set).toHaveBeenCalledWith({ currency: "FIL", wallet: "0xABCDEF" }, 1_000_000_000);
+    expect(gaugeMock.set).toHaveBeenCalledWith(
+      { currency: "USDFC", wallet: "0xABCDEF", network: "calibration" },
+      50_000_000,
+    );
+    expect(gaugeMock.set).toHaveBeenCalledWith(
+      { currency: "FIL", wallet: "0xABCDEF", network: "calibration" },
+      1_000_000_000,
+    );
   });
 
   it("returns cached values without fetching again within the TTL window", async () => {

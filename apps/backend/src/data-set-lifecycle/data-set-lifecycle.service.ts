@@ -12,6 +12,7 @@ import {
 import { Injectable, Logger } from "@nestjs/common";
 import { awaitWithAbort } from "../common/abort-utils.js";
 import { type ProviderJobContext, toStructuredError } from "../common/logging.js";
+import type { Network } from "../common/types.js";
 import { buildCheckMetricLabels, classifyFailureStatus } from "../metrics-prometheus/check-metric-labels.js";
 import { DataSetLifecycleCheckMetrics } from "../metrics-prometheus/check-metrics.service.js";
 import type { SynapseViemClient } from "../wallet-sdk/wallet-sdk.service.js";
@@ -70,16 +71,17 @@ export class DataSetLifecycleService {
    */
   async runLifecycleCheck(
     spAddress: string,
+    network: Network,
     metadata: Record<string, string>,
     signal?: AbortSignal,
     jobContext?: ProviderJobContext,
   ): Promise<void> {
-    const providerInfo = this.walletSdkService.getProviderInfo(spAddress);
+    const providerInfo = this.walletSdkService.getProviderInfo(spAddress, network);
     if (!providerInfo) {
       throw new Error(`Provider ${spAddress} not found in registry`);
     }
 
-    const client = this.walletSdkService.getSynapseClient();
+    const client = this.walletSdkService.getSynapseClient(network);
     if (!client) {
       throw new Error("Synapse client not initialized");
     }
@@ -93,6 +95,7 @@ export class DataSetLifecycleService {
 
     const labels = buildCheckMetricLabels({
       checkType: "dataSetLifecycleCheck",
+      network,
       providerId: providerInfo.id,
       providerName: providerInfo.name,
       providerIsApproved: providerInfo.isApproved,

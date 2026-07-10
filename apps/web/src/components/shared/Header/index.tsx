@@ -1,4 +1,4 @@
-import { ModeToggle, NetworkSwitcher, UIVersionToggle } from "@/components/shared";
+import { EnvironmentSwitcher, ModeToggle, UIVersionToggle } from "@/components/shared";
 
 const Header = () => (
   <header className="sticky top-0 z-50 border-b bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/60">
@@ -14,7 +14,7 @@ const Header = () => (
           </div>
         </div>
         <div className="flex items-center gap-2 sm:gap-4">
-          <NetworkSwitcher />
+          <EnvironmentSwitcher />
           <UIVersionToggle />
           <ModeToggle />
         </div>

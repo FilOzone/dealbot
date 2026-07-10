@@ -2,7 +2,8 @@ import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { delay } from "../common/abort-utils.js";
 import { toStructuredError } from "../common/logging.js";
-import type { IBlockchainConfig, IConfig } from "../config/app.config.js";
+import type { Network } from "../common/types.js";
+import type { IConfig } from "../config/index.js";
 import { buildSamplePieceQuery, Queries } from "./queries.js";
 import type {
   CandidatePiece,
@@ -70,7 +71,6 @@ class ValidationError extends Error {
 @Injectable()
 export class SubgraphService {
   private readonly logger: Logger = new Logger(SubgraphService.name);
-  private readonly blockchainConfig: IBlockchainConfig;
 
   private static readonly MAX_PROVIDERS_PER_QUERY = 100;
   private static readonly MAX_CONCURRENT_REQUESTS = 50;
@@ -80,8 +80,14 @@ export class SubgraphService {
 
   private requestTimestamps: number[] = [];
 
-  constructor(private readonly configService: ConfigService<IConfig, true>) {
-    this.blockchainConfig = this.configService.get<IBlockchainConfig>("blockchain");
+  constructor(private readonly configService: ConfigService<IConfig, true>) {}
+
+  /**
+   * Resolve the dealbot-owned subgraph endpoint for a given network. Each
+   * network points at its own subgraph deployment.
+   */
+  private subgraphEndpoint(network: Network): string | undefined {
+    return this.configService.get("networks", { infer: true })[network].subgraphEndpoint;
   }
 
   /**
@@ -89,8 +95,14 @@ export class SubgraphService {
    *
    * @throws Error if endpoint is not configured or after MAX_RETRIES attempts
    */
-  async fetchSubgraphMeta(): Promise<SubgraphMeta> {
-    return this.executeQuery<SubgraphMeta>("metadata", Queries.GET_SUBGRAPH_META, {}, validateSubgraphMetaResponse);
+  async fetchSubgraphMeta(network: Network): Promise<SubgraphMeta> {
+    return this.executeQuery<SubgraphMeta>(
+      network,
+      "metadata",
+      Queries.GET_SUBGRAPH_META,
+      {},
+      validateSubgraphMetaResponse,
+    );
   }
 
   /**
@@ -100,6 +112,7 @@ export class SubgraphService {
    * @returns Array of providers with their data sets currently proving
    */
   async fetchProvidersWithDatasets(
+    network: Network,
     options: ProvidersWithDataSetsOptions,
   ): Promise<ProviderDataSetResponse["providers"]> {
     const { blockNumber, addresses } = options;
@@ -109,10 +122,10 @@ export class SubgraphService {
     }
 
     if (addresses.length <= SubgraphService.MAX_PROVIDERS_PER_QUERY) {
-      return this.fetchWithRetry(blockNumber, addresses);
+      return this.fetchWithRetry(network, blockNumber, addresses);
     }
 
-    return this.fetchMultipleBatchesWithRateLimit(blockNumber, addresses);
+    return this.fetchMultipleBatchesWithRateLimit(network, blockNumber, addresses);
   }
 
   /**
@@ -135,13 +148,14 @@ export class SubgraphService {
    * epoch comparison — GraphQL filters on nullable BigInts are awkward.
    * However this will be changed in the context of https://github.com/FilOzone/dealbot/issues/579.
    */
-  async samplePiece(params: SamplePieceParams, signal?: AbortSignal): Promise<CandidatePiece | null> {
-    if (!this.blockchainConfig.subgraphEndpoint) {
+  async samplePiece(network: Network, params: SamplePieceParams, signal?: AbortSignal): Promise<CandidatePiece | null> {
+    if (!this.subgraphEndpoint(network)) {
       // Surface misconfiguration distinctly so it does not look like an empty
       // candidate pool (which silently no-ops every sampled retrieval job).
       this.logger.error({
         event: "subgraph_endpoint_not_configured",
         message: "Cannot sample anonymous piece — no subgraph endpoint configured",
+        network,
       });
       throw new Error("No subgraph endpoint configured");
     }
@@ -156,6 +170,7 @@ export class SubgraphService {
 
     for (const reverse of [false, true]) {
       const validated = await this.executeQuery<RawSamplePieceResponse>(
+        network,
         `sample_piece_${params.pool}_${reverse ? "reverse" : "forward"}`,
         buildSamplePieceQuery(params.pool, reverse),
         variables,
@@ -200,6 +215,7 @@ export class SubgraphService {
    * don't fit the batched provider-fetch shape.
    */
   private async executeQuery<T>(
+    network: Network,
     operationName: string,
     query: string,
     variables: Record<string, unknown>,
@@ -207,14 +223,15 @@ export class SubgraphService {
     signal?: AbortSignal,
     attempt: number = 1,
   ): Promise<T> {
-    if (!this.blockchainConfig.subgraphEndpoint) {
+    const endpoint = this.subgraphEndpoint(network);
+    if (!endpoint) {
       throw new Error("No subgraph endpoint configured");
     }
 
     try {
       await this.enforceRateLimit(1, signal);
 
-      const response = await fetch(this.blockchainConfig.subgraphEndpoint, {
+      const response = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ query, variables }),
@@ -267,7 +284,7 @@ export class SubgraphService {
           error: toStructuredError(error),
         });
         await delay(delayMs, signal);
-        return this.executeQuery(operationName, query, variables, transform, signal, attempt + 1);
+        return this.executeQuery(network, operationName, query, variables, transform, signal, attempt + 1);
       }
 
       this.logger.error({
@@ -286,6 +303,7 @@ export class SubgraphService {
    * Fetch multiple batches with rate limiting and concurrency control
    */
   private async fetchMultipleBatchesWithRateLimit(
+    network: Network,
     blockNumber: number,
     addresses: string[],
   ): Promise<ProviderDataSetResponse["providers"]> {
@@ -300,7 +318,7 @@ export class SubgraphService {
     for (let i = 0; i < batches.length; i += SubgraphService.MAX_CONCURRENT_REQUESTS) {
       const batchGroup = batches.slice(i, i + SubgraphService.MAX_CONCURRENT_REQUESTS);
 
-      const results = await Promise.all(batchGroup.map((batch) => this.fetchWithRetry(blockNumber, batch)));
+      const results = await Promise.all(batchGroup.map((batch) => this.fetchWithRetry(network, blockNumber, batch)));
 
       allProviders.push(...results.flat());
     }
@@ -313,11 +331,13 @@ export class SubgraphService {
    * Assuming initial request to be first attempt
    */
   private async fetchWithRetry(
+    network: Network,
     blockNumber: number,
     addresses: string[],
     attempt: number = 1,
   ): Promise<ProviderDataSetResponse["providers"]> {
-    if (!this.blockchainConfig.subgraphEndpoint) {
+    const endpoint = this.subgraphEndpoint(network);
+    if (!endpoint) {
       throw new Error("No subgraph endpoint configured");
     }
 
@@ -329,7 +349,7 @@ export class SubgraphService {
     try {
       await this.enforceRateLimit();
 
-      const response = await fetch(this.blockchainConfig.subgraphEndpoint, {
+      const response = await fetch(endpoint, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -386,7 +406,7 @@ export class SubgraphService {
           error: toStructuredError(error),
         });
         await new Promise((resolve) => setTimeout(resolve, delay));
-        return this.fetchWithRetry(blockNumber, addresses, attempt + 1);
+        return this.fetchWithRetry(network, blockNumber, addresses, attempt + 1);
       }
 
       this.logger.error({

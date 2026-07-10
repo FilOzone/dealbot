@@ -10,7 +10,8 @@ import { DealJobTerminatedDataSetError } from "../common/errors.js";
 import { type JobLogContext, type ProviderJobContext, toStructuredError } from "../common/logging.js";
 import { getMaintenanceWindowStatus } from "../common/maintenance-window.js";
 import { isSpBlocked } from "../common/sp-blocklist.js";
-import type { IConfig, ISpBlocklistConfig } from "../config/app.config.js";
+import type { Network } from "../common/types.js";
+import type { IConfig } from "../config/index.js";
 import { DataRetentionService } from "../data-retention/data-retention.service.js";
 import { DataSetLifecycleService } from "../data-set-lifecycle/data-set-lifecycle.service.js";
 import type { JobType } from "../database/entities/job-schedule-state.entity.js";
@@ -51,16 +52,17 @@ function isSpJobType(jobType: string): jobType is SpJobType {
   return SP_JOB_TYPES.has(jobType);
 }
 
-type SpJobData = { jobType: SpJobType; spAddress: string; intervalSeconds: number };
-type ProvidersRefreshJobData = { intervalSeconds: number };
+type SpJobData = { jobType: SpJobType; spAddress: string; network: Network; intervalSeconds: number };
+type ProvidersRefreshJobData = { network: Network; intervalSeconds: number };
 type SpJob = Job<SpJobData>;
-type DataRetentionJobData = { intervalSeconds: number };
-type PullPieceCleanupJobData = { intervalSeconds: number };
+type DataRetentionJobData = { network: Network; intervalSeconds: number };
+type PullPieceCleanupJobData = { network: Network; intervalSeconds: number };
 
 type ScheduleRow = {
   id: number;
   job_type: JobType;
   sp_address: string;
+  network: Network;
   interval_seconds: number;
   next_run_at: string;
 };
@@ -133,8 +135,11 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     const schedulerEnabled = runMode !== "worker" && (this.configService.get("jobs")?.pgbossSchedulerEnabled ?? true);
     const workersEnabled = runMode !== "api";
 
-    await this.walletSdkService.ensureWalletAllowances();
-    await this.walletSdkService.ensureProvidersLoaded();
+    const activeNetworks = this.configService.get("activeNetworks", { infer: true });
+    for (const network of activeNetworks) {
+      await this.walletSdkService.ensureWalletAllowances(network);
+      await this.walletSdkService.ensureProvidersLoaded(network);
+    }
     await this.startBoss();
     if (!this.boss) {
       this.logger.error({
@@ -210,16 +215,31 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
        * can finish (or hit their per-job AbortController) before pg-boss force-fails
        * them via `failWip()`.
        */
-      const jobs = this.configService.get("jobs");
-      const pullPiece = this.configService.get("pullPiece");
-      const longestJobTimeoutSec = Math.max(
-        jobs.dealJobTimeoutSeconds,
-        jobs.retrievalJobTimeoutSeconds,
-        jobs.sampledRetrievalJobTimeoutSeconds,
-        jobs.dataSetCreationJobTimeoutSeconds,
-        jobs.dataSetLifecycleCheckJobTimeoutSeconds,
-        pullPiece.pullCheckJobTimeoutSeconds,
-      );
+      const activeNetworks = this.configService.get("activeNetworks", { infer: true });
+      const networksConfig = this.configService.get("networks", { infer: true });
+
+      let longestJobTimeoutSec = 0;
+
+      for (const network of activeNetworks) {
+        const cfg = networksConfig[network];
+
+        const maxNetworkTimeout = Math.max(
+          cfg.dealJobTimeoutSeconds,
+          cfg.retrievalJobTimeoutSeconds,
+          cfg.sampledRetrievalJobTimeoutSeconds,
+          cfg.dataSetCreationJobTimeoutSeconds,
+          cfg.dataSetLifecycleCheckJobTimeoutSeconds,
+          cfg.pullCheckJobTimeoutSeconds,
+          // piece_cleanup runs on the same SP_WORK_QUEUE with its own abort
+          // bound to this timeout; include it so drain doesn't force-fail it.
+          cfg.maxPieceCleanupRuntimeSeconds,
+        );
+
+        if (maxNetworkTimeout > longestJobTimeoutSec) {
+          longestJobTimeoutSec = maxNetworkTimeout;
+        }
+      }
+
       const stopTimeoutMs = (longestJobTimeoutSec + 60) * 1000;
       await this.boss.stop({ graceful: true, timeout: stopTimeoutMs });
       this.boss = null;
@@ -230,12 +250,15 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
        * Without this delay, the pod exits before its next scrape and the in-memory
        * counter deltas die with it, leaving `pending` rows without matching terminals.
        */
-      const finalScrapeDelayMs = jobs.shutdownFinalScrapeDelaySeconds * 1000;
+      const { shutdownFinalScrapeDelaySeconds } = this.configService.get("jobs", {
+        infer: true,
+      });
+      const finalScrapeDelayMs = shutdownFinalScrapeDelaySeconds * 1000;
       if (finalScrapeDelayMs > 0) {
         this.logger.log({
           event: "pgboss_post_drain_scrape_hold",
           message: "Holding process for final Prometheus scrape after drain",
-          delaySeconds: jobs.shutdownFinalScrapeDelaySeconds,
+          delaySeconds: shutdownFinalScrapeDelaySeconds,
         });
         await new Promise((resolve) => setTimeout(resolve, finalScrapeDelayMs));
       }
@@ -368,8 +391,8 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
             message: "Skipping unknown SP job type",
             jobType: job.data.jobType,
             providerAddress: job.data.spAddress,
-            providerId: this.walletSdkService.getProviderInfo(job.data.spAddress)?.id,
-            providerName: this.walletSdkService.getProviderInfo(job.data.spAddress)?.name,
+            providerId: this.walletSdkService.getProviderInfo(job.data.spAddress, job.data.network)?.id,
+            providerName: this.walletSdkService.getProviderInfo(job.data.spAddress, job.data.network)?.name,
           });
         },
       )
@@ -423,17 +446,21 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       );
   }
 
-  private getMaintenanceWindowStatus(now: Date = new Date()) {
-    const scheduling = this.configService.get("scheduling");
-    return getMaintenanceWindowStatus(now, scheduling.maintenanceWindowsUtc, scheduling.maintenanceWindowMinutes);
+  private getMaintenanceWindowStatus(now: Date = new Date(), network: Network) {
+    const networkConfig = this.configService.get("networks", { infer: true })[network];
+    return getMaintenanceWindowStatus(now, networkConfig.maintenanceWindowsUtc, networkConfig.maintenanceWindowMinutes);
   }
 
-  private async resolveProviderJobContext(spAddress: string, jobId: string): Promise<ProviderJobContext> {
-    let providerInfo = this.walletSdkService.getProviderInfo(spAddress);
+  private async resolveProviderJobContext(
+    spAddress: string,
+    jobId: string,
+    network: Network,
+  ): Promise<ProviderJobContext> {
+    let providerInfo = this.walletSdkService.getProviderInfo(spAddress, network);
 
     if (providerInfo == null) {
-      await this.walletSdkService.loadProviders();
-      providerInfo = this.walletSdkService.getProviderInfo(spAddress);
+      await this.walletSdkService.loadProviders(network);
+      providerInfo = this.walletSdkService.getProviderInfo(spAddress, network);
     }
 
     let providerId = providerInfo?.id;
@@ -442,7 +469,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     // Fall back to DB if either providerId or providerName is missing
     if (providerId == null || !providerName) {
       const provider = await this.storageProviderRepository.findOne({
-        where: { address: spAddress },
+        where: { address: spAddress, network },
         select: { providerId: true, name: true },
       });
       providerId = providerId ?? provider?.providerId ?? undefined;
@@ -462,6 +489,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       providerAddress: spAddress,
       providerId,
       providerName,
+      network,
     };
   }
 
@@ -470,9 +498,10 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     spAddress: string,
     jobId: string,
     message: string,
+    network: Network,
   ): Promise<ProviderJobContext | null> {
-    const spBlocklists = this.configService.get<ISpBlocklistConfig>("spBlocklists");
-    if (isSpBlocked(spBlocklists, spAddress)) {
+    const networkCfg = this.configService.get("networks", { infer: true })[network];
+    if (isSpBlocked(networkCfg, spAddress)) {
       this.logger.log({
         jobId,
         providerAddress: spAddress,
@@ -482,8 +511,8 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       return null;
     }
 
-    const logContext = await this.resolveProviderJobContext(spAddress, jobId);
-    if (isSpBlocked(spBlocklists, spAddress, logContext.providerId)) {
+    const logContext = await this.resolveProviderJobContext(spAddress, jobId, network);
+    if (isSpBlocked(networkCfg, spAddress, logContext.providerId)) {
       this.logger.log({
         ...logContext,
         event: `${jobType}_job_blocked`,
@@ -495,27 +524,32 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     return logContext;
   }
 
-  private logMaintenanceSkip(taskLabel: string, windowLabel?: string, logContext?: Partial<JobLogContext>) {
-    const scheduling = this.configService.get("scheduling");
+  private logMaintenanceSkip(
+    taskLabel: string,
+    network: Network,
+    windowLabel?: string,
+    logContext?: Partial<JobLogContext>,
+  ) {
+    const networkCfg = this.configService.get("networks", { infer: true })[network];
     const label = windowLabel ?? "unknown";
     this.logger.log({
       ...logContext,
       event: "maintenance_window_active",
-      message: `Maintenance window active (${label} UTC, ${scheduling.maintenanceWindowMinutes}m); deferring ${taskLabel}`,
+      message: `Maintenance window active (${label} UTC, ${networkCfg.maintenanceWindowMinutes}m); deferring ${taskLabel}`,
     });
   }
 
   private async handleDealJob(job: SpJob): Promise<void> {
     const data = job.data;
-    const spAddress = data.spAddress;
+    const { spAddress, network } = data;
     const now = new Date();
-    const maintenance = this.getMaintenanceWindowStatus(now);
+    const maintenance = this.getMaintenanceWindowStatus(now, network);
     if (maintenance.active) {
-      this.logMaintenanceSkip(`deal job for ${spAddress}`, maintenance.window?.label, {
+      this.logMaintenanceSkip(`deal job for ${spAddress}`, network, maintenance.window?.label, {
         jobId: job.id,
         providerAddress: spAddress,
-        providerId: this.walletSdkService.getProviderInfo(spAddress)?.id,
-        providerName: this.walletSdkService.getProviderInfo(spAddress)?.name,
+        providerId: this.walletSdkService.getProviderInfo(spAddress, network)?.id,
+        providerName: this.walletSdkService.getProviderInfo(spAddress, network)?.name,
       });
       await this.deferJobForMaintenance("deal", data, maintenance, now);
       return;
@@ -523,7 +557,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
 
     // Create AbortController for job timeout enforcement
     const abortController = new AbortController();
-    const timeoutSeconds = this.configService.get("jobs").dealJobTimeoutSeconds;
+    const timeoutSeconds = this.configService.get("networks", { infer: true })[network].dealJobTimeoutSeconds;
     const timeoutMs = Math.max(120000, timeoutSeconds * 1000);
     const effectiveTimeoutSeconds = Math.round(timeoutMs / 1000);
     const abortReason = new Error(`Deal job timeout (${effectiveTimeoutSeconds}s) for ${spAddress}`);
@@ -531,22 +565,23 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       abortController.abort(abortReason);
     }, timeoutMs);
 
-    await this.recordJobExecution("deal", async () => {
+    await this.recordJobExecution("deal", network, async () => {
       const logContext = await this.resolveRunnableProviderJobContext(
         "deal",
         spAddress,
         job.id,
         "Deal job skipped: provider is blocked for scheduled data-storage checks",
+        network,
       );
       if (logContext == null) {
         clearTimeout(timeoutId);
         return "success";
       }
       try {
-        let provider = this.walletSdkService.getTestingProviders().find((p) => p.serviceProvider === spAddress);
+        let provider = this.walletSdkService.getTestingProviders(network).find((p) => p.serviceProvider === spAddress);
         if (!provider) {
-          await this.walletSdkService.loadProviders();
-          provider = this.walletSdkService.getTestingProviders().find((p) => p.serviceProvider === spAddress);
+          await this.walletSdkService.loadProviders(network);
+          provider = this.walletSdkService.getTestingProviders(network).find((p) => p.serviceProvider === spAddress);
           if (!provider) {
             this.logger.warn({
               ...logContext,
@@ -559,8 +594,10 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
 
         abortController.signal.throwIfAborted();
         await this.dealService.createDealForProvider(provider, {
+          network,
           signal: abortController.signal,
           logContext: {
+            network,
             jobId: logContext.jobId,
             providerAddress: logContext.providerAddress,
             providerId: provider.id ?? logContext.providerId,
@@ -606,15 +643,15 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
 
   private async handleRetrievalJob(job: SpJob): Promise<void> {
     const data = job.data;
-    const spAddress = data.spAddress;
+    const { spAddress, network } = data;
     const now = new Date();
-    const maintenance = this.getMaintenanceWindowStatus(now);
+    const maintenance = this.getMaintenanceWindowStatus(now, network);
     if (maintenance.active) {
-      this.logMaintenanceSkip(`retrieval job for ${spAddress}`, maintenance.window?.label, {
+      this.logMaintenanceSkip(`retrieval job for ${spAddress}`, network, maintenance.window?.label, {
         jobId: job.id,
         providerAddress: spAddress,
-        providerId: this.walletSdkService.getProviderInfo(spAddress)?.id,
-        providerName: this.walletSdkService.getProviderInfo(spAddress)?.name,
+        providerId: this.walletSdkService.getProviderInfo(spAddress, network)?.id,
+        providerName: this.walletSdkService.getProviderInfo(spAddress, network)?.name,
       });
       await this.deferJobForMaintenance("retrieval", data, maintenance, now);
       return;
@@ -622,7 +659,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
 
     // Create AbortController for job timeout enforcement
     const abortController = new AbortController();
-    const timeoutSeconds = this.configService.get("jobs").retrievalJobTimeoutSeconds;
+    const timeoutSeconds = this.configService.get("networks", { infer: true })[network].retrievalJobTimeoutSeconds;
     const timeoutMs = Math.max(60000, timeoutSeconds * 1000);
     const effectiveTimeoutSeconds = Math.round(timeoutMs / 1000);
     const abortReason = new Error(`Retrieval job timeout (${effectiveTimeoutSeconds}s) for ${spAddress}`);
@@ -630,19 +667,25 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       abortController.abort(abortReason);
     }, timeoutMs);
 
-    await this.recordJobExecution("retrieval", async () => {
+    await this.recordJobExecution("retrieval", network, async () => {
       const logContext = await this.resolveRunnableProviderJobContext(
         "retrieval",
         spAddress,
         job.id,
         "Retrieval job skipped: provider is blocked for scheduled retrieval checks",
+        network,
       );
       if (logContext == null) {
         clearTimeout(timeoutId);
         return "success";
       }
       try {
-        await this.retrievalService.performRandomRetrievalForProvider(spAddress, abortController.signal, logContext);
+        await this.retrievalService.performRandomRetrievalForProvider(
+          spAddress,
+          network,
+          abortController.signal,
+          logContext,
+        );
         return "success";
       } catch (error) {
         if (abortController.signal.aborted) {
@@ -673,15 +716,15 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
 
   private async handleSampledRetrievalJob(job: SpJob): Promise<void> {
     const data = job.data;
-    const spAddress = data.spAddress;
+    const { spAddress, network } = data;
     const now = new Date();
-    const maintenance = this.getMaintenanceWindowStatus(now);
+    const maintenance = this.getMaintenanceWindowStatus(now, network);
     if (maintenance.active) {
-      this.logMaintenanceSkip(`retrieval_sampled job for ${spAddress}`, maintenance.window?.label, {
+      this.logMaintenanceSkip(`retrieval_sampled job for ${spAddress}`, network, maintenance.window?.label, {
         jobId: job.id,
         providerAddress: spAddress,
-        providerId: this.walletSdkService.getProviderInfo(spAddress)?.id,
-        providerName: this.walletSdkService.getProviderInfo(spAddress)?.name,
+        providerId: this.walletSdkService.getProviderInfo(spAddress, network)?.id,
+        providerName: this.walletSdkService.getProviderInfo(spAddress, network)?.name,
       });
       await this.deferJobForMaintenance("retrieval_sampled", data, maintenance, now);
       return;
@@ -689,7 +732,8 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
 
     // Create AbortController for job timeout enforcement
     const abortController = new AbortController();
-    const timeoutSeconds = this.configService.get("jobs").sampledRetrievalJobTimeoutSeconds;
+    const timeoutSeconds = this.configService.get("networks", { infer: true })[network]
+      .sampledRetrievalJobTimeoutSeconds;
     const timeoutMs = Math.max(60000, timeoutSeconds * 1000);
     const effectiveTimeoutSeconds = Math.round(timeoutMs / 1000);
     const abortReason = new Error(`Sampled retrieval job timeout (${effectiveTimeoutSeconds}s) for ${spAddress}`);
@@ -697,19 +741,20 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       abortController.abort(abortReason);
     }, timeoutMs);
 
-    await this.recordJobExecution("retrieval_sampled", async () => {
+    await this.recordJobExecution("retrieval_sampled", network, async () => {
       const logContext = await this.resolveRunnableProviderJobContext(
         "retrieval_sampled",
         spAddress,
         job.id,
         "Sampled retrieval job skipped: provider is blocked for scheduled retrieval checks",
+        network,
       );
       if (logContext == null) {
         clearTimeout(timeoutId);
         return "success";
       }
       try {
-        await this.sampledRetrievalService.performForProvider(spAddress, abortController.signal, logContext);
+        await this.sampledRetrievalService.performForProvider(spAddress, network, abortController.signal, logContext);
         return "success";
       } catch (error) {
         if (abortController.signal.aborted) {
@@ -738,34 +783,32 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
   }
 
   private async handleDataRetentionJob(data: DataRetentionJobData): Promise<void> {
-    void data;
-    await this.recordJobExecution("data_retention_poll", async () => {
-      await this.dataRetentionService.pollDataRetention();
+    await this.recordJobExecution("data_retention_poll", data.network, async () => {
+      await this.dataRetentionService.pollDataRetention(data.network);
       return "success";
     });
   }
 
   private async handleProvidersRefreshJob(data: ProvidersRefreshJobData): Promise<void> {
-    void data;
-    await this.recordJobExecution("providers_refresh", async () => {
+    await this.recordJobExecution("providers_refresh", data.network, async () => {
       // loadProviders() swallows on-chain failures and returns false, that is a job failure.
-      const loaded = await this.walletSdkService.loadProviders();
+      const loaded = await this.walletSdkService.loadProviders(data.network);
       if (!loaded) {
         throw new Error("Provider refresh failed: unable to load providers from on-chain registry");
       }
-      await this.updateStorageProviderGauges();
+      await this.updateStorageProviderGauges(data.network);
       return "success";
     });
   }
 
   private async handlePullPieceCleanupJob(data: PullPieceCleanupJobData): Promise<void> {
-    void data;
-    await this.recordJobExecution("pull_piece_cleanup", async () => {
+    await this.recordJobExecution("pull_piece_cleanup", data.network, async () => {
       const deletedCount = await this.pullCheckService.deleteExpiredPullPieces();
       this.logger.log({
         event: "pull_piece_cleanup_completed",
         message: "Deleted expired pull piece registrations",
         deletedCount,
+        network: data.network,
       });
       return "success";
     });
@@ -773,22 +816,22 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
 
   private async handlePullCheckJob(job: SpJob): Promise<void> {
     const data = job.data;
-    const spAddress = data.spAddress;
+    const { spAddress, network } = data;
     const now = new Date();
-    const maintenance = this.getMaintenanceWindowStatus(now);
+    const maintenance = this.getMaintenanceWindowStatus(now, network);
     if (maintenance.active) {
-      this.logMaintenanceSkip(`pull_check job for ${spAddress}`, maintenance.window?.label, {
+      this.logMaintenanceSkip(`pull_check job for ${spAddress}`, network, maintenance.window?.label, {
         jobId: job.id,
         providerAddress: spAddress,
-        providerId: this.walletSdkService.getProviderInfo(spAddress)?.id,
-        providerName: this.walletSdkService.getProviderInfo(spAddress)?.name,
+        providerId: this.walletSdkService.getProviderInfo(spAddress, network)?.id,
+        providerName: this.walletSdkService.getProviderInfo(spAddress, network)?.name,
       });
       await this.deferJobForMaintenance("pull_check", data, maintenance, now);
       return;
     }
 
     const abortController = new AbortController();
-    const timeoutSeconds = this.configService.get("pullPiece", { infer: true }).pullCheckJobTimeoutSeconds;
+    const timeoutSeconds = this.configService.get("networks", { infer: true })[network].pullCheckJobTimeoutSeconds;
     const timeoutMs = Math.max(60000, timeoutSeconds * 1000);
     const effectiveTimeoutSeconds = Math.round(timeoutMs / 1000);
     const abortReason = new Error(`Pull check job timeout (${effectiveTimeoutSeconds}s) for ${spAddress}`);
@@ -796,19 +839,20 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       abortController.abort(abortReason);
     }, timeoutMs);
 
-    await this.recordJobExecution("pull_check", async () => {
+    await this.recordJobExecution("pull_check", network, async () => {
       const logContext = await this.resolveRunnableProviderJobContext(
         "pull_check",
         spAddress,
         job.id,
         "Pull check job skipped: provider is blocked for scheduled pull checks",
+        network,
       );
       if (logContext == null) {
         clearTimeout(timeoutId);
         return "success";
       }
       try {
-        await this.pullCheckService.runPullCheck(spAddress, abortController.signal, logContext);
+        await this.pullCheckService.runPullCheck(spAddress, network, abortController.signal, logContext);
         return "success";
       } catch (error) {
         if (abortController.signal.aborted) {
@@ -839,22 +883,22 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
 
   private async handlePieceCleanupJob(job: SpJob): Promise<void> {
     const data = job.data;
-    const spAddress = data.spAddress;
+    const { spAddress, network } = data;
     const now = new Date();
-    const maintenance = this.getMaintenanceWindowStatus(now);
+    const maintenance = this.getMaintenanceWindowStatus(now, network);
     if (maintenance.active) {
-      this.logMaintenanceSkip(`piece_cleanup job for ${spAddress}`, maintenance.window?.label, {
+      this.logMaintenanceSkip(`piece_cleanup job for ${spAddress}`, network, maintenance.window?.label, {
         jobId: job.id,
         providerAddress: spAddress,
-        providerId: this.walletSdkService.getProviderInfo(spAddress)?.id,
+        providerId: this.walletSdkService.getProviderInfo(spAddress, network)?.id,
       });
       await this.deferJobForMaintenance("piece_cleanup", data, maintenance, now);
       return;
     }
 
     const abortController = new AbortController();
-    const jobsConfig = this.configService.get("jobs");
-    const timeoutSeconds = jobsConfig.maxPieceCleanupRuntimeSeconds;
+    const networkCfg = this.configService.get("networks", { infer: true })[network];
+    const timeoutSeconds = networkCfg.maxPieceCleanupRuntimeSeconds;
     const timeoutMs = Math.max(60000, timeoutSeconds * 1000);
     const effectiveTimeoutSeconds = Math.round(timeoutMs / 1000);
     const abortReason = new Error(`Piece cleanup job timeout (${effectiveTimeoutSeconds}s) for ${spAddress}`);
@@ -862,10 +906,10 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       abortController.abort(abortReason);
     }, timeoutMs);
 
-    await this.recordJobExecution("piece_cleanup", async () => {
-      const logContext = await this.resolveProviderJobContext(spAddress, job.id);
+    await this.recordJobExecution("piece_cleanup", network, async () => {
+      const logContext = await this.resolveProviderJobContext(spAddress, job.id, network);
       try {
-        await this.pieceCleanupService.cleanupPiecesForProvider(spAddress, abortController.signal, logContext);
+        await this.pieceCleanupService.cleanupPiecesForProvider(spAddress, network, abortController.signal, logContext);
         return "success";
       } catch (error) {
         if (abortController.signal.aborted) {
@@ -893,30 +937,33 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     });
   }
 
-  private async updateStorageProviderGauges(): Promise<void> {
+  private async updateStorageProviderGauges(network: Network): Promise<void> {
     try {
-      const totalProviders = await this.storageProviderRepository.count();
-      const activeCount = await this.storageProviderRepository.count({ where: { isActive: true } });
+      const networkFilter = { network };
+      const totalProviders = await this.storageProviderRepository.count({ where: networkFilter });
+      const activeCount = await this.storageProviderRepository.count({ where: { ...networkFilter, isActive: true } });
       const inactiveCount = Math.max(0, totalProviders - activeCount);
 
-      this.storageProvidersActive.set({ status: "active" }, activeCount);
-      this.storageProvidersActive.set({ status: "inactive" }, inactiveCount);
+      this.storageProvidersActive.set({ status: "active", network }, activeCount);
+      this.storageProvidersActive.set({ status: "inactive", network }, inactiveCount);
 
-      const useOnlyApprovedProviders = this.configService.get("blockchain").useOnlyApprovedProviders;
-      const testedWhere = useOnlyApprovedProviders ? { isActive: true, isApproved: true } : { isActive: true };
-      const spBlocklists = this.configService.get<ISpBlocklistConfig>("spBlocklists");
-      const hasGlobalBlocklist = spBlocklists.addresses.size > 0 || spBlocklists.ids.size > 0;
+      const networkCfg = this.configService.get("networks", { infer: true })[network];
+
+      const testedWhere = networkCfg.useOnlyApprovedProviders
+        ? { network, isActive: true, isApproved: true }
+        : { network, isActive: true };
+      const hasGlobalBlocklist = networkCfg.blockedSpIds.size > 0 || networkCfg.blockedSpAddresses.size > 0;
       let testedCount: number;
       if (hasGlobalBlocklist) {
         const testedProviders = await this.storageProviderRepository.find({
           select: { address: true, providerId: true },
           where: testedWhere,
         });
-        testedCount = testedProviders.filter((p) => !isSpBlocked(spBlocklists, p.address, p.providerId)).length;
+        testedCount = testedProviders.filter((p) => !isSpBlocked(networkCfg, p.address, p.providerId)).length;
       } else {
         testedCount = await this.storageProviderRepository.count({ where: testedWhere });
       }
-      this.storageProvidersTested.set(testedCount);
+      this.storageProvidersTested.set({ network }, testedCount);
     } catch (error) {
       this.logger.warn({
         event: "update_storage_provider_metrics_failed",
@@ -928,26 +975,27 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
 
   private async handleDataSetCreationJob(job: SpJob): Promise<void> {
     const data = job.data;
-    const spAddress = data.spAddress;
+    const { spAddress, network } = data;
     const now = new Date();
-    const maintenance = this.getMaintenanceWindowStatus(now);
+    const maintenance = this.getMaintenanceWindowStatus(now, network);
     if (maintenance.active) {
-      this.logMaintenanceSkip(`data_set_creation job for ${spAddress}`, maintenance.window?.label, {
+      this.logMaintenanceSkip(`data_set_creation job for ${spAddress}`, network, maintenance.window?.label, {
         jobId: job.id,
         providerAddress: spAddress,
-        providerId: this.walletSdkService.getProviderInfo(spAddress)?.id,
-        providerName: this.walletSdkService.getProviderInfo(spAddress)?.name,
+        providerId: this.walletSdkService.getProviderInfo(spAddress, network)?.id,
+        providerName: this.walletSdkService.getProviderInfo(spAddress, network)?.name,
       });
       await this.deferJobForMaintenance("data_set_creation", data, maintenance, now);
       return;
     }
 
-    const minDataSets = this.configService.get("blockchain").minNumDataSetsForChecks;
-    const baseDataSetMetadata = this.dealService.getBaseDataSetMetadata();
+    const networkCfg = this.configService.get("networks", { infer: true })[network];
+    const minDataSets = networkCfg.minNumDataSetsForChecks;
+    const baseDataSetMetadata = this.dealService.getBaseDataSetMetadata(network);
 
     // Create AbortController for job timeout enforcement
     const abortController = new AbortController();
-    const timeoutSeconds = this.configService.get("jobs").dataSetCreationJobTimeoutSeconds;
+    const timeoutSeconds = networkCfg.dataSetCreationJobTimeoutSeconds;
     const timeoutMs = Math.max(120000, timeoutSeconds * 1000);
     const effectiveTimeoutSeconds = Math.round(timeoutMs / 1000);
     const abortReason = new Error(`Data set creation job timeout (${effectiveTimeoutSeconds}s) for ${spAddress}`);
@@ -955,12 +1003,13 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       abortController.abort(abortReason);
     }, timeoutMs);
 
-    await this.recordJobExecution("data_set_creation", async () => {
+    await this.recordJobExecution("data_set_creation", network, async () => {
       const dataSetLogContext = await this.resolveRunnableProviderJobContext(
         "data_set_creation",
         spAddress,
         job.id,
         "Data set creation job skipped: provider is blocked for scheduled data-storage checks",
+        network,
       );
       if (dataSetLogContext == null) {
         clearTimeout(timeoutId);
@@ -970,6 +1019,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         await provisionNextMissingDataSet(
           { dealService: this.dealService, logger: this.logger },
           spAddress,
+          network,
           minDataSets,
           baseDataSetMetadata,
           dataSetLogContext,
@@ -1011,32 +1061,32 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
    */
   private async handleDataSetLifecycleCheckJob(job: SpJob): Promise<void> {
     const data = job.data;
-    const spAddress = data.spAddress;
+    const { spAddress, network } = data;
     const now = new Date();
-    const maintenance = this.getMaintenanceWindowStatus(now);
+    const maintenance = this.getMaintenanceWindowStatus(now, network);
     if (maintenance.active) {
-      this.logMaintenanceSkip(`data_set_lifecycle_check job for ${spAddress}`, maintenance.window?.label, {
+      this.logMaintenanceSkip(`data_set_lifecycle_check job for ${spAddress}`, network, maintenance.window?.label, {
         jobId: job.id,
         providerAddress: spAddress,
-        providerId: this.walletSdkService.getProviderInfo(spAddress)?.id,
-        providerName: this.walletSdkService.getProviderInfo(spAddress)?.name,
+        providerId: this.walletSdkService.getProviderInfo(spAddress, network)?.id,
+        providerName: this.walletSdkService.getProviderInfo(spAddress, network)?.name,
       });
       await this.deferJobForMaintenance("data_set_lifecycle_check", data, maintenance, now);
       return;
     }
 
-    const jobsConfig = this.configService.get("jobs", { infer: true });
+    const networkCfg = this.configService.get("networks", { infer: true })[network];
     // Defensive gate: schedules are only created when enabled, but a stale enqueued job
     // (e.g. after disabling) must still no-op safely.
-    if (!jobsConfig.dataSetLifecycleCheckEnabled) {
+    if (!networkCfg.dataSetLifecycleCheckEnabled) {
       this.logger.log({
         jobId: job.id,
         providerAddress: spAddress,
-        providerId: this.walletSdkService.getProviderInfo(spAddress)?.id,
-        providerName: this.walletSdkService.getProviderInfo(spAddress)?.name,
+        providerId: this.walletSdkService.getProviderInfo(spAddress, network)?.id,
+        providerName: this.walletSdkService.getProviderInfo(spAddress, network)?.name,
         event: "data_set_lifecycle_check_job_disabled",
         message: "Data set lifecycle check job skipped: disabled",
-        enabled: jobsConfig.dataSetLifecycleCheckEnabled,
+        enabled: networkCfg.dataSetLifecycleCheckEnabled,
       });
       return;
     }
@@ -1050,7 +1100,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
 
     // Create AbortController for job timeout enforcement
     const abortController = new AbortController();
-    const timeoutSeconds = jobsConfig.dataSetLifecycleCheckJobTimeoutSeconds;
+    const timeoutSeconds = networkCfg.dataSetLifecycleCheckJobTimeoutSeconds;
     const timeoutMs = Math.max(60000, timeoutSeconds * 1000);
     const effectiveTimeoutSeconds = Math.round(timeoutMs / 1000);
     const abortReason = new Error(
@@ -1060,12 +1110,13 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       abortController.abort(abortReason);
     }, timeoutMs);
 
-    await this.recordJobExecution("data_set_lifecycle_check", async () => {
+    await this.recordJobExecution("data_set_lifecycle_check", network, async () => {
       const dataSetLogContext = await this.resolveRunnableProviderJobContext(
         "data_set_lifecycle_check",
         spAddress,
         job.id,
         "Data set lifecycle check job skipped: provider is blocked for scheduled data-storage checks",
+        network,
       );
       if (dataSetLogContext == null) {
         clearTimeout(timeoutId);
@@ -1074,6 +1125,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       try {
         await this.dataSetLifecycleService.runLifecycleCheck(
           spAddress,
+          network,
           metadata,
           abortController.signal,
           dataSetLogContext,
@@ -1105,12 +1157,16 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     });
   }
 
-  private maintenanceResumeAt(now: Date, maintenance: ReturnType<typeof getMaintenanceWindowStatus>): Date | null {
+  private maintenanceResumeAt(
+    now: Date,
+    network: Network,
+    maintenance: ReturnType<typeof getMaintenanceWindowStatus>,
+  ): Date | null {
     if (!maintenance.active || !maintenance.window) {
       return null;
     }
-    const scheduling = this.configService.get("scheduling");
-    const durationMinutes = scheduling.maintenanceWindowMinutes;
+    const networkConfig = this.configService.get("networks", { infer: true })[network];
+    const durationMinutes = networkConfig.maintenanceWindowMinutes;
     if (durationMinutes <= 0) {
       return null;
     }
@@ -1137,7 +1193,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     maintenance: ReturnType<typeof getMaintenanceWindowStatus>,
     now: Date,
   ): Promise<void> {
-    const resumeAt = this.maintenanceResumeAt(now, maintenance);
+    const resumeAt = this.maintenanceResumeAt(now, data.network, maintenance);
     if (resumeAt == null) {
       return;
     }
@@ -1169,29 +1225,32 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
    * Runs one scheduler tick and updates queue metrics.
    */
   private async runTick(): Promise<void> {
-    try {
-      await this.ensureScheduleRows();
-      await this.enqueueDueJobs();
-    } catch (error) {
-      this.logger.error({
-        event: "pgboss_scheduler_tick_failed",
-        message: "pg-boss scheduler core tick failed",
-        error: toStructuredError(error),
-      });
-    }
+    const activeNetworks = this.configService.get<Network[]>("activeNetworks");
+    for (const network of activeNetworks) {
+      try {
+        await this.ensureScheduleRows(network);
+        await this.enqueueDueJobs(network);
+      } catch (error) {
+        this.logger.error({
+          event: "pgboss_scheduler_tick_failed",
+          message: "pg-boss scheduler core tick failed",
+          error: toStructuredError(error),
+        });
+      }
 
-    try {
-      await this.updateQueueMetrics();
-    } catch (error) {
-      this.logger.error({
-        event: "pgboss_scheduler_metrics_update_failed",
-        message: "pg-boss scheduler metrics update failed",
-        error: toStructuredError(error),
-      });
+      try {
+        await this.updateQueueMetrics(network);
+      } catch (error) {
+        this.logger.error({
+          event: "pgboss_scheduler_metrics_update_failed",
+          message: "pg-boss scheduler metrics update failed",
+          error: toStructuredError(error),
+        });
+      }
     }
   }
 
-  private getIntervalSecondsForRates(): {
+  private getIntervalSecondsForRates(network: Network): {
     dealIntervalSeconds: number;
     retrievalIntervalSeconds: number;
     sampledRetrievalIntervalSeconds: number;
@@ -1203,28 +1262,28 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     pullCheckIntervalSeconds: number;
     pullPieceCleanupIntervalSeconds: number;
   } {
-    const jobsConfig = this.configService.get("jobs", { infer: true });
-    const scheduling = this.configService.get("scheduling", { infer: true });
-    const pullPieceConfig = this.configService.get("pullPiece", { infer: true });
+    const networkCfg = this.configService.get("networks", { infer: true })[network];
 
-    const dealsPerHour = jobsConfig.dealsPerSpPerHour;
-    const retrievalsPerHour = jobsConfig.retrievalsPerSpPerHour;
-    const dataSetCreationsPerHour = jobsConfig.dataSetCreationsPerSpPerHour;
-    const dataSetLifecycleChecksPerHour = jobsConfig.dataSetLifecycleChecksPerSpPerHour;
-    const pieceCleanupPerHour = jobsConfig.pieceCleanupPerSpPerHour;
-    const pullChecksPerHour = pullPieceConfig.pullChecksPerSpPerHour;
+    const {
+      dealsPerSpPerHour,
+      retrievalsPerSpPerHour,
+      dataSetCreationsPerSpPerHour,
+      dataSetLifecycleChecksPerSpPerHour,
+      pieceCleanupPerSpPerHour,
+      pullChecksPerSpPerHour,
+      dataRetentionPollIntervalSeconds,
+      providersRefreshIntervalSeconds,
+      pullPieceCleanupIntervalSeconds,
+    } = networkCfg;
 
-    const dealIntervalSeconds = Math.max(1, Math.round(3600 / dealsPerHour));
-    const retrievalIntervalSeconds = Math.max(1, Math.round(3600 / retrievalsPerHour));
-    const dataSetCreationIntervalSeconds = Math.max(1, Math.round(3600 / dataSetCreationsPerHour));
-    const dataSetLifecycleCheckIntervalSeconds = Math.max(1, Math.round(3600 / dataSetLifecycleChecksPerHour));
-    const pieceCleanupIntervalSeconds = Math.max(1, Math.round(3600 / pieceCleanupPerHour));
-    const pullCheckIntervalSeconds = Math.max(1, Math.round(3600 / pullChecksPerHour));
-    const dataRetentionPollIntervalSeconds = scheduling.dataRetentionPollIntervalSeconds;
-    const providersRefreshIntervalSeconds = scheduling.providersRefreshIntervalSeconds;
-    const pullPieceCleanupIntervalSeconds = pullPieceConfig.pullPieceCleanupIntervalSeconds;
+    const dealIntervalSeconds = Math.max(1, Math.round(3600 / dealsPerSpPerHour));
+    const retrievalIntervalSeconds = Math.max(1, Math.round(3600 / retrievalsPerSpPerHour));
+    const dataSetCreationIntervalSeconds = Math.max(1, Math.round(3600 / dataSetCreationsPerSpPerHour));
+    const dataSetLifecycleCheckIntervalSeconds = Math.max(1, Math.round(3600 / dataSetLifecycleChecksPerSpPerHour));
+    const pieceCleanupIntervalSeconds = Math.max(1, Math.round(3600 / pieceCleanupPerSpPerHour));
+    const pullCheckIntervalSeconds = Math.max(1, Math.round(3600 / pullChecksPerSpPerHour));
 
-    const sampledRetrievalsPerHour = jobsConfig.sampledRetrievalsPerSpPerHour;
+    const sampledRetrievalsPerHour = networkCfg.sampledRetrievalsPerSpPerHour;
     const sampledRetrievalIntervalSeconds = Math.max(1, Math.round(3600 / sampledRetrievalsPerHour));
 
     return {
@@ -1248,7 +1307,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
    * - Pauses rows for providers that are no longer active.
    * - Ensures global data_retention_poll, providers_refresh, and pull_piece_cleanup jobs exist.
    */
-  private async ensureScheduleRows(): Promise<void> {
+  private async ensureScheduleRows(network: Network): Promise<void> {
     const now = new Date();
     const {
       dealIntervalSeconds,
@@ -1261,14 +1320,15 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       pieceCleanupIntervalSeconds,
       pullCheckIntervalSeconds,
       pullPieceCleanupIntervalSeconds,
-    } = this.getIntervalSecondsForRates();
+    } = this.getIntervalSecondsForRates(network);
 
-    const useOnlyApprovedProviders = this.configService.get("blockchain").useOnlyApprovedProviders;
+    const networkCfg = this.configService.get("networks")[network];
+    const useOnlyApprovedProviders = networkCfg.useOnlyApprovedProviders;
     // Active providers are guaranteed to support ipniIpfs
     // as validated by WalletSdkService.loadProvidersInternal()
     const providers = await this.storageProviderRepository.find({
       select: { address: true, providerId: true },
-      where: useOnlyApprovedProviders ? { isActive: true, isApproved: true } : { isActive: true },
+      where: { network, isActive: true, ...(useOnlyApprovedProviders && { isApproved: true }) },
     });
 
     const phaseMs = this.schedulePhaseSeconds() * 1000;
@@ -1280,19 +1340,18 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     const dataRetentionPollStartAt = new Date(now.getTime() + phaseMs);
     const providersRefreshStartAt = new Date(now.getTime() + phaseMs);
 
-    const minDataSets = this.configService.get("blockchain", { infer: true }).minNumDataSetsForChecks;
+    const minDataSets = networkCfg.minNumDataSetsForChecks;
     // Lifecycle check schedules are only created when enabled explicitly
-    const lifecycleCheckScheduleEnabled = this.configService.get("jobs", { infer: true }).dataSetLifecycleCheckEnabled;
+    const lifecycleCheckScheduleEnabled = networkCfg.dataSetLifecycleCheckEnabled;
     const cleanupStartAt = new Date(now.getTime() + phaseMs);
     const pullCheckStartAt = new Date(now.getTime() + phaseMs);
 
     // Sampled retrieval depends on the dealbot-owned subgraph. Without SUBGRAPH_ENDPOINT every
     // job would fail in SubgraphService.samplePiece(), so gate schedule creation on it.
-    const sampledRetrievalEnabled = Boolean(this.configService.get("blockchain").subgraphEndpoint);
+    const sampledRetrievalEnabled = Boolean(networkCfg.subgraphEndpoint);
 
-    const spBlocklistsCfg = this.configService.get<ISpBlocklistConfig>("spBlocklists");
     const unblockedAddresses = providers
-      .filter(({ address, providerId }) => !isSpBlocked(spBlocklistsCfg, address, providerId))
+      .filter(({ address, providerId }) => !isSpBlocked(networkCfg, address, providerId))
       .map(({ address }) => address);
     const blockedCount = providers.length - unblockedAddresses.length;
     if (blockedCount > 0) {
@@ -1304,12 +1363,19 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     }
 
     for (const address of unblockedAddresses) {
-      await this.jobScheduleRepository.upsertSchedule("deal", address, dealIntervalSeconds, dealStartAt);
-      await this.jobScheduleRepository.upsertSchedule("retrieval", address, retrievalIntervalSeconds, retrievalStartAt);
+      await this.jobScheduleRepository.upsertSchedule("deal", address, network, dealIntervalSeconds, dealStartAt);
+      await this.jobScheduleRepository.upsertSchedule(
+        "retrieval",
+        address,
+        network,
+        retrievalIntervalSeconds,
+        retrievalStartAt,
+      );
       if (sampledRetrievalEnabled) {
         await this.jobScheduleRepository.upsertSchedule(
           "retrieval_sampled",
           address,
+          network,
           sampledRetrievalIntervalSeconds,
           sampledRetrievalStartAt,
         );
@@ -1318,6 +1384,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         await this.jobScheduleRepository.upsertSchedule(
           "data_set_creation",
           address,
+          network,
           dataSetCreationIntervalSeconds,
           dataSetCreationStartAt,
         );
@@ -1326,6 +1393,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         await this.jobScheduleRepository.upsertSchedule(
           "data_set_lifecycle_check",
           address,
+          network,
           dataSetLifecycleCheckIntervalSeconds,
           dataSetLifecycleCheckStartAt,
         );
@@ -1333,19 +1401,24 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       await this.jobScheduleRepository.upsertSchedule(
         "piece_cleanup",
         address,
+        network,
         pieceCleanupIntervalSeconds,
         cleanupStartAt,
       );
       await this.jobScheduleRepository.upsertSchedule(
         "pull_check",
         address,
+        network,
         pullCheckIntervalSeconds,
         pullCheckStartAt,
       );
     }
 
     if (providers.length > 0) {
-      const deletedAddresses = await this.jobScheduleRepository.deleteSchedulesForInactiveProviders(unblockedAddresses);
+      const deletedAddresses = await this.jobScheduleRepository.deleteSchedulesForInactiveProviders(
+        unblockedAddresses,
+        network,
+      );
       if (deletedAddresses.length > 0) {
         this.logger.warn({
           event: "job_schedules_deleted",
@@ -1364,7 +1437,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     // When the lifecycle check is disabled, remove any stale data_set_lifecycle_check
     // schedules so they stop enqueuing no-op jobs.
     if (!lifecycleCheckScheduleEnabled) {
-      const removed = await this.jobScheduleRepository.deleteSchedulesByJobType("data_set_lifecycle_check");
+      const removed = await this.jobScheduleRepository.deleteSchedulesByJobType("data_set_lifecycle_check", network);
       if (removed > 0) {
         this.logger.warn({
           event: "data_set_lifecycle_check_schedules_removed",
@@ -1374,22 +1447,25 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       }
     }
 
-    // Global job schedules (sp_address = '')
+    // Per-network global job schedules (sp_address = '')
     await this.jobScheduleRepository.upsertSchedule(
       "data_retention_poll",
       "",
+      network,
       dataRetentionPollIntervalSeconds,
       dataRetentionPollStartAt,
     );
     await this.jobScheduleRepository.upsertSchedule(
       "providers_refresh",
       "",
+      network,
       providersRefreshIntervalSeconds,
       providersRefreshStartAt,
     );
     await this.jobScheduleRepository.upsertSchedule(
       "pull_piece_cleanup",
       "",
+      network,
       pullPieceCleanupIntervalSeconds,
       new Date(now.getTime() + phaseMs),
     );
@@ -1421,19 +1497,19 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     return { intervalMs, nextRunAt, runsDue };
   }
 
-  private async enqueueDueJobs(): Promise<void> {
+  private async enqueueDueJobs(network: Network): Promise<void> {
     if (!this.boss) return;
 
     const now = new Date();
-    const maintenance = this.getMaintenanceWindowStatus(now);
+    const maintenance = this.getMaintenanceWindowStatus(now, network);
     const catchupMax = this.catchupMaxEnqueue();
 
     if (maintenance.active) {
-      this.logMaintenanceSkip("Global job enqueues", maintenance.window?.label);
+      this.logMaintenanceSkip("Global job enqueues", network, maintenance.window?.label);
     }
 
     await this.jobScheduleRepository.runTransaction(async (manager) => {
-      const rows = await this.jobScheduleRepository.findDueSchedulesWithManager(manager, now);
+      const rows = await this.jobScheduleRepository.findDueSchedulesWithManager(manager, now, network);
 
       for (const row of rows) {
         const timing = this.getScheduleTiming(row, now);
@@ -1516,9 +1592,14 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       row.job_type === "piece_cleanup" ||
       row.job_type === "pull_check"
     ) {
-      return { jobType: row.job_type, spAddress: row.sp_address, intervalSeconds: row.interval_seconds };
+      return {
+        jobType: row.job_type,
+        spAddress: row.sp_address,
+        network: row.network,
+        intervalSeconds: row.interval_seconds,
+      };
     }
-    return { intervalSeconds: row.interval_seconds };
+    return { network: row.network, intervalSeconds: row.interval_seconds };
   }
 
   /**
@@ -1537,14 +1618,15 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       if (isSpJobType(jobType)) {
         const spData = data as SpJobData;
         if (!finalOptions.singletonKey) {
-          finalOptions.singletonKey = spData.spAddress;
+          // Include network in singleton key to prevent cross-network deduplication collisions
+          finalOptions.singletonKey = `${spData.network}:${spData.spAddress}`;
         }
       } else {
-        // Global jobs: use job type as singleton key.
-        finalOptions.singletonKey = jobType;
+        // Global jobs: include network in singleton key for per-network isolation
+        finalOptions.singletonKey = `${data.network}:${jobType}`;
       }
       await this.boss.send(name, data, finalOptions);
-      this.jobsEnqueueAttemptsCounter.inc({ job_type: jobType, outcome: "success" });
+      this.jobsEnqueueAttemptsCounter.inc({ job_type: jobType, outcome: "success", network: data.network });
       return true;
     } catch (error) {
       this.logger.warn({
@@ -1554,7 +1636,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         jobType,
         error: toStructuredError(error),
       });
-      this.jobsEnqueueAttemptsCounter.inc({ job_type: jobType, outcome: "error" });
+      this.jobsEnqueueAttemptsCounter.inc({ job_type: jobType, outcome: "error", network: data.network });
       return false;
     }
   }
@@ -1562,18 +1644,22 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
   /**
    * Records handler start/end metrics around a job execution.
    */
-  private async recordJobExecution(jobType: JobType, run: () => Promise<JobRunStatus>): Promise<void> {
+  private async recordJobExecution(
+    jobType: JobType,
+    network: Network,
+    run: () => Promise<JobRunStatus>,
+  ): Promise<void> {
     const startedAt = Date.now();
-    this.jobsStartedCounter.inc({ job_type: jobType });
+    this.jobsStartedCounter.inc({ job_type: jobType, network });
     try {
       const status = await run();
       const finishedAt = Date.now();
-      this.jobDuration.observe({ job_type: jobType }, (finishedAt - startedAt) / 1000);
-      this.jobsCompletedCounter.inc({ job_type: jobType, handler_result: status });
+      this.jobDuration.observe({ job_type: jobType, network }, (finishedAt - startedAt) / 1000);
+      this.jobsCompletedCounter.inc({ job_type: jobType, handler_result: status, network });
     } catch (error) {
       const finishedAt = Date.now();
-      this.jobDuration.observe({ job_type: jobType }, (finishedAt - startedAt) / 1000);
-      this.jobsCompletedCounter.inc({ job_type: jobType, handler_result: "error" });
+      this.jobDuration.observe({ job_type: jobType, network }, (finishedAt - startedAt) / 1000);
+      this.jobsCompletedCounter.inc({ job_type: jobType, handler_result: "error", network });
       throw error;
     }
   }
@@ -1581,7 +1667,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
   /**
    * Refreshes queue depth and age gauges from pg-boss tables.
    */
-  private async updateQueueMetrics(): Promise<void> {
+  private async updateQueueMetrics(network: Network): Promise<void> {
     const jobTypes: JobType[] = [
       "deal",
       "retrieval",
@@ -1595,26 +1681,26 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       "pull_piece_cleanup",
     ];
     for (const jobType of jobTypes) {
-      this.jobsQueuedGauge.set({ job_type: jobType }, 0);
-      this.jobsRetryScheduledGauge.set({ job_type: jobType }, 0);
-      this.jobsInFlightGauge.set({ job_type: jobType }, 0);
-      this.jobsPausedGauge.set({ job_type: jobType }, 0);
-      this.oldestQueuedAgeGauge.set({ job_type: jobType }, 0);
-      this.oldestInFlightAgeGauge.set({ job_type: jobType }, 0);
+      this.jobsQueuedGauge.set({ job_type: jobType, network }, 0);
+      this.jobsRetryScheduledGauge.set({ job_type: jobType, network }, 0);
+      this.jobsInFlightGauge.set({ job_type: jobType, network }, 0);
+      this.jobsPausedGauge.set({ job_type: jobType, network }, 0);
+      this.oldestQueuedAgeGauge.set({ job_type: jobType, network }, 0);
+      this.oldestInFlightAgeGauge.set({ job_type: jobType, network }, 0);
     }
 
-    const rows = await this.jobScheduleRepository.countBossJobStates(["created", "retry", "active"]);
+    const rows = await this.jobScheduleRepository.countBossJobStates(["created", "retry", "active"], network);
     if (rows.length > 0) {
       for (const row of rows) {
         const jobType = row.job_type as JobType;
         if (!jobTypes.includes(jobType)) continue;
         const state = String(row.state).toLowerCase();
         if (state === "active") {
-          this.jobsInFlightGauge.set({ job_type: jobType }, row.count);
+          this.jobsInFlightGauge.set({ job_type: jobType, network }, row.count);
         } else if (state === "retry") {
-          this.jobsRetryScheduledGauge.set({ job_type: jobType }, row.count);
+          this.jobsRetryScheduledGauge.set({ job_type: jobType, network }, row.count);
         } else {
-          this.jobsQueuedGauge.set({ job_type: jobType }, row.count);
+          this.jobsQueuedGauge.set({ job_type: jobType, network }, row.count);
         }
       }
     } else {
@@ -1625,24 +1711,24 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       });
     }
 
-    const pausedSchedules = await this.jobScheduleRepository.countPausedSchedules();
+    const pausedSchedules = await this.jobScheduleRepository.countPausedSchedules(network);
     for (const row of pausedSchedules) {
-      this.jobsPausedGauge.set({ job_type: row.job_type }, row.count);
+      this.jobsPausedGauge.set({ job_type: row.job_type, network }, row.count);
     }
 
     const now = new Date();
-    const queuedAges = await this.jobScheduleRepository.minBossJobAgeSecondsByState("created", now);
+    const queuedAges = await this.jobScheduleRepository.minBossJobAgeSecondsByState("created", now, network);
     for (const row of queuedAges) {
       const jobType = row.job_type as JobType;
       if (!jobTypes.includes(jobType)) continue;
-      this.oldestQueuedAgeGauge.set({ job_type: jobType }, Math.max(0, row.min_age_seconds ?? 0));
+      this.oldestQueuedAgeGauge.set({ job_type: jobType, network }, Math.max(0, row.min_age_seconds ?? 0));
     }
 
-    const activeAges = await this.jobScheduleRepository.minBossJobAgeSecondsByState("active", now);
+    const activeAges = await this.jobScheduleRepository.minBossJobAgeSecondsByState("active", now, network);
     for (const row of activeAges) {
       const jobType = row.job_type as JobType;
       if (!jobTypes.includes(jobType)) continue;
-      this.oldestInFlightAgeGauge.set({ job_type: jobType }, Math.max(0, row.min_age_seconds ?? 0));
+      this.oldestInFlightAgeGauge.set({ job_type: jobType, network }, Math.max(0, row.min_age_seconds ?? 0));
     }
   }
 }

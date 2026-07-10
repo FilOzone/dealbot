@@ -1,3 +1,5 @@
+import { BadRequestException } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
 import { Test } from "@nestjs/testing";
 import { describe, expect, it, vi } from "vitest";
 import type { StorageProvider } from "../database/entities/storage-provider.entity.js";
@@ -6,6 +8,7 @@ import { ProvidersService } from "./providers.service.js";
 
 function makeProvider(overrides: Partial<StorageProvider> = {}): StorageProvider {
   return {
+    network: "calibration",
     address: "f01234",
     providerId: 99n,
     name: "Test SP",
@@ -24,17 +27,24 @@ function makeProvider(overrides: Partial<StorageProvider> = {}): StorageProvider
 }
 
 describe("ProvidersController", () => {
-  async function setup(providers: StorageProvider[] = [makeProvider()]) {
+  async function setup(providers: StorageProvider[] = [makeProvider()], activeNetworks: string[] = ["calibration"]) {
     const mockService = {
       getProvidersList: vi.fn().mockResolvedValue({ providers, total: providers.length }),
     };
 
+    const mockConfig = {
+      get: vi.fn().mockImplementation((key: string) => (key === "activeNetworks" ? activeNetworks : undefined)),
+    };
+
     const module = await Test.createTestingModule({
       controllers: [ProvidersController],
-      providers: [{ provide: ProvidersService, useValue: mockService }],
+      providers: [
+        { provide: ProvidersService, useValue: mockService },
+        { provide: ConfigService, useValue: mockConfig },
+      ],
     }).compile();
 
-    return { controller: module.get(ProvidersController) };
+    return { controller: module.get(ProvidersController), service: mockService };
   }
 
   it("listProviders serializes BigInt providerId to string (regression: JSON.stringify crash)", async () => {
@@ -54,5 +64,20 @@ describe("ProvidersController", () => {
 
     // undefined fields are omitted by JSON.stringify — no crash, no providerId key
     expect(json).not.toContain('"providerId"');
+  });
+
+  it("listProviders rejects a supported-but-inactive network", async () => {
+    const { controller, service } = await setup(undefined, ["calibration"]);
+
+    // `mainnet` is in SUPPORTED_NETWORKS but not active on this instance.
+    await expect(controller.listProviders(20, 0, "mainnet")).rejects.toThrow(BadRequestException);
+    expect(service.getProvidersList).not.toHaveBeenCalled();
+  });
+
+  it("listProviders accepts an active network", async () => {
+    const { controller, service } = await setup(undefined, ["calibration"]);
+
+    await expect(controller.listProviders(20, 0, "calibration")).resolves.toBeDefined();
+    expect(service.getProvidersList).toHaveBeenCalledWith(expect.objectContaining({ network: "calibration" }));
   });
 });

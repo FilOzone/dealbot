@@ -3,7 +3,7 @@ import { ConfigService } from "@nestjs/config";
 import { InjectMetric } from "@willsoto/nestjs-prometheus";
 import type { Gauge } from "prom-client";
 import { toStructuredError } from "../common/logging.js";
-import type { IConfig } from "../config/app.config.js";
+import type { IConfig, INetworksConfig } from "../config/index.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
 
 @Injectable()
@@ -39,10 +39,13 @@ export class WalletBalanceCollector implements OnModuleInit {
 
       this.refreshPromise = (async () => {
         try {
-          const { usdfc, fil } = await this.walletSdkService.getWalletBalances();
-          const walletShort = this.configService.get("blockchain").walletAddress.slice(0, 8);
-          this.walletBalanceGauge.set({ currency: "USDFC", wallet: walletShort }, Number(usdfc));
-          this.walletBalanceGauge.set({ currency: "FIL", wallet: walletShort }, Number(fil));
+          const activeNetworks = this.configService.get("activeNetworks");
+          for (const network of activeNetworks) {
+            const { usdfc, fil } = await this.walletSdkService.getWalletBalances(network);
+            const walletShort = this.configService.get<INetworksConfig>("networks")[network].walletAddress.slice(0, 8);
+            this.walletBalanceGauge.set({ currency: "USDFC", wallet: walletShort, network }, Number(usdfc));
+            this.walletBalanceGauge.set({ currency: "FIL", wallet: walletShort, network }, Number(fil));
+          }
           this.cachedAt = Date.now();
         } catch (error) {
           this.logger.warn({

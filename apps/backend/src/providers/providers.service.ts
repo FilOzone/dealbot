@@ -2,7 +2,8 @@ import { Injectable } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
 import type { Repository } from "typeorm";
-import type { IConfig } from "../config/app.config.js";
+import type { Network } from "../common/types.js";
+import type { IConfig } from "../config/index.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
 
 /**
@@ -19,14 +20,26 @@ export class ProvidersService {
 
   /**
    * Get paginated/filtered provider list.
+   *
+   * When `network` is provided, results are scoped to that network and only
+   * that network's blocklist is applied.
+   *
+   * When `network` is omitted, results span all active networks and the
+   * blocklist for each network is applied, preserving the pre-multi-network
+   * behaviour of a single global blocklist.
    */
   async getProvidersList(options?: {
     activeOnly?: boolean;
     approvedOnly?: boolean;
+    network?: Network;
     limit?: number;
     offset?: number;
   }): Promise<{ providers: StorageProvider[]; total: number }> {
     const query = this.spRepository.createQueryBuilder("sp");
+
+    if (options?.network) {
+      query.andWhere("sp.network = :network", { network: options.network });
+    }
 
     if (options?.activeOnly) {
       query.andWhere("sp.is_active = true");
@@ -37,30 +50,43 @@ export class ProvidersService {
     }
 
     // Filter out blocked providers
-    const blocklists = this.configService.get("spBlocklists", { infer: true });
-    if (blocklists.ids.size > 0) {
-      // providerId is BigInt in the entity, so we convert strings to BigInts for the query
-      const blockedIds = Array.from(blocklists.ids)
-        .map((id) => {
-          try {
-            return BigInt(id);
-          } catch {
-            return null;
-          }
-        })
-        .filter((id): id is bigint => id !== null);
+    const networksConfig = this.configService.get("networks", { infer: true });
+    const activeNetworks = this.configService.get("activeNetworks", { infer: true });
+    const networksToFilter: Network[] = options?.network ? [options.network] : activeNetworks;
+
+    for (const net of networksToFilter) {
+      const cfg = networksConfig[net];
+      // `networks` is only populated for active networks. The controller already
+      // rejects inactive networks at the boundary, but this is a public method —
+      // guard against internal/future callers passing an inactive network so we
+      // skip (no providers, no blocklist) rather than dereferencing undefined and
+      // 500-ing.
+      if (!cfg) continue;
+
+      const blockedIds: bigint[] = [];
+      for (const id of cfg.blockedSpIds) {
+        try {
+          blockedIds.push(BigInt(id));
+        } catch {
+          // skip malformed ID strings
+        }
+      }
+
+      const blockedAddresses = Array.from(cfg.blockedSpAddresses).map((a) => a.toLowerCase());
 
       if (blockedIds.length > 0) {
-        query.andWhere('("sp"."providerId" IS NULL OR "sp"."providerId" NOT IN (:...blockedIds))', {
-          blockedIds,
-        });
+        query.andWhere(
+          `("sp"."providerId" IS NULL OR NOT ("sp"."network" = :network_${net} AND "sp"."providerId" IN (:...blockedIds_${net})))`,
+          { [`network_${net}`]: net, [`blockedIds_${net}`]: blockedIds },
+        );
       }
-    }
 
-    if (blocklists.addresses.size > 0) {
-      query.andWhere('LOWER("sp"."address") NOT IN (:...blockedAddresses)', {
-        blockedAddresses: Array.from(blocklists.addresses),
-      });
+      if (blockedAddresses.length > 0) {
+        query.andWhere(
+          `NOT ("sp"."network" = :network_${net} AND LOWER("sp"."address") IN (:...blockedAddresses_${net}))`,
+          { [`network_${net}`]: net, [`blockedAddresses_${net}`]: blockedAddresses },
+        );
+      }
     }
 
     const total = await query.getCount();
