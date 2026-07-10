@@ -14,7 +14,7 @@ When cutting a release, you may copy the checklist into a new GitHub issue title
 
 ## 1. Merge the subgraph Release PR
 
-Subgraph releases are managed by the separate [`release-subgraph.yml`](../.github/workflows/release-subgraph.yml) workflow, using [`release-please-subgraph-config.json`](../release-please-subgraph-config.json) and [`apps/subgraph/CHANGELOG.md`](../apps/subgraph/CHANGELOG.md).
+Subgraph releases are managed by the separate [`release-subgraph.yml`](../.github/workflows/release-subgraph.yml) workflow, using [`release-please-subgraph-config.json`](../release-please-subgraph-config.json). The first subgraph Release PR creates `apps/subgraph/CHANGELOG.md`, and later Release PRs keep it updated.
 
 When a conventional commit touching `apps/subgraph/**` lands on `main`, release-please opens or updates a subgraph-only Release PR.
 
