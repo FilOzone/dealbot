@@ -1,13 +1,6 @@
 packages:
   - apps/*
 
-allowBuilds:
-  '@nestjs/core': set this to true or false
-  '@scarf/scarf': set this to true or false
-  '@swc/core': set this to true or false
-  esbuild: set this to true or false
-  msw: set this to true or false
-
 catalog:
   '@biomejs/biome': 2.3.14
   '@swc/core': 1.15.11
