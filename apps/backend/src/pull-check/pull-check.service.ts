@@ -333,7 +333,7 @@ export class PullCheckService {
   private requireSynapseClient(network: Network): SynapseViemClient {
     const client = this.walletSdkService.getSynapseClient(network);
     if (client == null) {
-      throw new Error("Synapse client unavailable: chain integration must be enabled for pull checks");
+      throw new Error("Synapse client unavailable: Client has not been initialized yet.");
     }
     return client as SynapseViemClient;
   }

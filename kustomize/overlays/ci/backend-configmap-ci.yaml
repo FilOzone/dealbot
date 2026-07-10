@@ -13,8 +13,6 @@ data:
   DATABASE_PASSWORD: dealbot_password
   NETWORK: calibration
 
-  # CI: start the API without requiring chain contracts/wallet allowances
-  DEALBOT_DISABLE_CHAIN: "true"
   DEALBOT_DISABLE_SCHEDULER: "true"
 
   # Keep scheduling values present (unused when scheduler disabled)

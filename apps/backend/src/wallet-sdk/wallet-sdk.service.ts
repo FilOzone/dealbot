@@ -47,14 +47,6 @@ export class WalletSdkService implements OnModuleInit {
   ) {}
 
   async onModuleInit() {
-    if (process.env.DEALBOT_DISABLE_CHAIN === "true") {
-      this.logger.warn({
-        event: "chain_integration_disabled",
-        message:
-          "Chain integration disabled via DEALBOT_DISABLE_CHAIN=true; skipping Synapse initialization and provider loading.",
-      });
-      return;
-    }
     const activeNetworks = this.configService.get("activeNetworks");
     for (const network of activeNetworks) {
       await this.initializeServicesForNetwork(network);
@@ -353,8 +345,7 @@ export class WalletSdkService implements OnModuleInit {
    *
    * Used by features that need to call low-level Synapse helpers (e.g. `pullPieces`
    * from `@filoz/synapse-core/sp`) which require a viem `Client<Transport, Chain, Account>`.
-   * Returns `null` when chain integration is disabled or the client has not been
-   * initialized yet.
+   * Returns `null` when the client has not been initialized yet.
    */
   getSynapseClient(network: Network): SynapseViemClient | null {
     return (this.getNetworkState(network).synapseClient as SynapseViemClient | null) ?? null;
@@ -366,8 +357,8 @@ export class WalletSdkService implements OnModuleInit {
 
   /**
    * Returns the initialized Synapse for a network, or `undefined` when the
-   * network has no initialized state (chain integration disabled, or the network
-   * isn't active). Unlike {@link getSynapse}, this never throws, so callers can
+   * network has no initialized state (the network isn't active).
+   * Unlike {@link getSynapse}, this never throws, so callers can
    * fall back to on-demand creation.
    */
   tryGetSynapse(network: Network): Synapse | undefined {

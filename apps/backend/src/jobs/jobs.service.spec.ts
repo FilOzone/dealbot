@@ -218,7 +218,6 @@ describe("JobsService schedule rows", () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.restoreAllMocks();
-    delete process.env.DEALBOT_DISABLE_CHAIN;
   });
 
   it("records metrics for successful job execution", async () => {
@@ -605,11 +604,15 @@ describe("JobsService schedule rows", () => {
     });
     vi.spyOn(global, "setInterval").mockReturnValue(0 as unknown as ReturnType<typeof setInterval>);
 
-    service = buildService();
+    const walletSdkService = {
+      ensureWalletAllowances: vi.fn(),
+      ensureProvidersLoaded: vi.fn(),
+    };
+
+    service = buildService({ walletSdkService: walletSdkService as unknown as JobsServiceDeps[5] });
     (service as unknown as { registerWorkers: typeof registerWorkers }).registerWorkers = registerWorkers;
     (service as unknown as { tick: typeof tick }).tick = tick;
     (service as unknown as { startBoss: typeof startBoss }).startBoss = startBoss;
-    process.env.DEALBOT_DISABLE_CHAIN = "true";
 
     await service.onModuleInit();
 
@@ -630,11 +633,15 @@ describe("JobsService schedule rows", () => {
     });
     vi.spyOn(global, "setInterval").mockReturnValue(0 as unknown as ReturnType<typeof setInterval>);
 
-    service = buildService();
+    const walletSdkService = {
+      ensureWalletAllowances: vi.fn(),
+      ensureProvidersLoaded: vi.fn(),
+    };
+
+    service = buildService({ walletSdkService: walletSdkService as unknown as JobsServiceDeps[5] });
     (service as unknown as { registerWorkers: typeof registerWorkers }).registerWorkers = registerWorkers;
     (service as unknown as { tick: typeof tick }).tick = tick;
     (service as unknown as { startBoss: typeof startBoss }).startBoss = startBoss;
-    process.env.DEALBOT_DISABLE_CHAIN = "true";
 
     await service.onModuleInit();
 
@@ -659,11 +666,15 @@ describe("JobsService schedule rows", () => {
     });
     vi.spyOn(global, "setInterval").mockReturnValue(0 as unknown as ReturnType<typeof setInterval>);
 
-    service = buildService();
+    const walletSdkService = {
+      ensureWalletAllowances: vi.fn(),
+      ensureProvidersLoaded: vi.fn(),
+    };
+
+    service = buildService({ walletSdkService: walletSdkService as unknown as JobsServiceDeps[5] });
     (service as unknown as { registerWorkers: typeof registerWorkers }).registerWorkers = registerWorkers;
     (service as unknown as { tick: typeof tick }).tick = tick;
     (service as unknown as { startBoss: typeof startBoss }).startBoss = startBoss;
-    process.env.DEALBOT_DISABLE_CHAIN = "true";
 
     await service.onModuleInit();
 

@@ -119,7 +119,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
 
   /**
    * Initializes the scheduler.
-   * If pg-boss mode is enabled, it ensures wallets are ready (unless chain disabled),
+   * If pg-boss mode is enabled, it ensures wallets are ready,
    * starts pg-boss, registers workers, and starts the scheduler polling loop.
    */
   async onModuleInit(): Promise<void> {
@@ -135,12 +135,10 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     const schedulerEnabled = runMode !== "worker" && (this.configService.get("jobs")?.pgbossSchedulerEnabled ?? true);
     const workersEnabled = runMode !== "api";
 
-    if (process.env.DEALBOT_DISABLE_CHAIN !== "true") {
-      const activeNetworks = this.configService.get("activeNetworks", { infer: true });
-      for (const network of activeNetworks) {
-        await this.walletSdkService.ensureWalletAllowances(network);
-        await this.walletSdkService.ensureProvidersLoaded(network);
-      }
+    const activeNetworks = this.configService.get("activeNetworks", { infer: true });
+    for (const network of activeNetworks) {
+      await this.walletSdkService.ensureWalletAllowances(network);
+      await this.walletSdkService.ensureProvidersLoaded(network);
     }
     await this.startBoss();
     if (!this.boss) {
@@ -460,7 +458,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
   ): Promise<ProviderJobContext> {
     let providerInfo = this.walletSdkService.getProviderInfo(spAddress, network);
 
-    if (providerInfo == null && process.env.DEALBOT_DISABLE_CHAIN !== "true") {
+    if (providerInfo == null) {
       await this.walletSdkService.loadProviders(network);
       providerInfo = this.walletSdkService.getProviderInfo(spAddress, network);
     }
@@ -582,9 +580,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       try {
         let provider = this.walletSdkService.getTestingProviders(network).find((p) => p.serviceProvider === spAddress);
         if (!provider) {
-          if (process.env.DEALBOT_DISABLE_CHAIN !== "true") {
-            await this.walletSdkService.loadProviders(network);
-          }
+          await this.walletSdkService.loadProviders(network);
           provider = this.walletSdkService.getTestingProviders(network).find((p) => p.serviceProvider === spAddress);
           if (!provider) {
             this.logger.warn({
@@ -795,18 +791,10 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
 
   private async handleProvidersRefreshJob(data: ProvidersRefreshJobData): Promise<void> {
     await this.recordJobExecution("providers_refresh", data.network, async () => {
-      if (process.env.DEALBOT_DISABLE_CHAIN === "true") {
-        this.logger.warn({
-          event: "chain_integration_disabled",
-          message: "Chain integration disabled; skipping provider refresh job.",
-          network: data.network,
-        });
-      } else {
-        // loadProviders() swallows on-chain failures and returns false, that is a job failure.
-        const loaded = await this.walletSdkService.loadProviders(data.network);
-        if (!loaded) {
-          throw new Error("Provider refresh failed: unable to load providers from on-chain registry");
-        }
+      // loadProviders() swallows on-chain failures and returns false, that is a job failure.
+      const loaded = await this.walletSdkService.loadProviders(data.network);
+      if (!loaded) {
+        throw new Error("Provider refresh failed: unable to load providers from on-chain registry");
       }
       await this.updateStorageProviderGauges(data.network);
       return "success";
@@ -814,7 +802,6 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
   }
 
   private async handlePullPieceCleanupJob(data: PullPieceCleanupJobData): Promise<void> {
-    void data;
     await this.recordJobExecution("pull_piece_cleanup", data.network, async () => {
       const deletedCount = await this.pullCheckService.deleteExpiredPullPieces();
       this.logger.log({
