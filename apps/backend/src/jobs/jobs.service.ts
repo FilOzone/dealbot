@@ -119,7 +119,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
 
   /**
    * Initializes the scheduler.
-   * If pg-boss mode is enabled, it ensures wallets are ready (unless chain disabled),
+   * If pg-boss mode is enabled, it ensures wallets are ready,
    * starts pg-boss, registers workers, and starts the scheduler polling loop.
    */
   async onModuleInit(): Promise<void> {
