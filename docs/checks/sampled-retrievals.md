@@ -40,11 +40,13 @@ Selection strategy (per scheduled job, per SP):
    - `small` (1–10 MiB) — 20%
    - `medium` (10–50 MiB) — 50%
    - `large` (50–100 MiB) — 30%
-   - Note: the bucket sizes were chosen such that the whole file will still fit into memory. In the future we may implement a streaming verification and parsing.
+
+   **Note:** the bucket sizes were chosen such that the whole file will still fit into memory. In the future we may implement a streaming verification and parsing.
 2. **Pick a pool**:
    - `indexed` (IPFS-indexed pieces) — 80%
    - `any` (all FWSS pieces) — 20%
-   - Note: this split exists so that SPs cannot optimize only their CAR corpus and still appear healthy on this check.
+
+   **Note:** this split exists so that SPs cannot optimize only their CAR corpus and still appear healthy on this check.
 3. **Generate a uniform-random `sampleKey`** and query the subgraph for the smallest `Root.sampleKey ≥ $sampleKey` matching the SP, payer, size range, and pool filters. If no such row exists (the random key fell above every matching `sampleKey`), `samplePiece` retries in the reverse direction (largest `sampleKey < $sampleKey`) so the highest keys are not a dead zone.
 4. **Drop the candidate** if `pdpPaymentEndEpoch` has passed.
 5. **Fall back** through: (same bucket, opposite pool) → (any bucket, indexed) → (any bucket, any).
