@@ -30,7 +30,9 @@ Operational timeouts exist to prevent jobs from running indefinitely. If the job
 
 ## Piece Selection
 
-Unlike the [Retrieval check](./retrievals.md#piece-selection), dealbot does not retrieve from its own deals. Pieces are sampled from the [on-chain subgraph](../../src/subgraph) of all FWSS-served pieces for the SP under test.
+Unlike the [Retrieval check](./retrievals.md#piece-selection), dealbot does not retrieve from its own deals. Pieces are sampled from the [on-chain subgraph](../../src/subgraph) of all FWSS-served pieces for the SP under test [^inclusion-exception].
+
+[^inclusion-exception]: Pieces in the service-termination grace period are excluded by the subgraph's `isActive` filter, even if the SP may still serve them. See [#631](https://github.com/FilOzone/dealbot/issues/631) to comment or follow progress.
 
 Selection strategy (per scheduled job, per SP):
 
@@ -38,20 +40,14 @@ Selection strategy (per scheduled job, per SP):
    - `small` (1–10 MiB) — 20%
    - `medium` (10–50 MiB) — 50%
    - `large` (50–100 MiB) — 30%
+   - Note: the bucket sizes were chosen such that the whole file will still fit into memory. In the future we may implement a streaming verification and parsing.
 2. **Pick a pool**:
    - `indexed` (IPFS-indexed pieces) — 80%
    - `any` (all FWSS pieces) — 20%
+   - Note: this split exists so that SPs cannot optimize only their CAR corpus and still appear healthy on this check.
 3. **Generate a uniform-random `sampleKey`** and query the subgraph for the smallest `Root.sampleKey ≥ $sampleKey` matching the SP, payer, size range, and pool filters. If no such row exists (the random key fell above every matching `sampleKey`), `samplePiece` retries in the reverse direction (largest `sampleKey < $sampleKey`) so the highest keys are not a dead zone.
 4. **Drop the candidate** if `pdpPaymentEndEpoch` has passed.
 5. **Fall back** through: (same bucket, opposite pool) → (any bucket, indexed) → (any bucket, any).
-
-> [!NOTE]
-> Pieces in the service-termination grace period are excluded by the subgraph's `isActive` filter, even if the SP may still serve them. See [#631](https://github.com/FilOzone/dealbot/issues/631) to comment or follow progress.
-
-The 80/20 split for `indexed` vs `any` exists so that SPs cannot optimize only their CAR corpus and still appear healthy on this check.
-
-> [!NOTE]
-> The bucket sizes were chosen such that the whole file will still fit into memory. In the future we may implement a streaming verification and parsing.
 
 Source: [`sampled-piece-selector.service.ts`](../../apps/backend/src/sampled-retrieval/sampled-piece-selector.service.ts)
 
