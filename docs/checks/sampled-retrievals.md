@@ -45,6 +45,9 @@ Selection strategy (per scheduled job, per SP):
 4. **Drop the candidate** if `pdpPaymentEndEpoch` has passed.
 5. **Fall back** through: (same bucket, opposite pool) → (any bucket, indexed) → (any bucket, any).
 
+> [!NOTE]
+> Pieces in the service-termination grace period are excluded by the subgraph's `isActive` filter, even if the SP may still serve them. See [#631](https://github.com/FilOzone/dealbot/issues/631) to comment or follow progress.
+
 The 80/20 split for `indexed` vs `any` exists so that SPs cannot optimize only their CAR corpus and still appear healthy on this check.
 
 > [!NOTE]
