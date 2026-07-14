@@ -42,5 +42,11 @@ pnpm test
 
 ## Release and Deployment
 
-The subgraph is versioned and released independently of `apps/backend` and `apps/web`. The end-to-end checklist lives in [`docs/release-subgraph.md`](../../docs/release-subgraph.md).
+The subgraph is versioned and released independently of `apps/backend` and `apps/web`.
 
+Subgraph release PRs are managed by the dedicated [`release-subgraph.yml`](../../.github/workflows/release-subgraph.yml) release-please workflow. Merging a subgraph Release PR creates the `subgraph-vX.Y.Z` GitHub Release and deploys immutable Goldsky versions for both networks:
+
+- `dealbot-calibration/X.Y.Z`
+- `dealbot-mainnet/X.Y.Z`
+
+Goldsky `staging` and `prod` tags are moved manually after the new version has finished indexing and has been validated. The end-to-end checklist lives in [`docs/release-subgraph.md`](../../docs/release-subgraph.md).
