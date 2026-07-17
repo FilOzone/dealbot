@@ -7,6 +7,7 @@ import {
   PrometheusModule,
 } from "@willsoto/nestjs-prometheus";
 import { WalletSdkModule } from "../wallet-sdk/wallet-sdk.module.js";
+import { ActiveDataSetsCollector } from "./active-datasets.collector.js";
 import {
   DataSetCreationCheckMetrics,
   DataSetLifecycleCheckMetrics,
@@ -331,6 +332,21 @@ const metricProviders = [
     help: "Wallet balance in base units (per currency)",
     labelNames: ["currency", "wallet", "network"] as const,
   }),
+  makeGaugeProvider({
+    name: "dealbot_active_datasets",
+    help: "Current active FWSS data sets owned by the configured Dealbot wallet, grouped by provider",
+    labelNames: ["network", "providerId", "providerName", "providerStatus"] as const,
+  }),
+  makeGaugeProvider({
+    name: "dealbot_expected_active_datasets",
+    help: "Configured minimum active Dealbot data sets per provider",
+    labelNames: ["network"] as const,
+  }),
+  makeGaugeProvider({
+    name: "dealbot_active_datasets_last_success_timestamp_seconds",
+    help: "Unix timestamp of the most recent successful active Dealbot data-set inventory collection",
+    labelNames: ["network"] as const,
+  }),
   // Job scheduler metrics (pg-boss)
   /**
    * Current queued jobs per type (pg-boss state: created).
@@ -447,6 +463,7 @@ const metricProviders = [
     PullCheckCheckMetrics,
     SampledRetrievalCheckMetrics,
     WalletBalanceCollector,
+    ActiveDataSetsCollector,
     // HTTP metrics interceptor
     {
       provide: APP_INTERCEPTOR,
@@ -464,6 +481,7 @@ const metricProviders = [
     PullCheckCheckMetrics,
     SampledRetrievalCheckMetrics,
     WalletBalanceCollector,
+    ActiveDataSetsCollector,
   ],
 })
 export class MetricsPrometheusModule {}

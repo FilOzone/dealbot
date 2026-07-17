@@ -74,6 +74,7 @@ At minimum, alert on:
 - pg-boss backlog growth (queue depth, oldest queued age)
 - Sustained failure rate per check type
 - Wallet or session-key readiness (insufficient balance, missing FWSS operator approval)
+- Active Dealbot data sets accumulating above `MIN_NUM_DATASETS_FOR_CHECKS` per provider, and stale active-data-set inventory collection
 - Postgres connection or replication health
 
 Thresholds and alert routing are operator choice.
