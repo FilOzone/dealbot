@@ -1,5 +1,5 @@
-import { afterEach, assert, clearStore, describe, test } from "matchstick-as/assembly/index";
 import { Address, BigInt, Bytes } from "@graphprotocol/graph-ts";
+import { afterEach, assert, clearStore, describe, test } from "matchstick-as/assembly/index";
 import {
   handleDataSetCreated,
   handleDataSetDeleted,

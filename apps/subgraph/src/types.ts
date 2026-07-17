@@ -1,6 +1,6 @@
-export class DataSetStatus {
-  static readonly EMPTY: string = "EMPTY";
-  static readonly READY: string = "READY";
-  static readonly PROVING: string = "PROVING";
-  static readonly DELETED: string = "DELETED";
+export namespace DataSetStatus {
+  export const EMPTY: string = "EMPTY";
+  export const READY: string = "READY";
+  export const PROVING: string = "PROVING";
+  export const DELETED: string = "DELETED";
 }
