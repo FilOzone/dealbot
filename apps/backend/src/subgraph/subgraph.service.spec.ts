@@ -101,6 +101,42 @@ describe("SubgraphService", () => {
     vi.useRealTimers();
   });
 
+  describe("fetchActiveDataSetCounts", () => {
+    it("paginates active Dealbot data sets and groups them by FWSS provider", async () => {
+      const firstPage = Array.from({ length: 1000 }, (_, index) => ({
+        id: `0x${(index + 1).toString(16).padStart(4, "0")}`,
+        fwssServiceProvider: VALID_ADDRESS,
+      }));
+      fetchMock
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ data: { _meta: { block: { number: 12345 } }, dataSets: firstPage } }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({
+            data: {
+              _meta: { block: { number: 12346 } },
+              dataSets: [{ id: "0x1001", fwssServiceProvider: VALID_ADDRESS }],
+            },
+          }),
+        });
+
+      const counts = await service.fetchActiveDataSetCounts(NETWORK, FWSS_PAYER);
+
+      expect(counts.get(VALID_ADDRESS)).toBe(1001);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      const secondBody = JSON.parse(fetchMock.mock.calls[1][1].body as string) as {
+        variables: Record<string, unknown>;
+      };
+      expect(secondBody.variables).toMatchObject({
+        payer: FWSS_PAYER.toLowerCase(),
+        cursor: firstPage.at(-1)?.id,
+        first: 1000,
+      });
+    });
+  });
+
   describe("fetchProvidersWithDatasets", () => {
     it("fetches and returns validated providers with bigint fields", async () => {
       fetchMock.mockResolvedValueOnce({

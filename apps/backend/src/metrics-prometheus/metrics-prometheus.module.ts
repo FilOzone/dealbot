@@ -6,6 +6,7 @@ import {
   makeHistogramProvider,
   PrometheusModule,
 } from "@willsoto/nestjs-prometheus";
+import { SubgraphModule } from "../subgraph/subgraph.module.js";
 import { WalletSdkModule } from "../wallet-sdk/wallet-sdk.module.js";
 import { ActiveDataSetsCollector } from "./active-datasets.collector.js";
 import {
@@ -440,6 +441,7 @@ const metricProviders = [
 @Module({
   imports: [
     WalletSdkModule,
+    SubgraphModule,
     PrometheusModule.register({
       defaultMetrics: {
         enabled: true,

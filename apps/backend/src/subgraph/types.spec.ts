@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { validateProviderDataSetResponse, validateSubgraphMetaResponse } from "./types.js";
+import {
+  validateActiveDataSetPageResponse,
+  validateProviderDataSetResponse,
+  validateSubgraphMetaResponse,
+} from "./types.js";
 
 // Subgraph stores addresses in lowercase
 const VALID_ADDRESS = "0xd8da6bf26964af9d7eed9e03e53415d37aa96045" as const;
@@ -19,6 +23,21 @@ const makeValidProvider = (overrides: Record<string, unknown> = {}) => ({
 
 const makeValidResponse = (providers = [makeValidProvider()]) => ({
   providers,
+});
+
+describe("validateActiveDataSetPageResponse", () => {
+  it("normalizes provider addresses and accepts FWSS stubs without a provider", () => {
+    const result = validateActiveDataSetPageResponse({
+      _meta: { block: { number: 123 } },
+      dataSets: [
+        { id: "0x01", fwssServiceProvider: VALID_ADDRESS },
+        { id: "0x02", fwssServiceProvider: null },
+      ],
+    });
+
+    expect(result.dataSets[0].fwssServiceProvider).toBe(VALID_ADDRESS);
+    expect(result.dataSets[1].fwssServiceProvider).toBeNull();
+  });
 });
 
 describe("validateProviderDataSetResponse", () => {
