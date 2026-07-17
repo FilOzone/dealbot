@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.4.0](https://github.com/FilOzone/dealbot/compare/web-v1.3.1...web-v1.4.0) (2026-07-17)
+
+
+### Features
+
+* **web:** add multi-network support with network switcher ([#576](https://github.com/FilOzone/dealbot/issues/576)) ([c2c2be2](https://github.com/FilOzone/dealbot/commit/c2c2be2c33a309366c84a8bebc32eb8845fa3f6b))
+* **web:** add per-network betterstack url configuration ([#625](https://github.com/FilOzone/dealbot/issues/625)) ([34143cd](https://github.com/FilOzone/dealbot/commit/34143cd0f4b9bd45eb9bbd9247e5cde5618f0cf3))
+
+
+### Bug Fixes
+
+* **deps:** bump @vitejs/plugin-react, lucide-react, and jsdom in /apps/web ([6f9ebcf](https://github.com/FilOzone/dealbot/commit/6f9ebcfc69dfaab2c0db405f2a1e189a0f5c049d))
+* **deps:** bump @vitejs/plugin-react, lucide-react, and jsdom in /apps/web ([73072fa](https://github.com/FilOzone/dealbot/commit/73072fa4ea67e6c052008a403a26e98e93d6d078))
+
+
+### Miscellaneous
+
+* **deps-dev:** bump jsdom from 28.0.0 to 29.1.1 in /apps/web ([#496](https://github.com/FilOzone/dealbot/issues/496)) ([73072fa](https://github.com/FilOzone/dealbot/commit/73072fa4ea67e6c052008a403a26e98e93d6d078))
+* **deps:** bump lucide-react from 0.563.0 to 1.24.0 in /apps/web ([#493](https://github.com/FilOzone/dealbot/issues/493)) ([6f9ebcf](https://github.com/FilOzone/dealbot/commit/6f9ebcfc69dfaab2c0db405f2a1e189a0f5c049d))
+
 ## [1.3.1](https://github.com/FilOzone/dealbot/compare/web-v1.3.0...web-v1.3.1) (2026-06-08)
 
 
