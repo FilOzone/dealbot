@@ -23,7 +23,7 @@ export class ActiveDataSetsCollector implements OnModuleInit {
   private readonly logger = new Logger(ActiveDataSetsCollector.name);
   private readonly cacheTtlMs = 5 * 60 * 1000;
   private readonly errorCooldownMs = 60 * 1000;
-  private cachedAt = 0;
+  private nextRefreshAt = 0;
   private refreshPromise: Promise<void> | null = null;
   private readonly labelsByNetwork = new Map<Network, ActiveDataSetLabels[]>();
 
@@ -48,20 +48,19 @@ export class ActiveDataSetsCollector implements OnModuleInit {
   }
 
   private async collect(): Promise<void> {
-    const now = Date.now();
-    if (now - this.cachedAt < this.cacheTtlMs) return;
+    if (Date.now() < this.nextRefreshAt) return;
     if (this.refreshPromise) {
       await this.refreshPromise;
       return;
     }
 
-    this.refreshPromise = this.refresh(now).finally(() => {
+    this.refreshPromise = this.refresh().finally(() => {
       this.refreshPromise = null;
     });
     await this.refreshPromise;
   }
 
-  private async refresh(now: number): Promise<void> {
+  private async refresh(): Promise<void> {
     let allNetworksSucceeded = true;
     for (const network of this.configService.get("activeNetworks")) {
       const networkConfig = this.configService.get("networks")[network];
@@ -83,7 +82,8 @@ export class ActiveDataSetsCollector implements OnModuleInit {
       }
     }
 
-    this.cachedAt = allNetworksSucceeded ? now : now - this.cacheTtlMs + this.errorCooldownMs;
+    const completedAt = Date.now();
+    this.nextRefreshAt = completedAt + (allNetworksSucceeded ? this.cacheTtlMs : this.errorCooldownMs);
   }
 
   private async fetchNetworkSamples(network: Network, walletAddress: string): Promise<ActiveDataSetSample[]> {
