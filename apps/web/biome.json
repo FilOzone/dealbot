@@ -1,6 +1,6 @@
 {
   "root": false,
-  "$schema": "https://biomejs.dev/schemas/2.3.14/schema.json",
+  "$schema": "https://biomejs.dev/schemas/2.5.4/schema.json",
   "extends": "//",
   "html": {
     "formatter": {
@@ -24,7 +24,7 @@
   "linter": {
     "enabled": true,
     "rules": {
-      "recommended": true,
+      "preset": "recommended",
       "complexity": {
         "noBannedTypes": "off",
         "noUselessSwitchCase": "off"
