@@ -1,5 +1,5 @@
-import { assert, beforeEach, clearStore, describe, test } from "matchstick-as/assembly/index";
 import { Address, BigInt, Bytes } from "@graphprotocol/graph-ts";
+import { assert, beforeEach, clearStore, describe, test } from "matchstick-as/assembly/index";
 import {
   handleFwssDataSetCreated,
   handleFwssDataSetServiceProviderChanged,
@@ -9,7 +9,6 @@ import {
 } from "../src/fwss";
 import { getRootEntityId } from "../src/helpers";
 import { handleDataSetCreated, handlePiecesAdded } from "../src/pdp-verifier";
-import { createDataSetCreatedEvent, createRootsAddedEvent } from "./pdp-verifier-utils";
 import {
   createFwssDataSetCreatedEvent,
   createFwssDataSetServiceProviderChangedEvent,
@@ -17,6 +16,7 @@ import {
   createFwssPieceAddedEvent,
   createFwssServiceTerminatedEvent,
 } from "./fwss-utils";
+import { createDataSetCreatedEvent, createRootsAddedEvent } from "./pdp-verifier-utils";
 
 const SET_ID = BigInt.fromI32(1);
 const PROVIDER_ID = BigInt.fromI32(42);
@@ -264,9 +264,13 @@ describe("FWSS handlers", () => {
 
     // FWSS.PieceAdded adds ipfsRootCID.
     handleFwssPieceAdded(
-      createFwssPieceAddedEvent(SET_ID, ROOT_ID, Bytes.fromHexString("0xdeadbeef"), ["ipfsRootCID"], [
-        "bafybeiexamplecid",
-      ]),
+      createFwssPieceAddedEvent(
+        SET_ID,
+        ROOT_ID,
+        Bytes.fromHexString("0xdeadbeef"),
+        ["ipfsRootCID"],
+        ["bafybeiexamplecid"],
+      ),
     );
 
     const dsId = PROOF_SET_ENTITY_ID.toHexString();

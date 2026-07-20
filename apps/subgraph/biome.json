@@ -1,0 +1,34 @@
+{
+  "root": false,
+  "$schema": "https://biomejs.dev/schemas/2.3.14/schema.json",
+  "extends": "//",
+  "overrides": [
+    {
+      "includes": ["**/*.spec.ts", "**/*.test.ts", "tests/**/*.ts"],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noExplicitAny": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": ["src/**", "tests/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "useImportType": "off"
+          },
+          "suspicious": {
+            "noShadowRestrictedNames": "off",
+            "noDoubleEquals": "off"
+          },
+          "complexity": {
+            "noStaticOnlyClass": "off"
+          }
+        }
+      }
+    }
+  ]
+}

@@ -80,9 +80,7 @@ export function handleFwssPdpPaymentTerminated(event: PDPPaymentTerminatedEvent)
 export function handleFwssDataSetServiceProviderChanged(event: DataSetServiceProviderChangedEvent): void {
   const ds = DataSet.load(getProofSetEntityId(event.params.dataSetId));
   if (ds == null) {
-    log.warning("FWSS DataSetServiceProviderChanged for unknown dataSet {}", [
-      event.params.dataSetId.toString(),
-    ]);
+    log.warning("FWSS DataSetServiceProviderChanged for unknown dataSet {}", [event.params.dataSetId.toString()]);
     return;
   }
 
