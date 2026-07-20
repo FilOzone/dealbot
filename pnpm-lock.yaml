@@ -202,8 +202,8 @@ importers:
   apps/subgraph:
     dependencies:
       '@filoz/synapse-core':
-        specifier: 0.7.0
-        version: 0.7.0(typescript@5.9.3)(viem@2.55.2(typescript@5.9.3)(zod@3.25.76))
+        specifier: 0.3.3
+        version: 0.3.3(typescript@5.9.3)(viem@2.55.2(typescript@5.9.3)(zod@3.25.76))
       '@graphprotocol/graph-cli':
         specifier: 0.98.1
         version: 0.98.1(@types/node@26.1.1)(typescript@5.9.3)(zod@3.25.76)
@@ -215,8 +215,8 @@ importers:
         specifier: 'catalog:'
         version: 2.5.4
       assemblyscript:
-        specifier: 0.28.19
-        version: 0.28.19
+        specifier: 0.19.23
+        version: 0.19.23
       matchstick-as:
         specifier: 0.6.0
         version: 0.6.0
@@ -813,6 +813,11 @@ packages:
 
   '@fastify/proxy-addr@5.1.0':
     resolution: {integrity: sha512-INS+6gh91cLUjB+PVHfu1UqcB76Sqtpyp7bnL+FYojhjygvOPA9ctiD/JDKsyD9Xgu4hUhCSJBPig/w7duNajw==}
+
+  '@filoz/synapse-core@0.3.3':
+    resolution: {integrity: sha512-praC+AXVYhqcM0ptBIaQI5W0aVvU7uM0S1nNsqfdh8nIubz8TrWzCwM+DXVWR1VQ1/Mp2Qdl9UhGYKiZq5ZG4Q==}
+    peerDependencies:
+      viem: 2.x
 
   '@filoz/synapse-core@0.7.0':
     resolution: {integrity: sha512-54G+yH1DrqXpCrtSZF5SYvNma3W2iA/LH6hLWmADy5tW1CkPlvtHZ5essqrJtlk3lfNRYMWk3+13ejzXxDAWWw==}
@@ -2305,6 +2310,9 @@ packages:
   '@vitest/utils@4.1.10':
     resolution: {integrity: sha512-fy9am/HWxbaGt/Sawrp90vt6Y6jQwf1RX77cz3uwoJwJVMli/e1IEwRPnMNJ7vKfPTwo0diXifkpPvwH9v7nGA==}
 
+  '@web3-storage/data-segment@5.3.0':
+    resolution: {integrity: sha512-zFJ4m+pEKqtKatJNsFrk/2lHeFSbkXZ6KKXjBe7/2ayA9wAar7T/unewnOcZrrZTnCWmaxKsXWqdMFy9bXK9dw==}
+
   '@webassemblyjs/ast@1.14.1':
     resolution: {integrity: sha512-nuBEDgQfm1ccRp/8bCQrx1frohyufl4JlbMMZ4P1wpeOfDhF6FQkxZJ1b/e+PLwr6X1Nhw6OLme5usuBWYBvuQ==}
 
@@ -2564,11 +2572,6 @@ packages:
     engines: {node: '>=16', npm: '>=7'}
     hasBin: true
 
-  assemblyscript@0.28.19:
-    resolution: {integrity: sha512-yOAlAb9EsrI00oUaf6qUTtTcYYeelG2iC3f1LnA45XUeSlMrp2O2FF5Llj4P+Y84ZiIlh/ciEEpOaPwwmOKq8g==}
-    engines: {node: '>=20', npm: '>=10'}
-    hasBin: true
-
   assertion-error@2.0.1:
     resolution: {integrity: sha512-Izi8RQcffqCeNVgFigKli1ssklIbpHnCYc6AknXGYoB6grJqyeby7jv12JUQgmTAnIDnbck1uxksT4dzN3PWBA==}
     engines: {node: '>=12'}
@@ -2630,10 +2633,6 @@ packages:
 
   binaryen@116.0.0-nightly.20240114:
     resolution: {integrity: sha512-0GZrojJnuhoe+hiwji7QFaL3tBlJoA+KFUN7ouYSDGZLSo9CKM8swQX8n/UcbR0d1VuZKU+nhogNzv423JEu5A==}
-    hasBin: true
-
-  binaryen@130.0.0-nightly.20260609:
-    resolution: {integrity: sha512-Zyl9Tw638x08LDew22YtxdYiUGxn+quzpR3ySIS4Nccv6yAiO5j1Yko9IEPNpj/aBZf71xtD/6hYXsgZ2ye3ew==}
     hasBin: true
 
   bintrees@1.0.2:
@@ -3892,6 +3891,9 @@ packages:
   iso-url@1.2.1:
     resolution: {integrity: sha512-9JPDgCN4B7QPkLtYAAOrEuAWvP9rWvR5offAr0/SeF046wIkglqH3VXgYYP6NcsKslH80UIVgmPqNe3j7tG2ng==}
     engines: {node: '>=12'}
+
+  iso-web@2.3.0:
+    resolution: {integrity: sha512-/WH8IwL/2ptX/HzjwnZaA6uJoj4Yar8TTdpPBRBuCU3UbF51X8/xdqf4yApAyPoogs22Rvlozh2wvvgMHbH7vg==}
 
   iso-web@3.1.2:
     resolution: {integrity: sha512-OpWz+KNH4vYNVvpc6T1z/zkZtT6iTQXYjc0sIbkPDwYEM5Qurg0LYESrEHloxb6xj5T/2rrnsTtaYlUSIzgicg==}
@@ -6559,16 +6561,15 @@ snapshots:
       '@fastify/forwarded': 3.0.1
       ipaddr.js: 2.4.0
 
-  '@filoz/synapse-core@0.7.0(typescript@5.9.3)(viem@2.55.2(typescript@5.9.3)(zod@3.25.76))':
+  '@filoz/synapse-core@0.3.3(typescript@5.9.3)(viem@2.55.2(typescript@5.9.3)(zod@3.25.76))':
     dependencies:
+      '@web3-storage/data-segment': 5.3.0
       dnum: 2.17.0
-      iso-web: 3.1.2
-      multiformats: 14.0.4
+      iso-web: 2.3.0
+      multiformats: 13.4.2
       ox: 0.14.30(typescript@5.9.3)(zod@4.4.3)
       p-locate: 7.0.0
-      p-queue: 9.3.1
       p-some: 7.0.0
-      sync-multihash-sha2: 1.0.0
       viem: 2.55.2(typescript@5.9.3)(zod@3.25.76)
       zod: 4.4.3
     transitivePeerDependencies:
@@ -8552,6 +8553,12 @@ snapshots:
       convert-source-map: 2.0.0
       tinyrainbow: 3.1.0
 
+  '@web3-storage/data-segment@5.3.0':
+    dependencies:
+      '@ipld/dag-cbor': 9.2.7
+      multiformats: 13.4.2
+      sync-multihash-sha2: 1.0.0
+
   '@webassemblyjs/ast@1.14.1':
     dependencies:
       '@webassemblyjs/helper-numbers': 1.13.2
@@ -8820,11 +8827,6 @@ snapshots:
       binaryen: 116.0.0-nightly.20240114
       long: 5.3.2
 
-  assemblyscript@0.28.19:
-    dependencies:
-      binaryen: 130.0.0-nightly.20260609
-      long: 5.3.2
-
   assertion-error@2.0.1: {}
 
   ast-v8-to-istanbul@1.0.5:
@@ -8886,8 +8888,6 @@ snapshots:
   binaryen@102.0.0-nightly.20211028: {}
 
   binaryen@116.0.0-nightly.20240114: {}
-
-  binaryen@130.0.0-nightly.20260609: {}
 
   bintrees@1.0.2: {}
 
@@ -10340,6 +10340,14 @@ snapshots:
       kysely: 0.29.4
 
   iso-url@1.2.1: {}
+
+  iso-web@2.3.0:
+    dependencies:
+      '@standard-schema/spec': 1.1.0
+      delay: 7.0.0
+      is-network-error: 1.3.2
+      iso-kv: 3.2.0
+      p-retry: 8.0.0
 
   iso-web@3.1.2:
     dependencies:
