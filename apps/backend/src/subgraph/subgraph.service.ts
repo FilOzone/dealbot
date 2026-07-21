@@ -6,6 +6,7 @@ import type { Network } from "../common/types.js";
 import type { IConfig } from "../config/index.js";
 import { buildSamplePieceQuery, Queries } from "./queries.js";
 import type {
+  ActiveDataSetInventory,
   ActiveDataSetPageResponse,
   CandidatePiece,
   GraphQLResponse,
@@ -108,10 +109,11 @@ export class SubgraphService {
   }
 
   /** Count active FWSS data sets owned by one payer, grouped by SP address. */
-  async fetchActiveDataSetCounts(network: Network, payer: string): Promise<Map<string, number>> {
+  async fetchActiveDataSetCounts(network: Network, payer: string): Promise<ActiveDataSetInventory> {
     const counts = new Map<string, number>();
     const pageSize = 1000;
     let cursor = "0x00";
+    let indexedAtBlock = 0;
 
     while (true) {
       const page = await this.executeQuery<ActiveDataSetPageResponse>(
@@ -121,6 +123,7 @@ export class SubgraphService {
         { payer: payer.toLowerCase(), cursor, first: pageSize },
         validateActiveDataSetPageResponse,
       );
+      indexedAtBlock = Math.max(indexedAtBlock, page._meta.block.number);
 
       for (const dataSet of page.dataSets) {
         if (dataSet.fwssServiceProvider == null) continue;
@@ -136,7 +139,7 @@ export class SubgraphService {
       cursor = nextCursor;
     }
 
-    return counts;
+    return { countsByAddress: counts, indexedAtBlock };
   }
 
   /**

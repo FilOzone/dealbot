@@ -6,9 +6,7 @@ import {
   makeHistogramProvider,
   PrometheusModule,
 } from "@willsoto/nestjs-prometheus";
-import { SubgraphModule } from "../subgraph/subgraph.module.js";
 import { WalletSdkModule } from "../wallet-sdk/wallet-sdk.module.js";
-import { ActiveDataSetsCollector } from "./active-datasets.collector.js";
 import {
   DataSetCreationCheckMetrics,
   DataSetLifecycleCheckMetrics,
@@ -348,6 +346,11 @@ const metricProviders = [
     help: "Unix timestamp of the most recent successful active Dealbot data-set inventory collection",
     labelNames: ["network"] as const,
   }),
+  makeGaugeProvider({
+    name: "dealbot_subgraph_indexed_block_number",
+    help: "Latest block indexed by the dealbot-owned subgraph during inventory collection",
+    labelNames: ["network"] as const,
+  }),
   // Job scheduler metrics (pg-boss)
   /**
    * Current queued jobs per type (pg-boss state: created).
@@ -441,7 +444,6 @@ const metricProviders = [
 @Module({
   imports: [
     WalletSdkModule,
-    SubgraphModule,
     PrometheusModule.register({
       defaultMetrics: {
         enabled: true,
@@ -465,7 +467,6 @@ const metricProviders = [
     PullCheckCheckMetrics,
     SampledRetrievalCheckMetrics,
     WalletBalanceCollector,
-    ActiveDataSetsCollector,
     // HTTP metrics interceptor
     {
       provide: APP_INTERCEPTOR,
@@ -483,7 +484,6 @@ const metricProviders = [
     PullCheckCheckMetrics,
     SampledRetrievalCheckMetrics,
     WalletBalanceCollector,
-    ActiveDataSetsCollector,
   ],
 })
 export class MetricsPrometheusModule {}

@@ -1,4 +1,4 @@
-import { Injectable, Logger, type OnModuleInit } from "@nestjs/common";
+import { Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { InjectMetric } from "@willsoto/nestjs-prometheus";
 import type { Gauge } from "prom-client";
@@ -17,14 +17,14 @@ type ActiveDataSetLabels = {
 
 type ActiveDataSetSample = ActiveDataSetLabels & { value: number };
 
-/** TTL-cached inventory of the configured Dealbot wallet's active FWSS data sets. */
+/** Background inventory of the configured Dealbot wallet's active FWSS data sets. */
 @Injectable()
-export class ActiveDataSetsCollector implements OnModuleInit {
+export class ActiveDataSetsCollector implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(ActiveDataSetsCollector.name);
   private readonly cacheTtlMs = 5 * 60 * 1000;
-  private readonly errorCooldownMs = 60 * 1000;
-  private nextRefreshAt = 0;
+  private refreshTimer: ReturnType<typeof setTimeout> | undefined;
   private refreshPromise: Promise<void> | null = null;
+  private stopped = false;
   private readonly labelsByNetwork = new Map<Network, ActiveDataSetLabels[]>();
 
   constructor(
@@ -35,43 +35,58 @@ export class ActiveDataSetsCollector implements OnModuleInit {
     @InjectMetric("dealbot_expected_active_datasets") private readonly expectedActiveDataSetsGauge: Gauge,
     @InjectMetric("dealbot_active_datasets_last_success_timestamp_seconds")
     private readonly lastSuccessTimestampGauge: Gauge,
+    @InjectMetric("dealbot_subgraph_indexed_block_number") private readonly subgraphIndexedBlockGauge: Gauge,
   ) {}
 
   onModuleInit(): void {
-    // prom-client collects registered metrics concurrently. Attach the same guarded refresh
-    // to all three gauges so the expected/freshness samples cannot race ahead of the inventory
-    // update on the first scrape.
-    for (const metric of [this.activeDataSetsGauge, this.expectedActiveDataSetsGauge, this.lastSuccessTimestampGauge]) {
-      const gauge = metric as Gauge & { collect: () => Promise<void> };
-      gauge.collect = async () => this.collect();
+    this.stopped = false;
+    this.scheduleRefresh();
+  }
+
+  onModuleDestroy(): void {
+    this.stopped = true;
+    if (this.refreshTimer) {
+      clearTimeout(this.refreshTimer);
+      this.refreshTimer = undefined;
     }
   }
 
-  private async collect(): Promise<void> {
-    if (Date.now() < this.nextRefreshAt) return;
-    if (this.refreshPromise) {
-      await this.refreshPromise;
-      return;
-    }
+  private scheduleRefresh(): void {
+    void this.triggerRefresh()
+      .catch((error) => {
+        this.logger.error({
+          event: "active_datasets_refresh_failed",
+          message: "Unexpected failure refreshing active Dealbot data sets",
+          error: toStructuredError(error),
+        });
+      })
+      .finally(() => {
+        if (!this.stopped) {
+          this.refreshTimer = setTimeout(() => this.scheduleRefresh(), this.cacheTtlMs);
+        }
+      });
+  }
 
+  private async triggerRefresh(): Promise<void> {
+    if (this.refreshPromise) return this.refreshPromise;
     this.refreshPromise = this.refresh().finally(() => {
       this.refreshPromise = null;
     });
-    await this.refreshPromise;
+    return this.refreshPromise;
   }
 
   private async refresh(): Promise<void> {
-    let allNetworksSucceeded = true;
     for (const network of this.configService.get("activeNetworks")) {
       const networkConfig = this.configService.get("networks")[network];
+      if (!networkConfig.subgraphEndpoint) continue;
       this.expectedActiveDataSetsGauge.set({ network }, networkConfig.minNumDataSetsForChecks);
 
       try {
-        const samples = await this.fetchNetworkSamples(network, networkConfig.walletAddress);
+        const { samples, indexedAtBlock } = await this.fetchNetworkSamples(network, networkConfig.walletAddress);
         this.replaceNetworkSamples(network, samples);
+        this.subgraphIndexedBlockGauge.set({ network }, indexedAtBlock);
         this.lastSuccessTimestampGauge.set({ network }, Math.floor(Date.now() / 1000));
       } catch (error) {
-        allNetworksSucceeded = false;
         this.logger.warn({
           event: "active_datasets_collect_failed",
           message: "Failed to collect active Dealbot data sets",
@@ -81,22 +96,28 @@ export class ActiveDataSetsCollector implements OnModuleInit {
         });
       }
     }
-
-    const completedAt = Date.now();
-    this.nextRefreshAt = completedAt + (allNetworksSucceeded ? this.cacheTtlMs : this.errorCooldownMs);
   }
 
-  private async fetchNetworkSamples(network: Network, walletAddress: string): Promise<ActiveDataSetSample[]> {
+  private async fetchNetworkSamples(
+    network: Network,
+    walletAddress: string,
+  ): Promise<{ samples: ActiveDataSetSample[]; indexedAtBlock: number }> {
     const providers = this.walletSdkService.getAllActiveProviders(network);
-    const countsByAddress = await this.subgraphService.fetchActiveDataSetCounts(network, walletAddress);
-
-    return providers.map((provider) => ({
+    const { countsByAddress, indexedAtBlock } = await this.subgraphService.fetchActiveDataSetCounts(
       network,
-      providerId: provider.id.toString(),
-      providerName: provider.name,
-      providerStatus: provider.isApproved ? "approved" : "unapproved",
-      value: countsByAddress.get(provider.serviceProvider.toLowerCase()) ?? 0,
-    }));
+      walletAddress,
+    );
+
+    return {
+      indexedAtBlock,
+      samples: providers.map((provider) => ({
+        network,
+        providerId: provider.id.toString(),
+        providerName: provider.name,
+        providerStatus: provider.isApproved ? "approved" : "unapproved",
+        value: countsByAddress.get(provider.serviceProvider.toLowerCase()) ?? 0,
+      })),
+    };
   }
 
   private replaceNetworkSamples(network: Network, samples: ActiveDataSetSample[]): void {

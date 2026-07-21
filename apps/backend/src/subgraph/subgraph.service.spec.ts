@@ -122,9 +122,10 @@ describe("SubgraphService", () => {
           }),
         });
 
-      const counts = await service.fetchActiveDataSetCounts(NETWORK, FWSS_PAYER);
+      const inventory = await service.fetchActiveDataSetCounts(NETWORK, FWSS_PAYER);
 
-      expect(counts.get(VALID_ADDRESS)).toBe(1001);
+      expect(inventory.countsByAddress.get(VALID_ADDRESS)).toBe(1001);
+      expect(inventory.indexedAtBlock).toBe(12346);
       expect(fetchMock).toHaveBeenCalledTimes(2);
       const secondBody = JSON.parse(fetchMock.mock.calls[1][1].body as string) as {
         variables: Record<string, unknown>;

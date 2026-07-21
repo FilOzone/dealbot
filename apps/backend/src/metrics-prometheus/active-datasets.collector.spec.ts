@@ -1,21 +1,27 @@
 import type { Gauge } from "prom-client";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ActiveDataSetsCollector } from "./active-datasets.collector.js";
 
 const makeGauge = () => ({ set: vi.fn(), remove: vi.fn() });
 const walletAddress = "0x305025D07c1DEe47F25a4990179eFf2becddCA0B";
 
-const makeConfigService = () => ({
+const makeConfigService = (subgraphEndpoint = "https://example.com/subgraph") => ({
   get: vi.fn((key: string) =>
-    key === "activeNetworks" ? ["calibration"] : { calibration: { walletAddress, minNumDataSetsForChecks: 15 } },
+    key === "activeNetworks"
+      ? ["calibration"]
+      : { calibration: { walletAddress, minNumDataSetsForChecks: 15, subgraphEndpoint } },
   ),
 });
 
 describe("ActiveDataSetsCollector", () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
   it("publishes subgraph counts for active providers and the configured expectation", async () => {
     const activeGauge = makeGauge();
     const expectedGauge = makeGauge();
     const lastSuccessGauge = makeGauge();
+    const indexedBlockGauge = makeGauge();
     const walletSdkService = {
       getAllActiveProviders: vi.fn(() => [
         {
@@ -32,9 +38,10 @@ describe("ActiveDataSetsCollector", () => {
         },
       ]),
     };
-    const fetchActiveDataSetCounts = vi
-      .fn()
-      .mockResolvedValue(new Map([["0x0000000000000000000000000000000000000023", 17]]));
+    const fetchActiveDataSetCounts = vi.fn().mockResolvedValue({
+      countsByAddress: new Map([["0x0000000000000000000000000000000000000023", 17]]),
+      indexedAtBlock: 12345,
+    });
     const collector = new ActiveDataSetsCollector(
       makeConfigService() as never,
       walletSdkService as never,
@@ -42,13 +49,10 @@ describe("ActiveDataSetsCollector", () => {
       activeGauge as unknown as Gauge,
       expectedGauge as unknown as Gauge,
       lastSuccessGauge as unknown as Gauge,
+      indexedBlockGauge as unknown as Gauge,
     );
     collector.onModuleInit();
-    await Promise.all(
-      [activeGauge, expectedGauge, lastSuccessGauge].map((gauge) =>
-        (gauge as typeof gauge & { collect: () => Promise<void> }).collect(),
-      ),
-    );
+    await vi.advanceTimersByTimeAsync(0);
 
     expect(fetchActiveDataSetCounts).toHaveBeenCalledTimes(1);
     expect(fetchActiveDataSetCounts).toHaveBeenCalledWith("calibration", walletAddress);
@@ -72,12 +76,18 @@ describe("ActiveDataSetsCollector", () => {
     );
     expect(expectedGauge.set).toHaveBeenCalledWith({ network: "calibration" }, 15);
     expect(lastSuccessGauge.set).toHaveBeenCalledWith({ network: "calibration" }, expect.any(Number));
+    expect(indexedBlockGauge.set).toHaveBeenCalledWith({ network: "calibration" }, 12345);
+
+    await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
+    expect(fetchActiveDataSetCounts).toHaveBeenCalledTimes(2);
+    collector.onModuleDestroy();
   });
 
   it("keeps previous active values stale when collection fails", async () => {
     const activeGauge = makeGauge();
     const expectedGauge = makeGauge();
     const lastSuccessGauge = makeGauge();
+    const indexedBlockGauge = makeGauge();
     const collector = new ActiveDataSetsCollector(
       makeConfigService() as never,
       { getAllActiveProviders: vi.fn(() => []) } as never,
@@ -85,13 +95,35 @@ describe("ActiveDataSetsCollector", () => {
       activeGauge as unknown as Gauge,
       expectedGauge as unknown as Gauge,
       lastSuccessGauge as unknown as Gauge,
+      indexedBlockGauge as unknown as Gauge,
     );
     collector.onModuleInit();
-    await (activeGauge as typeof activeGauge & { collect: () => Promise<void> }).collect();
+    await vi.advanceTimersByTimeAsync(0);
 
     expect(activeGauge.remove).not.toHaveBeenCalled();
     expect(activeGauge.set).not.toHaveBeenCalled();
     expect(lastSuccessGauge.set).not.toHaveBeenCalled();
+    expect(indexedBlockGauge.set).not.toHaveBeenCalled();
     expect(expectedGauge.set).toHaveBeenCalledWith({ network: "calibration" }, 15);
+    collector.onModuleDestroy();
+  });
+
+  it("does not collect networks without a configured subgraph", async () => {
+    const fetchActiveDataSetCounts = vi.fn();
+    const collector = new ActiveDataSetsCollector(
+      makeConfigService("") as never,
+      { getAllActiveProviders: vi.fn() } as never,
+      { fetchActiveDataSetCounts } as never,
+      makeGauge() as unknown as Gauge,
+      makeGauge() as unknown as Gauge,
+      makeGauge() as unknown as Gauge,
+      makeGauge() as unknown as Gauge,
+    );
+
+    collector.onModuleInit();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(fetchActiveDataSetCounts).not.toHaveBeenCalled();
+    collector.onModuleDestroy();
   });
 });

@@ -41,6 +41,11 @@ export type ActiveDataSetPageResponse = {
   }>;
 };
 
+export type ActiveDataSetInventory = {
+  countsByAddress: Map<string, number>;
+  indexedAtBlock: number;
+};
+
 /**
  * A single proof set within a provider, representing deadline-related proving data.
  * All numeric fields are bigints converted from the subgraph string representation.
