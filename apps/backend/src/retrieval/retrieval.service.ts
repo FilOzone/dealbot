@@ -148,15 +148,19 @@ export class RetrievalService {
     //      re-probes; persistent failures become observable on dashboards).
     if (deal.dataSetId == null || deal.pieceId == null) {
       // Bail loudly so the row is fixed before it pollutes downstream metrics.
+      // Write a FAILED row so COUNT(*)-based deal selection advances past this deal
+      // instead of re-picking it every tick (starvation prevention).
       this.retrievalMetrics.recordStatus(providerLabels, "failure.other");
+      const errorMsg = "Deal is missing dataSetId or pieceId; cannot run chain pre-check. Backfill required.";
       this.logger.error({
         ...retrievalLogContext,
         event: "retrieval_missing_chain_ids",
-        message: "Deal is missing dataSetId or pieceId; cannot run chain pre-check. Backfill required.",
+        message: errorMsg,
         dataSetId: deal.dataSetId?.toString() ?? null,
         pieceId: deal.pieceId ?? null,
       });
-      return [];
+      const sentinel = await this.recordFailedRetrievalSentinel(deal, errorMsg);
+      return [sentinel];
     }
 
     const pieceLive = await this.checkPieceLive(
@@ -225,7 +229,16 @@ export class RetrievalService {
     const retrievalCheckStartTime = Date.now();
     // If this throws, we want the job to fail fast: missing/invalid CIDs are an orchestration
     // failure and we should not mark the retrieval as pending for this deal.
-    const ipniContext = this.isPgBossMode() ? this.getIpniCidsForRetrieval(deal) : null;
+    // We still write a FAILED row so COUNT(*)-based deal selection advances past
+    // this deal (starvation prevention).
+    let ipniContext: { rootCid: CID; blockCids: CID[] } | null = null;
+    try {
+      ipniContext = this.isPgBossMode() ? this.getIpniCidsForRetrieval(deal) : null;
+    } catch (cidError) {
+      const errorMsg = cidError instanceof Error ? cidError.message : String(cidError);
+      await this.recordFailedRetrievalSentinel(deal, errorMsg);
+      throw cidError;
+    }
     this.retrievalMetrics.recordStatus(providerLabels, "pending");
 
     try {
@@ -281,6 +294,10 @@ export class RetrievalService {
     }
 
     if (caughtError) {
+      // Transport threw before persisting any retrieval row. Write a FAILED
+      // sentinel so COUNT(*)-based deal selection advances past this deal.
+      const errorMsg = caughtError instanceof Error ? caughtError.message : String(caughtError);
+      await this.recordFailedRetrievalSentinel(deal, errorMsg);
       throw caughtError;
     }
 
@@ -458,6 +475,30 @@ export class RetrievalService {
       });
       return retrieval;
     }
+  }
+
+  /**
+   * Write a lightweight FAILED retrieval row so that the COUNT(*)-based deal
+   * selection query (selectRandomSuccessfulDealForProvider) advances past this
+   * deal instead of re-picking it on every tick.  Without this sentinel row,
+   * deals that always bail before persisting a retrieval would sit at
+   * COUNT(*) = 0 and starve every other deal for the same SP.
+   */
+  private async recordFailedRetrievalSentinel(deal: Deal, errorMessage: string): Promise<Retrieval> {
+    const now = new Date();
+    const sentinel = this.retrievalRepository.create({
+      deal,
+      serviceType: ServiceType.IPFS_PIN,
+      retrievalEndpoint: "N/A",
+      status: RetrievalStatus.FAILED,
+      startedAt: now,
+      completedAt: now,
+      latencyMs: 0,
+      responseCode: null,
+      errorMessage,
+      retryCount: 0,
+    } as Partial<Retrieval>);
+    return this.saveRetrieval(sentinel);
   }
 
   private async findStorageProvider(address: string, network: Network): Promise<StorageProvider | null> {
