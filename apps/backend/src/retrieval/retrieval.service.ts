@@ -507,8 +507,10 @@ export class RetrievalService {
   }
 
   /**
-   * We select a random successful deal (DEAL_CREATED only) for a given provider.
-   * Uses Postgres ORDER BY RANDOM() since Dealbot is Postgres-only.
+   * We select a successful deal (DEAL_CREATED only) for a given provider, preferring
+   * deals with the fewest prior ipfs_pin retrievals (ties broken randomly). This
+   * guarantees every eligible deal is retrieved once before any deal is retrieved
+   * twice, keeping coverage uniform regardless of pool size.
    */
   private async selectRandomSuccessfulDealForProvider(spAddress: string, network: Network): Promise<Deal | null> {
     const walletAddress = this.configService.get("networks", { infer: true })[network].walletAddress;
@@ -531,7 +533,11 @@ export class RetrievalService {
         sizes: randomDatasetSizes,
       });
     }
-    return query.orderBy("RANDOM()").limit(1).getOne();
+    return query
+      .orderBy(`(SELECT COUNT(*) FROM retrievals r WHERE r.deal_id = deal.id AND r.service_type = 'ipfs_pin')`, "ASC")
+      .addOrderBy("RANDOM()")
+      .limit(1)
+      .getOne();
   }
 
   // ============================================================================

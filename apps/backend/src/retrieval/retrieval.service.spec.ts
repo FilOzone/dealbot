@@ -611,6 +611,7 @@ describe("RetrievalService DB/provider drift", () => {
 
   function createMockQueryBuilder() {
     const calls: Array<{ clause: string; params?: Record<string, unknown> }> = [];
+    const orderByCalls: Array<{ sort: string; order?: string }> = [];
     const qb = {
       innerJoin: vi.fn().mockReturnThis(),
       where: vi.fn().mockReturnThis(),
@@ -618,13 +619,20 @@ describe("RetrievalService DB/provider drift", () => {
         calls.push({ clause, params });
         return qb;
       }),
-      orderBy: vi.fn().mockReturnThis(),
+      orderBy: vi.fn((sort: string, order?: string) => {
+        orderByCalls.push({ sort, order });
+        return qb;
+      }),
+      addOrderBy: vi.fn((sort: string, order?: string) => {
+        orderByCalls.push({ sort, order });
+        return qb;
+      }),
       take: vi.fn().mockReturnThis(),
       limit: vi.fn().mockReturnThis(),
       getMany: vi.fn().mockResolvedValue([]),
       getOne: vi.fn().mockResolvedValue(null),
     };
-    return { qb, calls };
+    return { qb, calls, orderByCalls };
   }
 
   async function createServiceWithQb(mockQb: ReturnType<typeof createMockQueryBuilder>["qb"]) {
@@ -667,6 +675,23 @@ describe("RetrievalService DB/provider drift", () => {
     const walletAddressCall = calls.find((c) => c.clause.includes("wallet_address"));
     expect(walletAddressCall).toBeDefined();
     expect(walletAddressCall?.params).toEqual({ walletAddress: "0x123" });
+  });
+
+  it("selectRandomSuccessfulDealForProvider orders by prior ipfs_pin retrieval count before random tiebreak", async () => {
+    const { qb, orderByCalls } = createMockQueryBuilder();
+    const svc = (await createServiceWithQb(qb)) as unknown as {
+      selectRandomSuccessfulDealForProvider: (spAddress: string, network: Network) => Promise<Deal | null>;
+    };
+
+    await svc.selectRandomSuccessfulDealForProvider("0xSP", "calibration");
+
+    expect(orderByCalls).toHaveLength(2);
+    const [primary, tiebreak] = orderByCalls;
+    expect(primary.sort).toContain("SELECT COUNT(*) FROM retrievals r");
+    expect(primary.sort).toContain("r.deal_id = deal.id");
+    expect(primary.sort).toContain("r.service_type = 'ipfs_pin'");
+    expect(primary.order).toBe("ASC");
+    expect(tiebreak.sort).toBe("RANDOM()");
   });
 });
 
