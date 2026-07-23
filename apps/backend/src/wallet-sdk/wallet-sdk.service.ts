@@ -341,6 +341,13 @@ export class WalletSdkService implements OnModuleInit {
   }
 
   /**
+   * Get every cached provider for a network, active or not (dev providers excluded).
+   */
+  getAllProviders(network: Network): PDPProviderEx[] {
+    return Array.from(this.getNetworkState(network).providerCache.values());
+  }
+
+  /**
    * Get the underlying Synapse-SDK viem client.
    *
    * Used by features that need to call low-level Synapse helpers (e.g. `pullPieces`

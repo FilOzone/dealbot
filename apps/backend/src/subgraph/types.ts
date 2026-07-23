@@ -33,6 +33,19 @@ export type SubgraphMeta = {
   };
 };
 
+export type ActiveDataSetPageResponse = {
+  _meta: { block: { number: number } };
+  dataSets: Array<{
+    id: string;
+    fwssServiceProvider: Hex | null;
+  }>;
+};
+
+export type ActiveDataSetInventory = {
+  countsByAddress: Map<string, number>;
+  indexedAtBlock: number;
+};
+
 /**
  * A single proof set within a provider, representing deadline-related proving data.
  * All numeric fields are bigints converted from the subgraph string representation.
@@ -170,6 +183,22 @@ const providerDataSetResponseSchema = Joi.object({
   .unknown(true)
   .required();
 
+const activeDataSetPageResponseSchema = Joi.object({
+  _meta: metaSchema.extract("_meta"),
+  dataSets: Joi.array()
+    .items(
+      Joi.object({
+        id: Joi.string()
+          .pattern(/^0x[0-9a-fA-F]+$/)
+          .required(),
+        fwssServiceProvider: Joi.string().allow(null).custom(toEthereumAddress),
+      }).unknown(true),
+    )
+    .required(),
+})
+  .unknown(true)
+  .required();
+
 const sampleRootProofSetSchema = Joi.object({
   setId: Joi.string().pattern(/^\d+$/).required(),
   withIPFSIndexing: Joi.boolean().required(),
@@ -236,6 +265,14 @@ export function validateProviderDataSetResponse(value: unknown): ProviderDataSet
     throw new Error(`Invalid provider dataset response format: ${error.message}`);
   }
   return validated as ProviderDataSetResponse;
+}
+
+export function validateActiveDataSetPageResponse(value: unknown): ActiveDataSetPageResponse {
+  const { error, value: validated } = activeDataSetPageResponseSchema.validate(value, { abortEarly: false });
+  if (error) {
+    throw new Error(`Invalid active dataset page response format: ${error.message}`);
+  }
+  return validated as ActiveDataSetPageResponse;
 }
 
 /**
