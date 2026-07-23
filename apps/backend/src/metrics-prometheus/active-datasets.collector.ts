@@ -21,7 +21,7 @@ type ActiveDataSetSample = ActiveDataSetLabels & { value: number };
 @Injectable()
 export class ActiveDataSetsCollector implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(ActiveDataSetsCollector.name);
-  private readonly cacheTtlMs = 5 * 60 * 1000;
+  private readonly cacheTtlMs = 60 * 60 * 1000;
   private refreshTimer: ReturnType<typeof setTimeout> | undefined;
   private refreshPromise: Promise<void> | null = null;
   private stopped = false;
@@ -108,16 +108,41 @@ export class ActiveDataSetsCollector implements OnModuleInit, OnModuleDestroy {
       walletAddress,
     );
 
-    return {
-      indexedAtBlock,
-      samples: providers.map((provider) => ({
+    // addresses can hold active data sets after leaving the active registry — don't drop their counts
+    const remainingCounts = new Map(countsByAddress);
+    const samples: ActiveDataSetSample[] = [];
+    for (const provider of providers) {
+      const address = provider.serviceProvider.toLowerCase();
+      const value = remainingCounts.get(address) ?? 0;
+      remainingCounts.delete(address);
+      samples.push({
         network,
         providerId: provider.id.toString(),
         providerName: provider.name,
         providerStatus: provider.isApproved ? "approved" : "unapproved",
-        value: countsByAddress.get(provider.serviceProvider.toLowerCase()) ?? 0,
-      })),
-    };
+        value,
+      });
+    }
+
+    if (remainingCounts.size > 0) {
+      const providersByAddress = new Map(
+        this.walletSdkService
+          .getAllProviders(network)
+          .map((provider) => [provider.serviceProvider.toLowerCase(), provider]),
+      );
+      for (const [address, value] of remainingCounts) {
+        const provider = providersByAddress.get(address);
+        samples.push({
+          network,
+          providerId: provider ? provider.id.toString() : address,
+          providerName: provider?.name ?? address,
+          providerStatus: provider?.isApproved ? "approved" : "unapproved",
+          value,
+        });
+      }
+    }
+
+    return { indexedAtBlock, samples };
   }
 
   private replaceNetworkSamples(network: Network, samples: ActiveDataSetSample[]): void {

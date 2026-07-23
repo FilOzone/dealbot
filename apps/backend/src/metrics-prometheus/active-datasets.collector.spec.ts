@@ -78,8 +78,89 @@ describe("ActiveDataSetsCollector", () => {
     expect(lastSuccessGauge.set).toHaveBeenCalledWith({ network: "calibration" }, expect.any(Number));
     expect(indexedBlockGauge.set).toHaveBeenCalledWith({ network: "calibration" }, 12345);
 
-    await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
+    await vi.advanceTimersByTimeAsync(60 * 60 * 1000);
     expect(fetchActiveDataSetCounts).toHaveBeenCalledTimes(2);
+    collector.onModuleDestroy();
+  });
+
+  it("reconciles counts for providers missing from the active registry", async () => {
+    const activeGauge = makeGauge();
+    const expectedGauge = makeGauge();
+    const lastSuccessGauge = makeGauge();
+    const indexedBlockGauge = makeGauge();
+    const walletSdkService = {
+      getAllActiveProviders: vi.fn(() => [
+        {
+          id: 23n,
+          serviceProvider: "0x0000000000000000000000000000000000000023",
+          name: "provider-23",
+          isApproved: true,
+        },
+      ]),
+      getAllProviders: vi.fn(() => [
+        {
+          id: 23n,
+          serviceProvider: "0x0000000000000000000000000000000000000023",
+          name: "provider-23",
+          isApproved: true,
+        },
+        {
+          id: 99n,
+          serviceProvider: "0x0000000000000000000000000000000000000099",
+          name: "provider-99",
+          isApproved: false,
+        },
+      ]),
+    };
+    const fetchActiveDataSetCounts = vi.fn().mockResolvedValue({
+      countsByAddress: new Map([
+        ["0x0000000000000000000000000000000000000023", 17],
+        // deregistered from the active provider list but still holds active data sets
+        ["0x0000000000000000000000000000000000000099", 3],
+        // no matching provider anywhere in the registry (e.g. filtered as a dev provider)
+        ["0x00000000000000000000000000000000000abc", 1],
+      ]),
+      indexedAtBlock: 12345,
+    });
+    const collector = new ActiveDataSetsCollector(
+      makeConfigService() as never,
+      walletSdkService as never,
+      { fetchActiveDataSetCounts } as never,
+      activeGauge as unknown as Gauge,
+      expectedGauge as unknown as Gauge,
+      lastSuccessGauge as unknown as Gauge,
+      indexedBlockGauge as unknown as Gauge,
+    );
+    collector.onModuleInit();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(activeGauge.set).toHaveBeenCalledWith(
+      {
+        network: "calibration",
+        providerId: "23",
+        providerName: "provider-23",
+        providerStatus: "approved",
+      },
+      17,
+    );
+    expect(activeGauge.set).toHaveBeenCalledWith(
+      {
+        network: "calibration",
+        providerId: "99",
+        providerName: "provider-99",
+        providerStatus: "unapproved",
+      },
+      3,
+    );
+    expect(activeGauge.set).toHaveBeenCalledWith(
+      {
+        network: "calibration",
+        providerId: "0x00000000000000000000000000000000000abc",
+        providerName: "0x00000000000000000000000000000000000abc",
+        providerStatus: "unapproved",
+      },
+      1,
+    );
     collector.onModuleDestroy();
   });
 
