@@ -3,10 +3,10 @@ import { Injectable, Logger, OnApplicationShutdown, OnModuleInit } from "@nestjs
 import { ConfigService } from "@nestjs/config";
 import { InjectMetric } from "@willsoto/nestjs-prometheus";
 import { Counter, Gauge, Histogram } from "prom-client";
-import { resolveLegacyNetworkBackfill } from "../common/legacy-network-backfill.js";
+import { SUPPORTED_NETWORKS } from "../common/constants.js";
 import type { Network } from "../common/types.js";
 import type { IClickhouseConfig, IConfig } from "../config/index.js";
-import { buildMigrations, CLICKHOUSE_TABLES, LEGACY_CLICKHOUSE_TABLES } from "./clickhouse.schema.js";
+import { buildMigrations, CLICKHOUSE_NETWORK_TABLES } from "./clickhouse.schema.js";
 import { ClickHouseRows } from "./clickhouse.types.js";
 
 interface BufferedRow {
@@ -78,27 +78,27 @@ export class ClickhouseService implements OnModuleInit, OnApplicationShutdown {
     const missingNetworkTables = await this.findTablesMissingNetwork(database);
     const legacyBackfillNetwork =
       missingNetworkTables.length > 0 ? this.resolveLegacyBackfillNetwork(missingNetworkTables) : undefined;
+
     const migrations = buildMigrations(database, legacyBackfillNetwork);
     for (const sql of migrations) {
       await this.client.command({ query: sql });
     }
+
     this.logger.log({ event: "clickhouse_migrated", database, legacyBackfillNetwork });
   }
 
   private async findTablesMissingNetwork(database: string): Promise<string[]> {
     if (!this.client) return [];
 
-    const tableNames = [...CLICKHOUSE_TABLES, ...LEGACY_CLICKHOUSE_TABLES].map((table) => `'${table}'`).join(", ");
+    const tableNames = CLICKHOUSE_NETWORK_TABLES.map((table) => `'${table}'`).join(", ");
     const result = await this.client.query({
       query: `SELECT name
-        FROM system.tables
-        WHERE database = {database:String}
-          AND name IN (${tableNames})
-          AND name NOT IN (
-            SELECT table
-            FROM system.columns
-            WHERE database = {database:String} AND name = 'network'
-          )`,
+        FROM (SELECT arrayJoin([${tableNames}]) AS name)
+        WHERE name NOT IN (
+          SELECT table
+          FROM system.columns
+          WHERE database = {database:String} AND name = 'network'
+        )`,
       query_params: { database },
       format: "JSONEachRow",
     });
@@ -107,10 +107,15 @@ export class ClickhouseService implements OnModuleInit, OnApplicationShutdown {
   }
 
   private resolveLegacyBackfillNetwork(missingTables: string[]): Network {
-    return resolveLegacyNetworkBackfill(
-      `ClickHouse network migration requires DEALBOT_LEGACY_NETWORK_BACKFILL (or legacy NETWORK) to be set to a ` +
-        `supported network. Existing tables without network: ${missingTables.join(", ")}.`,
-    );
+    const network = (process.env.DEALBOT_LEGACY_NETWORK_BACKFILL ?? process.env.NETWORK ?? "").trim().toLowerCase();
+    if (!SUPPORTED_NETWORKS.includes(network as Network)) {
+      throw new Error(
+        "ClickHouse network migration requires DEALBOT_LEGACY_NETWORK_BACKFILL (or legacy NETWORK) " +
+          `to be set to one of: ${SUPPORTED_NETWORKS.join(", ")}. ` +
+          `Tables requiring network: ${missingTables.join(", ")}. Got: "${network}"`,
+      );
+    }
+    return network as Network;
   }
 
   async onApplicationShutdown() {

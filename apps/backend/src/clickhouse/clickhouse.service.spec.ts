@@ -128,13 +128,15 @@ describe("ClickhouseService", () => {
     });
   });
 
-  it("fails fast when legacy tables need a network and none is declared", async () => {
+  it("fails fast when tables need a network and none is declared", async () => {
     const { client, service } = createService(["retrieval_checks"]);
 
     await expect(service.onModuleInit()).rejects.toThrow(
       /ClickHouse network migration requires DEALBOT_LEGACY_NETWORK_BACKFILL/,
     );
-    expect(client.command).not.toHaveBeenCalled();
+    expect(client.command).not.toHaveBeenCalledWith({
+      query: expect.stringContaining("ADD COLUMN IF NOT EXISTS network LowCardinality(String)"),
+    });
     await service.onApplicationShutdown();
   });
 });

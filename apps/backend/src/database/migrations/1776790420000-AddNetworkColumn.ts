@@ -1,6 +1,6 @@
 import type { MigrationInterface, QueryRunner } from "typeorm";
 import { SUPPORTED_NETWORKS } from "../../common/constants.js";
-import { resolveLegacyNetworkBackfill } from "../../common/legacy-network-backfill.js";
+import { Network } from "../../common/types.js";
 
 /**
  * Add a `network` column to runtime tables so records from mainnet and calibration
@@ -23,10 +23,13 @@ export class AddNetworkColumn1776790420000 implements MigrationInterface {
   name = "AddNetworkColumn1776790420000";
 
   public async up(queryRunner: QueryRunner): Promise<void> {
-    const backfillNetwork = resolveLegacyNetworkBackfill(
-      "AddNetworkColumn migration requires DEALBOT_LEGACY_NETWORK_BACKFILL (or legacy NETWORK) to be set to a " +
-        "supported network.",
-    );
+    const backfillNetwork = (process.env.DEALBOT_LEGACY_NETWORK_BACKFILL ?? process.env.NETWORK ?? "").trim();
+    if (!SUPPORTED_NETWORKS.includes(backfillNetwork as Network)) {
+      throw new Error(
+        `AddNetworkColumn migration requires DEALBOT_LEGACY_NETWORK_BACKFILL (or legacy NETWORK) ` +
+          `to be set to one of: ${SUPPORTED_NETWORKS.join(", ")}. Got: "${backfillNetwork}"`,
+      );
+    }
 
     // -------------------------------------------------------------------------
     // Create the shared Postgres enum type for network values. All four
@@ -166,10 +169,13 @@ export class AddNetworkColumn1776790420000 implements MigrationInterface {
     // fail on duplicate addresses that live under different networks. The
     // operator must declare which network's data to keep; rows belonging to any
     // other network are deleted before the schema is collapsed.
-    const keepNetwork = resolveLegacyNetworkBackfill(
-      "AddNetworkColumn.down migration requires DEALBOT_LEGACY_NETWORK_BACKFILL (or legacy NETWORK) to declare " +
-        "which network's rows to preserve.",
-    );
+    const keepNetwork = (process.env.DEALBOT_LEGACY_NETWORK_BACKFILL ?? process.env.NETWORK ?? "").trim();
+    if (!SUPPORTED_NETWORKS.includes(keepNetwork as Network)) {
+      throw new Error(
+        `AddNetworkColumn.down migration requires DEALBOT_LEGACY_NETWORK_BACKFILL (or legacy NETWORK) ` +
+          `to declare which network's rows to preserve. Got: "${keepNetwork}". Allowed: ${SUPPORTED_NETWORKS.join(", ")}`,
+      );
+    }
 
     // Delete non-kept-network rows. The composite FK on deals has ON DELETE
     // CASCADE, so removing storage_providers rows also removes their deals.

@@ -7,13 +7,14 @@ data-retention baselines) by blockchain network so a single dealbot instance —
 or two cooperating instances — can safely operate on multiple networks
 (e.g. `mainnet` and `calibration`) without rows colliding under shared keys.
 
-ClickHouse uses the same backfill value when adding `network` to existing check
-tables in the database selected by `CLICKHOUSE_URL`. New rows from every active
-network are stored together and distinguished by that column.
+ClickHouse uses the same backfill value when the appended startup migration adds
+`network` to the check tables in the database selected by `CLICKHOUSE_URL`. New
+rows from every active network are stored together and distinguished by that
+column.
 
 > Set `DEALBOT_LEGACY_NETWORK_BACKFILL` whenever this Postgres migration still
-> needs to run, including on a fresh database with empty tables. Existing
-> ClickHouse tables without a `network` column use the same value. Keep it set
+> needs to run, including on a fresh database with empty tables. Any ClickHouse
+> check table without a `network` column uses the same value. Keep it set
 > until the Postgres migration and, when ClickHouse is configured, the
 > ClickHouse migration have completed.
 
@@ -34,8 +35,8 @@ network are stored together and distinguished by that column.
 
 The Postgres migration validates the backfill value before running any SQL, so
 it is required even when all four tables are empty. The ClickHouse migration
-requires it only when an existing check table has no `network` column. The value
-must be listed in `SUPPORTED_NETWORKS` (see
+requires it until every check table has a `network` column. The value must be
+listed in `SUPPORTED_NETWORKS` (see
 `apps/backend/src/common/constants.ts`).
 
 ## Pre-migration checklist
@@ -71,11 +72,11 @@ If the value is missing or invalid, the Postgres migration aborts before
 running any SQL, even when its tables are empty:
 
 ```
-AddNetworkColumn migration requires DEALBOT_LEGACY_NETWORK_BACKFILL (or legacy NETWORK) to be set to a supported network. Got: "". Allowed: calibration, mainnet
+AddNetworkColumn migration requires DEALBOT_LEGACY_NETWORK_BACKFILL (or legacy NETWORK) to be set to one of: calibration, mainnet. Got: ""
 ```
 
-Set the value and rerun the migration. ClickHouse also aborts when it finds an
-existing table without `network` and no valid backfill value is available.
+Set the value and rerun the migration. ClickHouse also aborts when a check table
+lacks `network` and no valid backfill value is available.
 
 ## Post-migration verification
 

@@ -1,6 +1,6 @@
 import type { Network } from "../common/types.js";
 
-export const CLICKHOUSE_TABLES = [
+export const CLICKHOUSE_NETWORK_TABLES = [
   "data_storage_checks",
   "retrieval_checks",
   "data_retention_challenges",
@@ -8,26 +8,15 @@ export const CLICKHOUSE_TABLES = [
   "sampled_retrieval_checks",
 ] as const;
 
-/** Legacy table name checked before it is renamed by the startup DDL. */
-export const LEGACY_CLICKHOUSE_TABLES = ["anon_retrieval_checks"] as const;
-
 /**
  * ClickHouse DDL statements executed on startup via CREATE DATABASE/TABLE IF NOT EXISTS.
  * Order matters: database must be created before tables.
- *
- * Fresh tables require every row to provide `network`. When legacy tables
- * without that column are detected, `legacyBackfillNetwork` is supplied so
- * existing rows resolve to the operator-declared historical network.
- *
- * Fresh tables partition and sort by network. Adding the column to an existing
- * table does not change that table's partition or primary key.
  */
 export function buildMigrations(database: string, legacyBackfillNetwork?: Network): string[] {
   return [
     `CREATE TABLE IF NOT EXISTS ${database}.data_storage_checks
 (
     timestamp                   DateTime64(3, 'UTC'),    -- when deal entity was saved
-    network                     LowCardinality(String),  -- Filecoin network
 
     probe_location              LowCardinality(String),  -- dealbot location
     sp_address                  String,                  -- storage provider address
@@ -56,14 +45,13 @@ export function buildMigrations(database: string, legacyBackfillNetwork?: Networ
     ipni_verified_cids_count    Nullable(UInt32),                 -- CIDs confirmed findable via IPNI
     ipni_unverified_cids_count  Nullable(UInt32)                  -- CIDs checked but not findable
 ) ENGINE MergeTree()
-  PRIMARY KEY (network, probe_location, sp_address, timestamp)
-  PARTITION BY (network, toStartOfMonth(timestamp))
+  PRIMARY KEY (probe_location, sp_address, timestamp)
+  PARTITION BY toStartOfMonth(timestamp)
   TTL toDateTime(timestamp) + INTERVAL 1 YEAR`,
 
     `CREATE TABLE IF NOT EXISTS ${database}.retrieval_checks
 (
     timestamp               DateTime64(3, 'UTC'),    -- when retrieval entity was saved
-    network                 LowCardinality(String),  -- Filecoin network
     probe_location          LowCardinality(String),  -- dealbot location
     sp_address              String,                  -- storage provider address
     sp_id                   Nullable(UInt64),        -- storage provider numeric id
@@ -80,14 +68,13 @@ export function buildMigrations(database: string, legacyBackfillNetwork?: Networ
     last_byte_ms            Nullable(Float64),       -- time from request start to last response byte
     bytes_retrieved         Nullable(UInt64)         -- size of received data in bytes
 ) ENGINE MergeTree()
-  PRIMARY KEY (network, probe_location, sp_address, timestamp)
-  PARTITION BY (network, toStartOfMonth(timestamp))
+  PRIMARY KEY (probe_location, sp_address, timestamp)
+  PARTITION BY toStartOfMonth(timestamp)
   TTL toDateTime(timestamp) + INTERVAL 1 YEAR`,
 
     `CREATE TABLE IF NOT EXISTS ${database}.data_retention_challenges
 (
     timestamp               DateTime64(3, 'UTC'),   -- when the poll ran and detected these periods
-    network                 LowCardinality(String), -- Filecoin network
     probe_location          LowCardinality(String), -- dealbot location
     sp_address              String,                 -- storage provider address
     sp_id                   Nullable(UInt64),       -- storage provider numeric id
@@ -98,14 +85,13 @@ export function buildMigrations(database: string, legacyBackfillNetwork?: Networ
     total_success_periods     UInt32,  -- cumulative periods where proof was submitted (= due - faulted)
     estimated_overdue_periods UInt32   -- estimated periods not yet recorded on-chain but past deadline
 ) ENGINE MergeTree()
-  PRIMARY KEY (network, probe_location, sp_address, timestamp)
-  PARTITION BY (network, toStartOfMonth(timestamp))
+  PRIMARY KEY (probe_location, sp_address, timestamp)
+  PARTITION BY toStartOfMonth(timestamp)
   TTL toDateTime(timestamp) + INTERVAL 1 YEAR`,
 
     `CREATE TABLE IF NOT EXISTS ${database}.pull_checks
 (
     timestamp                   DateTime64(3, 'UTC'),           -- when the pull check terminated
-    network                     LowCardinality(String),         -- Filecoin network
     probe_location              LowCardinality(String),         -- dealbot location
     sp_address                  String,                         -- storage provider address
     sp_id                       Nullable(UInt64),               -- storage provider numeric id
@@ -122,8 +108,8 @@ export function buildMigrations(database: string, legacyBackfillNetwork?: Networ
     first_byte_ms               Nullable(Float64),              -- time from pullPieces submission to SP reading first byte of hosted piece (ms); null when check failed before first byte
     throughput_bps              Nullable(Float64)               -- approx bytes/sec = piece_size_bytes / completion_latency_ms * 1000; null on failure
 ) ENGINE MergeTree()
-  PRIMARY KEY (network, probe_location, sp_address, timestamp)
-  PARTITION BY (network, toStartOfMonth(timestamp))
+  PRIMARY KEY (probe_location, sp_address, timestamp)
+  PARTITION BY toStartOfMonth(timestamp)
   TTL toDateTime(timestamp) + INTERVAL 1 YEAR`,
 
     // These are the flattened subcolumns of a Nested(...) column; added flattened
@@ -145,7 +131,6 @@ export function buildMigrations(database: string, legacyBackfillNetwork?: Networ
     `CREATE TABLE IF NOT EXISTS ${database}.sampled_retrieval_checks
 (
     timestamp                  DateTime64(3, 'UTC'),              -- when the check completed
-    network                    LowCardinality(String),            -- Filecoin network
     probe_location             LowCardinality(String),            -- dealbot location
     sp_address                 String,                            -- storage provider address (lowercased)
     sp_id                      Nullable(UInt64),                  -- storage provider numeric id
@@ -182,23 +167,23 @@ export function buildMigrations(database: string, legacyBackfillNetwork?: Networ
 
     error_message              Nullable(String)                   -- failure reason; null on success
 ) ENGINE MergeTree()
-  PRIMARY KEY (network, probe_location, sp_address, timestamp)
-  PARTITION BY (network, toStartOfMonth(timestamp))
+  PRIMARY KEY (probe_location, sp_address, timestamp)
+  PARTITION BY toStartOfMonth(timestamp)
   TTL toDateTime(timestamp) + INTERVAL 1 YEAR`,
-
-    // The DEFAULT makes pre-migration rows resolve to the selected network.
-    // Fresh tables already include network and skip these ALTER statements.
-    ...(legacyBackfillNetwork
-      ? CLICKHOUSE_TABLES.map(
-          (table) =>
-            `ALTER TABLE ${database}.${table}
-        ADD COLUMN IF NOT EXISTS network LowCardinality(String) DEFAULT '${legacyBackfillNetwork}' AFTER timestamp`,
-        )
-      : []),
 
     // throughput_bps was dropped because it is derivable
     // at query time as bytes_retrieved / (last_byte_ms / 1000).
     `ALTER TABLE ${database}.sampled_retrieval_checks
         DROP COLUMN IF EXISTS throughput_bps`,
+
+    // Add network after all tables exist. The default backfills legacy rows;
+    // application writes always provide network explicitly.
+    ...(legacyBackfillNetwork
+      ? CLICKHOUSE_NETWORK_TABLES.map(
+          (table) =>
+            `ALTER TABLE ${database}.${table}
+        ADD COLUMN IF NOT EXISTS network LowCardinality(String) DEFAULT '${legacyBackfillNetwork}' AFTER timestamp`,
+        )
+      : []),
   ];
 }
