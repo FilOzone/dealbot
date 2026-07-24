@@ -189,6 +189,7 @@ export class PullCheckService {
     } finally {
       if (checkStatus !== null) {
         this.clickhouseService.insert("pull_checks", {
+          network,
           timestamp: Date.now(),
           probe_location: this.clickhouseService.probeLocation,
           sp_address: spAddress,

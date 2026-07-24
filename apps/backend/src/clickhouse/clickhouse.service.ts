@@ -3,14 +3,20 @@ import { Injectable, Logger, OnApplicationShutdown, OnModuleInit } from "@nestjs
 import { ConfigService } from "@nestjs/config";
 import { InjectMetric } from "@willsoto/nestjs-prometheus";
 import { Counter, Gauge, Histogram } from "prom-client";
+import { resolveLegacyNetworkBackfill } from "../common/legacy-network-backfill.js";
+import type { Network } from "../common/types.js";
 import type { IClickhouseConfig, IConfig } from "../config/index.js";
-import { buildMigrations } from "./clickhouse.schema.js";
+import { buildMigrations, CLICKHOUSE_TABLES, LEGACY_CLICKHOUSE_TABLES } from "./clickhouse.schema.js";
 import { ClickHouseRows } from "./clickhouse.types.js";
 
 interface BufferedRow {
   table: string;
-  row: Record<string, unknown>;
+  row: Record<string, unknown> & { network: Network };
 }
+
+type InsertableClickHouseRow<T extends string> = (T extends keyof ClickHouseRows
+  ? ClickHouseRows[T]
+  : Record<string, unknown>) & { network: Network };
 
 @Injectable()
 export class ClickhouseService implements OnModuleInit, OnApplicationShutdown {
@@ -68,11 +74,43 @@ export class ClickhouseService implements OnModuleInit, OnApplicationShutdown {
 
   private async migrate(database: string): Promise<void> {
     if (!this.client) return;
-    const migrations = buildMigrations(database);
+
+    const missingNetworkTables = await this.findTablesMissingNetwork(database);
+    const legacyBackfillNetwork =
+      missingNetworkTables.length > 0 ? this.resolveLegacyBackfillNetwork(missingNetworkTables) : undefined;
+    const migrations = buildMigrations(database, legacyBackfillNetwork);
     for (const sql of migrations) {
       await this.client.command({ query: sql });
     }
-    this.logger.log({ event: "clickhouse_migrated", database });
+    this.logger.log({ event: "clickhouse_migrated", database, legacyBackfillNetwork });
+  }
+
+  private async findTablesMissingNetwork(database: string): Promise<string[]> {
+    if (!this.client) return [];
+
+    const tableNames = [...CLICKHOUSE_TABLES, ...LEGACY_CLICKHOUSE_TABLES].map((table) => `'${table}'`).join(", ");
+    const result = await this.client.query({
+      query: `SELECT name
+        FROM system.tables
+        WHERE database = {database:String}
+          AND name IN (${tableNames})
+          AND name NOT IN (
+            SELECT table
+            FROM system.columns
+            WHERE database = {database:String} AND name = 'network'
+          )`,
+      query_params: { database },
+      format: "JSONEachRow",
+    });
+    const rows = await result.json<{ name: string }>();
+    return rows.map(({ name }) => name);
+  }
+
+  private resolveLegacyBackfillNetwork(missingTables: string[]): Network {
+    return resolveLegacyNetworkBackfill(
+      `ClickHouse network migration requires DEALBOT_LEGACY_NETWORK_BACKFILL (or legacy NETWORK) to be set to a ` +
+        `supported network. Existing tables without network: ${missingTables.join(", ")}.`,
+    );
   }
 
   async onApplicationShutdown() {
@@ -89,20 +127,20 @@ export class ClickhouseService implements OnModuleInit, OnApplicationShutdown {
    * Safe to call when ClickHouse is disabled: rows are silently dropped.
    *
    * Tables registered in {@link ClickHouseRows} are type-checked against their
-   * row shape; any other table name accepts a `Record<string, unknown>`.
+   * row shape. Other table names accept any row with a valid `network`.
    */
-  insert<T extends string>(
-    table: T,
-    row: T extends keyof ClickHouseRows ? ClickHouseRows[T] : Record<string, unknown>,
-  ): void {
+  insert<T extends string>(table: T, row: InsertableClickHouseRow<T>): void {
     if (!this.client) return;
 
     if (this.buffer.length >= this.config.maxBufferSize) {
-      this.buffer.shift();
-      this.droppedRows.inc({ reason: "buffer_full" });
+      const dropped = this.buffer.shift();
+      if (dropped) this.droppedRows.inc({ reason: "buffer_full", network: dropped.row.network });
     }
 
-    this.buffer.push({ table, row: row as Record<string, unknown> });
+    this.buffer.push({
+      table,
+      row: { ...row },
+    });
     this.bufferRows.set(this.buffer.length);
 
     if (this.buffer.length >= this.config.batchSize) {
@@ -119,26 +157,36 @@ export class ClickhouseService implements OnModuleInit, OnApplicationShutdown {
     const batch = this.buffer.slice(0, n);
 
     // Group by table so we can do one insert call per table
-    const byTable = new Map<string, Record<string, unknown>[]>();
-    for (const { table, row } of batch) {
+    const byTable = new Map<string, BufferedRow[]>();
+    for (const bufferedRow of batch) {
+      const { table } = bufferedRow;
       let rows = byTable.get(table);
       if (!rows) {
         rows = [];
         byTable.set(table, rows);
       }
-      rows.push(row);
+      rows.push(bufferedRow);
     }
 
     const end = this.flushDuration.startTimer();
     try {
       await Promise.all(
-        Array.from(byTable.entries()).map(async ([table, rows]) => {
+        Array.from(byTable.entries()).map(async ([table, bufferedRows]) => {
           await this.client!.insert({
             table,
-            values: rows,
+            values: bufferedRows.map(({ row }) => row),
             format: "JSONEachRow",
           });
-          this.rowsInserted.inc({ table }, rows.length);
+
+          const rowsByNetwork = new Map<Network, number>();
+          for (const {
+            row: { network },
+          } of bufferedRows) {
+            rowsByNetwork.set(network, (rowsByNetwork.get(network) ?? 0) + 1);
+          }
+          for (const [network, count] of rowsByNetwork) {
+            this.rowsInserted.inc({ table, network }, count);
+          }
         }),
       );
       this.buffer.splice(0, n);

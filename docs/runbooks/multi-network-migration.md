@@ -7,11 +7,15 @@ data-retention baselines) by blockchain network so a single dealbot instance —
 or two cooperating instances — can safely operate on multiple networks
 (e.g. `mainnet` and `calibration`) without rows colliding under shared keys.
 
-> Audience: operators upgrading an existing single-network deployment. Fresh
-> deployments must set `NETWORK` regardless of this migration — the backend
-> config (`app.config.ts`) marks it required — and the migration falls back to
-> that same value, so no separate `DEALBOT_LEGACY_NETWORK_BACKFILL` is needed
-> for a first start; the migration runs automatically.
+ClickHouse uses the same backfill value when adding `network` to existing check
+tables in the database selected by `CLICKHOUSE_URL`. New rows from every active
+network are stored together and distinguished by that column.
+
+> Set `DEALBOT_LEGACY_NETWORK_BACKFILL` whenever this Postgres migration still
+> needs to run, including on a fresh database with empty tables. Existing
+> ClickHouse tables without a `network` column use the same value. Keep it set
+> until the Postgres migration and, when ClickHouse is configured, the
+> ClickHouse migration have completed.
 
 ## What the migration changes
 
@@ -25,44 +29,53 @@ or two cooperating instances — can safely operate on multiple networks
   `(sp_address, network) → (address, network)` reference.
 - Replaces the unique `job_schedule_state_job_type_sp_unique` constraint with
   `job_schedule_state_job_type_sp_network_unique`.
+- Adds `network` to the shared ClickHouse check tables. Existing rows use the
+  operator-declared legacy network; new rows always provide it explicitly.
 
-The migration **fails fast** if the backfill network is not supplied or is not
-in `SUPPORTED_NETWORKS` (see `apps/backend/src/common/constants.ts`).
+The Postgres migration validates the backfill value before running any SQL, so
+it is required even when all four tables are empty. The ClickHouse migration
+requires it only when an existing check table has no `network` column. The value
+must be listed in `SUPPORTED_NETWORKS` (see
+`apps/backend/src/common/constants.ts`).
 
 ## Pre-migration checklist
 
 1. **Take a database backup.** This is a structural migration affecting four
    tables and a foreign key. See `docs/runbooks/supabase-backup-restore.md`.
-2. **Identify the network of all existing rows.** Pre-migration, the deployment
-   has been single-network. Confirm with operations which network's data
-   currently lives in the database. Allowed values: `calibration`, `mainnet`.
-3. **Set `DEALBOT_LEGACY_NETWORK_BACKFILL`** (preferred) or rely on the legacy
-   `NETWORK` env var so the migration can backfill the new column.
+2. **Choose the backfill network.** For an upgrade, confirm which network owns
+   the existing Postgres and ClickHouse rows. For a fresh deployment, choose
+   either active network; no rows are changed, but validation still requires the
+   value. Allowed values: `calibration`, `mainnet`.
+3. **Set `DEALBOT_LEGACY_NETWORK_BACKFILL`** (preferred) or keep the legacy
+   `NETWORK` env var available. This is required for every deployment that still
+   needs to run the Postgres migration.
 
    ```bash
    export DEALBOT_LEGACY_NETWORK_BACKFILL=mainnet   # or: calibration
    ```
 
-4. **Stop writers** (or scale to zero) for the duration of the migration so no
-   rows are inserted with the old default-only `network` column shape.
+4. **For upgrades, stop writers** (or scale to zero) for the duration of the
+   migration.
 
 ## Running the migration
 
-The migration runs as part of the normal startup sequence
-(`migrationsRun: true`). To run it explicitly:
+The Postgres migration runs as part of the normal startup sequence
+(`migrationsRun: true`). The ClickHouse schema check also runs during backend
+startup. To run the Postgres migration explicitly:
 
 ```bash
 pnpm --filter @dealbot/backend run typeorm:migration:run
 ```
 
-If the env var is missing or invalid, startup aborts with:
+If the value is missing or invalid, the Postgres migration aborts before
+running any SQL, even when its tables are empty:
 
 ```
-AddNetworkColumn migration requires DEALBOT_LEGACY_NETWORK_BACKFILL (or legacy NETWORK)
-to be set to one of: calibration, mainnet. Got: ""
+AddNetworkColumn migration requires DEALBOT_LEGACY_NETWORK_BACKFILL (or legacy NETWORK) to be set to a supported network. Got: "". Allowed: calibration, mainnet
 ```
 
-Set the env var and rerun.
+Set the value and rerun the migration. ClickHouse also aborts when it finds an
+existing table without `network` and no valid backfill value is available.
 
 ## Post-migration verification
 
@@ -85,11 +98,23 @@ Set the env var and rerun.
    SELECT 'data_retention_baselines', network, COUNT(*) FROM data_retention_baselines GROUP BY network;
    ```
 
-   All groups should match the backfill network.
+   Any rows that existed before the migration should match the backfill
+   network. Fresh databases return no groups until Dealbot writes data.
 
 3. **Restart the backend** and confirm the providers refresh job runs without
    errors. The Prometheus `network` label on app metrics should reflect the
    configured network.
+
+4. **Confirm ClickHouse rows have the expected network** for each check table:
+
+   ```sql
+   SELECT network, count()
+   FROM data_storage_checks
+   GROUP BY network;
+   ```
+
+   Repeat for `retrieval_checks`, `sampled_retrieval_checks`,
+   `data_retention_challenges`, and `pull_checks`.
 
 ## Expanding to a second network
 

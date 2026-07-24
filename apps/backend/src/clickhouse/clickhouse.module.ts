@@ -16,8 +16,8 @@ import { ClickhouseService } from "./clickhouse.service.js";
     }),
     makeCounterProvider({
       name: "clickhouseDroppedRowsTotal",
-      help: "Rows silently dropped due to flush failure or buffer overflow, by reason",
-      labelNames: ["reason"] as const,
+      help: "Rows dropped when the ClickHouse buffer is full, by reason and network",
+      labelNames: ["reason", "network"] as const,
     }),
     makeGaugeProvider({
       name: "clickhouseBufferRows",
@@ -25,8 +25,8 @@ import { ClickhouseService } from "./clickhouse.service.js";
     }),
     makeCounterProvider({
       name: "clickhouseRowsInsertedTotal",
-      help: "Rows successfully written to ClickHouse, by table",
-      labelNames: ["table"] as const,
+      help: "Rows successfully written to ClickHouse, by table and network",
+      labelNames: ["table", "network"] as const,
     }),
     ClickhouseService,
   ],

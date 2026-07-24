@@ -235,6 +235,7 @@ describe("SampledRetrievalService", () => {
     expect(insertSpy).toHaveBeenCalledTimes(1);
     const [table, row] = insertSpy.mock.calls[0] as [string, Record<string, unknown>];
     expect(table).toBe("sampled_retrieval_checks");
+    expect(row.network).toBe(NETWORK);
     expect(row.piece_fetch_status).toBe(PieceFetchStatus.FAILED);
     expect(row.bytes_retrieved).toBe(524288);
     expect(row.first_byte_ms).toBe(150);

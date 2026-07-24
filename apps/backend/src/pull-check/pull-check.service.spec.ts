@@ -355,6 +355,7 @@ describe("PullCheckService", () => {
       expect(clickhouseServiceMock.insert).toHaveBeenCalledWith(
         "pull_checks",
         expect.objectContaining({
+          network: DEFAULT_NETWORK,
           probe_location: "test",
           sp_address: "0xsp",
           piece_cid: "bafk-test-piece",
@@ -395,6 +396,7 @@ describe("PullCheckService", () => {
       expect(clickhouseServiceMock.insert).toHaveBeenCalledWith(
         "pull_checks",
         expect.objectContaining({
+          network: DEFAULT_NETWORK,
           sp_address: "0xsp",
           status: "failure.other",
           provider_status: "failed",
@@ -411,6 +413,7 @@ describe("PullCheckService", () => {
       expect(clickhouseServiceMock.insert).toHaveBeenCalledWith(
         "pull_checks",
         expect.objectContaining({
+          network: DEFAULT_NETWORK,
           sp_address: "0xsp",
           status: "failure.timedout",
         }),
@@ -468,6 +471,7 @@ describe("PullCheckService", () => {
       expect(clickhouseServiceMock.insert).toHaveBeenCalledWith(
         "pull_checks",
         expect.objectContaining({
+          network: DEFAULT_NETWORK,
           sp_address: "0xsp",
           sp_id: null,
           sp_name: null,

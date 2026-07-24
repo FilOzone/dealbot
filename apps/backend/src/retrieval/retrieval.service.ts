@@ -395,6 +395,7 @@ export class RetrievalService {
     const saved = await this.saveRetrieval(retrieval);
 
     this.clickhouseService.insert("retrieval_checks", {
+      network: deal.network,
       timestamp: Date.now(),
       probe_location: this.clickhouseService.probeLocation,
       sp_address: deal.spAddress,

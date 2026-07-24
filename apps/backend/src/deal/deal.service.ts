@@ -1074,6 +1074,7 @@ export class DealService {
     dealLogContext: DealLogContext,
   ): Promise<void> {
     this.clickhouseService.insert("data_storage_checks", {
+      network: deal.network,
       timestamp: Date.now(),
       probe_location: this.clickhouseService.probeLocation,
       sp_address: deal.spAddress,

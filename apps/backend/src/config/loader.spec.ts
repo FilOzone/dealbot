@@ -41,6 +41,7 @@ const KEYS_TO_RESET = [
   "DATASET_LIFECYCLE_CHECK_ENABLED",
   "CALIBRATION_DATASET_LIFECYCLE_CHECK_ENABLED",
   "MAINNET_DATASET_LIFECYCLE_CHECK_ENABLED",
+  "CLICKHOUSE_URL",
   "DEALBOT_API_PUBLIC_URL",
 ];
 
@@ -110,6 +111,17 @@ describe("loadConfig", () => {
 
     expect(cfg.activeNetworks).toEqual(["calibration", "mainnet"]);
     expect(cfg.networks.mainnet.rpcUrl).toBe("https://rpc.example/mainnet");
+  });
+
+  it("loads one shared ClickHouse URL for a multi-network deployment", () => {
+    process.env.NETWORKS = "calibration,mainnet";
+    process.env.CALIBRATION_WALLET_PRIVATE_KEY = "0xcal";
+    process.env.MAINNET_WALLET_PRIVATE_KEY = "0xmain";
+    process.env.CLICKHOUSE_URL = "http://clickhouse.example:8123/dealbot";
+
+    const cfg = loadConfig();
+
+    expect(cfg.clickhouse.url).toBe("http://clickhouse.example:8123/dealbot");
   });
 
   it("does not throw when an inactive network lacks wallet keys", () => {

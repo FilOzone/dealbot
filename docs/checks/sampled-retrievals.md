@@ -149,6 +149,7 @@ The DDL and column-level comments in [`clickhouse.schema.ts`](../../apps/backend
 | Column | Meaning |
 |--------|---------|
 | `timestamp` | When the check started (ms UTC) |
+| `network` | Filecoin network for the row; existing rows use the configured legacy backfill network |
 | `probe_location` | Dealbot probe location (`DEALBOT_PROBE_LOCATION`) - currently unused and set to `unknown` until https://github.com/FilOzone/dealbot/issues/246 lands |
 | `sp_address`, `sp_id`, `sp_name` | SP identity |
 | `retrieval_id` | Per-event UUID; correlates row to logs and Prometheus |
