@@ -8,10 +8,8 @@ or two cooperating instances — can safely operate on multiple networks
 (e.g. `mainnet` and `calibration`) without rows colliding under shared keys.
 
 > Audience: operators upgrading an existing single-network deployment. Fresh
-> deployments must set `NETWORK` regardless of this migration — the backend
-> config (`app.config.ts`) marks it required — and the migration falls back to
-> that same value, so no separate `DEALBOT_LEGACY_NETWORK_BACKFILL` is needed
-> for a first start; the migration runs automatically.
+> deployments with empty tables do not need
+> `DEALBOT_LEGACY_NETWORK_BACKFILL`; the migration runs automatically.
 
 ## What the migration changes
 
@@ -26,18 +24,19 @@ or two cooperating instances — can safely operate on multiple networks
 - Replaces the unique `job_schedule_state_job_type_sp_unique` constraint with
   `job_schedule_state_job_type_sp_network_unique`.
 
-The migration **fails fast** if the backfill network is not supplied or is not
-in `SUPPORTED_NETWORKS` (see `apps/backend/src/common/constants.ts`).
+The migration **fails fast** when legacy rows exist and no backfill network is
+supplied. An explicitly configured value must be listed in
+`SUPPORTED_NETWORKS` (see `apps/backend/src/common/constants.ts`).
 
 ## Pre-migration checklist
 
 1. **Take a database backup.** This is a structural migration affecting four
    tables and a foreign key. See `docs/runbooks/supabase-backup-restore.md`.
-2. **Identify the network of all existing rows.** Pre-migration, the deployment
-   has been single-network. Confirm with operations which network's data
-   currently lives in the database. Allowed values: `calibration`, `mainnet`.
-3. **Set `DEALBOT_LEGACY_NETWORK_BACKFILL`** (preferred) or rely on the legacy
-   `NETWORK` env var so the migration can backfill the new column.
+2. **For upgrades, identify the network of all existing rows.** Confirm with
+   operations which network's data currently lives in the database. Allowed
+   values: `calibration`, `mainnet`.
+3. **For upgrades, set `DEALBOT_LEGACY_NETWORK_BACKFILL`** (preferred) or rely
+   on the legacy `NETWORK` env var so the migration can backfill the new column.
 
    ```bash
    export DEALBOT_LEGACY_NETWORK_BACKFILL=mainnet   # or: calibration
@@ -55,14 +54,15 @@ The migration runs as part of the normal startup sequence
 pnpm --filter @dealbot/backend run typeorm:migration:run
 ```
 
-If the env var is missing or invalid, startup aborts with:
+If legacy rows exist and the env var is missing, startup aborts with:
 
 ```
 AddNetworkColumn migration requires DEALBOT_LEGACY_NETWORK_BACKFILL (or legacy NETWORK)
-to be set to one of: calibration, mainnet. Got: ""
+to be set to one of: calibration, mainnet when legacy rows exist. Got: ""
 ```
 
-Set the env var and rerun.
+Set the env var and rerun. On a fresh database with empty tables, the migration
+continues without it.
 
 ## Post-migration verification
 
