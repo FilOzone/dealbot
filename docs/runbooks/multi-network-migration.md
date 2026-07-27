@@ -30,6 +30,9 @@ as the backfill value. New rows always include their network explicitly.
   `job_schedule_state_job_type_sp_network_unique`.
 - Adds `network` to each configured ClickHouse database. Existing rows use the
   network that first initializes the database; new rows always provide it explicitly.
+- Rebuilds each ClickHouse check table with:
+  - primary key `(network, probe_location, sp_address, timestamp)`
+  - partition key `(network, toStartOfMonth(timestamp))`
 
 The Postgres migration validates the backfill value before running any SQL, so
 it is required even when all four tables are empty. The value must be listed in
@@ -53,17 +56,35 @@ each configured URL.
    export DEALBOT_LEGACY_NETWORK_BACKFILL=mainnet   # or: calibration
    ```
 
-4. **For upgrades, stop writers** (or scale to zero) for the duration of the
-   migration.
+4. **For upgrades, stop all ClickHouse writers** (or scale to zero). Run one
+   backend instance until the ClickHouse migration completes, then scale the
+   remaining instances back up.
+5. **Check ClickHouse capacity.** The key migration copies and replaces one
+   table at a time. Keep enough free disk space for a second copy of the largest
+   check table.
 
 ## Running the migration
 
 The Postgres migration runs as part of the normal startup sequence
-(`migrationsRun: true`). The ClickHouse schema check also runs during backend
-startup. To run the Postgres migration explicitly:
+(`migrationsRun: true`). Versioned ClickHouse migrations also run during
+backend startup and are recorded in the `schema_migrations` table.
+
+ClickHouse uses a `schema_migration_lock` table to prevent two instances from
+rebuilding the same database concurrently. If the process terminates without
+cleaning up the lock, first confirm that no migration is running, then remove
+the stale lock:
+
+```sql
+DROP TABLE <database>.schema_migration_lock SYNC;
+```
+
+The table replacement uses `EXCHANGE TABLES`, so the ClickHouse database must
+use the `Atomic` or `Shared` database engine.
+
+To run the Postgres migration explicitly:
 
 ```bash
-pnpm --filter @dealbot/backend run typeorm:migration:run
+pnpm --filter dealbot-backend run typeorm:migration:run
 ```
 
 If the value is missing or invalid, the Postgres migration aborts before
@@ -114,6 +135,27 @@ Set the value and rerun the Postgres migration.
    Repeat for `retrieval_checks`, `sampled_retrieval_checks`,
    `data_retention_challenges`, and `pull_checks`.
 
+5. **Confirm the ClickHouse table keys**:
+
+   ```sql
+   SELECT name, partition_key, primary_key
+   FROM system.tables
+   WHERE database = '<database>'
+     AND name IN (
+       'data_storage_checks',
+       'retrieval_checks',
+       'sampled_retrieval_checks',
+       'data_retention_challenges',
+       'pull_checks'
+     )
+   ORDER BY name;
+   ```
+
+   Every row should contain these key expressions in this order:
+
+   - partition key: `network`, `toStartOfMonth(timestamp)`
+   - primary key: `network`, `probe_location`, `sp_address`, `timestamp`
+
 ## Expanding to a second network
 
 Once the schema is migrated, adding a second network to a deployment is
@@ -136,14 +178,18 @@ migration that calls `ALTER TYPE network_enum ADD VALUE 'newnet'`.
 
 ## Rolling back
 
-The down migration is destructive when rows for multiple networks exist. The
-operator must declare which network's data to preserve via
+The ClickHouse key migration is forward-only because rolling it back requires
+another full table rebuild. Restore the pre-migration ClickHouse backup or add a
+new versioned migration if the previous keys must be reinstated.
+
+The Postgres down migration is destructive when rows for multiple networks
+exist. The operator must declare which network's data to preserve via
 `DEALBOT_LEGACY_NETWORK_BACKFILL` (or legacy `NETWORK`); rows from any other
 network are deleted before the schema collapses back to single-network shape.
 
 ```bash
 export DEALBOT_LEGACY_NETWORK_BACKFILL=mainnet
-pnpm --filter @dealbot/backend run typeorm:migration:revert
+pnpm --filter dealbot-backend run typeorm:migration:revert
 ```
 
 After revert:

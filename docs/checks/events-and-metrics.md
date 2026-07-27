@@ -224,17 +224,19 @@ Unlike the [count metrics](#count-related-metrics) above, gauges below expose a 
 
 ## ClickHouse Tables
 
-When `<NET>_CLICKHOUSE_URL` is configured, dealbot writes that network's check results to the selected ClickHouse database for long-term storage and analysis. Each row includes its network. All tables are partitioned by month with a 1-year TTL.
+When `<NET>_CLICKHOUSE_URL` is configured, dealbot writes that network's check results to the selected ClickHouse database for long-term storage and analysis. Each row includes its network. All tables are partitioned by network and month with a 1-year TTL.
 
-> **Source of truth**: the DDL and column-level comments in [`clickhouse.schema.ts`](../../apps/backend/src/clickhouse/clickhouse.schema.ts) are authoritative. The summary below is for orientation only.
+> **Source of truth**: [`clickhouse.schema.ts`](../../apps/backend/src/clickhouse/clickhouse.schema.ts) defines the bootstrap DDL and column-level comments. [`clickhouse.migrations.ts`](../../apps/backend/src/clickhouse/clickhouse.migrations.ts) defines later schema changes. The summary below is for orientation only.
 
 - **`data_storage_checks`** — one row written each time a deal is saved (on every status transition). Populated by [`deal.service.ts`](../../apps/backend/src/deal/deal.service.ts).
 - **`retrieval_checks`** — one row per retrieval attempt. Populated by [`retrieval.service.ts`](../../apps/backend/src/retrieval/retrieval.service.ts).
 - **`sampled_retrieval_checks`** — one row per [Sampled Retrieval check](./sampled-retrievals.md) attempt; emitted even on abort or unexpected error. Populated by [`sampled-retrieval.service.ts`](../../apps/backend/src/sampled-retrieval/sampled-retrieval.service.ts). See [Sampled Retrieval § Result Recording](./sampled-retrievals.md#result-recording) for column-level meanings.
 - **`data_retention_challenges`** — one row per provider per poll cycle. Populated by [`data-retention.service.ts`](../../apps/backend/src/data-retention/data-retention.service.ts).
+- **`pull_checks`** — one row per [Pull Check](./pull-check.md) attempt. Populated by [`pull-check.service.ts`](../../apps/backend/src/pull-check/pull-check.service.ts).
 
-All tables share the primary key `(probe_location, sp_address, timestamp)`:
+All tables share the primary key `(network, probe_location, sp_address, timestamp)`:
 
+- `network` - separates mainnet and calibration rows, including when they share one ClickHouse database
 - `probe_location` - identifies which dealbot instance produced the row, allowing multiple deployments to be distinguished in queries (set via `DEALBOT_PROBE_LOCATION`)
 - `sp_address` - the Ethereum/FEVM address of the storage provider under test
 - `timestamp` - when the row was written (milliseconds UTC)

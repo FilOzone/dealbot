@@ -23,6 +23,9 @@ interface ServiceOptions {
   activeNetworks?: Network[];
   urls?: Partial<Record<Network, string>>;
   missingNetworkTables?: Partial<Record<Network, string[]>>;
+  appliedMigrationVersions?: Partial<Record<Network, number[]>>;
+  databaseEngines?: Partial<Record<Network, string>>;
+  commandFailures?: Partial<Record<Network, { match: string; error: Error }>>;
   insertFailures?: Partial<Record<Network, Error>>;
   batchSize?: number;
   maxBufferSize?: number;
@@ -38,16 +41,36 @@ function createService(options: ServiceOptions = {}) {
   const urls = options.urls ?? DEFAULT_URLS;
   const clients = new Map<Network, ClientMock>();
   const clientsByUrl = new Map<string, ClientMock[]>();
+  const appliedVersionsByUrl = new Map<string, Set<number>>();
 
   for (const network of activeNetworks) {
     const url = urls[network];
     if (!url) continue;
+    const appliedVersions = appliedVersionsByUrl.get(url) ?? new Set(options.appliedMigrationVersions?.[network] ?? []);
+    appliedVersionsByUrl.set(url, appliedVersions);
 
     const client: ClientMock = {
-      query: vi.fn().mockResolvedValue({
-        json: vi.fn().mockResolvedValue((options.missingNetworkTables?.[network] ?? []).map((name) => ({ name }))),
+      query: vi.fn().mockImplementation(({ query }: { query: string }) => {
+        let rows: Array<Record<string, string | number>>;
+        if (query.includes("system.columns")) {
+          rows = (options.missingNetworkTables?.[network] ?? []).map((name) => ({ name }));
+        } else if (query.includes("system.databases")) {
+          rows = [{ engine: options.databaseEngines?.[network] ?? "Atomic" }];
+        } else {
+          rows = Array.from(appliedVersions, (version) => ({ version }));
+        }
+        return Promise.resolve({
+          json: vi.fn().mockResolvedValue(rows),
+        });
       }),
-      command: vi.fn().mockResolvedValue(undefined),
+      command: vi.fn().mockImplementation(({ query, query_params }: { query: string; query_params?: unknown }) => {
+        const failure = options.commandFailures?.[network];
+        if (failure && query.includes(failure.match)) return Promise.reject(failure.error);
+        if (query.includes(".schema_migrations (version, name)")) {
+          appliedVersions.add((query_params as { version: number }).version);
+        }
+        return Promise.resolve(undefined);
+      }),
       insert: options.insertFailures?.[network]
         ? vi.fn().mockRejectedValue(options.insertFailures[network])
         : vi.fn().mockResolvedValue(undefined),
@@ -162,6 +185,89 @@ describe("ClickhouseService", () => {
       query: expect.stringContaining(
         "ADD COLUMN IF NOT EXISTS network LowCardinality(String) DEFAULT 'mainnet' AFTER timestamp",
       ),
+    });
+  });
+
+  it("skips versioned migrations that are already applied", async () => {
+    const { clients, service } = createService({
+      activeNetworks: ["calibration"],
+      appliedMigrationVersions: { calibration: [1] },
+    });
+
+    await service.onModuleInit();
+    await service.onApplicationShutdown();
+
+    expect(clients.get("calibration")?.command).not.toHaveBeenCalledWith({
+      query: expect.stringContaining("EXCHANGE TABLES"),
+    });
+  });
+
+  it("applies a shared database migration only once", async () => {
+    const sharedUrl = "http://default:password@clickhouse.internal:8123/dealbot_shared";
+    const { clients, service } = createService({
+      urls: { calibration: sharedUrl, mainnet: sharedUrl },
+    });
+
+    await service.onModuleInit();
+    await service.onApplicationShutdown();
+
+    expect(clients.get("calibration")?.command).toHaveBeenCalledWith({
+      query: expect.stringContaining("EXCHANGE TABLES"),
+    });
+    expect(clients.get("mainnet")?.command).not.toHaveBeenCalledWith({
+      query: expect.stringContaining("EXCHANGE TABLES"),
+    });
+  });
+
+  it("closes every client when a later network migration fails", async () => {
+    const { clients, service } = createService({
+      commandFailures: {
+        mainnet: {
+          match: "schema_migrations",
+          error: new Error("mainnet migration failed"),
+        },
+      },
+    });
+
+    await expect(service.onModuleInit()).rejects.toThrow("mainnet migration failed");
+
+    expect(clients.get("calibration")?.close).toHaveBeenCalledOnce();
+    expect(clients.get("mainnet")?.close).toHaveBeenCalledOnce();
+  });
+
+  it("releases the migration lock when a table rebuild fails", async () => {
+    const { clients, service } = createService({
+      activeNetworks: ["calibration"],
+      commandFailures: {
+        calibration: {
+          match: "EXCHANGE TABLES",
+          error: new Error("table exchange failed"),
+        },
+      },
+    });
+
+    await expect(service.onModuleInit()).rejects.toThrow("table exchange failed");
+
+    expect(clients.get("calibration")?.command).toHaveBeenCalledWith({
+      query: "DROP TABLE IF EXISTS dealbot_calibration.schema_migration_lock SYNC",
+    });
+  });
+
+  it("rejects table rebuilds on database engines without atomic exchange support", async () => {
+    const { clients, service } = createService({
+      activeNetworks: ["calibration"],
+      databaseEngines: { calibration: "Ordinary" },
+    });
+
+    await expect(service.onModuleInit()).rejects.toThrow(
+      "ClickHouse database dealbot_calibration must use the Atomic or Shared engine",
+    );
+
+    expect(clients.get("calibration")?.command).not.toHaveBeenCalledWith({
+      query: expect.stringContaining("INSERT INTO dealbot_calibration.__dealbot_migration"),
+    });
+    expect(clients.get("calibration")?.command).toHaveBeenCalledWith({
+      query: "DROP TABLE IF EXISTS dealbot_calibration.schema_migration_lock SYNC",
     });
   });
 
