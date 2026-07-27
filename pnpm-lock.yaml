@@ -45,11 +45,11 @@ importers:
         specifier: ^1.11.0
         version: 1.18.2
       '@filoz/synapse-core':
-        specifier: 0.7.0
-        version: 0.7.0(typescript@5.9.3)(viem@2.48.11(typescript@5.9.3)(zod@4.4.3))
+        specifier: 0.7.1
+        version: 0.7.1(typescript@5.9.3)(viem@2.48.11(typescript@5.9.3)(zod@4.4.3))
       '@filoz/synapse-sdk':
-        specifier: 1.1.0
-        version: 1.1.0(typescript@5.9.3)(viem@2.48.11(typescript@5.9.3)(zod@4.4.3))
+        specifier: 1.1.1
+        version: 1.1.1(typescript@5.9.3)(viem@2.48.11(typescript@5.9.3)(zod@4.4.3))
       '@ipld/car':
         specifier: ^5.4.6
         version: 5.4.6
@@ -802,13 +802,13 @@ packages:
     peerDependencies:
       viem: 2.x
 
-  '@filoz/synapse-core@0.7.0':
-    resolution: {integrity: sha512-54G+yH1DrqXpCrtSZF5SYvNma3W2iA/LH6hLWmADy5tW1CkPlvtHZ5essqrJtlk3lfNRYMWk3+13ejzXxDAWWw==}
+  '@filoz/synapse-core@0.7.1':
+    resolution: {integrity: sha512-4vZZJbumv64ZKR+BjfhLJvP57ga/GhSHy/k2jIWuXInXGwM5qPmKvaCS7CkpzQwiSIXahO161DBNRLVH8SrVfQ==}
     peerDependencies:
       viem: 2.x
 
-  '@filoz/synapse-sdk@1.1.0':
-    resolution: {integrity: sha512-C5paiXZivxzEAujb7VA5HOA26QFaQ+om55yNpDTMLFR0zbGu7kjIWfQ0nXwziYczl1sm9UmNe7qa2SyIKw4hkQ==}
+  '@filoz/synapse-sdk@1.1.1':
+    resolution: {integrity: sha512-m+DqCbjTID2VDBGa2iFQqmF7xjTVoANQjsdk54ikNSolZDLAvZK3TtoArlp0CKp9/L67bAw5ptm4SLJJPE+Rmw==}
     peerDependencies:
       viem: 2.x
 
@@ -6453,7 +6453,7 @@ snapshots:
     transitivePeerDependencies:
       - typescript
 
-  '@filoz/synapse-core@0.7.0(typescript@5.9.3)(viem@2.48.11(typescript@5.9.3)(zod@4.4.3))':
+  '@filoz/synapse-core@0.7.1(typescript@5.9.3)(viem@2.48.11(typescript@5.9.3)(zod@4.4.3))':
     dependencies:
       dnum: 2.17.0
       iso-web: 3.1.2
@@ -6468,9 +6468,9 @@ snapshots:
     transitivePeerDependencies:
       - typescript
 
-  '@filoz/synapse-sdk@1.1.0(typescript@5.9.3)(viem@2.48.11(typescript@5.9.3)(zod@4.4.3))':
+  '@filoz/synapse-sdk@1.1.1(typescript@5.9.3)(viem@2.48.11(typescript@5.9.3)(zod@4.4.3))':
     dependencies:
-      '@filoz/synapse-core': 0.7.0(typescript@5.9.3)(viem@2.48.11(typescript@5.9.3)(zod@4.4.3))
+      '@filoz/synapse-core': 0.7.1(typescript@5.9.3)(viem@2.48.11(typescript@5.9.3)(zod@4.4.3))
       multiformats: 14.0.4
       viem: 2.48.11(typescript@5.9.3)(zod@4.4.3)
     transitivePeerDependencies:
@@ -9553,8 +9553,8 @@ snapshots:
       '@chainsafe/libp2p-noise': 17.0.0
       '@chainsafe/libp2p-yamux': 8.0.1
       '@clack/prompts': 1.5.1
-      '@filoz/synapse-core': 0.7.0(typescript@5.9.3)(viem@2.48.11(typescript@5.9.3)(zod@4.4.3))
-      '@filoz/synapse-sdk': 1.1.0(typescript@5.9.3)(viem@2.48.11(typescript@5.9.3)(zod@4.4.3))
+      '@filoz/synapse-core': 0.7.1(typescript@5.9.3)(viem@2.48.11(typescript@5.9.3)(zod@4.4.3))
+      '@filoz/synapse-sdk': 1.1.1(typescript@5.9.3)(viem@2.48.11(typescript@5.9.3)(zod@4.4.3))
       '@helia/block-brokers': 5.2.4
       '@helia/interface': 6.2.1
       '@helia/routers': 5.1.1
