@@ -156,8 +156,7 @@ export class SampledRetrievalService {
       const blockFetchStatus = blockFetchStatusForRow(parse, blockFetch);
 
       try {
-        this.clickhouseService.insert(SAMPLED_RETRIEVAL_CHECKS_TABLE, {
-          network,
+        this.clickhouseService.insert(network, SAMPLED_RETRIEVAL_CHECKS_TABLE, {
           timestamp: startedAt.getTime(),
           probe_location: this.clickhouseService.probeLocation,
           sp_address: spAddress,
@@ -241,8 +240,7 @@ export class SampledRetrievalService {
     this.metrics.recordPieceRetrievalStatus(labels, "skipped");
 
     try {
-      this.clickhouseService.insert(SAMPLED_RETRIEVAL_CHECKS_TABLE, {
-        network,
+      this.clickhouseService.insert(network, SAMPLED_RETRIEVAL_CHECKS_TABLE, {
         timestamp: startedAt.getTime(),
         probe_location: this.clickhouseService.probeLocation,
         sp_address: spAddress,

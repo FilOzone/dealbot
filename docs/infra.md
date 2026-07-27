@@ -46,7 +46,7 @@ Postgres is required.
 - pg-boss owns its own schema for queue state. Expect steady write churn proportional to job rates.
 - Backup, high-availability topology, and disaster-recovery strategy are operator choice. Dealbot is the only writer in normal operation, so a standard logical backup is sufficient for restore.
 
-ClickHouse is optional and append-only. Configure `<NET>_CLICKHOUSE_URL` for each network that should emit check results. A missing URL disables ClickHouse only for that network.
+ClickHouse is optional and append-only. Configure `<NET>_CLICKHOUSE_URL` for each network that should emit check results. Each configured network must select a different database, although those databases may use the same ClickHouse server. A missing URL disables ClickHouse only for that network.
 
 ## Secrets
 

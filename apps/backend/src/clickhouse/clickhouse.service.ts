@@ -5,12 +5,12 @@ import { InjectMetric } from "@willsoto/nestjs-prometheus";
 import { Counter, Gauge, Histogram } from "prom-client";
 import type { Network } from "../common/types.js";
 import type { IClickhouseConfig, IConfig } from "../config/index.js";
-import { buildMigrations, CLICKHOUSE_NETWORK_TABLES } from "./clickhouse.schema.js";
+import { buildMigrations } from "./clickhouse.schema.js";
 import { ClickHouseRows } from "./clickhouse.types.js";
 
 interface BufferedRow {
   table: string;
-  row: Record<string, unknown> & { network: Network };
+  row: Record<string, unknown>;
 }
 
 interface ClickhouseDestination {
@@ -21,9 +21,9 @@ interface ClickhouseDestination {
   flushPromise: Promise<void> | null;
 }
 
-type InsertableClickHouseRow<T extends string> = (T extends keyof ClickHouseRows
+type InsertableClickHouseRow<T extends string> = T extends keyof ClickHouseRows
   ? ClickHouseRows[T]
-  : Record<string, unknown>) & { network: Network };
+  : Record<string, unknown>;
 
 @Injectable()
 export class ClickhouseService implements OnModuleInit, OnApplicationShutdown {
@@ -60,8 +60,10 @@ export class ClickhouseService implements OnModuleInit, OnApplicationShutdown {
 
       const parsedUrl = new URL(url);
       const database = parsedUrl.pathname.replace(/^\/+|\/+$/g, "");
-      if (!database || database.includes("/")) {
-        throw new Error(`${network.toUpperCase()}_CLICKHOUSE_URL must include one database name in its path`);
+      if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(database)) {
+        throw new Error(
+          `${network.toUpperCase()}_CLICKHOUSE_URL must include one database name that starts with a letter or underscore and contains only letters, digits, and underscores`,
+        );
       }
 
       return [{ network, url, parsedUrl, database }];
@@ -70,6 +72,18 @@ export class ClickhouseService implements OnModuleInit, OnApplicationShutdown {
     if (configuredDestinations.length === 0) {
       this.logger.log("No network-specific ClickHouse URLs set, writes to ClickHouse disabled");
       return;
+    }
+
+    const databaseOwners = new Map<string, Network>();
+    for (const { network, parsedUrl, database } of configuredDestinations) {
+      const databaseKey = `${parsedUrl.origin}/${database}`;
+      const existingNetwork = databaseOwners.get(databaseKey);
+      if (existingNetwork) {
+        throw new Error(
+          `${existingNetwork.toUpperCase()}_CLICKHOUSE_URL and ${network.toUpperCase()}_CLICKHOUSE_URL must use different ClickHouse databases`,
+        );
+      }
+      databaseOwners.set(databaseKey, network);
     }
 
     try {
@@ -120,32 +134,12 @@ export class ClickhouseService implements OnModuleInit, OnApplicationShutdown {
   }
 
   private async migrate(client: ClickHouseClient, database: string, network: Network): Promise<void> {
-    const missingNetworkTables = await this.findTablesMissingNetwork(client, database);
-    const legacyBackfillNetwork = missingNetworkTables.length > 0 ? network : undefined;
-
-    const migrations = buildMigrations(database, legacyBackfillNetwork);
+    const migrations = buildMigrations(database);
     for (const sql of migrations) {
       await client.command({ query: sql });
     }
 
-    this.logger.log({ event: "clickhouse_migrated", network, database, legacyBackfillNetwork });
-  }
-
-  private async findTablesMissingNetwork(client: ClickHouseClient, database: string): Promise<string[]> {
-    const tableNames = CLICKHOUSE_NETWORK_TABLES.map((table) => `'${table}'`).join(", ");
-    const result = await client.query({
-      query: `SELECT name
-        FROM (SELECT arrayJoin([${tableNames}]) AS name)
-        WHERE name NOT IN (
-          SELECT table
-          FROM system.columns
-          WHERE database = {database:String} AND name = 'network'
-        )`,
-      query_params: { database },
-      format: "JSONEachRow",
-    });
-    const rows = await result.json<{ name: string }>();
-    return rows.map(({ name }) => name);
+    this.logger.log({ event: "clickhouse_migrated", network, database });
   }
 
   async onApplicationShutdown() {
@@ -164,34 +158,35 @@ export class ClickhouseService implements OnModuleInit, OnApplicationShutdown {
 
   /**
    * Queue a row for insertion. Returns immediately; the flush happens in the background.
-   * Safe to call when ClickHouse is disabled for the row's network.
+   * Safe to call when ClickHouse is disabled for the selected network.
+   * The network selects a database and is not included in the stored row.
    *
    * Tables registered in {@link ClickHouseRows} are type-checked against their
-   * row shape. Other table names accept any row with a valid `network`.
+   * row shape. Other table names accept any row.
    */
-  insert<T extends string>(table: T, row: InsertableClickHouseRow<T>): void {
-    const destination = this.destinations.get(row.network);
+  insert<T extends string>(network: Network, table: T, row: InsertableClickHouseRow<T>): void {
+    const destination = this.destinations.get(network);
     if (!destination) return;
 
     const totalRows = destination.inFlight.length + destination.buffer.length;
     if (totalRows >= this.config.maxBufferSize) {
       const dropped = destination.buffer.shift();
       if (!dropped) {
-        this.droppedRows.inc({ reason: "buffer_full", network: row.network });
+        this.droppedRows.inc({ reason: "buffer_full", network });
         return;
       }
-      this.droppedRows.inc({ reason: "buffer_full", network: dropped.row.network });
+      this.droppedRows.inc({ reason: "buffer_full", network });
     }
 
     destination.buffer.push({
       table,
       row: { ...row },
     });
-    this.bufferRows.set({ network: row.network }, destination.inFlight.length + destination.buffer.length);
+    this.bufferRows.set({ network }, destination.inFlight.length + destination.buffer.length);
 
     if (destination.buffer.length >= this.config.batchSize) {
-      this.flushNetwork(row.network).catch((err) => {
-        this.logger.error({ event: "flush_batch_error", network: row.network, error: String(err) });
+      this.flushNetwork(network).catch((err) => {
+        this.logger.error({ event: "flush_batch_error", network, error: String(err) });
       });
     }
   }

@@ -1,4 +1,3 @@
-import type { Network } from "../common/types.js";
 import type { BlockFetchStatus, CarParseStatus, IpniCheckStatus, ServiceType } from "../database/types.js";
 
 /**
@@ -24,7 +23,6 @@ export enum PieceFetchStatus {
  */
 export type SampledRetrievalCheckRow = {
   timestamp: number;
-  network: Network;
   probe_location: string;
   sp_address: string;
   sp_id: number | null;

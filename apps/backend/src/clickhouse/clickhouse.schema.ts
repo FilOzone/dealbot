@@ -1,18 +1,8 @@
-import type { Network } from "../common/types.js";
-
-export const CLICKHOUSE_NETWORK_TABLES = [
-  "data_storage_checks",
-  "retrieval_checks",
-  "data_retention_challenges",
-  "pull_checks",
-  "sampled_retrieval_checks",
-] as const;
-
 /**
  * ClickHouse DDL statements executed on startup via CREATE DATABASE/TABLE IF NOT EXISTS.
  * Order matters: database must be created before tables.
  */
-export function buildMigrations(database: string, legacyBackfillNetwork?: Network): string[] {
+export function buildMigrations(database: string): string[] {
   return [
     `CREATE TABLE IF NOT EXISTS ${database}.data_storage_checks
 (
@@ -175,15 +165,5 @@ export function buildMigrations(database: string, legacyBackfillNetwork?: Networ
     // at query time as bytes_retrieved / (last_byte_ms / 1000).
     `ALTER TABLE ${database}.sampled_retrieval_checks
         DROP COLUMN IF EXISTS throughput_bps`,
-
-    // Add network after all tables exist. The default backfills legacy rows;
-    // application writes always provide network explicitly.
-    ...(legacyBackfillNetwork
-      ? CLICKHOUSE_NETWORK_TABLES.map(
-          (table) =>
-            `ALTER TABLE ${database}.${table}
-        ADD COLUMN IF NOT EXISTS network LowCardinality(String) DEFAULT '${legacyBackfillNetwork}' AFTER timestamp`,
-        )
-      : []),
   ];
 }

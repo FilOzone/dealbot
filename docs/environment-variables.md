@@ -1275,7 +1275,7 @@ ClickHouse is an **optional** long-term analytics store for check results. Each 
 - **Default**: Empty (ClickHouse disabled)
 - **Security**: Treat as a secret if the URL contains credentials.
 
-**Role**: ClickHouse connection URL for one network. It must include the database in the path. Dealbot uses separate clients and buffers per network, even when multiple network variables point to the same database.
+**Role**: ClickHouse connection URL for one network. It must include the database in the path. Each configured network must select a different database, although the databases may use the same ClickHouse server. The selected database identifies the network of its rows.
 
 **Example**:
 

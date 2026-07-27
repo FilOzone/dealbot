@@ -13,7 +13,6 @@ vi.mock("@clickhouse/client", () => ({
 }));
 
 interface ClientMock {
-  query: ReturnType<typeof vi.fn>;
   command: ReturnType<typeof vi.fn>;
   insert: ReturnType<typeof vi.fn>;
   close: ReturnType<typeof vi.fn>;
@@ -22,7 +21,6 @@ interface ClientMock {
 interface ServiceOptions {
   activeNetworks?: Network[];
   urls?: Partial<Record<Network, string>>;
-  missingNetworkTables?: Partial<Record<Network, string[]>>;
   insertFailures?: Partial<Record<Network, Error>>;
   batchSize?: number;
   maxBufferSize?: number;
@@ -44,9 +42,6 @@ function createService(options: ServiceOptions = {}) {
     if (!url) continue;
 
     const client: ClientMock = {
-      query: vi.fn().mockResolvedValue({
-        json: vi.fn().mockResolvedValue((options.missingNetworkTables?.[network] ?? []).map((name) => ({ name }))),
-      }),
       command: vi.fn().mockResolvedValue(undefined),
       insert: options.insertFailures?.[network]
         ? vi.fn().mockRejectedValue(options.insertFailures[network])
@@ -119,19 +114,19 @@ describe("ClickhouseService", () => {
     const { bufferRows, clients, flushDuration, rowsInserted, service } = createService();
     await service.onModuleInit();
 
-    service.insert("data_storage_checks", { timestamp: 1, network: "calibration" });
-    service.insert("data_storage_checks", { timestamp: 2, network: "mainnet" });
+    service.insert("calibration", "data_storage_checks", { timestamp: 1 });
+    service.insert("mainnet", "data_storage_checks", { timestamp: 2 });
     await service.onApplicationShutdown();
 
     expect(createClientMock).toHaveBeenCalledTimes(2);
     expect(clients.get("calibration")?.insert).toHaveBeenCalledWith({
       table: "data_storage_checks",
-      values: [{ timestamp: 1, network: "calibration" }],
+      values: [{ timestamp: 1 }],
       format: "JSONEachRow",
     });
     expect(clients.get("mainnet")?.insert).toHaveBeenCalledWith({
       table: "data_storage_checks",
-      values: [{ timestamp: 2, network: "mainnet" }],
+      values: [{ timestamp: 2 }],
       format: "JSONEachRow",
     });
     expect(rowsInserted.inc).toHaveBeenCalledWith({ table: "data_storage_checks", network: "calibration" }, 1);
@@ -142,47 +137,35 @@ describe("ClickhouseService", () => {
     expect(flushDuration.startTimer).toHaveBeenCalledWith({ network: "mainnet" });
   });
 
-  it("uses each URL's network as the migration backfill value", async () => {
-    const { clients, service } = createService({
-      missingNetworkTables: {
-        calibration: ["data_storage_checks"],
-        mainnet: ["retrieval_checks"],
+  it("rejects two networks targeting the same ClickHouse database", async () => {
+    const { service } = createService({
+      urls: {
+        calibration: "http://calibration:password@clickhouse.internal:8123/dealbot_shared",
+        mainnet: "http://mainnet:password@clickhouse.internal:8123/dealbot_shared",
       },
     });
 
-    await service.onModuleInit();
-    await service.onApplicationShutdown();
-
-    expect(clients.get("calibration")?.command).toHaveBeenCalledWith({
-      query: expect.stringContaining(
-        "ADD COLUMN IF NOT EXISTS network LowCardinality(String) DEFAULT 'calibration' AFTER timestamp",
-      ),
-    });
-    expect(clients.get("mainnet")?.command).toHaveBeenCalledWith({
-      query: expect.stringContaining(
-        "ADD COLUMN IF NOT EXISTS network LowCardinality(String) DEFAULT 'mainnet' AFTER timestamp",
-      ),
-    });
+    await expect(service.onModuleInit()).rejects.toThrow(
+      "CALIBRATION_CLICKHOUSE_URL and MAINNET_CLICKHOUSE_URL must use different ClickHouse databases",
+    );
+    expect(createClientMock).not.toHaveBeenCalled();
   });
 
   it("applies the shared batch size independently to each network buffer", async () => {
     const { clients, service } = createService({ batchSize: 2 });
     await service.onModuleInit();
 
-    service.insert("data_storage_checks", { timestamp: 1, network: "calibration" });
-    service.insert("data_storage_checks", { timestamp: 2, network: "mainnet" });
+    service.insert("calibration", "data_storage_checks", { timestamp: 1 });
+    service.insert("mainnet", "data_storage_checks", { timestamp: 2 });
 
     expect(clients.get("calibration")?.insert).not.toHaveBeenCalled();
     expect(clients.get("mainnet")?.insert).not.toHaveBeenCalled();
 
-    service.insert("data_storage_checks", { timestamp: 3, network: "calibration" });
+    service.insert("calibration", "data_storage_checks", { timestamp: 3 });
 
     expect(clients.get("calibration")?.insert).toHaveBeenCalledWith({
       table: "data_storage_checks",
-      values: [
-        { timestamp: 1, network: "calibration" },
-        { timestamp: 3, network: "calibration" },
-      ],
+      values: [{ timestamp: 1 }, { timestamp: 3 }],
       format: "JSONEachRow",
     });
     expect(clients.get("mainnet")?.insert).not.toHaveBeenCalled();
@@ -196,8 +179,8 @@ describe("ClickhouseService", () => {
     });
     await service.onModuleInit();
 
-    service.insert("data_storage_checks", { timestamp: 1, network: "calibration" });
-    service.insert("data_storage_checks", { timestamp: 2, network: "mainnet" });
+    service.insert("calibration", "data_storage_checks", { timestamp: 1 });
+    service.insert("mainnet", "data_storage_checks", { timestamp: 2 });
     await service.onApplicationShutdown();
 
     expect(clients.get("calibration")?.insert).toHaveBeenCalledOnce();
@@ -222,8 +205,8 @@ describe("ClickhouseService", () => {
     client.insert.mockImplementationOnce(() => firstInsert).mockResolvedValue(undefined);
 
     await service.onModuleInit();
-    service.insert("data_storage_checks", { timestamp: 1, network: "calibration" });
-    service.insert("data_storage_checks", { timestamp: 2, network: "calibration" });
+    service.insert("calibration", "data_storage_checks", { timestamp: 1 });
+    service.insert("calibration", "data_storage_checks", { timestamp: 2 });
 
     const shutdown = service.onApplicationShutdown();
     finishFirstInsert();
@@ -232,12 +215,12 @@ describe("ClickhouseService", () => {
     expect(client.insert).toHaveBeenCalledTimes(2);
     expect(client.insert).toHaveBeenNthCalledWith(1, {
       table: "data_storage_checks",
-      values: [{ timestamp: 1, network: "calibration" }],
+      values: [{ timestamp: 1 }],
       format: "JSONEachRow",
     });
     expect(client.insert).toHaveBeenNthCalledWith(2, {
       table: "data_storage_checks",
-      values: [{ timestamp: 2, network: "calibration" }],
+      values: [{ timestamp: 2 }],
       format: "JSONEachRow",
     });
   });
@@ -246,25 +229,22 @@ describe("ClickhouseService", () => {
     const { clients, droppedRows, service } = createService({ batchSize: 500, maxBufferSize: 2 });
     await service.onModuleInit();
 
-    service.insert("data_storage_checks", { timestamp: 1, network: "calibration" });
-    service.insert("data_storage_checks", { timestamp: 2, network: "calibration" });
-    service.insert("data_storage_checks", { timestamp: 3, network: "calibration" });
-    service.insert("data_storage_checks", { timestamp: 4, network: "mainnet" });
+    service.insert("calibration", "data_storage_checks", { timestamp: 1 });
+    service.insert("calibration", "data_storage_checks", { timestamp: 2 });
+    service.insert("calibration", "data_storage_checks", { timestamp: 3 });
+    service.insert("mainnet", "data_storage_checks", { timestamp: 4 });
     await service.onApplicationShutdown();
 
     expect(droppedRows.inc).toHaveBeenCalledOnce();
     expect(droppedRows.inc).toHaveBeenCalledWith({ reason: "buffer_full", network: "calibration" });
     expect(clients.get("calibration")?.insert).toHaveBeenCalledWith({
       table: "data_storage_checks",
-      values: [
-        { timestamp: 2, network: "calibration" },
-        { timestamp: 3, network: "calibration" },
-      ],
+      values: [{ timestamp: 2 }, { timestamp: 3 }],
       format: "JSONEachRow",
     });
     expect(clients.get("mainnet")?.insert).toHaveBeenCalledWith({
       table: "data_storage_checks",
-      values: [{ timestamp: 4, network: "mainnet" }],
+      values: [{ timestamp: 4 }],
       format: "JSONEachRow",
     });
   });
@@ -275,8 +255,8 @@ describe("ClickhouseService", () => {
     });
     await service.onModuleInit();
 
-    service.insert("data_storage_checks", { timestamp: 1, network: "calibration" });
-    service.insert("data_storage_checks", { timestamp: 2, network: "mainnet" });
+    service.insert("calibration", "data_storage_checks", { timestamp: 1 });
+    service.insert("mainnet", "data_storage_checks", { timestamp: 2 });
     await service.onApplicationShutdown();
 
     expect(createClientMock).toHaveBeenCalledOnce();

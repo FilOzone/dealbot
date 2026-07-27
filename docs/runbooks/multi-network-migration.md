@@ -8,9 +8,9 @@ or two cooperating instances — can safely operate on multiple networks
 (e.g. `mainnet` and `calibration`) without rows colliding under shared keys.
 
 Each `<NET>_CLICKHOUSE_URL` selects where that network writes ClickHouse rows.
-Multiple networks may use the same database. When the startup migration adds
-`network`, it uses the first configured network that initializes that database
-as the backfill value. New rows always include their network explicitly.
+Each configured network must select a different database, although the
+databases may use the same ClickHouse server. The database identifies the
+network of its rows, so the ClickHouse table schema does not change.
 
 > Set `DEALBOT_LEGACY_NETWORK_BACKFILL` whenever this Postgres migration still
 > needs to run, including on a fresh database with empty tables. Keep it set
@@ -28,14 +28,13 @@ as the backfill value. New rows always include their network explicitly.
   `(sp_address, network) → (address, network)` reference.
 - Replaces the unique `job_schedule_state_job_type_sp_unique` constraint with
   `job_schedule_state_job_type_sp_network_unique`.
-- Adds `network` to each configured ClickHouse database. Existing rows use the
-  network that first initializes the database; new rows always provide it explicitly.
+- Routes each network's ClickHouse writes to its configured database without
+  changing existing ClickHouse tables or rows.
 
 The Postgres migration validates the backfill value before running any SQL, so
 it is required even when all four tables are empty. The value must be listed in
 `SUPPORTED_NETWORKS` (see `apps/backend/src/common/constants.ts`). ClickHouse
-does not read this value because startup receives the network associated with
-each configured URL.
+does not read this value because its database is selected by the network's URL.
 
 ## Pre-migration checklist
 
@@ -53,17 +52,21 @@ each configured URL.
    export DEALBOT_LEGACY_NETWORK_BACKFILL=mainnet   # or: calibration
    ```
 
-4. **For upgrades, stop writers** (or scale to zero) for the duration of the
-   migration.
+4. **Map the existing ClickHouse database to its current network.** Configure a
+   different database for every additional network. No ClickHouse data migration
+   is required.
+5. **For upgrades, stop writers** (or scale to zero) for the duration of the
+   Postgres migration.
 
 ## Running the migration
 
 The Postgres migration runs as part of the normal startup sequence
-(`migrationsRun: true`). The ClickHouse schema check also runs during backend
-startup. To run the Postgres migration explicitly:
+(`migrationsRun: true`). ClickHouse initializes the existing table schema in
+each configured database but does not migrate existing rows. To run the
+Postgres migration explicitly:
 
 ```bash
-pnpm --filter @dealbot/backend run typeorm:migration:run
+pnpm --filter dealbot-backend run typeorm:migration:run
 ```
 
 If the value is missing or invalid, the Postgres migration aborts before
@@ -103,25 +106,23 @@ Set the value and rerun the Postgres migration.
    errors. The Prometheus `network` label on app metrics should reflect the
    configured network.
 
-4. **Confirm ClickHouse rows have the expected network** for each check table:
+4. **Confirm each ClickHouse URL selects the expected database**:
 
    ```sql
-   SELECT network, count()
-   FROM data_storage_checks
-   GROUP BY network;
+   SELECT currentDatabase();
    ```
 
-   Repeat for `retrieval_checks`, `sampled_retrieval_checks`,
-   `data_retention_challenges`, and `pull_checks`.
+   Run this through each network's configured URL. The database name should
+   match the network selected by that URL.
 
 ## Expanding to a second network
 
-Once the schema is migrated, adding a second network to a deployment is
-purely an application-level change:
+Once the schema is migrated, adding a second network requires configuration
+and, when ClickHouse is enabled, a dedicated ClickHouse database:
 
-1. Update the deployment configuration with the new network's RPC, contracts,
-   and optional `<NET>_CLICKHOUSE_URL` (or run a second backend instance
-   dedicated to it).
+1. Update the deployment configuration with the new network's RPC and
+   contracts. If ClickHouse is enabled, provision a database dedicated to that
+   network and set its `<NET>_CLICKHOUSE_URL`.
 2. Trigger a `providers_refresh` job. The wallet SDK service writes new
    `storage_providers` rows with the active `network` value, so the new
    network's providers will not collide with existing rows even if SP
@@ -129,7 +130,7 @@ purely an application-level change:
 3. Job schedules, deals, and data-retention baselines created from this point
    onward are automatically scoped to the new network.
 
-No database changes are required to onboard a new network — only the existing
+No existing ClickHouse rows need to move. Only the existing Postgres
 `network_enum` values are accepted, so adding networks beyond
 `SUPPORTED_NETWORKS` requires extending that constant and adding a follow-up
 migration that calls `ALTER TYPE network_enum ADD VALUE 'newnet'`.
@@ -143,7 +144,7 @@ network are deleted before the schema collapses back to single-network shape.
 
 ```bash
 export DEALBOT_LEGACY_NETWORK_BACKFILL=mainnet
-pnpm --filter @dealbot/backend run typeorm:migration:revert
+pnpm --filter dealbot-backend run typeorm:migration:revert
 ```
 
 After revert:
