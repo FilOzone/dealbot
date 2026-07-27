@@ -34,6 +34,11 @@ export type BaseNetworkConfig = {
   /** Blockchain Config */
   rpcUrl?: string;
   /**
+   * ClickHouse connection URL for this network. Must include the database in
+   * the path. When unset, ClickHouse writes are disabled for this network.
+   */
+  clickhouseUrl?: string;
+  /**
    * Per-request timeout (ms) for the viem RPC transport.
    *
    * Kept above eRPC's network failsafe budget so eRPC can fail over to a
@@ -238,12 +243,7 @@ export interface IJobsConfig {
 }
 
 export interface IClickhouseConfig {
-  /**
-   * ClickHouse connection URL. Must include the database in the path.
-   * Example: http://default:password@host:8123/dealbot
-   * If unset, ClickHouse emission is disabled.
-   */
-  url: string | undefined;
+  /** Shared batching settings applied independently to each network buffer. */
   batchSize: number;
   flushIntervalMs: number;
   maxBufferSize: number;

@@ -7,16 +7,14 @@ data-retention baselines) by blockchain network so a single dealbot instance —
 or two cooperating instances — can safely operate on multiple networks
 (e.g. `mainnet` and `calibration`) without rows colliding under shared keys.
 
-ClickHouse uses the same backfill value when the appended startup migration adds
-`network` to the check tables in the database selected by `CLICKHOUSE_URL`. New
-rows from every active network are stored together and distinguished by that
-column.
+Each `<NET>_CLICKHOUSE_URL` selects where that network writes ClickHouse rows.
+Multiple networks may use the same database. When the startup migration adds
+`network`, it uses the first configured network that initializes that database
+as the backfill value. New rows always include their network explicitly.
 
 > Set `DEALBOT_LEGACY_NETWORK_BACKFILL` whenever this Postgres migration still
-> needs to run, including on a fresh database with empty tables. Any ClickHouse
-> check table without a `network` column uses the same value. Keep it set
-> until the Postgres migration and, when ClickHouse is configured, the
-> ClickHouse migration have completed.
+> needs to run, including on a fresh database with empty tables. Keep it set
+> until the Postgres migration has completed.
 
 ## What the migration changes
 
@@ -30,21 +28,21 @@ column.
   `(sp_address, network) → (address, network)` reference.
 - Replaces the unique `job_schedule_state_job_type_sp_unique` constraint with
   `job_schedule_state_job_type_sp_network_unique`.
-- Adds `network` to the shared ClickHouse check tables. Existing rows use the
-  operator-declared legacy network; new rows always provide it explicitly.
+- Adds `network` to each configured ClickHouse database. Existing rows use the
+  network that first initializes the database; new rows always provide it explicitly.
 
 The Postgres migration validates the backfill value before running any SQL, so
-it is required even when all four tables are empty. The ClickHouse migration
-requires it until every check table has a `network` column. The value must be
-listed in `SUPPORTED_NETWORKS` (see
-`apps/backend/src/common/constants.ts`).
+it is required even when all four tables are empty. The value must be listed in
+`SUPPORTED_NETWORKS` (see `apps/backend/src/common/constants.ts`). ClickHouse
+does not read this value because startup receives the network associated with
+each configured URL.
 
 ## Pre-migration checklist
 
 1. **Take a database backup.** This is a structural migration affecting four
    tables and a foreign key. See `docs/runbooks/supabase-backup-restore.md`.
-2. **Choose the backfill network.** For an upgrade, confirm which network owns
-   the existing Postgres and ClickHouse rows. For a fresh deployment, choose
+2. **Choose the Postgres backfill network.** For an upgrade, confirm which
+   network owns the existing Postgres rows. For a fresh deployment, choose
    either active network; no rows are changed, but validation still requires the
    value. Allowed values: `calibration`, `mainnet`.
 3. **Set `DEALBOT_LEGACY_NETWORK_BACKFILL`** (preferred) or keep the legacy
@@ -75,8 +73,7 @@ running any SQL, even when its tables are empty:
 AddNetworkColumn migration requires DEALBOT_LEGACY_NETWORK_BACKFILL (or legacy NETWORK) to be set to one of: calibration, mainnet. Got: ""
 ```
 
-Set the value and rerun the migration. ClickHouse also aborts when a check table
-lacks `network` and no valid backfill value is available.
+Set the value and rerun the Postgres migration.
 
 ## Post-migration verification
 
@@ -122,8 +119,9 @@ lacks `network` and no valid backfill value is available.
 Once the schema is migrated, adding a second network to a deployment is
 purely an application-level change:
 
-1. Update the deployment configuration to point at the new network's RPC and
-   contracts (or run a second backend instance dedicated to it).
+1. Update the deployment configuration with the new network's RPC, contracts,
+   and optional `<NET>_CLICKHOUSE_URL` (or run a second backend instance
+   dedicated to it).
 2. Trigger a `providers_refresh` job. The wallet SDK service writes new
    `storage_providers` rows with the active `network` value, so the new
    network's providers will not collide with existing rows even if SP

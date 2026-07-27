@@ -28,8 +28,8 @@ MAINNET_DEALS_PER_SP_PER_HOUR=1
 **Rules**
 
 - **Resolution precedence (per-network vars).** Each network resolves a variable as `<NETWORK>_<VAR>` (per-network override) → `<VAR>` (unprefixed shared value) → built-in default. Set a value once unprefixed to share it across every active network, and add a `<NETWORK>_` override only where a network differs.
-- **Chain-specific vars never inherit.** Credentials, chain endpoints, and chain-local identifiers must be set with a prefix and do not read the unprefixed slot: `WALLET_ADDRESS`, `WALLET_PRIVATE_KEY`, `SESSION_KEY_PRIVATE_KEY`, `RPC_URL`, `PDP_SUBGRAPH_ENDPOINT`, `SUBGRAPH_ENDPOINT`, `DEALBOT_DATASET_VERSION`, `BLOCKED_SP_IDS`, `BLOCKED_SP_ADDRESSES`, `DATASET_LIFECYCLE_CHECK_ENABLED`. (`DATASET_LIFECYCLE_CHECK_ENABLED` is chain-specific because its default is network-dependent — off on mainnet — so a shared `=true` must not silently enable the canary there.)
-- **Process-global vars.** Database, HTTP ports, ClickHouse, and pg-boss scheduler settings apply to the whole process and have no per-network form.
+- **Chain-specific vars never inherit.** Credentials, chain endpoints, analytics destinations, and chain-local identifiers must be set with a prefix and do not read the unprefixed slot: `WALLET_ADDRESS`, `WALLET_PRIVATE_KEY`, `SESSION_KEY_PRIVATE_KEY`, `RPC_URL`, `CLICKHOUSE_URL`, `PDP_SUBGRAPH_ENDPOINT`, `SUBGRAPH_ENDPOINT`, `DEALBOT_DATASET_VERSION`, `BLOCKED_SP_IDS`, `BLOCKED_SP_ADDRESSES`, `DATASET_LIFECYCLE_CHECK_ENABLED`. (`DATASET_LIFECYCLE_CHECK_ENABLED` is chain-specific because its default is network-dependent — off on mainnet — so a shared `=true` must not silently enable the canary there.)
+- **Process-global vars.** Database, HTTP ports, ClickHouse batching, and pg-boss scheduler settings apply to the whole process and have no per-network form.
 - **Validation.** Both the unprefixed shared value and each `<NETWORK>_` override are validated against the same rules at startup. Only networks listed in `NETWORKS` are required; variables for inactive networks are ignored, so you can keep a `MAINNET_*` block commented out until you are ready.
 - **Wallet vs. session key.** Each active network must provide either `<NETWORK>_WALLET_PRIVATE_KEY` or `<NETWORK>_SESSION_KEY_PRIVATE_KEY`. When both are present the session key takes precedence (see [`docs/runbooks/wallet-and-session-keys.md`](./runbooks/wallet-and-session-keys.md)).
 - **Supported prefixes.** `CALIBRATION_*`, `MAINNET_*`. Additional networks can be added by extending `SUPPORTED_NETWORKS` in the codebase.
@@ -40,11 +40,11 @@ MAINNET_DEALS_PER_SP_PER_HOUR=1
 | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | [Application](#application-configuration) | `NODE_ENV`, `DEALBOT_PORT`, `DEALBOT_HOST`, `DEALBOT_RUN_MODE`, `DEALBOT_METRICS_PORT`, `DEALBOT_METRICS_HOST`, `DEALBOT_ALLOWED_ORIGINS`, `ENABLE_DEV_MODE`, `DEALBOT_API_PUBLIC_URL`, `DEALBOT_PROBE_LOCATION` |
 | [Database](#database-configuration)       | `DATABASE_HOST`, `DATABASE_PORT`, `DATABASE_POOL_MAX`, `DATABASE_USER`, `DATABASE_PASSWORD`, `DATABASE_NAME`                                                 |
-| [Per-Network](#per-network-configuration) | `<NET>_WALLET_ADDRESS`, `<NET>_WALLET_PRIVATE_KEY`, `<NET>_SESSION_KEY_PRIVATE_KEY`, `<NET>_RPC_URL`, `<NET>_RPC_REQUEST_TIMEOUT_MS`, `<NET>_CHECK_DATASET_CREATION_FEES`, `<NET>_USE_ONLY_APPROVED_PROVIDERS`, `<NET>_PDP_SUBGRAPH_ENDPOINT`, `<NET>_SUBGRAPH_ENDPOINT`, `<NET>_DEALBOT_DATASET_VERSION`, `<NET>_MIN_NUM_DATASETS_FOR_CHECKS`                                           |
+| [Per-Network](#per-network-configuration) | `<NET>_WALLET_ADDRESS`, `<NET>_WALLET_PRIVATE_KEY`, `<NET>_SESSION_KEY_PRIVATE_KEY`, `<NET>_RPC_URL`, `<NET>_CLICKHOUSE_URL`, `<NET>_RPC_REQUEST_TIMEOUT_MS`, `<NET>_CHECK_DATASET_CREATION_FEES`, `<NET>_USE_ONLY_APPROVED_PROVIDERS`, `<NET>_PDP_SUBGRAPH_ENDPOINT`, `<NET>_SUBGRAPH_ENDPOINT`, `<NET>_DEALBOT_DATASET_VERSION`, `<NET>_MIN_NUM_DATASETS_FOR_CHECKS`                                           |
 | [Per-Network Scheduling](#per-network-scheduling) | `<NET>_DEALS_PER_SP_PER_HOUR`, `<NET>_DEAL_JOB_TIMEOUT_SECONDS`, `<NET>_RETRIEVALS_PER_SP_PER_HOUR`, `<NET>_RETRIEVAL_JOB_TIMEOUT_SECONDS`, `<NET>_SAMPLED_RETRIEVALS_PER_SP_PER_HOUR`, `<NET>_SAMPLED_RETRIEVAL_JOB_TIMEOUT_SECONDS`, `<NET>_DATASET_CREATIONS_PER_SP_PER_HOUR`, `<NET>_DATA_SET_CREATION_JOB_TIMEOUT_SECONDS`, `<NET>_DATASET_LIFECYCLE_CHECK_ENABLED`, `<NET>_DATASET_LIFECYCLE_CHECKS_PER_SP_PER_HOUR`, `<NET>_DATA_SET_LIFECYCLE_CHECK_JOB_TIMEOUT_SECONDS`, `<NET>_PULL_CHECKS_PER_SP_PER_HOUR`, `<NET>_PULL_CHECK_JOB_TIMEOUT_SECONDS`, `<NET>_PULL_CHECK_POLL_INTERVAL_SECONDS`, `<NET>_PULL_CHECK_PIECE_SIZE_BYTES`, `<NET>_PULL_PIECE_CLEANUP_INTERVAL_SECONDS`, `<NET>_PROVIDERS_REFRESH_INTERVAL_SECONDS`, `<NET>_DATA_RETENTION_POLL_INTERVAL_SECONDS`, `<NET>_MAINTENANCE_WINDOWS_UTC`, `<NET>_MAINTENANCE_WINDOW_MINUTES`, `<NET>_BLOCKED_SP_IDS`, `<NET>_BLOCKED_SP_ADDRESSES`, `<NET>_MAX_DATASET_STORAGE_SIZE_BYTES`, `<NET>_TARGET_DATASET_STORAGE_SIZE_BYTES`, `<NET>_PIECE_CLEANUP_PER_SP_PER_HOUR`, `<NET>_MAX_PIECE_CLEANUP_RUNTIME_SECONDS` |
 | [Jobs (pg-boss)](#jobs-pg-boss)           | `DEALBOT_PGBOSS_SCHEDULER_ENABLED`, `DEALBOT_PGBOSS_POOL_MAX`, `JOB_SCHEDULER_POLL_SECONDS`, `JOB_WORKER_POLL_SECONDS`, `PG_BOSS_LOCAL_CONCURRENCY`, `JOB_CATCHUP_MAX_ENQUEUE`, `JOB_SCHEDULE_PHASE_SECONDS`, `JOB_ENQUEUE_JITTER_SECONDS`, `SHUTDOWN_FINAL_SCRAPE_DELAY_SECONDS`, `IPFS_BLOCK_FETCH_CONCURRENCY`, `SAMPLED_RETRIEVAL_BLOCK_SAMPLE_COUNT` |
 | [Pull Check](#pull-check-configuration)   | `PULL_PIECE_MAX_CONCURRENT_STREAMS`, `PULL_PIECE_MAX_STREAMS_PER_CID` |
-| [ClickHouse](#clickhouse-configuration)   | `CLICKHOUSE_URL`, `CLICKHOUSE_BATCH_SIZE`, `CLICKHOUSE_FLUSH_INTERVAL_MS`, `CLICKHOUSE_MAX_BUFFER_SIZE`                                                      |
+| [ClickHouse](#clickhouse-configuration)   | `<NET>_CLICKHOUSE_URL`, `CLICKHOUSE_BATCH_SIZE`, `CLICKHOUSE_FLUSH_INTERVAL_MS`, `CLICKHOUSE_MAX_BUFFER_SIZE`                                                      |
 | [Dataset](#dataset-configuration)         | `DEALBOT_LOCAL_DATASETS_PATH`, `RANDOM_PIECE_SIZES`                                                                                                          |
 | [Timeouts](#timeout-configuration)        | `CONNECT_TIMEOUT_MS`, `HTTP_REQUEST_TIMEOUT_MS`, `HTTP2_REQUEST_TIMEOUT_MS`, `IPNI_VERIFICATION_TIMEOUT_MS`, `IPNI_VERIFICATION_POLLING_MS`                   |
 | [Prometheus Metrics](#prometheus-metrics-configuration) | `PROMETHEUS_WALLET_BALANCE_TTL_SECONDS`, `PROMETHEUS_WALLET_BALANCE_ERROR_COOLDOWN_SECONDS`                   |
@@ -1266,21 +1266,22 @@ These variables tune global, server-side aspects of the pull-check subsystem —
 
 ## ClickHouse Configuration
 
-ClickHouse is an **optional** long-term analytics store for check results. When `CLICKHOUSE_URL` is unset, ClickHouse emission is silently disabled and Dealbot runs normally using only Postgres and Prometheus.
+ClickHouse is an **optional** long-term analytics store for check results. Each active network selects its own database with `<NET>_CLICKHOUSE_URL`. A network without this variable continues normally using only Postgres and Prometheus.
 
-### `CLICKHOUSE_URL`
+### `<NET>_CLICKHOUSE_URL`
 
 - **Type**: `string` (HTTP URL)
 - **Required**: No
 - **Default**: Empty (ClickHouse disabled)
 - **Security**: Treat as a secret if the URL contains credentials.
 
-**Role**: ClickHouse connection URL. Must include the database in the path. When set, Dealbot buffers check results and flushes them to ClickHouse in batches. Write failures are logged and dropped — ClickHouse is not a source of truth.
+**Role**: ClickHouse connection URL for one network. It must include the database in the path. Dealbot uses separate clients and buffers per network, even when multiple network variables point to the same database.
 
 **Example**:
 
 ```bash
-CLICKHOUSE_URL=http://default:password@clickhouse.internal:8123/dealbot
+CALIBRATION_CLICKHOUSE_URL=http://default:password@clickhouse.internal:8123/dealbot_calibration
+MAINNET_CLICKHOUSE_URL=http://default:password@clickhouse.internal:8123/dealbot_mainnet
 ```
 
 ---
@@ -1291,7 +1292,7 @@ CLICKHOUSE_URL=http://default:password@clickhouse.internal:8123/dealbot
 - **Required**: No
 - **Default**: `500`
 
-**Role**: Number of rows to accumulate before flushing to ClickHouse. Larger batches reduce HTTP overhead; smaller batches reduce memory usage and flush lag.
+**Role**: Number of rows to accumulate in a network's buffer before flushing it. The same value applies independently to every configured network.
 
 ---
 
@@ -1301,7 +1302,7 @@ CLICKHOUSE_URL=http://default:password@clickhouse.internal:8123/dealbot
 - **Required**: No
 - **Default**: `5000` (5 seconds)
 
-**Role**: Maximum time between ClickHouse flushes. Even if `CLICKHOUSE_BATCH_SIZE` is not reached, a flush is triggered after this interval to bound write latency.
+**Role**: Maximum time between ClickHouse flushes. One shared timer flushes every non-empty network buffer, even when its `CLICKHOUSE_BATCH_SIZE` has not been reached.
 
 ---
 
@@ -1311,7 +1312,7 @@ CLICKHOUSE_URL=http://default:password@clickhouse.internal:8123/dealbot
 - **Required**: No
 - **Default**: `5000`
 
-**Role**: Maximum number of rows to hold in the in-memory buffer before back-pressure is applied. When the buffer exceeds this limit, new rows are dropped and a warning is logged to prevent unbounded memory growth.
+**Role**: Maximum rows held for each network, including rows currently being flushed. Rows are dropped when a network reaches this limit. Total capacity is this value multiplied by the number of configured ClickHouse networks.
 
 ---
 

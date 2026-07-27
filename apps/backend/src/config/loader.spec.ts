@@ -21,11 +21,13 @@ const KEYS_TO_RESET = [
   "CALIBRATION_TARGET_DATASET_STORAGE_SIZE_BYTES",
   "CALIBRATION_MAX_DATASET_STORAGE_SIZE_BYTES",
   "CALIBRATION_PDP_SUBGRAPH_ENDPOINT",
+  "CALIBRATION_CLICKHOUSE_URL",
   "MAINNET_WALLET_PRIVATE_KEY",
   "MAINNET_SESSION_KEY_PRIVATE_KEY",
   "MAINNET_WALLET_ADDRESS",
   "MAINNET_RPC_URL",
   "MAINNET_DEAL_JOB_TIMEOUT_SECONDS",
+  "MAINNET_CLICKHOUSE_URL",
   "WALLET_PRIVATE_KEY",
   "WALLET_ADDRESS",
   "RPC_URL",
@@ -42,6 +44,9 @@ const KEYS_TO_RESET = [
   "CALIBRATION_DATASET_LIFECYCLE_CHECK_ENABLED",
   "MAINNET_DATASET_LIFECYCLE_CHECK_ENABLED",
   "CLICKHOUSE_URL",
+  "CLICKHOUSE_BATCH_SIZE",
+  "CLICKHOUSE_FLUSH_INTERVAL_MS",
+  "CLICKHOUSE_MAX_BUFFER_SIZE",
   "DEALBOT_API_PUBLIC_URL",
 ];
 
@@ -113,7 +118,28 @@ describe("loadConfig", () => {
     expect(cfg.networks.mainnet.rpcUrl).toBe("https://rpc.example/mainnet");
   });
 
-  it("loads one shared ClickHouse URL for a multi-network deployment", () => {
+  it("loads network-specific ClickHouse URLs with shared batching settings", () => {
+    process.env.NETWORKS = "calibration,mainnet";
+    process.env.CALIBRATION_WALLET_PRIVATE_KEY = "0xcal";
+    process.env.MAINNET_WALLET_PRIVATE_KEY = "0xmain";
+    process.env.CALIBRATION_CLICKHOUSE_URL = "http://clickhouse.example:8123/dealbot_calibration";
+    process.env.MAINNET_CLICKHOUSE_URL = "http://clickhouse.example:8123/dealbot_mainnet";
+    process.env.CLICKHOUSE_BATCH_SIZE = "250";
+    process.env.CLICKHOUSE_FLUSH_INTERVAL_MS = "2000";
+    process.env.CLICKHOUSE_MAX_BUFFER_SIZE = "3000";
+
+    const cfg = loadConfig();
+
+    expect(cfg.networks.calibration.clickhouseUrl).toBe("http://clickhouse.example:8123/dealbot_calibration");
+    expect(cfg.networks.mainnet.clickhouseUrl).toBe("http://clickhouse.example:8123/dealbot_mainnet");
+    expect(cfg.clickhouse).toEqual({
+      batchSize: 250,
+      flushIntervalMs: 2000,
+      maxBufferSize: 3000,
+    });
+  });
+
+  it("does not inherit an unprefixed ClickHouse URL in multi-network mode", () => {
     process.env.NETWORKS = "calibration,mainnet";
     process.env.CALIBRATION_WALLET_PRIVATE_KEY = "0xcal";
     process.env.MAINNET_WALLET_PRIVATE_KEY = "0xmain";
@@ -121,7 +147,8 @@ describe("loadConfig", () => {
 
     const cfg = loadConfig();
 
-    expect(cfg.clickhouse.url).toBe("http://clickhouse.example:8123/dealbot");
+    expect(cfg.networks.calibration.clickhouseUrl).toBeUndefined();
+    expect(cfg.networks.mainnet.clickhouseUrl).toBeUndefined();
   });
 
   it("does not throw when an inactive network lacks wallet keys", () => {

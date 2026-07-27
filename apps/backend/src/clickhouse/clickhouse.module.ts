@@ -7,12 +7,14 @@ import { ClickhouseService } from "./clickhouse.service.js";
   providers: [
     makeHistogramProvider({
       name: "clickhouseFlushDurationSeconds",
-      help: "Round-trip time of each ClickHouse flush call in seconds",
+      help: "Round-trip time of each ClickHouse flush call in seconds, by network",
       buckets: [0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5],
+      labelNames: ["network"] as const,
     }),
     makeCounterProvider({
       name: "clickhouseFlushErrorsTotal",
-      help: "Number of failed ClickHouse flush attempts; non-zero means rows were dropped",
+      help: "Number of failed ClickHouse flush attempts by network; rows remain buffered for retry",
+      labelNames: ["network"] as const,
     }),
     makeCounterProvider({
       name: "clickhouseDroppedRowsTotal",
@@ -21,7 +23,8 @@ import { ClickhouseService } from "./clickhouse.service.js";
     }),
     makeGaugeProvider({
       name: "clickhouseBufferRows",
-      help: "Current number of rows queued in the ClickHouse buffer",
+      help: "Current number of rows queued in the ClickHouse buffer, by network",
+      labelNames: ["network"] as const,
     }),
     makeCounterProvider({
       name: "clickhouseRowsInsertedTotal",

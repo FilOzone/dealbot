@@ -116,7 +116,6 @@ export const pullPieceEnvSchema = {
 };
 
 export const clickhouseEnvSchema = {
-  CLICKHOUSE_URL: Joi.string().uri().optional(),
   CLICKHOUSE_BATCH_SIZE: Joi.number().integer().min(1).default(500),
   CLICKHOUSE_FLUSH_INTERVAL_MS: Joi.number().integer().min(100).default(5000),
   CLICKHOUSE_MAX_BUFFER_SIZE: Joi.number().integer().min(1).default(5000),
@@ -159,6 +158,10 @@ const perNetworkFieldRules = (): Record<PerNetworkVar, Joi.Schema> => ({
   WALLET_PRIVATE_KEY: Joi.string().optional().empty(""),
   SESSION_KEY_PRIVATE_KEY: Joi.string().optional().empty(""),
   RPC_URL: Joi.string()
+    .uri({ scheme: ["http", "https"] })
+    .optional()
+    .allow(""),
+  CLICKHOUSE_URL: Joi.string()
     .uri({ scheme: ["http", "https"] })
     .optional()
     .allow(""),

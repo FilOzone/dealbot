@@ -224,7 +224,7 @@ Unlike the [count metrics](#count-related-metrics) above, gauges below expose a 
 
 ## ClickHouse Tables
 
-When `CLICKHOUSE_URL` is configured, dealbot writes one row per check result to ClickHouse for long-term storage and analysis. All tables are partitioned by month with a 1-year TTL.
+When `<NET>_CLICKHOUSE_URL` is configured, dealbot writes that network's check results to the selected ClickHouse database for long-term storage and analysis. Each row includes its network. All tables are partitioned by month with a 1-year TTL.
 
 > **Source of truth**: the DDL and column-level comments in [`clickhouse.schema.ts`](../../apps/backend/src/clickhouse/clickhouse.schema.ts) are authoritative. The summary below is for orientation only.
 

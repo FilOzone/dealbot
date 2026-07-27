@@ -2,6 +2,7 @@ import type { ClickHouseClient } from "@clickhouse/client";
 import type { ConfigService } from "@nestjs/config";
 import type { Counter, Gauge, Histogram } from "prom-client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { Network } from "../common/types.js";
 import type { IConfig } from "../config/index.js";
 import { ClickhouseService } from "./clickhouse.service.js";
 
@@ -18,19 +19,51 @@ interface ClientMock {
   close: ReturnType<typeof vi.fn>;
 }
 
-const originalBackfillNetwork = process.env.DEALBOT_LEGACY_NETWORK_BACKFILL;
-const originalNetwork = process.env.NETWORK;
+interface ServiceOptions {
+  activeNetworks?: Network[];
+  urls?: Partial<Record<Network, string>>;
+  missingNetworkTables?: Partial<Record<Network, string[]>>;
+  insertFailures?: Partial<Record<Network, Error>>;
+  batchSize?: number;
+  maxBufferSize?: number;
+}
 
-function createService(missingNetworkTables: string[] = []) {
-  const client: ClientMock = {
-    query: vi.fn().mockResolvedValue({
-      json: vi.fn().mockResolvedValue(missingNetworkTables.map((name) => ({ name }))),
-    }),
-    command: vi.fn().mockResolvedValue(undefined),
-    insert: vi.fn().mockResolvedValue(undefined),
-    close: vi.fn().mockResolvedValue(undefined),
-  };
-  createClientMock.mockReturnValue(client as unknown as ClickHouseClient);
+const DEFAULT_URLS: Record<Network, string> = {
+  calibration: "http://default:password@clickhouse.internal:8123/dealbot_calibration",
+  mainnet: "http://default:password@clickhouse.internal:8123/dealbot_mainnet",
+};
+
+function createService(options: ServiceOptions = {}) {
+  const activeNetworks = options.activeNetworks ?? ["calibration", "mainnet"];
+  const urls = options.urls ?? DEFAULT_URLS;
+  const clients = new Map<Network, ClientMock>();
+  const clientsByUrl = new Map<string, ClientMock[]>();
+
+  for (const network of activeNetworks) {
+    const url = urls[network];
+    if (!url) continue;
+
+    const client: ClientMock = {
+      query: vi.fn().mockResolvedValue({
+        json: vi.fn().mockResolvedValue((options.missingNetworkTables?.[network] ?? []).map((name) => ({ name }))),
+      }),
+      command: vi.fn().mockResolvedValue(undefined),
+      insert: options.insertFailures?.[network]
+        ? vi.fn().mockRejectedValue(options.insertFailures[network])
+        : vi.fn().mockResolvedValue(undefined),
+      close: vi.fn().mockResolvedValue(undefined),
+    };
+    clients.set(network, client);
+    const urlClients = clientsByUrl.get(url) ?? [];
+    urlClients.push(client);
+    clientsByUrl.set(url, urlClients);
+  }
+
+  createClientMock.mockImplementation(({ url }: { url: string }) => {
+    const client = clientsByUrl.get(url)?.shift();
+    if (!client) throw new Error(`Unexpected ClickHouse URL: ${url}`);
+    return client as unknown as ClickHouseClient;
+  });
 
   const flushEnd = vi.fn();
   const flushDuration = {
@@ -44,19 +77,29 @@ function createService(missingNetworkTables: string[] = []) {
     get: vi.fn((key: keyof IConfig) => {
       if (key === "clickhouse") {
         return {
-          url: "http://default:password@clickhouse.internal:8123/dealbot",
-          batchSize: 500,
+          batchSize: options.batchSize ?? 500,
           flushIntervalMs: 5000,
-          maxBufferSize: 5000,
+          maxBufferSize: options.maxBufferSize ?? 5000,
         };
       }
+      if (key === "networks") {
+        return {
+          calibration: { clickhouseUrl: urls.calibration },
+          mainnet: { clickhouseUrl: urls.mainnet },
+        };
+      }
+      if (key === "activeNetworks") return activeNetworks;
       if (key === "app") return { probeLocation: "test" };
       return undefined;
     }),
   } as unknown as ConfigService<IConfig, true>;
 
   return {
-    client,
+    bufferRows,
+    clients,
+    droppedRows,
+    flushDuration,
+    flushErrors,
     rowsInserted,
     service: new ClickhouseService(flushDuration, flushErrors, bufferRows, rowsInserted, droppedRows, configService),
   };
@@ -66,77 +109,177 @@ describe("ClickhouseService", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     createClientMock.mockReset();
-    delete process.env.DEALBOT_LEGACY_NETWORK_BACKFILL;
-    delete process.env.NETWORK;
   });
 
   afterEach(() => {
     vi.useRealTimers();
-    if (originalBackfillNetwork === undefined) delete process.env.DEALBOT_LEGACY_NETWORK_BACKFILL;
-    else process.env.DEALBOT_LEGACY_NETWORK_BACKFILL = originalBackfillNetwork;
-    if (originalNetwork === undefined) delete process.env.NETWORK;
-    else process.env.NETWORK = originalNetwork;
   });
 
-  it("uses one client for rows from every active network", async () => {
-    const { client, rowsInserted, service } = createService();
+  it("routes each row to its network-specific ClickHouse destination", async () => {
+    const { bufferRows, clients, flushDuration, rowsInserted, service } = createService();
     await service.onModuleInit();
 
     service.insert("data_storage_checks", { timestamp: 1, network: "calibration" });
     service.insert("data_storage_checks", { timestamp: 2, network: "mainnet" });
     await service.onApplicationShutdown();
 
-    expect(createClientMock).toHaveBeenCalledTimes(1);
-    expect(client.insert).toHaveBeenCalledOnce();
-    expect(client.insert).toHaveBeenCalledWith({
+    expect(createClientMock).toHaveBeenCalledTimes(2);
+    expect(clients.get("calibration")?.insert).toHaveBeenCalledWith({
       table: "data_storage_checks",
-      values: [
-        { timestamp: 1, network: "calibration" },
-        { timestamp: 2, network: "mainnet" },
-      ],
+      values: [{ timestamp: 1, network: "calibration" }],
+      format: "JSONEachRow",
+    });
+    expect(clients.get("mainnet")?.insert).toHaveBeenCalledWith({
+      table: "data_storage_checks",
+      values: [{ timestamp: 2, network: "mainnet" }],
       format: "JSONEachRow",
     });
     expect(rowsInserted.inc).toHaveBeenCalledWith({ table: "data_storage_checks", network: "calibration" }, 1);
     expect(rowsInserted.inc).toHaveBeenCalledWith({ table: "data_storage_checks", network: "mainnet" }, 1);
+    expect(bufferRows.set).toHaveBeenCalledWith({ network: "calibration" }, 0);
+    expect(bufferRows.set).toHaveBeenCalledWith({ network: "mainnet" }, 0);
+    expect(flushDuration.startTimer).toHaveBeenCalledWith({ network: "calibration" });
+    expect(flushDuration.startTimer).toHaveBeenCalledWith({ network: "mainnet" });
   });
 
-  it("backfills legacy tables with the operator-declared network", async () => {
-    process.env.DEALBOT_LEGACY_NETWORK_BACKFILL = "mainnet";
-    const { client, service } = createService(["data_storage_checks"]);
+  it("uses each URL's network as the migration backfill value", async () => {
+    const { clients, service } = createService({
+      missingNetworkTables: {
+        calibration: ["data_storage_checks"],
+        mainnet: ["retrieval_checks"],
+      },
+    });
 
     await service.onModuleInit();
     await service.onApplicationShutdown();
 
-    expect(client.command).toHaveBeenCalledWith({
+    expect(clients.get("calibration")?.command).toHaveBeenCalledWith({
+      query: expect.stringContaining(
+        "ADD COLUMN IF NOT EXISTS network LowCardinality(String) DEFAULT 'calibration' AFTER timestamp",
+      ),
+    });
+    expect(clients.get("mainnet")?.command).toHaveBeenCalledWith({
       query: expect.stringContaining(
         "ADD COLUMN IF NOT EXISTS network LowCardinality(String) DEFAULT 'mainnet' AFTER timestamp",
       ),
     });
   });
 
-  it("normalizes a case-variant legacy NETWORK before backfilling", async () => {
-    process.env.NETWORK = "MAINNET";
-    const { client, service } = createService(["data_storage_checks"]);
-
+  it("applies the shared batch size independently to each network buffer", async () => {
+    const { clients, service } = createService({ batchSize: 2 });
     await service.onModuleInit();
+
+    service.insert("data_storage_checks", { timestamp: 1, network: "calibration" });
+    service.insert("data_storage_checks", { timestamp: 2, network: "mainnet" });
+
+    expect(clients.get("calibration")?.insert).not.toHaveBeenCalled();
+    expect(clients.get("mainnet")?.insert).not.toHaveBeenCalled();
+
+    service.insert("data_storage_checks", { timestamp: 3, network: "calibration" });
+
+    expect(clients.get("calibration")?.insert).toHaveBeenCalledWith({
+      table: "data_storage_checks",
+      values: [
+        { timestamp: 1, network: "calibration" },
+        { timestamp: 3, network: "calibration" },
+      ],
+      format: "JSONEachRow",
+    });
+    expect(clients.get("mainnet")?.insert).not.toHaveBeenCalled();
+
+    await service.onApplicationShutdown();
+  });
+
+  it("keeps a failed network flush isolated from other networks", async () => {
+    const { bufferRows, clients, flushErrors, rowsInserted, service } = createService({
+      insertFailures: { calibration: new Error("calibration unavailable") },
+    });
+    await service.onModuleInit();
+
+    service.insert("data_storage_checks", { timestamp: 1, network: "calibration" });
+    service.insert("data_storage_checks", { timestamp: 2, network: "mainnet" });
     await service.onApplicationShutdown();
 
-    expect(client.command).toHaveBeenCalledWith({
-      query: expect.stringContaining(
-        "ADD COLUMN IF NOT EXISTS network LowCardinality(String) DEFAULT 'mainnet' AFTER timestamp",
-      ),
+    expect(clients.get("calibration")?.insert).toHaveBeenCalledOnce();
+    expect(clients.get("mainnet")?.insert).toHaveBeenCalledOnce();
+    expect(flushErrors.inc).toHaveBeenCalledWith({ network: "calibration" });
+    expect(rowsInserted.inc).toHaveBeenCalledWith({ table: "data_storage_checks", network: "mainnet" }, 1);
+    expect(bufferRows.set).toHaveBeenCalledWith({ network: "mainnet" }, 0);
+    expect(bufferRows.set).not.toHaveBeenCalledWith({ network: "calibration" }, 0);
+  });
+
+  it("drains rows queued while the same network is flushing", async () => {
+    const { clients, service } = createService({
+      activeNetworks: ["calibration"],
+      batchSize: 1,
+      maxBufferSize: 2,
+    });
+    const client = clients.get("calibration")!;
+    let finishFirstInsert!: () => void;
+    const firstInsert = new Promise<void>((resolve) => {
+      finishFirstInsert = resolve;
+    });
+    client.insert.mockImplementationOnce(() => firstInsert).mockResolvedValue(undefined);
+
+    await service.onModuleInit();
+    service.insert("data_storage_checks", { timestamp: 1, network: "calibration" });
+    service.insert("data_storage_checks", { timestamp: 2, network: "calibration" });
+
+    const shutdown = service.onApplicationShutdown();
+    finishFirstInsert();
+    await shutdown;
+
+    expect(client.insert).toHaveBeenCalledTimes(2);
+    expect(client.insert).toHaveBeenNthCalledWith(1, {
+      table: "data_storage_checks",
+      values: [{ timestamp: 1, network: "calibration" }],
+      format: "JSONEachRow",
+    });
+    expect(client.insert).toHaveBeenNthCalledWith(2, {
+      table: "data_storage_checks",
+      values: [{ timestamp: 2, network: "calibration" }],
+      format: "JSONEachRow",
     });
   });
 
-  it("fails fast when tables need a network and none is declared", async () => {
-    const { client, service } = createService(["retrieval_checks"]);
+  it("applies the shared maximum independently and drops from only the full network buffer", async () => {
+    const { clients, droppedRows, service } = createService({ batchSize: 500, maxBufferSize: 2 });
+    await service.onModuleInit();
 
-    await expect(service.onModuleInit()).rejects.toThrow(
-      /ClickHouse network migration requires DEALBOT_LEGACY_NETWORK_BACKFILL/,
-    );
-    expect(client.command).not.toHaveBeenCalledWith({
-      query: expect.stringContaining("ADD COLUMN IF NOT EXISTS network LowCardinality(String)"),
-    });
+    service.insert("data_storage_checks", { timestamp: 1, network: "calibration" });
+    service.insert("data_storage_checks", { timestamp: 2, network: "calibration" });
+    service.insert("data_storage_checks", { timestamp: 3, network: "calibration" });
+    service.insert("data_storage_checks", { timestamp: 4, network: "mainnet" });
     await service.onApplicationShutdown();
+
+    expect(droppedRows.inc).toHaveBeenCalledOnce();
+    expect(droppedRows.inc).toHaveBeenCalledWith({ reason: "buffer_full", network: "calibration" });
+    expect(clients.get("calibration")?.insert).toHaveBeenCalledWith({
+      table: "data_storage_checks",
+      values: [
+        { timestamp: 2, network: "calibration" },
+        { timestamp: 3, network: "calibration" },
+      ],
+      format: "JSONEachRow",
+    });
+    expect(clients.get("mainnet")?.insert).toHaveBeenCalledWith({
+      table: "data_storage_checks",
+      values: [{ timestamp: 4, network: "mainnet" }],
+      format: "JSONEachRow",
+    });
+  });
+
+  it("disables writes only for networks without a ClickHouse URL", async () => {
+    const { clients, service } = createService({
+      urls: { calibration: DEFAULT_URLS.calibration },
+    });
+    await service.onModuleInit();
+
+    service.insert("data_storage_checks", { timestamp: 1, network: "calibration" });
+    service.insert("data_storage_checks", { timestamp: 2, network: "mainnet" });
+    await service.onApplicationShutdown();
+
+    expect(createClientMock).toHaveBeenCalledOnce();
+    expect(clients.get("calibration")?.insert).toHaveBeenCalledOnce();
   });
 });
