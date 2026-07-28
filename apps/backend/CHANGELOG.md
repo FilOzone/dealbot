@@ -1,5 +1,35 @@
 # Changelog
 
+## [1.11.0](https://github.com/FilOzone/dealbot/compare/backend-v1.10.0...backend-v1.11.0) (2026-07-28)
+
+
+### Features
+
+* add network column to schema for multi-network support ([#463](https://github.com/FilOzone/dealbot/issues/463)) ([66621af](https://github.com/FilOzone/dealbot/commit/66621af544ba67cffa0566a648b9f9c16becc589))
+* add network label to prometheus metrics ([#569](https://github.com/FilOzone/dealbot/issues/569)) ([a81a493](https://github.com/FilOzone/dealbot/commit/a81a493d97cd525ea97bffa4a89ff18d2136693c))
+* **clickhouse:** route writes to per-network database ([#661](https://github.com/FilOzone/dealbot/issues/661)) ([9ccda66](https://github.com/FilOzone/dealbot/commit/9ccda6632035951d56e7c7e211d7acf97e78d904))
+* remove DEALBOT_DISABLE_CHAIN config env var ([#640](https://github.com/FilOzone/dealbot/issues/640)) ([1b7486e](https://github.com/FilOzone/dealbot/commit/1b7486e3c762fb63feb83dfd410b61e82e74e5ea))
+
+
+### Bug Fixes
+
+* **retrieval:** weight random deal selection by prior retrieval count ([#660](https://github.com/FilOzone/dealbot/issues/660)) ([f1e84c7](https://github.com/FilOzone/dealbot/commit/f1e84c7290054bdd2071a71504cc8f3cc5a2eea0))
+* session key permission generation ([#639](https://github.com/FilOzone/dealbot/issues/639)) ([025be31](https://github.com/FilOzone/dealbot/commit/025be313b5fdc6ab9b6fdf86211141440789ef54))
+
+
+### Documentation
+
+* update production API domain ([#635](https://github.com/FilOzone/dealbot/issues/635)) ([83ff0b5](https://github.com/FilOzone/dealbot/commit/83ff0b520d6b6885163acf8c8ef986f81cfa507b))
+
+
+### Miscellaneous
+
+* **backend:** restructure config to support both networks ([#570](https://github.com/FilOzone/dealbot/issues/570)) ([a81a351](https://github.com/FilOzone/dealbot/commit/a81a35134ccb0714c3bf78321aa69efa94cefca0))
+* bump Synapse packages  ([#664](https://github.com/FilOzone/dealbot/issues/664)) ([1823217](https://github.com/FilOzone/dealbot/commit/18232171b75da2aff97724365c9d8616d292cdd4))
+* **config:** per-network shared-value inheritance + resolve [#570](https://github.com/FilOzone/dealbot/issues/570) review findings ([#621](https://github.com/FilOzone/dealbot/issues/621)) ([09c959f](https://github.com/FilOzone/dealbot/commit/09c959fc3dc2b51834c31765469e8c661d7d02bd))
+* **deps:** bump filecoin-pin to 1.2.0 and synapse-sdk to 1.1.0 ([#651](https://github.com/FilOzone/dealbot/issues/651)) ([02aefe1](https://github.com/FilOzone/dealbot/commit/02aefe171fcf41667b185a73b14128d5f260b17f))
+* **jobs:** add fake timers to data_set_lifecycle_check tests ([#637](https://github.com/FilOzone/dealbot/issues/637)) ([207db84](https://github.com/FilOzone/dealbot/commit/207db8441cb06633b17b9c93bbc68d0d6b4e4a6d))
+
 ## [1.10.0](https://github.com/FilOzone/dealbot/compare/backend-v1.9.0...backend-v1.10.0) (2026-06-26)
 
 
