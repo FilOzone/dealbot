@@ -353,6 +353,7 @@ describe("PullCheckService", () => {
       expect(registryMock.forget).not.toHaveBeenCalled();
       // ClickHouse row written with the check result.
       expect(clickhouseServiceMock.insert).toHaveBeenCalledWith(
+        DEFAULT_NETWORK,
         "pull_checks",
         expect.objectContaining({
           probe_location: "test",
@@ -393,6 +394,7 @@ describe("PullCheckService", () => {
       expect(registryMock.forget).not.toHaveBeenCalled();
       // ClickHouse row written with the failure outcome.
       expect(clickhouseServiceMock.insert).toHaveBeenCalledWith(
+        DEFAULT_NETWORK,
         "pull_checks",
         expect.objectContaining({
           sp_address: "0xsp",
@@ -409,6 +411,7 @@ describe("PullCheckService", () => {
       await expect(service.runPullCheck("0xsp", DEFAULT_NETWORK, undefined, logContext)).rejects.toThrow();
       expect(metricsMock.recordStatus).toHaveBeenLastCalledWith(expect.any(Object), "failure.timedout");
       expect(clickhouseServiceMock.insert).toHaveBeenCalledWith(
+        DEFAULT_NETWORK,
         "pull_checks",
         expect.objectContaining({
           sp_address: "0xsp",
@@ -466,6 +469,7 @@ describe("PullCheckService", () => {
       // ClickHouse row still written: sp_address is always available,
       // sp_id and sp_name are null since providerInfo was never resolved.
       expect(clickhouseServiceMock.insert).toHaveBeenCalledWith(
+        DEFAULT_NETWORK,
         "pull_checks",
         expect.objectContaining({
           sp_address: "0xsp",

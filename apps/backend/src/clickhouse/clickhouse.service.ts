@@ -3,6 +3,7 @@ import { Injectable, Logger, OnApplicationShutdown, OnModuleInit } from "@nestjs
 import { ConfigService } from "@nestjs/config";
 import { InjectMetric } from "@willsoto/nestjs-prometheus";
 import { Counter, Gauge, Histogram } from "prom-client";
+import type { Network } from "../common/types.js";
 import type { IClickhouseConfig, IConfig } from "../config/index.js";
 import { buildMigrations } from "./clickhouse.schema.js";
 import { ClickHouseRows } from "./clickhouse.types.js";
@@ -12,12 +13,23 @@ interface BufferedRow {
   row: Record<string, unknown>;
 }
 
+interface ClickhouseDestination {
+  client: ClickHouseClient;
+  database: string;
+  buffer: BufferedRow[];
+  inFlight: BufferedRow[];
+  flushPromise: Promise<void> | null;
+}
+
+type InsertableClickHouseRow<T extends string> = T extends keyof ClickHouseRows
+  ? ClickHouseRows[T]
+  : Record<string, unknown>;
+
 @Injectable()
 export class ClickhouseService implements OnModuleInit, OnApplicationShutdown {
   private readonly logger = new Logger(ClickhouseService.name);
   private readonly config: IClickhouseConfig;
-  private client: ClickHouseClient | null = null;
-  private buffer: BufferedRow[] = [];
+  private readonly destinations = new Map<Network, ClickhouseDestination>();
   private flushTimer: NodeJS.Timeout | null = null;
 
   constructor(
@@ -32,47 +44,102 @@ export class ClickhouseService implements OnModuleInit, OnApplicationShutdown {
   }
 
   async onModuleInit() {
-    if (!this.config.url) {
-      this.logger.log("CLICKHOUSE_URL not set, writes to ClickHouse disabled");
+    const activeNetworks = this.configService.get("activeNetworks", { infer: true });
+    const networks = this.configService.get("networks", { infer: true });
+
+    const configuredDestinations = activeNetworks.flatMap((network) => {
+      const url = networks[network].clickhouseUrl;
+      if (!url) {
+        this.logger.log({
+          event: "clickhouse_disabled",
+          network,
+          message: `${network.toUpperCase()}_CLICKHOUSE_URL not set`,
+        });
+        return [];
+      }
+
+      const parsedUrl = new URL(url);
+      const database = parsedUrl.pathname.replace(/^\/+|\/+$/g, "");
+      if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(database)) {
+        throw new Error(
+          `${network.toUpperCase()}_CLICKHOUSE_URL must include one database name that starts with a letter or underscore and contains only letters, digits, and underscores`,
+        );
+      }
+
+      return [{ network, url, parsedUrl, database }];
+    });
+
+    if (configuredDestinations.length === 0) {
+      this.logger.log("No network-specific ClickHouse URLs set, writes to ClickHouse disabled");
       return;
     }
 
-    this.client = createClient({
-      url: this.config.url,
-    });
+    const databaseOwners = new Map<string, Network>();
+    for (const { network, parsedUrl, database } of configuredDestinations) {
+      const databaseKey = `${parsedUrl.origin}/${database}`;
+      const existingNetwork = databaseOwners.get(databaseKey);
+      if (existingNetwork) {
+        throw new Error(
+          `${existingNetwork.toUpperCase()}_CLICKHOUSE_URL and ${network.toUpperCase()}_CLICKHOUSE_URL must use different ClickHouse databases`,
+        );
+      }
+      databaseOwners.set(databaseKey, network);
+    }
 
-    const parsedUrl = new URL(this.config.url);
-    const database = parsedUrl.pathname.replace(/^\//, "");
     try {
-      await this.migrate(database);
+      for (const { network, url, parsedUrl, database } of configuredDestinations) {
+        const client = createClient({ url });
+        try {
+          await this.migrate(client, database, network);
+        } catch (err) {
+          await client.close();
+          this.logger.error({
+            event: "clickhouse_migration_failed",
+            network,
+            database,
+            error: String(err),
+          });
+          throw err;
+        }
+
+        this.destinations.set(network, {
+          client,
+          database,
+          buffer: [],
+          inFlight: [],
+          flushPromise: null,
+        });
+
+        this.logger.log({
+          event: "clickhouse_initialized",
+          network,
+          host: parsedUrl.host,
+          database,
+          batchSize: this.config.batchSize,
+          flushIntervalMs: this.config.flushIntervalMs,
+          maxBufferSize: this.config.maxBufferSize,
+          probeLocation: this.configService.get("app").probeLocation,
+        });
+      }
     } catch (err) {
-      this.logger.error({ event: "clickhouse_migration_failed", database, error: String(err) });
+      await this.closeClients();
       throw err;
     }
 
     this.flushTimer = setInterval(() => {
-      this.flush().catch((err) => {
+      this.flushAll().catch((err) => {
         this.logger.error({ event: "flush_interval_error", error: String(err) });
       });
     }, this.config.flushIntervalMs);
-
-    this.logger.log({
-      event: "clickhouse_initialized",
-      host: parsedUrl.host,
-      database,
-      batchSize: this.config.batchSize,
-      flushIntervalMs: this.config.flushIntervalMs,
-      probeLocation: this.configService.get("app").probeLocation,
-    });
   }
 
-  private async migrate(database: string): Promise<void> {
-    if (!this.client) return;
+  private async migrate(client: ClickHouseClient, database: string, network: Network): Promise<void> {
     const migrations = buildMigrations(database);
     for (const sql of migrations) {
-      await this.client.command({ query: sql });
+      await client.command({ query: sql });
     }
-    this.logger.log({ event: "clickhouse_migrated", database });
+
+    this.logger.log({ event: "clickhouse_migrated", network, database });
   }
 
   async onApplicationShutdown() {
@@ -80,76 +147,116 @@ export class ClickhouseService implements OnModuleInit, OnApplicationShutdown {
       clearInterval(this.flushTimer);
       this.flushTimer = null;
     }
-    await this.flush();
-    await this.client?.close();
+    await this.flushAll();
+    await this.closeClients();
+  }
+
+  private async closeClients(): Promise<void> {
+    await Promise.all(Array.from(this.destinations.values(), ({ client }) => client.close()));
+    this.destinations.clear();
   }
 
   /**
    * Queue a row for insertion. Returns immediately; the flush happens in the background.
-   * Safe to call when ClickHouse is disabled: rows are silently dropped.
+   * Safe to call when ClickHouse is disabled for the selected network.
+   * The network selects a database and is not included in the stored row.
    *
    * Tables registered in {@link ClickHouseRows} are type-checked against their
-   * row shape; any other table name accepts a `Record<string, unknown>`.
+   * row shape. Other table names accept any row.
    */
-  insert<T extends string>(
-    table: T,
-    row: T extends keyof ClickHouseRows ? ClickHouseRows[T] : Record<string, unknown>,
-  ): void {
-    if (!this.client) return;
+  insert<T extends string>(network: Network, table: T, row: InsertableClickHouseRow<T>): void {
+    const destination = this.destinations.get(network);
+    if (!destination) return;
 
-    if (this.buffer.length >= this.config.maxBufferSize) {
-      this.buffer.shift();
-      this.droppedRows.inc({ reason: "buffer_full" });
+    const totalRows = destination.inFlight.length + destination.buffer.length;
+    if (totalRows >= this.config.maxBufferSize) {
+      const dropped = destination.buffer.shift();
+      if (!dropped) {
+        this.droppedRows.inc({ reason: "buffer_full", network });
+        return;
+      }
+      this.droppedRows.inc({ reason: "buffer_full", network });
     }
 
-    this.buffer.push({ table, row: row as Record<string, unknown> });
-    this.bufferRows.set(this.buffer.length);
+    destination.buffer.push({
+      table,
+      row: { ...row },
+    });
+    this.bufferRows.set({ network }, destination.inFlight.length + destination.buffer.length);
 
-    if (this.buffer.length >= this.config.batchSize) {
-      this.flush().catch((err) => {
-        this.logger.error({ event: "flush_batch_error", error: String(err) });
+    if (destination.buffer.length >= this.config.batchSize) {
+      this.flushNetwork(network).catch((err) => {
+        this.logger.error({ event: "flush_batch_error", network, error: String(err) });
       });
     }
   }
 
-  private async flush(): Promise<void> {
-    if (!this.client || this.buffer.length === 0) return;
+  private async flushAll(): Promise<void> {
+    await Promise.all(Array.from(this.destinations.keys(), (network) => this.flushNetwork(network)));
+  }
 
-    const n = this.buffer.length;
-    const batch = this.buffer.slice(0, n);
+  private flushNetwork(network: Network): Promise<void> {
+    const destination = this.destinations.get(network);
+    if (!destination) return Promise.resolve();
+    if (destination.flushPromise) return destination.flushPromise;
+    if (destination.buffer.length === 0) return Promise.resolve();
+
+    destination.flushPromise = (async () => {
+      while (destination.buffer.length > 0) {
+        if (!(await this.flushDestination(network, destination))) break;
+      }
+    })().finally(() => {
+      destination.flushPromise = null;
+    });
+    return destination.flushPromise;
+  }
+
+  private async flushDestination(network: Network, destination: ClickhouseDestination): Promise<boolean> {
+    const n = destination.buffer.length;
+    const batch = destination.buffer.splice(0, n);
+    destination.inFlight = batch;
 
     // Group by table so we can do one insert call per table
-    const byTable = new Map<string, Record<string, unknown>[]>();
-    for (const { table, row } of batch) {
+    const byTable = new Map<string, BufferedRow[]>();
+    for (const bufferedRow of batch) {
+      const { table } = bufferedRow;
       let rows = byTable.get(table);
       if (!rows) {
         rows = [];
         byTable.set(table, rows);
       }
-      rows.push(row);
+      rows.push(bufferedRow);
     }
 
-    const end = this.flushDuration.startTimer();
+    const end = this.flushDuration.startTimer({ network });
     try {
       await Promise.all(
-        Array.from(byTable.entries()).map(async ([table, rows]) => {
-          await this.client!.insert({
+        Array.from(byTable.entries()).map(async ([table, bufferedRows]) => {
+          await destination.client.insert({
             table,
-            values: rows,
+            values: bufferedRows.map(({ row }) => row),
             format: "JSONEachRow",
           });
-          this.rowsInserted.inc({ table }, rows.length);
+
+          this.rowsInserted.inc({ table, network }, bufferedRows.length);
         }),
       );
-      this.buffer.splice(0, n);
-      this.bufferRows.set(this.buffer.length);
+      destination.inFlight = [];
+      this.bufferRows.set({ network }, destination.buffer.length);
+      return true;
     } catch (err) {
-      this.flushErrors.inc();
+      destination.buffer.unshift(...batch);
+      destination.inFlight = [];
+      this.bufferRows.set({ network }, destination.buffer.length);
+      this.flushErrors.inc({ network });
       this.logger.error({
         event: "flush_failed",
+        network,
+        database: destination.database,
         error: String(err),
-        pendingRows: n,
+        pendingRows: destination.buffer.length,
       });
+      return false;
     } finally {
       end();
     }
@@ -157,9 +264,5 @@ export class ClickhouseService implements OnModuleInit, OnApplicationShutdown {
 
   get probeLocation(): string {
     return this.configService.get("app").probeLocation;
-  }
-
-  get enabled(): boolean {
-    return this.client !== null;
   }
 }

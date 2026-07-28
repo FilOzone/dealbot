@@ -233,7 +233,8 @@ describe("SampledRetrievalService", () => {
     await service.performForProvider(SP_ADDRESS, NETWORK);
 
     expect(insertSpy).toHaveBeenCalledTimes(1);
-    const [table, row] = insertSpy.mock.calls[0] as [string, Record<string, unknown>];
+    const [network, table, row] = insertSpy.mock.calls[0] as [typeof NETWORK, string, Record<string, unknown>];
+    expect(network).toBe(NETWORK);
     expect(table).toBe("sampled_retrieval_checks");
     expect(row.piece_fetch_status).toBe(PieceFetchStatus.FAILED);
     expect(row.bytes_retrieved).toBe(524288);
@@ -285,7 +286,7 @@ describe("SampledRetrievalService", () => {
     expect(parseCarSpy).not.toHaveBeenCalled();
     expect(metricsRecordStatusSpy).toHaveBeenCalledWith(expect.anything(), "failure.too_large");
 
-    const [, row] = insertSpy.mock.calls[0] as [string, Record<string, unknown>];
+    const [, , row] = insertSpy.mock.calls[0] as [typeof NETWORK, string, Record<string, unknown>];
     expect(row.piece_fetch_status).toBe(RetrievalStatus.FAILED);
     expect(row.bytes_retrieved).toBe(209715201);
     expect(row.error_message).toContain("exceeded max download size");
@@ -316,7 +317,7 @@ describe("SampledRetrievalService", () => {
 
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(insertSpy).toHaveBeenCalledTimes(1);
-    const [, row] = insertSpy.mock.calls[0] as [string, Record<string, unknown>];
+    const [, , row] = insertSpy.mock.calls[0] as [typeof NETWORK, string, Record<string, unknown>];
     expect(row.piece_fetch_status).toBe(PieceFetchStatus.FAILED);
     expect(row.error_message).toContain("Sampled retrieval job timeout");
     expect(row.bytes_retrieved).toBeNull();
@@ -347,7 +348,7 @@ describe("SampledRetrievalService", () => {
     await expect(service.performForProvider(SP_ADDRESS, NETWORK)).rejects.toThrow("network down");
 
     expect(insertSpy).toHaveBeenCalledTimes(1);
-    const [, row] = insertSpy.mock.calls[0] as [string, Record<string, unknown>];
+    const [, , row] = insertSpy.mock.calls[0] as [typeof NETWORK, string, Record<string, unknown>];
     expect(row.piece_fetch_status).toBe(PieceFetchStatus.FAILED);
   });
 
@@ -378,7 +379,8 @@ describe("SampledRetrievalService", () => {
     expect(metricsRecordStatusSpy).toHaveBeenCalledWith(expect.anything(), "skipped");
 
     expect(insertSpy).toHaveBeenCalledTimes(1);
-    const [table, row] = insertSpy.mock.calls[0] as [string, Record<string, unknown>];
+    const [network, table, row] = insertSpy.mock.calls[0] as [typeof NETWORK, string, Record<string, unknown>];
+    expect(network).toBe(NETWORK);
     expect(table).toBe("sampled_retrieval_checks");
     expect(row.piece_fetch_status).toBe(PieceFetchStatus.SKIPPED);
     expect(row.car_status).toBe("skipped");
@@ -470,7 +472,7 @@ describe("SampledRetrievalService", () => {
       expect(parseCarSpy).toHaveBeenCalledTimes(1);
       expect(checkIpniSpy).toHaveBeenCalledTimes(1);
       expect(checkBlockFetchSpy).toHaveBeenCalledTimes(1);
-      const [, row] = insertSpy.mock.calls[0] as [string, Record<string, unknown>];
+      const [, , row] = insertSpy.mock.calls[0] as [typeof NETWORK, string, Record<string, unknown>];
       expect(row.piece_fetch_status).toBe(PieceFetchStatus.SUCCESS);
       expect(row.commp_valid).toBe(true);
       expect(row.car_status).toBe("success");
@@ -499,7 +501,7 @@ describe("SampledRetrievalService", () => {
 
       await service.performForProvider(SP_ADDRESS, NETWORK);
 
-      const [, row] = insertSpy.mock.calls[0] as [string, Record<string, unknown>];
+      const [, , row] = insertSpy.mock.calls[0] as [typeof NETWORK, string, Record<string, unknown>];
       // The piece-fetch path still succeeded — failures are surfaced as
       // independent dimensions, not folded into piece_fetch_status.
       expect(row.piece_fetch_status).toBe(PieceFetchStatus.SUCCESS);
@@ -525,7 +527,7 @@ describe("SampledRetrievalService", () => {
       expect(checkIpniSpy).not.toHaveBeenCalled();
       expect(checkBlockFetchSpy).not.toHaveBeenCalled();
 
-      const [, row] = insertSpy.mock.calls[0] as [string, Record<string, unknown>];
+      const [, , row] = insertSpy.mock.calls[0] as [typeof NETWORK, string, Record<string, unknown>];
       expect(row.car_status).toBe("failure.not_parseable");
       expect(row.car_block_count).toBeNull();
       expect(row.block_fetch_sampled_count).toBeNull();
@@ -555,7 +557,7 @@ describe("SampledRetrievalService", () => {
       await service.performForProvider(SP_ADDRESS, NETWORK);
 
       expect(metricsRecordIpniSpy).toHaveBeenCalledWith(expect.anything(), IpniCheckStatus.SKIPPED);
-      const [, row] = insertSpy.mock.calls[0] as [string, Record<string, unknown>];
+      const [, , row] = insertSpy.mock.calls[0] as [typeof NETWORK, string, Record<string, unknown>];
       expect(row.ipni_status).toBe("skipped");
       // car_status / block_fetch_status remain whatever their own steps returned.
       expect(row.car_status).toBe("success");
@@ -585,7 +587,7 @@ describe("SampledRetrievalService", () => {
       expect(metricsRecordIpniSpy).toHaveBeenCalledWith(expect.anything(), IpniCheckStatus.FAILURE_OTHER);
       expect(metricsRecordBlockFetchSpy).toHaveBeenCalledWith(expect.anything(), BlockFetchStatus.SUCCESS);
 
-      const [, row] = insertSpy.mock.calls[0] as [string, Record<string, unknown>];
+      const [, , row] = insertSpy.mock.calls[0] as [typeof NETWORK, string, Record<string, unknown>];
       expect(row.car_status).toBe("success");
       expect(row.ipni_status).toBe("failure.other");
       expect(row.block_fetch_status).toBe("success");
@@ -608,7 +610,7 @@ describe("SampledRetrievalService", () => {
 
       await service.performForProvider(SP_ADDRESS, NETWORK);
 
-      const [, row] = insertSpy.mock.calls[0] as [string, Record<string, unknown>];
+      const [, , row] = insertSpy.mock.calls[0] as [typeof NETWORK, string, Record<string, unknown>];
       expect(row.car_status).toBe("success");
       expect(row.ipni_status).toBe("success");
       expect(row.block_fetch_status).toBe("skipped");
@@ -636,7 +638,7 @@ describe("SampledRetrievalService", () => {
       expect(metricsRecordIpniSpy).toHaveBeenCalledWith(expect.anything(), IpniCheckStatus.SKIPPED);
       expect(metricsRecordBlockFetchSpy).toHaveBeenCalledWith(expect.anything(), IpniCheckStatus.SKIPPED);
 
-      const [, row] = insertSpy.mock.calls[0] as [string, Record<string, unknown>];
+      const [, , row] = insertSpy.mock.calls[0] as [typeof NETWORK, string, Record<string, unknown>];
       expect(row.car_status).toBe("skipped");
       expect(row.ipni_status).toBe("skipped");
       expect(row.block_fetch_status).toBe("skipped");
@@ -687,7 +689,7 @@ describe("SampledRetrievalService", () => {
       expect(metricsRecordBlockFetchSpy).toHaveBeenCalledWith(expect.anything(), IpniCheckStatus.SKIPPED);
       expect(metricsRecordStatusSpy).toHaveBeenCalledWith(expect.anything(), "failure.commp");
 
-      const [, row] = insertSpy.mock.calls[0] as [string, Record<string, unknown>];
+      const [, , row] = insertSpy.mock.calls[0] as [typeof NETWORK, string, Record<string, unknown>];
       expect(row.piece_fetch_status).toBe(PieceFetchStatus.FAILED);
       expect(row.commp_valid).toBe(false);
       expect(row.car_status).toBe("skipped");

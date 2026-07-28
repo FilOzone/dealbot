@@ -391,7 +391,7 @@ export class DataRetentionService {
 
     const confirmedTotalSuccess = totalProvingPeriods - totalFaultedPeriods;
 
-    this.clickhouseService.insert("data_retention_challenges", {
+    this.clickhouseService.insert(network, "data_retention_challenges", {
       timestamp: Date.now(),
       probe_location: this.clickhouseService.probeLocation,
       sp_address: address,

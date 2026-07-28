@@ -22,6 +22,7 @@ describe("network-fields classification", () => {
       "WALLET_PRIVATE_KEY",
       "SESSION_KEY_PRIVATE_KEY",
       "RPC_URL",
+      "CLICKHOUSE_URL",
       "PDP_SUBGRAPH_ENDPOINT",
       // Dealbot-owned subgraph endpoint: chain-scoped data, so it never inherits.
       "SUBGRAPH_ENDPOINT",

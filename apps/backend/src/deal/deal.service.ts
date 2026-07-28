@@ -1073,7 +1073,7 @@ export class DealService {
     retrievalResults: RetrievalExecutionResult[],
     dealLogContext: DealLogContext,
   ): Promise<void> {
-    this.clickhouseService.insert("data_storage_checks", {
+    this.clickhouseService.insert(deal.network, "data_storage_checks", {
       timestamp: Date.now(),
       probe_location: this.clickhouseService.probeLocation,
       sp_address: deal.spAddress,

@@ -35,7 +35,7 @@ Dealbot opens outbound connections to:
 - **PDP subgraph** (`PDP_SUBGRAPH_ENDPOINT`): GraphQL.
 - **Storage provider HTTP endpoints**: per-provider URLs discovered from chain state. Used for deal creation, retrieval probes, pull-check kickoff, and piece status. Hostnames are not known in advance, so firewall and proxy rules need to allow outbound network access to arbitrary SP hostnames discovered at runtime.
 - **IPNI indexer (`filecoinpin.contact`)**: looked up during deal verification and retrieval to confirm SPs are advertising the content.
-- **ClickHouse** (optional, `CLICKHOUSE_URL`).
+- **ClickHouse** (optional, one `<NET>_CLICKHOUSE_URL` per enabled destination).
 
 ## Persistence
 
@@ -46,13 +46,13 @@ Postgres is required.
 - pg-boss owns its own schema for queue state. Expect steady write churn proportional to job rates.
 - Backup, high-availability topology, and disaster-recovery strategy are operator choice. Dealbot is the only writer in normal operation, so a standard logical backup is sufficient for restore.
 
-ClickHouse is optional and append-only. If `CLICKHOUSE_URL` is unset, ClickHouse writes are disabled and nothing else changes.
+ClickHouse is optional and append-only. Configure `<NET>_CLICKHOUSE_URL` for each network that should emit check results. Each configured network must select a different database, although those databases may use the same ClickHouse server. A missing URL disables ClickHouse only for that network.
 
 ## Secrets
 
 [environment-variables.md](environment-variables.md) is the authoritative env contract; [apps/backend/.env.example](../apps/backend/.env.example) is a starting set.
 
-The backend Deployment expects a Kubernetes Secret named `dealbot-secrets`. Populate it with the sensitive values: `DATABASE_PASSWORD`, one of `WALLET_PRIVATE_KEY` or `SESSION_KEY_PRIVATE_KEY`, and any credentials embedded in `RPC_URL` or `CLICKHOUSE_URL`. Non-sensitive config (`DATABASE_HOST`, `NETWORK`, etc.) can live in a ConfigMap or plain env.
+The backend Deployment expects a Kubernetes Secret named `dealbot-secrets`. Populate it with the sensitive values: `DATABASE_PASSWORD`, one of `<NET>_WALLET_PRIVATE_KEY` or `<NET>_SESSION_KEY_PRIVATE_KEY`, and any credentials embedded in `<NET>_RPC_URL` or `<NET>_CLICKHOUSE_URL`. Non-sensitive config (`DATABASE_HOST`, `NETWORKS`, etc.) can live in a ConfigMap or plain env.
 
 Rotation cadence, encryption-at-rest mechanism (SOPS, External Secrets, sealed-secrets, manual), and audit trail are operator choice. Wallet and session-key lifecycle is in [runbooks/wallet-and-session-keys.md](runbooks/wallet-and-session-keys.md).
 
@@ -63,7 +63,7 @@ Dealbot emits:
 - Structured logs to stdout (JSON, NestJS Logger format).
 - Prometheus-style metrics. Names, labels, and per-check timing markers are documented in [docs/checks/events-and-metrics.md](checks/events-and-metrics.md).
 
-Set `DEALBOT_PROBE_LOCATION` to a stable string identifying the cluster or region. When `CLICKHOUSE_URL` is configured, it is written as the `probe_location` column on every check row, which lets multi-region deployments be partitioned and compared.
+Set `DEALBOT_PROBE_LOCATION` to a stable string identifying the cluster or region. When a network's ClickHouse URL is configured, it is written as the `probe_location` column on every check row, which lets multi-region deployments be partitioned and compared.
 
 The metrics surface is under active rework. For a current example of how the local stack scrapes and visualizes metrics, see [local-monitoring.md](local-monitoring.md). Operators should expect the production wiring to follow the same shape but should not assume a specific endpoint path or port.
 

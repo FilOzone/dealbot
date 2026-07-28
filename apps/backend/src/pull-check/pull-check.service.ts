@@ -188,7 +188,7 @@ export class PullCheckService {
       throw error;
     } finally {
       if (checkStatus !== null) {
-        this.clickhouseService.insert("pull_checks", {
+        this.clickhouseService.insert(network, "pull_checks", {
           timestamp: Date.now(),
           probe_location: this.clickhouseService.probeLocation,
           sp_address: spAddress,
