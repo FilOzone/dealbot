@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 import { ThrottlerModule } from "@nestjs/throttler";
 import { TypeOrmModule } from "@nestjs/typeorm";
+import { parseRunMode } from "../config/env.parsers.js";
 import { DatabaseModule } from "../database/database.module.js";
 import { PullPiece } from "../database/entities/pull-piece.entity.js";
 import { DataSourceModule } from "../dataSource/dataSource.module.js";
@@ -12,8 +13,7 @@ import { PieceSourceController } from "./pull-piece.controller.js";
 import { PullPieceRepository } from "./pull-piece.repository.js";
 import { PullPieceStreamTracker } from "./pull-piece-stream-tracker.service.js";
 
-const runMode = process.env.DEALBOT_RUN_MODE?.toLowerCase() || "both";
-const isWorkerOnly = runMode === "worker";
+const isWorkerOnly = parseRunMode(process.env) === "worker";
 
 @Module({
   imports: [
