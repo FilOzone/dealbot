@@ -101,7 +101,7 @@ export class DataRetentionService {
         // outer catch (which now preserves error type) rethrows it as a dependency failure.
         throw new DataRetentionDependencyError("Failed to fetch PDP subgraph meta", { cause: error });
       }
-      const allProviderInfos = this.walletSdkService.getTestingProviders(network);
+      const allProviderInfos = await this.walletSdkService.getTestingProviders(network);
       const spBlocklists = this.configService.get("networks", { infer: true })[network];
       const providerInfos = allProviderInfos?.filter((p) => !isSpBlocked(spBlocklists, p.serviceProvider, p.id));
 

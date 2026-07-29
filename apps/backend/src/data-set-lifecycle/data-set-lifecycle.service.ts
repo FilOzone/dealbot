@@ -76,7 +76,7 @@ export class DataSetLifecycleService {
     signal?: AbortSignal,
     jobContext?: ProviderJobContext,
   ): Promise<void> {
-    const providerInfo = this.walletSdkService.getProviderInfo(spAddress, network);
+    const providerInfo = await this.walletSdkService.getProviderInfo(spAddress, network);
     if (!providerInfo) {
       throw new Error(`Provider ${spAddress} not found in registry`);
     }

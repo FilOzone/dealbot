@@ -36,8 +36,8 @@ export class PullCheckService {
    * the provider is unknown, inactive, missing a numeric provider id, or
    * missing a PDP serviceURL. Returns the enriched provider info on success.
    */
-  validateProviderInfo(spAddress: string, network: Network): PDPProviderEx {
-    const providerInfo = this.walletSdkService.getProviderInfo(spAddress, network);
+  async validateProviderInfo(spAddress: string, network: Network): Promise<PDPProviderEx> {
+    const providerInfo = await this.walletSdkService.getProviderInfo(spAddress, network);
     if (!providerInfo) {
       throw new Error(`Storage provider not found: ${spAddress} on ${network}`);
     }
@@ -82,7 +82,7 @@ export class PullCheckService {
     let checkStatus: string | null = null;
 
     try {
-      providerInfo = this.validateProviderInfo(spAddress, network);
+      providerInfo = await this.validateProviderInfo(spAddress, network);
       labels = buildCheckMetricLabels({
         checkType: "pullCheck",
         network,

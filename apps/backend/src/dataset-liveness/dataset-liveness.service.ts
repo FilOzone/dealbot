@@ -108,7 +108,7 @@ export class DatasetLivenessService {
     signal?: AbortSignal,
   ): Promise<boolean> {
     signal?.throwIfAborted();
-    const providerInfo = this.walletSdkService.getProviderInfo(providerAddress, network);
+    const providerInfo = await this.walletSdkService.getProviderInfo(providerAddress, network);
     if (!providerInfo) {
       throw new Error(`Provider ${providerAddress} not found in registry`);
     }

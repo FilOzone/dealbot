@@ -358,7 +358,7 @@ export class PieceCleanupService {
 
     signal?.throwIfAborted();
 
-    const providerId = this.walletSdkService.getProviderInfo(deal.spAddress, network)?.id;
+    const providerId = (await this.walletSdkService.getProviderInfo(deal.spAddress, network))?.id;
     if (providerId === undefined) {
       throw new Error(`Provider ID not found for SP address ${deal.spAddress}`);
     }

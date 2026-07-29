@@ -5,16 +5,13 @@ import { StorageManager } from "@filoz/synapse-sdk/storage";
 import { WarmStorageService } from "@filoz/synapse-sdk/warm-storage";
 import { Injectable, Logger, type OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import { InjectRepository } from "@nestjs/typeorm";
-import type { Repository } from "typeorm";
 import type { Account, Chain, Client, Transport } from "viem";
-import { type Hex } from "viem";
 import { DEV_TAG } from "../common/constants.js";
 import { toStructuredError } from "../common/logging.js";
 import { createSynapseFromConfig } from "../common/synapse-factory.js";
 import type { Network } from "../common/types.js";
 import type { IConfig, INetworkConfig } from "../config/index.js";
-import { StorageProvider } from "../database/entities/storage-provider.entity.js";
+import { StorageProviderRepository } from "../providers/repositories/storage-provider.repository.js";
 import type { PDPProviderEx, WalletServices } from "./wallet-sdk.types.js";
 
 export type SynapseViemClient = Client<Transport, Chain, Account>;
@@ -28,11 +25,7 @@ interface NetworkState {
   storageManager: StorageManager;
   synapseClient: SynapseViemClient;
   isSessionKeyMode: boolean;
-  providerCache: Map<string, PDPProviderEx>;
-  activeProviderAddresses: Set<string>;
-  approvedProviderAddresses: Set<string>;
   providersLoadPromise: Promise<boolean> | null;
-  providersLoadedOnce: boolean;
 }
 
 @Injectable()
@@ -42,8 +35,7 @@ export class WalletSdkService implements OnModuleInit {
 
   constructor(
     private readonly configService: ConfigService<IConfig, true>,
-    @InjectRepository(StorageProvider)
-    private readonly spRepository: Repository<StorageProvider>,
+    private readonly storageProviderRepository: StorageProviderRepository,
   ) {}
 
   async onModuleInit() {
@@ -79,11 +71,7 @@ export class WalletSdkService implements OnModuleInit {
       spRegistry: new SPRegistryService({ client: synapse.client }),
       storageManager: synapse.storage,
       synapseClient: synapse.client,
-      providerCache: new Map(),
-      activeProviderAddresses: new Set(),
-      approvedProviderAddresses: new Set(),
       providersLoadPromise: null,
-      providersLoadedOnce: false,
     });
   }
 
@@ -109,19 +97,15 @@ export class WalletSdkService implements OnModuleInit {
 
     state.providersLoadPromise = this.loadProvidersInternal(network);
     try {
-      const success = await state.providersLoadPromise;
-      if (success) {
-        state.providersLoadedOnce = true;
-      }
-      return success;
+      return await state.providersLoadPromise;
     } finally {
       state.providersLoadPromise = null;
     }
   }
 
   async ensureProvidersLoaded(network: Network): Promise<void> {
-    const state = this.getNetworkState(network);
-    if (state.providersLoadedOnce) {
+    const count = await this.storageProviderRepository.countByNetwork(network);
+    if (count > 0) {
       return;
     }
     await this.loadProviders(network);
@@ -179,10 +163,7 @@ export class WalletSdkService implements OnModuleInit {
         return true;
       });
 
-      state.providerCache.clear();
-      state.activeProviderAddresses.clear();
-      state.approvedProviderAddresses.clear();
-      const extendedProviders = validProviders.map((info) => {
+      const extendedProviders: PDPProviderEx[] = validProviders.map((info) => {
         const supportsIpniIpfs = !!info.pdp.ipniIpfs;
         const isApproved = approvedIds.includes(info.id);
 
@@ -198,35 +179,29 @@ export class WalletSdkService implements OnModuleInit {
           });
         }
 
-        // select approved, active providers
-        if (info.isActive) state.activeProviderAddresses.add(info.serviceProvider);
-        if (isApproved && info.isActive) state.approvedProviderAddresses.add(info.serviceProvider);
-        state.providerCache.set(info.serviceProvider, {
-          ...info,
-          isApproved,
-        });
-
         return {
           ...info,
           isApproved,
         };
       });
 
-      this.syncProvidersToDatabase(extendedProviders, network).catch((err) =>
+      try {
+        await this.storageProviderRepository.upsertFromRegistry(extendedProviders, network);
+      } catch (err) {
         this.logger.error({
           event: "providers_sync_to_db_failed",
           message: "Failed to sync providers to DB",
           error: toStructuredError(err),
-        }),
-      );
+        });
+      }
 
       this.logger.log({
         event: "providers_load_completed",
         message: "Loaded providers from on-chain",
         network,
-        totalProviders: state.providerCache.size,
-        testingProviders: state.activeProviderAddresses.size,
-        approvedProviders: state.approvedProviderAddresses.size,
+        totalProviders: extendedProviders.length,
+        testingProviders: extendedProviders.filter((p) => p.isActive).length,
+        approvedProviders: extendedProviders.filter((p) => p.isApproved).length,
       });
       return true;
     } catch (error) {
@@ -236,76 +211,16 @@ export class WalletSdkService implements OnModuleInit {
         error: toStructuredError(error),
         network,
       });
-      // Fallback to empty array, let the application handle this gracefully
-      state.providerCache.clear();
-      state.activeProviderAddresses.clear();
-      state.approvedProviderAddresses.clear();
       return false;
     }
   }
 
   /**
-   * Get count of approved providers
+   * Get testing providers from DB
    */
-  getApprovedProvidersCount(network: Network): number {
-    return this.getNetworkState(network).approvedProviderAddresses.size;
-  }
-
-  /**
-   * Get count of all active providers supporting ipniIpfs
-   */
-  getAllActiveProvidersCount(network: Network): number {
-    return this.getNetworkState(network).activeProviderAddresses.size;
-  }
-
-  /**
-   * Get count of testing providers
-   */
-  getTestingProvidersCount(network: Network): number {
+  async getTestingProviders(network: Network): Promise<PDPProviderEx[]> {
     const state = this.getNetworkState(network);
-    return state.config.useOnlyApprovedProviders
-      ? state.approvedProviderAddresses.size
-      : state.activeProviderAddresses.size;
-  }
-
-  /**
-   * Get approved providers
-   */
-  getApprovedProviders(network: Network): PDPProviderEx[] {
-    const state = this.getNetworkState(network);
-    const approvedProviders: PDPProviderEx[] = [];
-
-    for (const address of state.approvedProviderAddresses) {
-      const provider = state.providerCache.get(address);
-      if (provider) approvedProviders.push(provider);
-    }
-
-    return approvedProviders;
-  }
-
-  /**
-   * Get all active providers
-   */
-  getAllActiveProviders(network: Network): PDPProviderEx[] {
-    const state = this.getNetworkState(network);
-    const activeProviders: PDPProviderEx[] = [];
-
-    for (const address of state.activeProviderAddresses) {
-      const provider = state.providerCache.get(address);
-      if (provider) activeProviders.push(provider);
-    }
-
-    return activeProviders;
-  }
-
-  /**
-   * Get testing providers
-   */
-  getTestingProviders(network: Network): PDPProviderEx[] {
-    const state = this.getNetworkState(network);
-    return state.config.useOnlyApprovedProviders
-      ? this.getApprovedProviders(network)
-      : this.getAllActiveProviders(network);
+    return this.storageProviderRepository.findTestingProviders(network, state.config.useOnlyApprovedProviders);
   }
 
   /**
@@ -334,10 +249,10 @@ export class WalletSdkService implements OnModuleInit {
   }
 
   /**
-   * Get provider info by address for a specific network.
+   * Get provider info by address for a specific network from DB.
    */
-  getProviderInfo(address: string, network: Network): PDPProviderEx | undefined {
-    return this.getNetworkState(network).providerCache.get(address);
+  async getProviderInfo(address: string, network: Network): Promise<PDPProviderEx | undefined> {
+    return this.storageProviderRepository.findByAddress(address, network);
   }
 
   /**
@@ -474,116 +389,5 @@ export class WalletSdkService implements OnModuleInit {
   // See docs/checks/production-configuration-and-approval-methodology.md#sps-in-scope-for-testing
   private isDevProvider(info: PDPProvider): boolean {
     return info.pdp.extraCapabilities?.serviceStatus === DEV_TAG;
-  }
-
-  /**
-   * Create or update provider in database with network scoping
-   */
-  async syncProvidersToDatabase(providerInfos: PDPProviderEx[], network: Network): Promise<void> {
-    try {
-      const dedupedProviders = new Map<string, PDPProviderEx>();
-      const duplicatesByAddress = new Map<string, Set<bigint>>();
-      const conflictAddresses = new Set<string>();
-      const resolvedInactiveAddresses = new Set<string>();
-
-      for (const info of providerInfos) {
-        const address = info.serviceProvider;
-        const existing = dedupedProviders.get(address);
-        if (existing) {
-          this.logger.warn({
-            event: "duplicate_provider_address",
-            message: "Duplicate provider address detected",
-            address,
-            network,
-            existingProviderId: existing.id,
-            newProviderId: info.id,
-          });
-          let ids = duplicatesByAddress.get(address);
-          if (!ids) {
-            ids = new Set<bigint>();
-            duplicatesByAddress.set(address, ids);
-            ids.add(existing.id);
-          }
-          ids.add(info.id);
-
-          if (existing.isActive !== info.isActive) {
-            if (info.isActive && !existing.isActive) {
-              resolvedInactiveAddresses.add(address);
-              dedupedProviders.set(address, info);
-            }
-            continue;
-          }
-
-          conflictAddresses.add(address);
-          if (info.id > existing.id) {
-            dedupedProviders.set(address, info);
-          }
-          continue;
-        }
-        dedupedProviders.set(address, info);
-      }
-
-      if (duplicatesByAddress.size > 0) {
-        const formatDetails = (addresses: Set<string>) =>
-          Array.from(addresses).map((address) => {
-            const ids = duplicatesByAddress.get(address) ?? new Set<bigint>();
-            return `${address} (providerIds: ${Array.from(ids).join(", ")})`;
-          });
-
-        const resolvedOnly = new Set(
-          Array.from(resolvedInactiveAddresses).filter((address) => !conflictAddresses.has(address)),
-        );
-
-        if (conflictAddresses.size > 0) {
-          // if there is no difference between active/inactive, we keep the highest providerId.
-          this.logger.error({
-            event: "duplicate_provider_addresses_unresolved",
-            message:
-              "Duplicate provider addresses without active/inactive resolution; keeping highest providerId entries",
-            network,
-            details: formatDetails(conflictAddresses),
-          });
-        }
-
-        if (resolvedOnly.size > 0) {
-          // if there is a difference between active/inactive, we replace the inactive entries with the active ones.
-          this.logger.warn({
-            event: "duplicate_provider_addresses_resolved",
-            message: "Duplicate provider addresses detected; replaced inactive entries with active ones",
-            network,
-            details: formatDetails(resolvedOnly),
-          });
-        }
-      }
-
-      const entities = Array.from(dedupedProviders.values()).map((info) =>
-        this.spRepository.create({
-          network,
-          address: info.serviceProvider as Hex,
-          providerId: info.id,
-          name: info.name,
-          description: info.description,
-          payee: info.payee,
-          serviceUrl: info.pdp.serviceURL,
-          isActive: info.isActive,
-          isApproved: info.isApproved,
-          location: info.pdp.location,
-          metadata: this.serializeBigInt(info.pdp) || {},
-        }),
-      );
-
-      await this.spRepository.upsert(entities, {
-        conflictPaths: ["address", "network"],
-        skipUpdateIfNoValuesChanged: true,
-      });
-    } catch (error) {
-      this.logger.warn({
-        event: "track_providers_failed",
-        message: "Failed to track providers",
-        error: toStructuredError(error),
-        network,
-      });
-      throw error;
-    }
   }
 }

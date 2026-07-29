@@ -36,7 +36,7 @@ export interface IRetrievalAddon {
    * @returns URL result with constructed URL and metadata
    * @throws Error if URL construction fails
    */
-  constructUrl(config: RetrievalConfiguration): RetrievalUrlResult;
+  constructUrl(config: RetrievalConfiguration): Promise<RetrievalUrlResult>;
 
   /**
    * Optional: Validate retrieved data against expected data

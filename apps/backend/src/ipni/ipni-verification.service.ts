@@ -4,6 +4,7 @@ import { waitForIpniProviderResults } from "filecoin-pin/core/utils";
 import { CID } from "multiformats/cid";
 import type { StorageProvider } from "../database/entities/storage-provider.entity.js";
 import type { IPNIVerificationResult } from "../deal-addons/strategies/ipni.types.js";
+import type { PDPProviderEx } from "../wallet-sdk/wallet-sdk.types.js";
 
 export type IpniVerificationInput = {
   rootCid: CID;
@@ -14,6 +15,25 @@ export type IpniVerificationInput = {
   ipniIndexerUrl?: string;
   signal?: AbortSignal;
 };
+
+/**
+ * Adapts a hydrated `PDPProviderEx` (the shape `StorageProviderRepository` returns) into
+ * the `StorageProvider`-shaped input this service expects. `verify()` only reads `address`,
+ * `providerId`, `name`, `description`, `payee`, `isActive`, and `serviceUrl` off it — every
+ * other `StorageProvider` column is irrelevant here, so this cast is safe despite being
+ * structurally partial.
+ */
+export function pdpProviderToIpniInput(provider: PDPProviderEx): StorageProvider {
+  return {
+    address: provider.serviceProvider,
+    providerId: provider.id,
+    name: provider.name,
+    description: provider.description,
+    payee: provider.payee,
+    isActive: provider.isActive,
+    serviceUrl: provider.pdp?.serviceURL,
+  } as unknown as StorageProvider;
+}
 
 type StorageProviderWithUrl = Omit<StorageProvider, "serviceUrl"> & {
   serviceUrl: string;

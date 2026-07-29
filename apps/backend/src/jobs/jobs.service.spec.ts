@@ -422,20 +422,13 @@ describe("JobsService schedule rows", () => {
     });
   });
 
-  it("retrieval job resolves providerId from storage_providers when wallet cache misses", async () => {
+  it("retrieval job resolves providerId directly from getProviderInfo", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2024-01-01T00:00:00Z"));
-    const retrievalService = {
-      performRandomRetrievalForProvider: vi.fn(async () => []),
-    };
+    const retrievalService = { performRandomRetrievalForProvider: vi.fn(async () => []) };
     const walletSdkService = {
-      getProviderInfo: vi.fn(() => undefined),
-      loadProviders: vi.fn(async () => undefined),
+      getProviderInfo: vi.fn(async () => ({ id: 42, name: "db-provider" })),
     };
-    storageProviderRepositoryMock.findOne.mockResolvedValue({
-      providerId: 42,
-      name: "db-provider",
-    });
 
     service = buildService({
       retrievalService: retrievalService as unknown as ConstructorParameters<typeof JobsService>[4],
@@ -443,24 +436,15 @@ describe("JobsService schedule rows", () => {
     });
 
     await callPrivate(service, "handleRetrievalJob", {
-      id: "job-retrieval-provider-fallback",
-      data: {
-        jobType: "retrieval",
-        spAddress: "0xaaa",
-        network: DEFAULT_NETWORK,
-        intervalSeconds: 60,
-      },
+      id: "job-retrieval-provider",
+      data: { jobType: "retrieval", spAddress: "0xaaa", network: DEFAULT_NETWORK, intervalSeconds: 60 },
     });
 
     expect(retrievalService.performRandomRetrievalForProvider).toHaveBeenCalledWith(
       "0xaaa",
       DEFAULT_NETWORK,
       expect.any(AbortSignal),
-      expect.objectContaining({
-        jobId: "job-retrieval-provider-fallback",
-        providerAddress: "0xaaa",
-        providerId: 42,
-      }),
+      expect.objectContaining({ jobId: "job-retrieval-provider", providerAddress: "0xaaa", providerId: 42 }),
     );
   });
 
@@ -468,16 +452,8 @@ describe("JobsService schedule rows", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2024-01-01T00:00:00Z"));
     const completedCounter = metricsMocks.jobsCompletedCounter as unknown as { inc: ReturnType<typeof vi.fn> };
-    const retrievalService = {
-      performRandomRetrievalForProvider: vi.fn(async () => []),
-    };
-    const walletSdkService = {
-      getProviderInfo: vi.fn(() => undefined),
-      loadProviders: vi.fn(async () => undefined),
-    };
-    storageProviderRepositoryMock.findOne.mockResolvedValue({
-      providerId: undefined,
-    });
+    const retrievalService = { performRandomRetrievalForProvider: vi.fn(async () => []) };
+    const walletSdkService = { getProviderInfo: vi.fn(async () => undefined) };
 
     service = buildService({
       retrievalService: retrievalService as unknown as ConstructorParameters<typeof JobsService>[4],
@@ -487,12 +463,7 @@ describe("JobsService schedule rows", () => {
     await expect(
       callPrivate(service, "handleRetrievalJob", {
         id: "job-retrieval-missing-provider-id",
-        data: {
-          jobType: "retrieval",
-          spAddress: "0xaaa",
-          network: DEFAULT_NETWORK,
-          intervalSeconds: 60,
-        },
+        data: { jobType: "retrieval", spAddress: "0xaaa", network: DEFAULT_NETWORK, intervalSeconds: 60 },
       }),
     ).rejects.toThrow("providerId is required for job execution");
 

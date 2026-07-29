@@ -6,7 +6,7 @@ import { ClickhouseService } from "../clickhouse/clickhouse.service.js";
 import { Network } from "../common/types.js";
 import { Deal } from "../database/entities/deal.entity.js";
 import { Retrieval } from "../database/entities/retrieval.entity.js";
-import { StorageProvider } from "../database/entities/storage-provider.entity.js";
+import { StorageProviderRepository } from "../providers/repositories/storage-provider.repository.js";
 import { RetrievalStatus, ServiceType } from "../database/types.js";
 import { DatasetLivenessService } from "../dataset-liveness/dataset-liveness.service.js";
 import { IpniVerificationService } from "../ipni/ipni-verification.service.js";
@@ -58,8 +58,8 @@ describe("RetrievalService timeouts", () => {
     save: vi.fn(),
   };
 
-  const mockSpRepository = {
-    findOne: vi.fn(),
+  const mockStorageProviderRepository = {
+    findByAddress: vi.fn(),
   };
   const mockRetrievalMetrics = {
     observeFirstByteMs: vi.fn(),
@@ -95,7 +95,7 @@ describe("RetrievalService timeouts", () => {
         { provide: RetrievalAddonsService, useValue: mockRetrievalAddonsService },
         { provide: getRepositoryToken(Deal), useValue: mockDealRepository },
         { provide: getRepositoryToken(Retrieval), useValue: mockRetrievalRepository },
-        { provide: getRepositoryToken(StorageProvider), useValue: mockSpRepository },
+        { provide: StorageProviderRepository, useValue: mockStorageProviderRepository },
         { provide: RetrievalCheckMetrics, useValue: mockRetrievalMetrics },
         { provide: DiscoverabilityCheckMetrics, useValue: mockDiscoverabilityMetrics },
         { provide: IpniVerificationService, useValue: mockIpniVerificationService },
@@ -118,7 +118,7 @@ describe("RetrievalService timeouts", () => {
     service = await createService();
 
     const timeoutError = "HTTP request timed out after 50ms";
-    mockSpRepository.findOne.mockResolvedValue({ address: "0xsp", name: "Test SP" });
+    mockStorageProviderRepository.findByAddress.mockResolvedValue({ id: 7n, serviceProvider: "0xsp", name: "Test SP" });
     mockRetrievalRepository.create.mockImplementation(
       (data: Parameters<typeof mockRetrievalRepository.create>[0]) =>
         data as ReturnType<typeof mockRetrievalRepository.create>,
@@ -159,7 +159,7 @@ describe("RetrievalService timeouts", () => {
 
     await service.performAllRetrievals(buildDeal());
 
-    expect(mockSpRepository.findOne).toHaveBeenCalledWith({ where: { address: "0xsp", network: "calibration" } });
+    expect(mockStorageProviderRepository.findByAddress).toHaveBeenCalledWith("0xsp", "calibration");
     expect(mockRetrievalRepository.save).toHaveBeenCalledWith(
       expect.objectContaining({
         status: RetrievalStatus.FAILED,
@@ -171,7 +171,7 @@ describe("RetrievalService timeouts", () => {
   it("writes a FAILED sentinel retrieval when deal is missing dataSetId", async () => {
     service = await createService();
 
-    mockSpRepository.findOne.mockResolvedValue({ address: "0xsp", name: "Test SP" });
+    mockStorageProviderRepository.findByAddress.mockResolvedValue({ id: 7n, serviceProvider: "0xsp", name: "Test SP" });
     mockRetrievalRepository.create.mockImplementation(
       (data: Parameters<typeof mockRetrievalRepository.create>[0]) =>
         data as ReturnType<typeof mockRetrievalRepository.create>,
@@ -209,7 +209,7 @@ describe("RetrievalService timeouts", () => {
   it("writes a FAILED sentinel retrieval when IPNI CIDs are invalid and re-throws", async () => {
     service = await createService();
 
-    mockSpRepository.findOne.mockResolvedValue({ address: "0xsp", name: "Test SP", serviceUrl: null });
+    mockStorageProviderRepository.findByAddress.mockResolvedValue({ id: 7n, serviceProvider: "0xsp", name: "Test SP", pdp: { serviceURL: null } });
     mockRetrievalRepository.create.mockImplementation(
       (data: Parameters<typeof mockRetrievalRepository.create>[0]) =>
         data as ReturnType<typeof mockRetrievalRepository.create>,
@@ -266,12 +266,11 @@ describe("RetrievalService timeouts", () => {
     try {
       service = await createService();
 
-      mockSpRepository.findOne.mockResolvedValue({
-        address: "0xsp",
-        network: "calibration",
-        providerId: 7,
-        isApproved: false,
+      mockStorageProviderRepository.findByAddress.mockResolvedValue({
+        id: 7n,
+        serviceProvider: "0xsp",
         name: "Test SP",
+        isApproved: false,
       });
       mockRetrievalRepository.create.mockImplementation(
         (data: Parameters<typeof mockRetrievalRepository.create>[0]) =>
@@ -341,7 +340,7 @@ describe("RetrievalService timeouts", () => {
     vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
 
     service = await createService();
-    mockSpRepository.findOne.mockResolvedValue({ address: "0xsp", providerId: 7, isApproved: false, name: "Test SP" });
+    mockStorageProviderRepository.findByAddress.mockResolvedValue({ id: 7n, serviceProvider: "0xsp", providerId: 7n, isApproved: false, name: "Test SP" });
     mockRetrievalAddonsService.testAllRetrievalMethods.mockImplementation(async () => {
       vi.advanceTimersByTime(1750);
       throw new Error("timeout");
@@ -368,7 +367,7 @@ describe("RetrievalService timeouts", () => {
 
     service = await createService();
     const abortController = new AbortController();
-    mockSpRepository.findOne.mockResolvedValue({ address: "0xsp", providerId: 7, isApproved: false, name: "Test SP" });
+    mockStorageProviderRepository.findByAddress.mockResolvedValue({ id: 7n, serviceProvider: "0xsp", providerId: 7n, isApproved: false, name: "Test SP" });
     mockRetrievalRepository.create.mockImplementation(
       (data: Parameters<typeof mockRetrievalRepository.create>[0]) =>
         data as ReturnType<typeof mockRetrievalRepository.create>,
@@ -457,7 +456,7 @@ describe("RetrievalService parallel IPNI + transport", () => {
   const mockDiscoverabilityMetrics = { recordStatus: vi.fn(), observeIpniVerifyMs: vi.fn() };
   const mockDealRepository = { find: vi.fn() };
   const mockRetrievalRepository = { create: vi.fn(), save: vi.fn() };
-  const mockSpRepository = { findOne: vi.fn() };
+  const mockStorageProviderRepository = { findByAddress: vi.fn() };
   const mockRetrievalMetrics = {
     observeFirstByteMs: vi.fn(),
     observeLastByteMs: vi.fn(),
@@ -534,7 +533,7 @@ describe("RetrievalService parallel IPNI + transport", () => {
         { provide: RetrievalAddonsService, useValue: mockRetrievalAddonsService },
         { provide: getRepositoryToken(Deal), useValue: mockDealRepository },
         { provide: getRepositoryToken(Retrieval), useValue: mockRetrievalRepository },
-        { provide: getRepositoryToken(StorageProvider), useValue: mockSpRepository },
+        { provide: StorageProviderRepository, useValue: mockStorageProviderRepository },
         { provide: RetrievalCheckMetrics, useValue: mockRetrievalMetrics },
         { provide: DiscoverabilityCheckMetrics, useValue: mockDiscoverabilityMetrics },
         { provide: IpniVerificationService, useValue: mockIpniVerificationService },
@@ -553,9 +552,10 @@ describe("RetrievalService parallel IPNI + transport", () => {
   };
 
   const setupCommonMocks = (): void => {
-    mockSpRepository.findOne.mockResolvedValue({
-      address: "0xsp",
-      providerId: 7,
+    mockStorageProviderRepository.findByAddress.mockResolvedValue({
+      id: 7n,
+      serviceProvider: "0xsp",
+      providerId: 7n,
       isApproved: false,
       name: "Test SP",
     });
@@ -733,7 +733,7 @@ describe("RetrievalService DB/provider drift", () => {
         { provide: RetrievalAddonsService, useValue: {} },
         { provide: getRepositoryToken(Deal), useValue: { createQueryBuilder: vi.fn().mockReturnValue(mockQb) } },
         { provide: getRepositoryToken(Retrieval), useValue: {} },
-        { provide: getRepositoryToken(StorageProvider), useValue: {} },
+        { provide: StorageProviderRepository, useValue: { findByAddress: vi.fn() } },
         { provide: RetrievalCheckMetrics, useValue: {} },
         { provide: DiscoverabilityCheckMetrics, useValue: {} },
         { provide: IpniVerificationService, useValue: {} },
@@ -813,7 +813,7 @@ describe("RetrievalService SP piece status pre-flight", () => {
   const mockDealRepository = {
     update: vi.fn().mockResolvedValue({ affected: 1 }),
   };
-  const mockSpRepository = { findOne: vi.fn() };
+  const mockStorageProviderRepository = { findByAddress: vi.fn() };
   const mockRetrievalMetrics = {
     observeCheckDuration: vi.fn(),
     recordStatus: vi.fn(),
@@ -863,7 +863,7 @@ describe("RetrievalService SP piece status pre-flight", () => {
         { provide: RetrievalAddonsService, useValue: mockRetrievalAddonsService },
         { provide: getRepositoryToken(Deal), useValue: mockDealRepository },
         { provide: getRepositoryToken(Retrieval), useValue: mockRetrievalRepositoryLocal },
-        { provide: getRepositoryToken(StorageProvider), useValue: mockSpRepository },
+        { provide: StorageProviderRepository, useValue: mockStorageProviderRepository },
         { provide: RetrievalCheckMetrics, useValue: mockRetrievalMetrics },
         { provide: DiscoverabilityCheckMetrics, useValue: { recordStatus: vi.fn(), observeIpniVerifyMs: vi.fn() } },
         { provide: IpniVerificationService, useValue: { verify: vi.fn() } },
@@ -877,12 +877,13 @@ describe("RetrievalService SP piece status pre-flight", () => {
 
   it("emits failure.other and bails when deal has null dataSetId or pieceId", async () => {
     const service = await createService();
-    mockSpRepository.findOne.mockResolvedValue({
-      address: "0xsp",
-      providerId: 5,
+    mockStorageProviderRepository.findByAddress.mockResolvedValue({
+      serviceProvider: "0xsp",
+      id: 5n,
+      providerId: 5n,
       isApproved: true,
       name: "Test SP",
-      serviceUrl: "https://sp.example.com",
+      pdp: { serviceURL: "https://sp.example.com" },
     });
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
@@ -900,12 +901,13 @@ describe("RetrievalService SP piece status pre-flight", () => {
 
   it("marks deal cleaned_up and skips retrieval when PDP pieceLive=false (no SP probe)", async () => {
     const service = await createService();
-    mockSpRepository.findOne.mockResolvedValue({
-      address: "0xsp",
-      providerId: 5,
+    mockStorageProviderRepository.findByAddress.mockResolvedValue({
+      serviceProvider: "0xsp",
+      id: 5n,
+      providerId: 5n,
       isApproved: true,
       name: "Test SP",
-      serviceUrl: "https://sp.example.com",
+      pdp: { serviceURL: "https://sp.example.com" },
     });
     mockDatasetLivenessService.isPieceLive.mockResolvedValueOnce(false);
     const fetchMock = vi.fn();
@@ -926,12 +928,13 @@ describe("RetrievalService SP piece status pre-flight", () => {
 
   it("records a failed retrieval (failure.other) when SP returns 404 but pieceLive=true", async () => {
     const service = await createService();
-    mockSpRepository.findOne.mockResolvedValue({
-      address: "0xsp",
-      providerId: 5,
+    mockStorageProviderRepository.findByAddress.mockResolvedValue({
+      serviceProvider: "0xsp",
+      id: 5n,
+      providerId: 5n,
       isApproved: true,
       name: "Test SP",
-      serviceUrl: "https://sp.example.com",
+      pdp: { serviceURL: "https://sp.example.com" },
     });
     mockDatasetLivenessService.isPieceLive.mockResolvedValueOnce(true);
     const fetchMock = vi.fn().mockResolvedValue({ status: 404, ok: false } as Response);
@@ -958,12 +961,13 @@ describe("RetrievalService SP piece status pre-flight", () => {
 
   it("proceeds with retrieval when SP confirms piece exists", async () => {
     const service = await createService();
-    mockSpRepository.findOne.mockResolvedValue({
-      address: "0xsp",
-      providerId: 5,
+    mockStorageProviderRepository.findByAddress.mockResolvedValue({
+      serviceProvider: "0xsp",
+      id: 5n,
+      providerId: 5n,
       isApproved: true,
       name: "Test SP",
-      serviceUrl: "https://sp.example.com",
+      pdp: { serviceURL: "https://sp.example.com" },
     });
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ status: 200, ok: true } as Response));
 
@@ -975,12 +979,13 @@ describe("RetrievalService SP piece status pre-flight", () => {
 
   it("treats piece as live and proceeds when isPieceLive RPC throws (no cleanup)", async () => {
     const service = await createService();
-    mockSpRepository.findOne.mockResolvedValue({
-      address: "0xsp",
-      providerId: 5,
+    mockStorageProviderRepository.findByAddress.mockResolvedValue({
+      serviceProvider: "0xsp",
+      id: 5n,
+      providerId: 5n,
       isApproved: true,
       name: "Test SP",
-      serviceUrl: "https://sp.example.com",
+      pdp: { serviceURL: "https://sp.example.com" },
     });
     mockDatasetLivenessService.isPieceLive.mockRejectedValueOnce(new Error("rpc down"));
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ status: 200, ok: true } as Response));
@@ -994,12 +999,13 @@ describe("RetrievalService SP piece status pre-flight", () => {
 
   it("proceeds with retrieval when SP probe fails with a network error (unknown)", async () => {
     const service = await createService();
-    mockSpRepository.findOne.mockResolvedValue({
-      address: "0xsp",
-      providerId: 5,
+    mockStorageProviderRepository.findByAddress.mockResolvedValue({
+      serviceProvider: "0xsp",
+      id: 5n,
+      providerId: 5n,
       isApproved: true,
       name: "Test SP",
-      serviceUrl: "https://sp.example.com",
+      pdp: { serviceURL: "https://sp.example.com" },
     });
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("network unreachable")));
 
@@ -1011,12 +1017,13 @@ describe("RetrievalService SP piece status pre-flight", () => {
 
   it("skips probe and proceeds when provider has no serviceUrl", async () => {
     const service = await createService();
-    mockSpRepository.findOne.mockResolvedValue({
-      address: "0xsp",
-      providerId: 5,
+    mockStorageProviderRepository.findByAddress.mockResolvedValue({
+      serviceProvider: "0xsp",
+      id: 5n,
+      providerId: 5n,
       isApproved: true,
       name: "Test SP",
-      serviceUrl: null,
+      pdp: { serviceURL: null },
     });
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
@@ -1029,12 +1036,13 @@ describe("RetrievalService SP piece status pre-flight", () => {
 
   it("re-throws when the outer signal aborts during the probe", async () => {
     const service = await createService();
-    mockSpRepository.findOne.mockResolvedValue({
-      address: "0xsp",
-      providerId: 5,
+    mockStorageProviderRepository.findByAddress.mockResolvedValue({
+      serviceProvider: "0xsp",
+      id: 5n,
+      providerId: 5n,
       isApproved: true,
       name: "Test SP",
-      serviceUrl: "https://sp.example.com",
+      pdp: { serviceURL: "https://sp.example.com" },
     });
     const ac = new AbortController();
     const fetchMock = vi.fn().mockImplementation(() => {
@@ -1050,12 +1058,13 @@ describe("RetrievalService SP piece status pre-flight", () => {
 
   it("strips trailing slash from serviceUrl and URL-encodes the pieceCid", async () => {
     const service = await createService();
-    mockSpRepository.findOne.mockResolvedValue({
-      address: "0xsp",
-      providerId: 5,
+    mockStorageProviderRepository.findByAddress.mockResolvedValue({
+      serviceProvider: "0xsp",
+      id: 5n,
+      providerId: 5n,
       isApproved: true,
       name: "Test SP",
-      serviceUrl: "https://sp.example.com/",
+      pdp: { serviceURL: "https://sp.example.com/" },
     });
     const fetchMock = vi.fn().mockResolvedValue({ status: 200, ok: true } as Response);
     vi.stubGlobal("fetch", fetchMock);

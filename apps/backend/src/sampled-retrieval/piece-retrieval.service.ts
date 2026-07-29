@@ -22,7 +22,7 @@ export class PieceRetrievalService {
     pieceCid: string,
     signal?: AbortSignal,
   ): Promise<PieceRetrievalResult> {
-    const providerInfo = this.walletSdkService.getProviderInfo(spAddress, network);
+    const providerInfo = await this.walletSdkService.getProviderInfo(spAddress, network);
 
     if (!providerInfo) {
       this.logger.warn({

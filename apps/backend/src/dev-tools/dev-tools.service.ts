@@ -10,6 +10,7 @@ import { DealStatus, RetrievalStatus } from "../database/types.js";
 import { DealService } from "../deal/deal.service.js";
 import { RetrievalService } from "../retrieval/retrieval.service.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
+import type { PDPProviderEx } from "../wallet-sdk/wallet-sdk.types.js";
 import type { TriggerDealResponseDto } from "./dto/trigger-deal.dto.js";
 import type { RetrievalMethodResultDto, TriggerRetrievalResponseDto } from "./dto/trigger-retrieval.dto.js";
 
@@ -30,8 +31,8 @@ export class DevToolsService {
   /**
    * List all available storage providers for testing
    */
-  listProviders(network: Network = DEFAULT_NETWORK): unknown[] {
-    const providers = this.walletSdkService.getTestingProviders(network);
+  async listProviders(network: Network = DEFAULT_NETWORK): Promise<unknown[]> {
+    const providers = await this.walletSdkService.getTestingProviders(network);
     this.logger.log({
       event: "providers_listed",
       message: "Listing available providers",
@@ -84,7 +85,7 @@ export class DevToolsService {
     });
 
     // Validate SP exists
-    const providerInfo = this.walletSdkService.getProviderInfo(spAddress, network);
+    const providerInfo = await this.walletSdkService.getProviderInfo(spAddress, network);
     if (!providerInfo) {
       throw new NotFoundException(`Storage provider not found: ${spAddress}`);
     }
@@ -152,7 +153,7 @@ export class DevToolsService {
    */
   private async processDealInBackground(
     dealId: string,
-    providerInfo: ReturnType<typeof this.walletSdkService.getProviderInfo>,
+    providerInfo: PDPProviderEx | undefined,
     network: Network,
     dealLogContext: DealLogContext,
   ): Promise<void> {

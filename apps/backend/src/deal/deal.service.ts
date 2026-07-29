@@ -714,7 +714,7 @@ export class DealService {
   > {
     signal?.throwIfAborted();
     const synapse = this.walletSdkService.tryGetSynapse(network) ?? (await this.createSynapseInstance(network));
-    const providerInfo = this.walletSdkService.getProviderInfo(providerAddress, network);
+    const providerInfo = await this.walletSdkService.getProviderInfo(providerAddress, network);
     if (!providerInfo) {
       throw new Error(`Provider ${providerAddress} not found in registry`);
     }
@@ -769,7 +769,7 @@ export class DealService {
   ): Promise<{ dealsAffected: number; pdpEndEpoch: bigint }> {
     signal?.throwIfAborted();
     const synapse = this.walletSdkService.tryGetSynapse(network) ?? (await this.createSynapseInstance(network));
-    const providerInfo = this.walletSdkService.getProviderInfo(providerAddress, network);
+    const providerInfo = await this.walletSdkService.getProviderInfo(providerAddress, network);
     const { warmStorageService } = this.walletSdkService.getWalletServices(network);
 
     let pdpEndEpoch: bigint;
@@ -838,7 +838,7 @@ export class DealService {
     signal?: AbortSignal,
   ): Promise<void> {
     signal?.throwIfAborted();
-    const providerInfo = this.walletSdkService.getProviderInfo(providerAddress, network);
+    const providerInfo = await this.walletSdkService.getProviderInfo(providerAddress, network);
     if (!providerInfo) {
       throw new Error(`Provider ${providerAddress} not found in registry`);
     }

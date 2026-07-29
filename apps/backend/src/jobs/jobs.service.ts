@@ -386,13 +386,17 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
             await this.handlePullCheckJob(job);
             return;
           }
+          const unknownJobProviderInfo = await this.walletSdkService.getProviderInfo(
+            job.data.spAddress,
+            job.data.network,
+          );
           this.logger.warn({
             event: "unknown_sp_job_type",
             message: "Skipping unknown SP job type",
             jobType: job.data.jobType,
             providerAddress: job.data.spAddress,
-            providerId: this.walletSdkService.getProviderInfo(job.data.spAddress, job.data.network)?.id,
-            providerName: this.walletSdkService.getProviderInfo(job.data.spAddress, job.data.network)?.name,
+            providerId: unknownJobProviderInfo?.id,
+            providerName: unknownJobProviderInfo?.name,
           });
         },
       )
@@ -456,25 +460,10 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     jobId: string,
     network: Network,
   ): Promise<ProviderJobContext> {
-    let providerInfo = this.walletSdkService.getProviderInfo(spAddress, network);
+    const providerInfo = await this.walletSdkService.getProviderInfo(spAddress, network);
 
-    if (providerInfo == null) {
-      await this.walletSdkService.loadProviders(network);
-      providerInfo = this.walletSdkService.getProviderInfo(spAddress, network);
-    }
-
-    let providerId = providerInfo?.id;
-    let providerName = providerInfo?.name;
-
-    // Fall back to DB if either providerId or providerName is missing
-    if (providerId == null || !providerName) {
-      const provider = await this.storageProviderRepository.findOne({
-        where: { address: spAddress, network },
-        select: { providerId: true, name: true },
-      });
-      providerId = providerId ?? provider?.providerId ?? undefined;
-      providerName = providerName || provider?.name;
-    }
+    const providerId = providerInfo?.id;
+    const providerName = providerInfo?.name;
 
     if (providerId == null) {
       throw new Error(`providerId is required for job execution but missing for provider ${spAddress}`);
@@ -545,11 +534,12 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     const now = new Date();
     const maintenance = this.getMaintenanceWindowStatus(now, network);
     if (maintenance.active) {
+      const providerInfo = await this.walletSdkService.getProviderInfo(spAddress, network);
       this.logMaintenanceSkip(`deal job for ${spAddress}`, network, maintenance.window?.label, {
         jobId: job.id,
         providerAddress: spAddress,
-        providerId: this.walletSdkService.getProviderInfo(spAddress, network)?.id,
-        providerName: this.walletSdkService.getProviderInfo(spAddress, network)?.name,
+        providerId: providerInfo?.id,
+        providerName: providerInfo?.name,
       });
       await this.deferJobForMaintenance("deal", data, maintenance, now);
       return;
@@ -578,18 +568,16 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         return "success";
       }
       try {
-        let provider = this.walletSdkService.getTestingProviders(network).find((p) => p.serviceProvider === spAddress);
+        const provider = (await this.walletSdkService.getTestingProviders(network)).find(
+          (p) => p.serviceProvider === spAddress,
+        );
         if (!provider) {
-          await this.walletSdkService.loadProviders(network);
-          provider = this.walletSdkService.getTestingProviders(network).find((p) => p.serviceProvider === spAddress);
-          if (!provider) {
-            this.logger.warn({
-              ...logContext,
-              event: "deal_job_skipped",
-              message: "Deal job skipped: provider not found",
-            });
-            return "success";
-          }
+          this.logger.warn({
+            ...logContext,
+            event: "deal_job_skipped",
+            message: "Deal job skipped: provider not found",
+          });
+          return "success";
         }
 
         abortController.signal.throwIfAborted();
@@ -647,11 +635,12 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     const now = new Date();
     const maintenance = this.getMaintenanceWindowStatus(now, network);
     if (maintenance.active) {
+      const providerInfo = await this.walletSdkService.getProviderInfo(spAddress, network);
       this.logMaintenanceSkip(`retrieval job for ${spAddress}`, network, maintenance.window?.label, {
         jobId: job.id,
         providerAddress: spAddress,
-        providerId: this.walletSdkService.getProviderInfo(spAddress, network)?.id,
-        providerName: this.walletSdkService.getProviderInfo(spAddress, network)?.name,
+        providerId: providerInfo?.id,
+        providerName: providerInfo?.name,
       });
       await this.deferJobForMaintenance("retrieval", data, maintenance, now);
       return;
@@ -720,11 +709,12 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     const now = new Date();
     const maintenance = this.getMaintenanceWindowStatus(now, network);
     if (maintenance.active) {
+      const providerInfo = await this.walletSdkService.getProviderInfo(spAddress, network);
       this.logMaintenanceSkip(`retrieval_sampled job for ${spAddress}`, network, maintenance.window?.label, {
         jobId: job.id,
         providerAddress: spAddress,
-        providerId: this.walletSdkService.getProviderInfo(spAddress, network)?.id,
-        providerName: this.walletSdkService.getProviderInfo(spAddress, network)?.name,
+        providerId: providerInfo?.id,
+        providerName: providerInfo?.name,
       });
       await this.deferJobForMaintenance("retrieval_sampled", data, maintenance, now);
       return;
@@ -820,11 +810,12 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     const now = new Date();
     const maintenance = this.getMaintenanceWindowStatus(now, network);
     if (maintenance.active) {
+      const providerInfo = await this.walletSdkService.getProviderInfo(spAddress, network);
       this.logMaintenanceSkip(`pull_check job for ${spAddress}`, network, maintenance.window?.label, {
         jobId: job.id,
         providerAddress: spAddress,
-        providerId: this.walletSdkService.getProviderInfo(spAddress, network)?.id,
-        providerName: this.walletSdkService.getProviderInfo(spAddress, network)?.name,
+        providerId: providerInfo?.id,
+        providerName: providerInfo?.name,
       });
       await this.deferJobForMaintenance("pull_check", data, maintenance, now);
       return;
@@ -887,10 +878,11 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     const now = new Date();
     const maintenance = this.getMaintenanceWindowStatus(now, network);
     if (maintenance.active) {
+      const providerInfo = await this.walletSdkService.getProviderInfo(spAddress, network);
       this.logMaintenanceSkip(`piece_cleanup job for ${spAddress}`, network, maintenance.window?.label, {
         jobId: job.id,
         providerAddress: spAddress,
-        providerId: this.walletSdkService.getProviderInfo(spAddress, network)?.id,
+        providerId: providerInfo?.id,
       });
       await this.deferJobForMaintenance("piece_cleanup", data, maintenance, now);
       return;
@@ -979,11 +971,12 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     const now = new Date();
     const maintenance = this.getMaintenanceWindowStatus(now, network);
     if (maintenance.active) {
+      const providerInfo = await this.walletSdkService.getProviderInfo(spAddress, network);
       this.logMaintenanceSkip(`data_set_creation job for ${spAddress}`, network, maintenance.window?.label, {
         jobId: job.id,
         providerAddress: spAddress,
-        providerId: this.walletSdkService.getProviderInfo(spAddress, network)?.id,
-        providerName: this.walletSdkService.getProviderInfo(spAddress, network)?.name,
+        providerId: providerInfo?.id,
+        providerName: providerInfo?.name,
       });
       await this.deferJobForMaintenance("data_set_creation", data, maintenance, now);
       return;
@@ -1065,11 +1058,12 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     const now = new Date();
     const maintenance = this.getMaintenanceWindowStatus(now, network);
     if (maintenance.active) {
+      const providerInfo = await this.walletSdkService.getProviderInfo(spAddress, network);
       this.logMaintenanceSkip(`data_set_lifecycle_check job for ${spAddress}`, network, maintenance.window?.label, {
         jobId: job.id,
         providerAddress: spAddress,
-        providerId: this.walletSdkService.getProviderInfo(spAddress, network)?.id,
-        providerName: this.walletSdkService.getProviderInfo(spAddress, network)?.name,
+        providerId: providerInfo?.id,
+        providerName: providerInfo?.name,
       });
       await this.deferJobForMaintenance("data_set_lifecycle_check", data, maintenance, now);
       return;
@@ -1079,11 +1073,12 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     // Defensive gate: schedules are only created when enabled, but a stale enqueued job
     // (e.g. after disabling) must still no-op safely.
     if (!networkCfg.dataSetLifecycleCheckEnabled) {
+      const providerInfo = await this.walletSdkService.getProviderInfo(spAddress, network);
       this.logger.log({
         jobId: job.id,
         providerAddress: spAddress,
-        providerId: this.walletSdkService.getProviderInfo(spAddress, network)?.id,
-        providerName: this.walletSdkService.getProviderInfo(spAddress, network)?.name,
+        providerId: providerInfo?.id,
+        providerName: providerInfo?.name,
         event: "data_set_lifecycle_check_job_disabled",
         message: "Data set lifecycle check job skipped: disabled",
         enabled: networkCfg.dataSetLifecycleCheckEnabled,

@@ -88,8 +88,8 @@ export class IpfsBlockRetrievalStrategy implements IRetrievalAddon {
     return true;
   }
 
-  private getSpEndpoint(config: RetrievalConfiguration): string {
-    const providerInfo = this.walletSdkService.getProviderInfo(config.storageProvider, config.deal.network);
+  private async getSpEndpoint(config: RetrievalConfiguration): Promise<string> {
+    const providerInfo = await this.walletSdkService.getProviderInfo(config.storageProvider, config.deal.network);
 
     if (!providerInfo) {
       throw new Error(`Provider ${config.storageProvider} not found in approved providers`);
@@ -102,14 +102,14 @@ export class IpfsBlockRetrievalStrategy implements IRetrievalAddon {
    * Return the SP endpoint URL for the root block. This is the storage provider's content gateway
    * (not an IPNI index URL). The service may use it as the base for block fetches.
    */
-  constructUrl(config: RetrievalConfiguration): RetrievalUrlResult {
+  async constructUrl(config: RetrievalConfiguration): Promise<RetrievalUrlResult> {
     const rootCID = config.deal.metadata?.[this.name]?.rootCID;
 
     if (!rootCID) {
       throw new Error(`Deal ${config.deal.id} does not have IPNI root CID`);
     }
 
-    const spEndpoint = this.getSpEndpoint(config);
+    const spEndpoint = await this.getSpEndpoint(config);
     const url = `${spEndpoint}/ipfs/${rootCID}?format=raw`;
 
     this.logger.debug({
@@ -163,7 +163,7 @@ export class IpfsBlockRetrievalStrategy implements IRetrievalAddon {
 
     let spEndpoint: string;
     try {
-      spEndpoint = this.getSpEndpoint(config);
+      spEndpoint = await this.getSpEndpoint(config);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       return {

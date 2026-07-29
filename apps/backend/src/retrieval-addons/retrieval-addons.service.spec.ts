@@ -15,7 +15,7 @@ describe("RetrievalAddonsService error handling", () => {
       name: "ipfs_pin",
       priority: 1,
       canHandle: () => true,
-      constructUrl: () => ({
+      constructUrl: async () => ({
         url: "http://example.com",
         method: "ipfs_pin",
       }),

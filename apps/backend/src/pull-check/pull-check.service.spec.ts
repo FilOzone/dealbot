@@ -143,33 +143,33 @@ describe("PullCheckService", () => {
   });
 
   describe("validateProviderInfo", () => {
-    it("returns the provider info on the happy path", () => {
+    it("returns the provider info on the happy path", async () => {
       const provider = makeProvider();
       walletSdkServiceMock.getProviderInfo.mockReturnValue(provider);
 
-      expect(service.validateProviderInfo("0xsp", DEFAULT_NETWORK)).toBe(provider);
+      expect(await service.validateProviderInfo("0xsp", DEFAULT_NETWORK)).toBe(provider);
     });
 
-    it("throws when the provider is unknown", () => {
+    it("throws when the provider is unknown", async () => {
       walletSdkServiceMock.getProviderInfo.mockReturnValue(undefined);
-      expect(() => service.validateProviderInfo("0xsp", DEFAULT_NETWORK)).toThrow(/not found/);
+      await expect(service.validateProviderInfo("0xsp", DEFAULT_NETWORK)).rejects.toThrow(/not found/);
     });
 
-    it("throws when the provider is inactive", () => {
+    it("throws when the provider is inactive", async () => {
       walletSdkServiceMock.getProviderInfo.mockReturnValue(makeProvider({ isActive: false }));
-      expect(() => service.validateProviderInfo("0xsp", DEFAULT_NETWORK)).toThrow(/not active/);
+      await expect(service.validateProviderInfo("0xsp", DEFAULT_NETWORK)).rejects.toThrow(/not active/);
     });
 
-    it("throws when the provider is missing a numeric id", () => {
+    it("throws when the provider is missing a numeric id", async () => {
       walletSdkServiceMock.getProviderInfo.mockReturnValue(makeProvider({ id: undefined as unknown as bigint }));
-      expect(() => service.validateProviderInfo("0xsp", DEFAULT_NETWORK)).toThrow(/missing providerId/);
+      await expect(service.validateProviderInfo("0xsp", DEFAULT_NETWORK)).rejects.toThrow(/missing providerId/);
     });
 
-    it("throws when the provider is missing a PDP serviceURL", () => {
+    it("throws when the provider is missing a PDP serviceURL", async () => {
       walletSdkServiceMock.getProviderInfo.mockReturnValue(
         makeProvider({ pdp: { serviceURL: "" } as PDPProviderEx["pdp"] }),
       );
-      expect(() => service.validateProviderInfo("0xsp", DEFAULT_NETWORK)).toThrow(/missing serviceURL/);
+      await expect(service.validateProviderInfo("0xsp", DEFAULT_NETWORK)).rejects.toThrow(/missing serviceURL/);
     });
   });
 

@@ -331,7 +331,7 @@ describe("DataSetLifecycleService", () => {
   // ─── Shared pre-flight guards ─────────────────────────────────────────────
 
   it("throws when provider is not found in registry", async () => {
-    vi.mocked(mockWalletSdkService.getProviderInfo).mockReturnValueOnce(undefined);
+    vi.mocked(mockWalletSdkService.getProviderInfo).mockResolvedValueOnce(undefined);
 
     await expect(service.runLifecycleCheck("0xunknown", "calibration", {})).rejects.toThrow("not found in registry");
   });
