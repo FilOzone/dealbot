@@ -6,11 +6,11 @@ import { ClickhouseService } from "../clickhouse/clickhouse.service.js";
 import { Network } from "../common/types.js";
 import { Deal } from "../database/entities/deal.entity.js";
 import { Retrieval } from "../database/entities/retrieval.entity.js";
-import { StorageProviderRepository } from "../providers/repositories/storage-provider.repository.js";
 import { RetrievalStatus, ServiceType } from "../database/types.js";
 import { DatasetLivenessService } from "../dataset-liveness/dataset-liveness.service.js";
 import { IpniVerificationService } from "../ipni/ipni-verification.service.js";
 import { DiscoverabilityCheckMetrics, RetrievalCheckMetrics } from "../metrics-prometheus/check-metrics.service.js";
+import { StorageProviderRepository } from "../providers/repositories/storage-provider.repository.js";
 import { RetrievalAddonsService } from "../retrieval-addons/retrieval-addons.service.js";
 import { RetrievalService } from "./retrieval.service.js";
 
@@ -209,7 +209,12 @@ describe("RetrievalService timeouts", () => {
   it("writes a FAILED sentinel retrieval when IPNI CIDs are invalid and re-throws", async () => {
     service = await createService();
 
-    mockStorageProviderRepository.findByAddress.mockResolvedValue({ id: 7n, serviceProvider: "0xsp", name: "Test SP", pdp: { serviceURL: null } });
+    mockStorageProviderRepository.findByAddress.mockResolvedValue({
+      id: 7n,
+      serviceProvider: "0xsp",
+      name: "Test SP",
+      pdp: { serviceURL: null },
+    });
     mockRetrievalRepository.create.mockImplementation(
       (data: Parameters<typeof mockRetrievalRepository.create>[0]) =>
         data as ReturnType<typeof mockRetrievalRepository.create>,
@@ -340,7 +345,13 @@ describe("RetrievalService timeouts", () => {
     vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
 
     service = await createService();
-    mockStorageProviderRepository.findByAddress.mockResolvedValue({ id: 7n, serviceProvider: "0xsp", providerId: 7n, isApproved: false, name: "Test SP" });
+    mockStorageProviderRepository.findByAddress.mockResolvedValue({
+      id: 7n,
+      serviceProvider: "0xsp",
+      providerId: 7n,
+      isApproved: false,
+      name: "Test SP",
+    });
     mockRetrievalAddonsService.testAllRetrievalMethods.mockImplementation(async () => {
       vi.advanceTimersByTime(1750);
       throw new Error("timeout");
@@ -367,7 +378,13 @@ describe("RetrievalService timeouts", () => {
 
     service = await createService();
     const abortController = new AbortController();
-    mockStorageProviderRepository.findByAddress.mockResolvedValue({ id: 7n, serviceProvider: "0xsp", providerId: 7n, isApproved: false, name: "Test SP" });
+    mockStorageProviderRepository.findByAddress.mockResolvedValue({
+      id: 7n,
+      serviceProvider: "0xsp",
+      providerId: 7n,
+      isApproved: false,
+      name: "Test SP",
+    });
     mockRetrievalRepository.create.mockImplementation(
       (data: Parameters<typeof mockRetrievalRepository.create>[0]) =>
         data as ReturnType<typeof mockRetrievalRepository.create>,
