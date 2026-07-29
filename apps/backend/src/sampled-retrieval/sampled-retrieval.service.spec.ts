@@ -4,7 +4,6 @@ import { PieceFetchStatus } from "../clickhouse/clickhouse.types.js";
 import { BlockFetchStatus, CarParseStatus, IpniCheckStatus, RetrievalStatus } from "../database/types.js";
 import type { SampledRetrievalCheckMetrics } from "../metrics-prometheus/check-metrics.service.js";
 import type { StorageProviderRepository } from "../providers/repositories/storage-provider.repository.js";
-import type { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
 import type { PDPProviderEx } from "../wallet-sdk/wallet-sdk.types.js";
 import type { PieceRetrievalService } from "./piece-retrieval.service.js";
 import type { PieceValidationService } from "./piece-validation.service.js";
@@ -40,6 +39,7 @@ function makeProvider(): PDPProviderEx {
     serviceProvider: SP_ADDRESS,
     name: "sp-test",
     isApproved: true,
+    pdp: { serviceURL: "https://sp.test/" },
   } as unknown as PDPProviderEx;
 }
 
@@ -115,10 +115,6 @@ function makeService(opts: {
     checkBlockFetch: checkBlockFetchSpy,
   } as unknown as PieceValidationService;
 
-  const walletSdkService = {
-    getProviderInfo: vi.fn(() => ({ pdp: { serviceURL: "https://sp.test/" } })),
-  } as unknown as WalletSdkService;
-
   const metricsRecordStatusSpy = vi.fn();
   const metricsRecordCarParseSpy = vi.fn();
   const metricsRecordIpniSpy = vi.fn();
@@ -139,7 +135,6 @@ function makeService(opts: {
     sampledPieceSelector,
     pieceRetrievalService,
     pieceValidationService,
-    walletSdkService,
     metrics,
     clickhouseService,
     storageProviderRepository,

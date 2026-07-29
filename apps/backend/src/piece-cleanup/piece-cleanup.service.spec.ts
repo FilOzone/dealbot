@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { IConfig } from "../config/index.js";
 import { Deal } from "../database/entities/deal.entity.js";
 import { DealStatus } from "../database/types.js";
+import { StorageProviderRepository } from "../providers/repositories/storage-provider.repository.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
 import { PieceCleanupService } from "./piece-cleanup.service.js";
 
@@ -56,6 +57,7 @@ describe("PieceCleanupService", () => {
   let service: PieceCleanupService;
   let dealRepoMock: ReturnType<typeof createDealRepoMock>;
   let walletSdkMock: ReturnType<typeof createWalletSdkMock>;
+  let storageProviderRepositoryMock: ReturnType<typeof createStorageProviderRepositoryMock>;
 
   const MiB = 1024 * 1024;
   const THRESHOLD_BYTES = 100 * MiB; // 100 MiB for tests
@@ -70,7 +72,6 @@ describe("PieceCleanupService", () => {
 
   function createWalletSdkMock() {
     return {
-      getProviderInfo: vi.fn().mockReturnValue({ id: 9, name: "Test SP" }),
       tryGetSynapse: vi.fn().mockReturnValue({
         storage: {
           createContext: vi.fn().mockResolvedValue({
@@ -78,6 +79,12 @@ describe("PieceCleanupService", () => {
           }),
         },
       }),
+    };
+  }
+
+  function createStorageProviderRepositoryMock() {
+    return {
+      findByAddress: vi.fn().mockResolvedValue({ id: 9, name: "Test SP" }),
     };
   }
 
@@ -133,6 +140,7 @@ describe("PieceCleanupService", () => {
   beforeEach(async () => {
     dealRepoMock = createDealRepoMock();
     walletSdkMock = createWalletSdkMock();
+    storageProviderRepositoryMock = createStorageProviderRepositoryMock();
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -140,6 +148,7 @@ describe("PieceCleanupService", () => {
         { provide: ConfigService, useValue: createConfigMock() },
         { provide: getRepositoryToken(Deal), useValue: dealRepoMock },
         { provide: WalletSdkService, useValue: walletSdkMock },
+        { provide: StorageProviderRepository, useValue: storageProviderRepositoryMock },
       ],
     }).compile();
 

@@ -8,7 +8,6 @@ import { HttpClientModule } from "../http-client/http-client.module.js";
 import { IpniModule } from "../ipni/ipni.module.js";
 import { ProvidersModule } from "../providers/providers.module.js";
 import { RetrievalAddonsModule } from "../retrieval-addons/retrieval-addons.module.js";
-import { WalletSdkModule } from "../wallet-sdk/wallet-sdk.module.js";
 import { RetrievalService } from "./retrieval.service.js";
 
 @Module({
@@ -17,7 +16,6 @@ import { RetrievalService } from "./retrieval.service.js";
     TypeOrmModule.forFeature([Deal, Retrieval]),
     ProvidersModule,
     HttpClientModule,
-    WalletSdkModule,
     IpniModule,
     RetrievalAddonsModule,
     DatasetLivenessModule,

@@ -5,6 +5,7 @@ import { DatabaseModule } from "../database/database.module.js";
 import { PullPiece } from "../database/entities/pull-piece.entity.js";
 import { DataSourceModule } from "../dataSource/dataSource.module.js";
 import { HttpClientModule } from "../http-client/http-client.module.js";
+import { ProvidersModule } from "../providers/providers.module.js";
 import { WalletSdkModule } from "../wallet-sdk/wallet-sdk.module.js";
 import { PullCheckService } from "./pull-check.service.js";
 import { PieceSourceController } from "./pull-piece.controller.js";
@@ -26,6 +27,7 @@ const isWorkerOnly = runMode === "worker";
     TypeOrmModule.forFeature([PullPiece]),
     DatabaseModule,
     WalletSdkModule,
+    ProvidersModule,
     DataSourceModule,
     HttpClientModule,
   ],

@@ -21,7 +21,6 @@ import { createSynapseFromConfig } from "../common/synapse-factory.js";
 import type { DataFile, Hex, Network } from "../common/types.js";
 import type { IConfig, INetworkConfig } from "../config/types.js";
 import { Deal } from "../database/entities/deal.entity.js";
-import { StorageProvider } from "../database/entities/storage-provider.entity.js";
 import { DealStatus, IpniStatus, ServiceType } from "../database/types.js";
 import { DataSourceService } from "../dataSource/dataSource.service.js";
 import { DatasetLivenessService } from "../dataset-liveness/dataset-liveness.service.js";
@@ -33,6 +32,7 @@ import {
   DataStorageCheckMetrics,
   RetrievalCheckMetrics,
 } from "../metrics-prometheus/check-metrics.service.js";
+import { StorageProviderRepository } from "../providers/repositories/storage-provider.repository.js";
 import { RetrievalAddonsService } from "../retrieval-addons/retrieval-addons.service.js";
 import type { RetrievalConfiguration, RetrievalExecutionResult } from "../retrieval-addons/types.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
@@ -57,12 +57,11 @@ export class DealService {
     private readonly dataSourceService: DataSourceService,
     private readonly configService: ConfigService<IConfig, true>,
     private readonly walletSdkService: WalletSdkService,
+    private readonly storageProviderRepository: StorageProviderRepository,
     private readonly dealAddonsService: DealAddonsService,
     private readonly retrievalAddonsService: RetrievalAddonsService,
     @InjectRepository(Deal)
     private readonly dealRepository: Repository<Deal>,
-    @InjectRepository(StorageProvider)
-    private readonly storageProviderRepository: Repository<StorageProvider>,
     private readonly dataStorageMetrics: DataStorageCheckMetrics,
     private readonly retrievalMetrics: RetrievalCheckMetrics,
     private readonly dataSetCreationMetrics: DataSetCreationCheckMetrics,
@@ -345,9 +344,7 @@ export class DealService {
 
     try {
       // Load storageProvider relation
-      deal.storageProvider = await this.storageProviderRepository.findOne({
-        where: { address: deal.spAddress, network: deal.network },
-      });
+      deal.storageProvider = await this.storageProviderRepository.findEntityByAddress(deal.spAddress, deal.network);
       dealLogContext.providerId = deal.storageProvider?.providerId ?? dealLogContext.providerId;
       providerLabels = buildCheckMetricLabels({
         checkType,
@@ -714,7 +711,7 @@ export class DealService {
   > {
     signal?.throwIfAborted();
     const synapse = this.walletSdkService.tryGetSynapse(network) ?? (await this.createSynapseInstance(network));
-    const providerInfo = await this.walletSdkService.getProviderInfo(providerAddress, network);
+    const providerInfo = await this.storageProviderRepository.findByAddress(providerAddress, network);
     if (!providerInfo) {
       throw new Error(`Provider ${providerAddress} not found in registry`);
     }
@@ -769,7 +766,7 @@ export class DealService {
   ): Promise<{ dealsAffected: number; pdpEndEpoch: bigint }> {
     signal?.throwIfAborted();
     const synapse = this.walletSdkService.tryGetSynapse(network) ?? (await this.createSynapseInstance(network));
-    const providerInfo = await this.walletSdkService.getProviderInfo(providerAddress, network);
+    const providerInfo = await this.storageProviderRepository.findByAddress(providerAddress, network);
     const { warmStorageService } = this.walletSdkService.getWalletServices(network);
 
     let pdpEndEpoch: bigint;
@@ -838,7 +835,7 @@ export class DealService {
     signal?: AbortSignal,
   ): Promise<void> {
     signal?.throwIfAborted();
-    const providerInfo = await this.walletSdkService.getProviderInfo(providerAddress, network);
+    const providerInfo = await this.storageProviderRepository.findByAddress(providerAddress, network);
     if (!providerInfo) {
       throw new Error(`Provider ${providerAddress} not found in registry`);
     }

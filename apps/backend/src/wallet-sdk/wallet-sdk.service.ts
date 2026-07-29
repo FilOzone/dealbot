@@ -216,14 +216,6 @@ export class WalletSdkService implements OnModuleInit {
   }
 
   /**
-   * Get testing providers from DB
-   */
-  async getTestingProviders(network: Network): Promise<PDPProviderEx[]> {
-    const state = this.getNetworkState(network);
-    return this.storageProviderRepository.findTestingProviders(network, state.config.useOnlyApprovedProviders);
-  }
-
-  /**
    * Get wallet services (now returns instance variables)
    */
   getWalletServices(network: Network): WalletServices {
@@ -246,13 +238,6 @@ export class WalletSdkService implements OnModuleInit {
       usdfc: accountInfo.availableFunds,
       fil: filBalance,
     };
-  }
-
-  /**
-   * Get provider info by address for a specific network from DB.
-   */
-  async getProviderInfo(address: string, network: Network): Promise<PDPProviderEx | undefined> {
-    return this.storageProviderRepository.findByAddress(address, network);
   }
 
   /**

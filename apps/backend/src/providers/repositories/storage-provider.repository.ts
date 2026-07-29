@@ -1,7 +1,9 @@
 import { Injectable, Logger } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
-import type { Repository } from "typeorm";
+import { Raw, type Repository } from "typeorm";
 import type { Network } from "../../common/types.js";
+import type { IConfig } from "../../config/index.js";
 import { StorageProvider } from "../../database/entities/storage-provider.entity.js";
 import type { PDPProviderEx } from "../../wallet-sdk/wallet-sdk.types.js";
 
@@ -19,6 +21,7 @@ export class StorageProviderRepository {
   constructor(
     @InjectRepository(StorageProvider)
     private readonly repo: Repository<StorageProvider>,
+    private readonly configService: ConfigService<IConfig, true>,
   ) {}
 
   async findByAddress(address: string, network: Network): Promise<PDPProviderEx | undefined> {
@@ -26,7 +29,13 @@ export class StorageProviderRepository {
     return row ? this.hydrateProvider(row) : undefined;
   }
 
-  async findTestingProviders(network: Network, useOnlyApprovedProviders: boolean): Promise<PDPProviderEx[]> {
+  /**
+   * Testing providers are active providers, further narrowed to approved-only
+   * when the network config requires it (mirrors the policy `WalletSdkService`
+   * used to apply from its in-memory `NetworkState.config`).
+   */
+  async findTestingProviders(network: Network): Promise<PDPProviderEx[]> {
+    const { useOnlyApprovedProviders } = this.configService.get("networks", { infer: true })[network];
     const rows = await this.repo.find({
       where: { network, isActive: true, ...(useOnlyApprovedProviders ? { isApproved: true } : {}) },
     });
@@ -35,6 +44,65 @@ export class StorageProviderRepository {
 
   async countByNetwork(network: Network): Promise<number> {
     return this.repo.count({ where: { network } });
+  }
+
+  async countActiveByNetwork(network: Network): Promise<number> {
+    return this.repo.count({ where: { network, isActive: true } });
+  }
+
+  /**
+   * Count of testing providers (active, optionally approved-only per network
+   * policy) — mirrors the `isActive`/`isApproved` filter in `findActiveAddresses`,
+   * but as a single count query for callers that don't need the rows themselves.
+   */
+  async countTestedByNetwork(network: Network): Promise<number> {
+    const { useOnlyApprovedProviders } = this.configService.get("networks", { infer: true })[network];
+    return this.repo.count({
+      where: { network, isActive: true, ...(useOnlyApprovedProviders ? { isApproved: true } : {}) },
+    });
+  }
+
+  /**
+   * Address + providerId projection for active (optionally approved-only)
+   * providers — used by callers that need to iterate addresses (job
+   * scheduling, blocklist filtering) without the full hydrated object.
+   */
+  async findActiveAddresses(network: Network): Promise<Array<{ address: string; providerId: bigint | null }>> {
+    const { useOnlyApprovedProviders } = this.configService.get("networks", { infer: true })[network];
+    const rows = await this.repo.find({
+      select: { address: true, providerId: true },
+      where: { network, isActive: true, ...(useOnlyApprovedProviders ? { isApproved: true } : {}) },
+    });
+    return rows.map((row) => ({ address: row.address, providerId: row.providerId }));
+  }
+
+  /**
+   * Raw entity lookup for callers that need to assign the actual `StorageProvider`
+   * entity (e.g. as a TypeORM relation before saving), not the hydrated `PDPProviderEx`.
+   */
+  async findEntityByAddress(address: string, network: Network): Promise<StorageProvider | null> {
+    return this.repo.findOne({ where: { address, network } });
+  }
+
+  /**
+   * Case-insensitive lookup by a list of addresses, with a narrow projection —
+   * used for reconciling addresses (e.g. detecting stale entries) against
+   * whatever casing the caller's source of the address list happens to use.
+   */
+  async findByAddressesCaseInsensitive(
+    addresses: string[],
+    network: Network,
+  ): Promise<Array<Pick<StorageProvider, "address" | "providerId" | "name" | "isApproved">>> {
+    if (addresses.length === 0) {
+      return [];
+    }
+    return this.repo.find({
+      where: {
+        network,
+        address: Raw((alias) => `LOWER(${alias}) IN (:...addresses)`, { addresses }),
+      },
+      select: ["address", "providerId", "name", "isApproved"],
+    });
   }
 
   async upsertFromRegistry(providers: PDPProviderEx[], network: Network): Promise<void> {

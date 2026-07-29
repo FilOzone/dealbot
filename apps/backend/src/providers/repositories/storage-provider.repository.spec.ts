@@ -51,7 +51,7 @@ describe("StorageProviderRepository", () => {
   describe("findByAddress", () => {
     it("returns undefined when no row matches", async () => {
       const repo = { findOne: vi.fn().mockResolvedValue(null) };
-      const service = new StorageProviderRepository(repo as any);
+      const service = new StorageProviderRepository(repo as any, {} as any);
 
       const result = await service.findByAddress("0xmissing", "calibration");
 
@@ -62,7 +62,7 @@ describe("StorageProviderRepository", () => {
     it("hydrates a row into a PDPProviderEx, restoring bigint pdp fields", async () => {
       const row = makeRow();
       const repo = { findOne: vi.fn().mockResolvedValue(row) };
-      const service = new StorageProviderRepository(repo as any);
+      const service = new StorageProviderRepository(repo as any, {} as any);
 
       const result = await service.findByAddress("0xprovider", "calibration");
 
@@ -93,20 +93,25 @@ describe("StorageProviderRepository", () => {
   });
 
   describe("findTestingProviders", () => {
+    const makeConfigService = (useOnlyApprovedProviders: boolean) =>
+      ({
+        get: vi.fn(() => ({ calibration: { useOnlyApprovedProviders } })),
+      }) as any;
+
     it("filters by isActive only when useOnlyApprovedProviders is false", async () => {
       const repo = { find: vi.fn().mockResolvedValue([makeRow()]) };
-      const service = new StorageProviderRepository(repo as any);
+      const service = new StorageProviderRepository(repo as any, makeConfigService(false));
 
-      await service.findTestingProviders("calibration", false);
+      await service.findTestingProviders("calibration");
 
       expect(repo.find).toHaveBeenCalledWith({ where: { network: "calibration", isActive: true } });
     });
 
     it("also filters by isApproved when useOnlyApprovedProviders is true", async () => {
       const repo = { find: vi.fn().mockResolvedValue([]) };
-      const service = new StorageProviderRepository(repo as any);
+      const service = new StorageProviderRepository(repo as any, makeConfigService(true));
 
-      await service.findTestingProviders("calibration", true);
+      await service.findTestingProviders("calibration");
 
       expect(repo.find).toHaveBeenCalledWith({
         where: { network: "calibration", isActive: true, isApproved: true },
@@ -117,12 +122,146 @@ describe("StorageProviderRepository", () => {
   describe("countByNetwork", () => {
     it("delegates to the repository count", async () => {
       const repo = { count: vi.fn().mockResolvedValue(3) };
-      const service = new StorageProviderRepository(repo as any);
+      const service = new StorageProviderRepository(repo as any, {} as any);
 
       const result = await service.countByNetwork("mainnet");
 
       expect(result).toBe(3);
       expect(repo.count).toHaveBeenCalledWith({ where: { network: "mainnet" } });
+    });
+  });
+
+  describe("countActiveByNetwork", () => {
+    it("counts active providers for the network", async () => {
+      const repo = { count: vi.fn().mockResolvedValue(5) };
+      const service = new StorageProviderRepository(repo as any, {} as any);
+
+      const result = await service.countActiveByNetwork("mainnet");
+
+      expect(result).toBe(5);
+      expect(repo.count).toHaveBeenCalledWith({ where: { network: "mainnet", isActive: true } });
+    });
+  });
+
+  describe("countTestedByNetwork", () => {
+    const makeConfigService = (useOnlyApprovedProviders: boolean) =>
+      ({
+        get: vi.fn(() => ({ calibration: { useOnlyApprovedProviders } })),
+      }) as any;
+
+    it("counts active providers only when useOnlyApprovedProviders is false", async () => {
+      const repo = { count: vi.fn().mockResolvedValue(4) };
+      const service = new StorageProviderRepository(repo as any, makeConfigService(false));
+
+      const result = await service.countTestedByNetwork("calibration");
+
+      expect(result).toBe(4);
+      expect(repo.count).toHaveBeenCalledWith({ where: { network: "calibration", isActive: true } });
+    });
+
+    it("also counts by isApproved when useOnlyApprovedProviders is true", async () => {
+      const repo = { count: vi.fn().mockResolvedValue(2) };
+      const service = new StorageProviderRepository(repo as any, makeConfigService(true));
+
+      const result = await service.countTestedByNetwork("calibration");
+
+      expect(result).toBe(2);
+      expect(repo.count).toHaveBeenCalledWith({
+        where: { network: "calibration", isActive: true, isApproved: true },
+      });
+    });
+  });
+
+  describe("findActiveAddresses", () => {
+    const makeConfigService = (useOnlyApprovedProviders: boolean) =>
+      ({
+        get: vi.fn(() => ({ calibration: { useOnlyApprovedProviders } })),
+      }) as any;
+
+    it("projects address and providerId for active providers", async () => {
+      const repo = {
+        find: vi.fn().mockResolvedValue([
+          { address: "0xa", providerId: 1n },
+          { address: "0xb", providerId: null },
+        ]),
+      };
+      const service = new StorageProviderRepository(repo as any, makeConfigService(false));
+
+      const result = await service.findActiveAddresses("calibration");
+
+      expect(repo.find).toHaveBeenCalledWith({
+        select: { address: true, providerId: true },
+        where: { network: "calibration", isActive: true },
+      });
+      expect(result).toEqual([
+        { address: "0xa", providerId: 1n },
+        { address: "0xb", providerId: null },
+      ]);
+    });
+
+    it("also filters by isApproved when useOnlyApprovedProviders is true", async () => {
+      const repo = { find: vi.fn().mockResolvedValue([]) };
+      const service = new StorageProviderRepository(repo as any, makeConfigService(true));
+
+      await service.findActiveAddresses("calibration");
+
+      expect(repo.find).toHaveBeenCalledWith({
+        select: { address: true, providerId: true },
+        where: { network: "calibration", isActive: true, isApproved: true },
+      });
+    });
+  });
+
+  describe("findEntityByAddress", () => {
+    it("returns null when no row matches", async () => {
+      const repo = { findOne: vi.fn().mockResolvedValue(null) };
+      const service = new StorageProviderRepository(repo as any, {} as any);
+
+      const result = await service.findEntityByAddress("0xmissing", "calibration");
+
+      expect(result).toBeNull();
+      expect(repo.findOne).toHaveBeenCalledWith({ where: { address: "0xmissing", network: "calibration" } });
+    });
+
+    it("returns the raw entity untouched (no hydration)", async () => {
+      const row = makeRow();
+      const repo = { findOne: vi.fn().mockResolvedValue(row) };
+      const service = new StorageProviderRepository(repo as any, {} as any);
+
+      const result = await service.findEntityByAddress("0xprovider", "calibration");
+
+      expect(result).toBe(row);
+    });
+  });
+
+  describe("findByAddressesCaseInsensitive", () => {
+    it("returns an empty array without querying when given no addresses", async () => {
+      const repo = { find: vi.fn() };
+      const service = new StorageProviderRepository(repo as any, {} as any);
+
+      const result = await service.findByAddressesCaseInsensitive([], "calibration");
+
+      expect(result).toEqual([]);
+      expect(repo.find).not.toHaveBeenCalled();
+    });
+
+    it("queries with a case-insensitive LOWER() match and a narrow projection", async () => {
+      const rows = [{ address: "0xprovider", providerId: 7n, name: "provider", isApproved: false }];
+      const repo = { find: vi.fn().mockResolvedValue(rows) };
+      const service = new StorageProviderRepository(repo as any, {} as any);
+
+      const result = await service.findByAddressesCaseInsensitive(["0xProvider"], "calibration");
+
+      expect(result).toBe(rows);
+      const [{ where, select }] = repo.find.mock.calls[0];
+      expect(select).toEqual(["address", "providerId", "name", "isApproved"]);
+      expect(where.network).toBe("calibration");
+      expect(where.address).toEqual(
+        expect.objectContaining({
+          _type: "raw",
+          _objectLiteralParameters: { addresses: ["0xProvider"] },
+        }),
+      );
     });
   });
 
@@ -133,7 +272,7 @@ describe("StorageProviderRepository", () => {
 
     beforeEach(() => {
       repo = { create: vi.fn((data) => data), upsert: vi.fn() };
-      service = new StorageProviderRepository(repo as any);
+      service = new StorageProviderRepository(repo as any, {} as any);
       loggerMock = { warn: vi.fn(), error: vi.fn() };
       (service as any).logger = loggerMock;
     });

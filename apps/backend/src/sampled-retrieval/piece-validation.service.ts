@@ -12,7 +12,7 @@ import type { IConfig } from "../config/index.js";
 import { BlockFetchStatus, CarParseStatus, IpniCheckStatus } from "../database/types.js";
 import { HttpClientService } from "../http-client/http-client.service.js";
 import { IpniVerificationService, pdpProviderToIpniInput } from "../ipni/ipni-verification.service.js";
-import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
+import { StorageProviderRepository } from "../providers/repositories/storage-provider.repository.js";
 import type { PDPProviderEx } from "../wallet-sdk/wallet-sdk.types.js";
 import { SAMPLED_MAX_BLOCK_DOWNLOAD_BYTES } from "./sampled-piece-selector.service.js";
 import type { BlockFetchOutcome, CarParseOutcome, IpniCheckOutcome, SampledBlock } from "./types.js";
@@ -36,7 +36,7 @@ export class PieceValidationService {
   constructor(
     private readonly configService: ConfigService<IConfig, true>,
     private readonly httpClientService: HttpClientService,
-    private readonly walletSdkService: WalletSdkService,
+    private readonly storageProviderRepository: StorageProviderRepository,
     private readonly ipniVerificationService: IpniVerificationService,
   ) {}
 
@@ -160,7 +160,7 @@ export class PieceValidationService {
     network: Network,
     signal?: AbortSignal,
   ): Promise<BlockFetchOutcome> {
-    const providerInfo = await this.walletSdkService.getProviderInfo(spAddress, network);
+    const providerInfo = await this.storageProviderRepository.findByAddress(spAddress, network);
     if (!providerInfo) {
       return {
         status: BlockFetchStatus.SKIPPED,

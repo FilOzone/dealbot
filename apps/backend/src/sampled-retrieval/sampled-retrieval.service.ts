@@ -8,7 +8,6 @@ import { BlockFetchStatus, CarParseStatus, IpniCheckStatus, ServiceType } from "
 import { buildCheckMetricLabels, type CheckMetricLabels } from "../metrics-prometheus/check-metric-labels.js";
 import { SampledRetrievalCheckMetrics } from "../metrics-prometheus/check-metrics.service.js";
 import { StorageProviderRepository } from "../providers/repositories/storage-provider.repository.js";
-import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
 import type { PDPProviderEx } from "../wallet-sdk/wallet-sdk.types.js";
 import { PieceRetrievalService } from "./piece-retrieval.service.js";
 import { PieceValidationService } from "./piece-validation.service.js";
@@ -25,7 +24,6 @@ export class SampledRetrievalService {
     private readonly sampledPieceSelectorService: SampledPieceSelectorService,
     private readonly pieceRetrievalService: PieceRetrievalService,
     private readonly pieceValidationService: PieceValidationService,
-    private readonly walletSdkService: WalletSdkService,
     private readonly metrics: SampledRetrievalCheckMetrics,
     private readonly clickhouseService: ClickhouseService,
     private readonly storageProviderRepository: StorageProviderRepository,
@@ -145,7 +143,7 @@ export class SampledRetrievalService {
       // collected. ClickhouseService.insert is a no-op when disabled.
       const finalPieceResult = pieceResult ?? buildAbortedPlaceholder(piece.pieceCid, signal?.reason);
       const retrievalId = randomUUID();
-      const providerInfo = await this.walletSdkService.getProviderInfo(spAddress, network);
+      const providerInfo = await this.storageProviderRepository.findByAddress(spAddress, network);
       const spBaseUrl = providerInfo?.pdp.serviceURL.replace(/\/$/, "") ?? spAddress;
       const pieceFetchStatus = finalPieceResult.success ? PieceFetchStatus.SUCCESS : PieceFetchStatus.FAILED;
 

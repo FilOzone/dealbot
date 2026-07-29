@@ -8,8 +8,8 @@ import type { Network } from "../common/types.js";
 import { Deal } from "../database/entities/deal.entity.js";
 import { DealStatus, RetrievalStatus } from "../database/types.js";
 import { DealService } from "../deal/deal.service.js";
+import { StorageProviderRepository } from "../providers/repositories/storage-provider.repository.js";
 import { RetrievalService } from "../retrieval/retrieval.service.js";
-import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
 import type { PDPProviderEx } from "../wallet-sdk/wallet-sdk.types.js";
 import type { TriggerDealResponseDto } from "./dto/trigger-deal.dto.js";
 import type { RetrievalMethodResultDto, TriggerRetrievalResponseDto } from "./dto/trigger-retrieval.dto.js";
@@ -21,7 +21,7 @@ export class DevToolsService {
   private readonly logger = new Logger(DevToolsService.name);
 
   constructor(
-    private readonly walletSdkService: WalletSdkService,
+    private readonly storageProviderRepository: StorageProviderRepository,
     private readonly dealService: DealService,
     private readonly retrievalService: RetrievalService,
     @InjectRepository(Deal)
@@ -32,7 +32,7 @@ export class DevToolsService {
    * List all available storage providers for testing
    */
   async listProviders(network: Network = DEFAULT_NETWORK): Promise<unknown[]> {
-    const providers = await this.walletSdkService.getTestingProviders(network);
+    const providers = await this.storageProviderRepository.findTestingProviders(network);
     this.logger.log({
       event: "providers_listed",
       message: "Listing available providers",
@@ -85,7 +85,7 @@ export class DevToolsService {
     });
 
     // Validate SP exists
-    const providerInfo = await this.walletSdkService.getProviderInfo(spAddress, network);
+    const providerInfo = await this.storageProviderRepository.findByAddress(spAddress, network);
     if (!providerInfo) {
       throw new NotFoundException(`Storage provider not found: ${spAddress}`);
     }

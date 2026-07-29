@@ -9,7 +9,7 @@ import { toStructuredError } from "../../common/logging.js";
 import type { IConfig } from "../../config/index.js";
 import { ServiceType } from "../../database/types.js";
 import { HttpClientService } from "../../http-client/http-client.service.js";
-import { WalletSdkService } from "../../wallet-sdk/wallet-sdk.service.js";
+import { StorageProviderRepository } from "../../providers/repositories/storage-provider.repository.js";
 import type { IRetrievalAddon } from "../interfaces/retrieval-addon.interface.js";
 import type { ExpectedMetrics, RetrievalConfiguration, RetrievalUrlResult, ValidationResult } from "../types.js";
 import { RetrievalPriority } from "../types.js";
@@ -44,7 +44,7 @@ export class IpfsBlockRetrievalStrategy implements IRetrievalAddon {
   readonly priority = RetrievalPriority.MEDIUM; // Alternative method
 
   constructor(
-    private readonly walletSdkService: WalletSdkService,
+    private readonly storageProviderRepository: StorageProviderRepository,
     private readonly httpClientService: HttpClientService,
     private readonly configService: ConfigService<IConfig, true>,
   ) {
@@ -89,7 +89,10 @@ export class IpfsBlockRetrievalStrategy implements IRetrievalAddon {
   }
 
   private async getSpEndpoint(config: RetrievalConfiguration): Promise<string> {
-    const providerInfo = await this.walletSdkService.getProviderInfo(config.storageProvider, config.deal.network);
+    const providerInfo = await this.storageProviderRepository.findByAddress(
+      config.storageProvider,
+      config.deal.network,
+    );
 
     if (!providerInfo) {
       throw new Error(`Provider ${config.storageProvider} not found in approved providers`);

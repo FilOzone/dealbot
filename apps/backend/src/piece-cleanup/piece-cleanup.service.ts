@@ -10,6 +10,7 @@ import { Network } from "../common/types.js";
 import type { IConfig, INetworkConfig } from "../config/index.js";
 import { Deal } from "../database/entities/deal.entity.js";
 import { DealStatus } from "../database/types.js";
+import { StorageProviderRepository } from "../providers/repositories/storage-provider.repository.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
 
 export interface CleanupResult {
@@ -36,6 +37,7 @@ export class PieceCleanupService {
     @InjectRepository(Deal)
     private readonly dealRepository: Repository<Deal>,
     private readonly walletSdkService: WalletSdkService,
+    private readonly storageProviderRepository: StorageProviderRepository,
   ) {}
 
   private getNetworkConfig(network: Network): INetworkConfig {
@@ -358,7 +360,7 @@ export class PieceCleanupService {
 
     signal?.throwIfAborted();
 
-    const providerId = (await this.walletSdkService.getProviderInfo(deal.spAddress, network))?.id;
+    const providerId = (await this.storageProviderRepository.findByAddress(deal.spAddress, network))?.id;
     if (providerId === undefined) {
       throw new Error(`Provider ID not found for SP address ${deal.spAddress}`);
     }

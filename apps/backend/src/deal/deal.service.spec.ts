@@ -10,7 +10,6 @@ import { ClickhouseService } from "../clickhouse/clickhouse.service.js";
 import { DealJobTerminatedDataSetError } from "../common/errors.js";
 import { IConfig } from "../config/index.js";
 import { Deal } from "../database/entities/deal.entity.js";
-import { StorageProvider } from "../database/entities/storage-provider.entity.js";
 import { DealStatus, IpniStatus } from "../database/types.js";
 import { DataSourceService } from "../dataSource/dataSource.service.js";
 import { DatasetLivenessService } from "../dataset-liveness/dataset-liveness.service.js";
@@ -21,6 +20,7 @@ import {
   DataStorageCheckMetrics,
   RetrievalCheckMetrics,
 } from "../metrics-prometheus/check-metrics.service.js";
+import { StorageProviderRepository } from "../providers/repositories/storage-provider.repository.js";
 import { RetrievalAddonsService } from "../retrieval-addons/retrieval-addons.service.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
 import type { PDPProviderEx } from "../wallet-sdk/wallet-sdk.types.js";
@@ -104,8 +104,9 @@ describe("DealService", () => {
     count: vi.fn(),
   };
 
-  const mockStorageProviderRepository = {
-    findOne: vi.fn(),
+  const mockProviderRegistryRepository = {
+    findByAddress: vi.fn().mockResolvedValue(undefined),
+    findEntityByAddress: vi.fn(),
   };
 
   const mockDataSourceService = {
@@ -137,9 +138,6 @@ describe("DealService", () => {
   };
   const mockWalletSdkService = {
     getFWSSAddress: vi.fn().mockReturnValue("0xFWSS"),
-    getTestingProvidersCount: vi.fn(),
-    getTestingProviders: vi.fn(),
-    getProviderInfo: vi.fn().mockReturnValue(undefined),
     getWalletServices: vi.fn().mockReturnValue({
       paymentsService: {},
       warmStorageService: mockWarmStorageService,
@@ -195,7 +193,7 @@ describe("DealService", () => {
         { provide: DealAddonsService, useValue: mockDealAddonsService },
         { provide: RetrievalAddonsService, useValue: mockRetrievalAddonsService },
         { provide: getRepositoryToken(Deal), useValue: mockDealRepository },
-        { provide: getRepositoryToken(StorageProvider), useValue: mockStorageProviderRepository },
+        { provide: StorageProviderRepository, useValue: mockProviderRegistryRepository },
         { provide: DataStorageCheckMetrics, useValue: mockDataStorageMetrics },
         { provide: RetrievalCheckMetrics, useValue: mockRetrievalMetrics },
         { provide: DataSetCreationCheckMetrics, useValue: mockDataSetCreationMetrics },
@@ -271,9 +269,9 @@ describe("DealService", () => {
       });
 
       dealRepoMock.create.mockReturnValue(mockDeal);
-      mockStorageProviderRepository.findOne.mockResolvedValue({});
+      mockProviderRegistryRepository.findEntityByAddress.mockResolvedValue({});
       mockSynapseInstance = { ...mockSynapseInstance, client: {} } as unknown as Synapse;
-      vi.spyOn(mockWalletSdkService, "getProviderInfo").mockReturnValue(mockProviderInfo);
+      vi.spyOn(mockProviderRegistryRepository, "findByAddress").mockReturnValue(mockProviderInfo);
       vi.spyOn(service as any, "createSynapseInstance").mockResolvedValue(mockSynapseInstance);
     });
 
@@ -352,7 +350,7 @@ describe("DealService", () => {
         };
 
         const providerInfo = { ...mockProviderInfo, isApproved: true };
-        mockStorageProviderRepository.findOne.mockResolvedValue({
+        mockProviderRegistryRepository.findEntityByAddress.mockResolvedValue({
           providerId: 42,
           isApproved: true,
         });
@@ -592,7 +590,7 @@ describe("DealService", () => {
         rootCid: CID.parse(mockRootCid),
       };
       const providerInfo = { ...mockProviderInfo, isApproved: false };
-      mockStorageProviderRepository.findOne.mockResolvedValue({
+      mockProviderRegistryRepository.findEntityByAddress.mockResolvedValue({
         providerId: 7,
         isApproved: false,
       });
@@ -627,7 +625,7 @@ describe("DealService", () => {
         rootCid: CID.parse(mockRootCid),
       };
       const providerInfo = { ...mockProviderInfo, isApproved: false };
-      mockStorageProviderRepository.findOne.mockResolvedValue({
+      mockProviderRegistryRepository.findEntityByAddress.mockResolvedValue({
         providerId: 7,
         isApproved: false,
       });
@@ -911,7 +909,7 @@ describe("DealService", () => {
         carData: Uint8Array.from([1, 2, 3]),
         rootCid: CID.parse(mockRootCid),
       };
-      mockStorageProviderRepository.findOne.mockResolvedValue({
+      mockProviderRegistryRepository.findEntityByAddress.mockResolvedValue({
         providerId: 42,
         isApproved: true,
       });
@@ -958,7 +956,7 @@ describe("DealService", () => {
         carData: Uint8Array.from([1, 2, 3]),
         rootCid: CID.parse(mockRootCid),
       };
-      mockStorageProviderRepository.findOne.mockResolvedValue({
+      mockProviderRegistryRepository.findEntityByAddress.mockResolvedValue({
         providerId: 42,
         isApproved: true,
       });
@@ -1104,7 +1102,7 @@ describe("DealService", () => {
             { provide: DealAddonsService, useValue: mockDealAddonsService },
             { provide: RetrievalAddonsService, useValue: mockRetrievalAddonsService },
             { provide: getRepositoryToken(Deal), useValue: mockDealRepository },
-            { provide: getRepositoryToken(StorageProvider), useValue: mockStorageProviderRepository },
+            { provide: StorageProviderRepository, useValue: mockProviderRegistryRepository },
             { provide: DataStorageCheckMetrics, useValue: mockDataStorageMetrics },
             { provide: RetrievalCheckMetrics, useValue: mockRetrievalMetrics },
             { provide: DataSetCreationCheckMetrics, useValue: mockDataSetCreationMetrics },
@@ -1288,7 +1286,7 @@ describe("DealService", () => {
     };
 
     beforeEach(() => {
-      vi.spyOn(mockWalletSdkService, "getProviderInfo").mockReturnValue(providerInfo);
+      vi.spyOn(mockProviderRegistryRepository, "findByAddress").mockReturnValue(providerInfo);
     });
 
     it("returns missing when createContext yields no dataSetId", async () => {
@@ -1355,7 +1353,7 @@ describe("DealService", () => {
     let probeSpy: ReturnType<typeof vi.spyOn>;
 
     beforeEach(() => {
-      vi.spyOn(mockWalletSdkService, "getProviderInfo").mockReturnValue(providerInfo);
+      vi.spyOn(mockProviderRegistryRepository, "findByAddress").mockReturnValue(providerInfo);
       probeSpy = vi.spyOn(service, "getDataSetProvisioningStatus");
     });
 
@@ -1441,7 +1439,7 @@ describe("DealService", () => {
 
   describe("repairTerminatedDataSet", () => {
     beforeEach(() => {
-      vi.spyOn(mockWalletSdkService, "getProviderInfo").mockReturnValue({ id: 1n, name: "sp" } as any);
+      vi.spyOn(mockProviderRegistryRepository, "findByAddress").mockReturnValue({ id: 1n, name: "sp" } as any);
     });
 
     it("terminates via provider relay and marks affected deals cleaned up in one transaction", async () => {
@@ -1556,8 +1554,8 @@ describe("DealService", () => {
       } as unknown as Synapse;
       const deal = Object.assign(new Deal(), { id: "deal-skip", spAddress: "0xProvider" });
       dealRepoMock.create.mockReturnValue(deal);
-      mockStorageProviderRepository.findOne.mockResolvedValue({ providerId: 1, isApproved: true });
-      vi.spyOn(mockWalletSdkService, "getProviderInfo").mockReturnValue(providerInfo);
+      mockProviderRegistryRepository.findEntityByAddress.mockResolvedValue({ providerId: 1, isApproved: true });
+      vi.spyOn(mockProviderRegistryRepository, "findByAddress").mockReturnValue(providerInfo);
       vi.spyOn(service as any, "createSynapseInstance").mockResolvedValue(synapseMock);
       mockDatasetLivenessService.isDataSetLive.mockResolvedValueOnce(false);
 
@@ -1617,7 +1615,7 @@ describe("DealService", () => {
     };
 
     it("throws when provider is not found in registry", async () => {
-      vi.spyOn(mockWalletSdkService, "getProviderInfo").mockReturnValue(undefined);
+      vi.spyOn(mockProviderRegistryRepository, "findByAddress").mockReturnValue(undefined);
 
       await expect(service.createDataSetWithPiece("0xunknown", { dealbotDS: "1" }, DEFAULT_NETWORK)).rejects.toThrow(
         "Provider 0xunknown not found in registry",
@@ -1625,7 +1623,7 @@ describe("DealService", () => {
     });
 
     it("creates dataset with piece via createContext + executeUpload", async () => {
-      vi.spyOn(mockWalletSdkService, "getProviderInfo").mockReturnValue(mockProviderInfo);
+      vi.spyOn(mockProviderRegistryRepository, "findByAddress").mockReturnValue(mockProviderInfo);
 
       const createContextMock = vi.fn().mockResolvedValue({ dataSetId: 42 });
       const synapseMock = {
@@ -1668,7 +1666,7 @@ describe("DealService", () => {
     });
 
     it("does not invoke data-storage-check metrics or Deal persistence", async () => {
-      vi.spyOn(mockWalletSdkService, "getProviderInfo").mockReturnValue(mockProviderInfo);
+      vi.spyOn(mockProviderRegistryRepository, "findByAddress").mockReturnValue(mockProviderInfo);
       const createContextMock = vi.fn().mockResolvedValue({ dataSetId: 1 });
       mockWalletSdkService.tryGetSynapse.mockReturnValue({
         storage: { createContext: createContextMock },
@@ -1688,7 +1686,7 @@ describe("DealService", () => {
     });
 
     it("fails when upload completes without a pieceCid", async () => {
-      vi.spyOn(mockWalletSdkService, "getProviderInfo").mockReturnValue(mockProviderInfo);
+      vi.spyOn(mockProviderRegistryRepository, "findByAddress").mockReturnValue(mockProviderInfo);
       mockWalletSdkService.tryGetSynapse.mockReturnValue({
         storage: { createContext: vi.fn().mockResolvedValue({ dataSetId: 1 }) },
       });
@@ -1709,7 +1707,7 @@ describe("DealService", () => {
     });
 
     it("succeeds when upload finishes without both piecesAdded and piecesConfirmed", async () => {
-      vi.spyOn(mockWalletSdkService, "getProviderInfo").mockReturnValue(mockProviderInfo);
+      vi.spyOn(mockProviderRegistryRepository, "findByAddress").mockReturnValue(mockProviderInfo);
       vi.spyOn(service as any, "createSynapseInstance").mockImplementation(
         () =>
           ({
@@ -1729,7 +1727,7 @@ describe("DealService", () => {
     });
 
     it("aborts when signal is aborted during upload", async () => {
-      vi.spyOn(mockWalletSdkService, "getProviderInfo").mockReturnValue(mockProviderInfo);
+      vi.spyOn(mockProviderRegistryRepository, "findByAddress").mockReturnValue(mockProviderInfo);
       vi.spyOn(service as any, "createSynapseInstance").mockImplementation(
         () =>
           ({
