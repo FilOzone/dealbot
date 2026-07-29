@@ -2,28 +2,36 @@ import { Injectable, Logger } from "@nestjs/common";
 import { PDPProvider } from "filecoin-pin";
 import { waitForIpniProviderResults } from "filecoin-pin/core/utils";
 import { CID } from "multiformats/cid";
-import type { StorageProvider } from "../database/entities/storage-provider.entity.js";
 import type { IPNIVerificationResult } from "../deal-addons/strategies/ipni.types.js";
 import type { PDPProviderEx } from "../wallet-sdk/wallet-sdk.types.js";
+
+/**
+ * The only provider fields `verify()` reads. Deliberately narrower than the full
+ * `StorageProvider` entity: a real `StorageProvider` row satisfies this structurally
+ * (extra columns are simply ignored), and `pdpProviderToIpniInput` can build one
+ * directly from a hydrated `PDPProviderEx` without an unsafe cast.
+ */
+export interface IpniVerificationProviderInput {
+  address: string;
+  providerId: bigint | null;
+  name: string;
+  description: string;
+  payee: string;
+  isActive: boolean;
+  serviceUrl: string | null;
+}
 
 export type IpniVerificationInput = {
   rootCid: CID;
   blockCids?: CID[];
-  storageProvider: StorageProvider;
+  storageProvider: IpniVerificationProviderInput;
   timeoutMs: number;
   pollIntervalMs: number;
   ipniIndexerUrl?: string;
   signal?: AbortSignal;
 };
 
-/**
- * Adapts a hydrated `PDPProviderEx` (the shape `StorageProviderRepository` returns) into
- * the `StorageProvider`-shaped input this service expects. `verify()` only reads `address`,
- * `providerId`, `name`, `description`, `payee`, `isActive`, and `serviceUrl` off it — every
- * other `StorageProvider` column is irrelevant here, so this cast is safe despite being
- * structurally partial.
- */
-export function pdpProviderToIpniInput(provider: PDPProviderEx): StorageProvider {
+export function pdpProviderToIpniInput(provider: PDPProviderEx): IpniVerificationProviderInput {
   return {
     address: provider.serviceProvider,
     providerId: provider.id,
@@ -31,11 +39,11 @@ export function pdpProviderToIpniInput(provider: PDPProviderEx): StorageProvider
     description: provider.description,
     payee: provider.payee,
     isActive: provider.isActive,
-    serviceUrl: provider.pdp?.serviceURL,
-  } as unknown as StorageProvider;
+    serviceUrl: provider.pdp?.serviceURL ?? null,
+  };
 }
 
-type StorageProviderWithUrl = Omit<StorageProvider, "serviceUrl"> & {
+type ProviderInputWithUrl = Omit<IpniVerificationProviderInput, "serviceUrl"> & {
   serviceUrl: string;
 };
 
@@ -63,7 +71,7 @@ export class IpniVerificationService {
     // so N attempts span only (N-1) delays. Adding 1 ensures the attempt budget covers
     // the full timeout window rather than falling short by up to one delayMs interval.
     const maxAttempts = Math.max(1, Math.ceil(timeoutMs / delayMs) + 1);
-    const expectedProviders = [this.buildExpectedProviderInfo(storageProvider as StorageProviderWithUrl)];
+    const expectedProviders = [this.buildExpectedProviderInfo(storageProvider as ProviderInputWithUrl)];
     const timeoutSignal = AbortSignal.timeout(timeoutMs);
     const verificationSignal = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
     let failureReason = "IPNI did not return expected provider results via filecoin-pin";
@@ -171,7 +179,7 @@ export class IpniVerificationService {
     };
   }
 
-  private buildExpectedProviderInfo(storageProvider: StorageProviderWithUrl): PDPProvider {
+  private buildExpectedProviderInfo(storageProvider: ProviderInputWithUrl): PDPProvider {
     return {
       id: storageProvider.providerId ?? 0n,
       serviceProvider: storageProvider.address as `0x${string}`,

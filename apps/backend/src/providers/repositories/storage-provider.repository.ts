@@ -39,7 +39,20 @@ export class StorageProviderRepository {
     const rows = await this.repo.find({
       where: { network, isActive: true, ...(useOnlyApprovedProviders ? { isApproved: true } : {}) },
     });
-    return rows.map((row) => this.hydrateProvider(row));
+    return rows.map((row) => this.hydrateProvider(row)).filter((provider) => provider != null);
+  }
+
+  /**
+   * Single-address variant of {@link findTestingProviders} — same active/approved
+   * gating, but as a targeted lookup for callers that already know the address
+   * (avoids pulling the whole network's provider set to find one row).
+   */
+  async findTestingProviderByAddress(address: string, network: Network): Promise<PDPProviderEx | undefined> {
+    const { useOnlyApprovedProviders } = this.configService.get("networks", { infer: true })[network];
+    const row = await this.repo.findOne({
+      where: { address, network, isActive: true, ...(useOnlyApprovedProviders ? { isApproved: true } : {}) },
+    });
+    return row ? this.hydrateProvider(row) : undefined;
   }
 
   async countByNetwork(network: Network): Promise<number> {
@@ -203,7 +216,24 @@ export class StorageProviderRepository {
     });
   }
 
-  private hydrateProvider(row: StorageProvider): PDPProviderEx {
+  /**
+   * Returns `undefined` (rather than a `0n`-id placeholder) when the row has no
+   * `providerId` — every current write path (`upsertFromRegistry`) always sets a
+   * real on-chain id, so a null here means corrupt/incomplete data, not "id zero".
+   * Treating it as absent keeps `PDPProviderEx.id` a trustworthy on-chain id
+   * everywhere it's read (metric labels, Clickhouse `sp_id`, Synapse SDK calls).
+   */
+  private hydrateProvider(row: StorageProvider): PDPProviderEx | undefined {
+    if (row.providerId == null) {
+      this.logger.warn({
+        event: "storage_provider_missing_provider_id",
+        message: "Storage provider row has no providerId; treating as unavailable",
+        address: row.address,
+        network: row.network,
+      });
+      return undefined;
+    }
+
     const pdp: Record<string, unknown> = { ...(row.metadata as Record<string, unknown>) };
     for (const field of BIGINT_PDP_FIELDS) {
       if (typeof pdp[field] === "string") {
@@ -212,7 +242,7 @@ export class StorageProviderRepository {
     }
 
     return {
-      id: row.providerId ?? 0n,
+      id: row.providerId,
       serviceProvider: row.address,
       payee: row.payee,
       name: row.name,

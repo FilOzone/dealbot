@@ -35,7 +35,7 @@ describe("JobsService schedule rows", () => {
   let dataRetentionServiceMock: { pollDataRetention: ReturnType<typeof vi.fn> };
   let providerRegistryRepositoryMock: {
     findByAddress: ReturnType<typeof vi.fn>;
-    findTestingProviders: ReturnType<typeof vi.fn>;
+    findTestingProviderByAddress: ReturnType<typeof vi.fn>;
     findActiveAddresses: ReturnType<typeof vi.fn>;
     countByNetwork: ReturnType<typeof vi.fn>;
     countActiveByNetwork: ReturnType<typeof vi.fn>;
@@ -107,7 +107,7 @@ describe("JobsService schedule rows", () => {
 
     providerRegistryRepositoryMock = {
       findByAddress: vi.fn(async () => undefined),
-      findTestingProviders: vi.fn(async () => []),
+      findTestingProviderByAddress: vi.fn(async () => undefined),
       findActiveAddresses: vi.fn(async () => []),
       countByNetwork: vi.fn(async () => 0),
       countActiveByNetwork: vi.fn(async () => 0),
@@ -332,7 +332,7 @@ describe("JobsService schedule rows", () => {
       loadProviders: vi.fn(),
     };
     const providerRegistryRepository = {
-      findTestingProviders: vi.fn(() => [{ serviceProvider: "0xaaa" }]),
+      findTestingProviderByAddress: vi.fn(() => ({ serviceProvider: "0xaaa" })),
       findByAddress: vi.fn(() => ({ id: 1, name: "test-provider" })),
     };
 
@@ -1087,7 +1087,7 @@ describe("JobsService schedule rows", () => {
       loadProviders: vi.fn(),
     };
     const providerRegistryRepository = {
-      findTestingProviders: vi.fn(() => [{ serviceProvider: "0xaaa" }]),
+      findTestingProviderByAddress: vi.fn(() => ({ serviceProvider: "0xaaa" })),
       findByAddress: vi.fn(() => ({ id: 1, name: "test-provider" })),
     };
 
@@ -1123,7 +1123,7 @@ describe("JobsService schedule rows", () => {
       loadProviders: vi.fn(),
     };
     const providerRegistryRepository = {
-      findTestingProviders: vi.fn(() => [{ serviceProvider: "0xaaa" }]),
+      findTestingProviderByAddress: vi.fn(() => ({ serviceProvider: "0xaaa" })),
       findByAddress: vi.fn(() => ({ id: 1, name: "test-provider" })),
     };
 
@@ -1165,7 +1165,7 @@ describe("JobsService schedule rows", () => {
       loadProviders: vi.fn(),
     };
     const providerRegistryRepository = {
-      findTestingProviders: vi.fn(() => [{ serviceProvider: "0xaaa" }]),
+      findTestingProviderByAddress: vi.fn(() => ({ serviceProvider: "0xaaa" })),
       findByAddress: vi.fn(() => ({ id: 1, name: "test-provider" })),
     };
 
@@ -1660,7 +1660,7 @@ describe("JobsService schedule rows", () => {
       loadProviders: vi.fn(),
     };
     const providerRegistryRepository = {
-      findTestingProviders: vi.fn(() => [{ serviceProvider: "0xaaa", id: 1n }]),
+      findTestingProviderByAddress: vi.fn(() => ({ serviceProvider: "0xaaa", id: 1n })),
       findByAddress: vi.fn(() => ({ id: 1n, name: "sp" })),
     };
 
@@ -1813,7 +1813,7 @@ describe("JobsService schedule rows", () => {
       loadProviders: vi.fn(),
     };
     const providerRegistryRepository = {
-      findTestingProviders: vi.fn(() => []),
+      findTestingProviderByAddress: vi.fn(() => undefined),
       findByAddress: vi.fn(() => undefined),
     };
 

@@ -168,6 +168,8 @@ export class PieceCleanupService {
     let bytesRemoved = 0;
 
     const synapse = this.walletSdkService.tryGetSynapse(network) ?? (await this.createSynapseInstance(network));
+    // Resolved once for the whole run — every candidate below belongs to this same spAddress/network.
+    const providerId = (await this.storageProviderRepository.findByAddress(spAddress, network))?.id;
 
     // Fetch candidates in batches. Keep deleting until back under quota or runtime cap.
     while (bytesRemoved < excessBytes) {
@@ -201,7 +203,7 @@ export class PieceCleanupService {
         }
 
         try {
-          await this.deletePiece(deal, network, signal, synapse, cleanupLogContext);
+          await this.deletePiece(deal, network, signal, synapse, cleanupLogContext, providerId);
           deleted++;
           batchDeletedCount++;
           bytesRemoved += Number(deal.pieceSize || 0);
@@ -343,6 +345,10 @@ export class PieceCleanupService {
 
   /**
    * Delete a single piece via Synapse SDK and mark the deal as cleaned up.
+   *
+   * `providerId` may be supplied by callers that already resolved it (e.g.
+   * `cleanupPiecesForProvider`, which loops over many deals for the same
+   * provider and resolves it once) to avoid a redundant lookup per piece.
    */
   async deletePiece(
     deal: Deal,
@@ -350,6 +356,7 @@ export class PieceCleanupService {
     signal?: AbortSignal,
     existingSynapse?: Synapse,
     logContext?: PieceCleanupLogContext,
+    providerId?: bigint,
   ): Promise<void> {
     if (deal.pieceId == null) {
       throw new Error(`Deal ${deal.id} is missing pieceId`);
@@ -360,14 +367,15 @@ export class PieceCleanupService {
 
     signal?.throwIfAborted();
 
-    const providerId = (await this.storageProviderRepository.findByAddress(deal.spAddress, network))?.id;
-    if (providerId === undefined) {
+    const resolvedProviderId =
+      providerId ?? (await this.storageProviderRepository.findByAddress(deal.spAddress, network))?.id;
+    if (resolvedProviderId === undefined) {
       throw new Error(`Provider ID not found for SP address ${deal.spAddress}`);
     }
     const synapse =
       existingSynapse ?? this.walletSdkService.tryGetSynapse(network) ?? (await this.createSynapseInstance(network));
     const storage = await synapse.storage.createContext({
-      providerId,
+      providerId: resolvedProviderId,
       dataSetId: deal.dataSetId,
     });
 

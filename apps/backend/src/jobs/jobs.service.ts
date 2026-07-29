@@ -565,9 +565,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         return "success";
       }
       try {
-        const provider = (await this.storageProviderRepository.findTestingProviders(network)).find(
-          (p) => p.serviceProvider === spAddress,
-        );
+        const provider = await this.storageProviderRepository.findTestingProviderByAddress(spAddress, network);
         if (!provider) {
           this.logger.warn({
             ...logContext,
