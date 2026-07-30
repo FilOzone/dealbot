@@ -7,7 +7,7 @@ import { Network } from "../common/types.js";
 import { Deal } from "../database/entities/deal.entity.js";
 import { Retrieval } from "../database/entities/retrieval.entity.js";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
-import { RetrievalStatus } from "../database/types.js";
+import { RetrievalStatus, ServiceType } from "../database/types.js";
 import { DatasetLivenessService } from "../dataset-liveness/dataset-liveness.service.js";
 import { IpniVerificationService } from "../ipni/ipni-verification.service.js";
 import { DiscoverabilityCheckMetrics, RetrievalCheckMetrics } from "../metrics-prometheus/check-metrics.service.js";
@@ -166,6 +166,97 @@ describe("RetrievalService timeouts", () => {
         errorMessage: timeoutError,
       }),
     );
+  });
+
+  it("writes a FAILED sentinel retrieval when deal is missing dataSetId", async () => {
+    service = await createService();
+
+    mockSpRepository.findOne.mockResolvedValue({ address: "0xsp", name: "Test SP" });
+    mockRetrievalRepository.create.mockImplementation(
+      (data: Parameters<typeof mockRetrievalRepository.create>[0]) =>
+        data as ReturnType<typeof mockRetrievalRepository.create>,
+    );
+    mockRetrievalRepository.save.mockImplementation(
+      async (data: Parameters<typeof mockRetrievalRepository.save>[0]) =>
+        data as ReturnType<typeof mockRetrievalRepository.save>,
+    );
+
+    const deal = buildDeal({ dataSetId: null });
+    const result = await service.performAllRetrievals(deal);
+
+    // The sentinel is returned to the caller (e.g. dev-tools manual trigger)
+    // instead of being silently dropped, so failure reasons stay visible.
+    expect(result).toEqual([
+      expect.objectContaining({
+        deal,
+        serviceType: ServiceType.IPFS_PIN,
+        status: RetrievalStatus.FAILED,
+        errorMessage: expect.stringContaining("missing dataSetId or pieceId"),
+      }),
+    ]);
+    // A FAILED sentinel row must be saved so COUNT(*)-based deal selection
+    // advances past this deal (starvation prevention).
+    expect(mockRetrievalRepository.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        deal,
+        serviceType: ServiceType.IPFS_PIN,
+        status: RetrievalStatus.FAILED,
+        errorMessage: expect.stringContaining("missing dataSetId or pieceId"),
+      }),
+    );
+  });
+
+  it("writes a FAILED sentinel retrieval when IPNI CIDs are invalid and re-throws", async () => {
+    service = await createService();
+
+    mockSpRepository.findOne.mockResolvedValue({ address: "0xsp", name: "Test SP", serviceUrl: null });
+    mockRetrievalRepository.create.mockImplementation(
+      (data: Parameters<typeof mockRetrievalRepository.create>[0]) =>
+        data as ReturnType<typeof mockRetrievalRepository.create>,
+    );
+    mockRetrievalRepository.save.mockImplementation(
+      async (data: Parameters<typeof mockRetrievalRepository.save>[0]) =>
+        data as ReturnType<typeof mockRetrievalRepository.save>,
+    );
+    // Override to make isPgBossMode() return true so getIpniCidsForRetrieval is called.
+    // isPgBossMode() requires (runMode=api && pgbossSchedulerEnabled=true) or runMode=worker/both.
+    const originalGetImpl = mockConfigService.get.getMockImplementation();
+    mockConfigService.get.mockImplementation((key: string) => {
+      if (key === "app") return { runMode: "api" };
+      if (key === "jobs") return { pgbossSchedulerEnabled: true };
+      if (key === "networks") return { calibration: { walletAddress: "0x123" } };
+      if (key === "dataset") return { randomDatasetSizes: [10] };
+      if (key === "timeouts") return { ipniVerificationTimeoutMs: 10_000, ipniVerificationPollingMs: 2_000 };
+      return undefined;
+    });
+
+    try {
+      const deal = buildDeal({
+        metadata: {
+          ipfs_pin: {
+            enabled: true,
+            rootCID: "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi",
+            blockCIDs: [], // empty → triggers throw
+            blockCount: 0,
+            carSize: 0,
+            originalSize: 0,
+          },
+        },
+      });
+
+      await expect(service.performAllRetrievals(deal)).rejects.toThrow("missing block CIDs");
+
+      expect(mockRetrievalRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          deal,
+          serviceType: ServiceType.IPFS_PIN,
+          status: RetrievalStatus.FAILED,
+          errorMessage: expect.stringContaining("missing block CIDs"),
+        }),
+      );
+    } finally {
+      if (originalGetImpl) mockConfigService.get.mockImplementation(originalGetImpl);
+    }
   });
 
   it("emits retrieval timing and status metrics", async () => {
@@ -611,6 +702,7 @@ describe("RetrievalService DB/provider drift", () => {
 
   function createMockQueryBuilder() {
     const calls: Array<{ clause: string; params?: Record<string, unknown> }> = [];
+    const orderByCalls: Array<{ sort: string; order?: string }> = [];
     const qb = {
       innerJoin: vi.fn().mockReturnThis(),
       where: vi.fn().mockReturnThis(),
@@ -618,13 +710,20 @@ describe("RetrievalService DB/provider drift", () => {
         calls.push({ clause, params });
         return qb;
       }),
-      orderBy: vi.fn().mockReturnThis(),
+      orderBy: vi.fn((sort: string, order?: string) => {
+        orderByCalls.push({ sort, order });
+        return qb;
+      }),
+      addOrderBy: vi.fn((sort: string, order?: string) => {
+        orderByCalls.push({ sort, order });
+        return qb;
+      }),
       take: vi.fn().mockReturnThis(),
       limit: vi.fn().mockReturnThis(),
       getMany: vi.fn().mockResolvedValue([]),
       getOne: vi.fn().mockResolvedValue(null),
     };
-    return { qb, calls };
+    return { qb, calls, orderByCalls };
   }
 
   async function createServiceWithQb(mockQb: ReturnType<typeof createMockQueryBuilder>["qb"]) {
@@ -667,6 +766,23 @@ describe("RetrievalService DB/provider drift", () => {
     const walletAddressCall = calls.find((c) => c.clause.includes("wallet_address"));
     expect(walletAddressCall).toBeDefined();
     expect(walletAddressCall?.params).toEqual({ walletAddress: "0x123" });
+  });
+
+  it("selectRandomSuccessfulDealForProvider orders by prior ipfs_pin retrieval count before random tiebreak", async () => {
+    const { qb, orderByCalls } = createMockQueryBuilder();
+    const svc = (await createServiceWithQb(qb)) as unknown as {
+      selectRandomSuccessfulDealForProvider: (spAddress: string, network: Network) => Promise<Deal | null>;
+    };
+
+    await svc.selectRandomSuccessfulDealForProvider("0xSP", "calibration");
+
+    expect(orderByCalls).toHaveLength(2);
+    const [primary, tiebreak] = orderByCalls;
+    expect(primary.sort).toContain("SELECT COUNT(*) FROM retrievals r");
+    expect(primary.sort).toContain("r.deal_id = deal.id");
+    expect(primary.sort).toContain("r.service_type = 'ipfs_pin'");
+    expect(primary.order).toBe("ASC");
+    expect(tiebreak.sort).toBe("RANDOM()");
   });
 });
 
@@ -773,7 +889,8 @@ describe("RetrievalService SP piece status pre-flight", () => {
 
     const result = await service.performAllRetrievals(buildDeal({ pieceId: null as unknown as number }));
 
-    expect(result).toEqual([]);
+    // The FAILED sentinel is returned to the caller instead of being dropped.
+    expect(result).toEqual([expect.objectContaining({ status: RetrievalStatus.FAILED })]);
     expect(mockDealRepository.update).not.toHaveBeenCalled();
     expect(mockDatasetLivenessService.isPieceLive).not.toHaveBeenCalled();
     expect(fetchMock).not.toHaveBeenCalled();

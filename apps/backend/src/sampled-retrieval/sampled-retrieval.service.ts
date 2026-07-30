@@ -55,7 +55,7 @@ export class SampledRetrievalService {
       if (signal?.aborted) {
         throw new Error(`Sampled retrieval aborted during piece selection for SP ${spAddress}`);
       }
-      this.recordSkippedCheck(spAddress, provider, labels, logContext);
+      this.recordSkippedCheck(spAddress, network, provider, labels, logContext);
       return;
     }
 
@@ -156,7 +156,7 @@ export class SampledRetrievalService {
       const blockFetchStatus = blockFetchStatusForRow(parse, blockFetch);
 
       try {
-        this.clickhouseService.insert(SAMPLED_RETRIEVAL_CHECKS_TABLE, {
+        this.clickhouseService.insert(network, SAMPLED_RETRIEVAL_CHECKS_TABLE, {
           timestamp: startedAt.getTime(),
           probe_location: this.clickhouseService.probeLocation,
           sp_address: spAddress,
@@ -228,6 +228,7 @@ export class SampledRetrievalService {
    */
   private recordSkippedCheck(
     spAddress: string,
+    network: Network,
     provider: StorageProvider | null,
     labels: CheckMetricLabels,
     logContext?: ProviderJobContext,
@@ -239,7 +240,7 @@ export class SampledRetrievalService {
     this.metrics.recordPieceRetrievalStatus(labels, "skipped");
 
     try {
-      this.clickhouseService.insert(SAMPLED_RETRIEVAL_CHECKS_TABLE, {
+      this.clickhouseService.insert(network, SAMPLED_RETRIEVAL_CHECKS_TABLE, {
         timestamp: startedAt.getTime(),
         probe_location: this.clickhouseService.probeLocation,
         sp_address: spAddress,

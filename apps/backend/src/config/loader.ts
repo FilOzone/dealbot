@@ -79,7 +79,6 @@ const loadJobsConfig = (env: NodeJS.ProcessEnv): IJobsConfig => ({
 });
 
 const loadClickhouseConfig = (env: NodeJS.ProcessEnv): IClickhouseConfig => ({
-  url: env.CLICKHOUSE_URL || undefined,
   batchSize: getNumberEnv(env, "CLICKHOUSE_BATCH_SIZE", 500),
   flushIntervalMs: getNumberEnv(env, "CLICKHOUSE_FLUSH_INTERVAL_MS", 5000),
   maxBufferSize: getNumberEnv(env, "CLICKHOUSE_MAX_BUFFER_SIZE", 5000),
@@ -145,6 +144,7 @@ function loadNetworkEnvPrefix(
   const base = {
     walletAddress: resolve("WALLET_ADDRESS") ?? ZERO_ADDRESS,
     rpcUrl: resolve("RPC_URL"),
+    clickhouseUrl: resolve("CLICKHOUSE_URL")?.trim() || undefined,
     rpcRequestTimeoutMs: coerceNumber(resolve("RPC_REQUEST_TIMEOUT_MS"), networkDefaults.rpcRequestTimeoutMs),
     pdpSubgraphEndpoint: resolve("PDP_SUBGRAPH_ENDPOINT"),
     subgraphEndpoint: resolve("SUBGRAPH_ENDPOINT"),

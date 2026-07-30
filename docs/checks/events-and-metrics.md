@@ -224,7 +224,7 @@ Unlike the [count metrics](#count-related-metrics) above, gauges below expose a 
 
 ## ClickHouse Tables
 
-When `CLICKHOUSE_URL` is configured, dealbot writes one row per check result to ClickHouse for long-term storage and analysis. All tables are partitioned by month with a 1-year TTL.
+When `<NET>_CLICKHOUSE_URL` is configured, dealbot writes that network's check results to its selected ClickHouse database for long-term storage and analysis. Each configured network uses a different database, so queries select the database for the network of interest. All tables are partitioned by month with a 1-year TTL.
 
 > **Source of truth**: the DDL and column-level comments in [`clickhouse.schema.ts`](../../apps/backend/src/clickhouse/clickhouse.schema.ts) are authoritative. The summary below is for orientation only.
 
@@ -232,6 +232,7 @@ When `CLICKHOUSE_URL` is configured, dealbot writes one row per check result to 
 - **`retrieval_checks`** — one row per retrieval attempt. Populated by [`retrieval.service.ts`](../../apps/backend/src/retrieval/retrieval.service.ts).
 - **`sampled_retrieval_checks`** — one row per [Sampled Retrieval check](./sampled-retrievals.md) attempt; emitted even on abort or unexpected error. Populated by [`sampled-retrieval.service.ts`](../../apps/backend/src/sampled-retrieval/sampled-retrieval.service.ts). See [Sampled Retrieval § Result Recording](./sampled-retrievals.md#result-recording) for column-level meanings.
 - **`data_retention_challenges`** — one row per provider per poll cycle. Populated by [`data-retention.service.ts`](../../apps/backend/src/data-retention/data-retention.service.ts).
+- **`pull_checks`** — one row per [Pull Check](./pull-check.md) attempt. Populated by [`pull-check.service.ts`](../../apps/backend/src/pull-check/pull-check.service.ts).
 
 All tables share the primary key `(probe_location, sp_address, timestamp)`:
 
