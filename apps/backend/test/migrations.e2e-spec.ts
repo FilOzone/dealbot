@@ -328,12 +328,12 @@ describeWithDocker("Migrations (integration)", () => {
     const nextRunAt = new Date().toISOString();
     await dataSource.query(
       `
-        INSERT INTO job_schedule_state (job_type, sp_address, interval_seconds, next_run_at, paused)
+        INSERT INTO job_schedule_state (job_type, sp_address, network, interval_seconds, next_run_at, paused)
         VALUES
-          ('metrics',         '',        1800,   $1, false),
-          ('metrics_cleanup', '',        604800, $1, false),
-          ('deal',            '0xkeep',  3600,   $1, false)
-        ON CONFLICT (job_type, sp_address) DO NOTHING
+          ('metrics',         '',        'calibration', 1800,   $1, false),
+          ('metrics_cleanup', '',        'calibration', 604800, $1, false),
+          ('deal',            '0xkeep',  'calibration', 3600,   $1, false)
+        ON CONFLICT (job_type, sp_address, network) DO NOTHING
       `,
       [nextRunAt],
     );
