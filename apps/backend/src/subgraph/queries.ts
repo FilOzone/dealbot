@@ -21,6 +21,25 @@ export const Queries = {
       }
     }
   `,
+  GET_ACTIVE_DEALBOT_DATASETS: `
+    query GetActiveDealbotDataSets($payer: Bytes!, $cursor: Bytes!, $first: Int!) {
+      _meta {
+        block {
+          number
+        }
+      }
+      dataSets(
+        first: $first
+        orderBy: id
+        orderDirection: asc
+        where: {fwssPayer: $payer, isActive: true, id_gt: $cursor}
+        subgraphError: allow
+      ) {
+        id
+        fwssServiceProvider
+      }
+    }
+  `,
 } as const;
 
 /**

@@ -6,6 +6,8 @@ import type { Network } from "../common/types.js";
 import type { IConfig } from "../config/index.js";
 import { buildSamplePieceQuery, Queries } from "./queries.js";
 import type {
+  ActiveDataSetInventory,
+  ActiveDataSetPageResponse,
   CandidatePiece,
   GraphQLResponse,
   ProviderDataSetResponse,
@@ -15,6 +17,7 @@ import type {
 } from "./types.js";
 import {
   decodePieceCid,
+  validateActiveDataSetPageResponse,
   validateProviderDataSetResponse,
   validateSamplePieceResponse,
   validateSubgraphMetaResponse,
@@ -103,6 +106,40 @@ export class SubgraphService {
       {},
       validateSubgraphMetaResponse,
     );
+  }
+
+  /** Count active FWSS data sets owned by one payer, grouped by SP address. */
+  async fetchActiveDataSetCounts(network: Network, payer: string): Promise<ActiveDataSetInventory> {
+    const counts = new Map<string, number>();
+    const pageSize = 1000;
+    let cursor = "0x00";
+    let indexedAtBlock = 0;
+
+    while (true) {
+      const page = await this.executeQuery<ActiveDataSetPageResponse>(
+        network,
+        "active_datasets",
+        Queries.GET_ACTIVE_DEALBOT_DATASETS,
+        { payer: payer.toLowerCase(), cursor, first: pageSize },
+        validateActiveDataSetPageResponse,
+      );
+      indexedAtBlock = Math.max(indexedAtBlock, page._meta.block.number);
+
+      for (const dataSet of page.dataSets) {
+        if (dataSet.fwssServiceProvider == null) continue;
+        const provider = dataSet.fwssServiceProvider.toLowerCase();
+        counts.set(provider, (counts.get(provider) ?? 0) + 1);
+      }
+
+      if (page.dataSets.length < pageSize) break;
+      const nextCursor = page.dataSets.at(-1)?.id;
+      if (nextCursor == null || nextCursor === cursor) {
+        throw new Error("Active dataset pagination did not advance");
+      }
+      cursor = nextCursor;
+    }
+
+    return { countsByAddress: counts, indexedAtBlock };
   }
 
   /**
