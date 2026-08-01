@@ -331,6 +331,26 @@ const metricProviders = [
     help: "Wallet balance in base units (per currency)",
     labelNames: ["currency", "wallet", "network"] as const,
   }),
+  makeGaugeProvider({
+    name: "dealbot_active_datasets",
+    help: "Current active FWSS data sets owned by the configured Dealbot wallet, grouped by provider",
+    labelNames: ["network", "providerId", "providerName", "providerStatus"] as const,
+  }),
+  makeGaugeProvider({
+    name: "dealbot_expected_active_datasets",
+    help: "Configured minimum active Dealbot data sets per provider",
+    labelNames: ["network"] as const,
+  }),
+  makeGaugeProvider({
+    name: "dealbot_active_datasets_last_success_timestamp_seconds",
+    help: "Unix timestamp of the most recent successful active Dealbot data-set inventory collection",
+    labelNames: ["network"] as const,
+  }),
+  makeGaugeProvider({
+    name: "dealbot_subgraph_indexed_block_number",
+    help: "Latest block indexed by the dealbot-owned subgraph during inventory collection",
+    labelNames: ["network"] as const,
+  }),
   // Job scheduler metrics (pg-boss)
   /**
    * Current queued jobs per type (pg-boss state: created).
