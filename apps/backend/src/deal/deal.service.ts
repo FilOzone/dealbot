@@ -706,18 +706,20 @@ export class DealService {
     metadata: Record<string, string>,
     network: Network,
     signal?: AbortSignal,
+    providerId?: bigint,
   ): Promise<
     { status: "missing" } | { status: "live"; dataSetId: bigint } | { status: "terminated"; dataSetId: bigint }
   > {
     signal?.throwIfAborted();
     const synapse = this.walletSdkService.tryGetSynapse(network) ?? (await this.createSynapseInstance(network));
-    const providerInfo = await this.storageProviderRepository.findByAddress(providerAddress, network);
-    if (!providerInfo) {
+    const resolvedProviderId =
+      providerId ?? (await this.storageProviderRepository.findByAddress(providerAddress, network))?.id;
+    if (resolvedProviderId == null) {
       throw new Error(`Provider ${providerAddress} not found in registry`);
     }
     const context = await awaitWithAbort(
       synapse.storage.createContext({
-        providerId: providerInfo.id,
+        providerId: resolvedProviderId,
         metadata,
       }),
       signal,

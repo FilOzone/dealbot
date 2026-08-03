@@ -1264,6 +1264,7 @@ describe("JobsService schedule rows", () => {
       { dealbotDataSetVersion: "v1" },
       DEFAULT_NETWORK,
       expect.any(AbortSignal),
+      1,
     );
   });
 

@@ -2,6 +2,7 @@ import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Raw, type Repository } from "typeorm";
+import { toJsonSafe } from "../../common/logging.js";
 import type { Network } from "../../common/types.js";
 import type { IConfig } from "../../config/index.js";
 import { StorageProvider } from "../../database/entities/storage-provider.entity.js";
@@ -31,8 +32,7 @@ export class StorageProviderRepository {
 
   /**
    * Testing providers are active providers, further narrowed to approved-only
-   * when the network config requires it (mirrors the policy `WalletSdkService`
-   * used to apply from its in-memory `NetworkState.config`).
+   * when the network config requires it.
    */
   async findTestingProviders(network: Network): Promise<PDPProviderEx[]> {
     const { useOnlyApprovedProviders } = this.configService.get("networks", { infer: true })[network];
@@ -44,8 +44,7 @@ export class StorageProviderRepository {
 
   /**
    * Single-address variant of {@link findTestingProviders} — same active/approved
-   * gating, but as a targeted lookup for callers that already know the address
-   * (avoids pulling the whole network's provider set to find one row).
+   * gating, but as a targeted lookup for callers that already know the address.
    */
   async findTestingProviderByAddress(address: string, network: Network): Promise<PDPProviderEx | undefined> {
     const { useOnlyApprovedProviders } = this.configService.get("networks", { infer: true })[network];
@@ -64,9 +63,8 @@ export class StorageProviderRepository {
   }
 
   /**
-   * Count of testing providers (active, optionally approved-only per network
-   * policy) — mirrors the `isActive`/`isApproved` filter in `findActiveAddresses`,
-   * but as a single count query for callers that don't need the rows themselves.
+   * Count of active testing providers further narrowed to approved-only
+   * when the network config requires it.
    */
   async countTestedByNetwork(network: Network): Promise<number> {
     const { useOnlyApprovedProviders } = this.configService.get("networks", { infer: true })[network];
@@ -77,8 +75,7 @@ export class StorageProviderRepository {
 
   /**
    * Address + providerId projection for active (optionally approved-only)
-   * providers — used by callers that need to iterate addresses (job
-   * scheduling, blocklist filtering) without the full hydrated object.
+   * providers.
    */
   async findActiveAddresses(network: Network): Promise<Array<{ address: string; providerId: bigint | null }>> {
     const { useOnlyApprovedProviders } = this.configService.get("networks", { infer: true })[network];
@@ -116,6 +113,14 @@ export class StorageProviderRepository {
       },
       select: ["address", "providerId", "name", "isApproved"],
     });
+  }
+
+  /**
+   * Lookup all providers for a given network (active/inactive, approved/unapproved)
+   */
+  async findAllByNetwork(network: Network): Promise<PDPProviderEx[]> {
+    const rows = await this.repo.find({ where: { network } });
+    return rows ? rows.map((r) => this.hydrateProvider(r)).filter((p) => p !== undefined) : [];
   }
 
   async upsertFromRegistry(providers: PDPProviderEx[], network: Network): Promise<void> {
@@ -204,9 +209,7 @@ export class StorageProviderRepository {
         isActive: info.isActive,
         isApproved: info.isApproved,
         location: info.pdp.location,
-        metadata: JSON.parse(
-          JSON.stringify(info.pdp, (_key, value) => (typeof value === "bigint" ? value.toString() : value)),
-        ),
+        metadata: toJsonSafe(info.pdp) as Record<string, unknown>,
       }),
     );
 
