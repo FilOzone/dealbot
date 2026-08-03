@@ -1,6 +1,6 @@
-# Data Retention Check
+# Storage Proving Check
 
-This document describes how dealbot's Data Retention check monitors storage provider (SP) performance in retaining data through Filecoin's Proof of Data Possession (PDP) protocol.
+This document describes how dealbot's Storage Proving check monitors storage provider (SP) performance in proving data possession through Filecoin's Proof of Data Possession (PDP) protocol.
 
 Source code links throughout this document point to the current implementation.
 
@@ -8,9 +8,9 @@ For event and metric definitions used by the dashboard, see [Dealbot Events & Me
 
 ## Overview
 
-The Data Retention check monitors storage providers' ability to retain data over time by tracking their PDP challenge performance. Unlike the [Data Storage check](./data-storage.md) which tests the upload and initial verification of new data, the Data Retention check evaluates how well providers maintain previously stored data.  (See also [Why is this called "data retention" vs. "data availability"?](#why-is-this-called-data-retention-vs-data-availability))
+The Storage Proving check monitors storage providers' proving reliability over time by tracking their PDP challenge performance. Unlike the [Data Storage check](./data-storage.md) which tests the upload and initial verification of new data, the Storage Proving check evaluates how well providers continue proving previously stored data.  (See also [Why is this called "Storage Proving" instead of "Data Retention"?](#why-is-this-called-storage-proving-instead-of-data-retention))
 
-Every data retention check cycle, dealbot:
+Every Storage Proving check cycle, dealbot:
 
 1. Queries the [PDP subgraph](https://docs.filecoin.io/smart-contracts/advanced/proof-of-data-possession) for provider-level challenge statistics
 2. Computes confirmed successful proving periods from the subgraph totals with estimated overdue periods for real-time monitoring
@@ -150,7 +150,7 @@ Providers are processed in batches of 50 to avoid overwhelming the subgraph API 
 
 **Why batching instead of per-provider scheduling?**
 
-The data retention check processes all providers in a single scheduled poll rather than creating individual job schedules per provider. This design choice is driven by several technical considerations:
+The Storage Proving check processes all providers in a single scheduled poll rather than creating individual job schedules per provider. This design choice is driven by several technical considerations:
 
 1. **Subgraph rate limiting**: Goldsky enforces strict rate limits (50 requests per 10-second window). Batching significantly reduces API load:
    - **Current batched approach** (100 providers): 2 batch requests + 1 metadata request = 3 total requests
@@ -206,11 +206,11 @@ See [`pdp_provider_estimated_overdue_periods`](./events-and-metrics.md#pdp_provi
 
 ## Configuration
 
-Key environment variables that control data retention check behavior:
+Key environment variables that control Storage Proving check behavior:
 
 | Variable                | Required | Default      | Description                                                                                      |
 | ----------------------- | -------- | ------------ | ------------------------------------------------------------------------------------------------ |
-| `PDP_SUBGRAPH_ENDPOINT` | No       | Empty string | The Graph API endpoint for PDP subgraph queries. When empty, data retention checks are disabled. |
+| `PDP_SUBGRAPH_ENDPOINT` | No       | Empty string | The Graph API endpoint for PDP subgraph queries. When empty, Storage Proving checks are disabled. |
 
 Source: [`app.config.ts`](../../apps/backend/src/config/app.config.ts)
 
@@ -341,13 +341,24 @@ If the database is unavailable on startup, the poll is aborted to prevent emitti
 ### How does this differ from the Data Storage check?
 
 - **Data Storage check**: Tests the full lifecycle of uploading new data (upload → onchain confirmation → IPNI indexing → retrieval)
-- **Data Retention check**: Monitors ongoing data retention through PDP challenge performance for previously stored data
+- **Storage Proving check**: Monitors ongoing proving reliability through PDP challenge performance for previously stored data
 
 Both checks work together to provide comprehensive storage provider quality metrics.
 
-### Why is this called "data retention" vs. "data availability"?
+### Why is this called "Storage Proving" instead of "Data Retention"?
 
-This check relies on the [Proof of Data Possession (PDP) protocol](https://github.com/FilOzone/pdp), which monitors data retention over time.  We use "data retention" to be precise about the nature of the check.
+This check was previously called "Data Retention." That name implied data loss or deletion — as though a gap in the metric meant an SP had failed to keep data around. In reality, the check relies on the [Proof of Data Possession (PDP) protocol](https://github.com/FilOzone/pdp), which measures **proving reliability**: whether an SP is successfully responding to on-chain challenges. A gap in this metric more often reflects node uptime or proving issues than actual data loss. "Storage Proving" more accurately names what's being measured, and sets a clearer expectation for auditors evaluating network and SP health.
+
+> Storage proving = “Is the SP still proving it has the data, on-chain?”
+
+Storage proving is about **verifiable possession over time**:
+
+- Whether the SP is responding to PDP challenges on schedule
+- Whether the on-chain proof record shows faulted or overdue proving periods
+- Policies like `CHALLENGES_PER_PROVING_PERIOD`, proving-period deadlines, fault-rate thresholds
+- Typical metrics/controls: proving-period fault rate, challenge success/failure counts, overdue-proof gauges
+
+Example: “An SP missed 3 of its last 500 proof challenges” is a storage-proving signal, independent of whether the data itself was ever unreachable or deleted.
 
 > Data retention = “How long do we keep it?”
 
@@ -375,3 +386,6 @@ Example: “Users must be able to fetch their profile data 99.9% of the time” 
 
 - You can have **high retention, low availability**: data is safely stored in cold archive, but slow or hard to retrieve.
 - You can have **high availability, low retention**: data is accessible right now, but only for a short window (e.g., ephemeral caches, short TTL event streams).
+- You can have **high retention and availability, but low proving reliability**: the data is intact and fetchable, but the SP's on-chain proof record shows gaps or faults — which is exactly the signal Storage Proving is designed to catch.
+
+> **Note**: The file (`data-retention.md`), source files (e.g., `data-retention.service.ts`), and database objects (e.g., the `data_retention_baselines` table) keep their original "data retention" naming, since other documentation and code already link to them. Only the check's display name and this documentation have been updated.
