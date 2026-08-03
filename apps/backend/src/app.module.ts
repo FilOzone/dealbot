@@ -10,6 +10,7 @@ import { DataSourceModule } from "./dataSource/dataSource.module.js";
 import { DealModule } from "./deal/deal.module.js";
 import { DevToolsModule } from "./dev-tools/dev-tools.module.js";
 import { JobsModule } from "./jobs/jobs.module.js";
+import { ActiveDataSetsModule } from "./metrics-prometheus/active-datasets.module.js";
 import { MetricsPrometheusModule } from "./metrics-prometheus/metrics-prometheus.module.js";
 import { WalletBalanceModule } from "./metrics-prometheus/wallet-balance.module.js";
 import { ProvidersModule } from "./providers/providers.module.js";
@@ -28,6 +29,7 @@ import { SampledRetrievalModule } from "./sampled-retrieval/sampled-retrieval.mo
     DatabaseModule,
     MetricsPrometheusModule,
     WalletBalanceModule,
+    ActiveDataSetsModule,
     ClickhouseModule,
     JobsModule,
     DealModule,

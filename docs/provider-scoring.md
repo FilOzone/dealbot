@@ -51,7 +51,7 @@ The three active check types are combined as a weighted average of their individ
 
 | Check | Weight | Rationale |
 |---|---|---|
-| Data retention | 40 % | Data loss is the worst outcome for a storage service; ongoing proof-of-custody is hard to fake and has no client-side recovery path |
+| Storage Proving | 40 % | Data loss is the worst outcome for a storage service; ongoing proof-of-custody is hard to fake and has no client-side recovery path |
 | Data retrieval | 35 % | Inability to serve stored data when a client needs it is an immediately user-visible failure with no retry on the client side |
 | Data storage | 25 % | Upload failures are retryable; important as the end-to-end ingest signal but lower stakes than the read path |
 
