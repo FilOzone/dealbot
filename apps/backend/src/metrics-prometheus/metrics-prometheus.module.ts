@@ -6,7 +6,6 @@ import {
   makeHistogramProvider,
   PrometheusModule,
 } from "@willsoto/nestjs-prometheus";
-import { WalletSdkModule } from "../wallet-sdk/wallet-sdk.module.js";
 import {
   DataSetCreationCheckMetrics,
   DataSetLifecycleCheckMetrics,
@@ -17,7 +16,6 @@ import {
   SampledRetrievalCheckMetrics,
 } from "./check-metrics.service.js";
 import { MetricsPrometheusInterceptor } from "./metrics-prometheus.interceptor.js";
-import { WalletBalanceCollector } from "./wallet-balance.collector.js";
 
 const KiB = 1 << 10;
 const MiB = 1 << 20;
@@ -443,7 +441,6 @@ const metricProviders = [
 @Global()
 @Module({
   imports: [
-    WalletSdkModule,
     PrometheusModule.register({
       defaultMetrics: {
         enabled: true,
@@ -466,7 +463,6 @@ const metricProviders = [
     DataSetLifecycleCheckMetrics,
     PullCheckCheckMetrics,
     SampledRetrievalCheckMetrics,
-    WalletBalanceCollector,
     // HTTP metrics interceptor
     {
       provide: APP_INTERCEPTOR,
@@ -483,7 +479,6 @@ const metricProviders = [
     DataSetLifecycleCheckMetrics,
     PullCheckCheckMetrics,
     SampledRetrievalCheckMetrics,
-    WalletBalanceCollector,
   ],
 })
 export class MetricsPrometheusModule {}
