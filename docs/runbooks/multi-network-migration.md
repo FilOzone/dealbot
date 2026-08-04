@@ -12,9 +12,9 @@ Each configured network must select a different database, although the
 databases may use the same ClickHouse server. The database identifies the
 network of its rows, so the ClickHouse table schema does not change.
 
-> Set `DEALBOT_LEGACY_NETWORK_BACKFILL` whenever this Postgres migration still
-> needs to run, including on a fresh database with empty tables. Keep it set
-> until the Postgres migration has completed.
+> Audience: operators upgrading an existing single-network deployment. Fresh
+> deployments with empty tables do not need
+> `DEALBOT_LEGACY_NETWORK_BACKFILL`; the migration runs automatically.
 
 ## What the migration changes
 
@@ -31,22 +31,19 @@ network of its rows, so the ClickHouse table schema does not change.
 - Routes each network's ClickHouse writes to its configured database without
   changing existing ClickHouse tables or rows.
 
-The Postgres migration validates the backfill value before running any SQL, so
-it is required even when all four tables are empty. The value must be listed in
-`SUPPORTED_NETWORKS` (see `apps/backend/src/common/constants.ts`). ClickHouse
-does not read this value because its database is selected by the network's URL.
+The migration **fails fast** when legacy rows exist and no backfill network is
+supplied. An explicitly configured value must be listed in
+`SUPPORTED_NETWORKS` (see `apps/backend/src/common/constants.ts`).
 
 ## Pre-migration checklist
 
 1. **Take a database backup.** This is a structural migration affecting four
    tables and a foreign key. See `docs/runbooks/supabase-backup-restore.md`.
-2. **Choose the Postgres backfill network.** For an upgrade, confirm which
-   network owns the existing Postgres rows. For a fresh deployment, choose
-   either active network; no rows are changed, but validation still requires the
-   value. Allowed values: `calibration`, `mainnet`.
-3. **Set `DEALBOT_LEGACY_NETWORK_BACKFILL`** (preferred) or keep the legacy
-   `NETWORK` env var available. This is required for every deployment that still
-   needs to run the Postgres migration.
+2. **For upgrades, identify the network of all existing rows.** Confirm with
+   operations which network's data currently lives in the database. Allowed
+   values: `calibration`, `mainnet`.
+3. **For upgrades, set `DEALBOT_LEGACY_NETWORK_BACKFILL`** (preferred) or rely
+   on the legacy `NETWORK` env var so the migration can backfill the new column.
 
    ```bash
    export DEALBOT_LEGACY_NETWORK_BACKFILL=mainnet   # or: calibration
@@ -69,14 +66,15 @@ Postgres migration explicitly:
 pnpm --filter dealbot-backend run typeorm:migration:run
 ```
 
-If the value is missing or invalid, the Postgres migration aborts before
-running any SQL, even when its tables are empty:
+If legacy rows exist and the env var is missing, startup aborts with:
 
 ```
-AddNetworkColumn migration requires DEALBOT_LEGACY_NETWORK_BACKFILL (or legacy NETWORK) to be set to one of: calibration, mainnet. Got: ""
+AddNetworkColumn migration requires DEALBOT_LEGACY_NETWORK_BACKFILL (or legacy NETWORK)
+to be set to one of: calibration, mainnet when legacy rows exist. Got: ""
 ```
 
-Set the value and rerun the Postgres migration.
+Set the env var and rerun. On a fresh database with empty tables, the migration
+continues without it.
 
 ## Post-migration verification
 

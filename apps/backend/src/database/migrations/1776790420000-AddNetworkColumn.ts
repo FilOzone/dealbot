@@ -8,11 +8,11 @@ import { Network } from "../../common/types.js";
  *
  * Backfill strategy: existing rows are assigned the network declared by the
  * operator via `DEALBOT_LEGACY_NETWORK_BACKFILL` (preferred) or the legacy
- * `NETWORK` env var. The migration fails fast if neither is set to a supported
- * network, so backfill is never silently wrong. Operators later expanding a
+ * `NETWORK` env var. The migration requires this value when legacy rows exist;
+ * an empty database can migrate without it. Operators later expanding a
  * single-network deployment to an additional network must update their
- * `NETWORKS` config and re-run a providers_refresh to populate the
- * network-scoped rows for the newly added network.
+ * `NETWORKS` config and re-run a providers_refresh to populate the network-scoped
+ * rows for the newly added network.
  *
  * Operator runbook: `docs/runbooks/multi-network-migration.md` covers the
  * pre-migration checklist (backup, env vars, stopping writers), running the
@@ -23,13 +23,7 @@ export class AddNetworkColumn1776790420000 implements MigrationInterface {
   name = "AddNetworkColumn1776790420000";
 
   public async up(queryRunner: QueryRunner): Promise<void> {
-    const backfillNetwork = (process.env.DEALBOT_LEGACY_NETWORK_BACKFILL ?? process.env.NETWORK ?? "").trim();
-    if (!SUPPORTED_NETWORKS.includes(backfillNetwork as Network)) {
-      throw new Error(
-        `AddNetworkColumn migration requires DEALBOT_LEGACY_NETWORK_BACKFILL (or legacy NETWORK) ` +
-          `to be set to one of: ${SUPPORTED_NETWORKS.join(", ")}. Got: "${backfillNetwork}"`,
-      );
-    }
+    const backfillNetwork = await this.resolveBackfillNetwork(queryRunner);
 
     // -------------------------------------------------------------------------
     // Create the shared Postgres enum type for network values. All four
@@ -253,5 +247,45 @@ export class AddNetworkColumn1776790420000 implements MigrationInterface {
     // Drop the shared enum type once no column references it. We guard with
     // IF EXISTS so a partial revert is idempotent.
     await queryRunner.query(`DROP TYPE IF EXISTS network_enum`);
+  }
+
+  private async resolveBackfillNetwork(queryRunner: QueryRunner): Promise<Network> {
+    const configuredNetwork = (process.env.DEALBOT_LEGACY_NETWORK_BACKFILL ?? process.env.NETWORK ?? "").trim();
+
+    if (SUPPORTED_NETWORKS.includes(configuredNetwork as Network)) {
+      return configuredNetwork as Network;
+    }
+
+    if (configuredNetwork) {
+      throw this.invalidBackfillNetworkError(configuredNetwork);
+    }
+
+    const [{ hasLegacyRows }] = await queryRunner.query(`
+      SELECT EXISTS (
+        SELECT 1 FROM storage_providers
+        UNION ALL
+        SELECT 1 FROM deals
+        UNION ALL
+        SELECT 1 FROM job_schedule_state
+        UNION ALL
+        SELECT 1 FROM data_retention_baselines
+      ) AS "hasLegacyRows"
+    `);
+
+    if (hasLegacyRows) {
+      throw this.invalidBackfillNetworkError(configuredNetwork, true);
+    }
+
+    // Empty tables need no backfill. This temporary default is removed before
+    // the migration completes.
+    return SUPPORTED_NETWORKS[0];
+  }
+
+  private invalidBackfillNetworkError(value: string, requiredForLegacyRows = false): Error {
+    const condition = requiredForLegacyRows ? " when legacy rows exist" : "";
+    return new Error(
+      `AddNetworkColumn migration requires DEALBOT_LEGACY_NETWORK_BACKFILL (or legacy NETWORK) ` +
+        `to be set to one of: ${SUPPORTED_NETWORKS.join(", ")}${condition}. Got: "${value}"`,
+    );
   }
 }

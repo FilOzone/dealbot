@@ -24,6 +24,7 @@ import { ProviderIdBigInt1761500000005 } from "../src/database/migrations/176150
 import { DataSetIdBigInt1761500000006 } from "../src/database/migrations/1761500000006-DataSetIdBigInt.js";
 import { RemoveMetricsJobScheduleRows1776147113065 } from "../src/database/migrations/1776147113065-RemoveMetricsJobScheduleRows.js";
 import { DropMetricsSchema1776200000000 } from "../src/database/migrations/1776200000000-DropMetricsSchema.js";
+import { AddNetworkColumn1776790420000 } from "../src/database/migrations/1776790420000-AddNetworkColumn.js";
 
 const execFileAsync = promisify(execFile);
 const dockerCheck = spawnSync("docker", ["info"], { stdio: "ignore" });
@@ -54,6 +55,7 @@ const ALL_MIGRATIONS: Array<new () => MigrationInterface> = [
   DataSetIdBigInt1761500000006,
   RemoveMetricsJobScheduleRows1776147113065,
   DropMetricsSchema1776200000000,
+  AddNetworkColumn1776790420000,
 ];
 
 type DatabaseConfig = {
@@ -195,6 +197,20 @@ async function functionExists(dataSource: DataSource, functionName: string): Pro
   return rows.length > 0;
 }
 
+async function primaryKeyColumns(dataSource: DataSource, tableName: string): Promise<string[]> {
+  const rows = await dataSource.query(
+    `
+      SELECT a.attname AS column_name
+      FROM pg_index i
+      JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
+      WHERE i.indrelid = $1::regclass AND i.indisprimary
+      ORDER BY array_position(i.indkey, a.attnum)
+    `,
+    [tableName],
+  );
+  return rows.map((row: { column_name: string }) => row.column_name);
+}
+
 async function typeExists(dataSource: DataSource, typeName: string): Promise<boolean> {
   const rows = await dataSource.query(
     `
@@ -288,6 +304,16 @@ describeWithDocker("Migrations (integration)", () => {
     expect(await columnExists(dataSource, "deals", "ipni_time_to_retrieve_ms")).toBe(false);
     expect(await enumValues(dataSource, "deals_ipni_status_enum")).not.toContain("sp_received_retrieve_request");
 
+    // AddNetworkColumn1776790420000 applied against a fresh (legacy-row-free)
+    // database, exercising the empty-database backfill path.
+    expect(await enumValues(dataSource, "network_enum")).toEqual(["calibration", "mainnet"]);
+    expect(await columnExists(dataSource, "storage_providers", "network")).toBe(true);
+    expect(await columnExists(dataSource, "deals", "network")).toBe(true);
+    expect(await columnExists(dataSource, "job_schedule_state", "network")).toBe(true);
+    expect(await columnExists(dataSource, "data_retention_baselines", "network")).toBe(true);
+    expect(await primaryKeyColumns(dataSource, "storage_providers")).toEqual(["address", "network"]);
+    expect(await primaryKeyColumns(dataSource, "data_retention_baselines")).toEqual(["provider_address", "network"]);
+
     // Running migrations again is a no-op.
     const rerun = await dataSource.runMigrations();
     expect(rerun.length).toBe(0);
@@ -302,12 +328,12 @@ describeWithDocker("Migrations (integration)", () => {
     const nextRunAt = new Date().toISOString();
     await dataSource.query(
       `
-        INSERT INTO job_schedule_state (job_type, sp_address, interval_seconds, next_run_at, paused)
+        INSERT INTO job_schedule_state (job_type, sp_address, network, interval_seconds, next_run_at, paused)
         VALUES
-          ('metrics',         '',        1800,   $1, false),
-          ('metrics_cleanup', '',        604800, $1, false),
-          ('deal',            '0xkeep',  3600,   $1, false)
-        ON CONFLICT (job_type, sp_address) DO NOTHING
+          ('metrics',         '',        'calibration', 1800,   $1, false),
+          ('metrics_cleanup', '',        'calibration', 604800, $1, false),
+          ('deal',            '0xkeep',  'calibration', 3600,   $1, false)
+        ON CONFLICT (job_type, sp_address, network) DO NOTHING
       `,
       [nextRunAt],
     );
