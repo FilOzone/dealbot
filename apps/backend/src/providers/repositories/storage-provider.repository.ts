@@ -1,7 +1,7 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
-import { Raw, type Repository } from "typeorm";
+import { In, Not, Raw, type Repository } from "typeorm";
 import { toJsonSafe } from "../../common/logging.js";
 import type { Network } from "../../common/types.js";
 import type { IConfig } from "../../config/index.js";
@@ -213,9 +213,27 @@ export class StorageProviderRepository {
       }),
     );
 
-    await this.repo.upsert(entities, {
-      conflictPaths: ["address", "network"],
-      skipUpdateIfNoValuesChanged: true,
+    const seenAddresses = Array.from(dedupedProviders.keys());
+
+    await this.repo.manager.transaction(async (manager) => {
+      const txRepo = manager.getRepository(StorageProvider);
+
+      await txRepo.upsert(entities, {
+        conflictPaths: ["address", "network"],
+        skipUpdateIfNoValuesChanged: true,
+      });
+
+      // Registry responses are a full snapshot each refresh, so any active row whose
+      // address wasn't in this snapshot is stale (provider deregistered/removed) and
+      // must be flipped inactive here — otherwise it stays isActive=true forever.
+      await txRepo.update(
+        {
+          network,
+          isActive: true,
+          ...(seenAddresses.length > 0 ? { address: Not(In(seenAddresses)) } : {}),
+        },
+        { isActive: false },
+      );
     });
   }
 

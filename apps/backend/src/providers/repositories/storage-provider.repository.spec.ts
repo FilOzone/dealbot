@@ -1,3 +1,4 @@
+import { In, Not } from "typeorm";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { StorageProvider } from "../../database/entities/storage-provider.entity.js";
 import type { PDPProviderEx } from "../../wallet-sdk/wallet-sdk.types.js";
@@ -326,12 +327,17 @@ describe("StorageProviderRepository", () => {
   });
 
   describe("upsertFromRegistry", () => {
-    let repo: { create: ReturnType<typeof vi.fn>; upsert: ReturnType<typeof vi.fn> };
+    let repo: { create: ReturnType<typeof vi.fn>; manager: { transaction: ReturnType<typeof vi.fn> } };
+    let txRepo: { upsert: ReturnType<typeof vi.fn>; update: ReturnType<typeof vi.fn> };
     let service: StorageProviderRepository;
     let loggerMock: { warn: ReturnType<typeof vi.fn>; error: ReturnType<typeof vi.fn> };
 
     beforeEach(() => {
-      repo = { create: vi.fn((data) => data), upsert: vi.fn() };
+      txRepo = { upsert: vi.fn(), update: vi.fn() };
+      repo = {
+        create: vi.fn((data) => data),
+        manager: { transaction: vi.fn((runInTransaction) => runInTransaction({ getRepository: () => txRepo })) },
+      };
       service = new StorageProviderRepository(repo as any, {} as any);
       loggerMock = { warn: vi.fn(), error: vi.fn() };
       (service as any).logger = loggerMock;
@@ -357,7 +363,7 @@ describe("StorageProviderRepository", () => {
       );
       expect(loggerMock.error).not.toHaveBeenCalled();
 
-      const [entities, options] = repo.upsert.mock.calls[0];
+      const [entities, options] = txRepo.upsert.mock.calls[0];
       expect(options).toEqual(expect.objectContaining({ conflictPaths: ["address", "network"] }));
       expect(entities).toEqual(
         expect.arrayContaining([
@@ -374,7 +380,7 @@ describe("StorageProviderRepository", () => {
       await service.upsertFromRegistry([active, inactive], "calibration");
 
       expect(loggerMock.error).not.toHaveBeenCalled();
-      const [entities] = repo.upsert.mock.calls[0];
+      const [entities] = txRepo.upsert.mock.calls[0];
       expect(entities).toEqual(
         expect.arrayContaining([
           expect.objectContaining({ address: "0xdup2", network: "calibration", providerId: 30n, name: "active" }),
@@ -391,12 +397,47 @@ describe("StorageProviderRepository", () => {
       expect(loggerMock.error).toHaveBeenCalledWith(
         expect.objectContaining({ event: "duplicate_provider_addresses_unresolved" }),
       );
-      const [entities] = repo.upsert.mock.calls[0];
+      const [entities] = txRepo.upsert.mock.calls[0];
       expect(entities).toEqual(
         expect.arrayContaining([
           expect.objectContaining({ address: "0xdup3", network: "calibration", providerId: 41n, name: "second" }),
         ]),
       );
+    });
+
+    it("deactivates rows whose address is absent from the registry snapshot", async () => {
+      const stillPresent = makeProvider({ id: 50n, serviceProvider: "0xstill", isActive: true });
+
+      await service.upsertFromRegistry([stillPresent], "calibration");
+
+      expect(txRepo.update).toHaveBeenCalledWith(
+        { network: "calibration", isActive: true, address: Not(In(["0xstill"])) },
+        { isActive: false },
+      );
+    });
+
+    it("deactivates within the same transaction as the upsert, after it", async () => {
+      const provider = makeProvider({ id: 51n, serviceProvider: "0xa" });
+      const callOrder: string[] = [];
+      txRepo.upsert.mockImplementation(() => {
+        callOrder.push("upsert");
+        return Promise.resolve();
+      });
+      txRepo.update.mockImplementation(() => {
+        callOrder.push("update");
+        return Promise.resolve();
+      });
+
+      await service.upsertFromRegistry([provider], "calibration");
+
+      expect(repo.manager.transaction).toHaveBeenCalledTimes(1);
+      expect(callOrder).toEqual(["upsert", "update"]);
+    });
+
+    it("clears the address filter (deactivating every row for the network) when the registry snapshot is empty", async () => {
+      await service.upsertFromRegistry([], "calibration");
+
+      expect(txRepo.update).toHaveBeenCalledWith({ network: "calibration", isActive: true }, { isActive: false });
     });
   });
 });

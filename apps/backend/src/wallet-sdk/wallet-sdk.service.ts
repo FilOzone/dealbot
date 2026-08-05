@@ -193,6 +193,7 @@ export class WalletSdkService implements OnModuleInit {
           message: "Failed to sync providers to DB",
           error: toStructuredError(err),
         });
+        throw err;
       }
 
       this.logger.log({

@@ -66,12 +66,16 @@ const makeProvider = (overrides: Partial<PDPProviderEx>): PDPProviderEx =>
 
 describe("WalletSdkService", () => {
   let service: WalletSdkService;
-  let storageProviderRepositoryMock: { countByNetwork: ReturnType<typeof vi.fn> };
+  let storageProviderRepositoryMock: {
+    countByNetwork: ReturnType<typeof vi.fn>;
+    upsertFromRegistry: ReturnType<typeof vi.fn>;
+  };
   let loggerMock: LoggerLike;
 
   beforeEach(() => {
     storageProviderRepositoryMock = {
       countByNetwork: vi.fn().mockResolvedValue(0),
+      upsertFromRegistry: vi.fn().mockResolvedValue(undefined),
     };
 
     const configService = {
@@ -133,6 +137,28 @@ describe("WalletSdkService", () => {
     await service.ensureProvidersLoaded("calibration");
 
     expect(loadProviders).not.toHaveBeenCalled();
+  });
+
+  it("returns false when the DB sync fails, so callers don't record a false success", async () => {
+    storageProviderRepositoryMock.upsertFromRegistry.mockRejectedValue(new Error("db down"));
+    const provider = makeProvider({ id: 1n });
+    const mockState = {
+      config: baseNetworkConfig,
+      warmStorageService: { getApprovedProviderIds: vi.fn().mockResolvedValue([]) },
+      spRegistry: {
+        getProviderCount: vi.fn().mockResolvedValue(1n),
+        getAllActiveProviders: vi.fn().mockResolvedValue([provider]),
+      },
+      providersLoadPromise: null,
+    };
+    (service as any).networkStates.set("calibration", mockState);
+
+    const result = await service.loadProviders("calibration");
+
+    expect(result).toBe(false);
+    expect(storageProviderRepositoryMock.upsertFromRegistry).toHaveBeenCalled();
+    expect(loggerMock.error).toHaveBeenCalledWith(expect.objectContaining({ event: "providers_sync_to_db_failed" }));
+    expect(loggerMock.error).toHaveBeenCalledWith(expect.objectContaining({ event: "providers_load_failed" }));
   });
 
   describe("ensureWalletAllowances", () => {
