@@ -22,18 +22,20 @@ describe("ActiveDataSetsCollector", () => {
     const expectedGauge = makeGauge();
     const lastSuccessGauge = makeGauge();
     const indexedBlockGauge = makeGauge();
-    const walletSdkService = {
-      getAllActiveProviders: vi.fn(() => [
+    const storageProviderRepository = {
+      findAllByNetwork: vi.fn(() => [
         {
           id: 23n,
           serviceProvider: "0x0000000000000000000000000000000000000023",
           name: "provider-23",
+          isActive: true,
           isApproved: true,
         },
         {
           id: 24n,
           serviceProvider: "0x0000000000000000000000000000000000000024",
           name: "provider-24",
+          isActive: true,
           isApproved: false,
         },
       ]),
@@ -44,7 +46,7 @@ describe("ActiveDataSetsCollector", () => {
     });
     const collector = new ActiveDataSetsCollector(
       makeConfigService() as never,
-      walletSdkService as never,
+      storageProviderRepository as never,
       { fetchActiveDataSetCounts } as never,
       activeGauge as unknown as Gauge,
       expectedGauge as unknown as Gauge,
@@ -83,31 +85,58 @@ describe("ActiveDataSetsCollector", () => {
     collector.onModuleDestroy();
   });
 
+  it("excludes inactive providers from the sampled set", async () => {
+    const activeGauge = makeGauge();
+    const storageProviderRepository = {
+      findAllByNetwork: vi.fn(() => [
+        {
+          id: 23n,
+          serviceProvider: "0x0000000000000000000000000000000000000023",
+          name: "provider-23",
+          isActive: false,
+          isApproved: true,
+        },
+      ]),
+    };
+    const fetchActiveDataSetCounts = vi.fn().mockResolvedValue({
+      countsByAddress: new Map(),
+      indexedAtBlock: 12345,
+    });
+    const collector = new ActiveDataSetsCollector(
+      makeConfigService() as never,
+      storageProviderRepository as never,
+      { fetchActiveDataSetCounts } as never,
+      activeGauge as unknown as Gauge,
+      makeGauge() as unknown as Gauge,
+      makeGauge() as unknown as Gauge,
+      makeGauge() as unknown as Gauge,
+    );
+    collector.onModuleInit();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(activeGauge.set).not.toHaveBeenCalled();
+    collector.onModuleDestroy();
+  });
+
   it("reconciles counts for providers missing from the active registry", async () => {
     const activeGauge = makeGauge();
     const expectedGauge = makeGauge();
     const lastSuccessGauge = makeGauge();
     const indexedBlockGauge = makeGauge();
-    const walletSdkService = {
-      getAllActiveProviders: vi.fn(() => [
+    const storageProviderRepository = {
+      findAllByNetwork: vi.fn(() => [
         {
           id: 23n,
           serviceProvider: "0x0000000000000000000000000000000000000023",
           name: "provider-23",
-          isApproved: true,
-        },
-      ]),
-      getAllProviders: vi.fn(() => [
-        {
-          id: 23n,
-          serviceProvider: "0x0000000000000000000000000000000000000023",
-          name: "provider-23",
+          isActive: true,
           isApproved: true,
         },
         {
           id: 99n,
           serviceProvider: "0x0000000000000000000000000000000000000099",
           name: "provider-99",
+          isActive: false,
           isApproved: false,
         },
       ]),
@@ -124,7 +153,7 @@ describe("ActiveDataSetsCollector", () => {
     });
     const collector = new ActiveDataSetsCollector(
       makeConfigService() as never,
-      walletSdkService as never,
+      storageProviderRepository as never,
       { fetchActiveDataSetCounts } as never,
       activeGauge as unknown as Gauge,
       expectedGauge as unknown as Gauge,
@@ -171,7 +200,7 @@ describe("ActiveDataSetsCollector", () => {
     const indexedBlockGauge = makeGauge();
     const collector = new ActiveDataSetsCollector(
       makeConfigService() as never,
-      { getAllActiveProviders: vi.fn(() => []) } as never,
+      { findAllByNetwork: vi.fn(() => []) } as never,
       { fetchActiveDataSetCounts: vi.fn().mockRejectedValue(new Error("subgraph unavailable")) } as never,
       activeGauge as unknown as Gauge,
       expectedGauge as unknown as Gauge,
@@ -193,7 +222,7 @@ describe("ActiveDataSetsCollector", () => {
     const fetchActiveDataSetCounts = vi.fn();
     const collector = new ActiveDataSetsCollector(
       makeConfigService("") as never,
-      { getAllActiveProviders: vi.fn() } as never,
+      { findAllByNetwork: vi.fn() } as never,
       { fetchActiveDataSetCounts } as never,
       makeGauge() as unknown as Gauge,
       makeGauge() as unknown as Gauge,

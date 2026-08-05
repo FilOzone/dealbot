@@ -3,7 +3,7 @@ import { Injectable, Logger } from "@nestjs/common";
 import { toStructuredError } from "../common/logging.js";
 import type { Network } from "../common/types.js";
 import { HttpClientService } from "../http-client/http-client.service.js";
-import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
+import { StorageProviderRepository } from "../providers/repositories/storage-provider.repository.js";
 import { SAMPLED_MAX_PIECE_DOWNLOAD_BYTES } from "./sampled-piece-selector.service.js";
 import type { PieceRetrievalResult } from "./types.js";
 
@@ -12,7 +12,7 @@ export class PieceRetrievalService {
   private readonly logger = new Logger(PieceRetrievalService.name);
 
   constructor(
-    private readonly walletSdkService: WalletSdkService,
+    private readonly storageProviderRepository: StorageProviderRepository,
     private readonly httpClientService: HttpClientService,
   ) {}
 
@@ -22,7 +22,7 @@ export class PieceRetrievalService {
     pieceCid: string,
     signal?: AbortSignal,
   ): Promise<PieceRetrievalResult> {
-    const providerInfo = this.walletSdkService.getProviderInfo(spAddress, network);
+    const providerInfo = await this.storageProviderRepository.findByAddress(spAddress, network);
 
     if (!providerInfo) {
       this.logger.warn({

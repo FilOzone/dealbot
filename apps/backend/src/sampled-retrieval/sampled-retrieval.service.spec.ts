@@ -1,11 +1,10 @@
-import type { Repository } from "typeorm";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ClickhouseService } from "../clickhouse/clickhouse.service.js";
 import { PieceFetchStatus } from "../clickhouse/clickhouse.types.js";
-import type { StorageProvider } from "../database/entities/storage-provider.entity.js";
 import { BlockFetchStatus, CarParseStatus, IpniCheckStatus, RetrievalStatus } from "../database/types.js";
 import type { SampledRetrievalCheckMetrics } from "../metrics-prometheus/check-metrics.service.js";
-import type { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
+import type { StorageProviderRepository } from "../providers/repositories/storage-provider.repository.js";
+import type { PDPProviderEx } from "../wallet-sdk/wallet-sdk.types.js";
 import type { PieceRetrievalService } from "./piece-retrieval.service.js";
 import type { PieceValidationService } from "./piece-validation.service.js";
 import type { SampledPieceSelectorService } from "./sampled-piece-selector.service.js";
@@ -34,13 +33,14 @@ const PIECE = {
 
 const SAMPLED_BLOCKS = [] as SampledBlock[];
 
-function makeProvider(): StorageProvider {
+function makeProvider(): PDPProviderEx {
   return {
-    address: SP_ADDRESS,
-    providerId: 7,
+    id: 7n,
+    serviceProvider: SP_ADDRESS,
     name: "sp-test",
     isApproved: true,
-  } as unknown as StorageProvider;
+    pdp: { serviceURL: "https://sp.test/" },
+  } as unknown as PDPProviderEx;
 }
 
 function makeService(opts: {
@@ -56,7 +56,7 @@ function makeService(opts: {
 }): {
   service: SampledRetrievalService;
   insertSpy: ReturnType<typeof vi.fn>;
-  findOneSpy: ReturnType<typeof vi.fn>;
+  findByAddressSpy: ReturnType<typeof vi.fn>;
   fetchSpy: ReturnType<typeof vi.fn>;
   parseCarSpy: ReturnType<typeof vi.fn>;
   checkIpniSpy: ReturnType<typeof vi.fn>;
@@ -73,10 +73,10 @@ function makeService(opts: {
     probeLocation: "test-location",
   } as unknown as ClickhouseService;
 
-  const findOneSpy = vi.fn(async () => makeProvider());
-  const spRepository = {
-    findOne: findOneSpy,
-  } as unknown as Repository<StorageProvider>;
+  const findByAddressSpy = vi.fn(async () => makeProvider());
+  const storageProviderRepository = {
+    findByAddress: findByAddressSpy,
+  } as unknown as StorageProviderRepository;
 
   const sampledPieceSelector = {
     selectPieceForProvider: vi.fn(async () => (opts.piece === null ? null : (opts.piece ?? PIECE))),
@@ -115,10 +115,6 @@ function makeService(opts: {
     checkBlockFetch: checkBlockFetchSpy,
   } as unknown as PieceValidationService;
 
-  const walletSdkService = {
-    getProviderInfo: vi.fn(() => ({ pdp: { serviceURL: "https://sp.test/" } })),
-  } as unknown as WalletSdkService;
-
   const metricsRecordStatusSpy = vi.fn();
   const metricsRecordCarParseSpy = vi.fn();
   const metricsRecordIpniSpy = vi.fn();
@@ -139,16 +135,15 @@ function makeService(opts: {
     sampledPieceSelector,
     pieceRetrievalService,
     pieceValidationService,
-    walletSdkService,
     metrics,
     clickhouseService,
-    spRepository,
+    storageProviderRepository,
   );
 
   return {
     service,
     insertSpy,
-    findOneSpy,
+    findByAddressSpy,
     fetchSpy,
     parseCarSpy,
     checkIpniSpy,
@@ -166,7 +161,7 @@ describe("SampledRetrievalService", () => {
   });
 
   it("looks up the storage provider scoped to the configured network", async () => {
-    const { service, findOneSpy } = makeService({
+    const { service, findByAddressSpy } = makeService({
       pieceResult: {
         success: true,
         pieceCid: PIECE.pieceCid,
@@ -184,7 +179,7 @@ describe("SampledRetrievalService", () => {
 
     await service.performForProvider(SP_ADDRESS, NETWORK);
 
-    expect(findOneSpy).toHaveBeenCalledWith({ where: { address: SP_ADDRESS, network: "calibration" } });
+    expect(findByAddressSpy).toHaveBeenCalledWith(SP_ADDRESS, "calibration");
   });
 
   it("tags sampled retrieval metrics with the configured network", async () => {

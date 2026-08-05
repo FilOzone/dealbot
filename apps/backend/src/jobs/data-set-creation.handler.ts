@@ -47,7 +47,13 @@ export async function provisionNextMissingDataSet(
       dataSetIndex: i,
     };
 
-    const status = await dealService.getDataSetProvisioningStatus(spAddress, metadata, network, signal);
+    const status = await dealService.getDataSetProvisioningStatus(
+      spAddress,
+      metadata,
+      network,
+      signal,
+      dataSetLogContext.providerId,
+    );
 
     if (status.status === "live") {
       existingCount++;

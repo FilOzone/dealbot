@@ -8,6 +8,7 @@ import type { IConfig } from "../config/index.js";
 import { DataSourceService } from "../dataSource/dataSource.service.js";
 import { HttpClientService } from "../http-client/http-client.service.js";
 import { PullCheckCheckMetrics } from "../metrics-prometheus/check-metrics.service.js";
+import { StorageProviderRepository } from "../providers/repositories/storage-provider.repository.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
 import type { PDPProviderEx } from "../wallet-sdk/wallet-sdk.types.js";
 import { PullCheckService } from "./pull-check.service.js";
@@ -48,7 +49,8 @@ function makeProvider(overrides: Partial<PDPProviderEx> = {}): PDPProviderEx {
 describe("PullCheckService", () => {
   let module: TestingModule;
   let service: PullCheckService;
-  let walletSdkServiceMock: { getProviderInfo: ReturnType<typeof vi.fn>; getSynapseClient: ReturnType<typeof vi.fn> };
+  let walletSdkServiceMock: { getSynapseClient: ReturnType<typeof vi.fn> };
+  let storageProviderRepositoryMock: { findByAddress: ReturnType<typeof vi.fn> };
   let dataSourceServiceMock: {
     generateBytesStream: ReturnType<typeof vi.fn>;
   };
@@ -74,8 +76,10 @@ describe("PullCheckService", () => {
 
   beforeEach(async () => {
     walletSdkServiceMock = {
-      getProviderInfo: vi.fn().mockReturnValue(makeProvider()),
       getSynapseClient: vi.fn().mockReturnValue({}),
+    };
+    storageProviderRepositoryMock = {
+      findByAddress: vi.fn().mockResolvedValue(makeProvider()),
     };
     dataSourceServiceMock = {
       generateBytesStream: vi.fn().mockReturnValue(Readable.from([Buffer.alloc(10)])),
@@ -127,6 +131,7 @@ describe("PullCheckService", () => {
         PullCheckService,
         { provide: ConfigService, useValue: configServiceMock },
         { provide: WalletSdkService, useValue: walletSdkServiceMock },
+        { provide: StorageProviderRepository, useValue: storageProviderRepositoryMock },
         { provide: DataSourceService, useValue: dataSourceServiceMock },
         { provide: PullPieceRepository, useValue: registryMock },
         { provide: PullCheckCheckMetrics, useValue: metricsMock },
@@ -143,33 +148,33 @@ describe("PullCheckService", () => {
   });
 
   describe("validateProviderInfo", () => {
-    it("returns the provider info on the happy path", () => {
+    it("returns the provider info on the happy path", async () => {
       const provider = makeProvider();
-      walletSdkServiceMock.getProviderInfo.mockReturnValue(provider);
+      storageProviderRepositoryMock.findByAddress.mockReturnValue(provider);
 
-      expect(service.validateProviderInfo("0xsp", DEFAULT_NETWORK)).toBe(provider);
+      expect(await service.validateProviderInfo("0xsp", DEFAULT_NETWORK)).toBe(provider);
     });
 
-    it("throws when the provider is unknown", () => {
-      walletSdkServiceMock.getProviderInfo.mockReturnValue(undefined);
-      expect(() => service.validateProviderInfo("0xsp", DEFAULT_NETWORK)).toThrow(/not found/);
+    it("throws when the provider is unknown", async () => {
+      storageProviderRepositoryMock.findByAddress.mockReturnValue(undefined);
+      await expect(service.validateProviderInfo("0xsp", DEFAULT_NETWORK)).rejects.toThrow(/not found/);
     });
 
-    it("throws when the provider is inactive", () => {
-      walletSdkServiceMock.getProviderInfo.mockReturnValue(makeProvider({ isActive: false }));
-      expect(() => service.validateProviderInfo("0xsp", DEFAULT_NETWORK)).toThrow(/not active/);
+    it("throws when the provider is inactive", async () => {
+      storageProviderRepositoryMock.findByAddress.mockReturnValue(makeProvider({ isActive: false }));
+      await expect(service.validateProviderInfo("0xsp", DEFAULT_NETWORK)).rejects.toThrow(/not active/);
     });
 
-    it("throws when the provider is missing a numeric id", () => {
-      walletSdkServiceMock.getProviderInfo.mockReturnValue(makeProvider({ id: undefined as unknown as bigint }));
-      expect(() => service.validateProviderInfo("0xsp", DEFAULT_NETWORK)).toThrow(/missing providerId/);
+    it("throws when the provider is missing a numeric id", async () => {
+      storageProviderRepositoryMock.findByAddress.mockReturnValue(makeProvider({ id: undefined as unknown as bigint }));
+      await expect(service.validateProviderInfo("0xsp", DEFAULT_NETWORK)).rejects.toThrow(/missing providerId/);
     });
 
-    it("throws when the provider is missing a PDP serviceURL", () => {
-      walletSdkServiceMock.getProviderInfo.mockReturnValue(
+    it("throws when the provider is missing a PDP serviceURL", async () => {
+      storageProviderRepositoryMock.findByAddress.mockReturnValue(
         makeProvider({ pdp: { serviceURL: "" } as PDPProviderEx["pdp"] }),
       );
-      expect(() => service.validateProviderInfo("0xsp", DEFAULT_NETWORK)).toThrow(/missing serviceURL/);
+      await expect(service.validateProviderInfo("0xsp", DEFAULT_NETWORK)).rejects.toThrow(/missing serviceURL/);
     });
   });
 
@@ -461,7 +466,7 @@ describe("PullCheckService", () => {
     });
 
     it("writes a ClickHouse row with null sp fields when the provider is unknown", async () => {
-      walletSdkServiceMock.getProviderInfo.mockReturnValue(undefined);
+      storageProviderRepositoryMock.findByAddress.mockReturnValue(undefined);
 
       await expect(service.runPullCheck("0xsp", DEFAULT_NETWORK, undefined, logContext)).rejects.toThrow(/not found/);
       // No metrics recorded (labels could not be built).
