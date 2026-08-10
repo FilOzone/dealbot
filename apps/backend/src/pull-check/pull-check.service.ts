@@ -12,6 +12,7 @@ import { DataSourceService } from "../dataSource/dataSource.service.js";
 import { HttpClientService } from "../http-client/http-client.service.js";
 import { buildCheckMetricLabels, classifyFailureStatus } from "../metrics-prometheus/check-metric-labels.js";
 import { PullCheckCheckMetrics } from "../metrics-prometheus/check-metrics.service.js";
+import { StorageProviderRepository } from "../providers/repositories/storage-provider.repository.js";
 import { type SynapseViemClient, WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
 import { PDPProviderEx } from "../wallet-sdk/wallet-sdk.types.js";
 import type { PullPiecePrepared, PullPieceStreamResult } from "./pull-check.types.js";
@@ -24,6 +25,7 @@ export class PullCheckService {
   constructor(
     private readonly configService: ConfigService<IConfig, true>,
     private readonly walletSdkService: WalletSdkService,
+    private readonly storageProviderRepository: StorageProviderRepository,
     private readonly dataSourceService: DataSourceService,
     private readonly pullPieceRepository: PullPieceRepository,
     private readonly pullCheckMetrics: PullCheckCheckMetrics,
@@ -36,8 +38,8 @@ export class PullCheckService {
    * the provider is unknown, inactive, missing a numeric provider id, or
    * missing a PDP serviceURL. Returns the enriched provider info on success.
    */
-  validateProviderInfo(spAddress: string, network: Network): PDPProviderEx {
-    const providerInfo = this.walletSdkService.getProviderInfo(spAddress, network);
+  async validateProviderInfo(spAddress: string, network: Network): Promise<PDPProviderEx> {
+    const providerInfo = await this.storageProviderRepository.findByAddress(spAddress, network);
     if (!providerInfo) {
       throw new Error(`Storage provider not found: ${spAddress} on ${network}`);
     }
@@ -82,7 +84,7 @@ export class PullCheckService {
     let checkStatus: string | null = null;
 
     try {
-      providerInfo = this.validateProviderInfo(spAddress, network);
+      providerInfo = await this.validateProviderInfo(spAddress, network);
       labels = buildCheckMetricLabels({
         checkType: "pullCheck",
         network,

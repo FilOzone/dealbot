@@ -5,8 +5,8 @@ import type { Gauge } from "prom-client";
 import { toStructuredError } from "../common/logging.js";
 import type { Network } from "../common/types.js";
 import type { IConfig } from "../config/index.js";
+import { StorageProviderRepository } from "../providers/repositories/storage-provider.repository.js";
 import { SubgraphService } from "../subgraph/subgraph.service.js";
-import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
 
 type ActiveDataSetLabels = {
   network: Network;
@@ -29,7 +29,7 @@ export class ActiveDataSetsCollector implements OnModuleInit, OnModuleDestroy {
 
   constructor(
     private readonly configService: ConfigService<IConfig, true>,
-    private readonly walletSdkService: WalletSdkService,
+    private readonly storageProviderRepository: StorageProviderRepository,
     private readonly subgraphService: SubgraphService,
     @InjectMetric("dealbot_active_datasets") private readonly activeDataSetsGauge: Gauge,
     @InjectMetric("dealbot_expected_active_datasets") private readonly expectedActiveDataSetsGauge: Gauge,
@@ -102,7 +102,7 @@ export class ActiveDataSetsCollector implements OnModuleInit, OnModuleDestroy {
     network: Network,
     walletAddress: string,
   ): Promise<{ samples: ActiveDataSetSample[]; indexedAtBlock: number }> {
-    const providers = this.walletSdkService.getAllActiveProviders(network);
+    const allProviders = await this.storageProviderRepository.findAllByNetwork(network);
     const { countsByAddress, indexedAtBlock } = await this.subgraphService.fetchActiveDataSetCounts(
       network,
       walletAddress,
@@ -111,35 +111,30 @@ export class ActiveDataSetsCollector implements OnModuleInit, OnModuleDestroy {
     // addresses can hold active data sets after leaving the active registry — don't drop their counts
     const remainingCounts = new Map(countsByAddress);
     const samples: ActiveDataSetSample[] = [];
-    for (const provider of providers) {
+    for (const provider of allProviders) {
       const address = provider.serviceProvider.toLowerCase();
-      const value = remainingCounts.get(address) ?? 0;
+      const value = remainingCounts.get(address);
+      if (value == null && !provider.isActive) continue;
       remainingCounts.delete(address);
       samples.push({
         network,
         providerId: provider.id.toString(),
         providerName: provider.name,
         providerStatus: provider.isApproved ? "approved" : "unapproved",
-        value,
+        value: value ?? 0,
       });
     }
 
-    if (remainingCounts.size > 0) {
-      const providersByAddress = new Map(
-        this.walletSdkService
-          .getAllProviders(network)
-          .map((provider) => [provider.serviceProvider.toLowerCase(), provider]),
-      );
-      for (const [address, value] of remainingCounts) {
-        const provider = providersByAddress.get(address);
-        samples.push({
-          network,
-          providerId: provider ? provider.id.toString() : address,
-          providerName: provider?.name ?? address,
-          providerStatus: provider?.isApproved ? "approved" : "unapproved",
-          value,
-        });
-      }
+    // Addresses with active data sets but no matching provider row at all (e.g. dev
+    // providers filtered out of the registry).
+    for (const [address, value] of remainingCounts) {
+      samples.push({
+        network,
+        providerId: address,
+        providerName: address,
+        providerStatus: "unapproved",
+        value,
+      });
     }
 
     return { indexedAtBlock, samples };

@@ -3,18 +3,17 @@ import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
 import { InjectMetric } from "@willsoto/nestjs-prometheus";
 import { Counter, Gauge } from "prom-client";
-import { Raw, Repository } from "typeorm";
+import { Repository } from "typeorm";
 import { ClickhouseService } from "../clickhouse/clickhouse.service.js";
 import { toStructuredError } from "../common/logging.js";
 import { isSpBlocked } from "../common/sp-blocklist.js";
 import type { Network } from "../common/types.js";
 import { IConfig, INetworksConfig } from "../config/index.js";
 import { DataRetentionBaseline } from "../database/entities/data-retention-baseline.entity.js";
-import { StorageProvider } from "../database/entities/storage-provider.entity.js";
 import { buildCheckMetricLabels, CheckMetricLabels } from "../metrics-prometheus/check-metric-labels.js";
 import { PDPSubgraphService } from "../pdp-subgraph/pdp-subgraph.service.js";
 import { type ProviderDataSetResponse, type SubgraphMeta } from "../pdp-subgraph/types.js";
-import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
+import { StorageProviderRepository } from "../providers/repositories/storage-provider.repository.js";
 import { type PDPProviderEx } from "../wallet-sdk/wallet-sdk.types.js";
 
 /**
@@ -53,12 +52,10 @@ export class DataRetentionService {
 
   constructor(
     private readonly configService: ConfigService<IConfig, true>,
-    private readonly walletSdkService: WalletSdkService,
+    private readonly storageProviderRepository: StorageProviderRepository,
     private readonly pdpSubgraphService: PDPSubgraphService,
     @InjectRepository(DataRetentionBaseline)
     private readonly baselineRepository: Repository<DataRetentionBaseline>,
-    @InjectRepository(StorageProvider)
-    private readonly storageProviderRepository: Repository<StorageProvider>,
     @InjectMetric("dataSetChallengeStatus")
     private readonly dataSetChallengeStatusCounter: Counter,
     @InjectMetric("pdp_provider_estimated_overdue_periods")
@@ -101,7 +98,7 @@ export class DataRetentionService {
         // outer catch (which now preserves error type) rethrows it as a dependency failure.
         throw new DataRetentionDependencyError("Failed to fetch PDP subgraph meta", { cause: error });
       }
-      const allProviderInfos = this.walletSdkService.getTestingProviders(network);
+      const allProviderInfos = await this.storageProviderRepository.findTestingProviders(network);
       const spBlocklists = this.configService.get("networks", { infer: true })[network];
       const providerInfos = allProviderInfos?.filter((p) => !isSpBlocked(spBlocklists, p.serviceProvider, p.id));
 
@@ -272,15 +269,9 @@ export class DataRetentionService {
       staleProviderCount: staleAddresses.length,
     });
 
-    let staleProviders: StorageProvider[] = [];
+    let staleProviders: Awaited<ReturnType<StorageProviderRepository["findByAddressesCaseInsensitive"]>> = [];
     try {
-      staleProviders = await this.storageProviderRepository.find({
-        where: {
-          network,
-          address: Raw((alias) => `LOWER(${alias}) IN (:...addresses)`, { addresses: staleAddresses }),
-        },
-        select: ["address", "providerId", "name", "isApproved"],
-      });
+      staleProviders = await this.storageProviderRepository.findByAddressesCaseInsensitive(staleAddresses, network);
     } catch (error) {
       // Bail entirely on DB failure to protect metric baselines
       this.logger.error({

@@ -1,16 +1,14 @@
 import { randomUUID } from "node:crypto";
 import { Injectable, Logger } from "@nestjs/common";
-import { InjectRepository } from "@nestjs/typeorm";
-import type { Repository } from "typeorm";
 import { ClickhouseService } from "../clickhouse/clickhouse.service.js";
 import { PieceFetchStatus } from "../clickhouse/clickhouse.types.js";
 import { type ProviderJobContext, toStructuredError } from "../common/logging.js";
 import type { Network } from "../common/types.js";
-import { StorageProvider } from "../database/entities/storage-provider.entity.js";
 import { BlockFetchStatus, CarParseStatus, IpniCheckStatus, ServiceType } from "../database/types.js";
 import { buildCheckMetricLabels, type CheckMetricLabels } from "../metrics-prometheus/check-metric-labels.js";
 import { SampledRetrievalCheckMetrics } from "../metrics-prometheus/check-metrics.service.js";
-import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
+import { StorageProviderRepository } from "../providers/repositories/storage-provider.repository.js";
+import type { PDPProviderEx } from "../wallet-sdk/wallet-sdk.types.js";
 import { PieceRetrievalService } from "./piece-retrieval.service.js";
 import { PieceValidationService } from "./piece-validation.service.js";
 import { SampledPieceSelectorService } from "./sampled-piece-selector.service.js";
@@ -26,11 +24,9 @@ export class SampledRetrievalService {
     private readonly sampledPieceSelectorService: SampledPieceSelectorService,
     private readonly pieceRetrievalService: PieceRetrievalService,
     private readonly pieceValidationService: PieceValidationService,
-    private readonly walletSdkService: WalletSdkService,
     private readonly metrics: SampledRetrievalCheckMetrics,
     private readonly clickhouseService: ClickhouseService,
-    @InjectRepository(StorageProvider)
-    private readonly spRepository: Repository<StorageProvider>,
+    private readonly storageProviderRepository: StorageProviderRepository,
   ) {}
 
   async performForProvider(
@@ -40,11 +36,11 @@ export class SampledRetrievalService {
     logContext?: ProviderJobContext,
   ): Promise<void> {
     // Build metric labels
-    const provider = await this.spRepository.findOne({ where: { address: spAddress, network } });
+    const provider = await this.storageProviderRepository.findByAddress(spAddress, network);
     const labels = buildCheckMetricLabels({
       checkType: "sampledRetrieval",
       network,
-      providerId: provider?.providerId,
+      providerId: provider?.id,
       providerName: provider?.name,
       providerIsApproved: provider?.isApproved,
     });
@@ -147,7 +143,7 @@ export class SampledRetrievalService {
       // collected. ClickhouseService.insert is a no-op when disabled.
       const finalPieceResult = pieceResult ?? buildAbortedPlaceholder(piece.pieceCid, signal?.reason);
       const retrievalId = randomUUID();
-      const providerInfo = this.walletSdkService.getProviderInfo(spAddress, network);
+      const providerInfo = await this.storageProviderRepository.findByAddress(spAddress, network);
       const spBaseUrl = providerInfo?.pdp.serviceURL.replace(/\/$/, "") ?? spAddress;
       const pieceFetchStatus = finalPieceResult.success ? PieceFetchStatus.SUCCESS : PieceFetchStatus.FAILED;
 
@@ -160,7 +156,7 @@ export class SampledRetrievalService {
           timestamp: startedAt.getTime(),
           probe_location: this.clickhouseService.probeLocation,
           sp_address: spAddress,
-          sp_id: provider?.providerId != null ? Number(provider.providerId) : null,
+          sp_id: provider?.id != null ? Number(provider.id) : null,
           sp_name: provider?.name ?? null,
           retrieval_id: retrievalId,
           piece_cid: piece.pieceCid,
@@ -229,7 +225,7 @@ export class SampledRetrievalService {
   private recordSkippedCheck(
     spAddress: string,
     network: Network,
-    provider: StorageProvider | null,
+    provider: PDPProviderEx | undefined,
     labels: CheckMetricLabels,
     logContext?: ProviderJobContext,
   ): void {
@@ -244,7 +240,7 @@ export class SampledRetrievalService {
         timestamp: startedAt.getTime(),
         probe_location: this.clickhouseService.probeLocation,
         sp_address: spAddress,
-        sp_id: provider?.providerId != null ? Number(provider.providerId) : null,
+        sp_id: provider?.id != null ? Number(provider.id) : null,
         sp_name: provider?.name ?? null,
         retrieval_id: retrievalId,
         piece_cid: "",

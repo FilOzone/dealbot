@@ -15,6 +15,7 @@ import { type ProviderJobContext, toStructuredError } from "../common/logging.js
 import type { Network } from "../common/types.js";
 import { buildCheckMetricLabels, classifyFailureStatus } from "../metrics-prometheus/check-metric-labels.js";
 import { DataSetLifecycleCheckMetrics } from "../metrics-prometheus/check-metrics.service.js";
+import { StorageProviderRepository } from "../providers/repositories/storage-provider.repository.js";
 import type { SynapseViemClient } from "../wallet-sdk/wallet-sdk.service.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
 import type { PDPProviderEx } from "../wallet-sdk/wallet-sdk.types.js";
@@ -50,6 +51,7 @@ export class DataSetLifecycleService {
 
   constructor(
     private readonly walletSdkService: WalletSdkService,
+    private readonly storageProviderRepository: StorageProviderRepository,
     private readonly lifecycleCheckMetrics: DataSetLifecycleCheckMetrics,
   ) {}
 
@@ -76,7 +78,7 @@ export class DataSetLifecycleService {
     signal?: AbortSignal,
     jobContext?: ProviderJobContext,
   ): Promise<void> {
-    const providerInfo = this.walletSdkService.getProviderInfo(spAddress, network);
+    const providerInfo = await this.storageProviderRepository.findByAddress(spAddress, network);
     if (!providerInfo) {
       throw new Error(`Provider ${spAddress} not found in registry`);
     }

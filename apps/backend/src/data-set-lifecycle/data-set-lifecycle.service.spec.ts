@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DataSetLifecycleCheckMetrics } from "../metrics-prometheus/check-metrics.service.js";
+import type { StorageProviderRepository } from "../providers/repositories/storage-provider.repository.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
 import { DataSetLifecycleService } from "./data-set-lifecycle.service.js";
 
@@ -39,9 +40,12 @@ const mockProviderInfo = {
 };
 
 const mockWalletSdkService = {
-  getProviderInfo: vi.fn(() => mockProviderInfo),
   getSynapseClient: vi.fn(() => mockClient),
 } as unknown as WalletSdkService;
+
+const mockStorageProviderRepository = {
+  findByAddress: vi.fn(() => mockProviderInfo),
+} as unknown as StorageProviderRepository;
 
 const mockMetrics = {
   observeCheckDuration: vi.fn(),
@@ -96,7 +100,7 @@ describe("DataSetLifecycleService", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    service = new DataSetLifecycleService(mockWalletSdkService, mockMetrics);
+    service = new DataSetLifecycleService(mockWalletSdkService, mockStorageProviderRepository, mockMetrics);
   });
 
   afterEach(() => {
@@ -331,7 +335,7 @@ describe("DataSetLifecycleService", () => {
   // ─── Shared pre-flight guards ─────────────────────────────────────────────
 
   it("throws when provider is not found in registry", async () => {
-    vi.mocked(mockWalletSdkService.getProviderInfo).mockReturnValueOnce(undefined);
+    vi.mocked(mockStorageProviderRepository.findByAddress).mockResolvedValueOnce(undefined);
 
     await expect(service.runLifecycleCheck("0xunknown", "calibration", {})).rejects.toThrow("not found in registry");
   });

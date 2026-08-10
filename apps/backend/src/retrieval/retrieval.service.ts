@@ -9,10 +9,9 @@ import type { Hex, Network } from "../common/types.js";
 import type { IConfig } from "../config/index.js";
 import { Deal } from "../database/entities/deal.entity.js";
 import { Retrieval } from "../database/entities/retrieval.entity.js";
-import { StorageProvider } from "../database/entities/storage-provider.entity.js";
 import { DealStatus, RetrievalStatus, ServiceType } from "../database/types.js";
 import { DatasetLivenessService } from "../dataset-liveness/dataset-liveness.service.js";
-import { IpniVerificationService } from "../ipni/ipni-verification.service.js";
+import { IpniVerificationService, pdpProviderToIpniInput } from "../ipni/ipni-verification.service.js";
 import {
   buildCheckMetricLabels,
   type CheckMetricLabels,
@@ -23,12 +22,14 @@ import {
   DiscoverabilityCheckMetrics,
   RetrievalCheckMetrics,
 } from "../metrics-prometheus/check-metrics.service.js";
+import { StorageProviderRepository } from "../providers/repositories/storage-provider.repository.js";
 import { RetrievalAddonsService } from "../retrieval-addons/retrieval-addons.service.js";
 import type {
   RetrievalConfiguration,
   RetrievalExecutionResult,
   RetrievalTestResult,
 } from "../retrieval-addons/types.js";
+import type { PDPProviderEx } from "../wallet-sdk/wallet-sdk.types.js";
 
 /** Timeout for the pre-flight SP piece-status probe. Short enough that an unresponsive
  *  SP still beats falling through to the 30s IPNI verify path; on timeout we treat
@@ -45,8 +46,7 @@ export class RetrievalService {
     private readonly dealRepository: Repository<Deal>,
     @InjectRepository(Retrieval)
     private readonly retrievalRepository: Repository<Retrieval>,
-    @InjectRepository(StorageProvider)
-    private readonly spRepository: Repository<StorageProvider>,
+    private readonly storageProviderRepository: StorageProviderRepository,
     private readonly retrievalMetrics: RetrievalCheckMetrics,
     private readonly discoverabilityMetrics: DiscoverabilityCheckMetrics,
     private readonly ipniVerificationService: IpniVerificationService,
@@ -102,7 +102,7 @@ export class RetrievalService {
     const providerLabels = buildCheckMetricLabels({
       checkType: "retrieval",
       network: deal.network,
-      providerId: provider.providerId,
+      providerId: provider.id,
       providerName: provider.name,
       providerIsApproved: provider.isApproved,
     });
@@ -110,7 +110,7 @@ export class RetrievalService {
       ...logContext,
       jobId: logContext?.jobId,
       dealId: deal.id,
-      providerId: provider.providerId ?? logContext?.providerId,
+      providerId: provider.id ?? logContext?.providerId,
       providerName: provider.name ?? logContext?.providerName,
       providerAddress: deal.spAddress,
       pieceCid: deal.pieceCid,
@@ -188,8 +188,9 @@ export class RetrievalService {
       return [];
     }
 
-    if (provider.serviceUrl && deal.pieceCid) {
-      const probe = await this.probeSpPieceStatus(provider.serviceUrl, deal.pieceCid, signal);
+    const serviceUrl = provider.pdp?.serviceURL;
+    if (serviceUrl && deal.pieceCid) {
+      const probe = await this.probeSpPieceStatus(serviceUrl, deal.pieceCid, signal);
       signal?.throwIfAborted();
       if (probe.result === "missing") {
         // Chain pre-check above confirmed the piece SHOULD be retrievable.
@@ -501,8 +502,8 @@ export class RetrievalService {
     return this.saveRetrieval(sentinel);
   }
 
-  private async findStorageProvider(address: string, network: Network): Promise<StorageProvider | null> {
-    return this.spRepository.findOne({ where: { address, network } });
+  private async findStorageProvider(address: string, network: Network): Promise<PDPProviderEx | undefined> {
+    return this.storageProviderRepository.findByAddress(address, network);
   }
 
   /**
@@ -631,7 +632,7 @@ export class RetrievalService {
   private async verifyIpniForRetrieval(
     ipniContext: { rootCid: CID; blockCids: CID[] },
     dealId: string,
-    provider: StorageProvider,
+    provider: PDPProviderEx,
     providerLabels: CheckMetricLabels,
     signal?: AbortSignal,
   ): Promise<{ ok: boolean; failureStatus?: "failure.timedout" | "failure.other" }> {
@@ -647,7 +648,7 @@ export class RetrievalService {
       const ipniResult = await this.ipniVerificationService.verify({
         rootCid,
         blockCids,
-        storageProvider: provider,
+        storageProvider: pdpProviderToIpniInput(provider),
         timeoutMs,
         pollIntervalMs,
         signal,
@@ -675,9 +676,9 @@ export class RetrievalService {
           event: "retrieval_ipni_verification_timed_out",
           message: "Retrieval IPNI verification aborted by outer job timeout",
           dealId,
-          providerId: provider.providerId,
+          providerId: provider.id,
           providerName: provider.name,
-          providerAddress: provider.address,
+          providerAddress: provider.serviceProvider,
           ipfsRootCID: ipniContext.rootCid.toString(),
           error: toStructuredError(error),
         });
@@ -695,9 +696,9 @@ export class RetrievalService {
         event: "retrieval_ipni_verification_failed",
         message: "Retrieval IPNI verification failed",
         dealId,
-        providerId: provider.providerId,
+        providerId: provider.id,
         providerName: provider.name,
-        providerAddress: provider.address,
+        providerAddress: provider.serviceProvider,
         ipfsRootCID: ipniContext.rootCid.toString(),
         error: toStructuredError(error),
       });
