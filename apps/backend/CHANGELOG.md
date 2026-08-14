@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.12.0](https://github.com/FilOzone/dealbot/compare/backend-v1.11.0...backend-v1.12.0) (2026-08-14)
+
+
+### Features
+
+* **metrics:** track active datasets by provider ([#650](https://github.com/FilOzone/dealbot/issues/650)) ([1ad8053](https://github.com/FilOzone/dealbot/commit/1ad8053ccc51fea8ac651c55448112b9c9643ec3))
+
+
+### Bug Fixes
+
+* allow network migration on empty databases ([#662](https://github.com/FilOzone/dealbot/issues/662)) ([f5b6503](https://github.com/FilOzone/dealbot/commit/f5b6503d7da081671ceeee34922db4af9e194548))
+* **metrics:** collect wallet balance only from the api pod ([#668](https://github.com/FilOzone/dealbot/issues/668)) ([14b8ac6](https://github.com/FilOzone/dealbot/commit/14b8ac641855f6abf86b9c166b612cc0b738a5bd))
+
+
+### Miscellaneous
+
+* replace in-memory cache with pg-backed repository ([#667](https://github.com/FilOzone/dealbot/issues/667)) ([05b63eb](https://github.com/FilOzone/dealbot/commit/05b63ebaddcd7838df392b6b9ff5f379de850349))
+
 ## [1.11.0](https://github.com/FilOzone/dealbot/compare/backend-v1.10.0...backend-v1.11.0) (2026-07-28)
 
 
