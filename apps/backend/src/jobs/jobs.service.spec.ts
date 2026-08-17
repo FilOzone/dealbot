@@ -24,6 +24,7 @@ describe("JobsService schedule rows", () => {
     upsertSchedule: ReturnType<typeof vi.fn>;
     deleteSchedulesForInactiveProviders: ReturnType<typeof vi.fn>;
     deleteSchedulesByJobType: ReturnType<typeof vi.fn>;
+    deleteSchedulesForAddresses: ReturnType<typeof vi.fn>;
     countPausedSchedules: ReturnType<typeof vi.fn>;
     findDueSchedulesWithManager: ReturnType<typeof vi.fn>;
     runTransaction: ReturnType<typeof vi.fn>;
@@ -90,6 +91,7 @@ describe("JobsService schedule rows", () => {
       upsertSchedule: vi.fn(),
       deleteSchedulesForInactiveProviders: vi.fn(async () => []),
       deleteSchedulesByJobType: vi.fn(async () => 0),
+      deleteSchedulesForAddresses: vi.fn(async () => []),
       countPausedSchedules: vi.fn(async () => []),
       findDueSchedulesWithManager: vi.fn(),
       runTransaction: vi.fn(async (callback: (manager: unknown) => Promise<void>) => {
@@ -151,6 +153,8 @@ describe("JobsService schedule rows", () => {
       maintenanceWindowMinutes: 20,
       blockedSpIds: new Set(),
       blockedSpAddresses: new Set(),
+      expectedApprovedSpIds: new Set(),
+      expectedApprovedSpAddresses: new Set(),
       pieceCleanupPerSpPerHour: 1,
       maxPieceCleanupRuntimeSeconds: 300,
       maxDatasetStorageSizeBytes: 24 * 1024 * 1024 * 1024,
@@ -1337,7 +1341,7 @@ describe("JobsService schedule rows", () => {
     };
 
     const providerRegistryRepository = {
-      findByAddress: vi.fn(() => ({ id: 1, name: "test-provider" })),
+      findByAddress: vi.fn(() => ({ id: 1, name: "test-provider", isApproved: true })),
     };
 
     service = buildService({
@@ -1474,7 +1478,9 @@ describe("JobsService schedule rows", () => {
     } as unknown as JobsServiceDeps[0];
 
     const dataSetLifecycleService = { runLifecycleCheck: vi.fn(async () => undefined) };
-    const providerRegistryRepository = { findByAddress: vi.fn(() => ({ id: 1, name: "test-provider" })) };
+    const providerRegistryRepository = {
+      findByAddress: vi.fn(() => ({ id: 1, name: "test-provider", isApproved: true })),
+    };
 
     service = buildService({
       configService,
@@ -1519,7 +1525,7 @@ describe("JobsService schedule rows", () => {
     } as unknown as JobsServiceDeps[0];
     service = buildService({ configService });
 
-    providerRegistryRepositoryMock.findActiveAddresses.mockResolvedValueOnce([{ address: "0xaaa" }]);
+    providerRegistryRepositoryMock.findActiveAddresses.mockResolvedValueOnce([{ address: "0xaaa", isApproved: true }]);
 
     await callPrivate(service, "ensureScheduleRows", DEFAULT_NETWORK);
 
@@ -1529,11 +1535,12 @@ describe("JobsService schedule rows", () => {
     expect(lifecycleUpserts).toHaveLength(1);
     expect(lifecycleUpserts[0][1]).toBe("0xaaa");
     expect(jobScheduleRepositoryMock.deleteSchedulesByJobType).not.toHaveBeenCalled();
+    expect(jobScheduleRepositoryMock.deleteSchedulesForAddresses).not.toHaveBeenCalled();
   });
 
   it("removes data_set_lifecycle_check schedules when disabled", async () => {
     // base config has dataSetLifecycleCheckEnabled=false
-    providerRegistryRepositoryMock.findActiveAddresses.mockResolvedValueOnce([{ address: "0xaaa" }]);
+    providerRegistryRepositoryMock.findActiveAddresses.mockResolvedValueOnce([{ address: "0xaaa", isApproved: true }]);
 
     await callPrivate(service, "ensureScheduleRows", DEFAULT_NETWORK);
 
@@ -1544,6 +1551,35 @@ describe("JobsService schedule rows", () => {
     expect(jobScheduleRepositoryMock.deleteSchedulesByJobType).toHaveBeenCalledWith(
       "data_set_lifecycle_check",
       "calibration",
+    );
+  });
+
+  it("does not schedule data_set_lifecycle_check for trickle-tier providers, and clears stale rows", async () => {
+    baseConfigValues = {
+      ...baseConfigValues,
+      networks: {
+        calibration: { ...(baseConfigValues.networks as any).calibration, dataSetLifecycleCheckEnabled: true },
+      } as unknown as IConfig["networks"],
+    };
+    configService = {
+      get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
+    } as unknown as JobsServiceDeps[0];
+    service = buildService({ configService });
+
+    // Neither approved nor on the expected-approved list -> trickle tier.
+    providerRegistryRepositoryMock.findActiveAddresses.mockResolvedValueOnce([{ address: "0xaaa", isApproved: false }]);
+
+    await callPrivate(service, "ensureScheduleRows", DEFAULT_NETWORK);
+
+    const lifecycleUpserts = jobScheduleRepositoryMock.upsertSchedule.mock.calls.filter(
+      (call) => call[0] === "data_set_lifecycle_check",
+    );
+    expect(lifecycleUpserts).toHaveLength(0);
+    expect(jobScheduleRepositoryMock.deleteSchedulesByJobType).not.toHaveBeenCalled();
+    expect(jobScheduleRepositoryMock.deleteSchedulesForAddresses).toHaveBeenCalledWith(
+      "data_set_lifecycle_check",
+      ["0xaaa"],
+      DEFAULT_NETWORK,
     );
   });
 

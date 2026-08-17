@@ -17,8 +17,10 @@ import {
   redactSensitiveText,
   toStructuredError,
 } from "../common/logging.js";
+import { isFullRateTier } from "../common/sp-tier.js";
 import { createSynapseFromConfig } from "../common/synapse-factory.js";
 import type { DataFile, Hex, Network } from "../common/types.js";
+import { trickleTierRates } from "../config/constants.js";
 import type { IConfig, INetworkConfig } from "../config/types.js";
 import { Deal } from "../database/entities/deal.entity.js";
 import { DealStatus, IpniStatus, ServiceType } from "../database/types.js";
@@ -84,9 +86,14 @@ export class DealService {
   ): Promise<Deal> {
     options.signal?.throwIfAborted();
 
+    const networkCfg = this.getNetworkConfig(options.network);
+    const isFullTier = isFullRateTier(networkCfg, pdpProvider.serviceProvider, pdpProvider.isApproved, pdpProvider.id);
+    const minDataSets = isFullTier ? networkCfg.minNumDataSetsForChecks : trickleTierRates.minNumDataSetsForChecks;
+
     const extraDataSetMetadata = await this.resolveDataSetMetadataForDeal(
       pdpProvider.serviceProvider,
       options.network,
+      minDataSets,
       options.signal,
       options.logContext,
     );
@@ -117,9 +124,10 @@ export class DealService {
    * Pick which data-set slot this deal will target.
    *
    * Policy:
-   *   - If `minNumDataSetsForChecks > 1` and a random index > 0 is selected,
-   *     probe that slot first. If live, use it. If missing or terminated,
-   *     fall through to baseline (data_set_creation owns repair/provisioning).
+   *   - If `minDataSets > 1` (the caller's per-SP tier target — see
+   *     `isFullRateTier`) and a random index > 0 is selected, probe that
+   *     slot first. If live, use it. If missing or terminated, fall through
+   *     to baseline (data_set_creation owns repair/provisioning).
    *   - Probe baseline. If terminated, throw `DealJobTerminatedDataSetError`
    *     (baseline is the fallback target; nothing else to try).
    *   - Live or missing baseline → return `undefined` (use baseline slot).
@@ -131,6 +139,7 @@ export class DealService {
   async resolveDataSetMetadataForDeal(
     providerAddress: string,
     network: Network,
+    minDataSets: number,
     signal?: AbortSignal,
     logContext?: ProviderJobContext,
   ): Promise<Record<string, string> | undefined> {
@@ -141,6 +150,7 @@ export class DealService {
       providerAddress,
       baseDataSetMetadata,
       network,
+      minDataSets,
       signal,
       logContext,
     );
@@ -174,10 +184,10 @@ export class DealService {
     providerAddress: string,
     baseDataSetMetadata: Record<string, string>,
     network: Network,
+    minDataSets: number,
     signal: AbortSignal | undefined,
     logContext: ProviderJobContext | undefined,
   ): Promise<Record<string, string> | undefined> {
-    const minDataSets = this.getNetworkConfig(network).minNumDataSetsForChecks;
     if (minDataSets <= 1) return undefined;
     const dsIndex = Math.floor(Math.random() * minDataSets);
     if (dsIndex === 0) return undefined;

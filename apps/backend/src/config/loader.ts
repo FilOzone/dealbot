@@ -234,6 +234,9 @@ function loadNetworkEnvPrefix(
     blockedSpIds: parseIdList(resolve("BLOCKED_SP_IDS")),
     blockedSpAddresses: parseAddressList(resolve("BLOCKED_SP_ADDRESSES")),
 
+    expectedApprovedSpIds: parseIdList(resolve("EXPECTED_APPROVED_SP_IDS")),
+    expectedApprovedSpAddresses: parseAddressList(resolve("EXPECTED_APPROVED_SP_ADDRESSES")),
+
     pullChecksPerSpPerHour: coerceFloat(resolve("PULL_CHECKS_PER_SP_PER_HOUR"), networkDefaults.pullChecksPerSpPerHour),
     pullCheckJobTimeoutSeconds: coerceNumber(
       resolve("PULL_CHECK_JOB_TIMEOUT_SECONDS"),

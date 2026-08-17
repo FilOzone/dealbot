@@ -1365,7 +1365,7 @@ describe("DealService", () => {
     it("returns undefined when minDataSets=1 and baseline is live", async () => {
       probeSpy.mockResolvedValueOnce({ status: "live", dataSetId: 1n });
 
-      const result = await service.resolveDataSetMetadataForDeal("0xprovider", DEFAULT_NETWORK);
+      const result = await service.resolveDataSetMetadataForDeal("0xprovider", DEFAULT_NETWORK, 1);
       expect(result).toBeUndefined();
       expect(probeSpy).toHaveBeenCalledTimes(1);
       const [, metadata] = probeSpy.mock.calls[0] ?? [];
@@ -1375,7 +1375,7 @@ describe("DealService", () => {
     it("throws DealJobTerminatedDataSetError when baseline is terminated", async () => {
       probeSpy.mockResolvedValueOnce({ status: "terminated", dataSetId: 42n });
 
-      await expect(service.resolveDataSetMetadataForDeal("0xprovider", DEFAULT_NETWORK)).rejects.toBeInstanceOf(
+      await expect(service.resolveDataSetMetadataForDeal("0xprovider", DEFAULT_NETWORK, 1)).rejects.toBeInstanceOf(
         DealJobTerminatedDataSetError,
       );
     });
@@ -1390,7 +1390,7 @@ describe("DealService", () => {
       vi.spyOn(Math, "random").mockReturnValue(0.5); // → index 1
       probeSpy.mockResolvedValueOnce({ status: "live", dataSetId: 7n });
 
-      const result = await service.resolveDataSetMetadataForDeal("0xprovider", DEFAULT_NETWORK);
+      const result = await service.resolveDataSetMetadataForDeal("0xprovider", DEFAULT_NETWORK, 3);
       expect(result).toEqual({ dealbotDS: "1" });
       expect(probeSpy).toHaveBeenCalledTimes(1);
       const [, metadata] = probeSpy.mock.calls[0] ?? [];
@@ -1412,7 +1412,7 @@ describe("DealService", () => {
       setupIndexedProbe();
       probeSpy.mockResolvedValueOnce({ status: "live", dataSetId: 1n });
 
-      const result = await service.resolveDataSetMetadataForDeal("0xprovider", DEFAULT_NETWORK);
+      const result = await service.resolveDataSetMetadataForDeal("0xprovider", DEFAULT_NETWORK, 3);
       expect(result).toBeUndefined();
     });
 
@@ -1431,7 +1431,7 @@ describe("DealService", () => {
       });
 
       await expect(
-        service.resolveDataSetMetadataForDeal("0xprovider", DEFAULT_NETWORK, controller.signal),
+        service.resolveDataSetMetadataForDeal("0xprovider", DEFAULT_NETWORK, 3, controller.signal),
       ).rejects.toThrow();
       expect(probeSpy).toHaveBeenCalledTimes(1);
     });

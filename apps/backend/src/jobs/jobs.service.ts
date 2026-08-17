@@ -8,7 +8,9 @@ import { DealJobTerminatedDataSetError } from "../common/errors.js";
 import { type JobLogContext, type ProviderJobContext, toStructuredError } from "../common/logging.js";
 import { getMaintenanceWindowStatus } from "../common/maintenance-window.js";
 import { isSpBlocked } from "../common/sp-blocklist.js";
+import { isFullRateTier } from "../common/sp-tier.js";
 import type { Network } from "../common/types.js";
+import { trickleTierRates } from "../config/constants.js";
 import type { IConfig } from "../config/index.js";
 import { DataRetentionService } from "../data-retention/data-retention.service.js";
 import { DataSetLifecycleService } from "../data-set-lifecycle/data-set-lifecycle.service.js";
@@ -971,7 +973,9 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     }
 
     const networkCfg = this.configService.get("networks", { infer: true })[network];
-    const minDataSets = networkCfg.minNumDataSetsForChecks;
+    const provider = await this.storageProviderRepository.findByAddress(spAddress, network);
+    const isFullTier = isFullRateTier(networkCfg, spAddress, provider?.isApproved ?? false, provider?.id);
+    const minDataSets = isFullTier ? networkCfg.minNumDataSetsForChecks : trickleTierRates.minNumDataSetsForChecks;
     const baseDataSetMetadata = this.dealService.getBaseDataSetMetadata(network);
 
     // Create AbortController for job timeout enforcement
@@ -1070,6 +1074,23 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         event: "data_set_lifecycle_check_job_disabled",
         message: "Data set lifecycle check job skipped: disabled",
         enabled: networkCfg.dataSetLifecycleCheckEnabled,
+      });
+      return;
+    }
+
+    // Defensive gate: schedules are only created for full-rate-tier providers, but a
+    // stale enqueued job (e.g. after the provider dropped out of the full-rate tier)
+    // must still no-op safely rather than spend on a throwaway data set.
+    const provider = await this.storageProviderRepository.findByAddress(spAddress, network);
+    const isFullTier = isFullRateTier(networkCfg, spAddress, provider?.isApproved ?? false, provider?.id);
+    if (!isFullTier) {
+      this.logger.log({
+        jobId: job.id,
+        providerAddress: spAddress,
+        providerId: provider?.id,
+        providerName: provider?.name,
+        event: "data_set_lifecycle_check_job_skipped_trickle_tier",
+        message: "Data set lifecycle check job skipped: provider is not on the full-rate tier",
       });
       return;
     }
@@ -1233,17 +1254,32 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     }
   }
 
+  /**
+   * Computes job-cadence intervals for a network.
+   *
+   * `deal`/`data_set_creation` (and the `minDataSets` target) are tiered:
+   * a `Full` variant driven by the network's configured rate, and a fixed,
+   * conservative `Trickle` variant (`trickleTierRates`) applied to SPs that
+   * aren't on the full-rate tier — see `isFullRateTier`. Every other job
+   * type stays a single network-wide cadence for now; only deals and
+   * data-set creation drive the wallet-spend the trickle tier exists to
+   * bound (#681).
+   */
   private getIntervalSecondsForRates(network: Network): {
-    dealIntervalSeconds: number;
+    dealIntervalSecondsFull: number;
+    dealIntervalSecondsTrickle: number;
     retrievalIntervalSeconds: number;
     sampledRetrievalIntervalSeconds: number;
-    dataSetCreationIntervalSeconds: number;
+    dataSetCreationIntervalSecondsFull: number;
+    dataSetCreationIntervalSecondsTrickle: number;
     dataSetLifecycleCheckIntervalSeconds: number;
     dataRetentionPollIntervalSeconds: number;
     providersRefreshIntervalSeconds: number;
     pieceCleanupIntervalSeconds: number;
     pullCheckIntervalSeconds: number;
     pullPieceCleanupIntervalSeconds: number;
+    minDataSetsFull: number;
+    minDataSetsTrickle: number;
   } {
     const networkCfg = this.configService.get("networks", { infer: true })[network];
 
@@ -1257,11 +1293,17 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       dataRetentionPollIntervalSeconds,
       providersRefreshIntervalSeconds,
       pullPieceCleanupIntervalSeconds,
+      minNumDataSetsForChecks,
     } = networkCfg;
 
-    const dealIntervalSeconds = Math.max(1, Math.round(3600 / dealsPerSpPerHour));
+    const dealIntervalSecondsFull = Math.max(1, Math.round(3600 / dealsPerSpPerHour));
+    const dealIntervalSecondsTrickle = Math.max(1, Math.round(3600 / trickleTierRates.dealsPerSpPerHour));
     const retrievalIntervalSeconds = Math.max(1, Math.round(3600 / retrievalsPerSpPerHour));
-    const dataSetCreationIntervalSeconds = Math.max(1, Math.round(3600 / dataSetCreationsPerSpPerHour));
+    const dataSetCreationIntervalSecondsFull = Math.max(1, Math.round(3600 / dataSetCreationsPerSpPerHour));
+    const dataSetCreationIntervalSecondsTrickle = Math.max(
+      1,
+      Math.round(3600 / trickleTierRates.dataSetCreationsPerSpPerHour),
+    );
     const dataSetLifecycleCheckIntervalSeconds = Math.max(1, Math.round(3600 / dataSetLifecycleChecksPerSpPerHour));
     const pieceCleanupIntervalSeconds = Math.max(1, Math.round(3600 / pieceCleanupPerSpPerHour));
     const pullCheckIntervalSeconds = Math.max(1, Math.round(3600 / pullChecksPerSpPerHour));
@@ -1270,16 +1312,20 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     const sampledRetrievalIntervalSeconds = Math.max(1, Math.round(3600 / sampledRetrievalsPerHour));
 
     return {
-      dealIntervalSeconds,
+      dealIntervalSecondsFull,
+      dealIntervalSecondsTrickle,
       retrievalIntervalSeconds,
       sampledRetrievalIntervalSeconds,
-      dataSetCreationIntervalSeconds,
+      dataSetCreationIntervalSecondsFull,
+      dataSetCreationIntervalSecondsTrickle,
       dataSetLifecycleCheckIntervalSeconds,
       dataRetentionPollIntervalSeconds,
       providersRefreshIntervalSeconds,
       pieceCleanupIntervalSeconds,
       pullCheckIntervalSeconds,
       pullPieceCleanupIntervalSeconds,
+      minDataSetsFull: minNumDataSetsForChecks,
+      minDataSetsTrickle: trickleTierRates.minNumDataSetsForChecks,
     };
   }
 
@@ -1293,16 +1339,20 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
   private async ensureScheduleRows(network: Network): Promise<void> {
     const now = new Date();
     const {
-      dealIntervalSeconds,
+      dealIntervalSecondsFull,
+      dealIntervalSecondsTrickle,
       retrievalIntervalSeconds,
       sampledRetrievalIntervalSeconds,
-      dataSetCreationIntervalSeconds,
+      dataSetCreationIntervalSecondsFull,
+      dataSetCreationIntervalSecondsTrickle,
       dataSetLifecycleCheckIntervalSeconds,
       dataRetentionPollIntervalSeconds,
       providersRefreshIntervalSeconds,
       pieceCleanupIntervalSeconds,
       pullCheckIntervalSeconds,
       pullPieceCleanupIntervalSeconds,
+      minDataSetsFull,
+      minDataSetsTrickle,
     } = this.getIntervalSecondsForRates(network);
 
     const networkCfg = this.configService.get("networks")[network];
@@ -1319,7 +1369,6 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     const dataRetentionPollStartAt = new Date(now.getTime() + phaseMs);
     const providersRefreshStartAt = new Date(now.getTime() + phaseMs);
 
-    const minDataSets = networkCfg.minNumDataSetsForChecks;
     // Lifecycle check schedules are only created when enabled explicitly
     const lifecycleCheckScheduleEnabled = networkCfg.dataSetLifecycleCheckEnabled;
     const cleanupStartAt = new Date(now.getTime() + phaseMs);
@@ -1329,10 +1378,11 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     // job would fail in SubgraphService.samplePiece(), so gate schedule creation on it.
     const sampledRetrievalEnabled = Boolean(networkCfg.subgraphEndpoint);
 
-    const unblockedAddresses = providers
-      .filter(({ address, providerId }) => !isSpBlocked(networkCfg, address, providerId))
-      .map(({ address }) => address);
-    const blockedCount = providers.length - unblockedAddresses.length;
+    const unblockedProviders = providers.filter(
+      ({ address, providerId }) => !isSpBlocked(networkCfg, address, providerId),
+    );
+    const unblockedAddresses = unblockedProviders.map(({ address }) => address);
+    const blockedCount = providers.length - unblockedProviders.length;
     if (blockedCount > 0) {
       this.logger.warn({
         event: "job_schedules_skipped_blocked",
@@ -1341,7 +1391,23 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       });
     }
 
-    for (const address of unblockedAddresses) {
+    const trickleTierAddresses: string[] = [];
+
+    for (const { address, providerId, isApproved } of unblockedProviders) {
+      // Full-rate tier: on-chain approved, or manually curated as an
+      // expected-approval candidate. Everyone else gets the trickle tier,
+      // which bounds worst-case spend on new/unknown SPs — see #681.
+      let dealIntervalSeconds = dealIntervalSecondsFull;
+      let dataSetCreationIntervalSeconds = dataSetCreationIntervalSecondsFull;
+      let minDataSets = minDataSetsFull;
+      const isFullTier = isFullRateTier(networkCfg, address, isApproved, providerId);
+      if (!isFullTier) {
+        dealIntervalSeconds = dealIntervalSecondsTrickle;
+        dataSetCreationIntervalSeconds = dataSetCreationIntervalSecondsTrickle;
+        minDataSets = minDataSetsTrickle;
+        trickleTierAddresses.push(address);
+      }
+
       await this.jobScheduleRepository.upsertSchedule("deal", address, network, dealIntervalSeconds, dealStartAt);
       await this.jobScheduleRepository.upsertSchedule(
         "retrieval",
@@ -1368,7 +1434,8 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
           dataSetCreationStartAt,
         );
       }
-      if (lifecycleCheckScheduleEnabled) {
+      // The trickle-tier SPs never get the lifecycle canary scheduled at all.
+      if (lifecycleCheckScheduleEnabled && isFullTier) {
         await this.jobScheduleRepository.upsertSchedule(
           "data_set_lifecycle_check",
           address,
@@ -1422,6 +1489,23 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
           event: "data_set_lifecycle_check_schedules_removed",
           message: "Removed data_set_lifecycle_check schedules because the job is disabled",
           removed,
+        });
+      }
+    } else if (trickleTierAddresses.length > 0) {
+      // A provider that dropped out of the full-rate tier (e.g. lost
+      // isApproved, or was removed from EXPECTED_APPROVED) isn't eligible
+      // for dataSet lifecycle canary check.
+      const removed = await this.jobScheduleRepository.deleteSchedulesForAddresses(
+        "data_set_lifecycle_check",
+        trickleTierAddresses,
+        network,
+      );
+      if (removed.length > 0) {
+        this.logger.warn({
+          event: "data_set_lifecycle_check_schedules_removed_trickle_tier",
+          message: "Removed data_set_lifecycle_check schedules for providers no longer on the full-rate tier",
+          removedCount: removed.length,
+          removedAddresses: removed,
         });
       }
     }

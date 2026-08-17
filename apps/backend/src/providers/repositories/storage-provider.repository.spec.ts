@@ -239,11 +239,11 @@ describe("StorageProviderRepository", () => {
         get: vi.fn(() => ({ calibration: { useOnlyApprovedProviders } })),
       }) as any;
 
-    it("projects address and providerId for active providers", async () => {
+    it("projects address, providerId, and isApproved for active providers", async () => {
       const repo = {
         find: vi.fn().mockResolvedValue([
-          { address: "0xa", providerId: 1n },
-          { address: "0xb", providerId: null },
+          { address: "0xa", providerId: 1n, isApproved: true },
+          { address: "0xb", providerId: null, isApproved: false },
         ]),
       };
       const service = new StorageProviderRepository(repo as any, makeConfigService(false));
@@ -251,12 +251,12 @@ describe("StorageProviderRepository", () => {
       const result = await service.findActiveAddresses("calibration");
 
       expect(repo.find).toHaveBeenCalledWith({
-        select: { address: true, providerId: true },
+        select: { address: true, providerId: true, isApproved: true },
         where: { network: "calibration", isActive: true },
       });
       expect(result).toEqual([
-        { address: "0xa", providerId: 1n },
-        { address: "0xb", providerId: null },
+        { address: "0xa", providerId: 1n, isApproved: true },
+        { address: "0xb", providerId: null, isApproved: false },
       ]);
     });
 
@@ -267,7 +267,7 @@ describe("StorageProviderRepository", () => {
       await service.findActiveAddresses("calibration");
 
       expect(repo.find).toHaveBeenCalledWith({
-        select: { address: true, providerId: true },
+        select: { address: true, providerId: true, isApproved: true },
         where: { network: "calibration", isActive: true, isApproved: true },
       });
     });

@@ -74,16 +74,18 @@ export class StorageProviderRepository {
   }
 
   /**
-   * Address + providerId projection for active (optionally approved-only)
-   * providers.
+   * Address + providerId + isApproved projection for active (optionally
+   * approved-only) providers.
    */
-  async findActiveAddresses(network: Network): Promise<Array<{ address: string; providerId: bigint | null }>> {
+  async findActiveAddresses(
+    network: Network,
+  ): Promise<Array<{ address: string; providerId: bigint | null; isApproved: boolean }>> {
     const { useOnlyApprovedProviders } = this.configService.get("networks", { infer: true })[network];
     const rows = await this.repo.find({
-      select: { address: true, providerId: true },
+      select: { address: true, providerId: true, isApproved: true },
       where: { network, isActive: true, ...(useOnlyApprovedProviders ? { isApproved: true } : {}) },
     });
-    return rows.map((row) => ({ address: row.address, providerId: row.providerId }));
+    return rows.map((row) => ({ address: row.address, providerId: row.providerId, isApproved: row.isApproved }));
   }
 
   /**

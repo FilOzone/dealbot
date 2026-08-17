@@ -141,6 +141,17 @@ export type BaseNetworkConfig = {
   blockedSpIds: Set<string>;
   blockedSpAddresses: Set<string>;
 
+  /**
+   * Manually curated SPs that should receive full-rate testing even though
+   * they aren't (yet) `isApproved` on-chain — e.g. candidates being
+   * considered for approval. Combined with `isApproved` to gate the
+   * full-rate tier (see `isFullRateTier` in `common/sp-tier.ts`); every
+   * other active, unblocked SP defaults to the trickle tier
+   * (`trickleTierRates` in `config/constants.ts`). See #681.
+   */
+  expectedApprovedSpIds: Set<string>;
+  expectedApprovedSpAddresses: Set<string>;
+
   /** Piece Cleanup Config */
   maxDatasetStorageSizeBytes: number;
   targetDatasetStorageSizeBytes: number;

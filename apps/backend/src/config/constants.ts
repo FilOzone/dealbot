@@ -37,6 +37,20 @@ export const networkDefaults = {
 } satisfies NetworkDefaults;
 
 /**
+ * Rate/target ceiling applied to SPs that are not on the full-rate tier (see
+ * `isFullRateTier` in `common/sp-tier.ts`) — i.e. not `isApproved` on-chain
+ * and not in `EXPECTED_APPROVED_SP_IDS`/`EXPECTED_APPROVED_SP_ADDRESSES`.
+ *
+ * Deliberately NOT env-configurable per network: this tier exists to bound
+ * worst-case wallet spend on new/unknown SPs (#681).
+ */
+export const trickleTierRates = {
+  dealsPerSpPerHour: 1 / 4, // 1 data-storage check every 4 hours
+  dataSetCreationsPerSpPerHour: 1 / 4, // 1 data-set-creation tick every 4 hours
+  minNumDataSetsForChecks: 1,
+} as const;
+
+/**
  * Uppercase env-var prefixes for every supported network, e.g.
  * `["CALIBRATION", "MAINNET"]`
  */
