@@ -1525,7 +1525,9 @@ describe("JobsService schedule rows", () => {
     } as unknown as JobsServiceDeps[0];
     service = buildService({ configService });
 
-    providerRegistryRepositoryMock.findActiveAddresses.mockResolvedValueOnce([{ address: "0xaaa", isApproved: true }]);
+    providerRegistryRepositoryMock.findActiveAddresses.mockResolvedValueOnce([
+      { address: "0xaaa", providerId: 1n, isApproved: true },
+    ]);
 
     await callPrivate(service, "ensureScheduleRows", DEFAULT_NETWORK);
 
@@ -1540,7 +1542,9 @@ describe("JobsService schedule rows", () => {
 
   it("removes data_set_lifecycle_check schedules when disabled", async () => {
     // base config has dataSetLifecycleCheckEnabled=false
-    providerRegistryRepositoryMock.findActiveAddresses.mockResolvedValueOnce([{ address: "0xaaa", isApproved: true }]);
+    providerRegistryRepositoryMock.findActiveAddresses.mockResolvedValueOnce([
+      { address: "0xaaa", providerId: 1n, isApproved: true },
+    ]);
 
     await callPrivate(service, "ensureScheduleRows", DEFAULT_NETWORK);
 
@@ -1566,7 +1570,9 @@ describe("JobsService schedule rows", () => {
     } as unknown as JobsServiceDeps[0];
     service = buildService({ configService });
 
-    providerRegistryRepositoryMock.findActiveAddresses.mockResolvedValueOnce([{ address: "0xaaa", isApproved: false }]);
+    providerRegistryRepositoryMock.findActiveAddresses.mockResolvedValueOnce([
+      { address: "0xaaa", providerId: 1n, isApproved: false },
+    ]);
 
     await callPrivate(service, "ensureScheduleRows", DEFAULT_NETWORK);
 
