@@ -1566,7 +1566,6 @@ describe("JobsService schedule rows", () => {
     } as unknown as JobsServiceDeps[0];
     service = buildService({ configService });
 
-    // Neither approved nor on the expected-approved list -> trickle tier.
     providerRegistryRepositoryMock.findActiveAddresses.mockResolvedValueOnce([{ address: "0xaaa", isApproved: false }]);
 
     await callPrivate(service, "ensureScheduleRows", DEFAULT_NETWORK);

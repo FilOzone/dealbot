@@ -124,8 +124,7 @@ export class DealService {
    * Pick which data-set slot this deal will target.
    *
    * Policy:
-   *   - If `minDataSets > 1` (the caller's per-SP tier target — see
-   *     `isFullRateTier`) and a random index > 0 is selected, probe that
+   *   - If `minDataSets > 1` and a random index > 0 is selected, probe that
    *     slot first. If live, use it. If missing or terminated, fall through
    *     to baseline (data_set_creation owns repair/provisioning).
    *   - Probe baseline. If terminated, throw `DealJobTerminatedDataSetError`

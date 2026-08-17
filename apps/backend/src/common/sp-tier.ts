@@ -1,12 +1,6 @@
-import { INetworkConfig } from "src/config/types.js";
+import type { INetworkConfig } from "src/config/types.js";
 
-/**
- * Returns true if the provider qualifies for the full-rate testing tier:
- * already `isApproved` on-chain (approved SPs must stay fully monitored
- * regardless of manual-list staleness), or manually curated as an
- * expected-approval candidate. Every other SP (new, unknown, or not yet
- * vetted) defaults to the trickle tier — see #681.
- */
+/** Returns whether a provider qualifies for full-rate testing. */
 export function isFullRateTier(
   cfg: Pick<INetworkConfig, "expectedApprovedSpAddresses" | "expectedApprovedSpIds">,
   address: string,

@@ -37,12 +37,8 @@ export const networkDefaults = {
 } satisfies NetworkDefaults;
 
 /**
- * Rate/target ceiling applied to SPs that are not on the full-rate tier (see
- * `isFullRateTier` in `common/sp-tier.ts`) — i.e. not `isApproved` on-chain
- * and not in `EXPECTED_APPROVED_SP_IDS`/`EXPECTED_APPROVED_SP_ADDRESSES`.
- *
- * Deliberately NOT env-configurable per network: this tier exists to bound
- * worst-case wallet spend on new/unknown SPs (#681).
+ * Fixed rates and dataset target for eligible providers outside the full-rate
+ * tier. Kept non-configurable to limit wallet-spend exposure.
  */
 export const trickleTierRates = {
   dealsPerSpPerHour: 1 / 4, // 1 data-storage check every 4 hours

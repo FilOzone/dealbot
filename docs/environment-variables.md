@@ -518,7 +518,7 @@ CALIBRATION_SUBGRAPH_ENDPOINT=https://api.goldsky.com/api/public/<project>/subgr
 
 **Role**: Minimum number of datasets provisioned per storage provider before running checks on this network. When > 1, the `data_set_creation` job is responsible for provisioning any additional datasets.
 
-**Tiering**: Only applies to SPs on the [full-rate tier](#full-rate-vs-trickle-tier). Trickle-tier SPs target a fixed 1 dataset regardless of this value. See [issue #681](https://github.com/FilOzone/dealbot/issues/681).
+**Tiering**: Only applies to SPs on the [full-rate tier](#full-rate-vs-trickle-tier). Trickle-tier SPs target one dataset regardless of this value.
 
 ---
 
@@ -546,14 +546,16 @@ Dealbot uses pg-boss for rate-based scheduling — see [Jobs (pg-boss)](#jobs-pg
 
 ### Full-rate vs. trickle tier
 
-Every active, unblocked SP is assigned to one of two testing tiers, re-evaluated on every scheduler tick:
+Provider eligibility is applied before tiering. When `<NET>_USE_ONLY_APPROVED_PROVIDERS=true`, only active, on-chain-approved providers are scheduled; expected-approved lists do not override this setting. When it is `false`, all active providers are eligible unless blocked.
+
+Eligible providers are assigned to one of two tiers on each scheduler tick:
 
 - **Full-rate tier**: the SP is already `isApproved` on-chain (FWSS), **or** its ID/address is listed in [`<NET>_EXPECTED_APPROVED_SP_IDS`](#net_expected_approved_sp_ids) / [`<NET>_EXPECTED_APPROVED_SP_ADDRESSES`](#net_expected_approved_sp_addresses). It gets the configured `<NET>_DEALS_PER_SP_PER_HOUR`, `<NET>_DATASET_CREATIONS_PER_SP_PER_HOUR`, and `<NET>_MIN_NUM_DATASETS_FOR_CHECKS` rates, and (if enabled) the `data_set_lifecycle_check` canary.
-- **Trickle tier**: every other SP — new, unknown, or not yet vetted. Deals and dataset-creation attempts are capped at a fixed rate of one every 4 hours, with a target of 1 dataset, regardless of the configured full-rate values. The `data_set_lifecycle_check` canary is never scheduled for trickle-tier SPs at all (not just at a slower rate), since it creates and terminates a real throwaway dataset on every run.
+- **Trickle tier**: every other eligible SP. Deals and dataset-creation attempts run at a fixed rate of one every 4 hours, with a target of one dataset. The `data_set_lifecycle_check` canary is not scheduled because every run creates and terminates a real throwaway dataset.
 
-The trickle tier's rate is a fixed constant (`trickleTierRates` in `src/config/constants.ts`), not env-configurable per network — it exists specifically to bound worst-case wallet spend on SPs dealbot hasn't vetted yet, so it can't be loosened by config alone. Retrieval, pull-check, and piece-cleanup cadences are not tiered; they apply uniformly regardless of tier.
+Trickle rates are fixed in `trickleTierRates` and are not configurable. Retrieval, pull-check, and piece-cleanup cadences are shared by both tiers.
 
-**Why**: before this, every active SP — including brand-new or ephemeral ones that appeared on-chain and were not yet blocklisted — received full-rate testing immediately, which could drain the dealbot wallet before anyone noticed and blocklisted the SP. See [issue #681](https://github.com/FilOzone/dealbot/issues/681).
+**Why**: when testing includes unapproved providers, newly registered or ephemeral SPs previously received full-rate testing until manually blocklisted, increasing wallet-spend exposure. See [issue #681](https://github.com/FilOzone/dealbot/issues/681).
 
 ### `<NET>_DEALS_PER_SP_PER_HOUR`
 
@@ -566,7 +568,7 @@ The trickle tier's rate is a fixed constant (`trickleTierRates` in `src/config/c
 
 **Notes**: Fractional values are supported (e.g. `0.25` ⇒ one deal every 4 hours per SP).
 
-**Tiering**: Only applies to SPs on the [full-rate tier](#full-rate-vs-trickle-tier). Trickle-tier SPs are capped at a fixed one deal every 4 hours regardless of this value. See [issue #681](https://github.com/FilOzone/dealbot/issues/681).
+**Tiering**: Only applies to SPs on the [full-rate tier](#full-rate-vs-trickle-tier). Trickle-tier SPs use the fixed trickle rate.
 
 ---
 
@@ -644,7 +646,7 @@ The trickle tier's rate is a fixed constant (`trickleTierRates` in `src/config/c
 
 **Role**: Target dataset-creation rate per storage provider on this network.
 
-**Tiering**: Only applies to SPs on the [full-rate tier](#full-rate-vs-trickle-tier). Trickle-tier SPs are capped at a fixed one attempt every 4 hours regardless of this value. See [issue #681](https://github.com/FilOzone/dealbot/issues/681).
+**Tiering**: Only applies to SPs on the [full-rate tier](#full-rate-vs-trickle-tier). Trickle-tier SPs use the fixed trickle rate.
 
 ---
 
@@ -745,13 +747,11 @@ check types (data-storage, retrieval, and data-retention). Matching is case-inse
 - **Required**: No
 - **Default**: `""` (empty — no manually-listed candidates)
 
-**Role**: Manually curated list, by provider numeric ID, of SPs that should receive [full-rate tier](#full-rate-vs-trickle-tier) testing even though they aren't (yet) `isApproved` on-chain — e.g. candidates being considered for approval that need enough test data to evaluate. SPs already `isApproved` on-chain get the full-rate tier automatically and do not need to be listed here.
+**Role**: Provider IDs granted [full-rate testing](#full-rate-vs-trickle-tier) before on-chain approval. Approved providers do not need to be listed. This setting has no effect when `<NET>_USE_ONLY_APPROVED_PROVIDERS=true` because unapproved providers are excluded before tiering.
 
-**Notes**: An SP only needs to appear in **either** `<NET>_EXPECTED_APPROVED_SP_IDS` **or** `<NET>_EXPECTED_APPROVED_SP_ADDRESSES` — not both — to qualify. They're checked independently (matching either one is sufficient), the same as `<NET>_BLOCKED_SP_IDS`/`<NET>_BLOCKED_SP_ADDRESSES`. Use whichever identifier you have on hand; listing both for the same SP is harmless but redundant.
+**Notes**: Matching either the ID list or address list is sufficient.
 
 **Example**: `<NET>_EXPECTED_APPROVED_SP_IDS=1234,5678`
-
-**See also**: [issue #681](https://github.com/FilOzone/dealbot/issues/681)
 
 ---
 
@@ -761,13 +761,9 @@ check types (data-storage, retrieval, and data-retention). Matching is case-inse
 - **Required**: No
 - **Default**: `""` (empty — no manually-listed candidates)
 
-**Role**: Address-based counterpart to [`<NET>_EXPECTED_APPROVED_SP_IDS`](#net_expected_approved_sp_ids) — same effect, matched by provider address instead of numeric ID. Matching is case-insensitive.
-
-**Notes**: Either this or `<NET>_EXPECTED_APPROVED_SP_IDS` is sufficient for a given SP; you don't need to set both.
+**Role**: Address-based counterpart to [`<NET>_EXPECTED_APPROVED_SP_IDS`](#net_expected_approved_sp_ids). Matching is case-insensitive.
 
 **Example**: `<NET>_EXPECTED_APPROVED_SP_ADDRESSES=0xAbCd...,0x1234...`
-
-**See also**: [issue #681](https://github.com/FilOzone/dealbot/issues/681)
 
 ---
 
@@ -947,7 +943,7 @@ These variables are **global** (not per-network) and control the shared pg-boss 
 
 **Notes**: Fractional values are supported. For example, `0.25` means one deal every 4 hours per storage provider.
 
-**Tiering**: Only applies to SPs on the [full-rate tier](#full-rate-vs-trickle-tier). See [issue #681](https://github.com/FilOzone/dealbot/issues/681).
+**Tiering**: Only applies to SPs on the [full-rate tier](#full-rate-vs-trickle-tier).
 
 ---
 
@@ -980,7 +976,7 @@ These variables are **global** (not per-network) and control the shared pg-boss 
 - Increase if you want more datasets per provider to raise the density of data-retention proof samples.
 - Decrease to reduce on-chain footprint per provider during testing.
 
-**Tiering**: Only applies to SPs on the [full-rate tier](#full-rate-vs-trickle-tier). See [issue #681](https://github.com/FilOzone/dealbot/issues/681).
+**Tiering**: Only applies to SPs on the [full-rate tier](#full-rate-vs-trickle-tier).
 
 **See also**: [`docs/data-set-creation.md`](./data-set-creation.md)
 
@@ -1011,7 +1007,7 @@ These variables are **global** (not per-network) and control the shared pg-boss 
 
 **Notes**: Fractional values are supported. For example, `0.5` means one dataset creation every 2 hours per storage provider.
 
-**Tiering**: Only applies to SPs on the [full-rate tier](#full-rate-vs-trickle-tier). See [issue #681](https://github.com/FilOzone/dealbot/issues/681).
+**Tiering**: Only applies to SPs on the [full-rate tier](#full-rate-vs-trickle-tier).
 
 ---
 
@@ -1025,7 +1021,7 @@ These variables are **global** (not per-network) and control the shared pg-boss 
 
 **Notes**: Self-contained — it does not touch the managed check data sets and does not depend on `data_set_creation`. When disabled, stale schedules are removed so they stop enqueuing no-op jobs.
 
-**Tiering**: Regardless of this setting, the canary is **never scheduled for trickle-tier SPs** — see [full-rate vs. trickle tier](#full-rate-vs-trickle-tier). It creates and terminates a real throwaway dataset every run, so trickle-tier (unvetted) SPs are fully excluded rather than just throttled. A provider that drops out of the full-rate tier has its stale schedule row removed on the next scheduler tick. See [issue #681](https://github.com/FilOzone/dealbot/issues/681).
+**Tiering**: Only [full-rate providers](#full-rate-vs-trickle-tier) receive this canary because each run creates and terminates a real throwaway dataset.
 
 **See also**: [`docs/checks/data-set-lifecycle-check.md`](./checks/data-set-lifecycle-check.md)
 
@@ -1043,7 +1039,7 @@ These variables are **global** (not per-network) and control the shared pg-boss 
 
 **Notes**: Independent of `DATASET_CREATIONS_PER_SP_PER_HOUR`. Fractional values are supported.
 
-**Tiering**: This rate is irrelevant for trickle-tier SPs — the canary is never scheduled for them at all. See [`DATASET_LIFECYCLE_CHECK_ENABLED`](#dataset_lifecycle_check_enabled) and [full-rate vs. trickle tier](#full-rate-vs-trickle-tier).
+**Tiering**: Only applies to [full-rate providers](#full-rate-vs-trickle-tier).
 
 ---
 

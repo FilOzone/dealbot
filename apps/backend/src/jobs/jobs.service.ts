@@ -1078,9 +1078,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       return;
     }
 
-    // Defensive gate: schedules are only created for full-rate-tier providers, but a
-    // stale enqueued job (e.g. after the provider dropped out of the full-rate tier)
-    // must still no-op safely rather than spend on a throwaway data set.
+    // Re-check eligibility because queued jobs can outlive their schedule.
     const provider = await this.storageProviderRepository.findByAddress(spAddress, network);
     const isFullTier = isFullRateTier(networkCfg, spAddress, provider?.isApproved ?? false, provider?.id);
     if (!isFullTier) {
@@ -1254,17 +1252,6 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     }
   }
 
-  /**
-   * Computes job-cadence intervals for a network.
-   *
-   * `deal`/`data_set_creation` (and the `minDataSets` target) are tiered:
-   * a `Full` variant driven by the network's configured rate, and a fixed,
-   * conservative `Trickle` variant (`trickleTierRates`) applied to SPs that
-   * aren't on the full-rate tier — see `isFullRateTier`. Every other job
-   * type stays a single network-wide cadence for now; only deals and
-   * data-set creation drive the wallet-spend the trickle tier exists to
-   * bound (#681).
-   */
   private getIntervalSecondsForRates(network: Network): {
     dealIntervalSecondsFull: number;
     dealIntervalSecondsTrickle: number;
@@ -1394,9 +1381,6 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     const trickleTierAddresses: string[] = [];
 
     for (const { address, providerId, isApproved } of unblockedProviders) {
-      // Full-rate tier: on-chain approved, or manually curated as an
-      // expected-approval candidate. Everyone else gets the trickle tier,
-      // which bounds worst-case spend on new/unknown SPs — see #681.
       let dealIntervalSeconds = dealIntervalSecondsFull;
       let dataSetCreationIntervalSeconds = dataSetCreationIntervalSecondsFull;
       let minDataSets = minDataSetsFull;
@@ -1434,7 +1418,6 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
           dataSetCreationStartAt,
         );
       }
-      // The trickle-tier SPs never get the lifecycle canary scheduled at all.
       if (lifecycleCheckScheduleEnabled && isFullTier) {
         await this.jobScheduleRepository.upsertSchedule(
           "data_set_lifecycle_check",
@@ -1492,9 +1475,6 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         });
       }
     } else if (trickleTierAddresses.length > 0) {
-      // A provider that dropped out of the full-rate tier (e.g. lost
-      // isApproved, or was removed from EXPECTED_APPROVED) isn't eligible
-      // for dataSet lifecycle canary check.
       const removed = await this.jobScheduleRepository.deleteSchedulesForAddresses(
         "data_set_lifecycle_check",
         trickleTierAddresses,

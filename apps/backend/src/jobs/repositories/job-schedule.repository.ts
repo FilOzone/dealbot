@@ -144,18 +144,6 @@ export class JobScheduleRepository {
     return typeof rowCount === "number" ? rowCount : 0;
   }
 
-  /**
-   * Deletes schedule rows for a specific job type and set of addresses.
-   *
-   * Used to stop a per-SP job (e.g. `data_set_lifecycle_check`) for
-   * addresses that dropped out of eligibility (e.g. left the full-rate
-   * tier — see #681) without touching their other job-type schedules.
-   *
-   * @param jobType - The job type to remove schedules for.
-   * @param addresses - Provider addresses whose schedule for this job type should be deleted.
-   * @param network - Only remove schedules belonging to this network.
-   * @returns Array of storage provider addresses whose schedules were deleted.
-   */
   async deleteSchedulesForAddresses(jobType: JobType, addresses: string[], network: Network): Promise<string[]> {
     if (addresses.length === 0) return [];
     const [rows] = (await this.dataSource.query(
