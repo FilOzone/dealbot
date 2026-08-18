@@ -141,9 +141,9 @@ export type BaseNetworkConfig = {
   blockedSpIds: Set<string>;
   blockedSpAddresses: Set<string>;
 
-  /** Provider IDs and addresses granted full-rate testing before on-chain approval. */
-  expectedApprovedSpIds: Set<string>;
-  expectedApprovedSpAddresses: Set<string>;
+  /** Provider IDs and addresses granted full-rate testing. */
+  fullRateSpIds: Set<string>;
+  fullRateSpAddresses: Set<string>;
 
   /** Piece Cleanup Config */
   maxDatasetStorageSizeBytes: number;
