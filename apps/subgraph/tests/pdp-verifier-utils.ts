@@ -6,6 +6,7 @@ import {
   DataSetEmpty,
   NextProvingPeriod,
   PiecesAdded,
+  PiecesAddedV2,
   PossessionProven,
 } from "../generated/PDPVerifier/PDPVerifier";
 
@@ -92,6 +93,55 @@ export function createRootsAddedEvent(
   rootsAddedEvent.block.timestamp = BigInt.fromI32(1);
 
   return rootsAddedEvent;
+}
+
+// header/root packing of the same CID used by createRootsAddedEvent
+// (0x01559120258ff7f7021387dcea7164b7d1c4a98bd6f8d3c187e3114795efa391df307c8aa9d5d5cbac03):
+// the header is right-aligned/zero-padded to 32 bytes, the trailing 32 bytes are the digest ("root").
+export const PACKED_CID_HEADER = "0x0000000000000000000000000000000000000000000001559120258ff7f70213";
+export const PACKED_CID_ROOT = "0x87dcea7164b7d1c4a98bd6f8d3c187e3114795efa391df307c8aa9d5d5cbac03";
+
+export function createPiecesAddedV2Event(
+  setId: BigInt,
+  firstPieceId: BigInt,
+  pieceCount: i32,
+  sender: Address,
+  contractAddress: Address,
+  blockNumber: BigInt = BigInt.fromI32(1),
+  timestamp: BigInt = BigInt.fromI32(1),
+  txHash: Bytes = generateTxHash(6),
+  logIndex: BigInt = BigInt.fromI32(0),
+): PiecesAddedV2 {
+  const piecesAddedV2Event = changetype<PiecesAddedV2>(newMockEvent());
+
+  piecesAddedV2Event.parameters = [];
+  piecesAddedV2Event.address = contractAddress;
+  piecesAddedV2Event.transaction.from = sender;
+  piecesAddedV2Event.transaction.to = contractAddress;
+
+  const setIdParam = new ethereum.EventParam("setId", ethereum.Value.fromUnsignedBigInt(setId));
+  const firstPieceIdParam = new ethereum.EventParam("firstPieceId", ethereum.Value.fromUnsignedBigInt(firstPieceId));
+
+  const pieceCids: Array<ethereum.Tuple> = [];
+  for (let i = 0; i < pieceCount; i++) {
+    const packedCidTuple = new ethereum.Tuple();
+    packedCidTuple.push(ethereum.Value.fromFixedBytes(Bytes.fromHexString(PACKED_CID_HEADER)));
+    packedCidTuple.push(ethereum.Value.fromFixedBytes(Bytes.fromHexString(PACKED_CID_ROOT)));
+    pieceCids.push(packedCidTuple);
+  }
+
+  const pieceCidsParam = new ethereum.EventParam("pieceCids", ethereum.Value.fromTupleArray(pieceCids));
+
+  piecesAddedV2Event.parameters.push(setIdParam);
+  piecesAddedV2Event.parameters.push(firstPieceIdParam);
+  piecesAddedV2Event.parameters.push(pieceCidsParam);
+
+  piecesAddedV2Event.block.number = blockNumber;
+  piecesAddedV2Event.block.timestamp = timestamp;
+  piecesAddedV2Event.transaction.hash = txHash;
+  piecesAddedV2Event.logIndex = logIndex;
+
+  return piecesAddedV2Event;
 }
 
 export function createNextProvingPeriodEvent(
