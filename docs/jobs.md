@@ -28,6 +28,19 @@ This doc explains what a "job" is in dealbot, how jobs are defined, how they're 
 - Dealbot owns schedule state and timing via `job_schedule_state` and does not use pg-boss cron scheduling (`boss.schedule(...)`).
 - This custom scheduler exists because we need per-SP rate schedules, controlled backfill with caps, maintenance-window rules, and per-SP singleton execution across deal + retrieval.
 
+## Provider Eligibility and Testing Tiers
+
+Eligibility is evaluated before tiering. Active, unblocked providers are eligible when `<NET>_USE_ONLY_APPROVED_PROVIDERS=false`. When it is `true`, only active, unblocked, on-chain-approved providers are eligible; the full-rate lists do not override this setting.
+
+Each eligible provider is assigned a tier on every scheduler tick:
+
+- **Full-rate**: providers that are approved on-chain or listed in `<NET>_FULL_RATE_SP_IDS` or `<NET>_FULL_RATE_SP_ADDRESSES`.
+- **Trickle**: all other eligible providers.
+
+Full-rate providers use the configured deal and data-set-creation rates and target `<NET>_MIN_NUM_DATASETS_FOR_CHECKS` datasets. Trickle providers receive one deal and one data-set-creation attempt every four hours and target one dataset. The data-set lifecycle canary runs only for full-rate providers. Retrieval, sampled-retrieval, pull-check, and piece-cleanup rates are the same for both tiers.
+
+The fixed trickle tier limits wallet-spend exposure when testing includes newly registered or ephemeral providers. See [issue #681](https://github.com/FilOzone/dealbot/issues/681).
+
 ## Job Types, Queues, and Handlers
 
 | Job type | Queue | Handler | Payload | Design doc |

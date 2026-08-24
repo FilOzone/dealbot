@@ -144,6 +144,21 @@ export class JobScheduleRepository {
     return typeof rowCount === "number" ? rowCount : 0;
   }
 
+  async deleteSchedulesForAddresses(jobType: JobType, addresses: string[], network: Network): Promise<string[]> {
+    if (addresses.length === 0) return [];
+    const [rows] = (await this.dataSource.query(
+      `
+      DELETE FROM job_schedule_state
+      WHERE job_type = $1
+        AND network = $2::network_enum
+        AND sp_address = ANY($3::text[])
+      RETURNING sp_address
+      `,
+      [jobType, network, addresses],
+    )) || [[]];
+    return rows.map((row: { sp_address: string }) => row.sp_address);
+  }
+
   /**
    * Counts manually paused jobs by type.
    */

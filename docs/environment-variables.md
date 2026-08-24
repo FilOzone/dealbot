@@ -28,7 +28,7 @@ MAINNET_DEALS_PER_SP_PER_HOUR=1
 **Rules**
 
 - **Resolution precedence (per-network vars).** Each network resolves a variable as `<NETWORK>_<VAR>` (per-network override) → `<VAR>` (unprefixed shared value) → built-in default. Set a value once unprefixed to share it across every active network, and add a `<NETWORK>_` override only where a network differs.
-- **Chain-specific vars never inherit.** Credentials, chain endpoints, analytics destinations, and chain-local identifiers must be set with a prefix and do not read the unprefixed slot: `WALLET_ADDRESS`, `WALLET_PRIVATE_KEY`, `SESSION_KEY_PRIVATE_KEY`, `RPC_URL`, `CLICKHOUSE_URL`, `PDP_SUBGRAPH_ENDPOINT`, `SUBGRAPH_ENDPOINT`, `DEALBOT_DATASET_VERSION`, `BLOCKED_SP_IDS`, `BLOCKED_SP_ADDRESSES`, `DATASET_LIFECYCLE_CHECK_ENABLED`. (`DATASET_LIFECYCLE_CHECK_ENABLED` is chain-specific because its default is network-dependent — off on mainnet — so a shared `=true` must not silently enable the canary there.)
+- **Chain-specific vars never inherit.** Credentials, chain endpoints, analytics destinations, and chain-local identifiers must be set with a prefix and do not read the unprefixed slot: `WALLET_ADDRESS`, `WALLET_PRIVATE_KEY`, `SESSION_KEY_PRIVATE_KEY`, `RPC_URL`, `CLICKHOUSE_URL`, `PDP_SUBGRAPH_ENDPOINT`, `SUBGRAPH_ENDPOINT`, `DEALBOT_DATASET_VERSION`, `BLOCKED_SP_IDS`, `BLOCKED_SP_ADDRESSES`, `FULL_RATE_SP_IDS`, `FULL_RATE_SP_ADDRESSES`, `DATASET_LIFECYCLE_CHECK_ENABLED`. (`DATASET_LIFECYCLE_CHECK_ENABLED` is chain-specific because its default is network-dependent — off on mainnet — so a shared `=true` must not silently enable the canary there.)
 - **Process-global vars.** Database, HTTP ports, ClickHouse batching, and pg-boss scheduler settings apply to the whole process and have no per-network form.
 - **Validation.** Both the unprefixed shared value and each `<NETWORK>_` override are validated against the same rules at startup. Only networks listed in `NETWORKS` are required; variables for inactive networks are ignored, so you can keep a `MAINNET_*` block commented out until you are ready.
 - **Wallet vs. session key.** Each active network must provide either `<NETWORK>_WALLET_PRIVATE_KEY` or `<NETWORK>_SESSION_KEY_PRIVATE_KEY`. When both are present the session key takes precedence (see [`docs/runbooks/wallet-and-session-keys.md`](./runbooks/wallet-and-session-keys.md)).
@@ -41,7 +41,7 @@ MAINNET_DEALS_PER_SP_PER_HOUR=1
 | [Application](#application-configuration) | `NODE_ENV`, `DEALBOT_PORT`, `DEALBOT_HOST`, `DEALBOT_RUN_MODE`, `DEALBOT_METRICS_PORT`, `DEALBOT_METRICS_HOST`, `DEALBOT_ALLOWED_ORIGINS`, `ENABLE_DEV_MODE`, `DEALBOT_API_PUBLIC_URL`, `DEALBOT_PROBE_LOCATION` |
 | [Database](#database-configuration)       | `DATABASE_HOST`, `DATABASE_PORT`, `DATABASE_POOL_MAX`, `DATABASE_USER`, `DATABASE_PASSWORD`, `DATABASE_NAME`                                                 |
 | [Per-Network](#per-network-configuration) | `<NET>_WALLET_ADDRESS`, `<NET>_WALLET_PRIVATE_KEY`, `<NET>_SESSION_KEY_PRIVATE_KEY`, `<NET>_RPC_URL`, `<NET>_CLICKHOUSE_URL`, `<NET>_RPC_REQUEST_TIMEOUT_MS`, `<NET>_CHECK_DATASET_CREATION_FEES`, `<NET>_USE_ONLY_APPROVED_PROVIDERS`, `<NET>_PDP_SUBGRAPH_ENDPOINT`, `<NET>_SUBGRAPH_ENDPOINT`, `<NET>_DEALBOT_DATASET_VERSION`, `<NET>_MIN_NUM_DATASETS_FOR_CHECKS`                                           |
-| [Per-Network Scheduling](#per-network-scheduling) | `<NET>_DEALS_PER_SP_PER_HOUR`, `<NET>_DEAL_JOB_TIMEOUT_SECONDS`, `<NET>_RETRIEVALS_PER_SP_PER_HOUR`, `<NET>_RETRIEVAL_JOB_TIMEOUT_SECONDS`, `<NET>_SAMPLED_RETRIEVALS_PER_SP_PER_HOUR`, `<NET>_SAMPLED_RETRIEVAL_JOB_TIMEOUT_SECONDS`, `<NET>_DATASET_CREATIONS_PER_SP_PER_HOUR`, `<NET>_DATA_SET_CREATION_JOB_TIMEOUT_SECONDS`, `<NET>_DATASET_LIFECYCLE_CHECK_ENABLED`, `<NET>_DATASET_LIFECYCLE_CHECKS_PER_SP_PER_HOUR`, `<NET>_DATA_SET_LIFECYCLE_CHECK_JOB_TIMEOUT_SECONDS`, `<NET>_PULL_CHECKS_PER_SP_PER_HOUR`, `<NET>_PULL_CHECK_JOB_TIMEOUT_SECONDS`, `<NET>_PULL_CHECK_POLL_INTERVAL_SECONDS`, `<NET>_PULL_CHECK_PIECE_SIZE_BYTES`, `<NET>_PULL_PIECE_CLEANUP_INTERVAL_SECONDS`, `<NET>_PROVIDERS_REFRESH_INTERVAL_SECONDS`, `<NET>_DATA_RETENTION_POLL_INTERVAL_SECONDS`, `<NET>_MAINTENANCE_WINDOWS_UTC`, `<NET>_MAINTENANCE_WINDOW_MINUTES`, `<NET>_BLOCKED_SP_IDS`, `<NET>_BLOCKED_SP_ADDRESSES`, `<NET>_MAX_DATASET_STORAGE_SIZE_BYTES`, `<NET>_TARGET_DATASET_STORAGE_SIZE_BYTES`, `<NET>_PIECE_CLEANUP_PER_SP_PER_HOUR`, `<NET>_MAX_PIECE_CLEANUP_RUNTIME_SECONDS` |
+| [Per-Network Scheduling](#per-network-scheduling) | `<NET>_DEALS_PER_SP_PER_HOUR`, `<NET>_DEAL_JOB_TIMEOUT_SECONDS`, `<NET>_RETRIEVALS_PER_SP_PER_HOUR`, `<NET>_RETRIEVAL_JOB_TIMEOUT_SECONDS`, `<NET>_SAMPLED_RETRIEVALS_PER_SP_PER_HOUR`, `<NET>_SAMPLED_RETRIEVAL_JOB_TIMEOUT_SECONDS`, `<NET>_DATASET_CREATIONS_PER_SP_PER_HOUR`, `<NET>_DATA_SET_CREATION_JOB_TIMEOUT_SECONDS`, `<NET>_DATASET_LIFECYCLE_CHECK_ENABLED`, `<NET>_DATASET_LIFECYCLE_CHECKS_PER_SP_PER_HOUR`, `<NET>_DATA_SET_LIFECYCLE_CHECK_JOB_TIMEOUT_SECONDS`, `<NET>_PULL_CHECKS_PER_SP_PER_HOUR`, `<NET>_PULL_CHECK_JOB_TIMEOUT_SECONDS`, `<NET>_PULL_CHECK_POLL_INTERVAL_SECONDS`, `<NET>_PULL_CHECK_PIECE_SIZE_BYTES`, `<NET>_PULL_PIECE_CLEANUP_INTERVAL_SECONDS`, `<NET>_PROVIDERS_REFRESH_INTERVAL_SECONDS`, `<NET>_DATA_RETENTION_POLL_INTERVAL_SECONDS`, `<NET>_MAINTENANCE_WINDOWS_UTC`, `<NET>_MAINTENANCE_WINDOW_MINUTES`, `<NET>_BLOCKED_SP_IDS`, `<NET>_BLOCKED_SP_ADDRESSES`, `<NET>_FULL_RATE_SP_IDS`, `<NET>_FULL_RATE_SP_ADDRESSES`, `<NET>_MAX_DATASET_STORAGE_SIZE_BYTES`, `<NET>_TARGET_DATASET_STORAGE_SIZE_BYTES`, `<NET>_PIECE_CLEANUP_PER_SP_PER_HOUR`, `<NET>_MAX_PIECE_CLEANUP_RUNTIME_SECONDS` |
 | [Jobs (pg-boss)](#jobs-pg-boss)           | `DEALBOT_PGBOSS_SCHEDULER_ENABLED`, `DEALBOT_PGBOSS_POOL_MAX`, `JOB_SCHEDULER_POLL_SECONDS`, `JOB_WORKER_POLL_SECONDS`, `PG_BOSS_LOCAL_CONCURRENCY`, `JOB_CATCHUP_MAX_ENQUEUE`, `JOB_SCHEDULE_PHASE_SECONDS`, `JOB_ENQUEUE_JITTER_SECONDS`, `SHUTDOWN_FINAL_SCRAPE_DELAY_SECONDS`, `IPFS_BLOCK_FETCH_CONCURRENCY`, `SAMPLED_RETRIEVAL_BLOCK_SAMPLE_COUNT` |
 | [Pull Check](#pull-check-configuration)   | `PULL_PIECE_MAX_CONCURRENT_STREAMS`, `PULL_PIECE_MAX_STREAMS_PER_CID` |
 | [ClickHouse](#clickhouse-configuration)   | `<NET>_CLICKHOUSE_URL`, `CLICKHOUSE_BATCH_SIZE`, `CLICKHOUSE_FLUSH_INTERVAL_MS`, `CLICKHOUSE_MAX_BUFFER_SIZE`                                                      |
@@ -518,6 +518,8 @@ CALIBRATION_SUBGRAPH_ENDPOINT=https://api.goldsky.com/api/public/<project>/subgr
 
 **Role**: Minimum number of datasets provisioned per storage provider before running checks on this network. When > 1, the `data_set_creation` job is responsible for provisioning any additional datasets.
 
+**Tiering**: Only applies to SPs on the [full-rate tier](./jobs.md#provider-eligibility-and-testing-tiers). Trickle-tier SPs target one dataset regardless of this value.
+
 ---
 
 ### `<NET>_DEALBOT_DATASET_VERSION`
@@ -542,6 +544,8 @@ Scheduling rates and intervals are configured per network, so each network can b
 
 Dealbot uses pg-boss for rate-based scheduling — see [Jobs (pg-boss)](#jobs-pg-boss) for global worker/timeout settings.
 
+Provider eligibility and rate selection are described in [Provider Eligibility and Testing Tiers](./jobs.md#provider-eligibility-and-testing-tiers).
+
 ### `<NET>_DEALS_PER_SP_PER_HOUR`
 
 - **Type**: `number`
@@ -552,6 +556,8 @@ Dealbot uses pg-boss for rate-based scheduling — see [Jobs (pg-boss)](#jobs-pg
 **Role**: Target deal creation rate per storage provider on this network.
 
 **Notes**: Fractional values are supported (e.g. `0.25` ⇒ one deal every 4 hours per SP).
+
+**Tiering**: Only applies to SPs on the [full-rate tier](./jobs.md#provider-eligibility-and-testing-tiers). Trickle-tier SPs use the fixed trickle rate.
 
 ---
 
@@ -628,6 +634,8 @@ Dealbot uses pg-boss for rate-based scheduling — see [Jobs (pg-boss)](#jobs-pg
 - **Limits**: capped at `20`.
 
 **Role**: Target dataset-creation rate per storage provider on this network.
+
+**Tiering**: Only applies to SPs on the [full-rate tier](./jobs.md#provider-eligibility-and-testing-tiers). Trickle-tier SPs use the fixed trickle rate.
 
 ---
 
@@ -719,6 +727,32 @@ check types (data-storage, retrieval, and data-retention).
 check types (data-storage, retrieval, and data-retention). Matching is case-insensitive.
 
 **Example**: `<NET>_BLOCKED_SP_ADDRESSES=0xAbCd...,0x1234...`
+
+---
+
+### `<NET>_FULL_RATE_SP_IDS`
+
+- **Type**: `string` (comma-separated provider numeric IDs)
+- **Required**: No
+- **Default**: `""` (empty — no manually-listed providers)
+
+**Role**: Provider IDs granted [full-rate testing](./jobs.md#provider-eligibility-and-testing-tiers). Approved providers do not need to be listed. This setting has no effect when `<NET>_USE_ONLY_APPROVED_PROVIDERS=true` because unapproved providers are excluded before tiering.
+
+**Notes**: Matching either the ID list or address list is sufficient.
+
+**Example**: `<NET>_FULL_RATE_SP_IDS=1234,5678`
+
+---
+
+### `<NET>_FULL_RATE_SP_ADDRESSES`
+
+- **Type**: `string` (comma-separated provider Ethereum addresses)
+- **Required**: No
+- **Default**: `""` (empty — no manually-listed providers)
+
+**Role**: Address-based counterpart to [`<NET>_FULL_RATE_SP_IDS`](#net_full_rate_sp_ids). Matching is case-insensitive.
+
+**Example**: `<NET>_FULL_RATE_SP_ADDRESSES=0xAbCd...,0x1234...`
 
 ---
 
@@ -898,6 +932,8 @@ These variables are **global** (not per-network) and control the shared pg-boss 
 
 **Notes**: Fractional values are supported. For example, `0.25` means one deal every 4 hours per storage provider.
 
+**Tiering**: Only applies to SPs on the [full-rate tier](./jobs.md#provider-eligibility-and-testing-tiers).
+
 ---
 
 ### `RETRIEVALS_PER_SP_PER_HOUR`
@@ -929,6 +965,8 @@ These variables are **global** (not per-network) and control the shared pg-boss 
 - Increase if you want more datasets per provider to raise the density of data-retention proof samples.
 - Decrease to reduce on-chain footprint per provider during testing.
 
+**Tiering**: Only applies to SPs on the [full-rate tier](./jobs.md#provider-eligibility-and-testing-tiers).
+
 **See also**: [`docs/data-set-creation.md`](./data-set-creation.md)
 
 ---
@@ -958,6 +996,8 @@ These variables are **global** (not per-network) and control the shared pg-boss 
 
 **Notes**: Fractional values are supported. For example, `0.5` means one dataset creation every 2 hours per storage provider.
 
+**Tiering**: Only applies to SPs on the [full-rate tier](./jobs.md#provider-eligibility-and-testing-tiers).
+
 ---
 
 ### `DATASET_LIFECYCLE_CHECK_ENABLED`
@@ -969,6 +1009,8 @@ These variables are **global** (not per-network) and control the shared pg-boss 
 **Role**: Enables the `data_set_lifecycle_check` canary job. Each tick both creation variants run in parallel: the **empty variant** (`createDataSet → terminateService`) and the **with-pieces variant** (`uploadPieceStreaming → findPiece → createDataSetAndAddPieces → terminateService`). Both paths immediately terminate their throwaway data set. If either variant fails the job fails — dependency outages are not swallowed as success.
 
 **Notes**: Self-contained — it does not touch the managed check data sets and does not depend on `data_set_creation`. When disabled, stale schedules are removed so they stop enqueuing no-op jobs.
+
+**Tiering**: Only [full-rate providers](./jobs.md#provider-eligibility-and-testing-tiers) receive this canary because each run creates and terminates a real throwaway dataset.
 
 **See also**: [`docs/checks/data-set-lifecycle-check.md`](./checks/data-set-lifecycle-check.md)
 
@@ -985,6 +1027,8 @@ These variables are **global** (not per-network) and control the shared pg-boss 
 **Limits**: Config schema caps this at 20.
 
 **Notes**: Independent of `DATASET_CREATIONS_PER_SP_PER_HOUR`. Fractional values are supported.
+
+**Tiering**: Only applies to [full-rate providers](./jobs.md#provider-eligibility-and-testing-tiers).
 
 ---
 

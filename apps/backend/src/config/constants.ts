@@ -37,6 +37,16 @@ export const networkDefaults = {
 } satisfies NetworkDefaults;
 
 /**
+ * Fixed rates and dataset target for eligible providers outside the full-rate
+ * tier. Kept non-configurable to limit wallet-spend exposure.
+ */
+export const trickleTierRates = {
+  dealsPerSpPerHour: 1 / 4, // 1 data-storage check every 4 hours
+  dataSetCreationsPerSpPerHour: 1 / 4, // 1 data-set-creation tick every 4 hours
+  minNumDataSetsForChecks: 1,
+} as const;
+
+/**
  * Uppercase env-var prefixes for every supported network, e.g.
  * `["CALIBRATION", "MAINNET"]`
  */

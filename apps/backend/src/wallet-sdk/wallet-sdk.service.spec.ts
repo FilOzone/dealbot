@@ -37,6 +37,8 @@ const baseNetworkConfig = {
   targetDatasetStorageSizeBytes: 20 * 1024 * 1024 * 1024,
   blockedSpIds: new Set(),
   blockedSpAddresses: new Set(),
+  fullRateSpIds: new Set(),
+  fullRateSpAddresses: new Set(),
   dealJobTimeoutSeconds: 300,
   dataSetCreationJobTimeoutSeconds: 300,
   retrievalJobTimeoutSeconds: 300,
