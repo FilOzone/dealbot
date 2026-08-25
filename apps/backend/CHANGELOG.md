@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.13.0](https://github.com/FilOzone/dealbot/compare/backend-v1.12.0...backend-v1.13.0) (2026-08-25)
+
+
+### Features
+
+* add full-rate and trickle SP testing tiers ([#682](https://github.com/FilOzone/dealbot/issues/682)) ([24ed2b6](https://github.com/FilOzone/dealbot/commit/24ed2b6aab372dfadf246237bf1a2d5c034fda78))
+
 ## [1.12.0](https://github.com/FilOzone/dealbot/compare/backend-v1.11.0...backend-v1.12.0) (2026-08-14)
 
 
