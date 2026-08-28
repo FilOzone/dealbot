@@ -1092,6 +1092,7 @@ export class DealService {
       ipni_status: deal.ipniStatus ?? null,
       ipni_indexed_at: deal.ipniIndexedAt?.getTime() ?? null,
       ipni_advertised_at: deal.ipniAdvertisedAt?.getTime() ?? null,
+      ipni_synced_at: deal.ipniSyncedAt?.getTime() ?? null,
       ipni_verified_at: deal.ipniVerifiedAt?.getTime() ?? null,
       ipni_verified_cids_count: deal.ipniVerifiedCidsCount ?? null,
       ipni_unverified_cids_count: deal.ipniUnverifiedCidsCount ?? null,

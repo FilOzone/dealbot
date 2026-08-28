@@ -187,12 +187,6 @@ const metricProviders = [
     labelNames: ["checkType", "providerId", "providerName", "providerStatus", "value", "network"] as const,
   }),
   makeCounterProvider({
-    // docs/checks/data-storage.md#cid-contact-verification-status
-    name: "cidContactVerification",
-    help: "cid.contact IPNI cross-check outcome counts",
-    labelNames: ["checkType", "providerId", "providerName", "providerStatus", "value", "network"] as const,
-  }),
-  makeCounterProvider({
     // docs/checks/data-storage.md#sub-status-meanings (Retrieval Status)
     name: "retrievalStatus",
     help: "Retrieval sub-status counts",

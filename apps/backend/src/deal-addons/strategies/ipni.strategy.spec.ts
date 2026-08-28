@@ -72,7 +72,6 @@ describe("IpniAddonStrategy getPieceStatus", () => {
       observeSpAnnounceAdvertisementMs: vi.fn(),
       observeIpniVerifyMs: vi.fn(),
       recordStatus: vi.fn(),
-      recordCidContactVerification: vi.fn(),
       buildLabelsForDeal: vi.fn().mockImplementation((deal: DealForMetrics) => {
         if (!deal?.spAddress) return null;
         return buildCheckMetricLabels({
@@ -201,6 +200,7 @@ describe("IpniAddonStrategy getPieceStatus", () => {
     const { strategy, httpClientService } = createStrategy();
     const indexedAt = "2026-05-13T22:23:28.503036+08:00";
     const advertisedAt = "2026-05-13T22:23:57.006039+08:00";
+    const syncedAt = "2026-05-13T22:24:10.006039+08:00";
 
     httpClientService.requestWithMetrics.mockResolvedValueOnce({
       data: Buffer.from(
@@ -211,6 +211,8 @@ describe("IpniAddonStrategy getPieceStatus", () => {
           indexedAt,
           advertised: true,
           advertisedAt,
+          synced: true,
+          syncedAt,
         }),
       ),
     });
@@ -226,6 +228,8 @@ describe("IpniAddonStrategy getPieceStatus", () => {
         indexedAt,
         advertised: true,
         advertisedAt,
+        synced: true,
+        syncedAt,
       },
       checks: 1,
     });
@@ -241,6 +245,7 @@ describe("IpniAddonStrategy getPieceStatus", () => {
       const uploadEndTime = new Date("2026-01-01T00:00:00Z");
       const indexedAt = new Date(uploadEndTime.getTime() + 1000).toISOString();
       const advertisedAt = new Date(uploadEndTime.getTime() + 2000).toISOString();
+      const syncedAt = new Date(uploadEndTime.getTime() + 3000).toISOString();
 
       const strategyForTest = asStrategyPrivates(strategy);
       vi.spyOn(strategyForTest, "monitorPieceStatus").mockResolvedValue({
@@ -249,8 +254,10 @@ describe("IpniAddonStrategy getPieceStatus", () => {
           status: "ok",
           indexed: true,
           advertised: true,
+          synced: true,
           indexedAt,
           advertisedAt,
+          syncedAt,
         },
         checks: 1,
         durationMs: 2000,
@@ -313,18 +320,103 @@ describe("IpniAddonStrategy getPieceStatus", () => {
 
       expect(discoverabilityMetrics.observeSpIndexLocallyMs).toHaveBeenCalledWith(labels, 1000);
       expect(discoverabilityMetrics.observeSpAnnounceAdvertisementMs).toHaveBeenCalledWith(labels, 2000);
-      expect(discoverabilityMetrics.observeIpniVerifyMs).toHaveBeenCalledWith(
-        labels,
-        1500,
-        "success",
-        "filecoinpin.contact",
-      );
-      expect(discoverabilityMetrics.observeIpniVerifyMs).toHaveBeenCalledWith(labels, 9999, "success", "cid.contact");
-      expect(discoverabilityMetrics.recordCidContactVerification).toHaveBeenCalledWith(labels, "success");
+      expect(discoverabilityMetrics.observeIpniVerifyMs).toHaveBeenCalledWith(labels, 500, "success", "cid.contact");
       expect(discoverabilityMetrics.recordStatus).toHaveBeenCalledWith(labels, "sp_indexed");
       expect(discoverabilityMetrics.recordStatus).toHaveBeenCalledWith(labels, "sp_announced_advertisement");
+      expect(discoverabilityMetrics.recordStatus).toHaveBeenCalledWith(labels, "sp_synced");
       expect(discoverabilityMetrics.recordStatus).toHaveBeenCalledWith(labels, "success");
 
+      expect(mockRepo.save).toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("times out when the piece stays advertised but never reports synced", async () => {
+    const { strategy, httpClientService } = createStrategy();
+
+    httpClientService.requestWithMetrics.mockResolvedValue({
+      data: Buffer.from(
+        JSON.stringify({
+          pieceCid: "bafk-piece-stuck",
+          status: "announced",
+          indexed: true,
+          advertised: true,
+          synced: false,
+        }),
+      ),
+    });
+
+    const strategyForTest = asStrategyPrivates(strategy);
+
+    await expect(strategyForTest.monitorPieceStatus("https://example.com", "bafk-piece-stuck", 30, 10)).rejects.toThrow(
+      /Timeout waiting for piece retrieval/,
+    );
+
+    expect(httpClientService.requestWithMetrics.mock.calls.length).toBeGreaterThan(1);
+  });
+
+  it("sets SP_SYNCED status and ipniSyncedAt/ipniTimeToSyncMs when synced but not yet root-CID verified", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-01T00:00:05Z"));
+
+    try {
+      const { strategy, discoverabilityMetrics, mockRepo } = createStrategy();
+      const uploadEndTime = new Date("2026-01-01T00:00:00Z");
+      const syncedAt = new Date(uploadEndTime.getTime() + 3000).toISOString();
+      const strategyForTest = asStrategyPrivates(strategy);
+      const deal = buildDeal({
+        id: "deal-synced-only",
+        spAddress: "0xsp",
+        uploadEndTime,
+        pieceCid: "bafk-piece-synced-only",
+        storageProvider: buildStorageProvider(),
+      });
+
+      await strategyForTest.updateDealWithIpniMetrics(
+        deal,
+        {
+          monitoringResult: {
+            success: true,
+            finalStatus: {
+              status: "announced",
+              indexed: true,
+              advertised: true,
+              synced: true,
+              indexedAt: null,
+              advertisedAt: null,
+              syncedAt,
+            },
+            checks: 1,
+            durationMs: 3000,
+            lastProviderResponse: null,
+          },
+          ipniResult: {
+            verified: 0,
+            unverified: 1,
+            total: 1,
+            rootCIDVerified: false,
+            durationMs: 1000,
+            failedCIDs: [{ cid: "bafk-piece-synced-only", reason: "not yet visible on cid.contact" }],
+            verifiedAt: new Date().toISOString(),
+          },
+        },
+        10_000,
+        {},
+      );
+
+      const labels = {
+        checkType: "dataStorage",
+        network: "calibration",
+        providerId: "9",
+        providerName: "SP",
+        providerStatus: "approved",
+      };
+
+      expect(deal.ipniStatus).toBe(IpniStatus.SP_SYNCED);
+      expect(deal.ipniSyncedAt?.toISOString()).toBe(syncedAt);
+      expect(deal.ipniTimeToSyncMs).toBe(3000);
+      expect(discoverabilityMetrics.recordStatus).toHaveBeenCalledWith(labels, "sp_synced");
       expect(mockRepo.save).toHaveBeenCalled();
     } finally {
       vi.useRealTimers();
@@ -357,6 +449,7 @@ describe("IpniAddonStrategy getPieceStatus", () => {
               status: "announced",
               indexed: true,
               advertised: true,
+              synced: false,
               indexedAt: new Date(uploadEndTime.getTime() - 1000).toISOString(),
               advertisedAt: new Date(uploadEndTime.getTime() - 1000).toISOString(),
               indexedObservedAt: observedAt,
@@ -375,7 +468,6 @@ describe("IpniAddonStrategy getPieceStatus", () => {
             failedCIDs: [],
             verifiedAt: new Date().toISOString(),
           },
-          cidContactResult: null,
         },
         10_000,
         {},
@@ -393,12 +485,7 @@ describe("IpniAddonStrategy getPieceStatus", () => {
       expect(deal.ipniAdvertisedAt?.toISOString()).toBe(observedAt);
       expect(discoverabilityMetrics.observeSpIndexLocallyMs).toHaveBeenCalledWith(labels, 1000);
       expect(discoverabilityMetrics.observeSpAnnounceAdvertisementMs).toHaveBeenCalledWith(labels, 1000);
-      expect(discoverabilityMetrics.observeIpniVerifyMs).toHaveBeenCalledWith(
-        labels,
-        4000,
-        "success",
-        "filecoinpin.contact",
-      );
+      expect(discoverabilityMetrics.observeIpniVerifyMs).toHaveBeenCalledWith(labels, 4000, "success", "cid.contact");
       expect(mockRepo.save).toHaveBeenCalled();
     } finally {
       vi.useRealTimers();
@@ -421,8 +508,10 @@ describe("IpniAddonStrategy getPieceStatus", () => {
           status: "timeout",
           indexed: false,
           advertised: false,
+          synced: false,
           indexedAt: null,
           advertisedAt: null,
+          syncedAt: null,
         },
         checks: 5,
         durationMs: 10_000,
@@ -487,9 +576,8 @@ describe("IpniAddonStrategy getPieceStatus", () => {
         labels,
         10_000,
         "failure.timedout",
-        "filecoinpin.contact",
+        "cid.contact",
       );
-      expect(discoverabilityMetrics.recordCidContactVerification).toHaveBeenCalledWith(labels, "skipped");
       expect(discoverabilityMetrics.recordStatus).toHaveBeenCalledWith(labels, "failure.timedout");
       expect(mockRepo.save).toHaveBeenCalled();
     } finally {
@@ -503,7 +591,15 @@ describe("IpniAddonStrategy getPieceStatus", () => {
     const strategyForTest = asStrategyPrivates(strategy);
     vi.spyOn(strategyForTest, "monitorPieceStatus").mockResolvedValue({
       success: false,
-      finalStatus: { status: "timeout", indexed: false, advertised: false, indexedAt: null, advertisedAt: null },
+      finalStatus: {
+        status: "timeout",
+        indexed: false,
+        advertised: false,
+        synced: false,
+        indexedAt: null,
+        advertisedAt: null,
+        syncedAt: null,
+      },
       checks: 1,
       durationMs: 500,
       lastProviderResponse: null,
@@ -563,9 +659,8 @@ describe("IpniAddonStrategy getPieceStatus", () => {
       labels,
       500,
       "failure.other",
-      "filecoinpin.contact",
+      "cid.contact",
     );
-    expect(discoverabilityMetrics.recordCidContactVerification).toHaveBeenCalledWith(labels, "skipped");
   });
 
   it("skips IPNI verification when rootCID and blockCIDs are missing", async () => {
@@ -574,7 +669,15 @@ describe("IpniAddonStrategy getPieceStatus", () => {
     const strategyForTest = asStrategyPrivates(strategy);
     vi.spyOn(strategyForTest, "monitorPieceStatus").mockResolvedValue({
       success: true,
-      finalStatus: { status: "ok", indexed: true, advertised: true, indexedAt: null, advertisedAt: null },
+      finalStatus: {
+        status: "ok",
+        indexed: true,
+        advertised: true,
+        synced: true,
+        indexedAt: null,
+        advertisedAt: null,
+        syncedAt: null,
+      },
       checks: 1,
       durationMs: 100,
       lastProviderResponse: null,
@@ -619,7 +722,15 @@ describe("IpniAddonStrategy getPieceStatus", () => {
     const strategyForTest = asStrategyPrivates(strategy);
     vi.spyOn(strategyForTest, "monitorPieceStatus").mockResolvedValue({
       success: true,
-      finalStatus: { status: "ok", indexed: true, advertised: true, indexedAt: null, advertisedAt: null },
+      finalStatus: {
+        status: "ok",
+        indexed: true,
+        advertised: true,
+        synced: true,
+        indexedAt: null,
+        advertisedAt: null,
+        syncedAt: null,
+      },
       checks: 1,
       durationMs: 100,
       lastProviderResponse: null,
@@ -664,7 +775,15 @@ describe("IpniAddonStrategy getPieceStatus", () => {
     const strategyForTest = asStrategyPrivates(strategy);
     vi.spyOn(strategyForTest, "monitorPieceStatus").mockResolvedValue({
       success: true,
-      finalStatus: { status: "ok", indexed: true, advertised: true, indexedAt: null, advertisedAt: null },
+      finalStatus: {
+        status: "ok",
+        indexed: true,
+        advertised: true,
+        synced: true,
+        indexedAt: null,
+        advertisedAt: null,
+        syncedAt: null,
+      },
       checks: 1,
       durationMs: 100,
       lastProviderResponse: null,

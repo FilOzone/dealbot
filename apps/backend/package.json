@@ -50,7 +50,7 @@
     "class-validator": "^0.14.3",
     "cors": "^2.8.6",
     "cron": "4.4.0",
-    "filecoin-pin": "^1.2.0",
+    "filecoin-pin": "https://pkg.pr.new/filecoin-pin@689",
     "helmet": "^8.1.0",
     "joi": "^18.0.2",
     "multiformats": "^14.0.1",

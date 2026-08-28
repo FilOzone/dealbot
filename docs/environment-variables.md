@@ -1209,13 +1209,13 @@ Use this to stagger multiple dealbot deployments that are not sharing a database
 
 For each sampled CID, dealbot:
 
-1. Confirms via filecoinpin.contact that the SP is advertised as a provider for the CID.
+1. Confirms via cid.contact that the SP is advertised as a provider for the CID.
 2. Re-fetches the block via `{spBaseUrl}/ipfs/{cid}?format=raw` and hash-verifies the response.
 
 **When to update**:
 
 - Increase for stronger statistical confidence that the SP serves the entire DAG correctly (more IPNI queries + per-block fetches per check)
-- Decrease to reduce per-check load on the SP and on filecoinpin.contact
+- Decrease to reduce per-check load on the SP and on cid.contact
 
 **Note**: A higher sample count multiplies both IPNI traffic and block-fetch traffic per check. The IPNI step is all-or-nothing across the root CID and the sampled child CIDs — see [Sampled Retrieval § CAR / IPNI / block-fetch validation](./checks/sampled-retrievals.md#car--ipni--block-fetch-validation-only-when-piece-advertises-ipfs-indexing).
 
