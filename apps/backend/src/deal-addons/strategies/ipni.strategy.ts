@@ -604,13 +604,13 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       ...dealLogContext,
       pieceCid,
       event: "piece_status_timeout",
-      message: "Piece retrieval timeout",
+      message: "Timed out waiting for piece to report synced",
       durationSec: Number(durationSec),
       checks: checkCount,
       lastStatus,
       lastProviderResponse,
     });
-    throw new Error(`Timeout waiting for piece retrieval after ${durationSec}s`);
+    throw new Error(`Timeout waiting for piece to report synced after ${durationSec}s`);
   }
 
   /**

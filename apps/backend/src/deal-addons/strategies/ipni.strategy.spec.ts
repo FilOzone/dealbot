@@ -350,7 +350,7 @@ describe("IpniAddonStrategy getPieceStatus", () => {
     const strategyForTest = asStrategyPrivates(strategy);
 
     await expect(strategyForTest.monitorPieceStatus("https://example.com", "bafk-piece-stuck", 30, 10)).rejects.toThrow(
-      /Timeout waiting for piece retrieval/,
+      /Timeout waiting for piece to report synced/,
     );
 
     expect(httpClientService.requestWithMetrics.mock.calls.length).toBeGreaterThan(1);
