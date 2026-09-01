@@ -132,6 +132,25 @@ export type BaseNetworkConfig = {
   maxPieceCleanupRuntimeSeconds: number;
   dataRetentionPollIntervalSeconds: number;
   providersRefreshIntervalSeconds: number;
+  /**
+   * How often (seconds) the global `sp_dataset_pruning` job runs.
+   *
+   * Prunes blocked SPs to 0 data sets and any other SP's excess above its
+   * tier's target (see `excessDatasetBuffer`).
+   */
+  datasetPruningIntervalSeconds: number;
+  /**
+   * Headroom above a tier's target data-set count before pruning kicks in, so
+   * routine create/replace churn doesn't trigger a prune.
+   */
+  excessDatasetBuffer: number;
+  /**
+   * How often (seconds) the global `abandoned_dataset_sweep` job runs.
+   *
+   * Deletes data sets abandoned past PDPVerifier's activity window and flags
+   * stuck rail settlements for a human (see docs/runbooks/wallet-and-session-keys.md).
+   */
+  abandonedDatasetSweepIntervalSeconds: number;
 
   /** Maintenance Config */
   maintenanceWindowsUtc: string[];
@@ -324,6 +343,9 @@ export type NetworkDefaults = Pick<
   | "maxPieceCleanupRuntimeSeconds"
   | "dataRetentionPollIntervalSeconds"
   | "providersRefreshIntervalSeconds"
+  | "datasetPruningIntervalSeconds"
+  | "abandonedDatasetSweepIntervalSeconds"
+  | "excessDatasetBuffer"
   | "maintenanceWindowsUtc"
   | "maintenanceWindowMinutes"
   | "maxDatasetStorageSizeBytes"

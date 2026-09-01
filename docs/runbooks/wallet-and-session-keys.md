@@ -16,6 +16,11 @@ DealBot uses a Safe multisig wallet with a session key for delegated signing. Th
   * [Funding the multisig](#funding-the-multisig)
   * [Depositing and approving via Safe](#depositing-and-approving-via-safe)
   * [Checking account status](#checking-account-status)
+* [Automated SP Cleanup](#automated-sp-cleanup)
+  * [sp_dataset_pruning](#sp_dataset_pruning)
+  * [abandoned_dataset_sweep](#abandoned_dataset_sweep)
+  * [Resolving a stuck rail settlement](#resolving-a-stuck-rail-settlement)
+  * [Operational prerequisite: session key gas balance](#operational-prerequisite-session-key-gas-balance)
 * [Cleaning Up the Old Wallet](#cleaning-up-the-old-wallet)
 
 
@@ -180,6 +185,82 @@ This outputs a 3-transaction batch:
 Submit all three as a batch in the Safe Transaction Builder at [safe.filecoin.io](https://safe.filecoin.io/), then collect the required signatures.
 
 **Note:** If the multisig already has FWSS approved (e.g. from a previous deposit), transaction 3 is a no-op but harmless to include.
+
+## Automated SP Cleanup
+
+Two global pg-boss jobs (one schedule row per network, not per-SP) keep dealbot's wallet from accumulating
+leftover data sets that cost money without providing value: blocked/deprioritized SPs (dealbot#681, #689,
+infra#366) and permanently unreachable SPs (dealbot#605). Both are described in `apps/backend/src/sp-cleanup/sp-cleanup.service.ts`.
+
+### `sp_dataset_pruning`
+
+Runs every `<NET>_DATASET_PRUNING_INTERVAL_SECONDS` (default 1 day, see
+[environment-variables.md](../environment-variables.md#net_dataset_pruning_interval_seconds)). For every
+**reachable** SP this handles cleanup fully automatically, no human involved:
+
+- For each blocked SP (`<NET>_BLOCKED_SP_IDS` / `<NET>_BLOCKED_SP_ADDRESSES`): terminates every active dealbot
+  data set down to 0.
+- For every other SP — trickle-tier and full-rate alike — terminates the excess once the active count exceeds
+  its tier's target (`trickleTierRates.minNumDataSetsForChecks` or `<NET>_MIN_NUM_DATASETS_FOR_CHECKS`) by more
+  than `<NET>_EXCESS_DATASET_BUFFER` (default 5). This is a safety net independent of *why* a provider
+  over-accumulated (e.g. a data-set-reuse bug in `provisionNextMissingDataSet`) — it caps the damage without
+  needing that root cause fixed first.
+
+Termination uses the same provider-relay path as the data-set lifecycle check (`terminateServiceSync`): dealbot
+signs an EIP-712 authorization and POSTs it to the SP's own server, which submits the on-chain tx. This only
+works for a **cooperative** SP — a dead/unreachable SP will fail every attempt. That's expected: the job logs
+and counts the failure (`sp_termination_attempts_total{outcome="failure"}`) and moves on to the next data set
+without aborting the batch. Dead SPs are cleaned up by `abandoned_dataset_sweep` instead.
+
+### `abandoned_dataset_sweep`
+
+Runs every `<NET>_ABANDONED_DATASET_SWEEP_INTERVAL_SECONDS` (default 1 day). Stateless and network-wide — scans
+dealbot's entire wallet, not scoped to the blocklist. For each data set:
+
+- **Abandoned** (never terminated, and outside PDPVerifier's ~30-day activity window since the last proof):
+  `PDPVerifier.deleteDataSet` becomes fully permissionless once that window has elapsed, so dealbot's session
+  key calls it **directly** — no signature, no SP cooperation required. This is what actually cleans up dead SPs.
+- **Stuck settlement** (terminated, but the termination lockup has fully elapsed and the SP never called
+  `settleRail()` themselves): unlike `settleTerminatedRailWithoutValidation` (`onlyRailClient` — the Safe's
+  address only, not the session key's own; same constraint as the direct 1-arg `terminateService`, see
+  dealbot#546), plain `settleRail()` has **no caller restriction at all**, so dealbot's session key calls it
+  directly first. This resolves the common case — an SP that terminated cooperatively but just never bothered
+  to settle themselves — with no human involved. Only when `settleRail()` itself reverts (the validator is
+  genuinely stuck, e.g. an unresolvable open proving period) does it fall through to needing a human with the
+  Safe's `settleTerminatedRailWithoutValidation` escape hatch. Expected to be rare.
+
+### Resolving a stuck rail settlement
+
+There is no database table or endpoint for this — the stuck set is fully re-derivable on-chain every run, so
+it's recomputed fresh and logged in full each time it's non-empty (event `stuck_terminations_detected`). The
+`sp_termination_stuck_gauge{network}` metric (reset every run, even to 0) is what a BetterStack/Grafana alert
+rule thresholds on to page a human; the log is the payload you retrieve *after* being paged.
+
+1. In BetterStack, search for `event:stuck_terminations_detected` on the relevant network, and open the most
+   recent occurrence.
+2. Copy the `batch` field's JSON value — it's a ready-to-use Safe Transaction Builder batch: one
+   `settleTerminatedRailWithoutValidation(railId)` call per stuck rail, `to` = the network's FilecoinPay
+   contract address, `value` = `"0"`, `data` = the pre-encoded calldata.
+3. Save it to a `.json` file.
+4. Go to [safe.filecoin.io](https://safe.filecoin.io/), open the DealBot multisig, **New Transaction** >
+   **Transaction Builder**, and drag-and-drop the file in (same flow as [Depositing and approving via
+   Safe](#depositing-and-approving-via-safe) above).
+5. Review the decoded transactions, **Create Batch** > **Send Batch**, sign, and collect the second signature.
+
+### Operational prerequisite: session key gas balance
+
+Unlike the provider-relay path (where the SP's server pays gas for the on-chain tx it submits),
+`abandoned_dataset_sweep`'s direct `deleteDataSet` calls are signed and broadcast by dealbot's own session key,
+which pays its own gas in native FIL/tFIL.
+
+The existing `wallet_balance{currency="FIL"}` Prometheus gauge (see
+`apps/backend/src/metrics-prometheus/wallet-balance.collector.ts`) already covers this: `paymentsService.walletBalance()`
+queries `this._client.account.address` — in session-key mode that *is* the session key, not the multisig (the
+multisig's FilecoinPay balance is the separate `accountInfo()` call, surfaced as `wallet_balance{currency="USDFC"}`).
+If the session key's wallet runs dry, `abandoned_dataset_sweep`'s writes will fail with an
+out-of-gas/insufficient-funds error (logged and counted as
+`sp_termination_attempts_total{reason="abandonment",outcome="failure"}`, retried next sweep) until it's topped up —
+watch the existing `wallet_balance{currency="FIL"}` gauge and top it up with a small amount of FIL/tFIL as needed.
 
 ## Cleaning Up the Old Wallet
 

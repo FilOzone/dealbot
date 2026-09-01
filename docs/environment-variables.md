@@ -41,7 +41,7 @@ MAINNET_DEALS_PER_SP_PER_HOUR=1
 | [Application](#application-configuration) | `NODE_ENV`, `DEALBOT_PORT`, `DEALBOT_HOST`, `DEALBOT_RUN_MODE`, `DEALBOT_METRICS_PORT`, `DEALBOT_METRICS_HOST`, `DEALBOT_ALLOWED_ORIGINS`, `ENABLE_DEV_MODE`, `DEALBOT_API_PUBLIC_URL`, `DEALBOT_PROBE_LOCATION` |
 | [Database](#database-configuration)       | `DATABASE_HOST`, `DATABASE_PORT`, `DATABASE_POOL_MAX`, `DATABASE_USER`, `DATABASE_PASSWORD`, `DATABASE_NAME`                                                 |
 | [Per-Network](#per-network-configuration) | `<NET>_WALLET_ADDRESS`, `<NET>_WALLET_PRIVATE_KEY`, `<NET>_SESSION_KEY_PRIVATE_KEY`, `<NET>_RPC_URL`, `<NET>_CLICKHOUSE_URL`, `<NET>_RPC_REQUEST_TIMEOUT_MS`, `<NET>_CHECK_DATASET_CREATION_FEES`, `<NET>_USE_ONLY_APPROVED_PROVIDERS`, `<NET>_PDP_SUBGRAPH_ENDPOINT`, `<NET>_SUBGRAPH_ENDPOINT`, `<NET>_DEALBOT_DATASET_VERSION`, `<NET>_MIN_NUM_DATASETS_FOR_CHECKS`                                           |
-| [Per-Network Scheduling](#per-network-scheduling) | `<NET>_DEALS_PER_SP_PER_HOUR`, `<NET>_DEAL_JOB_TIMEOUT_SECONDS`, `<NET>_RETRIEVALS_PER_SP_PER_HOUR`, `<NET>_RETRIEVAL_JOB_TIMEOUT_SECONDS`, `<NET>_SAMPLED_RETRIEVALS_PER_SP_PER_HOUR`, `<NET>_SAMPLED_RETRIEVAL_JOB_TIMEOUT_SECONDS`, `<NET>_DATASET_CREATIONS_PER_SP_PER_HOUR`, `<NET>_DATA_SET_CREATION_JOB_TIMEOUT_SECONDS`, `<NET>_DATASET_LIFECYCLE_CHECK_ENABLED`, `<NET>_DATASET_LIFECYCLE_CHECKS_PER_SP_PER_HOUR`, `<NET>_DATA_SET_LIFECYCLE_CHECK_JOB_TIMEOUT_SECONDS`, `<NET>_PULL_CHECKS_PER_SP_PER_HOUR`, `<NET>_PULL_CHECK_JOB_TIMEOUT_SECONDS`, `<NET>_PULL_CHECK_POLL_INTERVAL_SECONDS`, `<NET>_PULL_CHECK_PIECE_SIZE_BYTES`, `<NET>_PULL_PIECE_CLEANUP_INTERVAL_SECONDS`, `<NET>_PROVIDERS_REFRESH_INTERVAL_SECONDS`, `<NET>_DATA_RETENTION_POLL_INTERVAL_SECONDS`, `<NET>_MAINTENANCE_WINDOWS_UTC`, `<NET>_MAINTENANCE_WINDOW_MINUTES`, `<NET>_BLOCKED_SP_IDS`, `<NET>_BLOCKED_SP_ADDRESSES`, `<NET>_FULL_RATE_SP_IDS`, `<NET>_FULL_RATE_SP_ADDRESSES`, `<NET>_MAX_DATASET_STORAGE_SIZE_BYTES`, `<NET>_TARGET_DATASET_STORAGE_SIZE_BYTES`, `<NET>_PIECE_CLEANUP_PER_SP_PER_HOUR`, `<NET>_MAX_PIECE_CLEANUP_RUNTIME_SECONDS` |
+| [Per-Network Scheduling](#per-network-scheduling) | `<NET>_DEALS_PER_SP_PER_HOUR`, `<NET>_DEAL_JOB_TIMEOUT_SECONDS`, `<NET>_RETRIEVALS_PER_SP_PER_HOUR`, `<NET>_RETRIEVAL_JOB_TIMEOUT_SECONDS`, `<NET>_SAMPLED_RETRIEVALS_PER_SP_PER_HOUR`, `<NET>_SAMPLED_RETRIEVAL_JOB_TIMEOUT_SECONDS`, `<NET>_DATASET_CREATIONS_PER_SP_PER_HOUR`, `<NET>_DATA_SET_CREATION_JOB_TIMEOUT_SECONDS`, `<NET>_DATASET_LIFECYCLE_CHECK_ENABLED`, `<NET>_DATASET_LIFECYCLE_CHECKS_PER_SP_PER_HOUR`, `<NET>_DATA_SET_LIFECYCLE_CHECK_JOB_TIMEOUT_SECONDS`, `<NET>_PULL_CHECKS_PER_SP_PER_HOUR`, `<NET>_PULL_CHECK_JOB_TIMEOUT_SECONDS`, `<NET>_PULL_CHECK_POLL_INTERVAL_SECONDS`, `<NET>_PULL_CHECK_PIECE_SIZE_BYTES`, `<NET>_PULL_PIECE_CLEANUP_INTERVAL_SECONDS`, `<NET>_PROVIDERS_REFRESH_INTERVAL_SECONDS`, `<NET>_DATASET_PRUNING_INTERVAL_SECONDS`, `<NET>_EXCESS_DATASET_BUFFER`, `<NET>_ABANDONED_DATASET_SWEEP_INTERVAL_SECONDS`, `<NET>_DATA_RETENTION_POLL_INTERVAL_SECONDS`, `<NET>_MAINTENANCE_WINDOWS_UTC`, `<NET>_MAINTENANCE_WINDOW_MINUTES`, `<NET>_BLOCKED_SP_IDS`, `<NET>_BLOCKED_SP_ADDRESSES`, `<NET>_FULL_RATE_SP_IDS`, `<NET>_FULL_RATE_SP_ADDRESSES`, `<NET>_MAX_DATASET_STORAGE_SIZE_BYTES`, `<NET>_TARGET_DATASET_STORAGE_SIZE_BYTES`, `<NET>_PIECE_CLEANUP_PER_SP_PER_HOUR`, `<NET>_MAX_PIECE_CLEANUP_RUNTIME_SECONDS` |
 | [Jobs (pg-boss)](#jobs-pg-boss)           | `DEALBOT_PGBOSS_SCHEDULER_ENABLED`, `DEALBOT_PGBOSS_POOL_MAX`, `JOB_SCHEDULER_POLL_SECONDS`, `JOB_WORKER_POLL_SECONDS`, `PG_BOSS_LOCAL_CONCURRENCY`, `JOB_CATCHUP_MAX_ENQUEUE`, `JOB_SCHEDULE_PHASE_SECONDS`, `JOB_ENQUEUE_JITTER_SECONDS`, `SHUTDOWN_FINAL_SCRAPE_DELAY_SECONDS`, `IPFS_BLOCK_FETCH_CONCURRENCY`, `SAMPLED_RETRIEVAL_BLOCK_SAMPLE_COUNT` |
 | [Pull Check](#pull-check-configuration)   | `PULL_PIECE_MAX_CONCURRENT_STREAMS`, `PULL_PIECE_MAX_STREAMS_PER_CID` |
 | [ClickHouse](#clickhouse-configuration)   | `<NET>_CLICKHOUSE_URL`, `CLICKHOUSE_BATCH_SIZE`, `CLICKHOUSE_FLUSH_INTERVAL_MS`, `CLICKHOUSE_MAX_BUFFER_SIZE`                                                      |
@@ -662,6 +662,51 @@ Provider eligibility and rate selection are described in [Provider Eligibility a
 - **Default**: `14400` (4 hours)
 
 **Role**: How often the providers-refresh job runs for this network.
+
+---
+
+### `<NET>_DATASET_PRUNING_INTERVAL_SECONDS`
+
+- **Type**: `number`
+- **Required**: No
+- **Default**: `86400` (1 day)
+
+**Role**: How often the `sp_dataset_pruning` job runs for this network. This global job prunes blocked SPs to 0
+active data sets, and prunes any other SP (trickle or full-rate) whose active count exceeds its tier's target
+by more than `<NET>_EXCESS_DATASET_BUFFER`. See
+[docs/runbooks/wallet-and-session-keys.md](runbooks/wallet-and-session-keys.md) for the full design.
+
+**Example** (run hourly on calibnet for faster testnet iteration):
+
+```bash
+CALIBRATION_DATASET_PRUNING_INTERVAL_SECONDS=3600
+```
+
+---
+
+### `<NET>_EXCESS_DATASET_BUFFER`
+
+- **Type**: `number`
+- **Required**: No
+- **Default**: `5`
+
+**Role**: Headroom above a tier's target data-set count before `sp_dataset_pruning` prunes the excess (does not
+apply to blocked SPs, which are always pruned to 0). Absorbs routine create/replace churn from
+`provisionNextMissingDataSet` so pruning doesn't fight normal slot replacement.
+
+---
+
+### `<NET>_ABANDONED_DATASET_SWEEP_INTERVAL_SECONDS`
+
+- **Type**: `number`
+- **Required**: No
+- **Default**: `86400` (1 day)
+
+**Role**: How often the `abandoned_dataset_sweep` job runs for this network. This global job scans dealbot's
+entire wallet (not scoped to the blocklist) for data sets outside the PDPVerifier activity window and deletes
+them directly and permissionlessly (no signature needed — see the runbook), and for terminated data sets whose
+rail settlement is stuck past `endEpoch`, which it can only ever surface to a human operator via a structured
+log (`stuck_terminations_detected`).
 
 ---
 

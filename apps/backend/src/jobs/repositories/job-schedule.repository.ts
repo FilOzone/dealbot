@@ -5,9 +5,11 @@ import { toStructuredError } from "../../common/logging.js";
 import type { Network } from "../../common/types.js";
 import type { JobType } from "../../database/entities/job-schedule-state.entity.js";
 import {
+  ABANDONED_DATASET_SWEEP_QUEUE,
   DATA_RETENTION_POLL_QUEUE,
   PROVIDERS_REFRESH_QUEUE,
   PULL_PIECE_CLEANUP_QUEUE,
+  SP_DATASET_PRUNING_QUEUE,
   SP_WORK_QUEUE,
 } from "../job-queues.js";
 
@@ -277,13 +279,15 @@ export class JobScheduleRepository {
           WHEN name = $3 THEN 'data_retention_poll'
           WHEN name = $4 THEN 'providers_refresh'
           WHEN name = $5 THEN 'pull_piece_cleanup'
+          WHEN name = $6 THEN 'sp_dataset_pruning'
+          WHEN name = $7 THEN 'abandoned_dataset_sweep'
           ELSE name
         END AS job_type,
         state::text AS state,
         COUNT(*)::int AS count
       FROM pgboss.job
       WHERE state::text = ANY($1::text[])
-        AND ($6::text IS NULL OR data->>'network' = $6)
+        AND ($8::text IS NULL OR data->>'network' = $8)
       GROUP BY 1, 2
       `,
       [
@@ -292,6 +296,8 @@ export class JobScheduleRepository {
         DATA_RETENTION_POLL_QUEUE,
         PROVIDERS_REFRESH_QUEUE,
         PULL_PIECE_CLEANUP_QUEUE,
+        SP_DATASET_PRUNING_QUEUE,
+        ABANDONED_DATASET_SWEEP_QUEUE,
         network ?? null,
       ],
     );
@@ -314,6 +320,8 @@ export class JobScheduleRepository {
           WHEN name = $4 THEN 'data_retention_poll'
           WHEN name = $5 THEN 'providers_refresh'
           WHEN name = $6 THEN 'pull_piece_cleanup'
+          WHEN name = $7 THEN 'sp_dataset_pruning'
+          WHEN name = $8 THEN 'abandoned_dataset_sweep'
           ELSE name
         END AS job_type,
         MIN(
@@ -328,7 +336,7 @@ export class JobScheduleRepository {
         ) AS min_age_seconds
       FROM pgboss.job
       WHERE state::text = $2
-        AND ($7::text IS NULL OR data->>'network' = $7)
+        AND ($9::text IS NULL OR data->>'network' = $9)
       GROUP BY 1
       `,
       [
@@ -338,6 +346,8 @@ export class JobScheduleRepository {
         DATA_RETENTION_POLL_QUEUE,
         PROVIDERS_REFRESH_QUEUE,
         PULL_PIECE_CLEANUP_QUEUE,
+        SP_DATASET_PRUNING_QUEUE,
+        ABANDONED_DATASET_SWEEP_QUEUE,
         network ?? null,
       ],
     );
