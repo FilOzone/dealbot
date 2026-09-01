@@ -744,6 +744,18 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       deal.ipniStatus = IpniStatus.VERIFIED;
     } else if (finalStatus.synced) {
       deal.ipniStatus = IpniStatus.SP_SYNCED;
+
+      // Curio confirmed synced but the cid.contact check still disagreed — a real
+      // inconsistency, not routine timeout noise, so it needs its own signal.
+      if (!result.skipped) {
+        this.logger.error({
+          ...dealLogContext,
+          event: "ipni_sp_synced_cid_contact_mismatch",
+          message: "Curio confirmed piece synced, but cid.contact verification still failed",
+          ipniIndexerUrl: "cid.contact",
+        });
+        this.discoverabilityMetrics.recordStatus(labels, "sp_synced_cid_contact_mismatch");
+      }
     } else if (finalStatus.advertised) {
       deal.ipniStatus = IpniStatus.SP_ADVERTISED;
     } else if (finalStatus.indexed) {
@@ -880,10 +892,21 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
          */
         deal.ipniTimeToSyncMs = timeToSyncMs;
       }
+
+      const advertiseToSyncMs = syncedTimestamp
+        ? calculateDuration(syncedTimestamp, "advertiseToSync", deal.ipniAdvertisedAt)
+        : null;
+      if (advertiseToSyncMs) {
+        /**
+         * Time taken for the indexer to confirm sync after the SP advertised:
+         * time = syncedAt - advertisedAt
+         */
+        this.discoverabilityMetrics.observeAdvertiseToSyncMs(labels, advertiseToSyncMs);
+      }
     }
 
     const verificationEndTimestamp = new Date(ipniResult.verifiedAt);
-    const ipniVerifyStartTimestamp = deal.ipniSyncedAt ?? deal.ipniAdvertisedAt;
+    const ipniVerifyStartTimestamp = deal.ipniAdvertisedAt;
     const ipniVerifyMs = ipniVerifyStartTimestamp
       ? (calculateDuration(verificationEndTimestamp, "ipniVerify", ipniVerifyStartTimestamp) ?? ipniResult.durationMs)
       : ipniResult.durationMs;

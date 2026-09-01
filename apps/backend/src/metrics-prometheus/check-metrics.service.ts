@@ -182,6 +182,8 @@ export class DiscoverabilityCheckMetrics {
     private readonly spIndexLocallyMs: Histogram,
     @InjectMetric("spAnnounceAdvertisementMs")
     private readonly spAnnounceAdvertisementMs: Histogram,
+    @InjectMetric("advertiseToSyncMs")
+    private readonly advertiseToSyncMs: Histogram,
     @InjectMetric("ipniVerifyMs")
     private readonly ipniVerifyMs: Histogram,
     @InjectMetric("discoverabilityStatus")
@@ -210,6 +212,18 @@ export class DiscoverabilityCheckMetrics {
       return;
     }
     observePositive(this.spAnnounceAdvertisementMs, labels, value);
+  }
+
+  observeAdvertiseToSyncMs(labels: CheckMetricLabels | null, value: number | null | undefined): void {
+    if (!labels) {
+      this.logger.warn({
+        event: "metric_emit_failed",
+        message: "Cannot emit advertiseToSyncMs: no provider labels",
+        metric: "advertiseToSyncMs",
+      });
+      return;
+    }
+    observePositive(this.advertiseToSyncMs, labels, value);
   }
 
   observeIpniVerifyMs(

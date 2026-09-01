@@ -70,6 +70,7 @@ describe("IpniAddonStrategy getPieceStatus", () => {
     const mockDiscoverabilityMetrics = {
       observeSpIndexLocallyMs: vi.fn(),
       observeSpAnnounceAdvertisementMs: vi.fn(),
+      observeAdvertiseToSyncMs: vi.fn(),
       observeIpniVerifyMs: vi.fn(),
       recordStatus: vi.fn(),
       buildLabelsForDeal: vi.fn().mockImplementation((deal: DealForMetrics) => {
@@ -320,7 +321,8 @@ describe("IpniAddonStrategy getPieceStatus", () => {
 
       expect(discoverabilityMetrics.observeSpIndexLocallyMs).toHaveBeenCalledWith(labels, 1000);
       expect(discoverabilityMetrics.observeSpAnnounceAdvertisementMs).toHaveBeenCalledWith(labels, 2000);
-      expect(discoverabilityMetrics.observeIpniVerifyMs).toHaveBeenCalledWith(labels, 500, "success", "cid.contact");
+      expect(discoverabilityMetrics.observeAdvertiseToSyncMs).toHaveBeenCalledWith(labels, 1000);
+      expect(discoverabilityMetrics.observeIpniVerifyMs).toHaveBeenCalledWith(labels, 1500, "success", "cid.contact");
       expect(discoverabilityMetrics.recordStatus).toHaveBeenCalledWith(labels, "sp_indexed");
       expect(discoverabilityMetrics.recordStatus).toHaveBeenCalledWith(labels, "sp_announced_advertisement");
       expect(discoverabilityMetrics.recordStatus).toHaveBeenCalledWith(labels, "sp_synced");
