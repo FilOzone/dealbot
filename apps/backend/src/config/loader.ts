@@ -202,6 +202,19 @@ function loadNetworkEnvPrefix(
       resolve("PROVIDERS_REFRESH_INTERVAL_SECONDS"),
       networkDefaults.providersRefreshIntervalSeconds,
     ),
+    datasetPruningIntervalSeconds: coerceNumber(
+      resolve("DATASET_PRUNING_INTERVAL_SECONDS"),
+      networkDefaults.datasetPruningIntervalSeconds,
+    ),
+    abandonedDatasetSweepIntervalSeconds: coerceNumber(
+      resolve("ABANDONED_DATASET_SWEEP_INTERVAL_SECONDS"),
+      networkDefaults.abandonedDatasetSweepIntervalSeconds,
+    ),
+    excessDatasetBuffer: coerceNumber(resolve("EXCESS_DATASET_BUFFER"), networkDefaults.excessDatasetBuffer),
+    spCleanupJobTimeoutSeconds: coerceNumber(
+      resolve("SP_CLEANUP_JOB_TIMEOUT_SECONDS"),
+      networkDefaults.spCleanupJobTimeoutSeconds,
+    ),
     pieceCleanupPerSpPerHour: coerceFloat(
       resolve("PIECE_CLEANUP_PER_SP_PER_HOUR"),
       networkDefaults.pieceCleanupPerSpPerHour,

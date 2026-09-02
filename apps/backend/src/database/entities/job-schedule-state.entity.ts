@@ -12,7 +12,9 @@ export type JobType =
   | "providers_refresh"
   | "data_retention_poll"
   | "piece_cleanup"
-  | "pull_piece_cleanup";
+  | "pull_piece_cleanup"
+  | "sp_dataset_pruning"
+  | "abandoned_dataset_sweep";
 
 @Entity("job_schedule_state")
 @Index("job_schedule_state_job_type_sp_network_unique", ["jobType", "spAddress", "network"], { unique: true })

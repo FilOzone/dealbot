@@ -34,7 +34,7 @@ type LifecycleBaseLogContext = {
  * which submitted the tx directly — a path that reverts for Safe-multisig payers
  * because the session-key signer is never the on-chain msg.sender (#546).
  */
-async function terminateServiceSync(
+export async function terminateServiceSync(
   client: SynapseViemClient,
   options: { dataSetId: bigint; serviceURL: string; onHash?: (hash: `0x${string}`) => void },
 ): Promise<TerminateServiceStatusSuccess> {

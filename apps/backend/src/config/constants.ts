@@ -25,6 +25,10 @@ export const networkDefaults = {
   maxPieceCleanupRuntimeSeconds: 300,
   dataRetentionPollIntervalSeconds: 3600,
   providersRefreshIntervalSeconds: 4 * 3600,
+  datasetPruningIntervalSeconds: 24 * 3600, // 1 day
+  abandonedDatasetSweepIntervalSeconds: 24 * 3600, // 1 day
+  excessDatasetBuffer: 5,
+  spCleanupJobTimeoutSeconds: 1200,
   maintenanceWindowsUtc: ["07:00", "22:00"],
   maintenanceWindowMinutes: 20,
   maxDatasetStorageSizeBytes: 24 * 1024 * 1024 * 1024, // 24 GiB

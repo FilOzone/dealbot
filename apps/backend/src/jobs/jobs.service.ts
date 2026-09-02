@@ -21,12 +21,15 @@ import { StorageProviderRepository } from "../providers/repositories/storage-pro
 import { PullCheckService } from "../pull-check/pull-check.service.js";
 import { RetrievalService } from "../retrieval/retrieval.service.js";
 import { SampledRetrievalService } from "../sampled-retrieval/sampled-retrieval.service.js";
+import { SpCleanupService } from "../sp-cleanup/sp-cleanup.service.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
 import { provisionNextMissingDataSet } from "./data-set-creation.handler.js";
 import {
+  ABANDONED_DATASET_SWEEP_QUEUE,
   DATA_RETENTION_POLL_QUEUE,
   PROVIDERS_REFRESH_QUEUE,
   PULL_PIECE_CLEANUP_QUEUE,
+  SP_DATASET_PRUNING_QUEUE,
   SP_WORK_QUEUE,
 } from "./job-queues.js";
 import { JobScheduleRepository } from "./repositories/job-schedule.repository.js";
@@ -57,6 +60,14 @@ type ProvidersRefreshJobData = { network: Network; intervalSeconds: number };
 type SpJob = Job<SpJobData>;
 type DataRetentionJobData = { network: Network; intervalSeconds: number };
 type PullPieceCleanupJobData = { network: Network; intervalSeconds: number };
+type SpBlocklistCleanupJobData = { network: Network; intervalSeconds: number };
+type AbandonedDatasetSweepJobData = { network: Network; intervalSeconds: number };
+type GlobalJobData =
+  | ProvidersRefreshJobData
+  | DataRetentionJobData
+  | PullPieceCleanupJobData
+  | SpBlocklistCleanupJobData
+  | AbandonedDatasetSweepJobData;
 
 type ScheduleRow = {
   id: number;
@@ -88,6 +99,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     private readonly pieceCleanupService: PieceCleanupService,
     private readonly pullCheckService: PullCheckService,
     private readonly sampledRetrievalService: SampledRetrievalService,
+    private readonly spCleanupService: SpCleanupService,
     @InjectMetric("jobs_queued")
     private readonly jobsQueuedGauge: Gauge,
     @InjectMetric("jobs_retry_scheduled")
@@ -232,6 +244,9 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
           // piece_cleanup runs on the same SP_WORK_QUEUE with its own abort
           // bound to this timeout; include it so drain doesn't force-fail it.
           cfg.maxPieceCleanupRuntimeSeconds,
+          // sp_dataset_pruning / abandoned_dataset_sweep share this bound; see
+          // spCleanupJobTimeoutSeconds doc comment in config/types.ts.
+          cfg.spCleanupJobTimeoutSeconds,
         );
 
         if (maxNetworkTimeout > longestJobTimeoutSec) {
@@ -340,6 +355,8 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     await boss.createQueue(PROVIDERS_REFRESH_QUEUE);
     await boss.createQueue(DATA_RETENTION_POLL_QUEUE);
     await boss.createQueue(PULL_PIECE_CLEANUP_QUEUE);
+    await boss.createQueue(SP_DATASET_PRUNING_QUEUE);
+    await boss.createQueue(ABANDONED_DATASET_SWEEP_QUEUE);
   }
 
   private registerWorkers(): void {
@@ -444,6 +461,34 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
           event: "worker_register_failed",
           message: "Failed to register worker",
           queue: PULL_PIECE_CLEANUP_QUEUE,
+          error: toStructuredError(error),
+        }),
+      );
+    void this.boss
+      .work<SpBlocklistCleanupJobData, void>(
+        SP_DATASET_PRUNING_QUEUE,
+        { batchSize: 1, pollingIntervalSeconds: workerPollSeconds },
+        async ([job]) => this.handleSpBlocklistCleanupJob(job.data),
+      )
+      .catch((error) =>
+        this.logger.error({
+          event: "worker_register_failed",
+          message: "Failed to register worker",
+          queue: SP_DATASET_PRUNING_QUEUE,
+          error: toStructuredError(error),
+        }),
+      );
+    void this.boss
+      .work<AbandonedDatasetSweepJobData, void>(
+        ABANDONED_DATASET_SWEEP_QUEUE,
+        { batchSize: 1, pollingIntervalSeconds: workerPollSeconds },
+        async ([job]) => this.handleAbandonedDatasetSweepJob(job.data),
+      )
+      .catch((error) =>
+        this.logger.error({
+          event: "worker_register_failed",
+          message: "Failed to register worker",
+          queue: ABANDONED_DATASET_SWEEP_QUEUE,
           error: toStructuredError(error),
         }),
       );
@@ -798,6 +843,88 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         network: data.network,
       });
       return "success";
+    });
+  }
+
+  private async handleSpBlocklistCleanupJob(data: SpBlocklistCleanupJobData): Promise<void> {
+    const { network } = data;
+    const abortController = new AbortController();
+    const timeoutSeconds = this.configService.get("networks", { infer: true })[network].spCleanupJobTimeoutSeconds;
+    const timeoutMs = Math.max(60000, timeoutSeconds * 1000);
+    const effectiveTimeoutSeconds = Math.round(timeoutMs / 1000);
+    const abortReason = new Error(`sp_dataset_pruning job timeout (${effectiveTimeoutSeconds}s) for ${network}`);
+    const timeoutId = setTimeout(() => {
+      abortController.abort(abortReason);
+    }, timeoutMs);
+
+    await this.recordJobExecution("sp_dataset_pruning", network, async () => {
+      try {
+        await this.spCleanupService.runDatasetPruning(network, abortController.signal);
+        return "success";
+      } catch (error) {
+        if (abortController.signal.aborted) {
+          const reason = abortController.signal.reason;
+          const reasonMessage = reason instanceof Error ? reason.message : String(reason ?? "");
+          this.logger.error({
+            network,
+            event: "sp_dataset_pruning_job_aborted",
+            message: reasonMessage || "sp_dataset_pruning job aborted after timeout",
+            timeoutSeconds: effectiveTimeoutSeconds,
+            error: toStructuredError(reason ?? error),
+          });
+          return "aborted";
+        }
+        this.logger.error({
+          network,
+          event: "sp_dataset_pruning_job_failed",
+          message: "sp_dataset_pruning job failed",
+          error: toStructuredError(error),
+        });
+        throw error;
+      } finally {
+        clearTimeout(timeoutId);
+      }
+    });
+  }
+
+  private async handleAbandonedDatasetSweepJob(data: AbandonedDatasetSweepJobData): Promise<void> {
+    const { network } = data;
+    const abortController = new AbortController();
+    const timeoutSeconds = this.configService.get("networks", { infer: true })[network].spCleanupJobTimeoutSeconds;
+    const timeoutMs = Math.max(60000, timeoutSeconds * 1000);
+    const effectiveTimeoutSeconds = Math.round(timeoutMs / 1000);
+    const abortReason = new Error(`abandoned_dataset_sweep job timeout (${effectiveTimeoutSeconds}s) for ${network}`);
+    const timeoutId = setTimeout(() => {
+      abortController.abort(abortReason);
+    }, timeoutMs);
+
+    await this.recordJobExecution("abandoned_dataset_sweep", network, async () => {
+      try {
+        await this.spCleanupService.runAbandonedDatasetSweep(network, abortController.signal);
+        return "success";
+      } catch (error) {
+        if (abortController.signal.aborted) {
+          const reason = abortController.signal.reason;
+          const reasonMessage = reason instanceof Error ? reason.message : String(reason ?? "");
+          this.logger.error({
+            network,
+            event: "abandoned_dataset_sweep_job_aborted",
+            message: reasonMessage || "abandoned_dataset_sweep job aborted after timeout",
+            timeoutSeconds: effectiveTimeoutSeconds,
+            error: toStructuredError(reason ?? error),
+          });
+          return "aborted";
+        }
+        this.logger.error({
+          network,
+          event: "abandoned_dataset_sweep_job_failed",
+          message: "abandoned_dataset_sweep job failed",
+          error: toStructuredError(error),
+        });
+        throw error;
+      } finally {
+        clearTimeout(timeoutId);
+      }
     });
   }
 
@@ -1265,6 +1392,8 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     pieceCleanupIntervalSeconds: number;
     pullCheckIntervalSeconds: number;
     pullPieceCleanupIntervalSeconds: number;
+    datasetPruningIntervalSeconds: number;
+    abandonedDatasetSweepIntervalSeconds: number;
     minDataSetsFull: number;
     minDataSetsTrickle: number;
   } {
@@ -1280,6 +1409,8 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       dataRetentionPollIntervalSeconds,
       providersRefreshIntervalSeconds,
       pullPieceCleanupIntervalSeconds,
+      datasetPruningIntervalSeconds,
+      abandonedDatasetSweepIntervalSeconds,
       minNumDataSetsForChecks,
     } = networkCfg;
 
@@ -1311,6 +1442,8 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       pieceCleanupIntervalSeconds,
       pullCheckIntervalSeconds,
       pullPieceCleanupIntervalSeconds,
+      datasetPruningIntervalSeconds,
+      abandonedDatasetSweepIntervalSeconds,
       minDataSetsFull: minNumDataSetsForChecks,
       minDataSetsTrickle: trickleTierRates.minNumDataSetsForChecks,
     };
@@ -1321,7 +1454,8 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
    * - Inserts new rows for new providers.
    * - Updates intervals if config changed.
    * - Pauses rows for providers that are no longer active.
-   * - Ensures global data_retention_poll, providers_refresh, and pull_piece_cleanup jobs exist.
+   * - Ensures global data_retention_poll, providers_refresh, pull_piece_cleanup,
+   *   sp_dataset_pruning, and abandoned_dataset_sweep jobs exist.
    */
   private async ensureScheduleRows(network: Network): Promise<void> {
     const now = new Date();
@@ -1338,6 +1472,8 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       pieceCleanupIntervalSeconds,
       pullCheckIntervalSeconds,
       pullPieceCleanupIntervalSeconds,
+      datasetPruningIntervalSeconds,
+      abandonedDatasetSweepIntervalSeconds,
       minDataSetsFull,
       minDataSetsTrickle,
     } = this.getIntervalSecondsForRates(network);
@@ -1512,6 +1648,20 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       pullPieceCleanupIntervalSeconds,
       new Date(now.getTime() + phaseMs),
     );
+    await this.jobScheduleRepository.upsertSchedule(
+      "sp_dataset_pruning",
+      "",
+      network,
+      datasetPruningIntervalSeconds,
+      new Date(now.getTime() + phaseMs),
+    );
+    await this.jobScheduleRepository.upsertSchedule(
+      "abandoned_dataset_sweep",
+      "",
+      network,
+      abandonedDatasetSweepIntervalSeconds,
+      new Date(now.getTime() + phaseMs),
+    );
   }
 
   /**
@@ -1618,6 +1768,10 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         return PROVIDERS_REFRESH_QUEUE;
       case "pull_piece_cleanup":
         return PULL_PIECE_CLEANUP_QUEUE;
+      case "sp_dataset_pruning":
+        return SP_DATASET_PRUNING_QUEUE;
+      case "abandoned_dataset_sweep":
+        return ABANDONED_DATASET_SWEEP_QUEUE;
       default: {
         const exhaustiveCheck: never = jobType;
         throw new Error(`Unhandled job type: ${exhaustiveCheck}`);
@@ -1625,7 +1779,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     }
   }
 
-  private mapJobPayload(row: ScheduleRow): SpJobData | ProvidersRefreshJobData | DataRetentionJobData {
+  private mapJobPayload(row: ScheduleRow): SpJobData | GlobalJobData {
     if (
       row.job_type === "deal" ||
       row.job_type === "retrieval" ||
@@ -1648,12 +1802,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
   /**
    * Publishes a job to pg-boss and tracks enqueue attempts.
    */
-  private async safeSend(
-    jobType: JobType,
-    name: string,
-    data: SpJobData | ProvidersRefreshJobData | DataRetentionJobData,
-    options?: SendOptions,
-  ) {
+  private async safeSend(jobType: JobType, name: string, data: SpJobData | GlobalJobData, options?: SendOptions) {
     if (!this.boss) return false;
     try {
       // Disable retries so "attempted" jobs don't rerun; failures are handled by the next schedule tick.
@@ -1722,6 +1871,8 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       "data_retention_poll",
       "providers_refresh",
       "pull_piece_cleanup",
+      "sp_dataset_pruning",
+      "abandoned_dataset_sweep",
     ];
     for (const jobType of jobTypes) {
       this.jobsQueuedGauge.set({ job_type: jobType, network }, 0);
