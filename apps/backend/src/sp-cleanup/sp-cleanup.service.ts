@@ -10,6 +10,8 @@ import type { Counter, Gauge } from "prom-client";
 import type { Chain, Client, Transport } from "viem";
 import { ContractFunctionRevertedError, encodeFunctionData, keccak256, stringToBytes } from "viem";
 import { getBlockNumber, readContract, simulateContract, waitForTransactionReceipt, writeContract } from "viem/actions";
+import { awaitWithAbort } from "../common/abort-utils.js";
+import { LIFECYCLE_CHECK_METADATA_KEY } from "../common/constants.js";
 import { toStructuredError } from "../common/logging.js";
 import { isSpBlocked } from "../common/sp-blocklist.js";
 import { isFullRateTier } from "../common/sp-tier.js";
@@ -180,8 +182,14 @@ export class SpCleanupService {
       return;
     }
 
-    // Oldest first (lower dataSetId ~= created earlier); keep the newest `targetCount`.
+    // Leaked lifecycle-check sets sort first regardless of age — otherwise "keep the newest N"
+    // would protect them over the actual dealbotDS-tagged slots deal jobs depend on.
     const sorted = [...activeDataSets].sort((a, b) => {
+      const aIsLeak = LIFECYCLE_CHECK_METADATA_KEY in a.metadata;
+      const bIsLeak = LIFECYCLE_CHECK_METADATA_KEY in b.metadata;
+      if (aIsLeak !== bIsLeak) {
+        return aIsLeak ? -1 : 1;
+      }
       if (a.dataSetId === b.dataSetId) return 0;
       return a.dataSetId < b.dataSetId ? -1 : 1;
     });
@@ -200,18 +208,21 @@ export class SpCleanupService {
         dataSetId: dataSet.dataSetId.toString(),
       };
       try {
-        await terminateServiceSync(relayClient, {
-          dataSetId: dataSet.dataSetId,
-          serviceURL: provider.pdp.serviceURL,
-          onHash: (hash) => {
-            this.logger.log({
-              ...logContext,
-              event: "sp_cleanup_dataset_terminating",
-              message: "Blocklist-cleanup terminate transaction submitted",
-              txHash: hash,
-            });
-          },
-        });
+        await awaitWithAbort(
+          terminateServiceSync(relayClient, {
+            dataSetId: dataSet.dataSetId,
+            serviceURL: provider.pdp.serviceURL,
+            onHash: (hash) => {
+              this.logger.log({
+                ...logContext,
+                event: "sp_cleanup_dataset_terminating",
+                message: "Blocklist-cleanup terminate transaction submitted",
+                txHash: hash,
+              });
+            },
+          }),
+          signal,
+        );
         this.recordAttempt(network, reason, "success");
         this.logger.log({
           ...logContext,
@@ -525,7 +536,17 @@ export class SpCleanupService {
       const hash = await settleRail(writeClient, { railId: dataSet.pdpRailId, untilEpoch: dataSet.pdpEndEpoch });
       const receipt = await waitForTransactionReceipt(writeClient, { hash });
       if (receipt.status !== "success") {
-        throw new Error(`settleRail transaction reverted on-chain (hash: ${hash})`);
+        // A mined-but-reverted receipt is a genuine on-chain failure, same as a simulate/write-time
+        // revert below — return it directly rather than throwing, since a plain Error here would
+        // fail `isContractRevert` in the catch and get misclassified as a transient RPC failure.
+        this.recordAttempt(network, "settlement", "failure");
+        this.logger.warn({
+          ...logContext,
+          event: "sp_cleanup_settle_rail_stuck",
+          message: "settleRail transaction reverted on-chain; validator appears stuck — needs a human Safe batch",
+          txHash: hash,
+        });
+        return { dataSetId: dataSet.dataSetId, spAddress: dataSet.serviceProvider, railId: dataSet.pdpRailId };
       }
       this.recordAttempt(network, "settlement", "success");
       this.logger.log({

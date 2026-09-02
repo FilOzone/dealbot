@@ -96,6 +96,7 @@ function makeDataSet(overrides: Record<string, unknown> = {}) {
     pdpEndEpoch: 0n,
     pdpRailId: 100n,
     providerId: 1n,
+    metadata: {},
     ...overrides,
   };
 }
@@ -220,6 +221,32 @@ describe("SpCleanupService", () => {
       for (const call of vi.mocked(attemptsCounter.inc).mock.calls) {
         expect(call[0]).toMatchObject({ reason: "trickle" });
       }
+    });
+
+    it("terminates a leaked lifecycle-check data set before an older real slot, even though it's newer", async () => {
+      const networkConfig = makeNetworkConfig({ excessDatasetBuffer: 0 });
+      configService.get.mockImplementation((key: string) =>
+        key === "networks" ? { [DEFAULT_NETWORK]: networkConfig } : undefined,
+      );
+      const trickleAddress = "0xtrickle000000000000000000000000000000002";
+      storageProviderRepository.findAllByNetwork.mockResolvedValueOnce([
+        makeProvider({ id: 6n, serviceProvider: trickleAddress, isApproved: false }),
+      ]);
+
+      // target=1, buffer=0 -> 2 active exceeds 1, prune 1. Naive oldest-first would keep the
+      // newer leaked set (id 10) and terminate the older real slot (id 5) — wrong way round.
+      const realSlot = makeDataSet({ dataSetId: 5n, serviceProvider: trickleAddress, metadata: {} });
+      const leakedSet = makeDataSet({
+        dataSetId: 10n,
+        serviceProvider: trickleAddress,
+        metadata: { dealbotLifecycleCheck: "1234567890" },
+      });
+      vi.mocked(listDataSets).mockResolvedValueOnce([realSlot, leakedSet] as any);
+
+      await service.runDatasetPruning(DEFAULT_NETWORK);
+
+      expect(terminateServiceSync).toHaveBeenCalledTimes(1);
+      expect(terminateServiceSync).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ dataSetId: 10n }));
     });
 
     it("leaves a full-rate SP within its target untouched", async () => {
@@ -686,6 +713,36 @@ describe("SpCleanupService", () => {
       // The escalation is logged for a human — dealbot never calls settleTerminatedRailWithoutValidation itself.
       expect(writeContract).not.toHaveBeenCalled();
       expect(simulateContract).not.toHaveBeenCalled();
+    });
+
+    it("flags a mined-but-reverted settleRail receipt as stuck, not a transient failure", async () => {
+      const dataSet = makeDataSet({ dataSetId: 21n, pdpEndEpoch: 500n, pdpRailId: 991n });
+      vi.mocked(listDataSets).mockResolvedValueOnce([dataSet] as any);
+      vi.mocked(getBlockNumber).mockResolvedValueOnce(200000n);
+      vi.mocked(getRail).mockResolvedValueOnce({ settledUpTo: 100n, endEpoch: 500n } as any);
+      vi.mocked(settleRail).mockResolvedValueOnce("0xreverted-hash" as any);
+      vi.mocked(waitForTransactionReceipt).mockResolvedValueOnce({ status: "reverted" } as any);
+      vi.mocked(settleTerminatedRailWithoutValidationCall).mockReturnValueOnce({
+        abi: [],
+        address: "0xfilecoinpay",
+        functionName: "settleTerminatedRailWithoutValidation",
+        args: [991n],
+      } as any);
+
+      await service.runAbandonedDatasetSweep(DEFAULT_NETWORK);
+
+      expect(attemptsCounter.inc).toHaveBeenCalledWith({
+        network: DEFAULT_NETWORK,
+        outcome: "failure",
+        reason: "settlement",
+      });
+      expect(stuckGauge.set).toHaveBeenCalledWith({ network: DEFAULT_NETWORK }, 1);
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          event: "stuck_terminations_detected",
+          items: [expect.objectContaining({ dataSetId: "21", railId: "991" })],
+        }),
+      );
     });
 
     it("does not log and resets the gauge to 0 when nothing is stuck", async () => {
