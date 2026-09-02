@@ -244,6 +244,9 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
           // piece_cleanup runs on the same SP_WORK_QUEUE with its own abort
           // bound to this timeout; include it so drain doesn't force-fail it.
           cfg.maxPieceCleanupRuntimeSeconds,
+          // sp_dataset_pruning / abandoned_dataset_sweep share this bound; see
+          // spCleanupJobTimeoutSeconds doc comment in config/types.ts.
+          cfg.spCleanupJobTimeoutSeconds,
         );
 
         if (maxNetworkTimeout > longestJobTimeoutSec) {
@@ -844,16 +847,84 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
   }
 
   private async handleSpBlocklistCleanupJob(data: SpBlocklistCleanupJobData): Promise<void> {
-    await this.recordJobExecution("sp_dataset_pruning", data.network, async () => {
-      await this.spCleanupService.runDatasetPruning(data.network);
-      return "success";
+    const { network } = data;
+    const abortController = new AbortController();
+    const timeoutSeconds = this.configService.get("networks", { infer: true })[network].spCleanupJobTimeoutSeconds;
+    const timeoutMs = Math.max(60000, timeoutSeconds * 1000);
+    const effectiveTimeoutSeconds = Math.round(timeoutMs / 1000);
+    const abortReason = new Error(`sp_dataset_pruning job timeout (${effectiveTimeoutSeconds}s) for ${network}`);
+    const timeoutId = setTimeout(() => {
+      abortController.abort(abortReason);
+    }, timeoutMs);
+
+    await this.recordJobExecution("sp_dataset_pruning", network, async () => {
+      try {
+        await this.spCleanupService.runDatasetPruning(network, abortController.signal);
+        return "success";
+      } catch (error) {
+        if (abortController.signal.aborted) {
+          const reason = abortController.signal.reason;
+          const reasonMessage = reason instanceof Error ? reason.message : String(reason ?? "");
+          this.logger.error({
+            network,
+            event: "sp_dataset_pruning_job_aborted",
+            message: reasonMessage || "sp_dataset_pruning job aborted after timeout",
+            timeoutSeconds: effectiveTimeoutSeconds,
+            error: toStructuredError(reason ?? error),
+          });
+          return "aborted";
+        }
+        this.logger.error({
+          network,
+          event: "sp_dataset_pruning_job_failed",
+          message: "sp_dataset_pruning job failed",
+          error: toStructuredError(error),
+        });
+        throw error;
+      } finally {
+        clearTimeout(timeoutId);
+      }
     });
   }
 
   private async handleAbandonedDatasetSweepJob(data: AbandonedDatasetSweepJobData): Promise<void> {
-    await this.recordJobExecution("abandoned_dataset_sweep", data.network, async () => {
-      await this.spCleanupService.runAbandonedDatasetSweep(data.network);
-      return "success";
+    const { network } = data;
+    const abortController = new AbortController();
+    const timeoutSeconds = this.configService.get("networks", { infer: true })[network].spCleanupJobTimeoutSeconds;
+    const timeoutMs = Math.max(60000, timeoutSeconds * 1000);
+    const effectiveTimeoutSeconds = Math.round(timeoutMs / 1000);
+    const abortReason = new Error(`abandoned_dataset_sweep job timeout (${effectiveTimeoutSeconds}s) for ${network}`);
+    const timeoutId = setTimeout(() => {
+      abortController.abort(abortReason);
+    }, timeoutMs);
+
+    await this.recordJobExecution("abandoned_dataset_sweep", network, async () => {
+      try {
+        await this.spCleanupService.runAbandonedDatasetSweep(network, abortController.signal);
+        return "success";
+      } catch (error) {
+        if (abortController.signal.aborted) {
+          const reason = abortController.signal.reason;
+          const reasonMessage = reason instanceof Error ? reason.message : String(reason ?? "");
+          this.logger.error({
+            network,
+            event: "abandoned_dataset_sweep_job_aborted",
+            message: reasonMessage || "abandoned_dataset_sweep job aborted after timeout",
+            timeoutSeconds: effectiveTimeoutSeconds,
+            error: toStructuredError(reason ?? error),
+          });
+          return "aborted";
+        }
+        this.logger.error({
+          network,
+          event: "abandoned_dataset_sweep_job_failed",
+          message: "abandoned_dataset_sweep job failed",
+          error: toStructuredError(error),
+        });
+        throw error;
+      } finally {
+        clearTimeout(timeoutId);
+      }
     });
   }
 

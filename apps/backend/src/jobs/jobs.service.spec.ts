@@ -160,6 +160,7 @@ describe("JobsService schedule rows", () => {
       datasetPruningIntervalSeconds: 86400,
       abandonedDatasetSweepIntervalSeconds: 86400,
       excessDatasetBuffer: 5,
+      spCleanupJobTimeoutSeconds: 1200,
       walletAddress: "0x0000000000000000000000000000000000000000",
       checkDatasetCreationFees: true,
       maintenanceWindowsUtc: ["07:00", "22:00"],
@@ -1955,10 +1956,10 @@ describe("JobsService schedule rows", () => {
       await shutdownPromise;
 
       // Defaults: deal=360, retrieval=60, sampledRetrieval=360, dataSetCreation=300,
-      // dataSetLifecycleCheck=600, pullCheck=300 → max=600 → +60s buffer
+      // dataSetLifecycleCheck=600, pullCheck=300, spCleanup=1200 → max=1200 → +60s buffer
 
       expect(bossMock.stop).toHaveBeenCalledTimes(1);
-      expect(bossMock.stop).toHaveBeenCalledWith({ graceful: true, timeout: 660_000 });
+      expect(bossMock.stop).toHaveBeenCalledWith({ graceful: true, timeout: 1_260_000 });
     });
 
     it("picks the longest timeout across all job types, including pullCheck under pullPiece", async () => {
@@ -1972,6 +1973,7 @@ describe("JobsService schedule rows", () => {
             retrievalJobTimeoutSeconds: 60,
             dataSetCreationJobTimeoutSeconds: 120,
             pullCheckJobTimeoutSeconds: 600,
+            spCleanupJobTimeoutSeconds: 60,
           },
         } as unknown as IConfig["networks"],
       };
@@ -1985,7 +1987,7 @@ describe("JobsService schedule rows", () => {
       await vi.advanceTimersByTimeAsync(35_001);
       await shutdownPromise;
 
-      // pullCheck wins at 600s, plus 60s buffer
+      // pullCheck wins at 600s (spCleanup lowered to 60s for this case), plus 60s buffer
       expect(bossMock.stop).toHaveBeenCalledWith({ graceful: true, timeout: 660_000 });
     });
 

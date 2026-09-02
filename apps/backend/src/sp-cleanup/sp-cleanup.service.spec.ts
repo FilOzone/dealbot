@@ -180,7 +180,6 @@ describe("SpCleanupService", () => {
 
       const blockedProvider = makeProvider();
       storageProviderRepository.findAllByNetwork.mockResolvedValueOnce([blockedProvider]);
-      storageProviderRepository.findActiveAddresses.mockResolvedValueOnce([]);
 
       vi.mocked(listDataSets).mockResolvedValueOnce([
         makeDataSet({ dataSetId: 5n }),
@@ -203,10 +202,7 @@ describe("SpCleanupService", () => {
     it("prunes a trickle-tier SP down to trickleTierRates.minNumDataSetsForChecks", async () => {
       const trickleAddress = "0xtrickle000000000000000000000000000000001";
       storageProviderRepository.findAllByNetwork.mockResolvedValueOnce([
-        makeProvider({ id: 2n, serviceProvider: trickleAddress, name: "Trickle SP" }),
-      ]);
-      storageProviderRepository.findActiveAddresses.mockResolvedValueOnce([
-        { address: trickleAddress, providerId: 2n, isApproved: false },
+        makeProvider({ id: 2n, serviceProvider: trickleAddress, name: "Trickle SP", isApproved: false }),
       ]);
 
       // trickle target=1, buffer=5 (default fixture) -> need > 6 active to trigger a prune.
@@ -229,10 +225,7 @@ describe("SpCleanupService", () => {
     it("leaves a full-rate SP within its target untouched", async () => {
       const fullRateAddress = "0xfullrate00000000000000000000000000000001";
       storageProviderRepository.findAllByNetwork.mockResolvedValueOnce([
-        makeProvider({ id: 3n, serviceProvider: fullRateAddress }),
-      ]);
-      storageProviderRepository.findActiveAddresses.mockResolvedValueOnce([
-        { address: fullRateAddress, providerId: 3n, isApproved: true },
+        makeProvider({ id: 3n, serviceProvider: fullRateAddress, isApproved: true }),
       ]);
       vi.mocked(listDataSets).mockResolvedValueOnce([
         makeDataSet({ dataSetId: 99n, serviceProvider: fullRateAddress }),
@@ -249,10 +242,7 @@ describe("SpCleanupService", () => {
       // target=15 (default fixture), buffer=5 -> 19 active is <= 15+5, no prune.
       const fullRateAddress = "0xfullrate00000000000000000000000000000002";
       storageProviderRepository.findAllByNetwork.mockResolvedValueOnce([
-        makeProvider({ id: 4n, serviceProvider: fullRateAddress }),
-      ]);
-      storageProviderRepository.findActiveAddresses.mockResolvedValueOnce([
-        { address: fullRateAddress, providerId: 4n, isApproved: true },
+        makeProvider({ id: 4n, serviceProvider: fullRateAddress, isApproved: true }),
       ]);
       const dataSets = Array.from({ length: 19 }, (_, i) =>
         makeDataSet({ dataSetId: BigInt(i + 1), serviceProvider: fullRateAddress }),
@@ -268,10 +258,7 @@ describe("SpCleanupService", () => {
       // target=15, buffer=5 -> 21 active exceeds 20, prunes the oldest 6 down to 15.
       const fullRateAddress = "0xfullrate00000000000000000000000000000003";
       storageProviderRepository.findAllByNetwork.mockResolvedValueOnce([
-        makeProvider({ id: 5n, serviceProvider: fullRateAddress }),
-      ]);
-      storageProviderRepository.findActiveAddresses.mockResolvedValueOnce([
-        { address: fullRateAddress, providerId: 5n, isApproved: true },
+        makeProvider({ id: 5n, serviceProvider: fullRateAddress, isApproved: true }),
       ]);
       const dataSets = Array.from({ length: 21 }, (_, i) =>
         makeDataSet({ dataSetId: BigInt(i + 1), serviceProvider: fullRateAddress }),
@@ -310,13 +297,8 @@ describe("SpCleanupService", () => {
       storageProviderRepository.findAllByNetwork.mockResolvedValueOnce([
         makeProvider({ id: 1n, serviceProvider: "0xsp0000000000000000000000000000000000001" }),
         makeProvider({ id: 2n, serviceProvider: "0xsp0000000000000000000000000000000000002" }),
+        makeProvider({ id: 3n, serviceProvider: trickleAddress, isApproved: false }),
       ]);
-      storageProviderRepository.findActiveAddresses.mockResolvedValueOnce([
-        { address: trickleAddress, providerId: 3n, isApproved: false },
-      ]);
-      storageProviderRepository.findByAddress.mockResolvedValueOnce(
-        makeProvider({ id: 3n, serviceProvider: trickleAddress }),
-      );
       vi.mocked(listDataSets).mockResolvedValueOnce([]);
 
       await service.runDatasetPruning(DEFAULT_NETWORK);
@@ -333,7 +315,6 @@ describe("SpCleanupService", () => {
       );
 
       storageProviderRepository.findAllByNetwork.mockResolvedValueOnce([makeProvider()]);
-      storageProviderRepository.findActiveAddresses.mockResolvedValueOnce([]);
 
       vi.mocked(listDataSets).mockResolvedValueOnce([
         makeDataSet({ dataSetId: 7n }),
@@ -373,7 +354,7 @@ describe("SpCleanupService", () => {
         // in cleanup mode and reverts — this is the expected, common case, not a failure.
         .mockRejectedValueOnce(new Error("DataSetNotInCleanupMode"));
       vi.mocked(writeContract).mockResolvedValueOnce("0xtxhash" as any);
-      vi.mocked(waitForTransactionReceipt).mockResolvedValueOnce({} as any);
+      vi.mocked(waitForTransactionReceipt).mockResolvedValueOnce({ status: "success" } as any);
 
       await service.runAbandonedDatasetSweep(DEFAULT_NETWORK);
 
@@ -415,7 +396,7 @@ describe("SpCleanupService", () => {
         .mockResolvedValueOnce("0xdelete-hash" as any)
         .mockResolvedValueOnce("0xcleanup-hash-1" as any)
         .mockResolvedValueOnce("0xcleanup-hash-2" as any);
-      vi.mocked(waitForTransactionReceipt).mockResolvedValue({} as any);
+      vi.mocked(waitForTransactionReceipt).mockResolvedValue({ status: "success" } as any);
 
       await service.runAbandonedDatasetSweep(DEFAULT_NETWORK);
 
@@ -431,6 +412,27 @@ describe("SpCleanupService", () => {
         expect.anything(),
         expect.objectContaining({ functionName: "cleanupPieces", args: [12n, 100n] }),
       );
+    });
+
+    it("treats a reverted-but-mined deleteDataSet receipt as a failure, skipping the cleanupPieces follow-up", async () => {
+      const dataSet = makeDataSet({ dataSetId: 15n, pdpEndEpoch: 0n });
+      vi.mocked(listDataSets).mockResolvedValueOnce([dataSet] as any);
+      vi.mocked(getBlockNumber).mockResolvedValueOnce(200000n);
+      vi.mocked(readContract).mockResolvedValueOnce(1000n as any);
+      vi.mocked(simulateContract).mockResolvedValueOnce({ request: { fake: "deleteDataSet-request" } } as any);
+      vi.mocked(writeContract).mockResolvedValueOnce("0xtxhash" as any);
+      vi.mocked(waitForTransactionReceipt).mockResolvedValueOnce({ status: "reverted" } as any);
+
+      await expect(service.runAbandonedDatasetSweep(DEFAULT_NETWORK)).resolves.toBeUndefined();
+
+      // Only the deleteDataSet simulate — no cleanupPieces follow-up, since the delete itself
+      // never actually succeeded on-chain despite the tx getting mined.
+      expect(simulateContract).toHaveBeenCalledTimes(1);
+      expect(attemptsCounter.inc).toHaveBeenCalledWith({
+        network: DEFAULT_NETWORK,
+        outcome: "failure",
+        reason: "abandonment",
+      });
     });
 
     it("does not abort the sweep when getDataSetLastProvenEpoch fails for one data set — later data sets still run", async () => {

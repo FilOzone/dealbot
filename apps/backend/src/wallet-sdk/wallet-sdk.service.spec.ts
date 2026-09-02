@@ -32,6 +32,7 @@ const baseNetworkConfig = {
   datasetPruningIntervalSeconds: 86400,
   abandonedDatasetSweepIntervalSeconds: 86400,
   excessDatasetBuffer: 5,
+  spCleanupJobTimeoutSeconds: 1200,
   maintenanceWindowsUtc: ["07:00", "22:00"],
   maintenanceWindowMinutes: 20,
   pieceCleanupPerSpPerHour: 1,

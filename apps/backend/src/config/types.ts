@@ -151,6 +151,13 @@ export type BaseNetworkConfig = {
    * stuck rail settlements for a human (see docs/runbooks/wallet-and-session-keys.md).
    */
   abandonedDatasetSweepIntervalSeconds: number;
+  /**
+   * Maximum runtime (seconds) for a single `sp_dataset_pruning` or
+   * `abandoned_dataset_sweep` run before forced abort. Both scan every data
+   * set dealbot's wallet holds on the network, so this also feeds shutdown
+   * drain (`onApplicationShutdown`) so pg-boss doesn't force-fail a run mid-sweep.
+   */
+  spCleanupJobTimeoutSeconds: number;
 
   /** Maintenance Config */
   maintenanceWindowsUtc: string[];
@@ -346,6 +353,7 @@ export type NetworkDefaults = Pick<
   | "datasetPruningIntervalSeconds"
   | "abandonedDatasetSweepIntervalSeconds"
   | "excessDatasetBuffer"
+  | "spCleanupJobTimeoutSeconds"
   | "maintenanceWindowsUtc"
   | "maintenanceWindowMinutes"
   | "maxDatasetStorageSizeBytes"

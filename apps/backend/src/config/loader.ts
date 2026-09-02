@@ -211,6 +211,10 @@ function loadNetworkEnvPrefix(
       networkDefaults.abandonedDatasetSweepIntervalSeconds,
     ),
     excessDatasetBuffer: coerceNumber(resolve("EXCESS_DATASET_BUFFER"), networkDefaults.excessDatasetBuffer),
+    spCleanupJobTimeoutSeconds: coerceNumber(
+      resolve("SP_CLEANUP_JOB_TIMEOUT_SECONDS"),
+      networkDefaults.spCleanupJobTimeoutSeconds,
+    ),
     pieceCleanupPerSpPerHour: coerceFloat(
       resolve("PIECE_CLEANUP_PER_SP_PER_HOUR"),
       networkDefaults.pieceCleanupPerSpPerHour,

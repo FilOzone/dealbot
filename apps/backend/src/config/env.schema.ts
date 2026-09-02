@@ -188,6 +188,7 @@ const perNetworkFieldRules = (): Record<PerNetworkVar, Joi.Schema> => ({
   DATASET_PRUNING_INTERVAL_SECONDS: Joi.number().integer().min(1).optional(),
   ABANDONED_DATASET_SWEEP_INTERVAL_SECONDS: Joi.number().integer().min(1).optional(),
   EXCESS_DATASET_BUFFER: Joi.number().integer().min(0).optional(),
+  SP_CLEANUP_JOB_TIMEOUT_SECONDS: Joi.number().integer().min(1).optional(),
   MAINTENANCE_WINDOWS_UTC: Joi.string().custom(validateMaintenanceWindowsEnv).optional(),
   MAINTENANCE_WINDOW_MINUTES: Joi.number().min(20).max(360).optional(),
   BLOCKED_SP_IDS: Joi.string().optional().allow(""),

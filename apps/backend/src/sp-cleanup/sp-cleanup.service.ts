@@ -96,7 +96,7 @@ export class SpCleanupService {
    * counted — never aborts the batch, since a dead/unreachable SP is expected
    * here and is left for `abandoned_dataset_sweep` to clean up permissionlessly.
    */
-  async runDatasetPruning(network: Network): Promise<void> {
+  async runDatasetPruning(network: Network, signal?: AbortSignal): Promise<void> {
     const networkCfg = this.getNetworkConfig(network);
     const synapse = await this.getSynapse(network);
     const relayClient = (this.walletSdkService.getSynapseClient(network) ??
@@ -120,29 +120,28 @@ export class SpCleanupService {
     }
 
     const allProviders = await this.storageProviderRepository.findAllByNetwork(network);
-    const providerByAddress = new Map(
-      allProviders.map((provider) => [provider.serviceProvider.toLowerCase(), provider]),
-    );
     const blockedProviders = allProviders.filter((provider) =>
       isSpBlocked(networkCfg, provider.serviceProvider, provider.id),
     );
 
     for (const provider of blockedProviders) {
+      signal?.throwIfAborted();
       const activeDataSets = activeByProvider.get(provider.serviceProvider.toLowerCase()) ?? [];
       await this.terminateExcessDataSets(relayClient, network, provider, activeDataSets, 0, 0, "blocked");
     }
 
+    // Deliberately not scoped to findActiveAddresses (registry-active, optionally approved-only)
+    // — pruning is a safety net against excess data sets regardless of a provider's current
+    // check-eligibility, so it must cover every non-blocked provider dealbot holds data sets with.
     const buffer = networkCfg.excessDatasetBuffer;
-    const activeProviders = await this.storageProviderRepository.findActiveAddresses(network);
-    const nonBlockedProviders = activeProviders.filter(
-      ({ address, providerId }) => !isSpBlocked(networkCfg, address, providerId),
+    const nonBlockedProviders = allProviders.filter(
+      (provider) => !isSpBlocked(networkCfg, provider.serviceProvider, provider.id),
     );
 
-    for (const { address, providerId, isApproved } of nonBlockedProviders) {
-      const provider = providerByAddress.get(address.toLowerCase());
-      if (!provider) continue;
-      const activeDataSets = activeByProvider.get(address.toLowerCase()) ?? [];
-      const isFullRate = isFullRateTier(networkCfg, address, isApproved, providerId);
+    for (const provider of nonBlockedProviders) {
+      signal?.throwIfAborted();
+      const activeDataSets = activeByProvider.get(provider.serviceProvider.toLowerCase()) ?? [];
+      const isFullRate = isFullRateTier(networkCfg, provider.serviceProvider, provider.isApproved, provider.id);
       const target = isFullRate ? networkCfg.minNumDataSetsForChecks : trickleTierRates.minNumDataSetsForChecks;
       await this.terminateExcessDataSets(
         relayClient,
@@ -248,7 +247,7 @@ export class SpCleanupService {
    *   period) falls through to needing the Safe's own signature, logged fresh
    *   every run for a human operator.
    */
-  async runAbandonedDatasetSweep(network: Network): Promise<void> {
+  async runAbandonedDatasetSweep(network: Network, signal?: AbortSignal): Promise<void> {
     const synapse = await this.getSynapse(network);
     const readClient: ReadOnlyClient = toReadClient(
       (this.walletSdkService.getSynapseClient(network) ?? synapse.client) as SynapseViemClient,
@@ -263,6 +262,7 @@ export class SpCleanupService {
     const stuckItems: StuckRailItem[] = [];
 
     for (const dataSet of allDataSets) {
+      signal?.throwIfAborted();
       if (dataSet.pdpEndEpoch === 0n) {
         await this.handleAbandonmentCandidate(readClient, writeClient, pdpVerifier, network, dataSet, currentBlock);
         continue;
@@ -339,7 +339,10 @@ export class SpCleanupService {
         args: [dataSet.dataSetId, "0x"],
       });
       const hash = await writeContract(writeClient, request);
-      await waitForTransactionReceipt(writeClient, { hash });
+      const receipt = await waitForTransactionReceipt(writeClient, { hash });
+      if (receipt.status !== "success") {
+        throw new Error(`deleteDataSet transaction reverted on-chain (hash: ${hash})`);
+      }
       this.recordAttempt(network, "abandonment", "success");
       this.logger.log({
         ...logContext,
