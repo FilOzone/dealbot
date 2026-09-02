@@ -17,7 +17,7 @@ vi.mock("../data-set-lifecycle/data-set-lifecycle.service.js", () => ({
 
 vi.mock("@filoz/synapse-core/pay", () => ({
   getRail: vi.fn(),
-  settleRailSync: vi.fn(),
+  settleRail: vi.fn(),
   settleTerminatedRailWithoutValidationCall: vi.fn(),
 }));
 
@@ -53,7 +53,7 @@ vi.mock("../common/synapse-factory.js", () => ({
 
 const { listDataSets } = await import("filecoin-pin/core/data-set");
 const { terminateServiceSync } = await import("../data-set-lifecycle/data-set-lifecycle.service.js");
-const { getRail, settleRailSync, settleTerminatedRailWithoutValidationCall } = await import("@filoz/synapse-core/pay");
+const { getRail, settleRail, settleTerminatedRailWithoutValidationCall } = await import("@filoz/synapse-core/pay");
 const { asChain } = await import("@filoz/synapse-core/chains");
 const { getBlockNumber, readContract, simulateContract, writeContract, waitForTransactionReceipt } = await import(
   "viem/actions"
@@ -339,6 +339,35 @@ describe("SpCleanupService", () => {
         reason: "blocked",
       });
     });
+
+    it("stops relaying more excess data sets for the same provider once the signal aborts mid-batch", async () => {
+      const networkConfig = makeNetworkConfig({
+        blockedSpAddresses: new Set(["0xsp0000000000000000000000000000000000001"]),
+      });
+      configService.get.mockImplementation((key: string) =>
+        key === "networks" ? { [DEFAULT_NETWORK]: networkConfig } : undefined,
+      );
+
+      storageProviderRepository.findAllByNetwork.mockResolvedValueOnce([makeProvider()]);
+
+      vi.mocked(listDataSets).mockResolvedValueOnce([
+        makeDataSet({ dataSetId: 30n }),
+        makeDataSet({ dataSetId: 31n }),
+        makeDataSet({ dataSetId: 32n }),
+      ] as any);
+
+      const controller = new AbortController();
+      vi.mocked(terminateServiceSync).mockImplementationOnce(async () => {
+        controller.abort(new Error("sp_dataset_pruning job timeout"));
+        return {} as any;
+      });
+
+      await expect(service.runDatasetPruning(DEFAULT_NETWORK, controller.signal)).rejects.toThrow();
+
+      // Only the first of the 3 excess data sets was relayed — the abort fired inside that call,
+      // and the per-data-set check at the top of the next loop iteration caught it.
+      expect(terminateServiceSync).toHaveBeenCalledTimes(1);
+    });
   });
 
   describe("runAbandonedDatasetSweep (Job B)", () => {
@@ -348,11 +377,13 @@ describe("SpCleanupService", () => {
       vi.mocked(getBlockNumber).mockResolvedValueOnce(200000n);
       // Last proven epoch far in the past -> outside the 86400-block activity window.
       vi.mocked(readContract).mockResolvedValueOnce(1000n as any);
+      const notInCleanupModeError = new ContractFunctionRevertedError({ abi: [], functionName: "cleanupPieces" });
+      notInCleanupModeError.data = { errorName: "DataSetNotInCleanupMode", args: [] } as any;
       vi.mocked(simulateContract)
         .mockResolvedValueOnce({ request: { fake: "deleteDataSet-request" } } as any) // deleteDataSet
         // Zero remaining pieces: deleteDataSet already finalized directly, so cleanupPieces isn't
         // in cleanup mode and reverts — this is the expected, common case, not a failure.
-        .mockRejectedValueOnce(new Error("DataSetNotInCleanupMode"));
+        .mockRejectedValueOnce(notInCleanupModeError);
       vi.mocked(writeContract).mockResolvedValueOnce("0xtxhash" as any);
       vi.mocked(waitForTransactionReceipt).mockResolvedValueOnce({ status: "success" } as any);
 
@@ -414,6 +445,80 @@ describe("SpCleanupService", () => {
       );
     });
 
+    it("retries a transient cleanupPieces failure within the same sweep instead of giving up immediately", async () => {
+      const dataSet = makeDataSet({ dataSetId: 16n, pdpEndEpoch: 0n });
+      vi.mocked(listDataSets).mockResolvedValueOnce([dataSet] as any);
+      vi.mocked(getBlockNumber).mockResolvedValueOnce(200000n);
+      vi.mocked(readContract).mockResolvedValueOnce(1000n as any);
+      vi.mocked(simulateContract)
+        .mockResolvedValueOnce({ request: { fake: "deleteDataSet-request" } } as any) // deleteDataSet
+        .mockRejectedValueOnce(new Error("fetch failed: RPC timeout")) // cleanupPieces attempt 1 (transient)
+        .mockResolvedValueOnce({ request: { fake: "cleanup-2" }, result: true } as any); // cleanupPieces attempt 2 (done)
+      vi.mocked(writeContract)
+        .mockResolvedValueOnce("0xdelete-hash" as any)
+        .mockResolvedValueOnce("0xcleanup-hash" as any);
+      vi.mocked(waitForTransactionReceipt).mockResolvedValue({ status: "success" } as any);
+
+      await service.runAbandonedDatasetSweep(DEFAULT_NETWORK);
+
+      // Transient failure didn't write a tx (simulate itself rejected) — only the two successful
+      // simulateContract calls (delete + the retried cleanup) actually reached writeContract.
+      expect(simulateContract).toHaveBeenCalledTimes(3);
+      expect(writeContract).toHaveBeenCalledTimes(2);
+    });
+
+    it("gives up after 5 consecutive cleanupPieces failures and does not retry indefinitely", async () => {
+      const dataSet = makeDataSet({ dataSetId: 17n, pdpEndEpoch: 0n });
+      vi.mocked(listDataSets).mockResolvedValueOnce([dataSet] as any);
+      vi.mocked(getBlockNumber).mockResolvedValueOnce(200000n);
+      vi.mocked(readContract).mockResolvedValueOnce(1000n as any);
+      vi.mocked(simulateContract)
+        .mockResolvedValueOnce({ request: { fake: "deleteDataSet-request" } } as any) // deleteDataSet
+        .mockRejectedValue(new Error("fetch failed: RPC timeout")); // every cleanupPieces attempt fails
+      vi.mocked(writeContract).mockResolvedValueOnce("0xdelete-hash" as any);
+      vi.mocked(waitForTransactionReceipt).mockResolvedValueOnce({ status: "success" } as any);
+
+      await expect(service.runAbandonedDatasetSweep(DEFAULT_NETWORK)).resolves.toBeUndefined();
+
+      // 1 deleteDataSet simulate + 5 failed cleanupPieces simulates, then gives up.
+      expect(simulateContract).toHaveBeenCalledTimes(6);
+    });
+
+    it("propagates an abort raised mid-cleanupPieces without relabeling the already-successful delete as failed", async () => {
+      const dataSet = makeDataSet({ dataSetId: 18n, pdpEndEpoch: 0n });
+      vi.mocked(listDataSets).mockResolvedValueOnce([dataSet] as any);
+      vi.mocked(getBlockNumber).mockResolvedValueOnce(200000n);
+      vi.mocked(readContract).mockResolvedValueOnce(1000n as any);
+
+      const controller = new AbortController();
+      vi.mocked(simulateContract)
+        .mockResolvedValueOnce({ request: { fake: "deleteDataSet-request" } } as any) // deleteDataSet
+        .mockImplementationOnce(async () => {
+          // Simulate the deadline passing while cleanupPieces batch 1 is in flight.
+          controller.abort(new Error("abandoned_dataset_sweep job timeout"));
+          return { request: { fake: "cleanup-1" }, result: false } as any;
+        });
+      vi.mocked(writeContract)
+        .mockResolvedValueOnce("0xdelete-hash" as any)
+        .mockResolvedValueOnce("0xcleanup-hash" as any);
+      vi.mocked(waitForTransactionReceipt).mockResolvedValue({ status: "success" } as any);
+
+      await expect(service.runAbandonedDatasetSweep(DEFAULT_NETWORK, controller.signal)).rejects.toThrow();
+
+      // deleteDataSet succeeded and was recorded as such — the abort must not also record a
+      // "delete failed" attempt for the same data set.
+      expect(attemptsCounter.inc).toHaveBeenCalledWith({
+        network: DEFAULT_NETWORK,
+        outcome: "success",
+        reason: "abandonment",
+      });
+      expect(attemptsCounter.inc).not.toHaveBeenCalledWith({
+        network: DEFAULT_NETWORK,
+        outcome: "failure",
+        reason: "abandonment",
+      });
+    });
+
     it("treats a reverted-but-mined deleteDataSet receipt as a failure, skipping the cleanupPieces follow-up", async () => {
       const dataSet = makeDataSet({ dataSetId: 15n, pdpEndEpoch: 0n });
       vi.mocked(listDataSets).mockResolvedValueOnce([dataSet] as any);
@@ -442,7 +547,7 @@ describe("SpCleanupService", () => {
       vi.mocked(getBlockNumber).mockResolvedValueOnce(200000n); // > 500 (strict) for the second data set
       vi.mocked(readContract).mockRejectedValueOnce(new Error("RPC timeout"));
       vi.mocked(getRail).mockResolvedValueOnce({ settledUpTo: 100n, endEpoch: 500n } as any);
-      vi.mocked(settleRailSync).mockRejectedValueOnce(
+      vi.mocked(settleRail).mockRejectedValueOnce(
         new ContractFunctionRevertedError({ abi: [], functionName: "settleRail" }),
       );
       vi.mocked(settleTerminatedRailWithoutValidationCall).mockReturnValueOnce({
@@ -483,11 +588,12 @@ describe("SpCleanupService", () => {
       vi.mocked(listDataSets).mockResolvedValueOnce([dataSet] as any);
       vi.mocked(getBlockNumber).mockResolvedValueOnce(200000n);
       vi.mocked(getRail).mockResolvedValueOnce({ settledUpTo: 100n, endEpoch: 500n } as any);
-      vi.mocked(settleRailSync).mockResolvedValueOnce({} as any);
+      vi.mocked(settleRail).mockResolvedValueOnce("0xsettle-hash" as any);
+      vi.mocked(waitForTransactionReceipt).mockResolvedValueOnce({ status: "success" } as any);
 
       await service.runAbandonedDatasetSweep(DEFAULT_NETWORK);
 
-      expect(settleRailSync).toHaveBeenCalledWith(
+      expect(settleRail).toHaveBeenCalledWith(
         expect.anything(),
         expect.objectContaining({ railId: 993n, untilEpoch: 500n }),
       );
@@ -500,12 +606,37 @@ describe("SpCleanupService", () => {
       expect(warnSpy).not.toHaveBeenCalledWith(expect.objectContaining({ event: "stuck_terminations_detected" }));
     });
 
+    it("still calls settleRail when settledUpTo >= endEpoch — a fully-settled-but-not-finalized rail needs one more call", async () => {
+      const dataSet = makeDataSet({ dataSetId: 26n, pdpEndEpoch: 500n, pdpRailId: 994n });
+      vi.mocked(listDataSets).mockResolvedValueOnce([dataSet] as any);
+      vi.mocked(getBlockNumber).mockResolvedValueOnce(200000n);
+      // getRail succeeding at all means the rail is still active (not finalized/zeroed yet) —
+      // settledUpTo >= endEpoch here means "fully settled but still needs finalizeTerminatedRail",
+      // not "nothing to do".
+      vi.mocked(getRail).mockResolvedValueOnce({ settledUpTo: 500n, endEpoch: 500n } as any);
+      vi.mocked(settleRail).mockResolvedValueOnce("0xfinalize-hash" as any);
+      vi.mocked(waitForTransactionReceipt).mockResolvedValueOnce({ status: "success" } as any);
+
+      await service.runAbandonedDatasetSweep(DEFAULT_NETWORK);
+
+      expect(settleRail).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ railId: 994n, untilEpoch: 500n }),
+      );
+      expect(attemptsCounter.inc).toHaveBeenCalledWith({
+        network: DEFAULT_NETWORK,
+        outcome: "success",
+        reason: "settlement",
+      });
+      expect(stuckGauge.set).toHaveBeenCalledWith({ network: DEFAULT_NETWORK }, 0);
+    });
+
     it("does not flag as stuck on a transient settleRail failure — retries next sweep instead", async () => {
       const dataSet = makeDataSet({ dataSetId: 25n, pdpEndEpoch: 500n, pdpRailId: 993n });
       vi.mocked(listDataSets).mockResolvedValueOnce([dataSet] as any);
       vi.mocked(getBlockNumber).mockResolvedValueOnce(200000n);
       vi.mocked(getRail).mockResolvedValueOnce({ settledUpTo: 100n, endEpoch: 500n } as any);
-      vi.mocked(settleRailSync).mockRejectedValueOnce(new Error("fetch failed: RPC timeout"));
+      vi.mocked(settleRail).mockRejectedValueOnce(new Error("fetch failed: RPC timeout"));
 
       await service.runAbandonedDatasetSweep(DEFAULT_NETWORK);
 
@@ -523,7 +654,7 @@ describe("SpCleanupService", () => {
       vi.mocked(listDataSets).mockResolvedValueOnce([dataSet] as any);
       vi.mocked(getBlockNumber).mockResolvedValueOnce(200000n); // > pdpEndEpoch (strict)
       vi.mocked(getRail).mockResolvedValueOnce({ settledUpTo: 100n, endEpoch: 500n } as any);
-      vi.mocked(settleRailSync).mockRejectedValueOnce(
+      vi.mocked(settleRail).mockRejectedValueOnce(
         new ContractFunctionRevertedError({ abi: [], functionName: "settleRail" }),
       );
       vi.mocked(settleTerminatedRailWithoutValidationCall).mockReturnValueOnce({

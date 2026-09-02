@@ -1,5 +1,5 @@
 import { asChain } from "@filoz/synapse-core/chains";
-import { getRail, settleRailSync, settleTerminatedRailWithoutValidationCall } from "@filoz/synapse-core/pay";
+import { getRail, settleRail, settleTerminatedRailWithoutValidationCall } from "@filoz/synapse-core/pay";
 import { toReadClient } from "@filoz/synapse-core/utils";
 import type { Synapse } from "@filoz/synapse-sdk";
 import { Injectable, Logger } from "@nestjs/common";
@@ -127,7 +127,7 @@ export class SpCleanupService {
     for (const provider of blockedProviders) {
       signal?.throwIfAborted();
       const activeDataSets = activeByProvider.get(provider.serviceProvider.toLowerCase()) ?? [];
-      await this.terminateExcessDataSets(relayClient, network, provider, activeDataSets, 0, 0, "blocked");
+      await this.terminateExcessDataSets(relayClient, network, provider, activeDataSets, 0, 0, "blocked", signal);
     }
 
     // Deliberately not scoped to findActiveAddresses (registry-active, optionally approved-only)
@@ -151,6 +151,7 @@ export class SpCleanupService {
         target,
         buffer,
         isFullRate ? "full_rate" : "trickle",
+        signal,
       );
     }
   }
@@ -171,6 +172,7 @@ export class SpCleanupService {
     targetCount: number,
     buffer: number,
     reason: TerminationReason,
+    signal?: AbortSignal,
   ): Promise<void> {
     const spAddress = provider.serviceProvider;
 
@@ -186,6 +188,9 @@ export class SpCleanupService {
     const toTerminate = sorted.slice(0, sorted.length - targetCount);
 
     for (const dataSet of toTerminate) {
+      // Checked per data set (not just per provider) — a provider with many excess data sets
+      // must not keep relaying past the deadline just because it's mid-batch.
+      signal?.throwIfAborted();
       const logContext = {
         network,
         reason,
@@ -264,7 +269,15 @@ export class SpCleanupService {
     for (const dataSet of allDataSets) {
       signal?.throwIfAborted();
       if (dataSet.pdpEndEpoch === 0n) {
-        await this.handleAbandonmentCandidate(readClient, writeClient, pdpVerifier, network, dataSet, currentBlock);
+        await this.handleAbandonmentCandidate(
+          readClient,
+          writeClient,
+          pdpVerifier,
+          network,
+          dataSet,
+          currentBlock,
+          signal,
+        );
         continue;
       }
 
@@ -290,6 +303,7 @@ export class SpCleanupService {
     network: Network,
     dataSet: { dataSetId: bigint; serviceProvider: string },
     currentBlock: bigint,
+    signal?: AbortSignal,
   ): Promise<void> {
     const abi = pdpVerifier.abi as Parameters<typeof readContract>[1]["abi"];
     const baseLogContext = {
@@ -350,8 +364,6 @@ export class SpCleanupService {
         message: "Abandoned data set deleted directly via PDPVerifier.deleteDataSet (no signature required)",
         txHash: hash,
       });
-
-      await this.finishCleanupPieces(writeClient, pdpVerifier, abi, dataSet, logContext);
     } catch (error) {
       this.recordAttempt(network, "abandonment", "failure");
       this.logger.warn({
@@ -360,7 +372,13 @@ export class SpCleanupService {
         message: "Direct deleteDataSet call failed; will retry on next sweep",
         error: toStructuredError(error),
       });
+      return;
     }
+
+    // Deliberately outside the try/catch above: deleteDataSet already succeeded and was recorded,
+    // so a timeout abort here must propagate to the job handler as-is, not get relabeled as a
+    // deleteDataSet failure (finishCleanupPieces handles its own errors internally already).
+    await this.finishCleanupPieces(writeClient, pdpVerifier, abi, dataSet, logContext, signal);
   }
 
   /**
@@ -378,13 +396,21 @@ export class SpCleanupService {
     abi: Parameters<typeof readContract>[1]["abi"],
     dataSet: { dataSetId: bigint; serviceProvider: string },
     logContext: Record<string, unknown>,
+    signal?: AbortSignal,
   ): Promise<void> {
     const CLEANUP_PIECES_BATCH_SIZE = 100n;
     // A cap here is a safety net against an infinite loop if `done` is ever wrong on-chain —
     // not a realistic piece count ceiling for a single data set.
     const MAX_ITERATIONS = 200;
+    // `deleteDataSet` already removed this data set from FWSS's `clientDataSets`, so a future
+    // sweep's `listDataSets` can never rediscover it to retry a failed batch — every reasonable
+    // effort has to happen right here, in this one call.
+    const MAX_CONSECUTIVE_FAILURES = 5;
+
+    let consecutiveFailures = 0;
 
     for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
+      signal?.throwIfAborted();
       try {
         const { request, result: done } = await simulateContract(writeClient, {
           address: pdpVerifier.address,
@@ -393,7 +419,11 @@ export class SpCleanupService {
           args: [dataSet.dataSetId, CLEANUP_PIECES_BATCH_SIZE],
         });
         const hash = await writeContract(writeClient, request);
-        await waitForTransactionReceipt(writeClient, { hash });
+        const receipt = await waitForTransactionReceipt(writeClient, { hash });
+        if (receipt.status !== "success") {
+          throw new Error(`cleanupPieces transaction reverted on-chain (hash: ${hash})`);
+        }
+        consecutiveFailures = 0;
         this.logger.log({
           ...logContext,
           event: "sp_cleanup_pieces_cleaned",
@@ -406,15 +436,35 @@ export class SpCleanupService {
           return;
         }
       } catch (error) {
-        // Not in cleanup mode (the data set had zero pieces and deleteDataSet already
-        // finalized/paid the deposit directly) is the expected common case here — not a failure.
-        this.logger.debug({
+        if (this.extractContractRevert(error)?.data?.errorName === "DataSetNotInCleanupMode") {
+          // The data set had zero pieces and deleteDataSet already finalized/paid the deposit
+          // directly, or a previous iteration already finished the job — genuinely done.
+          this.logger.debug({
+            ...logContext,
+            event: "sp_cleanup_pieces_cleanup_not_needed",
+            message: "cleanupPieces not in cleanup mode; deleteDataSet already finalized this data set",
+          });
+          return;
+        }
+
+        consecutiveFailures++;
+        this.logger.warn({
           ...logContext,
-          event: "sp_cleanup_pieces_cleanup_not_needed_or_failed",
-          message: "cleanupPieces call did not proceed; assuming deleteDataSet already finalized this data set",
+          event: "sp_cleanup_pieces_batch_failed",
+          message: "cleanupPieces batch failed; retrying within this sweep",
+          iteration,
+          consecutiveFailures,
           error: toStructuredError(error),
         });
-        return;
+
+        if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+          this.logger.warn({
+            ...logContext,
+            event: "sp_cleanup_pieces_cleanup_incomplete",
+            message: `cleanupPieces failed ${MAX_CONSECUTIVE_FAILURES} times in a row for this data set; giving up — it is no longer discoverable via listDataSets, so its cleanup deposit and remaining pieces may be permanently stranded`,
+          });
+          return;
+        }
       }
     }
 
@@ -448,9 +498,10 @@ export class SpCleanupService {
       railId: dataSet.pdpRailId.toString(),
     };
 
-    let rail: Awaited<ReturnType<typeof getRail>>;
     try {
-      rail = await getRail(readClient, { railId: dataSet.pdpRailId });
+      // Only used to detect "already finalized" (a genuine revert here) — the returned rail
+      // fields aren't needed since settleRail must always be attempted once the read succeeds.
+      await getRail(readClient, { railId: dataSet.pdpRailId });
     } catch (error) {
       if (!this.isContractRevert(error)) {
         this.logger.warn({
@@ -465,17 +516,23 @@ export class SpCleanupService {
       return null;
     }
 
-    if (rail.settledUpTo >= rail.endEpoch) {
-      return null;
-    }
-
+    // Deliberately no early return for `settledUpTo >= endEpoch` here: `getRail` succeeding at
+    // all (didn't revert above) means the rail is still active — i.e. fully settled but not yet
+    // finalized (lockup not released, rail not zeroed). `settleRail` must still be called in that
+    // state: FilecoinPay's `settleRailInternal` detects it and runs `finalizeTerminatedRail`
+    // inline. Skipping the call here would leave that lockup stuck forever.
     try {
-      await settleRailSync(writeClient, { railId: dataSet.pdpRailId, untilEpoch: dataSet.pdpEndEpoch });
+      const hash = await settleRail(writeClient, { railId: dataSet.pdpRailId, untilEpoch: dataSet.pdpEndEpoch });
+      const receipt = await waitForTransactionReceipt(writeClient, { hash });
+      if (receipt.status !== "success") {
+        throw new Error(`settleRail transaction reverted on-chain (hash: ${hash})`);
+      }
       this.recordAttempt(network, "settlement", "success");
       this.logger.log({
         ...logContext,
         event: "sp_cleanup_rail_settled",
-        message: "Rail settled via permissionless settleRail (the SP never settled it themselves)",
+        message: "Rail settled (or finalized) via permissionless settleRail",
+        txHash: hash,
       });
       return null;
     } catch (error) {
@@ -501,15 +558,19 @@ export class SpCleanupService {
     }
   }
 
-  private isContractRevert(error: unknown): boolean {
+  private extractContractRevert(error: unknown): ContractFunctionRevertedError | null {
+    if (!(error instanceof Error) || !("walk" in error) || typeof (error as { walk?: unknown }).walk !== "function") {
+      return null;
+    }
     return (
-      error instanceof Error &&
-      "walk" in error &&
-      typeof (error as { walk?: unknown }).walk === "function" &&
-      (error as { walk: (fn: (e: unknown) => boolean) => unknown }).walk(
+      ((error as { walk: (fn: (e: unknown) => boolean) => unknown }).walk(
         (e) => e instanceof ContractFunctionRevertedError,
-      ) != null
+      ) as ContractFunctionRevertedError | null) ?? null
     );
+  }
+
+  private isContractRevert(error: unknown): boolean {
+    return this.extractContractRevert(error) != null;
   }
 
   /**

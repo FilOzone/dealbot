@@ -704,9 +704,10 @@ apply to blocked SPs, which are always pruned to 0). Absorbs routine create/repl
 
 **Role**: How often the `abandoned_dataset_sweep` job runs for this network. This global job scans dealbot's
 entire wallet (not scoped to the blocklist) for data sets outside the PDPVerifier activity window and deletes
-them directly and permissionlessly (no signature needed — see the runbook), and for terminated data sets whose
-rail settlement is stuck past `endEpoch`, which it can only ever surface to a human operator via a structured
-log (`stuck_terminations_detected`).
+them directly and permissionlessly (no signature needed — see the runbook), and for terminated data sets past
+`endEpoch`, first tries the permissionless `settleRail` itself — this resolves the common case (the SP never
+settled it themselves) automatically. Only a genuine revert (the validator is actually stuck) gets surfaced to
+a human operator via a structured log (`stuck_terminations_detected`).
 
 ---
 
