@@ -16,7 +16,6 @@ import { HttpClientService } from "../../http-client/http-client.service.js";
 import { IpniVerificationService } from "../../ipni/ipni-verification.service.js";
 import { classifyFailureStatus } from "../../metrics-prometheus/check-metric-labels.js";
 import {
-  type CidContactVerificationOutcome,
   classifyIpniVerifyOutcome,
   DiscoverabilityCheckMetrics,
 } from "../../metrics-prometheus/check-metrics.service.js";
@@ -24,13 +23,7 @@ import {
 import type { IDealAddon } from "../interfaces/deal-addon.interface.js";
 import type { AddonExecutionContext, DealConfiguration, IpniPreprocessingResult, SynapseConfig } from "../types.js";
 import { AddonPriority } from "../types.js";
-import type {
-  IPNIVerificationResult,
-  MonitorAndVerifyResult,
-  PieceMonitoringResult,
-  PieceStatus,
-  PieceStatusResponse,
-} from "./ipni.types.js";
+import type { MonitorAndVerifyResult, PieceMonitoringResult, PieceStatus, PieceStatusResponse } from "./ipni.types.js";
 import { validatePieceStatusResponse } from "./ipni.types.js";
 
 const CID_INDEXER_URL = "https://cid.contact";
@@ -252,13 +245,7 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       signal?.throwIfAborted();
 
       // Update deal entity with tracking metrics
-      finalDiscoverabilityStatus = await this.updateDealWithIpniMetrics(
-        deal,
-        result,
-        ipniTimeoutMs,
-        dealLogContext,
-        signal,
-      );
+      finalDiscoverabilityStatus = await this.updateDealWithIpniMetrics(deal, result, ipniTimeoutMs, dealLogContext);
 
       signal?.throwIfAborted();
 
@@ -350,8 +337,10 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
           status: "timeout",
           indexed: false,
           advertised: false,
+          synced: false,
           indexedAt: null,
           advertisedAt: null,
+          syncedAt: null,
         },
         checks: 0,
         durationMs: statusTimeoutMs,
@@ -370,8 +359,6 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       });
       return {
         monitoringResult,
-        cidContactResult: null,
-        cidContactTimeoutMs: null,
         skipped: true,
         ipniResult: {
           verified: 0,
@@ -401,8 +388,6 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       });
       return {
         monitoringResult,
-        cidContactResult: null,
-        cidContactTimeoutMs: null,
         skipped: true,
         ipniResult: {
           verified: 0,
@@ -438,6 +423,7 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
         storageProvider,
         timeoutMs: ipniTimeoutMs,
         pollIntervalMs: ipniPollIntervalMs,
+        ipniIndexerUrl: CID_INDEXER_URL,
         signal,
       });
     } catch (error) {
@@ -446,7 +432,7 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
         this.discoverabilityMetrics.buildLabelsForDeal(deal),
         durationMs,
         signal?.aborted ? "failure.timedout" : "failure.other",
-        "filecoinpin.contact",
+        "cid.contact",
       );
       throw error;
     }
@@ -473,59 +459,9 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       });
     }
 
-    // cid.contact cross-check — only runs when filecoinpin.contact verified.
-    // Sequential by design: cid.contact applies negative caching so querying
-    // before filecoinpin.contact confirms would cache a false negative.
-    signal?.throwIfAborted();
-    let cidContactResult: IPNIVerificationResult | null = null;
-    let cidContactTimeoutMs: number | null = null;
-    if (ipniResult.rootCIDVerified) {
-      this.logger.log({
-        ...dealLogContext,
-        event: "cid_contact_verification_started",
-        message: "Starting cid.contact cross-check",
-        rootCID,
-        blockCIDCount: blockCIDs.length,
-      });
-      const cidContactVerifyStartMs = Date.now();
-      cidContactTimeoutMs = Math.max(1, ipniTimeoutMs - (Date.now() - ipniVerifyStartMs));
-      try {
-        cidContactResult = await this.ipniVerificationService.verify({
-          rootCid: rootCidObj,
-          blockCids: blockCIDs,
-          storageProvider,
-          timeoutMs: cidContactTimeoutMs,
-          pollIntervalMs: ipniPollIntervalMs,
-          ipniIndexerUrl: CID_INDEXER_URL,
-          signal,
-        });
-      } catch (error) {
-        // Re-throw abort errors — the job-level signal must not be swallowed here.
-        if (signal?.aborted) throw error;
-        // Non-abort cid.contact failures must not propagate — it is observational
-        // only and does not affect Discoverability sub-status or the deal outcome.
-        const durationMs = Date.now() - cidContactVerifyStartMs;
-        this.discoverabilityMetrics.observeIpniVerifyMs(
-          this.discoverabilityMetrics.buildLabelsForDeal(deal),
-          durationMs,
-          "failure.other",
-          "cid.contact",
-        );
-        this.logger.warn({
-          ...dealLogContext,
-          event: "cid_contact_verification_error",
-          message: "cid.contact cross-check threw unexpectedly",
-          rootCID,
-          error: toStructuredError(error),
-        });
-      }
-    }
-
     return {
       monitoringResult,
       ipniResult,
-      cidContactResult,
-      cidContactTimeoutMs,
     };
   }
 
@@ -542,8 +478,10 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       status: "",
       indexed: false,
       advertised: false,
+      synced: false,
       indexedAt: null,
       advertisedAt: null,
+      syncedAt: null,
     };
     let checkCount = 0;
     let lastProviderResponse: PieceStatusResponse | null = null;
@@ -562,14 +500,18 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
           status: providerStatus.status,
           indexed: providerStatus.indexed,
           advertised: providerStatus.advertised,
+          synced: providerStatus.synced ?? false,
           // Newer SP piece-status responses include provider-side timestamps. Older SPs do not,
           // so retain the last locally observed timestamp as the compatibility path.
           indexedAtProvider: providerStatus.indexedAt ?? lastStatus.indexedAtProvider ?? null,
           advertisedAtProvider: providerStatus.advertisedAt ?? lastStatus.advertisedAtProvider ?? null,
+          syncedAtProvider: providerStatus.syncedAt ?? lastStatus.syncedAtProvider ?? null,
           indexedAt: providerStatus.indexedAt ?? lastStatus.indexedAt,
           advertisedAt: providerStatus.advertisedAt ?? lastStatus.advertisedAt,
+          syncedAt: providerStatus.syncedAt ?? lastStatus.syncedAt,
           indexedObservedAt: lastStatus.indexedObservedAt,
           advertisedObservedAt: lastStatus.advertisedObservedAt,
+          syncedObservedAt: lastStatus.syncedObservedAt,
         };
 
         // Update indexedAt and advertisedAt if they have changed
@@ -592,7 +534,6 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
           }
         }
 
-        // Return as soon as status has changed to advertised
         if (currentStatus.advertised) {
           currentStatus.advertisedObservedAt ??= observedAt;
           if (!currentStatus.advertisedAt) {
@@ -608,6 +549,27 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
               advertisedAtProvider: currentStatus.advertisedAtProvider,
               advertisedAtObserved: currentStatus.advertisedObservedAt,
               advertisedAtSource: currentStatus.advertisedAtProvider ? "provider" : "observed",
+              providerStatus: currentStatus.status,
+            });
+          }
+        }
+
+        // Return as soon as the SP confirms the indexer has synced the advertisement.
+        if (currentStatus.synced) {
+          currentStatus.syncedObservedAt ??= observedAt;
+          if (!currentStatus.syncedAt) {
+            currentStatus.syncedAt = currentStatus.syncedObservedAt;
+          }
+          if (!lastStatus.synced) {
+            this.logger.log({
+              ...dealLogContext,
+              pieceCid,
+              event: "piece_status_synced",
+              message: "Piece synced",
+              syncedAt: currentStatus.syncedAt,
+              syncedAtProvider: currentStatus.syncedAtProvider,
+              syncedAtObserved: currentStatus.syncedObservedAt,
+              syncedAtSource: currentStatus.syncedAtProvider ? "provider" : "observed",
               providerStatus: currentStatus.status,
             });
           }
@@ -642,13 +604,13 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       ...dealLogContext,
       pieceCid,
       event: "piece_status_timeout",
-      message: "Piece retrieval timeout",
+      message: "Timed out waiting for piece to report synced",
       durationSec: Number(durationSec),
       checks: checkCount,
       lastStatus,
       lastProviderResponse,
     });
-    throw new Error(`Timeout waiting for piece retrieval after ${durationSec}s`);
+    throw new Error(`Timeout waiting for piece to report synced after ${durationSec}s`);
   }
 
   /**
@@ -768,7 +730,6 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
     result: MonitorAndVerifyResult,
     ipniTimeoutMs: number,
     dealLogContext: DealLogContext,
-    signal?: AbortSignal,
   ): Promise<string> {
     const { monitoringResult, ipniResult } = result;
     const { finalStatus } = monitoringResult;
@@ -778,10 +739,23 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
     const maxFutureSkewMs = 60_000;
 
     // Determine IPNI status based on progression
-    // Terminal state is VERIFIED when rootCID (minimum) is verified via filecoinpin.contact
-    // The rootCID must be verified for the deal to be considered verified
+    // Terminal state is VERIFIED when rootCID (minimum) is verified via cid.contact
     if (ipniResult.rootCIDVerified) {
       deal.ipniStatus = IpniStatus.VERIFIED;
+    } else if (finalStatus.synced) {
+      deal.ipniStatus = IpniStatus.SP_SYNCED;
+
+      // Curio confirmed synced but the cid.contact check still disagreed — a real
+      // inconsistency, not routine timeout noise, so it needs its own signal.
+      if (!result.skipped) {
+        this.logger.error({
+          ...dealLogContext,
+          event: "ipni_sp_synced_cid_contact_mismatch",
+          message: "Curio confirmed piece synced, but cid.contact verification still failed",
+          ipniIndexerUrl: "cid.contact",
+        });
+        this.discoverabilityMetrics.recordStatus(labels, "sp_synced_cid_contact_mismatch");
+      }
     } else if (finalStatus.advertised) {
       deal.ipniStatus = IpniStatus.SP_ADVERTISED;
     } else if (finalStatus.indexed) {
@@ -902,16 +876,46 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       }
     }
 
+    if (finalStatus.synced && !deal.ipniSyncedAt) {
+      this.discoverabilityMetrics.recordStatus(labels, "sp_synced");
+      const syncedTimestamp = parseStatusTimestamp(finalStatus.syncedAt, finalStatus.syncedObservedAt, "synced");
+
+      if (syncedTimestamp) {
+        deal.ipniSyncedAt = syncedTimestamp;
+      }
+
+      const timeToSyncMs = syncedTimestamp ? calculateDuration(syncedTimestamp, "synced", uploadEndTime) : null;
+      if (timeToSyncMs) {
+        /**
+         * Time taken for the indexer to confirm sync after upload:
+         * time = syncedAt - uploadEndTime
+         */
+        deal.ipniTimeToSyncMs = timeToSyncMs;
+      }
+
+      const advertiseToSyncMs = syncedTimestamp
+        ? calculateDuration(syncedTimestamp, "advertiseToSync", deal.ipniAdvertisedAt)
+        : null;
+      if (advertiseToSyncMs) {
+        /**
+         * Time taken for the indexer to confirm sync after the SP advertised:
+         * time = syncedAt - advertisedAt
+         */
+        this.discoverabilityMetrics.observeAdvertiseToSyncMs(labels, advertiseToSyncMs);
+      }
+    }
+
     const verificationEndTimestamp = new Date(ipniResult.verifiedAt);
-    const ipniVerifyMs = deal.ipniAdvertisedAt
-      ? (calculateDuration(verificationEndTimestamp, "ipniVerify", deal.ipniAdvertisedAt) ?? ipniResult.durationMs)
+    const ipniVerifyStartTimestamp = deal.ipniAdvertisedAt;
+    const ipniVerifyMs = ipniVerifyStartTimestamp
+      ? (calculateDuration(verificationEndTimestamp, "ipniVerify", ipniVerifyStartTimestamp) ?? ipniResult.durationMs)
       : ipniResult.durationMs;
     if (!result.skipped) {
       this.discoverabilityMetrics.observeIpniVerifyMs(
         labels,
         ipniVerifyMs,
         classifyIpniVerifyOutcome(ipniResult, ipniTimeoutMs),
-        "filecoinpin.contact",
+        "cid.contact",
       );
     }
 
@@ -966,27 +970,6 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       finalDiscoverabilityStatus = "failure.timedout";
     }
     this.discoverabilityMetrics.recordStatus(labels, finalDiscoverabilityStatus);
-
-    // cid.contact cross-check metrics — emitted once per deal regardless of outcome
-    const { cidContactResult, cidContactTimeoutMs } = result;
-    let cidContactOutcome: CidContactVerificationOutcome;
-    if (result.skipped || !ipniResult.rootCIDVerified) {
-      cidContactOutcome = "skipped";
-    } else if (cidContactResult) {
-      const verifyOutcome = classifyIpniVerifyOutcome(cidContactResult, cidContactTimeoutMs ?? ipniTimeoutMs);
-      // Timer start = filecoinpin.contact completion; durationMs from verify() IS that window
-      this.discoverabilityMetrics.observeIpniVerifyMs(
-        labels,
-        cidContactResult.durationMs,
-        verifyOutcome,
-        "cid.contact",
-      );
-      cidContactOutcome = verifyOutcome;
-    } else {
-      // verify() threw and was caught in monitorAndVerifyIPNI
-      cidContactOutcome = signal?.aborted ? "failure.timedout" : "failure.other";
-    }
-    this.discoverabilityMetrics.recordCidContactVerification(labels, cidContactOutcome);
 
     // Save the updated deal entity
     try {

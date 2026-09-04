@@ -34,7 +34,7 @@ Dealbot opens outbound connections to:
 - **Chain RPC** (`RPC_URL`): Filecoin EVM RPC for reads and writes. Reaches the **PDP Verifier contract** and **FWSS**.
 - **PDP subgraph** (`PDP_SUBGRAPH_ENDPOINT`): GraphQL.
 - **Storage provider HTTP endpoints**: per-provider URLs discovered from chain state. Used for deal creation, retrieval probes, pull-check kickoff, and piece status. Hostnames are not known in advance, so firewall and proxy rules need to allow outbound network access to arbitrary SP hostnames discovered at runtime.
-- **IPNI indexer (`filecoinpin.contact`)**: looked up during deal verification and retrieval to confirm SPs are advertising the content.
+- **IPNI indexer (`cid.contact`)**: looked up during deal verification and retrieval to confirm SPs are advertising the content.
 - **ClickHouse** (optional, one `<NET>_CLICKHOUSE_URL` per enabled destination).
 
 ## Persistence
