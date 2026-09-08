@@ -16,7 +16,9 @@
 
 import { writeFileSync } from "node:fs";
 import { calibration, mainnet } from "@filoz/synapse-core/chains";
-import { encodeFunctionData, keccak256, parseUnits, stringToBytes } from "viem";
+import { encodeFunctionData, parseUnits } from "viem";
+// Importing .ts needs Node >= 22.18 (runtime type stripping); `engines` only asks for >= 22.
+import { withSafeBatchChecksum } from "../src/common/safe-batch.ts";
 
 const args = process.argv.slice(2);
 function getArg(name) {
@@ -78,7 +80,7 @@ const approveOperatorCalldata = encodeFunctionData({
   args: [usdfcAddress, fwssAddress, true, maxUint256, maxUint256, maxUint256],
 });
 
-const batch = {
+const batch = withSafeBatchChecksum({
   version: "1.0",
   chainId: String(chain.id),
   createdAt: Date.now(),
@@ -112,9 +114,7 @@ const batch = {
       contractInputsValues: null,
     },
   ],
-};
-
-batch.meta.checksum = keccak256(stringToBytes(JSON.stringify(batch)));
+});
 
 console.log("=== Payment Setup for Safe Multisig ===");
 console.log();
