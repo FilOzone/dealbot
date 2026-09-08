@@ -19,7 +19,7 @@ import {
 } from "viem/actions";
 import { awaitWithAbort } from "../common/abort-utils.js";
 import { LIFECYCLE_CHECK_METADATA_KEY } from "../common/constants.js";
-import { getBaseDataSetMetadata, metadataMatchesExactly, slotMetadata } from "../common/data-set-slots.js";
+import { getBaseDataSetMetadata, metadataMatchesExactly, storedSlotMetadata } from "../common/data-set-slots.js";
 import { toStructuredError } from "../common/logging.js";
 import { withSafeBatchChecksum } from "../common/safe-batch.js";
 import { isSpBlocked } from "../common/sp-blocklist.js";
@@ -346,12 +346,31 @@ export class SpCleanupService {
 
     const survivors = new Set<bigint>();
     for (let slot = 0; slot < targetCount; slot++) {
-      const wanted = slotMetadata(baseDataSetMetadata, slot);
+      const wanted = storedSlotMetadata(baseDataSetMetadata, slot);
       const candidates = activeDataSets.filter((dataSet) => metadataMatchesExactly(dataSet.metadata, wanted));
       const survivor = SpCleanupService.pickSlotSurvivor(candidates);
       if (survivor) {
         survivors.add(survivor.dataSetId);
       }
+    }
+
+    // Reconstructing a slot's metadata means reproducing what the SDK stores, `source` and all.
+    // If that ever drifts again, every data set looks unslotted and therefore surplus, and this
+    // method would terminate the provider's entire holding. Claiming nothing at all while sets
+    // exist is not a state normal operation reaches, so treat it as a bug and do nothing.
+    if (targetCount > 0 && survivors.size === 0 && activeDataSets.length > 0) {
+      this.logger.error({
+        network,
+        reason,
+        providerAddress: spAddress,
+        event: "sp_cleanup_no_slot_matched",
+        message:
+          "No active data set matched any required provisioning slot; skipping this provider rather than treating every set as surplus",
+        activeCount: activeDataSets.length,
+        expectedSlotMetadata: storedSlotMetadata(baseDataSetMetadata, 0),
+        observedMetadata: activeDataSets.slice(0, 3).map((dataSet) => dataSet.metadata),
+      });
+      return;
     }
 
     const nowMs = Date.now();

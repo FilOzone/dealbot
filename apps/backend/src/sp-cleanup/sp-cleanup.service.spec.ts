@@ -92,12 +92,19 @@ function makeProvider(overrides: Record<string, unknown> = {}) {
 }
 
 /**
- * Metadata `provisionNextMissingDataSet` would give slot `index`: slot 0 is the baseline,
- * slots 1+ add the `dealbotDS` tag. Pruning keeps one live set per slot, so tests have to
- * tag their fixtures the way the creation handler really does.
+ * The metadata a slot's data set actually carries on-chain. Verified against mainnet, where
+ * every one of dealbot's 236 data sets has exactly `{source, withIPFSIndexing}` or
+ * `{source, withIPFSIndexing, dealbotDS}`.
+ *
+ * `source` is added by the SDK, not by our callers, so a fixture that omits it would let these
+ * tests pass against a reconstruction that matches nothing in production.
  */
 function slotMeta(index: number): Record<string, string> {
-  return { withIPFSIndexing: "", ...(index > 0 ? { dealbotDS: String(index) } : {}) };
+  return {
+    source: "dealbot",
+    withIPFSIndexing: "",
+    ...(index > 0 ? { dealbotDS: String(index) } : {}),
+  };
 }
 
 /** `getPdpDataSets` resolves each data set's provider from the SP registry on-chain. */
