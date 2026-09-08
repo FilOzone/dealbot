@@ -6,6 +6,7 @@ import {
   DATA_RETENTION_POLL_QUEUE,
   PROVIDERS_REFRESH_QUEUE,
   PULL_PIECE_CLEANUP_QUEUE,
+  SP_CLEANUP_QUEUE,
   SP_WORK_QUEUE,
 } from "./job-queues.js";
 import { JobsService } from "./jobs.service.js";
@@ -35,8 +36,8 @@ describe("JobsService schedule rows", () => {
   };
   let dataRetentionServiceMock: { pollDataRetention: ReturnType<typeof vi.fn> };
   let spCleanupServiceMock: {
-    runDatasetPruning: ReturnType<typeof vi.fn>;
-    runAbandonedDatasetSweep: ReturnType<typeof vi.fn>;
+    runDataSetPruning: ReturnType<typeof vi.fn>;
+    runAbandonedDataSetSweep: ReturnType<typeof vi.fn>;
   };
   let providerRegistryRepositoryMock: {
     findByAddress: ReturnType<typeof vi.fn>;
@@ -113,8 +114,8 @@ describe("JobsService schedule rows", () => {
     };
 
     spCleanupServiceMock = {
-      runDatasetPruning: vi.fn(),
-      runAbandonedDatasetSweep: vi.fn(),
+      runDataSetPruning: vi.fn(),
+      runAbandonedDataSetSweep: vi.fn(),
     };
 
     providerRegistryRepositoryMock = {
@@ -157,9 +158,9 @@ describe("JobsService schedule rows", () => {
       dataSetLifecycleCheckJobTimeoutSeconds: 600,
       dataRetentionPollIntervalSeconds: 3600,
       providersRefreshIntervalSeconds: 14400,
-      datasetPruningIntervalSeconds: 86400,
-      abandonedDatasetSweepIntervalSeconds: 86400,
-      excessDatasetBuffer: 5,
+      dataSetPruningIntervalSeconds: 86400,
+      abandonedDataSetSweepIntervalSeconds: 86400,
+      excessDataSetBuffer: 5,
       spCleanupJobTimeoutSeconds: 1200,
       walletAddress: "0x0000000000000000000000000000000000000000",
       checkDatasetCreationFees: true,
@@ -589,6 +590,8 @@ describe("JobsService schedule rows", () => {
     expect(createQueue).toHaveBeenCalledWith(PROVIDERS_REFRESH_QUEUE);
     expect(createQueue).toHaveBeenCalledWith(DATA_RETENTION_POLL_QUEUE);
     expect(createQueue).toHaveBeenCalledWith(PULL_PIECE_CLEANUP_QUEUE);
+    // Both cleanup jobs live here; the singleton policy is what keeps them from running at once.
+    expect(createQueue).toHaveBeenCalledWith(SP_CLEANUP_QUEUE, { policy: "singleton" });
   });
 
   it("skips registering workers in api mode", async () => {
@@ -926,11 +929,11 @@ describe("JobsService schedule rows", () => {
     // and fails the job either way; a handler that ignores it keeps running regardless.
     const bossAbort = new AbortController();
     let observed: AbortSignal | undefined;
-    spCleanupServiceMock.runDatasetPruning.mockImplementation(async (_network: string, signal: AbortSignal) => {
+    spCleanupServiceMock.runDataSetPruning.mockImplementation(async (_network: string, signal: AbortSignal) => {
       observed = signal;
     });
 
-    await callPrivate(service, "handleSpDatasetPruningJob", {
+    await callPrivate(service, "handleSpDataSetPruningJob", {
       id: "job-1",
       data: { network: DEFAULT_NETWORK, intervalSeconds: 3600 },
       signal: bossAbort.signal,
@@ -940,6 +943,48 @@ describe("JobsService schedule rows", () => {
     expect(observed?.aborted).toBe(false);
     bossAbort.abort(new Error("pg-boss expired the job"));
     expect(observed?.aborted).toBe(true);
+  });
+
+  it("both cleanup jobs share one singleton key so they never run concurrently", async () => {
+    service = buildService({});
+    const send = vi.fn();
+    (service as unknown as { boss: { send: typeof send } }).boss = { send };
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2024-01-01T00:01:00Z"));
+
+    jobScheduleRepositoryMock.findDueSchedulesWithManager.mockResolvedValueOnce([
+      {
+        id: 12,
+        job_type: "sp_data_set_pruning",
+        sp_address: "",
+        network: DEFAULT_NETWORK,
+        interval_seconds: 3600,
+        next_run_at: "2024-01-01T00:00:00Z",
+      },
+      {
+        id: 13,
+        job_type: "abandoned_data_set_sweep",
+        sp_address: "",
+        network: DEFAULT_NETWORK,
+        interval_seconds: 3600,
+        next_run_at: "2024-01-01T00:00:00Z",
+      },
+    ]);
+
+    await callPrivate(service, "enqueueDueJobs", DEFAULT_NETWORK);
+
+    expect(send).toHaveBeenCalledTimes(2);
+    // Same queue and same key: pg-boss keeps only one of them active at a time. Each walks the
+    // whole wallet, and they are seeded on the same schedule tick.
+    for (const call of send.mock.calls) {
+      expect(call[0]).toBe(SP_CLEANUP_QUEUE);
+      expect(call[2]).toMatchObject({ singletonKey: `${DEFAULT_NETWORK}:sp_cleanup` });
+    }
+    // The payload carries the discriminator the shared worker dispatches on.
+    expect(send.mock.calls.map((call) => (call[1] as { jobType: string }).jobType).sort()).toEqual([
+      "abandoned_data_set_sweep",
+      "sp_data_set_pruning",
+    ]);
   });
 
   it("cleanup jobs get an expiration that outlasts their own timeout", async () => {
@@ -955,7 +1000,7 @@ describe("JobsService schedule rows", () => {
     jobScheduleRepositoryMock.findDueSchedulesWithManager.mockResolvedValueOnce([
       {
         id: 12,
-        job_type: "sp_dataset_pruning",
+        job_type: "sp_data_set_pruning",
         sp_address: "",
         network: DEFAULT_NETWORK,
         interval_seconds: 3600,

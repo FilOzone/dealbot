@@ -671,7 +671,7 @@ Provider eligibility and rate selection are described in [Provider Eligibility a
 - **Required**: No
 - **Default**: `86400` (1 day)
 
-**Role**: How often the `sp_dataset_pruning` job runs for this network. This global job prunes blocked SPs to 0
+**Role**: How often the `sp_data_set_pruning` job runs for this network. This global job prunes blocked SPs to 0
 active data sets. For any other SP (trickle or full-rate) it keeps one live data set for each provisioning slot
 that tier requires — the baseline set plus the `dealbotDS`-tagged slots deal jobs target — and terminates the
 surplus once it exceeds `<NET>_EXCESS_DATASET_BUFFER`. Survivors are chosen by slot metadata, not by age, so a
@@ -692,7 +692,7 @@ CALIBRATION_DATASET_PRUNING_INTERVAL_SECONDS=3600
 - **Required**: No
 - **Default**: `5`
 
-**Role**: How many surplus data sets a provider may carry before `sp_dataset_pruning` removes them (does not
+**Role**: How many surplus data sets a provider may carry before `sp_data_set_pruning` removes them (does not
 apply to blocked SPs, which are always pruned to 0). Surplus means everything left after each required
 provisioning slot has kept one live set: extra copies of a slot, sets matching no required slot, and leaked
 lifecycle-check sets. Once the surplus exceeds the buffer, all of it is terminated — the buffer is a trigger
@@ -711,7 +711,7 @@ terminating a set out from under a check that is still running.
 - **Required**: No
 - **Default**: `86400` (1 day)
 
-**Role**: How often the `abandoned_dataset_sweep` job runs for this network. This global job scans dealbot's
+**Role**: How often the `abandoned_data_set_sweep` job runs for this network. This global job scans dealbot's
 entire wallet (not scoped to the blocklist) for data sets outside the PDPVerifier activity window and deletes
 them directly and permissionlessly (no signature needed — see the runbook), and for terminated data sets past
 `endEpoch`, first tries the permissionless `settleRail` itself — this resolves the common case (the SP never
@@ -726,8 +726,10 @@ a human operator via a structured log (`stuck_terminations_detected`).
 - **Required**: No
 - **Default**: `1200` (20 minutes)
 
-**Role**: Maximum runtime for a single `sp_dataset_pruning` or `abandoned_dataset_sweep` run before it's forced
-to abort. Both jobs scan every data set dealbot's wallet holds on the network, so this also feeds the
+**Role**: Maximum runtime for a single `sp_data_set_pruning` or `abandoned_data_set_sweep` run before it's forced
+to abort. Both jobs scan every data set dealbot's wallet holds on the network — the listing is paginated and the
+per-data-set reads are batched through Multicall3, so a wallet of ~10k data sets lands around 10 minutes — so this
+also feeds the
 shutdown-drain timeout (`onApplicationShutdown`) so pg-boss doesn't force-fail a run mid-sweep during a deploy.
 Each run is also queued with a pg-boss expiration 120s beyond this value — pg-boss otherwise expires and fails
 a job after 15 minutes, well short of the default timeout — and the handler honours pg-boss's own abort signal,

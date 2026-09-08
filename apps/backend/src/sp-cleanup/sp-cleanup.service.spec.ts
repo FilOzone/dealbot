@@ -7,10 +7,6 @@ import type { StorageProviderRepository } from "../providers/repositories/storag
 import type { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
 import { SpCleanupService } from "./sp-cleanup.service.js";
 
-vi.mock("filecoin-pin/core/data-set", () => ({
-  listDataSets: vi.fn(),
-}));
-
 vi.mock("../data-set-lifecycle/data-set-lifecycle.service.js", () => ({
   terminateServiceSync: vi.fn(),
 }));
@@ -31,10 +27,12 @@ vi.mock("@filoz/synapse-core/utils", () => ({
 
 vi.mock("@filoz/synapse-core/warm-storage", () => ({
   getDataSet: vi.fn(),
+  getPdpDataSets: vi.fn(),
 }));
 
 vi.mock("viem/actions", () => ({
   getBlockNumber: vi.fn(),
+  multicall: vi.fn(),
   readContract: vi.fn(),
   simulateContract: vi.fn(),
   writeContract: vi.fn(),
@@ -55,21 +53,19 @@ vi.mock("../common/synapse-factory.js", () => ({
   createSynapseFromConfig: vi.fn(),
 }));
 
-const { listDataSets } = await import("filecoin-pin/core/data-set");
 const { terminateServiceSync } = await import("../data-set-lifecycle/data-set-lifecycle.service.js");
-const { getRail, settleRail, settleTerminatedRailWithoutValidationCall } = await import("@filoz/synapse-core/pay");
+const { settleRail, settleTerminatedRailWithoutValidationCall } = await import("@filoz/synapse-core/pay");
 const { asChain } = await import("@filoz/synapse-core/chains");
-const { getDataSet } = await import("@filoz/synapse-core/warm-storage");
-const { getBlockNumber, readContract, simulateContract, writeContract, waitForTransactionReceipt } = await import(
-  "viem/actions"
-);
+const { getDataSet, getPdpDataSets } = await import("@filoz/synapse-core/warm-storage");
+const { getBlockNumber, multicall, readContract, simulateContract, writeContract, waitForTransactionReceipt } =
+  await import("viem/actions");
 
 const DEFAULT_NETWORK = "calibration";
 
 function makeNetworkConfig(overrides: Partial<INetworkConfig> = {}): INetworkConfig {
   return {
     network: DEFAULT_NETWORK,
-    walletAddress: "0xwallet0000000000000000000000000000000000",
+    walletAddress: "0xWaLLet000000000000000000000000000000000",
     walletPrivateKey: "0xkey",
     blockedSpIds: new Set<string>(),
     blockedSpAddresses: new Set<string>(),
@@ -77,7 +73,7 @@ function makeNetworkConfig(overrides: Partial<INetworkConfig> = {}): INetworkCon
     fullRateSpAddresses: new Set<string>(),
     useOnlyApprovedProviders: false,
     minNumDataSetsForChecks: 15,
-    excessDatasetBuffer: 5,
+    excessDataSetBuffer: 5,
     dataSetLifecycleCheckJobTimeoutSeconds: 600,
     ...overrides,
   } as unknown as INetworkConfig;
@@ -104,10 +100,23 @@ function slotMeta(index: number): Record<string, string> {
   return { withIPFSIndexing: "", ...(index > 0 ? { dealbotDS: String(index) } : {}) };
 }
 
+/** `getPdpDataSets` resolves each data set's provider from the SP registry on-chain. */
+function makeProviderFor(address: string, overrides: Record<string, unknown> = {}) {
+  return {
+    id: 1n,
+    serviceProvider: address,
+    name: "Test SP",
+    pdp: { serviceURL: "https://sp.example.com" },
+    ...overrides,
+  };
+}
+
 function makeDataSet(overrides: Record<string, unknown> = {}) {
+  const serviceProvider = (overrides.serviceProvider as string) ?? "0xsp0000000000000000000000000000000000001";
   return {
     dataSetId: 1n,
-    serviceProvider: "0xsp0000000000000000000000000000000000001",
+    serviceProvider,
+    provider: makeProviderFor(serviceProvider, (overrides.providerOverrides as Record<string, unknown>) ?? {}),
     pdpEndEpoch: 0n,
     pdpRailId: 100n,
     providerId: 1n,
@@ -115,6 +124,24 @@ function makeDataSet(overrides: Record<string, unknown> = {}) {
     activePieceCount: 0n,
     ...overrides,
   };
+}
+
+/**
+ * Stands in for the sweep's Multicall3 read batches. Values are matched by `functionName`;
+ * an array supplies one value per data set, a scalar applies to all, and an `Error` value
+ * becomes a per-item revert (`status: "failure"`), which is how a finalized rail reports.
+ */
+function mockBatchedReads(values: Record<string, unknown>) {
+  const queues = new Map<string, unknown[]>();
+  for (const [fn, value] of Object.entries(values)) {
+    queues.set(fn, Array.isArray(value) ? [...value] : [value]);
+  }
+  vi.mocked(multicall).mockImplementation((async (_client: unknown, opts: any) =>
+    opts.contracts.map((call: any) => {
+      const queue = queues.get(call.functionName);
+      const next = queue && queue.length > 1 ? queue.shift() : queue?.[0];
+      return next instanceof Error ? { status: "failure", error: next } : { status: "success", result: next };
+    })) as never);
 }
 
 const fakeChain = {
@@ -183,13 +210,14 @@ describe("SpCleanupService", () => {
     // Pruning re-reads each planned data set right before terminating it; by default it is
     // still active, so the plan is carried out as computed.
     vi.mocked(getDataSet).mockResolvedValue({ pdpEndEpoch: 0n } as any);
+    mockBatchedReads({ getDataSetLastProvenEpoch: 0n, getRail: { settledUpTo: 100n, endEpoch: 500n } });
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
   });
 
-  describe("runDatasetPruning (Job A)", () => {
+  describe("runDataSetPruning (Job A)", () => {
     it("terminates every active data set for a blocked SP down to 0", async () => {
       const networkConfig = makeNetworkConfig({
         blockedSpAddresses: new Set(["0xsp0000000000000000000000000000000000001"]),
@@ -201,12 +229,12 @@ describe("SpCleanupService", () => {
       const blockedProvider = makeProvider();
       storageProviderRepository.findAllByNetwork.mockResolvedValueOnce([blockedProvider]);
 
-      vi.mocked(listDataSets).mockResolvedValueOnce([
+      vi.mocked(getPdpDataSets).mockResolvedValueOnce([
         makeDataSet({ dataSetId: 5n }),
         makeDataSet({ dataSetId: 6n }),
       ] as any);
 
-      await service.runDatasetPruning(DEFAULT_NETWORK);
+      await service.runDataSetPruning(DEFAULT_NETWORK);
 
       expect(terminateServiceSync).toHaveBeenCalledTimes(2);
       expect(terminateServiceSync).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ dataSetId: 5n }));
@@ -230,9 +258,9 @@ describe("SpCleanupService", () => {
       const dataSets = [1n, 2n, 3n, 4n, 5n, 6n, 7n, 8n].map((id) =>
         makeDataSet({ dataSetId: id, serviceProvider: trickleAddress, metadata: slotMeta(0) }),
       );
-      vi.mocked(listDataSets).mockResolvedValueOnce(dataSets as any);
+      vi.mocked(getPdpDataSets).mockResolvedValueOnce(dataSets as any);
 
-      await service.runDatasetPruning(DEFAULT_NETWORK);
+      await service.runDataSetPruning(DEFAULT_NETWORK);
 
       // One set per required slot survives; every other copy is surplus.
       const expectedTerminated = dataSets.length - trickleTierRates.minNumDataSetsForChecks;
@@ -249,7 +277,7 @@ describe("SpCleanupService", () => {
     });
 
     it("terminates a leaked lifecycle-check data set and keeps the real slot, even though the leak is newer", async () => {
-      const networkConfig = makeNetworkConfig({ excessDatasetBuffer: 0 });
+      const networkConfig = makeNetworkConfig({ excessDataSetBuffer: 0 });
       configService.get.mockImplementation((key: string) =>
         key === "networks" ? { [DEFAULT_NETWORK]: networkConfig } : undefined,
       );
@@ -267,16 +295,16 @@ describe("SpCleanupService", () => {
         // Tagged long enough ago that no lifecycle-check job could still be using it.
         metadata: { dealbotLifecycleCheck: "1234567890" },
       });
-      vi.mocked(listDataSets).mockResolvedValueOnce([realSlot, leakedSet] as any);
+      vi.mocked(getPdpDataSets).mockResolvedValueOnce([realSlot, leakedSet] as any);
 
-      await service.runDatasetPruning(DEFAULT_NETWORK);
+      await service.runDataSetPruning(DEFAULT_NETWORK);
 
       expect(terminateServiceSync).toHaveBeenCalledTimes(1);
       expect(terminateServiceSync).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ dataSetId: 10n }));
     });
 
     it("spares a lifecycle-check data set young enough that its job could still be running", async () => {
-      const networkConfig = makeNetworkConfig({ excessDatasetBuffer: 0, dataSetLifecycleCheckJobTimeoutSeconds: 600 });
+      const networkConfig = makeNetworkConfig({ excessDataSetBuffer: 0, dataSetLifecycleCheckJobTimeoutSeconds: 600 });
       configService.get.mockImplementation((key: string) =>
         key === "networks" ? { [DEFAULT_NETWORK]: networkConfig } : undefined,
       );
@@ -293,9 +321,9 @@ describe("SpCleanupService", () => {
         serviceProvider: trickleAddress,
         metadata: { dealbotLifecycleCheck: String(Date.now() - 60_000) },
       });
-      vi.mocked(listDataSets).mockResolvedValueOnce([realSlot, inFlight] as any);
+      vi.mocked(getPdpDataSets).mockResolvedValueOnce([realSlot, inFlight] as any);
 
-      await service.runDatasetPruning(DEFAULT_NETWORK);
+      await service.runDataSetPruning(DEFAULT_NETWORK);
 
       expect(terminateServiceSync).not.toHaveBeenCalled();
     });
@@ -305,14 +333,16 @@ describe("SpCleanupService", () => {
       storageProviderRepository.findAllByNetwork.mockResolvedValueOnce([
         makeProvider({ id: 3n, serviceProvider: fullRateAddress, isApproved: true }),
       ]);
-      vi.mocked(listDataSets).mockResolvedValueOnce([
+      vi.mocked(getPdpDataSets).mockResolvedValueOnce([
         makeDataSet({ dataSetId: 99n, serviceProvider: fullRateAddress }),
       ] as any);
 
-      await service.runDatasetPruning(DEFAULT_NETWORK);
+      await service.runDataSetPruning(DEFAULT_NETWORK);
 
-      expect(listDataSets).toHaveBeenCalledTimes(1);
-      expect(listDataSets).toHaveBeenCalledWith(expect.anything(), {});
+      expect(getPdpDataSets).toHaveBeenCalledTimes(1);
+      expect(getPdpDataSets).toHaveBeenCalledWith(expect.anything(), {
+        address: "0xWaLLet000000000000000000000000000000000",
+      });
       expect(terminateServiceSync).not.toHaveBeenCalled();
     });
 
@@ -328,9 +358,9 @@ describe("SpCleanupService", () => {
       const surplus = Array.from({ length: 4 }, (_, i) =>
         makeDataSet({ dataSetId: BigInt(100 + i), serviceProvider: fullRateAddress, metadata: slotMeta(1) }),
       );
-      vi.mocked(listDataSets).mockResolvedValueOnce([...slots, ...surplus] as any);
+      vi.mocked(getPdpDataSets).mockResolvedValueOnce([...slots, ...surplus] as any);
 
-      await service.runDatasetPruning(DEFAULT_NETWORK);
+      await service.runDataSetPruning(DEFAULT_NETWORK);
 
       expect(terminateServiceSync).not.toHaveBeenCalled();
     });
@@ -348,9 +378,9 @@ describe("SpCleanupService", () => {
       const duplicates = duplicateIds.map((id) =>
         makeDataSet({ dataSetId: id, serviceProvider: fullRateAddress, metadata: slotMeta(1) }),
       );
-      vi.mocked(listDataSets).mockResolvedValueOnce([...slots, ...duplicates] as any);
+      vi.mocked(getPdpDataSets).mockResolvedValueOnce([...slots, ...duplicates] as any);
 
-      await service.runDatasetPruning(DEFAULT_NETWORK);
+      await service.runDataSetPruning(DEFAULT_NETWORK);
 
       expect(terminateServiceSync).toHaveBeenCalledTimes(6);
       // Only the duplicate copies go; every slot keeps the set the SDK resolves it to.
@@ -372,7 +402,7 @@ describe("SpCleanupService", () => {
       // The regression this guards: with target=3, the three newest sets all belong to slot 1.
       // Age-based retention would keep those and terminate the only baseline and slot-2 copies,
       // which data_set_creation then re-provisions, looping forever.
-      const networkConfig = makeNetworkConfig({ minNumDataSetsForChecks: 3, excessDatasetBuffer: 0 });
+      const networkConfig = makeNetworkConfig({ minNumDataSetsForChecks: 3, excessDataSetBuffer: 0 });
       configService.get.mockImplementation((key: string) =>
         key === "networks" ? { [DEFAULT_NETWORK]: networkConfig } : undefined,
       );
@@ -380,7 +410,7 @@ describe("SpCleanupService", () => {
       storageProviderRepository.findAllByNetwork.mockResolvedValueOnce([
         makeProvider({ id: 8n, serviceProvider: fullRateAddress, isApproved: true }),
       ]);
-      vi.mocked(listDataSets).mockResolvedValueOnce([
+      vi.mocked(getPdpDataSets).mockResolvedValueOnce([
         makeDataSet({ dataSetId: 10n, serviceProvider: fullRateAddress, metadata: slotMeta(0) }),
         makeDataSet({ dataSetId: 11n, serviceProvider: fullRateAddress, metadata: slotMeta(2) }),
         makeDataSet({ dataSetId: 20n, serviceProvider: fullRateAddress, metadata: slotMeta(1) }),
@@ -388,7 +418,7 @@ describe("SpCleanupService", () => {
         makeDataSet({ dataSetId: 22n, serviceProvider: fullRateAddress, metadata: slotMeta(1) }),
       ] as any);
 
-      await service.runDatasetPruning(DEFAULT_NETWORK);
+      await service.runDataSetPruning(DEFAULT_NETWORK);
 
       // Baseline (10), slot 2 (11) and slot 1's lowest id (20) survive; the extra slot-1 copies go.
       expect(terminateServiceSync).toHaveBeenCalledTimes(2);
@@ -401,7 +431,7 @@ describe("SpCleanupService", () => {
     });
 
     it("keeps the copy holding pieces when a slot has several, matching the SDK's own resolution", async () => {
-      const networkConfig = makeNetworkConfig({ minNumDataSetsForChecks: 1, excessDatasetBuffer: 0 });
+      const networkConfig = makeNetworkConfig({ minNumDataSetsForChecks: 1, excessDataSetBuffer: 0 });
       configService.get.mockImplementation((key: string) =>
         key === "networks" ? { [DEFAULT_NETWORK]: networkConfig } : undefined,
       );
@@ -409,12 +439,12 @@ describe("SpCleanupService", () => {
       storageProviderRepository.findAllByNetwork.mockResolvedValueOnce([
         makeProvider({ id: 9n, serviceProvider: fullRateAddress, isApproved: true }),
       ]);
-      vi.mocked(listDataSets).mockResolvedValueOnce([
+      vi.mocked(getPdpDataSets).mockResolvedValueOnce([
         makeDataSet({ dataSetId: 30n, serviceProvider: fullRateAddress, metadata: slotMeta(0), activePieceCount: 0n }),
         makeDataSet({ dataSetId: 31n, serviceProvider: fullRateAddress, metadata: slotMeta(0), activePieceCount: 4n }),
       ] as any);
 
-      await service.runDatasetPruning(DEFAULT_NETWORK);
+      await service.runDataSetPruning(DEFAULT_NETWORK);
 
       // createContext prefers the lowest-id set that still holds pieces, so 31 is the live one.
       expect(terminateServiceSync).toHaveBeenCalledTimes(1);
@@ -422,7 +452,7 @@ describe("SpCleanupService", () => {
     });
 
     it("skips a planned data set that another job already terminated before the relay call", async () => {
-      const networkConfig = makeNetworkConfig({ minNumDataSetsForChecks: 1, excessDatasetBuffer: 0 });
+      const networkConfig = makeNetworkConfig({ minNumDataSetsForChecks: 1, excessDataSetBuffer: 0 });
       configService.get.mockImplementation((key: string) =>
         key === "networks" ? { [DEFAULT_NETWORK]: networkConfig } : undefined,
       );
@@ -430,17 +460,66 @@ describe("SpCleanupService", () => {
       storageProviderRepository.findAllByNetwork.mockResolvedValueOnce([
         makeProvider({ id: 10n, serviceProvider: fullRateAddress, isApproved: true }),
       ]);
-      vi.mocked(listDataSets).mockResolvedValueOnce([
+      vi.mocked(getPdpDataSets).mockResolvedValueOnce([
         makeDataSet({ dataSetId: 40n, serviceProvider: fullRateAddress, metadata: slotMeta(0) }),
         makeDataSet({ dataSetId: 41n, serviceProvider: fullRateAddress, metadata: slotMeta(0) }),
       ] as any);
       // The snapshot said 41 was active; by the time pruning reaches it, it is terminated.
       vi.mocked(getDataSet).mockResolvedValueOnce({ pdpEndEpoch: 123n } as any);
 
-      await service.runDatasetPruning(DEFAULT_NETWORK);
+      await service.runDataSetPruning(DEFAULT_NETWORK);
 
       expect(terminateServiceSync).not.toHaveBeenCalled();
       expect(attemptsCounter.inc).not.toHaveBeenCalled();
+    });
+
+    it("prunes a provider that has no registry row, using the provider on the data set", async () => {
+      const networkConfig = makeNetworkConfig({ minNumDataSetsForChecks: 1, excessDataSetBuffer: 0 });
+      configService.get.mockImplementation((key: string) =>
+        key === "networks" ? { [DEFAULT_NETWORK]: networkConfig } : undefined,
+      );
+      const orphanAddress = "0xorphan0000000000000000000000000000000001";
+      // Nothing in the registry: deregistered, or filtered out of registry sync.
+      storageProviderRepository.findAllByNetwork.mockResolvedValueOnce([]);
+      vi.mocked(getPdpDataSets).mockResolvedValueOnce([
+        makeDataSet({ dataSetId: 77n, serviceProvider: orphanAddress, metadata: slotMeta(0) }),
+        makeDataSet({ dataSetId: 78n, serviceProvider: orphanAddress, metadata: slotMeta(0) }),
+      ] as any);
+
+      await service.runDataSetPruning(DEFAULT_NETWORK);
+
+      // Previously these were skipped entirely for want of a service URL; the on-chain provider
+      // record carries one, so the surplus copy is terminated like any other.
+      expect(terminateServiceSync).toHaveBeenCalledTimes(1);
+      expect(terminateServiceSync).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ dataSetId: 78n, serviceURL: "https://sp.example.com" }),
+      );
+    });
+
+    it("propagates an abort raised on the last data set instead of reporting success", async () => {
+      const networkConfig = makeNetworkConfig({ minNumDataSetsForChecks: 1, excessDataSetBuffer: 0 });
+      configService.get.mockImplementation((key: string) =>
+        key === "networks" ? { [DEFAULT_NETWORK]: networkConfig } : undefined,
+      );
+      const fullRateAddress = "0xfullrate00000000000000000000000000000007";
+      storageProviderRepository.findAllByNetwork.mockResolvedValueOnce([
+        makeProvider({ id: 11n, serviceProvider: fullRateAddress, isApproved: true }),
+      ]);
+      vi.mocked(getPdpDataSets).mockResolvedValueOnce([
+        makeDataSet({ dataSetId: 50n, serviceProvider: fullRateAddress, metadata: slotMeta(0) }),
+        makeDataSet({ dataSetId: 51n, serviceProvider: fullRateAddress, metadata: slotMeta(0) }),
+      ] as any);
+
+      const controller = new AbortController();
+      vi.mocked(terminateServiceSync).mockImplementationOnce(async () => {
+        controller.abort(new Error("sp_data_set_pruning job timeout"));
+        throw new Error("aborted mid-relay");
+      });
+
+      // Without the abort re-throw this would be swallowed as a per-data-set failure and the
+      // job would be recorded as successful despite the timeout.
+      await expect(service.runDataSetPruning(DEFAULT_NETWORK, controller.signal)).rejects.toThrow();
     });
 
     it("fetches the wallet's data sets exactly once regardless of how many blocked/trickle SPs there are", async () => {
@@ -459,11 +538,11 @@ describe("SpCleanupService", () => {
         makeProvider({ id: 2n, serviceProvider: "0xsp0000000000000000000000000000000000002" }),
         makeProvider({ id: 3n, serviceProvider: trickleAddress, isApproved: false }),
       ]);
-      vi.mocked(listDataSets).mockResolvedValueOnce([]);
+      vi.mocked(getPdpDataSets).mockResolvedValueOnce([]);
 
-      await service.runDatasetPruning(DEFAULT_NETWORK);
+      await service.runDataSetPruning(DEFAULT_NETWORK);
 
-      expect(listDataSets).toHaveBeenCalledTimes(1);
+      expect(getPdpDataSets).toHaveBeenCalledTimes(1);
     });
 
     it("continues the batch when a provider-relay termination attempt fails", async () => {
@@ -476,7 +555,7 @@ describe("SpCleanupService", () => {
 
       storageProviderRepository.findAllByNetwork.mockResolvedValueOnce([makeProvider()]);
 
-      vi.mocked(listDataSets).mockResolvedValueOnce([
+      vi.mocked(getPdpDataSets).mockResolvedValueOnce([
         makeDataSet({ dataSetId: 7n }),
         makeDataSet({ dataSetId: 8n }),
       ] as any);
@@ -485,7 +564,7 @@ describe("SpCleanupService", () => {
         .mockRejectedValueOnce(new Error("SP unreachable"))
         .mockResolvedValueOnce({} as any);
 
-      await expect(service.runDatasetPruning(DEFAULT_NETWORK)).resolves.toBeUndefined();
+      await expect(service.runDataSetPruning(DEFAULT_NETWORK)).resolves.toBeUndefined();
 
       expect(terminateServiceSync).toHaveBeenCalledTimes(2);
       expect(attemptsCounter.inc).toHaveBeenCalledWith({
@@ -510,7 +589,7 @@ describe("SpCleanupService", () => {
 
       storageProviderRepository.findAllByNetwork.mockResolvedValueOnce([makeProvider()]);
 
-      vi.mocked(listDataSets).mockResolvedValueOnce([
+      vi.mocked(getPdpDataSets).mockResolvedValueOnce([
         makeDataSet({ dataSetId: 30n }),
         makeDataSet({ dataSetId: 31n }),
         makeDataSet({ dataSetId: 32n }),
@@ -518,11 +597,11 @@ describe("SpCleanupService", () => {
 
       const controller = new AbortController();
       vi.mocked(terminateServiceSync).mockImplementationOnce(async () => {
-        controller.abort(new Error("sp_dataset_pruning job timeout"));
+        controller.abort(new Error("sp_data_set_pruning job timeout"));
         return {} as any;
       });
 
-      await expect(service.runDatasetPruning(DEFAULT_NETWORK, controller.signal)).rejects.toThrow();
+      await expect(service.runDataSetPruning(DEFAULT_NETWORK, controller.signal)).rejects.toThrow();
 
       // Only the first of the 3 excess data sets was relayed — the abort fired inside that call,
       // and the per-data-set check at the top of the next loop iteration caught it.
@@ -530,13 +609,13 @@ describe("SpCleanupService", () => {
     });
   });
 
-  describe("runAbandonedDatasetSweep (Job B)", () => {
+  describe("runAbandonedDataSetSweep (Job B)", () => {
     it("deletes an abandoned data set directly via PDPVerifier.deleteDataSet with no signature (zero pieces, no cleanupPieces follow-up needed)", async () => {
       const dataSet = makeDataSet({ dataSetId: 10n, pdpEndEpoch: 0n });
-      vi.mocked(listDataSets).mockResolvedValueOnce([dataSet] as any);
+      vi.mocked(getPdpDataSets).mockResolvedValueOnce([dataSet] as any);
       vi.mocked(getBlockNumber).mockResolvedValueOnce(200000n);
       // Last proven epoch far in the past -> outside the 86400-block activity window.
-      vi.mocked(readContract).mockResolvedValueOnce(1000n as any);
+      mockBatchedReads({ getDataSetLastProvenEpoch: 1000n });
       const notInCleanupModeError = new ContractFunctionRevertedError({ abi: [], functionName: "cleanupPieces" });
       notInCleanupModeError.data = { errorName: "DataSetNotInCleanupMode", args: [] } as any;
       vi.mocked(simulateContract)
@@ -547,11 +626,14 @@ describe("SpCleanupService", () => {
       vi.mocked(writeContract).mockResolvedValueOnce("0xtxhash" as any);
       vi.mocked(waitForTransactionReceipt).mockResolvedValueOnce({ status: "success" } as any);
 
-      await service.runAbandonedDatasetSweep(DEFAULT_NETWORK);
+      await service.runAbandonedDataSetSweep(DEFAULT_NETWORK);
 
-      expect(readContract).toHaveBeenCalledWith(
+      expect(multicall).toHaveBeenCalledWith(
         expect.anything(),
-        expect.objectContaining({ functionName: "getDataSetLastProvenEpoch", args: [10n] }),
+        expect.objectContaining({
+          allowFailure: true,
+          contracts: [expect.objectContaining({ functionName: "getDataSetLastProvenEpoch", args: [10n] })],
+        }),
       );
       expect(simulateContract).toHaveBeenNthCalledWith(
         1,
@@ -576,9 +658,9 @@ describe("SpCleanupService", () => {
 
     it("loops cleanupPieces until done=true when pieces remain after deleteDataSet", async () => {
       const dataSet = makeDataSet({ dataSetId: 12n, pdpEndEpoch: 0n });
-      vi.mocked(listDataSets).mockResolvedValueOnce([dataSet] as any);
+      vi.mocked(getPdpDataSets).mockResolvedValueOnce([dataSet] as any);
       vi.mocked(getBlockNumber).mockResolvedValueOnce(200000n);
-      vi.mocked(readContract).mockResolvedValueOnce(1000n as any);
+      mockBatchedReads({ getDataSetLastProvenEpoch: 1000n });
       vi.mocked(simulateContract)
         .mockResolvedValueOnce({ request: { fake: "deleteDataSet-request" } } as any) // deleteDataSet
         .mockResolvedValueOnce({ request: { fake: "cleanup-1" }, result: false } as any) // cleanupPieces batch 1
@@ -589,7 +671,7 @@ describe("SpCleanupService", () => {
         .mockResolvedValueOnce("0xcleanup-hash-2" as any);
       vi.mocked(waitForTransactionReceipt).mockResolvedValue({ status: "success" } as any);
 
-      await service.runAbandonedDatasetSweep(DEFAULT_NETWORK);
+      await service.runAbandonedDataSetSweep(DEFAULT_NETWORK);
 
       expect(simulateContract).toHaveBeenCalledTimes(3);
       expect(writeContract).toHaveBeenCalledTimes(3);
@@ -607,9 +689,9 @@ describe("SpCleanupService", () => {
 
     it("retries a transient cleanupPieces failure within the same sweep instead of giving up immediately", async () => {
       const dataSet = makeDataSet({ dataSetId: 16n, pdpEndEpoch: 0n });
-      vi.mocked(listDataSets).mockResolvedValueOnce([dataSet] as any);
+      vi.mocked(getPdpDataSets).mockResolvedValueOnce([dataSet] as any);
       vi.mocked(getBlockNumber).mockResolvedValueOnce(200000n);
-      vi.mocked(readContract).mockResolvedValueOnce(1000n as any);
+      mockBatchedReads({ getDataSetLastProvenEpoch: 1000n });
       vi.mocked(simulateContract)
         .mockResolvedValueOnce({ request: { fake: "deleteDataSet-request" } } as any) // deleteDataSet
         .mockRejectedValueOnce(new Error("fetch failed: RPC timeout")) // cleanupPieces attempt 1 (transient)
@@ -619,7 +701,7 @@ describe("SpCleanupService", () => {
         .mockResolvedValueOnce("0xcleanup-hash" as any);
       vi.mocked(waitForTransactionReceipt).mockResolvedValue({ status: "success" } as any);
 
-      await service.runAbandonedDatasetSweep(DEFAULT_NETWORK);
+      await service.runAbandonedDataSetSweep(DEFAULT_NETWORK);
 
       // Transient failure didn't write a tx (simulate itself rejected) — only the two successful
       // simulateContract calls (delete + the retried cleanup) actually reached writeContract.
@@ -629,16 +711,16 @@ describe("SpCleanupService", () => {
 
     it("gives up after 5 consecutive cleanupPieces failures and does not retry indefinitely", async () => {
       const dataSet = makeDataSet({ dataSetId: 17n, pdpEndEpoch: 0n });
-      vi.mocked(listDataSets).mockResolvedValueOnce([dataSet] as any);
+      vi.mocked(getPdpDataSets).mockResolvedValueOnce([dataSet] as any);
       vi.mocked(getBlockNumber).mockResolvedValueOnce(200000n);
-      vi.mocked(readContract).mockResolvedValueOnce(1000n as any);
+      mockBatchedReads({ getDataSetLastProvenEpoch: 1000n });
       vi.mocked(simulateContract)
         .mockResolvedValueOnce({ request: { fake: "deleteDataSet-request" } } as any) // deleteDataSet
         .mockRejectedValue(new Error("fetch failed: RPC timeout")); // every cleanupPieces attempt fails
       vi.mocked(writeContract).mockResolvedValueOnce("0xdelete-hash" as any);
       vi.mocked(waitForTransactionReceipt).mockResolvedValueOnce({ status: "success" } as any);
 
-      await expect(service.runAbandonedDatasetSweep(DEFAULT_NETWORK)).resolves.toBeUndefined();
+      await expect(service.runAbandonedDataSetSweep(DEFAULT_NETWORK)).resolves.toBeUndefined();
 
       // 1 deleteDataSet simulate + 5 failed cleanupPieces simulates, then gives up.
       expect(simulateContract).toHaveBeenCalledTimes(6);
@@ -646,16 +728,16 @@ describe("SpCleanupService", () => {
 
     it("propagates an abort raised mid-cleanupPieces without relabeling the already-successful delete as failed", async () => {
       const dataSet = makeDataSet({ dataSetId: 18n, pdpEndEpoch: 0n });
-      vi.mocked(listDataSets).mockResolvedValueOnce([dataSet] as any);
+      vi.mocked(getPdpDataSets).mockResolvedValueOnce([dataSet] as any);
       vi.mocked(getBlockNumber).mockResolvedValueOnce(200000n);
-      vi.mocked(readContract).mockResolvedValueOnce(1000n as any);
+      mockBatchedReads({ getDataSetLastProvenEpoch: 1000n });
 
       const controller = new AbortController();
       vi.mocked(simulateContract)
         .mockResolvedValueOnce({ request: { fake: "deleteDataSet-request" } } as any) // deleteDataSet
         .mockImplementationOnce(async () => {
           // Simulate the deadline passing while cleanupPieces batch 1 is in flight.
-          controller.abort(new Error("abandoned_dataset_sweep job timeout"));
+          controller.abort(new Error("abandoned_data_set_sweep job timeout"));
           return { request: { fake: "cleanup-1" }, result: false } as any;
         });
       vi.mocked(writeContract)
@@ -663,7 +745,7 @@ describe("SpCleanupService", () => {
         .mockResolvedValueOnce("0xcleanup-hash" as any);
       vi.mocked(waitForTransactionReceipt).mockResolvedValue({ status: "success" } as any);
 
-      await expect(service.runAbandonedDatasetSweep(DEFAULT_NETWORK, controller.signal)).rejects.toThrow();
+      await expect(service.runAbandonedDataSetSweep(DEFAULT_NETWORK, controller.signal)).rejects.toThrow();
 
       // deleteDataSet succeeded and was recorded as such — the abort must not also record a
       // "delete failed" attempt for the same data set.
@@ -681,14 +763,14 @@ describe("SpCleanupService", () => {
 
     it("treats a reverted-but-mined deleteDataSet receipt as a failure, skipping the cleanupPieces follow-up", async () => {
       const dataSet = makeDataSet({ dataSetId: 15n, pdpEndEpoch: 0n });
-      vi.mocked(listDataSets).mockResolvedValueOnce([dataSet] as any);
+      vi.mocked(getPdpDataSets).mockResolvedValueOnce([dataSet] as any);
       vi.mocked(getBlockNumber).mockResolvedValueOnce(200000n);
-      vi.mocked(readContract).mockResolvedValueOnce(1000n as any);
+      mockBatchedReads({ getDataSetLastProvenEpoch: 1000n });
       vi.mocked(simulateContract).mockResolvedValueOnce({ request: { fake: "deleteDataSet-request" } } as any);
       vi.mocked(writeContract).mockResolvedValueOnce("0xtxhash" as any);
       vi.mocked(waitForTransactionReceipt).mockResolvedValueOnce({ status: "reverted" } as any);
 
-      await expect(service.runAbandonedDatasetSweep(DEFAULT_NETWORK)).resolves.toBeUndefined();
+      await expect(service.runAbandonedDataSetSweep(DEFAULT_NETWORK)).resolves.toBeUndefined();
 
       // Only the deleteDataSet simulate — no cleanupPieces follow-up, since the delete itself
       // never actually succeeded on-chain despite the tx getting mined.
@@ -703,10 +785,12 @@ describe("SpCleanupService", () => {
     it("does not abort the sweep when getDataSetLastProvenEpoch fails for one data set — later data sets still run", async () => {
       const badDataSet = makeDataSet({ dataSetId: 13n, pdpEndEpoch: 0n });
       const stuckDataSet = makeDataSet({ dataSetId: 14n, pdpEndEpoch: 500n, pdpRailId: 995n });
-      vi.mocked(listDataSets).mockResolvedValueOnce([badDataSet, stuckDataSet] as any);
+      vi.mocked(getPdpDataSets).mockResolvedValueOnce([badDataSet, stuckDataSet] as any);
       vi.mocked(getBlockNumber).mockResolvedValueOnce(200000n); // > 500 (strict) for the second data set
-      vi.mocked(readContract).mockRejectedValueOnce(new Error("RPC timeout"));
-      vi.mocked(getRail).mockResolvedValueOnce({ settledUpTo: 100n, endEpoch: 500n } as any);
+      mockBatchedReads({
+        getDataSetLastProvenEpoch: new Error("RPC timeout"),
+        getRail: { settledUpTo: 100n, endEpoch: 500n },
+      });
       vi.mocked(settleRail).mockRejectedValueOnce(
         new ContractFunctionRevertedError({ abi: [], functionName: "settleRail" }),
       );
@@ -717,7 +801,7 @@ describe("SpCleanupService", () => {
         args: [995n],
       } as any);
 
-      await expect(service.runAbandonedDatasetSweep(DEFAULT_NETWORK)).resolves.toBeUndefined();
+      await expect(service.runAbandonedDataSetSweep(DEFAULT_NETWORK)).resolves.toBeUndefined();
 
       expect(simulateContract).not.toHaveBeenCalled();
       expect(attemptsCounter.inc).toHaveBeenCalledWith({
@@ -732,12 +816,12 @@ describe("SpCleanupService", () => {
 
     it("skips a data set still inside the PDPVerifier activity window", async () => {
       const dataSet = makeDataSet({ dataSetId: 11n, pdpEndEpoch: 0n });
-      vi.mocked(listDataSets).mockResolvedValueOnce([dataSet] as any);
+      vi.mocked(getPdpDataSets).mockResolvedValueOnce([dataSet] as any);
       vi.mocked(getBlockNumber).mockResolvedValueOnce(200000n);
       // Proven recently -> still within the 86400-block activity window.
-      vi.mocked(readContract).mockResolvedValueOnce(199000n as any);
+      mockBatchedReads({ getDataSetLastProvenEpoch: 199000n });
 
-      await service.runAbandonedDatasetSweep(DEFAULT_NETWORK);
+      await service.runAbandonedDataSetSweep(DEFAULT_NETWORK);
 
       expect(simulateContract).not.toHaveBeenCalled();
       expect(writeContract).not.toHaveBeenCalled();
@@ -745,13 +829,13 @@ describe("SpCleanupService", () => {
 
     it("resolves a stuck-looking rail automatically via permissionless settleRail — no human needed", async () => {
       const dataSet = makeDataSet({ dataSetId: 19n, pdpEndEpoch: 500n, pdpRailId: 993n });
-      vi.mocked(listDataSets).mockResolvedValueOnce([dataSet] as any);
+      vi.mocked(getPdpDataSets).mockResolvedValueOnce([dataSet] as any);
       vi.mocked(getBlockNumber).mockResolvedValueOnce(200000n);
-      vi.mocked(getRail).mockResolvedValueOnce({ settledUpTo: 100n, endEpoch: 500n } as any);
+      mockBatchedReads({ getRail: { settledUpTo: 100n, endEpoch: 500n } });
       vi.mocked(settleRail).mockResolvedValueOnce("0xsettle-hash" as any);
       vi.mocked(waitForTransactionReceipt).mockResolvedValueOnce({ status: "success" } as any);
 
-      await service.runAbandonedDatasetSweep(DEFAULT_NETWORK);
+      await service.runAbandonedDataSetSweep(DEFAULT_NETWORK);
 
       expect(settleRail).toHaveBeenCalledWith(
         expect.anything(),
@@ -768,16 +852,16 @@ describe("SpCleanupService", () => {
 
     it("still calls settleRail when settledUpTo >= endEpoch — a fully-settled-but-not-finalized rail needs one more call", async () => {
       const dataSet = makeDataSet({ dataSetId: 26n, pdpEndEpoch: 500n, pdpRailId: 994n });
-      vi.mocked(listDataSets).mockResolvedValueOnce([dataSet] as any);
+      vi.mocked(getPdpDataSets).mockResolvedValueOnce([dataSet] as any);
       vi.mocked(getBlockNumber).mockResolvedValueOnce(200000n);
       // getRail succeeding at all means the rail is still active (not finalized/zeroed yet) —
       // settledUpTo >= endEpoch here means "fully settled but still needs finalizeTerminatedRail",
       // not "nothing to do".
-      vi.mocked(getRail).mockResolvedValueOnce({ settledUpTo: 500n, endEpoch: 500n } as any);
+      mockBatchedReads({ getRail: { settledUpTo: 500n, endEpoch: 500n } });
       vi.mocked(settleRail).mockResolvedValueOnce("0xfinalize-hash" as any);
       vi.mocked(waitForTransactionReceipt).mockResolvedValueOnce({ status: "success" } as any);
 
-      await service.runAbandonedDatasetSweep(DEFAULT_NETWORK);
+      await service.runAbandonedDataSetSweep(DEFAULT_NETWORK);
 
       expect(settleRail).toHaveBeenCalledWith(
         expect.anything(),
@@ -793,12 +877,12 @@ describe("SpCleanupService", () => {
 
     it("does not flag as stuck on a transient settleRail failure — retries next sweep instead", async () => {
       const dataSet = makeDataSet({ dataSetId: 25n, pdpEndEpoch: 500n, pdpRailId: 993n });
-      vi.mocked(listDataSets).mockResolvedValueOnce([dataSet] as any);
+      vi.mocked(getPdpDataSets).mockResolvedValueOnce([dataSet] as any);
       vi.mocked(getBlockNumber).mockResolvedValueOnce(200000n);
-      vi.mocked(getRail).mockResolvedValueOnce({ settledUpTo: 100n, endEpoch: 500n } as any);
+      mockBatchedReads({ getRail: { settledUpTo: 100n, endEpoch: 500n } });
       vi.mocked(settleRail).mockRejectedValueOnce(new Error("fetch failed: RPC timeout"));
 
-      await service.runAbandonedDatasetSweep(DEFAULT_NETWORK);
+      await service.runAbandonedDataSetSweep(DEFAULT_NETWORK);
 
       expect(attemptsCounter.inc).toHaveBeenCalledWith({
         network: DEFAULT_NETWORK,
@@ -811,9 +895,9 @@ describe("SpCleanupService", () => {
 
     it("logs stuck_terminations_detected with the full batch payload only when settleRail itself genuinely reverts (validator stuck)", async () => {
       const dataSet = makeDataSet({ dataSetId: 20n, pdpEndEpoch: 500n, pdpRailId: 999n });
-      vi.mocked(listDataSets).mockResolvedValueOnce([dataSet] as any);
+      vi.mocked(getPdpDataSets).mockResolvedValueOnce([dataSet] as any);
       vi.mocked(getBlockNumber).mockResolvedValueOnce(200000n); // > pdpEndEpoch (strict)
-      vi.mocked(getRail).mockResolvedValueOnce({ settledUpTo: 100n, endEpoch: 500n } as any);
+      mockBatchedReads({ getRail: { settledUpTo: 100n, endEpoch: 500n } });
       vi.mocked(settleRail).mockRejectedValueOnce(
         new ContractFunctionRevertedError({ abi: [], functionName: "settleRail" }),
       );
@@ -824,7 +908,7 @@ describe("SpCleanupService", () => {
         args: [999n],
       } as any);
 
-      await service.runAbandonedDatasetSweep(DEFAULT_NETWORK);
+      await service.runAbandonedDataSetSweep(DEFAULT_NETWORK);
 
       expect(attemptsCounter.inc).toHaveBeenCalledWith({
         network: DEFAULT_NETWORK,
@@ -850,9 +934,9 @@ describe("SpCleanupService", () => {
 
     it("flags a mined-but-reverted settleRail receipt as stuck, not a transient failure", async () => {
       const dataSet = makeDataSet({ dataSetId: 21n, pdpEndEpoch: 500n, pdpRailId: 991n });
-      vi.mocked(listDataSets).mockResolvedValueOnce([dataSet] as any);
+      vi.mocked(getPdpDataSets).mockResolvedValueOnce([dataSet] as any);
       vi.mocked(getBlockNumber).mockResolvedValueOnce(200000n);
-      vi.mocked(getRail).mockResolvedValueOnce({ settledUpTo: 100n, endEpoch: 500n } as any);
+      mockBatchedReads({ getRail: { settledUpTo: 100n, endEpoch: 500n } });
       vi.mocked(settleRail).mockResolvedValueOnce("0xreverted-hash" as any);
       vi.mocked(waitForTransactionReceipt).mockResolvedValueOnce({ status: "reverted" } as any);
       vi.mocked(settleTerminatedRailWithoutValidationCall).mockReturnValueOnce({
@@ -862,7 +946,7 @@ describe("SpCleanupService", () => {
         args: [991n],
       } as any);
 
-      await service.runAbandonedDatasetSweep(DEFAULT_NETWORK);
+      await service.runAbandonedDataSetSweep(DEFAULT_NETWORK);
 
       expect(attemptsCounter.inc).toHaveBeenCalledWith({
         network: DEFAULT_NETWORK,
@@ -880,11 +964,11 @@ describe("SpCleanupService", () => {
 
     it("does not log and resets the gauge to 0 when nothing is stuck", async () => {
       const dataSet = makeDataSet({ dataSetId: 21n, pdpEndEpoch: 500n, pdpRailId: 998n });
-      vi.mocked(listDataSets).mockResolvedValueOnce([dataSet] as any);
+      vi.mocked(getPdpDataSets).mockResolvedValueOnce([dataSet] as any);
       vi.mocked(getBlockNumber).mockResolvedValueOnce(200000n);
-      vi.mocked(getRail).mockResolvedValueOnce({ settledUpTo: 500n, endEpoch: 500n } as any);
+      mockBatchedReads({ getRail: { settledUpTo: 500n, endEpoch: 500n } });
 
-      await service.runAbandonedDatasetSweep(DEFAULT_NETWORK);
+      await service.runAbandonedDataSetSweep(DEFAULT_NETWORK);
 
       expect(stuckGauge.set).toHaveBeenCalledWith({ network: DEFAULT_NETWORK }, 0);
       expect(warnSpy).not.toHaveBeenCalledWith(expect.objectContaining({ event: "stuck_terminations_detected" }));
@@ -892,45 +976,87 @@ describe("SpCleanupService", () => {
 
     it("treats a reverting getRail call as already-finalized and skips it silently (no persistence needed)", async () => {
       const dataSet = makeDataSet({ dataSetId: 22n, pdpEndEpoch: 500n, pdpRailId: 997n });
-      vi.mocked(listDataSets).mockResolvedValueOnce([dataSet] as any);
+      vi.mocked(getPdpDataSets).mockResolvedValueOnce([dataSet] as any);
       vi.mocked(getBlockNumber).mockResolvedValueOnce(200000n);
-      const revertError = new ContractFunctionRevertedError({
-        abi: [],
-        functionName: "getRail",
+      // A finalized rail reverts, which Multicall3 reports as a per-item failure.
+      mockBatchedReads({
+        getRail: new ContractFunctionRevertedError({ abi: [], functionName: "getRail" }),
       });
-      vi.mocked(getRail).mockRejectedValueOnce(revertError);
 
-      await expect(service.runAbandonedDatasetSweep(DEFAULT_NETWORK)).resolves.toBeUndefined();
+      await expect(service.runAbandonedDataSetSweep(DEFAULT_NETWORK)).resolves.toBeUndefined();
 
       expect(stuckGauge.set).toHaveBeenCalledWith({ network: DEFAULT_NETWORK }, 0);
       expect(warnSpy).not.toHaveBeenCalledWith(expect.objectContaining({ event: "stuck_terminations_detected" }));
       expect(warnSpy).not.toHaveBeenCalledWith(expect.objectContaining({ event: "sp_cleanup_get_rail_read_failed" }));
     });
 
-    it("does NOT treat a transient getRail read failure as finalized — logs it distinctly instead of going silent", async () => {
+    it("does NOT treat a transient rail-read failure as finalized — the whole batch fails instead", async () => {
       const dataSet = makeDataSet({ dataSetId: 24n, pdpEndEpoch: 500n, pdpRailId: 994n });
-      vi.mocked(listDataSets).mockResolvedValueOnce([dataSet] as any);
+      vi.mocked(getPdpDataSets).mockResolvedValueOnce([dataSet] as any);
       vi.mocked(getBlockNumber).mockResolvedValueOnce(200000n);
-      vi.mocked(getRail).mockRejectedValueOnce(new Error("fetch failed: RPC timeout"));
+      // A transport failure fails the eth_call itself. Multicall3 only reports a per-item
+      // failure when that specific call reverted on-chain, so "reverted" cannot be produced by
+      // an RPC timeout — the distinction the previous per-rail read had to make by hand.
+      vi.mocked(multicall).mockRejectedValueOnce(new Error("fetch failed: RPC timeout"));
 
-      await expect(service.runAbandonedDatasetSweep(DEFAULT_NETWORK)).resolves.toBeUndefined();
+      await expect(service.runAbandonedDataSetSweep(DEFAULT_NETWORK)).rejects.toThrow("fetch failed");
 
-      // Still excluded from this run's stuck count (can't confirm it's actually stuck), but unlike
-      // the revert case, this must be visible in logs — it's a transient failure, not a resolution.
-      expect(stuckGauge.set).toHaveBeenCalledWith({ network: DEFAULT_NETWORK }, 0);
+      // Never silently recorded as resolved.
+      expect(settleRail).not.toHaveBeenCalled();
+    });
+
+    it("retries with a smaller batch when a multicall exhausts node gas, rather than reading it as all-reverted", async () => {
+      const dataSets = [10n, 11n].map((id) => makeDataSet({ dataSetId: id, pdpEndEpoch: 500n, pdpRailId: 900n + id }));
+      vi.mocked(getPdpDataSets).mockResolvedValueOnce(dataSets as any);
+      vi.mocked(getBlockNumber).mockResolvedValueOnce(200000n);
+
+      // Gas exhaustion marks *every* item failed, which is indistinguishable from "they all
+      // reverted" — and reading it that way would silently skip every rail, every run.
+      const outOfGas = new Error("message execution failed (exit=[SysErrOutOfGas(7)], vm error=...)");
+      vi.mocked(multicall)
+        .mockResolvedValueOnce(dataSets.map(() => ({ status: "failure", error: outOfGas })) as never)
+        .mockResolvedValue([{ status: "success", result: { settledUpTo: 100n, endEpoch: 500n } }] as never);
+      vi.mocked(settleRail).mockResolvedValue("0xsettle" as any);
+      vi.mocked(waitForTransactionReceipt).mockResolvedValue({ status: "success" } as any);
+
+      await service.runAbandonedDataSetSweep(DEFAULT_NETWORK);
+
       expect(warnSpy).toHaveBeenCalledWith(
-        expect.objectContaining({ event: "sp_cleanup_get_rail_read_failed", dataSetId: "24" }),
+        expect.objectContaining({ event: "sp_cleanup_multicall_out_of_gas", batchSize: 2, retryBatchSize: 1 }),
       );
+      // Both rails still get settled after the split — none silently dropped.
+      expect(settleRail).toHaveBeenCalledTimes(2);
+    });
+
+    it("propagates an abort raised during settlement instead of counting it as a failed attempt", async () => {
+      storageProviderRepository.findAllByNetwork.mockResolvedValueOnce([]);
+      vi.mocked(getPdpDataSets).mockResolvedValueOnce([
+        makeDataSet({ dataSetId: 60n, pdpEndEpoch: 100n, pdpRailId: 900n }),
+      ] as any);
+      vi.mocked(getBlockNumber).mockResolvedValueOnce(200n);
+
+      const controller = new AbortController();
+      vi.mocked(multicall).mockImplementationOnce((async () => {
+        controller.abort(new Error("abandoned_data_set_sweep job timeout"));
+        throw new Error("aborted mid-read");
+      }) as never);
+
+      await expect(service.runAbandonedDataSetSweep(DEFAULT_NETWORK, controller.signal)).rejects.toThrow();
+      expect(attemptsCounter.inc).not.toHaveBeenCalled();
     });
 
     it("does not escalate a data set still within its normal lockup (currentBlock <= pdpEndEpoch)", async () => {
       const dataSet = makeDataSet({ dataSetId: 23n, pdpEndEpoch: 500n, pdpRailId: 996n });
-      vi.mocked(listDataSets).mockResolvedValueOnce([dataSet] as any);
+      vi.mocked(getPdpDataSets).mockResolvedValueOnce([dataSet] as any);
       vi.mocked(getBlockNumber).mockResolvedValueOnce(500n); // equal, not strictly greater
 
-      await service.runAbandonedDatasetSweep(DEFAULT_NETWORK);
+      await service.runAbandonedDataSetSweep(DEFAULT_NETWORK);
 
-      expect(getRail).not.toHaveBeenCalled();
+      // Filtered out before the batched rail read is even assembled.
+      expect(multicall).not.toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ contracts: [expect.objectContaining({ functionName: "getRail" })] }),
+      );
       expect(stuckGauge.set).toHaveBeenCalledWith({ network: DEFAULT_NETWORK }, 0);
     });
   });

@@ -352,12 +352,12 @@ const metricProviders = [
   // SP cleanup metrics (docs/runbooks/wallet-and-session-keys.md)
   makeCounterProvider({
     name: "sp_termination_attempts_total",
-    help: "Data-set termination attempts by sp_dataset_pruning / abandoned_dataset_sweep",
+    help: "Data-set termination attempts by sp_data_set_pruning / abandoned_data_set_sweep",
     labelNames: ["network", "outcome", "reason"] as const,
   }),
   makeGaugeProvider({
     name: "sp_termination_stuck_gauge",
-    help: "Current count of terminated data sets whose rail settlement is stuck past endEpoch, recomputed fresh every abandoned_dataset_sweep run",
+    help: "Current count of terminated data sets whose rail settlement is stuck past endEpoch, recomputed fresh every abandoned_data_set_sweep run",
     labelNames: ["network"] as const,
   }),
   // Job scheduler metrics (pg-boss)

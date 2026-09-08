@@ -17,8 +17,8 @@ DealBot uses a Safe multisig wallet with a session key for delegated signing. Th
   * [Depositing and approving via Safe](#depositing-and-approving-via-safe)
   * [Checking account status](#checking-account-status)
 * [Automated SP Cleanup](#automated-sp-cleanup)
-  * [sp_dataset_pruning](#sp_dataset_pruning)
-  * [abandoned_dataset_sweep](#abandoned_dataset_sweep)
+  * [sp_data_set_pruning](#sp_data_set_pruning)
+  * [abandoned_data_set_sweep](#abandoned_data_set_sweep)
   * [Resolving a stuck rail settlement](#resolving-a-stuck-rail-settlement)
   * [Operational prerequisite: session key gas balance](#operational-prerequisite-session-key-gas-balance)
 * [Cleaning Up the Old Wallet](#cleaning-up-the-old-wallet)
@@ -192,7 +192,7 @@ Two global pg-boss jobs (one schedule row per network, not per-SP) keep dealbot'
 leftover data sets that cost money without providing value: blocked/deprioritized SPs (dealbot#681, #689,
 infra#366) and permanently unreachable SPs (dealbot#605). Both are described in `apps/backend/src/sp-cleanup/sp-cleanup.service.ts`.
 
-### `sp_dataset_pruning`
+### `sp_data_set_pruning`
 
 Runs every `<NET>_DATASET_PRUNING_INTERVAL_SECONDS` (default 1 day, see
 [environment-variables.md](../environment-variables.md#net_dataset_pruning_interval_seconds)). For every
@@ -214,7 +214,12 @@ Runs every `<NET>_DATASET_PRUNING_INTERVAL_SECONDS` (default 1 day, see
   slot (the newest N can all belong to one slot) and invert the SDK's preference, terminating the copy in use
   and leaving `data_set_creation` to re-provision the slots it removed, forever.
 
-  Pruning runs on its own global queue rather than the per-provider `SP_WORK_QUEUE`, so it holds no lock
+  Both cleanup jobs share one `sp.cleanup` queue with pg-boss's `singleton` policy and a single
+  per-network key, so they never run at the same time: each walks the whole wallet, and they are
+  seeded on the same schedule tick. Serialising also means the sweep's own listing always reflects
+  pruning's terminations instead of a snapshot taken before them.
+
+  Pruning runs on that queue rather than the per-provider `SP_WORK_QUEUE`, so it holds no lock
   against concurrent deal or lifecycle jobs. Two rules make that safe instead: the slot rule above never
   targets a set a deal job could resolve to, and a lifecycle-check set (tagged `dealbotLifecycleCheck` with the
   creating job's `Date.now()`) is skipped while it is younger than
@@ -226,9 +231,9 @@ Termination uses the same provider-relay path as the data-set lifecycle check (`
 signs an EIP-712 authorization and POSTs it to the SP's own server, which submits the on-chain tx. This only
 works for a **cooperative** SP — a dead/unreachable SP will fail every attempt. That's expected: the job logs
 and counts the failure (`sp_termination_attempts_total{outcome="failure"}`) and moves on to the next data set
-without aborting the batch. Dead SPs are cleaned up by `abandoned_dataset_sweep` instead.
+without aborting the batch. Dead SPs are cleaned up by `abandoned_data_set_sweep` instead.
 
-### `abandoned_dataset_sweep`
+### `abandoned_data_set_sweep`
 
 Runs every `<NET>_ABANDONED_DATASET_SWEEP_INTERVAL_SECONDS` (default 1 day). Stateless and network-wide — scans
 dealbot's entire wallet, not scoped to the blocklist. For each data set:
@@ -266,14 +271,14 @@ rule thresholds on to page a human; the log is the payload you retrieve *after* 
 ### Operational prerequisite: session key gas balance
 
 Unlike the provider-relay path (where the SP's server pays gas for the on-chain tx it submits),
-`abandoned_dataset_sweep`'s direct `deleteDataSet` calls are signed and broadcast by dealbot's own session key,
+`abandoned_data_set_sweep`'s direct `deleteDataSet` calls are signed and broadcast by dealbot's own session key,
 which pays its own gas in native FIL/tFIL.
 
 The existing `wallet_balance{currency="FIL"}` Prometheus gauge (see
 `apps/backend/src/metrics-prometheus/wallet-balance.collector.ts`) already covers this: `paymentsService.walletBalance()`
 queries `this._client.account.address` — in session-key mode that *is* the session key, not the multisig (the
 multisig's FilecoinPay balance is the separate `accountInfo()` call, surfaced as `wallet_balance{currency="USDFC"}`).
-If the session key's wallet runs dry, `abandoned_dataset_sweep`'s writes will fail with an
+If the session key's wallet runs dry, `abandoned_data_set_sweep`'s writes will fail with an
 out-of-gas/insufficient-funds error (logged and counted as
 `sp_termination_attempts_total{reason="abandonment",outcome="failure"}`, retried next sweep) until it's topped up —
 watch the existing `wallet_balance{currency="FIL"}` gauge and top it up with a small amount of FIL/tFIL as needed.
