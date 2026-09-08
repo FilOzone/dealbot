@@ -28,7 +28,7 @@ export function buildMigrations(database: string): string[] {
     pieces_added_at             Nullable(DateTime64(3, 'UTC')),  -- when piecesAdded event fired
     pieces_confirmed_at         Nullable(DateTime64(3, 'UTC')),  -- when piecesConfirmed event fired
 
-    ipni_status                 LowCardinality(Nullable(String)), -- 'pending' | 'sp_indexed' | 'sp_advertised' | 'verified' | 'failed'
+    ipni_status                 LowCardinality(Nullable(String)), -- 'pending' | 'sp_indexed' | 'sp_advertised' | 'sp_synced' | 'verified' | 'failed'
     ipni_indexed_at             Nullable(DateTime64(3, 'UTC')),   -- when dealbot first observed SP_INDEXED (accuracy limited to poll interval)
     ipni_advertised_at          Nullable(DateTime64(3, 'UTC')),   -- when dealbot first observed SP_ADVERTISED (accuracy limited to poll interval)
     ipni_verified_at            Nullable(DateTime64(3, 'UTC')),   -- when dealbot confirmed root CID findable via IPNI
@@ -112,6 +112,9 @@ export function buildMigrations(database: string): string[] {
         ADD COLUMN IF NOT EXISTS \`retrieval_checks.first_byte_ms\`      Array(Nullable(Float64)),
         ADD COLUMN IF NOT EXISTS \`retrieval_checks.last_byte_ms\`       Array(Nullable(Float64)),
         ADD COLUMN IF NOT EXISTS \`retrieval_checks.bytes_retrieved\`    Array(Nullable(UInt64))`,
+
+    `ALTER TABLE ${database}.data_storage_checks
+        ADD COLUMN IF NOT EXISTS ipni_synced_at Nullable(DateTime64(3, 'UTC'))`,
 
     // The check was renamed anon_retrieval -> sampled_retrieval. This table is created
     // unconditionally on startup, so rename it in place instead of leaving it orphaned

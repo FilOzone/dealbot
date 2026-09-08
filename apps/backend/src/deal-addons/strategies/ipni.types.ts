@@ -17,6 +17,8 @@ export interface PieceStatusResponse {
   advertisedAt?: string | null;
   adCreated?: boolean;
   adCreatedAt?: string | null;
+  synced?: boolean;
+  syncedAt?: string | null;
   retrieved?: boolean;
   retrievedAt?: string | null;
 }
@@ -30,6 +32,8 @@ const pieceStatusResponseSchema = Joi.object({
   advertisedAt: Joi.string().allow(null).optional(),
   adCreated: Joi.boolean().optional(),
   adCreatedAt: Joi.string().allow(null).optional(),
+  synced: Joi.boolean().optional(),
+  syncedAt: Joi.string().allow(null).optional(),
   retrieved: Joi.boolean().optional(),
   retrievedAt: Joi.string().allow(null).optional(),
 })
@@ -67,12 +71,16 @@ export interface PieceStatus {
   status: string;
   indexed: boolean;
   advertised: boolean;
+  synced: boolean;
   indexedAt: string | null;
   advertisedAt: string | null;
+  syncedAt: string | null;
   indexedAtProvider?: string | null;
   advertisedAtProvider?: string | null;
+  syncedAtProvider?: string | null;
   indexedObservedAt?: string | null;
   advertisedObservedAt?: string | null;
+  syncedObservedAt?: string | null;
 }
 
 /**
@@ -139,9 +147,5 @@ export interface SingleCIDVerificationResult {
 export interface MonitorAndVerifyResult {
   monitoringResult: PieceMonitoringResult;
   ipniResult: IPNIVerificationResult;
-  /** null when cid.contact check was skipped because filecoinpin.contact did not verify */
-  cidContactResult: IPNIVerificationResult | null;
-  /** the actual timeout budget given to the cid.contact check (remaining after filecoinpin.contact) */
-  cidContactTimeoutMs: number | null;
   skipped?: boolean;
 }
