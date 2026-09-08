@@ -919,6 +919,58 @@ describe("JobsService schedule rows", () => {
     });
   });
 
+  it("aborts a cleanup handler when pg-boss aborts the job", async () => {
+    service = buildService({});
+
+    // pg-boss aborts job.signal when a job outlives its expiration and on graceful shutdown,
+    // and fails the job either way; a handler that ignores it keeps running regardless.
+    const bossAbort = new AbortController();
+    let observed: AbortSignal | undefined;
+    spCleanupServiceMock.runDatasetPruning.mockImplementation(async (_network: string, signal: AbortSignal) => {
+      observed = signal;
+    });
+
+    await callPrivate(service, "handleSpDatasetPruningJob", {
+      id: "job-1",
+      data: { network: DEFAULT_NETWORK, intervalSeconds: 3600 },
+      signal: bossAbort.signal,
+    });
+
+    expect(observed).toBeDefined();
+    expect(observed?.aborted).toBe(false);
+    bossAbort.abort(new Error("pg-boss expired the job"));
+    expect(observed?.aborted).toBe(true);
+  });
+
+  it("cleanup jobs get an expiration that outlasts their own timeout", async () => {
+    service = buildService({});
+
+    const send = vi.fn();
+    (service as unknown as { boss: { send: typeof send } }).boss = { send };
+
+    const now = new Date("2024-01-01T00:01:00Z");
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
+
+    jobScheduleRepositoryMock.findDueSchedulesWithManager.mockResolvedValueOnce([
+      {
+        id: 12,
+        job_type: "sp_dataset_pruning",
+        sp_address: "",
+        network: DEFAULT_NETWORK,
+        interval_seconds: 3600,
+        next_run_at: "2024-01-01T00:00:00Z",
+      },
+    ]);
+
+    await callPrivate(service, "enqueueDueJobs", DEFAULT_NETWORK);
+
+    // pg-boss expires jobs after 15 minutes by default and fails them, which is well short of
+    // the 1200s cleanup timeout. The handler's own AbortController has to win that race.
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send.mock.calls[0][2]).toMatchObject({ expireInSeconds: 1320 });
+  });
+
   it("global jobs are skipped during maintenance windows", async () => {
     baseConfigValues = {
       ...baseConfigValues,
@@ -1956,10 +2008,11 @@ describe("JobsService schedule rows", () => {
       await shutdownPromise;
 
       // Defaults: deal=360, retrieval=60, sampledRetrieval=360, dataSetCreation=300,
-      // dataSetLifecycleCheck=600, pullCheck=300, spCleanup=1200 → max=1200 → +60s buffer
+      // dataSetLifecycleCheck=600, pullCheck=300, spCleanup=1200 → max=1200 → +120s buffer,
+      // matching the slack the cleanup jobs get on their pg-boss expiration.
 
       expect(bossMock.stop).toHaveBeenCalledTimes(1);
-      expect(bossMock.stop).toHaveBeenCalledWith({ graceful: true, timeout: 1_260_000 });
+      expect(bossMock.stop).toHaveBeenCalledWith({ graceful: true, timeout: 1_320_000 });
     });
 
     it("picks the longest timeout across all job types, including pullCheck under pullPiece", async () => {
@@ -1987,8 +2040,8 @@ describe("JobsService schedule rows", () => {
       await vi.advanceTimersByTimeAsync(35_001);
       await shutdownPromise;
 
-      // pullCheck wins at 600s (spCleanup lowered to 60s for this case), plus 60s buffer
-      expect(bossMock.stop).toHaveBeenCalledWith({ graceful: true, timeout: 660_000 });
+      // pullCheck wins at 600s (spCleanup lowered to 60s for this case), plus the 120s buffer
+      expect(bossMock.stop).toHaveBeenCalledWith({ graceful: true, timeout: 720_000 });
     });
 
     it("holds the process for SHUTDOWN_FINAL_SCRAPE_DELAY_SECONDS after drain", async () => {

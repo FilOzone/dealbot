@@ -29,6 +29,10 @@ vi.mock("@filoz/synapse-core/utils", () => ({
   toReadClient: vi.fn((client: unknown) => client),
 }));
 
+vi.mock("@filoz/synapse-core/warm-storage", () => ({
+  getDataSet: vi.fn(),
+}));
+
 vi.mock("viem/actions", () => ({
   getBlockNumber: vi.fn(),
   readContract: vi.fn(),
@@ -55,6 +59,7 @@ const { listDataSets } = await import("filecoin-pin/core/data-set");
 const { terminateServiceSync } = await import("../data-set-lifecycle/data-set-lifecycle.service.js");
 const { getRail, settleRail, settleTerminatedRailWithoutValidationCall } = await import("@filoz/synapse-core/pay");
 const { asChain } = await import("@filoz/synapse-core/chains");
+const { getDataSet } = await import("@filoz/synapse-core/warm-storage");
 const { getBlockNumber, readContract, simulateContract, writeContract, waitForTransactionReceipt } = await import(
   "viem/actions"
 );
@@ -73,6 +78,7 @@ function makeNetworkConfig(overrides: Partial<INetworkConfig> = {}): INetworkCon
     useOnlyApprovedProviders: false,
     minNumDataSetsForChecks: 15,
     excessDatasetBuffer: 5,
+    dataSetLifecycleCheckJobTimeoutSeconds: 600,
     ...overrides,
   } as unknown as INetworkConfig;
 }
@@ -89,6 +95,15 @@ function makeProvider(overrides: Record<string, unknown> = {}) {
   };
 }
 
+/**
+ * Metadata `provisionNextMissingDataSet` would give slot `index`: slot 0 is the baseline,
+ * slots 1+ add the `dealbotDS` tag. Pruning keeps one live set per slot, so tests have to
+ * tag their fixtures the way the creation handler really does.
+ */
+function slotMeta(index: number): Record<string, string> {
+  return { withIPFSIndexing: "", ...(index > 0 ? { dealbotDS: String(index) } : {}) };
+}
+
 function makeDataSet(overrides: Record<string, unknown> = {}) {
   return {
     dataSetId: 1n,
@@ -96,7 +111,8 @@ function makeDataSet(overrides: Record<string, unknown> = {}) {
     pdpEndEpoch: 0n,
     pdpRailId: 100n,
     providerId: 1n,
-    metadata: {},
+    metadata: slotMeta(0),
+    activePieceCount: 0n,
     ...overrides,
   };
 }
@@ -114,7 +130,7 @@ describe("SpCleanupService", () => {
   let configService: { get: ReturnType<typeof vi.fn> };
   let walletSdkService: {
     tryGetSynapse: ReturnType<typeof vi.fn>;
-    getSynapseClient: ReturnType<typeof vi.fn>;
+    tryGetSynapseClient: ReturnType<typeof vi.fn>;
   };
   let storageProviderRepository: {
     findAllByNetwork: ReturnType<typeof vi.fn>;
@@ -142,7 +158,7 @@ describe("SpCleanupService", () => {
 
     walletSdkService = {
       tryGetSynapse: vi.fn(() => ({ client: { chain: fakeChain }, sessionClient: undefined })),
-      getSynapseClient: vi.fn(() => ({ chain: fakeChain, account: { address: "0xsession" } })),
+      tryGetSynapseClient: vi.fn(() => ({ chain: fakeChain, account: { address: "0xsession" } })),
     };
 
     storageProviderRepository = {
@@ -164,6 +180,9 @@ describe("SpCleanupService", () => {
 
     vi.mocked(asChain).mockReturnValue(fakeChain as any);
     vi.mocked(terminateServiceSync).mockResolvedValue({} as any);
+    // Pruning re-reads each planned data set right before terminating it; by default it is
+    // still active, so the plan is carried out as computed.
+    vi.mocked(getDataSet).mockResolvedValue({ pdpEndEpoch: 0n } as any);
   });
 
   afterEach(() => {
@@ -206,24 +225,30 @@ describe("SpCleanupService", () => {
         makeProvider({ id: 2n, serviceProvider: trickleAddress, name: "Trickle SP", isApproved: false }),
       ]);
 
-      // trickle target=1, buffer=5 (default fixture) -> need > 6 active to trigger a prune.
+      // trickle target=1 -> one baseline slot survives; buffer=5 (default fixture) means the
+      // remaining 7 surplus copies have to exceed 5 before anything is pruned.
       const dataSets = [1n, 2n, 3n, 4n, 5n, 6n, 7n, 8n].map((id) =>
-        makeDataSet({ dataSetId: id, serviceProvider: trickleAddress }),
+        makeDataSet({ dataSetId: id, serviceProvider: trickleAddress, metadata: slotMeta(0) }),
       );
       vi.mocked(listDataSets).mockResolvedValueOnce(dataSets as any);
 
       await service.runDatasetPruning(DEFAULT_NETWORK);
 
-      // trickleTierRates.minNumDataSetsForChecks is kept; the rest (oldest first) are terminated.
+      // One set per required slot survives; every other copy is surplus.
       const expectedTerminated = dataSets.length - trickleTierRates.minNumDataSetsForChecks;
       expect(terminateServiceSync).toHaveBeenCalledTimes(expectedTerminated);
+      // The SDK resolves this slot to the lowest data-set id, so that is the one kept.
+      expect(terminateServiceSync).not.toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ dataSetId: 1n }),
+      );
       expect(attemptsCounter.inc).toHaveBeenCalledTimes(expectedTerminated);
       for (const call of vi.mocked(attemptsCounter.inc).mock.calls) {
         expect(call[0]).toMatchObject({ reason: "trickle" });
       }
     });
 
-    it("terminates a leaked lifecycle-check data set before an older real slot, even though it's newer", async () => {
+    it("terminates a leaked lifecycle-check data set and keeps the real slot, even though the leak is newer", async () => {
       const networkConfig = makeNetworkConfig({ excessDatasetBuffer: 0 });
       configService.get.mockImplementation((key: string) =>
         key === "networks" ? { [DEFAULT_NETWORK]: networkConfig } : undefined,
@@ -233,12 +258,13 @@ describe("SpCleanupService", () => {
         makeProvider({ id: 6n, serviceProvider: trickleAddress, isApproved: false }),
       ]);
 
-      // target=1, buffer=0 -> 2 active exceeds 1, prune 1. Naive oldest-first would keep the
-      // newer leaked set (id 10) and terminate the older real slot (id 5) — wrong way round.
-      const realSlot = makeDataSet({ dataSetId: 5n, serviceProvider: trickleAddress, metadata: {} });
+      // Naive newest-first retention would keep the leaked set (id 10) and terminate the
+      // baseline slot (id 5) — exactly backwards.
+      const realSlot = makeDataSet({ dataSetId: 5n, serviceProvider: trickleAddress, metadata: slotMeta(0) });
       const leakedSet = makeDataSet({
         dataSetId: 10n,
         serviceProvider: trickleAddress,
+        // Tagged long enough ago that no lifecycle-check job could still be using it.
         metadata: { dealbotLifecycleCheck: "1234567890" },
       });
       vi.mocked(listDataSets).mockResolvedValueOnce([realSlot, leakedSet] as any);
@@ -247,6 +273,31 @@ describe("SpCleanupService", () => {
 
       expect(terminateServiceSync).toHaveBeenCalledTimes(1);
       expect(terminateServiceSync).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ dataSetId: 10n }));
+    });
+
+    it("spares a lifecycle-check data set young enough that its job could still be running", async () => {
+      const networkConfig = makeNetworkConfig({ excessDatasetBuffer: 0, dataSetLifecycleCheckJobTimeoutSeconds: 600 });
+      configService.get.mockImplementation((key: string) =>
+        key === "networks" ? { [DEFAULT_NETWORK]: networkConfig } : undefined,
+      );
+      const trickleAddress = "0xtrickle000000000000000000000000000000003";
+      storageProviderRepository.findAllByNetwork.mockResolvedValueOnce([
+        makeProvider({ id: 7n, serviceProvider: trickleAddress, isApproved: false }),
+      ]);
+
+      // Pruning shares no per-provider lock with SP_WORK_QUEUE, so a set tagged one minute ago
+      // may belong to a lifecycle check running right now. It is left for the next run.
+      const realSlot = makeDataSet({ dataSetId: 5n, serviceProvider: trickleAddress, metadata: slotMeta(0) });
+      const inFlight = makeDataSet({
+        dataSetId: 11n,
+        serviceProvider: trickleAddress,
+        metadata: { dealbotLifecycleCheck: String(Date.now() - 60_000) },
+      });
+      vi.mocked(listDataSets).mockResolvedValueOnce([realSlot, inFlight] as any);
+
+      await service.runDatasetPruning(DEFAULT_NETWORK);
+
+      expect(terminateServiceSync).not.toHaveBeenCalled();
     });
 
     it("leaves a full-rate SP within its target untouched", async () => {
@@ -265,38 +316,45 @@ describe("SpCleanupService", () => {
       expect(terminateServiceSync).not.toHaveBeenCalled();
     });
 
-    it("leaves a full-rate SP alone when it's over target but still within the excess buffer", async () => {
-      // target=15 (default fixture), buffer=5 -> 19 active is <= 15+5, no prune.
+    it("leaves a full-rate SP alone while its surplus is still within the excess buffer", async () => {
+      // target=15 (default fixture): 15 slots claim one set each, leaving 4 surplus <= buffer 5.
       const fullRateAddress = "0xfullrate00000000000000000000000000000002";
       storageProviderRepository.findAllByNetwork.mockResolvedValueOnce([
         makeProvider({ id: 4n, serviceProvider: fullRateAddress, isApproved: true }),
       ]);
-      const dataSets = Array.from({ length: 19 }, (_, i) =>
-        makeDataSet({ dataSetId: BigInt(i + 1), serviceProvider: fullRateAddress }),
+      const slots = Array.from({ length: 15 }, (_, i) =>
+        makeDataSet({ dataSetId: BigInt(i + 1), serviceProvider: fullRateAddress, metadata: slotMeta(i) }),
       );
-      vi.mocked(listDataSets).mockResolvedValueOnce(dataSets as any);
+      const surplus = Array.from({ length: 4 }, (_, i) =>
+        makeDataSet({ dataSetId: BigInt(100 + i), serviceProvider: fullRateAddress, metadata: slotMeta(1) }),
+      );
+      vi.mocked(listDataSets).mockResolvedValueOnce([...slots, ...surplus] as any);
 
       await service.runDatasetPruning(DEFAULT_NETWORK);
 
       expect(terminateServiceSync).not.toHaveBeenCalled();
     });
 
-    it("prunes a full-rate SP back to target once it exceeds target + buffer — safety net independent of root cause", async () => {
-      // target=15, buffer=5 -> 21 active exceeds 20, prunes the oldest 6 down to 15.
+    it("prunes a full-rate SP's surplus once it exceeds the buffer — safety net independent of root cause", async () => {
+      // target=15, buffer=5: 15 slots survive, and the 6 duplicate copies exceed the buffer.
       const fullRateAddress = "0xfullrate00000000000000000000000000000003";
       storageProviderRepository.findAllByNetwork.mockResolvedValueOnce([
         makeProvider({ id: 5n, serviceProvider: fullRateAddress, isApproved: true }),
       ]);
-      const dataSets = Array.from({ length: 21 }, (_, i) =>
-        makeDataSet({ dataSetId: BigInt(i + 1), serviceProvider: fullRateAddress }),
+      const slots = Array.from({ length: 15 }, (_, i) =>
+        makeDataSet({ dataSetId: BigInt(i + 1), serviceProvider: fullRateAddress, metadata: slotMeta(i) }),
       );
-      vi.mocked(listDataSets).mockResolvedValueOnce(dataSets as any);
+      const duplicateIds = [101n, 102n, 103n, 104n, 105n, 106n];
+      const duplicates = duplicateIds.map((id) =>
+        makeDataSet({ dataSetId: id, serviceProvider: fullRateAddress, metadata: slotMeta(1) }),
+      );
+      vi.mocked(listDataSets).mockResolvedValueOnce([...slots, ...duplicates] as any);
 
       await service.runDatasetPruning(DEFAULT_NETWORK);
 
       expect(terminateServiceSync).toHaveBeenCalledTimes(6);
-      // Oldest (lowest dataSetId) 6 are terminated, keeping the newest 15.
-      for (const id of [1n, 2n, 3n, 4n, 5n, 6n]) {
+      // Only the duplicate copies go; every slot keeps the set the SDK resolves it to.
+      for (const id of duplicateIds) {
         expect(terminateServiceSync).toHaveBeenCalledWith(
           expect.anything(),
           expect.objectContaining({ dataSetId: id }),
@@ -308,6 +366,81 @@ describe("SpCleanupService", () => {
         reason: "full_rate",
       });
       expect(attemptsCounter.inc).toHaveBeenCalledTimes(6);
+    });
+
+    it("keeps one set per required slot instead of the newest N — the newest can all be one slot", async () => {
+      // The regression this guards: with target=3, the three newest sets all belong to slot 1.
+      // Age-based retention would keep those and terminate the only baseline and slot-2 copies,
+      // which data_set_creation then re-provisions, looping forever.
+      const networkConfig = makeNetworkConfig({ minNumDataSetsForChecks: 3, excessDatasetBuffer: 0 });
+      configService.get.mockImplementation((key: string) =>
+        key === "networks" ? { [DEFAULT_NETWORK]: networkConfig } : undefined,
+      );
+      const fullRateAddress = "0xfullrate00000000000000000000000000000004";
+      storageProviderRepository.findAllByNetwork.mockResolvedValueOnce([
+        makeProvider({ id: 8n, serviceProvider: fullRateAddress, isApproved: true }),
+      ]);
+      vi.mocked(listDataSets).mockResolvedValueOnce([
+        makeDataSet({ dataSetId: 10n, serviceProvider: fullRateAddress, metadata: slotMeta(0) }),
+        makeDataSet({ dataSetId: 11n, serviceProvider: fullRateAddress, metadata: slotMeta(2) }),
+        makeDataSet({ dataSetId: 20n, serviceProvider: fullRateAddress, metadata: slotMeta(1) }),
+        makeDataSet({ dataSetId: 21n, serviceProvider: fullRateAddress, metadata: slotMeta(1) }),
+        makeDataSet({ dataSetId: 22n, serviceProvider: fullRateAddress, metadata: slotMeta(1) }),
+      ] as any);
+
+      await service.runDatasetPruning(DEFAULT_NETWORK);
+
+      // Baseline (10), slot 2 (11) and slot 1's lowest id (20) survive; the extra slot-1 copies go.
+      expect(terminateServiceSync).toHaveBeenCalledTimes(2);
+      for (const id of [21n, 22n]) {
+        expect(terminateServiceSync).toHaveBeenCalledWith(
+          expect.anything(),
+          expect.objectContaining({ dataSetId: id }),
+        );
+      }
+    });
+
+    it("keeps the copy holding pieces when a slot has several, matching the SDK's own resolution", async () => {
+      const networkConfig = makeNetworkConfig({ minNumDataSetsForChecks: 1, excessDatasetBuffer: 0 });
+      configService.get.mockImplementation((key: string) =>
+        key === "networks" ? { [DEFAULT_NETWORK]: networkConfig } : undefined,
+      );
+      const fullRateAddress = "0xfullrate00000000000000000000000000000005";
+      storageProviderRepository.findAllByNetwork.mockResolvedValueOnce([
+        makeProvider({ id: 9n, serviceProvider: fullRateAddress, isApproved: true }),
+      ]);
+      vi.mocked(listDataSets).mockResolvedValueOnce([
+        makeDataSet({ dataSetId: 30n, serviceProvider: fullRateAddress, metadata: slotMeta(0), activePieceCount: 0n }),
+        makeDataSet({ dataSetId: 31n, serviceProvider: fullRateAddress, metadata: slotMeta(0), activePieceCount: 4n }),
+      ] as any);
+
+      await service.runDatasetPruning(DEFAULT_NETWORK);
+
+      // createContext prefers the lowest-id set that still holds pieces, so 31 is the live one.
+      expect(terminateServiceSync).toHaveBeenCalledTimes(1);
+      expect(terminateServiceSync).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ dataSetId: 30n }));
+    });
+
+    it("skips a planned data set that another job already terminated before the relay call", async () => {
+      const networkConfig = makeNetworkConfig({ minNumDataSetsForChecks: 1, excessDatasetBuffer: 0 });
+      configService.get.mockImplementation((key: string) =>
+        key === "networks" ? { [DEFAULT_NETWORK]: networkConfig } : undefined,
+      );
+      const fullRateAddress = "0xfullrate00000000000000000000000000000006";
+      storageProviderRepository.findAllByNetwork.mockResolvedValueOnce([
+        makeProvider({ id: 10n, serviceProvider: fullRateAddress, isApproved: true }),
+      ]);
+      vi.mocked(listDataSets).mockResolvedValueOnce([
+        makeDataSet({ dataSetId: 40n, serviceProvider: fullRateAddress, metadata: slotMeta(0) }),
+        makeDataSet({ dataSetId: 41n, serviceProvider: fullRateAddress, metadata: slotMeta(0) }),
+      ] as any);
+      // The snapshot said 41 was active; by the time pruning reaches it, it is terminated.
+      vi.mocked(getDataSet).mockResolvedValueOnce({ pdpEndEpoch: 123n } as any);
+
+      await service.runDatasetPruning(DEFAULT_NETWORK);
+
+      expect(terminateServiceSync).not.toHaveBeenCalled();
+      expect(attemptsCounter.inc).not.toHaveBeenCalled();
     });
 
     it("fetches the wallet's data sets exactly once regardless of how many blocked/trickle SPs there are", async () => {

@@ -200,11 +200,27 @@ Runs every `<NET>_DATASET_PRUNING_INTERVAL_SECONDS` (default 1 day, see
 
 - For each blocked SP (`<NET>_BLOCKED_SP_IDS` / `<NET>_BLOCKED_SP_ADDRESSES`): terminates every active dealbot
   data set down to 0.
-- For every other SP — trickle-tier and full-rate alike — terminates the excess once the active count exceeds
-  its tier's target (`trickleTierRates.minNumDataSetsForChecks` or `<NET>_MIN_NUM_DATASETS_FOR_CHECKS`) by more
-  than `<NET>_EXCESS_DATASET_BUFFER` (default 5). This is a safety net independent of *why* a provider
-  over-accumulated (e.g. a data-set-reuse bug in `provisionNextMissingDataSet`) — it caps the damage without
-  needing that root cause fixed first.
+- For every other SP — trickle-tier and full-rate alike — keeps one live data set per **provisioning slot** its
+  tier requires (`trickleTierRates.minNumDataSetsForChecks` or `<NET>_MIN_NUM_DATASETS_FOR_CHECKS` slots: the
+  baseline set plus the `dealbotDS`-tagged ones `provisionNextMissingDataSet` creates), and terminates the
+  surplus once it exceeds `<NET>_EXCESS_DATASET_BUFFER` (default 5). This is a safety net independent of *why*
+  a provider over-accumulated (e.g. a data-set-reuse bug in `provisionNextMissingDataSet`) — it caps the damage
+  without needing that root cause fixed first.
+
+  Survivors are picked by slot metadata, never by age. Which set a deal job resolves a slot to is decided by
+  `StorageContext.resolveByProviderId` in the Synapse SDK — exact metadata match, then the lowest data-set id
+  that still holds pieces (or simply the lowest id if none do) — and pruning applies that same rule so it keeps
+  exactly the set deal jobs use. Retaining the *newest* N instead would both fail to guarantee a live set per
+  slot (the newest N can all belong to one slot) and invert the SDK's preference, terminating the copy in use
+  and leaving `data_set_creation` to re-provision the slots it removed, forever.
+
+  Pruning runs on its own global queue rather than the per-provider `SP_WORK_QUEUE`, so it holds no lock
+  against concurrent deal or lifecycle jobs. Two rules make that safe instead: the slot rule above never
+  targets a set a deal job could resolve to, and a lifecycle-check set (tagged `dealbotLifecycleCheck` with the
+  creating job's `Date.now()`) is skipped while it is younger than
+  `<NET>_DATA_SET_LIFECYCLE_CHECK_JOB_TIMEOUT_SECONDS` — past that its creating job has certainly been aborted,
+  so the set is leaked. Each set is also re-read on-chain immediately before its terminate call, so one already
+  removed by another job is skipped rather than double-terminated.
 
 Termination uses the same provider-relay path as the data-set lifecycle check (`terminateServiceSync`): dealbot
 signs an EIP-712 authorization and POSTs it to the SP's own server, which submits the on-chain tx. This only

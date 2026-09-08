@@ -1,4 +1,5 @@
 import type { Logger } from "@nestjs/common";
+import { slotMetadata } from "../common/data-set-slots.js";
 import type { DataSetLogContext, ProviderJobContext } from "../common/logging.js";
 import { Network } from "../common/types.js";
 import type { DealService } from "../deal/deal.service.js";
@@ -36,10 +37,7 @@ export async function provisionNextMissingDataSet(
   for (let i = 0; i < minDataSets; i++) {
     signal?.throwIfAborted();
 
-    const metadata: Record<string, string> = {
-      ...baseDataSetMetadata,
-      ...(i > 0 ? { dealbotDS: String(i) } : {}),
-    };
+    const metadata: Record<string, string> = slotMetadata(baseDataSetMetadata, i);
 
     const logContext: DataSetLogContext = {
       ...dataSetLogContext,

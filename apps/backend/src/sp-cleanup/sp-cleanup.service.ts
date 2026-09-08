@@ -1,6 +1,7 @@
 import { asChain } from "@filoz/synapse-core/chains";
 import { getRail, settleRail, settleTerminatedRailWithoutValidationCall } from "@filoz/synapse-core/pay";
 import { toReadClient } from "@filoz/synapse-core/utils";
+import { getDataSet } from "@filoz/synapse-core/warm-storage";
 import type { Synapse } from "@filoz/synapse-sdk";
 import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
@@ -12,6 +13,7 @@ import { ContractFunctionRevertedError, encodeFunctionData, keccak256, stringToB
 import { getBlockNumber, readContract, simulateContract, waitForTransactionReceipt, writeContract } from "viem/actions";
 import { awaitWithAbort } from "../common/abort-utils.js";
 import { LIFECYCLE_CHECK_METADATA_KEY } from "../common/constants.js";
+import { getBaseDataSetMetadata, metadataMatchesExactly, slotMetadata } from "../common/data-set-slots.js";
 import { toStructuredError } from "../common/logging.js";
 import { isSpBlocked } from "../common/sp-blocklist.js";
 import { isFullRateTier } from "../common/sp-tier.js";
@@ -70,7 +72,19 @@ export class SpCleanupService {
   }
 
   private async getSynapse(network: Network): Promise<Synapse> {
-    return this.walletSdkService.tryGetSynapse(network) ?? (await this.createSynapseInstance(network));
+    const existing = this.walletSdkService.tryGetSynapse(network);
+    if (existing) return existing;
+    try {
+      return await this.createSynapseInstance(network);
+    } catch (error) {
+      this.logger.error({
+        network,
+        event: "synapse_init_failed",
+        message: "Failed to create Synapse instance for SP cleanup",
+        error: toStructuredError(error),
+      });
+      throw error;
+    }
   }
 
   private recordAttempt(network: Network, reason: TerminationReason, outcome: TerminationOutcome): void {
@@ -84,15 +98,17 @@ export class SpCleanupService {
    * belonging to dealbot's wallet via the provider-relay path (target: 0, no
    * buffer — any leftover active data set for a blocked SP is unwanted).
    *
-   * For every other (non-blocked) SP — trickle-tier AND full-rate alike —
-   * prunes down to that tier's target (`trickleTierRates.minNumDataSetsForChecks`
-   * or `networkCfg.minNumDataSetsForChecks`) whenever the active count exceeds
-   * target + `excessDatasetBuffer`. This is a safety net independent of *why*
-   * a provider over-accumulated (e.g. a data-set-reuse bug in
+   * For every other (non-blocked) SP — trickle-tier AND full-rate alike — keeps
+   * one live data set for each provisioning slot that tier requires
+   * (`trickleTierRates.minNumDataSetsForChecks` or
+   * `networkCfg.minNumDataSetsForChecks`) and terminates the surplus once it
+   * exceeds `excessDatasetBuffer`. This is a safety net independent of *why* a
+   * provider over-accumulated (e.g. a data-set-reuse bug in
    * `provisionNextMissingDataSet`) — it caps the damage without needing that
    * root cause fixed first. The buffer absorbs routine create/replace churn
    * (`provisionNextMissingDataSet` creates at most one data set per tick) so
-   * pruning doesn't fight normal slot replacement.
+   * pruning doesn't fight normal slot replacement. See `terminateExcessDataSets`
+   * for why survivors are chosen by slot rather than by age.
    *
    * Runs strictly serially; a per-attempt failure is caught, logged, and
    * counted — never aborts the batch, since a dead/unreachable SP is expected
@@ -101,7 +117,7 @@ export class SpCleanupService {
   async runDatasetPruning(network: Network, signal?: AbortSignal): Promise<void> {
     const networkCfg = this.getNetworkConfig(network);
     const synapse = await this.getSynapse(network);
-    const relayClient = (this.walletSdkService.getSynapseClient(network) ??
+    const relayClient = (this.walletSdkService.tryGetSynapseClient(network) ??
       synapse.sessionClient ??
       synapse.client) as SynapseViemClient;
 
@@ -122,6 +138,10 @@ export class SpCleanupService {
     }
 
     const allProviders = await this.storageProviderRepository.findAllByNetwork(network);
+    const baseDataSetMetadata = getBaseDataSetMetadata(networkCfg);
+    // A lifecycle check cannot outlive its own job timeout, so a tagged set older than that
+    // is leaked rather than in use. See `isLifecycleCheckSetInFlight`.
+    const lifecycleGraceMs = Math.max(60000, networkCfg.dataSetLifecycleCheckJobTimeoutSeconds * 1000);
     const blockedProviders = allProviders.filter((provider) =>
       isSpBlocked(networkCfg, provider.serviceProvider, provider.id),
     );
@@ -129,7 +149,18 @@ export class SpCleanupService {
     for (const provider of blockedProviders) {
       signal?.throwIfAborted();
       const activeDataSets = activeByProvider.get(provider.serviceProvider.toLowerCase()) ?? [];
-      await this.terminateExcessDataSets(relayClient, network, provider, activeDataSets, 0, 0, "blocked", signal);
+      await this.terminateExcessDataSets(
+        relayClient,
+        network,
+        provider,
+        activeDataSets,
+        baseDataSetMetadata,
+        0,
+        0,
+        lifecycleGraceMs,
+        "blocked",
+        signal,
+      );
     }
 
     // Deliberately not scoped to findActiveAddresses (registry-active, optionally approved-only)
@@ -150,8 +181,10 @@ export class SpCleanupService {
         network,
         provider,
         activeDataSets,
+        baseDataSetMetadata,
         target,
         buffer,
+        lifecycleGraceMs,
         isFullRate ? "full_rate" : "trickle",
         signal,
       );
@@ -159,41 +192,109 @@ export class SpCleanupService {
   }
 
   /**
-   * Terminates the oldest of `activeDataSets` down to `targetCount`, one at a time via the
-   * provider-relay path (mirrors `terminateServiceSync` in data-set-lifecycle.service.ts — the
-   * only path dealbot's session key can use for a cooperative SP; see #546 for why the direct
-   * 1-arg path is unusable). Only triggers once the count exceeds `targetCount + buffer`, but
-   * once triggered prunes all the way back to `targetCount` (the buffer is a trigger threshold,
-   * not a permanent floor).
+   * Picks the data set a deal job would resolve `slotMetadata` to, mirroring
+   * `StorageContext.resolveByProviderId` in @filoz/synapse-sdk: among the exactly-matching
+   * sets, lowest data-set id that still holds pieces; if none holds pieces, simply the
+   * lowest id. Pruning has to agree with the SDK here — keeping any other copy would
+   * terminate the one set deal jobs are actually writing to.
+   */
+  private static pickSlotSurvivor(candidates: DataSetSummary[]): DataSetSummary | undefined {
+    const byId = [...candidates].sort((a, b) => {
+      if (a.dataSetId === b.dataSetId) return 0;
+      return a.dataSetId < b.dataSetId ? -1 : 1;
+    });
+    return byId.find((dataSet) => dataSet.activePieceCount > 0n) ?? byId[0];
+  }
+
+  /**
+   * True while a `data_set_lifecycle_check` job could still be using this data set.
+   *
+   * Lifecycle checks tag their throwaway set with `LIFECYCLE_CHECK_METADATA_KEY` set to
+   * `Date.now()` (see jobs.service.ts), so the tag doubles as a creation timestamp. A set
+   * younger than that job's own timeout may belong to a check running right now — pruning
+   * shares no lock with `SP_WORK_QUEUE`, so age is what keeps it from terminating a set
+   * out from under a live check. Anything older is by definition leaked: the job that
+   * created it has already been aborted.
+   *
+   * An unparseable tag is treated as old — the key is only ever written as `Date.now()`,
+   * so a value that is not a number cannot belong to a check still in flight.
+   */
+  private static isLifecycleCheckSetInFlight(dataSet: DataSetSummary, graceMs: number, nowMs: number): boolean {
+    const tag = dataSet.metadata[LIFECYCLE_CHECK_METADATA_KEY];
+    if (tag === undefined) return false;
+    const createdAtMs = Number(tag);
+    if (!Number.isFinite(createdAtMs)) return false;
+    return nowMs - createdAtMs < graceMs;
+  }
+
+  /**
+   * Terminates a provider's surplus data sets one at a time via the provider-relay path
+   * (mirrors `terminateServiceSync` in data-set-lifecycle.service.ts — the only path
+   * dealbot's session key can use for a cooperative SP; see #546 for why the direct 1-arg
+   * path is unusable).
+   *
+   * Survivors are chosen by *provisioning slot*, not by age. `provisionNextMissingDataSet`
+   * defines the required slots as the baseline set plus `dealbotDS: 1..targetCount-1`, and
+   * a deal job resolves each slot through exact metadata matching. So for every required
+   * slot this keeps the one set the SDK would resolve to, and everything else — extra
+   * copies of a slot, sets matching no required slot, leaked lifecycle-check sets — is
+   * surplus. Selecting by age instead cannot guarantee one live set per slot: `targetCount`
+   * newest sets can all belong to the same slot, leaving the other slots' only copies to be
+   * terminated and immediately re-provisioned, forever.
+   *
+   * `buffer` applies to the surplus count, not the total: pruning stays out of the way until
+   * a provider carries more than `buffer` surplus sets, then removes all of them. Routine
+   * create/replace churn (at most one new set per creation tick) therefore doesn't trigger it.
+   * For blocked SPs both `targetCount` and `buffer` are 0, so every set is surplus.
    */
   private async terminateExcessDataSets(
     relayClient: SynapseViemClient,
     network: Network,
     provider: PDPProviderEx,
     activeDataSets: DataSetSummary[],
+    baseDataSetMetadata: Record<string, string>,
     targetCount: number,
     buffer: number,
+    lifecycleGraceMs: number,
     reason: TerminationReason,
     signal?: AbortSignal,
   ): Promise<void> {
     const spAddress = provider.serviceProvider;
 
-    if (activeDataSets.length <= targetCount + buffer) {
+    const survivors = new Set<bigint>();
+    for (let slot = 0; slot < targetCount; slot++) {
+      const wanted = slotMetadata(baseDataSetMetadata, slot);
+      const candidates = activeDataSets.filter((dataSet) => metadataMatchesExactly(dataSet.metadata, wanted));
+      const survivor = SpCleanupService.pickSlotSurvivor(candidates);
+      if (survivor) {
+        survivors.add(survivor.dataSetId);
+      }
+    }
+
+    const nowMs = Date.now();
+    const toTerminate = activeDataSets.filter(
+      (dataSet) =>
+        !survivors.has(dataSet.dataSetId) &&
+        !SpCleanupService.isLifecycleCheckSetInFlight(dataSet, lifecycleGraceMs, nowMs),
+    );
+
+    if (toTerminate.length <= buffer) {
       return;
     }
 
-    // Leaked lifecycle-check sets sort first regardless of age — otherwise "keep the newest N"
-    // would protect them over the actual dealbotDS-tagged slots deal jobs depend on.
-    const sorted = [...activeDataSets].sort((a, b) => {
-      const aIsLeak = LIFECYCLE_CHECK_METADATA_KEY in a.metadata;
-      const bIsLeak = LIFECYCLE_CHECK_METADATA_KEY in b.metadata;
-      if (aIsLeak !== bIsLeak) {
-        return aIsLeak ? -1 : 1;
-      }
-      if (a.dataSetId === b.dataSetId) return 0;
-      return a.dataSetId < b.dataSetId ? -1 : 1;
+    this.logger.log({
+      network,
+      reason,
+      providerAddress: spAddress,
+      providerId: provider.id.toString(),
+      providerName: provider.name,
+      event: "sp_cleanup_pruning_plan",
+      message: "Pruning surplus data sets; one set is retained per required provisioning slot",
+      activeCount: activeDataSets.length,
+      targetCount,
+      retainedDataSetIds: [...survivors].map(String),
+      surplusDataSetIds: toTerminate.map((dataSet) => dataSet.dataSetId.toString()),
     });
-    const toTerminate = sorted.slice(0, sorted.length - targetCount);
 
     for (const dataSet of toTerminate) {
       // Checked per data set (not just per provider) — a provider with many excess data sets
@@ -208,6 +309,19 @@ export class SpCleanupService {
         dataSetId: dataSet.dataSetId.toString(),
       };
       try {
+        // The plan was computed from a wallet-wide snapshot taken before this loop started,
+        // and pruning holds no per-provider lock, so re-read state immediately before each
+        // termination: another job may have terminated this set in the meantime.
+        const current = await awaitWithAbort(getDataSet(relayClient, { dataSetId: dataSet.dataSetId }), signal);
+        if (current == null || current.pdpEndEpoch !== 0n) {
+          this.logger.log({
+            ...logContext,
+            event: "sp_cleanup_dataset_terminate_skipped",
+            message: "Data set is no longer active; skipping termination",
+          });
+          continue;
+        }
+
         await awaitWithAbort(
           terminateServiceSync(relayClient, {
             dataSetId: dataSet.dataSetId,
@@ -216,7 +330,7 @@ export class SpCleanupService {
               this.logger.log({
                 ...logContext,
                 event: "sp_cleanup_dataset_terminating",
-                message: "Blocklist-cleanup terminate transaction submitted",
+                message: "Data set pruning terminate transaction submitted",
                 txHash: hash,
               });
             },
@@ -266,7 +380,7 @@ export class SpCleanupService {
   async runAbandonedDatasetSweep(network: Network, signal?: AbortSignal): Promise<void> {
     const synapse = await this.getSynapse(network);
     const readClient: ReadOnlyClient = toReadClient(
-      (this.walletSdkService.getSynapseClient(network) ?? synapse.client) as SynapseViemClient,
+      (this.walletSdkService.tryGetSynapseClient(network) ?? synapse.client) as SynapseViemClient,
     );
     const writeClient = (synapse.sessionClient ?? synapse.client) as SynapseViemClient;
     const chain = asChain(readClient.chain);
