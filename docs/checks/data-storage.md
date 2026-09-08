@@ -179,6 +179,7 @@ It's expected that a Data Storage check will still store an overall status for e
 | `sp_indexed` | SP indexed the piece locally |
 | `sp_announced_advertisement` | SP announced the local index to IPNI so IPNI can pull it from the SP. |
 | `sp_synced` | SP confirms the indexer picked up the advertisement. Gates the cid.contact check. |
+| `sp_synced_cid_contact_mismatch` | SP reported synced, but cid.contact verification failed. Emits an error log and a distinct discoverability metric alongside the final failure status. |
 | `success` | Root CID is discoverable via cid.contact and the SP is listed as a provider in the response. |
 | `skipped` | IPNI verification was not attempted because `rootCID`/`blockCIDs` are absent from deal metadata or `rootCID` cannot be parsed as a valid CID. |
 | `failure.timedout` | Dealbot failed to confirm <IPFSRootCid,SP> provider record within the allotted time |

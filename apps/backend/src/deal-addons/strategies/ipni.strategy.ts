@@ -49,7 +49,7 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
   readonly name = ServiceType.IPFS_PIN;
   readonly priority = AddonPriority.HIGH; // Run first to transform data
   readonly POLLING_INTERVAL_MS = 2500;
-  readonly POLLING_TIMEOUT_MS = 2 * 60 * 1000; // 2 minutes - max time to wait for SP to advertise piece
+  readonly POLLING_TIMEOUT_MS = 2 * 60 * 1000; // 2 minutes - max time to wait for SP to confirm sync
 
   /**
    * Check if IPNI is enabled in the deal configuration
@@ -311,42 +311,15 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       throw new Error(`IPNI monitoring failed: missing piece CID for deal ${deal.id}`);
     }
 
-    let monitoringResult: PieceMonitoringResult;
-    try {
-      // we monitor the piece status by calling the SP directly to get piece status. as soon as it's advertised, we can move on to verifying the IPNI advertisement.
-      monitoringResult = await this.monitorPieceStatus(
-        serviceURL,
-        pieceCid,
-        statusTimeoutMs,
-        pollIntervalMs,
-        dealLogContext,
-        signal,
-      );
-    } catch (error) {
-      signal?.throwIfAborted();
-      this.logger.warn({
-        ...dealLogContext,
-        pieceCid,
-        event: "ipni_piece_status_monitoring_incomplete",
-        message: "Piece status monitoring incomplete",
-        error: toStructuredError(error),
-      });
-      monitoringResult = {
-        success: false,
-        finalStatus: {
-          status: "timeout",
-          indexed: false,
-          advertised: false,
-          synced: false,
-          indexedAt: null,
-          advertisedAt: null,
-          syncedAt: null,
-        },
-        checks: 0,
-        durationMs: statusTimeoutMs,
-        lastProviderResponse: null,
-      };
-    }
+    // Wait for the SP to confirm sync before querying cid.contact.
+    const monitoringResult = await this.monitorPieceStatus(
+      serviceURL,
+      pieceCid,
+      statusTimeoutMs,
+      pollIntervalMs,
+      dealLogContext,
+      signal,
+    );
 
     if (!rootCID || blockCIDs.length === 0) {
       const totalCandidates = blockCIDs.length + (rootCID ? 1 : 0);
@@ -398,6 +371,25 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
           failedCIDs: [rootCID, ...blockCIDs.map((cid) => cid.toString())].map((cid) => ({
             cid,
             reason: "Invalid rootCID for deal",
+          })),
+          verifiedAt: new Date().toISOString(),
+        },
+      };
+    }
+
+    if (!monitoringResult.success || !monitoringResult.finalStatus.synced) {
+      const candidates = [rootCID, ...blockCIDs.map((cid) => cid.toString())];
+      return {
+        monitoringResult,
+        ipniResult: {
+          verified: 0,
+          unverified: candidates.length,
+          total: candidates.length,
+          rootCIDVerified: false,
+          durationMs: 0,
+          failedCIDs: candidates.map((cid) => ({
+            cid,
+            reason: "Timeout waiting for piece to report synced",
           })),
           verifiedAt: new Date().toISOString(),
         },
@@ -610,7 +602,13 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
       lastStatus,
       lastProviderResponse,
     });
-    throw new Error(`Timeout waiting for piece to report synced after ${durationSec}s`);
+    return {
+      success: false,
+      finalStatus: { ...lastStatus, status: "timeout" },
+      checks: checkCount,
+      durationMs: Date.now() - startTime,
+      lastProviderResponse,
+    };
   }
 
   /**
@@ -910,7 +908,7 @@ export class IpniAddonStrategy implements IDealAddon<IpniMetadata> {
     const ipniVerifyMs = ipniVerifyStartTimestamp
       ? (calculateDuration(verificationEndTimestamp, "ipniVerify", ipniVerifyStartTimestamp) ?? ipniResult.durationMs)
       : ipniResult.durationMs;
-    if (!result.skipped) {
+    if (!result.skipped && monitoringResult.success && finalStatus.synced) {
       this.discoverabilityMetrics.observeIpniVerifyMs(
         labels,
         ipniVerifyMs,
