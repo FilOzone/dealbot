@@ -25,7 +25,10 @@ vi.mock("@filoz/synapse-core/utils", () => ({
   toReadClient: vi.fn((client: unknown) => client),
 }));
 
-vi.mock("@filoz/synapse-core/warm-storage", () => ({
+// Only the network calls are stubbed. `findMatchingDataSets` and `metadataMatches` stay real:
+// pruning delegates slot resolution to them, so exercising the SDK's own matcher is the point.
+vi.mock("@filoz/synapse-core/warm-storage", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@filoz/synapse-core/warm-storage")>()),
   getDataSet: vi.fn(),
   getPdpDataSets: vi.fn(),
 }));
@@ -127,6 +130,9 @@ function makeDataSet(overrides: Record<string, unknown> = {}) {
     pdpEndEpoch: 0n,
     pdpRailId: 100n,
     providerId: 1n,
+    // The SDK's matcher only considers sets that are live in PDPVerifier and listened to by FWSS.
+    live: true,
+    managed: true,
     metadata: slotMeta(0),
     activePieceCount: 0n,
     ...overrides,

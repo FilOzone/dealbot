@@ -43,23 +43,3 @@ export function slotMetadata(baseMetadata: Record<string, string>, index: number
 export function storedSlotMetadata(baseMetadata: Record<string, string>, index: number): Record<string, string> {
   return { ...slotMetadata(baseMetadata, index), [METADATA_KEYS.SOURCE]: DEALBOT_METADATA_SOURCE };
 }
-
-/**
- * Exact metadata equality, mirroring `metadataMatches` in `@filoz/synapse-core/warm-storage` —
- * the rule `createContext` resolves a slot with. An extra key means no match.
- */
-export function metadataMatchesExactly(
-  dataSetMetadata: Record<string, string>,
-  requestedMetadata: Record<string, string>,
-): boolean {
-  const requestedKeys = Object.keys(requestedMetadata);
-  if (Object.keys(dataSetMetadata).length !== requestedKeys.length) {
-    return false;
-  }
-  for (const key of requestedKeys) {
-    if (dataSetMetadata[key] !== requestedMetadata[key]) {
-      return false;
-    }
-  }
-  return true;
-}

@@ -1,7 +1,7 @@
 import { asChain } from "@filoz/synapse-core/chains";
 import { getRail, settleRail, settleTerminatedRailWithoutValidationCall } from "@filoz/synapse-core/pay";
 import { toReadClient } from "@filoz/synapse-core/utils";
-import { getDataSet, getPdpDataSets } from "@filoz/synapse-core/warm-storage";
+import { findMatchingDataSets, getDataSet, getPdpDataSets } from "@filoz/synapse-core/warm-storage";
 import type { Synapse } from "@filoz/synapse-sdk";
 import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
@@ -19,7 +19,7 @@ import {
 } from "viem/actions";
 import { awaitWithAbort } from "../common/abort-utils.js";
 import { LIFECYCLE_CHECK_METADATA_KEY } from "../common/constants.js";
-import { getBaseDataSetMetadata, metadataMatchesExactly, storedSlotMetadata } from "../common/data-set-slots.js";
+import { getBaseDataSetMetadata, storedSlotMetadata } from "../common/data-set-slots.js";
 import { toStructuredError } from "../common/logging.js";
 import { withSafeBatchChecksum } from "../common/safe-batch.js";
 import { isSpBlocked } from "../common/sp-blocklist.js";
@@ -292,19 +292,6 @@ export class SpCleanupService {
   }
 
   /**
-   * Mirrors `StorageContext.resolveByProviderId` in @filoz/synapse-sdk — lowest data-set id
-   * that still holds pieces, else lowest id. Kept in sync deliberately: this is how pruning
-   * knows which copy a deal job will use.
-   */
-  private static pickSlotSurvivor(candidates: PdpDataSet[]): PdpDataSet | undefined {
-    const byId = [...candidates].sort((a, b) => {
-      if (a.dataSetId === b.dataSetId) return 0;
-      return a.dataSetId < b.dataSetId ? -1 : 1;
-    });
-    return byId.find((dataSet) => dataSet.activePieceCount > 0n) ?? byId[0];
-  }
-
-  /**
    * True while a `data_set_lifecycle_check` job could still be using this data set. Its
    * `LIFECYCLE_CHECK_METADATA_KEY` tag is the creating job's `Date.now()`, so age separates
    * a check running right now from one whose job was aborted long ago and leaked the set.
@@ -344,11 +331,14 @@ export class SpCleanupService {
   ): Promise<void> {
     const spAddress = provider.serviceProvider;
 
+    // `findMatchingDataSets` is the SDK's own matcher and ordering — exact metadata equality,
+    // then piece-bearing sets ahead of empty ones, then lowest id. Its first entry is therefore
+    // the set `createContext` resolves this slot to. Using it rather than reimplementing the
+    // rule is deliberate: pruning terminates whatever it fails to claim, so any drift from the
+    // SDK's choice would delete the set deal jobs are writing to.
     const survivors = new Set<bigint>();
     for (let slot = 0; slot < targetCount; slot++) {
-      const wanted = storedSlotMetadata(baseDataSetMetadata, slot);
-      const candidates = activeDataSets.filter((dataSet) => metadataMatchesExactly(dataSet.metadata, wanted));
-      const survivor = SpCleanupService.pickSlotSurvivor(candidates);
+      const survivor = findMatchingDataSets(activeDataSets, storedSlotMetadata(baseDataSetMetadata, slot))[0];
       if (survivor) {
         survivors.add(survivor.dataSetId);
       }
