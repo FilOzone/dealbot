@@ -132,6 +132,32 @@ export type BaseNetworkConfig = {
   maxPieceCleanupRuntimeSeconds: number;
   dataRetentionPollIntervalSeconds: number;
   providersRefreshIntervalSeconds: number;
+  /**
+   * How often (seconds) the global `sp_data_set_pruning` job runs.
+   *
+   * Prunes blocked SPs to 0 data sets and any other SP's excess above its
+   * tier's target (see `excessDataSetBuffer`).
+   */
+  dataSetPruningIntervalSeconds: number;
+  /**
+   * Headroom above a tier's target data-set count before pruning kicks in, so
+   * routine create/replace churn doesn't trigger a prune.
+   */
+  excessDataSetBuffer: number;
+  /**
+   * How often (seconds) the global `abandoned_data_set_sweep` job runs.
+   *
+   * Deletes data sets abandoned past PDPVerifier's activity window and flags
+   * stuck rail settlements for a human (see docs/runbooks/wallet-and-session-keys.md).
+   */
+  abandonedDataSetSweepIntervalSeconds: number;
+  /**
+   * Maximum runtime (seconds) for a single `sp_data_set_pruning` or
+   * `abandoned_data_set_sweep` run before forced abort. Both scan every data
+   * set dealbot's wallet holds on the network, so this also feeds shutdown
+   * drain (`onApplicationShutdown`) so pg-boss doesn't force-fail a run mid-sweep.
+   */
+  spCleanupJobTimeoutSeconds: number;
 
   /** Maintenance Config */
   maintenanceWindowsUtc: string[];
@@ -324,6 +350,10 @@ export type NetworkDefaults = Pick<
   | "maxPieceCleanupRuntimeSeconds"
   | "dataRetentionPollIntervalSeconds"
   | "providersRefreshIntervalSeconds"
+  | "dataSetPruningIntervalSeconds"
+  | "abandonedDataSetSweepIntervalSeconds"
+  | "excessDataSetBuffer"
+  | "spCleanupJobTimeoutSeconds"
   | "maintenanceWindowsUtc"
   | "maintenanceWindowMinutes"
   | "maxDatasetStorageSizeBytes"

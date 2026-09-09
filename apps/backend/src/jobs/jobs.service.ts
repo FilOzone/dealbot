@@ -21,12 +21,14 @@ import { StorageProviderRepository } from "../providers/repositories/storage-pro
 import { PullCheckService } from "../pull-check/pull-check.service.js";
 import { RetrievalService } from "../retrieval/retrieval.service.js";
 import { SampledRetrievalService } from "../sampled-retrieval/sampled-retrieval.service.js";
+import { SpCleanupService } from "../sp-cleanup/sp-cleanup.service.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
 import { provisionNextMissingDataSet } from "./data-set-creation.handler.js";
 import {
   DATA_RETENTION_POLL_QUEUE,
   PROVIDERS_REFRESH_QUEUE,
   PULL_PIECE_CLEANUP_QUEUE,
+  SP_CLEANUP_QUEUE,
   SP_WORK_QUEUE,
 } from "./job-queues.js";
 import { JobScheduleRepository } from "./repositories/job-schedule.repository.js";
@@ -39,6 +41,12 @@ type SpJobType =
   | "data_set_lifecycle_check"
   | "piece_cleanup"
   | "pull_check";
+/**
+ * Slack between a cleanup job's own timeout and the pg-boss expiration that fails it.
+ * Wide enough for the handler to abort its in-flight work, log, and record metrics.
+ */
+const CLEANUP_JOB_EXPIRATION_MARGIN_SECONDS = 120;
+
 const SP_JOB_TYPES: ReadonlySet<string> = new Set<string>([
   "deal",
   "retrieval",
@@ -52,11 +60,28 @@ function isSpJobType(jobType: string): jobType is SpJobType {
   return SP_JOB_TYPES.has(jobType);
 }
 
+/**
+ * pg-boss aborts `job.signal` on expiration and on graceful shutdown, failing the job either
+ * way; a handler that ignores it keeps running behind a job the queue has given up on. The
+ * signal is absent in older pg-boss versions and in test fixtures, hence the fallback.
+ */
+function combineJobAbortSignal(job: { signal?: AbortSignal }, ownSignal: AbortSignal): AbortSignal {
+  return job.signal ? AbortSignal.any([job.signal, ownSignal]) : ownSignal;
+}
+
 type SpJobData = { jobType: SpJobType; spAddress: string; network: Network; intervalSeconds: number };
 type ProvidersRefreshJobData = { network: Network; intervalSeconds: number };
 type SpJob = Job<SpJobData>;
 type DataRetentionJobData = { network: Network; intervalSeconds: number };
 type PullPieceCleanupJobData = { network: Network; intervalSeconds: number };
+type SpDataSetPruningJobData = { jobType: "sp_data_set_pruning"; network: Network; intervalSeconds: number };
+type AbandonedDataSetSweepJobData = { jobType: "abandoned_data_set_sweep"; network: Network; intervalSeconds: number };
+type GlobalJobData =
+  | ProvidersRefreshJobData
+  | DataRetentionJobData
+  | PullPieceCleanupJobData
+  | SpDataSetPruningJobData
+  | AbandonedDataSetSweepJobData;
 
 type ScheduleRow = {
   id: number;
@@ -88,6 +113,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     private readonly pieceCleanupService: PieceCleanupService,
     private readonly pullCheckService: PullCheckService,
     private readonly sampledRetrievalService: SampledRetrievalService,
+    private readonly spCleanupService: SpCleanupService,
     @InjectMetric("jobs_queued")
     private readonly jobsQueuedGauge: Gauge,
     @InjectMetric("jobs_retry_scheduled")
@@ -232,6 +258,9 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
           // piece_cleanup runs on the same SP_WORK_QUEUE with its own abort
           // bound to this timeout; include it so drain doesn't force-fail it.
           cfg.maxPieceCleanupRuntimeSeconds,
+          // sp_data_set_pruning / abandoned_data_set_sweep share this bound; see
+          // spCleanupJobTimeoutSeconds doc comment in config/types.ts.
+          cfg.spCleanupJobTimeoutSeconds,
         );
 
         if (maxNetworkTimeout > longestJobTimeoutSec) {
@@ -239,7 +268,8 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         }
       }
 
-      const stopTimeoutMs = (longestJobTimeoutSec + 60) * 1000;
+      // Same slack as the cleanup jobs' pg-boss expiration, so the drain never ends first.
+      const stopTimeoutMs = (longestJobTimeoutSec + CLEANUP_JOB_EXPIRATION_MARGIN_SECONDS) * 1000;
       await this.boss.stop({ graceful: true, timeout: stopTimeoutMs });
       this.boss = null;
 
@@ -340,6 +370,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     await boss.createQueue(PROVIDERS_REFRESH_QUEUE);
     await boss.createQueue(DATA_RETENTION_POLL_QUEUE);
     await boss.createQueue(PULL_PIECE_CLEANUP_QUEUE);
+    await boss.createQueue(SP_CLEANUP_QUEUE, { policy: "singleton" });
   }
 
   private registerWorkers(): void {
@@ -444,6 +475,27 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
           event: "worker_register_failed",
           message: "Failed to register worker",
           queue: PULL_PIECE_CLEANUP_QUEUE,
+          error: toStructuredError(error),
+        }),
+      );
+    void this.boss
+      .work<SpDataSetPruningJobData | AbandonedDataSetSweepJobData, void>(
+        SP_CLEANUP_QUEUE,
+        { batchSize: 1, pollingIntervalSeconds: workerPollSeconds },
+        async ([job]) => {
+          if (!job) return;
+          if (job.data.jobType === "sp_data_set_pruning") {
+            await this.handleSpDataSetPruningJob(job as Job<SpDataSetPruningJobData>);
+            return;
+          }
+          await this.handleAbandonedDataSetSweepJob(job as Job<AbandonedDataSetSweepJobData>);
+        },
+      )
+      .catch((error) =>
+        this.logger.error({
+          event: "worker_register_failed",
+          message: "Failed to register worker",
+          queue: SP_CLEANUP_QUEUE,
           error: toStructuredError(error),
         }),
       );
@@ -798,6 +850,90 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         network: data.network,
       });
       return "success";
+    });
+  }
+
+  private async handleSpDataSetPruningJob(job: Job<SpDataSetPruningJobData>): Promise<void> {
+    const { network } = job.data;
+    const abortController = new AbortController();
+    const timeoutSeconds = this.configService.get("networks", { infer: true })[network].spCleanupJobTimeoutSeconds;
+    const timeoutMs = Math.max(60000, timeoutSeconds * 1000);
+    const effectiveTimeoutSeconds = Math.round(timeoutMs / 1000);
+    const abortReason = new Error(`sp_data_set_pruning job timeout (${effectiveTimeoutSeconds}s) for ${network}`);
+    const timeoutId = setTimeout(() => {
+      abortController.abort(abortReason);
+    }, timeoutMs);
+    const signal = combineJobAbortSignal(job, abortController.signal);
+
+    await this.recordJobExecution("sp_data_set_pruning", network, async () => {
+      try {
+        await this.spCleanupService.runDataSetPruning(network, signal);
+        return "success";
+      } catch (error) {
+        if (signal.aborted) {
+          const reason = signal.reason;
+          const reasonMessage = reason instanceof Error ? reason.message : String(reason ?? "");
+          this.logger.error({
+            network,
+            event: "sp_data_set_pruning_job_aborted",
+            message: reasonMessage || "sp_data_set_pruning job aborted after timeout",
+            timeoutSeconds: effectiveTimeoutSeconds,
+            error: toStructuredError(reason ?? error),
+          });
+          return "aborted";
+        }
+        this.logger.error({
+          network,
+          event: "sp_data_set_pruning_job_failed",
+          message: "sp_data_set_pruning job failed",
+          error: toStructuredError(error),
+        });
+        throw error;
+      } finally {
+        clearTimeout(timeoutId);
+      }
+    });
+  }
+
+  private async handleAbandonedDataSetSweepJob(job: Job<AbandonedDataSetSweepJobData>): Promise<void> {
+    const { network } = job.data;
+    const abortController = new AbortController();
+    const timeoutSeconds = this.configService.get("networks", { infer: true })[network].spCleanupJobTimeoutSeconds;
+    const timeoutMs = Math.max(60000, timeoutSeconds * 1000);
+    const effectiveTimeoutSeconds = Math.round(timeoutMs / 1000);
+    const abortReason = new Error(`abandoned_data_set_sweep job timeout (${effectiveTimeoutSeconds}s) for ${network}`);
+    const timeoutId = setTimeout(() => {
+      abortController.abort(abortReason);
+    }, timeoutMs);
+    const signal = combineJobAbortSignal(job, abortController.signal);
+
+    await this.recordJobExecution("abandoned_data_set_sweep", network, async () => {
+      try {
+        await this.spCleanupService.runAbandonedDataSetSweep(network, signal);
+        return "success";
+      } catch (error) {
+        if (signal.aborted) {
+          const reason = signal.reason;
+          const reasonMessage = reason instanceof Error ? reason.message : String(reason ?? "");
+          this.logger.error({
+            network,
+            event: "abandoned_data_set_sweep_job_aborted",
+            message: reasonMessage || "abandoned_data_set_sweep job aborted after timeout",
+            timeoutSeconds: effectiveTimeoutSeconds,
+            error: toStructuredError(reason ?? error),
+          });
+          return "aborted";
+        }
+        this.logger.error({
+          network,
+          event: "abandoned_data_set_sweep_job_failed",
+          message: "abandoned_data_set_sweep job failed",
+          error: toStructuredError(error),
+        });
+        throw error;
+      } finally {
+        clearTimeout(timeoutId);
+      }
     });
   }
 
@@ -1265,6 +1401,8 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     pieceCleanupIntervalSeconds: number;
     pullCheckIntervalSeconds: number;
     pullPieceCleanupIntervalSeconds: number;
+    dataSetPruningIntervalSeconds: number;
+    abandonedDataSetSweepIntervalSeconds: number;
     minDataSetsFull: number;
     minDataSetsTrickle: number;
   } {
@@ -1280,6 +1418,8 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       dataRetentionPollIntervalSeconds,
       providersRefreshIntervalSeconds,
       pullPieceCleanupIntervalSeconds,
+      dataSetPruningIntervalSeconds,
+      abandonedDataSetSweepIntervalSeconds,
       minNumDataSetsForChecks,
     } = networkCfg;
 
@@ -1311,6 +1451,8 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       pieceCleanupIntervalSeconds,
       pullCheckIntervalSeconds,
       pullPieceCleanupIntervalSeconds,
+      dataSetPruningIntervalSeconds,
+      abandonedDataSetSweepIntervalSeconds,
       minDataSetsFull: minNumDataSetsForChecks,
       minDataSetsTrickle: trickleTierRates.minNumDataSetsForChecks,
     };
@@ -1321,7 +1463,8 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
    * - Inserts new rows for new providers.
    * - Updates intervals if config changed.
    * - Pauses rows for providers that are no longer active.
-   * - Ensures global data_retention_poll, providers_refresh, and pull_piece_cleanup jobs exist.
+   * - Ensures global data_retention_poll, providers_refresh, pull_piece_cleanup,
+   *   sp_data_set_pruning, and abandoned_data_set_sweep jobs exist.
    */
   private async ensureScheduleRows(network: Network): Promise<void> {
     const now = new Date();
@@ -1338,6 +1481,8 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       pieceCleanupIntervalSeconds,
       pullCheckIntervalSeconds,
       pullPieceCleanupIntervalSeconds,
+      dataSetPruningIntervalSeconds,
+      abandonedDataSetSweepIntervalSeconds,
       minDataSetsFull,
       minDataSetsTrickle,
     } = this.getIntervalSecondsForRates(network);
@@ -1512,6 +1657,20 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       pullPieceCleanupIntervalSeconds,
       new Date(now.getTime() + phaseMs),
     );
+    await this.jobScheduleRepository.upsertSchedule(
+      "sp_data_set_pruning",
+      "",
+      network,
+      dataSetPruningIntervalSeconds,
+      new Date(now.getTime() + phaseMs),
+    );
+    await this.jobScheduleRepository.upsertSchedule(
+      "abandoned_data_set_sweep",
+      "",
+      network,
+      abandonedDataSetSweepIntervalSeconds,
+      new Date(now.getTime() + phaseMs),
+    );
   }
 
   /**
@@ -1618,6 +1777,10 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         return PROVIDERS_REFRESH_QUEUE;
       case "pull_piece_cleanup":
         return PULL_PIECE_CLEANUP_QUEUE;
+      case "sp_data_set_pruning":
+        return SP_CLEANUP_QUEUE;
+      case "abandoned_data_set_sweep":
+        return SP_CLEANUP_QUEUE;
       default: {
         const exhaustiveCheck: never = jobType;
         throw new Error(`Unhandled job type: ${exhaustiveCheck}`);
@@ -1625,7 +1788,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     }
   }
 
-  private mapJobPayload(row: ScheduleRow): SpJobData | ProvidersRefreshJobData | DataRetentionJobData {
+  private mapJobPayload(row: ScheduleRow): SpJobData | GlobalJobData {
     if (
       row.job_type === "deal" ||
       row.job_type === "retrieval" ||
@@ -1642,28 +1805,39 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         intervalSeconds: row.interval_seconds,
       };
     }
+    if (row.job_type === "sp_data_set_pruning" || row.job_type === "abandoned_data_set_sweep") {
+      // Both share SP_CLEANUP_QUEUE, so the payload carries the discriminator the worker (and
+      // the queue-depth metrics) dispatch on.
+      return { jobType: row.job_type, network: row.network, intervalSeconds: row.interval_seconds };
+    }
     return { network: row.network, intervalSeconds: row.interval_seconds };
   }
 
   /**
    * Publishes a job to pg-boss and tracks enqueue attempts.
    */
-  private async safeSend(
-    jobType: JobType,
-    name: string,
-    data: SpJobData | ProvidersRefreshJobData | DataRetentionJobData,
-    options?: SendOptions,
-  ) {
+  private async safeSend(jobType: JobType, name: string, data: SpJobData | GlobalJobData, options?: SendOptions) {
     if (!this.boss) return false;
     try {
       // Disable retries so "attempted" jobs don't rerun; failures are handled by the next schedule tick.
       const finalOptions: SendOptions = { retryLimit: 0, ...options };
+      // pg-boss's 15-minute default expiration is shorter than the cleanup timeout; push its
+      // deadline past the handler's AbortController so the handler wins the race.
+      if (jobType === "sp_data_set_pruning" || jobType === "abandoned_data_set_sweep") {
+        const cleanupTimeoutSeconds = this.configService.get("networks", { infer: true })[data.network]
+          .spCleanupJobTimeoutSeconds;
+        finalOptions.expireInSeconds ??= Math.max(60, cleanupTimeoutSeconds) + CLEANUP_JOB_EXPIRATION_MARGIN_SECONDS;
+      }
       if (isSpJobType(jobType)) {
         const spData = data as SpJobData;
         if (!finalOptions.singletonKey) {
           // Include network in singleton key to prevent cross-network deduplication collisions
           finalOptions.singletonKey = `${spData.network}:${spData.spAddress}`;
         }
+      } else if (jobType === "sp_data_set_pruning" || jobType === "abandoned_data_set_sweep") {
+        // One key for both, so pg-boss's singleton policy serialises them: each walks the whole
+        // wallet, and they are scheduled on the same tick.
+        finalOptions.singletonKey = `${data.network}:sp_cleanup`;
       } else {
         // Global jobs: include network in singleton key for per-network isolation
         finalOptions.singletonKey = `${data.network}:${jobType}`;
@@ -1722,6 +1896,8 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
       "data_retention_poll",
       "providers_refresh",
       "pull_piece_cleanup",
+      "sp_data_set_pruning",
+      "abandoned_data_set_sweep",
     ];
     for (const jobType of jobTypes) {
       this.jobsQueuedGauge.set({ job_type: jobType, network }, 0);

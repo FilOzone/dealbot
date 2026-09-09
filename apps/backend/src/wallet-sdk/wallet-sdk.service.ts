@@ -252,6 +252,16 @@ export class WalletSdkService implements OnModuleInit {
     return (this.getNetworkState(network).synapseClient as SynapseViemClient | null) ?? null;
   }
 
+  /**
+   * Like {@link getSynapseClient}, but returns `undefined` instead of throwing when the
+   * network has no initialized state. Mirrors {@link tryGetSynapse} so callers that fall
+   * back to an on-demand Synapse instance can reach that fallback — `getSynapseClient`
+   * throws first on an inactive network, which would make such a fallback unreachable.
+   */
+  tryGetSynapseClient(network: Network): SynapseViemClient | undefined {
+    return (this.networkStates.get(network)?.synapseClient as SynapseViemClient | undefined) ?? undefined;
+  }
+
   getSynapse(network: Network): Synapse {
     return this.getNetworkState(network).synapse;
   }
