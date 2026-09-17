@@ -1,7 +1,7 @@
+import { paginate } from "@filoz/synapse-core";
 import { asChain } from "@filoz/synapse-core/chains";
 import { settleRail, settleTerminatedRailWithoutValidationCall } from "@filoz/synapse-core/pay";
-import { toReadClient } from "@filoz/synapse-core/utils";
-import { findMatchingDataSets, getDataSet, getPdpDataSets } from "@filoz/synapse-core/warm-storage";
+import { findMatchingDataSets, getDataSet, getPdpDataSets, type PdpDataSet } from "@filoz/synapse-core/warm-storage";
 import type { Synapse } from "@filoz/synapse-sdk";
 import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
@@ -51,17 +51,6 @@ interface StuckRailItem {
   spAddress: string;
   railId: bigint;
 }
-
-/**
- * A wallet data set with its provider resolved from the SP registry on-chain.
- *
- * `getPdpDataSets` pages the id listing and enriches through a bounded queue (10 concurrent,
- * 20/s). `synapse.storage.findDataSets` — what `filecoin-pin`'s `listDataSets` calls — instead
- * fans out over every data set at once, which fails outright on a large wallet: measured
- * against dealbot's calibration wallet (9,666 data sets) it dies at ~7,500 concurrent requests.
- * See filecoin-pin#362.
- */
-type PdpDataSet = Awaited<ReturnType<typeof getPdpDataSets>>[number];
 
 /**
  * Items per Multicall3 batch for the sweep's read phases.
@@ -115,6 +104,23 @@ export class SpCleanupService {
     this.spTerminationAttemptsCounter.inc({ network, outcome, reason });
   }
 
+  /** Fetch every bounded SDK page without recreating its cursor rules locally. */
+  private async getAllPdpDataSets(
+    client: ReadOnlyClient,
+    address: `0x${string}`,
+    signal?: AbortSignal,
+  ): Promise<PdpDataSet[]> {
+    const dataSets: PdpDataSet[] = [];
+    for await (const dataSet of paginate(({ cursor }) => {
+      signal?.throwIfAborted();
+      return awaitWithAbort(getPdpDataSets(client, { address, cursor }), signal);
+    })) {
+      signal?.throwIfAborted();
+      dataSets.push(dataSet);
+    }
+    return dataSets;
+  }
+
   /**
    * Job A: `sp_data_set_pruning`.
    *
@@ -146,10 +152,7 @@ export class SpCleanupService {
 
     // Single wallet-wide fetch, grouped locally by provider — the listing covers the whole
     // wallet either way, so fetching once per SP would re-read it N times over.
-    const allDataSets = await awaitWithAbort(
-      getPdpDataSets(relayClient, { address: networkCfg.walletAddress as `0x${string}` }),
-      signal,
-    );
+    const allDataSets = await this.getAllPdpDataSets(relayClient, networkCfg.walletAddress as `0x${string}`, signal);
     const activeByProvider = new Map<string, PdpDataSet[]>();
     for (const dataSet of allDataSets) {
       if (dataSet.pdpEndEpoch !== 0n) continue;
@@ -471,18 +474,13 @@ export class SpCleanupService {
    */
   async runAbandonedDataSetSweep(network: Network, signal?: AbortSignal): Promise<void> {
     const synapse = await this.getSynapse(network);
-    const readClient: ReadOnlyClient = toReadClient(
-      (this.walletSdkService.tryGetSynapseClient(network) ?? synapse.client) as SynapseViemClient,
-    );
+    const readClient = (this.walletSdkService.tryGetSynapseClient(network) ?? synapse.client) as SynapseViemClient;
     const writeClient = (synapse.sessionClient ?? synapse.client) as SynapseViemClient;
     const chain = asChain(readClient.chain);
     const pdpVerifier = chain.contracts.pdp;
 
     const networkCfg = this.getNetworkConfig(network);
-    const allDataSets = await awaitWithAbort(
-      getPdpDataSets(readClient, { address: networkCfg.walletAddress as `0x${string}` }),
-      signal,
-    );
+    const allDataSets = await this.getAllPdpDataSets(readClient, networkCfg.walletAddress as `0x${string}`, signal);
     const currentBlock = await awaitWithAbort(getBlockNumber(readClient), signal);
 
     const stuckItems: StuckRailItem[] = [];
