@@ -854,7 +854,16 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
   }
 
   private async handleSpDataSetPruningJob(job: Job<SpDataSetPruningJobData>): Promise<void> {
-    const { network } = job.data;
+    const data = job.data;
+    const { network } = data;
+    const now = new Date();
+    const maintenance = this.getMaintenanceWindowStatus(now, network);
+    if (maintenance.active) {
+      this.logMaintenanceSkip("sp_data_set_pruning job", network, maintenance.window?.label);
+      await this.deferJobForMaintenance("sp_data_set_pruning", data, maintenance, now);
+      return;
+    }
+
     const abortController = new AbortController();
     const timeoutSeconds = this.configService.get("networks", { infer: true })[network].spCleanupJobTimeoutSeconds;
     const timeoutMs = Math.max(60000, timeoutSeconds * 1000);
@@ -1326,8 +1335,8 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
   }
 
   private async deferJobForMaintenance(
-    jobType: SpJobType,
-    data: SpJobData,
+    jobType: SpJobType | "sp_data_set_pruning",
+    data: SpJobData | SpDataSetPruningJobData,
     maintenance: ReturnType<typeof getMaintenanceWindowStatus>,
     now: Date,
   ): Promise<void> {
@@ -1720,8 +1729,8 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
 
         const isSpJob = isSpJobType(row.job_type);
 
-        // During maintenance, skip global jobs entirely.
-        if (maintenance.active && !isSpJob) {
+        // Pruning follows the existing handler-level maintenance deferral used by SP jobs.
+        if (maintenance.active && !isSpJob && row.job_type !== "sp_data_set_pruning") {
           this.logger.log({
             event: "global_job_enqueue_skipped",
             message: "Skipping global job during maintenance",

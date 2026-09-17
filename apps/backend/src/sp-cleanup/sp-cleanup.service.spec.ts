@@ -60,8 +60,9 @@ const { terminateServiceSync } = await import("../data-set-lifecycle/data-set-li
 const { settleRail, settleTerminatedRailWithoutValidationCall } = await import("@filoz/synapse-core/pay");
 const { asChain } = await import("@filoz/synapse-core/chains");
 const { getDataSet, getPdpDataSets } = await import("@filoz/synapse-core/warm-storage");
-const { getBlockNumber, multicall, readContract, simulateContract, writeContract, waitForTransactionReceipt } =
-  await import("viem/actions");
+const { getBlockNumber, multicall, simulateContract, writeContract, waitForTransactionReceipt } = await import(
+  "viem/actions"
+);
 
 const DEFAULT_NETWORK = "calibration";
 

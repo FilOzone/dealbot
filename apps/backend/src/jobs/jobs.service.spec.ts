@@ -945,6 +945,36 @@ describe("JobsService schedule rows", () => {
     expect(observed?.aborted).toBe(true);
   });
 
+  it("defers data set pruning until maintenance ends", async () => {
+    baseConfigValues = {
+      ...baseConfigValues,
+      networks: {
+        calibration: {
+          ...baseConfigValues.networks?.calibration,
+          maintenanceWindowsUtc: ["03:00"],
+          maintenanceWindowMinutes: 60,
+        } as INetworkConfig,
+      } as INetworksConfig,
+    };
+    configService = {
+      get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
+    } as unknown as JobsServiceDeps[0];
+    service = buildService({ configService });
+
+    const safeSend = vi.fn().mockResolvedValue(true);
+    (service as unknown as { safeSend: typeof safeSend }).safeSend = safeSend;
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2024-01-01T03:30:00Z"));
+    const data = { jobType: "sp_data_set_pruning", network: DEFAULT_NETWORK, intervalSeconds: 86400 };
+
+    await callPrivate(service, "handleSpDataSetPruningJob", { id: "job-1", data });
+
+    expect(safeSend).toHaveBeenCalledWith("sp_data_set_pruning", SP_CLEANUP_QUEUE, data, {
+      startAfter: new Date("2024-01-01T04:00:00Z"),
+    });
+    expect(spCleanupServiceMock.runDataSetPruning).not.toHaveBeenCalled();
+  });
+
   it("both cleanup jobs share one singleton key so they never run concurrently", async () => {
     service = buildService({});
     const send = vi.fn();
@@ -1060,6 +1090,61 @@ describe("JobsService schedule rows", () => {
     const updateCall = jobScheduleRepositoryMock.advanceScheduleNextRun.mock.calls[0];
     const newNextRunAt = updateCall[2] as Date;
     expect(newNextRunAt.getTime()).toBe(now.getTime() + 1800 * 1000);
+  });
+
+  it("enqueues pruning for handler deferral while skipping abandonment during maintenance", async () => {
+    baseConfigValues = {
+      ...baseConfigValues,
+      networks: {
+        calibration: {
+          ...baseConfigValues.networks?.calibration,
+          maintenanceWindowsUtc: ["03:00"],
+          maintenanceWindowMinutes: 60,
+        } as INetworkConfig,
+      } as INetworksConfig,
+    };
+    configService = {
+      get: vi.fn((key: keyof IConfig) => baseConfigValues[key]),
+    } as unknown as JobsServiceDeps[0];
+    service = buildService({ configService });
+
+    const send = vi.fn();
+    (service as unknown as { boss: { send: typeof send } }).boss = { send };
+
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2024-01-01T03:30:00Z"));
+    jobScheduleRepositoryMock.findDueSchedulesWithManager.mockResolvedValueOnce([
+      {
+        id: 20,
+        job_type: "sp_data_set_pruning",
+        network: DEFAULT_NETWORK,
+        sp_address: "",
+        interval_seconds: 86400,
+        next_run_at: "2024-01-01T03:00:00Z",
+      },
+      {
+        id: 21,
+        job_type: "abandoned_data_set_sweep",
+        network: DEFAULT_NETWORK,
+        sp_address: "",
+        interval_seconds: 86400,
+        next_run_at: "2024-01-01T03:00:00Z",
+      },
+    ]);
+
+    await callPrivate(service, "enqueueDueJobs", DEFAULT_NETWORK);
+
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send).toHaveBeenCalledWith(
+      SP_CLEANUP_QUEUE,
+      expect.objectContaining({ jobType: "sp_data_set_pruning" }),
+      expect.anything(),
+    );
+    expect(jobScheduleRepositoryMock.advanceScheduleNextRun).toHaveBeenCalledWith(
+      expect.anything(),
+      21,
+      new Date("2024-01-02T03:30:00Z"),
+    );
   });
 
   it("defers jobs until maintenance window ends (same-day)", async () => {

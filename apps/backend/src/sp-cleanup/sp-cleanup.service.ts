@@ -1,5 +1,5 @@
 import { asChain } from "@filoz/synapse-core/chains";
-import { getRail, settleRail, settleTerminatedRailWithoutValidationCall } from "@filoz/synapse-core/pay";
+import { settleRail, settleTerminatedRailWithoutValidationCall } from "@filoz/synapse-core/pay";
 import { toReadClient } from "@filoz/synapse-core/utils";
 import { findMatchingDataSets, getDataSet, getPdpDataSets } from "@filoz/synapse-core/warm-storage";
 import type { Synapse } from "@filoz/synapse-sdk";
@@ -32,7 +32,6 @@ import { terminateServiceSync } from "../data-set-lifecycle/data-set-lifecycle.s
 import { StorageProviderRepository } from "../providers/repositories/storage-provider.repository.js";
 import type { SynapseViemClient } from "../wallet-sdk/wallet-sdk.service.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
-import type { PDPProviderEx } from "../wallet-sdk/wallet-sdk.types.js";
 
 /**
  * `PDPVerifier.INACTIVITY_WINDOW` — the number of blocks after the last proven
