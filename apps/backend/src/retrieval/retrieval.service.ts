@@ -658,7 +658,7 @@ export class RetrievalService {
         providerLabels,
         ipniResult.durationMs,
         classifyIpniVerifyOutcome(ipniResult, timeoutMs),
-        "filecoinpin.contact",
+        "cid.contact",
       );
 
       if (ipniResult.rootCIDVerified) {
@@ -682,12 +682,7 @@ export class RetrievalService {
           ipfsRootCID: ipniContext.rootCid.toString(),
           error: toStructuredError(error),
         });
-        this.discoverabilityMetrics.observeIpniVerifyMs(
-          providerLabels,
-          durationMs,
-          "failure.timedout",
-          "filecoinpin.contact",
-        );
+        this.discoverabilityMetrics.observeIpniVerifyMs(providerLabels, durationMs, "failure.timedout", "cid.contact");
         this.discoverabilityMetrics.recordStatus(providerLabels, failureStatus);
         return { ok: false, failureStatus };
       }
@@ -702,12 +697,7 @@ export class RetrievalService {
         ipfsRootCID: ipniContext.rootCid.toString(),
         error: toStructuredError(error),
       });
-      this.discoverabilityMetrics.observeIpniVerifyMs(
-        providerLabels,
-        durationMs,
-        "failure.other",
-        "filecoinpin.contact",
-      );
+      this.discoverabilityMetrics.observeIpniVerifyMs(providerLabels, durationMs, "failure.other", "cid.contact");
       this.discoverabilityMetrics.recordStatus(providerLabels, failureStatus);
       return { ok: false, failureStatus };
     }

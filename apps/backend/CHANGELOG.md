@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.13.1](https://github.com/FilOzone/dealbot/compare/backend-v1.13.0...backend-v1.13.1) (2026-09-08)
+
+
+### Miscellaneous
+
+* retarget IPNI verification from advertised to synced, single cid.contact check ([#690](https://github.com/FilOzone/dealbot/issues/690)) ([9af0737](https://github.com/FilOzone/dealbot/commit/9af0737afa0292a7f007786b441e835c16d5341c))
+
 ## [1.13.0](https://github.com/FilOzone/dealbot/compare/backend-v1.12.0...backend-v1.13.0) (2026-08-25)
 
 

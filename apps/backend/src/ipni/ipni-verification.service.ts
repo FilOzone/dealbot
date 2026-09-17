@@ -1,6 +1,6 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { PDPProvider } from "filecoin-pin";
-import { waitForIpniProviderResults } from "filecoin-pin/core/utils";
+import { checkIpniIndexer } from "filecoin-pin/core/utils";
 import { CID } from "multiformats/cid";
 import type { IPNIVerificationResult } from "../deal-addons/strategies/ipni.types.js";
 import type { PDPProviderEx } from "../wallet-sdk/wallet-sdk.types.js";
@@ -57,7 +57,7 @@ export class IpniVerificationService {
     storageProvider,
     timeoutMs,
     pollIntervalMs,
-    ipniIndexerUrl = "https://filecoinpin.contact",
+    ipniIndexerUrl = "https://cid.contact",
     signal,
   }: IpniVerificationInput): Promise<IPNIVerificationResult> {
     const delayMs = Math.max(100, pollIntervalMs);
@@ -67,7 +67,7 @@ export class IpniVerificationService {
     }
 
     // Keep retrying at the configured polling cadence until timeout or outer job cancellation.
-    // waitForIpniProviderResults uses attempt-then-delay: the first attempt is immediate,
+    // checkIpniIndexer uses attempt-then-delay: the first attempt is immediate,
     // so N attempts span only (N-1) delays. Adding 1 ensures the attempt budget covers
     // the full timeout window rather than falling short by up to one delayMs interval.
     const maxAttempts = Math.max(1, Math.ceil(timeoutMs / delayMs) + 1);
@@ -93,7 +93,7 @@ export class IpniVerificationService {
 
     const ipniVerificationStartTime = Date.now();
 
-    const ipniValidated = await waitForIpniProviderResults(rootCid, {
+    const ipniValidated = await checkIpniIndexer(rootCid, {
       childBlocks: blockCids,
       maxAttempts,
       delayMs,
