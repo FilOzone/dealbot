@@ -174,7 +174,6 @@ describe("SpCleanupService", () => {
   let configService: { get: ReturnType<typeof vi.fn> };
   let walletSdkService: {
     tryGetSynapse: ReturnType<typeof vi.fn>;
-    tryGetSynapseClient: ReturnType<typeof vi.fn>;
   };
   let storageProviderRepository: {
     findAllByNetwork: ReturnType<typeof vi.fn>;
@@ -201,8 +200,10 @@ describe("SpCleanupService", () => {
     };
 
     walletSdkService = {
-      tryGetSynapse: vi.fn(() => ({ client: { chain: fakeChain }, sessionClient: undefined })),
-      tryGetSynapseClient: vi.fn(() => ({ chain: fakeChain, account: { address: "0xsession" } })),
+      tryGetSynapse: vi.fn(() => ({
+        client: { chain: fakeChain },
+        sessionClient: { chain: fakeChain, account: { address: "0xsession" } },
+      })),
     };
 
     storageProviderRepository = {

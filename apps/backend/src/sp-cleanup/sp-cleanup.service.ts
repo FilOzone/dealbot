@@ -146,9 +146,7 @@ export class SpCleanupService {
   async runDataSetPruning(network: Network, signal?: AbortSignal): Promise<void> {
     const networkCfg = this.getNetworkConfig(network);
     const synapse = await this.getSynapse(network);
-    const relayClient = (this.walletSdkService.tryGetSynapseClient(network) ??
-      synapse.sessionClient ??
-      synapse.client) as SynapseViemClient;
+    const relayClient = (synapse.sessionClient ?? synapse.client) as SynapseViemClient;
 
     // Single wallet-wide fetch, grouped locally by provider — the listing covers the whole
     // wallet either way, so fetching once per SP would re-read it N times over.
@@ -474,7 +472,7 @@ export class SpCleanupService {
    */
   async runAbandonedDataSetSweep(network: Network, signal?: AbortSignal): Promise<void> {
     const synapse = await this.getSynapse(network);
-    const readClient = (this.walletSdkService.tryGetSynapseClient(network) ?? synapse.client) as SynapseViemClient;
+    const readClient = synapse.client as SynapseViemClient;
     const writeClient = (synapse.sessionClient ?? synapse.client) as SynapseViemClient;
     const chain = asChain(readClient.chain);
     const pdpVerifier = chain.contracts.pdp;
