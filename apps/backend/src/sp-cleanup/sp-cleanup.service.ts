@@ -1,6 +1,6 @@
 import { paginate } from "@filoz/synapse-core";
 import { asChain } from "@filoz/synapse-core/chains";
-import { settleRail, settleTerminatedRailWithoutValidationCall } from "@filoz/synapse-core/pay";
+import { settleRailCall, settleTerminatedRailWithoutValidationCall } from "@filoz/synapse-core/pay";
 import { findMatchingDataSets, getDataSet, getPdpDataSets, type PdpDataSet } from "@filoz/synapse-core/warm-storage";
 import type { Synapse } from "@filoz/synapse-sdk";
 import { Injectable, Logger } from "@nestjs/common";
@@ -11,6 +11,7 @@ import type { Chain, Client, Transport } from "viem";
 import { ContractFunctionRevertedError, encodeFunctionData } from "viem";
 import {
   getBlockNumber,
+  getTransactionCount,
   multicall,
   readContract,
   simulateContract,
@@ -21,6 +22,7 @@ import { awaitWithAbort } from "../common/abort-utils.js";
 import { LIFECYCLE_CHECK_METADATA_KEY } from "../common/constants.js";
 import { getBaseDataSetMetadata, storedSlotMetadata } from "../common/data-set-slots.js";
 import { toStructuredError } from "../common/logging.js";
+import { mapWithConcurrency } from "../common/map-with-concurrency.js";
 import { withSafeBatchChecksum } from "../common/safe-batch.js";
 import { isSpBlocked } from "../common/sp-blocklist.js";
 import { isFullRateTier } from "../common/sp-tier.js";
@@ -43,8 +45,9 @@ const PDP_INACTIVITY_WINDOW_BLOCKS = 86400n;
 type TerminationReason = "blocked" | "trickle" | "full_rate" | "abandonment" | "settlement";
 type TerminationOutcome = "success" | "failure";
 
-/** A read-only viem client (no signing account required) — sufficient for `readContract`/`getBlockNumber`/`getRail`. */
 type ReadOnlyClient = Client<Transport, Chain>;
+
+type SubmitWithNonce = (submit: (nonce: number) => Promise<`0x${string}`>) => Promise<`0x${string}`>;
 
 interface StuckRailItem {
   dataSetId: bigint;
@@ -52,14 +55,17 @@ interface StuckRailItem {
   railId: bigint;
 }
 
-/**
- * Items per Multicall3 batch for the sweep's read phases.
- *
- * Kept far below the measured ceiling (calibration: ~600 for `getDataSetLastProvenEpoch`,
- * ~1000 for `getRail`) because that ceiling is a node gas limit, varies per function, and
- * fails in the worst possible way — see `readInBatches`.
- */
+// Conservative Multicall3 size; larger batches can exceed node gas limits.
 const READ_BATCH_SIZE = 100;
+
+// Bounds relay fan-out across providers.
+const PROVIDER_CONCURRENCY = 10;
+
+// Bounds relay traffic to one provider.
+const RELAY_CONCURRENCY = 5;
+
+// Bounds pending writes; transaction submission itself is nonce-serialized.
+const WRITE_CONCURRENCY = 10;
 
 @Injectable()
 export class SpCleanupService {
@@ -104,6 +110,55 @@ export class SpCleanupService {
     this.spTerminationAttemptsCounter.inc({ network, outcome, reason });
   }
 
+  /**
+   * Serializes submission so concurrent writes use distinct nonces while receipts wait in parallel.
+   * A failed submission resyncs from pending state; a failed resync forces the next caller to retry it.
+   */
+  private async createNonceAllocator(writeClient: SynapseViemClient, signal?: AbortSignal): Promise<SubmitWithNonce> {
+    const fetchPendingNonce = () =>
+      awaitWithAbort(
+        getTransactionCount(writeClient, { address: writeClient.account.address, blockTag: "pending" }),
+        signal,
+      );
+
+    let next: number | undefined = await fetchPendingNonce();
+    let queue = Promise.resolve();
+
+    return async (submit) => {
+      const previous = queue;
+      let release!: () => void;
+      queue = new Promise((resolve) => {
+        release = resolve;
+      });
+      await previous;
+      try {
+        if (next === undefined) {
+          next = await fetchPendingNonce();
+        }
+        const nonce = next;
+        const hash = await submit(nonce);
+        next = nonce + 1;
+        return hash;
+      } catch (error) {
+        try {
+          next = await fetchPendingNonce();
+        } catch (resyncError) {
+          next = undefined;
+          this.logger.warn({
+            event: "sp_cleanup_nonce_resync_failed",
+            message:
+              "Failed to re-derive the next nonce after a failed submission; every write until the next " +
+              "successful fetch will retry it first rather than trust a stale value",
+            error: toStructuredError(resyncError),
+          });
+        }
+        throw error;
+      } finally {
+        release();
+      }
+    };
+  }
+
   /** Fetch every bounded SDK page without recreating its cursor rules locally. */
   private async getAllPdpDataSets(
     client: ReadOnlyClient,
@@ -139,14 +194,18 @@ export class SpCleanupService {
    * (`provisionNextMissingDataSet` creates at most one data set per tick) so
    * pruning doesn't fight normal slot replacement.
    *
-   * Runs strictly serially; a per-attempt failure is caught, logged, and
-   * counted — never aborts the batch, since a dead/unreachable SP is expected
-   * here and is left for `abandoned_data_set_sweep` to clean up permissionlessly.
+   * Providers are processed concurrently. Relay failures are logged and left for
+   * `abandoned_data_set_sweep`.
    */
   async runDataSetPruning(network: Network, signal?: AbortSignal): Promise<void> {
     const networkCfg = this.getNetworkConfig(network);
     const synapse = await this.getSynapse(network);
     const relayClient = (synapse.sessionClient ?? synapse.client) as SynapseViemClient;
+
+    this.logger.log({
+      event: "data_set_pruning_job_started",
+      message: "Data Set pruning job started!",
+    });
 
     // Single wallet-wide fetch, grouped locally by provider — the listing covers the whole
     // wallet either way, so fetching once per SP would re-read it N times over.
@@ -178,42 +237,45 @@ export class SpCleanupService {
     const lifecycleGraceMs = Math.max(60000, networkCfg.dataSetLifecycleCheckJobTimeoutSeconds * 1000);
     const buffer = networkCfg.excessDataSetBuffer;
 
-    // Deliberately not scoped to findActiveAddresses (registry-active, optionally approved-only)
-    // — pruning is a safety net against excess data sets regardless of a provider's current
-    // check-eligibility, so it must cover every provider dealbot holds data sets with.
-    for (const [address, activeDataSets] of activeByProvider) {
-      signal?.throwIfAborted();
-      const provider = activeDataSets[0].provider;
-      const blocked = isSpBlocked(networkCfg, provider.serviceProvider, provider.id);
-      // An unregistered provider defaults to unapproved, i.e. the trickle target: dealbot runs
-      // no checks against it, so it needs no reserved slots.
-      const isApproved = approvedByAddress.get(address) ?? false;
-      const isFullRate = !blocked && isFullRateTier(networkCfg, provider.serviceProvider, isApproved, provider.id);
+    // Prune every provider dealbot holds data sets with, even if it is no longer registry-active.
+    // Relay calls use each provider's account, not dealbot's shared transaction nonce.
+    await mapWithConcurrency(
+      [...activeByProvider.entries()],
+      PROVIDER_CONCURRENCY,
+      async ([address, activeDataSets]) => {
+        signal?.throwIfAborted();
+        const provider = activeDataSets[0].provider;
+        const blocked = isSpBlocked(networkCfg, provider.serviceProvider, provider.id);
+        // An unregistered provider defaults to unapproved, i.e. the trickle target: dealbot runs
+        // no checks against it, so it needs no reserved slots.
+        const isApproved = approvedByAddress.get(address) ?? false;
+        const isFullRate = !blocked && isFullRateTier(networkCfg, provider.serviceProvider, isApproved, provider.id);
 
-      // A blocked SP keeps nothing; everyone else keeps one live set per slot its tier requires.
-      let targetCount: number = trickleTierRates.minNumDataSetsForChecks;
-      let reason: TerminationReason = "trickle";
-      if (blocked) {
-        targetCount = 0;
-        reason = "blocked";
-      } else if (isFullRate) {
-        targetCount = networkCfg.minNumDataSetsForChecks;
-        reason = "full_rate";
-      }
+        // A blocked SP keeps nothing; everyone else keeps one live set per slot its tier requires.
+        let targetCount: number = trickleTierRates.minNumDataSetsForChecks;
+        let reason: TerminationReason = "trickle";
+        if (blocked) {
+          targetCount = 0;
+          reason = "blocked";
+        } else if (isFullRate) {
+          targetCount = networkCfg.minNumDataSetsForChecks;
+          reason = "full_rate";
+        }
 
-      await this.terminateExcessDataSets(
-        relayClient,
-        network,
-        provider,
-        activeDataSets,
-        baseDataSetMetadata,
-        targetCount,
-        blocked ? 0 : buffer,
-        lifecycleGraceMs,
-        reason,
-        signal,
-      );
-    }
+        await this.terminateExcessDataSets(
+          relayClient,
+          network,
+          provider,
+          activeDataSets,
+          baseDataSetMetadata,
+          targetCount,
+          blocked ? 0 : buffer,
+          lifecycleGraceMs,
+          reason,
+          signal,
+        );
+      },
+    );
   }
 
   /**
@@ -388,7 +450,8 @@ export class SpCleanupService {
       surplusDataSetIds: toTerminate.map((dataSet) => dataSet.dataSetId.toString()),
     });
 
-    for (const dataSet of toTerminate) {
+    // Bound relay traffic to this provider.
+    await mapWithConcurrency(toTerminate, RELAY_CONCURRENCY, async (dataSet) => {
       // Checked per data set (not just per provider) — a provider with many excess data sets
       // must not keep relaying past the deadline just because it's mid-batch.
       signal?.throwIfAborted();
@@ -410,7 +473,7 @@ export class SpCleanupService {
             event: "sp_cleanup_data_set_terminate_skipped",
             message: "Data set is no longer active; skipping termination",
           });
-          continue;
+          return;
         }
 
         await awaitWithAbort(
@@ -435,9 +498,8 @@ export class SpCleanupService {
           message: "Data set terminated by sp_data_set_pruning",
         });
       } catch (error) {
-        // A dead SP must not abort the batch — but a timeout must, or the last data set of the
-        // last provider would swallow it and the job would still be recorded as successful.
-        if (signal?.aborted) throw error;
+        // Relay failures are expected; only the job's abort should stop the batch.
+        if (this.isAbortError(error, signal)) throw error;
         this.recordAttempt(network, reason, "failure");
         this.logger.warn({
           ...logContext,
@@ -446,7 +508,7 @@ export class SpCleanupService {
           error: toStructuredError(error),
         });
       }
-    }
+    });
   }
 
   /**
@@ -469,6 +531,8 @@ export class SpCleanupService {
    *   (the validator is actually stuck, e.g. an unresolvable open proving
    *   period) falls through to needing the Safe's own signature, logged fresh
    *   every run for a human operator.
+   *
+   * Direct writes run concurrently, with submission serialized by `createNonceAllocator`.
    */
   async runAbandonedDataSetSweep(network: Network, signal?: AbortSignal): Promise<void> {
     const synapse = await this.getSynapse(network);
@@ -476,6 +540,7 @@ export class SpCleanupService {
     const writeClient = (synapse.sessionClient ?? synapse.client) as SynapseViemClient;
     const chain = asChain(readClient.chain);
     const pdpVerifier = chain.contracts.pdp;
+    const submitWithNonce = await this.createNonceAllocator(writeClient, signal);
 
     const networkCfg = this.getNetworkConfig(network);
     const allDataSets = await this.getAllPdpDataSets(readClient, networkCfg.walletAddress as `0x${string}`, signal);
@@ -484,13 +549,18 @@ export class SpCleanupService {
     const stuckItems: StuckRailItem[] = [];
     const abi = pdpVerifier.abi as Parameters<typeof readContract>[1]["abi"];
 
-    // Both branches begin with one view call per data set. Issued one at a time that read
-    // phase alone outruns the job timeout on a large wallet, so each branch batches its
-    // reads first and only then does the (necessarily serial) write work.
+    // Batch view calls so large wallets do not spend the whole job window reading serially.
     const abandonmentCandidates = allDataSets.filter((dataSet) => dataSet.pdpEndEpoch === 0n);
     const settlementCandidates = allDataSets.filter(
       (dataSet) => dataSet.pdpEndEpoch > 0n && currentBlock > dataSet.pdpEndEpoch,
     );
+
+    this.logger.log({
+      event: "abandoned_data_set_sweep_job_started",
+      message: "Abandoned data set sweep job started!",
+      abandonmentCandidatesCount: abandonmentCandidates.length,
+      settlementCandidatesCount: settlementCandidates.length,
+    });
 
     // Branch 1: only data sets outside PDPVerifier's activity window can be deleted.
     const lastProvenEpochs = await this.readInBatches(
@@ -505,8 +575,8 @@ export class SpCleanupService {
       signal,
     );
 
+    const abandoned: { dataSet: PdpDataSet; lastProvenEpoch: bigint }[] = [];
     for (const { item: dataSet, value, reverted } of lastProvenEpochs) {
-      signal?.throwIfAborted();
       if (reverted) {
         // A single data set's read must never abort the sweep — every data set after it
         // (including branch 2) would silently go unchecked for this run.
@@ -523,6 +593,11 @@ export class SpCleanupService {
       }
       const lastProvenEpoch = value as bigint;
       if (currentBlock <= lastProvenEpoch + PDP_INACTIVITY_WINDOW_BLOCKS) continue;
+      abandoned.push({ dataSet, lastProvenEpoch });
+    }
+
+    await mapWithConcurrency(abandoned, WRITE_CONCURRENCY, async ({ dataSet, lastProvenEpoch }) => {
+      signal?.throwIfAborted();
       await this.handleAbandonmentCandidate(
         writeClient,
         pdpVerifier,
@@ -530,9 +605,10 @@ export class SpCleanupService {
         dataSet,
         lastProvenEpoch,
         currentBlock,
+        submitWithNonce,
         signal,
       );
-    }
+    });
 
     // Branch 2: a reverting getRail means the rail is already finalized — nothing to do.
     const rails = await this.readInBatches(
@@ -547,14 +623,14 @@ export class SpCleanupService {
       signal,
     );
 
-    for (const { item: dataSet, reverted } of rails) {
+    const settleable = rails.filter(({ reverted }) => !reverted).map(({ item }) => item);
+    await mapWithConcurrency(settleable, WRITE_CONCURRENCY, async (dataSet) => {
       signal?.throwIfAborted();
-      if (reverted) continue;
-      const stuck = await this.settleOrFlagStuck(writeClient, network, dataSet, signal);
+      const stuck = await this.settleOrFlagStuck(writeClient, chain, network, dataSet, submitWithNonce, signal);
       if (stuck) {
         stuckItems.push(stuck);
       }
-    }
+    });
 
     this.spTerminationStuckGauge.set({ network }, stuckItems.length);
 
@@ -571,6 +647,7 @@ export class SpCleanupService {
     dataSet: { dataSetId: bigint; serviceProvider: string },
     lastProvenEpoch: bigint,
     currentBlock: bigint,
+    submitWithNonce: SubmitWithNonce,
     signal?: AbortSignal,
   ): Promise<void> {
     const abi = pdpVerifier.abi as Parameters<typeof readContract>[1]["abi"];
@@ -593,8 +670,9 @@ export class SpCleanupService {
         }),
         signal,
       );
-      const hash = await awaitWithAbort(writeContract(writeClient, request), signal);
-      const receipt = await awaitWithAbort(waitForTransactionReceipt(writeClient, { hash }), signal);
+      // Once submitted, track the transaction to completion even if the job deadline passes.
+      const hash = await submitWithNonce((nonce) => writeContract(writeClient, { ...request, nonce }));
+      const receipt = await waitForTransactionReceipt(writeClient, { hash });
       if (receipt.status !== "success") {
         throw new Error(`deleteDataSet transaction reverted on-chain (hash: ${hash})`);
       }
@@ -606,9 +684,8 @@ export class SpCleanupService {
         txHash: hash,
       });
     } catch (error) {
-      // An abort is the job timeout, not a delete failure — propagate it rather than
-      // recording an attempt and letting the sweep roll on past its deadline.
-      if (signal?.aborted) throw error;
+      // Only a pre-submission abort is a job timeout.
+      if (this.isAbortError(error, signal)) throw error;
       this.recordAttempt(network, "abandonment", "failure");
       this.logger.warn({
         ...logContext,
@@ -622,33 +699,23 @@ export class SpCleanupService {
     // Deliberately outside the try/catch above: deleteDataSet already succeeded and was recorded,
     // so a timeout abort here must propagate to the job handler as-is, not get relabeled as a
     // deleteDataSet failure (finishCleanupPieces handles its own errors internally already).
-    await this.finishCleanupPieces(writeClient, pdpVerifier, abi, dataSet, logContext, signal);
+    await this.finishCleanupPieces(writeClient, pdpVerifier, abi, dataSet, logContext, submitWithNonce, signal);
   }
 
-  /**
-   * `PDPVerifier.deleteDataSet` only finalizes cleanup (and pays the `cleanupDeposit` FIL bond
-   * to msg.sender) immediately when the data set has zero remaining pieces. If pieces remain, it
-   * instead enters "cleanup mode" (`nextChallengeEpoch == CLEANUP_MODE_SENTINEL`) and the deposit
-   * stays locked until `cleanupPieces` is called — permissionless in this context, same gate as
-   * `deleteDataSet` — enough times to clear every piece. Without this follow-up, the rail is torn
-   * down (already handled by `dataSetDeleted`'s `abandonRails` call) but dealbot's own
-   * originally-posted FIL deposit for this data set is left stranded in the contract forever.
-   */
+  /** Finishes remaining pieces after deletion so the provider's cleanup deposit is released. */
   private async finishCleanupPieces(
     writeClient: SynapseViemClient,
     pdpVerifier: { address: `0x${string}`; abi: unknown },
     abi: Parameters<typeof readContract>[1]["abi"],
     dataSet: { dataSetId: bigint; serviceProvider: string },
     logContext: Record<string, unknown>,
+    submitWithNonce: SubmitWithNonce,
     signal?: AbortSignal,
   ): Promise<void> {
     const CLEANUP_PIECES_BATCH_SIZE = 100n;
-    // A cap here is a safety net against an infinite loop if `done` is ever wrong on-chain —
-    // not a realistic piece count ceiling for a single data set.
+    // Guards against a bad on-chain `done` flag.
     const MAX_ITERATIONS = 200;
-    // `deleteDataSet` already removed this data set from FWSS's `clientDataSets`, so a future
-    // sweep's `listDataSets` can never rediscover it to retry a failed batch — every reasonable
-    // effort has to happen right here, in this one call.
+    // Deleted data sets are no longer discoverable, so cleanup must retry here.
     const MAX_CONSECUTIVE_FAILURES = 5;
 
     let consecutiveFailures = 0;
@@ -665,8 +732,9 @@ export class SpCleanupService {
           }),
           signal,
         );
-        const hash = await awaitWithAbort(writeContract(writeClient, request), signal);
-        const receipt = await awaitWithAbort(waitForTransactionReceipt(writeClient, { hash }), signal);
+        // Once submitted, track the batch to completion even if the deadline passes.
+        const hash = await submitWithNonce((nonce) => writeContract(writeClient, { ...request, nonce }));
+        const receipt = await waitForTransactionReceipt(writeClient, { hash });
         if (receipt.status !== "success") {
           throw new Error(`cleanupPieces transaction reverted on-chain (hash: ${hash})`);
         }
@@ -684,8 +752,7 @@ export class SpCleanupService {
         }
       } catch (error) {
         if (this.extractContractRevert(error)?.data?.errorName === "DataSetNotInCleanupMode") {
-          // The data set had zero pieces and deleteDataSet already finalized/paid the deposit
-          // directly, or a previous iteration already finished the job — genuinely done.
+          // Zero-piece data sets never enter cleanup mode.
           this.logger.debug({
             ...logContext,
             event: "sp_cleanup_pieces_cleanup_not_needed",
@@ -694,7 +761,8 @@ export class SpCleanupService {
           return;
         }
 
-        if (signal?.aborted) throw error;
+        // Only pre-submission work is abortible.
+        if (this.isAbortError(error, signal)) throw error;
         consecutiveFailures++;
         this.logger.warn({
           ...logContext,
@@ -723,19 +791,13 @@ export class SpCleanupService {
     });
   }
 
-  /**
-   * `settleTerminatedRailWithoutValidation` is `onlyRailClient` (the Safe's own address) and so
-   * unusable by dealbot's session key — but plain `settleRail` has no caller restriction at all
-   * (only `validateRailActive`, which just checks the rail hasn't been fully zeroed out yet).
-   * Most "SP terminated cooperatively but never called settleRail themselves" cases resolve here
-   * automatically, no human involved. Only a genuine validator-stuck settlement (`settleRail`
-   * itself reverts, e.g. `NoProgressInSettlement` on an unresolvable open proving period) needs
-   * the Safe's escape hatch — that's the only case that gets flagged for a human.
-   */
+  /** Attempts permissionless settlement; only a contract revert requires the Safe-only fallback. */
   private async settleOrFlagStuck(
     writeClient: SynapseViemClient,
+    chain: ReturnType<typeof asChain>,
     network: Network,
     dataSet: { dataSetId: bigint; serviceProvider: string; pdpRailId: bigint; pdpEndEpoch: bigint },
+    submitWithNonce: SubmitWithNonce,
     signal?: AbortSignal,
   ): Promise<StuckRailItem | null> {
     const logContext = {
@@ -746,21 +808,21 @@ export class SpCleanupService {
       railId: dataSet.pdpRailId.toString(),
     };
 
-    // Deliberately no early return for `settledUpTo >= endEpoch` here: the caller's batched
-    // `getRail` succeeding at all means the rail is still active — i.e. fully settled but not yet
-    // finalized (lockup not released, rail not zeroed). `settleRail` must still be called in that
-    // state: FilecoinPay's `settleRailInternal` detects it and runs `finalizeTerminatedRail`
-    // inline. Skipping the call here would leave that lockup stuck forever.
+    // Even fully paid rails need settleRail to finalize and release their lockup.
+    // Build the call explicitly so the shared nonce allocator controls submission.
     try {
-      const hash = await awaitWithAbort(
-        settleRail(writeClient, { railId: dataSet.pdpRailId, untilEpoch: dataSet.pdpEndEpoch }),
+      const { request } = await awaitWithAbort(
+        simulateContract(
+          writeClient,
+          settleRailCall({ chain, railId: dataSet.pdpRailId, untilEpoch: dataSet.pdpEndEpoch }),
+        ),
         signal,
       );
-      const receipt = await awaitWithAbort(waitForTransactionReceipt(writeClient, { hash }), signal);
+      // Once submitted, track settlement to completion even if the deadline passes.
+      const hash = await submitWithNonce((nonce) => writeContract(writeClient, { ...request, nonce }));
+      const receipt = await waitForTransactionReceipt(writeClient, { hash });
       if (receipt.status !== "success") {
-        // A mined-but-reverted receipt is a genuine on-chain failure, same as a simulate/write-time
-        // revert below — return it directly rather than throwing, since a plain Error here would
-        // fail `isContractRevert` in the catch and get misclassified as a transient RPC failure.
+        // A mined revert needs the same Safe fallback as a simulation revert.
         this.recordAttempt(network, "settlement", "failure");
         this.logger.warn({
           ...logContext,
@@ -779,9 +841,8 @@ export class SpCleanupService {
       });
       return null;
     } catch (error) {
-      // An abort is the job timeout, not a settlement outcome — it must not be recorded as a
-      // failed attempt or silently classified as a transient RPC error.
-      if (signal?.aborted) throw error;
+      // Only a pre-submission abort is a job timeout.
+      if (this.isAbortError(error, signal)) throw error;
       this.recordAttempt(network, "settlement", "failure");
       if (!this.isContractRevert(error)) {
         this.logger.warn({
@@ -792,8 +853,7 @@ export class SpCleanupService {
         });
         return null;
       }
-      // A real revert here (the rail exists and isn't fully settled, per the getRail check above)
-      // is the genuine validator-stuck case — needs a human with the Safe.
+      // Contract reverts need a human with the Safe.
       this.logger.warn({
         ...logContext,
         event: "sp_cleanup_settle_rail_stuck",
@@ -819,14 +879,12 @@ export class SpCleanupService {
     return this.extractContractRevert(error) != null;
   }
 
-  /**
-   * Logs the full actionable payload for stuck-settlement rails: a human
-   * operator's only path to act on these is to copy the `batch` field straight
-   * out of this log line (via BetterStack) into the Safe Transaction Builder —
-   * see docs/runbooks/wallet-and-session-keys.md. No local persistence: the
-   * stuck set is entirely re-derivable on-chain, so it's recomputed fresh (and
-   * logged in full) on every run rather than tracked across runs.
-   */
+  /** Distinguishes an interrupted step from an unrelated failure after the deadline passed. */
+  private isAbortError(error: unknown, signal?: AbortSignal): boolean {
+    return signal !== undefined && error === signal.reason;
+  }
+
+  /** Logs a Safe Transaction Builder batch for rails requiring operator settlement. */
   private logStuckTerminations(network: Network, chain: ReturnType<typeof asChain>, stuckItems: StuckRailItem[]): void {
     const filecoinPayAddress = chain.contracts.filecoinPay.address;
     const walletAddress = this.getNetworkConfig(network).walletAddress;

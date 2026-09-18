@@ -13,7 +13,7 @@ vi.mock("../data-set-lifecycle/data-set-lifecycle.service.js", () => ({
 
 vi.mock("@filoz/synapse-core/pay", () => ({
   getRail: vi.fn(),
-  settleRail: vi.fn(),
+  settleRailCall: vi.fn(),
   settleTerminatedRailWithoutValidationCall: vi.fn(),
 }));
 
@@ -31,6 +31,7 @@ vi.mock("@filoz/synapse-core/warm-storage", async (importOriginal) => ({
 
 vi.mock("viem/actions", () => ({
   getBlockNumber: vi.fn(),
+  getTransactionCount: vi.fn(),
   multicall: vi.fn(),
   readContract: vi.fn(),
   simulateContract: vi.fn(),
@@ -53,12 +54,11 @@ vi.mock("../common/synapse-factory.js", () => ({
 }));
 
 const { terminateServiceSync } = await import("../data-set-lifecycle/data-set-lifecycle.service.js");
-const { settleRail, settleTerminatedRailWithoutValidationCall } = await import("@filoz/synapse-core/pay");
+const { settleRailCall, settleTerminatedRailWithoutValidationCall } = await import("@filoz/synapse-core/pay");
 const { asChain } = await import("@filoz/synapse-core/chains");
 const { getDataSet, getPdpDataSets } = await import("@filoz/synapse-core/warm-storage");
-const { getBlockNumber, multicall, simulateContract, writeContract, waitForTransactionReceipt } = await import(
-  "viem/actions"
-);
+const { getBlockNumber, getTransactionCount, multicall, simulateContract, writeContract, waitForTransactionReceipt } =
+  await import("viem/actions");
 
 const DEFAULT_NETWORK = "calibration";
 
@@ -229,6 +229,16 @@ describe("SpCleanupService", () => {
     // still active, so the plan is carried out as computed.
     vi.mocked(getDataSet).mockResolvedValue({ pdpEndEpoch: 0n } as any);
     mockBatchedReads({ getDataSetLastProvenEpoch: 0n, getRail: { settledUpTo: 100n, endEpoch: 500n } });
+    vi.mocked(getTransactionCount).mockResolvedValue(0);
+    vi.mocked(settleRailCall).mockImplementation(
+      (opts) =>
+        ({
+          address: "0xfilecoinpay",
+          abi: [],
+          functionName: "settleRail",
+          args: [opts.railId, opts.untilEpoch],
+        }) as any,
+    );
   });
 
   afterEach(() => {
@@ -629,11 +639,8 @@ describe("SpCleanupService", () => {
 
       storageProviderRepository.findAllByNetwork.mockResolvedValueOnce([makeProvider()]);
 
-      mockPdpDataSets([
-        makeDataSet({ dataSetId: 30n }),
-        makeDataSet({ dataSetId: 31n }),
-        makeDataSet({ dataSetId: 32n }),
-      ] as any);
+      // Leave items queued when the abort fires.
+      mockPdpDataSets(Array.from({ length: 8 }, (_, i) => makeDataSet({ dataSetId: BigInt(30 + i) })) as any);
 
       const controller = new AbortController();
       vi.mocked(terminateServiceSync).mockImplementationOnce(async () => {
@@ -643,9 +650,7 @@ describe("SpCleanupService", () => {
 
       await expect(service.runDataSetPruning(DEFAULT_NETWORK, controller.signal)).rejects.toThrow();
 
-      // Only the first of the 3 excess data sets was relayed — the abort fired inside that call,
-      // and the per-data-set check at the top of the next loop iteration caught it.
-      expect(terminateServiceSync).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(terminateServiceSync).mock.calls.length).toBeLessThanOrEqual(5);
     });
   });
 
@@ -686,7 +691,10 @@ describe("SpCleanupService", () => {
         expect.objectContaining({ functionName: "cleanupPieces", args: [10n, 100n] }),
       );
       expect(writeContract).toHaveBeenCalledTimes(1); // only deleteDataSet actually wrote a tx
-      expect(writeContract).toHaveBeenCalledWith(expect.anything(), { fake: "deleteDataSet-request" });
+      expect(writeContract).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ fake: "deleteDataSet-request", nonce: expect.any(Number) }),
+      );
       // No provider-relay signature/POST path used for the abandonment branch.
       expect(terminateServiceSync).not.toHaveBeenCalled();
       expect(attemptsCounter.inc).toHaveBeenCalledWith({
@@ -694,6 +702,103 @@ describe("SpCleanupService", () => {
         outcome: "success",
         reason: "abandonment",
       });
+    });
+
+    it("assigns distinct sequential nonces to concurrent writes instead of racing the default lookup", async () => {
+      const dataSets = [30n, 31n].map((id) => makeDataSet({ dataSetId: id, pdpEndEpoch: 0n }));
+      mockPdpDataSets(dataSets as any);
+      vi.mocked(getBlockNumber).mockResolvedValueOnce(200000n);
+      mockBatchedReads({ getDataSetLastProvenEpoch: 1000n });
+      vi.mocked(getTransactionCount).mockResolvedValueOnce(7); // allocator's starting point
+      const notInCleanupMode = new ContractFunctionRevertedError({ abi: [], functionName: "cleanupPieces" });
+      notInCleanupMode.data = { errorName: "DataSetNotInCleanupMode", args: [] } as any;
+      vi.mocked(simulateContract).mockImplementation((async (_client: unknown, params: any) =>
+        params.functionName === "deleteDataSet"
+          ? { request: { fake: "deleteDataSet-request" } }
+          : Promise.reject(notInCleanupMode)) as never);
+      vi.mocked(writeContract).mockResolvedValue("0xtxhash" as any);
+      vi.mocked(waitForTransactionReceipt).mockResolvedValue({ status: "success" } as any);
+
+      await service.runAbandonedDataSetSweep(DEFAULT_NETWORK);
+
+      const deleteCalls = vi.mocked(writeContract).mock.calls;
+      expect(deleteCalls).toHaveLength(2);
+      const nonces = deleteCalls.map(([, request]: any) => request.nonce).sort();
+      expect(nonces).toEqual([7, 8]);
+    });
+
+    it("re-derives the nonce from the chain after a failed submission instead of leaving a gap", async () => {
+      const dataSets = [40n, 41n].map((id) => makeDataSet({ dataSetId: id, pdpEndEpoch: 0n }));
+      mockPdpDataSets(dataSets as any);
+      vi.mocked(getBlockNumber).mockResolvedValueOnce(200000n);
+      mockBatchedReads({ getDataSetLastProvenEpoch: 1000n });
+      // Initial fetch and post-failure resync both see nonce 7.
+      vi.mocked(getTransactionCount).mockResolvedValueOnce(7).mockResolvedValueOnce(7);
+      const notInCleanupMode = new ContractFunctionRevertedError({ abi: [], functionName: "cleanupPieces" });
+      notInCleanupMode.data = { errorName: "DataSetNotInCleanupMode", args: [] } as any;
+      vi.mocked(simulateContract).mockImplementation((async (_client: unknown, params: any) =>
+        params.functionName === "deleteDataSet"
+          ? { request: { fake: "deleteDataSet-request" } }
+          : Promise.reject(notInCleanupMode)) as never);
+      vi.mocked(writeContract)
+        .mockRejectedValueOnce(new Error("network error before broadcast"))
+        .mockResolvedValueOnce("0xtxhash" as any);
+      vi.mocked(waitForTransactionReceipt).mockResolvedValue({ status: "success" } as any);
+
+      await service.runAbandonedDataSetSweep(DEFAULT_NETWORK);
+
+      const calls = vi.mocked(writeContract).mock.calls;
+      expect(calls).toHaveLength(2);
+      expect((calls[0][1] as any).nonce).toBe(7);
+      expect((calls[1][1] as any).nonce).toBe(7);
+      expect(attemptsCounter.inc).toHaveBeenCalledWith({
+        network: DEFAULT_NETWORK,
+        outcome: "failure",
+        reason: "abandonment",
+      });
+      expect(attemptsCounter.inc).toHaveBeenCalledWith({
+        network: DEFAULT_NETWORK,
+        outcome: "success",
+        reason: "abandonment",
+      });
+    });
+
+    it("finishes a write already in flight when the deadline fires instead of orphaning it unrecorded", async () => {
+      const dataSet = makeDataSet({ dataSetId: 50n, pdpEndEpoch: 0n });
+      mockPdpDataSets([dataSet] as any);
+      vi.mocked(getBlockNumber).mockResolvedValueOnce(200000n);
+      mockBatchedReads({ getDataSetLastProvenEpoch: 1000n });
+      const notInCleanupMode = new ContractFunctionRevertedError({ abi: [], functionName: "cleanupPieces" });
+      notInCleanupMode.data = { errorName: "DataSetNotInCleanupMode", args: [] } as any;
+      vi.mocked(simulateContract).mockImplementation((async (_client: unknown, params: any) =>
+        params.functionName === "deleteDataSet"
+          ? { request: { fake: "deleteDataSet-request" } }
+          : Promise.reject(notInCleanupMode)) as never);
+
+      const controller = new AbortController();
+      // Abort after submission starts.
+      vi.mocked(writeContract).mockImplementationOnce(async () => {
+        controller.abort(new Error("abandoned_data_set_sweep job timeout"));
+        return "0xtxhash" as any;
+      });
+      vi.mocked(waitForTransactionReceipt).mockResolvedValue({ status: "success" } as any);
+
+      // The committed delete finishes; cleanup does not start after the abort.
+      await expect(service.runAbandonedDataSetSweep(DEFAULT_NETWORK, controller.signal)).rejects.toThrow();
+
+      expect(attemptsCounter.inc).toHaveBeenCalledWith({
+        network: DEFAULT_NETWORK,
+        outcome: "success",
+        reason: "abandonment",
+      });
+      expect(attemptsCounter.inc).not.toHaveBeenCalledWith({
+        network: DEFAULT_NETWORK,
+        outcome: "failure",
+        reason: "abandonment",
+      });
+      expect(warnSpy).not.toHaveBeenCalledWith(
+        expect.objectContaining({ event: "sp_cleanup_data_set_abandoned_delete_failed" }),
+      );
     });
 
     it("loops cleanupPieces until done=true when pieces remain after deleteDataSet", async () => {
@@ -831,7 +936,7 @@ describe("SpCleanupService", () => {
         getDataSetLastProvenEpoch: new Error("RPC timeout"),
         getRail: { settledUpTo: 100n, endEpoch: 500n },
       });
-      vi.mocked(settleRail).mockRejectedValueOnce(
+      vi.mocked(simulateContract).mockRejectedValueOnce(
         new ContractFunctionRevertedError({ abi: [], functionName: "settleRail" }),
       );
       vi.mocked(settleTerminatedRailWithoutValidationCall).mockReturnValueOnce({
@@ -843,7 +948,6 @@ describe("SpCleanupService", () => {
 
       await expect(service.runAbandonedDataSetSweep(DEFAULT_NETWORK)).resolves.toBeUndefined();
 
-      expect(simulateContract).not.toHaveBeenCalled();
       expect(attemptsCounter.inc).toHaveBeenCalledWith({
         network: DEFAULT_NETWORK,
         outcome: "failure",
@@ -872,15 +976,13 @@ describe("SpCleanupService", () => {
       mockPdpDataSets([dataSet] as any);
       vi.mocked(getBlockNumber).mockResolvedValueOnce(200000n);
       mockBatchedReads({ getRail: { settledUpTo: 100n, endEpoch: 500n } });
-      vi.mocked(settleRail).mockResolvedValueOnce("0xsettle-hash" as any);
+      vi.mocked(simulateContract).mockResolvedValueOnce({ request: { fake: "settleRail-request" } } as any);
+      vi.mocked(writeContract).mockResolvedValueOnce("0xsettle-hash" as any);
       vi.mocked(waitForTransactionReceipt).mockResolvedValueOnce({ status: "success" } as any);
 
       await service.runAbandonedDataSetSweep(DEFAULT_NETWORK);
 
-      expect(settleRail).toHaveBeenCalledWith(
-        expect.anything(),
-        expect.objectContaining({ railId: 993n, untilEpoch: 500n }),
-      );
+      expect(settleRailCall).toHaveBeenCalledWith(expect.objectContaining({ railId: 993n, untilEpoch: 500n }));
       expect(attemptsCounter.inc).toHaveBeenCalledWith({
         network: DEFAULT_NETWORK,
         outcome: "success",
@@ -898,15 +1000,13 @@ describe("SpCleanupService", () => {
       // settledUpTo >= endEpoch here means "fully settled but still needs finalizeTerminatedRail",
       // not "nothing to do".
       mockBatchedReads({ getRail: { settledUpTo: 500n, endEpoch: 500n } });
-      vi.mocked(settleRail).mockResolvedValueOnce("0xfinalize-hash" as any);
+      vi.mocked(simulateContract).mockResolvedValueOnce({ request: { fake: "settleRail-request" } } as any);
+      vi.mocked(writeContract).mockResolvedValueOnce("0xfinalize-hash" as any);
       vi.mocked(waitForTransactionReceipt).mockResolvedValueOnce({ status: "success" } as any);
 
       await service.runAbandonedDataSetSweep(DEFAULT_NETWORK);
 
-      expect(settleRail).toHaveBeenCalledWith(
-        expect.anything(),
-        expect.objectContaining({ railId: 994n, untilEpoch: 500n }),
-      );
+      expect(settleRailCall).toHaveBeenCalledWith(expect.objectContaining({ railId: 994n, untilEpoch: 500n }));
       expect(attemptsCounter.inc).toHaveBeenCalledWith({
         network: DEFAULT_NETWORK,
         outcome: "success",
@@ -920,7 +1020,7 @@ describe("SpCleanupService", () => {
       mockPdpDataSets([dataSet] as any);
       vi.mocked(getBlockNumber).mockResolvedValueOnce(200000n);
       mockBatchedReads({ getRail: { settledUpTo: 100n, endEpoch: 500n } });
-      vi.mocked(settleRail).mockRejectedValueOnce(new Error("fetch failed: RPC timeout"));
+      vi.mocked(simulateContract).mockRejectedValueOnce(new Error("fetch failed: RPC timeout"));
 
       await service.runAbandonedDataSetSweep(DEFAULT_NETWORK);
 
@@ -938,7 +1038,7 @@ describe("SpCleanupService", () => {
       mockPdpDataSets([dataSet] as any);
       vi.mocked(getBlockNumber).mockResolvedValueOnce(200000n); // > pdpEndEpoch (strict)
       mockBatchedReads({ getRail: { settledUpTo: 100n, endEpoch: 500n } });
-      vi.mocked(settleRail).mockRejectedValueOnce(
+      vi.mocked(simulateContract).mockRejectedValueOnce(
         new ContractFunctionRevertedError({ abi: [], functionName: "settleRail" }),
       );
       vi.mocked(settleTerminatedRailWithoutValidationCall).mockReturnValueOnce({
@@ -967,9 +1067,8 @@ describe("SpCleanupService", () => {
           }),
         }),
       );
-      // The escalation is logged for a human — dealbot never calls settleTerminatedRailWithoutValidation itself.
+      // Only a Safe can execute the fallback settlement.
       expect(writeContract).not.toHaveBeenCalled();
-      expect(simulateContract).not.toHaveBeenCalled();
     });
 
     it("flags a mined-but-reverted settleRail receipt as stuck, not a transient failure", async () => {
@@ -977,7 +1076,8 @@ describe("SpCleanupService", () => {
       mockPdpDataSets([dataSet] as any);
       vi.mocked(getBlockNumber).mockResolvedValueOnce(200000n);
       mockBatchedReads({ getRail: { settledUpTo: 100n, endEpoch: 500n } });
-      vi.mocked(settleRail).mockResolvedValueOnce("0xreverted-hash" as any);
+      vi.mocked(simulateContract).mockResolvedValueOnce({ request: { fake: "settleRail-request" } } as any);
+      vi.mocked(writeContract).mockResolvedValueOnce("0xreverted-hash" as any);
       vi.mocked(waitForTransactionReceipt).mockResolvedValueOnce({ status: "reverted" } as any);
       vi.mocked(settleTerminatedRailWithoutValidationCall).mockReturnValueOnce({
         abi: [],
@@ -1042,7 +1142,7 @@ describe("SpCleanupService", () => {
       await expect(service.runAbandonedDataSetSweep(DEFAULT_NETWORK)).rejects.toThrow("fetch failed");
 
       // Never silently recorded as resolved.
-      expect(settleRail).not.toHaveBeenCalled();
+      expect(simulateContract).not.toHaveBeenCalled();
     });
 
     it("retries with a smaller batch when a multicall exhausts node gas, rather than reading it as all-reverted", async () => {
@@ -1056,7 +1156,8 @@ describe("SpCleanupService", () => {
       vi.mocked(multicall)
         .mockResolvedValueOnce(dataSets.map(() => ({ status: "failure", error: outOfGas })) as never)
         .mockResolvedValue([{ status: "success", result: { settledUpTo: 100n, endEpoch: 500n } }] as never);
-      vi.mocked(settleRail).mockResolvedValue("0xsettle" as any);
+      vi.mocked(simulateContract).mockResolvedValue({ request: { fake: "settleRail-request" } } as any);
+      vi.mocked(writeContract).mockResolvedValue("0xsettle" as any);
       vi.mocked(waitForTransactionReceipt).mockResolvedValue({ status: "success" } as any);
 
       await service.runAbandonedDataSetSweep(DEFAULT_NETWORK);
@@ -1065,7 +1166,7 @@ describe("SpCleanupService", () => {
         expect.objectContaining({ event: "sp_cleanup_multicall_out_of_gas", batchSize: 2, retryBatchSize: 1 }),
       );
       // Both rails still get settled after the split — none silently dropped.
-      expect(settleRail).toHaveBeenCalledTimes(2);
+      expect(writeContract).toHaveBeenCalledTimes(2);
     });
 
     it("propagates an abort raised during settlement instead of counting it as a failed attempt", async () => {
