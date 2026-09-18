@@ -202,11 +202,6 @@ export class SpCleanupService {
     const synapse = await this.getSynapse(network);
     const relayClient = (synapse.sessionClient ?? synapse.client) as SynapseViemClient;
 
-    this.logger.log({
-      event: "data_set_pruning_job_started",
-      message: "Data Set pruning job started!",
-    });
-
     // Single wallet-wide fetch, grouped locally by provider — the listing covers the whole
     // wallet either way, so fetching once per SP would re-read it N times over.
     const allDataSets = await this.getAllPdpDataSets(relayClient, networkCfg.walletAddress as `0x${string}`, signal);
@@ -554,13 +549,6 @@ export class SpCleanupService {
     const settlementCandidates = allDataSets.filter(
       (dataSet) => dataSet.pdpEndEpoch > 0n && currentBlock > dataSet.pdpEndEpoch,
     );
-
-    this.logger.log({
-      event: "abandoned_data_set_sweep_job_started",
-      message: "Abandoned data set sweep job started!",
-      abandonmentCandidatesCount: abandonmentCandidates.length,
-      settlementCandidatesCount: settlementCandidates.length,
-    });
 
     // Branch 1: only data sets outside PDPVerifier's activity window can be deleted.
     const lastProvenEpochs = await this.readInBatches(
