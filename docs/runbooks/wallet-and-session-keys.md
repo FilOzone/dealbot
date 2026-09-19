@@ -214,18 +214,18 @@ Runs every `<NET>_DATASET_PRUNING_INTERVAL_SECONDS` (default 1 day, see
   slot (the newest N can all belong to one slot) and invert the SDK's preference, terminating the copy in use
   and leaving `data_set_creation` to re-provision the slots it removed, forever.
 
-  Both cleanup jobs share one `sp.cleanup` queue with pg-boss's `singleton` policy and a single
-  per-network key, so they never run at the same time: each walks the whole wallet, and they are
-  seeded on the same schedule tick. Serialising also means the sweep's own listing always reflects
-  pruning's terminations instead of a snapshot taken before them.
+Both cleanup jobs share one `sp.cleanup` queue and per-network singleton key, so their wallet-wide scans do not
+overlap. The queue does not guarantee that pruning runs before the sweep.
 
-  Pruning runs on that queue rather than the per-provider `SP_WORK_QUEUE`, so it holds no lock
-  against concurrent deal or lifecycle jobs. Two rules make that safe instead: the slot rule above never
-  targets a set a deal job could resolve to, and a lifecycle-check set (tagged `dealbotLifecycleCheck` with the
-  creating job's `Date.now()`) is skipped while it is younger than
-  `<NET>_DATA_SET_LIFECYCLE_CHECK_JOB_TIMEOUT_SECONDS` — past that its creating job has certainly been aborted,
-  so the set is leaked. Each set is also re-read on-chain immediately before its terminate call, so one already
-  removed by another job is skipped rather than double-terminated.
+During maintenance, pruning is deferred until the window ends. A due abandonment sweep is skipped and scheduled
+again at its normal interval.
+
+Pruning runs on that queue rather than the per-provider `SP_WORK_QUEUE`, so it holds no lock against concurrent
+deal or lifecycle jobs. Two rules make that safe instead: the slot rule above never targets a set a deal job
+could resolve to, and a lifecycle-check set (tagged `dealbotLifecycleCheck` with the creating job's `Date.now()`)
+is skipped while it is younger than `<NET>_DATA_SET_LIFECYCLE_CHECK_JOB_TIMEOUT_SECONDS` — past that its creating
+job has certainly been aborted, so the set is leaked. Each set is also re-read on-chain immediately before its
+terminate call, so one already removed by another job is skipped rather than double-terminated.
 
 Termination uses the same provider-relay path as the data-set lifecycle check (`terminateServiceSync`): dealbot
 signs an EIP-712 authorization and POSTs it to the SP's own server, which submits the on-chain tx. This only
@@ -240,7 +240,7 @@ dealbot's entire wallet, not scoped to the blocklist. For each data set:
 
 - **Abandoned** (never terminated, and outside PDPVerifier's ~30-day activity window since the last proof):
   `PDPVerifier.deleteDataSet` becomes fully permissionless once that window has elapsed, so dealbot's session
-  key calls it **directly** — no signature, no SP cooperation required. This is what actually cleans up dead SPs.
+  key calls it **directly** — no SP signature or relay required. This is what actually cleans up dead SPs.
 - **Stuck settlement** (terminated, but the termination lockup has fully elapsed and the SP never called
   `settleRail()` themselves): unlike `settleTerminatedRailWithoutValidation` (`onlyRailClient` — the Safe's
   address only, not the session key's own; same constraint as the direct 1-arg `terminateService`, see
@@ -250,12 +250,18 @@ dealbot's entire wallet, not scoped to the blocklist. For each data set:
   genuinely stuck, e.g. an unresolvable open proving period) does it fall through to needing a human with the
   Safe's `settleTerminatedRailWithoutValidation` escape hatch. Expected to be rare.
 
+After `deleteDataSet`, the sweep calls `cleanupPieces` in batches until cleanup finishes. Deletion removes the
+data set from the wallet listing, so cleanup failures are retried only during that run. If cleanup remains
+incomplete, proof obligations and payment rails have already been removed; only the SP-funded cleanup bounty
+remains unclaimed.
+
 ### Resolving a stuck rail settlement
 
 There is no database table or endpoint for this — the stuck set is fully re-derivable on-chain every run, so
 it's recomputed fresh and logged in full each time it's non-empty (event `stuck_terminations_detected`). The
-`sp_termination_stuck_gauge{network}` metric (reset every run, even to 0) is what a BetterStack/Grafana alert
-rule thresholds on to page a human; the log is the payload you retrieve *after* being paged.
+`sp_termination_stuck_gauge{network}` metric (updated after each completed sweep, including to 0) is what a
+BetterStack/Grafana alert rule thresholds on to page a human; the log is the payload you retrieve *after* being
+paged.
 
 1. In BetterStack, search for `event:stuck_terminations_detected` on the relevant network, and open the most
    recent occurrence.
@@ -270,18 +276,13 @@ rule thresholds on to page a human; the log is the payload you retrieve *after* 
 
 ### Operational prerequisite: session key gas balance
 
-Unlike the provider-relay path (where the SP's server pays gas for the on-chain tx it submits),
-`abandoned_data_set_sweep`'s direct `deleteDataSet` calls are signed and broadcast by dealbot's own session key,
-which pays its own gas in native FIL/tFIL.
+Unlike the provider-relay path, the sweep's direct `deleteDataSet`, `cleanupPieces`, and `settleRail` calls are
+signed by dealbot's session key, which pays gas in native FIL/tFIL.
 
-The existing `wallet_balance{currency="FIL"}` Prometheus gauge (see
-`apps/backend/src/metrics-prometheus/wallet-balance.collector.ts`) already covers this: `paymentsService.walletBalance()`
-queries `this._client.account.address` — in session-key mode that *is* the session key, not the multisig (the
-multisig's FilecoinPay balance is the separate `accountInfo()` call, surfaced as `wallet_balance{currency="USDFC"}`).
-If the session key's wallet runs dry, `abandoned_data_set_sweep`'s writes will fail with an
-out-of-gas/insufficient-funds error (logged and counted as
-`sp_termination_attempts_total{reason="abandonment",outcome="failure"}`, retried next sweep) until it's topped up —
-watch the existing `wallet_balance{currency="FIL"}` gauge and top it up with a small amount of FIL/tFIL as needed.
+The existing `wallet_balance{currency="FIL"}` gauge monitors the configured Safe wallet, not the session-key EOA.
+Monitor and fund the address derived from `<NET>_SESSION_KEY_PRIVATE_KEY` separately. A low balance causes delete
+and settlement attempts to fail and retry on a later sweep; post-delete `cleanupPieces` retries only during the
+current run, as described above.
 
 ## Cleaning Up the Old Wallet
 

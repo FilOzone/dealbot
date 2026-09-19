@@ -6,7 +6,8 @@ This doc explains what a "job" is in dealbot, how jobs are defined, how they're 
 
 - `job_schedule_state` is the primary schedule entity with one row per `<job_type, sp_address>` plus global rows with an empty `sp_address`.
 - The dealbot scheduler loop polls for due `job_schedule_state` rows, enqueues corresponding pg-boss jobs, and advances `job_schedule_state.next_run_at`.
-- All per-SP jobs (`deal`, `retrieval`, `retrieval_sampled`, `data_set_creation`, `piece_cleanup`, `pull_check`) share the `sp.work` queue with `policy=singleton` and `singletonKey=spAddress` to enforce one active job per SP while allowing backlog.
+- All per-SP jobs (`deal`, `retrieval`, `retrieval_sampled`, `data_set_creation`, `data_set_lifecycle_check`, `piece_cleanup`, `pull_check`) share the `sp.work` queue with `policy=singleton` and a network-scoped provider key.
+- The global `sp_data_set_pruning` and `abandoned_data_set_sweep` jobs share the singleton `sp.cleanup` queue.
 - Dealbot workers poll pg-boss queues via [`boss.work()`](https://github.com/timgit/pg-boss/blob/master/docs/api/workers.md) and run the corresponding handlers.
 
 ## Entities and Terminology
@@ -15,8 +16,8 @@ This doc explains what a "job" is in dealbot, how jobs are defined, how they're 
 | --- | --- | --- |
 | `job_schedule_state` | One per `<sp, job_type>` plus global rows | Schedule state owned by dealbot. |
 | Storage provider (SP) | One per SP in registry | Filtered by `USE_ONLY_APPROVED_PROVIDERS` when enabled. |
-| Job type | `deal`, `retrieval`, `retrieval_sampled`, `data_set_creation`, `data_set_lifecycle_check`, `piece_cleanup`, `pull_check`, `providers_refresh`, `data_retention_poll`, `pull_piece_cleanup` | `deal` corresponds to "data storage check" externally; we keep `deal` in code/DB for compatibility. |
-| pg-boss queue | `sp.work`, `providers.refresh`, `data.retention.poll`, `pull.piece.cleanup` | `sp.work` is a singleton queue. |
+| Job type | `deal`, `retrieval`, `retrieval_sampled`, `data_set_creation`, `data_set_lifecycle_check`, `piece_cleanup`, `pull_check`, `providers_refresh`, `data_retention_poll`, `pull_piece_cleanup`, `sp_data_set_pruning`, `abandoned_data_set_sweep` | `deal` corresponds to "data storage check" externally; we keep `deal` in code/DB for compatibility. |
+| pg-boss queue | `sp.work`, `sp.cleanup`, `providers.refresh`, `data.retention.poll`, `pull.piece.cleanup` | `sp.work` and `sp.cleanup` are singleton queues. |
 | Dealbot scheduler | One per process (when enabled) | Runs the scheduling loop. |
 | Dealbot worker process | One Node.js process with `DEALBOT_RUN_MODE=worker` or `both` | Hosts pg-boss workers. |
 | pg-boss worker | One per queue per dealbot worker process | Created by each `boss.work(...)` call. |
@@ -52,8 +53,12 @@ The fixed trickle tier limits wallet-spend exposure when testing includes newly 
 | `pull_check` | `sp.work` | [`JobsService.handlePullCheckJob`](../apps/backend/src/jobs/jobs.service.ts) | `{ jobType: 'pull_check', spAddress, intervalSeconds }` | [pull check](./checks/pull-check.md) |
 | `data_set_creation` | `sp.work` | [`JobsService.handleDataSetCreationJob`](../apps/backend/src/jobs/jobs.service.ts) | `{ jobType: 'data_set_creation', spAddress, intervalSeconds }` | [data-set-creation](./data-set-creation.md) |
 | `data_set_lifecycle_check` | `sp.work` | [`JobsService.handleDataSetLifecycleCheckJob`](../apps/backend/src/jobs/jobs.service.ts) | `{ jobType: 'data_set_lifecycle_check', spAddress, intervalSeconds }` | [data-set-lifecycle-check](./checks/data-set-lifecycle-check.md) |
+| `sp_data_set_pruning` | `sp.cleanup` | [`JobsService.handleSpDataSetPruningJob`](../apps/backend/src/jobs/jobs.service.ts) | `{ jobType: 'sp_data_set_pruning', network, intervalSeconds }` | [automated SP cleanup](./runbooks/wallet-and-session-keys.md#automated-sp-cleanup) |
+| `abandoned_data_set_sweep` | `sp.cleanup` | [`JobsService.handleAbandonedDataSetSweepJob`](../apps/backend/src/jobs/jobs.service.ts) | `{ jobType: 'abandoned_data_set_sweep', network, intervalSeconds }` | [automated SP cleanup](./runbooks/wallet-and-session-keys.md#automated-sp-cleanup) |
 
-`sp.work` is created with `policy=singleton`, and jobs set `singletonKey=spAddress` so only one active job per SP can run at a time.
+`sp.work` is created with `policy=singleton`, and jobs use a network-scoped provider key so only one active job
+per provider and network can run at a time. Both cleanup jobs use the same per-network key on `sp.cleanup`, so
+their wallet-wide scans do not overlap.
 
 `retrieval_sampled` schedules are only created when `SUBGRAPH_ENDPOINT` is configured, because sampled retrievals sample pieces from the dealbot-owned subgraph.
 
@@ -68,7 +73,7 @@ pg-boss also has a separate pub/sub API (`publish`/`subscribe`) for fan-out. Dea
 ## How Schedules Are Created and Updated
 
 1. **Startup provider sync**: When pg-boss is enabled, `JobsService` calls `WalletSdkService.ensureWalletAllowances()` and `WalletSdkService.loadProviders()`. `loadProviders()` pulls providers from the on-chain SP registry and syncs them into `storage_providers`.
-1. **Scheduler tick creates/updates schedules**: The scheduler loop runs immediately on startup and then every `JOB_SCHEDULER_POLL_SECONDS`. It upserts schedules for each active provider and ensures global `data_retention_poll` and `providers_refresh` schedules exist. It deletes deal/retrieval schedules for providers that are no longer active/approved.
+1. **Scheduler tick creates/updates schedules**: The scheduler loop runs immediately on startup and then every `JOB_SCHEDULER_POLL_SECONDS`. It upserts schedules for each active provider and ensures the global `data_retention_poll`, `providers_refresh`, `pull_piece_cleanup`, `sp_data_set_pruning`, and `abandoned_data_set_sweep` schedules exist. It deletes per-provider schedules for providers that are no longer eligible.
 1. **New SP added to registry (example)**: Once `loadProviders()` syncs a new provider, the next scheduler tick inserts `deal` and `retrieval` schedules for that SP.
 1. **SP status changes (example)**: When `loadProviders()` updates provider status, the next scheduler tick re-evaluates and deletes schedules for inactive/unapproved providers.
 
@@ -79,14 +84,16 @@ Note: In pg-boss mode, provider sync currently happens at startup (and whenever 
 `next_run_at` is controlled entirely by the scheduler loop:
 
 - **Initial value**: set by `upsertSchedule()` when schedules are created, using `now + JOB_SCHEDULE_PHASE_SECONDS`.
-- **On each tick**: The scheduler finds rows where `next_run_at <= now`, computes how many runs are due based on `interval_seconds`, enqueues up to `JOB_CATCHUP_MAX_ENQUEUE` runs per schedule row, and on successful enqueue advances `next_run_at` by `successCount * interval_seconds` while updating `last_run_at`.
-- **Maintenance windows**: Deal/retrieval jobs are not enqueued during a maintenance window. We also skip enqueue if we are within `max(DEAL_JOB_TIMEOUT_SECONDS, RETRIEVAL_JOB_TIMEOUT_SECONDS)` of an upcoming window to avoid starting work that would overlap the window. (TODO: this depends on https://github.com/FilOzone/dealbot/pull/263)
+- **On each tick**: The scheduler finds rows where `next_run_at <= now`. Per-provider schedules may enqueue up to `JOB_CATCHUP_MAX_ENQUEUE` missed runs; global schedules enqueue at most one and, after a successful enqueue, advance to `now + interval_seconds`.
+- **Maintenance windows**: Per-provider jobs and `sp_data_set_pruning` defer until the window ends. Other due global jobs, including `abandoned_data_set_sweep`, are skipped and advance to their next normal interval.
 
-Advancing `next_run_at` by `successCount * interval_seconds` records how many scheduled runs have been placed in the queue. The backlog lives in pg-boss rather than in `job_schedule_state`, which avoids re-enqueuing the same historical slots on every scheduler tick. This does **not** make jobs execute faster — execution rate is still bounded by worker capacity and the per-SP `singletonKey`.
+For per-provider schedules, advancing `next_run_at` by `successCount * interval_seconds` records how many missed
+runs entered the queue. The backlog lives in pg-boss rather than `job_schedule_state`, avoiding duplicate
+enqueues on later ticks. Execution rate remains bounded by worker capacity and the per-provider singleton key.
 
 ## Backfill and Backpressure
 
-- **Backfill**: If the dealbot scheduler is down, it will enqueue missed runs on restart, up to `JOB_CATCHUP_MAX_ENQUEUE` per schedule row per tick. This preserves historical coverage while controlling enqueue rate.
+- **Backfill**: After scheduler downtime, per-provider schedules enqueue up to `JOB_CATCHUP_MAX_ENQUEUE` missed runs per tick. Global schedules do not replay missed intervals.
 
 Backfill caps are about **enqueue rate**, not execution concurrency. Even with `singletonKey` limiting one active job per SP, a long outage could enqueue thousands of jobs at once, causing DB write bursts, large `pgboss.job` growth, and noisy metrics. Caps prevent that “enqueue storm” while still allowing backlog to drain at the worker rate. Increasing the cap only makes the backlog visible in the queue faster; to actually process it faster you need more worker capacity (or to relax per-SP exclusivity).
 
@@ -130,24 +137,28 @@ flowchart LR
   ScheduleTable["job_schedule_state"]
   BossJobs["pgboss.job"]
   SpQueue["sp.work (singleton)"]
+  CleanupQueue["sp.cleanup (singleton)"]
 
   APIHTTP --> DB
   APIMetrics --> DB
   Scheduler --> ScheduleTable
   Scheduler --> BossJobs
   Scheduler --> SpQueue
+  Scheduler --> CleanupQueue
   ScheduleTable --> DB
   BossJobs --> DB
 
   Workers --> BossJobs
   Workers --> SpQueue
+  Workers --> CleanupQueue
   Workers --> DB
 ```
 
 ## Parallelism and Limits
 
 - **Queue concurrency**: All per-SP jobs share the `sp.work` queue. Per-instance worker concurrency is `PG_BOSS_LOCAL_CONCURRENCY` (pg-boss `localConcurrency`), with `batchSize=1`. Total concurrency scales with the number of dealbot worker processes.
-- **Per-SP exclusion**: `sp.work` is created with `policy=singleton`, and jobs are enqueued with `singletonKey=spAddress`, ensuring only one active job per SP across all workers while allowing backlog.
+- **Per-SP exclusion**: `sp.work` uses a network-scoped provider key, ensuring only one active job per provider and network across all workers while allowing backlog.
+- **Cleanup exclusion**: Both wallet-wide cleanup jobs use the same per-network key on `sp.cleanup`, so they run serially for a network.
 
 ## Capacity and Limits
 
@@ -214,6 +225,7 @@ See the "Jobs (pg-boss)" section in `docs/environment-variables.md` for full def
 - [`JOB_SCHEDULE_PHASE_SECONDS`](./environment-variables.md#job_schedule_phase_seconds)
 - [`PG_BOSS_LOCAL_CONCURRENCY`](./environment-variables.md#pg_boss_local_concurrency)
 - [`USE_ONLY_APPROVED_PROVIDERS`](./environment-variables.md#use_only_approved_providers)
+- [`<NET>_DATASET_PRUNING_INTERVAL_SECONDS`](./environment-variables.md#net_dataset_pruning_interval_seconds), [`<NET>_EXCESS_DATASET_BUFFER`](./environment-variables.md#net_excess_dataset_buffer), [`<NET>_ABANDONED_DATASET_SWEEP_INTERVAL_SECONDS`](./environment-variables.md#net_abandoned_dataset_sweep_interval_seconds), [`<NET>_SP_CLEANUP_JOB_TIMEOUT_SECONDS`](./environment-variables.md#net_sp_cleanup_job_timeout_seconds)
 
 ## Source of Truth Links
 

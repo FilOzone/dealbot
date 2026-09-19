@@ -713,10 +713,10 @@ terminating a set out from under a check that is still running.
 
 **Role**: How often the `abandoned_data_set_sweep` job runs for this network. This global job scans dealbot's
 entire wallet (not scoped to the blocklist) for data sets outside the PDPVerifier activity window and deletes
-them directly and permissionlessly (no signature needed — see the runbook), and for terminated data sets past
-`endEpoch`, first tries the permissionless `settleRail` itself — this resolves the common case (the SP never
-settled it themselves) automatically. Only a genuine revert (the validator is actually stuck) gets surfaced to
-a human operator via a structured log (`stuck_terminations_detected`).
+them directly and permissionlessly (no SP signature or relay required — see the runbook), and for terminated
+data sets past `endEpoch`, first tries the permissionless `settleRail` itself — this resolves the common case
+(the SP never settled it themselves) automatically. Only a genuine revert (the validator is actually stuck)
+gets surfaced to a human operator via a structured log (`stuck_terminations_detected`).
 
 ---
 
@@ -725,15 +725,15 @@ a human operator via a structured log (`stuck_terminations_detected`).
 - **Type**: `number`
 - **Required**: No
 - **Default**: `1200` (20 minutes)
+- **Effective minimum**: `60` (1 minute)
 
-**Role**: Maximum runtime for a single `sp_data_set_pruning` or `abandoned_data_set_sweep` run before it's forced
-to abort. Both jobs scan every data set dealbot's wallet holds on the network — the listing is paginated and the
-per-data-set reads are batched through Multicall3, so a wallet of ~10k data sets lands around 10 minutes — so this
-also feeds the
-shutdown-drain timeout (`onApplicationShutdown`) so pg-boss doesn't force-fail a run mid-sweep during a deploy.
-Each run is also queued with a pg-boss expiration 120s beyond this value — pg-boss otherwise expires and fails
-a job after 15 minutes, well short of the default timeout — and the handler honours pg-boss's own abort signal,
-so an expiration or a shutdown stops the work rather than leaving it running behind a failed job.
+**Role**: Execution deadline for `sp_data_set_pruning` and `abandoned_data_set_sweep`. When it expires, the jobs
+stop starting new work. The sweep still waits for already-submitted transactions, so its total runtime can exceed
+this value. Values below 60 seconds are accepted but clamped to 60 at runtime.
+
+Both jobs paginate the wallet listing, and the sweep batches per-data-set reads through Multicall3. This setting
+also sizes the shutdown drain timeout. Cleanup jobs get a pg-boss expiration 120 seconds after the effective
+deadline, and pg-boss expiration or shutdown signals use the same abort path.
 
 ---
 
@@ -753,7 +753,9 @@ so an expiration or a shutdown stops the work rather than leaving it running beh
 - **Required**: No
 - **Default**: `07:00,22:00`
 
-**Role**: Daily maintenance windows (UTC) during which deal-creation and retrieval checks are skipped for this network. Different networks can have different schedules.
+**Role**: Daily maintenance windows (UTC). Per-SP jobs and `sp_data_set_pruning` are deferred until the active
+window ends. Other due global jobs, including `abandoned_data_set_sweep`, are skipped and scheduled again at
+their normal interval. Different networks can have different schedules.
 
 **Example**:
 
