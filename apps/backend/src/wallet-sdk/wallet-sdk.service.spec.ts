@@ -1,3 +1,4 @@
+import { ZodValidationError } from "@filoz/synapse-core/errors";
 import type { ConfigService } from "@nestjs/config";
 import { stringToHex } from "viem";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -191,6 +192,33 @@ describe("WalletSdkService", () => {
       (service as any).networkStates.set("calibration", mockState);
       // storageManager is not initialized so prepare() will throw
       await expect(service.ensureWalletAllowances("calibration")).rejects.toThrow();
+    });
+
+    it("skips the readiness check instead of crashing when provider selection fails to decode", async () => {
+      const mockState = {
+        isSessionKeyMode: false,
+        storageManager: {
+          prepare: vi.fn().mockRejectedValue(new ZodValidationError({ issues: [] } as any)),
+        },
+        config: baseNetworkConfig,
+      };
+      (service as any).networkStates.set("calibration", mockState);
+
+      await expect(service.ensureWalletAllowances("calibration")).resolves.toBeUndefined();
+
+      expect(loggerMock.warn).toHaveBeenCalledWith(expect.objectContaining({ event: "wallet_status_check_skipped" }));
+    });
+
+    it("still propagates non-decode failures from the readiness check", async () => {
+      const rpcError = new Error("RPC unavailable");
+      const mockState = {
+        isSessionKeyMode: false,
+        storageManager: { prepare: vi.fn().mockRejectedValue(rpcError) },
+        config: baseNetworkConfig,
+      };
+      (service as any).networkStates.set("calibration", mockState);
+
+      await expect(service.ensureWalletAllowances("calibration")).rejects.toBe(rpcError);
     });
   });
 
