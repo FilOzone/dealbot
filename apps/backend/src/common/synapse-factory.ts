@@ -29,6 +29,7 @@ import { calibration, mainnet, Synapse } from "@filoz/synapse-sdk";
 import { createClient, custom, http } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import type { INetworkConfig } from "../config/index.js";
+import { DEALBOT_METADATA_SOURCE } from "./data-set-slots.js";
 
 export interface SynapseInstanceResult {
   synapse: Synapse;
@@ -96,7 +97,7 @@ export async function createSynapseFromConfig(config: INetworkConfig): Promise<S
       synapse: new Synapse({
         client: readClient,
         sessionClient: sessionKey.client,
-        source: "dealbot",
+        source: DEALBOT_METADATA_SOURCE,
       }),
       isSessionKeyMode: true,
     };
@@ -106,7 +107,7 @@ export async function createSynapseFromConfig(config: INetworkConfig): Promise<S
     synapse: Synapse.create({
       account: privateKeyToAccount(config.walletPrivateKey),
       chain,
-      source: "dealbot",
+      source: DEALBOT_METADATA_SOURCE,
       transport,
     }),
     isSessionKeyMode: false,

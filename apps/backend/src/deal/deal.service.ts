@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { METADATA_KEYS, SIZE_CONSTANTS, Synapse } from "@filoz/synapse-sdk";
+import { SIZE_CONSTANTS, Synapse } from "@filoz/synapse-sdk";
 import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
@@ -9,6 +9,7 @@ import type { Repository } from "typeorm";
 import { ClickhouseService } from "../clickhouse/clickhouse.service.js";
 import { awaitWithAbort } from "../common/abort-utils.js";
 import { buildUnixfsCar } from "../common/car-utils.js";
+import { getBaseDataSetMetadata } from "../common/data-set-slots.js";
 import { DealJobTerminatedDataSetError } from "../common/errors.js";
 import { createFilecoinPinLogger } from "../common/filecoin-pin-logger.js";
 import {
@@ -254,15 +255,7 @@ export class DealService {
   }
 
   getBaseDataSetMetadata(network: Network): Record<string, string> {
-    // IPNI is always enabled for all deals
-    const metadata: Record<string, string> = {
-      [METADATA_KEYS.WITH_IPFS_INDEXING]: "",
-    };
-    const networkConfig = this.getNetworkConfig(network);
-    if (networkConfig.dealbotDataSetVersion) {
-      metadata.dealbotDataSetVersion = networkConfig.dealbotDataSetVersion;
-    }
-    return metadata;
+    return getBaseDataSetMetadata(this.getNetworkConfig(network));
   }
 
   getWalletAddress(network: Network): string {
