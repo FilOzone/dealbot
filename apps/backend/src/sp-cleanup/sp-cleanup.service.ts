@@ -1,7 +1,15 @@
+import { paginate } from "@filoz/synapse-core";
 import { asChain } from "@filoz/synapse-core/chains";
 import { ZodValidationError } from "@filoz/synapse-core/errors";
 import { settleRailCall, settleTerminatedRailWithoutValidationCall } from "@filoz/synapse-core/pay";
-import { findMatchingDataSets, getDataSet, getPdpDataSets, type PdpDataSet } from "@filoz/synapse-core/warm-storage";
+import {
+  type DataSetInfo,
+  findMatchingDataSets,
+  getClientDataSets,
+  getDataSet,
+  getPdpDataSets,
+  type PdpDataSet,
+} from "@filoz/synapse-core/warm-storage";
 import type { Synapse } from "@filoz/synapse-sdk";
 import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
@@ -191,6 +199,26 @@ export class SpCleanupService {
         );
         cursor = windowStart + BigInt(READ_BATCH_SIZE);
       }
+    }
+    return dataSets;
+  }
+
+  /**
+   * `getClientDataSets` returns raw `DataSetInfo` fields straight from FWSSView with no
+   * per-provider PDP-offering decode, so unlike {@link getAllPdpDataSets} it can't hit the
+   * malformed-offering failure and needs no bisection — a plain `paginate` walk is enough.
+   */
+  private async getAllClientDataSets(
+    client: ReadOnlyClient,
+    address: `0x${string}`,
+    signal?: AbortSignal,
+  ): Promise<DataSetInfo[]> {
+    const dataSets: DataSetInfo[] = [];
+    for await (const dataSet of paginate(({ cursor }) => {
+      signal?.throwIfAborted();
+      return awaitWithAbort(getClientDataSets(client, { address, cursor, limit: BigInt(READ_BATCH_SIZE) }), signal);
+    })) {
+      dataSets.push(dataSet);
     }
     return dataSets;
   }
@@ -589,7 +617,7 @@ export class SpCleanupService {
     const submitWithNonce = await this.createNonceAllocator(writeClient, signal);
 
     const networkCfg = this.getNetworkConfig(network);
-    const allDataSets = await this.getAllPdpDataSets(readClient, networkCfg.walletAddress as `0x${string}`, signal);
+    const allDataSets = await this.getAllClientDataSets(readClient, networkCfg.walletAddress as `0x${string}`, signal);
     const currentBlock = await awaitWithAbort(getBlockNumber(readClient), signal);
 
     const stuckItems: StuckRailItem[] = [];
@@ -614,7 +642,7 @@ export class SpCleanupService {
       signal,
     );
 
-    const abandoned: { dataSet: PdpDataSet; lastProvenEpoch: bigint }[] = [];
+    const abandoned: { dataSet: DataSetInfo; lastProvenEpoch: bigint }[] = [];
     for (const { item: dataSet, value, reverted } of lastProvenEpochs) {
       if (reverted) {
         // A single data set's read must never abort the sweep — every data set after it
