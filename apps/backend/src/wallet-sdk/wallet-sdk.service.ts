@@ -1,3 +1,4 @@
+import { ZodValidationError } from "@filoz/synapse-core/errors";
 import { PDPProvider, Synapse } from "@filoz/synapse-sdk";
 import type { PaymentsService } from "@filoz/synapse-sdk/payments";
 import { SPRegistryService } from "@filoz/synapse-sdk/sp-registry";
@@ -304,9 +305,25 @@ export class WalletSdkService implements OnModuleInit {
       return;
     }
     const STORAGE_SIZE_GB = 100n;
-    const { costs, transaction } = await state.storageManager.prepare({
-      dataSize: STORAGE_SIZE_GB * 1024n * 1024n * 1024n,
-    });
+    let prepared: Awaited<ReturnType<typeof state.storageManager.prepare>>;
+    try {
+      prepared = await state.storageManager.prepare({
+        dataSize: STORAGE_SIZE_GB * 1024n * 1024n * 1024n,
+      });
+    } catch (error) {
+      // Provider selection walks every registered provider's decoded PDP offering; one with
+      // malformed on-chain data fails the whole selection, not just itself. That provider is
+      // unusable regardless, so skip this run's readiness check rather than crash startup.
+      if (!ZodValidationError.is(error)) throw error;
+      this.logger.warn({
+        event: "wallet_status_check_skipped",
+        message: "Could not determine wallet readiness: a registered provider's on-chain PDP offering failed to decode",
+        network,
+        error: toStructuredError(error),
+      });
+      return;
+    }
+    const { costs, transaction } = prepared;
 
     this.logger.log({
       event: "wallet_status_check_completed",
