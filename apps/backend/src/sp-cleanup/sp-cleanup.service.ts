@@ -1,5 +1,5 @@
-import { paginate } from "@filoz/synapse-core";
 import { asChain } from "@filoz/synapse-core/chains";
+import { ZodValidationError } from "@filoz/synapse-core/errors";
 import { settleRailCall, settleTerminatedRailWithoutValidationCall } from "@filoz/synapse-core/pay";
 import { findMatchingDataSets, getDataSet, getPdpDataSets, type PdpDataSet } from "@filoz/synapse-core/warm-storage";
 import type { Synapse } from "@filoz/synapse-sdk";
@@ -159,21 +159,72 @@ export class SpCleanupService {
     };
   }
 
-  /** Fetch every bounded SDK page without recreating its cursor rules locally. */
+  /** Malformed provider offerings fail an entire SDK page, so isolate and skip only affected data sets. */
   private async getAllPdpDataSets(
     client: ReadOnlyClient,
     address: `0x${string}`,
     signal?: AbortSignal,
   ): Promise<PdpDataSet[]> {
     const dataSets: PdpDataSet[] = [];
-    for await (const dataSet of paginate(({ cursor }) => {
+    let cursor: bigint | undefined = 0n;
+    while (cursor !== undefined) {
       signal?.throwIfAborted();
-      return awaitWithAbort(getPdpDataSets(client, { address, cursor }), signal);
-    })) {
-      signal?.throwIfAborted();
-      dataSets.push(dataSet);
+      const windowStart = cursor;
+      try {
+        const page = await awaitWithAbort(
+          getPdpDataSets(client, { address, cursor, limit: BigInt(READ_BATCH_SIZE) }),
+          signal,
+        );
+        dataSets.push(...page.items);
+        cursor = page.nextCursor;
+      } catch (error) {
+        if (this.isAbortError(error, signal)) throw error;
+        if (!ZodValidationError.is(error)) throw error;
+        this.logger.warn({
+          event: "sp_cleanup_data_set_batch_decode_failed",
+          message: "A PDP data set batch failed to decode; bisecting it to isolate the offending data set(s)",
+          cursor: windowStart.toString(),
+          error: toStructuredError(error),
+        });
+        dataSets.push(
+          ...(await this.getPdpDataSetsBisected(client, address, windowStart, BigInt(READ_BATCH_SIZE), signal)),
+        );
+        cursor = windowStart + BigInt(READ_BATCH_SIZE);
+      }
     }
     return dataSets;
+  }
+
+  private async getPdpDataSetsBisected(
+    client: ReadOnlyClient,
+    address: `0x${string}`,
+    cursor: bigint,
+    limit: bigint,
+    signal?: AbortSignal,
+  ): Promise<PdpDataSet[]> {
+    signal?.throwIfAborted();
+    try {
+      const page = await awaitWithAbort(getPdpDataSets(client, { address, cursor, limit }), signal);
+      return page.items;
+    } catch (error) {
+      if (this.isAbortError(error, signal)) throw error;
+      if (!ZodValidationError.is(error)) throw error;
+      if (limit === 1n) {
+        this.logger.warn({
+          event: "sp_cleanup_data_set_skipped",
+          message: "Skipped a PDP data set whose provider offering failed to decode",
+          cursor: cursor.toString(),
+          error: toStructuredError(error),
+        });
+        return [];
+      }
+      const firstHalf = limit / 2n;
+      const [first, second] = await Promise.all([
+        this.getPdpDataSetsBisected(client, address, cursor, firstHalf, signal),
+        this.getPdpDataSetsBisected(client, address, cursor + firstHalf, limit - firstHalf, signal),
+      ]);
+      return [...first, ...second];
+    }
   }
 
   /**
