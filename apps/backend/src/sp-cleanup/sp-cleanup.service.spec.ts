@@ -1,3 +1,4 @@
+import { ZodValidationError } from "@filoz/synapse-core/errors";
 import { Logger } from "@nestjs/common";
 import { ContractFunctionRevertedError } from "viem";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -366,6 +367,7 @@ describe("SpCleanupService", () => {
       expect(getPdpDataSets).toHaveBeenCalledWith(expect.anything(), {
         address: "0xWaLLet000000000000000000000000000000000",
         cursor: 0n,
+        limit: 100n,
       });
       expect(terminateServiceSync).not.toHaveBeenCalled();
     });
@@ -590,12 +592,80 @@ describe("SpCleanupService", () => {
       expect(getPdpDataSets).toHaveBeenNthCalledWith(1, expect.anything(), {
         address: "0xWaLLet000000000000000000000000000000000",
         cursor: 0n,
+        limit: 100n,
       });
       expect(getPdpDataSets).toHaveBeenNthCalledWith(2, expect.anything(), {
         address: "0xWaLLet000000000000000000000000000000000",
         cursor: 100n,
+        limit: 100n,
       });
       expect(terminateServiceSync).toHaveBeenCalledTimes(2);
+    });
+
+    it("bisects a page to skip one malformed provider offering", async () => {
+      const networkConfig = makeNetworkConfig({
+        blockedSpAddresses: new Set(["0xsp0000000000000000000000000000000000001"]),
+      });
+      configService.get.mockImplementation((key: string) =>
+        key === "networks" ? { [DEFAULT_NETWORK]: networkConfig } : undefined,
+      );
+      storageProviderRepository.findAllByNetwork.mockResolvedValueOnce([makeProvider()]);
+
+      const badCursor = 150n;
+      const goodCursor = 105n;
+      const decodeError = new ZodValidationError({ issues: [] } as any);
+      vi.mocked(getPdpDataSets).mockImplementation(async (_client, opts) => {
+        const { cursor, limit } = opts as { cursor: bigint; limit: bigint };
+        if (cursor === 0n && limit === 100n) {
+          return { items: [makeDataSet({ dataSetId: 70n })], nextCursor: 100n } as any;
+        }
+        if (cursor <= badCursor && badCursor < cursor + limit) {
+          throw decodeError;
+        }
+        const items = cursor <= goodCursor && goodCursor < cursor + limit ? [makeDataSet({ dataSetId: 71n })] : [];
+        return { items } as any;
+      });
+
+      await expect(service.runDataSetPruning(DEFAULT_NETWORK)).resolves.toBeUndefined();
+
+      expect(terminateServiceSync).toHaveBeenCalledTimes(2);
+      expect(terminateServiceSync).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ dataSetId: 70n }));
+      expect(terminateServiceSync).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ dataSetId: 71n }));
+      expect(vi.mocked(getPdpDataSets).mock.calls.length).toBeLessThanOrEqual(20);
+    });
+
+    it("propagates RPC failures without bisecting the page", async () => {
+      const rpcError = new Error("RPC unavailable");
+      vi.mocked(getPdpDataSets).mockRejectedValue(rpcError);
+
+      await expect(service.runDataSetPruning(DEFAULT_NETWORK)).rejects.toBe(rpcError);
+
+      expect(getPdpDataSets).toHaveBeenCalledTimes(1);
+    });
+
+    it("stops recovery immediately on an RPC failure instead of continuing into the sibling half", async () => {
+      const rpcError = new Error("RPC unavailable");
+      let secondHalfCalled = false;
+      vi.mocked(getPdpDataSets).mockImplementation(async (_client, opts) => {
+        const { cursor, limit } = opts as { cursor: bigint; limit: bigint };
+        if (cursor === 0n && limit === 100n) {
+          return { items: [], nextCursor: 100n } as any;
+        }
+        if (cursor === 100n && limit === 100n) {
+          throw new ZodValidationError({ issues: [] } as any);
+        }
+        if (cursor === 100n && limit === 50n) {
+          throw rpcError;
+        }
+        if (cursor === 150n && limit === 50n) {
+          secondHalfCalled = true;
+        }
+        return { items: [] } as any;
+      });
+
+      await expect(service.runDataSetPruning(DEFAULT_NETWORK)).rejects.toBe(rpcError);
+
+      expect(secondHalfCalled).toBe(false);
     });
 
     it("continues the batch when a provider-relay termination attempt fails", async () => {
