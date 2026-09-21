@@ -797,12 +797,12 @@ describe("SpCleanupService", () => {
       expect(nonces).toEqual([7, 8]);
     });
 
-    it("treats a nonexistent Filecoin actor as nonce 0 instead of failing the sweep", async () => {
-      const dataSet = makeDataSet({ dataSetId: 60n, pdpEndEpoch: 0n });
-      mockPdpDataSets([dataSet] as any);
+    it("uses nonce 0 only for the initial lookup of a nonexistent Filecoin actor", async () => {
+      const dataSets = [60n, 61n, 62n].map((id) => makeDataSet({ dataSetId: id, pdpEndEpoch: 0n }));
+      mockPdpDataSets(dataSets as any);
       vi.mocked(getBlockNumber).mockResolvedValueOnce(200000n);
       mockBatchedReads({ getDataSetLastProvenEpoch: 1000n });
-      vi.mocked(getTransactionCount).mockRejectedValueOnce(
+      vi.mocked(getTransactionCount).mockRejectedValue(
         new Error("RPC error (-32603): Actor not found: addr=t410f4dgtokspabbge4kn5sqhzkvlb2faf6vxjgxfwsq"),
       );
       const notInCleanupMode = new ContractFunctionRevertedError({ abi: [], functionName: "cleanupPieces" });
@@ -811,14 +811,16 @@ describe("SpCleanupService", () => {
         params.functionName === "deleteDataSet"
           ? { request: { fake: "deleteDataSet-request" } }
           : Promise.reject(notInCleanupMode)) as never);
-      vi.mocked(writeContract).mockResolvedValue("0xtxhash" as any);
+      vi.mocked(writeContract)
+        .mockResolvedValueOnce("0xtxhash" as any)
+        .mockRejectedValueOnce(new Error("network error before broadcast"))
+        .mockResolvedValue("0xunexpected" as any);
       vi.mocked(waitForTransactionReceipt).mockResolvedValue({ status: "success" } as any);
 
       await expect(service.runAbandonedDataSetSweep(DEFAULT_NETWORK)).resolves.toBeUndefined();
 
       const deleteCalls = vi.mocked(writeContract).mock.calls;
-      expect(deleteCalls).toHaveLength(1);
-      expect((deleteCalls[0][1] as any).nonce).toBe(0);
+      expect(deleteCalls.map(([, request]: any) => request.nonce)).toEqual([0, 1]);
     });
 
     it("re-derives the nonce from the chain after a failed submission instead of leaving a gap", async () => {
