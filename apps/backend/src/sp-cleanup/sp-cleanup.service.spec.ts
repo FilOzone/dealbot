@@ -643,6 +643,31 @@ describe("SpCleanupService", () => {
       expect(getPdpDataSets).toHaveBeenCalledTimes(1);
     });
 
+    it("stops recovery immediately on an RPC failure instead of continuing into the sibling half", async () => {
+      const rpcError = new Error("RPC unavailable");
+      let secondHalfCalled = false;
+      vi.mocked(getPdpDataSets).mockImplementation(async (_client, opts) => {
+        const { cursor, limit } = opts as { cursor: bigint; limit: bigint };
+        if (cursor === 0n && limit === 100n) {
+          return { items: [], nextCursor: 100n } as any;
+        }
+        if (cursor === 100n && limit === 100n) {
+          throw new ZodValidationError({ issues: [] } as any);
+        }
+        if (cursor === 100n && limit === 50n) {
+          throw rpcError;
+        }
+        if (cursor === 150n && limit === 50n) {
+          secondHalfCalled = true;
+        }
+        return { items: [] } as any;
+      });
+
+      await expect(service.runDataSetPruning(DEFAULT_NETWORK)).rejects.toBe(rpcError);
+
+      expect(secondHalfCalled).toBe(false);
+    });
+
     it("continues the batch when a provider-relay termination attempt fails", async () => {
       const networkConfig = makeNetworkConfig({
         blockedSpAddresses: new Set(["0xsp0000000000000000000000000000000000001"]),

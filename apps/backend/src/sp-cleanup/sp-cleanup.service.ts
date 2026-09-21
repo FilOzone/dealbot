@@ -218,11 +218,11 @@ export class SpCleanupService {
         });
         return [];
       }
+      // Sequential, not Promise.all: a genuine RPC/contract-read failure in one half must stop
+      // the walk immediately rather than let the other half keep firing concurrent requests.
       const firstHalf = limit / 2n;
-      const [first, second] = await Promise.all([
-        this.getPdpDataSetsBisected(client, address, cursor, firstHalf, signal),
-        this.getPdpDataSetsBisected(client, address, cursor + firstHalf, limit - firstHalf, signal),
-      ]);
+      const first = await this.getPdpDataSetsBisected(client, address, cursor, firstHalf, signal);
+      const second = await this.getPdpDataSetsBisected(client, address, cursor + firstHalf, limit - firstHalf, signal);
       return [...first, ...second];
     }
   }
