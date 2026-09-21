@@ -115,11 +115,22 @@ export class SpCleanupService {
    * A failed submission resyncs from pending state; a failed resync forces the next caller to retry it.
    */
   private async createNonceAllocator(writeClient: SynapseViemClient, signal?: AbortSignal): Promise<SubmitWithNonce> {
-    const fetchPendingNonce = () =>
-      awaitWithAbort(
-        getTransactionCount(writeClient, { address: writeClient.account.address, blockTag: "pending" }),
-        signal,
-      );
+    const fetchPendingNonce = async () => {
+      try {
+        return await awaitWithAbort(
+          getTransactionCount(writeClient, { address: writeClient.account.address, blockTag: "pending" }),
+          signal,
+        );
+      } catch (error) {
+        if (this.isAbortError(error, signal)) throw error;
+        // Filecoin has no actor — and so no queryable nonce — for an address until it's been the
+        // target of some on-chain interaction. That's not a transient RPC failure: an address
+        // with no actor has, by definition, never submitted a transaction, so nonce 0 is correct.
+        const message = error instanceof Error ? error.message.toLowerCase() : "";
+        if (!message.includes("actor not found")) throw error;
+        return 0;
+      }
+    };
 
     let next: number | undefined = await fetchPendingNonce();
     let queue = Promise.resolve();
