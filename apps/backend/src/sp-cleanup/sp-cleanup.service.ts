@@ -129,7 +129,16 @@ export class SpCleanupService {
         signal,
       );
 
-    let next: number | undefined = await fetchPendingNonce();
+    let next: number | undefined;
+    try {
+      next = await fetchPendingNonce();
+    } catch (error) {
+      if (this.isAbortError(error, signal)) throw error;
+      const message = error instanceof Error ? error.message.toLowerCase() : "";
+      if (!message.includes("actor not found")) throw error;
+      // An address without a Filecoin actor has never submitted a transaction.
+      next = 0;
+    }
     let queue = Promise.resolve();
 
     return async (submit) => {
