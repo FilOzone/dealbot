@@ -808,7 +808,7 @@ describe("SpCleanupService", () => {
 
     it("uses nonce 0 only for the initial lookup of a nonexistent Filecoin actor", async () => {
       const dataSets = [60n, 61n, 62n].map((id) => makeDataSet({ dataSetId: id, pdpEndEpoch: 0n }));
-      mockPdpDataSets(dataSets as any);
+      mockClientDataSets(dataSets as any);
       vi.mocked(getBlockNumber).mockResolvedValueOnce(200000n);
       mockBatchedReads({ getDataSetLastProvenEpoch: 1000n });
       vi.mocked(getTransactionCount).mockRejectedValue(
