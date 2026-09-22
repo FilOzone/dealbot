@@ -797,6 +797,32 @@ describe("SpCleanupService", () => {
       expect(nonces).toEqual([7, 8]);
     });
 
+    it("uses nonce 0 only for the initial lookup of a nonexistent Filecoin actor", async () => {
+      const dataSets = [60n, 61n, 62n].map((id) => makeDataSet({ dataSetId: id, pdpEndEpoch: 0n }));
+      mockPdpDataSets(dataSets as any);
+      vi.mocked(getBlockNumber).mockResolvedValueOnce(200000n);
+      mockBatchedReads({ getDataSetLastProvenEpoch: 1000n });
+      vi.mocked(getTransactionCount).mockRejectedValue(
+        new Error("RPC error (-32603): Actor not found: addr=t410f4dgtokspabbge4kn5sqhzkvlb2faf6vxjgxfwsq"),
+      );
+      const notInCleanupMode = new ContractFunctionRevertedError({ abi: [], functionName: "cleanupPieces" });
+      notInCleanupMode.data = { errorName: "DataSetNotInCleanupMode", args: [] } as any;
+      vi.mocked(simulateContract).mockImplementation((async (_client: unknown, params: any) =>
+        params.functionName === "deleteDataSet"
+          ? { request: { fake: "deleteDataSet-request" } }
+          : Promise.reject(notInCleanupMode)) as never);
+      vi.mocked(writeContract)
+        .mockResolvedValueOnce("0xtxhash" as any)
+        .mockRejectedValueOnce(new Error("network error before broadcast"))
+        .mockResolvedValue("0xunexpected" as any);
+      vi.mocked(waitForTransactionReceipt).mockResolvedValue({ status: "success" } as any);
+
+      await expect(service.runAbandonedDataSetSweep(DEFAULT_NETWORK)).resolves.toBeUndefined();
+
+      const deleteCalls = vi.mocked(writeContract).mock.calls;
+      expect(deleteCalls.map(([, request]: any) => request.nonce)).toEqual([0, 1]);
+    });
+
     it("re-derives the nonce from the chain after a failed submission instead of leaving a gap", async () => {
       const dataSets = [40n, 41n].map((id) => makeDataSet({ dataSetId: id, pdpEndEpoch: 0n }));
       mockPdpDataSets(dataSets as any);
