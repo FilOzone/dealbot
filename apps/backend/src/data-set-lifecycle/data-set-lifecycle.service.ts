@@ -55,8 +55,8 @@ const LIFECYCLE_TERMINATE_REQUEST_ATTEMPTS = 3;
 const TERMINATE_REQUEST_RETRY_DELAY_MS = 10_000;
 
 /**
- * SPs reject the request with `TerminateServiceError` when their own chain node times out.
- * Nothing is submitted in that case, so the data set stays live unless the request is retried.
+ * `TerminateServiceError` covers any HTTP error from the SP except 409 and 503, most often its chain
+ * node timing out. Retrying is safe: if an earlier attempt went through, the SP answers with a 409.
  */
 async function requestTermination(
   client: SynapseViemClient,

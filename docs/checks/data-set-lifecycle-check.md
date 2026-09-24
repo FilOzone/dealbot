@@ -113,7 +113,7 @@ Dealbot calls `waitForCreateDataSetAddPieces` with the `statusUrl` returned by t
 
 Dealbot calls `terminateServiceSync` (from `@filoz/synapse-core/warm-storage`) on the newly created `dataSetId`. This submits the terminate transaction and waits for the receipt, confirming the termination was recorded on-chain. This is Step 1 of the [full on-chain termination sequence](#what-happens-on-chain-after-terminateservice-is-called). The job does not wait for the full ~30-day rail finalization.
 
-If the SP rejects the termination request with `TerminateServiceError` (typically its own chain node timing out), dealbot retries the request up to 2 more times, 10 seconds apart. Nothing is submitted on-chain when the SP rejects, so without a retry the data set would leak.
+If the termination request fails with `TerminateServiceError`, dealbot retries it up to 2 more times, 10 seconds apart. The SDK uses that error for any HTTP error from the SP except 409 and 503. In practice it is usually the SP's own chain node timing out, in which case the SP submitted nothing and the data set would otherwise leak. If an earlier attempt did go through, the SP answers the retry with a 409 (termination pending or already done), which is not retried.
 
 The entire check (all variant steps + termination) is bounded by `DATA_SET_LIFECYCLE_CHECK_JOB_TIMEOUT_SECONDS`. A timeout is classified as `failure.timedout`.
 
