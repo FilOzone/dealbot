@@ -113,6 +113,8 @@ Dealbot calls `waitForCreateDataSetAddPieces` with the `statusUrl` returned by t
 
 Dealbot calls `terminateServiceSync` (from `@filoz/synapse-core/warm-storage`) on the newly created `dataSetId`. This submits the terminate transaction and waits for the receipt, confirming the termination was recorded on-chain. This is Step 1 of the [full on-chain termination sequence](#what-happens-on-chain-after-terminateservice-is-called). The job does not wait for the full ~30-day rail finalization.
 
+If the SP rejects the termination request with `TerminateServiceError` (typically its own chain node timing out), dealbot retries the request up to 2 more times, 10 seconds apart. Nothing is submitted on-chain when the SP rejects, so without a retry the data set would leak.
+
 The entire check (all variant steps + termination) is bounded by `DATA_SET_LIFECYCLE_CHECK_JOB_TIMEOUT_SECONDS`. A timeout is classified as `failure.timedout`.
 
 ## Check Status Progression
@@ -171,6 +173,8 @@ The empty variant exercises the `createDataSet → waitForCreateDataSet → term
 If creation succeeds but termination fails (process crash, job timeout, or an on-chain error that is not an already-terminated no-op), the created data set stays live on the SP. This is called a leak and is an accepted trade-off for keeping the job self-contained.
 
 Leaked sets are discoverable by filtering data sets with the `dealbotLifecycleCheck` metadata key — this key is set by both variants. Each leak is recorded in the log line (message: "throwaway data set may have leaked") with the `dataSetId` included.
+
+That log line overcounts real leaks. If the SP has already submitted the terminate transaction but has not reported it confirmed when the status poll times out, the log still fires even though the set ends up terminated. Check the data set on-chain before treating it as leaked.
 
 ### Why does the job create and terminate in the same run?
 
