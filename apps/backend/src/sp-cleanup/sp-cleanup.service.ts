@@ -50,8 +50,11 @@ import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
  */
 const PDP_INACTIVITY_WINDOW_BLOCKS = 86400n;
 
-type TerminationReason = "blocked" | "trickle" | "full_rate" | "abandonment" | "settlement";
+type TerminationReason = "blocked" | "trickle" | "full_rate" | "abandonment" | "finalized" | "settlement";
 type TerminationOutcome = "success" | "failure";
+
+/** Why a data set may be deleted: never terminated, or terminated with its rail finalized. */
+type DeletionReason = "abandonment" | "finalized";
 
 type ReadOnlyClient = Client<Transport, Chain>;
 
@@ -600,10 +603,12 @@ export class SpCleanupService {
    * Stateless, network-wide (not per-SP, not conditioned on blocklist status).
    * Scans every data set dealbot's wallet holds:
    *
-   *   Branch 1 (abandonment): `pdpEndEpoch === 0n` and outside PDPVerifier's
-   *   activity window -> `deleteDataSet` is fully permissionless past that
-   *   window, so it's called directly with the session key's own wallet
-   *   (no signature/relay, but real gas from the session key's own balance).
+   *   Branch 1 (deletion): outside PDPVerifier's activity window and either never
+   *   terminated (`pdpEndEpoch === 0n`, reason `abandonment`) or terminated with its
+   *   rail finalized (reason `finalized`; FWSS rejects deleting a set whose rail is not
+   *   fully settled) -> `deleteDataSet` is fully permissionless past that window, so
+   *   it's called directly with the session key's own wallet (no signature/relay, but
+   *   real gas from the session key's own balance).
    *
    *   Branch 2 (stuck settlement): `pdpEndEpoch > 0n` and the lockup has fully
    *   elapsed (`currentBlock > pdpEndEpoch`, strict) but the rail is still
@@ -633,16 +638,32 @@ export class SpCleanupService {
     const abi = pdpVerifier.abi as Parameters<typeof readContract>[1]["abi"];
 
     // Batch view calls so large wallets do not spend the whole job window reading serially.
-    const abandonmentCandidates = allDataSets.filter((dataSet) => dataSet.pdpEndEpoch === 0n);
     const settlementCandidates = allDataSets.filter(
       (dataSet) => dataSet.pdpEndEpoch > 0n && currentBlock > dataSet.pdpEndEpoch,
     );
+    const getRailCall = (dataSet: DataSetInfo) => ({
+      address: chain.contracts.filecoinPay.address,
+      abi: chain.contracts.filecoinPay.abi as Parameters<typeof readContract>[1]["abi"],
+      functionName: "getRail",
+      args: [dataSet.pdpRailId],
+    });
+
+    // A reverting getRail means the rail is finalized, i.e. fully settled.
+    const railsBeforeDeletion = await this.readInBatches(readClient, settlementCandidates, getRailCall, signal);
+    const deletionCandidates: { dataSet: DataSetInfo; reason: DeletionReason }[] = [
+      ...allDataSets
+        .filter((dataSet) => dataSet.pdpEndEpoch === 0n)
+        .map((dataSet) => ({ dataSet, reason: "abandonment" as const })),
+      ...railsBeforeDeletion
+        .filter(({ reverted }) => reverted)
+        .map(({ item: dataSet }) => ({ dataSet, reason: "finalized" as const })),
+    ];
 
     // Branch 1: only data sets outside PDPVerifier's activity window can be deleted.
     const lastProvenEpochs = await this.readInBatches(
       readClient,
-      abandonmentCandidates,
-      (dataSet) => ({
+      deletionCandidates,
+      ({ dataSet }) => ({
         address: pdpVerifier.address,
         abi,
         functionName: "getDataSetLastProvenEpoch",
@@ -651,15 +672,16 @@ export class SpCleanupService {
       signal,
     );
 
-    const abandoned: { dataSet: DataSetInfo; lastProvenEpoch: bigint }[] = [];
-    for (const { item: dataSet, value, reverted } of lastProvenEpochs) {
+    const deletable: { dataSet: DataSetInfo; reason: DeletionReason; lastProvenEpoch: bigint }[] = [];
+    for (const { item, value, reverted } of lastProvenEpochs) {
+      const { dataSet, reason } = item;
       if (reverted) {
         // A single data set's read must never abort the sweep — every data set after it
         // (including branch 2) would silently go unchecked for this run.
-        this.recordAttempt(network, "abandonment", "failure");
+        this.recordAttempt(network, reason, "failure");
         this.logger.warn({
           network,
-          reason: "abandonment",
+          reason,
           providerAddress: dataSet.serviceProvider,
           dataSetId: dataSet.dataSetId.toString(),
           event: "sp_cleanup_last_proven_epoch_read_failed",
@@ -669,16 +691,17 @@ export class SpCleanupService {
       }
       const lastProvenEpoch = value as bigint;
       if (currentBlock <= lastProvenEpoch + PDP_INACTIVITY_WINDOW_BLOCKS) continue;
-      abandoned.push({ dataSet, lastProvenEpoch });
+      deletable.push({ dataSet, reason, lastProvenEpoch });
     }
 
-    await mapWithConcurrency(abandoned, WRITE_CONCURRENCY, async ({ dataSet, lastProvenEpoch }) => {
+    await mapWithConcurrency(deletable, WRITE_CONCURRENCY, async ({ dataSet, reason, lastProvenEpoch }) => {
       signal?.throwIfAborted();
-      await this.handleAbandonmentCandidate(
+      await this.handleDeletionCandidate(
         writeClient,
         pdpVerifier,
         network,
         dataSet,
+        reason,
         lastProvenEpoch,
         currentBlock,
         submitWithNonce,
@@ -686,18 +709,9 @@ export class SpCleanupService {
       );
     });
 
-    // Branch 2: a reverting getRail means the rail is already finalized — nothing to do.
-    const rails = await this.readInBatches(
-      readClient,
-      settlementCandidates,
-      (dataSet) => ({
-        address: chain.contracts.filecoinPay.address,
-        abi: chain.contracts.filecoinPay.abi as Parameters<typeof readContract>[1]["abi"],
-        functionName: "getRail",
-        args: [dataSet.pdpRailId],
-      }),
-      signal,
-    );
+    // Branch 2: re-read rails, since deletion can take most of the run. A rail the SP settled
+    // meanwhile would make settleRail revert and be wrongly flagged as stuck.
+    const rails = await this.readInBatches(readClient, settlementCandidates, getRailCall, signal);
 
     const settleable = rails.filter(({ reverted }) => !reverted).map(({ item }) => item);
     await mapWithConcurrency(settleable, WRITE_CONCURRENCY, async (dataSet) => {
@@ -716,11 +730,12 @@ export class SpCleanupService {
   }
 
   /** The caller has already established that this data set is outside the activity window. */
-  private async handleAbandonmentCandidate(
+  private async handleDeletionCandidate(
     writeClient: SynapseViemClient,
     pdpVerifier: { address: `0x${string}`; abi: unknown },
     network: Network,
     dataSet: { dataSetId: bigint; serviceProvider: string },
+    reason: DeletionReason,
     lastProvenEpoch: bigint,
     currentBlock: bigint,
     submitWithNonce: SubmitWithNonce,
@@ -729,7 +744,7 @@ export class SpCleanupService {
     const abi = pdpVerifier.abi as Parameters<typeof readContract>[1]["abi"];
     const logContext = {
       network,
-      reason: "abandonment" as const,
+      reason,
       providerAddress: dataSet.serviceProvider,
       dataSetId: dataSet.dataSetId.toString(),
       lastProvenEpoch: lastProvenEpoch.toString(),
@@ -752,17 +767,17 @@ export class SpCleanupService {
       if (receipt.status !== "success") {
         throw new Error(`deleteDataSet transaction reverted on-chain (hash: ${hash})`);
       }
-      this.recordAttempt(network, "abandonment", "success");
+      this.recordAttempt(network, reason, "success");
       this.logger.log({
         ...logContext,
         event: "sp_cleanup_data_set_abandoned_deleted",
-        message: "Abandoned data set deleted directly via PDPVerifier.deleteDataSet (no signature required)",
+        message: "Data set deleted directly via PDPVerifier.deleteDataSet (no signature required)",
         txHash: hash,
       });
     } catch (error) {
       // Only a pre-submission abort is a job timeout.
       if (this.isAbortError(error, signal)) throw error;
-      this.recordAttempt(network, "abandonment", "failure");
+      this.recordAttempt(network, reason, "failure");
       this.logger.warn({
         ...logContext,
         event: "sp_cleanup_data_set_abandoned_delete_failed",

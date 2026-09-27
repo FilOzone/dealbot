@@ -1219,20 +1219,54 @@ describe("SpCleanupService", () => {
       expect(warnSpy).not.toHaveBeenCalledWith(expect.objectContaining({ event: "stuck_terminations_detected" }));
     });
 
-    it("treats a reverting getRail call as already-finalized and skips it silently (no persistence needed)", async () => {
+    it("deletes a terminated data set once its rail is finalized and it is outside the activity window", async () => {
       const dataSet = makeDataSet({ dataSetId: 22n, pdpEndEpoch: 500n, pdpRailId: 997n });
       mockClientDataSets([dataSet] as any);
       vi.mocked(getBlockNumber).mockResolvedValueOnce(200000n);
       // A finalized rail reverts, which Multicall3 reports as a per-item failure.
       mockBatchedReads({
         getRail: new ContractFunctionRevertedError({ abi: [], functionName: "getRail" }),
+        getDataSetLastProvenEpoch: 498n,
+      });
+      const notInCleanupMode = new ContractFunctionRevertedError({ abi: [], functionName: "cleanupPieces" });
+      notInCleanupMode.data = { errorName: "DataSetNotInCleanupMode", args: [] } as any;
+      vi.mocked(simulateContract)
+        .mockResolvedValueOnce({ request: { fake: "deleteDataSet-request" } } as any)
+        .mockRejectedValueOnce(notInCleanupMode);
+      vi.mocked(writeContract).mockResolvedValueOnce("0xtxhash" as any);
+      vi.mocked(waitForTransactionReceipt).mockResolvedValueOnce({ status: "success" } as any);
+
+      await service.runAbandonedDataSetSweep(DEFAULT_NETWORK);
+
+      expect(simulateContract).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ functionName: "deleteDataSet", args: [22n, "0x"] }),
+      );
+      expect(settleRailCall).not.toHaveBeenCalled();
+      expect(attemptsCounter.inc).toHaveBeenCalledWith({
+        network: DEFAULT_NETWORK,
+        outcome: "success",
+        reason: "finalized",
+      });
+      expect(stuckGauge.set).toHaveBeenCalledWith({ network: DEFAULT_NETWORK }, 0);
+    });
+
+    it("leaves a finalized rail's data set alone while it is still inside the activity window", async () => {
+      const dataSet = makeDataSet({ dataSetId: 25n, pdpEndEpoch: 150000n, pdpRailId: 993n });
+      mockClientDataSets([dataSet] as any);
+      vi.mocked(getBlockNumber).mockResolvedValueOnce(200000n);
+      mockBatchedReads({
+        getRail: new ContractFunctionRevertedError({ abi: [], functionName: "getRail" }),
+        // Proven until its end epoch, so deleteDataSet is still SP-only for ~30 more days.
+        getDataSetLastProvenEpoch: 149998n,
       });
 
       await expect(service.runAbandonedDataSetSweep(DEFAULT_NETWORK)).resolves.toBeUndefined();
 
+      expect(simulateContract).not.toHaveBeenCalled();
+      expect(writeContract).not.toHaveBeenCalled();
       expect(stuckGauge.set).toHaveBeenCalledWith({ network: DEFAULT_NETWORK }, 0);
       expect(warnSpy).not.toHaveBeenCalledWith(expect.objectContaining({ event: "stuck_terminations_detected" }));
-      expect(warnSpy).not.toHaveBeenCalledWith(expect.objectContaining({ event: "sp_cleanup_get_rail_read_failed" }));
     });
 
     it("does NOT treat a transient rail-read failure as finalized — the whole batch fails instead", async () => {
@@ -1260,7 +1294,8 @@ describe("SpCleanupService", () => {
       const outOfGas = new Error("message execution failed (exit=[SysErrOutOfGas(7)], vm error=...)");
       vi.mocked(multicall)
         .mockResolvedValueOnce(dataSets.map(() => ({ status: "failure", error: outOfGas })) as never)
-        .mockResolvedValue([{ status: "success", result: { settledUpTo: 100n, endEpoch: 500n } }] as never);
+        .mockImplementation((async (_client: unknown, opts: any) =>
+          opts.contracts.map(() => ({ status: "success", result: { settledUpTo: 100n, endEpoch: 500n } }))) as never);
       vi.mocked(simulateContract).mockResolvedValue({ request: { fake: "settleRail-request" } } as any);
       vi.mocked(writeContract).mockResolvedValue("0xsettle" as any);
       vi.mocked(waitForTransactionReceipt).mockResolvedValue({ status: "success" } as any);

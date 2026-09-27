@@ -241,6 +241,11 @@ dealbot's entire wallet, not scoped to the blocklist. For each data set:
 - **Abandoned** (never terminated, and outside PDPVerifier's ~30-day activity window since the last proof):
   `PDPVerifier.deleteDataSet` becomes fully permissionless once that window has elapsed, so dealbot's session
   key calls it **directly** — no SP signature or relay required. This is what actually cleans up dead SPs.
+  Metrics and logs use `reason="abandonment"`.
+- **Finalized** (terminated, rail finalized, and outside the same ~30-day activity window): deleted the same
+  way, with `reason="finalized"`. FWSS rejects deleting a terminated set until its rail is fully settled
+  (`RailNotFullySettled`), and SPs usually prove until `pdpEndEpoch`, so these become deletable about 30 days
+  after `pdpEndEpoch`. A rail the sweep settles below becomes deletable on a later run.
 - **Stuck settlement** (terminated, but the termination lockup has fully elapsed and the SP never called
   `settleRail()` themselves): unlike `settleTerminatedRailWithoutValidation` (`onlyRailClient` — the Safe's
   address only, not the session key's own; same constraint as the direct 1-arg `terminateService`, see
