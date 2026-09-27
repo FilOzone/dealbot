@@ -1,3 +1,4 @@
+import { TerminateServiceError } from "@filoz/synapse-core/errors";
 import {
   createDataSet,
   createDataSetAndAddPieces,
@@ -10,7 +11,7 @@ import {
   waitForTerminateService,
 } from "@filoz/synapse-core/sp";
 import { Injectable, Logger } from "@nestjs/common";
-import { awaitWithAbort } from "../common/abort-utils.js";
+import { awaitWithAbort, delay } from "../common/abort-utils.js";
 import { type ProviderJobContext, toStructuredError } from "../common/logging.js";
 import type { Network } from "../common/types.js";
 import { buildCheckMetricLabels, classifyFailureStatus } from "../metrics-prometheus/check-metric-labels.js";
@@ -36,13 +37,40 @@ type LifecycleBaseLogContext = {
  */
 export async function terminateServiceSync(
   client: SynapseViemClient,
-  options: { dataSetId: bigint; serviceURL: string; onHash?: (hash: `0x${string}`) => void },
+  options: {
+    dataSetId: bigint;
+    serviceURL: string;
+    onHash?: (hash: `0x${string}`) => void;
+    /** How many times to send a termination request the SP rejects. Defaults to 1 (no retry). */
+    requestAttempts?: number;
+    signal?: AbortSignal;
+  },
 ): Promise<TerminateServiceStatusSuccess> {
-  const { statusUrl } = await terminateService(client, {
-    dataSetId: options.dataSetId,
-    serviceURL: options.serviceURL,
-  });
+  const { statusUrl } = await requestTermination(client, options);
   return waitForTerminateService({ statusUrl, onHash: options.onHash });
+}
+
+// Lifecycle check sets have no later owner, so a rejected request is retried within the job.
+const LIFECYCLE_TERMINATE_REQUEST_ATTEMPTS = 3;
+const TERMINATE_REQUEST_RETRY_DELAY_MS = 10_000;
+
+/**
+ * `TerminateServiceError` covers any HTTP error from the SP except 409 and 503, most often its chain
+ * node timing out. Retrying is safe: if an earlier attempt went through, the SP answers with a 409.
+ */
+async function requestTermination(
+  client: SynapseViemClient,
+  options: { dataSetId: bigint; serviceURL: string; requestAttempts?: number; signal?: AbortSignal },
+): Promise<{ statusUrl: string }> {
+  const attempts = options.requestAttempts ?? 1;
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await terminateService(client, { dataSetId: options.dataSetId, serviceURL: options.serviceURL });
+    } catch (error) {
+      if (!TerminateServiceError.is(error) || attempt >= attempts) throw error;
+      await delay(TERMINATE_REQUEST_RETRY_DELAY_MS, options.signal);
+    }
+  }
 }
 
 @Injectable()
@@ -186,6 +214,8 @@ export class DataSetLifecycleService {
         terminateServiceSync(client, {
           dataSetId,
           serviceURL: providerInfo.pdp.serviceURL,
+          requestAttempts: LIFECYCLE_TERMINATE_REQUEST_ATTEMPTS,
+          signal,
           onHash: (hash) => {
             this.logger.log({
               event: "dataset_lifecycle_check_terminating",
@@ -323,6 +353,8 @@ export class DataSetLifecycleService {
         terminateServiceSync(client, {
           dataSetId,
           serviceURL: providerInfo.pdp.serviceURL,
+          requestAttempts: LIFECYCLE_TERMINATE_REQUEST_ATTEMPTS,
+          signal,
           onHash: (hash) => {
             this.logger.log({
               event: "dataset_with_pieces_lifecycle_check_terminating",
