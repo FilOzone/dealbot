@@ -37,8 +37,11 @@ export function handleDataSetCreated(event: DataSetCreatedEvent): void {
   if (proofSet == null) {
     proofSet = new DataSet(proofSetEntityId);
     proofSet.withIPFSIndexing = false;
+    proofSet.metadataKeys = [];
+    proofSet.metadataValues = [];
     proofSet.createdAt = event.block.timestamp;
-    // fwssPayer, fwssServiceProvider, pdpPaymentEndEpoch are nullable.
+    // fwssPayer, fwssServiceProvider, pdpPaymentEndEpoch, pdpRailId and
+    // pdpRailFinalization are nullable.
   }
   proofSet.setId = event.params.setId;
   proofSet.owner = providerEntityId;
@@ -47,6 +50,7 @@ export function handleDataSetCreated(event: DataSetCreatedEvent): void {
   proofSet.nextDeadline = BigInt.zero();
   proofSet.maxProvingPeriod = BigInt.zero();
   proofSet.provenThisPeriod = false;
+  proofSet.lastProvenEpoch = event.block.number;
   proofSet.save();
 
   let provider = Provider.load(providerEntityId);
@@ -106,6 +110,8 @@ export function handleDataSetEmpty(event: DataSetEmptyEvent): void {
   proofSet.nextDeadline = BigInt.zero();
   proofSet.maxProvingPeriod = BigInt.zero();
   proofSet.provenThisPeriod = false;
+  // PDPVerifier.nextProvingPeriod restarts the activity window when a set empties.
+  proofSet.lastProvenEpoch = event.block.number;
   proofSet.save();
 }
 
@@ -119,6 +125,7 @@ export function handlePossessionProven(event: PossessionProvenEvent): void {
   // Flip the flag so the next NextProvingPeriod classifies this period as
   // proven rather than faulted.
   proofSet.provenThisPeriod = true;
+  proofSet.lastProvenEpoch = event.block.number;
   proofSet.save();
 }
 

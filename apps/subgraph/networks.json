@@ -7,6 +7,10 @@
     "FilecoinWarmStorageService": {
       "address": "0x8408502033C418E1bbC97cE9ac48E5528F371A9f",
       "startBlock": 5459617
+    },
+    "FilecoinPay": {
+      "address": "0x23b1e018F08BB982348b15a86ee926eEBf7F4DAa",
+      "startBlock": 5459617
     }
   },
   "filecoin-testnet": {
@@ -16,6 +20,10 @@
     },
     "FilecoinWarmStorageService": {
       "address": "0x02925630df557F957f70E112bA06e50965417CA0",
+      "startBlock": 3141276
+    },
+    "FilecoinPay": {
+      "address": "0x09a0fDc2723fAd1A7b8e3e00eE5DF73841df55a0",
       "startBlock": 3141276
     }
   }

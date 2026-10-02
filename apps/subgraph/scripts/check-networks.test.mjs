@@ -10,7 +10,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { generated } from "@filoz/synapse-core/abis";
 
-const { filecoinWarmStorageServiceAddress, pdpVerifierAddress } = generated;
+const { filecoinPayV1Address, filecoinWarmStorageServiceAddress, pdpVerifierAddress } = generated;
 
 const here = dirname(fileURLToPath(import.meta.url));
 const networksPath = join(here, "..", "networks.json");
@@ -36,5 +36,11 @@ for (const [network, chainId] of Object.entries(cases)) {
       expected,
       `expected ${expected}, got ${actual} for ${network}.FilecoinWarmStorageService.address`,
     );
+  });
+
+  test(`${network} FilecoinPay address matches synapse-core[${chainId}]`, () => {
+    const actual = networks[network]?.FilecoinPay?.address;
+    const expected = filecoinPayV1Address[chainId];
+    assert.equal(actual, expected, `expected ${expected}, got ${actual} for ${network}.FilecoinPay.address`);
   });
 }

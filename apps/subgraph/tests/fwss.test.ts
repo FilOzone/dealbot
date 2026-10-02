@@ -7,7 +7,7 @@ import {
   handleFwssPieceAdded,
   handleFwssServiceTerminated,
 } from "../src/fwss";
-import { getRootEntityId } from "../src/helpers";
+import { getRailFinalizationEntityId, getRootEntityId } from "../src/helpers";
 import { handleDataSetCreated, handlePiecesAdded } from "../src/pdp-verifier";
 import {
   createFwssDataSetCreatedEvent,
@@ -74,6 +74,32 @@ describe("FWSS handlers", () => {
     assert.fieldEquals("DataSet", PROOF_SET_ENTITY_ID.toHexString(), "withIPFSIndexing", "true");
   });
 
+  test("handleFwssDataSetCreated stores full metadata, pdpRailId and the rail finalization reference", () => {
+    seedDataSet();
+    const ev = createFwssDataSetCreatedEvent(
+      SET_ID,
+      PROVIDER_ID,
+      PDP_RAIL_ID,
+      PAYER_ADDRESS,
+      PROVIDER_ADDRESS,
+      ["source", "withIPFSIndexing", "dealbotDS"],
+      ["dealbot", "", "2"],
+    );
+    handleFwssDataSetCreated(ev);
+
+    const dsId = PROOF_SET_ENTITY_ID.toHexString();
+    assert.fieldEquals("DataSet", dsId, "metadataKeys", "[source, withIPFSIndexing, dealbotDS]");
+    assert.fieldEquals("DataSet", dsId, "metadataValues", "[dealbot, , 2]");
+    assert.fieldEquals("DataSet", dsId, "pdpRailId", PDP_RAIL_ID.toString());
+    assert.fieldEquals("DataSet", dsId, "pdpRailFinalization", getRailFinalizationEntityId(PDP_RAIL_ID).toHexString());
+  });
+
+  test("PDPVerifier-created DataSet has empty metadata", () => {
+    seedDataSet();
+    assert.fieldEquals("DataSet", PROOF_SET_ENTITY_ID.toHexString(), "metadataKeys", "[]");
+    assert.fieldEquals("DataSet", PROOF_SET_ENTITY_ID.toHexString(), "metadataValues", "[]");
+  });
+
   test("handleFwssDataSetCreated leaves withIPFSIndexing false when key absent", () => {
     seedDataSet();
     const ev = createFwssDataSetCreatedEvent(
@@ -130,17 +156,28 @@ describe("FWSS handlers", () => {
       [""],
     );
     handleFwssDataSetCreated(fwssEv);
+    // The FWSS stub carries a placeholder until PDPVerifier's handler runs.
+    assert.fieldEquals("DataSet", PROOF_SET_ENTITY_ID.toHexString(), "lastProvenEpoch", "0");
 
-    const pdpEv = createDataSetCreatedEvent(SET_ID, PROVIDER_ADDRESS, Bytes.fromI32(0), CONTRACT_ADDRESS);
+    const pdpEv = createDataSetCreatedEvent(
+      SET_ID,
+      PROVIDER_ADDRESS,
+      Bytes.fromI32(0),
+      CONTRACT_ADDRESS,
+      BigInt.fromI32(500),
+    );
     handleDataSetCreated(pdpEv);
 
     // FWSS fields preserved.
     assert.fieldEquals("DataSet", PROOF_SET_ENTITY_ID.toHexString(), "withIPFSIndexing", "true");
     assert.fieldEquals("DataSet", PROOF_SET_ENTITY_ID.toHexString(), "fwssPayer", PAYER_ADDRESS.toHexString());
+    assert.fieldEquals("DataSet", PROOF_SET_ENTITY_ID.toHexString(), "metadataKeys", "[withIPFSIndexing]");
+    assert.fieldEquals("DataSet", PROOF_SET_ENTITY_ID.toHexString(), "pdpRailId", PDP_RAIL_ID.toString());
     // PDPVerifier fields set.
     assert.fieldEquals("DataSet", PROOF_SET_ENTITY_ID.toHexString(), "setId", SET_ID.toString());
     assert.fieldEquals("DataSet", PROOF_SET_ENTITY_ID.toHexString(), "isActive", "true");
     assert.fieldEquals("DataSet", PROOF_SET_ENTITY_ID.toHexString(), "status", "EMPTY");
+    assert.fieldEquals("DataSet", PROOF_SET_ENTITY_ID.toHexString(), "lastProvenEpoch", "500");
   });
 
   // -- handleFwssPieceAdded -----------------------------------------------
