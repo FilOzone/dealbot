@@ -736,9 +736,9 @@ gets surfaced to a human operator via a structured log (`stuck_terminations_dete
 stop starting new work. The sweep still waits for already-submitted transactions, so its total runtime can exceed
 this value. Values below 60 seconds are accepted but clamped to 60 at runtime.
 
-Both jobs paginate the wallet listing, and the sweep batches per-data-set reads through Multicall3. This setting
-also sizes the shutdown drain timeout. Cleanup jobs get a pg-boss expiration 120 seconds after the effective
-deadline, and pg-boss expiration or shutdown signals use the same abort path.
+Both jobs page through the wallet's data sets in the dealbot subgraph. This setting also sizes the shutdown
+drain timeout. Cleanup jobs get a pg-boss expiration 120 seconds after the effective deadline, and pg-boss
+expiration or shutdown signals use the same abort path.
 
 ---
 

@@ -11,7 +11,6 @@ import { ContractFunctionRevertedError, encodeFunctionData } from "viem";
 import {
   getBlockNumber,
   getTransactionCount,
-  multicall,
   readContract,
   simulateContract,
   waitForTransactionReceipt,
@@ -63,9 +62,6 @@ interface StuckRailItem {
   spAddress: string;
   railId: bigint;
 }
-
-// Conservative Multicall3 size; larger batches can exceed node gas limits.
-const READ_BATCH_SIZE = 100;
 
 // Bounds relay fan-out across providers.
 const PROVIDER_CONCURRENCY = 10;
@@ -296,81 +292,6 @@ export class SpCleanupService {
         );
       },
     );
-  }
-
-  /**
-   * True when a Multicall3 item failed because the whole `aggregate3` call ran out of gas,
-   * rather than because that particular call reverted.
-   */
-  private static isOutOfGasFailure(error: unknown): boolean {
-    const message = error instanceof Error ? error.message : String(error ?? "");
-    return /SysErrOutOfGas|out of gas/i.test(message);
-  }
-
-  /**
-   * Runs one view call per item through Multicall3, `READ_BATCH_SIZE` at a time.
-   *
-   * The sweep reads the rail state of every settlement candidate. Issued one round-trip at a
-   * time that is the sweep's dominant cost — measured on calibration, 6,147 sequential reads
-   * take ~36 minutes against a 20-minute budget, versus ~100s batched.
-   *
-   * `allowFailure` is mandatory here because `getRail` reverts *by design* for a finalized
-   * rail, and one such revert would otherwise fail the whole batch. The hazard is that viem
-   * reports gas exhaustion identically: every item comes back `status: "failure"`,
-   * indistinguishable from "they all legitimately reverted". Reading that as "nothing to do"
-   * would make the sweep silently skip every data set, every run, with no error in the logs.
-   * So a batch whose failures carry the out-of-gas signature is split in half and retried
-   * rather than believed.
-   */
-  private async readInBatches<T>(
-    client: ReadOnlyClient,
-    items: T[],
-    toCall: (item: T) => Parameters<typeof readContract>[1],
-    signal?: AbortSignal,
-    batchSize: number = READ_BATCH_SIZE,
-  ): Promise<{ item: T; value?: unknown; reverted: boolean }[]> {
-    const results: { item: T; value?: unknown; reverted: boolean }[] = [];
-
-    for (let start = 0; start < items.length; start += batchSize) {
-      signal?.throwIfAborted();
-      const slice = items.slice(start, start + batchSize);
-      const batch = await awaitWithAbort(
-        multicall(client, {
-          contracts: slice.map((item) => toCall(item) as never),
-          allowFailure: true,
-        }),
-        signal,
-      );
-
-      const outOfGas = batch.some(
-        (entry) => entry.status === "failure" && SpCleanupService.isOutOfGasFailure(entry.error),
-      );
-      if (outOfGas) {
-        if (slice.length === 1) {
-          // A single call cannot be split further; surface it rather than recording a revert.
-          throw new Error(`Multicall read ran out of gas for a single item (batch size ${batchSize})`);
-        }
-        const half = Math.ceil(slice.length / 2);
-        this.logger.warn({
-          event: "sp_cleanup_multicall_out_of_gas",
-          message: "Multicall batch exhausted node gas; retrying with a smaller batch",
-          batchSize: slice.length,
-          retryBatchSize: half,
-        });
-        results.push(...(await this.readInBatches(client, slice, toCall, signal, half)));
-        continue;
-      }
-
-      for (const [index, entry] of batch.entries()) {
-        results.push(
-          entry.status === "success"
-            ? { item: slice[index], value: entry.result, reverted: false }
-            : { item: slice[index], reverted: true },
-        );
-      }
-    }
-
-    return results;
   }
 
   /**
@@ -609,22 +530,8 @@ export class SpCleanupService {
       );
     });
 
-    // Branch 2: read rails live rather than from the snapshot. Deletion can take most of the run,
-    // and a rail finalized meanwhile would make settleRail revert and be wrongly flagged as stuck.
-    const rails = await this.readInBatches(
-      readClient,
-      settlementCandidates.filter((dataSet) => !dataSet.pdpRailFinalized),
-      (dataSet) => ({
-        address: chain.contracts.filecoinPay.address,
-        abi: chain.contracts.filecoinPay.abi as Parameters<typeof readContract>[1]["abi"],
-        functionName: "getRail",
-        args: [dataSet.pdpRailId],
-      }),
-      signal,
-    );
-
-    // A reverting getRail means the rail was finalized since the snapshot; there is nothing to settle.
-    const settleable = rails.filter(({ reverted }) => !reverted).map(({ item }) => item);
+    // Branch 2: settle every rail the snapshot shows unfinalized.
+    const settleable = settlementCandidates.filter((dataSet) => !dataSet.pdpRailFinalized);
     await mapWithConcurrency(settleable, WRITE_CONCURRENCY, async (dataSet) => {
       signal?.throwIfAborted();
       const stuck = await this.settleOrFlagStuck(writeClient, chain, network, dataSet, submitWithNonce, signal);
@@ -844,6 +751,15 @@ export class SpCleanupService {
     } catch (error) {
       // Only a pre-submission abort is a job timeout.
       if (this.isAbortError(error, signal)) throw error;
+      if (this.extractContractRevert(error)?.data?.errorName === "RailInactiveOrSettled") {
+        // The rail finalized after the snapshot; the next sweep deletes its data set.
+        this.logger.log({
+          ...logContext,
+          event: "sp_cleanup_rail_already_finalized",
+          message: "Rail was finalized since the subgraph snapshot; nothing to settle",
+        });
+        return null;
+      }
       this.recordAttempt(network, "settlement", "failure");
       if (!this.isContractRevert(error)) {
         this.logger.warn({

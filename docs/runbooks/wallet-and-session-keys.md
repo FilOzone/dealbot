@@ -283,9 +283,10 @@ paged.
 
 Both jobs list the wallet's data sets from the dealbot-owned subgraph
 ([`<NET>_SUBGRAPH_ENDPOINT`](../environment-variables.md#net_subgraph_endpoint)), not from the chain. The
-subgraph also supplies each set's last proving activity and whether its PDP rail is finalized. Only two reads
-still go to the chain, because they guard a write against changes made during the run: the per-set re-read
-before a pruning termination, and the rail read before `settleRail`.
+subgraph also supplies each set's last proving activity and whether its PDP rail is finalized. Changes made
+during the run are caught on-chain right before each write: pruning re-reads a set before terminating it, and
+a rail finalized since the snapshot makes `settleRail` revert with `RailInactiveOrSettled`, which the sweep
+treats as nothing to do rather than as a stuck rail.
 
 A run refuses to act on stale data. It fails, logging `sp_data_set_pruning_job_failed` or
 `abandoned_data_set_sweep_job_failed`, when:

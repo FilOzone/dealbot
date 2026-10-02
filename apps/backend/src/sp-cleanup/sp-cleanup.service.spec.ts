@@ -33,7 +33,6 @@ vi.mock("@filoz/synapse-core/warm-storage", async (importOriginal) => ({
 vi.mock("viem/actions", () => ({
   getBlockNumber: vi.fn(),
   getTransactionCount: vi.fn(),
-  multicall: vi.fn(),
   readContract: vi.fn(),
   simulateContract: vi.fn(),
   writeContract: vi.fn(),
@@ -58,7 +57,7 @@ const { terminateServiceSync } = await import("../data-set-lifecycle/data-set-li
 const { settleRailCall, settleTerminatedRailWithoutValidationCall } = await import("@filoz/synapse-core/pay");
 const { asChain } = await import("@filoz/synapse-core/chains");
 const { getDataSet } = await import("@filoz/synapse-core/warm-storage");
-const { getBlockNumber, getTransactionCount, multicall, simulateContract, writeContract, waitForTransactionReceipt } =
+const { getBlockNumber, getTransactionCount, simulateContract, writeContract, waitForTransactionReceipt } =
   await import("viem/actions");
 
 const DEFAULT_NETWORK = "calibration";
@@ -121,24 +120,6 @@ function makeDataSet(overrides: Partial<ClientDataSet> = {}): ClientDataSet {
     hasActivePieces: false,
     ...overrides,
   };
-}
-
-/**
- * Stands in for the sweep's Multicall3 read batches. Values are matched by `functionName`;
- * an array supplies one value per data set, a scalar applies to all, and an `Error` value
- * becomes a per-item revert (`status: "failure"`), which is how a finalized rail reports.
- */
-function mockBatchedReads(values: Record<string, unknown>) {
-  const queues = new Map<string, unknown[]>();
-  for (const [fn, value] of Object.entries(values)) {
-    queues.set(fn, Array.isArray(value) ? [...value] : [value]);
-  }
-  vi.mocked(multicall).mockImplementation((async (_client: unknown, opts: any) =>
-    opts.contracts.map((call: any) => {
-      const queue = queues.get(call.functionName);
-      const next = queue && queue.length > 1 ? queue.shift() : queue?.[0];
-      return next instanceof Error ? { status: "failure", error: next } : { status: "success", result: next };
-    })) as never);
 }
 
 const fakeChain = {
@@ -218,7 +199,6 @@ describe("SpCleanupService", () => {
     // Pruning re-reads each planned data set right before terminating it; by default it is
     // still active, so the plan is carried out as computed.
     vi.mocked(getDataSet).mockResolvedValue({ pdpEndEpoch: 0n } as any);
-    mockBatchedReads({ getRail: { settledUpTo: 100n, endEpoch: 500n } });
     vi.mocked(getTransactionCount).mockResolvedValue(0);
     vi.mocked(settleRailCall).mockImplementation(
       (opts) =>
@@ -702,8 +682,6 @@ describe("SpCleanupService", () => {
 
       await service.runAbandonedDataSetSweep(DEFAULT_NETWORK);
 
-      // The activity window is judged from the snapshot's lastProvenEpoch, with no chain read.
-      expect(multicall).not.toHaveBeenCalled();
       expect(simulateContract).toHaveBeenNthCalledWith(
         1,
         expect.anything(),
@@ -973,7 +951,6 @@ describe("SpCleanupService", () => {
     it("resolves a stuck-looking rail automatically via permissionless settleRail — no human needed", async () => {
       const dataSet = makeDataSet({ dataSetId: 19n, pdpEndEpoch: 500n, pdpRailId: 993n });
       mockSnapshot([dataSet], 200000n);
-      mockBatchedReads({ getRail: { settledUpTo: 100n, endEpoch: 500n } });
       vi.mocked(simulateContract).mockResolvedValueOnce({ request: { fake: "settleRail-request" } } as any);
       vi.mocked(writeContract).mockResolvedValueOnce("0xsettle-hash" as any);
       vi.mocked(waitForTransactionReceipt).mockResolvedValueOnce({ status: "success" } as any);
@@ -990,32 +967,9 @@ describe("SpCleanupService", () => {
       expect(warnSpy).not.toHaveBeenCalledWith(expect.objectContaining({ event: "stuck_terminations_detected" }));
     });
 
-    it("still calls settleRail when settledUpTo >= endEpoch — a fully-settled-but-not-finalized rail needs one more call", async () => {
-      const dataSet = makeDataSet({ dataSetId: 26n, pdpEndEpoch: 500n, pdpRailId: 994n });
-      mockSnapshot([dataSet], 200000n);
-      // getRail succeeding at all means the rail is still active (not finalized/zeroed yet) —
-      // settledUpTo >= endEpoch here means "fully settled but still needs finalizeTerminatedRail",
-      // not "nothing to do".
-      mockBatchedReads({ getRail: { settledUpTo: 500n, endEpoch: 500n } });
-      vi.mocked(simulateContract).mockResolvedValueOnce({ request: { fake: "settleRail-request" } } as any);
-      vi.mocked(writeContract).mockResolvedValueOnce("0xfinalize-hash" as any);
-      vi.mocked(waitForTransactionReceipt).mockResolvedValueOnce({ status: "success" } as any);
-
-      await service.runAbandonedDataSetSweep(DEFAULT_NETWORK);
-
-      expect(settleRailCall).toHaveBeenCalledWith(expect.objectContaining({ railId: 994n, untilEpoch: 500n }));
-      expect(attemptsCounter.inc).toHaveBeenCalledWith({
-        network: DEFAULT_NETWORK,
-        outcome: "success",
-        reason: "settlement",
-      });
-      expect(stuckGauge.set).toHaveBeenCalledWith({ network: DEFAULT_NETWORK }, 0);
-    });
-
     it("does not flag as stuck on a transient settleRail failure — retries next sweep instead", async () => {
       const dataSet = makeDataSet({ dataSetId: 25n, pdpEndEpoch: 500n, pdpRailId: 993n });
       mockSnapshot([dataSet], 200000n);
-      mockBatchedReads({ getRail: { settledUpTo: 100n, endEpoch: 500n } });
       vi.mocked(simulateContract).mockRejectedValueOnce(new Error("fetch failed: RPC timeout"));
 
       await service.runAbandonedDataSetSweep(DEFAULT_NETWORK);
@@ -1032,7 +986,6 @@ describe("SpCleanupService", () => {
     it("logs stuck_terminations_detected with the full batch payload only when settleRail itself genuinely reverts (validator stuck)", async () => {
       const dataSet = makeDataSet({ dataSetId: 20n, pdpEndEpoch: 500n, pdpRailId: 999n });
       mockSnapshot([dataSet], 200000n);
-      mockBatchedReads({ getRail: { settledUpTo: 100n, endEpoch: 500n } });
       vi.mocked(simulateContract).mockRejectedValueOnce(
         new ContractFunctionRevertedError({ abi: [], functionName: "settleRail" }),
       );
@@ -1069,7 +1022,6 @@ describe("SpCleanupService", () => {
     it("flags a mined-but-reverted settleRail receipt as stuck, not a transient failure", async () => {
       const dataSet = makeDataSet({ dataSetId: 21n, pdpEndEpoch: 500n, pdpRailId: 991n });
       mockSnapshot([dataSet], 200000n);
-      mockBatchedReads({ getRail: { settledUpTo: 100n, endEpoch: 500n } });
       vi.mocked(simulateContract).mockResolvedValueOnce({ request: { fake: "settleRail-request" } } as any);
       vi.mocked(writeContract).mockResolvedValueOnce("0xreverted-hash" as any);
       vi.mocked(waitForTransactionReceipt).mockResolvedValueOnce({ status: "reverted" } as any);
@@ -1099,7 +1051,6 @@ describe("SpCleanupService", () => {
     it("does not log and resets the gauge to 0 when nothing is stuck", async () => {
       const dataSet = makeDataSet({ dataSetId: 21n, pdpEndEpoch: 500n, pdpRailId: 998n });
       mockSnapshot([dataSet], 200000n);
-      mockBatchedReads({ getRail: { settledUpTo: 500n, endEpoch: 500n } });
 
       await service.runAbandonedDataSetSweep(DEFAULT_NETWORK);
 
@@ -1131,8 +1082,6 @@ describe("SpCleanupService", () => {
         expect.objectContaining({ functionName: "deleteDataSet", args: [22n, "0x"] }),
       );
       expect(settleRailCall).not.toHaveBeenCalled();
-      // Finalization comes from the snapshot, so a finalized rail is never read from the chain.
-      expect(multicall).not.toHaveBeenCalled();
       expect(attemptsCounter.inc).toHaveBeenCalledWith({
         network: DEFAULT_NETWORK,
         outcome: "success",
@@ -1160,15 +1109,18 @@ describe("SpCleanupService", () => {
       expect(warnSpy).not.toHaveBeenCalledWith(expect.objectContaining({ event: "stuck_terminations_detected" }));
     });
 
-    it("does not flag a rail as stuck when it finalized after the snapshot — the live read catches it", async () => {
+    it("does not flag a rail as stuck when it finalized after the snapshot — settleRail's revert says so", async () => {
       // The snapshot still shows the rail unfinalized, but the SP settled it while the sweep ran.
       const dataSet = makeDataSet({ dataSetId: 27n, pdpEndEpoch: 500n, pdpRailId: 992n });
       mockSnapshot([dataSet], 200000n);
-      mockBatchedReads({ getRail: new ContractFunctionRevertedError({ abi: [], functionName: "getRail" }) });
+      const alreadyFinalized = new ContractFunctionRevertedError({ abi: [], functionName: "settleRail" });
+      alreadyFinalized.data = { errorName: "RailInactiveOrSettled", args: [992n] } as any;
+      vi.mocked(simulateContract).mockRejectedValueOnce(alreadyFinalized);
 
       await service.runAbandonedDataSetSweep(DEFAULT_NETWORK);
 
-      expect(settleRailCall).not.toHaveBeenCalled();
+      expect(writeContract).not.toHaveBeenCalled();
+      expect(attemptsCounter.inc).not.toHaveBeenCalled();
       expect(stuckGauge.set).toHaveBeenCalledWith({ network: DEFAULT_NETWORK }, 0);
       expect(warnSpy).not.toHaveBeenCalledWith(expect.objectContaining({ event: "stuck_terminations_detected" }));
     });
@@ -1179,45 +1131,6 @@ describe("SpCleanupService", () => {
       await expect(service.runAbandonedDataSetSweep(DEFAULT_NETWORK)).rejects.toThrow(/behind the chain head/);
 
       expect(simulateContract).not.toHaveBeenCalled();
-      expect(multicall).not.toHaveBeenCalled();
-    });
-
-    it("does NOT treat a transient rail-read failure as finalized — the whole batch fails instead", async () => {
-      const dataSet = makeDataSet({ dataSetId: 24n, pdpEndEpoch: 500n, pdpRailId: 994n });
-      mockSnapshot([dataSet], 200000n);
-      // A transport failure fails the eth_call itself. Multicall3 only reports a per-item
-      // failure when that specific call reverted on-chain, so "reverted" cannot be produced by
-      // an RPC timeout — the distinction the previous per-rail read had to make by hand.
-      vi.mocked(multicall).mockRejectedValueOnce(new Error("fetch failed: RPC timeout"));
-
-      await expect(service.runAbandonedDataSetSweep(DEFAULT_NETWORK)).rejects.toThrow("fetch failed");
-
-      // Never silently recorded as resolved.
-      expect(simulateContract).not.toHaveBeenCalled();
-    });
-
-    it("retries with a smaller batch when a multicall exhausts node gas, rather than reading it as all-reverted", async () => {
-      const dataSets = [10n, 11n].map((id) => makeDataSet({ dataSetId: id, pdpEndEpoch: 500n, pdpRailId: 900n + id }));
-      mockSnapshot(dataSets, 200000n);
-
-      // Gas exhaustion marks *every* item failed, which is indistinguishable from "they all
-      // reverted" — and reading it that way would silently skip every rail, every run.
-      const outOfGas = new Error("message execution failed (exit=[SysErrOutOfGas(7)], vm error=...)");
-      vi.mocked(multicall)
-        .mockResolvedValueOnce(dataSets.map(() => ({ status: "failure", error: outOfGas })) as never)
-        .mockImplementation((async (_client: unknown, opts: any) =>
-          opts.contracts.map(() => ({ status: "success", result: { settledUpTo: 100n, endEpoch: 500n } }))) as never);
-      vi.mocked(simulateContract).mockResolvedValue({ request: { fake: "settleRail-request" } } as any);
-      vi.mocked(writeContract).mockResolvedValue("0xsettle" as any);
-      vi.mocked(waitForTransactionReceipt).mockResolvedValue({ status: "success" } as any);
-
-      await service.runAbandonedDataSetSweep(DEFAULT_NETWORK);
-
-      expect(warnSpy).toHaveBeenCalledWith(
-        expect.objectContaining({ event: "sp_cleanup_multicall_out_of_gas", batchSize: 2, retryBatchSize: 1 }),
-      );
-      // Both rails still get settled after the split — none silently dropped.
-      expect(writeContract).toHaveBeenCalledTimes(2);
     });
 
     it("propagates an abort raised during settlement instead of counting it as a failed attempt", async () => {
@@ -1225,10 +1138,10 @@ describe("SpCleanupService", () => {
       mockSnapshot([makeDataSet({ dataSetId: 60n, pdpEndEpoch: 100n, pdpRailId: 900n })], 200n);
 
       const controller = new AbortController();
-      vi.mocked(multicall).mockImplementationOnce((async () => {
+      vi.mocked(simulateContract).mockImplementationOnce(async () => {
         controller.abort(new Error("abandoned_data_set_sweep job timeout"));
-        throw new Error("aborted mid-read");
-      }) as never);
+        throw new Error("aborted mid-simulation");
+      });
 
       await expect(service.runAbandonedDataSetSweep(DEFAULT_NETWORK, controller.signal)).rejects.toThrow();
       expect(attemptsCounter.inc).not.toHaveBeenCalled();
@@ -1241,11 +1154,7 @@ describe("SpCleanupService", () => {
 
       await service.runAbandonedDataSetSweep(DEFAULT_NETWORK);
 
-      // Filtered out before the batched rail read is even assembled.
-      expect(multicall).not.toHaveBeenCalledWith(
-        expect.anything(),
-        expect.objectContaining({ contracts: [expect.objectContaining({ functionName: "getRail" })] }),
-      );
+      expect(settleRailCall).not.toHaveBeenCalled();
       expect(stuckGauge.set).toHaveBeenCalledWith({ network: DEFAULT_NETWORK }, 0);
     });
   });
