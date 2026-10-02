@@ -482,7 +482,7 @@ CALIBRATION_RPC_URL=https://filecoin.chain.love/rpc/v1?token=YOUR_API_KEY
 
 **Role**: The Graph API endpoint for querying PDP (Proof of Data Possession) subgraph data for this network. Used to retrieve data-retention information for provider datasets.
 
-Kept distinct from [`<NET>_SUBGRAPH_ENDPOINT`](#net_subgraph_endpoint) so the dealbot-owned subgraph can be rolled out incrementally: only the newer [sampled-retrieval check](./checks/sampled-retrievals.md) points at the new endpoint while the established [data-retention check](./checks/data-retention.md) stays on the upstream pdp-explorer subgraph.
+Kept distinct from [`<NET>_SUBGRAPH_ENDPOINT`](#net_subgraph_endpoint) so the dealbot-owned subgraph can be rolled out incrementally: only the newer [sampled-retrieval check](./checks/sampled-retrievals.md) and the [SP cleanup jobs](./runbooks/wallet-and-session-keys.md#automated-sp-cleanup) point at the new endpoint while the established [data-retention check](./checks/data-retention.md) stays on the upstream pdp-explorer subgraph.
 
 **Example**:
 
@@ -495,10 +495,15 @@ CALIBRATION_PDP_SUBGRAPH_ENDPOINT=https://api.thegraph.com/subgraphs/filecoin/pd
 ### `<NET>_SUBGRAPH_ENDPOINT`
 
 - **Type**: `string` (URL)
-- **Required**: No
-- **Default**: Empty (sampled-retrieval disabled for this network)
+- **Required**: No, but the SP cleanup jobs fail without it
+- **Default**: Empty (sampled-retrieval disabled and SP cleanup failing for this network)
 
-**Role**: The Graph API endpoint for the dealbot-owned subgraph for this network. Currently drives only the [sampled-retrieval](./checks/sampled-retrievals.md) candidate-piece query; when unset, sampled-retrieval schedules are not created for the network. Once the dealbot-owned subgraph has soaked in production it is intended to replace [`<NET>_PDP_SUBGRAPH_ENDPOINT`](#net_pdp_subgraph_endpoint).
+**Role**: The Graph API endpoint for the dealbot-owned subgraph for this network. It drives two things:
+
+- The [sampled-retrieval](./checks/sampled-retrievals.md) candidate-piece query. When unset, sampled-retrieval schedules are not created for the network.
+- Data set discovery for the [SP cleanup jobs](./runbooks/wallet-and-session-keys.md#automated-sp-cleanup) (`sp_data_set_pruning` and `abandoned_data_set_sweep`). Their schedules are created regardless, so when unset every run fails with `No subgraph endpoint configured`. A run also fails when the subgraph is more than 60 blocks behind the chain head, which is also how a subgraph halted by an indexing error shows up, so **a stalled subgraph stops SP cleanup** until it catches up. See the [subgraph prerequisite](./runbooks/wallet-and-session-keys.md#operational-prerequisite-dealbot-subgraph).
+
+Once the dealbot-owned subgraph has soaked in production it is intended to replace [`<NET>_PDP_SUBGRAPH_ENDPOINT`](#net_pdp_subgraph_endpoint).
 
 The dealbot-owned subgraph lives at [`apps/subgraph/`](../apps/subgraph) (package `@dealbot/subgraph`) and is deployed to [Goldsky](https://goldsky.com).
 

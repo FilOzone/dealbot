@@ -1,3 +1,4 @@
+import { metadataArrayToObject } from "@filoz/synapse-core/utils";
 import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { delay } from "../common/abort-utils.js";
@@ -9,6 +10,9 @@ import type {
   ActiveDataSetInventory,
   ActiveDataSetPageResponse,
   CandidatePiece,
+  ClientDataSet,
+  ClientDataSetPageResponse,
+  ClientDataSetSnapshot,
   GraphQLResponse,
   ProviderDataSetResponse,
   ProvidersWithDataSetsOptions,
@@ -18,6 +22,7 @@ import type {
 import {
   decodePieceCid,
   validateActiveDataSetPageResponse,
+  validateClientDataSetPageResponse,
   validateProviderDataSetResponse,
   validateSamplePieceResponse,
   validateSubgraphMetaResponse,
@@ -140,6 +145,48 @@ export class SubgraphService {
     }
 
     return { countsByAddress: counts, indexedAtBlock };
+  }
+
+  /** Every non-deleted FWSS data set paid for by `payer` — the subgraph counterpart of FWSS `getClientDataSets`. */
+  async fetchClientDataSets(network: Network, payer: string, signal?: AbortSignal): Promise<ClientDataSetSnapshot> {
+    const dataSets: ClientDataSet[] = [];
+    const pageSize = 1000;
+    let cursor = "0x00";
+    let indexedAtBlock = Number.POSITIVE_INFINITY;
+
+    while (true) {
+      const page = await this.executeQuery<ClientDataSetPageResponse>(
+        network,
+        "client_datasets",
+        Queries.GET_CLIENT_DATA_SETS,
+        { payer: payer.toLowerCase(), cursor, first: pageSize },
+        validateClientDataSetPageResponse,
+        signal,
+      );
+      indexedAtBlock = Math.min(indexedAtBlock, page._meta.block.number);
+
+      for (const dataSet of page.dataSets) {
+        dataSets.push({
+          dataSetId: dataSet.setId,
+          serviceProvider: dataSet.fwssServiceProvider,
+          pdpEndEpoch: dataSet.pdpPaymentEndEpoch ?? 0n,
+          pdpRailId: dataSet.pdpRailId,
+          pdpRailFinalized: dataSet.pdpRailFinalization != null,
+          lastProvenEpoch: dataSet.lastProvenEpoch,
+          metadata: metadataArrayToObject([dataSet.metadataKeys, dataSet.metadataValues]),
+          hasActivePieces: dataSet.roots.length > 0,
+        });
+      }
+
+      if (page.dataSets.length < pageSize) break;
+      const nextCursor = page.dataSets.at(-1)?.id;
+      if (nextCursor == null || nextCursor === cursor) {
+        throw new Error("Client dataset pagination did not advance");
+      }
+      cursor = nextCursor;
+    }
+
+    return { dataSets, indexedAtBlock };
   }
 
   /**
