@@ -8,7 +8,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { fwss, pdp } from "@filoz/synapse-core/abis";
+import { filecoinPay, fwss, pdp } from "@filoz/synapse-core/abis";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const abisDir = join(here, "..", "abis");
@@ -44,6 +44,7 @@ const pdpPatched = pdp.some((entry) => entry.name === "PiecesAddedV2") ? pdp : [
 const targets = [
   { file: "PDPVerifier.json", abi: pdpPatched },
   { file: "FilecoinWarmStorageService.json", abi: fwss },
+  { file: "FilecoinPay.json", abi: filecoinPay },
 ];
 
 await mkdir(abisDir, { recursive: true });

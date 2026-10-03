@@ -74,3 +74,23 @@ dataSources:
         - event: DataSetServiceProviderChanged(indexed uint256,indexed address,indexed
             address)
           handler: handleFwssDataSetServiceProviderChanged
+  - kind: ethereum
+    name: FilecoinPay
+    network: filecoin
+    source:
+      abi: FilecoinPay
+      address: "0x23b1e018F08BB982348b15a86ee926eEBf7F4DAa"
+      startBlock: 5459617
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.9
+      language: wasm/assemblyscript
+      file: ./src/filecoin-pay.ts
+      entities:
+        - RailFinalization
+      abis:
+        - name: FilecoinPay
+          file: ./abis/FilecoinPay.json
+      eventHandlers:
+        - event: RailFinalized(indexed uint256)
+          handler: handleRailFinalized
