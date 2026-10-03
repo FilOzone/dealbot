@@ -13,8 +13,10 @@ import {
 import type { Synapse } from "@filoz/synapse-sdk";
 import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
+import { InjectRepository } from "@nestjs/typeorm";
 import { InjectMetric } from "@willsoto/nestjs-prometheus";
 import type { Counter, Gauge } from "prom-client";
+import type { Repository } from "typeorm";
 import type { Chain, Client, Transport } from "viem";
 import { ContractFunctionRevertedError, encodeFunctionData } from "viem";
 import {
@@ -39,6 +41,7 @@ import type { Network } from "../common/types.js";
 import { trickleTierRates } from "../config/constants.js";
 import type { IConfig, INetworkConfig } from "../config/index.js";
 import { terminateServiceSync } from "../data-set-lifecycle/data-set-lifecycle.service.js";
+import { Deal } from "../database/entities/deal.entity.js";
 import { StorageProviderRepository } from "../providers/repositories/storage-provider.repository.js";
 import type { SynapseViemClient } from "../wallet-sdk/wallet-sdk.service.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
@@ -86,6 +89,8 @@ export class SpCleanupService {
     private readonly configService: ConfigService<IConfig, true>,
     private readonly walletSdkService: WalletSdkService,
     private readonly storageProviderRepository: StorageProviderRepository,
+    @InjectRepository(Deal)
+    private readonly dealRepository: Repository<Deal>,
     @InjectMetric("sp_termination_attempts_total")
     private readonly spTerminationAttemptsCounter: Counter,
     @InjectMetric("sp_termination_stuck_gauge")
@@ -583,6 +588,8 @@ export class SpCleanupService {
           event: "sp_cleanup_data_set_terminated",
           message: "Data set terminated by sp_data_set_pruning",
         });
+        // Its pieces stay live on-chain until deletion, but the SP is no longer paid past pdpEndEpoch.
+        await this.markDataSetDealsCleanedUp(network, dataSet.dataSetId, logContext);
       } catch (error) {
         // Relay failures are expected; only the job's abort should stop the batch.
         if (this.isAbortError(error, signal)) throw error;
@@ -729,6 +736,30 @@ export class SpCleanupService {
     }
   }
 
+  /**
+   * Stops retrievals targeting deals in a data set this job terminated or deleted. Failures are only
+   * logged: the termination or deletion already happened and must not be reported as failed.
+   */
+  private async markDataSetDealsCleanedUp(
+    network: Network,
+    dataSetId: bigint,
+    logContext: Record<string, unknown>,
+  ): Promise<void> {
+    try {
+      await this.dealRepository.update(
+        { dataSetId, network, cleanedUp: false },
+        { cleanedUp: true, cleanedUpAt: new Date() },
+      );
+    } catch (error) {
+      this.logger.warn({
+        ...logContext,
+        event: "sp_cleanup_deals_cleanup_mark_failed",
+        message: "Failed to mark the data set's deals cleaned up",
+        error: toStructuredError(error),
+      });
+    }
+  }
+
   /** The caller has already established that this data set is outside the activity window. */
   private async handleDeletionCandidate(
     writeClient: SynapseViemClient,
@@ -787,7 +818,10 @@ export class SpCleanupService {
       return;
     }
 
-    // Deliberately outside the try/catch above: deleteDataSet already succeeded and was recorded,
+    // Before the abortible cleanup loop: a deleted set drops out of the wallet listing for good.
+    await this.markDataSetDealsCleanedUp(network, dataSet.dataSetId, logContext);
+
+    // Deliberately outside the deleteDataSet try/catch: deleteDataSet already succeeded and was recorded,
     // so a timeout abort here must propagate to the job handler as-is, not get relabeled as a
     // deleteDataSet failure (finishCleanupPieces handles its own errors internally already).
     await this.finishCleanupPieces(writeClient, pdpVerifier, abi, dataSet, logContext, submitWithNonce, signal);

@@ -233,6 +233,10 @@ works for a **cooperative** SP — a dead/unreachable SP will fail every attempt
 and counts the failure (`sp_termination_attempts_total{outcome="failure"}`) and moves on to the next data set
 without aborting the batch. Dead SPs are cleaned up by `abandoned_data_set_sweep` instead.
 
+Both jobs mark deals `cleaned_up` in the data sets they terminate or delete, so retrieval checks stop picking
+them. A terminated set's pieces stay live on-chain until it is deleted, but the SP is no longer paid past
+`pdpEndEpoch`.
+
 ### `abandoned_data_set_sweep`
 
 Runs every `<NET>_ABANDONED_DATASET_SWEEP_INTERVAL_SECONDS` (default 1 day). Stateless and network-wide — scans
