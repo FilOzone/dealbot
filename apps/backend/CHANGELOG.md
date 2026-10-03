@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.13.2](https://github.com/FilOzone/dealbot/compare/backend-v1.13.1...backend-v1.13.2) (2026-10-03)
+
+
+### Bug Fixes
+
+* delete data sets with finalized payment rails ([#714](https://github.com/FilOzone/dealbot/issues/714)) ([ba1b168](https://github.com/FilOzone/dealbot/commit/ba1b16812afdc1a074eb7ff049a8f0b99be2a428))
+* don't crash on malformed provider ([#704](https://github.com/FilOzone/dealbot/issues/704)) ([5c22d50](https://github.com/FilOzone/dealbot/commit/5c22d5007f45a382bbf3e1e599ae11d0ebd88356))
+* isolate malformed pdp offerings during sp cleanup scans ([#703](https://github.com/FilOzone/dealbot/issues/703)) ([bc40391](https://github.com/FilOzone/dealbot/commit/bc403917bf6c772444068016bfd288bd0f084368))
+* retry rejected lifecycle termination requests ([#713](https://github.com/FilOzone/dealbot/issues/713)) ([92b8dba](https://github.com/FilOzone/dealbot/commit/92b8dbae505d7dc2f065453cc0550ed4ee2d02b3))
+* sweep delete finalized data sets ([ba1b168](https://github.com/FilOzone/dealbot/commit/ba1b16812afdc1a074eb7ff049a8f0b99be2a428))
+* treat nonexistent filecoin actor as nonce 0 ([#708](https://github.com/FilOzone/dealbot/issues/708)) ([0ebce6a](https://github.com/FilOzone/dealbot/commit/0ebce6a8e6155db5878d1f762a13d56bcac53bac))
+
+
+### Miscellaneous
+
+* use getClientDataSets in abandoned_data_set_sweep job ([#709](https://github.com/FilOzone/dealbot/issues/709)) ([bf1aee5](https://github.com/FilOzone/dealbot/commit/bf1aee5ccee38b4eab4da183880e75166a9ecc90))
+
 ## [1.13.1](https://github.com/FilOzone/dealbot/compare/backend-v1.13.0...backend-v1.13.1) (2026-09-08)
 
 
