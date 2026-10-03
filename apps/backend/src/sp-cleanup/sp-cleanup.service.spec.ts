@@ -190,6 +190,7 @@ describe("SpCleanupService", () => {
     findActiveAddresses: ReturnType<typeof vi.fn>;
     findByAddress: ReturnType<typeof vi.fn>;
   };
+  let dealRepository: { update: ReturnType<typeof vi.fn> };
   let attemptsCounter: { inc: ReturnType<typeof vi.fn> };
   let stuckGauge: { set: ReturnType<typeof vi.fn> };
   let warnSpy: ReturnType<typeof vi.spyOn>;
@@ -222,6 +223,7 @@ describe("SpCleanupService", () => {
       findByAddress: vi.fn(async () => undefined),
     };
 
+    dealRepository = { update: vi.fn(async () => ({ affected: 0 })) };
     attemptsCounter = { inc: vi.fn() };
     stuckGauge = { set: vi.fn() };
 
@@ -229,8 +231,9 @@ describe("SpCleanupService", () => {
       configService as unknown as ConstructorParameters<typeof SpCleanupService>[0],
       walletSdkService as unknown as WalletSdkService,
       storageProviderRepository as unknown as StorageProviderRepository,
-      attemptsCounter as unknown as ConstructorParameters<typeof SpCleanupService>[3],
-      stuckGauge as unknown as ConstructorParameters<typeof SpCleanupService>[4],
+      dealRepository as unknown as ConstructorParameters<typeof SpCleanupService>[3],
+      attemptsCounter as unknown as ConstructorParameters<typeof SpCleanupService>[4],
+      stuckGauge as unknown as ConstructorParameters<typeof SpCleanupService>[5],
     );
 
     vi.mocked(asChain).mockReturnValue(fakeChain as any);
@@ -511,6 +514,63 @@ describe("SpCleanupService", () => {
 
       expect(terminateServiceSync).not.toHaveBeenCalled();
       expect(attemptsCounter.inc).not.toHaveBeenCalled();
+      expect(dealRepository.update).not.toHaveBeenCalled();
+    });
+
+    it("marks a terminated data set's deals cleaned up so retrievals stop targeting them", async () => {
+      const networkConfig = makeNetworkConfig({
+        blockedSpAddresses: new Set(["0xsp0000000000000000000000000000000000001"]),
+      });
+      configService.get.mockImplementation((key: string) =>
+        key === "networks" ? { [DEFAULT_NETWORK]: networkConfig } : undefined,
+      );
+      storageProviderRepository.findAllByNetwork.mockResolvedValueOnce([makeProvider()]);
+      mockPdpDataSets([makeDataSet({ dataSetId: 9n })] as any);
+
+      await service.runDataSetPruning(DEFAULT_NETWORK);
+
+      expect(dealRepository.update).toHaveBeenCalledWith(
+        { dataSetId: 9n, network: DEFAULT_NETWORK, cleanedUp: false },
+        { cleanedUp: true, cleanedUpAt: expect.any(Date) },
+      );
+    });
+
+    it("leaves deals alone when the termination attempt fails", async () => {
+      const networkConfig = makeNetworkConfig({
+        blockedSpAddresses: new Set(["0xsp0000000000000000000000000000000000001"]),
+      });
+      configService.get.mockImplementation((key: string) =>
+        key === "networks" ? { [DEFAULT_NETWORK]: networkConfig } : undefined,
+      );
+      storageProviderRepository.findAllByNetwork.mockResolvedValueOnce([makeProvider()]);
+      mockPdpDataSets([makeDataSet({ dataSetId: 9n })] as any);
+      vi.mocked(terminateServiceSync).mockRejectedValueOnce(new Error("SP unreachable"));
+
+      await service.runDataSetPruning(DEFAULT_NETWORK);
+
+      expect(dealRepository.update).not.toHaveBeenCalled();
+    });
+
+    it("still records a successful termination when marking its deals fails", async () => {
+      const networkConfig = makeNetworkConfig({
+        blockedSpAddresses: new Set(["0xsp0000000000000000000000000000000000001"]),
+      });
+      configService.get.mockImplementation((key: string) =>
+        key === "networks" ? { [DEFAULT_NETWORK]: networkConfig } : undefined,
+      );
+      storageProviderRepository.findAllByNetwork.mockResolvedValueOnce([makeProvider()]);
+      mockPdpDataSets([makeDataSet({ dataSetId: 9n })] as any);
+      dealRepository.update.mockRejectedValueOnce(new Error("connection terminated"));
+
+      await service.runDataSetPruning(DEFAULT_NETWORK);
+
+      expect(attemptsCounter.inc).toHaveBeenCalledWith({
+        network: DEFAULT_NETWORK,
+        outcome: "success",
+        reason: "blocked",
+      });
+      expect(attemptsCounter.inc).not.toHaveBeenCalledWith(expect.objectContaining({ outcome: "failure" }));
+      expect(warnSpy).toHaveBeenCalledWith(expect.objectContaining({ event: "sp_cleanup_deals_cleanup_mark_failed" }));
     });
 
     it("prunes a provider that has no registry row, using the provider on the data set", async () => {
@@ -1009,6 +1069,32 @@ describe("SpCleanupService", () => {
         outcome: "failure",
         reason: "abandonment",
       });
+      // The deleted set leaves the wallet listing, so its deals are marked before the abort.
+      expect(dealRepository.update).toHaveBeenCalledWith(
+        { dataSetId: 18n, network: DEFAULT_NETWORK, cleanedUp: false },
+        { cleanedUp: true, cleanedUpAt: expect.any(Date) },
+      );
+    });
+
+    it("still runs cleanupPieces when marking the deleted set's deals fails", async () => {
+      mockClientDataSets([makeDataSet({ dataSetId: 19n, pdpEndEpoch: 0n })] as any);
+      vi.mocked(getBlockNumber).mockResolvedValueOnce(200000n);
+      mockBatchedReads({ getDataSetLastProvenEpoch: 1000n });
+      dealRepository.update.mockRejectedValueOnce(new Error("connection terminated"));
+      vi.mocked(simulateContract)
+        .mockResolvedValueOnce({ request: { fake: "deleteDataSet-request" } } as any)
+        .mockResolvedValueOnce({ request: { fake: "cleanup-1" }, result: true } as any);
+      vi.mocked(writeContract).mockResolvedValue("0xtxhash" as any);
+      vi.mocked(waitForTransactionReceipt).mockResolvedValue({ status: "success" } as any);
+
+      await service.runAbandonedDataSetSweep(DEFAULT_NETWORK);
+
+      expect(simulateContract).toHaveBeenNthCalledWith(
+        2,
+        expect.anything(),
+        expect.objectContaining({ functionName: "cleanupPieces", args: [19n, 100n] }),
+      );
+      expect(warnSpy).toHaveBeenCalledWith(expect.objectContaining({ event: "sp_cleanup_deals_cleanup_mark_failed" }));
     });
 
     it("treats a reverted-but-mined deleteDataSet receipt as a failure, skipping the cleanupPieces follow-up", async () => {
@@ -1074,6 +1160,30 @@ describe("SpCleanupService", () => {
 
       expect(simulateContract).not.toHaveBeenCalled();
       expect(writeContract).not.toHaveBeenCalled();
+    });
+
+    it("marks deals cleaned up only in the data sets the sweep deletes", async () => {
+      const deletedNow = makeDataSet({ dataSetId: 10n, pdpEndEpoch: 0n });
+      const live = makeDataSet({ dataSetId: 30n, pdpEndEpoch: 0n });
+      mockClientDataSets([deletedNow, live] as any);
+      vi.mocked(getBlockNumber).mockResolvedValueOnce(200000n);
+      // 10 is outside the activity window and gets deleted; 30 was proven recently and stays.
+      mockBatchedReads({ getDataSetLastProvenEpoch: [1000n, 199000n] });
+      const notInCleanupMode = new ContractFunctionRevertedError({ abi: [], functionName: "cleanupPieces" });
+      notInCleanupMode.data = { errorName: "DataSetNotInCleanupMode", args: [] } as any;
+      vi.mocked(simulateContract)
+        .mockResolvedValueOnce({ request: { fake: "deleteDataSet-request" } } as any)
+        .mockRejectedValueOnce(notInCleanupMode);
+      vi.mocked(writeContract).mockResolvedValue("0xtxhash" as any);
+      vi.mocked(waitForTransactionReceipt).mockResolvedValue({ status: "success" } as any);
+
+      await service.runAbandonedDataSetSweep(DEFAULT_NETWORK);
+
+      expect(dealRepository.update).toHaveBeenCalledTimes(1);
+      expect(dealRepository.update).toHaveBeenCalledWith(
+        { dataSetId: 10n, network: DEFAULT_NETWORK, cleanedUp: false },
+        { cleanedUp: true, cleanedUpAt: expect.any(Date) },
+      );
     });
 
     it("resolves a stuck-looking rail automatically via permissionless settleRail — no human needed", async () => {
