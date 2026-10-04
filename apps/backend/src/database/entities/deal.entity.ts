@@ -18,6 +18,7 @@ import { StorageProvider } from "./storage-provider.entity.js";
 
 @Entity("deals")
 @Index(["network", "spAddress"])
+@Index("IDX_deals_uncleaned_data_set", ["network", "dataSetId"], { where: "cleaned_up = false" })
 export class Deal {
   @PrimaryGeneratedColumn("uuid")
   id: string;

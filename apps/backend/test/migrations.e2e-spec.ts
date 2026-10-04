@@ -17,6 +17,7 @@ import { EnsurePgBossSchema1760550000000 } from "../src/database/migrations/1760
 import { RemoveCdnServiceType1760600000000 } from "../src/database/migrations/1760600000000-RemoveCdnServiceType.js";
 import { RemoveSpReceivedRetrieveRequest1761500000000 } from "../src/database/migrations/1761500000000-RemoveSpReceivedRetrieveRequest.js";
 import { RemoveIpniRetrievedColumns1761500000001 } from "../src/database/migrations/1761500000001-RemoveIpniRetrievedColumns.js";
+import { AddPieceCleanupColumns1761500000002 } from "../src/database/migrations/1761500000002-AddPieceCleanupColumns.js";
 import { CreateDataRetentionBaselines1761500000002 } from "../src/database/migrations/1761500000002-CreateDataRetentionBaselines.js";
 import { RenameEvents1761500000003 } from "../src/database/migrations/1761500000003-RenameEvents.js";
 import { RenameRegionToLocation1761500000004 } from "../src/database/migrations/1761500000004-RenameRegionToLocation.js";
@@ -25,6 +26,7 @@ import { DataSetIdBigInt1761500000006 } from "../src/database/migrations/1761500
 import { RemoveMetricsJobScheduleRows1776147113065 } from "../src/database/migrations/1776147113065-RemoveMetricsJobScheduleRows.js";
 import { DropMetricsSchema1776200000000 } from "../src/database/migrations/1776200000000-DropMetricsSchema.js";
 import { AddNetworkColumn1776790420000 } from "../src/database/migrations/1776790420000-AddNetworkColumn.js";
+import { AddUncleanedDealsDataSetIndex1791087721000 } from "../src/database/migrations/1791087721000-AddUncleanedDealsDataSetIndex.js";
 
 const execFileAsync = promisify(execFile);
 const dockerCheck = spawnSync("docker", ["info"], { stdio: "ignore" });
@@ -48,6 +50,7 @@ const ALL_MIGRATIONS: Array<new () => MigrationInterface> = [
   RemoveCdnServiceType1760600000000,
   RemoveSpReceivedRetrieveRequest1761500000000,
   RemoveIpniRetrievedColumns1761500000001,
+  AddPieceCleanupColumns1761500000002,
   CreateDataRetentionBaselines1761500000002,
   RenameEvents1761500000003,
   RenameRegionToLocation1761500000004,
@@ -56,6 +59,7 @@ const ALL_MIGRATIONS: Array<new () => MigrationInterface> = [
   RemoveMetricsJobScheduleRows1776147113065,
   DropMetricsSchema1776200000000,
   AddNetworkColumn1776790420000,
+  AddUncleanedDealsDataSetIndex1791087721000,
 ];
 
 type DatabaseConfig = {
@@ -318,6 +322,29 @@ describeWithDocker("Migrations (integration)", () => {
     const rerun = await dataSource.runMigrations();
     expect(rerun.length).toBe(0);
   }, 180_000);
+
+  it("creates the uncleaned data set index and supports rollback", async () => {
+    const dataSource = migrationDataSource;
+    if (!dataSource) {
+      throw new Error("migration data source is not initialized");
+    }
+
+    const indexQuery = `
+      SELECT indisvalid AS "isValid", pg_get_indexdef(indexrelid) AS definition
+      FROM pg_index
+      WHERE indexrelid = to_regclass('public."IDX_deals_uncleaned_data_set"')
+    `;
+    const [index] = await dataSource.query(indexQuery);
+    expect(index.isValid).toBe(true);
+    expect(index.definition).toContain("(network, data_set_id)");
+    expect(index.definition).toContain("WHERE (cleaned_up = false)");
+
+    await dataSource.undoLastMigration();
+    expect(await dataSource.query(indexQuery)).toEqual([]);
+
+    expect(await dataSource.runMigrations()).toHaveLength(1);
+    expect(await dataSource.query(indexQuery)).toEqual([index]);
+  });
 
   it("RemoveMetricsJobScheduleRows deletes legacy job schedule rows and preserves valid ones", async () => {
     const dataSource = migrationDataSource;

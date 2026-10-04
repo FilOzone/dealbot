@@ -236,6 +236,8 @@ without aborting the batch. Dead SPs are cleaned up by `abandoned_data_set_sweep
 Both jobs mark deals `cleaned_up` in the data sets they terminate or delete, so retrieval checks stop picking
 them. A terminated set's pieces stay live on-chain until it is deleted, but the SP is no longer paid past
 `pdpEndEpoch`.
+Database update failures are logged; retrieval checks mark remaining deals when the on-chain `pieceLive`
+check returns false after deletion.
 
 ### `abandoned_data_set_sweep`
 
