@@ -46,6 +46,43 @@ export type ActiveDataSetInventory = {
   indexedAtBlock: number;
 };
 
+export type ClientDataSetPageResponse = {
+  _meta: { block: { number: number } };
+  dataSets: Array<{
+    id: string;
+    setId: bigint;
+    fwssServiceProvider: Hex;
+    pdpPaymentEndEpoch: bigint | null;
+    pdpRailId: bigint;
+    lastProvenEpoch: bigint;
+    metadataKeys: string[];
+    metadataValues: string[];
+    pdpRailFinalization: { id: string } | null;
+    roots: Array<{ id: string }>;
+  }>;
+};
+
+/** A non-deleted FWSS data set paid for by one client. */
+export type ClientDataSet = {
+  dataSetId: bigint;
+  /** Lowercase address. */
+  serviceProvider: Hex;
+  /** 0n until the PDP rail is terminated. */
+  pdpEndEpoch: bigint;
+  pdpRailId: bigint;
+  /** True once FilecoinPay finalized the PDP rail, i.e. `getRail` reverts. */
+  pdpRailFinalized: boolean;
+  lastProvenEpoch: bigint;
+  metadata: Record<string, string>;
+  hasActivePieces: boolean;
+};
+
+export type ClientDataSetSnapshot = {
+  dataSets: ClientDataSet[];
+  /** Lowest block across the pages read, so the snapshot is at least this fresh. */
+  indexedAtBlock: number;
+};
+
 /**
  * A single proof set within a provider, representing deadline-related proving data.
  * All numeric fields are bigints converted from the subgraph string representation.
@@ -199,6 +236,33 @@ const activeDataSetPageResponseSchema = Joi.object({
   .unknown(true)
   .required();
 
+const clientDataSetPageResponseSchema = Joi.object({
+  _meta: metaSchema.extract("_meta"),
+  dataSets: Joi.array()
+    .items(
+      Joi.object({
+        id: Joi.string()
+          .pattern(/^0x[0-9a-fA-F]+$/)
+          .required(),
+        setId: Joi.string().pattern(/^\d+$/).required().custom(toBigInt),
+        fwssServiceProvider: Joi.string().required().custom(toEthereumAddress),
+        pdpPaymentEndEpoch: Joi.string().pattern(/^\d+$/).allow(null).required().custom(toBigInt),
+        pdpRailId: Joi.string().pattern(/^\d+$/).required().custom(toBigInt),
+        lastProvenEpoch: Joi.string().pattern(/^\d+$/).required().custom(toBigInt),
+        // Metadata values are often "" (e.g. withIPFSIndexing), which Joi.string() rejects by default.
+        metadataKeys: Joi.array().items(Joi.string().allow("")).required(),
+        metadataValues: Joi.array().items(Joi.string().allow("")).required(),
+        pdpRailFinalization: Joi.object({ id: Joi.string().required() }).unknown(true).allow(null).required(),
+        roots: Joi.array()
+          .items(Joi.object({ id: Joi.string().required() }).unknown(true))
+          .required(),
+      }).unknown(true),
+    )
+    .required(),
+})
+  .unknown(true)
+  .required();
+
 const sampleRootProofSetSchema = Joi.object({
   setId: Joi.string().pattern(/^\d+$/).required(),
   withIPFSIndexing: Joi.boolean().required(),
@@ -273,6 +337,14 @@ export function validateActiveDataSetPageResponse(value: unknown): ActiveDataSet
     throw new Error(`Invalid active dataset page response format: ${error.message}`);
   }
   return validated as ActiveDataSetPageResponse;
+}
+
+export function validateClientDataSetPageResponse(value: unknown): ClientDataSetPageResponse {
+  const { error, value: validated } = clientDataSetPageResponseSchema.validate(value, { abortEarly: false });
+  if (error) {
+    throw new Error(`Invalid client dataset page response format: ${error.message}`);
+  }
+  return validated as ClientDataSetPageResponse;
 }
 
 /**

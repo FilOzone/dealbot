@@ -285,6 +285,27 @@ paged.
    Safe](#depositing-and-approving-via-safe) above).
 5. Review the decoded transactions, **Create Batch** > **Send Batch**, sign, and collect the second signature.
 
+### Operational prerequisite: dealbot subgraph
+
+Both jobs list the wallet's data sets from the dealbot-owned subgraph
+([`<NET>_SUBGRAPH_ENDPOINT`](../environment-variables.md#net_subgraph_endpoint)), not from the chain. The
+subgraph also supplies each set's last proving activity and whether its PDP rail is finalized. Changes made
+during the run are caught on-chain right before each write: pruning re-reads a set before terminating it, and
+a rail finalized since the snapshot makes `settleRail` revert with `RailInactiveOrSettled`, which the sweep
+treats as nothing to do rather than as a stuck rail.
+
+A run refuses to act on stale data. It fails, logging `sp_data_set_pruning_job_failed` or
+`abandoned_data_set_sweep_job_failed`, when:
+
+- `<NET>_SUBGRAPH_ENDPOINT` is unset (`No subgraph endpoint configured`);
+- the subgraph query fails after retries (endpoint down, GraphQL error);
+- the subgraph is more than 60 blocks (~30 minutes) behind the chain head (`Subgraph is N blocks behind the
+  chain head`). A subgraph halted by an indexing error shows up this way too.
+
+So **a stalled subgraph stops SP cleanup**, and it resumes on the first run after the subgraph catches up. When
+these failures persist, check the deployment's indexing status in Goldsky before anything else. Also make sure
+the endpoint points at a subgraph version that has finished indexing, not one still syncing.
+
 ### Operational prerequisite: session key gas balance
 
 Unlike the provider-relay path, the sweep's direct `deleteDataSet`, `cleanupPieces`, and `settleRail` calls are

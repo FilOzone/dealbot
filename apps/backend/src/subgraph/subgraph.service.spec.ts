@@ -138,6 +138,97 @@ describe("SubgraphService", () => {
     });
   });
 
+  describe("fetchClientDataSets", () => {
+    const makeClientDataSetRow = (overrides: Record<string, unknown> = {}) => ({
+      id: "0x07",
+      setId: "7",
+      fwssServiceProvider: VALID_ADDRESS,
+      pdpPaymentEndEpoch: null,
+      pdpRailId: "70",
+      lastProvenEpoch: "1000",
+      metadataKeys: [],
+      metadataValues: [],
+      pdpRailFinalization: null,
+      roots: [],
+      ...overrides,
+    });
+
+    const respondWith = (dataSets: Record<string, unknown>[], blockNumber = 12345) =>
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ data: { _meta: { block: { number: blockNumber } }, dataSets } }),
+      });
+
+    it("maps subgraph rows onto client data sets", async () => {
+      respondWith([
+        makeClientDataSetRow({
+          metadataKeys: ["source", "withIPFSIndexing"],
+          metadataValues: ["dealbot", ""],
+          roots: [{ id: "0x01" }],
+        }),
+        makeClientDataSetRow({
+          id: "0x08",
+          setId: "8",
+          pdpPaymentEndEpoch: "500",
+          pdpRailId: "80",
+          pdpRailFinalization: { id: "0x50" },
+        }),
+      ]);
+
+      const snapshot = await service.fetchClientDataSets(NETWORK, FWSS_PAYER);
+
+      expect(snapshot).toEqual({
+        indexedAtBlock: 12345,
+        dataSets: [
+          {
+            dataSetId: 7n,
+            serviceProvider: VALID_ADDRESS,
+            pdpEndEpoch: 0n,
+            pdpRailId: 70n,
+            pdpRailFinalized: false,
+            lastProvenEpoch: 1000n,
+            metadata: { source: "dealbot", withIPFSIndexing: "" },
+            hasActivePieces: true,
+          },
+          {
+            dataSetId: 8n,
+            serviceProvider: VALID_ADDRESS,
+            pdpEndEpoch: 500n,
+            pdpRailId: 80n,
+            pdpRailFinalized: true,
+            lastProvenEpoch: 1000n,
+            metadata: {},
+            hasActivePieces: false,
+          },
+        ],
+      });
+      const body = JSON.parse(fetchMock.mock.calls[0][1].body as string) as {
+        query: string;
+        variables: Record<string, unknown>;
+      };
+      // FWSS drops deleted data sets from getClientDataSets; the query must too.
+      expect(body.query).toContain("status_not: DELETED");
+      expect(body.variables).toMatchObject({ payer: FWSS_PAYER.toLowerCase(), cursor: "0x00", first: 1000 });
+    });
+
+    it("paginates by id and reports the oldest page's block", async () => {
+      const firstPage = Array.from({ length: 1000 }, (_, index) =>
+        makeClientDataSetRow({ id: `0x${(index + 1).toString(16).padStart(4, "0")}`, setId: String(index + 1) }),
+      );
+      respondWith(firstPage, 12346);
+      respondWith([makeClientDataSetRow({ id: "0x1001", setId: "4097" })], 12345);
+
+      const snapshot = await service.fetchClientDataSets(NETWORK, FWSS_PAYER);
+
+      expect(snapshot.dataSets).toHaveLength(1001);
+      expect(snapshot.indexedAtBlock).toBe(12345);
+      const secondBody = JSON.parse(fetchMock.mock.calls[1][1].body as string) as {
+        variables: Record<string, unknown>;
+      };
+      expect(secondBody.variables).toMatchObject({ cursor: firstPage.at(-1)?.id });
+    });
+  });
+
   describe("fetchProvidersWithDatasets", () => {
     it("fetches and returns validated providers with bigint fields", async () => {
       fetchMock.mockResolvedValueOnce({

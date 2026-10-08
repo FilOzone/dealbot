@@ -3,11 +3,18 @@ import { TypeOrmModule } from "@nestjs/typeorm";
 import { Deal } from "../database/entities/deal.entity.js";
 import { MetricsPrometheusModule } from "../metrics-prometheus/metrics-prometheus.module.js";
 import { ProvidersModule } from "../providers/providers.module.js";
+import { SubgraphModule } from "../subgraph/subgraph.module.js";
 import { WalletSdkModule } from "../wallet-sdk/wallet-sdk.module.js";
 import { SpCleanupService } from "./sp-cleanup.service.js";
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Deal]), WalletSdkModule, ProvidersModule, MetricsPrometheusModule],
+  imports: [
+    TypeOrmModule.forFeature([Deal]),
+    WalletSdkModule,
+    ProvidersModule,
+    MetricsPrometheusModule,
+    SubgraphModule,
+  ],
   providers: [SpCleanupService],
   exports: [SpCleanupService],
 })
