@@ -6,6 +6,10 @@ export function getProofSetEntityId(setId: BigInt): Bytes {
   return Bytes.fromByteArray(Bytes.fromBigInt(setId));
 }
 
+export function getRailFinalizationEntityId(railId: BigInt): Bytes {
+  return Bytes.fromByteArray(Bytes.fromBigInt(railId));
+}
+
 export function getRootEntityId(setId: BigInt, rootId: BigInt): Bytes {
   return Bytes.fromUTF8(`${setId.toString()}-${rootId.toString()}`);
 }

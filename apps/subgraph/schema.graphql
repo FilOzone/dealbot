@@ -34,6 +34,9 @@ type DataSet @entity(immutable: false) {
   # NextProvingPeriod. Drives the faultedPeriods counter on Provider;
   # not directly queried by dealbot.
   provenThisPeriod: Boolean!
+  # Block of the last PDPVerifier proving activity: creation, PossessionProven,
+  # or DataSetEmpty. deleteDataSet becomes permissionless 86400 blocks after it.
+  lastProvenEpoch: BigInt!
 
   # ---- FWSS fields (null / false for non-FWSS datasets) ----
   # Populated by FWSS.DataSetCreated handler.
@@ -42,6 +45,16 @@ type DataSet @entity(immutable: false) {
 
   # Derived from FWSS.DataSetCreated metadataKeys.
   withIPFSIndexing: Boolean!
+
+  # FWSS.DataSetCreated metadata, index-aligned; empty for non-FWSS datasets.
+  # FWSS can later drop withCDN (terminateCDNService); that is not tracked.
+  metadataKeys: [String!]!
+  metadataValues: [String!]!
+
+  # Populated by FWSS.DataSetCreated handler.
+  pdpRailId: BigInt
+  # Null until FilecoinPay emits RailFinalized for pdpRailId.
+  pdpRailFinalization: RailFinalization
 
   # Populated by FWSS.PDPPaymentTerminated handler.
   # May be in the past (already terminated) or future (terminating).
@@ -79,4 +92,10 @@ type Root @entity(immutable: false) {
   sampleKey: Bytes!
 
   proofSet: DataSet!
+}
+
+# Created when FilecoinPay finalizes a rail, i.e. when getRail starts reverting.
+type RailFinalization @entity(immutable: true) {
+  id: Bytes! # railId
+  blockNumber: BigInt!
 }

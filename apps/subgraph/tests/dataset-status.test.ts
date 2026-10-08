@@ -6,12 +6,14 @@ import {
   handleDataSetEmpty,
   handleNextProvingPeriod,
   handlePiecesAdded,
+  handlePossessionProven,
 } from "../src/pdp-verifier";
 import {
   createDataSetCreatedEvent,
   createDataSetDeletedEvent,
   createDataSetEmptyEvent,
   createNextProvingPeriodEvent,
+  createPossessionProvenEvent,
   createRootsAddedEvent,
   generateTxHash,
 } from "./pdp-verifier-utils";
@@ -158,6 +160,41 @@ describe("DataSetStatus Lifecycle Tests", () => {
 
     assert.fieldEquals("DataSet", dataSetId, "status", "DELETED");
     assert.fieldEquals("DataSet", dataSetId, "isActive", "false");
+  });
+
+  test("lastProvenEpoch moves on creation, PossessionProven and DataSetEmpty, not NextProvingPeriod", () => {
+    const dataSetId = PROOF_SET_ID_BYTES.toHex();
+
+    createAndSubmitDataSet(60);
+    assert.fieldEquals("DataSet", dataSetId, "lastProvenEpoch", "100");
+
+    addRoots(61, 150);
+    nextProvingPeriod(62, 200, 440);
+    assert.fieldEquals("DataSet", dataSetId, "lastProvenEpoch", "100");
+
+    handlePossessionProven(
+      createPossessionProvenEvent(
+        SET_ID,
+        [ROOT_ID_1],
+        [BigInt.fromI32(0)],
+        CONTRACT_ADDRESS,
+        BigInt.fromI32(300),
+        BigInt.fromI32(1678886700),
+        generateTxHash(63),
+      ),
+    );
+    assert.fieldEquals("DataSet", dataSetId, "lastProvenEpoch", "300");
+
+    handleDataSetEmpty(
+      createDataSetEmptyEvent(
+        SET_ID,
+        CONTRACT_ADDRESS,
+        BigInt.fromI32(400),
+        BigInt.fromI32(1678886800),
+        generateTxHash(64),
+      ),
+    );
+    assert.fieldEquals("DataSet", dataSetId, "lastProvenEpoch", "400");
   });
 
   test("Lifecycle: EMPTY → READY → PROVING → EMPTY → READY → PROVING", () => {

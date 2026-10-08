@@ -7,7 +7,13 @@ import {
   ServiceTerminated as ServiceTerminatedEvent,
 } from "../generated/FilecoinWarmStorageService/FilecoinWarmStorageService";
 import { DataSet, Root } from "../generated/schema";
-import { arrayContains, extractMetadataValue, getProofSetEntityId, getRootEntityId } from "./helpers";
+import {
+  arrayContains,
+  extractMetadataValue,
+  getProofSetEntityId,
+  getRailFinalizationEntityId,
+  getRootEntityId,
+} from "./helpers";
 import { DataSetStatus } from "./types";
 
 // ---- Handlers -------------------------------------------------------------
@@ -32,12 +38,18 @@ export function handleFwssDataSetCreated(event: DataSetCreatedEvent): void {
     ds.nextDeadline = BigInt.zero();
     ds.maxProvingPeriod = BigInt.zero();
     ds.provenThisPeriod = false;
+    ds.lastProvenEpoch = BigInt.zero();
     ds.createdAt = event.block.timestamp;
   }
 
   ds.fwssPayer = event.params.payer;
   ds.fwssServiceProvider = event.params.serviceProvider;
   ds.withIPFSIndexing = arrayContains(event.params.metadataKeys, "withIPFSIndexing");
+  ds.metadataKeys = event.params.metadataKeys;
+  ds.metadataValues = event.params.metadataValues;
+  ds.pdpRailId = event.params.pdpRailId;
+  // The RailFinalization entity is only created later, by FilecoinPay's RailFinalized.
+  ds.pdpRailFinalization = getRailFinalizationEntityId(event.params.pdpRailId);
   ds.save();
 }
 
