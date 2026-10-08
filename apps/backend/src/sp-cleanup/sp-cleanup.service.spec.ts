@@ -484,7 +484,7 @@ describe("SpCleanupService", () => {
         key === "networks" ? { [DEFAULT_NETWORK]: networkConfig } : undefined,
       );
       storageProviderRepository.findAllByNetwork.mockResolvedValueOnce([makeProvider()]);
-      mockPdpDataSets([makeDataSet({ dataSetId: 9n })] as any);
+      mockSnapshot([makeDataSet({ dataSetId: 9n })]);
 
       await service.runDataSetPruning(DEFAULT_NETWORK);
 
@@ -502,7 +502,8 @@ describe("SpCleanupService", () => {
         key === "networks" ? { [DEFAULT_NETWORK]: networkConfig } : undefined,
       );
       storageProviderRepository.findAllByNetwork.mockResolvedValueOnce([makeProvider()]);
-      mockPdpDataSets([makeDataSet({ dataSetId: 9n })] as any);
+      mockSnapshot([makeDataSet({ dataSetId: 9n })]);
+
       vi.mocked(terminateServiceSync).mockRejectedValueOnce(new Error("SP unreachable"));
 
       await service.runDataSetPruning(DEFAULT_NETWORK);
@@ -518,7 +519,7 @@ describe("SpCleanupService", () => {
         key === "networks" ? { [DEFAULT_NETWORK]: networkConfig } : undefined,
       );
       storageProviderRepository.findAllByNetwork.mockResolvedValueOnce([makeProvider()]);
-      mockPdpDataSets([makeDataSet({ dataSetId: 9n })] as any);
+      mockSnapshot([makeDataSet({ dataSetId: 9n })]);
       dealRepository.update.mockRejectedValueOnce(new Error("connection terminated"));
 
       await service.runDataSetPruning(DEFAULT_NETWORK);
@@ -984,9 +985,7 @@ describe("SpCleanupService", () => {
     });
 
     it("still runs cleanupPieces when marking the deleted set's deals fails", async () => {
-      mockClientDataSets([makeDataSet({ dataSetId: 19n, pdpEndEpoch: 0n })] as any);
-      vi.mocked(getBlockNumber).mockResolvedValueOnce(200000n);
-      mockBatchedReads({ getDataSetLastProvenEpoch: 1000n });
+      mockSnapshot([makeDataSet({ dataSetId: 19n, pdpEndEpoch: 0n, lastProvenEpoch: 1000n })] as any);
       dealRepository.update.mockRejectedValueOnce(new Error("connection terminated"));
       vi.mocked(simulateContract)
         .mockResolvedValueOnce({ request: { fake: "deleteDataSet-request" } } as any)
@@ -1035,12 +1034,10 @@ describe("SpCleanupService", () => {
     });
 
     it("marks deals cleaned up only in the data sets the sweep deletes", async () => {
-      const deletedNow = makeDataSet({ dataSetId: 10n, pdpEndEpoch: 0n });
-      const live = makeDataSet({ dataSetId: 30n, pdpEndEpoch: 0n });
-      mockClientDataSets([deletedNow, live] as any);
-      vi.mocked(getBlockNumber).mockResolvedValueOnce(200000n);
       // 10 is outside the activity window and gets deleted; 30 was proven recently and stays.
-      mockBatchedReads({ getDataSetLastProvenEpoch: [1000n, 199000n] });
+      const deletedNow = makeDataSet({ dataSetId: 10n, pdpEndEpoch: 0n, lastProvenEpoch: 1000n });
+      const live = makeDataSet({ dataSetId: 30n, pdpEndEpoch: 0n, lastProvenEpoch: 199000n });
+      mockSnapshot([deletedNow, live] as any);
       const notInCleanupMode = new ContractFunctionRevertedError({ abi: [], functionName: "cleanupPieces" });
       notInCleanupMode.data = { errorName: "DataSetNotInCleanupMode", args: [] } as any;
       vi.mocked(simulateContract)
