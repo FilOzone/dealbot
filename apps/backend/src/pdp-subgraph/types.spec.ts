@@ -154,7 +154,9 @@ describe("validateSubgraphMetaResponse", () => {
       _meta: {
         block: {
           number: 12345,
+          timestamp: 1791780000,
         },
+        hasIndexingErrors: false,
       },
     };
 
@@ -168,7 +170,9 @@ describe("validateSubgraphMetaResponse", () => {
       _meta: {
         block: {
           number: 999999999,
+          timestamp: 1791780000,
         },
+        hasIndexingErrors: false,
       },
     };
 
@@ -182,7 +186,9 @@ describe("validateSubgraphMetaResponse", () => {
       _meta: {
         block: {
           number: "12345",
+          timestamp: 1791780000,
         },
+        hasIndexingErrors: false,
       },
     });
 
@@ -209,6 +215,22 @@ describe("validateSubgraphMetaResponse", () => {
         },
       }),
     ).toThrow("Invalid subgraph meta response format");
+  });
+
+  it("returns the indexed block timestamp and indexing-error flag", () => {
+    const result = validateSubgraphMetaResponse({
+      _meta: { block: { number: 12345, timestamp: 1791780000 }, hasIndexingErrors: true },
+    });
+
+    expect(result._meta.block.timestamp).toBe(1791780000);
+    expect(result._meta.hasIndexingErrors).toBe(true);
+  });
+
+  it.each([
+    { name: "timestamp", meta: { block: { number: 12345 }, hasIndexingErrors: false } },
+    { name: "hasIndexingErrors", meta: { block: { number: 12345, timestamp: 1791780000 } } },
+  ])("throws on missing $name field", ({ meta }) => {
+    expect(() => validateSubgraphMetaResponse({ _meta: meta })).toThrow("Invalid subgraph meta response format");
   });
 
   it("throws on null input", () => {

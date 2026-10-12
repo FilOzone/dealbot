@@ -18,6 +18,15 @@ class ValidationError extends Error {
   }
 }
 
+/**
+ * Graph Node still reports `indexing_error` alongside the data when a query opts into
+ * `subgraphError: allow`. Accept that warning only; any other GraphQL error is a failure.
+ * `fetchSubgraphMeta` refuses stale data instead.
+ */
+function hasOnlyIndexingErrors(result: GraphQLResponse): boolean {
+  return result.data != null && (result.errors ?? []).every(({ message }) => message === "indexing_error");
+}
+
 @Injectable()
 export class PDPSubgraphService {
   private readonly logger: Logger = new Logger(PDPSubgraphService.name);
@@ -27,17 +36,45 @@ export class PDPSubgraphService {
   private static readonly RATE_LIMIT_WINDOW_MS = 10000;
   private static readonly MAX_RETRIES = 3;
   private static readonly INITIAL_RETRY_DELAY_MS = 1000;
+  // Data accepted despite indexing errors must at least be recent. 60 epochs, matching the SP
+  // cleanup lag limit; data-retention counters are cumulative, so a lagging subgraph only delays them.
+  private static readonly MAX_SUBGRAPH_LAG_SECONDS = 30 * 60;
 
   private requestTimestamps: number[] = [];
 
   /**
    * Fetch subgraph metadata including the latest indexed block number
    *
-   * @param attempt - Current retry attempt number (default: 1)
    * @returns Subgraph metadata with block number
-   * @throws Error if endpoint is not configured or after MAX_RETRIES attempts
+   * @throws Error if endpoint is not configured, after MAX_RETRIES attempts, or when the latest
+   *   indexed block is older than MAX_SUBGRAPH_LAG_SECONDS (not retried; a halted subgraph will
+   *   not catch up within the retry window)
    */
-  async fetchSubgraphMeta(endpoint: string, attempt: number = 1): Promise<SubgraphMeta> {
+  async fetchSubgraphMeta(endpoint: string): Promise<SubgraphMeta> {
+    const meta = await this.requestSubgraphMeta(endpoint);
+    const { block, hasIndexingErrors } = meta._meta;
+    const lagSeconds = Math.floor(Date.now() / 1000) - block.timestamp;
+
+    if (lagSeconds > PDPSubgraphService.MAX_SUBGRAPH_LAG_SECONDS) {
+      throw new Error(
+        `PDP subgraph is ${lagSeconds}s behind (indexed block ${block.number}, limit ${PDPSubgraphService.MAX_SUBGRAPH_LAG_SECONDS}s)`,
+      );
+    }
+    if (hasIndexingErrors) {
+      // Non-fatal indexing errors do not stop indexing. Serve the data while it is fresh,
+      // but leave a trail in case the flagged data is incomplete.
+      this.logger.warn({
+        event: "pdp_subgraph_indexing_errors_tolerated",
+        message: "PDP subgraph reports indexing errors; using its data because it is up to date",
+        blockNumber: block.number,
+        lagSeconds,
+      });
+    }
+
+    return meta;
+  }
+
+  private async requestSubgraphMeta(endpoint: string, attempt: number = 1): Promise<SubgraphMeta> {
     if (!endpoint) {
       throw new Error("No PDP subgraph endpoint configured");
     }
@@ -61,7 +98,7 @@ export class PDPSubgraphService {
 
       const result = (await response.json()) as GraphQLResponse;
 
-      if (result.errors) {
+      if (result.errors && !hasOnlyIndexingErrors(result)) {
         const errorMessage = result.errors?.[0]?.message || "Unknown GraphQL error";
         throw new Error(`GraphQL error: ${errorMessage}`);
       }
@@ -99,7 +136,7 @@ export class PDPSubgraphService {
           error: toStructuredError(error),
         });
         await new Promise((resolve) => setTimeout(resolve, delay));
-        return this.fetchSubgraphMeta(endpoint, attempt + 1);
+        return this.requestSubgraphMeta(endpoint, attempt + 1);
       }
 
       this.logger.error({
@@ -203,7 +240,7 @@ export class PDPSubgraphService {
 
       const result = (await response.json()) as GraphQLResponse;
 
-      if (result.errors) {
+      if (result.errors && !hasOnlyIndexingErrors(result)) {
         const errorMessage = result.errors?.[0]?.message || "Unknown GraphQL error";
         throw new Error(`GraphQL error: ${errorMessage}`);
       }

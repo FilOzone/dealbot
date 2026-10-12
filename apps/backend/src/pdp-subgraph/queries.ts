@@ -1,7 +1,7 @@
 export const Queries = {
   GET_PROVIDERS_WITH_DATASETS: `
       query GetProvidersWithDataSet($addresses: [Bytes!], $blockNumber: BigInt!) {
-        providers(where: {address_in: $addresses}) {
+        providers(where: {address_in: $addresses}, subgraphError: allow) {
           address
           totalFaultedPeriods
           totalProvingPeriods
@@ -17,7 +17,9 @@ export const Queries = {
       _meta {
         block {
           number
+          timestamp
         }
+        hasIndexingErrors
       }
     }
   `,
