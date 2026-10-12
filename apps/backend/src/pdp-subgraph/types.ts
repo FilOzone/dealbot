@@ -28,7 +28,10 @@ export type SubgraphMeta = {
   _meta: {
     block: {
       number: number;
+      /** Unix seconds of the latest indexed block. */
+      timestamp: number;
     };
+    hasIndexingErrors: boolean;
   };
 };
 
@@ -87,9 +90,11 @@ const metaSchema = Joi.object({
   _meta: Joi.object({
     block: Joi.object({
       number: Joi.number().integer().positive().required(),
+      timestamp: Joi.number().integer().positive().required(),
     })
       .unknown(true)
       .required(),
+    hasIndexingErrors: Joi.boolean().required(),
   })
     .unknown(true)
     .required(),

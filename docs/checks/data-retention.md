@@ -36,6 +36,10 @@ Dealbot polls The Graph API endpoint for PDP (Proof of Data Possession) data at 
 From `GET_SUBGRAPH_META` query:
 
 - `_meta.block.number` - Current indexed block number (recorded in baseline persistence for debugging)
+- `_meta.block.timestamp` - Time of that block. If it is more than 30 minutes old, the poll fails with `DataRetentionDependencyError` before any provider is queried.
+- `_meta.hasIndexingErrors` - Whether the subgraph reports indexing errors. A subgraph that is still up to date is used anyway, and each poll logs a `pdp_subgraph_indexing_errors_tolerated` warning.
+
+**Indexing errors**: Graph Node rejects entity queries on a subgraph with indexing errors unless they opt in with `subgraphError: allow`, and it still returns `errors: [{ message: "indexing_error" }]` next to the data when they do. The providers query opts in, and the client accepts a response whose only errors are `indexing_error`. Any other GraphQL error still fails the request.
 
 From `GET_PROVIDERS_WITH_DATASETS` query for each provider:
 
