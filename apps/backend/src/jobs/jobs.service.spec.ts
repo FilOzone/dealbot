@@ -1140,6 +1140,11 @@ describe("JobsService schedule rows", () => {
       "sp_data_set_pruning",
     ]);
     expect(jobScheduleRepositoryMock.advanceScheduleNextRun).not.toHaveBeenCalled();
+    const now = new Date("2024-01-01T03:30:00Z");
+    const tomorrow = new Date("2024-01-02T03:30:00Z");
+    expect(jobScheduleRepositoryMock.updateScheduleAfterRun).toHaveBeenCalledTimes(2);
+    expect(jobScheduleRepositoryMock.updateScheduleAfterRun).toHaveBeenCalledWith(expect.anything(), 20, tomorrow, now);
+    expect(jobScheduleRepositoryMock.updateScheduleAfterRun).toHaveBeenCalledWith(expect.anything(), 21, tomorrow, now);
   });
 
   it("defers the abandoned data set sweep until maintenance ends", async () => {
