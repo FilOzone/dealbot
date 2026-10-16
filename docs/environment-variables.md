@@ -758,9 +758,9 @@ expiration or shutdown signals use the same abort path.
 - **Required**: No
 - **Default**: `07:00,22:00`
 
-**Role**: Daily maintenance windows (UTC). Per-SP jobs and `sp_data_set_pruning` are deferred until the active
-window ends. Other due global jobs, including `abandoned_data_set_sweep`, are skipped and scheduled again at
-their normal interval. Different networks can have different schedules.
+**Role**: Daily maintenance windows (UTC). Per-SP jobs, `sp_data_set_pruning`, and `abandoned_data_set_sweep` are
+deferred until the active window ends. Other due global jobs are skipped and scheduled again at their normal
+interval. Different networks can have different schedules.
 
 **Example**:
 
