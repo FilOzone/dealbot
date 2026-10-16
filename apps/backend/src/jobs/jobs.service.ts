@@ -905,7 +905,16 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
   }
 
   private async handleAbandonedDataSetSweepJob(job: Job<AbandonedDataSetSweepJobData>): Promise<void> {
-    const { network } = job.data;
+    const data = job.data;
+    const { network } = data;
+    const now = new Date();
+    const maintenance = this.getMaintenanceWindowStatus(now, network);
+    if (maintenance.active) {
+      this.logMaintenanceSkip("abandoned_data_set_sweep job", network, maintenance.window?.label);
+      await this.deferJobForMaintenance("abandoned_data_set_sweep", data, maintenance, now);
+      return;
+    }
+
     const abortController = new AbortController();
     const timeoutSeconds = this.configService.get("networks", { infer: true })[network].spCleanupJobTimeoutSeconds;
     const timeoutMs = Math.max(60000, timeoutSeconds * 1000);
@@ -1335,8 +1344,8 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
   }
 
   private async deferJobForMaintenance(
-    jobType: SpJobType | "sp_data_set_pruning",
-    data: SpJobData | SpDataSetPruningJobData,
+    jobType: SpJobType | "sp_data_set_pruning" | "abandoned_data_set_sweep",
+    data: SpJobData | SpDataSetPruningJobData | AbandonedDataSetSweepJobData,
     maintenance: ReturnType<typeof getMaintenanceWindowStatus>,
     now: Date,
   ): Promise<void> {
@@ -1729,8 +1738,13 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
 
         const isSpJob = isSpJobType(row.job_type);
 
-        // Pruning follows the existing handler-level maintenance deferral used by SP jobs.
-        if (maintenance.active && !isSpJob && row.job_type !== "sp_data_set_pruning") {
+        // Cleanup jobs defer in their handlers instead: skipping a daily job here pushes it back into the same window.
+        if (
+          maintenance.active &&
+          !isSpJob &&
+          row.job_type !== "sp_data_set_pruning" &&
+          row.job_type !== "abandoned_data_set_sweep"
+        ) {
           this.logger.log({
             event: "global_job_enqueue_skipped",
             message: "Skipping global job during maintenance",

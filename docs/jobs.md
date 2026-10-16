@@ -85,7 +85,7 @@ Note: In pg-boss mode, provider sync currently happens at startup (and whenever 
 
 - **Initial value**: set by `upsertSchedule()` when schedules are created, using `now + JOB_SCHEDULE_PHASE_SECONDS`.
 - **On each tick**: The scheduler finds rows where `next_run_at <= now`. Per-provider schedules may enqueue up to `JOB_CATCHUP_MAX_ENQUEUE` missed runs; global schedules enqueue at most one and, after a successful enqueue, advance to `now + interval_seconds`.
-- **Maintenance windows**: Per-provider jobs and `sp_data_set_pruning` defer until the window ends. Other due global jobs, including `abandoned_data_set_sweep`, are skipped and advance to their next normal interval.
+- **Maintenance windows**: Per-provider jobs, `sp_data_set_pruning`, and `abandoned_data_set_sweep` defer until the window ends. Other due global jobs are skipped and advance to their next normal interval.
 
 For per-provider schedules, advancing `next_run_at` by `successCount * interval_seconds` records how many missed
 runs entered the queue. The backlog lives in pg-boss rather than `job_schedule_state`, avoiding duplicate

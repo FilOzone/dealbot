@@ -8,8 +8,8 @@ For system behavior and job definitions, see `docs/jobs.md`.
 pg-boss schedules are stored in the `job_schedule_state` table.
 To pause job execution for maintenance windows, set `paused = true`.
 For routine daily maintenance windows, use `<NET>_MAINTENANCE_WINDOWS_UTC` and
-`<NET>_MAINTENANCE_WINDOW_MINUTES`. Per-provider jobs and `sp_data_set_pruning` defer until the window ends;
-other due global jobs, including `abandoned_data_set_sweep`, skip that interval.
+`<NET>_MAINTENANCE_WINDOW_MINUTES`. Per-provider jobs, `sp_data_set_pruning`, and `abandoned_data_set_sweep`
+defer until the window ends; other due global jobs skip that interval.
 
 ```sql
 -- Pause all per-SP jobs
