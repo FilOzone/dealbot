@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { METADATA_KEYS, SIZE_CONSTANTS, Synapse } from "@filoz/synapse-sdk";
+import { SIZE_CONSTANTS, Synapse } from "@filoz/synapse-sdk";
 import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
@@ -9,6 +9,7 @@ import type { Repository } from "typeorm";
 import { ClickhouseService } from "../clickhouse/clickhouse.service.js";
 import { awaitWithAbort } from "../common/abort-utils.js";
 import { buildUnixfsCar } from "../common/car-utils.js";
+import { getBaseDataSetMetadata } from "../common/data-set-slots.js";
 import { DealJobTerminatedDataSetError } from "../common/errors.js";
 import { createFilecoinPinLogger } from "../common/filecoin-pin-logger.js";
 import {
@@ -17,11 +18,12 @@ import {
   redactSensitiveText,
   toStructuredError,
 } from "../common/logging.js";
+import { isFullRateTier } from "../common/sp-tier.js";
 import { createSynapseFromConfig } from "../common/synapse-factory.js";
 import type { DataFile, Hex, Network } from "../common/types.js";
+import { trickleTierRates } from "../config/constants.js";
 import type { IConfig, INetworkConfig } from "../config/types.js";
 import { Deal } from "../database/entities/deal.entity.js";
-import { StorageProvider } from "../database/entities/storage-provider.entity.js";
 import { DealStatus, IpniStatus, ServiceType } from "../database/types.js";
 import { DataSourceService } from "../dataSource/dataSource.service.js";
 import { DatasetLivenessService } from "../dataset-liveness/dataset-liveness.service.js";
@@ -33,6 +35,7 @@ import {
   DataStorageCheckMetrics,
   RetrievalCheckMetrics,
 } from "../metrics-prometheus/check-metrics.service.js";
+import { StorageProviderRepository } from "../providers/repositories/storage-provider.repository.js";
 import { RetrievalAddonsService } from "../retrieval-addons/retrieval-addons.service.js";
 import type { RetrievalConfiguration, RetrievalExecutionResult } from "../retrieval-addons/types.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
@@ -57,12 +60,11 @@ export class DealService {
     private readonly dataSourceService: DataSourceService,
     private readonly configService: ConfigService<IConfig, true>,
     private readonly walletSdkService: WalletSdkService,
+    private readonly storageProviderRepository: StorageProviderRepository,
     private readonly dealAddonsService: DealAddonsService,
     private readonly retrievalAddonsService: RetrievalAddonsService,
     @InjectRepository(Deal)
     private readonly dealRepository: Repository<Deal>,
-    @InjectRepository(StorageProvider)
-    private readonly storageProviderRepository: Repository<StorageProvider>,
     private readonly dataStorageMetrics: DataStorageCheckMetrics,
     private readonly retrievalMetrics: RetrievalCheckMetrics,
     private readonly dataSetCreationMetrics: DataSetCreationCheckMetrics,
@@ -85,9 +87,14 @@ export class DealService {
   ): Promise<Deal> {
     options.signal?.throwIfAborted();
 
+    const networkCfg = this.getNetworkConfig(options.network);
+    const isFullTier = isFullRateTier(networkCfg, pdpProvider.serviceProvider, pdpProvider.isApproved, pdpProvider.id);
+    const minDataSets = isFullTier ? networkCfg.minNumDataSetsForChecks : trickleTierRates.minNumDataSetsForChecks;
+
     const extraDataSetMetadata = await this.resolveDataSetMetadataForDeal(
       pdpProvider.serviceProvider,
       options.network,
+      minDataSets,
       options.signal,
       options.logContext,
     );
@@ -118,9 +125,9 @@ export class DealService {
    * Pick which data-set slot this deal will target.
    *
    * Policy:
-   *   - If `minNumDataSetsForChecks > 1` and a random index > 0 is selected,
-   *     probe that slot first. If live, use it. If missing or terminated,
-   *     fall through to baseline (data_set_creation owns repair/provisioning).
+   *   - If `minDataSets > 1` and a random index > 0 is selected, probe that
+   *     slot first. If live, use it. If missing or terminated, fall through
+   *     to baseline (data_set_creation owns repair/provisioning).
    *   - Probe baseline. If terminated, throw `DealJobTerminatedDataSetError`
    *     (baseline is the fallback target; nothing else to try).
    *   - Live or missing baseline → return `undefined` (use baseline slot).
@@ -132,6 +139,7 @@ export class DealService {
   async resolveDataSetMetadataForDeal(
     providerAddress: string,
     network: Network,
+    minDataSets: number,
     signal?: AbortSignal,
     logContext?: ProviderJobContext,
   ): Promise<Record<string, string> | undefined> {
@@ -142,6 +150,7 @@ export class DealService {
       providerAddress,
       baseDataSetMetadata,
       network,
+      minDataSets,
       signal,
       logContext,
     );
@@ -175,10 +184,10 @@ export class DealService {
     providerAddress: string,
     baseDataSetMetadata: Record<string, string>,
     network: Network,
+    minDataSets: number,
     signal: AbortSignal | undefined,
     logContext: ProviderJobContext | undefined,
   ): Promise<Record<string, string> | undefined> {
-    const minDataSets = this.getNetworkConfig(network).minNumDataSetsForChecks;
     if (minDataSets <= 1) return undefined;
     const dsIndex = Math.floor(Math.random() * minDataSets);
     if (dsIndex === 0) return undefined;
@@ -246,15 +255,7 @@ export class DealService {
   }
 
   getBaseDataSetMetadata(network: Network): Record<string, string> {
-    // IPNI is always enabled for all deals
-    const metadata: Record<string, string> = {
-      [METADATA_KEYS.WITH_IPFS_INDEXING]: "",
-    };
-    const networkConfig = this.getNetworkConfig(network);
-    if (networkConfig.dealbotDataSetVersion) {
-      metadata.dealbotDataSetVersion = networkConfig.dealbotDataSetVersion;
-    }
-    return metadata;
+    return getBaseDataSetMetadata(this.getNetworkConfig(network));
   }
 
   getWalletAddress(network: Network): string {
@@ -345,9 +346,7 @@ export class DealService {
 
     try {
       // Load storageProvider relation
-      deal.storageProvider = await this.storageProviderRepository.findOne({
-        where: { address: deal.spAddress, network: deal.network },
-      });
+      deal.storageProvider = await this.storageProviderRepository.findEntityByAddress(deal.spAddress, deal.network);
       dealLogContext.providerId = deal.storageProvider?.providerId ?? dealLogContext.providerId;
       providerLabels = buildCheckMetricLabels({
         checkType,
@@ -709,18 +708,20 @@ export class DealService {
     metadata: Record<string, string>,
     network: Network,
     signal?: AbortSignal,
+    providerId?: bigint,
   ): Promise<
     { status: "missing" } | { status: "live"; dataSetId: bigint } | { status: "terminated"; dataSetId: bigint }
   > {
     signal?.throwIfAborted();
     const synapse = this.walletSdkService.tryGetSynapse(network) ?? (await this.createSynapseInstance(network));
-    const providerInfo = this.walletSdkService.getProviderInfo(providerAddress, network);
-    if (!providerInfo) {
+    const resolvedProviderId =
+      providerId ?? (await this.storageProviderRepository.findByAddress(providerAddress, network))?.id;
+    if (resolvedProviderId == null) {
       throw new Error(`Provider ${providerAddress} not found in registry`);
     }
     const context = await awaitWithAbort(
       synapse.storage.createContext({
-        providerId: providerInfo.id,
+        providerId: resolvedProviderId,
         metadata,
       }),
       signal,
@@ -769,7 +770,7 @@ export class DealService {
   ): Promise<{ dealsAffected: number; pdpEndEpoch: bigint }> {
     signal?.throwIfAborted();
     const synapse = this.walletSdkService.tryGetSynapse(network) ?? (await this.createSynapseInstance(network));
-    const providerInfo = this.walletSdkService.getProviderInfo(providerAddress, network);
+    const providerInfo = await this.storageProviderRepository.findByAddress(providerAddress, network);
     const { warmStorageService } = this.walletSdkService.getWalletServices(network);
 
     let pdpEndEpoch: bigint;
@@ -838,7 +839,7 @@ export class DealService {
     signal?: AbortSignal,
   ): Promise<void> {
     signal?.throwIfAborted();
-    const providerInfo = this.walletSdkService.getProviderInfo(providerAddress, network);
+    const providerInfo = await this.storageProviderRepository.findByAddress(providerAddress, network);
     if (!providerInfo) {
       throw new Error(`Provider ${providerAddress} not found in registry`);
     }
@@ -1073,7 +1074,7 @@ export class DealService {
     retrievalResults: RetrievalExecutionResult[],
     dealLogContext: DealLogContext,
   ): Promise<void> {
-    this.clickhouseService.insert("data_storage_checks", {
+    this.clickhouseService.insert(deal.network, "data_storage_checks", {
       timestamp: Date.now(),
       probe_location: this.clickhouseService.probeLocation,
       sp_address: deal.spAddress,
@@ -1093,6 +1094,7 @@ export class DealService {
       ipni_status: deal.ipniStatus ?? null,
       ipni_indexed_at: deal.ipniIndexedAt?.getTime() ?? null,
       ipni_advertised_at: deal.ipniAdvertisedAt?.getTime() ?? null,
+      ipni_synced_at: deal.ipniSyncedAt?.getTime() ?? null,
       ipni_verified_at: deal.ipniVerifiedAt?.getTime() ?? null,
       ipni_verified_cids_count: deal.ipniVerifiedCidsCount ?? null,
       ipni_unverified_cids_count: deal.ipniUnverifiedCidsCount ?? null,

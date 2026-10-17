@@ -6,6 +6,7 @@ import helmet from "helmet";
 import { NativeLogger } from "nestjs-pino";
 import { toStructuredError } from "./common/logging.js";
 import { createPinoExitLogger } from "./common/pino.config.js";
+import { parseRunMode } from "./config/env.parsers.js";
 
 /** Standalone pino logger used for pre-bootstrap and process-level error paths. */
 const exitLogger = createPinoExitLogger().child({ context: "Main" });
@@ -30,7 +31,7 @@ function logErrorAndExit(event: string, message: string, error: unknown): void {
 }
 
 async function bootstrap() {
-  const runMode = (process.env.DEALBOT_RUN_MODE || "both").toLowerCase();
+  const runMode = parseRunMode(process.env);
   const isWorkerOnly = runMode === "worker";
   const rootModule = isWorkerOnly
     ? (await import("./worker.module.js")).WorkerModule

@@ -5,11 +5,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ClickhouseService } from "../clickhouse/clickhouse.service.js";
 import type { IConfig } from "../config/index.js";
 import type { DataRetentionBaseline } from "../database/entities/data-retention-baseline.entity.js";
-import { StorageProvider } from "../database/entities/storage-provider.entity.js";
 import { buildCheckMetricLabels } from "../metrics-prometheus/check-metric-labels.js";
 import type { PDPSubgraphService } from "../pdp-subgraph/pdp-subgraph.service.js";
 import type { ProviderDataSetResponse } from "../pdp-subgraph/types.js";
-import type { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
+import type { StorageProviderRepository } from "../providers/repositories/storage-provider.repository.js";
 import { DataRetentionDependencyError, DataRetentionService } from "./data-retention.service.js";
 
 const PROVIDER_A = "0xd8da6bf26964af9d7eed9e03e53415d37aa96045" as const;
@@ -39,8 +38,9 @@ describe("DataRetentionService", () => {
     lastBlockNumber: string;
   }>;
   let configServiceMock: ConfigService<IConfig, true>;
-  let walletSdkServiceMock: {
-    getTestingProviders: ReturnType<typeof vi.fn>;
+  let storageProviderRepositoryMock: {
+    findTestingProviders: ReturnType<typeof vi.fn>;
+    findByAddressesCaseInsensitive: ReturnType<typeof vi.fn>;
   };
   let pdpSubgraphServiceMock: {
     fetchSubgraphMeta: ReturnType<typeof vi.fn>;
@@ -61,10 +61,6 @@ describe("DataRetentionService", () => {
     upsert: ReturnType<typeof vi.fn>;
     delete: ReturnType<typeof vi.fn>;
   };
-  let mockSPRepository: {
-    find: ReturnType<typeof vi.fn>;
-  };
-
   beforeEach(() => {
     configServiceMock = {
       get: vi.fn((key: keyof IConfig) => {
@@ -85,8 +81,8 @@ describe("DataRetentionService", () => {
       }),
     } as unknown as ConfigService<IConfig, true>;
 
-    walletSdkServiceMock = {
-      getTestingProviders: vi.fn().mockReturnValue([
+    storageProviderRepositoryMock = {
+      findTestingProviders: vi.fn().mockReturnValue([
         {
           id: 1,
           serviceProvider: PROVIDER_A,
@@ -100,6 +96,7 @@ describe("DataRetentionService", () => {
           isApproved: false,
         },
       ]),
+      findByAddressesCaseInsensitive: vi.fn().mockResolvedValue([]),
     };
 
     pdpSubgraphServiceMock = {
@@ -148,14 +145,12 @@ describe("DataRetentionService", () => {
         );
       }),
     };
-    mockSPRepository = { find: vi.fn().mockResolvedValue([]) };
     const clickhouseServiceMock = { insert: vi.fn(), probeLocation: "test" } as unknown as ClickhouseService;
     service = new DataRetentionService(
       configServiceMock,
-      walletSdkServiceMock as unknown as WalletSdkService,
+      storageProviderRepositoryMock as unknown as StorageProviderRepository,
       pdpSubgraphServiceMock as unknown as PDPSubgraphService,
       mockBaselineRepository as unknown as Repository<DataRetentionBaseline>,
-      mockSPRepository as unknown as Repository<StorageProvider>,
       counterMock as unknown as Counter,
       gaugeMock as unknown as Gauge,
       clickhouseServiceMock,
@@ -175,7 +170,7 @@ describe("DataRetentionService", () => {
   });
 
   it("returns early when no testing providers configured", async () => {
-    walletSdkServiceMock.getTestingProviders.mockReturnValueOnce(null);
+    storageProviderRepositoryMock.findTestingProviders.mockReturnValueOnce(null);
 
     await service.pollDataRetention("calibration");
 
@@ -224,7 +219,7 @@ describe("DataRetentionService", () => {
   });
 
   it("returns early when testing providers array is empty", async () => {
-    walletSdkServiceMock.getTestingProviders.mockReturnValueOnce([]);
+    storageProviderRepositoryMock.findTestingProviders.mockReturnValueOnce([]);
 
     await service.pollDataRetention("calibration");
 
@@ -437,7 +432,7 @@ describe("DataRetentionService", () => {
   it("preserves the original error type for unexpected (non-dependency) failures", async () => {
     // A logic/programming error must not be mislabeled as a dependency outage.
     const bug = new TypeError("unexpected bug");
-    walletSdkServiceMock.getTestingProviders.mockImplementationOnce(() => {
+    storageProviderRepositoryMock.findTestingProviders.mockImplementationOnce(() => {
       throw bug;
     });
 
@@ -464,7 +459,7 @@ describe("DataRetentionService", () => {
   });
 
   it("stays a success when the provider set is empty but healthy", async () => {
-    walletSdkServiceMock.getTestingProviders.mockReturnValueOnce([]);
+    storageProviderRepositoryMock.findTestingProviders.mockReturnValueOnce([]);
 
     await expect(service.pollDataRetention("calibration")).resolves.toBeUndefined();
   });
@@ -593,7 +588,7 @@ describe("DataRetentionService", () => {
       name: `Provider ${i + 1}`,
       isApproved: true,
     }));
-    walletSdkServiceMock.getTestingProviders.mockReturnValueOnce(manyProviders);
+    storageProviderRepositoryMock.findTestingProviders.mockReturnValueOnce(manyProviders);
 
     pdpSubgraphServiceMock.fetchProvidersWithDatasets.mockResolvedValue([]);
 
@@ -620,7 +615,7 @@ describe("DataRetentionService", () => {
       name: `Provider ${i + 1}`,
       isApproved: true,
     }));
-    walletSdkServiceMock.getTestingProviders.mockReturnValueOnce(manyProviders);
+    storageProviderRepositoryMock.findTestingProviders.mockReturnValueOnce(manyProviders);
 
     // First batch fails, second succeeds
     pdpSubgraphServiceMock.fetchProvidersWithDatasets
@@ -657,7 +652,7 @@ describe("DataRetentionService", () => {
       await service.pollDataRetention("calibration");
 
       // Repository should not be queried since no stale providers
-      expect(mockSPRepository.find).not.toHaveBeenCalled();
+      expect(storageProviderRepositoryMock.findByAddressesCaseInsensitive).not.toHaveBeenCalled();
     });
 
     it("successfully cleans up stale provider with valid database entry", async () => {
@@ -666,7 +661,7 @@ describe("DataRetentionService", () => {
       await service.pollDataRetention("calibration");
 
       // Second poll: PROVIDER_A removed from active list, only PROVIDER_B active
-      walletSdkServiceMock.getTestingProviders.mockReturnValueOnce([
+      storageProviderRepositoryMock.findTestingProviders.mockReturnValueOnce([
         {
           id: 2,
           serviceProvider: PROVIDER_B,
@@ -675,7 +670,7 @@ describe("DataRetentionService", () => {
         },
       ]);
 
-      mockSPRepository.find.mockResolvedValueOnce([
+      storageProviderRepositoryMock.findByAddressesCaseInsensitive.mockResolvedValueOnce([
         {
           address: PROVIDER_A,
           name: "Provider A",
@@ -689,10 +684,10 @@ describe("DataRetentionService", () => {
       await service.pollDataRetention("calibration");
 
       // Should fetch stale provider info from database (network-scoped)
-      expect(mockSPRepository.find).toHaveBeenCalledWith({
-        where: { address: expect.anything(), network: "calibration" },
-        select: ["address", "providerId", "name", "isApproved"],
-      });
+      expect(storageProviderRepositoryMock.findByAddressesCaseInsensitive).toHaveBeenCalledWith(
+        expect.anything(),
+        "calibration",
+      );
 
       // Should remove all counter label combinations
       const approvedLabels = buildCheckMetricLabels({
@@ -721,7 +716,7 @@ describe("DataRetentionService", () => {
       await service.pollDataRetention("calibration");
 
       // Second poll: provider removed, but DB fails
-      walletSdkServiceMock.getTestingProviders.mockReturnValueOnce([
+      storageProviderRepositoryMock.findTestingProviders.mockReturnValueOnce([
         {
           id: 2,
           serviceProvider: PROVIDER_B,
@@ -730,20 +725,22 @@ describe("DataRetentionService", () => {
         },
       ]);
 
-      mockSPRepository.find.mockRejectedValueOnce(new Error("Database connection failed"));
+      storageProviderRepositoryMock.findByAddressesCaseInsensitive.mockRejectedValueOnce(
+        new Error("Database connection failed"),
+      );
 
       pdpSubgraphServiceMock.fetchProvidersWithDatasets.mockResolvedValueOnce([makeProvider({ address: PROVIDER_B })]);
 
       await service.pollDataRetention("calibration");
 
       // Should attempt to fetch from database
-      expect(mockSPRepository.find).toHaveBeenCalled();
+      expect(storageProviderRepositoryMock.findByAddressesCaseInsensitive).toHaveBeenCalled();
 
       // Should NOT remove any counters (cleanup skipped)
       expect((counterMock as unknown as Counter).remove).not.toHaveBeenCalled();
 
       // Third poll: provider returns, should use old baseline (preventing double-counting)
-      walletSdkServiceMock.getTestingProviders.mockReturnValueOnce([
+      storageProviderRepositoryMock.findTestingProviders.mockReturnValueOnce([
         {
           id: 1,
           serviceProvider: PROVIDER_A,
@@ -769,7 +766,7 @@ describe("DataRetentionService", () => {
       await service.pollDataRetention("calibration");
 
       // Second poll: provider removed from active list
-      walletSdkServiceMock.getTestingProviders.mockReturnValueOnce([
+      storageProviderRepositoryMock.findTestingProviders.mockReturnValueOnce([
         {
           id: 2,
           serviceProvider: PROVIDER_B,
@@ -779,7 +776,7 @@ describe("DataRetentionService", () => {
       ]);
 
       // Database returns empty array (provider not found)
-      mockSPRepository.find.mockResolvedValueOnce([]);
+      storageProviderRepositoryMock.findByAddressesCaseInsensitive.mockResolvedValueOnce([]);
 
       pdpSubgraphServiceMock.fetchProvidersWithDatasets.mockResolvedValueOnce([makeProvider({ address: PROVIDER_B })]);
 
@@ -789,7 +786,7 @@ describe("DataRetentionService", () => {
       expect(counterMock.remove).not.toHaveBeenCalled();
 
       // Third poll: provider returns
-      walletSdkServiceMock.getTestingProviders.mockReturnValueOnce([
+      storageProviderRepositoryMock.findTestingProviders.mockReturnValueOnce([
         {
           id: 1,
           serviceProvider: PROVIDER_A,
@@ -815,7 +812,7 @@ describe("DataRetentionService", () => {
       await service.pollDataRetention("calibration");
 
       // Second poll: provider removed
-      walletSdkServiceMock.getTestingProviders.mockReturnValueOnce([
+      storageProviderRepositoryMock.findTestingProviders.mockReturnValueOnce([
         {
           id: 2,
           serviceProvider: PROVIDER_B,
@@ -825,7 +822,7 @@ describe("DataRetentionService", () => {
       ]);
 
       // Database returns provider but with null providerId
-      mockSPRepository.find.mockResolvedValueOnce([
+      storageProviderRepositoryMock.findByAddressesCaseInsensitive.mockResolvedValueOnce([
         {
           address: PROVIDER_A,
           name: "Provider A",
@@ -848,7 +845,7 @@ describe("DataRetentionService", () => {
       await service.pollDataRetention("calibration");
 
       // Second poll: provider removed
-      walletSdkServiceMock.getTestingProviders.mockReturnValueOnce([
+      storageProviderRepositoryMock.findTestingProviders.mockReturnValueOnce([
         {
           id: 2,
           serviceProvider: PROVIDER_B,
@@ -857,7 +854,7 @@ describe("DataRetentionService", () => {
         },
       ]);
 
-      mockSPRepository.find.mockResolvedValueOnce([
+      storageProviderRepositoryMock.findByAddressesCaseInsensitive.mockResolvedValueOnce([
         {
           address: PROVIDER_A,
           name: "Provider A",
@@ -879,7 +876,7 @@ describe("DataRetentionService", () => {
       expect(counterMock.remove).toHaveBeenCalled();
 
       // Third poll: provider returns, should still have baseline
-      walletSdkServiceMock.getTestingProviders.mockReturnValueOnce([
+      storageProviderRepositoryMock.findTestingProviders.mockReturnValueOnce([
         {
           id: 1,
           serviceProvider: PROVIDER_A,
@@ -903,7 +900,7 @@ describe("DataRetentionService", () => {
       const PROVIDER_C = "0x1111111111111111111111111111111111111111";
 
       // First poll: establish baselines for A, B, C
-      walletSdkServiceMock.getTestingProviders.mockReturnValueOnce([
+      storageProviderRepositoryMock.findTestingProviders.mockReturnValueOnce([
         { id: 1, serviceProvider: PROVIDER_A, name: "Provider A", isApproved: true },
         { id: 2, serviceProvider: PROVIDER_B, name: "Provider B", isApproved: false },
         { id: 3, serviceProvider: PROVIDER_C, name: "Provider C", isApproved: true },
@@ -918,11 +915,11 @@ describe("DataRetentionService", () => {
       await service.pollDataRetention("calibration");
 
       // Second poll: only PROVIDER_A remains active
-      walletSdkServiceMock.getTestingProviders.mockReturnValueOnce([
+      storageProviderRepositoryMock.findTestingProviders.mockReturnValueOnce([
         { id: 1, serviceProvider: PROVIDER_A, name: "Provider A", isApproved: true },
       ]);
 
-      mockSPRepository.find.mockResolvedValueOnce([
+      storageProviderRepositoryMock.findByAddressesCaseInsensitive.mockResolvedValueOnce([
         { address: PROVIDER_B, name: "Provider B", providerId: 2, isApproved: false },
         { address: PROVIDER_C, name: "Provider C", providerId: 3, isApproved: true },
       ]);
@@ -932,10 +929,10 @@ describe("DataRetentionService", () => {
       await service.pollDataRetention("calibration");
 
       // Should fetch both stale providers in one query (network-scoped)
-      expect(mockSPRepository.find).toHaveBeenCalledWith({
-        where: { address: expect.anything(), network: "calibration" },
-        select: ["address", "providerId", "name", "isApproved"],
-      });
+      expect(storageProviderRepositoryMock.findByAddressesCaseInsensitive).toHaveBeenCalledWith(
+        expect.anything(),
+        "calibration",
+      );
 
       // Should remove counters for both providers (8 total: 2 providers × 4 values)
       expect(counterMock.remove).toHaveBeenCalledTimes(8);
@@ -947,7 +944,7 @@ describe("DataRetentionService", () => {
       await service.pollDataRetention("calibration");
 
       // Second poll: provider removed, but processing has errors
-      walletSdkServiceMock.getTestingProviders.mockReturnValueOnce([
+      storageProviderRepositoryMock.findTestingProviders.mockReturnValueOnce([
         { id: 2, serviceProvider: PROVIDER_B, name: "Provider B", isApproved: false },
       ]);
 
@@ -957,7 +954,7 @@ describe("DataRetentionService", () => {
       await expect(service.pollDataRetention("calibration")).rejects.toBeInstanceOf(DataRetentionDependencyError);
 
       // Should NOT attempt cleanup due to processing errors
-      expect(mockSPRepository.find).not.toHaveBeenCalled();
+      expect(storageProviderRepositoryMock.findByAddressesCaseInsensitive).not.toHaveBeenCalled();
       expect(counterMock.remove).not.toHaveBeenCalled();
     });
 
@@ -965,7 +962,7 @@ describe("DataRetentionService", () => {
       const PROVIDER_MIXED_CASE = "0xD8Da6bF26964aF9D7eEd9e03E53415D37aA96045" as const;
 
       // First poll with mixed case address
-      walletSdkServiceMock.getTestingProviders.mockReturnValueOnce([
+      storageProviderRepositoryMock.findTestingProviders.mockReturnValueOnce([
         { id: 1, serviceProvider: PROVIDER_MIXED_CASE, name: "Provider A", isApproved: true },
       ]);
 
@@ -976,11 +973,11 @@ describe("DataRetentionService", () => {
       await service.pollDataRetention("calibration");
 
       // Second poll: provider removed
-      walletSdkServiceMock.getTestingProviders.mockReturnValueOnce([
+      storageProviderRepositoryMock.findTestingProviders.mockReturnValueOnce([
         { id: 2, serviceProvider: PROVIDER_B, name: "Provider B", isApproved: false },
       ]);
 
-      mockSPRepository.find.mockResolvedValueOnce([
+      storageProviderRepositoryMock.findByAddressesCaseInsensitive.mockResolvedValueOnce([
         {
           address: PROVIDER_MIXED_CASE,
           name: "Provider A",
@@ -1067,10 +1064,9 @@ describe("DataRetentionService", () => {
 
       const secondPod = new DataRetentionService(
         configServiceMock,
-        walletSdkServiceMock as unknown as WalletSdkService,
+        storageProviderRepositoryMock as unknown as StorageProviderRepository,
         pdpSubgraphServiceMock as unknown as PDPSubgraphService,
         mockBaselineRepository as unknown as Repository<DataRetentionBaseline>,
-        mockSPRepository as unknown as Repository<StorageProvider>,
         counterMock as unknown as Counter,
         gaugeMock as unknown as Gauge,
         { insert: vi.fn(), probeLocation: "test" } as unknown as ClickhouseService,
@@ -1179,11 +1175,11 @@ describe("DataRetentionService", () => {
       await service.pollDataRetention("calibration");
 
       // Second poll: PROVIDER_A removed from active list
-      walletSdkServiceMock.getTestingProviders.mockReturnValueOnce([
+      storageProviderRepositoryMock.findTestingProviders.mockReturnValueOnce([
         { id: 2, serviceProvider: PROVIDER_B, name: "Provider B", isApproved: false },
       ]);
 
-      mockSPRepository.find.mockResolvedValueOnce([
+      storageProviderRepositoryMock.findByAddressesCaseInsensitive.mockResolvedValueOnce([
         { address: PROVIDER_A, name: "Provider A", providerId: 1, isApproved: true },
       ]);
 
@@ -1278,11 +1274,11 @@ describe("DataRetentionService", () => {
       await service.pollDataRetention("calibration");
 
       // Second poll: PROVIDER_A removed from active list
-      walletSdkServiceMock.getTestingProviders.mockReturnValueOnce([
+      storageProviderRepositoryMock.findTestingProviders.mockReturnValueOnce([
         { id: 2, serviceProvider: PROVIDER_B, name: "Provider B", isApproved: false },
       ]);
 
-      mockSPRepository.find.mockResolvedValueOnce([
+      storageProviderRepositoryMock.findByAddressesCaseInsensitive.mockResolvedValueOnce([
         { address: PROVIDER_A, name: "Provider A", providerId: 1, isApproved: true },
       ]);
 

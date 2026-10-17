@@ -9,11 +9,11 @@ import { sha256 } from "multiformats/hashes/sha2";
 import { toStructuredError } from "../common/logging.js";
 import type { Network } from "../common/types.js";
 import type { IConfig } from "../config/index.js";
-import type { StorageProvider } from "../database/entities/storage-provider.entity.js";
 import { BlockFetchStatus, CarParseStatus, IpniCheckStatus } from "../database/types.js";
 import { HttpClientService } from "../http-client/http-client.service.js";
-import { IpniVerificationService } from "../ipni/ipni-verification.service.js";
-import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
+import { IpniVerificationService, pdpProviderToIpniInput } from "../ipni/ipni-verification.service.js";
+import { StorageProviderRepository } from "../providers/repositories/storage-provider.repository.js";
+import type { PDPProviderEx } from "../wallet-sdk/wallet-sdk.types.js";
 import { SAMPLED_MAX_BLOCK_DOWNLOAD_BYTES } from "./sampled-piece-selector.service.js";
 import type { BlockFetchOutcome, CarParseOutcome, IpniCheckOutcome, SampledBlock } from "./types.js";
 
@@ -36,7 +36,7 @@ export class PieceValidationService {
   constructor(
     private readonly configService: ConfigService<IConfig, true>,
     private readonly httpClientService: HttpClientService,
-    private readonly walletSdkService: WalletSdkService,
+    private readonly storageProviderRepository: StorageProviderRepository,
     private readonly ipniVerificationService: IpniVerificationService,
   ) {}
 
@@ -100,7 +100,7 @@ export class PieceValidationService {
    * reserved for unexpected exceptions from the verifier.
    */
   async checkIpni(
-    provider: StorageProvider,
+    provider: PDPProviderEx,
     ipfsRootCid: string,
     sampledBlocks: ReadonlyArray<SampledBlock>,
     signal?: AbortSignal,
@@ -113,7 +113,7 @@ export class PieceValidationService {
         event: "ipni_root_cid_invalid",
         message: "Failed to parse ipfsRootCID — skipping IPNI verification",
         ipfsRootCid,
-        providerAddress: provider.address,
+        providerAddress: provider.serviceProvider,
         error: toStructuredError(error),
       });
       return { status: IpniCheckStatus.SKIPPED, durationMs: null };
@@ -125,7 +125,7 @@ export class PieceValidationService {
       const result = await this.ipniVerificationService.verify({
         rootCid,
         blockCids: sampledBlocks.map((b) => b.cid),
-        storageProvider: provider,
+        storageProvider: pdpProviderToIpniInput(provider),
         timeoutMs: timeouts.ipniVerificationTimeoutMs,
         pollIntervalMs: timeouts.ipniVerificationPollingMs,
         signal,
@@ -139,7 +139,7 @@ export class PieceValidationService {
       this.logger.warn({
         event: "ipni_verification_failed",
         message: "IPNI verification threw unexpectedly",
-        providerAddress: provider.address,
+        providerAddress: provider.serviceProvider,
         ipfsRootCid,
         error: toStructuredError(error),
       });
@@ -160,7 +160,7 @@ export class PieceValidationService {
     network: Network,
     signal?: AbortSignal,
   ): Promise<BlockFetchOutcome> {
-    const providerInfo = this.walletSdkService.getProviderInfo(spAddress, network);
+    const providerInfo = await this.storageProviderRepository.findByAddress(spAddress, network);
     if (!providerInfo) {
       return {
         status: BlockFetchStatus.SKIPPED,

@@ -118,7 +118,7 @@ export class RetrievalAddonsService {
    * @returns URL result from preferred strategy
    * @throws Error if no applicable strategy found
    */
-  constructPreferredUrl(config: RetrievalConfiguration): RetrievalUrlResult {
+  async constructPreferredUrl(config: RetrievalConfiguration): Promise<RetrievalUrlResult> {
     const strategy = this.getPreferredStrategy(config);
 
     if (!strategy) {
@@ -145,7 +145,7 @@ export class RetrievalAddonsService {
    * @param config - Retrieval configuration
    * @returns Array of URL results from all applicable strategies
    */
-  constructAllUrls(config: RetrievalConfiguration): RetrievalUrlResult[] {
+  async constructAllUrls(config: RetrievalConfiguration): Promise<RetrievalUrlResult[]> {
     const strategies = this.getApplicableStrategies(config);
 
     if (strategies.length === 0) {
@@ -160,23 +160,25 @@ export class RetrievalAddonsService {
       return [];
     }
 
-    return strategies.map((strategy) => {
-      try {
-        return strategy.constructUrl(config);
-      } catch (error) {
-        this.logger.error({
-          event: "construct_retrieval_url_failed",
-          message: "Failed to construct URL for a strategy",
-          strategy: strategy.name,
-          dealId: config.deal.id,
-          providerId: config.deal.storageProvider?.providerId,
-          providerName: config.deal.storageProvider?.name,
-          providerAddress: config.storageProvider,
-          error: toStructuredError(error),
-        });
-        throw error;
-      }
-    });
+    return Promise.all(
+      strategies.map(async (strategy) => {
+        try {
+          return await strategy.constructUrl(config);
+        } catch (error) {
+          this.logger.error({
+            event: "construct_retrieval_url_failed",
+            message: "Failed to construct URL for a strategy",
+            strategy: strategy.name,
+            dealId: config.deal.id,
+            providerId: config.deal.storageProvider?.providerId,
+            providerName: config.deal.storageProvider?.name,
+            providerAddress: config.storageProvider,
+            error: toStructuredError(error),
+          });
+          throw error;
+        }
+      }),
+    );
   }
 
   /**
@@ -190,7 +192,7 @@ export class RetrievalAddonsService {
     signal?: AbortSignal,
     logContext?: Partial<RetrievalLogContext>,
   ): Promise<RetrievalExecutionResult> {
-    const urlResult = this.constructPreferredUrl(config);
+    const urlResult = await this.constructPreferredUrl(config);
 
     const retrievalLogContext: RetrievalLogContext = {
       ...logContext,
@@ -225,7 +227,7 @@ export class RetrievalAddonsService {
     logContext?: Partial<RetrievalLogContext>,
   ): Promise<RetrievalTestResult> {
     const startTime = Date.now();
-    const urlResults = this.constructAllUrls(config);
+    const urlResults = await this.constructAllUrls(config);
 
     if (urlResults.length === 0) {
       throw new Error(`No retrieval methods available for deal ${config.deal.id}`);

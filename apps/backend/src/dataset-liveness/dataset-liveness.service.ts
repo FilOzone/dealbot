@@ -4,6 +4,7 @@ import { readContract } from "viem/actions";
 import { awaitWithAbort } from "../common/abort-utils.js";
 import { toStructuredError } from "../common/logging.js";
 import type { Network } from "../common/types.js";
+import { StorageProviderRepository } from "../providers/repositories/storage-provider.repository.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
 
 const PDP_LIVENESS_PROBE_TIMEOUT_MS = 10_000;
@@ -27,7 +28,10 @@ const PDP_LIVENESS_PROBE_TIMEOUT_MS = 10_000;
 export class DatasetLivenessService {
   private readonly logger = new Logger(DatasetLivenessService.name);
 
-  constructor(private readonly walletSdkService: WalletSdkService) {}
+  constructor(
+    private readonly walletSdkService: WalletSdkService,
+    private readonly storageProviderRepository: StorageProviderRepository,
+  ) {}
 
   async isDataSetLive(
     providerAddress: string,
@@ -108,7 +112,7 @@ export class DatasetLivenessService {
     signal?: AbortSignal,
   ): Promise<boolean> {
     signal?.throwIfAborted();
-    const providerInfo = this.walletSdkService.getProviderInfo(providerAddress, network);
+    const providerInfo = await this.storageProviderRepository.findByAddress(providerAddress, network);
     if (!providerInfo) {
       throw new Error(`Provider ${providerAddress} not found in registry`);
     }

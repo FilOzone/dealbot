@@ -34,6 +34,11 @@ export type BaseNetworkConfig = {
   /** Blockchain Config */
   rpcUrl?: string;
   /**
+   * ClickHouse connection URL for this network. Must include the database in
+   * the path. When unset, ClickHouse writes are disabled for this network.
+   */
+  clickhouseUrl?: string;
+  /**
    * Per-request timeout (ms) for the viem RPC transport.
    *
    * Kept above eRPC's network failsafe budget so eRPC can fail over to a
@@ -127,6 +132,32 @@ export type BaseNetworkConfig = {
   maxPieceCleanupRuntimeSeconds: number;
   dataRetentionPollIntervalSeconds: number;
   providersRefreshIntervalSeconds: number;
+  /**
+   * How often (seconds) the global `sp_data_set_pruning` job runs.
+   *
+   * Prunes blocked SPs to 0 data sets and any other SP's excess above its
+   * tier's target (see `excessDataSetBuffer`).
+   */
+  dataSetPruningIntervalSeconds: number;
+  /**
+   * Headroom above a tier's target data-set count before pruning kicks in, so
+   * routine create/replace churn doesn't trigger a prune.
+   */
+  excessDataSetBuffer: number;
+  /**
+   * How often (seconds) the global `abandoned_data_set_sweep` job runs.
+   *
+   * Deletes data sets abandoned past PDPVerifier's activity window and flags
+   * stuck rail settlements for a human (see docs/runbooks/wallet-and-session-keys.md).
+   */
+  abandonedDataSetSweepIntervalSeconds: number;
+  /**
+   * Maximum runtime (seconds) for a single `sp_data_set_pruning` or
+   * `abandoned_data_set_sweep` run before forced abort. Both scan every data
+   * set dealbot's wallet holds on the network, so this also feeds shutdown
+   * drain (`onApplicationShutdown`) so pg-boss doesn't force-fail a run mid-sweep.
+   */
+  spCleanupJobTimeoutSeconds: number;
 
   /** Maintenance Config */
   maintenanceWindowsUtc: string[];
@@ -135,6 +166,10 @@ export type BaseNetworkConfig = {
   /** Blocked Providers Config */
   blockedSpIds: Set<string>;
   blockedSpAddresses: Set<string>;
+
+  /** Provider IDs and addresses granted full-rate testing. */
+  fullRateSpIds: Set<string>;
+  fullRateSpAddresses: Set<string>;
 
   /** Piece Cleanup Config */
   maxDatasetStorageSizeBytes: number;
@@ -238,12 +273,7 @@ export interface IJobsConfig {
 }
 
 export interface IClickhouseConfig {
-  /**
-   * ClickHouse connection URL. Must include the database in the path.
-   * Example: http://default:password@host:8123/dealbot
-   * If unset, ClickHouse emission is disabled.
-   */
-  url: string | undefined;
+  /** Shared batching settings applied independently to each network buffer. */
   batchSize: number;
   flushIntervalMs: number;
   maxBufferSize: number;
@@ -320,6 +350,10 @@ export type NetworkDefaults = Pick<
   | "maxPieceCleanupRuntimeSeconds"
   | "dataRetentionPollIntervalSeconds"
   | "providersRefreshIntervalSeconds"
+  | "dataSetPruningIntervalSeconds"
+  | "abandonedDataSetSweepIntervalSeconds"
+  | "excessDataSetBuffer"
+  | "spCleanupJobTimeoutSeconds"
   | "maintenanceWindowsUtc"
   | "maintenanceWindowMinutes"
   | "maxDatasetStorageSizeBytes"

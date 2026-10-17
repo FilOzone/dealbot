@@ -3,15 +3,15 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { StorageProvider } from "../database/entities/storage-provider.entity.js";
 import { IpniVerificationService } from "./ipni-verification.service.js";
 
-const { waitForIpniProviderResultsMock } = vi.hoisted(() => ({
-  waitForIpniProviderResultsMock: vi.fn(),
+const { checkIpniIndexerMock } = vi.hoisted(() => ({
+  checkIpniIndexerMock: vi.fn(),
 }));
 
 vi.mock("filecoin-pin/core/utils", async (importOriginal) => {
   const actual = await importOriginal<typeof import("filecoin-pin/core/utils")>();
   return {
     ...actual,
-    waitForIpniProviderResults: waitForIpniProviderResultsMock,
+    checkIpniIndexer: checkIpniIndexerMock,
   };
 });
 
@@ -34,7 +34,7 @@ describe("IpniVerificationService", () => {
 
   beforeEach(() => {
     vi.restoreAllMocks();
-    waitForIpniProviderResultsMock.mockReset();
+    checkIpniIndexerMock.mockReset();
   });
 
   it("throws when storage provider service URL is missing", async () => {
@@ -49,12 +49,12 @@ describe("IpniVerificationService", () => {
       }),
     ).rejects.toThrow("IPNI verification failed: missing service URL for provider 0xsp");
 
-    expect(waitForIpniProviderResultsMock).not.toHaveBeenCalled();
+    expect(checkIpniIndexerMock).not.toHaveBeenCalled();
   });
 
   it("uses timeout/polling to compute full attempt budget", async () => {
     const service = new IpniVerificationService();
-    waitForIpniProviderResultsMock.mockResolvedValue(true);
+    checkIpniIndexerMock.mockResolvedValue(true);
 
     const result = await service.verify({
       rootCid,
@@ -64,8 +64,8 @@ describe("IpniVerificationService", () => {
     });
 
     expect(result.rootCIDVerified).toBe(true);
-    expect(waitForIpniProviderResultsMock).toHaveBeenCalledTimes(1);
-    expect(waitForIpniProviderResultsMock).toHaveBeenCalledWith(
+    expect(checkIpniIndexerMock).toHaveBeenCalledTimes(1);
+    expect(checkIpniIndexerMock).toHaveBeenCalledWith(
       rootCid,
       expect.objectContaining({
         maxAttempts: 6,
@@ -76,7 +76,7 @@ describe("IpniVerificationService", () => {
 
   it("rounds up attempt budget so partial intervals are not lost", async () => {
     const service = new IpniVerificationService();
-    waitForIpniProviderResultsMock.mockResolvedValue(true);
+    checkIpniIndexerMock.mockResolvedValue(true);
 
     await service.verify({
       rootCid,
@@ -85,7 +85,7 @@ describe("IpniVerificationService", () => {
       pollIntervalMs: 2_000,
     });
 
-    expect(waitForIpniProviderResultsMock).toHaveBeenCalledWith(
+    expect(checkIpniIndexerMock).toHaveBeenCalledWith(
       rootCid,
       expect.objectContaining({
         maxAttempts: 6,
@@ -96,7 +96,7 @@ describe("IpniVerificationService", () => {
 
   it("returns false when internal verification timeout elapses", async () => {
     const service = new IpniVerificationService();
-    waitForIpniProviderResultsMock.mockImplementation(
+    checkIpniIndexerMock.mockImplementation(
       async (_cid: CID, options: { signal?: AbortSignal } | undefined) =>
         await new Promise<boolean>((_resolve, reject) => {
           if (options?.signal?.aborted) {
@@ -121,7 +121,7 @@ describe("IpniVerificationService", () => {
     const service = new IpniVerificationService();
     const loggerError = vi.spyOn((service as unknown as { logger: { error: (m: object) => void } }).logger, "error");
     const abortController = new AbortController();
-    waitForIpniProviderResultsMock.mockImplementation(
+    checkIpniIndexerMock.mockImplementation(
       async (_cid: CID, options: { signal?: AbortSignal } | undefined) =>
         await new Promise<boolean>((_resolve, reject) => {
           options?.signal?.addEventListener(
@@ -151,7 +151,7 @@ describe("IpniVerificationService", () => {
   it("is capped by the external deal signal", async () => {
     const service = new IpniVerificationService();
     const abortController = new AbortController();
-    waitForIpniProviderResultsMock.mockImplementation(
+    checkIpniIndexerMock.mockImplementation(
       async (_cid: CID, options: { signal?: AbortSignal } | undefined) =>
         await new Promise<boolean>((_resolve, reject) => {
           options?.signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true });

@@ -1,10 +1,11 @@
-import { BigInt, log } from "@graphprotocol/graph-ts";
+import { BigInt, Bytes, log } from "@graphprotocol/graph-ts";
 import {
   DataSetCreated as DataSetCreatedEvent,
   DataSetDeleted as DataSetDeletedEvent,
   DataSetEmpty as DataSetEmptyEvent,
   NextProvingPeriod as NextProvingPeriodEvent,
   PiecesAdded as PiecesAddedEvent,
+  PiecesAddedV2 as PiecesAddedV2Event,
   PiecesRemoved as PiecesRemovedEvent,
   PossessionProven as PossessionProvenEvent,
   StorageProviderChanged as StorageProviderChangedEvent,
@@ -15,6 +16,7 @@ import {
   getRootEntityId,
   getRootSampleKey,
   maxProvingPeriodFor,
+  reconstructCidFromPackedCid,
   unpaddedSize,
   validateCommPv2,
 } from "./helpers";
@@ -35,8 +37,11 @@ export function handleDataSetCreated(event: DataSetCreatedEvent): void {
   if (proofSet == null) {
     proofSet = new DataSet(proofSetEntityId);
     proofSet.withIPFSIndexing = false;
+    proofSet.metadataKeys = [];
+    proofSet.metadataValues = [];
     proofSet.createdAt = event.block.timestamp;
-    // fwssPayer, fwssServiceProvider, pdpPaymentEndEpoch are nullable.
+    // fwssPayer, fwssServiceProvider, pdpPaymentEndEpoch, pdpRailId and
+    // pdpRailFinalization are nullable.
   }
   proofSet.setId = event.params.setId;
   proofSet.owner = providerEntityId;
@@ -45,6 +50,7 @@ export function handleDataSetCreated(event: DataSetCreatedEvent): void {
   proofSet.nextDeadline = BigInt.zero();
   proofSet.maxProvingPeriod = BigInt.zero();
   proofSet.provenThisPeriod = false;
+  proofSet.lastProvenEpoch = event.block.number;
   proofSet.save();
 
   let provider = Provider.load(providerEntityId);
@@ -104,6 +110,8 @@ export function handleDataSetEmpty(event: DataSetEmptyEvent): void {
   proofSet.nextDeadline = BigInt.zero();
   proofSet.maxProvingPeriod = BigInt.zero();
   proofSet.provenThisPeriod = false;
+  // PDPVerifier.nextProvingPeriod restarts the activity window when a set empties.
+  proofSet.lastProvenEpoch = event.block.number;
   proofSet.save();
 }
 
@@ -117,6 +125,7 @@ export function handlePossessionProven(event: PossessionProvenEvent): void {
   // Flip the flag so the next NextProvingPeriod classifies this period as
   // proven rather than faulted.
   proofSet.provenThisPeriod = true;
+  proofSet.lastProvenEpoch = event.block.number;
   proofSet.save();
 }
 
@@ -163,12 +172,50 @@ export function handleNextProvingPeriod(event: NextProvingPeriodEvent): void {
   }
 }
 
+// Shared by handlePiecesAdded and handlePiecesAddedV2: creates the Root entity for one added
+// piece. Returns false (and logs) if the Root already exists, so the caller can skip counting it
+// toward the EMPTY -> READY transition.
+function createRootFromPieceCid(
+  setId: BigInt,
+  rootId: BigInt,
+  pieceCidBytes: Bytes,
+  proofSetEntityId: Bytes,
+  blockTimestamp: BigInt,
+): boolean {
+  const commPData = validateCommPv2(pieceCidBytes);
+  const rawSize = commPData.isValid ? unpaddedSize(commPData.padding, commPData.height) : BigInt.zero();
+
+  const rootEntityId = getRootEntityId(setId, rootId);
+  if (Root.load(rootEntityId) != null) {
+    log.warning("createRootFromPieceCid: Root {} for Set {} already exists; skipping", [
+      rootId.toString(),
+      setId.toString(),
+    ]);
+    return false;
+  }
+
+  const root = new Root(rootEntityId);
+  root.setId = setId;
+  root.rootId = rootId;
+  root.rawSize = rawSize;
+  root.cid = pieceCidBytes;
+  root.removed = false;
+  root.createdAt = blockTimestamp;
+  root.proofSet = proofSetEntityId;
+  root.sampleKey = getRootSampleKey(rootEntityId);
+  // ipfsRootCID: patched in FWSS handler if applicable.
+  root.save();
+
+  return true;
+}
+
 export function handlePiecesAdded(event: PiecesAddedEvent): void {
   const setId = event.params.setId;
   const rootIdsFromEvent = event.params.pieceIds;
   const pieceCidsFromEvent = event.params.pieceCids;
 
-  const proofSet = DataSet.load(getProofSetEntityId(setId));
+  const proofSetEntityId = getProofSetEntityId(setId);
+  const proofSet = DataSet.load(proofSetEntityId);
   if (proofSet == null) {
     log.warning("handlePiecesAdded: DataSet {} not found", [setId.toString()]);
     return;
@@ -177,35 +224,48 @@ export function handlePiecesAdded(event: PiecesAddedEvent): void {
   let addedAny = false;
 
   for (let i = 0; i < rootIdsFromEvent.length; i++) {
-    const rootId = rootIdsFromEvent[i];
-    const pieceCid = pieceCidsFromEvent[i];
+    const created = createRootFromPieceCid(
+      setId,
+      rootIdsFromEvent[i],
+      pieceCidsFromEvent[i].data,
+      proofSetEntityId,
+      event.block.timestamp,
+    );
+    if (created) addedAny = true;
+  }
 
-    const pieceBytes = pieceCid.data;
-    const commPData = validateCommPv2(pieceBytes);
-    const rawSize = commPData.isValid ? unpaddedSize(commPData.padding, commPData.height) : BigInt.zero();
+  // First non-empty add transitions the DataSet to READY. NextProvingPeriod
+  // will then promote it to PROVING.
+  if (addedAny && proofSet.status == DataSetStatus.EMPTY) {
+    proofSet.status = DataSetStatus.READY;
+    proofSet.save();
+  }
+}
 
-    const rootEntityId = getRootEntityId(setId, rootId);
-    if (Root.load(rootEntityId) != null) {
-      log.warning("handlePiecesAdded: Root {} for Set {} already exists; skipping", [
-        rootId.toString(),
-        setId.toString(),
-      ]);
-      continue;
-    }
+// Handles the compact PiecesAddedV2 event (PDPVerifier PR #300), which replaces the legacy
+// PiecesAdded for all new piece additions (PiecesAdded is kept only for historical logs). Piece
+// IDs are contiguous from firstPieceId, and each CID is packed as (header, root) instead of raw
+// bytes; a single addPieces call can emit several of these events once pieces are batched.
+export function handlePiecesAddedV2(event: PiecesAddedV2Event): void {
+  const setId = event.params.setId;
+  const firstPieceId = event.params.firstPieceId;
+  const pieceCidsFromEvent = event.params.pieceCids;
 
-    const root = new Root(rootEntityId);
-    root.setId = setId;
-    root.rootId = rootId;
-    root.rawSize = rawSize;
-    root.cid = pieceBytes;
-    root.removed = false;
-    root.createdAt = event.block.timestamp;
-    root.proofSet = getProofSetEntityId(setId);
-    root.sampleKey = getRootSampleKey(rootEntityId);
-    // ipfsRootCID: patched in FWSS handler if applicable.
-    root.save();
+  const proofSetEntityId = getProofSetEntityId(setId);
+  const proofSet = DataSet.load(proofSetEntityId);
+  if (proofSet == null) {
+    log.warning("handlePiecesAddedV2: DataSet {} not found", [setId.toString()]);
+    return;
+  }
 
-    addedAny = true;
+  let addedAny = false;
+
+  for (let i = 0; i < pieceCidsFromEvent.length; i++) {
+    const rootId = firstPieceId.plus(BigInt.fromI32(i));
+    const pieceCidBytes = reconstructCidFromPackedCid(pieceCidsFromEvent[i].header, pieceCidsFromEvent[i].root);
+
+    const created = createRootFromPieceCid(setId, rootId, pieceCidBytes, proofSetEntityId, event.block.timestamp);
+    if (created) addedAny = true;
   }
 
   // First non-empty add transitions the DataSet to READY. NextProvingPeriod

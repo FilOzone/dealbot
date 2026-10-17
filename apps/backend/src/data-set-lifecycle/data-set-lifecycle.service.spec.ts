@@ -1,7 +1,9 @@
+import { TerminateServiceError } from "@filoz/synapse-core/errors";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DataSetLifecycleCheckMetrics } from "../metrics-prometheus/check-metrics.service.js";
+import type { StorageProviderRepository } from "../providers/repositories/storage-provider.repository.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
-import { DataSetLifecycleService } from "./data-set-lifecycle.service.js";
+import { DataSetLifecycleService, terminateServiceSync } from "./data-set-lifecycle.service.js";
 
 vi.mock("@filoz/synapse-core/sp", () => ({
   createDataSet: vi.fn(),
@@ -39,9 +41,12 @@ const mockProviderInfo = {
 };
 
 const mockWalletSdkService = {
-  getProviderInfo: vi.fn(() => mockProviderInfo),
   getSynapseClient: vi.fn(() => mockClient),
 } as unknown as WalletSdkService;
+
+const mockStorageProviderRepository = {
+  findByAddress: vi.fn(() => mockProviderInfo),
+} as unknown as StorageProviderRepository;
 
 const mockMetrics = {
   observeCheckDuration: vi.fn(),
@@ -96,7 +101,7 @@ describe("DataSetLifecycleService", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    service = new DataSetLifecycleService(mockWalletSdkService, mockMetrics);
+    service = new DataSetLifecycleService(mockWalletSdkService, mockStorageProviderRepository, mockMetrics);
   });
 
   afterEach(() => {
@@ -328,10 +333,70 @@ describe("DataSetLifecycleService", () => {
     );
   });
 
+  // ─── Termination request retries ──────────────────────────────────────────
+
+  it("retries a termination request the SP rejected, so the data set is terminated", async () => {
+    setupAllVariantMocks();
+    let rejected = false;
+    vi.mocked(terminateService).mockImplementation(async (_client, { dataSetId }) => {
+      if (dataSetId === 42n && !rejected) {
+        rejected = true;
+        throw new TerminateServiceError("chain: read tcp 127.0.0.1:1234: i/o timeout");
+      }
+      return { statusUrl: "https://sp.example.com/terminate/status" };
+    });
+
+    vi.useFakeTimers();
+    try {
+      const run = service.runLifecycleCheck("0xsp", "calibration", { dealbotLifecycleCheck: "nonce-retry" });
+      await vi.advanceTimersByTimeAsync(10_000);
+      await run;
+    } finally {
+      vi.useRealTimers();
+    }
+
+    expect(terminateService).toHaveBeenCalledTimes(3);
+    expect(mockMetrics.recordStatus).toHaveBeenCalledWith(
+      expect.objectContaining({ checkType: "dataSetLifecycleCheck" }),
+      "success",
+    );
+  });
+
+  it("stops retrying the termination request after three rejections", async () => {
+    setupAllVariantMocks();
+    vi.mocked(terminateService).mockImplementation(async (_client, { dataSetId }) => {
+      if (dataSetId === 42n) throw new TerminateServiceError("chain: context deadline exceeded");
+      return { statusUrl: "https://sp.example.com/terminate/status" };
+    });
+
+    vi.useFakeTimers();
+    try {
+      const run = service.runLifecycleCheck("0xsp", "calibration", { dealbotLifecycleCheck: "nonce-retry-exhausted" });
+      const rejection = expect(run).rejects.toBeInstanceOf(TerminateServiceError);
+      await vi.advanceTimersByTimeAsync(20_000);
+      await rejection;
+    } finally {
+      vi.useRealTimers();
+    }
+
+    const callsFor42 = vi.mocked(terminateService).mock.calls.filter(([, options]) => options.dataSetId === 42n);
+    expect(callsFor42).toHaveLength(3);
+  });
+
+  it("does not retry a rejected termination request unless the caller opts in", async () => {
+    vi.mocked(terminateService).mockRejectedValue(new TerminateServiceError("chain: context deadline exceeded"));
+
+    await expect(
+      terminateServiceSync(mockClient as any, { dataSetId: 42n, serviceURL: "https://sp.example.com" }),
+    ).rejects.toBeInstanceOf(TerminateServiceError);
+
+    expect(terminateService).toHaveBeenCalledOnce();
+  });
+
   // ─── Shared pre-flight guards ─────────────────────────────────────────────
 
   it("throws when provider is not found in registry", async () => {
-    vi.mocked(mockWalletSdkService.getProviderInfo).mockReturnValueOnce(undefined);
+    vi.mocked(mockStorageProviderRepository.findByAddress).mockResolvedValueOnce(undefined);
 
     await expect(service.runLifecycleCheck("0xunknown", "calibration", {})).rejects.toThrow("not found in registry");
   });

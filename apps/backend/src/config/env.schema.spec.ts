@@ -32,6 +32,29 @@ const validate = (schema: ReturnType<typeof createConfigValidationSchema>, input
   schema.validate(input, { allowUnknown: true });
 
 describe("createConfigValidationSchema", () => {
+  describe("ClickHouse URL validation", () => {
+    it("accepts an optional network-specific HTTP URL", () => {
+      const { error } = validate(schemaFor("calibration"), {
+        ...baseEnv,
+        NETWORKS: "calibration",
+        ...withWalletKey("CALIBRATION"),
+        CALIBRATION_CLICKHOUSE_URL: "http://clickhouse.example:8123/dealbot_calibration",
+      });
+      expect(error).toBeUndefined();
+    });
+
+    it("rejects an invalid network-specific URL", () => {
+      const { error } = validate(schemaFor("calibration"), {
+        ...baseEnv,
+        NETWORKS: "calibration",
+        ...withWalletKey("CALIBRATION"),
+        CALIBRATION_CLICKHOUSE_URL: "not-a-url",
+      });
+      expect(error).toBeDefined();
+      expect(error?.message).toMatch(/CALIBRATION_CLICKHOUSE_URL/);
+    });
+  });
+
   describe("wallet-key / session-key constraint (active networks)", () => {
     it("accepts a network with WALLET_PRIVATE_KEY only", () => {
       const { error } = validate(schemaFor("calibration"), {

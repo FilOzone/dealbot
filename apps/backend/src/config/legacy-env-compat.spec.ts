@@ -48,6 +48,7 @@ describe("applyLegacyEnvCompat", () => {
         WALLET_PRIVATE_KEY: "0xkey",
         WALLET_ADDRESS: "0xabc",
         RPC_URL: "https://rpc.example",
+        CLICKHOUSE_URL: "http://clickhouse.example:8123/dealbot_calibration",
         DEALS_PER_SP_PER_HOUR: "3",
       });
       const result = applyLegacyEnvCompat(env);
@@ -55,12 +56,19 @@ describe("applyLegacyEnvCompat", () => {
       expect(result.applied).toBe(true);
       expect(result.network).toBe("calibration");
       expect(result.translatedVars).toEqual(
-        expect.arrayContaining(["WALLET_PRIVATE_KEY", "WALLET_ADDRESS", "RPC_URL", "DEALS_PER_SP_PER_HOUR"]),
+        expect.arrayContaining([
+          "WALLET_PRIVATE_KEY",
+          "WALLET_ADDRESS",
+          "RPC_URL",
+          "CLICKHOUSE_URL",
+          "DEALS_PER_SP_PER_HOUR",
+        ]),
       );
       expect(env.NETWORKS).toBe("calibration");
       expect(env.CALIBRATION_WALLET_PRIVATE_KEY).toBe("0xkey");
       expect(env.CALIBRATION_WALLET_ADDRESS).toBe("0xabc");
       expect(env.CALIBRATION_RPC_URL).toBe("https://rpc.example");
+      expect(env.CALIBRATION_CLICKHOUSE_URL).toBe("http://clickhouse.example:8123/dealbot_calibration");
       expect(env.CALIBRATION_DEALS_PER_SP_PER_HOUR).toBe("3");
     });
 

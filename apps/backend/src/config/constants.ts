@@ -25,6 +25,10 @@ export const networkDefaults = {
   maxPieceCleanupRuntimeSeconds: 300,
   dataRetentionPollIntervalSeconds: 3600,
   providersRefreshIntervalSeconds: 4 * 3600,
+  dataSetPruningIntervalSeconds: 24 * 3600, // 1 day
+  abandonedDataSetSweepIntervalSeconds: 24 * 3600, // 1 day
+  excessDataSetBuffer: 5,
+  spCleanupJobTimeoutSeconds: 1200,
   maintenanceWindowsUtc: ["07:00", "22:00"],
   maintenanceWindowMinutes: 20,
   maxDatasetStorageSizeBytes: 24 * 1024 * 1024 * 1024, // 24 GiB
@@ -35,6 +39,16 @@ export const networkDefaults = {
   pullCheckPieceSizeBytes: 10 * 1024 * 1024, // 10 MiB
   pullPieceCleanupIntervalSeconds: 7 * 24 * 3600, // 7 days
 } satisfies NetworkDefaults;
+
+/**
+ * Fixed rates and dataset target for eligible providers outside the full-rate
+ * tier. Kept non-configurable to limit wallet-spend exposure.
+ */
+export const trickleTierRates = {
+  dealsPerSpPerHour: 1 / 4, // 1 data-storage check every 4 hours
+  dataSetCreationsPerSpPerHour: 1 / 4, // 1 data-set-creation tick every 4 hours
+  minNumDataSetsForChecks: 1,
+} as const;
 
 /**
  * Uppercase env-var prefixes for every supported network, e.g.

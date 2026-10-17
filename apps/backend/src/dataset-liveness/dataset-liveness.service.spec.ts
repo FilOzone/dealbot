@@ -1,5 +1,6 @@
 import { Test, TestingModule } from "@nestjs/testing";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { StorageProviderRepository } from "../providers/repositories/storage-provider.repository.js";
 import { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
 import { DatasetLivenessService } from "./dataset-liveness.service.js";
 
@@ -29,19 +30,25 @@ describe("DatasetLivenessService", () => {
     validateDataSet: vi.fn().mockResolvedValue(undefined),
   };
   const mockWalletSdkService = {
-    getProviderInfo: vi.fn().mockReturnValue({
-      id: 101n,
-      pdp: { serviceURL: "https://sp.example" },
-    }),
     getWalletServices: vi.fn().mockReturnValue({
       warmStorageService: mockWarmStorageService,
     }),
     getSynapseClient: vi.fn().mockReturnValue({ chain: { id: 314 } }),
   };
+  const mockStorageProviderRepository = {
+    findByAddress: vi.fn().mockResolvedValue({
+      id: 101n,
+      pdp: { serviceURL: "https://sp.example" },
+    }),
+  };
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
-      providers: [DatasetLivenessService, { provide: WalletSdkService, useValue: mockWalletSdkService }],
+      providers: [
+        DatasetLivenessService,
+        { provide: WalletSdkService, useValue: mockWalletSdkService },
+        { provide: StorageProviderRepository, useValue: mockStorageProviderRepository },
+      ],
     }).compile();
     service = module.get<DatasetLivenessService>(DatasetLivenessService);
     fetchMock = vi.fn().mockResolvedValue(new Response("ok", { status: 200 }));

@@ -116,7 +116,6 @@ export const pullPieceEnvSchema = {
 };
 
 export const clickhouseEnvSchema = {
-  CLICKHOUSE_URL: Joi.string().uri().optional(),
   CLICKHOUSE_BATCH_SIZE: Joi.number().integer().min(1).default(500),
   CLICKHOUSE_FLUSH_INTERVAL_MS: Joi.number().integer().min(100).default(5000),
   CLICKHOUSE_MAX_BUFFER_SIZE: Joi.number().integer().min(1).default(5000),
@@ -162,6 +161,10 @@ const perNetworkFieldRules = (): Record<PerNetworkVar, Joi.Schema> => ({
     .uri({ scheme: ["http", "https"] })
     .optional()
     .allow(""),
+  CLICKHOUSE_URL: Joi.string()
+    .uri({ scheme: ["http", "https"] })
+    .optional()
+    .allow(""),
   RPC_REQUEST_TIMEOUT_MS: Joi.number().integer().min(1000).optional(),
   PDP_SUBGRAPH_ENDPOINT: Joi.string().uri().optional().allow(""),
   SUBGRAPH_ENDPOINT: Joi.string().uri().optional().allow(""),
@@ -182,10 +185,16 @@ const perNetworkFieldRules = (): Record<PerNetworkVar, Joi.Schema> => ({
   DATA_SET_LIFECYCLE_CHECK_JOB_TIMEOUT_SECONDS: Joi.number().min(60).optional(),
   DATA_RETENTION_POLL_INTERVAL_SECONDS: Joi.number().integer().min(1).optional(),
   PROVIDERS_REFRESH_INTERVAL_SECONDS: Joi.number().integer().min(1).optional(),
+  DATASET_PRUNING_INTERVAL_SECONDS: Joi.number().integer().min(1).optional(),
+  ABANDONED_DATASET_SWEEP_INTERVAL_SECONDS: Joi.number().integer().min(1).optional(),
+  EXCESS_DATASET_BUFFER: Joi.number().integer().min(0).optional(),
+  SP_CLEANUP_JOB_TIMEOUT_SECONDS: Joi.number().integer().min(1).optional(),
   MAINTENANCE_WINDOWS_UTC: Joi.string().custom(validateMaintenanceWindowsEnv).optional(),
   MAINTENANCE_WINDOW_MINUTES: Joi.number().min(20).max(360).optional(),
   BLOCKED_SP_IDS: Joi.string().optional().allow(""),
   BLOCKED_SP_ADDRESSES: Joi.string().optional().allow(""),
+  FULL_RATE_SP_IDS: Joi.string().optional().allow(""),
+  FULL_RATE_SP_ADDRESSES: Joi.string().optional().allow(""),
   PIECE_CLEANUP_PER_SP_PER_HOUR: Joi.number().min(0.001).max(20).optional(),
   MAX_PIECE_CLEANUP_RUNTIME_SECONDS: Joi.number().min(60).optional(),
   MAX_DATASET_STORAGE_SIZE_BYTES: Joi.number().integer().min(1).optional(),

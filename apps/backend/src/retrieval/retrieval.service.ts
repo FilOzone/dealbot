@@ -9,10 +9,9 @@ import type { Hex, Network } from "../common/types.js";
 import type { IConfig } from "../config/index.js";
 import { Deal } from "../database/entities/deal.entity.js";
 import { Retrieval } from "../database/entities/retrieval.entity.js";
-import { StorageProvider } from "../database/entities/storage-provider.entity.js";
 import { DealStatus, RetrievalStatus, ServiceType } from "../database/types.js";
 import { DatasetLivenessService } from "../dataset-liveness/dataset-liveness.service.js";
-import { IpniVerificationService } from "../ipni/ipni-verification.service.js";
+import { IpniVerificationService, pdpProviderToIpniInput } from "../ipni/ipni-verification.service.js";
 import {
   buildCheckMetricLabels,
   type CheckMetricLabels,
@@ -23,12 +22,14 @@ import {
   DiscoverabilityCheckMetrics,
   RetrievalCheckMetrics,
 } from "../metrics-prometheus/check-metrics.service.js";
+import { StorageProviderRepository } from "../providers/repositories/storage-provider.repository.js";
 import { RetrievalAddonsService } from "../retrieval-addons/retrieval-addons.service.js";
 import type {
   RetrievalConfiguration,
   RetrievalExecutionResult,
   RetrievalTestResult,
 } from "../retrieval-addons/types.js";
+import type { PDPProviderEx } from "../wallet-sdk/wallet-sdk.types.js";
 
 /** Timeout for the pre-flight SP piece-status probe. Short enough that an unresponsive
  *  SP still beats falling through to the 30s IPNI verify path; on timeout we treat
@@ -45,8 +46,7 @@ export class RetrievalService {
     private readonly dealRepository: Repository<Deal>,
     @InjectRepository(Retrieval)
     private readonly retrievalRepository: Repository<Retrieval>,
-    @InjectRepository(StorageProvider)
-    private readonly spRepository: Repository<StorageProvider>,
+    private readonly storageProviderRepository: StorageProviderRepository,
     private readonly retrievalMetrics: RetrievalCheckMetrics,
     private readonly discoverabilityMetrics: DiscoverabilityCheckMetrics,
     private readonly ipniVerificationService: IpniVerificationService,
@@ -102,7 +102,7 @@ export class RetrievalService {
     const providerLabels = buildCheckMetricLabels({
       checkType: "retrieval",
       network: deal.network,
-      providerId: provider.providerId,
+      providerId: provider.id,
       providerName: provider.name,
       providerIsApproved: provider.isApproved,
     });
@@ -110,7 +110,7 @@ export class RetrievalService {
       ...logContext,
       jobId: logContext?.jobId,
       dealId: deal.id,
-      providerId: provider.providerId ?? logContext?.providerId,
+      providerId: provider.id ?? logContext?.providerId,
       providerName: provider.name ?? logContext?.providerName,
       providerAddress: deal.spAddress,
       pieceCid: deal.pieceCid,
@@ -148,15 +148,19 @@ export class RetrievalService {
     //      re-probes; persistent failures become observable on dashboards).
     if (deal.dataSetId == null || deal.pieceId == null) {
       // Bail loudly so the row is fixed before it pollutes downstream metrics.
+      // Write a FAILED row so COUNT(*)-based deal selection advances past this deal
+      // instead of re-picking it every tick (starvation prevention).
       this.retrievalMetrics.recordStatus(providerLabels, "failure.other");
+      const errorMsg = "Deal is missing dataSetId or pieceId; cannot run chain pre-check. Backfill required.";
       this.logger.error({
         ...retrievalLogContext,
         event: "retrieval_missing_chain_ids",
-        message: "Deal is missing dataSetId or pieceId; cannot run chain pre-check. Backfill required.",
+        message: errorMsg,
         dataSetId: deal.dataSetId?.toString() ?? null,
         pieceId: deal.pieceId ?? null,
       });
-      return [];
+      const sentinel = await this.recordFailedRetrievalSentinel(deal, errorMsg);
+      return [sentinel];
     }
 
     const pieceLive = await this.checkPieceLive(
@@ -184,8 +188,9 @@ export class RetrievalService {
       return [];
     }
 
-    if (provider.serviceUrl && deal.pieceCid) {
-      const probe = await this.probeSpPieceStatus(provider.serviceUrl, deal.pieceCid, signal);
+    const serviceUrl = provider.pdp?.serviceURL;
+    if (serviceUrl && deal.pieceCid) {
+      const probe = await this.probeSpPieceStatus(serviceUrl, deal.pieceCid, signal);
       signal?.throwIfAborted();
       if (probe.result === "missing") {
         // Chain pre-check above confirmed the piece SHOULD be retrievable.
@@ -225,7 +230,16 @@ export class RetrievalService {
     const retrievalCheckStartTime = Date.now();
     // If this throws, we want the job to fail fast: missing/invalid CIDs are an orchestration
     // failure and we should not mark the retrieval as pending for this deal.
-    const ipniContext = this.isPgBossMode() ? this.getIpniCidsForRetrieval(deal) : null;
+    // We still write a FAILED row so COUNT(*)-based deal selection advances past
+    // this deal (starvation prevention).
+    let ipniContext: { rootCid: CID; blockCids: CID[] } | null = null;
+    try {
+      ipniContext = this.isPgBossMode() ? this.getIpniCidsForRetrieval(deal) : null;
+    } catch (cidError) {
+      const errorMsg = cidError instanceof Error ? cidError.message : String(cidError);
+      await this.recordFailedRetrievalSentinel(deal, errorMsg);
+      throw cidError;
+    }
     this.retrievalMetrics.recordStatus(providerLabels, "pending");
 
     try {
@@ -281,6 +295,10 @@ export class RetrievalService {
     }
 
     if (caughtError) {
+      // Transport threw before persisting any retrieval row. Write a FAILED
+      // sentinel so COUNT(*)-based deal selection advances past this deal.
+      const errorMsg = caughtError instanceof Error ? caughtError.message : String(caughtError);
+      await this.recordFailedRetrievalSentinel(deal, errorMsg);
       throw caughtError;
     }
 
@@ -394,7 +412,7 @@ export class RetrievalService {
 
     const saved = await this.saveRetrieval(retrieval);
 
-    this.clickhouseService.insert("retrieval_checks", {
+    this.clickhouseService.insert(deal.network, "retrieval_checks", {
       timestamp: Date.now(),
       probe_location: this.clickhouseService.probeLocation,
       sp_address: deal.spAddress,
@@ -460,8 +478,32 @@ export class RetrievalService {
     }
   }
 
-  private async findStorageProvider(address: string, network: Network): Promise<StorageProvider | null> {
-    return this.spRepository.findOne({ where: { address, network } });
+  /**
+   * Write a lightweight FAILED retrieval row so that the COUNT(*)-based deal
+   * selection query (selectRandomSuccessfulDealForProvider) advances past this
+   * deal instead of re-picking it on every tick.  Without this sentinel row,
+   * deals that always bail before persisting a retrieval would sit at
+   * COUNT(*) = 0 and starve every other deal for the same SP.
+   */
+  private async recordFailedRetrievalSentinel(deal: Deal, errorMessage: string): Promise<Retrieval> {
+    const now = new Date();
+    const sentinel = this.retrievalRepository.create({
+      deal,
+      serviceType: ServiceType.IPFS_PIN,
+      retrievalEndpoint: "N/A",
+      status: RetrievalStatus.FAILED,
+      startedAt: now,
+      completedAt: now,
+      latencyMs: 0,
+      responseCode: null,
+      errorMessage,
+      retryCount: 0,
+    } as Partial<Retrieval>);
+    return this.saveRetrieval(sentinel);
+  }
+
+  private async findStorageProvider(address: string, network: Network): Promise<PDPProviderEx | undefined> {
+    return this.storageProviderRepository.findByAddress(address, network);
   }
 
   /**
@@ -507,8 +549,10 @@ export class RetrievalService {
   }
 
   /**
-   * We select a random successful deal (DEAL_CREATED only) for a given provider.
-   * Uses Postgres ORDER BY RANDOM() since Dealbot is Postgres-only.
+   * We select a successful deal (DEAL_CREATED only) for a given provider, preferring
+   * deals with the fewest prior ipfs_pin retrievals (ties broken randomly). This
+   * guarantees every eligible deal is retrieved once before any deal is retrieved
+   * twice, keeping coverage uniform regardless of pool size.
    */
   private async selectRandomSuccessfulDealForProvider(spAddress: string, network: Network): Promise<Deal | null> {
     const walletAddress = this.configService.get("networks", { infer: true })[network].walletAddress;
@@ -531,7 +575,11 @@ export class RetrievalService {
         sizes: randomDatasetSizes,
       });
     }
-    return query.orderBy("RANDOM()").limit(1).getOne();
+    return query
+      .orderBy(`(SELECT COUNT(*) FROM retrievals r WHERE r.deal_id = deal.id AND r.service_type = 'ipfs_pin')`, "ASC")
+      .addOrderBy("RANDOM()")
+      .limit(1)
+      .getOne();
   }
 
   // ============================================================================
@@ -584,7 +632,7 @@ export class RetrievalService {
   private async verifyIpniForRetrieval(
     ipniContext: { rootCid: CID; blockCids: CID[] },
     dealId: string,
-    provider: StorageProvider,
+    provider: PDPProviderEx,
     providerLabels: CheckMetricLabels,
     signal?: AbortSignal,
   ): Promise<{ ok: boolean; failureStatus?: "failure.timedout" | "failure.other" }> {
@@ -600,7 +648,7 @@ export class RetrievalService {
       const ipniResult = await this.ipniVerificationService.verify({
         rootCid,
         blockCids,
-        storageProvider: provider,
+        storageProvider: pdpProviderToIpniInput(provider),
         timeoutMs,
         pollIntervalMs,
         signal,
@@ -610,7 +658,7 @@ export class RetrievalService {
         providerLabels,
         ipniResult.durationMs,
         classifyIpniVerifyOutcome(ipniResult, timeoutMs),
-        "filecoinpin.contact",
+        "cid.contact",
       );
 
       if (ipniResult.rootCIDVerified) {
@@ -628,18 +676,13 @@ export class RetrievalService {
           event: "retrieval_ipni_verification_timed_out",
           message: "Retrieval IPNI verification aborted by outer job timeout",
           dealId,
-          providerId: provider.providerId,
+          providerId: provider.id,
           providerName: provider.name,
-          providerAddress: provider.address,
+          providerAddress: provider.serviceProvider,
           ipfsRootCID: ipniContext.rootCid.toString(),
           error: toStructuredError(error),
         });
-        this.discoverabilityMetrics.observeIpniVerifyMs(
-          providerLabels,
-          durationMs,
-          "failure.timedout",
-          "filecoinpin.contact",
-        );
+        this.discoverabilityMetrics.observeIpniVerifyMs(providerLabels, durationMs, "failure.timedout", "cid.contact");
         this.discoverabilityMetrics.recordStatus(providerLabels, failureStatus);
         return { ok: false, failureStatus };
       }
@@ -648,18 +691,13 @@ export class RetrievalService {
         event: "retrieval_ipni_verification_failed",
         message: "Retrieval IPNI verification failed",
         dealId,
-        providerId: provider.providerId,
+        providerId: provider.id,
         providerName: provider.name,
-        providerAddress: provider.address,
+        providerAddress: provider.serviceProvider,
         ipfsRootCID: ipniContext.rootCid.toString(),
         error: toStructuredError(error),
       });
-      this.discoverabilityMetrics.observeIpniVerifyMs(
-        providerLabels,
-        durationMs,
-        "failure.other",
-        "filecoinpin.contact",
-      );
+      this.discoverabilityMetrics.observeIpniVerifyMs(providerLabels, durationMs, "failure.other", "cid.contact");
       this.discoverabilityMetrics.recordStatus(providerLabels, failureStatus);
       return { ok: false, failureStatus };
     }

@@ -1,10 +1,9 @@
 import { Module } from "@nestjs/common";
-import { TypeOrmModule } from "@nestjs/typeorm";
-import { StorageProvider } from "../database/entities/storage-provider.entity.js";
+import { ProvidersModule } from "../providers/providers.module.js";
 import { WalletSdkService } from "./wallet-sdk.service.js";
 
 @Module({
-  imports: [TypeOrmModule.forFeature([StorageProvider])],
+  imports: [ProvidersModule],
   providers: [WalletSdkService],
   exports: [WalletSdkService],
 })

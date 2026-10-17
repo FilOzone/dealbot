@@ -17,6 +17,7 @@ import { EnsurePgBossSchema1760550000000 } from "../src/database/migrations/1760
 import { RemoveCdnServiceType1760600000000 } from "../src/database/migrations/1760600000000-RemoveCdnServiceType.js";
 import { RemoveSpReceivedRetrieveRequest1761500000000 } from "../src/database/migrations/1761500000000-RemoveSpReceivedRetrieveRequest.js";
 import { RemoveIpniRetrievedColumns1761500000001 } from "../src/database/migrations/1761500000001-RemoveIpniRetrievedColumns.js";
+import { AddPieceCleanupColumns1761500000002 } from "../src/database/migrations/1761500000002-AddPieceCleanupColumns.js";
 import { CreateDataRetentionBaselines1761500000002 } from "../src/database/migrations/1761500000002-CreateDataRetentionBaselines.js";
 import { RenameEvents1761500000003 } from "../src/database/migrations/1761500000003-RenameEvents.js";
 import { RenameRegionToLocation1761500000004 } from "../src/database/migrations/1761500000004-RenameRegionToLocation.js";
@@ -24,6 +25,8 @@ import { ProviderIdBigInt1761500000005 } from "../src/database/migrations/176150
 import { DataSetIdBigInt1761500000006 } from "../src/database/migrations/1761500000006-DataSetIdBigInt.js";
 import { RemoveMetricsJobScheduleRows1776147113065 } from "../src/database/migrations/1776147113065-RemoveMetricsJobScheduleRows.js";
 import { DropMetricsSchema1776200000000 } from "../src/database/migrations/1776200000000-DropMetricsSchema.js";
+import { AddNetworkColumn1776790420000 } from "../src/database/migrations/1776790420000-AddNetworkColumn.js";
+import { AddUncleanedDealsDataSetIndex1791087721000 } from "../src/database/migrations/1791087721000-AddUncleanedDealsDataSetIndex.js";
 
 const execFileAsync = promisify(execFile);
 const dockerCheck = spawnSync("docker", ["info"], { stdio: "ignore" });
@@ -47,6 +50,7 @@ const ALL_MIGRATIONS: Array<new () => MigrationInterface> = [
   RemoveCdnServiceType1760600000000,
   RemoveSpReceivedRetrieveRequest1761500000000,
   RemoveIpniRetrievedColumns1761500000001,
+  AddPieceCleanupColumns1761500000002,
   CreateDataRetentionBaselines1761500000002,
   RenameEvents1761500000003,
   RenameRegionToLocation1761500000004,
@@ -54,6 +58,8 @@ const ALL_MIGRATIONS: Array<new () => MigrationInterface> = [
   DataSetIdBigInt1761500000006,
   RemoveMetricsJobScheduleRows1776147113065,
   DropMetricsSchema1776200000000,
+  AddNetworkColumn1776790420000,
+  AddUncleanedDealsDataSetIndex1791087721000,
 ];
 
 type DatabaseConfig = {
@@ -195,6 +201,20 @@ async function functionExists(dataSource: DataSource, functionName: string): Pro
   return rows.length > 0;
 }
 
+async function primaryKeyColumns(dataSource: DataSource, tableName: string): Promise<string[]> {
+  const rows = await dataSource.query(
+    `
+      SELECT a.attname AS column_name
+      FROM pg_index i
+      JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
+      WHERE i.indrelid = $1::regclass AND i.indisprimary
+      ORDER BY array_position(i.indkey, a.attnum)
+    `,
+    [tableName],
+  );
+  return rows.map((row: { column_name: string }) => row.column_name);
+}
+
 async function typeExists(dataSource: DataSource, typeName: string): Promise<boolean> {
   const rows = await dataSource.query(
     `
@@ -288,10 +308,43 @@ describeWithDocker("Migrations (integration)", () => {
     expect(await columnExists(dataSource, "deals", "ipni_time_to_retrieve_ms")).toBe(false);
     expect(await enumValues(dataSource, "deals_ipni_status_enum")).not.toContain("sp_received_retrieve_request");
 
+    // AddNetworkColumn1776790420000 applied against a fresh (legacy-row-free)
+    // database, exercising the empty-database backfill path.
+    expect(await enumValues(dataSource, "network_enum")).toEqual(["calibration", "mainnet"]);
+    expect(await columnExists(dataSource, "storage_providers", "network")).toBe(true);
+    expect(await columnExists(dataSource, "deals", "network")).toBe(true);
+    expect(await columnExists(dataSource, "job_schedule_state", "network")).toBe(true);
+    expect(await columnExists(dataSource, "data_retention_baselines", "network")).toBe(true);
+    expect(await primaryKeyColumns(dataSource, "storage_providers")).toEqual(["address", "network"]);
+    expect(await primaryKeyColumns(dataSource, "data_retention_baselines")).toEqual(["provider_address", "network"]);
+
     // Running migrations again is a no-op.
     const rerun = await dataSource.runMigrations();
     expect(rerun.length).toBe(0);
   }, 180_000);
+
+  it("creates the uncleaned data set index and supports rollback", async () => {
+    const dataSource = migrationDataSource;
+    if (!dataSource) {
+      throw new Error("migration data source is not initialized");
+    }
+
+    const indexQuery = `
+      SELECT indisvalid AS "isValid", pg_get_indexdef(indexrelid) AS definition
+      FROM pg_index
+      WHERE indexrelid = to_regclass('public."IDX_deals_uncleaned_data_set"')
+    `;
+    const [index] = await dataSource.query(indexQuery);
+    expect(index.isValid).toBe(true);
+    expect(index.definition).toContain("(network, data_set_id)");
+    expect(index.definition).toContain("WHERE (cleaned_up = false)");
+
+    await dataSource.undoLastMigration();
+    expect(await dataSource.query(indexQuery)).toEqual([]);
+
+    expect(await dataSource.runMigrations()).toHaveLength(1);
+    expect(await dataSource.query(indexQuery)).toEqual([index]);
+  });
 
   it("RemoveMetricsJobScheduleRows deletes legacy job schedule rows and preserves valid ones", async () => {
     const dataSource = migrationDataSource;
@@ -302,12 +355,12 @@ describeWithDocker("Migrations (integration)", () => {
     const nextRunAt = new Date().toISOString();
     await dataSource.query(
       `
-        INSERT INTO job_schedule_state (job_type, sp_address, interval_seconds, next_run_at, paused)
+        INSERT INTO job_schedule_state (job_type, sp_address, network, interval_seconds, next_run_at, paused)
         VALUES
-          ('metrics',         '',        1800,   $1, false),
-          ('metrics_cleanup', '',        604800, $1, false),
-          ('deal',            '0xkeep',  3600,   $1, false)
-        ON CONFLICT (job_type, sp_address) DO NOTHING
+          ('metrics',         '',        'calibration', 1800,   $1, false),
+          ('metrics_cleanup', '',        'calibration', 604800, $1, false),
+          ('deal',            '0xkeep',  'calibration', 3600,   $1, false)
+        ON CONFLICT (job_type, sp_address, network) DO NOTHING
       `,
       [nextRunAt],
     );

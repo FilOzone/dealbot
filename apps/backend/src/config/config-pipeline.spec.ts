@@ -18,6 +18,7 @@ const TOUCHED = [
   "SESSION_KEY_PRIVATE_KEY",
   "WALLET_PRIVATE_KEY",
   "RPC_URL",
+  "CLICKHOUSE_URL",
   "DEALBOT_MAINTENANCE_WINDOWS_UTC",
   "MAINTENANCE_WINDOWS_UTC",
   "DEALBOT_MAINTENANCE_WINDOW_MINUTES",
@@ -28,11 +29,13 @@ const TOUCHED = [
   "CALIBRATION_SESSION_KEY_PRIVATE_KEY",
   "CALIBRATION_WALLET_PRIVATE_KEY",
   "CALIBRATION_RPC_URL",
+  "CALIBRATION_CLICKHOUSE_URL",
   "CALIBRATION_MAINTENANCE_WINDOWS_UTC",
   "CALIBRATION_DEAL_JOB_TIMEOUT_SECONDS",
   "CALIBRATION_DATASET_LIFECYCLE_CHECK_ENABLED",
   "MAINNET_WALLET_PRIVATE_KEY",
   "MAINNET_WALLET_ADDRESS",
+  "MAINNET_CLICKHOUSE_URL",
   "MAINNET_DEAL_JOB_TIMEOUT_SECONDS",
   "MAINNET_DATASET_LIFECYCLE_CHECK_ENABLED",
 ];
@@ -64,6 +67,7 @@ describe("config pipeline (validateConfig -> loadConfig)", () => {
     process.env.WALLET_ADDRESS = "0xabc";
     process.env.SESSION_KEY_PRIVATE_KEY = "0xsession";
     process.env.RPC_URL = "http://erpc.local/main/evm/314159";
+    process.env.CLICKHOUSE_URL = "http://clickhouse.local:8123/dealbot_calibration";
     process.env.DEALBOT_MAINTENANCE_WINDOWS_UTC = "01:00,13:00";
 
     expect(() => validateConfig(process.env as Record<string, unknown>)).not.toThrow();
@@ -71,6 +75,7 @@ describe("config pipeline (validateConfig -> loadConfig)", () => {
 
     expect(cfg.activeNetworks).toEqual(["calibration"]);
     expect(cfg.networks.calibration.rpcUrl).toBe("http://erpc.local/main/evm/314159");
+    expect(cfg.networks.calibration.clickhouseUrl).toBe("http://clickhouse.local:8123/dealbot_calibration");
     expect(cfg.networks.calibration.maintenanceWindowsUtc).toEqual(["01:00", "13:00"]);
     if ("sessionKeyPrivateKey" in cfg.networks.calibration) {
       expect(cfg.networks.calibration.sessionKeyPrivateKey).toBe("0xsession");

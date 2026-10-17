@@ -10,7 +10,7 @@ Our goal in having an "approved" SP list is to support a production-grade qualit
 | Metric | Threshold | Minimum Sample Size |
 |--------|-----------|---------------------|
 | [Data Storage Success Rate](#data-storage-success-rate) | ≥ 97% | 200 |
-| [Data Retention Fault Rate](#data-retention-fault-rate) | ≤ 0.2% | 500 |
+| [Storage Proving Fault Rate](#storage-proving-fault-rate) | ≤ 0.2% | 500 |
 | [Retrieval Success Rate](#retrieval-success-rate) | ≥ 97% | 200 |
 
 ### Data Storage Success Rate
@@ -21,7 +21,7 @@ Relevant parameters include:
 | Parameter | Value | Notes |
 |-----------|-------|-------|
 | [`DEALS_PER_SP_PER_HOUR`](../environment-variables.md#deals_per_sp_per_hour) | 4 | 96 per day |
-| [`MIN_NUM_DATASETS_FOR_CHECKS`](../environment-variables.md#dataset-configuration) | 15 | Ensure there are enough datasets with pieces being added so that statistical significance for [Data Retention Fault Rate](#data-retention-fault-rate) can be achieved quicker. |
+| [`MIN_NUM_DATASETS_FOR_CHECKS`](../environment-variables.md#dataset-configuration) | 15 | Ensure there are enough datasets with pieces being added so that statistical significance for [Storage Proving Fault Rate](#storage-proving-fault-rate) can be achieved quicker. |
 | [`RANDOM_PIECE_SIZES`](../environment-variables.md#random_dataset_sizes) | 10485760 | 10MB files are used for simplicity.  See [Why are 10MB files used for testing?](#why-are-10mb-files-used-for-testing) for more details. |
 | Max [`ingestMs`](./events-and-metrics.md#ingestMs) | 20s | |
 | Max [`pieceAddedOnChainMs`](./events-and-metrics.md#pieceAddedOnChainMs) | 60s | |
@@ -33,17 +33,17 @@ Relevant parameters include:
 
 This minimum observed success rate threshold count is for having 95% confidence that the success rate is greater than 95%.  See [How are data storage and retrieval check statistics/thresholds calculated?](#how-are-data-storage-and-retrieval-check-statisticsthresholds-calculated) for more details.
 
-### Data Retention Fault Rate
-Per the [Data Retention check](./data-retention.md), this is calculated by looking at all the dataset proofs on chain for the SPs and determining how many challenges were missed or failed.  
+### Storage Proving Fault Rate
+Per the [Storage Proving check](./data-retention.md), this is calculated by looking at all the dataset proofs on chain for the SPs and determining how many challenges were missed or failed.  
 
 Relevant parameters include:
 
 | Parameter | Value | Notes |
 |-----------|-------|-------|
 | [`PDP_SUBGRAPH_ENDPOINT`](../environment-variables.md#pdp_subgraph_endpoint) | TODO: fill this in | Uses the subgraph from [pdp-explorer](https://github.com/FilOzone/pdp-explorer). |
-| [`MIN_NUM_DATASETS_FOR_CHECKS`](../environment-variables.md#dataset-configuration) | 15 | Ensure there are enough datasets with pieces being added so that statistical significance for [Data Retention Fault Rate](#data-retention-fault-rate) can be achieved quicker. Note that on mainnet each dataset incurs 5 challenges[^1] per daily proof[^2]. With this many datasets, an SP can be approved for data retention after a faultless ~7 days even if the SP doesn't have other datasets. |
+| [`MIN_NUM_DATASETS_FOR_CHECKS`](../environment-variables.md#dataset-configuration) | 15 | Ensure there are enough datasets with pieces being added so that statistical significance for [Storage Proving Fault Rate](#storage-proving-fault-rate) can be achieved quicker. Note that on mainnet each dataset incurs 5 challenges[^1] per daily proof[^2]. With this many datasets, an SP can be approved for storage proving after a faultless ~7 days even if the SP doesn't have other datasets. |
 
-See [How are data retention statistics/thresholds calculated?](#how-are-data-retention-statisticsthresholds-calculated) for more details.
+See [How are storage proving statistics/thresholds calculated?](#how-are-storage-proving-statisticsthresholds-calculated) for more details.
 
 ### Retrieval Success Rate
 This is calculated as the success rate of [Retrieval checks](./retrievals.md), which includes verifying that previously stored data is still publicly discoverable, retrievable, and verifiable with [standard IPFS tooling](https://github.com/filecoin-project/filecoin-pin/blob/master/documentation/glossary.md#standard-ipfs-tooling).   
@@ -152,7 +152,7 @@ The 2 percentage point gap between the observed rate (97%) and the true-rate thr
 
 In addition, even though an observed rate above 97% (e.g., 99%) would require less than ~200 samples, we still use the 200 minimum samples to keep things simple.  The dealbot does not do any statistical calculations currently for whether the lower confidence bound of an observed rate for an observed number of samples is above the 95% threshold.
 
-## How are data retention statistics/thresholds calculated?
+## How are storage proving statistics/thresholds calculated?
 
 The approval threshold is set at a **fault rate of ≤ 0.2% over a minimum of 500 proof challenges**. The 0.2% observed rate and 500 sample minimum are intentionally simple numbers for SPs to reason about.  The underlying statistical goal is to have **95% confidence (one-sided) that the true fault rate is less than 1%, but allowing for up to 1 observed fault in the sample**.
 
@@ -188,7 +188,7 @@ This gives n ≈ 480, which is rounded up to **500** for convenience.
 
 ### Why allow 1 fault?
 
-Requiring zero faults would demand only ~300 samples (298 to be precise), but a single transient fault - for example a missed proof due to a brief infrastructure hiccup rather than a genuine data retention problem - would permanently disqualify an otherwise reliable SP.  Allowing 1 fault while requiring ~500 samples gives SPs reasonable tolerance for one-off issues while still demanding strong evidence of reliability.
+Requiring zero faults would demand only ~300 samples (298 to be precise), but a single transient fault - for example a missed proof due to a brief infrastructure hiccup rather than a genuine storage proving problem - would permanently disqualify an otherwise reliable SP.  Allowing 1 fault while requiring ~500 samples gives SPs reasonable tolerance for one-off issues while still demanding strong evidence of reliability.
 
 ### Intuition
 

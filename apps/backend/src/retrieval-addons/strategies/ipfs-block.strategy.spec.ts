@@ -32,8 +32,8 @@ function createStrategy() {
     requestWithMetrics: vi.fn(),
   };
 
-  const walletSdkService = {
-    getProviderInfo: vi.fn().mockReturnValue({
+  const storageProviderRepository = {
+    findByAddress: vi.fn().mockResolvedValue({
       pdp: { serviceURL: "https://sp.example.com" },
     }),
   };
@@ -43,12 +43,12 @@ function createStrategy() {
   };
 
   const strategy = new IpfsBlockRetrievalStrategy(
-    walletSdkService as any,
+    storageProviderRepository as any,
     httpClientService as any,
     configService as any,
   );
 
-  return { strategy, httpClientService, walletSdkService };
+  return { strategy, httpClientService, storageProviderRepository };
 }
 
 function mockDealConfig(rootCID: string) {

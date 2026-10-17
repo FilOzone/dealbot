@@ -1,0 +1,1268 @@
+import { Logger } from "@nestjs/common";
+import { ContractFunctionRevertedError } from "viem";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { trickleTierRates } from "../config/constants.js";
+import type { INetworkConfig } from "../config/index.js";
+import type { StorageProviderRepository } from "../providers/repositories/storage-provider.repository.js";
+import type { SubgraphService } from "../subgraph/subgraph.service.js";
+import type { ClientDataSet } from "../subgraph/types.js";
+import type { WalletSdkService } from "../wallet-sdk/wallet-sdk.service.js";
+import { SpCleanupService } from "./sp-cleanup.service.js";
+
+vi.mock("../data-set-lifecycle/data-set-lifecycle.service.js", () => ({
+  terminateServiceSync: vi.fn(),
+}));
+
+vi.mock("@filoz/synapse-core/pay", () => ({
+  getRail: vi.fn(),
+  settleRailCall: vi.fn(),
+  settleTerminatedRailWithoutValidationCall: vi.fn(),
+}));
+
+vi.mock("@filoz/synapse-core/chains", () => ({
+  asChain: vi.fn(),
+}));
+
+// Only the network calls are stubbed. `findMatchingDataSets` and `metadataMatches` stay real:
+// pruning delegates slot resolution to them, so exercising the SDK's own matcher is the point.
+vi.mock("@filoz/synapse-core/warm-storage", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@filoz/synapse-core/warm-storage")>()),
+  getDataSet: vi.fn(),
+}));
+
+vi.mock("viem/actions", () => ({
+  getBlockNumber: vi.fn(),
+  getTransactionCount: vi.fn(),
+  readContract: vi.fn(),
+  simulateContract: vi.fn(),
+  writeContract: vi.fn(),
+  waitForTransactionReceipt: vi.fn(),
+}));
+
+vi.mock("viem", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("viem")>();
+  return {
+    ...actual,
+    encodeFunctionData: vi.fn(() => "0xcalldata"),
+    keccak256: vi.fn(() => "0xchecksum"),
+    stringToBytes: vi.fn(() => new Uint8Array()),
+  };
+});
+
+vi.mock("../common/synapse-factory.js", () => ({
+  createSynapseFromConfig: vi.fn(),
+}));
+
+const { terminateServiceSync } = await import("../data-set-lifecycle/data-set-lifecycle.service.js");
+const { settleRailCall, settleTerminatedRailWithoutValidationCall } = await import("@filoz/synapse-core/pay");
+const { asChain } = await import("@filoz/synapse-core/chains");
+const { getDataSet } = await import("@filoz/synapse-core/warm-storage");
+const { getBlockNumber, getTransactionCount, simulateContract, writeContract, waitForTransactionReceipt } =
+  await import("viem/actions");
+
+const DEFAULT_NETWORK = "calibration";
+
+function makeNetworkConfig(overrides: Partial<INetworkConfig> = {}): INetworkConfig {
+  return {
+    network: DEFAULT_NETWORK,
+    walletAddress: "0xWaLLet000000000000000000000000000000000",
+    walletPrivateKey: "0xkey",
+    blockedSpIds: new Set<string>(),
+    blockedSpAddresses: new Set<string>(),
+    fullRateSpIds: new Set<string>(),
+    fullRateSpAddresses: new Set<string>(),
+    useOnlyApprovedProviders: false,
+    minNumDataSetsForChecks: 15,
+    excessDataSetBuffer: 5,
+    dataSetLifecycleCheckJobTimeoutSeconds: 600,
+    ...overrides,
+  } as unknown as INetworkConfig;
+}
+
+function makeProvider(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 1n,
+    serviceProvider: "0xsp0000000000000000000000000000000000001",
+    payee: "0xpayee",
+    name: "Test SP",
+    isApproved: false,
+    pdp: { serviceURL: "https://sp.example.com" },
+    ...overrides,
+  };
+}
+
+/**
+ * The metadata a slot's data set actually carries on-chain. Verified against mainnet, where
+ * every one of dealbot's 236 data sets has exactly `{source, withIPFSIndexing}` or
+ * `{source, withIPFSIndexing, dealbotDS}`.
+ *
+ * `source` is added by the SDK, not by our callers, so a fixture that omits it would let these
+ * tests pass against a reconstruction that matches nothing in production.
+ */
+function slotMeta(index: number): Record<string, string> {
+  return {
+    source: "dealbot",
+    withIPFSIndexing: "",
+    ...(index > 0 ? { dealbotDS: String(index) } : {}),
+  };
+}
+
+function makeDataSet(overrides: Partial<ClientDataSet> = {}): ClientDataSet {
+  return {
+    dataSetId: 1n,
+    serviceProvider: "0xsp0000000000000000000000000000000000001",
+    pdpEndEpoch: 0n,
+    pdpRailId: 100n,
+    pdpRailFinalized: false,
+    // Far outside the 86400-block activity window at the default snapshot block (200000).
+    lastProvenEpoch: 1000n,
+    metadata: slotMeta(0),
+    hasActivePieces: false,
+    ...overrides,
+  };
+}
+
+const fakeChain = {
+  id: 314159,
+  contracts: {
+    pdp: { address: "0xpdpverifier", abi: [] },
+    filecoinPay: { address: "0xfilecoinpay", abi: [] },
+  },
+};
+
+describe("SpCleanupService", () => {
+  let service: SpCleanupService;
+  let configService: { get: ReturnType<typeof vi.fn> };
+  let walletSdkService: {
+    tryGetSynapse: ReturnType<typeof vi.fn>;
+  };
+  let storageProviderRepository: {
+    findAllByNetwork: ReturnType<typeof vi.fn>;
+    findActiveAddresses: ReturnType<typeof vi.fn>;
+    findByAddress: ReturnType<typeof vi.fn>;
+  };
+  let subgraphService: { fetchClientDataSets: ReturnType<typeof vi.fn> };
+  let dealRepository: { update: ReturnType<typeof vi.fn> };
+  let attemptsCounter: { inc: ReturnType<typeof vi.fn> };
+  let stuckGauge: { set: ReturnType<typeof vi.fn> };
+  let warnSpy: ReturnType<typeof vi.spyOn>;
+
+  /** The snapshot block is what both jobs decide against; the chain head only feeds the lag guard. */
+  function mockSnapshot(dataSets: ClientDataSet[], indexedAtBlock = 200000n, chainHead = indexedAtBlock): void {
+    subgraphService.fetchClientDataSets.mockResolvedValueOnce({ dataSets, indexedAtBlock: Number(indexedAtBlock) });
+    vi.mocked(getBlockNumber).mockResolvedValueOnce(chainHead);
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+
+    warnSpy = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    vi.spyOn(Logger.prototype, "log").mockImplementation(() => undefined);
+    vi.spyOn(Logger.prototype, "error").mockImplementation(() => undefined);
+
+    const networkConfig = makeNetworkConfig();
+    configService = {
+      get: vi.fn((key: string) => {
+        if (key === "networks") return { [DEFAULT_NETWORK]: networkConfig };
+        return undefined;
+      }),
+    };
+
+    walletSdkService = {
+      tryGetSynapse: vi.fn(() => ({
+        client: { chain: fakeChain },
+        sessionClient: { chain: fakeChain, account: { address: "0xsession" } },
+      })),
+    };
+
+    storageProviderRepository = {
+      findAllByNetwork: vi.fn(async () => []),
+      findActiveAddresses: vi.fn(async () => []),
+      findByAddress: vi.fn(async () => undefined),
+    };
+
+    subgraphService = { fetchClientDataSets: vi.fn(async () => ({ dataSets: [], indexedAtBlock: 200000 })) };
+    dealRepository = { update: vi.fn(async () => ({ affected: 0 })) };
+    attemptsCounter = { inc: vi.fn() };
+    stuckGauge = { set: vi.fn() };
+
+    service = new SpCleanupService(
+      configService as unknown as ConstructorParameters<typeof SpCleanupService>[0],
+      walletSdkService as unknown as WalletSdkService,
+      storageProviderRepository as unknown as StorageProviderRepository,
+      subgraphService as unknown as SubgraphService,
+      dealRepository as unknown as ConstructorParameters<typeof SpCleanupService>[4],
+      attemptsCounter as unknown as ConstructorParameters<typeof SpCleanupService>[5],
+      stuckGauge as unknown as ConstructorParameters<typeof SpCleanupService>[6],
+    );
+
+    vi.mocked(asChain).mockReturnValue(fakeChain as any);
+    vi.mocked(getBlockNumber).mockResolvedValue(200000n);
+    vi.mocked(terminateServiceSync).mockResolvedValue({} as any);
+    // Pruning re-reads each planned data set right before terminating it; by default it is
+    // still active, so the plan is carried out as computed.
+    vi.mocked(getDataSet).mockResolvedValue({ pdpEndEpoch: 0n } as any);
+    vi.mocked(getTransactionCount).mockResolvedValue(0);
+    vi.mocked(settleRailCall).mockImplementation(
+      (opts) =>
+        ({
+          address: "0xfilecoinpay",
+          abi: [],
+          functionName: "settleRail",
+          args: [opts.railId, opts.untilEpoch],
+        }) as any,
+    );
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  describe("runDataSetPruning (Job A)", () => {
+    it("terminates every active data set for a blocked SP down to 0", async () => {
+      const networkConfig = makeNetworkConfig({
+        blockedSpAddresses: new Set(["0xsp0000000000000000000000000000000000001"]),
+      });
+      configService.get.mockImplementation((key: string) =>
+        key === "networks" ? { [DEFAULT_NETWORK]: networkConfig } : undefined,
+      );
+
+      const blockedProvider = makeProvider();
+      storageProviderRepository.findAllByNetwork.mockResolvedValueOnce([blockedProvider]);
+
+      mockSnapshot([makeDataSet({ dataSetId: 5n }), makeDataSet({ dataSetId: 6n })]);
+
+      await service.runDataSetPruning(DEFAULT_NETWORK);
+
+      expect(terminateServiceSync).toHaveBeenCalledTimes(2);
+      expect(terminateServiceSync).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ dataSetId: 5n }));
+      expect(terminateServiceSync).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ dataSetId: 6n }));
+      expect(attemptsCounter.inc).toHaveBeenCalledWith({
+        network: DEFAULT_NETWORK,
+        outcome: "success",
+        reason: "blocked",
+      });
+      expect(attemptsCounter.inc).toHaveBeenCalledTimes(2);
+    });
+
+    it("prunes a trickle-tier SP down to trickleTierRates.minNumDataSetsForChecks", async () => {
+      const trickleAddress = "0xtrickle000000000000000000000000000000001";
+      storageProviderRepository.findAllByNetwork.mockResolvedValueOnce([
+        makeProvider({ id: 2n, serviceProvider: trickleAddress, name: "Trickle SP", isApproved: false }),
+      ]);
+
+      // trickle target=1 -> one baseline slot survives; buffer=5 (default fixture) means the
+      // remaining 7 surplus copies have to exceed 5 before anything is pruned.
+      const dataSets = [1n, 2n, 3n, 4n, 5n, 6n, 7n, 8n].map((id) =>
+        makeDataSet({ dataSetId: id, serviceProvider: trickleAddress, metadata: slotMeta(0) }),
+      );
+      mockSnapshot(dataSets);
+
+      await service.runDataSetPruning(DEFAULT_NETWORK);
+
+      // One set per required slot survives; every other copy is surplus.
+      const expectedTerminated = dataSets.length - trickleTierRates.minNumDataSetsForChecks;
+      expect(terminateServiceSync).toHaveBeenCalledTimes(expectedTerminated);
+      // The SDK resolves this slot to the lowest data-set id, so that is the one kept.
+      expect(terminateServiceSync).not.toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ dataSetId: 1n }),
+      );
+      expect(attemptsCounter.inc).toHaveBeenCalledTimes(expectedTerminated);
+      for (const call of vi.mocked(attemptsCounter.inc).mock.calls) {
+        expect(call[0]).toMatchObject({ reason: "trickle" });
+      }
+    });
+
+    it("terminates a leaked lifecycle-check data set and keeps the real slot, even though the leak is newer", async () => {
+      const networkConfig = makeNetworkConfig({ excessDataSetBuffer: 0 });
+      configService.get.mockImplementation((key: string) =>
+        key === "networks" ? { [DEFAULT_NETWORK]: networkConfig } : undefined,
+      );
+      const trickleAddress = "0xtrickle000000000000000000000000000000002";
+      storageProviderRepository.findAllByNetwork.mockResolvedValueOnce([
+        makeProvider({ id: 6n, serviceProvider: trickleAddress, isApproved: false }),
+      ]);
+
+      // Naive newest-first retention would keep the leaked set (id 10) and terminate the
+      // baseline slot (id 5) — exactly backwards.
+      const realSlot = makeDataSet({ dataSetId: 5n, serviceProvider: trickleAddress, metadata: slotMeta(0) });
+      const leakedSet = makeDataSet({
+        dataSetId: 10n,
+        serviceProvider: trickleAddress,
+        // Tagged long enough ago that no lifecycle-check job could still be using it.
+        metadata: { dealbotLifecycleCheck: "1234567890" },
+      });
+      mockSnapshot([realSlot, leakedSet]);
+
+      await service.runDataSetPruning(DEFAULT_NETWORK);
+
+      expect(terminateServiceSync).toHaveBeenCalledTimes(1);
+      expect(terminateServiceSync).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ dataSetId: 10n }));
+    });
+
+    it("spares a lifecycle-check data set young enough that its job could still be running", async () => {
+      const networkConfig = makeNetworkConfig({ excessDataSetBuffer: 0, dataSetLifecycleCheckJobTimeoutSeconds: 600 });
+      configService.get.mockImplementation((key: string) =>
+        key === "networks" ? { [DEFAULT_NETWORK]: networkConfig } : undefined,
+      );
+      const trickleAddress = "0xtrickle000000000000000000000000000000003";
+      storageProviderRepository.findAllByNetwork.mockResolvedValueOnce([
+        makeProvider({ id: 7n, serviceProvider: trickleAddress, isApproved: false }),
+      ]);
+
+      // Pruning shares no per-provider lock with SP_WORK_QUEUE, so a set tagged one minute ago
+      // may belong to a lifecycle check running right now. It is left for the next run.
+      const realSlot = makeDataSet({ dataSetId: 5n, serviceProvider: trickleAddress, metadata: slotMeta(0) });
+      const inFlight = makeDataSet({
+        dataSetId: 11n,
+        serviceProvider: trickleAddress,
+        metadata: { dealbotLifecycleCheck: String(Date.now() - 60_000) },
+      });
+      mockSnapshot([realSlot, inFlight]);
+
+      await service.runDataSetPruning(DEFAULT_NETWORK);
+
+      expect(terminateServiceSync).not.toHaveBeenCalled();
+    });
+
+    it("leaves a full-rate SP within its target untouched", async () => {
+      const fullRateAddress = "0xfullrate00000000000000000000000000000001";
+      storageProviderRepository.findAllByNetwork.mockResolvedValueOnce([
+        makeProvider({ id: 3n, serviceProvider: fullRateAddress, isApproved: true }),
+      ]);
+      mockSnapshot([makeDataSet({ dataSetId: 99n, serviceProvider: fullRateAddress })]);
+
+      await service.runDataSetPruning(DEFAULT_NETWORK);
+
+      expect(subgraphService.fetchClientDataSets).toHaveBeenCalledWith(
+        DEFAULT_NETWORK,
+        "0xWaLLet000000000000000000000000000000000",
+        undefined,
+      );
+      expect(terminateServiceSync).not.toHaveBeenCalled();
+    });
+
+    it("leaves a full-rate SP alone while its surplus is still within the excess buffer", async () => {
+      // target=15 (default fixture): 15 slots claim one set each, leaving 4 surplus <= buffer 5.
+      const fullRateAddress = "0xfullrate00000000000000000000000000000002";
+      storageProviderRepository.findAllByNetwork.mockResolvedValueOnce([
+        makeProvider({ id: 4n, serviceProvider: fullRateAddress, isApproved: true }),
+      ]);
+      const slots = Array.from({ length: 15 }, (_, i) =>
+        makeDataSet({ dataSetId: BigInt(i + 1), serviceProvider: fullRateAddress, metadata: slotMeta(i) }),
+      );
+      const surplus = Array.from({ length: 4 }, (_, i) =>
+        makeDataSet({ dataSetId: BigInt(100 + i), serviceProvider: fullRateAddress, metadata: slotMeta(1) }),
+      );
+      mockSnapshot([...slots, ...surplus]);
+
+      await service.runDataSetPruning(DEFAULT_NETWORK);
+
+      expect(terminateServiceSync).not.toHaveBeenCalled();
+    });
+
+    it("prunes a full-rate SP's surplus once it exceeds the buffer — safety net independent of root cause", async () => {
+      // target=15, buffer=5: 15 slots survive, and the 6 duplicate copies exceed the buffer.
+      const fullRateAddress = "0xfullrate00000000000000000000000000000003";
+      storageProviderRepository.findAllByNetwork.mockResolvedValueOnce([
+        makeProvider({ id: 5n, serviceProvider: fullRateAddress, isApproved: true }),
+      ]);
+      const slots = Array.from({ length: 15 }, (_, i) =>
+        makeDataSet({ dataSetId: BigInt(i + 1), serviceProvider: fullRateAddress, metadata: slotMeta(i) }),
+      );
+      const duplicateIds = [101n, 102n, 103n, 104n, 105n, 106n];
+      const duplicates = duplicateIds.map((id) =>
+        makeDataSet({ dataSetId: id, serviceProvider: fullRateAddress, metadata: slotMeta(1) }),
+      );
+      mockSnapshot([...slots, ...duplicates]);
+
+      await service.runDataSetPruning(DEFAULT_NETWORK);
+
+      expect(terminateServiceSync).toHaveBeenCalledTimes(6);
+      // Only the duplicate copies go; every slot keeps the set the SDK resolves it to.
+      for (const id of duplicateIds) {
+        expect(terminateServiceSync).toHaveBeenCalledWith(
+          expect.anything(),
+          expect.objectContaining({ dataSetId: id }),
+        );
+      }
+      expect(attemptsCounter.inc).toHaveBeenCalledWith({
+        network: DEFAULT_NETWORK,
+        outcome: "success",
+        reason: "full_rate",
+      });
+      expect(attemptsCounter.inc).toHaveBeenCalledTimes(6);
+    });
+
+    it("keeps one set per required slot instead of the newest N — the newest can all be one slot", async () => {
+      // The regression this guards: with target=3, the three newest sets all belong to slot 1.
+      // Age-based retention would keep those and terminate the only baseline and slot-2 copies,
+      // which data_set_creation then re-provisions, looping forever.
+      const networkConfig = makeNetworkConfig({ minNumDataSetsForChecks: 3, excessDataSetBuffer: 0 });
+      configService.get.mockImplementation((key: string) =>
+        key === "networks" ? { [DEFAULT_NETWORK]: networkConfig } : undefined,
+      );
+      const fullRateAddress = "0xfullrate00000000000000000000000000000004";
+      storageProviderRepository.findAllByNetwork.mockResolvedValueOnce([
+        makeProvider({ id: 8n, serviceProvider: fullRateAddress, isApproved: true }),
+      ]);
+      mockSnapshot([
+        makeDataSet({ dataSetId: 10n, serviceProvider: fullRateAddress, metadata: slotMeta(0) }),
+        makeDataSet({ dataSetId: 11n, serviceProvider: fullRateAddress, metadata: slotMeta(2) }),
+        makeDataSet({ dataSetId: 20n, serviceProvider: fullRateAddress, metadata: slotMeta(1) }),
+        makeDataSet({ dataSetId: 21n, serviceProvider: fullRateAddress, metadata: slotMeta(1) }),
+        makeDataSet({ dataSetId: 22n, serviceProvider: fullRateAddress, metadata: slotMeta(1) }),
+      ]);
+
+      await service.runDataSetPruning(DEFAULT_NETWORK);
+
+      // Baseline (10), slot 2 (11) and slot 1's lowest id (20) survive; the extra slot-1 copies go.
+      expect(terminateServiceSync).toHaveBeenCalledTimes(2);
+      for (const id of [21n, 22n]) {
+        expect(terminateServiceSync).toHaveBeenCalledWith(
+          expect.anything(),
+          expect.objectContaining({ dataSetId: id }),
+        );
+      }
+    });
+
+    it("keeps the copy holding pieces when a slot has several, matching the SDK's own resolution", async () => {
+      const networkConfig = makeNetworkConfig({ minNumDataSetsForChecks: 1, excessDataSetBuffer: 0 });
+      configService.get.mockImplementation((key: string) =>
+        key === "networks" ? { [DEFAULT_NETWORK]: networkConfig } : undefined,
+      );
+      const fullRateAddress = "0xfullrate00000000000000000000000000000005";
+      storageProviderRepository.findAllByNetwork.mockResolvedValueOnce([
+        makeProvider({ id: 9n, serviceProvider: fullRateAddress, isApproved: true }),
+      ]);
+      mockSnapshot([
+        makeDataSet({ dataSetId: 30n, serviceProvider: fullRateAddress, metadata: slotMeta(0) }),
+        makeDataSet({
+          dataSetId: 31n,
+          serviceProvider: fullRateAddress,
+          metadata: slotMeta(0),
+          hasActivePieces: true,
+        }),
+      ]);
+
+      await service.runDataSetPruning(DEFAULT_NETWORK);
+
+      // createContext prefers the lowest-id set that still holds pieces, so 31 is the live one.
+      expect(terminateServiceSync).toHaveBeenCalledTimes(1);
+      expect(terminateServiceSync).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ dataSetId: 30n }));
+    });
+
+    it("skips a planned data set that another job already terminated before the relay call", async () => {
+      const networkConfig = makeNetworkConfig({ minNumDataSetsForChecks: 1, excessDataSetBuffer: 0 });
+      configService.get.mockImplementation((key: string) =>
+        key === "networks" ? { [DEFAULT_NETWORK]: networkConfig } : undefined,
+      );
+      const fullRateAddress = "0xfullrate00000000000000000000000000000006";
+      storageProviderRepository.findAllByNetwork.mockResolvedValueOnce([
+        makeProvider({ id: 10n, serviceProvider: fullRateAddress, isApproved: true }),
+      ]);
+      mockSnapshot([
+        makeDataSet({ dataSetId: 40n, serviceProvider: fullRateAddress, metadata: slotMeta(0) }),
+        makeDataSet({ dataSetId: 41n, serviceProvider: fullRateAddress, metadata: slotMeta(0) }),
+      ]);
+      // The snapshot said 41 was active; by the time pruning reaches it, it is terminated.
+      vi.mocked(getDataSet).mockResolvedValueOnce({ pdpEndEpoch: 123n } as any);
+
+      await service.runDataSetPruning(DEFAULT_NETWORK);
+
+      expect(terminateServiceSync).not.toHaveBeenCalled();
+      expect(attemptsCounter.inc).not.toHaveBeenCalled();
+      expect(dealRepository.update).not.toHaveBeenCalled();
+    });
+
+    it("marks a terminated data set's deals cleaned up so retrievals stop targeting them", async () => {
+      const networkConfig = makeNetworkConfig({
+        blockedSpAddresses: new Set(["0xsp0000000000000000000000000000000000001"]),
+      });
+      configService.get.mockImplementation((key: string) =>
+        key === "networks" ? { [DEFAULT_NETWORK]: networkConfig } : undefined,
+      );
+      storageProviderRepository.findAllByNetwork.mockResolvedValueOnce([makeProvider()]);
+      mockSnapshot([makeDataSet({ dataSetId: 9n })]);
+
+      await service.runDataSetPruning(DEFAULT_NETWORK);
+
+      expect(dealRepository.update).toHaveBeenCalledWith(
+        { dataSetId: 9n, network: DEFAULT_NETWORK, cleanedUp: false },
+        { cleanedUp: true, cleanedUpAt: expect.any(Date) },
+      );
+    });
+
+    it("leaves deals alone when the termination attempt fails", async () => {
+      const networkConfig = makeNetworkConfig({
+        blockedSpAddresses: new Set(["0xsp0000000000000000000000000000000000001"]),
+      });
+      configService.get.mockImplementation((key: string) =>
+        key === "networks" ? { [DEFAULT_NETWORK]: networkConfig } : undefined,
+      );
+      storageProviderRepository.findAllByNetwork.mockResolvedValueOnce([makeProvider()]);
+      mockSnapshot([makeDataSet({ dataSetId: 9n })]);
+
+      vi.mocked(terminateServiceSync).mockRejectedValueOnce(new Error("SP unreachable"));
+
+      await service.runDataSetPruning(DEFAULT_NETWORK);
+
+      expect(dealRepository.update).not.toHaveBeenCalled();
+    });
+
+    it("still records a successful termination when marking its deals fails", async () => {
+      const networkConfig = makeNetworkConfig({
+        blockedSpAddresses: new Set(["0xsp0000000000000000000000000000000000001"]),
+      });
+      configService.get.mockImplementation((key: string) =>
+        key === "networks" ? { [DEFAULT_NETWORK]: networkConfig } : undefined,
+      );
+      storageProviderRepository.findAllByNetwork.mockResolvedValueOnce([makeProvider()]);
+      mockSnapshot([makeDataSet({ dataSetId: 9n })]);
+      dealRepository.update.mockRejectedValueOnce(new Error("connection terminated"));
+
+      await service.runDataSetPruning(DEFAULT_NETWORK);
+
+      expect(attemptsCounter.inc).toHaveBeenCalledWith({
+        network: DEFAULT_NETWORK,
+        outcome: "success",
+        reason: "blocked",
+      });
+      expect(attemptsCounter.inc).not.toHaveBeenCalledWith(expect.objectContaining({ outcome: "failure" }));
+      expect(warnSpy).toHaveBeenCalledWith(expect.objectContaining({ event: "sp_cleanup_deals_cleanup_mark_failed" }));
+    });
+
+    it("prunes a deregistered provider using its retained registry row", async () => {
+      const networkConfig = makeNetworkConfig({ minNumDataSetsForChecks: 1, excessDataSetBuffer: 0 });
+      configService.get.mockImplementation((key: string) =>
+        key === "networks" ? { [DEFAULT_NETWORK]: networkConfig } : undefined,
+      );
+      const deregisteredAddress = "0xderegistered000000000000000000000000001";
+      // Registry sync only marks a vanished provider inactive, so its service URL is still known.
+      storageProviderRepository.findAllByNetwork.mockResolvedValueOnce([
+        makeProvider({
+          id: 12n,
+          serviceProvider: deregisteredAddress,
+          isActive: false,
+          pdp: { serviceURL: "https://gone.example.com" },
+        }),
+      ]);
+      mockSnapshot([
+        makeDataSet({ dataSetId: 77n, serviceProvider: deregisteredAddress, metadata: slotMeta(0) }),
+        makeDataSet({ dataSetId: 78n, serviceProvider: deregisteredAddress, metadata: slotMeta(0) }),
+      ]);
+
+      await service.runDataSetPruning(DEFAULT_NETWORK);
+
+      expect(terminateServiceSync).toHaveBeenCalledTimes(1);
+      expect(terminateServiceSync).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ dataSetId: 78n, serviceURL: "https://gone.example.com" }),
+      );
+    });
+
+    it("skips a provider with no registry row, since there is no service URL to relay to", async () => {
+      const networkConfig = makeNetworkConfig({ minNumDataSetsForChecks: 1, excessDataSetBuffer: 0 });
+      configService.get.mockImplementation((key: string) =>
+        key === "networks" ? { [DEFAULT_NETWORK]: networkConfig } : undefined,
+      );
+      const unknownAddress = "0xunknown0000000000000000000000000000001";
+      storageProviderRepository.findAllByNetwork.mockResolvedValueOnce([]);
+      mockSnapshot([
+        makeDataSet({ dataSetId: 77n, serviceProvider: unknownAddress, metadata: slotMeta(0) }),
+        makeDataSet({ dataSetId: 78n, serviceProvider: unknownAddress, metadata: slotMeta(0) }),
+      ]);
+
+      await service.runDataSetPruning(DEFAULT_NETWORK);
+
+      expect(terminateServiceSync).not.toHaveBeenCalled();
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ event: "sp_cleanup_provider_unknown", providerAddress: unknownAddress }),
+      );
+    });
+
+    it("propagates an abort raised on the last data set instead of reporting success", async () => {
+      const networkConfig = makeNetworkConfig({ minNumDataSetsForChecks: 1, excessDataSetBuffer: 0 });
+      configService.get.mockImplementation((key: string) =>
+        key === "networks" ? { [DEFAULT_NETWORK]: networkConfig } : undefined,
+      );
+      const fullRateAddress = "0xfullrate00000000000000000000000000000007";
+      storageProviderRepository.findAllByNetwork.mockResolvedValueOnce([
+        makeProvider({ id: 11n, serviceProvider: fullRateAddress, isApproved: true }),
+      ]);
+      mockSnapshot([
+        makeDataSet({ dataSetId: 50n, serviceProvider: fullRateAddress, metadata: slotMeta(0) }),
+        makeDataSet({ dataSetId: 51n, serviceProvider: fullRateAddress, metadata: slotMeta(0) }),
+      ]);
+
+      const controller = new AbortController();
+      vi.mocked(terminateServiceSync).mockImplementationOnce(async () => {
+        controller.abort(new Error("sp_data_set_pruning job timeout"));
+        throw new Error("aborted mid-relay");
+      });
+
+      // Without the abort re-throw this would be swallowed as a per-data-set failure and the
+      // job would be recorded as successful despite the timeout.
+      await expect(service.runDataSetPruning(DEFAULT_NETWORK, controller.signal)).rejects.toThrow();
+    });
+
+    it("fetches the wallet's data sets exactly once regardless of how many blocked/trickle SPs there are", async () => {
+      const networkConfig = makeNetworkConfig({
+        blockedSpAddresses: new Set([
+          "0xsp0000000000000000000000000000000000001",
+          "0xsp0000000000000000000000000000000000002",
+        ]),
+      });
+      configService.get.mockImplementation((key: string) =>
+        key === "networks" ? { [DEFAULT_NETWORK]: networkConfig } : undefined,
+      );
+      const trickleAddress = "0xtrickle000000000000000000000000000000001";
+      storageProviderRepository.findAllByNetwork.mockResolvedValueOnce([
+        makeProvider({ id: 1n, serviceProvider: "0xsp0000000000000000000000000000000000001" }),
+        makeProvider({ id: 2n, serviceProvider: "0xsp0000000000000000000000000000000000002" }),
+        makeProvider({ id: 3n, serviceProvider: trickleAddress, isApproved: false }),
+      ]);
+      mockSnapshot([]);
+
+      await service.runDataSetPruning(DEFAULT_NETWORK);
+
+      expect(subgraphService.fetchClientDataSets).toHaveBeenCalledTimes(1);
+    });
+
+    it("fails the run when the subgraph can't be read, rather than pruning from nothing", async () => {
+      const subgraphError = new Error("Failed to fetch subgraph client_datasets after 3 attempts");
+      subgraphService.fetchClientDataSets.mockRejectedValueOnce(subgraphError);
+
+      await expect(service.runDataSetPruning(DEFAULT_NETWORK)).rejects.toBe(subgraphError);
+
+      expect(terminateServiceSync).not.toHaveBeenCalled();
+    });
+
+    it("refuses to prune from a subgraph snapshot too far behind the chain head", async () => {
+      const networkConfig = makeNetworkConfig({
+        blockedSpAddresses: new Set(["0xsp0000000000000000000000000000000000001"]),
+      });
+      configService.get.mockImplementation((key: string) =>
+        key === "networks" ? { [DEFAULT_NETWORK]: networkConfig } : undefined,
+      );
+      storageProviderRepository.findAllByNetwork.mockResolvedValueOnce([makeProvider()]);
+      // 61 blocks behind: one past the tolerated lag.
+      mockSnapshot([makeDataSet({ dataSetId: 5n })], 200000n, 200061n);
+
+      await expect(service.runDataSetPruning(DEFAULT_NETWORK)).rejects.toThrow(/61 blocks behind the chain head/);
+
+      expect(terminateServiceSync).not.toHaveBeenCalled();
+    });
+
+    it("still prunes when the snapshot lags by exactly the tolerated amount", async () => {
+      const networkConfig = makeNetworkConfig({
+        blockedSpAddresses: new Set(["0xsp0000000000000000000000000000000000001"]),
+      });
+      configService.get.mockImplementation((key: string) =>
+        key === "networks" ? { [DEFAULT_NETWORK]: networkConfig } : undefined,
+      );
+      storageProviderRepository.findAllByNetwork.mockResolvedValueOnce([makeProvider()]);
+      mockSnapshot([makeDataSet({ dataSetId: 5n })], 200000n, 200060n);
+
+      await service.runDataSetPruning(DEFAULT_NETWORK);
+
+      expect(terminateServiceSync).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ dataSetId: 5n }));
+    });
+
+    it("continues the batch when a provider-relay termination attempt fails", async () => {
+      const networkConfig = makeNetworkConfig({
+        blockedSpAddresses: new Set(["0xsp0000000000000000000000000000000000001"]),
+      });
+      configService.get.mockImplementation((key: string) =>
+        key === "networks" ? { [DEFAULT_NETWORK]: networkConfig } : undefined,
+      );
+
+      storageProviderRepository.findAllByNetwork.mockResolvedValueOnce([makeProvider()]);
+
+      mockSnapshot([makeDataSet({ dataSetId: 7n }), makeDataSet({ dataSetId: 8n })]);
+
+      vi.mocked(terminateServiceSync)
+        .mockRejectedValueOnce(new Error("SP unreachable"))
+        .mockResolvedValueOnce({} as any);
+
+      await expect(service.runDataSetPruning(DEFAULT_NETWORK)).resolves.toBeUndefined();
+
+      expect(terminateServiceSync).toHaveBeenCalledTimes(2);
+      expect(attemptsCounter.inc).toHaveBeenCalledWith({
+        network: DEFAULT_NETWORK,
+        outcome: "failure",
+        reason: "blocked",
+      });
+      expect(attemptsCounter.inc).toHaveBeenCalledWith({
+        network: DEFAULT_NETWORK,
+        outcome: "success",
+        reason: "blocked",
+      });
+    });
+
+    it("stops relaying more excess data sets for the same provider once the signal aborts mid-batch", async () => {
+      const networkConfig = makeNetworkConfig({
+        blockedSpAddresses: new Set(["0xsp0000000000000000000000000000000000001"]),
+      });
+      configService.get.mockImplementation((key: string) =>
+        key === "networks" ? { [DEFAULT_NETWORK]: networkConfig } : undefined,
+      );
+
+      storageProviderRepository.findAllByNetwork.mockResolvedValueOnce([makeProvider()]);
+
+      // Leave items queued when the abort fires.
+      mockSnapshot(Array.from({ length: 8 }, (_, i) => makeDataSet({ dataSetId: BigInt(30 + i) })));
+
+      const controller = new AbortController();
+      vi.mocked(terminateServiceSync).mockImplementationOnce(async () => {
+        controller.abort(new Error("sp_data_set_pruning job timeout"));
+        return {} as any;
+      });
+
+      await expect(service.runDataSetPruning(DEFAULT_NETWORK, controller.signal)).rejects.toThrow();
+
+      expect(vi.mocked(terminateServiceSync).mock.calls.length).toBeLessThanOrEqual(5);
+    });
+  });
+
+  describe("runAbandonedDataSetSweep (Job B)", () => {
+    it("deletes an abandoned data set directly via PDPVerifier.deleteDataSet with no signature (zero pieces, no cleanupPieces follow-up needed)", async () => {
+      // Last proven epoch far in the past -> outside the 86400-block activity window.
+      const dataSet = makeDataSet({ dataSetId: 10n, pdpEndEpoch: 0n, lastProvenEpoch: 1000n });
+      mockSnapshot([dataSet], 200000n);
+      const notInCleanupModeError = new ContractFunctionRevertedError({ abi: [], functionName: "cleanupPieces" });
+      notInCleanupModeError.data = { errorName: "DataSetNotInCleanupMode", args: [] } as any;
+      vi.mocked(simulateContract)
+        .mockResolvedValueOnce({ request: { fake: "deleteDataSet-request" } } as any) // deleteDataSet
+        // Zero remaining pieces: deleteDataSet already finalized directly, so cleanupPieces isn't
+        // in cleanup mode and reverts — this is the expected, common case, not a failure.
+        .mockRejectedValueOnce(notInCleanupModeError);
+      vi.mocked(writeContract).mockResolvedValueOnce("0xtxhash" as any);
+      vi.mocked(waitForTransactionReceipt).mockResolvedValueOnce({ status: "success" } as any);
+
+      await service.runAbandonedDataSetSweep(DEFAULT_NETWORK);
+
+      expect(simulateContract).toHaveBeenNthCalledWith(
+        1,
+        expect.anything(),
+        expect.objectContaining({ functionName: "deleteDataSet", args: [10n, "0x"] }),
+      );
+      expect(simulateContract).toHaveBeenNthCalledWith(
+        2,
+        expect.anything(),
+        expect.objectContaining({ functionName: "cleanupPieces", args: [10n, 100n] }),
+      );
+      expect(writeContract).toHaveBeenCalledTimes(1); // only deleteDataSet actually wrote a tx
+      expect(writeContract).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ fake: "deleteDataSet-request", nonce: expect.any(Number) }),
+      );
+      // No provider-relay signature/POST path used for the abandonment branch.
+      expect(terminateServiceSync).not.toHaveBeenCalled();
+      expect(attemptsCounter.inc).toHaveBeenCalledWith({
+        network: DEFAULT_NETWORK,
+        outcome: "success",
+        reason: "abandonment",
+      });
+    });
+
+    it("assigns distinct sequential nonces to concurrent writes instead of racing the default lookup", async () => {
+      const dataSets = [30n, 31n].map((id) => makeDataSet({ dataSetId: id, pdpEndEpoch: 0n }));
+      mockSnapshot(dataSets, 200000n);
+      vi.mocked(getTransactionCount).mockResolvedValueOnce(7); // allocator's starting point
+      const notInCleanupMode = new ContractFunctionRevertedError({ abi: [], functionName: "cleanupPieces" });
+      notInCleanupMode.data = { errorName: "DataSetNotInCleanupMode", args: [] } as any;
+      vi.mocked(simulateContract).mockImplementation((async (_client: unknown, params: any) =>
+        params.functionName === "deleteDataSet"
+          ? { request: { fake: "deleteDataSet-request" } }
+          : Promise.reject(notInCleanupMode)) as never);
+      vi.mocked(writeContract).mockResolvedValue("0xtxhash" as any);
+      vi.mocked(waitForTransactionReceipt).mockResolvedValue({ status: "success" } as any);
+
+      await service.runAbandonedDataSetSweep(DEFAULT_NETWORK);
+
+      const deleteCalls = vi.mocked(writeContract).mock.calls;
+      expect(deleteCalls).toHaveLength(2);
+      const nonces = deleteCalls.map(([, request]: any) => request.nonce).sort();
+      expect(nonces).toEqual([7, 8]);
+    });
+
+    it("uses nonce 0 only for the initial lookup of a nonexistent Filecoin actor", async () => {
+      const dataSets = [60n, 61n, 62n].map((id) => makeDataSet({ dataSetId: id, pdpEndEpoch: 0n }));
+      mockSnapshot(dataSets, 200000n);
+      vi.mocked(getTransactionCount).mockRejectedValue(
+        new Error("RPC error (-32603): Actor not found: addr=t410f4dgtokspabbge4kn5sqhzkvlb2faf6vxjgxfwsq"),
+      );
+      const notInCleanupMode = new ContractFunctionRevertedError({ abi: [], functionName: "cleanupPieces" });
+      notInCleanupMode.data = { errorName: "DataSetNotInCleanupMode", args: [] } as any;
+      vi.mocked(simulateContract).mockImplementation((async (_client: unknown, params: any) =>
+        params.functionName === "deleteDataSet"
+          ? { request: { fake: "deleteDataSet-request" } }
+          : Promise.reject(notInCleanupMode)) as never);
+      vi.mocked(writeContract)
+        .mockResolvedValueOnce("0xtxhash" as any)
+        .mockRejectedValueOnce(new Error("network error before broadcast"))
+        .mockResolvedValue("0xunexpected" as any);
+      vi.mocked(waitForTransactionReceipt).mockResolvedValue({ status: "success" } as any);
+
+      await expect(service.runAbandonedDataSetSweep(DEFAULT_NETWORK)).resolves.toBeUndefined();
+
+      const deleteCalls = vi.mocked(writeContract).mock.calls;
+      expect(deleteCalls.map(([, request]: any) => request.nonce)).toEqual([0, 1]);
+    });
+
+    it("re-derives the nonce from the chain after a failed submission instead of leaving a gap", async () => {
+      const dataSets = [40n, 41n].map((id) => makeDataSet({ dataSetId: id, pdpEndEpoch: 0n }));
+      mockSnapshot(dataSets, 200000n);
+      // Initial fetch and post-failure resync both see nonce 7.
+      vi.mocked(getTransactionCount).mockResolvedValueOnce(7).mockResolvedValueOnce(7);
+      const notInCleanupMode = new ContractFunctionRevertedError({ abi: [], functionName: "cleanupPieces" });
+      notInCleanupMode.data = { errorName: "DataSetNotInCleanupMode", args: [] } as any;
+      vi.mocked(simulateContract).mockImplementation((async (_client: unknown, params: any) =>
+        params.functionName === "deleteDataSet"
+          ? { request: { fake: "deleteDataSet-request" } }
+          : Promise.reject(notInCleanupMode)) as never);
+      vi.mocked(writeContract)
+        .mockRejectedValueOnce(new Error("network error before broadcast"))
+        .mockResolvedValueOnce("0xtxhash" as any);
+      vi.mocked(waitForTransactionReceipt).mockResolvedValue({ status: "success" } as any);
+
+      await service.runAbandonedDataSetSweep(DEFAULT_NETWORK);
+
+      const calls = vi.mocked(writeContract).mock.calls;
+      expect(calls).toHaveLength(2);
+      expect((calls[0][1] as any).nonce).toBe(7);
+      expect((calls[1][1] as any).nonce).toBe(7);
+      expect(attemptsCounter.inc).toHaveBeenCalledWith({
+        network: DEFAULT_NETWORK,
+        outcome: "failure",
+        reason: "abandonment",
+      });
+      expect(attemptsCounter.inc).toHaveBeenCalledWith({
+        network: DEFAULT_NETWORK,
+        outcome: "success",
+        reason: "abandonment",
+      });
+    });
+
+    it("finishes a write already in flight when the deadline fires instead of orphaning it unrecorded", async () => {
+      const dataSet = makeDataSet({ dataSetId: 50n, pdpEndEpoch: 0n });
+      mockSnapshot([dataSet], 200000n);
+      const notInCleanupMode = new ContractFunctionRevertedError({ abi: [], functionName: "cleanupPieces" });
+      notInCleanupMode.data = { errorName: "DataSetNotInCleanupMode", args: [] } as any;
+      vi.mocked(simulateContract).mockImplementation((async (_client: unknown, params: any) =>
+        params.functionName === "deleteDataSet"
+          ? { request: { fake: "deleteDataSet-request" } }
+          : Promise.reject(notInCleanupMode)) as never);
+
+      const controller = new AbortController();
+      // Abort after submission starts.
+      vi.mocked(writeContract).mockImplementationOnce(async () => {
+        controller.abort(new Error("abandoned_data_set_sweep job timeout"));
+        return "0xtxhash" as any;
+      });
+      vi.mocked(waitForTransactionReceipt).mockResolvedValue({ status: "success" } as any);
+
+      // The committed delete finishes; cleanup does not start after the abort.
+      await expect(service.runAbandonedDataSetSweep(DEFAULT_NETWORK, controller.signal)).rejects.toThrow();
+
+      expect(attemptsCounter.inc).toHaveBeenCalledWith({
+        network: DEFAULT_NETWORK,
+        outcome: "success",
+        reason: "abandonment",
+      });
+      expect(attemptsCounter.inc).not.toHaveBeenCalledWith({
+        network: DEFAULT_NETWORK,
+        outcome: "failure",
+        reason: "abandonment",
+      });
+      expect(warnSpy).not.toHaveBeenCalledWith(
+        expect.objectContaining({ event: "sp_cleanup_data_set_abandoned_delete_failed" }),
+      );
+    });
+
+    it("loops cleanupPieces until done=true when pieces remain after deleteDataSet", async () => {
+      const dataSet = makeDataSet({ dataSetId: 12n, pdpEndEpoch: 0n });
+      mockSnapshot([dataSet], 200000n);
+      vi.mocked(simulateContract)
+        .mockResolvedValueOnce({ request: { fake: "deleteDataSet-request" } } as any) // deleteDataSet
+        .mockResolvedValueOnce({ request: { fake: "cleanup-1" }, result: false } as any) // cleanupPieces batch 1
+        .mockResolvedValueOnce({ request: { fake: "cleanup-2" }, result: true } as any); // cleanupPieces batch 2 (done)
+      vi.mocked(writeContract)
+        .mockResolvedValueOnce("0xdelete-hash" as any)
+        .mockResolvedValueOnce("0xcleanup-hash-1" as any)
+        .mockResolvedValueOnce("0xcleanup-hash-2" as any);
+      vi.mocked(waitForTransactionReceipt).mockResolvedValue({ status: "success" } as any);
+
+      await service.runAbandonedDataSetSweep(DEFAULT_NETWORK);
+
+      expect(simulateContract).toHaveBeenCalledTimes(3);
+      expect(writeContract).toHaveBeenCalledTimes(3);
+      expect(simulateContract).toHaveBeenNthCalledWith(
+        2,
+        expect.anything(),
+        expect.objectContaining({ functionName: "cleanupPieces", args: [12n, 100n] }),
+      );
+      expect(simulateContract).toHaveBeenNthCalledWith(
+        3,
+        expect.anything(),
+        expect.objectContaining({ functionName: "cleanupPieces", args: [12n, 100n] }),
+      );
+    });
+
+    it("retries a transient cleanupPieces failure within the same sweep instead of giving up immediately", async () => {
+      const dataSet = makeDataSet({ dataSetId: 16n, pdpEndEpoch: 0n });
+      mockSnapshot([dataSet], 200000n);
+      vi.mocked(simulateContract)
+        .mockResolvedValueOnce({ request: { fake: "deleteDataSet-request" } } as any) // deleteDataSet
+        .mockRejectedValueOnce(new Error("fetch failed: RPC timeout")) // cleanupPieces attempt 1 (transient)
+        .mockResolvedValueOnce({ request: { fake: "cleanup-2" }, result: true } as any); // cleanupPieces attempt 2 (done)
+      vi.mocked(writeContract)
+        .mockResolvedValueOnce("0xdelete-hash" as any)
+        .mockResolvedValueOnce("0xcleanup-hash" as any);
+      vi.mocked(waitForTransactionReceipt).mockResolvedValue({ status: "success" } as any);
+
+      await service.runAbandonedDataSetSweep(DEFAULT_NETWORK);
+
+      // Transient failure didn't write a tx (simulate itself rejected) — only the two successful
+      // simulateContract calls (delete + the retried cleanup) actually reached writeContract.
+      expect(simulateContract).toHaveBeenCalledTimes(3);
+      expect(writeContract).toHaveBeenCalledTimes(2);
+    });
+
+    it("gives up after 5 consecutive cleanupPieces failures and does not retry indefinitely", async () => {
+      const dataSet = makeDataSet({ dataSetId: 17n, pdpEndEpoch: 0n });
+      mockSnapshot([dataSet], 200000n);
+      vi.mocked(simulateContract)
+        .mockResolvedValueOnce({ request: { fake: "deleteDataSet-request" } } as any) // deleteDataSet
+        .mockRejectedValue(new Error("fetch failed: RPC timeout")); // every cleanupPieces attempt fails
+      vi.mocked(writeContract).mockResolvedValueOnce("0xdelete-hash" as any);
+      vi.mocked(waitForTransactionReceipt).mockResolvedValueOnce({ status: "success" } as any);
+
+      await expect(service.runAbandonedDataSetSweep(DEFAULT_NETWORK)).resolves.toBeUndefined();
+
+      // 1 deleteDataSet simulate + 5 failed cleanupPieces simulates, then gives up.
+      expect(simulateContract).toHaveBeenCalledTimes(6);
+    });
+
+    it("propagates an abort raised mid-cleanupPieces without relabeling the already-successful delete as failed", async () => {
+      const dataSet = makeDataSet({ dataSetId: 18n, pdpEndEpoch: 0n });
+      mockSnapshot([dataSet], 200000n);
+
+      const controller = new AbortController();
+      vi.mocked(simulateContract)
+        .mockResolvedValueOnce({ request: { fake: "deleteDataSet-request" } } as any) // deleteDataSet
+        .mockImplementationOnce(async () => {
+          // Simulate the deadline passing while cleanupPieces batch 1 is in flight.
+          controller.abort(new Error("abandoned_data_set_sweep job timeout"));
+          return { request: { fake: "cleanup-1" }, result: false } as any;
+        });
+      vi.mocked(writeContract)
+        .mockResolvedValueOnce("0xdelete-hash" as any)
+        .mockResolvedValueOnce("0xcleanup-hash" as any);
+      vi.mocked(waitForTransactionReceipt).mockResolvedValue({ status: "success" } as any);
+
+      await expect(service.runAbandonedDataSetSweep(DEFAULT_NETWORK, controller.signal)).rejects.toThrow();
+
+      // deleteDataSet succeeded and was recorded as such — the abort must not also record a
+      // "delete failed" attempt for the same data set.
+      expect(attemptsCounter.inc).toHaveBeenCalledWith({
+        network: DEFAULT_NETWORK,
+        outcome: "success",
+        reason: "abandonment",
+      });
+      expect(attemptsCounter.inc).not.toHaveBeenCalledWith({
+        network: DEFAULT_NETWORK,
+        outcome: "failure",
+        reason: "abandonment",
+      });
+      // The deleted set leaves the wallet listing, so its deals are marked before the abort.
+      expect(dealRepository.update).toHaveBeenCalledWith(
+        { dataSetId: 18n, network: DEFAULT_NETWORK, cleanedUp: false },
+        { cleanedUp: true, cleanedUpAt: expect.any(Date) },
+      );
+    });
+
+    it("still runs cleanupPieces when marking the deleted set's deals fails", async () => {
+      mockSnapshot([makeDataSet({ dataSetId: 19n, pdpEndEpoch: 0n, lastProvenEpoch: 1000n })] as any);
+      dealRepository.update.mockRejectedValueOnce(new Error("connection terminated"));
+      vi.mocked(simulateContract)
+        .mockResolvedValueOnce({ request: { fake: "deleteDataSet-request" } } as any)
+        .mockResolvedValueOnce({ request: { fake: "cleanup-1" }, result: true } as any);
+      vi.mocked(writeContract).mockResolvedValue("0xtxhash" as any);
+      vi.mocked(waitForTransactionReceipt).mockResolvedValue({ status: "success" } as any);
+
+      await service.runAbandonedDataSetSweep(DEFAULT_NETWORK);
+
+      expect(simulateContract).toHaveBeenNthCalledWith(
+        2,
+        expect.anything(),
+        expect.objectContaining({ functionName: "cleanupPieces", args: [19n, 100n] }),
+      );
+      expect(warnSpy).toHaveBeenCalledWith(expect.objectContaining({ event: "sp_cleanup_deals_cleanup_mark_failed" }));
+    });
+
+    it("treats a reverted-but-mined deleteDataSet receipt as a failure, skipping the cleanupPieces follow-up", async () => {
+      const dataSet = makeDataSet({ dataSetId: 15n, pdpEndEpoch: 0n });
+      mockSnapshot([dataSet], 200000n);
+      vi.mocked(simulateContract).mockResolvedValueOnce({ request: { fake: "deleteDataSet-request" } } as any);
+      vi.mocked(writeContract).mockResolvedValueOnce("0xtxhash" as any);
+      vi.mocked(waitForTransactionReceipt).mockResolvedValueOnce({ status: "reverted" } as any);
+
+      await expect(service.runAbandonedDataSetSweep(DEFAULT_NETWORK)).resolves.toBeUndefined();
+
+      // Only the deleteDataSet simulate — no cleanupPieces follow-up, since the delete itself
+      // never actually succeeded on-chain despite the tx getting mined.
+      expect(simulateContract).toHaveBeenCalledTimes(1);
+      expect(attemptsCounter.inc).toHaveBeenCalledWith({
+        network: DEFAULT_NETWORK,
+        outcome: "failure",
+        reason: "abandonment",
+      });
+    });
+
+    it("skips a data set still inside the PDPVerifier activity window", async () => {
+      // Proven recently -> still within the 86400-block activity window.
+      const dataSet = makeDataSet({ dataSetId: 11n, pdpEndEpoch: 0n, lastProvenEpoch: 199000n });
+      mockSnapshot([dataSet], 200000n);
+
+      await service.runAbandonedDataSetSweep(DEFAULT_NETWORK);
+
+      expect(simulateContract).not.toHaveBeenCalled();
+      expect(writeContract).not.toHaveBeenCalled();
+    });
+
+    it("marks deals cleaned up only in the data sets the sweep deletes", async () => {
+      // 10 is outside the activity window and gets deleted; 30 was proven recently and stays.
+      const deletedNow = makeDataSet({ dataSetId: 10n, pdpEndEpoch: 0n, lastProvenEpoch: 1000n });
+      const live = makeDataSet({ dataSetId: 30n, pdpEndEpoch: 0n, lastProvenEpoch: 199000n });
+      mockSnapshot([deletedNow, live] as any);
+      const notInCleanupMode = new ContractFunctionRevertedError({ abi: [], functionName: "cleanupPieces" });
+      notInCleanupMode.data = { errorName: "DataSetNotInCleanupMode", args: [] } as any;
+      vi.mocked(simulateContract)
+        .mockResolvedValueOnce({ request: { fake: "deleteDataSet-request" } } as any)
+        .mockRejectedValueOnce(notInCleanupMode);
+      vi.mocked(writeContract).mockResolvedValue("0xtxhash" as any);
+      vi.mocked(waitForTransactionReceipt).mockResolvedValue({ status: "success" } as any);
+
+      await service.runAbandonedDataSetSweep(DEFAULT_NETWORK);
+
+      expect(dealRepository.update).toHaveBeenCalledTimes(1);
+      expect(dealRepository.update).toHaveBeenCalledWith(
+        { dataSetId: 10n, network: DEFAULT_NETWORK, cleanedUp: false },
+        { cleanedUp: true, cleanedUpAt: expect.any(Date) },
+      );
+    });
+
+    it("resolves a stuck-looking rail automatically via permissionless settleRail — no human needed", async () => {
+      const dataSet = makeDataSet({ dataSetId: 19n, pdpEndEpoch: 500n, pdpRailId: 993n });
+      mockSnapshot([dataSet], 200000n);
+      vi.mocked(simulateContract).mockResolvedValueOnce({ request: { fake: "settleRail-request" } } as any);
+      vi.mocked(writeContract).mockResolvedValueOnce("0xsettle-hash" as any);
+      vi.mocked(waitForTransactionReceipt).mockResolvedValueOnce({ status: "success" } as any);
+
+      await service.runAbandonedDataSetSweep(DEFAULT_NETWORK);
+
+      expect(settleRailCall).toHaveBeenCalledWith(expect.objectContaining({ railId: 993n, untilEpoch: 500n }));
+      expect(attemptsCounter.inc).toHaveBeenCalledWith({
+        network: DEFAULT_NETWORK,
+        outcome: "success",
+        reason: "settlement",
+      });
+      expect(stuckGauge.set).toHaveBeenCalledWith({ network: DEFAULT_NETWORK }, 0);
+      expect(warnSpy).not.toHaveBeenCalledWith(expect.objectContaining({ event: "stuck_terminations_detected" }));
+    });
+
+    it("does not flag as stuck on a transient settleRail failure — retries next sweep instead", async () => {
+      const dataSet = makeDataSet({ dataSetId: 25n, pdpEndEpoch: 500n, pdpRailId: 993n });
+      mockSnapshot([dataSet], 200000n);
+      vi.mocked(simulateContract).mockRejectedValueOnce(new Error("fetch failed: RPC timeout"));
+
+      await service.runAbandonedDataSetSweep(DEFAULT_NETWORK);
+
+      expect(attemptsCounter.inc).toHaveBeenCalledWith({
+        network: DEFAULT_NETWORK,
+        outcome: "failure",
+        reason: "settlement",
+      });
+      expect(stuckGauge.set).toHaveBeenCalledWith({ network: DEFAULT_NETWORK }, 0);
+      expect(warnSpy).not.toHaveBeenCalledWith(expect.objectContaining({ event: "stuck_terminations_detected" }));
+    });
+
+    it("logs stuck_terminations_detected with the full batch payload only when settleRail itself genuinely reverts (validator stuck)", async () => {
+      const dataSet = makeDataSet({ dataSetId: 20n, pdpEndEpoch: 500n, pdpRailId: 999n });
+      mockSnapshot([dataSet], 200000n);
+      vi.mocked(simulateContract).mockRejectedValueOnce(
+        new ContractFunctionRevertedError({ abi: [], functionName: "settleRail" }),
+      );
+      vi.mocked(settleTerminatedRailWithoutValidationCall).mockReturnValueOnce({
+        abi: [],
+        address: "0xfilecoinpay",
+        functionName: "settleTerminatedRailWithoutValidation",
+        args: [999n],
+      } as any);
+
+      await service.runAbandonedDataSetSweep(DEFAULT_NETWORK);
+
+      expect(attemptsCounter.inc).toHaveBeenCalledWith({
+        network: DEFAULT_NETWORK,
+        outcome: "failure",
+        reason: "settlement",
+      });
+      expect(stuckGauge.set).toHaveBeenCalledWith({ network: DEFAULT_NETWORK }, 1);
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          event: "stuck_terminations_detected",
+          network: DEFAULT_NETWORK,
+          count: 1,
+          items: [expect.objectContaining({ dataSetId: "20", railId: "999" })],
+          batch: expect.objectContaining({
+            transactions: [expect.objectContaining({ to: "0xfilecoinpay", value: "0", data: "0xcalldata" })],
+          }),
+        }),
+      );
+      // Only a Safe can execute the fallback settlement.
+      expect(writeContract).not.toHaveBeenCalled();
+    });
+
+    it("flags a mined-but-reverted settleRail receipt as stuck, not a transient failure", async () => {
+      const dataSet = makeDataSet({ dataSetId: 21n, pdpEndEpoch: 500n, pdpRailId: 991n });
+      mockSnapshot([dataSet], 200000n);
+      vi.mocked(simulateContract).mockResolvedValueOnce({ request: { fake: "settleRail-request" } } as any);
+      vi.mocked(writeContract).mockResolvedValueOnce("0xreverted-hash" as any);
+      vi.mocked(waitForTransactionReceipt).mockResolvedValueOnce({ status: "reverted" } as any);
+      vi.mocked(settleTerminatedRailWithoutValidationCall).mockReturnValueOnce({
+        abi: [],
+        address: "0xfilecoinpay",
+        functionName: "settleTerminatedRailWithoutValidation",
+        args: [991n],
+      } as any);
+
+      await service.runAbandonedDataSetSweep(DEFAULT_NETWORK);
+
+      expect(attemptsCounter.inc).toHaveBeenCalledWith({
+        network: DEFAULT_NETWORK,
+        outcome: "failure",
+        reason: "settlement",
+      });
+      expect(stuckGauge.set).toHaveBeenCalledWith({ network: DEFAULT_NETWORK }, 1);
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          event: "stuck_terminations_detected",
+          items: [expect.objectContaining({ dataSetId: "21", railId: "991" })],
+        }),
+      );
+    });
+
+    it("does not log and resets the gauge to 0 when nothing is stuck", async () => {
+      const dataSet = makeDataSet({ dataSetId: 21n, pdpEndEpoch: 500n, pdpRailId: 998n });
+      mockSnapshot([dataSet], 200000n);
+
+      await service.runAbandonedDataSetSweep(DEFAULT_NETWORK);
+
+      expect(stuckGauge.set).toHaveBeenCalledWith({ network: DEFAULT_NETWORK }, 0);
+      expect(warnSpy).not.toHaveBeenCalledWith(expect.objectContaining({ event: "stuck_terminations_detected" }));
+    });
+
+    it("deletes a terminated data set once its rail is finalized and it is outside the activity window", async () => {
+      const dataSet = makeDataSet({
+        dataSetId: 22n,
+        pdpEndEpoch: 500n,
+        pdpRailId: 997n,
+        pdpRailFinalized: true,
+        lastProvenEpoch: 498n,
+      });
+      mockSnapshot([dataSet], 200000n);
+      const notInCleanupMode = new ContractFunctionRevertedError({ abi: [], functionName: "cleanupPieces" });
+      notInCleanupMode.data = { errorName: "DataSetNotInCleanupMode", args: [] } as any;
+      vi.mocked(simulateContract)
+        .mockResolvedValueOnce({ request: { fake: "deleteDataSet-request" } } as any)
+        .mockRejectedValueOnce(notInCleanupMode);
+      vi.mocked(writeContract).mockResolvedValueOnce("0xtxhash" as any);
+      vi.mocked(waitForTransactionReceipt).mockResolvedValueOnce({ status: "success" } as any);
+
+      await service.runAbandonedDataSetSweep(DEFAULT_NETWORK);
+
+      expect(simulateContract).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ functionName: "deleteDataSet", args: [22n, "0x"] }),
+      );
+      expect(settleRailCall).not.toHaveBeenCalled();
+      expect(attemptsCounter.inc).toHaveBeenCalledWith({
+        network: DEFAULT_NETWORK,
+        outcome: "success",
+        reason: "finalized",
+      });
+      expect(stuckGauge.set).toHaveBeenCalledWith({ network: DEFAULT_NETWORK }, 0);
+    });
+
+    it("leaves a finalized rail's data set alone while it is still inside the activity window", async () => {
+      const dataSet = makeDataSet({
+        dataSetId: 25n,
+        pdpEndEpoch: 150000n,
+        pdpRailId: 993n,
+        pdpRailFinalized: true,
+        // Proven until its end epoch, so deleteDataSet is still SP-only for ~30 more days.
+        lastProvenEpoch: 149998n,
+      });
+      mockSnapshot([dataSet], 200000n);
+
+      await expect(service.runAbandonedDataSetSweep(DEFAULT_NETWORK)).resolves.toBeUndefined();
+
+      expect(simulateContract).not.toHaveBeenCalled();
+      expect(writeContract).not.toHaveBeenCalled();
+      expect(stuckGauge.set).toHaveBeenCalledWith({ network: DEFAULT_NETWORK }, 0);
+      expect(warnSpy).not.toHaveBeenCalledWith(expect.objectContaining({ event: "stuck_terminations_detected" }));
+    });
+
+    it("does not flag a rail as stuck when it finalized after the snapshot — settleRail's revert says so", async () => {
+      // The snapshot still shows the rail unfinalized, but the SP settled it while the sweep ran.
+      const dataSet = makeDataSet({ dataSetId: 27n, pdpEndEpoch: 500n, pdpRailId: 992n });
+      mockSnapshot([dataSet], 200000n);
+      const alreadyFinalized = new ContractFunctionRevertedError({ abi: [], functionName: "settleRail" });
+      alreadyFinalized.data = { errorName: "RailInactiveOrSettled", args: [992n] } as any;
+      vi.mocked(simulateContract).mockRejectedValueOnce(alreadyFinalized);
+
+      await service.runAbandonedDataSetSweep(DEFAULT_NETWORK);
+
+      expect(writeContract).not.toHaveBeenCalled();
+      expect(attemptsCounter.inc).not.toHaveBeenCalled();
+      expect(stuckGauge.set).toHaveBeenCalledWith({ network: DEFAULT_NETWORK }, 0);
+      expect(warnSpy).not.toHaveBeenCalledWith(expect.objectContaining({ event: "stuck_terminations_detected" }));
+    });
+
+    it("refuses to sweep from a subgraph snapshot too far behind the chain head", async () => {
+      mockSnapshot([makeDataSet({ dataSetId: 28n, pdpEndEpoch: 0n })], 200000n, 200061n);
+
+      await expect(service.runAbandonedDataSetSweep(DEFAULT_NETWORK)).rejects.toThrow(/behind the chain head/);
+
+      expect(simulateContract).not.toHaveBeenCalled();
+    });
+
+    it("propagates an abort raised during settlement instead of counting it as a failed attempt", async () => {
+      storageProviderRepository.findAllByNetwork.mockResolvedValueOnce([]);
+      mockSnapshot([makeDataSet({ dataSetId: 60n, pdpEndEpoch: 100n, pdpRailId: 900n })], 200n);
+
+      const controller = new AbortController();
+      vi.mocked(simulateContract).mockImplementationOnce(async () => {
+        controller.abort(new Error("abandoned_data_set_sweep job timeout"));
+        throw new Error("aborted mid-simulation");
+      });
+
+      await expect(service.runAbandonedDataSetSweep(DEFAULT_NETWORK, controller.signal)).rejects.toThrow();
+      expect(attemptsCounter.inc).not.toHaveBeenCalled();
+    });
+
+    it("does not escalate a data set still within its normal lockup (snapshot block <= pdpEndEpoch)", async () => {
+      const dataSet = makeDataSet({ dataSetId: 23n, pdpEndEpoch: 500n, pdpRailId: 996n });
+      // The snapshot block equals pdpEndEpoch (not strictly past it); the newer chain head doesn't count.
+      mockSnapshot([dataSet], 500n, 520n);
+
+      await service.runAbandonedDataSetSweep(DEFAULT_NETWORK);
+
+      expect(settleRailCall).not.toHaveBeenCalled();
+      expect(stuckGauge.set).toHaveBeenCalledWith({ network: DEFAULT_NETWORK }, 0);
+    });
+  });
+});

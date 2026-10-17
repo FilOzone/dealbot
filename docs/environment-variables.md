@@ -28,8 +28,8 @@ MAINNET_DEALS_PER_SP_PER_HOUR=1
 **Rules**
 
 - **Resolution precedence (per-network vars).** Each network resolves a variable as `<NETWORK>_<VAR>` (per-network override) → `<VAR>` (unprefixed shared value) → built-in default. Set a value once unprefixed to share it across every active network, and add a `<NETWORK>_` override only where a network differs.
-- **Chain-specific vars never inherit.** Credentials, chain endpoints, and chain-local identifiers must be set with a prefix and do not read the unprefixed slot: `WALLET_ADDRESS`, `WALLET_PRIVATE_KEY`, `SESSION_KEY_PRIVATE_KEY`, `RPC_URL`, `PDP_SUBGRAPH_ENDPOINT`, `SUBGRAPH_ENDPOINT`, `DEALBOT_DATASET_VERSION`, `BLOCKED_SP_IDS`, `BLOCKED_SP_ADDRESSES`, `DATASET_LIFECYCLE_CHECK_ENABLED`. (`DATASET_LIFECYCLE_CHECK_ENABLED` is chain-specific because its default is network-dependent — off on mainnet — so a shared `=true` must not silently enable the canary there.)
-- **Process-global vars.** Database, HTTP ports, ClickHouse, and pg-boss scheduler settings apply to the whole process and have no per-network form.
+- **Chain-specific vars never inherit.** Credentials, chain endpoints, analytics destinations, and chain-local identifiers must be set with a prefix and do not read the unprefixed slot: `WALLET_ADDRESS`, `WALLET_PRIVATE_KEY`, `SESSION_KEY_PRIVATE_KEY`, `RPC_URL`, `CLICKHOUSE_URL`, `PDP_SUBGRAPH_ENDPOINT`, `SUBGRAPH_ENDPOINT`, `DEALBOT_DATASET_VERSION`, `BLOCKED_SP_IDS`, `BLOCKED_SP_ADDRESSES`, `FULL_RATE_SP_IDS`, `FULL_RATE_SP_ADDRESSES`, `DATASET_LIFECYCLE_CHECK_ENABLED`. (`DATASET_LIFECYCLE_CHECK_ENABLED` is chain-specific because its default is network-dependent — off on mainnet — so a shared `=true` must not silently enable the canary there.)
+- **Process-global vars.** Database, HTTP ports, ClickHouse batching, and pg-boss scheduler settings apply to the whole process and have no per-network form.
 - **Validation.** Both the unprefixed shared value and each `<NETWORK>_` override are validated against the same rules at startup. Only networks listed in `NETWORKS` are required; variables for inactive networks are ignored, so you can keep a `MAINNET_*` block commented out until you are ready.
 - **Wallet vs. session key.** Each active network must provide either `<NETWORK>_WALLET_PRIVATE_KEY` or `<NETWORK>_SESSION_KEY_PRIVATE_KEY`. When both are present the session key takes precedence (see [`docs/runbooks/wallet-and-session-keys.md`](./runbooks/wallet-and-session-keys.md)).
 - **Supported prefixes.** `CALIBRATION_*`, `MAINNET_*`. Additional networks can be added by extending `SUPPORTED_NETWORKS` in the codebase.
@@ -40,11 +40,11 @@ MAINNET_DEALS_PER_SP_PER_HOUR=1
 | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | [Application](#application-configuration) | `NODE_ENV`, `DEALBOT_PORT`, `DEALBOT_HOST`, `DEALBOT_RUN_MODE`, `DEALBOT_METRICS_PORT`, `DEALBOT_METRICS_HOST`, `DEALBOT_ALLOWED_ORIGINS`, `ENABLE_DEV_MODE`, `DEALBOT_API_PUBLIC_URL`, `DEALBOT_PROBE_LOCATION` |
 | [Database](#database-configuration)       | `DATABASE_HOST`, `DATABASE_PORT`, `DATABASE_POOL_MAX`, `DATABASE_USER`, `DATABASE_PASSWORD`, `DATABASE_NAME`                                                 |
-| [Per-Network](#per-network-configuration) | `<NET>_WALLET_ADDRESS`, `<NET>_WALLET_PRIVATE_KEY`, `<NET>_SESSION_KEY_PRIVATE_KEY`, `<NET>_RPC_URL`, `<NET>_RPC_REQUEST_TIMEOUT_MS`, `<NET>_CHECK_DATASET_CREATION_FEES`, `<NET>_USE_ONLY_APPROVED_PROVIDERS`, `<NET>_PDP_SUBGRAPH_ENDPOINT`, `<NET>_SUBGRAPH_ENDPOINT`, `<NET>_DEALBOT_DATASET_VERSION`, `<NET>_MIN_NUM_DATASETS_FOR_CHECKS`                                           |
-| [Per-Network Scheduling](#per-network-scheduling) | `<NET>_DEALS_PER_SP_PER_HOUR`, `<NET>_DEAL_JOB_TIMEOUT_SECONDS`, `<NET>_RETRIEVALS_PER_SP_PER_HOUR`, `<NET>_RETRIEVAL_JOB_TIMEOUT_SECONDS`, `<NET>_SAMPLED_RETRIEVALS_PER_SP_PER_HOUR`, `<NET>_SAMPLED_RETRIEVAL_JOB_TIMEOUT_SECONDS`, `<NET>_DATASET_CREATIONS_PER_SP_PER_HOUR`, `<NET>_DATA_SET_CREATION_JOB_TIMEOUT_SECONDS`, `<NET>_DATASET_LIFECYCLE_CHECK_ENABLED`, `<NET>_DATASET_LIFECYCLE_CHECKS_PER_SP_PER_HOUR`, `<NET>_DATA_SET_LIFECYCLE_CHECK_JOB_TIMEOUT_SECONDS`, `<NET>_PULL_CHECKS_PER_SP_PER_HOUR`, `<NET>_PULL_CHECK_JOB_TIMEOUT_SECONDS`, `<NET>_PULL_CHECK_POLL_INTERVAL_SECONDS`, `<NET>_PULL_CHECK_PIECE_SIZE_BYTES`, `<NET>_PULL_PIECE_CLEANUP_INTERVAL_SECONDS`, `<NET>_PROVIDERS_REFRESH_INTERVAL_SECONDS`, `<NET>_DATA_RETENTION_POLL_INTERVAL_SECONDS`, `<NET>_MAINTENANCE_WINDOWS_UTC`, `<NET>_MAINTENANCE_WINDOW_MINUTES`, `<NET>_BLOCKED_SP_IDS`, `<NET>_BLOCKED_SP_ADDRESSES`, `<NET>_MAX_DATASET_STORAGE_SIZE_BYTES`, `<NET>_TARGET_DATASET_STORAGE_SIZE_BYTES`, `<NET>_PIECE_CLEANUP_PER_SP_PER_HOUR`, `<NET>_MAX_PIECE_CLEANUP_RUNTIME_SECONDS` |
+| [Per-Network](#per-network-configuration) | `<NET>_WALLET_ADDRESS`, `<NET>_WALLET_PRIVATE_KEY`, `<NET>_SESSION_KEY_PRIVATE_KEY`, `<NET>_RPC_URL`, `<NET>_CLICKHOUSE_URL`, `<NET>_RPC_REQUEST_TIMEOUT_MS`, `<NET>_CHECK_DATASET_CREATION_FEES`, `<NET>_USE_ONLY_APPROVED_PROVIDERS`, `<NET>_PDP_SUBGRAPH_ENDPOINT`, `<NET>_SUBGRAPH_ENDPOINT`, `<NET>_DEALBOT_DATASET_VERSION`, `<NET>_MIN_NUM_DATASETS_FOR_CHECKS`                                           |
+| [Per-Network Scheduling](#per-network-scheduling) | `<NET>_DEALS_PER_SP_PER_HOUR`, `<NET>_DEAL_JOB_TIMEOUT_SECONDS`, `<NET>_RETRIEVALS_PER_SP_PER_HOUR`, `<NET>_RETRIEVAL_JOB_TIMEOUT_SECONDS`, `<NET>_SAMPLED_RETRIEVALS_PER_SP_PER_HOUR`, `<NET>_SAMPLED_RETRIEVAL_JOB_TIMEOUT_SECONDS`, `<NET>_DATASET_CREATIONS_PER_SP_PER_HOUR`, `<NET>_DATA_SET_CREATION_JOB_TIMEOUT_SECONDS`, `<NET>_DATASET_LIFECYCLE_CHECK_ENABLED`, `<NET>_DATASET_LIFECYCLE_CHECKS_PER_SP_PER_HOUR`, `<NET>_DATA_SET_LIFECYCLE_CHECK_JOB_TIMEOUT_SECONDS`, `<NET>_PULL_CHECKS_PER_SP_PER_HOUR`, `<NET>_PULL_CHECK_JOB_TIMEOUT_SECONDS`, `<NET>_PULL_CHECK_POLL_INTERVAL_SECONDS`, `<NET>_PULL_CHECK_PIECE_SIZE_BYTES`, `<NET>_PULL_PIECE_CLEANUP_INTERVAL_SECONDS`, `<NET>_PROVIDERS_REFRESH_INTERVAL_SECONDS`, `<NET>_DATASET_PRUNING_INTERVAL_SECONDS`, `<NET>_EXCESS_DATASET_BUFFER`, `<NET>_ABANDONED_DATASET_SWEEP_INTERVAL_SECONDS`, `<NET>_SP_CLEANUP_JOB_TIMEOUT_SECONDS`, `<NET>_DATA_RETENTION_POLL_INTERVAL_SECONDS`, `<NET>_MAINTENANCE_WINDOWS_UTC`, `<NET>_MAINTENANCE_WINDOW_MINUTES`, `<NET>_BLOCKED_SP_IDS`, `<NET>_BLOCKED_SP_ADDRESSES`, `<NET>_FULL_RATE_SP_IDS`, `<NET>_FULL_RATE_SP_ADDRESSES`, `<NET>_MAX_DATASET_STORAGE_SIZE_BYTES`, `<NET>_TARGET_DATASET_STORAGE_SIZE_BYTES`, `<NET>_PIECE_CLEANUP_PER_SP_PER_HOUR`, `<NET>_MAX_PIECE_CLEANUP_RUNTIME_SECONDS` |
 | [Jobs (pg-boss)](#jobs-pg-boss)           | `DEALBOT_PGBOSS_SCHEDULER_ENABLED`, `DEALBOT_PGBOSS_POOL_MAX`, `JOB_SCHEDULER_POLL_SECONDS`, `JOB_WORKER_POLL_SECONDS`, `PG_BOSS_LOCAL_CONCURRENCY`, `JOB_CATCHUP_MAX_ENQUEUE`, `JOB_SCHEDULE_PHASE_SECONDS`, `JOB_ENQUEUE_JITTER_SECONDS`, `SHUTDOWN_FINAL_SCRAPE_DELAY_SECONDS`, `IPFS_BLOCK_FETCH_CONCURRENCY`, `SAMPLED_RETRIEVAL_BLOCK_SAMPLE_COUNT` |
 | [Pull Check](#pull-check-configuration)   | `PULL_PIECE_MAX_CONCURRENT_STREAMS`, `PULL_PIECE_MAX_STREAMS_PER_CID` |
-| [ClickHouse](#clickhouse-configuration)   | `CLICKHOUSE_URL`, `CLICKHOUSE_BATCH_SIZE`, `CLICKHOUSE_FLUSH_INTERVAL_MS`, `CLICKHOUSE_MAX_BUFFER_SIZE`                                                      |
+| [ClickHouse](#clickhouse-configuration)   | `<NET>_CLICKHOUSE_URL`, `CLICKHOUSE_BATCH_SIZE`, `CLICKHOUSE_FLUSH_INTERVAL_MS`, `CLICKHOUSE_MAX_BUFFER_SIZE`                                                      |
 | [Dataset](#dataset-configuration)         | `DEALBOT_LOCAL_DATASETS_PATH`, `RANDOM_PIECE_SIZES`                                                                                                          |
 | [Timeouts](#timeout-configuration)        | `CONNECT_TIMEOUT_MS`, `HTTP_REQUEST_TIMEOUT_MS`, `HTTP2_REQUEST_TIMEOUT_MS`, `IPNI_VERIFICATION_TIMEOUT_MS`, `IPNI_VERIFICATION_POLLING_MS`                   |
 | [Prometheus Metrics](#prometheus-metrics-configuration) | `PROMETHEUS_WALLET_BALANCE_TTL_SECONDS`, `PROMETHEUS_WALLET_BALANCE_ERROR_COOLDOWN_SECONDS`                   |
@@ -482,7 +482,7 @@ CALIBRATION_RPC_URL=https://filecoin.chain.love/rpc/v1?token=YOUR_API_KEY
 
 **Role**: The Graph API endpoint for querying PDP (Proof of Data Possession) subgraph data for this network. Used to retrieve data-retention information for provider datasets.
 
-Kept distinct from [`<NET>_SUBGRAPH_ENDPOINT`](#net_subgraph_endpoint) so the dealbot-owned subgraph can be rolled out incrementally: only the newer [sampled-retrieval check](./checks/sampled-retrievals.md) points at the new endpoint while the established [data-retention check](./checks/data-retention.md) stays on the upstream pdp-explorer subgraph.
+Kept distinct from [`<NET>_SUBGRAPH_ENDPOINT`](#net_subgraph_endpoint) so the dealbot-owned subgraph can be rolled out incrementally: only the newer [sampled-retrieval check](./checks/sampled-retrievals.md) and the [SP cleanup jobs](./runbooks/wallet-and-session-keys.md#automated-sp-cleanup) point at the new endpoint while the established [data-retention check](./checks/data-retention.md) stays on the upstream pdp-explorer subgraph.
 
 **Example**:
 
@@ -495,10 +495,15 @@ CALIBRATION_PDP_SUBGRAPH_ENDPOINT=https://api.thegraph.com/subgraphs/filecoin/pd
 ### `<NET>_SUBGRAPH_ENDPOINT`
 
 - **Type**: `string` (URL)
-- **Required**: No
-- **Default**: Empty (sampled-retrieval disabled for this network)
+- **Required**: No, but the SP cleanup jobs fail without it
+- **Default**: Empty (sampled-retrieval disabled and SP cleanup failing for this network)
 
-**Role**: The Graph API endpoint for the dealbot-owned subgraph for this network. Currently drives only the [sampled-retrieval](./checks/sampled-retrievals.md) candidate-piece query; when unset, sampled-retrieval schedules are not created for the network. Once the dealbot-owned subgraph has soaked in production it is intended to replace [`<NET>_PDP_SUBGRAPH_ENDPOINT`](#net_pdp_subgraph_endpoint).
+**Role**: The Graph API endpoint for the dealbot-owned subgraph for this network. It drives two things:
+
+- The [sampled-retrieval](./checks/sampled-retrievals.md) candidate-piece query. When unset, sampled-retrieval schedules are not created for the network.
+- Data set discovery for the [SP cleanup jobs](./runbooks/wallet-and-session-keys.md#automated-sp-cleanup) (`sp_data_set_pruning` and `abandoned_data_set_sweep`). Their schedules are created regardless, so when unset every run fails with `No subgraph endpoint configured`. A run also fails when the subgraph is more than 60 blocks behind the chain head, which is also how a subgraph halted by an indexing error shows up, so **a stalled subgraph stops SP cleanup** until it catches up. See the [subgraph prerequisite](./runbooks/wallet-and-session-keys.md#operational-prerequisite-dealbot-subgraph).
+
+Once the dealbot-owned subgraph has soaked in production it is intended to replace [`<NET>_PDP_SUBGRAPH_ENDPOINT`](#net_pdp_subgraph_endpoint).
 
 The dealbot-owned subgraph lives at [`apps/subgraph/`](../apps/subgraph) (package `@dealbot/subgraph`) and is deployed to [Goldsky](https://goldsky.com).
 
@@ -517,6 +522,8 @@ CALIBRATION_SUBGRAPH_ENDPOINT=https://api.goldsky.com/api/public/<project>/subgr
 - **Default**: `1`
 
 **Role**: Minimum number of datasets provisioned per storage provider before running checks on this network. When > 1, the `data_set_creation` job is responsible for provisioning any additional datasets.
+
+**Tiering**: Only applies to SPs on the [full-rate tier](./jobs.md#provider-eligibility-and-testing-tiers). Trickle-tier SPs target one dataset regardless of this value.
 
 ---
 
@@ -542,6 +549,8 @@ Scheduling rates and intervals are configured per network, so each network can b
 
 Dealbot uses pg-boss for rate-based scheduling — see [Jobs (pg-boss)](#jobs-pg-boss) for global worker/timeout settings.
 
+Provider eligibility and rate selection are described in [Provider Eligibility and Testing Tiers](./jobs.md#provider-eligibility-and-testing-tiers).
+
 ### `<NET>_DEALS_PER_SP_PER_HOUR`
 
 - **Type**: `number`
@@ -552,6 +561,8 @@ Dealbot uses pg-boss for rate-based scheduling — see [Jobs (pg-boss)](#jobs-pg
 **Role**: Target deal creation rate per storage provider on this network.
 
 **Notes**: Fractional values are supported (e.g. `0.25` ⇒ one deal every 4 hours per SP).
+
+**Tiering**: Only applies to SPs on the [full-rate tier](./jobs.md#provider-eligibility-and-testing-tiers). Trickle-tier SPs use the fixed trickle rate.
 
 ---
 
@@ -629,6 +640,8 @@ Dealbot uses pg-boss for rate-based scheduling — see [Jobs (pg-boss)](#jobs-pg
 
 **Role**: Target dataset-creation rate per storage provider on this network.
 
+**Tiering**: Only applies to SPs on the [full-rate tier](./jobs.md#provider-eligibility-and-testing-tiers). Trickle-tier SPs use the fixed trickle rate.
+
 ---
 
 ### `<NET>_DATA_SET_CREATION_JOB_TIMEOUT_SECONDS`
@@ -657,6 +670,78 @@ Dealbot uses pg-boss for rate-based scheduling — see [Jobs (pg-boss)](#jobs-pg
 
 ---
 
+### `<NET>_DATASET_PRUNING_INTERVAL_SECONDS`
+
+- **Type**: `number`
+- **Required**: No
+- **Default**: `86400` (1 day)
+
+**Role**: How often the `sp_data_set_pruning` job runs for this network. This global job prunes blocked SPs to 0
+active data sets. For any other SP (trickle or full-rate) it keeps one live data set for each provisioning slot
+that tier requires — the baseline set plus the `dealbotDS`-tagged slots deal jobs target — and terminates the
+surplus once it exceeds `<NET>_EXCESS_DATASET_BUFFER`. Survivors are chosen by slot metadata, not by age, so a
+provider that leaked many copies of one slot cannot have its other slots pruned away. See
+[docs/runbooks/wallet-and-session-keys.md](runbooks/wallet-and-session-keys.md) for the full design.
+
+**Example** (run hourly on calibnet for faster testnet iteration):
+
+```bash
+CALIBRATION_DATASET_PRUNING_INTERVAL_SECONDS=3600
+```
+
+---
+
+### `<NET>_EXCESS_DATASET_BUFFER`
+
+- **Type**: `number`
+- **Required**: No
+- **Default**: `5`
+
+**Role**: How many surplus data sets a provider may carry before `sp_data_set_pruning` removes them (does not
+apply to blocked SPs, which are always pruned to 0). Surplus means everything left after each required
+provisioning slot has kept one live set: extra copies of a slot, sets matching no required slot, and leaked
+lifecycle-check sets. Once the surplus exceeds the buffer, all of it is terminated — the buffer is a trigger
+threshold, not a permanent allowance. It absorbs routine create/replace churn from
+`provisionNextMissingDataSet` so pruning doesn't fight normal slot replacement.
+
+A lifecycle-check set younger than `<NET>_DATA_SET_LIFECYCLE_CHECK_JOB_TIMEOUT_SECONDS` is never counted as
+surplus: pruning shares no per-provider lock with the SP work queue, so that age window is what keeps it from
+terminating a set out from under a check that is still running.
+
+---
+
+### `<NET>_ABANDONED_DATASET_SWEEP_INTERVAL_SECONDS`
+
+- **Type**: `number`
+- **Required**: No
+- **Default**: `86400` (1 day)
+
+**Role**: How often the `abandoned_data_set_sweep` job runs for this network. This global job scans dealbot's
+entire wallet (not scoped to the blocklist) for data sets outside the PDPVerifier activity window and deletes
+them directly and permissionlessly (no SP signature or relay required — see the runbook), and for terminated
+data sets past `endEpoch`, first tries the permissionless `settleRail` itself — this resolves the common case
+(the SP never settled it themselves) automatically. Only a genuine revert (the validator is actually stuck)
+gets surfaced to a human operator via a structured log (`stuck_terminations_detected`).
+
+---
+
+### `<NET>_SP_CLEANUP_JOB_TIMEOUT_SECONDS`
+
+- **Type**: `number`
+- **Required**: No
+- **Default**: `1200` (20 minutes)
+- **Effective minimum**: `60` (1 minute)
+
+**Role**: Execution deadline for `sp_data_set_pruning` and `abandoned_data_set_sweep`. When it expires, the jobs
+stop starting new work. The sweep still waits for already-submitted transactions, so its total runtime can exceed
+this value. Values below 60 seconds are accepted but clamped to 60 at runtime.
+
+Both jobs page through the wallet's data sets in the dealbot subgraph. This setting also sizes the shutdown
+drain timeout. Cleanup jobs get a pg-boss expiration 120 seconds after the effective deadline, and pg-boss
+expiration or shutdown signals use the same abort path.
+
+---
+
 ### `<NET>_DATA_RETENTION_POLL_INTERVAL_SECONDS`
 
 - **Type**: `number`
@@ -673,7 +758,9 @@ Dealbot uses pg-boss for rate-based scheduling — see [Jobs (pg-boss)](#jobs-pg
 - **Required**: No
 - **Default**: `07:00,22:00`
 
-**Role**: Daily maintenance windows (UTC) during which deal-creation and retrieval checks are skipped for this network. Different networks can have different schedules.
+**Role**: Daily maintenance windows (UTC). Jobs that call SP endpoints (per-SP jobs and `sp_data_set_pruning`)
+are deferred until the active window ends. Other global jobs run on their normal schedule. Different networks can
+have different schedules.
 
 **Example**:
 
@@ -719,6 +806,32 @@ check types (data-storage, retrieval, and data-retention).
 check types (data-storage, retrieval, and data-retention). Matching is case-insensitive.
 
 **Example**: `<NET>_BLOCKED_SP_ADDRESSES=0xAbCd...,0x1234...`
+
+---
+
+### `<NET>_FULL_RATE_SP_IDS`
+
+- **Type**: `string` (comma-separated provider numeric IDs)
+- **Required**: No
+- **Default**: `""` (empty — no manually-listed providers)
+
+**Role**: Provider IDs granted [full-rate testing](./jobs.md#provider-eligibility-and-testing-tiers). Approved providers do not need to be listed. This setting has no effect when `<NET>_USE_ONLY_APPROVED_PROVIDERS=true` because unapproved providers are excluded before tiering.
+
+**Notes**: Matching either the ID list or address list is sufficient.
+
+**Example**: `<NET>_FULL_RATE_SP_IDS=1234,5678`
+
+---
+
+### `<NET>_FULL_RATE_SP_ADDRESSES`
+
+- **Type**: `string` (comma-separated provider Ethereum addresses)
+- **Required**: No
+- **Default**: `""` (empty — no manually-listed providers)
+
+**Role**: Address-based counterpart to [`<NET>_FULL_RATE_SP_IDS`](#net_full_rate_sp_ids). Matching is case-insensitive.
+
+**Example**: `<NET>_FULL_RATE_SP_ADDRESSES=0xAbCd...,0x1234...`
 
 ---
 
@@ -898,6 +1011,8 @@ These variables are **global** (not per-network) and control the shared pg-boss 
 
 **Notes**: Fractional values are supported. For example, `0.25` means one deal every 4 hours per storage provider.
 
+**Tiering**: Only applies to SPs on the [full-rate tier](./jobs.md#provider-eligibility-and-testing-tiers).
+
 ---
 
 ### `RETRIEVALS_PER_SP_PER_HOUR`
@@ -929,6 +1044,8 @@ These variables are **global** (not per-network) and control the shared pg-boss 
 - Increase if you want more datasets per provider to raise the density of data-retention proof samples.
 - Decrease to reduce on-chain footprint per provider during testing.
 
+**Tiering**: Only applies to SPs on the [full-rate tier](./jobs.md#provider-eligibility-and-testing-tiers).
+
 **See also**: [`docs/data-set-creation.md`](./data-set-creation.md)
 
 ---
@@ -958,6 +1075,8 @@ These variables are **global** (not per-network) and control the shared pg-boss 
 
 **Notes**: Fractional values are supported. For example, `0.5` means one dataset creation every 2 hours per storage provider.
 
+**Tiering**: Only applies to SPs on the [full-rate tier](./jobs.md#provider-eligibility-and-testing-tiers).
+
 ---
 
 ### `DATASET_LIFECYCLE_CHECK_ENABLED`
@@ -969,6 +1088,8 @@ These variables are **global** (not per-network) and control the shared pg-boss 
 **Role**: Enables the `data_set_lifecycle_check` canary job. Each tick both creation variants run in parallel: the **empty variant** (`createDataSet → terminateService`) and the **with-pieces variant** (`uploadPieceStreaming → findPiece → createDataSetAndAddPieces → terminateService`). Both paths immediately terminate their throwaway data set. If either variant fails the job fails — dependency outages are not swallowed as success.
 
 **Notes**: Self-contained — it does not touch the managed check data sets and does not depend on `data_set_creation`. When disabled, stale schedules are removed so they stop enqueuing no-op jobs.
+
+**Tiering**: Only [full-rate providers](./jobs.md#provider-eligibility-and-testing-tiers) receive this canary because each run creates and terminates a real throwaway dataset.
 
 **See also**: [`docs/checks/data-set-lifecycle-check.md`](./checks/data-set-lifecycle-check.md)
 
@@ -985,6 +1106,8 @@ These variables are **global** (not per-network) and control the shared pg-boss 
 **Limits**: Config schema caps this at 20.
 
 **Notes**: Independent of `DATASET_CREATIONS_PER_SP_PER_HOUR`. Fractional values are supported.
+
+**Tiering**: Only applies to [full-rate providers](./jobs.md#provider-eligibility-and-testing-tiers).
 
 ---
 
@@ -1209,13 +1332,13 @@ Use this to stagger multiple dealbot deployments that are not sharing a database
 
 For each sampled CID, dealbot:
 
-1. Confirms via filecoinpin.contact that the SP is advertised as a provider for the CID.
+1. Confirms via cid.contact that the SP is advertised as a provider for the CID.
 2. Re-fetches the block via `{spBaseUrl}/ipfs/{cid}?format=raw` and hash-verifies the response.
 
 **When to update**:
 
 - Increase for stronger statistical confidence that the SP serves the entire DAG correctly (more IPNI queries + per-block fetches per check)
-- Decrease to reduce per-check load on the SP and on filecoinpin.contact
+- Decrease to reduce per-check load on the SP and on cid.contact
 
 **Note**: A higher sample count multiplies both IPNI traffic and block-fetch traffic per check. The IPNI step is all-or-nothing across the root CID and the sampled child CIDs — see [Sampled Retrieval § CAR / IPNI / block-fetch validation](./checks/sampled-retrievals.md#car--ipni--block-fetch-validation-only-when-piece-advertises-ipfs-indexing).
 
@@ -1266,21 +1389,22 @@ These variables tune global, server-side aspects of the pull-check subsystem —
 
 ## ClickHouse Configuration
 
-ClickHouse is an **optional** long-term analytics store for check results. When `CLICKHOUSE_URL` is unset, ClickHouse emission is silently disabled and Dealbot runs normally using only Postgres and Prometheus.
+ClickHouse is an **optional** long-term analytics store for check results. Each active network selects its own database with `<NET>_CLICKHOUSE_URL`. A network without this variable continues normally using only Postgres and Prometheus.
 
-### `CLICKHOUSE_URL`
+### `<NET>_CLICKHOUSE_URL`
 
 - **Type**: `string` (HTTP URL)
 - **Required**: No
 - **Default**: Empty (ClickHouse disabled)
 - **Security**: Treat as a secret if the URL contains credentials.
 
-**Role**: ClickHouse connection URL. Must include the database in the path. When set, Dealbot buffers check results and flushes them to ClickHouse in batches. Write failures are logged and dropped — ClickHouse is not a source of truth.
+**Role**: ClickHouse connection URL for one network. It must include the database in the path. Each configured network must select a different database, although the databases may use the same ClickHouse server. The selected database identifies the network of its rows.
 
 **Example**:
 
 ```bash
-CLICKHOUSE_URL=http://default:password@clickhouse.internal:8123/dealbot
+CALIBRATION_CLICKHOUSE_URL=http://default:password@clickhouse.internal:8123/dealbot_calibration
+MAINNET_CLICKHOUSE_URL=http://default:password@clickhouse.internal:8123/dealbot_mainnet
 ```
 
 ---
@@ -1291,7 +1415,7 @@ CLICKHOUSE_URL=http://default:password@clickhouse.internal:8123/dealbot
 - **Required**: No
 - **Default**: `500`
 
-**Role**: Number of rows to accumulate before flushing to ClickHouse. Larger batches reduce HTTP overhead; smaller batches reduce memory usage and flush lag.
+**Role**: Number of rows to accumulate in a network's buffer before flushing it. The same value applies independently to every configured network.
 
 ---
 
@@ -1301,7 +1425,7 @@ CLICKHOUSE_URL=http://default:password@clickhouse.internal:8123/dealbot
 - **Required**: No
 - **Default**: `5000` (5 seconds)
 
-**Role**: Maximum time between ClickHouse flushes. Even if `CLICKHOUSE_BATCH_SIZE` is not reached, a flush is triggered after this interval to bound write latency.
+**Role**: Maximum time between ClickHouse flushes. One shared timer flushes every non-empty network buffer, even when its `CLICKHOUSE_BATCH_SIZE` has not been reached.
 
 ---
 
@@ -1311,7 +1435,7 @@ CLICKHOUSE_URL=http://default:password@clickhouse.internal:8123/dealbot
 - **Required**: No
 - **Default**: `5000`
 
-**Role**: Maximum number of rows to hold in the in-memory buffer before back-pressure is applied. When the buffer exceeds this limit, new rows are dropped and a warning is logged to prevent unbounded memory growth.
+**Role**: Maximum rows held for each network, including rows currently being flushed. Rows are dropped when a network reaches this limit. Total capacity is this value multiplied by the number of configured ClickHouse networks.
 
 ---
 

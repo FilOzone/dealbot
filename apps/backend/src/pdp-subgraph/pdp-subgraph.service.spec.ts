@@ -23,12 +23,16 @@ const makeValidProvider = (overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 });
 
-const makeSubgraphMetaResponse = (blockNumber = 12345) => ({
+const NOW_SECONDS = 1791780000;
+
+const makeSubgraphMetaResponse = (blockNumber = 12345, hasIndexingErrors = false, timestamp = NOW_SECONDS) => ({
   data: {
     _meta: {
       block: {
         number: blockNumber,
+        timestamp,
       },
+      hasIndexingErrors,
     },
   },
 });
@@ -44,6 +48,7 @@ describe("PDPSubgraphService", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     vi.useFakeTimers();
+    vi.setSystemTime(NOW_SECONDS * 1000);
   });
 
   afterEach(() => {
@@ -137,6 +142,46 @@ describe("PDPSubgraphService", () => {
       await vi.runAllTimersAsync();
 
       // Now await the final promise to catch the expected error
+      await expect(promise).rejects.toThrow("Failed to fetch provider data after 3 attempts");
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+    });
+
+    it("returns providers when the subgraph reports only an indexing_error", async () => {
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ ...makeSubgraphResponse([makeValidProvider()]), errors: [{ message: "indexing_error" }] }),
+      });
+
+      const providers = await service.fetchProvidersWithDatasets(SUBGRAPH_ENDPOINT, {
+        blockNumber: 5000,
+        addresses: [VALID_ADDRESS],
+      });
+
+      expect(JSON.parse(fetchMock.mock.calls[0][1].body).query).toContain("subgraphError: allow");
+      expect(providers).toHaveLength(1);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([
+      { name: "no data accompanies the indexing_error", body: { data: null, errors: [{ message: "indexing_error" }] } },
+      {
+        name: "another error accompanies the indexing_error",
+        body: {
+          ...makeSubgraphResponse([makeValidProvider()]),
+          errors: [{ message: "indexing_error" }, { message: "Query failed" }],
+        },
+      },
+    ])("throws when $name", async ({ body }) => {
+      fetchMock.mockResolvedValue({ ok: true, json: async () => body });
+
+      const promise = service.fetchProvidersWithDatasets(SUBGRAPH_ENDPOINT, {
+        blockNumber: 5000,
+        addresses: [VALID_ADDRESS],
+      });
+      promise.catch(() => {});
+
+      await vi.runAllTimersAsync();
+
       await expect(promise).rejects.toThrow("Failed to fetch provider data after 3 attempts");
       expect(fetchMock).toHaveBeenCalledTimes(3);
     });
@@ -326,9 +371,50 @@ describe("PDPSubgraphService", () => {
         _meta: {
           block: {
             number: 12345,
+            timestamp: NOW_SECONDS,
           },
+          hasIndexingErrors: false,
         },
       });
+    });
+
+    it("returns metadata when the subgraph reports only an indexing_error", async () => {
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ ...makeSubgraphMetaResponse(12345, true), errors: [{ message: "indexing_error" }] }),
+      });
+
+      const meta = await service.fetchSubgraphMeta(SUBGRAPH_ENDPOINT);
+
+      expect(meta._meta).toEqual({ block: { number: 12345, timestamp: NOW_SECONDS }, hasIndexingErrors: true });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([
+      { name: "is healthy", hasIndexingErrors: false },
+      { name: "reports indexing errors", hasIndexingErrors: true },
+    ])(
+      "throws without retrying when the latest indexed block is over 30 minutes old and the subgraph $name",
+      async ({ hasIndexingErrors }) => {
+        fetchMock.mockResolvedValue({
+          ok: true,
+          json: async () => makeSubgraphMetaResponse(12345, hasIndexingErrors, NOW_SECONDS - 31 * 60),
+        });
+
+        await expect(service.fetchSubgraphMeta(SUBGRAPH_ENDPOINT)).rejects.toThrow(
+          "PDP subgraph is 1860s behind (indexed block 12345, limit 1800s)",
+        );
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+      },
+    );
+
+    it("accepts a subgraph exactly 30 minutes behind", async () => {
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        json: async () => makeSubgraphMetaResponse(12345, false, NOW_SECONDS - 30 * 60),
+      });
+
+      await expect(service.fetchSubgraphMeta(SUBGRAPH_ENDPOINT)).resolves.toBeDefined();
     });
 
     it("throws when PDP subgraph endpoint is not configured", async () => {

@@ -21,7 +21,7 @@ A successful sampled retrieval requires:
 If the piece advertises IPFS indexing (`withIPFSIndexing = true` and a non-null `ipfsRootCid`), three additional dimensions are validated *independently*. Importantly, they do not gate the overall `piece_fetch_status`, and each is recorded as its own outcome column / metric:
 
 2. **CAR parseable:** the fetched bytes parse as a CAR file.
-3. **IPNI:** the SP is advertised as a provider for the root CID and a sample of child CIDs via filecoinpin.contact.
+3. **IPNI:** the SP is advertised as a provider for the root CID and a sample of child CIDs via cid.contact.
 4. **Block fetch:** a sample of CIDs from the parsed CAR is re-fetched via `{spBaseUrl}/ipfs/{cid}?format=raw` and each response is hash-verified against its declared CID.
 
 A piece without IPFS indexing is exercised only at step (1).
@@ -84,7 +84,7 @@ Source: [`piece-retrieval.service.ts`](../../apps/backend/src/sampled-retrieval/
 When the selected piece has `withIPFSIndexing = true` and a non-null `ipfsRootCid`, three dimensions are exercised by `PieceValidationService`. Each dimension has an independent outcome; a failure or skip in one never bleeds into another's status.
 
 1. **CAR parse:** `@ipld/car` parses the response bytes; a random sample of `SAMPLED_RETRIEVAL_BLOCK_SAMPLE_COUNT` CIDs is selected for the next two steps.
-2. **IPNI check:** `IpniVerificationService.verify(rootCid, sampledCids, sp)` polls filecoinpin.contact until each CID resolves to the SP under test, the timeout fires, or `IPNI_VERIFICATION_TIMEOUT_MS` is reached.
+2. **IPNI check:** `IpniVerificationService.verify(rootCid, sampledCids, sp)` polls cid.contact until each CID resolves to the SP under test, the timeout fires, or `IPNI_VERIFICATION_TIMEOUT_MS` is reached.
 3. **Block fetch check:** for each sampled CID, fetch `{spBaseUrl}/ipfs/{cid}?format=raw` and hash-verify the response against the CID. Non-2xx, hash mismatch, unsupported codec, a response exceeding `SAMPLED_MAX_BLOCK_DOWNLOAD_BYTES`, or transport errors all count as a single failed block.
 
 CAR parse failure (`failure.not_parseable`) is attributed to the client (bad upload), not the SP. When the CAR is unparseable, IPNI and block fetch are skipped because there are no sampleable CIDs to verify or fetch.
@@ -98,7 +98,7 @@ Source: [`piece-validation.service.ts`](../../apps/backend/src/sampled-retrieval
 | 1 | SP serves the piece | `GET /piece/{pieceCid}` returns HTTP 2xx | 0 | [`sampledPieceRetrievalLastByteMs`](./events-and-metrics.md#sampledPieceRetrievalLastByteMs) |
 | 2 | Bytes match the declared CommP | Hash of response bytes equals `pieceCid` | 0 | [`sampledPieceRetrievalStatus`](./events-and-metrics.md#sampledPieceRetrievalStatus) |
 | 3 | Bytes parse as a CAR (IPFS-indexed pieces only) | `@ipld/car` parses the response | 0 | [`sampledCarParseStatus`](./events-and-metrics.md#sampledCarParseStatus) |
-| 4 | SP is advertised on IPNI for root + sampled CIDs | filecoinpin.contact returns provider records | polling until timeout | [`sampledIpniStatus`](./events-and-metrics.md#sampledIpniStatus) |
+| 4 | SP is advertised on IPNI for root + sampled CIDs | cid.contact returns provider records | polling until timeout | [`sampledIpniStatus`](./events-and-metrics.md#sampledIpniStatus) |
 | 5 | Sampled blocks fetch + hash-verify | `/ipfs/{cid}?format=raw` for each sample | 0 | [`sampledBlockFetchStatus`](./events-and-metrics.md#sampledBlockFetchStatus) |
 
 ## Sub-status meanings
@@ -123,7 +123,7 @@ Unlike the [Data Storage check](./data-storage.md#deal-status-progression), samp
 
 | sampledIpniStatus | Meaning |
 |--------|---------|
-| `success` | filecoinpin.contact returned the SP as a provider for the root CID **and** every sampled child CID within `IPNI_VERIFICATION_TIMEOUT_MS`. |
+| `success` | cid.contact returned the SP as a provider for the root CID **and** every sampled child CID within `IPNI_VERIFICATION_TIMEOUT_MS`. |
 | `skipped` | IPNI verification was not attempted — piece fetch failed, the piece does not advertise IPFS indexing, CAR parsing returned `failure.not_parseable`, the root CID itself failed to parse, or the job aborted. |
 | `failure.timedout` | IPNI was queried but at least one CID never resolved to the SP under test before `IPNI_VERIFICATION_TIMEOUT_MS` (the poll loop exhausted its timeout with unresolved CIDs). |
 | `failure.other` | IPNI verification was attempted and `IpniVerificationService.verify` threw unexpectedly (transport error, service down, etc.). |

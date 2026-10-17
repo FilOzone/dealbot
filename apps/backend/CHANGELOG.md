@@ -1,5 +1,99 @@
 # Changelog
 
+## [1.14.1](https://github.com/FilOzone/dealbot/compare/backend-v1.14.0...backend-v1.14.1) (2026-10-17)
+
+
+### Bug Fixes
+
+* defer abandoned sweep during maintenance ([#733](https://github.com/FilOzone/dealbot/issues/733)) ([563a93c](https://github.com/FilOzone/dealbot/commit/563a93cccf5e485d2d1d7993ac97d43a2017248c))
+* only defer SP-facing jobs in maintenance ([#734](https://github.com/FilOzone/dealbot/issues/734)) ([39b1760](https://github.com/FilOzone/dealbot/commit/39b1760a21eded50568c8bc7faab93175b99ed2d))
+* tolerate subgraph indexing errors ([#729](https://github.com/FilOzone/dealbot/issues/729)) ([e912167](https://github.com/FilOzone/dealbot/commit/e912167a696c92ecb49a7b7f25de4a2135b49dfa))
+
+## [1.14.0](https://github.com/FilOzone/dealbot/compare/backend-v1.13.1...backend-v1.14.0) (2026-10-08)
+
+
+### Features
+
+* **dealbot:** use subgraph data for sp cleanup ([#723](https://github.com/FilOzone/dealbot/issues/723)) ([3b0753b](https://github.com/FilOzone/dealbot/commit/3b0753b864a4369665ac09772b60616395d776a5))
+
+
+### Bug Fixes
+
+* delete data sets with finalized payment rails ([#714](https://github.com/FilOzone/dealbot/issues/714)) ([ba1b168](https://github.com/FilOzone/dealbot/commit/ba1b16812afdc1a074eb7ff049a8f0b99be2a428))
+* don't crash on malformed provider ([#704](https://github.com/FilOzone/dealbot/issues/704)) ([5c22d50](https://github.com/FilOzone/dealbot/commit/5c22d5007f45a382bbf3e1e599ae11d0ebd88356))
+* isolate malformed pdp offerings during sp cleanup scans ([#703](https://github.com/FilOzone/dealbot/issues/703)) ([bc40391](https://github.com/FilOzone/dealbot/commit/bc403917bf6c772444068016bfd288bd0f084368))
+* mark deals cleaned up after data set removal ([#725](https://github.com/FilOzone/dealbot/issues/725)) ([aaf3cf4](https://github.com/FilOzone/dealbot/commit/aaf3cf4f2d7d7a3f194b3ab8accddb69c5eacff1))
+* retry rejected lifecycle termination requests ([#713](https://github.com/FilOzone/dealbot/issues/713)) ([92b8dba](https://github.com/FilOzone/dealbot/commit/92b8dbae505d7dc2f065453cc0550ed4ee2d02b3))
+* sweep delete finalized data sets ([ba1b168](https://github.com/FilOzone/dealbot/commit/ba1b16812afdc1a074eb7ff049a8f0b99be2a428))
+* treat nonexistent filecoin actor as nonce 0 ([#708](https://github.com/FilOzone/dealbot/issues/708)) ([0ebce6a](https://github.com/FilOzone/dealbot/commit/0ebce6a8e6155db5878d1f762a13d56bcac53bac))
+
+
+### Miscellaneous
+
+* use getClientDataSets in abandoned_data_set_sweep job ([#709](https://github.com/FilOzone/dealbot/issues/709)) ([bf1aee5](https://github.com/FilOzone/dealbot/commit/bf1aee5ccee38b4eab4da183880e75166a9ecc90))
+
+## [1.13.1](https://github.com/FilOzone/dealbot/compare/backend-v1.13.0...backend-v1.13.1) (2026-09-08)
+
+
+### Miscellaneous
+
+* retarget IPNI verification from advertised to synced, single cid.contact check ([#690](https://github.com/FilOzone/dealbot/issues/690)) ([9af0737](https://github.com/FilOzone/dealbot/commit/9af0737afa0292a7f007786b441e835c16d5341c))
+
+## [1.13.0](https://github.com/FilOzone/dealbot/compare/backend-v1.12.0...backend-v1.13.0) (2026-08-25)
+
+
+### Features
+
+* add full-rate and trickle SP testing tiers ([#682](https://github.com/FilOzone/dealbot/issues/682)) ([24ed2b6](https://github.com/FilOzone/dealbot/commit/24ed2b6aab372dfadf246237bf1a2d5c034fda78))
+
+## [1.12.0](https://github.com/FilOzone/dealbot/compare/backend-v1.11.0...backend-v1.12.0) (2026-08-14)
+
+
+### Features
+
+* **metrics:** track active datasets by provider ([#650](https://github.com/FilOzone/dealbot/issues/650)) ([1ad8053](https://github.com/FilOzone/dealbot/commit/1ad8053ccc51fea8ac651c55448112b9c9643ec3))
+
+
+### Bug Fixes
+
+* allow network migration on empty databases ([#662](https://github.com/FilOzone/dealbot/issues/662)) ([f5b6503](https://github.com/FilOzone/dealbot/commit/f5b6503d7da081671ceeee34922db4af9e194548))
+* **metrics:** collect wallet balance only from the api pod ([#668](https://github.com/FilOzone/dealbot/issues/668)) ([14b8ac6](https://github.com/FilOzone/dealbot/commit/14b8ac641855f6abf86b9c166b612cc0b738a5bd))
+
+
+### Miscellaneous
+
+* replace in-memory cache with pg-backed repository ([#667](https://github.com/FilOzone/dealbot/issues/667)) ([05b63eb](https://github.com/FilOzone/dealbot/commit/05b63ebaddcd7838df392b6b9ff5f379de850349))
+
+## [1.11.0](https://github.com/FilOzone/dealbot/compare/backend-v1.10.0...backend-v1.11.0) (2026-07-28)
+
+
+### Features
+
+* add network column to schema for multi-network support ([#463](https://github.com/FilOzone/dealbot/issues/463)) ([66621af](https://github.com/FilOzone/dealbot/commit/66621af544ba67cffa0566a648b9f9c16becc589))
+* add network label to prometheus metrics ([#569](https://github.com/FilOzone/dealbot/issues/569)) ([a81a493](https://github.com/FilOzone/dealbot/commit/a81a493d97cd525ea97bffa4a89ff18d2136693c))
+* **clickhouse:** route writes to per-network database ([#661](https://github.com/FilOzone/dealbot/issues/661)) ([9ccda66](https://github.com/FilOzone/dealbot/commit/9ccda6632035951d56e7c7e211d7acf97e78d904))
+* remove DEALBOT_DISABLE_CHAIN config env var ([#640](https://github.com/FilOzone/dealbot/issues/640)) ([1b7486e](https://github.com/FilOzone/dealbot/commit/1b7486e3c762fb63feb83dfd410b61e82e74e5ea))
+
+
+### Bug Fixes
+
+* **retrieval:** weight random deal selection by prior retrieval count ([#660](https://github.com/FilOzone/dealbot/issues/660)) ([f1e84c7](https://github.com/FilOzone/dealbot/commit/f1e84c7290054bdd2071a71504cc8f3cc5a2eea0))
+* session key permission generation ([#639](https://github.com/FilOzone/dealbot/issues/639)) ([025be31](https://github.com/FilOzone/dealbot/commit/025be313b5fdc6ab9b6fdf86211141440789ef54))
+
+
+### Documentation
+
+* update production API domain ([#635](https://github.com/FilOzone/dealbot/issues/635)) ([83ff0b5](https://github.com/FilOzone/dealbot/commit/83ff0b520d6b6885163acf8c8ef986f81cfa507b))
+
+
+### Miscellaneous
+
+* **backend:** restructure config to support both networks ([#570](https://github.com/FilOzone/dealbot/issues/570)) ([a81a351](https://github.com/FilOzone/dealbot/commit/a81a35134ccb0714c3bf78321aa69efa94cefca0))
+* bump Synapse packages  ([#664](https://github.com/FilOzone/dealbot/issues/664)) ([1823217](https://github.com/FilOzone/dealbot/commit/18232171b75da2aff97724365c9d8616d292cdd4))
+* **config:** per-network shared-value inheritance + resolve [#570](https://github.com/FilOzone/dealbot/issues/570) review findings ([#621](https://github.com/FilOzone/dealbot/issues/621)) ([09c959f](https://github.com/FilOzone/dealbot/commit/09c959fc3dc2b51834c31765469e8c661d7d02bd))
+* **deps:** bump filecoin-pin to 1.2.0 and synapse-sdk to 1.1.0 ([#651](https://github.com/FilOzone/dealbot/issues/651)) ([02aefe1](https://github.com/FilOzone/dealbot/commit/02aefe171fcf41667b185a73b14128d5f260b17f))
+* **jobs:** add fake timers to data_set_lifecycle_check tests ([#637](https://github.com/FilOzone/dealbot/issues/637)) ([207db84](https://github.com/FilOzone/dealbot/commit/207db8441cb06633b17b9c93bbc68d0d6b4e4a6d))
+
 ## [1.10.0](https://github.com/FilOzone/dealbot/compare/backend-v1.9.0...backend-v1.10.0) (2026-06-26)
 
 

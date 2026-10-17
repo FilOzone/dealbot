@@ -79,7 +79,6 @@ const loadJobsConfig = (env: NodeJS.ProcessEnv): IJobsConfig => ({
 });
 
 const loadClickhouseConfig = (env: NodeJS.ProcessEnv): IClickhouseConfig => ({
-  url: env.CLICKHOUSE_URL || undefined,
   batchSize: getNumberEnv(env, "CLICKHOUSE_BATCH_SIZE", 500),
   flushIntervalMs: getNumberEnv(env, "CLICKHOUSE_FLUSH_INTERVAL_MS", 5000),
   maxBufferSize: getNumberEnv(env, "CLICKHOUSE_MAX_BUFFER_SIZE", 5000),
@@ -145,6 +144,7 @@ function loadNetworkEnvPrefix(
   const base = {
     walletAddress: resolve("WALLET_ADDRESS") ?? ZERO_ADDRESS,
     rpcUrl: resolve("RPC_URL"),
+    clickhouseUrl: resolve("CLICKHOUSE_URL")?.trim() || undefined,
     rpcRequestTimeoutMs: coerceNumber(resolve("RPC_REQUEST_TIMEOUT_MS"), networkDefaults.rpcRequestTimeoutMs),
     pdpSubgraphEndpoint: resolve("PDP_SUBGRAPH_ENDPOINT"),
     subgraphEndpoint: resolve("SUBGRAPH_ENDPOINT"),
@@ -202,6 +202,19 @@ function loadNetworkEnvPrefix(
       resolve("PROVIDERS_REFRESH_INTERVAL_SECONDS"),
       networkDefaults.providersRefreshIntervalSeconds,
     ),
+    dataSetPruningIntervalSeconds: coerceNumber(
+      resolve("DATASET_PRUNING_INTERVAL_SECONDS"),
+      networkDefaults.dataSetPruningIntervalSeconds,
+    ),
+    abandonedDataSetSweepIntervalSeconds: coerceNumber(
+      resolve("ABANDONED_DATASET_SWEEP_INTERVAL_SECONDS"),
+      networkDefaults.abandonedDataSetSweepIntervalSeconds,
+    ),
+    excessDataSetBuffer: coerceNumber(resolve("EXCESS_DATASET_BUFFER"), networkDefaults.excessDataSetBuffer),
+    spCleanupJobTimeoutSeconds: coerceNumber(
+      resolve("SP_CLEANUP_JOB_TIMEOUT_SECONDS"),
+      networkDefaults.spCleanupJobTimeoutSeconds,
+    ),
     pieceCleanupPerSpPerHour: coerceFloat(
       resolve("PIECE_CLEANUP_PER_SP_PER_HOUR"),
       networkDefaults.pieceCleanupPerSpPerHour,
@@ -233,6 +246,9 @@ function loadNetworkEnvPrefix(
 
     blockedSpIds: parseIdList(resolve("BLOCKED_SP_IDS")),
     blockedSpAddresses: parseAddressList(resolve("BLOCKED_SP_ADDRESSES")),
+
+    fullRateSpIds: parseIdList(resolve("FULL_RATE_SP_IDS")),
+    fullRateSpAddresses: parseAddressList(resolve("FULL_RATE_SP_ADDRESSES")),
 
     pullChecksPerSpPerHour: coerceFloat(resolve("PULL_CHECKS_PER_SP_PER_HOUR"), networkDefaults.pullChecksPerSpPerHour),
     pullCheckJobTimeoutSeconds: coerceNumber(

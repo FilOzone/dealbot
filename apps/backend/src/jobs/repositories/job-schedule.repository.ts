@@ -8,6 +8,7 @@ import {
   DATA_RETENTION_POLL_QUEUE,
   PROVIDERS_REFRESH_QUEUE,
   PULL_PIECE_CLEANUP_QUEUE,
+  SP_CLEANUP_QUEUE,
   SP_WORK_QUEUE,
 } from "../job-queues.js";
 
@@ -144,6 +145,21 @@ export class JobScheduleRepository {
     return typeof rowCount === "number" ? rowCount : 0;
   }
 
+  async deleteSchedulesForAddresses(jobType: JobType, addresses: string[], network: Network): Promise<string[]> {
+    if (addresses.length === 0) return [];
+    const [rows] = (await this.dataSource.query(
+      `
+      DELETE FROM job_schedule_state
+      WHERE job_type = $1
+        AND network = $2::network_enum
+        AND sp_address = ANY($3::text[])
+      RETURNING sp_address
+      `,
+      [jobType, network, addresses],
+    )) || [[]];
+    return rows.map((row: { sp_address: string }) => row.sp_address);
+  }
+
   /**
    * Counts manually paused jobs by type.
    */
@@ -214,31 +230,6 @@ export class JobScheduleRepository {
   }
 
   /**
-   * Advances next_run_at without updating last_run_at.
-   * Used when a job is intentionally skipped (e.g. during maintenance)
-   * so it doesn't appear as though the job actually ran.
-   *
-   * @param manager - The transaction manager.
-   * @param id - The ID of the schedule row.
-   * @param nextRunAt - The new scheduled time.
-   */
-  async advanceScheduleNextRun(
-    manager: { query: (sql: string, params?: any[]) => Promise<any> },
-    id: number,
-    nextRunAt: Date,
-  ): Promise<void> {
-    await manager.query(
-      `
-      UPDATE job_schedule_state
-      SET next_run_at = $1,
-          updated_at = NOW()
-      WHERE id = $2
-      `,
-      [nextRunAt, id],
-    );
-  }
-
-  /**
    * Executes a callback within a database transaction.
    */
   async runTransaction<T>(runInTransaction: (entityManager: any) => Promise<T>): Promise<T> {
@@ -262,13 +253,14 @@ export class JobScheduleRepository {
           WHEN name = $3 THEN 'data_retention_poll'
           WHEN name = $4 THEN 'providers_refresh'
           WHEN name = $5 THEN 'pull_piece_cleanup'
+          WHEN name = $6 THEN COALESCE(data->>'jobType', 'unknown')
           ELSE name
         END AS job_type,
         state::text AS state,
         COUNT(*)::int AS count
       FROM pgboss.job
       WHERE state::text = ANY($1::text[])
-        AND ($6::text IS NULL OR data->>'network' = $6)
+        AND ($7::text IS NULL OR data->>'network' = $7)
       GROUP BY 1, 2
       `,
       [
@@ -277,6 +269,7 @@ export class JobScheduleRepository {
         DATA_RETENTION_POLL_QUEUE,
         PROVIDERS_REFRESH_QUEUE,
         PULL_PIECE_CLEANUP_QUEUE,
+        SP_CLEANUP_QUEUE,
         network ?? null,
       ],
     );
@@ -299,6 +292,7 @@ export class JobScheduleRepository {
           WHEN name = $4 THEN 'data_retention_poll'
           WHEN name = $5 THEN 'providers_refresh'
           WHEN name = $6 THEN 'pull_piece_cleanup'
+          WHEN name = $7 THEN COALESCE(data->>'jobType', 'unknown')
           ELSE name
         END AS job_type,
         MIN(
@@ -313,7 +307,7 @@ export class JobScheduleRepository {
         ) AS min_age_seconds
       FROM pgboss.job
       WHERE state::text = $2
-        AND ($7::text IS NULL OR data->>'network' = $7)
+        AND ($8::text IS NULL OR data->>'network' = $8)
       GROUP BY 1
       `,
       [
@@ -323,6 +317,7 @@ export class JobScheduleRepository {
         DATA_RETENTION_POLL_QUEUE,
         PROVIDERS_REFRESH_QUEUE,
         PULL_PIECE_CLEANUP_QUEUE,
+        SP_CLEANUP_QUEUE,
         network ?? null,
       ],
     );

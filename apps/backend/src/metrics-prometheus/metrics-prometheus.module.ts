@@ -6,7 +6,6 @@ import {
   makeHistogramProvider,
   PrometheusModule,
 } from "@willsoto/nestjs-prometheus";
-import { WalletSdkModule } from "../wallet-sdk/wallet-sdk.module.js";
 import {
   DataSetCreationCheckMetrics,
   DataSetLifecycleCheckMetrics,
@@ -17,7 +16,6 @@ import {
   SampledRetrievalCheckMetrics,
 } from "./check-metrics.service.js";
 import { MetricsPrometheusInterceptor } from "./metrics-prometheus.interceptor.js";
-import { WalletBalanceCollector } from "./wallet-balance.collector.js";
 
 const KiB = 1 << 10;
 const MiB = 1 << 20;
@@ -97,6 +95,13 @@ const metricProviders = [
     // docs/checks/events-and-metrics.md#spAnnounceAdvertisementMs
     name: "spAnnounceAdvertisementMs",
     help: "Time from upload end to SP advertisement to IPNI (ms)",
+    labelNames: ["checkType", "providerId", "providerName", "providerStatus", "network"] as const,
+    buckets: [10, 50, 100, 500, 1000, 2000, 5000, 10000, 30000, 60000, 120000, 300000],
+  }),
+  makeHistogramProvider({
+    // docs/checks/events-and-metrics.md#advertiseToSyncMs
+    name: "advertiseToSyncMs",
+    help: "Time from SP advertisement to IPNI to Curio-confirmed indexer sync (ms)",
     labelNames: ["checkType", "providerId", "providerName", "providerStatus", "network"] as const,
     buckets: [10, 50, 100, 500, 1000, 2000, 5000, 10000, 30000, 60000, 120000, 300000],
   }),
@@ -186,12 +191,6 @@ const metricProviders = [
     // docs/checks/data-storage.md#sub-status-meanings (Discoverability Status)
     name: "discoverabilityStatus",
     help: "Discoverability sub-status counts",
-    labelNames: ["checkType", "providerId", "providerName", "providerStatus", "value", "network"] as const,
-  }),
-  makeCounterProvider({
-    // docs/checks/data-storage.md#cid-contact-verification-status
-    name: "cidContactVerification",
-    help: "cid.contact IPNI cross-check outcome counts",
     labelNames: ["checkType", "providerId", "providerName", "providerStatus", "value", "network"] as const,
   }),
   makeCounterProvider({
@@ -331,6 +330,37 @@ const metricProviders = [
     help: "Wallet balance in base units (per currency)",
     labelNames: ["currency", "wallet", "network"] as const,
   }),
+  makeGaugeProvider({
+    name: "dealbot_active_datasets",
+    help: "Current active FWSS data sets owned by the configured Dealbot wallet, grouped by provider",
+    labelNames: ["network", "providerId", "providerName", "providerStatus"] as const,
+  }),
+  makeGaugeProvider({
+    name: "dealbot_expected_active_datasets",
+    help: "Configured minimum active Dealbot data sets per provider",
+    labelNames: ["network"] as const,
+  }),
+  makeGaugeProvider({
+    name: "dealbot_active_datasets_last_success_timestamp_seconds",
+    help: "Unix timestamp of the most recent successful active Dealbot data-set inventory collection",
+    labelNames: ["network"] as const,
+  }),
+  makeGaugeProvider({
+    name: "dealbot_subgraph_indexed_block_number",
+    help: "Latest block indexed by the dealbot-owned subgraph during inventory collection",
+    labelNames: ["network"] as const,
+  }),
+  // SP cleanup metrics (docs/runbooks/wallet-and-session-keys.md)
+  makeCounterProvider({
+    name: "sp_termination_attempts_total",
+    help: "Data-set termination attempts by sp_data_set_pruning / abandoned_data_set_sweep",
+    labelNames: ["network", "outcome", "reason"] as const,
+  }),
+  makeGaugeProvider({
+    name: "sp_termination_stuck_gauge",
+    help: "Current count of terminated data sets whose rail settlement is stuck past endEpoch, recomputed fresh every abandoned_data_set_sweep run",
+    labelNames: ["network"] as const,
+  }),
   // Job scheduler metrics (pg-boss)
   /**
    * Current queued jobs per type (pg-boss state: created).
@@ -423,7 +453,6 @@ const metricProviders = [
 @Global()
 @Module({
   imports: [
-    WalletSdkModule,
     PrometheusModule.register({
       defaultMetrics: {
         enabled: true,
@@ -446,7 +475,6 @@ const metricProviders = [
     DataSetLifecycleCheckMetrics,
     PullCheckCheckMetrics,
     SampledRetrievalCheckMetrics,
-    WalletBalanceCollector,
     // HTTP metrics interceptor
     {
       provide: APP_INTERCEPTOR,
@@ -463,7 +491,6 @@ const metricProviders = [
     DataSetLifecycleCheckMetrics,
     PullCheckCheckMetrics,
     SampledRetrievalCheckMetrics,
-    WalletBalanceCollector,
   ],
 })
 export class MetricsPrometheusModule {}

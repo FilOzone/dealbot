@@ -24,6 +24,7 @@ export enum IpniStatus {
   PENDING = "pending",
   SP_INDEXED = "sp_indexed",
   SP_ADVERTISED = "sp_advertised",
+  SP_SYNCED = "sp_synced",
   VERIFIED = "verified",
   FAILED = "failed",
 }

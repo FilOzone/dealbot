@@ -21,6 +21,56 @@ export const Queries = {
       }
     }
   `,
+  GET_ACTIVE_DEALBOT_DATASETS: `
+    query GetActiveDealbotDataSets($payer: Bytes!, $cursor: Bytes!, $first: Int!) {
+      _meta {
+        block {
+          number
+        }
+      }
+      dataSets(
+        first: $first
+        orderBy: id
+        orderDirection: asc
+        where: {fwssPayer: $payer, isActive: true, id_gt: $cursor}
+        subgraphError: allow
+      ) {
+        id
+        fwssServiceProvider
+      }
+    }
+  `,
+  // Omits subgraphError: allow; SP cleanup would rather fail than act on data from a subgraph with errors.
+  GET_CLIENT_DATA_SETS: `
+    query GetClientDataSets($payer: Bytes!, $cursor: Bytes!, $first: Int!) {
+      _meta {
+        block {
+          number
+        }
+      }
+      dataSets(
+        first: $first
+        orderBy: id
+        orderDirection: asc
+        where: {fwssPayer: $payer, status_not: DELETED, id_gt: $cursor}
+      ) {
+        id
+        setId
+        fwssServiceProvider
+        pdpPaymentEndEpoch
+        pdpRailId
+        lastProvenEpoch
+        metadataKeys
+        metadataValues
+        pdpRailFinalization {
+          id
+        }
+        roots(first: 1, where: {removed: false}) {
+          id
+        }
+      }
+    }
+  `,
 } as const;
 
 /**
