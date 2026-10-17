@@ -217,7 +217,8 @@ Runs every `<NET>_DATASET_PRUNING_INTERVAL_SECONDS` (default 1 day, see
 Both cleanup jobs share one `sp.cleanup` queue and per-network singleton key, so their wallet-wide scans do not
 overlap. The queue does not guarantee that pruning runs before the sweep.
 
-During maintenance, both pruning and the abandonment sweep are deferred until the window ends.
+During maintenance, pruning is deferred until the window ends because it terminates through the SP. The
+abandonment sweep only sends on-chain transactions, so it runs during the window.
 
 Pruning runs on that queue rather than the per-provider `SP_WORK_QUEUE`, so it holds no lock against concurrent
 deal or lifecycle jobs. Two rules make that safe instead: the slot rule above never targets a set a deal job

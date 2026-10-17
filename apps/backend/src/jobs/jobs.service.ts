@@ -907,13 +907,6 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
   private async handleAbandonedDataSetSweepJob(job: Job<AbandonedDataSetSweepJobData>): Promise<void> {
     const data = job.data;
     const { network } = data;
-    const now = new Date();
-    const maintenance = this.getMaintenanceWindowStatus(now, network);
-    if (maintenance.active) {
-      this.logMaintenanceSkip("abandoned_data_set_sweep job", network, maintenance.window?.label);
-      await this.deferJobForMaintenance("abandoned_data_set_sweep", data, maintenance, now);
-      return;
-    }
 
     const abortController = new AbortController();
     const timeoutSeconds = this.configService.get("networks", { infer: true })[network].spCleanupJobTimeoutSeconds;
@@ -1344,8 +1337,8 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
   }
 
   private async deferJobForMaintenance(
-    jobType: SpJobType | "sp_data_set_pruning" | "abandoned_data_set_sweep",
-    data: SpJobData | SpDataSetPruningJobData | AbandonedDataSetSweepJobData,
+    jobType: SpJobType | "sp_data_set_pruning",
+    data: SpJobData | SpDataSetPruningJobData,
     maintenance: ReturnType<typeof getMaintenanceWindowStatus>,
     now: Date,
   ): Promise<void> {
@@ -1721,12 +1714,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     if (!this.boss) return;
 
     const now = new Date();
-    const maintenance = this.getMaintenanceWindowStatus(now, network);
     const catchupMax = this.catchupMaxEnqueue();
-
-    if (maintenance.active) {
-      this.logMaintenanceSkip("Global job enqueues", network, maintenance.window?.label);
-    }
 
     await this.jobScheduleRepository.runTransaction(async (manager) => {
       const rows = await this.jobScheduleRepository.findDueSchedulesWithManager(manager, now, network);
@@ -1737,24 +1725,6 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
         const { intervalMs, nextRunAt, runsDue } = timing;
 
         const isSpJob = isSpJobType(row.job_type);
-
-        // Cleanup jobs defer in their handlers instead: skipping a daily job here pushes it back into the same window.
-        if (
-          maintenance.active &&
-          !isSpJob &&
-          row.job_type !== "sp_data_set_pruning" &&
-          row.job_type !== "abandoned_data_set_sweep"
-        ) {
-          this.logger.log({
-            event: "global_job_enqueue_skipped",
-            message: "Skipping global job during maintenance",
-            jobType: row.job_type,
-            maintenanceWindow: maintenance.window?.label,
-          });
-          const newNextRunAt = new Date(now.getTime() + intervalMs);
-          await this.jobScheduleRepository.advanceScheduleNextRun(manager, row.id, newNextRunAt);
-          continue;
-        }
 
         const totalToEnqueue = isSpJob ? Math.min(runsDue, catchupMax) : 1;
         let successCount = 0;
