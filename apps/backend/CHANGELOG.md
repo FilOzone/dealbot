@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.14.1](https://github.com/FilOzone/dealbot/compare/backend-v1.14.0...backend-v1.14.1) (2026-10-17)
+
+
+### Bug Fixes
+
+* defer abandoned sweep during maintenance ([#733](https://github.com/FilOzone/dealbot/issues/733)) ([563a93c](https://github.com/FilOzone/dealbot/commit/563a93cccf5e485d2d1d7993ac97d43a2017248c))
+* only defer SP-facing jobs in maintenance ([#734](https://github.com/FilOzone/dealbot/issues/734)) ([39b1760](https://github.com/FilOzone/dealbot/commit/39b1760a21eded50568c8bc7faab93175b99ed2d))
+* tolerate subgraph indexing errors ([#729](https://github.com/FilOzone/dealbot/issues/729)) ([e912167](https://github.com/FilOzone/dealbot/commit/e912167a696c92ecb49a7b7f25de4a2135b49dfa))
+
 ## [1.14.0](https://github.com/FilOzone/dealbot/compare/backend-v1.13.1...backend-v1.14.0) (2026-10-08)
 
 
