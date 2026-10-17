@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.4.1](https://github.com/FilOzone/dealbot/compare/web-v1.4.0...web-v1.4.1) (2026-10-17)
+
+
+### Miscellaneous
+
+* **deps-dev:** bump vite from 7.3.1 to 8.1.5 in /apps/web ([#656](https://github.com/FilOzone/dealbot/issues/656)) ([bc5a1f8](https://github.com/FilOzone/dealbot/commit/bc5a1f847bace9208879df6057d4591b9f4f774a))
+* **deps:** bump the npm-dependencies group across 1 directory with 39 updates ([#732](https://github.com/FilOzone/dealbot/issues/732)) ([00bcb5b](https://github.com/FilOzone/dealbot/commit/00bcb5be9974d4defd112d365df8b52555d26019))
+
 ## [1.4.0](https://github.com/FilOzone/dealbot/compare/web-v1.3.1...web-v1.4.0) (2026-07-28)
 
 
