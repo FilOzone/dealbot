@@ -278,7 +278,7 @@ export class WalletSdkService implements OnModuleInit {
       const { getUploadCosts } = await import("@filoz/synapse-core/warm-storage");
       const costs = await getUploadCosts(state.synapseClient, {
         clientAddress: state.config.walletAddress as `0x${string}`,
-        dataSize: 100n * 1024n * 1024n * 1024n,
+        pieceSizes: [100n * 1024n * 1024n * 1024n],
       });
 
       if (costs.ready) {
@@ -308,7 +308,7 @@ export class WalletSdkService implements OnModuleInit {
     let prepared: Awaited<ReturnType<typeof state.storageManager.prepare>>;
     try {
       prepared = await state.storageManager.prepare({
-        dataSize: STORAGE_SIZE_GB * 1024n * 1024n * 1024n,
+        pieceSizes: [STORAGE_SIZE_GB * 1024n * 1024n * 1024n],
       });
     } catch (error) {
       // Provider selection walks every registered provider's decoded PDP offering; one with
