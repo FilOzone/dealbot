@@ -361,72 +361,72 @@ describe("IpniAddonStrategy getPieceStatus", () => {
     expect(httpClientService.requestWithMetrics.mock.calls.length).toBeGreaterThan(1);
   });
 
-  it.each([
-    true,
-    false,
-  ])("preserves completed stages and fails without querying cid.contact (observations=%s)", async (observed) => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-01-01T00:00:05Z"));
-    try {
-      const { strategy, httpClientService, ipniVerificationService, discoverabilityMetrics, mockRepo } =
-        createStrategy();
-      const rootCID = "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi";
-      const indexedAt = "2026-01-01T00:00:01.000Z";
-      const advertisedAt = "2026-01-01T00:00:02.000Z";
-      if (observed) {
-        httpClientService.requestWithMetrics.mockResolvedValue({
-          data: Buffer.from(
-            JSON.stringify({
-              pieceCid: "bafk-piece",
-              status: "announced",
-              indexed: true,
-              advertised: true,
-              synced: false,
-              indexedAt,
-              advertisedAt,
-            }),
-          ),
-        });
-      } else {
-        httpClientService.requestWithMetrics.mockRejectedValue(new Error("SP unavailable"));
-      }
-      const deal = buildDeal({
-        pieceCid: "bafk-piece",
-        uploadEndTime: new Date("2026-01-01T00:00:00Z"),
-        storageProvider: buildStorageProvider(),
-        metadata: {
-          [ServiceType.IPFS_PIN]: {
-            enabled: true,
-            rootCID,
-            blockCIDs: [rootCID],
-            blockCount: 1,
-            carSize: 1,
-            originalSize: 1,
+  it.each([true, false])(
+    "preserves completed stages and fails without querying cid.contact (observations=%s)",
+    async (observed) => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-01-01T00:00:05Z"));
+      try {
+        const { strategy, httpClientService, ipniVerificationService, discoverabilityMetrics, mockRepo } =
+          createStrategy();
+        const rootCID = "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi";
+        const indexedAt = "2026-01-01T00:00:01.000Z";
+        const advertisedAt = "2026-01-01T00:00:02.000Z";
+        if (observed) {
+          httpClientService.requestWithMetrics.mockResolvedValue({
+            data: Buffer.from(
+              JSON.stringify({
+                pieceCid: "bafk-piece",
+                status: "announced",
+                indexed: true,
+                advertised: true,
+                synced: false,
+                indexedAt,
+                advertisedAt,
+              }),
+            ),
+          });
+        } else {
+          httpClientService.requestWithMetrics.mockRejectedValue(new Error("SP unavailable"));
+        }
+        const deal = buildDeal({
+          pieceCid: "bafk-piece",
+          uploadEndTime: new Date("2026-01-01T00:00:00Z"),
+          storageProvider: buildStorageProvider(),
+          metadata: {
+            [ServiceType.IPFS_PIN]: {
+              enabled: true,
+              rootCID,
+              blockCIDs: [rootCID],
+              blockCount: 1,
+              carSize: 1,
+              originalSize: 1,
+            },
           },
-        },
-      });
-      const completion = expect(strategy.onStored(deal)).rejects.toThrow("root CID not verified");
-      await vi.advanceTimersByTimeAsync(strategy.POLLING_TIMEOUT_MS);
-      await completion;
+        });
+        const completion = expect(strategy.onStored(deal)).rejects.toThrow("root CID not verified");
+        await vi.advanceTimersByTimeAsync(strategy.POLLING_TIMEOUT_MS);
+        await completion;
 
-      const labels = discoverabilityMetrics.buildLabelsForDeal(deal);
-      expect(ipniVerificationService.verify).not.toHaveBeenCalled();
-      expect(discoverabilityMetrics.observeIpniVerifyMs).not.toHaveBeenCalled();
-      expect(discoverabilityMetrics.recordStatus).toHaveBeenCalledWith(labels, "failure.timedout");
-      expect(discoverabilityMetrics.recordStatus).not.toHaveBeenCalledWith(labels, "sp_synced_cid_contact_mismatch");
-      expect(discoverabilityMetrics.recordStatus).not.toHaveBeenCalledWith(labels, "skipped");
-      expect(deal.ipniStatus).toBe(IpniStatus.FAILED);
-      if (observed) {
-        expect(deal.ipniIndexedAt?.toISOString()).toBe(indexedAt);
-        expect(deal.ipniAdvertisedAt?.toISOString()).toBe(advertisedAt);
-        expect(discoverabilityMetrics.observeSpIndexLocallyMs).toHaveBeenCalledWith(labels, 1000);
-        expect(discoverabilityMetrics.observeSpAnnounceAdvertisementMs).toHaveBeenCalledWith(labels, 2000);
+        const labels = discoverabilityMetrics.buildLabelsForDeal(deal);
+        expect(ipniVerificationService.verify).not.toHaveBeenCalled();
+        expect(discoverabilityMetrics.observeIpniVerifyMs).not.toHaveBeenCalled();
+        expect(discoverabilityMetrics.recordStatus).toHaveBeenCalledWith(labels, "failure.timedout");
+        expect(discoverabilityMetrics.recordStatus).not.toHaveBeenCalledWith(labels, "sp_synced_cid_contact_mismatch");
+        expect(discoverabilityMetrics.recordStatus).not.toHaveBeenCalledWith(labels, "skipped");
+        expect(deal.ipniStatus).toBe(IpniStatus.FAILED);
+        if (observed) {
+          expect(deal.ipniIndexedAt?.toISOString()).toBe(indexedAt);
+          expect(deal.ipniAdvertisedAt?.toISOString()).toBe(advertisedAt);
+          expect(discoverabilityMetrics.observeSpIndexLocallyMs).toHaveBeenCalledWith(labels, 1000);
+          expect(discoverabilityMetrics.observeSpAnnounceAdvertisementMs).toHaveBeenCalledWith(labels, 2000);
+        }
+        expect(mockRepo.save).toHaveBeenLastCalledWith(deal);
+      } finally {
+        vi.useRealTimers();
       }
-      expect(mockRepo.save).toHaveBeenLastCalledWith(deal);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
+    },
+  );
 
   it("sets SP_SYNCED status and ipniSyncedAt/ipniTimeToSyncMs when synced but not yet root-CID verified", async () => {
     vi.useFakeTimers();
