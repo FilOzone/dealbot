@@ -393,19 +393,20 @@ describe("PDPSubgraphService", () => {
     it.each([
       { name: "is healthy", hasIndexingErrors: false },
       { name: "reports indexing errors", hasIndexingErrors: true },
-    ])("throws without retrying when the latest indexed block is over 30 minutes old and the subgraph $name", async ({
-      hasIndexingErrors,
-    }) => {
-      fetchMock.mockResolvedValue({
-        ok: true,
-        json: async () => makeSubgraphMetaResponse(12345, hasIndexingErrors, NOW_SECONDS - 31 * 60),
-      });
+    ])(
+      "throws without retrying when the latest indexed block is over 30 minutes old and the subgraph $name",
+      async ({ hasIndexingErrors }) => {
+        fetchMock.mockResolvedValue({
+          ok: true,
+          json: async () => makeSubgraphMetaResponse(12345, hasIndexingErrors, NOW_SECONDS - 31 * 60),
+        });
 
-      await expect(service.fetchSubgraphMeta(SUBGRAPH_ENDPOINT)).rejects.toThrow(
-        "PDP subgraph is 1860s behind (indexed block 12345, limit 1800s)",
-      );
-      expect(fetchMock).toHaveBeenCalledTimes(1);
-    });
+        await expect(service.fetchSubgraphMeta(SUBGRAPH_ENDPOINT)).rejects.toThrow(
+          "PDP subgraph is 1860s behind (indexed block 12345, limit 1800s)",
+        );
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+      },
+    );
 
     it("accepts a subgraph exactly 30 minutes behind", async () => {
       fetchMock.mockResolvedValueOnce({

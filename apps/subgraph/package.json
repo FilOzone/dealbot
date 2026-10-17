@@ -20,7 +20,7 @@
     "check:ci": "biome ci ."
   },
   "dependencies": {
-    "@filoz/synapse-core": "0.3.3",
+    "@filoz/synapse-core": "0.10.1",
     "@graphprotocol/graph-cli": "0.98.1",
     "@graphprotocol/graph-ts": "0.38.2"
   },
