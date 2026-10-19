@@ -1,6 +1,5 @@
 import { asChain } from "@filoz/synapse-core/chains";
 import { settleRailCall, settleTerminatedRailWithoutValidationCall } from "@filoz/synapse-core/pay";
-import { dataSetLive } from "@filoz/synapse-core/pdp-verifier";
 import { TIME_CONSTANTS } from "@filoz/synapse-core/utils";
 import { findMatchingDataSets, getDataSet } from "@filoz/synapse-core/warm-storage";
 import type { Synapse } from "@filoz/synapse-sdk";
@@ -11,10 +10,11 @@ import { InjectMetric } from "@willsoto/nestjs-prometheus";
 import type { Counter, Gauge } from "prom-client";
 import type { Repository } from "typeorm";
 import type { Chain, Client, Transport } from "viem";
-import { ContractFunctionRevertedError, encodeFunctionData, WaitForTransactionReceiptTimeoutError } from "viem";
+import { ContractFunctionRevertedError, encodeFunctionData } from "viem";
 import {
   getBlockNumber,
   getTransactionCount,
+  readContract,
   simulateContract,
   waitForTransactionReceipt,
   writeContract,
@@ -77,6 +77,8 @@ const RELAY_CONCURRENCY = 5;
 
 // Bounds pending writes; transaction submission itself is nonce-serialized.
 const WRITE_CONCURRENCY = 10;
+// viem's 180s default timed out on mainnet deletes that mined about a minute later.
+const DELETE_RECEIPT_TIMEOUT_MS = 360_000;
 
 @Injectable()
 export class SpCleanupService {
@@ -616,7 +618,7 @@ export class SpCleanupService {
       const hash = await submitWithNonce((nonce) =>
         writeContract(writeClient, { ...request, abi: pdpVerifier.abi, nonce }),
       );
-      const receipt = await waitForTransactionReceipt(writeClient, { hash });
+      const receipt = await waitForTransactionReceipt(writeClient, { hash, timeout: DELETE_RECEIPT_TIMEOUT_MS });
       if (receipt.status !== "success") {
         throw new Error(`deleteDataSet transaction reverted on-chain (hash: ${hash})`);
       }
@@ -630,23 +632,14 @@ export class SpCleanupService {
     } catch (error) {
       // Only a pre-submission abort is a job timeout.
       if (this.isAbortError(error, signal)) throw error;
-      if (!(error instanceof WaitForTransactionReceiptTimeoutError)) {
-        this.recordAttempt(network, reason, "failure");
-        this.logger.warn({
-          ...logContext,
-          event: "sp_cleanup_data_set_abandoned_delete_failed",
-          message: "Direct deleteDataSet call failed; will retry on next sweep",
-          error: toStructuredError(error),
-        });
-        return;
-      }
-      // The delete was broadcast and may still mine; if it does, the set drops out of the listing for good.
+      this.recordAttempt(network, reason, "failure");
       this.logger.warn({
         ...logContext,
-        event: "sp_cleanup_data_set_delete_unconfirmed",
-        message: "deleteDataSet receipt wait timed out; running cleanupPieces, which confirms the delete on-chain",
+        event: "sp_cleanup_data_set_abandoned_delete_failed",
+        message: "Direct deleteDataSet call failed; will retry on next sweep",
         error: toStructuredError(error),
       });
+      return;
     }
 
     // Before the abortible cleanup loop: a deleted set drops out of the wallet listing for good.
@@ -677,13 +670,17 @@ export class SpCleanupService {
 
     for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
       signal?.throwIfAborted();
+      let blockNumber: bigint | undefined;
       try {
+        // Pinned so a DataSetNotInCleanupMode revert and the liveness check below describe the same chain state.
+        blockNumber = await awaitWithAbort(getBlockNumber(writeClient), signal);
         const { request, result: done } = await awaitWithAbort(
           simulateContract(writeClient, {
             address: pdpVerifier.address,
             abi: pdpVerifier.abi,
             functionName: "cleanupPieces",
             args: [dataSet.dataSetId, CLEANUP_PIECES_BATCH_SIZE],
+            blockNumber,
           }),
           signal,
         );
@@ -710,8 +707,18 @@ export class SpCleanupService {
         }
       } catch (error) {
         const notInCleanupMode = this.extractContractRevert(error)?.data?.errorName === "DataSetNotInCleanupMode";
-        // A live set means the delete is still pending or this node lags behind; only a deleted set is finished.
-        if (notInCleanupMode && !(await dataSetLive(writeClient, { dataSetId: dataSet.dataSetId }).catch(() => true))) {
+        // A live set means this node has not seen the delete yet; only a deleted set is finished.
+        if (
+          notInCleanupMode &&
+          blockNumber !== undefined &&
+          !(await readContract(writeClient, {
+            address: pdpVerifier.address,
+            abi: pdpVerifier.abi,
+            functionName: "dataSetLive",
+            args: [dataSet.dataSetId],
+            blockNumber,
+          }).catch(() => true))
+        ) {
           // Zero-piece data sets never enter cleanup mode.
           this.logger.debug({
             ...logContext,
