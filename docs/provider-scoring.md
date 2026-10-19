@@ -2,6 +2,8 @@
 
 This document describes a default strategy for how storage providers (SPs) can be ranked. No code in this repo currently uses this methodology; it is intended as a guide for dashboards that want to give a sort order for SPs (e.g., https://probelab.io/filecoin/foc/).
 
+This document is also rendered at https://probelab.io/filecoin/foc/methodology/score/. If the scoring strategy changes, ProbeLab also needs to be updated so its SP ranking stays consistent with this document.
+
 ## Overview
 
 Providers are sorted by three criteria evaluated left-to-right. The first criterion that differs between two providers determines their relative position while later criteria only matter when earlier ones are tied.

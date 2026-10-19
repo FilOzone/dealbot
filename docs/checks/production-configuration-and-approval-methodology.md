@@ -4,6 +4,9 @@ This document outlines how dealbot is configured for production by the Filecoin 
 
 ## Approval Acceptance Criteria
 
+> [!IMPORTANT]
+> This document is also rendered at https://probelab.io/filecoin/foc/methodology/approval-criteria/, and ProbeLab's FOC dashboards evaluate SPs against these criteria. If the acceptance criteria change (metrics, thresholds, or minimum sample sizes), ProbeLab also needs to be updated so its dashboards stay consistent with this document.
+
 ### Summary
 Our goal in having an "approved" SP list is to support a production-grade quality of service for Filecoin Onchain Cloud storage.  In order to be an approved SP, one must satisfy all of the following criteria:
 

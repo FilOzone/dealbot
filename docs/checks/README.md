@@ -10,6 +10,8 @@ The files are:
 - [data-set-lifecycle-check.md](./data-set-lifecycle-check.md): Defines the `data_set_lifecycle_check` canary that creates and terminates a throwaway data set each tick.
 - [events-and-metrics.md](./events-and-metrics.md): Defines the events and metrics that are used to assess SP performance.
 
+Most of these files (plus [provider-scoring.md](../provider-scoring.md)) are also rendered by ProbeLab at https://probelab.io/filecoin/foc/methodology. Keep that in mind when editing them: changes here change what SPs and other readers see there, and new or renamed files may need a corresponding update on the ProbeLab side.
+
 
 ## What is "DealBot"?
 
