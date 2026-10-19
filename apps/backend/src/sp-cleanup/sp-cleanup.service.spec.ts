@@ -1,5 +1,5 @@
 import { Logger } from "@nestjs/common";
-import { ContractFunctionRevertedError } from "viem";
+import { ContractFunctionRevertedError, encodeErrorResult } from "viem";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { trickleTierRates } from "../config/constants.js";
 import type { INetworkConfig } from "../config/index.js";
@@ -946,6 +946,38 @@ describe("SpCleanupService", () => {
       expect(simulateContract).toHaveBeenCalledTimes(6);
     });
 
+    it("stops cleanupPieces when the send reverts with DataSetNotInCleanupMode after simulation passed", async () => {
+      const notInCleanupMode = { type: "error", name: "DataSetNotInCleanupMode", inputs: [] } as const;
+      vi.mocked(asChain).mockReturnValue({
+        ...fakeChain,
+        contracts: { ...fakeChain.contracts, pdp: { address: "0xpdpverifier", abi: [notInCleanupMode] } },
+      } as any);
+      mockSnapshot([makeDataSet({ dataSetId: 18n, pdpEndEpoch: 0n })], 200000n);
+      vi.mocked(simulateContract).mockImplementation((async (_client: unknown, params: any) => ({
+        // viem's request carries only the simulated function's ABI item.
+        request: { abi: [], functionName: params.functionName, args: params.args },
+        result: false,
+      })) as never);
+      vi.mocked(writeContract).mockImplementation((async (_client: unknown, params: any) => {
+        if (params.functionName === "deleteDataSet") return "0xdelete-hash";
+        // A batch that mined after its receipt wait timed out already finished the cleanup.
+        throw new ContractFunctionRevertedError({
+          abi: params.abi,
+          data: encodeErrorResult({ abi: [notInCleanupMode], errorName: "DataSetNotInCleanupMode" }),
+          functionName: params.functionName,
+        });
+      }) as never);
+      vi.mocked(waitForTransactionReceipt).mockResolvedValue({ status: "success" } as any);
+
+      await service.runAbandonedDataSetSweep(DEFAULT_NETWORK);
+
+      expect(writeContract).toHaveBeenCalledTimes(2);
+      expect(warnSpy).not.toHaveBeenCalledWith(expect.objectContaining({ event: "sp_cleanup_pieces_batch_failed" }));
+      expect(warnSpy).not.toHaveBeenCalledWith(
+        expect.objectContaining({ event: "sp_cleanup_pieces_cleanup_incomplete" }),
+      );
+    });
+
     it("propagates an abort raised mid-cleanupPieces without relabeling the already-successful delete as failed", async () => {
       const dataSet = makeDataSet({ dataSetId: 18n, pdpEndEpoch: 0n });
       mockSnapshot([dataSet], 200000n);
@@ -1227,6 +1259,41 @@ describe("SpCleanupService", () => {
       await service.runAbandonedDataSetSweep(DEFAULT_NETWORK);
 
       expect(writeContract).not.toHaveBeenCalled();
+      expect(attemptsCounter.inc).not.toHaveBeenCalled();
+      expect(stuckGauge.set).toHaveBeenCalledWith({ network: DEFAULT_NETWORK }, 0);
+      expect(warnSpy).not.toHaveBeenCalledWith(expect.objectContaining({ event: "stuck_terminations_detected" }));
+    });
+
+    it("does not flag a rail as stuck when the settleRail send reverts with RailInactiveOrSettled", async () => {
+      const railInactive = {
+        type: "error",
+        name: "RailInactiveOrSettled",
+        inputs: [{ name: "railId", type: "uint256" }],
+      } as const;
+      vi.mocked(settleRailCall).mockImplementation(
+        (opts) =>
+          ({
+            address: "0xfilecoinpay",
+            abi: [railInactive],
+            functionName: "settleRail",
+            args: [opts.railId, opts.untilEpoch],
+          }) as any,
+      );
+      mockSnapshot([makeDataSet({ dataSetId: 28n, pdpEndEpoch: 500n, pdpRailId: 992n })], 200000n);
+      // viem's request carries only the simulated function's ABI item.
+      vi.mocked(simulateContract).mockResolvedValueOnce({
+        request: { abi: [], functionName: "settleRail", args: [992n, 500n] },
+      } as any);
+      vi.mocked(writeContract).mockImplementationOnce((async (_client: unknown, params: any) => {
+        throw new ContractFunctionRevertedError({
+          abi: params.abi,
+          data: encodeErrorResult({ abi: [railInactive], errorName: "RailInactiveOrSettled", args: [992n] }),
+          functionName: params.functionName,
+        });
+      }) as never);
+
+      await service.runAbandonedDataSetSweep(DEFAULT_NETWORK);
+
       expect(attemptsCounter.inc).not.toHaveBeenCalled();
       expect(stuckGauge.set).toHaveBeenCalledWith({ network: DEFAULT_NETWORK }, 0);
       expect(warnSpy).not.toHaveBeenCalledWith(expect.objectContaining({ event: "stuck_terminations_detected" }));
