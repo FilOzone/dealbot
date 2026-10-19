@@ -1,5 +1,5 @@
 import { Logger } from "@nestjs/common";
-import { ContractFunctionRevertedError } from "viem";
+import { ContractFunctionRevertedError, encodeErrorResult, WaitForTransactionReceiptTimeoutError } from "viem";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { trickleTierRates } from "../config/constants.js";
 import type { INetworkConfig } from "../config/index.js";
@@ -21,6 +21,11 @@ vi.mock("@filoz/synapse-core/pay", () => ({
 
 vi.mock("@filoz/synapse-core/chains", () => ({
   asChain: vi.fn(),
+}));
+
+vi.mock("../common/abort-utils.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../common/abort-utils.js")>()),
+  delay: vi.fn(async () => undefined),
 }));
 
 // Only the network calls are stubbed. `findMatchingDataSets` and `metadataMatches` stay real:
@@ -56,9 +61,16 @@ vi.mock("../common/synapse-factory.js", () => ({
 const { terminateServiceSync } = await import("../data-set-lifecycle/data-set-lifecycle.service.js");
 const { settleRailCall, settleTerminatedRailWithoutValidationCall } = await import("@filoz/synapse-core/pay");
 const { asChain } = await import("@filoz/synapse-core/chains");
+const { delay } = await import("../common/abort-utils.js");
 const { getDataSet } = await import("@filoz/synapse-core/warm-storage");
-const { getBlockNumber, getTransactionCount, simulateContract, writeContract, waitForTransactionReceipt } =
-  await import("viem/actions");
+const {
+  getBlockNumber,
+  getTransactionCount,
+  readContract,
+  simulateContract,
+  writeContract,
+  waitForTransactionReceipt,
+} = await import("viem/actions");
 
 const DEFAULT_NETWORK = "calibration";
 
@@ -203,6 +215,8 @@ describe("SpCleanupService", () => {
     // still active, so the plan is carried out as computed.
     vi.mocked(getDataSet).mockResolvedValue({ pdpEndEpoch: 0n } as any);
     vi.mocked(getTransactionCount).mockResolvedValue(0);
+    // dataSetLive: a set the sweep just deleted reads as no longer live.
+    vi.mocked(readContract).mockResolvedValue(false as never);
     vi.mocked(settleRailCall).mockImplementation(
       (opts) =>
         ({
@@ -946,6 +960,38 @@ describe("SpCleanupService", () => {
       expect(simulateContract).toHaveBeenCalledTimes(6);
     });
 
+    it("stops cleanupPieces when the send reverts with DataSetNotInCleanupMode after simulation passed", async () => {
+      const notInCleanupMode = { type: "error", name: "DataSetNotInCleanupMode", inputs: [] } as const;
+      vi.mocked(asChain).mockReturnValue({
+        ...fakeChain,
+        contracts: { ...fakeChain.contracts, pdp: { address: "0xpdpverifier", abi: [notInCleanupMode] } },
+      } as any);
+      mockSnapshot([makeDataSet({ dataSetId: 18n, pdpEndEpoch: 0n })], 200000n);
+      vi.mocked(simulateContract).mockImplementation((async (_client: unknown, params: any) => ({
+        // viem's request carries only the simulated function's ABI item.
+        request: { abi: [], functionName: params.functionName, args: params.args },
+        result: false,
+      })) as never);
+      vi.mocked(writeContract).mockImplementation((async (_client: unknown, params: any) => {
+        if (params.functionName === "deleteDataSet") return "0xdelete-hash";
+        // A batch that mined after its receipt wait timed out already finished the cleanup.
+        throw new ContractFunctionRevertedError({
+          abi: params.abi,
+          data: encodeErrorResult({ abi: [notInCleanupMode], errorName: "DataSetNotInCleanupMode" }),
+          functionName: params.functionName,
+        });
+      }) as never);
+      vi.mocked(waitForTransactionReceipt).mockResolvedValue({ status: "success" } as any);
+
+      await service.runAbandonedDataSetSweep(DEFAULT_NETWORK);
+
+      expect(writeContract).toHaveBeenCalledTimes(2);
+      expect(warnSpy).not.toHaveBeenCalledWith(expect.objectContaining({ event: "sp_cleanup_pieces_batch_failed" }));
+      expect(warnSpy).not.toHaveBeenCalledWith(
+        expect.objectContaining({ event: "sp_cleanup_pieces_cleanup_incomplete" }),
+      );
+    });
+
     it("propagates an abort raised mid-cleanupPieces without relabeling the already-successful delete as failed", async () => {
       const dataSet = makeDataSet({ dataSetId: 18n, pdpEndEpoch: 0n });
       mockSnapshot([dataSet], 200000n);
@@ -1020,6 +1066,66 @@ describe("SpCleanupService", () => {
         outcome: "failure",
         reason: "abandonment",
       });
+    });
+
+    it("leaves deals and cleanup alone when the deleteDataSet receipt never arrives", async () => {
+      mockSnapshot([makeDataSet({ dataSetId: 20n, pdpEndEpoch: 0n })], 200000n);
+      vi.mocked(simulateContract).mockResolvedValueOnce({ request: { fake: "deleteDataSet-request" } } as any);
+      vi.mocked(writeContract).mockResolvedValueOnce("0xdelete-hash" as any);
+      vi.mocked(waitForTransactionReceipt).mockRejectedValueOnce(
+        new WaitForTransactionReceiptTimeoutError({ hash: "0xdelete-hash" }),
+      );
+
+      await service.runAbandonedDataSetSweep(DEFAULT_NETWORK);
+
+      expect(waitForTransactionReceipt).toHaveBeenCalledWith(expect.anything(), {
+        hash: "0xdelete-hash",
+        timeout: 360_000,
+      });
+      // The set may still be live, so it stays discoverable and its deals stay selectable for the next sweep.
+      expect(simulateContract).toHaveBeenCalledTimes(1);
+      expect(dealRepository.update).not.toHaveBeenCalled();
+      expect(attemptsCounter.inc).toHaveBeenCalledWith({
+        network: DEFAULT_NETWORK,
+        outcome: "failure",
+        reason: "abandonment",
+      });
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ event: "sp_cleanup_data_set_abandoned_delete_failed" }),
+      );
+    });
+
+    it("checks cleanup mode and liveness at the same block, so a delete landing in between is not taken as done", async () => {
+      mockSnapshot([makeDataSet({ dataSetId: 21n, pdpEndEpoch: 0n })], 200000n);
+      // The delete becomes visible at block 200001: before it the set is live and not in cleanup mode.
+      vi.mocked(getBlockNumber).mockResolvedValueOnce(200000n).mockResolvedValueOnce(200001n);
+      const notInCleanupMode = new ContractFunctionRevertedError({ abi: [], functionName: "cleanupPieces" });
+      notInCleanupMode.data = { errorName: "DataSetNotInCleanupMode", args: [] } as any;
+      vi.mocked(simulateContract).mockImplementation((async (_client: unknown, params: any) => {
+        if (params.functionName === "deleteDataSet") return { request: { fake: "deleteDataSet-request" } };
+        if (params.blockNumber === 200000n) throw notInCleanupMode;
+        return { request: { fake: "cleanup-1" }, result: true };
+      }) as never);
+      // At the chain head the set already reads deleted; only the pinned read sees it live.
+      vi.mocked(readContract).mockImplementation(
+        (async (_client: unknown, params: any) => params.blockNumber === 200000n) as never,
+      );
+      vi.mocked(writeContract)
+        .mockResolvedValueOnce("0xdelete-hash" as any)
+        .mockResolvedValueOnce("0xcleanup-hash" as any);
+      vi.mocked(waitForTransactionReceipt).mockResolvedValue({ status: "success" } as any);
+
+      await service.runAbandonedDataSetSweep(DEFAULT_NETWORK);
+
+      expect(readContract).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ functionName: "dataSetLive", args: [21n], blockNumber: 200000n }),
+      );
+      expect(delay).toHaveBeenCalledWith(30_000, undefined);
+      expect(writeContract).toHaveBeenCalledTimes(2);
+      expect(warnSpy).not.toHaveBeenCalledWith(
+        expect.objectContaining({ event: "sp_cleanup_pieces_cleanup_incomplete" }),
+      );
     });
 
     it("skips a data set still inside the PDPVerifier activity window", async () => {
@@ -1227,6 +1333,41 @@ describe("SpCleanupService", () => {
       await service.runAbandonedDataSetSweep(DEFAULT_NETWORK);
 
       expect(writeContract).not.toHaveBeenCalled();
+      expect(attemptsCounter.inc).not.toHaveBeenCalled();
+      expect(stuckGauge.set).toHaveBeenCalledWith({ network: DEFAULT_NETWORK }, 0);
+      expect(warnSpy).not.toHaveBeenCalledWith(expect.objectContaining({ event: "stuck_terminations_detected" }));
+    });
+
+    it("does not flag a rail as stuck when the settleRail send reverts with RailInactiveOrSettled", async () => {
+      const railInactive = {
+        type: "error",
+        name: "RailInactiveOrSettled",
+        inputs: [{ name: "railId", type: "uint256" }],
+      } as const;
+      vi.mocked(settleRailCall).mockImplementation(
+        (opts) =>
+          ({
+            address: "0xfilecoinpay",
+            abi: [railInactive],
+            functionName: "settleRail",
+            args: [opts.railId, opts.untilEpoch],
+          }) as any,
+      );
+      mockSnapshot([makeDataSet({ dataSetId: 28n, pdpEndEpoch: 500n, pdpRailId: 992n })], 200000n);
+      // viem's request carries only the simulated function's ABI item.
+      vi.mocked(simulateContract).mockResolvedValueOnce({
+        request: { abi: [], functionName: "settleRail", args: [992n, 500n] },
+      } as any);
+      vi.mocked(writeContract).mockImplementationOnce((async (_client: unknown, params: any) => {
+        throw new ContractFunctionRevertedError({
+          abi: params.abi,
+          data: encodeErrorResult({ abi: [railInactive], errorName: "RailInactiveOrSettled", args: [992n] }),
+          functionName: params.functionName,
+        });
+      }) as never);
+
+      await service.runAbandonedDataSetSweep(DEFAULT_NETWORK);
+
       expect(attemptsCounter.inc).not.toHaveBeenCalled();
       expect(stuckGauge.set).toHaveBeenCalledWith({ network: DEFAULT_NETWORK }, 0);
       expect(warnSpy).not.toHaveBeenCalledWith(expect.objectContaining({ event: "stuck_terminations_detected" }));

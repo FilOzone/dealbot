@@ -261,7 +261,10 @@ dealbot's entire wallet, not scoped to the blocklist. For each data set:
   genuinely stuck, e.g. an unresolvable open proving period) does it fall through to needing a human with the
   Safe's `settleTerminatedRailWithoutValidation` escape hatch. Expected to be rare.
 
-After `deleteDataSet`, the sweep calls `cleanupPieces` in batches until cleanup finishes. Deletion removes the
+After `deleteDataSet`, the sweep calls `cleanupPieces` in batches until cleanup finishes. It waits up to six
+minutes for the delete's receipt; an unconfirmed delete is retried on the next sweep, and its deals stay
+selectable. A `DataSetNotInCleanupMode` revert counts as finished only when `dataSetLive` reads false at the same
+block. Deletion removes the
 data set from the wallet listing, so cleanup failures are retried only during that run. If cleanup remains
 incomplete, proof obligations and payment rails have already been removed; only the SP-funded cleanup bounty
 remains unclaimed.

@@ -1,5 +1,6 @@
 import { asChain } from "@filoz/synapse-core/chains";
 import { settleRailCall, settleTerminatedRailWithoutValidationCall } from "@filoz/synapse-core/pay";
+import { TIME_CONSTANTS } from "@filoz/synapse-core/utils";
 import { findMatchingDataSets, getDataSet } from "@filoz/synapse-core/warm-storage";
 import type { Synapse } from "@filoz/synapse-sdk";
 import { Injectable, Logger } from "@nestjs/common";
@@ -18,7 +19,7 @@ import {
   waitForTransactionReceipt,
   writeContract,
 } from "viem/actions";
-import { awaitWithAbort } from "../common/abort-utils.js";
+import { awaitWithAbort, delay } from "../common/abort-utils.js";
 import { LIFECYCLE_CHECK_METADATA_KEY } from "../common/constants.js";
 import { getBaseDataSetMetadata, storedSlotMetadata } from "../common/data-set-slots.js";
 import { toStructuredError } from "../common/logging.js";
@@ -58,6 +59,8 @@ type DeletionReason = "abandonment" | "finalized";
 
 type ReadOnlyClient = Client<Transport, Chain>;
 
+type PdpVerifierContract = ReturnType<typeof asChain>["contracts"]["pdp"];
+
 type SubmitWithNonce = (submit: (nonce: number) => Promise<`0x${string}`>) => Promise<`0x${string}`>;
 
 interface StuckRailItem {
@@ -74,6 +77,8 @@ const RELAY_CONCURRENCY = 5;
 
 // Bounds pending writes; transaction submission itself is nonce-serialized.
 const WRITE_CONCURRENCY = 10;
+// viem's 180s default timed out on mainnet deletes that mined about a minute later.
+const DELETE_RECEIPT_TIMEOUT_MS = 360_000;
 
 @Injectable()
 export class SpCleanupService {
@@ -581,7 +586,7 @@ export class SpCleanupService {
   /** The caller has already established that this data set is outside the activity window. */
   private async handleDeletionCandidate(
     writeClient: SynapseViemClient,
-    pdpVerifier: { address: `0x${string}`; abi: unknown },
+    pdpVerifier: PdpVerifierContract,
     network: Network,
     dataSet: { dataSetId: bigint; serviceProvider: string; lastProvenEpoch: bigint },
     reason: DeletionReason,
@@ -589,7 +594,6 @@ export class SpCleanupService {
     submitWithNonce: SubmitWithNonce,
     signal?: AbortSignal,
   ): Promise<void> {
-    const abi = pdpVerifier.abi as Parameters<typeof readContract>[1]["abi"];
     const logContext = {
       network,
       reason,
@@ -603,15 +607,18 @@ export class SpCleanupService {
       const { request } = await awaitWithAbort(
         simulateContract(writeClient, {
           address: pdpVerifier.address,
-          abi,
+          abi: pdpVerifier.abi,
           functionName: "deleteDataSet",
           args: [dataSet.dataSetId, "0x"],
         }),
         signal,
       );
       // Once submitted, track the transaction to completion even if the job deadline passes.
-      const hash = await submitWithNonce((nonce) => writeContract(writeClient, { ...request, nonce }));
-      const receipt = await waitForTransactionReceipt(writeClient, { hash });
+      // simulateContract's request keeps only the called function's ABI; send-time reverts need the full ABI to decode.
+      const hash = await submitWithNonce((nonce) =>
+        writeContract(writeClient, { ...request, abi: pdpVerifier.abi, nonce }),
+      );
+      const receipt = await waitForTransactionReceipt(writeClient, { hash, timeout: DELETE_RECEIPT_TIMEOUT_MS });
       if (receipt.status !== "success") {
         throw new Error(`deleteDataSet transaction reverted on-chain (hash: ${hash})`);
       }
@@ -641,14 +648,13 @@ export class SpCleanupService {
     // Deliberately outside the deleteDataSet try/catch: deleteDataSet already succeeded and was recorded,
     // so a timeout abort here must propagate to the job handler as-is, not get relabeled as a
     // deleteDataSet failure (finishCleanupPieces handles its own errors internally already).
-    await this.finishCleanupPieces(writeClient, pdpVerifier, abi, dataSet, logContext, submitWithNonce, signal);
+    await this.finishCleanupPieces(writeClient, pdpVerifier, dataSet, logContext, submitWithNonce, signal);
   }
 
   /** Finishes remaining pieces after deletion so the provider's cleanup deposit is released. */
   private async finishCleanupPieces(
     writeClient: SynapseViemClient,
-    pdpVerifier: { address: `0x${string}`; abi: unknown },
-    abi: Parameters<typeof readContract>[1]["abi"],
+    pdpVerifier: PdpVerifierContract,
     dataSet: { dataSetId: bigint; serviceProvider: string },
     logContext: Record<string, unknown>,
     submitWithNonce: SubmitWithNonce,
@@ -664,18 +670,25 @@ export class SpCleanupService {
 
     for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
       signal?.throwIfAborted();
+      let blockNumber: bigint | undefined;
       try {
+        // Pinned so a DataSetNotInCleanupMode revert and the liveness check below describe the same chain state.
+        blockNumber = await awaitWithAbort(getBlockNumber(writeClient), signal);
         const { request, result: done } = await awaitWithAbort(
           simulateContract(writeClient, {
             address: pdpVerifier.address,
-            abi,
+            abi: pdpVerifier.abi,
             functionName: "cleanupPieces",
             args: [dataSet.dataSetId, CLEANUP_PIECES_BATCH_SIZE],
+            blockNumber,
           }),
           signal,
         );
         // Once submitted, track the batch to completion even if the deadline passes.
-        const hash = await submitWithNonce((nonce) => writeContract(writeClient, { ...request, nonce }));
+        // simulateContract's request keeps only the called function's ABI; send-time reverts need the full ABI to decode.
+        const hash = await submitWithNonce((nonce) =>
+          writeContract(writeClient, { ...request, abi: pdpVerifier.abi, nonce }),
+        );
         const receipt = await waitForTransactionReceipt(writeClient, { hash });
         if (receipt.status !== "success") {
           throw new Error(`cleanupPieces transaction reverted on-chain (hash: ${hash})`);
@@ -693,7 +706,19 @@ export class SpCleanupService {
           return;
         }
       } catch (error) {
-        if (this.extractContractRevert(error)?.data?.errorName === "DataSetNotInCleanupMode") {
+        const notInCleanupMode = this.extractContractRevert(error)?.data?.errorName === "DataSetNotInCleanupMode";
+        // A live set means this node has not seen the delete yet; only a deleted set is finished.
+        if (
+          notInCleanupMode &&
+          blockNumber !== undefined &&
+          !(await readContract(writeClient, {
+            address: pdpVerifier.address,
+            abi: pdpVerifier.abi,
+            functionName: "dataSetLive",
+            args: [dataSet.dataSetId],
+            blockNumber,
+          }).catch(() => true))
+        ) {
           // Zero-piece data sets never enter cleanup mode.
           this.logger.debug({
             ...logContext,
@@ -705,6 +730,7 @@ export class SpCleanupService {
 
         // Only pre-submission work is abortible.
         if (this.isAbortError(error, signal)) throw error;
+        if (notInCleanupMode) await delay(TIME_CONSTANTS.EPOCH_DURATION * 1000, signal);
         consecutiveFailures++;
         this.logger.warn({
           ...logContext,
@@ -753,15 +779,11 @@ export class SpCleanupService {
     // Even fully paid rails need settleRail to finalize and release their lockup.
     // Build the call explicitly so the shared nonce allocator controls submission.
     try {
-      const { request } = await awaitWithAbort(
-        simulateContract(
-          writeClient,
-          settleRailCall({ chain, railId: dataSet.pdpRailId, untilEpoch: dataSet.pdpEndEpoch }),
-        ),
-        signal,
-      );
+      const call = settleRailCall({ chain, railId: dataSet.pdpRailId, untilEpoch: dataSet.pdpEndEpoch });
+      const { request } = await awaitWithAbort(simulateContract(writeClient, call), signal);
       // Once submitted, track settlement to completion even if the deadline passes.
-      const hash = await submitWithNonce((nonce) => writeContract(writeClient, { ...request, nonce }));
+      // simulateContract's request keeps only the called function's ABI; send-time reverts need the full ABI to decode.
+      const hash = await submitWithNonce((nonce) => writeContract(writeClient, { ...request, abi: call.abi, nonce }));
       const receipt = await waitForTransactionReceipt(writeClient, { hash });
       if (receipt.status !== "success") {
         // A mined revert needs the same Safe fallback as a simulation revert.
