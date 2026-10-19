@@ -1,5 +1,7 @@
 import { asChain } from "@filoz/synapse-core/chains";
 import { settleRailCall, settleTerminatedRailWithoutValidationCall } from "@filoz/synapse-core/pay";
+import { dataSetLive } from "@filoz/synapse-core/pdp-verifier";
+import { TIME_CONSTANTS } from "@filoz/synapse-core/utils";
 import { findMatchingDataSets, getDataSet } from "@filoz/synapse-core/warm-storage";
 import type { Synapse } from "@filoz/synapse-sdk";
 import { Injectable, Logger } from "@nestjs/common";
@@ -9,7 +11,7 @@ import { InjectMetric } from "@willsoto/nestjs-prometheus";
 import type { Counter, Gauge } from "prom-client";
 import type { Repository } from "typeorm";
 import type { Chain, Client, Transport } from "viem";
-import { ContractFunctionRevertedError, encodeFunctionData } from "viem";
+import { ContractFunctionRevertedError, encodeFunctionData, WaitForTransactionReceiptTimeoutError } from "viem";
 import {
   getBlockNumber,
   getTransactionCount,
@@ -17,7 +19,7 @@ import {
   waitForTransactionReceipt,
   writeContract,
 } from "viem/actions";
-import { awaitWithAbort } from "../common/abort-utils.js";
+import { awaitWithAbort, delay } from "../common/abort-utils.js";
 import { LIFECYCLE_CHECK_METADATA_KEY } from "../common/constants.js";
 import { getBaseDataSetMetadata, storedSlotMetadata } from "../common/data-set-slots.js";
 import { toStructuredError } from "../common/logging.js";
@@ -628,14 +630,23 @@ export class SpCleanupService {
     } catch (error) {
       // Only a pre-submission abort is a job timeout.
       if (this.isAbortError(error, signal)) throw error;
-      this.recordAttempt(network, reason, "failure");
+      if (!(error instanceof WaitForTransactionReceiptTimeoutError)) {
+        this.recordAttempt(network, reason, "failure");
+        this.logger.warn({
+          ...logContext,
+          event: "sp_cleanup_data_set_abandoned_delete_failed",
+          message: "Direct deleteDataSet call failed; will retry on next sweep",
+          error: toStructuredError(error),
+        });
+        return;
+      }
+      // The delete was broadcast and may still mine; if it does, the set drops out of the listing for good.
       this.logger.warn({
         ...logContext,
-        event: "sp_cleanup_data_set_abandoned_delete_failed",
-        message: "Direct deleteDataSet call failed; will retry on next sweep",
+        event: "sp_cleanup_data_set_delete_unconfirmed",
+        message: "deleteDataSet receipt wait timed out; running cleanupPieces, which confirms the delete on-chain",
         error: toStructuredError(error),
       });
-      return;
     }
 
     // Before the abortible cleanup loop: a deleted set drops out of the wallet listing for good.
@@ -698,7 +709,9 @@ export class SpCleanupService {
           return;
         }
       } catch (error) {
-        if (this.extractContractRevert(error)?.data?.errorName === "DataSetNotInCleanupMode") {
+        const notInCleanupMode = this.extractContractRevert(error)?.data?.errorName === "DataSetNotInCleanupMode";
+        // A live set means the delete is still pending or this node lags behind; only a deleted set is finished.
+        if (notInCleanupMode && !(await dataSetLive(writeClient, { dataSetId: dataSet.dataSetId }).catch(() => true))) {
           // Zero-piece data sets never enter cleanup mode.
           this.logger.debug({
             ...logContext,
@@ -710,6 +723,7 @@ export class SpCleanupService {
 
         // Only pre-submission work is abortible.
         if (this.isAbortError(error, signal)) throw error;
+        if (notInCleanupMode) await delay(TIME_CONSTANTS.EPOCH_DURATION * 1000, signal);
         consecutiveFailures++;
         this.logger.warn({
           ...logContext,

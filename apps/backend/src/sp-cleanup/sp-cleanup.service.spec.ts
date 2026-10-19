@@ -1,5 +1,5 @@
 import { Logger } from "@nestjs/common";
-import { ContractFunctionRevertedError, encodeErrorResult } from "viem";
+import { ContractFunctionRevertedError, encodeErrorResult, WaitForTransactionReceiptTimeoutError } from "viem";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { trickleTierRates } from "../config/constants.js";
 import type { INetworkConfig } from "../config/index.js";
@@ -21,6 +21,15 @@ vi.mock("@filoz/synapse-core/pay", () => ({
 
 vi.mock("@filoz/synapse-core/chains", () => ({
   asChain: vi.fn(),
+}));
+
+vi.mock("@filoz/synapse-core/pdp-verifier", () => ({
+  dataSetLive: vi.fn(),
+}));
+
+vi.mock("../common/abort-utils.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../common/abort-utils.js")>()),
+  delay: vi.fn(async () => undefined),
 }));
 
 // Only the network calls are stubbed. `findMatchingDataSets` and `metadataMatches` stay real:
@@ -56,6 +65,8 @@ vi.mock("../common/synapse-factory.js", () => ({
 const { terminateServiceSync } = await import("../data-set-lifecycle/data-set-lifecycle.service.js");
 const { settleRailCall, settleTerminatedRailWithoutValidationCall } = await import("@filoz/synapse-core/pay");
 const { asChain } = await import("@filoz/synapse-core/chains");
+const { dataSetLive } = await import("@filoz/synapse-core/pdp-verifier");
+const { delay } = await import("../common/abort-utils.js");
 const { getDataSet } = await import("@filoz/synapse-core/warm-storage");
 const { getBlockNumber, getTransactionCount, simulateContract, writeContract, waitForTransactionReceipt } =
   await import("viem/actions");
@@ -203,6 +214,7 @@ describe("SpCleanupService", () => {
     // still active, so the plan is carried out as computed.
     vi.mocked(getDataSet).mockResolvedValue({ pdpEndEpoch: 0n } as any);
     vi.mocked(getTransactionCount).mockResolvedValue(0);
+    vi.mocked(dataSetLive).mockResolvedValue(false);
     vi.mocked(settleRailCall).mockImplementation(
       (opts) =>
         ({
@@ -1052,6 +1064,57 @@ describe("SpCleanupService", () => {
         outcome: "failure",
         reason: "abandonment",
       });
+    });
+
+    it("still runs cleanupPieces when the deleteDataSet receipt wait times out, since the delete may have mined", async () => {
+      mockSnapshot([makeDataSet({ dataSetId: 20n, pdpEndEpoch: 0n })], 200000n);
+      vi.mocked(simulateContract)
+        .mockResolvedValueOnce({ request: { fake: "deleteDataSet-request" } } as any)
+        .mockResolvedValueOnce({ request: { fake: "cleanup-1" }, result: true } as any);
+      vi.mocked(writeContract)
+        .mockResolvedValueOnce("0xdelete-hash" as any)
+        .mockResolvedValueOnce("0xcleanup-hash" as any);
+      vi.mocked(waitForTransactionReceipt)
+        .mockRejectedValueOnce(new WaitForTransactionReceiptTimeoutError({ hash: "0xdelete-hash" }))
+        .mockResolvedValueOnce({ status: "success" } as any);
+
+      await service.runAbandonedDataSetSweep(DEFAULT_NETWORK);
+
+      expect(simulateContract).toHaveBeenNthCalledWith(
+        2,
+        expect.anything(),
+        expect.objectContaining({ functionName: "cleanupPieces", args: [20n, 100n] }),
+      );
+      expect(writeContract).toHaveBeenCalledTimes(2);
+      expect(warnSpy).not.toHaveBeenCalledWith(
+        expect.objectContaining({ event: "sp_cleanup_data_set_abandoned_delete_failed" }),
+      );
+    });
+
+    it("retries cleanupPieces while the deleted set still reads live instead of concluding there is nothing to clean", async () => {
+      mockSnapshot([makeDataSet({ dataSetId: 21n, pdpEndEpoch: 0n })], 200000n);
+      const notInCleanupMode = new ContractFunctionRevertedError({ abi: [], functionName: "cleanupPieces" });
+      notInCleanupMode.data = { errorName: "DataSetNotInCleanupMode", args: [] } as any;
+      vi.mocked(simulateContract)
+        .mockResolvedValueOnce({ request: { fake: "deleteDataSet-request" } } as any)
+        // This node has not seen the delete yet, so the set is still live and not in cleanup mode.
+        .mockRejectedValueOnce(notInCleanupMode)
+        .mockResolvedValueOnce({ request: { fake: "cleanup-1" }, result: true } as any);
+      vi.mocked(dataSetLive).mockResolvedValueOnce(true);
+      vi.mocked(writeContract)
+        .mockResolvedValueOnce("0xdelete-hash" as any)
+        .mockResolvedValueOnce("0xcleanup-hash" as any);
+      vi.mocked(waitForTransactionReceipt).mockResolvedValue({ status: "success" } as any);
+
+      await service.runAbandonedDataSetSweep(DEFAULT_NETWORK);
+
+      expect(dataSetLive).toHaveBeenCalledWith(expect.anything(), { dataSetId: 21n });
+      expect(delay).toHaveBeenCalledWith(30_000, undefined);
+      expect(simulateContract).toHaveBeenCalledTimes(3);
+      expect(writeContract).toHaveBeenCalledTimes(2);
+      expect(warnSpy).not.toHaveBeenCalledWith(
+        expect.objectContaining({ event: "sp_cleanup_pieces_cleanup_incomplete" }),
+      );
     });
 
     it("skips a data set still inside the PDPVerifier activity window", async () => {
