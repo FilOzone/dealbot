@@ -217,18 +217,3 @@ See also: [`docs/environment-variables.md`](../environment-variables.md) for the
 ### Why does dealbot wait for `synced` before querying cid.contact?
 
 cid.contact negative-caches misses for several minutes, so a single query run too early can return a false negative that then stays cached and unqueryable for the rest of the check's timeout window. Waiting for the SP's own `synced` confirmation (Curio checking the indexer's own sync status) before ever calling cid.contact avoids racing that cache — see [filecoin-pin's content-routing FAQ](https://github.com/filecoin-project/filecoin-pin/blob/master/documentation/content-routing-faq.md) for more on cid.contact's caching behavior.
-
-## Implementation History
-
-The items below were previously TBD and are now implemented. Tracking issue: https://github.com/FilOzone/dealbot/issues/280.
-
-| Item | Status |
-|------|--------|
-| Inline retrieval verification | Done — `deal.service.ts` runs `testAllRetrievalMethods` inline; deal throws on failure. |
-| CID-based content verification | Done — `ipfs-block.strategy.ts` traverses the DAG and uses `createBlock({ bytes, cid, hasher: sha256 })` which throws on hash mismatch (per-block CID integrity). |
-| Per-deal max time limit | Done — `DEAL_JOB_TIMEOUT_SECONDS` triggers an `AbortController` in `jobs.service.ts`; on abort the deal is set to `DealStatus.FAILED` with failure-status metrics emitted. |
-| Deal gated on all checks | Done — deal only reaches `DealStatus.DEAL_CREATED` after upload, onchain, IPNI, and retrieval all succeed. |
-| Status model update | Done — `DealStatus` includes `PIECE_CONFIRMED`, `DEAL_CREATED`, `FAILED`; `IpniStatus` includes `SP_INDEXED`, `SP_ADVERTISED`, `SP_SYNCED`, `VERIFIED`, `FAILED`; `RetrievalStatus` enum exists. |
-| `piecesConfirmed` progress event tracking | Done — `piecesConfirmedTime` recorded, `pieceConfirmedOnChainMs` histogram emitted, `DealStatus.PIECE_CONFIRMED` state exists. |
-| IPFS gateway retrieval verification | Done — inline retrieval runs after `sp_indexed`. |
-| `filecoin-pin` CAR conversion | Done — `car-utils.ts` uses `createCarFromPath` from `filecoin-pin/core/unixfs`; `deal.service.ts` imports `executeUpload` from `filecoin-pin`. |
