@@ -11,8 +11,10 @@ describe("HttpClientService streaming responses", () => {
   let baseUrl: string;
   let handler: RequestListener;
   let service: HttpClientService;
+  let shutdown: Promise<void> | undefined;
 
   beforeEach(async () => {
+    shutdown = undefined;
     const config = new ConfigService<IConfig, true>({
       timeouts: {
         httpRequestTimeoutMs: 1000,
@@ -32,6 +34,25 @@ describe("HttpClientService streaming responses", () => {
   afterEach(async () => {
     server.closeAllConnections();
     await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    await (shutdown ?? service.onApplicationShutdown());
+  });
+
+  it("closes the keep-alive connection on application shutdown", async () => {
+    // Idle expiry must not hide a missing client-side close.
+    server.keepAliveTimeout = 60_000;
+    handler = (_request, response) => response.end("piece bytes");
+    const connected = once(server, "connection");
+
+    const result = await service.requestWithMetrics<Buffer>(`${baseUrl}/piece/test`, { httpVersion: "2" });
+    expect(result.data.toString()).toBe("piece bytes");
+    const [socket] = await connected;
+    expect(socket.destroyed).toBe(false);
+    const closed = once(socket, "close");
+
+    shutdown = service.onApplicationShutdown();
+    await shutdown;
+    await closed;
+    expect(socket.destroyed).toBe(true);
   });
 
   it.each([301, 302])("follows HTTP %i from /piece to /public and preserves the streamed body", async (statusCode) => {
