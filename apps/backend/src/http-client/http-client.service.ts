@@ -5,7 +5,7 @@ import { ConfigService } from "@nestjs/config";
 import { anySignal } from "any-signal";
 import type { AxiosRequestConfig } from "axios";
 import { firstValueFrom } from "rxjs";
-import { request as undiciRequest } from "undici";
+import { getGlobalDispatcher, interceptors, request as undiciRequest } from "undici";
 import { toStructuredError } from "../common/logging.js";
 import type { IConfig } from "../config/index.js";
 import type { HttpVersion, RequestMetrics, RequestWithMetrics } from "./types.js";
@@ -385,11 +385,14 @@ export class HttpClientService {
     try {
       const response = await undiciRequest(url, {
         method: "GET",
+        dispatcher: getGlobalDispatcher().compose(interceptors.redirect({ maxRedirections: 5 })),
         headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" },
         signal: options.signal,
         headersTimeout: this.connectTimeoutMs,
         bodyTimeout: this.http1TimeoutMs,
       });
+      // Prevent an unhandled AbortError when callers destroy an unread body.
+      response.body.on("error", () => {});
       return {
         statusCode: response.statusCode,
         headers: response.headers as Record<string, string | string[] | undefined>,
