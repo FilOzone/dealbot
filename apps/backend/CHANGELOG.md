@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.14.2](https://github.com/FilOzone/dealbot/compare/backend-v1.14.1...backend-v1.14.2) (2026-11-09)
+
+
+### Bug Fixes
+
+* decode sweep send reverts and confirm deletes before skipping cleanup ([#738](https://github.com/FilOzone/dealbot/issues/738)) ([ccd31e6](https://github.com/FilOzone/dealbot/commit/ccd31e650822da8683761c9cc354fe20d7792c5d))
+* **http:** follow streaming redirects and handle body aborts ([#760](https://github.com/FilOzone/dealbot/issues/760)) ([8a42f79](https://github.com/FilOzone/dealbot/commit/8a42f79f0365f0451dbfd327ae00d3ccd32f63e8))
+* **sampled:** cap any-bucket piece size ([#762](https://github.com/FilOzone/dealbot/issues/762)) ([41290ca](https://github.com/FilOzone/dealbot/commit/41290ca6b2f1e2296781afc528e4e73f7c76f41d))
+
+
+### Miscellaneous
+
+* **deps:** bump the npm-dependencies group across 1 directory with 39 updates ([#732](https://github.com/FilOzone/dealbot/issues/732)) ([00bcb5b](https://github.com/FilOzone/dealbot/commit/00bcb5be9974d4defd112d365df8b52555d26019))
+* **deps:** bump the npm-dependencies group across 1 directory with 5 updates ([#735](https://github.com/FilOzone/dealbot/issues/735)) ([13ce4da](https://github.com/FilOzone/dealbot/commit/13ce4da4f0a44c61086f2d7130d4603dcaacff1e))
+
 ## [1.14.1](https://github.com/FilOzone/dealbot/compare/backend-v1.14.0...backend-v1.14.1) (2026-10-17)
 
 
