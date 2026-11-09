@@ -32,10 +32,8 @@ const SIZE_BUCKETS: Record<SizeBucket, SizeRange> = {
  * length, so the download is aborted once it exceeds this (issue #607) rather
  * than risk OOMing the worker.
  *
- * Derived from the largest selectable piece so it stays in sync with the buckets.
- * The 2× margin covers Fr32 padding (the served piece rounds up to the next
- * Filecoin piece size — a 100 MiB-raw piece can be ~128 MiB on the wire) plus
- * slack, so legitimate large-bucket pieces are never falsely aborted.
+ * Derived from the largest size bucket so it stays in sync with the buckets.
+ * The 2× margin keeps legitimate large-bucket pieces from being falsely aborted.
  */
 export const SAMPLED_MAX_PIECE_DOWNLOAD_BYTES = Number((SIZE_BUCKETS.large.max + 1n) * 2n);
 
