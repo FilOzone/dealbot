@@ -100,6 +100,7 @@ export class HttpClientService {
       const signal = options.signal ? anySignal([transferTimeoutSignal, options.signal]) : transferTimeoutSignal;
       const requestOptions: any = {
         method,
+        dispatcher: getGlobalDispatcher().compose(interceptors.redirect({ maxRedirections: 5 })),
         headers: {
           "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
           ...headers,

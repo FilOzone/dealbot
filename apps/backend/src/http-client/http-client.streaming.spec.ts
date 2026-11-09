@@ -1,5 +1,5 @@
 import { once } from "node:events";
-import { createServer, type RequestListener, type Server, type ServerResponse } from "node:http";
+import { createServer, type RequestListener, type Server } from "node:http";
 import { HttpService } from "@nestjs/axios";
 import { ConfigService } from "@nestjs/config";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -37,7 +37,7 @@ describe("HttpClientService streaming responses", () => {
   it.each([301, 302])("follows HTTP %i from /piece to /public and preserves the streamed body", async (statusCode) => {
     const paths: string[] = [];
     handler = (request, response) => {
-      paths.push(request.url!);
+      paths.push(String(request.url));
       if (request.url === "/piece/test?download=1") {
         response.writeHead(statusCode, { location: "/public/test?download=1" });
         response.end("Moved Permanently");
@@ -54,9 +54,9 @@ describe("HttpClientService streaming responses", () => {
     expect(paths).toEqual(["/piece/test?download=1", "/public/test?download=1"]);
   });
 
-  it.each([200, 404])("safely destroys an unread HTTP %i body", async (statusCode) => {
+  it("safely destroys an unread body", async () => {
     handler = (_request, response) => {
-      response.writeHead(statusCode, { "content-length": "7" });
+      response.writeHead(404, { "content-length": "7" });
       response.end("payload");
     };
 
@@ -67,6 +67,45 @@ describe("HttpClientService streaming responses", () => {
     response.body.destroy();
     await closed;
     expect(response.body.destroyed).toBe(true);
+  });
+
+  it.each([301, 302])("follows HTTP %i for sampled retrieval and records the final response", async (statusCode) => {
+    const paths: string[] = [];
+    handler = (request, response) => {
+      paths.push(String(request.url));
+      if (request.url === "/piece/test") {
+        response.writeHead(statusCode, { location: "/public/test" });
+        response.end("Moved Permanently");
+      } else {
+        response.end("piece bytes");
+      }
+    };
+
+    const result = await service.requestWithMetrics<Buffer>(`${baseUrl}/piece/test`, { httpVersion: "2" });
+    expect(result.data.toString()).toBe("piece bytes");
+    expect(result.metrics).toMatchObject({ statusCode: 200, responseSize: 11 });
+    expect(result.metrics.ttfb).toBeGreaterThanOrEqual(0);
+    expect(result.metrics.totalTime).toBeGreaterThanOrEqual(result.metrics.ttfb);
+    expect(paths).toEqual(["/piece/test", "/public/test"]);
+  });
+
+  it("enforces the sampled retrieval byte limit after a redirect", async () => {
+    handler = (request, response) => {
+      if (request.url === "/piece/test") {
+        response.writeHead(301, { location: "/public/test" });
+        response.end();
+      } else {
+        response.end("piece bytes");
+      }
+    };
+
+    const result = await service.requestWithMetrics<Buffer>(`${baseUrl}/piece/test`, {
+      httpVersion: "2",
+      maxBytes: 5,
+    });
+    expect(result.limitExceeded).toBe(true);
+    expect(result.data.length).toBe(0);
+    expect(result.metrics.statusCode).toBe(200);
   });
 
   it("stops following a redirect chain after five redirects", async () => {
@@ -85,7 +124,7 @@ describe("HttpClientService streaming responses", () => {
     await closed;
   });
 
-  it("keeps caller cancellation active after a redirect", async () => {
+  it.each(["stream", "metrics"])("keeps caller cancellation active after a redirect for %s", async (mode) => {
     const controller = new AbortController();
     handler = (request, response) => {
       if (request.url === "/piece/test") {
@@ -96,17 +135,19 @@ describe("HttpClientService streaming responses", () => {
       }
     };
 
-    await expect(service.requestStream(`${baseUrl}/piece/test`, { signal: controller.signal })).rejects.toMatchObject({
+    const request =
+      mode === "stream"
+        ? service.requestStream(`${baseUrl}/piece/test`, { signal: controller.signal })
+        : service.requestWithMetrics(`${baseUrl}/piece/test`, { signal: controller.signal, httpVersion: "2" });
+    await expect(request).rejects.toMatchObject({
       name: "AbortError",
     });
   });
 
   it("still propagates body errors to stream consumers", async () => {
-    let serverResponse: ServerResponse;
     handler = (_request, response) => {
-      serverResponse = response;
       response.writeHead(200, { "content-length": "100" });
-      response.write("partial");
+      response.write("partial", () => response.destroy());
     };
 
     const response = await service.requestStream(`${baseUrl}/piece/test`);
@@ -115,8 +156,6 @@ describe("HttpClientService streaming responses", () => {
         // Consume until the server closes its incomplete response.
       }
     };
-    const consumed = consume();
-    serverResponse!.destroy();
-    await expect(consumed).rejects.toThrow();
+    await expect(consume()).rejects.toThrow();
   });
 });

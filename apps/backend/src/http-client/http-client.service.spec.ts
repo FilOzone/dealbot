@@ -9,7 +9,8 @@ const { undiciRequestMock } = vi.hoisted(() => ({
   undiciRequestMock: vi.fn(),
 }));
 
-vi.mock("undici", () => ({
+vi.mock("undici", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("undici")>()),
   request: undiciRequestMock,
 }));
 
