@@ -13,7 +13,8 @@ on:
 jobs:
   test-and-build:
     name: Codegen, test, build
-    runs-on: ubuntu-latest
+    # Matchstick supports Ubuntu 22/24, but not Ubuntu 26.
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
     steps:
