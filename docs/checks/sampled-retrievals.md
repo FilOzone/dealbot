@@ -49,7 +49,7 @@ Selection strategy (per scheduled job, per SP):
    **Note:** this split exists so that SPs cannot optimize only their CAR corpus and still appear healthy on this check.
 3. **Generate a uniform-random `sampleKey`** and query the subgraph for the smallest `Root.sampleKey ≥ $sampleKey` matching the SP, payer, size range, and pool filters. If no such row exists (the random key fell above every matching `sampleKey`), `samplePiece` retries in the reverse direction (largest `sampleKey < $sampleKey`) so the highest keys are not a dead zone.
 4. **Drop the candidate** if `pdpPaymentEndEpoch` has passed.
-5. **Fall back** through: (same bucket, opposite pool) → (any bucket, indexed) → (any bucket, any).
+5. **Fall back** through: (same bucket, opposite pool) → (any bucket, indexed) → (any bucket, any). The `any` bucket covers every size up to the `large` bucket's 100 MiB limit, so an SP holding only larger pieces is recorded as `skipped`.
 
 Source: [`sampled-piece-selector.service.ts`](../../apps/backend/src/sampled-retrieval/sampled-piece-selector.service.ts)
 

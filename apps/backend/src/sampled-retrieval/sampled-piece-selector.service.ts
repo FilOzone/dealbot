@@ -26,6 +26,9 @@ const SIZE_BUCKETS: Record<SizeBucket, SizeRange> = {
   large: { min: 50n * MIB, max: 100n * MIB - 1n },
 };
 
+// The "any" fallback stays bounded: a larger piece could only end in failure.too_large.
+const ANY_BUCKET_RANGE: SizeRange = { min: 0n, max: SIZE_BUCKETS.large.max };
+
 /**
  * Hard ceiling on bytes buffered for a single anonymous piece download
  * (`GET /piece/{cid}`). The endpoint is fed untrusted SP bytes with no enforced
@@ -170,7 +173,7 @@ export class SampledPieceSelectorService {
     pool: PiecePool;
     signal?: AbortSignal;
   }): Promise<CandidatePiece | null> {
-    const range = args.bucket === "any" ? fullRange() : SIZE_BUCKETS[args.bucket];
+    const range = args.bucket === "any" ? ANY_BUCKET_RANGE : SIZE_BUCKETS[args.bucket];
 
     for (let attempt = 0; attempt < 2; attempt++) {
       if (args.signal?.aborted) {
@@ -219,9 +222,4 @@ export class SampledPieceSelectorService {
 /** Uniform-random 32-byte sort key as `0x`-prefixed hex. */
 function randomSampleKey(): string {
   return `0x${randomBytes(32).toString("hex")}`;
-}
-
-/** The full size range (used when bucket fallback is "any"). */
-function fullRange(): SizeRange {
-  return { min: 0n, max: (1n << 63n) - 1n };
 }

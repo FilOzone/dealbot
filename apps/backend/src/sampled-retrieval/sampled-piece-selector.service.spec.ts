@@ -4,7 +4,7 @@ import type { Network } from "../common/types.js";
 import type { IConfig } from "../config/index.js";
 import type { SamplePieceParams, SubgraphService } from "../subgraph/subgraph.service.js";
 import type { CandidatePiece } from "../subgraph/types.js";
-import { SampledPieceSelectorService } from "./sampled-piece-selector.service.js";
+import { SAMPLED_MAX_PIECE_DOWNLOAD_BYTES, SampledPieceSelectorService } from "./sampled-piece-selector.service.js";
 
 const SP_ADDRESS = "0xAaAaAAaAaaaAaAAAAaaaaAAaaAaaaAAaaaaa1111";
 const DEALBOT_PAYER = "0xBbBBBbBBbbbBbBBBBBbbbbbBBbbBbbbBBbbbb2222";
@@ -146,10 +146,10 @@ describe("SampledPieceSelectorService", () => {
 
     expect(result?.pieceCid).toBe("baga-any-bucket");
 
-    // The 5th call (index 4) should be the widened-bucket attempt; its size
-    // range covers at least the 32 GiB ceiling of the "large" bucket.
+    // The 5th call (index 4) is the widened-bucket attempt. A piece above the
+    // download ceiling could only ever end in failure.too_large.
     const widened = samplePiece.mock.calls[4][1] as SamplePieceParams;
-    expect(BigInt(widened.maxSize)).toBeGreaterThanOrEqual(32n * 1024n * 1024n * 1024n);
+    expect(BigInt(widened.maxSize)).toBeLessThan(BigInt(SAMPLED_MAX_PIECE_DOWNLOAD_BYTES));
     expect(widened.minSize).toBe("0");
   });
 
