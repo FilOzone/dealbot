@@ -146,10 +146,10 @@ describe("SampledPieceSelectorService", () => {
 
     expect(result?.pieceCid).toBe("baga-any-bucket");
 
-    // The 5th call (index 4) is the widened-bucket attempt. A piece above the
-    // download ceiling could only ever end in failure.too_large.
+    // The 5th call (index 4) is the widened-bucket attempt. A larger piece could only
+    // end in failure.too_large; a lower limit would drop pieces that fit under the ceiling.
     const widened = samplePiece.mock.calls[4][1] as SamplePieceParams;
-    expect(BigInt(widened.maxSize)).toBeLessThan(BigInt(SAMPLED_MAX_PIECE_DOWNLOAD_BYTES));
+    expect(widened.maxSize).toBe(String(SAMPLED_MAX_PIECE_DOWNLOAD_BYTES));
     expect(widened.minSize).toBe("0");
   });
 

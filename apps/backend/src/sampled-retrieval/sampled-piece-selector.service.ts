@@ -26,9 +26,6 @@ const SIZE_BUCKETS: Record<SizeBucket, SizeRange> = {
   large: { min: 50n * MIB, max: 100n * MIB - 1n },
 };
 
-// The "any" fallback stays bounded: a larger piece could only end in failure.too_large.
-const ANY_BUCKET_RANGE: SizeRange = { min: 0n, max: SIZE_BUCKETS.large.max };
-
 /**
  * Hard ceiling on bytes buffered for a single anonymous piece download
  * (`GET /piece/{cid}`). The endpoint is fed untrusted SP bytes with no enforced
@@ -41,6 +38,9 @@ const ANY_BUCKET_RANGE: SizeRange = { min: 0n, max: SIZE_BUCKETS.large.max };
  * slack, so legitimate large-bucket pieces are never falsely aborted.
  */
 export const SAMPLED_MAX_PIECE_DOWNLOAD_BYTES = Number((SIZE_BUCKETS.large.max + 1n) * 2n);
+
+// The "any" fallback stops at the download ceiling: a larger piece could only end in failure.too_large.
+const ANY_BUCKET_RANGE: SizeRange = { min: 0n, max: BigInt(SAMPLED_MAX_PIECE_DOWNLOAD_BYTES) };
 
 /**
  * Hard ceiling on bytes buffered for a single sampled-block fetch

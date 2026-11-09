@@ -49,7 +49,7 @@ Selection strategy (per scheduled job, per SP):
    **Note:** this split exists so that SPs cannot optimize only their CAR corpus and still appear healthy on this check.
 3. **Generate a uniform-random `sampleKey`** and query the subgraph for the smallest `Root.sampleKey ≥ $sampleKey` matching the SP, payer, size range, and pool filters. If no such row exists (the random key fell above every matching `sampleKey`), `samplePiece` retries in the reverse direction (largest `sampleKey < $sampleKey`) so the highest keys are not a dead zone.
 4. **Drop the candidate** if `pdpPaymentEndEpoch` has passed.
-5. **Fall back** through: (same bucket, opposite pool) → (any bucket, indexed) → (any bucket, any). The `any` bucket covers every size up to the `large` bucket's 100 MiB limit, so an SP holding only larger pieces is recorded as `skipped`.
+5. **Fall back** through: (same bucket, opposite pool) → (any bucket, indexed) → (any bucket, any). The `any` bucket covers every size up to the 200 MiB download ceiling (`SAMPLED_MAX_PIECE_DOWNLOAD_BYTES`), so an SP holding only larger pieces is recorded as `skipped`.
 
 Source: [`sampled-piece-selector.service.ts`](../../apps/backend/src/sampled-retrieval/sampled-piece-selector.service.ts)
 
@@ -73,7 +73,7 @@ flowchart TD
 ### Piece Fetch
 
 - **URL:** `{spBaseUrl}/piece/{pieceCid}` (HTTP/2)
-- **Buffered in memory** — piece sizes are capped at 100 MiB by selection (the upper bound of the `large` bucket).
+- **Buffered in memory** — piece sizes are capped by selection: 100 MiB for the size buckets (the upper bound of the `large` bucket) and 200 MiB for the `any` fallback (the download ceiling).
 - **Download ceiling enforced** — the download is aborted once received bytes exceed `SAMPLED_MAX_PIECE_DOWNLOAD_BYTES`; the partial buffer is discarded and the result is recorded as `failure.too_large`. The advertised size is the subgraph's claim, not an enforced limit, so this is the actual on-the-wire ceiling.
 - **Validates CommP** — the CommP of the response bytes must match `pieceCid`.
 
