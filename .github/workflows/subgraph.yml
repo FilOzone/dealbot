@@ -13,7 +13,8 @@ on:
 jobs:
   test-and-build:
     name: Codegen, test, build
-    runs-on: ubuntu-latest
+    # graph-cli 0.98.1 has no Matchstick binary mapping for Ubuntu 26.
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
     steps:
