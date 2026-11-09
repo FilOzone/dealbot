@@ -32,12 +32,13 @@ const SIZE_BUCKETS: Record<SizeBucket, SizeRange> = {
  * length, so the download is aborted once it exceeds this (issue #607) rather
  * than risk OOMing the worker.
  *
- * Derived from the largest selectable piece so it stays in sync with the buckets.
- * The 2× margin covers Fr32 padding (the served piece rounds up to the next
- * Filecoin piece size — a 100 MiB-raw piece can be ~128 MiB on the wire) plus
- * slack, so legitimate large-bucket pieces are never falsely aborted.
+ * Derived from the largest size bucket so it stays in sync with the buckets.
+ * The 2× margin keeps legitimate large-bucket pieces from being falsely aborted.
  */
 export const SAMPLED_MAX_PIECE_DOWNLOAD_BYTES = Number((SIZE_BUCKETS.large.max + 1n) * 2n);
+
+// The "any" fallback stops at the download ceiling: a larger piece could only end in failure.too_large.
+const ANY_BUCKET_RANGE: SizeRange = { min: 0n, max: BigInt(SAMPLED_MAX_PIECE_DOWNLOAD_BYTES) };
 
 /**
  * Hard ceiling on bytes buffered for a single sampled-block fetch
@@ -170,7 +171,7 @@ export class SampledPieceSelectorService {
     pool: PiecePool;
     signal?: AbortSignal;
   }): Promise<CandidatePiece | null> {
-    const range = args.bucket === "any" ? fullRange() : SIZE_BUCKETS[args.bucket];
+    const range = args.bucket === "any" ? ANY_BUCKET_RANGE : SIZE_BUCKETS[args.bucket];
 
     for (let attempt = 0; attempt < 2; attempt++) {
       if (args.signal?.aborted) {
@@ -219,9 +220,4 @@ export class SampledPieceSelectorService {
 /** Uniform-random 32-byte sort key as `0x`-prefixed hex. */
 function randomSampleKey(): string {
   return `0x${randomBytes(32).toString("hex")}`;
-}
-
-/** The full size range (used when bucket fallback is "any"). */
-function fullRange(): SizeRange {
-  return { min: 0n, max: (1n << 63n) - 1n };
 }
