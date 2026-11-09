@@ -242,6 +242,10 @@ export interface IJobsConfig {
    */
   pgbossSchedulerEnabled: boolean;
   /**
+   * Enables the temporary worker memory sampler used to diagnose OOM kills.
+   */
+  memorySamplerEnabled: boolean;
+  /**
    * Maximum number of pg-boss connections per instance.
    *
    * Helpful when using a session-mode pooler with a low pool_size (e.g. Supabase).

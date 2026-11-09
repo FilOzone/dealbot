@@ -103,6 +103,7 @@ export const jobsEnvSchema = {
   JOB_WORKER_POLL_SECONDS: Joi.number().min(5).default(60),
   PG_BOSS_LOCAL_CONCURRENCY: Joi.number().integer().min(1).default(20),
   DEALBOT_PGBOSS_SCHEDULER_ENABLED: Joi.boolean().default(true),
+  DEALBOT_MEMORY_SAMPLER_ENABLED: Joi.boolean().default(false),
   DEALBOT_PGBOSS_POOL_MAX: Joi.number().integer().min(1).default(1),
   JOB_CATCHUP_MAX_ENQUEUE: Joi.number().min(1).default(10),
   JOB_SCHEDULE_PHASE_SECONDS: Joi.number().min(0).default(0),

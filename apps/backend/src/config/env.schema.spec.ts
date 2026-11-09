@@ -453,6 +453,7 @@ describe("createConfigValidationSchema", () => {
       expect(value.JOB_WORKER_POLL_SECONDS).toBe(60);
       expect(value.PG_BOSS_LOCAL_CONCURRENCY).toBe(20);
       expect(value.DEALBOT_PGBOSS_SCHEDULER_ENABLED).toBe(true);
+      expect(value.DEALBOT_MEMORY_SAMPLER_ENABLED).toBe(false);
     });
 
     it("rejects JOB_SCHEDULER_POLL_SECONDS below 60", () => {
