@@ -9,11 +9,13 @@ const { undiciRequestMock } = vi.hoisted(() => ({
   undiciRequestMock: vi.fn(),
 }));
 
-vi.mock("undici", () => ({
+vi.mock("undici", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("undici")>()),
   request: undiciRequestMock,
 }));
 
 describe("HttpClientService", () => {
+  let module: TestingModule;
   const mockHttpService = {
     request: vi.fn(),
   };
@@ -31,13 +33,14 @@ describe("HttpClientService", () => {
     }),
   };
 
-  afterEach(() => {
-    vi.clearAllMocks();
+  afterEach(async () => {
     vi.useRealTimers();
+    await module.close();
+    vi.clearAllMocks();
   });
 
   const createService = async (): Promise<HttpClientService> => {
-    const module: TestingModule = await Test.createTestingModule({
+    module = await Test.createTestingModule({
       providers: [
         HttpClientService,
         { provide: HttpService, useValue: mockHttpService },

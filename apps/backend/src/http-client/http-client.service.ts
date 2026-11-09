@@ -1,18 +1,19 @@
 import { Readable } from "node:stream";
 import { HttpService } from "@nestjs/axios";
-import { Injectable, Logger } from "@nestjs/common";
+import { Injectable, Logger, type OnApplicationShutdown } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { anySignal } from "any-signal";
 import type { AxiosRequestConfig } from "axios";
 import { firstValueFrom } from "rxjs";
-import { request as undiciRequest } from "undici";
+import { Agent, interceptors, request as undiciRequest } from "undici";
 import { toStructuredError } from "../common/logging.js";
 import type { IConfig } from "../config/index.js";
 import type { HttpVersion, RequestMetrics, RequestWithMetrics } from "./types.js";
 
 @Injectable()
-export class HttpClientService {
+export class HttpClientService implements OnApplicationShutdown {
   private logger = new Logger(HttpClientService.name);
+  private readonly dispatcher = new Agent().compose(interceptors.redirect({ maxRedirections: 5 }));
   private readonly http2TimeoutMs: number;
   private readonly http1TimeoutMs: number;
   private readonly connectTimeoutMs: number;
@@ -25,6 +26,10 @@ export class HttpClientService {
     this.http2TimeoutMs = timeouts.http2RequestTimeoutMs;
     this.http1TimeoutMs = timeouts.httpRequestTimeoutMs;
     this.connectTimeoutMs = timeouts.connectTimeoutMs;
+  }
+
+  async onApplicationShutdown(): Promise<void> {
+    await this.dispatcher.close();
   }
 
   async requestWithMetrics<T = any>(
@@ -100,6 +105,7 @@ export class HttpClientService {
       const signal = options.signal ? anySignal([transferTimeoutSignal, options.signal]) : transferTimeoutSignal;
       const requestOptions: any = {
         method,
+        dispatcher: this.dispatcher,
         headers: {
           "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
           ...headers,
@@ -385,11 +391,14 @@ export class HttpClientService {
     try {
       const response = await undiciRequest(url, {
         method: "GET",
+        dispatcher: this.dispatcher,
         headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" },
         signal: options.signal,
         headersTimeout: this.connectTimeoutMs,
         bodyTimeout: this.http1TimeoutMs,
       });
+      // Prevent an unhandled AbortError when callers destroy an unread body.
+      response.body.on("error", () => {});
       return {
         statusCode: response.statusCode,
         headers: response.headers as Record<string, string | string[] | undefined>,
