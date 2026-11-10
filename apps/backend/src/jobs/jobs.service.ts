@@ -7,6 +7,7 @@ import { LIFECYCLE_CHECK_METADATA_KEY } from "../common/constants.js";
 import { DealJobTerminatedDataSetError } from "../common/errors.js";
 import { type JobLogContext, type ProviderJobContext, toStructuredError } from "../common/logging.js";
 import { getMaintenanceWindowStatus } from "../common/maintenance-window.js";
+import { trackJob } from "../common/memory-sampler.js";
 import { isSpBlocked } from "../common/sp-blocklist.js";
 import { isFullRateTier } from "../common/sp-tier.js";
 import type { Network } from "../common/types.js";
@@ -1862,7 +1863,7 @@ export class JobsService implements OnModuleInit, OnApplicationShutdown {
     const startedAt = Date.now();
     this.jobsStartedCounter.inc({ job_type: jobType, network });
     try {
-      const status = await run();
+      const status = await trackJob(jobType, run);
       const finishedAt = Date.now();
       this.jobDuration.observe({ job_type: jobType, network }, (finishedAt - startedAt) / 1000);
       this.jobsCompletedCounter.inc({ job_type: jobType, handler_result: status, network });
