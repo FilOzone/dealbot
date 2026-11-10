@@ -34,6 +34,14 @@ vi.mock("node:worker_threads", async (importOriginal) => ({
 const MIB = 1024 * 1024;
 const TICK_MS = 250;
 
+function deferred(): { promise: Promise<void>; resolve: () => void } {
+  let resolve = (): void => undefined;
+  const promise = new Promise<void>((r) => {
+    resolve = r;
+  });
+  return { promise, resolve };
+}
+
 function createSampler(enabled: boolean): MemorySamplerService {
   const configService = { get: () => ({ memorySamplerEnabled: enabled }) };
   return new MemorySamplerService(configService as unknown as ConfigService<IConfig, true>);
@@ -104,19 +112,17 @@ describe("MemorySamplerService", () => {
     sampler = createSampler(true);
     sampler.onModuleInit();
 
-    let finishJob = (): void => undefined;
+    const running = deferred();
     const job = trackJob("deal", async () => {
       setJobStage("upload");
-      await new Promise<void>((resolve) => {
-        finishJob = resolve;
-      });
+      await running.promise;
     });
     vi.advanceTimersByTime(TICK_MS);
     expect(mocks.postMessage).toHaveBeenLastCalledWith(
       expect.objectContaining({ jobs: [{ type: "deal", stage: "upload", runningMs: TICK_MS }] }),
     );
 
-    finishJob();
+    running.resolve();
     await job;
     vi.advanceTimersByTime(TICK_MS);
     expect(mocks.postMessage).toHaveBeenLastCalledWith(expect.objectContaining({ jobs: [] }));
@@ -127,18 +133,12 @@ describe("MemorySamplerService", () => {
     sampler.onModuleInit();
 
     await expect(trackJob("pull_check", () => Promise.reject(new Error("timeout")))).rejects.toThrow("timeout");
-    let releaseFirst = (): void => undefined;
-    let releaseSecond = (): void => undefined;
-    const first = trackJob("deal", async () => {
-      await new Promise<void>((resolve) => {
-        releaseFirst = resolve;
-      });
-    });
-    const second = trackJob("retrieval", async () => {
+    const first = deferred();
+    const second = deferred();
+    const deal = trackJob("deal", () => first.promise);
+    const retrieval = trackJob("retrieval", async () => {
       setJobStage("download");
-      await new Promise<void>((resolve) => {
-        releaseSecond = resolve;
-      });
+      await second.promise;
     });
 
     vi.advanceTimersByTime(TICK_MS);
@@ -151,9 +151,9 @@ describe("MemorySamplerService", () => {
       }),
     );
 
-    releaseFirst();
-    releaseSecond();
-    await Promise.all([first, second]);
+    first.resolve();
+    second.resolve();
+    await Promise.all([deal, retrieval]);
   });
 
   it("ignores a stage set outside a tracked job", () => {
@@ -168,7 +168,7 @@ describe("memory watcher thread", () => {
   let fd: number;
   let watcher: WorkerThread;
 
-  async function startWatcher(overrides: Partial<MemoryWatcherOptions>): Promise<void> {
+  async function startWatcher(overrides: Partial<MemoryWatcherOptions> = {}): Promise<void> {
     const { Worker: RealWorker } = await vi.importActual<typeof import("node:worker_threads")>("node:worker_threads");
     const workerData: MemoryWatcherOptions = { fd, thresholdBytes: 1, historySize: 3, intervalMs: 5, ...overrides };
     watcher = new RealWorker(MEMORY_WATCHER_SOURCE, { eval: true, workerData });
@@ -210,13 +210,16 @@ describe("memory watcher thread", () => {
   });
 
   it("writes the buffered lead-up once, then only new samples", async () => {
-    await startWatcher({});
+    await startWatcher();
     watcher.postMessage({ id: 1 });
     watcher.postMessage({ id: 2 });
     await vi.waitFor(() => expect(writtenSampleIds()).toEqual([1, 2]));
 
     watcher.postMessage({ id: 3 });
     await vi.waitFor(() => expect(writtenSampleIds()).toEqual([1, 2, 3]));
+    const rssHigh = writtenLines().find((entry) => entry.message.event === "memory_rss_high");
+    expect(rssHigh?.level).toBe("warn");
+    expect(rssHigh?.message.rssMiB).toBeGreaterThan(0);
   });
 
   it("keeps only the most recent samples before the threshold is reached", async () => {
@@ -226,18 +229,8 @@ describe("memory watcher thread", () => {
     await vi.waitFor(() => expect(writtenSampleIds()).toEqual([3, 4, 5]));
   });
 
-  it("reports RSS as JSON log lines", async () => {
-    await startWatcher({});
-
-    await vi.waitFor(() => {
-      const line = writtenLines().find((entry) => entry.message.event === "memory_rss_high");
-      expect(line?.level).toBe("warn");
-      expect(line?.message.rssMiB).toBeGreaterThan(0);
-    });
-  });
-
   it("keeps writing while the main thread is blocked", async () => {
-    await startWatcher({ intervalMs: 5 });
+    await startWatcher();
     watcher.postMessage({ id: 1 });
     const blockedAt = writtenLines().length;
 

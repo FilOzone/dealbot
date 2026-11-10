@@ -3,26 +3,15 @@ import { Worker } from "node:worker_threads";
 import { Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import type { IConfig } from "../config/index.js";
+import { toStructuredError } from "./logging.js";
 
 const SAMPLE_INTERVAL_MS = 250;
 const WATCH_INTERVAL_MS = 100;
 const HISTORY_SIZE = 120;
-const RSS_THRESHOLD_BYTES = 1024 * 1024 * 1024;
-const BYTES_PER_MIB = 1024 * 1024;
+const RSS_THRESHOLD_BYTES = 2 ** 30;
 const STDOUT_FD = 1;
 
 type ActiveJob = { type: string; stage: string | null; startedAt: number };
-
-type MemorySample = {
-  sampledAt: string;
-  loopLagMs: number;
-  rssMiB: number;
-  heapTotalMiB: number;
-  heapUsedMiB: number;
-  externalMiB: number;
-  arrayBuffersMiB: number;
-  jobs: { type: string; stage: string | null; runningMs: number }[];
-};
 
 export type MemoryWatcherOptions = {
   fd: number;
@@ -36,12 +25,13 @@ export const MEMORY_WATCHER_SOURCE = `
 const { parentPort, workerData } = require("node:worker_threads");
 const { writeSync } = require("node:fs");
 const { fd, thresholdBytes, historySize, intervalMs } = workerData;
-let history = [];
+const history = [];
 let lastSampleAt = Date.now();
 
 function write(fields) {
   const line = {
     level: "warn",
+    pid: process.pid,
     timestamp: new Date().toISOString(),
     context: "MemorySamplerService",
     message: fields,
@@ -62,14 +52,13 @@ parentPort.on("message", (sample) => {
 setInterval(() => {
   const rss = process.memoryUsage.rss();
   if (rss < thresholdBytes) return;
-  for (const sample of history) {
+  for (const sample of history.splice(0)) {
     write({ event: "memory_sample", message: "Worker memory sample", ...sample });
   }
-  history = [];
   write({
     event: "memory_rss_high",
     message: "Worker RSS above threshold",
-    rssMiB: Math.round(rss / 1048576),
+    rssMiB: Math.round(rss / 2 ** 20),
     msSinceMainThreadSample: Date.now() - lastSampleAt,
   });
 }, intervalMs);
@@ -94,7 +83,7 @@ export function setJobStage(stage: string): void {
 }
 
 function toMiB(bytes: number): number {
-  return Math.round(bytes / BYTES_PER_MIB);
+  return Math.round(bytes / 2 ** 20);
 }
 
 /** Temporary diagnostic for OOM kills (#765), enabled by DEALBOT_MEMORY_SAMPLER_ENABLED. */
@@ -117,7 +106,11 @@ export class MemorySamplerService implements OnModuleInit, OnModuleDestroy {
     };
     this.watcher = new Worker(MEMORY_WATCHER_SOURCE, { eval: true, workerData: options });
     this.watcher.on("error", (error) => {
-      this.logger.warn({ event: "memory_watcher_failed", message: "Memory watcher stopped", error: String(error) });
+      this.logger.warn({
+        event: "memory_watcher_failed",
+        message: "Memory watcher stopped",
+        error: toStructuredError(error),
+      });
     });
     this.watcher.unref();
     this.lastSampleAt = Date.now();
@@ -133,7 +126,7 @@ export class MemorySamplerService implements OnModuleInit, OnModuleDestroy {
   private sample(): void {
     const now = Date.now();
     const usage = process.memoryUsage();
-    const sample: MemorySample = {
+    const sample = {
       sampledAt: new Date(now).toISOString(),
       loopLagMs: Math.max(0, now - this.lastSampleAt - SAMPLE_INTERVAL_MS),
       rssMiB: toMiB(usage.rss),
