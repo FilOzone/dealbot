@@ -10,8 +10,14 @@ const WATCH_INTERVAL_MS = 100;
 const HISTORY_SIZE = 120;
 const RSS_THRESHOLD_BYTES = 2 ** 30;
 const STDOUT_FD = 1;
+const FINISHED_JOB_RETENTION_MS = 10_000;
 
-type ActiveJob = { type: string; stage: string | null; startedAt: number };
+type TrackedJob = {
+  type: string;
+  stage: string | null;
+  startedAt: number;
+  finished: { at: number; status: string } | null;
+};
 
 export type MemoryWatcherOptions = {
   fd: number;
@@ -64,16 +70,22 @@ setInterval(() => {
 }, intervalMs);
 `;
 
-const activeJobs = new Set<ActiveJob>();
-const currentJob = new AsyncLocalStorage<ActiveJob>();
+const trackedJobs = new Set<TrackedJob>();
+const currentJob = new AsyncLocalStorage<TrackedJob>();
 
-export async function trackJob<T>(type: string, run: () => Promise<T>): Promise<T> {
-  const job: ActiveJob = { type, stage: null, startedAt: Date.now() };
-  activeJobs.add(job);
+export async function trackJob<T extends string>(type: string, run: () => Promise<T>): Promise<T> {
+  const job: TrackedJob = { type, stage: null, startedAt: Date.now(), finished: null };
+  trackedJobs.add(job);
   try {
-    return await currentJob.run(job, run);
+    const status = await currentJob.run(job, run);
+    job.finished = { at: Date.now(), status };
+    return status;
+  } catch (error) {
+    job.finished = { at: Date.now(), status: "error" };
+    throw error;
   } finally {
-    activeJobs.delete(job);
+    // Work can outlive an aborted job, and #765 kills land seconds after an abort.
+    setTimeout(() => trackedJobs.delete(job), FINISHED_JOB_RETENTION_MS).unref();
   }
 }
 
@@ -134,7 +146,13 @@ export class MemorySamplerService implements OnModuleInit, OnModuleDestroy {
       heapUsedMiB: toMiB(usage.heapUsed),
       externalMiB: toMiB(usage.external),
       arrayBuffersMiB: toMiB(usage.arrayBuffers),
-      jobs: [...activeJobs].map((job) => ({ type: job.type, stage: job.stage, runningMs: now - job.startedAt })),
+      jobs: Array.from(trackedJobs, (job) => ({
+        type: job.type,
+        stage: job.stage,
+        status: job.finished?.status ?? "running",
+        runningMs: (job.finished?.at ?? now) - job.startedAt,
+        finishedMsAgo: job.finished ? now - job.finished.at : null,
+      })),
     };
     this.lastSampleAt = now;
     this.watcher?.postMessage(sample);

@@ -1183,7 +1183,7 @@ DEALBOT_PGBOSS_SCHEDULER_ENABLED=false
 - **Required**: No
 - **Default**: `false`
 
-**Role**: Enables a temporary memory sampler for diagnosing worker OOM kills ([#765](https://github.com/FilOzone/dealbot/issues/765)). It samples process memory and running jobs every 250 ms. A background thread checks RSS every 100 ms and, once RSS reaches 1 GiB, writes `memory_sample` and `memory_rss_high` warnings, including the previous 30 seconds of samples. It keeps reporting if the main thread is blocked.
+**Role**: Enables a temporary memory sampler for diagnosing worker OOM kills ([#765](https://github.com/FilOzone/dealbot/issues/765)). It samples process memory every 250 ms, along with running jobs and jobs that finished in the last 10 seconds. A background thread checks RSS every 100 ms and, once RSS reaches 1 GiB, writes `memory_sample` and `memory_rss_high` warnings, including the previous 30 seconds of samples. It keeps reporting if the main thread is blocked.
 
 **Example**:
 

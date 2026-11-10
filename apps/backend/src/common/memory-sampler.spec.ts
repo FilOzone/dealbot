@@ -65,6 +65,7 @@ describe("MemorySamplerService", () => {
 
   afterEach(async () => {
     await sampler.onModuleDestroy();
+    vi.runOnlyPendingTimers();
     vi.useRealTimers();
     vi.restoreAllMocks();
   });
@@ -108,7 +109,7 @@ describe("MemorySamplerService", () => {
     expect(mocks.postMessage).toHaveBeenCalledWith(expect.objectContaining({ loopLagMs: 1000 }));
   });
 
-  it("includes running jobs and their stage until they finish", async () => {
+  it("reports a running job's stage, then its status for 10 seconds after it finishes", async () => {
     sampler = createSampler(true);
     sampler.onModuleInit();
 
@@ -116,37 +117,52 @@ describe("MemorySamplerService", () => {
     const job = trackJob("deal", async () => {
       setJobStage("upload");
       await running.promise;
+      return "success";
     });
     vi.advanceTimersByTime(TICK_MS);
     expect(mocks.postMessage).toHaveBeenLastCalledWith(
-      expect.objectContaining({ jobs: [{ type: "deal", stage: "upload", runningMs: TICK_MS }] }),
+      expect.objectContaining({
+        jobs: [{ type: "deal", stage: "upload", status: "running", runningMs: TICK_MS, finishedMsAgo: null }],
+      }),
     );
 
     running.resolve();
     await job;
     vi.advanceTimersByTime(TICK_MS);
+    expect(mocks.postMessage).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        jobs: [{ type: "deal", stage: "upload", status: "success", runningMs: TICK_MS, finishedMsAgo: TICK_MS }],
+      }),
+    );
+
+    vi.advanceTimersByTime(10_000);
     expect(mocks.postMessage).toHaveBeenLastCalledWith(expect.objectContaining({ jobs: [] }));
   });
 
-  it("stops tracking a job that fails and keeps stages separate between jobs", async () => {
+  it("marks a failed job as error and keeps stages separate between jobs", async () => {
     sampler = createSampler(true);
     sampler.onModuleInit();
 
     await expect(trackJob("pull_check", () => Promise.reject(new Error("timeout")))).rejects.toThrow("timeout");
     const first = deferred();
     const second = deferred();
-    const deal = trackJob("deal", () => first.promise);
+    const deal = trackJob("deal", async () => {
+      await first.promise;
+      return "success";
+    });
     const retrieval = trackJob("retrieval", async () => {
       setJobStage("download");
       await second.promise;
+      return "success";
     });
 
     vi.advanceTimersByTime(TICK_MS);
     expect(mocks.postMessage).toHaveBeenLastCalledWith(
       expect.objectContaining({
         jobs: [
-          { type: "deal", stage: null, runningMs: TICK_MS },
-          { type: "retrieval", stage: "download", runningMs: TICK_MS },
+          { type: "pull_check", stage: null, status: "error", runningMs: 0, finishedMsAgo: TICK_MS },
+          { type: "deal", stage: null, status: "running", runningMs: TICK_MS, finishedMsAgo: null },
+          { type: "retrieval", stage: "download", status: "running", runningMs: TICK_MS, finishedMsAgo: null },
         ],
       }),
     );
@@ -154,6 +170,34 @@ describe("MemorySamplerService", () => {
     first.resolve();
     second.resolve();
     await Promise.all([deal, retrieval]);
+  });
+
+  it("records stage changes from work that outlives an aborted job", async () => {
+    sampler = createSampler(true);
+    sampler.onModuleInit();
+
+    const leftover = deferred();
+    await trackJob("pull_check", async () => {
+      void leftover.promise.then(() => setJobStage("validate_piece_fetch"));
+      return "aborted";
+    });
+    leftover.resolve();
+    await leftover.promise;
+
+    vi.advanceTimersByTime(TICK_MS);
+    expect(mocks.postMessage).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        jobs: [
+          {
+            type: "pull_check",
+            stage: "validate_piece_fetch",
+            status: "aborted",
+            runningMs: 0,
+            finishedMsAgo: TICK_MS,
+          },
+        ],
+      }),
+    );
   });
 
   it("ignores a stage set outside a tracked job", () => {
