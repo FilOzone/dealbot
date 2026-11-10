@@ -71,7 +71,6 @@ const loadJobsConfig = (env: NodeJS.ProcessEnv): IJobsConfig => ({
   workerPollSeconds: getNumberEnv(env, "JOB_WORKER_POLL_SECONDS", 60),
   pgbossLocalConcurrency: getNumberEnv(env, "PG_BOSS_LOCAL_CONCURRENCY", 20),
   pgbossSchedulerEnabled: getBooleanEnv(env, "DEALBOT_PGBOSS_SCHEDULER_ENABLED", true),
-  memorySamplerEnabled: getBooleanEnv(env, "DEALBOT_MEMORY_SAMPLER_ENABLED", false),
   pgbossPoolMax: getNumberEnv(env, "DEALBOT_PGBOSS_POOL_MAX", 1),
   catchupMaxEnqueue: getNumberEnv(env, "JOB_CATCHUP_MAX_ENQUEUE", 10),
   schedulePhaseSeconds: getNumberEnv(env, "JOB_SCHEDULE_PHASE_SECONDS", 0),

@@ -1,8 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { Worker } from "node:worker_threads";
 import { Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from "@nestjs/common";
-import { ConfigService } from "@nestjs/config";
-import type { IConfig } from "../config/index.js";
 import { toStructuredError } from "./logging.js";
 
 const SAMPLE_INTERVAL_MS = 250;
@@ -100,7 +98,7 @@ function toMiB(bytes: number): number {
   return Math.round(bytes / 2 ** 20);
 }
 
-/** Temporary diagnostic for OOM kills (#765), enabled by DEALBOT_MEMORY_SAMPLER_ENABLED. */
+/** Temporary diagnostic for OOM kills (#765); must not reach prod. */
 @Injectable()
 export class MemorySamplerService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(MemorySamplerService.name);
@@ -108,10 +106,7 @@ export class MemorySamplerService implements OnModuleInit, OnModuleDestroy {
   private watcher: Worker | undefined;
   private lastSampleAt = 0;
 
-  constructor(private readonly configService: ConfigService<IConfig, true>) {}
-
   onModuleInit(): void {
-    if (!this.configService.get("jobs", { infer: true }).memorySamplerEnabled) return;
     trackingEnabled = true;
     const options: MemoryWatcherOptions = {
       fd: STDOUT_FD,

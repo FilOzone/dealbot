@@ -2,9 +2,7 @@ import { closeSync, mkdtempSync, openSync, readFileSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Worker as WorkerThread } from "node:worker_threads";
-import type { ConfigService } from "@nestjs/config";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { IConfig } from "../config/index.js";
 import {
   MEMORY_WATCHER_SOURCE,
   MemorySamplerService,
@@ -15,15 +13,11 @@ import {
 
 const mocks = vi.hoisted(() => ({
   postMessage: vi.fn(),
-  constructed: vi.fn(),
 }));
 
 vi.mock("node:worker_threads", async (importOriginal) => ({
   ...(await importOriginal<typeof import("node:worker_threads")>()),
   Worker: class {
-    constructor(...args: unknown[]) {
-      mocks.constructed(...args);
-    }
     on = vi.fn();
     unref = vi.fn();
     terminate = vi.fn().mockResolvedValue(0);
@@ -42,18 +36,12 @@ function deferred(): { promise: Promise<void>; resolve: () => void } {
   return { promise, resolve };
 }
 
-function createSampler(enabled: boolean): MemorySamplerService {
-  const configService = { get: () => ({ memorySamplerEnabled: enabled }) };
-  return new MemorySamplerService(configService as unknown as ConfigService<IConfig, true>);
-}
-
 describe("MemorySamplerService", () => {
   let sampler: MemorySamplerService;
 
   beforeEach(() => {
     vi.useFakeTimers();
     mocks.postMessage.mockClear();
-    mocks.constructed.mockClear();
     vi.spyOn(process, "memoryUsage").mockReturnValue({
       rss: 300 * MIB,
       heapTotal: 80 * MIB,
@@ -70,18 +58,8 @@ describe("MemorySamplerService", () => {
     vi.restoreAllMocks();
   });
 
-  it("starts nothing when disabled", () => {
-    sampler = createSampler(false);
-    sampler.onModuleInit();
-
-    vi.advanceTimersByTime(TICK_MS * 8);
-
-    expect(mocks.constructed).not.toHaveBeenCalled();
-    expect(mocks.postMessage).not.toHaveBeenCalled();
-  });
-
   it("sends each memory sample to the watcher", () => {
-    sampler = createSampler(true);
+    sampler = new MemorySamplerService();
     sampler.onModuleInit();
 
     vi.advanceTimersByTime(TICK_MS);
@@ -100,7 +78,7 @@ describe("MemorySamplerService", () => {
   });
 
   it("reports how late a sample ran", () => {
-    sampler = createSampler(true);
+    sampler = new MemorySamplerService();
     sampler.onModuleInit();
 
     vi.setSystemTime(Date.now() + 1000);
@@ -110,7 +88,7 @@ describe("MemorySamplerService", () => {
   });
 
   it("reports a running job's stage, then its status for 10 seconds after it finishes", async () => {
-    sampler = createSampler(true);
+    sampler = new MemorySamplerService();
     sampler.onModuleInit();
 
     const running = deferred();
@@ -140,7 +118,7 @@ describe("MemorySamplerService", () => {
   });
 
   it("marks a failed job as error and keeps stages separate between jobs", async () => {
-    sampler = createSampler(true);
+    sampler = new MemorySamplerService();
     sampler.onModuleInit();
 
     await expect(trackJob("pull_check", () => Promise.reject(new Error("timeout")))).rejects.toThrow("timeout");
@@ -173,7 +151,7 @@ describe("MemorySamplerService", () => {
   });
 
   it("records stage changes from work that outlives an aborted job", async () => {
-    sampler = createSampler(true);
+    sampler = new MemorySamplerService();
     sampler.onModuleInit();
 
     const leftover = deferred();
@@ -200,9 +178,8 @@ describe("MemorySamplerService", () => {
     );
   });
 
-  it("does not track jobs when disabled", async () => {
-    sampler = createSampler(false);
-    sampler.onModuleInit();
+  it("does not track jobs while the sampler is not running", async () => {
+    sampler = new MemorySamplerService();
 
     const status = await trackJob("deal", async () => {
       setJobStage("upload");
@@ -214,7 +191,7 @@ describe("MemorySamplerService", () => {
   });
 
   it("ignores a stage set outside a tracked job", () => {
-    sampler = createSampler(false);
+    sampler = new MemorySamplerService();
     expect(() => setJobStage("upload")).not.toThrow();
   });
 });
