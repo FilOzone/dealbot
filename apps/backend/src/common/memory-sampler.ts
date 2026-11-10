@@ -72,8 +72,10 @@ setInterval(() => {
 
 const trackedJobs = new Set<TrackedJob>();
 const currentJob = new AsyncLocalStorage<TrackedJob>();
+let trackingEnabled = false;
 
 export async function trackJob<T extends string>(type: string, run: () => Promise<T>): Promise<T> {
+  if (!trackingEnabled) return run();
   const job: TrackedJob = { type, stage: null, startedAt: Date.now(), finished: null };
   trackedJobs.add(job);
   try {
@@ -110,6 +112,7 @@ export class MemorySamplerService implements OnModuleInit, OnModuleDestroy {
 
   onModuleInit(): void {
     if (!this.configService.get("jobs", { infer: true }).memorySamplerEnabled) return;
+    trackingEnabled = true;
     const options: MemoryWatcherOptions = {
       fd: STDOUT_FD,
       thresholdBytes: RSS_THRESHOLD_BYTES,
@@ -131,6 +134,7 @@ export class MemorySamplerService implements OnModuleInit, OnModuleDestroy {
   }
 
   async onModuleDestroy(): Promise<void> {
+    trackingEnabled = false;
     clearInterval(this.timer);
     await this.watcher?.terminate();
   }

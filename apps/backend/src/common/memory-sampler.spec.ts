@@ -200,6 +200,19 @@ describe("MemorySamplerService", () => {
     );
   });
 
+  it("does not track jobs when disabled", async () => {
+    sampler = createSampler(false);
+    sampler.onModuleInit();
+
+    const status = await trackJob("deal", async () => {
+      setJobStage("upload");
+      return "success";
+    });
+
+    expect(status).toBe("success");
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it("ignores a stage set outside a tracked job", () => {
     sampler = createSampler(false);
     expect(() => setJobStage("upload")).not.toThrow();
