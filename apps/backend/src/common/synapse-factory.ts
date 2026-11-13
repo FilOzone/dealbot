@@ -98,6 +98,9 @@ export async function createSynapseFromConfig(config: INetworkConfig): Promise<S
         client: readClient,
         sessionClient: sessionKey.client,
         source: DEALBOT_METADATA_SOURCE,
+        // SDK 2.0.2's batcher caches a slot's created data set, so recreating a
+        // terminated set reuses its dead ID. Deals upload one piece at a time anyway.
+        pieceBatching: false,
       }),
       isSessionKeyMode: true,
     };
@@ -109,6 +112,7 @@ export async function createSynapseFromConfig(config: INetworkConfig): Promise<S
       chain,
       source: DEALBOT_METADATA_SOURCE,
       transport,
+      pieceBatching: false,
     }),
     isSessionKeyMode: false,
   };
