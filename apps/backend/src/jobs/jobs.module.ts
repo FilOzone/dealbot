@@ -1,6 +1,5 @@
 import { Module } from "@nestjs/common";
 import { TypeOrmModule } from "@nestjs/typeorm";
-import { MemorySamplerService } from "../common/memory-sampler.js";
 import { DataRetentionModule } from "../data-retention/data-retention.module.js";
 import { DataSetLifecycleModule } from "../data-set-lifecycle/data-set-lifecycle.module.js";
 import { DatabaseModule } from "../database/database.module.js";
@@ -31,6 +30,6 @@ import { JobScheduleRepository } from "./repositories/job-schedule.repository.js
     SampledRetrievalModule,
     SpCleanupModule,
   ],
-  providers: [JobsService, JobScheduleRepository, MemorySamplerService],
+  providers: [JobsService, JobScheduleRepository],
 })
 export class JobsModule {}

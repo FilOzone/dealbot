@@ -18,7 +18,6 @@ import {
   redactSensitiveText,
   toStructuredError,
 } from "../common/logging.js";
-import { setJobStage } from "../common/memory-sampler.js";
 import { isFullRateTier } from "../common/sp-tier.js";
 import { createSynapseFromConfig } from "../common/synapse-factory.js";
 import type { DataFile, Hex, Network } from "../common/types.js";
@@ -100,13 +99,11 @@ export class DealService {
       options.logContext,
     );
 
-    setJobStage("prepare_input");
     const { preprocessed, cleanup } = await this.prepareDealInput(options.signal, options.logContext);
 
     try {
       const synapse =
         this.walletSdkService.tryGetSynapse(options.network) ?? (await this.createSynapseInstance(options.network));
-      setJobStage("prepare_upload_payload");
       const uploadPayload = await this.prepareUploadPayload(preprocessed, options.signal);
       return await this.createDeal(
         synapse,
@@ -390,7 +387,6 @@ export class DealService {
 
       deal.dataSetId = storage.dataSetId ?? null;
       deal.uploadStartTime = new Date();
-      setJobStage("upload");
 
       const uploadResult = await awaitWithAbort(
         executeUpload(synapse, uploadPayload.carData, uploadPayload.rootCid, {
@@ -406,7 +402,6 @@ export class DealService {
           ipniValidation: { enabled: false },
           // Must stay synchronous — Synapse SDK's safeInvoke discards the returned promise. See issue #446.
           onProgress: (event) => {
-            setJobStage(`upload:${event.type}`);
             this.logger.debug({
               ...dealLogContext,
               event: "upload_progress",
