@@ -6,7 +6,6 @@ import { ConfigService } from "@nestjs/config";
 import type { Address } from "viem";
 import { ClickhouseService } from "../clickhouse/clickhouse.service.js";
 import { type ProviderJobContext, toStructuredError } from "../common/logging.js";
-import { setJobStage } from "../common/memory-sampler.js";
 import type { Network } from "../common/types.js";
 import type { IAppConfig, IConfig, INetworkConfig } from "../config/index.js";
 import { DataSourceService } from "../dataSource/dataSource.service.js";
@@ -94,7 +93,6 @@ export class PullCheckService {
         providerIsApproved: providerInfo.isApproved,
       });
       signal?.throwIfAborted();
-      setJobStage("prepare_piece");
       prepared = await this.preparePullPiece(spAddress, network);
       const pieceCidStr = prepared.registration.pieceCid;
       const pieceCidParsed = Piece.from(pieceCidStr);
@@ -116,7 +114,6 @@ export class PullCheckService {
 
       requestSubmittedAt = new Date();
       await this.pullPieceRepository.markPullSubmitted(pieceCidStr, requestSubmittedAt);
-      setJobStage("submit_pull");
       const pullResponse = await pullPieces(synapseClient, pullPiecesOptions);
       signal?.throwIfAborted();
       requestLatencyMs = Date.now() - requestSubmittedAt.getTime();
@@ -131,7 +128,6 @@ export class PullCheckService {
       });
 
       const networkCfg = this.getNetworkConfig(network);
-      setJobStage("wait_pull");
       // `waitForPullPieces` polls the SP repeatedly until a terminal pull status is reported
       const finalResponse = await waitForPullPieces(synapseClient, {
         ...pullPiecesOptions,
@@ -149,7 +145,6 @@ export class PullCheckService {
         throw new Error(`Storage provider failed to pull piece: status=${finalResponse.status}`);
       }
 
-      setJobStage("validate_piece_fetch");
       const pieceValidated = await this.validateByDirectPieceFetch(
         providerInfo,
         pieceCidStr,
